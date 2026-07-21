@@ -7,6 +7,33 @@ reclassified: 2026-07-20 -- P3->P1, "style/DRY only" claim below is now WRONG fo
   backfill_feature_factory.py; see "2026-07-20 correction" section
 ---
 
+## 2026-07-21 progress — the 3 proven-impact files are fixed
+
+`backfill_feature_factory.py`, `regime_writer.py`, and `forward_return_writer.py` all now read
+`market_data_ohlcv_tradeable` instead of raw `market_data_ohlcv` + inline `volume > 0`. The view
+also filters `price_sanity_status IS DISTINCT FROM 'confirmed_corrupt'`, closing the gap todo 160
+proved live (KRE 5m 2007-09-18 18:15). `forward_return_writer.py`'s fix was verified safe for its
+`LEAD()`/`WINDOW` clause specifically: SQL evaluates `WHERE` before window functions in the same
+query level, so the existing `volume > 0` filter (now the view) already excluded placeholder bars
+from the window *before* this fix — adding the corrupt-row exclusion doesn't change that ordering,
+it only tightens the same already-filtered row set. `test_market_data_ohlcv_boundary.py`'s
+allow-list entries for all 3 files removed (zero raw hits remain); both boundary tests plus every
+directly-relevant unit test suite (`test_backfill_feature_factory.py`, `test_regime_writer*.py`,
+`test_forward_return_writer.py`, `test_forward_return_session_boundary.py`,
+`test_known_corrupt_print_cleanup.py`, `test_price_sanity.py`) pass; ruff/black clean.
+
+**Not done yet (deliberately, to avoid DB contention with the concurrent 143.1-08 backfill
+running at time of this fix):** the recompute this todo's own "Not yet done" section calls for —
+re-running todo 160's DELETE + recompute for the currently-flagged `confirmed_corrupt` rows now
+that the underlying read bug is fixed. That's a real data-mutation step against the same
+`feature_vectors` table other work is reading from mid-corpus-rerun; do it once the DB is quieter,
+not concurrently. **Also not done:** the remaining 11 Tier-2 files still needing a per-file
+"style/DRY vs. correctness" judgment call (`bar_replay_provider.py`, `ops_roll_batch.py`,
+`infrastructure_fetch_htf_bars.py`, `base_provider_agent.py`, `bar_history_seeder.py`,
+`infrastructure_context_features_writer.py`, `infrastructure_run_historical_pipeline.py`, and
+others per the design doc) — no live reproduction found for any of them yet, unlike the 3 fixed
+here, so this remains judgment-call work, not urgent proven-bug work.
+
 # 124 — `market_data_ohlcv_tradeable` view: Tier-2 file audit
 
 ## 2026-07-20 correction — `backfill_feature_factory.py`'s "style/DRY only" claim is stale

@@ -463,8 +463,8 @@ def _compute_symbol_tf(
     with conn.cursor("ohlcv_stream") as cur:
         cur.execute(
             "SELECT timestamp, close, volume "
-            "FROM market_data_ohlcv "
-            "WHERE symbol = %s AND timeframe = %s AND volume > 0 "
+            "FROM market_data_ohlcv_tradeable "
+            "WHERE symbol = %s AND timeframe = %s "
             "ORDER BY timestamp ASC",
             (symbol, tf),
         )

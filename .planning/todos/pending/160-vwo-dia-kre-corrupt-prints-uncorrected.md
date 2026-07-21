@@ -10,6 +10,17 @@ source: todo 147's true_range_pct CV re-check, re-run after 151/154 to verify th
 
 # `price_sanity_status='confirmed_corrupt'` doesn't reach feature computation; VWO/DIA also never flagged at all
 
+## 2026-07-21 status: code fix landed, recompute still pending
+
+Todo 124's fix is in — `backfill_feature_factory.py` (and `regime_writer.py`/
+`forward_return_writer.py`, same exposure pattern) now read `market_data_ohlcv_tradeable`
+instead of raw `market_data_ohlcv` + inline `volume > 0`. The KRE row's `feature_vectors.
+true_range_pct` will still show the stale corrupt value (7.855) until the recompute this todo
+calls for actually runs against the fixed code — that recompute is deliberately not yet done
+(concurrent DB load from the 143.1-08 backfill at time of the code fix; see todo 124's own
+2026-07-21 note). VWO/DIA also still need their candidate-discovery gap addressed separately
+(never flagged at all, a different bug from KRE's) before this todo can close.
+
 ## Correction to initial framing
 
 This todo originally claimed "VWO/DIA/KRE were all never corrected." That's only true for

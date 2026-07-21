@@ -5,7 +5,7 @@ Stage 1 (--fetch-only flag): Fetch IBKR OHLCV history for 58 active ETFs
 into market_data_ohlcv at target depths. Checkpointed per (symbol, tf) via
 backfill_status.fetch_complete.
 
-Stage 2 (--compute-only flag): Read market_data_ohlcv in chunked sliding
+Stage 2 (--compute-only flag): Read market_data_ohlcv_tradeable in chunked sliding
 windows, call FeatureFactory.compute() per bar, batch-insert into
 feature_vectors. Checkpointed per (symbol, tf) via backfill_status.status.
 
@@ -13,8 +13,8 @@ Default: both stages run in sequence.
 
 IBKR client-id: 40 (provider uses 35; default 56 exceeds _MAX_CLIENT_ID=50).
 
-Source invariant (T1/D-05): Only market_data_ohlcv is read for compute.
-Never intelligence_features.
+Source invariant (T1/D-05): Only market_data_ohlcv (via the market_data_ohlcv_tradeable
+view -- todo 124) is read for compute. Never intelligence_features.
 
 Usage:
     python services/backfill_feature_factory.py
@@ -146,23 +146,23 @@ ON CONFLICT (timestamp, symbol, timeframe) DO NOTHING
 
 _FETCH_BARS_SQL = """
 SELECT timestamp, open, high, low, close, volume
-FROM market_data_ohlcv
-WHERE symbol = %s AND timeframe = %s AND volume > 0
+FROM market_data_ohlcv_tradeable
+WHERE symbol = %s AND timeframe = %s
 ORDER BY timestamp ASC
 """
 
 _FETCH_BARS_SINCE_SQL = """
 SELECT timestamp, open, high, low, close, volume
-FROM market_data_ohlcv
-WHERE symbol = %s AND timeframe = %s AND timestamp >= %s AND volume > 0
+FROM market_data_ohlcv_tradeable
+WHERE symbol = %s AND timeframe = %s AND timestamp >= %s
 ORDER BY timestamp ASC
 """
 
 _FETCH_BARS_WINDOW_SQL = """
 SELECT timestamp, open, high, low, close, volume
-FROM market_data_ohlcv
+FROM market_data_ohlcv_tradeable
 WHERE symbol = %s AND timeframe = %s
-  AND timestamp >= %s AND timestamp < %s AND volume > 0
+  AND timestamp >= %s AND timestamp < %s
 ORDER BY timestamp ASC
 """
 
@@ -541,7 +541,7 @@ def _vector_to_params(
 def _fetch_bars_from_db(
     conn: Any, symbol: str, tf: str, since: datetime | None = None
 ) -> list[dict]:
-    """Fetch OHLCV bars from market_data_ohlcv ordered oldest-first."""
+    """Fetch OHLCV bars from market_data_ohlcv_tradeable ordered oldest-first."""
     with conn.cursor() as cur:
         if since is not None:
             cur.execute(_FETCH_BARS_SINCE_SQL, (symbol, tf, since))
@@ -744,7 +744,7 @@ def run_compute_stage(
     pipeline_version: str = "3.0.0",
     n_workers: int = 1,
 ) -> tuple[dict[tuple[str, str], dict], float]:
-    """Compute FeatureVectors from market_data_ohlcv and batch-insert into feature_vectors.
+    """Compute FeatureVectors from market_data_ohlcv_tradeable and batch-insert into feature_vectors.
 
     Reads bars in chunked sliding windows (T3: never full history at once).
     Checkpointed per (symbol, tf): skips status='complete' pairs.

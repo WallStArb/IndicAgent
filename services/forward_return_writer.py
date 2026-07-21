@@ -274,7 +274,7 @@ WITH windowed AS (
         fv.pipeline_version,
         {lead_t1},
         {lead_cols}{fwd_ts_select}
-    FROM market_data_ohlcv m
+    FROM market_data_ohlcv_tradeable m
     JOIN feature_vectors fv
         ON fv.symbol   = m.symbol
        AND fv.tf       = m.timeframe
@@ -282,7 +282,6 @@ WITH windowed AS (
     WHERE m.symbol    = %(symbol)s
       AND m.timeframe = %(tf)s
       AND m.timestamp <= %(training_window_end)s
-      AND m.volume > 0
     WINDOW w AS (
         PARTITION BY m.symbol, m.timeframe
         ORDER BY m.timestamp

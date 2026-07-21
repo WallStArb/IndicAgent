@@ -40,19 +40,6 @@ _ALLOW_LIST: dict[str, str] = {
         "(services/cross_sectional_regime_model.py is the live replacement), not currently "
         "invoked by the corpus pipeline."
     ),
-    "services/backfill_feature_factory.py": (
-        "PENDING (todo 124): Already correctly filters with `volume > 0` (confirmed correct "
-        "via empirical audit 2026-07-16, not migrated to the view yet -- Tier-2 follow-up, "
-        "todo 124's sibling audit list)."
-    ),
-    "services/regime_writer.py": (
-        "PENDING (todo 124): Already correctly filters with `volume > 0` -- same Tier-2 "
-        "follow-up as above."
-    ),
-    "services/forward_return_writer.py": (
-        "PENDING (todo 124): Already correctly filters with `volume > 0` -- same Tier-2 "
-        "follow-up as above."
-    ),
     "services/bar_replay_provider.py": (
         "PENDING (todo 124): Not yet classified -- Tier-2 audit follow-up (see design doc's "
         "'not yet classified' list, 2026-07-16)."
