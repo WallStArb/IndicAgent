@@ -86,3 +86,19 @@ This is real methodology work, not a config change -- scope it as its own plan.
   (`fix(ensemble): never silently skip a stratum`)
 - Live numbers above from direct queries against `feature_ic_scores`/`alpha_ensemble_ic` and
   a live debug re-run of `ensemble_trainer.py`, 2026-07-21 -- not theoretical
+
+## Closed 2026-07-21 (1h portion only)
+
+`1h` fixed via two migrations, not one — migration 245 alone (per-tf
+`min_passing_features`/`max_feature_weight` override) proved insufficient on live re-run (1h
+still wrote zero strata on every regime); root cause traced one gate upstream to
+`meta_fdr_min_cells`, fixed with an emergent follow-up (migration 246,
+`alpha.ensemble.meta_fdr_min_cells.1h=2`, live-queried against `feature_ic_scores` before
+seeding). `_resolve_per_tf`/`_assert_feasible_thresholds` added to `services/ensemble_trainer.py`
+with a startup feasibility assertion guarding `min_passing_features * max_feature_weight >= 1.0`.
+
+Live-verified: `1h` now writes strata (7 rows under a throwaway `weight_version` re-run,
+previously 0 on every regime) — an honest partial fix, not every 1h regime (`low_neutral` and
+`high_neutral` remain unfixed per migration 246's own evidence). `5m`/`15m`/`1d` unaffected
+(no per-tf key set, byte-identical default behavior). `1d`'s genuinely different small-sample
+power problem split out to **todo 166** (pending), per this todo's own scoping.

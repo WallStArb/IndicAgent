@@ -65,3 +65,20 @@ representative regime mix instead of one incidental window.
 - `services/counterfactual_tracker.py`'s `evaluate_frame_gate` -- day-clustered bootstrap CI
   precedent to reuse, not reinvent
 - `services/cross_sectional_regime_model.py` -- `market_regimes`/`regime_group` regime labels
+
+## Closed 2026-07-21
+
+Regime-stratified OOS gate shipped: `evaluate_frame_gate` generalized with a grouping-key +
+coverage-floor parameter (`services/counterfactual_tracker.py`), wired into
+`scripts/analysis/phase143_1_08_shadow_validation.py`'s C2/C7 criteria, new pre-registered
+`alpha.validation.regime_gate_min_clusters` APR key (migration 244, seed 20). Design decision
+made: worst-evaluated-cell gate (a cell below the day-cluster coverage floor is excluded from
+the verdict combination rather than counted pass/fail) — not a full per-regime weighting
+scheme, since coverage was too thin in most cells to support one.
+
+Re-run against real 143.1-08 data: **verdict unchanged, still HOLD** — every cell with
+adequate coverage (`n_clusters >= 20`) failed criterion 2 decisively for both champion and
+challenger, so stratifying didn't change the outcome. Honest limit: 6 of 8 champion cells and
+6 of 14 challenger cells had insufficient day-cluster coverage and were excluded from the
+gate entirely, so this is a partial regime-by-regime verdict, not a complete one. Full output
+in `143.1-08-SHADOW-VALIDATION.md` section 7.
