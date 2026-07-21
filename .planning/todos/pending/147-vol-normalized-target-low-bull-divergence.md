@@ -1,13 +1,14 @@
 ---
-status: root-cause-confirmed-blocked-on-149-151
+status: root-cause-confirmed-blocked-on-160
 priority: P1
 filed: 2026-07-19
 source: Component F (todo 097) definitive full-corpus A/B verdict
   (docs/plans/methodology-change-ledger.md E8 addendum) -- a genuinely new finding not
   visible in any smaller sample run this session or in Fable 5's own review
 resolved: 2026-07-20 -- root cause is corrupt-print contamination of true_range_pct
-  (same class as todos 148/149/151/152); no separate fix needed here, blocks on 149/151
-  landing, then re-check
+  (same class as todos 148/149/151/152); no separate fix needed here. 151/154's
+  correction pass ran but missed 3 named rows (VWO/DIA/KRE) -- CV re-check 2026-07-20
+  confirmed still not at parity; blocks on 160 landing, then re-check a third time
 ---
 
 # Vol-normalized vs. raw-return POOLED IC diverges sharply and specifically in `low_bull`
@@ -176,6 +177,33 @@ directly (the actual metric that diagnosed the 10-100x low_bull outlier in the f
 not a proxy for it) — has NOT been re-run. Do not close this todo until that CV number is
 confirmed back at parity with other regimes; the rank-correlation improvement is consistent with
 resolution but is not the same measurement as the original diagnostic.
+
+## `true_range_pct` CV re-check (2026-07-20) — STILL NOT AT PARITY, root cause re-confirmed
+
+Ran the full per-(tf, regime_label) CV sweep this todo required (`feature_vectors JOIN
+market_regimes ON regime_group='equity'`, all 4 tfs x 9 regimes, 36 cells). Result: **not
+resolved.** `low_bull`'s CV dropped from the original 582.9/469.4 to 313.24 (5m) / 279.22
+(15m) — real improvement from 151/154's corrections, but still ~150-300x every clean
+regime's CV (~1-6), nowhere near parity. This full sweep also surfaced two cells the
+original 5-row snippet never covered: 1h/mid_bull at CV=324.49 and 5m/high_bear at
+CV=116.00 — same signature, different cells.
+
+Cross-checked the worst outlier rows against raw `market_data_ohlcv`: **the exact same
+fabricated sentinel prints from the original diagnosis are still live, uncorrected** —
+`VWO` 1h 2007-05-02 15:00 (`high=99999.99`), `DIA` 5m 2009-06-02 14:00 (`high=100000`),
+`KRE` 5m 2007-09-18 18:15 (`high=400`). These are the exact three rows this todo's own
+"Root cause CONFIRMED" section named and flagged "for [151/154] directly... not acting on
+here" — they were never actually picked up by that correction pass. (Separately verified
+the new 1h/mid_bull / 5m/high_bear outlier cluster at 2010-05-06 18:45-18:55 (IGV/CWB/VUG)
+is the real May 6 2010 Flash Crash — legitimate crisis volatility per the same carve-out
+established in todo 152, not corrupt data. No action needed there.)
+
+**Mechanism 1 (denominator-side corrupt-print contamination) stays fully confirmed** — this
+is not a new root cause, it's the same one, just incompletely corrected. Filed the specific
+gap as [160](160-vwo-dia-kre-corrupt-prints-uncorrected.md) rather than fixing inline here
+(correction goes through the `price_sanity_status` mechanism + recompute, not a raw UPDATE,
+and is squarely 151/154's owned tooling/scope). **Still blocked — do not close 147 until
+160 lands and this CV check is re-run a third time.**
 
 ## References
 
