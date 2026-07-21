@@ -275,3 +275,10 @@ against `bb_pct_b`/`price_percentile` as D-07 originally scoped.
   (not 1), `swing_momentum.py` needs 6 (not 0), `swing_detector.py`/`trend_structure.py` should
   share one pivot-window key, `fibonacci_zones.py` needs 1 (cluster threshold), `session_levels.py`
   needs a full new namespace for its session-boundary parameters.
+- **Post-research addendum (same session, council-style rigor pass on 3 tangential ideas):** two
+  survived and were added — `gap_filled` (session_levels.py, D-13) and `swing_volume_confirmation`
+  (swing_momentum.py, D-15), both zero-marginal-cost columns off computation already happening.
+  Fibonacci extension levels were proposed and explicitly rejected for this build (D-14) — scaling
+  an unproven fib-retracement hypothesis family before its first member clears an incremental-IC
+  test fails CLAUDE.md's 5-step mandate ("don't accelerate in the wrong direction"). Final column
+  count: 41, not 39. See `165-CONTEXT.md`'s D-13/D-14/D-15 for full reasoning.

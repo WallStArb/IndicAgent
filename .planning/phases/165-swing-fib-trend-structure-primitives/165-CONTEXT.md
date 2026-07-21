@@ -8,11 +8,13 @@ survey recorded in ROADMAP.md's "### Phase 165" entry. Same transport as Phase 1
 
 **Authoritative final scope (read this, not the historical narrative in RESEARCH.md, for the
 actual column count):** 24 new `FeatureVector` columns from 4 files built now (`swing_detector.py`
-7, `swing_momentum.py` 7, `trend_structure.py` 6, `fibonacci_zones.py` 4) + a 5th file
-(`session_levels.py`, 15 columns) built as its own plan within this same phase due to a real
-session-boundary rewrite, not a literal port = **39 total new columns if `session_levels.py`
-ships in this phase's execution**. `macd_events.py` and `bocpd_changepoint.py` stay parked (0
-columns, not this phase's scope).
+7, `swing_momentum.py` 8 — 7 original + 1 volume-confirmation, D-15, `trend_structure.py` 6,
+`fibonacci_zones.py` 4) + a 5th file (`session_levels.py`, 16 columns — 15 original + 1 gap-fill
+flag, D-13) built as its own plan within this same phase due to a real session-boundary rewrite,
+not a literal port = **41 total new columns if `session_levels.py` ships in this phase's
+execution**. `macd_events.py` and `bocpd_changepoint.py` stay parked (0 columns, not this phase's
+scope). Fibonacci extension levels (1.272/1.618/2.0) were considered and explicitly deferred, not
+built (D-14) — see Deferred Ideas.
 
 <domain>
 ## Phase Boundary
@@ -33,14 +35,16 @@ Four sub-scopes:
    5 already-valid fields, **minus 2 raw-index fields dropped entirely** (D-02 below).
 2. **Swing momentum** — `swing_momentum.py`: amplitude/velocity of the last 3 confirmed swings
    from its own independent (not shared) peak/trough detection. 7 fields, all already valid
-   shape once `swing_velocity_trend`'s string enum is numerically encoded (D-03).
+   shape once `swing_velocity_trend`'s string enum is numerically encoded (D-03), plus 1 new field
+   (`swing_volume_confirmation`, D-15 — a free column off the same swing-leg computation).
 3. **Trend structure** — `trend_structure.py`: directional leg-counting classification (bullish
    vs. bearish swing-pair majority), structural integrity (swing-overlap cleanliness), price
    position within the recent swing range. 6 fields, all already relative/bounded — **but two
    silent-wrong-answer bugs (D-01) must be fixed before port, not carried forward.**
 4. **Fibonacci zones + Session levels** — `fibonacci_zones.py` (4 valid fields kept, 8 raw-
-   price/intermediate fields dropped, D-04) and `session_levels.py` (a genuine session-boundary
-   rewrite, not a port — D-06 through D-09), sequenced as separate plans within this same phase.
+   price/intermediate fields dropped, D-04; extension levels considered and deferred, D-14) and
+   `session_levels.py` (a genuine session-boundary rewrite, not a port — D-06 through D-09, plus
+   1 new field `gap_filled`, D-13), sequenced as separate plans within this same phase.
 
 **Deliberately parked, not silently dropped:**
 - `macd_events.py` — v3's live `FeatureVector` has zero MACD fields (verified directly against
@@ -213,6 +217,50 @@ Four sub-scopes:
   same as Phase 163's D-07 — the incremental-IC test itself runs via `ic_engine`/corpus pipeline
   whenever that next runs, not as bespoke work in this phase.
 
+### Complementary additions found via a later council-style rigor pass (2026-07-20, same session)
+
+Three tangential ideas were proposed after the main research pass. Each was tested against
+CLAUDE.md's 5-step mandate (question the requirement before accelerating) and the project's
+"resist overfitting"/"earn promotion through proof" principles before being accepted or deferred
+— not accepted on "seems useful" grounds alone.
+
+- **D-13: `session_levels.py` gains one new field, `gap_filled` (flag).** Tests whether price has
+  traded back through `prior_session_close` at any point since the session open (`session_low <=
+  prior_session_close <= session_high`, checked against the running session high/low the D-08
+  mutator already tracks — zero new state needed, just a comparison against existing accumulator
+  fields). Survives the rigor test on two grounds: (1) it is NOT derivable post-hoc from the
+  stored feature vector, since `prior_session_close`/session high/low are raw prices and (per
+  D-16's rule, inherited from Phase 163) never persisted as columns themselves — only their ATR-
+  distance companions are — so the fact of a gap being filled is genuinely new, non-recoverable
+  information; (2) it is a companion to exactly one existing field (`opening_gap_pct`), not a
+  second member of an unproven family. **Deliberately NOT adding a paired
+  `bars_since_gap_fill` column** — one concept, one column; a velocity companion can be added
+  later if the flag itself shows real IC, not speculatively bundled in now.
+- **D-14 (deferred, not built): Fibonacci extension levels (1.272/1.618/2.0), ADR-style
+  continuation targets beyond the swing range.** Rejected for this phase's initial build, unlike
+  D-13/D-15, on a different failure mode: this is not a free column off computation already
+  happening — it requires genuinely new logic (a second ratio family, new `feature.fib.
+  extension_ratios` APR key) — AND the base 4 fib-retracement fields (D-04's scope) have zero IC
+  evidence yet. Building extensions now would scale an already-unproven technical-analysis
+  hypothesis family before its first member clears any incremental-IC test — the "don't
+  accelerate in the wrong direction" failure CLAUDE.md's 5-step mandate exists to catch, and a
+  clean example of the "resist overfitting" principle applied at build time rather than after the
+  fact. **Correct sequencing: ship the base 4 fib fields, measure them via `ic_engine`, and only
+  then revisit extensions if `nearest_fib_ratio`/`nearest_fib_dist_atr` show real incremental IC.**
+  Cheap to add later — `swing_high`/`swing_low` will already be local values in `compute()`/
+  `compute_batch()` by then (D-05), so this is a low-regret deferral, not a lost opportunity.
+- **D-15: `swing_momentum.py` gains one new field, `swing_volume_confirmation` (unbounded ratio,
+  same normalization class as `swing_amplitude_ratio`/`vol_ratio`/`garch_ratio`).** Mean volume
+  over the bar-index range spanning the most recent confirmed swing leg (`last6[-2].idx` to
+  `last6[-1].idx` — indices the plugin's `_detect_extremes()` already computes for the amplitude
+  calc) divided by mean volume over the full lookback window. Survives the rigor test cleanly:
+  true zero-marginal-cost column off a computation this phase is building regardless (same
+  category as Phase 163's D-18/D-19 "free field" pattern, not scope creep), and it adds a
+  genuinely orthogonal dimension — participation/conviction behind a price move — that nothing
+  else in this phase's scope measures. Directly analogous to the same volume-weighting insight
+  that made Phase 163 discard TPO touch-count in favor of real volume for the VP work (D-13 of
+  163-CONTEXT.md).
+
 ### Claude's Discretion
 - Exact `FeatureCache` internal state shape for the session-boundary mutator (D-08) and the
   extended weekly accumulator (D-09) — general shape only, matching `update_wk_vwap()`'s existing
@@ -361,13 +409,14 @@ Four sub-scopes:
   mutator state and D-09's weekly high/low/close accumulators. Unlike Phase 163's original 4
   fields, **none of this phase's fields pre-exist as stub columns** — every one is genuinely new
   (no `poc_dist_atr`-style "just populate the stub" shortcut available here).
-- `FEATURE_VECTOR_DOMAIN` dict (`feature_factory.py`) — needs 39 new entries (24 from the 4
-  direct-port files + 15 from `session_levels.py`), all tagged `"structural"`.
+- `FEATURE_VECTOR_DOMAIN` dict (`feature_factory.py`) — needs 41 new entries (25 from the 4
+  direct-port files, incl. D-15's `swing_volume_confirmation` + 16 from `session_levels.py`, incl.
+  D-13's `gap_filled`), all tagged `"structural"`.
 - `compute()` (live) and `compute_batch()` (backfill) — both need all 5 files' computation wired
   in from scratch; recommend one shared local computation of swing high/low per bar (D-05) feeding
   both `swing_detector`'s own output and `fibonacci_zones`'s fib-level math, to avoid computing
   `find_peaks`/`find_troughs` twice per bar for the same underlying pivots.
-- `feature_registry` (migration) — 39 new rows, `group_name='session'`, `tier='2_theory'` for all
+- `feature_registry` (migration) — 41 new rows, `group_name='session'`, `tier='2_theory'` for all
   (see Canonical References above for the exact `normalization` vocabulary per field shape).
 
 </code_context>
@@ -399,9 +448,17 @@ language would have let through unnoticed).
 - **`bocpd_changepoint.py`** (D-11) — needs a standalone latency benchmark at 58-ETF × 4-TF
   backfill scale before being assigned to any phase. Real Renaissance-style value (assumption-
   light online regime-break detection) once the cost question is answered.
-- **`ctx_SRConsensus`'s richer, cross-method-confirmed S/R system** (referenced in Phase 163's
-  D-14) — this phase is one of its two remaining prerequisites (alongside Phase 164's SMC
-  atomics); still not built until both exist and a phase is explicitly scoped for it.
+- **`ctx_SRConsensus`'s richer, cross-method-confirmed S/R system** (referenced in
+  `163-CONTEXT.md`'s D-14 — a different document's D-14, not this phase's own D-14 below; the
+  numbering coincidence is unrelated) — this phase is one of its two remaining prerequisites
+  (alongside Phase 164's SMC atomics); still not built until both exist and a phase is explicitly
+  scoped for it.
+- **Fibonacci extension levels (1.272/1.618/2.0)** (this phase's own D-14) — deferred, not built,
+  because the base 4 fib-retracement fields have zero IC evidence yet; building extensions now
+  would scale an unproven hypothesis family before its first member is measured. Revisit only if
+  `nearest_fib_ratio`/`nearest_fib_dist_atr` clear the incremental-IC promotion bar.
+- **`bars_since_gap_fill` velocity companion to `gap_filled`** (D-13) — deliberately not bundled
+  in now (one concept, one column); revisit only if `gap_filled` itself shows real IC.
 - **Running the actual incremental-IC promotion test** (D-12, extending Phase 163's D-07) — this
   phase builds and wires the primitives so they produce real values; the IC measurement itself
   runs through the existing `ic_engine`/corpus pipeline on whatever cadence that next runs, not as

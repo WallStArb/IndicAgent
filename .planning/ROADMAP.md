@@ -2080,16 +2080,19 @@ constellation (`fibonacci_zones`, `swing_detector`) that `ctx_SRConsensus` depen
 D-14 deferred that richer S/R system "until Phase 164's SMC atomics exist" — this phase is the
 other missing link in that chain, alongside Phase 164).
 
-**Final scope (39 new columns):** 24 from 4 direct-port files (`swing_detector` 7,
-`swing_momentum` 7, `trend_structure` 6, `fibonacci_zones` 4) + 15 from `session_levels.py`
-(built as its own plan within this phase, not a separate phase — real session-boundary rewrite,
-not a literal port, but every primitive it needs already exists from Phase 163). Two real
-correctness bugs fixed during port, not carried forward: `trend_structure.py` and
-`swing_detector.py` both manufacture plausible-looking numeric defaults (`trend_direction=0.0`,
+**Final scope (41 new columns):** 25 from 4 direct-port files (`swing_detector` 7,
+`swing_momentum` 8 — incl. `swing_volume_confirmation`, a free column off computation already
+happening, D-15, `trend_structure` 6, `fibonacci_zones` 4) + 16 from `session_levels.py` (incl.
+`gap_filled`, D-13) (built as its own plan within this phase, not a separate phase — real
+session-boundary rewrite, not a literal port, but every primitive it needs already exists from
+Phase 163). Two real correctness bugs fixed during port, not carried forward: `trend_structure.py`
+and `swing_detector.py` both manufacture plausible-looking numeric defaults (`trend_direction=0.0`,
 `price_position=0.5`) instead of nulling out on insufficient data — the identical failure shape
 to the bug Phase 163 was built to fix (todo 153). `macd_events.py` (no MACD indicator exists in
-v3 today, confirmed) and `bocpd_changepoint.py` (real, distinct regime-detection paradigm, but
-needs a standalone latency benchmark first — ~77ms p95/bar at scale) stay parked, not assigned.
+v3 today, confirmed), `bocpd_changepoint.py` (real, distinct regime-detection paradigm, but needs
+a standalone latency benchmark first — ~77ms p95/bar at scale), and Fibonacci extension levels
+(D-14 — deferred until the base 4 fib fields clear an incremental-IC test, not built speculatively
+alongside them) stay parked/deferred, not built.
 
 **Depends on:** Phase 163 (VP/SR Structural Primitives) for shared conventions (ATR-distance
 normalization, APR namespace precedent, `FeatureCache` session-boundary mutator pattern for
