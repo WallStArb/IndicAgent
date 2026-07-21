@@ -54,6 +54,10 @@ The three MEDIUM concerns and the LOW note are accepted as-is for this phase —
 - VP per-bar histogram cost: acceptable at current corpus scale (58 ETFs × 4 TFs); revisit only if corpus throughput (Phase 162) surfaces this as a hot path.
 - CONTEXT.md historical count narrative: intentional decision log (D-13 → D-16 → D-17 → D-18), not a live contract — the final "12, not 10" line is unambiguous.
 
+## Post-Review Addendum (D-19)
+
+Codex's MEDIUM concern about Plan 03's S/R port being "underspecified relative to the archived source" led to a direct re-read of `support_resistance.py` after this review landed. That re-read found the underspecification was more concrete than "clustering semantics might not match exactly" — Plan 03's `_cluster_levels`/`_finalize_cluster` port was discarding 5 fields (`resistance_strength`, `support_strength`, `resistance_age_bars`, `support_age_bars`, `sr_level_count`) that the same clustering pass already produces at zero extra cost. Filed as CONTEXT.md's D-19 and folded into `163-01-PLAN.md` (migration 243 grows 12→17 columns) and `163-03-PLAN.md` (Task 1 now ports the full cluster object, not the "minimal cluster-to-mean-price" shortcut; Task 2's regression test gained a 4th case). **Phase-wide final count: 21 structural `FeatureVector` fields (4 original + 17 new), not the 16 this review evaluated** — the review's own verdict (well-decomposed, coherent scope, Medium risk from verification/collinearity/approximation concerns rather than structural failure) still holds; the count changed, not the risk profile.
+
 ## Consensus Summary
 
 Single reviewer (Codex) this round — Claude and Antigravity were available but Claude was skipped for reviewer independence (self-review) per this session's runtime; Antigravity was not additionally dispatched since Codex is the configured `review.default_reviewers` for this project. No divergent views to reconcile.

@@ -4,6 +4,8 @@
 **Status:** Ready for planning
 **Source:** Conversation discussion (project owner + Fable 5 dispatch), not a formal /gsd-discuss-phase session — equivalent rigor, different transport.
 
+**Authoritative final scope (read this, not the historical narrative below, for the actual column count):** 21 total structural `FeatureVector` fields — 4 original + 17 new (12 VP per D-16/D-17/D-18 + 5 S/R per D-19). The prose below and the decision log accumulated this incrementally across three review rounds (9→10→12 for VP, then +5 for S/R) — every intermediate count you'll read is a historical snapshot, not a live figure.
+
 <domain>
 ## Phase Boundary
 
@@ -30,7 +32,10 @@ Two independent sub-features:
 2. **Support/resistance** — rolling-window local-pivot clustering. Feeds `sr_support_dist`/
    `sr_resist_dist` (distance from close to nearest support/resistance cluster, ATR-normalized).
    Deliberately staying with the simple self-contained approach, not `ctx_SRConsensus`'s
-   multi-plugin confluence system (see D-14).
+   multi-plugin confluence system (see D-14). **Scope widened later session (D-19 below):** the
+   same clustering pass also yields `resistance_strength`/`support_strength` (volume-weighted),
+   `resistance_age_bars`/`support_age_bars`, and `sr_level_count` at effectively zero extra cost —
+   5 new columns beyond the 2 distance fields.
 
 </domain>
 
@@ -248,7 +253,9 @@ Two independent sub-features:
     genuinely new code (a second `_compute_directional_nodes()` call), same rejection logic as
     above with a stronger cost argument on top.
 
-  **Final new-column count for Phase 163: 12, not 10** (the 10 from D-16/D-17 plus these 2).
+  **Final new-column count for Phase 163: 12, not 10** (the 10 from D-16/D-17 plus these 2). This
+  is the VP-family count only — see D-19 below for the S/R additions that bring the phase-wide
+  total to 17 new columns / 21 structural fields.
 
 ### S/R stays narrow — ctx_SRConsensus explicitly deferred, not silently adopted
 - **D-14:** `src/intelligence/context/sr_consensus.py` (`ctx_SRConsensus`, Phase 116) is a
@@ -274,6 +281,38 @@ Two independent sub-features:
   warrant its own plan and promotion-bar discipline, sequenced after this phase for shared
   conventions (ATR-distance normalization, APR namespace pattern, incremental-IC methodology).
   Full detail in Phase 164's ROADMAP.md entry / CONTEXT.md once planned.
+
+### D-19 (correction, later session, per Codex cross-AI review + direct source verification): S/R plan was discarding 5 free fields
+  Codex's review (163-REVIEWS.md) flagged Plan 03's S/R port as underspecified relative to the
+  archived source ("minimal cluster-to-mean-price is sufficient"). Verified directly against
+  `src/intelligence/features/i3_structure/support_resistance.py`: the plugin's `_cluster_levels`/
+  `_finalize_cluster` helpers — which Plan 03 already has to run to get `sr_support_dist`/
+  `sr_resist_dist` — also produce `resistance_strength`/`support_strength` (volume-weighted
+  cluster strength: sum of `min(2.0, member_volume/mean_volume)` per cluster member, capped per
+  member but unbounded in aggregate across cluster size — a comparable, no-price-unit metric, not
+  ATR-normalized because it isn't a distance), `resistance_age_bars`/`support_age_bars` (bars
+  since the nearest cluster's most recent touch — a bar count, same category as the already-used
+  `swing_high_age_bars`/`trend_duration_bars`/`macd_cross_bars_ago` precedent: comparable across
+  symbols, not price-scale-dependent, no ATR conversion needed), and `sr_level_count` (total
+  distinct resistance+support clusters found in the lookback window — a structural-complexity/
+  consolidation-vs-trending indicator, also a plain count). None of these 5 are raw price levels
+  (D-16's rule doesn't apply) — they were simply never asked for by Plan 03's narrower interface,
+  not excluded for a stated reason. **Decision: add all 5 to this phase's scope** — they come at
+  effectively zero extra computation cost (the clustering pass already runs), and per D-08's
+  "never delete/skip signal candidates without measuring" reasoning, skipping them here would
+  repeat the same unforced-omission pattern D-08 was written to avoid, just one plan later.
+
+  **Migration 243 (Plan 01) grows from 12 to 17 new columns**: the same 12 VP columns (D-16/D-17/
+  D-18) plus these 5 new S/R columns. **Total structural `FeatureVector` fields for Phase 163
+  becomes 21** (4 original + 12 new VP + 5 new S/R), not 16. `feature_registry` rows: use
+  `normalization='none'` for `resistance_strength`/`support_strength`/`sr_level_count` (no ATR
+  distance, no [0,1] bound — plain comparable scalars) and `normalization='none'`,
+  `is_bounded=false` for `resistance_age_bars`/`support_age_bars` (bar counts, same treatment as
+  existing bar-count fields elsewhere in the codebase). Plan 03's Task 1 must call the fuller
+  `_cluster_levels`/`_finalize_cluster` port (strength + latest-touch tracking), not the
+  "minimal cluster-to-mean-price" shortcut its original action text described — the fuller
+  version is barely more code since Plan 03 already needs cluster membership to find the nearest
+  level on each side.
 
 </decisions>
 
