@@ -47,7 +47,7 @@ import asyncio
 import sys
 from collections import deque
 from collections.abc import Iterable, Sequence
-from concurrent.futures import ProcessPoolExecutor
+from concurrent.futures import ProcessPoolExecutor, as_completed
 from dataclasses import dataclass
 from datetime import UTC, datetime
 from pathlib import Path
@@ -715,12 +715,30 @@ class CounterfactualTracker(BaseBatch):
 
         def _row_lists() -> Iterable[list[dict[str, Any]]]:
             nonlocal total_degenerate_atr_skips
+            n_done = 0
             with ProcessPoolExecutor(max_workers=n_workers) as exe:
-                for result in exe.map(_run_counterfactual_worker, worker_args, chunksize=1):
+                # as_completed, not exe.map(): map() yields in SUBMISSION order, so one slow
+                # symbol/tf partition (e.g. an intraday tf over a 20y history) would stall
+                # every later-ordered symbol's flush even though it already finished computing
+                # -- silently defeating the per-symbol incremental flush below and turning any
+                # restart into a from-scratch redo of the same head-of-line partition.
+                futures = {
+                    exe.submit(_run_counterfactual_worker, args): args[0] for args in worker_args
+                }
+                for future in as_completed(futures):
+                    result = future.result()
+                    n_done += 1
                     worker_errors.extend(result.get("errors", []))
                     total_degenerate_atr_skips += result.get("degenerate_atr_skip_count", 0)
                     rows = result.get("rows", [])
                     self._instrument_ic_staleness(rows)
+                    self.logger.info(
+                        "counterfactual_tracker.symbol_complete",
+                        symbol=result.get("symbol"),
+                        n_rows=len(rows),
+                        n_done=n_done,
+                        n_total=len(worker_args),
+                    )
                     yield rows
 
         total_written = await self._flush_worker_results(pool, _row_lists())
