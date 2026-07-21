@@ -430,6 +430,13 @@ exactly what needs measuring, not assuming.
   in this phase's scope.
 - **Phase 151's Theory-Motivated Interaction Layer** — unaffected by this phase; these 4 features
   remain atomic primitives, not interaction terms.
+- **`compute_frame_geometry()` becoming S/R-aware** (found 2026-07-21 fixing todo 162, filed as
+  todo 163/deferred) — `services/alpha_frame_writer.py`'s frame stop/target geometry is
+  currently ATR-only "because `sr_support_dist`/`sr_resist_dist` are 100% NULL across the
+  corpus." Once this phase makes those columns real, there's a legitimate design question
+  (should a stop ever sit tighter than real S/R structure?) worth its own scoping pass — not
+  in this phase's scope, but don't let it get lost once these columns go live. See
+  `.planning/todos/deferred/163-frame-geometry-sr-aware-stops-once-phase-163-lands.md`.
 
 </deferred>
 

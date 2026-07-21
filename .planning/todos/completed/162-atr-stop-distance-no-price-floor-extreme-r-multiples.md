@@ -73,7 +73,39 @@ Any current or future corpus-wide statistic computed from `alpha_frames.counterf
 against thin-absolute-volatility instrument/timeframe combinations — not specific to the
 champion/challenger comparison that surfaced it.
 
-## Candidate fix directions (not decided — needs its own scoping)
+## RESOLVED 2026-07-21
+
+Went with the skip-and-count direction, not the floor-widening one: a widened stop would
+also widen `target_price` (derived from `stop_distance`) by the same factor, fabricating a
+trading rule real ATR-based sizing never specified. `compute_frame_geometry()` now raises the
+same `ValueError` it already raises for `atr <= 0` when `stop_distance <
+alpha.frame.min_stop_price_fraction * entry_price` — same skip-and-count mechanism
+(`degenerate_atr_skip_count`), no new stop-sizing logic, exactly the "alternative" direction
+sketched below.
+
+`alpha.frame.min_stop_price_fraction` seeded at 0.001 (0.10% of price), migration 243,
+`[initial_estimate]`. Checked the live corpus before picking a number (not fit to the
+observed outliers): extreme-frame rate vs. stop-distance% is a smooth, continuous gradient
+with no natural cutoff (0.27% extreme rate at <0.05% stop-distance, declining to 0.07% at
+0.28-0.30%, still above the ~0.03% baseline at wider buckets) — 0.10% is a conservative,
+deliberately non-overfit starting point past the steepest part of that curve, flagged for
+future recalibration once more corpus runs exist to properly characterize the
+rejected-frame-count vs. residual-extreme-tail-rate tradeoff.
+
+Threaded through `FrameConfig.from_apr` (eager validation, mirroring `stop_atr_mult`'s
+precedent) and the full call chain `_execute_inner -> worker_args ->
+_run_counterfactual_worker -> _scan_symbol_tf -> compute_frame_geometry`.
+`compute_frame_geometry` has exactly one call site in the whole codebase, so no other
+consumer needed updating. Full diff: `services/alpha_frame_writer.py`,
+`services/counterfactual_tracker.py`, `tests/unit/test_alpha_frame_writer_geometry.py`,
+`production/migrations/243_frame_min_stop_price_fraction.sql`.
+
+**Not done here, deliberately separate:** whether frame geometry should become SR-aware once
+Phase 163 ships real `sr_support_dist`/`sr_resist_dist` data (currently 100% NULL) is a
+distinct, bigger design question — see the new Phase 163 cross-reference todo. This fix is
+data-integrity hygiene on the existing ATR-only path, not a redesign of it.
+
+## Candidate fix directions (historical — see RESOLVED above for what shipped)
 
 - A minimum stop-distance floor as a fraction of price (e.g. `max(stop_atr_mult * atr,
   min_stop_price_fraction * entry_price)`), APR-backed (`alpha.frame.min_stop_price_fraction`
