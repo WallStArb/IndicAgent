@@ -943,6 +943,10 @@ class FeatureVectorPipeline(BaseDaemon):
             self._pipeline_errors.add(1)
             return
 
+        # Advance per-bar cache state (above_wk_vwap, hmm_duration) after compute(),
+        # mirroring compute_batch()'s per-bar cache.advance_bar() call (todo 158).
+        cache.advance_bar(bar.ts, bar.high, bar.low, bar.close, float(bar.volume))
+
         # Regime label from HMM dominant state probability
         # High hmm_regime_prob + low entropy = dominant regime active
         hmm_prob = cache.hmm_regime_prob

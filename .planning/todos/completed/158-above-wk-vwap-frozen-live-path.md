@@ -1,3 +1,5 @@
+**Closed 2026-07-20:** `cache.advance_bar(bar.ts, bar.high, bar.low, bar.close, float(bar.volume))` added to `_process_bar_compute` right after `FeatureFactory.compute()`, mirroring `compute_batch()`'s per-bar ordering. Regression test `tests/unit/services/test_feature_vector_pipeline_wk_vwap.py` confirmed the bug pre-fix (asserted `above_wk_vwap` stuck at 0.0) and passes post-fix. Codex peer review caught a real, narrower follow-on gap — `FeatureCache` is never warmed from the historical bars `_seed_bar_history_from_db()` already loads at startup, so `above_wk_vwap`/`hmm_duration` still start cold after every restart — filed as [159](159-feature-cache-advance-bar-not-warmed-from-seeded-history.md), not fixed here (different mechanism, deserves its own test).
+
 # 158 — `above_wk_vwap` permanently frozen at 0.0 in the live path
 
 **Found:** 2026-07-20, incidentally during Phase 163 (VP/SR Structural Primitives) planning —
