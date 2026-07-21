@@ -10,6 +10,7 @@ from __future__ import annotations
 import asyncio
 import inspect
 import sys
+from datetime import UTC, datetime
 from pathlib import Path
 
 _project_root = Path(__file__).parent.parent.parent
@@ -18,6 +19,8 @@ if str(_project_root) not in sys.path:
 
 from services.counterfactual_tracker import (
     CounterfactualTracker,
+    _load_chunk_index,
+    _route_chunk,
     _run_counterfactual_worker,
     evaluate_frame_gate,
 )
@@ -153,7 +156,144 @@ def test_flush_worker_results_skips_empty_batches():
 
 
 # ---------------------------------------------------------------------------
-# (c) UPDATE key + immutability guard (review M3)
+# (c) Direct-chunk write routing (todo 161) -- writing through the alpha_frames hypertable
+# measured 29 rows/sec vs 10,423 rows/sec writing directly to the resolved chunk table
+# (358x), root-caused to TimescaleDB's per-execution chunk-routing overhead at 1034 chunks.
+# ---------------------------------------------------------------------------
+
+
+def _synthetic_chunk_index():
+    chunks = [
+        (
+            datetime(2020, 1, 1, tzinfo=UTC),
+            datetime(2020, 1, 8, tzinfo=UTC),
+            "_timescaledb_internal._hyper_1_1_chunk",
+        ),
+        (
+            datetime(2020, 1, 8, tzinfo=UTC),
+            datetime(2020, 1, 15, tzinfo=UTC),
+            "_timescaledb_internal._hyper_1_2_chunk",
+        ),
+    ]
+    return [c[0] for c in chunks], chunks
+
+
+def test_route_chunk_resolves_matching_range():
+    idx = _synthetic_chunk_index()
+    assert _route_chunk(idx, datetime(2020, 1, 5, tzinfo=UTC)) == (
+        "_timescaledb_internal._hyper_1_1_chunk"
+    )
+
+
+def test_route_chunk_boundary_is_half_open():
+    """range_end is exclusive -- a bar_ts exactly AT one chunk's range_end belongs to the
+    NEXT chunk (matches TimescaleDB's own [range_start, range_end) convention)."""
+    idx = _synthetic_chunk_index()
+    assert _route_chunk(idx, datetime(2020, 1, 8, tzinfo=UTC)) == (
+        "_timescaledb_internal._hyper_1_2_chunk"
+    )
+
+
+def test_route_chunk_returns_none_outside_all_ranges():
+    idx = _synthetic_chunk_index()
+    assert _route_chunk(idx, datetime(2019, 12, 1, tzinfo=UTC)) is None
+    assert _route_chunk(idx, datetime(2021, 1, 1, tzinfo=UTC)) is None
+
+
+def test_route_chunk_returns_none_in_gap_between_noncontiguous_chunks():
+    chunks = [
+        (
+            datetime(2020, 1, 1, tzinfo=UTC),
+            datetime(2020, 1, 8, tzinfo=UTC),
+            "_timescaledb_internal._hyper_1_1_chunk",
+        ),
+        (
+            datetime(2020, 2, 1, tzinfo=UTC),
+            datetime(2020, 2, 8, tzinfo=UTC),
+            "_timescaledb_internal._hyper_1_2_chunk",
+        ),
+    ]
+    idx = ([c[0] for c in chunks], chunks)
+    assert _route_chunk(idx, datetime(2020, 1, 20, tzinfo=UTC)) is None
+
+
+def test_load_chunk_index_filters_names_not_matching_timescaledb_convention():
+    """Table names can't be bound as query parameters -- only chunk_schema/chunk_name values
+    matching TimescaleDB's own internal naming convention are trusted for SQL interpolation.
+    A row that doesn't match must be silently excluded from the index (its bar_ts range then
+    falls back to the hypertable via _route_chunk returning None), never passed through."""
+
+    class _FakeConn:
+        async def fetch(self, sql, hypertable_name):
+            return [
+                {
+                    "range_start": datetime(2020, 1, 1, tzinfo=UTC),
+                    "range_end": datetime(2020, 1, 8, tzinfo=UTC),
+                    "chunk_schema": "_timescaledb_internal",
+                    "chunk_name": "_hyper_1_1_chunk",
+                },
+                {
+                    "range_start": datetime(2020, 1, 8, tzinfo=UTC),
+                    "range_end": datetime(2020, 1, 15, tzinfo=UTC),
+                    "chunk_schema": "public",
+                    "chunk_name": "evil_table; DROP TABLE alpha_frames;",
+                },
+            ]
+
+    starts, chunks = asyncio.run(_load_chunk_index(_FakeConn(), "alpha_frames"))
+    assert len(chunks) == 1
+    assert chunks[0][2] == "_timescaledb_internal._hyper_1_1_chunk"
+
+
+def test_flush_worker_results_routes_writes_to_resolved_chunk_tables():
+    """Rows whose bar_ts falls in different chunks must be written via separate UPDATE
+    statements targeting each chunk table directly; a row with no matching chunk falls back
+    to the hypertable rather than being dropped."""
+    tracker = CounterfactualTracker(db_dsn="postgresql://unused/unused")
+    pool, calls = _fake_pool()
+    chunk_index = _synthetic_chunk_index()
+
+    in_chunk_a = dict(_ROW_TEMPLATE, frame_id="a", bar_ts=datetime(2020, 1, 5, tzinfo=UTC))
+    in_chunk_b = dict(_ROW_TEMPLATE, frame_id="b", bar_ts=datetime(2020, 1, 10, tzinfo=UTC))
+    unrouted = dict(_ROW_TEMPLATE, frame_id="c", bar_ts=datetime(2021, 1, 1, tzinfo=UTC))
+
+    total = asyncio.run(
+        tracker._flush_worker_results(
+            pool,
+            iter([[in_chunk_a, in_chunk_b, unrouted]]),
+            chunk_size=5000,
+            chunk_index=chunk_index,
+        )
+    )
+
+    tables_written = {sql.split()[1] for sql, _ in calls}
+    assert tables_written == {
+        "_timescaledb_internal._hyper_1_1_chunk",
+        "_timescaledb_internal._hyper_1_2_chunk",
+        "alpha_frames",
+    }
+    assert total == 3
+
+
+def test_flush_worker_results_without_chunk_index_writes_hypertable_only():
+    """chunk_index defaults to None -- callers that don't pass it must keep writing through
+    the plain hypertable, byte-identical to the pre-routing SQL."""
+    tracker = CounterfactualTracker(db_dsn="postgresql://unused/unused")
+    pool, calls = _fake_pool()
+
+    total = asyncio.run(
+        tracker._flush_worker_results(
+            pool, iter([[dict(_ROW_TEMPLATE, frame_id="a")]]), chunk_size=5000
+        )
+    )
+
+    assert len(calls) == 1
+    assert calls[0][0] == CounterfactualTracker._UPDATE_SQL
+    assert total == 1
+
+
+# ---------------------------------------------------------------------------
+# (d) UPDATE key + immutability guard (review M3)
 # ---------------------------------------------------------------------------
 
 
