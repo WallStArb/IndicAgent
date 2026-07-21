@@ -663,11 +663,11 @@ class CounterfactualTracker(BaseBatch):
             if not symbol_rows:
                 continue
             tuples = [self._row_to_update_tuple(row) for row in symbol_rows]
-            for start in range(0, len(tuples), chunk_size):
-                chunk = tuples[start : start + chunk_size]
-                async with pool.acquire() as wconn:
+            async with pool.acquire() as wconn:
+                for start in range(0, len(tuples), chunk_size):
+                    chunk = tuples[start : start + chunk_size]
                     await wconn.executemany(self._UPDATE_SQL, chunk)
-                total_written += len(chunk)
+                    total_written += len(chunk)
         return total_written
 
     async def execute(self, pool: asyncpg.Pool) -> None:  # type: ignore[override]
@@ -737,9 +737,7 @@ class CounterfactualTracker(BaseBatch):
                 # every later-ordered symbol's flush even though it already finished computing
                 # -- silently defeating the per-symbol incremental flush below and turning any
                 # restart into a from-scratch redo of the same head-of-line partition.
-                futures = {
-                    exe.submit(_run_counterfactual_worker, args): args[0] for args in worker_args
-                }
+                futures = [exe.submit(_run_counterfactual_worker, args) for args in worker_args]
                 for future in as_completed(futures):
                     result = future.result()
                     n_done += 1
