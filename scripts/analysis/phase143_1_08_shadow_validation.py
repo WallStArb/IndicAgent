@@ -1,0 +1,201 @@
+"""143.1-08 Shadow Validation: Component E (sign-symmetric eligibility) criteria 1,2,3,4,6,7.
+
+Read-only reporting script. Reuses counterfactual_tracker.py's frame_gate_passes verbatim (no
+reimplementation) per 143.1-08-SHADOW-VALIDATION.md Section 3's pre-committed rule. Criterion 5
+is N/A this round (Section 3a correction -- no recurring ensemble_ic_engine cadence exists yet
+to form a trailing-vs-full-period split).
+
+Usage: .venv/bin/python scripts/analysis/phase143_1_08_shadow_validation.py
+"""
+
+from __future__ import annotations
+
+import asyncio
+import sys
+from pathlib import Path
+from typing import Any
+
+import asyncpg
+import numpy as np
+import pandas as pd
+
+sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
+
+from services._batch_utils import cfg as _cfg  # noqa: E402
+from services.counterfactual_tracker import (  # noqa: E402
+    _DEFAULT_BOOTSTRAP_RANDOM_STATE,
+    frame_gate_passes,
+)
+from src.config.settings import Settings  # noqa: E402
+
+_OOS_QUERY_SQL = """
+    SELECT bar_ts, direction, bar_ts::date AS cluster_id, counterfactual_pnl_r AS pnl_r
+    FROM alpha_frames
+    WHERE weight_epoch = $1
+      AND frame_variant = 'primary'
+      AND status != 'open'
+      AND bar_ts >= $2
+      AND counterfactual_pnl_r IS NOT NULL
+    ORDER BY bar_ts ASC
+"""
+
+
+def _max_drawdown(pnl_r_ordered: np.ndarray) -> tuple[float | None, bool]:
+    """Max peak-to-trough decline of the cumulative-R equity curve.
+
+    Returns (drawdown_ratio_or_None, fails). WR-03 frozen edge case: if the running peak
+    cumulative R at the point of max decline is <= 0, this criterion fails outright
+    regardless of the ratio (a "drawdown" from a non-positive peak is not meaningful).
+    """
+    cum = np.cumsum(pnl_r_ordered)
+    peak = np.maximum.accumulate(cum)
+    decline = peak - cum
+    trough_idx = int(np.argmax(decline))
+    peak_at_trough = float(peak[trough_idx])
+    if peak_at_trough <= 0:
+        return None, True
+    dd = float(decline[trough_idx] / peak_at_trough)
+    return dd, dd >= 0.25
+
+
+def _annualized_sharpe(pnl_r_ordered: list[float], bar_ts_ordered: list[Any]) -> float | None:
+    """Annualized Sharpe of per-trading-day pooled mean counterfactual_pnl_r."""
+    df = pd.DataFrame({"day": pd.to_datetime(bar_ts_ordered).date, "pnl_r": pnl_r_ordered})
+    daily = df.groupby("day")["pnl_r"].mean()
+    if len(daily) < 2 or daily.std(ddof=1) == 0:
+        return None
+    return float(daily.mean() / daily.std(ddof=1) * np.sqrt(252))
+
+
+async def _load_apr(conn: asyncpg.Connection) -> tuple[int, int, int, int]:
+    apr_rows = await conn.fetch(
+        "SELECT config_key, config_value FROM config_state WHERE config_key LIKE ANY($1::text[])",
+        ["alpha.scoring.%"],
+    )
+    apr_cfg = {row["config_key"]: row["config_value"] for row in apr_rows}
+    min_n = _cfg(apr_cfg, "alpha.scoring.min_strategy_n", 30)
+    bootstrap_max_n = _cfg(apr_cfg, "alpha.scoring.bootstrap_max_n", 5000)
+    bootstrap_batch = _cfg(apr_cfg, "alpha.scoring.bootstrap_batch", 1000)
+    bootstrap_random_state = _cfg(
+        apr_cfg, "alpha.scoring.bootstrap_random_state", _DEFAULT_BOOTSTRAP_RANDOM_STATE
+    )
+    return min_n, bootstrap_max_n, bootstrap_batch, bootstrap_random_state
+
+
+async def evaluate_epoch(
+    conn: asyncpg.Connection,
+    weight_epoch: str,
+    oos_start: Any,
+    min_n: int,
+    bootstrap_max_n: int,
+    bootstrap_batch: int,
+    bootstrap_random_state: int,
+) -> dict[str, Any]:
+    rows = [dict(r) for r in await conn.fetch(_OOS_QUERY_SQL, weight_epoch, oos_start)]
+    n_days = len({r["cluster_id"] for r in rows})
+    pnl_r = [r["pnl_r"] for r in rows]
+    cluster_ids = [r["cluster_id"] for r in rows]
+    bar_ts = [r["bar_ts"] for r in rows]
+
+    c2_passes, ci_lower, ci_upper = frame_gate_passes(
+        pnl_r, cluster_ids, min_n, bootstrap_max_n, bootstrap_batch, bootstrap_random_state
+    )
+
+    sharpe = _annualized_sharpe(pnl_r, bar_ts) if pnl_r else None
+    dd, dd_fails = _max_drawdown(np.array(pnl_r)) if pnl_r else (None, True)
+
+    short_rows = [r for r in rows if r["direction"] == "short"]
+    n_short = len(short_rows)
+    short_ci_lower, short_ci_upper = float("nan"), float("nan")
+    if n_short >= 2:
+        _, short_ci_lower, short_ci_upper = frame_gate_passes(
+            [r["pnl_r"] for r in short_rows],
+            [r["cluster_id"] for r in short_rows],
+            1,  # no min_n floor for the informational short-side check
+            bootstrap_max_n,
+            bootstrap_batch,
+            bootstrap_random_state,
+        )
+    confident_loss = n_short > 0 and not np.isnan(short_ci_upper) and short_ci_upper < 0
+
+    return {
+        "weight_epoch": weight_epoch,
+        "n_rows": len(rows),
+        "n_days": n_days,
+        "c1_min_60_days": n_days >= 60,
+        "c2_ci_lower": ci_lower,
+        "c2_ci_upper": ci_upper,
+        "c2_passes": c2_passes,
+        "c3_sharpe": sharpe,
+        "c3_passes": sharpe is not None and sharpe > 0.5,
+        "c4_max_dd": dd,
+        "c4_passes": not dd_fails,
+        "n_short": n_short,
+        "c7_short_ci_lower": short_ci_lower,
+        "c7_short_ci_upper": short_ci_upper,
+        "c7_confident_loss": confident_loss,
+    }
+
+
+async def main() -> None:
+    settings = Settings()
+    db_dsn = settings.database_url.replace("postgresql+asyncpg://", "postgresql://")
+    conn = await asyncpg.connect(db_dsn)
+    try:
+        min_n, bootstrap_max_n, bootstrap_batch, bootstrap_random_state = await _load_apr(conn)
+        oos_start = await conn.fetchval(
+            "SELECT config_value::timestamptz FROM config_state "
+            "WHERE config_key = 'alpha.validation.oos_start'"
+        )
+        if oos_start is None:
+            raise RuntimeError("alpha.validation.oos_start is not set in config_state")
+
+        champion = await evaluate_epoch(
+            conn,
+            "143.1-08-champion",
+            oos_start,
+            min_n,
+            bootstrap_max_n,
+            bootstrap_batch,
+            bootstrap_random_state,
+        )
+        challenger = await evaluate_epoch(
+            conn,
+            "143.1-08-challenger",
+            oos_start,
+            min_n,
+            bootstrap_max_n,
+            bootstrap_batch,
+            bootstrap_random_state,
+        )
+    finally:
+        await conn.close()
+
+    c6_passes = challenger["c2_ci_lower"] >= champion["c2_ci_lower"]
+
+    for label, result in (("CHAMPION", champion), ("CHALLENGER", challenger)):
+        print(f"\n=== {label} ({result['weight_epoch']}) ===")
+        for key, value in result.items():
+            print(f"  {key}: {value}")
+
+    print(f"\n=== CRITERION 6 (non-regression vs champion) ===\n  passes: {c6_passes}")
+
+    verdict = (
+        "PROMOTE"
+        if all(
+            [
+                challenger["c1_min_60_days"],
+                challenger["c2_passes"],
+                challenger["c3_passes"],
+                challenger["c4_passes"],
+                c6_passes,
+                not challenger["c7_confident_loss"],
+            ]
+        )
+        else "HOLD"
+    )
+    print(f"\n=== VERDICT (criteria 1-4, 6, 7; criterion 5 N/A per Section 3a) ===\n  {verdict}")
+
+
+if __name__ == "__main__":
+    asyncio.run(main())

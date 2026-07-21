@@ -615,3 +615,49 @@ cases (2.0, "a factor-of-2 overshoot is a reasonable first trigger," deliberatel
 land just above 4x or 750x) is the closest this entry comes to a pre-registered-style
 justification, and it is honestly disclosed as `[conventional]`, not `[rca_analysis]`, for
 exactly that reason.
+
+---
+
+### E11 — 2026-07-20: Pre-committed FRAME-04/SHADOW-REVIEW decision rule for Component E
+champion/challenger shadow validation (Phase 143.1-08) — RULE ONLY, no result yet
+
+**What result was observed before the change?** None — this entry is written before the
+champion (`ensemble_trainer.py --weight-version 143.1-08-champion --no-sign-symmetric`) and
+challenger (`--weight-version 143.1-08-challenger --sign-symmetric`) training runs have been
+invoked. `feature_vectors` (36,719,598 rows, max `bar_ts` 2026-07-07), `feature_ic_scores`
+(854,299 rows, most recent `computed_at` 2026-07-19T01:20:49Z, the corrected Plan 07 corpus)
+confirmed live and unchanged by this entry. `alpha_events`, `alpha_frames` confirmed empty
+(0 rows each) prior to this entry — no shadow data exists yet to have influenced the rule
+below.
+
+**What changed?** The full pre-committed promote/hold decision rule for Component E's
+sign-symmetric eligibility flag is recorded in
+`.planning/phases/143.1-measurement-and-eligibility-integrity-fisher-z-ci-bootstrap-/143.1-08-SHADOW-VALIDATION.md`
+Section 3 (SHADOW-REVIEW.md's frozen 5 criteria, applied per `weight_epoch`, plus two
+Component-E-specific additions: non-regression vs. the champion, and a short-side-sanity
+check on the newly-eligible population) — reproduced there in full rather than duplicated
+here. Summary: **PROMOTE iff criteria 1-6 all pass AND criterion 7 is not a confident
+loss; otherwise HOLD.** Section 4 pre-registers the E1-vs-E2 A/B re-run plan (E2 rejected
+20/20 previously on a structurally-unexercisable all-long input; does not carry forward).
+Section 5 pre-registers the emission-volume re-measurement against the 11.81M-long/1,479-short
+pre-fix baseline.
+
+**What would the change have looked like if decided *before* seeing any data (pre-registered
+justification), and honestly, was it?** Yes — this is the entry's entire purpose. The rule
+is committed to git in this same commit, before the training/scoring/frame-backfill commands
+that would produce a result are invoked; the commit timestamp is the pre-registration proof.
+The follow-up entry (E12, appended after the runs complete) records the actual measured
+result and verdict, and per this ledger's own convention, will not alter the rule stated
+here.
+
+**Correction (same day, still before any training/scoring command executed):**
+`SHADOW-VALIDATION.md` Section 3a records that criterion 5 (trailing-20-trading-day vs.
+full-shadow-period IC Sharpe cliff) is not measurable against a one-shot historical
+backtest — it requires a recurring `EnsembleICEngine` cadence over calendar time, which
+does not exist (`counterfactual_tracker.py`'s own docstring: "out of scope for this phase,
+D-09, follow-on todo 089"). The promote rule is corrected to depend on criteria 1-4 and 6
+plus the criterion-7 short-side-sanity check; criterion 5 stays a frozen, unmodified
+requirement of Phase 147's actual live promotion gate, deferred (not dropped) to when a
+real trailing-vs-full-period split exists. This is a measurability-gap correction, not a
+threshold renegotiation after seeing a result — no training or scoring command had run
+when this was found.

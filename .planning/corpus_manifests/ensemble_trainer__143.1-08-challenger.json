@@ -1,0 +1,22 @@
+{
+  "step_name": "ensemble_trainer",
+  "step_version": "1.0",
+  "timestamp": "2026-07-20T08:13:20.567117+00:00",
+  "status": "success",
+  "inputs": {
+    "weight_version": "143.1-08-challenger"
+  },
+  "outputs": {
+    "ensemble_weights": {
+      "table": "ensemble_weights",
+      "rows_total": 172,
+      "rows_by_tf": {
+        "1d": 14,
+        "15m": 68,
+        "5m": 90
+      }
+    }
+  },
+  "errors": [],
+  "warnings": []
+}

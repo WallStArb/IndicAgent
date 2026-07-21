@@ -10,8 +10,8 @@ from __future__ import annotations
 import asyncio
 import inspect
 import sys
+from datetime import UTC, datetime
 from pathlib import Path
-from unittest.mock import AsyncMock
 
 _project_root = Path(__file__).parent.parent.parent
 if str(_project_root) not in sys.path:
@@ -19,9 +19,54 @@ if str(_project_root) not in sys.path:
 
 from services.counterfactual_tracker import (
     CounterfactualTracker,
+    _load_chunk_index,
+    _route_chunk,
     _run_counterfactual_worker,
     evaluate_frame_gate,
 )
+
+_ROW_TEMPLATE = {
+    "frame_id": "f",
+    "bar_ts": "2026-07-10T00:00:00Z",
+    "entry_price": 1.0,
+    "stop_price": 1.0,
+    "target_price": 1.0,
+    "r_multiple": 1.0,
+    "status": "closed_stop",
+    "counterfactual_pnl_r": -1.0,
+    "counterfactual_mfe": 0.0,
+    "counterfactual_mae": -1.0,
+    "counterfactual_bars": 1,
+    "exit_reason": "closed_stop",
+    "closed_at": "2026-07-10T00:00:00Z",
+    "measured_at": "2026-07-10T00:00:00Z",
+}
+
+
+def _fake_pool():
+    """Minimal fake asyncpg pool for _flush_worker_results tests. Records every
+    executemany(sql, chunk) call and returns (pool, calls) so callers can assert on either
+    call count (one per symbol/chunk-group) or per-call chunk sizes."""
+    calls: list[tuple[str, list]] = []
+
+    async def _executemany(self, sql, chunk):
+        calls.append((sql, chunk))
+
+    class _FakeConn:
+        async def __aenter__(self):
+            return self
+
+        async def __aexit__(self, *exc_info):
+            return False
+
+        executemany = _executemany
+
+    class _FakePool:
+        def acquire(self):
+            return _FakeConn()
+
+    return _FakePool(), calls
+
 
 # ---------------------------------------------------------------------------
 # (a) Worker-no-write guard (DAG invariant #3, T-142B-06)
@@ -71,76 +116,184 @@ def test_flush_worker_results_issues_one_executemany_per_symbol_batch():
     """3 distinct per-symbol row-lists -> exactly 3 awaited executemany calls, never 1
     (proves per-symbol flush, not all-symbols aggregation)."""
     tracker = CounterfactualTracker(db_dsn="postgresql://unused/unused")
-
-    executemany_mock = AsyncMock()
-
-    class _FakeConn:
-        async def __aenter__(self):
-            return self
-
-        async def __aexit__(self, *exc_info):
-            return False
-
-        executemany = executemany_mock
-
-    class _FakePool:
-        def acquire(self):
-            return _FakeConn()
-
-    now = "2026-07-10T00:00:00Z"
-    row_template = {
-        "frame_id": "f",
-        "bar_ts": now,
-        "entry_price": 1.0,
-        "stop_price": 1.0,
-        "target_price": 1.0,
-        "r_multiple": 1.0,
-        "status": "closed_stop",
-        "counterfactual_pnl_r": -1.0,
-        "counterfactual_mfe": 0.0,
-        "counterfactual_mae": -1.0,
-        "counterfactual_bars": 1,
-        "exit_reason": "closed_stop",
-        "closed_at": now,
-        "measured_at": now,
-    }
+    pool, calls = _fake_pool()
 
     batches = [
-        [dict(row_template, frame_id="a1"), dict(row_template, frame_id="a2")],
-        [dict(row_template, frame_id="b1")],
-        [dict(row_template, frame_id="c1"), dict(row_template, frame_id="c2")],
+        [dict(_ROW_TEMPLATE, frame_id="a1"), dict(_ROW_TEMPLATE, frame_id="a2")],
+        [dict(_ROW_TEMPLATE, frame_id="b1")],
+        [dict(_ROW_TEMPLATE, frame_id="c1"), dict(_ROW_TEMPLATE, frame_id="c2")],
     ]
 
-    total = asyncio.run(tracker._flush_worker_results(_FakePool(), iter(batches)))
+    total = asyncio.run(tracker._flush_worker_results(pool, iter(batches), chunk_size=5000))
 
-    assert executemany_mock.await_count == 3
+    assert len(calls) == 3
+    assert total == 5
+
+
+def test_flush_worker_results_chunks_large_symbol_batch():
+    """A single symbol's batch larger than chunk_size must split into multiple executemany
+    calls, each committed separately -- regression for the 143.1-08 bug where one busy
+    symbol's whole result set went into ONE implicit-transaction executemany() call, so
+    nothing committed (and nothing was visible to a restart's WHERE status='open' scan)
+    until the entire symbol finished."""
+    tracker = CounterfactualTracker(db_dsn="postgresql://unused/unused")
+    pool, calls = _fake_pool()
+    one_symbol_batch = [dict(_ROW_TEMPLATE, frame_id=f"f{i}") for i in range(5)]
+
+    total = asyncio.run(tracker._flush_worker_results(pool, iter([one_symbol_batch]), chunk_size=2))
+
+    assert [len(chunk) for _, chunk in calls] == [2, 2, 1]
     assert total == 5
 
 
 def test_flush_worker_results_skips_empty_batches():
     tracker = CounterfactualTracker(db_dsn="postgresql://unused/unused")
-    executemany_mock = AsyncMock()
+    pool, calls = _fake_pool()
 
-    class _FakeConn:
-        async def __aenter__(self):
-            return self
-
-        async def __aexit__(self, *exc_info):
-            return False
-
-        executemany = executemany_mock
-
-    class _FakePool:
-        def acquire(self):
-            return _FakeConn()
-
-    total = asyncio.run(tracker._flush_worker_results(_FakePool(), iter([[], []])))
-    assert executemany_mock.await_count == 0
+    total = asyncio.run(tracker._flush_worker_results(pool, iter([[], []]), chunk_size=5000))
+    assert len(calls) == 0
     assert total == 0
 
 
 # ---------------------------------------------------------------------------
-# (c) UPDATE key + immutability guard (review M3)
+# (c) Direct-chunk write routing (todo 161) -- writing through the alpha_frames hypertable
+# measured 29 rows/sec vs 10,423 rows/sec writing directly to the resolved chunk table
+# (358x), root-caused to TimescaleDB's per-execution chunk-routing overhead at 1034 chunks.
+# ---------------------------------------------------------------------------
+
+
+def _synthetic_chunk_index():
+    chunks = [
+        (
+            datetime(2020, 1, 1, tzinfo=UTC),
+            datetime(2020, 1, 8, tzinfo=UTC),
+            "_timescaledb_internal._hyper_1_1_chunk",
+        ),
+        (
+            datetime(2020, 1, 8, tzinfo=UTC),
+            datetime(2020, 1, 15, tzinfo=UTC),
+            "_timescaledb_internal._hyper_1_2_chunk",
+        ),
+    ]
+    return [c[0] for c in chunks], chunks
+
+
+def test_route_chunk_resolves_matching_range():
+    idx = _synthetic_chunk_index()
+    assert _route_chunk(idx, datetime(2020, 1, 5, tzinfo=UTC)) == (
+        "_timescaledb_internal._hyper_1_1_chunk"
+    )
+
+
+def test_route_chunk_boundary_is_half_open():
+    """range_end is exclusive -- a bar_ts exactly AT one chunk's range_end belongs to the
+    NEXT chunk (matches TimescaleDB's own [range_start, range_end) convention)."""
+    idx = _synthetic_chunk_index()
+    assert _route_chunk(idx, datetime(2020, 1, 8, tzinfo=UTC)) == (
+        "_timescaledb_internal._hyper_1_2_chunk"
+    )
+
+
+def test_route_chunk_returns_none_outside_all_ranges():
+    idx = _synthetic_chunk_index()
+    assert _route_chunk(idx, datetime(2019, 12, 1, tzinfo=UTC)) is None
+    assert _route_chunk(idx, datetime(2021, 1, 1, tzinfo=UTC)) is None
+
+
+def test_route_chunk_returns_none_in_gap_between_noncontiguous_chunks():
+    chunks = [
+        (
+            datetime(2020, 1, 1, tzinfo=UTC),
+            datetime(2020, 1, 8, tzinfo=UTC),
+            "_timescaledb_internal._hyper_1_1_chunk",
+        ),
+        (
+            datetime(2020, 2, 1, tzinfo=UTC),
+            datetime(2020, 2, 8, tzinfo=UTC),
+            "_timescaledb_internal._hyper_1_2_chunk",
+        ),
+    ]
+    idx = ([c[0] for c in chunks], chunks)
+    assert _route_chunk(idx, datetime(2020, 1, 20, tzinfo=UTC)) is None
+
+
+def test_load_chunk_index_filters_names_not_matching_timescaledb_convention():
+    """Table names can't be bound as query parameters -- only chunk_schema/chunk_name values
+    matching TimescaleDB's own internal naming convention are trusted for SQL interpolation.
+    A row that doesn't match must be silently excluded from the index (its bar_ts range then
+    falls back to the hypertable via _route_chunk returning None), never passed through."""
+
+    class _FakeConn:
+        async def fetch(self, sql, hypertable_name):
+            return [
+                {
+                    "range_start": datetime(2020, 1, 1, tzinfo=UTC),
+                    "range_end": datetime(2020, 1, 8, tzinfo=UTC),
+                    "chunk_schema": "_timescaledb_internal",
+                    "chunk_name": "_hyper_1_1_chunk",
+                },
+                {
+                    "range_start": datetime(2020, 1, 8, tzinfo=UTC),
+                    "range_end": datetime(2020, 1, 15, tzinfo=UTC),
+                    "chunk_schema": "public",
+                    "chunk_name": "evil_table; DROP TABLE alpha_frames;",
+                },
+            ]
+
+    starts, chunks = asyncio.run(_load_chunk_index(_FakeConn(), "alpha_frames"))
+    assert len(chunks) == 1
+    assert chunks[0][2] == "_timescaledb_internal._hyper_1_1_chunk"
+
+
+def test_flush_worker_results_routes_writes_to_resolved_chunk_tables():
+    """Rows whose bar_ts falls in different chunks must be written via separate UPDATE
+    statements targeting each chunk table directly; a row with no matching chunk falls back
+    to the hypertable rather than being dropped."""
+    tracker = CounterfactualTracker(db_dsn="postgresql://unused/unused")
+    pool, calls = _fake_pool()
+    chunk_index = _synthetic_chunk_index()
+
+    in_chunk_a = dict(_ROW_TEMPLATE, frame_id="a", bar_ts=datetime(2020, 1, 5, tzinfo=UTC))
+    in_chunk_b = dict(_ROW_TEMPLATE, frame_id="b", bar_ts=datetime(2020, 1, 10, tzinfo=UTC))
+    unrouted = dict(_ROW_TEMPLATE, frame_id="c", bar_ts=datetime(2021, 1, 1, tzinfo=UTC))
+
+    total = asyncio.run(
+        tracker._flush_worker_results(
+            pool,
+            iter([[in_chunk_a, in_chunk_b, unrouted]]),
+            chunk_size=5000,
+            chunk_index=chunk_index,
+        )
+    )
+
+    tables_written = {sql.split()[1] for sql, _ in calls}
+    assert tables_written == {
+        "_timescaledb_internal._hyper_1_1_chunk",
+        "_timescaledb_internal._hyper_1_2_chunk",
+        "alpha_frames",
+    }
+    assert total == 3
+
+
+def test_flush_worker_results_without_chunk_index_writes_hypertable_only():
+    """chunk_index defaults to None -- callers that don't pass it must keep writing through
+    the plain hypertable, byte-identical to the pre-routing SQL."""
+    tracker = CounterfactualTracker(db_dsn="postgresql://unused/unused")
+    pool, calls = _fake_pool()
+
+    total = asyncio.run(
+        tracker._flush_worker_results(
+            pool, iter([[dict(_ROW_TEMPLATE, frame_id="a")]]), chunk_size=5000
+        )
+    )
+
+    assert len(calls) == 1
+    assert calls[0][0] == CounterfactualTracker._UPDATE_SQL
+    assert total == 1
+
+
+# ---------------------------------------------------------------------------
+# (d) UPDATE key + immutability guard (review M3)
 # ---------------------------------------------------------------------------
 
 

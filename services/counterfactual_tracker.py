@@ -44,10 +44,12 @@ from __future__ import annotations
 
 import argparse
 import asyncio
+import bisect
+import re
 import sys
 from collections import deque
 from collections.abc import Iterable, Sequence
-from concurrent.futures import ProcessPoolExecutor
+from concurrent.futures import ProcessPoolExecutor, as_completed
 from dataclasses import dataclass
 from datetime import UTC, datetime
 from pathlib import Path
@@ -565,6 +567,61 @@ def _run_counterfactual_worker(args: tuple) -> dict[str, Any]:
 
 
 # ---------------------------------------------------------------------------
+# Direct-chunk write routing (todo 161)
+# ---------------------------------------------------------------------------
+#
+# Live-measured root cause of the 143.1-08 backfill's multi-day runtime: writing through the
+# alpha_frames HYPERTABLE costs ~29 rows/sec regardless of batching strategy (plain
+# executemany, UNNEST bulk update -- all within the same order of magnitude), while the
+# SAME rows written directly against their underlying TimescaleDB chunk table measured
+# 10,423 rows/sec -- a 358x difference, confirmed via EXPLAIN and pg_stat_activity.wait_event
+# (state='active', wait_event EMPTY throughout -- pure on-CPU cost, not I/O or lock wait).
+# Root cause: TimescaleDB's per-execution chunk-routing/exclusion overhead against 1034
+# chunks, paid on every single parameterized execution regardless of prepared-statement
+# reuse. Writing straight to the resolved chunk table bypasses that routing entirely.
+
+_CHUNK_RANGES_SQL = """
+    SELECT range_start, range_end, chunk_schema, chunk_name
+    FROM timescaledb_information.chunks
+    WHERE hypertable_name = $1
+    ORDER BY range_start
+"""
+
+# TimescaleDB's own internal naming convention for chunk tables -- only names matching this
+# are trusted for SQL interpolation (table names can't be bound as query parameters).
+_CHUNK_SCHEMA_RE = re.compile(r"^_timescaledb_internal$")
+_CHUNK_NAME_RE = re.compile(r"^_hyper_\d+_\d+_chunk$")
+
+ChunkIndex = tuple[list[datetime], list[tuple[datetime, datetime, str]]]
+
+
+async def _load_chunk_index(conn: asyncpg.Connection, hypertable_name: str) -> ChunkIndex:
+    """Fetch hypertable_name's chunk range table once per run (not once per row). Returns
+    (starts, chunks) -- chunks sorted by range_start as (range_start, range_end, table_fqn)
+    triples, plus the precomputed starts list _route_chunk needs for O(log n) lookup."""
+    rows = await conn.fetch(_CHUNK_RANGES_SQL, hypertable_name)
+    chunks: list[tuple[datetime, datetime, str]] = []
+    for row in rows:
+        schema, name = row["chunk_schema"], row["chunk_name"]
+        if not _CHUNK_SCHEMA_RE.match(schema) or not _CHUNK_NAME_RE.match(name):
+            continue  # unrecognized naming -- rows in this chunk fall back to the hypertable
+        chunks.append((row["range_start"], row["range_end"], f"{schema}.{name}"))
+    return [c[0] for c in chunks], chunks
+
+
+def _route_chunk(chunk_index: ChunkIndex, bar_ts: datetime) -> str | None:
+    """Binary-search which chunk's half-open [range_start, range_end) interval contains
+    bar_ts. Returns the chunk's schema-qualified table name, or None if bar_ts falls outside
+    every known chunk -- caller must fall back to the hypertable, never skip the row."""
+    starts, chunks = chunk_index
+    idx = bisect.bisect_right(starts, bar_ts) - 1
+    if idx < 0:
+        return None
+    range_start, range_end, table_fqn = chunks[idx]
+    return table_fqn if range_start <= bar_ts < range_end else None
+
+
+# ---------------------------------------------------------------------------
 # CounterfactualTracker
 # ---------------------------------------------------------------------------
 
@@ -597,9 +654,12 @@ class CounterfactualTracker(BaseBatch):
 
     # WHERE frame_id = $1 AND bar_ts = $2: the composite (frame_id, bar_ts) PK from
     # migration 214 (review M3). status = 'open' makes every UPDATE an immutability guard --
-    # a re-run never re-closes an already-closed frame.
-    _UPDATE_SQL = """
-        UPDATE alpha_frames
+    # a re-run never re-closes an already-closed frame. {table} lets _flush_worker_results
+    # target a resolved chunk table directly (todo 161) instead of paying the hypertable's
+    # per-execution routing cost; _UPDATE_SQL is the {table}="alpha_frames" resolution, kept
+    # as the literal default/fallback SQL string.
+    _UPDATE_SQL_TEMPLATE = """
+        UPDATE {table}
         SET entry_price = $3,
             stop_price = $4,
             target_price = $5,
@@ -614,6 +674,7 @@ class CounterfactualTracker(BaseBatch):
             measured_at = $14
         WHERE frame_id = $1 AND bar_ts = $2 AND status = 'open'
     """
+    _UPDATE_SQL = _UPDATE_SQL_TEMPLATE.format(table="alpha_frames")
 
     def __init__(self, db_dsn: str, backfill: bool = False) -> None:
         super().__init__(db_dsn)
@@ -640,21 +701,59 @@ class CounterfactualTracker(BaseBatch):
             )
 
     async def _flush_worker_results(
-        self, pool: asyncpg.Pool, results_iter: Iterable[list[dict[str, Any]]]
+        self,
+        pool: asyncpg.Pool,
+        results_iter: Iterable[list[dict[str, Any]]],
+        chunk_size: int,
+        chunk_index: ChunkIndex | None = None,
     ) -> int:
         """Per-symbol incremental flush (anti-OOM write-side twin of the read-side named-
         cursor fix, T-142B-08). Consumes an ITERABLE of per-symbol row-lists and, for EACH
         batch as it arrives, does exactly ONE serial async batch UPDATE then releases the
         connection -- NEVER accumulates all symbols' rows into one aggregate write (the
-        client-side unbounded-accumulation OOM shape that crashed production twice)."""
+        client-side unbounded-accumulation OOM shape that crashed production twice).
+
+        A busy symbol/tf cell can return tens of thousands of closed frames in one batch.
+        asyncpg's executemany() wraps its whole args list in one implicit transaction, so a
+        single unchunked call over that whole batch commits nothing -- and is invisible to
+        every other reader, including a restart's WHERE status='open' scan -- until the
+        entire batch finishes. Chunking to chunk_size bounds each transaction and commits
+        incrementally, matching infra.alpha_frame_writer.chunk_size's precedent on the same
+        table (found investigating 143.1-08: 3 backfill attempts over ~18h wrote zero rows).
+
+        When chunk_index is given, each row is additionally routed to its underlying
+        TimescaleDB chunk table (todo 161: measured 358x -- 29 vs 10,423 rows/sec -- writing
+        direct vs through the hypertable's per-execution chunk-routing overhead). A row whose
+        bar_ts resolves to no known chunk falls back to the hypertable, never dropped;
+        fallback rows are reported once as an aggregate count, not per-row."""
         total_written = 0
+        unrouted_count = 0
         for symbol_rows in results_iter:
             if not symbol_rows:
                 continue
             tuples = [self._row_to_update_tuple(row) for row in symbol_rows]
+
+            by_table: dict[str, list[tuple[Any, ...]]] = {}
+            for tup in tuples:
+                table_fqn = _route_chunk(chunk_index, tup[1]) if chunk_index else None
+                if table_fqn is None:
+                    unrouted_count += 1
+                    table_fqn = "alpha_frames"
+                by_table.setdefault(table_fqn, []).append(tup)
+
             async with pool.acquire() as wconn:
-                await wconn.executemany(self._UPDATE_SQL, tuples)
-            total_written += len(tuples)
+                for table_fqn, table_tuples in by_table.items():
+                    sql = self._UPDATE_SQL_TEMPLATE.format(table=table_fqn)
+                    for start in range(0, len(table_tuples), chunk_size):
+                        chunk = table_tuples[start : start + chunk_size]
+                        await wconn.executemany(sql, chunk)
+                        total_written += len(chunk)
+
+        if unrouted_count:
+            self.logger.warning(
+                "counterfactual_tracker.chunk_routing_fallback",
+                n_rows=unrouted_count,
+            )
         return total_written
 
     async def execute(self, pool: asyncpg.Pool) -> None:  # type: ignore[override]
@@ -679,6 +778,8 @@ class CounterfactualTracker(BaseBatch):
             default_target_r_multiple = frame_config.target_r_multiple
             itersize = _cfg(cfg, "infra.counterfactual_tracker.itersize", 5000)
             n_workers = _cfg(cfg, "infra.counterfactual_tracker.workers", 12)
+            chunk_size = _cfg(cfg, "infra.counterfactual_tracker.chunk_size", 5000)
+            chunk_index = await _load_chunk_index(conn, "alpha_frames")
 
             partitions = await conn.fetch(
                 "SELECT DISTINCT symbol, tf FROM alpha_frames "
@@ -695,6 +796,8 @@ class CounterfactualTracker(BaseBatch):
             default_target_r_multiple=default_target_r_multiple,
             itersize=itersize,
             n_workers=n_workers,
+            chunk_size=chunk_size,
+            n_chunks=len(chunk_index[1]),
             n_symbols=len(symbol_to_tfs),
             backfill=self.backfill,
         )
@@ -715,15 +818,33 @@ class CounterfactualTracker(BaseBatch):
 
         def _row_lists() -> Iterable[list[dict[str, Any]]]:
             nonlocal total_degenerate_atr_skips
+            n_done = 0
             with ProcessPoolExecutor(max_workers=n_workers) as exe:
-                for result in exe.map(_run_counterfactual_worker, worker_args, chunksize=1):
+                # as_completed, not exe.map(): map() yields in SUBMISSION order, so one slow
+                # symbol/tf partition (e.g. an intraday tf over a 20y history) would stall
+                # every later-ordered symbol's flush even though it already finished computing
+                # -- silently defeating the per-symbol incremental flush below and turning any
+                # restart into a from-scratch redo of the same head-of-line partition.
+                futures = [exe.submit(_run_counterfactual_worker, args) for args in worker_args]
+                for future in as_completed(futures):
+                    result = future.result()
+                    n_done += 1
                     worker_errors.extend(result.get("errors", []))
                     total_degenerate_atr_skips += result.get("degenerate_atr_skip_count", 0)
                     rows = result.get("rows", [])
                     self._instrument_ic_staleness(rows)
+                    self.logger.info(
+                        "counterfactual_tracker.symbol_complete",
+                        symbol=result.get("symbol"),
+                        n_rows=len(rows),
+                        n_done=n_done,
+                        n_total=len(worker_args),
+                    )
                     yield rows
 
-        total_written = await self._flush_worker_results(pool, _row_lists())
+        total_written = await self._flush_worker_results(
+            pool, _row_lists(), chunk_size, chunk_index
+        )
 
         if worker_errors:
             self.logger.error(
