@@ -21,9 +21,25 @@ See: .planning/PROJECT.md
 
 **Core value:** Alpha must be demonstrated empirically before any ensemble weight is assigned.
 
-**Current focus:** Phase 143.1 (Measurement and Eligibility Integrity) — corpus re-run in progress. Phase 161 (Controlled Vocabulary System) completed 2026-07-18, live-verified, does not change 143.1's blocking status. `gsd-sdk query phase.complete` incorrectly reported `is_last_phase: true`/`status: milestone_complete` after 161 closed — the same "next phase" heuristic false-positive already seen after Phase 146 (see git history); corrected inline. Milestone v3.1 is NOT complete: 143.1 is still active, and 144/145/147/148/149A/149B/150 remain ahead of it.
+**Current focus (updated 2026-07-21, superseding the stale text below that this replaces):**
+Phase 143.1 is COMPLETE (8/8 plans) — 143.1-08's shadow-mode validation concluded HOLD,
+`alpha.ensemble.sign_symmetric` stays `false`, confirmed twice (once pooled, once via todo
+165's regime-stratified re-evaluation). Todo 094 (the sign-symmetric redesign this validation
+gated) is closed with that verdict. Todos 164/165 (regime-stratified promotion gate + 1h
+ensemble eligibility) are also closed, merged to main. Milestone v3.1 is not yet complete —
+Phase 144's D-05 acceptance gate re-run is the next concrete unlock (144 is code-complete,
+6/6 plans, header stays PLANNED pending this re-run only).
 
-**Next actions, in order:** (1) 143.1-07 finishes → 143.1-08 (shadow-mode sign-symmetric validation, E1-vs-E2 A/B re-run). (2) Phase 144's D-05 acceptance gate (`scripts/analysis/phase144_regime_separation_gate.py`) re-runs against the corrected corpus — no code changes needed, just the re-run. (3) FRAME-04 (`alpha_frames`/`CounterfactualTracker` gate) re-evaluates once 143.1-07 lands. (4) Phase 148 (Alpha Scoring System OOS Proof Gates) needs ≥60 trading days of closed `alpha_frames` plus the corrected 143.1 corpus before its gates can evaluate. (5) todo 092 (equity/cross-sectional regime-model threshold calibration) is the live-path IC-tail suspect worth prioritizing once the corpus clears.
+**Next actions, in order:** (1) Phase 144's D-05 acceptance gate re-run — no code changes
+needed for the base gate itself, but apply the same regime-stratified evaluation pattern
+todo 165 just built and reviewed (`evaluate_frame_gate`'s `group_key`/`min_clusters` params)
+rather than trusting a single pooled verdict, since that's exactly the failure mode 165 just
+fixed elsewhere. (2) Todo 147's third CV re-check (KRE/VWO/DIA recompute, now that todo 124's
+`market_data_ohlcv_tradeable` fix is live) — longest-outstanding open item. (3) Todo 088
+(`hold_max_bars` censoring-vs-confirmed-decay type safety) — unblocked 2026-07-21, small
+well-scoped fix. (4) Phase 163 execution (`/gsd-execute-phase 163`) — planned, ready,
+independent of the above. (5) Phase 165 planning (`/gsd-plan-phase 165`, GSD phase — distinct
+from todo 165 above, same number by coincidence) — context/research done, ready to plan.
 **Execution plan:** `docs/plans/2026-06-30-alphaengine-v1-execution-plan.md`
 
 ## v3.0 Phase Summary (SHIPPED 2026-06-25)

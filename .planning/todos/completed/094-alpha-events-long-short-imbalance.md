@@ -216,3 +216,25 @@ promote only on evidence.
 **Gate:** sequenced after todo 091 per the project owner's explicit 2026-07-10 decision, reaffirmed
 2026-07-11 after this root-cause correction — 091's CI fix and this fix's eligibility redesign
 both touch `ic_ci_lower`/`ic_ci_upper`, so one `ic_engine` re-run should serve both.
+
+## Closed 2026-07-21 — HOLD verdict, sign_symmetric stays false
+
+The 5-part sign-symmetric redesign (eligibility gate, walk-forward criterion, quality weight,
+E2 sign path) shipped and was trained under a shadow `weight_version`
+(`143.1-08-challenger`) against the real champion (`143.1-08-champion`) — the mandatory
+shadow-mode validation this todo required, not a smaller stand-in. This is not a marginal or
+ambiguous result: the sign-symmetric challenger failed every evaluated criterion decisively —
+`c3_sharpe = -4.14`, `c4_max_dd = 3607x` (peak-to-trough on the cumulative-R curve), every
+`direction x regime` cell with adequate coverage came back negative for both champion and
+challenger. Re-confirmed independently via todo 165's regime-stratified re-evaluation (a
+stricter, cell-by-cell re-test built specifically to rule out "the pooled verdict was hiding a
+real regime-conditional edge") — same result, same decisive rejection, not merely unchanged
+by coincidence.
+
+**Verdict: HOLD.** `alpha.ensemble.sign_symmetric` stays `false`. The E1-vs-E2 A/B judgment
+this todo's step 6 called to re-run becomes moot for promotion purposes — the underlying
+sign-symmetric/short-inclusive universe itself is decisively rejected regardless of which
+weighting method would be applied within it, so there is no live weighting-method question left
+to adjudicate on this universe.
+
+Full detail: `.planning/phases/143.1-measurement-and-eligibility-integrity-fisher-z-ci-bootstrap-/143.1-08-SHADOW-VALIDATION.md`.

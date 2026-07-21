@@ -33,23 +33,29 @@ integrity gap, an unproven claim masquerading as settled) outranks one that's me
 
 | Todo | Gap |
 |---|---|
-| [094](pending/094-alpha-events-long-short-imbalance.md) | Two sign-asymmetric gates (`ic_ci_lower > 0` eligibility filter, `fold_ic > 0` walk-forward criterion) excluded 100% of contrarian features before weighting ever ran. Sign-symmetric redesign shipped (143.1-04, verified live in `ic_engine.py`/`ensemble_trainer.py`). **Now unblocked:** mandatory shadow-mode champion/challenger validation (143.1-08) can proceed — 143.1-07's corpus re-run finished 2026-07-19. **IN PROGRESS as of 2026-07-20 in a separate session/worktree (`worktree-agent-acc3e6a78746c2514`, commit `39537537` at last check, not yet merged to main) — check `git worktree list` / that branch before dispatching this, do not duplicate.** |
 | [099](pending/099-bootstrap-ci-staged-validation-gate-not-cleared-5m-residual.md) | P2 — the bootstrap CI staged-validation gate's 6 SUSPECT cells trace to 5 diagnostic-only (`is_pooled=false`) breaches + 1 capital-relevant cell that independently clears its own bound — no longer blocks Plan 07. Underlying statistical question (why 5m autocorrelation/momentum features resist both Fisher-z and block-bootstrap) remains open as non-blocking follow-up. |
-| [096](pending/096-frame-hold-horizon-vs-feature-lookahead-mismatch.md) | **Estimator fix CONFIRMED 2026-07-19** — re-ran the (previously stale/crashing) Monte Carlo verification script against live post-fix APR: all four lookahead scales now report near-identical `ic_sharpe` at every true-correlation level (e.g. 0.9957/0.9957/0.9932/0.9906 at rho=0.10), vs. the old bug's documented 2-3.6x deflation at long horizons. **096's own diagnostic scope is done, but this does NOT unblock 088 yet** — checked directly: `ensemble_trainer`/`ensemble_ic_engine` have not run since 2026-07-10 (`alpha_ensemble_ic` has zero rows, both logs empty since 07-11), so production `hold_max_bars` still reflects PRE-fix weights. 143.1-07 only refreshed `ic_engine`'s feature-level values, not the full pipeline. |
+| [096](pending/096-frame-hold-horizon-vs-feature-lookahead-mismatch.md) | **Unblocked 2026-07-21** — estimator fix confirmed 2026-07-19; live-verified directly against the DB (2026-07-21) that the real production pipeline (not just `ic_engine`'s feature-level values) has since re-run under corrected APR: champion `weight_version=run_2025122405150000` shows `ensemble_weights` rows computed 2026-07-19, and `alpha_ensemble_ic` now holds 2,186 real rows (previously claimed zero/stale). 096's own diagnostic scope is done AND its prerequisite for unblocking 088 is now satisfied. |
 | [160](pending/160-vwo-dia-kre-corrupt-prints-uncorrected.md) | Found 2026-07-20 re-checking todo 147's CV metric post-151/154 — **root cause is one level deeper than first thought.** VWO/DIA were never flagged at all (candidate-discovery gap). KRE WAS correctly flagged `confirmed_corrupt` and its `forward_returns` recomputed sane, but `feature_vectors.true_range_pct` for that row is still corrupt because `backfill_feature_factory.py` reads raw `market_data_ohlcv` (not the `price_sanity_status`-filtering `market_data_ohlcv_tradeable` view) — same gap [124](pending/124-market-ohlcv-tradeable-view-tier2-audit.md) already tracked as style/DRY-only, now proven to be a real correctness bug. Blocks 147's close. |
 
-**Locked sequencing decision (project owner confirmed, do not reorder without re-confirming):**
+**Locked sequencing decision (project owner confirmed, do not reorder without re-confirming) —
+RESOLVED 2026-07-21, kept for record:**
 093 (`alpha_frames` backfill, done) → **091 (done 2026-07-19, moved to `completed/`)** →
 **097 (done 2026-07-19, moved to `completed/`)** →
-**094** (E2 sign-path fix + mandatory shadow-mode validation before promotion) → re-run the
-E1-vs-E2 A/B judgment (the prior 20/20 result was all-long vs all-long, doesn't carry forward) →
-**096** → **088** (deliberately last, informed by 096's finding). Rationale: 091, 097, and 094 all
-read or directly affect `ic_ci_lower`/`ic_ci_upper`, and 094 independently requires a full
-`ic_engine` re-run — sequencing 091 and 097 first meant one corpus re-run served all three fixes
-instead of splitting across multiple. **Status 2026-07-19: the shared corpus re-run (143.1-07)
-completed; 091 is fully closed (standing dependence-length flag landed via todo 145, see
-`completed/`) and 097 is fully closed. Next in the chain: 094's shadow-mode validation
-(143.1-08).**
+**094 (done 2026-07-21, moved to `completed/` — HOLD verdict, `alpha.ensemble.sign_symmetric`
+stays `false`, confirmed twice: 143.1-08's shadow validation and todo 165's regime-stratified
+re-evaluation both rejected the sign-symmetric universe decisively across every metric. The
+E1-vs-E2 A/B re-run this chain originally called for is moot for promotion — there is no live
+weighting-method question left on a universe that's already rejected wholesale)** →
+**096** (done, unblocked 2026-07-21) → **088** (now unblocked, small well-scoped fix, not yet
+started). Rationale: 091, 097, and 094 all read or directly affect `ic_ci_lower`/`ic_ci_upper`,
+and 094 independently required a full `ic_engine` re-run — sequencing 091 and 097 first meant
+one corpus re-run served all three fixes instead of splitting across multiple. **Status
+2026-07-21: the entire chain has now run its course** — 143.1-07's corpus re-run (2026-07-19)
+served 091/097/094 as planned; 091 and 097 are fully closed; 094 concluded with a definitive
+HOLD (see `completed/094-alpha-events-long-short-imbalance.md`); 096's prerequisite (a real,
+non-debug production pipeline re-run) is confirmed live in the DB, so **088 is the one open
+item left in this chain** — a small, well-scoped censoring-vs-confirmed-decay type-safety fix,
+ready to pick up.
 
 ## P1 — High value, quick, fully unblocked
 
@@ -75,7 +81,7 @@ completed; 091 is fully closed (standing dependence-length flag landed via todo 
 | [038](pending/038-cross-sectional-collinearity-diagnostic.md) | Cross-sectional feature collinearity diagnostic vs IC |
 | [039](pending/039-tag-stratified-ic-population-check.md) | Population-count check before tag-stratified cross-sectional IC |
 | [081](pending/081-emission-meta-labeling-and-conviction-cross-ref.md) | Emission meta-labeling gate — check overlap with 065/EM-HYST before building |
-| [088](pending/088-hold-max-bars-censoring-not-tracked.md) | `hold_max_bars` calibration doesn't distinguish confirmed decay from censored data. Locked as a separately-sequenced step (093→091→097→094→A/B re-run→096→088) — see the P0 sequencing decision above. |
+| [088](pending/088-hold-max-bars-censoring-not-tracked.md) | `hold_max_bars` calibration doesn't distinguish confirmed decay from censored data. **Unblocked 2026-07-21** — the 093→091→097→094→096→088 sequencing chain has fully resolved (see the P0 section above); this is the one remaining open item in it, ready to pick up. |
 | [089](pending/089-ensemble-ic-engine-recurring-cadence.md) | No recurring `ensemble_ic_engine` schedule exists — IC-decay trigger input can go stale |
 | [009](pending/009-service-utils-ic-engine-cleanup.md) | Phase B infra cleanup batch — APR compliance sweep, `BaseBatch` promotion, naming vocab, shared-utility DRY fixes, `ic_engine.py` pure-function extraction |
 | [029](pending/029-feature-scoring-beyond-ic.md) | Feature scoring beyond IC (near-term derived metrics) |
