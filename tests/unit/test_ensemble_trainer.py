@@ -281,3 +281,54 @@ class TestStratumSkipsAreNeverSilent:
         source = inspect.getsource(EnsembleTrainer._execute_inner)
         assert "ensemble_stratum_coverage" in source
         assert "emit_integrity_fact_async" in source
+
+
+class TestResolvePerTf:
+    def test_falls_back_to_default_when_unset(self) -> None:
+        from services.ensemble_trainer import _resolve_per_tf
+
+        assert _resolve_per_tf({}, "alpha.ensemble.min_passing_features", "1h", 5) == 5
+
+    def test_uses_per_tf_override_when_set(self) -> None:
+        from services.ensemble_trainer import _resolve_per_tf
+
+        cfg = {"alpha.ensemble.min_passing_features.1h": "3"}
+        assert _resolve_per_tf(cfg, "alpha.ensemble.min_passing_features", "1h", 5) == 3
+
+    def test_other_timeframes_unaffected_by_1h_override(self) -> None:
+        from services.ensemble_trainer import _resolve_per_tf
+
+        cfg = {"alpha.ensemble.min_passing_features.1h": "3"}
+        assert _resolve_per_tf(cfg, "alpha.ensemble.min_passing_features", "15m", 5) == 5
+
+
+class TestAssertFeasibleThresholds:
+    def test_raises_on_infeasible_pair(self) -> None:
+        from services.ensemble_trainer import _assert_feasible_thresholds
+
+        cfg = {
+            "alpha.ensemble.min_passing_features.1h": "2",
+            "alpha.ensemble.max_feature_weight.1h": "0.20",
+        }
+        with pytest.raises(RuntimeError, match="infeasible"):
+            _assert_feasible_thresholds(
+                cfg, ["1h"], global_min_passing_features=5, global_max_feature_weight=0.20
+            )
+
+    def test_passes_on_feasible_pair(self) -> None:
+        from services.ensemble_trainer import _assert_feasible_thresholds
+
+        cfg = {
+            "alpha.ensemble.min_passing_features.1h": "3",
+            "alpha.ensemble.max_feature_weight.1h": "0.34",
+        }
+        _assert_feasible_thresholds(
+            cfg, ["1h"], global_min_passing_features=5, global_max_feature_weight=0.20
+        )
+
+    def test_global_default_pair_is_feasible(self) -> None:
+        from services.ensemble_trainer import _assert_feasible_thresholds
+
+        _assert_feasible_thresholds(
+            {}, ["5m", "15m", "1d"], global_min_passing_features=5, global_max_feature_weight=0.20
+        )

@@ -43,6 +43,7 @@ from __future__ import annotations
 
 import asyncio
 import sys
+from collections.abc import Iterable
 from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
@@ -123,6 +124,45 @@ def _eligibility_where(sign_symmetric: bool) -> tuple[str, str]:
         " AND passes_walkforward = true"
     )
     return base_where, base_where + " AND passes_fdr = true"
+
+
+def _resolve_per_tf(cfg: dict[str, Any], key_base: str, tf: str, default: Any) -> Any:
+    """Resolve a per-timeframe APR override, falling back to the global default.
+
+    Exact precedent: alpha.frame.hold_max_bars.<regime>.<tf> (services/alpha_frame_writer.py).
+    Used for alpha.ensemble.min_passing_features/max_feature_weight/meta_fdr_min_cells
+    (todo 164) -- 5m/15m/1d see byte-identical behavior since no per-tf key is set for them.
+    """
+    return _cfg(cfg, f"{key_base}.{tf}", default)
+
+
+def _assert_feasible_thresholds(
+    cfg: dict[str, Any],
+    tfs: Iterable[str],
+    global_min_passing_features: int,
+    global_max_feature_weight: float,
+) -> None:
+    """Fail loud if any timeframe's effective (min_passing_features, max_feature_weight)
+    pair cannot produce a valid normalized weight vector under the cap.
+
+    N features each at the cap must be able to sum to >= 1.0 (migration 164's original
+    5 * 0.20 = 1.0 math) -- a silently infeasible per-tf override would otherwise produce a
+    broken/degenerate weight vector instead of a clear error (todo 164, "silent wrong
+    answers are worse than loud crashes").
+    """
+    for tf in tfs:
+        n = _resolve_per_tf(
+            cfg, "alpha.ensemble.min_passing_features", tf, global_min_passing_features
+        )
+        cap = _resolve_per_tf(
+            cfg, "alpha.ensemble.max_feature_weight", tf, global_max_feature_weight
+        )
+        if n * cap < 1.0:
+            raise RuntimeError(
+                f"ensemble_trainer: infeasible thresholds for tf={tf!r}: "
+                f"min_passing_features={n} * max_feature_weight={cap} = {n * cap:.4f} < 1.0 "
+                "-- no normalized weight vector can satisfy both constraints simultaneously."
+            )
 
 
 # ---------------------------------------------------------------------------
