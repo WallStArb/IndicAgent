@@ -97,8 +97,14 @@ still wrote zero strata on every regime); root cause traced one gate upstream to
 seeding). `_resolve_per_tf`/`_assert_feasible_thresholds` added to `services/ensemble_trainer.py`
 with a startup feasibility assertion guarding `min_passing_features * max_feature_weight >= 1.0`.
 
-Live-verified: `1h` now writes strata (7 rows under a throwaway `weight_version` re-run,
-previously 0 on every regime) — an honest partial fix, not every 1h regime (`low_neutral` and
-`high_neutral` remain unfixed per migration 246's own evidence). `5m`/`15m`/`1d` unaffected
-(no per-tf key set, byte-identical default behavior). `1d`'s genuinely different small-sample
-power problem split out to **todo 166** (pending), per this todo's own scoping.
+Live-verified via a full completed `ensemble_trainer.py --sign-symmetric` re-run under a
+throwaway `weight_version` (`debug_164_1h_verify2`, cleaned up after): the service's own
+coverage-tracking mechanism confirms `{"tf": "1h", "n_attempted": 7, "n_written": 5}` —
+5 of `1h`'s 7 regimes now write (`high_bear`: 4 features, `low_bull`: 3, `mid_bear`: 3,
+`mid_bull`: 5, `mid_neutral`: 3), previously 0 on every regime. An honest partial fix, not
+every 1h regime: `low_neutral` (2 meta-eligible features, one short of the floor) and
+`high_neutral` (zero IC rows entirely, a different and deeper population gap) remain
+unfixed, exactly as migration 246's own evidence predicted before the run. `5m`/`15m`/`1d`
+unaffected (no per-tf key set, byte-identical default behavior: `5m` 15/6, `15m` 9/7, `1d`
+4/2 attempted/written, matching the pre-existing baseline). `1d`'s genuinely different
+small-sample power problem split out to **todo 166** (pending), per this todo's own scoping.
