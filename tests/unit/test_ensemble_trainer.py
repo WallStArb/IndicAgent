@@ -248,3 +248,36 @@ class TestFeatureStatusAtEvalFilter:
 
         source = inspect.getsource(EnsembleTrainer._process_stratum)
         assert "feature_status_at_eval = 'active'" in source
+
+
+class TestStratumSkipsAreNeverSilent:
+    """Regression lock: a timeframe whose every stratum gets skipped (e.g. 1h -- only
+    3 total meta-eligible features across all regimes, never enough to clear
+    min_passing_features) must be distinguishable from a healthy quiet run. Before this
+    fix, every skip path logged at .debug (invisible at the service's configured INFO
+    level) and returned None -- a total-coverage blackout on an entire timeframe looked
+    identical to nothing-to-report. See CLAUDE.md's "silent wrong answers are worse than
+    loud crashes" and T-142B1-04-03's existing "never a silent skip" precedent for
+    weight_method_fallback, which this now matches."""
+
+    def test_process_stratum_returns_bool_not_none(self) -> None:
+        from services.ensemble_trainer import EnsembleTrainer
+
+        sig = inspect.signature(EnsembleTrainer._process_stratum)
+        assert sig.return_annotation == "bool"
+
+    def test_no_skip_path_logs_at_debug_level(self) -> None:
+        """Every early-return skip reason must log at .warning or louder -- .debug is
+        invisible at this service's configured level, which is exactly how 1h's total
+        blackout went unnoticed."""
+        from services.ensemble_trainer import EnsembleTrainer
+
+        source = inspect.getsource(EnsembleTrainer._process_stratum)
+        assert "log.debug(" not in source
+
+    def test_execute_emits_per_tf_coverage_integrity_fact(self) -> None:
+        from services.ensemble_trainer import EnsembleTrainer
+
+        source = inspect.getsource(EnsembleTrainer._execute_inner)
+        assert "ensemble_stratum_coverage" in source
+        assert "emit_integrity_fact_async" in source

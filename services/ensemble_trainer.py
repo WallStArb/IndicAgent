@@ -61,6 +61,7 @@ from services._batch_utils import cfg as _cfg
 from services._batch_utils import load_apr_dict_async as _load_apr
 from src.config.settings import Settings
 from src.core.agent.base_batch import BaseBatch
+from src.core.integrity_monitor import emit_integrity_fact_async
 from src.intelligence.ensemble import (
     cluster_deflate_weights,
     compute_shrinkage_covariance,
@@ -653,17 +654,47 @@ class EnsembleTrainer(BaseBatch):
                 """)
             self.logger.info("ensemble_trainer.strata_found", stratum_count=len(strata_rows))
 
+            attempted_by_tf: dict[str, int] = {}
+            written_by_tf: dict[str, int] = {}
             for stratum in strata_rows:
                 tf = stratum["tf"]
                 regime = stratum["regime"]
+                attempted_by_tf[tf] = attempted_by_tf.get(tf, 0) + 1
 
-                await self._process_stratum(
+                wrote = await self._process_stratum(
                     conn=conn,
                     tf=tf,
                     regime=regime,
                     feature_cols=feature_cols,
                     config=config,
                     meta_eligible_features=meta_eligible_by_tf.get(tf, set()),
+                )
+                if wrote:
+                    written_by_tf[tf] = written_by_tf.get(tf, 0) + 1
+
+            # Coverage integrity fact per tf (todo: 1h-total-blackout investigation): a
+            # timeframe attempted but never producing a single written stratum previously
+            # looked identical to a healthy quiet run (every skip reason logged at .debug).
+            # passed=False here is the loud version of that silence -- surfaces in
+            # integrity_monitor regardless of whether anyone is watching this run's logs.
+            now_ts = datetime.now(UTC)
+            for tf, n_attempted in attempted_by_tf.items():
+                n_written = written_by_tf.get(tf, 0)
+                await emit_integrity_fact_async(
+                    conn,
+                    monitor_type="ensemble_stratum_coverage",
+                    subject=tf,
+                    metric_name="strata_written_ratio",
+                    metric_value=n_written / n_attempted if n_attempted else 0.0,
+                    threshold_value=0.0,
+                    passed=n_written > 0,
+                    training_window_end=now_ts,
+                )
+                self.logger.info(
+                    "ensemble_trainer.tf_coverage",
+                    tf=tf,
+                    n_attempted=n_attempted,
+                    n_written=n_written,
                 )
 
         self.logger.info(
@@ -695,8 +726,14 @@ class EnsembleTrainer(BaseBatch):
         feature_cols: list[str],
         config: EnsembleConfig,
         meta_eligible_features: set[str],
-    ) -> None:
-        """Process one (tf, regime) stratum end-to-end using cross-sectional IC."""
+    ) -> bool:
+        """Process one (tf, regime) stratum end-to-end using cross-sectional IC.
+
+        Returns True if weights/alpha were written, False if the stratum was skipped.
+        Every skip reason logs at .warning (never .debug, T-142B1-04-03's "never a
+        silent skip" precedent) -- a timeframe with zero eligible strata previously
+        looked identical to a healthy quiet run; see execute()'s coverage integrity
+        fact for the aggregate view this feeds."""
         log = self.logger.bind(tf=tf, regime=regime)
 
         # E1 (D-05): alpha.ensemble.ic_input selects which column feeds quality_weight.
@@ -728,8 +765,8 @@ class EnsembleTrainer(BaseBatch):
         # Meta-FDR gate: keep only features that pass BH-FDR in >=min_fraction of eligible cells
         ic_rows = [r for r in ic_rows if r["feature_name"] in meta_eligible_features]
         if not ic_rows:
-            log.debug("ensemble_trainer.stratum_no_ic_rows")
-            return
+            log.warning("ensemble_trainer.stratum_no_ic_rows")
+            return False
 
         # Step 2: Select best lookahead per feature using quality_weight.
         # select_features_per_stratum expects key "ic_sharpe"; the underlying column is
@@ -742,12 +779,12 @@ class EnsembleTrainer(BaseBatch):
             sharpe_floor=config.sharpe_floor,
         )
         if len(selected) < config.min_passing_features:
-            log.debug(
+            log.warning(
                 "ensemble_trainer.stratum_skipped_min_features",
                 n_features=len(selected),
                 min_required=config.min_passing_features,
             )
-            return
+            return False
 
         feature_names = [r["feature_name"] for r in selected]
         # quality_weights are the raw weight inputs to derive_weights (A5c).
@@ -765,12 +802,12 @@ class EnsembleTrainer(BaseBatch):
         # Step 3: Load feature matrix X from feature_vectors for all symbols in this (tf, regime)
         col_subset = [c for c in feature_cols if c in feature_names]
         if len(col_subset) < config.min_passing_features:
-            log.debug(
+            log.warning(
                 "ensemble_trainer.stratum_skipped_missing_cols",
                 n_cols=len(col_subset),
                 min_required=config.min_passing_features,
             )
-            return
+            return False
 
         # Restrict to features that have a column, preserving IC-selection order.
         # col_subset already passed the min_passing_features gate, and ordered_names has the
@@ -805,8 +842,8 @@ class EnsembleTrainer(BaseBatch):
             regime,
         )
         if len(fv_rows) < 2:
-            log.debug("ensemble_trainer.stratum_insufficient_bars", n_bars=len(fv_rows))
-            return
+            log.warning("ensemble_trainer.stratum_insufficient_bars", n_bars=len(fv_rows))
+            return False
 
         symbol_list = [r["symbol"] for r in fv_rows]
         bar_ts_list = [r["bar_ts"] for r in fv_rows]
@@ -901,7 +938,7 @@ class EnsembleTrainer(BaseBatch):
         if float(weights.sum()) < 1e-10:
             log.warning("ensemble_trainer.stratum_zero_weight_vector", reason="zero_weight_vector")
             ENSEMBLE_FEATURES_ZERO_WEIGHT_GAUGE.set(len(ordered_names), gauge_attrs)
-            return
+            return False
 
         eff_n = effective_n(weights)
 
@@ -1020,6 +1057,7 @@ class EnsembleTrainer(BaseBatch):
             n_bars=len(alpha_rows),
             margin=round(margin, 4),
         )
+        return True
 
 
 # ---------------------------------------------------------------------------
