@@ -385,7 +385,7 @@ def _effective_sign_symmetric(cli_sign_symmetric: bool | None, apr_default: bool
 
 
 def _meta_eligible(
-    fdr_pass_rows: list[dict], min_fraction: float, min_cells: int
+    fdr_pass_rows: list[dict], cfg: dict[str, Any], min_fraction: float, min_cells: int
 ) -> dict[str, set[str]]:
     """Return, per timeframe, feature names whose BH-FDR pass-rate across that
     timeframe's eligible cells meets the threshold.
@@ -397,8 +397,9 @@ def _meta_eligible(
     at 1d can get vetoed everywhere by a weak showing in 5m noise. Each row must carry
     'feature_name', 'tf', 'fdr_pass_rate', 'n_cells'.
 
-    min_cells excludes (feature, tf) pairs with too little evidence to make the
-    fraction meaningful — a single-cell 100% pass rate is a tautology, not replication.
+    min_cells is the GLOBAL fallback; alpha.ensemble.meta_fdr_min_cells.<tf> (todo 164)
+    resolves per-timeframe via _resolve_per_tf, falling back to min_cells when unset --
+    excludes (feature, tf) pairs with too little evidence to make the fraction meaningful.
 
     Denominator (fdr_pass_rate) is restricted to cross-sectional cells that pass all
     ensemble eligibility filters (symbol='POOLED', is_pooled=true, regime != '_pooled',
@@ -408,7 +409,10 @@ def _meta_eligible(
     """
     result: dict[str, set[str]] = {}
     for r in fdr_pass_rows:
-        if r["n_cells"] < min_cells:
+        effective_min_cells = _resolve_per_tf(
+            cfg, "alpha.ensemble.meta_fdr_min_cells", r["tf"], min_cells
+        )
+        if r["n_cells"] < effective_min_cells:
             continue
         if r["fdr_pass_rate"] >= min_fraction:
             result.setdefault(r["tf"], set()).add(r["feature_name"])
@@ -655,7 +659,7 @@ class EnsembleTrainer(BaseBatch):
                 GROUP BY feature_name, tf
                 """)
             meta_eligible_by_tf = _meta_eligible(
-                fdr_pass_rows, config.meta_fdr_min_fraction, config.meta_fdr_min_cells
+                fdr_pass_rows, cfg, config.meta_fdr_min_fraction, config.meta_fdr_min_cells
             )
             n_total_cells = sum(r["n_cells"] for r in fdr_pass_rows)
             self.logger.info(
@@ -694,6 +698,13 @@ class EnsembleTrainer(BaseBatch):
                 """)
             self.logger.info("ensemble_trainer.strata_found", stratum_count=len(strata_rows))
 
+            _assert_feasible_thresholds(
+                cfg,
+                {stratum["tf"] for stratum in strata_rows},
+                config.min_passing_features,
+                config.max_feature_weight,
+            )
+
             attempted_by_tf: dict[str, int] = {}
             written_by_tf: dict[str, int] = {}
             for stratum in strata_rows:
@@ -707,6 +718,7 @@ class EnsembleTrainer(BaseBatch):
                     regime=regime,
                     feature_cols=feature_cols,
                     config=config,
+                    cfg=cfg,
                     meta_eligible_features=meta_eligible_by_tf.get(tf, set()),
                 )
                 if wrote:
@@ -765,6 +777,7 @@ class EnsembleTrainer(BaseBatch):
         regime: str,
         feature_cols: list[str],
         config: EnsembleConfig,
+        cfg: dict[str, Any],
         meta_eligible_features: set[str],
     ) -> bool:
         """Process one (tf, regime) stratum end-to-end using cross-sectional IC.
@@ -775,6 +788,13 @@ class EnsembleTrainer(BaseBatch):
         looked identical to a healthy quiet run; see execute()'s coverage integrity
         fact for the aggregate view this feeds."""
         log = self.logger.bind(tf=tf, regime=regime)
+
+        min_passing_features = _resolve_per_tf(
+            cfg, "alpha.ensemble.min_passing_features", tf, config.min_passing_features
+        )
+        max_feature_weight = _resolve_per_tf(
+            cfg, "alpha.ensemble.max_feature_weight", tf, config.max_feature_weight
+        )
 
         # E1 (D-05): alpha.ensemble.ic_input selects which column feeds quality_weight.
         # Default 'ic_sharpe_hac' preserves v1 behavior byte-for-byte; 'ic_shrunk' is
@@ -818,11 +838,11 @@ class EnsembleTrainer(BaseBatch):
             [{**dict(r), "ic_sharpe": r[ic_input_column]} for r in ic_rows],
             sharpe_floor=config.sharpe_floor,
         )
-        if len(selected) < config.min_passing_features:
+        if len(selected) < min_passing_features:
             log.warning(
                 "ensemble_trainer.stratum_skipped_min_features",
                 n_features=len(selected),
-                min_required=config.min_passing_features,
+                min_required=min_passing_features,
             )
             return False
 
@@ -841,11 +861,11 @@ class EnsembleTrainer(BaseBatch):
 
         # Step 3: Load feature matrix X from feature_vectors for all symbols in this (tf, regime)
         col_subset = [c for c in feature_cols if c in feature_names]
-        if len(col_subset) < config.min_passing_features:
+        if len(col_subset) < min_passing_features:
             log.warning(
                 "ensemble_trainer.stratum_skipped_missing_cols",
                 n_cols=len(col_subset),
-                min_required=config.min_passing_features,
+                min_required=min_passing_features,
             )
             return False
 
@@ -954,7 +974,7 @@ class EnsembleTrainer(BaseBatch):
             corr_matrix,
             ic_sharpes,
             ic_signs,
-            config.max_feature_weight,
+            max_feature_weight,
             config.max_cluster_corr,
             config.max_cluster_weight,
             config.mv_condition_max,

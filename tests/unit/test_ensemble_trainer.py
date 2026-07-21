@@ -332,3 +332,28 @@ class TestAssertFeasibleThresholds:
         _assert_feasible_thresholds(
             {}, ["5m", "15m", "1d"], global_min_passing_features=5, global_max_feature_weight=0.20
         )
+
+
+class TestMetaEligiblePerTf:
+    def test_per_tf_min_cells_override_relaxes_1h(self) -> None:
+        """A feature with only 2 cells for 1h is excluded under the global min_cells=3
+        floor, but included once alpha.ensemble.meta_fdr_min_cells.1h=2 is set."""
+        from services.ensemble_trainer import _meta_eligible
+
+        rows = [
+            {"feature_name": "momentum_z_fast", "tf": "1h", "fdr_pass_rate": 1.0, "n_cells": 2},
+        ]
+        assert _meta_eligible(rows, {}, min_fraction=0.5, min_cells=3) == {}
+
+        cfg = {"alpha.ensemble.meta_fdr_min_cells.1h": "2"}
+        result = _meta_eligible(rows, cfg, min_fraction=0.5, min_cells=3)
+        assert result == {"1h": {"momentum_z_fast"}}
+
+    def test_other_tf_unaffected_by_1h_override(self) -> None:
+        from services.ensemble_trainer import _meta_eligible
+
+        rows = [
+            {"feature_name": "momentum_z_fast", "tf": "15m", "fdr_pass_rate": 1.0, "n_cells": 2},
+        ]
+        cfg = {"alpha.ensemble.meta_fdr_min_cells.1h": "2"}
+        assert _meta_eligible(rows, cfg, min_fraction=0.5, min_cells=3) == {}
