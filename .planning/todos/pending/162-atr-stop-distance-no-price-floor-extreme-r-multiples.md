@@ -1,12 +1,39 @@
 ---
 status: pending
-priority: P2
+priority: P1
 filed: 2026-07-21
+reclassified: 2026-07-21 -- P2->P1 same day, after checking the IN-SAMPLE population
+  (not just 143.1-08's OOS window) and finding the same contamination, worse in
+  magnitude and cross-cutting in scope. See "2026-07-21 escalation" below.
 source: found while writing up 143.1-08's shadow-validation criteria (D-19-style
   data-quality check before trusting the champion/challenger numbers)
 ---
 
 # ATR-based stop distance has no minimum-price-fraction floor — produces extreme R-multiple outliers on thin-ATR instruments
+
+## 2026-07-21 escalation — this is not scoped to 143.1-08, and the tail is worse than first measured
+
+Checked the in-sample population (`bar_ts < alpha.validation.oos_start`, the population
+`counterfactual_tracker.py --evaluate-gate`'s FRAME-04 exit gate reads directly) after filing
+this at P2 against only 143.1-08's OOS window. Same bug, same mechanism, **worse magnitude**:
+`min(counterfactual_pnl_r) = -926.87` (EZU 5m, stop 0.056 price-units from a $51.55 entry —
+0.11% of price), 25,094 of 22,387,404 in-sample closed frames (0.11%) exceed `abs(pnl_r) > 10`.
+Every top-10 symbol/tf combination by extreme-frame count is a 5m FX or commodity ETF (FXE,
+FXY, GLD, EWY, EWG, FXA, EZU, FXI, SLV, EWT) — the identical instrument class as the OOS
+finding, confirming this is systemic to the instrument/timeframe combination, not an artifact
+of this session's specific sign-symmetric run.
+
+**Honest caveat, not confirmed either way:** `alpha_frames` currently contains only the two
+`143.1-08-*` weight_epochs (checked live) — whatever population Component A's original
+staged-validation gate (E6, referenced in 143.1-07's blocked-status writeup) or any prior
+FRAME-04 evaluation ran against has since been superseded/replaced. **I cannot verify
+retroactively whether those past gate verdicts were actually contaminated** — the underlying
+row-level evidence no longer exists to check. Given the bug lives in `alpha_frame_writer.py`'s
+`compute_frame_geometry()` (unrelated to 143.1-08's own changes, and present for as long as
+ATR-based frame construction has run against this instrument set), it is *plausible* that any
+past FRAME-04-style gate evaluation was affected — but this is a flagged risk to investigate
+before trusting a past verdict at face value, not a confirmed retroactive finding. Reclassified
+P2->P1 on cross-cutting blast radius and magnitude, not on a proven-wrong-decision claim.
 
 ## What's wrong
 
@@ -25,7 +52,7 @@ zero/stale ATR — 754 frames skipped in the 2026-07-21 full backfill). This is 
 previously-undetected gap: a *small-but-valid* ATR that still produces an economically
 meaningless stop distance.
 
-## Evidence (2026-07-21, 143.1-08 OOS window, `bar_ts >= 2025-12-24`)
+## Evidence (2026-07-21, 143.1-08 OOS window specifically, `bar_ts >= 2025-12-24` — see escalation above for the broader in-sample check)
 
 - 766 champion + 3,439 challenger closed frames have `abs(counterfactual_pnl_r) > 5` (out of
   33,892 / 740,204 total — 2.3% / 0.46% of each population respectively).
