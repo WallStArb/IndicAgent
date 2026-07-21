@@ -24,12 +24,13 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
 from services._batch_utils import cfg as _cfg  # noqa: E402
 from services.counterfactual_tracker import (  # noqa: E402
     _DEFAULT_BOOTSTRAP_RANDOM_STATE,
+    evaluate_frame_gate,
     frame_gate_passes,
 )
 from src.config.settings import Settings  # noqa: E402
 
 _OOS_QUERY_SQL = """
-    SELECT bar_ts, direction, bar_ts::date AS cluster_id, counterfactual_pnl_r AS pnl_r
+    SELECT bar_ts, direction, regime, bar_ts::date AS cluster_id, counterfactual_pnl_r AS pnl_r
     FROM alpha_frames
     WHERE weight_epoch = $1
       AND frame_variant = 'primary'
@@ -67,10 +68,10 @@ def _annualized_sharpe(pnl_r_ordered: list[float], bar_ts_ordered: list[Any]) ->
     return float(daily.mean() / daily.std(ddof=1) * np.sqrt(252))
 
 
-async def _load_apr(conn: asyncpg.Connection) -> tuple[int, int, int, int]:
+async def _load_apr(conn: asyncpg.Connection) -> tuple[int, int, int, int, int]:
     apr_rows = await conn.fetch(
         "SELECT config_key, config_value FROM config_state WHERE config_key LIKE ANY($1::text[])",
-        ["alpha.scoring.%"],
+        ["alpha.scoring.%", "alpha.validation.regime_gate_min_clusters"],
     )
     apr_cfg = {row["config_key"]: row["config_value"] for row in apr_rows}
     min_n = _cfg(apr_cfg, "alpha.scoring.min_strategy_n", 30)
@@ -79,7 +80,8 @@ async def _load_apr(conn: asyncpg.Connection) -> tuple[int, int, int, int]:
     bootstrap_random_state = _cfg(
         apr_cfg, "alpha.scoring.bootstrap_random_state", _DEFAULT_BOOTSTRAP_RANDOM_STATE
     )
-    return min_n, bootstrap_max_n, bootstrap_batch, bootstrap_random_state
+    regime_gate_min_clusters = _cfg(apr_cfg, "alpha.validation.regime_gate_min_clusters", 20)
+    return min_n, bootstrap_max_n, bootstrap_batch, bootstrap_random_state, regime_gate_min_clusters
 
 
 async def evaluate_epoch(
@@ -90,6 +92,7 @@ async def evaluate_epoch(
     bootstrap_max_n: int,
     bootstrap_batch: int,
     bootstrap_random_state: int,
+    regime_gate_min_clusters: int,
 ) -> dict[str, Any]:
     rows = [dict(r) for r in await conn.fetch(_OOS_QUERY_SQL, weight_epoch, oos_start)]
     n_days = len({r["cluster_id"] for r in rows})
@@ -103,6 +106,29 @@ async def evaluate_epoch(
 
     sharpe = _annualized_sharpe(pnl_r, bar_ts) if pnl_r else None
     dd, dd_fails = _max_drawdown(np.array(pnl_r)) if pnl_r else (None, True)
+
+    # Regime-stratified re-evaluation of C2/C7 (todo 165) -- groups by (direction, regime),
+    # never reaches into in-sample data (rows are already OOS-only from _OOS_QUERY_SQL).
+    # Scope-narrowed to C2/C7 only: C1 (day floor)/C3 (Sharpe)/C4 (drawdown)/C6
+    # (non-regression) stay pooled, since Sharpe/drawdown are multi-day path statistics
+    # that are not meaningful on an 8-25 day regime slice.
+    regime_cells = evaluate_frame_gate(
+        rows,
+        min_n=1,  # frame-count floor not meaningful here; min_clusters is the real floor
+        bootstrap_max_n=bootstrap_max_n,
+        bootstrap_batch=bootstrap_batch,
+        bootstrap_random_state=bootstrap_random_state,
+        group_key=lambda row: (row["direction"], row["regime"]),
+        min_clusters=regime_gate_min_clusters,
+    )
+    evaluated_cells = [c for c in regime_cells if c["coverage"] == "evaluated"]
+    c2_regime_stratified_passes = (
+        all(c["passes"] for c in evaluated_cells) if evaluated_cells else None
+    )
+    c7_regime_stratified_no_confident_loss = not any(
+        c["ci_upper"] is not None and not np.isnan(c["ci_upper"]) and c["ci_upper"] < 0
+        for c in evaluated_cells
+    )
 
     short_rows = [r for r in rows if r["direction"] == "short"]
     n_short = len(short_rows)
@@ -134,6 +160,9 @@ async def evaluate_epoch(
         "c7_short_ci_lower": short_ci_lower,
         "c7_short_ci_upper": short_ci_upper,
         "c7_confident_loss": confident_loss,
+        "regime_cells": regime_cells,
+        "c2_regime_stratified_passes": c2_regime_stratified_passes,
+        "c7_regime_stratified_no_confident_loss": c7_regime_stratified_no_confident_loss,
     }
 
 
@@ -142,7 +171,13 @@ async def main() -> None:
     db_dsn = settings.database_url.replace("postgresql+asyncpg://", "postgresql://")
     conn = await asyncpg.connect(db_dsn)
     try:
-        min_n, bootstrap_max_n, bootstrap_batch, bootstrap_random_state = await _load_apr(conn)
+        (
+            min_n,
+            bootstrap_max_n,
+            bootstrap_batch,
+            bootstrap_random_state,
+            regime_gate_min_clusters,
+        ) = await _load_apr(conn)
         oos_start = await conn.fetchval(
             "SELECT config_value::timestamptz FROM config_state "
             "WHERE config_key = 'alpha.validation.oos_start'"
@@ -158,6 +193,7 @@ async def main() -> None:
             bootstrap_max_n,
             bootstrap_batch,
             bootstrap_random_state,
+            regime_gate_min_clusters,
         )
         challenger = await evaluate_epoch(
             conn,
@@ -167,6 +203,7 @@ async def main() -> None:
             bootstrap_max_n,
             bootstrap_batch,
             bootstrap_random_state,
+            regime_gate_min_clusters,
         )
     finally:
         await conn.close()
@@ -176,7 +213,17 @@ async def main() -> None:
     for label, result in (("CHAMPION", champion), ("CHALLENGER", challenger)):
         print(f"\n=== {label} ({result['weight_epoch']}) ===")
         for key, value in result.items():
+            if key == "regime_cells":
+                continue
             print(f"  {key}: {value}")
+        print(f"  --- regime coverage (min_clusters={regime_gate_min_clusters}) ---")
+        for cell in sorted(result["regime_cells"], key=lambda c: (c["tf"], c["regime"])):
+            print(
+                f"    direction={cell['tf']} regime={cell['regime']} "
+                f"n_frames={cell['n_frames']} n_clusters={cell['n_clusters']} "
+                f"coverage={cell['coverage']} passes={cell['passes']} "
+                f"ci_lower={cell['ci_lower']} ci_upper={cell['ci_upper']}"
+            )
 
     print(f"\n=== CRITERION 6 (non-regression vs champion) ===\n  passes: {c6_passes}")
 
@@ -185,16 +232,25 @@ async def main() -> None:
         if all(
             [
                 challenger["c1_min_60_days"],
-                challenger["c2_passes"],
+                challenger["c2_regime_stratified_passes"] is True,
                 challenger["c3_passes"],
                 challenger["c4_passes"],
                 c6_passes,
-                not challenger["c7_confident_loss"],
+                challenger["c7_regime_stratified_no_confident_loss"],
             ]
         )
         else "HOLD"
     )
-    print(f"\n=== VERDICT (criteria 1-4, 6, 7; criterion 5 N/A per Section 3a) ===\n  {verdict}")
+    print(
+        "\n=== VERDICT (criteria 1, 3, 4, 6 pooled; 2, 7 regime-stratified per todo 165) "
+        f"===\n  {verdict}"
+    )
+    if challenger["c2_regime_stratified_passes"] is None:
+        print(
+            "  NOTE: no (direction, regime) cell had sufficient OOS day-cluster coverage "
+            f"(floor={regime_gate_min_clusters}) -- verdict is inconclusive on regime-conditional "
+            "edge, not a clean HOLD."
+        )
 
 
 if __name__ == "__main__":
