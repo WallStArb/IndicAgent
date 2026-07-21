@@ -1,21 +1,21 @@
 {
   "step_name": "alpha_frame_writer",
   "step_version": "1.0",
-  "timestamp": "2026-07-10T19:31:14.679884+00:00",
+  "timestamp": "2026-07-20T12:41:11.878929+00:00",
   "status": "success",
   "inputs": {
     "backfill": true,
-    "corpus_run_id": "2026-07-10T19:31:14.824334+00:00",
-    "n_partitions": 238
+    "corpus_run_id": "2026-07-20T12:41:13.637387+00:00",
+    "n_partitions": 240
   },
   "outputs": {
     "alpha_frames": {
       "table": "alpha_frames",
-      "rows_total": 11813874,
+      "rows_total": 23162390,
       "rows_by_tf": {
-        "15m": 4055395,
-        "1d": 9342,
-        "5m": 7749137
+        "15m": 3455408,
+        "1d": 59432,
+        "5m": 19647550
       }
     }
   },
