@@ -640,21 +640,34 @@ class CounterfactualTracker(BaseBatch):
             )
 
     async def _flush_worker_results(
-        self, pool: asyncpg.Pool, results_iter: Iterable[list[dict[str, Any]]]
+        self,
+        pool: asyncpg.Pool,
+        results_iter: Iterable[list[dict[str, Any]]],
+        chunk_size: int,
     ) -> int:
         """Per-symbol incremental flush (anti-OOM write-side twin of the read-side named-
         cursor fix, T-142B-08). Consumes an ITERABLE of per-symbol row-lists and, for EACH
         batch as it arrives, does exactly ONE serial async batch UPDATE then releases the
         connection -- NEVER accumulates all symbols' rows into one aggregate write (the
-        client-side unbounded-accumulation OOM shape that crashed production twice)."""
+        client-side unbounded-accumulation OOM shape that crashed production twice).
+
+        A busy symbol/tf cell can return tens of thousands of closed frames in one batch.
+        asyncpg's executemany() wraps its whole args list in one implicit transaction, so a
+        single unchunked call over that whole batch commits nothing -- and is invisible to
+        every other reader, including a restart's WHERE status='open' scan -- until the
+        entire batch finishes. Chunking to chunk_size bounds each transaction and commits
+        incrementally, matching infra.alpha_frame_writer.chunk_size's precedent on the same
+        table (found investigating 143.1-08: 3 backfill attempts over ~18h wrote zero rows)."""
         total_written = 0
         for symbol_rows in results_iter:
             if not symbol_rows:
                 continue
             tuples = [self._row_to_update_tuple(row) for row in symbol_rows]
-            async with pool.acquire() as wconn:
-                await wconn.executemany(self._UPDATE_SQL, tuples)
-            total_written += len(tuples)
+            for start in range(0, len(tuples), chunk_size):
+                chunk = tuples[start : start + chunk_size]
+                async with pool.acquire() as wconn:
+                    await wconn.executemany(self._UPDATE_SQL, chunk)
+                total_written += len(chunk)
         return total_written
 
     async def execute(self, pool: asyncpg.Pool) -> None:  # type: ignore[override]
@@ -679,6 +692,7 @@ class CounterfactualTracker(BaseBatch):
             default_target_r_multiple = frame_config.target_r_multiple
             itersize = _cfg(cfg, "infra.counterfactual_tracker.itersize", 5000)
             n_workers = _cfg(cfg, "infra.counterfactual_tracker.workers", 12)
+            chunk_size = _cfg(cfg, "infra.counterfactual_tracker.chunk_size", 5000)
 
             partitions = await conn.fetch(
                 "SELECT DISTINCT symbol, tf FROM alpha_frames "
@@ -695,6 +709,7 @@ class CounterfactualTracker(BaseBatch):
             default_target_r_multiple=default_target_r_multiple,
             itersize=itersize,
             n_workers=n_workers,
+            chunk_size=chunk_size,
             n_symbols=len(symbol_to_tfs),
             backfill=self.backfill,
         )
@@ -741,7 +756,7 @@ class CounterfactualTracker(BaseBatch):
                     )
                     yield rows
 
-        total_written = await self._flush_worker_results(pool, _row_lists())
+        total_written = await self._flush_worker_results(pool, _row_lists(), chunk_size)
 
         if worker_errors:
             self.logger.error(

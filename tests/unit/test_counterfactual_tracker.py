@@ -111,9 +111,63 @@ def test_flush_worker_results_issues_one_executemany_per_symbol_batch():
         [dict(row_template, frame_id="c1"), dict(row_template, frame_id="c2")],
     ]
 
-    total = asyncio.run(tracker._flush_worker_results(_FakePool(), iter(batches)))
+    total = asyncio.run(tracker._flush_worker_results(_FakePool(), iter(batches), chunk_size=5000))
 
     assert executemany_mock.await_count == 3
+    assert total == 5
+
+
+def test_flush_worker_results_chunks_large_symbol_batch():
+    """A single symbol's batch larger than chunk_size must split into multiple executemany
+    calls, each committed separately -- regression for the 143.1-08 bug where one busy
+    symbol's whole result set went into ONE implicit-transaction executemany() call, so
+    nothing committed (and nothing was visible to a restart's WHERE status='open' scan)
+    until the entire symbol finished."""
+    tracker = CounterfactualTracker(db_dsn="postgresql://unused/unused")
+    executemany_mock = AsyncMock()
+    call_sizes: list[int] = []
+
+    async def _record_and_call(self, sql, chunk):
+        call_sizes.append(len(chunk))
+        return await executemany_mock(sql, chunk)
+
+    class _FakeConn:
+        async def __aenter__(self):
+            return self
+
+        async def __aexit__(self, *exc_info):
+            return False
+
+        executemany = _record_and_call
+
+    class _FakePool:
+        def acquire(self):
+            return _FakeConn()
+
+    now = "2026-07-10T00:00:00Z"
+    row_template = {
+        "frame_id": "f",
+        "bar_ts": now,
+        "entry_price": 1.0,
+        "stop_price": 1.0,
+        "target_price": 1.0,
+        "r_multiple": 1.0,
+        "status": "closed_stop",
+        "counterfactual_pnl_r": -1.0,
+        "counterfactual_mfe": 0.0,
+        "counterfactual_mae": -1.0,
+        "counterfactual_bars": 1,
+        "exit_reason": "closed_stop",
+        "closed_at": now,
+        "measured_at": now,
+    }
+    one_symbol_batch = [dict(row_template, frame_id=f"f{i}") for i in range(5)]
+
+    total = asyncio.run(
+        tracker._flush_worker_results(_FakePool(), iter([one_symbol_batch]), chunk_size=2)
+    )
+
+    assert call_sizes == [2, 2, 1]
     assert total == 5
 
 
@@ -134,7 +188,7 @@ def test_flush_worker_results_skips_empty_batches():
         def acquire(self):
             return _FakeConn()
 
-    total = asyncio.run(tracker._flush_worker_results(_FakePool(), iter([[], []])))
+    total = asyncio.run(tracker._flush_worker_results(_FakePool(), iter([[], []]), chunk_size=5000))
     assert executemany_mock.await_count == 0
     assert total == 0
 
