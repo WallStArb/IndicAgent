@@ -2,9 +2,9 @@
 gsd_state_version: 1.0
 milestone: v3.1
 milestone_name: AlphaEngine Validation + Alpha Scoring
-status: Phase 143.1 (Measurement and Eligibility Integrity) COMPLETE (8/8) -- 143.1-08 VERDICT HOLD
-stopped_at: 143.1-08 shadow validation done, merged to main (c9622932), worktree cleaned up
-last_updated: 2026-07-21T12:30:00.000Z
+status: Phase 143.1 (Measurement and Eligibility Integrity) COMPLETE (8/8) -- 143.1-08 VERDICT HOLD; todos 164/165 (regime-stratified promotion gate + 1h ensemble eligibility) closed, merged to main (24ca4da1)
+stopped_at: todos 164/165 implementation plan fully executed and merged, worktree cleaned up
+last_updated: 2026-07-21T15:47:00.000Z
 progress:
   total_phases: 12
   completed_phases: 6
@@ -226,3 +226,59 @@ S/R-aware once that data exists — cross-referenced from Phase 163's own CONTEX
 acceptance gate re-run, now that 143.1 is complete. (3) Phase 163 execution
 (`/gsd-execute-phase 163`) — ready, independent of the above. (4) Phase 165 planning
 (`/gsd-plan-phase 165`) — ready, independent of the above.
+
+### Session closeout (2026-07-21, later same day) — todos 164/165 implementation plan executed and merged
+
+This session picked up mid-flight work that neither this file nor `main`'s working tree
+accurately reflected: a full implementation plan
+(`docs/superpowers/plans/2026-07-21-regime-stratified-promotion-and-per-timeframe-eligibility.md`,
+found investigating 143.1-08's HOLD verdict) had already been executed 9 commits deep in an
+active worktree (`worktree-todo-164-165-ensemble-eligibility`), while `main`'s working tree
+held stray, redundant, uncommitted duplicates of the worktree's earliest commit (confirmed
+byte-identical/formatting-only diffs before discarding them).
+
+**Todo 165 (regime-stratified OOS promotion gate) — shipped.** `evaluate_frame_gate`
+(`services/counterfactual_tracker.py`) generalized with a grouping-key + day-cluster
+coverage-floor parameter; wired into `scripts/analysis/phase143_1_08_shadow_validation.py`'s
+C2/C7 criteria; new pre-registered `alpha.validation.regime_gate_min_clusters` APR key
+(migration 244, seed 20, explicitly not tunable post-hoc). Re-run against real 143.1-08 data:
+**verdict unchanged, still HOLD** — every cell with adequate coverage failed criterion 2
+decisively for both champion and challenger; 6 of 8 champion cells and 6 of 14 challenger
+cells had insufficient day-cluster coverage and were excluded from the gate rather than
+counted pass/fail (a partial, honest regime-by-regime verdict, not a complete one). Full
+output in `143.1-08-SHADOW-VALIDATION.md` section 7.
+
+**Todo 164 (`1h` portion) — shipped, with a real emergent finding along the way.** Per-tf
+APR resolution added for `min_passing_features`/`max_feature_weight`/`meta_fdr_min_cells`
+(`_resolve_per_tf`/`_assert_feasible_thresholds`, `services/ensemble_trainer.py`) plus a
+startup feasibility assertion. Migration 245 (seeding `1h`'s `min_passing_features=3`/
+`max_feature_weight=0.34`) alone proved **insufficient** on live re-run — `1h` still wrote
+zero strata on every regime. Root-caused one gate upstream to `meta_fdr_min_cells`; fixed
+with an emergent migration 246 (`meta_fdr_min_cells.1h=2`, live-queried against
+`feature_ic_scores` before seeding, not guessed). Live-verified via a full completed
+`ensemble_trainer.py --sign-symmetric` run: `1h` now writes 5 of 7 regimes (`high_bear`,
+`low_bull`, `mid_bear`, `mid_bull`, `mid_neutral`), previously 0 of 7. `low_neutral` and
+`high_neutral` remain unfixed (documented, not silently dropped) — `low_neutral` is one
+meta-eligible feature short of the floor, `high_neutral` has zero IC rows entirely, a
+deeper population gap. `5m`/`15m`/`1d` confirmed byte-identical to pre-existing baseline
+(no per-tf key set for them). `1d`'s genuinely different small-sample power problem split
+out to new **todo 166** (P2, pending) rather than papered over with the same fix.
+
+**Both todos closed** (moved to `completed/`, `PRIORITIES.md` updated). **Cleanup:** ~50M
+total leftover debug rows removed from `ensemble_alpha`/`ensemble_weights` across two
+throwaway `weight_version`s (`debug_1h_investigation`, `debug_164_1h_verify2`) that a prior
+session's live-verification runs had left behind — one was still actively writing when this
+session started and had to be waited out rather than killed (would have orphaned the
+in-flight batch write). Full unit suite green (`.venv/bin/pytest tests/unit/ -q`, both in
+the worktree and again on `main` post-merge). Merged via fast-forward (`main` was already an
+ancestor of the worktree branch — no divergence, unlike the 143.1-08 merge earlier this
+session), pushed to `origin/main` (`24ca4da1`). Worktree removed, branch deleted,
+`git worktree prune` run — zero worktrees remain.
+
+**Next actions, in order:** (1) Todo 147's third CV re-check — unchanged from above, still
+the longest-outstanding item. (2) Phase 144's D-05 acceptance gate re-run. (3) Phase 163
+execution (`/gsd-execute-phase 163`) — ready. (4) Phase 165 planning (`/gsd-plan-phase 165`)
+— ready. (5) Todo 166 (1d small-sample statistical treatment, P2) — newly filed, needs real
+design work, not urgent. (6) Consider whether Phase 144's D-05 gate and Phase 148's OOS
+proof gates should adopt the same regime-stratified evaluation pattern todo 165 just proved
+out — flagged as a likely-shared mechanism in todo 165's original filing, not yet checked.
