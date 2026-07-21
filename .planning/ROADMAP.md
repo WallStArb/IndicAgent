@@ -2069,4 +2069,77 @@ Plans:
 
 ---
 
+### Phase 165: Swing/Fib/Trend Structure Primitives 📋 REGISTERED (not planned)
+
+**Goal:** Port the remaining unreviewed `src/intelligence/features/i3_structure/` plugins into v3
+atomic primitives — swing detection, swing momentum, trend structure, and Fibonacci zones. These
+are the archived-but-never-migrated files Fable's original Phase 163 research didn't cover
+(it was scoped narrowly at `market_profile.py`/`support_resistance.py`); found during a 2026-07-20
+follow-up survey of the rest of `i3_structure/`. Also the candidate-source constellation
+(`fibonacci_zones`, `swing_detector`) that `ctx_SRConsensus` depends on (Phase 163's D-14 deferred
+that richer S/R system "until Phase 164's SMC atomics exist" — this phase is the other missing
+link in that chain, alongside Phase 164).
+
+**Candidate files and initial scoring (2026-07-20 survey, equivalent-rigor-not-formal, full
+verification pending this phase's own Fable/RESEARCH.md pass):**
+- `swing_momentum.py` — cleanest of the four: self-contained (explicitly no dependency on
+  SwingDetector), non-incremental (`compute_next` = `compute_full`, same safe pattern as
+  `ctx_VolumeProfile`), already ATR-normalized/bounded (`swing_amplitude_ratio`,
+  `swing_amplitude_intensity` via `clamp`, `struct_energy` via `clamp`, `struct_accel_bias` as
+  ±1/0). Only `swing_velocity_trend` (a string enum) needs numeric encoding for `FeatureVector`.
+- `trend_structure.py` — self-contained, no raw-price outputs at all (`trend_direction`,
+  `trend_strength`, `structure_integrity`, `price_position` already relative/bounded). One real
+  issue: a hardcoded `5.0` divisor in its ATR-normalization formula — an APR violation as written,
+  needs a `feature.trend_structure.*` key.
+- `swing_detector.py` — self-contained (`find_peaks`/`find_troughs` only). `swing_pattern`/
+  `swing_high_type`/`swing_low_type`/age_bars fields are valid as-is; `swing_high`/`swing_low` are
+  raw prices (same D-16 pattern as Phase 163's VP work) — need `swing_high_dist_atr`/
+  `swing_low_dist_atr` conversion, not literal raw-price persistence.
+- `fibonacci_zones.py` — self-contained (falls back to rolling high/low if swing plugin output
+  unavailable, since parallel plugins in the old pipeline couldn't read each other's outputs — a
+  constraint that doesn't apply in v3's Feature Factory, worth resolving properly rather than
+  carrying the fallback forward). `nearest_fib_dist_atr`, `nearest_fib_ratio`,
+  `fib_cluster_strength`, `in_fib_discount_zone` are valid; the 5 raw fib price levels + swing
+  high/low need the same distance-conversion treatment.
+
+**Explicitly out of this phase's initial scope (found during the same survey, not gaps to silently drop):**
+- `session_levels.py` — has a **real, load-bearing bug** if ported naively: session/overnight/
+  weekly windows are defined by hardcoded bar counts (`_SESSION_BARS=390`, `_WEEK_BARS=1950`,
+  `_OVERNIGHT_BARS=60`), which assume 1-minute bars (390 bars = one ~6.5hr NYSE day). Silently
+  wrong on v3's actual 5m/15m/1h/1d timeframes (390 bars of 1h data is ~16 trading weeks, not one
+  day). Needs a real session-boundary-based rewrite (same NY-session-open-reset pattern as Phase
+  163's `update_session_vp`), not a literal port — a bigger lift than the four files above.
+  Candidate for its own plan within this phase, not a quick add.
+- `macd_events.py` — depends on MACD (`macd_12_26_9`/`macd_signal_12_26_9`/
+  `macd_histogram_12_26_9`) being live in `FeatureVector`; **confirmed v3 does not compute MACD at
+  all today** (checked directly against `schemas.py` — zero MACD fields exist outside the dead
+  archived `I1Indicators`/`I3Structure` typed-bus models). Porting this file means porting MACD
+  itself first, a materially different and larger scope than an "events layer on an existing
+  indicator." Also has a cross-plugin dependency on `nearest_support` (now available as Phase
+  163's `sr_support_dist` once that phase ships, so re-pointable, not a hard blocker). Parked, not
+  assigned — revisit only if MACD itself becomes a wanted primitive independent of this phase.
+- `bocpd_changepoint.py` (`src/intelligence/archive/smc_context/`) — Bayesian Online Changepoint
+  Detection (Adams & MacKay 2007). Conceptually distinct from both this phase's swing/trend work
+  and Phase 164's SMC family: estimates P(regime break) and run-length online, without a
+  pre-specified state model — a different regime-detection paradigm than the existing per-symbol
+  HMM. Outputs (`cp_probability`, `cp_raw_probability`, `cp_confirmation`, `cp_detected`,
+  `cp_run_length`) are already clean — no raw-price problem, no D-16-style correction needed. **Not
+  folded into this phase** — the plugin's own docstring documents ~77ms p95 latency per bar at
+  `max_run_length=200` (O(R) forward pass, not reducible without approximation), a real cost
+  question at 58 ETFs × 4 TFs backfill scale that VP/SR/swing/trend never had to answer. Needs a
+  standalone latency benchmark before being assigned a phase — worth pursuing given genuine
+  Renaissance-style value (empirical, assumption-light regime-break detection), gated on that
+  benchmark, not on redesign risk.
+
+**Depends on:** Phase 163 (VP/SR Structural Primitives) for shared conventions (ATR-distance
+normalization pattern, APR namespace precedent, session-boundary-reset mutator pattern for
+`session_levels.py` if that sub-scope is included) — not a hard code dependency.
+**Requirements**: TBD at `/gsd-plan-phase 165`
+**Plans:** 0 plans
+
+Plans:
+- [ ] TBD (run /gsd-plan-phase 165 to break down)
+
+---
+
 **Correction (2026-07-12, same day as the note above was first written):** this section previously said Phases 152/153 should be **prioritized now**, ahead of the intelligence-layer work. That was wrong and contradicted the milestone bullet above's own existing, correct caution ("Do not let either jump ahead of Phase 142B/143 or 148, which carry present-tense value the backlog matrix rates higher"). Monitoring decay of alpha that hasn't been proven to exist yet is monitoring a null: Phase 148's OOS gates (EIC-04 + FRAME-04) have not passed on corrected data — **FRAME-04 currently fails 16/17 cells** on the pre-143.1-fix baseline, so there is no proven capturable edge for 152/153 to watch decay in yet. **Corrected sequencing:** finish 143.1 (091→097→094→E1-vs-E2 re-run→096→088) → re-run EIC-04/FRAME-04 honestly on corrected data → only then decide between (a) building 152/153's decay/health monitoring or (b) expanding discovery (Phase 151/PrecedentEngine) based on what that gate actually says. Phase 157's kill-switch design above still correctly notes its dependency on Phase 153 eventually existing — that dependency is real, it's just not a reason to build 153 before Phase 148 resolves.
