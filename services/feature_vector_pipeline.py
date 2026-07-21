@@ -166,10 +166,27 @@ class FeatureVectorPipeline(BaseDaemon):
         )
 
     def _get_cache(self, symbol: str, tf: str) -> FeatureCache:
-        """Return the FeatureCache for (symbol, tf), creating one on first access."""
+        """Return the FeatureCache for (symbol, tf), creating one on first access.
+
+        A newly created cache is warmed from already-seeded/buffered bar history
+        (todo 159) so `above_wk_vwap` reflects real week-to-date volume-weighted price
+        instead of starting cold after every restart. Warm-up calls `update_wk_vwap()`
+        directly, NOT the bundled `advance_bar()` -- replaying `hmm_duration`'s
+        unconditional `+= 1.0` across up to 199 buffered bars would set it to a
+        plausibly-large, equally-fabricated value (a false claim of long regime
+        persistence) rather than the true bars-since-last-regime-change count, which
+        isn't recoverable without re-running HMM classification retroactively.
+        `hmm_duration` is left cold (0.0) on purpose, matching the already-documented,
+        self-correcting-at-next-regime-change behavior (lower severity, per todo 159).
+        The most recent bar in history is excluded since it is the bar currently being
+        processed and receives its own `advance_bar()` call after `compute()` below.
+        """
         key = f"{symbol}:{tf}"
         if key not in self._feature_caches:
-            self._feature_caches[key] = FeatureCache()
+            cache = FeatureCache()
+            for bar in list(self._bar_history.get(symbol, tf))[:-1]:
+                cache.update_wk_vwap(bar.ts, bar.high, bar.low, bar.close, float(bar.volume))
+            self._feature_caches[key] = cache
         return self._feature_caches[key]
 
     async def stop(self) -> None:
