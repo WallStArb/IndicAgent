@@ -98,3 +98,59 @@ ON CONFLICT (symbol, tf) DO UPDATE SET fetch_complete = true;
 **Resume File / exact next action:** Run `/gsd-execute-phase 163`. Nothing else needs checking first — verified directly (not just trusting the planner agent's self-report): `git log` shows `f394bbdd` as the last commit touching the phase dir, and both `163-01-PLAN.md`/`163-02-PLAN.md` grep-confirm "12 new" column phrasing and both `poc_rolling_dist_atr`/`poc_session_rolling_divergence_atr` present. After execution: close todo 153 (move `pending/153-vp-sr-features-null-in-batch-corpus.md` → `completed/`), noting the decision made (implement, not delete) and pointing at whatever incremental-IC result eventually comes out of the next `ic_engine` corpus run per D-07's promotion bar (not measured as part of this phase — that's out of scope by design).
 
 **This session's full arc (for context if resuming cold):** Started from todo 153 (VP/SR features permanently null) → Fable research → discovered a better port source (`ctx_VolumeProfile`) than originally proposed → caught and fixed a raw-price-as-ML-feature bug in that scoping (D-16) → planned Phase 163 via direct `gsd-planner` dispatch (bypassing the full `/gsd-plan-phase` skill since CONTEXT.md/RESEARCH.md were already hand-written) → got an independent Fable review of the whole corrected scope, which caught 2 more issues (D-17: dropped `in_lvn`, undocumented `va_width_atr` collinearity) → both fixed in the already-written plans → user caught a further gap (rolling-track signal computed but unused) → third Fable review dispatched, in flight at session end. Also: filed todo 158 (unrelated live-path bug found incidentally: `above_wk_vwap` frozen at 0.0 in live pipeline, batch path is correct) and closed out the todo-147 CV recheck's A/B rerun analysis (encouraging but not fully closed — see PRIORITIES.md's todo-147 entry, the direct `true_range_pct` CV re-check is still outstanding). Phase 164 (SMC Institutional Footprint Primitives) registered but not planned — deliberately deferred to a future session/prioritization call.
+
+**Note (2026-07-20, concurrent todo-track session):** the paragraph above's "filed todo 158" /
+"closed out... (encouraging but not fully closed)" is a stale snapshot from mid-flight — see the
+dedicated subsection below for what actually happened on that track. Left this paragraph
+unedited rather than risk a racy overwrite of the phase-track's own resume notes above.
+
+### Todo-track resume point (concurrent session, same day — 158/159/147/124/160)
+
+**Stopped at:** Todo 158 fully fixed, merged to `main` (commit `803d8893`). Investigating todo
+147's outstanding CV re-check surfaced a real, deeper data-integrity bug (todo 124/160) that is
+now the next concrete action, not yet started.
+
+**What happened, in order:**
+1. **Todo 158** (`above_wk_vwap` frozen at 0.0 on the live path) — root-caused via
+   `systematic-debugging`, fixed with one line in `_process_bar_compute` (`cache.advance_bar(...)`
+   after `FeatureFactory.compute()`), TDD regression test added, `/simplify` clean, Codex peer
+   review (AGY was out of quota). Merged to `main`.
+2. **Todo 159** filed from that Codex review: `FeatureCache` isn't warmed from the bar history
+   `_seed_bar_history_from_db()` already loads at startup, so `above_wk_vwap`/`hmm_duration`
+   still start cold after every restart. Not started.
+3. **Todo 147's outstanding CV re-check** (the `true_range_pct` per-(tf,regime) CV pull its
+   "Fix / next step" section asked for, never run before this session) — ran it: `low_bull`
+   still ~150-300x every clean regime's CV, NOT at parity despite 151/154's correction pass.
+4. Traced why: `VWO`/`DIA` were never flagged at all (candidate-discovery gap). `KRE` WAS
+   correctly flagged `price_sanity_status='confirmed_corrupt'` with `forward_returns`
+   recomputed sane — but `feature_vectors.true_range_pct` for that same bar is still corrupt,
+   because `backfill_feature_factory.py` reads raw `market_data_ohlcv` directly instead of the
+   `price_sanity_status`-filtering `market_data_ohlcv_tradeable` view. The flag never reaches
+   feature computation.
+5. This reclassified **todo 124** (previously P3, "style/DRY only" — that assessment predates
+   `price_sanity_status`, written 2026-07-16) to **P1**, now the real fix owner. Filed
+   **todo 160** as the evidence trail/reproduction. Both PRIORITIES.md and two memory files
+   were corrected after an initial (wrong) framing that assumed all 3 rows were simply
+   uncorrected — first commit `0b57fa22`, correction commit `2a1d3a78`.
+
+**Exact next action:** Todo 124's real fix — migrate `services/backfill_feature_factory.py`
+from raw `market_data_ohlcv` reads to `market_data_ohlcv_tradeable`. Do this file first (proven
+correctness impact), not the other 13 files in 124's Tier-2 list (still style/DRY-only as far as
+evidence shows). After that lands: redo the DELETE + recompute for `KRE` (and newly-flagged
+`VWO`/`DIA` — flag them first via `ops_known_corrupt_print_cleanup.py --symbols VWO DIA
+--apply`), then re-run todo 147's CV check a third time, then close 147 if parity holds.
+
+**Also worth a quick look before the 124 fix, low-cost sanity check:** `regime_writer.py` and
+`forward_return_writer.py` share the identical `volume > 0`-only exposure pattern as
+`backfill_feature_factory.py` (same allow-list entry, same stale 2026-07-16 audit) but haven't
+been checked for a live reproduction — todo 124's text now flags this, not yet investigated.
+
+**Priority docs status (checked this session, per user request):** `.planning/todos/PRIORITIES.md`
+verified in sync with `pending/` (only 2 unreferenced numbers, 012/032, both intentional
+merge-pointer stubs to todo 009, not real gaps). `docs/research/intelligence-lifecycle-backlog-matrix.md`
+("the priority matrix") is genuinely stale — last rewritten 2026-07-08, predates Phase 144 going
+code-complete, Phase 143.1's near-completion, and Phases 162/163/164/165 all being registered.
+It already correctly defers todo-level ranking to PRIORITIES.md (no drift there), but its own
+"Phases" table and "Operational context" note need a refresh — not done this session, flagged
+here rather than silently left stale. ROADMAP.md spot-checked consistent with STATE.md (Phase
+144 header deliberately still says PLANNED per its own documented reason, not a bug).
