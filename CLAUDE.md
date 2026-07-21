@@ -1,6 +1,6 @@
 # CLAUDE.md
 
-Version: 5.52.0
+Version: 5.53.0
 
 **Project nature:** Passion/learning project — not a production system. Architectural decisions prioritize correctness, rigor, and institutional-grade thinking. Renaissance Capital / Jim Simons principles are the north star. When giving advice, apply the same rigor you would to a system built to last — do not hedge around operational risk that doesn't apply.
 
@@ -11,6 +11,7 @@ Version: 5.52.0
 **Glossary:** Every domain term has exactly one definition. Check before naming new concepts; glossary wins over existing code on collision. Full spec: `docs/foundation/glossary.md`.
 **Doc locations:** `docs/foundation/` canonical home. `docs/` root is index only. `docs/research/` docs can go filename-stable (edited in place, no longer re-dated on rewrite) — check for a stale `YYYY-MM-DD-<name>.md` fork of an undated doc before citing or editing either.
 **Gotchas:** `docs/reference/gotchas.md` — rare pitfalls moved out of per-turn context.
+**Performance investigations:** Before touching a batch job that mutates millions of rows against a TimescaleDB hypertable and runs far slower than expected, follow `docs/foundation/performance-investigation-sop.md` — measure (`pg_stat_activity.wait_event`, `iostat -x 1`, `EXPLAIN ANALYZE`) before theorizing, never trust a read-only test for a write-path question, and check chunk count/compression status as first-class suspects. Two independent incidents (todos 149, 161) hit the same shape of bug two weeks apart; don't make it three.
 **Planning system:** `.planning/PLANNING-SYSTEM.md` — how IDEAS.md → docs/ideas/ → docs/plans/ → todos/pending/ → ROADMAP.md → phases/ flow into each other. Current phase/progress: `.planning/STATE.md`. Todo prioritization (single source of truth for `pending/`): `.planning/todos/PRIORITIES.md` — drifts out of sync silently (new todos filed without a PRIORITIES.md entry); diff `ls todos/pending/` against it periodically.
 
 ## Done-Coding SOP

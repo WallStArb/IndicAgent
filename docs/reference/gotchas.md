@@ -1,8 +1,8 @@
 # Gotchas & Rare Pitfalls
 
-**Version:** 2.9
+**Version:** 2.10
 **Status:** current
-**Last Updated:** 2026-07-02
+**Last Updated:** 2026-07-21
 
 Real issues that burned once — reference when touching the relevant area. Add here when you get burned.
 
@@ -21,6 +21,8 @@ Real issues that burned once — reference when touching the relevant area. Add 
 - **Disable compression order**: Must `SELECT decompress_chunk(...)` on all compressed chunks BEFORE `ALTER TABLE SET (timescaledb.compress = false)` — the ALTER fails if any chunk is still compressed.
 - **Migration numbering**: always `ls production/migrations/ | sort -V | tail -3` to confirm the actual current max before assigning a new number — a doc's claimed "next migration" can be stale if a migration landed without every cross-reference being updated.
 - **Hypertables don't support `CREATE INDEX CONCURRENTLY` or `ADD CONSTRAINT ... USING INDEX`** (confirmed on TimescaleDB 2.27.1): both error outright ("hypertables do not support concurrent index creation" / "...adding a constraint using an existing index"). A migration that drops an old unique constraint and expects to replace it with a concurrently-built index will fail the build step but the drop can still succeed if sequenced naively — always build-and-verify the replacement index first (`SELECT 1 FROM pg_indexes WHERE indexname = '...'` inside a `DO` block), then drop the old constraint, never the reverse. Converting a `UNIQUE` constraint to a declared `PRIMARY KEY` on a live hypertable therefore requires a full blocking index rebuild (no zero-downtime path exists) — usually not worth it since `NOT NULL` + `UNIQUE` is functionally equivalent to a PK for dedup/`ON CONFLICT` purposes.
+- **Compressed chunks make `UPDATE` cost nothing like a `SELECT`/`EXPLAIN` would predict** (todo 149, `market_data_ohlcv`, 248/250 chunks compressed): any mutating row in a compressed chunk forces decompress-then-modify, and a correlated `EXISTS`/`IN` subquery driven from the large source table (not the small known-target population) can silently balloon into a near-full-table scan. A read-only test is not evidence the write is cheap. Fix pattern: drive joins from the small target set, add a literal time-range bound when the target population is fixed, and `decompress_chunk()` the affected chunks first — neither alone was sufficient in practice.
+- **High chunk count makes per-row `UPDATE`/`DELETE` pay a per-execution chunk-routing tax, invisible to `EXPLAIN` on a single row** (todo 161, `alpha_frames`, 1034 chunks): measured 29 rows/sec writing through the hypertable vs. 10,423 rows/sec (358x) writing the identical rows directly to their resolved `_timescaledb_internal.<chunk>` table, on the same connection. `EXPLAIN ANALYZE` showed 0.86ms single-row execution — the ~34ms/row gap was TimescaleDB's runtime chunk-exclusion overhead, paid on every execution regardless of asyncpg prepared-statement reuse across a batch. Not disk I/O (confirm via `iostat -x 1`, should show near-0% util) or lock contention (confirm via `pg_stat_activity.wait_event` — empty means on-CPU, not waiting). Reusable fix pattern: `services/counterfactual_tracker.py`'s `_load_chunk_index`/`_route_chunk` (fetch `timescaledb_information.chunks`' ranges once per run, binary-search each row's target chunk, write directly to it). Full investigation method: `docs/foundation/performance-investigation-sop.md`.
 
 See `docs/operations/operations-database.md` for query/schema gotchas. `instruments.symbol` = base symbol, contract code lives in `contract_details`.
 
