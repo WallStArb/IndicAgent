@@ -1,6 +1,6 @@
 # Gotchas & Rare Pitfalls
 
-**Version:** 2.10
+**Version:** 2.11
 **Status:** current
 **Last Updated:** 2026-07-21
 
@@ -23,6 +23,9 @@ Real issues that burned once — reference when touching the relevant area. Add 
 - **Hypertables don't support `CREATE INDEX CONCURRENTLY` or `ADD CONSTRAINT ... USING INDEX`** (confirmed on TimescaleDB 2.27.1): both error outright ("hypertables do not support concurrent index creation" / "...adding a constraint using an existing index"). A migration that drops an old unique constraint and expects to replace it with a concurrently-built index will fail the build step but the drop can still succeed if sequenced naively — always build-and-verify the replacement index first (`SELECT 1 FROM pg_indexes WHERE indexname = '...'` inside a `DO` block), then drop the old constraint, never the reverse. Converting a `UNIQUE` constraint to a declared `PRIMARY KEY` on a live hypertable therefore requires a full blocking index rebuild (no zero-downtime path exists) — usually not worth it since `NOT NULL` + `UNIQUE` is functionally equivalent to a PK for dedup/`ON CONFLICT` purposes.
 - **Compressed chunks make `UPDATE` cost nothing like a `SELECT`/`EXPLAIN` would predict** (todo 149, `market_data_ohlcv`, 248/250 chunks compressed): any mutating row in a compressed chunk forces decompress-then-modify, and a correlated `EXISTS`/`IN` subquery driven from the large source table (not the small known-target population) can silently balloon into a near-full-table scan. A read-only test is not evidence the write is cheap. Fix pattern: drive joins from the small target set, add a literal time-range bound when the target population is fixed, and `decompress_chunk()` the affected chunks first — neither alone was sufficient in practice.
 - **High chunk count makes per-row `UPDATE`/`DELETE` pay a per-execution chunk-routing tax, invisible to `EXPLAIN` on a single row** (todo 161, `alpha_frames`, 1034 chunks): measured 29 rows/sec writing through the hypertable vs. 10,423 rows/sec (358x) writing the identical rows directly to their resolved `_timescaledb_internal.<chunk>` table, on the same connection. `EXPLAIN ANALYZE` showed 0.86ms single-row execution — the ~34ms/row gap was TimescaleDB's runtime chunk-exclusion overhead, paid on every execution regardless of asyncpg prepared-statement reuse across a batch. Not disk I/O (confirm via `iostat -x 1`, should show near-0% util) or lock contention (confirm via `pg_stat_activity.wait_event` — empty means on-CPU, not waiting). Reusable fix pattern: `services/counterfactual_tracker.py`'s `_load_chunk_index`/`_route_chunk` (fetch `timescaledb_information.chunks`' ranges once per run, binary-search each row's target chunk, write directly to it). Full investigation method: `docs/foundation/performance-investigation-sop.md`.
+
+- **A killed Python asyncpg client doesn't always close its server-side backend connection**: check `pg_stat_activity` for a backend still `active` with an old `xact_start` well after the owning process is confirmed dead (`ps -p <pid>` returns nothing) — don't assume the kill rolled back the transaction. `SELECT pg_terminate_backend(<pid>)` it directly.
+- **TimescaleDB runs in Docker (`timescaledb` container)**: `pg_stat_activity.client_addr` shows the docker bridge gateway (`172.19.0.1`), not a per-host-process identifier — correlate connections to a host PID via the backend PID / connection timing, never `client_addr`.
 
 See `docs/operations/operations-database.md` for query/schema gotchas. `instruments.symbol` = base symbol, contract code lives in `contract_details`.
 
@@ -75,6 +78,7 @@ ContFuture (`continuous=True`) hangs on multi-year requests — use named contra
 
 ## Tooling
 
+- **`py-spy` isn't on the default `sudo.ws` PATH**: use the full path, e.g. `echo '<pw>' | /usr/bin/sudo.ws -S /home/bg/.local/bin/py-spy dump --pid <pid>`.
 - **GSD phase directory padding**: `gsd-sdk` returns `phase_dir` without zero-padding (e.g., `67-observability-alerting-automation`) but actual directories use padded names (`067-*`). If init returns `plan_count: 0` but plan files exist, check both directory variants.
 - **`gsd-sdk query roadmap.annotate-dependencies` can report success without writing anything**: for phases created via `phase.insert` (decimal/INSERTED phases), it may return `"updated": false` with a correct wave count while ROADMAP.md's `Plans:` section still shows the `- [ ] TBD` placeholder. Verify the ROADMAP.md section directly after running it; manually write the wave/plan breakdown if the placeholder is still there.
 - **Pre-commit runs 8 automated checks, including glossary enforcement**: a commit can fail with "glossary violation" because a changed file uses a term banned in `docs/foundation/glossary.md` in place of its canonical replacement — not a broken hook. Fix the term, don't bypass with `--no-verify`.
