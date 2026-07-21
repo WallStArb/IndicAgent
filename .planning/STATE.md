@@ -2,9 +2,9 @@
 gsd_state_version: 1.0
 milestone: v3.1
 milestone_name: AlphaEngine Validation + Alpha Scoring
-status: Phase 143.1 (Measurement and Eligibility Integrity) in progress, corpus re-run running
-stopped_at: Phase 161 complete (4/4), live-verified
-last_updated: 2026-07-18T01:00:44.978Z
+status: Phase 143.1 (Measurement and Eligibility Integrity) COMPLETE (8/8) -- 143.1-08 VERDICT HOLD
+stopped_at: 143.1-08 shadow validation done, merged to main (c9622932), worktree cleaned up
+last_updated: 2026-07-21T12:30:00.000Z
 progress:
   total_phases: 12
   completed_phases: 6
@@ -47,7 +47,7 @@ See: .planning/PROJECT.md
 | 142.5 | Renaissance Primitives | COMPLETE (8/8 plans) — 89 primitives live in Feature Factory, 150 total `FeatureVector` fields |
 | 142B | Frame Simulation + Counterfactual Tracking | COMPLETE (2/2 plans) — `alpha_frames` hypertable + `AlphaFrameWriter` + `CounterfactualTracker` live |
 | 143 | Feature Lifecycle Routing (merged with 149B) | COMPLETE (3/3 plans) — `feature_registry` evidence-based promotion/demotion + `integrity_monitor` table live |
-| 143.1 | Measurement and Eligibility Integrity | IN PROGRESS (7/8 plans) — corpus re-run active, see "Current focus" above |
+| 143.1 | Measurement and Eligibility Integrity | COMPLETE (8/8 plans, 2026-07-21) — 143.1-08 shadow-mode validation VERDICT: HOLD (`alpha.ensemble.sign_symmetric` stays false); see Session's "2026-07-21" closeout subsection below |
 | 144 | Cross-Sectional Regime Model (`regime_group`) | Code-complete (6/6 plans); header stays PLANNED until D-05's acceptance gate re-runs post-143.1 |
 | 146 | Empirical Instrument Tag Calibrator | COMPLETE (5/5 plans, 2026-07-17) — `TagCalibrator` live-verified: 11/12 measurable tags carry real `source='empirical'` rows |
 | 160 | Concept Registry MVP | COMPLETE (4/4 plans) — 4-table schema + `ConceptRegistryService`/`ConceptRegistryAPI`/`ConceptRegistryDashboard` live |
@@ -154,3 +154,67 @@ It already correctly defers todo-level ranking to PRIORITIES.md (no drift there)
 "Phases" table and "Operational context" note need a refresh — not done this session, flagged
 here rather than silently left stale. ROADMAP.md spot-checked consistent with STATE.md (Phase
 144 header deliberately still says PLANNED per its own documented reason, not a bug).
+
+### Session closeout (2026-07-21) — 143.1-08 resolved, merged to main; Phase 143.1 is COMPLETE
+
+**Todo 124's real fix landed** (the "exact next action" the prior subsection stopped at):
+`backfill_feature_factory.py`, `regime_writer.py`, `forward_return_writer.py` all migrated
+`market_data_ohlcv` → `market_data_ohlcv_tradeable` (the sibling-file sanity check that
+subsection flagged as "worth a quick look" — done, same fix, same commit). `/simplify`-clean,
+full unit suite green. Data recompute (KRE/VWO/DIA, todo 147's third CV re-check) still not
+done — deliberately held to avoid DB contention with the concurrent 143.1-08 backfill below;
+still the next action for that track.
+
+**Todo 159 fixed and closed**: `FeatureCache` now warms `above_wk_vwap` from seeded bar
+history at `_get_cache()`'s first call per (symbol, tf) — `hmm_duration` deliberately left cold
+(would fabricate a duration, not recover a real one). 3 regression tests, moved to
+`completed/`.
+
+**Phase 165 (Swing/Fib/Trend Structure Primitives) fully scoped**: Fable-researched
+`165-CONTEXT.md`/`165-RESEARCH.md` committed — 41 new columns across 5 files
+(`swing_detector`/`swing_momentum`/`trend_structure`/`fibonacci_zones`/`session_levels`), 2
+silent-wrong-answer bugs found and scoped for fixing during port, 3 tangential ideas proposed
+and council-rigor-tested (2 accepted as free columns off existing computation, 1 — Fibonacci
+extensions — explicitly deferred as premature scaling of an unproven hypothesis family). Not
+planned yet (`/gsd-plan-phase 165` is the next step whenever picked back up). Phase 163 also
+got a real post-review correction (D-19: 5 free S/R fields — `resistance_strength`/
+`support_strength`/`resistance_age_bars`/`support_age_bars`/`sr_level_count` — found via Codex
+cross-AI review, folded into the plan before execution; migration 243 is now 17 new columns,
+not 12). **Phase 163 is still execution-ready (`/gsd-execute-phase 163`), not yet run.**
+
+**143.1-08 (shadow-mode champion/challenger validation) is DONE — VERDICT: HOLD.**
+`alpha.ensemble.sign_symmetric` stays `false`; criteria 2/3/4 (mean-P&L CI, Sharpe, max
+drawdown) all fail decisively for the sign-symmetric challenger, not a close call. Emission
+mechanism confirmed working as designed regardless (challenger: 69.83% short vs champion's
+0.335%). **Phase 143.1 (Measurement and Eligibility Integrity) is now COMPLETE (8/8 plans)** —
+the "Phases" table above still says "IN PROGRESS (7/8 plans)"; next session should flip this to
+COMPLETE and re-check whether Phase 144's D-05 acceptance gate re-run (the next actual
+milestone step) is now unblocked.
+
+**Along the way:** the `counterfactual_tracker --backfill` this validation depended on had
+zero progress across 3 attempts (~18h wall-clock) before a real root cause was found and fixed
+— `ProcessPoolExecutor.map()`'s head-of-line-blocking ordering compounded by 358x per-row
+TimescaleDB chunk-routing overhead (1,034 chunks). Fixed, verified (78min corrected run, 23.15M
+rows), closed as **todo 161**. Sanity-checking the resulting numbers before trusting them (not
+just accepting extreme Sharpe/drawdown values at face value) surfaced a real, separate,
+cross-cutting data-quality gap: ATR-based stop distances have no minimum-price-fraction floor,
+producing R-multiples down to **-926R** on thin-volatility FX/commodity ETFs at 5m — filed as
+**todo 162 (P1)**, confirmed via a trimmed-outlier check that it doesn't change the HOLD
+verdict itself, just inflates the tail statistics' magnitude. Honest limit: could not verify
+whether this contaminated any *past* gate evaluation (E6/FRAME-04) since the underlying
+`alpha_frames` rows from before this session have since been superseded — flagged as a
+plausible risk, not a confirmed retroactive finding.
+
+**Merge:** the worktree branch (`worktree-agent-acc3e6a78746c2514`) carrying all of the above
+was merged to `main` via a regular merge commit (`c9622932` — not fast-forward, histories had
+diverged; verified zero real conflicts via `git merge-tree` before merging, confirmed empirically
+correct when the merge itself applied cleanly), full unit suite green post-merge, pushed to
+`origin/main`. Worktree removed, branch deleted, `git worktree prune` run — zero worktrees
+remain.
+
+**Next actions, in order:** (1) Todo 147's third CV re-check (KRE/VWO/DIA recompute, now that
+124's fix is live and DB contention has cleared). (2) Todo 162 (ATR stop-floor fix) —
+needs its own scoping decision (which fix direction, which instruments). (3) Phase 144's D-05
+acceptance gate re-run, now that 143.1 is complete. (4) Phase 163 execution
+(`/gsd-execute-phase 163`) — ready, independent of the above. (5) Phase 165 planning
+(`/gsd-plan-phase 165`) — ready, independent of the above.
