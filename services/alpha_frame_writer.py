@@ -67,6 +67,7 @@ def compute_frame_geometry(
     atr: float,
     stop_atr_mult: float,
     target_r_multiple: float,
+    min_stop_price_fraction: float,
 ) -> tuple[float, float, float]:
     """ATR-only frame geometry (review H2 — the sole target path; the support/resistance
     distance columns are 100% NULL across the corpus, so no conditional branch on them).
@@ -79,6 +80,16 @@ def compute_frame_geometry(
     propagate out of a batch scan. `stop_atr_mult` is a single global APR value shared by every
     frame in a run, so it is validated once, eagerly, at config-load time in
     `FrameConfig.from_apr` rather than rediscovered here per-frame.
+
+    Also raises ValueError if the resulting stop_distance is below min_stop_price_fraction of
+    entry_price (todo 162): a small-but-*positive* ATR on a thin-absolute-volatility instrument
+    (observed: FX/commodity ETFs at 5m -- FXY, FXE, DBB, DBC, GLD, SLV) passes the atr<=0 guard
+    but still produces an economically meaningless, razor-thin stop -- ordinary price noise then
+    blows through it by dozens of stop-distances, producing counterfactual_pnl_r far beyond a
+    normal stop-out (observed down to -926.87R in-sample). This is deliberately a SKIP, not a
+    widened floor: artificially widening the stop would also widen target_price by the same
+    factor (it's derived from stop_distance), fabricating a trading rule real ATR-based sizing
+    never specified, rather than declining to score a frame the data can't support.
 
     Returns (stop_price, target_price, r_multiple). r_multiple is always exactly
     `target_r_multiple` by construction (target_price is defined as
@@ -100,6 +111,11 @@ def compute_frame_geometry(
         target_price = entry_price - target_r_multiple * stop_distance
     else:
         raise ValueError(f"compute_frame_geometry: unknown direction {direction!r}")
+    if stop_distance < min_stop_price_fraction * entry_price:
+        raise ValueError(
+            f"compute_frame_geometry: stop_distance ({stop_distance}) below "
+            f"min_stop_price_fraction ({min_stop_price_fraction}) of entry_price ({entry_price})"
+        )
     return stop_price, target_price, target_r_multiple
 
 
@@ -135,6 +151,7 @@ class FrameConfig:
     stop_atr_mult: float
     target_r_multiple: float
     atr_period: int
+    min_stop_price_fraction: float
 
     @classmethod
     def from_apr(cls, cfg_dict: dict[str, Any]) -> FrameConfig:
@@ -144,10 +161,16 @@ class FrameConfig:
             # writes to zero-width geometry (stop == entry == target) with no error — validated
             # once here, eagerly, rather than rediscovered per-frame deep in a batch scan.
             raise ValueError(f"alpha.frame.stop_atr_mult must be positive, got {stop_atr_mult}")
+        min_stop_price_fraction = _cfg(cfg_dict, "alpha.frame.min_stop_price_fraction", 0.001)
+        if min_stop_price_fraction < 0:
+            raise ValueError(
+                f"alpha.frame.min_stop_price_fraction must be >= 0, got {min_stop_price_fraction}"
+            )
         return cls(
             stop_atr_mult=stop_atr_mult,
             target_r_multiple=_cfg(cfg_dict, "alpha.frame.target_r_multiple", 2.0),
             atr_period=_cfg(cfg_dict, "alpha.frame.atr_period", 14),
+            min_stop_price_fraction=min_stop_price_fraction,
         )
 
 

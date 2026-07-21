@@ -359,6 +359,7 @@ def _scan_symbol_tf(
     atr_period: int,
     default_target_r_multiple: float,
     itersize: int,
+    min_stop_price_fraction: float,
 ) -> tuple[list[dict[str, Any]], int]:
     """ONE streaming named-cursor sweep over market_data_ohlcv for this (symbol, tf) cell,
     filling geometry (T+1 entry + causal price-unit ATR) and scoring the exit for every open
@@ -445,10 +446,15 @@ def _scan_symbol_tf(
                         atr,
                         float(frame["stop_atr_mult"]),
                         frame_target_r_multiple,
+                        min_stop_price_fraction,
                     )
                 except ValueError:
-                    # Degenerate stop distance (zero ATR on stale/forward-filled bars) --
-                    # skip this frame, leave it open, do NOT let one bad bar abort the rest
+                    # Degenerate stop distance -- either zero ATR on stale/forward-filled bars,
+                    # or a small-but-positive ATR whose resulting stop is below
+                    # min_stop_price_fraction of price (todo 162: thin-absolute-volatility
+                    # instruments, e.g. FX/commodity ETFs at 5m, produce razor-thin stops that
+                    # ordinary price noise blows through by dozens of stop-distances). Either
+                    # way: skip this frame, leave it open, do NOT let one bad bar abort the rest
                     # of this cell's scan (code-review CR-01). Counted, reported once by the
                     # caller -- not logged per-occurrence (this runs in a worker subprocess).
                     degenerate_atr_skip_count += 1
@@ -507,7 +513,8 @@ def _run_counterfactual_worker(args: tuple) -> dict[str, Any]:
     no batch-persistence call of any kind (DAG invariant #3, T-142B-06).
 
     Args:
-        args: (symbol, tfs, dsn, atr_period, default_target_r_multiple, itersize)
+        args: (symbol, tfs, dsn, atr_period, default_target_r_multiple, itersize,
+            min_stop_price_fraction)
 
     Returns:
         dict with keys: symbol (str), rows (list[dict]), errors (list[str]) -- one entry per
@@ -516,7 +523,9 @@ def _run_counterfactual_worker(args: tuple) -> dict[str, Any]:
         symbol's tfs. Workers log only (no OTel tracer in a subprocess, ic_engine.py's
         convention); the main process aggregates and reports this count once.
     """
-    symbol, tfs, dsn, atr_period, default_target_r_multiple, itersize = args
+    symbol, tfs, dsn, atr_period, default_target_r_multiple, itersize, min_stop_price_fraction = (
+        args
+    )
     rows: list[dict[str, Any]] = []
     errors: list[str] = []
     degenerate_atr_skip_count = 0
@@ -541,7 +550,13 @@ def _run_counterfactual_worker(args: tuple) -> dict[str, Any]:
                 conn = connect_db_from_url(dsn)
             try:
                 tf_rows, tf_skip_count = _scan_symbol_tf(
-                    conn, symbol, tf, atr_period, default_target_r_multiple, itersize
+                    conn,
+                    symbol,
+                    tf,
+                    atr_period,
+                    default_target_r_multiple,
+                    itersize,
+                    min_stop_price_fraction,
                 )
                 rows.extend(tf_rows)
                 degenerate_atr_skip_count += tf_skip_count
@@ -776,6 +791,7 @@ class CounterfactualTracker(BaseBatch):
             frame_config = FrameConfig.from_apr(cfg)
             atr_period = frame_config.atr_period
             default_target_r_multiple = frame_config.target_r_multiple
+            min_stop_price_fraction = frame_config.min_stop_price_fraction
             itersize = _cfg(cfg, "infra.counterfactual_tracker.itersize", 5000)
             n_workers = _cfg(cfg, "infra.counterfactual_tracker.workers", 12)
             chunk_size = _cfg(cfg, "infra.counterfactual_tracker.chunk_size", 5000)
@@ -794,6 +810,7 @@ class CounterfactualTracker(BaseBatch):
             "counterfactual_tracker.config_loaded",
             atr_period=atr_period,
             default_target_r_multiple=default_target_r_multiple,
+            min_stop_price_fraction=min_stop_price_fraction,
             itersize=itersize,
             n_workers=n_workers,
             chunk_size=chunk_size,
@@ -810,7 +827,15 @@ class CounterfactualTracker(BaseBatch):
             return
 
         worker_args = [
-            (symbol, tfs, self._db_dsn, atr_period, default_target_r_multiple, itersize)
+            (
+                symbol,
+                tfs,
+                self._db_dsn,
+                atr_period,
+                default_target_r_multiple,
+                itersize,
+                min_stop_price_fraction,
+            )
             for symbol, tfs in symbol_to_tfs.items()
         ]
         worker_errors: list[str] = []
