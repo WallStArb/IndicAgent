@@ -212,9 +212,17 @@ correct when the merge itself applied cleanly), full unit suite green post-merge
 `origin/main`. Worktree removed, branch deleted, `git worktree prune` run — zero worktrees
 remain.
 
+**Todo 162 resolved same day, after this closeout was first written** (fix landed
+`5db6c298`): went with the skip-and-count direction (widened `degenerate_atr_skip_count`
+guard via `alpha.frame.min_stop_price_fraction`, migration 243, seed 0.001
+`[initial_estimate]`), not a widened-stop-distance floor — a floor would have silently
+fabricated `target_price` too, since it's derived from `stop_distance`. Filed a deferred
+follow-up (todo 163, gated on Phase 163 actually shipping real `sr_support_dist`/
+`sr_resist_dist`) for the separate question of whether frame geometry should become
+S/R-aware once that data exists — cross-referenced from Phase 163's own CONTEXT.md.
+
 **Next actions, in order:** (1) Todo 147's third CV re-check (KRE/VWO/DIA recompute, now that
-124's fix is live and DB contention has cleared). (2) Todo 162 (ATR stop-floor fix) —
-needs its own scoping decision (which fix direction, which instruments). (3) Phase 144's D-05
-acceptance gate re-run, now that 143.1 is complete. (4) Phase 163 execution
-(`/gsd-execute-phase 163`) — ready, independent of the above. (5) Phase 165 planning
+124's fix is live and DB contention has cleared). (2) Phase 144's D-05
+acceptance gate re-run, now that 143.1 is complete. (3) Phase 163 execution
+(`/gsd-execute-phase 163`) — ready, independent of the above. (4) Phase 165 planning
 (`/gsd-plan-phase 165`) — ready, independent of the above.
