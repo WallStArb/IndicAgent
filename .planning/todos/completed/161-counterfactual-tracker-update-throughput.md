@@ -48,25 +48,44 @@ At the measured 28-84 rows/sec ceiling, the full 23.16M-row open-frame backlog
 both bugs above fixed. That's why 3 backfill attempts spanning ~18h never got anywhere close
 to done, quite apart from the zero-commit bug.
 
-## What this needs (not done here -- stopped to avoid more live guessing against production data)
+## RESOLVED 2026-07-21
 
-- Confirm/refute the chunk-locality hypothesis: `iostat`/`pg_stat_io` during a real run: is
-  this CPU-bound, lock-bound, or genuinely disk-read-bound?
-- If confirmed, options to evaluate: (a) larger `chunk_time_interval` for `alpha_frames` going
-  forward (doesn't help the already-created 1034 chunks), (b) process symbols/tfs in
-  `bar_ts`-sorted write order so a batch touches fewer chunks at a time, (c) drop
-  `alpha_frames_status_open_idx` (the partial index) during the bulk backfill and rebuild after
-  (removes per-UPDATE index-maintenance cost, though the benchmark above didn't touch `status`
-  so this wasn't isolated), (d) accept the cost and just budget multiple days for one full
-  backfill run, since this is a one-time historical catch-up, not a recurring cadence (D-09,
-  no recurring ensemble_ic_engine cadence is in scope per the file's own docstring).
-- Whichever fix is chosen, re-run the same live-measured-throughput benchmark script pattern
-  used here (`/tmp/.../bench_update.py`, `/tmp/.../bench_unnest.py` -- not preserved, scratch)
-  before declaring it fixed; don't assume from theory alone given how small the UNNEST win was.
+Chunk-locality/disk-I/O hypothesis was REFUTED, not confirmed. `iostat -x 1` during a live
+1500-row UPDATE burst showed the NVMe drive under 3% util the whole time, and
+`pg_stat_activity.wait_event_type`/`wait_event` were EMPTY throughout with `state='active'` --
+the backend was on-CPU the entire time, not waiting on I/O or locks. This ruled out disk
+entirely and pointed at the hypertable abstraction itself.
+
+Isolating test (systematic-debugging Phase 3, minimal single-variable change): identical 599
+rows, identical connection, only the target table changed.
+
+- `UPDATE alpha_frames ...` (through the hypertable): **29.1 rows/sec**
+- `UPDATE _timescaledb_internal._hyper_94_67200_chunk ...` (direct to the underlying chunk
+  table the rows actually live in): **10,423.5 rows/sec** -- **358x**
+
+Root cause: TimescaleDB's per-execution chunk-routing/exclusion overhead against
+`alpha_frames`' 1034 chunks, paid on every single parameterized execution regardless of
+asyncpg's prepared-statement reuse across an `executemany()` batch. Not disk I/O (confirmed
+via iostat), not raw row-update cost (a single `EXPLAIN ANALYZE` showed 0.86ms execution),
+not commit/fsync frequency (the earlier chunked-commit fix already ruled that shape out).
+
+**Fix shipped:** `services/counterfactual_tracker.py` now loads `alpha_frames`' chunk range
+table once per run (`_load_chunk_index`, one query against
+`timescaledb_information.chunks`), resolves each row's `bar_ts` to its schema-qualified chunk
+table via binary search (`_route_chunk`), and `_flush_worker_results` groups each symbol's
+rows by resolved chunk, issuing UPDATEs directly against
+`_timescaledb_internal.<chunk>` instead of through the hypertable. A row whose `bar_ts`
+resolves to no known chunk falls back to writing through `alpha_frames` rather than being
+dropped, reported once as an aggregate count (never per-row). Only `chunk_schema`/`chunk_name`
+values matching TimescaleDB's own internal naming convention are trusted for SQL
+interpolation (table names can't be bound as query parameters) -- covered by a regression
+test using a deliberately malicious `chunk_name` to prove the filter holds.
+
+**Live end-to-end verification** (real production functions, not mocks; a symbol untouched
+by any prior benchmark): 1500 rows in 0.232s = **6,472.5 rows/sec**. Full 23.16M-row
+143.1-08 backlog: was 3.2-9.5 days, now under 2 hours.
 
 ## Status
 
-Process is currently STOPPED (not running). The two correctness fixes are committed and safe
-to keep. Do not restart the backfill expecting it to finish in a reasonable time until this
-throughput question is resolved -- it will "work" (make real, committed progress) but at a pace
-that won't clear the corpus for days.
+Fix committed. Backfill restarting for real with all three fixes in place (ordering,
+chunked-commit visibility, direct-chunk write routing).
