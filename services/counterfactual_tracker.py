@@ -48,7 +48,7 @@ import bisect
 import re
 import sys
 from collections import deque
-from collections.abc import Iterable, Sequence
+from collections.abc import Callable, Iterable, Sequence
 from concurrent.futures import ProcessPoolExecutor, as_completed
 from dataclasses import dataclass
 from datetime import UTC, datetime
@@ -909,27 +909,48 @@ def evaluate_frame_gate(
     bootstrap_max_n: int,
     bootstrap_batch: int,
     bootstrap_random_state: int = _DEFAULT_BOOTSTRAP_RANDOM_STATE,
+    group_key: Callable[[dict[str, Any]], tuple[Any, Any]] | None = None,
+    min_clusters: int | None = None,
 ) -> list[dict[str, Any]]:
-    """Pure grouping/aggregation core for the FRAME-04 in-sample exit gate.
+    """Pure grouping/aggregation core for day-clustered bootstrap gate evaluation.
 
     Takes an in-memory iterable of dicts with keys tf, regime, cluster_id, pnl_r -- pnl_r is
     the GROSS realized counterfactual_pnl_r (D-01); this function applies no adjustment to
-    it whatsoever. Groups by (tf, regime), passing each cell's per-frame calendar-date
-    cluster_id straight into frame_gate_passes unmodified (day-clustered, review H4), and
-    respects the min_n frame-count sufficiency floor via that same call.
+    it whatsoever. Groups rows by group_key (default: (tf, regime), the FRAME-04 in-sample
+    exit gate's original grouping -- omitting group_key preserves that behavior byte-for-byte).
+    A second caller (the OOS regime-stratified promotion gate, todo 165) reuses this same
+    core with group_key=lambda row: (row["direction"], row["regime"]) rather than
+    duplicating the day-clustered bootstrap machinery.
 
-    Returns one verdict dict per (tf, regime) cell: tf, regime, n_frames, n_clusters,
-    ci_lower, ci_upper, passes.
+    Passes each cell's per-frame calendar-date cluster_id straight into frame_gate_passes
+    unmodified (day-clustered, review H4), and respects the min_n frame-count sufficiency
+    floor via that same call.
+
+    min_clusters (optional): a day-cluster coverage floor distinct from min_n's frame-count
+    floor -- a cell can clear min_n on frame count alone while resting on too few
+    independent day-observations for the bootstrap CI to mean anything (todo 165). When set,
+    a cell with n_clusters < min_clusters is marked coverage="insufficient" and its "passes"
+    field is forced to None (neither pass nor fail) regardless of frame_gate_passes' own
+    verdict -- never silently counted as a failure. Cells at/above the floor (or when
+    min_clusters is None, preserving current callers' behavior) get coverage="evaluated".
+
+    Returns one verdict dict per group_key cell: tf, regime, n_frames, n_clusters, ci_lower,
+    ci_upper, passes, coverage. (tf/regime keys are populated from the group_key tuple's two
+    elements regardless of what group_key actually groups by, so existing callers that group
+    by (tf, regime) see unchanged field names.)
     """
+    if group_key is None:
+        group_key = lambda row: (row["tf"], row["regime"])  # noqa: E731
+
     groups: dict[tuple[Any, Any], dict[str, list[Any]]] = {}
     for row in rows:
-        key = (row["tf"], row["regime"])
+        key = group_key(row)
         bucket = groups.setdefault(key, {"pnl_r": [], "cluster_id": []})
         bucket["pnl_r"].append(row["pnl_r"])
         bucket["cluster_id"].append(row["cluster_id"])
 
     verdicts: list[dict[str, Any]] = []
-    for (tf, regime), bucket in groups.items():
+    for (dim_a, dim_b), bucket in groups.items():
         passes, ci_lower, ci_upper = frame_gate_passes(
             bucket["pnl_r"],
             bucket["cluster_id"],
@@ -938,15 +959,21 @@ def evaluate_frame_gate(
             bootstrap_batch,
             bootstrap_random_state,
         )
+        n_clusters = len(set(bucket["cluster_id"]))
+        coverage = "evaluated"
+        if min_clusters is not None and n_clusters < min_clusters:
+            coverage = "insufficient"
+            passes = None
         verdicts.append(
             {
-                "tf": tf,
-                "regime": regime,
+                "tf": dim_a,
+                "regime": dim_b,
                 "n_frames": len(bucket["pnl_r"]),
-                "n_clusters": len(set(bucket["cluster_id"])),
+                "n_clusters": n_clusters,
                 "ci_lower": ci_lower,
                 "ci_upper": ci_upper,
                 "passes": passes,
+                "coverage": coverage,
             }
         )
     return verdicts

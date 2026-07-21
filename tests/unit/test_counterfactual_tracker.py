@@ -373,6 +373,56 @@ def test_evaluate_frame_gate_helper_has_no_cost_subtraction():
     assert "cost" not in source.lower()
 
 
+def test_evaluate_frame_gate_custom_group_key():
+    """A custom group_key (e.g. direction+regime) groups independently of tf/regime."""
+    rows = [
+        {"direction": "short", "regime": "high_bear", "cluster_id": "2026-01-01", "pnl_r": 0.1},
+        {"direction": "short", "regime": "high_bear", "cluster_id": "2026-01-02", "pnl_r": 0.2},
+        {"direction": "long", "regime": "high_bear", "cluster_id": "2026-01-01", "pnl_r": -0.1},
+    ]
+    verdicts = evaluate_frame_gate(
+        rows,
+        min_n=1,
+        bootstrap_max_n=5000,
+        bootstrap_batch=1000,
+        group_key=lambda row: (row["direction"], row["regime"]),
+    )
+    cells = {(v["tf"], v["regime"]) for v in verdicts}
+    assert cells == {("short", "high_bear"), ("long", "high_bear")}
+
+
+def test_evaluate_frame_gate_default_group_key_unchanged():
+    """Omitting group_key preserves today's (tf, regime) grouping byte-for-byte."""
+    rows = [
+        {"tf": "5m", "regime": "trending_up", "cluster_id": "2026-01-01", "pnl_r": 0.5},
+        {"tf": "1h", "regime": "trending_up", "cluster_id": "2026-01-01", "pnl_r": 0.3},
+    ]
+    verdicts = evaluate_frame_gate(rows, min_n=1, bootstrap_max_n=5000, bootstrap_batch=1000)
+    cells = {(v["tf"], v["regime"]) for v in verdicts}
+    assert cells == {("5m", "trending_up"), ("1h", "trending_up")}
+    assert all(v["coverage"] == "evaluated" for v in verdicts)
+
+
+def test_evaluate_frame_gate_min_clusters_marks_insufficient():
+    """A cell below min_clusters day-clusters is reported insufficient, not failed --
+    even though it clears the (much lower) min_n frame-count floor."""
+    rows = [
+        {"tf": "1h", "regime": "high_neutral", "cluster_id": f"day-{i}", "pnl_r": 0.1}
+        for i in range(5)
+    ] + [
+        {"tf": "1h", "regime": "low_bull", "cluster_id": f"day-{i}", "pnl_r": 0.1}
+        for i in range(25)
+    ]
+    verdicts = evaluate_frame_gate(
+        rows, min_n=1, bootstrap_max_n=5000, bootstrap_batch=1000, min_clusters=20
+    )
+    by_regime = {v["regime"]: v for v in verdicts}
+    assert by_regime["high_neutral"]["coverage"] == "insufficient"
+    assert by_regime["high_neutral"]["passes"] is None
+    assert by_regime["low_bull"]["coverage"] == "evaluated"
+    assert by_regime["low_bull"]["passes"] is not None
+
+
 def test_evaluate_gate_cli_flag_present():
     source = inspect.getsource(sys.modules["services.counterfactual_tracker"])
     assert "--evaluate-gate" in source
