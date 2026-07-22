@@ -44,6 +44,7 @@ def test_compute_symbol_tf_return_keys():
         "rng",
         "feature_status_map",
         "mr_dict",
+        "dual_write_symbol_hmm",
     ]
     assert params == expected_params, f"Expected params {expected_params}, got {params}"
 

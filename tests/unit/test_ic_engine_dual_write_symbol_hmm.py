@@ -33,6 +33,7 @@ from services.ic_engine import (  # noqa: E402
     _POOLED_REGIME_SENTINEL,
     ICEngineConfig,
     _compute_one_regime_cell,
+    _group_cells_for_metrics,
 )
 
 
@@ -194,3 +195,47 @@ def test_existing_keys_dedup_skips_cell():
     }
     assert dedup_key not in kept_keys
     assert n_skipped2 >= 1
+
+
+def test_group_cells_for_metrics_treats_regime_scope_as_part_of_grouping_key():
+    """Two rows sharing the same regime label and is_pooled=False but differing
+    only in regime_scope (one 'cross_sectional', one 'symbol_hmm' from a
+    dual-write pass) must be treated as two distinct metric emissions, not
+    merged into one -- otherwise a dual-write cell silently conflates its
+    count with the primary cross-sectional cell that happens to share the
+    same HMM regime label string."""
+    all_results = [
+        {"regime": "trending_up", "is_pooled": False, "regime_scope": "cross_sectional"},
+        {"regime": "trending_up", "is_pooled": False, "regime_scope": "cross_sectional"},
+        {"regime": "trending_up", "is_pooled": False, "regime_scope": "symbol_hmm"},
+    ]
+
+    emissions = _group_cells_for_metrics(all_results, symbol="TLT", tf="5m")
+
+    assert len(emissions) == 2
+
+    counts_by_scope = {attrs["regime_scope"]: count for attrs, count in emissions}
+    assert counts_by_scope == {"cross_sectional": 2, "symbol_hmm": 1}
+
+    for attrs, _ in emissions:
+        assert attrs["symbol"] == "TLT"
+        assert attrs["tf"] == "5m"
+        assert attrs["regime"] == "trending_up"
+
+
+def test_group_cells_for_metrics_pooled_rows_grouped_separately():
+    """Pooled rows (is_pooled=True, regime=_POOLED_REGIME_SENTINEL) must form
+    their own emission, distinct from any regime-stratified rows even if a
+    (mis-constructed) row shared a regime label -- is_pooled is still part of
+    the grouping key alongside regime_scope."""
+    all_results = [
+        {"regime": _POOLED_REGIME_SENTINEL, "is_pooled": True, "regime_scope": "pooled"},
+        {"regime": _POOLED_REGIME_SENTINEL, "is_pooled": True, "regime_scope": "pooled"},
+        {"regime": "trending_up", "is_pooled": False, "regime_scope": "cross_sectional"},
+    ]
+
+    emissions = _group_cells_for_metrics(all_results, symbol="TLT", tf="5m")
+
+    assert len(emissions) == 2
+    counts = sorted(count for _, count in emissions)
+    assert counts == [1, 2]

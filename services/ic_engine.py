@@ -1105,6 +1105,44 @@ def _compute_one_regime_cell(
     return result_rows, n_skipped
 
 
+def _group_cells_for_metrics(
+    all_results: list[dict], symbol: str, tf: str
+) -> list[tuple[dict[str, Any], int]]:
+    """Group all_results rows into per-cell OTel metric emissions.
+
+    Grouping key is (regime, is_pooled, regime_scope) -- NOT just (regime,
+    is_pooled). A dual-write symbol_hmm pass and the primary cross-sectional
+    pass can produce the same HMM regime LABEL STRING (e.g. both
+    "trending_up") while being two genuinely distinct measurement passes;
+    grouping on label alone would merge their counts into one metric
+    emission and mis-attribute the combined count to whichever regime_scope
+    happened to be read last. Returns (attrs, count) pairs ready to hand to
+    IC_ENGINE_CELLS_COMPLETED_TOTAL.add(count, attrs) -- extracted from
+    _compute_symbol_tf so the grouping logic itself is unit-testable without
+    a live OTel metrics backend.
+    """
+    distinct_cells = {(r["regime"], r["is_pooled"], r["regime_scope"]) for r in all_results}
+    emissions: list[tuple[dict[str, Any], int]] = []
+    for regime_label, is_pooled, regime_scope in distinct_cells:
+        regime_results = [
+            r
+            for r in all_results
+            if r["regime"] == regime_label
+            and r["is_pooled"] == is_pooled
+            and r["regime_scope"] == regime_scope
+        ]
+        if not regime_results:
+            continue
+        attrs = {
+            "symbol": symbol,
+            "tf": tf,
+            "regime": regime_label,
+            "regime_scope": regime_scope,
+        }
+        emissions.append((attrs, len(regime_results)))
+    return emissions
+
+
 def _compute_symbol_tf(
     dsn: str,
     symbol: str,
@@ -1117,6 +1155,7 @@ def _compute_symbol_tf(
     rng: np.random.Generator,
     feature_status_map: dict[str, str] | None = None,
     mr_dict: dict | None = None,
+    dual_write_symbol_hmm: bool = False,
 ) -> tuple[list[dict], list[dict], dict[str, Any]]:
     """Compute IC for all (regime, lookahead) cells for one (symbol, tf).
 
@@ -1300,15 +1339,6 @@ def _compute_symbol_tf(
             # equity_model_enabled=False: fallback to feature_vectors.regime (per-symbol)
             regime_aligned_market = regime_aligned
             distinct_regimes = [r for r in set(regime_aligned) if r is not None]
-
-        # Todo (restore-symbol-hmm-ic-measurement), Task 1: dual_write_symbol_hmm is
-        # hardcoded False here as a temporary placeholder -- Task 2 of this plan
-        # threads it through as a real _compute_symbol_tf parameter (sourced from
-        # the routed group's alpha.regime.groups APR entry) and will replace this
-        # local with that parameter. Until then the dual-write branch below is
-        # dead code (never executes), so behavior is unchanged from before this
-        # extraction.
-        dual_write_symbol_hmm = False
 
         # Pooled pass -- always exactly once, regardless of how many regime-label
         # sources this (symbol, tf) computes. Pooled doesn't condition on regime
@@ -1681,24 +1711,14 @@ def _compute_symbol_tf(
         # ------------------------------------------------------------------
         # Per-cell OTel metrics
         # ------------------------------------------------------------------
-        # regime_passes (the old for-loop's iterable) no longer exists as a
-        # precomputed variable -- pooled/primary/dual-write are now three
-        # separate calls above, not one loop. Derive the same distinct-label
-        # set directly from all_results (which already carries a "regime" key
-        # set to _POOLED_REGIME_SENTINEL for pooled rows), giving an identical
-        # per-(symbol, tf, regime) metric emission regardless of how many
-        # passes contributed rows to that regime label.
-        for regime_label in {r["regime"] for r in all_results}:
-            is_pooled = regime_label == _POOLED_REGIME_SENTINEL
-            regime_results = [
-                r
-                for r in all_results
-                if r["regime"] == regime_label and r["is_pooled"] == is_pooled
-            ]
-            if not regime_results:
-                continue
-            attrs = {"symbol": symbol, "tf": tf, "regime": regime_label}
-            IC_ENGINE_CELLS_COMPLETED_TOTAL.add(len(regime_results), attrs)
+        # all_results is populated by 1 pooled call above plus a loop over
+        # 1-or-2 regime_passes (primary, and optionally a dual-write
+        # symbol_hmm pass -- see regime_passes construction above).
+        # _group_cells_for_metrics groups on (regime, is_pooled, regime_scope)
+        # so a dual-write symbol_hmm cell never gets conflated with a primary
+        # cross-sectional cell sharing the same HMM regime label string.
+        for attrs, count in _group_cells_for_metrics(all_results, symbol, tf):
+            IC_ENGINE_CELLS_COMPLETED_TOTAL.add(count, attrs)
 
         n_passing_wf = sum(1 for r in all_results if r.get("passes_walkforward"))
         FEATURE_IC_PASSING_WALKFORWARD_TOTAL.set(n_passing_wf, {"symbol": symbol, "tf": tf})
@@ -2639,10 +2659,13 @@ def _run_ic_worker(args: tuple) -> dict:
 
     Args:
         args: (symbol, tfs, dsn, training_window_end, existing_keys_frozen,
-               config, run_ts, feature_status_map, mr_dict_by_tf) -- mr_dict_by_tf
-               is already scoped to THIS symbol's own regime_group (Phase 144 Plan
-               05: mr_dicts_by_group.get(symbol_regime_class.get(symbol)) in main()),
-               never another group's labels.
+               config, run_ts, feature_status_map, mr_dict_by_tf,
+               dual_write_symbol_hmm) -- mr_dict_by_tf is already scoped to THIS
+               symbol's own regime_group (Phase 144 Plan 05:
+               mr_dicts_by_group.get(symbol_regime_class.get(symbol)) in main()),
+               never another group's labels. dual_write_symbol_hmm (bool) --
+               resolved once per symbol from its routed group's APR field
+               (alpha.regime.groups[*].dual_write_symbol_hmm).
 
     Returns:
         dict with keys: symbol, pooled_rows (list), regime_rows (list),
@@ -2659,6 +2682,7 @@ def _run_ic_worker(args: tuple) -> dict:
         run_ts,
         feature_status_map,
         mr_dict_by_tf,
+        dual_write_symbol_hmm,
     ) = args
 
     from src.core.service_utils import setup_service_logging
@@ -2703,6 +2727,7 @@ def _run_ic_worker(args: tuple) -> dict:
                     rng=rng,
                     feature_status_map=feature_status_map,
                     mr_dict=mr_dict_by_tf.get(tf) if mr_dict_by_tf else None,
+                    dual_write_symbol_hmm=dual_write_symbol_hmm,
                 )
                 # Adjust pval_result_idxs to point into this worker's global all_results list.
                 offset = len(all_results)
@@ -3345,6 +3370,7 @@ def main() -> None:
             symbol_regime_class: dict[str, str] = _build_symbol_regime_class(
                 tags_by_symbol, enabled_groups
             )
+            group_by_name: dict[str, dict] = {g["name"]: g for g in enabled_groups}
             unrouted_symbols = sorted(set(tags_by_symbol) - set(symbol_regime_class))
             _logger.info(
                 "ic_engine.routing_built",
@@ -3581,6 +3607,13 @@ def main() -> None:
                             mr_dicts_by_group.get(symbol_regime_class.get(symbol))
                             if enabled_groups
                             else None
+                        ),
+                        (
+                            group_by_name.get(symbol_regime_class.get(symbol), {}).get(
+                                "dual_write_symbol_hmm", False
+                            )
+                            if enabled_groups
+                            else False
                         ),
                     )
                     for symbol in symbols_to_compute
