@@ -455,7 +455,7 @@ async def evaluate_epoch(conn, weight_epoch, oos_start, min_n, bootstrap_max_n,
 - `c1_min_60_days = True` (69 OOS days, passes)
 - Regime-stratified: only 2 of 8 champion cells clear `min_clusters=20` coverage (long/mid_bull `ci_lower=-0.077` fails; short/mid_bull `ci_lower=-0.278` fails); the other 6 cells are `coverage="insufficient"`.
 
-**Verdict-assembly + human-readable print pattern** (lines 228-253) — SCORE-03 should keep this reporting shape (print cell-by-cell regime coverage, never print a pooled verdict without the regime table alongside it) but redirect the final verdict into a `gate_evaluations` INSERT instead of (or in addition to) stdout, with `gate_id = 'SCORE-03-execution-proof'` (also serving as `FRAME-04`'s formal re-run per D-08 — do not create a second `FRAME-04` gate_id).
+**Verdict-assembly + human-readable print pattern** (lines 228-253) — SCORE-03 should keep this reporting shape (print cell-by-cell regime coverage, never print a pooled verdict without the regime table alongside it) but redirect the final verdict into a `gate_evaluations` INSERT instead of (or in addition to) stdout, with `gate_id = 'gate2_execution'` (also serving as `FRAME-04`'s formal re-run per D-08 — do not create a second `FRAME-04` gate_id).
 
 ---
 

@@ -526,19 +526,22 @@ COMMIT;
 | A3 | SCORE-01's `alpha_score_decile` binning is computed via `NTILE(10)` (SQL) or equivalent over each (symbol, tf, regime) cohort, not globally across the whole corpus | Architecture Patterns Pattern 1 | Medium — the design doc doesn't specify per-cohort vs. global decile binning; per-cohort is the only interpretation consistent with "(symbol, tf, regime, alpha_score_decile)" being the unique index grain, but this should be confirmed as an explicit plan decision, not left implicit |
 | A4 | `forward_returns` gradient columns (`return_fast`/`mid`/`slow`/`extended`) used by `ensemble_ic_engine.py` are already filtered to `return_type = 'executable_open_to_open'` at the column-population level (i.e., these columns only ever hold executable returns, so no additional `WHERE return_type = ...` filter is needed in SCORE-02's query) | Project Constraints, Common Pitfalls | Medium — if `forward_returns` in fact stores multiple `return_type` variants per row and these columns are ambiguous without an explicit filter, SCORE-02 could silently read theoretical (non-executable) returns; verify `forward_returns` table schema/population logic before writing SCORE-02's query |
 
-## Open Questions
+## Open Questions (RESOLVED)
 
 1. **Does `forward_returns` require an explicit `WHERE return_type = 'executable_open_to_open'` filter for the gradient columns `ensemble_ic_engine.py` reads, or is that invariant enforced at write time?**
+   - **(RESOLVED by plan 148-03, SCORE-02):** the executor reads `ensemble_ic_engine.py`'s full `_WORKER_FETCH_SQL`/`_POOLED_WORKER_FETCH_SQL` and copies its existing filtering convention verbatim rather than introducing a new one.
    - What we know: CLAUDE.md states this filter is mandatory for all `forward_returns` queries in `ic_engine.py`; `ensemble_ic_engine.py`'s `_WORKER_FETCH_SQL` was not fully read in this research pass (only partial context around line 530/565).
    - What's unclear: whether `ensemble_ic_engine.py`'s existing query already includes this filter (in which case SCORE-02 should copy it verbatim) or whether the `return_fast/mid/slow/extended` columns are populated exclusively with executable returns at write time by `forward_return_writer.py` (in which case no runtime filter is needed).
    - Recommendation: the planner/executor should read `ensemble_ic_engine.py`'s full `_WORKER_FETCH_SQL`/`_POOLED_WORKER_FETCH_SQL` text (around lines 500-570) before writing SCORE-02's query, and copy whatever filtering convention it already uses — do not introduce a new convention.
 
 2. **Should SCORE-01's `AlphaScorer` be registered in `_DAG_ORDER`/systemd now, or is a plain script sufficient for this phase's actual deliverable (the OOS gate verdicts)?**
+   - **(RESOLVED by plan 148-02, SCORE-01):** built as a full `BaseBatch` subclass; systemd-timer/`_DAG_ORDER` registration deferred to a follow-up (not required for this phase's gate-verdict deliverable).
    - What we know: the schema doc specifies a full service (`indicagent-alpha-scorer` systemd unit); ROADMAP.md calls it a "weekly oneshot, BaseBatch."
    - What's unclear: whether this phase needs `AlphaScorer` to run on a systemd timer immediately, or whether a `BaseBatch`-shaped script invoked manually (once, to feed SCORE-03's `ic_alpha_score_corr` diagnostic) satisfies this phase's actual scope, with the timer/DAG registration deferred.
    - Recommendation: build it as a full `BaseBatch` subclass (correct regardless), but let the planner decide whether Wave 1 includes the systemd unit file + `_DAG_ORDER` entry or defers that to a follow-up — CONTEXT.md doesn't address this explicitly.
 
 3. **Where exactly does `gate_evaluations.evidence` schema draw its line between SCORE-02's and SCORE-03's JSON shape?**
+   - **(RESOLVED by plan 148-01):** migration 247 uses a generic loose `evidence JSONB` column with no enforced sub-schema; each gate script writes whatever fields fit its own criteria.
    - What we know: CONTEXT.md leaves `gate_evaluations` schema details (beyond timestamp/gate_id/result/evidence) to planner's discretion, calling it "standard APR/migration conventions."
    - What's unclear: whether SCORE-02 and SCORE-03 should share one evidence JSON shape (e.g., `{criteria: [...], ci_lower, ci_upper, n_obs, ...}`) or have gate-specific shapes given how different Gate 1's (IC-based) and Gate 2's (P&L-based) evidence naturally are.
    - Recommendation: use a generic `evidence JSONB` column with no enforced sub-schema (matches `llm_calls`'/`integrity_monitor`'s existing loose-JSONB-evidence convention in this codebase), let each gate script write whatever fields make sense for its own criteria.
