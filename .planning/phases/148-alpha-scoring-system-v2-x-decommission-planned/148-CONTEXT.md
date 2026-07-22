@@ -27,7 +27,7 @@ the 2026-07-19 operator call.
 
 ### Phase 147 dependency (corrected during this discussion)
 
-- **D-01:** ROADMAP.md's "Depends on: Phase 147 complete" line on this phase was stale and
+- **D-01 [informational]:** ROADMAP.md's "Depends on: Phase 147 complete" line on this phase was stale and
   has been corrected (commit `4ef1b71a`). SCORE-01/02/03 read only `alpha_frames`/
   `alpha_ensemble_ic`/`alpha_strategy_scores` — pure v3.0 tables, zero I7 lineage. This phase
   is unblocked today, independent of Phase 147.
