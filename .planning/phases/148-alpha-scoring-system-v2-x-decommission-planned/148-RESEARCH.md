@@ -202,6 +202,15 @@ the human-readable synthesis of both rows plus the SCORE-04 v2.x note.
 
 ### Recommended Project Structure
 
+**Correction (2026-07-22):** the planner combined the DDL and APR-key seed below into a
+single migration rather than splitting them — `production/migrations/248_alpha_scoring_gate_tables.sql`
+is the only migration this phase adds (see `148-01-PLAN.md`). The two-file split shown below
+is this research doc's original suggestion, superseded once the plan was actually written; left
+in place for context, not as the executed shape. Migration numbering itself is separately
+confirmed live-correct at **248** — 247 (`247_regime_groups_dual_write_symbol_hmm.sql`) landed
+same day as an unrelated concurrent workstream; see `148-PATTERNS.md`'s migration-numbering
+section for the full resolution.
+
 ```
 production/migrations/
 ├── 248_alpha_scoring_gate_tables.sql   # alpha_strategy_scores + gate_evaluations DDL

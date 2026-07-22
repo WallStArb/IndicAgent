@@ -9,8 +9,8 @@
 | New/Modified File | Role | Data Flow | Closest Analog | Match Quality |
 |--------------------|------|-----------|-----------------|---------------|
 | `services/alpha_scorer.py` (`AlphaScorer`, SCORE-01) | service (batch compute, `BaseBatch`) | CRUD (read `alpha_frames`, aggregate, batch-write `alpha_strategy_scores`) | `services/counterfactual_tracker.py` (bootstrap-gate reuse) + `services/ensemble_ic_engine.py` (`BaseBatch` shape) | exact (role) / exact (statistics reuse) |
-| `production/migrations/247_alpha_scoring_gate_tables.sql` (or split 247/248) | migration (DDL) | batch | `production/migrations/236_alpha_frames_is_shadow.sql` | role-match (DDL structure) |
-| `production/migrations/24N_alpha_scoring_apr_keys.sql` | migration (APR seed triple) | batch | `production/migrations/244_regime_gate_min_clusters.sql` | exact |
+| `production/migrations/248_alpha_scoring_gate_tables.sql` (single combined file, DDL + APR seed — see the migration-numbering correction below; table cells below still describe DDL/APR-seed as separate analog targets within that one file) | migration (DDL) | batch | `production/migrations/236_alpha_frames_is_shadow.sql` | role-match (DDL structure) |
+| ↳ same file, APR-key seed portion | migration (APR seed triple) | batch | `production/migrations/244_regime_gate_min_clusters.sql` | exact |
 | `scripts/ops/corpus/ops_oos_gate1_signal_eval.py` (SCORE-02) | script (standalone one-shot governance) | request-response / batch (read-only SELECT + one write to `gate_evaluations`) | `scripts/ops/corpus/ops_oos_holdout_eval.py` | exact |
 | `scripts/analysis/score03_gate2_execution_eval.py` (SCORE-03) | script (standalone one-shot governance) | batch (read `alpha_frames`, evaluate, one write to `gate_evaluations`) | `scripts/analysis/phase143_1_08_shadow_validation.py` | exact |
 | `tests/unit/test_alpha_scorer.py` | test | CRUD/transform | `tests/unit/test_ensemble_ic_gate.py` (pure-function unit test shape) + `tests/unit/test_counterfactual_tracker.py` (bootstrap-gate test shape) | role-match |
@@ -152,6 +152,17 @@ COMMIT;
 For `alpha_strategy_scores`/`gate_evaluations` (new tables, not `ALTER TABLE`), use `CREATE TABLE IF NOT EXISTS` inside the same `BEGIN`/`COMMIT` block. Follow live `alpha_frames` conventions per RESEARCH.md Pitfall 4: `frame_id` is `text`, not `uuid` — new tables' ID columns should match this text-ID convention for consistency, not introduce `uuid`.
 
 **IMPORTANT — migration numbering correction:** RESEARCH.md's suggested filenames (`248_alpha_scoring_gate_tables.sql` / `249_alpha_scoring_apr_keys.sql`) are now stale. Live-verified 2026-07-22: `245_ensemble_1h_eligibility_thresholds.sql` and `246_ensemble_1h_meta_fdr_min_cells.sql` already exist. **Next available migration number is 247**, not 248. Confirm the actual head number again at execution time (`ls production/migrations/ | sort -V | tail -5`) — this project has had concurrent-session migration-number collisions before (`240_counterfactual_tracker_chunk_size.sql` and `240_cross_symbol_corroboration_apr_key.sql` share number 240).
+
+**Second correction (2026-07-22, later same day):** the above is itself now stale — 247 landed
+same day as `247_regime_groups_dual_write_symbol_hmm.sql` (an unrelated concurrent
+workstream, symbol_hmm restoration). **This phase's migration is 248**, not 247, and it is a
+single combined file (`248_alpha_scoring_gate_tables.sql`, DDL + APR-key seed together, not
+split 248/249 as this section and RESEARCH.md's structure diagram originally suggested) — see
+`148-01-PLAN.md`, the executable artifact, which is correct as written. Phase 162, also
+planned this session but scheduled to execute after this phase, has reserved 249-252 for its
+own four migrations. Re-check the actual head at execution time regardless
+(`ls production/migrations/ | sort -V | tail -5`) — this is the third same-week collision on
+this exact mechanism.
 
 ---
 
