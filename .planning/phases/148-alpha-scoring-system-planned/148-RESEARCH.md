@@ -1,4 +1,4 @@
-# Phase 148: Alpha Scoring System + v2.x Decommission - Research
+# Phase 148: Alpha Scoring System - Research
 
 **Researched:** 2026-07-22
 **Domain:** Batch statistical scoring (Python/asyncpg/TimescaleDB), OOS promotion-gate governance, APR migrations
@@ -628,7 +628,7 @@ authentication/session concerns, and no new secrets.
 ## Sources
 
 ### Primary (HIGH confidence)
-- `.planning/phases/148-alpha-scoring-system-v2-x-decommission-planned/148-CONTEXT.md` — user decisions D-01 through D-08, canonical refs, reusable assets (read in full)
+- `.planning/phases/148-alpha-scoring-system-planned/148-CONTEXT.md` — user decisions D-01 through D-08, canonical refs, reusable assets (read in full)
 - `docs/plans/2026-06-25-v30-alpha-lifecycle-schema.md` — schema/APR key design (read in full)
 - `docs/plans/OOS-EVAL-PROTOCOL.md` — frozen OOS holdout discipline (read in full)
 - `docs/plans/SHADOW-REVIEW.md` — frozen 5 pass/fail criteria (read in full)

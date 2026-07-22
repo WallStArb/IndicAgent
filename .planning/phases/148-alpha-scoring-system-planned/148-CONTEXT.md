@@ -1,4 +1,4 @@
-# Phase 148: Alpha Scoring System + v2.x Decommission - Context
+# Phase 148: Alpha Scoring System - Context
 
 **Gathered:** 2026-07-22
 **Status:** Ready for planning
@@ -216,5 +216,5 @@ None scored above the generic 0.6 keyword-match ceiling in `todo.match-phase` fo
 
 ---
 
-*Phase: 148-Alpha Scoring System + v2.x Decommission*
+*Phase: 148-Alpha Scoring System*
 *Context gathered: 2026-07-22*

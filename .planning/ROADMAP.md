@@ -1303,7 +1303,7 @@ registered" — no `i7_conversion_complete` gauge, since there is no conversion 
 
 ---
 
-### Phase 148: Alpha Scoring System + v2.x Decommission 📋 PLANNED
+### Phase 148: Alpha Scoring System 📋 PLANNED
 
 **Schema design:** `docs/plans/2026-06-25-v30-alpha-lifecycle-schema.md` — `alpha_strategy_scores` table + `alpha.scoring.*` APR keys. Full two-gate promotion logic in "Phase Sequencing" section.
 

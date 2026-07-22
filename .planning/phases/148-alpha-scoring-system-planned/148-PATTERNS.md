@@ -1,4 +1,4 @@
-# Phase 148: Alpha Scoring System + v2.x Decommission - Pattern Map
+# Phase 148: Alpha Scoring System - Pattern Map
 
 **Mapped:** 2026-07-22
 **Files analyzed:** 9 (3 new source files, 1-2 migrations, 3 test files, 1 doc)

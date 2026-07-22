@@ -1,10 +1,10 @@
-# Phase 148: Alpha Scoring System + v2.x Decommission - Discussion Log
+# Phase 148: Alpha Scoring System - Discussion Log
 
 > **Audit trail only.** Do not use as input to planning, research, or execution agents.
 > Decisions are captured in CONTEXT.md — this log preserves the alternatives considered.
 
 **Date:** 2026-07-22
-**Phase:** 148-Alpha Scoring System + v2.x Decommission
+**Phase:** 148-Alpha Scoring System
 **Areas discussed:** Phase 147 dependency validity, OOS holdout integrity for Gate 2, Gate 1
 scorer build approach, Gate 2 reporting method
 
