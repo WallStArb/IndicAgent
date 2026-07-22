@@ -16,7 +16,7 @@ Locked Decisions.
 | `services/ic_engine.py` (modify) | service (batch oneshot) | batch / CRUD (read cells, compute, upsert) | itself — `_compute_one_regime_cell` (already-extracted symbol-side sibling) is the analog for the cross-sectional extraction; `_short_lived_conn`/`_checkpoint_content_key`/`existing_keys` are the analogs for the fingerprint work | exact (in-file precedent) |
 | `services/_batch_utils.py` (modify: add `short_lived_conn(dsn)`) | utility | connection lifecycle (context manager) | `connect_db_from_url` (same file) + `_short_lived_conn` (`services/ic_engine.py:383-400`, Settings-based sibling) | exact |
 | `src/intelligence/statistics/ic_math.py` (modify: add `build_walk_forward_folds`) | utility (pure math) | transform | `apply_bh_fdr` (`ic_math.py:513-532`) — same module, same "extract a duplicated inline block into one pure function" shape (todo 048/069 precedent) | exact |
-| `production/migrations/248_ic_cell_fingerprints.sql` (new) | migration | batch (schema + APR seed) | `production/migrations/225_concept_registry_mvp.sql` (table shape + config triple-insert) + `157_alpha_ic_apr_keys.sql` (per-tf flat-key APR pattern) + `156_ic_engine_tables.sql` (non-hypertable plain-table + partial-index precedent) | exact |
+| `production/migrations/251_ic_cell_fingerprints.sql` (new) | migration | batch (schema + APR seed) | `production/migrations/225_concept_registry_mvp.sql` (table shape + config triple-insert) + `157_alpha_ic_apr_keys.sql` (per-tf flat-key APR pattern) + `156_ic_engine_tables.sql` (non-hypertable plain-table + partial-index precedent) | exact |
 | `tests/unit/test_ic_engine_compute_split.py` (extend) | test | unit (source-inspection, no DB) | itself — existing `test_compute_cross_sectional_tf_takes_dsn_not_live_connection` / `test_per_symbol_rankdata_output_is_float32_not_float64` pair is the exact template for a new cross-sectional-extraction-parity case | exact |
 | `tests/unit/test_ic_engine_idempotency.py` (extend, do NOT rewrite) | test | unit (module-constant/SQL-string inspection, no DB) | itself — existing `test_pooled_insert_sql_contains_do_nothing` pattern | exact |
 | `tests/unit/test_ic_engine_parallelism.py` (extend) | test | unit (signature/inspect, no DB) | itself — existing `test_worker_accepts_single_tuple_arg` (`inspect.signature`) | exact |
@@ -383,7 +383,7 @@ fold it into the shared function (it's a caller-specific precondition, not share
 
 ---
 
-### `production/migrations/248_ic_cell_fingerprints.sql` (migration, new table + APR seed)
+### `production/migrations/251_ic_cell_fingerprints.sql` (migration, new table + APR seed)
 
 **Analog 1 — plain (non-hypertable) table + partial-index convention:**
 `production/migrations/156_ic_engine_tables.sql:31-51` (`forward_returns`, and its sibling
@@ -505,12 +505,19 @@ CREATE TABLE IF NOT EXISTS ic_cell_fingerprints (
 );
 ```
 
-**Verified next-free migration number:** `ls production/migrations/ | sort -t_ -k1 -n | tail`
-shows the highest landed migration on this worktree is `246_ensemble_1h_meta_fdr_min_cells.sql`;
-`247_regime_groups_dual_write_symbol_hmm.sql` is reserved (not yet landed) by the concurrent
-symbol_hmm-restoration workstream on this same worktree — **use 248**, and re-check
-`ls production/migrations/ | sort -t_ -k1 -n | tail -3` immediately before writing the file
-during execution, per Pitfall 4.
+**Verified next-free migration number (superseded, see below):** `ls production/migrations/ |
+sort -t_ -k1 -n | tail` showed the highest landed migration on this worktree was
+`246_ensemble_1h_meta_fdr_min_cells.sql` at write time; `247_regime_groups_dual_write_symbol_hmm.sql`
+was reserved (not yet landed) by the concurrent symbol_hmm-restoration workstream on this same
+worktree.
+
+**Second correction (2026-07-22, later same day):** 247 has since landed. A third concurrent
+workstream, Phase 148 (Alpha Scoring System), also claims a migration
+(`248_alpha_scoring_gate_tables.sql`) and executes before Phase 162 per STATE.md's priority
+ordering — so **use 251** for `ic_cell_fingerprints` (this section's original "use 248" is
+stale), and correspondingly 249/250/252 for Phase 162's other three migrations. Re-check
+`ls production/migrations/ | sort -t_ -k1 -n | tail -3` immediately before writing any file
+during execution, per Pitfall 4 — this is now the second consecutive renumbering.
 
 ---
 

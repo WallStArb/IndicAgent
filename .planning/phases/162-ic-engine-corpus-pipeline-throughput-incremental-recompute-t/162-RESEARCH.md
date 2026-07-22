@@ -93,6 +93,18 @@ table migration must use **248**, not 247, and the planner should flag this as a
 sequencing/collision risk between two independent workstreams touching the same file, not
 silently pick a number and hope no collision occurs.
 
+**Second correction (2026-07-22, later same day):** 247 has since landed (symbol_hmm
+restoration merged to `main`). A third concurrent workstream, Phase 148 (Alpha Scoring
+System), was also planned this session and claims 248 for its own migration
+(`248_alpha_scoring_gate_tables.sql`) — and per STATE.md's priority ordering, Phase 148
+executes before Phase 162. All four of Phase 162's migration numbers below have been shifted
+by one accordingly: feature-block APR keys is now **249** (not 248), cross-sectional
+bootstrap threads is **250**, the fingerprints table is **251** (not 248 as this section
+originally said), and refresh_min_new_fraction is **252**. Re-check the actual head migration
+number at execution time regardless — this is now the second consecutive same-week
+mid-planning renumbering, and a third overlapping workstream is not something either
+plan-checker pass could have anticipated.
+
 Third: the existing `test_ic_engine_idempotency.py` unit test directly asserts `"DO NOTHING" in
 _POOLED_INSERT_SQL` / `_REGIME_INSERT_SQL` / `_CROSS_SECTIONAL_INSERT_SQL`. 162-03's own risk #1
 ("`ON CONFLICT DO NOTHING` silently discards recomputes") is real and confirmed live at exactly
@@ -108,8 +120,9 @@ ahead of `worker_args` construction — the same place `existing_keys` is alread
 **Primary recommendation:** Plan 162-01 as "finish the extraction Task 1 already started,
 apply it to `_compute_cross_sectional_tf` too, then do the feature-block memory rewrite on the
 now-shared shape" rather than "extract two inline loops into one new helper" — the second framing
-describes a file state that no longer exists. Plan 162-03's schema at migration **248** (not
-247), and its recompute-invalidation mechanism as **DELETE-then-insert**, not upsert, to avoid
+describes a file state that no longer exists. Plan 162-03's schema at migration **251** (not
+247/248 — see the second correction above), and its recompute-invalidation mechanism as
+**DELETE-then-insert**, not upsert, to avoid
 touching (and needing to rewrite the intent of) `test_ic_engine_idempotency.py`.
 
 ## Architectural Responsibility Map
@@ -247,7 +260,7 @@ services/
 src/intelligence/statistics/
 ├── ic_math.py               # + build_walk_forward_folds(n_obs, n_folds, embargo_bars)
 production/migrations/
-├── 248_ic_cell_fingerprints.sql   # NEW — see Code Examples below for shape precedent
+├── 251_ic_cell_fingerprints.sql   # NEW — see Code Examples below for shape precedent
 tests/unit/
 ├── test_ic_engine_compute_split.py       # extend: cross-sectional extraction parity
 ├── test_ic_engine_idempotency.py         # extend, do NOT rewrite: add DELETE-path tests
@@ -501,10 +514,14 @@ it's applied.
 **Why it happens:** Migration numbers are assigned by "next free number at authoring time," and
 two independent workstreams can pick the same "next free number" if authored close together
 without cross-checking.
-**How to avoid:** Phase 162's `ic_cell_fingerprints` migration should be authored as **248**.
-Re-check `ls production/migrations/ | sort -t_ -k1 -n | tail -3` immediately before actually
-writing the migration file during execution (not just at planning time) in case 247 has landed
-by then, and increment accordingly.
+**How to avoid:** Phase 162's `ic_cell_fingerprints` migration should be authored as **251**
+(shifted from this section's original **248** recommendation — see the "Second correction"
+note earlier in this doc: 247 has since landed, and Phase 148, a third concurrent
+workstream, claims 248 and executes first per STATE.md's priority ordering, pushing all four
+of Phase 162's migrations to 249-252). Re-check
+`ls production/migrations/ | sort -t_ -k1 -n | tail -3` immediately before actually writing
+the migration file during execution (not just at planning time) in case the head has moved
+again by then, and increment accordingly.
 **Warning signs:** `git status` shows a migration file collision, or two migrations with the
 same leading number in the same commit.
 
