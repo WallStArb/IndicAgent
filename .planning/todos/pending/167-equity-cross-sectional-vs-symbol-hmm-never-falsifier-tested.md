@@ -1,0 +1,57 @@
+---
+status: pending
+priority: P2
+filed: 2026-07-21
+source: found while fixing todo (restore-symbol-hmm-ic-measurement, unblocks Phase 144's
+  D-05 gate) -- the same silent-suppression mechanism affects the equity regime group too,
+  a separate and older question nobody ever built a falsifier gate to test.
+---
+
+# `equity` group's cross-sectional-vs-per-symbol-HMM Stage-1 conditioning decision was never falsifier-tested
+
+## What's wrong
+
+`services/ic_engine.py`'s regime-group routing (`cross_sectional = mr_dict is not None`,
+line ~965) permanently replaces a routed symbol's per-symbol HMM (`symbol_hmm`-scope)
+`feature_ic_scores` measurement with cross-sectional measurement the moment that symbol
+matches an enabled regime group's `tag_filter`. This was just fixed for the `rates` group
+(migration 247, `alpha.regime.groups`' new per-group `dual_write_symbol_hmm` field) because
+Phase 144's D-05 acceptance gate needed fresh `symbol_hmm` data to evaluate its F1 falsifier
+for `TLT`.
+
+The same silent suppression has applied to every `equity`-routed symbol (e.g. `SPY`, ~50+
+symbols) since equity's cross-sectional regime group was first enabled -- verified live
+2026-07-21: `SPY` has zero `symbol_hmm`-scope rows in `feature_ic_scores`. Unlike `rates`,
+no D-05-equivalent falsifier gate was ever built to test whether cross-sectional labels
+actually separate IC better than per-symbol HMM for equity symbols -- the choice was a
+silent implementation-order side effect of when routing shipped, not an earned, proven
+decision. Per this project's own principles ("earn promotion through proof," "resist
+overfitting," "empirical over theoretical"), an unproven default masquerading as settled is
+exactly the class of gap that should rank above "merely convenient."
+
+## Fix direction
+
+Not urgent, not solved by this fix. Two possible directions, need a real design decision:
+1. Build an equity-scoped equivalent of Phase 144's D-05 F1/F2 falsifier gate (same
+   `evaluate_frame_gate`/separation-metric machinery, different symbol universe), then
+   decide whether to set `alpha.regime.groups`' `equity` entry's `dual_write_symbol_hmm=true`
+   temporarily while that gate runs -- mechanism is already general-purpose (one-line APR
+   change, zero code, per migration 247's design).
+2. Decide the cross-sectional choice for equity is self-evidently correct enough (e.g. the
+   equity cross-sectional model has a much longer track record / more validation than
+   `rates` did) and explicitly document that as an accepted, reasoned default rather than
+   an unexamined one -- still requires SOME evidence-gathering, not a rubber-stamp.
+
+Do not silently accelerate this into `dual_write_symbol_hmm=true` for equity without either
+building the gate or making the explicit reasoned-default case -- that would repeat the
+exact "accelerate before it's justified" mistake this whole investigation started from.
+
+## References
+
+- `services/ic_engine.py:965` -- the suppression mechanism
+- `production/migrations/247_regime_groups_dual_write_symbol_hmm.sql` -- the `rates` fix
+  this todo is the sibling of
+- `scripts/analysis/phase144_regime_separation_gate.py` -- the D-05 falsifier gate pattern
+  an equity-scoped equivalent would follow
+- `docs/superpowers/specs/2026-07-21-restore-symbol-hmm-ic-measurement-for-routed-symbols-design.md`
+  -- design doc that first surfaced this as an explicit out-of-scope follow-up
