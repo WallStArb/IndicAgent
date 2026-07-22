@@ -1,9 +1,9 @@
 ---
 phase: 162
 slug: ic-engine-corpus-pipeline-throughput-incremental-recompute-t
-status: draft
-nyquist_compliant: false
-wave_0_complete: false
+status: ready
+nyquist_compliant: true
+wave_0_complete: true
 created: 2026-07-22
 ---
 
@@ -60,16 +60,20 @@ description's own success criteria and RESEARCH.md's confirmed file list instead
 
 ## Wave 0 Requirements
 
-- [ ] `tests/unit/test_ic_math_walk_forward_folds.py` — covers `build_walk_forward_folds` against
-      all 4 existing inline call sites' expected boundary values
-- [ ] `tests/unit/test_batch_utils_short_lived_conn.py` — covers the new dsn-based
-      `short_lived_conn` context manager, including the exception-mid-fetch-still-closes case the
-      3 existing hand-rolled sites fail today
-- [ ] `tests/unit/test_ic_engine_fingerprint.py` — covers the fingerprint validity check
-      (match/mismatch/unclassified-field-crashes-loud), the DELETE-then-insert invalidation path,
-      and that `existing_keys`'s replacement still integrates correctly with `worker_args`
-      construction
-- [ ] Framework install: none — pytest and all dependencies already present
+**Satisfied via inline TDD authorship, not a separate upfront wave** — each new test file below
+is written within the same task that implements the behavior it covers (confirmed by
+`gsd-plan-checker`'s Dimension 8d review as a valid TDD shape, not a broken Wave-0 link):
+
+- [x] `tests/unit/test_ic_math_walk_forward_folds.py` — authored in 162-01 Task 2, covers
+      `build_walk_forward_folds` against all 4 existing inline call sites' expected boundary values
+- [x] `tests/unit/test_batch_utils_short_lived_conn.py` — authored in 162-01 Task 1, covers the
+      new dsn-based `short_lived_conn` context manager, including the
+      exception-mid-fetch-still-closes case the 3 existing hand-rolled sites fail today
+- [x] `tests/unit/test_ic_engine_fingerprint.py` — authored in 162-03 Tasks 1-3, covers the
+      fingerprint validity check (match/mismatch/unclassified-field-crashes-loud), the
+      in-place-mutation watermark test, the DELETE-then-insert invalidation path, and that
+      `existing_keys`'s replacement still integrates correctly with `worker_args` construction
+- [x] Framework install: none — pytest and all dependencies already present
 
 ---
 
@@ -85,11 +89,14 @@ description's own success criteria and RESEARCH.md's confirmed file list instead
 
 ## Validation Sign-Off
 
-- [ ] All tasks have automated verify or Wave 0 dependencies
-- [ ] Sampling continuity: no 3 consecutive tasks without automated verify
-- [ ] Wave 0 covers all Wave-0-gap rows above (3 new test files)
-- [ ] No watch-mode flags
-- [ ] Feedback latency < 30s (quick run)
-- [ ] `nyquist_compliant: true` set in frontmatter (pending planner output)
+Verified by `gsd-plan-checker` against the 4 committed plans (2026-07-22), 0 blockers:
 
-**Approval:** pending
+- [x] All tasks have automated verify or Wave 0 dependencies
+- [x] Sampling continuity: no 3 consecutive tasks without automated verify
+- [x] Wave 0 covers all Wave-0-gap rows above (3 new test files, authored inline per task)
+- [x] No watch-mode flags
+- [x] Feedback latency < 30s (quick run)
+- [x] `nyquist_compliant: true` set in frontmatter
+
+**Approval:** approved 2026-07-22 (gsd-plan-checker, VERIFICATION PASSED — 0 blockers, 2
+warnings, both bookkeeping-only and since fixed in this file and 162-RESEARCH.md)

@@ -599,9 +599,19 @@ locations.
 | A2 | DELETE-then-insert (not upsert) is the right fix for Pitfall 1 | Common Pitfalls, Pattern list | Low-medium — this is a recommendation based on minimizing blast radius to existing tests/docstrings, not a locked decision from CONTEXT.md (none exists for this phase); the planner should confirm this tradeoff explicitly rather than treating it as settled, since an upsert is also a valid, arguably simpler design if the test/docstring updates are considered acceptable churn |
 | A3 | `pass_type` CHECK values (`'pooled'`, `'symbol_hmm'`, `'cross_sectional'`) match `_resolve_regime_scope`'s existing vocabulary exactly | Code Examples | Low — verified `_resolve_regime_scope` exists at `ic_engine.py:210-239` and is the canonical 3-value source, but this research did not re-print its exact string literals; confirm the 3 exact strings during implementation rather than trusting this table verbatim |
 
-## Open Questions
+## Open Questions (RESOLVED)
 
-1. **Should the fingerprint's upstream watermark be a row count, a MAX(timestamp), or a content
+1. **RESOLVED (162-03-PLAN.md Task 2):** per-table method, not a single uniform choice —
+   `forward_returns` uses `computed_at` as the primary in-place-mutation detector (a
+   `price_sanity_status` bar correction recomputes `forward_returns`, bumping `computed_at`
+   even when `bar_ts`/count don't move); `feature_vectors` uses `MAX(bar_ts)` + `COUNT(*)`
+   (in-place mutations covered transitively via the code-key and the coupled
+   `forward_returns` recompute); `market_regimes`/`instrument_tags`/`feature_registry` use
+   content-hash components to catch relabels/reweights/status flips that leave
+   `ts`/count unchanged. A DB-free test proves the composed watermark differs under an
+   in-place mutation with no new row/count/max-timestamp change — see 162-03's task detail.
+
+   **Should the fingerprint's upstream watermark be a row count, a MAX(timestamp), or a content
    hash?**
    - What we know: no source table (`feature_vectors`, `forward_returns`, `market_regimes`,
      `instrument_tags`) carries an `updated_at` column, so the watermark must be computed, not
@@ -620,7 +630,11 @@ locations.
      planning/discuss-phase, not a silent choice, since getting it wrong reproduces exactly the
      "silent stale IC" failure class risk #3 warns about.
 
-2. **Does `--refresh` force-recompute everything, or force-recompute cells whose fingerprint
+2. **RESOLVED (162-03-PLAN.md Task 3):** blunt full-bypass, matching this research's own
+   recommendation — `--refresh` disables the fingerprint check entirely, combined with
+   existing `--symbols`/`--tf` args for scoping rather than new cell-selection syntax.
+
+   **Does `--refresh` force-recompute everything, or force-recompute cells whose fingerprint
    check the operator distrusts?**
    - What we know: the design's success criteria treat `--refresh` and the fingerprint-skip path
      as two distinct, comparable code paths (162-04's equivalence harness runs both and asserts
