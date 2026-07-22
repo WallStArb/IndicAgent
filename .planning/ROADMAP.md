@@ -1959,15 +1959,22 @@ conflate the two.
    "no statistical-methodology change" line — the exact hidden-bias failure this project's
    design questions exist to catch.
 
-**Requirements**: TBD at `/gsd-plan-phase 162` (above is design input, not a locked requirements list)
-**Depends on:** None as a phase dependency. Practical-only constraint: don't start
-`/gsd-discuss-phase 162` until the in-flight 143.1-07 corpus run finishes — same `ic_engine.py`
-file, same 8 workers, real resource contention, not a design dependency. Check `ps aux | grep
-ic_engine` / [Corpus pipeline state](project_corpus_pipeline_state.md) before starting.
-**Plans:** 0 plans
+**Requirements**: No formal REQUIREMENTS.md IDs in this project. Acceptance bar is the 7 numbered
+success criteria above, referenced in plans as SC-1..SC-7 (SC-6/SC-7 -> 162-01; SC-5 -> 162-02;
+SC-1/SC-2/SC-3 -> 162-03; SC-1/SC-4 -> 162-04).
+**Depends on:** None as a phase dependency. Practical-only constraint: don't start execution
+until any in-flight `ic_engine` corpus run finishes — same `ic_engine.py` file, same 8 workers,
+real resource contention, not a design dependency. Check `ps aux | grep ic_engine` /
+[Corpus pipeline state](project_corpus_pipeline_state.md) before starting. Planning also assumes
+the concurrent symbol_hmm-restoration work reserves migration 247; this phase's migrations start
+at 248.
+**Plans:** 4 plans (4 sequential waves — all touch `services/ic_engine.py`, so no parallelism)
 
 Plans:
-- [ ] TBD (run /gsd-plan-phase 162 to break down against the 162-01/02/03/04 breakdown above)
+- [ ] 162-01-PLAN.md — Structural pass (todos 129 + 009E + 139/140): short_lived_conn(dsn), build_walk_forward_folds, _compute_one_cross_sectional_cell extraction + shared feature-blocked _subsample_and_rank memory bound; migration 248 (feature_block_columns, max_cell_rows)
+- [ ] 162-02-PLAN.md — Todo 133: cross_sectional_bootstrap_threads scalar -> per-tf dict; migration 249 (4 flat per-tf keys)
+- [ ] 162-03-PLAN.md — Todo 134 core (absorbs 122): ic_cell_fingerprints table (migration 250), computational-vs-operational field classification, per-table watermarks catching in-place mutation, fingerprint validity check replacing existing_keys skip, DELETE-then-insert invalidation, --refresh/--dry-run-validity, delete .pkl checkpoint system
+- [ ] 162-04-PLAN.md — Equivalence harness (fresh vs fingerprint-skip, incl bh_adjusted_p/passes_fdr) + drift study; migration 251 (refresh_min_new_fraction=0 disabled); staleness stays alert-only
 
 ### Phase 163: VP/SR Structural Primitives 📋 PLANNED
 
