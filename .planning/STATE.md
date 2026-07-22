@@ -3,14 +3,14 @@ gsd_state_version: 1.0
 milestone: v3.1
 milestone_name: AlphaEngine Validation + Alpha Scoring
 status: Phase 143.1 (Measurement and Eligibility Integrity) COMPLETE (8/8) -- 143.1-08 VERDICT HOLD; todos 164/165 (regime-stratified promotion gate + 1h ensemble eligibility) closed, merged to main (24ca4da1)
-stopped_at: todos 164/165 implementation plan fully executed and merged, worktree cleaned up
-last_updated: 2026-07-21T15:47:00.000Z
+stopped_at: Phase 148 context gathered
+last_updated: "2026-07-22T12:11:02.867Z"
 progress:
   total_phases: 12
-  completed_phases: 6
+  completed_phases: 8
   total_plans: 40
-  completed_plans: 49
-  percent: 50
+  completed_plans: 39
+  percent: 67
 ---
 
 # Project State
@@ -141,8 +141,8 @@ ON CONFLICT (symbol, tf) DO UPDATE SET fetch_complete = true;
 
 ## Session
 
-**Last session:** 2026-07-20 (this session)
-**Stopped At:** Phase 163 (VP/SR Structural Primitives) is FULLY PLANNED AND FINAL — 3 plans (163-01/02/03), 3 sequential waves, all committed, all 3 Fable review rounds resolved and confirmed against source (commit `f394bbdd` is the last plan-doc change: 12 new `FeatureVector` columns, not 10). No corrections outstanding.
+**Last session:** 2026-07-22T12:11:02.801Z
+**Stopped At:** Phase 148 context gathered
 
 **Resume File / exact next action:** Run `/gsd-execute-phase 163`. Nothing else needs checking first — verified directly (not just trusting the planner agent's self-report): `git log` shows `f394bbdd` as the last commit touching the phase dir, and both `163-01-PLAN.md`/`163-02-PLAN.md` grep-confirm "12 new" column phrasing and both `poc_rolling_dist_atr`/`poc_session_rolling_divergence_atr` present. After execution: close todo 153 (move `pending/153-vp-sr-features-null-in-batch-corpus.md` → `completed/`), noting the decision made (implement, not delete) and pointing at whatever incremental-IC result eventually comes out of the next `ic_engine` corpus run per D-07's promotion bar (not measured as part of this phase — that's out of scope by design).
 
@@ -160,22 +160,27 @@ unedited rather than risk a racy overwrite of the phase-track's own resume notes
 now the next concrete action, not yet started.
 
 **What happened, in order:**
+
 1. **Todo 158** (`above_wk_vwap` frozen at 0.0 on the live path) — root-caused via
    `systematic-debugging`, fixed with one line in `_process_bar_compute` (`cache.advance_bar(...)`
    after `FeatureFactory.compute()`), TDD regression test added, `/simplify` clean, Codex peer
    review (AGY was out of quota). Merged to `main`.
+
 2. **Todo 159** filed from that Codex review: `FeatureCache` isn't warmed from the bar history
    `_seed_bar_history_from_db()` already loads at startup, so `above_wk_vwap`/`hmm_duration`
    still start cold after every restart. Not started.
+
 3. **Todo 147's outstanding CV re-check** (the `true_range_pct` per-(tf,regime) CV pull its
    "Fix / next step" section asked for, never run before this session) — ran it: `low_bull`
    still ~150-300x every clean regime's CV, NOT at parity despite 151/154's correction pass.
+
 4. Traced why: `VWO`/`DIA` were never flagged at all (candidate-discovery gap). `KRE` WAS
    correctly flagged `price_sanity_status='confirmed_corrupt'` with `forward_returns`
    recomputed sane — but `feature_vectors.true_range_pct` for that same bar is still corrupt,
    because `backfill_feature_factory.py` reads raw `market_data_ohlcv` directly instead of the
    `price_sanity_status`-filtering `market_data_ohlcv_tradeable` view. The flag never reaches
    feature computation.
+
 5. This reclassified **todo 124** (previously P3, "style/DRY only" — that assessment predates
    `price_sanity_status`, written 2026-07-16) to **P1**, now the real fix owner. Filed
    **todo 160** as the evidence trail/reproduction. Both PRIORITIES.md and two memory files
