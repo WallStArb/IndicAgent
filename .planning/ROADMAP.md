@@ -1243,6 +1243,16 @@ Plans:
 
 ### Phase 147: I7 CORPUS-07 Evaluation 📋 PLANNED
 
+**Priority note (2026-07-22):** not a blocker for anything — confirmed via `/gsd-discuss-phase
+147` that Phase 148 has no real dependency on this phase (see Phase 148's "Correction
+2026-07-22"). This phase's only value is due diligence: do any of the 35 archived, zero-live-
+consumer I7 plugins (`indicagent-intelligence-pipeline.service` has been `failed` since
+2026-07-17, `ExecStart` target file doesn't exist on disk, and no plugin has ever recorded a
+`promoted_at`/`demoted_at`/`last_eval_at` in `shadow_registry`) contain a genuinely novel
+signal not already captured by the v3.0 Feature Factory. Worth doing eventually for
+completeness, not urgent — do not let it compete with Phase 148 or anything else with live
+measurement value.
+
 **Rewritten 2026-07-19 per todo 056** (`.planning/todos/pending/056-phase146-147-v2x-retirement-stale.md`,
 tracking `docs/research/fable-2026-07-03-roadmap-reconciliation.md` F3): the old "conditional
 gate" language cited a CORPUS-07 analysis that had never been run under any phase's requirement
@@ -1312,7 +1322,20 @@ as its own ready-to-execute item, not gated behind Phase 148 — see
 **Goal:** Build the scoring system and run the two independent OOS gates that prove the
 intelligence engine works. No live execution — that is v4.0.
 
-**Depends on:** Phase 147 complete (CORPUS-07 evaluated, survivors registered) + Phase 142A OOS ensemble IC data available + Phase 142B production `alpha_frames` accumulating ≥ 60 trading days of closed rows.
+**Depends on:** Phase 142A OOS ensemble IC data available + Phase 142B production `alpha_frames`
+accumulating ≥ 60 trading days of closed rows. **Both already satisfied** (live-checked
+2026-07-22: EIC-04 PASS; `alpha_frames` has 15.6M `closed_max_hold` rows alone spanning
+2006-09 to 2026-07, ~4,883 distinct trading days, OOS window since 2025-12-24 well covered).
+
+**Correction 2026-07-22:** this line previously also listed "Phase 147 complete" as a
+dependency — stale. SCORE-01/02/03 (below) read only `alpha_frames`/`alpha_ensemble_ic`/
+`alpha_strategy_scores`, pure v3.0 tables with zero I7 lineage; the only place Phase 147 ever
+connected to this phase was SCORE-04's old "v3 vs v2.x counterfactual comparison," which the
+2026-07-19 rewrite already downgraded to "documentation only, not a gate" (see below) — the
+"Depends on" line just never got updated to match. **Phase 148 is unblocked today, independent
+of Phase 147.** Phase 147 remains worth doing eventually (checking whether the archived I7
+plugins hold any signal not already in the v3.0 Feature Factory — "never drop data that could
+contain signal"), but it is due-diligence on a dead system, not a gate on live measurement work.
 
 **Two-gate promotion model (non-negotiable):**
 Gate 1 and Gate 2 are independent. Failure modes are different. Never conflate.

@@ -44,31 +44,35 @@ against structurally-missing data.
 **Three independent tracks are in flight right now — not one queue.** (A) Regime-model
 refinement: symbol_hmm restoration → Phase 144 D-05 → Phase 145. (B) Infra throughput:
 Phase 162, planned 2026-07-21/22 in a separate concurrent session, not yet executed. (C) **The
-actual proof-of-alpha path: Phase 147 → Phase 148 — corrected onto the priority matrix's HIGH
-tier 2026-07-22 after finding it miscategorized as "cancelled" for 8 days.** Phase 147 (I7
-CORPUS-07 Evaluation) has zero dependencies, is 1 plan, and is the sole remaining gate on
-Phase 148 (Alpha Scoring System — the two independent OOS proof gates, signal proof + execution
-proof, that this whole measurement pipeline exists to produce). Phase 148's other prerequisites
-(EIC-04 PASS, ≥60 days closed `alpha_frames`) are already met by a wide margin (15.6M
-`closed_max_hold` rows, ~4,883 distinct trading days). **This is the highest-leverage unblock
-on the whole roadmap right now** — full reasoning: `docs/research/intelligence-lifecycle-backlog-matrix.md`'s HIGH tier.
+actual proof-of-alpha path: Phase 148 directly — unblocked today, no dependency on Phase 147.**
 
-**Next actions, in order:** (1) **Phase 147** (`/gsd-discuss-phase 147` or straight to
-`/gsd-plan-phase 147` given its scope is already fully specified in ROADMAP.md) — cheapest,
-highest-leverage item, track (C), independent of everything else below. (2) Phase 148 planning
-— unblocked the moment (1) lands; also re-run FRAME-04 against the post-143.1 corpus first
-(last known result 16/17 cells fail, on the pre-143.1-fix baseline — stale, needs a fresh
-check before trusting Gate 2's `alpha_frames` input quality). (3) Finish the symbol_hmm
-restoration (Tasks 2-5, track A) — prerequisite for Phase 144's D-05 gate. (4) Phase 144's D-05
-acceptance gate re-run — once (3) lands, apply the same regime-stratified evaluation pattern
-todo 165 built (`evaluate_frame_gate`'s `group_key`/`min_clusters` params) rather than trusting
-a single pooled verdict. (5) Todo 147's third CV re-check (KRE/VWO/DIA recompute — note this is
-the *todo*, unrelated to the *Phase* in (1)/(2) above, same number by coincidence) —
-longest-outstanding open item, independent of everything else. (6) Todo 088 (`hold_max_bars`
-censoring-vs-confirmed-decay type safety) — unblocked 2026-07-21, small well-scoped fix. (7)
-Phase 163 execution (`/gsd-execute-phase 163`) — planned, ready, independent. (8) Phase 165
-planning (`/gsd-plan-phase 165`, GSD phase — distinct from todo 165, same number by coincidence)
-— context/research done, ready to plan.
+**Correction 2026-07-22, same day as the first pass:** `/gsd-discuss-phase 147` surfaced that
+Phase 147 (I7 CORPUS-07 Evaluation — auditing whether the 35 archived, zero-live-consumer I7
+plugins hold signal not already in the v3.0 Feature Factory) is due diligence on a dead
+system, not v3 measurement work, and does NOT gate Phase 148 — the "Depends on: Phase 147"
+line in ROADMAP.md was itself stale (SCORE-01/02/03 read only pure v3.0 tables; the one place
+147 ever connected was SCORE-04, already downgraded to documentation-only 2026-07-19). Fixed
+in ROADMAP.md, the backlog matrix, and here. **Phase 148 (Alpha Scoring System — the two
+independent OOS proof gates, signal proof + execution proof, that this whole measurement
+pipeline exists to produce) is the actual next action**, not Phase 147. Its prerequisites
+(EIC-04 PASS, ≥60 days closed `alpha_frames`) are already met by a wide margin (15.6M
+`closed_max_hold` rows, ~4,883 distinct trading days).
+
+**Next actions, in order:** (1) **Phase 148** (`/gsd-discuss-phase 148`) — the real
+proof-of-alpha milestone, unblocked today, track (C), independent of everything below. First
+re-run FRAME-04 against the post-143.1 corpus (last known result 16/17 cells fail, on the
+pre-143.1-fix baseline — stale, needs a fresh check before trusting Gate 2's `alpha_frames`
+input quality). (2) Finish the symbol_hmm restoration (Tasks 2-5, track A) — prerequisite for
+Phase 144's D-05 gate. (3) Phase 144's D-05 acceptance gate re-run — once (2) lands, apply the
+same regime-stratified evaluation pattern todo 165 built (`evaluate_frame_gate`'s
+`group_key`/`min_clusters` params) rather than trusting a single pooled verdict. (4) Todo 147's
+third CV re-check (KRE/VWO/DIA recompute — note this is the *todo*, unrelated to the *Phase*
+147 above, same number by coincidence) — longest-outstanding open item, independent of
+everything else. (5) Todo 088 (`hold_max_bars` censoring-vs-confirmed-decay type safety) —
+unblocked 2026-07-21, small well-scoped fix. (6) Phase 163 execution (`/gsd-execute-phase 163`)
+— planned, ready, independent. (7) Phase 165 planning (`/gsd-plan-phase 165`, GSD phase —
+distinct from todo 165, same number by coincidence) — context/research done, ready to plan.
+(8) Phase 147 whenever convenient — cheap, not urgent, not gating anything.
 **Execution plan:** `docs/plans/2026-06-30-alphaengine-v1-execution-plan.md`
 
 ## v3.0 Phase Summary (SHIPPED 2026-06-25)
