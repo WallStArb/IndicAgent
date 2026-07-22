@@ -75,6 +75,15 @@ _DEFAULT_LOOK_LOG_PATH = ".planning/gate_look_log.jsonl"
 # bar_ts >= $2 (OOS side, D-02/D-03); frame_variant='primary' (sole variant this phase
 # writes); status != 'open' (closed frames only -- an open frame has no
 # counterfactual_pnl_r to gate on). bar_ts::date is the per-frame calendar-day cluster_id.
+# Deterministic tie-break: this population has ~22-way bar_ts ties (33,892 rows across only
+# 1,534 distinct bar_ts, cross-sectional over the active symbol universe at each timestamp).
+# `ORDER BY bar_ts ASC` alone leaves tied rows in whatever order Postgres's query plan happens
+# to return -- not guaranteed stable across executions/plans -- which silently makes
+# order-sensitive statistics (the cumulative-equity max-drawdown walk; the regime-cell
+# bootstrap's cluster-array construction order) non-reproducible even on unchanged data.
+# frame_id (part of alpha_frames' own (frame_id, bar_ts) primary key) gives a full,
+# deterministic total order. Same defensive pattern AlphaScorer already established
+# (services/alpha_scorer.py's NTILE(10) OVER (... ORDER BY alpha_score, bar_ts, frame_id)).
 _OOS_QUERY_SQL = """
     SELECT bar_ts, direction, regime, bar_ts::date AS cluster_id, counterfactual_pnl_r AS pnl_r
     FROM alpha_frames
@@ -83,7 +92,7 @@ _OOS_QUERY_SQL = """
       AND status != 'open'
       AND bar_ts >= $2
       AND counterfactual_pnl_r IS NOT NULL
-    ORDER BY bar_ts ASC
+    ORDER BY bar_ts ASC, frame_id ASC
 """
 
 _C5_PROXY_NOTE = (
