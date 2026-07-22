@@ -4,11 +4,11 @@ milestone: v3.1
 milestone_name: AlphaEngine Validation + Alpha Scoring
 status: Phase 143.1 (Measurement and Eligibility Integrity) COMPLETE (8/8) -- 143.1-08 VERDICT HOLD; todos 164/165 (regime-stratified promotion gate + 1h ensemble eligibility) closed, merged to main (24ca4da1)
 stopped_at: Phase 148 context gathered
-last_updated: "2026-07-22T12:11:02.867Z"
+last_updated: "2026-07-22T14:48:45.898Z"
 progress:
   total_phases: 12
   completed_phases: 8
-  total_plans: 40
+  total_plans: 45
   completed_plans: 39
   percent: 67
 ---
