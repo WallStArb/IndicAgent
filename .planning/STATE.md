@@ -2,9 +2,9 @@
 gsd_state_version: 1.0
 milestone: v3.1
 milestone_name: AlphaEngine Validation + Alpha Scoring
-status: Phase 144 (Cross-Sectional Regime Model) COMPLETE (6/6) -- D-05 verdict landed 2026-07-22 (F1 not triggered, F2 triggered for 15m/5m); Phase 148 (Alpha Scoring System) fully PLANNED (5/5 plans, 3 waves), not yet executed; Phase 143.1 also COMPLETE (8/8) -- 143.1-08 VERDICT HOLD; todos 164/165 closed, merged to main (24ca4da1)
-stopped_at: two concurrent tracks converged -- symbol_hmm restoration (Phase 144 D-05 verdict, todos 167/168/169) and Phase 148 planning (5 plans, Phase 147 dependency correction) both landed same day, merged
-last_updated: 2026-07-22T15:10:00.000Z
+status: Phase 144 (Cross-Sectional Regime Model) COMPLETE (6/6) -- D-05 verdict landed 2026-07-22 (F1 not triggered, F2 triggered for 15m/5m); Phase 148 (Alpha Scoring System) fully PLANNED (5/5 plans, 3 waves), cross-AI reviewed and replanned with fixes, plan-checker verified PASS WITH CONCERNS, execution-ready but not yet run; Phase 143.1 also COMPLETE (8/8) -- 143.1-08 VERDICT HOLD; todos 164/165 closed; todo 160 expanded and fixed (corrupt-print discovery mechanism itself was broken, 14 symbols corrected not 2), todo 147's third CV re-check in progress
+stopped_at: Phase 148 renamed (dropped misleading "v2.x Decommission" framing) + cross-AI reviewed + replanned incorporating review fixes + independently verified; todo 160's root cause found to be one level deeper (discovery mechanism, not just 2 rows) mid-session, fix in progress, recompute running
+last_updated: 2026-07-22T17:30:00.000Z
 progress:
   total_phases: 12
   completed_phases: 8
@@ -69,24 +69,41 @@ distinct trading days) — fully planned (5 plans, 3 waves), not yet executed.
 
 Milestone v3.1 is not yet complete.
 
-**Next actions, in order — Phase 148 first per track B's own reasoning (the actual
-proof-of-alpha path, not incremental measurement refinement), everything else independent of
-it:** (1) **Phase 148 execution** (`/gsd-execute-phase 148`) — the real proof-of-alpha
-milestone, unblocked today, fully planned. First re-run FRAME-04 against the post-143.1
-corpus (last known result 16/17 cells fail, on the pre-143.1-fix baseline — stale, needs a
-fresh check before trusting Gate 2's `alpha_frames` input quality). (2) Todo 147's third CV
-re-check (KRE/VWO/DIA recompute, now that todo 124's `market_data_ohlcv_tradeable` fix is
-live — note this is the *todo*, unrelated to the *Phase* 147 above, same number by
-coincidence) — longest-outstanding open item, independent of everything else. (3) Todo 088
-(`hold_max_bars` censoring-vs-confirmed-decay type safety) — unblocked 2026-07-21, small
-well-scoped fix. (4) Phase 163 execution (`/gsd-execute-phase 163`) — planned, ready,
-independent. (5) Phase 162 execution (`/gsd-execute-phase 162`) — planned, reviewed (0
-blockers, cross-AI review gap closed), ready; gated only on `ps aux | grep ic_engine` being
-clear. (6) Phase 165 planning (`/gsd-plan-phase 165`, GSD phase — distinct from todo 165,
-same number by coincidence) — context/research done, ready to plan. (7) Phase 145 planning
-(`/gsd-discuss-phase 145` or `/gsd-plan-phase 145`) — newly unblocked by Phase 144's D-05
-verdict, read that verdict in full before starting. (8) Phase 147 whenever convenient — cheap,
-not urgent, not gating anything.
+**Next actions — reconciled todo+phase priority view (2026-07-22, supersedes the numbered list
+this replaces; that list's item (1) FRAME-04-recheck nuance is now resolved — Phase 148's own
+CONTEXT.md D-08 established SCORE-03 IS FRAME-04, not a second gate needing a separate re-run):**
+
+*Tier 1 — in flight:* Todo 160 (corrupt-print candidate-discovery mechanism was itself broken —
+gated behind `forward_returns` suspect flags, blind to `high`/`low`-only corruption; fixed to
+scan all ~320 registered pairs directly; found and corrected 40 bars across 14 symbols, not just
+the 2 originally scoped) + todo 147's third CV re-check, closing together this session. Then
+**Phase 148 execution** (`/gsd-execute-phase 148`) — the real proof-of-alpha milestone: fully
+planned, cross-AI reviewed (Antigravity + Codex), review findings incorporated (fixed a
+confirmed-real crash in `evaluate_frame_gate`'s group-key call shape, added pre-run integrity
+snapshots + `--dry-run` escape hatches to both irreversible gates), independently
+plan-checker-verified PASS WITH CONCERNS (no blockers).
+
+*Tier 2 — ready now, independent of 148:* Phase 163 execution (`/gsd-execute-phase 163`,
+planned) · Phase 162 execution (`/gsd-execute-phase 162`, planned + reviewed, gated only on
+`ps aux | grep ic_engine` clear) · todo 088 (`hold_max_bars` type safety, small, unblocked) ·
+todos 168/169 (7 symbols with zero HMM regime coverage + no monitor that would've caught it) ·
+todo 170 (`volatility_pct` substitution probe for rates, cheap, do before any HMM-challenger
+build).
+
+*Tier 3 — needs a planning pass first:* Phase 145 (StratificationDimension Formalization,
+unblocked by Phase 144's D-05 verdict, not yet discussed/planned) · Phase 165 (Swing/Fib/Trend
+Structure Primitives, context+research done, needs `/gsd-plan-phase 165`) · todo 111 (same
+unblock as Phase 145).
+
+*Tier 4 — real value, not urgent:* Phase 147 (I7 CORPUS-07 — due diligence on an already-dead
+system, cheap, gates nothing) plus the full P2/P3 tier in `.planning/todos/PRIORITIES.md`.
+
+*Tier 5 — explicitly gated, do not start planning yet:* Phases 149-159 (PrecedentEngine,
+Feature Primitives Expansion, Alt Data, Portfolio State, Position Sizing, Live Execution, Cost
+Calibration) — registered in ROADMAP.md, zero planning artifacts, v4.0-adjacent scope. Per
+"prove edge before production infra," none of these should get planning time until Phase 148
+delivers a real verdict.
+
 **Execution plan:** `docs/plans/2026-06-30-alphaengine-v1-execution-plan.md`
 
 ## v3.0 Phase Summary (SHIPPED 2026-06-25)
@@ -406,3 +423,80 @@ unblocked. (4) Phase 163 execution — planned, ready. (5) Phase 162 execution �
 reviewed, ready; gated only on `ps aux | grep ic_engine` clear. (6) Phase 165 planning —
 ready. (7) Phase 145 planning — newly unblocked by Phase 144's verdict, read it first. (8)
 Phase 147 whenever convenient — cheap, not gating anything.
+
+### Session closeout (2026-07-22, later same day) — Phase 148 finalized, todo 160's real scope found and fixed
+
+Picked up from the prior subsection's Phase 148 memory-file handoff. Cleaned up Phase 148's
+remaining doc debt first: finished the migration-numbering correction notes in
+`148-RESEARCH.md`/`148-PATTERNS.md` (148-01-PLAN.md itself was already correct at migration
+248), added the missing Gate 2 reproduction-tolerance assertion to `148-05-PLAN.md` Task 2
+(now asserts freshly-computed `c2_ci_lower`/`c3_sharpe`/`c4_max_dd` match the known 143.1-08
+baseline within 1e-6, not just "a row exists"). Renamed the phase itself (title + directory,
+`148-alpha-scoring-system-v2-x-decommission-planned` → `148-alpha-scoring-system-planned`) to
+drop the "v2.x Decommission" framing — the phase's own CONTEXT.md already states decommission
+is explicitly out of scope (todo 056 owns it), the title never matched what the phase does.
+
+**Cross-AI review (Antigravity + Codex) ran clean.** Both converged independently on the same
+3 concerns from different angles: (1) `evaluate_frame_gate` group-key reuse — 148-02's 4-tuple
+call and 148-04's `(direction, regime)` call both risked breaking against the helper's real
+signature; (2) irreversible one-shot gates lacked a pre-run integrity snapshot and atomic
+write; (3) validation was lighter than the irreversible stakes warrant, no dry-run escape
+hatch for dev-time testing. Replanned all 5 plans to fix these. The group-key fix turned out
+load-bearing: read `evaluate_frame_gate`'s live source directly and confirmed it hard-crashes
+(`ValueError: too many values to unpack`) on anything but a 2-tuple — the original 148-02 plan
+would have failed on first execution, not just "risked" a mismap as the reviewers guessed.
+Fixed to call per-cohort with a 2-tuple, matching an existing production precedent
+(`phase143_1_08_shadow_validation.py`). Independently verified by `gsd-plan-checker`: **PASS
+WITH CONCERNS, no blockers** — confirmed the group-key fix against live source itself before
+trusting it, confirmed the dry-run/atomicity revisions didn't complicate the core Gate-1-before-
+Gate-2 sequencing, confirmed migration numbering and the tolerance assertion both survived the
+replan intact. One hygiene-only finding (leaked tool-wrapper tags at the end of all 5 plan
+files) fixed before committing. **Phase 148 is now execution-ready** — planned, reviewed,
+replanned with fixes, independently verified.
+
+**Sanity-checked whether Phase 148 was actually the right next step before executing it** (user
+asked directly) — found a real answer, not just deference to the stored priority order: todo
+160 (P0, corrupt-print correction) was still open, and its root cause traces into the exact
+tables Gate 2 reads (`alpha_frames`' underlying feature computation via ATR-based stop
+distances). Gate 2 is irreversible (D-04, run once ever) — spending that one shot on a
+population with a known, cheap-to-fix contamination was the wrong trade. Investigated further:
+the automated flagging tool (`ops_known_corrupt_print_cleanup.py`) couldn't even find the two
+known-bad rows (VWO/DIA) — its candidate discovery was gated behind `forward_returns` suspect
+flags, structurally blind to corruption confined to `high`/`low` with a sane `open`/`close`
+(confirmed live: only 18-20 of 320 registered (symbol,tf) pairs were ever discoverable that
+way). **Fixed the discovery mechanism itself** (scan all registered pairs directly via
+`backfill_status`, not a derived-return proxy) rather than hand-patching the 2 known rows —
+the systemic fix, not the symptom. Live full-corpus dry-run under the fix found **40
+CONFIRMED_CORRUPT bars across 14 symbols** (DBC/DIA/EDV/EFA/EWG/FXI/GLD/IWM/RSP/SPY/UUP/VWO/
+VYM/XRT), 20x the previously-known count — every one the identical clean
+`isolated_spike_neighbors_agree` signature (tightly-agreeing neighbors, single-field
+order-of-magnitude outlier). SPY's $1441.65 spike on a ~$142 bar was the most consequential
+single find given SPY's weight across the corpus. Applied after human review (both the
+dry-run report and an explicit user confirmation given the blast radius grew from 2 symbols to
+14). 28 rows correctly stayed classified MARKET_EVENT (the known 2010-05-06 Flash Crash
+cluster, cross-symbol corroborated) and excluded from correction.
+
+**Recompute hit a real infrastructure lesson along the way.** `backfill_feature_factory.py
+--compute-only` at its default worker count (12) OOM-killed twice in a row at nearly identical
+elapsed time (~5-6 min) regardless of whether an external timeout was involved — confirmed via
+`journalctl -k` (not guessed): python worker processes at 2.3-2.9GB RSS each, 12 concurrent
+workers computing full-history features for large symbols (390K+ bars) exceeded available
+memory. Fixed by dropping to `--workers 4` (the script's existing, previously-undocumented-in-
+practice `--workers` flag / `infra.feature_factory.workers` APR key) — completed cleanly.
+**New gotcha for `docs/reference/gotchas.md` if not already there:** this script's default
+worker count is unsafe for a full 14-symbol multi-timeframe recompute on this machine's
+available RAM; use `--workers 4` for any recompute touching more than a handful of symbols at
+once.
+
+**Reconciled todo-level and phase-level prioritization into one view** (user requested this
+explicitly) — the two tracks (`.planning/todos/PRIORITIES.md` P0-P3 tiers and ROADMAP.md's
+phase queue) had never been merged into a single ranked view before. Five tiers, written into
+this file's "Next actions" section above: Tier 1 (todo 160/147 close-out, then Phase 148
+execution) → Tier 2 (Phase 163/162 execution, todos 088/168/169/170, all ready and independent
+of 148) → Tier 3 (Phase 145/165, need planning first) → Tier 4 (Phase 147 + the full P2/P3 todo
+backlog, real value but not urgent) → Tier 5 (Phases 149-159, explicitly gated behind Phase
+148's verdict per "prove edge before production infra" — v4.0-adjacent scope with zero
+planning artifacts, should not get planning time yet).
+
+**Next actions, in order:** see this file's "Next actions" section under Project Reference
+(the reconciled Tier 1-5 view) — do not re-derive a separate list here.

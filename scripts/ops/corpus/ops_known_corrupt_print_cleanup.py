@@ -14,12 +14,19 @@ for. This script closes that residual exposure.
 Design (see .planning/todos/pending/151-known-corrupt-ohlcv-print-cleanup.md and
 .planning/todos/completed/148-forward-return-corrupt-print-guard.md for full background):
 
-1. Candidate discovery: reuse the ALREADY-SHIPPED todo 148 suspect flags on
-   `forward_returns` (return_{fast,mid,slow,extended}_suspect) to get the current,
-   authoritative set of (symbol, tf) pairs with an implausible forward return --
-   this generalizes the Q4 forensic corpus scan
-   (docs/research/fable-2026-07-19-emission-threshold-alpha-verdict.md) rather than
-   re-deriving an ad hoc `abs(return_fast) > 0.5` cutoff.
+1. Candidate discovery: scan every registered (symbol, tf) pair directly (from
+   `backfill_status`), not gated behind `forward_returns` suspect flags. Todo 160
+   found this proxy is structurally blind to corruption confined to `high`/`low`
+   with a sane `open`/`close` (e.g. VWO 1h 2007-05-02 high=99999.99, DIA 5m
+   2009-06-02 high=100000 -- both sail through with completely plausible forward
+   returns since `forward_returns` is computed open-to-open, never touching high/
+   low). Live-checked 2026-07-22: only 18 of 320 registered pairs ever tripped a
+   forward-returns suspect flag -- the other 302 were never scanned by this tool
+   at all under the old proxy-based discovery. The neighbor-agreement classification
+   in step 2 below is what actually determines CONFIRMED_CORRUPT/AMBIGUOUS/
+   PLAUSIBLE; scanning every pair directly is strictly more complete than gating
+   on a derived-return proxy, at negligible extra cost (320 single-partition
+   window-function queries, not a row-by-row full-corpus scan).
 2. Precise localization + verification: for each candidate (symbol, tf), scan
    `market_data_ohlcv_tradeable` (NOT the raw table -- the corrupt rows all have
    volume > 0, so they already pass the tradeable filter) ordered by timestamp,
@@ -135,11 +142,15 @@ VALUES ($1, $2, $3, $4, NULL, true, NULL)
 ON CONFLICT (monitor_type, training_window_end, metric_name, COALESCE(subject, ''), evaluated_at) DO NOTHING
 """
 
-_CANDIDATE_TF_PAIRS_SQL = """
+# Todo 160: the prior version of this query drew candidates from forward_returns
+# suspect flags -- a proxy blind to corruption confined to high/low with a sane
+# open/close (forward_returns is computed open-to-open). backfill_status is the
+# small, authoritative per-(symbol, tf) registry (320 rows vs. market_data_ohlcv's
+# 215M+), so scanning every registered pair directly here is cheap and complete.
+_ALL_TF_PAIRS_SQL = """
     SELECT DISTINCT symbol, tf
-    FROM forward_returns
-    WHERE return_type = 'executable_open_to_open'
-      AND (return_fast_suspect OR return_mid_suspect OR return_slow_suspect OR return_extended_suspect)
+    FROM backfill_status
+    WHERE tf IN ('5m', '15m', '1h', '1d')
     ORDER BY symbol, tf
 """
 
@@ -272,7 +283,7 @@ def render_followup_commands(confirmed: list[CandidateRow], training_window_end:
 async def _fetch_candidate_tf_pairs(
     pool: asyncpg.Pool, symbols: list[str] | None, tfs: list[str] | None
 ) -> list[tuple[str, str]]:
-    rows = await pool.fetch(_CANDIDATE_TF_PAIRS_SQL)
+    rows = await pool.fetch(_ALL_TF_PAIRS_SQL)
     pairs = [(r["symbol"], r["tf"]) for r in rows]
     if symbols:
         symbol_set = set(symbols)
