@@ -121,6 +121,11 @@ None - no external service configuration required.
 
 `alpha_strategy_scores`, `gate_evaluations`, and all three `alpha.scoring.*` APR keys are live in the production DB — Wave 2 plans (148-02/148-03/148-04) can now write to both tables and read all seven `alpha.scoring.*` keys (four pre-existing + three seeded here) without any further schema work. The three Wave 0 test files give Wave 2 a concrete, named RED-to-GREEN target for each of SCORE-01/02/03 with zero import-order surprises (no module-scope imports of not-yet-built modules). No blockers identified for Wave 2.
 
+## Self-Check: PASSED
+
+All created files verified present on disk (migration + 3 test files + this SUMMARY.md); all
+three task/summary commits (`0ac4a666`, `c32df63a`, `8339c127`) verified present in git log.
+
 ---
 *Phase: 148-alpha-scoring-system-planned*
 *Completed: 2026-07-22*
