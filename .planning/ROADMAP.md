@@ -1399,13 +1399,21 @@ reasoning and falsifiers: `docs/research/fable-2026-07-07-phase144-conditioning-
 
 **Sequencing:** land Phase 142A's ensemble-IC baseline first (pre-regime_group equity-only strata), then batch this phase with todo 026 P1-P3 into one ic_engine re-run — empirical pre/post comparison over blind trust that the new strata help.
 
-**Plans:** 6/6 plans complete (2026-07-12) — code-complete, but **phase NOT closed**: D-05's own
-acceptance criterion (empirical TLT-vs-rates separation gate) is `BLOCKED-ON-143.1-07`, the
-unrelated in-flight corpus rebuild (todo 102). `144-06` shipped the gate script
-(`scripts/analysis/phase144_regime_separation_gate.py`) and its precondition check correctly
-detected the block via a live query rather than assuming — no measurement ran, no falsifier
-verdict (keep/demote/challenger) recorded yet. Re-run the script once 143.1-07 completes; no
-further code changes needed. Header stays 📋 PLANNED until that verdict lands.
+**Plans:** 6/6 plans complete (2026-07-12) — code-complete, but **phase NOT closed**. The
+original blocker (`BLOCKED-ON-143.1-07`, the corpus rebuild) cleared 2026-07-21 — Phase 143.1
+is COMPLETE. **A second, more specific blocker was found 2026-07-21** (design doc:
+`docs/superpowers/specs/2026-07-21-restore-symbol-hmm-ic-measurement-for-routed-symbols-design.md`):
+`ic_engine.py`'s `regime_group` routing (144-05) makes cross-sectional labeling *replace*, not
+*supplement*, per-symbol HMM (`symbol_hmm`) IC measurement for any routed symbol — `TLT` (routed
+to `rates`) has carried zero `symbol_hmm`-scoped `feature_ic_scores` rows since routing went
+live, and D-05's F1 falsifier requires comparing TLT's HMM labels against the new `rates`
+cross-sectional label. **D-05 cannot produce a valid verdict until this is fixed** — re-running
+`phase144_regime_separation_gate.py` today would silently measure against data that structurally
+can't exist. Fix in progress: `alpha.regime.groups` gains a `dual_write_symbol_hmm` bool
+(`rates` only), threaded through `ic_engine.py`'s dual-write pass. Task 1 (extraction/
+restructuring, no behavior change) is done and merged to `main` (`2f5334f2`); Tasks 2-5 (thread
+the real parameter, migration 247 seeding `rates`, live verification, equity follow-up todo) are
+in flight. Header stays 📋 PLANNED until both this fix lands AND the gate re-runs.
 
 - [x] 144-01-PLAN.md — Wave 1: migration 229 (asset_class→regime_group + APR seed) + glossary entry
 - [x] 144-02-PLAN.md — Wave 1: breadth_vol (causal-rank port) + curve_credit signal modules + _tf_window helper

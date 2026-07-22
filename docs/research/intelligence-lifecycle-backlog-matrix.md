@@ -13,15 +13,20 @@ the idea doc's own claim — Med/unproven means "plausible, untested") · **Foun
 cheaper to do now than to retrofit once other things build on top of it — bumps priority
 independent of raw effort/risk/reward.
 
-**Operational context (updated 2026-07-10):** Phase 142B (`alpha_frames` schema +
-`AlphaFrameWriter` + `CounterfactualTracker`) and Phase 143 (Feature Lifecycle Routing, merged
-with 149B) both shipped COMPLETE 2026-07-10 — see "Recently shipped." Todo 037 (Interaction
-Primitives Pilot) also completed 2026-07-10, PASS verdict — see "Recently shipped" and
-`docs/research/intel-feature-interaction-factory.md`. **`alpha_frames` still has 0 rows** —
-Phase 142B shipped the writer/tracker machinery but the actual backfill run has not been
-executed; this is the standing concrete next step (see HIGH tier Todos below), not gated on
-anything. The 6th corpus rebuild (2026-07-09, `feature_ic_scores` 920,649 rows, `alpha_events`
-12,258,206 rows) remains the trustworthy full-universe measurement base for everything here.
+**Operational context (updated 2026-07-21):** This table went stale between 2026-07-08 and
+2026-07-21 — Phase 143.1 (Measurement and Eligibility Integrity) shipped COMPLETE in that
+window (8/8 plans, 143.1-08 shadow-mode verdict: HOLD, `alpha.ensemble.sign_symmetric` stays
+`false`), along with Phase 160 (Concept Registry MVP) and Phase 161 (Controlled Vocabulary) —
+see "Recently shipped." `alpha_frames` backfill also ran (todo 093, 23.15M rows, see todo 161's
+closeout) — the "0 rows" caveat below is stale, kept only as a dated marker. Four phases
+(162/163/164/165) were registered in this window and are **not yet scored in this table** — see
+"Unscored — registered since last full rewrite" below, same gap pattern as Phases 156-159 had in
+the prior rewrite. **Phase 144's HIGH-tier row needs re-reading before acting on it** — its
+blocker changed 2026-07-21 (see the row itself). The measurement base is now the 143.1-07 corpus
+rebuild (2026-07-19) plus todos 124/160's `market_data_ohlcv_tradeable` correctness fix
+(2026-07-21) — treat any pre-2026-07-21 IC number sourced from `feature_vectors.true_range_pct`
+as suspect until todo 147's third CV re-check (still outstanding, see PRIORITIES.md) confirms
+parity.
 
 ---
 
@@ -50,7 +55,7 @@ threshold calibration, split out of todo 026's P3).
 
 | Idea | Effort | Risk | Reward | Note |
 |---|---|---|---|---|
-| Phase 144: Cross-Sectional Regime Model (`regime_group`) | L | Med | High | PLANNED. **Foundational** — Cross-Group Lead-Lag IC and Phase 149 (AnalogEngine) both need clean peer groups this phase produces; cheaper to absorb this dependency now than retrofit later. Ready for `/gsd-discuss-phase`. Batches in todo 026 P1b/P2a/P2b/P2c, the tag taxonomy audit (folded 2026-07-13 into `stratification-instrument-tag-calibrator.md`'s "Open question" section, formerly todo 041), and `stratification-dimension-unification.md`'s first substitution test — plan as one unit, not four. (026's P3 was split back out to standalone todo 092, 2026-07-10 — fresh evidence flags it as a live-path IC suspect, not batch-hygiene that can wait for this phase.) Also the more direct lever on the sparse-IC problem (see EIC-04 result below): re-stratifying may recover signal currently smeared across weak regime buckets. **Now the only un-started HIGH-tier phase in this table** — Phase 143 shipped 2026-07-10, see "Recently shipped." |
+| Phase 144: Cross-Sectional Regime Model (`regime_group`) | L | Med | High | Code-complete (6/6 plans, 2026-07-12), header stays PLANNED. **Blocker changed 2026-07-21**: the original `BLOCKED-ON-143.1-07` cleared when 143.1 completed, but a second, more specific gap was found the same day — `ic_engine.py`'s `regime_group` routing silently replaces (not supplements) per-symbol HMM IC measurement for routed symbols, so `TLT` has zero `symbol_hmm` rows since routing shipped, and D-05's F1 falsifier needs exactly that comparison. Fix in flight (`docs/superpowers/plans/2026-07-21-restore-symbol-hmm-ic-measurement-for-routed-symbols.md`, worktree `worktree-restore-symbol-hmm-ic-measurement`, 1/5 tasks done). **This is now the actual next unlock, ahead of everything else in this table** — Cross-Group Lead-Lag IC, Phase 145, and Phase 146's batch all wait on D-05's verdict. |
 
 **Recently shipped (context, not action items):** HMM Numba JIT (40x speedup, Phase B/141 P2) ·
 Phase 142A Ensemble IC Measurement (`alpha_ensemble_ic` schema + `EnsembleICEngine`, complete
@@ -80,11 +85,37 @@ curated ≤50-feature approach was independently justified on BH-FDR power groun
 fixed and re-calibrated 2026-07-09, 16/36 regime×tf cells now genuinely calibrated (remaining 20
 correctly retain the `[initial_estimate]` seed pending 1h/1d decay-curve evidence) · **Phase
 142B (2026-07-10):** `alpha_frames` schema + `AlphaFrameWriter` + `CounterfactualTracker` +
-frozen `concept-promotion-reversion-gate.md` promotion criteria shipped, 2/2 plans verified — machinery only,
-`alpha_frames` itself still has 0 rows, see the backfill todo above · **Phase 143 (2026-07-10):**
+frozen `concept-promotion-reversion-gate.md` promotion criteria shipped, 2/2 plans verified,
+backfill has since run (todo 093, 23.15M rows) · **Phase 143 (2026-07-10):**
 Feature Lifecycle Routing (merged with 149B) shipped, 3/3 plans verified — evidence-based
 `feature_registry` promotion/demotion state machine, `ic_engine` post-run lifecycle hook,
-`integrity_monitor` table + diagnostics SQL.
+`integrity_monitor` table + diagnostics SQL · **Phase 143.1 (2026-07-21):** Measurement and
+Eligibility Integrity, 8/8 plans — shadow-mode champion/challenger validation (143.1-08)
+concluded **HOLD**, `alpha.ensemble.sign_symmetric` stays `false` (confirmed twice: pooled and
+via todo 165's regime-stratified re-evaluation); this is the gate the sign-symmetric ensemble
+redesign (todo 094) was waiting on, now closed with a definitive negative result, not a stall ·
+**Phase 160 (2026-07-13-ish, closed 2026-07-21 window):** Concept Registry MVP, 4/4 plans —
+4-table schema + `ConceptRegistryService`/API/dashboard, live · **Phase 161:** Controlled
+Vocabulary System, 4/4 plans (2026-07-18) — schema + `VocabularyService` + drift audit + API
+route, 23/24 truths verified · **Todos 164/165 (2026-07-21):** regime-stratified OOS promotion
+gate (`evaluate_frame_gate` generalized with a grouping-key + coverage-floor param) and
+per-timeframe ensemble eligibility (`1h` now writes 5/7 regimes, was 0/7) — both closed, merged
+to `main`.
+
+---
+
+## UNSCORED — registered since last full rewrite, needs an Effort/Risk/Reward pass
+
+Same gap this table caught itself making with Phases 156-159 last time: registering a phase in
+ROADMAP.md doesn't automatically score it here, and "not scored" has silently been read as "low
+priority" before. Flagging explicitly rather than repeating that mistake.
+
+| Idea | Note |
+|---|---|
+| Phase 162: ic_engine Corpus Pipeline Throughput | Registered 2026-07-18. Bundles todos 134/133/122 (batch-size/chunking throughput work). Not yet planned. Its resource-contention gate (143.1-07 corpus run) cleared 2026-07-19. |
+| Phase 163: VP/SR Structural Primitives | Registered 2026-07-20, **fully planned** (3/3 plans, all Fable/Codex review rounds resolved) as of 2026-07-21, execution-ready (`/gsd-execute-phase 163`), not yet run. Closes todo 153 (`poc_dist_atr`/`va_position`/`sr_support_dist`/`sr_resist_dist` permanently null). Likely MEDIUM-tier by this table's own conventions (self-contained, evidence-gated, no cross-phase dependency) — not formally scored. |
+| Phase 164: SMC Institutional Footprint Primitives | Registered 2026-07-20, not planned (no CONTEXT/RESEARCH/PLAN yet). Sequenced after 163 for shared conventions, no hard code dependency. |
+| Phase 165: Swing/Fib/Trend Structure Primitives | Context/research done (2026-07-21, Fable-reviewed) — 41 new columns, 2 silent-wrong-answer bugs found and scoped for the port. Ready for `/gsd-plan-phase 165`, not yet planned. |
 
 ---
 
