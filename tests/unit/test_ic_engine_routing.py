@@ -91,3 +91,28 @@ class TestBuildSymbolRegimeClass:
         tags = {"PFF": {"fi_preferred"}}
         result = _build_symbol_regime_class(tags, _GROUPS)
         assert result["PFF"] == "rates"
+
+    def test_build_symbol_regime_class_preserves_dual_write_field(self):
+        """_build_symbol_regime_class itself only maps symbol -> group NAME; the
+        dual_write_symbol_hmm field must be readable from the caller's own
+        group_configs list (keyed by name), not lost anywhere in the routing path."""
+        group_configs = [
+            {
+                "name": "rates",
+                "tag_filter": ["fi_*"],
+                "enabled": True,
+                "dual_write_symbol_hmm": True,
+            },
+            {
+                "name": "equity",
+                "tag_filter": ["eq_*"],
+                "enabled": True,
+                "dual_write_symbol_hmm": False,
+            },
+        ]
+        tags_by_symbol = {"TLT": {"fi_treasury"}, "SPY": {"eq_broad"}}
+        symbol_regime_class = _build_symbol_regime_class(tags_by_symbol, group_configs)
+        group_by_name = {g["name"]: g for g in group_configs}
+
+        assert group_by_name[symbol_regime_class["TLT"]]["dual_write_symbol_hmm"] is True
+        assert group_by_name[symbol_regime_class["SPY"]]["dual_write_symbol_hmm"] is False
