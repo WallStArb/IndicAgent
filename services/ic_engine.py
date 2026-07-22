@@ -1325,7 +1325,7 @@ def _compute_symbol_tf(
             _POOLED_REGIME_SENTINEL,
             True,
             np.ones(len(aligned_idx), dtype=bool),
-            "pooled",
+            _resolve_regime_scope(True, cross_sectional),
             X_aligned=X_aligned,
             returns_mat=returns_mat,
             complete_mat=complete_mat,
@@ -1341,42 +1341,32 @@ def _compute_symbol_tf(
         all_results.extend(pooled_rows)
         n_skipped += pooled_skipped
 
-        # Primary pass -- today's exact existing behavior: cross-sectional labels
-        # when mr_dict is provided, else the symbol's own per-symbol HMM labels.
-        primary_scope = "cross_sectional" if cross_sectional else "symbol_hmm"
-        for regime_label in [r for r in set(regime_aligned_market) if r is not None]:
-            primary_rows, primary_skipped = _compute_one_regime_cell(
-                regime_label,
-                False,
-                regime_aligned_market == regime_label,
-                primary_scope,
-                X_aligned=X_aligned,
-                returns_mat=returns_mat,
-                complete_mat=complete_mat,
-                config=config,
-                symbol=symbol,
-                tf=tf,
-                rng=rng,
-                existing_keys=existing_keys,
-                training_window_end=training_window_end,
-                feature_status_map=feature_status_map,
-                run_ts=run_ts,
-            )
-            all_results.extend(primary_rows)
-            n_skipped += primary_skipped
-
-        # Dual-write pass (restore symbol_hmm measurement for regime-group-routed
-        # symbols): only when this symbol's routed group has dual_write_symbol_hmm
-        # set true in alpha.regime.groups. Uses the symbol's own per-symbol HMM
-        # labels (regime_aligned, always fetched above regardless of routing) --
-        # never the pooled sentinel here, per the note above.
+        # Primary pass (today's exact existing behavior) + optional dual-write pass
+        # (restore symbol_hmm measurement for regime-group-routed symbols, only when
+        # this symbol's routed group has dual_write_symbol_hmm set true in
+        # alpha.regime.groups) share the same per-label-array loop shape -- built as
+        # a list of (label_array, distinct_labels, resolved_scope) passes rather than
+        # duplicated inline, and reusing distinct_regimes (computed once above,
+        # /simplify finding: it was previously dead code, recomputed via a second
+        # full set() pass over regime_aligned_market) instead of recomputing it here.
+        # Dual-write's own distinct-label set is computed fresh since it operates
+        # over regime_aligned -- a genuinely different array from
+        # regime_aligned_market whenever cross_sectional=True. Never includes the
+        # pooled sentinel in either pass -- pooled is handled once, above.
+        regime_passes: list[tuple[np.ndarray, list, str]] = [
+            (regime_aligned_market, distinct_regimes, _resolve_regime_scope(False, cross_sectional))
+        ]
         if cross_sectional and dual_write_symbol_hmm:
-            for regime_label in [r for r in set(regime_aligned) if r is not None]:
-                dual_rows, dual_skipped = _compute_one_regime_cell(
+            distinct_symbol_hmm_regimes = [r for r in set(regime_aligned) if r is not None]
+            regime_passes.append((regime_aligned, distinct_symbol_hmm_regimes, "symbol_hmm"))
+
+        for label_array, labels_this_pass, resolved_scope in regime_passes:
+            for regime_label in labels_this_pass:
+                pass_rows, pass_skipped = _compute_one_regime_cell(
                     regime_label,
                     False,
-                    regime_aligned == regime_label,
-                    "symbol_hmm",
+                    label_array == regime_label,
+                    resolved_scope,
                     X_aligned=X_aligned,
                     returns_mat=returns_mat,
                     complete_mat=complete_mat,
@@ -1389,8 +1379,8 @@ def _compute_symbol_tf(
                     feature_status_map=feature_status_map,
                     run_ts=run_ts,
                 )
-                all_results.extend(dual_rows)
-                n_skipped += dual_skipped
+                all_results.extend(pass_rows)
+                n_skipped += pass_skipped
 
         # ------------------------------------------------------------------
         # Context features: daily-cadence features in context_features table.
