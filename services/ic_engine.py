@@ -776,6 +776,335 @@ _EMPTY_SYMBOL_RESULT: tuple = (
 )
 
 
+def _compute_one_regime_cell(
+    regime_label: str,
+    is_pooled: bool,
+    mask: np.ndarray,
+    resolved_regime_scope: str,
+    *,
+    X_aligned: np.ndarray,
+    returns_mat: np.ndarray,
+    complete_mat: np.ndarray,
+    config: ICEngineConfig,
+    symbol: str,
+    tf: str,
+    rng: np.random.Generator,
+    existing_keys: set[tuple] | frozenset[tuple],
+    training_window_end: Any,
+    feature_status_map: dict[str, str] | None,
+    run_ts: datetime,
+) -> tuple[list[dict], int]:
+    """Compute clustering + per-scale IC/CI/walk-forward/Sharpe for ONE regime cell.
+
+    Extracted from _compute_symbol_tf's single-pass loop (todo: restore symbol_hmm
+    measurement for regime-group-routed symbols) so the same per-cell compute logic
+    can run multiple times per (symbol, tf) -- once for the pooled cell (always,
+    exactly once), once for the symbol's primary label source (cross-sectional or
+    its own per-symbol HMM), and optionally once more for a dual-write pass using a
+    second label source under a different regime_scope tag.
+
+    resolved_regime_scope is passed in explicitly (not recomputed via
+    _resolve_regime_scope(is_pooled, cross_sectional) internally) since a caller now
+    decides scope per call, not per (is_pooled, cross_sectional) combination.
+
+    rng is a shared, stateful np.random.Generator -- calling this function consumes
+    draws from it by design (matches the existing per-worker RNG-scope contract:
+    never re-seeded per-cell, advanced monotonically across every cell a worker
+    computes for its symbol).
+
+    Returns (result_rows, n_skipped_features) for this cell only. Does NOT populate
+    pvals_flat/pval_result_idxs -- cluster-representative selection for BH-FDR runs
+    downstream in _compute_symbol_tf, after ALL cells (across every pass) have been
+    accumulated into all_results, and needs no changes for this to work correctly
+    regardless of how many passes contributed rows.
+    """
+    lookaheads = config.lookaheads
+    subsample_min_stride = config.subsample_min_stride
+    min_reliable_n = config.min_reliable_n
+    walk_forward_folds = config.walk_forward_folds
+    cluster_max_corr = config.cluster_max_corr
+    n_features = len(_FEATURE_NAMES)
+
+    result_rows: list[dict] = []
+    n_skipped = 0
+
+    X_regime = X_aligned[mask]
+    returns_regime = returns_mat[mask]
+    complete_regime = complete_mat[mask]
+    n_regime_raw = X_regime.shape[0]
+
+    # ------------------------------------------------------------------
+    # Degenerate feature detection on FULL regime data (std < 1e-8 = constant column).
+    # Using X_regime (not a subsample) ensures the mask is stable across all scales
+    # regardless of stride. A feature constant in the full regime is constant in any
+    # subsample — but the converse may not hold for large strides.
+    # ------------------------------------------------------------------
+    # dtype=float64: X_regime is float32 now (memory optimization), force the
+    # reduction itself to accumulate in float64 so this threshold check stays
+    # exactly as precise as before -- see the cross-sectional path's identical note.
+    feature_stds = np.std(X_regime, axis=0, dtype=np.float64)
+    degenerate_mask = feature_stds < 1e-8
+    non_degenerate_mask = ~degenerate_mask
+    n_degenerate = degenerate_mask.sum()
+    if n_degenerate > 0:
+        for _ in range(n_degenerate):
+            IC_ENGINE_CELLS_SKIPPED_TOTAL.add(
+                1,
+                {"symbol": symbol, "tf": tf, "skip_reason": "degenerate_feature"},
+            )
+        n_skipped += n_degenerate
+
+    # Non-degenerate slice of full regime matrix — shared across scales.
+    X_regime_nd = X_regime[:, non_degenerate_mask]
+    if X_regime_nd.shape[1] == 0:
+        # Was `continue` (skip to next regime_label) in the pre-extraction
+        # for-loop over regime_passes; this cell has no "next regime" to fall
+        # through to now that each cell is its own function call, so the
+        # equivalent behavior is to return immediately with whatever
+        # result_rows/n_skipped this cell has accumulated so far (empty rows;
+        # n_skipped already reflects the degenerate-feature count above).
+        return result_rows, n_skipped
+
+    # ------------------------------------------------------------------
+    # Distance-threshold dendrogram clustering per (symbol, tf, regime)
+    # NOTE: dendrogram distance cutoff -- transitive linkage can merge
+    # features whose direct pairwise correlation is below cluster_max_corr.
+    # ------------------------------------------------------------------
+    cluster_ids_nd = _cluster_features(X_regime_nd, cluster_max_corr)
+    # Expand to full feature space: None for degenerate, cluster_id for non-degenerate
+    cluster_id_full: list[int | None] = [None] * n_features
+    nd_positions = np.where(non_degenerate_mask)[0]
+    for _i, _pos in enumerate(nd_positions):
+        cluster_id_full[_pos] = int(cluster_ids_nd[_i])
+
+    _logger.info(
+        "ic_engine.clustering",
+        symbol=symbol,
+        tf=tf,
+        regime=regime_label,
+        n_clusters=int(cluster_ids_nd.max()) if len(cluster_ids_nd) > 0 else 0,
+        n_features=len(cluster_ids_nd),
+    )
+
+    for scale_idx, scale in enumerate(_SCALES):
+        lookahead_bars = lookaheads[scale]
+
+        # Per-scale subsampling: stride = max(min_stride, lookahead_bars).
+        # Fast scale (lookahead=1) uses stride=min_stride, giving ~N/5 obs per regime.
+        # Extended scale (lookahead=60) uses stride=60, giving ~N/60 obs per regime.
+        # Previously all scales used stride=60, starving fast scale by 60x.
+        scale_stride = max(subsample_min_stride, lookahead_bars)
+        # Slice, not fancy-index (2026-07-19 OOM fix) -- see the identical
+        # fix + rationale in _compute_cross_sectional_tf.
+        stride = slice(0, n_regime_raw, scale_stride)
+        X_sub_scale = X_regime[stride]  # full features for _compute_ic_rolling_metrics
+        X_sub_nd = X_regime_nd[stride]  # non-degen columns for rankdata
+        returns_sub = returns_regime[stride]
+        complete_sub = complete_regime[stride]
+        n_independent = len(X_sub_scale)
+
+        if n_independent < min_reliable_n:
+            IC_ENGINE_CELLS_SKIPPED_TOTAL.add(
+                len(_FEATURE_NAMES),
+                {"symbol": symbol, "tf": tf, "skip_reason": "insufficient_n"},
+            )
+            n_skipped += len(_FEATURE_NAMES)
+            continue
+
+        # Filter to complete rows for this lookahead
+        scale_complete = complete_sub[:, scale_idx]
+        returns_scale = returns_sub[:, scale_idx]
+        valid_mask = scale_complete & np.isfinite(returns_scale)
+        n_valid = valid_mask.sum()
+
+        if n_valid < min_reliable_n:
+            IC_ENGINE_CELLS_SKIPPED_TOTAL.add(
+                len(_FEATURE_NAMES),
+                {"symbol": symbol, "tf": tf, "skip_reason": "insufficient_n"},
+            )
+            n_skipped += len(_FEATURE_NAMES)
+            continue
+
+        X_raw_scale = X_sub_nd[valid_mask]  # RAW (unranked) -- bootstrap CI needs this
+        # float32, not float64 (2026-07-19 OOM fix) -- see the identical
+        # fix + rationale in _compute_cross_sectional_tf.
+        ranks_X_scale = rankdata(X_sub_nd, axis=0).astype(np.float32)[valid_mask]
+        Y_scale = returns_scale[valid_mask]
+        ranks_Y = rankdata(Y_scale).astype(np.float32)
+
+        # -------------------------------------------------------
+        # IC point estimate + p-values
+        # -------------------------------------------------------
+        ic_vector_nd = _vectorized_ic(ranks_X_scale, ranks_Y)
+        p_vector_nd = _p_values_from_ic(ic_vector_nd, n_valid)
+
+        # Expand back to full feature space (NaN for degenerate)
+        ic_full = _expand(ic_vector_nd, non_degenerate_mask, n_features)
+        p_full = _expand(p_vector_nd, non_degenerate_mask, n_features)
+
+        # -------------------------------------------------------
+        # Circular block bootstrap CI (Component A, todo 091 -- replaces
+        # _fisher_z_ci, empirically miscalibrated per the 2026-07-09 diagnostic)
+        # -------------------------------------------------------
+        # Per-symbol path -- always serial (todo 131); see
+        # circular_block_bootstrap_ic_serial's docstring for why this has no
+        # max_workers knob to accidentally raise.
+        ci_lower_nd, ci_upper_nd = circular_block_bootstrap_ic_serial(
+            X_raw_scale,
+            Y_scale,
+            config.bootstrap_block_size[tf],
+            config.bootstrap_resamples,
+            rng,
+        )
+
+        ci_lower_full = _expand(ci_lower_nd, non_degenerate_mask, n_features)
+        ci_upper_full = _expand(ci_upper_nd, non_degenerate_mask, n_features)
+        passes_ci_full = np.where(non_degenerate_mask, ci_lower_full > 0.0, False)
+
+        # -------------------------------------------------------
+        # Walk-forward with scale-specific embargo
+        # -------------------------------------------------------
+        # embargo_bars = lookahead_bars for this scale (P3 fix: was max(lookaheads)=60).
+        # Fast scale (lookahead=1) uses embargo=1; extended scale (lookahead=60) uses 60.
+        # This prevents overlapping forward-return labels from leaking across fold
+        # boundaries without discarding 59 valid observations per fold for fast scale.
+        embargo_bars = lookahead_bars
+
+        # Fixed-origin expanding window with embargo:
+        # fold k: train=[0..train_end], embargo=[train_end..test_start], test=[test_start..test_end]
+        # train_end grows monotonically with k (expanding window) and test windows are
+        # strictly non-overlapping and in temporal order (fold 0 earliest, fold k latest).
+        fold_ics_list: list[np.ndarray] = []
+        for k in range(walk_forward_folds):
+            train_end = int(n_valid * (k + 1) / (walk_forward_folds + 1))
+            test_start = train_end + embargo_bars
+            test_end = int(n_valid * (k + 2) / (walk_forward_folds + 1))
+            assert test_start > train_end and test_end <= n_valid, (
+                f"Walk-forward invariant violated: train_end={train_end}, "
+                f"test_start={test_start}, test_end={test_end}, n_valid={n_valid}"
+            )
+            if test_start >= test_end or (test_end - test_start) < min_reliable_n:
+                continue
+            X_test = ranks_X_scale[test_start:test_end]
+            Y_test = ranks_Y[test_start:test_end]
+            if len(X_test) < 2:
+                continue
+            # float32, not float64 (2026-07-19 OOM fix, same pattern as
+            # ranks_X_scale/ranks_Y above).
+            rX_test = rankdata(X_test, axis=0).astype(np.float32)
+            rY_test = rankdata(Y_test).astype(np.float32)
+            fold_ics_list.append(_vectorized_ic(rX_test, rY_test))
+
+        wf_fold_count = len(fold_ics_list)
+        if wf_fold_count > 0:
+            fold_ic_arr = np.array(fold_ics_list)  # [n_folds, n_nd]
+            wf_pass_count_nd = _sign_consistent_wf_pass_count(fold_ic_arr, ic_vector_nd)
+            passes_wf_nd = wf_pass_count_nd == walk_forward_folds
+        else:
+            wf_pass_count_nd = np.zeros(len(ic_vector_nd), dtype=int)
+            passes_wf_nd = np.zeros(len(ic_vector_nd), dtype=bool)
+
+        wf_pass_full = np.zeros(n_features, dtype=int)
+        passes_wf_full = np.zeros(n_features, dtype=bool)
+        wf_pass_full[non_degenerate_mask] = wf_pass_count_nd
+        passes_wf_full[non_degenerate_mask] = passes_wf_nd
+
+        # -------------------------------------------------------
+        # IC Sharpe / Sortino / win rate (rolling windows)
+        # -------------------------------------------------------
+        (
+            ic_sharpe_arr,
+            ic_sharpe_hac_arr,
+            ic_sortino_arr,
+            ic_win_rate_arr,
+            n_sharpe_windows,
+        ) = _compute_ic_rolling_metrics(
+            X_sub_scale,  # full feature matrix; _compute_ic_rolling_metrics applies non_degenerate_mask internally
+            returns_sub,
+            scale_idx,
+            complete_sub[:, scale_idx],
+            config,
+            non_degenerate_mask,
+            n_features,
+            scale_stride,  # per-scale stride for raw→subsampled window conversion
+        )
+
+        # -------------------------------------------------------
+        # IC decomposition: sign_hit_rate + magnitude-conditional IC
+        # (Component B, todo 090). Diagnostic-only columns, no gate impact.
+        # Reuses X_raw_scale/Y_scale already assembled above for the
+        # bootstrap CI -- no additional query or array materialization.
+        # -------------------------------------------------------
+        sign_hit_rate_nd = sign_hit_rate(X_raw_scale, Y_scale)
+        magnitude_ic_nd = magnitude_conditional_ic(X_raw_scale, Y_scale, _MAGNITUDE_IC_PERCENTILE)
+        sign_hit_rate_full = _expand(sign_hit_rate_nd, non_degenerate_mask, n_features)
+        magnitude_ic_full = _expand(magnitude_ic_nd, non_degenerate_mask, n_features)
+
+        # -------------------------------------------------------
+        # Collect results -- BH-FDR is applied after all regimes/scales
+        # using representative-only selection per cluster.
+        # -------------------------------------------------------
+        for feat_idx, feat_name in enumerate(_FEATURE_NAMES):
+            cell_key = (feat_name, symbol, tf, regime_label, lookahead_bars, is_pooled)
+            if cell_key in existing_keys:
+                IC_ENGINE_CELLS_SKIPPED_TOTAL.add(
+                    1,
+                    {"symbol": symbol, "tf": tf, "skip_reason": "already_present"},
+                )
+                n_skipped += 1
+                continue
+
+            ic_val = ic_full[feat_idx]
+            p_val = p_full[feat_idx]
+            result_rows.append(
+                {
+                    "feature_name": feat_name,
+                    "vector_domain": _VECTOR_DOMAIN,
+                    "symbol": symbol,
+                    "tf": tf,
+                    "regime": regime_label,
+                    "lookahead_bars": lookahead_bars,
+                    "training_window_end": training_window_end,
+                    "is_pooled": is_pooled,
+                    "n_independent": int(n_valid),
+                    "reliable": bool(n_valid >= min_reliable_n),
+                    "ic_value": _nan_to_none(ic_val),
+                    "ic_sign": (None if np.isnan(ic_val) else (1 if ic_val > 0 else -1)),
+                    "p_value": _nan_to_none(p_val),
+                    "ic_ci_lower": _nan_to_none(ci_lower_full[feat_idx]),
+                    "ic_ci_upper": _nan_to_none(ci_upper_full[feat_idx]),
+                    "passes_ci_gate": bool(passes_ci_full[feat_idx]),
+                    "bh_adjusted_p": None,  # filled after BH-FDR pass
+                    "passes_fdr": None,  # filled after BH-FDR pass
+                    "wf_fold_count": wf_fold_count,
+                    "wf_pass_count": int(wf_pass_full[feat_idx]),
+                    "passes_walkforward": bool(passes_wf_full[feat_idx]),
+                    "ic_sharpe": _nan_to_none(ic_sharpe_arr[feat_idx]),
+                    "ic_sharpe_hac": _nan_to_none(ic_sharpe_hac_arr[feat_idx]),
+                    "ic_sharpe_n_windows": int(n_sharpe_windows),
+                    "ic_sortino": _nan_to_none(ic_sortino_arr[feat_idx]),
+                    "ic_win_rate": _nan_to_none(ic_win_rate_arr[feat_idx]),
+                    "regime_label_source": "forward_filter",
+                    "computed_at": run_ts,
+                    "cluster_id": cluster_id_full[feat_idx],
+                    "feature_status_at_eval": (
+                        feature_status_map.get(feat_name, "unknown")
+                        if feature_status_map is not None
+                        else "unknown"
+                    ),
+                    "regime_scope": resolved_regime_scope,
+                    "sign_hit_rate": _nan_to_none(sign_hit_rate_full[feat_idx]),
+                    "magnitude_conditional_ic": _nan_to_none(magnitude_ic_full[feat_idx]),
+                    # e-value pilot (Component C, todo 079) is scoped to
+                    # _compute_cross_sectional_tf's tf=5m POOLED cells only --
+                    # this per-symbol path never computes it.
+                    "cumulative_e_value": None,
+                }
+            )
+
+    return result_rows, n_skipped
+
+
 def _compute_symbol_tf(
     dsn: str,
     symbol: str,
@@ -972,296 +1301,96 @@ def _compute_symbol_tf(
             regime_aligned_market = regime_aligned
             distinct_regimes = [r for r in set(regime_aligned) if r is not None]
 
-        # Process: each distinct regime + one pooled pass
-        regime_passes = list(distinct_regimes) + [_POOLED_REGIME_SENTINEL]
+        # Todo (restore-symbol-hmm-ic-measurement), Task 1: dual_write_symbol_hmm is
+        # hardcoded False here as a temporary placeholder -- Task 2 of this plan
+        # threads it through as a real _compute_symbol_tf parameter (sourced from
+        # the routed group's alpha.regime.groups APR entry) and will replace this
+        # local with that parameter. Until then the dual-write branch below is
+        # dead code (never executes), so behavior is unchanged from before this
+        # extraction.
+        dual_write_symbol_hmm = False
 
-        # Collect all result dicts + parallel p-value list for BH-FDR per (symbol,tf)
+        # Pooled pass -- always exactly once, regardless of how many regime-label
+        # sources this (symbol, tf) computes. Pooled doesn't condition on regime
+        # labels at all (mask = all rows), so running it per label-source would
+        # silently duplicate the identical (feature, symbol, tf, lookahead,
+        # is_pooled=True) cell.
         all_results: list[dict] = []
         pvals_flat: list[float] = []
         pval_result_idxs: list[int] = []
-
         n_committed = 0
         n_skipped = 0
 
-        for regime_label in regime_passes:
-            is_pooled = regime_label == _POOLED_REGIME_SENTINEL
-            # Mask rows for this regime.
-            # When equity_model_enabled=True (mr_dict provided): regime_aligned_market is the
-            # cross-sectional label array. When False: regime_aligned_market == regime_aligned.
-            if is_pooled:
-                mask = np.ones(len(aligned_idx), dtype=bool)
-            else:
-                mask = regime_aligned_market == regime_label
+        pooled_rows, pooled_skipped = _compute_one_regime_cell(
+            _POOLED_REGIME_SENTINEL,
+            True,
+            np.ones(len(aligned_idx), dtype=bool),
+            "pooled",
+            X_aligned=X_aligned,
+            returns_mat=returns_mat,
+            complete_mat=complete_mat,
+            config=config,
+            symbol=symbol,
+            tf=tf,
+            rng=rng,
+            existing_keys=existing_keys,
+            training_window_end=training_window_end,
+            feature_status_map=feature_status_map,
+            run_ts=run_ts,
+        )
+        all_results.extend(pooled_rows)
+        n_skipped += pooled_skipped
 
-            X_regime = X_aligned[mask]
-            returns_regime = returns_mat[mask]
-            complete_regime = complete_mat[mask]
-            n_regime_raw = X_regime.shape[0]
-
-            # ------------------------------------------------------------------
-            # Degenerate feature detection on FULL regime data (std < 1e-8 = constant column).
-            # Using X_regime (not a subsample) ensures the mask is stable across all scales
-            # regardless of stride. A feature constant in the full regime is constant in any
-            # subsample — but the converse may not hold for large strides.
-            # ------------------------------------------------------------------
-            # dtype=float64: X_regime is float32 now (memory optimization), force the
-            # reduction itself to accumulate in float64 so this threshold check stays
-            # exactly as precise as before -- see the cross-sectional path's identical note.
-            feature_stds = np.std(X_regime, axis=0, dtype=np.float64)
-            degenerate_mask = feature_stds < 1e-8
-            non_degenerate_mask = ~degenerate_mask
-            n_degenerate = degenerate_mask.sum()
-            if n_degenerate > 0:
-                for _ in range(n_degenerate):
-                    IC_ENGINE_CELLS_SKIPPED_TOTAL.add(
-                        1,
-                        {"symbol": symbol, "tf": tf, "skip_reason": "degenerate_feature"},
-                    )
-                n_skipped += n_degenerate
-
-            # Non-degenerate slice of full regime matrix — shared across scales.
-            X_regime_nd = X_regime[:, non_degenerate_mask]
-            if X_regime_nd.shape[1] == 0:
-                continue
-
-            # ------------------------------------------------------------------
-            # Distance-threshold dendrogram clustering per (symbol, tf, regime)
-            # NOTE: dendrogram distance cutoff -- transitive linkage can merge
-            # features whose direct pairwise correlation is below cluster_max_corr.
-            # ------------------------------------------------------------------
-            cluster_ids_nd = _cluster_features(X_regime_nd, cluster_max_corr)
-            # Expand to full feature space: None for degenerate, cluster_id for non-degenerate
-            cluster_id_full: list[int | None] = [None] * n_features
-            nd_positions = np.where(non_degenerate_mask)[0]
-            for _i, _pos in enumerate(nd_positions):
-                cluster_id_full[_pos] = int(cluster_ids_nd[_i])
-
-            _logger.info(
-                "ic_engine.clustering",
+        # Primary pass -- today's exact existing behavior: cross-sectional labels
+        # when mr_dict is provided, else the symbol's own per-symbol HMM labels.
+        primary_scope = "cross_sectional" if cross_sectional else "symbol_hmm"
+        for regime_label in [r for r in set(regime_aligned_market) if r is not None]:
+            primary_rows, primary_skipped = _compute_one_regime_cell(
+                regime_label,
+                False,
+                regime_aligned_market == regime_label,
+                primary_scope,
+                X_aligned=X_aligned,
+                returns_mat=returns_mat,
+                complete_mat=complete_mat,
+                config=config,
                 symbol=symbol,
                 tf=tf,
-                regime=regime_label,
-                n_clusters=int(cluster_ids_nd.max()) if len(cluster_ids_nd) > 0 else 0,
-                n_features=len(cluster_ids_nd),
+                rng=rng,
+                existing_keys=existing_keys,
+                training_window_end=training_window_end,
+                feature_status_map=feature_status_map,
+                run_ts=run_ts,
             )
+            all_results.extend(primary_rows)
+            n_skipped += primary_skipped
 
-            for scale_idx, scale in enumerate(_SCALES):
-                lookahead_bars = lookaheads[scale]
-
-                # Per-scale subsampling: stride = max(min_stride, lookahead_bars).
-                # Fast scale (lookahead=1) uses stride=min_stride, giving ~N/5 obs per regime.
-                # Extended scale (lookahead=60) uses stride=60, giving ~N/60 obs per regime.
-                # Previously all scales used stride=60, starving fast scale by 60x.
-                scale_stride = max(subsample_min_stride, lookahead_bars)
-                # Slice, not fancy-index (2026-07-19 OOM fix) -- see the identical
-                # fix + rationale in _compute_cross_sectional_tf.
-                stride = slice(0, n_regime_raw, scale_stride)
-                X_sub_scale = X_regime[stride]  # full features for _compute_ic_rolling_metrics
-                X_sub_nd = X_regime_nd[stride]  # non-degen columns for rankdata
-                returns_sub = returns_regime[stride]
-                complete_sub = complete_regime[stride]
-                n_independent = len(X_sub_scale)
-
-                if n_independent < min_reliable_n:
-                    IC_ENGINE_CELLS_SKIPPED_TOTAL.add(
-                        len(_FEATURE_NAMES),
-                        {"symbol": symbol, "tf": tf, "skip_reason": "insufficient_n"},
-                    )
-                    n_skipped += len(_FEATURE_NAMES)
-                    continue
-
-                # Filter to complete rows for this lookahead
-                scale_complete = complete_sub[:, scale_idx]
-                returns_scale = returns_sub[:, scale_idx]
-                valid_mask = scale_complete & np.isfinite(returns_scale)
-                n_valid = valid_mask.sum()
-
-                if n_valid < min_reliable_n:
-                    IC_ENGINE_CELLS_SKIPPED_TOTAL.add(
-                        len(_FEATURE_NAMES),
-                        {"symbol": symbol, "tf": tf, "skip_reason": "insufficient_n"},
-                    )
-                    n_skipped += len(_FEATURE_NAMES)
-                    continue
-
-                X_raw_scale = X_sub_nd[valid_mask]  # RAW (unranked) -- bootstrap CI needs this
-                # float32, not float64 (2026-07-19 OOM fix) -- see the identical
-                # fix + rationale in _compute_cross_sectional_tf.
-                ranks_X_scale = rankdata(X_sub_nd, axis=0).astype(np.float32)[valid_mask]
-                Y_scale = returns_scale[valid_mask]
-                ranks_Y = rankdata(Y_scale).astype(np.float32)
-
-                # -------------------------------------------------------
-                # IC point estimate + p-values
-                # -------------------------------------------------------
-                ic_vector_nd = _vectorized_ic(ranks_X_scale, ranks_Y)
-                p_vector_nd = _p_values_from_ic(ic_vector_nd, n_valid)
-
-                # Expand back to full feature space (NaN for degenerate)
-                ic_full = _expand(ic_vector_nd, non_degenerate_mask, n_features)
-                p_full = _expand(p_vector_nd, non_degenerate_mask, n_features)
-
-                # -------------------------------------------------------
-                # Circular block bootstrap CI (Component A, todo 091 -- replaces
-                # _fisher_z_ci, empirically miscalibrated per the 2026-07-09 diagnostic)
-                # -------------------------------------------------------
-                # Per-symbol path -- always serial (todo 131); see
-                # circular_block_bootstrap_ic_serial's docstring for why this has no
-                # max_workers knob to accidentally raise.
-                ci_lower_nd, ci_upper_nd = circular_block_bootstrap_ic_serial(
-                    X_raw_scale,
-                    Y_scale,
-                    config.bootstrap_block_size[tf],
-                    config.bootstrap_resamples,
-                    rng,
+        # Dual-write pass (restore symbol_hmm measurement for regime-group-routed
+        # symbols): only when this symbol's routed group has dual_write_symbol_hmm
+        # set true in alpha.regime.groups. Uses the symbol's own per-symbol HMM
+        # labels (regime_aligned, always fetched above regardless of routing) --
+        # never the pooled sentinel here, per the note above.
+        if cross_sectional and dual_write_symbol_hmm:
+            for regime_label in [r for r in set(regime_aligned) if r is not None]:
+                dual_rows, dual_skipped = _compute_one_regime_cell(
+                    regime_label,
+                    False,
+                    regime_aligned == regime_label,
+                    "symbol_hmm",
+                    X_aligned=X_aligned,
+                    returns_mat=returns_mat,
+                    complete_mat=complete_mat,
+                    config=config,
+                    symbol=symbol,
+                    tf=tf,
+                    rng=rng,
+                    existing_keys=existing_keys,
+                    training_window_end=training_window_end,
+                    feature_status_map=feature_status_map,
+                    run_ts=run_ts,
                 )
-
-                ci_lower_full = _expand(ci_lower_nd, non_degenerate_mask, n_features)
-                ci_upper_full = _expand(ci_upper_nd, non_degenerate_mask, n_features)
-                passes_ci_full = np.where(non_degenerate_mask, ci_lower_full > 0.0, False)
-
-                # -------------------------------------------------------
-                # Walk-forward with scale-specific embargo
-                # -------------------------------------------------------
-                # embargo_bars = lookahead_bars for this scale (P3 fix: was max(lookaheads)=60).
-                # Fast scale (lookahead=1) uses embargo=1; extended scale (lookahead=60) uses 60.
-                # This prevents overlapping forward-return labels from leaking across fold
-                # boundaries without discarding 59 valid observations per fold for fast scale.
-                embargo_bars = lookahead_bars
-
-                # Fixed-origin expanding window with embargo:
-                # fold k: train=[0..train_end], embargo=[train_end..test_start], test=[test_start..test_end]
-                # train_end grows monotonically with k (expanding window) and test windows are
-                # strictly non-overlapping and in temporal order (fold 0 earliest, fold k latest).
-                fold_ics_list: list[np.ndarray] = []
-                for k in range(walk_forward_folds):
-                    train_end = int(n_valid * (k + 1) / (walk_forward_folds + 1))
-                    test_start = train_end + embargo_bars
-                    test_end = int(n_valid * (k + 2) / (walk_forward_folds + 1))
-                    assert test_start > train_end and test_end <= n_valid, (
-                        f"Walk-forward invariant violated: train_end={train_end}, "
-                        f"test_start={test_start}, test_end={test_end}, n_valid={n_valid}"
-                    )
-                    if test_start >= test_end or (test_end - test_start) < min_reliable_n:
-                        continue
-                    X_test = ranks_X_scale[test_start:test_end]
-                    Y_test = ranks_Y[test_start:test_end]
-                    if len(X_test) < 2:
-                        continue
-                    # float32, not float64 (2026-07-19 OOM fix, same pattern as
-                    # ranks_X_scale/ranks_Y above).
-                    rX_test = rankdata(X_test, axis=0).astype(np.float32)
-                    rY_test = rankdata(Y_test).astype(np.float32)
-                    fold_ics_list.append(_vectorized_ic(rX_test, rY_test))
-
-                wf_fold_count = len(fold_ics_list)
-                if wf_fold_count > 0:
-                    fold_ic_arr = np.array(fold_ics_list)  # [n_folds, n_nd]
-                    wf_pass_count_nd = _sign_consistent_wf_pass_count(fold_ic_arr, ic_vector_nd)
-                    passes_wf_nd = wf_pass_count_nd == walk_forward_folds
-                else:
-                    wf_pass_count_nd = np.zeros(len(ic_vector_nd), dtype=int)
-                    passes_wf_nd = np.zeros(len(ic_vector_nd), dtype=bool)
-
-                wf_pass_full = np.zeros(n_features, dtype=int)
-                passes_wf_full = np.zeros(n_features, dtype=bool)
-                wf_pass_full[non_degenerate_mask] = wf_pass_count_nd
-                passes_wf_full[non_degenerate_mask] = passes_wf_nd
-
-                # -------------------------------------------------------
-                # IC Sharpe / Sortino / win rate (rolling windows)
-                # -------------------------------------------------------
-                (
-                    ic_sharpe_arr,
-                    ic_sharpe_hac_arr,
-                    ic_sortino_arr,
-                    ic_win_rate_arr,
-                    n_sharpe_windows,
-                ) = _compute_ic_rolling_metrics(
-                    X_sub_scale,  # full feature matrix; _compute_ic_rolling_metrics applies non_degenerate_mask internally
-                    returns_sub,
-                    scale_idx,
-                    complete_sub[:, scale_idx],
-                    config,
-                    non_degenerate_mask,
-                    n_features,
-                    scale_stride,  # per-scale stride for raw→subsampled window conversion
-                )
-
-                # -------------------------------------------------------
-                # IC decomposition: sign_hit_rate + magnitude-conditional IC
-                # (Component B, todo 090). Diagnostic-only columns, no gate impact.
-                # Reuses X_raw_scale/Y_scale already assembled above for the
-                # bootstrap CI -- no additional query or array materialization.
-                # -------------------------------------------------------
-                sign_hit_rate_nd = sign_hit_rate(X_raw_scale, Y_scale)
-                magnitude_ic_nd = magnitude_conditional_ic(
-                    X_raw_scale, Y_scale, _MAGNITUDE_IC_PERCENTILE
-                )
-                sign_hit_rate_full = _expand(sign_hit_rate_nd, non_degenerate_mask, n_features)
-                magnitude_ic_full = _expand(magnitude_ic_nd, non_degenerate_mask, n_features)
-
-                # -------------------------------------------------------
-                # Collect results -- BH-FDR is applied after all regimes/scales
-                # using representative-only selection per cluster.
-                # -------------------------------------------------------
-                for feat_idx, feat_name in enumerate(_FEATURE_NAMES):
-                    cell_key = (feat_name, symbol, tf, regime_label, lookahead_bars, is_pooled)
-                    if cell_key in existing_keys:
-                        IC_ENGINE_CELLS_SKIPPED_TOTAL.add(
-                            1,
-                            {"symbol": symbol, "tf": tf, "skip_reason": "already_present"},
-                        )
-                        n_skipped += 1
-                        continue
-
-                    ic_val = ic_full[feat_idx]
-                    p_val = p_full[feat_idx]
-                    all_results.append(
-                        {
-                            "feature_name": feat_name,
-                            "vector_domain": _VECTOR_DOMAIN,
-                            "symbol": symbol,
-                            "tf": tf,
-                            "regime": regime_label,
-                            "lookahead_bars": lookahead_bars,
-                            "training_window_end": training_window_end,
-                            "is_pooled": is_pooled,
-                            "n_independent": int(n_valid),
-                            "reliable": bool(n_valid >= min_reliable_n),
-                            "ic_value": _nan_to_none(ic_val),
-                            "ic_sign": (None if np.isnan(ic_val) else (1 if ic_val > 0 else -1)),
-                            "p_value": _nan_to_none(p_val),
-                            "ic_ci_lower": _nan_to_none(ci_lower_full[feat_idx]),
-                            "ic_ci_upper": _nan_to_none(ci_upper_full[feat_idx]),
-                            "passes_ci_gate": bool(passes_ci_full[feat_idx]),
-                            "bh_adjusted_p": None,  # filled after BH-FDR pass
-                            "passes_fdr": None,  # filled after BH-FDR pass
-                            "wf_fold_count": wf_fold_count,
-                            "wf_pass_count": int(wf_pass_full[feat_idx]),
-                            "passes_walkforward": bool(passes_wf_full[feat_idx]),
-                            "ic_sharpe": _nan_to_none(ic_sharpe_arr[feat_idx]),
-                            "ic_sharpe_hac": _nan_to_none(ic_sharpe_hac_arr[feat_idx]),
-                            "ic_sharpe_n_windows": int(n_sharpe_windows),
-                            "ic_sortino": _nan_to_none(ic_sortino_arr[feat_idx]),
-                            "ic_win_rate": _nan_to_none(ic_win_rate_arr[feat_idx]),
-                            "regime_label_source": "forward_filter",
-                            "computed_at": run_ts,
-                            "cluster_id": cluster_id_full[feat_idx],
-                            "feature_status_at_eval": (
-                                feature_status_map.get(feat_name, "unknown")
-                                if feature_status_map is not None
-                                else "unknown"
-                            ),
-                            "regime_scope": _resolve_regime_scope(is_pooled, cross_sectional),
-                            "sign_hit_rate": _nan_to_none(sign_hit_rate_full[feat_idx]),
-                            "magnitude_conditional_ic": _nan_to_none(magnitude_ic_full[feat_idx]),
-                            # e-value pilot (Component C, todo 079) is scoped to
-                            # _compute_cross_sectional_tf's tf=5m POOLED cells only --
-                            # this per-symbol path never computes it.
-                            "cumulative_e_value": None,
-                        }
-                    )
+                all_results.extend(dual_rows)
+                n_skipped += dual_skipped
 
         # ------------------------------------------------------------------
         # Context features: daily-cadence features in context_features table.
@@ -1562,7 +1691,14 @@ def _compute_symbol_tf(
         # ------------------------------------------------------------------
         # Per-cell OTel metrics
         # ------------------------------------------------------------------
-        for regime_label in regime_passes:
+        # regime_passes (the old for-loop's iterable) no longer exists as a
+        # precomputed variable -- pooled/primary/dual-write are now three
+        # separate calls above, not one loop. Derive the same distinct-label
+        # set directly from all_results (which already carries a "regime" key
+        # set to _POOLED_REGIME_SENTINEL for pooled rows), giving an identical
+        # per-(symbol, tf, regime) metric emission regardless of how many
+        # passes contributed rows to that regime label.
+        for regime_label in {r["regime"] for r in all_results}:
             is_pooled = regime_label == _POOLED_REGIME_SENTINEL
             regime_results = [
                 r

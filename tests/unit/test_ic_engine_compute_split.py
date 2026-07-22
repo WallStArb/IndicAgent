@@ -20,7 +20,11 @@ _project_root = Path(__file__).parent.parent.parent
 if str(_project_root) not in sys.path:
     sys.path.insert(0, str(_project_root))
 
-from services.ic_engine import _compute_cross_sectional_tf, _compute_symbol_tf
+from services.ic_engine import (
+    _compute_cross_sectional_tf,
+    _compute_one_regime_cell,
+    _compute_symbol_tf,
+)
 
 
 def test_compute_symbol_tf_return_keys():
@@ -176,8 +180,13 @@ def test_cross_sectional_rankdata_output_is_float32_not_float64():
 
 def test_per_symbol_rankdata_output_is_float32_not_float64():
     """Same fix, sibling function: _compute_symbol_tf's ranks_X_scale must cast
-    to float32 too."""
-    source = inspect.getsource(_compute_symbol_tf)
+    to float32 too.
+
+    This per-cell logic now lives in _compute_one_regime_cell (extracted from
+    _compute_symbol_tf, restore-symbol-hmm-ic-measurement Task 1) -- the guard
+    moved with it, unchanged.
+    """
+    source = inspect.getsource(_compute_one_regime_cell)
 
     rankdata_idx = source.index("ranks_X_scale = rankdata(X_sub_nd, axis=0)")
     line_end = source.index("\n", rankdata_idx)
@@ -199,8 +208,13 @@ def test_cross_sectional_fold_rankdata_output_is_float32_not_float64():
 
 def test_per_symbol_fold_rankdata_output_is_float32_not_float64():
     """Same fix, sibling function: _compute_symbol_tf's fold-loop rX_test/rY_test
-    must cast to float32 too."""
-    source = inspect.getsource(_compute_symbol_tf)
+    must cast to float32 too.
+
+    This per-cell logic now lives in _compute_one_regime_cell (extracted from
+    _compute_symbol_tf, restore-symbol-hmm-ic-measurement Task 1) -- the guard
+    moved with it, unchanged.
+    """
+    source = inspect.getsource(_compute_one_regime_cell)
 
     rx_idx = source.index("rX_test = rankdata(X_test, axis=0)")
     line_end = source.index("\n", rx_idx)
@@ -226,8 +240,13 @@ def test_cross_sectional_per_scale_subsample_uses_slice_not_fancy_index():
 
 def test_per_symbol_per_scale_subsample_uses_slice_not_fancy_index():
     """Same fix, sibling function: _compute_symbol_tf's per-scale subsample
-    (X_sub_scale, X_sub_nd, returns_sub, complete_sub) must use slicing too."""
-    source = inspect.getsource(_compute_symbol_tf)
+    (X_sub_scale, X_sub_nd, returns_sub, complete_sub) must use slicing too.
+
+    This per-cell logic now lives in _compute_one_regime_cell (extracted from
+    _compute_symbol_tf, restore-symbol-hmm-ic-measurement Task 1) -- the guard
+    moved with it, unchanged.
+    """
+    source = inspect.getsource(_compute_one_regime_cell)
 
     assert "sub_idx = np.arange(0, n_regime_raw" not in source
     assert "X_regime[sub_idx]" not in source and "X_regime_nd[sub_idx]" not in source
