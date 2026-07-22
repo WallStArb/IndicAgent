@@ -1360,7 +1360,12 @@ Queries `alpha_strategy_scores` for OOS `alpha_frames`. Reports: mean_pnl_r CI, 
 the promotion decision record why no v2.x comparison population exists (pipeline dead since
 2026-06-22, see above). Not a gate.
 
-**Plans:** 2 plans (Wave 1: AlphaScorer + gate evaluation scripts; Wave 2: OOS gate runs + promotion decision record)
+**Plans:** 5 plans across 3 waves (finalized 2026-07-22)
+- [ ] 148-01-PLAN.md — Foundation: alpha_strategy_scores + gate_evaluations migration + APR seeds + Wave 0 test scaffolds (Wave 1)
+- [ ] 148-02-PLAN.md — SCORE-01 AlphaScorer(BaseBatch) + tests + real-data verify (Wave 2)
+- [ ] 148-03-PLAN.md — SCORE-02 OOS Gate 1 signal-proof scorer (Fisher-z, ensemble_alpha OOS) + tests (Wave 2)
+- [ ] 148-04-PLAN.md — SCORE-03 OOS Gate 2 execution-proof scorer (champion-only, pooled + regime-stratified, == FRAME-04) + tests (Wave 2)
+- [ ] 148-05-PLAN.md — Run both gates once (Gate 1 before Gate 2) + promotion decision record (SCORE-04) (Wave 3)
 
 ---
 
