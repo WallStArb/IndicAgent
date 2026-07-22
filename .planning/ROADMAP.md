@@ -1386,7 +1386,7 @@ reasoning and falsifiers: `docs/research/fable-2026-07-07-phase144-conditioning-
 
 ---
 
-### Phase 144: Cross-Sectional Regime Model (`regime_group`) 📋 PLANNED
+### Phase 144: Cross-Sectional Regime Model (`regime_group`) ✅ COMPLETE (2026-07-22)
 
 **Goal:** Replace `market_regimes.asset_class` with `regime_group` — a named peer group with a pluggable regime signal (breadth_vol for equity, curve_credit for rates, commodity/fx signal modules ship disabled). Migration 229 (plan doc's literal "189" is stale). Full design: `docs/plans/2026-07-01-cross-sectional-regime-model.md`.
 
@@ -1399,21 +1399,56 @@ reasoning and falsifiers: `docs/research/fable-2026-07-07-phase144-conditioning-
 
 **Sequencing:** land Phase 142A's ensemble-IC baseline first (pre-regime_group equity-only strata), then batch this phase with todo 026 P1-P3 into one ic_engine re-run — empirical pre/post comparison over blind trust that the new strata help.
 
-**Plans:** 6/6 plans complete (2026-07-12) — code-complete, but **phase NOT closed**. The
-original blocker (`BLOCKED-ON-143.1-07`, the corpus rebuild) cleared 2026-07-21 — Phase 143.1
-is COMPLETE. **A second, more specific blocker was found 2026-07-21** (design doc:
+**Plans:** 6/6 plans complete (2026-07-12). **D-05 verdict landed 2026-07-22** — phase now closed.
+
+Sequencing note, for the record: the original blocker (`BLOCKED-ON-143.1-07`, the corpus
+rebuild) cleared 2026-07-21 when Phase 143.1 completed. A second, more specific blocker was
+found the same day (design doc:
 `docs/superpowers/specs/2026-07-21-restore-symbol-hmm-ic-measurement-for-routed-symbols-design.md`):
-`ic_engine.py`'s `regime_group` routing (144-05) makes cross-sectional labeling *replace*, not
+`ic_engine.py`'s `regime_group` routing (144-05) made cross-sectional labeling *replace*, not
 *supplement*, per-symbol HMM (`symbol_hmm`) IC measurement for any routed symbol — `TLT` (routed
-to `rates`) has carried zero `symbol_hmm`-scoped `feature_ic_scores` rows since routing went
-live, and D-05's F1 falsifier requires comparing TLT's HMM labels against the new `rates`
-cross-sectional label. **D-05 cannot produce a valid verdict until this is fixed** — re-running
-`phase144_regime_separation_gate.py` today would silently measure against data that structurally
-can't exist. Fix in progress: `alpha.regime.groups` gains a `dual_write_symbol_hmm` bool
-(`rates` only), threaded through `ic_engine.py`'s dual-write pass. Task 1 (extraction/
-restructuring, no behavior change) is done and merged to `main` (`2f5334f2`); Tasks 2-5 (thread
-the real parameter, migration 247 seeding `rates`, live verification, equity follow-up todo) are
-in flight. Header stays 📋 PLANNED until both this fix lands AND the gate re-runs.
+to `rates`) had carried zero `symbol_hmm`-scoped `feature_ic_scores` rows since routing went
+live, and D-05's F1 falsifier needed those rows to compare against the `rates` cross-sectional
+label. Fixed via `alpha.regime.groups` gaining a per-group `dual_write_symbol_hmm` bool (`rates`
+only, migration 247), threaded through `ic_engine.py`'s dual-write pass (commits `083b3db6`,
+`8695673e`). Live-verified 2026-07-22: a scoped re-run of the 12 `rates`-group symbols produced
+6,045 fresh `symbol_hmm` rows for `TLT` (`computed_at` today, not stuck at 2026-07-17); the
+existing `cross_sectional` rows and equity symbols (`SPY` checked directly) were confirmed
+untouched.
+
+**D-05's real verdict** (`scripts/analysis/phase144_regime_separation_gate.py`, re-run
+2026-07-22 against the fresh data — full output was previously `(no rows)`/INCONCLUSIVE, now a
+genuine result):
+- **F1 NOT triggered on any tf tested (15m/1h/5m):** TLT's per-symbol HMM stays
+  deficient/inverted, matching the original 2026-07-02 finding. Default decision (b) —
+  demotion — holds. Per-symbol HMM is confirmed not a better Stage-1 conditioning axis than
+  cross-sectional for TLT specifically.
+- **F2 TRIGGERED for 15m and 5m:** the `rates` cross-sectional label is ALSO deficient
+  (spread < 0.01) on those two timeframes — neither conditioning axis currently separates IC
+  for `rates` at high frequency. This is the pre-registered build trigger for a
+  factor-augmented HMM challenger (option c) — **pending confirmation that `volatility_pct`
+  hasn't already separately passed its own substitution gate for `rates`** (not evaluated by
+  this script; check that before considering a new model). Not a blocker to closing this
+  phase — a real, separate open question, distinct from Phase 144's own scope.
+
+**Two follow-on items filed, not silently dropped:**
+- Todo 167 — the same cross-sectional-suppresses-symbol_hmm question was never
+  falsifier-tested for the `equity` group (~50+ symbols); this fix's mechanism generalizes
+  (one-line APR change) but nobody has built an equity-scoped D-05 equivalent.
+- Todo 168 + 169 — 2 of the 12 rates symbols scoped in the verification run (`LQD`, `PFF`)
+  got zero fresh rows; root-caused to `feature_vectors.regime` being NULL for 100% of their
+  rows (7 symbols corpus-wide have this gap) — a real, pre-existing `regime_writer.py`
+  coverage gap, unrelated to this fix. 169 files the missing systemic check (no monitor
+  verifies a symbol has ANY regime coverage at all) that let this go undetected for years.
+
+**Recommended trigger, not yet executed — record here rather than let it silently ride
+forever:** `alpha.regime.groups`' `rates.dual_write_symbol_hmm=true` was set deliberately as a
+temporary shadow-mode measurement while this question was open (see migration 247's own
+comment). F1's non-trigger is a real answer for TLT, but this was a scoped 12-symbol
+verification run, not a full corpus rebuild — **do not flip `dual_write_symbol_hmm` back to
+`false` for `rates` until the next full corpus rebuild reproduces the same F1 non-trigger
+result**, confirming the verdict is stable before simplifying back to a single measurement
+pass (Musk step 2 — delete once genuinely proven, not on a partial sample).
 
 - [x] 144-01-PLAN.md — Wave 1: migration 229 (asset_class→regime_group + APR seed) + glossary entry
 - [x] 144-02-PLAN.md — Wave 1: breadth_vol (causal-rank port) + curve_credit signal modules + _tf_window helper
@@ -1434,10 +1469,14 @@ Option B: one row per `(dimension, regime_group)` — both fully specced in
 stratification) are worth planning next. The natural conclusion of this v3.15 milestone,
 registered directly after its trigger phase.
 
-**Depends on:** Phase 144's D-05 empirical verdict — currently `BLOCKED-ON-143.1-07` (the corpus
-re-run in progress as of 2026-07-13). Do not plan this phase before that verdict lands; per
-`stratification-dimension-unification.md`'s own stated build gate, this decision should be
-informed by whether `regime_group` actually worked empirically, not planned blind ahead of it.
+**Depends on:** Phase 144's D-05 empirical verdict — **landed 2026-07-22, this phase is now
+unblocked for `/gsd-plan-phase 145`.** The verdict: F1 not triggered (per-symbol HMM stays
+deficient for TLT/rates, demotion holds), F2 triggered for 15m/5m (rates cross-sectional also
+deficient at high frequency — see Phase 144's section for the full verdict and its
+pending-confirmation next step). Per `stratification-dimension-unification.md`'s own stated
+build gate, this phase's row-grain decision (Option A vs B) should be informed by this real
+result, not planned blind — read Phase 144's verdict in full before starting `/gsd-discuss-phase
+145` or `/gsd-plan-phase 145`. Not yet started as of this note.
 
 **Design:**
 

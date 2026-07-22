@@ -2,9 +2,9 @@
 gsd_state_version: 1.0
 milestone: v3.1
 milestone_name: AlphaEngine Validation + Alpha Scoring
-status: Phase 143.1 (Measurement and Eligibility Integrity) COMPLETE (8/8) -- 143.1-08 VERDICT HOLD; todos 164/165 (regime-stratified promotion gate + 1h ensemble eligibility) closed, merged to main (24ca4da1)
-stopped_at: todos 164/165 implementation plan fully executed and merged, worktree cleaned up
-last_updated: 2026-07-21T15:47:00.000Z
+status: Phase 144 (Cross-Sectional Regime Model) COMPLETE (6/6) -- D-05 verdict landed 2026-07-22 (F1 not triggered, F2 triggered for 15m/5m); Phase 143.1 also COMPLETE (8/8) -- 143.1-08 VERDICT HOLD; todos 164/165 closed, merged to main (24ca4da1)
+stopped_at: symbol_hmm restoration (worktree-restore-symbol-hmm-ic-measurement) all 5 tasks complete, Phase 144 D-05 verdict recorded, todos 167/168/169 filed
+last_updated: 2026-07-22T15:10:00.000Z
 progress:
   total_phases: 12
   completed_phases: 6
@@ -21,38 +21,46 @@ See: .planning/PROJECT.md
 
 **Core value:** Alpha must be demonstrated empirically before any ensemble weight is assigned.
 
-**Current focus (updated 2026-07-21, superseding the stale text below that this replaces):**
+**Current focus (updated 2026-07-22, superseding the stale text below that this replaces):**
 Phase 143.1 is COMPLETE (8/8 plans) — 143.1-08's shadow-mode validation concluded HOLD,
 `alpha.ensemble.sign_symmetric` stays `false`, confirmed twice (once pooled, once via todo
 165's regime-stratified re-evaluation). Todo 094 (the sign-symmetric redesign this validation
 gated) is closed with that verdict. Todos 164/165 (regime-stratified promotion gate + 1h
-ensemble eligibility) are also closed, merged to main. Milestone v3.1 is not yet complete —
-Phase 144's D-05 acceptance gate re-run is the next concrete unlock (144 is code-complete,
-6/6 plans, header stays PLANNED pending this re-run only) **but D-05 itself is now blocked on
-a second, more specific gap found 2026-07-21**: `ic_engine.py`'s `regime_group` routing silently
-replaces per-symbol HMM (`symbol_hmm`) IC measurement for routed symbols instead of
-supplementing it — `TLT` (routed to `rates`) has zero `symbol_hmm` rows since routing went
-live, and D-05's F1 falsifier needs exactly that data. A fix is in flight on worktree
-`worktree-restore-symbol-hmm-ic-measurement` (design: `docs/superpowers/specs/2026-07-21-restore-symbol-hmm-ic-measurement-for-routed-symbols-design.md`,
-plan: `docs/superpowers/plans/2026-07-21-restore-symbol-hmm-ic-measurement-for-routed-symbols.md`).
-Task 1 (extraction/restructuring, no behavior change) is done and merged to `main` (`2f5334f2`);
-Tasks 2-5 (thread real `dual_write_symbol_hmm` param, migration 247 for `rates`, live
-verification against real data, file equity follow-up todo) are not started. **D-05 cannot be
-re-run for a valid verdict until this lands** — re-running the gate script today would measure
-against structurally-missing data.
+ensemble eligibility) are also closed, merged to main.
 
-**Next actions, in order:** (1) Finish the symbol_hmm restoration (Tasks 2-5 above) — this is
-now the actual prerequisite for Phase 144's D-05 gate, not a parallel/independent item. (2)
-Phase 144's D-05 acceptance gate re-run — once (1) lands, apply the same regime-stratified
-evaluation pattern todo 165 just built and reviewed (`evaluate_frame_gate`'s
-`group_key`/`min_clusters` params) rather than trusting a single pooled verdict, since that's
-exactly the failure mode 165 just fixed elsewhere. (3) Todo 147's third CV re-check (KRE/VWO/DIA
-recompute, now that todo 124's `market_data_ohlcv_tradeable` fix is live) — longest-outstanding
-open item, independent of (1)/(2). (4) Todo 088 (`hold_max_bars` censoring-vs-confirmed-decay
-type safety) — unblocked 2026-07-21, small well-scoped fix. (5) Phase 163 execution
-(`/gsd-execute-phase 163`) — planned, ready, independent of the above. (6) Phase 165 planning
-(`/gsd-plan-phase 165`, GSD phase — distinct from todo 165 above, same number by coincidence) —
-context/research done, ready to plan.
+**Phase 144 is now COMPLETE (2026-07-22)** — the symbol_hmm restoration fix (worktree
+`worktree-restore-symbol-hmm-ic-measurement`) landed all 5 tasks: `dual_write_symbol_hmm`
+threaded through `ic_engine.py` (`083b3db6`), migration 247 seeding it `true` for `rates`
+(`8695673e`), live-verified (`TLT` now has 6,045 fresh `symbol_hmm` rows), and D-05's gate
+re-run produced a real verdict (previously years of `(no rows)`/INCONCLUSIVE): **F1 not
+triggered** (TLT's per-symbol HMM stays deficient, demotion holds, matching the original
+2026-07-02 finding) and **F2 triggered for 15m/5m** (rates cross-sectional is ALSO deficient
+at high frequency — pre-registered build trigger for a factor-augmented HMM challenger,
+pending confirmation `volatility_pct` hasn't already passed its own substitution gate for
+rates). Full detail in ROADMAP.md's Phase 144 section. **Phase 145 (StratificationDimension
+Formalization) is now unblocked** (was gated on this exact verdict) but not yet started.
+Three follow-ups filed, not silently dropped: todo 167 (equity's analogous falsifier
+question, never tested), todo 168 (7 corpus symbols — `LQD`/`PFF`/`RSP`/`USMV`/`UUP`/`VWO`/
+`XRT` — have zero per-symbol HMM regime coverage at all, a real pre-existing
+`regime_writer.py` gap unrelated to this fix), todo 169 (the missing systemic monitor that
+would have caught 168's gap years earlier). **Recorded but not executed:** don't flip
+`rates.dual_write_symbol_hmm` back to `false` until the next full corpus rebuild reproduces
+F1's non-trigger result — this was a scoped 12-symbol verification run, not full-corpus
+confirmation.
+
+Milestone v3.1 is not yet complete. Todo 147's third CV re-check (KRE/VWO/DIA recompute) is
+the longest-outstanding independent open item.
+
+**Next actions, in order:** (1) Todo 147's third CV re-check (KRE/VWO/DIA recompute, now that
+todo 124's `market_data_ohlcv_tradeable` fix is live) — longest-outstanding open item. (2)
+Todo 088 (`hold_max_bars` censoring-vs-confirmed-decay type safety) — unblocked 2026-07-21,
+small well-scoped fix. (3) Phase 163 execution (`/gsd-execute-phase 163`) — planned, ready,
+independent of the above. (4) Phase 162 execution (`/gsd-execute-phase 162`) — planned,
+reviewed (0 blockers, cross-AI review gap closed), ready; gated only on `ps aux | grep
+ic_engine` being clear. (5) Phase 165 planning (`/gsd-plan-phase 165`, GSD phase — distinct
+from todo 165 above, same number by coincidence) — context/research done, ready to plan. (6)
+Phase 145 planning (`/gsd-discuss-phase 145` or `/gsd-plan-phase 145`) — newly unblocked by
+Phase 144's D-05 verdict, read that verdict in full before starting.
 **Execution plan:** `docs/plans/2026-06-30-alphaengine-v1-execution-plan.md`
 
 ## v3.0 Phase Summary (SHIPPED 2026-06-25)
@@ -77,7 +85,7 @@ context/research done, ready to plan.
 | 142B | Frame Simulation + Counterfactual Tracking | COMPLETE (2/2 plans) — `alpha_frames` hypertable + `AlphaFrameWriter` + `CounterfactualTracker` live |
 | 143 | Feature Lifecycle Routing (merged with 149B) | COMPLETE (3/3 plans) — `feature_registry` evidence-based promotion/demotion + `integrity_monitor` table live |
 | 143.1 | Measurement and Eligibility Integrity | COMPLETE (8/8 plans, 2026-07-21) — 143.1-08 shadow-mode validation VERDICT: HOLD (`alpha.ensemble.sign_symmetric` stays false); see Session's "2026-07-21" closeout subsection below |
-| 144 | Cross-Sectional Regime Model (`regime_group`) | Code-complete (6/6 plans); header stays PLANNED — D-05's own gate is now blocked on the symbol_hmm restoration fix (see Current focus), not just a re-run |
+| 144 | Cross-Sectional Regime Model (`regime_group`) | COMPLETE (6/6 plans, 2026-07-22) — D-05 verdict: F1 not triggered (TLT HMM stays deficient, demotion holds), F2 triggered for 15m/5m (rates cross-sectional also deficient there); see Current focus |
 | 146 | Empirical Instrument Tag Calibrator | COMPLETE (5/5 plans, 2026-07-17) — `TagCalibrator` live-verified: 11/12 measurable tags carry real `source='empirical'` rows |
 | 160 | Concept Registry MVP | COMPLETE (4/4 plans) — 4-table schema + `ConceptRegistryService`/`ConceptRegistryAPI`/`ConceptRegistryDashboard` live |
 | 161 | Controlled Vocabulary System | COMPLETE (4/4 plans, 2026-07-18) — schema + `VocabularyService` + `vocabulary_drift` audit + `/api/vocabulary/{namespace}` route, live-verified (VERIFICATION.md: passed, 23/24 truths, 1 accepted YAGNI override) |
