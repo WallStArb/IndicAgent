@@ -109,4 +109,8 @@ None - no external service configuration required. AlphaScorer is a manual/on-de
 
 `alpha_strategy_scores` now has live, real rows (SPY/5m, 60 cells across 6 regimes x 10 deciles, all with valid `ic_alpha_score_corr`) that 148-05 (the promotion decision doc) can cite as evidence that SCORE-01's decile diagnostic pipeline works end-to-end. `score_cells()` is unit-tested and reusable for any future full-corpus sweep without further schema or statistics work. No blockers for 148-03/148-04/148-05.
 
-## Self-Check
+## Self-Check: PASSED
+
+All created/modified files verified present on disk (`services/alpha_scorer.py`,
+`tests/unit/test_alpha_scorer.py`, this SUMMARY.md); both task/summary commits
+(`2c343830`, `818ef448`) verified present in git log.
