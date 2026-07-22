@@ -1,12 +1,72 @@
 ---
-status: pending
+status: completed
 priority: P0
 filed: 2026-07-20
+completed: 2026-07-22
 source: todo 147's true_range_pct CV re-check, re-run after 151/154 to verify their
   correction pass actually resolved the low_bull CV outlier -- it didn't. Root cause
   investigation below revised once from the initial framing after checking
   price_sanity_status directly (see "Correction" note).
 ---
+
+## Disposition (2026-07-22)
+
+The fix scoped by this todo's own "Fix" section (flag VWO/DIA via the existing tool,
+apply 124's already-landed code fix, recompute) turned out to be incomplete on
+contact: running `ops_known_corrupt_print_cleanup.py --symbols VWO DIA` in dry-run
+found **zero** CONFIRMED_CORRUPT candidates for either symbol -- the tool's
+candidate discovery was never built to find them. Traced why: discovery is seeded
+entirely from `forward_returns.return_{scale}_suspect` flags, and a corruption
+confined to `high`/`low` (VWO's `high=99999.99`, DIA's `high=100000`, both with a
+sane `open`/`close`) never trips a return-based flag (`forward_returns` is computed
+open-to-open). Live-checked: only 18-20 of 320 registered `(symbol, tf)` pairs were
+ever discoverable that way -- 94% of the corpus was never scanned by this tool at
+all, not just these two symbols.
+
+**Real fix: rewrote the tool's candidate-discovery query** (`ops_known_corrupt_print_cleanup.py`,
+`_ALL_TF_PAIRS_SQL` replacing `_CANDIDATE_TF_PAIRS_SQL`) to scan every registered
+`(symbol, tf)` pair directly via `backfill_status` (~320 pairs, cheap -- single-
+partition window-function queries, not a full-corpus row scan) instead of proxying
+through derived-return suspect flags. This is the systemic fix, not a hand-patch of
+the 2 known rows.
+
+**Live full-corpus dry-run under the fix found 40 CONFIRMED_CORRUPT bars across 14
+symbols** (DBC/DIA/EDV/EFA/EWG/FXI/GLD/IWM/RSP/SPY/UUP/VWO/VYM/XRT) -- 20x the
+previously-known count (KRE + DIA/1d already fixed by prior sessions). Every row the
+identical clean signature (`isolated_spike_neighbors_agree`: tightly-agreeing
+neighbors, single-field order-of-magnitude outlier). Most consequential single find:
+SPY's `high=1441.65` on a bar where open/close were ~$142 -- SPY's corpus-wide
+weight makes this the highest-value single correction in the batch. 28 rows
+correctly classified `MARKET_EVENT` (the known 2010-05-06 Flash Crash cluster,
+cross-symbol corroborated) and excluded from correction, matching todo 152's
+established precedent. Applied after human review of the dry-run report plus an
+explicit operator confirmation given the blast radius grew from 2 symbols to 14.
+
+**A second gap found closing out the CV re-check** (see todo 147's disposition):
+2 more corrupt prints (FXY 5m 2008-09-24, IWM 5m 2007-08-08) were sitting just
+under the tool's 10x default `--magnitude-threshold` (FXY ~9.97x, IWM ~9.90x) --
+the same threshold-sensitivity gap todo 154 already flagged for KRE (needed
+threshold 8, not 10). Re-scanned with `--magnitude-threshold 9`, found and applied
+7 more CONFIRMED_CORRUPT rows across FXY/IWM's other timeframes (the same corrupt
+tick propagates through 15m/1h/1d aggregation from the 5m source bar).
+
+**Recompute**, all 46 affected `(symbol, tf)` pairs total (45 from the main batch +
+1 already covered, plus FXY/IWM's 8): `backfill_status` reset to `pending`,
+`feature_vectors`/`forward_returns` deleted for those pairs (full history per pair,
+not a bounded window -- avoids under-sizing the lookback/lookahead contamination
+radius), `backfill_feature_factory.py --compute-only --workers 4` (12 workers
+OOM-killed twice at ~5-6 min elapsed, confirmed via `journalctl -k` not guessed --
+2.3-2.9GB RSS per worker exceeded available memory; 4 workers completed cleanly),
+`forward_return_writer.py --training-window-end 2025-12-24T05:15:00Z`. Zero
+orphaned processes at any point (checked after every run).
+
+**New gotcha for `docs/reference/gotchas.md`:** `backfill_feature_factory.py
+--compute-only`'s default worker count is unsafe for a multi-symbol full-history
+recompute on this machine -- use `--workers 4` for anything touching more than a
+handful of symbols at once.
+
+Full verification and closing CV numbers: see todo 147's disposition (the CV metric
+this todo's fix was gating).
 
 # `price_sanity_status='confirmed_corrupt'` doesn't reach feature computation; VWO/DIA also never flagged at all
 

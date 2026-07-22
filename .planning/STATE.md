@@ -2,9 +2,9 @@
 gsd_state_version: 1.0
 milestone: v3.1
 milestone_name: AlphaEngine Validation + Alpha Scoring
-status: Phase 144 (Cross-Sectional Regime Model) COMPLETE (6/6) -- D-05 verdict landed 2026-07-22 (F1 not triggered, F2 triggered for 15m/5m); Phase 148 (Alpha Scoring System) fully PLANNED (5/5 plans, 3 waves), cross-AI reviewed and replanned with fixes, plan-checker verified PASS WITH CONCERNS, execution-ready but not yet run; Phase 143.1 also COMPLETE (8/8) -- 143.1-08 VERDICT HOLD; todos 164/165 closed; todo 160 expanded and fixed (corrupt-print discovery mechanism itself was broken, 14 symbols corrected not 2), todo 147's third CV re-check in progress
-stopped_at: Phase 148 renamed (dropped misleading "v2.x Decommission" framing) + cross-AI reviewed + replanned incorporating review fixes + independently verified; todo 160's root cause found to be one level deeper (discovery mechanism, not just 2 rows) mid-session, fix in progress, recompute running
-last_updated: 2026-07-22T17:30:00.000Z
+status: Phase 144 (Cross-Sectional Regime Model) COMPLETE (6/6) -- D-05 verdict landed 2026-07-22 (F1 not triggered, F2 triggered for 15m/5m); Phase 148 (Alpha Scoring System) fully PLANNED (5/5 plans, 3 waves), cross-AI reviewed and replanned with fixes, plan-checker verified PASS WITH CONCERNS, execution-ready but not yet run; Phase 143.1 also COMPLETE (8/8) -- 143.1-08 VERDICT HOLD; todos 164/165 closed; todos 160/147 CLOSED 2026-07-22 (corrupt-print discovery mechanism was broken, fixed, 47 bars across 16 symbols corrected, low_bull CV reached parity)
+stopped_at: Phase 148 finalized (renamed, cross-AI reviewed, replanned, verified) and execution-ready; todos 160/147 fully closed (discovery-mechanism fix + 47-bar correction + CV parity confirmed); next action is /gsd-execute-phase 148
+last_updated: 2026-07-22T18:15:00.000Z
 progress:
   total_phases: 12
   completed_phases: 8
@@ -73,15 +73,19 @@ Milestone v3.1 is not yet complete.
 this replaces; that list's item (1) FRAME-04-recheck nuance is now resolved — Phase 148's own
 CONTEXT.md D-08 established SCORE-03 IS FRAME-04, not a second gate needing a separate re-run):**
 
-*Tier 1 — in flight:* Todo 160 (corrupt-print candidate-discovery mechanism was itself broken —
-gated behind `forward_returns` suspect flags, blind to `high`/`low`-only corruption; fixed to
-scan all ~320 registered pairs directly; found and corrected 40 bars across 14 symbols, not just
-the 2 originally scoped) + todo 147's third CV re-check, closing together this session. Then
-**Phase 148 execution** (`/gsd-execute-phase 148`) — the real proof-of-alpha milestone: fully
-planned, cross-AI reviewed (Antigravity + Codex), review findings incorporated (fixed a
-confirmed-real crash in `evaluate_frame_gate`'s group-key call shape, added pre-run integrity
-snapshots + `--dry-run` escape hatches to both irreversible gates), independently
-plan-checker-verified PASS WITH CONCERNS (no blockers).
+*Tier 1 — next up:* **Phase 148 execution** (`/gsd-execute-phase 148`) — the real proof-of-alpha
+milestone: fully planned, cross-AI reviewed (Antigravity + Codex), review findings incorporated
+(fixed a confirmed-real crash in `evaluate_frame_gate`'s group-key call shape, added pre-run
+integrity snapshots + `--dry-run` escape hatches to both irreversible gates), independently
+plan-checker-verified PASS WITH CONCERNS (no blockers). Todos 160/147 **CLOSED 2026-07-22** —
+corrupt-print candidate-discovery mechanism was itself broken (gated behind `forward_returns`
+suspect flags, blind to `high`/`low`-only corruption); fixed to scan all ~320 registered pairs
+directly; found and corrected 47 bars across 16 symbols total (40 across 14 symbols in the main
+batch, 7 more across FXY/IWM once a threshold-sensitivity gap surfaced). `low_bull`'s CV reached
+parity with clean regimes (5m: 582.9→3.49, 15m: 469.4→2.80); the one remaining elevated cell
+(`5m/high_bear`, CV≈116) confirmed to be the already-adjudicated 2010 Flash Crash, not a gap.
+See `completed/160-vwo-dia-kre-corrupt-prints-uncorrected.md` and
+`completed/147-vol-normalized-target-low-bull-divergence.md` for full disposition.
 
 *Tier 2 — ready now, independent of 148:* Phase 163 execution (`/gsd-execute-phase 163`,
 planned) · Phase 162 execution (`/gsd-execute-phase 162`, planned + reviewed, gated only on

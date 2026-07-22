@@ -1,15 +1,61 @@
 ---
-status: root-cause-confirmed-blocked-on-160
+status: completed
 priority: P1
 filed: 2026-07-19
+completed: 2026-07-22
 source: Component F (todo 097) definitive full-corpus A/B verdict
   (docs/plans/methodology-change-ledger.md E8 addendum) -- a genuinely new finding not
   visible in any smaller sample run this session or in Fable 5's own review
 resolved: 2026-07-20 -- root cause is corrupt-print contamination of true_range_pct
   (same class as todos 148/149/151/152); no separate fix needed here. 151/154's
   correction pass ran but missed 3 named rows (VWO/DIA/KRE) -- CV re-check 2026-07-20
-  confirmed still not at parity; blocks on 160 landing, then re-check a third time
+  confirmed still not at parity; blocked on 160 landing, then re-checked a third time
 ---
+
+## Disposition (2026-07-22) — third CV re-check: PARITY REACHED, todo closed
+
+Todo 160's fix (see its own disposition) went well beyond its original 2-row scope
+once its candidate-discovery mechanism was found to be structurally broken --
+corrected 40 bars across 14 symbols, then 7 more across FXY/IWM once a threshold-
+sensitivity gap surfaced closing out this check. Ran the exact same per-`(tf,
+regime_label)` `true_range_pct` CV sweep this todo's diagnostic used for both prior
+checks (`feature_vectors JOIN market_regimes ON regime_group='equity' AND tf AND
+ts=bar_ts`, `GROUP BY tf, regime_label`, `stddev/avg` as CV):
+
+| tf | regime | CV: original | CV: re-check #2 (2026-07-20) | CV: re-check #3 (2026-07-22) |
+|---|---|---|---|---|
+| 5m | low_bull | 582.9 | 313.24 | **3.49** |
+| 15m | low_bull | 469.4 | 279.22 | **2.80** |
+| 1h | mid_bull (new outlier, found in re-check #2) | -- | 324.49 | **3.17** |
+
+Both `low_bull` cells and the `1h/mid_bull` cell newly surfaced in re-check #2 are
+now squarely in the same order of magnitude as every clean regime (full 36-cell
+sweep ranges 0.75-6, excluding one explained exception below) -- exactly the
+closing criterion this todo's own "Root cause CONFIRMED" section set: "if
+`low_bull`'s CV drops to the same order as every other regime, the divergence
+resolves as a side effect."
+
+**One remaining elevated cell, confirmed NOT a gap:** `5m/high_bear` stayed at
+CV≈116 before and after the FXY/IWM follow-up fix (116.14 → 116.31, i.e.
+unchanged). Pulled its outlier rows directly: dominated by IGV/CWB (`true_range_pct`
+456/306) at 2010-05-06 18:45-18:50 -- the same May 6 2010 Flash Crash cluster this
+todo's own 2026-07-20 note already adjudicated as "legitimate crisis volatility per
+the same carve-out established in todo 152, not corrupt data." A CV metric is
+dominated by its largest squared deviations, so FXY/IWM's ~9.9x corrections
+(genuine fixes, found investigating this same cell) barely move a number this
+cluster already dominates by ~2000x in variance contribution. No action needed --
+this is expected, already-explained variance, not a new discovery gap.
+
+**Not re-run as part of this closure** (already confirmed encouraging in the
+2026-07-20 session, and this todo's own text only gated closure on the CV number,
+not a fourth A/B pass): `ops_vol_normalized_target_ab.py --all-regimes`. If
+Component F's promotion decision needs a fresh number, re-run it against the now-
+corrected corpus as its own action, not blocking this todo's closure.
+
+**Mechanism 1 (denominator-side corrupt-print contamination) is now fully
+resolved**, not just confirmed. `low_bull` no longer needs a carve-out in Component
+F's promotion decision.
+
 
 # Vol-normalized vs. raw-return POOLED IC diverges sharply and specifically in `low_bull`
 # regime strata -- not explained by low N, mechanism unknown
