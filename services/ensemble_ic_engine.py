@@ -68,7 +68,7 @@ from __future__ import annotations
 import asyncio
 import dataclasses
 import sys
-from collections.abc import Iterable
+from collections.abc import Callable, Iterable
 from concurrent.futures import ProcessPoolExecutor
 from datetime import UTC, datetime
 from pathlib import Path
@@ -1014,6 +1014,34 @@ _STOP_TARGET_FETCH_SQL = """
 """
 
 
+async def _write_median_calibration(
+    config_service: ConfigService,
+    per_regime_tf: dict[tuple[str, str], list[float]],
+    key_template: str,
+    reason_fn: Callable[[int], str],
+    as_int: bool = False,
+) -> int:
+    """Shared write loop for both `_calibrate_hold_max_bars` and `_calibrate_stop_target`:
+    one `ConfigService.set` per (regime, tf) cell, value = median across that cell's
+    qualifying per-symbol values. Callers already early-return 0 for an empty
+    `per_regime_tf`, so this is never invoked with nothing to write.
+    """
+    n_written = 0
+    for (regime, tf), qualifying_values in per_regime_tf.items():
+        n_qualifying = len(qualifying_values)
+        median_value = np.median(qualifying_values)
+        value: int | float = int(median_value) if as_int else float(median_value)
+        key = key_template.format(regime=regime, tf=tf)
+        await config_service.set(
+            key,
+            str(value),
+            changed_by="ensemble-ic-engine",
+            reason=reason_fn(n_qualifying),
+        )
+        n_written += 1
+    return n_written
+
+
 # ---------------------------------------------------------------------------
 # EnsembleICEngine
 # ---------------------------------------------------------------------------
@@ -1247,25 +1275,18 @@ class EnsembleICEngine(BaseBatch):
         config_service = ConfigService(database_url=self._db_dsn, pool=pool)
         await config_service.initialize()
 
-        n_written = 0
-        for (regime, tf), qualifying_hold_bars in per_regime_tf.items():
-            n_qualifying = len(qualifying_hold_bars)
-            median_hold_bars = int(np.median(qualifying_hold_bars))
-            key = f"alpha.frame.hold_max_bars.{regime}.{tf}"
-            qualifying_flags_desc = " AND ".join(f"{flag}=true" for flag in _QUALIFYING_FLAGS)
-            await config_service.set(
-                key,
-                str(median_hold_bars),
-                changed_by="ensemble-ic-engine",
-                reason=(
-                    "calibrated from IC decay curve (EIC-02); median across "
-                    f"{n_qualifying} qualifying ({qualifying_flags_desc}) "
-                    f"symbols; decay_threshold={config.decay_threshold}"
-                ),
-            )
-            n_written += 1
-
-        return n_written
+        qualifying_flags_desc = " AND ".join(f"{flag}=true" for flag in _QUALIFYING_FLAGS)
+        return await _write_median_calibration(
+            config_service,
+            per_regime_tf,
+            "alpha.frame.hold_max_bars.{regime}.{tf}",
+            lambda n_qualifying: (
+                "calibrated from IC decay curve (EIC-02); median across "
+                f"{n_qualifying} qualifying ({qualifying_flags_desc}) "
+                f"symbols; decay_threshold={config.decay_threshold}"
+            ),
+            as_int=True,
+        )
 
     async def _calibrate_stop_target(
         self,
@@ -1341,42 +1362,30 @@ class EnsembleICEngine(BaseBatch):
         config_service = ConfigService(database_url=self._db_dsn, pool=pool)
         await config_service.initialize()
 
-        n_written = 0
-        for (regime, tf), qualifying_stops in per_regime_tf_stop.items():
-            n_qualifying = len(qualifying_stops)
-            median_stop = float(np.median(qualifying_stops))
-            key = f"alpha.frame.stop_atr_mult.{regime}.{tf}"
-            await config_service.set(
-                key,
-                str(median_stop),
-                changed_by="ensemble-ic-engine",
-                reason=(
-                    "calibrated from uncensored closed_target MAE excursions (Phase "
-                    f"166 D-01b/D-03.1); {config.stop_mae_percentile}th percentile of "
-                    f"ATR-rescaled MAE, median across {n_qualifying} qualifying "
-                    "symbols; excludes closed_stop frames (right-censored at the "
-                    "stop distance, todo 088 alignment)"
-                ),
-            )
-            n_written += 1
-
-        for (regime, tf), qualifying_targets in per_regime_tf_target.items():
-            n_qualifying = len(qualifying_targets)
-            median_target = float(np.median(qualifying_targets))
-            key = f"alpha.frame.target_r_multiple.{regime}.{tf}"
-            await config_service.set(
-                key,
-                str(median_target),
-                changed_by="ensemble-ic-engine",
-                reason=(
-                    "calibrated from uncensored closed_max_hold MFE excursions "
-                    f"(Phase 166 D-01b/D-03.1); {config.target_mfe_percentile}th "
-                    f"percentile of R-unit MFE, median across {n_qualifying} "
-                    "qualifying symbols; excludes closed_stop/closed_target frames "
-                    "(right-censored at their own exit boundary, todo 088 alignment)"
-                ),
-            )
-            n_written += 1
+        n_written = await _write_median_calibration(
+            config_service,
+            per_regime_tf_stop,
+            "alpha.frame.stop_atr_mult.{regime}.{tf}",
+            lambda n_qualifying: (
+                "calibrated from uncensored closed_target MAE excursions (Phase "
+                f"166 D-01b/D-03.1); {config.stop_mae_percentile}th percentile of "
+                f"ATR-rescaled MAE, median across {n_qualifying} qualifying "
+                "symbols; excludes closed_stop frames (right-censored at the "
+                "stop distance, todo 088 alignment)"
+            ),
+        )
+        n_written += await _write_median_calibration(
+            config_service,
+            per_regime_tf_target,
+            "alpha.frame.target_r_multiple.{regime}.{tf}",
+            lambda n_qualifying: (
+                "calibrated from uncensored closed_max_hold MFE excursions "
+                f"(Phase 166 D-01b/D-03.1); {config.target_mfe_percentile}th "
+                f"percentile of R-unit MFE, median across {n_qualifying} "
+                "qualifying symbols; excludes closed_stop/closed_target frames "
+                "(right-censored at their own exit boundary, todo 088 alignment)"
+            ),
+        )
 
         return n_written
 
