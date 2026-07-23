@@ -2292,7 +2292,7 @@ filing time, not because of a real dependency. Can be discussed/planned independ
 
 **Requirements**: CONTEXT.md decisions D-01 (a-d), D-02, D-03, D-04, D-05, D-06 (no formal REQ-IDs for this phase)
 **Depends on:** Phase 148 (complete — this is its direct follow-on). Phase 163 execution is a runtime prerequisite for the structural candidate (Plan 166-06 structural arm).
-**Plans:** 4/6 plans executed
+**Plans:** 5/6 plans executed
 
 Plans:
 **Wave 1**
@@ -2307,7 +2307,7 @@ Plans:
 
 **Wave 3** *(blocked on Wave 2 completion)*
 
-- [ ] 166-05-PLAN.md — wire both candidates into AlphaFrameWriter via geometry_source dispatch (D-01b/c, D-03) [wave 3]
+- [x] 166-05-PLAN.md — wire both candidates into AlphaFrameWriter via geometry_source dispatch (D-01b/c, D-03) [wave 3]
 
 **Wave 4** *(blocked on Wave 3 completion)*
 
