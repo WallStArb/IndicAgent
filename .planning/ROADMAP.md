@@ -2233,7 +2233,7 @@ normalization, APR namespace precedent, `FeatureCache` session-boundary mutator 
 Plans:
 - [ ] TBD (run /gsd-plan-phase 165 to break down)
 
-### Phase 166: Frame/Execution Recalibration 📋 NOT YET PLANNED
+### Phase 166: Frame/Execution Recalibration 📋 PLANNED (6 plans, 4 waves)
 
 **Goal:** Diagnose why Phase 148's Gate 2 (execution proof) failed and determine whether
 stop/target/hold recalibration against the IC decay curve can turn the OOS-proven signal
@@ -2244,12 +2244,17 @@ the frame, not the ensemble. Full origin and scope: [todo 174](../todos/complete
 **Not gated on 165** — sequenced after it only because 165 was the last-registered phase at
 filing time, not because of a real dependency. Can be discussed/planned independently.
 
-**Requirements**: TBD (to be derived during `/gsd-discuss-phase`)
-**Depends on:** Phase 148 (complete — this is its direct follow-on)
-**Plans:** 0 plans
+**Requirements**: CONTEXT.md decisions D-01 (a-d), D-02, D-03, D-04, D-05, D-06 (no formal REQ-IDs for this phase)
+**Depends on:** Phase 148 (complete — this is its direct follow-on). Phase 163 execution is a runtime prerequisite for the structural candidate (Plan 166-06 structural arm).
+**Plans:** 6 plans (4 waves)
 
 Plans:
-- [ ] TBD (run `/gsd-plan-phase 166` to break down, after `/gsd-discuss-phase 166`)
+- [ ] 166-01-PLAN.md — migration 253 (alpha.frame.* APR keys) + read-only diagnosis (D-01a) + Phase 163 prereq gate [wave 1]
+- [ ] 166-02-PLAN.md — scalar candidate: _calibrate_stop_target() per-(regime,tf), CR-02 gated, uncensored-subpopulation selection (D-01b) [wave 2]
+- [ ] 166-03-PLAN.md — structural candidate Part 1: structural_confluence.py port of zone_engine's confluence core, Phase-163 fields only (D-01c, D-06) [wave 2]
+- [ ] 166-04-PLAN.md — validation gate script gate166_*, new gate_ids, frozen five criteria + regime companion (D-01d, D-04, D-05) [wave 2]
+- [ ] 166-05-PLAN.md — wire both candidates into AlphaFrameWriter via geometry_source dispatch (D-01b/c, D-03) [wave 3]
+- [ ] 166-06-PLAN.md — calibrate/regenerate/simulate/score all arms one-shot, verdict doc, Part 2 follow-on todo (D-01, D-03, D-04, D-05, D-06) [wave 4]
 
 ---
 
