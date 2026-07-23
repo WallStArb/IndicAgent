@@ -550,21 +550,38 @@ class TestAcausalCanaryExclusionCheck:
 
 class TestSessionPrimitives:
     def test_session_poc_dist_from_cache(self) -> None:
-        """Session poc_dist_atr comes from FeatureCache."""
+        """Session poc_dist_atr is derived from FeatureCache's raw _sess_poc + atr_val.
+
+        Phase 163 Plan 02: poc_dist_atr is no longer a flat FeatureCache attribute
+        set externally -- it's derived inside compute() as
+        (close - cache._sess_poc) / atr_val (see _derive_session_vp). Setting
+        _sess_poc == the last bar's close makes the expected result exactly 0.0
+        regardless of atr_val, avoiding the need to reproduce the internal ATR
+        computation in this test.
+        """
         bars = _make_bars(60)
         config = _make_config()
         cache = _make_cache()
-        cache.poc_dist_atr = 0.42
+        cache._sess_poc = bars[-1]["close"]
         fv = FeatureFactory.compute(bars, "SPY", "1m", cache, config)
-        assert math.isclose(fv.poc_dist_atr, 0.42, abs_tol=1e-9)
+        assert math.isclose(fv.poc_dist_atr, 0.0, abs_tol=1e-9)
 
     def test_session_va_position_from_cache(self) -> None:
+        """va_position is derived from FeatureCache's raw _sess_val/_sess_vah (no ATR).
+
+        Phase 163 Plan 02: va_position = clamp((close - _sess_val) / (_sess_vah -
+        _sess_val), 0, 1) -- independent of atr_val, so the expected value can be
+        computed exactly from the raw session levels and the last bar's close.
+        """
         bars = _make_bars(60)
         config = _make_config()
         cache = _make_cache()
-        cache.va_position = 0.73
+        close = bars[-1]["close"]
+        cache._sess_val = close - 2.0
+        cache._sess_vah = close + 6.0
         fv = FeatureFactory.compute(bars, "SPY", "1m", cache, config)
-        assert math.isclose(fv.va_position, 0.73, abs_tol=1e-9)
+        expected = (close - cache._sess_val) / (cache._sess_vah - cache._sess_val)
+        assert math.isclose(fv.va_position, expected, abs_tol=1e-9)
 
     def test_session_sr_support_from_cache(self) -> None:
         bars = _make_bars(60)

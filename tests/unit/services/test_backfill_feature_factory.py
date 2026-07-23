@@ -850,12 +850,21 @@ class TestComputeBatchExternalInjection:
         assert abs(fv.flight_quality - 0.45) < 1e-10
         assert abs(fv.yield_slope_z - -0.67) < 1e-10
 
-    def test_vp_sr_none_when_batch_mode(self) -> None:
-        """VP/SR fields are None when cross_asset_by_date is provided (batch path)."""
+    def test_vp_computed_from_ohlcv_in_batch_mode(self) -> None:
+        """VP fields are computed from OHLCV in batch mode too (D-05 fix, Phase 163 Plan 02).
+
+        Prior to Plan 02, cross_asset_by_date being provided (the batch-path signal)
+        forced poc_dist_atr/va_position/sr_support_dist/sr_resist_dist to None under a
+        stale, never-verified assumption that VP required tick-data injection. VP is
+        now computed for real via FeatureCache.update_session_vp(), called once per
+        bar inside compute_batch()'s loop -- identical mechanism to the live path.
+        sr_support_dist/sr_resist_dist still read straight from cache (0.0 default;
+        Plan 03 wires real S/R values).
+        """
         config = _make_config()
         cache = FeatureCache()
         bars = _make_bars(60)
-        cross_asset = {}  # empty — all dates fall back to (0,0,0)
+        cross_asset = {}  # empty — all dates fall back to (0,0,0), irrelevant to VP
 
         results = FeatureFactory.compute_batch(
             bars,
@@ -867,11 +876,13 @@ class TestComputeBatchExternalInjection:
             cross_asset_by_date=cross_asset,
         )
         assert results
+        poc_dist_atr_vals = [fv.poc_dist_atr for _, fv in results]
+        assert any(v is not None for v in poc_dist_atr_vals), "VP still forced None in batch mode"
+        va_position_vals = [fv.va_position for _, fv in results]
+        assert all(v is not None and 0.0 <= v <= 1.0 for v in va_position_vals)
         for _, fv in results:
-            assert fv.poc_dist_atr is None, f"poc_dist_atr={fv.poc_dist_atr}, expected None"
-            assert fv.va_position is None
-            assert fv.sr_support_dist is None
-            assert fv.sr_resist_dist is None
+            assert fv.sr_support_dist == 0.0  # cache default; Plan 03 wires real values
+            assert fv.sr_resist_dist == 0.0
 
     def test_live_path_unchanged_reads_from_cache(self) -> None:
         """When cross_asset_by_date=None (default), cache values flow into FeatureVector."""

@@ -38,6 +38,8 @@ import numpy as np
 
 from src.intelligence.feature_cache import (
     FeatureCache,
+    _compute_session_value_area,
+    _compute_session_vp_profile,
 )
 from src.intelligence.schemas import FeatureVector
 
@@ -3106,6 +3108,153 @@ def _series_last(arr: np.ndarray, fallback: float) -> float:
     return float(arr[-1]) if len(arr) > 0 else fallback
 
 
+# ---------------------------------------------------------------------------
+# Session Volume Profile — ATR-normalized output derivation (Phase 163 Plan 02)
+# ---------------------------------------------------------------------------
+
+# tf == '1d' neutral defaults for the 14 VP FeatureVector fields: a single
+# daily bar has no intraday distribution, so session-anchored VP is not
+# meaningful. poc_dist_atr/va_position keep the pre-existing 0.0/0.5 neutral
+# convention (matches the original 2-field tf=='1d' branch); the 12 new
+# fields have no legacy default to preserve, so they fall back to None except
+# the two already-0/1 flags (price_in_value_area, in_lvn).
+_NEUTRAL_VP_EXTRA: dict[str, float | None] = {
+    "poc_dist_atr": 0.0,
+    "va_position": 0.5,
+    "nearest_hvn_above_dist_atr": None,
+    "nearest_hvn_below_dist_atr": None,
+    "nearest_lvn_above_dist_atr": None,
+    "nearest_lvn_below_dist_atr": None,
+    "price_in_value_area": 0.0,
+    "in_lvn": 0.0,
+    "va_width_atr": None,
+    "distance_to_vah_atr": None,
+    "distance_to_val_atr": None,
+    "nearest_hvn_dist_atr": None,
+    "poc_rolling_dist_atr": None,
+    "poc_session_rolling_divergence_atr": None,
+}
+
+
+def _rolling_poc_price(
+    highs: np.ndarray,
+    lows: np.ndarray,
+    closes: np.ndarray,
+    volumes: np.ndarray,
+    config: FeatureFactoryConfig,
+) -> float | None:
+    """Stateless rolling-window POC (D-18), computed over the given bar slice.
+
+    The caller passes the last config.session_vp_rolling_window bars (inclusive
+    of the current bar). Intermediate value only -- never persisted as a raw
+    column (D-16); Plan 02's compute()/compute_batch() call sites use it solely
+    to derive poc_rolling_dist_atr/poc_session_rolling_divergence_atr. Reuses
+    the same profile/value-area helpers as the session-anchored track
+    (FeatureCache.update_session_vp) for identical bucket/tie-break semantics.
+    Returns None on degenerate input (zero price range or zero volume).
+    """
+    if len(highs) == 0:
+        return None
+    profile = _compute_session_vp_profile(highs, lows, closes, volumes, config.session_vp_n_buckets)
+    if profile is None:
+        return None
+    vol_hist, bucket_prices, _bucket_size, _price_min = profile
+    if float(vol_hist.sum()) == 0:
+        return None
+    poc_price, _vah, _val = _compute_session_value_area(
+        vol_hist, bucket_prices, config.session_vp_value_area_pct
+    )
+    return poc_price
+
+
+def _derive_session_vp(
+    cache: FeatureCache,
+    close_: float,
+    atr_val: float,
+    poc_price_rolling: float | None,
+) -> dict[str, float | None]:
+    """Derive the 14 ATR-normalized/bounded VP FeatureVector fields.
+
+    Reads FeatureCache's raw session levels (set by update_session_vp(), called
+    once per bar by the caller before compute()/inside compute_batch()'s loop)
+    plus the compute-path atr_val -- no raw price level is ever returned or
+    persisted (D-16). poc_dist_atr/va_position fall back to the legacy neutral
+    defaults (0.0/0.5) when session state or atr_val is unavailable (cold
+    start / degenerate histogram / atr_val <= 0), matching the pre-existing
+    tf=='1d' convention. The 12 new fields fall back to None in the same
+    conditions -- they are brand-new columns with no legacy default to
+    preserve. price_in_value_area/in_lvn are already-bounded 0/1 flags on the
+    cache and need no ATR normalization.
+    """
+    atr_valid = atr_val is not None and math.isfinite(atr_val) and atr_val > 0
+
+    poc = cache._sess_poc
+    vah = cache._sess_vah
+    val = cache._sess_val
+
+    poc_dist_atr = 0.0 if poc is None or not atr_valid else (close_ - poc) / atr_val
+
+    if val is None or vah is None or (vah - val) == 0:
+        va_position = 0.5
+    else:
+        va_position = float(np.clip((close_ - val) / (vah - val), 0.0, 1.0))
+
+    def _above(level: float | None) -> float | None:
+        return None if level is None or not atr_valid else (level - close_) / atr_val
+
+    def _below(level: float | None) -> float | None:
+        return None if level is None or not atr_valid else (close_ - level) / atr_val
+
+    nearest_hvn_above_dist_atr = _above(cache._sess_hvn_above)
+    nearest_hvn_below_dist_atr = _below(cache._sess_hvn_below)
+    nearest_lvn_above_dist_atr = _above(cache._sess_lvn_above)
+    nearest_lvn_below_dist_atr = _below(cache._sess_lvn_below)
+
+    nearest_hvn_dist_atr = (
+        None
+        if cache._sess_hvn_nearest is None or not atr_valid
+        else abs(close_ - cache._sess_hvn_nearest) / atr_val
+    )
+
+    # D-17: va_width_atr == distance_to_vah_atr + distance_to_val_atr exactly
+    # -- documented collinearity kept deliberately (both are directly
+    # interpretable structural distances in their own right).
+    va_width_atr = None if vah is None or val is None or not atr_valid else (vah - val) / atr_val
+    distance_to_vah_atr = _above(vah)
+    distance_to_val_atr = _below(val)
+
+    price_in_value_area = cache._sess_price_in_va
+    in_lvn = cache._sess_in_lvn
+
+    if poc_price_rolling is None or not atr_valid:
+        poc_rolling_dist_atr: float | None = None
+        poc_session_rolling_divergence_atr: float | None = None
+    else:
+        poc_rolling_dist_atr = (close_ - poc_price_rolling) / atr_val
+        # D-18: poc_session_rolling_divergence_atr == poc_rolling_dist_atr -
+        # poc_dist_atr exactly -- documented collinearity kept deliberately.
+        poc_session_rolling_divergence_atr = (
+            None if poc is None else (poc - poc_price_rolling) / atr_val
+        )
+
+    return {
+        "poc_dist_atr": poc_dist_atr,
+        "va_position": va_position,
+        "nearest_hvn_above_dist_atr": nearest_hvn_above_dist_atr,
+        "nearest_hvn_below_dist_atr": nearest_hvn_below_dist_atr,
+        "nearest_lvn_above_dist_atr": nearest_lvn_above_dist_atr,
+        "nearest_lvn_below_dist_atr": nearest_lvn_below_dist_atr,
+        "nearest_hvn_dist_atr": nearest_hvn_dist_atr,
+        "va_width_atr": va_width_atr,
+        "distance_to_vah_atr": distance_to_vah_atr,
+        "distance_to_val_atr": distance_to_val_atr,
+        "price_in_value_area": price_in_value_area,
+        "in_lvn": in_lvn,
+        "poc_rolling_dist_atr": poc_rolling_dist_atr,
+        "poc_session_rolling_divergence_atr": poc_session_rolling_divergence_atr,
+    }
+
+
 def _build_feature_vector(
     *,
     momentum_z_fast: float,
@@ -3527,15 +3676,23 @@ class FeatureFactory:
         range_position_val = _range_position(close_, highs[-range_bars:], lows[-range_bars:])
 
         if tf == "1d":
-            poc_dist_atr_val: float | None = 0.0
-            va_position_val: float | None = 0.5
+            vp_extra: dict[str, float | None] = dict(_NEUTRAL_VP_EXTRA)
             sr_support_dist_val: float | None = 0.0
             sr_resist_dist_val: float | None = 0.0
         else:
-            poc_dist_atr_val = cache.poc_dist_atr
-            va_position_val = cache.va_position
             sr_support_dist_val = cache.sr_support_dist
             sr_resist_dist_val = cache.sr_resist_dist
+            _roll_window = config.session_vp_rolling_window
+            poc_price_rolling = _rolling_poc_price(
+                highs[-_roll_window:],
+                lows[-_roll_window:],
+                closes[-_roll_window:],
+                volumes[-_roll_window:],
+                config,
+            )
+            vp_extra = _derive_session_vp(cache, close_, atr_val, poc_price_rolling)
+        poc_dist_atr_val = vp_extra["poc_dist_atr"]
+        va_position_val = vp_extra["va_position"]
 
         _dow = _dow_encoding(bar_ts)
 
@@ -3626,6 +3783,18 @@ class FeatureFactory:
             va_position=va_position_val,
             sr_support_dist=sr_support_dist_val,
             sr_resist_dist=sr_resist_dist_val,
+            nearest_hvn_above_dist_atr=vp_extra["nearest_hvn_above_dist_atr"],
+            nearest_hvn_below_dist_atr=vp_extra["nearest_hvn_below_dist_atr"],
+            nearest_lvn_above_dist_atr=vp_extra["nearest_lvn_above_dist_atr"],
+            nearest_lvn_below_dist_atr=vp_extra["nearest_lvn_below_dist_atr"],
+            price_in_value_area=vp_extra["price_in_value_area"],
+            in_lvn=vp_extra["in_lvn"],
+            va_width_atr=vp_extra["va_width_atr"],
+            distance_to_vah_atr=vp_extra["distance_to_vah_atr"],
+            distance_to_val_atr=vp_extra["distance_to_val_atr"],
+            nearest_hvn_dist_atr=vp_extra["nearest_hvn_dist_atr"],
+            poc_rolling_dist_atr=vp_extra["poc_rolling_dist_atr"],
+            poc_session_rolling_divergence_atr=vp_extra["poc_session_rolling_divergence_atr"],
             hmm_regime_prob=cache.hmm_regime_prob,
             hmm_entropy=cache.hmm_entropy,
             hmm_duration=cache.hmm_duration,
@@ -3802,10 +3971,15 @@ class FeatureFactory:
         When cross_asset_by_date is provided (batch path):
           - cross-asset (vix_z, flight_quality, yield_slope_z) read from dict keyed by date
           - CTF (ctf_momentum, ctf_vwap_align, ctf_regime_align) read from ctf_by_ts via bisect
-          - VP/SR (poc_dist_atr, va_position, sr_support_dist, sr_resist_dist) set to None
-            (not computable from OHLCV batch; requires I3 intraday injection)
+          - VP (poc_dist_atr, va_position, + 12 structural fields) computed from OHLCV via
+            FeatureCache.update_session_vp(), called once per bar including warm-up --
+            the identical mechanism the live path uses (D-05: no I3/tick-data dependency
+            exists; the prior claim that this group was uncomputable in batch was a stale,
+            never-verified assumption, now removed). sr_support_dist/sr_resist_dist still
+            read from cache (Plan 03 wires real S/R values).
         When cross_asset_by_date is None (live path):
-          - all three groups read from cache (unchanged behavior)
+          - cross-asset and CTF groups read from cache (unchanged behavior); VP uses the
+            same FeatureCache.update_session_vp()-backed derivation as the batch path.
         """
         if len(bars) < 2:
             return []
@@ -3836,16 +4010,24 @@ class FeatureFactory:
                 regime_window_start = max(0, i - config.hurst_window)
                 cache.refresh_regime(bars[regime_window_start : i + 1], config)
 
+            bar = bars[i]
+            bar_ts = bar["ts"]
+            if isinstance(bar_ts, datetime) and bar_ts.tzinfo is None:
+                bar_ts = bar_ts.replace(tzinfo=UTC)
+            high_ = float(bar["high"])
+            low_ = float(bar["low"])
+            close_ = float(bar["close"])
+            vol_ = float(bar["volume"])
+
+            # Session-VP accumulator (Phase 163 Plan 02): update on EVERY bar,
+            # including warm-up, so FeatureCache._sess_bars (the session-
+            # boundary-reset accumulator) stays current through warmup --
+            # matches the live pipeline's per-bar update_session_vp() call site.
+            cache.update_session_vp(bar_ts, high_, low_, close_, vol_, config)
+
             # Skip warm-up
             if i < warm_up_bars:
-                bar = bars[i]
-                cache.advance_bar(
-                    bar["ts"],
-                    float(bar["high"]),
-                    float(bar["low"]),
-                    float(bar["close"]),
-                    float(bar["volume"]),
-                )
+                cache.advance_bar(bar_ts, high_, low_, close_, vol_)
                 continue
 
             # Build bounded window for non-series features
@@ -3859,17 +4041,7 @@ class FeatureFactory:
             w_closes = np.array([b["close"] for b in window_bars], dtype=float)
             w_volumes = np.array([b["volume"] for b in window_bars], dtype=float)
 
-            bar = bars[i]
-            bar_ts = bar["ts"]
             open_ = float(bar["open"])
-            high_ = float(bar["high"])
-            low_ = float(bar["low"])
-            close_ = float(bar["close"])
-            vol_ = float(bar["volume"])
-
-            # Ensure ts is timezone-aware UTC
-            if isinstance(bar_ts, datetime) and bar_ts.tzinfo is None:
-                bar_ts = bar_ts.replace(tzinfo=UTC)
 
             # Series-backed features (index into precomputed series)
             atr_val = float(s.atr_raw[i - 1]) if i - 1 < len(s.atr_raw) else 0.0
@@ -3906,22 +4078,31 @@ class FeatureFactory:
             vol_ratio_val = _vol_ratio(w_closes, config.vol_short_bars, config.vol_long_bars)
             cmf_val = _cmf(w_highs, w_lows, w_closes, w_volumes, config.cmf_period)
 
-            # Session-level (VP/SR): None in batch path; 1d defaults to neutral; else from cache
-            if cross_asset_by_date is not None:
-                poc_dist_atr_val = None
-                va_position_val = None
-                sr_support_dist_val = None
-                sr_resist_dist_val = None
-            elif tf == "1d":
-                poc_dist_atr_val = 0.0
-                va_position_val = 0.5
+            # Session-level (VP/SR, Phase 163 Plan 02): tf=='1d' keeps neutral
+            # defaults (a single daily bar has no intraday distribution); else
+            # derive the 14 ATR-normalized/bounded VP fields from FeatureCache's
+            # raw session levels (kept current above via update_session_vp(),
+            # called for every bar including warm-up) + atr_val -- identical
+            # mechanism in live and batch (D-05). sr_support_dist/sr_resist_dist
+            # still read from cache directly (Plan 03 wires real S/R values).
+            if tf == "1d":
+                vp_extra: dict[str, float | None] = dict(_NEUTRAL_VP_EXTRA)
                 sr_support_dist_val = 0.0
                 sr_resist_dist_val = 0.0
             else:
-                poc_dist_atr_val = cache.poc_dist_atr
-                va_position_val = cache.va_position
                 sr_support_dist_val = cache.sr_support_dist
                 sr_resist_dist_val = cache.sr_resist_dist
+                _roll_start = max(0, i - config.session_vp_rolling_window + 1)
+                poc_price_rolling = _rolling_poc_price(
+                    highs[_roll_start : i + 1],
+                    lows[_roll_start : i + 1],
+                    closes[_roll_start : i + 1],
+                    volumes[_roll_start : i + 1],
+                    config,
+                )
+                vp_extra = _derive_session_vp(cache, close_, atr_val, poc_price_rolling)
+            poc_dist_atr_val = vp_extra["poc_dist_atr"]
+            va_position_val = vp_extra["va_position"]
 
             # Regime-level primitives (all from cache)
             hmm_regime_prob_val = cache.hmm_regime_prob
@@ -4192,6 +4373,18 @@ class FeatureFactory:
                 va_position=va_position_val,
                 sr_support_dist=sr_support_dist_val,
                 sr_resist_dist=sr_resist_dist_val,
+                nearest_hvn_above_dist_atr=vp_extra["nearest_hvn_above_dist_atr"],
+                nearest_hvn_below_dist_atr=vp_extra["nearest_hvn_below_dist_atr"],
+                nearest_lvn_above_dist_atr=vp_extra["nearest_lvn_above_dist_atr"],
+                nearest_lvn_below_dist_atr=vp_extra["nearest_lvn_below_dist_atr"],
+                price_in_value_area=vp_extra["price_in_value_area"],
+                in_lvn=vp_extra["in_lvn"],
+                va_width_atr=vp_extra["va_width_atr"],
+                distance_to_vah_atr=vp_extra["distance_to_vah_atr"],
+                distance_to_val_atr=vp_extra["distance_to_val_atr"],
+                nearest_hvn_dist_atr=vp_extra["nearest_hvn_dist_atr"],
+                poc_rolling_dist_atr=vp_extra["poc_rolling_dist_atr"],
+                poc_session_rolling_divergence_atr=vp_extra["poc_session_rolling_divergence_atr"],
                 hmm_regime_prob=hmm_regime_prob_val,
                 hmm_entropy=hmm_entropy_val,
                 hmm_duration=hmm_duration_val,
@@ -4368,7 +4561,9 @@ def _cold_start_vector(cache: FeatureCache, tf: str) -> FeatureVector:
         va_position=va_position,
         sr_support_dist=sr_support_dist,
         sr_resist_dist=sr_resist_dist,
-        # Structural VP/SR (17, Phase 163 Plan 01): not yet wired (Plan 02).
+        # Structural VP/SR (17, Phase 163 Plan 02): cold start (len(bars) < 2)
+        # has no bar history, so no session has ever accumulated -- neutral
+        # None for all 12 new fields is correct here, not a placeholder.
         nearest_hvn_above_dist_atr=None,
         nearest_hvn_below_dist_atr=None,
         nearest_lvn_above_dist_atr=None,
