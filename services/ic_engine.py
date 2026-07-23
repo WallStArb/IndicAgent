@@ -60,7 +60,6 @@ import dataclasses
 import hashlib
 import json
 import math
-import pickle
 import sys
 import time
 from collections import defaultdict
@@ -91,8 +90,9 @@ sys.path.insert(0, str(project_root))
 from services._batch_utils import Float32ChunkAccumulator, connect_db_from_url, short_lived_conn
 from services._batch_utils import load_config_service_sync as _load_config_service
 from src.config.settings import Settings
+from src.core.agent.base_batch import BaseBatch
 from src.core.integrity_monitor import INTEGRITY_MONITOR_INSERT_SQL, emit_integrity_fact_sync
-from src.core.service_utils import setup_service_logging
+from src.core.service_utils import format_iso_ts, setup_service_logging
 from src.intelligence.feature_registry_service import FeatureRegistryService
 from src.intelligence.schemas import FeatureVector
 from src.intelligence.statistics.ic_math import (
@@ -660,6 +660,351 @@ class ICEngineConfig:
 
 
 # ---------------------------------------------------------------------------
+# ICEngineConfig field classification (162-03 Task 1, todos 134/122)
+#
+# Every ICEngineConfig field is classified as either COMPUTATIONAL (a change moves
+# the IC VALUES written to feature_ic_scores -- must invalidate the fingerprint) or
+# OPERATIONAL (throughput/observability/post-run-lifecycle-only -- must never
+# invalidate the fingerprint, or every operator tuning a thread count would trigger
+# a full, wasted corpus recompute). The classification test below (see
+# test_ic_engine_fingerprint.py) asserts these two sets PARTITION
+# dataclasses.fields(ICEngineConfig) exactly -- any field present on the dataclass
+# but classified in neither set fails that test loudly, so a future field addition
+# can never silently skip fingerprint classification.
+# ---------------------------------------------------------------------------
+
+_COMPUTATIONAL_CONFIG_FIELDS: frozenset[str] = frozenset(
+    {
+        "min_observations",  # min-sample-size gate -- moves n_independent/reliable
+        "fdr_alpha",  # BH-FDR threshold -- moves passes_fdr
+        "walk_forward_folds",  # fold count -- moves wf_fold_count/wf_pass_count
+        "sharpe_min_windows",  # ic_sharpe reliability gate
+        "subsample_min_stride",  # subsampling stride -- moves which rows are observed
+        "min_reliable_n",  # reliability gate on n_valid
+        "cluster_max_corr",  # feature-clustering cutoff -- moves cluster_id/BH-FDR reps
+        "lookahead_fast",  # forward-return horizon
+        "lookahead_mid",  # forward-return horizon
+        "lookahead_slow",  # forward-return horizon
+        "lookahead_extended",  # forward-return horizon
+        # Changes which regime label SOURCE (market_regimes vs feature_vectors.regime)
+        # feeds every non-pooled row's regime/regime_scope columns -- see
+        # _compute_symbol_tf's mr_dict docstring.
+        "equity_model_enabled",
+        "min_obs_daily",  # daily-cadence context-features reliability gate
+        "hac_max_lag",  # Newey-West HAC lag -- moves ic_sharpe_hac
+        "bootstrap_resamples",  # circular block bootstrap CI resample count
+        # RNG seed for the circular block bootstrap -- APR-mandate "Seeds that affect
+        # algorithm output" category; changing it re-draws every CI, not just reruns.
+        "bootstrap_seed",
+        "bootstrap_block_size",  # per-tf block size -- moves the bootstrap CI values
+        # Conservative: currently gates ONLY the post-run lifecycle-hook demote/
+        # material/worst_cell predicates (see ic_engine.py:798's docstring), not the
+        # feature_ic_scores rows written by this file today. Classified COMPUTATIONAL
+        # anyway (not OPERATIONAL) as a deliberate safety margin against future
+        # coupling into the measurement path itself -- costs at most one extra safe
+        # recompute, never a silent-stale read.
+        "sign_symmetric",
+        # Determines enabled_groups -> symbol_regime_class routing -> which symbols
+        # feed which cross-sectional cell and which regime labels a per-symbol row
+        # gets -- a routing change moves real rows, not just downstream policy.
+        "regime_groups_json",
+        "sharpe_window_size_subsampled",  # fixed subsampled-bar window -- moves ic_sharpe
+    }
+)
+
+_OPERATIONAL_CONFIG_FIELDS: frozenset[str] = frozenset(
+    {
+        # Vestigial: no longer read by ic_math.py (superseded by
+        # sharpe_window_size_subsampled, todo 096) -- kept bound only for APR
+        # provenance continuity, per the dataclass's own field comment.
+        "sharpe_window_size",
+        "cs_chunk_ts",  # cross-sectional fetch chunk size -- pure throughput knob
+        "symbol_fetch_chunk_rows",  # per-symbol fetch chunk size -- pure throughput knob
+        "n_workers",  # ProcessPoolExecutor pool size -- pure throughput knob
+        # Post-run lifecycle hook (_apply_feature_transitions/_run_lifecycle_hook)
+        # ONLY -- operates on feature_registry/ensemble decisions AFTER
+        # feature_ic_scores rows are already written; never affects the rows
+        # themselves. Verified via grep: only referenced inside those two functions.
+        "decay_materiality_threshold",
+        "guard_fail_rate_max",  # lifecycle hook only (regime-shift guard rail)
+        "guard_fail_rate_min",  # lifecycle hook only (regime-shift guard rail)
+        "guard_band_z",  # lifecycle hook only (regime-shift guard rail)
+        "guard_min_cells",  # lifecycle hook only (regime-shift guard rail)
+        "guard_min_history",  # lifecycle hook only (regime-shift guard rail)
+        "guard_history_window",  # lifecycle hook only (regime-shift guard rail)
+        "decay_recovery_min_observations",  # lifecycle hook only
+        "decay_recovery_min_passes",  # lifecycle hook only
+        "meta_fdr_min_fraction",  # lifecycle hook only (demotion floor)
+        "ic_staleness_alert_days",  # observability/alerting threshold only
+        "ensemble_weight_version",  # pins lifecycle hook's standing-weight JOIN only
+        # Thread count changes wall time only, never output -- guaranteed
+        # structurally by 162-01's precomputed resample-index matrix (starts_matrix,
+        # drawn once per scale before the feature-block loop). Explicitly OPERATIONAL
+        # per this plan's own directive.
+        "cross_sectional_bootstrap_threads",
+        # Memory-layout chunk size only -- bit-identical by construction (162-01
+        # SUMMARY: synthetic feature-blocked-vs-unblocked equivalence verified).
+        "feature_block_columns",
+        # Crash-loud row-count ceiling -- under the ceiling, output is unaffected;
+        # over it, the run raises CellTooLargeError rather than silently degrading.
+        "max_cell_rows",
+    }
+)
+
+
+def _compute_apr_snapshot_key(config: ICEngineConfig) -> str:
+    """BaseBatch.content_key() over sorted COMPUTATIONAL-only ICEngineConfig fields.
+
+    Only fields in _COMPUTATIONAL_CONFIG_FIELDS ever move this key -- an OPERATIONAL
+    field (thread counts, chunk sizes, throughput knobs, lifecycle-hook-only
+    thresholds) changing must NEVER invalidate a fingerprint-valid cell. Dict-valued
+    fields (bootstrap_block_size) are serialized as a sorted, stable "k=v,k=v" join
+    so key insertion order can never affect the hash.
+    """
+    parts: list[str] = []
+    for field_name in sorted(_COMPUTATIONAL_CONFIG_FIELDS):
+        value = getattr(config, field_name)
+        if isinstance(value, dict):
+            value_str = ",".join(f"{k}={value[k]}" for k in sorted(value))
+        else:
+            value_str = str(value)
+        parts.append(f"{field_name}={value_str}")
+    return BaseBatch.content_key(*parts)
+
+
+# ---------------------------------------------------------------------------
+# Per-table upstream watermark (162-03 Task 2, resolves RESEARCH Open Question #1)
+#
+# A naive MAX(bar_ts)/COUNT(*) watermark is blind to an in-place VALUE mutation
+# (price-sanity correction, HMM relabel, feature_registry status transition) that
+# changes zero rows and zero timestamps -- exactly the failure class this function
+# exists to catch. Every component below is either a write-timestamp column that
+# bumps on correction (forward_returns.computed_at) or a content hash over the
+# actual values (market_regimes/instrument_tags/feature_registry), never bar_ts/
+# COUNT alone.
+# ---------------------------------------------------------------------------
+
+
+def _compute_upstream_watermark(
+    conn: Any,
+    symbol: str | None,
+    tf: str,
+    pass_type: str,
+    regime_group: str | None = None,
+    symbol_list: list[str] | None = None,
+) -> dict[str, Any]:
+    """JSON-serializable per-cell upstream watermark.
+
+    pass_type IN ('pooled', 'symbol_hmm'): symbol is the real instrument symbol.
+    Components (a) forward_returns and (b) feature_vectors are scoped to that one
+    symbol.
+
+    pass_type == 'cross_sectional': there is no single instrument symbol (the cell
+    pools regime_group's whole peer set) -- symbol_list carries that peer set, and
+    components (a)/(b) aggregate across it (Rule 2 addition beyond the plan's literal
+    4-arg sketch: without this, an in-place correction to a PEER symbol's
+    forward_returns/feature_vectors would silently fail to invalidate a cross-
+    sectional cell -- exactly T-162-03-01, the phase's highest-severity threat).
+    Components (c) market_regimes and (d) instrument_tags additionally apply,
+    keyed by regime_group and symbol_list respectively.
+
+    (e) feature_registry status applies to EVERY pass_type -- every row type
+    (pooled/symbol_hmm/cross_sectional) writes feature_status_at_eval from the
+    same registry snapshot.
+
+    Timestamps serialized via format_iso_ts() (never inline .isoformat()). Does
+    NOT log -- callers accumulate a counter across all per-cell calls and log
+    ONCE per run (corpus-loop logging rule, CLAUDE.md).
+    """
+    is_cross_sectional = pass_type == "cross_sectional"
+    symbols_for_fr_fv = symbol_list if is_cross_sectional else ([symbol] if symbol else [])
+
+    watermark: dict[str, Any] = {}
+    with conn.cursor() as cur:
+        # (a) forward_returns -- the label side, PRIMARY in-place-mutation detector.
+        # computed_at is DEFAULT now() and bumps on every recompute, so a bar-level
+        # correction (which recomputes forward_returns) moves it even when
+        # bar_ts/count are unchanged.
+        cur.execute(
+            """
+            SELECT MAX(bar_ts), COUNT(*), MAX(computed_at)
+            FROM forward_returns
+            WHERE symbol = ANY(%(symbols)s) AND tf = %(tf)s
+              AND return_type = 'executable_open_to_open'
+            """,
+            {"symbols": symbols_for_fr_fv, "tf": tf},
+        )
+        max_bar_ts, fr_count, max_computed_at = cur.fetchone()
+        watermark["forward_returns"] = {
+            "max_bar_ts": format_iso_ts(max_bar_ts) if max_bar_ts else None,
+            "count": fr_count,
+            "max_computed_at": format_iso_ts(max_computed_at) if max_computed_at else None,
+        }
+
+        # (b) feature_vectors -- the feature side, no write-timestamp column.
+        # In-place feature mutations are covered TRANSITIVELY: a feature-code change
+        # moves code_content_key; a bar correction recomputes forward_returns
+        # (caught by (a), since the correction workflow recomputes both from the
+        # same corrected bars).
+        cur.execute(
+            "SELECT MAX(bar_ts), COUNT(*) FROM feature_vectors "
+            "WHERE symbol = ANY(%(symbols)s) AND tf = %(tf)s",
+            {"symbols": symbols_for_fr_fv, "tf": tf},
+        )
+        max_fv_bar_ts, fv_count = cur.fetchone()
+        watermark["feature_vectors"] = {
+            "max_bar_ts": format_iso_ts(max_fv_bar_ts) if max_fv_bar_ts else None,
+            "count": fv_count,
+        }
+
+        if is_cross_sectional:
+            # (c) market_regimes -- an HMM relabel mutates `regime` in place with
+            # unchanged ts/count, so add a value-sensitive content hash.
+            cur.execute(
+                """
+                SELECT MAX(ts), COUNT(*),
+                       md5(COALESCE(string_agg(regime, '' ORDER BY ts), ''))
+                FROM market_regimes
+                WHERE regime_group = %(regime_group)s AND tf = %(tf)s
+                """,
+                {"regime_group": regime_group, "tf": tf},
+            )
+            max_ts, mr_count, regime_hash = cur.fetchone()
+            watermark["market_regimes"] = {
+                "max_ts": format_iso_ts(max_ts) if max_ts else None,
+                "count": mr_count,
+                "regime_hash": regime_hash,
+            }
+
+            # (d) instrument_tags -- cross-sectional routing. Catches any tag add/
+            # remove/reweight across this regime_group's peer set that changes
+            # which symbols are pooled into the cell.
+            cur.execute(
+                """
+                SELECT md5(COALESCE(string_agg(
+                    symbol || E'\t' || tag || E'\t' || source || E'\t' || weight::text,
+                    '' ORDER BY symbol, tag
+                ), ''))
+                FROM instrument_tags
+                WHERE symbol = ANY(%(symbols)s)
+                """,
+                {"symbols": symbols_for_fr_fv},
+            )
+            (tags_hash,) = cur.fetchone()
+            watermark["instrument_tags"] = {"tags_hash": tags_hash}
+
+        # (e) feature_registry status -- applies to every pass_type; every row
+        # type writes feature_status_at_eval from this same snapshot.
+        cur.execute(
+            "SELECT md5(COALESCE(string_agg("
+            "feature_name || '=' || status, '' ORDER BY feature_name), '')) "
+            "FROM feature_registry"
+        )
+        (status_hash,) = cur.fetchone()
+        watermark["feature_registry"] = {"status_hash": status_hash}
+
+    return watermark
+
+
+# ---------------------------------------------------------------------------
+# Whole-cell fingerprint validity + invalidation (162-03 Task 3, todos 134/122)
+# ---------------------------------------------------------------------------
+
+
+def _fingerprint_is_valid(stored: dict[str, Any] | None, current: dict[str, Any]) -> bool:
+    """True only when code_content_key AND apr_snapshot_key AND upstream_watermark
+    ALL match -- a partial match is a full miss (crash-loud-not-silently-partial).
+    """
+    if stored is None:
+        return False
+    return (
+        stored.get("code_content_key") == current.get("code_content_key")
+        and stored.get("apr_snapshot_key") == current.get("apr_snapshot_key")
+        and stored.get("upstream_watermark") == current.get("upstream_watermark")
+    )
+
+
+# Scoped to the exact ic_cell_fingerprints PK columns (symbol, tf, pass_type via
+# regime_scope, training_window_end) -- never a bare training_window_end filter,
+# which would delete valid unrelated cells at the same window (T-162-03-03).
+# Used for pass_type IN ('pooled', 'symbol_hmm'): symbol is the real instrument
+# symbol; a 'symbol_hmm' cell writes multiple regime labels for that one (symbol,
+# tf), all belonging to the same fingerprinted cell, so no regime filter is needed.
+_FINGERPRINT_INVALIDATE_DELETE_SQL = """
+    DELETE FROM feature_ic_scores
+    WHERE symbol = %(symbol)s
+      AND tf = %(tf)s
+      AND regime_scope = %(pass_type)s
+      AND training_window_end = %(training_window_end)s
+"""
+
+# Cross-sectional variant: feature_ic_scores.symbol is always the 'POOLED' sentinel
+# for cross-sectional rows (regime_group identity is NOT a column there -- see
+# migration 251's header), and the fingerprint's own per-(regime_group, regime_label)
+# grain requires an explicit regime filter to avoid deleting a sibling regime_label's
+# valid rows at the same (tf, regime_scope, training_window_end).
+_FINGERPRINT_INVALIDATE_DELETE_CROSS_SECTIONAL_SQL = """
+    DELETE FROM feature_ic_scores
+    WHERE symbol = %(symbol)s
+      AND tf = %(tf)s
+      AND regime_scope = 'cross_sectional'
+      AND regime = %(regime_label)s
+      AND training_window_end = %(training_window_end)s
+"""
+
+_FINGERPRINT_UPSERT_SQL = """
+    INSERT INTO ic_cell_fingerprints (
+        symbol, tf, pass_type, training_window_end,
+        code_content_key, apr_snapshot_key, upstream_watermark, computed_at
+    )
+    VALUES (
+        %(symbol)s, %(tf)s, %(pass_type)s, %(training_window_end)s,
+        %(code_content_key)s, %(apr_snapshot_key)s, %(upstream_watermark)s, NOW()
+    )
+    ON CONFLICT (symbol, tf, pass_type, training_window_end) DO UPDATE SET
+        code_content_key = EXCLUDED.code_content_key,
+        apr_snapshot_key = EXCLUDED.apr_snapshot_key,
+        upstream_watermark = EXCLUDED.upstream_watermark,
+        computed_at = EXCLUDED.computed_at
+"""
+
+
+def _symbol_expected_cells(
+    symbol: str,
+    tfs: list[str],
+    symbol_regime_class: dict[str, str],
+    group_by_name: dict[str, dict],
+    equity_model_enabled: bool,
+) -> list[tuple[str, str]]:
+    """The full set of (tf, pass_type) fingerprint cells one symbol writes.
+
+    Mirrors main()'s own worker_args routing logic exactly (mr_dicts_by_group /
+    dual_write_symbol_hmm resolution) so the fingerprint gate's notion of "this
+    symbol's cells" can never drift from what _compute_symbol_tf actually writes.
+    'pooled' is always written exactly once per tf (regardless of label source).
+    The primary regime pass writes 'cross_sectional' when this symbol is routed to
+    an enabled group, else 'symbol_hmm'. An additional 'symbol_hmm' dual-write pass
+    is added when the routed group has dual_write_symbol_hmm=true.
+    """
+    routed_group_name = symbol_regime_class.get(symbol) if equity_model_enabled else None
+    cross_sectional = routed_group_name is not None
+    dual_write = bool(
+        group_by_name.get(routed_group_name, {}).get("dual_write_symbol_hmm", False)
+        if routed_group_name
+        else False
+    )
+    primary_pass_type = "cross_sectional" if cross_sectional else "symbol_hmm"
+
+    cells: list[tuple[str, str]] = []
+    for tf in tfs:
+        cells.append((tf, "pooled"))
+        cells.append((tf, primary_pass_type))
+        if cross_sectional and dual_write:
+            cells.append((tf, "symbol_hmm"))
+    return cells
+
+
+# ---------------------------------------------------------------------------
 # Startup crash-loud gates
 # ---------------------------------------------------------------------------
 
@@ -1032,7 +1377,6 @@ def _compute_one_regime_cell(
     symbol: str,
     tf: str,
     rng: np.random.Generator,
-    existing_keys: set[tuple] | frozenset[tuple],
     training_window_end: Any,
     feature_status_map: dict[str, str] | None,
     run_ts: datetime,
@@ -1271,15 +1615,11 @@ def _compute_one_regime_cell(
         # using representative-only selection per cluster.
         # -------------------------------------------------------
         for feat_idx, feat_name in enumerate(_FEATURE_NAMES):
-            cell_key = (feat_name, symbol, tf, regime_label, lookahead_bars, is_pooled)
-            if cell_key in existing_keys:
-                IC_ENGINE_CELLS_SKIPPED_TOTAL.add(
-                    1,
-                    {"symbol": symbol, "tf": tf, "skip_reason": "already_present"},
-                )
-                n_skipped += 1
-                continue
-
+            # 162-03: the whole-cell fingerprint gate in main() is now the SOLE skip
+            # decision (before this function is ever called) -- no per-feature
+            # already-present skip here. A dispatched cell recomputes every feature
+            # unconditionally; a fingerprint-valid sibling that gets recomputed
+            # anyway is harmless (identical rows hit ON CONFLICT DO NOTHING).
             ic_val = ic_full[feat_idx]
             p_val = p_full[feat_idx]
             result_rows.append(
@@ -1374,7 +1714,6 @@ def _compute_symbol_tf(
     symbol: str,
     tf: str,
     training_window_end: Any,
-    existing_keys: set[tuple] | frozenset[tuple],
     config: ICEngineConfig,
     tracer: Any,
     run_ts: datetime,
@@ -1580,7 +1919,6 @@ def _compute_symbol_tf(
             symbol=symbol,
             tf=tf,
             rng=rng,
-            existing_keys=existing_keys,
             training_window_end=training_window_end,
             feature_status_map=feature_status_map,
             run_ts=run_ts,
@@ -1621,7 +1959,6 @@ def _compute_symbol_tf(
                     symbol=symbol,
                     tf=tf,
                     rng=rng,
-                    existing_keys=existing_keys,
                     training_window_end=training_window_end,
                     feature_status_map=feature_status_map,
                     run_ts=run_ts,
@@ -1714,14 +2051,8 @@ def _compute_symbol_tf(
                 for scale_idx, scale in enumerate(_SCALES):
                     lookahead_bars = lookaheads[scale]
 
-                    cell_key = (cf_name, symbol, tf, _POOLED_REGIME_SENTINEL, lookahead_bars, True)
-                    if cell_key in existing_keys:
-                        IC_ENGINE_CELLS_SKIPPED_TOTAL.add(
-                            1, {"symbol": symbol, "tf": tf, "skip_reason": "already_present"}
-                        )
-                        n_skipped += 1
-                        continue
-
+                    # 162-03: no per-feature already-present skip -- the whole-cell
+                    # fingerprint gate in main() is the sole skip decision.
                     scale_complete = cf_complete_mat[:, scale_idx]
                     returns_scale = cf_returns_mat[:, scale_idx]
                     valid_mask = scale_complete & np.isfinite(returns_scale) & np.isfinite(cf_vals)
@@ -1999,7 +2330,6 @@ def _compute_one_cross_sectional_cell(
     config: ICEngineConfig,
     tf: str,
     rng: np.random.Generator,
-    existing_keys: set[tuple] | frozenset[tuple],
     training_window_end: Any,
     feature_status_map: dict[str, str] | None,
     run_ts: datetime,
@@ -2173,11 +2503,8 @@ def _compute_one_cross_sectional_cell(
         magnitude_ic_full = _expand(magnitude_ic_nd, non_degenerate_mask, n_features)
 
         for feat_idx, feat_name in enumerate(_FEATURE_NAMES):
-            cell_key = (feat_name, _CROSS_SECTIONAL_SYMBOL, tf, regime_label, lookahead_bars, True)
-            if cell_key in existing_keys:
-                n_skipped += 1
-                continue
-
+            # 162-03: no per-feature already-present skip -- the whole-cell
+            # fingerprint gate in main() is the sole skip decision.
             ic_val = ic_full[feat_idx]
             p_val = p_full[feat_idx]
             ic_sign_val = None if np.isnan(ic_val) else (1 if ic_val > 0 else -1)
@@ -2249,7 +2576,6 @@ def _compute_cross_sectional_tf(
     regime_group: str,
     symbol_list: list[str],
     training_window_end: Any,
-    existing_keys: frozenset[tuple],
     config: ICEngineConfig,
     tracer: Any,
     run_ts: datetime,
@@ -2301,35 +2627,20 @@ def _compute_cross_sectional_tf(
 
     Returns dict with n_committed, n_skipped, all_results.
     """
-    # Only lookaheads/n_features/cs_chunk_ts are needed directly in this function's
-    # own fetch/idempotency-check code below -- subsample_min_stride/min_reliable_n/
-    # fdr_alpha/walk_forward_folds/cluster_max_corr moved into
-    # _compute_one_cross_sectional_cell (162-01 Task 3), which pulls them from
-    # `config` itself rather than receiving them as separate params, matching
-    # _compute_one_regime_cell's convention.
-    lookaheads = config.lookaheads
+    # Only n_features/cs_chunk_ts are needed directly in this function's own fetch
+    # code below -- subsample_min_stride/min_reliable_n/fdr_alpha/walk_forward_folds/
+    # cluster_max_corr/lookaheads moved into _compute_one_cross_sectional_cell
+    # (162-01 Task 3), which pulls them from `config` itself rather than receiving
+    # them as separate params, matching _compute_one_regime_cell's convention.
     n_features = len(_FEATURE_NAMES)
 
     cs_chunk_ts: int = config.cs_chunk_ts
 
-    # Idempotency short-circuit: if every (feature, lookahead) cell for this (tf, regime)
-    # already exists in existing_keys, skip the entire data fetch and computation.
-    # Without this check, already-complete regimes are fetched + computed in full
-    # (potentially 5+ GB RAM / 4+ minutes each) before the per-feature existing_keys
-    # check at write-time discovers they're all done.
-    all_cells_for_regime = frozenset(
-        (feat_name, _CROSS_SECTIONAL_SYMBOL, tf, regime_label, lh, True)
-        for feat_name in _FEATURE_NAMES
-        for lh in lookaheads.values()
-    )
-    if all_cells_for_regime.issubset(existing_keys):
-        _logger.info(
-            "ic_engine.cross_sectional_already_complete",
-            tf=tf,
-            regime=regime_label,
-            n_cells=len(all_cells_for_regime),
-        )
-        return [], {"n_committed": 0, "n_skipped": len(all_cells_for_regime)}
+    # 162-03: no whole-regime already-present short-circuit here -- the whole-cell
+    # fingerprint gate in main() decides skip/compute for this (regime_group, tf,
+    # regime_label) cell BEFORE this function is ever called, replacing this
+    # short-circuit entirely (it ran a data fetch's worth of nothing anyway; the
+    # fingerprint gate skips the call outright).
 
     # Short-lived fetch connection (todo 125, 2026-07-17) -- opened here, closed as
     # soon as the chunked feature/return fetch below completes. It must not stay open
@@ -2516,7 +2827,6 @@ def _compute_cross_sectional_tf(
         config=config,
         tf=tf,
         rng=rng,
-        existing_keys=existing_keys,
         training_window_end=training_window_end,
         feature_status_map=feature_status_map,
         run_ts=run_ts,
@@ -2676,44 +2986,22 @@ def _checkpoint_content_key() -> str:
             hasher.update(path.read_bytes())
         except OSError:
             continue
-    # 12 hex chars (48 bits) -- generous collision margin for a handful of
-    # concurrent checkpoint directories, short enough to stay readable in paths.
+    # 12 hex chars (48 bits) -- generous collision margin, short enough to stay
+    # readable when embedded in a fingerprint's code_content_key field.
     return hasher.hexdigest()[:12]
 
 
-def _checkpoint_dir(training_window_end: Any, content_key: str) -> Path:
-    safe_ts = str(training_window_end).replace(":", "").replace(" ", "T").replace("+", "_")
-    return Path("logs/ic_engine_checkpoints") / f"{safe_ts}_{content_key}"
-
-
-def _load_checkpoint(checkpoint_dir: Path, symbol: str) -> dict | None:
-    """Load a symbol's checkpointed raw worker result, if present and readable."""
-    path = checkpoint_dir / f"{symbol}.pkl"
-    if not path.exists():
-        return None
-    try:
-        with path.open("rb") as f:
-            return pickle.load(f)
-    except Exception as error:
-        _logger.warning("ic_engine.checkpoint_load_failed", symbol=symbol, error=str(error))
-        return None
-
-
-def _save_checkpoint(checkpoint_dir: Path, symbol: str, result: dict) -> None:
-    """Persist one symbol's raw worker result so a restart can skip recompute.
-
-    This is NOT the statistical write -- feature_ic_scores still gets written
-    exactly once, corpus-wide, by _write_ic_results after BH-FDR runs on the
-    full set. This only makes the expensive per-symbol COMPUTE phase resumable.
-    Write-then-rename for atomicity (a killed process mid-write must not leave
-    a corrupt .pkl that a later run would fail to load).
-    """
-    checkpoint_dir.mkdir(parents=True, exist_ok=True)
-    path = checkpoint_dir / f"{symbol}.pkl"
-    tmp_path = path.with_suffix(".pkl.tmp")
-    with tmp_path.open("wb") as f:
-        pickle.dump(result, f)
-    tmp_path.rename(path)
+# 162-03 Task 3 (todo 122): the .pkl checkpoint system (_checkpoint_dir,
+# _load_checkpoint, _save_checkpoint) is deleted outright -- per-symbol immediate
+# writes (_record_symbol_result -> _write_symbol_results, already unconditional
+# since todo 130) plus the cross-run whole-cell fingerprint gate fully supersede
+# its intra-run crash-resume purpose: a killed run simply resumes by re-running
+# ic_engine.py -- fingerprint-valid completed cells skip (fetch+compute, not just
+# the write), incomplete/invalidated ones recompute. This also closes todo 122's
+# APR-drift surface (a stale .pkl computed under an old config could be replayed
+# under a changed one) by removing the mechanism entirely rather than patching it.
+# _checkpoint_content_key is KEPT -- it is reused verbatim as the fingerprint's
+# code_content_key component.
 
 
 def _write_symbol_results(
@@ -2804,6 +3092,23 @@ def _write_cs_cell_results(settings: Settings, cs_rows: list[dict]) -> int:
         return 0
     with _short_lived_conn(settings) as conn:
         return _write_cross_sectional_results(conn, cs_rows)
+
+
+def _upsert_cell_fingerprints(settings: Settings, fp_rows: list[dict]) -> None:
+    """UPSERT one or more freshly-computed cell fingerprint rows (162-03 Task 3).
+
+    Called right after the corresponding feature_ic_scores rows are durable --
+    a fingerprint row is only ever as fresh as the compute it describes. Uses
+    its own short-lived connection (same pattern as _write_cs_cell_results),
+    since this runs from the same as_completed/cross-sectional loop context
+    that must not hold a connection idle across compute.
+    """
+    if not fp_rows:
+        return
+    with _short_lived_conn(settings) as conn:
+        with conn.cursor() as cur:
+            psycopg2.extras.execute_batch(cur, _FINGERPRINT_UPSERT_SQL, fp_rows)
+        conn.commit()
 
 
 def _backfill_bh_fdr(
@@ -2918,14 +3223,17 @@ def _run_ic_worker(args: tuple) -> dict:
     in main process after corpus-level BH-FDR (P2 fix).
 
     Args:
-        args: (symbol, tfs, dsn, training_window_end, existing_keys_frozen,
-               config, run_ts, feature_status_map, mr_dict_by_tf,
-               dual_write_symbol_hmm) -- mr_dict_by_tf is already scoped to THIS
-               symbol's own regime_group (Phase 144 Plan 05:
-               mr_dicts_by_group.get(symbol_regime_class.get(symbol)) in main()),
-               never another group's labels. dual_write_symbol_hmm (bool) --
-               resolved once per symbol from its routed group's APR field
-               (alpha.regime.groups[*].dual_write_symbol_hmm).
+        args: (symbol, tfs, dsn, training_window_end, config, run_ts,
+               feature_status_map, mr_dict_by_tf, dual_write_symbol_hmm) --
+               mr_dict_by_tf is already scoped to THIS symbol's own regime_group
+               (Phase 144 Plan 05: mr_dicts_by_group.get(symbol_regime_class.get(
+               symbol)) in main()), never another group's labels.
+               dual_write_symbol_hmm (bool) -- resolved once per symbol from its
+               routed group's APR field (alpha.regime.groups[*].dual_write_symbol_hmm).
+               162-03: no existing_keys parameter -- the whole-cell fingerprint gate
+               in main() is the sole skip decision, applied BEFORE a symbol is ever
+               dispatched to a worker; a dispatched worker always recomputes every
+               feature for every cell it touches unconditionally.
 
     Returns:
         dict with keys: symbol, pooled_rows (list), regime_rows (list),
@@ -2937,7 +3245,6 @@ def _run_ic_worker(args: tuple) -> dict:
         tfs,
         dsn,
         training_window_end,
-        existing_keys_frozen,
         config,
         run_ts,
         feature_status_map,
@@ -2951,9 +3258,6 @@ def _run_ic_worker(args: tuple) -> dict:
     worker_log = structlog.get_logger(__name__)
 
     noop_tracer = _NoopTracer()
-
-    # frozenset supports O(1) `in` lookups identically to set; no conversion needed.
-    existing_keys = existing_keys_frozen
 
     # Circular block bootstrap CI (Component A, todo 091): ONE deterministic RNG per
     # symbol, derived from bootstrap_seed, shared/advanced across every tf/regime/scale
@@ -2980,7 +3284,6 @@ def _run_ic_worker(args: tuple) -> dict:
                     symbol=symbol,
                     tf=tf,
                     training_window_end=training_window_end,
-                    existing_keys=existing_keys,
                     config=config,
                     tracer=noop_tracer,
                     run_ts=run_ts,
@@ -3580,6 +3883,21 @@ def main() -> None:
         "Requires at least one enabled group in alpha.regime.groups. Use when "
         "per-symbol rows already exist.",
     )
+    parser.add_argument(
+        "--refresh",
+        action="store_true",
+        default=False,
+        help="Force full recompute, bypassing the whole-cell fingerprint check "
+        "entirely (162-03). Every candidate cell is treated as invalid regardless "
+        "of ic_cell_fingerprints content. Combine with --symbols/--tf to scope.",
+    )
+    parser.add_argument(
+        "--dry-run-validity",
+        action="store_true",
+        default=False,
+        help="Compute the fingerprint skip/compute partition and log/print the "
+        "counts, then exit before any fetch, compute, or write (162-03).",
+    )
     args = parser.parse_args()
 
     try:
@@ -3735,22 +4053,35 @@ def main() -> None:
             )
 
             # ----------------------------------------------------------
-            # Idempotency: load existing (feature, symbol, tf, regime, lookahead, is_pooled)
-            # for this training_window_end
+            # Whole-cell fingerprint gate (162-03 Task 3, todo 134): loads persisted
+            # fingerprints for this training_window_end and binds the two run-
+            # constant fingerprint components. Per-symbol and per-cross-sectional-
+            # cell validity partitions are computed below, BEFORE worker_args is
+            # built -- this is what makes SC-1's "fetch+compute skipped, not just
+            # the insert" true: a fully-valid symbol/cell is never dispatched.
+            # --refresh bypasses the check entirely (every candidate is invalid).
             # ----------------------------------------------------------
+            content_key = _checkpoint_content_key()
+            apr_snapshot_key = _compute_apr_snapshot_key(config)
             with conn.cursor() as cur:
                 cur.execute(
                     """
-                    SELECT feature_name, symbol, tf, regime, lookahead_bars, is_pooled
-                    FROM feature_ic_scores
+                    SELECT symbol, tf, pass_type, code_content_key, apr_snapshot_key,
+                           upstream_watermark
+                    FROM ic_cell_fingerprints
                     WHERE training_window_end = %s
                     """,
                     (training_window_end,),
                 )
-                existing_keys: set[tuple] = {
-                    (r[0], r[1], r[2], r[3], r[4], r[5]) for r in cur.fetchall()
+                stored_fingerprints: dict[tuple[str, str, str], dict[str, Any]] = {
+                    (r[0], r[1], r[2]): {
+                        "code_content_key": r[3],
+                        "apr_snapshot_key": r[4],
+                        "upstream_watermark": r[5],
+                    }
+                    for r in cur.fetchall()
                 }
-            _logger.info("ic_engine.existing_keys", count=len(existing_keys))
+            _logger.info("ic_engine.stored_fingerprints_loaded", count=len(stored_fingerprints))
 
             # APR already bound in config above; derive n_workers from config or CLI override.
             n_workers = args.workers if args.workers is not None else config.n_workers
@@ -3795,6 +4126,152 @@ def main() -> None:
                         )
 
             # ----------------------------------------------------------
+            # Per-symbol whole-cell fingerprint pre-pass (162-03 Task 3): for every
+            # candidate symbol, compute the current fingerprint for each expected
+            # (tf, pass_type) cell (_symbol_expected_cells mirrors the exact
+            # routing logic worker_args uses below) and compare against the stored
+            # fingerprint. A symbol is dispatched iff ANY of its cells is invalid
+            # or absent (SC-1); a fully-valid symbol is skipped BEFORE worker_args
+            # is built -- fetch+compute never happens for it, not just the insert.
+            # Only the cells actually found invalid are DELETEd (T-162-03-06: a
+            # fingerprint-valid sibling within a dispatched symbol is NOT deleted --
+            # its harmless recompute hits ON CONFLICT DO NOTHING).
+            # ----------------------------------------------------------
+            total_skipped = 0
+            total_committed = 0
+            per_symbol_results: list[tuple[str, list[dict]]] = []
+            n_watermark_queries = 0
+            symbols_to_compute: list[str] = []
+            invalid_cells_by_symbol: dict[str, list[tuple[str, str]]] = {}
+            current_fp_cache: dict[str, dict[tuple[str, str], dict[str, Any]]] = {}
+
+            if not args.cross_sectional_only:
+                for symbol in symbols:
+                    expected_cells = _symbol_expected_cells(
+                        symbol, tfs, symbol_regime_class, group_by_name, equity_model_enabled
+                    )
+                    cell_fps: dict[tuple[str, str], dict[str, Any]] = {}
+                    invalid_this_symbol: list[tuple[str, str]] = []
+                    for tf, pass_type in expected_cells:
+                        current_fp = {
+                            "code_content_key": content_key,
+                            "apr_snapshot_key": apr_snapshot_key,
+                            "upstream_watermark": _compute_upstream_watermark(
+                                conn, symbol, tf, pass_type
+                            ),
+                        }
+                        n_watermark_queries += 1
+                        cell_fps[(tf, pass_type)] = current_fp
+                        stored = stored_fingerprints.get((symbol, tf, pass_type))
+                        if args.refresh or not _fingerprint_is_valid(stored, current_fp):
+                            invalid_this_symbol.append((tf, pass_type))
+                    current_fp_cache[symbol] = cell_fps
+                    if invalid_this_symbol:
+                        symbols_to_compute.append(symbol)
+                        invalid_cells_by_symbol[symbol] = invalid_this_symbol
+
+            # ----------------------------------------------------------
+            # Cross-sectional cell discovery + fingerprint pre-pass (only when
+            # equity_model_enabled): discovers every (regime_group, tf, regime_label)
+            # cell up front (same cs_regimes query the real pass uses below, run
+            # ONCE here and reused -- not duplicated) and computes its validity, so
+            # --dry-run-validity can report BOTH passes' partitions without ever
+            # touching _compute_cross_sectional_tf.
+            # ----------------------------------------------------------
+            symbols_by_group: dict[str, list[str]] = {}
+            for sym in symbols:
+                g = symbol_regime_class.get(sym)
+                if g is not None:
+                    symbols_by_group.setdefault(g, []).append(sym)
+
+            cs_cell_plan: list[dict[str, Any]] = []
+            if equity_model_enabled:
+                for group in enabled_groups:
+                    group_name = group["name"]
+                    group_symbols = symbols_by_group.get(group_name, [])
+                    if not group_symbols:
+                        _logger.info(
+                            "ic_engine.cross_sectional_group_skipped",
+                            regime_group=group_name,
+                            reason="no peer symbols in this run's symbol set",
+                        )
+                        continue
+                    with conn.cursor() as cur:
+                        cur.execute(
+                            "SELECT DISTINCT regime_label FROM market_regimes "
+                            "WHERE regime_group=%s AND tf=%s ORDER BY regime_label",
+                            (group_name, tfs[0]),
+                        )
+                        cs_regimes = [r[0] for r in cur.fetchall()]
+                    for tf in tfs:
+                        for regime_label in cs_regimes:
+                            cs_symbol_key = f"{group_name}:{regime_label}"
+                            current_fp = {
+                                "code_content_key": content_key,
+                                "apr_snapshot_key": apr_snapshot_key,
+                                "upstream_watermark": _compute_upstream_watermark(
+                                    conn,
+                                    symbol=None,
+                                    tf=tf,
+                                    pass_type="cross_sectional",
+                                    regime_group=group_name,
+                                    symbol_list=group_symbols,
+                                ),
+                            }
+                            n_watermark_queries += 1
+                            stored = stored_fingerprints.get((cs_symbol_key, tf, "cross_sectional"))
+                            valid = (not args.refresh) and _fingerprint_is_valid(stored, current_fp)
+                            cs_cell_plan.append(
+                                {
+                                    "group_name": group_name,
+                                    "tf": tf,
+                                    "regime_label": regime_label,
+                                    "group_symbols": group_symbols,
+                                    "cs_symbol_key": cs_symbol_key,
+                                    "valid": valid,
+                                    "current_fp": current_fp,
+                                }
+                            )
+
+            _logger.info("ic_engine.fingerprint_watermark_queries", count=n_watermark_queries)
+            n_cs_skip = sum(1 for c in cs_cell_plan if c["valid"])
+            _logger.info(
+                "ic_engine.fingerprint_partition",
+                n_symbols=len(symbols) if not args.cross_sectional_only else 0,
+                n_symbols_skip=(
+                    (len(symbols) - len(symbols_to_compute)) if not args.cross_sectional_only else 0
+                ),
+                n_symbols_compute=len(symbols_to_compute),
+                n_cs_cells=len(cs_cell_plan),
+                n_cs_skip=n_cs_skip,
+                n_cs_compute=len(cs_cell_plan) - n_cs_skip,
+            )
+
+            if args.dry_run_validity:
+                _logger.info("ic_engine.dry_run_validity_complete", exiting=True)
+                conn.close()
+                conn = None
+                return
+
+            # DELETE stale rows for every invalid per-symbol cell BEFORE dispatch
+            # (T-162-03-02/03: DELETE-then-insert, scoped to the exact cell key --
+            # never a bare training_window_end filter).
+            if invalid_cells_by_symbol:
+                with conn.cursor() as cur:
+                    for symbol, cells in invalid_cells_by_symbol.items():
+                        for tf, pass_type in cells:
+                            cur.execute(
+                                _FINGERPRINT_INVALIDATE_DELETE_SQL,
+                                {
+                                    "symbol": symbol,
+                                    "tf": tf,
+                                    "pass_type": pass_type,
+                                    "training_window_end": training_window_end,
+                                },
+                            )
+                conn.commit()
+
+            # ----------------------------------------------------------
             # Build worker args -- workers open their own read connections.
             # Each symbol's rows are written to feature_ic_scores immediately
             # once its compute finishes (todo 130) -- see _write_symbol_results.
@@ -3802,71 +4279,17 @@ def main() -> None:
             # gauges (which need final passes_fdr) can be emitted once, after the
             # corpus-wide FDR backfill below patches them in place.
             # ----------------------------------------------------------
-            existing_keys_frozen = frozenset(existing_keys)
-            total_skipped = 0
-            total_committed = 0
-            per_symbol_results: list[tuple[str, list[dict]]] = []
-            checkpoint_dir: Path | None = None
-
             if args.cross_sectional_only:
                 _logger.info("ic_engine.skipping_per_symbol_pass", reason="--cross-sectional-only")
                 conn.close()
                 conn = None
             else:
-                # ----------------------------------------------------------
-                # Checkpoint resume: skip recompute for symbols already checkpointed
-                # under this exact code content (see _checkpoint_content_key
-                # docstring -- a checkpoint from changed code is never reused).
-                # Compute-phase resumability only; a resumed symbol's rows are
-                # (re-)written immediately below just like a freshly computed one --
-                # ON CONFLICT DO NOTHING makes this safe whether or not a prior
-                # crashed run already got as far as writing them.
-                # ----------------------------------------------------------
-                content_key = _checkpoint_content_key()
-                checkpoint_dir = _checkpoint_dir(training_window_end, content_key)
-                symbols_to_compute: list[str] = []
-                n_resumed = 0
-
-                # One shared connection for all resumed symbols' writes, opened
-                # lazily on the first resumed checkpoint (never opened at all if
-                # nothing resumes) -- this loop is pure disk-checkpoint-read +
-                # DB-write with no compute between iterations, unlike the
-                # as_completed loop below (which waits on other workers between
-                # results), so there's no idle-connection risk in holding one
-                # connection across it.
-                resume_conn = None
-                try:
-                    for symbol in symbols:
-                        checkpointed = _load_checkpoint(checkpoint_dir, symbol)
-                        if checkpointed is None or checkpointed.get("error"):
-                            symbols_to_compute.append(symbol)
-                            continue
-                        resume_conn = resume_conn or _connect_db(settings)
-                        total_committed += _record_symbol_result(
-                            settings, checkpointed, per_symbol_results, conn=resume_conn
-                        )
-                        total_skipped += checkpointed["n_skipped"]
-                        IC_ENGINE_SYMBOLS_COMPLETED_TOTAL.add(1, {"source": "checkpoint"})
-                        n_resumed += 1
-                finally:
-                    if resume_conn is not None:
-                        resume_conn.close()
-
-                if n_resumed:
-                    _logger.info(
-                        "ic_engine.checkpoint_resumed",
-                        n_resumed=n_resumed,
-                        n_remaining=len(symbols_to_compute),
-                        checkpoint_dir=str(checkpoint_dir),
-                    )
-
                 worker_args = [
                     (
                         symbol,
                         tfs,
                         settings.database_url,
                         training_window_end,
-                        existing_keys_frozen,
                         config,
                         run_ts,
                         feature_status_map,
@@ -3902,15 +4325,13 @@ def main() -> None:
                 # submission order -- pool.map buffers a fast worker's result
                 # behind a slower earlier-submitted one, which on 2026-07-12
                 # made 5 already-finished symbols invisible for ~2 hours behind
-                # one slow one. Each result is checkpointed immediately so a
-                # kill/restart only redoes symbols not yet reported here, AND
-                # written to feature_ic_scores immediately (todo 130) so a crash
-                # anywhere in the rest of the run keeps this symbol's compute
-                # durable -- BH-FDR annotation is backfilled separately, after
-                # the whole corpus (including the cross-sectional pass below) is
-                # done, by _backfill_bh_fdr.
+                # one slow one. Written to feature_ic_scores immediately (todo
+                # 130) so a crash anywhere in the rest of the run keeps this
+                # symbol's compute durable -- BH-FDR annotation is backfilled
+                # separately, after the whole corpus (including the cross-
+                # sectional pass below) is done, by _backfill_bh_fdr.
                 # ----------------------------------------------------------
-                n_done = n_resumed
+                n_done = 0
                 if worker_args:
                     with ProcessPoolExecutor(max_workers=n_workers) as pool:
                         futures = {pool.submit(_run_ic_worker, wa): wa[0] for wa in worker_args}
@@ -3932,20 +4353,40 @@ def main() -> None:
                                 # the crash-loud ceiling produces a durable audit
                                 # trail matching the outer-exception path below.
                                 manifest.add_error(result["error"])
-                                # No checkpoint on error -- a retry recomputes this
-                                # symbol from scratch. But a per-tf error still
-                                # leaves any OTHER tf's already-computed rows in
-                                # result["pooled_rows"]/["regime_rows"] (each tf
-                                # is caught independently inside the worker) --
-                                # those still get written below, never dropped
-                                # (Renaissance: never discard data that could
-                                # contain signal).
-                            else:
-                                _save_checkpoint(checkpoint_dir, symbol, result)
+                                # No fingerprint UPSERT on error -- a retry
+                                # recomputes this symbol from scratch (its
+                                # fingerprint row, if any, is left as-is/stale,
+                                # so the next run correctly re-invalidates it).
+                                # A per-tf error still leaves any OTHER tf's
+                                # already-computed rows in result["pooled_rows"]/
+                                # ["regime_rows"] (each tf is caught
+                                # independently inside the worker) -- those still
+                                # get written below, never dropped (Renaissance:
+                                # never discard data that could contain signal).
                             total_committed += _record_symbol_result(
                                 settings, result, per_symbol_results
                             )
                             total_skipped += result["n_skipped"]
+                            if not result["error"]:
+                                # UPSERT fingerprint rows for ALL of this symbol's
+                                # expected cells (not just the ones found invalid)
+                                # -- the whole symbol was recomputed, so every
+                                # cell's fingerprint is now definitively fresh.
+                                fp_rows = [
+                                    {
+                                        "symbol": symbol,
+                                        "tf": tf,
+                                        "pass_type": pass_type,
+                                        "training_window_end": training_window_end,
+                                        "code_content_key": fp["code_content_key"],
+                                        "apr_snapshot_key": fp["apr_snapshot_key"],
+                                        "upstream_watermark": json.dumps(fp["upstream_watermark"]),
+                                    }
+                                    for (tf, pass_type), fp in current_fp_cache.get(
+                                        symbol, {}
+                                    ).items()
+                                ]
+                                _upsert_cell_fingerprints(settings, fp_rows)
                             n_done += 1
                             IC_ENGINE_SYMBOLS_COMPLETED_TOTAL.add(1, {"source": "fresh"})
                             _logger.info(
@@ -3953,7 +4394,7 @@ def main() -> None:
                                 symbol=symbol,
                                 n_rows=len(result["all_results"]),
                                 n_skipped=result["n_skipped"],
-                                progress=f"{n_done}/{len(symbols)}",
+                                progress=f"{n_done}/{len(symbols_to_compute)}",
                             )
 
             # ----------------------------------------------------------
@@ -3975,11 +4416,6 @@ def main() -> None:
                 cs_rng = np.random.default_rng(
                     seed=_derive_worker_rng_seed("cross_sectional", config.bootstrap_seed)
                 )
-                symbols_by_group: dict[str, list[str]] = {}
-                for sym in symbols:
-                    g = symbol_regime_class.get(sym)
-                    if g is not None:
-                        symbols_by_group.setdefault(g, []).append(sym)
 
                 # No long-lived connection here (todo 125, 2026-07-17): each cell in the
                 # loop below now opens its own short-lived connection inside
@@ -3988,52 +4424,78 @@ def main() -> None:
                 # before) meant it sat idle for hours at a time and was silently killed
                 # mid-pass -- the exact cause of the 143.1-07 corpus re-run's repeated
                 # "server closed the connection unexpectedly" crash.
-                for group in enabled_groups:
-                    group_name = group["name"]
-                    group_symbols = symbols_by_group.get(group_name, [])
-                    if not group_symbols:
+                #
+                # cs_cell_plan was discovered + fingerprint-checked in the pre-pass
+                # above (same cs_regimes query, run once) -- a fingerprint-valid cell
+                # skips _compute_cross_sectional_tf entirely (its multi-hour fetch+
+                # compute is never invoked, not just its insert), an invalid one is
+                # DELETE-then-recomputed and its fingerprint UPSERTed on success.
+                for cell in cs_cell_plan:
+                    group_name = cell["group_name"]
+                    tf = cell["tf"]
+                    regime_label = cell["regime_label"]
+                    group_symbols = cell["group_symbols"]
+                    cs_symbol_key = cell["cs_symbol_key"]
+
+                    if cell["valid"]:
                         _logger.info(
-                            "ic_engine.cross_sectional_group_skipped",
+                            "ic_engine.cross_sectional_cell_skipped_fingerprint_valid",
                             regime_group=group_name,
-                            reason="no peer symbols in this run's symbol set",
+                            tf=tf,
+                            regime=regime_label,
                         )
                         continue
 
-                    with _short_lived_conn(settings) as regime_list_conn:
-                        with regime_list_conn.cursor() as cur:
+                    with _short_lived_conn(settings) as delete_conn:
+                        with delete_conn.cursor() as cur:
                             cur.execute(
-                                "SELECT DISTINCT regime_label FROM market_regimes "
-                                "WHERE regime_group=%s AND tf=%s ORDER BY regime_label",
-                                (group_name, tfs[0]),
+                                _FINGERPRINT_INVALIDATE_DELETE_CROSS_SECTIONAL_SQL,
+                                {
+                                    "symbol": _CROSS_SECTIONAL_SYMBOL,
+                                    "tf": tf,
+                                    "regime_label": regime_label,
+                                    "training_window_end": training_window_end,
+                                },
                             )
-                            cs_regimes = [r[0] for r in cur.fetchall()]
-                        regime_list_conn.commit()
+                        delete_conn.commit()
 
-                    for tf in tfs:
-                        for regime_label in cs_regimes:
-                            cs_rows, cs_stats = _compute_cross_sectional_tf(
-                                dsn=settings.database_url,
-                                tf=tf,
-                                regime_label=regime_label,
-                                regime_group=group_name,
-                                symbol_list=group_symbols,
-                                training_window_end=training_window_end,
-                                existing_keys=existing_keys_frozen,
-                                config=config,
-                                tracer=tracer,
-                                run_ts=run_ts,
-                                rng=cs_rng,
-                                feature_status_map=feature_status_map,
-                            )
-                            total_committed += _write_cs_cell_results(settings, cs_rows)
-                            total_skipped += cs_stats.get("n_skipped", 0)
-                            _logger.info(
-                                "ic_engine.cross_sectional_computed",
-                                regime_group=group_name,
-                                tf=tf,
-                                regime=regime_label,
-                                n_rows=len(cs_rows),
-                            )
+                    cs_rows, cs_stats = _compute_cross_sectional_tf(
+                        dsn=settings.database_url,
+                        tf=tf,
+                        regime_label=regime_label,
+                        regime_group=group_name,
+                        symbol_list=group_symbols,
+                        training_window_end=training_window_end,
+                        config=config,
+                        tracer=tracer,
+                        run_ts=run_ts,
+                        rng=cs_rng,
+                        feature_status_map=feature_status_map,
+                    )
+                    total_committed += _write_cs_cell_results(settings, cs_rows)
+                    total_skipped += cs_stats.get("n_skipped", 0)
+                    fp = cell["current_fp"]
+                    _upsert_cell_fingerprints(
+                        settings,
+                        [
+                            {
+                                "symbol": cs_symbol_key,
+                                "tf": tf,
+                                "pass_type": "cross_sectional",
+                                "training_window_end": training_window_end,
+                                "code_content_key": fp["code_content_key"],
+                                "apr_snapshot_key": fp["apr_snapshot_key"],
+                                "upstream_watermark": json.dumps(fp["upstream_watermark"]),
+                            }
+                        ],
+                    )
+                    _logger.info(
+                        "ic_engine.cross_sectional_computed",
+                        regime_group=group_name,
+                        tf=tf,
+                        regime=regime_label,
+                        n_rows=len(cs_rows),
+                    )
 
             # ----------------------------------------------------------
             # Corpus-level BH-FDR backfill (P2 fix; todo 130) through the
@@ -4189,16 +4651,10 @@ def main() -> None:
             manifest_path = manifest.write()
             _logger.info("ic_engine.manifest_written", path=str(manifest_path))
 
-            # Checkpoints are compute-phase resumability aids only, not an audit
-            # trail -- once the corpus-wide write+lifecycle hook above are durable,
-            # a fully successful run has no further use for them. Only clean up on
-            # a clean run (status == "success"): if any symbol failed, leave the
-            # successful symbols' checkpoints in place so a retry can skip them.
-            if checkpoint_dir is not None and status == "success" and checkpoint_dir.exists():
-                for f in checkpoint_dir.glob("*.pkl"):
-                    f.unlink()
-                checkpoint_dir.rmdir()
-                _logger.info("ic_engine.checkpoints_cleaned", checkpoint_dir=str(checkpoint_dir))
+            # 162-03: no .pkl checkpoint cleanup -- the checkpoint system is deleted
+            # (see the module-level comment above _write_symbol_results). Per-symbol
+            # immediate writes + the cross-run fingerprint gate are the durability
+            # and resumability mechanism now; there is nothing on disk to clean up.
 
             _logger.info(
                 "ic_engine.run_complete",
