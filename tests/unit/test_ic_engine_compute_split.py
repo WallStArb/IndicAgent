@@ -38,12 +38,14 @@ def test_compute_symbol_tf_return_keys():
     # Check function signature
     sig = inspect.signature(_compute_symbol_tf)
     params = list(sig.parameters.keys())
+    # 162-03: existing_keys removed -- the whole-cell fingerprint gate in main()
+    # is the sole skip decision now, replacing the per-feature existing_keys
+    # snapshot this function used to receive.
     expected_params = [
         "dsn",
         "symbol",
         "tf",
         "training_window_end",
-        "existing_keys",
         "config",
         "tracer",
         "run_ts",
@@ -425,7 +427,6 @@ def test_cell_too_large_error_raised_by_both_cell_functions():
             symbol="TEST",
             tf="1d",
             rng=rng,
-            existing_keys=set(),
             training_window_end=None,
             feature_status_map=None,
             run_ts=None,
@@ -440,7 +441,6 @@ def test_cell_too_large_error_raised_by_both_cell_functions():
             config=tiny_config,
             tf="1d",
             rng=rng,
-            existing_keys=set(),
             training_window_end=None,
             feature_status_map=None,
             run_ts=None,

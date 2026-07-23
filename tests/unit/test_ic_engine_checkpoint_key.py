@@ -21,7 +21,7 @@ _project_root = Path(__file__).parent.parent.parent
 if str(_project_root) not in sys.path:
     sys.path.insert(0, str(_project_root))
 
-from services.ic_engine import _checkpoint_content_key, _checkpoint_dir
+from services.ic_engine import _checkpoint_content_key
 
 
 def test_content_key_is_deterministic_for_unchanged_modules() -> None:
@@ -73,7 +73,9 @@ def test_content_key_ignores_modules_outside_first_party_roots(monkeypatch) -> N
     assert after == before
 
 
-def test_checkpoint_dir_embeds_content_key() -> None:
-    d = _checkpoint_dir("2025-12-24 05:15:00+00:00", "abc123def456")
-    assert d.name.endswith("_abc123def456")
-    assert "logs/ic_engine_checkpoints" in str(d)
+# 162-03 Task 3 (todo 122): the .pkl checkpoint system (_checkpoint_dir,
+# _load_checkpoint, _save_checkpoint) is deleted outright -- the fingerprint
+# gate + per-symbol immediate writes fully supersede it. _checkpoint_content_key
+# is KEPT (reused verbatim as the fingerprint's code_content_key component),
+# so this module's tests above still apply unchanged; only the now-deleted
+# _checkpoint_dir's own test is removed.

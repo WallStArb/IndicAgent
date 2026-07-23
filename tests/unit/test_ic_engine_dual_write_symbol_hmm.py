@@ -10,12 +10,19 @@ arbitrary feature count. The real _compute_one_regime_cell derives n_features fr
 the module-level `len(_FEATURE_NAMES)` constant (the production FeatureVector
 schema, 155 fields) -- NOT from X_aligned.shape[1] -- so a synthetic X with a
 different column count crashes inside _expand() (mask/array length mismatch).
-_synthetic_inputs() below always builds X with the real _FEATURE_NAMES width, and
-test_existing_keys_dedup_skips_cell() checks for the deduped key's absence from
-the second call's rows rather than asserting the whole result list is empty
-(with 155 real features, only the one deduped feature/lookahead key drops out --
-the rest of the 154 features still produce rows normally). This is a test-fixture
-correction only; the extracted function body itself is untouched.
+_synthetic_inputs() below always builds X with the real _FEATURE_NAMES width.
+
+162-03 Task 3 update: _compute_one_regime_cell no longer accepts an existing_keys
+parameter -- the whole-cell fingerprint gate in main() is now the SOLE skip
+decision, applied BEFORE this function is ever called, so a dispatched cell
+always recomputes every feature unconditionally. The former
+test_existing_keys_dedup_skips_cell() (which proved the per-feature dedup
+mechanism this function used to implement) is replaced below by
+test_compute_one_regime_cell_always_recomputes_every_feature, which proves the
+inverse: two consecutive calls with identical inputs both return the FULL row
+set every time, with no signature or behavior for suppressing a subset. The
+existing_keys-removal structural regression (no parameter, no source reference)
+is covered separately by tests/unit/test_ic_engine_fingerprint.py.
 """
 
 from __future__ import annotations
@@ -99,7 +106,6 @@ def test_pooled_cell_produces_is_pooled_true_rows():
         symbol="TEST",
         tf="5m",
         rng=rng,
-        existing_keys=frozenset(),
         training_window_end=None,
         feature_status_map=None,
         run_ts=None,
@@ -128,7 +134,6 @@ def test_regime_cell_uses_resolved_regime_scope_param():
         symbol="TLT",
         tf="5m",
         rng=rng,
-        existing_keys=frozenset(),
         training_window_end=None,
         feature_status_map=None,
         run_ts=None,
@@ -139,17 +144,19 @@ def test_regime_cell_uses_resolved_regime_scope_param():
     assert all(r["is_pooled"] is False for r in rows)
 
 
-def test_existing_keys_dedup_skips_cell():
-    """A cell_key already in existing_keys must be skipped (n_skipped incremented),
-    never re-appended to result rows -- this is the existing dedup behavior, must
-    survive the extraction unchanged."""
+def test_compute_one_regime_cell_always_recomputes_every_feature():
+    """162-03: _compute_one_regime_cell has no per-feature skip mechanism of its
+    own -- the whole-cell fingerprint gate in main() is the SOLE skip decision,
+    applied BEFORE this function is ever called. Two consecutive calls with
+    identical inputs must both return the full row set every time (same feature/
+    lookahead keys present both times), proving no dedup/suppression happens
+    inside this function anymore.
+    """
     X, returns_mat, complete_mat = _synthetic_inputs()
     config = _make_config()
     mask = np.ones(len(X), dtype=bool)
 
-    # First call to discover one (feature, lookahead) key this synthetic run
-    # produces.
-    rows, _ = _compute_one_regime_cell(
+    rows, n_skipped = _compute_one_regime_cell(
         "trending_up",
         False,
         mask,
@@ -161,16 +168,11 @@ def test_existing_keys_dedup_skips_cell():
         symbol="TLT",
         tf="5m",
         rng=np.random.default_rng(1),
-        existing_keys=frozenset(),
         training_window_end="2026-01-01",
         feature_status_map=None,
         run_ts=None,
     )
     assert len(rows) > 0
-    feat_name = rows[0]["feature_name"]
-    lookahead_bars = rows[0]["lookahead_bars"]
-    dedup_key = (feat_name, "TLT", "5m", "trending_up", lookahead_bars, False)
-    existing = frozenset({dedup_key})
 
     rows2, n_skipped2 = _compute_one_regime_cell(
         "trending_up",
@@ -184,17 +186,24 @@ def test_existing_keys_dedup_skips_cell():
         symbol="TLT",
         tf="5m",
         rng=np.random.default_rng(2),
-        existing_keys=existing,
         training_window_end="2026-01-01",
         feature_status_map=None,
         run_ts=None,
     )
-    kept_keys = {
+    keys1 = {
+        (r["feature_name"], r["symbol"], r["tf"], r["regime"], r["lookahead_bars"], r["is_pooled"])
+        for r in rows
+    }
+    keys2 = {
         (r["feature_name"], r["symbol"], r["tf"], r["regime"], r["lookahead_bars"], r["is_pooled"])
         for r in rows2
     }
-    assert dedup_key not in kept_keys
-    assert n_skipped2 >= 1
+    assert keys1 == keys2, "identical inputs must produce the identical full key set both times"
+    assert len(rows) == len(rows2)
+    # n_skipped only ever reflects degenerate-feature/insufficient-n skips now,
+    # never an "already_present" dedup skip -- both calls have identical inputs,
+    # so their skip counts must match exactly.
+    assert n_skipped == n_skipped2
 
 
 def test_group_cells_for_metrics_treats_regime_scope_as_part_of_grouping_key():

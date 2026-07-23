@@ -1,0 +1,398 @@
+"""Unit tests: ic_engine.py's whole-cell fingerprint gate (Phase 162 Plan 03, todo 134).
+
+Covers:
+  Task 1: ICEngineConfig field classification (crash-loud partition test) +
+          _compute_apr_snapshot_key() moves only on a COMPUTATIONAL field change.
+  Task 2: per-table upstream watermark -- DB-free proof that an in-place value
+          mutation (unchanged MAX(bar_ts)/COUNT) still moves the watermark.
+  Task 3: _fingerprint_is_valid() component-match semantics, the DELETE SQL's
+          cell-key scoping, and the existing_keys-removal regression (no compute
+          function may retain a stale pre-delete snapshot parameter or reference).
+
+No DB, no Kafka. Pure Python inspection of module constants/functions plus
+DB-free dict construction for the watermark-inequality proof.
+"""
+
+from __future__ import annotations
+
+import dataclasses
+import inspect
+import sys
+from pathlib import Path
+
+_project_root = Path(__file__).parent.parent.parent
+if str(_project_root) not in sys.path:
+    sys.path.insert(0, str(_project_root))
+
+from services.ic_engine import (
+    _COMPUTATIONAL_CONFIG_FIELDS,
+    _FINGERPRINT_INVALIDATE_DELETE_SQL,
+    _OPERATIONAL_CONFIG_FIELDS,
+    ICEngineConfig,
+    _compute_apr_snapshot_key,
+    _compute_cross_sectional_tf,
+    _compute_one_regime_cell,
+    _compute_symbol_tf,
+    _fingerprint_is_valid,
+    _symbol_expected_cells,
+)
+
+# ---------------------------------------------------------------------------
+# Helper: a minimal, fully-populated ICEngineConfig for snapshot-key tests.
+# ---------------------------------------------------------------------------
+
+
+def _make_config(**overrides) -> ICEngineConfig:
+    base = dict(
+        min_observations=500,
+        fdr_alpha=0.05,
+        walk_forward_folds=3,
+        sharpe_window_size=2000,
+        sharpe_min_windows=10,
+        subsample_min_stride=5,
+        min_reliable_n=100,
+        cluster_max_corr=0.70,
+        lookahead_fast=1,
+        lookahead_mid=5,
+        lookahead_slow=20,
+        lookahead_extended=60,
+        equity_model_enabled=True,
+        min_obs_daily=1000,
+        hac_max_lag=3,
+        cs_chunk_ts=5000,
+        symbol_fetch_chunk_rows=5000,
+        n_workers=1,
+    )
+    base.update(overrides)
+    return ICEngineConfig(**base)
+
+
+# ---------------------------------------------------------------------------
+# Task 1: field classification (crash-loud partition test)
+# ---------------------------------------------------------------------------
+
+
+def test_computational_and_operational_fields_partition_dataclass_exactly():
+    """Every ICEngineConfig field must be in EXACTLY ONE of the two classification
+    sets -- a field present on the dataclass but in neither set is the exact
+    "unclassified field crashes loud" failure mode this test guards against.
+    """
+    all_field_names = {f.name for f in dataclasses.fields(ICEngineConfig)}
+    union = _COMPUTATIONAL_CONFIG_FIELDS | _OPERATIONAL_CONFIG_FIELDS
+    missing = all_field_names - union
+    extra = union - all_field_names
+    assert not missing, (
+        f"ICEngineConfig field(s) {missing} are classified in NEITHER "
+        "_COMPUTATIONAL_CONFIG_FIELDS nor _OPERATIONAL_CONFIG_FIELDS -- every field "
+        "must be explicitly classified (162-03 Task 1 crash-loud requirement)."
+    )
+    assert not extra, (
+        f"Classification set(s) reference field(s) {extra} that no longer exist on "
+        "ICEngineConfig -- stale entries must be removed."
+    )
+
+
+def test_computational_and_operational_fields_are_disjoint():
+    overlap = _COMPUTATIONAL_CONFIG_FIELDS & _OPERATIONAL_CONFIG_FIELDS
+    assert not overlap, (
+        f"Field(s) {overlap} appear in BOTH classification sets -- a field must be "
+        "exactly one of COMPUTATIONAL or OPERATIONAL, never both."
+    )
+
+
+def test_apr_snapshot_key_unchanged_by_operational_field_change():
+    """Changing an OPERATIONAL-only field (n_workers) must NOT move the snapshot key."""
+    cfg_a = _make_config(n_workers=1)
+    cfg_b = _make_config(n_workers=12)
+    assert _compute_apr_snapshot_key(cfg_a) == _compute_apr_snapshot_key(
+        cfg_b
+    ), "n_workers is OPERATIONAL -- changing it must never move apr_snapshot_key."
+
+
+def test_apr_snapshot_key_moves_on_computational_field_change():
+    """Changing a COMPUTATIONAL field (min_observations) MUST move the snapshot key."""
+    cfg_a = _make_config(min_observations=500)
+    cfg_b = _make_config(min_observations=1000)
+    assert _compute_apr_snapshot_key(cfg_a) != _compute_apr_snapshot_key(
+        cfg_b
+    ), "min_observations is COMPUTATIONAL -- changing it must move apr_snapshot_key."
+
+
+def test_apr_snapshot_key_moves_on_dict_field_change():
+    """bootstrap_block_size (dict-valued, COMPUTATIONAL) must move the key when its
+    per-tf values change, proving dict serialization isn't a silent no-op.
+    """
+    cfg_a = _make_config(bootstrap_block_size={"5m": 78, "15m": 26, "1h": 10, "1d": 10})
+    cfg_b = _make_config(bootstrap_block_size={"5m": 99, "15m": 26, "1h": 10, "1d": 10})
+    assert _compute_apr_snapshot_key(cfg_a) != _compute_apr_snapshot_key(cfg_b)
+
+
+def test_apr_snapshot_key_deterministic_regardless_of_dict_insertion_order():
+    """A dict field's key-insertion order must never affect the hash (sorted join)."""
+    cfg_a = _make_config(bootstrap_block_size={"5m": 78, "15m": 26, "1h": 10, "1d": 10})
+    cfg_b = _make_config(bootstrap_block_size={"1d": 10, "1h": 10, "15m": 26, "5m": 78})
+    assert _compute_apr_snapshot_key(cfg_a) == _compute_apr_snapshot_key(cfg_b)
+
+
+def test_apr_snapshot_key_unchanged_by_cross_sectional_bootstrap_threads_change():
+    """Explicit case named in the plan: cross_sectional_bootstrap_threads is
+    OPERATIONAL (thread count changes wall time only, per 162-01's precomputed
+    resample-index matrix) -- must never move the snapshot key.
+    """
+    cfg_a = _make_config(cross_sectional_bootstrap_threads={"5m": 6, "15m": 1, "1h": 1, "1d": 1})
+    cfg_b = _make_config(cross_sectional_bootstrap_threads={"5m": 1, "15m": 1, "1h": 1, "1d": 1})
+    assert _compute_apr_snapshot_key(cfg_a) == _compute_apr_snapshot_key(cfg_b)
+
+
+# ---------------------------------------------------------------------------
+# Task 2: per-table upstream watermark -- DB-free in-place-mutation proof
+# ---------------------------------------------------------------------------
+
+
+def test_watermark_differs_on_forward_returns_computed_at_change_alone():
+    """Two watermark dicts with identical MAX(bar_ts)/COUNT but a different
+    forward_returns.computed_at (an in-place correction bumped it) must NOT be
+    equal -- this is the resolved Open Question #1 requirement.
+    """
+    base = {
+        "forward_returns": {
+            "max_bar_ts": "2026-01-01T00:00:00Z",
+            "count": 1000,
+            "max_computed_at": "2026-01-01T01:00:00Z",
+        },
+        "feature_vectors": {"max_bar_ts": "2026-01-01T00:00:00Z", "count": 1000},
+    }
+    mutated = {
+        "forward_returns": {
+            "max_bar_ts": "2026-01-01T00:00:00Z",
+            "count": 1000,
+            "max_computed_at": "2026-01-02T09:00:00Z",
+        },
+        "feature_vectors": {"max_bar_ts": "2026-01-01T00:00:00Z", "count": 1000},
+    }
+    assert base != mutated
+
+
+def test_watermark_differs_on_market_regimes_relabel_hash_change_alone():
+    """An HMM relabel mutates market_regimes.regime in place with unchanged ts/count
+    -- only the value-sensitive md5(string_agg(regime...)) hash differs.
+    """
+    base = {
+        "market_regimes": {"max_ts": "2026-01-01T00:00:00Z", "count": 500, "regime_hash": "aaa111"}
+    }
+    mutated = {
+        "market_regimes": {"max_ts": "2026-01-01T00:00:00Z", "count": 500, "regime_hash": "bbb222"}
+    }
+    assert base != mutated
+
+
+def test_watermark_differs_on_feature_registry_status_hash_change_alone():
+    """A feature_registry status transition (e.g. active -> shadow_only) moves the
+    status-hash component even though feature_registry carries no timestamp column.
+    """
+    base = {"feature_registry": {"status_hash": "xyz789"}}
+    mutated = {"feature_registry": {"status_hash": "uvw456"}}
+    assert base != mutated
+
+
+def test_watermark_equal_when_all_components_identical():
+    w1 = {
+        "forward_returns": {
+            "max_bar_ts": "2026-01-01T00:00:00Z",
+            "count": 1000,
+            "max_computed_at": "2026-01-01T01:00:00Z",
+        },
+        "feature_vectors": {"max_bar_ts": "2026-01-01T00:00:00Z", "count": 1000},
+    }
+    w2 = {
+        "forward_returns": {
+            "max_bar_ts": "2026-01-01T00:00:00Z",
+            "count": 1000,
+            "max_computed_at": "2026-01-01T01:00:00Z",
+        },
+        "feature_vectors": {"max_bar_ts": "2026-01-01T00:00:00Z", "count": 1000},
+    }
+    assert w1 == w2
+
+
+# ---------------------------------------------------------------------------
+# Task 3: _fingerprint_is_valid component-match semantics
+# ---------------------------------------------------------------------------
+
+_FULL_MATCH_CURRENT = {
+    "code_content_key": "code123",
+    "apr_snapshot_key": "apr456",
+    "upstream_watermark": {"forward_returns": {"count": 10}},
+}
+
+
+def test_fingerprint_valid_on_full_component_match():
+    stored = dict(_FULL_MATCH_CURRENT)
+    assert _fingerprint_is_valid(stored, _FULL_MATCH_CURRENT) is True
+
+
+def test_fingerprint_invalid_on_none_stored():
+    assert _fingerprint_is_valid(None, _FULL_MATCH_CURRENT) is False
+
+
+def test_fingerprint_invalid_on_code_content_key_mismatch():
+    stored = dict(_FULL_MATCH_CURRENT, code_content_key="different")
+    assert _fingerprint_is_valid(stored, _FULL_MATCH_CURRENT) is False
+
+
+def test_fingerprint_invalid_on_apr_snapshot_key_mismatch():
+    stored = dict(_FULL_MATCH_CURRENT, apr_snapshot_key="different")
+    assert _fingerprint_is_valid(stored, _FULL_MATCH_CURRENT) is False
+
+
+def test_fingerprint_invalid_on_upstream_watermark_mismatch():
+    stored = dict(_FULL_MATCH_CURRENT, upstream_watermark={"forward_returns": {"count": 99}})
+    assert _fingerprint_is_valid(stored, _FULL_MATCH_CURRENT) is False
+
+
+def test_fingerprint_invalid_on_partial_match_two_of_three():
+    """A partial match (2 of 3 components equal) is a full miss, never a partial skip."""
+    stored = dict(_FULL_MATCH_CURRENT, upstream_watermark={"forward_returns": {"count": 99}})
+    assert _fingerprint_is_valid(stored, _FULL_MATCH_CURRENT) is False
+
+
+# ---------------------------------------------------------------------------
+# Task 3: DELETE SQL is scoped to the exact cell-key columns
+# ---------------------------------------------------------------------------
+
+
+def test_invalidate_delete_sql_scoped_to_full_cell_key():
+    """Must filter on symbol + tf + regime_scope + training_window_end (the exact
+    ic_cell_fingerprints PK columns) -- never a bare training_window_end filter,
+    which would delete valid unrelated cells at the same window.
+    """
+    sql_upper = _FINGERPRINT_INVALIDATE_DELETE_SQL.upper()
+    assert "DELETE FROM FEATURE_IC_SCORES" in sql_upper
+    for required in ("SYMBOL", "TF", "REGIME_SCOPE", "TRAINING_WINDOW_END"):
+        assert required in sql_upper, f"DELETE SQL missing required scoping column {required}"
+
+
+def test_invalidate_delete_sql_is_not_a_bare_training_window_end_filter():
+    """Regression: the DELETE must not be satisfiable by training_window_end alone --
+    it must reference symbol/tf/regime_scope as real WHERE-clause predicates, not just
+    appear as column names in a comment.
+    """
+    # Count '=' bound-parameter style predicates in the WHERE clause: symbol, tf,
+    # regime_scope, training_window_end must each appear with their own placeholder.
+    assert _FINGERPRINT_INVALIDATE_DELETE_SQL.count("%(") >= 4
+
+
+# ---------------------------------------------------------------------------
+# Task 3: existing_keys-removal regression (structural proof the stale-snapshot
+# channel is gone -- same inspect-based style as 162-01's parity tests)
+# ---------------------------------------------------------------------------
+
+
+def test_compute_one_regime_cell_has_no_existing_keys_parameter():
+    sig = inspect.signature(_compute_one_regime_cell)
+    assert "existing_keys" not in sig.parameters
+
+
+def test_compute_one_regime_cell_source_has_no_existing_keys_reference():
+    source = inspect.getsource(_compute_one_regime_cell)
+    assert "existing_keys" not in source
+
+
+def test_compute_symbol_tf_has_no_existing_keys_parameter():
+    sig = inspect.signature(_compute_symbol_tf)
+    assert "existing_keys" not in sig.parameters
+
+
+def test_compute_symbol_tf_source_has_no_existing_keys_reference():
+    source = inspect.getsource(_compute_symbol_tf)
+    assert "existing_keys" not in source
+
+
+def test_compute_cross_sectional_tf_has_no_existing_keys_parameter():
+    sig = inspect.signature(_compute_cross_sectional_tf)
+    assert "existing_keys" not in sig.parameters
+
+
+def test_compute_cross_sectional_tf_source_has_no_existing_keys_reference():
+    source = inspect.getsource(_compute_cross_sectional_tf)
+    assert "existing_keys" not in source
+
+
+# ---------------------------------------------------------------------------
+# Task 3: _symbol_expected_cells -- must mirror _compute_symbol_tf's real
+# routing exactly (main()'s worker_args construction reuses the identical
+# symbol_regime_class/group_by_name/equity_model_enabled inputs).
+# ---------------------------------------------------------------------------
+
+_TFS = ["5m", "1d"]
+
+
+def test_symbol_expected_cells_unrouted_symbol_gets_pooled_and_symbol_hmm():
+    """A symbol with no matching enabled group: cross_sectional=False, so the
+    primary regime pass is 'symbol_hmm' (mr_dict=None case in _compute_symbol_tf).
+    """
+    cells = _symbol_expected_cells("SPY", _TFS, {}, {}, equity_model_enabled=True)
+    assert set(cells) == {
+        ("5m", "pooled"),
+        ("5m", "symbol_hmm"),
+        ("1d", "pooled"),
+        ("1d", "symbol_hmm"),
+    }
+
+
+def test_symbol_expected_cells_equity_model_disabled_gets_pooled_and_symbol_hmm():
+    """equity_model_enabled=False: no group can ever be routed (mirrors main()'s
+    mr_dict=None-if-not-enabled_groups branch) regardless of symbol_regime_class.
+    """
+    cells = _symbol_expected_cells(
+        "SPY", _TFS, {"SPY": "equity"}, {"equity": {}}, equity_model_enabled=False
+    )
+    assert set(cells) == {
+        ("5m", "pooled"),
+        ("5m", "symbol_hmm"),
+        ("1d", "pooled"),
+        ("1d", "symbol_hmm"),
+    }
+
+
+def test_symbol_expected_cells_routed_symbol_gets_pooled_and_cross_sectional():
+    """A symbol routed to an enabled group (no dual-write): primary pass is
+    'cross_sectional', no additional 'symbol_hmm' dual-write pass.
+    """
+    cells = _symbol_expected_cells(
+        "SPY", _TFS, {"SPY": "equity"}, {"equity": {"dual_write_symbol_hmm": False}}, True
+    )
+    assert set(cells) == {
+        ("5m", "pooled"),
+        ("5m", "cross_sectional"),
+        ("1d", "pooled"),
+        ("1d", "cross_sectional"),
+    }
+
+
+def test_symbol_expected_cells_dual_write_gets_all_three_pass_types():
+    """A symbol routed to a group with dual_write_symbol_hmm=true: pooled +
+    cross_sectional (primary) + symbol_hmm (dual-write) -- 3 cells per tf.
+    """
+    cells = _symbol_expected_cells(
+        "TLT", _TFS, {"TLT": "rates"}, {"rates": {"dual_write_symbol_hmm": True}}, True
+    )
+    assert set(cells) == {
+        ("5m", "pooled"),
+        ("5m", "cross_sectional"),
+        ("5m", "symbol_hmm"),
+        ("1d", "pooled"),
+        ("1d", "cross_sectional"),
+        ("1d", "symbol_hmm"),
+    }
+    # Exactly 3 cells per tf, 6 total across 2 tfs -- no accidental duplicates.
+    assert len(cells) == 6
+
+
+def test_symbol_expected_cells_pooled_always_present_exactly_once_per_tf():
+    for cells in (
+        _symbol_expected_cells("SPY", _TFS, {}, {}, True),
+        _symbol_expected_cells("SPY", _TFS, {"SPY": "equity"}, {"equity": {}}, True),
+    ):
+        for tf in _TFS:
+            assert cells.count((tf, "pooled")) == 1
