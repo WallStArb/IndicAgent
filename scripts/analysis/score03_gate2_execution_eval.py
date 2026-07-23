@@ -75,15 +75,17 @@ _DEFAULT_LOOK_LOG_PATH = ".planning/gate_look_log.jsonl"
 # bar_ts >= $2 (OOS side, D-02/D-03); frame_variant='primary' (sole variant this phase
 # writes); status != 'open' (closed frames only -- an open frame has no
 # counterfactual_pnl_r to gate on). bar_ts::date is the per-frame calendar-day cluster_id.
-# Deterministic tie-break: this population has ~22-way bar_ts ties (33,892 rows across only
-# 1,534 distinct bar_ts, cross-sectional over the active symbol universe at each timestamp).
-# `ORDER BY bar_ts ASC` alone leaves tied rows in whatever order Postgres's query plan happens
-# to return -- not guaranteed stable across executions/plans -- which silently makes
-# order-sensitive statistics (the cumulative-equity max-drawdown walk; the regime-cell
-# bootstrap's cluster-array construction order) non-reproducible even on unchanged data.
-# frame_id (part of alpha_frames' own (frame_id, bar_ts) primary key) gives a full,
-# deterministic total order. Same defensive pattern AlphaScorer already established
-# (services/alpha_scorer.py's NTILE(10) OVER (... ORDER BY alpha_score, bar_ts, frame_id)).
+# This population has ~22-way bar_ts ties (33,892 rows across only 1,534 distinct bar_ts --
+# multiple symbols' frames opened at the exact same 5-minute bar, i.e. genuinely SIMULTANEOUS
+# positions, not sequential ones). A row-level ORDER BY tie-break (e.g. by frame_id) would
+# pick an arbitrary but valid ordering for those ties -- but for a path-dependent statistic
+# like the cumulative-equity max-drawdown walk, treating simultaneous positions as sequential
+# is not economically meaningful at all, regardless of which arbitrary order is chosen. The
+# correct fix lives in _aggregate_pnl_by_bar_ts below: aggregate (SUM) pnl_r per distinct
+# bar_ts BEFORE the cumulative walk, so each timestamp contributes exactly one
+# (already-order-independent) value. That eliminates the tie-break question structurally --
+# plain `ORDER BY bar_ts ASC` is sufficient here since the real ordering work happens in
+# Python via an explicit sort over the aggregated (one-row-per-bar_ts) series.
 _OOS_QUERY_SQL = """
     SELECT bar_ts, direction, regime, bar_ts::date AS cluster_id, counterfactual_pnl_r AS pnl_r
     FROM alpha_frames
@@ -92,7 +94,7 @@ _OOS_QUERY_SQL = """
       AND status != 'open'
       AND bar_ts >= $2
       AND counterfactual_pnl_r IS NOT NULL
-    ORDER BY bar_ts ASC, frame_id ASC
+    ORDER BY bar_ts ASC
 """
 
 _C5_PROXY_NOTE = (
@@ -164,6 +166,26 @@ async def _read_oos_start(conn: asyncpg.Connection) -> datetime:
     return oos_start.astimezone(UTC)
 
 
+def _aggregate_pnl_by_bar_ts(rows: list[dict[str, Any]]) -> np.ndarray:
+    """SUM counterfactual_pnl_r across all frames sharing the same bar_ts, ordered ascending
+    by bar_ts, for feeding a path-dependent (cumulative-equity) statistic.
+
+    Frames sharing an exact bar_ts are genuinely SIMULTANEOUS positions -- multiple symbols'
+    frames opened at the same 5-minute bar, not a sequence of trades one after another. A
+    real portfolio holding N concurrent positions experiences their combined P&L
+    simultaneously at that instant. Running a row-by-row cumulative sum over any per-frame
+    ordering (including an arbitrary-but-valid tie-break) would treat those simultaneous
+    positions as sequential, which is not economically meaningful. Aggregating to one summed
+    value per distinct bar_ts BEFORE the cumulative walk fixes this structurally: SUM is
+    order-independent, and after aggregation there is exactly one row per bar_ts, so ordering
+    ascending by bar_ts is unambiguous and the resulting drawdown walk is fully deterministic.
+    """
+    by_bar_ts: dict[Any, float] = {}
+    for row in rows:
+        by_bar_ts[row["bar_ts"]] = by_bar_ts.get(row["bar_ts"], 0.0) + row["pnl_r"]
+    return np.array([by_bar_ts[bt] for bt in sorted(by_bar_ts)], dtype=float)
+
+
 def _compute_pooled_criteria(
     rows: list[dict[str, Any]],
     min_n: int,
@@ -187,7 +209,10 @@ def _compute_pooled_criteria(
         c2_passes, ci_lower, ci_upper = False, None, None
 
     sharpe = _annualized_sharpe(pnl_r, bar_ts) if pnl_r else None
-    dd, _ = _max_drawdown(np.array(pnl_r)) if pnl_r else (None, True)
+    # Aggregate simultaneous same-bar_ts frames (SUM) before the cumulative-equity walk --
+    # see _aggregate_pnl_by_bar_ts docstring. Order-independent by construction; no tie-break
+    # needed for this path-dependent statistic to be deterministic and economically meaningful.
+    dd, _ = _max_drawdown(_aggregate_pnl_by_bar_ts(rows)) if rows else (None, True)
 
     # c3/c4 verdicts recomputed here from the APR-driven thresholds at the call site --
     # never reuse _max_drawdown's baked-in fail flag, and never hardcode the Sharpe bar.
