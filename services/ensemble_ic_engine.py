@@ -181,6 +181,13 @@ class EnsembleICConfig:
     # Defaulted so pre-existing direct EnsembleICConfig(...) construction sites
     # (test_ensemble_ic_worker_fetch.py) don't break on this dataclass's field growth.
     sharpe_window_size_subsampled: int = 100
+    # Phase 166 D-01b/D-03.1 (migration 253): scalar-candidate stop/target calibration
+    # selection params -- see _select_stop_target_from_excursions. Defaulted for the
+    # same reason as sharpe_window_size_subsampled above (pre-existing direct
+    # EnsembleICConfig(...) construction sites in tests must not break on growth).
+    stop_mae_percentile: float = 90.0
+    target_mfe_percentile: float = 50.0
+    stop_target_min_qualifying_symbols: int = 3
 
     @property
     def lookaheads(self) -> dict[str, int]:
@@ -218,6 +225,11 @@ class EnsembleICConfig:
             gate_lookahead=_cfg(cfg, "alpha.ensemble_ic.gate_lookahead", "fast"),
             wf_stability_metric=_cfg(cfg, "alpha.ensemble_ic.wf_stability_metric", "ic_ratio"),
             min_obs_per_regime=_cfg(cfg, "alpha.ensemble_ic.min_obs_per_regime", 3000),
+            stop_mae_percentile=_cfg(cfg, "alpha.ensemble_ic.stop_mae_percentile", 90.0),
+            target_mfe_percentile=_cfg(cfg, "alpha.ensemble_ic.target_mfe_percentile", 50.0),
+            stop_target_min_qualifying_symbols=_cfg(
+                cfg, "alpha.ensemble_ic.stop_target_min_qualifying_symbols", 3
+            ),
         )
 
 
@@ -323,6 +335,97 @@ def _select_hold_bars_from_decay(
 
     # preceding_bars, not the extended ceiling -- see docstring.
     return preceding_bars if preceding_bars is not None else 1
+
+
+# ---------------------------------------------------------------------------
+# Phase 166 D-01b/D-03.1: scalar candidate -- stop_atr_mult/target_r_multiple
+# uncensored-subpopulation percentile selection (Finding 1/Pitfall 1: NOT a copy of
+# _select_hold_bars_from_decay's decay-threshold walk -- stop/target are distance/
+# reward-ratio parameters with no time-horizon analog).
+# ---------------------------------------------------------------------------
+
+# Uncensored subpopulations (todo 088 alignment -- mirrors
+# scripts/analysis/diagnose166_frame_calibration.py's identical rationale; this is that
+# diagnosis's calibration-side sibling): closed_stop frames are RIGHT-CENSORED at the
+# stop distance (the frame's own stop bounded how far price could move before it
+# closed) and are excluded from the stop distribution. closed_ic_decay frames are
+# excluded from both distributions.
+_STOP_PLACEMENT_STATUS = "closed_target"
+_TARGET_PLACEMENT_STATUS = "closed_max_hold"
+
+
+def _select_stop_target_from_excursions(
+    cells: list[dict[str, Any]],
+    stop_mae_percentile: float,
+    target_mfe_percentile: float,
+    min_frames: int,
+) -> tuple[float | None, float | None]:
+    """Pure function: select (stop_atr_mult, target_r_multiple) for ONE symbol's
+    (symbol, tf, regime) group from alpha_frames' already-collected counterfactual
+    excursions.
+
+    `cells` is a per-symbol list of frame-row dicts, each carrying
+    `counterfactual_status`, `counterfactual_mae`, `counterfactual_mfe`, and a
+    snapshotted `stop_atr_mult` (the ATR multiple actually used to place that frame's
+    stop at creation time -- Phase 142B's snapshot-not-live-APR discipline).
+
+    Selection criterion (RESEARCH.md Finding 1 / Open Question 2, LOCKED):
+    - stop_atr_mult := `stop_mae_percentile`-th percentile of ATR-rescaled MAE
+      (`mae_atr = abs(counterfactual_mae) * stop_atr_mult`, since risk = stop_atr_mult
+      * atr and mae_r = mae_price / risk => mae_atr = mae_price / atr = mae_r *
+      stop_atr_mult) among `closed_target` frames ONLY -- winners that never touched
+      the stop, so their observed adverse excursion is a real, uncensored measurement
+      of how far against the position price moved before the target hit. A stop
+      tighter than this percentile would have prematurely clipped these winners.
+    - target_r_multiple := `target_mfe_percentile`-th percentile of R-unit MFE
+      (`counterfactual_mfe`, already in R-units -- no rescaling) among
+      `closed_max_hold` frames ONLY -- time-exit frames that never touched stop or
+      target, so their observed favorable excursion is not capped by the current
+      target.
+    - `closed_stop` frames are excluded from the stop distribution (right-censored,
+      todo 088 -- a cell of only `closed_stop` frames returns None for the stop
+      component). `closed_ic_decay` frames (and any other status) contribute to
+      neither distribution.
+
+    Returns (None, None)-shaped per component: a component whose qualifying
+    subpopulation has fewer than `min_frames` finite values returns None for that
+    component -- never a fabricated value from a thin sample (caller interprets None
+    as "skip this symbol's contribution to this cell", mirroring
+    `_select_hold_bars_from_decay`'s None-means-skip contract). NaN/inf excursion
+    values are filtered out before computing the percentile.
+    """
+    stop_vals: list[float] = []
+    target_vals: list[float] = []
+    for row in cells:
+        status = row.get("counterfactual_status")
+        if status == _STOP_PLACEMENT_STATUS:
+            mae = row.get("counterfactual_mae")
+            stop_atr_mult = row.get("stop_atr_mult")
+            if mae is None or stop_atr_mult is None:
+                continue
+            mae_atr = abs(float(mae)) * float(stop_atr_mult)
+            if np.isfinite(mae_atr):
+                stop_vals.append(mae_atr)
+        elif status == _TARGET_PLACEMENT_STATUS:
+            mfe = row.get("counterfactual_mfe")
+            if mfe is None:
+                continue
+            mfe_r = float(mfe)
+            if np.isfinite(mfe_r):
+                target_vals.append(mfe_r)
+        # closed_stop (right-censored, 088) and closed_ic_decay: excluded from both.
+
+    stop_selected = (
+        float(np.percentile(stop_vals, stop_mae_percentile))
+        if len(stop_vals) >= min_frames
+        else None
+    )
+    target_selected = (
+        float(np.percentile(target_vals, target_mfe_percentile))
+        if len(target_vals) >= min_frames
+        else None
+    )
+    return stop_selected, target_selected
 
 
 # ---------------------------------------------------------------------------
@@ -887,6 +990,30 @@ def _run_ensemble_ic_worker(args: tuple) -> dict[str, Any]:
     }
 
 
+# Phase 166 D-01b/D-03.1: fetch for _calibrate_stop_target. weight_epoch = $1 restricts
+# to the champion population this run measured (alpha_frames.weight_epoch is a
+# copy-through of alpha_events.weight_version, alpha_frame_writer.py line ~373).
+# bar_ts < $2 is the in-sample side only (RESEARCH.md Finding 6 / OOS-EVAL-PROTOCOL.md
+# -- no OOS read path here, T-166-04). symbol = ANY($3) restricts to the symbols this
+# run's ensemble_alpha corpus actually measured (mirrors the scoping `results` provides
+# to _calibrate_hold_max_bars, applied here via an explicit filter since this is a
+# fresh query, not a reuse of `results` itself). counterfactual_mae/mfe/stop_atr_mult
+# IS NOT NULL implicitly excludes 'open' frames (those columns populate at frame close
+# only).
+_STOP_TARGET_FETCH_SQL = """
+    SELECT symbol, tf, regime, status AS counterfactual_status,
+           stop_atr_mult, counterfactual_mae, counterfactual_mfe
+    FROM alpha_frames
+    WHERE weight_epoch = $1
+      AND bar_ts < $2
+      AND symbol = ANY($3::text[])
+      AND regime IS NOT NULL
+      AND stop_atr_mult IS NOT NULL
+      AND counterfactual_mae IS NOT NULL
+      AND counterfactual_mfe IS NOT NULL
+"""
+
+
 # ---------------------------------------------------------------------------
 # EnsembleICEngine
 # ---------------------------------------------------------------------------
@@ -1040,8 +1167,15 @@ class EnsembleICEngine(BaseBatch):
         # exists to support, mirroring ops_ensemble_weight_compare.py's champion/challenger
         # measurement) would silently recalibrate production config from data that hasn't
         # passed the D-10/D-12 win-decision gate yet.
+        # Phase 166 D-01b/D-03.1: same CR-02 champion gate covers the new scalar
+        # candidate (stop_atr_mult/target_r_multiple) -- it feeds live frame geometry
+        # exactly like hold_max_bars does, so it must never fire against an unproven
+        # challenger weight_version under evaluation (T-166-03).
         if weight_version == champion_weight_version:
             n_keys_written = await self._calibrate_hold_max_bars(pool, corpus_all_results, config)
+            n_stop_target_keys_written = await self._calibrate_stop_target(
+                pool, corpus_all_results, config, weight_version, oos_start
+            )
         else:
             self.logger.info(
                 "ensemble_ic.hold_max_bars_calibration_skipped",
@@ -1050,6 +1184,13 @@ class EnsembleICEngine(BaseBatch):
                 champion_weight_version=champion_weight_version,
             )
             n_keys_written = 0
+            self.logger.info(
+                "ensemble_ic.stop_target_calibration_skipped",
+                reason="scoped_weight_version_run",
+                weight_version=weight_version,
+                champion_weight_version=champion_weight_version,
+            )
+            n_stop_target_keys_written = 0
 
         manifest.write()
         self.logger.info(
@@ -1057,6 +1198,7 @@ class EnsembleICEngine(BaseBatch):
             n_rows=len(rows_to_write),
             n_symbol_tf_pairs=len(symbol_tf_pairs),
             n_hold_max_bars_keys_written=n_keys_written,
+            n_stop_target_keys_written=n_stop_target_keys_written,
             weight_version=weight_version,
         )
 
@@ -1119,6 +1261,119 @@ class EnsembleICEngine(BaseBatch):
                     "calibrated from IC decay curve (EIC-02); median across "
                     f"{n_qualifying} qualifying ({qualifying_flags_desc}) "
                     f"symbols; decay_threshold={config.decay_threshold}"
+                ),
+            )
+            n_written += 1
+
+        return n_written
+
+    async def _calibrate_stop_target(
+        self,
+        pool: asyncpg.Pool,
+        results: list[dict[str, Any]],
+        config: EnsembleICConfig,
+        weight_version: str,
+        oos_start: datetime,
+    ) -> int:
+        """Phase 166 D-01b/D-03.1: derive
+        alpha.frame.stop_atr_mult.<regime>.<tf> / alpha.frame.target_r_multiple.<regime>.<tf>
+        from alpha_frames' already-collected counterfactual MAE/MFE excursions -- the
+        stop/target sibling of `_calibrate_hold_max_bars`' IC-decay-walk (EIC-02).
+
+        SAME STRUCTURE as `_calibrate_hold_max_bars` (group by (symbol, tf, regime) ->
+        per-symbol selection -> group by (regime, tf) -> median across qualifying
+        symbols -> CR-02 champion gate, enforced by the caller -> skip-if-empty ->
+        `config_service.set`), but a DIFFERENT DATA SOURCE and selection criterion
+        (RESEARCH.md Finding 1/Pitfall 1: the IC-decay-walk has no stop/target analog).
+        `results` (this run's just-written alpha_ensemble_ic corpus) carries no
+        counterfactual_mae/mfe columns -- that data lives in `alpha_frames`, tagged by
+        `weight_epoch` (== `alpha_events.weight_version`, per
+        `alpha_frame_writer.py`'s tag-through). `results` still scopes WHICH symbols
+        are eligible this run (skip `is_pooled` -- POOLED is a diagnostic aggregate,
+        not a tradable per-symbol execution parameter, same rationale as
+        `_calibrate_hold_max_bars`).
+
+        IN-SAMPLE ONLY (RESEARCH.md Finding 6 / OOS-EVAL-PROTOCOL.md): `alpha_frames`
+        is filtered to `bar_ts < oos_start` explicitly here -- unlike `results`,
+        `alpha_frames` is not already scoped to this run's in-sample corpus, so this
+        filter is added, not inherited. No OOS read path exists anywhere in this
+        function (T-166-04).
+
+        A (regime, tf) cell with zero qualifying symbols is SKIPPED entirely for that
+        component (stop and target tracked independently -- a symbol may qualify for
+        one and not the other) -- no `config_service.set` call, no fallback default --
+        the prior APR value remains authoritative until a future run qualifies.
+        """
+        eligible_symbols = sorted({row["symbol"] for row in results if not row.get("is_pooled")})
+        if not eligible_symbols:
+            return 0
+
+        async with pool.acquire() as conn:
+            frame_rows = [
+                dict(r)
+                for r in await conn.fetch(
+                    _STOP_TARGET_FETCH_SQL, weight_version, oos_start, eligible_symbols
+                )
+            ]
+
+        groups: dict[tuple[str, str, str], list[dict[str, Any]]] = {}
+        for row in frame_rows:
+            key = (row["symbol"], row["tf"], row["regime"])
+            groups.setdefault(key, []).append(row)
+
+        per_regime_tf_stop: dict[tuple[str, str], list[float]] = {}
+        per_regime_tf_target: dict[tuple[str, str], list[float]] = {}
+        for (_symbol, tf, regime), cells in groups.items():
+            stop_val, target_val = _select_stop_target_from_excursions(
+                cells,
+                config.stop_mae_percentile,
+                config.target_mfe_percentile,
+                config.stop_target_min_qualifying_symbols,
+            )
+            if stop_val is not None:
+                per_regime_tf_stop.setdefault((regime, tf), []).append(stop_val)
+            if target_val is not None:
+                per_regime_tf_target.setdefault((regime, tf), []).append(target_val)
+
+        if not per_regime_tf_stop and not per_regime_tf_target:
+            return 0
+
+        config_service = ConfigService(database_url=self._db_dsn, pool=pool)
+        await config_service.initialize()
+
+        n_written = 0
+        for (regime, tf), qualifying_stops in per_regime_tf_stop.items():
+            n_qualifying = len(qualifying_stops)
+            median_stop = float(np.median(qualifying_stops))
+            key = f"alpha.frame.stop_atr_mult.{regime}.{tf}"
+            await config_service.set(
+                key,
+                str(median_stop),
+                changed_by="ensemble-ic-engine",
+                reason=(
+                    "calibrated from uncensored closed_target MAE excursions (Phase "
+                    f"166 D-01b/D-03.1); {config.stop_mae_percentile}th percentile of "
+                    f"ATR-rescaled MAE, median across {n_qualifying} qualifying "
+                    "symbols; excludes closed_stop frames (right-censored at the "
+                    "stop distance, todo 088 alignment)"
+                ),
+            )
+            n_written += 1
+
+        for (regime, tf), qualifying_targets in per_regime_tf_target.items():
+            n_qualifying = len(qualifying_targets)
+            median_target = float(np.median(qualifying_targets))
+            key = f"alpha.frame.target_r_multiple.{regime}.{tf}"
+            await config_service.set(
+                key,
+                str(median_target),
+                changed_by="ensemble-ic-engine",
+                reason=(
+                    "calibrated from uncensored closed_max_hold MFE excursions "
+                    f"(Phase 166 D-01b/D-03.1); {config.target_mfe_percentile}th "
+                    f"percentile of R-unit MFE, median across {n_qualifying} "
+                    "qualifying symbols; excludes closed_stop/closed_target frames "
+                    "(right-censored at their own exit boundary, todo 088 alignment)"
                 ),
             )
             n_written += 1
