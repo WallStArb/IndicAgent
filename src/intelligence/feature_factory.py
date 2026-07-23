@@ -31,7 +31,7 @@ import calendar
 import dataclasses
 import math
 from collections import deque
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from datetime import UTC, datetime
 
 import numpy as np
@@ -81,6 +81,25 @@ FEATURE_VECTOR_DOMAIN: dict[str, str] = {
     "va_position": "structural",
     "sr_support_dist": "structural",
     "sr_resist_dist": "structural",
+    # Session-level — Volume Profile (12, Phase 163 Plan 01)
+    "nearest_hvn_above_dist_atr": "structural",
+    "nearest_hvn_below_dist_atr": "structural",
+    "nearest_lvn_above_dist_atr": "structural",
+    "nearest_lvn_below_dist_atr": "structural",
+    "price_in_value_area": "structural",
+    "in_lvn": "structural",
+    "va_width_atr": "structural",
+    "distance_to_vah_atr": "structural",
+    "distance_to_val_atr": "structural",
+    "nearest_hvn_dist_atr": "structural",
+    "poc_rolling_dist_atr": "structural",
+    "poc_session_rolling_divergence_atr": "structural",
+    # Session-level — Support/Resistance (5, Phase 163 Plan 01)
+    "resistance_strength": "structural",
+    "support_strength": "structural",
+    "resistance_age_bars": "structural",
+    "support_age_bars": "structural",
+    "sr_level_count": "structural",
     # Regime-level
     "hmm_regime_prob": "regime",
     "hmm_entropy": "regime",
@@ -334,6 +353,14 @@ class FeatureFactoryConfig:
         intraday_noise_window: APR feature.intraday_noise.window
         price_vol_corr_fast: APR feature.price_vol_corr.fast
         price_vol_corr_slow: APR feature.price_vol_corr.slow
+        session_vp_value_area_pct: APR feature.session_vp.value_area_pct
+        session_vp_n_buckets: APR feature.session_vp.n_buckets
+        session_vp_hvn_threshold: APR feature.session_vp.hvn_threshold
+        session_vp_lvn_threshold: APR feature.session_vp.lvn_threshold
+        session_vp_rolling_window: APR feature.session_vp.rolling_window
+        sr_window: APR feature.sr.window
+        sr_cluster_atr_mult: APR feature.sr.cluster_atr_mult
+        sr_lookback_by_tf: APR feature.sr.lookback_by_tf
     """
 
     momentum_window_fast: int  # feature.momentum.window_fast
@@ -454,6 +481,23 @@ class FeatureFactoryConfig:
     # production entrypoints (backfill_feature_factory.py,
     # feature_vector_pipeline.py) explicitly wire this from ConfigService.
     canary_rng_seed: int = 90042  # alpha.ic.canary_rng_seed [initial_estimate]
+    # Session Volume Profile (Phase 163 Plan 01, D-03/D-13). Defaulted for the
+    # same reason as canary_rng_seed above (avoid updating every pre-existing
+    # direct FeatureFactoryConfig(...) construction site); the 2 real production
+    # entrypoints (backfill_feature_factory.py, feature_vector_pipeline.py)
+    # explicitly wire these from ConfigService.
+    session_vp_value_area_pct: float = 0.70  # feature.session_vp.value_area_pct
+    session_vp_n_buckets: int = 50  # feature.session_vp.n_buckets
+    session_vp_hvn_threshold: float = 0.80  # feature.session_vp.hvn_threshold
+    session_vp_lvn_threshold: float = 0.20  # feature.session_vp.lvn_threshold
+    session_vp_rolling_window: int = 480  # feature.session_vp.rolling_window
+    # Support/Resistance (Phase 163 Plan 01, consumed by Plan 03). Same
+    # defaulting rationale as above.
+    sr_window: int = 10  # feature.sr.window
+    sr_cluster_atr_mult: float = 0.5  # feature.sr.cluster_atr_mult
+    sr_lookback_by_tf: dict = field(  # feature.sr.lookback_by_tf
+        default_factory=lambda: {"1m": 60, "5m": 60, "15m": 80, "1h": 120, "1d": 60}
+    )
 
 
 # ---------------------------------------------------------------------------
@@ -3085,6 +3129,28 @@ def _build_feature_vector(
     va_position: float | None,
     sr_support_dist: float | None,
     sr_resist_dist: float | None,
+    # Structural VP/SR (17, Phase 163 Plan 01). Defaulted to None (this is a
+    # keyword-only function, `*,` above, so defaults can live anywhere in the
+    # signature) -- same avoid-blast-radius-across-every-call-site rationale
+    # as the canary defaults further below. Not computed by any caller yet;
+    # Plan 02 wires real values in.
+    nearest_hvn_above_dist_atr: float | None = None,
+    nearest_hvn_below_dist_atr: float | None = None,
+    nearest_lvn_above_dist_atr: float | None = None,
+    nearest_lvn_below_dist_atr: float | None = None,
+    price_in_value_area: float | None = None,
+    in_lvn: float | None = None,
+    va_width_atr: float | None = None,
+    distance_to_vah_atr: float | None = None,
+    distance_to_val_atr: float | None = None,
+    nearest_hvn_dist_atr: float | None = None,
+    poc_rolling_dist_atr: float | None = None,
+    poc_session_rolling_divergence_atr: float | None = None,
+    resistance_strength: float | None = None,
+    support_strength: float | None = None,
+    resistance_age_bars: float | None = None,
+    support_age_bars: float | None = None,
+    sr_level_count: float | None = None,
     hmm_regime_prob: float,
     hmm_entropy: float,
     hmm_duration: float,
@@ -3239,6 +3305,23 @@ def _build_feature_vector(
         va_position=_guard(va_position, 0.5),
         sr_support_dist=_guard(sr_support_dist),
         sr_resist_dist=_guard(sr_resist_dist),
+        nearest_hvn_above_dist_atr=_guard(nearest_hvn_above_dist_atr),
+        nearest_hvn_below_dist_atr=_guard(nearest_hvn_below_dist_atr),
+        nearest_lvn_above_dist_atr=_guard(nearest_lvn_above_dist_atr),
+        nearest_lvn_below_dist_atr=_guard(nearest_lvn_below_dist_atr),
+        price_in_value_area=_guard(price_in_value_area),
+        in_lvn=_guard(in_lvn),
+        va_width_atr=_guard(va_width_atr),
+        distance_to_vah_atr=_guard(distance_to_vah_atr),
+        distance_to_val_atr=_guard(distance_to_val_atr),
+        nearest_hvn_dist_atr=_guard(nearest_hvn_dist_atr),
+        poc_rolling_dist_atr=_guard(poc_rolling_dist_atr),
+        poc_session_rolling_divergence_atr=_guard(poc_session_rolling_divergence_atr),
+        resistance_strength=_guard(resistance_strength),
+        support_strength=_guard(support_strength),
+        resistance_age_bars=_guard(resistance_age_bars),
+        support_age_bars=_guard(support_age_bars),
+        sr_level_count=_guard(sr_level_count),
         hmm_regime_prob=_guard(hmm_regime_prob),
         hmm_entropy=_guard(hmm_entropy),
         hmm_duration=_guard(hmm_duration),
@@ -4285,6 +4368,24 @@ def _cold_start_vector(cache: FeatureCache, tf: str) -> FeatureVector:
         va_position=va_position,
         sr_support_dist=sr_support_dist,
         sr_resist_dist=sr_resist_dist,
+        # Structural VP/SR (17, Phase 163 Plan 01): not yet wired (Plan 02).
+        nearest_hvn_above_dist_atr=None,
+        nearest_hvn_below_dist_atr=None,
+        nearest_lvn_above_dist_atr=None,
+        nearest_lvn_below_dist_atr=None,
+        price_in_value_area=None,
+        in_lvn=None,
+        va_width_atr=None,
+        distance_to_vah_atr=None,
+        distance_to_val_atr=None,
+        nearest_hvn_dist_atr=None,
+        poc_rolling_dist_atr=None,
+        poc_session_rolling_divergence_atr=None,
+        resistance_strength=None,
+        support_strength=None,
+        resistance_age_bars=None,
+        support_age_bars=None,
+        sr_level_count=None,
         hmm_regime_prob=cache.hmm_regime_prob,
         hmm_entropy=cache.hmm_entropy,
         hmm_duration=cache.hmm_duration,

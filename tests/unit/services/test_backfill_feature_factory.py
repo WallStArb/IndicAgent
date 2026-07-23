@@ -193,6 +193,25 @@ def _make_zero_vector() -> FeatureVector:
         va_position=0.5,
         sr_support_dist=0.0,
         sr_resist_dist=0.0,
+        # Structural VP/SR (Phase 163 Plan 01) — construction requires these
+        # non-optional fields; nullable so None is valid.
+        nearest_hvn_above_dist_atr=None,
+        nearest_hvn_below_dist_atr=None,
+        nearest_lvn_above_dist_atr=None,
+        nearest_lvn_below_dist_atr=None,
+        price_in_value_area=None,
+        in_lvn=None,
+        va_width_atr=None,
+        distance_to_vah_atr=None,
+        distance_to_val_atr=None,
+        nearest_hvn_dist_atr=None,
+        poc_rolling_dist_atr=None,
+        poc_session_rolling_divergence_atr=None,
+        resistance_strength=None,
+        support_strength=None,
+        resistance_age_bars=None,
+        support_age_bars=None,
+        sr_level_count=None,
         hmm_regime_prob=0.0,
         hmm_entropy=0.0,
         hmm_duration=0.0,
@@ -434,7 +453,8 @@ def test_vector_to_params_all_features_present() -> None:
     """All FeatureVector fields must appear in the INSERT params tuple (159 total
     after migration 211, 2026-07-09 -- 161 after migration 206's 2026-07-08
     persistence-wiring fix, then -2 for the redundant new_high_flag/new_low_flag
-    removal)."""
+    removal, 164 after migration 223's 5 canary columns, 181 after migration
+    255's 17 structural VP/SR columns, Phase 163 Plan 01)."""
     fv = _make_zero_vector()
     ts = datetime(2025, 1, 2, 14, 30, 0, tzinfo=UTC)
     params = _vector_to_params(
@@ -445,8 +465,8 @@ def test_vector_to_params_all_features_present() -> None:
         regime=None,
         fv=fv,
     )
-    # 1 content-key + 8 structural + 150 feature floats = 159 total
-    assert len(params) == 164, f"Expected 164 params, got {len(params)}"
+    # 1 content-key + 8 structural + 172 feature floats = 181 total
+    assert len(params) == 181, f"Expected 181 params, got {len(params)}"
 
 
 def test_vector_to_params_symbol_tf_ts() -> None:

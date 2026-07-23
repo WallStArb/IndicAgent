@@ -12,6 +12,7 @@ from __future__ import annotations
 
 import asyncio
 import dataclasses
+import json
 import os
 import signal as _signal
 import time
@@ -565,6 +566,17 @@ class FeatureVectorPipeline(BaseDaemon):
         ("feature.price_vol_corr.fast", 10),
         ("feature.price_vol_corr.slow", 30),
         ("alpha.ic.canary_rng_seed", 90042),
+        ("feature.session_vp.value_area_pct", 0.70),
+        ("feature.session_vp.n_buckets", 50),
+        ("feature.session_vp.hvn_threshold", 0.80),
+        ("feature.session_vp.lvn_threshold", 0.20),
+        ("feature.session_vp.rolling_window", 480),
+        ("feature.sr.window", 10),
+        ("feature.sr.cluster_atr_mult", 0.5),
+        (
+            "feature.sr.lookback_by_tf",
+            {"1m": 60, "5m": 60, "15m": 80, "1h": 120, "1d": 60},
+        ),
     )
 
     async def _prewarm_threshold_config(self) -> None:
@@ -580,6 +592,18 @@ class FeatureVectorPipeline(BaseDaemon):
         def _int(key: str, default: int) -> int:
             v = cs.get_sync(key, default)
             return int(v) if v is not None else default
+
+        def _float(key: str, default: float) -> float:
+            v = cs.get_sync(key, default)
+            return float(v) if v is not None else default
+
+        def _dict(key: str, default: dict) -> dict:
+            v = cs.get_sync(key, default)
+            if isinstance(v, dict):
+                return v
+            if isinstance(v, str):
+                return json.loads(v)
+            return default
 
         self._feature_factory_config = FeatureFactoryConfig(
             momentum_window_fast=_int("feature.momentum.window_fast", 5),
@@ -681,6 +705,17 @@ class FeatureVectorPipeline(BaseDaemon):
             price_vol_corr_fast=_int("feature.price_vol_corr.fast", 10),
             price_vol_corr_slow=_int("feature.price_vol_corr.slow", 30),
             canary_rng_seed=_int("alpha.ic.canary_rng_seed", 90042),
+            session_vp_value_area_pct=_float("feature.session_vp.value_area_pct", 0.70),
+            session_vp_n_buckets=_int("feature.session_vp.n_buckets", 50),
+            session_vp_hvn_threshold=_float("feature.session_vp.hvn_threshold", 0.80),
+            session_vp_lvn_threshold=_float("feature.session_vp.lvn_threshold", 0.20),
+            session_vp_rolling_window=_int("feature.session_vp.rolling_window", 480),
+            sr_window=_int("feature.sr.window", 10),
+            sr_cluster_atr_mult=_float("feature.sr.cluster_atr_mult", 0.5),
+            sr_lookback_by_tf=_dict(
+                "feature.sr.lookback_by_tf",
+                {"1m": 60, "5m": 60, "15m": 80, "1h": 120, "1d": 60},
+            ),
         )
 
         self.logger.info(

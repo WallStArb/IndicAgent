@@ -34,6 +34,25 @@ def _make_valid_feature_vector():
         va_position=0.5,
         sr_support_dist=2.0,
         sr_resist_dist=2.0,
+        # Structural VP/SR (Phase 163 Plan 01) — construction requires these
+        # non-optional fields; nullable so None is valid.
+        nearest_hvn_above_dist_atr=None,
+        nearest_hvn_below_dist_atr=None,
+        nearest_lvn_above_dist_atr=None,
+        nearest_lvn_below_dist_atr=None,
+        price_in_value_area=None,
+        in_lvn=None,
+        va_width_atr=None,
+        distance_to_vah_atr=None,
+        distance_to_val_atr=None,
+        nearest_hvn_dist_atr=None,
+        poc_rolling_dist_atr=None,
+        poc_session_rolling_divergence_atr=None,
+        resistance_strength=None,
+        support_strength=None,
+        resistance_age_bars=None,
+        support_age_bars=None,
+        sr_level_count=None,
         hmm_regime_prob=0.7,
         hmm_entropy=0.5,
         hmm_duration=5.0,
@@ -217,15 +236,17 @@ def _make_valid_payload():
 
 
 def test_record_to_insert_params_returns_159_tuple():
-    """_record_to_insert_params returns exactly 159 elements matching INSERT columns
-    (post migration 211, 2026-07-09 -- redundant new_high_flag/new_low_flag removed)."""
+    """_record_to_insert_params returns exactly 181 elements matching INSERT columns
+    (post migration 211, 2026-07-09 -- redundant new_high_flag/new_low_flag removed;
+    164 after migration 223's 5 canary columns; 181 after migration 255's 17
+    structural VP/SR columns, Phase 163 Plan 01)."""
     from services.feature_vector_writer import _record_to_insert_params
 
     record = _make_valid_record()
     params = _record_to_insert_params(record)
 
     assert isinstance(params, tuple)
-    assert len(params) == 164, f"Expected 164, got {len(params)}"
+    assert len(params) == 181, f"Expected 181, got {len(params)}"
 
 
 def test_record_to_insert_params_feature_vector_id_is_uuid():
@@ -325,8 +346,10 @@ def test_feature_vector_id_differs_for_different_inputs():
 
 
 def test_parse_payload_valid_record_returns_159_param_tuple():
-    """Valid FeatureVectorRecord payload parses to a 159-element params tuple
-    (post migration 211, 2026-07-09 -- redundant new_high_flag/new_low_flag removed)."""
+    """Valid FeatureVectorRecord payload parses to a 181-element params tuple
+    (post migration 211, 2026-07-09 -- redundant new_high_flag/new_low_flag
+    removed; 164 after migration 223's 5 canary columns; 181 after migration
+    255's 17 structural VP/SR columns, Phase 163 Plan 01)."""
     from services.feature_vector_writer import FeatureVectorWriter
 
     svc = FeatureVectorWriter.__new__(FeatureVectorWriter)
@@ -341,7 +364,7 @@ def test_parse_payload_valid_record_returns_159_param_tuple():
     assert not invalid
     assert len(valid) == 1
     assert isinstance(valid[0], tuple)
-    assert len(valid[0]) == 164, f"Expected 164-element tuple, got {len(valid[0])}"
+    assert len(valid[0]) == 181, f"Expected 181-element tuple, got {len(valid[0])}"
 
 
 def test_parse_payload_malformed_returns_empty_valid_invalid_payload():
@@ -489,14 +512,16 @@ def test_insert_sql_targets_feature_vectors():
 
 
 def test_insert_sql_has_159_placeholders():
-    """_INSERT_FEATURE_VECTOR_SQL must have exactly 159 positional placeholders $1..$159
-    (post migration 211, 2026-07-09 -- redundant new_high_flag/new_low_flag removed)."""
+    """_INSERT_FEATURE_VECTOR_SQL must have exactly 181 positional placeholders $1..$181
+    (post migration 211, 2026-07-09 -- redundant new_high_flag/new_low_flag removed;
+    164 after migration 223's 5 canary columns; 181 after migration 255's 17
+    structural VP/SR columns, Phase 163 Plan 01)."""
     import re
 
     from services.feature_vector_writer import _INSERT_FEATURE_VECTOR_SQL
 
     placeholders = re.findall(r"\$\d+", _INSERT_FEATURE_VECTOR_SQL)
-    assert len(placeholders) == 164, f"Expected 164 placeholders, got {len(placeholders)}"
+    assert len(placeholders) == 181, f"Expected 181 placeholders, got {len(placeholders)}"
 
 
 def test_insert_sql_includes_feature_vector_id_column():

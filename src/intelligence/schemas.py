@@ -1216,7 +1216,9 @@ class FeatureVector:
       Momentum (7): fast/mid/slow return z-scores, range, intra-bar close position, gap, reversal z
       Volume/flow (8): informed flow, volume, OFI, OFI divergence, CVD slope, CMF, rel volume, VWAP dev
       Volatility (2): ATR z-score, short/long vol ratio
-      Session-level (4): volume profile POC/VA, S/R proximity
+      Session-level (21, 4 original + 17 Phase 163 Plan 01): volume profile POC/VA,
+        S/R proximity, directional HVN/LVN ATR-distances, value-area width/bounds,
+        rolling-track POC divergence, S/R cluster strength/age/count (D-13/D-16/D-17/D-18/D-19)
       Regime-level (10): HMM prob/entropy/duration, Hurst, Shannon, GARCH ratio, HMA slope, ADX, Aroon fast/slow
       Oscillators (6): RSI and CCI at fast/mid/slow scales
       Cross-asset (3): VIX z-score, flight-to-quality, yield slope
@@ -1235,7 +1237,7 @@ class FeatureVector:
       Volatility Dynamics (5, Phase 142.5 Plan 04): parkinson/garman_klass/yang_zhang_vol_velocity, vol_velocity_z, intraday_noise_ratio
       Canary / Control Predictors (5, Phase 143.1 Plan 02, todo 068): canary_noise_gaussian, canary_noise_uniform, canary_constant, canary_near_constant, canary_acausal_placebo
       Cross-sectional (3, nullable): momentum/volume/volatility rank z-scores
-      Total: 155 (147 required + 8 optional [3 cross-sectional + 5 canary, defaulted for
+      Total: 172 (164 required + 8 optional [3 cross-sectional + 5 canary, defaulted for
       cold-start/construction-site blast-radius reasons -- see Canary field comments])
     """
 
@@ -1259,11 +1261,34 @@ class FeatureVector:
     # Volatility (2) - part of bar-level computation
     atr_z: float
     vol_ratio: float
-    # Session-level (4, nullable in batch — requires I3 intraday injection unavailable in batch path)
+    # Session-level (21: 4 original + 12 VP + 5 S/R, Phase 163) — session
+    # volume-profile + support/resistance structural features, computed from
+    # OHLCV in both live and batch (D-05: no I3/tick-data dependency exists;
+    # the prior comment claiming batch-unavailability was an inherited,
+    # never-verified assumption).
     poc_dist_atr: float | None
     va_position: float | None
     sr_support_dist: float | None
     sr_resist_dist: float | None
+    # Session-level — Volume Profile (12, Phase 163 Plan 01, D-13/D-16/D-17/D-18)
+    nearest_hvn_above_dist_atr: float | None
+    nearest_hvn_below_dist_atr: float | None
+    nearest_lvn_above_dist_atr: float | None
+    nearest_lvn_below_dist_atr: float | None
+    price_in_value_area: float | None
+    in_lvn: float | None
+    va_width_atr: float | None
+    distance_to_vah_atr: float | None
+    distance_to_val_atr: float | None
+    nearest_hvn_dist_atr: float | None
+    poc_rolling_dist_atr: float | None
+    poc_session_rolling_divergence_atr: float | None
+    # Session-level — Support/Resistance (5, Phase 163 Plan 01, D-19)
+    resistance_strength: float | None
+    support_strength: float | None
+    resistance_age_bars: float | None
+    support_age_bars: float | None
+    sr_level_count: float | None
     # Regime-level (11)
     hmm_regime_prob: float
     hmm_entropy: float

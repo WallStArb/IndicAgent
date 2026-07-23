@@ -29,6 +29,7 @@ from __future__ import annotations
 import argparse
 import asyncio
 import bisect
+import json
 import math
 import sys
 from collections import deque
@@ -386,6 +387,21 @@ def _filter_etf_contracts(contracts: list, symbols: list[str] | None) -> list:
     return etf
 
 
+def _sr_lookback_by_tf_from_config(cfg: ConfigService) -> dict:
+    """Read feature.sr.lookback_by_tf, tolerating either a pre-parsed dict (the
+    normal case -- load_config_service_sync's _parse_value already json.loads()s
+    value_type='json' keys at cache-load time) or a raw JSON string (test/fallback
+    default path), same defensive pattern as feature_vector_pipeline.py's _dict().
+    """
+    default = {"1m": 60, "5m": 60, "15m": 80, "1h": 120, "1d": 60}
+    v = cfg.get_sync("feature.sr.lookback_by_tf", default)
+    if isinstance(v, dict):
+        return v
+    if isinstance(v, str):
+        return json.loads(v)
+    return default
+
+
 def _build_feature_factory_config(cfg: ConfigService) -> FeatureFactoryConfig:
     """Build FeatureFactoryConfig from APR keys. All fields from feature.* namespace."""
     return FeatureFactoryConfig(
@@ -494,6 +510,14 @@ def _build_feature_factory_config(cfg: ConfigService) -> FeatureFactoryConfig:
         price_vol_corr_fast=int(cfg.get_sync("feature.price_vol_corr.fast", 10)),
         price_vol_corr_slow=int(cfg.get_sync("feature.price_vol_corr.slow", 30)),
         canary_rng_seed=int(cfg.get_sync("alpha.ic.canary_rng_seed", 90042)),
+        session_vp_value_area_pct=float(cfg.get_sync("feature.session_vp.value_area_pct", 0.70)),
+        session_vp_n_buckets=int(cfg.get_sync("feature.session_vp.n_buckets", 50)),
+        session_vp_hvn_threshold=float(cfg.get_sync("feature.session_vp.hvn_threshold", 0.80)),
+        session_vp_lvn_threshold=float(cfg.get_sync("feature.session_vp.lvn_threshold", 0.20)),
+        session_vp_rolling_window=int(cfg.get_sync("feature.session_vp.rolling_window", 480)),
+        sr_window=int(cfg.get_sync("feature.sr.window", 10)),
+        sr_cluster_atr_mult=float(cfg.get_sync("feature.sr.cluster_atr_mult", 0.5)),
+        sr_lookback_by_tf=_sr_lookback_by_tf_from_config(cfg),
     )
 
 
