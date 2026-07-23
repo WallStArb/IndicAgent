@@ -1303,7 +1303,41 @@ registered" — no `i7_conversion_complete` gauge, since there is no conversion 
 
 ---
 
-### Phase 148: Alpha Scoring System 📋 PLANNED
+### Phase 148: Alpha Scoring System ✅ COMPLETE (2026-07-22) — VERDICT: DO NOT PROMOTE
+
+**Both irreversible OOS proof gates ran exactly once (D-04).** Gate 1 (signal proof): **PASS**
+— 140/640 (21.875%) of 5m/15m cells qualify against a 2% floor, well past threshold, though
+coverage is 5m/15m only (`ensemble_alpha` has zero OOS rows at 1h/any weight_version and 1d/
+champion weight_version — a separate pre-existing gap, filed as todo 173, discovered after this
+irreversible run so not correctable this milestone). Gate 2 (execution proof): **FAIL** — 3 of
+5 SHADOW-REVIEW criteria fail decisively (mean P&L CI, Sharpe, max drawdown all fail; sample
+size and no-confident-loss both pass), matching D-06's "known going in" framing exactly, not a
+surprise. Regime-stratified companion (D-07): only 2 of 8 champion cells clear coverage, both
+`mid_bull`, both fail — the champion's OOS window is too narrow to speak to regime-conditional
+performance.
+
+**Overall: do not promote the v3.0 AlphaEngine to live trading capital at this time.** Real
+signal exists (Gate 1) but the current frame/execution design does not capture it as profitable
+OOS P&L (Gate 2) — per this project's core value, a signal that can't yet be turned into
+profitable trades is not a promotable system. Diagnosing/fixing Gate 2's failure is explicitly
+out of scope for this phase (deferred to future work).
+
+**A real, previously-latent infrastructure gap was found and fixed mid-execution, with explicit
+human sign-off:** `forward_returns` had never been computed for the OOS window (bar_ts >=
+2025-12-24) by anything — the corpus orchestrator's OOS-holdout clamp (correctly) prevents
+normal corpus rebuilds from touching it, but nothing had ever populated it either. Backfilled
+(mechanical, deterministic, no parameters tuned) after independent verification the fix was
+sanctioned under `OOS-EVAL-PROTOCOL.md`. Separately, a real reproducibility bug was found and
+properly fixed in the frozen `c4_max_dd` (max drawdown) statistic — same-`bar_ts` ties
+(~22-way, simultaneous cross-sectional positions) made a path-dependent cumulative-sum
+statistic non-deterministic; fixed by aggregating per-`bar_ts` before the cumulative walk
+(economically correct, not just an arbitrary tie-break). The verdict was unaffected under every
+method tested — full detail, evidence tables, and both gates' exact numbers in
+`docs/plans/2026-07-22-phase148-promotion-decision.md`.
+
+**Two non-blocking follow-up todos filed:** [172](../.planning/todos/pending/172-path-dependent-frame-statistics-order-sensitivity-sweep.md)
+(broader sweep for other order-sensitive statistics), [173](../.planning/todos/pending/173-ensemble-alpha-1h-1d-oos-scoring-gap.md)
+(`ensemble_alpha` 1h/1d OOS coverage gap).
 
 **Schema design:** `docs/plans/2026-06-25-v30-alpha-lifecycle-schema.md` — `alpha_strategy_scores` table + `alpha.scoring.*` APR keys. Full two-gate promotion logic in "Phase Sequencing" section.
 

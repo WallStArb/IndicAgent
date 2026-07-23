@@ -2,15 +2,15 @@
 gsd_state_version: 1.0
 milestone: v3.1
 milestone_name: AlphaEngine Validation + Alpha Scoring
-status: Phase 144 (Cross-Sectional Regime Model) COMPLETE (6/6) -- D-05 verdict landed 2026-07-22 (F1 not triggered, F2 triggered for 15m/5m); Phase 148 (Alpha Scoring System) fully PLANNED (5/5 plans, 3 waves), cross-AI reviewed and replanned with fixes, plan-checker verified PASS WITH CONCERNS, execution-ready but not yet run; Phase 143.1 also COMPLETE (8/8) -- 143.1-08 VERDICT HOLD; todos 164/165 closed; todos 160/147 CLOSED 2026-07-22 (corrupt-print discovery mechanism was broken, fixed, 47 bars across 16 symbols corrected, low_bull CV reached parity)
-stopped_at: Phase 148 finalized (renamed, cross-AI reviewed, replanned, verified) and execution-ready; todos 160/147 fully closed (discovery-mechanism fix + 47-bar correction + CV parity confirmed); next action is /gsd-execute-phase 148
-last_updated: 2026-07-22T18:15:00.000Z
+status: Phase 148 (Alpha Scoring System) COMPLETE (5/5) -- both irreversible OOS proof gates run exactly once (D-04): Gate 1 PASS (5m/15m, 21.875% cells qualify), Gate 2 FAIL (3/5 SHADOW-REVIEW criteria) -- VERDICT: do not promote v3.0 AlphaEngine to live capital at this time; Phase 144 also COMPLETE (6/6) -- D-05 verdict landed 2026-07-22; Phase 143.1 also COMPLETE (8/8) -- 143.1-08 VERDICT HOLD; todos 164/165/160/147 closed; todos 172/173 filed from Phase 148's execution
+stopped_at: Phase 148 fully executed and merged to main (22980f89) -- promotion decision record written, ROADMAP.md/STATE.md updated to reflect closure
+last_updated: "2026-07-23T00:45:00.000Z"
 progress:
   total_phases: 12
-  completed_phases: 8
-  total_plans: 45
-  completed_plans: 39
-  percent: 67
+  completed_phases: 9
+  total_plans: 50
+  completed_plans: 44
+  percent: 75
 ---
 
 # Project State
@@ -67,32 +67,30 @@ ROADMAP.md, the backlog matrix, and here. Phase 148's prerequisites (EIC-04 PASS
 closed `alpha_frames`) are already met by a wide margin (15.6M `closed_max_hold` rows, ~4,883
 distinct trading days) — fully planned (5 plans, 3 waves), not yet executed.
 
-Milestone v3.1 is not yet complete.
+Milestone v3.1 is not yet complete, but its defining question is now answered: **Phase 148
+delivered its verdict 2026-07-22 — do not promote the v3.0 AlphaEngine to live trading capital
+at this time.** Gate 1 (signal proof) PASS, Gate 2 (execution proof) FAIL, 3 of 5 criteria,
+decisively. Full evidence: `docs/plans/2026-07-22-phase148-promotion-decision.md`. This is a
+real, informative negative result, not a stall — it says the measured signal is real but the
+current frame/execution design doesn't yet capture it as profitable OOS P&L. Diagnosing and
+fixing that gap is explicitly out of scope for Phase 148 and not yet scheduled as its own item.
 
-**Next actions — reconciled todo+phase priority view (2026-07-22, supersedes the numbered list
-this replaces; that list's item (1) FRAME-04-recheck nuance is now resolved — Phase 148's own
-CONTEXT.md D-08 established SCORE-03 IS FRAME-04, not a second gate needing a separate re-run):**
+**Next actions — reconciled todo+phase priority view (updated 2026-07-22 post-Phase-148):**
 
-*Tier 1 — next up:* **Phase 148 execution** (`/gsd-execute-phase 148`) — the real proof-of-alpha
-milestone: fully planned, cross-AI reviewed (Antigravity + Codex), review findings incorporated
-(fixed a confirmed-real crash in `evaluate_frame_gate`'s group-key call shape, added pre-run
-integrity snapshots + `--dry-run` escape hatches to both irreversible gates), independently
-plan-checker-verified PASS WITH CONCERNS (no blockers). Todos 160/147 **CLOSED 2026-07-22** —
-corrupt-print candidate-discovery mechanism was itself broken (gated behind `forward_returns`
-suspect flags, blind to `high`/`low`-only corruption); fixed to scan all ~320 registered pairs
-directly; found and corrected 47 bars across 16 symbols total (40 across 14 symbols in the main
-batch, 7 more across FXY/IWM once a threshold-sensitivity gap surfaced). `low_bull`'s CV reached
-parity with clean regimes (5m: 582.9→3.49, 15m: 469.4→2.80); the one remaining elevated cell
-(`5m/high_bear`, CV≈116) confirmed to be the already-adjudicated 2010 Flash Crash, not a gap.
-See `completed/160-vwo-dia-kre-corrupt-prints-uncorrected.md` and
-`completed/147-vol-normalized-target-low-bull-divergence.md` for full disposition.
+*Tier 1 — highest-value open question:* Whether/how to diagnose Gate 2's failure (frame/
+execution recalibration against the IC decay curve, per the phase's own "if Gate 2 fails but
+Gate 1 passes: frame problem" framing) is real, unscoped follow-on work — not yet a todo or
+phase. Consider filing this before other work, since it's the direct next step the promotion
+decision record itself flags as deliberately out of its scope.
 
-*Tier 2 — ready now, independent of 148:* Phase 163 execution (`/gsd-execute-phase 163`,
-planned) · Phase 162 execution (`/gsd-execute-phase 162`, planned + reviewed, gated only on
-`ps aux | grep ic_engine` clear) · todo 088 (`hold_max_bars` type safety, small, unblocked) ·
-todos 168/169 (7 symbols with zero HMM regime coverage + no monitor that would've caught it) ·
-todo 170 (`volatility_pct` substitution probe for rates, cheap, do before any HMM-challenger
-build).
+*Tier 2 — ready now, independent of 148's follow-up:* Phase 163 execution
+(`/gsd-execute-phase 163`, planned) · Phase 162 execution (`/gsd-execute-phase 162`, planned +
+reviewed, gated only on `ps aux | grep ic_engine` clear) · todo 088 (`hold_max_bars` type
+safety, small, unblocked) · todos 168/169 (7 symbols with zero HMM regime coverage + no monitor
+that would've caught it) · todo 170 (`volatility_pct` substitution probe for rates) · todo 173
+(`ensemble_alpha` has zero OOS rows at 1h/1d — found closing out Phase 148, caps any future
+1h/1d OOS gate) · todo 172 (path-dependent/order-sensitive statistics sweep — found fixing
+Gate 2's `c4_max_dd`, likely affects other frame-level cumulative statistics elsewhere).
 
 *Tier 3 — needs a planning pass first:* Phase 145 (StratificationDimension Formalization,
 unblocked by Phase 144's D-05 verdict, not yet discussed/planned) · Phase 165 (Swing/Fib/Trend
@@ -105,8 +103,12 @@ system, cheap, gates nothing) plus the full P2/P3 tier in `.planning/todos/PRIOR
 *Tier 5 — explicitly gated, do not start planning yet:* Phases 149-159 (PrecedentEngine,
 Feature Primitives Expansion, Alt Data, Portfolio State, Position Sizing, Live Execution, Cost
 Calibration) — registered in ROADMAP.md, zero planning artifacts, v4.0-adjacent scope. Per
-"prove edge before production infra," none of these should get planning time until Phase 148
-delivers a real verdict.
+"prove edge before production infra," this gate is now MORE binding, not less: Phase 148's
+verdict came back negative (Gate 2 FAIL), so building portfolio/execution/risk infrastructure
+on top of an execution design already shown not to capture the measured signal profitably would
+be building on a known-broken foundation. These stay gated until a future frame/execution
+recalibration (Tier 1's open question) produces a real PASS on Gate 2, not just until Phase 148
+"finishes" — it has finished, with a negative result.
 
 **Execution plan:** `docs/plans/2026-06-30-alphaengine-v1-execution-plan.md`
 
@@ -136,6 +138,7 @@ delivers a real verdict.
 | 146 | Empirical Instrument Tag Calibrator | COMPLETE (5/5 plans, 2026-07-17) — `TagCalibrator` live-verified: 11/12 measurable tags carry real `source='empirical'` rows |
 | 160 | Concept Registry MVP | COMPLETE (4/4 plans) — 4-table schema + `ConceptRegistryService`/`ConceptRegistryAPI`/`ConceptRegistryDashboard` live |
 | 161 | Controlled Vocabulary System | COMPLETE (4/4 plans, 2026-07-18) — schema + `VocabularyService` + `vocabulary_drift` audit + `/api/vocabulary/{namespace}` route, live-verified (VERIFICATION.md: passed, 23/24 truths, 1 accepted YAGNI override) |
+| 148 | Alpha Scoring System (OOS Proof Gates) | COMPLETE (5/5 plans, 2026-07-22) — the actual proof-of-alpha milestone: Gate 1 PASS, Gate 2 FAIL, VERDICT do not promote to live capital; see ROADMAP.md's Phase 148 section and `docs/plans/2026-07-22-phase148-promotion-decision.md` for full evidence |
 
 Current row counts and every downstream measurement number live in
 [Corpus pipeline state](project_corpus_pipeline_state.md) — that file is the single source of
@@ -409,7 +412,9 @@ all 20 live `existing_keys` occurrences traced and accounted for). Not yet execu
 NOT gate Phase 148 — the ROADMAP "Depends on: Phase 147" line was stale (SCORE-01/02/03 read
 only pure v3.0 tables; the one real connection, SCORE-04, was already downgraded to
 documentation-only 2026-07-19). Phase 148 (the two independent OOS proof gates — signal proof
+
 + execution proof — this whole measurement pipeline exists to produce) is unblocked today,
+
 prerequisites already met by a wide margin, fully planned (5 plans, 3 waves), not yet
 executed.
 
@@ -504,3 +509,93 @@ planning artifacts, should not get planning time yet).
 
 **Next actions, in order:** see this file's "Next actions" section under Project Reference
 (the reconciled Tier 1-5 view) — do not re-derive a separate list here.
+
+### Session closeout (2026-07-22/23) — Phase 148 executed: both irreversible gates run, verdict DO NOT PROMOTE
+
+Continuing from the prior subsection's Phase 148 finalization, executed the phase via
+`/gsd-execute-phase 148` — 3 waves, 5 plans, ~5.5h wall-clock including two coordinator
+round-trips for irreversible-action decisions.
+
+**Wave 1** (148-01, migration 248 + Wave 0 test scaffolds) and **Wave 2** (148-02 AlphaScorer,
+148-03 Gate 1 script, 148-04 Gate 2 script — 3 parallel worktree executors, no file overlap)
+completed cleanly, merged, full test suite green throughout. Wave 2 hit a mid-run session-limit
+interruption on all 3 parallel agents simultaneously; resumed each from its preserved
+uncommitted worktree state via `SendMessage` rather than restarting — no work lost.
+
+**Wave 3** (148-05, the two irreversible one-shot gates) is where the real substance happened:
+
+1. **Gate 1's mandated dry-run pre-flight found `forward_returns` had zero rows for the entire
+   OOS window** (`bar_ts >= 2025-12-24T05:15:00Z`), across all 320 registered (symbol, tf)
+   pairs — not the partial insufficient-N the plan anticipated. The executor correctly halted
+   rather than force through or self-authorize a fix. Traced (independently re-verified, not
+   just trusted): `docs/plans/OOS-EVAL-PROTOCOL.md`'s deliberate holdout-clamp design means
+   `forward_return_writer.py` has never been invoked with a `--training-window-end` past
+   `oos_start` — and `ensemble_ic_engine.py` (source of the long-cited "EIC-04 PASS") is
+   explicitly in-sample-only by its own docstring ("OOS half reserved for Phase 144" — which
+   never actually built that). Read the protocol doc in full: it forbids using the OOS window
+   for feature selection/calibration/weighting/tuning, none of which describes computing
+   `forward_returns` itself (a fixed, parameter-free, deterministic transform). Got explicit
+   user sign-off given the stakes, then backfilled (`forward_return_writer.py
+   --training-window-end 2026-07-07T16:45:00Z`, full 80-symbol active universe, no
+   --symbols filter, in-sample side untouched via `ON CONFLICT DO NOTHING`) — 1,141,051 real
+   OOS rows landed. Resumed the executor from the dry-run pre-flight.
+
+2. **Gate 1 ran for real (irreversible, D-04): PASS.** 640 5m/15m cells, all reliable
+   (zero insufficient-N once the label substrate existed), 140/640 (21.875%) qualify against a
+   2% floor — 10x margin. Coverage gap discovered only after this irreversible run (cannot be
+   corrected): `ensemble_alpha` itself has zero OOS rows at `tf=1h` (any weight_version) and
+   `tf=1d` (champion weight_version) — a separate, pre-existing gap, not this gate's
+   methodology. Filed as **todo 173**, disclosed plainly in the decision record rather than
+   presented as a full 4-timeframe pass.
+
+3. **Gate 2's mandated dry-run pre-flight found a tolerance failure**: `c4_max_dd` missed the
+   plan's 1e-6 reproduction tolerance against the frozen 143.1-08 baseline by four orders of
+   magnitude. Root-caused (both by the executor and independently re-verified by direct
+   computation against live data): the champion OOS population has ~22-way ties at the
+   `bar_ts` grain (33,892 rows, 1,534 distinct timestamps — genuinely simultaneous
+   cross-sectional positions). `_max_drawdown` is a path-dependent statistic computed via
+   unordered-tie `ORDER BY bar_ts ASC` in both the original 143.1-08 script and the new Gate 2
+   script — meaning **the frozen 143.1-08 baseline itself was never a reproducible number**,
+   just whatever TimescaleDB parallel-chunk-scan interleaving happened on 2026-07-21. The
+   executor's first fix (a `frame_id` tie-break) was deterministic but conceptually wrong —
+   same-`bar_ts` frames are simultaneous, not sequential, so any row-ordering is economically
+   meaningless. Directed the correct fix instead: aggregate (SUM) `pnl_r` per distinct `bar_ts`
+   BEFORE the cumulative walk — eliminates the tie-break question structurally rather than
+   picking one arbitrarily. Verified this independently via a standalone computation against
+   live data before directing the fix. Produced a third distinct number
+   (`c4_max_dd=9.596266492204732`) — but the verdict is identical under all three numbers
+   tested (original 9.598, wrong tie-break 9.606, correct aggregation 9.596): catastrophic
+   ~960% drawdown against a 0.25 threshold, never close.
+
+4. **Gate 2's first real-run attempt crashed** (non-finite floats in a jsonb write — Python's
+   bare `Infinity`/`NaN` tokens aren't valid JSON per RFC 8259). Confirmed the transaction
+   rolled back cleanly (zero partial rows, zero look-log entries) before retrying — the D-04
+   one-shot was not consumed by the failed attempt. Fixed with a recursive sanitizer, retried.
+
+5. **Gate 2 ran for real (irreversible, D-04): FAIL.** 3 of 5 SHADOW-REVIEW criteria fail
+   (mean P&L CI, Sharpe, max drawdown), matching D-06's "known going in" framing exactly — not
+   a surprise. Regime-stratified companion (D-07): only 2 of 8 champion cells clear
+   `min_clusters=20` coverage, both `mid_bull`, both fail — the champion's OOS window is too
+   narrow (single-regime) to speak to regime-conditional performance. A related order-
+   sensitivity symptom (CI drift in a coverage-excluded cell, different root cause) surfaced
+   and was filed as **todo 172**, not fixed inline (doesn't affect the counted verdict).
+
+**Both gates verified live-DB-side (not just trusted from agent reports):** exactly 1
+`gate_evaluations` row per gate, zero `gate_id='FRAME-04'` rows, Gate 1's `run_ts` precedes
+Gate 2's, exactly 2 `gate_look_log.jsonl` entries matching the DB timestamps precisely.
+
+**Promotion decision, written and merged**: `docs/plans/2026-07-22-phase148-promotion-decision.md`
+— **do not promote the v3.0 AlphaEngine to live trading capital at this time.** Real signal
+exists (Gate 1) but the current frame/execution design does not capture it as profitable OOS
+P&L (Gate 2) — per this project's core value, a signal that can't yet be turned into profitable
+trades is not a promotable system. Diagnosing/fixing Gate 2's failure is explicitly out of
+scope for this phase.
+
+Merged all 3 waves to `main` via fast-forward/regular merges as appropriate, full unit suite
+green after every merge, worktrees cleaned up (zero orphans), pushed
+(`d96f9ec2` → `ee614124` → `a0ddaf48` → `22980f89`).
+
+**Next actions:** see this file's "Next actions" section above (reconciled Tier 1-5 view,
+updated post-Phase-148). The highest-value open question is whether/how to scope a frame/
+execution recalibration to address Gate 2's failure — not yet a todo or phase, flagged as
+Tier 1's own open item rather than started unprompted.
