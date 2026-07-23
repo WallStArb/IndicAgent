@@ -1271,10 +1271,12 @@ not captured in the 54 atomic features. Apply one of three outcomes:
 - **Retire (default):** dimensions fully captured in `feature_vectors` OR no constituent feature
   has confirmed IC. Mark `status='deprecated'` in `shadow_registry`, add retirement reason to
   `config_history`. Expected outcome for the majority of plugins.
+
 - **Register as ordinary predictor (rare survivor):** plugin has confirmed IC on dimensions NOT
   present in `feature_vectors`. Its continuous output becomes a candidate **feature**, measured by
   `ic_engine` like any other feature (per intel-15's grain rule) — not a second scoring system, no
   `alpha.i7.mixing_weight_*` keys, no separate ensemble-ingestion path. One model, one book.
+
 - **Direct IC measurement (ambiguous):** plugin logic is ambiguous (>5 constituent features or
   cross-cutting logic). Measure its continuous output's IC directly before deciding retire vs.
   register.
@@ -1395,6 +1397,7 @@ the promotion decision record why no v2.x comparison population exists (pipeline
 2026-06-22, see above). Not a gate.
 
 **Plans:** 5 plans across 3 waves (finalized 2026-07-22)
+
 - [ ] 148-01-PLAN.md — Foundation: alpha_strategy_scores + gate_evaluations migration + APR seeds + Wave 0 test scaffolds (Wave 1)
 - [ ] 148-02-PLAN.md — SCORE-01 AlphaScorer(BaseBatch) + tests + real-data verify (Wave 2)
 - [ ] 148-03-PLAN.md — SCORE-02 OOS Gate 1 signal-proof scorer (Fisher-z, ensemble_alpha OOS) + tests (Wave 2)
@@ -1481,10 +1484,12 @@ untouched.
 **D-05's real verdict** (`scripts/analysis/phase144_regime_separation_gate.py`, re-run
 2026-07-22 against the fresh data — full output was previously `(no rows)`/INCONCLUSIVE, now a
 genuine result):
+
 - **F1 NOT triggered on any tf tested (15m/1h/5m):** TLT's per-symbol HMM stays
   deficient/inverted, matching the original 2026-07-02 finding. Default decision (b) —
   demotion — holds. Per-symbol HMM is confirmed not a better Stage-1 conditioning axis than
   cross-sectional for TLT specifically.
+
 - **F2 TRIGGERED for 15m and 5m:** the `rates` cross-sectional label is ALSO deficient
   (spread < 0.01) on those two timeframes — neither conditioning axis currently separates IC
   for `rates` at high frequency. This is the pre-registered build trigger for a
@@ -1494,9 +1499,11 @@ genuine result):
   phase — a real, separate open question, distinct from Phase 144's own scope.
 
 **Two follow-on items filed, not silently dropped:**
+
 - Todo 167 — the same cross-sectional-suppresses-symbol_hmm question was never
   falsifier-tested for the `equity` group (~50+ symbols); this fix's mechanism generalizes
   (one-line APR change) but nobody has built an equity-scoped D-05 equivalent.
+
 - Todo 168 + 169 — 2 of the 12 rates symbols scoped in the verification run (`LQD`, `PFF`)
   got zero fresh rows; root-caused to `feature_vectors.regime` being NULL for 100% of their
   rows (7 symbols corpus-wide have this gap) — a real, pre-existing `regime_writer.py`
@@ -1571,6 +1578,7 @@ Initially PK is `(symbol, tag)`. Phase 2 extends to `(symbol, tag, regime)` — 
 Tags that are fully computable from the factor vector (all 8 OLS betas) must not exist as permanent human assertions. They are query-time threshold applications on the `instrument_tags` empirical table. Human-only tags (`definitional`, `classification`) remain — but must be annotated as measurement_type='definitional' with owner.
 
 **Plans:** 5/5 plans complete
+
 - [x] 146-01-PLAN.md — Wave 0 taxonomy cleanup: credit_cycle merge (D-03), housing_cycle delete (D-07), spread_leg evidence backfill + contract test (D-09), glossary T7 fix
 - [x] 146-02-PLAN.md — Measurement-contract migration 238: revised schema + valid_from/valid_to (D-10), factor-series seeding (D-02/D-04/D-05/D-06/D-08), 7 APR keys
 - [x] 146-03-PLAN.md — factor_math.py: standardized OLS loading + HAC SE, long-short constructor, vol proxy adapter (reuses ic_math + breadth_vol)
@@ -1841,6 +1849,7 @@ the cross-sectional OOM fix that landed the day before this phase was scoped):**
 the exact same two functions 162-02 already plans to rework (`_compute_symbol_tf` /
 `_compute_cross_sectional_tf`), so they belong in the same planning pass rather than a
 separate later touch of the same 3,600-line file.
+
 - **Todo 140 (P2, stability, not just throughput):** peak memory in both functions is still
   `O(cell_size x n_features x const)`, unbounded — `be74f4a1` and the 2026-07-08 float32 fix
   before it each shrank the constant factor, neither changed the scaling law. A cell ~2x
@@ -1853,6 +1862,7 @@ separate later touch of the same 3,600-line file.
   (`alpha.ic.max_cell_size`) routing oversized cells through a chunked path. This is the
   third-incident-shaped version of the same bug class — worth closing during 162-02 rather
   than waiting for a fourth OOM as the corpus grows past the next threshold.
+
 - **Todo 139 (P3, maintainability, no known bug today):** the per-scale subsample+rank block
   and the fold-loop rankdata block are now byte-identical in shape across both functions
   (verified numerically identical outputs in `be74f4a1`'s own regression tests), linked only
@@ -1861,6 +1871,7 @@ separate later touch of the same 3,600-line file.
   this bug class can't slip into one sibling and not the other. Natural to do in the same
   pass as 140's chunking rework, not before it — no reason to extract a helper for code
   that's about to be restructured anyway.
+
 - **Todo 129 (P3, resource leak, same worker functions):** the 3 `dsn`-based connections
   inside `_compute_symbol_tf` (x2) and `_compute_cross_sectional_tf` (x1) — the
   `ProcessPoolExecutor`-worker-side connections, distinct from the 6 Settings-based
@@ -1869,6 +1880,7 @@ separate later touch of the same 3,600-line file.
   Extract a shared `@contextmanager def short_lived_conn(dsn: str)` in
   `services/_batch_utils.py` (next to `connect_db_from_url`) and migrate all 3 sites onto it.
   Same functions 162-02 already reworks for fingerprint-check reads — do it in the same pass.
+
 - **Todo 009's Part E, remaining item only (`build_walk_forward_folds`):** the fixed-origin
   expanding-window-with-embargo fold construction is still inline in `_compute_symbol_tf`
   (and duplicated again in `ensemble_ic_engine.py`'s analogous path) — the other two
@@ -1913,6 +1925,7 @@ scope check:
   measured first, not built preemptively. Finally `alpha.ic.max_cell_rows` (`[rca_analysis]`)
   is a crash-loud ceiling, not a router: an oversized cell fails loudly (error row in the run
   summary, nonzero job status, run continues), never silently switches algorithms.
+
 - **Sequencing resolved: structural work goes first, as a new 162-01, before both the
   benchmark and the fingerprint.** The fingerprint hashes `_checkpoint_content_key()` (source
   bytes): any refactor landing after the fingerprint ships invalidates every fingerprint and
@@ -1924,6 +1937,7 @@ scope check:
   structural first, fingerprint after. The todo 133 benchmark also moves after the structural
   pass, so it measures the loop the fingerprint will describe rather than code about to be
   restructured.
+
 - **Todo 129 vs the fingerprint validity check: complementary, no conflict.** The validity
   check runs in `main()` before `worker_args` construction, so a skipped cell never spawns a
   worker and never opens a dsn connection at all; `short_lived_conn(dsn)` governs only cells
@@ -1931,6 +1945,7 @@ scope check:
   reads happen main-process via the existing Settings-based `_short_lived_conn`
   (`ic_engine.py:381`), adding zero worker-side connections; the worker read-only/main
   writes-serially invariant is untouched.
+
 - **Scope check:** none of the four fold-ins breach the locked non-goals. 129/139/009E are
   pure structure; 140 is memory layout only, held to bit-identical output by Risk 8 and
   criterion 7; the moment a chunking approach would change rank or bootstrap statistics it is
@@ -1955,6 +1970,7 @@ the prove-edge-first gate either.
 
 **Recommended plan breakdown (4 plans, sequential waves — for `/gsd-plan-phase 162` to work from,
 not binding; supersedes the 2026-07-18 pass's 3-plan breakdown):**
+
 - **162-01 (structural pass: todos 129 + 009E + 139/140):** one refactor wave over the two
   worker functions, internally ordered mechanical-to-structural, each step gated on
   bit-identical `feature_ic_scores` output against the `be74f4a1` regression fixture before
@@ -1969,6 +1985,7 @@ not binding; supersedes the 2026-07-18 pass's 3-plan breakdown):**
   the fix exists once and both call sites inherit it. Closes with the synthetic
   oversized-cell memory test (criterion 6). APR keys: `alpha.ic.feature_block_columns`,
   `alpha.ic.max_cell_rows`.
+
 - **162-02 (todo 133):** benchmark 15m/1h/1d cross-sectional cells at `max_workers=1` vs `6`
   against the post-162-01 loop, then per-tf dict (mirroring `bootstrap_block_size`) or an
   n-row gate, whichever the data supports; migration + APR keys. Runs after 162-01 so it
@@ -1977,6 +1994,7 @@ not binding; supersedes the 2026-07-18 pass's 3-plan breakdown):**
   conflicts on the same 3,600-line file. `max_workers` lands as an operational field in
   162-03's classification: thread count must not change output, which 162-01's precomputed
   resample-index matrix makes explicit rather than incidental.
+
 - **162-03 (todo 134 core, absorbs 122; depends on 162-01):** new `ic_cell_fingerprints` table
   (one row per (symbol|'POOLED', tf, pass_type, training_window_end) — not columns on
   `feature_ic_scores`, which would duplicate the fingerprint ~150x per cell). Fingerprint =
@@ -1992,6 +2010,7 @@ not binding; supersedes the 2026-07-18 pass's 3-plan breakdown):**
   equivalence-gated bit-identical, initial fingerprints MAY be seeded against existing
   `feature_ic_scores` rows instead of forcing a full stamp recompute; justified only by that
   gate, and verified by 162-04's harness before the seed is trusted.
+
 - **162-04 (depends on 162-03):** equivalence harness — run a ~5-symbol subset twice (fresh vs.
   fingerprint-skip), assert identical `feature_ic_scores` output; this is the empirical proof the
   fingerprint captures everything, i.e. the direct answer to the 2026-07-12 checkpoint-invalidation
@@ -2017,55 +2036,69 @@ regardless of bar-count — that's an input change, not an information-accrual t
 conflate the two.
 
 **Success criteria (measurable, for verification once planned):**
+
 1. No-op re-run (unchanged code/APR/data, same window end, full universe): 100% cells skipped,
    wall clock <30min vs. 25-30h today.
+
 2. Surgical invalidation: perturbing 1 symbol recomputes only that symbol's cells, <4h.
 3. Drift detection is exact: computational APR key change invalidates all dependents; operational
    key change invalidates zero; unclassified `ICEngineConfig` field fails the classification test
    loudly. Mid-run APR change invalidates in-flight checkpoints (closes todo 122).
+
 4. Equivalence: skip-path run's `feature_ic_scores` content identical to forced `--refresh`
    recompute (incl. post-backfill `bh_adjusted_p`/`passes_fdr`).
+
 5. Todo 133: 15m/1h/1d cross-sectional cells run within ~10% of measured serial wall time; 5m
    keeps its threading speedup.
+
 6. Todo 140: peak transient memory in `_compute_symbol_tf`/`_compute_cross_sectional_tf` no
    longer scales with `n_features` (feature-blocked rank/IC/CI/fold work) — a synthetic cell
    ~2x today's largest (5m/low_bull, ~599K timestamps) completes within a measured
    resident-memory budget, verified by a synthetic oversized-cell test, not just headroom
    math, AND produces bit-identical output to the unblocked path on a reference cell. A cell
    above `alpha.ic.max_cell_rows` fails loudly, never routes to an alternate algorithm.
+
 7. Structural-pass equivalence (162-01): post-refactor `feature_ic_scores` bit-identical to
    pre-refactor on the regression fixture after each of the three internal steps;
    `build_walk_forward_folds` unit-tested against the inline copies' boundaries; an injected
    worker exception no longer leaks a connection (todo 129, tested, not eyeballed).
 
 **Risks / scope traps to hold the line on during planning:**
+
 1. **`ON CONFLICT DO NOTHING` silently discards recomputes** (confirmed live at 3 insert sites) —
    the single most dangerous interaction in this phase; invalidation must DELETE-then-insert or
    upsert atomically, never rely on the existing insert path.
+
 2. **BH-FDR family coherence** — `_backfill_bh_fdr` (`ic_engine.py:2358`) must run over all rows
    at the current window end, skipped and fresh alike, or adjusted p-values/`passes_fdr` shift
    under skipped cells' feet. Same check needed for the lifecycle hook and the e-value pilot.
+
 3. **Fingerprint completeness is the 2026-07-12 failure class, cross-run instead of intra-run** —
    a "skip" that serves stale IC into `ensemble_trainer` → `alpha_publisher` is worse than the 25h
    it saves. Defense in depth: watermarks + field-classification test + 162-04's equivalence
    harness, not any single one alone.
+
 4. **Delete the `.pkl` checkpoint system if it's now redundant** — once cross-run skip +
    immediate per-symbol DB writes (todo 130) both exist, evaluate whether `_load_checkpoint`/
    `_save_checkpoint` still earns its keep (Musk step 2, delete before optimize).
+
 5. **Resource contention, not design dependency** — no benchmarking (162-02), no synthetic
    oversized-cell memory runs (162-01's closing gate deliberately allocates multi-GB and can
    OOM a live run), and no pilot corpus runs (162-04) while any `ic_engine` corpus run is in
    flight; `ps aux | grep ic_engine` first. Pure code edits and ordinary unit tests are exempt.
+
 6. **Scope trap: do not build a scheduler.** Incremental recompute is the precondition for a
    cadence, not the cadence itself. All project timers are deliberately disabled
    (CLAUDE.md — verify current state before assuming); "don't automate what isn't proven" applies.
    Also out of scope: 1000-symbol validation, any change to the bootstrap statistics themselves.
+
 7. **Refactor stack-up on the two hottest functions** — four todos land on
    `_compute_symbol_tf`/`_compute_cross_sectional_tf` in one plan. Mitigation is 162-01's
    internal ordering (mechanical → pure-function extraction → helper + memory rework), the
    bit-identical regression gate after each step, and never mixing a behavioral change into a
    structural commit; a step that can't prove bit-identity stops the wave, it doesn't proceed
    on "looks right."
+
 8. **Time-axis chunked ranking is a statistics change, full stop** — ranks are relative to the
    whole strided series, so `rankdata` over a row-block is a different estimator than
    `rankdata` over the cell. Any chunking must be along the feature axis (output-invariant),
@@ -2086,6 +2119,7 @@ at 248.
 **Plans:** 4/4 plans complete
 
 Plans:
+
 - [x] 162-01-PLAN.md — Structural pass (todos 129 + 009E + 139/140): short_lived_conn(dsn), build_walk_forward_folds, _compute_one_cross_sectional_cell extraction + shared feature-blocked _subsample_and_rank memory bound; migration 248 (feature_block_columns, max_cell_rows)
 - [x] 162-02-PLAN.md — Todo 133: cross_sectional_bootstrap_threads scalar -> per-tf dict; migration 249 (4 flat per-tf keys)
 - [x] 162-03-PLAN.md — Todo 134 core (absorbs 122): ic_cell_fingerprints table (migration 250), computational-vs-operational field classification, per-table watermarks catching in-place mutation, fingerprint validity check replacing existing_keys skip, DELETE-then-insert invalidation, --refresh/--dry-run-validity, delete .pkl checkpoint system
@@ -2122,6 +2156,7 @@ sibling atomic-expansion item to Phase 151's atomic scope (todo 066, todo 104), 
 **Plans:** 3 plans
 
 Plans:
+
 - [ ] 163-01-PLAN.md — Structural data contract (migration 243: 17 new columns — 12 VP ATR-normalized + 5 S/R strength/age/count, D-19 — + feature_registry rows + APR keys) + FeatureCache.update_session_vp() mutator
 - [ ] 163-02-PLAN.md — Wire session-VP into live+batch compute paths, derive 14 VP outputs (2 original + 12 new), remove stale I3 None-branch, regression test
 - [ ] 163-03-PLAN.md — Stateless inline pivot-clustering S/R: ATR-unit sr_support_dist/sr_resist_dist plus resistance_strength/support_strength/resistance_age_bars/support_age_bars/sr_level_count from the same clustering pass (D-19), D-05 docstring cleanup, regression test
@@ -2140,28 +2175,37 @@ shared utilities (`find_peaks`/`find_troughs`, `clamp`, `linear_ramp`, `freshnes
 
 **Candidate atomic primitives per concept** (full detail: this phase's RESEARCH.md/CONTEXT.md
 once planned):
+
 - Order Blocks: `ob_dist_atr` (directional, nearest bullish/bearish), `ob_strength`,
   `ob_mitigated` flag
+
 - Fair Value Gap: `fvg_dist_atr`, `fvg_size_atr`, `fvg_open_count`
 - Liquidity Sweeps: `sweep_strength`, `reclaim_velocity`, bars-since-last-sweep
 - Liquidity Pools: `bsl_dist_atr`/`ssl_dist_atr`, `bsl_touches`/`ssl_touches` (touch-count =
   level significance), `pool_count`
+
 - Supply/Demand Zones: `demand_dist_atr`/`supply_dist_atr`, `demand_freshness`/`supply_freshness`
   (zone age/decay — a genuinely new dimension beyond plain distance), zone-active counts
+
 - AMD Cycle: `amd_phase` (ordinal-encode), `manip_strength`, `amd_manipulation_detected` flag
 - Breaker/Mitigation Blocks: `breaker_dist_atr`, `breaker_block_active`, `ob_mitigation_pct`
   (level erosion, distinct from distance)
+
 - BOS/CHoCH: `bos_strength`/`choch_strength` (already ATR-normalized break magnitude),
   direction flags, bars-since-last-shift
 
 **Explicitly excluded:**
+
 - `premium_discount` — likely redundant with existing `va_position`/`bb_pct_b`/
   `price_percentile` position-in-band features (same overlap concern as Phase 163's D-07); test
   for redundancy before investing, if ever.
+
 - `archive/smc_context/hmm_regime.py` — v3 already has its own live per-symbol HMM regime system;
   this archived one is a v2.x duplicate, not a gap.
+
 - `ict_killzones` — already ported; v3's `in_london_kz`/`in_overlap`/`power_hour` (calendar
   domain) are the same concept under different names.
+
 - `bocpd_changepoint.py` (Bayesian online change-point detection) — a real, separate statistical
   primitive, but not an "institutional accumulation/distribution" concept; out of this phase's
   scope, worth its own consideration later if wanted.
@@ -2195,6 +2239,7 @@ hard code dependency, sequencing preference only.
 **Plans:** 0 plans
 
 Plans:
+
 - [ ] TBD (run /gsd-plan-phase 164 to break down)
 
 ---
@@ -2231,6 +2276,7 @@ normalization, APR namespace precedent, `FeatureCache` session-boundary mutator 
 **Plans:** 0 plans (CONTEXT.md + RESEARCH.md complete, ready for `/gsd-plan-phase 165`)
 
 Plans:
+
 - [ ] TBD (run /gsd-plan-phase 165 to break down)
 
 ### Phase 166: Frame/Execution Recalibration 📋 PLANNED (6 plans, 4 waves)
@@ -2249,11 +2295,22 @@ filing time, not because of a real dependency. Can be discussed/planned independ
 **Plans:** 6 plans (4 waves)
 
 Plans:
+**Wave 1**
+
 - [ ] 166-01-PLAN.md — migration 253 (alpha.frame.* APR keys) + read-only diagnosis (D-01a) + Phase 163 prereq gate [wave 1]
+
+**Wave 2** *(blocked on Wave 1 completion)*
+
 - [ ] 166-02-PLAN.md — scalar candidate: _calibrate_stop_target() per-(regime,tf), CR-02 gated, uncensored-subpopulation selection (D-01b) [wave 2]
 - [ ] 166-03-PLAN.md — structural candidate Part 1: structural_confluence.py port of zone_engine's confluence core, Phase-163 fields only (D-01c, D-06) [wave 2]
 - [ ] 166-04-PLAN.md — validation gate script gate166_*, new gate_ids, frozen five criteria + regime companion (D-01d, D-04, D-05) [wave 2]
+
+**Wave 3** *(blocked on Wave 2 completion)*
+
 - [ ] 166-05-PLAN.md — wire both candidates into AlphaFrameWriter via geometry_source dispatch (D-01b/c, D-03) [wave 3]
+
+**Wave 4** *(blocked on Wave 3 completion)*
+
 - [ ] 166-06-PLAN.md — calibrate/regenerate/simulate/score all arms one-shot, verdict doc, Part 2 follow-on todo (D-01, D-03, D-04, D-05, D-06) [wave 4]
 
 ---

@@ -2,13 +2,13 @@
 gsd_state_version: 1.0
 milestone: v3.1
 milestone_name: AlphaEngine Validation + Alpha Scoring
-status: ready_to_plan
-stopped_at: Phase 166 context gathered
-last_updated: "2026-07-23T09:52:19.167Z"
+status: ready_to_execute
+stopped_at: Phase 166 planned (6 plans, 4 waves)
+last_updated: "2026-07-23T10:45:00.000Z"
 progress:
   total_phases: 12
   completed_phases: 9
-  total_plans: 45
+  total_plans: 51
   completed_plans: 44
   percent: 75
 ---
@@ -27,9 +27,13 @@ capital at this time.** Gate 1 (signal proof) PASS, Gate 2 (execution proof) FAI
 SHADOW-REVIEW criteria, decisively (~960% max drawdown vs a 0.25 ceiling). Full evidence:
 `docs/plans/2026-07-22-phase148-promotion-decision.md`. This is a real, informative negative
 result: the measured signal is real, the current frame/execution design doesn't yet capture it
-as profitable OOS P&L. **ROADMAP Phase 166 (Frame/Execution Recalibration) is now registered**
-(2026-07-23, promoted from todo 174) as the direct next step — diagnose Gate 2's failure and
-recalibrate stop/target/hold against the IC decay curve — but not yet discussed/planned.
+as profitable OOS P&L. **Phase 166 (Frame/Execution Recalibration) is now PLANNED** (2026-07-23,
+6 plans in 4 waves, `gsd-plan-checker` VERIFICATION PASSED) — diagnose Gate 2's failure, build
+and empirically compare a scalar candidate and a structural candidate (VP/SR confluence, Part 1
+only — SMC/swing/fib/anchored-VWAP deferred to todo 175), and score both through a fresh
+validation gate. **Phase 163 execution is now a real prerequisite** (Wave 0 of Phase 166's plan)
+— `sr_support_dist`/`sr_resist_dist` are 100% NULL until it runs; discovered during Phase 166's
+research, this was not a known dependency when Phase 163 was originally planned independently.
 
 Phase 144 (Cross-Sectional Regime Model) is COMPLETE (6/6) — D-05 verdict: F1 not triggered
 (TLT's per-symbol HMM stays deficient), F2 triggered for 15m/5m rates (cross-sectional also
@@ -45,15 +49,18 @@ are closed (129 partially revived — its wider cross-service scope was never in
 
 **Next actions, priority order:**
 
-*Tier 1 — highest-value open question, ready to discuss:* Phase 166 (`/gsd-discuss-phase 166`)
-— the direct next step after Phase 148's verdict.
+*Tier 1 — highest-value open question, ready to execute:* Phase 163 (VP/SR Structural
+Primitives, `/gsd-execute-phase 163`) MUST run first — it is now a real Wave-0 prerequisite for
+Phase 166's structural candidate (`sr_support_dist`/`sr_resist_dist` are 100% NULL until it
+executes). Then `/gsd-execute-phase 166` — the direct next step after Phase 148's verdict, 6
+plans in 4 waves, planned and verified 2026-07-23.
 
-*Tier 2 — ready now, independent of 166:* Phase 163 (VP/SR Structural Primitives,
-`/gsd-execute-phase 163`, planned) · todo 088 (`hold_max_bars` type safety, small, unblocked) ·
-todos 168/169 (7 symbols with zero HMM regime coverage + no monitor that would've caught it) ·
-todo 170 (`volatility_pct` substitution probe for rates) · todo 129 (revived — wider
-cross-service short-lived-conn helper) · todos 172/173 (non-blocking findings from Phase 148's
-execution) · todo 009 Parts A-D (Part E closed via Phase 162).
+*Tier 2 — ready now, independent of 163/166:* todo 088 (`hold_max_bars` type safety, small,
+unblocked — also referenced by Phase 166's scalar-candidate calibration) · todos 168/169 (7
+symbols with zero HMM regime coverage + no monitor that would've caught it) · todo 170
+(`volatility_pct` substitution probe for rates) · todo 129 (revived — wider cross-service
+short-lived-conn helper) · todos 172/173 (non-blocking findings from Phase 148's execution, also
+referenced by Phase 166's new validation gate) · todo 009 Parts A-D (Part E closed via Phase 162).
 
 *Tier 3 — needs a planning pass first:* Phase 145 (StratificationDimension Formalization,
 unblocked, not yet discussed/planned) · Phase 165 (Swing/Fib/Trend Structure Primitives,
@@ -101,7 +108,7 @@ on Gate 2, not just until Phase 148 "finishes" — it has finished, with a negat
 | 161 | Controlled Vocabulary System | COMPLETE (4/4 plans, 2026-07-18) — schema + `VocabularyService` + `vocabulary_drift` audit + `/api/vocabulary/{namespace}` route, live-verified (VERIFICATION.md: passed, 23/24 truths, 1 accepted YAGNI override) |
 | 148 | Alpha Scoring System (OOS Proof Gates) | COMPLETE (5/5 plans, 2026-07-22) — the actual proof-of-alpha milestone: Gate 1 PASS, Gate 2 FAIL, VERDICT do not promote to live capital; see ROADMAP.md's Phase 148 section and `docs/plans/2026-07-22-phase148-promotion-decision.md` for full evidence |
 | 162 | ic_engine Corpus Pipeline Throughput | COMPLETE (4/4 plans, 2026-07-23) — whole-cell fingerprint mechanism, equivalence-proven; CR-01 blocker found via code review and fixed same session; 3 success criteria need a full-corpus run to close empirically, see `162-HUMAN-UAT.md` |
-| 166 | Frame/Execution Recalibration | NOT YET PLANNED (registered 2026-07-23, promoted from todo 174) — diagnose Phase 148's Gate 2 failure and recalibrate stop/target/hold against the IC decay curve; next actionable item, see Current focus |
+| 166 | Frame/Execution Recalibration | PLANNED (6/6 plans, 4 waves, 2026-07-23, `gsd-plan-checker` VERIFICATION PASSED) — diagnose Phase 148's Gate 2 failure, empirically compare a scalar candidate vs. a structural (VP/SR confluence) candidate against a fresh validation gate; Phase 163 execution is a real Wave-0 prerequisite; see Current focus |
 
 Current row counts and every downstream measurement number live in
 [Corpus pipeline state](project_corpus_pipeline_state.md) — that file is the single source of
@@ -137,16 +144,16 @@ ON CONFLICT (symbol, tf) DO UPDATE SET fetch_complete = true;
 ## Roadmap Evolution
 
 - Phase 162 added (2026-07-18): ic_engine Corpus Pipeline Throughput — bundles todos 134/133/122/139/140/129/009E. **PLANNED 2026-07-22** (4 plans, 4 sequential waves — `162-01` structural extraction/memory-bounding, `162-02` per-tf bootstrap threads, `162-03` fingerprint table + watermarks + `.pkl` deletion, `162-04` equivalence harness). Research + pattern-map + plan-checker all passed (0 blockers); skipped `/gsd-discuss-phase` since two prior Fable design passes already served as its equivalent — see ROADMAP.md's Phase 162 section and `162-RESEARCH.md`/`162-PATTERNS.md`/`162-VALIDATION.md`. `143.1-07`'s resource-contention gate cleared before this session (143.1 is complete); no other blocker. Not yet executed — `/gsd-execute-phase 162` is the next step, gated only on `ps aux | grep ic_engine` being clear.
-- Phase 163 added (2026-07-20): VP/SR Structural Primitives — closes todo 153 (poc_dist_atr/va_position/sr_support_dist/sr_resist_dist permanently stuck at constant defaults since v3 rebuild). Sibling atomic-expansion item to Phase 151, not folded into it. No dependency on the in-flight todo-147 CV recheck or 094 shadow-mode validation running elsewhere. Scope widened same day: port ctx_VolumeProfile (I4, 18 fields) instead of the thinner i3_structure/market_profile.py originally identified — self-contained, no known bugs, same computation cost. **PLANNED but NOT YET EXECUTED as of session end 2026-07-20** — see "Session" below for exact resume point; do not run `/gsd-execute-phase 163` until the pending rolling-track review (Fable dispatch, in flight at session end) resolves.
+- Phase 163 added (2026-07-20): VP/SR Structural Primitives — closes todo 153 (poc_dist_atr/va_position/sr_support_dist/sr_resist_dist permanently stuck at constant defaults since v3 rebuild). Sibling atomic-expansion item to Phase 151, not folded into it. No dependency on the in-flight todo-147 CV recheck or 094 shadow-mode validation running elsewhere. Scope widened same day: port ctx_VolumeProfile (I4, 18 fields) instead of the thinner i3_structure/market_profile.py originally identified — self-contained, no known bugs, same computation cost. The third Fable review (rolling-track POC primitives, D-18) resolved same session — **PLANNED, reviewed, and execution-ready** (verified directly 2026-07-20: both `163-01-PLAN.md`/`163-02-PLAN.md` grep-confirm "12 new" column phrasing and both `poc_rolling_dist_atr`/`poc_session_rolling_divergence_atr` present). **As of 2026-07-23, Phase 163 execution is now a real Wave-0 prerequisite for Phase 166's structural candidate** (discovered during Phase 166's research — `sr_support_dist`/`sr_resist_dist` are 100% NULL until it runs). Still not yet executed — `/gsd-execute-phase 163` is the next action.
 - Phase 164 added (2026-07-20): SMC Institutional Footprint Primitives — atomic distance/strength/duration/count primitives ported from the archived v2.x smc_context plugins (order blocks, FVG, liquidity sweeps/pools, supply/demand zones, AMD cycle, breaker/mitigation blocks, BOS/CHoCH). All self-contained on already-live shared utils, no cross-plugin dependency chain. Sequenced after Phase 163 for shared conventions, not a hard code dependency. Registered in ROADMAP.md with a raw-price-vs-ATR-companion warning (see Phase 163's D-16/D-17 lesson) but NOT planned — no CONTEXT.md/RESEARCH.md/PLAN.md yet.
-- Phase 166 added (2026-07-23): Frame/Execution Recalibration — the direct follow-on to Phase 148's Gate 2 FAIL verdict, per that phase's own pre-registered "frame problem, recalibrate against IC decay curve" playbook. Formalizes todo 174's investigation scope (never-calibrated `stop_atr_mult`/`target_r_multiple`/`hold_max_bars` APR defaults, `mid_bull`-only OOS coverage question, possible porting of v2.x's structural/regime-adaptive stop hierarchy). Not gated on Phase 165 — sequenced after it only by registration order. Real dependency is Phase 148 (complete). Not yet discussed or planned — `/gsd-discuss-phase 166` is the next step.
+- Phase 166 added (2026-07-23): Frame/Execution Recalibration — the direct follow-on to Phase 148's Gate 2 FAIL verdict, per that phase's own pre-registered "frame problem, recalibrate against IC decay curve" playbook. Formalizes todo 174's investigation scope (never-calibrated `stop_atr_mult`/`target_r_multiple`/`hold_max_bars` APR defaults, `mid_bull`-only OOS coverage question, possible porting of v2.x's structural/regime-adaptive stop hierarchy). Discussed same day: structural candidate scope was broadened mid-discussion to the full v2.x confluence toolkit (zone_engine.py + SMC/swing/fib/anchored-VWAP), then research found the full toolkit's feature columns 100% absent from v3's live schema — resolved to a two-part structural candidate (Part 1: VP/SR confluence, Phase-163-gated, built now; Part 2: SMC/swing/fib/anchored-VWAP, deferred to todo 175). **PLANNED same day** (6 plans, 4 waves, `gsd-plan-checker` VERIFICATION PASSED, decision-coverage gate 6/6). Real dependencies: Phase 148 (complete) and now Phase 163 (planned, not yet executed — Wave 0 prerequisite). Not gated on Phase 165. Next action: execute Phase 163, then `/gsd-execute-phase 166`.
 
 ## Session
 
-**Last session:** 2026-07-23T09:52:19.117Z
-**Stopped At:** Phase 166 context gathered
+**Last session:** 2026-07-23T10:45:00.000Z
+**Stopped At:** Phase 166 planned (6 plans, 4 waves) via `/gsd-plan-phase 166` — CONTEXT.md discussed, RESEARCH.md written (structural candidate scope broadened then resolved to a two-part split mid-research), PATTERNS.md mapped, plan-checker VERIFICATION PASSED (0 blockers, 3 warnings all fixed), decision-coverage gate 6/6.
 
-**Resume File / exact next action:** Run `/gsd-execute-phase 163`. Nothing else needs checking first — verified directly (not just trusting the planner agent's self-report): `git log` shows `f394bbdd` as the last commit touching the phase dir, and both `163-01-PLAN.md`/`163-02-PLAN.md` grep-confirm "12 new" column phrasing and both `poc_rolling_dist_atr`/`poc_session_rolling_divergence_atr` present. After execution: close todo 153 (move `pending/153-vp-sr-features-null-in-batch-corpus.md` → `completed/`), noting the decision made (implement, not delete) and pointing at whatever incremental-IC result eventually comes out of the next `ic_engine` corpus run per D-07's promotion bar (not measured as part of this phase — that's out of scope by design).
+**Resume File / exact next action:** Run `/gsd-execute-phase 163` FIRST — it is now a real Wave-0 prerequisite for Phase 166's structural candidate (discovered during Phase 166's research: `sr_support_dist`/`sr_resist_dist` are 100% NULL until Phase 163 executes). Verified directly: `git log` shows `f394bbdd` as the last commit touching the Phase 163 phase dir, and both `163-01-PLAN.md`/`163-02-PLAN.md` grep-confirm "12 new" column phrasing and both `poc_rolling_dist_atr`/`poc_session_rolling_divergence_atr` present. After Phase 163 executes: close todo 153 (move `pending/153-vp-sr-features-null-in-batch-corpus.md` → `completed/`), noting the decision made (implement, not delete) and pointing at whatever incremental-IC result eventually comes out of the next `ic_engine` corpus run per D-07's promotion bar. Then run `/gsd-execute-phase 166` (6 plans: 01 migration+diagnosis, 02 scalar candidate, 03 structural candidate Part 1, 04 validation gate, 05 wiring, 06 one-shot scoring + verdict + todo 175 + closing deferred todo 163).
 
 **This session's full arc (for context if resuming cold):** Started from todo 153 (VP/SR features permanently null) → Fable research → discovered a better port source (`ctx_VolumeProfile`) than originally proposed → caught and fixed a raw-price-as-ML-feature bug in that scoping (D-16) → planned Phase 163 via direct `gsd-planner` dispatch (bypassing the full `/gsd-plan-phase` skill since CONTEXT.md/RESEARCH.md were already hand-written) → got an independent Fable review of the whole corrected scope, which caught 2 more issues (D-17: dropped `in_lvn`, undocumented `va_width_atr` collinearity) → both fixed in the already-written plans → user caught a further gap (rolling-track signal computed but unused) → third Fable review dispatched, in flight at session end. Also: filed todo 158 (unrelated live-path bug found incidentally: `above_wk_vwap` frozen at 0.0 in live pipeline, batch path is correct) and closed out the todo-147 CV recheck's A/B rerun analysis (encouraging but not fully closed — see PRIORITIES.md's todo-147 entry, the direct `true_range_pct` CV re-check is still outstanding). Phase 164 (SMC Institutional Footprint Primitives) registered but not planned — deliberately deferred to a future session/prioritization call.
 
