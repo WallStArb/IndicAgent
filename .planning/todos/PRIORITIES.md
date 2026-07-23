@@ -64,6 +64,7 @@ ready to pick up.
 
 | Todo | Why now |
 |---|---|
+| [174](pending/174-gate2-execution-failure-frame-recalibration-investigation.md) | New 2026-07-22 — Phase 148 closed with Gate 1 PASS / Gate 2 FAIL (catastrophic drawdown, 3/5 criteria); ROADMAP.md's own Phase 148 design pre-registered the "recalibrate stop/target/hold against IC decay curve" playbook for this exact outcome but no unit of work executes it yet. Likely a `/gsd-discuss-phase` candidate given the surface area (AlphaFrameWriter/CounterfactualTracker construction, EIC-02 IC decay, regime-window sufficiency). |
 | [065](pending/065-emission-layer-calibration-proposals.md) | EM-CAL threshold calibration — both prerequisite gates (rebuild, EIC-04) cleared 2026-07-09 |
 | [079](pending/079-anytime-valid-e-values-corpus-reruns.md) | Anytime-valid inference pilot (one tf) — new statistical primitive, deliberately staged small |
 | [080](pending/080-ensemble-combination-e-candidates-queue.md) | Posterior-blended weighting (L5-1) — testable now via existing A/B judge, zero new data |
