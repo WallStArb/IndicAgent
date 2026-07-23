@@ -1,10 +1,22 @@
 ---
-status: deferred
+status: closed
 priority: P2
 filed: 2026-07-19
 moved_to_deferred: 2026-07-19
+closed: 2026-07-23 — shipped via Phase 162-01 as SC-6
 source: /simplify altitude review of commit be74f4a1 (ic_engine cross-sectional OOM fix)
 ---
+
+**CLOSED 2026-07-23 (Phase 162-01, ROADMAP success criterion 6):** the chunking invariant this
+todo asked for now extends into the compute stage — option (a), feature-axis chunking (never
+the time axis, which would silently change the rank statistic; see ROADMAP Phase 162's risk #8).
+`_subsample_and_rank` processes rank/IC/CI/fold work in bounded feature blocks
+(`alpha.ic.feature_block_columns`, migration 249), capping peak transient at
+`O(n_sub x block)` instead of `O(n_sub x n_features)`, verified bit-identical to the unblocked
+path on a reference cell. Option (b) (a hard cap) also shipped as a backstop: `CellTooLargeError`
+raised via `alpha.ic.max_cell_rows` — a cell above the cap fails loudly, never silently routes to
+a degraded algorithm. Both tested (`test_cell_too_large_error_raised_by_both_cell_functions`,
+`test_subsample_and_rank_feature_blocked_matches_unblocked`).
 
 **Moved to deferred/ 2026-07-19:** folded into ROADMAP **Phase 162 "ic_engine Corpus Pipeline
 Throughput"**, plan 162-02 (same functions the fingerprinting rework already touches) --

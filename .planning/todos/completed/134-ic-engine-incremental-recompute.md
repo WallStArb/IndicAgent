@@ -23,6 +23,16 @@
   finishes same day). Safe to start design/planning once that run completes.
 ---
 
+**CLOSED 2026-07-23 — shipped as ROADMAP Phase 162 (4/4 plans), fully executed.** The whole-cell
+`ic_cell_fingerprints` mechanism this todo proposed is live: code content-key + APR snapshot +
+upstream watermarks, DELETE-then-recompute invalidation, empirically proven equivalent to a
+forced `--refresh` recompute (`ops_ic_fingerprint_equivalence.py`, byte-identical
+`feature_ic_scores`). A real BLOCKER (per-symbol cross-sectional watermark scoping) was found via
+code review and fixed same session. Full-corpus wall-clock/surgical-invalidation benchmarks
+(this file's own "benefit" claim) are tracked as open human-verification items in
+`162-HUMAN-UAT.md`, not a reason to keep this todo open — the mechanism is shipped and proven at
+the 5-symbol scale; only the 80-symbol timing measurement remains.
+
 **Status (moved pending/ 2026-07-18, was briefly filed deferred/ same day):** Surfaced from a
 scaling conversation about whether the current corpus pipeline could handle 1000 symbols — it
 can't, at anything resembling a nightly cadence, purely because every run recomputes the entire

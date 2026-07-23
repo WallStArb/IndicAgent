@@ -64,7 +64,6 @@ ready to pick up.
 
 | Todo | Why now |
 |---|---|
-| [174](pending/174-gate2-execution-failure-frame-recalibration-investigation.md) | New 2026-07-22 — Phase 148 closed with Gate 1 PASS / Gate 2 FAIL (catastrophic drawdown, 3/5 criteria); ROADMAP.md's own Phase 148 design pre-registered the "recalibrate stop/target/hold against IC decay curve" playbook for this exact outcome but no unit of work executes it yet. Likely a `/gsd-discuss-phase` candidate given the surface area (AlphaFrameWriter/CounterfactualTracker construction, EIC-02 IC decay, regime-window sufficiency). |
 | [065](pending/065-emission-layer-calibration-proposals.md) | EM-CAL threshold calibration — both prerequisite gates (rebuild, EIC-04) cleared 2026-07-09 |
 | [079](pending/079-anytime-valid-e-values-corpus-reruns.md) | Anytime-valid inference pilot (one tf) — new statistical primitive, deliberately staged small |
 | [080](pending/080-ensemble-combination-e-candidates-queue.md) | Posterior-blended weighting (L5-1) — testable now via existing A/B judge, zero new data |
@@ -89,7 +88,7 @@ ready to pick up.
 | [081](pending/081-emission-meta-labeling-and-conviction-cross-ref.md) | Emission meta-labeling gate — check overlap with 065/EM-HYST before building |
 | [088](pending/088-hold-max-bars-censoring-not-tracked.md) | `hold_max_bars` calibration doesn't distinguish confirmed decay from censored data. **Unblocked 2026-07-21** — the 093→091→097→094→096→088 sequencing chain has fully resolved (see the P0 section above); this is the one remaining open item in it, ready to pick up. |
 | [089](pending/089-ensemble-ic-engine-recurring-cadence.md) | No recurring `ensemble_ic_engine` schedule exists — IC-decay trigger input can go stale |
-| [009](pending/009-service-utils-ic-engine-cleanup.md) | Phase B infra cleanup batch — APR compliance sweep, `BaseBatch` promotion, naming vocab, shared-utility DRY fixes, `ic_engine.py` pure-function extraction |
+| [009](pending/009-service-utils-ic-engine-cleanup.md) | Phase B infra cleanup batch — APR compliance sweep, `BaseBatch` promotion, naming vocab, shared-utility DRY fixes. Part E (`ic_engine.py` pure-function extraction) closed 2026-07-23 via Phase 162-01; Parts A-D remain open |
 | [029](pending/029-feature-scoring-beyond-ic.md) | Feature scoring beyond IC (near-term derived metrics) |
 | [050](pending/050-ibkr-apr-migration.md) | Migrate `ibkr.py` hardcoded constants to APR |
 | [052](pending/052-adversarial-data-error-hunt.md) | Adversarial data-error hunt batch job |
@@ -116,6 +115,7 @@ ready to pick up.
 
 | Todo | What |
 |---|---|
+| [129](pending/129-ic-engine-short-lived-conn-helper.md) | Revived 2026-07-23 — narrow ic_engine.py scope closed via Phase 162-01; wider scope (Settings-based shared connection helper + 4 sibling services: `regime_writer.py`/`equity_regime_model.py`/`backfill_feature_factory.py`/`cross_sectional_regime_model.py`) never covered by Phase 162, still open. |
 | [056](pending/056-phase146-147-v2x-retirement-stale.md) | ROADMAP Phase 147/148 text rewritten 2026-07-19 (operator call resolved: archive not delete, decouple from proof gates). Remaining scope: the actual decommission-in-fact execution (git mv v2.x code to archive/, disable dead systemd units, rename-not-drop the frozen v2.x tables) — real multi-file operation, do with a clean git state. |
 | [123](pending/123-momentum-velocity-and-macro-spread-features.md) | Momentum-oscillator velocity feature + VWAP acceleration + 2 now-unblocked macro spreads (TIP real-yield, HYG/LQD credit spread) — surfaced by closing todo 060, batch into a future Phase 151 pass |
 | [022](pending/022-bi-superset.md) | Self-service BI (Superset) for ad-hoc analytics |

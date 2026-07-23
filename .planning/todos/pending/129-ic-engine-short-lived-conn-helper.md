@@ -1,22 +1,25 @@
 ---
-status: deferred
+status: pending
 priority: P3
 filed: 2026-07-17
 moved_to_deferred: 2026-07-19
+revived: 2026-07-23 — narrow scope closed via Phase 162, wider scope moved back to pending/
 source: altitude finding from /simplify review of todo 128 (ic_engine cross-sectional
   connection-lifecycle fix); narrowed 2026-07-17 after a /simplify pass on todo 130's
   diff resolved the Settings-based half
 ---
 
-**Moved to deferred/ 2026-07-19:** the still-open ic_engine.py-specific scope (the 3 dsn-based
-worker connections in `_compute_symbol_tf`/`_compute_cross_sectional_tf`) folded into ROADMAP
-**Phase 162 "ic_engine Corpus Pipeline Throughput"** -- same worker functions 162-02's
-fingerprint-check logic already touches. The 2026-07-18 update's wider scope (a Settings-based
-sibling helper migrating `regime_writer.py`/`equity_regime_model.py`/
-`backfill_feature_factory.py`/`cross_sectional_regime_model.py`'s own inline connect/close
-blocks too) is **not** part of Phase 162 -- cross-service cleanup, not ic_engine throughput.
-Revive the narrow scope at `/gsd-plan-phase 162`; the wider scope stays here if this file gets
-un-deferred separately later.
+**Narrow scope CLOSED 2026-07-23 (Phase 162-01):** the 3 dsn-based worker connections in
+`_compute_symbol_tf`/`_compute_cross_sectional_tf` now use `short_lived_conn(dsn)`, a
+`@contextmanager` in `services/_batch_utils.py` (tested:
+`tests/unit/test_batch_utils_short_lived_conn.py`). This was the scope Phase 162 actually
+covered.
+
+**Wider scope still open, revived to pending/:** Phase 162 is now complete and, as noted below,
+never covered the Settings-based sibling helper or the 4 other services (`regime_writer.py`,
+`equity_regime_model.py`, `backfill_feature_factory.py`, `cross_sectional_regime_model.py`) --
+that cross-service cleanup remains unclaimed. No longer appropriate to sit in `deferred/`
+pointing at a phase that's already shipped without touching it.
 
 # `ic_engine.py`'s 3 dsn-based worker connections still hand-rolled — extract a shared helper
 

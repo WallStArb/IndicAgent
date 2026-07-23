@@ -21,81 +21,43 @@ See: .planning/PROJECT.md
 
 **Core value:** Alpha must be demonstrated empirically before any ensemble weight is assigned.
 
-**Current focus (updated 2026-07-22, superseding the stale text below that this replaces):**
-Phase 143.1 is COMPLETE (8/8 plans) — 143.1-08's shadow-mode validation concluded HOLD,
-`alpha.ensemble.sign_symmetric` stays `false`, confirmed twice (once pooled, once via todo
-165's regime-stratified re-evaluation). Todo 094 (the sign-symmetric redesign this validation
-gated) is closed with that verdict. Todos 164/165 (regime-stratified promotion gate + 1h
-ensemble eligibility) are also closed, merged to main.
+**Current focus (updated 2026-07-23):** Milestone v3.1's defining question is answered: **Phase
+148 delivered its verdict 2026-07-22 — do not promote the v3.0 AlphaEngine to live trading
+capital at this time.** Gate 1 (signal proof) PASS, Gate 2 (execution proof) FAIL, 3 of 5
+SHADOW-REVIEW criteria, decisively (~960% max drawdown vs a 0.25 ceiling). Full evidence:
+`docs/plans/2026-07-22-phase148-promotion-decision.md`. This is a real, informative negative
+result: the measured signal is real, the current frame/execution design doesn't yet capture it
+as profitable OOS P&L. **ROADMAP Phase 166 (Frame/Execution Recalibration) is now registered**
+(2026-07-23, promoted from todo 174) as the direct next step — diagnose Gate 2's failure and
+recalibrate stop/target/hold against the IC decay curve — but not yet discussed/planned.
 
-**Two concurrent sessions converged today (2026-07-22) — reconciling both here, not picking
-one.** Track A (regime-model refinement, this note's own thread): symbol_hmm restoration →
-Phase 144 D-05 → Phase 145 is now fully resolved, see below. Track B (proof-of-alpha,
-concurrent session): Phase 148 was fully planned (5 plans, 3 waves) and a real Phase 147
-dependency correction landed — **Phase 148 is unblocked today, independent of Phase 147**,
-and per that session's own investigation is arguably the higher-priority track: it's the two
-independent OOS gates (signal proof + execution proof) this whole measurement pipeline exists
-to produce, not incremental refinement of an already-working stratification mechanism.
+Phase 144 (Cross-Sectional Regime Model) is COMPLETE (6/6) — D-05 verdict: F1 not triggered
+(TLT's per-symbol HMM stays deficient), F2 triggered for 15m/5m rates (cross-sectional also
+deficient at high frequency). Phase 145 (StratificationDimension Formalization) is unblocked
+by this verdict but not yet planned. Phase 143.1 is COMPLETE (8/8) — HOLD verdict on
+sign-symmetric ensemble weighting, confirmed twice. Phase 162 (ic_engine Corpus Pipeline
+Throughput) is COMPLETE (4/4, 2026-07-23) — whole-cell fingerprinting mechanism proven
+equivalent to forced recompute; a real BLOCKER (CR-01, per-symbol watermark scoping) found via
+code review and fixed same session; 3 success criteria (full-corpus wall-clock, surgical
+invalidation, thread benchmark) need an actual full 80-symbol corpus run to close empirically,
+tracked in `162-HUMAN-UAT.md`, not blocking. Six todos this phase absorbed (122/129/133/134/139/140)
+are closed (129 partially revived — its wider cross-service scope was never in Phase 162).
 
-**Track A, resolved:** the symbol_hmm restoration fix (worktree
-`worktree-restore-symbol-hmm-ic-measurement`) landed all 5 tasks: `dual_write_symbol_hmm`
-threaded through `ic_engine.py` (`083b3db6`), migration 247 seeding it `true` for `rates`
-(`8695673e`), live-verified (`TLT` now has 6,045 fresh `symbol_hmm` rows), and D-05's gate
-re-run produced a real verdict (previously years of `(no rows)`/INCONCLUSIVE): **F1 not
-triggered** (TLT's per-symbol HMM stays deficient, demotion holds, matching the original
-2026-07-02 finding) and **F2 triggered for 15m/5m** (rates cross-sectional is ALSO deficient
-at high frequency — pre-registered build trigger for a factor-augmented HMM challenger,
-pending confirmation `volatility_pct` hasn't already passed its own substitution gate for
-rates). Full detail in ROADMAP.md's Phase 144 section, now ✅ COMPLETE. **Phase 145
-(StratificationDimension Formalization) is now unblocked** (was gated on this exact verdict)
-but not yet started. Three follow-ups filed, not silently dropped: todo 167 (equity's
-analogous falsifier question, never tested), todo 168 (7 corpus symbols —
-`LQD`/`PFF`/`RSP`/`USMV`/`UUP`/`VWO`/`XRT` — have zero per-symbol HMM regime coverage at all,
-a real pre-existing `regime_writer.py` gap unrelated to this fix), todo 169 (the missing
-systemic monitor that would have caught 168's gap years earlier). **Recorded but not
-executed:** don't flip `rates.dual_write_symbol_hmm` back to `false` until the next full
-corpus rebuild reproduces F1's non-trigger result — this was a scoped 12-symbol verification
-run, not full-corpus confirmation.
+**Next actions, priority order:**
 
-**Track B, per the concurrent session:** `/gsd-discuss-phase 147` surfaced that Phase 147 (I7
-CORPUS-07 Evaluation — auditing whether the 35 archived, zero-live-consumer I7 plugins hold
-signal not already in the v3.0 Feature Factory) is due diligence on a dead system, not v3
-measurement work, and does NOT gate Phase 148 — the "Depends on: Phase 147" line in
-ROADMAP.md was itself stale (SCORE-01/02/03 read only pure v3.0 tables; the one place 147
-ever connected was SCORE-04, already downgraded to documentation-only 2026-07-19). Fixed in
-ROADMAP.md, the backlog matrix, and here. Phase 148's prerequisites (EIC-04 PASS, ≥60 days
-closed `alpha_frames`) are already met by a wide margin (15.6M `closed_max_hold` rows, ~4,883
-distinct trading days) — fully planned (5 plans, 3 waves), not yet executed.
+*Tier 1 — highest-value open question, ready to discuss:* Phase 166 (`/gsd-discuss-phase 166`)
+— the direct next step after Phase 148's verdict.
 
-Milestone v3.1 is not yet complete, but its defining question is now answered: **Phase 148
-delivered its verdict 2026-07-22 — do not promote the v3.0 AlphaEngine to live trading capital
-at this time.** Gate 1 (signal proof) PASS, Gate 2 (execution proof) FAIL, 3 of 5 criteria,
-decisively. Full evidence: `docs/plans/2026-07-22-phase148-promotion-decision.md`. This is a
-real, informative negative result, not a stall — it says the measured signal is real but the
-current frame/execution design doesn't yet capture it as profitable OOS P&L. Diagnosing and
-fixing that gap is explicitly out of scope for Phase 148 and not yet scheduled as its own item.
-
-**Next actions — reconciled todo+phase priority view (updated 2026-07-22 post-Phase-148):**
-
-*Tier 1 — highest-value open question:* Whether/how to diagnose Gate 2's failure (frame/
-execution recalibration against the IC decay curve, per the phase's own "if Gate 2 fails but
-Gate 1 passes: frame problem" framing) is real, unscoped follow-on work — not yet a todo or
-phase. Consider filing this before other work, since it's the direct next step the promotion
-decision record itself flags as deliberately out of its scope.
-
-*Tier 2 — ready now, independent of 148's follow-up:* Phase 163 execution
-(`/gsd-execute-phase 163`, planned) · Phase 162 execution (`/gsd-execute-phase 162`, planned +
-reviewed, gated only on `ps aux | grep ic_engine` clear) · todo 088 (`hold_max_bars` type
-safety, small, unblocked) · todos 168/169 (7 symbols with zero HMM regime coverage + no monitor
-that would've caught it) · todo 170 (`volatility_pct` substitution probe for rates) · todo 173
-(`ensemble_alpha` has zero OOS rows at 1h/1d — found closing out Phase 148, caps any future
-1h/1d OOS gate) · todo 172 (path-dependent/order-sensitive statistics sweep — found fixing
-Gate 2's `c4_max_dd`, likely affects other frame-level cumulative statistics elsewhere).
+*Tier 2 — ready now, independent of 166:* Phase 163 (VP/SR Structural Primitives,
+`/gsd-execute-phase 163`, planned) · todo 088 (`hold_max_bars` type safety, small, unblocked) ·
+todos 168/169 (7 symbols with zero HMM regime coverage + no monitor that would've caught it) ·
+todo 170 (`volatility_pct` substitution probe for rates) · todo 129 (revived — wider
+cross-service short-lived-conn helper) · todos 172/173 (non-blocking findings from Phase 148's
+execution) · todo 009 Parts A-D (Part E closed via Phase 162).
 
 *Tier 3 — needs a planning pass first:* Phase 145 (StratificationDimension Formalization,
-unblocked by Phase 144's D-05 verdict, not yet discussed/planned) · Phase 165 (Swing/Fib/Trend
-Structure Primitives, context+research done, needs `/gsd-plan-phase 165`) · todo 111 (same
-unblock as Phase 145).
+unblocked, not yet discussed/planned) · Phase 165 (Swing/Fib/Trend Structure Primitives,
+context+research done, needs `/gsd-plan-phase 165`) · todo 111 (same unblock as Phase 145).
 
 *Tier 4 — real value, not urgent:* Phase 147 (I7 CORPUS-07 — due diligence on an already-dead
 system, cheap, gates nothing) plus the full P2/P3 tier in `.planning/todos/PRIORITIES.md`.
@@ -106,9 +68,8 @@ Calibration) — registered in ROADMAP.md, zero planning artifacts, v4.0-adjacen
 "prove edge before production infra," this gate is now MORE binding, not less: Phase 148's
 verdict came back negative (Gate 2 FAIL), so building portfolio/execution/risk infrastructure
 on top of an execution design already shown not to capture the measured signal profitably would
-be building on a known-broken foundation. These stay gated until a future frame/execution
-recalibration (Tier 1's open question) produces a real PASS on Gate 2, not just until Phase 148
-"finishes" — it has finished, with a negative result.
+be building on a known-broken foundation. These stay gated until Phase 166 produces a real PASS
+on Gate 2, not just until Phase 148 "finishes" — it has finished, with a negative result.
 
 **Execution plan:** `docs/plans/2026-06-30-alphaengine-v1-execution-plan.md`
 
@@ -139,6 +100,8 @@ recalibration (Tier 1's open question) produces a real PASS on Gate 2, not just 
 | 160 | Concept Registry MVP | COMPLETE (4/4 plans) — 4-table schema + `ConceptRegistryService`/`ConceptRegistryAPI`/`ConceptRegistryDashboard` live |
 | 161 | Controlled Vocabulary System | COMPLETE (4/4 plans, 2026-07-18) — schema + `VocabularyService` + `vocabulary_drift` audit + `/api/vocabulary/{namespace}` route, live-verified (VERIFICATION.md: passed, 23/24 truths, 1 accepted YAGNI override) |
 | 148 | Alpha Scoring System (OOS Proof Gates) | COMPLETE (5/5 plans, 2026-07-22) — the actual proof-of-alpha milestone: Gate 1 PASS, Gate 2 FAIL, VERDICT do not promote to live capital; see ROADMAP.md's Phase 148 section and `docs/plans/2026-07-22-phase148-promotion-decision.md` for full evidence |
+| 162 | ic_engine Corpus Pipeline Throughput | COMPLETE (4/4 plans, 2026-07-23) — whole-cell fingerprint mechanism, equivalence-proven; CR-01 blocker found via code review and fixed same session; 3 success criteria need a full-corpus run to close empirically, see `162-HUMAN-UAT.md` |
+| 166 | Frame/Execution Recalibration | NOT YET PLANNED (registered 2026-07-23, promoted from todo 174) — diagnose Phase 148's Gate 2 failure and recalibrate stop/target/hold against the IC decay curve; next actionable item, see Current focus |
 
 Current row counts and every downstream measurement number live in
 [Corpus pipeline state](project_corpus_pipeline_state.md) — that file is the single source of

@@ -1,7 +1,17 @@
 ---
-status: deferred
+status: closed
 moved_to_deferred: 2026-07-18
+closed: 2026-07-23 — shipped via Phase 162-03
 ---
+
+**CLOSED 2026-07-23 (Phase 162-03):** the fingerprint mechanism this todo asked for shipped, and
+goes further than the original ask — every `ICEngineConfig` field (39 total) is partitioned into
+`_COMPUTATIONAL_CONFIG_FIELDS`/`_OPERATIONAL_CONFIG_FIELDS`, exhaustively and disjointly (crash-loud
+test if a future field lands in neither), and `_compute_apr_snapshot_key()` moves the fingerprint
+only on a computational-field change. Mid-run APR drift now invalidates in-flight work the same
+way a code change does. The old `.pkl` checkpoint system this todo was originally about
+(`_checkpoint_dir`/`_load_checkpoint`/`_save_checkpoint`) was deleted outright, not patched --
+cross-run fingerprinting + immediate per-symbol DB writes made it fully redundant.
 
 **Moved to deferred/ 2026-07-18 (priorities/matrix reconciliation pass):** already self-deferred
 in this file's own text to todo 134/ROADMAP **Phase 162** (plan 162-02 absorbs this fingerprint

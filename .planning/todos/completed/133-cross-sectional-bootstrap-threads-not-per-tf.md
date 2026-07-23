@@ -1,11 +1,20 @@
 ---
-status: deferred
+status: closed
 priority: P2
 filed: 2026-07-18
 moved_to_deferred: 2026-07-18
+closed: 2026-07-23 — mechanism shipped via Phase 162-02
 source: /simplify pass (efficiency review) on the ic_engine cross-sectional bootstrap
   threading commits (28fe12ac, migration 239_ic_engine_cross_sectional_bootstrap_threads.sql)
 ---
+
+**CLOSED 2026-07-23 (Phase 162-02):** `cross_sectional_bootstrap_threads` is now a per-tf APR
+dict (migration 250: `5m=6, 15m=1h=1d=1`), exactly this todo's option (a). The one piece not
+literally executed as this file's "Fix" section specified -- a live wall-clock A/B benchmark of
+`max_workers=1` vs `=6` on 15m/1h/1d before picking the value, rather than seeding it from the
+original migration's reasoning -- is tracked as an open human-verification item in
+`.planning/phases/162-ic-engine-corpus-pipeline-throughput-incremental-recompute-t/162-HUMAN-UAT.md`
+(item 3), not a separate pending todo.
 
 **Moved to deferred/ 2026-07-18 (priorities/matrix reconciliation pass):** registered as
 ROADMAP **Phase 162 "ic_engine Corpus Pipeline Throughput"**, plan 162-01 by name in that

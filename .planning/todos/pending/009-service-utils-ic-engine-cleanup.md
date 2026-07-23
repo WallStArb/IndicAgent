@@ -11,7 +11,15 @@
 
 # 009 — Phase B infra cleanup batch (merged 012, 032)
 
-**Held back 2026-07-19:** picked this up for execution (Parts A/D/E looked like safe, mechanical,
+**Part E closed 2026-07-23:** Phase 162-01 extracted `build_walk_forward_folds(n_obs, n_folds,
+embargo_bars)` into `src/intelligence/statistics/ic_math.py`, replacing all 4 inline copies
+(3 in `ic_engine.py`, 1 in `ensemble_ic_engine.py`), with direct unit tests
+(`tests/unit/test_ic_math_walk_forward_folds.py`). This resolves Part E's entire remaining
+scope (item 3 — items 1-2 were already done via todo 048). Parts A, B, C, D remain open below.
+The 2026-07-19 hold-back's blocker (todo 094's 143.1-08 concurrent-session sequencing chain)
+finished 2026-07-21 — no longer a live concern for re-picking up A/D.
+
+**Held back 2026-07-19 (historical, blocker resolved):** picked this up for execution (Parts A/D/E looked like safe, mechanical,
 gate-cleared wins) but stopped before editing any code. Live check showed the 143.1 shadow-mode
 sequencing chain (todo 094's 143.1-08 validation) is actively in progress in a concurrent session
 right now — `.planning/corpus_manifests/*.json` are mid-edit and PRIORITIES.md's P0 section is
@@ -181,7 +189,7 @@ with no behavior change. Verify with `pytest tests/unit/ -q` after.
 
 ---
 
-## Part E — ic_engine pure-function extraction (original 032 scope, status verified 2026-07-12)
+## Part E — ic_engine pure-function extraction (original 032 scope) — ✅ CLOSED 2026-07-23
 
 Jim Simons' mandate: every measurement is a deterministic function with no side effects —
 testable in isolation, auditable, parallelizable without surprise. `ic_engine.py` originally
@@ -195,20 +203,10 @@ verbatim carryover of the original proposal.
    `ensemble_ic_engine.py`.
 2. **`apply_corpus_fdr(p_values, alpha)` — DONE.** `ic_math.py`'s `apply_bh_fdr(p_values, alpha)`
    is exactly this function (confirmed via `grep`).
-3. **`build_walk_forward_folds(n_obs, n_folds, embargo_bars)` — STILL OUTSTANDING.** Confirmed
-   2026-07-12: no such function exists anywhere in `src/` or `services/`. The fixed-origin
-   expanding-window-with-embargo fold construction (`for k in range(walk_forward_folds): train_end
-   = ...`) is still embedded inline in `ic_engine.py`'s `_compute_symbol_tf` (and duplicated in the
-   context-features loop in the same file, and again in `ensemble_ic_engine.py`'s analogous path) —
-   this is the one remaining piece of the original proposal with real value: a P0-relevant
-   walk-forward-correctness bug would still require tracing 2-3 copies of this loop instead of a
-   5-line pure-function fix.
+3. **`build_walk_forward_folds(n_obs, n_folds, embargo_bars)` — DONE 2026-07-23 (Phase 162-01).**
+   Extracted into `src/intelligence/statistics/ic_math.py`, replacing all 4 inline copies
+   (`ic_engine.py`'s `_compute_symbol_tf`, its context-features loop, its cross-sectional loop,
+   and `ensemble_ic_engine.py`'s analogous path). Direct unit tests on synthetic fold boundaries:
+   `tests/unit/test_ic_math_walk_forward_folds.py`.
 
-**Remaining scope for this todo:** just item 3 above — extract `build_walk_forward_folds` into
-`ic_math.py` alongside its siblings, replacing the 2-3 inline copies. Much smaller than the
-original 3-function proposal.
-
-**Notes carried forward from the original todo:**
-- Do not do this simultaneously with active correctness fixes (e.g. the current 143.1 sequencing
-  chain) — that doubles the diff and makes regression analysis impossible.
-- After extraction, add direct unit tests using synthetic rank arrays/fold boundaries.
+**Part E fully closed** — all 3 items done, no remaining scope.

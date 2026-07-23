@@ -1816,7 +1816,21 @@ EPS surprises, P/B. Quarterly data → daily TF only via fill-forward join, as-r
 
 **Plans:** TBD at `/gsd-plan-phase 159` — likely `ActualSlippageWriter`, execution-vs-counterfactual scoring view, emission-threshold APR wiring.
 
-### Phase 162: ic_engine Corpus Pipeline Throughput
+### Phase 162: ic_engine Corpus Pipeline Throughput ✅ COMPLETE (2026-07-23)
+
+**4/4 plans executed and merged.** The whole-cell fingerprint mechanism works: an empirical
+equivalence proof (`ops_ic_fingerprint_equivalence.py`, 5-symbol/1d subset) showed the
+fingerprint-skip path producing byte-identical `feature_ic_scores` (9,780 rows) to a forced
+`--refresh` recompute, ~31-80x faster (2.0-3.0s vs 163-170s). Post-execution code review found
+one real BLOCKER (CR-01): the per-symbol fingerprint watermark for regime-group-routed symbols
+was silently scoped to `None` instead of `[symbol]`, permanently defeating staleness detection
+for that class of cell — fixed same session (explicit `is_group_pooled` parameter replacing
+implicit `pass_type`-string inference), independently re-verified by a separate verifier agent,
+no data remediation needed (`ic_cell_fingerprints` was empty in production). Formal verification:
+7/7 success criteria (SC-1..SC-7) verified at the mechanism level; 3 (SC-1 full-corpus wall-clock,
+SC-2 surgical-invalidation timing, SC-5 thread-count benchmark) need an actual full 80-symbol
+corpus run to close empirically — persisted as `162-HUMAN-UAT.md`, not blocking, per every
+plan's own SUMMARY explicitly deferring full-scale timing to "the next real corpus pass."
 
 **Refined 2026-07-18 (Fable design pass, pre-`/gsd-discuss-phase`):** below supersedes the
 original generic goal text. Source review: `.planning/todos/pending/134-ic-engine-incremental-recompute.md`
@@ -2225,7 +2239,7 @@ Plans:
 stop/target/hold recalibration against the IC decay curve can turn the OOS-proven signal
 (Gate 1 PASS) into profitable OOS P&L. Per ROADMAP's own Phase 148 design, this is the
 pre-registered "frame problem" playbook — Gate 1 passing + Gate 2 failing means recalibrate
-the frame, not the ensemble. Full origin and scope: [todo 174](../todos/pending/174-gate2-execution-failure-frame-recalibration-investigation.md).
+the frame, not the ensemble. Full origin and scope: [todo 174](../todos/completed/174-gate2-execution-failure-frame-recalibration-investigation.md) (promoted to this phase 2026-07-23).
 
 **Not gated on 165** — sequenced after it only because 165 was the last-registered phase at
 filing time, not because of a real dependency. Can be discussed/planned independently.

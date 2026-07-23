@@ -1,10 +1,18 @@
 ---
-status: deferred
+status: closed
 priority: P3
 filed: 2026-07-19
 moved_to_deferred: 2026-07-19
+closed: 2026-07-23 — shipped via Phase 162-01
 source: /simplify reuse review of commit be74f4a1 (ic_engine cross-sectional OOM fix)
 ---
+
+**CLOSED 2026-07-23 (Phase 162-01):** exactly this shared helper shipped —
+`_subsample_and_rank(...)` in `services/ic_engine.py`, called by both
+`_compute_one_regime_cell` and `_compute_one_cross_sectional_cell`
+(`test_both_cell_functions_call_subsample_and_rank`), plus the feature-blocked memory rework
+from sibling todo 140. Bit-identical to the pre-refactor unblocked path
+(`test_subsample_and_rank_feature_blocked_matches_unblocked`).
 
 **Moved to deferred/ 2026-07-19:** folded into ROADMAP **Phase 162 "ic_engine Corpus Pipeline
 Throughput"** alongside 140 (same functions, same pass) and 133/134/122 -- not an

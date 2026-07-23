@@ -200,8 +200,8 @@ threshold or stratification. The only interaction is the Step 6 ordering fix abo
   a generic stratum key (the reuse precedent)
 - `.planning/todos/pending/091-fisher-z-ci-empirical-null-miscalibration.md` open
   CI-too-narrow finding; the low-tail guard is its instrumentation, not its fix
-- `.planning/todos/deferred/134-ic-engine-incremental-recompute.md` /
-  ROADMAP Phase 162: the separate compute-path work on this file; no code overlap
+- `.planning/todos/completed/134-ic-engine-incremental-recompute.md` /
+  ROADMAP Phase 162 (complete 2026-07-23): the separate compute-path work on this file; no code overlap
 - Live evidence (2026-07-19 session): first-ever `regime_shift_fraction` row,
   fraction=0.9618 at `training_window_end=2025-12-24`; per-(tf, is_pooled) IC/p-value
   table showing mean p ~0.42-0.52 and fdr_fail_rate 0.976-0.999 across all tfs; EIC-04
