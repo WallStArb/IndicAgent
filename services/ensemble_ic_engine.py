@@ -354,6 +354,33 @@ _STOP_PLACEMENT_STATUS = "closed_target"
 _TARGET_PLACEMENT_STATUS = "closed_max_hold"
 
 
+def _classify_stop_target_excursion(
+    status: str | None,
+    mae: float | None,
+    mfe: float | None,
+    stop_atr_mult: float | None,
+) -> tuple[str, float] | None:
+    """Classify one alpha_frames row into its uncensored subpopulation (088 alignment):
+    `("stop", mae_atr)` for `closed_target` frames, `("target", mfe_r)` for
+    `closed_max_hold` frames, or `None` for `closed_stop` (right-censored), `closed_ic_decay`,
+    any other status, or a missing input. Shared by `_select_stop_target_from_excursions`
+    (per-symbol calibration, below) and `diagnose166_frame_calibration.py`'s
+    `_summarize_excursions` (pooled diagnosis) so the rescale formula and censoring rule can
+    never drift between the two.
+    """
+    if status == _STOP_PLACEMENT_STATUS:
+        if mae is None or stop_atr_mult is None:
+            return None
+        mae_atr = abs(float(mae)) * float(stop_atr_mult)
+        return ("stop", mae_atr) if np.isfinite(mae_atr) else None
+    if status == _TARGET_PLACEMENT_STATUS:
+        if mfe is None:
+            return None
+        mfe_r = float(mfe)
+        return ("target", mfe_r) if np.isfinite(mfe_r) else None
+    return None
+
+
 def _select_stop_target_from_excursions(
     cells: list[dict[str, Any]],
     stop_mae_percentile: float,
@@ -397,23 +424,16 @@ def _select_stop_target_from_excursions(
     stop_vals: list[float] = []
     target_vals: list[float] = []
     for row in cells:
-        status = row.get("counterfactual_status")
-        if status == _STOP_PLACEMENT_STATUS:
-            mae = row.get("counterfactual_mae")
-            stop_atr_mult = row.get("stop_atr_mult")
-            if mae is None or stop_atr_mult is None:
-                continue
-            mae_atr = abs(float(mae)) * float(stop_atr_mult)
-            if np.isfinite(mae_atr):
-                stop_vals.append(mae_atr)
-        elif status == _TARGET_PLACEMENT_STATUS:
-            mfe = row.get("counterfactual_mfe")
-            if mfe is None:
-                continue
-            mfe_r = float(mfe)
-            if np.isfinite(mfe_r):
-                target_vals.append(mfe_r)
-        # closed_stop (right-censored, 088) and closed_ic_decay: excluded from both.
+        classified = _classify_stop_target_excursion(
+            row.get("counterfactual_status"),
+            row.get("counterfactual_mae"),
+            row.get("counterfactual_mfe"),
+            row.get("stop_atr_mult"),
+        )
+        if classified is None:
+            continue
+        kind, value = classified
+        (stop_vals if kind == "stop" else target_vals).append(value)
 
     stop_selected = (
         float(np.percentile(stop_vals, stop_mae_percentile))

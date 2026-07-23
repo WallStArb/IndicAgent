@@ -25,10 +25,10 @@ def test_find_clusters_groups_within_radius_and_drops_singletons():
     """Test 1: _find_clusters groups candidates within cluster_radius_atr and
     drops singletons (len < 2)."""
     candidates = [
-        ZoneCandidate(price=100.0, name="a", strength=0.7, source_tier="sr", source_family="sr"),
-        ZoneCandidate(price=100.1, name="b", strength=0.7, source_tier="vp", source_family="vp"),
+        ZoneCandidate(price=100.0, name="a", strength=0.7, source_tier="sr"),
+        ZoneCandidate(price=100.1, name="b", strength=0.7, source_tier="vp"),
         # isolated singleton -- far outside cluster_radius_atr (0.5 default) * atr (1.0) = 0.5
-        ZoneCandidate(price=110.0, name="c", strength=0.7, source_tier="sr", source_family="sr"),
+        ZoneCandidate(price=110.0, name="c", strength=0.7, source_tier="sr"),
     ]
     clusters = _find_clusters(candidates, atr=1.0)
     assert len(clusters) == 1
@@ -40,12 +40,12 @@ def test_score_cluster_rewards_strength_and_diversity_penalizes_width():
     """Test 2: _score_cluster rewards strength-sum x source-tier diversity,
     penalizes width."""
     tight_diverse = [
-        ZoneCandidate(price=100.0, name="a", strength=0.7, source_tier="sr", source_family="sr"),
-        ZoneCandidate(price=100.05, name="b", strength=0.7, source_tier="vp", source_family="vp"),
+        ZoneCandidate(price=100.0, name="a", strength=0.7, source_tier="sr"),
+        ZoneCandidate(price=100.05, name="b", strength=0.7, source_tier="vp"),
     ]
     wide_single_tier = [
-        ZoneCandidate(price=100.0, name="a", strength=0.7, source_tier="sr", source_family="sr"),
-        ZoneCandidate(price=100.4, name="b", strength=0.7, source_tier="sr", source_family="sr"),
+        ZoneCandidate(price=100.0, name="a", strength=0.7, source_tier="sr"),
+        ZoneCandidate(price=100.4, name="b", strength=0.7, source_tier="sr"),
     ]
     score_tight_diverse = _score_cluster(tight_diverse, atr=1.0)
     score_wide_single_tier = _score_cluster(wide_single_tier, atr=1.0)
@@ -55,12 +55,8 @@ def test_score_cluster_rewards_strength_and_diversity_penalizes_width():
 def test_pick_single_best_returns_highest_strength_times_proximity():
     """Test 3: _pick_single_best returns the highest strength x proximity
     candidate."""
-    near_weak = ZoneCandidate(
-        price=100.4, name="near_weak", strength=0.3, source_tier="sr", source_family="sr"
-    )
-    far_strong = ZoneCandidate(
-        price=99.0, name="far_strong", strength=0.95, source_tier="sr", source_family="sr"
-    )
+    near_weak = ZoneCandidate(price=100.4, name="near_weak", strength=0.3, source_tier="sr")
+    far_strong = ZoneCandidate(price=99.0, name="far_strong", strength=0.95, source_tier="sr")
     best = _pick_single_best([near_weak, far_strong], entry=100.5, atr=1.0)
     assert best is not None
     assert best.name == "far_strong"
@@ -70,13 +66,9 @@ def test_resolve_zone_prefers_diverse_cluster_over_single_level():
     """Test 4a: 3-tier resolution prefers a diverse cluster (>=2 distinct
     source_tier) over a single level."""
     diverse_cluster = [
-        ZoneCandidate(
-            price=99.0, name="sr_support", strength=0.7, source_tier="sr", source_family="sr"
-        ),
-        ZoneCandidate(price=99.05, name="poc", strength=0.8, source_tier="vp", source_family="vp"),
-        ZoneCandidate(
-            price=95.0, name="isolated", strength=0.9, source_tier="sr", source_family="sr"
-        ),
+        ZoneCandidate(price=99.0, name="sr_support", strength=0.7, source_tier="sr"),
+        ZoneCandidate(price=99.05, name="poc", strength=0.8, source_tier="vp"),
+        ZoneCandidate(price=95.0, name="isolated", strength=0.9, source_tier="sr"),
     ]
     result = _resolve_zone(diverse_cluster, entry=100.0, atr=1.0)
     assert isinstance(result, ZoneResult)

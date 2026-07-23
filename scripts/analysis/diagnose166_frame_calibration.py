@@ -80,6 +80,7 @@ import numpy as np
 sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
 
 from services._batch_utils import cfg as _cfg  # noqa: E402
+from services.ensemble_ic_engine import _classify_stop_target_excursion  # noqa: E402
 from src.config.settings import Settings  # noqa: E402
 
 _CHAMPION_WEIGHT_EPOCH = "143.1-08-champion"
@@ -88,11 +89,6 @@ _DEFAULT_STOP_MAE_PERCENTILE = 90.0
 _DEFAULT_TARGET_MFE_PERCENTILE = 50.0
 
 _CURRENT_GLOBAL_SCALARS = {"stop_atr_mult": 1.5, "target_r_multiple": 2.0}
-
-# Uncensored subpopulations (088 alignment): closed_stop and closed_ic_decay frames are
-# excluded from both distributions by _summarize_excursions -- see module docstring caveat (088).
-_STOP_PLACEMENT_STATUS = "closed_target"
-_TARGET_PLACEMENT_STATUS = "closed_max_hold"
 
 # bar_ts < $2 (in-sample side, per RESEARCH.md Finding 6 / OOS-EVAL-PROTOCOL.md holdout
 # discipline -- this diagnosis never touches the OOS window). weight_epoch = $1 restricts to
@@ -117,20 +113,13 @@ def _summarize_excursions(
 ) -> dict[tuple[str, str], dict[str, Any]]:
     """Per-(regime, tf) MAE/MFE percentile summary from the two uncensored subpopulations.
 
-    Stop placement: `stop_mae_percentile`-th percentile of abs(counterfactual_mae) * stop_atr_mult
-    (rescaled R-units -> ATR-units) among `closed_target` frames only -- these frames never
-    touched the stop, so their observed adverse excursion is a real, uncensored measurement of
-    how far against the position price moved before the target hit (088 alignment: `closed_stop`
-    frames are RIGHT-CENSORED at the stop distance and are excluded here).
-
-    Target placement: `target_mfe_percentile`-th percentile of counterfactual_mfe (R-units,
-    NOT rescaled -- this is already a direct empirical estimate of a target_r_multiple) among
-    `closed_max_hold` frames only -- these frames never touched stop or target, so their
-    observed favorable excursion is not capped by the current target (088 alignment: any frame
-    that DID hit the target would itself be right-censored at target_r_multiple).
-
-    `closed_ic_decay` frames (and any other status) contribute to neither distribution -- they
-    are not part of either uncensored subpopulation.
+    Row classification (rescale formula + censoring rule) is `_classify_stop_target_excursion`
+    (shared with `ensemble_ic_engine.py`'s `_select_stop_target_from_excursions`, which this
+    diagnosis's numbers must stay consistent with -- 088 alignment): `closed_target` frames
+    contribute `abs(counterfactual_mae) * stop_atr_mult` (rescaled R-units -> ATR-units) to the
+    stop distribution; `closed_max_hold` frames contribute `counterfactual_mfe` (already
+    R-units) to the target distribution; `closed_stop` (right-censored at the stop distance)
+    and `closed_ic_decay` frames contribute to neither.
 
     Returns a dict keyed by (regime, tf) with n_qualifying counts and percentile values (None
     when a cell has zero qualifying frames for that side -- never a fabricated 0.0).
@@ -140,14 +129,16 @@ def _summarize_excursions(
 
     for row in rows:
         key = (row["regime"], row["tf"])
-        status = row["status"]
-        if status == _STOP_PLACEMENT_STATUS:
-            mae_atr = abs(row["counterfactual_mae"]) * row["stop_atr_mult"]
-            stop_excursions.setdefault(key, []).append(mae_atr)
-        elif status == _TARGET_PLACEMENT_STATUS:
-            mfe_r = row["counterfactual_mfe"]
-            target_excursions.setdefault(key, []).append(mfe_r)
-        # closed_stop (right-censored, 088) and closed_ic_decay: excluded from both.
+        classified = _classify_stop_target_excursion(
+            row["status"],
+            row["counterfactual_mae"],
+            row["counterfactual_mfe"],
+            row["stop_atr_mult"],
+        )
+        if classified is None:
+            continue
+        kind, value = classified
+        (stop_excursions if kind == "stop" else target_excursions).setdefault(key, []).append(value)
 
     summary: dict[tuple[str, str], dict[str, Any]] = {}
     for key in set(stop_excursions) | set(target_excursions):

@@ -611,15 +611,23 @@ class AlphaFrameWriter(BaseBatch):
 
         # structural geometry_source only (Task 2): one bulk fetch per partition, never a
         # per-row round trip. Empty dicts (harmless .get() misses -> scalar-seed fallback in
-        # _resolve_row_geometry) for every other geometry_source.
+        # _resolve_row_geometry) for every other geometry_source. Gated on an EXISTS check
+        # against _PENDING_SQL first -- these fetches pull a (symbol, tf)'s FULL bar/feature
+        # history with no bar_ts bound, so skip them outright on a partition with zero pending
+        # rows (the common case on a steady-state nightly run) rather than paying for that scan
+        # only to have every row's .get() miss the empty dicts.
         market_data_by_bar_ts: dict[Any, tuple[float, float]] = {}
         features_by_bar_ts: dict[Any, dict[str, Any]] = {}
         if frame_config.geometry_source == "structural":
             async with pool.acquire() as sconn:
-                market_data_by_bar_ts = await _fetch_structural_market_data(
-                    sconn, symbol, tf, frame_config.atr_period
+                has_pending = await sconn.fetchval(
+                    f"SELECT EXISTS ({self._PENDING_SQL})", symbol, tf
                 )
-                features_by_bar_ts = await _fetch_structural_features(sconn, symbol, tf)
+                if has_pending:
+                    market_data_by_bar_ts = await _fetch_structural_market_data(
+                        sconn, symbol, tf, frame_config.atr_period
+                    )
+                    features_by_bar_ts = await _fetch_structural_features(sconn, symbol, tf)
 
         async with pool.acquire() as conn:
             async with conn.transaction():

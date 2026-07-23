@@ -81,7 +81,6 @@ class ZoneCandidate:
     name: str
     strength: float  # 0.0-1.0 quality weight
     source_tier: str  # "sr" | "vp" (v3 port -- zone_engine.py used "i1"/"i3"/"i4"/"smc")
-    source_family: str  # "sr" | "vp" -- dedup/diversity key
 
 
 @dataclass
@@ -238,10 +237,10 @@ def _resolve_zone(candidates: list[ZoneCandidate], entry: float, atr: float) -> 
 # one of them is 100% absent from v3's live `feature_vectors` schema
 # (RESEARCH.md Finding 2/3, Pitfall 3).
 #
-# (feature_key, display_name, default_strength, source_tier, source_family)
-_SR_SPECS: tuple[tuple[str, str, float, str, str], ...] = (
-    ("sr_support_dist", "sr_support", 0.7, "sr", "sr"),
-    ("sr_resist_dist", "sr_resistance", 0.7, "sr", "sr"),
+# (feature_key, display_name, default_strength, source_tier)
+_SR_SPECS: tuple[tuple[str, str, float, str], ...] = (
+    ("sr_support_dist", "sr_support", 0.7, "sr"),
+    ("sr_resist_dist", "sr_resistance", 0.7, "sr"),
 )
 
 # feature_key -> (display_name, default_strength, price_sign). price = entry +
@@ -334,7 +333,7 @@ def collect_candidates(
 
     candidates: list[ZoneCandidate] = []
 
-    for feat_key, name, default_strength, tier, family in _SR_SPECS:
+    for feat_key, name, default_strength, tier in _SR_SPECS:
         dist = _fval(features, feat_key)
         if dist is None:
             continue
@@ -347,7 +346,6 @@ def collect_candidates(
                 name=name,
                 strength=_resolve_strength(features, name, default_strength),
                 source_tier=tier,
-                source_family=family,
             )
         )
 
@@ -368,7 +366,6 @@ def collect_candidates(
                 name=name,
                 strength=default_strength,
                 source_tier="vp",
-                source_family="vp",
             )
         )
 
