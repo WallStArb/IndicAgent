@@ -111,3 +111,10 @@ None -- no external service configuration required. Migration 253's APR keys (16
 ---
 *Phase: 166-frame-execution-recalibration*
 *Completed: 2026-07-23*
+
+## Self-Check: PASSED
+
+All created/modified files verified present on disk (`services/ensemble_ic_engine.py`,
+`tests/unit/test_ensemble_ic_stop_target_calibration.py`, this SUMMARY). All 3 commits
+(`3727eb2c`, `ebbc559b`, `eac872ef`) verified present in `git log --oneline --all`. No
+missing items.
