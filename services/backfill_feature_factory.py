@@ -29,7 +29,6 @@ from __future__ import annotations
 import argparse
 import asyncio
 import bisect
-import json
 import math
 import sys
 from collections import deque
@@ -48,6 +47,7 @@ project_root = Path(__file__).parent.parent
 sys.path.insert(0, str(project_root))
 
 
+from services._batch_utils import get_dict_config as _get_dict_config
 from services._batch_utils import load_config_service_sync as _load_config_service
 from src.config.config_service import ConfigService
 from src.config.settings import Settings, get_active_contracts
@@ -387,21 +387,6 @@ def _filter_etf_contracts(contracts: list, symbols: list[str] | None) -> list:
     return etf
 
 
-def _sr_lookback_by_tf_from_config(cfg: ConfigService) -> dict:
-    """Read feature.sr.lookback_by_tf, tolerating either a pre-parsed dict (the
-    normal case -- load_config_service_sync's _parse_value already json.loads()s
-    value_type='json' keys at cache-load time) or a raw JSON string (test/fallback
-    default path), same defensive pattern as feature_vector_pipeline.py's _dict().
-    """
-    default = {"1m": 60, "5m": 60, "15m": 80, "1h": 120, "1d": 60}
-    v = cfg.get_sync("feature.sr.lookback_by_tf", default)
-    if isinstance(v, dict):
-        return v
-    if isinstance(v, str):
-        return json.loads(v)
-    return default
-
-
 def _build_feature_factory_config(cfg: ConfigService) -> FeatureFactoryConfig:
     """Build FeatureFactoryConfig from APR keys. All fields from feature.* namespace."""
     return FeatureFactoryConfig(
@@ -517,7 +502,9 @@ def _build_feature_factory_config(cfg: ConfigService) -> FeatureFactoryConfig:
         session_vp_rolling_window=int(cfg.get_sync("feature.session_vp.rolling_window", 480)),
         sr_window=int(cfg.get_sync("feature.sr.window", 10)),
         sr_cluster_atr_mult=float(cfg.get_sync("feature.sr.cluster_atr_mult", 0.5)),
-        sr_lookback_by_tf=_sr_lookback_by_tf_from_config(cfg),
+        sr_lookback_by_tf=_get_dict_config(
+            cfg, "feature.sr.lookback_by_tf", {"1m": 60, "5m": 60, "15m": 80, "1h": 120, "1d": 60}
+        ),
     )
 
 

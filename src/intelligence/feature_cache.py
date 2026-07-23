@@ -391,9 +391,7 @@ def _compute_session_vp_profile(
         0,
         n_buckets - 1,
     )
-    vol_hist = np.zeros(n_buckets)
-    for i, b in enumerate(bucket_idx):
-        vol_hist[b] += volume[i]
+    vol_hist = np.bincount(bucket_idx, weights=volume, minlength=n_buckets)
     bucket_prices = price_min + (np.arange(n_buckets) + 0.5) * bucket_size
     return vol_hist, bucket_prices, bucket_size, price_min
 

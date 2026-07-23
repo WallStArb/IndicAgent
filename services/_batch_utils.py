@@ -5,6 +5,7 @@ from __future__ import annotations
 
 import csv
 import io
+import json
 from contextlib import contextmanager
 from typing import Any
 
@@ -162,6 +163,21 @@ def cfg(cfg_dict: dict[str, Any], key: str, default: Any) -> Any:
     if isinstance(default, bool):
         return str(val).strip().lower() == "true"
     return type(default)(val)
+
+
+def get_dict_config(cfg_service: ConfigService, key: str, default: dict) -> dict:
+    """Read a JSON-object APR key via `ConfigService.get_sync()`, tolerating either a
+    pre-parsed dict (the normal case -- `load_config_service_sync`'s `_parse_value`
+    already `json.loads()`s `value_type='json'` keys at cache-load time) or a raw JSON
+    string (test/fallback default path). `cfg()` above can't be reused here: its
+    `type(default)(val)` cast breaks for a dict default against a raw JSON-string value.
+    """
+    v = cfg_service.get_sync(key, default)
+    if isinstance(v, dict):
+        return v
+    if isinstance(v, str):
+        return json.loads(v)
+    return default
 
 
 class Float32ChunkAccumulator:

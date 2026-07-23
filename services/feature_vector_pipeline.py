@@ -12,7 +12,6 @@ from __future__ import annotations
 
 import asyncio
 import dataclasses
-import json
 import os
 import signal as _signal
 import time
@@ -20,6 +19,7 @@ from typing import Any
 
 import _path_bootstrap  # noqa: F401 — project root on sys.path
 
+from services._batch_utils import get_dict_config as _get_dict_config
 from src.config.config_service import ConfigService
 from src.config.settings import (
     get_active_contracts,
@@ -598,12 +598,7 @@ class FeatureVectorPipeline(BaseDaemon):
             return float(v) if v is not None else default
 
         def _dict(key: str, default: dict) -> dict:
-            v = cs.get_sync(key, default)
-            if isinstance(v, dict):
-                return v
-            if isinstance(v, str):
-                return json.loads(v)
-            return default
+            return _get_dict_config(cs, key, default)
 
         self._feature_factory_config = FeatureFactoryConfig(
             momentum_window_fast=_int("feature.momentum.window_fast", 5),
