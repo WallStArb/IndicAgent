@@ -25,6 +25,25 @@ CORRECTNESS INVARIANTS:
   (prevents silent historical drift on the next cost-hurdle recalibration).
 - No Kafka: this table has no live consumer, matching EnsembleICEngine's precedent (Pitfall 5).
 
+Phase 166 Plan 05 — geometry_source dispatch (D-01b/D-01c/D-03):
+- `alpha.frame.geometry_source` (global | per_cell_scalar | structural) selects which
+  stop_atr_mult/target_r_multiple SCALAR values get snapshotted onto each frame's
+  stop_atr_mult/target_r_multiple columns — the same two columns the writer has always
+  snapshotted (never live entry/stop/target prices; those stay CounterfactualTracker's job at
+  T+1, per the invariants above). "global" is byte-identical to pre-166-05 behavior (the sole
+  regression-tested default). "per_cell_scalar" mirrors the hold_key per-(regime,tf) lookup
+  pattern exactly. "structural" additionally reads `feature_vectors` (Phase-163 columns only,
+  opaque to this file — passed through to `structural_confluence.resolve_structural_zone` as a
+  generic dict) and computes an independent, causal, scan-time ATR from
+  `market_data_ohlcv_tradeable` (gated to `geometry_source == "structural"` only — H2's
+  "ATR is caller-supplied, never a feature_vectors column" constraint is unchanged: this ATR is
+  computed from OHLCV, never read as a feature_vectors column) to derive an EFFECTIVE
+  stop_atr_mult ratio, which is what actually gets snapshotted — never a raw price. The
+  entry_price used for this resolution is the alpha_event's own bar_ts close (a scan-time
+  proxy, not the true T+1 execution entry CounterfactualTracker computes independently) —
+  sufficient because only the resulting ATR-relative ratio is persisted (RESEARCH.md A2 flags
+  the ATR-consistency assumption for a live spot-check in Plan 166-06).
+
 Usage:
     python services/alpha_frame_writer.py [--backfill]
 """
@@ -47,8 +66,13 @@ sys.path.insert(0, str(project_root))
 
 from services._batch_utils import cfg as _cfg
 from services._batch_utils import load_apr_dict_async as _load_apr
+from src.config.config_service import ConfigService
 from src.config.settings import Settings
 from src.core.agent.base_batch import BaseBatch
+from src.intelligence.trading.structural_confluence import (
+    resolve_structural_zone,
+    set_config_service,
+)
 from src.observability.corpus_manifest import CorpusManifest
 from src.observability.otel import OTelInitError, init_otel_providers
 
@@ -143,6 +167,11 @@ def compute_expected_r_snapshot(
     return gross_expected_r, net_expected_r
 
 
+# geometry_source dispatch (Phase 166 Plan 05, D-01b/D-01c/D-03). "global" is the sole
+# regression-tested default (byte-identical to pre-166-05 behavior).
+_VALID_GEOMETRY_SOURCES = frozenset({"global", "per_cell_scalar", "structural"})
+
+
 @dataclass(frozen=True)
 class FrameConfig:
     """APR-bound frame geometry parameters (FRAME-01). Frozen for pickling/dispatch safety,
@@ -152,6 +181,7 @@ class FrameConfig:
     target_r_multiple: float
     atr_period: int
     min_stop_price_fraction: float
+    geometry_source: str
 
     @classmethod
     def from_apr(cls, cfg_dict: dict[str, Any]) -> FrameConfig:
@@ -166,12 +196,254 @@ class FrameConfig:
             raise ValueError(
                 f"alpha.frame.min_stop_price_fraction must be >= 0, got {min_stop_price_fraction}"
             )
+        geometry_source = _cfg(cfg_dict, "alpha.frame.geometry_source", "global")
+        if geometry_source not in _VALID_GEOMETRY_SOURCES:
+            # Same eager-validation-at-config-load discipline as stop_atr_mult above — an
+            # invalid selector would otherwise silently fall through to whichever branch
+            # string-equality happens to miss, deep in a --backfill scan.
+            raise ValueError(
+                f"alpha.frame.geometry_source must be one of {sorted(_VALID_GEOMETRY_SOURCES)}, "
+                f"got {geometry_source!r}"
+            )
         return cls(
             stop_atr_mult=stop_atr_mult,
             target_r_multiple=_cfg(cfg_dict, "alpha.frame.target_r_multiple", 2.0),
             atr_period=_cfg(cfg_dict, "alpha.frame.atr_period", 14),
             min_stop_price_fraction=min_stop_price_fraction,
+            geometry_source=geometry_source,
         )
+
+
+# ---------------------------------------------------------------------------
+# geometry_source resolution (Phase 166 Plan 05, Tasks 1-2) — pure functions, no DB. Called
+# once per pending alpha_events row inside _process_partition; the DB-touching bulk fetches
+# structural mode needs are separate async helpers below (never a per-row round trip).
+# ---------------------------------------------------------------------------
+
+
+def _resolve_scalar_geometry(
+    cfg: dict[str, Any],
+    regime: str,
+    tf: str,
+    frame_config: FrameConfig,
+    missing_stop_keys: set[str],
+    missing_target_keys: set[str],
+) -> tuple[float, float]:
+    """per_cell_scalar geometry_source (Task 1): mirrors the existing hold_key per-(regime,tf)
+    lookup pattern exactly (`alpha.frame.stop_atr_mult.{regime}.{tf}` /
+    `alpha.frame.target_r_multiple.{regime}.{tf}`), each falling back to the current global
+    scalar (`frame_config.stop_atr_mult`/`target_r_multiple`) when the per-cell key is absent
+    — additive, backward-compatible. Also used by "structural" as the scalar seed bounding the
+    structural candidate search window (Task 2).
+
+    Missing per-cell keys accumulate into the given sets — never a per-row log call
+    (CLAUDE.md's "never log per-row inside a loop over the full corpus" rule); the caller warns
+    once per partition after the full scan.
+    """
+    stop_key = f"alpha.frame.stop_atr_mult.{regime}.{tf}"
+    if stop_key not in cfg:
+        missing_stop_keys.add(stop_key)
+    stop_atr_mult = float(_cfg(cfg, stop_key, frame_config.stop_atr_mult))
+
+    target_key = f"alpha.frame.target_r_multiple.{regime}.{tf}"
+    if target_key not in cfg:
+        missing_target_keys.add(target_key)
+    target_r_multiple = float(_cfg(cfg, target_key, frame_config.target_r_multiple))
+
+    return stop_atr_mult, target_r_multiple
+
+
+def _resolve_structural_geometry(
+    features: dict[str, Any],
+    direction: str,
+    entry_price: float,
+    atr: float,
+    scalar_stop_atr_mult: float,
+    target_r_multiple: float,
+    min_stop_price_fraction: float,
+) -> tuple[float, float] | None:
+    """structural geometry_source (Task 2): derives an EFFECTIVE stop_atr_mult from
+    `structural_confluence.resolve_structural_zone`, falling back to the scalar seed
+    (`scalar_stop_atr_mult` — the per_cell_scalar/global resolution already performed by the
+    caller) when the confluence tier is "atr" (no usable structural candidates — e.g. before
+    Phase 163 executes, NULL_PENDING_163 per 166-01-SUMMARY.md).
+
+    Only the resulting RATIO is ever returned/persisted — never a raw structural price.
+    `entry_price`/`atr` bound the structural candidate search window and convert the resolved
+    structural stop price back into that ratio; `compute_frame_geometry`'s
+    atr<=0/min_stop_price_fraction ValueError-skip contract (todo 162) is preserved for BOTH
+    the scalar-seed stop (used only to bound the search window, never persisted) and the final
+    effective geometry — returns None (caller skips the frame) on either degenerate-stop-
+    distance failure, never fabricating a frame the data can't support.
+    """
+    if atr is None or atr <= 0:
+        return None
+    try:
+        seed_stop_price, _, _ = compute_frame_geometry(
+            direction,
+            entry_price,
+            atr,
+            scalar_stop_atr_mult,
+            target_r_multiple,
+            min_stop_price_fraction,
+        )
+    except ValueError:
+        return None
+
+    direction_int = 1 if direction == "long" else -1
+    zone = resolve_structural_zone(features, direction_int, entry_price, seed_stop_price, atr)
+
+    if zone.tier == "atr":
+        effective_stop_atr_mult = scalar_stop_atr_mult
+    else:
+        # "The near bound on the stop side" (166-05-PLAN.md): for long the stop sits below
+        # entry, so the zone's lower bound (zone_low) is the side away from entry — mirrors
+        # trade_framer.py's own "stop < zone_low" convention for a support-side zone; for
+        # short the mirror is zone_high.
+        structural_stop_price = zone.zone_low if direction == "long" else zone.zone_high
+        effective_stop_atr_mult = abs(entry_price - structural_stop_price) / atr
+
+    try:
+        compute_frame_geometry(
+            direction,
+            entry_price,
+            atr,
+            effective_stop_atr_mult,
+            target_r_multiple,
+            min_stop_price_fraction,
+        )
+    except ValueError:
+        return None
+
+    return effective_stop_atr_mult, target_r_multiple
+
+
+def _resolve_row_geometry(
+    geometry_source: str,
+    cfg: dict[str, Any],
+    regime: str,
+    tf: str,
+    frame_config: FrameConfig,
+    missing_stop_keys: set[str],
+    missing_target_keys: set[str],
+    *,
+    features: dict[str, Any] | None = None,
+    direction: str | None = None,
+    entry_price: float | None = None,
+    atr: float | None = None,
+) -> tuple[float, float] | None:
+    """Dispatch on geometry_source (Tasks 1-2), returning the (stop_atr_mult,
+    target_r_multiple) pair to snapshot onto this row, or None when the frame must be skipped
+    entirely (structural mode's degenerate-stop ValueError-skip contract, todo 162).
+
+    "global": frame_config's scalars, completely unchanged — no cfg lookups performed at all
+    (Test 1: proven byte-identical to pre-166-05 behavior).
+    "per_cell_scalar": `_resolve_scalar_geometry` — per-(regime,tf) key with global fallback.
+    "structural": resolves the same per-cell scalar seed first, then
+    `_resolve_structural_geometry`. When entry_price/atr/features are unavailable for this
+    bar (no market data resolvable, distinct from the degenerate-ATR condition
+    compute_frame_geometry itself guards against), degrades to the scalar seed rather than
+    skipping the frame.
+    """
+    if geometry_source == "global":
+        return frame_config.stop_atr_mult, frame_config.target_r_multiple
+
+    scalar_stop_atr_mult, target_r_multiple = _resolve_scalar_geometry(
+        cfg, regime, tf, frame_config, missing_stop_keys, missing_target_keys
+    )
+    if geometry_source == "per_cell_scalar":
+        return scalar_stop_atr_mult, target_r_multiple
+
+    # geometry_source == "structural" (the only remaining value — validated at
+    # FrameConfig.from_apr load time).
+    if features is None or direction is None or entry_price is None or atr is None:
+        return scalar_stop_atr_mult, target_r_multiple
+
+    return _resolve_structural_geometry(
+        features,
+        direction,
+        entry_price,
+        atr,
+        scalar_stop_atr_mult,
+        target_r_multiple,
+        frame_config.min_stop_price_fraction,
+    )
+
+
+# ---------------------------------------------------------------------------
+# structural geometry_source bulk fetches (Task 2) — one query per (symbol, tf) partition,
+# never a per-row round trip. Gated to geometry_source == "structural" only by the caller.
+# ---------------------------------------------------------------------------
+
+# Causal, scan-time ATR (simple average of true range over the trailing atr_period bars,
+# inclusive of the current bar) computed independently from market_data_ohlcv_tradeable — same
+# methodology as CounterfactualTracker's own _true_range/tr_window (never a feature_vectors
+# column, H2). `close` doubles as this file's entry_price proxy (see module docstring's
+# Phase 166 Plan 05 note) — the true T+1 execution entry remains CounterfactualTracker's job.
+_STRUCTURAL_MARKET_DATA_SQL = """
+    WITH tr AS (
+        SELECT
+            timestamp,
+            close,
+            GREATEST(
+                high - low,
+                COALESCE(ABS(high - LAG(close) OVER (ORDER BY timestamp)), 0),
+                COALESCE(ABS(low - LAG(close) OVER (ORDER BY timestamp)), 0)
+            ) AS true_range
+        FROM market_data_ohlcv_tradeable
+        WHERE symbol = $1 AND timeframe = $2
+    )
+    SELECT
+        timestamp,
+        close,
+        AVG(true_range) OVER (
+            ORDER BY timestamp ROWS BETWEEN $3 PRECEDING AND CURRENT ROW
+        ) AS atr
+    FROM tr
+    ORDER BY timestamp
+"""
+
+# SELECT * (not an explicit Phase-163 column list) — this file stays opaque to which specific
+# structural fields structural_confluence.py's spec table reads; keeps that ownership boundary
+# in one module (never names an individual Phase-163 structural column here — that belongs to
+# the confluence module, not this file's own logic).
+_STRUCTURAL_FEATURES_SQL = """
+    SELECT * FROM feature_vectors WHERE symbol = $1 AND tf = $2
+"""
+
+
+async def _fetch_structural_market_data(
+    conn: asyncpg.Connection, symbol: str, tf: str, atr_period: int
+) -> dict[Any, tuple[float, float]]:
+    """bar_ts -> (entry_price proxy, causal scan-time ATR) for one (symbol, tf) partition."""
+    rows = await conn.fetch(_STRUCTURAL_MARKET_DATA_SQL, symbol, tf, max(atr_period - 1, 0))
+    return {row["timestamp"]: (float(row["close"]), float(row["atr"])) for row in rows}
+
+
+async def _fetch_structural_features(
+    conn: asyncpg.Connection, symbol: str, tf: str
+) -> dict[Any, dict[str, Any]]:
+    """bar_ts -> feature_vectors row (as a plain dict) for one (symbol, tf) partition."""
+    rows = await conn.fetch(_STRUCTURAL_FEATURES_SQL, symbol, tf)
+    return {row["bar_ts"]: dict(row) for row in rows}
+
+
+def _build_structural_config_service(cfg: dict[str, Any]) -> ConfigService:
+    """Cache-only ConfigService (no DB pool) for structural_confluence's threshold reads,
+    populated directly from the already-loaded alpha.* cfg dict — mirrors
+    services/_batch_utils.py's load_config_service_sync cache-only pattern, avoiding a second
+    DB round trip for keys `_load_apr` already fetched this run."""
+    service = ConfigService(database_url="")
+    for key, default in (
+        ("alpha.frame.cluster_radius_atr", 0.5),
+        ("alpha.frame.single_level_radius_atr", 0.25),
+        ("alpha.frame.zone_buffer_atr", 0.1),
+        ("alpha.frame.min_width_atr", 0.05),
+        ("alpha.frame.strength_weight", 0.6),
+        ("alpha.frame.proximity_weight", 0.4),
+    ):
+        service._cache[key] = _cfg(cfg, key, default)
+    return service
 
 
 # ---------------------------------------------------------------------------
@@ -250,6 +522,12 @@ class AlphaFrameWriter(BaseBatch):
                 "SELECT DISTINCT symbol, tf FROM alpha_events ORDER BY symbol, tf"
             )
 
+        # Wire structural_confluence's module-level config singleton once per run, not once
+        # per partition (Task 2 — "inject the config service once at writer init"). Only
+        # needed when geometry_source == "structural"; harmless no-op cache build otherwise.
+        if frame_config.geometry_source == "structural":
+            set_config_service(_build_structural_config_service(cfg))
+
         # Pinned once per invocation (mirrors ensemble_ic_engine.py's run_ts pattern, A2) and
         # stamped onto every frame this run writes.
         corpus_run_id = datetime.now(UTC).isoformat()
@@ -327,6 +605,21 @@ class AlphaFrameWriter(BaseBatch):
         # of rows), so visibility is an aggregate count per partition, not a log line per row.
         missing_cost_hurdle_count = 0
         missing_hold_keys: set[str] = set()
+        missing_stop_keys: set[str] = set()
+        missing_target_keys: set[str] = set()
+        degenerate_geometry_skip_count = 0
+
+        # structural geometry_source only (Task 2): one bulk fetch per partition, never a
+        # per-row round trip. Empty dicts (harmless .get() misses -> scalar-seed fallback in
+        # _resolve_row_geometry) for every other geometry_source.
+        market_data_by_bar_ts: dict[Any, tuple[float, float]] = {}
+        features_by_bar_ts: dict[Any, dict[str, Any]] = {}
+        if frame_config.geometry_source == "structural":
+            async with pool.acquire() as sconn:
+                market_data_by_bar_ts = await _fetch_structural_market_data(
+                    sconn, symbol, tf, frame_config.atr_period
+                )
+                features_by_bar_ts = await _fetch_structural_features(sconn, symbol, tf)
 
         async with pool.acquire() as conn:
             async with conn.transaction():
@@ -338,8 +631,33 @@ class AlphaFrameWriter(BaseBatch):
                         missing_cost_hurdle_count += 1
                     cost_r = float(row["cost_hurdle"]) if row["cost_hurdle"] is not None else 0.0
 
+                    bar_ts = row["bar_ts"]
+                    entry_price, atr = market_data_by_bar_ts.get(bar_ts, (None, None))
+                    features = features_by_bar_ts.get(bar_ts)
+
+                    geometry = _resolve_row_geometry(
+                        frame_config.geometry_source,
+                        cfg,
+                        regime,
+                        tf,
+                        frame_config,
+                        missing_stop_keys,
+                        missing_target_keys,
+                        features=features,
+                        direction=direction,
+                        entry_price=entry_price,
+                        atr=atr,
+                    )
+                    if geometry is None:
+                        # structural mode's degenerate-stop ValueError-skip contract
+                        # (compute_frame_geometry, todo 162) — never fabricate a frame the
+                        # data can't support. Counted, reported once below (never per row).
+                        degenerate_geometry_skip_count += 1
+                        continue
+                    stop_atr_mult, target_r_multiple = geometry
+
                     gross_expected_r, net_expected_r = compute_expected_r_snapshot(
-                        alpha_score, frame_config.target_r_multiple, cost_r
+                        alpha_score, target_r_multiple, cost_r
                     )
 
                     hold_key = f"alpha.frame.hold_max_bars.{regime}.{tf}"
@@ -366,8 +684,8 @@ class AlphaFrameWriter(BaseBatch):
                             cost_r,
                             net_expected_r,
                             max_hold_bars,
-                            frame_config.stop_atr_mult,
-                            frame_config.target_r_multiple,
+                            stop_atr_mult,
+                            target_r_multiple,
                             "open",
                             corpus_run_id,
                             row["weight_version"],
@@ -400,6 +718,27 @@ class AlphaFrameWriter(BaseBatch):
                 symbol=symbol,
                 tf=tf,
                 hold_keys=sorted(missing_hold_keys),
+            )
+        if missing_stop_keys:
+            self.logger.warning(
+                "alpha_frame_writer.stop_atr_mult_key_missing",
+                symbol=symbol,
+                tf=tf,
+                stop_keys=sorted(missing_stop_keys),
+            )
+        if missing_target_keys:
+            self.logger.warning(
+                "alpha_frame_writer.target_r_multiple_key_missing",
+                symbol=symbol,
+                tf=tf,
+                target_keys=sorted(missing_target_keys),
+            )
+        if degenerate_geometry_skip_count:
+            self.logger.warning(
+                "alpha_frame_writer.degenerate_geometry_skip",
+                symbol=symbol,
+                tf=tf,
+                count=degenerate_geometry_skip_count,
             )
 
         return written
