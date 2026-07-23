@@ -326,6 +326,7 @@ historical corpus and evaluating the FRAME-04 gate is explicitly out of this pha
 | Ledoit-Wolf cluster deflation for ensemble weights | Naive IC weighting double-counts correlated features; Ledoit-Wolf + k-means clustering deflates correlated feature groups before summing weights | ✓ Good — EnsembleTrainer uses sklearn LedoitWolf; cluster assignments logged for inspection |
 | HMM regime label from forward_filter not filtered | forward_filter is the smoothed posterior; filtered is the instantaneous estimate; using filtered on a look-ahead-biased label poisons IC measurement | ✓ Good — DEFAULT set to forward_filter in schema; changing invalidates all feature_ic_scores |
 | HMM_RANDOM_STATE=42 in APR not hardcoded | Changing the seed invalidates all downstream IC scores and requires full re-run; APR key makes the constraint explicit and discoverable | ✓ Good — `alpha.hmm.random_state` APR key; description warns re-run required on change |
+| Frame recalibration (stop/target) tested empirically, not adopted by inspection (Phase 166) | Phase 148's Gate 2 (execution proof) failed while Gate 1 (signal proof) passed; per-(regime,tf) scalar and VP/S-R structural candidates were built and scored against the same frozen five criteria as Gate 2, not assumed to help | Both baseline and scalar candidates FAIL gate166 (scalar improved mean P&L/Sharpe but made max drawdown 2.7x worse); structural candidate correctly halted (Phase 163 not yet live). Neither promoted — current global scalars remain live default |
 
 ## Constraints
 
@@ -373,4 +374,4 @@ This document evolves at phase transitions and milestone boundaries.
 4. Update Context with current state
 
 ---
-*Last updated: 2026-07-18 (Phase 161 complete: Controlled Vocabulary System — 3-table schema, `VocabularyService`, column-backed drift audit, `/api/vocabulary/{namespace}` route, live-verified. 143.1's corpus re-run remains the active blocker for 144/145/147/148 — Phase 161 was opportunistic/unblocked side work, not on that critical path.)*
+*Last updated: 2026-07-23 (Phase 166 complete: Frame/Execution Recalibration — Phase 148's direct follow-on after its Gate 2 execution-proof failure. Diagnosed the stop/target scalar gap, built and scored a scalar and a structural candidate against gate166 (the same frozen five criteria as Gate 2); both baseline and scalar FAIL, structural halted pending Phase 163. Neither promoted; current global scalars remain live default. Part 2 (SMC/swing/fib/anchored-VWAP structural sources) deferred to todo 175, gated on Phases 163-165.)*
