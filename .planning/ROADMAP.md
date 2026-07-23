@@ -2292,7 +2292,7 @@ filing time, not because of a real dependency. Can be discussed/planned independ
 
 **Requirements**: CONTEXT.md decisions D-01 (a-d), D-02, D-03, D-04, D-05, D-06 (no formal REQ-IDs for this phase)
 **Depends on:** Phase 148 (complete — this is its direct follow-on). Phase 163 execution is a runtime prerequisite for the structural candidate (Plan 166-06 structural arm).
-**Plans:** 5/6 plans executed
+**Plans:** 6/6 plans complete
 
 Plans:
 **Wave 1**
@@ -2311,7 +2311,7 @@ Plans:
 
 **Wave 4** *(blocked on Wave 3 completion)*
 
-- [ ] 166-06-PLAN.md — calibrate/regenerate/simulate/score all arms one-shot, verdict doc, Part 2 follow-on todo (D-01, D-03, D-04, D-05, D-06) [wave 4]
+- [x] 166-06-PLAN.md — calibrate/regenerate/simulate/score all arms one-shot, verdict doc, Part 2 follow-on todo (D-01, D-03, D-04, D-05, D-06) [wave 4]
 
 ---
 
