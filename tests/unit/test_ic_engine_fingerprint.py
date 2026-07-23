@@ -174,8 +174,8 @@ def test_watermark_differs_on_forward_returns_computed_at_change_alone():
 
 
 def test_watermark_differs_on_market_regimes_relabel_hash_change_alone():
-    """An HMM relabel mutates market_regimes.regime in place with unchanged ts/count
-    -- only the value-sensitive md5(string_agg(regime...)) hash differs.
+    """An HMM relabel mutates market_regimes.regime_label in place with unchanged
+    ts/count -- only the value-sensitive md5(string_agg(regime_label...)) hash differs.
     """
     base = {
         "market_regimes": {"max_ts": "2026-01-01T00:00:00Z", "count": 500, "regime_hash": "aaa111"}
