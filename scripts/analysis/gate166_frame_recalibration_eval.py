@@ -23,18 +23,29 @@ A statistical FAIL is not an error -- it is an expected, normal result='fail' ro
 are reserved for genuine system faults: DB unreachable, alpha.validation.oos_start unset, an
 unknown --candidate, or an attempted second run of a one-shot gate_id.
 
-This part of the module (Task 1) is the pure evidence-assembly core -- no I/O, no argparse,
-no DB. The atomic one-shot write path, dry-run sentinel, and CLI entrypoint are added in a
-follow-on commit (Task 2).
+Per Pitfall 5 (RESEARCH.md): finalize each candidate's in-sample calibration BEFORE running
+this script against OOS data even once. A local dry-run sentinel
+(`.planning/phases/166-frame-execution-recalibration/.gate166_dryrun_sentinel.json`) enforces
+this in code -- a second `--dry-run` for the same gate_id is refused unless `--force` is
+passed deliberately (Codex concern 4).
+
+Usage:
+    .venv/bin/python scripts/analysis/gate166_frame_recalibration_eval.py --candidate scalar --dry-run
+    .venv/bin/python scripts/analysis/gate166_frame_recalibration_eval.py --candidate scalar   # real, one-shot only
 """
 
 from __future__ import annotations
 
+import argparse
+import asyncio
+import hashlib
+import json
 import sys
-from datetime import datetime
+from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
 
+import asyncpg
 import numpy as np
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
@@ -44,8 +55,16 @@ from scripts.analysis.phase143_1_08_shadow_validation import (  # noqa: E402
     _annualized_sharpe,
     _max_drawdown,
 )
-from services.counterfactual_tracker import evaluate_frame_gate, frame_gate_passes  # noqa: E402
+from services._batch_utils import cfg as _cfg  # noqa: E402
+from services.counterfactual_tracker import (  # noqa: E402
+    _DEFAULT_BOOTSTRAP_RANDOM_STATE,
+    evaluate_frame_gate,
+    frame_gate_passes,
+)
+from src.config.settings import Settings  # noqa: E402
 from src.core.service_utils import format_iso_ts  # noqa: E402
+
+_CHAMPION_WEIGHT_EPOCH = "143.1-08-champion"
 
 # Per-candidate gate_ids (A4) -- never a re-run of gate2_execution (D-04).
 _GATE_IDS: dict[str, str] = {
@@ -53,6 +72,38 @@ _GATE_IDS: dict[str, str] = {
     "structural": "gate166_structural",
     "baseline": "gate166_baseline",
 }
+
+# Default weight_epoch per candidate. baseline reuses the exact population Gate 2 already
+# scored under the current (un-recalibrated) global scalars -- the comparative anchor.
+# scalar/structural default to the weight_epoch each candidate's frame-regeneration run
+# (Plan 166-06) writes under; overridable via --weight-epoch for the real one-shot run.
+_DEFAULT_WEIGHT_EPOCH_BY_CANDIDATE: dict[str, str] = {
+    "scalar": "166-scalar-candidate",
+    "structural": "166-structural-candidate",
+    "baseline": _CHAMPION_WEIGHT_EPOCH,
+}
+
+_DEFAULT_LOOK_LOG_PATH = ".planning/gate_look_log.jsonl"
+_DEFAULT_DRYRUN_SENTINEL_PATH = (
+    ".planning/phases/166-frame-execution-recalibration/.gate166_dryrun_sentinel.json"
+)
+
+# bar_ts >= $2 (OOS side); frame_variant='primary'; status != 'open' (closed frames only).
+# tf is selected alongside direction/regime so the population footprint can report
+# per-(regime,tf) frame counts (Codex concern 2). Same ~22-way bar_ts tie shape as
+# score03's identical query -- see _aggregate_pnl_by_bar_ts docstring for why same-bar_ts
+# frames must be summed before any cumulative walk (todo 172).
+_OOS_QUERY_SQL = """
+    SELECT bar_ts, direction, regime, tf, bar_ts::date AS cluster_id,
+           counterfactual_pnl_r AS pnl_r
+    FROM alpha_frames
+    WHERE weight_epoch = $1
+      AND frame_variant = 'primary'
+      AND status != 'open'
+      AND bar_ts >= $2
+      AND counterfactual_pnl_r IS NOT NULL
+    ORDER BY bar_ts ASC
+"""
 
 _C5_PROXY_NOTE = (
     "Criterion 5 (last_20d_IC_Sharpe / full_period_IC_Sharpe >= 0.5) is N/A on this "
@@ -63,6 +114,54 @@ _C5_PROXY_NOTE = (
     "adopted as its documented operational PROXY and is explicitly labeled as such here -- "
     "not silently dropped, not silently substituted for the literal criterion."
 )
+
+
+async def _load_apr(conn: asyncpg.Connection) -> tuple[int, int, int, int, int, float, float]:
+    """Same alpha.scoring.* + alpha.validation.regime_gate_min_clusters fetch score03 uses
+    (OQ3 -- reuse the identical frozen thresholds, invent nothing new)."""
+    apr_rows = await conn.fetch(
+        "SELECT config_key, config_value FROM config_state WHERE config_key LIKE ANY($1::text[])",
+        ["alpha.scoring.%", "alpha.validation.regime_gate_min_clusters"],
+    )
+    apr_cfg = {row["config_key"]: row["config_value"] for row in apr_rows}
+    min_n = _cfg(apr_cfg, "alpha.scoring.min_strategy_n", 30)
+    bootstrap_max_n = _cfg(apr_cfg, "alpha.scoring.bootstrap_max_n", 5000)
+    bootstrap_batch = _cfg(apr_cfg, "alpha.scoring.bootstrap_batch", 1000)
+    bootstrap_random_state = _cfg(
+        apr_cfg, "alpha.scoring.bootstrap_random_state", _DEFAULT_BOOTSTRAP_RANDOM_STATE
+    )
+    regime_gate_min_clusters = _cfg(apr_cfg, "alpha.validation.regime_gate_min_clusters", 20)
+    min_sharpe = float(_cfg(apr_cfg, "alpha.scoring.min_sharpe", 0.5))
+    max_drawdown_ratio = float(_cfg(apr_cfg, "alpha.scoring.max_drawdown_ratio", 0.25))
+    return (
+        min_n,
+        bootstrap_max_n,
+        bootstrap_batch,
+        bootstrap_random_state,
+        regime_gate_min_clusters,
+        min_sharpe,
+        max_drawdown_ratio,
+    )
+
+
+async def _read_oos_start(conn: asyncpg.Connection) -> datetime:
+    """Read alpha.validation.oos_start from config_state. Raises (fail-loud) if unset --
+    never defaults to MAX(bar_ts) or any other silent fallback."""
+    row = await conn.fetchrow(
+        "SELECT NULLIF(config_value, '') FROM config_state "
+        "WHERE config_key = 'alpha.validation.oos_start'"
+    )
+    if row is None or row[0] is None:
+        raise RuntimeError(
+            "alpha.validation.oos_start is unset -- nothing to evaluate. Set it in "
+            "config_state before running this gate."
+        )
+    oos_start = row[0]
+    if isinstance(oos_start, str):
+        oos_start = datetime.fromisoformat(oos_start)
+    if oos_start.tzinfo is None:
+        oos_start = oos_start.replace(tzinfo=UTC)
+    return oos_start.astimezone(UTC)
 
 
 def _aggregate_pnl_by_bar_ts(rows: list[dict[str, Any]]) -> np.ndarray:
@@ -372,3 +471,176 @@ def _json_safe(obj: Any) -> Any:
     if isinstance(obj, list):
         return [_json_safe(v) for v in obj]
     return obj
+
+
+def _append_look_log(look_log_path: Path, run_ts: datetime, evidence: dict[str, Any]) -> None:
+    """Append-only look log (matches score03's D-04 auditability pattern) -- written AFTER
+    commit, never before, and never on the --dry-run path."""
+    entry = {
+        "run_ts": format_iso_ts(run_ts),
+        "gate_id": evidence["gate_id"],
+        "candidate": evidence["candidate"],
+        "result": evidence["result"],
+        "snapshot": evidence["snapshot"],
+    }
+    look_log_path.parent.mkdir(parents=True, exist_ok=True)
+    with look_log_path.open("a") as f:
+        f.write(json.dumps(entry) + "\n")
+
+
+async def _write_gate166_row(
+    pool: asyncpg.Pool, evidence: dict[str, Any], run_ts: datetime, look_log_path: Path
+) -> None:
+    """Atomic real write: within ONE transaction, re-assert no prior row exists for this
+    candidate's gate_id, then INSERT -- both in the same transaction. Look-log append
+    happens only AFTER commit."""
+    gate_id = evidence["gate_id"]
+    async with pool.acquire() as conn:
+        async with conn.transaction():
+            existing = await conn.fetchval(
+                "SELECT count(*) FROM gate_evaluations WHERE gate_id = $1", gate_id
+            )
+            if existing:
+                raise RuntimeError(
+                    f"'{gate_id}' already has {existing} row(s) in gate_evaluations -- "
+                    "run-once cadence (D-04) violated. This gate has already run; do not "
+                    "re-run it to check if it passes now."
+                )
+            await conn.execute(
+                "INSERT INTO gate_evaluations (gate_id, result, evidence, run_ts) "
+                "VALUES ($1, $2, $3::jsonb, $4)",
+                gate_id,
+                evidence["result"],
+                json.dumps(_json_safe(evidence)),
+                run_ts,
+            )
+    _append_look_log(look_log_path, run_ts, evidence)
+
+
+def _check_and_record_dryrun(sentinel_path: Path, gate_id: str, force: bool = False) -> None:
+    """Enforces Pitfall 5 in code, not by convention (Codex concern 4): finalize each
+    candidate's in-sample calibration BEFORE the one OOS dry-run per candidate -- more than
+    one dry-run per candidate is a holdout leak. Refuses a second dry-run for the same
+    gate_id unless force=True; records gate_id -> now on the first call.
+
+    Pure aside from the sentinel file I/O; sentinel_path is explicit so unit tests can drive
+    this against a tmp path with no real phase dir.
+    """
+    sentinel: dict[str, str] = {}
+    if sentinel_path.exists():
+        sentinel = json.loads(sentinel_path.read_text())
+    if gate_id in sentinel and not force:
+        raise RuntimeError(
+            f"A dry-run for gate_id={gate_id!r} was already recorded at "
+            f"{sentinel[gate_id]} -- Pitfall 5 (one dry-run per candidate; a second "
+            "dry-run against OOS data is a holdout leak, since the population being "
+            "peeked at is the same holdout the real run will score). Pass --force only "
+            "if you deliberately intend to re-peek."
+        )
+    sentinel[gate_id] = format_iso_ts(datetime.now(UTC))
+    sentinel_path.parent.mkdir(parents=True, exist_ok=True)
+    sentinel_path.write_text(json.dumps(sentinel))
+
+
+async def main() -> None:
+    parser = argparse.ArgumentParser(
+        description=(
+            "Phase 166 fresh validation gate. Scores one candidate's held-out OOS "
+            "alpha_frames population against SHADOW-REVIEW.md's frozen five criteria. "
+            "Run AT MOST ONCE per candidate -- use --dry-run for development "
+            "verification (itself refused a second time per gate_id without --force)."
+        )
+    )
+    parser.add_argument(
+        "--candidate",
+        required=True,
+        choices=sorted(_GATE_IDS),
+        help="Which candidate arm to score: scalar, structural, or baseline.",
+    )
+    parser.add_argument(
+        "--dry-run",
+        action="store_true",
+        help="Full computation, printed verdict, ZERO writes to gate_evaluations or the "
+        "look-log.",
+    )
+    parser.add_argument(
+        "--force",
+        action="store_true",
+        help="Bypass the dry-run sentinel refusal for a repeat --dry-run of the same "
+        "gate_id. Must be typed deliberately -- re-running a dry-run peeks at OOS data "
+        "twice (Pitfall 5).",
+    )
+    parser.add_argument("--weight-epoch", default=None)
+    parser.add_argument("--look-log-path", default=_DEFAULT_LOOK_LOG_PATH)
+    parser.add_argument("--dryrun-sentinel-path", default=_DEFAULT_DRYRUN_SENTINEL_PATH)
+    args = parser.parse_args()
+
+    gate_id = _GATE_IDS[args.candidate]
+    weight_epoch = args.weight_epoch or _DEFAULT_WEIGHT_EPOCH_BY_CANDIDATE[args.candidate]
+
+    if args.dry_run:
+        # Enforce Pitfall 5 FIRST, before any scoring, so a repeated peek is refused up
+        # front (Codex concern 4).
+        _check_and_record_dryrun(Path(args.dryrun_sentinel_path), gate_id, force=args.force)
+        print(
+            "[Pitfall 5 reminder] Only ONE --dry-run should precede the real run for "
+            f"gate_id={gate_id!r}. Finalize in-sample calibration before this peek."
+        )
+
+    settings = Settings()
+    dsn = settings.database_url.replace("postgresql+asyncpg://", "postgresql://")
+    pool = await asyncpg.create_pool(dsn=dsn)
+    try:
+        async with pool.acquire() as conn:
+            (
+                min_n,
+                bootstrap_max_n,
+                bootstrap_batch,
+                bootstrap_random_state,
+                regime_gate_min_clusters,
+                min_sharpe,
+                max_drawdown_ratio,
+            ) = await _load_apr(conn)
+            oos_start = await _read_oos_start(conn)
+            rows = [dict(r) for r in await conn.fetch(_OOS_QUERY_SQL, weight_epoch, oos_start)]
+
+        run_ts = datetime.now(UTC)
+        fetch_sql_sha256 = hashlib.sha256(_OOS_QUERY_SQL.encode("utf-8")).hexdigest()
+        apr_values_used = {
+            "min_strategy_n": min_n,
+            "bootstrap_max_n": bootstrap_max_n,
+            "bootstrap_batch": bootstrap_batch,
+            "bootstrap_random_state": bootstrap_random_state,
+            "regime_gate_min_clusters": regime_gate_min_clusters,
+            "min_sharpe": min_sharpe,
+            "max_drawdown_ratio": max_drawdown_ratio,
+        }
+        snapshot = _build_snapshot(
+            oos_start, args.candidate, weight_epoch, apr_values_used, len(rows), fetch_sql_sha256
+        )
+        evidence = assemble_gate166_evidence(
+            rows,
+            args.candidate,
+            min_n,
+            bootstrap_max_n,
+            bootstrap_batch,
+            bootstrap_random_state,
+            min_sharpe,
+            max_drawdown_ratio,
+            regime_gate_min_clusters,
+            snapshot,
+        )
+
+        _print_verdict(evidence, regime_gate_min_clusters)
+
+        if args.dry_run:
+            print("[DRY-RUN] no rows written, look-log untouched")
+            return
+
+        await _write_gate166_row(pool, evidence, run_ts, Path(args.look_log_path))
+    finally:
+        await pool.close()
+
+
+if __name__ == "__main__":
+    asyncio.run(main())

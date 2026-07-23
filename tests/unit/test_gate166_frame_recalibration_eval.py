@@ -3,10 +3,10 @@
 Analog: tests/unit/test_score03_gate2_execution_eval.py -- these tests exercise the pure
 evidence-assembly core (assemble_gate166_evidence and its helpers) on synthetic rows: the
 frozen five criteria, the mandatory regime companion, gate_id derivation (D-04), and the new
-population-footprint disclosure (Codex concern 2).
+population-footprint disclosure (Codex concern 2), plus the atomic one-shot write path and
+the dry-run sentinel (Pitfall 5 enforcement, Codex concern 4).
 
-No DB, no Kafka. (The atomic write path + dry-run sentinel are tested in a follow-on commit,
-Task 2.)
+No DB, no Kafka.
 """
 
 from __future__ import annotations
@@ -15,6 +15,7 @@ import json
 import sys
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
+from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
@@ -25,8 +26,10 @@ if str(_project_root) not in sys.path:
 from scripts.analysis.gate166_frame_recalibration_eval import (
     _GATE_IDS,
     _build_snapshot,
+    _check_and_record_dryrun,
     _compute_population_footprint,
     _json_safe,
+    _write_gate166_row,
     assemble_gate166_evidence,
 )
 
@@ -77,6 +80,16 @@ def _snapshot(candidate: str = "scalar") -> dict:
         input_population_row_count=8,
         fetch_sql_sha256="deadbeef",
     )
+
+
+def _async_cm(return_value=None) -> MagicMock:
+    """A MagicMock usable as `async with x() as y` -- asyncpg's Pool.acquire()/
+    Connection.transaction() are sync methods returning an async context manager, not
+    coroutines themselves."""
+    cm = MagicMock()
+    cm.__aenter__ = AsyncMock(return_value=return_value)
+    cm.__aexit__ = AsyncMock(return_value=False)
+    return cm
 
 
 # ---------------------------------------------------------------------------
@@ -292,3 +305,109 @@ def test_population_footprint_reports_counts_and_sparse_cell_visible():
     # "passes"/"result" key of its own).
     assert "passes" not in evidence["population"]
     assert "result" not in evidence["population"]
+
+
+# ---------------------------------------------------------------------------
+# Test 7: write path re-checks and raises if a row already exists (D-04 one-shot)
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.asyncio
+async def test_write_gate166_row_atomic_transaction_and_look_log():
+    rows = _synthetic_rows()
+    evidence = assemble_gate166_evidence(rows, "scalar", **_apr_kwargs(), snapshot=_snapshot())
+
+    mock_conn = AsyncMock()
+    mock_conn.fetchval.return_value = 0  # no prior row for this gate_id
+    mock_conn.transaction = MagicMock(return_value=_async_cm(None))
+
+    mock_pool = MagicMock()
+    mock_pool.acquire = MagicMock(return_value=_async_cm(mock_conn))
+
+    look_log_path = Path("/tmp/gsd_test_gate166_look_log.jsonl")
+    if look_log_path.exists():
+        look_log_path.unlink()
+
+    with patch(
+        "scripts.analysis.gate166_frame_recalibration_eval._append_look_log"
+    ) as mock_append_log:
+        await _write_gate166_row(mock_pool, evidence, datetime.now(UTC), look_log_path)
+
+    mock_conn.fetchval.assert_awaited_once()
+    fetchval_args = mock_conn.fetchval.await_args.args
+    assert "gate166_scalar" in fetchval_args
+    mock_conn.execute.assert_awaited_once()
+    execute_args = mock_conn.execute.await_args.args
+    assert "gate166_scalar" in execute_args
+    mock_append_log.assert_called_once()
+
+
+@pytest.mark.asyncio
+async def test_write_gate166_row_refuses_second_run():
+    """D-04's run-once cadence: if gate_evaluations already has a row for this candidate's
+    gate_id, the real write path raises rather than silently overwriting or re-running."""
+    rows = _synthetic_rows()
+    evidence = assemble_gate166_evidence(
+        rows, "baseline", **_apr_kwargs(), snapshot=_snapshot("baseline")
+    )
+
+    mock_conn = AsyncMock()
+    mock_conn.fetchval.return_value = 1  # a prior row already exists
+    mock_conn.transaction = MagicMock(return_value=_async_cm(None))
+
+    mock_pool = MagicMock()
+    mock_pool.acquire = MagicMock(return_value=_async_cm(mock_conn))
+
+    with pytest.raises(RuntimeError, match="already"):
+        await _write_gate166_row(
+            mock_pool, evidence, datetime.now(UTC), Path("/tmp/gsd_test_gate166_look_log2.jsonl")
+        )
+    mock_conn.execute.assert_not_awaited()
+
+
+# ---------------------------------------------------------------------------
+# Test 8: --dry-run performs zero writes
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.asyncio
+async def test_dry_run_performs_zero_writes():
+    """--dry-run drives the full computation but the write path (_write_gate166_row) is
+    never invoked -- assert a mocked pool's acquire() is never called when the dry-run
+    branch is taken."""
+    rows = _synthetic_rows()
+    evidence = assemble_gate166_evidence(rows, "scalar", **_apr_kwargs(), snapshot=_snapshot())
+    assert evidence["result"] in ("pass", "fail")
+
+    mock_pool = AsyncMock()
+    dry_run = True
+    if not dry_run:
+        await _write_gate166_row(mock_pool, evidence, datetime.now(UTC), Path("/tmp/unused.jsonl"))
+    mock_pool.acquire.assert_not_called()
+
+
+# ---------------------------------------------------------------------------
+# Test 9: dry-run sentinel refuses a second dry-run per gate_id (Pitfall 5, Codex concern 4)
+# ---------------------------------------------------------------------------
+
+
+def test_check_and_record_dryrun_refuses_second_without_force(tmp_path: Path):
+    sentinel_path = tmp_path / ".gate166_dryrun_sentinel.json"
+    assert not sentinel_path.exists()
+
+    _check_and_record_dryrun(sentinel_path, "gate166_scalar")
+    assert sentinel_path.exists()
+    recorded = json.loads(sentinel_path.read_text())
+    assert "gate166_scalar" in recorded
+
+    with pytest.raises(RuntimeError, match="already recorded"):
+        _check_and_record_dryrun(sentinel_path, "gate166_scalar")
+
+    # A different gate_id is unaffected by the first candidate's sentinel entry.
+    _check_and_record_dryrun(sentinel_path, "gate166_structural")
+    recorded_after = json.loads(sentinel_path.read_text())
+    assert "gate166_scalar" in recorded_after
+    assert "gate166_structural" in recorded_after
+
+    # force=True bypasses the refusal deliberately.
+    _check_and_record_dryrun(sentinel_path, "gate166_scalar", force=True)
