@@ -489,14 +489,20 @@ class ICEngineConfig:
     bootstrap_block_size: dict[str, int] = dataclasses.field(
         default_factory=lambda: {"5m": 78, "15m": 26, "1h": 10, "1d": 10}
     )
-    # Todo 129 (2026-07-17): thread pool size for _circular_block_bootstrap_ic's
-    # re-rank+IC step, cross-sectional pass ONLY. Default 1 (serial, unchanged
-    # behavior) -- must NEVER be raised for the per-symbol path's call sites, which
-    # already run inside an n_workers-way ProcessPoolExecutor pool; threading on top
-    # of that oversubscribes cores instead of speeding anything up. Safe to raise here
+    # Todo 129 (2026-07-17), converted to a per-tf dict by todo 133 (162-02 Task 1,
+    # migration 250): thread pool size for _subsample_and_rank's re-rank+IC step,
+    # cross-sectional pass ONLY. 5m defaults threaded (largest cells benefit); 15m/1h/1d
+    # default serial=1 (finish in minutes, threading only adds dispatch overhead) --
+    # must NEVER be raised for the per-symbol path's call sites, which already run
+    # inside an n_workers-way ProcessPoolExecutor pool; threading on top of that
+    # oversubscribes cores instead of speeding anything up. Safe to raise per-tf here
     # because the cross-sectional pass runs single-process, after the per-symbol pool
     # has already shut down -- nothing else is contending for cores at that point.
-    cross_sectional_bootstrap_threads: int = 1
+    # Thread count changes wall time only, never output -- guaranteed structurally by
+    # 162-01's precomputed resample-index matrix (starts_matrix), drawn once per scale.
+    cross_sectional_bootstrap_threads: dict[str, int] = dataclasses.field(
+        default_factory=lambda: {"5m": 6, "15m": 1, "1h": 1, "1d": 1}
+    )
     # Phase 143.1-04 (Component E, todo 094): champion/challenger behavior switch shared
     # with ensemble_trainer.py's alpha.ensemble.sign_symmetric. Gates ONLY the
     # _run_lifecycle_hook demote/material/worst_cell predicates below -- defaulted to the
@@ -635,9 +641,18 @@ class ICEngineConfig:
             # drift between eligibility and the lifecycle hook's demote predicate.
             sign_symmetric=bool(cfg.get_sync("alpha.ensemble.sign_symmetric", False)),
             regime_groups_json=regime_groups_json,
-            cross_sectional_bootstrap_threads=int(
-                cfg.get_sync("infra.ic_engine.cross_sectional_bootstrap_threads", 1)
-            ),
+            # Todo 133 (162-02 Task 1, migration 250): per-tf dict, mirrors
+            # bootstrap_block_size above. Old scalar key
+            # (infra.ic_engine.cross_sectional_bootstrap_threads) retired.
+            cross_sectional_bootstrap_threads={
+                tf: int(cfg.get_sync(f"alpha.ic.cross_sectional_bootstrap_threads.{tf}", default))
+                for tf, default in (
+                    ("5m", 6),
+                    ("15m", 1),
+                    ("1h", 1),
+                    ("1d", 1),
+                )
+            },
             # 162-01 Task 3 (todos 139/140, migration 249).
             feature_block_columns=int(cfg.get_sync("alpha.ic.feature_block_columns", 32)),
             max_cell_rows=int(cfg.get_sync("alpha.ic.max_cell_rows", 1_200_000)),
@@ -2002,8 +2017,9 @@ def _compute_one_cross_sectional_cell(
     Preserves the two cross-sectional-only extras _compute_one_regime_cell's per-symbol
     path lacks: the e-value-pilot cumulative_e_value column (Component C, todo 079, tf=5m
     POOLED cells only, via prior_e_values) and the max_workers= bootstrap knob
-    (config.cross_sectional_bootstrap_threads, todo 131 -- safe to raise here since this
-    pass runs single-process, after the per-symbol ProcessPoolExecutor pool has shut down).
+    (config.cross_sectional_bootstrap_threads[tf], todo 131/133 -- safe to raise here
+    since this pass runs single-process, after the per-symbol ProcessPoolExecutor pool
+    has shut down).
 
     rng is a shared, stateful np.random.Generator -- calling this function consumes draws
     from it by design (matches _compute_one_regime_cell's per-worker RNG-scope contract).
@@ -2085,9 +2101,10 @@ def _compute_one_cross_sectional_cell(
         # -------------------------------------------------------
         # Shared feature-blocked rank -> IC -> circular block bootstrap CI ->
         # walk-forward fold pipeline (162-01 Task 3, todos 139/140). Cross-
-        # sectional path -- max_workers=config.cross_sectional_bootstrap_threads
-        # (todo 131): safe to raise here since this pass runs single-process,
-        # after the per-symbol ProcessPoolExecutor pool has already shut down.
+        # sectional path -- max_workers=config.cross_sectional_bootstrap_threads[tf]
+        # (todo 131/133, per-tf as of migration 250): safe to raise here since this
+        # pass runs single-process, after the per-symbol ProcessPoolExecutor pool
+        # has already shut down.
         # -------------------------------------------------------
         (
             X_raw_scale,
@@ -2108,7 +2125,7 @@ def _compute_one_cross_sectional_cell(
             bootstrap_block_size=config.bootstrap_block_size[tf],
             bootstrap_resamples=config.bootstrap_resamples,
             rng=rng,
-            max_workers=config.cross_sectional_bootstrap_threads,
+            max_workers=config.cross_sectional_bootstrap_threads[tf],
             feature_block_columns=config.feature_block_columns,
         )
         Y_scale = returns_scale[valid_mask]

@@ -278,8 +278,8 @@ def _circular_block_bootstrap_ic(
             saturates available cores; threading on top would oversubscribe, not
             speed up. Only safe to raise where nothing else is contending for cores
             (ic_engine.py's cross-sectional path, which runs after the per-symbol
-            pool has already shut down). From APR:
-            infra.ic_engine.cross_sectional_bootstrap_threads.
+            pool has already shut down). From APR (per-tf, migration 250):
+            alpha.ic.cross_sectional_bootstrap_threads.{tf}.
 
     Returns:
         (ci_lower, ci_upper): Each shape [n_features]; 95% CI via percentile method.
@@ -330,7 +330,7 @@ def circular_block_bootstrap_ic_serial(
     131). Previously enforced by a `max_workers=1` argument + comment repeated at
     each call site -- structurally enforced here instead: this wrapper has no
     `max_workers` parameter to accidentally raise, so a future edit that copies the
-    cross-sectional call site's `max_workers=config.cross_sectional_bootstrap_threads`
+    cross-sectional call site's `max_workers=config.cross_sectional_bootstrap_threads[tf]`
     into a per-symbol call site can't compile against this signature.
     """
     return _circular_block_bootstrap_ic(X_raw, Y_raw, block_size, n_boot, rng, max_workers=1)
