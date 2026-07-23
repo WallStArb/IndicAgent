@@ -305,3 +305,64 @@ def test_no_raw_price_persisted():
     field_names = {f.name for f in dataclasses.fields(FeatureVector)}
     for name in forbidden:
         assert name not in field_names, f"forbidden raw-price attribute present: {name}"
+
+
+# ---------------------------------------------------------------------------
+# (d) CR-02 (163-REVIEW.md): live's BarHistory(maxlen=200) caps the effective
+# rolling-POC window below what session_vp_rolling_window configures, unlike
+# backfill which reads unbounded history. Pins the known, documented gap
+# (migration 256) so it can't silently widen without a test failure.
+# ---------------------------------------------------------------------------
+
+
+def test_poc_rolling_dist_atr_live_cap_gap_cr02():
+    """poc_rolling_dist_atr computed over the full 220-bar history must differ
+    materially from the same computation restricted to the trailing 200 bars
+    (mirroring FeatureVectorPipeline's BarHistory(maxlen=200),
+    services/feature_vector_pipeline.py:126) when the excluded bars sit in a
+    distinctly different price regime -- the live pipeline never sees more
+    than 200 bars regardless of session_vp_rolling_window's configured value.
+    """
+    cfg = dataclasses.replace(_make_cfg(), session_vp_rolling_window=220)
+
+    base_ts = datetime(2023, 1, 3, 14, 0, tzinfo=UTC)
+    rng = np.random.default_rng(256)
+    n = 220
+    # First 20 bars: low price regime (~90) at 10x the volume of the remaining
+    # 200 high-regime (~110) bars -- POC (volume-weighted argmax bucket) lands
+    # in the low regime for the FULL window (low regime's aggregate volume
+    # dominates), but the CAPPED window (last 200 bars) excludes the low
+    # regime entirely, so its POC lands in the high regime instead.
+    low_regime = 90.0 + rng.normal(0, 0.05, 20)
+    high_regime = 110.0 + rng.normal(0, 0.05, n - 20)
+    closes = np.concatenate([low_regime, high_regime])
+    volumes = np.concatenate([rng.uniform(9e5, 1.1e6, 20), rng.uniform(1e4, 1e5, n - 20)])
+    spread = 0.05
+    bars = [
+        {
+            "open": float(closes[i]),
+            "high": float(closes[i] + spread),
+            "low": float(closes[i] - spread),
+            "close": float(closes[i]),
+            "volume": float(volumes[i]),
+            "ts": base_ts + timedelta(minutes=i),
+        }
+        for i in range(n)
+    ]
+
+    full_results = FeatureFactory.compute_batch(bars, "SPY", "5m", FeatureCache(), cfg)
+    _, fv_full = full_results[-1]
+
+    capped_results = FeatureFactory.compute_batch(bars[-200:], "SPY", "5m", FeatureCache(), cfg)
+    _, fv_capped = capped_results[-1]
+
+    assert fv_full.poc_rolling_dist_atr is not None
+    assert fv_capped.poc_rolling_dist_atr is not None
+    assert abs(fv_full.poc_rolling_dist_atr - fv_capped.poc_rolling_dist_atr) > 0.5, (
+        "poc_rolling_dist_atr should differ materially between the full-220-bar "
+        "and 200-bar-capped computations given the excluded regime split -- if "
+        "this assertion starts failing, either CR-02's live cap gap has been "
+        "closed (BarHistory's maxlen raised or session_vp_rolling_window capped "
+        "explicitly -- update migration 256 and this test) or the regime "
+        "separation is no longer large enough to distinguish it."
+    )

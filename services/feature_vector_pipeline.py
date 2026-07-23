@@ -181,12 +181,32 @@ class FeatureVectorPipeline(BaseDaemon):
         self-correcting-at-next-regime-change behavior (lower severity, per todo 159).
         The most recent bar in history is excluded since it is the bar currently being
         processed and receives its own `advance_bar()` call after `compute()` below.
+
+        Also replays `update_session_vp()` over the same buffered history (Phase 163
+        code review CR-01) -- without this, `_sess_bars` starts empty on every restart
+        that doesn't land exactly at a session boundary, degrading all 12 VP-derived
+        FeatureVector fields until the accumulator naturally refills or the next
+        session reset fires. Same warm-up source and exclusion as `update_wk_vwap()`
+        above; `self._feature_factory_config` is asserted non-None at this method's
+        only call site (bars are already flowing, so `_prewarm_threshold_config()` has
+        already run in `_setup()`).
         """
         key = f"{symbol}:{tf}"
         if key not in self._feature_caches:
+            assert self._feature_factory_config is not None, "FeatureFactoryConfig not prewarmed"
             cache = FeatureCache()
-            for bar in list(self._bar_history.get(symbol, tf))[:-1]:
+            buffered = list(self._bar_history.get(symbol, tf))[:-1]
+            for bar in buffered:
                 cache.update_wk_vwap(bar.ts, bar.high, bar.low, bar.close, float(bar.volume))
+            for bar in buffered:
+                cache.update_session_vp(
+                    bar.ts,
+                    bar.high,
+                    bar.low,
+                    bar.close,
+                    float(bar.volume),
+                    self._feature_factory_config,
+                )
             self._feature_caches[key] = cache
         return self._feature_caches[key]
 
@@ -720,7 +740,18 @@ class FeatureVectorPipeline(BaseDaemon):
         )
 
     async def _handle_config_update(self, payload: dict) -> None:
-        """Hot-reload a config key: invalidate cache entry then re-fetch from DB."""
+        """Hot-reload a config key: invalidate cache entry then re-fetch from DB.
+
+        WR-03 (163-REVIEW.md): this only refreshes `ConfigService`'s own cache. Every
+        `feature.*` key (including Phase 163's 8 new `feature.session_vp.*`/`feature.sr.*`
+        dials) is read once into the frozen `self._feature_factory_config` dataclass at
+        `_setup()` time via `_prewarm_threshold_config()`, and `compute()`/`compute_batch()`
+        always read from that frozen snapshot, never from `ConfigService` directly (by
+        design -- purity contract). So this log line fires and looks like success, but a
+        `feature.*` edit via the dashboard has zero effect on computed values until the
+        service is restarted. Pre-existing gap for every `feature.*` key, not introduced
+        by Phase 163 -- just newly inherited by its 8 new keys.
+        """
         assert self._config_service is not None
         key = payload.get("config_key")
         if not key or not any(key.startswith(pfx) for pfx in ConfigService.OPS_PREFIXES):

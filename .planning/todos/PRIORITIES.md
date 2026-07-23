@@ -80,6 +80,7 @@ ready to pick up.
 
 | Todo | What |
 |---|---|
+| [177](pending/177-bar-history-maxlen-caps-windows-beyond-200.md) | `FeatureVectorPipeline`'s `BarHistory(maxlen=200)` silently caps every live-path window below 200 bars regardless of its APR-configured size. Phase 163's CR-02 found and fixed this for one field (`feature.session_vp.rolling_window`, migration 256 + regression test); this todo tracks the broader gap — several pre-existing windows (`momentum_zscore_window`/`hurst_window`/`vix_zscore_window`, all default 252) already silently exceed 200 too. |
 | [101](pending/101-migration-duplicate-number-sweep.md) | `production/migrations/` has 13 duplicate-number groups (001, 031, 038, 050-052, 064, 138, 152, 168, 178, 214-215). Finding + recommended approach only; deliberately not executed given live-DB rename risk. |
 | [108](pending/108-hmm-multi-seed-restart-best-likelihood.md) | `regime_writer.py`'s HMM fit uses a single seed with a same-seed convergence retry, not multi-seed-restart-and-keep-best-log-likelihood. Robustness gap, not a proven bug. |
 | [103](pending/103-momentum-apr-keys-inert-prewarm-mismatch.md) | `feature.momentum.window_fast/mid/slow` APR keys are silently inert (prewarm list loads nonexistent `_short`/`_long` keys instead); `volatility_rank_z`/`momentum_rank_z`/`volume_rank_z` are unimplemented (always NULL). Touches live hot-path pipeline code. |
@@ -116,6 +117,7 @@ ready to pick up.
 
 | Todo | What |
 |---|---|
+| [178](pending/178-phase163-review-minor-findings.md) | 4 minor findings from Phase 163's code review deliberately deferred: DST-unaware session-boundary reset now gating a stateful accumulator (WR-02), a pre-existing unrelated `threshold.backfill.coverage_threshold`/`coverage_gate` key mismatch found incidentally (IN-01), missing `"4h"` entry in `feature.sr.lookback_by_tf` (IN-02, needs a new migration), `sr_level_count` unnecessarily coupled to ATR validity (IN-03). |
 | [129](pending/129-ic-engine-short-lived-conn-helper.md) | Revived 2026-07-23 — narrow ic_engine.py scope closed via Phase 162-01; wider scope (Settings-based shared connection helper + 4 sibling services: `regime_writer.py`/`equity_regime_model.py`/`backfill_feature_factory.py`/`cross_sectional_regime_model.py`) never covered by Phase 162, still open. |
 | [056](pending/056-phase146-147-v2x-retirement-stale.md) | ROADMAP Phase 147/148 text rewritten 2026-07-19 (operator call resolved: archive not delete, decouple from proof gates). Remaining scope: the actual decommission-in-fact execution (git mv v2.x code to archive/, disable dead systemd units, rename-not-drop the frozen v2.x tables) — real multi-file operation, do with a clean git state. |
 | [123](pending/123-momentum-velocity-and-macro-spread-features.md) | Momentum-oscillator velocity feature + VWAP acceleration + 2 now-unblocked macro spreads (TIP real-yield, HYG/LQD credit spread) — surfaced by closing todo 060, batch into a future Phase 151 pass |

@@ -3154,6 +3154,14 @@ def _rolling_poc_price(
     the same profile/value-area helpers as the session-anchored track
     (FeatureCache.update_session_vp) for identical bucket/tie-break semantics.
     Returns None on degenerate input (zero price range or zero volume).
+
+    CR-02 (163-REVIEW.md): this function trusts the caller to actually supply
+    session_vp_rolling_window bars. In backfill that's true (unbounded history).
+    In the live pipeline the caller's bars array is bounded by
+    FeatureVectorPipeline's BarHistory(maxlen=200), so live poc_rolling_dist_atr/
+    poc_session_rolling_divergence_atr are computed over at most 200 bars
+    regardless of this key's configured value -- a real train/serve skew, not a
+    bug in this function itself. See migration 256's corrected APR description.
     """
     if len(highs) == 0:
         return None

@@ -1017,8 +1017,10 @@ def _compute_symbol_tf(
          incremental causal series keyed by date.
       2. CTF (ctf_momentum, ctf_vwap_align, ctf_regime_align): from O(n) single-pass
          series keyed by HTF bar timestamp; looked up by bisect for each source bar.
-      3. VP/SR (poc_dist_atr, va_position, sr_support_dist, sr_resist_dist): NULL —
-         not computable from OHLCV batch without intraday I3 injection.
+      3. VP/SR (poc_dist_atr, va_position, + 17 structural fields): computed from OHLCV
+         via FeatureCache.update_session_vp() / _compute_sr_dist_atr() (Phase 163), the
+         identical mechanism the live path uses (D-05 -- the prior claim that this group
+         was uncomputable in batch was a stale, never-verified assumption).
 
     Returns total rows inserted into feature_vectors.
     """
