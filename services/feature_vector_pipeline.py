@@ -983,6 +983,11 @@ class FeatureVectorPipeline(BaseDaemon):
         if bar.tf in ("15m", "1h", "4h", "1d"):
             self._update_ctf_cache_from_bar(bar, cache)
 
+        # Session-VP accumulator (Phase 163 Plan 02): update BEFORE compute()
+        # reads FeatureCache's raw session levels to derive the 14 ATR-normalized
+        # VP fields. Mirrors compute_batch()'s per-bar update_session_vp() call.
+        cache.update_session_vp(bar.ts, bar.high, bar.low, bar.close, float(bar.volume), config)
+
         try:
             vector = FeatureFactory.compute(bars_dicts, bar.symbol, bar.tf, cache, config)
         except Exception as error:
