@@ -181,6 +181,13 @@ class EnsembleICConfig:
     # Defaulted so pre-existing direct EnsembleICConfig(...) construction sites
     # (test_ensemble_ic_worker_fetch.py) don't break on this dataclass's field growth.
     sharpe_window_size_subsampled: int = 100
+    # Phase 166 D-01b/D-03.1 (migration 253): scalar-candidate stop/target calibration
+    # selection params -- see _select_stop_target_from_excursions. Defaulted for the
+    # same reason as sharpe_window_size_subsampled above (pre-existing direct
+    # EnsembleICConfig(...) construction sites in tests must not break on growth).
+    stop_mae_percentile: float = 90.0
+    target_mfe_percentile: float = 50.0
+    stop_target_min_qualifying_symbols: int = 3
 
     @property
     def lookaheads(self) -> dict[str, int]:
@@ -218,6 +225,11 @@ class EnsembleICConfig:
             gate_lookahead=_cfg(cfg, "alpha.ensemble_ic.gate_lookahead", "fast"),
             wf_stability_metric=_cfg(cfg, "alpha.ensemble_ic.wf_stability_metric", "ic_ratio"),
             min_obs_per_regime=_cfg(cfg, "alpha.ensemble_ic.min_obs_per_regime", 3000),
+            stop_mae_percentile=_cfg(cfg, "alpha.ensemble_ic.stop_mae_percentile", 90.0),
+            target_mfe_percentile=_cfg(cfg, "alpha.ensemble_ic.target_mfe_percentile", 50.0),
+            stop_target_min_qualifying_symbols=_cfg(
+                cfg, "alpha.ensemble_ic.stop_target_min_qualifying_symbols", 3
+            ),
         )
 
 
@@ -323,6 +335,97 @@ def _select_hold_bars_from_decay(
 
     # preceding_bars, not the extended ceiling -- see docstring.
     return preceding_bars if preceding_bars is not None else 1
+
+
+# ---------------------------------------------------------------------------
+# Phase 166 D-01b/D-03.1: scalar candidate -- stop_atr_mult/target_r_multiple
+# uncensored-subpopulation percentile selection (Finding 1/Pitfall 1: NOT a copy of
+# _select_hold_bars_from_decay's decay-threshold walk -- stop/target are distance/
+# reward-ratio parameters with no time-horizon analog).
+# ---------------------------------------------------------------------------
+
+# Uncensored subpopulations (todo 088 alignment -- mirrors
+# scripts/analysis/diagnose166_frame_calibration.py's identical rationale; this is that
+# diagnosis's calibration-side sibling): closed_stop frames are RIGHT-CENSORED at the
+# stop distance (the frame's own stop bounded how far price could move before it
+# closed) and are excluded from the stop distribution. closed_ic_decay frames are
+# excluded from both distributions.
+_STOP_PLACEMENT_STATUS = "closed_target"
+_TARGET_PLACEMENT_STATUS = "closed_max_hold"
+
+
+def _select_stop_target_from_excursions(
+    cells: list[dict[str, Any]],
+    stop_mae_percentile: float,
+    target_mfe_percentile: float,
+    min_frames: int,
+) -> tuple[float | None, float | None]:
+    """Pure function: select (stop_atr_mult, target_r_multiple) for ONE symbol's
+    (symbol, tf, regime) group from alpha_frames' already-collected counterfactual
+    excursions.
+
+    `cells` is a per-symbol list of frame-row dicts, each carrying
+    `counterfactual_status`, `counterfactual_mae`, `counterfactual_mfe`, and a
+    snapshotted `stop_atr_mult` (the ATR multiple actually used to place that frame's
+    stop at creation time -- Phase 142B's snapshot-not-live-APR discipline).
+
+    Selection criterion (RESEARCH.md Finding 1 / Open Question 2, LOCKED):
+    - stop_atr_mult := `stop_mae_percentile`-th percentile of ATR-rescaled MAE
+      (`mae_atr = abs(counterfactual_mae) * stop_atr_mult`, since risk = stop_atr_mult
+      * atr and mae_r = mae_price / risk => mae_atr = mae_price / atr = mae_r *
+      stop_atr_mult) among `closed_target` frames ONLY -- winners that never touched
+      the stop, so their observed adverse excursion is a real, uncensored measurement
+      of how far against the position price moved before the target hit. A stop
+      tighter than this percentile would have prematurely clipped these winners.
+    - target_r_multiple := `target_mfe_percentile`-th percentile of R-unit MFE
+      (`counterfactual_mfe`, already in R-units -- no rescaling) among
+      `closed_max_hold` frames ONLY -- time-exit frames that never touched stop or
+      target, so their observed favorable excursion is not capped by the current
+      target.
+    - `closed_stop` frames are excluded from the stop distribution (right-censored,
+      todo 088 -- a cell of only `closed_stop` frames returns None for the stop
+      component). `closed_ic_decay` frames (and any other status) contribute to
+      neither distribution.
+
+    Returns (None, None)-shaped per component: a component whose qualifying
+    subpopulation has fewer than `min_frames` finite values returns None for that
+    component -- never a fabricated value from a thin sample (caller interprets None
+    as "skip this symbol's contribution to this cell", mirroring
+    `_select_hold_bars_from_decay`'s None-means-skip contract). NaN/inf excursion
+    values are filtered out before computing the percentile.
+    """
+    stop_vals: list[float] = []
+    target_vals: list[float] = []
+    for row in cells:
+        status = row.get("counterfactual_status")
+        if status == _STOP_PLACEMENT_STATUS:
+            mae = row.get("counterfactual_mae")
+            stop_atr_mult = row.get("stop_atr_mult")
+            if mae is None or stop_atr_mult is None:
+                continue
+            mae_atr = abs(float(mae)) * float(stop_atr_mult)
+            if np.isfinite(mae_atr):
+                stop_vals.append(mae_atr)
+        elif status == _TARGET_PLACEMENT_STATUS:
+            mfe = row.get("counterfactual_mfe")
+            if mfe is None:
+                continue
+            mfe_r = float(mfe)
+            if np.isfinite(mfe_r):
+                target_vals.append(mfe_r)
+        # closed_stop (right-censored, 088) and closed_ic_decay: excluded from both.
+
+    stop_selected = (
+        float(np.percentile(stop_vals, stop_mae_percentile))
+        if len(stop_vals) >= min_frames
+        else None
+    )
+    target_selected = (
+        float(np.percentile(target_vals, target_mfe_percentile))
+        if len(target_vals) >= min_frames
+        else None
+    )
+    return stop_selected, target_selected
 
 
 # ---------------------------------------------------------------------------
