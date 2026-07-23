@@ -2219,6 +2219,24 @@ normalization, APR namespace precedent, `FeatureCache` session-boundary mutator 
 Plans:
 - [ ] TBD (run /gsd-plan-phase 165 to break down)
 
+### Phase 166: Frame/Execution Recalibration 📋 NOT YET PLANNED
+
+**Goal:** Diagnose why Phase 148's Gate 2 (execution proof) failed and determine whether
+stop/target/hold recalibration against the IC decay curve can turn the OOS-proven signal
+(Gate 1 PASS) into profitable OOS P&L. Per ROADMAP's own Phase 148 design, this is the
+pre-registered "frame problem" playbook — Gate 1 passing + Gate 2 failing means recalibrate
+the frame, not the ensemble. Full origin and scope: [todo 174](../todos/pending/174-gate2-execution-failure-frame-recalibration-investigation.md).
+
+**Not gated on 165** — sequenced after it only because 165 was the last-registered phase at
+filing time, not because of a real dependency. Can be discussed/planned independently.
+
+**Requirements**: TBD (to be derived during `/gsd-discuss-phase`)
+**Depends on:** Phase 148 (complete — this is its direct follow-on)
+**Plans:** 0 plans
+
+Plans:
+- [ ] TBD (run `/gsd-plan-phase 166` to break down, after `/gsd-discuss-phase 166`)
+
 ---
 
 **Correction (2026-07-12, same day as the note above was first written):** this section previously said Phases 152/153 should be **prioritized now**, ahead of the intelligence-layer work. That was wrong and contradicted the milestone bullet above's own existing, correct caution ("Do not let either jump ahead of Phase 142B/143 or 148, which carry present-tense value the backlog matrix rates higher"). Monitoring decay of alpha that hasn't been proven to exist yet is monitoring a null: Phase 148's OOS gates (EIC-04 + FRAME-04) have not passed on corrected data — **FRAME-04 currently fails 16/17 cells** on the pre-143.1-fix baseline, so there is no proven capturable edge for 152/153 to watch decay in yet. **Corrected sequencing:** finish 143.1 (091→097→094→E1-vs-E2 re-run→096→088) → re-run EIC-04/FRAME-04 honestly on corrected data → only then decide between (a) building 152/153's decay/health monitoring or (b) expanding discovery (Phase 151/PrecedentEngine) based on what that gate actually says. Phase 157's kill-switch design above still correctly notes its dependency on Phase 153 eventually existing — that dependency is real, it's just not a reason to build 153 before Phase 148 resolves.
