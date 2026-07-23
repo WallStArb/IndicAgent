@@ -2279,7 +2279,7 @@ Plans:
 
 - [ ] TBD (run /gsd-plan-phase 165 to break down)
 
-### Phase 166: Frame/Execution Recalibration 📋 PLANNED (6 plans, 4 waves)
+### Phase 166: Frame/Execution Recalibration ✅ COMPLETE (2026-07-23) — VERDICT: neither candidate promoted (6 plans, 4 waves)
 
 **Goal:** Diagnose why Phase 148's Gate 2 (execution proof) failed and determine whether
 stop/target/hold recalibration against the IC decay curve can turn the OOS-proven signal

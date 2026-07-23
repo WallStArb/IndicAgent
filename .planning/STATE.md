@@ -3,13 +3,13 @@ gsd_state_version: 1.0
 milestone: v3.1
 milestone_name: AlphaEngine Validation + Alpha Scoring
 status: ready_to_execute
-stopped_at: Phase 166 planned (6 plans, 4 waves) via `/gsd-plan-phase 166` — CONTEXT.md discussed, RESEARCH.md written (structural candidate scope broadened then resolved to a two-part split mid-research), PATTERNS.md mapped, plan-checker VERIFICATION PASSED (0 blockers, 3 warnings all fixed), decision-coverage gate 6/6.
-last_updated: "2026-07-23T11:47:51.153Z"
+stopped_at: Phase 166 (Frame/Execution Recalibration) COMPLETE 2026-07-23 (6/6 plans, verification passed 27/27 must-haves) — both baseline and scalar candidates FAIL gate166, structural candidate correctly halted pending Phase 163. v3.1 milestone is NOT complete despite the phase.complete CLI's is_last_phase=true signal (a tooling artifact, corrected here) — phases 145, 147, 149, 150, 151, 155-159, 163, 164, 165 remain 📋 PLANNED/unexecuted in ROADMAP.md. Next actionable item TBD by /gsd-progress.
+last_updated: 2026-07-23T15:04:54.645Z
 progress:
   total_phases: 12
   completed_phases: 9
   total_plans: 45
-  completed_plans: 44
+  completed_plans: 65
   percent: 75
 ---
 
