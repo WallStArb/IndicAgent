@@ -533,6 +533,54 @@ def apply_bh_fdr(p_values: list[float], alpha: float) -> tuple[np.ndarray, np.nd
 
 
 # ---------------------------------------------------------------------------
+# Shared walk-forward fold boundary math (todo 009E, 162-01 Task 2)
+# ---------------------------------------------------------------------------
+
+
+def build_walk_forward_folds(
+    n_valid: int, n_folds: int, embargo_bars: int, min_reliable_n: int
+) -> list[tuple[int, int]]:
+    """Fixed-origin expanding-window walk-forward fold boundaries with embargo.
+
+    Pure boundary math only -- no ranking, no IC computation, no config import
+    (honors this module's stated pure-function contract). Extracted from 4
+    near-identical inline copies of this exact formula (services/ic_engine.py's
+    _compute_one_regime_cell, its daily context-features scalar loop, and
+    _compute_cross_sectional_tf; services/ensemble_ic_engine.py's per-(regime,
+    scale) loop) -- each caller's downstream rank/IC step (vectorized for 3
+    sites, scalar for the daily context-features site) stays local to the
+    caller; only the shared boundary formula + skip predicate move here.
+
+    Fold k: train=[0..train_end], embargo=[train_end..test_start],
+    test=[test_start..test_end]. train_end grows monotonically with k
+    (expanding window); test windows are strictly non-overlapping and in
+    temporal order (fold 0 earliest, fold k latest).
+
+    A fold is OMITTED from the returned list (not returned as a null/None
+    placeholder) when test_start >= test_end or the test window is smaller
+    than min_reliable_n -- matching every existing inline call site's `continue`
+    behavior. The line-1533 caller's additional
+    `n_valid >= walk_forward_folds * 2 + embargo_bars` precondition is NOT
+    folded in here; it stays local to that call site (a stricter pre-check
+    before this function is even called, not part of the shared per-fold
+    formula every other site also uses).
+
+    Returns:
+        List of (test_start, test_end) pairs, one per fold that cleared the
+        skip predicate above, in fold order (k=0..n_folds-1, filtered).
+    """
+    folds: list[tuple[int, int]] = []
+    for k in range(n_folds):
+        train_end = int(n_valid * (k + 1) / (n_folds + 1))
+        test_start = train_end + embargo_bars
+        test_end = int(n_valid * (k + 2) / (n_folds + 1))
+        if test_start >= test_end or (test_end - test_start) < min_reliable_n:
+            continue
+        folds.append((test_start, test_end))
+    return folds
+
+
+# ---------------------------------------------------------------------------
 # Shared condition-number gate for any Sigma^-1/lstsq solve on an estimated matrix
 # ---------------------------------------------------------------------------
 

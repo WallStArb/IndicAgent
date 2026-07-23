@@ -103,6 +103,7 @@ from src.intelligence.statistics.ic_math import (
     _p_values_from_ic,
     _vectorized_ic,
     apply_bh_fdr,
+    build_walk_forward_folds,
     circular_block_bootstrap_ic_serial,
     evaluate_guard_fraction,
     magnitude_conditional_ic,
@@ -975,16 +976,9 @@ def _compute_one_regime_cell(
         # train_end grows monotonically with k (expanding window) and test windows are
         # strictly non-overlapping and in temporal order (fold 0 earliest, fold k latest).
         fold_ics_list: list[np.ndarray] = []
-        for k in range(walk_forward_folds):
-            train_end = int(n_valid * (k + 1) / (walk_forward_folds + 1))
-            test_start = train_end + embargo_bars
-            test_end = int(n_valid * (k + 2) / (walk_forward_folds + 1))
-            assert test_start > train_end and test_end <= n_valid, (
-                f"Walk-forward invariant violated: train_end={train_end}, "
-                f"test_start={test_start}, test_end={test_end}, n_valid={n_valid}"
-            )
-            if test_start >= test_end or (test_end - test_start) < min_reliable_n:
-                continue
+        for test_start, test_end in build_walk_forward_folds(
+            n_valid, walk_forward_folds, embargo_bars, min_reliable_n
+        ):
             X_test = ranks_X_scale[test_start:test_end]
             Y_test = ranks_Y[test_start:test_end]
             if len(X_test) < 2:
@@ -1551,16 +1545,9 @@ def _compute_symbol_tf(
                     folds_counted = 0
                     folds_passed = 0
                     if n_valid >= walk_forward_folds * 2 + cf_embargo_bars:
-                        for k in range(walk_forward_folds):
-                            train_end = int(n_valid * (k + 1) / (walk_forward_folds + 1))
-                            test_start = train_end + cf_embargo_bars
-                            test_end = int(n_valid * (k + 2) / (walk_forward_folds + 1))
-                            assert test_start > train_end and test_end <= n_valid, (
-                                f"CF walk-forward invariant violated: train_end={train_end}, "
-                                f"test_start={test_start}, test_end={test_end}, n_valid={n_valid}"
-                            )
-                            if test_start >= test_end or (test_end - test_start) < min_reliable_n:
-                                continue
+                        for test_start, test_end in build_walk_forward_folds(
+                            n_valid, walk_forward_folds, cf_embargo_bars, min_reliable_n
+                        ):
                             fold_len = test_end - test_start
                             if fold_len < 2:
                                 continue
@@ -2123,16 +2110,9 @@ def _compute_cross_sectional_tf(
         # fold k: train=[0..train_end], embargo gap, test=[test_start..test_end].
         # train_end grows monotonically; test windows are non-overlapping and in order.
         fold_ics_list: list[np.ndarray] = []
-        for k in range(walk_forward_folds):
-            train_end = int(n_valid * (k + 1) / (walk_forward_folds + 1))
-            test_start = train_end + embargo_bars
-            test_end = int(n_valid * (k + 2) / (walk_forward_folds + 1))
-            assert test_start > train_end and test_end <= n_valid, (
-                f"CS walk-forward invariant violated: train_end={train_end}, "
-                f"test_start={test_start}, test_end={test_end}, n_valid={n_valid}"
-            )
-            if test_start >= test_end or (test_end - test_start) < min_reliable_n:
-                continue
+        for test_start, test_end in build_walk_forward_folds(
+            n_valid, walk_forward_folds, embargo_bars, min_reliable_n
+        ):
             X_test = ranks_X_scale[test_start:test_end]
             Y_test = ranks_Y[test_start:test_end]
             if len(X_test) < 2:
