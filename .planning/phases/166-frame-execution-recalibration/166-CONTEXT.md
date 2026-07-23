@@ -47,12 +47,24 @@ demonstrably wins over the scalar baseline.
      also derive `alpha.frame.stop_atr_mult.<regime>.<tf>` and
      `alpha.frame.target_r_multiple.<regime>.<tf>`, same median-across-qualifying-symbols
      methodology, same champion-weight_version gate.
-  2. **Structural candidate** — port v2.x's archived stop classification from
-     `src/intelligence/trading/trade_framer.py` (`_classify_stop_basis`, `_select_vp`):
-     ATR-fallback vs VP/SR structure-snap (POC/VAH/VAL, session VP for 1m/5m, rolling VP for
-     15m/1h+), reusing the `structure_snap_proximity_atr` concept as an APR key (not a hardcoded
-     constant — v2.x had it as a bare `_cfg()` default, must be migrated properly under this
-     phase's Migrate-as-you-go rule).
+  2. **Structural candidate (broadened 2026-07-23)** — not VP/SR-only. Port v2.x's full
+     archived structural stop-basis toolkit, using `src/intelligence/trading/zone_engine.py`'s
+     confluence scoring as the unifying mechanism rather than reaching for `trade_framer.py`'s
+     VP/SR-only `_classify_stop_basis`/`_select_vp` in isolation:
+     - VP/SR: POC/VAH/VAL, session VP (1m/5m) vs rolling VP (15m/1h+)
+     - Swing structure: `src/intelligence/features/i3_structure/swing_detector.py`,
+       `trend_structure.py`
+     - Fibonacci zones: `src/intelligence/features/i3_structure/fibonacci_zones.py`
+     - SMC: order blocks, liquidity pools/sweeps, BOS/CHOCH, premium/discount —
+       `src/intelligence/features/smc_context/` (`order_blocks.py`, `liquidity_pools.py`,
+       `liquidity_sweeps.py`, `bos_choch.py`, `premium_discount.py`)
+     - Anchored VWAP: `src/intelligence/context/anchored_vwap.py`
+     Reuse `structure_snap_proximity_atr` as the proximity-gate concept, migrated as a proper
+     APR key (not v2.x's bare `_cfg()` default) per this phase's Migrate-as-you-go rule. This is
+     a scope broaden from the original VP/SR-only framing (research agent must determine
+     whether this reaches into `src/intelligence/archive/` directly or has a real dependency on
+     Phases 163 "VP/SR Structural Primitives" / 164 "SMC Institutional Footprint Primitives" —
+     both currently unexecuted — and flag that dependency explicitly for planning).
   3. Score both against the same held-out criteria; keep the winner, discard the loser
      (or keep neither if both fail — that is a valid, informative outcome). No permanent
      complexity survives without a measured win.
@@ -69,6 +81,32 @@ demonstrably wins over the scalar baseline.
   much larger corpus/OOS-window expansion (multiple full market regimes), which is out of scope
   here and should be filed as its own follow-on todo if this phase's evidence makes the gap
   concrete enough to act on.
+
+### Structural candidate scope resolution (2026-07-23, post-research)
+- **D-06:** RESEARCH.md's exhaustive live-schema check found the full broadened toolkit
+  (D-03.2: VP/SR + swing/fib + SMC + anchored VWAP, unified via a ported `zone_engine.py`)
+  requires feature columns that are 100% absent from v3's live `feature_vectors` — building it
+  in full would require executing/planning Phases 163 (VP/SR, planned not executed), 164 (SMC,
+  not even planned), and 165 (swing/fib, researched not planned), plus net-new anchored-VWAP
+  scoping. That is multi-phase work Phase 166 cannot absorb under its own D-01 completion
+  mandate. **Resolved scope:** the structural candidate ships in two parts —
+  - **Part 1 (built in this phase):** port `zone_engine.py`'s 3-tier confluence-resolution
+    architecture (declarative candidate-spec table → dedup → cluster → diverse-cluster
+    preference → single-best → ATR fallback; `ZoneCandidate`/`_find_clusters`/`_score_cluster`/
+    `_pick_single_best` are portable nearly unmodified) into a new v3-native module
+    (`src/intelligence/trading/structural_confluence.py`), populated only with what Phase 163
+    makes live (VP POC/VAH/VAL reconstructed-price fields, `sr_support_dist`/`sr_resist_dist`,
+    `resistance_strength`/`support_strength`/`*_age_bars`). This is real multi-source confluence
+    (VP + S/R independently), not a VP/SR-only downgrade — it's data-limited, not
+    architecture-limited.
+  - **Part 2 (deferred):** extend the same spec table with SMC/swing/fib/anchored-VWAP sources
+    once Phases 164/165 (+ new anchored-VWAP scoping) land. File one consolidated follow-on todo
+    at Phase 166's completion, and leave an explicit extension-point comment in
+    `structural_confluence.py` pointing at that todo.
+  - **Phase 163 execution is a real prerequisite for Part 1** — its columns exist in schema but
+    are 100% NULL until it runs. Treat `/gsd-execute-phase 163` as Wave 0 of Phase 166's plan
+    (Phase 163 is fully planned/reviewed/execution-ready per STATE.md — low-risk, independent).
+  - Full reasoning: `166-RESEARCH.md`'s "Broadened Structural Candidate" section (Q1-Q4).
 
 ### Folded Todos
 - **088 — hold_max_bars censoring not tracked** (`.planning/todos/pending/088-...md`): the
@@ -137,6 +175,20 @@ demonstrably wins over the scalar baseline.
   (~line 339): ATR-fallback vs VP/SR structure-snap classification, session VP (1m/5m) vs
   rolling VP (15m/1h+) selection, `structure_snap_proximity_atr` threshold. Archived per
   `src/intelligence/CLAUDE.md` — no live consumer, but logic is intact and portable.
+- `src/intelligence/trading/zone_engine.py` — confluence-based zone scoring; the unifying
+  mechanism for the broadened structural candidate (D-03, 2026-07-23), scoring across all
+  structural stop-basis sources rather than VP/SR in isolation
+- `src/intelligence/features/i3_structure/swing_detector.py`, `trend_structure.py`,
+  `fibonacci_zones.py` — swing structure and fib zone primitives
+- `src/intelligence/features/smc_context/order_blocks.py`, `liquidity_pools.py`,
+  `liquidity_sweeps.py`, `bos_choch.py`, `premium_discount.py` — SMC institutional footprint
+  primitives
+- `src/intelligence/context/anchored_vwap.py` — anchored VWAP
+- Phase 163 "VP/SR Structural Primitives" (`.planning/phases/163-*`, PLANNED not executed) and
+  Phase 164 "SMC Institutional Footprint Primitives" (registered, not planned) — check whether
+  the broadened structural candidate has a real dependency on these landing first, or can reach
+  into `src/intelligence/archive/`/`src/intelligence/features/`/`src/intelligence/trading/`
+  directly without them
 
 ### Folded todos (full text)
 - `.planning/todos/pending/088-hold-max-bars-censoring-not-tracked.md`
