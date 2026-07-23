@@ -1,7 +1,7 @@
 {
   "step_name": "counterfactual_tracker",
   "step_version": "1.0",
-  "timestamp": "2026-07-21T10:48:49.139072+00:00",
+  "timestamp": "2026-07-23T13:20:32.699439+00:00",
   "status": "success",
   "inputs": {
     "backfill": true,
@@ -10,7 +10,7 @@
   "outputs": {
     "alpha_frames": {
       "table": "alpha_frames",
-      "rows_total": 23151500
+      "rows_total": 28100
     }
   },
   "errors": [],
