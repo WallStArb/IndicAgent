@@ -142,3 +142,9 @@ None - no external service configuration required.
 ---
 *Phase: 166-frame-execution-recalibration*
 *Completed: 2026-07-23*
+
+## Self-Check: PASSED
+
+All created files verified present on disk (migration 253, diagnosis script, unit test file,
+this SUMMARY). All 3 task commits (`78a09117`, `6da44823`) and the SUMMARY commit (`cb210c38`)
+verified present in `git log --oneline --all`. No missing items.
