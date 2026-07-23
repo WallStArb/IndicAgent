@@ -225,3 +225,178 @@ def _resolve_zone(candidates: list[ZoneCandidate], entry: float, atr: float) -> 
         candidate_count=len(candidates),
         cluster_members=0,
     )
+
+
+# ---------------------------------------------------------------------------
+# v3 candidate universe (Phase 163 live fields only)
+# ---------------------------------------------------------------------------
+
+# EXTENSION POINT (Phase 166 Part 2, deferred -- todo 175): SMC/swing/fib/
+# anchored-VWAP source rows are added here once Phases 164/165 + anchored-VWAP
+# scoping land (166-CONTEXT.md D-06 / RESEARCH.md Open Question 4 two-part
+# split). Do NOT add v2.x zone_engine.py field names to this table -- every
+# one of them is 100% absent from v3's live `feature_vectors` schema
+# (RESEARCH.md Finding 2/3, Pitfall 3).
+#
+# (feature_key, display_name, default_strength, source_tier, source_family)
+_SR_SPECS: tuple[tuple[str, str, float, str, str], ...] = (
+    ("sr_support_dist", "sr_support", 0.7, "sr", "sr"),
+    ("sr_resist_dist", "sr_resistance", 0.7, "sr", "sr"),
+)
+
+# feature_key -> (display_name, default_strength, price_sign). price = entry +
+# price_sign * dist * atr (Phase 163 D-16/D-18 ATR-normalized-distance
+# reconstruction -- these fields carry no raw price column by design).
+_VP_SPECS: tuple[tuple[str, str, float, float], ...] = (
+    ("poc_dist_atr", "poc", 0.8, -1.0),
+    ("poc_rolling_dist_atr", "poc_rolling", 0.8, -1.0),
+    ("distance_to_vah_atr", "vah", 0.7, 1.0),
+    ("distance_to_val_atr", "val", 0.7, -1.0),
+)
+
+# name -> Phase 163 D-19 companion strength/age field keys.
+_STRENGTH_FIELD: dict[str, str] = {
+    "sr_support": "support_strength",
+    "sr_resistance": "resistance_strength",
+}
+_AGE_FIELD: dict[str, str] = {
+    "sr_support": "support_age_bars",
+    "sr_resistance": "resistance_age_bars",
+}
+
+
+def _resolve_strength(features: dict[str, Any], name: str, default: float) -> float:
+    """Map a candidate to its Phase-163 D-19 companion strength/age field(s),
+    normalized to 0.0-1.0, decaying to the spec default when both are absent.
+
+    Mirrors zone_engine.py's _STRENGTH_FIELD/_resolve_strength shape (a
+    companion-field lookup per candidate name) but combines strength (primary
+    quality signal -- D-19's volume-weighted cluster sum, uncapped in
+    aggregate) with age (recency bonus, decayed the same way zone_engine.py
+    decays *_age_bars) rather than using either alone.
+    """
+    strength_key = _STRENGTH_FIELD.get(name)
+    age_key = _AGE_FIELD.get(name)
+    strength_val = _fval(features, strength_key) if strength_key else None
+    age_val = _fval(features, age_key) if age_key else None
+
+    normalized_strength = None
+    if strength_val is not None and strength_val > EPSILON:
+        normalized_strength = min(1.0, strength_val)
+
+    recency = None
+    if age_val is not None and age_val > EPSILON:
+        recency = min(1.0, 1.0 / (1.0 + age_val / 50.0))
+
+    if normalized_strength is not None and recency is not None:
+        return min(1.0, (normalized_strength + recency) / 2.0)
+    if normalized_strength is not None:
+        return normalized_strength
+    if recency is not None:
+        return recency
+    return default
+
+
+def _reconstruct_sr_price(name: str, entry: float, dist: float, atr: float) -> float:
+    """Reconstruct a S/R price from Phase 163's ATR-normalized distance
+    (163-03-PLAN.md: sr_support_dist=(close-support)/atr,
+    sr_resist_dist=(resistance-close)/atr -- the sign is applied explicitly
+    here rather than assumed)."""
+    if name == "sr_support":
+        return entry - dist * atr
+    if name == "sr_resistance":
+        return entry + dist * atr
+    raise ValueError(f"structural_confluence: unknown SR candidate name {name!r}")
+
+
+def collect_candidates(
+    features: dict[str, Any],
+    direction: int,
+    entry: float,
+    stop: float,
+    atr: float,
+) -> list[ZoneCandidate]:
+    """Collect v3-native structural candidates strictly between stop and entry.
+
+    Both S/R sides and all 4 VP fields are always reconstructed and then
+    filtered to the strict (lo, hi) window -- the reconstruction formula
+    itself (not a direction-conditioned spec-table split, unlike
+    zone_engine.py's _SUPPORT_SPECS/_RESISTANCE_SPECS) naturally keeps only
+    the side relevant to `direction`.
+    """
+    if direction not in (1, -1):
+        raise ValueError(f"structural_confluence: direction must be 1 or -1, got {direction!r}")
+    if atr is None or atr <= EPSILON:
+        return []
+    lo, hi = (stop, entry) if direction == 1 else (entry, stop)
+    if lo >= hi:
+        return []
+
+    candidates: list[ZoneCandidate] = []
+
+    for feat_key, name, default_strength, tier, family in _SR_SPECS:
+        dist = _fval(features, feat_key)
+        if dist is None:
+            continue
+        price = _reconstruct_sr_price(name, entry, dist, atr)
+        if not (lo < price < hi):
+            continue
+        candidates.append(
+            ZoneCandidate(
+                price=price,
+                name=name,
+                strength=_resolve_strength(features, name, default_strength),
+                source_tier=tier,
+                source_family=family,
+            )
+        )
+
+    for feat_key, name, default_strength, sign in _VP_SPECS:
+        dist = _fval(features, feat_key)
+        if dist is None:
+            continue
+        # RESEARCH.md A2: assumes the ATR normalizing this Phase-163 distance
+        # matches the `atr` argument passed in here (AlphaFrameWriter's own
+        # ATR source) -- flagged, not yet verified against live data (this is
+        # a runtime/Plan 166-06 concern, not testable from synthetic fixtures).
+        price = entry + sign * dist * atr
+        if not (lo < price < hi):
+            continue
+        candidates.append(
+            ZoneCandidate(
+                price=price,
+                name=name,
+                strength=default_strength,
+                source_tier="vp",
+                source_family="vp",
+            )
+        )
+
+    return candidates
+
+
+def resolve_structural_zone(
+    features: dict[str, Any],
+    direction: int,
+    entry: float,
+    stop: float,
+    atr: float,
+) -> ZoneResult:
+    """Public entry point: v3-native structural confluence (Phase 166 Part 1).
+
+    Returns tier="atr" (empty zone) when no Phase-163 fields are populated --
+    e.g. before Phase 163 executes (NULL_PENDING_163, see 166-01-SUMMARY.md) --
+    or when direction/atr are invalid. Caller applies its own ATR-based
+    fallback bounds in that case, exactly as zone_engine.py's callers do.
+    """
+    if atr is None or atr <= EPSILON:
+        return ZoneResult(
+            zone_low=0.0,
+            zone_high=0.0,
+            tier="atr",
+            source="atr_fallback",
+            candidate_count=0,
+            cluster_members=0,
+        )
+    candidates = collect_candidates(features, direction, entry, stop, atr)
+    return _resolve_zone(candidates, entry, atr)
