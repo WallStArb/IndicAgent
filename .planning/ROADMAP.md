@@ -2292,7 +2292,7 @@ filing time, not because of a real dependency. Can be discussed/planned independ
 
 **Requirements**: CONTEXT.md decisions D-01 (a-d), D-02, D-03, D-04, D-05, D-06 (no formal REQ-IDs for this phase)
 **Depends on:** Phase 148 (complete — this is its direct follow-on). Phase 163 execution is a runtime prerequisite for the structural candidate (Plan 166-06 structural arm).
-**Plans:** 1/6 plans executed
+**Plans:** 4/6 plans executed
 
 Plans:
 **Wave 1**
@@ -2301,9 +2301,9 @@ Plans:
 
 **Wave 2** *(blocked on Wave 1 completion)*
 
-- [ ] 166-02-PLAN.md — scalar candidate: _calibrate_stop_target() per-(regime,tf), CR-02 gated, uncensored-subpopulation selection (D-01b) [wave 2]
-- [ ] 166-03-PLAN.md — structural candidate Part 1: structural_confluence.py port of zone_engine's confluence core, Phase-163 fields only (D-01c, D-06) [wave 2]
-- [ ] 166-04-PLAN.md — validation gate script gate166_*, new gate_ids, frozen five criteria + regime companion (D-01d, D-04, D-05) [wave 2]
+- [x] 166-02-PLAN.md — scalar candidate: _calibrate_stop_target() per-(regime,tf), CR-02 gated, uncensored-subpopulation selection (D-01b) [wave 2]
+- [x] 166-03-PLAN.md — structural candidate Part 1: structural_confluence.py port of zone_engine's confluence core, Phase-163 fields only (D-01c, D-06) [wave 2]
+- [x] 166-04-PLAN.md — validation gate script gate166_*, new gate_ids, frozen five criteria + regime companion (D-01d, D-04, D-05) [wave 2]
 
 **Wave 3** *(blocked on Wave 2 completion)*
 
