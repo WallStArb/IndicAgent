@@ -627,9 +627,6 @@ class AlphaFrameWriter(BaseBatch):
                     regime = row["regime"]
                     direction = row["direction"]
                     alpha_score = float(row["alpha_score"])
-                    if row["cost_hurdle"] is None:
-                        missing_cost_hurdle_count += 1
-                    cost_r = float(row["cost_hurdle"]) if row["cost_hurdle"] is not None else 0.0
 
                     bar_ts = row["bar_ts"]
                     entry_price, atr = market_data_by_bar_ts.get(bar_ts, (None, None))
@@ -652,9 +649,16 @@ class AlphaFrameWriter(BaseBatch):
                         # structural mode's degenerate-stop ValueError-skip contract
                         # (compute_frame_geometry, todo 162) — never fabricate a frame the
                         # data can't support. Counted, reported once below (never per row).
+                        # Checked BEFORE the cost_hurdle counter (WR-03, 166-REVIEW.md) so a
+                        # skipped row never inflates missing_cost_hurdle_count for a frame
+                        # that's never actually written.
                         degenerate_geometry_skip_count += 1
                         continue
                     stop_atr_mult, target_r_multiple = geometry
+
+                    if row["cost_hurdle"] is None:
+                        missing_cost_hurdle_count += 1
+                    cost_r = float(row["cost_hurdle"]) if row["cost_hurdle"] is not None else 0.0
 
                     gross_expected_r, net_expected_r = compute_expected_r_snapshot(
                         alpha_score, target_r_multiple, cost_r

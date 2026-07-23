@@ -31,6 +31,7 @@ from scripts.analysis.gate166_frame_recalibration_eval import (
     _json_safe,
     _write_gate166_row,
     assemble_gate166_evidence,
+    main,
 )
 
 
@@ -371,19 +372,68 @@ async def test_write_gate166_row_refuses_second_run():
 
 
 @pytest.mark.asyncio
-async def test_dry_run_performs_zero_writes():
-    """--dry-run drives the full computation but the write path (_write_gate166_row) is
-    never invoked -- assert a mocked pool's acquire() is never called when the dry-run
-    branch is taken."""
-    rows = _synthetic_rows()
-    evidence = assemble_gate166_evidence(rows, "scalar", **_apr_kwargs(), snapshot=_snapshot())
-    assert evidence["result"] in ("pass", "fail")
+async def test_dry_run_performs_zero_writes(tmp_path):
+    """--dry-run drives main()'s actual code path (real argparse + real dry-run
+    conditional), never a re-declared local variable standing in for it (IN-01,
+    166-REVIEW.md) -- so this test breaks if a future edit ever calls
+    `_write_gate166_row` unconditionally. DB access is mocked at the asyncpg.create_pool
+    boundary; `_write_gate166_row` itself is patched so its own call (or non-call) is the
+    assertion, not a side effect this test would otherwise need a fake DB write path for."""
+    apr_rows = [
+        {"config_key": "alpha.scoring.min_strategy_n", "config_value": "1"},
+        {"config_key": "alpha.scoring.bootstrap_max_n", "config_value": "100"},
+        {"config_key": "alpha.scoring.bootstrap_batch", "config_value": "50"},
+        {"config_key": "alpha.scoring.bootstrap_random_state", "config_value": "42"},
+        {"config_key": "alpha.validation.regime_gate_min_clusters", "config_value": "2"},
+        {"config_key": "alpha.scoring.min_sharpe", "config_value": "0.5"},
+        {"config_key": "alpha.scoring.max_drawdown_ratio", "config_value": "0.25"},
+    ]
+    oos_rows = [dict(r) for r in _synthetic_rows()]
 
-    mock_pool = AsyncMock()
-    dry_run = True
-    if not dry_run:
-        await _write_gate166_row(mock_pool, evidence, datetime.now(UTC), Path("/tmp/unused.jsonl"))
-    mock_pool.acquire.assert_not_called()
+    fake_conn = MagicMock()
+
+    # _load_apr and the OOS query both call conn.fetch(); _read_oos_start calls
+    # conn.fetchrow() -- dispatch by query text since both fetch() calls share one mock.
+    async def _fake_fetch(query, *args):
+        if "config_state" in query:
+            return apr_rows
+        return oos_rows
+
+    fake_conn.fetch = AsyncMock(side_effect=_fake_fetch)
+    fake_conn.fetchrow = AsyncMock(return_value=(datetime(2026, 1, 1, tzinfo=UTC),))
+
+    fake_pool = MagicMock()
+    fake_pool.acquire = MagicMock(return_value=_async_cm(fake_conn))
+    fake_pool.close = AsyncMock()
+
+    sentinel_path = tmp_path / "sentinel.json"
+    look_log_path = tmp_path / "look_log.jsonl"
+
+    with (
+        patch(
+            "scripts.analysis.gate166_frame_recalibration_eval.asyncpg.create_pool",
+            new=AsyncMock(return_value=fake_pool),
+        ),
+        patch(
+            "scripts.analysis.gate166_frame_recalibration_eval._write_gate166_row", new=AsyncMock()
+        ) as mock_write,
+        patch(
+            "sys.argv",
+            [
+                "gate166_frame_recalibration_eval.py",
+                "--candidate",
+                "scalar",
+                "--dry-run",
+                "--dryrun-sentinel-path",
+                str(sentinel_path),
+                "--look-log-path",
+                str(look_log_path),
+            ],
+        ),
+    ):
+        await main()
+
+    mock_write.assert_not_called()
 
 
 # ---------------------------------------------------------------------------

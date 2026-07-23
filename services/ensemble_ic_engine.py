@@ -994,10 +994,13 @@ def _run_ensemble_ic_worker(args: tuple) -> dict[str, Any]:
 # to the champion population this run measured (alpha_frames.weight_epoch is a
 # copy-through of alpha_events.weight_version, alpha_frame_writer.py line ~373).
 # bar_ts < $2 is the in-sample side only (RESEARCH.md Finding 6 / OOS-EVAL-PROTOCOL.md
-# -- no OOS read path here, T-166-04). symbol = ANY($3) restricts to the symbols this
-# run's ensemble_alpha corpus actually measured (mirrors the scoping `results` provides
-# to _calibrate_hold_max_bars, applied here via an explicit filter since this is a
-# fresh query, not a reuse of `results` itself). counterfactual_mae/mfe/stop_atr_mult
+# -- no OOS read path here, T-166-04). symbol = ANY($3) is a coarse, symbol-only
+# pre-filter (asyncpg has no clean tuple-array bind for a real (symbol, tf) filter here) --
+# the caller (_calibrate_stop_target) narrows the fetched rows to the exact (symbol, tf)
+# pairs `results` actually measured this run in Python immediately after this query
+# returns (WR-02, 166-REVIEW.md: this SQL-level filter alone is coarser than what
+# `_calibrate_hold_max_bars` provides via `results` directly -- do not treat the SQL
+# filter as equivalent to that scoping on its own). counterfactual_mae/mfe/stop_atr_mult
 # IS NOT NULL implicitly excludes 'open' frames (those columns populate at frame close
 # only).
 _STOP_TARGET_FETCH_SQL = """
@@ -1325,9 +1328,12 @@ class EnsembleICEngine(BaseBatch):
         one and not the other) -- no `config_service.set` call, no fallback default --
         the prior APR value remains authoritative until a future run qualifies.
         """
-        eligible_symbols = sorted({row["symbol"] for row in results if not row.get("is_pooled")})
-        if not eligible_symbols:
+        eligible_symbol_tf_pairs = {
+            (row["symbol"], row["tf"]) for row in results if not row.get("is_pooled")
+        }
+        if not eligible_symbol_tf_pairs:
             return 0
+        eligible_symbols = sorted({symbol for symbol, _tf in eligible_symbol_tf_pairs})
 
         async with pool.acquire() as conn:
             frame_rows = [
@@ -1336,6 +1342,12 @@ class EnsembleICEngine(BaseBatch):
                     _STOP_TARGET_FETCH_SQL, weight_version, oos_start, eligible_symbols
                 )
             ]
+        # SQL only filters by symbol (asyncpg has no clean tuple-array bind) -- narrow to the
+        # exact (symbol, tf) pairs `results` actually measured this run (WR-02, 166-REVIEW.md):
+        # without this, a symbol that qualified for one tf but failed an upstream IC
+        # sufficiency/stability gate on another tf would still contribute that other tf's
+        # alpha_frames rows to a (regime, tf) cell this run never validated for it.
+        frame_rows = [r for r in frame_rows if (r["symbol"], r["tf"]) in eligible_symbol_tf_pairs]
 
         groups: dict[tuple[str, str, str], list[dict[str, Any]]] = {}
         for row in frame_rows:
