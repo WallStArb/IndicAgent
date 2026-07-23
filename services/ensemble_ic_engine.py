@@ -990,6 +990,30 @@ def _run_ensemble_ic_worker(args: tuple) -> dict[str, Any]:
     }
 
 
+# Phase 166 D-01b/D-03.1: fetch for _calibrate_stop_target. weight_epoch = $1 restricts
+# to the champion population this run measured (alpha_frames.weight_epoch is a
+# copy-through of alpha_events.weight_version, alpha_frame_writer.py line ~373).
+# bar_ts < $2 is the in-sample side only (RESEARCH.md Finding 6 / OOS-EVAL-PROTOCOL.md
+# -- no OOS read path here, T-166-04). symbol = ANY($3) restricts to the symbols this
+# run's ensemble_alpha corpus actually measured (mirrors the scoping `results` provides
+# to _calibrate_hold_max_bars, applied here via an explicit filter since this is a
+# fresh query, not a reuse of `results` itself). counterfactual_mae/mfe/stop_atr_mult
+# IS NOT NULL implicitly excludes 'open' frames (those columns populate at frame close
+# only).
+_STOP_TARGET_FETCH_SQL = """
+    SELECT symbol, tf, regime, status AS counterfactual_status,
+           stop_atr_mult, counterfactual_mae, counterfactual_mfe
+    FROM alpha_frames
+    WHERE weight_epoch = $1
+      AND bar_ts < $2
+      AND symbol = ANY($3::text[])
+      AND regime IS NOT NULL
+      AND stop_atr_mult IS NOT NULL
+      AND counterfactual_mae IS NOT NULL
+      AND counterfactual_mfe IS NOT NULL
+"""
+
+
 # ---------------------------------------------------------------------------
 # EnsembleICEngine
 # ---------------------------------------------------------------------------
@@ -1143,8 +1167,15 @@ class EnsembleICEngine(BaseBatch):
         # exists to support, mirroring ops_ensemble_weight_compare.py's champion/challenger
         # measurement) would silently recalibrate production config from data that hasn't
         # passed the D-10/D-12 win-decision gate yet.
+        # Phase 166 D-01b/D-03.1: same CR-02 champion gate covers the new scalar
+        # candidate (stop_atr_mult/target_r_multiple) -- it feeds live frame geometry
+        # exactly like hold_max_bars does, so it must never fire against an unproven
+        # challenger weight_version under evaluation (T-166-03).
         if weight_version == champion_weight_version:
             n_keys_written = await self._calibrate_hold_max_bars(pool, corpus_all_results, config)
+            n_stop_target_keys_written = await self._calibrate_stop_target(
+                pool, corpus_all_results, config, weight_version, oos_start
+            )
         else:
             self.logger.info(
                 "ensemble_ic.hold_max_bars_calibration_skipped",
@@ -1153,6 +1184,13 @@ class EnsembleICEngine(BaseBatch):
                 champion_weight_version=champion_weight_version,
             )
             n_keys_written = 0
+            self.logger.info(
+                "ensemble_ic.stop_target_calibration_skipped",
+                reason="scoped_weight_version_run",
+                weight_version=weight_version,
+                champion_weight_version=champion_weight_version,
+            )
+            n_stop_target_keys_written = 0
 
         manifest.write()
         self.logger.info(
@@ -1160,6 +1198,7 @@ class EnsembleICEngine(BaseBatch):
             n_rows=len(rows_to_write),
             n_symbol_tf_pairs=len(symbol_tf_pairs),
             n_hold_max_bars_keys_written=n_keys_written,
+            n_stop_target_keys_written=n_stop_target_keys_written,
             weight_version=weight_version,
         )
 
@@ -1222,6 +1261,119 @@ class EnsembleICEngine(BaseBatch):
                     "calibrated from IC decay curve (EIC-02); median across "
                     f"{n_qualifying} qualifying ({qualifying_flags_desc}) "
                     f"symbols; decay_threshold={config.decay_threshold}"
+                ),
+            )
+            n_written += 1
+
+        return n_written
+
+    async def _calibrate_stop_target(
+        self,
+        pool: asyncpg.Pool,
+        results: list[dict[str, Any]],
+        config: EnsembleICConfig,
+        weight_version: str,
+        oos_start: datetime,
+    ) -> int:
+        """Phase 166 D-01b/D-03.1: derive
+        alpha.frame.stop_atr_mult.<regime>.<tf> / alpha.frame.target_r_multiple.<regime>.<tf>
+        from alpha_frames' already-collected counterfactual MAE/MFE excursions -- the
+        stop/target sibling of `_calibrate_hold_max_bars`' IC-decay-walk (EIC-02).
+
+        SAME STRUCTURE as `_calibrate_hold_max_bars` (group by (symbol, tf, regime) ->
+        per-symbol selection -> group by (regime, tf) -> median across qualifying
+        symbols -> CR-02 champion gate, enforced by the caller -> skip-if-empty ->
+        `config_service.set`), but a DIFFERENT DATA SOURCE and selection criterion
+        (RESEARCH.md Finding 1/Pitfall 1: the IC-decay-walk has no stop/target analog).
+        `results` (this run's just-written alpha_ensemble_ic corpus) carries no
+        counterfactual_mae/mfe columns -- that data lives in `alpha_frames`, tagged by
+        `weight_epoch` (== `alpha_events.weight_version`, per
+        `alpha_frame_writer.py`'s tag-through). `results` still scopes WHICH symbols
+        are eligible this run (skip `is_pooled` -- POOLED is a diagnostic aggregate,
+        not a tradable per-symbol execution parameter, same rationale as
+        `_calibrate_hold_max_bars`).
+
+        IN-SAMPLE ONLY (RESEARCH.md Finding 6 / OOS-EVAL-PROTOCOL.md): `alpha_frames`
+        is filtered to `bar_ts < oos_start` explicitly here -- unlike `results`,
+        `alpha_frames` is not already scoped to this run's in-sample corpus, so this
+        filter is added, not inherited. No OOS read path exists anywhere in this
+        function (T-166-04).
+
+        A (regime, tf) cell with zero qualifying symbols is SKIPPED entirely for that
+        component (stop and target tracked independently -- a symbol may qualify for
+        one and not the other) -- no `config_service.set` call, no fallback default --
+        the prior APR value remains authoritative until a future run qualifies.
+        """
+        eligible_symbols = sorted({row["symbol"] for row in results if not row.get("is_pooled")})
+        if not eligible_symbols:
+            return 0
+
+        async with pool.acquire() as conn:
+            frame_rows = [
+                dict(r)
+                for r in await conn.fetch(
+                    _STOP_TARGET_FETCH_SQL, weight_version, oos_start, eligible_symbols
+                )
+            ]
+
+        groups: dict[tuple[str, str, str], list[dict[str, Any]]] = {}
+        for row in frame_rows:
+            key = (row["symbol"], row["tf"], row["regime"])
+            groups.setdefault(key, []).append(row)
+
+        per_regime_tf_stop: dict[tuple[str, str], list[float]] = {}
+        per_regime_tf_target: dict[tuple[str, str], list[float]] = {}
+        for (_symbol, tf, regime), cells in groups.items():
+            stop_val, target_val = _select_stop_target_from_excursions(
+                cells,
+                config.stop_mae_percentile,
+                config.target_mfe_percentile,
+                config.stop_target_min_qualifying_symbols,
+            )
+            if stop_val is not None:
+                per_regime_tf_stop.setdefault((regime, tf), []).append(stop_val)
+            if target_val is not None:
+                per_regime_tf_target.setdefault((regime, tf), []).append(target_val)
+
+        if not per_regime_tf_stop and not per_regime_tf_target:
+            return 0
+
+        config_service = ConfigService(database_url=self._db_dsn, pool=pool)
+        await config_service.initialize()
+
+        n_written = 0
+        for (regime, tf), qualifying_stops in per_regime_tf_stop.items():
+            n_qualifying = len(qualifying_stops)
+            median_stop = float(np.median(qualifying_stops))
+            key = f"alpha.frame.stop_atr_mult.{regime}.{tf}"
+            await config_service.set(
+                key,
+                str(median_stop),
+                changed_by="ensemble-ic-engine",
+                reason=(
+                    "calibrated from uncensored closed_target MAE excursions (Phase "
+                    f"166 D-01b/D-03.1); {config.stop_mae_percentile}th percentile of "
+                    f"ATR-rescaled MAE, median across {n_qualifying} qualifying "
+                    "symbols; excludes closed_stop frames (right-censored at the "
+                    "stop distance, todo 088 alignment)"
+                ),
+            )
+            n_written += 1
+
+        for (regime, tf), qualifying_targets in per_regime_tf_target.items():
+            n_qualifying = len(qualifying_targets)
+            median_target = float(np.median(qualifying_targets))
+            key = f"alpha.frame.target_r_multiple.{regime}.{tf}"
+            await config_service.set(
+                key,
+                str(median_target),
+                changed_by="ensemble-ic-engine",
+                reason=(
+                    "calibrated from uncensored closed_max_hold MFE excursions "
+                    f"(Phase 166 D-01b/D-03.1); {config.target_mfe_percentile}th "
+                    f"percentile of R-unit MFE, median across {n_qualifying} "
+                    "qualifying symbols; excludes closed_stop/closed_target frames "
+                    "(right-censored at their own exit boundary, todo 088 alignment)"
                 ),
             )
             n_written += 1
