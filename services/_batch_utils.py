@@ -5,6 +5,7 @@ from __future__ import annotations
 
 import csv
 import io
+from contextlib import contextmanager
 from typing import Any
 
 import numpy as np
@@ -34,6 +35,25 @@ def connect_db_from_url(db_url: str) -> Any:
     conn = psycopg2.connect(db_url)
     conn.autocommit = False
     return conn
+
+
+@contextmanager
+def short_lived_conn(dsn: str):
+    """Worker-side sibling of ic_engine.py's Settings-based `_short_lived_conn` (todo 129).
+
+    Takes a dsn string (picklable, crosses a ProcessPoolExecutor boundary) instead of a
+    `Settings` object -- `_short_lived_conn` is main-process only since a `Settings`
+    object doesn't cross that boundary. Guarantees `conn.close()` exactly once, even
+    when the caller's body raises mid-fetch: the 3 hand-rolled dsn `open -> use ->
+    close` sites this replaces (`_compute_symbol_tf` x2, `_compute_cross_sectional_tf`
+    x1 in services/ic_engine.py) had no try/finally, so any exception between open and
+    the nearest explicit `conn.close()` call leaked a connection.
+    """
+    conn = connect_db_from_url(dsn)
+    try:
+        yield conn
+    finally:
+        conn.close()
 
 
 def load_config_service_sync(conn: Any) -> ConfigService:

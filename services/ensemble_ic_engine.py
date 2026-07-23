@@ -101,6 +101,7 @@ from src.intelligence.statistics.ic_math import (
     _nan_to_none,
     _p_values_from_ic,
     _vectorized_ic,
+    build_walk_forward_folds,
 )
 from src.observability.corpus_manifest import CorpusManifest
 from src.observability.otel import OTelInitError, init_otel_providers
@@ -815,15 +816,9 @@ def _run_ensemble_ic_worker(args: tuple) -> dict[str, Any]:
                     embargo_bars = lookahead_bars
                     walk_forward_folds = config.walk_forward_folds
                     fold_ics: list[float] = []
-                    for k in range(walk_forward_folds):
-                        train_end = int(n_valid * (k + 1) / (walk_forward_folds + 1))
-                        test_start = train_end + embargo_bars
-                        test_end = int(n_valid * (k + 2) / (walk_forward_folds + 1))
-                        if (
-                            test_start >= test_end
-                            or (test_end - test_start) < config.min_reliable_n
-                        ):
-                            continue
+                    for test_start, test_end in build_walk_forward_folds(
+                        n_valid, walk_forward_folds, embargo_bars, config.min_reliable_n
+                    ):
                         x_test = alpha_valid[test_start:test_end]
                         y_test = returns_valid[test_start:test_end]
                         if len(x_test) < 2:
