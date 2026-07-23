@@ -2153,12 +2153,12 @@ open question is specifically incremental contribution, not novelty from scratch
 sibling atomic-expansion item to Phase 151's atomic scope (todo 066, todo 104), not folded into
 151's interaction-layer waves.
 **Requirements**: Closes todo 153 (no formal REQUIREMENTS.md IDs); governed by decisions D-01..D-16 in 163-CONTEXT.md.
-**Plans:** 1/3 plans executed
+**Plans:** 2/3 plans executed
 
 Plans:
 
 - [x] 163-01-PLAN.md — Structural data contract (migration 243: 17 new columns — 12 VP ATR-normalized + 5 S/R strength/age/count, D-19 — + feature_registry rows + APR keys) + FeatureCache.update_session_vp() mutator
-- [ ] 163-02-PLAN.md — Wire session-VP into live+batch compute paths, derive 14 VP outputs (2 original + 12 new), remove stale I3 None-branch, regression test
+- [x] 163-02-PLAN.md — Wire session-VP into live+batch compute paths, derive 14 VP outputs (2 original + 12 new), remove stale I3 None-branch, regression test
 - [ ] 163-03-PLAN.md — Stateless inline pivot-clustering S/R: ATR-unit sr_support_dist/sr_resist_dist plus resistance_strength/support_strength/resistance_age_bars/support_age_bars/sr_level_count from the same clustering pass (D-19), D-05 docstring cleanup, regression test
 
 ### Phase 164: SMC Institutional Footprint Primitives 📋 PLANNED
