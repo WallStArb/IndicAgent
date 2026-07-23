@@ -2069,11 +2069,11 @@ real resource contention, not a design dependency. Check `ps aux | grep ic_engin
 [Corpus pipeline state](project_corpus_pipeline_state.md) before starting. Planning also assumes
 the concurrent symbol_hmm-restoration work reserves migration 247; this phase's migrations start
 at 248.
-**Plans:** 1/4 plans executed
+**Plans:** 2/4 plans executed
 
 Plans:
 - [x] 162-01-PLAN.md — Structural pass (todos 129 + 009E + 139/140): short_lived_conn(dsn), build_walk_forward_folds, _compute_one_cross_sectional_cell extraction + shared feature-blocked _subsample_and_rank memory bound; migration 248 (feature_block_columns, max_cell_rows)
-- [ ] 162-02-PLAN.md — Todo 133: cross_sectional_bootstrap_threads scalar -> per-tf dict; migration 249 (4 flat per-tf keys)
+- [x] 162-02-PLAN.md — Todo 133: cross_sectional_bootstrap_threads scalar -> per-tf dict; migration 249 (4 flat per-tf keys)
 - [ ] 162-03-PLAN.md — Todo 134 core (absorbs 122): ic_cell_fingerprints table (migration 250), computational-vs-operational field classification, per-table watermarks catching in-place mutation, fingerprint validity check replacing existing_keys skip, DELETE-then-insert invalidation, --refresh/--dry-run-validity, delete .pkl checkpoint system
 - [ ] 162-04-PLAN.md — Equivalence harness (fresh vs fingerprint-skip, incl bh_adjusted_p/passes_fdr) + drift study; migration 251 (refresh_min_new_fraction=0 disabled); staleness stays alert-only
 
