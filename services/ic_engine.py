@@ -952,6 +952,8 @@ def _compute_upstream_watermark(
     symbol: str | None,
     tf: str,
     pass_type: str,
+    *,
+    is_group_pooled: bool = False,
     regime_group: str | None = None,
     symbol_list: list[str] | None = None,
     feature_registry_watermark: dict[str, Any] | None = None,
@@ -960,22 +962,30 @@ def _compute_upstream_watermark(
 ) -> dict[str, Any]:
     """JSON-serializable per-cell upstream watermark.
 
-    pass_type IN ('pooled', 'symbol_hmm'): symbol is the real instrument symbol.
-    Components (a) forward_returns and (b) feature_vectors are scoped to that one
-    symbol.
+    is_group_pooled=False (default, ALL per-symbol rows -- pass_type IN
+    ('pooled', 'symbol_hmm', 'cross_sectional')): components (a) forward_returns
+    and (b) feature_vectors are scoped to that one symbol. Note pass_type
+    'cross_sectional' does NOT imply is_group_pooled -- a regime-group-routed
+    symbol's OWN row (_compute_symbol_tf's regime_scope='cross_sectional' output,
+    symbol=<real symbol>) is still a per-symbol row, never the group-pooled cell
+    (162 code-review CR-01 fix: pass_type alone used to decide this, which meant
+    the per-symbol prepass loop's cross_sectional cells silently computed their
+    watermark against symbol_list=None/regime_group=None instead of [symbol],
+    permanently defeating invalidation for every regime-group-routed symbol).
 
-    pass_type == 'cross_sectional': there is no single instrument symbol (the cell
-    pools regime_group's whole peer set) -- symbol_list carries that peer set, and
-    components (a)/(b) aggregate across it (Rule 2 addition beyond the plan's literal
-    4-arg sketch: without this, an in-place correction to a PEER symbol's
+    is_group_pooled=True (ONLY the cs_cell_plan/group-level POOLED cell computed
+    once per (regime_group, tf, regime_label)): there is no single instrument
+    symbol -- symbol_list carries regime_group's whole peer set, and components
+    (a)/(b) aggregate across it (Rule 2 addition beyond the plan's literal 4-arg
+    sketch: without this, an in-place correction to a PEER symbol's
     forward_returns/feature_vectors would silently fail to invalidate a cross-
-    sectional cell -- exactly T-162-03-01, the phase's highest-severity threat).
+    sectional cell -- T-162-03-01, the phase's highest-severity threat).
     Components (c) market_regimes and (d) instrument_tags additionally apply,
     keyed by regime_group and symbol_list respectively.
 
-    (e) feature_registry status applies to EVERY pass_type -- every row type
-    (pooled/symbol_hmm/cross_sectional) writes feature_status_at_eval from the
-    same registry snapshot.
+    (e) feature_registry status applies to EVERY row type -- every row
+    (pooled/symbol_hmm/cross_sectional, per-symbol or group-pooled) writes
+    feature_status_at_eval from the same registry snapshot.
 
     Timestamps serialized via format_iso_ts() (never inline .isoformat()). Does
     NOT log -- callers accumulate a counter across all per-cell calls and log
@@ -989,12 +999,11 @@ def _compute_upstream_watermark(
     key and reuses the stored value on every subsequent call for that same key --
     the output dict is identical either way, just computed with fewer round trips.
     """
-    is_cross_sectional = pass_type == "cross_sectional"
-    symbols_for_fr_fv = symbol_list if is_cross_sectional else ([symbol] if symbol else [])
+    symbols_for_fr_fv = symbol_list if is_group_pooled else ([symbol] if symbol else [])
 
     watermark: dict[str, Any] = {}
 
-    fr_fv_key = (regime_group if is_cross_sectional else symbol, tf)
+    fr_fv_key = (regime_group if is_group_pooled else symbol, tf)
     if fr_fv_cache is not None and fr_fv_key in fr_fv_cache:
         watermark.update(fr_fv_cache[fr_fv_key])
     else:
@@ -1003,7 +1012,7 @@ def _compute_upstream_watermark(
             fr_fv_cache[fr_fv_key] = fr_fv
         watermark.update(fr_fv)
 
-    if is_cross_sectional:
+    if is_group_pooled:
         mr_tags_key = (regime_group, tf)
         if mr_tags_cache is not None and mr_tags_key in mr_tags_cache:
             watermark.update(mr_tags_cache[mr_tags_key])
@@ -4397,6 +4406,7 @@ def main() -> None:
                                     symbol=None,
                                     tf=tf,
                                     pass_type="cross_sectional",
+                                    is_group_pooled=True,
                                     regime_group=group_name,
                                     symbol_list=group_symbols,
                                     feature_registry_watermark=feature_registry_watermark,

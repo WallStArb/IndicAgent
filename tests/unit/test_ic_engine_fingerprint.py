@@ -33,6 +33,7 @@ from services.ic_engine import (
     _compute_cross_sectional_tf,
     _compute_one_regime_cell,
     _compute_symbol_tf,
+    _compute_upstream_watermark,
     _fingerprint_is_valid,
     _symbol_expected_cells,
 )
@@ -213,6 +214,92 @@ def test_watermark_equal_when_all_components_identical():
         "feature_vectors": {"max_bar_ts": "2026-01-01T00:00:00Z", "count": 1000},
     }
     assert w1 == w2
+
+
+class _FakeCursor:
+    """Records the params passed to every execute() call; returns dummy
+    fetchone() rows shaped to match each real query in call order."""
+
+    def __init__(self, fetchone_results: list[tuple]):
+        self.captured_params: list[dict] = []
+        self._fetchone_results = fetchone_results
+        self._call_idx = 0
+
+    def __enter__(self):
+        return self
+
+    def __exit__(self, *exc_info):
+        return False
+
+    def execute(self, sql, params=None):
+        self.captured_params.append(params)
+
+    def fetchone(self):
+        row = self._fetchone_results[self._call_idx]
+        self._call_idx += 1
+        return row
+
+
+class _FakeConn:
+    def __init__(self, fetchone_results: list[tuple]):
+        self._cursor = _FakeCursor(fetchone_results)
+
+    def cursor(self):
+        return self._cursor
+
+
+def test_compute_upstream_watermark_per_symbol_cross_sectional_scopes_to_own_symbol():
+    """CR-01 regression (162 code review): a regime-group-routed symbol's OWN
+    pass_type='cross_sectional' row (is_group_pooled defaults False) must scope
+    forward_returns/feature_vectors to [symbol] -- NEVER to symbol_list=None.
+
+    Before the fix, is_group_pooled was inferred from pass_type == 'cross_sectional'
+    alone, so this exact call (a per-symbol prepass cell, not the group-pooled
+    POOLED cell) silently queried WHERE symbol = ANY(NULL), permanently hiding
+    that symbol's real upstream data changes from the fingerprint gate.
+    """
+    fake_conn = _FakeConn(fetchone_results=[(None, 0, None), (None, 0)])
+    _compute_upstream_watermark(
+        fake_conn,
+        "SPY",
+        "1d",
+        "cross_sectional",
+        feature_registry_watermark={"status_hash": "precomputed"},
+    )
+    assert len(fake_conn._cursor.captured_params) == 2
+    for params in fake_conn._cursor.captured_params:
+        assert params["symbols"] == ["SPY"], (
+            f"expected symbols=['SPY'], got {params['symbols']!r} -- per-symbol "
+            "cross_sectional cell must not degrade to ANY(NULL)"
+        )
+
+
+def test_compute_upstream_watermark_group_pooled_scopes_to_regime_group_and_peer_symbols():
+    """Companion to the CR-01 regression above: the actual group-pooled POOLED
+    cell (is_group_pooled=True, the cs_cell_plan/group-level call site) must
+    still scope by regime_group/symbol_list, not collapse to a single symbol --
+    this is T-162-03-01's original guarantee and must not regress from the
+    is_group_pooled refactor.
+    """
+    fake_conn = _FakeConn(
+        fetchone_results=[(None, 0, None), (None, 0), (None, 0, "hash1"), ("hash2",)]
+    )
+    _compute_upstream_watermark(
+        fake_conn,
+        symbol=None,
+        tf="1d",
+        pass_type="cross_sectional",
+        is_group_pooled=True,
+        regime_group="equity",
+        symbol_list=["SPY", "QQQ"],
+        feature_registry_watermark={"status_hash": "precomputed"},
+    )
+    fr_fv_params, mr_params = (
+        fake_conn._cursor.captured_params[0],
+        fake_conn._cursor.captured_params[2],
+    )
+    assert fr_fv_params["symbols"] == ["SPY", "QQQ"]
+    assert mr_params["regime_group"] == "equity"
 
 
 # ---------------------------------------------------------------------------
