@@ -25,6 +25,16 @@ CORRECTNESS INVARIANTS:
   (prevents silent historical drift on the next cost-hurdle recalibration).
 - No Kafka: this table has no live consumer, matching EnsembleICEngine's precedent (Pitfall 5).
 
+Phase 166 Plan 05 — geometry_source dispatch (D-01b/D-01c/D-03):
+- `alpha.frame.geometry_source` (global | per_cell_scalar | structural) selects which
+  stop_atr_mult/target_r_multiple SCALAR values get snapshotted onto each frame's
+  stop_atr_mult/target_r_multiple columns — the same two columns the writer has always
+  snapshotted (never live entry/stop/target prices; those stay CounterfactualTracker's job at
+  T+1, per the invariants above). "global" is byte-identical to pre-166-05 behavior (the sole
+  regression-tested default). "per_cell_scalar" (Task 1, this commit) mirrors the hold_key
+  per-(regime,tf) lookup pattern exactly. "structural" is accepted as a valid selector here but
+  its dedicated resolution branch lands in Task 2.
+
 Usage:
     python services/alpha_frame_writer.py [--backfill]
 """
@@ -143,6 +153,11 @@ def compute_expected_r_snapshot(
     return gross_expected_r, net_expected_r
 
 
+# geometry_source dispatch (Phase 166 Plan 05, D-01b/D-01c/D-03). "global" is the sole
+# regression-tested default (byte-identical to pre-166-05 behavior).
+_VALID_GEOMETRY_SOURCES = frozenset({"global", "per_cell_scalar", "structural"})
+
+
 @dataclass(frozen=True)
 class FrameConfig:
     """APR-bound frame geometry parameters (FRAME-01). Frozen for pickling/dispatch safety,
@@ -152,6 +167,7 @@ class FrameConfig:
     target_r_multiple: float
     atr_period: int
     min_stop_price_fraction: float
+    geometry_source: str
 
     @classmethod
     def from_apr(cls, cfg_dict: dict[str, Any]) -> FrameConfig:
@@ -166,12 +182,88 @@ class FrameConfig:
             raise ValueError(
                 f"alpha.frame.min_stop_price_fraction must be >= 0, got {min_stop_price_fraction}"
             )
+        geometry_source = _cfg(cfg_dict, "alpha.frame.geometry_source", "global")
+        if geometry_source not in _VALID_GEOMETRY_SOURCES:
+            # Same eager-validation-at-config-load discipline as stop_atr_mult above — an
+            # invalid selector would otherwise silently fall through to whichever branch
+            # string-equality happens to miss, deep in a --backfill scan.
+            raise ValueError(
+                f"alpha.frame.geometry_source must be one of {sorted(_VALID_GEOMETRY_SOURCES)}, "
+                f"got {geometry_source!r}"
+            )
         return cls(
             stop_atr_mult=stop_atr_mult,
             target_r_multiple=_cfg(cfg_dict, "alpha.frame.target_r_multiple", 2.0),
             atr_period=_cfg(cfg_dict, "alpha.frame.atr_period", 14),
             min_stop_price_fraction=min_stop_price_fraction,
+            geometry_source=geometry_source,
         )
+
+
+# ---------------------------------------------------------------------------
+# geometry_source resolution (Phase 166 Plan 05, Tasks 1-2) — pure functions, no DB. Called
+# once per pending alpha_events row inside _process_partition; the DB-touching bulk fetches
+# structural mode needs are separate async helpers below (never a per-row round trip).
+# ---------------------------------------------------------------------------
+
+
+def _resolve_scalar_geometry(
+    cfg: dict[str, Any],
+    regime: str,
+    tf: str,
+    frame_config: FrameConfig,
+    missing_stop_keys: set[str],
+    missing_target_keys: set[str],
+) -> tuple[float, float]:
+    """per_cell_scalar geometry_source (Task 1): mirrors the existing hold_key per-(regime,tf)
+    lookup pattern exactly (`alpha.frame.stop_atr_mult.{regime}.{tf}` /
+    `alpha.frame.target_r_multiple.{regime}.{tf}`), each falling back to the current global
+    scalar (`frame_config.stop_atr_mult`/`target_r_multiple`) when the per-cell key is absent
+    — additive, backward-compatible. Also used by "structural" as the scalar seed bounding the
+    structural candidate search window (Task 2).
+
+    Missing per-cell keys accumulate into the given sets — never a per-row log call
+    (CLAUDE.md's "never log per-row inside a loop over the full corpus" rule); the caller warns
+    once per partition after the full scan.
+    """
+    stop_key = f"alpha.frame.stop_atr_mult.{regime}.{tf}"
+    if stop_key not in cfg:
+        missing_stop_keys.add(stop_key)
+    stop_atr_mult = float(_cfg(cfg, stop_key, frame_config.stop_atr_mult))
+
+    target_key = f"alpha.frame.target_r_multiple.{regime}.{tf}"
+    if target_key not in cfg:
+        missing_target_keys.add(target_key)
+    target_r_multiple = float(_cfg(cfg, target_key, frame_config.target_r_multiple))
+
+    return stop_atr_mult, target_r_multiple
+
+
+def _resolve_row_geometry(
+    geometry_source: str,
+    cfg: dict[str, Any],
+    regime: str,
+    tf: str,
+    frame_config: FrameConfig,
+    missing_stop_keys: set[str],
+    missing_target_keys: set[str],
+) -> tuple[float, float]:
+    """Dispatch on geometry_source (Task 1: global | per_cell_scalar), returning the
+    (stop_atr_mult, target_r_multiple) pair to snapshot onto this row.
+
+    "global": frame_config's scalars, completely unchanged — no cfg lookups performed at all
+    (Test 1: proven byte-identical to pre-166-05 behavior).
+    "per_cell_scalar": `_resolve_scalar_geometry` — per-(regime,tf) key with global fallback.
+    "structural" is validated as an accepted geometry_source at FrameConfig.from_apr load time
+    (Task 1's action) but resolves via this same scalar path until Task 2 adds its dedicated
+    branch.
+    """
+    if geometry_source == "global":
+        return frame_config.stop_atr_mult, frame_config.target_r_multiple
+
+    return _resolve_scalar_geometry(
+        cfg, regime, tf, frame_config, missing_stop_keys, missing_target_keys
+    )
 
 
 # ---------------------------------------------------------------------------
@@ -327,6 +419,8 @@ class AlphaFrameWriter(BaseBatch):
         # of rows), so visibility is an aggregate count per partition, not a log line per row.
         missing_cost_hurdle_count = 0
         missing_hold_keys: set[str] = set()
+        missing_stop_keys: set[str] = set()
+        missing_target_keys: set[str] = set()
 
         async with pool.acquire() as conn:
             async with conn.transaction():
@@ -338,8 +432,18 @@ class AlphaFrameWriter(BaseBatch):
                         missing_cost_hurdle_count += 1
                     cost_r = float(row["cost_hurdle"]) if row["cost_hurdle"] is not None else 0.0
 
+                    stop_atr_mult, target_r_multiple = _resolve_row_geometry(
+                        frame_config.geometry_source,
+                        cfg,
+                        regime,
+                        tf,
+                        frame_config,
+                        missing_stop_keys,
+                        missing_target_keys,
+                    )
+
                     gross_expected_r, net_expected_r = compute_expected_r_snapshot(
-                        alpha_score, frame_config.target_r_multiple, cost_r
+                        alpha_score, target_r_multiple, cost_r
                     )
 
                     hold_key = f"alpha.frame.hold_max_bars.{regime}.{tf}"
@@ -366,8 +470,8 @@ class AlphaFrameWriter(BaseBatch):
                             cost_r,
                             net_expected_r,
                             max_hold_bars,
-                            frame_config.stop_atr_mult,
-                            frame_config.target_r_multiple,
+                            stop_atr_mult,
+                            target_r_multiple,
                             "open",
                             corpus_run_id,
                             row["weight_version"],
@@ -400,6 +504,20 @@ class AlphaFrameWriter(BaseBatch):
                 symbol=symbol,
                 tf=tf,
                 hold_keys=sorted(missing_hold_keys),
+            )
+        if missing_stop_keys:
+            self.logger.warning(
+                "alpha_frame_writer.stop_atr_mult_key_missing",
+                symbol=symbol,
+                tf=tf,
+                stop_keys=sorted(missing_stop_keys),
+            )
+        if missing_target_keys:
+            self.logger.warning(
+                "alpha_frame_writer.target_r_multiple_key_missing",
+                symbol=symbol,
+                tf=tf,
+                target_keys=sorted(missing_target_keys),
             )
 
         return written

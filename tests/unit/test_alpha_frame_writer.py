@@ -111,12 +111,15 @@ def test_content_key_differs_across_frame_variants():
 
 
 def test_no_sr_resist_dist_branch():
-    """ATR-only path (review Pitfall 1) — no dead conditional branch."""
+    """ATR-only path (review Pitfall 1) — no dead conditional branch. (Task 1 of Phase 166
+    Plan 05 -- structural geometry_source's own sr_resist_dist-adjacent read lands in Task 2.)"""
     assert "sr_resist_dist" not in _read_source()
 
 
 def test_no_feature_vectors_read():
-    """ATR is caller-supplied, never read from feature_vectors (review H2)."""
+    """ATR is caller-supplied, never read from feature_vectors (review H2). (Task 1 of Phase
+    166 Plan 05 -- Task 2 adds a feature_vectors read gated to geometry_source == "structural"
+    specifically; this file's Task-1-only state has no such branch yet.)"""
     assert "feature_vectors" not in _read_source()
 
 
