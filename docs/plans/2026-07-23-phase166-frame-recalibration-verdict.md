@@ -145,3 +145,118 @@ resetting `alpha.frame.geometry_source=global` and re-running the regenerate+sim
 `alpha.frame.geometry_source` was reverted to `global` (the safe, backward-compatible default)
 after this arm's scoring completed -- no candidate's geometry is left as the live default,
 since neither cleared the gate.
+
+## Arm 3: Structural Candidate (VP/S-R Confluence, Part 1)
+
+**Verdict: NOT EVALUABLE -- Phase 163 prerequisite unmet.** This is a VALID, COMPLETE phase
+outcome, not a failure and not a re-planning trigger (166-CONTEXT.md D-06, RESEARCH.md Open
+Question 1). No `gate166_structural` row was written; the dry-run sentinel was never invoked for
+this candidate.
+
+**Hard prerequisite check (re-verified live at this task's start, per 166-01-SUMMARY.md's
+recorded `NULL_PENDING_163` finding):**
+
+```
+PGPASSWORD=postgres psql -U postgres -h localhost -d indicagent -tAc \
+  "SELECT count(*) FROM feature_vectors WHERE sr_support_dist IS NOT NULL;"
+=> 0
+```
+
+Phase 163 ("VP/SR Structural Primitives") has still NOT executed as of this phase's completion.
+`sr_support_dist`/`sr_resist_dist` and the other Phase-163-owned columns
+(`poc_dist_atr`/`poc_rolling_dist_atr`/`distance_to_vah_atr`/`distance_to_val_atr`/
+`resistance_strength`/`support_strength`/`resistance_age_bars`/`support_age_bars`) remain 100%
+NULL corpus-wide. Per this plan's own must-haves and RESEARCH.md's Pitfall 2, forcing a run
+against all-NULL structural columns would produce a degenerate all-ATR-fallback population
+indistinguishable from a second scalar candidate under a different name -- not a real structural
+test -- so this task correctly halts rather than fabricating a misleading result.
+
+**RESEARCH.md's A2 ATR-consistency spot check:** explicitly SKIPPED, not silently omitted. A2
+asks whether the ATR value normalizing Phase-163's distance columns equals the ATR
+`AlphaFrameWriter`/`CounterfactualTracker` independently compute from
+`market_data_ohlcv_tradeable`. With Phase 163 not yet executed, there is no Phase-163 ATR value
+to compare against (the normalizing computation doesn't exist yet) -- this check has no target
+population and is deferred to whenever the structural arm's real run happens, alongside the
+non-fallback-fraction disclosure Task 2's acceptance criteria require for a scored run.
+
+**What remains buildable, unaffected by this halt:** `src/intelligence/trading/
+structural_confluence.py` (166-03) and `AlphaFrameWriter`'s `structural` geometry_source
+dispatch (166-05) are both fully built and unit-tested (11 + 22 tests respectively, all
+synthetic-fixture, zero live-data dependency). The moment `/gsd-execute-phase 163` completes and
+the liveness query above returns > 0, the structural arm can be scored with a SINGLE additional
+one-shot cycle (regenerate under `geometry_source=structural` -> simulate -> `gate166
+--candidate structural --dry-run` -> real run) -- no further code changes needed. This is
+explicitly recorded as the resume point for that future work, not a design gap.
+
+## Arm-Comparison Summary
+
+| Arm | Result | frame_count | eligible_cells | n_days | c2 (CI lower) | c3 (Sharpe) | c4 (max DD) |
+|-----|--------|-------------|-----------------|--------|----------------|-------------|-------------|
+| Baseline (global) | FAIL | 33,892 | 7 | 69 | -0.1215 | 0.385 | 9.596 |
+| Scalar (per_cell_scalar) | FAIL | 28,100 (-17.1%) | 7 (unchanged) | 65 (-4) | -0.0450 (better) | 0.441 (better) | 26.178 (2.7x worse) |
+| Structural (Part 1) | NOT EVALUABLE | -- | -- | -- | -- | -- | -- |
+
+Both scored arms fail the frozen five criteria decisively (3 of 5 fail in both cases). The
+scalar candidate's population footprint is smaller than baseline's, but the delta (-17.1% frame
+count, -4 OOS days) is attributable entirely to right-censoring near the corpus edge under the
+new geometry (frames that hadn't yet reached `closed_max_hold`/`closed_stop`/`closed_target`
+status at scoring time), not to a narrower candidate universe or cherry-picked cell selection --
+disclosed explicitly here so the smaller population cannot be read as favorable for population
+reasons alone (Codex concern 2). Both arms share the identical `5m`/`15m`-only timeframe
+coverage and the identical `mid_bull`-only evaluable-regime-cell limitation (D-05, todo 173) --
+neither arm's coverage is narrower or wider than the other's in a way that would explain the
+result difference; the difference is a genuine geometry effect (narrower per-cell stops
+compounding into deeper realized drawdown), not a coverage artifact.
+
+## Structural Toolkit Deferral (Codex concern 4)
+
+The broader SMC / swing-fib / anchored-VWAP structural toolkit -- the user's original "look at
+what good ideas/logic could be reused/resurfaced/reimagined from v2 trade lifecycle/tradeframer
+and applied to v3" request (D-06) -- was evaluated and DELIBERATELY DEFERRED to Part 2
+([todo 175](../../.planning/todos/pending/175-structural-candidate-part2-smc-swing-fib-anchored-vwap.md)),
+not silently dropped: RESEARCH.md's exhaustive live-schema check found every feature column the
+full v2.x toolkit needs (SMC order blocks/liquidity/BOS-CHoCH, swing/fib, anchored VWAP) is 100%
+absent from v3's live `feature_vectors`, requiring Phases 164 (not planned) and 165 (researched,
+not planned) plus net-new anchored-VWAP scoping to land first -- a multi-phase dependency chain
+this single phase cannot absorb under its own D-01 completion mandate.
+
+## Recommendation
+
+**Keep neither candidate; the current global scalars remain the live default.** Both the
+baseline (unrecalibrated) and scalar (per-(regime,tf) calibrated) arms fail the frozen five
+criteria decisively -- this is a valid, informative negative result (D-03.3), not an
+inconclusive one. The scalar candidate's calibration mechanism works exactly as designed
+(narrower, empirically-derived stops per cell) and measurably improves two of the three failing
+criteria (c2, c3) versus the uncalibrated baseline, but makes the third (c4, max drawdown) 2.7x
+worse -- a real, disclosed trade-off, not a wash. Per this project's core value ("nothing sizes
+a live trade until the alpha behind it has survived out-of-sample"), neither arm is promotable.
+
+This is a **2-of-3-arm verdict** (structural not evaluable, Phase 163 prerequisite unmet) and is
+treated as a VALID, COMPLETE phase outcome per 166-CONTEXT.md D-06 and this plan's own
+must-haves -- not a phase failure, and not a trigger to re-plan Phase 166. The concrete next
+step for the still-open question ("does a real structural VP/S-R confluence candidate clear the
+gate where the scalar candidate didn't?") is: run `/gsd-execute-phase 163`, re-verify the
+liveness query above returns > 0, then execute the structural arm's single remaining one-shot
+cycle using the already-built, already-unit-tested `structural_confluence.py` +
+`AlphaFrameWriter` `structural` dispatch -- no new code, no new design work, no re-planning.
+
+Diagnosing further methodology refinements to the scalar candidate's selection criterion (e.g.
+a different percentile, a risk-adjusted rather than MAE/MFE-percentile selection rule) is
+explicitly out of scope for this record -- the empirical comparison this phase exists to produce
+is complete for the two arms that could be scored this session.
+
+## References
+
+- `gate_evaluations` table: `gate_id IN ('gate166_baseline', 'gate166_scalar')`
+- `.planning/gate_look_log.jsonl` -- both gates' pre-run integrity snapshots
+- `.planning/phases/166-frame-execution-recalibration/166-01-SUMMARY.md` through `166-05-SUMMARY.md`
+  -- migration/diagnosis, scalar calibration, structural module, validation gate, and writer
+  wiring plans this verdict depends on
+- `docs/plans/2026-07-22-phase148-promotion-decision.md` -- the Gate 2 FAIL verdict this phase
+  directly follows on from
+- `docs/plans/SHADOW-REVIEW.md` -- the frozen five criteria
+- `docs/plans/OOS-EVAL-PROTOCOL.md` -- run-once cadence, data-starvation-is-diagnostic rule
+- [todo 175](../../.planning/todos/pending/175-structural-candidate-part2-smc-swing-fib-anchored-vwap.md)
+  -- consolidated Part 2 deferral (SMC/swing/fib/anchored-VWAP), filed from this record
+- [todo 173](../../.planning/todos/pending/173-ensemble-alpha-1h-1d-oos-scoring-gap.md) --
+  the pre-existing `ensemble_alpha` 1h/1d OOS coverage gap both scored arms inherit unchanged
