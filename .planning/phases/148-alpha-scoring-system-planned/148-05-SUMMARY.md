@@ -2,228 +2,256 @@
 phase: 148-alpha-scoring-system-planned
 plan: 05
 subsystem: measurement
-tags: [oos-gate, forward-returns, blocker, run-once-safety]
+tags: [oos-gate, forward-returns, promotion-decision, path-dependent-statistics, jsonb-serialization, run-once-safety]
 
 # Dependency graph
 requires:
   - phase: 148-03
-    provides: scripts/ops/corpus/ops_oos_gate1_signal_eval.py (Gate 1, unrun)
+    provides: scripts/ops/corpus/ops_oos_gate1_signal_eval.py (Gate 1, run for real in this plan)
   - phase: 148-04
-    provides: scripts/analysis/score03_gate2_execution_eval.py (Gate 2, unrun)
+    provides: scripts/analysis/score03_gate2_execution_eval.py (Gate 2, run for real in this plan)
 provides:
-  - Diagnostic evidence that Gate 1's required substrate (OOS-side forward_returns) does
-    not exist in the live DB -- discovered via the plan's own mandated --dry-run pre-flight,
-    before any irreversible action was taken
-affects: [148-05-retry, any-future-phase-touching-forward_return_writer]
+  - Gate 1 (gate_id='gate1_signal') PASS verdict recorded in gate_evaluations
+  - Gate 2 (gate_id='gate2_execution') FAIL verdict recorded in gate_evaluations
+  - docs/plans/2026-07-22-phase148-promotion-decision.md -- the milestone's synthesized
+    promotion decision (do not promote to live capital)
+  - A corrected, deterministic per-bar_ts-aggregation max-drawdown methodology in
+    score03_gate2_execution_eval.py, superseding an initial (also-committed, then-superseded)
+    row-level tie-break attempt
+  - A jsonb-safe evidence serializer (_json_safe) fixing a genuine write-path crash on
+    non-finite floats (+inf/-inf/nan), latent since 148-04, only reachable on a real run
+affects: [v3.1-milestone-close, any-future-phase-reading-alpha_frames-cumulative-statistics]
 
 # Tech tracking
 tech-stack:
   added: []
-  patterns: []
+  patterns:
+    - "aggregate-before-cumulative-walk for path-dependent statistics over cross-sectional
+      concurrent-timestamp data -- SUM same-bar_ts rows first, THEN run the order-sensitive
+      cumulative computation, rather than picking any per-row tie-break ordering"
+    - "recursive non-finite-float JSON sanitizer (_json_safe) before jsonb writes -- RFC 8259
+      has no Infinity/NaN representation; Python's json.dumps emits invalid bare tokens for
+      them by default, silently working until the exact non-finite value combination hits a
+      strict jsonb parser"
 
 key-files:
-  created: []
-  modified: []
+  created:
+    - docs/plans/2026-07-22-phase148-promotion-decision.md
+    - .planning/todos/pending/172-path-dependent-frame-statistics-order-sensitivity-sweep.md
+    - .planning/todos/pending/173-ensemble-alpha-1h-1d-oos-scoring-gap.md
+  modified:
+    - scripts/analysis/score03_gate2_execution_eval.py
+    - .planning/gate_look_log.jsonl
+    - .planning/todos/PRIORITIES.md
 
 key-decisions:
-  - "STOPPED before running either irreversible one-shot gate (D-04) after Gate 1's mandated --dry-run pre-flight surfaced input_population_row_count=0 across the ENTIRE active universe (0 of 0 symbols have any forward_returns row with bar_ts >= alpha.validation.oos_start), not the partial/sparse insufficient-N the plan anticipated -- per the plan's own critical_warning, an unexpected dry-run result is grounds to stop and report, not force through an irreversible action under uncertainty"
-  - "Did not attempt to auto-fix by running forward_return_writer.py for the OOS window myself -- that is a new, previously-unscoped infrastructure operation (not in this plan's files_modified, not reviewed by 148-REVIEWS.md, not mentioned in 148-CONTEXT.md's D-02/D-03/D-04), touches the exact discipline docs/plans/OOS-EVAL-PROTOCOL.md exists to gate deliberately, and its correct invocation shape (training-window-end value, symbol/tf scope, orchestrator vs. direct invocation) requires a judgment call outside this plan's authority -- classified as Rule 4 (architectural/scope decision), not Rule 3 (mechanical blocking fix)"
-  - "Did not run Gate 2 either, even though it has no forward_returns dependency and its own --dry-run would likely succeed -- D-02 requires Gate 1 to run strictly before Gate 2, and Gate 1 cannot meaningfully run for real in its current state; running Gate 2 first would violate the plan's own sequencing invariant"
+  - "Halted before Gate 1's real run when its mandated --dry-run pre-flight found forward_returns had ZERO OOS-side rows for every symbol/timeframe (not the partial insufficient-N the plan anticipated) -- root-caused to Phase 141.1's OOS-holdout clamp on forward_return_writer.py never having been overridden for the OOS side; reported to the coordinator rather than self-authorizing a previously-unscoped infrastructure backfill given D-04's irreversibility stakes"
+  - "Coordinator independently verified the diagnosis, obtained explicit human sign-off, and backfilled forward_returns (forward_return_writer.py --training-window-end 2026-07-07T16:45:00Z, full active universe, no threshold/parameter changes, in-sample side untouched via ON CONFLICT DO NOTHING) -- resumed from Task 1's dry-run pre-flight per the coordinator's explicit instruction, did not redo already-verified reasoning"
+  - "Gate 1 real run (irreversible, D-04): PASS -- 640 5m/15m cells, all reliable (zero insufficient-N once the label substrate existed), 140/640 (21.875%) qualify against a 2% floor. Discovered AFTER this irreversible run (cannot be corrected, D-04 forbids re-running) that ensemble_alpha itself has zero OOS rows at 1h (any weight_version) and zero at 1d (champion/default weight_version) -- the PASS verdict covers only 5m/15m, disclosed explicitly in the promotion decision record rather than presented as a full 4-timeframe pass; filed as todo 173"
+  - "Gate 2's mandated --dry-run pre-flight found c2/c3 reproduced the frozen 143.1-08 baseline exactly but c4_max_dd missed the plan's 1e-6 tolerance by four orders of magnitude (9.597 vs 9.598) -- root-caused via alpha_frames.measured_at (proving the underlying data was byte-identical, unchanged since 143.1-08's original 2026-07-21 measurement) to ~22-way bar_ts ties (33,892 rows across only 1,534 distinct bar_ts) feeding an order-sensitive cumulative-drawdown statistic with no deterministic tie-break in either the original 143.1-08 script or the new Gate 2 script -- the frozen baseline itself was never a reproducible number, just whatever TimescaleDB parallel-chunk-scan interleaving happened on 2026-07-21"
+  - "First fix attempt (frame_id row-level tie-break, commit 7e3c8913) made the query deterministic but was conceptually wrong -- same-bar_ts frames are genuinely SIMULTANEOUS positions (multiple symbols opened at the identical 5-minute bar), and treating them as sequential via ANY row ordering is not economically meaningful. Coordinator identified and directed the correct fix: aggregate (SUM) pnl_r per distinct bar_ts BEFORE the cumulative walk (commit 51a05f10, superseding 7e3c8913) -- eliminates the tie-break question structurally since SUM is order-independent and the aggregated series has exactly one row per bar_ts"
+  - "Gate 2's first real-run attempt crashed (asyncpg.exceptions.InvalidTextRepresentationError: Token 'Infinity' is invalid) -- Python's json.dumps emits bare Infinity/-Infinity/NaN tokens for non-finite floats by default, which are legitimate values here (one-sided CI upper bounds) but not valid JSON per RFC 8259, which Postgres's jsonb parser correctly rejects. Confirmed this was a genuine system fault, not a statistical result: the transaction rolled back cleanly (zero partial rows, zero look-log entries), so the one-shot gate was not consumed by the failed attempt. Fixed with a recursive _json_safe() sanitizer (commit 92544222) converting non-finite floats to their string representations before serialization; verified standalone (json round-trip + direct Postgres ::jsonb cast) before retrying"
+  - "Gate 2 real run (irreversible, D-04), retried successfully after both fixes: FAIL -- 3 of 5 SHADOW-REVIEW criteria fail (c2/c3/c4), matching D-06's known-going-in framing exactly. c4_max_dd=9.596266492204732, a third distinct number from both the non-reproducible frozen baseline (9.598...) and the wrong frame_id-tie-break fix (9.606...), but the verdict is identical under all three: catastrophic ~960% drawdown against a 0.25 threshold, never a borderline call"
+  - "Filed two follow-up todos rather than silently noting findings in prose only: todo 172 (broader sweep for other path-dependent statistics elsewhere in the codebase, plus an unfixed related order-sensitivity symptom in frame_gate_passes/evaluate_frame_gate's cluster-mean array construction, observed as CI drift for a coverage-excluded regime cell) and todo 173 (the ensemble_alpha 1h/1d OOS coverage gap found after Gate 1's irreversible run) -- both per this project's 'capture todos immediately' convention, both explicitly non-blocking to this phase's verdict"
 
-requirements-completed: []
+requirements-completed: [SCORE-02, SCORE-03, SCORE-04]
 
 # Metrics
-duration: ~35min (investigation only; no irreversible action taken)
+duration: ~3h45min (includes a coordinator round-trip for the forward_returns backfill decision and a second round-trip for the c4 methodology fix)
 completed: 2026-07-22
 ---
 
 # Phase 148 Plan 05: OOS Gate Promotion Decision Summary
 
-**BLOCKED before either irreversible gate ran: Gate 1's mandated --dry-run pre-flight found `forward_returns` has zero rows (0 of 0 symbols) with `bar_ts >= alpha.validation.oos_start` across every timeframe, despite raw bar data existing 7+ months past that boundary -- the OOS holdout clamp built in Phase 141.1 has apparently never been overridden to compute forward_returns for the OOS side, so Gate 1's join against `forward_returns` can never return a row today. Both one-shot gates remain unconsumed; `gate_evaluations` is still empty.**
+**Both irreversible OOS proof gates run exactly once (D-04): Gate 1 (signal proof) PASS on 640 5m/15m cells (21.875% qualifying against a 2% floor); Gate 2 (execution proof) FAIL on 3 of 5 SHADOW-REVIEW criteria, after root-causing and correctly fixing a genuine max-drawdown non-reproducibility bug (same-bar_ts frames are simultaneous positions, not sequential -- aggregate before the cumulative walk) and a jsonb serialization crash on non-finite floats. Promotion decision: do not promote the v3.0 AlphaEngine to live trading capital.**
 
 ## Performance
 
-- **Duration:** ~35 min (investigation; no writes attempted)
-- **Started:** 2026-07-22T~20:15Z
-- **Completed:** 2026-07-22T20:50:06Z
-- **Tasks:** 0/3 completed (Task 1 halted mid-pre-flight; Tasks 2/3 not attempted, both depend on Task 1)
-- **Files modified:** 0 (read-only DB queries only; this SUMMARY.md is the only new file)
+- **Duration:** ~3h45min (includes two coordinator round-trips: one for the forward_returns
+  backfill authorization, one for the c4 max-drawdown methodology correction)
+- **Started:** 2026-07-22T~20:15Z (first dry-run pre-flight attempt)
+- **Completed:** 2026-07-23T00:33:00Z
+- **Tasks:** 3/3 completed
+- **Files modified:** 3 created (promotion decision doc, 2 follow-up todos), 3 modified
+  (`score03_gate2_execution_eval.py`, `.planning/gate_look_log.jsonl`, `PRIORITIES.md`)
 
-## What Was Attempted
+## Accomplishments
 
-Per the plan's mandatory sequence, Task 1's PRE-FLIGHT step was run first: `.venv/bin/python
-scripts/ops/corpus/ops_oos_gate1_signal_eval.py --dry-run` (default universe: all active
-contracts x `5m`/`15m`/`1h`/`1d`). Pre-run baseline was captured first per the outer guard:
-`gate_evaluations` was empty (0 rows for both `gate1_signal` and `gate2_execution`),
-`alpha_ensemble_ic` had 2186 rows (unrun-since baseline), no `.planning/gate_look_log.jsonl`
-existed yet, and `alpha.validation.oos_start` = `2025-12-24T05:15:00Z`.
+- **Gate 1 (SCORE-02, signal proof): PASS.** Recorded in `gate_evaluations`
+  (`gate_id='gate1_signal'`). 640 (symbol, tf, scale) cells across the active 80-symbol
+  universe, all reliable (`n_valid` 536-7,455), 140 (21.875%) qualifying against
+  `alpha.ensemble_ic.min_qualifying_fraction=0.02` -- signal concentrates at longer forward-return
+  lookaheads (`extended` scale strongest, `fast` weakest/near-zero).
+- **Gate 2 (SCORE-03, execution proof): FAIL.** Recorded in `gate_evaluations`
+  (`gate_id='gate2_execution'`), strictly after Gate 1 per D-02. 3 of 5 pooled SHADOW-REVIEW
+  criteria fail (c2 mean-P&L CI, c3 Sharpe, c4 max drawdown); c1 (69 OOS days) and c5
+  (`c7_confident_loss` proxy) pass -- matching D-06's known-going-in "3 of 5" framing exactly.
+  Mandatory regime-stratified companion present: only 2 of 8 champion cells clear
+  `min_clusters=20` coverage, both `mid_bull`, both fail.
+- **`docs/plans/2026-07-22-phase148-promotion-decision.md`** synthesizes both independent
+  verdicts, discloses every material finding from this plan's execution in full (the
+  `forward_returns` prerequisite gap, the `c4` non-reproducibility investigation and fix, the
+  jsonb crash and fix, the post-hoc-discovered `ensemble_alpha` 1h/1d coverage gap, the
+  regime-cell CI order-sensitivity symptom), and states the overall decision: do not promote
+  to live trading capital.
+- Fixed a genuine, previously-latent bug in the already-committed 148-04 script: `_max_drawdown`
+  computed over a population with ~22-way `bar_ts` ties (concurrent cross-symbol positions)
+  produced a non-reproducible number because neither the frozen `143.1-08` script nor the new
+  Gate 2 script had a deterministic ordering for a path-dependent statistic. Coordinator
+  identified the economically-correct fix (aggregate same-`bar_ts` rows by SUM before the
+  cumulative walk) after an initial row-level tie-break attempt was found conceptually wrong
+  (treats simultaneous positions as sequential).
+- Fixed a second genuine bug found on Gate 2's first real-run attempt: `json.dumps()`'s default
+  handling of non-finite floats (`Infinity`/`NaN` bare tokens) is invalid per RFC 8259 and
+  crashed on Postgres's strict `jsonb` parser -- confirmed this was a system fault (transaction
+  rolled back cleanly, one-shot gate not consumed) and fixed with a recursive sanitizer before
+  retrying the real, irreversible write.
+- Filed 2 follow-up todos (172, 173) capturing non-blocking findings for later investigation,
+  per project convention.
 
-The dry-run completed cleanly (no crash) but returned:
-```json
-{
-  "gate_id": "gate1_signal",
-  "result": "insufficient",
-  "evidence": {
-    "cells": [],
-    "snapshot": { "input_population_row_count": 0, ... },
-    "verdict": {
-      "result": "insufficient",
-      "reason": "zero (symbol, tf, scale) cells computed from the OOS population",
-      "n_cells": 0
-    }
-  }
-}
-```
+## Task Commits
 
-This is qualitatively different from what the plan's own `<action>` text anticipated ("Expect a
-meaningful fraction of OOS cells to return walk_forward_stable=None or insufficient-N because
-the OOS window is much shorter than the in-sample history") -- that describes *partial*
-insufficiency across some cells, not a fully empty population across the entire universe.
+Each task was committed atomically (plus 2 mid-execution bug-fix commits and 2 todo-filing
+commits, all attributable to Task 1/2's own execution):
 
-## Root Cause (verified empirically, not guessed)
+1. **Task 1: Run Gate 1 exactly once** - `240d9bf6` (feat) -- result PASS
+   - Preceded by `68b1209d` (docs): documented the `forward_returns` blocker found during
+     Task 1's own mandated dry-run pre-flight, before the coordinator's backfill resolved it
+2. **Task 2: Run Gate 2 exactly once, after Gate 1** - `14c0f9e9` (feat) -- result FAIL
+   - Preceded by `7e3c8913` (fix, superseded): initial frame_id tie-break attempt
+   - Preceded by `51a05f10` (fix): correct per-bar_ts aggregation, superseding `7e3c8913`
+   - Preceded by `92544222` (fix): non-finite-float jsonb sanitizer, fixing the crashed first
+     real-run attempt
+   - Followed by `a432b0e4` (docs) and `4d7053a1` (docs): todos 172/173 filed
+3. **Task 3: Write the promotion decision record** - `be44902c` (docs)
 
-`ops_oos_gate1_signal_eval.py`'s fetch query joins `ensemble_alpha` to `forward_returns` (on
-`symbol`/`tf`/`bar_ts`, filtered to `return_type = 'executable_open_to_open'`) and to
-`market_regimes`. Isolated each join to find where the population collapses to zero:
+## Files Created/Modified
 
-- `ensemble_alpha` HAS abundant OOS-side data: 659,522 rows across the active universe for
-  `bar_ts >= 2025-12-24T05:15:00Z` (weight_version `run_2025122405150000`, the value the live
-  `alpha.ensemble.weight_version` APR key currently resolves to); `alpha_ensemble_ic`-adjacent
-  weight_versions `143.1-08-champion`/`143.1-08-challenger` show the same OOS coverage (max
-  `bar_ts` 2026-07-07 for both).
-- `market_regimes` HAS OOS-side data: 56,264 rows for `regime_group='equity'`, `tf='5m'`,
-  `ts >= oos_start` alone.
-- `forward_returns` HAS ZERO rows anywhere with `bar_ts >= oos_start`, for any symbol, any
-  timeframe, any of the 320 registered (symbol, tf) pairs. Confirmed via
-  `SELECT count(DISTINCT symbol) FROM forward_returns WHERE return_type='executable_open_to_open'
-  AND bar_ts >= '2025-12-24T05:15:00Z'` = **0**. Per-timeframe `max(bar_ts)`:
+- `docs/plans/2026-07-22-phase148-promotion-decision.md` (new) -- the milestone's synthesized
+  two-gate promotion verdict and overall decision
+- `scripts/analysis/score03_gate2_execution_eval.py` (modified, 3 commits) -- `_json_safe()`
+  non-finite-float sanitizer; `_aggregate_pnl_by_bar_ts()` per-timestamp aggregation superseding
+  a row-level tie-break; `_OOS_QUERY_SQL` reverted to plain `ORDER BY bar_ts ASC` (no longer
+  load-bearing given the aggregation fix)
+- `.planning/gate_look_log.jsonl` (modified) -- 2 entries appended (Gate 1, Gate 2), each with
+  a pre-run integrity snapshot
+- `.planning/todos/pending/172-path-dependent-frame-statistics-order-sensitivity-sweep.md` (new)
+- `.planning/todos/pending/173-ensemble-alpha-1h-1d-oos-scoring-gap.md` (new)
+- `.planning/todos/PRIORITIES.md` (modified) -- 2 new P2 entries
 
-  | tf  | max(bar_ts) in forward_returns | vs. oos_start (2025-12-24T05:15:00Z) |
-  |-----|-------------------------------|---------------------------------------|
-  | 5m  | 2025-12-23 20:55:00+00 | before |
-  | 15m | 2025-12-23 20:45:00+00 | before |
-  | 1h  | 2025-12-23 20:00:00+00 | before |
-  | 1d  | 2025-12-24 00:00:00+00 | before (by 5h15m) |
+## Decisions Made
 
-  Meanwhile raw tradeable bar data (`market_data_ohlcv_tradeable`) extends to 2026-07-07
-  16:45:00+00 (5m) -- **over 7 months past `oos_start`** -- and the largest configured IC
-  lookahead (`alpha.ic.lookahead.extended` = 60 bars) cannot explain a multi-month gap; a
-  60-bar lookahead would only trim the last few hours/days of coverage, not everything past
-  the OOS boundary itself.
-
-This matches exactly what `docs/plans/OOS-EVAL-PROTOCOL.md` documents as the intended
-enforcement mechanism from Phase 141.1: the corpus orchestrator clamps
-`--training-window-end` passed to `forward_return_writer.py` to `min(MAX(bar_ts), oos_start)`,
-and `forward_return_writer.py` has no bare-`MAX(bar_ts)` fallback (by design, to prevent
-silent OOS leakage into training). The practical consequence, apparently never previously
-exercised: **no process has ever computed `forward_returns` for `bar_ts >= oos_start`.** The
-column exists and is well-populated for the entire in-sample history, but the OOS side is not
-merely sparse -- it is completely absent, for every symbol and timeframe.
-
-Gate 1 (SCORE-02) as built requires exactly this OOS-side `forward_returns` data to measure
-IC out-of-sample. With zero rows available, Gate 1's real (non-dry-run) invocation would
-write a `result='insufficient'` row that reflects "no forward-return labels exist for this
-window," not "there is a signal-proof answer, positive or negative." Spending the one
-irreversible run (D-04, never re-runnable for this milestone) on that empty, uninformative
-outcome would foreclose the actual signal-proof question this phase exists to answer.
-
-## Why I Stopped Instead Of Proceeding
-
-Per the plan's `<critical_warning>`: "If the dry-run pre-flight surfaces anything unexpected
-... STOP and report back rather than proceeding to the real run -- do not attempt to force
-through an irreversible action under uncertainty." A fully empty population across every
-symbol/timeframe is exactly that kind of surfaced anomaly, distinct from the "some cells
-insufficient-N" scenario the plan's action text explicitly pre-authorized as expected/normal.
-
-I considered and rejected auto-fixing by running `forward_return_writer.py` for the OOS
-window myself:
-- It is a new, unscoped infrastructure operation -- not in this plan's declared
-  `files_modified` (`docs/plans/2026-07-22-phase148-promotion-decision.md` and
-  `.planning/gate_look_log.jsonl` only), not mentioned anywhere in `148-CONTEXT.md`'s
-  decisions (D-02 through D-08), and not reviewed by the cross-AI review documented in
-  `148-REVIEWS.md`.
-- It touches the exact discipline `docs/plans/OOS-EVAL-PROTOCOL.md` was written to gate
-  deliberately -- computing OOS-side forward-return labels is arguably sanctioned (the doc's
-  banned-uses list is feature selection / IC gate calibration / ensemble weighting / threshold
-  tuning / hold-horizon calibration, not "computing raw labels for an OOS proof gate"), but the
-  correct invocation shape is a real judgment call: what `--training-window-end` value (likely
-  `MAX(bar_ts)` minus a lookahead buffer, but which buffer, and does it collide with Phase
-  162's in-flight throughput refactor of adjacent corpus-pipeline code), what symbol/tf scope,
-  orchestrator-driven vs. direct script invocation, and how long/expensive this backfill would
-  be against a 20M+ row `ensemble_alpha` population's shadow tables.
-- Since running Gate 1 for real is irreversible and permanent for this milestone (D-04), and
-  the fix itself is a meaningful, previously-undiscussed scope expansion, this is a Rule 4
-  (architectural/scope decision) situation, not a Rule 3 (mechanical blocking fix) -- it
-  requires a decision only the user/orchestrator can make: whether and how to backfill OOS
-  `forward_returns` before spending Gate 1's one shot.
-
-Task 2 (Gate 2) was not attempted either. D-02 requires Gate 1 to run strictly before Gate 2,
-and Gate 1 cannot meaningfully produce a real verdict right now -- running Gate 2 first (even
-though it has no `forward_returns` dependency and would likely dry-run cleanly against
-`alpha_frames`) would violate the plan's own sequencing invariant. Task 3 (the promotion
-decision record) was not attempted since it depends on both gates' real verdicts.
-
-## Current State (verified, not assumed)
-
-- `gate_evaluations`: 0 rows (both `gate1_signal` and `gate2_execution` untouched)
-- `.planning/gate_look_log.jsonl`: does not exist (Gate 1's `--dry-run` writes nothing, as
-  designed and verified)
-- `alpha_ensemble_ic`: 2186 rows, unchanged from pre-run baseline
-- No files were created or modified by this session other than this SUMMARY.md
-- Both gate scripts (`scripts/ops/corpus/ops_oos_gate1_signal_eval.py`,
-  `scripts/analysis/score03_gate2_execution_eval.py`) remain exactly as built by 148-03/148-04
-  -- unmodified, unrun for real, both one-shot gates still available to consume once the
-  prerequisite is resolved
+See `key-decisions` in frontmatter for the full chain (forward_returns blocker -> coordinator
+resolution -> Gate 1 run -> c4 non-reproducibility -> wrong-then-correct fix -> jsonb crash fix
+-> Gate 2 run -> post-hoc coverage-gap disclosure). Every irreversible action was preceded by a
+`--dry-run` pre-flight per the plan's own safety protocol; every anomaly surfaced by a pre-flight
+was root-caused (not guessed) before either proceeding or escalating.
 
 ## Deviations from Plan
 
-None in the sense of unplanned code changes -- no code was written or modified. The deviation
-is procedural: Tasks 1-3 were not executed because Task 1's own mandated safety pre-flight
-(the `--dry-run` pre-flight the plan itself requires before consuming the one-shot) surfaced a
-blocking prerequisite gap. This is the plan's own safety mechanism working as designed, not a
-bug in the plan or the 148-03/148-04 scripts.
+### Auto-fixed Issues
+
+**1. [Rule 1 - Bug] Non-deterministic max-drawdown statistic in the already-committed Gate 2 script**
+- **Found during:** Task 2's mandated `--dry-run` pre-flight, before the real irreversible run
+- **Issue:** `_max_drawdown` computed over `ORDER BY bar_ts ASC`-fetched rows with ~22-way ties
+  at each `bar_ts` (concurrent cross-symbol positions), no deterministic tie-break -- produced a
+  different number on every execution, missing the plan's 1e-6 reproduction tolerance against
+  the frozen 143.1-08 baseline by 4 orders of magnitude
+- **Fix:** Aggregate (SUM) `counterfactual_pnl_r` per distinct `bar_ts` before the cumulative
+  equity walk (`_aggregate_pnl_by_bar_ts`), per the coordinator's identified correct approach --
+  superseded an initial, conceptually-wrong `frame_id` row-level tie-break attempt
+- **Files modified:** `scripts/analysis/score03_gate2_execution_eval.py`
+- **Verification:** Reproduced `9.596266492204732` (~1e-15 noise) across 3 independent dry-runs;
+  7/7 unit tests still GREEN; verdict unaffected under all 4 numbers tested (frozen baseline,
+  unfixed re-run, wrong tie-break, correct aggregation)
+- **Committed in:** `51a05f10` (superseding `7e3c8913`)
+
+**2. [Rule 1 - Bug] jsonb write crash on non-finite float evidence values**
+- **Found during:** Task 2's first real (irreversible) run attempt
+- **Issue:** `json.dumps(evidence)` emits bare `Infinity`/`NaN` tokens for non-finite floats
+  (legitimate values here -- one-sided CI upper bounds) -- invalid per RFC 8259, rejected by
+  Postgres's `jsonb` parser (`InvalidTextRepresentationError`). Never caught by the dry-run path
+  since it never exercises `json.dumps` (only prints formatted text)
+- **Fix:** `_json_safe()` recursively converts non-finite floats to string representations
+  before serialization
+- **Files modified:** `scripts/analysis/score03_gate2_execution_eval.py`
+- **Verification:** Confirmed the failed attempt's transaction rolled back cleanly (zero
+  partial rows, zero look-log entries -- the one-shot gate was not consumed); standalone
+  round-trip test (json.dumps -> json.loads, and a direct Postgres `::jsonb` cast) before
+  retrying; 7/7 unit tests still GREEN; real run succeeded on retry
+- **Committed in:** `92544222`
+
+---
+
+**Total deviations:** 2 auto-fixed (both Rule 1 - bugs in the already-committed 148-04 script,
+both discovered via this plan's own mandated safety pre-flights/real-run attempts, both fixed
+and verified before any irreversible action was taken on unverified code).
+**Impact on plan:** Both fixes were necessary for Gate 2 to produce a trustworthy, reproducible
+result at all. Neither changed the substantive gate verdict (FAIL, 3 of 5 criteria, under every
+methodology variant tested). No scope creep -- both fixes are narrowly scoped to the specific
+bugs found, plus the coordinator explicitly directed the c4 fix's exact shape.
 
 ## Issues Encountered
 
-**Blocking (not auto-fixed, escalated):** `forward_returns` has zero OOS-side coverage
-(`bar_ts >= alpha.validation.oos_start`) for every symbol and timeframe, discovered via
-Gate 1's `--dry-run` pre-flight. Root-caused to the Phase 141.1 OOS-holdout clamp on
-`forward_return_writer.py` apparently never having been overridden to compute the OOS side.
-See "Root Cause" and "Why I Stopped" above for full diagnostic evidence and reasoning.
+Two genuine blockers requiring coordinator involvement, both resolved:
 
-## Recommended Next Step (not executed here -- requires a decision)
+1. **`forward_returns` OOS-coverage gap** (Task 1). Halted before Gate 1's real run; reported
+   the finding rather than self-authorizing a backfill given the scope/stakes; coordinator
+   independently verified, obtained human sign-off, and backfilled. See "Root Cause" detail
+   preserved in this plan's earlier commit history (`68b1209d`).
+2. **`c4_max_dd` tolerance failure** (Task 2). Halted before Gate 2's real run when the initial
+   `frame_id` tie-break fix produced a third distinct (still non-matching) number; reported
+   rather than deciding unilaterally that the divergence was immaterial, given the coordinator's
+   explicit "not optional" framing of the tolerance check. Coordinator identified the correct
+   fix (aggregate-per-bar_ts) and directed its implementation.
 
-Before this plan can produce a real Gate 1 verdict, `forward_returns` needs OOS-side coverage
-(`bar_ts >= 2025-12-24T05:15:00Z`) for the active universe across `5m`/`15m`/`1h`/`1d`. This
-requires an explicit, reviewed decision on:
-1. Whether computing OOS-side `forward_returns` labels is in fact sanctioned under
-   `OOS-EVAL-PROTOCOL.md`'s discipline (my reading above is that it is -- labels are not
-   themselves feature selection/calibration/tuning -- but this should be confirmed, not
-   assumed, given the doc's explicit "no post-hoc renegotiation" framing).
-2. The correct invocation: likely `forward_return_writer.py --training-window-end
-   <MAX(bar_ts) minus lookahead buffer>` scoped to the active contract universe, run once,
-   read-only afterward by Gate 1.
-3. Whether this collides with Phase 162 (ic_engine Corpus Pipeline Throughput), which is
-   in-flight/planned against adjacent corpus-pipeline code paths.
+Both blockers were caught by this plan's own mandated `--dry-run` pre-flights or an irreversible
+action's own atomic-transaction safety net, exactly as designed -- neither resulted in any
+partial/inconsistent state in `gate_evaluations`.
 
-Once resolved and `forward_returns` has real OOS coverage, this plan (148-05) can be re-run
-from Task 1's `--dry-run` pre-flight forward -- nothing consumed here needs to be undone.
+## Known Stubs
+
+None. Both gates ran against live, unmodified production data with real, verified computations.
+
+## Threat Flags
+
+None beyond what the plan's own `<threat_model>` already registered (T-148-07 through T-148-10,
+all mitigated as designed: dry-run pre-flights + atomic check+INSERT + append-only look-log +
+statistical-FAIL-is-not-a-crash all worked correctly in practice, including through two real
+system faults that were correctly distinguished from statistical outcomes).
+
+## User Setup Required
+
+None -- no external service configuration required.
 
 ## Next Phase Readiness
 
-Not ready. This is the phase's terminal deliverable plan and it did not produce the milestone
-verdict. `docs/plans/2026-07-22-phase148-promotion-decision.md` was NOT created (Task 3 never
-reached). Phase 148 remains open pending resolution of the `forward_returns` OOS-coverage gap
-above.
+Phase 148 (Alpha Scoring System) is now COMPLETE (5/5 plans). The milestone's promotion
+decision is final: do not promote the v3.0 AlphaEngine to live trading capital at this time.
+Gate 1 (signal proof) is real; Gate 2 (execution proof) fails decisively. Diagnosing why Gate 2
+fails and whether a frame/execution recalibration could help is explicitly out of scope for this
+phase (per `148-CONTEXT.md`'s deferred scope) -- real follow-on work for a future phase.
+
+Two non-blocking follow-ups filed: todo 172 (path-dependent statistics sweep + an unfixed
+regime-cell CI order-sensitivity symptom in `frame_gate_passes`/`evaluate_frame_gate`) and todo
+173 (`ensemble_alpha` zero rows at 1h for any weight_version, zero at 1d for the champion/default
+weight_version -- Gate 1's PASS verdict covers 5m/15m only, disclosed in the promotion record).
 
 ## Self-Check: PASSED
 
-Verified no unintended file changes: `git status --short` shows only this new SUMMARY.md file
-(plus the pre-existing gitignored `.venv` symlink). Verified `gate_evaluations` is still 0
-rows for both gate IDs and `.planning/gate_look_log.jsonl` does not exist -- confirming zero
-irreversible actions were taken. Verified the diagnostic queries in this document are
-reproducible against the live DB as reported above.
+Verified `docs/plans/2026-07-22-phase148-promotion-decision.md` exists and passes all of the
+plan's required grep acceptance checks (`0.38512018365944`, `9.598299843093644`, "Gate 1",
+"Gate 2", "v2.x", "cliff" -- all present) plus zero em-dash characters (CLAUDE.md convention).
+Verified both `.planning/todos/pending/172-*.md` and `173-*.md` exist on disk. Verified all 9
+commits from this plan (`68b1209d`, `240d9bf6`, `7e3c8913`, `51a05f10`, `92544222`, `14c0f9e9`,
+`a432b0e4`, `4d7053a1`, `be44902c`) present in `git log --oneline`. Verified `gate_evaluations`
+has exactly 1 row for `gate1_signal` (result='pass') and exactly 1 row for `gate2_execution`
+(result='fail'), zero rows for `gate_id='FRAME-04'`, and `gate1_signal.run_ts` precedes
+`gate2_execution.run_ts` (D-02 ordering held). Verified `.planning/gate_look_log.jsonl` has
+exactly 2 entries, each carrying a pre-run integrity snapshot. Verified the full
+`.venv/bin/pytest tests/unit/ -q` suite passes (exit code 0; 3 pre-existing skips unrelated to
+this plan, zero failures).
 
 ---
 *Phase: 148-alpha-scoring-system-planned*
-*Completed: 2026-07-22 (blocked, not executed)*
+*Completed: 2026-07-22*
