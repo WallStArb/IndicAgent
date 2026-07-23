@@ -539,6 +539,15 @@ class ICEngineConfig:
     # CellTooLargeError rather than silently routing to an alternate algorithm.
     # Migration 249. Defaulted for the same reason as every other post-143 field.
     max_cell_rows: int = 1_200_000
+    # 162-04 Task 2 (todo 134 follow-on, migration 252): forward-looking, currently
+    # UNUSED field. Seeded 0 (disabled) -- no auto-carry-forward behavior is wired to
+    # read this value yet; a nonzero value would (once wired) let a cell's prior IC
+    # be carried forward across a --training-window-end bump when the fraction of
+    # bars new since the last compute is below this threshold. Stays 0 until the
+    # drift study (ops_ic_fingerprint_equivalence.py --drift-study) empirically
+    # justifies otherwise. Defaulted for the same reason as every other post-143
+    # field.
+    refresh_min_new_fraction: float = 0.0
 
     @property
     def lookaheads(self) -> dict[str, int]:
@@ -656,6 +665,10 @@ class ICEngineConfig:
             # 162-01 Task 3 (todos 139/140, migration 249).
             feature_block_columns=int(cfg.get_sync("alpha.ic.feature_block_columns", 32)),
             max_cell_rows=int(cfg.get_sync("alpha.ic.max_cell_rows", 1_200_000)),
+            # 162-04 Task 2 (todo 134 follow-on, migration 252). Forward-looking,
+            # unused until a drift study justifies a nonzero value -- see the
+            # dataclass field's own comment above.
+            refresh_min_new_fraction=float(cfg.get_sync("alpha.ic.refresh_min_new_fraction", 0.0)),
         )
 
 
@@ -709,6 +722,13 @@ _COMPUTATIONAL_CONFIG_FIELDS: frozenset[str] = frozenset(
         # gets -- a routing change moves real rows, not just downstream policy.
         "regime_groups_json",
         "sharpe_window_size_subsampled",  # fixed subsampled-bar window -- moves ic_sharpe
+        # 162-04 Task 2: currently UNUSED (0=disabled, no read path). Classified
+        # COMPUTATIONAL as a deliberate conservative safety margin (same reasoning as
+        # sign_symmetric above) -- once wired, a nonzero value changes WHICH rows get
+        # carried-forward vs recomputed, moving feature_ic_scores content directly.
+        # Costs at most one extra safe recompute today (value never changes from the
+        # migration 252 seed), never a silent-stale read once carry-forward ships.
+        "refresh_min_new_fraction",
     }
 )
 
@@ -3830,6 +3850,14 @@ def _evaluate_staleness(
     age_days = 0 and alert=False when prior_completion is None (first run / missing
     manifest -- the documented fallback, never an alert). Otherwise age_days is the
     integer day difference and alert fires when age_days exceeds staleness_alert_days.
+
+    ALERT-ONLY CONTRACT (162-04 Task 2, pinned intent): this function's return value
+    is consumed ONLY to set a diagnostic gauge (IC_ENGINE_LAST_RUN_AGE_DAYS) and log a
+    warning at its call site below -- it NEVER triggers an auto-recompute. A
+    fingerprint-valid cell (162-03's ic_cell_fingerprints gate) is never auto-stale on
+    wall-clock grounds alone; data-driven refresh of a cell only ever happens via an
+    explicit `--training-window-end` bump (a new cell key) or `--refresh` (an explicit
+    operator override). Do not wire this alert into any recompute-triggering code path.
     """
     if prior_completion is None:
         return 0, False
