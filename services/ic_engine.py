@@ -422,6 +422,19 @@ def _short_lived_conn(settings: Settings):
 # ---------------------------------------------------------------------------
 
 
+def _load_per_tf_apr_dict(cfg: Any, key_prefix: str, defaults: dict[str, int]) -> dict[str, int]:
+    """{tf: int(cfg.get_sync(f"{key_prefix}.{tf}", default))} for every tf in defaults.
+
+    Shared by bootstrap_block_size and cross_sectional_bootstrap_threads (162
+    simplify-pass) -- previously each field copy-pasted this comprehension with its
+    own tf-default tuple, a third independent enumeration of "the 4 tfs" alongside
+    _DEFAULT_TFS.
+    """
+    return {
+        tf: int(cfg.get_sync(f"{key_prefix}.{tf}", default)) for tf, default in defaults.items()
+    }
+
+
 @dataclasses.dataclass(frozen=True)
 class ICEngineConfig:
     """Frozen config snapshot bound once at startup from APR.
@@ -636,15 +649,11 @@ class ICEngineConfig:
             # Circular block bootstrap CI (migrations 161/165/177; reactivated migration 222).
             bootstrap_resamples=int(cfg.get_sync("alpha.ic.bootstrap_resamples", 2000)),
             bootstrap_seed=int(cfg.get_sync("alpha.ic.bootstrap_seed", 42)),
-            bootstrap_block_size={
-                tf: int(cfg.get_sync(f"alpha.ic.bootstrap_block_size.{tf}", default))
-                for tf, default in (
-                    ("5m", 78),
-                    ("15m", 26),
-                    ("1h", 10),
-                    ("1d", 10),
-                )
-            },
+            bootstrap_block_size=_load_per_tf_apr_dict(
+                cfg,
+                "alpha.ic.bootstrap_block_size",
+                {"5m": 78, "15m": 26, "1h": 10, "1d": 10},
+            ),
             # Phase 143.1-04 (Component E, todo 094). Same APR key ensemble_trainer.py
             # reads -- one flag, two consumers, so the champion/challenger switch can't
             # drift between eligibility and the lifecycle hook's demote predicate.
@@ -653,15 +662,11 @@ class ICEngineConfig:
             # Todo 133 (162-02 Task 1, migration 250): per-tf dict, mirrors
             # bootstrap_block_size above. Old scalar key
             # (infra.ic_engine.cross_sectional_bootstrap_threads) retired.
-            cross_sectional_bootstrap_threads={
-                tf: int(cfg.get_sync(f"alpha.ic.cross_sectional_bootstrap_threads.{tf}", default))
-                for tf, default in (
-                    ("5m", 6),
-                    ("15m", 1),
-                    ("1h", 1),
-                    ("1d", 1),
-                )
-            },
+            cross_sectional_bootstrap_threads=_load_per_tf_apr_dict(
+                cfg,
+                "alpha.ic.cross_sectional_bootstrap_threads",
+                {"5m": 6, "15m": 1, "1h": 1, "1d": 1},
+            ),
             # 162-01 Task 3 (todos 139/140, migration 249).
             feature_block_columns=int(cfg.get_sync("alpha.ic.feature_block_columns", 32)),
             max_cell_rows=int(cfg.get_sync("alpha.ic.max_cell_rows", 1_200_000)),
@@ -792,6 +797,19 @@ def _compute_apr_snapshot_key(config: ICEngineConfig) -> str:
     return BaseBatch.content_key(*parts)
 
 
+def _check_cell_size(n_rows: int, config: ICEngineConfig, context_label: str) -> None:
+    """Crash-loud row-count ceiling (162-01 Task 3, todo 140) -- fails loud rather
+    than silently routing an oversized cell to an alternate/degraded algorithm.
+    Shared by the per-symbol and cross-sectional cell computes (162 simplify-pass;
+    previously this exact check was copy-pasted at both call sites).
+    """
+    if config.max_cell_rows and n_rows > config.max_cell_rows:
+        raise CellTooLargeError(
+            f"{context_label} has {n_rows} rows, exceeding "
+            f"alpha.ic.max_cell_rows={config.max_cell_rows}."
+        )
+
+
 # ---------------------------------------------------------------------------
 # Per-table upstream watermark (162-03 Task 2, resolves RESEARCH Open Question #1)
 #
@@ -805,6 +823,130 @@ def _compute_apr_snapshot_key(config: ICEngineConfig) -> str:
 # ---------------------------------------------------------------------------
 
 
+def _watermark_feature_registry(conn: Any) -> dict[str, Any]:
+    """(e) feature_registry status hash -- run-invariant, applies to EVERY pass_type
+    (every row type -- pooled/symbol_hmm/cross_sectional -- writes
+    feature_status_at_eval from this same snapshot).
+
+    Takes no cell-scoped input, so compute this exactly ONCE per ic_engine.py
+    invocation and pass the result into every cell's watermark (162 simplify-pass --
+    previously recomputed on every single per-cell call, up to ~700+ identical
+    round trips for a full corpus run).
+    """
+    with conn.cursor() as cur:
+        cur.execute(
+            "SELECT md5(COALESCE(string_agg("
+            "feature_name || '=' || status, '' ORDER BY feature_name), '')) "
+            "FROM feature_registry"
+        )
+        (status_hash,) = cur.fetchone()
+    return {"status_hash": status_hash}
+
+
+def _watermark_forward_returns_feature_vectors(
+    conn: Any, symbols: list[str], tf: str
+) -> dict[str, Any]:
+    """(a) forward_returns + (b) feature_vectors -- scoped to (symbols, tf) only,
+    NOT pass_type.
+
+    Callers should cache the result per (symbol-or-regime_group, tf) pair (162
+    simplify-pass) -- pooled/symbol_hmm/cross_sectional (plus an optional dual-write
+    symbol_hmm) share the same symbol+tf and previously recomputed these two
+    identical queries once per pass_type.
+    """
+    watermark: dict[str, Any] = {}
+    with conn.cursor() as cur:
+        # (a) forward_returns -- the label side, PRIMARY in-place-mutation detector.
+        # computed_at is DEFAULT now() and bumps on every recompute, so a bar-level
+        # correction (which recomputes forward_returns) moves it even when
+        # bar_ts/count are unchanged.
+        cur.execute(
+            """
+            SELECT MAX(bar_ts), COUNT(*), MAX(computed_at)
+            FROM forward_returns
+            WHERE symbol = ANY(%(symbols)s) AND tf = %(tf)s
+              AND return_type = 'executable_open_to_open'
+            """,
+            {"symbols": symbols, "tf": tf},
+        )
+        max_bar_ts, fr_count, max_computed_at = cur.fetchone()
+        watermark["forward_returns"] = {
+            "max_bar_ts": format_iso_ts(max_bar_ts) if max_bar_ts else None,
+            "count": fr_count,
+            "max_computed_at": format_iso_ts(max_computed_at) if max_computed_at else None,
+        }
+
+        # (b) feature_vectors -- the feature side, no write-timestamp column.
+        # In-place feature mutations are covered TRANSITIVELY: a feature-code change
+        # moves code_content_key; a bar correction recomputes forward_returns
+        # (caught by (a), since the correction workflow recomputes both from the
+        # same corrected bars).
+        cur.execute(
+            "SELECT MAX(bar_ts), COUNT(*) FROM feature_vectors "
+            "WHERE symbol = ANY(%(symbols)s) AND tf = %(tf)s",
+            {"symbols": symbols, "tf": tf},
+        )
+        max_fv_bar_ts, fv_count = cur.fetchone()
+        watermark["feature_vectors"] = {
+            "max_bar_ts": format_iso_ts(max_fv_bar_ts) if max_fv_bar_ts else None,
+            "count": fv_count,
+        }
+    return watermark
+
+
+def _watermark_market_regimes_instrument_tags(
+    conn: Any, regime_group: str | None, tf: str, symbol_list: list[str] | None
+) -> dict[str, Any]:
+    """(c) market_regimes + (d) instrument_tags -- scoped to (regime_group, tf) and
+    symbol_list only, NOT regime_label.
+
+    Callers should cache per (regime_group, tf) (162 simplify-pass) -- every
+    regime_label within a group shares the same (regime_group, tf) and previously
+    recomputed these two identical queries once per regime_label.
+    """
+    watermark: dict[str, Any] = {}
+    with conn.cursor() as cur:
+        # (c) market_regimes -- an HMM relabel mutates `regime_label` in place with
+        # unchanged ts/count, so add a value-sensitive content hash. Column is
+        # `regime_label` (not `regime` -- 162-04 live-DB fix, confirmed via `\d
+        # market_regimes`; the plan's own main() code at the cs_regimes discovery
+        # site already reads regime_label correctly, only this watermark query had
+        # the wrong column name).
+        cur.execute(
+            """
+            SELECT MAX(ts), COUNT(*),
+                   md5(COALESCE(string_agg(regime_label, '' ORDER BY ts), ''))
+            FROM market_regimes
+            WHERE regime_group = %(regime_group)s AND tf = %(tf)s
+            """,
+            {"regime_group": regime_group, "tf": tf},
+        )
+        max_ts, mr_count, regime_hash = cur.fetchone()
+        watermark["market_regimes"] = {
+            "max_ts": format_iso_ts(max_ts) if max_ts else None,
+            "count": mr_count,
+            "regime_hash": regime_hash,
+        }
+
+        # (d) instrument_tags -- cross-sectional routing. Catches any tag add/
+        # remove/reweight across this regime_group's peer set that changes
+        # which symbols are pooled into the cell.
+        cur.execute(
+            """
+            SELECT md5(COALESCE(string_agg(
+                symbol || E'\t' || tag || E'\t' || source || E'\t' || weight::text,
+                '' ORDER BY symbol, tag
+            ), ''))
+            FROM instrument_tags
+            WHERE symbol = ANY(%(symbols)s)
+            """,
+            {"symbols": symbol_list},
+        )
+        (tags_hash,) = cur.fetchone()
+        watermark["instrument_tags"] = {"tags_hash": tags_hash}
+    return watermark
+
+
 def _compute_upstream_watermark(
     conn: Any,
     symbol: str | None,
@@ -812,6 +954,9 @@ def _compute_upstream_watermark(
     pass_type: str,
     regime_group: str | None = None,
     symbol_list: list[str] | None = None,
+    feature_registry_watermark: dict[str, Any] | None = None,
+    fr_fv_cache: dict[tuple[str | None, str], dict[str, Any]] | None = None,
+    mr_tags_cache: dict[tuple[str | None, str], dict[str, Any]] | None = None,
 ) -> dict[str, Any]:
     """JSON-serializable per-cell upstream watermark.
 
@@ -835,97 +980,44 @@ def _compute_upstream_watermark(
     Timestamps serialized via format_iso_ts() (never inline .isoformat()). Does
     NOT log -- callers accumulate a counter across all per-cell calls and log
     ONCE per run (corpus-loop logging rule, CLAUDE.md).
+
+    Caching (162 simplify-pass): feature_registry_watermark is run-invariant --
+    pass it in precomputed once (via _watermark_feature_registry) rather than
+    letting this function requery it per cell. fr_fv_cache/mr_tags_cache are
+    optional caller-owned memoization dicts keyed by ((symbol-or-regime_group), tf);
+    when provided, this function populates them on first computation for a given
+    key and reuses the stored value on every subsequent call for that same key --
+    the output dict is identical either way, just computed with fewer round trips.
     """
     is_cross_sectional = pass_type == "cross_sectional"
     symbols_for_fr_fv = symbol_list if is_cross_sectional else ([symbol] if symbol else [])
 
     watermark: dict[str, Any] = {}
-    with conn.cursor() as cur:
-        # (a) forward_returns -- the label side, PRIMARY in-place-mutation detector.
-        # computed_at is DEFAULT now() and bumps on every recompute, so a bar-level
-        # correction (which recomputes forward_returns) moves it even when
-        # bar_ts/count are unchanged.
-        cur.execute(
-            """
-            SELECT MAX(bar_ts), COUNT(*), MAX(computed_at)
-            FROM forward_returns
-            WHERE symbol = ANY(%(symbols)s) AND tf = %(tf)s
-              AND return_type = 'executable_open_to_open'
-            """,
-            {"symbols": symbols_for_fr_fv, "tf": tf},
-        )
-        max_bar_ts, fr_count, max_computed_at = cur.fetchone()
-        watermark["forward_returns"] = {
-            "max_bar_ts": format_iso_ts(max_bar_ts) if max_bar_ts else None,
-            "count": fr_count,
-            "max_computed_at": format_iso_ts(max_computed_at) if max_computed_at else None,
-        }
 
-        # (b) feature_vectors -- the feature side, no write-timestamp column.
-        # In-place feature mutations are covered TRANSITIVELY: a feature-code change
-        # moves code_content_key; a bar correction recomputes forward_returns
-        # (caught by (a), since the correction workflow recomputes both from the
-        # same corrected bars).
-        cur.execute(
-            "SELECT MAX(bar_ts), COUNT(*) FROM feature_vectors "
-            "WHERE symbol = ANY(%(symbols)s) AND tf = %(tf)s",
-            {"symbols": symbols_for_fr_fv, "tf": tf},
-        )
-        max_fv_bar_ts, fv_count = cur.fetchone()
-        watermark["feature_vectors"] = {
-            "max_bar_ts": format_iso_ts(max_fv_bar_ts) if max_fv_bar_ts else None,
-            "count": fv_count,
-        }
+    fr_fv_key = (regime_group if is_cross_sectional else symbol, tf)
+    if fr_fv_cache is not None and fr_fv_key in fr_fv_cache:
+        watermark.update(fr_fv_cache[fr_fv_key])
+    else:
+        fr_fv = _watermark_forward_returns_feature_vectors(conn, symbols_for_fr_fv, tf)
+        if fr_fv_cache is not None:
+            fr_fv_cache[fr_fv_key] = fr_fv
+        watermark.update(fr_fv)
 
-        if is_cross_sectional:
-            # (c) market_regimes -- an HMM relabel mutates `regime_label` in place with
-            # unchanged ts/count, so add a value-sensitive content hash. Column is
-            # `regime_label` (not `regime` -- 162-04 live-DB fix, confirmed via `\d
-            # market_regimes`; the plan's own main() code at the cs_regimes discovery
-            # site already reads regime_label correctly, only this watermark query had
-            # the wrong column name).
-            cur.execute(
-                """
-                SELECT MAX(ts), COUNT(*),
-                       md5(COALESCE(string_agg(regime_label, '' ORDER BY ts), ''))
-                FROM market_regimes
-                WHERE regime_group = %(regime_group)s AND tf = %(tf)s
-                """,
-                {"regime_group": regime_group, "tf": tf},
-            )
-            max_ts, mr_count, regime_hash = cur.fetchone()
-            watermark["market_regimes"] = {
-                "max_ts": format_iso_ts(max_ts) if max_ts else None,
-                "count": mr_count,
-                "regime_hash": regime_hash,
-            }
+    if is_cross_sectional:
+        mr_tags_key = (regime_group, tf)
+        if mr_tags_cache is not None and mr_tags_key in mr_tags_cache:
+            watermark.update(mr_tags_cache[mr_tags_key])
+        else:
+            mr_tags = _watermark_market_regimes_instrument_tags(conn, regime_group, tf, symbol_list)
+            if mr_tags_cache is not None:
+                mr_tags_cache[mr_tags_key] = mr_tags
+            watermark.update(mr_tags)
 
-            # (d) instrument_tags -- cross-sectional routing. Catches any tag add/
-            # remove/reweight across this regime_group's peer set that changes
-            # which symbols are pooled into the cell.
-            cur.execute(
-                """
-                SELECT md5(COALESCE(string_agg(
-                    symbol || E'\t' || tag || E'\t' || source || E'\t' || weight::text,
-                    '' ORDER BY symbol, tag
-                ), ''))
-                FROM instrument_tags
-                WHERE symbol = ANY(%(symbols)s)
-                """,
-                {"symbols": symbols_for_fr_fv},
-            )
-            (tags_hash,) = cur.fetchone()
-            watermark["instrument_tags"] = {"tags_hash": tags_hash}
-
-        # (e) feature_registry status -- applies to every pass_type; every row
-        # type writes feature_status_at_eval from this same snapshot.
-        cur.execute(
-            "SELECT md5(COALESCE(string_agg("
-            "feature_name || '=' || status, '' ORDER BY feature_name), '')) "
-            "FROM feature_registry"
-        )
-        (status_hash,) = cur.fetchone()
-        watermark["feature_registry"] = {"status_hash": status_hash}
+    watermark["feature_registry"] = (
+        feature_registry_watermark
+        if feature_registry_watermark is not None
+        else _watermark_feature_registry(conn)
+    )
 
     return watermark
 
@@ -993,6 +1085,55 @@ _FINGERPRINT_UPSERT_SQL = """
 """
 
 
+def _fp_row(
+    symbol_key: str,
+    tf: str,
+    pass_type: str,
+    training_window_end: Any,
+    fp: dict[str, Any],
+) -> dict[str, Any]:
+    """Build one ic_cell_fingerprints UPSERT row from a fingerprint dict.
+
+    Shared by the per-symbol pass's fp_rows list and the cross-sectional pass's
+    single-cell UPSERT (162 simplify-pass; previously this exact 7-field shape was
+    built inline at both call sites).
+    """
+    return {
+        "symbol": symbol_key,
+        "tf": tf,
+        "pass_type": pass_type,
+        "training_window_end": training_window_end,
+        "code_content_key": fp["code_content_key"],
+        "apr_snapshot_key": fp["apr_snapshot_key"],
+        "upstream_watermark": json.dumps(fp["upstream_watermark"]),
+    }
+
+
+def _resolve_symbol_routing(
+    symbol: str,
+    symbol_regime_class: dict[str, str],
+    group_by_name: dict[str, dict],
+    equity_model_enabled: bool,
+) -> tuple[str | None, bool]:
+    """Single source of truth for one symbol's regime-group routing decision.
+
+    Returns (routed_group_name, dual_write_symbol_hmm). routed_group_name is None
+    when the symbol isn't cross-sectionally routed (equity_model_enabled=False or
+    the symbol has no group assignment). Used identically by _symbol_expected_cells
+    (the fingerprint gate's notion of "this symbol's cells") and main()'s
+    worker_args construction (the actual dispatch) so the two derivations can
+    never drift apart (162 simplify-pass; previously duplicated inline in both
+    places with only a comment tying them together).
+    """
+    routed_group_name = symbol_regime_class.get(symbol) if equity_model_enabled else None
+    dual_write = bool(
+        group_by_name.get(routed_group_name, {}).get("dual_write_symbol_hmm", False)
+        if routed_group_name
+        else False
+    )
+    return routed_group_name, dual_write
+
+
 def _symbol_expected_cells(
     symbol: str,
     tfs: list[str],
@@ -1002,21 +1143,18 @@ def _symbol_expected_cells(
 ) -> list[tuple[str, str]]:
     """The full set of (tf, pass_type) fingerprint cells one symbol writes.
 
-    Mirrors main()'s own worker_args routing logic exactly (mr_dicts_by_group /
-    dual_write_symbol_hmm resolution) so the fingerprint gate's notion of "this
+    Mirrors main()'s own worker_args routing logic exactly (via the shared
+    _resolve_symbol_routing helper) so the fingerprint gate's notion of "this
     symbol's cells" can never drift from what _compute_symbol_tf actually writes.
     'pooled' is always written exactly once per tf (regardless of label source).
     The primary regime pass writes 'cross_sectional' when this symbol is routed to
     an enabled group, else 'symbol_hmm'. An additional 'symbol_hmm' dual-write pass
     is added when the routed group has dual_write_symbol_hmm=true.
     """
-    routed_group_name = symbol_regime_class.get(symbol) if equity_model_enabled else None
-    cross_sectional = routed_group_name is not None
-    dual_write = bool(
-        group_by_name.get(routed_group_name, {}).get("dual_write_symbol_hmm", False)
-        if routed_group_name
-        else False
+    routed_group_name, dual_write = _resolve_symbol_routing(
+        symbol, symbol_regime_class, group_by_name, equity_model_enabled
     )
+    cross_sectional = routed_group_name is not None
     primary_pass_type = "cross_sectional" if cross_sectional else "symbol_hmm"
 
     cells: list[tuple[str, str]] = []
@@ -1189,7 +1327,7 @@ def _blocked_bootstrap_ci(
     starts_matrix: np.ndarray,
     offsets: np.ndarray,
     n_valid: int,
-    max_workers: int,
+    pool: ThreadPoolExecutor | None,
 ) -> tuple[np.ndarray, np.ndarray]:
     """95% circular block bootstrap CI for one feature block.
 
@@ -1204,9 +1342,16 @@ def _blocked_bootstrap_ci(
     dispatch order no longer matters for correctness -- unlike the unblocked
     function, which interleaves serial RNG draws with threaded resampling.
     `np.percentile` is invariant to the order of `boot_ics` along axis=0, so
-    `max_workers > 1` (cross-sectional path only, todo 131 -- never raised for
-    the per-symbol ProcessPoolExecutor worker path) is safe regardless of
+    a caller-owned `pool` (cross-sectional path only, todo 131 -- never passed
+    for the per-symbol ProcessPoolExecutor worker path) is safe regardless of
     completion order.
+
+    `pool` is caller-owned and reused across every feature block within one
+    cell (162 simplify-pass -- previously this function spun up and tore down
+    its own ThreadPoolExecutor once PER BLOCK, ~5x per cell for a typical
+    ~150-feature/32-column-block cell, multiplied by every cross-sectional
+    cell on that tf). `pool=None` takes the serial path, matching the original
+    `max_workers<=1` contract.
     """
     n_boot = starts_matrix.shape[0]
     block_p = X_raw_block.shape[1]
@@ -1217,13 +1362,12 @@ def _blocked_bootstrap_ci(
         ranks_Y_boot = rankdata(Y_scale[idx])
         return _vectorized_ic(ranks_X_boot, ranks_Y_boot)
 
-    if max_workers <= 1:
+    if pool is None:
         boot_ics = np.zeros((n_boot, block_p))
         for b in range(n_boot):
             boot_ics[b] = _resample_ic(b)
     else:
-        with ThreadPoolExecutor(max_workers=max_workers) as pool:
-            boot_ics = np.array(list(pool.map(_resample_ic, range(n_boot))))
+        boot_ics = np.array(list(pool.map(_resample_ic, range(n_boot))))
 
     ci_lower = np.percentile(boot_ics, 2.5, axis=0)
     ci_upper = np.percentile(boot_ics, 97.5, axis=0)
@@ -1333,34 +1477,42 @@ def _subsample_and_rank(
     ci_upper_nd = np.empty(n_features_nd, dtype=np.float64)
     fold_ic_mat = np.empty((len(folds), n_features_nd), dtype=np.float64) if folds else None
 
-    for block_start in range(0, n_features_nd, feature_block_columns):
-        block_end = min(block_start + feature_block_columns, n_features_nd)
+    # One thread pool for the whole cell, reused across every feature block
+    # (162 simplify-pass -- previously _blocked_bootstrap_ci created and tore
+    # down its own pool once per block; see that function's docstring).
+    pool = ThreadPoolExecutor(max_workers=max_workers) if max_workers > 1 else None
+    try:
+        for block_start in range(0, n_features_nd, feature_block_columns):
+            block_end = min(block_start + feature_block_columns, n_features_nd)
 
-        # The root-cause transient (rankdata always returns float64) -- bounded to
-        # this block's width, not the full n_features_nd.
-        ranks_block = rankdata(X_sub_nd[:, block_start:block_end], axis=0).astype(np.float32)[
-            valid_mask
-        ]
-        ranks_X_scale[:, block_start:block_end] = ranks_block
+            # The root-cause transient (rankdata always returns float64) -- bounded to
+            # this block's width, not the full n_features_nd.
+            ranks_block = rankdata(X_sub_nd[:, block_start:block_end], axis=0).astype(np.float32)[
+                valid_mask
+            ]
+            ranks_X_scale[:, block_start:block_end] = ranks_block
 
-        X_raw_block = X_raw_scale[:, block_start:block_end]
+            X_raw_block = X_raw_scale[:, block_start:block_end]
 
-        ic_vector_nd[block_start:block_end] = _vectorized_ic(ranks_block, ranks_Y)
+            ic_vector_nd[block_start:block_end] = _vectorized_ic(ranks_block, ranks_Y)
 
-        ci_lower_block, ci_upper_block = _blocked_bootstrap_ci(
-            X_raw_block, Y_scale, starts_matrix, offsets, n_valid, max_workers
-        )
-        ci_lower_nd[block_start:block_end] = ci_lower_block
-        ci_upper_nd[block_start:block_end] = ci_upper_block
+            ci_lower_block, ci_upper_block = _blocked_bootstrap_ci(
+                X_raw_block, Y_scale, starts_matrix, offsets, n_valid, pool
+            )
+            ci_lower_nd[block_start:block_end] = ci_lower_block
+            ci_upper_nd[block_start:block_end] = ci_upper_block
 
-        for k, (test_start, test_end) in enumerate(folds):
-            X_test = ranks_block[test_start:test_end]
-            Y_test = ranks_Y[test_start:test_end]
-            # float32, not float64 (2026-07-19 OOM fix, same pattern as
-            # ranks_block/ranks_Y above).
-            rX_test = rankdata(X_test, axis=0).astype(np.float32)
-            rY_test = rankdata(Y_test).astype(np.float32)
-            fold_ic_mat[k, block_start:block_end] = _vectorized_ic(rX_test, rY_test)
+            for k, (test_start, test_end) in enumerate(folds):
+                X_test = ranks_block[test_start:test_end]
+                Y_test = ranks_Y[test_start:test_end]
+                # float32, not float64 (2026-07-19 OOM fix, same pattern as
+                # ranks_block/ranks_Y above).
+                rX_test = rankdata(X_test, axis=0).astype(np.float32)
+                rY_test = rankdata(Y_test).astype(np.float32)
+                fold_ic_mat[k, block_start:block_end] = _vectorized_ic(rX_test, rY_test)
+    finally:
+        if pool is not None:
+            pool.shutdown(wait=True)
 
     p_vector_nd = _p_values_from_ic(ic_vector_nd, n_valid)
     fold_ics_list = [fold_ic_mat[k] for k in range(len(folds))] if folds else []
@@ -1444,13 +1596,7 @@ def _compute_one_regime_cell(
     complete_regime = complete_mat[mask]
     n_regime_raw = X_regime.shape[0]
 
-    # Crash-loud row-count ceiling (162-01 Task 3, todo 140) -- fails loud rather
-    # than silently routing an oversized cell to an alternate/degraded algorithm.
-    if config.max_cell_rows and n_regime_raw > config.max_cell_rows:
-        raise CellTooLargeError(
-            f"Cell symbol={symbol} tf={tf} regime={regime_label} has {n_regime_raw} "
-            f"rows, exceeding alpha.ic.max_cell_rows={config.max_cell_rows}."
-        )
+    _check_cell_size(n_regime_raw, config, f"Cell symbol={symbol} tf={tf} regime={regime_label}")
 
     # ------------------------------------------------------------------
     # Degenerate feature detection on FULL regime data (std < 1e-8 = constant column).
@@ -2392,13 +2538,7 @@ def _compute_one_cross_sectional_cell(
 
     n_raw = len(X_raw)
 
-    # Crash-loud row-count ceiling (162-01 Task 3, todo 140) -- fails loud rather
-    # than silently routing an oversized cell to an alternate/degraded algorithm.
-    if config.max_cell_rows and n_raw > config.max_cell_rows:
-        raise CellTooLargeError(
-            f"Cross-sectional cell tf={tf} regime={regime_label} has {n_raw} rows, "
-            f"exceeding alpha.ic.max_cell_rows={config.max_cell_rows}."
-        )
+    _check_cell_size(n_raw, config, f"Cross-sectional cell tf={tf} regime={regime_label}")
 
     # Degenerate feature detection. dtype=float64 here despite X_raw being float32:
     # this reduction produces only an n_features-length result (cheap either way), and
@@ -4095,6 +4235,13 @@ def main() -> None:
             # ----------------------------------------------------------
             content_key = _checkpoint_content_key()
             apr_snapshot_key = _compute_apr_snapshot_key(config)
+            # Run-invariant + narrower-than-per-cell watermark components, computed
+            # once and reused across every cell's _compute_upstream_watermark call
+            # below (162 simplify-pass -- previously each was recomputed on every
+            # single per-cell call; see _compute_upstream_watermark's docstring).
+            feature_registry_watermark = _watermark_feature_registry(conn)
+            fr_fv_cache: dict[tuple[str | None, str], dict[str, Any]] = {}
+            mr_tags_cache: dict[tuple[str | None, str], dict[str, Any]] = {}
             with conn.cursor() as cur:
                 cur.execute(
                     """
@@ -4172,7 +4319,6 @@ def main() -> None:
             total_skipped = 0
             total_committed = 0
             per_symbol_results: list[tuple[str, list[dict]]] = []
-            n_watermark_queries = 0
             symbols_to_compute: list[str] = []
             invalid_cells_by_symbol: dict[str, list[tuple[str, str]]] = {}
             current_fp_cache: dict[str, dict[tuple[str, str], dict[str, Any]]] = {}
@@ -4189,10 +4335,15 @@ def main() -> None:
                             "code_content_key": content_key,
                             "apr_snapshot_key": apr_snapshot_key,
                             "upstream_watermark": _compute_upstream_watermark(
-                                conn, symbol, tf, pass_type
+                                conn,
+                                symbol,
+                                tf,
+                                pass_type,
+                                feature_registry_watermark=feature_registry_watermark,
+                                fr_fv_cache=fr_fv_cache,
+                                mr_tags_cache=mr_tags_cache,
                             ),
                         }
-                        n_watermark_queries += 1
                         cell_fps[(tf, pass_type)] = current_fp
                         stored = stored_fingerprints.get((symbol, tf, pass_type))
                         if args.refresh or not _fingerprint_is_valid(stored, current_fp):
@@ -4248,9 +4399,11 @@ def main() -> None:
                                     pass_type="cross_sectional",
                                     regime_group=group_name,
                                     symbol_list=group_symbols,
+                                    feature_registry_watermark=feature_registry_watermark,
+                                    fr_fv_cache=fr_fv_cache,
+                                    mr_tags_cache=mr_tags_cache,
                                 ),
                             }
-                            n_watermark_queries += 1
                             stored = stored_fingerprints.get((cs_symbol_key, tf, "cross_sectional"))
                             valid = (not args.refresh) and _fingerprint_is_valid(stored, current_fp)
                             cs_cell_plan.append(
@@ -4265,6 +4418,11 @@ def main() -> None:
                                 }
                             )
 
+            # 1 (feature_registry, computed once above) + actual cache-miss round
+            # trips -- reflects real DB round trips, not cells checked (162
+            # simplify-pass; multiple cells share a cache key, so this is now
+            # smaller than len(symbols)+len(cs_cell_plan)).
+            n_watermark_queries = 1 + len(fr_fv_cache) + len(mr_tags_cache)
             _logger.info("ic_engine.fingerprint_watermark_queries", count=n_watermark_queries)
             n_cs_skip = sum(1 for c in cs_cell_plan if c["valid"])
             _logger.info(
@@ -4316,30 +4474,24 @@ def main() -> None:
                 conn.close()
                 conn = None
             else:
-                worker_args = [
-                    (
-                        symbol,
-                        tfs,
-                        settings.database_url,
-                        training_window_end,
-                        config,
-                        run_ts,
-                        feature_status_map,
-                        (
-                            mr_dicts_by_group.get(symbol_regime_class.get(symbol))
-                            if enabled_groups
-                            else None
-                        ),
-                        (
-                            group_by_name.get(symbol_regime_class.get(symbol), {}).get(
-                                "dual_write_symbol_hmm", False
-                            )
-                            if enabled_groups
-                            else False
-                        ),
+                worker_args = []
+                for symbol in symbols_to_compute:
+                    routed_group_name, dual_write_symbol_hmm = _resolve_symbol_routing(
+                        symbol, symbol_regime_class, group_by_name, equity_model_enabled
                     )
-                    for symbol in symbols_to_compute
-                ]
+                    worker_args.append(
+                        (
+                            symbol,
+                            tfs,
+                            settings.database_url,
+                            training_window_end,
+                            config,
+                            run_ts,
+                            feature_status_map,
+                            mr_dicts_by_group.get(routed_group_name) if enabled_groups else None,
+                            dual_write_symbol_hmm if enabled_groups else False,
+                        )
+                    )
 
                 IC_ENGINE_RUN_SYMBOLS_TOTAL.set(len(symbols))
                 _logger.info(
@@ -4405,15 +4557,7 @@ def main() -> None:
                                 # -- the whole symbol was recomputed, so every
                                 # cell's fingerprint is now definitively fresh.
                                 fp_rows = [
-                                    {
-                                        "symbol": symbol,
-                                        "tf": tf,
-                                        "pass_type": pass_type,
-                                        "training_window_end": training_window_end,
-                                        "code_content_key": fp["code_content_key"],
-                                        "apr_snapshot_key": fp["apr_snapshot_key"],
-                                        "upstream_watermark": json.dumps(fp["upstream_watermark"]),
-                                    }
+                                    _fp_row(symbol, tf, pass_type, training_window_end, fp)
                                     for (tf, pass_type), fp in current_fp_cache.get(
                                         symbol, {}
                                     ).items()
@@ -4509,17 +4653,7 @@ def main() -> None:
                     fp = cell["current_fp"]
                     _upsert_cell_fingerprints(
                         settings,
-                        [
-                            {
-                                "symbol": cs_symbol_key,
-                                "tf": tf,
-                                "pass_type": "cross_sectional",
-                                "training_window_end": training_window_end,
-                                "code_content_key": fp["code_content_key"],
-                                "apr_snapshot_key": fp["apr_snapshot_key"],
-                                "upstream_watermark": json.dumps(fp["upstream_watermark"]),
-                            }
-                        ],
+                        [_fp_row(cs_symbol_key, tf, "cross_sectional", training_window_end, fp)],
                     )
                     _logger.info(
                         "ic_engine.cross_sectional_computed",
