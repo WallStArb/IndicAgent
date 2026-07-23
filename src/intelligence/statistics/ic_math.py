@@ -330,7 +330,7 @@ def circular_block_bootstrap_ic_serial(
     131). Previously enforced by a `max_workers=1` argument + comment repeated at
     each call site -- structurally enforced here instead: this wrapper has no
     `max_workers` parameter to accidentally raise, so a future edit that copies the
-    cross-sectional call site's `max_workers=config.cross_sectional_bootstrap_threads`
+    cross-sectional call site's `max_workers=config.cross_sectional_bootstrap_threads[tf]`
     into a per-symbol call site can't compile against this signature.
     """
     return _circular_block_bootstrap_ic(X_raw, Y_raw, block_size, n_boot, rng, max_workers=1)

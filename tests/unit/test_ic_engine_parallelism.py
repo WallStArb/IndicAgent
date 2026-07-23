@@ -20,7 +20,12 @@ _project_root = Path(__file__).parent.parent.parent
 if str(_project_root) not in sys.path:
     sys.path.insert(0, str(_project_root))
 
-from services.ic_engine import ICEngineConfig, _run_ic_worker
+from services.ic_engine import (
+    ICEngineConfig,
+    _compute_one_cross_sectional_cell,
+    _compute_one_regime_cell,
+    _run_ic_worker,
+)
 
 
 def test_worker_accepts_single_tuple_arg():
@@ -77,3 +82,20 @@ def test_from_apr_defaults_cross_sectional_bootstrap_threads_when_keys_absent():
         "1h": 1,
         "1d": 1,
     }
+
+
+def test_cross_sectional_cell_indexes_bootstrap_threads_by_tf():
+    """_compute_one_cross_sectional_cell's _circular_block_bootstrap_ic call site
+    must index the per-tf thread dict by tf, matching bootstrap_block_size[tf]
+    one arg over (todo 133, 162-02 Task 2)."""
+    source = inspect.getsource(_compute_one_cross_sectional_cell)
+    assert "cross_sectional_bootstrap_threads[tf]" in source
+
+
+def test_per_symbol_cell_never_indexes_cross_sectional_bootstrap_threads():
+    """The per-symbol path (_compute_one_regime_cell) must never reference
+    cross_sectional_bootstrap_threads at all -- it hardcodes max_workers=1
+    (todo 131) because it already runs inside an n_workers-way
+    ProcessPoolExecutor pool; threading on top would oversubscribe cores."""
+    source = inspect.getsource(_compute_one_regime_cell)
+    assert "cross_sectional_bootstrap_threads" not in source

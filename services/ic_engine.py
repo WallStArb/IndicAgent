@@ -2017,8 +2017,9 @@ def _compute_one_cross_sectional_cell(
     Preserves the two cross-sectional-only extras _compute_one_regime_cell's per-symbol
     path lacks: the e-value-pilot cumulative_e_value column (Component C, todo 079, tf=5m
     POOLED cells only, via prior_e_values) and the max_workers= bootstrap knob
-    (config.cross_sectional_bootstrap_threads, todo 131 -- safe to raise here since this
-    pass runs single-process, after the per-symbol ProcessPoolExecutor pool has shut down).
+    (config.cross_sectional_bootstrap_threads[tf], todo 131/133 -- safe to raise here
+    since this pass runs single-process, after the per-symbol ProcessPoolExecutor pool
+    has shut down).
 
     rng is a shared, stateful np.random.Generator -- calling this function consumes draws
     from it by design (matches _compute_one_regime_cell's per-worker RNG-scope contract).
@@ -2100,9 +2101,10 @@ def _compute_one_cross_sectional_cell(
         # -------------------------------------------------------
         # Shared feature-blocked rank -> IC -> circular block bootstrap CI ->
         # walk-forward fold pipeline (162-01 Task 3, todos 139/140). Cross-
-        # sectional path -- max_workers=config.cross_sectional_bootstrap_threads
-        # (todo 131): safe to raise here since this pass runs single-process,
-        # after the per-symbol ProcessPoolExecutor pool has already shut down.
+        # sectional path -- max_workers=config.cross_sectional_bootstrap_threads[tf]
+        # (todo 131/133, per-tf as of migration 250): safe to raise here since this
+        # pass runs single-process, after the per-symbol ProcessPoolExecutor pool
+        # has already shut down.
         # -------------------------------------------------------
         (
             X_raw_scale,
@@ -2123,7 +2125,7 @@ def _compute_one_cross_sectional_cell(
             bootstrap_block_size=config.bootstrap_block_size[tf],
             bootstrap_resamples=config.bootstrap_resamples,
             rng=rng,
-            max_workers=config.cross_sectional_bootstrap_threads,
+            max_workers=config.cross_sectional_bootstrap_threads[tf],
             feature_block_columns=config.feature_block_columns,
         )
         Y_scale = returns_scale[valid_mask]
