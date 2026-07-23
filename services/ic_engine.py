@@ -878,12 +878,16 @@ def _compute_upstream_watermark(
         }
 
         if is_cross_sectional:
-            # (c) market_regimes -- an HMM relabel mutates `regime` in place with
-            # unchanged ts/count, so add a value-sensitive content hash.
+            # (c) market_regimes -- an HMM relabel mutates `regime_label` in place with
+            # unchanged ts/count, so add a value-sensitive content hash. Column is
+            # `regime_label` (not `regime` -- 162-04 live-DB fix, confirmed via `\d
+            # market_regimes`; the plan's own main() code at the cs_regimes discovery
+            # site already reads regime_label correctly, only this watermark query had
+            # the wrong column name).
             cur.execute(
                 """
                 SELECT MAX(ts), COUNT(*),
-                       md5(COALESCE(string_agg(regime, '' ORDER BY ts), ''))
+                       md5(COALESCE(string_agg(regime_label, '' ORDER BY ts), ''))
                 FROM market_regimes
                 WHERE regime_group = %(regime_group)s AND tf = %(tf)s
                 """,
