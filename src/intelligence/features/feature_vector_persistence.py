@@ -34,6 +34,17 @@ derive-by-name discipline as _RENAISSANCE_PRIMITIVE_FIELD_NAMES applied via a
 new _CANARY_FIELD_NAMES slice, appended immediately after it, so this file
 cannot silently go stale the way it did in the 2026-07-08 incident above.
 
+2026-07-23: extended to 181 columns (migration 255, Phase 163 Plan 01). 17
+new structural VP/SR fields (12 volume-profile ATR-distance/bounded fields +
+5 support/resistance strength/age/count fields, D-13/D-16/D-17/D-18/D-19)
+added to FeatureVector's session-level block, immediately after the original
+4 (poc_dist_atr/va_position/sr_support_dist/sr_resist_dist). Same
+derive-by-name discipline as _RENAISSANCE_PRIMITIVE_FIELD_NAMES /
+_CANARY_FIELD_NAMES via a new _STRUCTURAL_VP_SR_FIELD_NAMES slice, appended
+at the end of the column list (after the canary fields) per this module's
+established append-only convention -- column SQL order does not need to
+match dataclass field order since every accessor is by name.
+
 Ring 1: imports FeatureVector from src.intelligence.schemas.
 Do not import from Ring 2 (services/) or Ring 3 (api/, production/).
 """
@@ -88,6 +99,19 @@ _CANARY_FIELD_NAMES: tuple[str, ...] = _ALL_FEATURE_VECTOR_FIELD_NAMES[
     + 1
 ]
 
+# The 17 new structural VP/SR fields (Phase 163 Plan 01, migration 255) are a third
+# contiguous, same-order slice -- immediately following the original 4 session-level
+# fields (poc_dist_atr/va_position/sr_support_dist/sr_resist_dist) in the dataclass.
+# Same derive-don't-hand-type discipline as the two slices above; appended at the end
+# of the column list (after the canary fields) below, matching this module's
+# append-only convention.
+_STRUCTURAL_VP_SR_FIELD_NAMES: tuple[str, ...] = _ALL_FEATURE_VECTOR_FIELD_NAMES[
+    _ALL_FEATURE_VECTOR_FIELD_NAMES.index(
+        "nearest_hvn_above_dist_atr"
+    ) : _ALL_FEATURE_VECTOR_FIELD_NAMES.index("sr_level_count")
+    + 1
+]
+
 
 def _compute_bar_close_ts(bar_ts: datetime, tf: str) -> datetime:
     """Compute bar close timestamp from bar open timestamp and timeframe.
@@ -122,12 +146,13 @@ def validate_feature_vector(vector: FeatureVector) -> list[str]:
 
 # ── Canonical INSERT SQL ──────────────────────────────────────────────────────
 
-# 164 columns (as of 2026-07-11): $1 content-key, $2-$8 structural, $9-$62
+# 181 columns (as of 2026-07-23): $1 content-key, $2-$8 structural, $9-$62
 # original feature floats, $63-$70 migration-159 additions, $71-$159
 # migration-206 Renaissance primitives (2026-07-08 fix, then reduced from 91
 # to 89 primitives 2026-07-09), $160-$164 migration-223 canary/control
-# predictors (see module docstring).
-# Column order is binding — matches migration 159/206/223 column definition order.
+# predictors, $165-$181 migration-255 structural VP/SR fields (Phase 163
+# Plan 01, see module docstring).
+# Column order is binding — matches migration 159/206/223/255 column definition order.
 # ON CONFLICT DO NOTHING: idempotent replay; duplicate bars are skipped silently.
 FEATURE_VECTOR_INSERT_SQL = f"""
 INSERT INTO feature_vectors (
@@ -150,7 +175,8 @@ INSERT INTO feature_vectors (
     momentum_z_slow, momentum_reversal_z, quarter_position, days_to_month_end,
     momentum_rank_z, volume_rank_z, volatility_rank_z,
     {", ".join(_RENAISSANCE_PRIMITIVE_FIELD_NAMES)},
-    {", ".join(_CANARY_FIELD_NAMES)}
+    {", ".join(_CANARY_FIELD_NAMES)},
+    {", ".join(_STRUCTURAL_VP_SR_FIELD_NAMES)}
 )
 VALUES (
     $1,
@@ -180,6 +206,18 @@ VALUES (
             71 + len(_RENAISSANCE_PRIMITIVE_FIELD_NAMES) + len(_CANARY_FIELD_NAMES),
         )
     )
+},
+    {
+    ", ".join(
+        f"${i}"
+        for i in range(
+            71 + len(_RENAISSANCE_PRIMITIVE_FIELD_NAMES) + len(_CANARY_FIELD_NAMES),
+            71
+            + len(_RENAISSANCE_PRIMITIVE_FIELD_NAMES)
+            + len(_CANARY_FIELD_NAMES)
+            + len(_STRUCTURAL_VP_SR_FIELD_NAMES),
+        )
+    )
 }
 )
 ON CONFLICT (symbol, tf, bar_ts) DO NOTHING
@@ -190,7 +228,12 @@ ON CONFLICT (symbol, tf, bar_ts) DO NOTHING
 # Total column count is derived, not hardcoded, so it can't drift out of sync
 # with _RENAISSANCE_PRIMITIVE_FIELD_NAMES the way a fixed number could.
 # Descending replacement order prevents $1 matching inside $10, $11, etc.
-_TOTAL_COLUMNS = 70 + len(_RENAISSANCE_PRIMITIVE_FIELD_NAMES) + len(_CANARY_FIELD_NAMES)
+_TOTAL_COLUMNS = (
+    70
+    + len(_RENAISSANCE_PRIMITIVE_FIELD_NAMES)
+    + len(_CANARY_FIELD_NAMES)
+    + len(_STRUCTURAL_VP_SR_FIELD_NAMES)
+)
 _pg2 = FEATURE_VECTOR_INSERT_SQL
 for i in range(_TOTAL_COLUMNS, 0, -1):
     _pg2 = _pg2.replace(f"${i}", "%s")
@@ -235,7 +278,7 @@ def feature_vector_to_insert_params(
     regime_label_source: str,
     vector: FeatureVector,
 ) -> tuple:
-    """Serialize a FeatureVector to the canonical 164-element INSERT tuple.
+    """Serialize a FeatureVector to the canonical 181-element INSERT tuple.
 
     Column order matches FEATURE_VECTOR_INSERT_SQL exactly:
       $1:        feature_vector_id (content-key UUID)
@@ -252,6 +295,8 @@ def feature_vector_to_insert_params(
                  see module docstring for the gap this closes
       $160-$164: 5 canary/control predictors (migration 223, Phase 143.1
                  Plan 02, todo 068) in dataclasses.fields(FeatureVector) order
+      $165-$181: 17 structural VP/SR fields (migration 255, Phase 163 Plan 01)
+                 in dataclasses.fields(FeatureVector) order
 
     Args:
         symbol: Instrument symbol (e.g. 'SPY').
@@ -268,7 +313,7 @@ def feature_vector_to_insert_params(
         vector: Fully-populated FeatureVector from FeatureFactory.compute().
 
     Returns:
-        164-element tuple for use with asyncpg executemany() or psycopg2
+        181-element tuple for use with asyncpg executemany() or psycopg2
         execute_batch(). Compatible with both drivers — asyncpg and psycopg2
         handle uuid.UUID and datetime natively.
 
@@ -387,4 +432,8 @@ def feature_vector_to_insert_params(
         # todo 068) — same derive-by-name discipline as the Renaissance
         # primitives above, appended immediately after them.
         *(getattr(vector, name) for name in _CANARY_FIELD_NAMES),
+        # Structural VP/SR fields (migration 255, Phase 163 Plan 01) — same
+        # derive-by-name discipline, appended immediately after the canary
+        # fields (module docstring).
+        *(getattr(vector, name) for name in _STRUCTURAL_VP_SR_FIELD_NAMES),
     )
