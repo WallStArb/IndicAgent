@@ -1,8 +1,8 @@
 ---
 phase: 166
 slug: frame-execution-recalibration
-status: draft
-nyquist_compliant: false
+status: approved
+nyquist_compliant: true
 wave_0_complete: false
 created: 2026-07-23
 ---
@@ -71,11 +71,11 @@ created: 2026-07-23
 
 ## Validation Sign-Off
 
-- [ ] All tasks have `<automated>` verify or Wave 0 dependencies
-- [ ] Sampling continuity: no 3 consecutive tasks without automated verify
-- [ ] Wave 0 covers all MISSING references
-- [ ] No watch-mode flags
-- [ ] Feedback latency < 60s
-- [ ] `nyquist_compliant: true` set in frontmatter
+- [x] All tasks have `<automated>` verify or Wave 0 dependencies — confirmed by gsd-plan-checker (2026-07-23) across all 6 plans
+- [x] Sampling continuity: no 3 consecutive tasks without automated verify — confirmed
+- [x] Wave 0 covers all MISSING references — the 3 test files listed above cover D-01b/c/d/D-04/D-05
+- [x] No watch-mode flags — confirmed
+- [x] Feedback latency < 60s — confirmed
+- [x] `nyquist_compliant: true` set in frontmatter
 
-**Approval:** pending
+**Approval:** approved 2026-07-23 (gsd-plan-checker VERIFICATION PASSED, no blockers)
