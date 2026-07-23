@@ -951,7 +951,6 @@ def _compute_upstream_watermark(
     conn: Any,
     symbol: str | None,
     tf: str,
-    pass_type: str,
     *,
     is_group_pooled: bool = False,
     regime_group: str | None = None,
@@ -962,16 +961,19 @@ def _compute_upstream_watermark(
 ) -> dict[str, Any]:
     """JSON-serializable per-cell upstream watermark.
 
-    is_group_pooled=False (default, ALL per-symbol rows -- pass_type IN
-    ('pooled', 'symbol_hmm', 'cross_sectional')): components (a) forward_returns
-    and (b) feature_vectors are scoped to that one symbol. Note pass_type
-    'cross_sectional' does NOT imply is_group_pooled -- a regime-group-routed
-    symbol's OWN row (_compute_symbol_tf's regime_scope='cross_sectional' output,
-    symbol=<real symbol>) is still a per-symbol row, never the group-pooled cell
-    (162 code-review CR-01 fix: pass_type alone used to decide this, which meant
-    the per-symbol prepass loop's cross_sectional cells silently computed their
-    watermark against symbol_list=None/regime_group=None instead of [symbol],
-    permanently defeating invalidation for every regime-group-routed symbol).
+    Deliberately takes no pass_type parameter (162 code-review CR-01 fix): the
+    caller's pass_type string ('pooled'/'symbol_hmm'/'cross_sectional') used to
+    decide is_cross_sectional here, which meant the per-symbol prepass loop's
+    'cross_sectional' cells (a regime-group-routed symbol's OWN row, symbol=<real
+    symbol>, NOT the group-pooled cell) silently computed their watermark against
+    symbol_list=None/regime_group=None instead of [symbol] -- permanently
+    defeating invalidation for every regime-group-routed symbol. is_group_pooled
+    now fully determines behavior; a caller cannot reintroduce that bug by
+    passing the "wrong" pass_type, because this function never sees it.
+
+    is_group_pooled=False (default, ALL per-symbol rows regardless of pass_type):
+    components (a) forward_returns and (b) feature_vectors are scoped to that one
+    symbol.
 
     is_group_pooled=True (ONLY the cs_cell_plan/group-level POOLED cell computed
     once per (regime_group, tf, regime_label)): there is no single instrument
@@ -999,7 +1001,18 @@ def _compute_upstream_watermark(
     key and reuses the stored value on every subsequent call for that same key --
     the output dict is identical either way, just computed with fewer round trips.
     """
-    symbols_for_fr_fv = symbol_list if is_group_pooled else ([symbol] if symbol else [])
+    if is_group_pooled:
+        assert symbol is None and regime_group is not None, (
+            "is_group_pooled=True requires symbol=None and a real regime_group -- "
+            "the group-pooled cell has no single instrument symbol"
+        )
+    else:
+        assert symbol is not None, (
+            "is_group_pooled=False requires a real symbol -- every per-symbol row "
+            "is scoped to exactly one symbol regardless of its pass_type"
+        )
+
+    symbols_for_fr_fv = symbol_list if is_group_pooled else [symbol]
 
     watermark: dict[str, Any] = {}
 
@@ -4347,7 +4360,6 @@ def main() -> None:
                                 conn,
                                 symbol,
                                 tf,
-                                pass_type,
                                 feature_registry_watermark=feature_registry_watermark,
                                 fr_fv_cache=fr_fv_cache,
                                 mr_tags_cache=mr_tags_cache,
@@ -4405,7 +4417,6 @@ def main() -> None:
                                     conn,
                                     symbol=None,
                                     tf=tf,
-                                    pass_type="cross_sectional",
                                     is_group_pooled=True,
                                     regime_group=group_name,
                                     symbol_list=group_symbols,

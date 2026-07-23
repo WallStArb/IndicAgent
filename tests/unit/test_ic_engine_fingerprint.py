@@ -20,6 +20,8 @@ import inspect
 import sys
 from pathlib import Path
 
+import pytest
+
 _project_root = Path(__file__).parent.parent.parent
 if str(_project_root) not in sys.path:
     sys.path.insert(0, str(_project_root))
@@ -250,20 +252,21 @@ class _FakeConn:
 
 def test_compute_upstream_watermark_per_symbol_cross_sectional_scopes_to_own_symbol():
     """CR-01 regression (162 code review): a regime-group-routed symbol's OWN
-    pass_type='cross_sectional' row (is_group_pooled defaults False) must scope
+    'cross_sectional' row (is_group_pooled defaults False) must scope
     forward_returns/feature_vectors to [symbol] -- NEVER to symbol_list=None.
 
     Before the fix, is_group_pooled was inferred from pass_type == 'cross_sectional'
     alone, so this exact call (a per-symbol prepass cell, not the group-pooled
     POOLED cell) silently queried WHERE symbol = ANY(NULL), permanently hiding
-    that symbol's real upstream data changes from the fingerprint gate.
+    that symbol's real upstream data changes from the fingerprint gate. The
+    function no longer even accepts a pass_type parameter (162 simplify-pass) --
+    it was dead weight once is_group_pooled fully determined behavior.
     """
     fake_conn = _FakeConn(fetchone_results=[(None, 0, None), (None, 0)])
     _compute_upstream_watermark(
         fake_conn,
         "SPY",
         "1d",
-        "cross_sectional",
         feature_registry_watermark={"status_hash": "precomputed"},
     )
     assert len(fake_conn._cursor.captured_params) == 2
@@ -288,7 +291,6 @@ def test_compute_upstream_watermark_group_pooled_scopes_to_regime_group_and_peer
         fake_conn,
         symbol=None,
         tf="1d",
-        pass_type="cross_sectional",
         is_group_pooled=True,
         regime_group="equity",
         symbol_list=["SPY", "QQQ"],
@@ -300,6 +302,33 @@ def test_compute_upstream_watermark_group_pooled_scopes_to_regime_group_and_peer
     )
     assert fr_fv_params["symbols"] == ["SPY", "QQQ"]
     assert mr_params["regime_group"] == "equity"
+
+
+def test_compute_upstream_watermark_rejects_group_pooled_with_a_real_symbol():
+    """Altitude fix (162 code-review): is_group_pooled=True with a non-None
+    symbol must fail loud, not silently misroute -- this is the exact
+    invalid-combination shape that caused CR-01, now structurally impossible
+    to pass without an immediate crash rather than a wrong answer.
+    """
+    fake_conn = _FakeConn(fetchone_results=[])
+    with pytest.raises(AssertionError):
+        _compute_upstream_watermark(
+            fake_conn,
+            "SPY",
+            "1d",
+            is_group_pooled=True,
+            regime_group="equity",
+            symbol_list=["SPY", "QQQ"],
+        )
+
+
+def test_compute_upstream_watermark_rejects_per_symbol_with_no_symbol():
+    """Companion: is_group_pooled=False (default) with symbol=None must also
+    fail loud -- every per-symbol row is scoped to exactly one real symbol.
+    """
+    fake_conn = _FakeConn(fetchone_results=[])
+    with pytest.raises(AssertionError):
+        _compute_upstream_watermark(fake_conn, None, "1d")
 
 
 # ---------------------------------------------------------------------------
