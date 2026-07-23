@@ -87,7 +87,7 @@ from observability.corpus_manifest import CorpusManifest
 project_root = Path(__file__).parent.parent
 sys.path.insert(0, str(project_root))
 
-from services._batch_utils import Float32ChunkAccumulator, connect_db_from_url
+from services._batch_utils import Float32ChunkAccumulator, connect_db_from_url, short_lived_conn
 from services._batch_utils import load_config_service_sync as _load_config_service
 from src.config.settings import Settings
 from src.core.integrity_monitor import INTEGRITY_MONITOR_INSERT_SQL, emit_integrity_fact_sync
@@ -1204,126 +1204,117 @@ def _compute_symbol_tf(
         # feature/forward-return fetch below completes (see dsn note in the
         # docstring). It must not stay open across the clustering/bootstrap loop
         # that follows.
-        conn = connect_db_from_url(dsn)
-        # Server-side cursor requires no active transaction -- commit any open
-        # transaction first (a no-op read-only boundary clear, not a data write;
-        # matches regime_writer.py's _compute_symbol_tf and ensemble_ic_engine.py's
-        # pooled worker fetch, both of which commit at their own named-cursor
-        # call site rather than pushing this precondition onto the caller).
-        conn.commit()
-        # ------------------------------------------------------------------
-        # Load feature matrix
-        # ------------------------------------------------------------------
-        feature_cols = ", ".join(f'"{f}"' for f in _FEATURE_NAMES)
-        fv_sql = f"""
-            SELECT bar_ts, regime, {feature_cols}
-            FROM feature_vectors
-            WHERE symbol = %s AND tf = %s AND bar_ts <= %s
-            ORDER BY bar_ts
-        """
-        # Named (server-side) cursor + itersize: rows are fetched from the server in
-        # bounded batches, so peak memory is O(chunk_rows), not O(all rows). A plain
-        # conn.cursor() -- what this used before -- pulls the ENTIRE result across
-        # the wire into psycopg2's client-side buffer at execute() time regardless of
-        # how the Python side iterates it; itersize on an unnamed cursor is a no-op
-        # (the prior comment here describing "fetchmany(itersize) under the hood" was
-        # incorrect psycopg2 semantics, not an actual fix). That gap caused the
-        # 2026-07-09 per-symbol ProcessPoolExecutor OOM: QQQ/5m alone (392K rows x
-        # 150 features) measured at 4.3 GB peak RSS materialising bar_ts_list/
-        # regime_list/X_list before conversion; with 12 workers concurrently in their
-        # 5m pass that's 50+ GB against a 29 GB box. Chunked server-side fetch (now
-        # sharing Float32ChunkAccumulator, todo 087, with _compute_cross_sectional_tf's
-        # own OOM fix below; ensemble_ic_engine.py's pooled_fetch_itersize fix reduces
-        # via a generator instead and doesn't share this accumulator shape) measured
-        # at ~700 MB peak for the same symbol.
-        #
-        # Only the wide feature matrix (150 columns) needs chunked conversion --
-        # bar_ts/regime are one scalar per row and stay cheap (tens of MB at most)
-        # as plain flat lists even at 400K+ rows, so they're appended directly with
-        # no threshold/flush bookkeeping. Float32ChunkAccumulator (todo 087) owns the
-        # buffer-to-array bookkeeping shared with _compute_cross_sectional_tf's own
-        # OOM fix below; the streaming-cursor mechanics stay here.
-        fetch_chunk_rows = config.symbol_fetch_chunk_rows
-        bar_ts_list: list = []
-        regime_list: list = []
-        acc = Float32ChunkAccumulator(flush_at=fetch_chunk_rows)
-        with conn.cursor(name=f"fv_{symbol}_{tf}") as cur:
-            cur.itersize = fetch_chunk_rows
-            cur.execute(fv_sql, (symbol, tf, training_window_end))
-            for r in cur:
-                bar_ts_list.append(r[0])
-                regime_list.append(r[1])
-                acc.append_row(r[2:])
+        with short_lived_conn(dsn) as conn:
+            # Server-side cursor requires no active transaction -- commit any open
+            # transaction first (a no-op read-only boundary clear, not a data write;
+            # matches regime_writer.py's _compute_symbol_tf and ensemble_ic_engine.py's
+            # pooled worker fetch, both of which commit at their own named-cursor
+            # call site rather than pushing this precondition onto the caller).
+            conn.commit()
+            # ------------------------------------------------------------------
+            # Load feature matrix
+            # ------------------------------------------------------------------
+            feature_cols = ", ".join(f'"{f}"' for f in _FEATURE_NAMES)
+            fv_sql = f"""
+                SELECT bar_ts, regime, {feature_cols}
+                FROM feature_vectors
+                WHERE symbol = %s AND tf = %s AND bar_ts <= %s
+                ORDER BY bar_ts
+            """
+            # Named (server-side) cursor + itersize: rows are fetched from the server in
+            # bounded batches, so peak memory is O(chunk_rows), not O(all rows). A plain
+            # conn.cursor() -- what this used before -- pulls the ENTIRE result across
+            # the wire into psycopg2's client-side buffer at execute() time regardless of
+            # how the Python side iterates it; itersize on an unnamed cursor is a no-op
+            # (the prior comment here describing "fetchmany(itersize) under the hood" was
+            # incorrect psycopg2 semantics, not an actual fix). That gap caused the
+            # 2026-07-09 per-symbol ProcessPoolExecutor OOM: QQQ/5m alone (392K rows x
+            # 150 features) measured at 4.3 GB peak RSS materialising bar_ts_list/
+            # regime_list/X_list before conversion; with 12 workers concurrently in their
+            # 5m pass that's 50+ GB against a 29 GB box. Chunked server-side fetch (now
+            # sharing Float32ChunkAccumulator, todo 087, with _compute_cross_sectional_tf's
+            # own OOM fix below; ensemble_ic_engine.py's pooled_fetch_itersize fix reduces
+            # via a generator instead and doesn't share this accumulator shape) measured
+            # at ~700 MB peak for the same symbol.
+            #
+            # Only the wide feature matrix (150 columns) needs chunked conversion --
+            # bar_ts/regime are one scalar per row and stay cheap (tens of MB at most)
+            # as plain flat lists even at 400K+ rows, so they're appended directly with
+            # no threshold/flush bookkeeping. Float32ChunkAccumulator (todo 087) owns the
+            # buffer-to-array bookkeeping shared with _compute_cross_sectional_tf's own
+            # OOM fix below; the streaming-cursor mechanics stay here.
+            fetch_chunk_rows = config.symbol_fetch_chunk_rows
+            bar_ts_list: list = []
+            regime_list: list = []
+            acc = Float32ChunkAccumulator(flush_at=fetch_chunk_rows)
+            with conn.cursor(name=f"fv_{symbol}_{tf}") as cur:
+                cur.itersize = fetch_chunk_rows
+                cur.execute(fv_sql, (symbol, tf, training_window_end))
+                for r in cur:
+                    bar_ts_list.append(r[0])
+                    regime_list.append(r[1])
+                    acc.append_row(r[2:])
 
-        if not bar_ts_list:
-            conn.close()
-            _logger.info("ic_engine.no_feature_vectors", symbol=symbol, tf=tf)
-            return _EMPTY_SYMBOL_RESULT
+            if not bar_ts_list:
+                _logger.info("ic_engine.no_feature_vectors", symbol=symbol, tf=tf)
+                return _EMPTY_SYMBOL_RESULT
 
-        n_raw_bars = len(bar_ts_list)
-        bar_ts_arr = np.array(bar_ts_list)
-        del bar_ts_list
-        regime_arr = np.array(regime_list)
-        del regime_list
-        # float32: see the analogous cross-sectional comment in
-        # _compute_cross_sectional_tf -- rank-based IC doesn't need float64 raw values.
-        X_raw = acc.finalize()
+            n_raw_bars = len(bar_ts_list)
+            bar_ts_arr = np.array(bar_ts_list)
+            del bar_ts_list
+            regime_arr = np.array(regime_list)
+            del regime_list
+            # float32: see the analogous cross-sectional comment in
+            # _compute_cross_sectional_tf -- rank-based IC doesn't need float64 raw values.
+            X_raw = acc.finalize()
 
-        # ------------------------------------------------------------------
-        # Load forward returns aligned by bar_ts
-        # ------------------------------------------------------------------
-        return_cols = ", ".join(f"return_{s}" for s in _SCALES)
-        complete_cols = ", ".join(f"complete_{s}" for s in _SCALES)
-        fr_sql = f"""
-            SELECT bar_ts, {return_cols}, {complete_cols}
-            FROM forward_returns
-            WHERE symbol = %s AND tf = %s AND bar_ts <= %s
-              AND return_type = 'executable_open_to_open'
-            ORDER BY bar_ts
-        """
-        with conn.cursor() as cur:
-            cur.execute(fr_sql, (symbol, tf, training_window_end))
-            fr_rows = cur.fetchall()
+            # ------------------------------------------------------------------
+            # Load forward returns aligned by bar_ts
+            # ------------------------------------------------------------------
+            return_cols = ", ".join(f"return_{s}" for s in _SCALES)
+            complete_cols = ", ".join(f"complete_{s}" for s in _SCALES)
+            fr_sql = f"""
+                SELECT bar_ts, {return_cols}, {complete_cols}
+                FROM forward_returns
+                WHERE symbol = %s AND tf = %s AND bar_ts <= %s
+                  AND return_type = 'executable_open_to_open'
+                ORDER BY bar_ts
+            """
+            with conn.cursor() as cur:
+                cur.execute(fr_sql, (symbol, tf, training_window_end))
+                fr_rows = cur.fetchall()
 
-        if not fr_rows:
-            conn.close()
-            _logger.info("ic_engine.no_forward_returns", symbol=symbol, tf=tf)
-            return _EMPTY_SYMBOL_RESULT
+            if not fr_rows:
+                _logger.info("ic_engine.no_forward_returns", symbol=symbol, tf=tf)
+                return _EMPTY_SYMBOL_RESULT
 
-        fr_ts = {r[0]: r for r in fr_rows}
-        del fr_rows  # dict lookup is sufficient; raw tuples no longer needed
+            fr_ts = {r[0]: r for r in fr_rows}
+            del fr_rows  # dict lookup is sufficient; raw tuples no longer needed
 
-        # Align feature matrix to forward_returns rows (exact bar_ts match)
-        aligned_idx = [i for i, ts in enumerate(bar_ts_arr) if ts in fr_ts]
-        if not aligned_idx:
-            conn.close()
-            _logger.info("ic_engine.no_alignment", symbol=symbol, tf=tf)
-            return _EMPTY_SYMBOL_RESULT
+            # Align feature matrix to forward_returns rows (exact bar_ts match)
+            aligned_idx = [i for i, ts in enumerate(bar_ts_arr) if ts in fr_ts]
+            if not aligned_idx:
+                _logger.info("ic_engine.no_alignment", symbol=symbol, tf=tf)
+                return _EMPTY_SYMBOL_RESULT
 
-        aligned_idx_arr = np.array(aligned_idx)
-        X_aligned = X_raw[aligned_idx_arr]
-        del X_raw  # fancy index produces a copy; original no longer needed
-        regime_aligned = regime_arr[aligned_idx_arr]
-        del regime_arr
-        bar_ts_aligned = bar_ts_arr[aligned_idx_arr]
-        del bar_ts_arr
+            aligned_idx_arr = np.array(aligned_idx)
+            X_aligned = X_raw[aligned_idx_arr]
+            del X_raw  # fancy index produces a copy; original no longer needed
+            regime_aligned = regime_arr[aligned_idx_arr]
+            del regime_arr
+            bar_ts_aligned = bar_ts_arr[aligned_idx_arr]
+            del bar_ts_arr
 
-        n_scales = len(_SCALES)
-        # returns_mat: [n_aligned, n_scales]; complete_mat: [n_aligned, n_scales]
-        returns_mat = np.full((len(aligned_idx), n_scales), np.nan)
-        complete_mat = np.zeros((len(aligned_idx), n_scales), dtype=bool)
-        for i, ts in enumerate(bar_ts_aligned):
-            row = fr_ts[ts]
-            for j in range(n_scales):
-                returns_mat[i, j] = row[1 + j] if row[1 + j] is not None else np.nan
-                complete_mat[i, j] = bool(row[1 + n_scales + j])
-        del fr_ts  # returns_mat/complete_mat are sufficient; dict no longer needed
-
-        # Fetch phase is done -- close this connection now rather than holding it
-        # idle across the clustering/bootstrap loop below (todo 102 fix; see dsn
-        # note in the docstring). A fresh connection is opened later, right before
-        # the context-features loop that actually needs one.
-        conn.close()
+            n_scales = len(_SCALES)
+            # returns_mat: [n_aligned, n_scales]; complete_mat: [n_aligned, n_scales]
+            returns_mat = np.full((len(aligned_idx), n_scales), np.nan)
+            complete_mat = np.zeros((len(aligned_idx), n_scales), dtype=bool)
+            for i, ts in enumerate(bar_ts_aligned):
+                row = fr_ts[ts]
+                for j in range(n_scales):
+                    returns_mat[i, j] = row[1 + j] if row[1 + j] is not None else np.nan
+                    complete_mat[i, j] = bool(row[1 + n_scales + j])
+            del fr_ts  # returns_mat/complete_mat are sufficient; dict no longer needed
 
         # Regime source: market_regimes (cross-sectional) or feature_vectors.regime (per-symbol).
         # When mr_dict is provided, map each aligned bar_ts to its cross-sectional regime.
@@ -1429,234 +1420,232 @@ def _compute_symbol_tf(
         # Fresh short-lived connection for the context-features loop below --
         # opened here (not carried over from the fetch phase above) so it was
         # never idle across the clustering/bootstrap loop that just ran.
-        conn = connect_db_from_url(dsn)
+        with short_lived_conn(dsn) as conn:
 
-        return_cols_cf = ", ".join(f"fr.return_{s}" for s in _SCALES)
-        complete_cols_cf = ", ".join(f"fr.complete_{s}" for s in _SCALES)
-        cf_sql_tmpl = f"""
-            SELECT DISTINCT ON (DATE(fv.bar_ts))
-                DATE(fv.bar_ts)    AS obs_date,
-                cf.value           AS feature_value,
-                {return_cols_cf},
-                {complete_cols_cf}
-            FROM feature_vectors fv
-            INNER JOIN context_features cf
-                ON DATE(fv.bar_ts) = cf.feature_date
-                AND cf.feature_name = %(feature_name)s
-                AND cf.symbol = ''
-            INNER JOIN forward_returns fr
-                ON fv.symbol = fr.symbol AND fv.tf = fr.tf AND fv.bar_ts = fr.bar_ts
-                AND fr.return_type = 'executable_open_to_open'
-            WHERE fv.symbol = %(symbol)s
-              AND fv.tf = %(tf)s
-              AND fv.bar_ts <= %(training_window_end)s
-            ORDER BY DATE(fv.bar_ts), fv.bar_ts ASC
-        """
+            return_cols_cf = ", ".join(f"fr.return_{s}" for s in _SCALES)
+            complete_cols_cf = ", ".join(f"fr.complete_{s}" for s in _SCALES)
+            cf_sql_tmpl = f"""
+                SELECT DISTINCT ON (DATE(fv.bar_ts))
+                    DATE(fv.bar_ts)    AS obs_date,
+                    cf.value           AS feature_value,
+                    {return_cols_cf},
+                    {complete_cols_cf}
+                FROM feature_vectors fv
+                INNER JOIN context_features cf
+                    ON DATE(fv.bar_ts) = cf.feature_date
+                    AND cf.feature_name = %(feature_name)s
+                    AND cf.symbol = ''
+                INNER JOIN forward_returns fr
+                    ON fv.symbol = fr.symbol AND fv.tf = fr.tf AND fv.bar_ts = fr.bar_ts
+                    AND fr.return_type = 'executable_open_to_open'
+                WHERE fv.symbol = %(symbol)s
+                  AND fv.tf = %(tf)s
+                  AND fv.bar_ts <= %(training_window_end)s
+                ORDER BY DATE(fv.bar_ts), fv.bar_ts ASC
+            """
 
-        for cf_idx, cf_name in enumerate(sorted(CONTEXT_FEATURES)):  # deterministic order
-            with conn.cursor() as cur:
-                cur.execute(
-                    cf_sql_tmpl,
-                    {
-                        "feature_name": cf_name,
-                        "symbol": symbol,
-                        "tf": tf,
-                        "training_window_end": training_window_end,
-                    },
-                )
-                cf_rows = cur.fetchall()
-
-            n_cf_days = len(cf_rows)
-            # Daily-cadence features use min_obs_daily_features gate (APR: alpha.ic.min_obs_daily_features);
-            # standard 20K intraday gate does not apply — calibrated for different observation frequency.
-            if n_cf_days < min_obs_daily:
-                IC_ENGINE_CELLS_SKIPPED_TOTAL.add(
-                    n_scales,
-                    {"symbol": symbol, "tf": tf, "skip_reason": "insufficient_daily_n"},
-                )
-                continue
-
-            cf_vals = np.array([r[1] for r in cf_rows], dtype=float)
-            cf_returns_mat = np.array(
-                [
-                    [r[2 + j] if r[2 + j] is not None else np.nan for j in range(n_scales)]
-                    for r in cf_rows
-                ],
-                dtype=float,
-            )
-            cf_complete_mat = np.array(
-                [[bool(r[2 + n_scales + j]) for j in range(n_scales)] for r in cf_rows],
-                dtype=bool,
-            )
-
-            # Assign unique cluster ID for BH-FDR participation — each context feature is
-            # its own cluster. Start at 10000 to avoid collision with per-symbol clustering
-            # (scipy fcluster returns integers starting from 1; max ~61 for 61 features).
-            cf_cluster_id = 10000 + cf_idx
-
-            for scale_idx, scale in enumerate(_SCALES):
-                lookahead_bars = lookaheads[scale]
-
-                cell_key = (cf_name, symbol, tf, _POOLED_REGIME_SENTINEL, lookahead_bars, True)
-                if cell_key in existing_keys:
-                    IC_ENGINE_CELLS_SKIPPED_TOTAL.add(
-                        1, {"symbol": symbol, "tf": tf, "skip_reason": "already_present"}
+            for cf_idx, cf_name in enumerate(sorted(CONTEXT_FEATURES)):  # deterministic order
+                with conn.cursor() as cur:
+                    cur.execute(
+                        cf_sql_tmpl,
+                        {
+                            "feature_name": cf_name,
+                            "symbol": symbol,
+                            "tf": tf,
+                            "training_window_end": training_window_end,
+                        },
                     )
-                    n_skipped += 1
-                    continue
+                    cf_rows = cur.fetchall()
 
-                scale_complete = cf_complete_mat[:, scale_idx]
-                returns_scale = cf_returns_mat[:, scale_idx]
-                valid_mask = scale_complete & np.isfinite(returns_scale) & np.isfinite(cf_vals)
-                n_valid = int(valid_mask.sum())
-
-                if n_valid < min_obs_daily:
+                n_cf_days = len(cf_rows)
+                # Daily-cadence features use min_obs_daily_features gate (APR: alpha.ic.min_obs_daily_features);
+                # standard 20K intraday gate does not apply — calibrated for different observation frequency.
+                if n_cf_days < min_obs_daily:
                     IC_ENGINE_CELLS_SKIPPED_TOTAL.add(
-                        1, {"symbol": symbol, "tf": tf, "skip_reason": "insufficient_daily_n"}
+                        n_scales,
+                        {"symbol": symbol, "tf": tf, "skip_reason": "insufficient_daily_n"},
                     )
                     continue
 
-                x_daily = cf_vals[valid_mask].reshape(-1, 1)  # [n_valid, 1] for vectorized IC
-                y_daily = returns_scale[valid_mask]
-
-                ranks_x_daily = rankdata(x_daily, axis=0)
-                ranks_y_daily = rankdata(y_daily)
-
-                ic_vec = _vectorized_ic(ranks_x_daily, ranks_y_daily)
-                ic_val = _nan_to_none(float(ic_vec[0]))
-                p_val = float(_p_values_from_ic(ic_vec, n_valid)[0])
-
-                # Circular block bootstrap CI (Component A, todo 091). x_daily/y_daily
-                # are already RAW (unranked) -- the bootstrap re-ranks internally per
-                # iteration, so pass them directly rather than the pre-ranked arrays
-                # used for the point estimate above.
-                # Per-symbol path -- always serial (todo 131); see
-                # circular_block_bootstrap_ic_serial's docstring for why this has no
-                # max_workers knob to accidentally raise.
-                ci_lower_arr, ci_upper_arr = circular_block_bootstrap_ic_serial(
-                    x_daily,
-                    y_daily,
-                    config.bootstrap_block_size[tf],
-                    config.bootstrap_resamples,
-                    rng,
+                cf_vals = np.array([r[1] for r in cf_rows], dtype=float)
+                cf_returns_mat = np.array(
+                    [
+                        [r[2 + j] if r[2 + j] is not None else np.nan for j in range(n_scales)]
+                        for r in cf_rows
+                    ],
+                    dtype=float,
                 )
-                ci_lower = float(ci_lower_arr[0])
-                ci_upper = float(ci_upper_arr[0])
-                passes_ci = ci_lower > 0.0
+                cf_complete_mat = np.array(
+                    [[bool(r[2 + n_scales + j]) for j in range(n_scales)] for r in cf_rows],
+                    dtype=bool,
+                )
 
-                # Walk-forward with scale-specific embargo (P3 fix: was cf_embargo_bars=max lookahead).
-                # Fixed-origin expanding window: train_end grows monotonically, test windows in order.
-                # Sign-consistent fold-pass criterion (Component E, todo 094): a fold "passes" when
-                # its IC sign matches the feature's own full-sample sign, not when the raw fold IC
-                # happens to be positive -- equivalence-preserving for ic_val > 0 (full_sign=+1 is a
-                # no-op) and the fix that lets a persistently-negative daily context feature walk-
-                # forward-confirm. Scalar mirror of _sign_consistent_wf_pass_count's array logic
-                # (no ic_sign_nd array exists in this scalar-per-feature loop).
-                full_sign = 1.0 if (ic_val is not None and ic_val > 0) else -1.0
-                cf_embargo_bars = lookahead_bars
-                wf_fold_count = 0
-                wf_pass_count = 0
-                passes_wf = False
-                folds_counted = 0
-                folds_passed = 0
-                if n_valid >= walk_forward_folds * 2 + cf_embargo_bars:
-                    for k in range(walk_forward_folds):
-                        train_end = int(n_valid * (k + 1) / (walk_forward_folds + 1))
-                        test_start = train_end + cf_embargo_bars
-                        test_end = int(n_valid * (k + 2) / (walk_forward_folds + 1))
-                        assert test_start > train_end and test_end <= n_valid, (
-                            f"CF walk-forward invariant violated: train_end={train_end}, "
-                            f"test_start={test_start}, test_end={test_end}, n_valid={n_valid}"
+                # Assign unique cluster ID for BH-FDR participation — each context feature is
+                # its own cluster. Start at 10000 to avoid collision with per-symbol clustering
+                # (scipy fcluster returns integers starting from 1; max ~61 for 61 features).
+                cf_cluster_id = 10000 + cf_idx
+
+                for scale_idx, scale in enumerate(_SCALES):
+                    lookahead_bars = lookaheads[scale]
+
+                    cell_key = (cf_name, symbol, tf, _POOLED_REGIME_SENTINEL, lookahead_bars, True)
+                    if cell_key in existing_keys:
+                        IC_ENGINE_CELLS_SKIPPED_TOTAL.add(
+                            1, {"symbol": symbol, "tf": tf, "skip_reason": "already_present"}
                         )
-                        if test_start >= test_end or (test_end - test_start) < min_reliable_n:
-                            continue
-                        fold_len = test_end - test_start
-                        if fold_len < 2:
-                            continue
-                        rx_fold = rankdata(x_daily[test_start:test_end], axis=0)
-                        ry_fold = rankdata(y_daily[test_start:test_end])
-                        fold_ic = float(_vectorized_ic(rx_fold, ry_fold)[0])
-                        folds_counted += 1
-                        if fold_ic * full_sign > 0:
-                            folds_passed += 1
-                wf_fold_count = folds_counted
-                wf_pass_count = folds_passed
-                passes_wf = folds_counted > 0 and folds_passed == folds_counted
+                        n_skipped += 1
+                        continue
 
-                # IC Sharpe — daily-data behavior changed under todo 096's fix.
-                # Previously NaN: sharpe_window_size (raw bars, APR default 2000) was
-                # calibrated for intraday bars, so n // (2000 // stride) < sharpe_min_windows
-                # for ~1000-2995 daily observations. Now that window size is a fixed
-                # SUBSAMPLED-bar target (alpha.ic.sharpe_window_size_subsampled, default
-                # 100) rather than derived from a raw-bar constant, daily data with
-                # >= sharpe_min_windows * 100 observations clears the gate and produces a
-                # real (not NaN) daily ic_sharpe. This is intentional -- the old NaN was an
-                # artifact of the raw-bar/stride formula, not a genuine data-insufficiency
-                # signal for daily cadence.
-                ic_sharpe_val = None
-                ic_sharpe_hac_val = None
-                ic_sortino_val = None
-                ic_win_rate_val = None
-                ic_sharpe_n_windows = 0
+                    scale_complete = cf_complete_mat[:, scale_idx]
+                    returns_scale = cf_returns_mat[:, scale_idx]
+                    valid_mask = scale_complete & np.isfinite(returns_scale) & np.isfinite(cf_vals)
+                    n_valid = int(valid_mask.sum())
 
-                # IC decomposition: sign_hit_rate + magnitude-conditional IC (Component
-                # B, todo 090). Single-feature scalar path -- x_daily/y_daily are the
-                # same RAW (unranked) arrays already assembled for the bootstrap CI
-                # above, n_features=1 so no _expand needed.
-                sign_hit_rate_val = _nan_to_none(float(sign_hit_rate(x_daily, y_daily)[0]))
-                magnitude_ic_val = _nan_to_none(
-                    float(magnitude_conditional_ic(x_daily, y_daily, _MAGNITUDE_IC_PERCENTILE)[0])
-                )
+                    if n_valid < min_obs_daily:
+                        IC_ENGINE_CELLS_SKIPPED_TOTAL.add(
+                            1, {"symbol": symbol, "tf": tf, "skip_reason": "insufficient_daily_n"}
+                        )
+                        continue
 
-                all_results.append(
-                    {
-                        "feature_name": cf_name,
-                        "vector_domain": _VECTOR_DOMAIN,
-                        "symbol": symbol,
-                        "tf": tf,
-                        "regime": _POOLED_REGIME_SENTINEL,
-                        "lookahead_bars": lookahead_bars,
-                        "training_window_end": training_window_end,
-                        "is_pooled": True,
-                        "n_independent": n_valid,
-                        "reliable": bool(n_valid >= min_reliable_n),
-                        "ic_value": ic_val,
-                        "ic_sign": (None if ic_val is None else (1 if ic_val > 0 else -1)),
-                        "p_value": p_val,
-                        "ic_ci_lower": ci_lower,
-                        "ic_ci_upper": ci_upper,
-                        "passes_ci_gate": passes_ci,
-                        "bh_adjusted_p": None,
-                        "passes_fdr": None,
-                        "wf_fold_count": wf_fold_count,
-                        "wf_pass_count": wf_pass_count,
-                        "passes_walkforward": passes_wf,
-                        "ic_sharpe": ic_sharpe_val,
-                        "ic_sharpe_hac": ic_sharpe_hac_val,
-                        "ic_sharpe_n_windows": ic_sharpe_n_windows,
-                        "ic_sortino": ic_sortino_val,
-                        "ic_win_rate": ic_win_rate_val,
-                        "regime_label_source": "context_features",
-                        "computed_at": run_ts,
-                        "cluster_id": cf_cluster_id,
-                        "feature_status_at_eval": (
-                            feature_status_map.get(cf_name, "unknown")
-                            if feature_status_map is not None
-                            else "unknown"
-                        ),
-                        "regime_scope": "pooled",
-                        "sign_hit_rate": sign_hit_rate_val,
-                        "magnitude_conditional_ic": magnitude_ic_val,
-                        # e-value pilot (Component C, todo 079) is scoped to
-                        # _compute_cross_sectional_tf's tf=5m POOLED cells only --
-                        # this daily-context-feature path never computes it.
-                        "cumulative_e_value": None,
-                    }
-                )
+                    x_daily = cf_vals[valid_mask].reshape(-1, 1)  # [n_valid, 1] for vectorized IC
+                    y_daily = returns_scale[valid_mask]
 
-        # Context-features loop is done -- this connection is not touched again
-        # for the rest of this function (BH-FDR/clustering below is pure compute).
-        conn.close()
+                    ranks_x_daily = rankdata(x_daily, axis=0)
+                    ranks_y_daily = rankdata(y_daily)
+
+                    ic_vec = _vectorized_ic(ranks_x_daily, ranks_y_daily)
+                    ic_val = _nan_to_none(float(ic_vec[0]))
+                    p_val = float(_p_values_from_ic(ic_vec, n_valid)[0])
+
+                    # Circular block bootstrap CI (Component A, todo 091). x_daily/y_daily
+                    # are already RAW (unranked) -- the bootstrap re-ranks internally per
+                    # iteration, so pass them directly rather than the pre-ranked arrays
+                    # used for the point estimate above.
+                    # Per-symbol path -- always serial (todo 131); see
+                    # circular_block_bootstrap_ic_serial's docstring for why this has no
+                    # max_workers knob to accidentally raise.
+                    ci_lower_arr, ci_upper_arr = circular_block_bootstrap_ic_serial(
+                        x_daily,
+                        y_daily,
+                        config.bootstrap_block_size[tf],
+                        config.bootstrap_resamples,
+                        rng,
+                    )
+                    ci_lower = float(ci_lower_arr[0])
+                    ci_upper = float(ci_upper_arr[0])
+                    passes_ci = ci_lower > 0.0
+
+                    # Walk-forward with scale-specific embargo (P3 fix: was cf_embargo_bars=max lookahead).
+                    # Fixed-origin expanding window: train_end grows monotonically, test windows in order.
+                    # Sign-consistent fold-pass criterion (Component E, todo 094): a fold "passes" when
+                    # its IC sign matches the feature's own full-sample sign, not when the raw fold IC
+                    # happens to be positive -- equivalence-preserving for ic_val > 0 (full_sign=+1 is a
+                    # no-op) and the fix that lets a persistently-negative daily context feature walk-
+                    # forward-confirm. Scalar mirror of _sign_consistent_wf_pass_count's array logic
+                    # (no ic_sign_nd array exists in this scalar-per-feature loop).
+                    full_sign = 1.0 if (ic_val is not None and ic_val > 0) else -1.0
+                    cf_embargo_bars = lookahead_bars
+                    wf_fold_count = 0
+                    wf_pass_count = 0
+                    passes_wf = False
+                    folds_counted = 0
+                    folds_passed = 0
+                    if n_valid >= walk_forward_folds * 2 + cf_embargo_bars:
+                        for k in range(walk_forward_folds):
+                            train_end = int(n_valid * (k + 1) / (walk_forward_folds + 1))
+                            test_start = train_end + cf_embargo_bars
+                            test_end = int(n_valid * (k + 2) / (walk_forward_folds + 1))
+                            assert test_start > train_end and test_end <= n_valid, (
+                                f"CF walk-forward invariant violated: train_end={train_end}, "
+                                f"test_start={test_start}, test_end={test_end}, n_valid={n_valid}"
+                            )
+                            if test_start >= test_end or (test_end - test_start) < min_reliable_n:
+                                continue
+                            fold_len = test_end - test_start
+                            if fold_len < 2:
+                                continue
+                            rx_fold = rankdata(x_daily[test_start:test_end], axis=0)
+                            ry_fold = rankdata(y_daily[test_start:test_end])
+                            fold_ic = float(_vectorized_ic(rx_fold, ry_fold)[0])
+                            folds_counted += 1
+                            if fold_ic * full_sign > 0:
+                                folds_passed += 1
+                    wf_fold_count = folds_counted
+                    wf_pass_count = folds_passed
+                    passes_wf = folds_counted > 0 and folds_passed == folds_counted
+
+                    # IC Sharpe — daily-data behavior changed under todo 096's fix.
+                    # Previously NaN: sharpe_window_size (raw bars, APR default 2000) was
+                    # calibrated for intraday bars, so n // (2000 // stride) < sharpe_min_windows
+                    # for ~1000-2995 daily observations. Now that window size is a fixed
+                    # SUBSAMPLED-bar target (alpha.ic.sharpe_window_size_subsampled, default
+                    # 100) rather than derived from a raw-bar constant, daily data with
+                    # >= sharpe_min_windows * 100 observations clears the gate and produces a
+                    # real (not NaN) daily ic_sharpe. This is intentional -- the old NaN was an
+                    # artifact of the raw-bar/stride formula, not a genuine data-insufficiency
+                    # signal for daily cadence.
+                    ic_sharpe_val = None
+                    ic_sharpe_hac_val = None
+                    ic_sortino_val = None
+                    ic_win_rate_val = None
+                    ic_sharpe_n_windows = 0
+
+                    # IC decomposition: sign_hit_rate + magnitude-conditional IC (Component
+                    # B, todo 090). Single-feature scalar path -- x_daily/y_daily are the
+                    # same RAW (unranked) arrays already assembled for the bootstrap CI
+                    # above, n_features=1 so no _expand needed.
+                    sign_hit_rate_val = _nan_to_none(float(sign_hit_rate(x_daily, y_daily)[0]))
+                    magnitude_ic_val = _nan_to_none(
+                        float(
+                            magnitude_conditional_ic(x_daily, y_daily, _MAGNITUDE_IC_PERCENTILE)[0]
+                        )
+                    )
+
+                    all_results.append(
+                        {
+                            "feature_name": cf_name,
+                            "vector_domain": _VECTOR_DOMAIN,
+                            "symbol": symbol,
+                            "tf": tf,
+                            "regime": _POOLED_REGIME_SENTINEL,
+                            "lookahead_bars": lookahead_bars,
+                            "training_window_end": training_window_end,
+                            "is_pooled": True,
+                            "n_independent": n_valid,
+                            "reliable": bool(n_valid >= min_reliable_n),
+                            "ic_value": ic_val,
+                            "ic_sign": (None if ic_val is None else (1 if ic_val > 0 else -1)),
+                            "p_value": p_val,
+                            "ic_ci_lower": ci_lower,
+                            "ic_ci_upper": ci_upper,
+                            "passes_ci_gate": passes_ci,
+                            "bh_adjusted_p": None,
+                            "passes_fdr": None,
+                            "wf_fold_count": wf_fold_count,
+                            "wf_pass_count": wf_pass_count,
+                            "passes_walkforward": passes_wf,
+                            "ic_sharpe": ic_sharpe_val,
+                            "ic_sharpe_hac": ic_sharpe_hac_val,
+                            "ic_sharpe_n_windows": ic_sharpe_n_windows,
+                            "ic_sortino": ic_sortino_val,
+                            "ic_win_rate": ic_win_rate_val,
+                            "regime_label_source": "context_features",
+                            "computed_at": run_ts,
+                            "cluster_id": cf_cluster_id,
+                            "feature_status_at_eval": (
+                                feature_status_map.get(cf_name, "unknown")
+                                if feature_status_map is not None
+                                else "unknown"
+                            ),
+                            "regime_scope": "pooled",
+                            "sign_hit_rate": sign_hit_rate_val,
+                            "magnitude_conditional_ic": magnitude_ic_val,
+                            # e-value pilot (Component C, todo 079) is scoped to
+                            # _compute_cross_sectional_tf's tf=5m POOLED cells only --
+                            # this daily-context-feature path never computes it.
+                            "cumulative_e_value": None,
+                        }
+                    )
 
         # ------------------------------------------------------------------
         # BH-FDR correction -- representative-only per (regime, lookahead, cluster)
@@ -1876,160 +1865,154 @@ def _compute_cross_sectional_tf(
     # docstring). Session tuning for the large cross-sectional join (disable parallel
     # workers, raise work_mem) is per-connection, so it's applied fresh here rather
     # than once on a long-lived caller connection as before.
-    conn = connect_db_from_url(dsn)
-    with conn.cursor() as tune_cur:
-        tune_cur.execute("SET max_parallel_workers_per_gather = 0")
-        tune_cur.execute("SET work_mem = '256MB'")
-    conn.commit()
+    with short_lived_conn(dsn) as conn:
+        with conn.cursor() as tune_cur:
+            tune_cur.execute("SET max_parallel_workers_per_gather = 0")
+            tune_cur.execute("SET work_mem = '256MB'")
+        conn.commit()
 
-    # e-value pilot (Component C, todo 079): tf=5m POOLED cross-sectional cells ONLY
-    # (_e_value_pilot_active gate) -- fetch this cell's prior cumulative_e_value per
-    # (feature_name, lookahead_bars), one batched query per (tf, regime_label) call
-    # rather than per-feature, so evidence compounds across corpus reruns instead of
-    # resetting each build. DISTINCT ON picks the most recent PRIOR training_window_end
-    # (strictly before this run's) per cell -- a feature/lookahead pair with no prior
-    # row (first-ever look) is absent from the dict and defaults to the neutral prior
-    # of 1.0 at the per-feature lookup site below.
-    prior_e_values: dict[tuple[str, int], float] = {}
-    if _e_value_pilot_active(tf):
-        with conn.cursor() as e_val_cur:
-            e_val_cur.execute(
+        # e-value pilot (Component C, todo 079): tf=5m POOLED cross-sectional cells ONLY
+        # (_e_value_pilot_active gate) -- fetch this cell's prior cumulative_e_value per
+        # (feature_name, lookahead_bars), one batched query per (tf, regime_label) call
+        # rather than per-feature, so evidence compounds across corpus reruns instead of
+        # resetting each build. DISTINCT ON picks the most recent PRIOR training_window_end
+        # (strictly before this run's) per cell -- a feature/lookahead pair with no prior
+        # row (first-ever look) is absent from the dict and defaults to the neutral prior
+        # of 1.0 at the per-feature lookup site below.
+        prior_e_values: dict[tuple[str, int], float] = {}
+        if _e_value_pilot_active(tf):
+            with conn.cursor() as e_val_cur:
+                e_val_cur.execute(
+                    """
+                    SELECT DISTINCT ON (feature_name, lookahead_bars)
+                        feature_name, lookahead_bars, cumulative_e_value
+                    FROM feature_ic_scores
+                    WHERE symbol = %(symbol)s AND tf = %(tf)s AND regime = %(regime_label)s
+                      AND is_pooled = true AND training_window_end < %(training_window_end)s
+                    ORDER BY feature_name, lookahead_bars, training_window_end DESC
+                    """,
+                    {
+                        "symbol": _CROSS_SECTIONAL_SYMBOL,
+                        "tf": tf,
+                        "regime_label": regime_label,
+                        "training_window_end": training_window_end,
+                    },
+                )
+                for _feat_name, _lookahead, _cumulative in e_val_cur.fetchall():
+                    if _cumulative is not None:
+                        prior_e_values[(_feat_name, _lookahead)] = float(_cumulative)
+            conn.commit()
+
+        feature_cols = ", ".join(f'"fv"."{f}"' for f in _FEATURE_NAMES)
+        return_cols = ", ".join(f'"fr".return_{s}' for s in _SCALES)
+        complete_cols = ", ".join(f'"fr".complete_{s}' for s in _SCALES)
+
+        # Step 1: Pre-fetch regime timestamps.
+        # market_regimes has one row per (tf, ts, regime_label) -- e.g. 120K rows for
+        # 5m/low_bull over the full training window.  This result set is small (120K
+        # datetime objects) and fast to fetch.
+        with conn.cursor() as ts_cur:
+            ts_cur.execute(
                 """
-                SELECT DISTINCT ON (feature_name, lookahead_bars)
-                    feature_name, lookahead_bars, cumulative_e_value
-                FROM feature_ic_scores
-                WHERE symbol = %(symbol)s AND tf = %(tf)s AND regime = %(regime_label)s
-                  AND is_pooled = true AND training_window_end < %(training_window_end)s
-                ORDER BY feature_name, lookahead_bars, training_window_end DESC
+                SELECT ts FROM market_regimes
+                WHERE regime_group = %(regime_group)s
+                  AND tf = %(tf)s
+                  AND regime_label = %(regime_label)s
+                  AND ts <= %(training_window_end)s
+                ORDER BY ts
                 """,
                 {
-                    "symbol": _CROSS_SECTIONAL_SYMBOL,
+                    "regime_group": regime_group,
                     "tf": tf,
                     "regime_label": regime_label,
                     "training_window_end": training_window_end,
                 },
             )
-            for _feat_name, _lookahead, _cumulative in e_val_cur.fetchall():
-                if _cumulative is not None:
-                    prior_e_values[(_feat_name, _lookahead)] = float(_cumulative)
+            regime_timestamps = [r[0] for r in ts_cur.fetchall()]
         conn.commit()
 
-    feature_cols = ", ".join(f'"fv"."{f}"' for f in _FEATURE_NAMES)
-    return_cols = ", ".join(f'"fr".return_{s}' for s in _SCALES)
-    complete_cols = ", ".join(f'"fr".complete_{s}' for s in _SCALES)
+        if not regime_timestamps:
+            _logger.info(
+                "ic_engine.cross_sectional_no_data",
+                tf=tf,
+                regime=regime_label,
+            )
+            return [], {"n_committed": 0, "n_skipped": 0}
 
-    # Step 1: Pre-fetch regime timestamps.
-    # market_regimes has one row per (tf, ts, regime_label) -- e.g. 120K rows for
-    # 5m/low_bull over the full training window.  This result set is small (120K
-    # datetime objects) and fast to fetch.
-    with conn.cursor() as ts_cur:
-        ts_cur.execute(
-            """
-            SELECT ts FROM market_regimes
-            WHERE regime_group = %(regime_group)s
-              AND tf = %(tf)s
-              AND regime_label = %(regime_label)s
-              AND ts <= %(training_window_end)s
-            ORDER BY ts
-            """,
-            {
-                "regime_group": regime_group,
-                "tf": tf,
-                "regime_label": regime_label,
-                "training_window_end": training_window_end,
-            },
-        )
-        regime_timestamps = [r[0] for r in ts_cur.fetchall()]
-    conn.commit()
+        # Step 2: Query feature_vectors+forward_returns in timestamp chunks.
+        # Replaces a 3-way JOIN (feature_vectors × market_regimes × forward_returns) that
+        # caused the PostgreSQL backend to OOM for large regimes:
+        #   5m/low_bull: 120K regime timestamps × 58 symbols = 7M rows in one query.
+        # Chunked approach: cs_chunk_ts timestamps × 58 symbols ≈ 290K rows/query at
+        # default cs_chunk_ts=5000.  Fits comfortably in PostgreSQL working memory.
+        # feature_vectors.bar_ts is TF-bucket-aligned, so bar_ts = ANY(ts_chunk) is
+        # equivalent to time_bucket(interval, bar_ts) = ANY(ts_chunk) and uses the index.
+        # Rule 3 auto-fix: blocking PostgreSQL backend OOM on 3-way JOIN.
+        # symbol = ANY(%(symbol_list)s): THE contamination fix (Phase 144 D-01) -- without
+        # this filter every symbol in the corpus (not just this regime_group's peers) was
+        # pooled into this cell, since ts_chunk alone doesn't scope by symbol.
+        chunk_sql = f"""
+            SELECT fv.bar_ts, {feature_cols}, {return_cols}, {complete_cols}
+            FROM feature_vectors fv
+            INNER JOIN forward_returns fr
+                ON fr.symbol = fv.symbol
+                AND fr.tf = fv.tf
+                AND fr.bar_ts = fv.bar_ts
+                AND fr.return_type = 'executable_open_to_open'
+            WHERE fv.tf = %(tf)s
+              AND fv.bar_ts = ANY(%(ts_chunk)s)
+              AND fv.symbol = ANY(%(symbol_list)s)
+            ORDER BY fv.bar_ts
+        """
 
-    if not regime_timestamps:
-        conn.close()
+        n_scales = len(_SCALES)
+        # Float32ChunkAccumulator (todo 087) owns the buffer-to-array bookkeeping shared
+        # with _compute_symbol_tf's own OOM fix above; the ts_chunk re-execution mechanics
+        # and the ret/cmp matrices (different dtypes, NULL-substitution logic -- not the
+        # same shape as X) stay here.
+        X_acc = Float32ChunkAccumulator()
+        ret_chunks: list[np.ndarray] = []
+        cmp_chunks: list[np.ndarray] = []
+
         _logger.info(
-            "ic_engine.cross_sectional_no_data",
+            "ic_engine.cross_sectional_chunk_pass",
             tf=tf,
             regime=regime_label,
+            n_regime_ts=len(regime_timestamps),
+            cs_chunk_ts=cs_chunk_ts,
+            n_chunks=(len(regime_timestamps) + cs_chunk_ts - 1) // cs_chunk_ts,
         )
-        return [], {"n_committed": 0, "n_skipped": 0}
 
-    # Step 2: Query feature_vectors+forward_returns in timestamp chunks.
-    # Replaces a 3-way JOIN (feature_vectors × market_regimes × forward_returns) that
-    # caused the PostgreSQL backend to OOM for large regimes:
-    #   5m/low_bull: 120K regime timestamps × 58 symbols = 7M rows in one query.
-    # Chunked approach: cs_chunk_ts timestamps × 58 symbols ≈ 290K rows/query at
-    # default cs_chunk_ts=5000.  Fits comfortably in PostgreSQL working memory.
-    # feature_vectors.bar_ts is TF-bucket-aligned, so bar_ts = ANY(ts_chunk) is
-    # equivalent to time_bucket(interval, bar_ts) = ANY(ts_chunk) and uses the index.
-    # Rule 3 auto-fix: blocking PostgreSQL backend OOM on 3-way JOIN.
-    # symbol = ANY(%(symbol_list)s): THE contamination fix (Phase 144 D-01) -- without
-    # this filter every symbol in the corpus (not just this regime_group's peers) was
-    # pooled into this cell, since ts_chunk alone doesn't scope by symbol.
-    chunk_sql = f"""
-        SELECT fv.bar_ts, {feature_cols}, {return_cols}, {complete_cols}
-        FROM feature_vectors fv
-        INNER JOIN forward_returns fr
-            ON fr.symbol = fv.symbol
-            AND fr.tf = fv.tf
-            AND fr.bar_ts = fv.bar_ts
-            AND fr.return_type = 'executable_open_to_open'
-        WHERE fv.tf = %(tf)s
-          AND fv.bar_ts = ANY(%(ts_chunk)s)
-          AND fv.symbol = ANY(%(symbol_list)s)
-        ORDER BY fv.bar_ts
-    """
-
-    n_scales = len(_SCALES)
-    # Float32ChunkAccumulator (todo 087) owns the buffer-to-array bookkeeping shared
-    # with _compute_symbol_tf's own OOM fix above; the ts_chunk re-execution mechanics
-    # and the ret/cmp matrices (different dtypes, NULL-substitution logic -- not the
-    # same shape as X) stay here.
-    X_acc = Float32ChunkAccumulator()
-    ret_chunks: list[np.ndarray] = []
-    cmp_chunks: list[np.ndarray] = []
-
-    _logger.info(
-        "ic_engine.cross_sectional_chunk_pass",
-        tf=tf,
-        regime=regime_label,
-        n_regime_ts=len(regime_timestamps),
-        cs_chunk_ts=cs_chunk_ts,
-        n_chunks=(len(regime_timestamps) + cs_chunk_ts - 1) // cs_chunk_ts,
-    )
-
-    for chunk_start in range(0, len(regime_timestamps), cs_chunk_ts):
-        ts_chunk = regime_timestamps[chunk_start : chunk_start + cs_chunk_ts]
-        with conn.cursor() as chunk_cur:
-            chunk_cur.execute(
-                chunk_sql,
-                {"tf": tf, "ts_chunk": ts_chunk, "symbol_list": symbol_list},
-            )
-            batch = chunk_cur.fetchall()
-        conn.commit()
-        if not batch:
-            continue
-        n_batch = len(batch)
-        # float32, not float64: every downstream use of this array (_vectorized_ic,
-        # _compute_ic_rolling_metrics) ranks it via rankdata() and computes statistics
-        # on the resulting ranks/IC values, never on the raw floats directly -- rank
-        # order is preserved essentially perfectly at float32 precision for z-score/
-        # ratio-scale feature values. Halves the memory of X_raw, X_nd, and every
-        # per-scale subsample copy below -- the direct fix for the 2026-07-08 OOM
-        # incidents, where the largest cross-sectional cell (5m/low_bull, ~9.4M rows
-        # x 152 features after the 80-symbol ETF expansion) peaked at 20GB+ RSS.
-        X_acc.append_chunk([[r[i + 1] for i in range(n_features)] for r in batch])
-        ret_chunk = np.full((n_batch, n_scales), np.nan)
-        cmp_chunk = np.zeros((n_batch, n_scales), dtype=bool)
-        for i, row in enumerate(batch):
-            for j in range(n_scales):
-                val = row[1 + n_features + j]
-                ret_chunk[i, j] = val if val is not None else np.nan
-                cmp_chunk[i, j] = bool(row[1 + n_features + n_scales + j])
-        ret_chunks.append(ret_chunk)
-        cmp_chunks.append(cmp_chunk)
-
-    # Fetch phase is done -- close this connection now rather than holding it idle
-    # across the clustering/bootstrap loop below (todo 125 fix; see dsn note in the
-    # docstring). No further DB access happens in this function after this point.
-    conn.close()
+        for chunk_start in range(0, len(regime_timestamps), cs_chunk_ts):
+            ts_chunk = regime_timestamps[chunk_start : chunk_start + cs_chunk_ts]
+            with conn.cursor() as chunk_cur:
+                chunk_cur.execute(
+                    chunk_sql,
+                    {"tf": tf, "ts_chunk": ts_chunk, "symbol_list": symbol_list},
+                )
+                batch = chunk_cur.fetchall()
+            conn.commit()
+            if not batch:
+                continue
+            n_batch = len(batch)
+            # float32, not float64: every downstream use of this array (_vectorized_ic,
+            # _compute_ic_rolling_metrics) ranks it via rankdata() and computes statistics
+            # on the resulting ranks/IC values, never on the raw floats directly -- rank
+            # order is preserved essentially perfectly at float32 precision for z-score/
+            # ratio-scale feature values. Halves the memory of X_raw, X_nd, and every
+            # per-scale subsample copy below -- the direct fix for the 2026-07-08 OOM
+            # incidents, where the largest cross-sectional cell (5m/low_bull, ~9.4M rows
+            # x 152 features after the 80-symbol ETF expansion) peaked at 20GB+ RSS.
+            X_acc.append_chunk([[r[i + 1] for i in range(n_features)] for r in batch])
+            ret_chunk = np.full((n_batch, n_scales), np.nan)
+            cmp_chunk = np.zeros((n_batch, n_scales), dtype=bool)
+            for i, row in enumerate(batch):
+                for j in range(n_scales):
+                    val = row[1 + n_features + j]
+                    ret_chunk[i, j] = val if val is not None else np.nan
+                    cmp_chunk[i, j] = bool(row[1 + n_features + n_scales + j])
+            ret_chunks.append(ret_chunk)
+            cmp_chunks.append(cmp_chunk)
 
     X_raw = X_acc.finalize()
     if X_raw is None:

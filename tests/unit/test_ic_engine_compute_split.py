@@ -144,27 +144,46 @@ def test_compute_cross_sectional_tf_takes_dsn_not_live_connection():
 
 
 def test_compute_cross_sectional_tf_closes_connection_before_clustering():
-    """The connection opened inside _compute_cross_sectional_tf must be closed
-    before the CPU-only clustering/bootstrap phase begins -- not held open across
-    it (todo 125, same pattern as _compute_symbol_tf's todo 102 fix).
+    """The connection opened inside _compute_cross_sectional_tf must be scoped to
+    (and closed before) the CPU-only clustering/bootstrap phase begins -- not held
+    open across it (todo 125, same pattern as _compute_symbol_tf's todo 102 fix).
 
-    Structural regression guard: fails if a future edit re-introduces a
-    long-held connection by moving the close() call after (or removing it
-    before) the first CPU-only compute call, _cluster_features(.
+    Post-todo-129 (162-01): the explicit conn.close() call was replaced by scoping
+    the fetch phase inside a `with short_lived_conn(dsn) as conn:` block --
+    short_lived_conn guarantees close() in a finally, including on exception
+    mid-fetch, which the old hand-rolled conn.close() call did not. Structural
+    regression guard: fails if a future edit re-introduces a long-held connection
+    by moving _cluster_features( inside the with block (or removing the with
+    block entirely).
     """
     source = inspect.getsource(_compute_cross_sectional_tf)
 
-    assert "conn.close()" in source, (
-        "_compute_cross_sectional_tf must close its own connection once the "
-        "fetch phase is done, before the clustering/bootstrap compute begins"
+    assert "with short_lived_conn(dsn) as conn:" in source, (
+        "_compute_cross_sectional_tf must scope its own connection to the fetch "
+        "phase via short_lived_conn(dsn) (todo 129), not hold it open across the "
+        "clustering/bootstrap compute begins"
     )
 
-    close_idx = source.index("conn.close()")
+    with_idx = source.index("with short_lived_conn(dsn) as conn:")
     cluster_idx = source.index("_cluster_features(")
-    assert close_idx < cluster_idx, (
-        "conn.close() must appear before the first CPU-only compute call "
-        "(_cluster_features) -- the connection must not be held open across "
-        "the multi-hour clustering/bootstrap phase"
+    assert with_idx < cluster_idx, (
+        "_cluster_features( must appear after the short_lived_conn(dsn) with-block "
+        "has closed -- the connection must not be held open across the multi-hour "
+        "clustering/bootstrap phase"
+    )
+    # _cluster_features( must be OUTSIDE the with block (dedented back to the
+    # function's own indentation), not merely textually after the `with` line --
+    # find the with-block's body indentation and confirm _cluster_features( sits
+    # at a shallower indentation than that.
+    with_line = source[: source.index("\n", with_idx)].splitlines()[-1]
+    with_indent = len(with_line) - len(with_line.lstrip())
+    cluster_line_start = source.rindex("\n", 0, cluster_idx) + 1
+    cluster_line_end = source.index("\n", cluster_idx)
+    cluster_line = source[cluster_line_start:cluster_line_end]
+    cluster_indent = len(cluster_line) - len(cluster_line.lstrip())
+    assert cluster_indent <= with_indent, (
+        "_cluster_features( must be dedented outside the short_lived_conn(dsn) "
+        "with-block, not nested inside it"
     )
 
 
