@@ -2,14 +2,14 @@
 gsd_state_version: 1.0
 milestone: v3.1
 milestone_name: AlphaEngine Validation + Alpha Scoring
-status: "Phase 148 (Alpha Scoring System) COMPLETE (5/5) -- both irreversible OOS proof gates run exactly once (D-04): Gate 1 PASS (5m/15m, 21.875% cells qualify), Gate 2 FAIL (3/5 SHADOW-REVIEW criteria) -- VERDICT: do not promote v3.0 AlphaEngine to live capital at this time; Phase 144 also COMPLETE (6/6) -- D-05 verdict landed 2026-07-22; Phase 143.1 also COMPLETE (8/8) -- 143.1-08 VERDICT HOLD; todos 164/165/160/147 closed; todos 172/173 filed from Phase 148's execution"
-stopped_at: Phase 148 context gathered
-last_updated: "2026-07-23T01:06:42.873Z"
+status: ready_to_plan
+stopped_at: Phase 162 complete (4/4) — ready to discuss Phase 163
+last_updated: 2026-07-23T07:12:37.810Z
 progress:
   total_phases: 12
   completed_phases: 9
   total_plans: 45
-  completed_plans: 44
+  completed_plans: 59
   percent: 75
 ---
 
