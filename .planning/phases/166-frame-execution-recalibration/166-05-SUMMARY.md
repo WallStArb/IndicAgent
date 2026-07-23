@@ -128,3 +128,10 @@ None - no external service configuration required. `geometry_source` defaults to
 ---
 *Phase: 166-frame-execution-recalibration*
 *Completed: 2026-07-23*
+
+## Self-Check: PASSED
+
+All created/modified files verified present on disk (`services/alpha_frame_writer.py`,
+`tests/unit/test_alpha_frame_writer_candidate_geometry.py`,
+`tests/unit/test_alpha_frame_writer.py`, this SUMMARY). All 3 commits (`7252f50a`, `5c85aa67`,
+`15b95a23`) verified present in `git log --oneline --all`. No missing items.
