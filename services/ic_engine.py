@@ -489,14 +489,20 @@ class ICEngineConfig:
     bootstrap_block_size: dict[str, int] = dataclasses.field(
         default_factory=lambda: {"5m": 78, "15m": 26, "1h": 10, "1d": 10}
     )
-    # Todo 129 (2026-07-17): thread pool size for _circular_block_bootstrap_ic's
-    # re-rank+IC step, cross-sectional pass ONLY. Default 1 (serial, unchanged
-    # behavior) -- must NEVER be raised for the per-symbol path's call sites, which
-    # already run inside an n_workers-way ProcessPoolExecutor pool; threading on top
-    # of that oversubscribes cores instead of speeding anything up. Safe to raise here
+    # Todo 129 (2026-07-17), converted to a per-tf dict by todo 133 (162-02 Task 1,
+    # migration 250): thread pool size for _subsample_and_rank's re-rank+IC step,
+    # cross-sectional pass ONLY. 5m defaults threaded (largest cells benefit); 15m/1h/1d
+    # default serial=1 (finish in minutes, threading only adds dispatch overhead) --
+    # must NEVER be raised for the per-symbol path's call sites, which already run
+    # inside an n_workers-way ProcessPoolExecutor pool; threading on top of that
+    # oversubscribes cores instead of speeding anything up. Safe to raise per-tf here
     # because the cross-sectional pass runs single-process, after the per-symbol pool
     # has already shut down -- nothing else is contending for cores at that point.
-    cross_sectional_bootstrap_threads: int = 1
+    # Thread count changes wall time only, never output -- guaranteed structurally by
+    # 162-01's precomputed resample-index matrix (starts_matrix), drawn once per scale.
+    cross_sectional_bootstrap_threads: dict[str, int] = dataclasses.field(
+        default_factory=lambda: {"5m": 6, "15m": 1, "1h": 1, "1d": 1}
+    )
     # Phase 143.1-04 (Component E, todo 094): champion/challenger behavior switch shared
     # with ensemble_trainer.py's alpha.ensemble.sign_symmetric. Gates ONLY the
     # _run_lifecycle_hook demote/material/worst_cell predicates below -- defaulted to the
@@ -635,9 +641,18 @@ class ICEngineConfig:
             # drift between eligibility and the lifecycle hook's demote predicate.
             sign_symmetric=bool(cfg.get_sync("alpha.ensemble.sign_symmetric", False)),
             regime_groups_json=regime_groups_json,
-            cross_sectional_bootstrap_threads=int(
-                cfg.get_sync("infra.ic_engine.cross_sectional_bootstrap_threads", 1)
-            ),
+            # Todo 133 (162-02 Task 1, migration 250): per-tf dict, mirrors
+            # bootstrap_block_size above. Old scalar key
+            # (infra.ic_engine.cross_sectional_bootstrap_threads) retired.
+            cross_sectional_bootstrap_threads={
+                tf: int(cfg.get_sync(f"alpha.ic.cross_sectional_bootstrap_threads.{tf}", default))
+                for tf, default in (
+                    ("5m", 6),
+                    ("15m", 1),
+                    ("1h", 1),
+                    ("1d", 1),
+                )
+            },
             # 162-01 Task 3 (todos 139/140, migration 249).
             feature_block_columns=int(cfg.get_sync("alpha.ic.feature_block_columns", 32)),
             max_cell_rows=int(cfg.get_sync("alpha.ic.max_cell_rows", 1_200_000)),

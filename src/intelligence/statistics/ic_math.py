@@ -278,8 +278,8 @@ def _circular_block_bootstrap_ic(
             saturates available cores; threading on top would oversubscribe, not
             speed up. Only safe to raise where nothing else is contending for cores
             (ic_engine.py's cross-sectional path, which runs after the per-symbol
-            pool has already shut down). From APR:
-            infra.ic_engine.cross_sectional_bootstrap_threads.
+            pool has already shut down). From APR (per-tf, migration 250):
+            alpha.ic.cross_sectional_bootstrap_threads.{tf}.
 
     Returns:
         (ci_lower, ci_upper): Each shape [n_features]; 95% CI via percentile method.
