@@ -3,13 +3,13 @@ gsd_state_version: 1.0
 milestone: v3.1
 milestone_name: AlphaEngine Validation + Alpha Scoring
 status: ready_to_plan
-stopped_at: Phase 162 complete (4/4) — ready to discuss Phase 163
-last_updated: 2026-07-23T07:12:37.810Z
+stopped_at: Phase 166 context gathered
+last_updated: "2026-07-23T09:52:19.167Z"
 progress:
   total_phases: 12
   completed_phases: 9
   total_plans: 45
-  completed_plans: 59
+  completed_plans: 44
   percent: 75
 ---
 
@@ -143,8 +143,8 @@ ON CONFLICT (symbol, tf) DO UPDATE SET fetch_complete = true;
 
 ## Session
 
-**Last session:** 2026-07-22T12:11:02.801Z
-**Stopped At:** Phase 148 context gathered
+**Last session:** 2026-07-23T09:52:19.117Z
+**Stopped At:** Phase 166 context gathered
 
 **Resume File / exact next action:** Run `/gsd-execute-phase 163`. Nothing else needs checking first — verified directly (not just trusting the planner agent's self-report): `git log` shows `f394bbdd` as the last commit touching the phase dir, and both `163-01-PLAN.md`/`163-02-PLAN.md` grep-confirm "12 new" column phrasing and both `poc_rolling_dist_atr`/`poc_session_rolling_divergence_atr` present. After execution: close todo 153 (move `pending/153-vp-sr-features-null-in-batch-corpus.md` → `completed/`), noting the decision made (implement, not delete) and pointing at whatever incremental-IC result eventually comes out of the next `ic_engine` corpus run per D-07's promotion bar (not measured as part of this phase — that's out of scope by design).
 
