@@ -850,22 +850,28 @@ PATTERN reuse only, never for direct invocation.
 | A5 | `zone_engine.py`'s clustering/scoring core (`ZoneCandidate`, `_find_clusters`, `_score_cluster`, `_pick_single_best`) is portable "nearly unmodified" into a new v3 module | Q1, Pattern 2, Don't Hand-Roll | Read in full and confirmed generic (no v2.x-specific feature-name references in the clustering/scoring functions themselves — only the spec tables and `_resolve_strength`'s companion-field lookups are v2.x-specific); risk is limited to minor adaptation friction, not a wrong architectural call |
 | A6 | The `src/intelligence/features/smc_context/`/`src/intelligence/features/i3_structure/` directories, despite the "features" name, are part of the same dead I1-I7 tier as `src/intelligence/archive/`, not a live v3.0 Feature Factory component | Q2 | Verified directly (register_plugins.py import sources + zero matching live schema columns for every referenced field) — HIGH confidence, not really an assumption, but logged here because the naming collision is a real trap for anyone re-deriving this without checking |
 
-## Open Questions
+## Open Questions (RESOLVED — see 2026-07-23 planning + review pass)
 
-1. **Does the structural candidate Part 1's implementation wave need to be sequenced strictly
+1. **RESOLVED (diverges from this research's own recommendation, deliberately — see 166-01 Task 0 / 166-06 Task 2).** Does the structural candidate Part 1's implementation wave need to be sequenced strictly
    after Phase 163 execution, or can Phase 166 include executing Phase 163 as its own first
-   task?**
+   task?
    - What we know: Phase 163 is fully planned, reviewed, and marked execution-ready in
      STATE.md's Tier 2. It has not been executed. Part 1 cannot produce a meaningfully different
      result from the scalar candidate without Phase 163's columns being live (Pitfall 2).
    - What's unclear: whether the Phase 166 plan should treat `/gsd-execute-phase 163` as an
      explicit prerequisite task/wave inside its own plan, or a cross-phase sequencing dependency
      to resolve before plan-checking Phase 166.
-   - Recommendation: treat Phase 163 execution as Wave 0 (or an explicit prerequisite gate) of
+   - Recommendation (this research): treat Phase 163 execution as Wave 0 (or an explicit prerequisite gate) of
      Phase 166's plan — independent, already fully planned, low-risk, directly unblocks Part 1.
+   - **Resolution (planning, then reaffirmed after Codex review):** Phase 163 is NOT force-executed inside Phase
+     166's own plan — it stays a runtime-checked external cross-phase prerequisite. 166-01 Task 0 checks and
+     records liveness; 166-06 Task 2 halts the structural arm only if not live. A `NULL_PENDING_163` halt is
+     an explicit, valid, complete 2-of-3-arm phase outcome (baseline + scalar scored, structural marked "not
+     evaluable"), not a failure or re-planning trigger. Codex's review flagged the ambiguity of this outcome;
+     both 166-01 and 166-06 now state the completion semantics explicitly in both branches.
 
-2. **What exactly is the scalar candidate's selection criterion for stop_atr_mult/
-   target_r_multiple, precisely?**
+2. **RESOLVED in 166-02 (LOCKED DESIGN DECISION).** What exactly is the scalar candidate's selection criterion for stop_atr_mult/
+   target_r_multiple, precisely?
    - What we know: EIC-02's STRUCTURE should be mirrored (D-03.1). The literal IC-decay-walk
      criterion does not transfer (Pitfall 1). `counterfactual_mfe`/`counterfactual_mae` are
      already-collected, in-sample-available, rescalable-to-ATR-units data.
@@ -874,9 +880,14 @@ PATTERN reuse only, never for direct invocation.
      whether a fresh grid-search re-simulation is preferred over reusing existing censored data.
    - Recommendation: surface both options explicitly to `/gsd-discuss-phase` or the plan step for
      an explicit call, given the Renaissance-rigor lens CONTEXT.md invokes.
+   - **Resolution:** percentile of the naturally-uncensored excursion subpopulation — stop from
+     `closed_target` winner-MAE (`alpha.ensemble_ic.stop_mae_percentile`, default 90th), target from
+     `closed_max_hold` time-exit-MFE (`alpha.ensemble_ic.target_mfe_percentile`, default 50th). Sidesteps
+     todo 088's right-censoring bias by construction. Grid-search re-simulation and naive all-frame
+     percentile were both explicitly considered and rejected.
 
-3. **Should the new gate reuse SHADOW-REVIEW.md's frozen five criteria verbatim, or define new
-   ones?** (CONTEXT.md explicitly left this open.)
+3. **RESOLVED in 166-04 (LOCKED DESIGN DECISION).** Should the new gate reuse SHADOW-REVIEW.md's frozen five criteria verbatim, or define new
+   ones? (CONTEXT.md explicitly left this open.)
    - What we know: SHADOW-REVIEW.md's five criteria are frozen for the CHAMPION's live-promotion
      decision specifically — reusing them for candidate SELECTION (not live-capital promotion) is
      a different question with potentially different appropriate thresholds.
@@ -887,9 +898,15 @@ PATTERN reuse only, never for direct invocation.
      (Pattern 4), but let the plan step decide explicitly whether thresholds are SHADOW-REVIEW.md's
      frozen values or a new `alpha.scoring.166.*` APR key family. Pre-register this BEFORE
      touching OOS data (Pitfall 5).
+   - **Resolution:** reuse SHADOW-REVIEW.md's frozen five criteria verbatim as the absolute bar (via
+     `frame_gate_passes`/`evaluate_frame_gate` unmodified), applied identically to all three arms
+     (baseline/scalar/structural) — no new thresholds, avoiding any OOS-peeking to tune a bar. Per-candidate
+     `gate_id`s (`gate166_scalar`/`gate166_structural`/`gate166_baseline`). Post-review, 166-04 also added a
+     descriptive (non-gating) population-footprint field to the evidence JSON and a per-`gate_id` dry-run
+     sentinel enforcing the one-dry-run-per-candidate rule in code, not just procedure (Pitfall 5).
 
-4. **Where and how should structural candidate Part 2 (SMC/swing/fib/anchored-VWAP extension) be
-   tracked once deferred?**
+4. **RESOLVED in 166-06 Task 3 (todo 175 filed).** Where and how should structural candidate Part 2 (SMC/swing/fib/anchored-VWAP extension) be
+   tracked once deferred?
    - What we know: Q3/Q4 above recommend deferring Part 2 entirely, pending Phases 164/165 and a
      new anchored-VWAP scoping effort.
    - What's unclear: whether this should be one new follow-on todo, or three separate ones
@@ -900,6 +917,10 @@ PATTERN reuse only, never for direct invocation.
      project's "capture todos immediately" convention), cross-referencing all three dependencies,
      and leave an explicit extension-point comment in the new module pointing at that todo number.
      This is a planning/execution-time decision, not something this research locks in.
+   - **Resolution:** one consolidated todo (175), cross-referencing Phases 164/165 + anchored-VWAP, with the
+     extension-point comment in `structural_confluence.py` citing it. Post-review, 166-06's verdict doc must
+     also state explicitly that this toolkit was evaluated and deliberately deferred (not silently dropped),
+     so the user's original "reuse v2 trade lifecycle" ask is answered rather than left ambiguous.
 
 ## Environment Availability
 
