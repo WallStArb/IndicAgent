@@ -16,14 +16,20 @@ import inspect
 import sys
 from pathlib import Path
 
+import numpy as np
+import pytest
+
 _project_root = Path(__file__).parent.parent.parent
 if str(_project_root) not in sys.path:
     sys.path.insert(0, str(_project_root))
 
 from services.ic_engine import (
+    CellTooLargeError,
     _compute_cross_sectional_tf,
+    _compute_one_cross_sectional_cell,
     _compute_one_regime_cell,
     _compute_symbol_tf,
+    _subsample_and_rank,
 )
 
 
@@ -148,13 +154,18 @@ def test_compute_cross_sectional_tf_closes_connection_before_clustering():
     (and closed before) the CPU-only clustering/bootstrap phase begins -- not held
     open across it (todo 125, same pattern as _compute_symbol_tf's todo 102 fix).
 
-    Post-todo-129 (162-01): the explicit conn.close() call was replaced by scoping
-    the fetch phase inside a `with short_lived_conn(dsn) as conn:` block --
+    Post-todo-129 (162-01 Task 1): the explicit conn.close() call was replaced by
+    scoping the fetch phase inside a `with short_lived_conn(dsn) as conn:` block --
     short_lived_conn guarantees close() in a finally, including on exception
-    mid-fetch, which the old hand-rolled conn.close() call did not. Structural
-    regression guard: fails if a future edit re-introduces a long-held connection
-    by moving _cluster_features( inside the with block (or removing the with
-    block entirely).
+    mid-fetch, which the old hand-rolled conn.close() call did not.
+
+    Post-162-01 Task 3: the clustering + per-scale compute phase itself moved into
+    _compute_one_cross_sectional_cell (a separate function, called after the fetch
+    phase's `with` block exits) -- so the connection is now structurally impossible
+    to hold open across the compute-only phase, not just conventionally closed
+    early. Structural regression guard: fails if a future edit calls
+    _compute_one_cross_sectional_cell( from inside the with block (or removes the
+    with block entirely).
     """
     source = inspect.getsource(_compute_cross_sectional_tf)
 
@@ -163,78 +174,59 @@ def test_compute_cross_sectional_tf_closes_connection_before_clustering():
         "phase via short_lived_conn(dsn) (todo 129), not hold it open across the "
         "clustering/bootstrap compute begins"
     )
+    assert "_compute_one_cross_sectional_cell(" in source, (
+        "_compute_cross_sectional_tf must delegate its per-scale compute to "
+        "_compute_one_cross_sectional_cell (162-01 Task 3)"
+    )
 
     with_idx = source.index("with short_lived_conn(dsn) as conn:")
-    cluster_idx = source.index("_cluster_features(")
-    assert with_idx < cluster_idx, (
-        "_cluster_features( must appear after the short_lived_conn(dsn) with-block "
-        "has closed -- the connection must not be held open across the multi-hour "
-        "clustering/bootstrap phase"
+    call_idx = source.index("_compute_one_cross_sectional_cell(")
+    assert with_idx < call_idx, (
+        "_compute_one_cross_sectional_cell( must appear after the "
+        "short_lived_conn(dsn) with-block has closed -- the connection must not "
+        "be held open across the multi-hour clustering/bootstrap phase"
     )
-    # _cluster_features( must be OUTSIDE the with block (dedented back to the
-    # function's own indentation), not merely textually after the `with` line --
-    # find the with-block's body indentation and confirm _cluster_features( sits
-    # at a shallower indentation than that.
+    # _compute_one_cross_sectional_cell( must be OUTSIDE the with block (dedented
+    # back to the function's own indentation), not merely textually after the
+    # `with` line -- find the with-block's body indentation and confirm the call
+    # sits at a shallower indentation than that.
     with_line = source[: source.index("\n", with_idx)].splitlines()[-1]
     with_indent = len(with_line) - len(with_line.lstrip())
-    cluster_line_start = source.rindex("\n", 0, cluster_idx) + 1
-    cluster_line_end = source.index("\n", cluster_idx)
-    cluster_line = source[cluster_line_start:cluster_line_end]
-    cluster_indent = len(cluster_line) - len(cluster_line.lstrip())
-    assert cluster_indent <= with_indent, (
-        "_cluster_features( must be dedented outside the short_lived_conn(dsn) "
-        "with-block, not nested inside it"
+    call_line_start = source.rindex("\n", 0, call_idx) + 1
+    call_line_end = source.index("\n", call_idx)
+    call_line = source[call_line_start:call_line_end]
+    call_indent = len(call_line) - len(call_line.lstrip())
+    assert call_indent <= with_indent, (
+        "_compute_one_cross_sectional_cell( must be dedented outside the "
+        "short_lived_conn(dsn) with-block, not nested inside it"
     )
 
 
-def test_cross_sectional_rankdata_output_is_float32_not_float64():
-    """ranks_X_scale/ranks_Y must cast rankdata()'s output to float32 (2026-07-19
-    OOM fix -- rankdata() always returns float64 regardless of input dtype, see
-    the source comment above this line for the full incident rationale)."""
-    source = inspect.getsource(_compute_cross_sectional_tf)
+def test_subsample_and_rank_rankdata_output_is_float32_not_float64():
+    """ranks_X_scale (the block-ranked feature matrix) must cast rankdata()'s
+    output to float32 (2026-07-19 OOM fix -- rankdata() always returns float64
+    regardless of input dtype).
 
-    rankdata_idx = source.index("ranks_X_scale = rankdata(X_sub_nd, axis=0)")
-    line_end = source.index("\n", rankdata_idx)
-    assert "astype(np.float32)" in source[rankdata_idx:line_end]
-
-
-def test_per_symbol_rankdata_output_is_float32_not_float64():
-    """Same fix, sibling function: _compute_symbol_tf's ranks_X_scale must cast
-    to float32 too.
-
-    This per-cell logic now lives in _compute_one_regime_cell (extracted from
-    _compute_symbol_tf, restore-symbol-hmm-ic-measurement Task 1) -- the guard
-    moved with it, unchanged.
+    This is now shared, feature-blocked logic in _subsample_and_rank (162-01
+    Task 3, todos 139/140) -- both _compute_one_regime_cell and
+    _compute_one_cross_sectional_cell delegate to it, so the guard lives here
+    once instead of duplicated per caller.
     """
-    source = inspect.getsource(_compute_one_regime_cell)
+    source = inspect.getsource(_subsample_and_rank)
 
-    rankdata_idx = source.index("ranks_X_scale = rankdata(X_sub_nd, axis=0)")
+    rankdata_idx = source.index(
+        "ranks_block = rankdata(X_sub_nd[:, block_start:block_end], axis=0)"
+    )
     line_end = source.index("\n", rankdata_idx)
     assert "astype(np.float32)" in source[rankdata_idx:line_end]
 
 
-def test_cross_sectional_fold_rankdata_output_is_float32_not_float64():
+def test_subsample_and_rank_fold_rankdata_output_is_float32_not_float64():
     """The walk-forward fold loop's own rankdata() calls (rX_test/rY_test) need
-    the same float32 cast as ranks_X_scale/ranks_Y above them -- missed in the
-    initial 2026-07-19 OOM fix, then fixed here. Runs walk_forward_folds times
-    per scale, each a fresh float64 promotion on top of the already-tight peak."""
-    source = inspect.getsource(_compute_cross_sectional_tf)
-
-    fold_idx = source.index("fold_ics_list.append(\n                _vectorized_ic(")
-    call_end = source.index(")\n", fold_idx)
-    fold_call = source[fold_idx:call_end]
-    assert fold_call.count("astype(np.float32)") == 2
-
-
-def test_per_symbol_fold_rankdata_output_is_float32_not_float64():
-    """Same fix, sibling function: _compute_symbol_tf's fold-loop rX_test/rY_test
-    must cast to float32 too.
-
-    This per-cell logic now lives in _compute_one_regime_cell (extracted from
-    _compute_symbol_tf, restore-symbol-hmm-ic-measurement Task 1) -- the guard
-    moved with it, unchanged.
-    """
-    source = inspect.getsource(_compute_one_regime_cell)
+    the same float32 cast as ranks_block/ranks_Y above them -- missed in the
+    initial 2026-07-19 OOM fix, then fixed here. Shared, feature-blocked logic
+    in _subsample_and_rank (162-01 Task 3)."""
+    source = inspect.getsource(_subsample_and_rank)
 
     rx_idx = source.index("rX_test = rankdata(X_test, axis=0)")
     line_end = source.index("\n", rx_idx)
@@ -245,12 +237,34 @@ def test_per_symbol_fold_rankdata_output_is_float32_not_float64():
     assert "astype(np.float32)" in source[ry_idx:line_end]
 
 
+def test_both_cell_functions_call_subsample_and_rank():
+    """Both _compute_one_regime_cell (per-symbol) and
+    _compute_one_cross_sectional_cell (cross-sectional) must delegate their
+    rank/IC/CI/fold compute to the shared, feature-blocked _subsample_and_rank
+    helper (162-01 Task 3, todos 139/140) -- a hand-pasted rank fix in one
+    sibling can no longer diverge from the other."""
+    regime_source = inspect.getsource(_compute_one_regime_cell)
+    cross_sectional_source = inspect.getsource(_compute_one_cross_sectional_cell)
+
+    assert (
+        "_subsample_and_rank(" in regime_source
+    ), "_compute_one_regime_cell must call _subsample_and_rank"
+    assert (
+        "_subsample_and_rank(" in cross_sectional_source
+    ), "_compute_one_cross_sectional_cell must call _subsample_and_rank"
+
+
 def test_cross_sectional_per_scale_subsample_uses_slice_not_fancy_index():
     """The per-scale subsample (X_sub, X_sub_nd, returns_sub, complete_sub) must
     use basic slicing (a numpy VIEW), not `arr[np.arange(...)]` fancy indexing
     (always a full copy) -- 2026-07-19 OOM fix. See the source comment above
-    this block for the full incident rationale."""
-    source = inspect.getsource(_compute_cross_sectional_tf)
+    this block for the full incident rationale.
+
+    This per-cell logic now lives in _compute_one_cross_sectional_cell
+    (extracted from _compute_cross_sectional_tf, 162-01 Task 3) -- the guard
+    moved with it, unchanged.
+    """
+    source = inspect.getsource(_compute_one_cross_sectional_cell)
 
     assert "sub_idx = np.arange(" not in source
     assert "X_raw[sub_idx]" not in source and "X_nd[sub_idx]" not in source
@@ -272,6 +286,166 @@ def test_per_symbol_per_scale_subsample_uses_slice_not_fancy_index():
     assert "X_regime[sub_idx]" not in source and "X_regime_nd[sub_idx]" not in source
     assert "stride = slice(0, n_regime_raw, scale_stride)" in source
     assert "X_regime[stride]" in source and "X_regime_nd[stride]" in source
+
+
+def test_subsample_and_rank_feature_blocked_matches_unblocked():
+    """Synthetic, DB-free equivalence check (162-01 Task 3): feature-blocked
+    output must equal unblocked output on a small in-memory array.
+
+    Calls _subsample_and_rank twice on identical synthetic data with the same
+    rng seed -- once with feature_block_columns >= n_features (effectively one
+    giant "unblocked" block) and once with a small block size (2 columns per
+    block, forcing 5 blocks over 10 features). Every returned array must match
+    exactly: rankdata(X, axis=0) ranks each feature column independently of
+    its neighbors (Pattern verified live, 2026-07-22 -- a single batched
+    rng.integers(size=(B, K)) call consumes the RNG stream identically to B
+    sequential rng.integers(size=K) calls), so splitting the feature axis into
+    blocks changes neither the per-column rank values nor the bootstrap CI's
+    resample indices (the CRITICAL RNG invariant _subsample_and_rank's
+    docstring describes).
+    """
+    from services.ic_engine import _subsample_and_rank
+
+    rng_data = np.random.default_rng(7)
+    n_sub = 300
+    n_features = 10
+    X_sub_nd = rng_data.normal(size=(n_sub, n_features)).astype(np.float32)
+    returns_scale = rng_data.normal(size=n_sub)
+    valid_mask = np.ones(n_sub, dtype=bool)
+    valid_mask[:20] = False  # exercise the mask, not just an all-true trivial case
+
+    common_kwargs = dict(
+        walk_forward_folds=3,
+        embargo_bars=1,
+        min_reliable_n=2,
+        bootstrap_block_size=10,
+        bootstrap_resamples=50,
+        max_workers=1,
+    )
+
+    unblocked = _subsample_and_rank(
+        X_sub_nd,
+        valid_mask,
+        returns_scale,
+        rng=np.random.default_rng(42),
+        feature_block_columns=n_features,  # one giant block == unblocked
+        **common_kwargs,
+    )
+    blocked = _subsample_and_rank(
+        X_sub_nd,
+        valid_mask,
+        returns_scale,
+        rng=np.random.default_rng(42),
+        feature_block_columns=2,  # 5 blocks over 10 features
+        **common_kwargs,
+    )
+
+    (
+        u_X_raw,
+        u_ranks_X,
+        u_ranks_Y,
+        u_ic,
+        u_p,
+        u_ci_lower,
+        u_ci_upper,
+        u_folds,
+    ) = unblocked
+    (
+        b_X_raw,
+        b_ranks_X,
+        b_ranks_Y,
+        b_ic,
+        b_p,
+        b_ci_lower,
+        b_ci_upper,
+        b_folds,
+    ) = blocked
+
+    np.testing.assert_array_equal(u_X_raw, b_X_raw)
+    np.testing.assert_array_equal(u_ranks_X, b_ranks_X)
+    np.testing.assert_array_equal(u_ranks_Y, b_ranks_Y)
+    np.testing.assert_array_equal(u_ic, b_ic)
+    np.testing.assert_array_equal(u_p, b_p)
+    np.testing.assert_array_equal(u_ci_lower, b_ci_lower)
+    np.testing.assert_array_equal(u_ci_upper, b_ci_upper)
+    assert len(u_folds) == len(b_folds)
+    for u_fold, b_fold in zip(u_folds, b_folds):
+        np.testing.assert_array_equal(u_fold, b_fold)
+
+
+def test_cell_too_large_error_raised_by_both_cell_functions():
+    """A cell whose raw row count exceeds config.max_cell_rows fails loudly
+    (CellTooLargeError) from BOTH cell functions, never silently routing to an
+    alternate algorithm (162-01 Task 3, todo 140). Synthetic in-memory arrays,
+    a config with max_cell_rows=5, and a 10-row input -- no DB required.
+    """
+    import dataclasses
+
+    from services.ic_engine import ICEngineConfig
+
+    base_config = ICEngineConfig(
+        min_observations=500,
+        fdr_alpha=0.05,
+        walk_forward_folds=3,
+        sharpe_window_size=2000,
+        sharpe_min_windows=10,
+        subsample_min_stride=5,
+        min_reliable_n=2,
+        cluster_max_corr=0.70,
+        lookahead_fast=1,
+        lookahead_mid=5,
+        lookahead_slow=20,
+        lookahead_extended=60,
+        equity_model_enabled=True,
+        min_obs_daily=1000,
+        hac_max_lag=3,
+        cs_chunk_ts=5000,
+        symbol_fetch_chunk_rows=5000,
+        n_workers=1,
+    )
+    tiny_config = dataclasses.replace(base_config, max_cell_rows=5)
+
+    n_rows = 10
+    n_features = 4
+    X_aligned = np.random.default_rng(1).normal(size=(n_rows, n_features)).astype(np.float32)
+    returns_mat = np.random.default_rng(2).normal(size=(n_rows, 4))
+    complete_mat = np.ones((n_rows, 4), dtype=bool)
+    rng = np.random.default_rng(3)
+
+    with pytest.raises(CellTooLargeError):
+        _compute_one_regime_cell(
+            "trending_up",
+            False,
+            np.ones(n_rows, dtype=bool),
+            "symbol_hmm",
+            X_aligned=X_aligned,
+            returns_mat=returns_mat,
+            complete_mat=complete_mat,
+            config=tiny_config,
+            symbol="TEST",
+            tf="1d",
+            rng=rng,
+            existing_keys=set(),
+            training_window_end=None,
+            feature_status_map=None,
+            run_ts=None,
+        )
+
+    with pytest.raises(CellTooLargeError):
+        _compute_one_cross_sectional_cell(
+            "trending_up",
+            X_raw=X_aligned,
+            returns_mat=returns_mat,
+            complete_mat=complete_mat,
+            config=tiny_config,
+            tf="1d",
+            rng=rng,
+            existing_keys=set(),
+            training_window_end=None,
+            feature_status_map=None,
+            run_ts=None,
+            prior_e_values={},
+        )
 
 
 def test_run_ic_worker_return_keys():
