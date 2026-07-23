@@ -399,6 +399,33 @@ def _append_look_log(look_log_path: Path, run_ts: datetime, evidence: dict[str, 
         f.write(json.dumps(entry) + "\n")
 
 
+def _json_safe(obj: Any) -> Any:
+    """Recursively replace non-finite floats (inf/-inf/nan) with their conventional string
+    representations before JSON serialization.
+
+    Python's json.dumps emits the bare (unquoted) tokens Infinity/-Infinity/NaN for these
+    values by default -- valid Python, but NOT valid JSON per RFC 8259, which PostgreSQL's
+    jsonb parser correctly rejects (InvalidTextRepresentationError: "Token 'Infinity' is
+    invalid"). c2_ci_upper/c7 short-side CI upper bounds legitimately land at +inf for this
+    one-sided test (a meaningful "no upper bound", not an error) -- this evidence payload
+    always contains such values, so the write path must handle them, not merely tolerate
+    them by luck of which numbers happen to be finite on a given run.
+    """
+    if isinstance(obj, float):
+        if obj == float("inf"):
+            return "Infinity"
+        if obj == float("-inf"):
+            return "-Infinity"
+        if obj != obj:  # NaN != NaN is the standard finite check
+            return "NaN"
+        return obj
+    if isinstance(obj, dict):
+        return {k: _json_safe(v) for k, v in obj.items()}
+    if isinstance(obj, list):
+        return [_json_safe(v) for v in obj]
+    return obj
+
+
 async def _write_gate2_row(
     pool: asyncpg.Pool, evidence: dict[str, Any], run_ts: datetime, look_log_path: Path
 ) -> None:
@@ -421,7 +448,7 @@ async def _write_gate2_row(
                 "VALUES ($1, $2, $3::jsonb, $4)",
                 _GATE_ID,
                 evidence["result"],
-                json.dumps(evidence),
+                json.dumps(_json_safe(evidence)),
                 run_ts,
             )
     _append_look_log(look_log_path, run_ts, evidence)
