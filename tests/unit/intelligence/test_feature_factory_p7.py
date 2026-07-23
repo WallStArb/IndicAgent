@@ -422,9 +422,10 @@ def test_feature_vector_domain_complete():
     """61 baseline + 18 Plan 01 + 22 Plan 02 + 12 Plan 05 + 21 Plan 03 + 8 Plan 04
     + 8 Plan 05.5 Renaissance primitives = 150 (new_high_flag/new_low_flag removed
     2026-07-09 as redundant with dist_from_high/dist_from_low, migration 211)
-    + 5 canary/control predictors (Phase 143.1 Plan 02, todo 068) = 155."""
+    + 5 canary/control predictors (Phase 143.1 Plan 02, todo 068) = 155, + 17
+    structural VP/SR fields (Phase 163 Plan 01, migration 255) = 172."""
     fv_fields = {f.name for f in dataclasses.fields(FeatureVector)}
-    assert len(FEATURE_VECTOR_DOMAIN) == 155
+    assert len(FEATURE_VECTOR_DOMAIN) == 172
     assert set(FEATURE_VECTOR_DOMAIN.keys()) == fv_fields
 
 

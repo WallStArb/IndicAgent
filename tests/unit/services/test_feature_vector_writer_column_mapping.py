@@ -4,7 +4,10 @@ Verifies that the tuple produced by _record_to_insert_params
 carries data in the correct position for each INSERT column.
 Migration 159 expanded the tuple from 61 to 70 elements; migration 206's
 2026-07-08 persistence-wiring fix (see feature_vector_persistence.py
-docstring) extended it to 161:
+docstring) extended it to 161 (159 post migration 211's redundant-field
+drop); migration 223 extended it to 164 (5 canary columns); migration 255
+(Phase 163 Plan 01) extended it to 181 (17 structural VP/SR columns,
+appended after the canary fields):
 
   $1   (params[0])   -> feature_vector_id       UUID (content-key)
   $2   (params[1])   -> symbol                  str
@@ -59,6 +62,26 @@ def _make_sentinel_record():
         va_position=17.17,
         sr_support_dist=18.18,
         sr_resist_dist=19.19,
+        # Structural VP/SR (Phase 163 Plan 01) — wired into the persisted tuple
+        # 2026-07-23 (migration 255 writer wiring), appended after the canary
+        # fields (see feature_vector_persistence.py docstring).
+        nearest_hvn_above_dist_atr=61.01,
+        nearest_hvn_below_dist_atr=61.02,
+        nearest_lvn_above_dist_atr=61.03,
+        nearest_lvn_below_dist_atr=61.04,
+        price_in_value_area=61.05,
+        in_lvn=61.06,
+        va_width_atr=61.07,
+        distance_to_vah_atr=61.08,
+        distance_to_val_atr=61.09,
+        nearest_hvn_dist_atr=61.10,
+        poc_rolling_dist_atr=61.11,
+        poc_session_rolling_divergence_atr=61.12,
+        resistance_strength=61.13,
+        support_strength=61.14,
+        resistance_age_bars=61.15,
+        support_age_bars=61.16,
+        sr_level_count=61.17,
         hmm_regime_prob=20.20,
         hmm_entropy=21.21,
         hmm_duration=22.22,
@@ -211,16 +234,16 @@ def _make_sentinel_record():
 
 
 def test_params_length_is_159():
-    """_record_to_insert_params must return exactly 159 elements (161 post migration
-    206's 2026-07-08 persistence-wiring fix, then 159 after migration 211 dropped
-    the redundant new_high_flag/new_low_flag columns 2026-07-09 — see
+    """_record_to_insert_params must return exactly 181 elements (159 post migration
+    211's new_high_flag/new_low_flag drop, 164 after migration 223's 5 canary
+    columns, 181 after migration 255's 17 structural VP/SR columns — see
     feature_vector_persistence.py docstring)."""
     from services.feature_vector_writer import _record_to_insert_params
 
     record = _make_sentinel_record()
     params = _record_to_insert_params(record)
 
-    assert len(params) == 164, f"Expected 164, got {len(params)}"
+    assert len(params) == 181, f"Expected 181, got {len(params)}"
 
 
 def test_feature_vector_id_at_index_0():
@@ -416,9 +439,10 @@ def test_parkinson_vol_z_at_index_143():
     assert params[143] == pytest.approx(59.01), f"$144 (parkinson_vol_z) wrong: {params[143]}"
 
 
-def test_vol_skew_product_at_index_158_is_last_element():
+def test_vol_skew_product_at_index_158():
     """params[158] ($159) must be vol_skew_product sentinel value 60.08 -- the
-    final column. Index shifted from 160 after migration 211 dropped
+    last Renaissance primitive (canary + structural VP/SR columns follow it,
+    migration 223/255). Index shifted from 160 after migration 211 dropped
     new_high_flag/new_low_flag.
     """
     from services.feature_vector_writer import _record_to_insert_params
@@ -426,5 +450,17 @@ def test_vol_skew_product_at_index_158_is_last_element():
     record = _make_sentinel_record()
     params = _record_to_insert_params(record)
 
-    assert len(params) == 164
     assert params[158] == pytest.approx(60.08), f"$159 (vol_skew_product) wrong: {params[158]}"
+
+
+def test_sr_level_count_at_index_180_is_last_element():
+    """params[180] ($181) must be sr_level_count sentinel value 61.17 -- the
+    final column, appended after the canary fields by migration 255 (Phase 163
+    Plan 01)."""
+    from services.feature_vector_writer import _record_to_insert_params
+
+    record = _make_sentinel_record()
+    params = _record_to_insert_params(record)
+
+    assert len(params) == 181
+    assert params[180] == pytest.approx(61.17), f"$181 (sr_level_count) wrong: {params[180]}"

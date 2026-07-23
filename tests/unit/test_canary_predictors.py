@@ -190,8 +190,10 @@ class TestFeatureVectorCanaryFields:
         count -- the row-count alignment gate depends on it staying accurate."""
         total = len(dataclasses.fields(FeatureVector))
         # 150 fields prior to this plan (61 baseline + 89 Renaissance
-        # primitives after the migration-211 redundant-field removal).
-        assert total == 150 + 5
+        # primitives after the migration-211 redundant-field removal), +5
+        # canary fields = 155, +17 structural VP/SR fields (Phase 163 Plan 01,
+        # migration 255, added after this test was written) = 172.
+        assert total == 150 + 5 + 17
 
 
 # ---------------------------------------------------------------------------
@@ -414,7 +416,8 @@ class TestFeatureFactoryIntegration:
         assert fv.canary_near_constant == _CANARY_CONSTANT_VALUE
         assert fv.canary_acausal_placebo == 0.0
         # No crash, and no missing field -- full dataclass construction succeeded.
-        assert len(dataclasses.fields(fv)) == 155
+        # 155 prior to Phase 163 Plan 01's 17 new structural VP/SR fields (migration 255).
+        assert len(dataclasses.fields(fv)) == 172
 
 
 # ---------------------------------------------------------------------------

@@ -18,10 +18,12 @@ from __future__ import annotations
 import math
 from collections import deque
 from dataclasses import dataclass, field
-from datetime import datetime
+from datetime import UTC, datetime, timedelta
 from typing import TYPE_CHECKING
 
 import numpy as np
+
+from src.intelligence.context.session_context import _et_from_utc
 
 if TYPE_CHECKING:
     from src.intelligence.feature_factory import FeatureFactoryConfig
@@ -82,6 +84,27 @@ class FeatureCache:
     _wk_tp_vol_sum: float = field(default=0.0, repr=False)
     _wk_vol_sum: float = field(default=0.0, repr=False)
     _wk_year_week: tuple = field(default=(-1, -1), repr=False)  # (iso_year, iso_week)
+
+    # Internal accumulator for session volume profile (Phase 163 Plan 01, D-03).
+    # Non-incremental: the full histogram is recomputed over these accumulated
+    # bars on every update_session_vp() call (sidesteps market_profile.py's
+    # unbounded-accumulator bug, D-01). Reset at the NY session boundary.
+    _sess_bars: list = field(default_factory=list, repr=False)  # [(high, low, close, volume), ...]
+    _session_day: object = field(default=None, repr=False)  # ET calendar date of current session
+
+    # Internal RAW-level session-VP results (NOT FeatureVector fields — D-16
+    # forbids persisting raw price levels; Plan 02 derives ATR-distance outputs
+    # from these plus the compute-path atr_val).
+    _sess_poc: float | None = field(default=None, repr=False)
+    _sess_vah: float | None = field(default=None, repr=False)
+    _sess_val: float | None = field(default=None, repr=False)
+    _sess_hvn_above: float | None = field(default=None, repr=False)
+    _sess_hvn_below: float | None = field(default=None, repr=False)
+    _sess_lvn_above: float | None = field(default=None, repr=False)
+    _sess_lvn_below: float | None = field(default=None, repr=False)
+    _sess_hvn_nearest: float | None = field(default=None, repr=False)  # legacy nearest_hvn_level
+    _sess_price_in_va: float = field(default=0.0, repr=False)
+    _sess_in_lvn: float = field(default=0.0, repr=False)
 
     def refresh_regime(self, bars: list[dict], config: FeatureFactoryConfig) -> None:
         """Recompute regime-level features from bars and update cache.
@@ -164,6 +187,103 @@ class FeatureCache:
         wk_vwap = self._wk_tp_vol_sum / self._wk_vol_sum if self._wk_vol_sum > 1e-10 else close
         self.above_wk_vwap = float(close > wk_vwap)
 
+    def update_session_vp(
+        self,
+        bar_ts: datetime,
+        high: float,
+        low: float,
+        close: float,
+        volume: float,
+        config: FeatureFactoryConfig,
+    ) -> None:
+        """Update session-anchored volume-profile state (POC/VAH/VAL/HVN/LVN raw levels).
+
+        Ported from ctx_VolumeProfile (D-13), non-incremental by design: recomputes
+        the full volume-weighted histogram over the accumulated session bars on every
+        call (sidesteps market_profile.py's unbounded-accumulator bug, D-01; matches
+        ctx_VolumeProfile's own non-incremental design). Resets the accumulator at the
+        NY session boundary using the existing feature.session.ny_start_utc_hour/minute
+        APR key (the same UTC-hour comparison _in_ny_session already uses) to detect
+        "at/after today's open", combined with the ET calendar date (via _et_from_utc)
+        to identify the session -- the exact session-boundary-reset shape as
+        update_wk_vwap's ISO-week reset, keyed on ET session day instead. Called once
+        per bar by both the live pipeline and backfill (call sites added in Plan 02);
+        this mutator computes only -- no ATR-normalized outputs (no atr_val available
+        here), Plan 02 derives poc_dist_atr / *_dist_atr / va_width_atr /
+        distance_to_vah|val_atr in compute() from the raw levels stored here plus the
+        compute-path atr_val.
+        """
+        ts = bar_ts if bar_ts.tzinfo is not None else bar_ts.replace(tzinfo=UTC)
+        total_minutes = ts.hour * 60 + ts.minute
+        start_minutes = config.ny_session_start_utc_hour * 60 + config.ny_session_start_utc_minute
+        et_date = _et_from_utc(ts).date()
+        session_day = et_date if total_minutes >= start_minutes else et_date - timedelta(days=1)
+        if session_day != self._session_day:
+            self._sess_bars = []
+            self._session_day = session_day
+
+        self._sess_bars.append((float(high), float(low), float(close), float(volume)))
+
+        arr = np.array(self._sess_bars, dtype=float)
+        s_high, s_low, s_close, s_volume = arr[:, 0], arr[:, 1], arr[:, 2], arr[:, 3]
+
+        n_buckets = config.session_vp_n_buckets
+        profile = _compute_session_vp_profile(s_high, s_low, s_close, s_volume, n_buckets)
+        if profile is None:
+            self._reset_session_vp_state()
+            return
+
+        vol_hist, bucket_prices, bucket_size, price_min = profile
+        total_vol = float(vol_hist.sum())
+        if total_vol == 0:
+            self._reset_session_vp_state()
+            return
+
+        poc_price, vah, val = _compute_session_value_area(
+            vol_hist, bucket_prices, config.session_vp_value_area_pct
+        )
+        directional = _compute_session_directional_nodes(
+            vol_hist,
+            bucket_prices,
+            float(close),
+            config.session_vp_hvn_threshold,
+            config.session_vp_lvn_threshold,
+        )
+
+        nonzero = vol_hist[vol_hist > 0]
+        if len(nonzero) == 0:
+            in_lvn_flag = 0.0
+        else:
+            vol_threshold_low = float(np.quantile(nonzero, config.session_vp_lvn_threshold))
+            cur_bucket = int(np.clip((close - price_min) / bucket_size, 0, n_buckets - 1))
+            in_lvn_flag = 1.0 if vol_hist[cur_bucket] <= vol_threshold_low else 0.0
+
+        price_in_va = 1.0 if val is not None and vah is not None and val <= close <= vah else 0.0
+
+        self._sess_poc = poc_price
+        self._sess_vah = vah
+        self._sess_val = val
+        self._sess_hvn_above = directional.get("nearest_hvn_above")
+        self._sess_hvn_below = directional.get("nearest_hvn_below")
+        self._sess_lvn_above = directional.get("nearest_lvn_above")
+        self._sess_lvn_below = directional.get("nearest_lvn_below")
+        self._sess_hvn_nearest = directional.get("nearest_hvn_level")
+        self._sess_price_in_va = price_in_va
+        self._sess_in_lvn = in_lvn_flag
+
+    def _reset_session_vp_state(self) -> None:
+        """Clear session-VP raw-level state (degenerate histogram: zero price range or zero volume)."""
+        self._sess_poc = None
+        self._sess_vah = None
+        self._sess_val = None
+        self._sess_hvn_above = None
+        self._sess_hvn_below = None
+        self._sess_lvn_above = None
+        self._sess_lvn_below = None
+        self._sess_hvn_nearest = None
+        self._sess_price_in_va = 0.0
+        self._sess_in_lvn = 0.0
+
     def advance_bar(
         self,
         bar_ts: datetime,
@@ -235,6 +355,131 @@ class FeatureCache:
                 ratio = float(tlt_rets[-1]) - float(shy_rets[-1])
                 self._yield_ratio_history.append(ratio)
             self.yield_slope_z = _zscore_from_deque(self._yield_ratio_history, yzw)
+
+
+# ---------------------------------------------------------------------------
+# Pure computation helpers (used by update_session_vp) — ported from
+# src/intelligence/context/volume_profile.py (ctx_VolumeProfile, D-13). Logic is
+# unchanged from the source plugin's _compute_profile / _compute_value_area /
+# _compute_directional_nodes; only the previously-hardcoded constants
+# (_N_BUCKETS/_HVN_THRESHOLD/_LVN_THRESHOLD) are now explicit parameters sourced
+# from FeatureFactoryConfig (APR contract) instead of module-level constants.
+# ---------------------------------------------------------------------------
+
+
+def _compute_session_vp_profile(
+    high: np.ndarray,
+    low: np.ndarray,
+    close_arr: np.ndarray,
+    volume: np.ndarray,
+    n_buckets: int,
+) -> tuple[np.ndarray, np.ndarray, float, float] | None:
+    """Build a volume-weighted price histogram over the given bars.
+
+    Returns (vol_hist, bucket_prices, bucket_size, price_min), or None when the
+    session's high-low range is degenerate (zero width).
+    """
+    typical = (high + low + close_arr) / 3.0
+    price_min = float(low.min())
+    price_max = float(high.max())
+    price_range = price_max - price_min
+    if price_range <= 0:
+        return None
+    bucket_size = price_range / n_buckets
+    bucket_idx = np.clip(
+        ((typical - price_min) / bucket_size).astype(int),
+        0,
+        n_buckets - 1,
+    )
+    vol_hist = np.zeros(n_buckets)
+    for i, b in enumerate(bucket_idx):
+        vol_hist[b] += volume[i]
+    bucket_prices = price_min + (np.arange(n_buckets) + 0.5) * bucket_size
+    return vol_hist, bucket_prices, bucket_size, price_min
+
+
+def _compute_session_value_area(
+    vol_hist: np.ndarray,
+    bucket_prices: np.ndarray,
+    value_area_pct: float,
+) -> tuple[float | None, float | None, float | None]:
+    """Compute POC, VAH, VAL from the histogram via the cumulative-volume rule.
+
+    Bug fix vs. the ported source (ctx_VolumeProfile._compute_value_area, D-13):
+    the source breaks ties in `np.argsort(vol_hist)[::-1]` in whatever order the
+    (non-stable-for-ties) sort implementation happens to produce, which can place
+    the POC's own bucket AFTER the 70%-cumulative-volume cutoff when several
+    buckets tie for the maximum volume -- silently violating VAL <= POC <= VAH
+    (Rule 1: found during verification via a synthetic round-trip price path that
+    produced exact volume ties across ~19 buckets; real OHLCV data rarely ties
+    exactly, but a silently-broken invariant is a Renaissance-grade correctness
+    bug regardless of how rarely it triggers). Fixed by tie-breaking on distance
+    from the POC bucket (closest-to-POC first) via np.lexsort, which guarantees
+    the POC's own bucket -- distance 0, the unique minimum -- is always selected
+    first, so it is always a member of va_buckets and the invariant always holds.
+    """
+    total_vol = vol_hist.sum()
+    if total_vol == 0:
+        return None, None, None
+    poc_idx = int(np.argmax(vol_hist))
+    poc_price = float(bucket_prices[poc_idx])
+    target_vol = total_vol * value_area_pct
+    tie_break = np.abs(np.arange(len(vol_hist)) - poc_idx)
+    sorted_idx = np.lexsort((tie_break, -vol_hist))
+    cumvol = 0.0
+    va_buckets: set[int] = set()
+    for idx in sorted_idx:
+        cumvol += vol_hist[idx]
+        va_buckets.add(int(idx))
+        if cumvol >= target_vol:
+            break
+    vah = float(bucket_prices[max(va_buckets)]) if va_buckets else poc_price
+    val = float(bucket_prices[min(va_buckets)]) if va_buckets else poc_price
+    return poc_price, vah, val
+
+
+def _compute_session_directional_nodes(
+    vol_hist: np.ndarray,
+    bucket_prices: np.ndarray,
+    close: float,
+    hvn_threshold: float,
+    lvn_threshold: float,
+) -> dict[str, float | None]:
+    """Compute directional HVN/LVN (nearest above/below close) and the legacy nearest HVN."""
+    nonzero_vols = vol_hist[vol_hist > 0]
+    if len(nonzero_vols) == 0:
+        return {}
+    vol_threshold_high = np.quantile(nonzero_vols, hvn_threshold)
+    vol_threshold_low = np.quantile(nonzero_vols, lvn_threshold)
+
+    hvn_mask = vol_hist >= vol_threshold_high
+    lvn_mask = (vol_hist > 0) & (vol_hist <= vol_threshold_low)
+
+    result: dict[str, float | None] = {}
+
+    if hvn_mask.any():
+        hvn_prices = bucket_prices[hvn_mask]
+        hvn_above = hvn_prices[hvn_prices > close]
+        hvn_below = hvn_prices[hvn_prices <= close]
+        result["nearest_hvn_above"] = float(hvn_above.min()) if len(hvn_above) > 0 else None
+        result["nearest_hvn_below"] = float(hvn_below.max()) if len(hvn_below) > 0 else None
+        result["nearest_hvn_level"] = float(hvn_prices[np.argmin(np.abs(hvn_prices - close))])
+    else:
+        result["nearest_hvn_above"] = None
+        result["nearest_hvn_below"] = None
+        result["nearest_hvn_level"] = None
+
+    if lvn_mask.any():
+        lvn_prices = bucket_prices[lvn_mask]
+        lvn_above = lvn_prices[lvn_prices > close]
+        lvn_below = lvn_prices[lvn_prices <= close]
+        result["nearest_lvn_above"] = float(lvn_above.min()) if len(lvn_above) > 0 else None
+        result["nearest_lvn_below"] = float(lvn_below.max()) if len(lvn_below) > 0 else None
+    else:
+        result["nearest_lvn_above"] = None
+        result["nearest_lvn_below"] = None
+
+    return result
 
 
 # ---------------------------------------------------------------------------
