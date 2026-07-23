@@ -33,6 +33,7 @@ import math
 from collections import deque
 from dataclasses import dataclass, field
 from datetime import UTC, datetime
+from typing import Any
 
 import numpy as np
 
@@ -42,6 +43,7 @@ from src.intelligence.feature_cache import (
     _compute_session_vp_profile,
 )
 from src.intelligence.schemas import FeatureVector
+from src.intelligence.utils import find_peaks, find_troughs
 
 # ---------------------------------------------------------------------------
 # Algorithm version tracking
@@ -3255,6 +3257,155 @@ def _derive_session_vp(
     }
 
 
+# ---------------------------------------------------------------------------
+# Support/Resistance — stateless pivot-clustering (Phase 163 Plan 03)
+# ---------------------------------------------------------------------------
+
+_SR_FALLBACK: dict[str, float] = {
+    "sr_support_dist": 0.0,
+    "sr_resist_dist": 0.0,
+    "resistance_strength": 0.0,
+    "support_strength": 0.0,
+    "resistance_age_bars": 0.0,
+    "support_age_bars": 0.0,
+    "sr_level_count": 0.0,
+}
+
+
+def _finalize_cluster(
+    members: list[tuple[float, int]],
+    volume: np.ndarray,
+    mean_volume: float,
+) -> dict[str, Any]:
+    """Collapse a group of nearby pivots into one level with strength/recency.
+
+    Ported verbatim from support_resistance.py's SupportResistancePlugin
+    (D-02/D-04/D-19): level is the simple mean of member prices, strength is
+    the volume-weighted (capped at 2x mean, uncapped in aggregate) sum across
+    members, latest_idx is the most recent bar index among members (used to
+    derive age_bars = n_bars - 1 - latest_idx by the caller).
+    """
+    avg_level = sum(p for p, _ in members) / len(members)
+    latest_idx = max(idx for _, idx in members)
+    vol_sum = sum(
+        min(2.0, (float(volume[idx]) / mean_volume if mean_volume > 0 else 1.0))
+        for _, idx in members
+    )
+    return {"level": avg_level, "strength": float(vol_sum), "latest_idx": latest_idx}
+
+
+def _cluster_levels(
+    pivots: list[tuple[float, int]],
+    cluster_radius: float,
+    volume: np.ndarray,
+    mean_volume: float,
+) -> list[dict[str, Any]]:
+    """Cluster nearby pivot prices within `cluster_radius`, ported from
+    support_resistance.py's SupportResistancePlugin._cluster_levels (D-02/D-04).
+    """
+    if not pivots:
+        return []
+
+    sorted_pivots = sorted(pivots, key=lambda p: p[0])
+    clusters: list[dict[str, Any]] = []
+    current_cluster: list[tuple[float, int]] = [sorted_pivots[0]]
+
+    for price, idx in sorted_pivots[1:]:
+        if abs(price - current_cluster[-1][0]) <= cluster_radius:
+            current_cluster.append((price, idx))
+        else:
+            clusters.append(_finalize_cluster(current_cluster, volume, mean_volume))
+            current_cluster = [(price, idx)]
+
+    clusters.append(_finalize_cluster(current_cluster, volume, mean_volume))
+    return clusters
+
+
+def _compute_sr_dist_atr(
+    highs: np.ndarray,
+    lows: np.ndarray,
+    close_: float,
+    atr_val: float,
+    volume: np.ndarray,
+    tf: str,
+    config: FeatureFactoryConfig,
+) -> dict[str, float]:
+    """Stateless inline support/resistance (D-02/D-04), ATR-normalized (D-19).
+
+    Ports i3_structure/support_resistance.py's pivot-clustering approach
+    directly: find_peaks/find_troughs over a bounded per-tf lookback window,
+    cluster pivots within (atr_val * config.sr_cluster_atr_mult), take the
+    nearest resistance cluster above close_ and nearest support cluster below
+    close_. Distances are converted to ATR units (the archived plugin reports
+    percent distance instead -- D-02). resistance_strength/support_strength/
+    resistance_age_bars/support_age_bars/sr_level_count come from the SAME
+    cluster objects, at effectively zero extra cost (D-19).
+
+    Falls back to all-zero for any side/field when atr_val <= 0, the window
+    has insufficient bars for find_peaks/find_troughs, or no qualifying pivot
+    cluster exists on that side -- never raises.
+    """
+    atr_valid = atr_val is not None and math.isfinite(atr_val) and atr_val > 0
+    if not atr_valid:
+        return dict(_SR_FALLBACK)
+
+    lookback = config.sr_lookback_by_tf.get(tf, 120)
+    h = highs[-lookback:]
+    lo = lows[-lookback:]
+    v = volume[-lookback:]
+    n_bars = len(h)
+    if n_bars < 2 * config.sr_window + 1:
+        return dict(_SR_FALLBACK)
+
+    peak_indices = find_peaks(h, n=config.sr_window)
+    trough_indices = find_troughs(lo, n=config.sr_window)
+
+    pivot_highs = [(float(h[i]), i) for i in peak_indices]
+    pivot_lows = [(float(lo[i]), i) for i in trough_indices]
+
+    mean_volume = float(v.mean()) if v.size else 0.0
+    cluster_radius = atr_val * config.sr_cluster_atr_mult
+
+    resistance_clusters = _cluster_levels(pivot_highs, cluster_radius, v, mean_volume)
+    support_clusters = _cluster_levels(pivot_lows, cluster_radius, v, mean_volume)
+
+    resistances_above = [c for c in resistance_clusters if c["level"] > close_]
+    supports_below = [c for c in support_clusters if c["level"] < close_]
+
+    nearest_r = min(resistances_above, key=lambda c: c["level"]) if resistances_above else None
+    nearest_s = max(supports_below, key=lambda c: c["level"]) if supports_below else None
+
+    sr_level_count = float(len(resistance_clusters) + len(support_clusters))
+
+    if nearest_r is not None:
+        sr_resist_dist = (nearest_r["level"] - close_) / atr_val
+        resistance_strength = float(nearest_r["strength"])
+        resistance_age_bars = float(n_bars - 1 - nearest_r["latest_idx"])
+    else:
+        sr_resist_dist = 0.0
+        resistance_strength = 0.0
+        resistance_age_bars = 0.0
+
+    if nearest_s is not None:
+        sr_support_dist = (close_ - nearest_s["level"]) / atr_val
+        support_strength = float(nearest_s["strength"])
+        support_age_bars = float(n_bars - 1 - nearest_s["latest_idx"])
+    else:
+        sr_support_dist = 0.0
+        support_strength = 0.0
+        support_age_bars = 0.0
+
+    return {
+        "sr_support_dist": sr_support_dist,
+        "sr_resist_dist": sr_resist_dist,
+        "resistance_strength": resistance_strength,
+        "support_strength": support_strength,
+        "resistance_age_bars": resistance_age_bars,
+        "support_age_bars": support_age_bars,
+        "sr_level_count": sr_level_count,
+    }
+
+
 def _build_feature_vector(
     *,
     momentum_z_fast: float,
@@ -3677,11 +3828,7 @@ class FeatureFactory:
 
         if tf == "1d":
             vp_extra: dict[str, float | None] = dict(_NEUTRAL_VP_EXTRA)
-            sr_support_dist_val: float | None = 0.0
-            sr_resist_dist_val: float | None = 0.0
         else:
-            sr_support_dist_val = cache.sr_support_dist
-            sr_resist_dist_val = cache.sr_resist_dist
             _roll_window = config.session_vp_rolling_window
             poc_price_rolling = _rolling_poc_price(
                 highs[-_roll_window:],
@@ -3693,6 +3840,19 @@ class FeatureFactory:
             vp_extra = _derive_session_vp(cache, close_, atr_val, poc_price_rolling)
         poc_dist_atr_val = vp_extra["poc_dist_atr"]
         va_position_val = vp_extra["va_position"]
+
+        # S/R (Phase 163 Plan 03): stateless inline pivot-clustering, unlike VP,
+        # is valid for tf=='1d' too (no single-daily-bar-has-no-distribution
+        # constraint applies) -- always computed, using the tf-specific
+        # lookback from config (D-19).
+        _sr_fields = _compute_sr_dist_atr(highs, lows, close_, atr_val, volumes, tf, config)
+        sr_support_dist_val: float | None = _sr_fields["sr_support_dist"]
+        sr_resist_dist_val: float | None = _sr_fields["sr_resist_dist"]
+        resistance_strength_val: float | None = _sr_fields["resistance_strength"]
+        support_strength_val: float | None = _sr_fields["support_strength"]
+        resistance_age_bars_val: float | None = _sr_fields["resistance_age_bars"]
+        support_age_bars_val: float | None = _sr_fields["support_age_bars"]
+        sr_level_count_val: float | None = _sr_fields["sr_level_count"]
 
         _dow = _dow_encoding(bar_ts)
 
@@ -3795,6 +3955,11 @@ class FeatureFactory:
             nearest_hvn_dist_atr=vp_extra["nearest_hvn_dist_atr"],
             poc_rolling_dist_atr=vp_extra["poc_rolling_dist_atr"],
             poc_session_rolling_divergence_atr=vp_extra["poc_session_rolling_divergence_atr"],
+            resistance_strength=resistance_strength_val,
+            support_strength=support_strength_val,
+            resistance_age_bars=resistance_age_bars_val,
+            support_age_bars=support_age_bars_val,
+            sr_level_count=sr_level_count_val,
             hmm_regime_prob=cache.hmm_regime_prob,
             hmm_entropy=cache.hmm_entropy,
             hmm_duration=cache.hmm_duration,
@@ -3975,11 +4140,13 @@ class FeatureFactory:
             FeatureCache.update_session_vp(), called once per bar including warm-up --
             the identical mechanism the live path uses (D-05: no I3/tick-data dependency
             exists; the prior claim that this group was uncomputable in batch was a stale,
-            never-verified assumption, now removed). sr_support_dist/sr_resist_dist still
-            read from cache (Plan 03 wires real S/R values).
+            never-verified assumption, now removed). S/R (sr_support_dist, sr_resist_dist,
+            + 5 D-19 strength/age/count fields) computed stateless inline via
+            _compute_sr_dist_atr() over a bounded per-tf lookback window built from
+            OHLCV -- no cache/tick-data dependency, same mechanism in live and batch.
         When cross_asset_by_date is None (live path):
-          - cross-asset and CTF groups read from cache (unchanged behavior); VP uses the
-            same FeatureCache.update_session_vp()-backed derivation as the batch path.
+          - cross-asset and CTF groups read from cache (unchanged behavior); VP and S/R
+            use the same OHLCV-derived computation as the batch path.
         """
         if len(bars) < 2:
             return []
@@ -4078,20 +4245,15 @@ class FeatureFactory:
             vol_ratio_val = _vol_ratio(w_closes, config.vol_short_bars, config.vol_long_bars)
             cmf_val = _cmf(w_highs, w_lows, w_closes, w_volumes, config.cmf_period)
 
-            # Session-level (VP/SR, Phase 163 Plan 02): tf=='1d' keeps neutral
+            # Session-level VP (Phase 163 Plan 02): tf=='1d' keeps neutral
             # defaults (a single daily bar has no intraday distribution); else
             # derive the 14 ATR-normalized/bounded VP fields from FeatureCache's
             # raw session levels (kept current above via update_session_vp(),
             # called for every bar including warm-up) + atr_val -- identical
-            # mechanism in live and batch (D-05). sr_support_dist/sr_resist_dist
-            # still read from cache directly (Plan 03 wires real S/R values).
+            # mechanism in live and batch (D-05).
             if tf == "1d":
                 vp_extra: dict[str, float | None] = dict(_NEUTRAL_VP_EXTRA)
-                sr_support_dist_val = 0.0
-                sr_resist_dist_val = 0.0
             else:
-                sr_support_dist_val = cache.sr_support_dist
-                sr_resist_dist_val = cache.sr_resist_dist
                 _roll_start = max(0, i - config.session_vp_rolling_window + 1)
                 poc_price_rolling = _rolling_poc_price(
                     highs[_roll_start : i + 1],
@@ -4103,6 +4265,29 @@ class FeatureFactory:
                 vp_extra = _derive_session_vp(cache, close_, atr_val, poc_price_rolling)
             poc_dist_atr_val = vp_extra["poc_dist_atr"]
             va_position_val = vp_extra["va_position"]
+
+            # S/R (Phase 163 Plan 03): stateless inline pivot-clustering, valid
+            # for tf=='1d' too (D-19) -- pre-slice the causal window ending at
+            # the current bar (never the full series, to avoid lookahead) and
+            # reuse the already-computed atr_val.
+            _sr_lookback = config.sr_lookback_by_tf.get(tf, 120)
+            _sr_start = max(0, i - _sr_lookback + 1)
+            _sr_fields = _compute_sr_dist_atr(
+                highs[_sr_start : i + 1],
+                lows[_sr_start : i + 1],
+                close_,
+                atr_val,
+                volumes[_sr_start : i + 1],
+                tf,
+                config,
+            )
+            sr_support_dist_val = _sr_fields["sr_support_dist"]
+            sr_resist_dist_val = _sr_fields["sr_resist_dist"]
+            resistance_strength_val = _sr_fields["resistance_strength"]
+            support_strength_val = _sr_fields["support_strength"]
+            resistance_age_bars_val = _sr_fields["resistance_age_bars"]
+            support_age_bars_val = _sr_fields["support_age_bars"]
+            sr_level_count_val = _sr_fields["sr_level_count"]
 
             # Regime-level primitives (all from cache)
             hmm_regime_prob_val = cache.hmm_regime_prob
@@ -4385,6 +4570,11 @@ class FeatureFactory:
                 nearest_hvn_dist_atr=vp_extra["nearest_hvn_dist_atr"],
                 poc_rolling_dist_atr=vp_extra["poc_rolling_dist_atr"],
                 poc_session_rolling_divergence_atr=vp_extra["poc_session_rolling_divergence_atr"],
+                resistance_strength=resistance_strength_val,
+                support_strength=support_strength_val,
+                resistance_age_bars=resistance_age_bars_val,
+                support_age_bars=support_age_bars_val,
+                sr_level_count=sr_level_count_val,
                 hmm_regime_prob=hmm_regime_prob_val,
                 hmm_entropy=hmm_entropy_val,
                 hmm_duration=hmm_duration_val,

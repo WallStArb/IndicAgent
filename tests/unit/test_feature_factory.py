@@ -583,29 +583,43 @@ class TestSessionPrimitives:
         expected = (close - cache._sess_val) / (cache._sess_vah - cache._sess_val)
         assert math.isclose(fv.va_position, expected, abs_tol=1e-9)
 
-    def test_session_sr_support_from_cache(self) -> None:
+    def test_sr_computed_from_ohlcv_not_cache(self) -> None:
+        """S/R (Phase 163 Plan 03) is computed inline from OHLCV pivot-clustering,
+        not read from a flat FeatureCache attribute set externally. Setting
+        cache.sr_support_dist/sr_resist_dist to stub values must have NO effect
+        on the result -- compute() must produce identical output regardless.
+        """
         bars = _make_bars(60)
         config = _make_config()
-        cache = _make_cache()
-        cache.sr_support_dist = 1.2
-        fv = FeatureFactory.compute(bars, "SPY", "1m", cache, config)
-        assert math.isclose(fv.sr_support_dist, 1.2, abs_tol=1e-9)
 
-    def test_1d_tf_session_features_are_defaults(self) -> None:
-        """For tf='1d', session-level features must be zero/0.5 (intraday concepts)."""
+        cache_stub = _make_cache()
+        cache_stub.sr_support_dist = 1.2
+        cache_stub.sr_resist_dist = 9.9
+        fv_with_stub = FeatureFactory.compute(bars, "SPY", "1m", cache_stub, config)
+
+        cache_clean = _make_cache()
+        fv_clean = FeatureFactory.compute(bars, "SPY", "1m", cache_clean, config)
+
+        assert math.isfinite(fv_with_stub.sr_support_dist)
+        assert math.isfinite(fv_with_stub.sr_resist_dist)
+        assert math.isclose(fv_with_stub.sr_support_dist, fv_clean.sr_support_dist, abs_tol=1e-9)
+        assert math.isclose(fv_with_stub.sr_resist_dist, fv_clean.sr_resist_dist, abs_tol=1e-9)
+
+    def test_1d_tf_vp_features_are_defaults(self) -> None:
+        """For tf='1d', VP session-level features must be zero/0.5 (a single
+        daily bar has no intraday distribution). S/R is NOT forced to neutral
+        for tf='1d' (Phase 163 Plan 03) -- pivot-clustering over daily bars is
+        valid, so it is exercised by the S/R regression suite instead.
+        """
         bars = _make_bars(60)
         config = _make_config()
         cache = _make_cache()
         # Set cache values to non-default to confirm 1d override
         cache.poc_dist_atr = 2.0
         cache.va_position = 0.8
-        cache.sr_support_dist = 3.0
-        cache.sr_resist_dist = 4.0
         fv = FeatureFactory.compute(bars, "SPY", "1d", cache, config)
         assert fv.poc_dist_atr == 0.0
         assert fv.va_position == 0.5
-        assert fv.sr_support_dist == 0.0
-        assert fv.sr_resist_dist == 0.0
 
     def test_vwap_dev_sigma_finite(self) -> None:
         bars = _make_bars(60)

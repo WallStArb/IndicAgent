@@ -858,8 +858,8 @@ class TestComputeBatchExternalInjection:
         stale, never-verified assumption that VP required tick-data injection. VP is
         now computed for real via FeatureCache.update_session_vp(), called once per
         bar inside compute_batch()'s loop -- identical mechanism to the live path.
-        sr_support_dist/sr_resist_dist still read straight from cache (0.0 default;
-        Plan 03 wires real S/R values).
+        sr_support_dist/sr_resist_dist are computed inline via _compute_sr_dist_atr()
+        (Phase 163 Plan 03) -- no longer a flat cache read, always finite.
         """
         config = _make_config()
         cache = FeatureCache()
@@ -881,8 +881,8 @@ class TestComputeBatchExternalInjection:
         va_position_vals = [fv.va_position for _, fv in results]
         assert all(v is not None and 0.0 <= v <= 1.0 for v in va_position_vals)
         for _, fv in results:
-            assert fv.sr_support_dist == 0.0  # cache default; Plan 03 wires real values
-            assert fv.sr_resist_dist == 0.0
+            assert math.isfinite(fv.sr_support_dist)
+            assert math.isfinite(fv.sr_resist_dist)
 
     def test_live_path_unchanged_reads_from_cache(self) -> None:
         """When cross_asset_by_date=None (default), cache values flow into FeatureVector."""
