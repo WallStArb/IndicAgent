@@ -171,6 +171,38 @@ Live production `market_regimes` recompute (the real, multi-hour corpus operatio
 implies for the canonical table, invalidating `feature_ic_scores`/`ensemble_weights`/
 `ensemble_alpha`) has NOT been run -- only the offline, read-only re-derivation above.
 
+## `rates` regime group also fixed (2026-07-24, same session): same bug, worse imbalance
+
+User asked whether other regime groups had the same issue. Checked `rates` (`curve_credit`
+signal, the only other enabled group besides `equity`) directly against live `market_regimes`
+population counts: **worse than equity's original bug.** `curve_z`/`credit_z` (TLT-SHY /
+HYG-LQD rolling z-scores) were bucketed against fixed `+-0.5`/`0.0` thresholds (migration
+222) -- "flat" (the middle curve tier) alone accounted for ~86-87% of all intraday bars vs.
+the ~38% a true N(0,1) z-score would imply -- max/min population ratio up to **30.8x**
+(equity's was 12-17x).
+
+**Fixed with the identical pattern**, not a separate bespoke fix: extracted the causal
+bisect-rank logic into a shared `src/intelligence/regime_signals/causal_rank.py` module
+(`breadth_vol.py` now imports from it too, removing its own duplicate copy), applied it to
+`curve_z`/`credit_z`, cut the resulting ranks at population-balanced 0.33/0.67 (curve, 3
+tiers) and 0.5 (credit, 2-tier median split). `PROB_KEYS` renamed `curve_z`/`credit_z` ->
+`curve_pct`/`credit_pct`. Migration 258 recalibrates `alpha.rates_regime.*` defaults with
+full blast-radius documentation, applied live. TDD (new shared causal-rank test file,
+updated curve_credit direction tests -- had to switch from asserting on the final ranked
+value to asserting on the raw z-score directly, since a rolling z-score's causal rank near a
+plateau is sensitive to floating-point noise, discovered empirically while writing the
+test), full unit suite green.
+
+**Not yet done:** offline population-balance verification for `rates` (mirroring
+`recalibrated_breadth_regime_relabel_check.py`'s equity check) and the live
+`market_regimes` recompute for `regime_group='rates'` -- both deferred for the same reason
+as the equity fix (real corpus-scale operations, deliberately not rushed). Also checked:
+`commodity_momentum_ts.py`/`fx_dollar_carry.py` (the two remaining registered signal
+modules) show the identical anti-pattern (raw/rolling z-scores cut at guessed absolute
+thresholds), but both their groups are `enabled: false` with zero live `market_regimes`
+data -- can't be empirically verified or calibrated against real data right now, so NOT
+fixed blind. Worth revisiting if/when those groups are ever enabled.
+
 ## Trend-context split tested (2026-07-24, same session): partial signal, does not cleanly separate crash from dip
 
 User asked to pursue the trend-context hypothesis before deciding on the live recompute.

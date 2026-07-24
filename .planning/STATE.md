@@ -84,8 +84,15 @@ bigger than filed — the new coverage monitor (todo 169) found 14, not 7. Root 
 conversion), not a modeling bug — decompressed, confirmed fix, **CLOSED**. Full detail:
 [[project_todo168_regime_coverage_compression_wall]].
 
-**Todo 092 FIXED (2026-07-24, code + migration 257, live recompute not yet run):** user pushed
-directly on "how was 9 regimes/60-40 chosen, what was the empirical proof — fix it and rerun."
+**Todo 092 FIXED for BOTH enabled regime groups (2026-07-24, code + migrations 257/258, live
+recompute not yet run for either):** user pushed on "how was 9 regimes/60-40 chosen, what was
+the empirical proof — fix it and rerun," then "should we check other regime groups too" —
+`rates` (`curve_credit`) had the identical bug, worse (max/min ratio up to 30.8x vs equity's
+12-17x): `curve_z`/`credit_z` cut at guessed `+-0.5`/`0.0` z-score thresholds. Fixed with the
+same causal-rank pattern (now a shared `causal_rank.py` helper), migration 258 applied, full
+suite green. `commodity_momentum_ts`/`fx_dollar_carry` have the same anti-pattern but are
+`enabled: false` with zero live data — not fixed blind, flagged for whenever they're enabled.
+Original equity fix detail below:
 Root cause: `vix_pct` was already a causal expanding percentile rank (population-balanced by
 construction); `breadth_frac` was a raw fraction cut at fixed, never-calibrated 0.40/0.60.
 Fixed properly — not a one-time number swap — by extracting the causal-rank logic already
