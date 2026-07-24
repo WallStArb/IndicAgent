@@ -1,5 +1,6 @@
 ---
 **Created:** 2026-07-06
+**Closed:** 2026-07-24
 **Area:** intelligence
 **Type:** feature
 **Priority:** P2
@@ -9,6 +10,11 @@
 **Gate:** Phase 142.5 complete (OPEN) — deferred OUT of 142.5 by explicit scope decision
 ---
 
+**Closed 2026-07-24 — content fully captured in `/gsd-plan-phase 151`.** `ret_div_1m_5m`/
+`ret_div_5m_1h`/`ret_div_1h_1d` are built exactly as designed here in
+`151-05-PLAN.md` (Wave 4). Confirmed via the same-day Fable review below: mechanically
+identical to the already-live `ofi_div` pattern, tier-1 classification correct, no APR key
+needed. Remaining work (build + IC screen) tracked under Phase 151, not this todo.
 
 **Status (moved to deferred/, 2026-07-10):** New FeatureFactory columns meant to land in the v3.15/Phase 144 corpus-rerun batch (rides with todos 073/074/075 per the source doc's own sequencing note: batching conditioning/feature changes into one ic_engine re-run rather than burning rerun cycles piecemeal). Revive alongside that batch.
 
@@ -49,3 +55,23 @@ features. Bundling them into a dedicated cross-TF unit avoids mixing two compute
 5. Add a `test_cross_tf_divergences` unit test.
 
 No new APR keys (differences of two atomic per-TF returns, no window).
+
+## Fable review (2026-07-24, dispatched alongside todo 123 — never independently checked before)
+
+**Verdict: KEEP as designed, tier-1 classification confirmed correct.** Grounded against live
+`feature_registry`: mechanically identical to the already-live `ofi_div` (`ofi_z -
+momentum_z_fast`, a bare subtraction of two atomics, `tier=1_interaction`) — just cross-TF
+instead of same-TF, no interpretive "agreement" judgment imposed. Correctly sits below the
+theory-laden `ctf_momentum`/`ctf_vwap_align`/`ctf_regime_align` trio (all `tier=2_theory`
+because they assert cross-TF *agreement* means something specific, not because cross-TF itself
+is theory-laden). Non-redundant — `ctf_*` measure agreement, this measures magnitude divergence.
+
+**Cross-TF DAG concern: routine, not novel.** `feature_cache.py` HTF coupling is already proven
+exactly 3 times at `requires_htf=true` (the `ctf_*` features); this reuses the same plumbing,
+no new architectural risk.
+
+**Naming: correct as-is.** `1m`/`5m`/`1h`/`1d` are DAG-topology/schema identifiers (timeframe
+labels), correctly exempt from naming-system.md §7's gradient-vocabulary rule — they aren't
+tunable calibration parameters, they name which timeframe pair is being differenced.
+
+**No APR key needed — the todo's own "no new APR keys" note is confirmed correct.**
