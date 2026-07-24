@@ -321,12 +321,69 @@ concentration spikes):
    `alpha.frame.geometry_source` back to `global`, regenerate the OOS window, confirm exact
    reproduction of the recorded `9.596` c4 before drawing conclusions specific to baseline.
 
+## Tier-1 validation, run for real (2026-07-24): does ANY regime-conditional expectancy floor exist? No.
+
+Confirmed by direct code read first (not assumed): neither `ensemble_trainer.py`'s
+`_eligibility_where()` nor `alpha_publisher.py`'s emission gate validates a stratum's
+realized OOS outcome -- both operate purely on `feature_ic_scores` predictor significance
+(CI/FDR/walkforward/reliable) or a per-bar CI-vs-cost-hurdle check on that bar's own alpha
+score. Confirms the framing above precisely: if a regime-conditional floor existed, it would
+have to be built fresh; nothing today implicitly provides one.
+
+Built `scripts/analysis/regime_eligibility_joint_stratification_validation.py` (reuses
+`evaluate_frame_gate`/`frame_gate_passes` verbatim, same day-clustered block-bootstrap
+machinery as FRAME-04/todo 165, same `alpha.validation.regime_gate_min_clusters=20` floor).
+Ran it against the champion OOS population (`143.1-08-champion`, 19,237 rows with a
+symbol_hmm label out of 28,100 total -- 8,863 excluded for missing per-symbol HMM regime,
+the still-open todo 168/092/167 Layer-1 coverage gap):
+
+**Coarse cut (tf, direction, cross_sectional_regime):** 9 cells have any data at all (matches
+the "4 of 9 equity regimes never traded" finding above). Only 2 clear the day-cluster
+coverage floor (both `mid_bull`) and both fail (`ci_lower` -0.24 at 15m, -0.07 at 5m).
+**`high_neutral`/15m -- the bucket this file's own naive-average table above called "the only
+genuinely-working bucket" (+0.0090 avg R) -- lands `n_clusters=19`, one cluster short of the
+20 floor, AND its properly-bootstrapped `ci_lower` is -0.16.** The naive per-trade average
+being positive does not survive accounting for day-cluster autocorrelation -- this reframes
+that earlier finding from "genuinely working" to "not statistically distinguishable from
+noise, and one day-cluster short of even being evaluable."
+
+**Joint cut (+ symbol_hmm_regime):** 42 cells have any data; only 5 clear the coverage floor
+(all `mid_bull`/5m/long, split by symbol_hmm sub-regime) and all 5 fail, including the
+`ranging` sub-bucket flagged above as "near breakeven" on a naive average (`-0.0109`) --
+properly bootstrapped, its `ci_lower` is **-0.177**, solidly negative, not breakeven.
+
+**Verdict: zero cells pass at any tested granularity, coarse or joint.** A
+`regime_eligibility_gate.py` built today, at either stratification, would find nothing to
+let through -- not a partial gate, a full stop. This is a stronger, more rigorous version of
+the file's earlier "mid_bull raw return is negative at every horizon" finding: it's not just
+that the raw return is bad in the one regime with the most volume, it's that no regime slice
+in the entire champion population -- including the two buckets that looked promising under
+naive per-trade averaging -- clears a proper statistical bar. Full detail (per-cell numbers,
+methodology, reusable script) in the script itself; script output is reproducible and not
+duplicated verbatim here.
+
+**What this changes:** the original framing of this todo ("build a regime eligibility gate,
+restrict emission to the passing strata") assumed some strata would pass. None do. This
+doesn't just reinforce Phase 148's Gate 2 FAIL -- it closes off the "maybe a finer regime cut
+finds a hidden good subset" hope that motivated this whole investigation thread. The open
+question is no longer "which regime slice is safe to keep emitting in" but "does this
+ensemble construction (current feature set + IC-weighted linear combination + barrier
+execution) have ANY OOS-detectable edge at the frame level, at all, in the current data" --
+which is a much bigger question than a gate script can answer. Recommend surfacing this to
+the user as a real strategic fork rather than picking a direction unilaterally.
+
 ## Acceptance criteria
 
+- [x] Regime-conditional direction/exposure rule tested against c2/c3/c4 on the same frozen
+      data, generalized to the full joint stratification -- zero cells pass, see above
+- [x] Explicit connection made to the 143.1-08 sign-symmetric HOLD verdict and todo 147's
+      regime-divergence finding -- same underlying question, now answered empirically: no,
+      there is no regime/direction slice with real conditional edge in this data
 - [ ] Regime labels on the OOS champion population spot-checked for staleness/mislabeling
-- [ ] Regime-conditional direction/exposure rule tested against c2/c3/c4 on the same frozen data
-- [ ] Explicit connection made (or ruled out) to the 143.1-08 sign-symmetric HOLD verdict and
-      todo 147's regime-divergence finding -- same question, don't investigate in isolation
+      (lower priority now -- even if labels were perfect, no slice passes)
 - [ ] True baseline population re-verified (not just the scalar arm currently live in the table)
-- [ ] Clear recommendation: pursue Phase 156/157 build vs. conclude the edge doesn't survive
-      realistic portfolio construction either way
+- [x] Clear recommendation: the frame/execution/ensemble construction as currently built does
+      not clear a rigorous regime-conditional bar anywhere tested -- pursuing Phase 149+
+      (portfolio/execution infra) on this signal is not supported; the open strategic
+      question is whether to invest in better features/signal (Phase 164/165) or accept this
+      branch has no detectable live edge yet

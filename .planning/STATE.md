@@ -4,19 +4,28 @@ milestone: v3.1
 milestone_name: AlphaEngine Validation + Alpha Scoring
 status: ready_to_execute
 stopped_at: >-
-  Phase 163 COMPLETE 2026-07-24 (verification 15/15 must-haves). Same-day investigation
-  (not a GSD phase -- an ad hoc Renaissance-council review of Gate 2) produced a decisive
-  finding that OVERRIDES Phase 166's own recommended follow-on -- do NOT pursue the
-  structural (S/R) candidate further (todos 175/176) -- mid_bull's raw, un-barriered
-  forward return is negative at every horizon, so no stop-placement fix (structural or
-  otherwise) can work. Real next step -- investigate whether ensemble_trainer.py and
-  alpha_publisher.py have a regime-conditional expectancy floor at all, or just
-  feature-level significance -- see Current focus and todo 179. Also closed todo 168
-  (14-symbol regime-coverage gap, root cause was a compressed hypertable from migration
-  201, not a modeling bug) and shipped todo 169 (coverage monitor, built and tested, not
-  yet deployed). v3.1 milestone still NOT complete -- phases 145, 147, 149, 150, 151,
-  155-159, 164, 165 remain unexecuted.
-last_updated: 2026-07-24T11:30:00.000Z
+  Tier 1 validation (todo 179) now RUN AND ANSWERED, same day as Phase 163's completion.
+  Confirmed by direct code read: neither ensemble_trainer.py's eligibility predicate nor
+  alpha_publisher.py's emission gate validates a stratum's realized OOS outcome -- both are
+  pure feature-level statistical significance gates. Built and ran a day-clustered
+  bootstrap+FDR validation (scripts/analysis/regime_eligibility_joint_stratification_validation.py,
+  reuses evaluate_frame_gate verbatim) stratified jointly on (tf, direction,
+  cross_sectional_regime, symbol_hmm_regime) against the champion OOS population: ZERO
+  cells pass at any granularity tested, coarse or joint -- including the two buckets
+  (high_neutral, mid_bull-ranging) that looked promising under naive per-trade averaging in
+  todo 179's earlier informal check. A regime_eligibility_gate.py built today would find
+  nothing to let through. This closes off the "maybe a finer regime cut finds hidden edge"
+  hope and reinforces Phase 148's Gate 2 FAIL at the finest resolution tested yet. Full
+  detail in todo 179's final section. **Real open question now: does this ensemble
+  construction (current feature set + IC-weighted linear combination + barrier execution)
+  have ANY OOS-detectable edge at the frame level at all -- a strategic fork (invest in
+  better features/signal via Phase 164/165, or accept no live edge yet on this branch) that
+  needs a decision, not another diagnostic.** Also closed todo 168 (14-symbol regime-
+  coverage gap, root cause was a compressed hypertable from migration 201, not a modeling
+  bug) and shipped todo 169 (coverage monitor, built and tested, not yet deployed). v3.1
+  milestone still NOT complete -- phases 145, 147, 149, 150, 151, 155-159, 164, 165 remain
+  unexecuted.
+last_updated: 2026-07-24T12:15:00.000Z
 progress:
   total_phases: 12
   completed_phases: 9
@@ -64,8 +73,9 @@ condition alongside its existing CI gate. **Must be stratified jointly on
 `(cross_sectional_regime, symbol_hmm_regime, direction, tf)`, not cross-sectional regime alone**
 — per-symbol HMM state reveals real heterogeneity within `mid_bull` (a `ranging` sub-bucket near
 breakeven vs. `trending_up`/`transition_down` genuinely bad) that a single-axis gate would blur.
-This has NOT been validated through the project's own day-clustered-bootstrap+FDR protocol yet —
-that's the actual next action, not writing the gate itself.
+**This has now been validated (2026-07-24) — zero cells pass at any granularity, coarse or
+joint.** See todo 179's final section for full detail. A `regime_eligibility_gate.py` is NOT
+worth building on the current champion population — there is nothing for it to let through.
 
 **This surfaced a Layer 1 (regime labeling) foundation problem that had to be fixed before any
 of the above can be trusted.** Todo 168 (7 symbols with zero per-symbol HMM regime coverage) was
@@ -88,12 +98,17 @@ change the "don't pursue Part 2" call above.
 
 **Next actions, priority order:**
 
-*Tier 1 — highest-value, ready to start:* Validate the regime-eligibility hypothesis properly
-(day-clustered bootstrap + BH-FDR on the joint `(cross_sectional_regime, symbol_hmm_regime,
-direction, tf)` stratification, reusing `evaluate_frame_gate`) before building anything. Read
-`ensemble_trainer.py`'s eligibility predicate and `alpha_publisher.py`'s emission gate first to
-confirm precisely what does/doesn't exist today. This is the actual path to "is there real,
-tradeable alpha here" — higher value than any todo below.
+*Tier 1 — ANSWERED 2026-07-24, no longer a todo:* The regime-eligibility hypothesis has been
+validated (day-clustered bootstrap + BH-FDR on the joint `(cross_sectional_regime,
+symbol_hmm_regime, direction, tf)` stratification, reusing `evaluate_frame_gate`) — **zero
+cells pass, at any granularity, coarse or joint.** See todo 179's final section. This is now
+a strategic fork, not an engineering task: (a) invest in better features/signal (Phase 164
+SMC primitives, Phase 165 swing/fib/trend primitives — both scoped, neither planned) on the
+bet that the current 150-field Feature Factory just doesn't have the regime-conditional
+signal yet, or (b) accept this branch (current features + IC-weighted ensemble + barrier
+execution) has no OOS-detectable edge and reconsider what "prove edge before production
+infra" implies for the rest of v3.1/v4.0 scope. Needs a decision, not another diagnostic —
+raise with the user before picking a direction unilaterally.
 
 *Tier 2 — regime-labeling foundation, should resolve before fully trusting Tier 1:* todo 092
 (equity regime cut-point calibration) · todo 167 (equity cross-sectional-vs-symbol-HMM
