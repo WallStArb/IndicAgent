@@ -46,8 +46,10 @@ SAMPLE_SIZE_TARGET = 50_000
 # representation in the proportional allocation.
 HARD_CAP_PER_TF = 20_000
 # Boundary window = this many multiples of the signal's own median bar-to-bar step size.
-# Self-calibrating: generalizes across bounded [0,1] signals (vix_pct, breadth_frac) and
-# unbounded z-scores (curve_z, credit_z) without group-specific window logic.
+# Self-calibrating: derived from each signal's own step size, so it generalizes across every
+# regime signal module without group-specific window logic -- all four (vix_pct, breadth_pct,
+# curve_pct, credit_pct) are causal expanding percentile ranks in [0,1] as of todo 092
+# (2026-07-24; curve_pct/credit_pct were previously unbounded rolling z-scores).
 WINDOW_STEP_MULTIPLIER = 2.0
 # Decision gate criterion 1: boundary-adjacent timestamps must be at least this fraction of
 # all timestamps in a (regime_group, tf) cell for the churn effect to be aggregately material.

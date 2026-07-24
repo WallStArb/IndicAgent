@@ -1,19 +1,23 @@
 """curve_credit -- Rates cross-sectional regime signal.
 
-Signal 1 (curve_z): TLT log-return minus SHY log-return, rolling z-score.
-  Positive -> long-end outperforms (curve steepening / rates falling) -> "steep".
-  Negative -> short-end outperforms (curve inverted / rates rising) -> "inverted".
-  Neither -> "flat".
+Signal 1 (curve_pct): TLT log-return minus SHY log-return, rolling z-score, ITSELF converted
+  to a causal expanding percentile rank before bucketing (todo 092 fix, 2026-07-24 -- see
+  CALIBRATION note below).
+  High rank -> long-end outperforms (curve steepening / rates falling) -> "steep".
+  Low rank -> short-end outperforms (curve inverted / rates rising) -> "inverted".
+  Middle -> "flat".
 
-Signal 2 (credit_z): HYG log-return minus LQD log-return, rolling z-score.
-  Positive -> HY outperforms IG (spreads tightening, risk-on) -> "tight".
-  Negative -> IG outperforms HY (spreads widening, risk-off) -> "wide".
+Signal 2 (credit_pct): HYG log-return minus LQD log-return, rolling z-score, also
+  rank-transformed.
+  High rank -> HY outperforms IG (spreads tightening, risk-on) -> "tight".
+  Low rank -> IG outperforms HY (spreads widening, risk-off) -> "wide".
 
 Tier vocabulary follows docs/foundation/naming-system.md Section 7 (Gradient Scale
 Vocabulary, Domain-Specific Scales) -- "steep/flat/inverted" is the Curve shape scale,
 "tight/wide" is the Credit spread state scale. Both are sanctioned domain-specific terms
 (standard fixed-income/credit vocabulary a practitioner recognizes unprompted), not
-generic low/mid/high.
+generic low/mid/high. A rank transform preserves ORDER (highest curve_z always maps to
+highest rank), so these economically-meaningful names still apply correctly post-fix.
 
 LABEL-VOCABULARY NON-OVERLAP INVARIANT (RESEARCH.md Pitfall 4): feature_ic_scores has no
 regime_group column -- group identity is implicit in regime_label string uniqueness
@@ -28,6 +32,21 @@ new group.
 Label format: {curve_tier}_{credit_tier}  e.g. "steep_tight", "inverted_wide".
 6 possible labels (3 x 2).
 
+CALIBRATION (todo 092, 2026-07-24): curve_z/credit_z used to be bucketed directly against
+fixed +-0.5 / 0.0 thresholds (migration 222) -- guessed round numbers, never checked against
+the real distribution, the same anti-pattern already found and fixed for equity's
+breadth_frac. Measured directly via market_regimes population counts: "flat" (the middle
+curve tier) alone accounted for ~86-87% of all intraday bars (vs. the ~38% a true N(0,1)
+z-score would put in [-0.5, 0.5]) -- max/min population ratio up to 30.8x, WORSE than
+equity's original 12-17x. Fix: apply the same causal_expanding_rank() transform (shared with
+breadth_vol.py, src/intelligence/regime_signals/causal_rank.py) to curve_z/credit_z too,
+then cut the resulting rank at population-balanced boundaries (0.33/0.67 for curve's 3
+tiers, 0.5 for credit's 2-tier median split) instead of guessed absolute z-score thresholds.
+Self-calibrating by construction, not a one-time number swap. Changing this changes every
+downstream market_regimes label, feature_ic_scores regime stratum, and ensemble_weights/
+ensemble_alpha regime assignment for regime_group='rates' -- requires a full historical
+market_regimes recompute, not just a config flip.
+
 No DB calls in this module -- pure functions over pre-fetched ref_bars (DB-free,
 compute != persistence SoC rule).
 """
@@ -39,7 +58,9 @@ from typing import Any
 import numpy as np
 import pandas as pd
 
-PROB_KEYS: tuple[str, str] = ("curve_z", "credit_z")
+from src.intelligence.regime_signals.causal_rank import causal_expanding_rank
+
+PROB_KEYS: tuple[str, str] = ("curve_pct", "credit_pct")
 
 _REQUIRED_SYMBOLS = ("TLT", "SHY", "HYG", "LQD")
 
@@ -48,7 +69,7 @@ def compute(
     ref_bars: dict[str, pd.DataFrame],
     params: dict[str, Any],
 ) -> tuple[pd.Series, pd.Series] | None:
-    """Compute (curve_z, credit_z) series from pre-fetched peer bars.
+    """Compute (curve_pct_rank, credit_pct_rank) series from pre-fetched peer bars.
 
     TLT, SHY, HYG, LQD must all be present in ref_bars.
     Returns None if any required symbol is missing.
@@ -72,18 +93,21 @@ def compute(
     credit_z = _rolling_z(credit_spread, credit_window)
 
     combined_index = curve_z.index.intersection(credit_z.index)
-    return curve_z.reindex(combined_index), credit_z.reindex(combined_index)
+    curve_pct = causal_expanding_rank(curve_z.reindex(combined_index))
+    credit_pct = causal_expanding_rank(credit_z.reindex(combined_index))
+    return curve_pct, credit_pct
 
 
 def build_tiers(params: dict[str, Any]) -> tuple[list[tuple[str, float]], list[tuple[str, float]]]:
     """Return threshold tier lists for the generic label worker.
 
-    tiers1: curve z-score buckets (3 tiers: inverted, flat, steep).
-    tiers2: credit z-score buckets (2 tiers: wide, tight).
+    tiers1: curve percentile-rank buckets (3 tiers: inverted, flat, steep).
+    tiers2: credit percentile-rank buckets (2 tiers: wide, tight; median split).
+    Rank-based since 2026-07-24 (todo 092) -- see module CALIBRATION note.
     """
-    inverted = float(params.get("inverted_threshold", -0.5))
-    steep = float(params.get("steep_threshold", 0.5))
-    tight = float(params.get("credit_tight_threshold", 0.0))
+    inverted = float(params.get("inverted_threshold", 0.33))
+    steep = float(params.get("steep_threshold", 0.67))
+    tight = float(params.get("credit_tight_threshold", 0.5))
     return (
         [("inverted", inverted), ("flat", steep), ("steep", float("inf"))],
         [("wide", tight), ("tight", float("inf"))],

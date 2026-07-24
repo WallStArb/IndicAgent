@@ -18,8 +18,9 @@ CORRECTNESS INVARIANT (RESEARCH.md Pitfall 1 / Pattern 4): every signal ranked h
 a causal bisect-based expanding rank, never a whole-series percentile rank (pandas'
 `Series.rank` with `pct` True) -- that ranks every point against future values too,
 reintroducing the exact look-ahead bias Phase 141's P0-T2 fix removed from
-equity_regime_model.py. Ported verbatim from equity_regime_model.py:186-251 (guarded by
-tests/unit/test_regime_signals_breadth_vol.py's causal-property test).
+equity_regime_model.py. Rank logic lives in causal_rank.py (shared with curve_credit.py,
+todo 092 2026-07-24), guarded by tests/unit/test_regime_signals_causal_rank.py's
+causal-property test.
 
 CALIBRATION (todo 092, 2026-07-24): breadth_frac (raw fraction of symbols above their MA)
 used to be bucketed directly against a fixed alpha.equity_regime.breadth_bear/breadth_bull
@@ -46,12 +47,14 @@ this module. This module stays TF-agnostic; it does not call `_tf_window()` itse
 
 from __future__ import annotations
 
-import bisect
-import math
 from typing import Any
 
 import numpy as np
 import pandas as pd
+
+from src.intelligence.regime_signals.causal_rank import (
+    causal_expanding_rank as _causal_expanding_rank,
+)
 
 PROB_KEYS: tuple[str, str] = ("vix_pct", "breadth_pct")
 
@@ -107,44 +110,6 @@ def build_tiers(params: dict[str, Any]) -> tuple[list[tuple[str, float]], list[t
         [("low", vix_low), ("mid", vix_high), ("high", float("inf"))],
         [("bear", bread_bear), ("neutral", bread_bull), ("bull", float("inf"))],
     )
-
-
-def _causal_expanding_rank(series: pd.Series) -> pd.Series:
-    """Causal bisect-based expanding percentile rank -- generic over any input series.
-
-    Extracted from the vix_pct rank logic (Phase 141 P0-T2 look-ahead fix, ported verbatim
-    from services/equity_regime_model.py._compute_vix_pct_rank) so both vix_z and
-    breadth_frac use the identical, tested causal-rank transform (todo 092 fix, 2026-07-24)
-    rather than duplicating it per-signal.
-
-    Each position's rank is computed against all PRIOR valid values only -- never future
-    ones. NaN guard: skip NaN values (do not insert into window -- preserves bisect sort
-    invariant). Tie handling: average rank = (bisect_left + bisect_right) / 2 / n. Two equal
-    values produce rank 0.5 (matches pandas 'average' tie behavior).
-    """
-    sorted_window: list[float] = []  # sorted; never contains NaN
-    causal_ranks: list[float] = []
-
-    for val in series:
-        if math.isnan(val):
-            # NaN input -> NaN output; do NOT insert into window
-            causal_ranks.append(float("nan"))
-            continue
-
-        if not sorted_window:
-            # First valid value: rank 1.0 (it's both min and max of a 1-element set)
-            bisect.insort(sorted_window, val)
-            causal_ranks.append(1.0)
-            continue
-
-        # Rank against PRIOR window (causal: insert AFTER computing)
-        left = bisect.bisect_left(sorted_window, val)
-        right = bisect.bisect_right(sorted_window, val)
-        rank = (left + right) / 2 / len(sorted_window)
-        bisect.insort(sorted_window, val)
-        causal_ranks.append(rank)
-
-    return pd.Series(causal_ranks, index=series.index, dtype=float)
 
 
 def _compute_vix_pct_rank(

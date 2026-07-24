@@ -8,7 +8,6 @@ mirroring that same file's test_tf_window_* tests.
 
 from __future__ import annotations
 
-import math
 import sys
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
@@ -20,7 +19,6 @@ sys.path.insert(0, str(Path(__file__).parents[2]))
 
 from src.intelligence.regime_signals.breadth_vol import (
     PROB_KEYS,
-    _causal_expanding_rank,
     _compute_breadth,
     _compute_vix_pct_rank,
     build_tiers,
@@ -165,33 +163,6 @@ class TestBreadthPctRank:
         # mean the rank transform silently didn't run).
         common_idx = valid_pct.index.intersection(raw.dropna().index)
         assert not np.allclose(valid_pct.loc[common_idx].to_numpy(), raw.loc[common_idx].to_numpy())
-
-
-class TestCausalExpandingRank:
-    """Generic causal-rank helper, extracted from _compute_vix_pct_rank's bisect logic so it
-    applies identically to breadth_frac (Pitfall 1 / Pattern 4's causal-property invariant is
-    now enforced once, shared, rather than duplicated per-signal)."""
-
-    def test_first_value_ranks_one(self):
-        result = _causal_expanding_rank(pd.Series([5.0, 1.0, 9.0]))
-        assert result.iloc[0] == 1.0
-
-    def test_causal_property_future_value_does_not_change_past_ranks(self):
-        rng = np.random.default_rng(11)
-        series_n = pd.Series(rng.normal(size=60))
-        ranks_n = _causal_expanding_rank(series_n)
-
-        series_n1 = pd.concat([series_n, pd.Series([1000.0])], ignore_index=True)
-        ranks_n1 = _causal_expanding_rank(series_n1)
-
-        assert np.allclose(ranks_n.to_numpy(), ranks_n1.iloc[:60].to_numpy())
-
-    def test_nan_passthrough_does_not_pollute_sorted_window(self):
-        series = pd.Series([1.0, float("nan"), 2.0, 3.0])
-        result = _causal_expanding_rank(series)
-        assert math.isnan(result.iloc[1])
-        # The value immediately after the NaN ranks against {1.0} only, not {1.0, NaN}.
-        assert result.iloc[2] == 1.0
 
 
 class TestBuildTiers:
