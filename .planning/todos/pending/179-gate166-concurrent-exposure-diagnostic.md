@@ -372,6 +372,77 @@ execution) have ANY OOS-detectable edge at the frame level, at all, in the curre
 which is a much bigger question than a gate script can answer. Recommend surfacing this to
 the user as a real strategic fork rather than picking a direction unilaterally.
 
+## The Gate1/Gate2 divergence mechanism, found and confirmed directly against live data (2026-07-24)
+
+Renaissance-council-style challenge to the Tier-1 validation above: how can Gate 1 pass with
+a 10x margin (140/640 cells, later independently reproduced as 55/640 under a stricter
+recomputation of the same criteria) while Gate 2 and every regime-stratified re-test since
+show zero profitable cells anywhere? Two hypotheses were tested and one confirmed directly:
+
+**Confirmed mechanism: Gate 1's IC is pooled ACROSS ALL REGIMES per (symbol, tf, lookahead)
+-- it never checked whether the relationship holds up broken out by regime.** Verified by
+reading `gate1_signal`'s own recorded evidence in `gate_evaluations` directly: all 640 cell
+dicts have keys `{tf, scale, symbol, n_valid, p_value, ic_value, reliable, passes_fdr,
+ic_ci_lower, ic_ci_upper, bh_adjusted_p, walk_forward_stable}` -- no `regime` key anywhere.
+640 = 80 symbols x 2 tf (5m/15m) x 4 scales, pooling all regimes' bars into one time series
+per cell. Confirmed `run_2025122405150000` (Gate 1's weight_version) and `143.1-08-champion`
+(Gate 2's weight_version) carry byte-identical `ensemble_weights` rows -- same underlying
+ensemble, just two labels for the same weights, so this isn't a stale-weights mismatch.
+
+Recomputing Gate 1's own qualifying criterion (`ic_ci_lower > 0 AND passes_fdr AND
+walk_forward_stable`) against the live evidence gives 55/640 qualifying cells (the discrepancy
+from the recorded 140 is unexplained -- possibly a criterion or snapshot difference not yet
+traced, doesn't affect the finding below). For every one of those 55 cells, pulled the SAME
+(symbol, tf, lookahead)'s regime-decomposed IC from `alpha_ensemble_ic`'s own `is_pooled=false`
+rows (computed and stored, just never consulted by the gate) and tabulated, per regime, what
+fraction agree in SIGN with the pooled IC (built and verified in
+`scripts/analysis/gate1_pooled_vs_regime_decomposed_ic_check.py`; an initial scratch pass also
+tallied "independently significant" counts using only `ic_ci_lower > 0` -- that metric was
+wrong, since it dropped Gate 1's own `passes_fdr`/`walk_forward_stable` conditions; applying
+the full 3-condition bar per-regime correctly shows almost no cell independently significant
+anywhere, unsurprising given the much smaller per-regime N -- the sign-agreement rate below is
+the metric that actually carries the finding, not a significance count):
+
+| Regime | cells with a same-regime row | % same sign as pooled IC |
+|---|---|---|
+| `high_neutral` | 47 | **83%** |
+| `high_bear` | 29 | 79% |
+| `mid_neutral` | 19 | 79% |
+| `low_bull` | 29 | 59% |
+| `mid_bull` | 55 | 58% |
+
+**`high_neutral` is where the real signal concentrates** -- consistently the best regime by
+sign-agreement rate, corroborating (not just repeating) this file's earlier naive-average
+finding ("only genuinely-working bucket," +0.0090 avg R) and the Tier-1 validation's finding
+that `high_neutral`/15m came within 1 day-cluster of clearing a real bootstrap CI
+(`n_clusters=19` vs a 20 floor, `ci_lower=-0.16`). **`mid_bull`/`low_bull` -- with `mid_bull`
+dominating trade volume and shown catastrophically unprofitable by Gate 2 and every
+regime-stratified re-test since -- sit right at a coin flip (58-59% sign agreement, barely
+above the 50% no-information baseline).** The pooled Gate 1 test's apparent per-symbol
+strength is being carried by whichever regime that symbol happens to have the most pooled
+observations in and/or the strongest relationship in (often `high_neutral`/`high_bear`/
+`mid_neutral`), not necessarily the regime the ensemble is actually firing trades into.
+
+**This is the actual answer to "why does Gate 1 pass and Gate 2 fail everywhere":** the
+proof-of-signal gate and the actual traded population were never the same population. Gate 1
+never validated that its pooled IC survives being regime-conditional; alpha_publisher's
+emission gate is regime-blind (a single per-tf CI/cost hurdle, no per-regime term) and, in
+practice, ends up firing overwhelmingly into `mid_bull`/`mid_neutral`/`high_neutral` by trade
+count, not into the regimes (`high_bear`/`low_bull`) where the per-symbol IC is most often
+correctly signed.
+
+**Recommended next step, cheaper than either building new features or abandoning this
+branch:** `high_neutral` has now looked like the best regime under three independent methods
+today (naive averaging, within-symbol median-split monotonicity, and this regime-decomposed
+IC breakdown) and missed a clean bootstrap pass by one day-cluster. Before concluding "no
+edge, pivot to Phase 164/165" or "build a regime-eligibility gate broadly," the cheapest next
+test is: does `high_neutral` alone, given a slightly larger OOS window or a relaxed/re-examined
+day-cluster floor, actually clear a rigorous positive CI? If yes, the fix is architectural
+(make `alpha_publisher`'s eligibility/threshold regime-conditional, so it concentrates
+exposure in `high_neutral` and pulls back in `mid_bull`) rather than a features-or-give-up
+choice. This is a decision point, not something to build unilaterally -- surfaced to the user
+2026-07-24.
+
 ## Acceptance criteria
 
 - [x] Regime-conditional direction/exposure rule tested against c2/c3/c4 on the same frozen

@@ -98,17 +98,32 @@ change the "don't pursue Part 2" call above.
 
 **Next actions, priority order:**
 
-*Tier 1 — ANSWERED 2026-07-24, no longer a todo:* The regime-eligibility hypothesis has been
+*Tier 1 — ANSWERED 2026-07-24, mechanism found:* The regime-eligibility hypothesis has been
 validated (day-clustered bootstrap + BH-FDR on the joint `(cross_sectional_regime,
-symbol_hmm_regime, direction, tf)` stratification, reusing `evaluate_frame_gate`) — **zero
-cells pass, at any granularity, coarse or joint.** See todo 179's final section. This is now
-a strategic fork, not an engineering task: (a) invest in better features/signal (Phase 164
-SMC primitives, Phase 165 swing/fib/trend primitives — both scoped, neither planned) on the
-bet that the current 150-field Feature Factory just doesn't have the regime-conditional
-signal yet, or (b) accept this branch (current features + IC-weighted ensemble + barrier
-execution) has no OOS-detectable edge and reconsider what "prove edge before production
-infra" implies for the rest of v3.1/v4.0 scope. Needs a decision, not another diagnostic —
-raise with the user before picking a direction unilaterally.
+symbol_hmm_regime, direction, tf)` stratification, reusing `evaluate_frame_gate`) — zero
+cells pass, at any granularity, coarse or joint. Digging into WHY (Renaissance-council
+challenge: how can Gate 1 pass 10x margin while Gate 2 fails everywhere?) found the actual
+mechanism, confirmed directly against `gate_evaluations`' live evidence: **Gate 1's IC is
+pooled across ALL regimes per (symbol, tf, lookahead) — it never checked whether the
+relationship holds up regime-by-regime.** Broken out by regime (`alpha_ensemble_ic`'s own
+`is_pooled=false` rows, computed but never consulted by the gate), `high_neutral` is
+consistently where the real signal concentrates (83% sign-agreement with the pooled IC) —
+corroborating this file's own earlier naive-average finding and the Tier-1 validation's
+`high_neutral` cell missing a clean bootstrap pass by exactly 1 day-cluster. **`mid_bull`/
+`low_bull` — with `mid_bull` dominating trade volume and shown catastrophically
+unprofitable by every regime-stratified test — sit right at a coin flip (58-59%
+sign-agreement, barely above the 50% no-information baseline).** `alpha_publisher`'s
+emission gate is regime-blind (a single per-tf CI/cost
+hurdle) and ends up firing overwhelmingly into `mid_bull`/`mid_neutral`/`high_neutral` by
+trade count — not necessarily the regimes where the per-symbol IC is actually correctly
+signed. Full detail and the regime-by-regime table: todo 179's mechanism section.
+**Recommended next step, cheaper than either building new features or abandoning this
+branch:** confirm whether `high_neutral` alone — the strongest candidate across three
+independent methods today — can clear a full rigorous bootstrap CI given a slightly larger
+OOS window or a re-examined day-cluster floor; if yes, fix is architectural (make
+`alpha_publisher`'s eligibility/threshold regime-conditional) rather than a
+features-vs-give-up choice. This is a decision point, not something to build unilaterally —
+raised with the user 2026-07-24.
 
 *Tier 2 — regime-labeling foundation, should resolve before fully trusting Tier 1:* todo 092
 (equity regime cut-point calibration) · todo 167 (equity cross-sectional-vs-symbol-HMM
