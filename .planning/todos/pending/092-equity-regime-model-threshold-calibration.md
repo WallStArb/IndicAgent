@@ -107,3 +107,66 @@ next-session scope, not something to rush alongside two other active corpus-writ
 sessions. This session's contribution is confirming the population-imbalance finding is
 real and pinpointing its mechanism, which de-risks and focuses that next study
 (test the 0.49/0.83-style tertile candidate specifically, not an open-ended search).
+
+## FIXED (2026-07-24, same session as todo 179): causal-rank breadth signal, migration 257
+
+User pushed on this directly ("how did we choose 9 regimes, what was the empirical proof for
+60/40, fix it and rerun"). Root cause confirmed precisely: `vix_pct` was already a causal
+expanding percentile rank (bisect-based, look-ahead-safe), so 0.33/0.67 was
+population-balanced by construction; `breadth_frac` was a raw fraction cut at fixed 0.40/0.60,
+never rank-transformed -- exactly the mechanism this todo already isolated.
+
+**Fix, not a one-time number swap:** extracted the causal-rank bisect logic (already proven
+correct for `vix_pct`) into a shared `_causal_expanding_rank()` helper in
+`src/intelligence/regime_signals/breadth_vol.py`, applied it to `breadth_frac` too, and cut
+both axes symmetrically at 0.33/0.67. This is self-calibrating by construction (permanently
+population-balanced, not just at whatever snapshot a fixed replacement number was chosen
+against) rather than replacing one guessed number (0.40/0.60) with another guessed number
+(0.49/0.83). `PROB_KEYS` renamed `breadth_frac` -> `breadth_pct`. Migration 257 recalibrates
+`alpha.equity_regime.breadth_bear`/`breadth_bull` defaults and records full provenance/blast-
+radius in `config_schema`. TDD: 6 new/updated tests in
+`tests/unit/test_regime_signals_breadth_vol.py`, full unit suite green.
+
+**Verified the fix works as intended** (`scripts/analysis/recalibrated_breadth_regime_relabel_check.py`,
+re-derives labels offline from already-stored raw signal values, no live `market_regimes`
+write): max/min population ratio dropped from 13.8x to 7.1x (5m), 12.7x to 6.6x (15m), 12.2x
+to 6.7x (1h), 13.9x to 6.0x (1d) -- roughly halved everywhere, previously-starved neutral
+buckets now properly populated (5-9% -> 9-15%).
+
+**Re-ran today's full regime x symbol_hmm x scale sweep under the recalibrated labels**
+(`scripts/analysis/recalibrated_regime_full_sweep_check.py`, current OOS window, raw
+forward_returns only): 8/180 cells pass (vs. 2/234 before recalibration) -- and critically,
+5 of 8 cluster on `high_bear`, across both tf, multiple symbol_hmm sub-states, and multiple
+scales, a materially more internally consistent pattern than the pre-recalibration
+`low_bull` x `trending_down` finding (which had already been falsified by historical
+replication -- see todo 179).
+
+**Historical replication test on `high_bear`** (`scripts/analysis/high_bear_recalibrated_historical_replication_check.py`,
+same 12-episode methodology as todo 179's replication check, raw returns only -- never
+`ensemble_alpha`, circular against pre-OOS training data): **every genuine structural bear
+market fails uniformly, at every scale, both tf** -- 2008 GFC, 2018 Q4 selloff, 2020 COVID
+crash, 2022 rate-hike bear market all FAIL cleanly (24/24 cells, 2020 COVID strongly negative,
+`ci_lower` down to -0.0135). **The two cleanest, most robust passes are both non-crisis
+"dip within an uptrend" periods** -- 2016-2018 grind-up and 2020-2021 recovery both PASS at
+every scale, both tf (12/12 cells). The remaining episodes (2009-11, 2012-14, 2015-16,
+pre-COVID, 2022-25) are mixed. The current OOS window itself is mixed/weak (5m fails, 15m
+barely passes at one scale).
+
+**This is not noise -- pure noise doesn't sort itself by well-known historical bear-market
+boundaries this cleanly.** `high_bear` (high vol + bear breadth) conflates two economically
+opposite situations under one label: a transient volatility scare within an ongoing bull
+market (mean-reversion/dip-buying works) versus a genuine structural trend reversal (buying
+the dip is catching a falling knife). The recalibration fix is real and correct, and it
+surfaced a genuinely interesting, economically coherent pattern -- but the current 9-cell
+cross-sectional taxonomy is missing a dimension (something like regime persistence/duration,
+or longer-horizon trend context) needed to distinguish these two cases. Not yet a clean,
+tradeable finding; a well-motivated next research direction, not a dead end and not a
+confirmed edge either.
+
+**Recommended next step:** investigate whether adding a trend-context or regime-duration
+dimension (e.g., how long has `high_bear` persisted, or where does price sit relative to a
+longer-horizon MA) separates "buyable dip" from "structural bear" within the `high_bear`
+label -- before building this into anything live. Raised with the user, not yet decided.
+Live production `market_regimes` recompute (the real, multi-hour corpus operation this fix
+implies for the canonical table, invalidating `feature_ic_scores`/`ensemble_weights`/
+`ensemble_alpha`) has NOT been run -- only the offline, read-only re-derivation above.

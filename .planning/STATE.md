@@ -82,11 +82,33 @@ of the above can be trusted.** Todo 168 (7 symbols with zero per-symbol HMM regi
 bigger than filed — the new coverage monitor (todo 169) found 14, not 7. Root cause for most:
 `feature_vectors`' entire hypertable was compressed as a side effect of migration 201 (float32
 conversion), not a modeling bug — decompressed, confirmed fix, **CLOSED**. Full detail:
-[[project_todo168_regime_coverage_compression_wall]]. Remaining Layer 1 gaps, still fully open:
-**todo 092** (equity regime cut-point calibration — arbitrary 0.40/0.60 cuts, population 12-17x
-imbalanced, never checked against the real distribution) and **todo 167** (equity's
-cross-sectional-vs-symbol-HMM stratification choice never falsifier-tested, unlike rates').
-Both should resolve before fully trusting the regime-eligibility gate above.
+[[project_todo168_regime_coverage_compression_wall]].
+
+**Todo 092 FIXED (2026-07-24, code + migration 257, live recompute not yet run):** user pushed
+directly on "how was 9 regimes/60-40 chosen, what was the empirical proof — fix it and rerun."
+Root cause: `vix_pct` was already a causal expanding percentile rank (population-balanced by
+construction); `breadth_frac` was a raw fraction cut at fixed, never-calibrated 0.40/0.60.
+Fixed properly — not a one-time number swap — by extracting the causal-rank logic already
+proven for `vix_pct` into a shared helper and applying it to `breadth_frac` too, cutting both
+axes symmetrically at 0.33/0.67 (self-calibrating by construction, permanently). TDD, full
+suite green, migration 257 applied. Verified offline (no live `market_regimes` write yet):
+population imbalance roughly halved across all 4 tfs (13.8x→7.1x at 5m, etc.).
+**Re-running today's regime sweep under the fix surfaced something new and more interesting
+than a fix/no-fix binary: `high_bear` shows 8/180 passing cells (vs 2/234 before), but
+historical replication (12 episodes, 2008-2025) shows every genuine structural bear market
+(2008, 2018 Q4, 2020 COVID, 2022) fails cleanly while the two cleanest passes are both
+non-crisis "dip within an uptrend" periods (2016-18, 2020-21 recovery).** This isn't noise —
+it means `high_bear` conflates two economically opposite situations (buyable dip vs.
+structural reversal) that the current 9-cell taxonomy can't distinguish. Not a dead end, not
+a confirmed edge — a well-motivated next research direction (add a trend-context/regime-
+duration dimension). Full detail: todo 092's "FIXED" section. **Live production
+`market_regimes` recompute (real multi-hour corpus operation, invalidates
+`feature_ic_scores`/`ensemble_weights`/`ensemble_alpha`) has NOT been run** — only offline
+read-only re-derivation so far, deliberately, given the blast radius.
+
+Remaining Layer 1 gap, still fully open: **todo 167** (equity's cross-sectional-vs-symbol-HMM
+stratification choice never falsifier-tested, unlike rates'). Should resolve before fully
+trusting the regime-eligibility gate above.
 
 Phase 144 (Cross-Sectional Regime Model) is COMPLETE (6/6) — D-05 verdict: F1 not triggered
 (TLT's per-symbol HMM stays deficient), F2 triggered for 15m/5m rates. Phase 143.1 is COMPLETE
