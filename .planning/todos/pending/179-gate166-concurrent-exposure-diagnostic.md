@@ -443,6 +443,107 @@ exposure in `high_neutral` and pulls back in `mid_bull`) rather than a features-
 choice. This is a decision point, not something to build unilaterally -- surfaced to the user
 2026-07-24.
 
+## Full 9-regime x symbol_hmm sweep (2026-07-24, same session, user-directed rigor check)
+
+User caught two real gaps in the mechanism-finding work above: (1) every regime breakdown run
+so far used ONLY the cross-sectional axis -- `ensemble_ic_engine.py` (Gate 1's own measurement
+engine) never joins `feature_vectors`, so Gate 1's regime-decomposed evidence had literally
+never been tested against the 5-state per-symbol HMM axis, despite a PRE-EXISTING finding
+(this file, before today) already showing real heterogeneity within `mid_bull` by symbol_hmm
+state; (2) "all 9 cross-sectional regimes" wasn't actually being tested -- `ensemble_weights`
+has rows for only 5 of the 9 architectural regime labels (`high_bear`/`high_neutral`/
+`low_bull`/`mid_bull`/`mid_neutral`; `ensemble_trainer.py` never found an eligible feature for
+`high_bull`/`low_bear`/`low_neutral`/`mid_bear`), so every `alpha_score > 0` filter used today
+silently excluded those 4 regimes entirely -- not tested-and-failed, structurally invisible.
+
+**Closed both gaps with three scripts:**
+`high_neutral_symbol_hmm_decomposition_check.py` (recursive symbol_hmm split within
+`high_neutral` specifically -- zero passes across 6 sub-states x 3 scales x 2 tf),
+`all_regimes_symbol_hmm_decomposition_check.py` (full ungated population, current entry rule,
+every cross-sectional regime the ensemble can score x symbol_hmm x scale -- 126 cells, 90 with
+sufficient day-cluster coverage), `uncovered_regimes_raw_return_check.py` (raw forward_returns,
+no ensemble_alpha filter at all, for the 4 regimes the ensemble is structurally blind to -- 108
+cells, 36 with sufficient coverage). `low_bear` checked separately and excluded: only 2
+distinct calendar days in the entire OOS window at any tf, genuinely untestable against a
+20-cluster floor, not a coverage gap.
+
+**Result: across all 9 regimes, crossed with all 6 symbol_hmm states (5 real + no-label), at 3
+lookahead scales (234 total cells tested, 126 with sufficient day-cluster coverage), exactly 2
+cells pass:**
+
+| tf | cross_regime | symbol_regime | scale | n | n_clusters | mean_r | ci_lower |
+|---|---|---|---|---|---|---|---|
+| 5m | `low_bull` | `trending_down` | fast | 7,900 | 48 | +0.000039 | **+0.000022** |
+| 5m | `low_bull` | `trending_down` | slow | 7,757 | 48 | +0.000389 | **+0.000034** |
+
+This is the only cell in the ENTIRE day's investigation (every method, every axis, every
+regime) with a positive, day-clustered-bootstrapped `ci_lower`. Both rows share the same
+underlying `(cross_regime, symbol_regime)` population, consistent across two lookahead
+horizons, backed by 48 independent day-clusters (well above the 20 floor) -- a real,
+non-trivial signal, not a coverage-floor near-miss like `high_neutral` was.
+
+**Honest caveats before treating this as proven:**
+1. **No BH-FDR correction applied.** 2 passes out of 234 tested cells (0.85%) is a modest hit
+   rate that needs the project's own multiple-comparison discipline before trusting it as more
+   than a promising lead -- especially since this session tested many cells specifically
+   looking for a pass (the classic overfitting risk this project's principles explicitly warn
+   against).
+2. **Magnitude is small** (2-4 basis points per bar) -- real if it survives FDR correction, but
+   needs a cost-hurdle/frame-simulation check (Gate-2-style barrier fit) to confirm it's
+   tradeable after transaction costs, not just theoretically positive.
+3. Economically plausible story (a symbol showing its own per-symbol downtrend while the broad
+   market is in a low-vol bull regime -- a divergence/mean-reversion setup), but this is
+   post-hoc narrative, not independent confirmation.
+
+## The one lead falsified by out-of-window replication (2026-07-24, same session)
+
+User asked whether historical bear periods (2020 COVID crash, 2022 rate-hike bear market) were
+being looked at. They weren't -- every check above used only the current ~6.5-month OOS window
+(2025-12-24 to 2026-07-07), which contains exactly ONE bear episode (2026-03 to 2026-06, visible
+directly in `market_regimes`' per-regime date ranges: `high_bear`/`mid_bear`/`low_bear` are all
+nested inside that single ~3-month stretch, while every bull/neutral regime spans nearly the
+whole window). Checked: `market_regimes`, `forward_returns`, and `feature_vectors.regime` all
+extend back to **2006** -- 2020 Feb-May + 2022 Jan-Sep alone contain 150 `high_bear` days, 97
+`mid_bear` days, 24 `low_bear` days, versus 35/11/2 in the current OOS window.
+
+**Discipline point, load-bearing:** testing this pre-OOS history with `ensemble_alpha`/
+`alpha_score` would be circular -- the ensemble's weights were trained using data that overlaps
+this range. Only `market_regimes` + `forward_returns` + `feature_vectors.regime` (fixed,
+parameter-free constructs) are legitimate to check historically; this is a replication check on
+a measured relationship, not a second OOS proof.
+
+Built `scripts/analysis/low_bull_trending_down_historical_replication_check.py`: tested
+`low_bull` x `trending_down` (5m/15m, 3 scales) across 12 historical episodes (2008 GFC through
+the current window), using RAW forward returns only, no `alpha_score` filter. **Result: does
+not replicate.** Critically, it does not even hold in its OWN discovery window once the
+`alpha_score > 0` conditioning is removed -- `ci_lower` is negative at every scale
+(-0.000072/-0.000706/-0.000841) for the current OOS window tested this way. The earlier
+"passing" finding was really a two-part claim (regime label AND the ensemble's own score both
+positive), not a property of the regime alone. Across all 12 independent historical episodes
+(72 cells, comfortable day-cluster coverage everywhere), only 2 pass -- both in "2018 Q4
+selloff + recovery," `slow` scale only, one barely above zero (`ci_lower=+0.000002`). Nothing
+in 2008, 2009-11, 2012-14, 2015-16, 2016-18, pre-COVID, the 2020 COVID crash, 2020-21 recovery,
+the 2022 bear market, or 2022-25 recovery. 2/72 (2.8%) is exactly what pure noise produces at a
+one-sided test -- not concentrated in bear markets the way a real regime-conditional edge would
+need to be.
+
+**Honest final verdict for the entire day's investigation:** every lead found today --
+`high_neutral`'s naive average, the Gate 1 pooled-vs-regime sign-agreement pattern, and
+`low_bull` x `trending_down` -- either failed its own rigorous bootstrap CI or failed to
+replicate out-of-window. There is no cell, at any regime/symbol_hmm/scale cut tested, using any
+method tried, that shows a real, replicating, non-circular positive expectancy in the current
+ensemble/frame construction. This is a stronger, more defensible negative result than the
+morning's Tier-1 validation alone -- it survived an honest attempt to find and confirm a
+counterexample, including reaching for 20 years of history the current OOS window doesn't
+have.
+
+**Recommended next step:** this closes the "quick regime-conditional fix" hope conclusively,
+not just provisionally. The real strategic choice (raised earlier, now on firmer ground):
+invest in better features/signal (Phase 164/165) on the bet that the current Feature Factory
+doesn't yet capture the necessary signal, or accept this branch (current features + IC-weighted
+ensemble + barrier execution) has no OOS-detectable edge and reprioritize. Not yet decided with
+the user as of this session's end.
+
 ## Acceptance criteria
 
 - [x] Regime-conditional direction/exposure rule tested against c2/c3/c4 on the same frozen

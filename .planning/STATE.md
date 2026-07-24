@@ -117,13 +117,43 @@ emission gate is regime-blind (a single per-tf CI/cost
 hurdle) and ends up firing overwhelmingly into `mid_bull`/`mid_neutral`/`high_neutral` by
 trade count — not necessarily the regimes where the per-symbol IC is actually correctly
 signed. Full detail and the regime-by-regime table: todo 179's mechanism section.
-**Recommended next step, cheaper than either building new features or abandoning this
-branch:** confirm whether `high_neutral` alone — the strongest candidate across three
-independent methods today — can clear a full rigorous bootstrap CI given a slightly larger
-OOS window or a re-examined day-cluster floor; if yes, fix is architectural (make
-`alpha_publisher`'s eligibility/threshold regime-conditional) rather than a
-features-vs-give-up choice. This is a decision point, not something to build unilaterally —
-raised with the user 2026-07-24.
+**`high_neutral` alone does NOT clear a full bootstrap CI** even under the most generous
+conditions tested (full ungated coverage, best-performing lookahead scale) — that specific
+fix does not hold up.
+
+**User pushed for full rigor: are all 9 cross-sectional regimes actually being tested, and
+against BOTH regime axes?** Two real gaps found: (1) every regime breakdown run today used
+only the cross-sectional axis — `ensemble_ic_engine.py` never joins `feature_vectors`, so
+Gate 1's own regime evidence has never seen the per-symbol HMM axis at all; (2)
+`ensemble_weights` has rows for only 5 of the 9 architectural regime labels —
+`ensemble_trainer.py` never found an eligible feature for `high_bull`/`low_bear`/
+`low_neutral`/`mid_bear`, so every `alpha_score > 0` filter silently excluded those 4 regimes
+— not tested-and-failed, structurally invisible to the current ensemble. Closed both gaps
+with a full sweep: all 9 regimes × 6 symbol_hmm states × 3 scales (234 cells, 126 with
+sufficient day-cluster coverage; `low_bear` excluded — only 2 distinct days in the whole OOS
+window, genuinely untestable). **Result: exactly 2 cells pass, both `low_bull` ×
+`trending_down` (5m), both lookahead scales, 48 independent day-clusters, `ci_lower` positive
+(+0.000022 to +0.000034)** — the only cell in the entire day's investigation with a positive
+bootstrapped CI (initially).
+
+**But it doesn't replicate.** User asked whether 2020/2022 bear markets were being checked —
+they weren't; the current OOS window (2025-12-24 to 2026-07-07) contains exactly ONE bear
+episode (2026-03 to 2026-06). `market_regimes`/`forward_returns`/`feature_vectors.regime` all
+extend back to 2006 (2020+2022 alone: 150/97/24 `high_bear`/`mid_bear`/`low_bear` days vs.
+35/11/2 in the current window) — checked this history using ONLY raw forward returns and
+regime labels (never `ensemble_alpha`, since its weights were trained on overlapping data —
+would be circular). **`low_bull`×`trending_down` does not replicate across 12 independent
+historical episodes (2008-2025, 72 cells) — and critically, does not even hold in its OWN
+discovery window once the `alpha_score>0` conditioning is removed** (`ci_lower` negative at
+every scale without it). Only 2/72 historical cells pass, both in an unrelated 2018 episode,
+consistent with pure noise. **Verdict: every lead found today — `high_neutral`, the Gate 1
+pooled-vs-regime pattern, and `low_bull`×`trending_down` — either failed its own CI or failed
+to replicate. No cell at any cut, using any method, shows real non-circular positive
+expectancy.** Full detail: todo 179's final two sections.
+**This closes the "quick regime-conditional fix" hope conclusively, not provisionally.**
+Real remaining choice: invest in better features/signal (Phase 164/165) betting the current
+Feature Factory doesn't yet capture the needed signal, or accept this branch has no
+OOS-detectable edge and reprioritize. Not yet decided with the user as of 2026-07-24.
 
 *Tier 2 — regime-labeling foundation, should resolve before fully trusting Tier 1:* todo 092
 (equity regime cut-point calibration) · todo 167 (equity cross-sectional-vs-symbol-HMM
