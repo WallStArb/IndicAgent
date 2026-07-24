@@ -170,3 +170,28 @@ label -- before building this into anything live. Raised with the user, not yet 
 Live production `market_regimes` recompute (the real, multi-hour corpus operation this fix
 implies for the canonical table, invalidating `feature_ic_scores`/`ensemble_weights`/
 `ensemble_alpha`) has NOT been run -- only the offline, read-only re-derivation above.
+
+## Trend-context split tested (2026-07-24, same session): partial signal, does not cleanly separate crash from dip
+
+User asked to pursue the trend-context hypothesis before deciding on the live recompute.
+Built `scripts/analysis/high_bear_trend_context_split_check.py`: splits `high_bear` bars by
+whether SPY's own close is above or below its causal 200-day-equivalent trailing MA (the
+same `ma_window`/`_tf_window` convention already used by the breadth signal itself), then
+re-runs the day-clustered bootstrap CI per historical episode per split.
+
+**Result: real but partial.** Pass rate is meaningfully higher when SPY is above its long MA
+(5m: 10/27 = 37%, 15m: 7/27 = 26%) than below it (5m: 2/21 = 9.5%, 15m: 1/21 = 5%) -- so trend
+context does carry real information. **But it does NOT cleanly separate crash from dip**:
+all four genuine crashes (2008 GFC, 2018 Q4, 2020 COVID, 2022 rate-hike bear) FAIL in BOTH
+the above-MA and below-MA splits, at every scale, both tf -- being above the 200-day MA does
+not rescue any of them. A 200-day MA is a lagging, coarse measure; real crashes typically
+begin while price is still technically above it, before the MA catches down. This specific
+hypothesis is falsified as a clean separator, though not worthless (the pass-rate difference
+is real).
+
+**What this means:** the true variable separating 2016-18/2020-21 (clean passes) from the
+four crash episodes (clean fails) is still unidentified. Candidate next ideas, not yet
+tried: regime PERSISTENCE/duration (how many consecutive bars/days has `high_bear` lasted --
+a brief 1-3 day blip vs. a sustained multi-week regime) rather than a lagging MA position;
+or a shorter-horizon trend filter. Not pursued further this session -- moved to the live
+`market_regimes` recompute decision per user's explicit "do 1 then 2" sequencing.
