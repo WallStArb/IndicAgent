@@ -1,8 +1,8 @@
 ---
 phase: 151
 slug: feature-primitives-expansion-theory-motivated-interaction-la
-status: draft
-nyquist_compliant: false
+status: approved
+nyquist_compliant: true
 wave_0_complete: false
 created: 2026-07-24
 ---
@@ -77,4 +77,22 @@ created: 2026-07-24
 - [ ] Feedback latency < 60s
 - [ ] `nyquist_compliant: true` set in frontmatter
 
-**Approval:** pending
+**Approval:** approved 2026-07-24 at plan time.
+
+Every task across 151-01..151-08 carries an `<automated>` verify command. No 3 consecutive tasks
+lack one. The Wave 0 gaps below are not deferred to a separate scaffold plan — each is folded into
+the plan that creates the code it covers, so a column and its test land in the same commit:
+
+| Wave 0 requirement | Covered by |
+|---|---|
+| Unit tests for the new atomic compute functions | 151-01 Task 3, 151-03 Task 3, 151-04 Task 3 |
+| New APR keys load with correct defaults via `FeatureFactoryConfig` | 151-01 Task 2, 151-03 Task 1, 151-04 Task 1 acceptance criteria (grep assertions on every construction site) |
+| `feature_registry` row count matches `FeatureVector` field count after each migration | every column-adding plan's Task 3 acceptance criteria (182 / 193 / 200 / 205 / 215) |
+| Every `tier=1_interaction` row has exactly 2 non-empty `parent_features` | 151-05 Task 3 (`test_every_interaction_row_has_exactly_two_parents`, permanent regression guard) |
+| Wave 4 regime-conditioned clustering coverage | 151-02 Task 3 (4 named tests, including a behavioral regime-sensitivity assertion, not just a pass-count check) |
+| Interaction population stays inside the <=50 cap | 151-06 Task 3 (`test_interaction_tier_population_within_cap`) |
+
+Two verifications remain genuinely manual by design, both statistical measurements rather than
+code-correctness checks: the tier-0 atomic BH-FDR sweep and the quarter-cycle episode-level
+companion test (151-07 Task 3), and the sparse event-flag episode-clustered BCa bootstrap
+(151-08 Task 3). Both write their results into `151-IC-SWEEP.md` with named acceptance criteria.

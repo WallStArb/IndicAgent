@@ -1669,7 +1669,20 @@ Each single-TF precedent predictor lands at exactly feature grain, one value per
 
 **Goal:** Expand the atomic feature set, screen through IC machinery, promote survivors. Build a Theory-Motivated Interaction Layer of ≤50 curated compound features — not a combinatorial factory. Gated on Feature Registry (todo 008, COMPLETE).
 
-**Note on atomic scope (corrected 2026-07-13):** todo 014's original ~60-candidate priority-tiered list already shipped via Phase 142.5 (91 primitives, migration 206) — it is `completed/`, not a live source list. Phase 151's remaining atomic-expansion scope is (a) todo 066 (cross-TF divergence: `ret_div_1m_5m`/`ret_div_5m_1h`/`ret_div_1h_1d`, deliberately deferred out of 142.5) and (b) the calendar/seasonality candidates below, from todo 104.
+**Note on atomic scope (corrected 2026-07-13, extended 2026-07-24, mislabel fixed 2026-07-24):** todo 014's original ~60-candidate priority-tiered list already shipped via Phase 142.5 (91 primitives, migration 206) — it is `completed/`, not a live source list. Phase 151's remaining scope is (a) todo 066 (cross-TF divergence: `ret_div_1m_5m`/`ret_div_5m_1h`/`ret_div_1h_1d`, deliberately deferred out of 142.5) — **corrected 2026-07-24: this is `tier=1_interaction` (`requires_htf=true`), not atomic; it was miscategorized here, kept in this phase's scope as a sibling interaction item, not part of the atomic-tier count**, (b) the calendar/seasonality atomic candidates below, from todo 104, (c) todo 123's momentum-velocity/VWAP-acceleration/macro-spread atomic trio, and (d) todo 180's 7 atomic candidates (`bars_since_high/low_fast/slow`, `abs_ret_autocorr_1`, `equity_beta_z`, `rate_beta_z`, `bars_since_extreme_move_fast/slow`, `bars_since_52w_high/low`, `bars_since_vol_spike_fast/slow`; Fable-reviewed 2026-07-24, one renamed from `mkt_beta_z` for a glossary naming ban) found surveying the full live atomic set for gaps — none of (a)-(d) have been IC-screened yet. As of 2026-07-24 all four sources have had an independent Fable design review (104: 2026-07-13; 066/123/180: 2026-07-24) — 066 confirmed correct as-is; 123's 4 candidates all reframed (naming/tier fixes, 3 new required APR keys, see todo file); 180's candidates reframed similarly (see todo file). Ready for `/gsd-plan-phase 151` once picked up — no outstanding review debt on the atomic/interaction candidate list itself, only the IC-screening step.
+
+**Wave 1 candidate roster, consolidated (2026-07-24) — final post-Fable-review names, all 4 sources in one place:**
+
+*Tier-0 atomic (28 columns, Wave 1 IC sweep):*
+- From todo 104 (calendar, 6): `quarter_cycle_sin/cos`, `tdom_sin/cos`, `minute_of_hour_sin/cos`
+- From todo 123 (momentum/macro, 9, all renamed from the todo's original proposal): `momentum_z_velocity_fast/mid/slow`, `vwap_dev_sigma_velocity` (not "acceleration"), `tip_tlt_ret_z`/`hyg_lqd_ret_z` (not "real yield"/"credit spread" — those names asserted a causal referent the formula doesn't compute), `sb_corr_fast/slow/z` (not `sb_corr_30/60` — raw day-counts violated naming-system.md §7). Needs 3 new APR keys: `feature.momentum_velocity.window`, a VWAP delta-window key, `macro.sb_corr.window_fast/slow`, plus a z-score-window key per macro spread.
+- From todo 180 (recency/beta, 13, one renamed): `bars_since_high_fast/slow`, `bars_since_low_fast/slow`, `bars_since_52w_high/low`, `abs_ret_autocorr_1`, `equity_beta_z` (renamed from `mkt_beta_z` — glossary bans unqualified `beta`), `rate_beta_z`, `bars_since_extreme_move_fast/slow`, `bars_since_vol_spike_fast/slow`. Needs 2 new APR keys (`feature.bars_since_extreme_move.sigma_threshold`, `feature.bars_since_vol_spike.threshold`).
+
+*Tier-1 interaction (5 candidates, Wave 2's ≤50 cap, not Wave 1):*
+- From todo 066 (confirmed correct as designed): `ret_div_1m_5m`, `ret_div_5m_1h`, `ret_div_1h_1d`
+- From todo 104 (deliberately NOT atomic — a flag selects a point in a cycle, which is a hypothesis): `opex_flag`, `quad_witching_flag`
+
+All 33 candidates above are Fable-reviewed and naming-audited (todo 104: 2026-07-13; 066/123/180: 2026-07-24) — zero outstanding design-review debt. None have been IC-screened yet; that's Wave 1/Wave 3's job, not done here.
 
 **Evidence base (2026-07-10):** todo 037's pilot ran the partial-IC test this phase's interaction-layer premise depends on — 8 already-live hand-picked interaction primitives measured for incremental IC after controlling for parent atomics. Result: 192/864 cells (22.2%) passed BH-FDR, broad-based across all 8 features. This confirms the atomic feature set is not IC-saturated and interaction effects are real — supporting evidence for building this phase's curated layer, though this phase's own ≤50-feature/theory-motivated design (vs. todo 019's rejected ~30K-candidate combinatorial approach) was already independently justified on BH-FDR statistical-power grounds before this result existed. See `docs/research/intel-feature-interaction-factory.md` and `.planning/todos/completed/037-interaction-primitives-pilot-ic-test.md` for full detail.
 
@@ -1694,7 +1707,7 @@ prerequisite, not just a nice-to-have).
 - Candidate sources: momentum × volatility regime, volume × trend direction, cross-asset divergence × regime transition, breakout × volume confirmation, mean-reversion × regime label, carry × term structure, `quarter_position` × existing atomic (calendar/OPEX seasonality — see below, todo 104).
 - Each compound is a single operation: product, ratio, or conditional. No multi-step compositions — that is a model, not a feature.
 - Separate BH-FDR pool from atomics (50 tests at FDR=0.05 has well-understood power vs 30K tests).
-- Feature Registry entry required at registration: `tier='1_interaction'`, `parent_features=[]`, hypothesis text in `formula_short`. Auto-deprecation if IC gate not passed within `alpha.feature_registry.demotion_periods` IC runs.
+- Feature Registry entry required at registration: `tier='1_interaction'`, `parent_features=[atomic1, atomic2]` (**exactly 2, corrected 2026-07-24 during `/gsd-plan-phase 151`** — this line previously said `parent_features=[]`, which contradicts every one of the 8 live `tier=1_interaction` rows, migration 169's own column comment defining `1_interaction` as "deterministic combination of two tier-0 features," and `scripts/ops/alpha/ops_interaction_primitives_pilot.py::_load_interaction_features`, which hard-raises `ValueError` on any other arity; there is also nothing to control for in a partial IC with an empty parent list), hypothesis text in `formula_short`. Auto-deprecation if IC gate not passed within `alpha.feature_registry.demotion_periods` IC runs.
 
 **Calendar primitive candidates (Fable-reviewed 2026-07-13, todo 104 CLOSED, full doctrine, inventory, and test design: `docs/research/signal-temporal-atomic-primitives.md`):**
 
@@ -1707,7 +1720,30 @@ prerequisite, not just a nice-to-have).
 **Regime-conditioned cluster membership (extension of Phase 140 P2):**
 Phase 140's collinearity clustering is global. Extend to regime-conditioned clusters: one cluster membership table per HMM state. Features uncorrelated in trending may be 0.8 correlated in ranging — global clustering misses this. APR key: `alpha.ensemble.cluster_regime_conditioned = true` [planned].
 
-**Plans:** 4 plans (Wave 1: primitives expansion IC sweep; Wave 2: Theory-Motivated Interaction Layer — 50 interaction proposals with stated hypotheses; Wave 3: interaction IC sweep + Feature Registry integration; Wave 4: regime-conditioned clusters)
+**Plans:** 8 plans in 7 waves (planned 2026-07-24). The ROADMAP's original "4 plans" framing described four *work streams*, not four executable plans — the atomic stream alone adds 43 `feature_vectors` columns across 5 files each, which exceeds a single plan's context budget by a wide margin. The four streams survive intact; they are decomposed by feature family and by the `feature_registry` row-count alignment gate (`_REGISTRY_ROW_COUNT = len(dataclasses.fields(FeatureVector))`), which forces each column batch to ship its own migration in the same commit.
+
+Plans:
+
+- [ ] 151-01-PLAN.md — Wave 1: atomics A, 6 calendar coordinates + 4 velocity primitives (migration 259, 2 APR keys)
+- [ ] 151-02-PLAN.md — Wave 1: regime-conditioned collinearity clustering, `symbol_hmm` as a second stratification axis (migration 260, 1 APR key)
+- [ ] 151-03-PLAN.md — Wave 2: atomics B, 10 `bars_since_*` recency primitives + `abs_ret_autocorr_1` (migration 261, 2 APR keys)
+- [ ] 151-04-PLAN.md — Wave 3: atomics C, 2 macro spreads + stock-bond correlation + 2 factor betas (migration 262, 7 APR keys)
+- [ ] 151-05-PLAN.md — Wave 4: interaction layer A, the 5 named roster candidates (3 cross-TF divergences + 2 event flags, migration 263)
+- [ ] 151-06-PLAN.md — Wave 5: interaction layer B, 10 theory-motivated compounds with stated hypotheses (migration 264, zero APR keys by design)
+- [ ] 151-07-PLAN.md — Wave 6: corpus recompute (`--recompute` mode defeating `ON CONFLICT DO NOTHING`, closes todo 176) + tier-0 atomic IC sweep
+- [ ] 151-08-PLAN.md — Wave 7: interaction partial-IC sweep + sparse event-flag BCa bootstrap + registry lifecycle verification (migration 265, 1 APR key)
+
+**Planning-time decisions recorded (2026-07-24):**
+
+- **Interaction cap:** the tier-1 population lands at 23 rows (8 pre-existing + 5 named + 10 designed), inside ROADMAP's ≤50 cap. The cap becomes a machine-enforced invariant via `test_interaction_tier_population_within_cap`, not a prose commitment.
+- **RESEARCH Open Q1 (interaction BH-FDR pool):** extend the existing `alpha.ic.partial_fdr_alpha` pool (migration 206, todo 037) rather than mint a third BH-FDR family. The pool-growth effect on todo 037's original 8-feature cohort is quantified in 151-08's report rather than left implicit.
+- **RESEARCH Open Q2 (categorical-regime interactions):** resolved by numeric-proxy substitution. `market_regimes`/`feature_vectors.regime` are categorical strings; every "× regime" candidate uses an existing numeric tier-0 proxy (`hv_ratio`, `adx`, `hurst`, `variance_ratio_fast`, `vix_z`, `yield_slope_z`). No compound multiplies a string, and no second stratification surface is opened.
+- **RESEARCH Open Q3 (Wave 4 cluster persistence):** no new table. Clustering is already per-(symbol, tf, regime) inside `_compute_one_regime_cell`; the real gap is that the `symbol_hmm` pass only runs for groups with `dual_write_symbol_hmm=true`. A new `alpha.ensemble.cluster_regime_conditioned` APR key widens that gate. ROADMAP's earlier "Phase 140's clustering is global" framing was imprecise and is superseded here.
+- **APR namespace correction:** todo 123 proposed `macro.sb_corr.window_fast/slow`. `macro.*` is not a sanctioned namespace in CLAUDE.md; the keys ship under `feature.*`, matching every live sibling (`feature.vix.zscore_window`, `feature.yield_curve.zscore_window`).
+- **13 new APR keys total**, superseding the todos' "3 (todo 123) + 2 (todo 180)" estimate — todo 123 additionally requires a z-score-window key per spread, which its own summary count omitted.
+- **`ret_div_1m_5m` coverage limit, surfaced not swallowed:** `feature_vectors` has no 1m grain and `market_data_ohlcv_tradeable`'s 1m coverage is 2026-03-23..2026-06-23 versus 5m's 2006-06-02..2026-07-07. The column ships nullable with roughly 1% expected coverage at 5m so the IC screen returns a measured verdict rather than a planner's guess. It is the expected casualty of 151-08's coverage gate; that outcome is to be recorded, not designed around.
+- **`quarter_cycle_sin/cos` CI validity:** `alpha.ic.bootstrap_block_size.1d` = 10 versus the feature's ~63-trading-day cycle, so the block-bootstrap CI at 1d is invalid (the point IC estimate is not). Adjudicated in 151-07 with an episode-aggregated companion test; the global key is deliberately NOT raised, which would silently change every other 1d feature's CI.
+- **Live-path cross-asset gap found while planning:** `FeatureCache.update_cross_asset()` has no production caller — the live pipeline routes the payload into `CacheManager`, so `vix_z`/`flight_quality`/`yield_slope_z` are frozen at 0.0 on the live path today (same bug class as todo 158). The batch path, which is what IC screening reads, is correct. Filed as a todo by 151-04 rather than fixed inline.
 
 ---
 
