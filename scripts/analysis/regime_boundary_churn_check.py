@@ -184,8 +184,8 @@ async def load_equity_tiers(cfg: Any) -> tuple[list[tuple[str, float]], list[tup
     params = {
         "vix_low_pct": await cfg.get("alpha.equity_regime.vix_low_pct", 0.33),
         "vix_high_pct": await cfg.get("alpha.equity_regime.vix_high_pct", 0.67),
-        "breadth_bear": await cfg.get("alpha.equity_regime.breadth_bear", 0.40),
-        "breadth_bull": await cfg.get("alpha.equity_regime.breadth_bull", 0.60),
+        "breadth_bear": await cfg.get("alpha.equity_regime.breadth_bear", 0.33),
+        "breadth_bull": await cfg.get("alpha.equity_regime.breadth_bull", 0.67),
     }
     return build_tiers(params)
 

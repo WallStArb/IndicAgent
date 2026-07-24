@@ -8,6 +8,7 @@ mirroring that same file's test_tf_window_* tests.
 
 from __future__ import annotations
 
+import math
 import sys
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
@@ -19,6 +20,8 @@ sys.path.insert(0, str(Path(__file__).parents[2]))
 
 from src.intelligence.regime_signals.breadth_vol import (
     PROB_KEYS,
+    _causal_expanding_rank,
+    _compute_breadth,
     _compute_vix_pct_rank,
     build_tiers,
     compute,
@@ -98,6 +101,10 @@ class TestComputeReturnShape:
 
 
 class TestBreadthSignal:
+    """_compute_breadth (raw fraction) tests -- unaffected by the causal-rank fix, since
+    compute()'s final output is now this raw fraction's causal expanding rank, not the raw
+    fraction itself. See TestBreadthPctRank for the rank-transformed compute() output."""
+
     def test_all_above_200ma_returns_near_one(self):
         # Strongly rising series: all symbols above their 200MA after warmup
         n = 500
@@ -106,16 +113,7 @@ class TestBreadthSignal:
             "SPY": _make_bars("SPY", closes),
             "QQQ": _make_bars("QQQ", closes),
         }
-        params = {
-            "vix_low_pct": 0.33,
-            "vix_high_pct": 0.67,
-            "breadth_bear": 0.40,
-            "breadth_bull": 0.60,
-            "realized_vol_window": 20,
-            "vix_z_window": 252,
-            "ma_window": 200,
-        }
-        _, breadth = compute(ref_bars, params)
+        breadth = _compute_breadth(ref_bars, ma_window=200)
         valid = breadth.dropna()
         assert (valid > 0.9).all(), f"Expected breadth near 1.0, got min={valid.min():.2f}"
 
@@ -127,18 +125,73 @@ class TestBreadthSignal:
             "SPY": _make_bars("SPY", closes),
             "QQQ": _make_bars("QQQ", closes),
         }
+        breadth = _compute_breadth(ref_bars, ma_window=200)
+        valid = breadth.dropna()
+        assert (valid < 0.1).all(), f"Expected breadth near 0.0, got max={valid.max():.2f}"
+
+
+class TestBreadthPctRank:
+    """compute()'s second return value is now a causal expanding percentile rank of the raw
+    breadth fraction (mirroring vix_pct's own treatment), not the raw fraction itself -- fixes
+    todo 092's population-imbalance finding (median raw breadth_frac ~0.70, far from the old
+    fixed 0.40/0.60 cuts' implied center of 0.50)."""
+
+    def test_breadth_output_is_bounded_rank_not_raw_fraction(self):
+        # A breadth series with real cross-sectional variation (not saturated at 0 or 1) --
+        # the raw fraction and its causal rank must differ once enough history accumulates.
+        n = 400
+        rng = np.random.default_rng(3)
+        base = 100.0 * np.exp(np.cumsum(rng.normal(0.0, 0.01, size=n)))
+        ref_bars = {
+            "SPY": _make_bars("SPY", list(base * 1.02)),
+            "B": _make_bars("B", list(base * 0.98)),
+            "C": _make_bars("C", list(base)),
+        }
         params = {
             "vix_low_pct": 0.33,
             "vix_high_pct": 0.67,
-            "breadth_bear": 0.40,
-            "breadth_bull": 0.60,
+            "breadth_bear": 0.33,
+            "breadth_bull": 0.67,
             "realized_vol_window": 20,
             "vix_z_window": 252,
             "ma_window": 200,
         }
-        _, breadth = compute(ref_bars, params)
-        valid = breadth.dropna()
-        assert (valid < 0.1).all(), f"Expected breadth near 0.0, got max={valid.max():.2f}"
+        _, breadth_pct = compute(ref_bars, params)
+        raw = _compute_breadth(ref_bars, ma_window=200)
+        valid_pct = breadth_pct.dropna()
+        assert len(valid_pct) > 0
+        assert (valid_pct >= 0.0).all() and (valid_pct <= 1.0).all()
+        # The rank series must not be byte-identical to the raw fraction series (that would
+        # mean the rank transform silently didn't run).
+        common_idx = valid_pct.index.intersection(raw.dropna().index)
+        assert not np.allclose(valid_pct.loc[common_idx].to_numpy(), raw.loc[common_idx].to_numpy())
+
+
+class TestCausalExpandingRank:
+    """Generic causal-rank helper, extracted from _compute_vix_pct_rank's bisect logic so it
+    applies identically to breadth_frac (Pitfall 1 / Pattern 4's causal-property invariant is
+    now enforced once, shared, rather than duplicated per-signal)."""
+
+    def test_first_value_ranks_one(self):
+        result = _causal_expanding_rank(pd.Series([5.0, 1.0, 9.0]))
+        assert result.iloc[0] == 1.0
+
+    def test_causal_property_future_value_does_not_change_past_ranks(self):
+        rng = np.random.default_rng(11)
+        series_n = pd.Series(rng.normal(size=60))
+        ranks_n = _causal_expanding_rank(series_n)
+
+        series_n1 = pd.concat([series_n, pd.Series([1000.0])], ignore_index=True)
+        ranks_n1 = _causal_expanding_rank(series_n1)
+
+        assert np.allclose(ranks_n.to_numpy(), ranks_n1.iloc[:60].to_numpy())
+
+    def test_nan_passthrough_does_not_pollute_sorted_window(self):
+        series = pd.Series([1.0, float("nan"), 2.0, 3.0])
+        result = _causal_expanding_rank(series)
+        assert math.isnan(result.iloc[1])
+        # The value immediately after the NaN ranks against {1.0} only, not {1.0, NaN}.
+        assert result.iloc[2] == 1.0
 
 
 class TestBuildTiers:
@@ -187,7 +240,10 @@ class TestBuildTiers:
 
 class TestProbKeys:
     def test_prob_keys_are_correct(self):
-        assert PROB_KEYS == ("vix_pct", "breadth_frac")
+        # Renamed from "breadth_frac" -> "breadth_pct": compute()'s second series is now a
+        # causal expanding percentile rank (mirroring vix_pct's own naming/treatment), not
+        # the raw fraction.
+        assert PROB_KEYS == ("vix_pct", "breadth_pct")
 
 
 # ---------------------------------------------------------------------------
