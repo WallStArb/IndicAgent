@@ -394,27 +394,59 @@ async def _load_interaction_features(conn: asyncpg.Connection) -> list[dict]:
 | A3 | "Momentum × low_vol_regime"-style interaction candidates require resolving categorical-vs-numeric parent representation before Wave 2 registration (Pitfall 2) | Common Pitfalls | If this is left unresolved, Wave 2 could register a candidate that literally can't be computed as specified, discovered only at Wave 2 implementation time rather than planning time |
 | A4 | Wave 4's "one cluster membership table per HMM state" should be read as adding `feature_vectors.regime` (per-symbol HMM axis) as a stratification dimension alongside the already-live `cross_sectional_regime` axis, not replacing it | State of the Art, Open Questions | If the ROADMAP intent was actually to replace/simplify the existing cross-sectional-regime clustering rather than add a second axis, the Wave 4 scope shrinks significantly |
 
-## Open Questions
+## Open Questions (RESOLVED)
+
+Questions 1-3 were resolved at planning time (2026-07-24); the resolutions are implemented in plans
+151-02, 151-06, and 151-08. Question 4 is a sequencing question this research deliberately does not
+answer; it was surfaced to the user and accepted before planning proceeded (see the note under Q4).
+The same resolutions are recorded in ROADMAP.md's "Planning-time decisions recorded (2026-07-24)"
+block; they are inlined here so this document stands alone for future readers.
 
 1. **Does Wave 3's interaction BH-FDR pool extend migration 206's `alpha.ic.partial_fdr_alpha` or need a dedicated key?**
    - What we know: The existing key/columns were built for exactly this purpose (partial IC for `tier=1_interaction` features) and are currently scoped to 8 features.
    - What's unclear: Whether growing the population 8 -> ~50 within the same statistical family is intended, or whether the ROADMAP's "separate BH-FDR pool from atomics" language implies Wave 3 needs its own distinct pool separate even from todo 037's pilot cohort.
    - Recommendation: Default to extending the existing key (simpler, avoids a 3rd BH-FDR family) unless the user has a specific reason to keep todo 037's pilot cohort as a permanently separate population.
+   - **RESOLVED (2026-07-24, implemented in plan 151-08):** Extend the existing
+     `alpha.ic.partial_fdr_alpha` pool (migration 206, todo 037) rather than mint a third BH-FDR
+     family. The tier-1 interaction population lands at 23 rows (8 pre-existing + 5 named + 10
+     designed), inside ROADMAP's <=50 cap, and the cap becomes a machine-enforced invariant via
+     `test_interaction_tier_population_within_cap` rather than a prose commitment. The pool-growth
+     effect on todo 037's original 8-feature cohort is quantified in 151-08's report rather than
+     left implicit.
 
 2. **How do categorical-regime interaction candidates (Pitfall 2) get represented?**
-   - What we know: Some of ROADMAP's suggested interaction sources ("momentum × low_vol regime," "mean-reversion × regime label") pair a numeric atomic with a categorical stratification axis, not another numeric atomic.
+   - What we know: Some of ROADMAP's suggested interaction sources ("momentum x low_vol regime," "mean-reversion x regime label") pair a numeric atomic with a categorical stratification axis, not another numeric atomic.
    - What's unclear: Whether Wave 2 substitutes a numeric proxy feature, computes these as regime-stratified IC cells rather than persisted compound columns, or drops these specific candidate sources in favor of purely numeric-times-numeric compounds.
    - Recommendation: Resolve explicitly during Wave 2 design (before any registration), not deferred to implementation.
+   - **RESOLVED (2026-07-24, implemented in plan 151-06):** Numeric-proxy substitution.
+     `market_regimes` and `feature_vectors.regime` are categorical strings, so every "x regime"
+     candidate uses an existing numeric tier-0 proxy instead (`hv_ratio`, `adx`, `hurst`,
+     `variance_ratio_fast`, `vix_z`, `yield_slope_z`). No compound multiplies a string, and no
+     second stratification surface is opened.
 
 3. **Wave 4 cluster persistence: new table, or extend the existing `cluster_id` column's semantics?**
    - What we know: Clustering today is ephemeral per `ic_engine.py` cell run (not a standalone persisted table); `cluster_id` is written onto `feature_ic_scores` rows per Phase 140 P2 (migration 171).
    - What's unclear: Whether "one cluster membership table per HMM state" (ROADMAP's phrasing) means a genuinely new standalone table, or just adding `feature_vectors.regime` as an additional groupby key to the existing per-cell clustering call sites (`_compute_one_regime_cell`, `_compute_cross_sectional_tf`'s helper).
    - Recommendation: The lighter-weight option (add a groupby dimension to existing call sites) fits the "extension of Phase 140 P2" framing better and avoids a new persistence surface; flag this as the recommended default but confirm with the user given ROADMAP's literal "table" wording.
+   - **RESOLVED (2026-07-24, implemented in plan 151-02):** No new table. Clustering is already
+     per-(symbol, tf, regime) inside `_compute_one_regime_cell`; the real gap is that the
+     `symbol_hmm` pass only runs for regime groups with `dual_write_symbol_hmm=true` (live:
+     `rates` only, migration 247). A new `alpha.ensemble.cluster_regime_conditioned` APR key widens
+     that gate so the second stratification axis runs for every routed symbol. This also supersedes
+     assumption A4 above and ROADMAP's earlier "Phase 140's clustering is global" framing, which was
+     imprecise.
 
 4. **Sequencing tension: is Phase 151 actually next, given STATE.md's Tier 6 gating?**
    - What we know: STATE.md places Phase 151 behind resolving whether the current feature set + ensemble construction has ANY OOS-detectable edge at all (the "prove edge before production infra" principle, applied here as "prove the current features are exhausted before adding more").
    - What's unclear: Whether this research/planning dispatch represents a deliberate override of that gating (e.g., the user decided to invest in features per the Tier-1 "strategic fork" framing) or should be flagged back to the user before `/gsd-execute-phase 151` runs.
-   - Recommendation: Not this research's call — surface explicitly to the user at `/gsd-discuss-phase 151` or plan-review time.
+   - Recommendation: Not this research's call - surface explicitly to the user at `/gsd-discuss-phase 151` or plan-review time.
+   - **SURFACED AND ACCEPTED (2026-07-24):** This tension was raised to the user before planning
+     proceeded, and the `/gsd-plan-phase 151` invocation is the user's explicit acceptance of the
+     Tier-1 "strategic fork" reading: Phase 151 proceeds ahead of STATE.md's Tier-6 gate as a
+     deliberate override, not an oversight. This remains a product/sequencing decision owned by the
+     user, not a research finding - it is recorded here so a future reader does not re-litigate it
+     as an unresolved gap. If the Tier-6 edge question is later answered negatively, revisit whether
+     the features added by this phase are still worth carrying.
 
 ## Environment Availability
 
