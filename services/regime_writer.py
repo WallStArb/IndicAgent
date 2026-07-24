@@ -21,6 +21,26 @@ DAG invariant note: this oneshot is exempt from the "only writer subclasses touc
 rule exactly as backfill_feature_factory.py is — it is a batch labeling tool, not a
 real-time daemon. The ring 2 boundary still holds: no async pipeline, no Kafka.
 
+KNOWN, REASONED EXCLUSIONS (todo 168, investigated 2026-07-24 — do not re-investigate
+from scratch, read this first): the following (symbol, tf) cells reliably fail
+_check_occupation_gate (degenerate_occupation) and are NOT a bug:
+  - LQD, PFF, USMV: degenerate/near-miss at EVERY tf (1d included)
+  - EFA, FXI: 1h only
+  - FXY: 15m, 1h (15m is a severe collapse, min_fraction ~0.00008)
+  - RSP: 15m, 1h, 5m
+  - UUP: 15m, 5m (5m is a true collapse, two of five states never occur)
+  - VWO, XRT: 5m only
+Ruled out as causes (don't re-test these): the min_state_occupation=0.05 floor itself
+(corpus-wide distribution check across 198 already-successful (symbol,tf) cells shows
+the worst successful fit is 0.0502 — right at the floor, not evidence of miscalibration)
+and min_hold_bars smoothing (tested directly at 1/2/3/5 against 3 of the worst cases,
+zero effect). Pattern: near-universal success at 1d, failures concentrated at intraday
+tf, for lower-beta/mean-reverting instrument types (bonds, preferred shares, low-vol
+factor, currency ETFs) — reads as a genuine limit of a uniform K=5 trend-state HMM at
+high frequency for these instruments, not a defect. Do not force these onto K=5 by
+construction; a per-symbol K override was considered and rejected as unwarranted
+complexity for a bounded, already-identified set of cells.
+
 Usage:
     python services/regime_writer.py
     python services/regime_writer.py --symbols SPY TLT

@@ -2125,7 +2125,7 @@ Plans:
 - [x] 162-03-PLAN.md — Todo 134 core (absorbs 122): ic_cell_fingerprints table (migration 250), computational-vs-operational field classification, per-table watermarks catching in-place mutation, fingerprint validity check replacing existing_keys skip, DELETE-then-insert invalidation, --refresh/--dry-run-validity, delete .pkl checkpoint system
 - [x] 162-04-PLAN.md — Equivalence harness (fresh vs fingerprint-skip, incl bh_adjusted_p/passes_fdr) + drift study; migration 251 (refresh_min_new_fraction=0 disabled); staleness stays alert-only
 
-### Phase 163: VP/SR Structural Primitives 📋 PLANNED
+### Phase 163: VP/SR Structural Primitives ✅ COMPLETE (2026-07-24, verification 15/15 must-haves)
 
 **Goal:** Implement real computation for the 4 permanently-null structural features
 (`poc_dist_atr`, `va_position`, `sr_support_dist`, `sr_resist_dist`) — closes todo 153. Session-

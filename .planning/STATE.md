@@ -3,8 +3,20 @@ gsd_state_version: 1.0
 milestone: v3.1
 milestone_name: AlphaEngine Validation + Alpha Scoring
 status: ready_to_execute
-stopped_at: Phase 166 (Frame/Execution Recalibration) COMPLETE 2026-07-23 (6/6 plans, verification passed 27/27 must-haves) — both baseline and scalar candidates FAIL gate166, structural candidate correctly halted pending Phase 163. v3.1 milestone is NOT complete despite the phase.complete CLI's is_last_phase=true signal (a tooling artifact, corrected here) — phases 145, 147, 149, 150, 151, 155-159, 163, 164, 165 remain 📋 PLANNED/unexecuted in ROADMAP.md. Next actionable item TBD by /gsd-progress.
-last_updated: 2026-07-23T15:04:54.645Z
+stopped_at: >-
+  Phase 163 COMPLETE 2026-07-24 (verification 15/15 must-haves). Same-day investigation
+  (not a GSD phase -- an ad hoc Renaissance-council review of Gate 2) produced a decisive
+  finding that OVERRIDES Phase 166's own recommended follow-on -- do NOT pursue the
+  structural (S/R) candidate further (todos 175/176) -- mid_bull's raw, un-barriered
+  forward return is negative at every horizon, so no stop-placement fix (structural or
+  otherwise) can work. Real next step -- investigate whether ensemble_trainer.py and
+  alpha_publisher.py have a regime-conditional expectancy floor at all, or just
+  feature-level significance -- see Current focus and todo 179. Also closed todo 168
+  (14-symbol regime-coverage gap, root cause was a compressed hypertable from migration
+  201, not a modeling bug) and shipped todo 169 (coverage monitor, built and tested, not
+  yet deployed). v3.1 milestone still NOT complete -- phases 145, 147, 149, 150, 151,
+  155-159, 164, 165 remain unexecuted.
+last_updated: 2026-07-24T11:30:00.000Z
 progress:
   total_phases: 12
   completed_phases: 9
@@ -21,62 +33,94 @@ See: .planning/PROJECT.md
 
 **Core value:** Alpha must be demonstrated empirically before any ensemble weight is assigned.
 
-**Current focus (updated 2026-07-23):** Milestone v3.1's defining question is answered: **Phase
-148 delivered its verdict 2026-07-22 — do not promote the v3.0 AlphaEngine to live trading
-capital at this time.** Gate 1 (signal proof) PASS, Gate 2 (execution proof) FAIL, 3 of 5
-SHADOW-REVIEW criteria, decisively (~960% max drawdown vs a 0.25 ceiling). Full evidence:
-`docs/plans/2026-07-22-phase148-promotion-decision.md`. This is a real, informative negative
-result: the measured signal is real, the current frame/execution design doesn't yet capture it
-as profitable OOS P&L. **Phase 166 (Frame/Execution Recalibration) is now PLANNED** (2026-07-23,
-6 plans in 4 waves, `gsd-plan-checker` VERIFICATION PASSED) — diagnose Gate 2's failure, build
-and empirically compare a scalar candidate and a structural candidate (VP/SR confluence, Part 1
-only — SMC/swing/fib/anchored-VWAP deferred to todo 175), and score both through a fresh
-validation gate. **Phase 163 execution is now a real prerequisite** (Wave 0 of Phase 166's plan)
-— `sr_support_dist`/`sr_resist_dist` are 100% NULL until it runs; discovered during Phase 166's
-research, this was not a known dependency when Phase 163 was originally planned independently.
+**Current focus (updated 2026-07-24):** Milestone v3.1's defining question (Phase 148, do not
+promote v3.0 AlphaEngine to live capital — Gate 1 PASS, Gate 2 FAIL) still stands. Phase 166
+tried to fix Gate 2 via frame/execution recalibration (scalar + structural stop/target
+candidates) — both failed, and its own recorded next step was to finish the structural
+candidate's Part 2 (todos 175/176) once Phase 163 landed. **That plan is now overridden.**
+
+A same-day investigation (2026-07-24, not run through GSD — a direct Renaissance-council-style
+review of "is this generating real alpha," full detail in
+[[project_todo179_gate2_concentration_regime_diagnostic]]) found, via a chain of independently
+falsified hypotheses (concentration/sizing helps Sharpe but doesn't fix drawdown; sign-symmetric
+shadow test made things worse, not better; asset-class regime-mismatch ruled out empirically),
+a decisive final result: **`mid_bull`'s raw, completely un-barriered forward return (pulled
+directly from `forward_returns`, zero stop/target/hold involved) is negative at every horizon
+tested.** No frame-layer fix — stop distance, hold time, or structural S/R placement — can turn
+a genuinely negative raw return into a profitable trade. Phase 166 already tried two stop/target
+variants; a third (the structural candidate, todos 175/176) would fail for the identical reason
+and should NOT be pursued next.
+
+**The real next step: is there any regime-conditional expectancy floor at emission time at
+all, or does the ensemble only ever check feature-level significance?** `ensemble_trainer.py`'s
+eligibility predicate operates per-feature (is this predictor's IC significant for this
+`(tf,regime)` stratum); `alpha_publisher.py`'s only gate is a per-bar CI check on that bar's
+score. Neither validates the STRATUM'S actual realized outcome before continuing to emit in it
+— Gate 1/Gate 2/gate166 measure that, but as one-off milestone scripts never wired back into
+what gets emitted. The proposed fix (not yet built): a `regime_eligibility_gate.py` oneshot,
+reusing `evaluate_frame_gate`/`frame_gate_passes` verbatim (no new statistics), writing to the
+existing `gate_evaluations` table, consulted by `alpha_publisher.py` as one more preload/skip
+condition alongside its existing CI gate. **Must be stratified jointly on
+`(cross_sectional_regime, symbol_hmm_regime, direction, tf)`, not cross-sectional regime alone**
+— per-symbol HMM state reveals real heterogeneity within `mid_bull` (a `ranging` sub-bucket near
+breakeven vs. `trending_up`/`transition_down` genuinely bad) that a single-axis gate would blur.
+This has NOT been validated through the project's own day-clustered-bootstrap+FDR protocol yet —
+that's the actual next action, not writing the gate itself.
+
+**This surfaced a Layer 1 (regime labeling) foundation problem that had to be fixed before any
+of the above can be trusted.** Todo 168 (7 symbols with zero per-symbol HMM regime coverage) was
+bigger than filed — the new coverage monitor (todo 169) found 14, not 7. Root cause for most:
+`feature_vectors`' entire hypertable was compressed as a side effect of migration 201 (float32
+conversion), not a modeling bug — decompressed, confirmed fix, **CLOSED**. Full detail:
+[[project_todo168_regime_coverage_compression_wall]]. Remaining Layer 1 gaps, still fully open:
+**todo 092** (equity regime cut-point calibration — arbitrary 0.40/0.60 cuts, population 12-17x
+imbalanced, never checked against the real distribution) and **todo 167** (equity's
+cross-sectional-vs-symbol-HMM stratification choice never falsifier-tested, unlike rates').
+Both should resolve before fully trusting the regime-eligibility gate above.
 
 Phase 144 (Cross-Sectional Regime Model) is COMPLETE (6/6) — D-05 verdict: F1 not triggered
-(TLT's per-symbol HMM stays deficient), F2 triggered for 15m/5m rates (cross-sectional also
-deficient at high frequency). Phase 145 (StratificationDimension Formalization) is unblocked
-by this verdict but not yet planned. Phase 143.1 is COMPLETE (8/8) — HOLD verdict on
-sign-symmetric ensemble weighting, confirmed twice. Phase 162 (ic_engine Corpus Pipeline
-Throughput) is COMPLETE (4/4, 2026-07-23) — whole-cell fingerprinting mechanism proven
-equivalent to forced recompute; a real BLOCKER (CR-01, per-symbol watermark scoping) found via
-code review and fixed same session; 3 success criteria (full-corpus wall-clock, surgical
-invalidation, thread benchmark) need an actual full 80-symbol corpus run to close empirically,
-tracked in `162-HUMAN-UAT.md`, not blocking. Six todos this phase absorbed (122/129/133/134/139/140)
-are closed (129 partially revived — its wider cross-service scope was never in Phase 162).
+(TLT's per-symbol HMM stays deficient), F2 triggered for 15m/5m rates. Phase 143.1 is COMPLETE
+(8/8) — HOLD verdict on sign-symmetric ensemble weighting, confirmed twice (now three times,
+counting today's shadow-test re-confirmation). Phase 162 (ic_engine Corpus Pipeline Throughput)
+is COMPLETE (4/4). Phase 163 (VP/SR Structural Primitives) is COMPLETE (2026-07-24) — its output
+is exactly what the now-deprioritized structural candidate needed, so completing it doesn't
+change the "don't pursue Part 2" call above.
 
 **Next actions, priority order:**
 
-*Tier 1 — highest-value open question, ready to execute:* Phase 163 (VP/SR Structural
-Primitives, `/gsd-execute-phase 163`) MUST run first — it is now a real Wave-0 prerequisite for
-Phase 166's structural candidate (`sr_support_dist`/`sr_resist_dist` are 100% NULL until it
-executes). Then `/gsd-execute-phase 166` — the direct next step after Phase 148's verdict, 6
-plans in 4 waves, planned and verified 2026-07-23.
+*Tier 1 — highest-value, ready to start:* Validate the regime-eligibility hypothesis properly
+(day-clustered bootstrap + BH-FDR on the joint `(cross_sectional_regime, symbol_hmm_regime,
+direction, tf)` stratification, reusing `evaluate_frame_gate`) before building anything. Read
+`ensemble_trainer.py`'s eligibility predicate and `alpha_publisher.py`'s emission gate first to
+confirm precisely what does/doesn't exist today. This is the actual path to "is there real,
+tradeable alpha here" — higher value than any todo below.
 
-*Tier 2 — ready now, independent of 163/166:* todo 088 (`hold_max_bars` type safety, small,
-unblocked — also referenced by Phase 166's scalar-candidate calibration) · todos 168/169 (7
-symbols with zero HMM regime coverage + no monitor that would've caught it) · todo 170
-(`volatility_pct` substitution probe for rates) · todo 129 (revived — wider cross-service
-short-lived-conn helper) · todos 172/173 (non-blocking findings from Phase 148's execution, also
-referenced by Phase 166's new validation gate) · todo 009 Parts A-D (Part E closed via Phase 162).
+*Tier 2 — regime-labeling foundation, should resolve before fully trusting Tier 1:* todo 092
+(equity regime cut-point calibration) · todo 167 (equity cross-sectional-vs-symbol-HMM
+falsifier, needs a real D-05-equivalent gate built) · todo 169's timer (script/tests/units all
+built, `systemctl enable` on the live host not yet done — deliberate, flagged as a real infra
+change).
 
-*Tier 3 — needs a planning pass first:* Phase 145 (StratificationDimension Formalization,
-unblocked, not yet discussed/planned) · Phase 165 (Swing/Fib/Trend Structure Primitives,
-context+research done, needs `/gsd-plan-phase 165`) · todo 111 (same unblock as Phase 145).
+*Tier 3 — ready now, independent of the above:* todo 088 (`hold_max_bars` type safety) · todo
+170 (`volatility_pct` substitution probe for rates) · todo 129 (revived cross-service
+short-lived-conn helper) · todos 172/173 (non-blocking Phase 148 findings) · todo 009 Parts A-D.
 
-*Tier 4 — real value, not urgent:* Phase 147 (I7 CORPUS-07 — due diligence on an already-dead
-system, cheap, gates nothing) plus the full P2/P3 tier in `.planning/todos/PRIORITIES.md`.
+*Tier 4 — deprioritized, do not resume without re-reading why:* todo 176 (historical
+`feature_vectors` VP/SR backfill) and todo 175 (structural candidate Part 2) — both exist only
+to serve the now-overridden "pursue the structural candidate" plan. Phase 145
+(StratificationDimension Formalization, unblocked but not planned) and Phase 165 (Swing/Fib/Trend
+Structure Primitives, researched, needs `/gsd-plan-phase 165`) — not wrong to do, just not the
+highest-value next step given Tier 1.
 
-*Tier 5 — explicitly gated, do not start planning yet:* Phases 149-159 (PrecedentEngine,
-Feature Primitives Expansion, Alt Data, Portfolio State, Position Sizing, Live Execution, Cost
-Calibration) — registered in ROADMAP.md, zero planning artifacts, v4.0-adjacent scope. Per
-"prove edge before production infra," this gate is now MORE binding, not less: Phase 148's
-verdict came back negative (Gate 2 FAIL), so building portfolio/execution/risk infrastructure
-on top of an execution design already shown not to capture the measured signal profitably would
-be building on a known-broken foundation. These stay gated until Phase 166 produces a real PASS
-on Gate 2, not just until Phase 148 "finishes" — it has finished, with a negative result.
+*Tier 5 — real value, not urgent:* Phase 147 (I7 CORPUS-07 due diligence, cheap, gates nothing)
+plus the full P2/P3 tier in `.planning/todos/PRIORITIES.md`.
+
+*Tier 6 — explicitly gated, do not start planning yet:* Phases 149-159 (PrecedentEngine, Feature
+Primitives Expansion, Alt Data, Portfolio State, Position Sizing, Live Execution, Cost
+Calibration) — zero planning artifacts, v4.0-adjacent scope. Per "prove edge before production
+infra," this gate is now MORE binding: building portfolio/execution/risk infrastructure before
+Tier 1 resolves whether there's a real, tradeable regime-conditional edge would be building on
+an unproven foundation twice over.
 
 **Execution plan:** `docs/plans/2026-06-30-alphaengine-v1-execution-plan.md`
 
@@ -108,7 +152,8 @@ on Gate 2, not just until Phase 148 "finishes" — it has finished, with a negat
 | 161 | Controlled Vocabulary System | COMPLETE (4/4 plans, 2026-07-18) — schema + `VocabularyService` + `vocabulary_drift` audit + `/api/vocabulary/{namespace}` route, live-verified (VERIFICATION.md: passed, 23/24 truths, 1 accepted YAGNI override) |
 | 148 | Alpha Scoring System (OOS Proof Gates) | COMPLETE (5/5 plans, 2026-07-22) — the actual proof-of-alpha milestone: Gate 1 PASS, Gate 2 FAIL, VERDICT do not promote to live capital; see ROADMAP.md's Phase 148 section and `docs/plans/2026-07-22-phase148-promotion-decision.md` for full evidence |
 | 162 | ic_engine Corpus Pipeline Throughput | COMPLETE (4/4 plans, 2026-07-23) — whole-cell fingerprint mechanism, equivalence-proven; CR-01 blocker found via code review and fixed same session; 3 success criteria need a full-corpus run to close empirically, see `162-HUMAN-UAT.md` |
-| 166 | Frame/Execution Recalibration | PLANNED (6/6 plans, 4 waves, 2026-07-23, `gsd-plan-checker` VERIFICATION PASSED) — diagnose Phase 148's Gate 2 failure, empirically compare a scalar candidate vs. a structural (VP/SR confluence) candidate against a fresh validation gate; Phase 163 execution is a real Wave-0 prerequisite; see Current focus |
+| 166 | Frame/Execution Recalibration | COMPLETE (6/6 plans, 4 waves, 2026-07-23) — baseline and scalar candidates FAIL gate166 decisively; structural candidate halted pending Phase 163. **Part 2 (todos 175/176) since deprioritized 2026-07-24 by todo 179's decisive finding — see Current focus.** |
+| 163 | VP/SR Structural Primitives | COMPLETE (3/3 plans, 2026-07-24, verification 15/15 must-haves) — closes todo 153. 17 new `feature_vectors` columns live on the compute path; historical backfill still open (todo 176, now deprioritized alongside Phase 166 Part 2) |
 
 Current row counts and every downstream measurement number live in
 [Corpus pipeline state](project_corpus_pipeline_state.md) — that file is the single source of
@@ -150,10 +195,10 @@ ON CONFLICT (symbol, tf) DO UPDATE SET fetch_complete = true;
 
 ## Session
 
-**Last session:** 2026-07-23T10:45:00.000Z
-**Stopped At:** Phase 166 planned (6 plans, 4 waves) via `/gsd-plan-phase 166` — CONTEXT.md discussed, RESEARCH.md written (structural candidate scope broadened then resolved to a two-part split mid-research), PATTERNS.md mapped, plan-checker VERIFICATION PASSED (0 blockers, 3 warnings all fixed), decision-coverage gate 6/6.
+**Last session:** 2026-07-24T11:30:00.000Z
+**Stopped At:** Phase 163 executed and verified (15/15 must-haves). Same-day ad hoc investigation (not a GSD phase) found the actual cause of Gate 2's failure and overrode Phase 166's own recommended next step — see the 2026-07-24 session closeout below for the full chain, and `.planning/todos/pending/179-gate166-concurrent-exposure-diagnostic.md` for the complete reasoning trail. Also closed todo 168 (regime-coverage gap, root cause was a compressed hypertable, not a modeling bug) and shipped todo 169 (coverage monitor).
 
-**Resume File / exact next action:** Run `/gsd-execute-phase 163` FIRST — it is now a real Wave-0 prerequisite for Phase 166's structural candidate (discovered during Phase 166's research: `sr_support_dist`/`sr_resist_dist` are 100% NULL until Phase 163 executes). Verified directly: `git log` shows `f394bbdd` as the last commit touching the Phase 163 phase dir, and both `163-01-PLAN.md`/`163-02-PLAN.md` grep-confirm "12 new" column phrasing and both `poc_rolling_dist_atr`/`poc_session_rolling_divergence_atr` present. After Phase 163 executes: close todo 153 (move `pending/153-vp-sr-features-null-in-batch-corpus.md` → `completed/`), noting the decision made (implement, not delete) and pointing at whatever incremental-IC result eventually comes out of the next `ic_engine` corpus run per D-07's promotion bar. Then run `/gsd-execute-phase 166` (6 plans: 01 migration+diagnosis, 02 scalar candidate, 03 structural candidate Part 1, 04 validation gate, 05 wiring, 06 one-shot scoring + verdict + todo 175 + closing deferred todo 163).
+**Resume File / exact next action:** Do NOT run `/gsd-execute-phase` for anything related to Phase 166 Part 2 (todos 175/176) — that plan is deprioritized, see below. The real next action: read `services/ensemble_trainer.py`'s eligibility predicate (`_eligibility_where`) and `services/alpha_publisher.py`'s emission gate to confirm precisely whether either validates a stratum's actual realized outcome before continuing to emit in it, or only feature-level statistical significance. Then validate the regime-eligibility hypothesis properly — day-clustered bootstrap + BH-FDR on the joint `(cross_sectional_regime, symbol_hmm_regime, direction, tf)` stratification, reusing `evaluate_frame_gate` verbatim — before designing or building anything. This is Tier 1 in the "Next actions" list under Project Reference above.
 
 **This session's full arc (for context if resuming cold):** Started from todo 153 (VP/SR features permanently null) → Fable research → discovered a better port source (`ctx_VolumeProfile`) than originally proposed → caught and fixed a raw-price-as-ML-feature bug in that scoping (D-16) → planned Phase 163 via direct `gsd-planner` dispatch (bypassing the full `/gsd-plan-phase` skill since CONTEXT.md/RESEARCH.md were already hand-written) → got an independent Fable review of the whole corrected scope, which caught 2 more issues (D-17: dropped `in_lvn`, undocumented `va_width_atr` collinearity) → both fixed in the already-written plans → user caught a further gap (rolling-track signal computed but unused) → third Fable review dispatched, in flight at session end. Also: filed todo 158 (unrelated live-path bug found incidentally: `above_wk_vwap` frozen at 0.0 in live pipeline, batch path is correct) and closed out the todo-147 CV recheck's A/B rerun analysis (encouraging but not fully closed — see PRIORITIES.md's todo-147 entry, the direct `true_range_pct` CV re-check is still outstanding). Phase 164 (SMC Institutional Footprint Primitives) registered but not planned — deliberately deferred to a future session/prioritization call.
 
@@ -570,3 +615,78 @@ green after every merge, worktrees cleaned up (zero orphans), pushed
 updated post-Phase-148). The highest-value open question is whether/how to scope a frame/
 execution recalibration to address Gate 2's failure — not yet a todo or phase, flagged as
 Tier 1's own open item rather than started unprompted.
+
+### Session closeout (2026-07-24) — Phase 163 executed; Gate 2's real cause found; Phase 166 Part 2 overridden; Layer-1 regime foundation fixed
+
+This session ran outside the normal GSD phase-execution flow — user asked for a Renaissance-
+council-style strategic review ("are we generating real alpha"), which turned into: executing
+Phase 163, a full diagnostic investigation of why Gate 2 fails, and a Layer 1 (regime labeling)
+infrastructure fix found along the way. Full reasoning trail preserved in
+`.planning/todos/pending/179-gate166-concurrent-exposure-diagnostic.md` and
+`.planning/todos/completed/168-seven-symbols-zero-per-symbol-hmm-regime-labels.md` — read those
+before re-deriving anything below.
+
+**Phase 163 executed and verified** (15/15 must-haves) — see Phase Summary table above.
+
+**Gate 2 diagnostic (todo 179), in the order hypotheses were tested and either confirmed or
+falsified — don't re-run any of these:**
+1. Concentration/position-sizing: real (triples Sharpe via a risk-budget sweep), but drawdown
+   floors at ~11x vs the 0.25 threshold regardless of budget — falsifies "it's purely a sizing
+   artifact."
+2. Single-symbol standalone test (zero basket, zero portfolio math): XLE/PPLT/XOP each show
+   negative Sharpe and catastrophic `mid_bull` losses completely alone — proves the deficiency
+   isn't basket-level.
+3. Sign-symmetric shadow test (143.1-08, already-run data, re-examined): unlocking shorts made
+   things WORSE (Sharpe -4.14, drawdown 360,733%), not better — rules out "should have gone
+   short instead."
+4. Full regime sweep (all 9 equity cross-sectional cells): the ensemble has literally zero
+   eligible features for 4 of 9 regimes (silent skip, not a bug) — confirmed those 4 regimes DID
+   occur in the OOS window, the model just never fires there.
+5. Per-symbol HMM axis crossed against cross-sectional regime (never checked before user asked
+   "why only 2 regimes?"): reveals real heterogeneity within `mid_bull` — a `ranging` sub-bucket
+   near breakeven vs. `trending_up`/`transition_down` genuinely bad. Any fix must stratify on
+   both axes jointly, not cross-sectional regime alone.
+6. Asset-class regime-mismatch hypothesis (commodity ETFs getting a wrong equity-breadth regime
+   signal): tested directly, FALSIFIED — equity-tagged symbols lose worse than commodity-tagged
+   ones in the same regimes.
+7. **Decisive test:** pulled `mid_bull`'s raw, completely un-barriered forward return straight
+   from `forward_returns` (same table/method as Gate 1) — negative at every horizon, gets worse
+   with longer holds. This is not an execution artifact; it's what the market did. **Overrides
+   Phase 166's own recommended next step** (finishing the structural S/R candidate, todos
+   175/176) — a third stop-placement variant cannot fix a genuinely negative raw return, and
+   Phase 166 already tried two. Real next step: does `ensemble_trainer.py` have any
+   regime-conditional expectancy floor at emission time, or only feature-level significance?
+   Not yet answered — read the code before designing anything.
+
+**Layer 1 (regime labeling) foundation work, found necessary along the way, not originally
+planned:** built `services/regime_coverage_auditor.py` (todo 169) as a cheap completeness
+canary — it immediately found 14 symbols with zero per-symbol HMM regime coverage, not the 7
+known at filing (todo 168). Root-caused via direct, live testing (not guessed): most were a
+compressed-hypertable write wall (migration 201's float64->float32 conversion recompressed
+`feature_vectors` as a documented, deliberate final step — not a policy bug), not a modeling
+problem. Decompressed (~20GB, trivial against 742GB free), confirmed fix directly for every
+symbol. Remaining ~23 (symbol,tf) cells are genuine HMM-fit limits (tested and ruled out:
+`min_state_occupation` miscalibration via a corpus-wide distribution check, and `min_hold_bars`
+smoothing via direct testing) — documented as reasoned exclusions in `regime_writer.py`'s module
+docstring. **Todo 168 CLOSED.** Full detail:
+`.planning/todos/completed/168-seven-symbols-zero-per-symbol-hmm-regime-labels.md`.
+
+**A real operational incident happened and was cleanly resolved, worth knowing about:**
+running several `regime_writer.py` invocations back-to-back with `timeout`-based kills left an
+orphaned write transaction pileup in Postgres (3 backends, one lock-blocking the next) — caught
+via `pg_stat_activity`, resolved with `pg_terminate_backend()`, confirmed zero pending locks and
+zero partial writes afterward. No lasting damage, but a reminder: always confirm zero orphaned
+processes/connections between `regime_writer.py` invocations, not just before the next one.
+
+**Cleanup done this session:** removed 3 dead todos (`012`, `032` — stale merge-redirect stubs;
+`153` — resolved by Phase 163, verified live), pruned an orphaned merged worktree
+(`restore-symbol-hmm-ic-measurement`), added missing test coverage for the new
+`regime_coverage_auditor.py`, added its systemd unit files (not yet enabled on the live host —
+a real infra change, deliberately left for explicit go-ahead), compacted `MEMORY.md` from 19.6KB
+to 14.8KB (moved sprawling investigation detail into topic files, cut fully-resolved historical
+narrative per this project's own "no resolved history" memory rule).
+
+**Next actions, in order:** see "Next actions" under Project Reference above (Tier 1-6,
+rewritten this session) — Tier 1 (validate the regime-eligibility hypothesis properly, read
+`ensemble_trainer.py`/`alpha_publisher.py` first) is the highest-value open item. Do not resume
+todos 175/176 (structural candidate Part 2) without re-reading why they were deprioritized.

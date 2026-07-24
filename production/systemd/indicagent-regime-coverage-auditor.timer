@@ -1,0 +1,10 @@
+[Unit]
+Description=Regime Coverage Auditor Timer — daily 06:00 UTC
+
+[Timer]
+OnCalendar=*-*-* 06:00:00 UTC
+Persistent=true
+Unit=indicagent-regime-coverage-auditor.service
+
+[Install]
+WantedBy=timers.target
