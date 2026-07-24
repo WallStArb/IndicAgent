@@ -3,34 +3,13 @@ gsd_state_version: 1.0
 milestone: v3.1
 milestone_name: AlphaEngine Validation + Alpha Scoring
 status: ready_to_execute
-stopped_at: >-
-  Tier 1 validation (todo 179) now RUN AND ANSWERED, same day as Phase 163's completion.
-  Confirmed by direct code read: neither ensemble_trainer.py's eligibility predicate nor
-  alpha_publisher.py's emission gate validates a stratum's realized OOS outcome -- both are
-  pure feature-level statistical significance gates. Built and ran a day-clustered
-  bootstrap+FDR validation (scripts/analysis/regime_eligibility_joint_stratification_validation.py,
-  reuses evaluate_frame_gate verbatim) stratified jointly on (tf, direction,
-  cross_sectional_regime, symbol_hmm_regime) against the champion OOS population: ZERO
-  cells pass at any granularity tested, coarse or joint -- including the two buckets
-  (high_neutral, mid_bull-ranging) that looked promising under naive per-trade averaging in
-  todo 179's earlier informal check. A regime_eligibility_gate.py built today would find
-  nothing to let through. This closes off the "maybe a finer regime cut finds hidden edge"
-  hope and reinforces Phase 148's Gate 2 FAIL at the finest resolution tested yet. Full
-  detail in todo 179's final section. **Real open question now: does this ensemble
-  construction (current feature set + IC-weighted linear combination + barrier execution)
-  have ANY OOS-detectable edge at the frame level at all -- a strategic fork (invest in
-  better features/signal via Phase 164/165, or accept no live edge yet on this branch) that
-  needs a decision, not another diagnostic.** Also closed todo 168 (14-symbol regime-
-  coverage gap, root cause was a compressed hypertable from migration 201, not a modeling
-  bug) and shipped todo 169 (coverage monitor, built and tested, not yet deployed). v3.1
-  milestone still NOT complete -- phases 145, 147, 149, 150, 151, 155-159, 164, 165 remain
-  unexecuted.
-last_updated: 2026-07-24T12:15:00.000Z
+stopped_at: Phase 163 executed and verified (15/15 must-haves). Same-day ad hoc investigation (not a GSD phase) found the actual cause of Gate 2's failure and overrode Phase 166's own recommended next step — see the 2026-07-24 session closeout below for the full chain, and `.planning/todos/pending/179-gate166-concurrent-exposure-diagnostic.md` for the complete reasoning trail. Also closed todo 168 (regime-coverage gap, root cause was a compressed hypertable, not a modeling bug) and shipped todo 169 (coverage monitor).
+last_updated: "2026-07-24T21:09:23.739Z"
 progress:
   total_phases: 12
   completed_phases: 9
   total_plans: 45
-  completed_plans: 65
+  completed_plans: 44
   percent: 75
 ---
 
@@ -719,25 +698,32 @@ before re-deriving anything below.
 
 **Gate 2 diagnostic (todo 179), in the order hypotheses were tested and either confirmed or
 falsified — don't re-run any of these:**
+
 1. Concentration/position-sizing: real (triples Sharpe via a risk-budget sweep), but drawdown
    floors at ~11x vs the 0.25 threshold regardless of budget — falsifies "it's purely a sizing
    artifact."
+
 2. Single-symbol standalone test (zero basket, zero portfolio math): XLE/PPLT/XOP each show
    negative Sharpe and catastrophic `mid_bull` losses completely alone — proves the deficiency
    isn't basket-level.
+
 3. Sign-symmetric shadow test (143.1-08, already-run data, re-examined): unlocking shorts made
    things WORSE (Sharpe -4.14, drawdown 360,733%), not better — rules out "should have gone
    short instead."
+
 4. Full regime sweep (all 9 equity cross-sectional cells): the ensemble has literally zero
    eligible features for 4 of 9 regimes (silent skip, not a bug) — confirmed those 4 regimes DID
    occur in the OOS window, the model just never fires there.
+
 5. Per-symbol HMM axis crossed against cross-sectional regime (never checked before user asked
    "why only 2 regimes?"): reveals real heterogeneity within `mid_bull` — a `ranging` sub-bucket
    near breakeven vs. `trending_up`/`transition_down` genuinely bad. Any fix must stratify on
    both axes jointly, not cross-sectional regime alone.
+
 6. Asset-class regime-mismatch hypothesis (commodity ETFs getting a wrong equity-breadth regime
    signal): tested directly, FALSIFIED — equity-tagged symbols lose worse than commodity-tagged
    ones in the same regimes.
+
 7. **Decisive test:** pulled `mid_bull`'s raw, completely un-barriered forward return straight
    from `forward_returns` (same table/method as Gate 1) — negative at every horizon, gets worse
    with longer holds. This is not an execution artifact; it's what the market did. **Overrides
