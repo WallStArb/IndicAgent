@@ -2283,12 +2283,20 @@ explicit before `/gsd-plan-phase 164` runs, not rediscovered from scratch mid-im
 **Depends on:** Phase 163 (VP/SR Structural Primitives) for shared conventions (ATR-distance
 normalization pattern, APR namespace precedent, incremental-IC promotion methodology) — not a
 hard code dependency, sequencing preference only.
-**Requirements**: TBD at `/gsd-plan-phase 164`
-**Plans:** 0 plans
+**Requirements**: No formal REQUIREMENTS.md IDs (none exist for this project — per Phase 163
+precedent); governed by derived REQ-164-01..09 (order blocks, breaker/mitigation, FVG, sweeps,
+pools, zones, BOS/CHoCH, AMD, data contract) — see `164-01-PLAN.md`'s source-coverage audit.
+**Plans:** 4 plans in 4 sequential waves (all edit `feature_factory.py` — no parallelism possible;
+this is one compute-path port). Migration 259 re-verify-at-execution flagged (RESEARCH Open Q3).
+Historical `feature_vectors` backfill deliberately deferred to the consolidated 163/164/165 pass
+(todo 176); shared collinearity/incremental-IC sweep is a phase-exit follow-up, not a task.
 
 Plans:
 
-- [ ] TBD (run /gsd-plan-phase 164 to break down)
+- [ ] 164-01-PLAN.md — Data contract: migration 259 (36 SMC columns + feature_registry + feature.smc.* APR keys) + FeatureVector/domain/persistence slice + FeatureFactoryConfig wiring + FeatureCache.update_overnight_range() mutator [wave 1]
+- [ ] 164-02-PLAN.md — Order blocks + stateless breaker/mitigation (hard OB dependency chain) compute + test_smc_order_blocks.py [wave 2]
+- [ ] 164-03-PLAN.md — FVG + liquidity sweeps + liquidity pools (PWH/PWL/PDH/PDL descoped) compute + test_smc_fvg.py/test_smc_liquidity.py [wave 3]
+- [ ] 164-04-PLAN.md — Supply/demand zones + BOS/CHoCH + AMD cycle (clamp/ordinal) + overnight-range call-site wiring + test_smc_zones.py/test_smc_structure.py/test_smc_amd_cycle.py [wave 4]
 
 ---
 
