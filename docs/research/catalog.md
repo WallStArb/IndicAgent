@@ -1,8 +1,20 @@
 # Idea Catalog — Full-Tree Index
 
-**Version:** 1.3
+**Version:** 1.4
 **Status:** current
-**Last Updated:** 2026-07-12 (see audit note below; earlier audit notes follow for history)
+**Last Updated:** 2026-07-24 (see audit note below; earlier audit notes follow for history)
+**2026-07-24 audit:** 12 days since the last pass, three real staleness findings, all fixed.
+(1) Concept Registry row still said "zero `concept_* ` tables exist yet" — Phase 160 shipped
+2026-07-14, `concept_registry` is live (confirmed via `\dt`). (2) Controlled Vocabulary row
+still said "idea, unscheduled" — Phase 161 shipped 2026-07-18, `tag_vocabulary` is live. (3)
+Instrument Tag Calibrator row cited "Phase 145" — wrong number and stale status; the shipped
+phase is **Phase 146** (COMPLETE 2026-07-17), not Phase 145 (StratificationDimension
+Formalization, a different phase, still unplanned). Also fixed: AlphaEngine Alt Data Extension
+row cited "Phase 154," ROADMAP.md's current number for that phase is **Phase 155** — the same
+renumbering-drift class this catalog has caught before (see 2026-07-11 audit). **Not fixed this
+pass, flagged instead:** `data-alt-data-sources.md` itself still has 5+ internal "Phase 154"
+references — out of scope for a catalog-row fix, needs its own sweep. Interaction Factory row
+already current (updated same-session, 2026-07-24, for the v2 design addition — see that entry).
 **2026-07-12 audit:** housekeeping/consolidation pass. Archived 4 docs (see Archived section) and
 corrected the `docs/plans/` table's HMM/GARCH/Kalman migration row (status was blank, work is
 actually complete). Separately, ROADMAP.md turned out to have 6 dead-path citations across 3
@@ -59,7 +71,7 @@ navigation depth; that doc is the one-page product-management view.
 **Master priority doc for this whole cluster:**
 [Intelligence Lifecycle Backlog Matrix](intelligence-lifecycle-backlog-matrix.md)
 — HIGH/MEDIUM/LOW triage across everything below, refreshed against real code/DB state (not
-assertion), last rewritten 2026-07-08. Read this first for "what's next," not this catalog.
+assertion), last refreshed 2026-07-24. Read this first for "what's next," not this catalog.
 
 | Doc | Status / Priority | Fable-reviewed | One-line |
 |---|---|---|---|
@@ -69,15 +81,15 @@ assertion), last rewritten 2026-07-08. Read this first for "what's next," not th
 | [IntegrityMonitor — Drift, Decay, Ensemble Health](measurement-governance-monitor.md) | draft, high | ✅ (2026-07-06) | Reconciled cluster doc; 7 stale passages found/fixed against executed Phase 143 (pre_shadow_weight was dead, registry amendments, staleness design, schema) |
 | [MeasurementEngine — IC Kernel Unification](measurement-ic-engine.md) | answered | ✅ (2026-07-06) | Kernel-unification question resolved by existing `ic_math.py`; unfixed config drift between `ic_engine.py`/`ensemble_ic_engine.py` flagged |
 | [AlphaEmitter — Stage 4 Emission Mechanisms](measurement-alpha-emission.md) | idea, not planned | ✅ (2026-07-07) | Threshold-crossing is structurally fine; real gaps are uncalibrated thresholds (EM-CAL), stratum-constant CI gate, weight-staleness blindness; gate stack as the swappable unit, three rejections recorded |
-| [Unified Concept Registry](concept-unified-registry.md) | design complete, not built | ✅ (4 passes, 2026-07-06) | Cross-tier lifecycle governance unifying feature + intelligence tiers; adversarial stress-test survived (event-sourcing/graph-DB/full-separation alternatives rejected); MVP build trigger fired (todo 058), zero `concept_*` tables exist yet |
+| [Unified Concept Registry](concept-unified-registry.md) | **SHIPPED** (Phase 160, 2026-07-14) | ✅ (4 passes, 2026-07-06) | Cross-tier lifecycle governance unifying feature + intelligence tiers; adversarial stress-test survived (event-sourcing/graph-DB/full-separation alternatives rejected); 4-table schema + `ConceptRegistryService`/API/dashboard live, `concept_registry` table confirmed in production |
 | [Governance & Registries](concept-governance-registries.md) | — | ✅ (2026-07-06) | Umbrella framework for three registry types: Parameter (APR), Lifecycle (Concept Registry), Vocabulary (Tag + Controlled); links to canonical docs |
 | [Stratification & Classification Registries](stratification-governance-registries.md) | — | | Sibling umbrella to Governance & Registries, scoped to "what state/kind an instrument or market is in": StratificationDimension, Security Classification Hierarchy, Instrument Tag Calibrator |
 | [Edge Source Thesis](data-edge-source-thesis.md) | draft, high | | T1-T4 falsifiable theses on where edge comes from; standing doc, revisit per thesis |
 | [Canonical Simulator](platform-canonical-simulator.md) | draft, high | ✅ (v2.1, 2026-07-12) | One counterfactual ledger + cost kernel + run identity, not a replay engine; enforced via pre-commit Check 9; both open questions settled against shipped Phase 142B, priority downgraded critical→high |
 | [Trade Construction Layer](trade-construction-layer.md) | draft, high | | Forecast → position; v4.0 concern, gated on the T3 falsification result |
-| [Instrument Tag Calibrator](stratification-instrument-tag-calibrator.md) | draft, high | ✅ (2026-07-06) | Todo 040/Phase 145 (renumbered 2026-07-04); found and fixed a missing FDR correction (~1,600 simultaneous tests/run) and a worked example violating the live weight CHECK |
+| [Instrument Tag Calibrator](stratification-instrument-tag-calibrator.md) | **SHIPPED** (Phase 146, 2026-07-17 — corrected 2026-07-24, row previously misnumbered as "Phase 145," which is StratificationDimension Formalization, a different, still-unplanned phase) | ✅ (2026-07-06) | Todo 040; found and fixed a missing FDR correction (~1,600 simultaneous tests/run) and a worked example violating the live weight CHECK; `TagCalibrator` live-verified, 11/12 measurable tags carry real `source='empirical'` rows |
 | [Interaction Factory](intel-feature-interaction-factory.md) | v1 historical/reference (superseded); v2 candidate design added 2026-07-24, not yet reviewed/decided | | Todo 037's pilot (2026-07-10, PASS 22.2%) cleared the evidence trigger, but Phase 151 independently rejected the original combinatorial mechanism on BH-FDR power grounds. **v2 section (2026-07-24)** proposes a power-preserving redesign (constrained generation, two-stage screening, knockoff filters, effect-size floor, redundancy pre-filter, replication requirement) — gated on Phase 151 landing first, tracked at todo 181, no Fable review yet |
-| [Controlled Vocabulary](concept-controlled-vocabulary.md) | idea, unscheduled | ✅ (2026-07-06) | Ready to build whenever prioritized; staging order was inverted (would've built against archived tables first) — fixed |
+| [Controlled Vocabulary](concept-controlled-vocabulary.md) | **SHIPPED** (Phase 161, 2026-07-18) | ✅ (2026-07-06) | Staging order was inverted in the original design (would've built against archived tables first) — fixed before build; schema + `VocabularyService` + drift audit + API route live, `tag_vocabulary` table confirmed in production, 23/24 truths verified |
 
 ---
 
@@ -126,7 +138,7 @@ of what was removed and why. These three are what's actually still live.
 | [Security Classification Hierarchy](stratification-security-classification-hierarchy.md) | draft, medium (build gated on individual-equities onboarding) | ✅ (2026-07-06) | GICS-style strict layer (3 new effective-dated tables) + custom soft taxonomies as `tag_vocabulary.parent_tag`; two epistemic models, deliberately not one tree; redesigned consumer item 6, fixed a silent point-in-time corruption risk |
 | [Renaissance Primitives — OHLCV Expansion](signal-renaissance-primitives-ohlcv.md) | idea, not planned | | OHLCV-derived primitives for Signal Processing Layer (499+ raw signals approach); its Temporal Coordinate Primitives section now points to the doc below |
 | [Calendar Primitives](signal-temporal-atomic-primitives.md) | adopted into Phase 151 | ✅ (2026-07-13) | Calendar-primitive doctrine (coordinates-vs-flags tier placement), 22→21-primitive inventory, 3 new atomic candidates (`quarter_cycle`, `tdom`, `minute_of_hour`), `opex_flag`/`quad_witching_flag` tier-1 split, OPEX/quarterly-seasonality test design; closes todo 104 |
-| [AlphaEngine — Alternative Data Extension](data-alt-data-sources.md) | adopted as Phase 154 | ✅ (2026-07-06) | Extending AlphaEngine to alt-data sources; original table architecture rejected and redesigned around the live `context_features` precedent |
+| [AlphaEngine — Alternative Data Extension](data-alt-data-sources.md) | adopted as Phase 155 (corrected 2026-07-24 — row said "Phase 154," ROADMAP.md's current number; the doc itself still has 5+ internal "Phase 154" references not fixed this pass) | ✅ (2026-07-06) | Extending AlphaEngine to alt-data sources; original table architecture rejected and redesigned around the live `context_features` precedent |
 
 ---
 
