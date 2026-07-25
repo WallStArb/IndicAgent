@@ -1674,11 +1674,13 @@ Each single-TF precedent predictor lands at exactly feature grain, one value per
 **Wave 1 candidate roster, consolidated (2026-07-24) — final post-Fable-review names, all 4 sources in one place:**
 
 *Tier-0 atomic (28 columns, Wave 1 IC sweep):*
+
 - From todo 104 (calendar, 6): `quarter_cycle_sin/cos`, `tdom_sin/cos`, `minute_of_hour_sin/cos`
 - From todo 123 (momentum/macro, 9, all renamed from the todo's original proposal): `momentum_z_velocity_fast/mid/slow`, `vwap_dev_sigma_velocity` (not "acceleration"), `tip_tlt_ret_z`/`hyg_lqd_ret_z` (not "real yield"/"credit spread" — those names asserted a causal referent the formula doesn't compute), `sb_corr_fast/slow/z` (not `sb_corr_30/60` — raw day-counts violated naming-system.md §7). Needs 3 new APR keys: `feature.momentum_velocity.window`, a VWAP delta-window key, `macro.sb_corr.window_fast/slow`, plus a z-score-window key per macro spread.
 - From todo 180 (recency/beta, 13, one renamed): `bars_since_high_fast/slow`, `bars_since_low_fast/slow`, `bars_since_52w_high/low`, `abs_ret_autocorr_1`, `equity_beta_z` (renamed from `mkt_beta_z` — glossary bans unqualified `beta`), `rate_beta_z`, `bars_since_extreme_move_fast/slow`, `bars_since_vol_spike_fast/slow`. Needs 2 new APR keys (`feature.bars_since_extreme_move.sigma_threshold`, `feature.bars_since_vol_spike.threshold`).
 
 *Tier-1 interaction (5 candidates, Wave 2's ≤50 cap, not Wave 1):*
+
 - From todo 066 (confirmed correct as designed): `ret_div_1m_5m`, `ret_div_5m_1h`, `ret_div_1h_1d`
 - From todo 104 (deliberately NOT atomic — a flag selects a point in a cycle, which is a hypothesis): `opex_flag`, `quad_witching_flag`
 
@@ -2293,9 +2295,20 @@ Historical `feature_vectors` backfill deliberately deferred to the consolidated 
 
 Plans:
 
+**Wave 1**
+
 - [ ] 164-01-PLAN.md — Data contract: migration 259 (36 SMC columns + feature_registry + feature.smc.* APR keys) + FeatureVector/domain/persistence slice + FeatureFactoryConfig wiring + FeatureCache.update_overnight_range() mutator [wave 1]
+
+**Wave 2** *(blocked on Wave 1 completion)*
+
 - [ ] 164-02-PLAN.md — Order blocks + stateless breaker/mitigation (hard OB dependency chain) compute + test_smc_order_blocks.py [wave 2]
+
+**Wave 3** *(blocked on Wave 2 completion)*
+
 - [ ] 164-03-PLAN.md — FVG + liquidity sweeps + liquidity pools (PWH/PWL/PDH/PDL descoped) compute + test_smc_fvg.py/test_smc_liquidity.py [wave 3]
+
+**Wave 4** *(blocked on Wave 3 completion)*
+
 - [ ] 164-04-PLAN.md — Supply/demand zones + BOS/CHoCH + AMD cycle (clamp/ordinal) + overnight-range call-site wiring + test_smc_zones.py/test_smc_structure.py/test_smc_amd_cycle.py [wave 4]
 
 ---

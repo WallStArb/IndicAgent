@@ -447,9 +447,9 @@ of `feature_factory.py`'s `compute()`/`compute_batch()` — no new incremental c
 confirmation, not verified facts about what the user wants** — none of them come from an
 existing CONTEXT.md (this phase has none yet) or a locked ROADMAP.md decision.
 
-## Open Questions
+## Open Questions (RESOLVED)
 
-1. **Should `bars_since_last_sweep`/`bars_since_last_shift` be raw bar counts or ATR-time-normalized?**
+1. **Should `bars_since_last_sweep`/`bars_since_last_shift` be raw bar counts or ATR-time-normalized?** — RESOLVED: Plan 03/04 follow the raw-bar-count recommendation below (`bars_since_last_sweep`, `bars_since_last_shift`).
    - What we know: Phase 163's D-19 precedent (`resistance_age_bars`/`support_age_bars`) treats
      bar counts as directly comparable across symbols with no normalization, following the
      existing `swing_high_age_bars`/`trend_duration_bars`/`macd_cross_bars_ago` convention.
@@ -459,7 +459,11 @@ existing CONTEXT.md (this phase has none yet) or a locked ROADMAP.md decision.
      equivalent) for consistency — no evidence this phase's fields are meaningfully different.
 
 2. **Does `smc_trend_direction` (BOS/CHoCH's 2-swing-point trend call) overlap materially with
-   the existing per-symbol HMM regime direction?**
+   the existing per-symbol HMM regime direction?** — RESOLVED (deferred, not measured): correctly
+   deferred to the phase-exit collinearity/incremental-IC sweep per the recommendation below, not
+   answered speculatively without measurement. Not a plan gap — ROADMAP.md already calls for this
+   sweep across the whole "distance to level" + now "trend direction" family once Phase 163/164/165
+   columns all exist.
    - What we know: both are "trend direction" signals, but computed by entirely different
      methods (2-point swing-high/swing-low comparison vs. a fitted HMM over log-return +
      realized-vol). Not provably redundant without measurement.
@@ -470,7 +474,10 @@ existing CONTEXT.md (this phase has none yet) or a locked ROADMAP.md decision.
      "distance to level" family — extend it to include this "trend direction" family pairing
      too, don't treat it as a separate concern).
 
-3. **Migration number: is 259 still free at plan/execution time?**
+3. **Migration number: is 259 still free at plan/execution time?** — RESOLVED (as of research/plan
+   time; execution must still re-verify per the recommendation below): plan-checker independently
+   confirmed 258 as current max on 2026-07-25. Plan 01 Task 1 carries the mandatory re-verify-at-
+   execution step per this project's two prior migration-number collisions.
    - What we know: 258 is the current max (`258_curve_credit_causal_rank_calibration.sql`,
      confirmed 2026-07-25 by directory listing).
    - What's unclear: whether a concurrent session claims 259 before this phase executes (the

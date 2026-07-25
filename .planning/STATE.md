@@ -3,12 +3,12 @@ gsd_state_version: 1.0
 milestone: v3.1
 milestone_name: AlphaEngine Validation + Alpha Scoring
 status: ready_to_execute
-stopped_at: Phase 151 planned (9 plans, 7 waves) and cross-AI reviewed — Codex review (`151-REVIEWS.md`, HIGH risk verdict, 3 HIGH-severity findings) incorporated via `/gsd-plan-phase 151 --reviews`; a new plan `151-09` was added to fix a real live-path bug the review surfaced (`vix_z`/`flight_quality`/`yield_slope_z` frozen at 0.0 for every live-written `feature_vectors` row). `gsd-plan-checker` VERIFICATION PASSED (2 non-blocking warnings). Not yet executed. Earlier same day: Phase 163 executed and verified (15/15 must-haves); an ad hoc investigation (not a GSD phase) found the actual cause of Gate 2's failure and overrode Phase 166's own recommended next step — see the 2026-07-24 session closeout below for the full chain. Also closed todo 168 and shipped todo 169.
-last_updated: "2026-07-25T00:30:00.000Z"
+stopped_at: "Phase 151 planned (9 plans, 7 waves) and cross-AI reviewed — Codex review (`151-REVIEWS.md`, HIGH risk verdict, 3 HIGH-severity findings) incorporated via `/gsd-plan-phase 151 --reviews`; a new plan `151-09` was added to fix a real live-path bug the review surfaced (`vix_z`/`flight_quality`/`yield_slope_z` frozen at 0.0 for every live-written `feature_vectors` row). `gsd-plan-checker` VERIFICATION PASSED (2 non-blocking warnings). Not yet executed. Earlier same day: Phase 163 executed and verified (15/15 must-haves). Same-day ad hoc investigation (not a GSD phase) found the actual cause of Gate 2's failure and overrode Phase 166's own recommended next step — see the 2026-07-24 session closeout below for the full chain, and `.planning/todos/pending/179-gate166-concurrent-exposure-diagnostic.md` for the complete reasoning trail. Also closed todo 168 (regime-coverage gap, root cause was a compressed hypertable, not a modeling bug) and shipped todo 169 (coverage monitor)."
+last_updated: "2026-07-25T10:25:38.165Z"
 progress:
   total_phases: 12
   completed_phases: 9
-  total_plans: 54
+  total_plans: 45
   completed_plans: 44
   percent: 75
 ---
