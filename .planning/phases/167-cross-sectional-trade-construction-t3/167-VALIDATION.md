@@ -42,13 +42,13 @@ created: 2026-07-26
 
 | Task ID | Plan | Wave | Requirement | Threat Ref | Secure Behavior | Test Type | Automated Command | File Exists | Status |
 |---------|------|------|-------------|------------|-----------------|-----------|-------------------|-------------|--------|
-| 167-01-01 | 01 | 0 | Migration: `construction_spreads` hypertable + APR seeds | T-167-01 | APR values range/type-validated at load (V5) | integration (requires_db) | `pytest tests/integration/ -k construction_spreads_schema -x` | ❌ W0 | ⬜ pending |
+| 167-01-01 | 01 | 1 | Migration: `construction_spreads` hypertable + APR seeds | T-167-01 | APR values range/type-validated at load (V5) | integration (requires_db) | `pytest tests/integration/ -k construction_spreads_schema -x` | ❌ W0 | ⬜ pending |
 | 167-02-01 | 02 | 1 | Decile split (Minimal Design step 2) | — | N/A | unit | `pytest tests/unit/test_cross_sectional_spread_tracker.py::test_decile_split -x` | ❌ W0 | ⬜ pending |
 | 167-02-02 | 02 | 1 | Turnover across run boundary (Pitfall 4) | — | N/A | unit | `pytest tests/unit/test_cross_sectional_spread_tracker.py::test_turnover_across_run_boundary -x` | ❌ W0 | ⬜ pending |
 | 167-02-03 | 02 | 1 | Cost-hurdle net-of-turnover math (D-05) | T-167-02 | Malformed/out-of-range APR fails loud, never silently clamps | unit | `pytest tests/unit/test_cross_sectional_spread_tracker.py::test_cost_hurdle_sweep -x` | ❌ W0 | ⬜ pending |
 | 167-03-01 | 03 | 2 | Incremental watermark scoping (Pitfall 3) | — | N/A | integration (requires_db) | `pytest tests/integration/ -k cross_sectional_spread -x` | ❌ W0 | ⬜ pending |
-| 167-04-01 | 04 | 2 | Validation Gate 1 evaluation (`--evaluate-gate`) | — | N/A | unit | `pytest tests/unit/test_cross_sectional_spread_tracker.py::test_evaluate_gate -x` | ❌ W0 (adapt `test_counterfactual_tracker.py`'s gate-evaluation shape) | ⬜ pending |
-| 167-05-01 | 05 | 3 | Validation Gate 2 (attribution honesty regression) | — | N/A | unit | `pytest tests/unit/test_cross_sectional_spread_tracker.py::test_attribution_honesty -x` | ❌ W0 (new statistical work, no existing analog — RESEARCH.md Open Question 1) | ⬜ pending |
+| 167-04-01 | 04 | 3 | Validation Gate 1 evaluation (`--evaluate-gate`) | — | N/A | unit | `pytest tests/unit/test_cross_sectional_spread_tracker.py::test_evaluate_gate -x` | ❌ W0 (adapt `test_counterfactual_tracker.py`'s gate-evaluation shape) | ⬜ pending |
+| 167-05-01 | 05 | 4 | Validation Gate 2 (attribution honesty regression) | — | N/A | unit | `pytest tests/unit/test_cross_sectional_spread_tracker.py::test_attribution_honesty -x` | ❌ W0 (new statistical work, no existing analog — RESEARCH.md Open Question 1) | ⬜ pending |
 
 *Status: ⬜ pending · ✅ green · ❌ red · ⚠️ flaky*
 

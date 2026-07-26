@@ -619,10 +619,17 @@ Questions) — but the core construction and Gate 1 measurement need no per-enti
 
 **If this table is empty:** N/A — see entries above.
 
-## Open Questions
+## Open Questions (RESOLVED — see planner's resolution per question below)
 
 1. **Validation Gate 2 (attribution honesty) has no existing code to reuse — how should the
    planner scope it?**
+   **RESOLVED by Plan 167-05:** built from scratch as `--evaluate-attribution`, a static-tilt
+   regression against a residual gate (each symbol's time-averaged net leg membership collapsed
+   into one benchmark series, spread returns regressed on it, the residual passed through
+   `frame_gate_passes`) — not R² alone. Plan 05's unit tests include a construction deliberately
+   built to FAIL, confirming the gate actually discriminates. See plan-checker's VERIFICATION
+   PASSED note: "this phase's one genuinely new statistical component — correctly scoped, not
+   silently assumed-covered by Gate 1."
    - What we know: the design doc's Validation Gates section states the requirement precisely
      ("regress spread returns on static bucket membership; if a fixed membership explains most
      of it, the 'forecast' is a factor exposure in disguise"). No script, service, or shared
@@ -641,6 +648,9 @@ Questions) — but the core construction and Gate 1 measurement need no per-enti
 2. **Should the flat-benchmark comparison (Minimal Design step 6: "vs. two benchmarks: flat,
    and the same construction with shuffled rankings") be added to the production service, given
    the T3 script only implements the shuffled-ranking null, not the flat benchmark?**
+   **RESOLVED by Plan 167-04:** implemented exactly the reasoning recommended below — "beats
+   flat" is satisfied by Gate 1's `ci_lower > 0` requirement directly; no separate,
+   redundant flat-benchmark computation was added.
    - What we know: the shuffled-ranking null is implemented and already proven decisive (P(null
      ≥ observed) = 0.0000 at both scales). The "flat" (do-nothing/no-position) benchmark is
      trivially "zero P&L" for a dollar-neutral construction and may not add diagnostic value
@@ -654,6 +664,12 @@ Questions) — but the core construction and Gate 1 measurement need no per-enti
      planner or a future review finds this reasoning insufficient.
 
 3. **Should this phase register a systemd timer, or stay manual/on-demand?**
+   **RESOLVED by Plan 167-03 (design_decisions item 1):** manual/on-demand, matching
+   `alpha_scorer.py`'s precedent. The planner's stated reasoning: `--backfill` (Plan 03)
+   populates the full 2006-2026 history in one pass, immediately handing Gate 1 ~130 OOS
+   day-clusters — this answers the "needs an accumulating record" counterargument below without
+   needing a recurring cadence. Also noted: CLAUDE.md records all indicagent timers as disabled
+   anyway, so registering one here would misrepresent actual cadence.
    - See Assumption A4 above — this is a real judgment call CONTEXT.md leaves open. The
      `alpha_scorer.py` precedent argues for manual/on-demand; but unlike `alpha_scorer.py` (a
      one-shot diagnostic snapshot over already-closed frames), this service needs to
