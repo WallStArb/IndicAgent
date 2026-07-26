@@ -47,9 +47,13 @@ the signal those size/execute) and ahead of Phase 151/164/165 (proven and cheap 
 unproven and expensive). First open item before scoping plans: apply the todo 030 cost-hurdle
 treatment to the spread construction (today's result is gross-only).
 
-T5 (non-linear combiner) came back suspicious (0.30 OOS IC, ~3x anything else measured, after
-already catching one leak) — flagged pending, not a pass, until todo 184's canary-leakage
-check runs. **T2 (regime-conditional persistence, the thing that motivated testing T3/T5) was
+T5 (non-linear combiner) cleared its canary-leakage check 2026-07-26 (todo 184, CLOSED) — the
+0.30 OOS IC (~3x anything else measured) is NOT explained by look-ahead leakage (all 4 negative
+controls clean by standalone IC; the positive control's presence doesn't move aggregate IC,
+Δ=+0.0007). Genuinely interesting lead, still not a confirmed pass — independent replication
+(different tf/OOS window) is the next legitimate step, not more leakage investigation on this
+same result. Full detail: `docs/research/data-edge-source-thesis.md`'s T5 section. **T2
+(regime-conditional persistence, the thing that motivated testing T3/T5) was
 tested and found dead by todo 179's exhaustive sweep — but that sweep ran under OLD, pre-todo-092
 regime labels, later found miscalibrated and fixed the same day.** A full corpus recompute
 under the corrected labels is in progress (todo 183 — hit and fixed a `max_cell_rows` ceiling
