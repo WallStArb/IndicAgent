@@ -2382,6 +2382,96 @@ Plans:
 
 - [x] 166-06-PLAN.md — calibrate/regenerate/simulate/score all arms one-shot, verdict doc, Part 2 follow-on todo (D-01, D-03, D-04, D-05, D-06) [wave 4]
 
+### Phase 167: Cross-Sectional Trade Construction (T3) 📋 PLANNED (6 plans, 5 waves)
+
+**Goal:** Build the cross-sectional long-short construction `docs/research/trade-construction-layer.md`
+designs (v1: rank the equity universe by a feature at each bar, long the top decile / short
+the bottom decile, dollar-neutral) plus its shadow measurement — turning Edge Source Thesis's
+T3 from a validated finding into a real, cost-aware, monitored construction.
+
+**Why this phase exists (added 2026-07-26):** T2 (regime-conditional persistence) was
+falsified 2026-07-24 (todo 179's 234-cell sweep — see caveat below). T3 was tested as a cheap
+falsification script before committing to Phase 164/165's feature-expansion effort and
+**passed decisively at both lookahead scales**
+(`scripts/analysis/t3_cross_sectional_long_short_ctf_momentum_check.py`, `ctf_momentum`,
+equity/15m: fast mean spread 5.9bp/bar `ci_lower`=5.6bp, slow mean spread 11.1bp/bar
+`ci_lower`=9.7bp, both clearing a shuffled-ranking-null guard at `P(null>=observed)=0.0000`).
+This is the first thesis anywhere in the edge-source-thesis tree to clear its own
+pre-registered bar convincingly. Full result: `docs/research/data-edge-source-thesis.md`'s T3
+section.
+
+**Caveat carried forward, don't lose it:** T2's falsification ran under cross-sectional regime
+labels later found miscalibrated and fixed the same day (todo 092) — its "dead" verdict is
+provisional pending a full re-run through the corrected pipeline (todo 183, in progress as of
+this phase's registration). T3's result is independent of that caveat (it reads
+`feature_vectors`/`forward_returns` directly, no regime dependency), so it stands regardless of
+how T2's re-check lands.
+
+**Design (v1, per `docs/research/trade-construction-layer.md` — read that doc for full detail,
+not duplicated here):**
+- Equal-weight top/bottom decile legs, dollar-neutral, no vol-scaling/Kelly/risk model — this
+  doc's deliberately minimal first cut.
+- **First open item, before scoping plans:** apply the todo 030 cost-hurdle treatment to the
+  spread construction specifically — a long-short spread's cost dynamics differ from a
+  directional trade's (this doc's own point), and today's T3 result is gross-only.
+- Construction + shadow measurement is queries and a batch service, not new infrastructure — it
+  reads `alpha_events`/`feature_vectors`/`forward_returns` like everything else in this system.
+
+**Depends on:** Phase 142A (proven OOS ensemble IC) — already cleared 2026-07-22 (Gate 1 PASS,
+Phase 148). Not gated on Phase 166 or the 156-159 execution/sizing chain.
+
+**Sequencing relative to other open phases:** this is measurement-layer work that could
+produce a Gate-2-passing signal — sequence **before** Phase 156 (Portfolio State Foundation)
+and the rest of the 156-159 execution/sizing chain, which size and execute a signal this phase
+would help produce, not replace. Independent of Phase 164/165 (feature-expansion track,
+attacks the *feature* side under the same construction T2 falsified) — parallel work, neither
+blocks the other.
+
+**Requirements**: No formal REQUIREMENTS.md IDs (standing-doc-driven, same pattern as Phase
+163). Governed by `docs/research/trade-construction-layer.md`'s own design + validation
+sections.
+**Plans:** 6 plans across 5 waves, planned 2026-07-26. Schema + APR substrate, pure
+construction primitives, the `CrossSectionalSpreadTracker` BaseBatch service with incremental
+watermark scoping, Validation Gate 1 (`--evaluate-gate`), Validation Gate 2 (`--evaluate-attribution`,
+the one piece of genuinely new statistical work), and a live run that produces the real verdicts.
+
+**Planning decisions worth carrying forward (resolved, do not re-litigate):**
+- No systemd timer, no `service_auditor._DAG_ORDER` registration - manual/on-demand only,
+  matching `alpha_scorer.py`/`counterfactual_tracker.py`/`tag_calibrator.py`. The full-corpus
+  `--backfill` hands Gate 1 its OOS day-clusters immediately rather than waiting on calendar time.
+- Gate 1 evaluates `bar_ts >= alpha.validation.oos_start` (the OOS segment). Note this is the
+  OPPOSITE direction from `counterfactual_tracker.py`'s in-sample FRAME-04 gate. The in-sample
+  segment is reported as a labeled diagnostic only, for comparison against T3's published
+  full-history numbers.
+- Gate 2 operationalized: static bucket membership = each symbol's time-averaged net leg
+  membership, collapsed into ONE benchmark return series (not 80 symbol dummies, which would
+  overfit), with the residual gated through the same day-clustered bootstrap Gate 1 uses.
+- Todos 185 and 186 are confirmed NOT required by this phase (RESEARCH.md's two scope
+  assessments) - no task exists for either.
+- Flat equal-weight legs, no vol-scaling: the design doc's step 3 calls for vol-scaling but the
+  T3 script that earned this phase does not use it. Build what was proven (RESEARCH.md Pitfall 1).
+
+**References:**
+- `docs/research/trade-construction-layer.md` — full construction design, sizing/cost
+  discussion, validation gates
+- `docs/research/data-edge-source-thesis.md` — T3 section (today's result), T2 section (the
+  provisional-falsification caveat)
+- `scripts/analysis/t3_cross_sectional_long_short_ctf_momentum_check.py` — the falsification
+  script and its result
+- `.planning/todos/pending/030-cost-hurdle-apr-calibration.md` — cost floors this phase's first
+  open item needs
+- `.planning/todos/pending/183-ic-engine-max-cell-rows-breached-by-todo092-rebalance.md` — the
+  T2 re-verification this phase's caveat is waiting on (unrelated blocker, doesn't gate this
+  phase's own start)
+
+Plans:
+- [ ] 167-01-PLAN.md - `construction_spreads` hypertable, 6 APR keys, truncate registration, glossary entry (wave 1)
+- [ ] 167-02-PLAN.md - pure construction primitives: decile split, spread, turnover, cost sweep, config validation (wave 1)
+- [ ] 167-03-PLAN.md - `CrossSectionalSpreadTracker(BaseBatch)`: incremental watermark, streaming panel scan, chunked persistence, `--backfill` (wave 2)
+- [ ] 167-04-PLAN.md - Validation Gate 1: `--evaluate-gate`, 8-cell verdict grid, live shuffled-ranking null (wave 3)
+- [ ] 167-05-PLAN.md - Validation Gate 2: `--evaluate-attribution`, static-tilt decomposition, residual gate (wave 4)
+- [ ] 167-06-PLAN.md - live backfill, live gate runs, verdicts recorded in the research docs + runbook (wave 5)
+
 ---
 
 **Correction (2026-07-12, same day as the note above was first written):** this section previously said Phases 152/153 should be **prioritized now**, ahead of the intelligence-layer work. That was wrong and contradicted the milestone bullet above's own existing, correct caution ("Do not let either jump ahead of Phase 142B/143 or 148, which carry present-tense value the backlog matrix rates higher"). Monitoring decay of alpha that hasn't been proven to exist yet is monitoring a null: Phase 148's OOS gates (EIC-04 + FRAME-04) have not passed on corrected data — **FRAME-04 currently fails 16/17 cells** on the pre-143.1-fix baseline, so there is no proven capturable edge for 152/153 to watch decay in yet. **Corrected sequencing:** finish 143.1 (091→097→094→E1-vs-E2 re-run→096→088) → re-run EIC-04/FRAME-04 honestly on corrected data → only then decide between (a) building 152/153's decay/health monitoring or (b) expanding discovery (Phase 151/PrecedentEngine) based on what that gate actually says. Phase 157's kill-switch design above still correctly notes its dependency on Phase 153 eventually existing — that dependency is real, it's just not a reason to build 153 before Phase 148 resolves.
