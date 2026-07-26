@@ -581,6 +581,68 @@ def build_walk_forward_folds(
 
 
 # ---------------------------------------------------------------------------
+# Causal per-entity demeaning (todo 185) -- prevents a pooled-panel model from
+# learning a fixed-membership factor exposure as a proxy for genuine signal
+# ---------------------------------------------------------------------------
+
+
+def causal_entity_expanding_mean(
+    entity_ids: np.ndarray, values: np.ndarray, min_periods: int
+) -> np.ndarray:
+    """Causal (shift(1), expanding) per-entity mean of `values`.
+
+    Guards against the exact leak found in the T5 non-linear-combiner falsification test
+    (docs/ideas/measurement-nonlinear-interaction-combiner.md, 2026-07-26): a pooled model
+    trained across many symbols can implicitly learn each symbol's own persistent long-run
+    drift (a fixed-membership factor exposure, e.g. via `entity_ids`-correlated feature
+    patterns) as a proxy for genuine bar-level signal, rather than predicting real deviations
+    from that symbol's own baseline. Subtracting this function's output from a target series
+    before training/measuring removes that fixed effect, so a model can only earn credit for
+    predicting deviations from an entity's own history, not the history itself.
+
+    Causal by construction: row i's mean uses only rows [0, i) of the SAME entity (an
+    explicit one-step shift before the expanding window opens) -- it never includes row i's
+    own value, so demeaning a target with this function cannot itself introduce look-ahead
+    bias into whatever is computed from the result.
+
+    Args:
+        entity_ids: shape [n] -- entity identifier per row (e.g. symbol). MUST already be
+            sorted by (entity, time) ascending; this function does not sort or group
+            internally (Ring 1 pure-function convention -- no hidden reordering of caller
+            data). A caller with an unsorted DataFrame must sort before calling and restore
+            original order after using the returned array's positions.
+        values: shape [n] -- the raw series to compute each entity's causal running mean of
+            (typically a return column, not the value being predicted from it).
+        min_periods: minimum number of PRIOR observations required before a mean is
+            considered defined. Rows with fewer than this many prior same-entity
+            observations return NaN (matches pandas' `.expanding(min_periods=...)`
+            semantics) -- an undefined mean is not silently coerced to 0.0.
+
+    Returns:
+        Array of shape [n]: `values[i] - causal_entity_expanding_mean(...)[i]` is the
+        demeaned target a pooled model should train/measure against. NaN where undefined
+        (an entity's first `min_periods` rows) -- callers must drop these rows, not treat
+        NaN as zero.
+    """
+    n = len(values)
+    result = np.full(n, np.nan, dtype=float)
+    unique_entities = np.unique(entity_ids)
+    for entity in unique_entities:
+        mask = entity_ids == entity
+        entity_values = values[mask]
+        n_entity = len(entity_values)
+        # Cumulative sum of all PRIOR values only: cumsum shifted by one position, first
+        # entry undefined (no prior observations at all).
+        cumsum = np.concatenate(([0.0], np.cumsum(entity_values)[:-1]))
+        counts = np.arange(n_entity)  # counts[i] = number of prior observations at row i
+        with np.errstate(invalid="ignore", divide="ignore"):
+            entity_means = cumsum / counts
+        entity_means[counts < min_periods] = np.nan
+        result[mask] = entity_means
+    return result
+
+
+# ---------------------------------------------------------------------------
 # Shared condition-number gate for any Sigma^-1/lstsq solve on an estimated matrix
 # ---------------------------------------------------------------------------
 
