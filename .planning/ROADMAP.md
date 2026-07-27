@@ -2438,6 +2438,17 @@ construction primitives, the `CrossSectionalSpreadTracker` BaseBatch service wit
 watermark scoping, Validation Gate 1 (`--evaluate-gate`), Validation Gate 2 (`--evaluate-attribution`,
 the one piece of genuinely new statistical work), and a live run that produces the real verdicts.
 
+**Cross-AI review incorporated 2026-07-27** (`167-REVIEWS.md`, Codex, single reviewer). Plan set
+kept at 6 plans / 5 waves; three genuinely-open findings were closed by additions, not rescoping:
+tied and missing feature-value coverage in `decile_legs` and in the shuffled null (with an
+observed-vs-null eligible-bar parity guard); a timestamped machine-readable JSON verdict artifact
+under `logs/construction_verdicts/` written before any prose transcription; and an explicit
+retrospective-not-causal caveat carried as a returned field through Gate 2's verdict and into the
+research write-up. Also added: a crash-recovery integration test, pre-registered equivalence
+tolerance bands, and an intentional-divergence ledger. Locked out regardless of reviewer
+suggestion, per CONTEXT.md D-01 to D-05: no cross-sectional block bootstrap, no vol-scaling, no
+systemd timer.
+
 **Planning decisions worth carrying forward (resolved, do not re-litigate):**
 
 - No systemd timer, no `service_auditor._DAG_ORDER` registration - manual/on-demand only,
