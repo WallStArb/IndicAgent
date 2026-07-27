@@ -95,6 +95,7 @@ from services.counterfactual_tracker import (  # noqa: E402
 )
 from src.config.settings import Settings  # noqa: E402
 from src.core.agent.base_batch import BaseBatch  # noqa: E402
+from src.core.database_manager import _setup_codecs  # noqa: E402
 from src.observability.corpus_manifest import CorpusManifest  # noqa: E402
 from src.observability.otel import OTelInitError, init_otel_providers  # noqa: E402
 
@@ -1113,6 +1114,7 @@ async def _run_evaluate_gate(db_dsn: str) -> None:
     `write_verdict_artifact`; no `construction_spreads` row is ever written here.
     """
     conn = await asyncpg.connect(db_dsn)
+    await _setup_codecs(conn)
     try:
         # (1) Load and validate APR BEFORE any panel work begins (T-167-01, ASVS V5).
         cfg_dict = await _load_apr(conn)
@@ -1360,6 +1362,7 @@ async def _run_evaluate_attribution(db_dsn: str) -> None:
     `construction_spreads` row is ever written here.
     """
     conn = await asyncpg.connect(db_dsn)
+    await _setup_codecs(conn)
     try:
         # (1) Load and validate APR BEFORE any panel work begins (T-167-01, ASVS V5).
         cfg_dict = await _load_apr(conn)
