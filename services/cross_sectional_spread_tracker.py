@@ -1152,6 +1152,7 @@ async def _load_gate_evaluation_context(conn: asyncpg.Connection, mode_flag: str
     decile_fraction = _cfg(cfg_dict, "alpha.construction.decile_fraction", 0.10)
     attribution_max_static_r2 = _cfg(cfg_dict, "alpha.construction.attribution_max_static_r2", 0.50)
     null_shuffles = _cfg(cfg_dict, "alpha.construction.null_shuffles", 40)
+    null_p_threshold = _cfg(cfg_dict, "alpha.construction.null_p_threshold", 0.05)
     cost_bps = _parse_cost_hurdle_bps(cfg_dict)
     validate_construction_config(
         decile_fraction, cost_bps, null_shuffles, attribution_max_static_r2
@@ -1177,6 +1178,7 @@ async def _load_gate_evaluation_context(conn: asyncpg.Connection, mode_flag: str
         "decile_fraction": decile_fraction,
         "attribution_max_static_r2": attribution_max_static_r2,
         "null_shuffles": null_shuffles,
+        "null_p_threshold": null_p_threshold,
         "cost_bps": cost_bps,
         "oos_start": oos_start,
     }
@@ -1205,6 +1207,7 @@ async def _run_evaluate_gate(db_dsn: str) -> None:
         decile_fraction = ctx["decile_fraction"]
         attribution_max_static_r2 = ctx["attribution_max_static_r2"]
         null_shuffles = ctx["null_shuffles"]
+        null_p_threshold = ctx["null_p_threshold"]
         cost_bps = ctx["cost_bps"]
         oos_start = ctx["oos_start"]
 
@@ -1297,8 +1300,8 @@ async def _run_evaluate_gate(db_dsn: str) -> None:
     slow_binding = binding_by_scale.get("slow")
     fast_passes = bool(fast_binding is not None and fast_binding["passes"] is True)
     slow_passes = bool(slow_binding is not None and slow_binding["passes"] is True)
-    fast_null_clears = null_by_scale["fast"]["null_p"] < 0.05
-    slow_null_clears = null_by_scale["slow"]["null_p"] < 0.05
+    fast_null_clears = null_by_scale["fast"]["null_p"] < null_p_threshold
+    slow_null_clears = null_by_scale["slow"]["null_p"] < null_p_threshold
     gate1_passes = fast_passes and slow_passes and fast_null_clears and slow_null_clears
 
     verdict_text = " | ".join(
@@ -1341,6 +1344,7 @@ async def _run_evaluate_gate(db_dsn: str) -> None:
             "decile_fraction": decile_fraction,
             "cost_hurdle_bps_round_trip": cost_bps,
             "null_shuffles": null_shuffles,
+            "null_p_threshold": null_p_threshold,
             "attribution_max_static_r2": attribution_max_static_r2,
             "alpha.scoring.min_strategy_n": min_n,
             "alpha.scoring.bootstrap_max_n": bootstrap_max_n,
