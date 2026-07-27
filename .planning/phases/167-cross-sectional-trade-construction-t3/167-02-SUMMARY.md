@@ -217,3 +217,12 @@ None - no external service configuration required.
 ---
 *Phase: 167-cross-sectional-trade-construction-t3*
 *Completed: 2026-07-27*
+
+## Self-Check: PASSED
+
+- FOUND: services/cross_sectional_spread_tracker.py
+- FOUND: tests/unit/test_cross_sectional_spread_tracker.py
+- FOUND: .planning/phases/167-cross-sectional-trade-construction-t3/167-02-SUMMARY.md
+- FOUND: 0c1572a4 (Task 1 commit)
+- FOUND: 2907396a (Task 2 commit)
+- FOUND: d0062c60 (SUMMARY.md commit)
