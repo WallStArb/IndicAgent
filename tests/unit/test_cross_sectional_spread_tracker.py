@@ -1,28 +1,40 @@
 """Unit tests: cross_sectional_spread_tracker's pure construction primitives -- the decile
 split, tied and missing feature values (Codex review's HIGH concern), run-boundary turnover
-(Pitfall 4), the cost-hurdle sweep (D-05), and APR range validation (T-167-01).
+(Pitfall 4), the cost-hurdle sweep (D-05), and APR range validation (T-167-01). Plan 04 adds
+the Validation Gate 1 evaluation core, the live shuffled-ranking null's edge cases (Codex
+review's HIGH concern on ties and degenerate bars), and the verdict artifact's strict-JSON
+audit-trail contract.
 
 No live DB required -- these tests exercise pure functions with synthetic in-memory inputs.
 """
 
 from __future__ import annotations
 
+import inspect
+import json
+import math
 import random
 import sys
+from datetime import date, timedelta
 from pathlib import Path
 
 _project_root = Path(__file__).parent.parent.parent
 if str(_project_root) not in sys.path:
     sys.path.insert(0, str(_project_root))
 
+import numpy as np
 import pytest
 
 from services.cross_sectional_spread_tracker import (
     decile_legs,
+    evaluate_spread_gate,
+    mean_gross_spread_over_bars,
     net_spread_by_cost_bps,
     one_way_turnover,
+    shuffled_ranking_null_p,
     spread_from_legs,
     validate_construction_config,
+    write_verdict_artifact,
 )
 
 # ---------------------------------------------------------------------------
@@ -249,3 +261,387 @@ def test_spread_is_flat_equal_weight():
     # A leg with zero usable returns returns None, never a fabricated spread.
     all_missing = {"L1": None, "L2": None, "S1": -0.01, "S2": -0.03}
     assert spread_from_legs(all_missing, long_leg, short_leg) is None
+
+
+# ---------------------------------------------------------------------------
+# test_evaluate_gate (167-VALIDATION.md row 167-04-01)
+# ---------------------------------------------------------------------------
+
+
+def _gate_rows_two_scale_positive_negative(cost_tiers=(1, 3, 5, 10), n_dates=45):
+    """40+ distinct cluster_id dates, 2 scales x 4 cost tiers -- enough to clear both the
+    min_n=30 sufficiency floor and the 2-day-cluster bootstrap floor. `fast` gets an
+    unambiguously positive pnl_r distribution (mean +0.01, nonzero variance); `slow` gets an
+    unambiguously negative one (mean -0.01), so the two scales must land on opposite sides of
+    the gate."""
+    rows = []
+    for d in range(n_dates):
+        cluster_id = date(2026, 1, 1) + timedelta(days=d)
+        offset = 0.001 * ((d % 5) - 2)  # symmetric per 5-day cycle -- averages to exactly 0
+        for cost_bps in cost_tiers:
+            rows.append(
+                {
+                    "scale": "fast",
+                    "cost_bps": cost_bps,
+                    "cluster_id": cluster_id,
+                    "pnl_r": 0.01 + offset,
+                }
+            )
+            rows.append(
+                {
+                    "scale": "slow",
+                    "cost_bps": cost_bps,
+                    "cluster_id": cluster_id,
+                    "pnl_r": -0.01 + offset,
+                }
+            )
+    return rows
+
+
+def test_evaluate_gate():
+    rows = _gate_rows_two_scale_positive_negative()
+    verdicts = evaluate_spread_gate(
+        rows, min_n=30, bootstrap_max_n=5000, bootstrap_batch=1000, bootstrap_random_state=42
+    )
+
+    # All 8 cells (2 scales x 4 cost tiers), each with the renamed field set -- the SHAPE
+    # CONSTRAINT rename from alpha_scorer.py's own module docstring is the specific thing
+    # under test here, not merely a formality.
+    assert len(verdicts) == 8
+    for v in verdicts:
+        assert set(v.keys()) == {
+            "scale",
+            "cost_bps",
+            "n_bars",
+            "n_clusters",
+            "ci_lower",
+            "ci_upper",
+            "passes",
+            "coverage",
+        }
+        assert "tf" not in v, "evaluate_frame_gate's raw 'tf' field must be renamed to 'scale'"
+        assert (
+            "regime" not in v
+        ), "evaluate_frame_gate's raw 'regime' field must be renamed to 'cost_bps'"
+
+    by_cell = {(v["scale"], v["cost_bps"]): v for v in verdicts}
+    fast_10 = by_cell[("fast", 10)]
+    slow_10 = by_cell[("slow", 10)]
+    assert fast_10["passes"] is True
+    assert fast_10["ci_lower"] > 0
+    assert slow_10["passes"] is False
+
+    # Below the min_n floor: passes is False with a NaN ci_lower -- the sufficiency floor is
+    # respected rather than bypassed, matching frame_gate_passes' own (False, nan, nan)
+    # early-return contract.
+    below_floor_rows = [
+        {
+            "scale": "fast",
+            "cost_bps": 10,
+            "cluster_id": date(2026, 1, 1) + timedelta(days=i),
+            "pnl_r": 0.01,
+        }
+        for i in range(5)
+    ]
+    below_floor_verdicts = evaluate_spread_gate(
+        below_floor_rows,
+        min_n=30,
+        bootstrap_max_n=5000,
+        bootstrap_batch=1000,
+        bootstrap_random_state=42,
+    )
+    assert len(below_floor_verdicts) == 1
+    assert below_floor_verdicts[0]["passes"] is False
+    assert math.isnan(below_floor_verdicts[0]["ci_lower"])
+
+
+def test_evaluate_gate_group_key_is_a_two_tuple():
+    """Source-level contract test (test_counterfactual_tracker.py's own style): the
+    group_key lambda passed to evaluate_frame_gate must return exactly two elements --
+    evaluate_frame_gate unpacks it as `for (dim_a, dim_b), bucket in groups.items()`, and a
+    3-tuple would raise `ValueError: too many values to unpack`."""
+    source = inspect.getsource(evaluate_spread_gate)
+    assert 'group_key=lambda row: (row["scale"], row["cost_bps"])' in source, (
+        "evaluate_spread_gate's group_key lambda must return exactly a 2-tuple; a 3rd "
+        "element would make evaluate_frame_gate's `for (dim_a, dim_b), bucket in "
+        "groups.items()` raise ValueError: too many values to unpack"
+    )
+
+
+# ---------------------------------------------------------------------------
+# test_shuffled_ranking_null (167-VALIDATION.md row 167-04-02 family)
+# ---------------------------------------------------------------------------
+
+
+def test_shuffled_ranking_null():
+    n_bars = 30
+    n_symbols = 20
+    symbols = [f"S{i:02d}" for i in range(n_symbols)]
+
+    # Panel 1: ctf_momentum PERFECTLY correlated with return_fast -- a maximally informative
+    # ranking. Same at every bar, so the observed decile split extracts the true maximum
+    # achievable spread.
+    informative_panel = {}
+    for b in range(n_bars):
+        feature_values = [float(i) for i in range(n_symbols)]
+        returns_by_symbol = {f"S{i:02d}": float(i) * 0.001 for i in range(n_symbols)}
+        informative_panel[b] = (symbols, feature_values, returns_by_symbol)
+
+    observed_mean, _ = mean_gross_spread_over_bars(informative_panel, decile_fraction=0.10)
+    null_p, _, _, _ = shuffled_ranking_null_p(
+        informative_panel,
+        decile_fraction=0.10,
+        observed_mean_spread=observed_mean,
+        n_shuffles=20,
+        seed=42,
+    )
+    assert null_p < 0.05, "a real, maximally informative ranking must beat its own permutation null"
+
+    # Panel 2: ctf_momentum generated INDEPENDENTLY of the returns (a meaningless ranking) --
+    # a per-bar random permutation unrelated to the fixed return assignment. This is the
+    # case that matters: it proves the null check can actually fail, which is what makes the
+    # informative case's pass evidence rather than a formality.
+    rng = random.Random(99)
+    meaningless_panel = {}
+    for b in range(n_bars):
+        shuffled_feature_values = list(range(n_symbols))
+        rng.shuffle(shuffled_feature_values)
+        feature_values = [float(v) for v in shuffled_feature_values]
+        returns_by_symbol = {f"S{i:02d}": float(i) * 0.001 for i in range(n_symbols)}
+        meaningless_panel[b] = (symbols, feature_values, returns_by_symbol)
+
+    observed_mean_meaningless, _ = mean_gross_spread_over_bars(
+        meaningless_panel, decile_fraction=0.10
+    )
+    null_p_meaningless, _, _, _ = shuffled_ranking_null_p(
+        meaningless_panel,
+        decile_fraction=0.10,
+        observed_mean_spread=observed_mean_meaningless,
+        n_shuffles=20,
+        seed=42,
+    )
+    assert null_p_meaningless >= 0.05, "a meaningless ranking must not clear the null"
+
+    # Reproducibility: identical seed -> identical null_p (and the rest of the tuple).
+    null_p_again, null_mean_again, null_std_again, n_again = shuffled_ranking_null_p(
+        informative_panel,
+        decile_fraction=0.10,
+        observed_mean_spread=observed_mean,
+        n_shuffles=20,
+        seed=42,
+    )
+    assert null_p_again == null_p
+
+
+def test_shuffled_null_permutes_within_bar_only(monkeypatch):
+    """A cross-bar permutation would destroy the cross-sectional structure being tested, not
+    just the ranking information. `numpy.random.Generator` is an immutable C-extension type
+    (its methods cannot be monkeypatched directly), so this wraps `numpy.random.default_rng`
+    itself in a recording proxy that records every `.permutation()` call's input array while
+    delegating to the real generator -- directly observing the internal draw-generation step
+    rather than assuming it from the outside."""
+    panel = {
+        "bar0": (
+            ["A", "B", "C", "D"],
+            [1.0, 2.0, 3.0, 4.0],
+            {"A": 0.1, "B": 0.2, "C": 0.3, "D": 0.4},
+        ),
+        "bar1": (
+            ["E", "F", "G", "H"],
+            [100.0, 200.0, 300.0, 400.0],
+            {"E": 0.5, "F": 0.6, "G": 0.7, "H": 0.8},
+        ),
+    }
+    calls: list[np.ndarray] = []
+    real_default_rng = np.random.default_rng
+
+    class _RecordingRNG:
+        def __init__(self, real_rng: np.random.Generator) -> None:
+            self._real_rng = real_rng
+
+        def permutation(self, x, *args, **kwargs):
+            calls.append(np.asarray(x).copy())
+            return self._real_rng.permutation(x, *args, **kwargs)
+
+    def fake_default_rng(seed):
+        return _RecordingRNG(real_default_rng(seed))
+
+    monkeypatch.setattr(np.random, "default_rng", fake_default_rng)
+
+    observed_mean, _ = mean_gross_spread_over_bars(panel, decile_fraction=0.5)
+    shuffled_ranking_null_p(
+        panel, decile_fraction=0.5, observed_mean_spread=observed_mean, n_shuffles=3, seed=7
+    )
+
+    assert len(calls) == 3 * 2  # 3 shuffles x 2 bars
+    bar0_values = sorted(panel["bar0"][1])
+    bar1_values = sorted(panel["bar1"][1])
+    for call_array in calls:
+        sorted_call = sorted(call_array.tolist())
+        assert sorted_call == bar0_values or sorted_call == bar1_values, (
+            "each permutation call's input array must be exactly one bar's own feature "
+            "values -- a cross-bar permutation would mix bar0's and bar1's values into a "
+            "single call, destroying the cross-sectional structure being tested"
+        )
+        assert len(call_array) in (
+            len(bar0_values),
+            len(bar1_values),
+        ), "universe size per bar must be unchanged by permutation"
+
+
+def test_shuffled_null_ties_and_degenerate_bars(monkeypatch):
+    """The Codex HIGH-concern coverage -- VERIFIES design decision 6 rather than assuming it.
+    A panel containing three deliberately awkward bars alongside ordinary ones: (i) a
+    DEGENERATE bar too small for decile_fraction, (ii) a FULLY TIED bar where every symbol
+    shares one identical feature value, and (iii) a BOUNDARY-TIED bar where exactly two
+    symbols share the value straddling the leg cut."""
+
+    def _ordinary_bar(offset: float) -> tuple[list[str], list[float], dict[str, float]]:
+        symbols = [f"S{i:02d}" for i in range(10)]
+        feature_values = [float(i) for i in range(10)]
+        returns_by_symbol = {f"S{i:02d}": float(i) * 0.001 + offset for i in range(10)}
+        return symbols, feature_values, returns_by_symbol
+
+    degenerate_bar = (["Z"], [1.0], {"Z": 0.1})  # 1 symbol at decile_fraction=0.20 -> None
+
+    tied_symbols = ["A", "B", "C", "D", "E", "F", "G", "H", "I", "J"]
+    fully_tied_bar = (
+        tied_symbols,
+        [5.0] * 10,
+        {s: 0.001 * i for i, s in enumerate(tied_symbols)},
+    )
+
+    boundary_values = {
+        "A": 1.0,
+        "B": 10.0,
+        "C": 2.0,
+        "D": 2.0,
+        "E": 4.0,
+        "F": 5.0,
+        "G": 6.0,
+        "H": 7.0,
+        "I": 8.0,
+        "J": 9.0,
+    }
+    boundary_symbols = list(boundary_values.keys())
+    boundary_tied_bar = (
+        boundary_symbols,
+        [boundary_values[s] for s in boundary_symbols],
+        {s: 0.001 * i for i, s in enumerate(boundary_symbols)},
+    )
+
+    panel = {
+        "ord0": _ordinary_bar(0.0),
+        "ord1": _ordinary_bar(0.001),
+        "ord2": _ordinary_bar(0.002),
+        "ord3": _ordinary_bar(0.003),
+        "ord4": _ordinary_bar(0.004),
+        "degenerate": degenerate_bar,
+        "fully_tied": fully_tied_bar,
+        "boundary_tied": boundary_tied_bar,
+    }
+    decile_fraction = 0.20
+
+    # (a) The degenerate bar is excluded from n_eligible_bars; the two tied bars are
+    # structurally valid (decile_legs returns a real split for both) and are INCLUDED --
+    # silently dropping them would change the denominator.
+    observed_mean, observed_n_eligible_bars = mean_gross_spread_over_bars(panel, decile_fraction)
+    assert observed_n_eligible_bars == 7  # 5 ordinary + fully_tied + boundary_tied
+
+    # (b) shuffled_ranking_null_p's eligible-bar count is IDENTICAL to the observed pass's
+    # count. This is the parity assertion: it proves the null and the observed value are
+    # averages over the SAME bar set, so null_p compares like with like.
+    null_p, null_mean, null_std, null_n_eligible_bars = shuffled_ranking_null_p(
+        panel, decile_fraction, observed_mean, n_shuffles=50, seed=11
+    )
+    assert null_n_eligible_bars == observed_n_eligible_bars, (
+        "an unequal count means the null distribution is being compared against an observed "
+        "value computed over a different set of bars, which would silently invalidate the "
+        "Gate 1 null verdict"
+    )
+
+    # (c) The degenerate bar is skipped in EVERY draw, not just on average -- the n_shuffles=50
+    # call above did not raise the function's own internal eligible-bar-count-differs
+    # ValueError. Prove the guard is LIVE (not merely assumed) by monkeypatching the shared
+    # reduction to simulate a divergent eligible-bar count on one draw and confirming the
+    # guard trips.
+    import services.cross_sectional_spread_tracker as cst_module
+
+    real_reduction = cst_module.mean_gross_spread_over_bars
+    call_count = {"n": 0}
+
+    def flaky_reduction(panel_by_bar, decile_fraction_arg):
+        call_count["n"] += 1
+        mean_val, n_val = real_reduction(panel_by_bar, decile_fraction_arg)
+        if call_count["n"] == 2:
+            n_val = n_val - 1  # simulate a divergent eligible-bar count on the 2nd draw
+        return mean_val, n_val
+
+    monkeypatch.setattr(cst_module, "mean_gross_spread_over_bars", flaky_reduction)
+    with pytest.raises(ValueError, match="eligible-bar count varies across draws"):
+        shuffled_ranking_null_p(panel, decile_fraction, observed_mean, n_shuffles=3, seed=11)
+    monkeypatch.undo()
+
+    # (d) Ties do not crash and do not produce non-deterministic draws: two calls with the
+    # same seed over the tie-containing panel return identical null_p, null_mean, null_std,
+    # and n_eligible_bars.
+    result_a = shuffled_ranking_null_p(panel, decile_fraction, observed_mean, n_shuffles=20, seed=5)
+    result_b = shuffled_ranking_null_p(panel, decile_fraction, observed_mean, n_shuffles=20, seed=5)
+    assert result_a == result_b
+
+
+# ---------------------------------------------------------------------------
+# test_verdict_artifact_is_strict_json (design decision 7, T-167-17)
+# ---------------------------------------------------------------------------
+
+
+def test_verdict_artifact_is_strict_json(tmp_path, monkeypatch):
+    from datetime import UTC, datetime
+
+    import services.cross_sectional_spread_tracker as cst_module
+
+    # Force two distinct timestamps across the two calls below -- write_verdict_artifact's
+    # filename has only second-level precision, and two calls issued back-to-back inside a
+    # single test could otherwise collide on the same second, which would make the
+    # accumulate-never-overwrite property untestable (rather than proving it).
+    fixed_times = iter(
+        [datetime(2026, 1, 1, 0, 0, 0, tzinfo=UTC), datetime(2026, 1, 1, 0, 0, 1, tzinfo=UTC)]
+    )
+
+    class _FakeDatetime:
+        @classmethod
+        def now(cls, tz=None):
+            return next(fixed_times)
+
+    monkeypatch.setattr(cst_module, "datetime", _FakeDatetime)
+
+    payload_one = {
+        "nested": {"a": 1, "b": [1, 2, 3]},
+        "items": [{"x": 1}, {"x": 2}],
+        "d": date(2026, 1, 1),
+        "n": float("nan"),
+        "inf_val": float("inf"),
+    }
+    path_one = write_verdict_artifact("gate1_test", payload_one, out_dir=tmp_path)
+    assert path_one.exists()
+
+    loaded_one = json.loads(path_one.read_text())  # default STRICT parser -- no parse_constant
+    assert loaded_one["n"] is None
+    assert loaded_one["inf_val"] is None
+    assert loaded_one["d"] == "2026-01-01"
+    assert loaded_one["nested"] == {"a": 1, "b": [1, 2, 3]}
+    assert loaded_one["items"] == [{"x": 1}, {"x": 2}]
+
+    latest_path = tmp_path / "gate1_test_latest.json"
+    assert latest_path.exists()
+    assert json.loads(latest_path.read_text()) == loaded_one
+
+    # A second call with a DIFFERENT payload must never overwrite the first timestamped
+    # file -- the accumulate-never-overwrite property is what makes this an audit trail
+    # rather than a scratch file.
+    payload_two = {"different": True}
+    path_two = write_verdict_artifact("gate1_test", payload_two, out_dir=tmp_path)
+    assert path_two != path_one
+    assert path_one.exists()
+    assert json.loads(path_one.read_text()) == loaded_one
+    assert json.loads(latest_path.read_text()) == {"different": True}
