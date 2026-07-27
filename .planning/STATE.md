@@ -3,8 +3,8 @@ gsd_state_version: 1.0
 milestone: v3.1
 milestone_name: AlphaEngine Validation + Alpha Scoring
 status: ready_to_execute
-stopped_at: "Phase 167 planned (6 plans, 5 waves), cross-AI reviewed (Codex, single reviewer, 167-REVIEWS.md), and replanned incorporating that feedback (commit e4b03e29) - gsd-plan-checker re-verified PASSED. Decision-coverage gate (D-01..D-05) reported 0/5 covered on a tooling false-negative (the verb apparently only scans must_haves.truths; all five decisions are cited by exact D-NN: id extensively in each plan's requirements: frontmatter and body prose, confirmed by direct grep) - overridden via the gate's own 'Proceed anyway' path, not silently bypassed. Ready for /gsd-execute-phase 167."
-last_updated: "2026-07-27T03:47:15.327Z"
+stopped_at: "Phase 167 context gathered (--auto mode). T3's cost-hurdle treatment formalized into the analysis script and confirmed: net spread survives at every tested round-trip cost floor (1-10bp) at both lookahead scales. Ready for /gsd-plan-phase 167."
+last_updated: "2026-07-27T04:14:11.585Z"
 progress:
   total_phases: 12
   completed_phases: 9

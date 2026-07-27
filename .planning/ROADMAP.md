@@ -2433,7 +2433,7 @@ blocks the other.
 **Requirements**: No formal REQUIREMENTS.md IDs (standing-doc-driven, same pattern as Phase
 163). Governed by `docs/research/trade-construction-layer.md`'s own design + validation
 sections.
-**Plans:** 6 plans across 5 waves, planned 2026-07-26. Schema + APR substrate, pure
+**Plans:** 2/6 plans executed
 construction primitives, the `CrossSectionalSpreadTracker` BaseBatch service with incremental
 watermark scoping, Validation Gate 1 (`--evaluate-gate`), Validation Gate 2 (`--evaluate-attribution`,
 the one piece of genuinely new statistical work), and a live run that produces the real verdicts.
@@ -2491,8 +2491,8 @@ systemd timer.
 Plans:
 **Wave 1**
 
-- [ ] 167-01-PLAN.md - `construction_spreads` hypertable, 6 APR keys, truncate registration, glossary entry (wave 1)
-- [ ] 167-02-PLAN.md - pure construction primitives: decile split, spread, turnover, cost sweep, config validation (wave 1)
+- [x] 167-01-PLAN.md - `construction_spreads` hypertable, 6 APR keys, truncate registration, glossary entry (wave 1)
+- [x] 167-02-PLAN.md - pure construction primitives: decile split, spread, turnover, cost sweep, config validation (wave 1)
 
 **Wave 2** *(blocked on Wave 1 completion)*
 
