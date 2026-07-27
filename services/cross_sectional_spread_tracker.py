@@ -89,6 +89,7 @@ from services._batch_utils import load_apr_dict_async as _load_apr  # noqa: E402
 from services.counterfactual_tracker import (  # noqa: E402
     _DEFAULT_BOOTSTRAP_RANDOM_STATE,
     evaluate_frame_gate,
+    frame_gate_passes,
 )
 from src.config.settings import Settings  # noqa: E402
 from src.core.agent.base_batch import BaseBatch  # noqa: E402
@@ -481,6 +482,233 @@ def write_verdict_artifact(
     timestamped_path.write_text(text)
     latest_path.write_text(text)
     return timestamped_path
+
+
+# ---------------------------------------------------------------------------
+# Validation Gate 2 (--evaluate-attribution mode): attribution honesty -- decompose the
+# realized spread into a static, time-invariant leg-membership benchmark plus a residual,
+# and gate on what survives.
+# ---------------------------------------------------------------------------
+
+
+def static_tilt_weights(leg_rows: Sequence[Mapping[str, Any]]) -> dict[str, float]:
+    """Static bucket membership (design decision 1): each symbol's time-averaged net leg
+    exposure over the evaluation window.
+
+    Operationalizes `docs/research/trade-construction-layer.md`'s Gate 2 sentence:
+    "regress spread returns on static bucket membership; if a fixed membership explains most
+    of it, the 'forecast' is a factor exposure in disguise (edge thesis T4, cap expectations
+    accordingly)." For symbol `s`, `w_s = (n_bars_long_s - n_bars_short_s) / n_bars` where
+    `n_bars` is the number of rows in `leg_rows` -- one fixed weight per symbol for the whole
+    window, deliberately carrying no timing information whatsoever (design decision 1). A
+    construction whose P&L comes from being permanently long low-vol sectors will have a `w`
+    vector that reproduces most of its return; a construction whose P&L comes from the
+    forecast will not.
+
+    RETROSPECTIVE CAVEAT (design decision 8): these weights are computed from the same window
+    whose returns they are used to explain, so they are a retrospective summary that no live
+    strategy could have held in advance -- they exist to test whether the realized P&L LOOKS
+    like a disguised static tilt, not to describe a tradeable benchmark.
+
+    Each row of `leg_rows` must carry `long_leg_symbols` and `short_leg_symbols` (the
+    persisted per-bar leg membership).
+
+    Raises:
+        ValueError: on empty input. An empty window means the caller queried the wrong
+            segment, and a silently empty weight vector would produce a static series of all
+            zeros and a meaningless `static_r2` of 0.0 that LOOKS like a clean Gate 2 pass.
+    """
+    if not leg_rows:
+        raise ValueError("static_tilt_weights: leg_rows is empty -- cannot compute static tilt")
+
+    n_bars = len(leg_rows)
+    n_long: dict[str, int] = {}
+    n_short: dict[str, int] = {}
+    for row in leg_rows:
+        for symbol in row["long_leg_symbols"]:
+            n_long[symbol] = n_long.get(symbol, 0) + 1
+        for symbol in row["short_leg_symbols"]:
+            n_short[symbol] = n_short.get(symbol, 0) + 1
+
+    symbols = set(n_long) | set(n_short)
+    return {symbol: (n_long.get(symbol, 0) - n_short.get(symbol, 0)) / n_bars for symbol in symbols}
+
+
+def _assert_strictly_increasing_unique(bar_ts_list: Sequence[Any], fn_name: str) -> None:
+    """Shared alignment guard (design decision 9): raise `ValueError` naming the offending key
+    on a duplicate or non-strictly-increasing bar key sequence."""
+    for i in range(1, len(bar_ts_list)):
+        if bar_ts_list[i] == bar_ts_list[i - 1]:
+            raise ValueError(
+                f"{fn_name}: duplicate bar key {bar_ts_list[i]!r} at positions {i - 1} and {i} -- "
+                "a duplicate or misaligned bar key would silently regress one bar against "
+                "another, producing a confident, plausible, wrong result"
+            )
+        if bar_ts_list[i] < bar_ts_list[i - 1]:
+            raise ValueError(
+                f"{fn_name}: bar keys are not strictly increasing at position {i} "
+                f"({bar_ts_list[i]!r} < {bar_ts_list[i - 1]!r})"
+            )
+
+
+def static_tilt_series(
+    panel_by_bar: Mapping[Any, Mapping[str, float]],
+    weights: Mapping[str, float],
+) -> tuple[list[Any], list[float]]:
+    """The counterfactual return of holding the construction's average exposure and NEVER
+    rebalancing -- the benchmark series Gate 2 tests the realized spread against.
+
+    For each `bar_ts` in `panel_by_bar` (ordered ascending), computes
+    `sum(weights.get(symbol, 0.0) * return_value for symbol, return_value in
+    panel_by_bar[bar_ts].items() if return_value is not None)`. A symbol with a `None` return
+    at that bar is skipped, never coerced to `0.0`.
+
+    Raises:
+        ValueError: if the ordered `bar_ts` key list contains a duplicate or is not strictly
+            increasing (design decision 9), naming the offending key.
+
+    Returns:
+        `(bar_ts_list, static_value_list)`, both ordered by `bar_ts` ascending.
+    """
+    bar_ts_list = sorted(panel_by_bar.keys())
+    _assert_strictly_increasing_unique(bar_ts_list, "static_tilt_series")
+
+    static_value_list: list[float] = []
+    for bar_ts in bar_ts_list:
+        bar_returns = panel_by_bar[bar_ts]
+        static_value = sum(
+            weights.get(symbol, 0.0) * return_value
+            for symbol, return_value in bar_returns.items()
+            if return_value is not None
+        )
+        static_value_list.append(static_value)
+    return bar_ts_list, static_value_list
+
+
+def attribution_verdict(
+    spread_values: Sequence[float],
+    static_values: Sequence[float],
+    cluster_ids: Sequence[Any],
+    bar_keys: Sequence[Any],
+    max_static_r2: float,
+    min_n: int,
+    bootstrap_max_n: int,
+    bootstrap_batch: int,
+    bootstrap_random_state: int,
+) -> dict[str, Any]:
+    """Validation Gate 2 -- attribution honesty. Operationalizes
+    `docs/research/trade-construction-layer.md`'s Gate 2 sentence: "spread P&L must load on
+    the forecast (rank-weighted return spread), not on a static factor tilt (e.g., permanently
+    long low-vol sectors) -- regress spread returns on static bucket membership; if a fixed
+    membership explains most of it, the 'forecast' is a factor exposure in disguise (edge
+    thesis T4, cap expectations accordingly)."
+
+    ONE COLLAPSED BENCHMARK SERIES, NOT 80 SYMBOL DUMMIES (design decision 2): the naive
+    reading of the design doc's sentence -- one dummy regressor per symbol -- has as many
+    regressors as symbols in the universe against a scalar-per-bar dependent variable and
+    would overfit catastrophically. Fits the single-regressor form
+    `spread_t = alpha + beta * static_t + eps_t` via `numpy.linalg.lstsq` on a design matrix
+    of `[static, ones]`. One regressor, one intercept, no multiple-comparisons problem, and a
+    directly interpretable `static_r2`.
+
+    GATE ON THE RESIDUAL, NOT R-SQUARED ALONE (design decision 3): `static_r2` answers "how
+    much does a fixed membership explain," but the binding question is "does anything survive
+    after removing it." `residual_t = spread_t - beta * static_t` -- the intercept is
+    deliberately NOT subtracted, since it is the constant excess return the forecast
+    contributes and is exactly what the gate wants to test. `residual_t` and `cluster_ids` are
+    then fed into the SAME `frame_gate_passes` Gate 1 uses -- NO NEW BOOTSTRAP IS IMPLEMENTED
+    HERE, the identical day-clustered bootstrap machinery is reused verbatim on the residual
+    series. `gate2_passes` is true iff `residual_passes` is true AND `static_dominates` is
+    false: something is left over, and a fixed membership does not explain most of it.
+
+    RETROSPECTIVE, NOT CAUSAL (design decision 8): `w_s` (from `static_tilt_weights`) is
+    computed from realized leg membership over the SAME window whose returns are being
+    explained -- it could not have been known in advance, and no live strategy could have held
+    it. This makes Gate 2 a falsification test in ONE DIRECTION ONLY: a HIGH `static_r2` is
+    strong evidence the P&L is a disguised fixed tilt, while a LOW `static_r2` plus a
+    surviving residual is evidence only that the P&L is NOT explained by this particular
+    retrospective summary. It is emphatically NOT proof that the forecast is what generated
+    the return, and it identifies no mechanism. The returned `benchmark_kind` is always the
+    literal `"retrospective_time_averaged_membership"` so a future reader who sees "the
+    residual survives" cannot mistake it for "we proved WHY it survives."
+
+    ALIGNMENT VALIDATED, NOT TRUSTED (design decision 9): `bar_keys` is a fourth parallel
+    sequence used only to detect misalignment, never to fit the regression. Raises `ValueError`
+    on any length mismatch across the four input sequences, on any duplicate `bar_keys` entry,
+    or on a non-strictly-increasing `bar_keys` order -- a silently misaligned regression would
+    produce a confident, plausible, wrong `static_r2`, exactly the class of failure this
+    project treats as worse than a crash.
+
+    NO EXTRA REGRESSION DEPENDENCY, NO MULTIPLE-COMPARISONS CORRECTION (design decision 5): a
+    single-regressor-plus-intercept fit needs no extra dependency beyond `numpy`, which is
+    already pinned. `src/intelligence/statistics/ic_math.py`'s FDR helper is NOT needed here --
+    Gate 2 produces one verdict, not a family of tests, so there is no multiple-comparisons
+    correction to apply.
+
+    Raises:
+        ValueError: if `spread_values`, `static_values`, `cluster_ids`, and `bar_keys` are not
+            all the same length (message names the mismatch); if `bar_keys` contains a
+            duplicate or is not strictly increasing (message names the offending key).
+
+    Returns:
+        A dict with `beta`, `intercept`, `static_r2`, `static_dominates`, `n_bars`,
+        `n_clusters`, `residual_ci_lower`, `residual_ci_upper`, `residual_passes`,
+        `gate2_passes`, and `benchmark_kind`
+        (always `"retrospective_time_averaged_membership"`).
+    """
+    lengths = {
+        "spread_values": len(spread_values),
+        "static_values": len(static_values),
+        "cluster_ids": len(cluster_ids),
+        "bar_keys": len(bar_keys),
+    }
+    if len(set(lengths.values())) > 1:
+        raise ValueError(f"attribution_verdict: mismatched input sequence lengths: {lengths}")
+
+    _assert_strictly_increasing_unique(list(bar_keys), "attribution_verdict")
+
+    spread_arr = np.asarray(spread_values, dtype=float)
+    static_arr = np.asarray(static_values, dtype=float)
+
+    design = np.column_stack([static_arr, np.ones_like(static_arr)])
+    (beta, intercept), _residuals, _rank, _sv = np.linalg.lstsq(design, spread_arr, rcond=None)
+    beta = float(beta)
+    intercept = float(intercept)
+
+    fitted = beta * static_arr + intercept
+    ss_res = float(np.sum((spread_arr - fitted) ** 2))
+    spread_mean = float(np.mean(spread_arr))
+    ss_tot = float(np.sum((spread_arr - spread_mean) ** 2))
+    static_r2 = 0.0 if ss_tot == 0 else 1.0 - ss_res / ss_tot
+    static_dominates = static_r2 > max_static_r2
+
+    # design decision 3: only the beta term is removed, the intercept is retained in the
+    # residual -- it is the forecast's constant excess return, precisely what the gate tests.
+    residual = (spread_arr - beta * static_arr).tolist()
+
+    residual_passes, residual_ci_lower, residual_ci_upper = frame_gate_passes(
+        residual,
+        list(cluster_ids),
+        min_n,
+        bootstrap_max_n,
+        bootstrap_batch,
+        bootstrap_random_state,
+    )
+    gate2_passes = bool(residual_passes) and not static_dominates
+
+    return {
+        "beta": beta,
+        "intercept": intercept,
+        "static_r2": static_r2,
+        "static_dominates": static_dominates,
+        "n_bars": len(spread_values),
+        "n_clusters": len(set(cluster_ids)),
+        "residual_ci_lower": residual_ci_lower,
+        "residual_ci_upper": residual_ci_upper,
+        "residual_passes": residual_passes,
+        "gate2_passes": gate2_passes,
+        "benchmark_kind": "retrospective_time_averaged_membership",
+    }
 
 
 # ---------------------------------------------------------------------------
