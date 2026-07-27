@@ -10,23 +10,13 @@ Tests cover:
   instance method). That bug made every real request 500 on an ImportError raised
   before the route's own try/except could catch it.
 
-Uses a minimal test_app + TestClient, mirroring tests/unit/api/test_vocabulary_api.py.
-No real DB required; the drift router uses Depends(get_db_manager), overridden here
-with an AsyncMock.
+Uses the shared `client`/`mock_db` fixtures (tests/unit/api/conftest.py, todo 143).
+No real DB required; the drift router uses Depends(get_db_manager), overridden with
+an AsyncMock.
 """
 
 from datetime import UTC, datetime
 from unittest.mock import AsyncMock
-
-import pytest
-from fastapi import FastAPI
-from fastapi.testclient import TestClient
-
-from src.api import dependencies
-from src.api.routes.drift import router as drift_router
-
-test_app = FastAPI()
-test_app.include_router(drift_router, prefix="/api/drift")
 
 
 def make_row(symbol: str, tf: str, ks_severity, cusum_severity, updated_at: datetime) -> dict:
@@ -46,19 +36,6 @@ DRIFT_ROWS = [
     make_row("SPY", "5m", "moderate", None, NOW),
     make_row("mean_reversion_v1", "_cusum", None, "severe", NOW),
 ]
-
-
-@pytest.fixture
-def mock_db():
-    db = AsyncMock()
-    return db
-
-
-@pytest.fixture
-def client(mock_db):
-    test_app.dependency_overrides[dependencies.get_db_manager] = lambda: mock_db
-    yield TestClient(test_app)
-    test_app.dependency_overrides.clear()
 
 
 class TestGetDriftState:

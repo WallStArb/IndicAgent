@@ -9,28 +9,6 @@ found by the request-level route smoke test (todo 137).
 
 from unittest.mock import AsyncMock
 
-import pytest
-from fastapi import FastAPI
-from fastapi.testclient import TestClient
-
-from src.api import dependencies
-from src.api.routes.market_data import router as market_data_router
-
-test_app = FastAPI()
-test_app.include_router(market_data_router, prefix="/api")
-
-
-@pytest.fixture
-def mock_db():
-    return AsyncMock()
-
-
-@pytest.fixture
-def client(mock_db):
-    test_app.dependency_overrides[dependencies.get_db_manager] = lambda: mock_db
-    yield TestClient(test_app)
-    test_app.dependency_overrides.clear()
-
 
 class TestGetMarketData:
     def test_no_rows_returns_404_not_500(self, client, mock_db):

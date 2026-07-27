@@ -486,6 +486,14 @@ existing CONTEXT.md (this phase has none yet) or a locked ROADMAP.md decision.
    - Recommendation: re-verify `ls production/migrations/ | sort -V | tail -3` immediately
      before writing the migration file, not just at planning time — same discipline migration
      255's own header comment documents.
+   - **Materialized 2026-07-26**: a concurrent session claimed migration 259 for an unrelated
+     fix (`259_ic_max_cell_rows_recalibration.sql`, todo 183 — `alpha.ic.max_cell_rows`
+     recalibration, nothing to do with SMC primitives). Confirms this was a real risk, not a
+     hypothetical one — Plan 01 Task 1's re-verify-at-execution step will correctly find 260
+     as next-free when this phase is actually executed. No action needed now; this note exists
+     so the "259" references throughout this phase's docs aren't mistaken for stale/wrong when
+     read later — they were correct at plan time and the plan's own self-check handles the
+     rename at execution time.
 
 ## Environment Availability
 

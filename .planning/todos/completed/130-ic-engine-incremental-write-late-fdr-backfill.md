@@ -90,7 +90,7 @@ implemented in the same session that found it — deserves its own dedicated ses
 
 - `services/ic_engine.py` — `_write_ic_results` (~line 2114), corpus-level BH-FDR block
   (~line 3300+, `multipletests(...)`), `_write_cross_sectional_results` (~line 2248)
-- `.planning/todos/pending/121-ic-engine-coarse-resume-no-checkpoint.md` — narrower, already
+- `.planning/todos/completed/192-ic-engine-coarse-resume-no-checkpoint.md` — narrower, already
   code-fixed (commit `53267bbd`) checkpoint-key issue for the *existing* per-symbol local-file
   checkpoint mechanism; that mechanism is unrelated to this todo's DB-write-timing gap and
   doesn't cover the cross-sectional pass at all

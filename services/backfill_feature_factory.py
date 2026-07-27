@@ -766,7 +766,11 @@ def run_compute_stage(
     """
     cfg = _load_config_service(db_conn)
     config = _build_feature_factory_config(cfg)
-    coverage_threshold = float(cfg.get_sync("threshold.backfill.coverage_threshold", 0.80))
+    # todo 178 IN-01: was "threshold.backfill.coverage_threshold", which was never seeded --
+    # migration 153 only ever seeded "threshold.backfill.coverage_gate", so the read always
+    # fell through to the hardcoded 0.80 default and any dashboard edit to coverage_gate was
+    # silently ignored.
+    coverage_threshold = float(cfg.get_sync("threshold.backfill.coverage_gate", 0.80))
 
     # Warm-up bars = dominant rolling window (momentum_zscore_window = 252)
     warm_up_bars = config.momentum_zscore_window

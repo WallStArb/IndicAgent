@@ -3,7 +3,7 @@ status: partial
 phase: 162-ic-engine-corpus-pipeline-throughput-incremental-recompute-t
 source: [162-VERIFICATION.md]
 started: 2026-07-23T07:00:00Z
-updated: 2026-07-23T07:00:00Z
+updated: 2026-07-25T18:45:00Z
 ---
 
 ## Current Test
@@ -22,7 +22,7 @@ result: [pending]
 
 ### 3. Cross-sectional bootstrap thread-count benchmark
 expected: 15m/1h/1d cells (threads=1) land within ~10% of measured serial wall time; 5m (threads=6) keeps its threading speedup (SC-5). Seeded values are live in production config but unvalidated by an actual timing comparison.
-result: [pending]
+result: **FAILED for 15m, observed live 2026-07-25 during todo 092's recompute.** `top`/`pg_stat_activity` on the running `ic_engine.py` (PID 1633901) showed 100% single-core CPU with zero active Postgres queries while the 15m `low_bull` cell ran -- pure serial compute, not I/O wait. The 15m `high_bear` cell (118,125 timestamps, 24 chunks) took 121 minutes; this is not "minutes" as the `threads=1` config description assumes. Likely cause: universe grew 58->80 symbols and features grew to 171 since the original 5m-only benchmark scoped this assumption. Filed as `.planning/todos/pending/182-ic-engine-15m-cross-sectional-bootstrap-threads-stale.md` -- re-benchmark 15m (and spot-check 1h) before closing this item. 1d/1h aggregate timing this run (~52min for all 9 1h regimes) doesn't show the same red flag, but neither was directly benchmarked either.
 
 ## Summary
 

@@ -245,10 +245,7 @@ class TestNarrativeRoute:
         conn = _FakeConn(fetchrow_raises=Exception("connection lost"))
         mock_db.pool.acquire.return_value = _FakeAcquireCtx(conn)
 
-        with patch(
-            "src.api.routes.narrative.logger",
-        ) as mock_logger:
-            resp = client.get(f"/api/signals/{signal_id}/narrative")
+        resp = client.get(f"/api/signals/{signal_id}/narrative")
 
         assert resp.status_code == 500
         assert resp.json()["detail"] == "Database error"

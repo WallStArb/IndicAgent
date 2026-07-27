@@ -500,7 +500,7 @@ class FeatureFactoryConfig:
     sr_window: int = 10  # feature.sr.window
     sr_cluster_atr_mult: float = 0.5  # feature.sr.cluster_atr_mult
     sr_lookback_by_tf: dict = field(  # feature.sr.lookback_by_tf
-        default_factory=lambda: {"1m": 60, "5m": 60, "15m": 80, "1h": 120, "1d": 60}
+        default_factory=lambda: {"1m": 60, "5m": 60, "15m": 80, "1h": 120, "4h": 90, "1d": 60}
     )
 
 

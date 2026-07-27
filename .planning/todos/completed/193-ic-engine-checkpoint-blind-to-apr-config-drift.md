@@ -23,7 +23,7 @@ standalone if an APR-drift incident forces the issue first (per this file's own 
 
 # 122 - ic_engine checkpoint content-key doesn't cover APR config drift mid-run
 
-**Found:** 2026-07-15, during /simplify review of the [todo 121](121-ic-engine-coarse-resume-no-checkpoint.md)
+**Found:** 2026-07-15, during /simplify review of the [todo 192](192-ic-engine-coarse-resume-no-checkpoint.md)
 fix (`_checkpoint_content_key()` in services/ic_engine.py).
 
 **Gap:** the content key hashes `.py` source bytes under `src/` and `services/` only. It has no

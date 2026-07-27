@@ -1,7 +1,9 @@
 # v3.0 Intelligence Lifecycle — Priority Matrix
 
-**Last rewritten:** 2026-07-08 (a full rewrite of an earlier 2026-07-01 version, itself
-superseded — see git history for the correction trail). **Filename is stable, not date-stamped**
+**Last rewritten:** 2026-07-08, full **Operational context refresh 2026-07-26** (the dated
+append-log format this doc had drifted into was cut — see git history if the historical
+narrative is ever needed; resolved items live in `.planning/todos/completed/` and ROADMAP.md's
+Phase Summary tables). **Filename is stable, not date-stamped**
 as of 2026-07-13 — this doc is a living reference, edited in place as facts change (see
 "Operational context" below for an example), not re-dated on every revision. Update this line on
 the next full rewrite; don't rename the file to match. Scope: v3.0 intelligence lifecycle ideas
@@ -13,81 +15,36 @@ the idea doc's own claim — Med/unproven means "plausible, untested") · **Foun
 cheaper to do now than to retrofit once other things build on top of it — bumps priority
 independent of raw effort/risk/reward.
 
-**Operational context (updated 2026-07-21):** This table went stale between 2026-07-08 and
-2026-07-21 — Phase 143.1 (Measurement and Eligibility Integrity) shipped COMPLETE in that
-window (8/8 plans, 143.1-08 shadow-mode verdict: HOLD, `alpha.ensemble.sign_symmetric` stays
-`false`), along with Phase 160 (Concept Registry MVP) and Phase 161 (Controlled Vocabulary) —
-see "Recently shipped," rows for both removed from MEDIUM below since they're no longer
-open work. `alpha_frames` backfill also ran (todo 093, 23.15M rows, see todo 161's closeout) —
-the "0 rows" caveat below is stale, kept only as a dated marker. **Four phases (162/163/164/165)
-were registered since the last full rewrite and had never been scored** (same gap this table
-caught itself making with Phases 156-159 last time) — all four now scored: Phase 162 in HIGH
-(a live stability bug, not just throughput), Phases 163/165 in MEDIUM, Phase 164 in MEDIUM but
-lower-ranked (least ready, real raw-price-trap risk). **Phase 144 is now COMPLETE (2026-07-22)**
-— its D-05 verdict landed (F1 not triggered, F2 triggered for 15m/5m; full detail in ROADMAP.md's
-Phase 144 section), unblocking Phase 145 (not yet scored — see its row below). The
-measurement base is now the 143.1-07 corpus rebuild (2026-07-19) plus todos 124/160's
-`market_data_ohlcv_tradeable` correctness fix (2026-07-21) — treat any pre-2026-07-21 IC number
-sourced from `feature_vectors.true_range_pct` as suspect until todo 147's third CV re-check
-(still outstanding, see PRIORITIES.md) confirms parity.
+**Operational context (rewritten 2026-07-26 — prior dated append-log cut; resolved history
+lives in git log / `.planning/todos/completed/` / ROADMAP.md's Phase Summary tables, not
+duplicated here per this project's "no resolved history" convention):**
 
-**Corrected 2026-07-22, then corrected again same day** (via `/gsd-discuss-phase 147` —
-worth recording the wrong turn, not just the fix): first pass found Phase 147 mis-filed
-"CANCELLED 2026-07-14" (superseded 2026-07-19, todo 056 revived it) and, reading ROADMAP.md's
-"Depends on: Phase 147 complete" line at face value, concluded Phase 147 was the sole gate on
-Phase 148 — moved both to HIGH on that basis. **That "Depends on" line was itself stale and
-never got caught** — SCORE-01/02/03 (Phase 148's actual gates) read only `alpha_frames`/
-`alpha_ensemble_ic`/`alpha_strategy_scores`, pure v3.0 tables with zero I7 lineage; the only
-place Phase 147 ever connected to Phase 148 was SCORE-04's old v2.x comparison, which the
-2026-07-19 rewrite already downgraded to "documentation only, not a gate" — the dependency
-line just never got updated to match. **Phase 148 is unblocked today, independent of Phase
-147.** Phase 147 stays HIGH-ish only in the sense that it's cheap due diligence worth doing
-eventually (does the archived, zero-live-consumer I7 system hold any signal not already in
-the v3.0 Feature Factory) — it is not gating anything and should not compete with Phase 148
-for near-term attention. This is independent of both Phase 144's D-05 track (regime-model
-refinement, blocked on the symbol_hmm restoration fix) and Phase 162 (infra throughput,
-separate concurrent session) — parallel tracks, not one queue.
+The milestone's defining question (Phase 148, 2026-07-22) has a verdict: **Gate 1 (signal
+proof) PASS, Gate 2 (execution proof) FAIL — do not promote the current per-symbol directional
+construction to live capital.** Phase 166's frame/execution recalibration couldn't fix it
+(both candidates failed gate166's drawdown ceiling), and todo 179's exhaustive investigation
+(2026-07-24) found why: `mid_bull`'s raw, un-barriered forward return is negative at every
+horizon — a genuine market-data finding, not a frame or execution defect. No stop/target/hold
+tuning fixes a genuinely negative raw return.
 
-**Updated 2026-07-22, later same day:** Phase 148 finalized — renamed (dropped "v2.x
-Decommission" from the title, never matched actual scope), cross-AI reviewed, replanned with
-review fixes, independently verified PASS WITH CONCERNS. Execution-ready. Separately, before
-executing it, a sanity check on whether Phase 148 was really the right next step (not just
-deference to the stored order) surfaced that todo 160's real root cause was one level deeper
-than its own filing understood: `ops_known_corrupt_print_cleanup.py`'s candidate discovery was
-itself broken (gated behind `forward_returns` suspect flags, structurally blind to
-corruption confined to `high`/`low`), not just missing 2 rows. Fixed the discovery mechanism
-directly rather than hand-patching known-bad rows — found and corrected 40 bars across 14
-symbols (20x the previously-known count). This mattered because Phase 148's Gate 2 is
-irreversible (run once ever) and reads `alpha_frames`, which is downstream of the same
-feature computation this bug corrupted — worth fixing before spending that one shot, not
-after. Recompute in progress at session-note time; todo 147's third CV re-check and both
-todos' closure to follow.
+**That closed "recalibrate the existing construction" and opened a three-way fork: invest in
+more features (Phase 151/164/165), invest in a different construction/model over the *existing*
+features (Edge Source Thesis T3/T5), or accept no OOS-detectable edge on this branch.** Resolved
+2026-07-26: **T3 (cross-sectional long-short) passed decisively**, both lookahead scales,
+against a shuffled-ranking-null guard — the first thesis anywhere in the tree to clear its own
+bar (`docs/research/data-edge-source-thesis.md`). **This is now the table's top HIGH-tier item,
+registered as ROADMAP.md Phase 167 (Cross-Sectional Trade Construction)** — cheaper and faster
+to test than feature expansion, and it found something. T5 (non-linear combiner) came back
+suspicious, not confirmed, pending a leakage check (todo 184). Per Musk's 5-step mandate
+(question the requirement before accelerating), **Phase 164/165's feature-expansion track stays
+registered but explicitly sequenced behind Phase 167** — no evidence yet that more features are
+the bottleneck when the existing 150 already produced a passing construction.
 
-**Updated 2026-07-23:** Both Phase 148 and Phase 162 executed and closed same session (see
-their HIGH-tier rows below for outcome detail). Phase 148 delivered the actual verdict this
-whole table's top priority existed to produce: Gate 1 (signal proof) PASS, Gate 2 (execution
-proof) FAIL — do not promote to live capital. **This creates a new HIGH-tier item, Phase 166
-(Frame/Execution Recalibration)**, registered same day from todo 174 — the pre-registered
-"if Gate 2 fails but Gate 1 passes: frame problem" playbook, now the actual highest-priority
-open item on this table. Phase 162 shipped its whole-cell fingerprint mechanism, empirically
-proven equivalent to forced recompute; a real BLOCKER found via code review (per-symbol
-watermark scoping) and fixed same session.
-
-**Updated 2026-07-24:** Phase 166 planned and executed same-day-follow-through — **verdict:
-neither candidate promoted**, both baseline and scalar arms fail gate166 on max drawdown (9.6x
-and 26.2x vs. a 0.25 ceiling). A same-day ad hoc investigation (todo 179) then found the actual
-cause: `mid_bull`'s raw, un-barriered forward return is negative at every horizon across an
-exhaustive 9-regime × symbol_hmm × 12-historical-episode sweep — a genuine market-data finding,
-not a frame/execution-design artifact. **This closes the "quick regime-conditional fix" hope
-conclusively and reframes this table's top open question**: invest in better features/signal
-(Phase 151/164/165) on the bet the current Feature Factory doesn't yet capture the necessary
-signal, or accept the current branch (existing features + IC-weighted ensemble + barrier
-execution) has no OOS-detectable edge — not yet decided with the user. Phase 163 also executed
-and verified (15/15 must-haves) same day. **Phase 151 was then planned** (8 plans, 7 waves,
-`gsd-plan-checker` VERIFICATION PASSED) at explicit user direction, ahead of that fork being
-resolved — see its row below and STATE.md's Tier 6 note for the reasoning. Todo 092 also fixed
-this session (both enabled regime groups' calibration cut-points were raw-value cuts never
-checked against real data; now self-calibrating via causal-expanding-rank).
+**One open caveat, load-bearing for todo 179's own "no edge" verdict above:** that sweep ran
+under cross-sectional regime labels later found miscalibrated and fixed the same day (todo 092).
+A full corpus recompute under the corrected labels is in progress (todo 183, hit and fixed a
+`max_cell_rows` ceiling issue 2026-07-26) — todo 179's verdict is provisional until that
+completes, though it doesn't affect T3's own result (no regime dependency).
 
 ---
 
@@ -116,6 +73,7 @@ threshold calibration, split out of todo 026's P3).
 
 | Idea | Effort | Risk | Reward | Note |
 |---|---|---|---|---|
+| **Phase 167: Cross-Sectional Trade Construction (T3)** | M | Low-Med | **High, evidence-backed** | **Registered 2026-07-26, not yet planned — the table's current top open item.** T3 (cross-sectional decile-spread construction over `ctf_momentum`) passed decisively at both lookahead scales against a shuffled-ranking-null guard — first thesis in the edge-source-thesis tree to clear its own bar. Reward marked "evidence-backed" on the same basis Phase 151 earned that label after todo 037's pilot. First open item before scoping plans: apply the todo 030 cost-hurdle treatment to the spread construction (today's result is gross-only). Sequenced ahead of Phase 156-159 (would produce the signal those size/execute) and ahead of Phase 164/165 in priority (cheaper, already proven vs. unproven feature expansion) though not blocking either. See `docs/research/trade-construction-layer.md`, `docs/research/data-edge-source-thesis.md`. |
 | Phase 144: Cross-Sectional Regime Model (`regime_group`) | L | Med | High | **COMPLETE 2026-07-22** (6/6 plans, D-05 verdict landed). The symbol_hmm restoration fix (`dual_write_symbol_hmm`, migration 247) unblocked D-05, which then ran for real: **F1 not triggered** (TLT's per-symbol HMM stays deficient, demotion holds — matches the original 2026-07-02 finding) and **F2 triggered for 15m/5m** (rates cross-sectional is ALSO deficient at high frequency — pre-registered build trigger for a factor-augmented HMM challenger, pending confirmation `volatility_pct` hasn't already passed its own substitution gate for rates). Full verdict in ROADMAP.md's Phase 144 section. Cross-Group Lead-Lag IC and Phase 145 are now unblocked by this row closing — see their own rows for current status. |
 | Phase 166: Frame/Execution Recalibration | L | Med | High | **COMPLETE 2026-07-23** (6/6 plans, registered from todo 174). **VERDICT: neither candidate promoted** — baseline and scalar (retuned stop/target) both fail gate166's max-drawdown ceiling (9.60x and 26.18x vs. 0.25). Direct follow-on (todo 179, same day) found the real cause: `mid_bull`'s raw un-barriered forward return is negative at every horizon — a market-data finding, not an execution-frame defect. Closes the "recalibrate the frame" hypothesis conclusively; reframes the open question to Phase 151/164/165 (invest in features) vs. accept-no-edge (see Operational context above). No longer gates anything — still gates Phases 149-159 in the sense that neither fork is resolved yet. |
 | Phase 162: ic_engine Corpus Pipeline Throughput | M-L | Med | High | **COMPLETE 2026-07-23** (4/4 plans). Whole-cell `ic_cell_fingerprints` mechanism shipped and empirically proven equivalent to a forced `--refresh` recompute (`ops_ic_fingerprint_equivalence.py`, byte-identical `feature_ic_scores`, ~80x faster on skip). The Med risk rating proved warranted, not just cautious: post-execution code review found a real BLOCKER (CR-01) in the per-symbol fingerprint watermark's cross-sectional scoping — exactly the "silent-wrong-IC risk, not just a crash" this row flagged in advance — found and fixed same session, independently re-verified. 3 of 7 success criteria (full-corpus wall-clock, surgical-invalidation timing, thread benchmark) need an actual 80-symbol corpus run to close empirically, tracked in `162-HUMAN-UAT.md`, not blocking. Bundled todos 122/129(partial)/133/134/139/140 — closed. |
@@ -181,13 +139,13 @@ BLOCKER (CR-01, per-symbol watermark scoping) found via code review and fixed sa
 |---|---|---|---|---|
 | Tag exposure-vs-sensitivity taxonomy audit (`stratification-instrument-tag-calibrator.md`'s "Open question," formerly todo 041) | M | Low | Med, **load-bearing** | Batched into Phase 144's `ic_engine` re-run (see HIGH tier). Gates commodity/fx `regime_group` enablement directly — OIH/XLE/XOP carry both `eq_*` and `commodity_energy_*` tags and will raise `AmbiguousRegimeGroupError` the moment `commodity_energy` is enabled. |
 | Phase 163: VP/SR Structural Primitives | M | Low | Med-High | **COMPLETE 2026-07-24** (3/3 plans, verified 15/15 must-haves). Closed todo 153, a real "can we trust this data" gap: `poc_dist_atr`/`va_position`/`sr_support_dist`/`sr_resist_dist` were stuck at constant `FeatureCache` defaults in both live and batch, making their `feature_ic_scores.ic_value=0` a constant-input artifact, not a measured null result — now live. Was also a Wave-0 prerequisite for Phase 166's structural candidate (see that row). Historical `feature_vectors` backfill for the 17 new columns tracked separately as todo 176. |
-| Phase 165: Swing/Fib/Trend Structure Primitives | L | Low-Med | Med, unproven | **Newly scored 2026-07-21** (context/research done 2026-07-21, Fable-reviewed, not yet planned — `/gsd-plan-phase 165` is the next step). 41 new columns across 5 files (swing/momentum/trend-structure/fibonacci-zones/session-levels). Risk scored Low-Med rather than Med because the research pass already found and pre-scoped fixes for 2 silent-wrong-answer bugs before any code was written — lower execution risk than a typical first-pass port. Reward stays "unproven" on this table's own convention (Phase 151 only earned "evidence-backed" after todo 037's pilot; no equivalent pilot has run for these primitives) — one candidate addition (Fibonacci extensions) was already deliberately deferred by its own research pass as premature scaling. |
-| Phase 164: SMC Institutional Footprint Primitives | L | Med | Med, unproven | **Newly scored 2026-07-21** (registered 2026-07-20, not planned — no CONTEXT/RESEARCH/PLAN yet, least ready of the three primitive-expansion phases). Ports order blocks/FVG/liquidity sweeps/supply-demand zones/AMD cycle/breaker-mitigation/BOS-CHoCH from archived v2.x `smc_context` plugins. Risk scored Med (not Low like 163) because ROADMAP.md already flags the same raw-price-vs-ATR-companion trap Phase 163's D-16/D-17 caught mid-review — real risk of repeating a known bug class during the port, not hypothetical. Sequenced after 163 for shared conventions, no hard code dependency, so it can slip without blocking anything. |
+| Phase 165: Swing/Fib/Trend Structure Primitives | L | Low-Med | Med, unproven | Context/research done 2026-07-21, Fable-reviewed, not yet planned. 41 new columns across 5 files (swing/momentum/trend-structure/fibonacci-zones/session-levels). Risk scored Low-Med because the research pass already found and pre-scoped fixes for 2 silent-wrong-answer bugs before any code was written. Reward stays "unproven" (no pilot has run for these primitives, unlike Phase 151's todo 037 or Phase 167's T3). **Deprioritized behind Phase 167 as of 2026-07-26** — no evidence more features are the bottleneck when Phase 167's construction already found signal in the existing 150. |
+| Phase 164: SMC Institutional Footprint Primitives | L | Med | Med, unproven | Registered 2026-07-20, not planned — no CONTEXT/RESEARCH/PLAN yet. Ports order blocks/FVG/liquidity sweeps/supply-demand zones/AMD cycle/breaker-mitigation/BOS-CHoCH from archived v2.x `smc_context` plugins. Risk scored Med (not Low like 163) because ROADMAP.md already flags the same raw-price-vs-ATR-companion trap Phase 163's D-16/D-17 caught mid-review. Sequenced after 163 for shared conventions, no hard code dependency. **Deprioritized behind Phase 167 as of 2026-07-26**, same reasoning as Phase 165's row above. |
 | HMM regime audit — remaining P4a/P4b + seed-stability check (todo 026) | S-M | Low | Low-Med | **Corrected 2026-07-14** (prior row text was stale): P0/P1a/P1b/P2b/P2c all shipped, P2a forked to standalone todo 108, P3 forked to standalone todo 092 (now MEDIUM-tier itself, live-path evidence). The only scope left in 026 is the rolling-refit pilot (P4a/P4b) plus its bundled seed-stability check — both GATED on a 4-condition decision gate that has never cleared, and currently inert: `alpha.regime.equity_model_enabled=true` routes every live IC measurement around the per-symbol HMM this targets, so the leak contaminates nothing today (2026-07-09 finding). The 2026-07-07 fallback pre-commitment (demote-to-shadow) already shipped the cheap governance-level mitigation. One legitimate re-activation trigger remains: F5 in `fable-2026-07-07-phase144-conditioning-decision.md`, if the TLT model-class-mismatch diagnosis is ever challenged. Correctly stays in `deferred/`, not ranked in PRIORITIES.md by that file's own pending/-only scope. |
 | Cross-sectional regime grid shape never validated (`.planning/todos/pending/135-cross-sectional-regime-grid-shape-never-validated.md`) | S-M | Low | Med, **load-bearing** | Filed 2026-07-18. The equity (3×3=9 cell) and rates (3×2=6 cell) cross-sectional grids were fixed by design, never selected via a BIC-style or IC-separation model-selection study the way HMM's K=5 was (Phase 140.5 P2). Distinct from todo 092 (cut-point values within the existing grid) — this is whether the cell count itself is right. High load-bearing weight given `equity_model_enabled=true` routes essentially all live IC measurement through this grid today. Natural sequencing: after todo 092's cut-point recalibration, alongside Phase 145's substitution-test machinery (which will re-litigate "how many cells" per new candidate dimension anyway). |
 | Cross-Group Lead-Lag IC (`docs/research/cross-group-lead-lag-ic.md`) | M | Med | Med, unproven | Reuses existing `ic_engine` machinery. 6 candidate pairs identified (rates→precious metals cleanest). Real open risk: multiple pairs × lags × TFs needs the same BH-FDR discipline as cross-sectional IC. Gated on Phase 144 (needs clean peer groups on both sides of the join). |
 | Phase 146: Empirical Instrument Tag Calibrator | L-XL | Med | High, latent | **SHIPPED 2026-07-17** (5/5 plans) — stale row, this table hadn't caught up. `TagCalibrator` live-verified: 11/12 measurable tags carry real `source='empirical'` rows. See STATE.md's phase summary table. |
-| Phase 151: Feature Primitives Expansion + Theory-Motivated Interaction Layer | XL | Med | Med-High, evidence-backed | **PLANNED 2026-07-24** (8 plans, 7 waves, `gsd-plan-checker` VERIFICATION PASSED after 1 revision; `/gsd-plan-phase 151`, no `/gsd-discuss-phase` run — ROADMAP's own Phase 151 section, already Fable-reviewed across all 4 candidate sources, served as the locked-decision source instead). Not the same scope as Phase 142.5 (which already shipped 89 primitives, complete) — this is todos 066/104/123/180's 28 tier-0 atomics + 5 named tier-1 interactions, plus a 10-feature curated Theory-Motivated Interaction Layer (≤50 cap, each with a stated finance-theory hypothesis, separate BH-FDR pool from atomics). **Evidence gate cleared 2026-07-10** (todo 037 PASS, see "Recently shipped"). **Planned ahead of STATE.md's Tier 6 gate at explicit user direction** — the Gate 2/todo 179 strategic fork (invest in features vs. accept no OOS edge) is not yet resolved with the user; see Operational context above. Not yet executed — `/gsd-execute-phase 151` is the next step once that fork is resolved. Also the feeder for `intel-10` Confluence's gate 1 once ≥1 interaction term clears IC/OOS. |
+| Phase 151: Feature Primitives Expansion + Theory-Motivated Interaction Layer | XL | Med | Med-High, evidence-backed | **PLANNED 2026-07-24** (8 plans, 7 waves, `gsd-plan-checker` VERIFICATION PASSED after 1 revision; `/gsd-plan-phase 151`, no `/gsd-discuss-phase` run — ROADMAP's own Phase 151 section, already Fable-reviewed across all 4 candidate sources, served as the locked-decision source instead). Not the same scope as Phase 142.5 (which already shipped 89 primitives, complete) — this is todos 066/104/123/180's 28 tier-0 atomics + 5 named tier-1 interactions, plus a 10-feature curated Theory-Motivated Interaction Layer (≤50 cap, each with a stated finance-theory hypothesis, separate BH-FDR pool from atomics). **Evidence gate cleared 2026-07-10** (todo 037 PASS, see "Recently shipped"). Planned ahead of the Gate-2/todo-179 fork being resolved, at explicit user direction. **That fork resolved 2026-07-26 toward Phase 167 (see Operational context above) — Phase 151 stays planned and ready but is not the next execution priority.** `/gsd-execute-phase 151` remains available whenever feature-expansion work is picked back up. Also the feeder for `intel-10` Confluence's gate 1 once ≥1 interaction term clears IC/OOS. |
 | Volatility / Dispersion / Volume regime | S each | Low | Med-High, unproven | Consolidated under `stratification-dimension-unification.md`'s governance gate (structural-redundancy pre-filter → orthogonality study → substitution test) — the first substitution test runs as part of Phase 144's batch, not as independent triage per row. |
 | StratificationDimension formalization (`.planning/todos/pending/111-stratification-classification.md`) — **registered as ROADMAP Phase 145** (2026-07-13) | **not yet scored** | — | — | **Updated 2026-07-22:** its blocking gate cleared — Phase 144's D-05 verdict landed (F1 not triggered, F2 triggered for 15m/5m; see Phase 144's row above). Unblocked for `/gsd-plan-phase 145`, but this row itself still needs a real Effort/Risk/Reward pass once planning starts — the row-grain decision (Option A vs. B, `concept-unified-registry.md` Domain Vetting) can now be informed by real evidence instead of planned blind. Don't leave this "not yet scored" indefinitely now that its gate is clear — same gap this table has caught itself making twice before (Phases 156-159, then 162-165). |
 | `market_data_ohlcv` active-bars view (todo 035) | S | Low | Med | **Foundational.** 4 duplicated filters = correctness-drift risk; cheaper to fix before a 5th call site appears. |

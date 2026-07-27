@@ -17,7 +17,6 @@ import time
 from functools import lru_cache
 from uuid import UUID
 
-import structlog
 from fastapi import APIRouter, Depends, HTTPException, Path
 from pydantic import BaseModel
 
@@ -39,8 +38,7 @@ from ...intelligence.schemas import (
 )
 from ..dependencies import get_db_manager
 from ..utils import parse_jsonb as _parse_jsonb
-
-logger = structlog.get_logger(__name__)
+from ..utils import translate_db_errors
 
 router = APIRouter()
 
@@ -186,6 +184,7 @@ _NARRATIVE_UPSERT = """
 
 
 @router.get("/signals/{signal_id}/narrative", response_model=NarrativeResponse)
+@translate_db_errors
 async def get_narrative(
     signal_id: UUID = Path(..., description="Signal UUID"),
     db: DatabaseManager = Depends(get_db_manager),
@@ -195,71 +194,64 @@ async def get_narrative(
     Idempotent: same signal_id always returns the same narrative.
     On first request, calls LLM and persists. On repeat, returns from DB.
     """
-    try:
-        async with db.pool.acquire() as conn:
-            # 1. Check for existing cached narrative
-            cached = await conn.fetchrow(
-                "SELECT narrative, model FROM signal_narratives WHERE signal_id = $1",
-                signal_id,
-            )
-            if cached is not None:
-                return NarrativeResponse(
-                    signal_id=str(signal_id),
-                    narrative=cached["narrative"],
-                    model=cached["model"],
-                    cached=True,
-                )
-
-            # 2. Look up signal + features
-            row = await conn.fetchrow(_SIGNAL_QUERY, signal_id)
-            if row is None:
-                raise HTTPException(status_code=404, detail="Signal not found")
-
-            context = _build_context_from_row(row)
-
-            # 3. Generate narrative
-            agent_dependencies = AgentDependencies(
-                llm_chain=_get_llm_chain(),
-                pool=None,
-                settings=_get_settings(),
-            )
-            agent = NarrativeSynthesizer(dependencies=agent_dependencies)
-            t0 = time.monotonic()
-            output = await agent.compute(context)
-            latency_ms = (time.monotonic() - t0) * 1000
-
-            if output.error or not output.payload.get("text"):
-                detail = f"Narrative generation failed: {output.error or 'empty narrative'}"
-                raise HTTPException(status_code=502, detail=detail)
-
-            narrative_text = output.payload["text"]
-            model_name = output.payload.get("model", "")
-
-            # 4. Persist (idempotent upsert)
-            phash = _prompt_hash(context)
-            prompt_version = output.payload.get("prompt_version", "")
-            await conn.execute(
-                _NARRATIVE_UPSERT,
-                signal_id,
-                row["symbol"],
-                row["tf"],
-                narrative_text,
-                model_name,
-                output.agent_id,
-                prompt_version,
-                phash,
-                round(latency_ms, 1),
-            )
-
+    async with db.pool.acquire() as conn:
+        # 1. Check for existing cached narrative
+        cached = await conn.fetchrow(
+            "SELECT narrative, model FROM signal_narratives WHERE signal_id = $1",
+            signal_id,
+        )
+        if cached is not None:
             return NarrativeResponse(
                 signal_id=str(signal_id),
-                narrative=narrative_text,
-                model=model_name,
-                cached=False,
+                narrative=cached["narrative"],
+                model=cached["model"],
+                cached=True,
             )
 
-    except HTTPException:
-        raise
-    except Exception as error:
-        logger.error("narrative.route.error", signal_id=str(signal_id), exc_info=error)
-        raise HTTPException(status_code=500, detail="Database error") from error
+        # 2. Look up signal + features
+        row = await conn.fetchrow(_SIGNAL_QUERY, signal_id)
+        if row is None:
+            raise HTTPException(status_code=404, detail="Signal not found")
+
+        context = _build_context_from_row(row)
+
+        # 3. Generate narrative
+        agent_dependencies = AgentDependencies(
+            llm_chain=_get_llm_chain(),
+            pool=None,
+            settings=_get_settings(),
+        )
+        agent = NarrativeSynthesizer(dependencies=agent_dependencies)
+        t0 = time.monotonic()
+        output = await agent.compute(context)
+        latency_ms = (time.monotonic() - t0) * 1000
+
+        if output.error or not output.payload.get("text"):
+            detail = f"Narrative generation failed: {output.error or 'empty narrative'}"
+            raise HTTPException(status_code=502, detail=detail)
+
+        narrative_text = output.payload["text"]
+        model_name = output.payload.get("model", "")
+
+        # 4. Persist (idempotent upsert)
+        phash = _prompt_hash(context)
+        prompt_version = output.payload.get("prompt_version", "")
+        await conn.execute(
+            _NARRATIVE_UPSERT,
+            signal_id,
+            row["symbol"],
+            row["tf"],
+            narrative_text,
+            model_name,
+            output.agent_id,
+            prompt_version,
+            phash,
+            round(latency_ms, 1),
+        )
+
+        return NarrativeResponse(
+            signal_id=str(signal_id),
+            narrative=narrative_text,
+            model=model_name,
+            cached=False,
+        )

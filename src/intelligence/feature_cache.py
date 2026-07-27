@@ -23,6 +23,7 @@ from typing import TYPE_CHECKING
 
 import numpy as np
 
+from src.core.bar_accumulator import _RTH_OPEN_ET
 from src.intelligence.context.session_context import _et_from_utc
 
 if TYPE_CHECKING:
@@ -214,10 +215,17 @@ class FeatureCache:
         compute-path atr_val.
         """
         ts = bar_ts if bar_ts.tzinfo is not None else bar_ts.replace(tzinfo=UTC)
-        total_minutes = ts.hour * 60 + ts.minute
-        start_minutes = config.ny_session_start_utc_hour * 60 + config.ny_session_start_utc_minute
-        et_date = _et_from_utc(ts).date()
-        session_day = et_date if total_minutes >= start_minutes else et_date - timedelta(days=1)
+        et = _et_from_utc(ts)
+        # DST-aware by construction (todo 178 WR-02): compares ET wall-clock time directly
+        # against 9:30 ET (the session open, a fixed exchange fact -- not a UTC-hour APR
+        # value like ny_session_start_utc_hour, which only equals 9:30 ET during EDT and is
+        # off by an hour during EST). Unlike _in_ny_session()/_opening_range() (read-only
+        # calendar flags where a ~1hr/2x-yearly DST-week discrepancy is an accepted,
+        # documented limitation), this comparison gates a STATEFUL accumulator reset
+        # (_sess_bars) -- a misfire corrupts VP inputs for the affected bars, not just one
+        # flag's value, so this call site gets the DST-correct comparison.
+        et_date = et.date()
+        session_day = et_date if et.time() >= _RTH_OPEN_ET else et_date - timedelta(days=1)
         if session_day != self._session_day:
             self._sess_bars = []
             self._session_day = session_day

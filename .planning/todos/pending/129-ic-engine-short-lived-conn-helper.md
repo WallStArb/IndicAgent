@@ -21,6 +21,45 @@ never covered the Settings-based sibling helper or the 4 other services (`regime
 that cross-service cleanup remains unclaimed. No longer appropriate to sit in `deferred/`
 pointing at a phase that's already shipped without touching it.
 
+## RESULT (2026-07-27): partially fixed -- one genuine drop-in migrated, three deliberately left alone with reasons.
+
+**Correction (same-session /simplify pass):** initially added a `short_lived_conn_from_settings(settings)`
+context-manager helper to `services/_batch_utils.py`, but the actual migration below calls
+`connect_db_from_url(settings.database_url)` directly (the byte-identical replacement was
+plain enough not to need the wrapper). The helper ended up with zero callers anywhere in the
+repo -- caught by a /simplify altitude review, deleted rather than left as speculative dead
+code. If a genuine scoped-connection caller needs it later, add it then.
+
+Audited all 4 remaining services' actual connection code before touching anything (not just
+their names):
+- **`cross_sectional_regime_model.py` -- MIGRATED.** Its local `_connect_db(settings)` was
+  byte-identical to `connect_db_from_url(settings.database_url)` (same `autocommit=False`,
+  no special options) -- a genuinely safe drop-in, zero behavior change. Deleted the local
+  function, both call sites now call `connect_db_from_url` directly. Full relevant test suite
+  green.
+- **`regime_writer.py` -- NOT migrated, found a real reason not to.** All 3 of its connect
+  sites use `options="-c idle_in_transaction_session_timeout=0"`, a deliberate protection for
+  its long-running HMM fits that `short_lived_conn`/`connect_db_from_url` don't support.
+  Forcing this service onto the generic helper would silently drop that protection -- a real
+  regression risk, not a style nit.
+- **`backfill_feature_factory.py` -- NOT migrated, found a real reason not to.** Its
+  `_connect_db` sets `autocommit=True` (the generic helper defaults `False`) and registers a
+  UUID type adapter (`feature_vector_id` serialization) -- both load-bearing, not oversights.
+- **`equity_regime_model.py` -- confirmed dead, not touched.** `CLAUDE.md`/STATE.md both
+  confirm this was replaced by `cross_sectional_regime_model.py` in Phase 144; no systemd unit,
+  no live consumer. Not worth spending effort DRY-ing up retired code.
+- **`ic_engine.py`'s own local `_short_lived_conn(settings)` -- deliberately left unmigrated.**
+  Its corpus recompute (todo 183) was confirmed still running live during this session
+  (`ps aux`, 20+ hours elapsed) -- exactly the "too high-blast-radius to touch outside a
+  dedicated, tested change" scenario this todo already flagged. The shared helper is ready and
+  waiting for that dedicated pass once the recompute completes.
+
+Net: the todo's "wider scope" turned out to be less mechanical than it looked at filing time --
+2 of 4 sibling services have deliberate, incident-motivated connection configs that a
+one-size-fits-all helper would have silently broken. Better to migrate the one genuine match
+and document why the other two don't fit than to force a bad abstraction for the sake of
+closing the todo completely.
+
 # `ic_engine.py`'s 3 dsn-based worker connections still hand-rolled — extract a shared helper
 
 ## Problem (narrowed 2026-07-17 — main()-side half already fixed)

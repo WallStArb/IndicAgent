@@ -80,6 +80,37 @@ class TestCfg:
         assert cfg({"k": " True "}, "k", False) is True
         assert cfg({"k": "FALSE"}, "k", True) is False
 
+    def test_list_default_json_loads_raw_string(self) -> None:
+        """Regression (todo 187): a naive type(default)(val) cast against a list default
+        splits a raw JSON-array string into individual characters --
+        list("[1,3,5,10]") != [1, 3, 5, 10] -- found live in
+        alpha.construction.cost_hurdle_bps_round_trip, worked around locally in
+        cross_sectional_spread_tracker.py before being fixed here at the shared layer."""
+        cfg_dict = {"alpha.construction.cost_hurdle_bps_round_trip": "[1,3,5,10]"}
+        result = cfg(cfg_dict, "alpha.construction.cost_hurdle_bps_round_trip", [1, 3, 5, 10])
+        assert result == [1, 3, 5, 10]
+
+    def test_list_default_used_when_key_absent(self) -> None:
+        assert cfg({}, "alpha.construction.cost_hurdle_bps_round_trip", [1, 3, 5, 10]) == [
+            1,
+            3,
+            5,
+            10,
+        ]
+
+    def test_dict_default_json_loads_raw_string(self) -> None:
+        cfg_dict = {"alpha.regime.groups": '{"equity": true}'}
+        result = cfg(cfg_dict, "alpha.regime.groups", {})
+        assert result == {"equity": True}
+
+    def test_dict_default_passthrough_when_already_parsed(self) -> None:
+        """ConfigService's json.loads() may already have parsed the value before it
+        reaches cfg() in some call paths -- must not double-decode a dict that's no
+        longer a raw string."""
+        cfg_dict = {"alpha.regime.groups": {"equity": True}}
+        result = cfg(cfg_dict, "alpha.regime.groups", {})
+        assert result == {"equity": True}
+
 
 class TestLoadAprDictAsync:
     @pytest.mark.asyncio

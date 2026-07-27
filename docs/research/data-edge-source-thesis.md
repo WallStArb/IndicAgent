@@ -177,6 +177,33 @@ one doc owns the gate numbers). **Both gates clearing means the Phase 156-159
 execution/sizing chain's stated precondition is now met for this construction** -- unlike
 Phase 148's per-symbol directional construction, which passed Gate 1 but failed Gate 2.
 
+**Sibling CTF features tested, both rejected (`scripts/analysis/t3_ctf_family_check.py`,
+2026-07-27):** `ctf_momentum` has two untested siblings from the same `_build_ctf_series()`
+function (`services/backfill_feature_factory.py`) -- `ctf_vwap_align` (sign of close vs. HTF
+cumulative VWAP) and `ctf_regime_align` (HTF HMM forward-pass state, 0=ranging/1=trending) --
+already computed and sitting in `feature_vectors`, zero new data cost to test through the
+identical T3 methodology (same bootstrap, same shuffled-null guard, same cost-hurdle sweep).
+Neither survives:
+
+| Feature | Scale | ci_lower | shuffled-null p | mean 1-way turnover/bar | Best net spread (1bp) |
+|---|---|---|---|---|---|
+| `ctf_vwap_align` | fast | 0.0000094 (passes) | 0.0000 (real, not artifact) | 0.719 | **-0.45 bps/bar (fails every cost tier)** |
+| `ctf_vwap_align` | slow | -0.0000759 (fails) | 0.075 | 0.719 | n/a |
+| `ctf_regime_align` | fast | -0.0000230 (fails) | 0.975 | 0.872 | n/a |
+| `ctf_regime_align` | slow | -0.0000651 (fails) | 0.025 | 0.872 | n/a |
+
+`ctf_vwap_align`'s fast-scale result is a genuine, non-artifact cross-sectional signal (clears
+both the bootstrap CI and the shuffled-ranking null) -- but it flips leg membership on ~72% of
+symbols per bar, so its gross edge (0.27 bps/bar) is smaller than even the cheapest 1bp
+round-trip cost floor. `ctf_regime_align` doesn't clear its own CI at either scale and churns
+even harder (~87-90% turnover) -- a binary HMM state is not a stable enough per-bar ranking
+signal for this construction. **Verdict: `ctf_momentum` is not one member of a productive
+"CTF family" -- it is the only one of the three that survives real trading frictions.** Answers
+the "should we run multiple CTF-style features" question empirically rather than by building
+more of them speculatively: no, not from this specific family. A different cross-timeframe
+primitive (not derived from `_build_ctf_series()`) would need its own from-scratch case, not an
+assumed extension of this result.
+
 ### T4 -- Horizon arbitrage at 1h/1d (counterparty: nobody -- risk premium)
 The honest fallback: at longer horizons with low turnover, small conditional tilts
 (vol-conditioned momentum, flight-to-quality) earn modest risk-adjusted returns that are
@@ -275,12 +302,20 @@ negative)**. Full per-symbol table: `docs/analysis/t5-replication-1d-per-symbol.
    check (which ruled out look-ahead leakage specifically, not all forms of overfitting) doesn't
    explain.
 
-**Separately, load-bearing on its own: `ctf_momentum` shows negative mean IC at 1d, the opposite
-of its validated positive behavior at 15m** (Phase 167's live Gate 1/Gate 2 both PASSED using
-this exact feature at 15m). This is a genuine, unexplained timeframe-instability finding,
-independent of T5 -- worth its own investigation (classic short-horizon-momentum /
-long-horizon-reversal is one plausible explanation, not yet confirmed) before treating
-`ctf_momentum` as timeframe-portable for any future construction.
+**Separately, resolved 2026-07-27 (todo 189): `ctf_momentum`'s negative mean IC at 1d is a
+measurement artifact, not a timeframe-instability of one coherent feature.**
+`services/backfill_feature_factory.py`'s `_CTF_HIGHER_TF` mapping sets each tf's higher
+timeframe for the CTF group as `5m/15m -> 1h`, `1h -> 1d`, but `1d -> 1d` (self-referential --
+the corpus has no timeframe above 1d, confirmed via `SELECT DISTINCT timeframe FROM
+market_data_ohlcv`). `ctf_momentum` is a Wilder RSI computed over the HTF bars; at every other
+tf this is a genuine cross-timeframe momentum-context feature, but at 1d it silently degenerates
+into a plain same-timeframe RSI oscillator -- a structurally different statistic sharing the
+same column name. Same-tf RSI is a classic short-term mean-reversion signal (high RSI predicts
+a pullback), which plausibly explains the negative 1d IC directly with no market-regime story
+needed. **This means the 1d result says nothing about the 15m feature Phase 167 actually
+trades** (5m/15m/1h all use a genuine, different-tf HTF and are unaffected) -- it was comparing
+two different features under one name. Do not treat `ctf_momentum` as timeframe-portable at 1d
+specifically; every other tf is fine. Full detail and recommended fix: todo 189.
 
 **Revised verdict: T5 is neither confirmed nor dead -- it is confirmed SMALL, not confirmed
 LARGE.** The original 1h finding likely overstated the effect's true, tf-general size. Next

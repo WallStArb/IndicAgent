@@ -1,9 +1,28 @@
 ---
-status: pending
+status: closed
 priority: P3
 filed: 2026-07-27
+closed: 2026-07-27
 source: /simplify altitude review of Phase 167's diff (e8f993e7..HEAD), post-execution
 ---
+
+## RESULT (2026-07-27): both items fixed.
+
+**1. FIXED**: added `connect_with_codecs(database_url)` to `src/core/database_manager.py`
+(thin wrapper: `asyncpg.connect()` + `_setup_codecs`). Migrated
+`cross_sectional_spread_tracker.py`'s `_open_evaluation_connection` and
+`counterfactual_tracker.py`'s `_run_evaluate_gate` (the bare, uncodec'd `asyncpg.connect()`
+call the finding named) onto it. Any future jsonb column added to `_GATE_QUERY_SQL` (or any
+other read-only evaluation-mode query) now gets the codec for free.
+
+**2. FIXED**: `cfg()` (`services/_batch_utils.py`) now special-cases `list`/`dict` defaults
+the same way it already special-cases `bool` -- detects a non-scalar default and
+`json.loads()`s the raw string (passthrough if already parsed) instead of the broken
+`type(default)(val)` cast. Removed `cross_sectional_spread_tracker.py`'s local
+`_parse_cost_hurdle_bps` workaround entirely; both call sites now use `cfg()` directly like
+every other APR read in that file. Regression tests added:
+`tests/unit/test_batch_utils.py::TestCfg` gained 4 new cases (list from raw string, list
+default when absent, dict from raw string, dict passthrough when already parsed).
 
 ## What
 

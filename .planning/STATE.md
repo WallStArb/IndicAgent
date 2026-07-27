@@ -69,8 +69,13 @@ finding.** Tree combiner clears its own bootstrap CI in the cross-sectional-neut
 from the original 1h result (0.258 -> 0.0164). **Revised read: T5 is confirmed SMALL, not
 confirmed LARGE.** Separately surfaced: `ctf_momentum` shows NEGATIVE mean IC at 1d
 (`point_ic`=-0.0244, does not clear zero), the opposite of its validated positive 15m behavior
-that Phase 167's live gates both passed on -- an unexplained timeframe-instability finding, not
-yet investigated. Also added a genuine methodological fix during this replication: BH-FDR
+that Phase 167's live gates both passed on. **Resolved 2026-07-27 (todo 189): this is a
+measurement artifact, not real timeframe instability** -- `_CTF_HIGHER_TF` maps `1d -> 1d`
+(self-referential, no timeframe above 1d exists in the corpus), so `ctf_momentum` silently
+degenerates from a genuine cross-timeframe RSI at every other tf into a plain same-tf RSI
+oscillator at 1d -- a classic mean-reversion signal, comparing two different features under one
+name. The 15m feature Phase 167 trades is unaffected. Doc corrected in
+`docs/research/data-edge-source-thesis.md`'s T5 section. Also added a genuine methodological fix during this replication: BH-FDR
 correction (sign-gated) across the ~80 per-symbol tests, which neither the original 1h script
 nor its leak-check ever applied despite the research doc's own stated bar requiring it. 15m
 replication (the tf Phase 167's live construction actually trades on, directly actionable)
@@ -102,18 +107,26 @@ re-raising it.
 re-run todo 179's regime sweep under corrected labels → final T2 verdict, one way or the other.
 
 *Tier 2 -- serves the redirected priority:* todo 188 (T5 15m replication, deferred on memory
-contention -- see above); the `ctf_momentum` 1d-vs-15m sign-flip finding (not yet its own todo);
-the open `alpha_ensemble_ic`/`alpha_events` question (is the linear-only combiner adequate, or
+contention -- see above); the open `alpha_ensemble_ic`/`alpha_events` question (is the linear-only combiner adequate, or
 does it need revision -- confirmed `ensemble_trainer.py`'s `resolve_stratum_weights` is linear
 combination only; `alpha_events` confirmed sparse/emission-gated, not a dense full-universe
 ranking input without further work; not yet investigated further). Phase 151 (Feature
 Primitives Expansion, already planned) is the next-tier option if these don't pan out.
 
+*Tier 2b -- concretely staged 2026-07-27, waiting only on todo 183's process to exit:* todo 167
+(equity cross-sectional-vs-symbol-HMM stratification falsifier, never tested unlike rates').
+Migration 262 applied (`dual_write_symbol_hmm=true` for equity), falsifier gate script written
+and verified (`scripts/analysis/equity_regime_separation_gate.py`, generalized from Phase 144's
+D-05 gate) -- correctly reports BLOCKED (zero `symbol_hmm` rows for the real 49-symbol
+equity-routed universe, confirmed via `instrument_tags`, not the naive `asset_class` filter
+which returns the wrong symbols entirely). Next action: once todo 183 exits, run a scoped
+`ic_engine.py --symbols <49 equity symbols>` pass (single-writer discipline -- do not run
+concurrently with 183), then re-run the gate for the real verdict. Bumped P2→P1.
+
 *Tier 3 -- ready now, independent of the above:* todo 182 (15m cross-sectional bootstrap
 threads stale) · todo 088 (`hold_max_bars` type safety) · todo 170 (`volatility_pct`
 substitution probe for rates) · todo 129 (revived cross-service short-lived-conn helper) ·
-todos 172/173 (non-blocking Phase 148 findings) · todo 009 Parts A-D · todo 167 (equity
-cross-sectional-vs-symbol-HMM stratification falsifier, never tested unlike rates').
+todos 172/173 (non-blocking Phase 148 findings) · todo 009 Parts A-D.
 
 *Tier 4 -- deprioritized, do not resume without re-reading why:* Phase 151 (Feature Primitives
 Expansion, planned and ready but not the next priority -- see Guiding lens above), Phase

@@ -30,6 +30,17 @@ async def create_pool(database_url: str, pool_name: str = "default", **kwargs) -
     return pool
 
 
+async def connect_with_codecs(database_url: str) -> asyncpg.Connection:
+    """Bare `asyncpg.connect()` with JSONB codecs registered (todo 187) -- for short-lived,
+    read-only connections (evaluation/reporting branches) that don't warrant a full pool.
+    A bare `asyncpg.connect()` has no codec, so jsonb columns come back as raw JSON text
+    instead of `dict`; this is the one place that fact needs handling instead of every
+    caller remembering to call `_setup_codecs` itself."""
+    conn = await asyncpg.connect(database_url)
+    await _setup_codecs(conn)
+    return conn
+
+
 class DatabaseManager:
     """Simplified database manager for core operations."""
 

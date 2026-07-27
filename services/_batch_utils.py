@@ -156,12 +156,21 @@ def cfg(cfg_dict: dict[str, Any], key: str, default: Any) -> Any:
     `type(default)(val)` would silently invert every falsy bool APR flag. Parsed
     via the same `str(val).lower() == "true"` idiom ic_engine.py's ConfigService
     path already uses for `alpha.regime.equity_model_enabled`.
+
+    list/dict defaults are also special-cased (todo 187): `type(default)(val)` against
+    a raw JSON-array/object string is a documented-broken cast (e.g.
+    `list("[1,3,5,10]")` splits into individual characters, not the parsed list) --
+    already fixed for dict defaults via `get_dict_config` below, generalized here so
+    `cfg()` itself is safe for any json-typed default instead of every list-typed
+    caller needing its own local `json.loads` workaround.
     """
     val = cfg_dict.get(key)
     if val is None:
         return default
     if isinstance(default, bool):
         return str(val).strip().lower() == "true"
+    if isinstance(default, (list, dict)):
+        return json.loads(val) if isinstance(val, str) else val
     return type(default)(val)
 
 

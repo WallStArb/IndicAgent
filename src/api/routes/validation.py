@@ -12,14 +12,12 @@ from __future__ import annotations
 import re
 from typing import Any
 
-import structlog
 from fastapi import APIRouter, Depends, HTTPException, Query
 
 from ...core.database_manager import DatabaseManager
 from ...core.service_utils import format_iso_ts
 from ..dependencies import get_db_manager
-
-logger = structlog.get_logger(__name__)
+from ..utils import translate_db_errors
 
 router = APIRouter()
 
@@ -28,6 +26,7 @@ _PLUGIN_NAME_RE = re.compile(r"^[A-Za-z0-9_\-]{1,128}$")
 
 
 @router.get("/results")
+@translate_db_errors
 async def get_validation_results(
     plugin_name: str | None = Query(
         default=None,
@@ -66,53 +65,38 @@ async def get_validation_results(
             ),
         )
 
-    try:
-        # Parameterized query — $1 is plugin_name (NULL or text), $2 is limit.
-        # The ($1::text IS NULL OR plugin_name = $1) idiom handles optional filtering
-        # without string interpolation.
-        query = """
-            SELECT
-                plugin_name,
-                timeframe,
-                regime_type,
-                ic,
-                p_value,
-                n,
-                decision,
-                bonferroni_corrected,
-                computed_at
-            FROM validation_results
-            WHERE ($1::text IS NULL OR plugin_name = $1)
-            ORDER BY computed_at DESC
-            LIMIT $2
-        """
-        rows = await db_manager.fetch(query, plugin_name, limit)
+    # Parameterized query — $1 is plugin_name (NULL or text), $2 is limit.
+    # The ($1::text IS NULL OR plugin_name = $1) idiom handles optional filtering
+    # without string interpolation.
+    query = """
+        SELECT
+            plugin_name,
+            timeframe,
+            regime_type,
+            ic,
+            p_value,
+            n,
+            decision,
+            bonferroni_corrected,
+            computed_at
+        FROM validation_results
+        WHERE ($1::text IS NULL OR plugin_name = $1)
+        ORDER BY computed_at DESC
+        LIMIT $2
+    """
+    rows = await db_manager.fetch(query, plugin_name, limit)
 
-        return [
-            {
-                "plugin_name": row["plugin_name"],
-                "timeframe": row["timeframe"],
-                "regime_type": row["regime_type"],
-                "ic": row["ic"],
-                "p_value": row["p_value"],
-                "n": row["n"],
-                "decision": row["decision"],
-                "bonferroni_corrected": row["bonferroni_corrected"],
-                "computed_at": format_iso_ts(row["computed_at"]),
-            }
-            for row in rows
-        ]
-
-    except HTTPException:
-        raise
-    except Exception as e:
-        logger.error(
-            "validation.results_error",
-            plugin_name=plugin_name,
-            limit=limit,
-            error=str(e),
-        )
-        raise HTTPException(
-            status_code=500,
-            detail=f"Error querying validation_results: {str(e)}",
-        ) from e
+    return [
+        {
+            "plugin_name": row["plugin_name"],
+            "timeframe": row["timeframe"],
+            "regime_type": row["regime_type"],
+            "ic": row["ic"],
+            "p_value": row["p_value"],
+            "n": row["n"],
+            "decision": row["decision"],
+            "bonferroni_corrected": row["bonferroni_corrected"],
+            "computed_at": format_iso_ts(row["computed_at"]),
+        }
+        for row in rows
+    ]

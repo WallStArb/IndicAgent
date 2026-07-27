@@ -95,7 +95,7 @@ from services.counterfactual_tracker import (  # noqa: E402
 )
 from src.config.settings import Settings  # noqa: E402
 from src.core.agent.base_batch import BaseBatch  # noqa: E402
-from src.core.database_manager import _setup_codecs  # noqa: E402
+from src.core.database_manager import connect_with_codecs  # noqa: E402
 from src.observability.corpus_manifest import CorpusManifest  # noqa: E402
 from src.observability.otel import OTelInitError, init_otel_providers  # noqa: E402
 
@@ -860,7 +860,9 @@ class CrossSectionalSpreadTracker(BaseBatch):
             )
             itersize = _cfg(cfg_dict, "infra.cross_sectional_spread_tracker.itersize", 5000)
             chunk_size = _cfg(cfg_dict, "infra.cross_sectional_spread_tracker.chunk_size", 5000)
-            cost_bps = _parse_cost_hurdle_bps(cfg_dict)
+            cost_bps = _cfg(
+                cfg_dict, "alpha.construction.cost_hurdle_bps_round_trip", [1, 3, 5, 10]
+            )
             validate_construction_config(
                 decile_fraction, cost_bps, null_shuffles, attribution_max_static_r2
             )
@@ -1133,24 +1135,14 @@ def _gate1_verdict_text(scale: str, binding: dict[str, Any] | None, null_clears:
     return f"{scale}: does not clear its own bootstrap CI (ci_lower <= 0) -- fails at this scale"
 
 
-def _parse_cost_hurdle_bps(cfg_dict: Mapping[str, Any]) -> list[int]:
-    """`alpha.construction.cost_hurdle_bps_round_trip` is the phase's one json-typed APR key.
-    `cfg()`'s `type(default)(val)` cast breaks on a list default (`list("[1,3,5,10]")` splits
-    into characters -- Plan 01 design decision 5), so this reads the raw dict value and
-    `json.loads`s it directly, falling back to the seeded default when absent."""
-    raw_cost_bps = cfg_dict.get("alpha.construction.cost_hurdle_bps_round_trip")
-    return json.loads(raw_cost_bps) if raw_cost_bps is not None else [1, 3, 5, 10]
-
-
 async def _open_evaluation_connection(db_dsn: str) -> asyncpg.Connection:
-    """Bare `asyncpg.connect` for a read-only reporting branch (no pool -- mirrors
-    `counterfactual_tracker`'s evaluation-mode connections). `_setup_codecs` MUST be called
-    explicitly here: unlike `BaseBatch`'s pooled `create_pool()`, a bare connection has no
-    JSONB type codec registered, so jsonb columns come back as raw JSON text rather than
-    `dict` (the bug Task 2 hit and fixed on this service's first live `--evaluate-gate` run)."""
-    conn = await asyncpg.connect(db_dsn)
-    await _setup_codecs(conn)
-    return conn
+    """Bare, codec-registered connection for a read-only reporting branch (no pool -- mirrors
+    `counterfactual_tracker`'s evaluation-mode connections). Delegates to the shared
+    `connect_with_codecs` helper (todo 187) -- unlike `BaseBatch`'s pooled `create_pool()`, a
+    bare connection has no JSONB type codec registered by default, so jsonb columns come back
+    as raw JSON text rather than `dict` (the bug Task 2 hit and fixed on this service's first
+    live `--evaluate-gate` run)."""
+    return await connect_with_codecs(db_dsn)
 
 
 async def _load_gate_evaluation_context(conn: asyncpg.Connection, mode_flag: str) -> dict[str, Any]:
@@ -1169,7 +1161,7 @@ async def _load_gate_evaluation_context(conn: asyncpg.Connection, mode_flag: str
     attribution_max_static_r2 = _cfg(cfg_dict, "alpha.construction.attribution_max_static_r2", 0.50)
     null_shuffles = _cfg(cfg_dict, "alpha.construction.null_shuffles", 40)
     null_p_threshold = _cfg(cfg_dict, "alpha.construction.null_p_threshold", 0.05)
-    cost_bps = _parse_cost_hurdle_bps(cfg_dict)
+    cost_bps = _cfg(cfg_dict, "alpha.construction.cost_hurdle_bps_round_trip", [1, 3, 5, 10])
     validate_construction_config(
         decile_fraction, cost_bps, null_shuffles, attribution_max_static_r2
     )

@@ -71,6 +71,7 @@ from services._batch_utils import load_apr_dict_async as _load_apr
 from services.alpha_frame_writer import FrameConfig, compute_frame_geometry
 from src.config.settings import Settings
 from src.core.agent.base_batch import BaseBatch
+from src.core.database_manager import connect_with_codecs
 from src.observability.corpus_manifest import CorpusManifest
 from src.observability.metrics import COUNTERFACTUAL_TRACKER_IC_ROW_AGE_SECONDS
 from src.observability.otel import OTelInitError, init_otel_providers
@@ -996,7 +997,10 @@ async def _run_evaluate_gate(db_dsn: str) -> None:
     """--evaluate-gate CLI mode: a distinct read-only reporting branch, not a third service
     (keeps ROADMAP's 2-service scope). No D-06 job_completed_total emission -- this performs
     no persistence, unlike CounterfactualTracker.execute()."""
-    conn = await asyncpg.connect(db_dsn)
+    # todo 187: codec-registered connection (src/core/database_manager.py) -- _GATE_QUERY_SQL
+    # selects no jsonb column today, but the next one added here would otherwise reintroduce
+    # the AttributeError bug Phase 167's Task 2 hit on a bare asyncpg.connect().
+    conn = await connect_with_codecs(db_dsn)
     try:
         apr_rows = await conn.fetch(
             "SELECT config_key, config_value FROM config_state WHERE config_key LIKE ANY($1::text[])",

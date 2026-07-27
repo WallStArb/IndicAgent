@@ -13,16 +13,14 @@ from datetime import datetime
 from typing import Any
 
 import pandas as pd
-import structlog
-from fastapi import APIRouter, Depends, HTTPException, Query
+from fastapi import APIRouter, Depends, Query
 from fastapi.responses import Response
 
 from ...core.database_manager import DatabaseManager
 from ..dependencies import get_db_manager
 from ..utils import parse_jsonb as _parse_jsonb
 from ..utils import resolve_contract as _resolve_contract
-
-logger = structlog.get_logger(__name__)
+from ..utils import translate_db_errors
 
 router = APIRouter()
 
@@ -34,6 +32,7 @@ MAX_EXPORT_ROWS = 100_000
 
 
 @router.get("/features/export")
+@translate_db_errors
 async def export_features(
     symbol: str = Query(..., description="Contract or base symbol, e.g. ESH6 or ES"),
     timeframe: str = Query(..., description="Timeframe, e.g. 1m, 5m, 15m, 1h, 1d"),
@@ -49,61 +48,57 @@ async def export_features(
     Constraints: symbol and timeframe are required; result capped at 100,000 rows.
     """
     contract = _resolve_contract(symbol)
-    try:
-        query = """
-            SELECT ts, symbol, tf, platform, source, schema_version,
-                   bar, technical_indicators, pattern_detections, regime_features,
-                   confluence_scores, smc, cross_timeframe_context
-            FROM intelligence_features
-            WHERE symbol = $1 AND tf = $2
-              AND ($3::timestamptz IS NULL OR ts >= $3)
-              AND ($4::timestamptz IS NULL OR ts <= $4)
-            ORDER BY ts DESC
-            LIMIT $5
-        """
-        rows = await db_manager.fetch(query, contract, timeframe, from_ts, to_ts, MAX_EXPORT_ROWS)
+    query = """
+        SELECT ts, symbol, tf, platform, source, schema_version,
+               bar, technical_indicators, pattern_detections, regime_features,
+               confluence_scores, smc, cross_timeframe_context
+        FROM intelligence_features
+        WHERE symbol = $1 AND tf = $2
+          AND ($3::timestamptz IS NULL OR ts >= $3)
+          AND ($4::timestamptz IS NULL OR ts <= $4)
+        ORDER BY ts DESC
+        LIMIT $5
+    """
+    rows = await db_manager.fetch(query, contract, timeframe, from_ts, to_ts, MAX_EXPORT_ROWS)
 
-        records = []
-        for row in rows:
-            record = {
-                "ts": row["ts"].isoformat() if hasattr(row["ts"], "isoformat") else str(row["ts"]),
-                "symbol": row["symbol"],
-                "tf": row["tf"],
-                "source": row["source"],
-                "schema_version": row["schema_version"],
-            }
-            for tier, col in [
-                ("bar", "bar"),
-                ("i1", "technical_indicators"),
-                ("i3", "regime_features"),
-                ("i4", "confluence_scores"),
-                ("i5", "pattern_detections"),
-                ("smc", "smc"),
-                ("i6", "cross_timeframe_context"),
-            ]:
-                tier_data = _parse_jsonb(row[col], default={})
-                for k, v in tier_data.items():
-                    record[f"{tier}_{k}"] = v
-            records.append(record)
+    records = []
+    for row in rows:
+        record = {
+            "ts": row["ts"].isoformat() if hasattr(row["ts"], "isoformat") else str(row["ts"]),
+            "symbol": row["symbol"],
+            "tf": row["tf"],
+            "source": row["source"],
+            "schema_version": row["schema_version"],
+        }
+        for tier, col in [
+            ("bar", "bar"),
+            ("i1", "technical_indicators"),
+            ("i3", "regime_features"),
+            ("i4", "confluence_scores"),
+            ("i5", "pattern_detections"),
+            ("smc", "smc"),
+            ("i6", "cross_timeframe_context"),
+        ]:
+            tier_data = _parse_jsonb(row[col], default={})
+            for k, v in tier_data.items():
+                record[f"{tier}_{k}"] = v
+        records.append(record)
 
-        df = pd.DataFrame(records)
-        buf = io.BytesIO()
-        df.to_parquet(buf, engine="pyarrow", index=False)
-        buf.seek(0)
+    df = pd.DataFrame(records)
+    buf = io.BytesIO()
+    df.to_parquet(buf, engine="pyarrow", index=False)
+    buf.seek(0)
 
-        filename = f"features_{contract}_{timeframe}.parquet"
-        return Response(
-            content=buf.read(),
-            media_type="application/octet-stream",
-            headers={"Content-Disposition": f'attachment; filename="{filename}"'},
-        )
-
-    except Exception as e:
-        logger.error("Error exporting features", symbol=contract, timeframe=timeframe, error=str(e))
-        raise HTTPException(status_code=500, detail=f"Error exporting features: {str(e)}") from e
+    filename = f"features_{contract}_{timeframe}.parquet"
+    return Response(
+        content=buf.read(),
+        media_type="application/octet-stream",
+        headers={"Content-Disposition": f'attachment; filename="{filename}"'},
+    )
 
 
 @router.get("/features/{symbol}/{timeframe}")
+@translate_db_errors
 async def get_features(
     symbol: str,
     timeframe: str,
@@ -119,49 +114,44 @@ async def get_features(
     Use from/to query params (ISO 8601) for date range filtering.
     """
     contract = _resolve_contract(symbol)
-    try:
-        query = """
-            SELECT ts, symbol, tf, platform, source, schema_version,
-                   bar, technical_indicators, pattern_detections, regime_features,
-                   confluence_scores, smc, cross_timeframe_context
-            FROM intelligence_features
-            WHERE symbol = $1 AND tf = $2
-              AND ($3::timestamptz IS NULL OR ts >= $3)
-              AND ($4::timestamptz IS NULL OR ts <= $4)
-            ORDER BY ts DESC
-            LIMIT $5
-        """
-        rows = await db_manager.fetch(query, contract, timeframe, from_ts, to_ts, limit)
+    query = """
+        SELECT ts, symbol, tf, platform, source, schema_version,
+               bar, technical_indicators, pattern_detections, regime_features,
+               confluence_scores, smc, cross_timeframe_context
+        FROM intelligence_features
+        WHERE symbol = $1 AND tf = $2
+          AND ($3::timestamptz IS NULL OR ts >= $3)
+          AND ($4::timestamptz IS NULL OR ts <= $4)
+        ORDER BY ts DESC
+        LIMIT $5
+    """
+    rows = await db_manager.fetch(query, contract, timeframe, from_ts, to_ts, limit)
 
-        result_rows = []
-        for row in rows:
-            result_rows.append(
-                {
-                    "ts": (
-                        row["ts"].isoformat() if hasattr(row["ts"], "isoformat") else str(row["ts"])
-                    ),
-                    "symbol": row["symbol"],
-                    "tf": row["tf"],
-                    "platform": row["platform"],
-                    "source": row["source"],
-                    "schema_version": row["schema_version"],
-                    "bar": _parse_jsonb(row["bar"], default={}),
-                    "i1": _parse_jsonb(row["technical_indicators"], default={}),
-                    "i3": _parse_jsonb(row["regime_features"], default={}),
-                    "i4": _parse_jsonb(row["confluence_scores"], default={}),
-                    "i5": _parse_jsonb(row["pattern_detections"], default={}),
-                    "smc": _parse_jsonb(row["smc"], default={}),
-                    "i6": _parse_jsonb(row["cross_timeframe_context"], default={}),
-                }
-            )
+    result_rows = []
+    for row in rows:
+        result_rows.append(
+            {
+                "ts": (
+                    row["ts"].isoformat() if hasattr(row["ts"], "isoformat") else str(row["ts"])
+                ),
+                "symbol": row["symbol"],
+                "tf": row["tf"],
+                "platform": row["platform"],
+                "source": row["source"],
+                "schema_version": row["schema_version"],
+                "bar": _parse_jsonb(row["bar"], default={}),
+                "i1": _parse_jsonb(row["technical_indicators"], default={}),
+                "i3": _parse_jsonb(row["regime_features"], default={}),
+                "i4": _parse_jsonb(row["confluence_scores"], default={}),
+                "i5": _parse_jsonb(row["pattern_detections"], default={}),
+                "smc": _parse_jsonb(row["smc"], default={}),
+                "i6": _parse_jsonb(row["cross_timeframe_context"], default={}),
+            }
+        )
 
-        return {
-            "symbol": contract,
-            "timeframe": timeframe,
-            "count": len(result_rows),
-            "rows": result_rows,
-        }
-
-    except Exception as e:
-        logger.error("Error fetching features", symbol=contract, timeframe=timeframe, error=str(e))
-        raise HTTPException(status_code=500, detail=f"Error fetching features: {str(e)}") from e
+    return {
+        "symbol": contract,
+        "timeframe": timeframe,
+        "count": len(result_rows),
+        "rows": result_rows,
+    }

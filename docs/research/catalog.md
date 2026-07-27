@@ -1,8 +1,29 @@
 # Idea Catalog — Full-Tree Index
 
-**Version:** 1.4
+**Version:** 1.6
 **Status:** current
-**Last Updated:** 2026-07-24 (see audit note below; earlier audit notes follow for history)
+**Last Updated:** 2026-07-26 (see audit note below; earlier audit notes follow for history)
+**2026-07-26 note (not a full audit pass — targeted update):** ran the two cheap falsification
+scripts Edge Source Thesis's 2026-07-25 note recommended before committing to Phase 164/165.
+T3 (cross-sectional long-short) passed decisively at both lookahead scales, clearing a
+shuffled-ranking-null guard — first thesis on that doc to clear its own bar convincingly.
+Rows for Edge Source Thesis and Trade Construction Layer updated in place; full results and
+methodology in the docs themselves, not duplicated here. T5 (non-linear combiner) came back
+with a suspiciously large uplift (0.30 mean OOS IC, ~3x anything else measured in this corpus)
+after already catching and fixing one leak during development — flagged pending, not passed,
+until a canary-leakage check runs.
+**2026-07-25 note (not a full audit pass — targeted update):** while resolving the Phase
+164/165 feature-expansion fork (`.planning/STATE.md`), re-reviewed Edge Source Thesis and
+Trade Construction Layer against todo 179's 2026-07-24 finding (T2 falsified — no
+regime-conditional edge survives OOS replication anywhere in the current champion population).
+Both docs updated in place: Edge Source Thesis gained a falsified T2 and a new candidate T5
+(non-linear combiner, new doc `docs/ideas/measurement-nonlinear-interaction-combiner.md`,
+not yet Fable-reviewed so not listed in this catalog per the docs/ideas/ convention below);
+Trade Construction Layer's scoping gate (Phase 142A OOS proof) turned out to have already
+cleared 2026-07-22 and its row was still showing the pre-clearance "gated" status — fixed.
+Also fixed a genuinely broken internal link in Trade Construction Layer
+(`edge-source-thesis.md` → `data-edge-source-thesis.md`, wrong filename since the doc's
+original 2026-07-01 write-up, never caught before).
 **2026-07-24 audit:** 12 days since the last pass, three real staleness findings, all fixed.
 (1) Concept Registry row still said "zero `concept_* ` tables exist yet" — Phase 160 shipped
 2026-07-14, `concept_registry` is live (confirmed via `\dt`). (2) Controlled Vocabulary row
@@ -84,9 +105,9 @@ assertion), last refreshed 2026-07-24. Read this first for "what's next," not th
 | [Unified Concept Registry](concept-unified-registry.md) | **SHIPPED** (Phase 160, 2026-07-14) | ✅ (4 passes, 2026-07-06) | Cross-tier lifecycle governance unifying feature + intelligence tiers; adversarial stress-test survived (event-sourcing/graph-DB/full-separation alternatives rejected); 4-table schema + `ConceptRegistryService`/API/dashboard live, `concept_registry` table confirmed in production |
 | [Governance & Registries](concept-governance-registries.md) | — | ✅ (2026-07-06) | Umbrella framework for three registry types: Parameter (APR), Lifecycle (Concept Registry), Vocabulary (Tag + Controlled); links to canonical docs |
 | [Stratification & Classification Registries](stratification-governance-registries.md) | — | | Sibling umbrella to Governance & Registries, scoped to "what state/kind an instrument or market is in": StratificationDimension, Security Classification Hierarchy, Instrument Tag Calibrator |
-| [Edge Source Thesis](data-edge-source-thesis.md) | draft, high | | T1-T4 falsifiable theses on where edge comes from; standing doc, revisit per thesis |
+| [Edge Source Thesis](data-edge-source-thesis.md) | draft, high | | T1-T5 falsifiable theses on where edge comes from; standing doc, revisit per thesis. **T2 falsified 2026-07-24** (todo 179's 234-cell sweep); **T3 passed 2026-07-26** (cross-sectional decile spread, both scales, cleared shuffled-null guard — strongest evidence-backed candidate on the doc); T5 (non-linear combiner) preliminary/suspicious, pending canary-leakage check |
 | [Canonical Simulator](platform-canonical-simulator.md) | draft, high | ✅ (v2.1, 2026-07-12) | One counterfactual ledger + cost kernel + run identity, not a replay engine; enforced via pre-commit Check 9; both open questions settled against shipped Phase 142B, priority downgraded critical→high |
-| [Trade Construction Layer](trade-construction-layer.md) | draft, high | | Forecast → position; v4.0 concern, gated on the T3 falsification result |
+| [Trade Construction Layer](trade-construction-layer.md) | draft, high — **T3 passed 2026-07-26**, ready to scope as a real phase | | Forecast → position via cross-sectional long-short (T3); scoping gate (Phase 142A OOS proof) cleared 2026-07-22, T3's falsification test passed decisively both scales — cost-hurdle treatment of the spread construction is the next open item before scoping |
 | [Instrument Tag Calibrator](stratification-instrument-tag-calibrator.md) | **SHIPPED** (Phase 146, 2026-07-17 — corrected 2026-07-24, row previously misnumbered as "Phase 145," which is StratificationDimension Formalization, a different, still-unplanned phase) | ✅ (2026-07-06) | Todo 040; found and fixed a missing FDR correction (~1,600 simultaneous tests/run) and a worked example violating the live weight CHECK; `TagCalibrator` live-verified, 11/12 measurable tags carry real `source='empirical'` rows |
 | [Interaction Factory](intel-feature-interaction-factory.md) | v1 historical/reference (superseded); v2 candidate design added 2026-07-24, not yet reviewed/decided | | Todo 037's pilot (2026-07-10, PASS 22.2%) cleared the evidence trigger, but Phase 151 independently rejected the original combinatorial mechanism on BH-FDR power grounds. **v2 section (2026-07-24)** proposes a power-preserving redesign (constrained generation, two-stage screening, knockoff filters, effect-size floor, redundancy pre-filter, replication requirement) — gated on Phase 151 landing first, tracked at todo 181, no Fable review yet |
 | [Controlled Vocabulary](concept-controlled-vocabulary.md) | **SHIPPED** (Phase 161, 2026-07-18) | ✅ (2026-07-06) | Staging order was inverted in the original design (would've built against archived tables first) — fixed before build; schema + `VocabularyService` + drift audit + API route live, `tag_vocabulary` table confirmed in production, 23/24 truths verified |

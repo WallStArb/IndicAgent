@@ -1,13 +1,19 @@
 """
 Shared utilities for API route modules.
 
-Centralises: Settings access (cached), contract resolution, JSONB parsing.
+Centralises: Settings access (cached), contract resolution, JSONB parsing,
+DB-error-to-HTTPException translation.
 """
 
+import functools
 import json
 import re
+from collections.abc import Awaitable, Callable
 from functools import lru_cache
 from typing import Any
+
+import structlog
+from fastapi import HTTPException
 
 
 @lru_cache(maxsize=1)
@@ -43,6 +49,32 @@ def resolve_contract(symbol: str) -> str:
         if m and m.group(1) == symbol:
             return c.symbol
     return symbol
+
+
+def translate_db_errors[T](
+    func: Callable[..., Awaitable[T]],
+) -> Callable[..., Awaitable[T]]:
+    """Route decorator (todo 142): a route's own `HTTPException` (404, 400, etc.) must never
+    be re-caught and re-wrapped as a 500 by a broader except-Exception block -- the exact bug
+    todo 137 found in `market_data.py` and fixed with a 2-line `except HTTPException: raise`
+    guard, then hand-copied identically into `narrative.py`/`ai_stats.py`/`validation.py`/
+    `signals.py` with no shared mechanism stopping a 6th route from needing the same fix.
+    Also standardizes the client-facing error detail to a generic, non-leaking message
+    (matching `narrative.py`'s pre-existing convention) -- the real exception is logged
+    server-side only, under the route module's own `structlog` logger name."""
+
+    @functools.wraps(func)
+    async def wrapper(*args: Any, **kwargs: Any) -> T:
+        try:
+            return await func(*args, **kwargs)
+        except HTTPException:
+            raise
+        except Exception as error:
+            logger = structlog.get_logger(func.__module__)
+            logger.error(f"{func.__name__}.error", error=str(error))
+            raise HTTPException(status_code=500, detail="Database error") from error
+
+    return wrapper
 
 
 def parse_jsonb(value: Any, *, default: Any = None) -> Any:

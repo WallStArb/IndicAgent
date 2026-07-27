@@ -59,6 +59,7 @@ import structlog
 project_root = Path(__file__).parent.parent
 sys.path.insert(0, str(project_root))
 
+from services._batch_utils import connect_db_from_url
 from services._batch_utils import load_config_service_sync as _load_config_service
 from src.config.settings import Settings
 from src.core.service_utils import setup_service_logging
@@ -250,12 +251,6 @@ def _assign_labels(
 # ---------------------------------------------------------------------------
 
 
-def _connect_db(settings: Settings) -> Any:
-    conn = psycopg2.connect(settings.database_url)
-    conn.autocommit = False
-    return conn
-
-
 def _load_tags_by_symbol(conn: Any) -> dict[str, set[str]]:
     with conn.cursor() as cur:
         cur.execute("SELECT symbol, array_agg(tag) FROM instrument_tags GROUP BY symbol")
@@ -365,7 +360,7 @@ def main() -> None:
 
     try:
         dsn = settings.database_url
-        conn = _connect_db(settings)
+        conn = connect_db_from_url(settings.database_url)
         cfg = _load_config_service(conn)
 
         raw_groups = cfg.get_sync("alpha.regime.groups", _DEFAULT_GROUPS_JSON)
@@ -501,7 +496,7 @@ def main() -> None:
                         conn.close()
                     except Exception:
                         pass
-                conn = _connect_db(settings)
+                conn = connect_db_from_url(settings.database_url)
 
                 n_written = _write_rows(conn, rows)
                 total_written += n_written

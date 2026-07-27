@@ -5,24 +5,14 @@ Tests cover:
 - GET /api/features/{symbol}/{timeframe} — paginated JSON response with JSONB tiers parsed
 - GET /api/features/export — Parquet binary export with tier columns expanded
 
-Uses a minimal test_app to avoid touching main.py lifespan complexity.
-The features router is mounted directly on a test FastAPI instance.
+Uses the shared `client`/`mock_db` fixtures (tests/unit/api/conftest.py, todo 143) --
+against the real app; `TestClient(app).get(...)` never triggers main.py's lifespan
+DB/Redis connection since it isn't used as a context manager.
 """
 
 import json
 from datetime import UTC, datetime
 from unittest.mock import AsyncMock
-
-import pytest
-from fastapi import FastAPI
-from fastapi.testclient import TestClient
-
-from src.api import dependencies
-from src.api.routes.features import router as features_router
-
-# Minimal test app — avoids lifespan startup (no DB/Redis required)
-test_app = FastAPI()
-test_app.include_router(features_router, prefix="/api")
 
 
 def make_mock_row(
@@ -56,21 +46,6 @@ def make_mock_row(
         "smc": json.dumps(smc or {"bos_detected": False}),
         "cross_timeframe_context": json.dumps(i6 or {"ctf_score": 0.75}),
     }
-
-
-@pytest.fixture
-def mock_db():
-    """AsyncMock database manager."""
-    db = AsyncMock()
-    return db
-
-
-@pytest.fixture
-def client(mock_db):
-    """TestClient with dependency override for get_db_manager."""
-    test_app.dependency_overrides[dependencies.get_db_manager] = lambda: mock_db
-    yield TestClient(test_app)
-    test_app.dependency_overrides.clear()
 
 
 class TestGetFeaturesPaginated:

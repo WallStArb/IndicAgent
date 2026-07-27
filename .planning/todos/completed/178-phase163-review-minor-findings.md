@@ -1,12 +1,36 @@
 ---
-status: pending
+status: closed
 priority: P3
 filed: 2026-07-23
+closed: 2026-07-27
 source: Phase 163 (VP/SR Structural Primitives) code review (163-REVIEW.md) --
   WR-02/IN-01/IN-02/IN-03, deliberately not fixed inline (narrow edge case, pre-existing
   unrelated debt, or needs a live migration for near-zero value)
 gate: none -- each item independent, pick up opportunistically
 ---
+
+## RESULT (2026-07-27): 3/4 fixed, 1 deliberately accepted as a documented limitation.
+
+- **WR-02 FIXED**: `update_session_vp()` now compares ET wall-clock time (`_et_from_utc(ts)`)
+  directly against 9:30 ET, DST-correct by construction, instead of a fixed UTC-hour APR
+  value that was only right during EDT. Regression test:
+  `tests/unit/intelligence/test_feature_cache_session_boundary.py` (covers both the EST bug
+  case and the pre-existing-correct EDT case).
+- **IN-01 FIXED**: `backfill_feature_factory.py`'s read renamed from the never-seeded
+  `threshold.backfill.coverage_threshold` to the actually-seeded `threshold.backfill.coverage_gate`
+  -- dashboard edits to this key now actually take effect.
+- **IN-02 FIXED**: migration 263 adds `"4h": 90` (interpolating 1h=120/1d=60) to
+  `feature.sr.lookback_by_tf`, applied live; `FeatureFactoryConfig`'s dataclass default
+  updated to match.
+- **IN-03 ACCEPTED, not fixed**: decoupling `sr_level_count` from `atr_valid` turned out to
+  need a real design call, not a mechanical fix -- `_compute_sr_dist_atr`'s cluster RADIUS
+  itself is ATR-scaled (`cluster_radius = atr_val * config.sr_cluster_atr_mult`), so counting
+  clusters genuinely depends on ATR today, not just the distance/strength fields as the
+  original finding assumed. A real fix would need a new non-ATR fallback radius (and a new
+  APR key for it) for a cold-start window the review itself already called "benign in
+  practice" (ATR and S/R warm-up windows overlap almost entirely) -- not worth inventing a new
+  tunable for near-zero live value. Left open as a known, accepted, documented limitation
+  rather than forcing an under-scoped change.
 
 # Phase 163 review: 4 minor findings deferred (DST edge case, unrelated key mismatch, missing 4h config, minor cold-start coupling)
 

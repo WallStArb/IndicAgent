@@ -13,23 +13,12 @@ Tests cover:
 - The namespace path parameter is passed to the DB fetch as a bound parameter,
   never string-interpolated into SQL (T-161-01)
 
-Uses a minimal test_app + TestClient, mirroring tests/unit/api/test_features_route.py.
+Uses the shared `client`/`mock_db` fixtures (tests/unit/api/conftest.py, todo 143).
 No real DB required — the vocabulary router uses Depends(get_db_manager), overridden
 here with an AsyncMock.
 """
 
 from unittest.mock import AsyncMock
-
-import pytest
-from fastapi import FastAPI
-from fastapi.testclient import TestClient
-
-from src.api import dependencies
-from src.api.routes.vocabulary import router as vocabulary_router
-
-# Minimal test app — avoids lifespan startup (no DB/Redis required)
-test_app = FastAPI()
-test_app.include_router(vocabulary_router, prefix="/api/vocabulary")
 
 
 def make_mock_code_row(
@@ -73,21 +62,6 @@ REGIME_HMM_GROUP_ROWS = [
         "code": "transition_up",
     },
 ]
-
-
-@pytest.fixture
-def mock_db():
-    """AsyncMock database manager."""
-    db = AsyncMock()
-    return db
-
-
-@pytest.fixture
-def client(mock_db):
-    """TestClient with dependency override for get_db_manager."""
-    test_app.dependency_overrides[dependencies.get_db_manager] = lambda: mock_db
-    yield TestClient(test_app)
-    test_app.dependency_overrides.clear()
 
 
 class TestGetVocabularyHappyPath:

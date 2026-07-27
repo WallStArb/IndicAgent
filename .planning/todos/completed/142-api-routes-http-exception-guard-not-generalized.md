@@ -1,9 +1,29 @@
 ---
-status: pending
+status: closed
 priority: P3
 filed: 2026-07-19
+closed: 2026-07-27
 source: /simplify altitude review after todo 138/137's fix batch
 ---
+
+## RESULT (2026-07-27): fixed, generalized to all 9 route handlers across the 5 files.
+
+Built `translate_db_errors` decorator in `src/api/utils.py` (option (a)): lets a route's own
+`HTTPException` pass through untouched, catches any other exception, logs server-side under
+the route module's own `structlog` logger name, and raises a generic `HTTPException(500,
+detail="Database error")` -- standardizing on `narrative.py`'s pre-existing non-leaking
+convention rather than the `str(e)`-in-detail pattern several routes had (a minor info-
+disclosure smell, fixed as a side effect of centralizing). Confirmed FastAPI's dependency
+injection still resolves the real signature through `functools.wraps`' `__wrapped__` chain
+(`inspect.signature`'s default `follow_wrapped=True`) -- verified via the full existing test
+suite, not just theory.
+
+Applied to all 9 route handlers across the 5 named files (`market_data.py`,
+`narrative.py`, `ai_stats.py` x2, `validation.py`, `signals.py` x6) -- not just the ones that
+already hand-copied the guard. Checked each of the other handlers for the actual latent risk
+first (`raise HTTPException` inside the try body before the except): none had it, so applying
+the decorator there is pure future-proofing, not a live bug fix. Full unit suite green
+(zero regressions) after every file.
 
 # `except HTTPException: raise` guard is hand-copied across 5 route files, not centralized
 

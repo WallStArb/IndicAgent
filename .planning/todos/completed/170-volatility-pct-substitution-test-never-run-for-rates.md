@@ -1,12 +1,47 @@
 ---
-status: pending
+status: closed
 priority: P1
 filed: 2026-07-22
+closed: 2026-07-27
 source: found while closing Phase 144's D-05 gate (symbol_hmm restoration fix, worktree
   restore-symbol-hmm-ic-measurement) -- F2 triggered for rates/15m/5m (neither per-symbol
   HMM nor cross-sectional separates IC there), and the pre-registered next step explicitly
   requires confirming this check first, before considering a new model.
 ---
+
+## RESULT (2026-07-27): FAILS. `volatility_pct` does not resolve rates' F2 gap.
+
+Ran `scripts/analysis/todo170_volatility_pct_substitution_test.py` -- the zero-schema-change
+probe this todo specifies, computing `volatility_pct` fresh (causal expanding rank of
+`yang_zhang_vol_z`, via the shared `causal_rank.causal_expanding_rank` helper) and comparing
+IC Sharpe stratified by (curve_credit_label, volatility_pct tercile) jointly against the
+curve_credit-only baseline, across all 12 `rates` symbols and 113 live `quant`-domain features.
+
+**15m: data-starved, no real gate outcome.** Every joint cell has N well under the 20,000-bar
+gate (rates/15m only has ~1.2M total rows split across 18 joint cells) -- consistent with the
+pass criterion's own "below this, a cell is data-starved, not a genuine gate outcome" caveat.
+
+**5m: the first run looked like a PASS (up to 90/113 features showing >10% IC Sharpe uplift in
+several N>20,000 cells) -- but this was a partitioning artifact, caught before being reported.**
+Subdividing a pooled sample into smaller, temporally-scattered sub-cells can mechanically
+inflate apparent Sharpe regardless of which variable does the splitting (reduced inter-window
+serial correlation from non-contiguous sub-sampling, not real information). Added a shuffled-
+bucket null control (same discipline as every other falsifier script in this project, e.g. T3's
+shuffled-ranking null) -- shuffle `vol_bucket` within each `curve_credit_label` group (preserves
+each label's own bucket-size distribution), repeat the identical computation, compare. **Result:
+the random-bucket null (mean=63.9, max=78 features showing >10% uplift across 20 draws) is
+statistically indistinguishable from the real `volatility_pct` result (77 features,
+P(null>=observed)=0.050 at return_fast; 57 features, P=0.400 at return_slow).** Any random
+3-way split of the data would have looked just as "good." `volatility_pct` carries no
+incremental information beyond what any arbitrary partition provides.
+
+**Conclusion:** per this todo's own pre-registered logic ("if it fails too, that's a real,
+useful negative result -- rates at high frequency may simply be a harder stratification
+problem"), `volatility_pct` is confirmed NOT a viable rates/15m/5m stratification axis. This
+closes the confirmation step Phase 144's D-05 F2 trigger required before considering the
+factor-augmented HMM challenger -- that challenger is no longer blocked on this check, though
+whether to actually build it remains a separate cost/benefit call, not automatic just because
+this cheaper alternative failed.
 
 # `volatility_pct`'s substitution test for `rates` was proposed 2026-07-02 but never run or tracked
 
