@@ -26,6 +26,7 @@ import numpy as np
 import pytest
 
 from services.cross_sectional_spread_tracker import (
+    attribution_verdict,
     decile_legs,
     evaluate_spread_gate,
     mean_gross_spread_over_bars,
@@ -33,6 +34,8 @@ from services.cross_sectional_spread_tracker import (
     one_way_turnover,
     shuffled_ranking_null_p,
     spread_from_legs,
+    static_tilt_series,
+    static_tilt_weights,
     validate_construction_config,
     write_verdict_artifact,
 )
@@ -645,3 +648,209 @@ def test_verdict_artifact_is_strict_json(tmp_path, monkeypatch):
     assert path_one.exists()
     assert json.loads(path_one.read_text()) == loaded_one
     assert json.loads(latest_path.read_text()) == {"different": True}
+
+
+# ---------------------------------------------------------------------------
+# test_static_tilt_weights (167-VALIDATION.md row 167-05-01 family, design decision 1)
+# ---------------------------------------------------------------------------
+
+
+def test_static_tilt_weights():
+    # 4-bar leg history: AL always long (weight 1.0), AS always short (weight -1.0), H long in
+    # half the bars and short in the other half (weight 0.0), O appears in only one bar, long
+    # (weight 0.25).
+    leg_rows = [
+        {"long_leg_symbols": ["AL", "H", "O"], "short_leg_symbols": ["AS"]},
+        {"long_leg_symbols": ["AL", "H"], "short_leg_symbols": ["AS"]},
+        {"long_leg_symbols": ["AL"], "short_leg_symbols": ["AS", "H"]},
+        {"long_leg_symbols": ["AL"], "short_leg_symbols": ["AS", "H"]},
+    ]
+    weights = static_tilt_weights(leg_rows)
+    assert weights["AL"] == pytest.approx(1.0)
+    assert weights["AS"] == pytest.approx(-1.0)
+    assert weights["H"] == pytest.approx(0.0)
+    assert weights["O"] == pytest.approx(0.25)
+
+    with pytest.raises(ValueError, match="empty"):
+        static_tilt_weights([])
+
+
+# ---------------------------------------------------------------------------
+# test_attribution_honesty (167-VALIDATION.md row 167-05-01) -- the gate's central test
+# ---------------------------------------------------------------------------
+
+
+def test_attribution_honesty():
+    n = 50
+    cluster_ids = [date(2026, 1, 1) + timedelta(days=i) for i in range(n)]
+    bar_keys = list(range(n))
+    bootstrap_kwargs = dict(
+        min_n=5, bootstrap_max_n=5000, bootstrap_batch=1000, bootstrap_random_state=42
+    )
+
+    # Case A: PURELY a static tilt. spread_t = 2.0 * static_t + negligible noise. This is the
+    # "factor exposure in disguise" case the design doc's Gate 2 exists to catch -- a Gate 2
+    # implementation that passes this input is broken regardless of what else it does.
+    rng_a = np.random.default_rng(1)
+    static_a = rng_a.normal(loc=0.0, scale=0.01, size=n)
+    noise_a = rng_a.normal(loc=0.0, scale=1e-6, size=n)
+    spread_a = 2.0 * static_a + noise_a
+    verdict_a = attribution_verdict(
+        spread_a.tolist(), static_a.tolist(), cluster_ids, bar_keys, 0.50, **bootstrap_kwargs
+    )
+    assert verdict_a["static_r2"] > 0.9, (
+        "a construction whose entire P&L is a static tilt must show a near-total static_r2 -- "
+        "this is the direction Gate 2 exists to catch"
+    )
+    assert verdict_a["static_dominates"] is True
+    assert verdict_a["beta"] == pytest.approx(2.0, rel=1e-2)
+    assert verdict_a["gate2_passes"] is False, (
+        "a Gate 2 implementation that passes a purely static tilt is broken regardless of "
+        "what else it does"
+    )
+    assert verdict_a["benchmark_kind"] == "retrospective_time_averaged_membership"
+
+    # Case B: spread_t is INDEPENDENT of static_t -- a positive constant plus independent
+    # noise, static_t itself independent noise. Must PASS: low static_r2, surviving positive
+    # residual.
+    rng_b = np.random.default_rng(2)
+    static_b = rng_b.normal(loc=0.0, scale=1.0, size=n)
+    spread_b = 0.02 + rng_b.normal(loc=0.0, scale=0.001, size=n)
+    verdict_b = attribution_verdict(
+        spread_b.tolist(), static_b.tolist(), cluster_ids, bar_keys, 0.50, **bootstrap_kwargs
+    )
+    assert verdict_b["static_r2"] < 0.50
+    assert verdict_b["static_dominates"] is False
+    assert verdict_b["residual_passes"] is True
+    assert verdict_b["residual_ci_lower"] > 0
+    assert verdict_b["gate2_passes"] is True
+    assert verdict_b["benchmark_kind"] == "retrospective_time_averaged_membership"
+
+    # Case C: low static_r2 but NO surviving residual -- zero-mean noise independent of
+    # static_t. Proves the gate is not satisfiable by low R-squared alone (design decision 3).
+    rng_c = np.random.default_rng(3)
+    static_c = rng_c.normal(loc=0.0, scale=1.0, size=n)
+    spread_c = rng_c.normal(loc=0.0, scale=0.001, size=n)
+    verdict_c = attribution_verdict(
+        spread_c.tolist(), static_c.tolist(), cluster_ids, bar_keys, 0.50, **bootstrap_kwargs
+    )
+    assert verdict_c["static_dominates"] is False
+    assert verdict_c["residual_passes"] is False, (
+        "low static_r2 alone must not satisfy the gate -- something must also survive in the "
+        "residual (design decision 3)"
+    )
+    assert verdict_c["gate2_passes"] is False
+    assert verdict_c["benchmark_kind"] == "retrospective_time_averaged_membership"
+
+
+# ---------------------------------------------------------------------------
+# test_attribution_verdict_rejects_misaligned_series (design decision 9)
+# ---------------------------------------------------------------------------
+
+
+def test_attribution_verdict_rejects_misaligned_series():
+    bootstrap_kwargs = dict(
+        min_n=5, bootstrap_max_n=5000, bootstrap_batch=1000, bootstrap_random_state=42
+    )
+
+    # (a) Mismatched lengths -- message names the mismatch. A silently misaligned regression
+    # returns a confident, plausible, wrong static_r2, which is why this is a raise and not a
+    # warning.
+    with pytest.raises(ValueError, match="mismatched"):
+        attribution_verdict(
+            [0.1, 0.2, 0.3], [0.05, 0.06], [1, 2, 3], [1, 2, 3], 0.50, **bootstrap_kwargs
+        )
+
+    # (b) Duplicate bar_keys -- message names the offending key.
+    with pytest.raises(ValueError, match="duplicate bar key"):
+        attribution_verdict(
+            [0.1, 0.2, 0.3],
+            [0.05, 0.06, 0.07],
+            [1, 2, 3],
+            [1, 2, 2],
+            0.50,
+            **bootstrap_kwargs,
+        )
+
+    # (c) Non-increasing bar_keys -- message names the offending key.
+    with pytest.raises(ValueError, match="strictly increasing"):
+        attribution_verdict(
+            [0.1, 0.2, 0.3],
+            [0.05, 0.06, 0.07],
+            [1, 2, 3],
+            [3, 2, 1],
+            0.50,
+            **bootstrap_kwargs,
+        )
+
+
+# ---------------------------------------------------------------------------
+# test_static_tilt_series_rejects_duplicate_bars (design decision 9, one layer earlier)
+# ---------------------------------------------------------------------------
+
+
+def test_static_tilt_series_rejects_duplicate_bars():
+    class _FakeDuplicateKeysPanel:
+        """A minimal Mapping-like stand-in whose `.keys()` can yield a duplicate -- a real
+        `dict` cannot structurally hold a duplicate key, so this simulates the case a
+        differently-sourced panel mapping (e.g. a join producing two distinct-but-equal
+        timestamp objects) could still produce."""
+
+        def keys(self):
+            return [1, 2, 2, 3]
+
+        def __getitem__(self, key):
+            return {"A": 0.01}
+
+    with pytest.raises(ValueError, match="duplicate bar key"):
+        static_tilt_series(_FakeDuplicateKeysPanel(), {"A": 1.0})
+
+
+# ---------------------------------------------------------------------------
+# test_attribution_intercept_is_not_subtracted_from_residual (design decision 3 regression)
+# ---------------------------------------------------------------------------
+
+
+def test_attribution_intercept_is_not_subtracted_from_residual():
+    n = 60
+    rng = np.random.default_rng(7)
+    static_t = rng.normal(loc=0.0, scale=1.0, size=n)
+    true_intercept = 0.05
+    true_beta = 1.5
+    tiny_noise = rng.normal(loc=0.0, scale=1e-6, size=n)
+    spread_t = true_intercept + true_beta * static_t + tiny_noise
+    cluster_ids = list(range(n))
+    bar_keys = list(range(n))
+
+    verdict = attribution_verdict(
+        spread_t.tolist(),
+        static_t.tolist(),
+        cluster_ids,
+        bar_keys,
+        max_static_r2=0.99,
+        min_n=5,
+        bootstrap_max_n=5000,
+        bootstrap_batch=1000,
+        bootstrap_random_state=42,
+    )
+    assert verdict["beta"] == pytest.approx(true_beta, rel=1e-3)
+    assert verdict["intercept"] == pytest.approx(true_intercept, rel=1e-2)
+
+    # The residual mean implied by the returned beta must equal mean(spread) - beta*mean(static)
+    # -- NOT zero. If a future refactor subtracts the intercept too, the residual mean
+    # collapses toward zero and Gate 2 becomes impossible to pass by construction; this
+    # assertion is what catches that silently catastrophic change.
+    mean_spread = float(np.mean(spread_t))
+    mean_static = float(np.mean(static_t))
+    expected_residual_mean = mean_spread - verdict["beta"] * mean_static
+    assert expected_residual_mean == pytest.approx(true_intercept, abs=1e-3)
+    assert expected_residual_mean != pytest.approx(0.0, abs=1e-3), (
+        "the residual mean must equal the retained intercept, not collapse to zero -- a "
+        "refactor that subtracts the intercept too would make Gate 2 unsatisfiable by "
+        "construction"
+    )
+
+    # Direct evidence from the function's own output (not merely the sequence-arithmetic
+    # assertion above): the residual's bootstrap CI is centered near the retained intercept,
+    # never near zero.
+    assert verdict["residual_ci_lower"] > true_intercept / 2
