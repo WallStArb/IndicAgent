@@ -142,6 +142,7 @@ scoping it as a phase via `/gsd-discuss-phase`.
 | [141](pending/141-todo-directory-duplicate-number-sweep.md) | `.planning/todos/` has 8 duplicate-number groups across pending/completed/deferred — todo-system analog of todo 101's migration finding. Finding + recommended approach only. |
 | [142](pending/142-api-routes-http-exception-guard-not-generalized.md) | `except HTTPException: raise` guard hand-copied across 5 `src/api/routes/` files, no shared decorator/mechanism prevents a 6th route reintroducing the same bug. |
 | [143](pending/143-api-route-tests-no-shared-fake-db-fixture.md) | `tests/unit/api/` has 4 independent hand-rolled DB test doubles, no shared `conftest.py` fixture. |
+| [187](pending/187-cross-sectional-spread-tracker-altitude-cleanup.md) | Phase 167's `/simplify` altitude review, correctly deferred: no shared JSONB-codec helper for bare `asyncpg.connect()` read-only evaluation connections (same latent bug also present in `counterfactual_tracker.py`), and `cfg()`'s list-default cast bug worked around locally instead of fixed in `_batch_utils.py` (parallels todo 129's connection-helper consolidation theme). |
 
 ---
 
