@@ -72,7 +72,8 @@ import json
 import math
 import statistics
 import sys
-from collections.abc import Mapping, Sequence
+from collections.abc import Iterable, Mapping, Sequence
+from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
 
@@ -80,11 +81,15 @@ project_root = Path(__file__).parent.parent
 sys.path.insert(0, str(project_root))
 
 import asyncpg  # noqa: E402
+import numpy as np  # noqa: E402
 import structlog  # noqa: E402
 
 from services._batch_utils import cfg as _cfg  # noqa: E402
 from services._batch_utils import load_apr_dict_async as _load_apr  # noqa: E402
-from services.counterfactual_tracker import _DEFAULT_BOOTSTRAP_RANDOM_STATE  # noqa: E402,F401
+from services.counterfactual_tracker import (  # noqa: E402
+    _DEFAULT_BOOTSTRAP_RANDOM_STATE,
+    evaluate_frame_gate,
+)
 from src.config.settings import Settings  # noqa: E402
 from src.core.agent.base_batch import BaseBatch  # noqa: E402
 from src.observability.corpus_manifest import CorpusManifest  # noqa: E402
@@ -265,6 +270,220 @@ def validate_construction_config(
 
 
 # ---------------------------------------------------------------------------
+# Validation Gate 1 (--evaluate-gate mode): the eight-cell OOS verdict grid, the live
+# shuffled-ranking null, and the durable JSON verdict artifact.
+# ---------------------------------------------------------------------------
+
+
+def mean_gross_spread_over_bars(
+    panel_by_bar: Mapping[Any, tuple[list[str], list[float], Mapping[str, float | None]]],
+    decile_fraction: float,
+) -> tuple[float | None, int]:
+    """The single shared per-draw reduction used by BOTH the observed measurement and every
+    shuffled-null draw (design decision 6). This is the ONLY place the eligible-bar rule
+    lives -- observed-versus-null comparability depends entirely on both sides calling this
+    same function over the same `panel_by_bar` mapping.
+
+    For each `bar_ts` in the mapping, calls `decile_legs(symbols, feature_values,
+    decile_fraction)`; a `None` result (too few symbols to form two disjoint legs) SKIPS the
+    bar, identical to the write path's degeneracy rule (Plan 03). Otherwise calls
+    `spread_from_legs` against that bar's return mapping; a `None` spread (a leg with zero
+    usable returns) also skips the bar.
+
+    Returns `(mean_spread_over_eligible_bars, n_eligible_bars)`, or `(None, 0)` when no bar
+    was eligible.
+    """
+    total = 0.0
+    n_eligible_bars = 0
+    for symbols, feature_values, returns_by_symbol in panel_by_bar.values():
+        legs = decile_legs(list(symbols), list(feature_values), decile_fraction)
+        if legs is None:
+            continue
+        short_leg, long_leg = legs
+        spread = spread_from_legs(returns_by_symbol, long_leg, short_leg)
+        if spread is None:
+            continue
+        total += spread
+        n_eligible_bars += 1
+
+    if n_eligible_bars == 0:
+        return None, 0
+    return total / n_eligible_bars, n_eligible_bars
+
+
+def shuffled_ranking_null_p(
+    panel_by_bar: Mapping[Any, tuple[list[str], list[float], Mapping[str, float | None]]],
+    decile_fraction: float,
+    observed_mean_spread: float,
+    n_shuffles: int,
+    seed: int,
+) -> tuple[float, float, float, int]:
+    """Live shuffled-ranking null (design decision 4): is the observed ranking-driven spread
+    distinguishable from the spread produced by dollar-neutral bucket formation alone?
+
+    Each draw permutes each bar's feature-value list WITHIN that bar only -- the symbol list,
+    the universe size, and the return mapping are all carried through untouched. A cross-bar
+    permutation would destroy the cross-sectional structure being tested, not just the ranking
+    information. This preserves, by construction (design decision 6):
+    - Universe size per bar, identical in observed and null (a permutation reorders one bar's
+      values across that same bar's symbols, never adds/removes a symbol).
+    - `n_leg` rounding, identical because it derives from the same `n` and `decile_fraction`.
+    - Symbol eligibility, identical because it was already applied by the panel query and a
+      permutation never adds or removes a symbol.
+    - The degeneracy rule: bars where `decile_legs` returns `None` are skipped identically in
+      observed and every draw, since degeneracy depends only on `n` and `decile_fraction`,
+      neither of which a permutation touches.
+    - Tie-break determinism: tied values permute like any other values; `decile_legs`'
+      `(feature_value, symbol)` tie-break applies unchanged, so a tied draw yields a
+      deterministic split rather than an arbitrary one.
+
+    The permutation of a bar's feature values does not depend on which return scale
+    (`return_fast` vs `return_slow`) is being tested -- only on that bar's symbol count and the
+    RNG's draw sequence. Calling this function once per scale with the SAME `seed` therefore
+    reproduces the identical sequence of within-bar permutations for both scales "for free" --
+    the efficiency lesson from the T3 script's `_generate_shuffled_feature_draws` docstring,
+    which generates the permutation draws once and reuses them across both scales rather than
+    re-permuting per scale.
+
+    Raises:
+        ValueError: if the eligible-bar count is not identical across all `n_shuffles` draws --
+            that would mean degeneracy somehow depends on the feature ordering, and the null
+            would not be comparable to the observed value.
+
+    Returns:
+        `(null_p, null_mean, null_std, n_eligible_bars)` where
+        `null_p = mean(draw_means >= observed_mean_spread)`, and `n_eligible_bars` is the
+        eligible-bar count shared by every draw. The caller MUST assert this equals the
+        observed pass's `n_eligible_bars`.
+    """
+    rng = np.random.default_rng(seed)
+    draw_means: list[float] = []
+    draw_n_eligible_bars: list[int] = []
+    for _ in range(n_shuffles):
+        permuted_panel: dict[Any, tuple[list[str], list[float], Mapping[str, float | None]]] = {}
+        for bar_ts, (symbols, feature_values, returns_by_symbol) in panel_by_bar.items():
+            permuted_values = rng.permutation(np.asarray(feature_values, dtype=float)).tolist()
+            permuted_panel[bar_ts] = (list(symbols), permuted_values, returns_by_symbol)
+        draw_mean, draw_n_eligible_bars_this = mean_gross_spread_over_bars(
+            permuted_panel, decile_fraction
+        )
+        draw_means.append(draw_mean if draw_mean is not None else 0.0)
+        draw_n_eligible_bars.append(draw_n_eligible_bars_this)
+
+    if len(set(draw_n_eligible_bars)) > 1:
+        raise ValueError(
+            "shuffled_ranking_null_p: eligible-bar count varies across draws "
+            f"({sorted(set(draw_n_eligible_bars))}) -- degeneracy must not depend on feature "
+            "ordering, or the null is not comparable to the observed value"
+        )
+
+    draw_means_arr = np.array(draw_means, dtype=float)
+    null_p = float(np.mean(draw_means_arr >= observed_mean_spread))
+    null_mean = float(draw_means_arr.mean())
+    null_std = float(draw_means_arr.std())
+    n_eligible_bars = draw_n_eligible_bars[0] if draw_n_eligible_bars else 0
+    return null_p, null_mean, null_std, n_eligible_bars
+
+
+def evaluate_spread_gate(
+    rows: Iterable[Mapping[str, Any]],
+    min_n: int,
+    bootstrap_max_n: int,
+    bootstrap_batch: int,
+    bootstrap_random_state: int,
+) -> list[dict[str, Any]]:
+    """Pure grouping/verdict core for Validation Gate 1 -- delegates the day-clustered
+    block-bootstrap machinery (the small-cluster-count / large-cluster-count method switch
+    documented on `frame_gate_passes`) to `counterfactual_tracker.evaluate_frame_gate`
+    VERBATIM. No bootstrap math is reimplemented here (design decision 5, RESEARCH.md's Todo
+    186 Scope Assessment: a
+    spread return is a single scalar time series per bar, not a pooled panel, so the
+    day-clustered bootstrap is exactly the right machinery and a new cross-sectional block
+    bootstrap is not required).
+
+    Each input row carries `scale` (`"fast"` or `"slow"`), `cost_bps` (int), `cluster_id` (a
+    `date`), and `pnl_r` (the net spread for that scale and cost tier). Groups via
+    `group_key=lambda row: (row["scale"], row["cost_bps"])`.
+
+    SHAPE CONSTRAINT (same trap `alpha_scorer.py`'s own module docstring documents):
+    `evaluate_frame_gate`'s grouping core unpacks its `group_key` strictly as a 2-tuple --
+    `for (dim_a, dim_b), bucket in groups.items()` -- and always populates the returned
+    verdict's fields as `tf` and `regime`, regardless of what was actually grouped by. This is
+    a pre-existing repo-wide pattern, not a trick invented for this phase; passing a 3-tuple
+    `group_key` would raise `ValueError: too many values to unpack`. This function renames
+    `tf` -> `scale` and `regime` -> `cost_bps` before returning, and renames `n_frames` ->
+    `n_bars` since a spread row is a bar, not a frame.
+    """
+    verdicts = evaluate_frame_gate(
+        list(rows),
+        min_n,
+        bootstrap_max_n,
+        bootstrap_batch,
+        bootstrap_random_state,
+        group_key=lambda row: (row["scale"], row["cost_bps"]),
+    )
+    return [
+        {
+            "scale": v["tf"],
+            "cost_bps": v["regime"],
+            "n_bars": v["n_frames"],
+            "n_clusters": v["n_clusters"],
+            "ci_lower": v["ci_lower"],
+            "ci_upper": v["ci_upper"],
+            "passes": v["passes"],
+            "coverage": v["coverage"],
+        }
+        for v in verdicts
+    ]
+
+
+def _coerce_non_finite(value: Any) -> Any:
+    """Recursively replace any non-finite float (NaN, +-inf) with `None` so
+    `json.dumps(allow_nan=False)` never raises on a legitimate non-finite value inside a
+    verdict payload (`frame_gate_passes` legitimately returns `nan` for an under-powered
+    cell)."""
+    if isinstance(value, float):
+        return value if math.isfinite(value) else None
+    if isinstance(value, Mapping):
+        return {k: _coerce_non_finite(v) for k, v in value.items()}
+    if isinstance(value, (list, tuple)):
+        return [_coerce_non_finite(v) for v in value]
+    return value
+
+
+def write_verdict_artifact(
+    verdict_name: str,
+    payload: Mapping[str, Any],
+    out_dir: Path = Path("logs/construction_verdicts"),
+) -> Path:
+    """Persist the full Gate verdict `payload` as strict, timestamped JSON (T-167-17) -- the
+    durable audit-trail source of truth a research doc is checked against, rather than
+    rotating log lines or editable prose. This is an audit-trail addition only: it introduces
+    no new statistic, no new bootstrap, and no new threshold.
+
+    Any non-finite float anywhere in `payload` is coerced to JSON `null` before serialization
+    -- `frame_gate_passes` legitimately returns `nan` for an under-powered cell, and Python's
+    `json.dump` would otherwise emit a bare `NaN` token, which is invalid JSON that a strict
+    reader would reject, silently losing the very record this exists to preserve.
+    Non-JSON-native values (e.g. `datetime.date`) serialize via `default=str`. `allow_nan=False`
+    makes any coercion gap raise instead of silently writing an unreadable artifact.
+
+    Writes two files: a timestamped `{verdict_name}_{YYYYmmddTHHMMSSZ}.json` (UTC) that a later
+    run never overwrites (the record accumulates), and a `{verdict_name}_latest.json` that
+    always reflects the most recent run. Returns the timestamped path.
+    """
+    out_dir.mkdir(parents=True, exist_ok=True)
+    coerced = _coerce_non_finite(dict(payload))
+    timestamp = datetime.now(UTC).strftime("%Y%m%dT%H%M%SZ")
+    timestamped_path = out_dir / f"{verdict_name}_{timestamp}.json"
+    latest_path = out_dir / f"{verdict_name}_latest.json"
+    text = json.dumps(coerced, indent=2, default=str, allow_nan=False)
+    timestamped_path.write_text(text)
+    latest_path.write_text(text)
+    return timestamped_path
+
+
+# ---------------------------------------------------------------------------
 # Panel query (reproduces the T3 script's `_FV_SQL`, scripts/analysis/
 # t3_cross_sectional_long_short_ctf_momentum_check.py lines 63-78, exactly).
 # ---------------------------------------------------------------------------
@@ -292,6 +511,33 @@ _PANEL_SQL_TEMPLATE = """
 
 _PANEL_SQL_BACKFILL = _PANEL_SQL_TEMPLATE.format(watermark_clause="")
 _PANEL_SQL_INCREMENTAL = _PANEL_SQL_TEMPLATE.format(watermark_clause="AND fv.bar_ts > $2")
+
+# --evaluate-gate mode: read-only queries against already-persisted construction_spreads rows
+# and a fresh panel re-select for the live shuffled-ranking null. `one_way_turnover IS NOT
+# NULL` excludes the single genuinely-first corpus bar, whose net spread is undefined (design
+# decisions, Task 1). Every filter value is bound as an asyncpg placeholder (T-167-04).
+_GATE_ROWS_SQL = """
+    SELECT bar_ts, bar_ts::date AS cluster_id, gross_spread_fast, gross_spread_slow,
+           net_spread_fast_by_cost_bps, net_spread_slow_by_cost_bps
+    FROM construction_spreads
+    WHERE construction_name = $1 AND tf = $2 AND bar_ts >= $3 AND one_way_turnover IS NOT NULL
+"""
+
+# In-sample diagnostic ONLY (design decision 2, NEVER fed into gate1_passes) -- the sole `<`
+# comparison against bar_ts in this module. Note the direction: this is the OPPOSITE of
+# counterfactual_tracker.py's FRAME-04 in-sample exit gate's `<` on the SAME oos_start value --
+# that gate is deliberately in-sample; this OOS gate (_GATE_ROWS_SQL, above) is the opposite
+# and must use `>=` (design decision 1).
+_GATE_ROWS_IN_SAMPLE_SQL = """
+    SELECT bar_ts, bar_ts::date AS cluster_id, gross_spread_fast, gross_spread_slow,
+           net_spread_fast_by_cost_bps, net_spread_slow_by_cost_bps
+    FROM construction_spreads
+    WHERE construction_name = $1 AND tf = $2 AND bar_ts < $3 AND one_way_turnover IS NOT NULL
+"""
+
+# Re-selects the raw panel for the OOS window using Plan 03's exact filter set, for the live
+# shuffled-ranking null (design decision 4 -- never derived from persisted rows).
+_GATE_PANEL_SQL = _PANEL_SQL_TEMPLATE.format(watermark_clause="AND fv.bar_ts >= $2")
 
 _INSERT_SQL = """
     INSERT INTO construction_spreads (
@@ -542,6 +788,285 @@ class CrossSectionalSpreadTracker(BaseBatch):
 
 
 # ---------------------------------------------------------------------------
+# Validation Gate 1 evaluation (--evaluate-gate CLI mode)
+# ---------------------------------------------------------------------------
+
+
+def _flatten_gate_rows(
+    rows: Iterable[Mapping[str, Any]], cost_bps: Sequence[int]
+) -> list[dict[str, Any]]:
+    """Flatten `construction_spreads` rows into `evaluate_spread_gate`'s input shape: one
+    record per (row, scale, cost_bps), with `pnl_r` read from the matching
+    `net_spread_*_by_cost_bps` jsonb keyed by `str(cost_bps)` (asyncpg decodes jsonb columns
+    to `dict` directly, no `json.loads` needed)."""
+    flattened: list[dict[str, Any]] = []
+    for row in rows:
+        for scale, net_field in (
+            ("fast", "net_spread_fast_by_cost_bps"),
+            ("slow", "net_spread_slow_by_cost_bps"),
+        ):
+            net_by_cost = row[net_field]
+            if net_by_cost is None:
+                continue
+            for bps in cost_bps:
+                pnl_r = net_by_cost.get(str(bps))
+                if pnl_r is None:
+                    continue
+                flattened.append(
+                    {
+                        "scale": scale,
+                        "cost_bps": bps,
+                        "cluster_id": row["cluster_id"],
+                        "pnl_r": pnl_r,
+                    }
+                )
+    return flattened
+
+
+def _build_panel_by_bar(
+    panel_rows: Iterable[Mapping[str, Any]], return_col: str
+) -> dict[Any, tuple[list[str], list[float], dict[str, float | None]]]:
+    """Group flat panel rows (one row per symbol per bar) into `mean_gross_spread_over_bars`'
+    / `shuffled_ranking_null_p`'s `panel_by_bar` shape for a single return scale."""
+    grouped: dict[Any, list[Mapping[str, Any]]] = {}
+    for row in panel_rows:
+        grouped.setdefault(row["bar_ts"], []).append(row)
+    panel_by_bar: dict[Any, tuple[list[str], list[float], dict[str, float | None]]] = {}
+    for bar_ts, bar_rows in grouped.items():
+        symbols = [r["symbol"] for r in bar_rows]
+        feature_values = [r["ctf_momentum"] for r in bar_rows]
+        returns_by_symbol = {r["symbol"]: r[return_col] for r in bar_rows}
+        panel_by_bar[bar_ts] = (symbols, feature_values, returns_by_symbol)
+    return panel_by_bar
+
+
+def _gate1_verdict_text(scale: str, binding: dict[str, Any] | None, null_clears: bool) -> str:
+    """The three-way verdict distinction from the T3 script's `_run_one_scale`: a genuine
+    pass, a CI-clears-but-null-not-distinguishable result (a dollar-neutral construction
+    artifact, NOT a pass), or a CI-does-not-clear-zero failure."""
+    if binding is None:
+        return f"{scale}: no verdict cell at the binding cost tier"
+    if binding["passes"] and null_clears:
+        return (
+            f"{scale}: PASSES real bootstrap CI (ci_lower > 0) AND clears the shuffled-ranking "
+            "null (construction, not artifact) -- genuine Gate 1 candidate"
+        )
+    if binding["passes"] and not null_clears:
+        return (
+            f"{scale}: bootstrap CI clears zero, but the shuffled-ranking null cannot be "
+            "distinguished from the observed result -- likely a dollar-neutral construction "
+            "artifact, not real ranking signal. Do not treat as a Gate 1 pass"
+        )
+    return f"{scale}: does not clear its own bootstrap CI (ci_lower <= 0) -- fails at this scale"
+
+
+async def _run_evaluate_gate(db_dsn: str) -> None:
+    """--evaluate-gate CLI mode: Validation Gate 1 -- a day-clustered bootstrap CI over the
+    persisted net-of-cost spread across the OOS window (`bar_ts >= alpha.validation.oos_start`,
+    design decision 1), at every cost tier and both lookahead scales, plus a live
+    shuffled-ranking null, plus a labeled in-sample diagnostic. Mirrors
+    `counterfactual_tracker._run_evaluate_gate`'s shape exactly: a plain `asyncpg.connect`
+    (not a pool -- this is a read-only reporting branch). No D-06 `job_completed_total`
+    emission -- this performs no persistence, unlike `CrossSectionalSpreadTracker.execute()`.
+    The only filesystem side effect is the verdict artifact written by
+    `write_verdict_artifact`; no `construction_spreads` row is ever written here.
+    """
+    conn = await asyncpg.connect(db_dsn)
+    try:
+        # (1) Load and validate APR BEFORE any panel work begins (T-167-01, ASVS V5).
+        cfg_dict = await _load_apr(conn)
+        min_n = _cfg(cfg_dict, "alpha.scoring.min_strategy_n", 30)
+        bootstrap_max_n = _cfg(cfg_dict, "alpha.scoring.bootstrap_max_n", 5000)
+        bootstrap_batch = _cfg(cfg_dict, "alpha.scoring.bootstrap_batch", 1000)
+        bootstrap_random_state = _cfg(
+            cfg_dict, "alpha.scoring.bootstrap_random_state", _DEFAULT_BOOTSTRAP_RANDOM_STATE
+        )
+        decile_fraction = _cfg(cfg_dict, "alpha.construction.decile_fraction", 0.10)
+        attribution_max_static_r2 = _cfg(
+            cfg_dict, "alpha.construction.attribution_max_static_r2", 0.50
+        )
+        null_shuffles = _cfg(cfg_dict, "alpha.construction.null_shuffles", 40)
+        raw_cost_bps = cfg_dict.get("alpha.construction.cost_hurdle_bps_round_trip")
+        cost_bps = json.loads(raw_cost_bps) if raw_cost_bps is not None else [1, 3, 5, 10]
+        validate_construction_config(
+            decile_fraction, cost_bps, null_shuffles, attribution_max_static_r2
+        )
+
+        oos_start = await conn.fetchval(
+            "SELECT config_value::timestamptz FROM config_state "
+            "WHERE config_key = 'alpha.validation.oos_start'"
+        )
+        if oos_start is None:
+            raise RuntimeError(
+                "cross_sectional_spread_tracker --evaluate-gate FAILED: "
+                "alpha.validation.oos_start is not set in config_state -- a missing OOS "
+                "boundary would silently exclude every row from the gate "
+                "(bar_ts >= NULL never matches)."
+            )
+
+        # (2) OOS segment -- the gate. `bar_ts >= oos_start` (design decision 1: the OPPOSITE
+        # direction of counterfactual_tracker's FRAME-04 in-sample exit gate, which uses `<`
+        # on the same boundary).
+        oos_gate_rows = [
+            dict(r) for r in await conn.fetch(_GATE_ROWS_SQL, _CONSTRUCTION_NAME, _TF, oos_start)
+        ]
+        oos_flattened = _flatten_gate_rows(oos_gate_rows, cost_bps)
+        oos_verdicts = evaluate_spread_gate(
+            oos_flattened, min_n, bootstrap_max_n, bootstrap_batch, bootstrap_random_state
+        )
+        for verdict in oos_verdicts:
+            _logger.info("cross_sectional_spread_tracker.gate_verdict", segment="oos", **verdict)
+
+        # (3) Live shuffled-ranking null (design decision 4: recomputed from the raw panel
+        # every run, never derived from persisted rows). Fetched once, `panel_by_bar` built
+        # once per scale.
+        panel_rows = [dict(r) for r in await conn.fetch(_GATE_PANEL_SQL, _TF, oos_start)]
+
+        # (4) In-sample diagnostic segment (design decision 2): a clearly labeled diagnostic,
+        # NEVER fed into gate1_passes. Exists solely to make the T3 script's published
+        # full-2006-2026-history numbers comparable to this OOS verdict. Fetched here, before
+        # the connection closes, alongside the OOS query above.
+        in_sample_gate_rows = [
+            dict(r)
+            for r in await conn.fetch(_GATE_ROWS_IN_SAMPLE_SQL, _CONSTRUCTION_NAME, _TF, oos_start)
+        ]
+    finally:
+        await conn.close()
+
+    in_sample_flattened = _flatten_gate_rows(in_sample_gate_rows, cost_bps)
+    in_sample_verdicts = evaluate_spread_gate(
+        in_sample_flattened, min_n, bootstrap_max_n, bootstrap_batch, bootstrap_random_state
+    )
+    for verdict in in_sample_verdicts:
+        _logger.info(
+            "cross_sectional_spread_tracker.gate_verdict",
+            segment="in_sample_diagnostic",
+            **verdict,
+        )
+
+    null_by_scale: dict[str, dict[str, Any]] = {}
+    for scale, return_col in (("fast", "return_fast"), ("slow", "return_slow")):
+        panel_by_bar = _build_panel_by_bar(panel_rows, return_col)
+        observed_mean, observed_n_eligible_bars = mean_gross_spread_over_bars(
+            panel_by_bar, decile_fraction
+        )
+        if observed_mean is None:
+            raise RuntimeError(
+                "cross_sectional_spread_tracker --evaluate-gate FAILED: no eligible bars in "
+                f"the OOS panel for scale={scale!r} -- cannot compute the shuffled-ranking null"
+            )
+        null_p, null_mean, null_std, null_n_eligible_bars = shuffled_ranking_null_p(
+            panel_by_bar, decile_fraction, observed_mean, null_shuffles, bootstrap_random_state
+        )
+        if null_n_eligible_bars != observed_n_eligible_bars:
+            raise RuntimeError(
+                "cross_sectional_spread_tracker --evaluate-gate FAILED: null eligible-bar "
+                f"count ({null_n_eligible_bars}) != observed eligible-bar count "
+                f"({observed_n_eligible_bars}) for scale={scale!r} -- the null and the "
+                "observed value are being averaged over different bar sets, which would "
+                "silently invalidate the Gate 1 null verdict (design decision 6)"
+            )
+        null_by_scale[scale] = {
+            "null_p": null_p,
+            "null_mean": null_mean,
+            "null_std": null_std,
+            "n_shuffles": null_shuffles,
+            "n_eligible_bars": null_n_eligible_bars,
+            "observed_mean_gross_spread": observed_mean,
+        }
+        _logger.info(
+            "cross_sectional_spread_tracker.null_check",
+            scale=scale,
+            null_p=null_p,
+            null_mean=null_mean,
+            null_std=null_std,
+            n_shuffles=null_shuffles,
+            n_eligible_bars=null_n_eligible_bars,
+        )
+
+    # (5) Binding Gate 1 verdict (design decision 3, single source of truth): Gate 1 passes
+    # iff, at max(cost_bps), BOTH the fast and slow cells have passes is True, AND both
+    # scales' null_p is strictly below 0.05.
+    binding_cost_bps = max(cost_bps)
+    binding_by_scale = {v["scale"]: v for v in oos_verdicts if v["cost_bps"] == binding_cost_bps}
+    fast_binding = binding_by_scale.get("fast")
+    slow_binding = binding_by_scale.get("slow")
+    fast_passes = bool(fast_binding is not None and fast_binding["passes"] is True)
+    slow_passes = bool(slow_binding is not None and slow_binding["passes"] is True)
+    fast_null_clears = null_by_scale["fast"]["null_p"] < 0.05
+    slow_null_clears = null_by_scale["slow"]["null_p"] < 0.05
+    gate1_passes = fast_passes and slow_passes and fast_null_clears and slow_null_clears
+
+    verdict_text = " | ".join(
+        [
+            _gate1_verdict_text("fast", fast_binding, fast_null_clears),
+            _gate1_verdict_text("slow", slow_binding, slow_null_clears),
+        ]
+    )
+
+    _logger.info(
+        "cross_sectional_spread_tracker.gate1_summary",
+        gate1_passes=gate1_passes,
+        binding_cost_bps=binding_cost_bps,
+        fast_ci_lower=fast_binding["ci_lower"] if fast_binding else None,
+        fast_ci_upper=fast_binding["ci_upper"] if fast_binding else None,
+        fast_n_bars=fast_binding["n_bars"] if fast_binding else None,
+        fast_n_clusters=fast_binding["n_clusters"] if fast_binding else None,
+        slow_ci_lower=slow_binding["ci_lower"] if slow_binding else None,
+        slow_ci_upper=slow_binding["ci_upper"] if slow_binding else None,
+        slow_n_bars=slow_binding["n_bars"] if slow_binding else None,
+        slow_n_clusters=slow_binding["n_clusters"] if slow_binding else None,
+        fast_null_p=null_by_scale["fast"]["null_p"],
+        slow_null_p=null_by_scale["slow"]["null_p"],
+        verdict_text=verdict_text,
+    )
+
+    # (6) Assemble and persist the ENTIRE verdict as durable strict JSON before any human
+    # transcribes it (T-167-17, design decision 7).
+    payload: dict[str, Any] = {
+        "gate1_passes": gate1_passes,
+        "binding_cost_bps": binding_cost_bps,
+        "verdict_text": verdict_text,
+        "oos_grid": oos_verdicts,
+        "in_sample_diagnostic_grid": in_sample_verdicts,
+        "null_by_scale": null_by_scale,
+        "oos_start": str(oos_start),
+        "n_oos_rows": len(oos_gate_rows),
+        "n_oos_day_clusters": len({row["cluster_id"] for row in oos_flattened}),
+        "apr": {
+            "decile_fraction": decile_fraction,
+            "cost_hurdle_bps_round_trip": cost_bps,
+            "null_shuffles": null_shuffles,
+            "attribution_max_static_r2": attribution_max_static_r2,
+            "alpha.scoring.min_strategy_n": min_n,
+            "alpha.scoring.bootstrap_max_n": bootstrap_max_n,
+            "alpha.scoring.bootstrap_batch": bootstrap_batch,
+            "alpha.scoring.bootstrap_random_state": bootstrap_random_state,
+        },
+        "compute_version": CrossSectionalSpreadTracker.compute_version,
+    }
+    artifact_path = write_verdict_artifact("gate1", payload)
+    _logger.info(
+        "cross_sectional_spread_tracker.gate1_verdict_artifact_written",
+        artifact_path=str(artifact_path),
+    )
+
+    manifest = CorpusManifest(
+        "cross_sectional_spread_tracker_gate", CorpusManifest.DEFAULT_MANIFEST_DIR
+    )
+    manifest.set_inputs(
+        n_cells=len(oos_verdicts), oos_start=str(oos_start), gate1_passes=gate1_passes
+    )
+    manifest.add_output(
+        table_name="construction_spreads_gate_verdicts", rows_total=len(oos_verdicts)
+    )
+    manifest.mark_success()
+    manifest.write()
+    # No D-06 job_completed_total emission -- this performs no persistence (mirrors
+    # counterfactual_tracker._run_evaluate_gate's own explicit no-persistence contract).
+
+
+# ---------------------------------------------------------------------------
 # Entrypoint
 # ---------------------------------------------------------------------------
 
@@ -561,6 +1086,16 @@ if __name__ == "__main__":
             "correct choice for every subsequent invocation."
         ),
     )
+    parser.add_argument(
+        "--evaluate-gate",
+        action="store_true",
+        help=(
+            "Evaluate Validation Gate 1 over bar_ts >= alpha.validation.oos_start per "
+            "(lookahead scale, cost tier) via the day-clustered bootstrap plus a live "
+            "shuffled-ranking null. Writes a JSON verdict artifact under "
+            "logs/construction_verdicts/. Read-only -- writes no construction_spreads rows."
+        ),
+    )
     args = parser.parse_args()
 
     try:
@@ -571,4 +1106,7 @@ if __name__ == "__main__":
     settings = Settings()
     db_dsn = settings.database_url.replace("postgresql+asyncpg://", "postgresql://")
 
-    asyncio.run(CrossSectionalSpreadTracker(db_dsn, backfill=args.backfill).run())
+    if args.evaluate_gate:
+        asyncio.run(_run_evaluate_gate(db_dsn))
+    else:
+        asyncio.run(CrossSectionalSpreadTracker(db_dsn, backfill=args.backfill).run())
