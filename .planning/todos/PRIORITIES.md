@@ -27,12 +27,15 @@ model complexity · never drop data that could contain signal · earn promotion 
 resist overfitting. A todo that would earn its way to P0/P1 under these tests (a live-path
 integrity gap, an unproven claim masquerading as settled) outranks one that's merely convenient.
 
-**Current probable path (updated 2026-07-26 — phase-level, see `.planning/STATE.md` for full
-detail, not duplicated here):** T3 (cross-sectional long-short construction) passed decisively,
-the first Edge Source Thesis tested and proven — registered as **ROADMAP.md Phase 167**, ahead
-of feature-expansion work (Phase 151/164/165) per the Musk lens above: proven and cheap beats
-unproven and expensive. Todo 184 (below) and the in-progress todo 183 corpus recompute are the
-two open items feeding that path's confidence; neither blocks scoping Phase 167 itself.
+**Current probable path (updated 2026-07-27 -- phase-level, see `.planning/STATE.md` for full
+detail, not duplicated here):** **Phase 167 (Cross-Sectional Trade Construction, T3) is
+COMPLETE** -- both live Validation Gates PASSED against the real OOS population
+(`gate1_passes=true`, `gate2_passes_overall=true`), unlike Phase 148's per-symbol directional
+construction, which failed Gate 2. This clears the stated precondition for Phase 156-159
+(execution/sizing); whether to proceed is the user's decision, not automatic. Todo 184 (T5
+canary-leakage check) is CLOSED -- no leak found, but T5 is still not a confirmed pass, pending
+independent replication. Todo 183's corpus recompute is still in progress (feeds T2's final
+verdict, unrelated to T3/Phase 167's own validity).
 
 ---
 

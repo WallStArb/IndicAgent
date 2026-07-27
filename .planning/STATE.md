@@ -3,8 +3,8 @@ gsd_state_version: 1.0
 milestone: v3.1
 milestone_name: AlphaEngine Validation + Alpha Scoring
 status: ready_to_execute
-stopped_at: "Phase 167 Plan 06 (final plan) executed: full 2006-2026 corpus backfilled into construction_spreads, both live Validation Gates ran against the real OOS population and BOTH PASSED (gate1_passes=true, gate2_passes_overall=true). Phase 167 is COMPLETE (6/6 plans). Phase 156-159's stated precondition is now met; next decision is the user's."
-last_updated: "2026-07-27T11:44:00.000Z"
+stopped_at: "Phase 167 COMPLETE (6/6 plans): full 2006-2026 corpus backfilled into construction_spreads, both live Validation Gates PASSED against the real OOS population. Post-execution /simplify + /gsd:code-review 167 ran same session -- found and fixed 1 critical bug (CR-01, --backfill turnover-seed fix, live verdict unaffected) + 5 warnings. CLAUDE.md/gotchas.md updated with a corrected asyncpg JSONB codec claim and 3 new worktree/test gotchas. Pushed to origin/main (b7f1ed4b). Phase 156-159's stated precondition is now met; next decision is the user's."
+last_updated: "2026-07-27T13:46:36.000Z"
 progress:
   total_phases: 12
   completed_phases: 9
@@ -218,3 +218,37 @@ exactly), caught and fixed a genuine bug during the first live Gate 1 run (a mis
 codec on a bare `asyncpg` connection), ran both gates live, and transcribed the actual verdicts
 (both PASS) into the four governing docs with the same fidelity Phase 148 recorded its DO NOT
 PROMOTE verdict.
+
+**Post-execution gates run 2026-07-27 (same session, after Plan 06):** `/simplify` deduped ~60
+lines of repeated setup logic between `_run_evaluate_gate`/`_run_evaluate_attribution` and fixed
+an inaccurate docstring claim about shared permutation draws (no behavior change). `/gsd:code-review
+167` found 1 critical + 5 warnings, all fixed same session:
+- **CR-01 (real bug, fixed):** `--backfill` mode seeded prior-leg turnover from the table's
+  globally latest row regardless of mode -- correct only when the table starts empty. A
+  re-backfill against a non-empty table (e.g. picking up a newly-onboarded symbol's earlier
+  history) would have fabricated a non-null `one_way_turnover` for the true first bar instead of
+  the required NULL. Confirmed the ALREADY-RECORDED live verdict above is unaffected (table was
+  genuinely empty at backfill time). Fixed with a regression test that reproduces the corruption
+  against the pre-fix code.
+- **WR-01:** hardcoded `0.05` Gate-1 null-p significance threshold migrated to APR
+  (`alpha.construction.null_p_threshold`, migration 261).
+- **WR-02/03/04:** 5 broken doc cross-references, one numeric transcription error
+  (`0.0006`->`0.0005` in an in-sample diagnostic cell), one stale glossary status line -- all
+  fixed.
+- **WR-05:** `write_verdict_artifact`'s timestamped filename had only second-level resolution;
+  two same-second calls would silently clobber each other. Fixed with a numeric-suffix
+  disambiguation + regression test.
+- Two structural findings (shared JSONB-codec connection helper across services; `cfg()`'s
+  list-default cast bug) deliberately deferred -- out of this diff's scope, filed as
+  [todo 187](.planning/todos/pending/187-cross-sectional-spread-tracker-altitude-cleanup.md), P3.
+
+**CLAUDE.md maintenance (same session):** corrected an existing CLAUDE.md line that stated
+asyncpg JSONB decoding as unconditional -- it's only true on a pooled `BaseBatch.create_pool()`
+connection; a bare `asyncpg.connect()` (exactly what CR-01's sibling bug hit) has no codec.
+`docs/reference/gotchas.md` gained 3 entries: worktree `.venv` not inherited (breaks pre-commit
+hooks), worktree isolation unsafe for plans whose deliverable is gitignored
+(`logs/`/`corpus_manifests/*.json`), integration tests overwrite committed corpus manifests.
+
+**Pushed to `origin/main` 2026-07-27** (`b7f1ed4b`) -- 57 commits, spanning this session's Phase
+167 work plus prior unpushed session history. No feature branch existed (Phase 167's
+`branching_strategy` was `none`); all work landed directly on `main`.
