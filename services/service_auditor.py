@@ -72,7 +72,7 @@ _DAG_ORDER: dict[str, int] = {
     "indicagent-macro-compute": 5,  # priority 5: parallel with cross-asset (5)
     "indicagent-feature-vector-pipeline": 6,  # priority 6: downstream of cross-asset (5) and bar-aggregator (4); upstream of feature/signal writers (7+)
     # Layer 4 — persistence writers (parallel, all consume pipeline output)
-    "indicagent-feature-writer": 7,  # priority 7: downstream of feature-vector-pipeline (6)
+    "indicagent-feature-vector-writer": 7,  # priority 7: downstream of feature-vector-pipeline (6)
     "indicagent-signal-tracker-compute": 7,  # priority 7: downstream of feature-vector-pipeline (6)
     "indicagent-signal-writer": 7,  # priority 7: downstream of feature-vector-pipeline (6)
     "indicagent-lifecycle-writer": 7,  # priority 7: downstream of feature-vector-pipeline (6)
@@ -144,7 +144,7 @@ _AGENT_ID_TO_UNIT: dict[str, str] = {
     "bar_writer": "indicagent-bar-writer",
     "bar_aggregator": "indicagent-bar-aggregator",
     "feature_vector_pipeline": "indicagent-feature-vector-pipeline",
-    "feature_vector_writer": "indicagent-feature-writer",
+    "feature_vector_writer": "indicagent-feature-vector-writer",
     "signal_tracker": "indicagent-signal-tracker-compute",
     "signal_writer": "indicagent-signal-writer",
     "llm_writer": "indicagent-llm-writer",
@@ -324,7 +324,7 @@ class ServiceAuditor(BaseDaemon):
         updates arrive.
 
         Key format in config_state: 'alert.lag.<unit-name-kebab>'
-        (e.g., 'alert.lag.feature-writer' -> 'indicagent-feature-writer': int).
+        (e.g., 'alert.lag.feature-vector-writer' -> 'indicagent-feature-vector-writer': int).
         """
         try:
             result: dict[str, int] = {}

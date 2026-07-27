@@ -1,5 +1,5 @@
 # /home/bg/dev/indicagent/production/systemd/indicagent-wave3.target
-# Wave 3: persistence writers — feature-writer, signal-tracker-compute,
+# Wave 3: persistence writers — feature-vector-writer, signal-tracker-compute,
 #          signal-writer, lifecycle-writer, lineage-writer, ctx-writer
 # Does not activate until all wave 2 services have been attempted.
 [Unit]

@@ -65,7 +65,7 @@ async def _check_service_quiescence() -> list[str]:
     lifecycle_services = [
         "indicagent-intelligence-pipeline",
         "indicagent-signal-tracker",
-        "indicagent-feature-writer",
+        "indicagent-feature-vector-writer",
     ]
     active = []
     for svc in lifecycle_services:

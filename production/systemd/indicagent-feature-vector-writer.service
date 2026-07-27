@@ -1,9 +1,7 @@
 [Unit]
-Description=IndicAgent LLM Writer Service — Redis streams to TimescaleDB
-After=network-online.target indicagent-wave4.target
+Description=IndicAgent Feature Vector Writer — persists FeatureVectorRecord to feature_vectors hypertable
+After=network-online.target indicagent-wave3.target
 Requires=indicagent-infrastructure.target
-Wants=network-online.target
-Wants=indicagent-feature-vector-writer.service
 StartLimitIntervalSec=300
 StartLimitBurst=5
 
@@ -13,14 +11,15 @@ User=bg
 WorkingDirectory=/home/bg/dev/indicagent
 Environment=PYTHONPATH=/home/bg/dev/indicagent
 Environment=PYTHONUNBUFFERED=1
-ExecStart=/home/bg/dev/indicagent/.venv/bin/python services/llm_writer.py
+ExecStart=/home/bg/dev/indicagent/.venv/bin/python services/feature_vector_writer.py
 Restart=always
 WatchdogSec=60
 NotifyAccess=main
 RestartSec=10
 StandardOutput=journal
 StandardError=journal
-SyslogIdentifier=indicagent-llm-writer
+SyslogIdentifier=indicagent-feature-vector-writer
+LimitNOFILE=65536
 
 [Install]
 WantedBy=multi-user.target

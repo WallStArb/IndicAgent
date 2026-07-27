@@ -32,7 +32,7 @@ _LIFECYCLE_SERVICES = [
     "indicagent-signal-writer",
     "indicagent-signal-tracker-compute",
     "indicagent-lifecycle-writer",
-    "indicagent-feature-writer",
+    "indicagent-feature-vector-writer",
     "indicagent-lineage-writer",
     "indicagent-llm-writer",
     "indicagent-swarm-ledger-writer",

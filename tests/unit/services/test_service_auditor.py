@@ -44,7 +44,7 @@ def test_dag_order_covers_required_services():
         "indicagent-feature-vector-pipeline",
         "indicagent-signal-tracker-compute",
         "indicagent-signal-writer",
-        "indicagent-feature-writer",
+        "indicagent-feature-vector-writer",
         "indicagent-llm-writer",
         "indicagent-cross-asset",
         "indicagent-lifecycle-writer",
@@ -76,7 +76,8 @@ def test_dag_order_sources_before_sinks():
         _DAG_ORDER["indicagent-bar-aggregator"] < _DAG_ORDER["indicagent-feature-vector-pipeline"]
     )
     assert (
-        _DAG_ORDER["indicagent-feature-vector-pipeline"] < _DAG_ORDER["indicagent-feature-writer"]
+        _DAG_ORDER["indicagent-feature-vector-pipeline"]
+        < _DAG_ORDER["indicagent-feature-vector-writer"]
     )
 
 
@@ -202,9 +203,9 @@ def test_feature_vector_pipeline_priority_is_6():
     from services.service_auditor import _DAG_ORDER
 
     assert _DAG_ORDER["indicagent-feature-vector-pipeline"] == 6
-    # cross-asset/macro are 5 (upstream), feature-writer is 7 (downstream)
+    # cross-asset/macro are 5 (upstream), feature-vector-writer is 7 (downstream)
     assert _DAG_ORDER["indicagent-cross-asset"] == 5
-    assert _DAG_ORDER["indicagent-feature-writer"] == 7
+    assert _DAG_ORDER["indicagent-feature-vector-writer"] == 7
 
 
 @pytest.mark.asyncio
@@ -285,7 +286,7 @@ def test_agent_id_to_unit_feature_writer_key():
     """_AGENT_ID_TO_UNIT uses the auto-derived key feature_vector_writer (renamed from feature_writer in 138-P0)."""
     from services.service_auditor import _AGENT_ID_TO_UNIT
 
-    assert _AGENT_ID_TO_UNIT["feature_vector_writer"] == "indicagent-feature-writer"
+    assert _AGENT_ID_TO_UNIT["feature_vector_writer"] == "indicagent-feature-vector-writer"
     assert "feature_writer" not in _AGENT_ID_TO_UNIT
     assert "feature_writer_agent" not in _AGENT_ID_TO_UNIT
 
