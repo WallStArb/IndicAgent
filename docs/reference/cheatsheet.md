@@ -1,17 +1,17 @@
 # IndicAgent Command Cheatsheet
 
-**Version:** 2.8
+**Version:** 2.9
 **Status:** current
-**Last Updated:** 2026-05-02
+**Last Updated:** 2026-07-27
 
 ## Development Setup
 ```bash
 source .venv/bin/activate
 pip install -r requirements.txt
 
-# PostgreSQL/TimescaleDB — native: sudo systemctl start postgresql
-# Ollama — native: ollama serve
-# Redpanda — Docker only:
+# PostgreSQL/TimescaleDB -- native: sudo systemctl start postgresql
+# Ollama -- native: ollama serve
+# Redpanda -- Docker only:
 cd production && docker compose up -d redpanda
 
 # Database schema
@@ -60,7 +60,7 @@ curl http://localhost:9131/metrics   # Service Auditor
 curl http://localhost:9132/metrics   # Feature Snapshot Writer
 curl http://localhost:9133/metrics   # Parity Auditor
 
-# Grafana & Prometheus (optional — dashboards and alerts)
+# Grafana & Prometheus (optional -- dashboards and alerts)
 cd production && docker compose up -d prometheus grafana
 # Grafana: http://localhost:3001  (admin / admin). Prometheus data source is preconfigured.
 # Prometheus UI: http://localhost:9090  (query and targets)
@@ -75,7 +75,7 @@ cd production && docker compose up -d prometheus grafana
 ```
 
 ## Pipeline Reset (full housekeeping + fetch + replay)
-# pipeline_reset.py is the single entry point — handles everything in order:
+# pipeline_reset.py is the single entry point -- handles everything in order:
 #   1. Truncates signal_ledger, intelligence_features (+ market_data_ohlcv unless --keep-ohlcv)
 #   2. Clears Redpanda topics (indicators, intelligence, signals, narratives)
 #   3. Fetches OHLCV from IBKR per-TF: 1m=14d named, 5m=90d, 15m=180d, 1h=365d, 1d=2555d (7yr) continuous
@@ -83,10 +83,10 @@ cd production && docker compose up -d prometheus grafana
 #   5. Verifies row counts and signal distribution
 # Script pauses at stop/start boundaries and prints the sudo commands for you to run.
 ```bash
-# Step 1 — preview (no changes made)
+# Step 1 -- preview (no changes made)
 .venv/bin/python scripts/infrastructure/backfill/infrastructure_reset_pipeline_data.py --dry-run
 
-# Step 2 — full reset (requires TWS connected at 192.168.1.157:7497; expect 30–60 min)
+# Step 2 -- full reset (requires TWS connected at 192.168.1.157:7497; expect 30–60 min)
 .venv/bin/python scripts/infrastructure/backfill/infrastructure_reset_pipeline_data.py
 # → when prompted to STOP, run:
 sudo systemctl stop indicagent-intelligence-pipeline indicagent-signal-writer indicagent-signal-tracker-compute \
@@ -96,7 +96,7 @@ sudo systemctl stop indicagent-intelligence-pipeline indicagent-signal-writer in
 sudo systemctl start indicagent-intelligence-pipeline indicagent-feature-writer \
   indicagent-signal-writer indicagent-signal-tracker-compute indicagent-ai-narrative
 
-# Fast reset — skip IBKR fetch, re-replay from existing market_data_ohlcv
+# Fast reset -- skip IBKR fetch, re-replay from existing market_data_ohlcv
 # (use after plugin/signal logic changes, no IBKR connection needed)
 .venv/bin/python scripts/infrastructure/backfill/infrastructure_reset_pipeline_data.py --keep-ohlcv
 
@@ -151,6 +151,30 @@ sudo systemctl list-timers indicagent-shadow-validator.timer
 tail -50 logs/shadow_validator.log
 ```
 
+## Cross-Sectional Spread Tracker (Phase 167, manual/on-demand only, no timer)
+
+`services/cross_sectional_spread_tracker.py` -- T3's dollar-neutral decile long-short
+construction. See `docs/operations/operations-infrastructure.md`'s "Manual/On-Demand Batch
+Services" section for why this has no systemd unit/timer.
+
+```bash
+# One-time full-corpus backfill (first run only, or after a construction_spreads truncate)
+.venv/bin/python services/cross_sectional_spread_tracker.py --backfill
+
+# Incremental compute-and-persist (the normal, repeatable invocation)
+.venv/bin/python services/cross_sectional_spread_tracker.py
+
+# Validation Gate 1 (shadow spread Sharpe), read-only
+.venv/bin/python services/cross_sectional_spread_tracker.py --evaluate-gate
+
+# Validation Gate 2 (attribution honesty), read-only
+.venv/bin/python services/cross_sectional_spread_tracker.py --evaluate-attribution
+
+# View last run logs / verdict artifacts
+tail -50 logs/cross_sectional_spread_tracker.log
+ls logs/construction_verdicts/
+```
+
 ## Kafka / Redpanda
 ```bash
 # Topics
@@ -165,7 +189,7 @@ docker exec redpanda rpk topic stats <topic-name>
 docker exec redpanda rpk topic create <name> --config retention.ms=86400000
 docker exec redpanda rpk topic alter-config <name> --set retention.ms=86400000
 
-# Consumer groups — check lag, reset offsets
+# Consumer groups -- check lag, reset offsets
 docker exec redpanda rpk group list
 docker exec redpanda rpk group describe <group-name> --topic <topic>
 docker exec redpanda rpk group reset-offset <group> --topic <topic> --to-earliest

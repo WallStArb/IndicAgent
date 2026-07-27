@@ -1,7 +1,7 @@
-# Infrastructure — Systemd, Docker, and Servers
+# Infrastructure -- Systemd, Docker, and Servers
 
-**Version:** 2.8
-**Last Updated:** 2026-05-28
+**Version:** 2.9
+**Last Updated:** 2026-07-27
 **Status:** current
 
 ---
@@ -148,8 +148,8 @@ async def _watchdog_notify(self) -> None:
 ```
 
 **Excluded from WatchdogSec:**
-- `indicagent-dashboard` — Next.js has no sd_notify; `Restart=always` sufficient
-- All oneshot services — WatchdogSec does not apply
+- `indicagent-dashboard` -- Next.js has no sd_notify; `Restart=always` sufficient
+- All oneshot services -- WatchdogSec does not apply
 
 ### Service DAG
 
@@ -202,6 +202,69 @@ L11 Meta
 
 **Priority:** Lower number = restarts first during graduated response.
 
+### Manual/On-Demand Batch Services (no systemd timer)
+
+Some batch services are deliberately NOT in `_DAG_ORDER` above and have no systemd unit or
+timer at all. `services/cross_sectional_spread_tracker.py` (Phase 167, the T3 cross-sectional
+decile long-short construction) is one of these, alongside `alpha_scorer.py`,
+`counterfactual_tracker.py`, and `tag_calibrator.py`. Reasons a construction stays manual/
+on-demand rather than getting a registered timer:
+
+1. Peer precedent -- `alpha_scorer.py`, `counterfactual_tracker.py`, and `tag_calibrator.py`
+   are all manual/on-demand with no systemd unit; a registered timer here would make this
+   service the outlier.
+2. CLAUDE.md's "prove edge before production infra" -- a construction that has not yet
+   cleared its own Validation Gates does not earn scheduled infrastructure.
+3. All indicagent systemd timers are confirmed disabled as of 2026-07-02 (CLAUDE.md) -- a
+   registered timer would create a false impression of a cadence that does not actually run.
+4. The `--backfill` pass populates the full 2006-2026 history in one shot, handing the gates
+   the OOS day-cluster population immediately rather than waiting on calendar time.
+
+**`cross_sectional_spread_tracker.py` -- the four CLI invocations:**
+
+```bash
+# One-time full-corpus backfill -- correct only for the first run, or immediately after a
+# construction_spreads truncate. Populates the entire 2006-2026 history in one pass.
+.venv/bin/python services/cross_sectional_spread_tracker.py --backfill
+
+# Incremental compute-and-persist -- the correct invocation for every subsequent run. Resolves
+# the watermark from the last persisted construction_spreads row and seeds prior leg membership
+# from committed state only, so an interrupted run needs no special recovery flag -- the next
+# plain incremental invocation recovers it (crash can only ever truncate a contiguous tail of
+# the intended row set).
+.venv/bin/python services/cross_sectional_spread_tracker.py
+
+# Validation Gate 1 (shadow spread Sharpe), read-only against the OOS population
+.venv/bin/python services/cross_sectional_spread_tracker.py --evaluate-gate
+
+# Validation Gate 2 (attribution honesty), read-only against the OOS population
+.venv/bin/python services/cross_sectional_spread_tracker.py --evaluate-attribution
+```
+
+Both evaluation modes (`--evaluate-gate`/`--evaluate-attribution`) are strictly read-only
+against the database -- safe to run at any time, as many times as wanted. Each writes a
+timestamped JSON verdict artifact under `logs/construction_verdicts/` (`gate1_<timestamp>.json`/
+`gate2_<timestamp>.json` plus a `_latest.json` copy of each) that accumulates rather than
+overwrites -- a later run never deletes an earlier verdict.
+
+**Per-run summary manifest:** `.planning/corpus_manifests/cross_sectional_spread_tracker.json`
+(written by both `--backfill` and the incremental mode; `construction_verdicts`-prefixed
+manifests for the two evaluation modes live in the same directory). A `status: "partial"` in
+this manifest means one or more bars were skipped as degenerate (too few symbols to form two
+disjoint decile legs) -- expected at the very edges of the corpus, not itself an error.
+
+**Recommended manual cadence:** run the plain incremental invocation periodically (weekly is
+reasonable) to keep the OOS shadow track record current as new bars accumulate, then re-run
+both evaluation modes to refresh the verdict artifacts. No timer enforces this -- it is a
+manual operator action.
+
+**Recovery:** `scripts/infrastructure/backfill/infrastructure_truncate_derived_tables.sh`
+truncates `construction_spreads` before `alpha_frames` on a corpus rebuild. After a truncate,
+`--backfill` is the documented way to repopulate the table from scratch -- do not attempt to
+resume from the incremental mode against an empty table (it will correctly detect an empty
+table and fall back to backfill mode automatically, but running `--backfill` explicitly makes
+the intent visible in the log).
+
 ### Service Management
 
 ```bash
@@ -220,7 +283,7 @@ sudo systemctl restart indicagent-<service>
 sudo systemctl daemon-reload
 sudo systemctl restart indicagent-<service>
 
-# Logs (journald shows print() only — structured logs in logs/<service>.log)
+# Logs (journald shows print() only -- structured logs in logs/<service>.log)
 journalctl -u indicagent-<service> -n 50
 journalctl -u indicagent-<service> -f
 tail -f logs/<service>.log
@@ -455,16 +518,16 @@ docker exec redpanda rpk group describe feature_pipeline_group
 
 ## Observability Stack
 
-**Telemetry is push-based** — services push OTLP to the Collector, no per-service scrape endpoints.
+**Telemetry is push-based** -- services push OTLP to the Collector, no per-service scrape endpoints.
 
 | Component | Port | Purpose |
 |-----------|------|---------|
 | OTel Collector | `:4317` (gRPC), `:4318` (HTTP), `:8889` (Prometheus) | Central telemetry hub |
 | Prometheus | `:9090` | Scrapes Collector `:8889` only; evaluates alert rules |
-| Grafana | `:3001` | Dashboards — datasources: Prometheus, Tempo, Loki |
+| Grafana | `:3001` | Dashboards -- datasources: Prometheus, Tempo, Loki |
 | Loki | `:3100` | Log aggregation (receives from OTel Collector) |
 | Tempo | `:3200` (HTTP), `:4317` (OTLP) | Distributed traces (receives from OTel Collector) |
-| Alertmanager | `:9093` | Alert routing — receives from Prometheus |
+| Alertmanager | `:9093` | Alert routing -- receives from Prometheus |
 
 **Verification:**
 ```bash
@@ -478,7 +541,7 @@ docker logs indicagent-otel-collector --tail 20
 # Config in production/grafana/provisioning/datasources/
 ```
 
-**Alert rules:** `production/alertmanager-rules.yml` (must be volume-mounted — Prometheus silently loads zero rules if missing)
+**Alert rules:** `production/alertmanager-rules.yml` (must be volume-mounted -- Prometheus silently loads zero rules if missing)
 
 ---
 
@@ -570,10 +633,10 @@ docker exec redpanda rpk group describe <group-name>
 
 ## See Also
 
-- **Foundation:** `docs/foundation/principles.md` — Renaissance principles
-- **Database:** `docs/operations/operations-database.md` — TimescaleDB operations
-- **Observability:** `docs/operations/operations-observability.md` — Metrics, tracing, dashboards
-- **Security:** `docs/operations/operations-security.md` — Security procedures
-- **Deployment:** `docs/development/setup.md` — Initial machine setup
-- **Self-healing:** `docs/architecture/self-healing.md` — Self-healing architecture
-- **Unit files:** `production/systemd/*.service` — Service templates
+- **Foundation:** `docs/foundation/principles.md` -- Renaissance principles
+- **Database:** `docs/operations/operations-database.md` -- TimescaleDB operations
+- **Observability:** `docs/operations/operations-observability.md` -- Metrics, tracing, dashboards
+- **Security:** `docs/operations/operations-security.md` -- Security procedures
+- **Deployment:** `docs/development/setup.md` -- Initial machine setup
+- **Self-healing:** `docs/architecture/self-healing.md` -- Self-healing architecture
+- **Unit files:** `production/systemd/*.service` -- Service templates
