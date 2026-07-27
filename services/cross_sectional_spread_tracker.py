@@ -344,10 +344,12 @@ def shuffled_ranking_null_p(
     The permutation of a bar's feature values does not depend on which return scale
     (`return_fast` vs `return_slow`) is being tested -- only on that bar's symbol count and the
     RNG's draw sequence. Calling this function once per scale with the SAME `seed` therefore
-    reproduces the identical sequence of within-bar permutations for both scales "for free" --
-    the efficiency lesson from the T3 script's `_generate_shuffled_feature_draws` docstring,
-    which generates the permutation draws once and reuses them across both scales rather than
-    re-permuting per scale.
+    reproduces a bit-identical sequence of within-bar permutations for both scales. NOTE this is
+    weaker than the T3 script's `_generate_shuffled_feature_draws` efficiency lesson (generate
+    the draws once, reuse across scales): each call here independently re-runs the permutation
+    loop, so the draws are reproduced identically but not literally cached/reused -- correct,
+    with the redundant work accepted given the OOS window's small size (hundreds of bars, tens
+    of shuffles per call).
 
     Raises:
         ValueError: if the eligible-bar count is not identical across all `n_shuffles` draws --
@@ -842,10 +844,7 @@ class CrossSectionalSpreadTracker(BaseBatch):
             )
             itersize = _cfg(cfg_dict, "infra.cross_sectional_spread_tracker.itersize", 5000)
             chunk_size = _cfg(cfg_dict, "infra.cross_sectional_spread_tracker.chunk_size", 5000)
-            # json-typed key: cfg()'s type(default)(val) cast breaks on a list default, so this
-            # one key is read raw and json.loads'd directly (migration 260's design decision 5).
-            raw_cost_bps = cfg_dict.get("alpha.construction.cost_hurdle_bps_round_trip")
-            cost_bps = json.loads(raw_cost_bps) if raw_cost_bps is not None else [1, 3, 5, 10]
+            cost_bps = _parse_cost_hurdle_bps(cfg_dict)
             validate_construction_config(
                 decile_fraction, cost_bps, null_shuffles, attribution_max_static_r2
             )
@@ -1102,6 +1101,71 @@ def _gate1_verdict_text(scale: str, binding: dict[str, Any] | None, null_clears:
     return f"{scale}: does not clear its own bootstrap CI (ci_lower <= 0) -- fails at this scale"
 
 
+def _parse_cost_hurdle_bps(cfg_dict: Mapping[str, Any]) -> list[int]:
+    """`alpha.construction.cost_hurdle_bps_round_trip` is the phase's one json-typed APR key.
+    `cfg()`'s `type(default)(val)` cast breaks on a list default (`list("[1,3,5,10]")` splits
+    into characters -- Plan 01 design decision 5), so this reads the raw dict value and
+    `json.loads`s it directly, falling back to the seeded default when absent."""
+    raw_cost_bps = cfg_dict.get("alpha.construction.cost_hurdle_bps_round_trip")
+    return json.loads(raw_cost_bps) if raw_cost_bps is not None else [1, 3, 5, 10]
+
+
+async def _open_evaluation_connection(db_dsn: str) -> asyncpg.Connection:
+    """Bare `asyncpg.connect` for a read-only reporting branch (no pool -- mirrors
+    `counterfactual_tracker`'s evaluation-mode connections). `_setup_codecs` MUST be called
+    explicitly here: unlike `BaseBatch`'s pooled `create_pool()`, a bare connection has no
+    JSONB type codec registered, so jsonb columns come back as raw JSON text rather than
+    `dict` (the bug Task 2 hit and fixed on this service's first live `--evaluate-gate` run)."""
+    conn = await asyncpg.connect(db_dsn)
+    await _setup_codecs(conn)
+    return conn
+
+
+async def _load_gate_evaluation_context(conn: asyncpg.Connection, mode_flag: str) -> dict[str, Any]:
+    """Load and validate the APR values both `--evaluate-gate` and `--evaluate-attribution`
+    need before any panel work begins (T-167-01, ASVS V5), plus the OOS boundary both modes
+    gate on. `mode_flag` (e.g. `"--evaluate-gate"`) names the caller in the missing-boundary
+    error message only -- the query and validation are identical for both modes."""
+    cfg_dict = await _load_apr(conn)
+    min_n = _cfg(cfg_dict, "alpha.scoring.min_strategy_n", 30)
+    bootstrap_max_n = _cfg(cfg_dict, "alpha.scoring.bootstrap_max_n", 5000)
+    bootstrap_batch = _cfg(cfg_dict, "alpha.scoring.bootstrap_batch", 1000)
+    bootstrap_random_state = _cfg(
+        cfg_dict, "alpha.scoring.bootstrap_random_state", _DEFAULT_BOOTSTRAP_RANDOM_STATE
+    )
+    decile_fraction = _cfg(cfg_dict, "alpha.construction.decile_fraction", 0.10)
+    attribution_max_static_r2 = _cfg(cfg_dict, "alpha.construction.attribution_max_static_r2", 0.50)
+    null_shuffles = _cfg(cfg_dict, "alpha.construction.null_shuffles", 40)
+    cost_bps = _parse_cost_hurdle_bps(cfg_dict)
+    validate_construction_config(
+        decile_fraction, cost_bps, null_shuffles, attribution_max_static_r2
+    )
+
+    oos_start = await conn.fetchval(
+        "SELECT config_value::timestamptz FROM config_state "
+        "WHERE config_key = 'alpha.validation.oos_start'"
+    )
+    if oos_start is None:
+        raise RuntimeError(
+            f"cross_sectional_spread_tracker {mode_flag} FAILED: "
+            "alpha.validation.oos_start is not set in config_state -- a missing OOS "
+            "boundary would silently exclude every row from the gate "
+            "(bar_ts >= NULL never matches)."
+        )
+
+    return {
+        "min_n": min_n,
+        "bootstrap_max_n": bootstrap_max_n,
+        "bootstrap_batch": bootstrap_batch,
+        "bootstrap_random_state": bootstrap_random_state,
+        "decile_fraction": decile_fraction,
+        "attribution_max_static_r2": attribution_max_static_r2,
+        "null_shuffles": null_shuffles,
+        "cost_bps": cost_bps,
+        "oos_start": oos_start,
+    }
+
+
 async def _run_evaluate_gate(db_dsn: str) -> None:
     """--evaluate-gate CLI mode: Validation Gate 1 -- a day-clustered bootstrap CI over the
     persisted net-of-cost spread across the OOS window (`bar_ts >= alpha.validation.oos_start`,
@@ -1113,39 +1177,20 @@ async def _run_evaluate_gate(db_dsn: str) -> None:
     The only filesystem side effect is the verdict artifact written by
     `write_verdict_artifact`; no `construction_spreads` row is ever written here.
     """
-    conn = await asyncpg.connect(db_dsn)
-    await _setup_codecs(conn)
+    conn = await _open_evaluation_connection(db_dsn)
     try:
-        # (1) Load and validate APR BEFORE any panel work begins (T-167-01, ASVS V5).
-        cfg_dict = await _load_apr(conn)
-        min_n = _cfg(cfg_dict, "alpha.scoring.min_strategy_n", 30)
-        bootstrap_max_n = _cfg(cfg_dict, "alpha.scoring.bootstrap_max_n", 5000)
-        bootstrap_batch = _cfg(cfg_dict, "alpha.scoring.bootstrap_batch", 1000)
-        bootstrap_random_state = _cfg(
-            cfg_dict, "alpha.scoring.bootstrap_random_state", _DEFAULT_BOOTSTRAP_RANDOM_STATE
-        )
-        decile_fraction = _cfg(cfg_dict, "alpha.construction.decile_fraction", 0.10)
-        attribution_max_static_r2 = _cfg(
-            cfg_dict, "alpha.construction.attribution_max_static_r2", 0.50
-        )
-        null_shuffles = _cfg(cfg_dict, "alpha.construction.null_shuffles", 40)
-        raw_cost_bps = cfg_dict.get("alpha.construction.cost_hurdle_bps_round_trip")
-        cost_bps = json.loads(raw_cost_bps) if raw_cost_bps is not None else [1, 3, 5, 10]
-        validate_construction_config(
-            decile_fraction, cost_bps, null_shuffles, attribution_max_static_r2
-        )
-
-        oos_start = await conn.fetchval(
-            "SELECT config_value::timestamptz FROM config_state "
-            "WHERE config_key = 'alpha.validation.oos_start'"
-        )
-        if oos_start is None:
-            raise RuntimeError(
-                "cross_sectional_spread_tracker --evaluate-gate FAILED: "
-                "alpha.validation.oos_start is not set in config_state -- a missing OOS "
-                "boundary would silently exclude every row from the gate "
-                "(bar_ts >= NULL never matches)."
-            )
+        # (1) Load and validate APR, and resolve the OOS boundary, BEFORE any panel work
+        # begins (T-167-01, ASVS V5).
+        ctx = await _load_gate_evaluation_context(conn, "--evaluate-gate")
+        min_n = ctx["min_n"]
+        bootstrap_max_n = ctx["bootstrap_max_n"]
+        bootstrap_batch = ctx["bootstrap_batch"]
+        bootstrap_random_state = ctx["bootstrap_random_state"]
+        decile_fraction = ctx["decile_fraction"]
+        attribution_max_static_r2 = ctx["attribution_max_static_r2"]
+        null_shuffles = ctx["null_shuffles"]
+        cost_bps = ctx["cost_bps"]
+        oos_start = ctx["oos_start"]
 
         # (2) OOS segment -- the gate. `bar_ts >= oos_start` (design decision 1: the OPPOSITE
         # direction of counterfactual_tracker's FRAME-04 in-sample exit gate, which uses `<`
@@ -1361,39 +1406,20 @@ async def _run_evaluate_attribution(db_dsn: str) -> None:
     filesystem side effect is the verdict artifact written by `write_verdict_artifact`; no
     `construction_spreads` row is ever written here.
     """
-    conn = await asyncpg.connect(db_dsn)
-    await _setup_codecs(conn)
+    conn = await _open_evaluation_connection(db_dsn)
     try:
-        # (1) Load and validate APR BEFORE any panel work begins (T-167-01, ASVS V5).
-        cfg_dict = await _load_apr(conn)
-        min_n = _cfg(cfg_dict, "alpha.scoring.min_strategy_n", 30)
-        bootstrap_max_n = _cfg(cfg_dict, "alpha.scoring.bootstrap_max_n", 5000)
-        bootstrap_batch = _cfg(cfg_dict, "alpha.scoring.bootstrap_batch", 1000)
-        bootstrap_random_state = _cfg(
-            cfg_dict, "alpha.scoring.bootstrap_random_state", _DEFAULT_BOOTSTRAP_RANDOM_STATE
-        )
-        decile_fraction = _cfg(cfg_dict, "alpha.construction.decile_fraction", 0.10)
-        attribution_max_static_r2 = _cfg(
-            cfg_dict, "alpha.construction.attribution_max_static_r2", 0.50
-        )
-        null_shuffles = _cfg(cfg_dict, "alpha.construction.null_shuffles", 40)
-        raw_cost_bps = cfg_dict.get("alpha.construction.cost_hurdle_bps_round_trip")
-        cost_bps = json.loads(raw_cost_bps) if raw_cost_bps is not None else [1, 3, 5, 10]
-        validate_construction_config(
-            decile_fraction, cost_bps, null_shuffles, attribution_max_static_r2
-        )
-
-        oos_start = await conn.fetchval(
-            "SELECT config_value::timestamptz FROM config_state "
-            "WHERE config_key = 'alpha.validation.oos_start'"
-        )
-        if oos_start is None:
-            raise RuntimeError(
-                "cross_sectional_spread_tracker --evaluate-attribution FAILED: "
-                "alpha.validation.oos_start is not set in config_state -- a missing OOS "
-                "boundary would silently exclude every row from the gate "
-                "(bar_ts >= NULL never matches)."
-            )
+        # (1) Load and validate APR, and resolve the OOS boundary, BEFORE any panel work
+        # begins (T-167-01, ASVS V5).
+        ctx = await _load_gate_evaluation_context(conn, "--evaluate-attribution")
+        min_n = ctx["min_n"]
+        bootstrap_max_n = ctx["bootstrap_max_n"]
+        bootstrap_batch = ctx["bootstrap_batch"]
+        bootstrap_random_state = ctx["bootstrap_random_state"]
+        decile_fraction = ctx["decile_fraction"]
+        attribution_max_static_r2 = ctx["attribution_max_static_r2"]
+        null_shuffles = ctx["null_shuffles"]
+        cost_bps = ctx["cost_bps"]
+        oos_start = ctx["oos_start"]
 
         # (2) OOS leg-membership + gross-spread rows -- the source of both the static tilt
         # weights and the dependent variable being regressed.

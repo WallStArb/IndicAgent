@@ -40,6 +40,24 @@ from services.cross_sectional_spread_tracker import (
     write_verdict_artifact,
 )
 
+# 10-symbol cross-section at decile_fraction=0.20 (n_leg=2) where C and D share the EXACT same
+# feature value (2.0), straddling the short-leg cut: sorted ascending by (value, symbol) the
+# order is A(1), C(2), D(2), E(4), F(5), G(6), H(7), I(8), J(9), B(10) -- so the short leg
+# (first 2) takes A and C, leaving D just outside. Shared by test_decile_split_tied_and_missing_values
+# and test_shuffled_null_ties_and_degenerate_bars, both of which need the identical boundary tie.
+_BOUNDARY_TIE_VALUES = {
+    "A": 1.0,
+    "B": 10.0,
+    "C": 2.0,
+    "D": 2.0,
+    "E": 4.0,
+    "F": 5.0,
+    "G": 6.0,
+    "H": 7.0,
+    "I": 8.0,
+    "J": 9.0,
+}
+
 # ---------------------------------------------------------------------------
 # test_decile_split (167-VALIDATION.md row 167-02-01)
 # ---------------------------------------------------------------------------
@@ -89,18 +107,7 @@ def test_decile_split_tied_and_missing_values():
     # the EXACT same feature value (2.0), which straddles the short-leg cut: sorted ascending
     # by (value, symbol) the order is A(1), C(2), D(2), E(4), F(5), G(6), H(7), I(8), J(9),
     # B(10) -- so the short leg (first 2) takes A and C, leaving D just outside.
-    boundary_values = {
-        "A": 1.0,
-        "B": 10.0,
-        "C": 2.0,
-        "D": 2.0,
-        "E": 4.0,
-        "F": 5.0,
-        "G": 6.0,
-        "H": 7.0,
-        "I": 8.0,
-        "J": 9.0,
-    }
+    boundary_values = _BOUNDARY_TIE_VALUES
     as_given_symbols = list(boundary_values.keys())
     as_given_values = [boundary_values[s] for s in as_given_symbols]
     reversed_symbols = list(reversed(as_given_symbols))
@@ -514,18 +521,7 @@ def test_shuffled_null_ties_and_degenerate_bars(monkeypatch):
         {s: 0.001 * i for i, s in enumerate(tied_symbols)},
     )
 
-    boundary_values = {
-        "A": 1.0,
-        "B": 10.0,
-        "C": 2.0,
-        "D": 2.0,
-        "E": 4.0,
-        "F": 5.0,
-        "G": 6.0,
-        "H": 7.0,
-        "I": 8.0,
-        "J": 9.0,
-    }
+    boundary_values = _BOUNDARY_TIE_VALUES
     boundary_symbols = list(boundary_values.keys())
     boundary_tied_bar = (
         boundary_symbols,
