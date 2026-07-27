@@ -60,8 +60,10 @@ run recomputes exactly those bars, seeding turnover from the last surviving pers
 produces a table identical to an uninterrupted run.
 
 Usage:
-    python services/cross_sectional_spread_tracker.py             # incremental compute-and-persist
-    python services/cross_sectional_spread_tracker.py --backfill  # full-corpus first pass
+    python services/cross_sectional_spread_tracker.py                    # incremental compute-and-persist
+    python services/cross_sectional_spread_tracker.py --backfill         # full-corpus first pass
+    python services/cross_sectional_spread_tracker.py --evaluate-gate    # read-only Gate 1
+    python services/cross_sectional_spread_tracker.py --evaluate-attribution  # read-only Gate 2
 """
 
 from __future__ import annotations
@@ -767,6 +769,17 @@ _GATE_ROWS_IN_SAMPLE_SQL = """
 # shuffled-ranking null (design decision 4 -- never derived from persisted rows).
 _GATE_PANEL_SQL = _PANEL_SQL_TEMPLATE.format(watermark_clause="AND fv.bar_ts >= $2")
 
+# --evaluate-attribution mode (Validation Gate 2): OOS leg-membership + gross-spread rows,
+# read-only. Same `one_way_turnover IS NOT NULL` exclusion as _GATE_ROWS_SQL. Ordered so the
+# result is directly usable without an extra client-side sort.
+_ATTRIBUTION_ROWS_SQL = """
+    SELECT bar_ts, bar_ts::date AS cluster_id, long_leg_symbols, short_leg_symbols,
+           gross_spread_fast, gross_spread_slow
+    FROM construction_spreads
+    WHERE construction_name = $1 AND tf = $2 AND bar_ts >= $3 AND one_way_turnover IS NOT NULL
+    ORDER BY bar_ts ASC
+"""
+
 _INSERT_SQL = """
     INSERT INTO construction_spreads (
         construction_name, tf, bar_ts, n_universe, n_leg,
@@ -1295,6 +1308,236 @@ async def _run_evaluate_gate(db_dsn: str) -> None:
 
 
 # ---------------------------------------------------------------------------
+# Validation Gate 2 evaluation (--evaluate-attribution CLI mode)
+# ---------------------------------------------------------------------------
+
+# design decision 8: the literal caveat carried into every gate2_summary log line and verdict
+# artifact -- a surviving residual falsifies the static-tilt explanation without establishing
+# what does explain the return.
+_ATTRIBUTION_INTERPRETATION_CAVEAT = (
+    "The static-tilt benchmark is a retrospective, time-averaged summary of realized leg "
+    "membership over the same window whose returns it is used to explain, not a live or "
+    "causal decomposition of the strategy's mechanism. A surviving residual therefore "
+    "falsifies the static-tilt explanation without establishing what does explain the return."
+)
+
+
+def _attribution_verdict_text(scale: str, verdict: dict[str, Any]) -> str:
+    """The three-way Gate 2 verdict distinction, in the design doc's own terms (design
+    decision 8's PASS-wording constraint applies here: the PASS branch states only that the
+    P&L is "not explained by a static tilt," never that it is caused by or attributable to the
+    forecast -- this test cannot establish the latter."""
+    if verdict["gate2_passes"]:
+        return (
+            f"{scale}: PASS -- the residual clears zero at 95% CI (ci_lower="
+            f"{verdict['residual_ci_lower']:.6f}) and a fixed membership does not explain "
+            f"most of the spread (static_r2={verdict['static_r2']:.3f}); the P&L is not "
+            "explained by a static tilt"
+        )
+    if verdict["static_dominates"]:
+        return (
+            f"{scale}: FAIL, static tilt -- a fixed membership explains "
+            f"static_r2={verdict['static_r2']:.3f} of the spread, above the configured "
+            "ceiling, so the 'forecast' is a factor exposure in disguise (edge thesis T4); "
+            "cap expectations accordingly"
+        )
+    return (
+        f"{scale}: FAIL, no residual -- after removing the static component nothing survives "
+        f"at 95% CI (residual_ci_lower={verdict['residual_ci_lower']:.6f})"
+    )
+
+
+async def _run_evaluate_attribution(db_dsn: str) -> None:
+    """--evaluate-attribution CLI mode: Validation Gate 2 -- attribution honesty. Decomposes
+    the realized OOS spread (`bar_ts >= alpha.validation.oos_start`) into a static,
+    time-invariant leg-membership benchmark plus a residual, then gates the residual through
+    the SAME day-clustered bootstrap Gate 1 uses (`counterfactual_tracker.frame_gate_passes`,
+    reused verbatim via `attribution_verdict` -- no new bootstrap machinery). Structured
+    exactly like `_run_evaluate_gate`: a plain `asyncpg.connect` (not a pool -- this is a
+    read-only reporting branch), no database writes, no D-06 `job_completed_total` emission --
+    this performs no persistence, unlike `CrossSectionalSpreadTracker.execute()`. The only
+    filesystem side effect is the verdict artifact written by `write_verdict_artifact`; no
+    `construction_spreads` row is ever written here.
+    """
+    conn = await asyncpg.connect(db_dsn)
+    try:
+        # (1) Load and validate APR BEFORE any panel work begins (T-167-01, ASVS V5).
+        cfg_dict = await _load_apr(conn)
+        min_n = _cfg(cfg_dict, "alpha.scoring.min_strategy_n", 30)
+        bootstrap_max_n = _cfg(cfg_dict, "alpha.scoring.bootstrap_max_n", 5000)
+        bootstrap_batch = _cfg(cfg_dict, "alpha.scoring.bootstrap_batch", 1000)
+        bootstrap_random_state = _cfg(
+            cfg_dict, "alpha.scoring.bootstrap_random_state", _DEFAULT_BOOTSTRAP_RANDOM_STATE
+        )
+        decile_fraction = _cfg(cfg_dict, "alpha.construction.decile_fraction", 0.10)
+        attribution_max_static_r2 = _cfg(
+            cfg_dict, "alpha.construction.attribution_max_static_r2", 0.50
+        )
+        null_shuffles = _cfg(cfg_dict, "alpha.construction.null_shuffles", 40)
+        raw_cost_bps = cfg_dict.get("alpha.construction.cost_hurdle_bps_round_trip")
+        cost_bps = json.loads(raw_cost_bps) if raw_cost_bps is not None else [1, 3, 5, 10]
+        validate_construction_config(
+            decile_fraction, cost_bps, null_shuffles, attribution_max_static_r2
+        )
+
+        oos_start = await conn.fetchval(
+            "SELECT config_value::timestamptz FROM config_state "
+            "WHERE config_key = 'alpha.validation.oos_start'"
+        )
+        if oos_start is None:
+            raise RuntimeError(
+                "cross_sectional_spread_tracker --evaluate-attribution FAILED: "
+                "alpha.validation.oos_start is not set in config_state -- a missing OOS "
+                "boundary would silently exclude every row from the gate "
+                "(bar_ts >= NULL never matches)."
+            )
+
+        # (2) OOS leg-membership + gross-spread rows -- the source of both the static tilt
+        # weights and the dependent variable being regressed.
+        attribution_rows = [
+            dict(r)
+            for r in await conn.fetch(_ATTRIBUTION_ROWS_SQL, _CONSTRUCTION_NAME, _TF, oos_start)
+        ]
+        # (3) Raw OOS panel for the return series -- same query Gate 1's null check uses.
+        panel_rows = [dict(r) for r in await conn.fetch(_GATE_PANEL_SQL, _TF, oos_start)]
+    finally:
+        await conn.close()
+
+    if not attribution_rows:
+        raise RuntimeError(
+            "cross_sectional_spread_tracker --evaluate-attribution FAILED: no OOS "
+            "construction_spreads rows found -- run --backfill or the incremental pass first."
+        )
+
+    # (4) Static bucket membership: scale-independent, computed once over the OOS leg history.
+    weights = static_tilt_weights(attribution_rows)
+
+    attribution_rows_by_bar = {row["bar_ts"]: row for row in attribution_rows}
+
+    verdict_by_scale: dict[str, dict[str, Any]] = {}
+    for scale, return_col, gross_col in (
+        ("fast", "return_fast", "gross_spread_fast"),
+        ("slow", "return_slow", "gross_spread_slow"),
+    ):
+        panel_by_bar = _build_panel_by_bar(panel_rows, return_col)
+        returns_map_by_bar = {bar_ts: v[2] for bar_ts, v in panel_by_bar.items()}
+
+        # (5) Restrict to the INTERSECTION of bar_ts present in both sources (and to bars
+        # whose gross spread at this scale is non-NULL) before regressing -- a bar present in
+        # one source and not the other would misalign the series. `attribution_verdict`'s own
+        # length/duplicate/ordering checks (design decision 9) are the second line of defense,
+        # not the first.
+        eligible_bar_ts = sorted(
+            bar_ts
+            for bar_ts in (set(attribution_rows_by_bar) & set(returns_map_by_bar))
+            if attribution_rows_by_bar[bar_ts][gross_col] is not None
+        )
+        n_attribution_rows = len(attribution_rows_by_bar)
+        n_panel_bars = len(returns_map_by_bar)
+        n_intersection = len(eligible_bar_ts)
+        _logger.info(
+            "cross_sectional_spread_tracker.attribution_intersection",
+            scale=scale,
+            n_attribution_rows=n_attribution_rows,
+            n_panel_bars=n_panel_bars,
+            n_intersection=n_intersection,
+        )
+
+        intersection_panel = {bar_ts: returns_map_by_bar[bar_ts] for bar_ts in eligible_bar_ts}
+        # (6) Build all four parallel sequences in ONE ordered pass over the sorted
+        # intersection, so spread/static/cluster/bar-key cannot drift relative to each other.
+        static_bar_ts_list, static_values = static_tilt_series(intersection_panel, weights)
+        spread_values = [
+            attribution_rows_by_bar[bar_ts][gross_col] for bar_ts in static_bar_ts_list
+        ]
+        cluster_ids = [
+            attribution_rows_by_bar[bar_ts]["cluster_id"] for bar_ts in static_bar_ts_list
+        ]
+        bar_keys = static_bar_ts_list
+
+        verdict = attribution_verdict(
+            spread_values,
+            static_values,
+            cluster_ids,
+            bar_keys,
+            attribution_max_static_r2,
+            min_n,
+            bootstrap_max_n,
+            bootstrap_batch,
+            bootstrap_random_state,
+        )
+        verdict_by_scale[scale] = verdict
+        _logger.info(
+            "cross_sectional_spread_tracker.attribution_verdict",
+            scale=scale,
+            segment="oos",
+            max_static_r2=attribution_max_static_r2,
+            **verdict,
+        )
+
+    # (7) Binding Gate 2 verdict (design decision 7): both scales' gate2_passes must be true.
+    gate2_passes_overall = bool(
+        verdict_by_scale["fast"]["gate2_passes"] and verdict_by_scale["slow"]["gate2_passes"]
+    )
+    verdict_text = " | ".join(
+        [
+            _attribution_verdict_text("fast", verdict_by_scale["fast"]),
+            _attribution_verdict_text("slow", verdict_by_scale["slow"]),
+        ]
+    )
+
+    _logger.info(
+        "cross_sectional_spread_tracker.gate2_summary",
+        gate2_passes_overall=gate2_passes_overall,
+        fast_static_r2=verdict_by_scale["fast"]["static_r2"],
+        slow_static_r2=verdict_by_scale["slow"]["static_r2"],
+        fast_residual_ci_lower=verdict_by_scale["fast"]["residual_ci_lower"],
+        slow_residual_ci_lower=verdict_by_scale["slow"]["residual_ci_lower"],
+        benchmark_kind="retrospective_time_averaged_membership",
+        verdict_text=verdict_text,
+        interpretation_caveat=_ATTRIBUTION_INTERPRETATION_CAVEAT,
+    )
+
+    # (8) Assemble and persist the ENTIRE verdict as durable strict JSON before any human
+    # transcribes it (T-167-17), reusing Plan 04's helper unchanged.
+    n_oos_day_clusters = len({row["cluster_id"] for row in attribution_rows})
+    payload: dict[str, Any] = {
+        "gate2_passes_overall": gate2_passes_overall,
+        "verdict_by_scale": verdict_by_scale,
+        "max_static_r2": attribution_max_static_r2,
+        "static_tilt_weights": weights,
+        "oos_start": str(oos_start),
+        "n_oos_rows": len(attribution_rows),
+        "n_oos_day_clusters": n_oos_day_clusters,
+        "benchmark_kind": "retrospective_time_averaged_membership",
+        "interpretation_caveat": _ATTRIBUTION_INTERPRETATION_CAVEAT,
+        "compute_version": CrossSectionalSpreadTracker.compute_version,
+        "verdict_text": verdict_text,
+    }
+    artifact_path = write_verdict_artifact("gate2", payload)
+    _logger.info(
+        "cross_sectional_spread_tracker.gate2_verdict_artifact_written",
+        artifact_path=str(artifact_path),
+    )
+
+    manifest = CorpusManifest(
+        "cross_sectional_spread_tracker_attribution", CorpusManifest.DEFAULT_MANIFEST_DIR
+    )
+    manifest.set_inputs(
+        n_cells=len(verdict_by_scale),
+        oos_start=str(oos_start),
+        gate2_passes_overall=gate2_passes_overall,
+    )
+    manifest.add_output(
+        table_name="construction_spreads_attribution_verdicts", rows_total=len(verdict_by_scale)
+    )
+    manifest.mark_success()
+    manifest.write()
+    # No D-06 job_completed_total emission -- this performs no persistence (mirrors
+    # _run_evaluate_gate's own explicit no-persistence contract).
+
+
+# ---------------------------------------------------------------------------
 # Entrypoint
 # ---------------------------------------------------------------------------
 
@@ -1305,7 +1548,10 @@ if __name__ == "__main__":
             "long-short construction (D-03/D-04)"
         )
     )
-    parser.add_argument(
+    # Mutually exclusive: a write pass (--backfill) and either read-only gate can never be
+    # requested in the same invocation -- an operator would otherwise silently get only one.
+    mode_group = parser.add_mutually_exclusive_group()
+    mode_group.add_argument(
         "--backfill",
         action="store_true",
         help=(
@@ -1314,7 +1560,7 @@ if __name__ == "__main__":
             "correct choice for every subsequent invocation."
         ),
     )
-    parser.add_argument(
+    mode_group.add_argument(
         "--evaluate-gate",
         action="store_true",
         help=(
@@ -1322,6 +1568,18 @@ if __name__ == "__main__":
             "(lookahead scale, cost tier) via the day-clustered bootstrap plus a live "
             "shuffled-ranking null. Writes a JSON verdict artifact under "
             "logs/construction_verdicts/. Read-only -- writes no construction_spreads rows."
+        ),
+    )
+    mode_group.add_argument(
+        "--evaluate-attribution",
+        action="store_true",
+        help=(
+            "Evaluate Validation Gate 2 (attribution honesty) over "
+            "bar_ts >= alpha.validation.oos_start by regressing the realized spread on a "
+            "static, time-invariant leg-membership benchmark and gating the residual through "
+            "the same day-clustered bootstrap Gate 1 uses. The benchmark is retrospective, "
+            "not causal. Writes a JSON verdict artifact under logs/construction_verdicts/. "
+            "Read-only -- writes no construction_spreads rows."
         ),
     )
     args = parser.parse_args()
@@ -1336,5 +1594,7 @@ if __name__ == "__main__":
 
     if args.evaluate_gate:
         asyncio.run(_run_evaluate_gate(db_dsn))
+    elif args.evaluate_attribution:
+        asyncio.run(_run_evaluate_attribution(db_dsn))
     else:
         asyncio.run(CrossSectionalSpreadTracker(db_dsn, backfill=args.backfill).run())
