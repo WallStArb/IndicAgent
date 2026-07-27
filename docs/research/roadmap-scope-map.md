@@ -1,7 +1,10 @@
 # Roadmap Scope & Impact Map
 
 **Status:** current
-**Last Updated:** 2026-07-23 (Phase 148's OOS verdict landed — see area 1 and the ranking note below; re-ranked against `PROJECT.md`'s confirmed endgame: personal live trading capital)
+**Last Updated:** 2026-07-27 (Phase 166 diagnosed Gate 2's failure decisively — neither
+candidate promoted; Phase 167 then found a construction that passes both gates — see area 1
+and the ranking note below; re-ranked against `PROJECT.md`'s confirmed endgame: personal live
+trading capital)
 **Purpose:** one page, high level — what's weak or missing in each major area of the system,
 what's being proposed to address it, and roughly how much it matters. Built for product-management
 scanning (scope and breadth), not implementation detail. For depth: `idea-catalog.md` is the full
@@ -20,18 +23,29 @@ instead, not a reason to expand this doc.
 trading capital, not a commercial product or pure research exercise. "Impact" below means
 distance-to-placing-a-real-trade-with-real-money, not general engineering value.**
 
-**Update 2026-07-23:** Phase 148 ran the two OOS proof gates this whole ranking's #1 item existed
-to produce. Result is a split verdict, not a clean pass: Gate 1 (signal proof) **PASS** —
+**Update 2026-07-27:** Phase 148 ran the two OOS proof gates this whole ranking's #1 item existed
+to produce. Result was a split verdict: Gate 1 (signal proof) **PASS** —
 `alpha_score` genuinely predicts forward returns out-of-sample (21.875% of 5m/15m cells qualify,
 >10x the 2% floor). Gate 2 (execution proof) **FAIL**, decisively — 3 of 5 SHADOW-REVIEW criteria
-fail, including a ~960% max drawdown against a 0.25 ceiling. Decision: do not promote to live
-capital. This moves the hard gate from "does edge exist" (area 1, now partially answered) to
-"can the current frame/execution rules capture it" (area 2's territory) — ROADMAP Phase 166
-(Frame/Execution Recalibration, registered 2026-07-23, not yet planned) is now the literal
-next step, not a generic area-2 backlog item. See area 1's bullets below for detail.
+fail, including a ~960% max drawdown against a 0.25 ceiling. Do not promote that construction to
+live capital. **Phase 166 (2026-07-23) diagnosed why, decisively:** neither the baseline nor a
+retuned scalar stop/target candidate cleared gate166's drawdown ceiling; the direct follow-on
+(todo 179) found the real cause is a market-data fact, not an execution-frame defect —
+`mid_bull`'s raw, un-barriered forward return is negative at every horizon, which no
+stop/target/hold tuning fixes. That closed "recalibrate the existing construction" and opened a
+fork: more features, a different construction over the *existing* features, or accept no edge.
+**Phase 167 (Cross-Sectional Trade Construction, T3) resolved it 2026-07-27 — COMPLETE, both
+live Validation Gates PASSED** (`gate1_passes=true`, `gate2_passes_overall=true`) against the
+real OOS population, the first construction in this project to clear both. This is the new
+central fact: the pipeline's signal-generation side is proven both ways (per-symbol Gate 1 and
+now a cross-sectional construction clearing Gate 2 too). Phase 156-159's stated precondition
+(a proven, attribution-honest signal) is now met — **but the user redirected priority
+2026-07-27 toward validating the features/regimes/IC/ensemble signal-generation stack further
+before investing in execution/sizing**, so 156-159 is not the literal next step despite being
+unblocked. See area 1's bullets below for detail.
 
-1. **Core Alpha Pipeline** — highest, though its central open question (does OOS edge exist) is now half-answered: signal proof passed, execution proof failed. The hard gate has shifted from "prove edge exists" to "can it be captured" — see the 2026-07-23 update above and area 3 below.
-2. **Signal / Trade Construction Layer (incl. minimum risk management)** — promoted, and now carries the actual next-step item: Phase 166 diagnosing Gate 2's failure and recalibrating stop/target/hold against the IC decay curve. Minimum risk controls (position limits, drawdown circuit breakers) belong here too, not filed under long-horizon product vision — see area 3.
+1. **Core Alpha Pipeline** — highest. Its central open question (does OOS edge exist, and is there a construction that captures it) is now answered for one construction: Phase 167's cross-sectional spread passed both gates. Current open thread is validating that signal-generation stack further (regime labels, ensemble combiner) before building on top of it — see the 2026-07-27 update above.
+2. **Signal / Trade Construction Layer (incl. minimum risk management)** — Phase 167 shipped a construction that clears both gates; Phase 156-159 (size/execute it) is unblocked but deliberately not started yet, pending further signal-stack validation. Minimum risk controls (position limits, drawdown circuit breakers) belong here too, not filed under long-horizon product vision — see area 3.
 3. **Platform / Infrastructure** — promoted from background risk. Real capital raises the cost of a silent bug or crash from "embarrassing" to "lost money" — reliability work matters more now than it did as a pure research system.
 4. **Governance / Concept Lifecycle** — still foundational and cheap now, but less urgent than 2-3 under this lens.
 5. **AI / Agentic Layer** — low, by design. Restraint is the correct call right now, not investment.
@@ -44,14 +58,16 @@ next step, not a generic area-2 backlog item. See area 1's bullets below for det
 ## 1. Core Alpha Pipeline (Stages 0-4: Feature Factory → Stratification → Edge Measurement → Ensemble → Emission)
 
 **Weak / open:**
-- **Phase 148's OOS gates landed a split verdict (2026-07-23), the central fact for this whole area now:** Gate 1 (signal proof) PASS — `alpha_score` genuinely predicts forward returns OOS (21.875% of 5m/15m cells qualify). Gate 2 (execution proof) FAIL, decisively — 3 of 5 SHADOW-REVIEW criteria fail (~960% max drawdown vs a 0.25 ceiling). Do not promote to live capital. The pipeline's signal-generation side is proven; its frame/execution side is not. See `docs/plans/2026-07-22-phase148-promotion-decision.md` for full evidence.
+- **Phase 148's OOS gates found the per-symbol directional construction's signal was real but its execution frame wasn't (2026-07-22/23):** Gate 1 PASS, Gate 2 FAIL (~960% max drawdown vs a 0.25 ceiling). Phase 166 (2026-07-23) confirmed the frame couldn't be recalibrated to fix it — the real cause (todo 179) is `mid_bull`'s raw forward return being negative at every horizon, a market-data fact. **Phase 167 (2026-07-27) then found a construction that works: cross-sectional long-short decile spreads over `ctf_momentum` passed both live Validation Gates against the real OOS population** — the first construction here to clear Gate 2. See `docs/research/trade-construction-layer.md` and `docs/research/data-edge-source-thesis.md` for full evidence.
+- T5 (non-linear ensemble combiner) is a live open question, not yet a settled finding: cleared its canary-leakage check, but 2026-07-27's equity/1d replication confirmed the effect is small (~16x smaller than the original 1h magnitude), not the large effect first reported. 15m replication (the tf Phase 167 actually trades) is deferred on memory contention — todo 188.
 - Two regime systems (per-symbol HMM, cross-sectional VIX×breadth) still unreconciled — no single stratification contract.
 - No proof the intelligence vectors (Quant/Macro/Flow/Qual) are actually statistically independent — orthogonality is asserted, not measured.
 - No single unified orthogonalization/marginal-value gate exists — but the underlying discipline is real and distributed, not simply absent (corrected 2026-07-18, see `unified-orthogonalization-layer.md`'s superseded-note): feature-grain redundancy is already handled by `ensemble_trainer`'s live Ledoit-Wolf cluster deflation (decision D4); regime-grain substitution testing is specced in Phase 145; portfolio-grain effective-N/Kelly is specced in Phase 157 (not yet planned). The real gap is Phase 145 hasn't shipped and Phase 157 hasn't been planned, not that orthogonalization is unaddressed.
 - Edge measurement is Spearman-IC only — blind to real-but-nonmonotonic relationships.
 
 **Proposed:**
-- **Phase 166 (Frame/Execution Recalibration, registered 2026-07-23, not yet planned)** — diagnose Gate 2's failure and recalibrate stop/target/hold against the IC decay curve; the pre-registered playbook for exactly this split verdict. This is now the highest-impact concrete next step in this area — everything below is either already gated on a different question or unaffected by Gate 2's result.
+- **Todo 183's corpus recompute (in progress) under corrected regime labels (todo 092), then re-run todo 179's regime sweep** — the one open thread that could still change T2's provisional "dead" verdict; doesn't affect T3/Phase 167's own result (no regime dependency).
+- Phase 156-159 (Portfolio State/Sizing/Execution/Cost) — unblocked by Phase 167 clearing its stated precondition, but deliberately not started; user wants the signal-generation stack (features/regimes/IC/ensemble) validated further first.
 - `intel-12` StratificationDimension — unifies the two regime systems behind one contract (v3.15, Phases 144/145).
 - Phase 142B.1 — four candidate ensemble-weighting mechanisms (E1-E4) being A/B judged.
 - PrecedentEngine (`intel-precedent-engine.md`, renamed from AnalogEngine 2026-07-09 — corrected 2026-07-18) — non-parametric K-NN retrieval as an alternative predictor family, gated on the current pipeline's OOS proof holding up. Its gate is signal-level (Gate 1, which passed) — Gate 2's execution failure doesn't block this, since PrecedentEngine proposes an alternative predictor, not an alternative frame. Registered as ROADMAP Phase 150.
@@ -66,9 +82,9 @@ next step, not a generic area-2 backlog item. See area 1's bullets below for det
 
 ## 3. Signal / Trade Construction Layer (the live-trading on-ramp)
 
-**Weak:** no forecast-to-position translation yet (sizing, trade framing); no minimum risk management exists anywhere in the codebase today (no position limits, no drawdown circuit breaker); signal/trade separation architecture proposed but not fully realized; known SR/zone-engine accuracy gaps. **Phase 148 (2026-07-23) sharpened this: the existing frame simulation (stop/target/hold) fails execution proof decisively (Gate 2, 3/5 SHADOW-REVIEW criteria) even though the underlying signal is real (Gate 1 PASS) — this area's current frame design is now a demonstrated, not just suspected, weak point.**
+**Weak:** no forecast-to-position translation yet (sizing, trade framing) for the newly-proven Phase 167 construction; no minimum risk management exists anywhere in the codebase today (no position limits, no drawdown circuit breaker); known SR/zone-engine accuracy gaps. **The per-symbol directional construction's frame (Phase 148/166) is a demonstrated dead end — not a data problem, a construction-choice problem, resolved by switching to cross-sectional (Phase 167), not by further stop/target tuning.**
 
-**Proposed:** **Phase 166 (Frame/Execution Recalibration) is the immediate next step here**, not the longer-horizon Trade Construction Layer below — it diagnoses whether the *existing* frame can be recalibrated (stop/target/hold against the IC decay curve) before any v4.0 redesign is warranted. Trade Construction Layer (v4.0, gated on IC proof — signal-side proof cleared 2026-07-23, execution-side proof did not; this is the actual on-ramp to personal live trading, not a generic feature) should wait on Phase 166's finding, since building a new construction layer on top of a frame design already shown not to work would repeat the same gap. Canonical Simulator (binding rule shipped — one shared counterfactual ledger, no engine built yet); zone-engine refinements. Worth reading AegisAgent's risk-overlay design (area 6) and TradeAgent's execution-vehicle design specifically for reusable pieces before building this from scratch.
+**Proposed:** **Phase 156-159 (Portfolio State/Sizing/Execution/Cost) is the on-ramp to personal live trading now that Phase 167 has a construction proven through both gates** — its stated precondition (a proven, attribution-honest signal) is met. **Deliberately not started as of 2026-07-27**, per explicit user redirect: validate the features/regimes/IC/ensemble signal-generation stack further first (see area 1). Canonical Simulator (binding rule shipped — one shared counterfactual ledger, no engine built yet); zone-engine refinements. Worth reading AegisAgent's risk-overlay design (area 6) and TradeAgent's execution-vehicle design specifically for reusable pieces before building this from scratch.
 
 ## 4. Platform / Infrastructure
 
