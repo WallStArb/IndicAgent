@@ -422,3 +422,87 @@ async def test_cross_sectional_spread_recovers_from_interrupted_run() -> None:
                 f"been computed without the crash. Expected {expected_val!r}, got "
                 f"{actual_val!r}"
             )
+
+
+@pytest.mark.asyncio
+async def test_cross_sectional_spread_backfill_on_nonempty_table_does_not_fabricate_turnover() -> (
+    None
+):
+    """Code review CR-01 regression: a `--backfill` scan always starts at the true beginning of
+    its own scanned range and therefore has NO predecessor within that run, even if
+    `construction_spreads` already holds LATER rows from a prior run (e.g. an operator
+    re-running --backfill to pick up a newly onboarded symbol's earlier history -- the panel
+    query has no watermark in backfill mode, so it always rescans everything). Before the fix,
+    the prior-leg seed was resolved from the table's globally LATEST row regardless of mode,
+    which for this scenario would fabricate a non-null one_way_turnover for what is actually the
+    genuinely-first bar of the corpus -- exactly the NULL-vs-fabricated-value corruption
+    Pitfall 4 exists to prevent (migration 260's column comment: "A NULL count greater than 1 in
+    this table indicates a broken incremental run, never a data property" -- the inverse
+    failure, a fabricated non-NULL where NULL belongs, is equally a bug).
+
+    ON CONFLICT ... DO NOTHING means a corrupted seed value only becomes OBSERVABLE if the
+    would-be-corrupted bar's row does not already exist -- so this test deletes bar 1's row
+    (simulating "bar 1 was never computed, e.g. its earlier history just became available") and
+    re-runs --backfill against a table that still holds bars 2-4. Only then does bar 1's INSERT
+    actually execute, exposing whatever turnover value the seed step computed for it.
+    """
+    symbols = await _seed_and_get_symbols()
+    bar_timestamps = _bar_timestamps(4)
+
+    conn = await asyncpg.connect(_TEST_DB_URL)
+    try:
+        await _seed_bars(conn, symbols, bar_timestamps, _LEG_INDEX_PER_BAR)
+    finally:
+        await conn.close()
+
+    # First backfill populates all 4 bars on an empty table -- bar 1 correctly gets NULL
+    # turnover (genuinely no predecessor).
+    await CrossSectionalSpreadTracker(_TEST_DB_URL, backfill=True).run()
+
+    conn = await asyncpg.connect(_TEST_DB_URL)
+    try:
+        first_rows = await _fetch_rows(conn)
+        assert len(first_rows) == 4
+        assert first_rows[0]["one_way_turnover"] is None
+
+        # Delete ONLY bar 1's row, leaving bars 2-4 persisted -- the table's latest row is now
+        # bar 4, but bar 1 (the earliest bar in the panel) no longer exists and its INSERT will
+        # actually execute on the next backfill.
+        await conn.execute(
+            "DELETE FROM construction_spreads WHERE construction_name = $1 AND tf = $2 "
+            "AND bar_ts = $3",
+            _CONSTRUCTION_NAME,
+            _TF,
+            bar_timestamps[0],
+        )
+        remaining = await _fetch_rows(conn)
+    finally:
+        await conn.close()
+    assert len(remaining) == 3, "expected exactly bars 2-4 to remain after deleting bar 1's row"
+
+    # Re-run --backfill (no watermark -- rescans the full panel including bar 1) against this
+    # now-non-empty table whose latest row is bar 4.
+    await CrossSectionalSpreadTracker(_TEST_DB_URL, backfill=True).run()
+
+    conn = await asyncpg.connect(_TEST_DB_URL)
+    try:
+        recovered_rows = await _fetch_rows(conn)
+    finally:
+        await conn.close()
+
+    assert len(recovered_rows) == 4, (
+        "the second backfill must recompute the deleted bar 1 and leave bars 2-4 untouched via "
+        f"ON CONFLICT ... DO NOTHING, got {len(recovered_rows)} rows"
+    )
+    recovered_by_bar_ts = {r["bar_ts"]: r for r in recovered_rows}
+    assert recovered_by_bar_ts[bar_timestamps[0]]["one_way_turnover"] is None, (
+        "CR-01: bar 1 (the genuinely-first bar of the corpus) must be recomputed with NULL "
+        "one_way_turnover when --backfill rescans it against a table whose latest row is bar "
+        "4 -- a non-NULL value here means the prior-leg seed was incorrectly resolved from the "
+        "table's globally latest row instead of being treated as having no predecessor within "
+        "this backfill's own from-the-beginning scan"
+    )
+    for bar_ts in bar_timestamps[1:]:
+        assert recovered_by_bar_ts[bar_ts]["created_at"] == next(
+            r["created_at"] for r in first_rows if r["bar_ts"] == bar_ts
+        ), f"bar_ts={bar_ts} must not be rewritten by the second backfill (ON CONFLICT DO NOTHING)"

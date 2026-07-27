@@ -878,24 +878,40 @@ class CrossSectionalSpreadTracker(BaseBatch):
 
             # (3) Seed prior legs from committed state only (design decision 5 / RESEARCH.md
             # Pattern 2 / Pitfall 4) -- this single query is what makes crash recovery correct.
-            prior_row = await conn.fetchrow(
-                "SELECT bar_ts, long_leg_symbols, short_leg_symbols FROM construction_spreads "
-                "WHERE construction_name = $1 AND tf = $2 ORDER BY bar_ts DESC LIMIT 1",
-                _CONSTRUCTION_NAME,
-                _TF,
-            )
+            #
+            # CRITICAL: the prior-leg seed and the panel scan's starting point (step 2) must
+            # agree on what "no predecessor" means. A `mode == "backfill"` scan always starts
+            # at the true beginning of history (`_PANEL_SQL_BACKFILL` has no watermark clause),
+            # so it has NO predecessor within this run BY DEFINITION -- even if
+            # `construction_spreads` already holds rows from a prior run (e.g. re-running
+            # --backfill to pick up a newly onboarded symbol's earlier history). Querying the
+            # table's globally latest row in that case would seed turnover against a
+            # chronologically unrelated bar and silently fabricate a non-null
+            # `one_way_turnover` for what is actually the genuinely-first bar of this scan --
+            # exactly the NULL-vs-fabricated-value corruption Pitfall 4 exists to prevent. Only
+            # `mode == "incremental"` may legitimately seed from the latest persisted row, since
+            # its scan starts strictly after that same row's `bar_ts` (step 2's watermark).
             prior_long: frozenset[str]
             prior_short: frozenset[str]
-            if prior_row is None:
+            if mode == "backfill":
                 prior_long = frozenset()
                 prior_short = frozenset()
                 prior_leg_seed_bar_ts = None
                 self.logger.info(
                     "cross_sectional_spread_tracker.prior_legs_seeded",
-                    source="empty_table",
+                    source="backfill_no_predecessor",
                     bar_ts=None,
                 )
             else:
+                prior_row = await conn.fetchrow(
+                    "SELECT bar_ts, long_leg_symbols, short_leg_symbols FROM "
+                    "construction_spreads WHERE construction_name = $1 AND tf = $2 "
+                    "ORDER BY bar_ts DESC LIMIT 1",
+                    _CONSTRUCTION_NAME,
+                    _TF,
+                )
+                # mode == "incremental" implies watermark is not None (step 2), so a persisted
+                # row is guaranteed to exist here; prior_row is never None on this branch.
                 prior_long = frozenset(prior_row["long_leg_symbols"])
                 prior_short = frozenset(prior_row["short_leg_symbols"])
                 prior_leg_seed_bar_ts = prior_row["bar_ts"]
