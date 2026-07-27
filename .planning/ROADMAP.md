@@ -2382,7 +2382,7 @@ Plans:
 
 - [x] 166-06-PLAN.md — calibrate/regenerate/simulate/score all arms one-shot, verdict doc, Part 2 follow-on todo (D-01, D-03, D-04, D-05, D-06) [wave 4]
 
-### Phase 167: Cross-Sectional Trade Construction (T3) 📋 PLANNED (6 plans, 5 waves)
+### Phase 167: Cross-Sectional Trade Construction (T3) ✅ COMPLETE (2026-07-27) -- both live Validation Gates PASSED (6 plans, 5 waves)
 
 **Goal:** Build the cross-sectional long-short construction `docs/research/trade-construction-layer.md`
 designs (v1: rank the equity universe by a feature at each bar, long the top decile / short
@@ -2433,7 +2433,7 @@ blocks the other.
 **Requirements**: No formal REQUIREMENTS.md IDs (standing-doc-driven, same pattern as Phase
 163). Governed by `docs/research/trade-construction-layer.md`'s own design + validation
 sections.
-**Plans:** 5/6 plans executed
+**Plans:** 6/6 plans complete
 construction primitives, the `CrossSectionalSpreadTracker` BaseBatch service with incremental
 watermark scoping, Validation Gate 1 (`--evaluate-gate`), Validation Gate 2 (`--evaluate-attribution`,
 the one piece of genuinely new statistical work), and a live run that produces the real verdicts.
@@ -2508,7 +2508,7 @@ Plans:
 
 **Wave 5** *(blocked on Wave 4 completion)*
 
-- [ ] 167-06-PLAN.md - live backfill, live gate runs, verdicts recorded in the research docs + runbook (wave 5)
+- [x] 167-06-PLAN.md - live backfill, live gate runs, verdicts recorded in the research docs + runbook (wave 5)
 
 ---
 
