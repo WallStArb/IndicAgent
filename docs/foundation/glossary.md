@@ -908,6 +908,12 @@ This is the ML training target for SignalRanker and all downstream ML models. Tr
 **Banned:** "paper pnl," "simulated pnl"
 **Status:** v2.x (`trade_frames`) archived; v3.0 (`alpha_frames`) active (Phase 142B+143, live)
 
+**See also:** `cross-sectional spread construction` (`construction_spreads`) — a parallel
+measurement path, not a layer of this pipeline. Both measure a hypothesis's outcome before any
+live capital is committed, but `counterfactual_pnl_r` scores a single-symbol directional
+`alpha_frames` bet while a spread has no symbol, no direction, and is measured at portfolio
+level.
+
 ---
 
 ### `CounterfactualTracker`
@@ -925,6 +931,49 @@ This is the ML training target for SignalRanker and all downstream ML models. Tr
   realized R. Full mechanics: `docs/intelligence/intelligence-alpha-frames-and-feature-lifecycle.md`.
 
 **Status:** v2.x archived; v3.0 active (Phase 142B+143, live)
+
+**See also:** `cross-sectional spread construction` (`CrossSectionalSpreadTracker`) — a parallel
+measurement path, not a consumer of this class or its output.
+
+---
+
+### `cross-sectional spread construction`
+
+A dollar-neutral portfolio formed at each bar by ranking the active equity cross-section on a
+single qualifying feature and taking the top decile long against the bottom decile short,
+measured at portfolio level — one spread return per bar, never per symbol. Phase 167's
+productionization of the T3 Edge Source Thesis falsification result (the first thesis in
+`docs/research/data-edge-source-thesis.md`'s tree to clear its own shuffled-ranking-null bar).
+
+**Naming-system derivation chain** (`docs/foundation/naming-system.md`): concept
+`cross_sectional_spread` → class `CrossSectionalSpreadTracker` → module
+`services/cross_sectional_spread_tracker.py` → table `construction_spreads` → (if ever
+systemd-registered) unit `indicagent-cross-sectional-spread-tracker.service`.
+
+**Not:**
+- An `alpha_frames` frame. `alpha_frames` rows are a per-symbol directional stop/target/hold bet
+  with a `direction ∈ {long, short}` column, a single `symbol`, `stop_price`, and `target_price`.
+  A spread has none of those — no direction, no stop, no single symbol. Forcing this
+  construction into `alpha_frames`' schema would corrupt that table's own invariants.
+- A consumer of `ensemble_alpha` (D-01, Phase 167 CONTEXT.md). This construction ranks a raw
+  qualifying feature (`ctf_momentum` in v1) directly, deliberately bypassing the linear
+  IC-weighted combiner whose Gate 2 (execution proof) already failed in Phase 148. Building on
+  top of `ensemble_alpha` would test an already-suspect input; the entire point of the T3 result
+  this phase productionizes is that ranking a raw feature directly is what cleared the bar.
+
+**Banned:** "decile portfolio," "long-short frame," "spread signal" (retired synonyms — use
+`cross-sectional spread construction` or the table name `construction_spreads`)
+
+**See also:** `counterfactual_pnl_r`, `CounterfactualTracker` — parallel measurement paths, not
+layers of one pipeline. Both are shadow-mode-first (measured before any live-capital
+consideration), but score fundamentally different objects: a per-symbol directional bet vs. a
+portfolio-level dollar-neutral spread.
+
+**Status:** v3.0 (Phase 167, `construction_spreads` hypertable + APR seeds live; the
+`CrossSectionalSpreadTracker` compute/persist service itself lands in later Phase 167 plans)
+
+**Source:** `docs/research/trade-construction-layer.md` (full v1 construction design);
+`.planning/ROADMAP.md` Phase 167 entry
 
 ---
 
