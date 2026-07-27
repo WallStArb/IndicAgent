@@ -102,6 +102,11 @@ None - no external service configuration required.
 - The `construction_spreads` schema, all six APR keys, corpus-truncation registration, and glossary entry are live and verified — Plans 02-05 can read/write this table and these keys directly with no further schema exploration needed.
 - `services/cross_sectional_spread_tracker.py` (the compute/persist service) does not yet exist — that is explicitly out of this plan's scope, per RESEARCH.md's recommended sequencing into later Phase 167 plans.
 
+## Self-Check: PASSED
+
+All created files verified present on disk; all three task commit hashes verified present in
+`git log --oneline --all`. No missing items.
+
 ---
 *Phase: 167-cross-sectional-trade-construction-t3*
 *Completed: 2026-07-27*
