@@ -62,9 +62,23 @@ source is the user's** -- not made by this phase.
 T5 (non-linear combiner) cleared its canary-leakage check 2026-07-26 (todo 184, CLOSED) -- the
 0.30 OOS IC (~3x anything else measured) is NOT explained by look-ahead leakage (all 4 negative
 controls clean by standalone IC; the positive control's presence doesn't move aggregate IC,
-Δ=+0.0007). Genuinely interesting lead, still not a confirmed pass -- independent replication
-(different tf/OOS window) is the next legitimate step, not more leakage investigation on this
-same result. Full detail: `docs/research/data-edge-source-thesis.md`'s T5 section. **T2
+Δ=+0.0007). **Independent replication at equity/1d ran 2026-07-27
+(`scripts/analysis/t5_nonlinear_combiner_replication_1d.py`): PARTIAL replication, NOT the same
+finding.** Tree combiner clears its own bootstrap CI in the cross-sectional-neutral rigor pass
+(`point_ic`=0.0164, `ci_lower`=0.0081) -- real, not dead -- but the magnitude collapsed ~16x
+from the original 1h result (0.258 -> 0.0164). **Revised read: T5 is confirmed SMALL, not
+confirmed LARGE.** Separately surfaced: `ctf_momentum` shows NEGATIVE mean IC at 1d
+(`point_ic`=-0.0244, does not clear zero), the opposite of its validated positive 15m behavior
+that Phase 167's live gates both passed on -- an unexplained timeframe-instability finding, not
+yet investigated. Also added a genuine methodological fix during this replication: BH-FDR
+correction (sign-gated) across the ~80 per-symbol tests, which neither the original 1h script
+nor its leak-check ever applied despite the research doc's own stated bar requiring it. 15m
+replication (the tf Phase 167's live construction actually trades on, directly actionable)
+deliberately deferred -- ~8.1M rows vs 1d's ~330K, unsafe to load given concurrent memory
+contention from todo 183's `ic_engine` recompute; see
+[todo 188](.planning/todos/pending/188-t5-replication-15m-deferred-memory-contention.md).
+Full detail: `docs/research/data-edge-source-thesis.md`'s T5 section (v1.4), full per-symbol
+table: `docs/analysis/t5-replication-1d-per-symbol.csv`. **T2
 (regime-conditional persistence, the thing that motivated testing T3/T5) was
 tested and found dead by todo 179's exhaustive sweep -- but that sweep ran under OLD, pre-todo-092
 regime labels, later found miscalibrated and fixed the same day.** A full corpus recompute
@@ -78,14 +92,22 @@ duplicated here.
 
 **Next actions, priority order:**
 
-*Tier 1 -- decision point:* Phase 167 is COMPLETE and both gates PASSED. The next decision
-(whether and how to proceed toward Phase 156-159 with this construction as the live-capital
-signal source) is the user's -- not a next-plan-to-scope item.
+*Tier 1 -- decision point, REDIRECTED 2026-07-27 by explicit user instruction:* Phase 156-159
+(execution/sizing) is NOT the priority even though its precondition is cleared. User wants the
+features/regimes/IC/ensemble signal-generation stack validated first ("real proven signals")
+before any execution-layer investment. Do not resume Phase 156-159 scoping without the user
+re-raising it.
 
-*Tier 1b -- concurrent, don't block Tier 1 on this:* todo 183's corpus recompute completing →
+*Tier 1b -- concurrent, don't block on this:* todo 183's corpus recompute completing →
 re-run todo 179's regime sweep under corrected labels → final T2 verdict, one way or the other.
 
-*Tier 2 -- cheap, resolves an open question:* todo 184 (T5 canary-leakage check).
+*Tier 2 -- serves the redirected priority:* todo 188 (T5 15m replication, deferred on memory
+contention -- see above); the `ctf_momentum` 1d-vs-15m sign-flip finding (not yet its own todo);
+the open `alpha_ensemble_ic`/`alpha_events` question (is the linear-only combiner adequate, or
+does it need revision -- confirmed `ensemble_trainer.py`'s `resolve_stratum_weights` is linear
+combination only; `alpha_events` confirmed sparse/emission-gated, not a dense full-universe
+ranking input without further work; not yet investigated further). Phase 151 (Feature
+Primitives Expansion, already planned) is the next-tier option if these don't pan out.
 
 *Tier 3 -- ready now, independent of the above:* todo 182 (15m cross-sectional bootstrap
 threads stale) · todo 088 (`hold_max_bars` type safety) · todo 170 (`volatility_pct`

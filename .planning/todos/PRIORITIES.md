@@ -32,10 +32,12 @@ detail, not duplicated here):** **Phase 167 (Cross-Sectional Trade Construction,
 COMPLETE** -- both live Validation Gates PASSED against the real OOS population
 (`gate1_passes=true`, `gate2_passes_overall=true`), unlike Phase 148's per-symbol directional
 construction, which failed Gate 2. This clears the stated precondition for Phase 156-159
-(execution/sizing); whether to proceed is the user's decision, not automatic. Todo 184 (T5
-canary-leakage check) is CLOSED -- no leak found, but T5 is still not a confirmed pass, pending
-independent replication. Todo 183's corpus recompute is still in progress (feeds T2's final
-verdict, unrelated to T3/Phase 167's own validity).
+(execution/sizing); user has redirected priority away from 156-159 toward validating the
+features/regimes/IC/ensemble stack first (2026-07-27). T5 (non-linear combiner) partially
+replicated at 1d same day -- confirmed SMALL not LARGE (~16x magnitude collapse from the
+original 1h finding); 15m replication (the directly actionable tf) deferred, see todo 188.
+Todo 183's corpus recompute is still in progress (feeds T2's final verdict, unrelated to
+T3/Phase 167's own validity).
 
 ---
 
@@ -100,6 +102,7 @@ scoping it as a phase via `/gsd-discuss-phase`.
 | Todo | What |
 |---|---|
 | [186](pending/186-ic-math-cross-sectional-block-bootstrap-gap.md) | New 2026-07-26, same review as 185: `ic_math.py` has a per-symbol circular block bootstrap but no cross-sectional (pooled-panel) variant, so T5's within-bar_ts rigor check approximated it ad hoc. Lower urgency than 185 — the approximation is conservative and the script says so; do this once a real (non-exploratory) T3/T5 candidate needs it. |
+| [188](pending/188-t5-replication-15m-deferred-memory-contention.md) | T5's 1d replication (2026-07-27) partially confirmed the non-linear-combiner finding but at ~16x smaller magnitude than the original 1h result -- confirmed SMALL not LARGE. 15m (the tf Phase 167's live construction actually trades) is the directly actionable replication, deferred on memory contention with todo 183's concurrent recompute. Also surfaced: `ctf_momentum` shows negative IC at 1d vs its validated positive 15m behavior. |
 | [177](pending/177-bar-history-maxlen-caps-windows-beyond-200.md) | `FeatureVectorPipeline`'s `BarHistory(maxlen=200)` silently caps every live-path window below 200 bars regardless of its APR-configured size. Phase 163's CR-02 found and fixed this for one field (`feature.session_vp.rolling_window`, migration 256 + regression test); this todo tracks the broader gap — several pre-existing windows (`momentum_zscore_window`/`hurst_window`/`vix_zscore_window`, all default 252) already silently exceed 200 too. |
 | [101](pending/101-migration-duplicate-number-sweep.md) | `production/migrations/` has 13 duplicate-number groups (001, 031, 038, 050-052, 064, 138, 152, 168, 178, 214-215). Finding + recommended approach only; deliberately not executed given live-DB rename risk. |
 | [108](pending/108-hmm-multi-seed-restart-best-likelihood.md) | `regime_writer.py`'s HMM fit uses a single seed with a same-seed convergence retry, not multi-seed-restart-and-keep-best-log-likelihood. Robustness gap, not a proven bug. |
