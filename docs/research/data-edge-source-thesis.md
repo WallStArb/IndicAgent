@@ -1,14 +1,15 @@
 # Edge Source Thesis -- Where Does Our Edge Come From?
 
-**Version:** 1.3
+**Version:** 1.4
 **Status:** draft -- standing document; every claim here is falsifiable and must be revisited
 as evidence lands
-**Priority:** high -- **T3 passed 2026-07-26** (first thesis on this list to clear its own bar
-convincingly); **T5 cleared its canary-leakage check 2026-07-26** (genuinely interesting lead,
-not yet a confirmed pass -- independent replication is the next step); T4 remains the only
-untested thesis
+**Priority:** high -- **T3 PASSED 2026-07-26, PRODUCTIONIZED AND GATED 2026-07-27** (Phase 167,
+both live Validation Gates PASSED against the real OOS population -- first thesis on this list
+to clear its own bar AND reach production); **T5 partially replicated at 1d 2026-07-27** (real
+but much smaller effect than the original 1h finding, ~16x magnitude collapse -- confirmed
+small, not confirmed large); T4 remains the only untested thesis
 **Milestone:** standing -- not tied to a phase
-**Last Updated:** 2026-07-26
+**Last Updated:** 2026-07-27
 **Tags:** edge, thesis, counterparty, renaissance, falsifiable, first-principles
 
 **Reviewed 2026-07-25** -- re-read in full against todo 179's 2026-07-24 finding (an exhaustive
@@ -246,6 +247,47 @@ ruled out with real evidence, not absence of a red flag. T5 moves from "prelimin
 this check" to "genuinely interesting lead, not yet a confirmed pass" -- the next legitimate
 step is independent replication (a different tf, a different OOS window), not further leakage
 investigation on this same result.
+
+**Independent replication at equity/1d (`scripts/analysis/t5_nonlinear_combiner_replication_1d.py`,
+2026-07-27): PARTIALLY replicates, at a much smaller magnitude -- NOT the same finding.** Same
+pipeline (identical causal per-symbol demeaning fix, walk-forward folds, block-bootstrap CI),
+recalibrated embargo (5 bars vs 1h's 24) and per-symbol row floor (100 vs 300) for 1d's cadence,
+plus a genuine methodological addition the original script and its leak-check never had: BH-FDR
+correction across the ~80 per-symbol tests (`ic_math.py`'s `apply_bh_fdr`, sign-gated -- the
+research doc's own T5 falsification bar requires "the same... BH-FDR correction as everything
+else in this doc," which neither prior T5 script applied).
+
+Result, raw per-symbol: tree mean `point_ic`=0.0183 (11/80 pass `ci_lower>0`, 5/80 survive
+BH-FDR with correct sign); `ctf_momentum` mean `point_ic`=**-0.0244** (1/80 pass, negative on
+average at this tf). Cross-sectional-neutral rigor pass (the component most relevant to a
+T3-style dollar-neutral construction): tree `point_ic`=0.0164, `ci_lower`=0.0081, **clears
+zero**; `ctf_momentum` `point_ic`=-0.0084, `ci_lower`=-0.0174, **does not clear zero (trends
+negative)**. Full per-symbol table: `docs/analysis/t5-replication-1d-per-symbol.csv`.
+
+**Two findings, not one:**
+1. **The tree DOES show a real, FDR-surviving cross-sectional-neutral uplift at 1d** -- this is
+   a genuine replication in direction, in a tf far enough from 1h to rule out "succeeded for
+   boring reasons like shared regime artifacts." T5 is not dead.
+2. **The magnitude collapsed ~16x** (1d cross-sectional-neutral `point_ic`=0.0164 vs 1h's
+   0.258) -- nowhere near "3x anything else in the corpus" anymore; comparable to or only
+   modestly better than typical single-feature ICs measured elsewhere. The huge 1h number does
+   NOT look like a stable, tf-independent phenomenon; it looks tf-dependent, in a way the leak
+   check (which ruled out look-ahead leakage specifically, not all forms of overfitting) doesn't
+   explain.
+
+**Separately, load-bearing on its own: `ctf_momentum` shows negative mean IC at 1d, the opposite
+of its validated positive behavior at 15m** (Phase 167's live Gate 1/Gate 2 both PASSED using
+this exact feature at 15m). This is a genuine, unexplained timeframe-instability finding,
+independent of T5 -- worth its own investigation (classic short-horizon-momentum /
+long-horizon-reversal is one plausible explanation, not yet confirmed) before treating
+`ctf_momentum` as timeframe-portable for any future construction.
+
+**Revised verdict: T5 is neither confirmed nor dead -- it is confirmed SMALL, not confirmed
+LARGE.** The original 1h finding likely overstated the effect's true, tf-general size. Next
+legitimate step, if pursued further: replicate at 15m (the tf Phase 167's live construction
+actually runs on, so directly actionable) -- deferred at write time due to memory contention
+with the concurrent todo 183 `ic_engine` recompute (~8.1M rows vs 1d's ~330K); revisit once that
+recompute completes or with a memory-safer chunked approach.
 
 ### What is deliberately NOT on this list
 "Our features are better" (they are public) and "our ML is better" (we run a linear
