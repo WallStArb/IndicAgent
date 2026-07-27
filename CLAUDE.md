@@ -1,6 +1,6 @@
 # CLAUDE.md
 
-Version: 5.54.0
+Version: 5.54.1
 
 **Project nature:** Passion/learning project — not a production system. Architectural decisions prioritize correctness, rigor, and institutional-grade thinking. Renaissance Capital / Jim Simons principles are the north star. When giving advice, apply the same rigor you would to a system built to last — do not hedge around operational risk that doesn't apply.
 
@@ -140,7 +140,7 @@ Non-negotiable. Any violation is wrong regardless of whether it works locally.
 - **Kafka is transport, not state store.** Hot state → local file checkpoint. Bar history → TimescaleDB.
 - **Timestamp serialization**: use `format_iso_ts(dt)` from `service_utils.py`. Never inline `.isoformat().replace("+00:00", "Z")`.
 - **`get_active_contracts()`** is a module-level function in `settings.py`. Call as `get_active_contracts(settings)`, not `settings.get_active_contracts()`.
-- **asyncpg**: JSONB → `dict` (no `json.loads()`/`json.dumps()`). Timestamps → `datetime`. UUIDs → `str()` before Kafka.
+- **asyncpg**: JSONB → `dict` (no `json.loads()`/`json.dumps()`), but ONLY on a pooled connection from `BaseBatch`'s `create_pool()`, which registers the codec. A bare `asyncpg.connect()` (e.g. a read-only reporting/evaluation branch) has no codec; jsonb columns come back as raw JSON text. Call `src.core.database_manager._setup_codecs(conn)` explicitly on any bare connection that reads jsonb. Timestamps → `datetime`. UUIDs → `str()` before Kafka.
 - **structlog `event` kwarg collision**: Never pass `event=<value>` — use `signal=`, `payload=`, `data=` instead.
 - **Service registry**: when adding a service, update `_DAG_ORDER` and `_AGENT_ID_TO_UNIT` in `service_auditor.py`; seed its lag threshold as an `alert.lag.*` APR key (loaded by `_load_lag_thresholds()`, hot-reloaded via Kafka) — do not hardcode it.
 - **`INDICAGENT_ENV` consistency**: Mixed env prefixes → services subscribe to different topics → zero data flow.

@@ -1,8 +1,8 @@
 # Gotchas & Rare Pitfalls
 
-**Version:** 2.11
+**Version:** 2.12
 **Status:** current
-**Last Updated:** 2026-07-21
+**Last Updated:** 2026-07-27
 
 Real issues that burned once — reference when touching the relevant area. Add here when you get burned.
 
@@ -66,6 +66,7 @@ ContFuture (`continuous=True`) hangs on multi-year requests — use named contra
 - **Service test `__new__` pattern**: `tests/unit/service_tests/` uses `ServiceClass.__new__(ServiceClass)` to bypass `__init__`. Any new instance attribute added in `__init__` must also be manually set in the test — otherwise service silently fails mid-test with a misleading error.
 - **ServiceSpec fields in tests**: `ServiceSpec(unit, metrics_port, lag_threshold_messages, dag_order, market_hours_only)` — check `services/service_auditor_agent.py` for current fields before constructing test fixtures.
 - **Pytest**: `.venv/bin/pytest` not bare `python -m pytest`.
+- **Integration tests can clobber a committed corpus manifest**: any `tests/integration/` suite that exercises a `BaseBatch` service (e.g. `-k cross_sectional_spread`) writes real `.planning/corpus_manifests/<service>.json` files as a side effect; running the suite after a real production run overwrites that manifest with synthetic test data. `git checkout -- .planning/corpus_manifests/<file>.json` to restore; this is expected test-fixture behavior, not corruption.
 
 ## Observability / Metrics
 
@@ -82,6 +83,8 @@ ContFuture (`continuous=True`) hangs on multi-year requests — use named contra
 - **GSD phase directory padding**: `gsd-sdk` returns `phase_dir` without zero-padding (e.g., `67-observability-alerting-automation`) but actual directories use padded names (`067-*`). If init returns `plan_count: 0` but plan files exist, check both directory variants.
 - **`gsd-sdk query roadmap.annotate-dependencies` can report success without writing anything**: for phases created via `phase.insert` (decimal/INSERTED phases), it may return `"updated": false` with a correct wave count while ROADMAP.md's `Plans:` section still shows the `- [ ] TBD` placeholder. Verify the ROADMAP.md section directly after running it; manually write the wave/plan breakdown if the placeholder is still there.
 - **Pre-commit runs 8 automated checks, including glossary enforcement**: a commit can fail with "glossary violation" because a changed file uses a term banned in `docs/foundation/glossary.md` in place of its canonical replacement — not a broken hook. Fix the term, don't bypass with `--no-verify`.
+- **GSD worktree executors don't inherit gitignored `.venv`**: a fresh `git worktree add` has no `.venv`, so `.venv/bin/ruff`/`black`/`pytest` don't exist and the pre-commit hook's lint/format checks fail with "not found" on the first commit attempt. Fix: `ln -s <primary-checkout-path>/.venv .venv` from the worktree root before committing (the symlink is itself gitignored, won't be committed). Don't bypass with `--no-verify`.
+- **Worktree isolation is unsafe for a GSD plan whose real deliverable is gitignored** (`logs/`, `.planning/corpus_manifests/*.json`): the worktree is force-removed after merge, silently destroying anything not committed. Route such plans through sequential (non-worktree) execution instead.
 
 ## Resolved (Historical Reference)
 
