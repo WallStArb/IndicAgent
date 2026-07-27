@@ -969,8 +969,10 @@ layers of one pipeline. Both are shadow-mode-first (measured before any live-cap
 consideration), but score fundamentally different objects: a per-symbol directional bet vs. a
 portfolio-level dollar-neutral spread.
 
-**Status:** v3.0 (Phase 167, `construction_spreads` hypertable + APR seeds live; the
-`CrossSectionalSpreadTracker` compute/persist service itself lands in later Phase 167 plans)
+**Status:** v3.0 (Phase 167, complete 2026-07-27 - `construction_spreads` hypertable, APR seeds,
+`CrossSectionalSpreadTracker` compute/persist, and the `--evaluate-gate`/`--evaluate-attribution`
+CLI modes all live; both Validation Gates PASSED against the real OOS population, see
+`docs/research/trade-construction-layer.md`)
 
 **Source:** `docs/research/trade-construction-layer.md` (full v1 construction design);
 `.planning/ROADMAP.md` Phase 167 entry

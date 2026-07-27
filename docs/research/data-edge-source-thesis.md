@@ -141,7 +141,7 @@ cancellation is statistically much easier than directional prediction; this is t
 lowest-IC-requirement thesis on the list. **Falsification:** cross-sectional long-short
 spread portfolios built from feature rankings must show positive net return where per-symbol
 directional trades on the same features don't. Requires the cross-sectional rank IC measurement
-mode (`docs/research/intel-15-measurement-engine.md`, "Addendum: Cross-Sectional Rank IC") to even
+mode (`docs/research/measurement-ic-engine.md`, "Addendum: Cross-Sectional Rank IC") to even
 test. If the spread portfolio is no better than directional, T3 is dead.
 
 **Result (`scripts/analysis/t3_cross_sectional_long_short_ctf_momentum_check.py`, 2026-07-26):**
@@ -266,7 +266,7 @@ the trade-construction layer is exactly what monetizes wide universes.
 
 **Sequencing decision (operator, 2026-07-01):** universe expansion waits until the end-to-end
 system is proven -- pipeline through P&L, validated through the canonical simulator
-(`docs/research/canonical-simulator.md`). Multiplying the universe before the path is trusted
+(`docs/research/platform-canonical-simulator.md`). Multiplying the universe before the path is trusted
 multiplies unvalidated machinery, not returns. Breadth is the biggest lever; it is deliberately
 pulled last.
 
@@ -275,8 +275,9 @@ pulled last.
 1. **Todo 030's external cost floor runs first -- DONE 2026-07-01, verdict recorded.**
    5m fast/mid and 15m fast are net-negative-to-marginal against realistic spread (0.26,
    0.84, 0.55 bps gross vs 1-10bp cost floors, on unshrunk IC -- the real numbers are worse).
-   1h/1d and the longer-lookahead 5m/15m cells clear comfortably. Full table:
-   `.planning/todos/pending/030-cost-hurdle-apr-calibration.md`. **This kills or badly
+   1h/1d and the longer-lookahead 5m/15m cells clear comfortably. Todo 030 itself is closed and
+   removed from `.planning/todos/`; this paragraph is now the only surviving record of its full
+   table. **This kills or badly
    wounds T1 (immediacy provision) as a short-horizon thesis** -- if the crumbs institutions
    leave below their minimum ticket can't clear spread either, T1 only survives at longer
    holds, which changes what "small-scale immediacy" means. T2/T3/T4 are horizon-agnostic
@@ -317,10 +318,11 @@ pulled last.
 - `docs/intelligence/intelligence-alphaengine.md` -- the epistemology this doc completes:
   "the data discovers confluence" answers HOW to find edge; this doc asks WHY edge should
   exist at all
-- `docs/research/intel-15-measurement-engine.md` -- Cross-Sectional Rank IC addendum (T3's test
+- `docs/research/measurement-ic-engine.md` -- Cross-Sectional Rank IC addendum (T3's test
   vehicle; retired from `intel-11`, see `docs/research/archive/intel-11-dual-system-discrete-vs-portfolio.md`)
-- `.planning/todos/pending/030-cost-hurdle-apr-calibration.md` -- the first falsification
-- `docs/plans/2026-06-29-feature-scoring-beyond-ic.md` -- marginal contribution / shrinkage
+- Todo 030 (cost-hurdle APR calibration) -- the first falsification pass against realistic cost
+  floors; closed and removed from `.planning/todos/`, its result summarized in this doc above
+- `docs/plans/archive/2026-06-29-feature-scoring-beyond-ic.md` -- marginal contribution / shrinkage
   (the machinery that keeps thesis evidence honest)
 - `.planning/todos/pending/179-gate166-concurrent-exposure-diagnostic.md` -- T2's falsification
   evidence, full 234-cell sweep and historical replication check

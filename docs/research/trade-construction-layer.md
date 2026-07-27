@@ -49,11 +49,11 @@ Demands §5 for the fuller comparison against Phase 164/165 and T5 (non-linear c
 `docs/ideas/measurement-nonlinear-interaction-combiner.md`).
 
 **Companion to:** `docs/research/data-edge-source-thesis.md` (thesis T3 is only testable through this
-layer) and `docs/research/intel-15-measurement-engine.md`'s Cross-Sectional Rank IC addendum (T3's
+layer) and `docs/research/measurement-ic-engine.md`'s Cross-Sectional Rank IC addendum (T3's
 falsification measurement, which must clear before this construction layer is warranted).
 **Note (2026-07-03):** this doc's original companion, `intel-11-dual-system-discrete-vs-portfolio.md`,
 was retired -- see `docs/research/archive/intel-11-dual-system-discrete-vs-portfolio.md`. Per
-`.planning/research/2026-07-03-intel10-11-fable-review.md` (F9), PortfolioTrack is not a track;
+`docs/research/fable-2026-07-03-intel10-11-review.md` (F9), PortfolioTrack is not a track;
 this doc's construction-layer content remains a v4.0 concern, gated on the addendum's falsification
 result, not on a "PortfolioTrack" scoping event.
 
@@ -264,7 +264,7 @@ a dollar-neutral-bucketing artifact at the 0.0000 level in 40 draws.
 
 **In-sample diagnostic (NOT the gate)** -- the comparable figures to T3's published
 full-2006-2026-history result, measured on `bar_ts < oos_start`, 24,273 bars / 4,855
-day-clusters: fast `ci_lower` ranges 0.0006 (1bp) down to 0.0004 (10bp), slow `ci_lower`
+day-clusters: fast `ci_lower` ranges 0.0005 (1bp) down to 0.0004 (10bp), slow `ci_lower`
 ranges 0.0009 (1bp) down to 0.0008 (10bp), all `passes=true`. These in-sample cells are never
 fed into `gate1_passes` -- they exist only so a reader can compare against T3's own published
 full-history numbers.
@@ -388,16 +388,17 @@ signal source -- is the user's, not a decision this doc or this phase makes unil
 ## References
 
 - `docs/research/archive/intel-11-dual-system-discrete-vs-portfolio.md` -- retired strategic frame (historical only)
-- `docs/research/intel-15-measurement-engine.md` -- Cross-Sectional Rank IC addendum, T3's falsification gate
+- `docs/research/measurement-ic-engine.md` -- Cross-Sectional Rank IC addendum, T3's falsification gate
 - `docs/research/data-edge-source-thesis.md` -- thesis T2 (falsified 2026-07-24), T3 (this doc),
   T5 (non-linear combiner) -- the full candidate comparison
 - `docs/ideas/measurement-nonlinear-interaction-combiner.md` -- T5, the sibling construction/
   modeling-change candidate to test alongside this doc
 - `.planning/todos/pending/179-gate166-concurrent-exposure-diagnostic.md` -- T2's falsification,
   the finding that sharpened this doc's priority
-- `.planning/todos/pending/030-cost-hurdle-apr-calibration.md` -- Step 0 cost floors feed the
-  rebalance rule and the net-of-cost measurement
-- `docs/plans/2026-06-29-feature-scoring-beyond-ic.md` -- 0c calibration (sizing prerequisite),
+- Todo 030 (cost-hurdle APR calibration) -- Step 0 cost floors feed the rebalance rule and the
+  net-of-cost measurement; closed and removed from `.planning/todos/`, its result summarized in
+  `docs/research/data-edge-source-thesis.md`
+- `docs/plans/archive/2026-06-29-feature-scoring-beyond-ic.md` -- 0c calibration (sizing prerequisite),
   §4 effective breadth (why relative-value fits this universe)
 - ROADMAP.md Phase 142A (scoping trigger), Phase 142B (the per-symbol directional counterpart
   this doc complements, not replaces)

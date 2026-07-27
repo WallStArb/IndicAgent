@@ -646,6 +646,36 @@ def test_verdict_artifact_is_strict_json(tmp_path, monkeypatch):
     assert json.loads(latest_path.read_text()) == {"different": True}
 
 
+def test_verdict_artifact_disambiguates_same_second_collision(tmp_path, monkeypatch):
+    """Code review WR-05 regression: the timestamped filename has only second-level
+    resolution, so two calls within the same wall-clock second must not collide -- a numeric
+    suffix must be appended rather than the second call silently clobbering the first."""
+    from datetime import UTC, datetime
+
+    import services.cross_sectional_spread_tracker as cst_module
+
+    class _FixedDatetime:
+        @classmethod
+        def now(cls, tz=None):
+            return datetime(2026, 1, 1, 0, 0, 0, tzinfo=UTC)
+
+    monkeypatch.setattr(cst_module, "datetime", _FixedDatetime)
+
+    path_one = write_verdict_artifact("gate1_collision", {"n": 1}, out_dir=tmp_path)
+    path_two = write_verdict_artifact("gate1_collision", {"n": 2}, out_dir=tmp_path)
+    path_three = write_verdict_artifact("gate1_collision", {"n": 3}, out_dir=tmp_path)
+
+    assert path_one != path_two != path_three
+    assert len({path_one, path_two, path_three}) == 3, "all three paths must be distinct"
+    assert path_one.exists() and path_two.exists() and path_three.exists()
+    assert json.loads(path_one.read_text()) == {
+        "n": 1
+    }, "the FIRST write must survive the same-second collision, not be silently overwritten"
+    assert json.loads(path_two.read_text()) == {"n": 2}
+    assert json.loads(path_three.read_text()) == {"n": 3}
+    assert json.loads((tmp_path / "gate1_collision_latest.json").read_text()) == {"n": 3}
+
+
 # ---------------------------------------------------------------------------
 # test_static_tilt_weights (167-VALIDATION.md row 167-05-01 family, design decision 1)
 # ---------------------------------------------------------------------------

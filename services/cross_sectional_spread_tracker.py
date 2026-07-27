@@ -477,11 +477,27 @@ def write_verdict_artifact(
     Writes two files: a timestamped `{verdict_name}_{YYYYmmddTHHMMSSZ}.json` (UTC) that a later
     run never overwrites (the record accumulates), and a `{verdict_name}_latest.json` that
     always reflects the most recent run. Returns the timestamped path.
+
+    The timestamp has only second-level resolution, so two calls with the same `verdict_name`
+    within the same wall-clock second (e.g. an operator or retry wrapper invoking an evaluation
+    mode twice in rapid succession) would otherwise collide on the identical timestamped
+    filename and the second write would silently clobber the first -- the exact "silent wrong
+    answer" this audit-trail mechanism exists to prevent. On collision, a numeric suffix is
+    appended (`_1`, `_2`, ...) until a free path is found, so the accumulate-never-overwrite
+    guarantee holds even within the same second.
     """
     out_dir.mkdir(parents=True, exist_ok=True)
     coerced = _coerce_non_finite(dict(payload))
     timestamp = datetime.now(UTC).strftime("%Y%m%dT%H%M%SZ")
     timestamped_path = out_dir / f"{verdict_name}_{timestamp}.json"
+    if timestamped_path.exists():
+        suffix = 1
+        while True:
+            candidate = out_dir / f"{verdict_name}_{timestamp}_{suffix}.json"
+            if not candidate.exists():
+                timestamped_path = candidate
+                break
+            suffix += 1
     latest_path = out_dir / f"{verdict_name}_latest.json"
     text = json.dumps(coerced, indent=2, default=str, allow_nan=False)
     timestamped_path.write_text(text)
