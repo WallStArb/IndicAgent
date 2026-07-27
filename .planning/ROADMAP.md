@@ -2433,7 +2433,7 @@ blocks the other.
 **Requirements**: No formal REQUIREMENTS.md IDs (standing-doc-driven, same pattern as Phase
 163). Governed by `docs/research/trade-construction-layer.md`'s own design + validation
 sections.
-**Plans:** 3/6 plans executed
+**Plans:** 4/6 plans executed
 construction primitives, the `CrossSectionalSpreadTracker` BaseBatch service with incremental
 watermark scoping, Validation Gate 1 (`--evaluate-gate`), Validation Gate 2 (`--evaluate-attribution`,
 the one piece of genuinely new statistical work), and a live run that produces the real verdicts.
@@ -2500,7 +2500,7 @@ Plans:
 
 **Wave 3** *(blocked on Wave 2 completion)*
 
-- [ ] 167-04-PLAN.md - Validation Gate 1: `--evaluate-gate`, 8-cell verdict grid, live shuffled-ranking null (wave 3)
+- [x] 167-04-PLAN.md - Validation Gate 1: `--evaluate-gate`, 8-cell verdict grid, live shuffled-ranking null (wave 3)
 
 **Wave 4** *(blocked on Wave 3 completion)*
 
