@@ -2433,7 +2433,7 @@ blocks the other.
 **Requirements**: No formal REQUIREMENTS.md IDs (standing-doc-driven, same pattern as Phase
 163). Governed by `docs/research/trade-construction-layer.md`'s own design + validation
 sections.
-**Plans:** 2/6 plans executed
+**Plans:** 3/6 plans executed
 construction primitives, the `CrossSectionalSpreadTracker` BaseBatch service with incremental
 watermark scoping, Validation Gate 1 (`--evaluate-gate`), Validation Gate 2 (`--evaluate-attribution`,
 the one piece of genuinely new statistical work), and a live run that produces the real verdicts.
@@ -2496,7 +2496,7 @@ Plans:
 
 **Wave 2** *(blocked on Wave 1 completion)*
 
-- [ ] 167-03-PLAN.md - `CrossSectionalSpreadTracker(BaseBatch)`: incremental watermark, streaming panel scan, chunked persistence, `--backfill` (wave 2)
+- [x] 167-03-PLAN.md - `CrossSectionalSpreadTracker(BaseBatch)`: incremental watermark, streaming panel scan, chunked persistence, `--backfill` (wave 2)
 
 **Wave 3** *(blocked on Wave 2 completion)*
 
