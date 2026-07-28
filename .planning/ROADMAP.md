@@ -2314,7 +2314,7 @@ Plans:
 
 ---
 
-### Phase 165: Swing/Fib/Trend Structure Primitives 📋 CONTEXT+RESEARCH DONE (not planned)
+### Phase 165: Swing/Fib/Trend Structure Primitives 📋 PLANNED (5 plans, 5 waves, 2026-07-28)
 
 **Goal:** Port 5 of the 6 remaining `src/intelligence/features/i3_structure/` plugins Phase 163
 didn't cover — `swing_detector.py`, `swing_momentum.py`, `trend_structure.py`,
@@ -2342,12 +2342,30 @@ alongside them) stay parked/deferred, not built.
 **Depends on:** Phase 163 (VP/SR Structural Primitives) for shared conventions (ATR-distance
 normalization, APR namespace precedent, `FeatureCache` session-boundary mutator pattern for
 `session_levels.py`) — not a hard code dependency.
-**Requirements**: TBD at `/gsd-plan-phase 165`
-**Plans:** 0 plans (CONTEXT.md + RESEARCH.md complete, ready for `/gsd-plan-phase 165`)
+**Requirements**: no formal `REQUIREMENTS.md` exists for this project — `165-CONTEXT.md`'s
+D-01..D-15 decision IDs are the requirement set, carried verbatim in each plan's `requirements`
+frontmatter (same convention as Phases 163/164/166).
+**Plans:** 5 plans, 5 waves (sequential — every plan touches `feature_factory.py`, so file ownership
+forces one wave per plan; Plan 03 additionally consumes Plan 02's in-memory swing intermediates per
+D-05, and Plan 05 consumes Plan 04's `FeatureCache` state).
 
 Plans:
 
-- [ ] TBD (run /gsd-plan-phase 165 to break down)
+- [ ] 165-01-PLAN.md — Data contract: migration 267 (41 columns + 41 `feature_registry` rows + 17 APR
+  keys), `FeatureVector`/`FEATURE_VECTOR_DOMAIN`/`FeatureFactoryConfig`/persistence wiring, both config
+  build sites, and the test-suite count blast radius
+- [ ] 165-02-PLAN.md — `swing_detector.py` (7) + `trend_structure.py` (6) = 13 columns off one shared
+  APR-backed `find_peaks`/`find_troughs` pass; D-01's all-`None` fallback replaces both files'
+  fake-numeric defaults; exports the raw swing high/low intermediates Plan 03 consumes
+- [ ] 165-03-PLAN.md — `swing_momentum.py` (8, incl. D-15's `swing_volume_confirmation`) +
+  `fibonacci_zones.py` (4) = 12 columns; deletes the cross-plugin fallback outright (D-05), fixes two
+  archived implementation-vs-docstring bugs, and removes the provably-cancelling ATR divisor
+- [ ] 165-04-PLAN.md — `FeatureCache` session-levels state layer: 22 new fields,
+  `update_session_levels()` timestamp mutator (retires `_SESSION_BARS`/`_WEEK_BARS`/`_OVERNIGHT_BARS`,
+  D-07/D-08), `update_wk_vwap()` ISO-week high/low/close extension (D-09), all 3 call sites wired
+- [ ] 165-05-PLAN.md — `_derive_session_levels()`: the final 16 columns as ATR-distances/percents/flag,
+  prior-completed-week pivot anchoring, `tf=='1d'` suppression of the 5 intraday-only fields, plus the
+  phase-closing gate proving all 41 columns produce real values
 
 ### Phase 166: Frame/Execution Recalibration ✅ COMPLETE (2026-07-23) — VERDICT: neither candidate promoted (6 plans, 4 waves)
 
