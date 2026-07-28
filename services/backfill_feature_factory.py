@@ -624,9 +624,6 @@ def _build_feature_factory_config(cfg: ConfigService) -> FeatureFactoryConfig:
             cfg.get_sync("feature.swing_momentum.intensity_ramp_hi", 2.0)
         ),
         fib_cluster_atr_divisor=float(cfg.get_sync("feature.fib.cluster_atr_divisor", 2.0)),
-        fib_cluster_fallback_divisor=float(
-            cfg.get_sync("feature.fib.cluster_fallback_divisor", 20.0)
-        ),
         session_levels_asia_start_et_hour=int(
             cfg.get_sync("feature.session_levels.asia_start_et_hour", 20)
         ),

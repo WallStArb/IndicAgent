@@ -216,7 +216,6 @@ class FeatureVectorPipeline(BaseDaemon):
             buffered = list(self._bar_history.get(symbol, tf))[:-1]
             for bar in buffered:
                 cache.update_wk_vwap(bar.ts, bar.high, bar.low, bar.close, float(bar.volume))
-            for bar in buffered:
                 cache.update_session_vp(
                     bar.ts,
                     bar.high,
@@ -225,11 +224,9 @@ class FeatureVectorPipeline(BaseDaemon):
                     float(bar.volume),
                     self._feature_factory_config,
                 )
-            for bar in buffered:
                 cache.update_overnight_range(
                     bar.ts, bar.high, bar.low, self._feature_factory_config
                 )
-            for bar in buffered:
                 cache.update_session_levels(
                     bar.ts, bar.open, bar.high, bar.low, bar.close, self._feature_factory_config
                 )
@@ -942,7 +939,6 @@ class FeatureVectorPipeline(BaseDaemon):
                 "feature.swing_momentum.intensity_ramp_hi", 2.0
             ),
             fib_cluster_atr_divisor=_float("feature.fib.cluster_atr_divisor", 2.0),
-            fib_cluster_fallback_divisor=_float("feature.fib.cluster_fallback_divisor", 20.0),
             session_levels_asia_start_et_hour=_int("feature.session_levels.asia_start_et_hour", 20),
             session_levels_asia_end_et_hour=_int("feature.session_levels.asia_end_et_hour", 4),
         )

@@ -498,7 +498,6 @@ class FeatureFactoryConfig:
         swing_momentum_intensity_ramp_lo: APR feature.swing_momentum.intensity_ramp_lo
         swing_momentum_intensity_ramp_hi: APR feature.swing_momentum.intensity_ramp_hi
         fib_cluster_atr_divisor: APR feature.fib.cluster_atr_divisor
-        fib_cluster_fallback_divisor: APR feature.fib.cluster_fallback_divisor
         session_levels_asia_start_et_hour: APR feature.session_levels.asia_start_et_hour
         session_levels_asia_end_et_hour: APR feature.session_levels.asia_end_et_hour
     """
@@ -727,7 +726,6 @@ class FeatureFactoryConfig:
     swing_momentum_intensity_ramp_lo: float = 1.0  # feature.swing_momentum.intensity_ramp_lo
     swing_momentum_intensity_ramp_hi: float = 2.0  # feature.swing_momentum.intensity_ramp_hi
     fib_cluster_atr_divisor: float = 2.0  # feature.fib.cluster_atr_divisor
-    fib_cluster_fallback_divisor: float = 20.0  # feature.fib.cluster_fallback_divisor
     session_levels_asia_start_et_hour: int = 20  # feature.session_levels.asia_start_et_hour
     session_levels_asia_end_et_hour: int = 4  # feature.session_levels.asia_end_et_hour
 
@@ -3660,6 +3658,15 @@ _SWING_FALLBACK: dict[str, float | None] = {
     "swing_low_age_bars": None,
 }
 
+# The persisted subset of _compute_swing_structure()'s return dict -- the
+# other 5 keys (swing_high_price/swing_low_price/swing_high_indices/
+# swing_low_indices/n_bars) are in-memory-only intermediates for
+# _compute_trend_structure/_compute_fib_zones and must never reach
+# _build_feature_vector (see _compute_swing_structure's docstring). Both
+# compute() and compute_batch() filter through this set instead of hand-
+# listing the 7 names a second (and third) time.
+_SWING_STRUCTURE_OUTPUT_KEYS = frozenset(_SWING_FALLBACK)
+
 # Same D-01 rationale as _SWING_FALLBACK -- the archived plugin's
 # trend_direction=0.0/price_position=0.5 early-return reads as a real
 # measurement ("no trend" / "exactly mid-range") instead of "couldn't
@@ -3905,8 +3912,6 @@ def _compute_trend_structure(
 
     recent_high = float(np.max(h[swing_highs[-1] :]))
     recent_low = float(np.min(lo[swing_lows[-1] :]))
-    recent_high = max(recent_high, float(h[swing_highs[-1]]))
-    recent_low = min(recent_low, float(lo[swing_lows[-1]]))
     swing_range = recent_high - recent_low
     position: float | None
     if swing_range > 0:
@@ -4006,20 +4011,44 @@ def _detect_swing_extremes(
 
     Returns at most the trailing max_extremes confirmed, deduplicated
     extremes; never raises (a too-short input yields an empty list).
+
+    Vectorized via the same shifted-array neighbor-comparison technique as
+    find_peaks/find_troughs (src/intelligence/utils/core.py) instead of a
+    per-bar Python loop with an np.max/np.min call over each bar's window --
+    this runs once per bar in both compute() and compute_batch(), so an
+    O(n_bars) Python loop here is O(n_bars) extra numpy dispatch overhead
+    per bar across the whole corpus. Not a call to find_peaks/find_troughs
+    itself (see module docstring above): the >=/<= comparison here has no
+    "at least one strict" requirement, so it is computed directly rather
+    than reused.
     """
-    extremes: list[tuple[float, int, str]] = []
     n_bars = len(highs)
-    for i in range(confirm_n, n_bars - confirm_n):
-        lo_idx = i - confirm_n
-        hi_idx = i + confirm_n + 1
-        window_high = highs[lo_idx:hi_idx]
-        window_low = lows[lo_idx:hi_idx]
-        is_peak = highs[i] >= np.max(window_high)
-        is_trough = lows[i] <= np.min(window_low)
-        if is_peak:
-            extremes.append((float(highs[i]), i, "high"))
-        elif is_trough:
-            extremes.append((float(lows[i]), i, "low"))
+    count = n_bars - 2 * confirm_n
+    if count <= 0:
+        return []
+
+    center_h = highs[confirm_n : confirm_n + count]
+    center_l = lows[confirm_n : confirm_n + count]
+    is_peak = np.ones(count, dtype=bool)
+    is_trough = np.ones(count, dtype=bool)
+    for j in range(1, confirm_n + 1):
+        left_h = highs[confirm_n - j : confirm_n - j + count]
+        right_h = highs[confirm_n + j : confirm_n + j + count]
+        is_peak &= (center_h >= left_h) & (center_h >= right_h)
+        left_l = lows[confirm_n - j : confirm_n - j + count]
+        right_l = lows[confirm_n + j : confirm_n + j + count]
+        is_trough &= (center_l <= left_l) & (center_l <= right_l)
+
+    # elif semantics: a bar satisfying both is recorded as a peak only,
+    # matching the original loop's `if is_peak: ... elif is_trough: ...`.
+    peak_idx = np.where(is_peak)[0] + confirm_n
+    trough_idx = np.where(is_trough & ~is_peak)[0] + confirm_n
+
+    extremes: list[tuple[float, int, str]] = sorted(
+        [(float(highs[i]), int(i), "high") for i in peak_idx]
+        + [(float(lows[i]), int(i), "low") for i in trough_idx],
+        key=lambda x: x[1],
+    )
 
     extremes = _dedup_swing_extremes(extremes)
     return extremes[-max_extremes:]
@@ -4173,6 +4202,14 @@ def _compute_swing_momentum(
 # tunable to migrate. Migration 267's SQL COMMENT carries the same note;
 # keep the two consistent.
 _FIB_RATIOS: tuple[float, ...] = (0.236, 0.382, 0.500, 0.618, 0.786)
+# ICT discount-zone bounds, referenced by value (not position) so a future
+# reorder/extension of _FIB_RATIOS can't silently redefine the zone. Indices
+# resolved once at import time (not per bar in _compute_fib_zones, which
+# runs once per bar across the whole historical corpus in compute_batch()).
+_FIB_DISCOUNT_ZONE_LO = 0.500
+_FIB_DISCOUNT_ZONE_HI = 0.786
+_FIB_DISCOUNT_LO_IDX = _FIB_RATIOS.index(_FIB_DISCOUNT_ZONE_LO)
+_FIB_DISCOUNT_HI_IDX = _FIB_RATIOS.index(_FIB_DISCOUNT_ZONE_HI)
 
 _FIB_FALLBACK: dict[str, float | None] = {
     "nearest_fib_ratio": None,
@@ -4228,15 +4265,11 @@ def _compute_fib_zones(
     nearest_idx = min(range(len(levels)), key=lambda k: abs(levels[k] - close_))
     nearest_fib_ratio = float(_FIB_RATIOS[nearest_idx])
     nearest_fib_dist_atr = abs(close_ - levels[nearest_idx]) / atr_val
+    discount_lo = levels[_FIB_DISCOUNT_LO_IDX]
+    discount_hi = levels[_FIB_DISCOUNT_HI_IDX]
     # gradient-exempt: zone-membership flag, not a score
-    in_fib_discount_zone = 1.0 if levels[2] <= close_ <= levels[4] else 0.0  # gradient-exempt
+    in_fib_discount_zone = 1.0 if discount_lo <= close_ <= discount_hi else 0.0  # gradient-exempt
 
-    # fib_cluster_fallback_divisor (the FeatureFactoryConfig field seeded in
-    # Plan 01) is DELIBERATELY DORMANT: the archived fallback only fired
-    # when ATR was unavailable, and the atr_valid guard above already
-    # returns the all-None fallback in exactly that case -- this branch is
-    # unreachable by construction, not a missed wiring. Candidate for
-    # removal if the base 4 fib fields fail their incremental-IC screen.
     threshold = atr_val / config.fib_cluster_atr_divisor
     cluster_count = sum(
         1
@@ -4555,6 +4588,14 @@ _FVG_FALLBACK: dict[str, float] = {
     "fvg_midpoint": 0.0,
 }
 
+# Persisted subset of _compute_fvg()'s return dict -- fvg_midpoint is an
+# in-memory-only intermediate for Plan 04's supply/demand zones and must
+# never reach _build_feature_vector. Derived from _FVG_FALLBACK (like
+# _SWING_STRUCTURE_OUTPUT_KEYS derives from _SWING_FALLBACK above) so there
+# is one source of truth for _compute_fvg()'s key set, not two hand-typed
+# lists that could drift out of sync.
+_FVG_OUTPUT_KEYS = frozenset(_FVG_FALLBACK) - {"fvg_midpoint"}
+
 
 def _compute_fvg(
     highs: np.ndarray,
@@ -4664,6 +4705,13 @@ _POOL_FALLBACK: dict[str, float] = {
     "pool_count": 0.0,
     "price_in_premium": 0.0,
 }
+
+# Persisted subset of _compute_liquidity_pools()'s return dict --
+# price_in_premium is an in-memory-only intermediate for Plan 04's
+# supply/demand zones and must never reach _build_feature_vector. Derived
+# from _POOL_FALLBACK for the same one-source-of-truth reason as
+# _FVG_OUTPUT_KEYS above.
+_POOL_OUTPUT_KEYS = frozenset(_POOL_FALLBACK) - {"price_in_premium"}
 
 
 def _compute_liquidity_sweeps(
@@ -6002,6 +6050,58 @@ def _build_feature_vector(
     )
 
 
+def _merge_structural_fields(
+    vp_extra: dict[str, float | None],
+    sr_fields: dict[str, float | None],
+    swing_fields: dict[str, float | None | list[int] | int],
+    trend_fields: dict[str, float | None],
+    swing_momentum_fields: dict[str, float | None],
+    fib_fields: dict[str, float | None],
+    session_level_fields: dict[str, float | None],
+    ob_fields: dict[str, float],
+    fvg_fields: dict[str, float],
+    sweep_fields: dict[str, float],
+    pool_fields: dict[str, float],
+    zone_fields: dict[str, float],
+    bos_fields: dict[str, float],
+    amd_fields: dict[str, float],
+) -> dict[str, float | None]:
+    """Merge the 14 Phase 163-165 structural/SMC field dicts into one.
+
+    Both compute() and compute_batch() call each _compute_*/_derive_*
+    helper above (identically -- they differ only in how input arrays are
+    pre-sliced) and then need to relay every returned field into
+    _build_feature_vector. Doing that merge here once, shared by both call
+    sites, replaces what used to be a ~90-line unpack-into-named-locals-
+    then-repack-as-kwargs block duplicated at each site -- the actual
+    maintenance risk that duplication carried: a future field added to one
+    of these dicts but not relayed at both sites would silently default to
+    None in _build_feature_vector rather than error, since it is a
+    keyword-only function with per-field None defaults.
+
+    swing_fields/fvg_fields/pool_fields are filtered through their
+    *_OUTPUT_KEYS allowlist first -- those three also carry in-memory-only
+    intermediates (raw swing prices/indices, fvg_midpoint, price_in_premium)
+    that must never reach _build_feature_vector.
+    """
+    return {
+        **vp_extra,
+        **sr_fields,
+        **{k: swing_fields[k] for k in _SWING_STRUCTURE_OUTPUT_KEYS},
+        **trend_fields,
+        **swing_momentum_fields,
+        **fib_fields,
+        **session_level_fields,
+        **ob_fields,
+        **{k: fvg_fields[k] for k in _FVG_OUTPUT_KEYS},
+        **sweep_fields,
+        **{k: pool_fields[k] for k in _POOL_OUTPUT_KEYS},
+        **zone_fields,
+        **bos_fields,
+        **amd_fields,
+    }
+
+
 # ---------------------------------------------------------------------------
 # FeatureFactory — stateless pure-function class
 # ---------------------------------------------------------------------------
@@ -6081,44 +6181,21 @@ class FeatureFactory:
                 config,
             )
             vp_extra = _derive_session_vp(cache, close_, atr_val, poc_price_rolling)
-        poc_dist_atr_val = vp_extra["poc_dist_atr"]
-        va_position_val = vp_extra["va_position"]
 
         # S/R (Phase 163 Plan 03): stateless inline pivot-clustering, unlike VP,
         # is valid for tf=='1d' too (no single-daily-bar-has-no-distribution
         # constraint applies) -- always computed, using the tf-specific
         # lookback from config (D-19).
         _sr_fields = _compute_sr_dist_atr(highs, lows, close_, atr_val, volumes, tf, config)
-        sr_support_dist_val: float | None = _sr_fields["sr_support_dist"]
-        sr_resist_dist_val: float | None = _sr_fields["sr_resist_dist"]
-        resistance_strength_val: float | None = _sr_fields["resistance_strength"]
-        support_strength_val: float | None = _sr_fields["support_strength"]
-        resistance_age_bars_val: float | None = _sr_fields["resistance_age_bars"]
-        support_age_bars_val: float | None = _sr_fields["support_age_bars"]
-        sr_level_count_val: float | None = _sr_fields["sr_level_count"]
 
         # Swing / Trend Structure (Phase 165 Plan 02): single shared
         # find_peaks/find_troughs pass (D-06) -- _swing_fields carries the
         # raw swing_high_indices/swing_low_indices/n_bars intermediates that
         # _compute_trend_structure reuses instead of re-detecting pivots.
         _swing_fields = _compute_swing_structure(highs, lows, close_, atr_val, config)
-        swing_high_dist_atr_val: float | None = _swing_fields["swing_high_dist_atr"]
-        swing_low_dist_atr_val: float | None = _swing_fields["swing_low_dist_atr"]
-        swing_high_type_val: float | None = _swing_fields["swing_high_type"]
-        swing_low_type_val: float | None = _swing_fields["swing_low_type"]
-        swing_pattern_val: float | None = _swing_fields["swing_pattern"]
-        swing_high_age_bars_val: float | None = _swing_fields["swing_high_age_bars"]
-        swing_low_age_bars_val: float | None = _swing_fields["swing_low_age_bars"]
-
         _trend_fields = _compute_trend_structure(
             highs, lows, close_, atr_val, _swing_fields, config
         )
-        trend_direction_val: float | None = _trend_fields["trend_direction"]
-        trend_strength_val: float | None = _trend_fields["trend_strength"]
-        trend_leg_count_val: float | None = _trend_fields["trend_leg_count"]
-        structure_integrity_val: float | None = _trend_fields["structure_integrity"]
-        price_position_val: float | None = _trend_fields["price_position"]
-        trend_duration_bars_val: float | None = _trend_fields["trend_duration_bars"]
 
         # Swing Momentum / Fibonacci Zones (Phase 165 Plan 03): swing
         # momentum reads its own self-contained confirm-window extreme
@@ -6126,26 +6203,7 @@ class FeatureFactory:
         # zones consumes _swing_fields' swing_high_price/swing_low_price
         # in-memory intermediates directly -- no cross-plugin fallback (D-05).
         _swing_momentum_fields = _compute_swing_momentum(highs, lows, volumes, config)
-        swing_amplitude_ratio_val: float | None = _swing_momentum_fields["swing_amplitude_ratio"]
-        swing_amplitude_expanding_val: float | None = _swing_momentum_fields[
-            "swing_amplitude_expanding"
-        ]
-        swing_amplitude_intensity_val: float | None = _swing_momentum_fields[
-            "swing_amplitude_intensity"
-        ]
-        swing_velocity_bars_val: float | None = _swing_momentum_fields["swing_velocity_bars"]
-        swing_velocity_bias_val: float | None = _swing_momentum_fields["swing_velocity_bias"]
-        struct_energy_val: float | None = _swing_momentum_fields["struct_energy"]
-        struct_accel_bias_val: float | None = _swing_momentum_fields["struct_accel_bias"]
-        swing_volume_confirmation_val: float | None = _swing_momentum_fields[
-            "swing_volume_confirmation"
-        ]
-
         _fib_fields = _compute_fib_zones(close_, atr_val, _swing_fields, config)
-        nearest_fib_ratio_val: float | None = _fib_fields["nearest_fib_ratio"]
-        nearest_fib_dist_atr_val: float | None = _fib_fields["nearest_fib_dist_atr"]
-        fib_cluster_strength_val: float | None = _fib_fields["fib_cluster_strength"]
-        in_fib_discount_zone_val: float | None = _fib_fields["in_fib_discount_zone"]
 
         # Session Levels (Phase 165 Plan 05): the last 16 Phase 165 fields,
         # derived from FeatureCache's raw session/overnight/Asian-block/
@@ -6154,32 +6212,6 @@ class FeatureFactory:
         # cache.update_session_levels(...) before compute() runs -- this
         # function only reads the cache, never mutates it.
         _session_level_fields = _derive_session_levels(cache, close_, atr_val, tf)
-        prior_session_high_dist_atr_val: float | None = _session_level_fields[
-            "prior_session_high_dist_atr"
-        ]
-        prior_session_low_dist_atr_val: float | None = _session_level_fields[
-            "prior_session_low_dist_atr"
-        ]
-        prior_session_close_dist_atr_val: float | None = _session_level_fields[
-            "prior_session_close_dist_atr"
-        ]
-        overnight_high_dist_atr_val: float | None = _session_level_fields["overnight_high_dist_atr"]
-        overnight_low_dist_atr_val: float | None = _session_level_fields["overnight_low_dist_atr"]
-        overnight_range_pct_val: float | None = _session_level_fields["overnight_range_pct"]
-        opening_gap_pct_val: float | None = _session_level_fields["opening_gap_pct"]
-        weekly_pivot_dist_atr_val: float | None = _session_level_fields["weekly_pivot_dist_atr"]
-        weekly_r1_dist_atr_val: float | None = _session_level_fields["weekly_r1_dist_atr"]
-        weekly_r2_dist_atr_val: float | None = _session_level_fields["weekly_r2_dist_atr"]
-        weekly_s1_dist_atr_val: float | None = _session_level_fields["weekly_s1_dist_atr"]
-        weekly_s2_dist_atr_val: float | None = _session_level_fields["weekly_s2_dist_atr"]
-        nearest_level_dist_atr_val: float | None = _session_level_fields["nearest_level_dist_atr"]
-        asian_session_high_dist_atr_val: float | None = _session_level_fields[
-            "asian_session_high_dist_atr"
-        ]
-        asian_session_low_dist_atr_val: float | None = _session_level_fields[
-            "asian_session_low_dist_atr"
-        ]
-        gap_filled_val: float | None = _session_level_fields["gap_filled"]
 
         # Smart Money Concepts (Phase 164 Plan 02): Order Blocks + stateless
         # Breaker/Mitigation, single pure pass per RESEARCH.md's mandated
@@ -6189,13 +6221,6 @@ class FeatureFactory:
         _ob_fields = _compute_order_blocks(
             opens, highs, lows, closes, volumes, close_, atr_val, config
         )
-        ob_bull_dist_atr_val = _ob_fields["ob_bull_dist_atr"]
-        ob_bear_dist_atr_val = _ob_fields["ob_bear_dist_atr"]
-        ob_strength_val = _ob_fields["ob_strength"]
-        ob_mitigated_flag_val = _ob_fields["ob_mitigated_flag"]
-        breaker_dist_atr_val = _ob_fields["breaker_dist_atr"]
-        breaker_block_active_val = _ob_fields["breaker_block_active"]
-        ob_mitigation_pct_val = _ob_fields["ob_mitigation_pct"]
 
         # Smart Money Concepts (Phase 164 Plan 03): Fair Value Gaps, then
         # Liquidity Sweeps, then Liquidity Pools (single-tf descoped), per
@@ -6203,23 +6228,11 @@ class FeatureFactory:
         # are staged as in-pass locals (not persisted) for Plan 04's
         # supply/demand-zones block.
         _fvg_fields = _compute_fvg(highs, lows, closes, close_, atr_val, config)
-        fvg_dist_atr_val = _fvg_fields["fvg_dist_atr"]
-        fvg_size_atr_val = _fvg_fields["fvg_size_atr"]
-        fvg_open_count_val = _fvg_fields["fvg_open_count"]
         _fvg_midpoint = _fvg_fields["fvg_midpoint"]  # Plan 04 zones local, not persisted
 
         _sweep_fields = _compute_liquidity_sweeps(highs, lows, closes, close_, atr_val, config)
-        sweep_detected_val = _sweep_fields["sweep_detected"]
-        sweep_strength_val = _sweep_fields["sweep_strength"]
-        reclaim_velocity_val = _sweep_fields["reclaim_velocity"]
-        bars_since_last_sweep_val = _sweep_fields["bars_since_last_sweep"]
 
         _pool_fields = _compute_liquidity_pools(highs, lows, closes, close_, atr_val, config)
-        bsl_dist_atr_val = _pool_fields["bsl_dist_atr"]
-        ssl_dist_atr_val = _pool_fields["ssl_dist_atr"]
-        bsl_touches_val = _pool_fields["bsl_touches"]
-        ssl_touches_val = _pool_fields["ssl_touches"]
-        pool_count_val = _pool_fields["pool_count"]
         _price_in_premium = _pool_fields["price_in_premium"]  # Plan 04 zones local, not persisted
 
         # Smart Money Concepts (Phase 164 Plan 04): Supply/Demand Zones (soft-
@@ -6238,27 +6251,26 @@ class FeatureFactory:
             _fvg_midpoint,
             _price_in_premium,
         )
-        demand_dist_atr_val = _zone_fields["demand_dist_atr"]
-        supply_dist_atr_val = _zone_fields["supply_dist_atr"]
-        demand_freshness_val = _zone_fields["demand_freshness"]
-        supply_freshness_val = _zone_fields["supply_freshness"]
-        active_demand_zones_val = _zone_fields["active_demand_zones"]
-        active_supply_zones_val = _zone_fields["active_supply_zones"]
-        zone_friction_score_val = _zone_fields["zone_friction_score"]
 
         _bos_fields = _compute_bos_choch(highs, lows, closes, close_, atr_val, config)
-        bos_strength_val = _bos_fields["bos_strength"]
-        choch_strength_val = _bos_fields["choch_strength"]
-        bos_direction_val = _bos_fields["bos_direction"]
-        choch_direction_val = _bos_fields["choch_direction"]
-        smc_trend_direction_val = _bos_fields["smc_trend_direction"]
-        bars_since_last_shift_val = _bos_fields["bars_since_last_shift"]
-
         _amd_fields = _derive_amd_cycle(cache, bar_ts, config)
-        amd_phase_val = _amd_fields["amd_phase"]
-        amd_manipulation_detected_val = _amd_fields["amd_manipulation_detected"]
-        amd_distribution_direction_val = _amd_fields["amd_distribution_direction"]
-        manip_strength_val = _amd_fields["manip_strength"]
+
+        _structural_fields = _merge_structural_fields(
+            vp_extra,
+            _sr_fields,
+            _swing_fields,
+            _trend_fields,
+            _swing_momentum_fields,
+            _fib_fields,
+            _session_level_fields,
+            _ob_fields,
+            _fvg_fields,
+            _sweep_fields,
+            _pool_fields,
+            _zone_fields,
+            _bos_fields,
+            _amd_fields,
+        )
 
         _dow = _dow_encoding(bar_ts)
 
@@ -6345,27 +6357,7 @@ class FeatureFactory:
             vwap_dev_sigma=_series_last(s.vwap_dev_sigma, 0.0),
             atr_z=atr_z_val,
             vol_ratio=_vol_ratio(closes, config.vol_short_bars, config.vol_long_bars),
-            poc_dist_atr=poc_dist_atr_val,
-            va_position=va_position_val,
-            sr_support_dist=sr_support_dist_val,
-            sr_resist_dist=sr_resist_dist_val,
-            nearest_hvn_above_dist_atr=vp_extra["nearest_hvn_above_dist_atr"],
-            nearest_hvn_below_dist_atr=vp_extra["nearest_hvn_below_dist_atr"],
-            nearest_lvn_above_dist_atr=vp_extra["nearest_lvn_above_dist_atr"],
-            nearest_lvn_below_dist_atr=vp_extra["nearest_lvn_below_dist_atr"],
-            price_in_value_area=vp_extra["price_in_value_area"],
-            in_lvn=vp_extra["in_lvn"],
-            va_width_atr=vp_extra["va_width_atr"],
-            distance_to_vah_atr=vp_extra["distance_to_vah_atr"],
-            distance_to_val_atr=vp_extra["distance_to_val_atr"],
-            nearest_hvn_dist_atr=vp_extra["nearest_hvn_dist_atr"],
-            poc_rolling_dist_atr=vp_extra["poc_rolling_dist_atr"],
-            poc_session_rolling_divergence_atr=vp_extra["poc_session_rolling_divergence_atr"],
-            resistance_strength=resistance_strength_val,
-            support_strength=support_strength_val,
-            resistance_age_bars=resistance_age_bars_val,
-            support_age_bars=support_age_bars_val,
-            sr_level_count=sr_level_count_val,
+            **_structural_fields,
             hmm_regime_prob=cache.hmm_regime_prob,
             hmm_entropy=cache.hmm_entropy,
             hmm_duration=cache.hmm_duration,
@@ -6518,93 +6510,6 @@ class FeatureFactory:
             canary_constant=_CANARY_CONSTANT_VALUE,
             canary_near_constant=canary_near_constant_val,
             canary_acausal_placebo=canary_acausal_placebo_val,
-            # Smart Money Concepts (36, Phase 164) -- all 8 sub-concepts now
-            # real computed values: Order Blocks + Breaker/Mitigation (7,
-            # Plan 02), FVG + Liquidity Sweeps + Liquidity Pools (11, Plan
-            # 03), Supply/Demand Zones + BOS/CHoCH + AMD Cycle (18, Plan 04).
-            ob_bull_dist_atr=ob_bull_dist_atr_val,
-            ob_bear_dist_atr=ob_bear_dist_atr_val,
-            ob_strength=ob_strength_val,
-            ob_mitigated_flag=ob_mitigated_flag_val,
-            breaker_dist_atr=breaker_dist_atr_val,
-            breaker_block_active=breaker_block_active_val,
-            ob_mitigation_pct=ob_mitigation_pct_val,
-            fvg_dist_atr=fvg_dist_atr_val,
-            fvg_size_atr=fvg_size_atr_val,
-            fvg_open_count=fvg_open_count_val,
-            sweep_detected=sweep_detected_val,
-            sweep_strength=sweep_strength_val,
-            reclaim_velocity=reclaim_velocity_val,
-            bars_since_last_sweep=bars_since_last_sweep_val,
-            bsl_dist_atr=bsl_dist_atr_val,
-            ssl_dist_atr=ssl_dist_atr_val,
-            bsl_touches=bsl_touches_val,
-            ssl_touches=ssl_touches_val,
-            pool_count=pool_count_val,
-            demand_dist_atr=demand_dist_atr_val,
-            supply_dist_atr=supply_dist_atr_val,
-            demand_freshness=demand_freshness_val,
-            supply_freshness=supply_freshness_val,
-            active_demand_zones=active_demand_zones_val,
-            active_supply_zones=active_supply_zones_val,
-            zone_friction_score=zone_friction_score_val,
-            bos_strength=bos_strength_val,
-            choch_strength=choch_strength_val,
-            bos_direction=bos_direction_val,
-            choch_direction=choch_direction_val,
-            smc_trend_direction=smc_trend_direction_val,
-            bars_since_last_shift=bars_since_last_shift_val,
-            amd_phase=amd_phase_val,
-            amd_manipulation_detected=amd_manipulation_detected_val,
-            amd_distribution_direction=amd_distribution_direction_val,
-            manip_strength=manip_strength_val,
-            # Swing Detection + Trend Structure (13, Phase 165 Plan 02) +
-            # Swing Momentum + Fibonacci Zones (12, Phase 165 Plan 03) +
-            # Session Levels (16, Phase 165 Plan 05): real computed values
-            # from the shared _swing_fields/_trend_fields/
-            # _swing_momentum_fields/_fib_fields/_session_level_fields passes
-            # above -- all 41 Phase 165 columns now carry computed values.
-            swing_high_dist_atr=swing_high_dist_atr_val,
-            swing_low_dist_atr=swing_low_dist_atr_val,
-            swing_high_type=swing_high_type_val,
-            swing_low_type=swing_low_type_val,
-            swing_pattern=swing_pattern_val,
-            swing_high_age_bars=swing_high_age_bars_val,
-            swing_low_age_bars=swing_low_age_bars_val,
-            trend_direction=trend_direction_val,
-            trend_strength=trend_strength_val,
-            trend_leg_count=trend_leg_count_val,
-            structure_integrity=structure_integrity_val,
-            price_position=price_position_val,
-            trend_duration_bars=trend_duration_bars_val,
-            swing_amplitude_ratio=swing_amplitude_ratio_val,
-            swing_amplitude_expanding=swing_amplitude_expanding_val,
-            swing_amplitude_intensity=swing_amplitude_intensity_val,
-            swing_velocity_bars=swing_velocity_bars_val,
-            swing_velocity_bias=swing_velocity_bias_val,
-            struct_energy=struct_energy_val,
-            struct_accel_bias=struct_accel_bias_val,
-            swing_volume_confirmation=swing_volume_confirmation_val,
-            nearest_fib_ratio=nearest_fib_ratio_val,
-            nearest_fib_dist_atr=nearest_fib_dist_atr_val,
-            fib_cluster_strength=fib_cluster_strength_val,
-            in_fib_discount_zone=in_fib_discount_zone_val,
-            prior_session_high_dist_atr=prior_session_high_dist_atr_val,
-            prior_session_low_dist_atr=prior_session_low_dist_atr_val,
-            prior_session_close_dist_atr=prior_session_close_dist_atr_val,
-            overnight_high_dist_atr=overnight_high_dist_atr_val,
-            overnight_low_dist_atr=overnight_low_dist_atr_val,
-            overnight_range_pct=overnight_range_pct_val,
-            opening_gap_pct=opening_gap_pct_val,
-            weekly_pivot_dist_atr=weekly_pivot_dist_atr_val,
-            weekly_r1_dist_atr=weekly_r1_dist_atr_val,
-            weekly_r2_dist_atr=weekly_r2_dist_atr_val,
-            weekly_s1_dist_atr=weekly_s1_dist_atr_val,
-            weekly_s2_dist_atr=weekly_s2_dist_atr_val,
-            nearest_level_dist_atr=nearest_level_dist_atr_val,
-            asian_session_high_dist_atr=asian_session_high_dist_atr_val,
-            asian_session_low_dist_atr=asian_session_low_dist_atr_val,
-            gap_filled=gap_filled_val,
         )
 
     @staticmethod
@@ -6775,8 +6680,6 @@ class FeatureFactory:
                     config,
                 )
                 vp_extra = _derive_session_vp(cache, close_, atr_val, poc_price_rolling)
-            poc_dist_atr_val = vp_extra["poc_dist_atr"]
-            va_position_val = vp_extra["va_position"]
 
             # S/R (Phase 163 Plan 03): stateless inline pivot-clustering, valid
             # for tf=='1d' too (D-19) -- pre-slice the causal window ending at
@@ -6793,13 +6696,6 @@ class FeatureFactory:
                 tf,
                 config,
             )
-            sr_support_dist_val = _sr_fields["sr_support_dist"]
-            sr_resist_dist_val = _sr_fields["sr_resist_dist"]
-            resistance_strength_val = _sr_fields["resistance_strength"]
-            support_strength_val = _sr_fields["support_strength"]
-            resistance_age_bars_val = _sr_fields["resistance_age_bars"]
-            support_age_bars_val = _sr_fields["support_age_bars"]
-            sr_level_count_val = _sr_fields["sr_level_count"]
 
             # Swing / Trend Structure (Phase 165 Plan 02): causal pre-slice
             # ending at the current bar (never the full series, to avoid
@@ -6814,14 +6710,6 @@ class FeatureFactory:
                 atr_val,
                 config,
             )
-            swing_high_dist_atr_val = _swing_fields["swing_high_dist_atr"]
-            swing_low_dist_atr_val = _swing_fields["swing_low_dist_atr"]
-            swing_high_type_val = _swing_fields["swing_high_type"]
-            swing_low_type_val = _swing_fields["swing_low_type"]
-            swing_pattern_val = _swing_fields["swing_pattern"]
-            swing_high_age_bars_val = _swing_fields["swing_high_age_bars"]
-            swing_low_age_bars_val = _swing_fields["swing_low_age_bars"]
-
             _trend_fields = _compute_trend_structure(
                 highs[_sw_start : i + 1],
                 lows[_sw_start : i + 1],
@@ -6830,12 +6718,6 @@ class FeatureFactory:
                 _swing_fields,
                 config,
             )
-            trend_direction_val = _trend_fields["trend_direction"]
-            trend_strength_val = _trend_fields["trend_strength"]
-            trend_leg_count_val = _trend_fields["trend_leg_count"]
-            structure_integrity_val = _trend_fields["structure_integrity"]
-            price_position_val = _trend_fields["price_position"]
-            trend_duration_bars_val = _trend_fields["trend_duration_bars"]
 
             # Swing Momentum / Fibonacci Zones (Phase 165 Plan 03): swing
             # momentum pre-slices its own causal window ending at the
@@ -6851,42 +6733,13 @@ class FeatureFactory:
                 volumes[_sm_start : i + 1],
                 config,
             )
-            swing_amplitude_ratio_val = _swing_momentum_fields["swing_amplitude_ratio"]
-            swing_amplitude_expanding_val = _swing_momentum_fields["swing_amplitude_expanding"]
-            swing_amplitude_intensity_val = _swing_momentum_fields["swing_amplitude_intensity"]
-            swing_velocity_bars_val = _swing_momentum_fields["swing_velocity_bars"]
-            swing_velocity_bias_val = _swing_momentum_fields["swing_velocity_bias"]
-            struct_energy_val = _swing_momentum_fields["struct_energy"]
-            struct_accel_bias_val = _swing_momentum_fields["struct_accel_bias"]
-            swing_volume_confirmation_val = _swing_momentum_fields["swing_volume_confirmation"]
-
             _fib_fields = _compute_fib_zones(close_, atr_val, _swing_fields, config)
-            nearest_fib_ratio_val = _fib_fields["nearest_fib_ratio"]
-            nearest_fib_dist_atr_val = _fib_fields["nearest_fib_dist_atr"]
-            fib_cluster_strength_val = _fib_fields["fib_cluster_strength"]
-            in_fib_discount_zone_val = _fib_fields["in_fib_discount_zone"]
 
             # Session Levels (Phase 165 Plan 05): the last 16 Phase 165
             # fields, derived from FeatureCache's raw state --
             # cache.update_session_levels(...) was already called for this
             # bar in this loop's per-bar preamble above.
             _session_level_fields = _derive_session_levels(cache, close_, atr_val, tf)
-            prior_session_high_dist_atr_val = _session_level_fields["prior_session_high_dist_atr"]
-            prior_session_low_dist_atr_val = _session_level_fields["prior_session_low_dist_atr"]
-            prior_session_close_dist_atr_val = _session_level_fields["prior_session_close_dist_atr"]
-            overnight_high_dist_atr_val = _session_level_fields["overnight_high_dist_atr"]
-            overnight_low_dist_atr_val = _session_level_fields["overnight_low_dist_atr"]
-            overnight_range_pct_val = _session_level_fields["overnight_range_pct"]
-            opening_gap_pct_val = _session_level_fields["opening_gap_pct"]
-            weekly_pivot_dist_atr_val = _session_level_fields["weekly_pivot_dist_atr"]
-            weekly_r1_dist_atr_val = _session_level_fields["weekly_r1_dist_atr"]
-            weekly_r2_dist_atr_val = _session_level_fields["weekly_r2_dist_atr"]
-            weekly_s1_dist_atr_val = _session_level_fields["weekly_s1_dist_atr"]
-            weekly_s2_dist_atr_val = _session_level_fields["weekly_s2_dist_atr"]
-            nearest_level_dist_atr_val = _session_level_fields["nearest_level_dist_atr"]
-            asian_session_high_dist_atr_val = _session_level_fields["asian_session_high_dist_atr"]
-            asian_session_low_dist_atr_val = _session_level_fields["asian_session_low_dist_atr"]
-            gap_filled_val = _session_level_fields["gap_filled"]
 
             # Smart Money Concepts (Phase 164 Plan 02): Order Blocks +
             # stateless Breaker/Mitigation -- pre-slice a causal window ending
@@ -6904,13 +6757,6 @@ class FeatureFactory:
                 atr_val,
                 config,
             )
-            ob_bull_dist_atr_val = _ob_fields["ob_bull_dist_atr"]
-            ob_bear_dist_atr_val = _ob_fields["ob_bear_dist_atr"]
-            ob_strength_val = _ob_fields["ob_strength"]
-            ob_mitigated_flag_val = _ob_fields["ob_mitigated_flag"]
-            breaker_dist_atr_val = _ob_fields["breaker_dist_atr"]
-            breaker_block_active_val = _ob_fields["breaker_block_active"]
-            ob_mitigation_pct_val = _ob_fields["ob_mitigation_pct"]
 
             # Smart Money Concepts (Phase 164 Plan 03): FVG, then Liquidity
             # Sweeps, then Liquidity Pools -- each pre-slices its own causal
@@ -6927,9 +6773,6 @@ class FeatureFactory:
                 atr_val,
                 config,
             )
-            fvg_dist_atr_val = _fvg_fields["fvg_dist_atr"]
-            fvg_size_atr_val = _fvg_fields["fvg_size_atr"]
-            fvg_open_count_val = _fvg_fields["fvg_open_count"]
             _fvg_midpoint = _fvg_fields["fvg_midpoint"]
 
             _sweep_lookback = config.smc_liquidity_sweeps_lookback
@@ -6942,10 +6785,6 @@ class FeatureFactory:
                 atr_val,
                 config,
             )
-            sweep_detected_val = _sweep_fields["sweep_detected"]
-            sweep_strength_val = _sweep_fields["sweep_strength"]
-            reclaim_velocity_val = _sweep_fields["reclaim_velocity"]
-            bars_since_last_sweep_val = _sweep_fields["bars_since_last_sweep"]
 
             _pool_lookback = config.smc_liquidity_pools_lookback
             _pool_start = max(0, i - _pool_lookback + 1)
@@ -6957,11 +6796,6 @@ class FeatureFactory:
                 atr_val,
                 config,
             )
-            bsl_dist_atr_val = _pool_fields["bsl_dist_atr"]
-            ssl_dist_atr_val = _pool_fields["ssl_dist_atr"]
-            bsl_touches_val = _pool_fields["bsl_touches"]
-            ssl_touches_val = _pool_fields["ssl_touches"]
-            pool_count_val = _pool_fields["pool_count"]
             _price_in_premium = _pool_fields["price_in_premium"]
 
             # Smart Money Concepts (Phase 164 Plan 04): Supply/Demand Zones
@@ -6984,13 +6818,6 @@ class FeatureFactory:
                 _fvg_midpoint,
                 _price_in_premium,
             )
-            demand_dist_atr_val = _zone_fields["demand_dist_atr"]
-            supply_dist_atr_val = _zone_fields["supply_dist_atr"]
-            demand_freshness_val = _zone_fields["demand_freshness"]
-            supply_freshness_val = _zone_fields["supply_freshness"]
-            active_demand_zones_val = _zone_fields["active_demand_zones"]
-            active_supply_zones_val = _zone_fields["active_supply_zones"]
-            zone_friction_score_val = _zone_fields["zone_friction_score"]
 
             _bos_lookback = config.smc_bos_choch_lookback
             _bos_start = max(0, i - _bos_lookback + 1)
@@ -7002,18 +6829,25 @@ class FeatureFactory:
                 atr_val,
                 config,
             )
-            bos_strength_val = _bos_fields["bos_strength"]
-            choch_strength_val = _bos_fields["choch_strength"]
-            bos_direction_val = _bos_fields["bos_direction"]
-            choch_direction_val = _bos_fields["choch_direction"]
-            smc_trend_direction_val = _bos_fields["smc_trend_direction"]
-            bars_since_last_shift_val = _bos_fields["bars_since_last_shift"]
 
             _amd_fields = _derive_amd_cycle(cache, bar_ts, config)
-            amd_phase_val = _amd_fields["amd_phase"]
-            amd_manipulation_detected_val = _amd_fields["amd_manipulation_detected"]
-            amd_distribution_direction_val = _amd_fields["amd_distribution_direction"]
-            manip_strength_val = _amd_fields["manip_strength"]
+
+            _structural_fields = _merge_structural_fields(
+                vp_extra,
+                _sr_fields,
+                _swing_fields,
+                _trend_fields,
+                _swing_momentum_fields,
+                _fib_fields,
+                _session_level_fields,
+                _ob_fields,
+                _fvg_fields,
+                _sweep_fields,
+                _pool_fields,
+                _zone_fields,
+                _bos_fields,
+                _amd_fields,
+            )
 
             # Regime-level primitives (all from cache)
             hmm_regime_prob_val = cache.hmm_regime_prob
@@ -7280,27 +7114,7 @@ class FeatureFactory:
                 vwap_dev_sigma=vwap_dev_sigma_val,
                 atr_z=atr_z_val,
                 vol_ratio=vol_ratio_val,
-                poc_dist_atr=poc_dist_atr_val,
-                va_position=va_position_val,
-                sr_support_dist=sr_support_dist_val,
-                sr_resist_dist=sr_resist_dist_val,
-                nearest_hvn_above_dist_atr=vp_extra["nearest_hvn_above_dist_atr"],
-                nearest_hvn_below_dist_atr=vp_extra["nearest_hvn_below_dist_atr"],
-                nearest_lvn_above_dist_atr=vp_extra["nearest_lvn_above_dist_atr"],
-                nearest_lvn_below_dist_atr=vp_extra["nearest_lvn_below_dist_atr"],
-                price_in_value_area=vp_extra["price_in_value_area"],
-                in_lvn=vp_extra["in_lvn"],
-                va_width_atr=vp_extra["va_width_atr"],
-                distance_to_vah_atr=vp_extra["distance_to_vah_atr"],
-                distance_to_val_atr=vp_extra["distance_to_val_atr"],
-                nearest_hvn_dist_atr=vp_extra["nearest_hvn_dist_atr"],
-                poc_rolling_dist_atr=vp_extra["poc_rolling_dist_atr"],
-                poc_session_rolling_divergence_atr=vp_extra["poc_session_rolling_divergence_atr"],
-                resistance_strength=resistance_strength_val,
-                support_strength=support_strength_val,
-                resistance_age_bars=resistance_age_bars_val,
-                support_age_bars=support_age_bars_val,
-                sr_level_count=sr_level_count_val,
+                **_structural_fields,
                 hmm_regime_prob=hmm_regime_prob_val,
                 hmm_entropy=hmm_entropy_val,
                 hmm_duration=hmm_duration_val,
@@ -7432,95 +7246,6 @@ class FeatureFactory:
                 canary_constant=_CANARY_CONSTANT_VALUE,
                 canary_near_constant=canary_near_constant_val,
                 canary_acausal_placebo=canary_acausal_placebo_val,
-                # Smart Money Concepts (36, Phase 164) -- all 8 sub-concepts
-                # now real computed values: Order Blocks + Breaker/Mitigation
-                # (7, Plan 02), FVG + Liquidity Sweeps + Liquidity Pools (11,
-                # Plan 03), Supply/Demand Zones + BOS/CHoCH + AMD Cycle (18,
-                # Plan 04).
-                ob_bull_dist_atr=ob_bull_dist_atr_val,
-                ob_bear_dist_atr=ob_bear_dist_atr_val,
-                ob_strength=ob_strength_val,
-                ob_mitigated_flag=ob_mitigated_flag_val,
-                breaker_dist_atr=breaker_dist_atr_val,
-                breaker_block_active=breaker_block_active_val,
-                ob_mitigation_pct=ob_mitigation_pct_val,
-                fvg_dist_atr=fvg_dist_atr_val,
-                fvg_size_atr=fvg_size_atr_val,
-                fvg_open_count=fvg_open_count_val,
-                sweep_detected=sweep_detected_val,
-                sweep_strength=sweep_strength_val,
-                reclaim_velocity=reclaim_velocity_val,
-                bars_since_last_sweep=bars_since_last_sweep_val,
-                bsl_dist_atr=bsl_dist_atr_val,
-                ssl_dist_atr=ssl_dist_atr_val,
-                bsl_touches=bsl_touches_val,
-                ssl_touches=ssl_touches_val,
-                pool_count=pool_count_val,
-                demand_dist_atr=demand_dist_atr_val,
-                supply_dist_atr=supply_dist_atr_val,
-                demand_freshness=demand_freshness_val,
-                supply_freshness=supply_freshness_val,
-                active_demand_zones=active_demand_zones_val,
-                active_supply_zones=active_supply_zones_val,
-                zone_friction_score=zone_friction_score_val,
-                bos_strength=bos_strength_val,
-                choch_strength=choch_strength_val,
-                bos_direction=bos_direction_val,
-                choch_direction=choch_direction_val,
-                smc_trend_direction=smc_trend_direction_val,
-                bars_since_last_shift=bars_since_last_shift_val,
-                amd_phase=amd_phase_val,
-                amd_manipulation_detected=amd_manipulation_detected_val,
-                amd_distribution_direction=amd_distribution_direction_val,
-                manip_strength=manip_strength_val,
-                # Swing Detection + Trend Structure (13, Phase 165 Plan 02) +
-                # Swing Momentum + Fibonacci Zones (12, Phase 165 Plan 03) +
-                # Session Levels (16, Phase 165 Plan 05): real computed
-                # values from the shared _swing_fields/_trend_fields/
-                # _swing_momentum_fields/_fib_fields/_session_level_fields
-                # passes above -- all 41 Phase 165 columns now carry
-                # computed values.
-                swing_high_dist_atr=swing_high_dist_atr_val,
-                swing_low_dist_atr=swing_low_dist_atr_val,
-                swing_high_type=swing_high_type_val,
-                swing_low_type=swing_low_type_val,
-                swing_pattern=swing_pattern_val,
-                swing_high_age_bars=swing_high_age_bars_val,
-                swing_low_age_bars=swing_low_age_bars_val,
-                trend_direction=trend_direction_val,
-                trend_strength=trend_strength_val,
-                trend_leg_count=trend_leg_count_val,
-                structure_integrity=structure_integrity_val,
-                price_position=price_position_val,
-                trend_duration_bars=trend_duration_bars_val,
-                swing_amplitude_ratio=swing_amplitude_ratio_val,
-                swing_amplitude_expanding=swing_amplitude_expanding_val,
-                swing_amplitude_intensity=swing_amplitude_intensity_val,
-                swing_velocity_bars=swing_velocity_bars_val,
-                swing_velocity_bias=swing_velocity_bias_val,
-                struct_energy=struct_energy_val,
-                struct_accel_bias=struct_accel_bias_val,
-                swing_volume_confirmation=swing_volume_confirmation_val,
-                nearest_fib_ratio=nearest_fib_ratio_val,
-                nearest_fib_dist_atr=nearest_fib_dist_atr_val,
-                fib_cluster_strength=fib_cluster_strength_val,
-                in_fib_discount_zone=in_fib_discount_zone_val,
-                prior_session_high_dist_atr=prior_session_high_dist_atr_val,
-                prior_session_low_dist_atr=prior_session_low_dist_atr_val,
-                prior_session_close_dist_atr=prior_session_close_dist_atr_val,
-                overnight_high_dist_atr=overnight_high_dist_atr_val,
-                overnight_low_dist_atr=overnight_low_dist_atr_val,
-                overnight_range_pct=overnight_range_pct_val,
-                opening_gap_pct=opening_gap_pct_val,
-                weekly_pivot_dist_atr=weekly_pivot_dist_atr_val,
-                weekly_r1_dist_atr=weekly_r1_dist_atr_val,
-                weekly_r2_dist_atr=weekly_r2_dist_atr_val,
-                weekly_s1_dist_atr=weekly_s1_dist_atr_val,
-                weekly_s2_dist_atr=weekly_s2_dist_atr_val,
-                nearest_level_dist_atr=nearest_level_dist_atr_val,
-                asian_session_high_dist_atr=asian_session_high_dist_atr_val,
-                asian_session_low_dist_atr=asian_session_low_dist_atr_val,
-                gap_filled=gap_filled_val,
             )
 
             results.append((bar_ts, fv))
