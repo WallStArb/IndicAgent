@@ -3653,6 +3653,293 @@ def _compute_sr_dist_atr(
 
 
 # ---------------------------------------------------------------------------
+# Swing / Trend Structure — stateless pivot geometry (Phase 165 Plan 02)
+# ---------------------------------------------------------------------------
+
+# Deliberately NOT modelled on _SR_FALLBACK's all-zero dict: 0.0 is a
+# legitimate "no level found" value for S/R distances, but a numeric
+# placeholder for a swing classification or trend position is a fake
+# measurement (D-01, the todo-153 failure shape). Every field here is None.
+_SWING_FALLBACK: dict[str, float | None] = {
+    "swing_high_dist_atr": None,
+    "swing_low_dist_atr": None,
+    "swing_high_type": None,
+    "swing_low_type": None,
+    "swing_pattern": None,
+    "swing_high_age_bars": None,
+    "swing_low_age_bars": None,
+}
+
+# Same D-01 rationale as _SWING_FALLBACK -- the archived plugin's
+# trend_direction=0.0/price_position=0.5 early-return reads as a real
+# measurement ("no trend" / "exactly mid-range") instead of "couldn't
+# measure". Every field here is None.
+_TREND_STRUCTURE_FALLBACK: dict[str, float | None] = {
+    "trend_direction": None,
+    "trend_strength": None,
+    "trend_leg_count": None,
+    "structure_integrity": None,
+    "price_position": None,
+    "trend_duration_bars": None,
+}
+
+
+def _compute_swing_structure(
+    highs: np.ndarray,
+    lows: np.ndarray,
+    close_: float,
+    atr_val: float,
+    config: FeatureFactoryConfig,
+) -> dict[str, float | None | list[int] | int]:
+    """Stateless swing-high/low detection (D-01/D-02/D-06), ATR-normalized.
+
+    Ports i3_structure/swing_detector.py's find_peaks/find_troughs pivot
+    detection over a bounded causal window (config.swing_lookback_bars).
+    This is the SHARED pivot-detection pass (D-06): callers must invoke this
+    once per bar and pass the returned swing_high_indices/swing_low_indices/
+    n_bars into _compute_trend_structure rather than re-running find_peaks/
+    find_troughs a second time.
+
+    Unlike swing_detector.py's archived per-field defaults (0.0 for a
+    missing type/pattern classification, float(n_bars) for a missing age),
+    every insufficient-data branch here returns None per field (D-01) -- a
+    fake-but-numeric placeholder is a silent-wrong-answer bug, not a
+    measurement.
+
+    Also returns the raw swing_high_price/swing_low_price/swing_high_indices/
+    swing_low_indices/n_bars intermediates for Plan 03's fibonacci port
+    (D-05). These extra keys are in-memory only -- they must NEVER be
+    threaded into _build_feature_vector (D-02/D-16: a raw price and a raw
+    bar index are equally invalid as persisted columns).
+
+    Falls back to _SWING_FALLBACK (all-None) for the 7 FeatureVector fields
+    (with empty indices/zero n_bars) when atr_val is invalid or the window
+    is too short for find_peaks/find_troughs -- never raises.
+    """
+    atr_valid = atr_val is not None and math.isfinite(atr_val) and atr_val > 0
+    if not atr_valid:
+        result: dict[str, float | None | list[int] | int] = dict(_SWING_FALLBACK)
+        result["swing_high_price"] = None
+        result["swing_low_price"] = None
+        result["swing_high_indices"] = []
+        result["swing_low_indices"] = []
+        result["n_bars"] = 0
+        return result
+
+    h = highs[-config.swing_lookback_bars :]
+    lo = lows[-config.swing_lookback_bars :]
+    n_bars = len(h)
+    if n_bars < 2 * config.swing_pivot_window + 1:
+        result = dict(_SWING_FALLBACK)
+        result["swing_high_price"] = None
+        result["swing_low_price"] = None
+        result["swing_high_indices"] = []
+        result["swing_low_indices"] = []
+        result["n_bars"] = n_bars
+        return result
+
+    peaks = find_peaks(h, n=config.swing_pivot_window)
+    troughs = find_troughs(lo, n=config.swing_pivot_window)
+
+    swing_high_price: float | None = float(h[peaks[-1]]) if peaks else None
+    swing_low_price: float | None = float(lo[troughs[-1]]) if troughs else None
+
+    swing_high_dist_atr = (
+        (swing_high_price - close_) / atr_val if swing_high_price is not None else None
+    )
+    swing_low_dist_atr = (
+        (close_ - swing_low_price) / atr_val if swing_low_price is not None else None
+    )
+    swing_high_age_bars = float(n_bars - 1 - peaks[-1]) if peaks else None
+    swing_low_age_bars = float(n_bars - 1 - troughs[-1]) if troughs else None
+
+    swing_high_type: float | None = None
+    if len(peaks) >= 2:
+        swing_high_type = 1.0 if h[peaks[-1]] > h[peaks[-2]] else -1.0
+
+    swing_low_type: float | None = None
+    if len(troughs) >= 2:
+        swing_low_type = 1.0 if lo[troughs[-1]] > lo[troughs[-2]] else -1.0
+
+    swing_pattern: float | None = None
+    if swing_high_type is not None and swing_low_type is not None:
+        if swing_high_type > 0.0 and swing_low_type > 0.0:
+            swing_pattern = 1.0
+        elif swing_high_type < 0.0 and swing_low_type < 0.0:
+            swing_pattern = -1.0
+        else:
+            swing_pattern = 0.0
+
+    return {
+        "swing_high_dist_atr": swing_high_dist_atr,
+        "swing_low_dist_atr": swing_low_dist_atr,
+        "swing_high_type": swing_high_type,
+        "swing_low_type": swing_low_type,
+        "swing_pattern": swing_pattern,
+        "swing_high_age_bars": swing_high_age_bars,
+        "swing_low_age_bars": swing_low_age_bars,
+        "swing_high_price": swing_high_price,
+        "swing_low_price": swing_low_price,
+        "swing_high_indices": peaks,
+        "swing_low_indices": troughs,
+        "n_bars": n_bars,
+    }
+
+
+def _trend_duration_bars(
+    direction: float,
+    swing_highs: list[int],
+    swing_lows: list[int],
+    high: np.ndarray,
+    low: np.ndarray,
+    n_bars: int,
+) -> float:
+    """Bars since the start of the current directional swing streak.
+
+    Ported verbatim from trend_structure.py's
+    TrendStructurePlugin._compute_trend_duration static method.
+    """
+    if direction > 0.0 and len(swing_highs) >= 2:
+        streak_start = swing_highs[-1]
+        for i in range(len(swing_highs) - 1, 0, -1):
+            if high[swing_highs[i]] > high[swing_highs[i - 1]]:
+                streak_start = swing_highs[i - 1]
+            else:
+                break
+        return float(n_bars - 1 - streak_start)
+    if direction < 0.0 and len(swing_lows) >= 2:
+        streak_start = swing_lows[-1]
+        for i in range(len(swing_lows) - 1, 0, -1):
+            if low[swing_lows[i]] < low[swing_lows[i - 1]]:
+                streak_start = swing_lows[i - 1]
+            else:
+                break
+        return float(n_bars - 1 - streak_start)
+    return 0.0
+
+
+def _compute_trend_structure(
+    highs: np.ndarray,
+    lows: np.ndarray,
+    close_: float,
+    atr_val: float,
+    swing_fields: dict[str, Any],
+    config: FeatureFactoryConfig,
+) -> dict[str, float | None]:
+    """Stateless trend-regime classification from the shared swing pass (D-01/D-06).
+
+    Ports i3_structure/trend_structure.py's leg-scoring/strength/integrity/
+    price-position/duration geometry, consuming the SAME swing_high_indices/
+    swing_low_indices/n_bars produced by _compute_swing_structure for this
+    bar -- find_peaks/find_troughs is never called a second time here (D-06).
+
+    D-01 fix: the archived plugin's early return
+    ({"trend_direction": 0.0, ..., "price_position": 0.5, ...}) when fewer
+    than 2 confirmed swing highs/lows exist is a fake-but-numeric "no
+    signal" -- replaced here with _TREND_STRUCTURE_FALLBACK (all-None).
+    atr_val<=0 also returns the all-None fallback: the archived plugin
+    silently skipped ATR normalization and returned a half-normalized
+    strength instead, which is not comparable across symbols/tf and is
+    removed rather than carried forward.
+
+    price_range/atr_strength_divisor are APR-backed
+    (config.trend_structure_range_lookback_bars /
+    config.trend_structure_atr_strength_divisor) -- no hardcoded 20-bar
+    slice or 5.0 divisor survives the port.
+
+    Never raises.
+    """
+    atr_valid = atr_val is not None and math.isfinite(atr_val) and atr_val > 0
+    if not atr_valid:
+        return dict(_TREND_STRUCTURE_FALLBACK)
+
+    swing_highs: list[int] = swing_fields.get("swing_high_indices") or []
+    swing_lows: list[int] = swing_fields.get("swing_low_indices") or []
+    n_bars: int = swing_fields.get("n_bars") or 0
+    if len(swing_highs) < 2 or len(swing_lows) < 2:
+        return dict(_TREND_STRUCTURE_FALLBACK)
+
+    h = highs[-config.swing_lookback_bars :]
+    lo = lows[-config.swing_lookback_bars :]
+
+    bullish_legs = 0
+    bearish_legs = 0
+    for i in range(1, len(swing_highs)):
+        if h[swing_highs[i]] > h[swing_highs[i - 1]]:
+            bullish_legs += 1
+        elif h[swing_highs[i]] < h[swing_highs[i - 1]]:
+            bearish_legs += 1
+    for i in range(1, len(swing_lows)):
+        if lo[swing_lows[i]] > lo[swing_lows[i - 1]]:
+            bullish_legs += 1
+        elif lo[swing_lows[i]] < lo[swing_lows[i - 1]]:
+            bearish_legs += 1
+
+    total_legs = bullish_legs + bearish_legs
+    if total_legs == 0:
+        direction = 0.0
+        leg_count = 0.0
+    elif bullish_legs > bearish_legs:
+        direction = 1.0
+        leg_count = float(bullish_legs)
+    elif bearish_legs > bullish_legs:
+        direction = -1.0
+        leg_count = float(bearish_legs)
+    else:
+        direction = 0.0
+        leg_count = 0.0
+
+    strength = max(bullish_legs, bearish_legs) / total_legs if total_legs > 0 else 0.0
+    range_lookback = config.trend_structure_range_lookback_bars
+    price_range = float(np.max(h[-range_lookback:]) - np.min(lo[-range_lookback:]))
+    strength = min(
+        1.0,
+        strength * (price_range / atr_val) / config.trend_structure_atr_strength_divisor,
+    )
+
+    overlap_count = 0
+    all_swings = sorted(
+        [(idx, "H", float(h[idx])) for idx in swing_highs]
+        + [(idx, "L", float(lo[idx])) for idx in swing_lows],
+        key=lambda x: x[0],
+    )
+    for i in range(1, len(all_swings)):
+        prev_type, prev_val = all_swings[i - 1][1], all_swings[i - 1][2]
+        curr_type, curr_val = all_swings[i][1], all_swings[i][2]
+        if prev_type == "H" and curr_type == "L" and curr_val > prev_val:
+            overlap_count += 1
+        elif prev_type == "L" and curr_type == "H" and curr_val < prev_val:
+            overlap_count += 1
+    max_overlaps = max(len(all_swings) - 1, 1)
+    integrity = 1.0 - overlap_count / max_overlaps
+
+    recent_high = float(np.max(h[swing_highs[-1] :]))
+    recent_low = float(np.min(lo[swing_lows[-1] :]))
+    recent_high = max(recent_high, float(h[swing_highs[-1]]))
+    recent_low = min(recent_low, float(lo[swing_lows[-1]]))
+    swing_range = recent_high - recent_low
+    position: float | None
+    if swing_range > 0:
+        position = (close_ - recent_low) / swing_range
+        position = max(0.0, min(1.0, position))
+    else:
+        # D-01: no fake midpoint placeholder -- an undefined swing range
+        # means "unknown position", not "exactly at the midpoint".
+        position = None
+
+    trend_duration = _trend_duration_bars(direction, swing_highs, swing_lows, h, lo, n_bars)
+
+    return {
+        "trend_direction": direction,
+        "trend_strength": round(strength, 4),
+        "trend_leg_count": leg_count,
+        "structure_integrity": round(integrity, 4),
+        "price_position": round(position, 4) if position is not None else None,
+        "trend_duration_bars": trend_duration,
+    }
+
+
+# ---------------------------------------------------------------------------
 # Smart Money Concepts — Order Blocks + Breaker/Mitigation (Phase 164 Plan 02)
 # ---------------------------------------------------------------------------
 
@@ -5258,6 +5545,29 @@ class FeatureFactory:
         support_age_bars_val: float | None = _sr_fields["support_age_bars"]
         sr_level_count_val: float | None = _sr_fields["sr_level_count"]
 
+        # Swing / Trend Structure (Phase 165 Plan 02): single shared
+        # find_peaks/find_troughs pass (D-06) -- _swing_fields carries the
+        # raw swing_high_indices/swing_low_indices/n_bars intermediates that
+        # _compute_trend_structure reuses instead of re-detecting pivots.
+        _swing_fields = _compute_swing_structure(highs, lows, close_, atr_val, config)
+        swing_high_dist_atr_val: float | None = _swing_fields["swing_high_dist_atr"]
+        swing_low_dist_atr_val: float | None = _swing_fields["swing_low_dist_atr"]
+        swing_high_type_val: float | None = _swing_fields["swing_high_type"]
+        swing_low_type_val: float | None = _swing_fields["swing_low_type"]
+        swing_pattern_val: float | None = _swing_fields["swing_pattern"]
+        swing_high_age_bars_val: float | None = _swing_fields["swing_high_age_bars"]
+        swing_low_age_bars_val: float | None = _swing_fields["swing_low_age_bars"]
+
+        _trend_fields = _compute_trend_structure(
+            highs, lows, close_, atr_val, _swing_fields, config
+        )
+        trend_direction_val: float | None = _trend_fields["trend_direction"]
+        trend_strength_val: float | None = _trend_fields["trend_strength"]
+        trend_leg_count_val: float | None = _trend_fields["trend_leg_count"]
+        structure_integrity_val: float | None = _trend_fields["structure_integrity"]
+        price_position_val: float | None = _trend_fields["price_position"]
+        trend_duration_bars_val: float | None = _trend_fields["trend_duration_bars"]
+
         # Smart Money Concepts (Phase 164 Plan 02): Order Blocks + stateless
         # Breaker/Mitigation, single pure pass per RESEARCH.md's mandated
         # order_blocks -> breaker/mitigation sequencing. Plans 03-04 append
@@ -5636,24 +5946,23 @@ class FeatureFactory:
             amd_manipulation_detected=amd_manipulation_detected_val,
             amd_distribution_direction=amd_distribution_direction_val,
             manip_strength=manip_strength_val,
-            # Swing/Fib/Trend/Session Structure (41, Phase 165 Plan 01,
-            # contract-only) -- no compute logic exists yet; Plans 02-04 wire
-            # real values in and pass them from both compute() and
-            # compute_batch() call sites (same live/batch parity contract as
-            # every prior phase in this family).
-            swing_high_dist_atr=None,
-            swing_low_dist_atr=None,
-            swing_high_type=None,
-            swing_low_type=None,
-            swing_pattern=None,
-            swing_high_age_bars=None,
-            swing_low_age_bars=None,
-            trend_direction=None,
-            trend_strength=None,
-            trend_leg_count=None,
-            structure_integrity=None,
-            price_position=None,
-            trend_duration_bars=None,
+            # Swing Detection + Trend Structure (13, Phase 165 Plan 02): real
+            # computed values from the shared _swing_fields/_trend_fields
+            # pass above. Fib/Session Structure (28) remain None
+            # placeholders -- Plans 03-04's scope.
+            swing_high_dist_atr=swing_high_dist_atr_val,
+            swing_low_dist_atr=swing_low_dist_atr_val,
+            swing_high_type=swing_high_type_val,
+            swing_low_type=swing_low_type_val,
+            swing_pattern=swing_pattern_val,
+            swing_high_age_bars=swing_high_age_bars_val,
+            swing_low_age_bars=swing_low_age_bars_val,
+            trend_direction=trend_direction_val,
+            trend_strength=trend_strength_val,
+            trend_leg_count=trend_leg_count_val,
+            structure_integrity=structure_integrity_val,
+            price_position=price_position_val,
+            trend_duration_bars=trend_duration_bars_val,
             swing_amplitude_ratio=None,
             swing_amplitude_expanding=None,
             swing_amplitude_intensity=None,
@@ -5869,6 +6178,42 @@ class FeatureFactory:
             resistance_age_bars_val = _sr_fields["resistance_age_bars"]
             support_age_bars_val = _sr_fields["support_age_bars"]
             sr_level_count_val = _sr_fields["sr_level_count"]
+
+            # Swing / Trend Structure (Phase 165 Plan 02): causal pre-slice
+            # ending at the current bar (never the full series, to avoid
+            # lookahead), matching S/R's slicing immediately above. Single
+            # shared find_peaks/find_troughs pass (D-06) -- _trend_fields
+            # reuses _swing_fields' indices instead of re-detecting pivots.
+            _sw_start = max(0, i - config.swing_lookback_bars + 1)
+            _swing_fields = _compute_swing_structure(
+                highs[_sw_start : i + 1],
+                lows[_sw_start : i + 1],
+                close_,
+                atr_val,
+                config,
+            )
+            swing_high_dist_atr_val = _swing_fields["swing_high_dist_atr"]
+            swing_low_dist_atr_val = _swing_fields["swing_low_dist_atr"]
+            swing_high_type_val = _swing_fields["swing_high_type"]
+            swing_low_type_val = _swing_fields["swing_low_type"]
+            swing_pattern_val = _swing_fields["swing_pattern"]
+            swing_high_age_bars_val = _swing_fields["swing_high_age_bars"]
+            swing_low_age_bars_val = _swing_fields["swing_low_age_bars"]
+
+            _trend_fields = _compute_trend_structure(
+                highs[_sw_start : i + 1],
+                lows[_sw_start : i + 1],
+                close_,
+                atr_val,
+                _swing_fields,
+                config,
+            )
+            trend_direction_val = _trend_fields["trend_direction"]
+            trend_strength_val = _trend_fields["trend_strength"]
+            trend_leg_count_val = _trend_fields["trend_leg_count"]
+            structure_integrity_val = _trend_fields["structure_integrity"]
+            price_position_val = _trend_fields["price_position"]
+            trend_duration_bars_val = _trend_fields["trend_duration_bars"]
 
             # Smart Money Concepts (Phase 164 Plan 02): Order Blocks +
             # stateless Breaker/Mitigation -- pre-slice a causal window ending
@@ -6462,24 +6807,23 @@ class FeatureFactory:
                 amd_manipulation_detected=amd_manipulation_detected_val,
                 amd_distribution_direction=amd_distribution_direction_val,
                 manip_strength=manip_strength_val,
-                # Swing/Fib/Trend/Session Structure (41, Phase 165 Plan 01,
-                # contract-only) -- no compute logic exists yet; Plans 02-04
-                # wire real values in and pass them from both compute() and
-                # compute_batch() call sites (same live/batch parity contract
-                # as every prior phase in this family).
-                swing_high_dist_atr=None,
-                swing_low_dist_atr=None,
-                swing_high_type=None,
-                swing_low_type=None,
-                swing_pattern=None,
-                swing_high_age_bars=None,
-                swing_low_age_bars=None,
-                trend_direction=None,
-                trend_strength=None,
-                trend_leg_count=None,
-                structure_integrity=None,
-                price_position=None,
-                trend_duration_bars=None,
+                # Swing Detection + Trend Structure (13, Phase 165 Plan 02):
+                # real computed values from the shared _swing_fields/
+                # _trend_fields pass above. Fib/Session Structure (28) remain
+                # None placeholders -- Plans 03-04's scope.
+                swing_high_dist_atr=swing_high_dist_atr_val,
+                swing_low_dist_atr=swing_low_dist_atr_val,
+                swing_high_type=swing_high_type_val,
+                swing_low_type=swing_low_type_val,
+                swing_pattern=swing_pattern_val,
+                swing_high_age_bars=swing_high_age_bars_val,
+                swing_low_age_bars=swing_low_age_bars_val,
+                trend_direction=trend_direction_val,
+                trend_strength=trend_strength_val,
+                trend_leg_count=trend_leg_count_val,
+                structure_integrity=structure_integrity_val,
+                price_position=price_position_val,
+                trend_duration_bars=trend_duration_bars_val,
                 swing_amplitude_ratio=None,
                 swing_amplitude_expanding=None,
                 swing_amplitude_intensity=None,
