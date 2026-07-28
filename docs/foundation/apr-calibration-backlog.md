@@ -85,8 +85,9 @@ convention (migration 103, Phase 109 era) and were never backfilled.
 - `roll.threshold_default` — no current code reference found; likely dead, unclear.
 - The 21 `alert.lag.*` consumer-lag ceilings — infra alerting thresholds, not statistical
   gates; lower priority for this specific backlog.
-- `ui.signals.min_confidence` — carries an informal, off-vocabulary "data-derived" note
-  ("calibrated at 0.40 as the empirical breakeven confidence level") rather than a canonical tag.
+- `ui.signals.min_confidence` — carries an informal `[data-derived]` tag (not one of the four
+  canonical provenance tags) describing 0.40 as an empirically-derived breakeven threshold,
+  with no cited study to check it against.
 
 ## How to use this doc
 
