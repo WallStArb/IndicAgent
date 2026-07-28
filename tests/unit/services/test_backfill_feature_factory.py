@@ -28,8 +28,11 @@ sys.path.insert(0, str(Path(__file__).parents[3]))
 from services.backfill_feature_factory import (
     _BARS_PER_DAY,
     _DEFAULT_CLIENT_ID,
+    _INSERT_FEATURE_VECTORS_SQL,
     _TARGET_TIMEFRAMES,
     _TRADING_DAYS_PER_YEAR,
+    _UPSERT_FEATURE_VECTORS_SQL,
+    _batch_insert,
     _log_coverage_report,
     _theoretical_max,
     _vector_to_params,
@@ -618,6 +621,88 @@ def test_compute_resume_skips_complete_pairs() -> None:
     # All 4 TFs returned in coverage
     assert ("SPY", "5m") in coverage
     assert ("SPY", "1d") in coverage
+
+
+def test_refresh_reprocesses_complete_pairs() -> None:
+    """todo 176: refresh=True must bypass the status='complete' checkpoint skip --
+    otherwise a recompute run would never even reach the pairs it exists to fix."""
+    settings = MagicMock()
+    settings.database_url = "postgresql://fake"
+    mock_conn = MagicMock()
+
+    mock_instrument = MagicMock()
+    mock_instrument.symbol = "SPY"
+    mock_instrument.asset_class = "equity"
+
+    with (
+        patch(
+            "services.backfill_feature_factory.get_active_contracts",
+            return_value=[mock_instrument],
+        ),
+        patch("services.backfill_feature_factory._load_config_service") as mock_cfg_load,
+        patch("services.backfill_feature_factory._build_feature_factory_config") as mock_cfg_build,
+        patch(
+            "services.backfill_feature_factory._load_status_map",
+            return_value={
+                ("SPY", tf): {
+                    "status": "complete",
+                    "fetch_complete": True,
+                    "rows_written": 1000,
+                    "theoretical_max": 1200,
+                }
+                for tf in _TARGET_TIMEFRAMES
+            },
+        ),
+        patch("services.backfill_feature_factory.ProcessPoolExecutor") as mock_pool_cls,
+    ):
+        mock_cfg_load.return_value = MagicMock()
+        mock_cfg_build.return_value = _make_config()
+        mock_pool = MagicMock()
+        mock_pool.map.return_value = [
+            {
+                "symbol": "SPY",
+                "error": None,
+                "results": [
+                    {"tf": tf, "rows_written": 1000, "theoretical_max": 1200, "pct": 0.83}
+                    for tf in _TARGET_TIMEFRAMES
+                ],
+            }
+        ]
+        mock_pool_cls.return_value.__enter__.return_value = mock_pool
+
+        run_compute_stage(
+            settings=settings,
+            symbols=None,
+            db_conn=mock_conn,
+            refresh=True,
+        )
+
+        # A pool was actually spawned -- the complete-pair checkpoint did not short-circuit
+        mock_pool.map.assert_called_once()
+        worker_args = list(mock_pool.map.call_args[0][1])
+        assert len(worker_args) == 1
+        # Last positional element of each worker-args tuple is the refresh flag
+        assert worker_args[0][-1] is True
+
+
+def test_batch_insert_default_uses_insert_sql() -> None:
+    """Default (refresh=False) must use the DO NOTHING statement -- never touches
+    an existing row, matching the live write path's idempotent-skip semantics."""
+    mock_conn = MagicMock()
+    with patch("services.backfill_feature_factory.psycopg2.extras.execute_batch") as mock_batch:
+        _batch_insert(mock_conn, [("row",)], refresh=False)
+    mock_batch.assert_called_once()
+    assert mock_batch.call_args[0][1] == _INSERT_FEATURE_VECTORS_SQL
+
+
+def test_batch_insert_refresh_uses_upsert_sql() -> None:
+    """refresh=True (todo 176) must use the DO UPDATE statement so existing rows
+    actually get overwritten with freshly computed values, including new columns."""
+    mock_conn = MagicMock()
+    with patch("services.backfill_feature_factory.psycopg2.extras.execute_batch") as mock_batch:
+        _batch_insert(mock_conn, [("row",)], refresh=True)
+    mock_batch.assert_called_once()
+    assert mock_batch.call_args[0][1] == _UPSERT_FEATURE_VECTORS_SQL
 
 
 # ---------------------------------------------------------------------------

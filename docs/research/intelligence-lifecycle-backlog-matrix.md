@@ -49,11 +49,11 @@ Phase 167** — Phase 164 is planned and execution-ready (4 plans, 2026-07-25) b
 priority; no evidence yet that more features are the bottleneck when the existing 150 already
 produced a passing construction.
 
-**One open caveat, load-bearing for todo 179's own "no edge" verdict above:** that sweep ran
-under cross-sectional regime labels later found miscalibrated and fixed the same day (todo 092).
-A full corpus recompute under the corrected labels is still in progress (todo 183) as of
-2026-07-27 — todo 179's verdict is provisional until that completes, though it doesn't affect
-T3/Phase 167's own result (no regime dependency).
+**Caveat closed 2026-07-27:** todo 179's original sweep ran under cross-sectional regime labels
+later found miscalibrated and fixed the same day (todo 092). Todo 183's corpus recompute
+completed 2026-07-27T21:55 UTC; todo 179's sweep was re-run the same day against the live,
+corrected labels (270 cells, zero pass) — the "no edge" verdict is now confirmed, not
+provisional. Doesn't affect T3/Phase 167's own result (no regime dependency).
 
 ---
 

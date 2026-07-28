@@ -4205,16 +4205,18 @@ class FeatureFactory:
                 cache.advance_bar(bar_ts, high_, low_, close_, vol_)
                 continue
 
-            # Build bounded window for non-series features
+            # Build bounded window for non-series features. Sliced from the arrays
+            # already built once at the top of this function -- same source data,
+            # same indices, no re-extraction from the bar dicts (todo: perf pass
+            # 2026-07-27, found via cProfile: this was rebuilding 5 numpy arrays
+            # from scratch via Python list comprehension on every single bar).
             window_start = max(0, i - MIN_WINDOW)
-            window_bars = bars[window_start : i + 1]
-
-            # Extract window arrays
-            w_opens = np.array([b["open"] for b in window_bars], dtype=float)
-            w_highs = np.array([b["high"] for b in window_bars], dtype=float)
-            w_lows = np.array([b["low"] for b in window_bars], dtype=float)
-            w_closes = np.array([b["close"] for b in window_bars], dtype=float)
-            w_volumes = np.array([b["volume"] for b in window_bars], dtype=float)
+            window_len = i + 1 - window_start
+            w_opens = opens[window_start : i + 1]
+            w_highs = highs[window_start : i + 1]
+            w_lows = lows[window_start : i + 1]
+            w_closes = closes[window_start : i + 1]
+            w_volumes = volumes[window_start : i + 1]
 
             open_ = float(bar["open"])
 
@@ -4244,7 +4246,7 @@ class FeatureFactory:
             # Non-series features (compute on bounded window)
             bar_close_pos_val = _bar_close_pos(high_, low_, close_)
 
-            range_bars = min(config.momentum_window_mid, len(window_bars))
+            range_bars = min(config.momentum_window_mid, window_len)
             range_position_val = _range_position(
                 close_, w_highs[-range_bars:], w_lows[-range_bars:]
             )

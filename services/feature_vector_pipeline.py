@@ -480,8 +480,13 @@ class FeatureVectorPipeline(BaseDaemon):
         ("feature.garch.beta", 0.85),
         ("feature.kalman.garch_r_scale", 10_000.0),
         # --- v3.0 Phase 137: FeatureFactory APR keys (D-09 cutover) ---
-        ("feature.momentum.window_short", 5),
-        ("feature.momentum.window_long", 20),
+        # todo 103 (2026-07-27): window_short/window_long were dead keys that don't
+        # exist in config_state -- FeatureFactoryConfig actually reads window_fast/
+        # mid/slow (below), so every read of those three silently cache-missed and
+        # fell through to hardcoded Python defaults regardless of config_state.
+        ("feature.momentum.window_fast", 5),
+        ("feature.momentum.window_mid", 20),
+        ("feature.momentum.window_slow", 60),
         ("feature.momentum.zscore_window", 252),
         ("feature.volume.zscore_window", 20),
         ("feature.ofi.zscore_window", 20),
@@ -608,16 +613,33 @@ class FeatureVectorPipeline(BaseDaemon):
         # Build FeatureFactoryConfig from prewarmed feature.* values (APR contract).
         # All get_sync() calls hit the warm cache — no DB round-trips on compute path.
         cs = self._config_service
+        _prewarmed_keys = frozenset(key for key, _default in self._THRESHOLD_KEYS)
+
+        def _check_prewarmed(key: str) -> None:
+            # todo 103 (2026-07-27): a key read here but absent from _THRESHOLD_KEYS
+            # silently cache-misses and falls through to the hardcoded default
+            # forever, regardless of config_state -- exactly how window_fast/mid/slow
+            # went inert. Fails loud at startup (this runs once, not on the hot path)
+            # instead of leaving APR edits to silently do nothing.
+            if key not in _prewarmed_keys:
+                raise AssertionError(
+                    f"feature.* key {key!r} read while building FeatureFactoryConfig "
+                    f"but missing from _THRESHOLD_KEYS -- it will always fall through "
+                    f"to its hardcoded default; add it to _THRESHOLD_KEYS"
+                )
 
         def _int(key: str, default: int) -> int:
+            _check_prewarmed(key)
             v = cs.get_sync(key, default)
             return int(v) if v is not None else default
 
         def _float(key: str, default: float) -> float:
+            _check_prewarmed(key)
             v = cs.get_sync(key, default)
             return float(v) if v is not None else default
 
         def _dict(key: str, default: dict) -> dict:
+            _check_prewarmed(key)
             return _get_dict_config(cs, key, default)
 
         self._feature_factory_config = FeatureFactoryConfig(

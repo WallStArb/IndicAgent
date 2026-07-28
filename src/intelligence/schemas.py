@@ -1209,8 +1209,8 @@ class FeatureVector:
 
     Frozen dataclass (not Pydantic) per D-08: pure-function output, no IO,
     immutable after construction. Non-optional fields typed float, no defaults
-    — every field must be supplied by the caller. Optional fields are
-    cross-sectional ranks populated by Phase 139 enrichment pass.
+    — every field must be supplied by the caller. The 3 Optional fields are
+    cross-sectional ranks that were never implemented — always None (todo 103).
 
     Groups and field order are binding (schema column names in feature_vectors):
       Momentum (7): fast/mid/slow return z-scores, range, intra-bar close position, gap, reversal z
@@ -1501,7 +1501,10 @@ class FeatureVector:
     canary_acausal_placebo: float = (
         0.0  # existing feature deliberately paired against a forward-shifted return window (look-ahead leak), positive control
     )
-    # Cross-sectional (3, nullable — populated by Phase 139 enrichment pass)
+    # Cross-sectional (3, nullable — never implemented; always None (todo 103,
+    # confirmed 2026-07-27). The "Phase 139 enrichment pass" this comment used to
+    # cite doesn't exist as a real, planned unit of work — deferred pending real
+    # cross-sectional rank feature design (same category as Phase 151/164).
     momentum_rank_z: float | None = None  # cross-sectional momentum rank z-score
     volume_rank_z: float | None = None  # cross-sectional volume rank z-score
     volatility_rank_z: float | None = None  # cross-sectional volatility rank z-score

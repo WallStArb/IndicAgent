@@ -1,9 +1,37 @@
 ---
-status: pending
+status: closed
 priority: P2
 filed: 2026-07-12
+closed: 2026-07-27
 source: found incidentally while scoping todo 072 (crowding proxy regression) - needed to confirm
   momentum_z_slow's lookback window before deciding whether to reuse it as a public-factor proxy
+---
+
+## RESULT (2026-07-27)
+
+**Fix option (a) applied.** `_THRESHOLD_KEYS` in `services/feature_vector_pipeline.py` now
+prewarms `feature.momentum.window_fast/mid/slow` (the keys `FeatureFactoryConfig` actually
+reads) instead of the dead `window_short`/`window_long` keys. Live `config_state` values (5/20/60)
+confirmed unchanged from the hardcoded fallback, so this fix has no effect on already-computed
+rows -- it restores forward control over these three APR keys starting with the next compute.
+Added a structural regression test
+(`tests/unit/services/test_feature_vector_pipeline_threshold_keys.py`) that extracts every
+`feature.*` key read while building `FeatureFactoryConfig` and asserts it's present in
+`_THRESHOLD_KEYS` -- confirmed zero other keys in this same construction path have the same
+silent-cache-miss bug. Full unit suite green.
+
+**Fix option (b) (`momentum_z_slow` formula) -- no change needed.** The schema docstring never
+claimed academic 12-1 momentum; per the todo's own note this only required the APR wiring fix
+above, not a formula change.
+
+**`momentum_rank_z`/`volume_rank_z`/`volatility_rank_z` -- deliberately left unimplemented,
+comment corrected instead of building them.** The "Phase 139 enrichment pass" comment both
+fields' docstrings cited doesn't describe a real planned unit of work -- corrected in
+`src/intelligence/schemas.py` (both the `FeatureVector` class docstring and the field-group
+comment) to state plainly that these 3 columns are permanently NULL, never implemented, deferred
+in the same category as Phase 151/164 (new feature-primitive design, not a bug fix). Building
+real cross-sectional rank features is out of scope for this todo.
+
 ---
 
 # `feature.momentum.window_fast/mid/slow` APR keys are silently inert — prewarm list never loads them

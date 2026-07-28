@@ -84,13 +84,18 @@ contention from todo 183's `ic_engine` recompute; see
 [todo 188](.planning/todos/pending/188-t5-replication-15m-deferred-memory-contention.md).
 Full detail: `docs/research/data-edge-source-thesis.md`'s T5 section (v1.4), full per-symbol
 table: `docs/analysis/t5-replication-1d-per-symbol.csv`. **T2
-(regime-conditional persistence, the thing that motivated testing T3/T5) was
-tested and found dead by todo 179's exhaustive sweep -- but that sweep ran under OLD, pre-todo-092
-regime labels, later found miscalibrated and fixed the same day.** A full corpus recompute
-under the corrected labels is in progress (todo 183 -- hit and fixed a `max_cell_rows` ceiling
-issue 2026-07-26, see `.planning/todos/pending/183-ic-engine-max-cell-rows-breached-by-todo092-rebalance.md`).
-T2's "dead" verdict is provisional until that completes and todo 179's sweep is re-run -- doesn't
-affect T3's own result, which has no regime dependency.
+(regime-conditional persistence, the thing that motivated testing T3/T5) is CONFIRMED DEAD,
+no longer provisional.** Todo 183's corpus recompute completed 2026-07-27T21:55 UTC
+(`ic_engine.run_complete`, both `equity`/`rates` groups, zero errors, ~27.6h). Todo 179's sweep
+was re-run the same day directly against live `market_regimes.regime_label` (genuinely
+corrected, not the offline proxy the 2026-07-24 sweep used) --
+`scripts/analysis/live_recalibrated_regime_sweep_check.py`: 270 cells tested, 108 adequately
+covered, zero pass. The previously-interesting `high_bear` lead (5/8 passes in the OLD-label
+offline sweep) has all 36 of its live cells stuck at 12-13 day-clusters, below the 20-cluster
+floor -- genuinely untestable in the current OOS window, not a new negative finding, confirming
+what todo 092's offline analysis already suspected. Full detail appended to
+`.planning/todos/pending/179-gate166-concurrent-exposure-diagnostic.md`. Doesn't affect T3's own
+result, which has no regime dependency.
 
 Phase 144/143.1/162/163 are all COMPLETE -- see Phase Summary table below for detail, not
 duplicated here.
@@ -103,8 +108,8 @@ features/regimes/IC/ensemble signal-generation stack validated first ("real prov
 before any execution-layer investment. Do not resume Phase 156-159 scoping without the user
 re-raising it.
 
-*Tier 1b -- concurrent, don't block on this:* todo 183's corpus recompute completing →
-re-run todo 179's regime sweep under corrected labels → final T2 verdict, one way or the other.
+*Tier 1b -- CLOSED 2026-07-27:* todo 183's corpus recompute completed; todo 179's regime sweep
+re-run under corrected labels; final T2 verdict is dead, confirmed live. No longer a blocker.
 
 *Tier 2 -- serves the redirected priority:* todo 188 (T5 15m replication, deferred on memory
 contention -- see above); the open `alpha_ensemble_ic`/`alpha_events` question (is the linear-only combiner adequate, or

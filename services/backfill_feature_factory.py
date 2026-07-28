@@ -67,6 +67,7 @@ from src.intelligence.feature_factory import (
 )
 from src.intelligence.features.feature_vector_persistence import (
     FEATURE_VECTOR_INSERT_SQL_PSYCOPG2,
+    FEATURE_VECTOR_UPSERT_SQL_PSYCOPG2,
     feature_vector_to_insert_params,
 )
 from src.intelligence.schemas import FeatureVector
@@ -211,9 +212,15 @@ FROM backfill_status
 WHERE symbol = ANY(%s) AND tf = ANY(%s)
 """
 
-# Canonical INSERT SQL imported from shared persistence module.
+# Canonical INSERT/UPSERT SQL imported from shared persistence module.
 # Do not inline SQL here — feature_vector_persistence.py is the single source of truth.
+# DO NOTHING (default): idempotent gap-fill, never touches an existing row.
+# DO UPDATE (--refresh): todo 176's recompute escape hatch -- ON CONFLICT (symbol,
+# tf, bar_ts) DO NOTHING means a naive re-run silently skips every bar that already
+# exists, so new columns (e.g. Phase 163's 17 VP/SR fields) never populate on
+# pre-existing rows no matter how many times the backfill re-runs.
 _INSERT_FEATURE_VECTORS_SQL = FEATURE_VECTOR_INSERT_SQL_PSYCOPG2
+_UPSERT_FEATURE_VECTORS_SQL = FEATURE_VECTOR_UPSERT_SQL_PSYCOPG2
 
 
 def _build_cross_asset_series(
@@ -754,11 +761,14 @@ def run_compute_stage(
     db_conn: Any,
     pipeline_version: str = "3.0.0",
     n_workers: int = 1,
+    refresh: bool = False,
 ) -> tuple[dict[tuple[str, str], dict], float]:
     """Compute FeatureVectors from market_data_ohlcv_tradeable and batch-insert into feature_vectors.
 
     Reads bars in chunked sliding windows (T3: never full history at once).
-    Checkpointed per (symbol, tf): skips status='complete' pairs.
+    Checkpointed per (symbol, tf): skips status='complete' pairs, unless refresh=True
+    (todo 176 recompute mode), which reprocesses every fetched pair regardless of
+    checkpoint status and upserts (DO UPDATE) instead of skip-inserting (DO NOTHING).
     Records per-pair coverage vs theoretical_max (D-06 gate).
     Uses ProcessPoolExecutor for symbol-level parallelism when n_workers > 1.
 
@@ -795,7 +805,10 @@ def run_compute_stage(
     coverage: dict[tuple[str, str], dict] = {}
     dsn = settings.database_url
 
-    # Collect symbols that need compute (skip already-complete and unfetched)
+    # Collect symbols that need compute (skip already-complete and unfetched).
+    # refresh=True (todo 176) bypasses the status='complete' checkpoint skip --
+    # a pair already marked complete still gets reprocessed and upserted, since the
+    # whole point of recompute mode is to revisit rows a normal run would treat as done.
     pending_symbols: list[str] = []
     for instrument in etf_contracts:
         symbol = instrument.symbol
@@ -803,7 +816,7 @@ def run_compute_stage(
         for tf in _TARGET_TIMEFRAMES:
             key = (symbol, tf)
             existing = status_map.get(key, {})
-            if existing.get("status") == "complete":
+            if existing.get("status") == "complete" and not refresh:
                 rows_written = existing.get("rows_written", 0) or 0
                 theoretical = existing.get("theoretical_max", 0) or 0
                 pct = rows_written / theoretical if theoretical > 0 else 0.0
@@ -840,6 +853,7 @@ def run_compute_stage(
             pipeline_version,
             warm_up_bars,
             cross_asset_by_date,
+            refresh,
         )
         for symbol in pending_symbols
     ]
@@ -906,7 +920,7 @@ def _run_compute_worker(args: tuple) -> dict:
 
     Args:
         args: (symbol, tfs, dsn, config, pipeline_version, warm_up_bars,
-               cross_asset_by_date)
+               cross_asset_by_date, refresh)
                Packed as a tuple for ProcessPoolExecutor.map compatibility.
 
     Returns:
@@ -921,6 +935,7 @@ def _run_compute_worker(args: tuple) -> dict:
         pipeline_version,
         warm_up_bars,
         cross_asset_by_date,
+        refresh,
     ) = args
 
     # Initialize logging in subprocess (each process needs its own handler)
@@ -948,6 +963,7 @@ def _run_compute_worker(args: tuple) -> dict:
                     pipeline_version=pipeline_version,
                     warm_up_bars=warm_up_bars,
                     cross_asset_by_date=cross_asset_by_date,
+                    refresh=refresh,
                 )
 
                 depth_years = _DEPTH_YEARS[tf]
@@ -1013,6 +1029,7 @@ def _compute_symbol_tf(
     pipeline_version: str,
     warm_up_bars: int,
     cross_asset_by_date: dict,
+    refresh: bool = False,
 ) -> int:
     """Compute FeatureVectors for one (symbol, tf) pair.
 
@@ -1093,7 +1110,7 @@ def _compute_symbol_tf(
         insert_batch.append(row)
 
         if len(insert_batch) >= _INSERT_BATCH_SIZE:
-            _batch_insert(conn, insert_batch)
+            _batch_insert(conn, insert_batch, refresh=refresh)
             total_inserted += len(insert_batch)
             insert_batch = []
             _logger.debug(
@@ -1105,7 +1122,7 @@ def _compute_symbol_tf(
             )
 
     if insert_batch:
-        _batch_insert(conn, insert_batch)
+        _batch_insert(conn, insert_batch, refresh=refresh)
         total_inserted += len(insert_batch)
 
     _logger.info(
@@ -1121,12 +1138,17 @@ def _compute_symbol_tf(
     return total_inserted
 
 
-def _batch_insert(conn: Any, rows: list[tuple]) -> None:
-    """Batch-insert feature_vectors rows via psycopg2 execute_batch."""
+def _batch_insert(conn: Any, rows: list[tuple], refresh: bool = False) -> None:
+    """Batch-insert feature_vectors rows via psycopg2 execute_batch.
+
+    refresh=True selects the DO UPDATE variant (todo 176 recompute mode) so
+    existing rows are actually overwritten instead of silently skipped.
+    """
     if not rows:
         return
+    sql = _UPSERT_FEATURE_VECTORS_SQL if refresh else _INSERT_FEATURE_VECTORS_SQL
     with conn.cursor() as cur:
-        psycopg2.extras.execute_batch(cur, _INSERT_FEATURE_VECTORS_SQL, rows)
+        psycopg2.extras.execute_batch(cur, sql, rows)
     conn.commit()
 
 
@@ -1199,6 +1221,20 @@ def _parse_args() -> argparse.Namespace:
         default=None,
         help="Number of parallel workers (default: APR infra.feature_factory.workers, fallback 1)",
     )
+    parser.add_argument(
+        "--refresh",
+        action="store_true",
+        help=(
+            "Recompute mode (todo 176; naming matches ic_engine.py's --refresh, same "
+            "concept -- force full recompute, bypassing the checkpoint): overwrites "
+            "existing feature_vectors rows via ON CONFLICT DO UPDATE instead of the "
+            "default DO NOTHING skip, and ignores backfill_status.status='complete' "
+            "checkpoints so already-computed pairs are reprocessed too. Use when "
+            "feature-computation logic or the schema (new columns) changed since the "
+            "corpus was last built -- default mode will silently leave new columns "
+            "NULL on every pre-existing row otherwise."
+        ),
+    )
     return parser.parse_args()
 
 
@@ -1259,6 +1295,7 @@ def main() -> None:
                 db_conn=db_conn,
                 pipeline_version=args.pipeline_version,
                 n_workers=n_workers,
+                refresh=args.refresh,
             )
             db_conn = None  # already closed inside run_compute_stage
             _log_coverage_report(coverage, coverage_threshold)

@@ -2400,12 +2400,14 @@ This is the first thesis anywhere in the edge-source-thesis tree to clear its ow
 pre-registered bar convincingly. Full result: `docs/research/data-edge-source-thesis.md`'s T3
 section.
 
-**Caveat carried forward, don't lose it:** T2's falsification ran under cross-sectional regime
-labels later found miscalibrated and fixed the same day (todo 092) — its "dead" verdict is
-provisional pending a full re-run through the corrected pipeline (todo 183, in progress as of
-this phase's registration). T3's result is independent of that caveat (it reads
-`feature_vectors`/`forward_returns` directly, no regime dependency), so it stands regardless of
-how T2's re-check lands.
+**Caveat resolved 2026-07-27, kept for record:** T2's falsification ran under cross-sectional
+regime labels later found miscalibrated and fixed the same day (todo 092) — its "dead" verdict
+was provisional pending a full re-run through the corrected pipeline. Todo 183's recompute
+completed 2026-07-27T21:55 UTC; todo 179's sweep was re-run the same day directly against the
+live, corrected `market_regimes.regime_label` — 270 cells tested, 108 adequately covered, zero
+pass. **T2 is now confirmed dead, no longer provisional.** T3's result was always independent of
+this caveat (it reads `feature_vectors`/`forward_returns` directly, no regime dependency) and is
+unaffected either way.
 
 **Design (v1, per `docs/research/trade-construction-layer.md` — read that doc for full detail,
 not duplicated here):**
@@ -2475,8 +2477,8 @@ systemd timer.
 - `docs/research/trade-construction-layer.md` — full construction design, sizing/cost
   discussion, validation gates
 
-- `docs/research/data-edge-source-thesis.md` — T3 section (today's result), T2 section (the
-  provisional-falsification caveat)
+- `docs/research/data-edge-source-thesis.md` — T3 section (today's result), T2 section
+  (falsification, now confirmed not provisional)
 
 - `scripts/analysis/t3_cross_sectional_long_short_ctf_momentum_check.py` — the falsification
   script and its result
@@ -2484,9 +2486,9 @@ systemd timer.
 - `.planning/todos/pending/030-cost-hurdle-apr-calibration.md` — cost floors this phase's first
   open item needs
 
-- `.planning/todos/pending/183-ic-engine-max-cell-rows-breached-by-todo092-rebalance.md` — the
-  T2 re-verification this phase's caveat is waiting on (unrelated blocker, doesn't gate this
-  phase's own start)
+- `.planning/todos/completed/183-ic-engine-max-cell-rows-breached-by-todo092-rebalance.md` — the
+  corpus recompute that unblocked T2's re-verification (completed 2026-07-27, closed; never
+  gated this phase's own start)
 
 Plans:
 **Wave 1**

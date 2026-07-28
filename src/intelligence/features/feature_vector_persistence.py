@@ -144,7 +144,7 @@ def validate_feature_vector(vector: FeatureVector) -> list[str]:
     return bad
 
 
-# ── Canonical INSERT SQL ──────────────────────────────────────────────────────
+# ── Canonical INSERT/UPSERT SQL ───────────────────────────────────────────────
 
 # 181 columns (as of 2026-07-23): $1 content-key, $2-$8 structural, $9-$62
 # original feature floats, $63-$70 migration-159 additions, $71-$159
@@ -153,92 +153,140 @@ def validate_feature_vector(vector: FeatureVector) -> list[str]:
 # predictors, $165-$181 migration-255 structural VP/SR fields (Phase 163
 # Plan 01, see module docstring).
 # Column order is binding — matches migration 159/206/223/255 column definition order.
-# ON CONFLICT DO NOTHING: idempotent replay; duplicate bars are skipped silently.
-FEATURE_VECTOR_INSERT_SQL = f"""
+_STRUCTURAL_PREFIX_COLUMN_NAMES: tuple[str, ...] = (
+    "feature_vector_id",
+    "symbol",
+    "tf",
+    "bar_ts",
+    "pipeline_version",
+    "feature_factory_version",
+    "regime",
+    "regime_label_source",
+    "momentum_z_fast",
+    "momentum_z_mid",
+    "range_position",
+    "bar_close_pos",
+    "gap_z",
+    "informed_flow",
+    "volume_z",
+    "ofi_z",
+    "ofi_div",
+    "cvd_slope_z",
+    "cmf",
+    "rel_volume",
+    "vwap_dev_sigma",
+    "atr_z",
+    "vol_ratio",
+    "poc_dist_atr",
+    "va_position",
+    "sr_support_dist",
+    "sr_resist_dist",
+    "hmm_regime_prob",
+    "hmm_entropy",
+    "hmm_duration",
+    "hurst",
+    "shannon",
+    "garch_ratio",
+    "hma_slope_z",
+    "adx",
+    "aroon_fast",
+    "aroon_slow",
+    "rsi_fast",
+    "rsi_mid",
+    "rsi_slow",
+    "cci_fast",
+    "cci_mid",
+    "cci_slow",
+    "vix_z",
+    "flight_quality",
+    "yield_slope_z",
+    "in_ny_session",
+    "in_london_kz",
+    "in_overlap",
+    "power_hour",
+    "opening_range",
+    "above_wk_vwap",
+    "dow_sin",
+    "dow_cos",
+    "month_position",
+    "ctf_momentum",
+    "ctf_vwap_align",
+    "ctf_regime_align",
+    "amihud_illiq_z",
+    "high_52w_dist",
+    "ret_skew_z",
+    "ret_acf1_z",
+    "bar_close_ts",
+    "momentum_z_slow",
+    "momentum_reversal_z",
+    "quarter_position",
+    "days_to_month_end",
+    "momentum_rank_z",
+    "volume_rank_z",
+    "volatility_rank_z",
+)
+
+# Single source of truth for column order -- both SQL statements below and the
+# psycopg2 placeholder count are derived from this tuple, so they cannot drift
+# out of sync with each other the way separately-hand-typed VALUES lists could.
+_ALL_COLUMN_NAMES: tuple[str, ...] = (
+    _STRUCTURAL_PREFIX_COLUMN_NAMES
+    + _RENAISSANCE_PRIMITIVE_FIELD_NAMES
+    + _CANARY_FIELD_NAMES
+    + _STRUCTURAL_VP_SR_FIELD_NAMES
+)
+_TOTAL_COLUMNS = len(_ALL_COLUMN_NAMES)
+
+_INSERT_COLUMNS_SQL = ",\n    ".join(_ALL_COLUMN_NAMES)
+_VALUES_PLACEHOLDERS_SQL = ", ".join(f"${i}" for i in range(1, _TOTAL_COLUMNS + 1))
+
+# Shared scaffolding for both statements below -- they differ only in the trailing
+# ON CONFLICT clause, so that clause is the only thing appended per variant. This
+# makes it structurally impossible for the two statements to diverge in column
+# list, order, or placeholder count (the exact drift class this module's docstring
+# describes for the 2026-07-08 incident).
+_INSERT_VALUES_SQL = f"""
 INSERT INTO feature_vectors (
-    feature_vector_id,
-    symbol, tf, bar_ts, pipeline_version, feature_factory_version,
-    regime, regime_label_source,
-    momentum_z_fast, momentum_z_mid, range_position, bar_close_pos,
-    gap_z, informed_flow, volume_z, ofi_z, ofi_div, cvd_slope_z, cmf,
-    rel_volume, vwap_dev_sigma, atr_z, vol_ratio,
-    poc_dist_atr, va_position, sr_support_dist, sr_resist_dist,
-    hmm_regime_prob, hmm_entropy, hmm_duration, hurst, shannon, garch_ratio,
-    hma_slope_z, adx, aroon_fast, aroon_slow,
-    rsi_fast, rsi_mid, rsi_slow, cci_fast, cci_mid, cci_slow,
-    vix_z, flight_quality, yield_slope_z,
-    in_ny_session, in_london_kz, in_overlap, power_hour, opening_range,
-    above_wk_vwap, dow_sin, dow_cos, month_position,
-    ctf_momentum, ctf_vwap_align, ctf_regime_align,
-    amihud_illiq_z, high_52w_dist, ret_skew_z, ret_acf1_z,
-    bar_close_ts,
-    momentum_z_slow, momentum_reversal_z, quarter_position, days_to_month_end,
-    momentum_rank_z, volume_rank_z, volatility_rank_z,
-    {", ".join(_RENAISSANCE_PRIMITIVE_FIELD_NAMES)},
-    {", ".join(_CANARY_FIELD_NAMES)},
-    {", ".join(_STRUCTURAL_VP_SR_FIELD_NAMES)}
+    {_INSERT_COLUMNS_SQL}
 )
 VALUES (
-    $1,
-    $2, $3, $4, $5, $6,
-    $7, $8,
-    $9, $10, $11, $12,
-    $13, $14, $15, $16, $17, $18, $19,
-    $20, $21, $22, $23,
-    $24, $25, $26, $27,
-    $28, $29, $30, $31, $32, $33,
-    $34, $35, $36, $37,
-    $38, $39, $40, $41, $42, $43,
-    $44, $45, $46,
-    $47, $48, $49, $50, $51,
-    $52, $53, $54, $55,
-    $56, $57, $58,
-    $59, $60, $61, $62,
-    $63,
-    $64, $65, $66, $67,
-    $68, $69, $70,
-    {", ".join(f"${i}" for i in range(71, 71 + len(_RENAISSANCE_PRIMITIVE_FIELD_NAMES)))},
-    {
-    ", ".join(
-        f"${i}"
-        for i in range(
-            71 + len(_RENAISSANCE_PRIMITIVE_FIELD_NAMES),
-            71 + len(_RENAISSANCE_PRIMITIVE_FIELD_NAMES) + len(_CANARY_FIELD_NAMES),
-        )
-    )
-},
-    {
-    ", ".join(
-        f"${i}"
-        for i in range(
-            71 + len(_RENAISSANCE_PRIMITIVE_FIELD_NAMES) + len(_CANARY_FIELD_NAMES),
-            71
-            + len(_RENAISSANCE_PRIMITIVE_FIELD_NAMES)
-            + len(_CANARY_FIELD_NAMES)
-            + len(_STRUCTURAL_VP_SR_FIELD_NAMES),
-        )
-    )
-}
+    {_VALUES_PLACEHOLDERS_SQL}
 )
-ON CONFLICT (symbol, tf, bar_ts) DO NOTHING
 """
+
+_PK_COLUMN_NAMES = frozenset({"symbol", "tf", "bar_ts"})
+_UPDATE_SET_SQL = ",\n    ".join(
+    f"{name} = EXCLUDED.{name}" for name in _ALL_COLUMN_NAMES if name not in _PK_COLUMN_NAMES
+)
+
+# feature_vectors' real uniqueness constraint is (symbol, tf, bar_ts) -- NOT
+# feature_vector_id, which is a derived content-key, not a constraint target.
+# DO NOTHING therefore skips ANY re-insert of an existing bar regardless of what
+# changed (new columns added since the row was first written, corrected compute
+# logic, a bumped feature_factory_version) -- confirmed 2026-07-27 as the reason
+# a naive backfill re-run never populated Phase 163's 17 VP/SR columns on 36.7M
+# pre-existing rows (todo 176). FEATURE_VECTOR_INSERT_SQL keeps DO NOTHING for
+# the live write path (a replayed Kafka message for an already-finalized bar
+# should stay a no-op). FEATURE_VECTOR_UPSERT_SQL is the deliberate escape
+# hatch for recompute/backfill callers that need to overwrite existing rows.
+FEATURE_VECTOR_INSERT_SQL = _INSERT_VALUES_SQL + "ON CONFLICT (symbol, tf, bar_ts) DO NOTHING\n"
+
+FEATURE_VECTOR_UPSERT_SQL = (
+    _INSERT_VALUES_SQL + f"ON CONFLICT (symbol, tf, bar_ts) DO UPDATE SET\n    {_UPDATE_SET_SQL}\n"
+)
+
 
 # psycopg2 callers use %s placeholders; asyncpg uses $N. Both forms encode the
 # same column contract. Callers choose the right constant for their driver.
-# Total column count is derived, not hardcoded, so it can't drift out of sync
-# with _RENAISSANCE_PRIMITIVE_FIELD_NAMES the way a fixed number could.
 # Descending replacement order prevents $1 matching inside $10, $11, etc.
-_TOTAL_COLUMNS = (
-    70
-    + len(_RENAISSANCE_PRIMITIVE_FIELD_NAMES)
-    + len(_CANARY_FIELD_NAMES)
-    + len(_STRUCTURAL_VP_SR_FIELD_NAMES)
-)
-_pg2 = FEATURE_VECTOR_INSERT_SQL
-for i in range(_TOTAL_COLUMNS, 0, -1):
-    _pg2 = _pg2.replace(f"${i}", "%s")
-FEATURE_VECTOR_INSERT_SQL_PSYCOPG2 = _pg2
-del _pg2
+def _to_psycopg2_placeholders(sql: str) -> str:
+    for i in range(_TOTAL_COLUMNS, 0, -1):
+        sql = sql.replace(f"${i}", "%s")
+    return sql
+
+
+FEATURE_VECTOR_INSERT_SQL_PSYCOPG2 = _to_psycopg2_placeholders(FEATURE_VECTOR_INSERT_SQL)
+FEATURE_VECTOR_UPSERT_SQL_PSYCOPG2 = _to_psycopg2_placeholders(FEATURE_VECTOR_UPSERT_SQL)
 
 
 # ── Content-key derivation ────────────────────────────────────────────────────

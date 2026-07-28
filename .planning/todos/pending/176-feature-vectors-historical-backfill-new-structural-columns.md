@@ -41,28 +41,41 @@ already hit.
 
 ## What needs to happen
 
-**Decision (2026-07-23): delete + full recompute (option a).** DELETE the affected historical
-`feature_vectors` rows, then re-run `backfill_feature_factory.py --compute-only` over them. This
-recomputes all ~181 columns (not just the 17 new ones) but reuses existing, already-reviewed
-code as-is rather than building and reviewing a new targeted UPDATE-only path. Full corpus is the
-default scope -- narrow to the in-sample + OOS window only if the full-corpus cost proves
-prohibitive at run time.
+**Superseded 2026-07-27: mechanism now exists, decision below is stale.** The original
+2026-07-23 decision (delete + full recompute) is no longer the plan -- while investigating why
+`feature_vectors` was found 20 days stale (separate session finding), the actual root cause of
+*this* todo's blocker was traced precisely: `FEATURE_VECTOR_INSERT_SQL`'s
+`ON CONFLICT (symbol, tf, bar_ts) DO NOTHING` is keyed on the table's real PRIMARY KEY
+(`(symbol, tf, bar_ts)`, not `feature_vector_id`), so it can never overwrite an existing row no
+matter what changed. Fixed at the source: `feature_vector_persistence.py` now also exports
+`FEATURE_VECTOR_UPSERT_SQL`/`FEATURE_VECTOR_UPSERT_SQL_PSYCOPG2` (`DO UPDATE SET` every non-PK
+column, generated from the same single column-list as the INSERT variant so they can't drift
+apart), and `backfill_feature_factory.py` gained a `--refresh` flag that selects it and also
+bypasses the `backfill_status.status='complete'` checkpoint skip. **This avoids the DELETE step
+entirely** -- no "briefly leaves feature_vectors short rows mid-run" risk window, since rows are
+updated in place rather than deleted-then-reinserted. The live write path (`feature_vector_writer.py`)
+is untouched -- still `DO NOTHING`, so a replayed live bar stays a no-op. Verified bit-identical
+equivalence on a separate refactor in the same session (see `compute_batch()`'s window-slicing
+fix); the upsert SQL itself is structurally tested
+(`tests/unit/test_feature_vector_persistence_completeness.py`,
+`tests/unit/services/test_backfill_feature_factory.py`).
 
-1. Confirm the exact affected row set before deleting: every `feature_vectors` row with
-   `bar_ts`/insert time before migration 255 landed (or more simply, every row where all 17 new
-   columns are NULL -- cheaper to verify, same result if the columns are truly untouched
-   pre-migration).
-2. DELETE those rows, then run `backfill_feature_factory.py --compute-only` (full corpus unless
-   scope is narrowed per above) to regenerate them with the new columns populated.
-3. Verify via a spot-check that `sr_support_dist`/`poc_dist_atr`/etc. are non-NULL and
+**Revised steps:**
+
+1. Run `backfill_feature_factory.py --compute-only --refresh` (full corpus unless scope is
+   narrowed at run time). No DELETE step needed.
+2. Verify via a spot-check that `sr_support_dist`/`poc_dist_atr`/etc. are non-NULL and
    non-constant across a sample of recomputed rows (mirror the "non-constant" regression guard
    Phase 163 Plan 02 added for the live path).
-4. Confirm `ic_engine`'s corpus fingerprinting (Phase 162) correctly detects the recomputed rows
+3. Confirm `ic_engine`'s corpus fingerprinting (Phase 162) correctly detects the recomputed rows
    as a fingerprint change and doesn't silently skip recompute for affected cells.
-5. `feature_vectors` is a live-read table (ic_engine, AlphaFrameWriter's structural candidate) --
-   confirm no consumer reads it mid-DELETE/recompute window, or run during a window where that's
-   acceptable (matches the "briefly leaves feature_vectors short rows mid-run" risk noted for
-   this option).
+4. Document which date range / symbol set was actually backfilled, for todo 175's future
+   reference.
+
+**Not yet run** -- this todo tracks the mechanism now existing, not the actual recompute having
+happened. `feature_vectors` was also found 20 days stale overall (unrelated root cause -- live
+ingestion is intentionally paused, see `[[project_ingestion_intentionally_paused]]`), so the
+`--refresh` run doubles as closing that gap too, in one pass.
 
 ## Acceptance criteria
 

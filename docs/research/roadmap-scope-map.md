@@ -66,7 +66,7 @@ unblocked. See area 1's bullets below for detail.
 - Edge measurement is Spearman-IC only — blind to real-but-nonmonotonic relationships.
 
 **Proposed:**
-- **Todo 183's corpus recompute (in progress) under corrected regime labels (todo 092), then re-run todo 179's regime sweep** — the one open thread that could still change T2's provisional "dead" verdict; doesn't affect T3/Phase 167's own result (no regime dependency).
+- ~~Todo 183's corpus recompute, then re-run todo 179's regime sweep~~ — **DONE 2026-07-27.** T2's "dead" verdict is now confirmed on live corrected regime labels (270 cells, zero pass), no longer provisional. Doesn't affect T3/Phase 167's own result (no regime dependency).
 - Phase 156-159 (Portfolio State/Sizing/Execution/Cost) — unblocked by Phase 167 clearing its stated precondition, but deliberately not started; user wants the signal-generation stack (features/regimes/IC/ensemble) validated further first.
 - `intel-12` StratificationDimension — unifies the two regime systems behind one contract (v3.15, Phases 144/145).
 - Phase 142B.1 — four candidate ensemble-weighting mechanisms (E1-E4) being A/B judged.
