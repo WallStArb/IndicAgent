@@ -2345,7 +2345,7 @@ normalization, APR namespace precedent, `FeatureCache` session-boundary mutator 
 **Requirements**: no formal `REQUIREMENTS.md` exists for this project — `165-CONTEXT.md`'s
 D-01..D-15 decision IDs are the requirement set, carried verbatim in each plan's `requirements`
 frontmatter (same convention as Phases 163/164/166).
-**Plans:** 3/5 plans executed. 5 plans, 5 waves (sequential — every plan touches `feature_factory.py`, so file ownership
+**Plans:** 4/5 plans executed. 5 plans, 5 waves (sequential — every plan touches `feature_factory.py`, so file ownership
 forces one wave per plan; Plan 03 additionally consumes Plan 02's in-memory swing intermediates per
 D-05, and Plan 05 consumes Plan 04's `FeatureCache` state).
 
@@ -2363,9 +2363,11 @@ Plans:
   archived implementation-vs-docstring bugs, and removes the provably-cancelling ATR divisor.
   Mutation-verification caught and fixed a real `math.isclose` `rel_tol` precision bug in its own test.
   Executed 2026-07-28.
-- [ ] 165-04-PLAN.md — `FeatureCache` session-levels state layer: 22 new fields,
+- [x] 165-04-PLAN.md — `FeatureCache` session-levels state layer: 22 new fields,
   `update_session_levels()` timestamp mutator (retires `_SESSION_BARS`/`_WEEK_BARS`/`_OVERNIGHT_BARS`,
-  D-07/D-08), `update_wk_vwap()` ISO-week high/low/close extension (D-09), all 3 call sites wired
+  D-07/D-08), `update_wk_vwap()` ISO-week high/low/close extension (D-09), all 3 call sites wired.
+  Mutation-verification required redesigning one test (accumulator-collision guard was structurally
+  blind under production call order) to actually expose the hazard. Executed 2026-07-28.
 - [ ] 165-05-PLAN.md — `_derive_session_levels()`: the final 16 columns as ATR-distances/percents/flag,
   prior-completed-week pivot anchoring, `tf=='1d'` suppression of the 5 intraday-only fields, plus the
   phase-closing gate proving all 41 columns produce real values
