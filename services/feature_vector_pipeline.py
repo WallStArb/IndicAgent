@@ -665,6 +665,25 @@ class FeatureVectorPipeline(BaseDaemon):
         ("feature.smc.amd.accum_end_utc_hour", 24),
         ("feature.smc.amd.manip_end_utc_hour", 10),
         ("feature.smc.amd.dist_end_utc_hour", 21),
+        # --- migration 267: Phase 165 Plan 01 Swing/Fib/Trend/Session Structure
+        # (contract only -- consumed by Plans 02-04) ---
+        ("feature.swing.pivot_window", 5),
+        ("feature.swing.lookback_bars", 120),
+        ("feature.trend_structure.atr_strength_divisor", 5.0),
+        ("feature.trend_structure.range_lookback_bars", 20),
+        ("feature.swing_momentum.confirm_n", 3),
+        ("feature.swing_momentum.max_extremes", 6),
+        ("feature.swing_momentum.lookback_bars", 60),
+        ("feature.swing_momentum.reference_bars", 20),
+        ("feature.swing_momentum.speed_factor_min", 0.1),
+        ("feature.swing_momentum.speed_factor_max", 3.0),
+        ("feature.swing_momentum.energy_divisor", 3.0),
+        ("feature.swing_momentum.intensity_ramp_lo", 1.0),
+        ("feature.swing_momentum.intensity_ramp_hi", 2.0),
+        ("feature.fib.cluster_atr_divisor", 2.0),
+        ("feature.fib.cluster_fallback_divisor", 20.0),
+        ("feature.session_levels.asia_start_et_hour", 20),
+        ("feature.session_levels.asia_end_et_hour", 4),
     )
 
     async def _prewarm_threshold_config(self) -> None:
@@ -891,6 +910,31 @@ class FeatureVectorPipeline(BaseDaemon):
             smc_amd_accum_end_utc_hour=_int("feature.smc.amd.accum_end_utc_hour", 24),
             smc_amd_manip_end_utc_hour=_int("feature.smc.amd.manip_end_utc_hour", 10),
             smc_amd_dist_end_utc_hour=_int("feature.smc.amd.dist_end_utc_hour", 21),
+            swing_pivot_window=_int("feature.swing.pivot_window", 5),
+            swing_lookback_bars=_int("feature.swing.lookback_bars", 120),
+            trend_structure_atr_strength_divisor=_float(
+                "feature.trend_structure.atr_strength_divisor", 5.0
+            ),
+            trend_structure_range_lookback_bars=_int(
+                "feature.trend_structure.range_lookback_bars", 20
+            ),
+            swing_momentum_confirm_n=_int("feature.swing_momentum.confirm_n", 3),
+            swing_momentum_max_extremes=_int("feature.swing_momentum.max_extremes", 6),
+            swing_momentum_lookback_bars=_int("feature.swing_momentum.lookback_bars", 60),
+            swing_momentum_reference_bars=_int("feature.swing_momentum.reference_bars", 20),
+            swing_momentum_speed_factor_min=_float("feature.swing_momentum.speed_factor_min", 0.1),
+            swing_momentum_speed_factor_max=_float("feature.swing_momentum.speed_factor_max", 3.0),
+            swing_momentum_energy_divisor=_float("feature.swing_momentum.energy_divisor", 3.0),
+            swing_momentum_intensity_ramp_lo=_float(
+                "feature.swing_momentum.intensity_ramp_lo", 1.0
+            ),
+            swing_momentum_intensity_ramp_hi=_float(
+                "feature.swing_momentum.intensity_ramp_hi", 2.0
+            ),
+            fib_cluster_atr_divisor=_float("feature.fib.cluster_atr_divisor", 2.0),
+            fib_cluster_fallback_divisor=_float("feature.fib.cluster_fallback_divisor", 20.0),
+            session_levels_asia_start_et_hour=_int("feature.session_levels.asia_start_et_hour", 20),
+            session_levels_asia_end_et_hour=_int("feature.session_levels.asia_end_et_hour", 4),
         )
 
         self.logger.info(

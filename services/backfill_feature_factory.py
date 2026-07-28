@@ -598,6 +598,45 @@ def _build_feature_factory_config(cfg: ConfigService) -> FeatureFactoryConfig:
         smc_amd_accum_end_utc_hour=int(cfg.get_sync("feature.smc.amd.accum_end_utc_hour", 24)),
         smc_amd_manip_end_utc_hour=int(cfg.get_sync("feature.smc.amd.manip_end_utc_hour", 10)),
         smc_amd_dist_end_utc_hour=int(cfg.get_sync("feature.smc.amd.dist_end_utc_hour", 21)),
+        swing_pivot_window=int(cfg.get_sync("feature.swing.pivot_window", 5)),
+        swing_lookback_bars=int(cfg.get_sync("feature.swing.lookback_bars", 120)),
+        trend_structure_atr_strength_divisor=float(
+            cfg.get_sync("feature.trend_structure.atr_strength_divisor", 5.0)
+        ),
+        trend_structure_range_lookback_bars=int(
+            cfg.get_sync("feature.trend_structure.range_lookback_bars", 20)
+        ),
+        swing_momentum_confirm_n=int(cfg.get_sync("feature.swing_momentum.confirm_n", 3)),
+        swing_momentum_max_extremes=int(cfg.get_sync("feature.swing_momentum.max_extremes", 6)),
+        swing_momentum_lookback_bars=int(cfg.get_sync("feature.swing_momentum.lookback_bars", 60)),
+        swing_momentum_reference_bars=int(
+            cfg.get_sync("feature.swing_momentum.reference_bars", 20)
+        ),
+        swing_momentum_speed_factor_min=float(
+            cfg.get_sync("feature.swing_momentum.speed_factor_min", 0.1)
+        ),
+        swing_momentum_speed_factor_max=float(
+            cfg.get_sync("feature.swing_momentum.speed_factor_max", 3.0)
+        ),
+        swing_momentum_energy_divisor=float(
+            cfg.get_sync("feature.swing_momentum.energy_divisor", 3.0)
+        ),
+        swing_momentum_intensity_ramp_lo=float(
+            cfg.get_sync("feature.swing_momentum.intensity_ramp_lo", 1.0)
+        ),
+        swing_momentum_intensity_ramp_hi=float(
+            cfg.get_sync("feature.swing_momentum.intensity_ramp_hi", 2.0)
+        ),
+        fib_cluster_atr_divisor=float(cfg.get_sync("feature.fib.cluster_atr_divisor", 2.0)),
+        fib_cluster_fallback_divisor=float(
+            cfg.get_sync("feature.fib.cluster_fallback_divisor", 20.0)
+        ),
+        session_levels_asia_start_et_hour=int(
+            cfg.get_sync("feature.session_levels.asia_start_et_hour", 20)
+        ),
+        session_levels_asia_end_et_hour=int(
+            cfg.get_sync("feature.session_levels.asia_end_et_hour", 4)
+        ),
     )
 
 

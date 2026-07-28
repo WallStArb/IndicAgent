@@ -446,6 +446,23 @@ class FeatureFactoryConfig:
         smc_amd_accum_end_utc_hour: APR feature.smc.amd.accum_end_utc_hour
         smc_amd_manip_end_utc_hour: APR feature.smc.amd.manip_end_utc_hour
         smc_amd_dist_end_utc_hour: APR feature.smc.amd.dist_end_utc_hour
+        swing_pivot_window: APR feature.swing.pivot_window
+        swing_lookback_bars: APR feature.swing.lookback_bars
+        trend_structure_atr_strength_divisor: APR feature.trend_structure.atr_strength_divisor
+        trend_structure_range_lookback_bars: APR feature.trend_structure.range_lookback_bars
+        swing_momentum_confirm_n: APR feature.swing_momentum.confirm_n
+        swing_momentum_max_extremes: APR feature.swing_momentum.max_extremes
+        swing_momentum_lookback_bars: APR feature.swing_momentum.lookback_bars
+        swing_momentum_reference_bars: APR feature.swing_momentum.reference_bars
+        swing_momentum_speed_factor_min: APR feature.swing_momentum.speed_factor_min
+        swing_momentum_speed_factor_max: APR feature.swing_momentum.speed_factor_max
+        swing_momentum_energy_divisor: APR feature.swing_momentum.energy_divisor
+        swing_momentum_intensity_ramp_lo: APR feature.swing_momentum.intensity_ramp_lo
+        swing_momentum_intensity_ramp_hi: APR feature.swing_momentum.intensity_ramp_hi
+        fib_cluster_atr_divisor: APR feature.fib.cluster_atr_divisor
+        fib_cluster_fallback_divisor: APR feature.fib.cluster_fallback_divisor
+        session_levels_asia_start_et_hour: APR feature.session_levels.asia_start_et_hour
+        session_levels_asia_end_et_hour: APR feature.session_levels.asia_end_et_hour
     """
 
     momentum_window_fast: int  # feature.momentum.window_fast
@@ -654,6 +671,33 @@ class FeatureFactoryConfig:
     smc_amd_accum_end_utc_hour: int = 24  # feature.smc.amd.accum_end_utc_hour
     smc_amd_manip_end_utc_hour: int = 10  # feature.smc.amd.manip_end_utc_hour
     smc_amd_dist_end_utc_hour: int = 21  # feature.smc.amd.dist_end_utc_hour
+    # Swing/Fib/Trend/Session Structure (Phase 165 Plan 01, contract-only --
+    # consumed by Plans 02-04's compute logic). Same defaulting rationale as
+    # above (avoid updating every pre-existing direct FeatureFactoryConfig(...)
+    # construction site); the 2 real production entrypoints
+    # (backfill_feature_factory.py, feature_vector_pipeline.py) explicitly
+    # wire these from ConfigService. All values [conventional] -- copied
+    # verbatim from the archived i3_structure plugins' own hardcoded defaults
+    # (165-RESEARCH.md).
+    swing_pivot_window: int = 5  # feature.swing.pivot_window
+    swing_lookback_bars: int = 120  # feature.swing.lookback_bars
+    trend_structure_atr_strength_divisor: float = (
+        5.0  # feature.trend_structure.atr_strength_divisor
+    )
+    trend_structure_range_lookback_bars: int = 20  # feature.trend_structure.range_lookback_bars
+    swing_momentum_confirm_n: int = 3  # feature.swing_momentum.confirm_n
+    swing_momentum_max_extremes: int = 6  # feature.swing_momentum.max_extremes
+    swing_momentum_lookback_bars: int = 60  # feature.swing_momentum.lookback_bars
+    swing_momentum_reference_bars: int = 20  # feature.swing_momentum.reference_bars
+    swing_momentum_speed_factor_min: float = 0.1  # feature.swing_momentum.speed_factor_min
+    swing_momentum_speed_factor_max: float = 3.0  # feature.swing_momentum.speed_factor_max
+    swing_momentum_energy_divisor: float = 3.0  # feature.swing_momentum.energy_divisor
+    swing_momentum_intensity_ramp_lo: float = 1.0  # feature.swing_momentum.intensity_ramp_lo
+    swing_momentum_intensity_ramp_hi: float = 2.0  # feature.swing_momentum.intensity_ramp_hi
+    fib_cluster_atr_divisor: float = 2.0  # feature.fib.cluster_atr_divisor
+    fib_cluster_fallback_divisor: float = 20.0  # feature.fib.cluster_fallback_divisor
+    session_levels_asia_start_et_hour: int = 20  # feature.session_levels.asia_start_et_hour
+    session_levels_asia_end_et_hour: int = 4  # feature.session_levels.asia_end_et_hour
 
 
 # ---------------------------------------------------------------------------

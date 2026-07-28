@@ -274,4 +274,184 @@ VALUES
      '1 if session range crossed prior session close since open else 0', 'bounded_unsigned', false, false, 'active', '165')
 ON CONFLICT (feature_name) DO NOTHING;
 
+-- ---------------------------------------------------------------------------
+-- 3. APR keys: feature.swing.* (2) + feature.trend_structure.* (2) +
+--    feature.swing_momentum.* (9) + feature.fib.* (2) +
+--    feature.session_levels.* (2) = 17 keys, one per hardcoded numeric
+--    constant found in the 5 archived i3_structure plugin files
+--    (migrate-as-you-go, CLAUDE.md). All values are [conventional]: copied
+--    verbatim from the archived plugins' own hardcoded defaults, NOT
+--    [rca_analysis]. Not ML learning targets.
+--
+--    The 5 Fibonacci retracement ratios themselves (0.236/0.382/0.500/0.618/
+--    0.786) are APR-EXEMPT -- definitional mathematical constants, same
+--    exemption class as "the 5 in momentum_z_5" per CLAUDE.md's APR spec.
+--    Do not "fix" this by adding them as config keys.
+-- ---------------------------------------------------------------------------
+
+INSERT INTO config_schema (config_key, value_type, default_value, min_value, max_value, description)
+VALUES
+(
+    'feature.swing.pivot_window',
+    'int',
+    '5',
+    2, 50,
+    '[conventional] find_peaks/find_troughs pivot detection neighbor window, shared by swing_detector.py AND trend_structure.py (same underlying call, same value, Plan 02). Deliberately NOT unified with feature.sr.window=10 (Phase 163), which scopes a different S/R clustering operation. Matches the archived plugins'' own neighbor=5 default. Phase 165. Not an ML learning target.'
+),
+(
+    'feature.swing.lookback_bars',
+    'int',
+    '120',
+    20, 1000,
+    '[conventional] Bounded causal lookback window (bars) for the shared swing-detection pivot pass (Plan 02). Matches the archived swing_detector.py''s InputSpec(lookback=120). Phase 165. Not an ML learning target.'
+),
+(
+    'feature.trend_structure.atr_strength_divisor',
+    'float',
+    '5.0',
+    0.5, 50.0,
+    '[conventional] Divisor in trend_strength = dominant_fraction * (price_range/ATR) / divisor (Plan 02). Matches the archived trend_structure.py''s hardcoded 5.0 divisor. Phase 165. Not an ML learning target.'
+),
+(
+    'feature.trend_structure.range_lookback_bars',
+    'int',
+    '20',
+    5, 200,
+    '[conventional] Bar window for the high[-N:]/low[-N:] price-range component of trend_strength''s ATR normalization (Plan 02) -- a second, independent hardcoded constant in trend_structure.py that 165-RESEARCH.md''s Finding A found the prior survey missed (separate from the 5.0 divisor and from feature.swing.pivot_window). Matches the archived file''s hardcoded high[-20:]/low[-20:] slice. Phase 165. Not an ML learning target.'
+),
+(
+    'feature.swing_momentum.confirm_n',
+    'int',
+    '3',
+    1, 20,
+    '[conventional] Confirmation-bar count for swing_momentum.py''s own hand-rolled _detect_extremes() (Plan 03) -- deliberately separate from feature.swing.pivot_window (D-06/RESEARCH Finding B: different algorithm, self-contained by design per the archived plugin''s own docstring). Matches the archived plugin''s _CONFIRM_N=3. Phase 165. Not an ML learning target.'
+),
+(
+    'feature.swing_momentum.max_extremes',
+    'int',
+    '6',
+    4, 20,
+    '[conventional] Maximum tracked swing extremes for swing_momentum.py (Plan 03). MUST stay EVEN -- represents complete swings (6 = 3 complete swings, an unpaired trailing extreme would be a half-swing). Matches the archived plugin''s _MAX_EXTREMES=6. Phase 165. Not an ML learning target.'
+),
+(
+    'feature.swing_momentum.lookback_bars',
+    'int',
+    '60',
+    20, 1000,
+    '[conventional] Bounded causal lookback window (bars) for swing_momentum.py''s _detect_swing_extremes (Plan 03). Matches the archived plugin''s min_lookback/InputSpec(lookback=60). Phase 165. Not an ML learning target.'
+),
+(
+    'feature.swing_momentum.reference_bars',
+    'int',
+    '20',
+    1, 200,
+    '[conventional] Reference-window bar count for swing_momentum.py''s velocity/reference calculations (Plan 03). Matches the archived plugin''s _REFERENCE_BARS=20. Phase 165. Not an ML learning target.'
+),
+(
+    'feature.swing_momentum.speed_factor_min',
+    'float',
+    '0.1',
+    0.01, 10.0,
+    '[conventional] Lower clamp bound for swing_momentum.py''s speed_factor (Plan 03). Matches the archived plugin''s clamp(..., 0.1, 3.0). Phase 165. Not an ML learning target.'
+),
+(
+    'feature.swing_momentum.speed_factor_max',
+    'float',
+    '3.0',
+    0.1, 100.0,
+    '[conventional] Upper clamp bound for swing_momentum.py''s speed_factor (Plan 03). Matches the archived plugin''s clamp(..., 0.1, 3.0). Phase 165. Not an ML learning target.'
+),
+(
+    'feature.swing_momentum.energy_divisor',
+    'float',
+    '3.0',
+    0.1, 100.0,
+    '[conventional] Divisor in struct_energy = clamp(amplitude_ratio * speed_factor / divisor, 0, 1) (Plan 03). Matches the archived plugin''s hardcoded /3.0 divisor. Phase 165. Not an ML learning target.'
+),
+(
+    'feature.swing_momentum.intensity_ramp_lo',
+    'float',
+    '1.0',
+    0.0, 100.0,
+    '[conventional] Lower bound of the linear_ramp mapping amplitude_ratio to bounded [0,1] swing_amplitude_intensity (Plan 03). Matches the archived plugin''s linear_ramp(amplitude_ratio, 1.0, 2.0). Phase 165. Not an ML learning target.'
+),
+(
+    'feature.swing_momentum.intensity_ramp_hi',
+    'float',
+    '2.0',
+    0.0, 100.0,
+    '[conventional] Upper bound of the linear_ramp mapping amplitude_ratio to bounded [0,1] swing_amplitude_intensity (Plan 03). Matches the archived plugin''s linear_ramp(amplitude_ratio, 1.0, 2.0). Phase 165. Not an ML learning target.'
+),
+(
+    'feature.fib.cluster_atr_divisor',
+    'float',
+    '2.0',
+    0.1, 100.0,
+    '[conventional] ATR divisor defining the fib-level clustering threshold for fib_cluster_strength (Plan 03). Matches the archived fibonacci_zones.py''s hardcoded atr_14 / 2.0. Phase 165. Not an ML learning target.'
+),
+(
+    'feature.fib.cluster_fallback_divisor',
+    'float',
+    '20.0',
+    0.1, 1000.0,
+    '[conventional] Fallback divisor for the fib-clustering threshold, used only when ATR is unavailable (Plan 03). Matches the archived fibonacci_zones.py''s hardcoded swing_range / 20.0. Phase 165. Not an ML learning target.'
+),
+(
+    'feature.session_levels.asia_start_et_hour',
+    'int',
+    '20',
+    0, 23,
+    '[conventional] ET hour marking the start of the Asian trading session (Plan 04). Matches the archived session_levels.py''s hour-mask constant (20:00 ET). Phase 165. Not an ML learning target.'
+),
+(
+    'feature.session_levels.asia_end_et_hour',
+    'int',
+    '4',
+    0, 23,
+    '[conventional] ET hour marking the end of the Asian trading session (Plan 04). Matches the archived session_levels.py''s hour-mask constant (04:00 ET). Phase 165. Not an ML learning target.'
+)
+ON CONFLICT (config_key) DO NOTHING;
+
+INSERT INTO config_state (config_key, config_value, version)
+VALUES
+    ('feature.swing.pivot_window', '5', 1),
+    ('feature.swing.lookback_bars', '120', 1),
+    ('feature.trend_structure.atr_strength_divisor', '5.0', 1),
+    ('feature.trend_structure.range_lookback_bars', '20', 1),
+    ('feature.swing_momentum.confirm_n', '3', 1),
+    ('feature.swing_momentum.max_extremes', '6', 1),
+    ('feature.swing_momentum.lookback_bars', '60', 1),
+    ('feature.swing_momentum.reference_bars', '20', 1),
+    ('feature.swing_momentum.speed_factor_min', '0.1', 1),
+    ('feature.swing_momentum.speed_factor_max', '3.0', 1),
+    ('feature.swing_momentum.energy_divisor', '3.0', 1),
+    ('feature.swing_momentum.intensity_ramp_lo', '1.0', 1),
+    ('feature.swing_momentum.intensity_ramp_hi', '2.0', 1),
+    ('feature.fib.cluster_atr_divisor', '2.0', 1),
+    ('feature.fib.cluster_fallback_divisor', '20.0', 1),
+    ('feature.session_levels.asia_start_et_hour', '20', 1),
+    ('feature.session_levels.asia_end_et_hour', '4', 1)
+ON CONFLICT (config_key) DO NOTHING;
+
+INSERT INTO config_history (timestamp, config_key, version, config_value, changed_by, reason)
+VALUES
+    (NOW(), 'feature.swing.pivot_window', 1, '5', 'migration_267', 'Seed shared swing-detection pivot window, Phase 165 [conventional]'),
+    (NOW(), 'feature.swing.lookback_bars', 1, '120', 'migration_267', 'Seed swing-detection causal lookback, Phase 165 [conventional]'),
+    (NOW(), 'feature.trend_structure.atr_strength_divisor', 1, '5.0', 'migration_267', 'Seed trend-strength ATR normalization divisor, Phase 165 [conventional]'),
+    (NOW(), 'feature.trend_structure.range_lookback_bars', 1, '20', 'migration_267', 'Seed trend-strength price-range lookback, Phase 165 [conventional]'),
+    (NOW(), 'feature.swing_momentum.confirm_n', 1, '3', 'migration_267', 'Seed swing-momentum confirmation-bar count, Phase 165 [conventional]'),
+    (NOW(), 'feature.swing_momentum.max_extremes', 1, '6', 'migration_267', 'Seed swing-momentum max tracked extremes, Phase 165 [conventional]'),
+    (NOW(), 'feature.swing_momentum.lookback_bars', 1, '60', 'migration_267', 'Seed swing-momentum causal lookback, Phase 165 [conventional]'),
+    (NOW(), 'feature.swing_momentum.reference_bars', 1, '20', 'migration_267', 'Seed swing-momentum reference-window bars, Phase 165 [conventional]'),
+    (NOW(), 'feature.swing_momentum.speed_factor_min', 1, '0.1', 'migration_267', 'Seed swing-momentum speed-factor lower clamp, Phase 165 [conventional]'),
+    (NOW(), 'feature.swing_momentum.speed_factor_max', 1, '3.0', 'migration_267', 'Seed swing-momentum speed-factor upper clamp, Phase 165 [conventional]'),
+    (NOW(), 'feature.swing_momentum.energy_divisor', 1, '3.0', 'migration_267', 'Seed swing-momentum struct_energy divisor, Phase 165 [conventional]'),
+    (NOW(), 'feature.swing_momentum.intensity_ramp_lo', 1, '1.0', 'migration_267', 'Seed swing-momentum intensity ramp lower bound, Phase 165 [conventional]'),
+    (NOW(), 'feature.swing_momentum.intensity_ramp_hi', 1, '2.0', 'migration_267', 'Seed swing-momentum intensity ramp upper bound, Phase 165 [conventional]'),
+    (NOW(), 'feature.fib.cluster_atr_divisor', 1, '2.0', 'migration_267', 'Seed fib-cluster ATR divisor, Phase 165 [conventional]'),
+    (NOW(), 'feature.fib.cluster_fallback_divisor', 1, '20.0', 'migration_267', 'Seed fib-cluster fallback divisor, Phase 165 [conventional]'),
+    (NOW(), 'feature.session_levels.asia_start_et_hour', 1, '20', 'migration_267', 'Seed Asian session start ET hour, Phase 165 [conventional]'),
+    (NOW(), 'feature.session_levels.asia_end_et_hour', 1, '4', 'migration_267', 'Seed Asian session end ET hour, Phase 165 [conventional]')
+ON CONFLICT DO NOTHING;
+
 COMMIT;
