@@ -38,6 +38,9 @@ replicated at 1d same day -- confirmed SMALL not LARGE (~16x magnitude collapse 
 original 1h finding); 15m replication (the directly actionable tf) deferred, see todo 188.
 Todo 183's corpus recompute completed 2026-07-27 (closed); T2's regime-sweep verdict is now
 confirmed dead on live data, no longer provisional (unrelated to T3/Phase 167's own validity).
+**Explicit user override, same day:** build Phase 164 + Phase 165 regardless of the evidence-gate
+reasoning above -- plan 165, execute both, then one combined `--refresh` recompute. See
+STATE.md's Tier 0 for full sequencing detail.
 
 ---
 

@@ -70,8 +70,11 @@ Direction 1 chosen and executed partially:
    (and all 49) have zero `symbol_hmm` rows, matching this todo's original 2026-07-21 finding
    exactly. **Precondition check verified working correctly against live data before being
    trusted** -- currently reports BLOCKED-ON-NEXT-IC-ENGINE-RUN, as expected.
-3. **Concrete next step, not yet done**: once todo 183's recompute fully exits (single-writer
-   discipline, D-07/D-08 -- do not run a second `ic_engine` process concurrently), run a
+3. **Concrete next step, not yet done, READY NOW**: todo 183's recompute completed
+   2026-07-27T21:55 UTC (single-writer discipline, D-07/D-08, is clear -- confirmed no
+   `ic_engine` process is currently running). Its config load predates migration 262
+   (18:19 UTC vs. 262's 15:10 UTC the following day), so the falsifier gate is still correctly
+   BLOCKED as of this writing -- the fix is a fresh scoped run, not waiting further. Run a
    *scoped* pass rather than waiting for the next full corpus rebuild: `ic_engine.py --symbols
    <the 49 equity symbols> --tf <tfs> --training-window-end <champion window>` (default mode,
    NOT `--cross-sectional-only` -- the per-symbol pass is what performs the dual-write). This

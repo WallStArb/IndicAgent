@@ -26,13 +26,13 @@ whether more features (Phase 164/165) get added.
 **Updated 2026-07-26** -- ran both cheap falsification scripts item 5 (below) recommended
 before committing to Phase 164/165. T3 passed decisively; T5 came back with a suspiciously
 large uplift that needs one more check before it's trustworthy. See T3/T5 sections below for
-full results. Scripts: `scripts/analysis/t3_cross_sectional_long_short_ctf_momentum_check.py`,
-`scripts/analysis/t5_nonlinear_combiner_lightgbm_check.py`. **Also caught and flagged a
-methodology gap in T2** (below): its falsification ran under cross-sectional regime labels
-that were themselves found miscalibrated and fixed the same day (todo 092) -- never
-re-verified under the corrected labels through the full production pipeline, which is exactly
-what's blocked right now behind todo 183's corpus-recompute halt. T2's death stands as
-provisional, not final, until that re-run happens.
+full results. T3's falsification script was archived once Phase 167 productionized it into
+`services/cross_sectional_spread_tracker.py`; T5's script is `scripts/analysis/t5_nonlinear_combiner_lightgbm_check.py`.
+**Also caught and flagged a methodology gap in T2** (below), since resolved: its original
+falsification ran under cross-sectional regime labels that were themselves found miscalibrated
+(todo 092). Re-run 2026-07-27 against the genuinely corrected, live production labels
+(`market_regimes.regime_label`, post-recompute) -- confirmed dead, not provisional. See T2
+section below.
 
 ---
 
@@ -88,7 +88,7 @@ crumbs below their minimum ticket. **Falsification:** the surviving cells should
 concentrate in the less-liquid half of the universe and around session boundaries; if edge
 concentrates in SPY/QQQ mid-session, T1 is wrong.
 
-### T2 -- Regime-conditional persistence (counterparty: unconditional models) -- **FALSIFIED 2026-07-24, under regime labels since superseded -- see caveat below**
+### T2 -- Regime-conditional persistence (counterparty: unconditional models) -- **FALSIFIED, CONFIRMED 2026-07-27 on live corrected labels -- no longer provisional**
 Features with zero pooled IC but real conditional IC (the whole stratification premise).
 Participants running unconditional models mis-price bars in minority regimes.
 **Why we might win:** most simple systematic flows are not regime-conditioned; conditioning
@@ -110,25 +110,22 @@ as currently implemented (a single categorical stratification dimension feeding 
 IC-weighted combiner), is not where this system's edge lives. Full trail:
 `.planning/todos/pending/179-gate166-concurrent-exposure-diagnostic.md`.
 
-**Caveat, added 2026-07-26, load-bearing:** this 234-cell sweep ran entirely against the
-**old, pre-todo-092** cross-sectional regime labels -- the raw-value cuts (`breadth_frac`
-0.40/0.60, `curve_z`/`credit_z` ±0.5/0.0) that were themselves found miscalibrated and fixed
-*later that same day* (migrations 257/258, `causal_rank.py`). The champion population tested
-(`143.1-08-champion`/`run_2025122405150000`) was scored under the old labels; todo 092's fix
-has never propagated through the full production pipeline (`ic_engine` → `ensemble_trainer` →
-a fresh Gate 1/2 verdict) -- that recompute is the one currently halted behind
-`.planning/todos/pending/183-ic-engine-max-cell-rows-breached-by-todo092-rebalance.md`. A
-partial, offline re-check under the *new* labels (raw-return regime sweep, not the full
-pipeline) surfaced `high_bear` conflating buyable-dip vs. structural-bear regimes -- a new
-lead, not a re-confirmation of this falsification. **T2's death should be read as "the
-categorical-regime-stratification mechanism, as tested under the labels live at the time,
-found nothing" -- not yet re-verified under corrected labels.** Separately, this test also
-only covers the feature set live as of 2026-07-24 (through Phase 163, with the 17 new
-structural columns still incomplete on historical rows per todo 176) -- it says nothing about
-features Phase 164/165 hasn't built yet; no corpus rerun was needed for that because there was
-no new feature to test. Re-run todo 179's sweep in full, through the production pipeline,
-once todo 183 resolves and the todo 092 recompute completes, before treating T2 as a final
-verdict rather than a provisional one.
+**Original test (2026-07-24) ran against old, pre-todo-092 labels; re-verified live 2026-07-27,
+caveat now closed.** The original 234-cell sweep used the raw-value cross-sectional cuts
+(`breadth_frac` 0.40/0.60, `curve_z`/`credit_z` ±0.5/0.0) later found miscalibrated and fixed
+the same day (migrations 257/258). Todo 183's full corpus recompute completed 2026-07-27T21:55
+UTC (`ic_engine.run_complete`, both equity/rates groups, zero errors); the same day, todo 179's
+sweep was re-run directly against the genuinely corrected, live production
+`market_regimes.regime_label` (270 cells, 108 with sufficient day-cluster coverage, **zero
+pass**). The `high_bear` lead surfaced by the earlier offline re-derivation (conflating
+buyable-dip vs. structural-bear) does not survive on live data either -- all 36 `high_bear`
+cells sit at 12-13 day-clusters, below the `alpha.validation.regime_gate_min_clusters` coverage
+floor, genuinely untestable in the current OOS window, not a new negative finding. **T2's death
+is now confirmed on live, non-stale data -- no longer provisional.** Full detail:
+`.planning/todos/pending/179-gate166-concurrent-exposure-diagnostic.md`'s live-label
+re-verification section. Separately, this test also only covers the feature set live as of
+2026-07-24 (through Phase 163, with the 17 new structural columns still incomplete on
+historical rows per todo 176) -- it says nothing about features Phase 164/165 hasn't built yet.
 
 **What T2's death does NOT prove:** that regime information is worthless, or that no
 interaction effect involving regime exists -- only that a *linear*, single-dimension,

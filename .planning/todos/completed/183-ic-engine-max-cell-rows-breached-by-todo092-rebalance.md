@@ -1,9 +1,21 @@
 ---
-status: pending
+status: completed
 priority: P0
 filed: 2026-07-26
+closed: 2026-07-27
 source: todo 092's live corpus recompute halted itself, discovered when checking run status
 ---
+
+## CLOSED 2026-07-27: recompute completed clean, both regime groups, zero further breaches
+
+`ic_engine.py` ran 2026-07-26T18:19 UTC -> 2026-07-27T21:55 UTC (~27.6h, one continuous run,
+`ic_engine.run_complete`/`status=success`), covering both `equity` and `rates` regime groups
+across all 4 timeframes (5m/15m/1h/1d) with zero errors and no further `max_cell_rows`
+breaches -- confirming this todo's step 4 concern (rates' worse pre-fix imbalance) did not
+recur in practice. 30,788 rows committed, 10,678 skipped (fingerprint-matched), corpus FDR
+backfill applied to 618,604 rows. This directly unblocked todo 179's regime-sweep re-run
+(T2 confirmed dead on live corrected labels, no longer provisional -- see
+`.planning/todos/pending/179-gate166-concurrent-exposure-diagnostic.md`).
 
 ## Resolution (2026-07-26, same day, in progress)
 

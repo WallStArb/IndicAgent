@@ -544,6 +544,41 @@ doesn't yet capture the necessary signal, or accept this branch (current feature
 ensemble + barrier execution) has no OOS-detectable edge and reprioritize. Not yet decided with
 the user as of this session's end.
 
+## Live-label re-verification (2026-07-27): the stale-labels caveat is resolved, verdict holds
+
+The 2026-07-24 sweep above ran under `market_regimes` labels that were later found to still
+contain stale rows from the retired `equity_regime_model.py` and a raw (non-causal-rank)
+`breadth_frac` cut (todo 092) -- both fixed same week, and a real production recompute
+(`cross_sectional_regime_model.py`, 2026-07-26 18:04-18:12 UTC) plus a full `ic_engine` corpus
+rebuild (2026-07-26 18:19 -> 2026-07-27 21:55 UTC, `ic_engine.run_complete`, both `equity`/`rates`
+groups, zero errors) have since made this section's own open acceptance-criteria item
+answerable for real, not just "lower priority."
+
+Built `scripts/analysis/live_recalibrated_regime_sweep_check.py` -- direct follow-on to
+`recalibrated_regime_full_sweep_check.py` (2026-07-24), which tested the recalibration's effect
+using an *offline re-derivation* of the labels since live `market_regimes` hadn't been
+recomputed yet. This version reads `market_regimes.regime_label` directly (the genuine,
+corrected production column, not a proxy), joined with `forward_returns`/`feature_vectors.regime`
+for the current OOS window, raw returns only (no `ensemble_alpha` -- steps 6-8 of the corpus
+pipeline haven't re-run since the recompute, so `ensemble_alpha` is stale; irrelevant here since
+this test never depended on it). Ran in 7.6 seconds (270 cells, ~1.06M `forward_returns` rows,
+zero unmatched timestamps).
+
+**Result: 108/270 cells cleared the 20-day-cluster coverage floor; zero pass (`ci_lower > 0`).**
+Confirms the 2026-07-24 finding was not an artifact of stale labels -- it holds under the
+genuinely corrected ones too. Specifically checked `high_bear` (the most internally-consistent
+lead from the *separate* todo-092 offline sweep, 5/8 passing cells there): all 36 `high_bear`
+cells in the live OOS window have only 12-13 day-clusters, below the 20-cluster floor -- not
+enough distinct trading days to properly test, exactly the "OOS window itself is mixed/weak for
+`high_bear`" weakness todo 092 already flagged from the offline analysis. One `high_bear` cell
+shows `passes=True` (15m/`transition_up`/mid, `ci_lower`=+0.000045) but at `n_clusters=13`, below
+this project's own 20-cluster floor -- a single underpowered cell, not replication (same
+`_meta_eligible` single-cell-is-a-tautology reasoning as migration 246).
+
+**T2 (regime-conditional persistence) is now confirmed dead on live, non-stale data, not just
+provisionally.** This closes the acceptance-criteria item below and removes the "provisional
+until recompute" caveat STATE.md has carried since 2026-07-26.
+
 ## Acceptance criteria
 
 - [x] Regime-conditional direction/exposure rule tested against c2/c3/c4 on the same frozen
@@ -551,8 +586,9 @@ the user as of this session's end.
 - [x] Explicit connection made to the 143.1-08 sign-symmetric HOLD verdict and todo 147's
       regime-divergence finding -- same underlying question, now answered empirically: no,
       there is no regime/direction slice with real conditional edge in this data
-- [ ] Regime labels on the OOS champion population spot-checked for staleness/mislabeling
-      (lower priority now -- even if labels were perfect, no slice passes)
+- [x] Regime labels on the OOS champion population spot-checked for staleness/mislabeling --
+      **done 2026-07-27 against the genuinely recomputed `market_regimes`/`feature_ic_scores`,
+      not just checked "lower priority": verdict holds, see live-label re-verification above**
 - [ ] True baseline population re-verified (not just the scalar arm currently live in the table)
 - [x] Clear recommendation: the frame/execution/ensemble construction as currently built does
       not clear a rigorous regime-conditional bar anywhere tested -- pursuing Phase 149+

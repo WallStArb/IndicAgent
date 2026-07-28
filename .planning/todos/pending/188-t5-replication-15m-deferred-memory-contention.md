@@ -29,8 +29,9 @@ PASSED using this exact feature at this tf). Unexplained timeframe instability
 
 ## Next step
 
-Once todo 183's recompute completes (frees the ~9GB it's holding) OR a memory-safer chunked/
-incremental training approach is adopted, rerun the same pipeline at `_TF="15m"` with an
+**Todo 183's recompute completed 2026-07-27T21:55 UTC** (the ~9GB it was holding is freed;
+host has ~20GB free as of this writing — re-verify via `free -h` before running, but the
+deferral reason is gone). Rerun the same pipeline at `_TF="15m"` with an
 appropriately recalibrated embargo (this project's `alpha.ic.bootstrap_block_size.15m`=26,
 vs. 1d's/1h's 10) and row floor. Reuse `t5_nonlinear_combiner_replication_1d.py`'s structure
 (imports `_train_and_predict_oos`/`_per_symbol_ic_ci` from the original 1h script, overrides

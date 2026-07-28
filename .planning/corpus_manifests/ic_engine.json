@@ -1,8 +1,8 @@
 {
   "step_name": "ic_engine",
   "step_version": "1.0",
-  "timestamp": "2026-07-24T13:59:30.605047+00:00",
-  "status": "failed",
+  "timestamp": "2026-07-26T18:19:04.125968+00:00",
+  "status": "success",
   "inputs": {
     "training_window_end": "2025-12-24 05:15:00+00:00",
     "tfs": [
@@ -95,11 +95,69 @@
     ],
     "cross_sectional_only": false
   },
-  "outputs": {},
-  "errors": [
-    "Cross-sectional cell tf=5m regime=high_bear has 2627604 rows, exceeding alpha.ic.max_cell_rows=1200000."
-  ],
-  "warnings": [
-    "No outputs recorded"
-  ]
+  "outputs": {
+    "feature_ic_scores": {
+      "table": "feature_ic_scores",
+      "rows_total": 1008169,
+      "rows_by_tf": {
+        "15m": 305128,
+        "1d": 146105,
+        "1h": 131408,
+        "5m": 425528
+      },
+      "rows_by_regime": {
+        "_pooled": 157457,
+        "flat_tight": 14448,
+        "flat_wide": 14448,
+        "high_bear": 84624,
+        "high_bull": 49364,
+        "high_neutral": 55212,
+        "inverted_tight": 24080,
+        "inverted_wide": 13588,
+        "low_bear": 50224,
+        "low_bull": 78948,
+        "low_neutral": 81872,
+        "mid_bear": 63296,
+        "mid_bull": 63640,
+        "mid_neutral": 82560,
+        "ranging": 28896,
+        "steep_tight": 13588,
+        "steep_wide": 24252,
+        "transition_down": 27348,
+        "transition_up": 28036,
+        "trending_down": 24080,
+        "trending_up": 28208
+      },
+      "columns_written": [
+        "feature_name",
+        "vector_domain",
+        "symbol",
+        "tf",
+        "regime",
+        "lookahead_bars",
+        "training_window_end",
+        "is_pooled",
+        "n_independent",
+        "reliable",
+        "ic_value",
+        "ic_sign",
+        "p_value",
+        "ic_ci_lower",
+        "ic_ci_upper",
+        "passes_ci_gate",
+        "bh_adjusted_p",
+        "passes_fdr",
+        "wf_fold_count",
+        "wf_pass_count",
+        "wf_ic_sharpe",
+        "passes_walkforward",
+        "ic_sharpe",
+        "ic_sharpe_n_windows",
+        "regime_label_source",
+        "cumulative_e_value"
+      ]
+    }
+  },
+  "errors": [],
+  "warnings": []
 }
