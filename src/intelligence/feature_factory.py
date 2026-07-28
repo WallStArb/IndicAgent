@@ -406,6 +406,45 @@ class FeatureFactoryConfig:
         sr_window: APR feature.sr.window
         sr_cluster_atr_mult: APR feature.sr.cluster_atr_mult
         sr_lookback_by_tf: APR feature.sr.lookback_by_tf
+        smc_order_blocks_lookback: APR feature.smc.order_blocks.lookback
+        smc_order_blocks_impulse_bars: APR feature.smc.order_blocks.impulse_bars
+        smc_order_blocks_significant_move_pct: APR feature.smc.order_blocks.significant_move_pct
+        smc_order_blocks_opposing_candle_lookback: APR feature.smc.order_blocks.opposing_candle_lookback
+        smc_breaker_lookback: APR feature.smc.breaker.lookback
+        smc_mitigation_lookback: APR feature.smc.mitigation.lookback
+        smc_fvg_lookback: APR feature.smc.fvg.lookback
+        smc_liquidity_sweeps_lookback: APR feature.smc.liquidity_sweeps.lookback
+        smc_liquidity_sweeps_swing_neighbor: APR feature.smc.liquidity_sweeps.swing_neighbor
+        smc_liquidity_sweeps_reclaim_bars: APR feature.smc.liquidity_sweeps.reclaim_bars
+        smc_liquidity_sweeps_depth_ramp_max_pct: APR feature.smc.liquidity_sweeps.depth_ramp_max_pct
+        smc_liquidity_sweeps_reclaim_velocity_ramp_max: APR feature.smc.liquidity_sweeps.reclaim_velocity_ramp_max
+        smc_liquidity_pools_lookback: APR feature.smc.liquidity_pools.lookback
+        smc_liquidity_pools_swing_neighbor: APR feature.smc.liquidity_pools.swing_neighbor
+        smc_liquidity_pools_atr_fallback_pct: APR feature.smc.liquidity_pools.atr_fallback_pct
+        smc_liquidity_pools_equal_level_tolerance_atr_mult: APR feature.smc.liquidity_pools.equal_level_tolerance_atr_mult
+        smc_liquidity_pools_session_bars: APR feature.smc.liquidity_pools.session_bars
+        smc_liquidity_pools_significance_weights: APR feature.smc.liquidity_pools.significance_weights
+        smc_zones_lookback: APR feature.smc.zones.lookback
+        smc_zones_impulse_atr_mult: APR feature.smc.zones.impulse_atr_mult
+        smc_zones_base_body_ratio: APR feature.smc.zones.base_body_ratio
+        smc_zones_base_atr_mult: APR feature.smc.zones.base_atr_mult
+        smc_zones_max_base_bars: APR feature.smc.zones.max_base_bars
+        smc_zones_zone_height_cap_atr_mult: APR feature.smc.zones.zone_height_cap_atr_mult
+        smc_zones_impulse_overlap_atr_mult: APR feature.smc.zones.impulse_overlap_atr_mult
+        smc_zones_freshness_decay_k: APR feature.smc.zones.freshness_decay_k
+        smc_zones_strength_premium_align_mult: APR feature.smc.zones.strength_premium_align_mult
+        smc_zones_strength_fvg_align_mult: APR feature.smc.zones.strength_fvg_align_mult
+        smc_zones_age_penalty_floor: APR feature.smc.zones.age_penalty_floor
+        smc_zones_age_penalty_window_bars: APR feature.smc.zones.age_penalty_window_bars
+        smc_zones_age_penalty_max_pct: APR feature.smc.zones.age_penalty_max_pct
+        smc_zones_max_tracked_zones: APR feature.smc.zones.max_tracked_zones
+        smc_bos_choch_lookback: APR feature.smc.bos_choch.lookback
+        smc_bos_choch_swing_neighbor: APR feature.smc.bos_choch.swing_neighbor
+        smc_amd_lookback: APR feature.smc.amd.lookback
+        smc_amd_accum_start_utc_hour: APR feature.smc.amd.accum_start_utc_hour
+        smc_amd_accum_end_utc_hour: APR feature.smc.amd.accum_end_utc_hour
+        smc_amd_manip_end_utc_hour: APR feature.smc.amd.manip_end_utc_hour
+        smc_amd_dist_end_utc_hour: APR feature.smc.amd.dist_end_utc_hour
     """
 
     momentum_window_fast: int  # feature.momentum.window_fast
@@ -543,6 +582,77 @@ class FeatureFactoryConfig:
     sr_lookback_by_tf: dict = field(  # feature.sr.lookback_by_tf
         default_factory=lambda: {"1m": 60, "5m": 60, "15m": 80, "1h": 120, "4h": 90, "1d": 60}
     )
+    # SMC Institutional Footprint (Phase 164 Plan 01, contract-only -- consumed by
+    # Plans 02-04's compute logic). Same defaulting rationale as above (avoid
+    # updating every pre-existing direct FeatureFactoryConfig(...) construction
+    # site); the 2 real production entrypoints (backfill_feature_factory.py,
+    # feature_vector_pipeline.py) explicitly wire these from ConfigService. All
+    # values [conventional] -- copied verbatim from the archived smc_context
+    # plugins' own hardcoded defaults (164-RESEARCH.md).
+    smc_order_blocks_lookback: int = 100  # feature.smc.order_blocks.lookback
+    smc_order_blocks_impulse_bars: int = 3  # feature.smc.order_blocks.impulse_bars
+    smc_order_blocks_significant_move_pct: float = (
+        0.003  # feature.smc.order_blocks.significant_move_pct
+    )
+    smc_order_blocks_opposing_candle_lookback: int = (
+        10  # feature.smc.order_blocks.opposing_candle_lookback
+    )
+    smc_breaker_lookback: int = 10  # feature.smc.breaker.lookback
+    smc_mitigation_lookback: int = 10  # feature.smc.mitigation.lookback
+    smc_fvg_lookback: int = 100  # feature.smc.fvg.lookback
+    smc_liquidity_sweeps_lookback: int = 120  # feature.smc.liquidity_sweeps.lookback
+    smc_liquidity_sweeps_swing_neighbor: int = 5  # feature.smc.liquidity_sweeps.swing_neighbor
+    smc_liquidity_sweeps_reclaim_bars: int = 3  # feature.smc.liquidity_sweeps.reclaim_bars
+    smc_liquidity_sweeps_depth_ramp_max_pct: float = (
+        2.0  # feature.smc.liquidity_sweeps.depth_ramp_max_pct
+    )
+    smc_liquidity_sweeps_reclaim_velocity_ramp_max: float = (
+        0.5  # feature.smc.liquidity_sweeps.reclaim_velocity_ramp_max
+    )
+    smc_liquidity_pools_lookback: int = 150  # feature.smc.liquidity_pools.lookback
+    smc_liquidity_pools_swing_neighbor: int = 5  # feature.smc.liquidity_pools.swing_neighbor
+    smc_liquidity_pools_atr_fallback_pct: float = (
+        0.002  # feature.smc.liquidity_pools.atr_fallback_pct
+    )
+    smc_liquidity_pools_equal_level_tolerance_atr_mult: float = (
+        0.75  # feature.smc.liquidity_pools.equal_level_tolerance_atr_mult
+    )
+    smc_liquidity_pools_session_bars: int = 390  # feature.smc.liquidity_pools.session_bars
+    smc_liquidity_pools_significance_weights: dict = (
+        field(  # feature.smc.liquidity_pools.significance_weights
+            default_factory=lambda: {
+                "eq_highs_3": 0.75,
+                "eq_lows_3": 0.75,
+                "eq_highs_2": 0.60,
+                "eq_lows_2": 0.60,
+                "session_high": 0.50,
+                "session_low": 0.50,
+            }
+        )
+    )
+    smc_zones_lookback: int = 150  # feature.smc.zones.lookback
+    smc_zones_impulse_atr_mult: float = 1.5  # feature.smc.zones.impulse_atr_mult
+    smc_zones_base_body_ratio: float = 0.5  # feature.smc.zones.base_body_ratio
+    smc_zones_base_atr_mult: float = 1.0  # feature.smc.zones.base_atr_mult
+    smc_zones_max_base_bars: int = 5  # feature.smc.zones.max_base_bars
+    smc_zones_zone_height_cap_atr_mult: float = 2.5  # feature.smc.zones.zone_height_cap_atr_mult
+    smc_zones_impulse_overlap_atr_mult: float = 0.4  # feature.smc.zones.impulse_overlap_atr_mult
+    smc_zones_freshness_decay_k: float = 0.5  # feature.smc.zones.freshness_decay_k
+    smc_zones_strength_premium_align_mult: float = (
+        1.20  # feature.smc.zones.strength_premium_align_mult
+    )
+    smc_zones_strength_fvg_align_mult: float = 1.15  # feature.smc.zones.strength_fvg_align_mult
+    smc_zones_age_penalty_floor: float = 0.70  # feature.smc.zones.age_penalty_floor
+    smc_zones_age_penalty_window_bars: int = 200  # feature.smc.zones.age_penalty_window_bars
+    smc_zones_age_penalty_max_pct: float = 0.30  # feature.smc.zones.age_penalty_max_pct
+    smc_zones_max_tracked_zones: int = 5  # feature.smc.zones.max_tracked_zones
+    smc_bos_choch_lookback: int = 120  # feature.smc.bos_choch.lookback
+    smc_bos_choch_swing_neighbor: int = 5  # feature.smc.bos_choch.swing_neighbor
+    smc_amd_lookback: int = 30  # feature.smc.amd.lookback
+    smc_amd_accum_start_utc_hour: int = 20  # feature.smc.amd.accum_start_utc_hour
+    smc_amd_accum_end_utc_hour: int = 24  # feature.smc.amd.accum_end_utc_hour
+    smc_amd_manip_end_utc_hour: int = 10  # feature.smc.amd.manip_end_utc_hour
+    smc_amd_dist_end_utc_hour: int = 21  # feature.smc.amd.dist_end_utc_hour
 
 
 # ---------------------------------------------------------------------------

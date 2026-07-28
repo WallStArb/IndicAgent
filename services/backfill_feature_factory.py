@@ -512,6 +512,92 @@ def _build_feature_factory_config(cfg: ConfigService) -> FeatureFactoryConfig:
         sr_lookback_by_tf=_get_dict_config(
             cfg, "feature.sr.lookback_by_tf", {"1m": 60, "5m": 60, "15m": 80, "1h": 120, "1d": 60}
         ),
+        smc_order_blocks_lookback=int(cfg.get_sync("feature.smc.order_blocks.lookback", 100)),
+        smc_order_blocks_impulse_bars=int(cfg.get_sync("feature.smc.order_blocks.impulse_bars", 3)),
+        smc_order_blocks_significant_move_pct=float(
+            cfg.get_sync("feature.smc.order_blocks.significant_move_pct", 0.003)
+        ),
+        smc_order_blocks_opposing_candle_lookback=int(
+            cfg.get_sync("feature.smc.order_blocks.opposing_candle_lookback", 10)
+        ),
+        smc_breaker_lookback=int(cfg.get_sync("feature.smc.breaker.lookback", 10)),
+        smc_mitigation_lookback=int(cfg.get_sync("feature.smc.mitigation.lookback", 10)),
+        smc_fvg_lookback=int(cfg.get_sync("feature.smc.fvg.lookback", 100)),
+        smc_liquidity_sweeps_lookback=int(
+            cfg.get_sync("feature.smc.liquidity_sweeps.lookback", 120)
+        ),
+        smc_liquidity_sweeps_swing_neighbor=int(
+            cfg.get_sync("feature.smc.liquidity_sweeps.swing_neighbor", 5)
+        ),
+        smc_liquidity_sweeps_reclaim_bars=int(
+            cfg.get_sync("feature.smc.liquidity_sweeps.reclaim_bars", 3)
+        ),
+        smc_liquidity_sweeps_depth_ramp_max_pct=float(
+            cfg.get_sync("feature.smc.liquidity_sweeps.depth_ramp_max_pct", 2.0)
+        ),
+        smc_liquidity_sweeps_reclaim_velocity_ramp_max=float(
+            cfg.get_sync("feature.smc.liquidity_sweeps.reclaim_velocity_ramp_max", 0.5)
+        ),
+        smc_liquidity_pools_lookback=int(cfg.get_sync("feature.smc.liquidity_pools.lookback", 150)),
+        smc_liquidity_pools_swing_neighbor=int(
+            cfg.get_sync("feature.smc.liquidity_pools.swing_neighbor", 5)
+        ),
+        smc_liquidity_pools_atr_fallback_pct=float(
+            cfg.get_sync("feature.smc.liquidity_pools.atr_fallback_pct", 0.002)
+        ),
+        smc_liquidity_pools_equal_level_tolerance_atr_mult=float(
+            cfg.get_sync("feature.smc.liquidity_pools.equal_level_tolerance_atr_mult", 0.75)
+        ),
+        smc_liquidity_pools_session_bars=int(
+            cfg.get_sync("feature.smc.liquidity_pools.session_bars", 390)
+        ),
+        smc_liquidity_pools_significance_weights=_get_dict_config(
+            cfg,
+            "feature.smc.liquidity_pools.significance_weights",
+            {
+                "eq_highs_3": 0.75,
+                "eq_lows_3": 0.75,
+                "eq_highs_2": 0.60,
+                "eq_lows_2": 0.60,
+                "session_high": 0.50,
+                "session_low": 0.50,
+            },
+        ),
+        smc_zones_lookback=int(cfg.get_sync("feature.smc.zones.lookback", 150)),
+        smc_zones_impulse_atr_mult=float(cfg.get_sync("feature.smc.zones.impulse_atr_mult", 1.5)),
+        smc_zones_base_body_ratio=float(cfg.get_sync("feature.smc.zones.base_body_ratio", 0.5)),
+        smc_zones_base_atr_mult=float(cfg.get_sync("feature.smc.zones.base_atr_mult", 1.0)),
+        smc_zones_max_base_bars=int(cfg.get_sync("feature.smc.zones.max_base_bars", 5)),
+        smc_zones_zone_height_cap_atr_mult=float(
+            cfg.get_sync("feature.smc.zones.zone_height_cap_atr_mult", 2.5)
+        ),
+        smc_zones_impulse_overlap_atr_mult=float(
+            cfg.get_sync("feature.smc.zones.impulse_overlap_atr_mult", 0.4)
+        ),
+        smc_zones_freshness_decay_k=float(cfg.get_sync("feature.smc.zones.freshness_decay_k", 0.5)),
+        smc_zones_strength_premium_align_mult=float(
+            cfg.get_sync("feature.smc.zones.strength_premium_align_mult", 1.20)
+        ),
+        smc_zones_strength_fvg_align_mult=float(
+            cfg.get_sync("feature.smc.zones.strength_fvg_align_mult", 1.15)
+        ),
+        smc_zones_age_penalty_floor=float(
+            cfg.get_sync("feature.smc.zones.age_penalty_floor", 0.70)
+        ),
+        smc_zones_age_penalty_window_bars=int(
+            cfg.get_sync("feature.smc.zones.age_penalty_window_bars", 200)
+        ),
+        smc_zones_age_penalty_max_pct=float(
+            cfg.get_sync("feature.smc.zones.age_penalty_max_pct", 0.30)
+        ),
+        smc_zones_max_tracked_zones=int(cfg.get_sync("feature.smc.zones.max_tracked_zones", 5)),
+        smc_bos_choch_lookback=int(cfg.get_sync("feature.smc.bos_choch.lookback", 120)),
+        smc_bos_choch_swing_neighbor=int(cfg.get_sync("feature.smc.bos_choch.swing_neighbor", 5)),
+        smc_amd_lookback=int(cfg.get_sync("feature.smc.amd.lookback", 30)),
+        smc_amd_accum_start_utc_hour=int(cfg.get_sync("feature.smc.amd.accum_start_utc_hour", 20)),
+        smc_amd_accum_end_utc_hour=int(cfg.get_sync("feature.smc.amd.accum_end_utc_hour", 24)),
+        smc_amd_manip_end_utc_hour=int(cfg.get_sync("feature.smc.amd.manip_end_utc_hour", 10)),
+        smc_amd_dist_end_utc_hour=int(cfg.get_sync("feature.smc.amd.dist_end_utc_hour", 21)),
     )
 
 

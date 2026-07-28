@@ -602,6 +602,57 @@ class FeatureVectorPipeline(BaseDaemon):
             "feature.sr.lookback_by_tf",
             {"1m": 60, "5m": 60, "15m": 80, "1h": 120, "1d": 60},
         ),
+        # --- migration 266: Phase 164 Plan 01 SMC Institutional Footprint (contract
+        # only -- consumed by Plans 02-04) ---
+        ("feature.smc.order_blocks.lookback", 100),
+        ("feature.smc.order_blocks.impulse_bars", 3),
+        ("feature.smc.order_blocks.significant_move_pct", 0.003),
+        ("feature.smc.order_blocks.opposing_candle_lookback", 10),
+        ("feature.smc.breaker.lookback", 10),
+        ("feature.smc.mitigation.lookback", 10),
+        ("feature.smc.fvg.lookback", 100),
+        ("feature.smc.liquidity_sweeps.lookback", 120),
+        ("feature.smc.liquidity_sweeps.swing_neighbor", 5),
+        ("feature.smc.liquidity_sweeps.reclaim_bars", 3),
+        ("feature.smc.liquidity_sweeps.depth_ramp_max_pct", 2.0),
+        ("feature.smc.liquidity_sweeps.reclaim_velocity_ramp_max", 0.5),
+        ("feature.smc.liquidity_pools.lookback", 150),
+        ("feature.smc.liquidity_pools.swing_neighbor", 5),
+        ("feature.smc.liquidity_pools.atr_fallback_pct", 0.002),
+        ("feature.smc.liquidity_pools.equal_level_tolerance_atr_mult", 0.75),
+        ("feature.smc.liquidity_pools.session_bars", 390),
+        (
+            "feature.smc.liquidity_pools.significance_weights",
+            {
+                "eq_highs_3": 0.75,
+                "eq_lows_3": 0.75,
+                "eq_highs_2": 0.60,
+                "eq_lows_2": 0.60,
+                "session_high": 0.50,
+                "session_low": 0.50,
+            },
+        ),
+        ("feature.smc.zones.lookback", 150),
+        ("feature.smc.zones.impulse_atr_mult", 1.5),
+        ("feature.smc.zones.base_body_ratio", 0.5),
+        ("feature.smc.zones.base_atr_mult", 1.0),
+        ("feature.smc.zones.max_base_bars", 5),
+        ("feature.smc.zones.zone_height_cap_atr_mult", 2.5),
+        ("feature.smc.zones.impulse_overlap_atr_mult", 0.4),
+        ("feature.smc.zones.freshness_decay_k", 0.5),
+        ("feature.smc.zones.strength_premium_align_mult", 1.20),
+        ("feature.smc.zones.strength_fvg_align_mult", 1.15),
+        ("feature.smc.zones.age_penalty_floor", 0.70),
+        ("feature.smc.zones.age_penalty_window_bars", 200),
+        ("feature.smc.zones.age_penalty_max_pct", 0.30),
+        ("feature.smc.zones.max_tracked_zones", 5),
+        ("feature.smc.bos_choch.lookback", 120),
+        ("feature.smc.bos_choch.swing_neighbor", 5),
+        ("feature.smc.amd.lookback", 30),
+        ("feature.smc.amd.accum_start_utc_hour", 20),
+        ("feature.smc.amd.accum_end_utc_hour", 24),
+        ("feature.smc.amd.manip_end_utc_hour", 10),
+        ("feature.smc.amd.dist_end_utc_hour", 21),
     )
 
     async def _prewarm_threshold_config(self) -> None:
@@ -753,6 +804,81 @@ class FeatureVectorPipeline(BaseDaemon):
                 "feature.sr.lookback_by_tf",
                 {"1m": 60, "5m": 60, "15m": 80, "1h": 120, "1d": 60},
             ),
+            smc_order_blocks_lookback=_int("feature.smc.order_blocks.lookback", 100),
+            smc_order_blocks_impulse_bars=_int("feature.smc.order_blocks.impulse_bars", 3),
+            smc_order_blocks_significant_move_pct=_float(
+                "feature.smc.order_blocks.significant_move_pct", 0.003
+            ),
+            smc_order_blocks_opposing_candle_lookback=_int(
+                "feature.smc.order_blocks.opposing_candle_lookback", 10
+            ),
+            smc_breaker_lookback=_int("feature.smc.breaker.lookback", 10),
+            smc_mitigation_lookback=_int("feature.smc.mitigation.lookback", 10),
+            smc_fvg_lookback=_int("feature.smc.fvg.lookback", 100),
+            smc_liquidity_sweeps_lookback=_int("feature.smc.liquidity_sweeps.lookback", 120),
+            smc_liquidity_sweeps_swing_neighbor=_int(
+                "feature.smc.liquidity_sweeps.swing_neighbor", 5
+            ),
+            smc_liquidity_sweeps_reclaim_bars=_int("feature.smc.liquidity_sweeps.reclaim_bars", 3),
+            smc_liquidity_sweeps_depth_ramp_max_pct=_float(
+                "feature.smc.liquidity_sweeps.depth_ramp_max_pct", 2.0
+            ),
+            smc_liquidity_sweeps_reclaim_velocity_ramp_max=_float(
+                "feature.smc.liquidity_sweeps.reclaim_velocity_ramp_max", 0.5
+            ),
+            smc_liquidity_pools_lookback=_int("feature.smc.liquidity_pools.lookback", 150),
+            smc_liquidity_pools_swing_neighbor=_int(
+                "feature.smc.liquidity_pools.swing_neighbor", 5
+            ),
+            smc_liquidity_pools_atr_fallback_pct=_float(
+                "feature.smc.liquidity_pools.atr_fallback_pct", 0.002
+            ),
+            smc_liquidity_pools_equal_level_tolerance_atr_mult=_float(
+                "feature.smc.liquidity_pools.equal_level_tolerance_atr_mult", 0.75
+            ),
+            smc_liquidity_pools_session_bars=_int("feature.smc.liquidity_pools.session_bars", 390),
+            smc_liquidity_pools_significance_weights=_dict(
+                "feature.smc.liquidity_pools.significance_weights",
+                {
+                    "eq_highs_3": 0.75,
+                    "eq_lows_3": 0.75,
+                    "eq_highs_2": 0.60,
+                    "eq_lows_2": 0.60,
+                    "session_high": 0.50,
+                    "session_low": 0.50,
+                },
+            ),
+            smc_zones_lookback=_int("feature.smc.zones.lookback", 150),
+            smc_zones_impulse_atr_mult=_float("feature.smc.zones.impulse_atr_mult", 1.5),
+            smc_zones_base_body_ratio=_float("feature.smc.zones.base_body_ratio", 0.5),
+            smc_zones_base_atr_mult=_float("feature.smc.zones.base_atr_mult", 1.0),
+            smc_zones_max_base_bars=_int("feature.smc.zones.max_base_bars", 5),
+            smc_zones_zone_height_cap_atr_mult=_float(
+                "feature.smc.zones.zone_height_cap_atr_mult", 2.5
+            ),
+            smc_zones_impulse_overlap_atr_mult=_float(
+                "feature.smc.zones.impulse_overlap_atr_mult", 0.4
+            ),
+            smc_zones_freshness_decay_k=_float("feature.smc.zones.freshness_decay_k", 0.5),
+            smc_zones_strength_premium_align_mult=_float(
+                "feature.smc.zones.strength_premium_align_mult", 1.20
+            ),
+            smc_zones_strength_fvg_align_mult=_float(
+                "feature.smc.zones.strength_fvg_align_mult", 1.15
+            ),
+            smc_zones_age_penalty_floor=_float("feature.smc.zones.age_penalty_floor", 0.70),
+            smc_zones_age_penalty_window_bars=_int(
+                "feature.smc.zones.age_penalty_window_bars", 200
+            ),
+            smc_zones_age_penalty_max_pct=_float("feature.smc.zones.age_penalty_max_pct", 0.30),
+            smc_zones_max_tracked_zones=_int("feature.smc.zones.max_tracked_zones", 5),
+            smc_bos_choch_lookback=_int("feature.smc.bos_choch.lookback", 120),
+            smc_bos_choch_swing_neighbor=_int("feature.smc.bos_choch.swing_neighbor", 5),
+            smc_amd_lookback=_int("feature.smc.amd.lookback", 30),
+            smc_amd_accum_start_utc_hour=_int("feature.smc.amd.accum_start_utc_hour", 20),
+            smc_amd_accum_end_utc_hour=_int("feature.smc.amd.accum_end_utc_hour", 24),
+            smc_amd_manip_end_utc_hour=_int("feature.smc.amd.manip_end_utc_hour", 10),
+            smc_amd_dist_end_utc_hour=_int("feature.smc.amd.dist_end_utc_hour", 21),
         )
 
         self.logger.info(

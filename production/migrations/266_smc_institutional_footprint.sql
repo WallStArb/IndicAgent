@@ -247,4 +247,383 @@ VALUES
      'clamped [0,1] AMD manipulation-phase breach magnitude', 'bounded_unsigned', false, false, 'active', '164')
 ON CONFLICT (feature_name) DO NOTHING;
 
+-- ---------------------------------------------------------------------------
+-- 3. APR keys: feature.smc.* (39 keys, one per hardcoded numeric constant found
+--    in the 8 archived smc_context plugin files -- migrate-as-you-go, CLAUDE.md).
+--    All values are [conventional]: copied verbatim from the archived plugins'
+--    own hardcoded defaults (unvalidated ICT-community conventions), NOT
+--    [rca_analysis]. Not ML learning targets. Namespaced feature.smc.<concept>.*
+--    per 164-RESEARCH.md A4. Two plugins' ATR-recompute constants (14-bar window
+--    in liquidity_pools.py/supply_demand_zones.py, 20-bar std fallback in
+--    supply_demand_zones.py) are deliberately NOT ported -- 164-RESEARCH.md's
+--    "Don't Hand-Roll" table flags this as an anti-pattern; the already-computed
+--    atr_val (threaded into compute() before this SMC block) is reused instead,
+--    matching bos_choch.py's own get_atr(features) pattern. price_in_premium/
+--    premium_position (liquidity_pools.py) are out of scope entirely (ROADMAP
+--    "explicitly excluded" premium_discount), so their constants are not seeded.
+-- ---------------------------------------------------------------------------
+
+INSERT INTO config_schema (config_key, value_type, default_value, min_value, max_value, description)
+VALUES
+(
+    'feature.smc.order_blocks.lookback',
+    'int',
+    '100',
+    50, 500,
+    '[conventional] Trailing bar window scanned for order-block impulse+opposing-candle detection. Matches OrderBlocksPlugin''s InputSpec(lookback=100). Phase 164. Not an ML learning target.'
+),
+(
+    'feature.smc.order_blocks.impulse_bars',
+    'int',
+    '3',
+    1, 10,
+    '[conventional] Minimum consecutive same-direction candles defining an impulsive move for order-block detection. Matches OrderBlocksPlugin.impulse_bars. Phase 164. Not an ML learning target.'
+),
+(
+    'feature.smc.order_blocks.significant_move_pct',
+    'float',
+    '0.003',
+    0.0001, 0.05,
+    '[conventional] Minimum impulse move size, as a fraction of current price, to qualify as significant. Matches OrderBlocksPlugin''s hardcoded 0.3% threshold. Phase 164. Not an ML learning target.'
+),
+(
+    'feature.smc.order_blocks.opposing_candle_lookback',
+    'int',
+    '10',
+    2, 50,
+    '[conventional] Bars scanned backward from an impulse''s start to find the last opposing candle (the order block itself). Matches OrderBlocksPlugin''s hardcoded range(...,10,...). Phase 164. Not an ML learning target.'
+),
+(
+    'feature.smc.breaker.lookback',
+    'int',
+    '10',
+    2, 50,
+    '[conventional] Trailing bar window for breaker-block derivation from order_blocks'' active-OB list (stateless recompute, no cross-call self._state). Matches BreakerBlocksPlugin''s InputSpec(lookback=10). Phase 164. Not an ML learning target.'
+),
+(
+    'feature.smc.mitigation.lookback',
+    'int',
+    '10',
+    2, 50,
+    '[conventional] Trailing bar window for order-block mitigation-percentage tracking. Matches MitigationBlocksPlugin''s InputSpec(lookback=10). Phase 164. Not an ML learning target.'
+),
+(
+    'feature.smc.fvg.lookback',
+    'int',
+    '100',
+    30, 500,
+    '[conventional] Trailing bar window scanned for 3-candle fair-value-gap imbalances. Matches FairValueGapPlugin''s InputSpec(lookback=100). Phase 164. Not an ML learning target.'
+),
+(
+    'feature.smc.liquidity_sweeps.lookback',
+    'int',
+    '120',
+    60, 500,
+    '[conventional] Trailing bar window scanned for liquidity sweeps of swing highs/lows. Matches LiquiditySweepsPlugin''s InputSpec(lookback=120). Phase 164. Not an ML learning target.'
+),
+(
+    'feature.smc.liquidity_sweeps.swing_neighbor',
+    'int',
+    '5',
+    2, 20,
+    '[conventional] find_swing_highs/find_swing_lows neighbor window (bars on each side) for swing-point detection ahead of sweep scanning. Matches LiquiditySweepsPlugin.neighbor. Phase 164. Not an ML learning target.'
+),
+(
+    'feature.smc.liquidity_sweeps.reclaim_bars',
+    'int',
+    '3',
+    1, 20,
+    '[conventional] Bars checked after a sweep for reclaim confirmation (price continuing back through the swept level). Matches LiquiditySweepsPlugin.reclaim_bars. Phase 164. Not an ML learning target.'
+),
+(
+    'feature.smc.liquidity_sweeps.depth_ramp_max_pct',
+    'float',
+    '2.0',
+    0.1, 10.0,
+    '[conventional] Upper bound (percent depth) of the linear_ramp mapping sweep wick-beyond depth to bounded [0,1] sweep_strength. Matches LiquiditySweepsPlugin''s hardcoded linear_ramp(depth, 0, 2.0). Phase 164. Not an ML learning target.'
+),
+(
+    'feature.smc.liquidity_sweeps.reclaim_velocity_ramp_max',
+    'float',
+    '0.5',
+    0.05, 2.0,
+    '[conventional] Upper bound of the linear_ramp mapping 1/bars_to_reclaim to bounded [0,1] reclaim_velocity. Matches LiquiditySweepsPlugin''s hardcoded linear_ramp(..., 0, 0.5). Phase 164. Not an ML learning target.'
+),
+(
+    'feature.smc.liquidity_pools.lookback',
+    'int',
+    '150',
+    60, 500,
+    '[conventional] Trailing bar window scanned for liquidity-pool levels (equal-highs/lows, session H/L). Matches LiquidityPoolsPlugin''s InputSpec(lookback=150); the plugin''s separate 1d InputSpec (PWH/PWL/PDH/PDL) is descoped per 164-RESEARCH.md''s cross-timeframe-gap finding. Phase 164. Not an ML learning target.'
+),
+(
+    'feature.smc.liquidity_pools.swing_neighbor',
+    'int',
+    '5',
+    2, 20,
+    '[conventional] find_swing_highs/find_swing_lows neighbor window for equal-highs/equal-lows clustering. Matches LiquidityPoolsPlugin''s hardcoded n=5. Phase 164. Not an ML learning target.'
+),
+(
+    'feature.smc.liquidity_pools.atr_fallback_pct',
+    'float',
+    '0.002',
+    0.0001, 0.05,
+    '[conventional] Fallback ATR-as-fraction-of-price used only when the passed-in atr_val is non-positive. Matches LiquidityPoolsPlugin''s hardcoded current_price * 0.002 fallback. Phase 164. Not an ML learning target.'
+),
+(
+    'feature.smc.liquidity_pools.equal_level_tolerance_atr_mult',
+    'float',
+    '0.75',
+    0.05, 3.0,
+    '[conventional] ATR multiple defining the price-clustering tolerance for equal-highs/equal-lows grouping. Matches LiquidityPoolsPlugin''s hardcoded atr * 0.75. Phase 164. Not an ML learning target.'
+),
+(
+    'feature.smc.liquidity_pools.session_bars',
+    'int',
+    '390',
+    30, 1000,
+    '[conventional] Trailing bar count treated as "current session" for session-high/session-low pool levels (390 = one 1m RTH session). Matches LiquidityPoolsPlugin''s hardcoded high[-390:]. Phase 164. Not an ML learning target.'
+),
+(
+    'feature.smc.liquidity_pools.significance_weights',
+    'json',
+    '{"eq_highs_3":0.75,"eq_lows_3":0.75,"eq_highs_2":0.60,"eq_lows_2":0.60,"session_high":0.50,"session_low":0.50}',
+    null, null,
+    '[conventional] Per-level-type significance weights for liquidity-pool selection (nearest-significant-level tie-break). Matches LiquidityPoolsPlugin''s _SIG dict, with pwh/pwl/pdh/pdl entries dropped (PWH/PWL/PDH/PDL descoped, no daily-bar access in compute()''s single-tf signature). JSON dict keyed by level-type string. Phase 164. Not an ML learning target.'
+),
+(
+    'feature.smc.zones.lookback',
+    'int',
+    '150',
+    60, 500,
+    '[conventional] Trailing bar window scanned for supply/demand zone (Rally-Base-Drop / Drop-Base-Rally) origins. Matches SupplyDemandZonesPlugin''s InputSpec(lookback=150). Phase 164. Not an ML learning target.'
+),
+(
+    'feature.smc.zones.impulse_atr_mult',
+    'float',
+    '1.5',
+    0.1, 10.0,
+    '[conventional] ATR multiple a close-to-close move must exceed to qualify as a zone-forming impulse. Matches SupplyDemandZonesPlugin.impulse_atr_mult. Phase 164. Not an ML learning target.'
+),
+(
+    'feature.smc.zones.base_body_ratio',
+    'float',
+    '0.5',
+    0.05, 1.0,
+    '[conventional] Maximum body/range ratio for a candle to qualify as part of a zone''s consolidation base. Matches SupplyDemandZonesPlugin.base_body_ratio. Phase 164. Not an ML learning target.'
+),
+(
+    'feature.smc.zones.base_atr_mult',
+    'float',
+    '1.0',
+    0.05, 10.0,
+    '[conventional] ATR multiple a base candle''s range must stay under to qualify as consolidation. Matches SupplyDemandZonesPlugin.base_atr_mult. Phase 164. Not an ML learning target.'
+),
+(
+    'feature.smc.zones.max_base_bars',
+    'int',
+    '5',
+    1, 30,
+    '[conventional] Maximum consecutive base candles scanned left of an impulse when forming a zone. Matches SupplyDemandZonesPlugin.max_base_bars. Phase 164. Not an ML learning target.'
+),
+(
+    'feature.smc.zones.zone_height_cap_atr_mult',
+    'float',
+    '2.5',
+    0.1, 10.0,
+    '[conventional] ATR multiple capping maximum zone height (prevents degenerate oversized zones). Matches SupplyDemandZonesPlugin.zone_height_cap. Phase 164. Not an ML learning target.'
+),
+(
+    'feature.smc.zones.impulse_overlap_atr_mult',
+    'float',
+    '0.4',
+    0.01, 5.0,
+    '[conventional] ATR multiple bounding the allowed high/low overlap between an impulse bar and its predecessor. Matches SupplyDemandZonesPlugin''s hardcoded atr * 0.4 overlap check. Phase 164. Not an ML learning target.'
+),
+(
+    'feature.smc.zones.freshness_decay_k',
+    'float',
+    '0.5',
+    0.01, 5.0,
+    '[conventional] Decay-rate constant k passed to freshness_decay(test_count, k) for zone freshness scoring. Matches SupplyDemandZonesPlugin''s hardcoded freshness_decay(zone.test_count, k=0.5). Phase 164. Not an ML learning target.'
+),
+(
+    'feature.smc.zones.strength_premium_align_mult',
+    'float',
+    '1.20',
+    1.0, 2.0,
+    '[conventional] Zone-strength multiplier applied when a demand/supply zone aligns with the discount/premium side of the current range. Matches SupplyDemandZonesPlugin''s hardcoded s * 1.20. Phase 164. Not an ML learning target.'
+),
+(
+    'feature.smc.zones.strength_fvg_align_mult',
+    'float',
+    '1.15',
+    1.0, 2.0,
+    '[conventional] Zone-strength multiplier applied when a fair-value-gap midpoint falls inside the zone. Matches SupplyDemandZonesPlugin''s hardcoded s * 1.15. Phase 164. Not an ML learning target.'
+),
+(
+    'feature.smc.zones.age_penalty_floor',
+    'float',
+    '0.70',
+    0.1, 1.0,
+    '[conventional] Minimum age-penalty multiplier floor for zone strength (oldest zones never decay below this). Matches SupplyDemandZonesPlugin''s hardcoded max(0.70, ...). Phase 164. Not an ML learning target.'
+),
+(
+    'feature.smc.zones.age_penalty_window_bars',
+    'int',
+    '200',
+    20, 2000,
+    '[conventional] Bar-age normalization window for the zone-strength age penalty. Matches SupplyDemandZonesPlugin''s hardcoded age / 200. Phase 164. Not an ML learning target.'
+),
+(
+    'feature.smc.zones.age_penalty_max_pct',
+    'float',
+    '0.30',
+    0.01, 1.0,
+    '[conventional] Maximum fractional age-penalty applied to zone strength as age approaches age_penalty_window_bars. Matches SupplyDemandZonesPlugin''s hardcoded * 0.30. Phase 164. Not an ML learning target.'
+),
+(
+    'feature.smc.zones.max_tracked_zones',
+    'int',
+    '5',
+    1, 20,
+    '[conventional] Maximum nearest zones per side (demand/supply) retained after sorting by distance. Matches SupplyDemandZonesPlugin''s hardcoded [:5] slice. Phase 164. Not an ML learning target.'
+),
+(
+    'feature.smc.bos_choch.lookback',
+    'int',
+    '120',
+    60, 500,
+    '[conventional] Trailing bar window scanned for break-of-structure / change-of-character swing breaks. Matches BOSCHoCHPlugin''s InputSpec(lookback=120). Phase 164. Not an ML learning target.'
+),
+(
+    'feature.smc.bos_choch.swing_neighbor',
+    'int',
+    '5',
+    2, 20,
+    '[conventional] find_swing_highs/find_swing_lows neighbor window for BOS/CHoCH swing-point detection. Matches BOSCHoCHPlugin.neighbor. Phase 164. Not an ML learning target.'
+),
+(
+    'feature.smc.amd.lookback',
+    'int',
+    '30',
+    2, 200,
+    '[conventional] Trailing bar window for AMD cycle overnight-range/manipulation state. Matches AMDCyclePlugin''s InputSpec(lookback=30). Phase 164. Not an ML learning target.'
+),
+(
+    'feature.smc.amd.accum_start_utc_hour',
+    'int',
+    '20',
+    0, 23,
+    '[conventional] UTC hour marking the start of the AMD Accumulation phase (20:00 UTC = 8pm ET overnight range start). Matches AMDCyclePlugin._ACCUM_START. Phase 164. Not an ML learning target.'
+),
+(
+    'feature.smc.amd.accum_end_utc_hour',
+    'int',
+    '24',
+    1, 24,
+    '[conventional] UTC hour marking the end of the AMD Accumulation phase (24 = wraps at midnight UTC). Matches AMDCyclePlugin._ACCUM_END. Phase 164. Not an ML learning target.'
+),
+(
+    'feature.smc.amd.manip_end_utc_hour',
+    'int',
+    '10',
+    0, 23,
+    '[conventional] UTC hour marking the end of the AMD Manipulation phase (00:00-10:00 UTC = midnight-5am ET). Matches AMDCyclePlugin._MANIP_END. Phase 164. Not an ML learning target.'
+),
+(
+    'feature.smc.amd.dist_end_utc_hour',
+    'int',
+    '21',
+    0, 23,
+    '[conventional] UTC hour marking the end of the AMD Distribution phase (10:00-21:00 UTC = 5am-4pm ET). Matches AMDCyclePlugin._DIST_END. Phase 164. Not an ML learning target.'
+)
+ON CONFLICT (config_key) DO NOTHING;
+
+INSERT INTO config_state (config_key, config_value, version)
+VALUES
+    ('feature.smc.order_blocks.lookback', '100', 1),
+    ('feature.smc.order_blocks.impulse_bars', '3', 1),
+    ('feature.smc.order_blocks.significant_move_pct', '0.003', 1),
+    ('feature.smc.order_blocks.opposing_candle_lookback', '10', 1),
+    ('feature.smc.breaker.lookback', '10', 1),
+    ('feature.smc.mitigation.lookback', '10', 1),
+    ('feature.smc.fvg.lookback', '100', 1),
+    ('feature.smc.liquidity_sweeps.lookback', '120', 1),
+    ('feature.smc.liquidity_sweeps.swing_neighbor', '5', 1),
+    ('feature.smc.liquidity_sweeps.reclaim_bars', '3', 1),
+    ('feature.smc.liquidity_sweeps.depth_ramp_max_pct', '2.0', 1),
+    ('feature.smc.liquidity_sweeps.reclaim_velocity_ramp_max', '0.5', 1),
+    ('feature.smc.liquidity_pools.lookback', '150', 1),
+    ('feature.smc.liquidity_pools.swing_neighbor', '5', 1),
+    ('feature.smc.liquidity_pools.atr_fallback_pct', '0.002', 1),
+    ('feature.smc.liquidity_pools.equal_level_tolerance_atr_mult', '0.75', 1),
+    ('feature.smc.liquidity_pools.session_bars', '390', 1),
+    ('feature.smc.liquidity_pools.significance_weights', '{"eq_highs_3":0.75,"eq_lows_3":0.75,"eq_highs_2":0.60,"eq_lows_2":0.60,"session_high":0.50,"session_low":0.50}', 1),
+    ('feature.smc.zones.lookback', '150', 1),
+    ('feature.smc.zones.impulse_atr_mult', '1.5', 1),
+    ('feature.smc.zones.base_body_ratio', '0.5', 1),
+    ('feature.smc.zones.base_atr_mult', '1.0', 1),
+    ('feature.smc.zones.max_base_bars', '5', 1),
+    ('feature.smc.zones.zone_height_cap_atr_mult', '2.5', 1),
+    ('feature.smc.zones.impulse_overlap_atr_mult', '0.4', 1),
+    ('feature.smc.zones.freshness_decay_k', '0.5', 1),
+    ('feature.smc.zones.strength_premium_align_mult', '1.20', 1),
+    ('feature.smc.zones.strength_fvg_align_mult', '1.15', 1),
+    ('feature.smc.zones.age_penalty_floor', '0.70', 1),
+    ('feature.smc.zones.age_penalty_window_bars', '200', 1),
+    ('feature.smc.zones.age_penalty_max_pct', '0.30', 1),
+    ('feature.smc.zones.max_tracked_zones', '5', 1),
+    ('feature.smc.bos_choch.lookback', '120', 1),
+    ('feature.smc.bos_choch.swing_neighbor', '5', 1),
+    ('feature.smc.amd.lookback', '30', 1),
+    ('feature.smc.amd.accum_start_utc_hour', '20', 1),
+    ('feature.smc.amd.accum_end_utc_hour', '24', 1),
+    ('feature.smc.amd.manip_end_utc_hour', '10', 1),
+    ('feature.smc.amd.dist_end_utc_hour', '21', 1)
+ON CONFLICT (config_key) DO NOTHING;
+
+INSERT INTO config_history (timestamp, config_key, version, config_value, changed_by, reason)
+VALUES
+    (NOW(), 'feature.smc.order_blocks.lookback', 1, '100', 'migration_266', 'Seed order-block scan lookback, Phase 164 [conventional]'),
+    (NOW(), 'feature.smc.order_blocks.impulse_bars', 1, '3', 'migration_266', 'Seed order-block impulse-bar count, Phase 164 [conventional]'),
+    (NOW(), 'feature.smc.order_blocks.significant_move_pct', 1, '0.003', 'migration_266', 'Seed order-block significant-move threshold, Phase 164 [conventional]'),
+    (NOW(), 'feature.smc.order_blocks.opposing_candle_lookback', 1, '10', 'migration_266', 'Seed order-block opposing-candle search window, Phase 164 [conventional]'),
+    (NOW(), 'feature.smc.breaker.lookback', 1, '10', 'migration_266', 'Seed breaker-block lookback, Phase 164 [conventional]'),
+    (NOW(), 'feature.smc.mitigation.lookback', 1, '10', 'migration_266', 'Seed mitigation-block lookback, Phase 164 [conventional]'),
+    (NOW(), 'feature.smc.fvg.lookback', 1, '100', 'migration_266', 'Seed FVG scan lookback, Phase 164 [conventional]'),
+    (NOW(), 'feature.smc.liquidity_sweeps.lookback', 1, '120', 'migration_266', 'Seed liquidity-sweep scan lookback, Phase 164 [conventional]'),
+    (NOW(), 'feature.smc.liquidity_sweeps.swing_neighbor', 1, '5', 'migration_266', 'Seed liquidity-sweep swing-detection neighbor window, Phase 164 [conventional]'),
+    (NOW(), 'feature.smc.liquidity_sweeps.reclaim_bars', 1, '3', 'migration_266', 'Seed liquidity-sweep reclaim-confirmation bar count, Phase 164 [conventional]'),
+    (NOW(), 'feature.smc.liquidity_sweeps.depth_ramp_max_pct', 1, '2.0', 'migration_266', 'Seed liquidity-sweep depth-to-strength ramp ceiling, Phase 164 [conventional]'),
+    (NOW(), 'feature.smc.liquidity_sweeps.reclaim_velocity_ramp_max', 1, '0.5', 'migration_266', 'Seed liquidity-sweep reclaim-velocity ramp ceiling, Phase 164 [conventional]'),
+    (NOW(), 'feature.smc.liquidity_pools.lookback', 1, '150', 'migration_266', 'Seed liquidity-pool scan lookback, Phase 164 [conventional]'),
+    (NOW(), 'feature.smc.liquidity_pools.swing_neighbor', 1, '5', 'migration_266', 'Seed liquidity-pool swing-detection neighbor window, Phase 164 [conventional]'),
+    (NOW(), 'feature.smc.liquidity_pools.atr_fallback_pct', 1, '0.002', 'migration_266', 'Seed liquidity-pool ATR fallback fraction, Phase 164 [conventional]'),
+    (NOW(), 'feature.smc.liquidity_pools.equal_level_tolerance_atr_mult', 1, '0.75', 'migration_266', 'Seed liquidity-pool equal-level clustering tolerance, Phase 164 [conventional]'),
+    (NOW(), 'feature.smc.liquidity_pools.session_bars', 1, '390', 'migration_266', 'Seed liquidity-pool session-window bar count, Phase 164 [conventional]'),
+    (NOW(), 'feature.smc.liquidity_pools.significance_weights', 1, '{"eq_highs_3":0.75,"eq_lows_3":0.75,"eq_highs_2":0.60,"eq_lows_2":0.60,"session_high":0.50,"session_low":0.50}', 'migration_266', 'Seed liquidity-pool per-level-type significance weights, Phase 164 [conventional]'),
+    (NOW(), 'feature.smc.zones.lookback', 1, '150', 'migration_266', 'Seed supply/demand zone scan lookback, Phase 164 [conventional]'),
+    (NOW(), 'feature.smc.zones.impulse_atr_mult', 1, '1.5', 'migration_266', 'Seed zone impulse-move ATR multiple, Phase 164 [conventional]'),
+    (NOW(), 'feature.smc.zones.base_body_ratio', 1, '0.5', 'migration_266', 'Seed zone base-candle body ratio ceiling, Phase 164 [conventional]'),
+    (NOW(), 'feature.smc.zones.base_atr_mult', 1, '1.0', 'migration_266', 'Seed zone base-candle range ATR multiple, Phase 164 [conventional]'),
+    (NOW(), 'feature.smc.zones.max_base_bars', 1, '5', 'migration_266', 'Seed zone max consolidation-base bar count, Phase 164 [conventional]'),
+    (NOW(), 'feature.smc.zones.zone_height_cap_atr_mult', 1, '2.5', 'migration_266', 'Seed zone height cap ATR multiple, Phase 164 [conventional]'),
+    (NOW(), 'feature.smc.zones.impulse_overlap_atr_mult', 1, '0.4', 'migration_266', 'Seed zone impulse-bar overlap ATR multiple, Phase 164 [conventional]'),
+    (NOW(), 'feature.smc.zones.freshness_decay_k', 1, '0.5', 'migration_266', 'Seed zone freshness decay-rate constant, Phase 164 [conventional]'),
+    (NOW(), 'feature.smc.zones.strength_premium_align_mult', 1, '1.20', 'migration_266', 'Seed zone premium/discount alignment strength multiplier, Phase 164 [conventional]'),
+    (NOW(), 'feature.smc.zones.strength_fvg_align_mult', 1, '1.15', 'migration_266', 'Seed zone FVG-alignment strength multiplier, Phase 164 [conventional]'),
+    (NOW(), 'feature.smc.zones.age_penalty_floor', 1, '0.70', 'migration_266', 'Seed zone age-penalty floor, Phase 164 [conventional]'),
+    (NOW(), 'feature.smc.zones.age_penalty_window_bars', 1, '200', 'migration_266', 'Seed zone age-penalty normalization window, Phase 164 [conventional]'),
+    (NOW(), 'feature.smc.zones.age_penalty_max_pct', 1, '0.30', 'migration_266', 'Seed zone age-penalty maximum fraction, Phase 164 [conventional]'),
+    (NOW(), 'feature.smc.zones.max_tracked_zones', 1, '5', 'migration_266', 'Seed zone max-tracked-zones-per-side cap, Phase 164 [conventional]'),
+    (NOW(), 'feature.smc.bos_choch.lookback', 1, '120', 'migration_266', 'Seed BOS/CHoCH scan lookback, Phase 164 [conventional]'),
+    (NOW(), 'feature.smc.bos_choch.swing_neighbor', 1, '5', 'migration_266', 'Seed BOS/CHoCH swing-detection neighbor window, Phase 164 [conventional]'),
+    (NOW(), 'feature.smc.amd.lookback', 1, '30', 'migration_266', 'Seed AMD cycle lookback, Phase 164 [conventional]'),
+    (NOW(), 'feature.smc.amd.accum_start_utc_hour', 1, '20', 'migration_266', 'Seed AMD accumulation-phase start UTC hour, Phase 164 [conventional]'),
+    (NOW(), 'feature.smc.amd.accum_end_utc_hour', 1, '24', 'migration_266', 'Seed AMD accumulation-phase end UTC hour, Phase 164 [conventional]'),
+    (NOW(), 'feature.smc.amd.manip_end_utc_hour', 1, '10', 'migration_266', 'Seed AMD manipulation-phase end UTC hour, Phase 164 [conventional]'),
+    (NOW(), 'feature.smc.amd.dist_end_utc_hour', 1, '21', 'migration_266', 'Seed AMD distribution-phase end UTC hour, Phase 164 [conventional]')
+ON CONFLICT DO NOTHING;
+
 COMMIT;
