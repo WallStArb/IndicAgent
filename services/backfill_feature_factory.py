@@ -520,8 +520,6 @@ def _build_feature_factory_config(cfg: ConfigService) -> FeatureFactoryConfig:
         smc_order_blocks_opposing_candle_lookback=int(
             cfg.get_sync("feature.smc.order_blocks.opposing_candle_lookback", 10)
         ),
-        smc_breaker_lookback=int(cfg.get_sync("feature.smc.breaker.lookback", 10)),
-        smc_mitigation_lookback=int(cfg.get_sync("feature.smc.mitigation.lookback", 10)),
         smc_fvg_lookback=int(cfg.get_sync("feature.smc.fvg.lookback", 100)),
         smc_liquidity_sweeps_lookback=int(
             cfg.get_sync("feature.smc.liquidity_sweeps.lookback", 120)
@@ -541,9 +539,6 @@ def _build_feature_factory_config(cfg: ConfigService) -> FeatureFactoryConfig:
         smc_liquidity_pools_lookback=int(cfg.get_sync("feature.smc.liquidity_pools.lookback", 150)),
         smc_liquidity_pools_swing_neighbor=int(
             cfg.get_sync("feature.smc.liquidity_pools.swing_neighbor", 5)
-        ),
-        smc_liquidity_pools_atr_fallback_pct=float(
-            cfg.get_sync("feature.smc.liquidity_pools.atr_fallback_pct", 0.002)
         ),
         smc_liquidity_pools_equal_level_tolerance_atr_mult=float(
             cfg.get_sync("feature.smc.liquidity_pools.equal_level_tolerance_atr_mult", 0.75)
@@ -593,9 +588,7 @@ def _build_feature_factory_config(cfg: ConfigService) -> FeatureFactoryConfig:
         smc_zones_max_tracked_zones=int(cfg.get_sync("feature.smc.zones.max_tracked_zones", 5)),
         smc_bos_choch_lookback=int(cfg.get_sync("feature.smc.bos_choch.lookback", 120)),
         smc_bos_choch_swing_neighbor=int(cfg.get_sync("feature.smc.bos_choch.swing_neighbor", 5)),
-        smc_amd_lookback=int(cfg.get_sync("feature.smc.amd.lookback", 30)),
         smc_amd_accum_start_utc_hour=int(cfg.get_sync("feature.smc.amd.accum_start_utc_hour", 20)),
-        smc_amd_accum_end_utc_hour=int(cfg.get_sync("feature.smc.amd.accum_end_utc_hour", 24)),
         smc_amd_manip_end_utc_hour=int(cfg.get_sync("feature.smc.amd.manip_end_utc_hour", 10)),
         smc_amd_dist_end_utc_hour=int(cfg.get_sync("feature.smc.amd.dist_end_utc_hour", 21)),
         swing_pivot_window=int(cfg.get_sync("feature.swing.pivot_window", 5)),

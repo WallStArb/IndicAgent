@@ -453,8 +453,6 @@ class FeatureFactoryConfig:
         smc_order_blocks_impulse_bars: APR feature.smc.order_blocks.impulse_bars
         smc_order_blocks_significant_move_pct: APR feature.smc.order_blocks.significant_move_pct
         smc_order_blocks_opposing_candle_lookback: APR feature.smc.order_blocks.opposing_candle_lookback
-        smc_breaker_lookback: APR feature.smc.breaker.lookback
-        smc_mitigation_lookback: APR feature.smc.mitigation.lookback
         smc_fvg_lookback: APR feature.smc.fvg.lookback
         smc_liquidity_sweeps_lookback: APR feature.smc.liquidity_sweeps.lookback
         smc_liquidity_sweeps_swing_neighbor: APR feature.smc.liquidity_sweeps.swing_neighbor
@@ -463,7 +461,6 @@ class FeatureFactoryConfig:
         smc_liquidity_sweeps_reclaim_velocity_ramp_max: APR feature.smc.liquidity_sweeps.reclaim_velocity_ramp_max
         smc_liquidity_pools_lookback: APR feature.smc.liquidity_pools.lookback
         smc_liquidity_pools_swing_neighbor: APR feature.smc.liquidity_pools.swing_neighbor
-        smc_liquidity_pools_atr_fallback_pct: APR feature.smc.liquidity_pools.atr_fallback_pct
         smc_liquidity_pools_equal_level_tolerance_atr_mult: APR feature.smc.liquidity_pools.equal_level_tolerance_atr_mult
         smc_liquidity_pools_session_bars: APR feature.smc.liquidity_pools.session_bars
         smc_liquidity_pools_significance_weights: APR feature.smc.liquidity_pools.significance_weights
@@ -483,9 +480,7 @@ class FeatureFactoryConfig:
         smc_zones_max_tracked_zones: APR feature.smc.zones.max_tracked_zones
         smc_bos_choch_lookback: APR feature.smc.bos_choch.lookback
         smc_bos_choch_swing_neighbor: APR feature.smc.bos_choch.swing_neighbor
-        smc_amd_lookback: APR feature.smc.amd.lookback
         smc_amd_accum_start_utc_hour: APR feature.smc.amd.accum_start_utc_hour
-        smc_amd_accum_end_utc_hour: APR feature.smc.amd.accum_end_utc_hour
         smc_amd_manip_end_utc_hour: APR feature.smc.amd.manip_end_utc_hour
         smc_amd_dist_end_utc_hour: APR feature.smc.amd.dist_end_utc_hour
         swing_pivot_window: APR feature.swing.pivot_window
@@ -657,8 +652,6 @@ class FeatureFactoryConfig:
     smc_order_blocks_opposing_candle_lookback: int = (
         10  # feature.smc.order_blocks.opposing_candle_lookback
     )
-    smc_breaker_lookback: int = 10  # feature.smc.breaker.lookback
-    smc_mitigation_lookback: int = 10  # feature.smc.mitigation.lookback
     smc_fvg_lookback: int = 100  # feature.smc.fvg.lookback
     smc_liquidity_sweeps_lookback: int = 120  # feature.smc.liquidity_sweeps.lookback
     smc_liquidity_sweeps_swing_neighbor: int = 5  # feature.smc.liquidity_sweeps.swing_neighbor
@@ -671,9 +664,6 @@ class FeatureFactoryConfig:
     )
     smc_liquidity_pools_lookback: int = 150  # feature.smc.liquidity_pools.lookback
     smc_liquidity_pools_swing_neighbor: int = 5  # feature.smc.liquidity_pools.swing_neighbor
-    smc_liquidity_pools_atr_fallback_pct: float = (
-        0.002  # feature.smc.liquidity_pools.atr_fallback_pct
-    )
     smc_liquidity_pools_equal_level_tolerance_atr_mult: float = (
         0.75  # feature.smc.liquidity_pools.equal_level_tolerance_atr_mult
     )
@@ -708,9 +698,7 @@ class FeatureFactoryConfig:
     smc_zones_max_tracked_zones: int = 5  # feature.smc.zones.max_tracked_zones
     smc_bos_choch_lookback: int = 120  # feature.smc.bos_choch.lookback
     smc_bos_choch_swing_neighbor: int = 5  # feature.smc.bos_choch.swing_neighbor
-    smc_amd_lookback: int = 30  # feature.smc.amd.lookback
     smc_amd_accum_start_utc_hour: int = 20  # feature.smc.amd.accum_start_utc_hour
-    smc_amd_accum_end_utc_hour: int = 24  # feature.smc.amd.accum_end_utc_hour
     smc_amd_manip_end_utc_hour: int = 10  # feature.smc.amd.manip_end_utc_hour
     smc_amd_dist_end_utc_hour: int = 21  # feature.smc.amd.dist_end_utc_hour
     # Swing/Fib/Trend/Session Structure (Phase 165 Plan 01, contract-only --
@@ -4269,6 +4257,21 @@ def _compute_fib_zones(
 # Smart Money Concepts — Order Blocks + Breaker/Mitigation (Phase 164 Plan 02)
 # ---------------------------------------------------------------------------
 
+
+def _is_valid_atr(atr_val: float | None) -> bool:
+    """Shared guard for the 6 SMC compute functions below: True iff atr_val
+    is a finite, strictly positive number safe to normalize distances by."""
+    return atr_val is not None and math.isfinite(atr_val) and atr_val > 0
+
+
+def _dist_to_midpoint(close_: float, boundary_a: float, boundary_b: float) -> float:
+    """abs distance from close_ to the midpoint of [boundary_a, boundary_b],
+    shared by order blocks' nearest-candidate ranking and supply/demand
+    zones' nearest-zone ranking (both reduce to the same top/bottom
+    midpoint distance, just under different dict key names)."""
+    return abs(close_ - (boundary_a + boundary_b) / 2.0)
+
+
 _OB_FALLBACK: dict[str, float] = {
     "ob_bull_dist_atr": 0.0,
     "ob_bear_dist_atr": 0.0,
@@ -4351,7 +4354,7 @@ def _compute_order_blocks(
     Falls back to _OB_FALLBACK (never raises, never NaN/Inf) when atr_val is
     invalid or the window has too few bars to run the impulse scan.
     """
-    atr_valid = atr_val is not None and math.isfinite(atr_val) and atr_val > 0
+    atr_valid = _is_valid_atr(atr_val)
     if not atr_valid:
         return dict(_OB_FALLBACK)
 
@@ -4430,11 +4433,8 @@ def _compute_order_blocks(
     if not candidates:
         return dict(_OB_FALLBACK)
 
-    def _mid(cand: dict[str, float]) -> float:
-        return (cand["top"] + cand["bottom"]) / 2.0
-
     def _dist(cand: dict[str, float]) -> float:
-        return abs(close_ - _mid(cand))
+        return _dist_to_midpoint(close_, cand["top"], cand["bottom"])
 
     bull_candidates = [cand for cand in candidates if cand["type"] == 1.0]
     bear_candidates = [cand for cand in candidates if cand["type"] == -1.0]
@@ -4550,7 +4550,7 @@ def _compute_fvg(
     """
     del opens  # unused -- FVG geometry needs only high/low/close
     del tf  # unused -- flat (non-per-tf) lookback per migration 266
-    atr_valid = atr_val is not None and math.isfinite(atr_val) and atr_val > 0
+    atr_valid = _is_valid_atr(atr_val)
     if not atr_valid:
         return dict(_FVG_FALLBACK)
 
@@ -4661,7 +4661,7 @@ def _compute_liquidity_sweeps(
     here (flat, non-per-tf lookback per migration 266).
     """
     del tf
-    atr_valid = atr_val is not None and math.isfinite(atr_val) and atr_val > 0
+    atr_valid = _is_valid_atr(atr_val)
     if not atr_valid:
         return dict(_SWEEP_FALLBACK)
 
@@ -4781,7 +4781,7 @@ def _compute_liquidity_pools(
     here (flat, non-per-tf lookback per migration 266).
     """
     del tf
-    atr_valid = atr_val is not None and math.isfinite(atr_val) and atr_val > 0
+    atr_valid = _is_valid_atr(atr_val)
     if not atr_valid:
         return dict(_POOL_FALLBACK)
 
@@ -4963,7 +4963,7 @@ def _compute_supply_demand_zones(
     is invalid or the window is too short to run the base+impulse scan.
     """
     del tf
-    atr_valid = atr_val is not None and math.isfinite(atr_val) and atr_val > 0
+    atr_valid = _is_valid_atr(atr_val)
     if not atr_valid:
         return dict(_ZONE_FALLBACK)
 
@@ -5047,7 +5047,7 @@ def _compute_supply_demand_zones(
         return dict(_ZONE_FALLBACK)
 
     def _zone_dist(z: dict[str, float]) -> float:
-        return abs(close_ - (z["high"] + z["low"]) / 2.0)
+        return _dist_to_midpoint(close_, z["high"], z["low"])
 
     demand_zones = sorted((z for z in active if z["type"] > 0.0), key=_zone_dist)[:max_tracked]
     supply_zones = sorted((z for z in active if z["type"] < 0.0), key=_zone_dist)[:max_tracked]
@@ -5133,7 +5133,7 @@ def _compute_bos_choch(
     invalid or fewer than 2 swing highs/lows exist in-window.
     """
     del tf
-    atr_valid = atr_val is not None and math.isfinite(atr_val) and atr_val > 0
+    atr_valid = _is_valid_atr(atr_val)
     if not atr_valid:
         return dict(_BOS_FALLBACK)
 

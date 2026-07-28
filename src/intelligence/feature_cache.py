@@ -70,12 +70,11 @@ class FeatureCache:
     sr_support_dist: float = 0.0
     sr_resist_dist: float = 0.0
 
-    # AMD Cycle state (Phase 164 Plan 01, contract-only -- populated by
-    # update_overnight_range(), NOT yet invoked; Plan 04 wires call sites and
-    # the amd_phase ordinal / manip_strength [0,1] clamp derivation in compute()).
+    # AMD Cycle state (Phase 164), populated by update_overnight_range().
+    # amd_phase is NOT cached here -- it's derived statelessly from bar_ts
+    # via _amd_phase_ordinal() in feature_factory.py, with no cache read.
     # RAW state here: amd_manipulation_detected/amd_distribution_direction/
     # manip_strength are set unclamped by the mutator per 164-RESEARCH.md.
-    amd_phase: float = 0.0
     amd_manipulation_detected: float = 0.0
     amd_distribution_direction: float = 0.0
     manip_strength: float = 0.0

@@ -34,9 +34,9 @@ _OB_FIELDS = (
 def _make_cfg(**overrides: object) -> FeatureFactoryConfig:
     """Small windows so all features warm up well within these fixtures' bar counts.
 
-    smc_order_blocks_*/smc_breaker_lookback/smc_mitigation_lookback left at dataclass
-    defaults (100/3/0.003/10/10/10) -- same convention as Phase 163's own tests
-    (leave the feature-under-test's own config at its APR-seeded defaults).
+    smc_order_blocks_* left at dataclass defaults (100/3/0.003/10) -- same convention
+    as Phase 163's own tests (leave the feature-under-test's own config at its
+    APR-seeded defaults).
     """
     defaults = dict(
         momentum_window_fast=5,
