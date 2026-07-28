@@ -3,14 +3,14 @@ gsd_state_version: 1.0
 milestone: v3.1
 milestone_name: AlphaEngine Validation + Alpha Scoring
 status: ready_to_execute
-stopped_at: "Phase 164 Plan 03 (FVG + Liquidity Sweeps + Liquidity Pools) executed -- 3/4 plans complete. _compute_fvg()/_compute_liquidity_sweeps()/_compute_liquidity_pools() (stateless, single-tf-descoped) wired into both FeatureFactory.compute() and compute_batch(), replacing 12 of the 29 remaining None placeholders. 19-test regression suite added across two new test files. Plan 04 (zones/BOS-CHoCH/AMD) replaces the remaining 18 placeholders next."
-last_updated: "2026-07-28T02:41:37.119Z"
+stopped_at: "Phase 164 COMPLETE (4/4 plans) -- Plan 04 (Supply/Demand Zones + BOS/CHoCH + AMD Cycle) executed, all 36 SMC FeatureVector fields now real computed values"
+last_updated: "2026-07-28T03:30:00.000Z"
 progress:
   total_phases: 12
-  completed_phases: 9
-  total_plans: 45
-  completed_plans: 45
-  percent: 75
+  completed_phases: 10
+  total_plans: 46
+  completed_plans: 46
+  percent: 76
 ---
 
 # Project State
@@ -196,7 +196,7 @@ Full P2/P3 todo backlog: `.planning/todos/PRIORITIES.md`. Idea-level scoring:
 | 166 | Frame/Execution Recalibration | COMPLETE (6/6 plans, 4 waves, 2026-07-23) -- baseline and scalar candidates FAIL gate166 decisively; structural candidate halted pending Phase 163. Part 2 (todos 175/176) deprioritized by todo 179's finding. |
 | 163 | VP/SR Structural Primitives | COMPLETE (3/3 plans, 2026-07-24, verification 15/15 must-haves) -- closes todo 153. Historical backfill still open (todo 176, deprioritized) |
 | 167 | Cross-Sectional Trade Construction (T3) | COMPLETE (6/6 plans, 2026-07-27) -- both live Validation Gates PASSED (gate1_passes=true, gate2_passes_overall=true); Phase 156-159's stated precondition is now met. See Current Focus. |
-| 164 | SMC Institutional Footprint Primitives | IN PROGRESS (3/4 plans, 2026-07-28) -- Plan 01 (data contract) complete: 36 new feature_vectors columns + registry rows + FeatureVector fields (172->208 total) threaded as None placeholders, 39 feature.smc.* APR keys wired into FeatureFactoryConfig at both live/batch sites, FeatureCache.update_overnight_range() AMD mutator built (not yet invoked). Plan 02 (order blocks + stateless breaker/mitigation) complete: 7 of the 36 fields now real computed values via _compute_order_blocks(), wired into both compute()/compute_batch(); 2 real bugs caught and fixed during TDD (mitigation-overlap false-positive, binary-pattern-scanner violation). Plan 03 (FVG + liquidity sweeps + liquidity pools) complete: 12 more fields now real computed values via _compute_fvg()/_compute_liquidity_sweeps()/_compute_liquidity_pools() (single-tf descoped, PWH/PWL/PDH/PDL dropped per a grep-gate-enforced descope); a real FVG "most recent gap" selection bug found and fixed vs. the archived source. Plan 04 (zones/BOS-CHoCH/AMD) replaces the remaining 18 None placeholders. |
+| 164 | SMC Institutional Footprint Primitives | COMPLETE (4/4 plans, 2026-07-28) -- all 36 SMC FeatureVector fields now real computed values in both FeatureFactory.compute() and compute_batch(). Plan 01 (data contract): 36 new feature_vectors columns + registry rows + FeatureVector fields (172->208 total), 39 feature.smc.* APR keys, FeatureCache.update_overnight_range() AMD mutator built. Plan 02 (order blocks + stateless breaker/mitigation): 7 fields via _compute_order_blocks(); 2 bugs caught and fixed during TDD. Plan 03 (FVG + liquidity sweeps + liquidity pools): 12 fields via _compute_fvg()/_compute_liquidity_sweeps()/_compute_liquidity_pools() (single-tf descoped, PWH/PWL/PDH/PDL dropped); an FVG selection bug found and fixed. Plan 04 (supply/demand zones + BOS/CHoCH + AMD cycle): final 18 fields via _compute_supply_demand_zones()/_compute_bos_choch()/_derive_amd_cycle(); update_overnight_range() wired into compute_batch(), the live per-bar handler, and the warm-up replay block, closing the AMD state-lifecycle cold-start gap. Historical backfill for all 36 columns deliberately deferred to the consolidated 163/164/165 recompute pass (todo 176). |
 
 Current row counts and every downstream measurement number live in
 [Corpus pipeline state](project_corpus_pipeline_state.md) -- that file is the single source of
@@ -233,7 +233,7 @@ ON CONFLICT (symbol, tf) DO UPDATE SET fetch_complete = true;
 
 - Phase 162 (ic_engine Corpus Pipeline Throughput): added 2026-07-18, planned 2026-07-22, executed and COMPLETE 2026-07-23.
 - Phase 163 (VP/SR Structural Primitives): added 2026-07-20, planned and reviewed, executed and COMPLETE 2026-07-24.
-- Phase 164 (SMC Institutional Footprint Primitives): added 2026-07-20, planned 2026-07-25 (4 plans, 4 waves, `gsd-plan-checker` verified). Deprioritized 2026-07-26 behind Phase 167, then explicit user override 2026-07-27 (Tier 0) reinstated it regardless of the evidence-gate reasoning. Plan 01 (data contract) executed 2026-07-27; Plan 02 (order blocks + stateless breaker/mitigation) executed 2026-07-28; Plan 03 (FVG + liquidity sweeps + liquidity pools) executed 2026-07-28 -- 3/4 plans complete, see Phase Summary table.
+- Phase 164 (SMC Institutional Footprint Primitives): added 2026-07-20, planned 2026-07-25 (4 plans, 4 waves, `gsd-plan-checker` verified). Deprioritized 2026-07-26 behind Phase 167, then explicit user override 2026-07-27 (Tier 0) reinstated it regardless of the evidence-gate reasoning. Plan 01 (data contract) executed 2026-07-27; Plan 02 (order blocks + stateless breaker/mitigation), Plan 03 (FVG + liquidity sweeps + liquidity pools), and Plan 04 (supply/demand zones + BOS/CHoCH + AMD cycle) all executed 2026-07-28 -- COMPLETE, 4/4 plans, see Phase Summary table. Next per Tier 0's sequencing: plan Phase 165, execute Phase 165, then one combined `backfill_feature_factory.py --compute-only --refresh` pass covering both phases' new columns.
 - Phase 166 (Frame/Execution Recalibration): added 2026-07-23, planned and executed same day -- COMPLETE, verdict: neither candidate promoted. Direct follow-on (todo 179) found the real cause (see Current Focus).
 - Phase 151 (Feature Primitives Expansion + Interaction Layer): planned 2026-07-24, cross-AI reviewed and revised same day (Codex found 3 HIGH-severity findings, all fixed as real plan changes). 9 plans, execution-ready. Deprioritized 2026-07-26 behind Phase 167 (see Current Focus) -- stays planned and ready, not the next priority.
 - Phase 167 (Cross-Sectional Trade Construction, T3): added 2026-07-26 after T3 passed decisively -- the first thesis in the edge-source-thesis tree to clear its own bar. Planned (6 plans), executed, COMPLETE 2026-07-27 -- both live Validation Gates PASSED. Full detail in Current Focus above.
@@ -252,47 +252,52 @@ WR-05 filename-collision fix), CLAUDE.md/gotchas.md corrected same session.
 
 ## Session
 
-**Last session:** 2026-07-28T02:41:37.119Z
+**Last session:** 2026-07-28T03:30:00.000Z
 
-**Stopped at:** Phase 164 Plan 03 (FVG + Liquidity Sweeps + Liquidity Pools) executed --
-3/4 plans complete. `_compute_fvg()` / `_compute_liquidity_sweeps()` / `_compute_liquidity_pools()`
-(three stateless full-window-scan primitives, ported from `fair_value_gap.py` /
-`liquidity_sweeps.py` / `liquidity_pools.py`, Liquidity Pools single-timeframe-descoped per
-164-RESEARCH.md -- PWH/PWL/PDH/PDL dropped, grep-gate enforced) are now wired into both
-`FeatureFactory.compute()` and `compute_batch()`, replacing 12 of the 29 `None` placeholders
-Plan 02 left: `fvg_dist_atr`/`fvg_size_atr`/`fvg_open_count`, `sweep_detected`/`sweep_strength`/
-`reclaim_velocity`/`bars_since_last_sweep`, `bsl_dist_atr`/`ssl_dist_atr`/`bsl_touches`/
-`ssl_touches`/`pool_count`. `fvg_midpoint`/`price_in_premium` staged as in-pass locals (never
-persisted) for Plan 04's supply/demand-zones block. New regression suites
-(`tests/unit/intelligence/test_smc_fvg.py`, 7 tests; `tests/unit/intelligence/test_smc_liquidity.py`,
-12 tests) cover non-constant values, bounded strength/velocity, the PWH/PWL/PDH/PDL descope
-guard (both `hasattr` and `inspect.signature()` checks), fallback-never-raises, raw-price
-absence, determinism, and live==batch parity. One real bug caught and fixed vs. the archived
-source: `fair_value_gap.py`'s own "return the most recent unfilled FVG" claim is actually
-inverted by its descending-scan append order (`open_fvgs[-1]` is the OLDEST surviving gap, not
-the newest) -- ported the corrected max-by-formation-index selection instead. Two more fixes
-caught by automated project guards before committing: a "backward" reference in a new docstring
-tripped the look-ahead-language guard test; a docstring literally spelling out "PWH/PWL/PDH/PDL"
-tripped the plan's own descope grep gate (both reworded, no functional change). Full
-`tests/unit/` suite green (0 failures), ruff/black clean, binary-pattern scanner clean. Plan 04
-(zones/BOS-CHoCH/AMD) replaces the remaining 18 `None` placeholders next.
+**Stopped at:** Phase 164 COMPLETE (4/4 plans). Plan 04 (Supply/Demand Zones + BOS/CHoCH + AMD
+Cycle) executed -- the final 18 SMC `FeatureVector` fields now real computed values.
+`_compute_supply_demand_zones()` (soft-consumes Plan 03's `fvg_midpoint`/`price_in_premium`
+in-pass locals; proven non-vacuous with a dedicated toggle test) and `_compute_bos_choch()`
+(drops `bos_level`/`bos_confidence` per the raw-price/redundancy audit) are wired into both
+`FeatureFactory.compute()` and `compute_batch()`. `_derive_amd_cycle()` reads `FeatureCache`'s
+overnight-range/manipulation state, ordinal-encodes `amd_phase` (0/1/2/3), clamps
+`manip_strength` to `[0,1]` (verified against both a 150% and a 300% overshoot fixture), and
+gates `amd_distribution_direction` to the distribution phase only.
+`FeatureCache.update_overnight_range()` (built in Plan 01, never invoked) is now wired into all
+3 required call sites: `compute_batch()`'s per-bar loop, the live per-bar handler, and the
+warm-up replay block in `services/feature_vector_pipeline.py` -- closing the T-164-07 cold-start
+inconsistency vs `update_wk_vwap()`/`update_session_vp()`. 3 new regression suites
+(`test_smc_zones.py` 9 tests, `test_smc_structure.py` 8 tests, `test_smc_amd_cycle.py` 9 tests,
+26 total) cover non-constant fields, the soft-dependency toggle, fallback-never-raises,
+raw-field absence, determinism, live==batch parity, the full AMD cycle transition sequence, and
+a structural check that `update_overnight_range()` is genuinely wired at all 3 call sites. Full
+`tests/unit/` suite green (0 failures), ruff/black clean, binary-pattern scanner clean. Per Tier
+0's sequencing: next is planning Phase 165 (`/gsd-plan-phase 165`), executing it, then one
+combined `backfill_feature_factory.py --compute-only --refresh` pass covering both phases' new
+columns plus Phase 163's VP/SR historical NULLs (todo 176).
 
-**This session's arc:** Read Plan 03's spec, Plans 01-02's summaries, 164-RESEARCH.md, and the
-three archived plugin source files. Task 1: wrote both new test files (`test_smc_fvg.py` fully
-exercising `_compute_fvg()`, `test_smc_liquidity.py` authored ahead of its own implementation per
-the plan's own task split) and implemented `_compute_fvg()` + wiring, verified GREEN for FVG and
-the expected import-time RED for liquidity, committed. Task 2 (`tdd="true"`): implemented
-`_compute_liquidity_sweeps()`/`_compute_liquidity_pools()` + wiring against the already-authored
-test file, verified GREEN, ran the full `tests/unit/` suite plus ruff/black plus the binary-
-pattern scanner, caught and fixed the three issues above, committed. To honor the plan's own
-two-task commit structure despite having implemented everything in one continuous pass, manually
-split the diff into two atomic commits (verified the true intermediate RED state -- import
-failure -- before committing Task 1, then restored and re-verified GREEN before committing Task
-2) rather than landing one combined commit. Wrote 164-03-SUMMARY.md, updated ROADMAP.md via
-`roadmap.update-plan-progress` and this STATE.md file manually (`state.advance-plan` still can't
-parse this project's STATE.md format -- known gsd-sdk friction, per MEMORY.md's
-`feedback_gsd_state_frontmatter_resync` note; `roadmap.update-plan-progress` continues to work
-fine).
+**This session's arc:** Read Plan 04's spec, Plans 01-03's summaries, 164-RESEARCH.md/PATTERNS.md,
+and the archived `supply_demand_zones.py`/`bos_choch.py`/`amd_cycle.py` plugin sources. Wrote all
+3 new test files and the corresponding `feature_factory.py` implementation
+(`_compute_supply_demand_zones()`, `_compute_bos_choch()`, `_amd_phase_ordinal()`,
+`_derive_amd_cycle()`) plus the `update_overnight_range()` call-site wiring in one continuous
+pass, verifying each fixture's geometry (impulse/overlap/base-bar detection for zones; swing/
+trend/CHoCH for BOS; overnight-range accumulation/manipulation/distribution phase transitions
+for AMD) against the archived source. Caught and fixed 2 issues before committing: a pre-commit
+duplicate-test-name violation (3 generic test names reused across the new files and Plan 02's
+`test_smc_order_blocks.py`, renamed to file-scoped names) and a docstring wording tripping the
+plan's own raw-field grep gate (reworded, no functional change). To honor the plan's own
+two-task commit structure despite implementing continuously, manually split the single-file
+diff into two atomic commits by temporarily reverting Task 2's AMD-specific pieces (verified the
+true Task-1-only intermediate state -- zones/BOS-CHoCH green, AMD test failing at import as
+expected -- before committing Task 1, then restoring and re-verifying full GREEN before
+committing Task 2). Ran the full `tests/unit/` suite twice (once per commit boundary) plus
+ruff/black/binary-pattern-scanner, all clean. Wrote 164-04-SUMMARY.md. `gsd-sdk query
+state.record-session` truncated this file's `stopped_at` frontmatter field and decremented
+`completed_plans` (44 instead of the correct post-Plan04 46) -- same known frontmatter-resync
+friction MEMORY.md's `feedback_gsd_state_frontmatter_resync` note describes; corrected manually
+in this edit along with `roadmap.update-plan-progress` (which worked correctly and marked Phase
+164 COMPLETE in ROADMAP.md).
 
-**Not yet pushed to `origin/main`** -- this session's 2 new commits (`b0c0bfa5`, `b58de20a`) plus
-the prior session's unpushed Phase 164 Plan 02 commits remain local.
+**Not yet pushed to `origin/main`** -- this session's 2 new commits (`8b32023e`, `8b66fc69`) plus
+all prior unpushed Phase 164 commits remain local.
