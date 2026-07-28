@@ -3,8 +3,8 @@ gsd_state_version: 1.0
 milestone: v3.1
 milestone_name: AlphaEngine Validation + Alpha Scoring
 status: ready_to_execute
-stopped_at: "Phase 164 Plan 01 (SMC Institutional Footprint data contract) executed -- 1/4 plans complete. Migration 266 (36 feature_vectors columns + registry rows + 39 feature.smc.* APR keys), FeatureVector/FEATURE_VECTOR_DOMAIN/persistence-slice contract for all 36 new fields (172->208 total, threaded as None placeholders), FeatureFactoryConfig wired from APR at both live and batch sites, and a new FeatureCache.update_overnight_range() AMD mutator (built and unit-verified, not yet invoked). Full tests/unit/ suite green (0 failures). Plans 02-04 replace the None placeholders with real computed values next."
-last_updated: "2026-07-28T01:43:59.125Z"
+stopped_at: "Phase 164 Plan 02 (Order Blocks + stateless Breaker/Mitigation) executed -- 2/4 plans complete. _compute_order_blocks() (pure, stateless full-window scan porting order_blocks.py + breaker_blocks.py + mitigation_blocks.py's detection geometry as one pass) wired into both FeatureFactory.compute() and compute_batch(), replacing the 7 None placeholders Plan 01 threaded for ob_bull_dist_atr/ob_bear_dist_atr/ob_strength/ob_mitigated_flag/breaker_dist_atr/breaker_block_active/ob_mitigation_pct. 8-test regression suite (test_smc_order_blocks.py) added. 2 real bugs caught and fixed during TDD before the GREEN commit (mitigation-overlap scan false-positive from including impulse-formation bars; binary-pattern-scanner-flagged equality check). Full tests/unit/ suite green (0 failures). Plans 03-04 replace the remaining 29 None placeholders next."
+last_updated: "2026-07-28T02:09:29.951Z"
 progress:
   total_phases: 12
   completed_phases: 9
@@ -196,7 +196,7 @@ Full P2/P3 todo backlog: `.planning/todos/PRIORITIES.md`. Idea-level scoring:
 | 166 | Frame/Execution Recalibration | COMPLETE (6/6 plans, 4 waves, 2026-07-23) -- baseline and scalar candidates FAIL gate166 decisively; structural candidate halted pending Phase 163. Part 2 (todos 175/176) deprioritized by todo 179's finding. |
 | 163 | VP/SR Structural Primitives | COMPLETE (3/3 plans, 2026-07-24, verification 15/15 must-haves) -- closes todo 153. Historical backfill still open (todo 176, deprioritized) |
 | 167 | Cross-Sectional Trade Construction (T3) | COMPLETE (6/6 plans, 2026-07-27) -- both live Validation Gates PASSED (gate1_passes=true, gate2_passes_overall=true); Phase 156-159's stated precondition is now met. See Current Focus. |
-| 164 | SMC Institutional Footprint Primitives | IN PROGRESS (1/4 plans, 2026-07-27) -- Plan 01 (data contract) complete: 36 new feature_vectors columns + registry rows + FeatureVector fields (172->208 total) threaded as None placeholders, 39 feature.smc.* APR keys wired into FeatureFactoryConfig at both live/batch sites, FeatureCache.update_overnight_range() AMD mutator built (not yet invoked). Plans 02-04 (order blocks/breaker/mitigation, FVG/sweeps/pools, zones/BOS-CHoCH/AMD) replace the None placeholders with real computed values. |
+| 164 | SMC Institutional Footprint Primitives | IN PROGRESS (2/4 plans, 2026-07-28) -- Plan 01 (data contract) complete: 36 new feature_vectors columns + registry rows + FeatureVector fields (172->208 total) threaded as None placeholders, 39 feature.smc.* APR keys wired into FeatureFactoryConfig at both live/batch sites, FeatureCache.update_overnight_range() AMD mutator built (not yet invoked). Plan 02 (order blocks + stateless breaker/mitigation) complete: 7 of the 36 fields now real computed values via _compute_order_blocks(), wired into both compute()/compute_batch(); 2 real bugs caught and fixed during TDD (mitigation-overlap false-positive, binary-pattern-scanner violation). Plans 03-04 (FVG/sweeps/pools, zones/BOS-CHoCH/AMD) replace the remaining 29 None placeholders. |
 
 Current row counts and every downstream measurement number live in
 [Corpus pipeline state](project_corpus_pipeline_state.md) -- that file is the single source of
@@ -233,7 +233,7 @@ ON CONFLICT (symbol, tf) DO UPDATE SET fetch_complete = true;
 
 - Phase 162 (ic_engine Corpus Pipeline Throughput): added 2026-07-18, planned 2026-07-22, executed and COMPLETE 2026-07-23.
 - Phase 163 (VP/SR Structural Primitives): added 2026-07-20, planned and reviewed, executed and COMPLETE 2026-07-24.
-- Phase 164 (SMC Institutional Footprint Primitives): added 2026-07-20, planned 2026-07-25 (4 plans, 4 waves, `gsd-plan-checker` verified). Deprioritized 2026-07-26 behind Phase 167, then explicit user override 2026-07-27 (Tier 0) reinstated it regardless of the evidence-gate reasoning. Plan 01 (data contract) executed 2026-07-27 -- 1/4 plans complete, see Phase Summary table.
+- Phase 164 (SMC Institutional Footprint Primitives): added 2026-07-20, planned 2026-07-25 (4 plans, 4 waves, `gsd-plan-checker` verified). Deprioritized 2026-07-26 behind Phase 167, then explicit user override 2026-07-27 (Tier 0) reinstated it regardless of the evidence-gate reasoning. Plan 01 (data contract) executed 2026-07-27; Plan 02 (order blocks + stateless breaker/mitigation) executed 2026-07-28 -- 2/4 plans complete, see Phase Summary table.
 - Phase 166 (Frame/Execution Recalibration): added 2026-07-23, planned and executed same day -- COMPLETE, verdict: neither candidate promoted. Direct follow-on (todo 179) found the real cause (see Current Focus).
 - Phase 151 (Feature Primitives Expansion + Interaction Layer): planned 2026-07-24, cross-AI reviewed and revised same day (Codex found 3 HIGH-severity findings, all fixed as real plan changes). 9 plans, execution-ready. Deprioritized 2026-07-26 behind Phase 167 (see Current Focus) -- stays planned and ready, not the next priority.
 - Phase 167 (Cross-Sectional Trade Construction, T3): added 2026-07-26 after T3 passed decisively -- the first thesis in the edge-source-thesis tree to clear its own bar. Planned (6 plans), executed, COMPLETE 2026-07-27 -- both live Validation Gates PASSED. Full detail in Current Focus above.
@@ -252,32 +252,40 @@ WR-05 filename-collision fix), CLAUDE.md/gotchas.md corrected same session.
 
 ## Session
 
-**Last session:** 2026-07-27T21:41:31.000Z
+**Last session:** 2026-07-28T02:09:11.859Z
 
-**Stopped at:** Phase 164 Plan 01 (SMC Institutional Footprint data contract) executed --
-1/4 plans complete. Migration 266 (36 `feature_vectors` columns + registry rows + 39
-`feature.smc.*` APR keys), `FeatureVector`/`FEATURE_VECTOR_DOMAIN`/persistence-slice contract
-for all 36 new fields (172->208 total, threaded as `None` placeholders), `FeatureFactoryConfig`
-wired from APR at both live (`feature_vector_pipeline.py`) and batch
-(`backfill_feature_factory.py`) sites, and a new `FeatureCache.update_overnight_range()` AMD
-mutator (built and unit-verified, not yet invoked -- Plan 04's job). Full `tests/unit/` suite
-green (0 failures) after fixing 9 stale field-count assertions across 6 test files that broke
-when the 36 new columns landed. Plans 02 (order blocks/breaker/mitigation), 03 (FVG/sweeps/
-pools), 04 (zones/BOS-CHoCH/AMD) replace the `None` placeholders with real computed values next.
+**Stopped at:** Phase 164 Plan 02 (Order Blocks + stateless Breaker/Mitigation) executed --
+2/4 plans complete. `_compute_order_blocks()` (a pure, stateless full-window scan porting
+`order_blocks.py` + `breaker_blocks.py` + `mitigation_blocks.py`'s detection geometry as ONE
+pass, per 164-RESEARCH.md's mandated sequencing and its explicit correction that the archived
+plugins' `self._state` cross-call memory must not survive the port) is now wired into both
+`FeatureFactory.compute()` and `compute_batch()`, replacing the 7 `None` placeholders Plan 01
+threaded for `ob_bull_dist_atr`/`ob_bear_dist_atr`/`ob_strength`/`ob_mitigated_flag`/
+`breaker_dist_atr`/`breaker_block_active`/`ob_mitigation_pct`. New regression suite
+(`tests/unit/intelligence/test_smc_order_blocks.py`, 8 tests) covers non-constant values, a
+sequenced OB-then-break/mitigate fixture (avoiding the vacuous-pass guard), raw-price absence,
+determinism, and live==batch parity. Two real bugs caught and fixed during TDD before the GREEN
+commit: (1) the mitigation-overlap scan originally started at the OB's own formation index+1,
+picking up the impulse bars' own formation wick and reporting a false 100%-mitigated reading on
+every untouched OB -- fixed by scanning from `impulse_end` instead; (2) a `b_type == 1.0`/
+`== -1.0` equality check tripped the project's binary-pattern scanner -- renamed to
+`breaker_direction` with `>`/`<` comparisons. Full `tests/unit/` suite green (0 failures),
+ruff/black clean, binary-pattern scanner clean. Plans 03 (FVG/sweeps/pools) and 04
+(zones/BOS-CHoCH/AMD) replace the remaining 29 `None` placeholders next.
 
-**This session's arc:** Resumed a prior session where Task 1 (migration + schema/domain/
-persistence contract) had been executed and verified but left uncommitted. Re-verified Task 1
-against the plan's own automated gates (registry==dataclass drift gate, persistence completeness
-test, ruff) before committing it as its own atomic commit -- confirmed genuinely complete, not
-redone. Executed Task 2 (enumerated every hardcoded numeric constant across the 8 archived
-`smc_context` plugin files, seeded 39 `feature.smc.*` APR keys with `[conventional]` provenance,
-wired `FeatureFactoryConfig` + both config-build sites) and Task 3 (`update_overnight_range()`
-mutator, adapted the archived plugin's close-based manipulation-detection test to the mutator's
-fixed high/low-only signature, verified with a synthetic multi-day overnight-sweep script).
-Fixed the 9 stale-count test breakage as a small dedicated commit per the plan's own instruction,
-matching the exact pattern every prior phase (163, 143.1, migration 206/211/223) hit when adding
-`FeatureVector` columns.
+**This session's arc:** Read Plan 02's spec, Plan 01's data contract, and 164-RESEARCH.md's
+field-by-field audit and dependency-sequencing findings. Wrote Task 1's failing regression suite
+first (deterministic hand-built OHLCV fixtures for a bullish OB, a mirror bearish OB, and a
+sequenced OB-then-break/mitigate fixture), then implemented Task 2's `_compute_order_blocks()`
+helper and wired it into both compute paths. Ran the new suite plus the existing batch-parity
+test plus the full `tests/unit/` suite, caught and fixed the two bugs above before committing
+Task 2's GREEN commit. Committed each task atomically (`test(164-02): ...` then
+`feat(164-02): ...`), wrote 164-02-SUMMARY.md, updated ROADMAP.md via
+`roadmap.update-plan-progress` (plus a manual header-count fix the tool didn't touch) and this
+STATE.md file manually after `state.record-session` truncated the `stopped_at` frontmatter field
+(known gsd-sdk friction with this project's STATE.md format, per MEMORY.md's
+`feedback_gsd_state_frontmatter_resync` note).
 
-**Pushed to `origin/main` 2026-07-27** (`b7f1ed4b`) -- 57 commits, spanning this session's Phase
-167 work plus prior unpushed session history. No feature branch existed (Phase 167's
-`branching_strategy` was `none`); all work landed directly on `main`.
+**Pushed to `origin/main` 2026-07-27** (`b7f1ed4b`) -- 57 commits, spanning Phase 167 work plus
+prior unpushed session history, through the end of the prior session. This session's 2 new
+commits (`4e62ab69`, `c983d93e`) are not yet pushed.
