@@ -45,6 +45,17 @@ at the end of the column list (after the canary fields) per this module's
 established append-only convention -- column SQL order does not need to
 match dataclass field order since every accessor is by name.
 
+2026-07-28: extended to 217 columns (migration 266, Phase 164 Plan 01). 36
+new Smart Money Concepts fields (order blocks, breaker/mitigation blocks,
+fair value gaps, liquidity sweeps, liquidity pools, supply/demand zones,
+BOS/CHoCH, AMD cycle -- all ATR-distance/bounded/count/ordinal, never a raw
+price level, D-16) added to FeatureVector as a contiguous block immediately
+after the canary fields (dataclass field-ordering requires this since the
+canary block already carries defaults). Same derive-by-name discipline via a
+new _SMC_FIELD_NAMES slice, appended at the end of the column list. All 36
+values are None placeholders in this plan -- Plans 02-04 wire real compute
+logic in without touching this file's column wiring again.
+
 Ring 1: imports FeatureVector from src.intelligence.schemas.
 Do not import from Ring 2 (services/) or Ring 3 (api/, production/).
 """
@@ -109,6 +120,20 @@ _STRUCTURAL_VP_SR_FIELD_NAMES: tuple[str, ...] = _ALL_FEATURE_VECTOR_FIELD_NAMES
     _ALL_FEATURE_VECTOR_FIELD_NAMES.index(
         "nearest_hvn_above_dist_atr"
     ) : _ALL_FEATURE_VECTOR_FIELD_NAMES.index("sr_level_count")
+    + 1
+]
+
+# The 36 new Smart Money Concepts fields (Phase 164 Plan 01, migration 266) are
+# a fourth contiguous, same-order slice -- immediately following the canary
+# fields in the dataclass (schemas.py placed this block right before the 3
+# nullable cross-sectional fields, after the canary block, since Python
+# dataclass field ordering requires every field after a defaulted field to
+# also carry a default). Same derive-don't-hand-type discipline as the three
+# slices above; appended at the end of the column list below.
+_SMC_FIELD_NAMES: tuple[str, ...] = _ALL_FEATURE_VECTOR_FIELD_NAMES[
+    _ALL_FEATURE_VECTOR_FIELD_NAMES.index(
+        "ob_bull_dist_atr"
+    ) : _ALL_FEATURE_VECTOR_FIELD_NAMES.index("manip_strength")
     + 1
 ]
 
@@ -234,6 +259,7 @@ _ALL_COLUMN_NAMES: tuple[str, ...] = (
     + _RENAISSANCE_PRIMITIVE_FIELD_NAMES
     + _CANARY_FIELD_NAMES
     + _STRUCTURAL_VP_SR_FIELD_NAMES
+    + _SMC_FIELD_NAMES
 )
 _TOTAL_COLUMNS = len(_ALL_COLUMN_NAMES)
 
@@ -484,4 +510,9 @@ def feature_vector_to_insert_params(
         # derive-by-name discipline, appended immediately after the canary
         # fields (module docstring).
         *(getattr(vector, name) for name in _STRUCTURAL_VP_SR_FIELD_NAMES),
+        # Smart Money Concepts fields (migration 266, Phase 164 Plan 01) — same
+        # derive-by-name discipline, appended immediately after the structural
+        # VP/SR fields (module docstring). All None until Plans 02-04 wire real
+        # compute logic in.
+        *(getattr(vector, name) for name in _SMC_FIELD_NAMES),
     )

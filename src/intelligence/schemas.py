@@ -1236,9 +1236,15 @@ class FeatureVector:
       Alternative Volatility Estimators (3, Phase 142.5 Plan 04): parkinson_vol_z, garman_klass_vol_z, yang_zhang_vol_z
       Volatility Dynamics (5, Phase 142.5 Plan 04): parkinson/garman_klass/yang_zhang_vol_velocity, vol_velocity_z, intraday_noise_ratio
       Canary / Control Predictors (5, Phase 143.1 Plan 02, todo 068): canary_noise_gaussian, canary_noise_uniform, canary_constant, canary_near_constant, canary_acausal_placebo
+      Session-level — Smart Money Concepts (36, Phase 164 Plan 01): order blocks (4),
+        breaker/mitigation blocks (3), fair value gaps (3), liquidity sweeps (4),
+        liquidity pools (5), supply/demand zones (7), BOS/CHoCH (6), AMD cycle (4).
+        All ATR-distance/bounded/count/ordinal placeholders (None until Plans 02-04
+        wire real compute logic); never a raw price level (D-16).
       Cross-sectional (3, nullable): momentum/volume/volatility rank z-scores
-      Total: 172 (164 required + 8 optional [3 cross-sectional + 5 canary, defaulted for
-      cold-start/construction-site blast-radius reasons -- see Canary field comments])
+      Total: 208 (164 required + 44 optional [3 cross-sectional + 5 canary + 36 SMC,
+      all defaulted for cold-start/construction-site blast-radius reasons -- see
+      Canary field comments and the Smart Money Concepts block comment above])
     """
 
     # Momentum (7 total: 5 original + 2 new scale-named)
@@ -1501,6 +1507,54 @@ class FeatureVector:
     canary_acausal_placebo: float = (
         0.0  # existing feature deliberately paired against a forward-shifted return window (look-ahead leak), positive control
     )
+    # Session-level — Smart Money Concepts (36, Phase 164 Plan 01). Defaulted
+    # to None (unlike the Phase 163 session block above, which has no default)
+    # because this block is placed after the canary block above, which already
+    # has defaults -- Python dataclass field ordering requires every field
+    # following a defaulted field to also carry a default. This is also
+    # semantically correct: every value here is a genuine placeholder (no
+    # compute logic exists yet) until Plans 02-04 replace None with real
+    # computed values, matching the canary fields' own "defaulted to avoid a
+    # blast radius across every pre-existing hardcoded FeatureVector(...) test
+    # constructor" rationale. Order Blocks (4) / Breaker+Mitigation (3) / FVG
+    # (3) / Liquidity Sweeps (4) / Liquidity Pools (5) / Supply-Demand Zones
+    # (7) / BOS-CHoCH (6) / AMD Cycle (4) = 36.
+    ob_bull_dist_atr: float | None = None
+    ob_bear_dist_atr: float | None = None
+    ob_strength: float | None = None
+    ob_mitigated_flag: float | None = None
+    breaker_dist_atr: float | None = None
+    breaker_block_active: float | None = None
+    ob_mitigation_pct: float | None = None
+    fvg_dist_atr: float | None = None
+    fvg_size_atr: float | None = None
+    fvg_open_count: float | None = None
+    sweep_detected: float | None = None
+    sweep_strength: float | None = None
+    reclaim_velocity: float | None = None
+    bars_since_last_sweep: float | None = None
+    bsl_dist_atr: float | None = None
+    ssl_dist_atr: float | None = None
+    bsl_touches: float | None = None
+    ssl_touches: float | None = None
+    pool_count: float | None = None
+    demand_dist_atr: float | None = None
+    supply_dist_atr: float | None = None
+    demand_freshness: float | None = None
+    supply_freshness: float | None = None
+    active_demand_zones: float | None = None
+    active_supply_zones: float | None = None
+    zone_friction_score: float | None = None
+    bos_strength: float | None = None
+    choch_strength: float | None = None
+    bos_direction: float | None = None
+    choch_direction: float | None = None
+    smc_trend_direction: float | None = None
+    bars_since_last_shift: float | None = None
+    amd_phase: float | None = None
+    amd_manipulation_detected: float | None = None
+    amd_distribution_direction: float | None = None
+    manip_strength: float | None = None
     # Cross-sectional (3, nullable — never implemented; always None (todo 103,
     # confirmed 2026-07-27). The "Phase 139 enrichment pass" this comment used to
     # cite doesn't exist as a real, planned unit of work — deferred pending real
