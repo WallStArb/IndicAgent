@@ -3,14 +3,14 @@ gsd_state_version: 1.0
 milestone: v3.1
 milestone_name: AlphaEngine Validation + Alpha Scoring
 status: ready_to_execute
-stopped_at: "Phase 165 IN PROGRESS (1/5 plans) -- Plan 01 (data contract: migration 267, 41 new swing/fib/trend/session FeatureVector fields + registry rows + 17 APR keys) executed, ready for Plan 02 (swing detection + trend structure)"
-last_updated: "2026-07-28T07:39:43.789Z"
+stopped_at: "Phase 165 IN PROGRESS (2/5 plans) -- Plan 02 (swing detection + trend structure: 13 columns, mutation-verified) executed, ready for Plan 03 (swing momentum + fibonacci zones)"
+last_updated: "2026-07-28T10:10:00.000Z"
 progress:
   total_phases: 12
   completed_phases: 10
   total_plans: 51
-  completed_plans: 47
-  percent: 92
+  completed_plans: 48
+  percent: 94
 ---
 
 # Project State
@@ -197,7 +197,7 @@ Full P2/P3 todo backlog: `.planning/todos/PRIORITIES.md`. Idea-level scoring:
 | 163 | VP/SR Structural Primitives | COMPLETE (3/3 plans, 2026-07-24, verification 15/15 must-haves) -- closes todo 153. Historical backfill still open (todo 176, deprioritized) |
 | 167 | Cross-Sectional Trade Construction (T3) | COMPLETE (6/6 plans, 2026-07-27) -- both live Validation Gates PASSED (gate1_passes=true, gate2_passes_overall=true); Phase 156-159's stated precondition is now met. See Current Focus. |
 | 164 | SMC Institutional Footprint Primitives | COMPLETE (4/4 plans, 2026-07-28) -- all 36 SMC FeatureVector fields now real computed values in both FeatureFactory.compute() and compute_batch(). Plan 01 (data contract): 36 new feature_vectors columns + registry rows + FeatureVector fields (172->208 total), 39 feature.smc.* APR keys, FeatureCache.update_overnight_range() AMD mutator built. Plan 02 (order blocks + stateless breaker/mitigation): 7 fields via _compute_order_blocks(); 2 bugs caught and fixed during TDD. Plan 03 (FVG + liquidity sweeps + liquidity pools): 12 fields via _compute_fvg()/_compute_liquidity_sweeps()/_compute_liquidity_pools() (single-tf descoped, PWH/PWL/PDH/PDL dropped); an FVG selection bug found and fixed. Plan 04 (supply/demand zones + BOS/CHoCH + AMD cycle): final 18 fields via _compute_supply_demand_zones()/_compute_bos_choch()/_derive_amd_cycle(); update_overnight_range() wired into compute_batch(), the live per-bar handler, and the warm-up replay block, closing the AMD state-lifecycle cold-start gap. Historical backfill for all 36 columns deliberately deferred to the consolidated 163/164/165 recompute pass (todo 176). |
-| 165 | Swing/Fib/Trend/Session Structure Primitives | IN PROGRESS (1/5 plans, started 2026-07-28) -- Plan 01 (data contract) executed: migration 267 adds 41 new feature_vectors columns + registry rows (group_name='session') for swing detection (7), trend structure (6), swing momentum (8), fibonacci zones (4), session levels (16); zero raw price levels or raw bar indices (D-02/D-04). D-01 nullable-field fix: all 41 fields are float \| None with NO default (unlike Phase 164's SMC block, which is defaulted) -- placed immediately before the canary block since dataclass ordering forbids a non-defaulted field after a defaulted one (208->249 total FeatureVector fields). 17 feature.swing.*/feature.trend_structure.*/feature.swing_momentum.*/feature.fib.*/feature.session_levels.* APR keys wired into both live and batch FeatureFactoryConfig sites. Plans 02-04 wire real compute logic in against this fixed contract. |
+| 165 | Swing/Fib/Trend/Session Structure Primitives | IN PROGRESS (2/5 plans, started 2026-07-28) -- Plan 01 (data contract) executed: migration 267 adds 41 new feature_vectors columns + registry rows (group_name='session') for swing detection (7), trend structure (6), swing momentum (8), fibonacci zones (4), session levels (16); zero raw price levels or raw bar indices (D-02/D-04). D-01 nullable-field fix: all 41 fields are float \| None with NO default (unlike Phase 164's SMC block, which is defaulted) -- placed immediately before the canary block since dataclass ordering forbids a non-defaulted field after a defaulted one (208->249 total FeatureVector fields). 17 feature.swing.*/feature.trend_structure.*/feature.swing_momentum.*/feature.fib.*/feature.session_levels.* APR keys wired into both live and batch FeatureFactoryConfig sites. Plan 02 (swing detection + trend structure) executed: `_compute_swing_structure()`/`_compute_trend_structure()` fill 13 of the 41 columns off one shared `find_peaks`/`find_troughs` pass (D-06), mutation-verified (commit `a748d13d` discipline) that the nullability/non-constant/APR-liveness tests actually catch the archived plugins' fake-numeric-default bug. Plans 03-04 wire the remaining 28 columns' real compute logic in against this fixed contract. |
 
 Current row counts and every downstream measurement number live in
 [Corpus pipeline state](project_corpus_pipeline_state.md) -- that file is the single source of
@@ -235,7 +235,7 @@ ON CONFLICT (symbol, tf) DO UPDATE SET fetch_complete = true;
 - Phase 162 (ic_engine Corpus Pipeline Throughput): added 2026-07-18, planned 2026-07-22, executed and COMPLETE 2026-07-23.
 - Phase 163 (VP/SR Structural Primitives): added 2026-07-20, planned and reviewed, executed and COMPLETE 2026-07-24.
 - Phase 164 (SMC Institutional Footprint Primitives): added 2026-07-20, planned 2026-07-25 (4 plans, 4 waves, `gsd-plan-checker` verified). Deprioritized 2026-07-26 behind Phase 167, then explicit user override 2026-07-27 (Tier 0) reinstated it regardless of the evidence-gate reasoning. Plan 01 (data contract) executed 2026-07-27; Plan 02 (order blocks + stateless breaker/mitigation), Plan 03 (FVG + liquidity sweeps + liquidity pools), and Plan 04 (supply/demand zones + BOS/CHoCH + AMD cycle) all executed 2026-07-28 -- COMPLETE, 4/4 plans, see Phase Summary table. Next per Tier 0's sequencing: plan Phase 165, execute Phase 165, then one combined `backfill_feature_factory.py --compute-only --refresh` pass covering both phases' new columns.
-- Phase 165 (Swing/Fib/Trend Structure Primitives): planned 2026-07-27 (5 plans, 5 waves, sequential -- every plan touches `feature_factory.py`). Plan 01 (data contract: migration 267, 41 new columns/registry rows/APR keys) executed 2026-07-28 -- IN PROGRESS, 1/5 plans, see Phase Summary table. Next: Plan 02 (swing detection + trend structure).
+- Phase 165 (Swing/Fib/Trend Structure Primitives): planned 2026-07-27 (5 plans, 5 waves, sequential -- every plan touches `feature_factory.py`). Plan 01 (data contract: migration 267, 41 new columns/registry rows/APR keys) executed 2026-07-28. Plan 02 (swing detection + trend structure, 13/41 columns, mutation-verified) executed 2026-07-28 -- IN PROGRESS, 2/5 plans, see Phase Summary table. Next: Plan 03 (swing momentum + fibonacci zones).
 - Phase 166 (Frame/Execution Recalibration): added 2026-07-23, planned and executed same day -- COMPLETE, verdict: neither candidate promoted. Direct follow-on (todo 179) found the real cause (see Current Focus).
 - Phase 151 (Feature Primitives Expansion + Interaction Layer): planned 2026-07-24, cross-AI reviewed and revised same day (Codex found 3 HIGH-severity findings, all fixed as real plan changes). 9 plans, execution-ready. Deprioritized 2026-07-26 behind Phase 167 (see Current Focus) -- stays planned and ready, not the next priority.
 - Phase 167 (Cross-Sectional Trade Construction, T3): added 2026-07-26 after T3 passed decisively -- the first thesis in the edge-source-thesis tree to clear its own bar. Planned (6 plans), executed, COMPLETE 2026-07-27 -- both live Validation Gates PASSED. Full detail in Current Focus above.
@@ -254,43 +254,28 @@ WR-05 filename-collision fix), CLAUDE.md/gotchas.md corrected same session.
 
 ## Session
 
-**Last session:** 2026-07-28T07:39:43.789Z
+**Last session:** 2026-07-28T10:10:00.000Z
 
-**Stopped at:** Phase 165 Plan 01 (data contract) executed -- migration 267 adds 41 new
-`feature_vectors` columns (swing detection 7, trend structure 6, swing momentum 8, fibonacci
-zones 4, session levels 16) + 41 matching `feature_registry` rows (`group_name='session'`) +
-17 `feature.swing.*`/`feature.trend_structure.*`/`feature.swing_momentum.*`/`feature.fib.*`/
-`feature.session_levels.*` APR keys. All 41 `FeatureVector` fields are `float | None` with NO
-default (D-01's nullable-field fix -- the archived plugins' fake-numeric placeholders like
-`trend_direction=0.0`/`price_position=0.5` are the exact todo-153 failure mode), placed
-immediately before the defaulted canary block (opposite placement from Phase 164's SMC block,
-which is defaulted and placed after canary) -- Python dataclass ordering forces this since a
-non-defaulted field cannot follow a defaulted one. Threaded through `_build_feature_vector`,
-both `compute()`/`compute_batch()` call sites, and `_cold_start_vector` as `None` placeholders.
-`_SWING_FIB_TREND_FIELD_NAMES` persistence slice wired through the INSERT column list,
-placeholder generator, `_TOTAL_COLUMNS`, and params tuple (217->258 total columns). Every
-hardcoded field/param count assertion bumped by 41 across 6 test files. Full `tests/unit/`
-suite green (0 failures), ruff/black clean, ic_engine drift gate verified live against the DB.
-Next: Plan 02 (swing detection + trend structure).
+**Stopped at:** Phase 165 Plan 02 (swing detection + trend structure) complete -- 13 of the
+41 columns (7 swing detection + 6 trend structure) now carry real computed values in both
+`compute()` and `compute_batch()`, off one shared `find_peaks`/`find_troughs` pass (D-06).
+`_SWING_FALLBACK`/`_TREND_STRUCTURE_FALLBACK` are all-`None` (D-01); mutation-verified this
+session per the commit `a748d13d` discipline. Next: Plan 03 (swing momentum + fibonacci
+zones), which consumes Plan 02's in-memory swing intermediates per D-05.
 
-**This session's arc:** Read the plan, PROJECT.md, STATE.md, CLAUDE.md, 165-RESEARCH.md,
-165-PATTERNS.md, and 164-01-SUMMARY.md (closest analog). Verified migration number 267 was
-free (`ls production/migrations/ | sort -V | tail -5`, 266 was the prior max, no renumbering
-collision this time). Wrote migration 267 in one continuous pass (all 3 sections), applied and
-verified against the live DB, then split the file back into a sections-1-2-only version for
-Task 1's commit (verified idempotent re-apply) before restoring the full file for Task 2. Wired
-the 17 APR keys into `FeatureFactoryConfig` and both config-build entrypoints. Added the 41
-`FeatureVector` fields, `FEATURE_VECTOR_DOMAIN` entries, `_build_feature_vector`/`_cold_start_vector`
-threading, and the persistence slice; fixed two pre-existing stale column-count comments in
-`feature_vector_persistence.py` left un-updated by Phase 164 (said "181" when the live count was
-already 217) while editing the same lines. Fixed 6 test files' blast radius (3 direct
-`FeatureVector(...)` constructions needed the 41 new required kwargs; 6 hardcoded count
-assertions bumped by 41; added a new `gap_filled`-at-index-257 last-element test while keeping
-`sr_level_count`/`manip_strength`'s boundary-pinning tests intact). Full suite green on first
-attempt after the blast-radius fixes. `gsd-sdk query roadmap.update-plan-progress 165` corrupted
-a sentence in ROADMAP.md's Phase 165 section (replaced "5 plans, 5 waves (sequential..." with an
-orphaned "1/5 plans executed" mid-paragraph) and separately decremented STATE.md's frontmatter
-(`completed_phases` 10->9, `total_plans` 46->45, `completed_plans` 46->44, `stopped_at`
-truncated mid-sentence) -- same known frontmatter-resync friction MEMORY.md's
-`feedback_gsd_state_frontmatter_resync` note describes, now also observed corrupting ROADMAP.md
-body text, not just STATE.md frontmatter. Both corrected manually in this edit.
+**This session's arc:** Resumed from a prior session's handoff -- Plan 02's compute code and
+8 regression tests were already committed as a WIP commit (`3238d2e0`) with three explicit
+remaining items: the mutation-verification step, `165-02-SUMMARY.md`, and STATE/ROADMAP
+updates. Performed the mutation check as two temporary local edits (never committed): (1)
+forced both compute functions to their fallback dicts -- confirmed 5 of 8 tests fail
+(non-constant, ATR-unit, partial-nullability, APR-liveness, structure-integrity-bounded), with
+3 tests correctly NOT failing (nullability/zero-ATR/parity all hold trivially true under an
+all-None forced mutation, a sound null result rather than a gap); (2) reverted, then swapped
+`_TREND_STRUCTURE_FALLBACK` to the archived numeric defaults (`trend_direction: 0.0`,
+`price_position: 0.5`) -- confirmed `test_trend_structure_nullability` fails as required,
+proving it catches the todo-153 failure shape rather than passing vacuously. Both mutations
+reverted with `git diff --stat` confirming zero residual diff. Full `tests/unit/` suite green,
+ruff clean. Wrote `165-02-SUMMARY.md` recording the actual (not just predicted) mutation-kill
+set. Updated ROADMAP.md's Phase 165 section and STATE.md manually (not via `gsd-sdk query
+roadmap.update-plan-progress`, which corrupted both files' text in the prior session per
+MEMORY.md's `feedback_gsd_state_frontmatter_resync` note).

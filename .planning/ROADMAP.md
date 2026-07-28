@@ -2314,7 +2314,7 @@ Plans:
 
 ---
 
-### Phase 165: Swing/Fib/Trend Structure Primitives 📋 PLANNED (5 plans, 5 waves, 2026-07-28)
+### Phase 165: Swing/Fib/Trend Structure Primitives 🔄 IN PROGRESS (5 plans, 5 waves, 2026-07-28)
 
 **Goal:** Port 5 of the 6 remaining `src/intelligence/features/i3_structure/` plugins Phase 163
 didn't cover — `swing_detector.py`, `swing_momentum.py`, `trend_structure.py`,
@@ -2345,7 +2345,7 @@ normalization, APR namespace precedent, `FeatureCache` session-boundary mutator 
 **Requirements**: no formal `REQUIREMENTS.md` exists for this project — `165-CONTEXT.md`'s
 D-01..D-15 decision IDs are the requirement set, carried verbatim in each plan's `requirements`
 frontmatter (same convention as Phases 163/164/166).
-**Plans:** 1/5 plans executed. 5 plans, 5 waves (sequential — every plan touches `feature_factory.py`, so file ownership
+**Plans:** 2/5 plans executed. 5 plans, 5 waves (sequential — every plan touches `feature_factory.py`, so file ownership
 forces one wave per plan; Plan 03 additionally consumes Plan 02's in-memory swing intermediates per
 D-05, and Plan 05 consumes Plan 04's `FeatureCache` state).
 
@@ -2354,9 +2354,10 @@ Plans:
 - [x] 165-01-PLAN.md — Data contract: migration 267 (41 columns + 41 `feature_registry` rows + 17 APR
   keys), `FeatureVector`/`FEATURE_VECTOR_DOMAIN`/`FeatureFactoryConfig`/persistence wiring, both config
   build sites, and the test-suite count blast radius
-- [ ] 165-02-PLAN.md — `swing_detector.py` (7) + `trend_structure.py` (6) = 13 columns off one shared
+- [x] 165-02-PLAN.md — `swing_detector.py` (7) + `trend_structure.py` (6) = 13 columns off one shared
   APR-backed `find_peaks`/`find_troughs` pass; D-01's all-`None` fallback replaces both files'
-  fake-numeric defaults; exports the raw swing high/low intermediates Plan 03 consumes
+  fake-numeric defaults; exports the raw swing high/low intermediates Plan 03 consumes. Mutation-verified
+  (commit `a748d13d` discipline) 2026-07-28.
 - [ ] 165-03-PLAN.md — `swing_momentum.py` (8, incl. D-15's `swing_volume_confirmation`) +
   `fibonacci_zones.py` (4) = 12 columns; deletes the cross-plugin fallback outright (D-05), fixes two
   archived implementation-vs-docstring bugs, and removes the provably-cancelling ATR divisor
