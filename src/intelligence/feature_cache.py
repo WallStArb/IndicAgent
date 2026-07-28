@@ -70,6 +70,16 @@ class FeatureCache:
     sr_support_dist: float = 0.0
     sr_resist_dist: float = 0.0
 
+    # AMD Cycle state (Phase 164 Plan 01, contract-only -- populated by
+    # update_overnight_range(), NOT yet invoked; Plan 04 wires call sites and
+    # the amd_phase ordinal / manip_strength [0,1] clamp derivation in compute()).
+    # RAW state here: amd_manipulation_detected/amd_distribution_direction/
+    # manip_strength are set unclamped by the mutator per 164-RESEARCH.md.
+    amd_phase: float = 0.0
+    amd_manipulation_detected: float = 0.0
+    amd_distribution_direction: float = 0.0
+    manip_strength: float = 0.0
+
     # Internal rolling histories for cross-asset z-scores (not part of FeatureVector)
     _spy_realized_vol_history: deque = field(default_factory=lambda: deque(maxlen=500), repr=False)
     _yield_ratio_history: deque = field(default_factory=lambda: deque(maxlen=500), repr=False)
@@ -85,6 +95,14 @@ class FeatureCache:
     _wk_tp_vol_sum: float = field(default=0.0, repr=False)
     _wk_vol_sum: float = field(default=0.0, repr=False)
     _wk_year_week: tuple = field(default=(-1, -1), repr=False)  # (iso_year, iso_week)
+
+    # Internal accumulators for AMD overnight-range tracking (Phase 164 Plan 01,
+    # analogous to the weekly-VWAP accumulators above). _overnight_day is the
+    # calendar date (UTC) on which the current accumulation cycle began -- see
+    # update_overnight_range() for the cycle-key derivation.
+    _overnight_high: float | None = field(default=None, repr=False)
+    _overnight_low: float | None = field(default=None, repr=False)
+    _overnight_day: object = field(default=None, repr=False)
 
     # Internal accumulator for session volume profile (Phase 163 Plan 01, D-03).
     # Non-incremental: the full histogram is recomputed over these accumulated
@@ -363,6 +381,96 @@ class FeatureCache:
                 ratio = float(tlt_rets[-1]) - float(shy_rets[-1])
                 self._yield_ratio_history.append(ratio)
             self.yield_slope_z = _zscore_from_deque(self._yield_ratio_history, yzw)
+
+    def update_overnight_range(
+        self,
+        bar_ts: datetime,
+        high: float,
+        low: float,
+        config: FeatureFactoryConfig,
+    ) -> None:
+        """Track the AMD accumulation-phase overnight high/low with UTC boundary reset.
+
+        Ported from AMDCyclePlugin (src/intelligence/archive/smc_context/amd_cycle.py),
+        ICT Accumulation/Manipulation/Distribution cycle: the accumulation phase
+        (feature.smc.amd.accum_start_utc_hour, default 20:00 UTC, through end of
+        calendar day) builds an overnight high/low range that the manipulation
+        phase (00:00 UTC through feature.smc.amd.manip_end_utc_hour, default
+        10:00 UTC) then tests via a breach-then-reverse sweep.
+
+        Session-boundary-reset shape follows update_wk_vwap() exactly (D-13
+        precedent), keyed on a UTC-hour-derived accumulation-cycle date instead
+        of ISO week: bars during accumulation (hour >= accum_start_utc_hour)
+        belong to the cycle that started TODAY (UTC date); bars during
+        manipulation/distribution (hour < accum_start_utc_hour) belong to the
+        cycle that started YESTERDAY (the overnight range formed the prior
+        evening). When the cycle key changes, _overnight_high/_overnight_low
+        reset and per-cycle flags (amd_manipulation_detected,
+        amd_distribution_direction) clear so the next cycle fires fresh —
+        matching AMDCyclePlugin's per-day flag reset.
+
+        Manipulation-detection adaptation: this mutator's signature carries only
+        high/low (no close), so the archived "breach then close back inside the
+        range" reversal test is adapted to an intrabar high/low proxy: an upside
+        sweep is high > overnight_high AND low < overnight_high within the SAME
+        bar (wicked back below); a downside sweep is the mirror. manip_strength
+        is set as the RAW (unclamped) breach-depth ratio — Plan 04's compute()
+        derivation applies the [0,1] clamp and the amd_phase ordinal encoding;
+        this mutator only tracks overnight range + manipulation-phase transition
+        state, per 164-RESEARCH.md Pitfall 3/4.
+
+        All thresholds read from `config` (feature.smc.amd.* APR keys) — zero
+        hardcoded constants, per CLAUDE.md's APR mandate.
+
+        NOT YET INVOKED anywhere in this plan — call sites (compute_batch loop,
+        live per-bar handler, warm-up replay block) are added in Plan 04
+        alongside AMD's compute() derivation.
+        """
+        ts = bar_ts if bar_ts.tzinfo is not None else bar_ts.replace(tzinfo=UTC)
+        hour = ts.hour
+        accum_start = config.smc_amd_accum_start_utc_hour
+        manip_end = config.smc_amd_manip_end_utc_hour
+
+        # Cycle key: the UTC calendar date on which the current accumulation
+        # window began. Accumulation bars (hour >= accum_start) belong to
+        # today's cycle; manipulation/distribution bars (hour < accum_start)
+        # belong to the cycle that started the PRIOR calendar day.
+        cycle_day = ts.date() if hour >= accum_start else (ts.date() - timedelta(days=1))
+
+        if cycle_day != self._overnight_day:
+            self._overnight_high = None
+            self._overnight_low = None
+            self._overnight_day = cycle_day
+            self.amd_manipulation_detected = 0.0
+            self.amd_distribution_direction = 0.0
+
+        if hour >= accum_start:
+            prior_high = self._overnight_high
+            prior_low = self._overnight_low
+            self._overnight_high = high if prior_high is None else max(prior_high, high)
+            self._overnight_low = low if prior_low is None else min(prior_low, low)
+            return
+
+        on_high = self._overnight_high
+        on_low = self._overnight_low
+        if on_high is None or on_low is None:
+            return
+        on_range = on_high - on_low
+
+        # Manipulation detection only runs during the manipulation-phase window
+        # and only once per cycle (matches AMDCyclePlugin's manipulation_done
+        # gate) -- once fired, the range is held for the rest of the cycle.
+        if hour < manip_end and self.amd_manipulation_detected == 0.0:
+            if high > on_high and low < on_high:
+                # Upside sweep then wick back inside the range -> bearish distribution expected
+                self.amd_manipulation_detected = 1.0
+                self.manip_strength = (high - on_high) / on_range if on_range > 0 else 0.0
+                self.amd_distribution_direction = -1.0
+            elif low < on_low and high > on_low:
+                # Downside sweep then wick back inside the range -> bullish distribution expected
+                self.amd_manipulation_detected = 1.0
+                self.manip_strength = (on_low - low) / on_range if on_range > 0 else 0.0
+                self.amd_distribution_direction = 1.0
 
 
 # ---------------------------------------------------------------------------
