@@ -5266,7 +5266,7 @@ def _derive_amd_cycle(
 
 # D-01: every one of these 16 columns is None on cold/degenerate state, unlike
 # _NEUTRAL_VP_EXTRA (which preserves two legacy 0.0/0.5 neutral defaults for
-# backward compatibility). None of these sixteen columns has a legacy default
+# pre-existing consumers). None of these sixteen columns has a legacy default
 # to preserve -- they are brand-new Phase 165 columns -- so every one falls
 # back to None, matching migration 267's COMMENT ON COLUMN NULL conditions.
 _SESSION_LEVELS_FALLBACK: dict[str, float | None] = {
