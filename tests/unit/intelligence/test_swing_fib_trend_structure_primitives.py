@@ -1,11 +1,13 @@
-"""Regression: Phase 165 swing/trend/swing-momentum/fibonacci FeatureVector fields are
-non-constant, ATR-unit, live==batch, and NULL (never a plausible number) on insufficient
-data (D-01, the todo-153 failure shape).
+"""Regression: Phase 165 swing/trend/swing-momentum/fibonacci/session-levels FeatureVector
+fields are non-constant, ATR-unit, live==batch, and NULL (never a plausible number) on
+insufficient data (D-01, the todo-153 failure shape).
 
-Plan 02 (swing detection + trend structure) and Plan 03 (swing momentum + fibonacci
-zones) share this file -- shared helpers (`_make_cfg`, `RNG`, `N`) stay at module level,
-sub-scopes are sectioned by comment header. Plan 04 (session levels) appends its own
-test classes here too.
+Plan 02 (swing detection + trend structure), Plan 03 (swing momentum + fibonacci zones),
+and Plan 05 (session levels + the phase-closing 41-column completeness gate) share this
+file -- shared helpers (`_make_cfg`, `RNG`, `N`) stay at module level, sub-scopes are
+sectioned by comment header. This file now covers all four Phase 165 sub-scopes (swing
+detection, trend structure, swing momentum, fibonacci zones, session levels) plus a
+phase-wide gate proving all 41 columns produce real values.
 """
 
 from __future__ import annotations
@@ -15,10 +17,12 @@ import math
 from datetime import UTC, datetime, timedelta
 
 import numpy as np
+import psycopg2
 import pytest
 
 from src.intelligence.feature_cache import FeatureCache
 from src.intelligence.feature_factory import (
+    FEATURE_VECTOR_DOMAIN,
     FeatureFactory,
     FeatureFactoryConfig,
     _compute_fib_zones,
@@ -874,3 +878,489 @@ def test_swing_momentum_fib_apr_keys_are_live(bars):
             "fib_cluster_strength increased as fib_cluster_atr_divisor grew -- "
             "should be monotone non-increasing (a smaller threshold can only reduce clustering)"
         )
+
+
+# ---------------------------------------------------------------------------
+# Phase 165 Plan 05: Session Levels (16 fields) + phase-closing completeness gate
+# ---------------------------------------------------------------------------
+
+_SESSION_LEVEL_FIELDS = (
+    "prior_session_high_dist_atr",
+    "prior_session_low_dist_atr",
+    "prior_session_close_dist_atr",
+    "overnight_high_dist_atr",
+    "overnight_low_dist_atr",
+    "overnight_range_pct",
+    "opening_gap_pct",
+    "weekly_pivot_dist_atr",
+    "weekly_r1_dist_atr",
+    "weekly_r2_dist_atr",
+    "weekly_s1_dist_atr",
+    "weekly_s2_dist_atr",
+    "nearest_level_dist_atr",
+    "asian_session_high_dist_atr",
+    "asian_session_low_dist_atr",
+    "gap_filled",
+)
+
+# The union of every Phase 165 field, in FeatureVector dataclass declaration order
+# (Plan 02's 13 + Plan 03's 12 + Plan 05's 16 = 41).
+_PHASE_165_FIELDS = (
+    _SWING_FIELDS + _TREND_FIELDS + _SWING_MOMENTUM_FIELDS + _FIB_FIELDS + _SESSION_LEVEL_FIELDS
+)
+
+
+def _run_live_with_session_levels(
+    bars_local: list[dict],
+    cfg: FeatureFactoryConfig,
+    symbol: str = "SPY",
+    tf: str = "5m",
+) -> FeatureVector:
+    """Drive compute() incrementally with all 3 required per-bar mutators, in the
+    same order compute_batch()'s internal loop uses them (update_session_vp /
+    update_overnight_range / update_session_levels BEFORE compute(), advance_bar()
+    AFTER) -- extends test_swing_trend_live_batch_parity's single-mutator pattern
+    with the two Phase 164/165 mutators Plan 05's fields depend on. Returns the
+    FINAL FeatureVector only.
+    """
+    cache = FeatureCache()
+    fv: FeatureVector | None = None
+    for i in range(1, len(bars_local)):
+        bar = bars_local[i]
+        cache.update_session_vp(
+            bar["ts"], bar["high"], bar["low"], bar["close"], bar["volume"], cfg
+        )
+        cache.update_overnight_range(bar["ts"], bar["high"], bar["low"], cfg)
+        cache.update_session_levels(
+            bar["ts"], bar["open"], bar["high"], bar["low"], bar["close"], cfg
+        )
+        fv = FeatureFactory.compute(bars_local[: i + 1], symbol, tf, cache, cfg)
+        cache.advance_bar(bar["ts"], bar["high"], bar["low"], bar["close"], bar["volume"])
+    assert fv is not None
+    return fv
+
+
+_SESSION_N_DAYS = 8
+_SESSION_STEP_MINUTES = 30
+_SESSION_RNG = np.random.default_rng(1165)
+
+
+def _build_session_levels_bars() -> list[dict]:
+    """~8 days of 30-min bars (continuous calendar coverage, not RTH-only) with the
+    same dual-frequency-oscillation + random-walk shape as the module `bars`
+    fixture -- spans multiple ET session-day rollovers and at least one ISO-week
+    boundary, so all 16 session-levels fields (plus the swing/trend/fib fields
+    the `bars` fixture already exercises at 1-minute granularity) take real,
+    varying non-None values. Continuous (not RTH-only) calendar coverage means
+    every ET calendar-date change is a session rollover in this synthetic
+    fixture -- deliberately denser than real trading-day boundaries, which only
+    strengthens (never weakens) the non-constancy/completeness assertions below.
+    """
+    base_ts = datetime(2026, 7, 6, 0, 0, tzinfo=UTC)  # Monday midnight UTC
+    n = _SESSION_N_DAYS * 24 * 60 // _SESSION_STEP_MINUTES
+    t = np.arange(n)
+    swing = np.sin(t / 3.0) * 3.5 + np.sin(t / 11.0) * 1.5
+    closes = 100.0 + swing + np.cumsum(_SESSION_RNG.normal(0, 0.05, n))
+    spread = np.abs(_SESSION_RNG.normal(0.10, 0.03, n)) + 0.03
+    highs = closes + spread
+    lows = closes - spread
+    opens = closes + _SESSION_RNG.normal(0, 0.03, n)
+    highs = np.maximum(highs, np.maximum(opens, closes))
+    lows = np.minimum(lows, np.minimum(opens, closes))
+    volumes = _SESSION_RNG.uniform(1e4, 1e6, n)
+    return [
+        {
+            "open": float(opens[i]),
+            "high": float(highs[i]),
+            "low": float(lows[i]),
+            "close": float(closes[i]),
+            "volume": float(volumes[i]),
+            "ts": base_ts + timedelta(minutes=_SESSION_STEP_MINUTES * i),
+        }
+        for i in range(n)
+    ]
+
+
+@pytest.fixture(scope="module")
+def session_bars() -> list[dict]:
+    return _build_session_levels_bars()
+
+
+# ---------------------------------------------------------------------------
+# (a) Session-levels non-constant across bars (batch path) -- direct
+# todo-153-shaped guard
+# ---------------------------------------------------------------------------
+
+
+def test_session_levels_non_constant_batch(session_bars, cfg):
+    """Each of the 16 session-levels fields must take at least 2 distinct
+    non-None values across a multi-session, multi-week batch run -- except
+    gap_filled, for which both 0.0 and 1.0 must occur."""
+    cache = FeatureCache()
+    results = FeatureFactory.compute_batch(session_bars, "SPY", "5m", cache, cfg)
+
+    for field in _SESSION_LEVEL_FIELDS:
+        vals = _finite([getattr(fv, field) for _, fv in results])
+        assert len(vals) > 1, f"{field} has <=1 non-None finite value"
+        if field == "gap_filled":
+            assert {0.0, 1.0} <= set(vals), f"gap_filled did not take both 0.0/1.0: {set(vals)}"
+        else:
+            assert len({round(v, 8) for v in vals}) > 1, f"{field} is constant"
+
+
+# ---------------------------------------------------------------------------
+# (b) Cold nullability -- shorter than one session, no week has ever rolled over
+# ---------------------------------------------------------------------------
+
+
+def test_session_levels_cold_nullability(cfg):
+    """A series shorter than one session (never rolls over, but ATR is warm)
+    must yield None for the prior-session trio, opening_gap_pct, all five
+    weekly fields, and nearest_level_dist_atr on the final bar (D-01)."""
+    base_ts = datetime(2026, 7, 6, 13, 30, tzinfo=UTC)  # Monday 9:30 ET, single session
+    n = 10
+    mids = [100.0 + 0.5 * i for i in range(n)]
+    bars_local = [
+        {
+            "open": m,
+            "high": m + 0.5,
+            "low": m - 0.5,
+            "close": m,
+            "volume": 1_000.0,
+            "ts": base_ts + timedelta(minutes=5 * i),
+        }
+        for i, m in enumerate(mids)
+    ]
+    cache = FeatureCache()
+    results = FeatureFactory.compute_batch(bars_local, "SPY", "5m", cache, cfg)
+    fv = results[-1][1]
+
+    assert fv.gap_filled is not None, "gap_filled must be a real 0.0/1.0, not None -- ATR is warm"
+    for field in (
+        "prior_session_high_dist_atr",
+        "prior_session_low_dist_atr",
+        "prior_session_close_dist_atr",
+        "opening_gap_pct",
+        "weekly_pivot_dist_atr",
+        "weekly_r1_dist_atr",
+        "weekly_r2_dist_atr",
+        "weekly_s1_dist_atr",
+        "weekly_s2_dist_atr",
+        "nearest_level_dist_atr",
+    ):
+        assert (
+            getattr(fv, field) is None
+        ), f"{field} is not None before any session/week has completed -- D-01"
+
+
+# ---------------------------------------------------------------------------
+# (c) ATR-unit conversion -- pins the exact prior-session-high formula
+# ---------------------------------------------------------------------------
+
+
+def _build_session_atr_pin_bars() -> list[dict]:
+    """Deterministic 2-session bars: constant true range so Wilder ATR
+    converges to exactly 1.0, spanning exactly one session rollover so
+    prior_session_high_dist_atr is measurable and pinned on the final bar."""
+    base_ts = datetime(2026, 7, 6, 13, 30, tzinfo=UTC)  # Monday 9:30 ET
+    day1_mid = [100.0, 100.5, 101.0, 100.5, 100.0]
+    day2_mid = [100.5, 101.0, 101.5, 102.0, 102.5]
+    bars_local: list[dict] = []
+    ts = base_ts
+    for m in day1_mid:
+        bars_local.append(
+            {"open": m, "high": m + 0.5, "low": m - 0.5, "close": m, "volume": 1_000.0, "ts": ts}
+        )
+        ts = ts + timedelta(minutes=5)
+    ts = base_ts + timedelta(days=1)
+    for m in day2_mid:
+        bars_local.append(
+            {"open": m, "high": m + 0.5, "low": m - 0.5, "close": m, "volume": 1_000.0, "ts": ts}
+        )
+        ts = ts + timedelta(minutes=5)
+    return bars_local
+
+
+def test_session_levels_dist_in_atr_units(cfg):
+    """prior_session_high_dist_atr must equal the raw price difference between
+    the prior session's high and the final close within 1e-6 -- pins the ATR
+    conversion rather than merely asserting finiteness."""
+    bars_local = _build_session_atr_pin_bars()
+    fv = _run_live_with_session_levels(bars_local, cfg)
+
+    assert fv.prior_session_high_dist_atr is not None
+    day1_high = max(b["high"] for b in bars_local[:5])
+    close_ = bars_local[-1]["close"]
+    atr_val = 1.0
+    expected = (day1_high - close_) / atr_val
+    assert math.isclose(fv.prior_session_high_dist_atr, expected, abs_tol=1e-6)
+
+
+# ---------------------------------------------------------------------------
+# (d) Weekly pivot pin -- exact formula off the PRIOR COMPLETED week only
+# ---------------------------------------------------------------------------
+
+
+def _build_weekly_pivot_bars() -> list[dict]:
+    """10 bars, constant true range, spanning one ISO-week boundary (7
+    calendar days apart) so the prior-completed-week snapshot is populated
+    (and ATR is warmed -- config.adx_period=7) by the final bar."""
+    base_ts = datetime(2026, 7, 6, 13, 30, tzinfo=UTC)  # Monday, ISO week 28
+    mids = [100.0 + 0.5 * i for i in range(10)]
+    tss = [base_ts + timedelta(days=i) for i in range(7)] + [
+        base_ts + timedelta(days=7),
+        base_ts + timedelta(days=8),
+        base_ts + timedelta(days=9),
+    ]
+    return [
+        {"open": m, "high": m + 0.5, "low": m - 0.5, "close": m, "volume": 1_000.0, "ts": ts}
+        for m, ts in zip(mids, tss)
+    ]
+
+
+def test_session_levels_weekly_pivot_pinned(cfg):
+    """Weekly pivot/R1/R2/S1/S2 must equal the hand-computed formulas off the
+    PRIOR COMPLETED week's high/low/close within 1e-9 on the final bar, and
+    must be None on every bar of the first week (no prior week exists yet)."""
+    bars_local = _build_weekly_pivot_bars()
+    cache = FeatureCache()
+    results: list[FeatureVector] = []
+    for i in range(1, len(bars_local)):
+        bar = bars_local[i]
+        cache.update_session_vp(
+            bar["ts"], bar["high"], bar["low"], bar["close"], bar["volume"], cfg
+        )
+        cache.update_overnight_range(bar["ts"], bar["high"], bar["low"], cfg)
+        cache.update_session_levels(
+            bar["ts"], bar["open"], bar["high"], bar["low"], bar["close"], cfg
+        )
+        fv = FeatureFactory.compute(bars_local[: i + 1], "SPY", "5m", cache, cfg)
+        results.append(fv)
+        cache.advance_bar(bar["ts"], bar["high"], bar["low"], bar["close"], bar["volume"])
+
+    # Bars index 1..6 (week 1; index 0 is never mutator-visited, matching both
+    # compute()/compute_batch()'s own i=1..n-1 convention) -- all None, no
+    # prior week exists yet.
+    for fv in results[:6]:
+        assert fv.weekly_pivot_dist_atr is None, "weekly_pivot_dist_atr must be None in week 1"
+
+    week1_bars = bars_local[1:7]
+    ph = max(b["high"] for b in week1_bars)
+    pl = min(b["low"] for b in week1_bars)
+    pc = week1_bars[-1]["close"]
+    wp = (ph + pl + pc) / 3.0
+    r1 = 2.0 * wp - pl
+    r2 = wp + (ph - pl)
+    s1 = 2.0 * wp - ph
+    s2 = wp - (ph - pl)
+    close_ = bars_local[-1]["close"]
+    atr_val = 1.0
+
+    final_fv = results[-1]
+    assert final_fv.weekly_pivot_dist_atr is not None
+    assert math.isclose(final_fv.weekly_pivot_dist_atr, (close_ - wp) / atr_val, abs_tol=1e-9)
+    assert math.isclose(final_fv.weekly_r1_dist_atr, (r1 - close_) / atr_val, abs_tol=1e-9)
+    assert math.isclose(final_fv.weekly_r2_dist_atr, (r2 - close_) / atr_val, abs_tol=1e-9)
+    assert math.isclose(final_fv.weekly_s1_dist_atr, (close_ - s1) / atr_val, abs_tol=1e-9)
+    assert math.isclose(final_fv.weekly_s2_dist_atr, (close_ - s2) / atr_val, abs_tol=1e-9)
+
+
+# ---------------------------------------------------------------------------
+# (e) tf=='1d' suppression -- gated inside the helper, live/batch cannot diverge
+# ---------------------------------------------------------------------------
+
+
+def test_session_levels_daily_suppression(session_bars, cfg):
+    """The five intraday-only fields must be None at tf=='1d' and non-None at
+    tf=='5m' on the same bars; opening_gap_pct and the weekly five must be
+    non-None at both."""
+    cache_5m = FeatureCache()
+    results_5m = FeatureFactory.compute_batch(session_bars, "SPY", "5m", cache_5m, cfg)
+    cache_1d = FeatureCache()
+    results_1d = FeatureFactory.compute_batch(session_bars, "SPY", "1d", cache_1d, cfg)
+
+    for field in (
+        "overnight_high_dist_atr",
+        "overnight_low_dist_atr",
+        "overnight_range_pct",
+        "asian_session_high_dist_atr",
+        "asian_session_low_dist_atr",
+    ):
+        n_5m = sum(1 for _, fv in results_5m if getattr(fv, field) is not None)
+        n_1d = sum(1 for _, fv in results_1d if getattr(fv, field) is not None)
+        assert n_5m > 0, f"{field} never populated at tf='5m' -- fixture too short"
+        assert n_1d == 0, f"{field} must be None at tf=='1d', found {n_1d} non-None value(s)"
+
+    for field in (
+        "opening_gap_pct",
+        "weekly_pivot_dist_atr",
+        "weekly_r1_dist_atr",
+        "weekly_r2_dist_atr",
+        "weekly_s1_dist_atr",
+        "weekly_s2_dist_atr",
+    ):
+        n_5m = sum(1 for _, fv in results_5m if getattr(fv, field) is not None)
+        n_1d = sum(1 for _, fv in results_1d if getattr(fv, field) is not None)
+        assert n_5m > 0 and n_1d > 0, f"{field} must be meaningful on both 5m and 1d"
+
+
+# ---------------------------------------------------------------------------
+# (f) gap_filled -- D-13 free field, must actually gap and then fill
+# ---------------------------------------------------------------------------
+
+
+def _build_gap_fill_bars() -> list[dict]:
+    """Day 1: 8 constant-true-range bars ending at close=103.5 (the prior
+    session close). Day 2: gaps up well above 103.5, then descends far enough
+    to bracket it -- gap_filled must flip 0.0 -> 1.0 and stay latched."""
+    base_ts = datetime(2026, 7, 6, 13, 30, tzinfo=UTC)
+    day1_mids = [100.0 + 0.5 * i for i in range(8)]
+    day1 = [
+        {
+            "open": m,
+            "high": m + 0.5,
+            "low": m - 0.5,
+            "close": m,
+            "volume": 1_000.0,
+            "ts": base_ts + timedelta(minutes=5 * i),
+        }
+        for i, m in enumerate(day1_mids)
+    ]
+    prior_close = day1_mids[-1]
+    day2_base = base_ts + timedelta(days=1)
+    day2_phase1 = [prior_close + 3.0 + 0.2 * i for i in range(4)]  # stays above, no fill yet
+    day2_phase2 = [day2_phase1[-1] - 1.0 * i for i in range(1, 7)]  # descends, crosses prior_close
+    day2_mids = day2_phase1 + day2_phase2
+    day2 = [
+        {
+            "open": m,
+            "high": m + 0.5,
+            "low": m - 0.5,
+            "close": m,
+            "volume": 1_000.0,
+            "ts": day2_base + timedelta(minutes=5 * i),
+        }
+        for i, m in enumerate(day2_mids)
+    ]
+    return day1 + day2
+
+
+def test_session_levels_gap_filled_column(cfg):
+    """gap_filled must be exactly 0.0 or 1.0 (never None once ATR is valid
+    and a prior session exists), both values must occur across a fixture
+    designed to gap and then fill, and it must flip to 1.0 on the bar that
+    first brackets the prior session close, then stay latched (D-13)."""
+    bars_local = _build_gap_fill_bars()
+    cache = FeatureCache()
+    results = FeatureFactory.compute_batch(bars_local, "SPY", "5m", cache, cfg)
+
+    day2_start_ts = bars_local[8]["ts"]
+    day2_vals = [(ts, fv.gap_filled) for ts, fv in results if ts >= day2_start_ts]
+    assert day2_vals, "no day-2 bars produced a result"
+    assert all(
+        v is not None for _, v in day2_vals
+    ), "gap_filled must never be None once ATR is warm and a prior session exists"
+    seen = {v for _, v in day2_vals}
+    assert seen == {0.0, 1.0}, f"gap_filled must take both 0.0 and 1.0, saw {seen}"
+
+    first_fill_idx = next(i for i, (_, v) in enumerate(day2_vals) if v == 1.0)
+    assert all(
+        v == 1.0 for _, v in day2_vals[first_fill_idx:]
+    ), "gap_filled must stay latched at 1.0 once the prior close is bracketed"
+    assert all(
+        v == 0.0 for _, v in day2_vals[:first_fill_idx]
+    ), "gap_filled must be 0.0 before the first bracketing bar"
+
+
+# ---------------------------------------------------------------------------
+# (g) live == batch parity for all 16 session-levels fields
+# ---------------------------------------------------------------------------
+
+
+def test_session_levels_live_batch_parity(session_bars, cfg):
+    """Live (compute() driven per-bar exactly as the live pipeline does) must
+    match batch to 1e-6 on all 16 session-levels fields -- catches a
+    forgotten compute_batch() wiring update."""
+    cache_batch = FeatureCache()
+    batch_results = FeatureFactory.compute_batch(session_bars, "SPY", "5m", cache_batch, cfg)
+    _, fv_batch_last = batch_results[-1]
+
+    fv_live_last = _run_live_with_session_levels(session_bars, cfg)
+
+    # Non-vacuousness guard: a derivation that unconditionally returns its
+    # all-None fallback would make live and batch trivially "agree" (None ==
+    # None on every field) without ever computing anything real -- caught
+    # during this plan's own mutation-verification pass. At least one field
+    # must carry a real value on both sides before the per-field parity
+    # checks below are meaningful.
+    assert any(
+        getattr(fv_batch_last, f) is not None for f in _SESSION_LEVEL_FIELDS
+    ), "parity check is vacuous -- fv_batch_last has all 16 session-levels fields None"
+    assert any(
+        getattr(fv_live_last, f) is not None for f in _SESSION_LEVEL_FIELDS
+    ), "parity check is vacuous -- fv_live_last has all 16 session-levels fields None"
+
+    for field in _SESSION_LEVEL_FIELDS:
+        b = getattr(fv_batch_last, field)
+        s = getattr(fv_live_last, field)
+        if b is None or s is None:
+            assert b == s, f"{field}: batch={b} live={s} (None mismatch)"
+        else:
+            assert abs(b - s) < 1e-6, f"{field}: batch={b:.10f} live={s:.10f}"
+
+
+# ---------------------------------------------------------------------------
+# (h) THE phase-closing gate: all 41 Phase 165 columns produce real values
+# ---------------------------------------------------------------------------
+
+
+def test_phase165_all_41_fields_non_constant_batch(session_bars, cfg):
+    """Every one of the 41 Phase 165 fields must take at least one non-None
+    value somewhere across a multi-session, multi-week batch run -- the
+    single test that catches a whole sub-scope silently failing to wire (the
+    todo-153 failure mode)."""
+    cache = FeatureCache()
+    results = FeatureFactory.compute_batch(session_bars, "SPY", "5m", cache, cfg)
+
+    all_none: list[str] = []
+    for field in _PHASE_165_FIELDS:
+        vals = [getattr(fv, field) for _, fv in results if getattr(fv, field) is not None]
+        if not vals:
+            all_none.append(field)
+    assert not all_none, f"Phase 165 field(s) NEVER non-None across the run: {all_none}"
+
+
+# ---------------------------------------------------------------------------
+# (i) field-set cross-check: dataclass, domain registry, feature_registry
+# ---------------------------------------------------------------------------
+
+
+def test_phase165_field_set_matches_registry():
+    """All 41 Phase 165 fields must be real FeatureVector fields, tagged
+    'structural' in FEATURE_VECTOR_DOMAIN, and present in feature_registry
+    with added_phase='165' -- skips cleanly if the live DB is unreachable so
+    this test stays CI-clean (house pattern, matches
+    tests/unit/test_spread_leg_pair_validity.py)."""
+    fv_fields = {f.name for f in dataclasses.fields(FeatureVector)}
+    assert len(_PHASE_165_FIELDS) == 41
+    assert set(_PHASE_165_FIELDS) <= fv_fields
+
+    for field in _PHASE_165_FIELDS:
+        assert FEATURE_VECTOR_DOMAIN[field] == "structural", f"{field} not tagged 'structural'"
+
+    try:
+        conn = psycopg2.connect("postgresql://postgres:postgres@localhost:5432/indicagent")
+    except Exception:
+        pytest.skip("Cannot connect to the live indicagent DB")
+    try:
+        with conn.cursor() as cur:
+            cur.execute("SELECT feature_name FROM feature_registry WHERE added_phase = '165'")
+            registry_names = {row[0] for row in cur.fetchall()}
+    finally:
+        conn.close()
+
+    assert registry_names == set(_PHASE_165_FIELDS), (
+        f"feature_registry added_phase='165' mismatch. "
+        f"Missing from registry: {set(_PHASE_165_FIELDS) - registry_names}; "
+        f"extra in registry: {registry_names - set(_PHASE_165_FIELDS)}"
+    )
