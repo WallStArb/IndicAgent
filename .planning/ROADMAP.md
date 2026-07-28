@@ -2314,7 +2314,7 @@ Plans:
 
 ---
 
-### Phase 165: Swing/Fib/Trend Structure Primitives 🔄 IN PROGRESS (5 plans, 5 waves, 2026-07-28)
+### Phase 165: Swing/Fib/Trend Structure Primitives ✅ COMPLETE (2026-07-28) — all 41 columns real (5 plans, 5 waves)
 
 **Goal:** Port 5 of the 6 remaining `src/intelligence/features/i3_structure/` plugins Phase 163
 didn't cover — `swing_detector.py`, `swing_momentum.py`, `trend_structure.py`,
@@ -2345,7 +2345,7 @@ normalization, APR namespace precedent, `FeatureCache` session-boundary mutator 
 **Requirements**: no formal `REQUIREMENTS.md` exists for this project — `165-CONTEXT.md`'s
 D-01..D-15 decision IDs are the requirement set, carried verbatim in each plan's `requirements`
 frontmatter (same convention as Phases 163/164/166).
-**Plans:** 4/5 plans executed. 5 plans, 5 waves (sequential — every plan touches `feature_factory.py`, so file ownership
+**Plans:** 5/5 plans executed. 5 plans, 5 waves (sequential — every plan touches `feature_factory.py`, so file ownership
 forces one wave per plan; Plan 03 additionally consumes Plan 02's in-memory swing intermediates per
 D-05, and Plan 05 consumes Plan 04's `FeatureCache` state).
 
@@ -2368,9 +2368,12 @@ Plans:
   D-07/D-08), `update_wk_vwap()` ISO-week high/low/close extension (D-09), all 3 call sites wired.
   Mutation-verification required redesigning one test (accumulator-collision guard was structurally
   blind under production call order) to actually expose the hazard. Executed 2026-07-28.
-- [ ] 165-05-PLAN.md — `_derive_session_levels()`: the final 16 columns as ATR-distances/percents/flag,
+- [x] 165-05-PLAN.md — `_derive_session_levels()`: the final 16 columns as ATR-distances/percents/flag,
   prior-completed-week pivot anchoring, `tf=='1d'` suppression of the 5 intraday-only fields, plus the
-  phase-closing gate proving all 41 columns produce real values
+  phase-closing gate (`test_phase165_all_41_fields_non_constant_batch`) proving all 41 columns produce
+  real values. A post-merge test failure (an unrelated comment's "backward compatibility" phrase tripped
+  the causal-safety look-ahead scanner) was caught and fixed same-session. Executed 2026-07-28 — **Phase
+  165 COMPLETE, 5/5 plans.**
 
 ### Phase 166: Frame/Execution Recalibration ✅ COMPLETE (2026-07-23) — VERDICT: neither candidate promoted (6 plans, 4 waves)
 
