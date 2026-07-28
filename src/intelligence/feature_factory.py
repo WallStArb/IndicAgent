@@ -5315,9 +5315,10 @@ def _derive_session_levels(
     """Derive the 16 ATR-normalized/bounded/flag session-levels FeatureVector fields.
 
     Reads FeatureCache's raw session, overnight, Asian-block and prior-completed-
-    week levels (set by update_session_levels() / update_wk_vwap(), both called
-    once per bar by the caller BEFORE compute()) plus the compute-path atr_val --
-    never recomputes them, and never returns a raw price level (D-16). Structured
+    week levels (set by the session-levels mutator / update_wk_vwap(), both
+    called once per bar by the caller BEFORE compute()) plus the compute-path
+    atr_val -- never recomputes them, and never returns a raw price level
+    (D-16). Structured
     exactly like _derive_session_vp(): an atr_valid guard at the top returning the
     full fallback, local _above()/_below() closures with the same sign convention
     (a level ABOVE close yields a positive distance via (level - close_); a level
@@ -6106,6 +6107,40 @@ class FeatureFactory:
         fib_cluster_strength_val: float | None = _fib_fields["fib_cluster_strength"]
         in_fib_discount_zone_val: float | None = _fib_fields["in_fib_discount_zone"]
 
+        # Session Levels (Phase 165 Plan 05): the last 16 Phase 165 fields,
+        # derived from FeatureCache's raw session/overnight/Asian-block/
+        # prior-completed-week state. The caller (e.g. feature_vector_pipeline
+        # .py's _process_bar_compute) is required to call
+        # cache.update_session_levels(...) before compute() runs -- this
+        # function only reads the cache, never mutates it.
+        _session_level_fields = _derive_session_levels(cache, close_, atr_val, tf)
+        prior_session_high_dist_atr_val: float | None = _session_level_fields[
+            "prior_session_high_dist_atr"
+        ]
+        prior_session_low_dist_atr_val: float | None = _session_level_fields[
+            "prior_session_low_dist_atr"
+        ]
+        prior_session_close_dist_atr_val: float | None = _session_level_fields[
+            "prior_session_close_dist_atr"
+        ]
+        overnight_high_dist_atr_val: float | None = _session_level_fields["overnight_high_dist_atr"]
+        overnight_low_dist_atr_val: float | None = _session_level_fields["overnight_low_dist_atr"]
+        overnight_range_pct_val: float | None = _session_level_fields["overnight_range_pct"]
+        opening_gap_pct_val: float | None = _session_level_fields["opening_gap_pct"]
+        weekly_pivot_dist_atr_val: float | None = _session_level_fields["weekly_pivot_dist_atr"]
+        weekly_r1_dist_atr_val: float | None = _session_level_fields["weekly_r1_dist_atr"]
+        weekly_r2_dist_atr_val: float | None = _session_level_fields["weekly_r2_dist_atr"]
+        weekly_s1_dist_atr_val: float | None = _session_level_fields["weekly_s1_dist_atr"]
+        weekly_s2_dist_atr_val: float | None = _session_level_fields["weekly_s2_dist_atr"]
+        nearest_level_dist_atr_val: float | None = _session_level_fields["nearest_level_dist_atr"]
+        asian_session_high_dist_atr_val: float | None = _session_level_fields[
+            "asian_session_high_dist_atr"
+        ]
+        asian_session_low_dist_atr_val: float | None = _session_level_fields[
+            "asian_session_low_dist_atr"
+        ]
+        gap_filled_val: float | None = _session_level_fields["gap_filled"]
+
         # Smart Money Concepts (Phase 164 Plan 02): Order Blocks + stateless
         # Breaker/Mitigation, single pure pass per RESEARCH.md's mandated
         # order_blocks -> breaker/mitigation sequencing. Plans 03-04 append
@@ -6485,10 +6520,11 @@ class FeatureFactory:
             amd_distribution_direction=amd_distribution_direction_val,
             manip_strength=manip_strength_val,
             # Swing Detection + Trend Structure (13, Phase 165 Plan 02) +
-            # Swing Momentum + Fibonacci Zones (12, Phase 165 Plan 03): real
-            # computed values from the shared _swing_fields/_trend_fields/
-            # _swing_momentum_fields/_fib_fields passes above. Session
-            # Structure (16) remains None placeholders -- Plan 04's scope.
+            # Swing Momentum + Fibonacci Zones (12, Phase 165 Plan 03) +
+            # Session Levels (16, Phase 165 Plan 05): real computed values
+            # from the shared _swing_fields/_trend_fields/
+            # _swing_momentum_fields/_fib_fields/_session_level_fields passes
+            # above -- all 41 Phase 165 columns now carry computed values.
             swing_high_dist_atr=swing_high_dist_atr_val,
             swing_low_dist_atr=swing_low_dist_atr_val,
             swing_high_type=swing_high_type_val,
@@ -6514,22 +6550,22 @@ class FeatureFactory:
             nearest_fib_dist_atr=nearest_fib_dist_atr_val,
             fib_cluster_strength=fib_cluster_strength_val,
             in_fib_discount_zone=in_fib_discount_zone_val,
-            prior_session_high_dist_atr=None,
-            prior_session_low_dist_atr=None,
-            prior_session_close_dist_atr=None,
-            overnight_high_dist_atr=None,
-            overnight_low_dist_atr=None,
-            overnight_range_pct=None,
-            opening_gap_pct=None,
-            weekly_pivot_dist_atr=None,
-            weekly_r1_dist_atr=None,
-            weekly_r2_dist_atr=None,
-            weekly_s1_dist_atr=None,
-            weekly_s2_dist_atr=None,
-            nearest_level_dist_atr=None,
-            asian_session_high_dist_atr=None,
-            asian_session_low_dist_atr=None,
-            gap_filled=None,
+            prior_session_high_dist_atr=prior_session_high_dist_atr_val,
+            prior_session_low_dist_atr=prior_session_low_dist_atr_val,
+            prior_session_close_dist_atr=prior_session_close_dist_atr_val,
+            overnight_high_dist_atr=overnight_high_dist_atr_val,
+            overnight_low_dist_atr=overnight_low_dist_atr_val,
+            overnight_range_pct=overnight_range_pct_val,
+            opening_gap_pct=opening_gap_pct_val,
+            weekly_pivot_dist_atr=weekly_pivot_dist_atr_val,
+            weekly_r1_dist_atr=weekly_r1_dist_atr_val,
+            weekly_r2_dist_atr=weekly_r2_dist_atr_val,
+            weekly_s1_dist_atr=weekly_s1_dist_atr_val,
+            weekly_s2_dist_atr=weekly_s2_dist_atr_val,
+            nearest_level_dist_atr=nearest_level_dist_atr_val,
+            asian_session_high_dist_atr=asian_session_high_dist_atr_val,
+            asian_session_low_dist_atr=asian_session_low_dist_atr_val,
+            gap_filled=gap_filled_val,
         )
 
     @staticmethod
@@ -6790,6 +6826,28 @@ class FeatureFactory:
             nearest_fib_dist_atr_val = _fib_fields["nearest_fib_dist_atr"]
             fib_cluster_strength_val = _fib_fields["fib_cluster_strength"]
             in_fib_discount_zone_val = _fib_fields["in_fib_discount_zone"]
+
+            # Session Levels (Phase 165 Plan 05): the last 16 Phase 165
+            # fields, derived from FeatureCache's raw state --
+            # cache.update_session_levels(...) was already called for this
+            # bar in this loop's per-bar preamble above.
+            _session_level_fields = _derive_session_levels(cache, close_, atr_val, tf)
+            prior_session_high_dist_atr_val = _session_level_fields["prior_session_high_dist_atr"]
+            prior_session_low_dist_atr_val = _session_level_fields["prior_session_low_dist_atr"]
+            prior_session_close_dist_atr_val = _session_level_fields["prior_session_close_dist_atr"]
+            overnight_high_dist_atr_val = _session_level_fields["overnight_high_dist_atr"]
+            overnight_low_dist_atr_val = _session_level_fields["overnight_low_dist_atr"]
+            overnight_range_pct_val = _session_level_fields["overnight_range_pct"]
+            opening_gap_pct_val = _session_level_fields["opening_gap_pct"]
+            weekly_pivot_dist_atr_val = _session_level_fields["weekly_pivot_dist_atr"]
+            weekly_r1_dist_atr_val = _session_level_fields["weekly_r1_dist_atr"]
+            weekly_r2_dist_atr_val = _session_level_fields["weekly_r2_dist_atr"]
+            weekly_s1_dist_atr_val = _session_level_fields["weekly_s1_dist_atr"]
+            weekly_s2_dist_atr_val = _session_level_fields["weekly_s2_dist_atr"]
+            nearest_level_dist_atr_val = _session_level_fields["nearest_level_dist_atr"]
+            asian_session_high_dist_atr_val = _session_level_fields["asian_session_high_dist_atr"]
+            asian_session_low_dist_atr_val = _session_level_fields["asian_session_low_dist_atr"]
+            gap_filled_val = _session_level_fields["gap_filled"]
 
             # Smart Money Concepts (Phase 164 Plan 02): Order Blocks +
             # stateless Breaker/Mitigation -- pre-slice a causal window ending
@@ -7383,11 +7441,13 @@ class FeatureFactory:
                 amd_manipulation_detected=amd_manipulation_detected_val,
                 amd_distribution_direction=amd_distribution_direction_val,
                 manip_strength=manip_strength_val,
-                # Swing Detection + Trend Structure (13, Phase 165 Plan 02):
-                # real computed values from the shared _swing_fields/
-                # _trend_fields/_swing_momentum_fields/_fib_fields passes
-                # above (Phase 165 Plans 02-03). Session Structure (16)
-                # remains None placeholders -- Plan 04's scope.
+                # Swing Detection + Trend Structure (13, Phase 165 Plan 02) +
+                # Swing Momentum + Fibonacci Zones (12, Phase 165 Plan 03) +
+                # Session Levels (16, Phase 165 Plan 05): real computed
+                # values from the shared _swing_fields/_trend_fields/
+                # _swing_momentum_fields/_fib_fields/_session_level_fields
+                # passes above -- all 41 Phase 165 columns now carry
+                # computed values.
                 swing_high_dist_atr=swing_high_dist_atr_val,
                 swing_low_dist_atr=swing_low_dist_atr_val,
                 swing_high_type=swing_high_type_val,
@@ -7413,22 +7473,22 @@ class FeatureFactory:
                 nearest_fib_dist_atr=nearest_fib_dist_atr_val,
                 fib_cluster_strength=fib_cluster_strength_val,
                 in_fib_discount_zone=in_fib_discount_zone_val,
-                prior_session_high_dist_atr=None,
-                prior_session_low_dist_atr=None,
-                prior_session_close_dist_atr=None,
-                overnight_high_dist_atr=None,
-                overnight_low_dist_atr=None,
-                overnight_range_pct=None,
-                opening_gap_pct=None,
-                weekly_pivot_dist_atr=None,
-                weekly_r1_dist_atr=None,
-                weekly_r2_dist_atr=None,
-                weekly_s1_dist_atr=None,
-                weekly_s2_dist_atr=None,
-                nearest_level_dist_atr=None,
-                asian_session_high_dist_atr=None,
-                asian_session_low_dist_atr=None,
-                gap_filled=None,
+                prior_session_high_dist_atr=prior_session_high_dist_atr_val,
+                prior_session_low_dist_atr=prior_session_low_dist_atr_val,
+                prior_session_close_dist_atr=prior_session_close_dist_atr_val,
+                overnight_high_dist_atr=overnight_high_dist_atr_val,
+                overnight_low_dist_atr=overnight_low_dist_atr_val,
+                overnight_range_pct=overnight_range_pct_val,
+                opening_gap_pct=opening_gap_pct_val,
+                weekly_pivot_dist_atr=weekly_pivot_dist_atr_val,
+                weekly_r1_dist_atr=weekly_r1_dist_atr_val,
+                weekly_r2_dist_atr=weekly_r2_dist_atr_val,
+                weekly_s1_dist_atr=weekly_s1_dist_atr_val,
+                weekly_s2_dist_atr=weekly_s2_dist_atr_val,
+                nearest_level_dist_atr=nearest_level_dist_atr_val,
+                asian_session_high_dist_atr=asian_session_high_dist_atr_val,
+                asian_session_low_dist_atr=asian_session_low_dist_atr_val,
+                gap_filled=gap_filled_val,
             )
 
             results.append((bar_ts, fv))
