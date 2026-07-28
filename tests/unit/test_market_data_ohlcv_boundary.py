@@ -75,10 +75,6 @@ _ALLOW_LIST: dict[str, str] = {
     "scripts/debug/replay/debug_lifecycle_replay.py": (
         "PENDING (todo 124): Debug tooling -- Tier-2 audit follow-up."
     ),
-    "scripts/analysis/crowding_proxy_regression.py": (
-        "PENDING (todo 124): Standing diagnostic script, not a live gate -- Tier-2 audit "
-        "follow-up."
-    ),
     "src/persistence/repository/feature_snapshot_repository.py": (
         "PENDING (todo 124): Not yet classified -- Tier-2 audit follow-up."
     ),
