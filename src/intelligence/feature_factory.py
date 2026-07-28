@@ -3802,6 +3802,110 @@ def _compute_order_blocks(
     }
 
 
+# ---------------------------------------------------------------------------
+# Smart Money Concepts — Fair Value Gaps (Phase 164 Plan 03)
+# ---------------------------------------------------------------------------
+
+_FVG_FALLBACK: dict[str, float] = {
+    "fvg_dist_atr": 0.0,
+    "fvg_size_atr": 0.0,
+    "fvg_open_count": 0.0,
+    "fvg_midpoint": 0.0,
+}
+
+
+def _compute_fvg(
+    opens: np.ndarray,
+    highs: np.ndarray,
+    lows: np.ndarray,
+    closes: np.ndarray,
+    close_: float,
+    atr_val: float,
+    tf: str,
+    config: FeatureFactoryConfig,
+) -> dict[str, float]:
+    """Fair Value Gaps -- stateless 3-candle imbalance scan (Phase 164 Plan 03).
+
+    Ports fair_value_gap.py's geometry: a bullish FVG forms when bar3's low
+    sits above bar1's high (the impulsive bar2 leaves an untraded gap);
+    bearish is the mirror (bar3's high below bar1's low). A gap is "filled"
+    once a later bar's wick trades back through its near edge. Unlike the
+    archived plugin (which returns open_fvgs[-1], the OLDEST still-open gap
+    from its backward scan order -- see Phase 164 Plan 03 commit notes), this
+    selects the MOST RECENT unfilled gap by formation index (largest bar3
+    index), matching order_blocks.py's nearest-by-recency convention and the
+    literal meaning of "most recent." fvg_open_count is the full count of
+    unfilled gaps in-window, independent of which one is selected.
+
+    fvg_midpoint is returned as an extra, NON-persisted key -- an in-pass
+    local for Plan 04's supply/demand-zones block (soft dependency per
+    164-RESEARCH.md), never threaded into _build_feature_vector.
+
+    opens is accepted for interface parity with the other SMC helpers (FVG
+    geometry itself only needs high/low/close) -- unused here, same as tf.
+
+    Falls back to _FVG_FALLBACK (never raises, never NaN/Inf) when atr_val is
+    invalid or the window has fewer than 3 bars.
+    """
+    del opens  # unused -- FVG geometry needs only high/low/close
+    del tf  # unused -- flat (non-per-tf) lookback per migration 266
+    atr_valid = atr_val is not None and math.isfinite(atr_val) and atr_val > 0
+    if not atr_valid:
+        return dict(_FVG_FALLBACK)
+
+    lookback = config.smc_fvg_lookback
+    h = highs[-lookback:]
+    lo = lows[-lookback:]
+    n_bars = len(h)
+    if n_bars < 3:
+        return dict(_FVG_FALLBACK)
+
+    candidates: list[dict[str, float]] = []
+    for i in range(2, n_bars):
+        bar1_high = h[i - 2]
+        bar1_low = lo[i - 2]
+        bar3_high = h[i]
+        bar3_low = lo[i]
+
+        fvg_type = 0.0
+        top = 0.0
+        bottom = 0.0
+        if bar3_low > bar1_high:
+            fvg_type = 1.0
+            top = float(bar3_low)
+            bottom = float(bar1_high)
+        elif bar3_high < bar1_low:
+            fvg_type = -1.0
+            top = float(bar1_low)
+            bottom = float(bar3_high)
+
+        if fvg_type == 0.0:
+            continue
+
+        filled = False
+        if i + 1 < n_bars:
+            if fvg_type == 1.0:
+                filled = bool(np.any(lo[i + 1 :] <= bottom))
+            else:
+                filled = bool(np.any(h[i + 1 :] >= top))
+
+        if not filled:
+            candidates.append({"type": fvg_type, "top": top, "bottom": bottom, "idx": float(i)})
+
+    if not candidates:
+        return dict(_FVG_FALLBACK)
+
+    nearest = max(candidates, key=lambda cand: cand["idx"])
+    midpoint = (nearest["top"] + nearest["bottom"]) / 2.0
+
+    return {
+        "fvg_dist_atr": float(abs(close_ - midpoint) / atr_val),
+        "fvg_size_atr": float((nearest["top"] - nearest["bottom"]) / atr_val),
+        "fvg_open_count": float(len(candidates)),
+        "fvg_midpoint": float(midpoint),
+    }
+
+
 def _build_feature_vector(
     *,
     momentum_z_fast: float,
@@ -4342,6 +4446,17 @@ class FeatureFactory:
         breaker_block_active_val = _ob_fields["breaker_block_active"]
         ob_mitigation_pct_val = _ob_fields["ob_mitigation_pct"]
 
+        # Smart Money Concepts (Phase 164 Plan 03): Fair Value Gaps land here;
+        # Liquidity Sweeps + Liquidity Pools (single-tf descoped) append after
+        # in Task 2, per RESEARCH.md's mandated sequencing. fvg_midpoint is
+        # staged as an in-pass local (not persisted) for Plan 04's
+        # supply/demand-zones block.
+        _fvg_fields = _compute_fvg(opens, highs, lows, closes, close_, atr_val, tf, config)
+        fvg_dist_atr_val = _fvg_fields["fvg_dist_atr"]
+        fvg_size_atr_val = _fvg_fields["fvg_size_atr"]
+        fvg_open_count_val = _fvg_fields["fvg_open_count"]
+        _fvg_midpoint = _fvg_fields["fvg_midpoint"]  # Plan 04 zones local, not persisted
+
         _dow = _dow_encoding(bar_ts)
 
         # Renaissance Primitives (Phase 142.5 Plan 01)
@@ -4601,9 +4716,10 @@ class FeatureFactory:
             canary_near_constant=canary_near_constant_val,
             canary_acausal_placebo=canary_acausal_placebo_val,
             # Smart Money Concepts (36, Phase 164). Order Blocks +
-            # Breaker/Mitigation (7, Plan 02) are real computed values now;
-            # the remaining 29 fields (FVG/sweeps/pools/zones/BOS-CHoCH/AMD)
-            # stay placeholder None until Plans 03-04 land.
+            # Breaker/Mitigation (7, Plan 02) and FVG (3, Plan 03 Task 1) are
+            # real computed values now; the remaining 26 fields (sweeps/
+            # pools/zones/BOS-CHoCH/AMD) stay placeholder None until Plan 03
+            # Task 2 / Plan 04 land.
             ob_bull_dist_atr=ob_bull_dist_atr_val,
             ob_bear_dist_atr=ob_bear_dist_atr_val,
             ob_strength=ob_strength_val,
@@ -4611,9 +4727,9 @@ class FeatureFactory:
             breaker_dist_atr=breaker_dist_atr_val,
             breaker_block_active=breaker_block_active_val,
             ob_mitigation_pct=ob_mitigation_pct_val,
-            fvg_dist_atr=None,
-            fvg_size_atr=None,
-            fvg_open_count=None,
+            fvg_dist_atr=fvg_dist_atr_val,
+            fvg_size_atr=fvg_size_atr_val,
+            fvg_open_count=fvg_open_count_val,
             sweep_detected=None,
             sweep_strength=None,
             reclaim_velocity=None,
@@ -4843,6 +4959,28 @@ class FeatureFactory:
             breaker_dist_atr_val = _ob_fields["breaker_dist_atr"]
             breaker_block_active_val = _ob_fields["breaker_block_active"]
             ob_mitigation_pct_val = _ob_fields["ob_mitigation_pct"]
+
+            # Smart Money Concepts (Phase 164 Plan 03 Task 1): FVG -- pre-
+            # slices its own causal window ending at the current bar (never
+            # the full series), matching OB's slicing immediately above.
+            # fvg_midpoint is an in-pass local only (Plan 04 zones). Liquidity
+            # Sweeps + Liquidity Pools append after in Task 2.
+            _fvg_lookback = config.smc_fvg_lookback
+            _fvg_start = max(0, i - _fvg_lookback + 1)
+            _fvg_fields = _compute_fvg(
+                opens[_fvg_start : i + 1],
+                highs[_fvg_start : i + 1],
+                lows[_fvg_start : i + 1],
+                closes[_fvg_start : i + 1],
+                close_,
+                atr_val,
+                tf,
+                config,
+            )
+            fvg_dist_atr_val = _fvg_fields["fvg_dist_atr"]
+            fvg_size_atr_val = _fvg_fields["fvg_size_atr"]
+            fvg_open_count_val = _fvg_fields["fvg_open_count"]
+            _fvg_midpoint = _fvg_fields["fvg_midpoint"]
 
             # Regime-level primitives (all from cache)
             hmm_regime_prob_val = cache.hmm_regime_prob
@@ -5262,9 +5400,10 @@ class FeatureFactory:
                 canary_near_constant=canary_near_constant_val,
                 canary_acausal_placebo=canary_acausal_placebo_val,
                 # Smart Money Concepts (36, Phase 164). Order Blocks +
-                # Breaker/Mitigation (7, Plan 02) are real computed values
-                # now; the remaining 29 fields (FVG/sweeps/pools/zones/
-                # BOS-CHoCH/AMD) stay placeholder None until Plans 03-04 land.
+                # Breaker/Mitigation (7, Plan 02) and FVG (3, Plan 03 Task 1)
+                # are real computed values now; the remaining 26 fields
+                # (sweeps/pools/zones/BOS-CHoCH/AMD) stay placeholder None
+                # until Plan 03 Task 2 / Plan 04 land.
                 ob_bull_dist_atr=ob_bull_dist_atr_val,
                 ob_bear_dist_atr=ob_bear_dist_atr_val,
                 ob_strength=ob_strength_val,
@@ -5272,9 +5411,9 @@ class FeatureFactory:
                 breaker_dist_atr=breaker_dist_atr_val,
                 breaker_block_active=breaker_block_active_val,
                 ob_mitigation_pct=ob_mitigation_pct_val,
-                fvg_dist_atr=None,
-                fvg_size_atr=None,
-                fvg_open_count=None,
+                fvg_dist_atr=fvg_dist_atr_val,
+                fvg_size_atr=fvg_size_atr_val,
+                fvg_open_count=fvg_open_count_val,
                 sweep_detected=None,
                 sweep_strength=None,
                 reclaim_velocity=None,
