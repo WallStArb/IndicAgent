@@ -374,10 +374,10 @@ def test_zone_friction_score_bounded_and_soft_dependency_non_vacuous(cfg):
     atr_val = 0.1
 
     result_no_boost = _compute_supply_demand_zones(
-        opens, highs, lows, closes, close_, atr_val, "5m", cfg, 0.0, 1.0
+        opens, highs, lows, closes, close_, atr_val, cfg, 0.0, 1.0
     )
     result_boosted = _compute_supply_demand_zones(
-        opens, highs, lows, closes, close_, atr_val, "5m", cfg, 0.0, 0.0
+        opens, highs, lows, closes, close_, atr_val, cfg, 0.0, 0.0
     )
 
     assert 0.0 <= result_no_boost["zone_friction_score"] <= 1.0
@@ -393,7 +393,7 @@ def test_zone_friction_score_bounded_and_soft_dependency_non_vacuous(cfg):
     demand_high = max(highs[8:11])
     zone_mid = (demand_low + demand_high) / 2.0
     result_fvg_aligned = _compute_supply_demand_zones(
-        opens, highs, lows, closes, close_, atr_val, "5m", cfg, zone_mid, 1.0
+        opens, highs, lows, closes, close_, atr_val, cfg, zone_mid, 1.0
     )
     assert result_fvg_aligned["zone_friction_score"] != result_no_boost["zone_friction_score"]
 
@@ -429,9 +429,7 @@ def test_zones_no_raw_price_fields_on_feature_vector(cfg):
 
 def test_zones_fallback_on_invalid_atr(cfg):
     opens, highs, lows, closes, close_ = _demand_array_fixture()
-    result = _compute_supply_demand_zones(
-        opens, highs, lows, closes, close_, 0.0, "5m", cfg, 0.0, 0.0
-    )
+    result = _compute_supply_demand_zones(opens, highs, lows, closes, close_, 0.0, cfg, 0.0, 0.0)
     assert result["active_demand_zones"] == 0.0
     assert result["active_supply_zones"] == 0.0
     for v in result.values():
@@ -443,9 +441,7 @@ def test_zones_fallback_on_short_window(cfg):
     highs = np.array([100.1, 100.6, 100.3])
     lows = np.array([99.9, 100.4, 100.1])
     closes = np.array([100.0, 100.5, 100.2])
-    result = _compute_supply_demand_zones(
-        opens, highs, lows, closes, 100.2, 1.0, "5m", cfg, 0.0, 0.0
-    )
+    result = _compute_supply_demand_zones(opens, highs, lows, closes, 100.2, 1.0, cfg, 0.0, 0.0)
     assert result["active_demand_zones"] == 0.0
     for v in result.values():
         assert math.isfinite(v)

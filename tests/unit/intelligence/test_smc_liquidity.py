@@ -332,7 +332,7 @@ def test_sweeps_fallback_on_invalid_atr():
     lows = np.array([99.0, 99.5, 99.0, 100.0, 99.5])
     closes = np.array([99.5, 100.5, 99.5, 100.5, 99.8])
 
-    result = _compute_liquidity_sweeps(highs, lows, closes, 99.8, 0.0, "5m", _make_cfg())
+    result = _compute_liquidity_sweeps(highs, lows, closes, 99.8, 0.0, _make_cfg())
     assert result["sweep_detected"] == 0.0
     assert result["bars_since_last_sweep"] == 0.0
     for v in result.values():
@@ -346,7 +346,7 @@ def test_pools_fallback_on_invalid_atr():
     lows = np.array([99.0, 99.5, 99.0, 100.0, 99.5])
     closes = np.array([99.5, 100.5, 99.5, 100.5, 99.8])
 
-    result = _compute_liquidity_pools(highs, lows, closes, 99.8, 0.0, "5m", _make_cfg())
+    result = _compute_liquidity_pools(highs, lows, closes, 99.8, 0.0, _make_cfg())
     assert result["pool_count"] == 0.0
     assert result["bsl_dist_atr"] == 0.0
     assert result["ssl_dist_atr"] == 0.0
@@ -361,7 +361,7 @@ def test_sweeps_fallback_on_short_window():
     lows = np.array([99.0, 99.5])
     closes = np.array([99.5, 100.5])
 
-    result = _compute_liquidity_sweeps(highs, lows, closes, 100.5, 1.0, "5m", _make_cfg())
+    result = _compute_liquidity_sweeps(highs, lows, closes, 100.5, 1.0, _make_cfg())
     assert result["sweep_detected"] == 0.0
     for v in result.values():
         assert math.isfinite(v)
@@ -374,7 +374,7 @@ def test_pools_fallback_on_short_window():
     lows = np.array([99.0, 99.5])
     closes = np.array([99.5, 100.5])
 
-    result = _compute_liquidity_pools(highs, lows, closes, 100.5, 1.0, "5m", _make_cfg())
+    result = _compute_liquidity_pools(highs, lows, closes, 100.5, 1.0, _make_cfg())
     assert result["pool_count"] == 0.0
     for v in result.values():
         assert math.isfinite(v)

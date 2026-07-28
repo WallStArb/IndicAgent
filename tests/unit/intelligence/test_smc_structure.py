@@ -301,7 +301,7 @@ def test_bos_choch_fallback_on_invalid_atr(cfg):
     lows = np.array([99.0, 99.5, 99.0, 100.0, 99.5])
     closes = np.array([99.5, 100.5, 99.5, 100.5, 99.8])
 
-    result = _compute_bos_choch(highs, lows, closes, 99.8, 0.0, "5m", cfg)
+    result = _compute_bos_choch(highs, lows, closes, 99.8, 0.0, cfg)
     assert result["bos_direction"] == 0.0
     assert result["smc_trend_direction"] == 0.0
     for v in result.values():
@@ -313,7 +313,7 @@ def test_bos_choch_fallback_on_too_few_swings(cfg):
     lows = np.array([99.5, 99.6, 99.55, 99.65, 99.5, 99.7])
     closes = np.array([99.8, 99.9, 99.85, 99.95, 99.8, 100.0])
 
-    result = _compute_bos_choch(highs, lows, closes, 100.0, 1.0, "5m", cfg)
+    result = _compute_bos_choch(highs, lows, closes, 100.0, 1.0, cfg)
     assert result["bos_direction"] == 0.0
     assert result["bars_since_last_shift"] == 0.0
     for v in result.values():

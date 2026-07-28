@@ -520,6 +520,9 @@ def _build_feature_factory_config(cfg: ConfigService) -> FeatureFactoryConfig:
         smc_order_blocks_opposing_candle_lookback=int(
             cfg.get_sync("feature.smc.order_blocks.opposing_candle_lookback", 10)
         ),
+        smc_order_blocks_strength_fallback=float(
+            cfg.get_sync("feature.smc.order_blocks.strength_fallback", 0.5)
+        ),
         smc_fvg_lookback=int(cfg.get_sync("feature.smc.fvg.lookback", 100)),
         smc_liquidity_sweeps_lookback=int(
             cfg.get_sync("feature.smc.liquidity_sweeps.lookback", 120)

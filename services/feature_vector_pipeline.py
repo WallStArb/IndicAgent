@@ -857,6 +857,9 @@ class FeatureVectorPipeline(BaseDaemon):
             smc_order_blocks_opposing_candle_lookback=_int(
                 "feature.smc.order_blocks.opposing_candle_lookback", 10
             ),
+            smc_order_blocks_strength_fallback=_float(
+                "feature.smc.order_blocks.strength_fallback", 0.5
+            ),
             smc_fvg_lookback=_int("feature.smc.fvg.lookback", 100),
             smc_liquidity_sweeps_lookback=_int("feature.smc.liquidity_sweeps.lookback", 120),
             smc_liquidity_sweeps_swing_neighbor=_int(
