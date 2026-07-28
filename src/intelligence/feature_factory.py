@@ -44,7 +44,7 @@ from src.intelligence.feature_cache import (
 )
 from src.intelligence.schemas import FeatureVector
 from src.intelligence.utils import find_peaks, find_troughs
-from src.intelligence.utils.gradient_utils import linear_ramp
+from src.intelligence.utils.gradient_utils import freshness_decay, linear_ramp
 
 # ---------------------------------------------------------------------------
 # Algorithm version tracking
@@ -4190,6 +4190,307 @@ def _pool_touches_for(lvl_type: str) -> float:
     return 1.0
 
 
+# ---------------------------------------------------------------------------
+# Smart Money Concepts — Supply/Demand Zones + BOS/CHoCH + AMD Cycle (Plan 04)
+# ---------------------------------------------------------------------------
+
+_ZONE_FALLBACK: dict[str, float] = {
+    "demand_dist_atr": 0.0,
+    "supply_dist_atr": 0.0,
+    "demand_freshness": 0.0,
+    "supply_freshness": 0.0,
+    "active_demand_zones": 0.0,
+    "active_supply_zones": 0.0,
+    "zone_friction_score": 0.0,
+}
+
+_BOS_FALLBACK: dict[str, float] = {
+    "bos_strength": 0.0,
+    "choch_strength": 0.0,
+    "bos_direction": 0.0,
+    "choch_direction": 0.0,
+    "smc_trend_direction": 0.0,
+    "bars_since_last_shift": 0.0,
+}
+
+
+def _compute_supply_demand_zones(
+    opens: np.ndarray,
+    highs: np.ndarray,
+    lows: np.ndarray,
+    closes: np.ndarray,
+    close_: float,
+    atr_val: float,
+    tf: str,
+    config: FeatureFactoryConfig,
+    fvg_midpoint: float,
+    price_in_premium: float,
+) -> dict[str, float]:
+    """Supply/Demand Zones -- stateless Rally-Base-Drop/Drop-Base-Rally scan (Plan 04).
+
+    Ports supply_demand_zones.py's geometry: an impulsive close-to-close move
+    (>= atr_val * impulse_atr_mult) with low overlap against the immediately
+    preceding bar, preceded by a run of small-body/small-range "base" bars,
+    forms a zone at the base bars' own high/low. Bullish impulses (direction
+    +1) form demand zones; bearish impulses (direction -1) form supply zones.
+    A zone is "active" (unmitigated) while price has never closed beyond its
+    distal edge since formation; freshness decays with each subsequent touch
+    (freshness_decay, matching the archived plugin's k parameter) and resets
+    to a fresh 1.0 for a never-touched zone.
+
+    fvg_midpoint (Plan 03's FVG local) and price_in_premium (Plan 03's
+    Liquidity Pools local) are a SOFT dependency per 164-RESEARCH.md: zone
+    strength gets an alignment boost when the nearest zone contains
+    fvg_midpoint or sits on the correct side of price_in_premium, but the
+    function still returns a complete result if both are 0.0 (their
+    respective fallback sentinels) -- no zones ever go undetected because of
+    this. zone_friction_score = freshness * strength * 1/(1+dist_atr) for
+    whichever of demand/supply is nearer (matching the archived plugin's
+    Phase 126-06 formalization); only demand_dist_atr/supply_dist_atr/
+    demand_freshness/supply_freshness/active_demand_zones/active_supply_zones/
+    zone_friction_score are persisted -- demand_strength/supply_strength/
+    in_demand_zone/in_supply_zone/nearest_*_high/low never leave this
+    function (raw-price + redundant-strength-copy audit, 164-RESEARCH.md).
+
+    tf is accepted for interface parity with the other SMC helpers -- unused
+    here (flat, non-per-tf lookback per migration 266).
+
+    Falls back to _ZONE_FALLBACK (never raises, never NaN/Inf) when atr_val
+    is invalid or the window is too short to run the base+impulse scan.
+    """
+    del tf
+    atr_valid = atr_val is not None and math.isfinite(atr_val) and atr_val > 0
+    if not atr_valid:
+        return dict(_ZONE_FALLBACK)
+
+    lookback = config.smc_zones_lookback
+    o = opens[-lookback:]
+    h = highs[-lookback:]
+    lo = lows[-lookback:]
+    c = closes[-lookback:]
+    n_bars = len(c)
+
+    max_base_bars = config.smc_zones_max_base_bars
+    if n_bars < max_base_bars + 3:
+        return dict(_ZONE_FALLBACK)
+
+    impulse_atr_mult = config.smc_zones_impulse_atr_mult
+    overlap_atr_mult = config.smc_zones_impulse_overlap_atr_mult
+    base_body_ratio = config.smc_zones_base_body_ratio
+    base_atr_mult = config.smc_zones_base_atr_mult
+    height_cap_mult = config.smc_zones_zone_height_cap_atr_mult
+
+    zones: list[dict[str, float]] = []
+    for i in range(max_base_bars + 2, n_bars - 1):
+        cc_move = abs(float(c[i]) - float(c[i - 1]))
+        if cc_move < atr_val * impulse_atr_mult:
+            continue
+        overlap = max(0.0, min(float(h[i]), float(h[i - 1])) - max(float(lo[i]), float(lo[i - 1])))
+        if overlap > atr_val * overlap_atr_mult:
+            continue
+        direction = 1.0 if float(c[i]) > float(c[i - 1]) else -1.0
+
+        base_bars: list[int] = []
+        for b in range(i - 1, max(i - max_base_bars - 1, 0), -1):
+            bar_range = float(h[b]) - float(lo[b])
+            bar_body = abs(float(c[b]) - float(o[b]))
+            if bar_range <= 0:
+                continue
+            if bar_body / bar_range < base_body_ratio and bar_range < atr_val * base_atr_mult:
+                base_bars.append(b)
+            else:
+                break
+        if not base_bars:
+            continue
+
+        zone_high = float(max(h[b] for b in base_bars))
+        zone_low = float(min(lo[b] for b in base_bars))
+        if zone_high - zone_low > atr_val * height_cap_mult:
+            zone_high = zone_low + atr_val * height_cap_mult
+
+        zones.append({"type": direction, "high": zone_high, "low": zone_low, "idx": float(i)})
+
+    if not zones:
+        return dict(_ZONE_FALLBACK)
+
+    freshness_k = config.smc_zones_freshness_decay_k
+    premium_mult = config.smc_zones_strength_premium_align_mult
+    fvg_mult = config.smc_zones_strength_fvg_align_mult
+    age_floor = config.smc_zones_age_penalty_floor
+    age_window = config.smc_zones_age_penalty_window_bars
+    age_max_pct = config.smc_zones_age_penalty_max_pct
+    max_tracked = config.smc_zones_max_tracked_zones
+
+    active: list[dict[str, float]] = []
+    for zone in zones:
+        mitigated = False
+        test_count = 0
+        start = int(zone["idx"]) + 1
+        if start < n_bars:
+            price_in_zone = (lo[start:] <= zone["high"]) & (h[start:] >= zone["low"])
+            if bool(np.any(price_in_zone)):
+                test_count = int(np.sum(price_in_zone))
+                if zone["type"] > 0.0:
+                    mitigated = bool(np.any(c[start:] < zone["low"]))
+                else:
+                    mitigated = bool(np.any(c[start:] > zone["high"]))
+        if mitigated:
+            continue
+        zone["freshness"] = freshness_decay(test_count, k=freshness_k)
+        active.append(zone)
+
+    if not active:
+        return dict(_ZONE_FALLBACK)
+
+    def _zone_dist(z: dict[str, float]) -> float:
+        return abs(close_ - (z["high"] + z["low"]) / 2.0)
+
+    demand_zones = sorted((z for z in active if z["type"] > 0.0), key=_zone_dist)[:max_tracked]
+    supply_zones = sorted((z for z in active if z["type"] < 0.0), key=_zone_dist)[:max_tracked]
+
+    def _zone_strength(z: dict[str, float]) -> float:
+        s = z["freshness"]
+        if z["type"] > 0.0 and price_in_premium == 0.0:
+            s = min(1.0, s * premium_mult)
+        elif z["type"] < 0.0 and price_in_premium == 1.0:
+            s = min(1.0, s * premium_mult)
+        if fvg_midpoint and z["low"] <= fvg_midpoint <= z["high"]:
+            s = min(1.0, s * fvg_mult)
+        age = n_bars - z["idx"]
+        age_penalty = max(age_floor, 1.0 - (age / age_window) * age_max_pct)
+        return min(1.0, s * age_penalty)
+
+    demand_dist_atr = 0.0
+    demand_freshness = 0.0
+    zf_demand: float | None = None
+    if demand_zones:
+        dz = demand_zones[0]
+        demand_dist_atr = _zone_dist(dz) / atr_val
+        demand_freshness = dz["freshness"]
+        zf_demand = demand_freshness * _zone_strength(dz) * (1.0 / (1.0 + demand_dist_atr))
+
+    supply_dist_atr = 0.0
+    supply_freshness = 0.0
+    zf_supply: float | None = None
+    if supply_zones:
+        sz = supply_zones[0]
+        supply_dist_atr = _zone_dist(sz) / atr_val
+        supply_freshness = sz["freshness"]
+        zf_supply = supply_freshness * _zone_strength(sz) * (1.0 / (1.0 + supply_dist_atr))
+
+    if zf_demand is not None and zf_supply is not None:
+        zone_friction_score = max(zf_demand, zf_supply)
+    elif zf_demand is not None:
+        zone_friction_score = zf_demand
+    elif zf_supply is not None:
+        zone_friction_score = zf_supply
+    else:
+        zone_friction_score = 0.0
+
+    return {
+        "demand_dist_atr": float(demand_dist_atr),
+        "supply_dist_atr": float(supply_dist_atr),
+        "demand_freshness": float(demand_freshness),
+        "supply_freshness": float(supply_freshness),
+        "active_demand_zones": float(len(demand_zones)),
+        "active_supply_zones": float(len(supply_zones)),
+        "zone_friction_score": float(zone_friction_score),
+    }
+
+
+def _compute_bos_choch(
+    highs: np.ndarray,
+    lows: np.ndarray,
+    closes: np.ndarray,
+    close_: float,
+    atr_val: float,
+    tf: str,
+    config: FeatureFactoryConfig,
+) -> dict[str, float]:
+    """Break of Structure / Change of Character -- stateless swing-break scan (Plan 04).
+
+    Ports bos_choch.py's geometry directly: the prevailing trend is read from
+    the last 2 swing highs and last 2 swing lows (both ascending -> uptrend
+    +1, both descending -> downtrend -1, else neutral 0); a BOS fires the
+    first bar after the most recent swing point whose close breaks beyond the
+    last swing high (bullish, +1) or last swing low (bearish, -1). A CHoCH is
+    a BOS whose direction opposes the prevailing trend. bos_strength/
+    choch_strength keep the archived plugin's ATR-normalized break-distance
+    formula unchanged. bars_since_last_shift is new (not in the archived
+    output) -- causal bar count from the break bar to the current bar, 0.0
+    when no break is found in-window (same "absence has no defined age"
+    convention as resistance_age_bars/support_age_bars).
+
+    The archived source's raw break-price field and its confidence field
+    (byte-identical to bos_strength there) are both dropped per the
+    field-by-field raw-price/redundancy audit -- neither is returned here.
+
+    Falls back to _BOS_FALLBACK (never raises, never NaN/Inf) when atr_val is
+    invalid or fewer than 2 swing highs/lows exist in-window.
+    """
+    del tf
+    atr_valid = atr_val is not None and math.isfinite(atr_val) and atr_val > 0
+    if not atr_valid:
+        return dict(_BOS_FALLBACK)
+
+    lookback = config.smc_bos_choch_lookback
+    h = highs[-lookback:]
+    lo = lows[-lookback:]
+    c = closes[-lookback:]
+    n_bars = len(c)
+
+    neighbor = config.smc_bos_choch_swing_neighbor
+    swing_highs = find_peaks(h, n=neighbor)
+    swing_lows = find_troughs(lo, n=neighbor)
+    if len(swing_highs) < 2 or len(swing_lows) < 2:
+        return dict(_BOS_FALLBACK)
+
+    hh = 1.0 if h[swing_highs[-1]] > h[swing_highs[-2]] else -1.0
+    hl = 1.0 if lo[swing_lows[-1]] > lo[swing_lows[-2]] else -1.0
+    if hh == 1.0 and hl == 1.0:
+        trend = 1.0
+    elif hh == -1.0 and hl == -1.0:
+        trend = -1.0
+    else:
+        trend = 0.0
+
+    last_sh_price = float(h[swing_highs[-1]])
+    last_sl_price = float(lo[swing_lows[-1]])
+    check_from = max(swing_highs[-1], swing_lows[-1]) + 1
+
+    bos_direction = 0.0
+    bos_strength = 0.0
+    shift_idx: int | None = None
+    for i in range(check_from, n_bars):
+        if c[i] > last_sh_price:
+            bos_direction = 1.0
+            bos_strength = max(0.0, (float(c[i]) - last_sh_price) / atr_val)
+            shift_idx = i
+            break
+        if c[i] < last_sl_price:
+            bos_direction = -1.0
+            bos_strength = max(0.0, (last_sl_price - float(c[i])) / atr_val)
+            shift_idx = i
+            break
+
+    choch_direction = 0.0
+    choch_strength = 0.0
+    if bos_direction != 0.0 and trend != 0.0 and bos_direction != trend:
+        choch_direction = bos_direction
+        choch_strength = bos_strength
+
+    bars_since_last_shift = float(n_bars - 1 - shift_idx) if shift_idx is not None else 0.0
+
+    return {
+        "bos_strength": float(bos_strength),
+        "choch_strength": float(choch_strength),
+        "bos_direction": float(bos_direction),
+        "choch_direction": float(choch_direction),
+        "smc_trend_direction": float(trend),
+        "bars_since_last_shift": bars_since_last_shift,
+    }
+
+
 def _build_feature_vector(
     *,
     momentum_z_fast: float,
@@ -4755,6 +5056,39 @@ class FeatureFactory:
         pool_count_val = _pool_fields["pool_count"]
         _price_in_premium = _pool_fields["price_in_premium"]  # Plan 04 zones local, not persisted
 
+        # Smart Money Concepts (Phase 164 Plan 04): Supply/Demand Zones (soft-
+        # consumes _fvg_midpoint/_price_in_premium from the FVG/pools block
+        # above, per RESEARCH.md's mandated ordering), then BOS/CHoCH, then
+        # AMD Cycle (reads FeatureCache's overnight-range state -- populated
+        # by the caller's update_overnight_range(), never recomputed here).
+        _zone_fields = _compute_supply_demand_zones(
+            opens,
+            highs,
+            lows,
+            closes,
+            close_,
+            atr_val,
+            tf,
+            config,
+            _fvg_midpoint,
+            _price_in_premium,
+        )
+        demand_dist_atr_val = _zone_fields["demand_dist_atr"]
+        supply_dist_atr_val = _zone_fields["supply_dist_atr"]
+        demand_freshness_val = _zone_fields["demand_freshness"]
+        supply_freshness_val = _zone_fields["supply_freshness"]
+        active_demand_zones_val = _zone_fields["active_demand_zones"]
+        active_supply_zones_val = _zone_fields["active_supply_zones"]
+        zone_friction_score_val = _zone_fields["zone_friction_score"]
+
+        _bos_fields = _compute_bos_choch(highs, lows, closes, close_, atr_val, tf, config)
+        bos_strength_val = _bos_fields["bos_strength"]
+        choch_strength_val = _bos_fields["choch_strength"]
+        bos_direction_val = _bos_fields["bos_direction"]
+        choch_direction_val = _bos_fields["choch_direction"]
+        smc_trend_direction_val = _bos_fields["smc_trend_direction"]
+        bars_since_last_shift_val = _bos_fields["bars_since_last_shift"]
+
         _dow = _dow_encoding(bar_ts)
 
         # Renaissance Primitives (Phase 142.5 Plan 01)
@@ -5013,11 +5347,10 @@ class FeatureFactory:
             canary_constant=_CANARY_CONSTANT_VALUE,
             canary_near_constant=canary_near_constant_val,
             canary_acausal_placebo=canary_acausal_placebo_val,
-            # Smart Money Concepts (36, Phase 164). Order Blocks +
-            # Breaker/Mitigation (7, Plan 02) and FVG + Liquidity Sweeps +
-            # Liquidity Pools (11, Plan 03) are real computed values now; the
-            # remaining 18 fields (zones/BOS-CHoCH/AMD) stay placeholder None
-            # until Plan 04 lands.
+            # Smart Money Concepts (36, Phase 164) -- all 8 sub-concepts now
+            # real computed values: Order Blocks + Breaker/Mitigation (7,
+            # Plan 02), FVG + Liquidity Sweeps + Liquidity Pools (11, Plan
+            # 03), Supply/Demand Zones + BOS/CHoCH + AMD Cycle (18, Plan 04).
             ob_bull_dist_atr=ob_bull_dist_atr_val,
             ob_bear_dist_atr=ob_bear_dist_atr_val,
             ob_strength=ob_strength_val,
@@ -5037,19 +5370,19 @@ class FeatureFactory:
             bsl_touches=bsl_touches_val,
             ssl_touches=ssl_touches_val,
             pool_count=pool_count_val,
-            demand_dist_atr=None,
-            supply_dist_atr=None,
-            demand_freshness=None,
-            supply_freshness=None,
-            active_demand_zones=None,
-            active_supply_zones=None,
-            zone_friction_score=None,
-            bos_strength=None,
-            choch_strength=None,
-            bos_direction=None,
-            choch_direction=None,
-            smc_trend_direction=None,
-            bars_since_last_shift=None,
+            demand_dist_atr=demand_dist_atr_val,
+            supply_dist_atr=supply_dist_atr_val,
+            demand_freshness=demand_freshness_val,
+            supply_freshness=supply_freshness_val,
+            active_demand_zones=active_demand_zones_val,
+            active_supply_zones=active_supply_zones_val,
+            zone_friction_score=zone_friction_score_val,
+            bos_strength=bos_strength_val,
+            choch_strength=choch_strength_val,
+            bos_direction=bos_direction_val,
+            choch_direction=choch_direction_val,
+            smc_trend_direction=smc_trend_direction_val,
+            bars_since_last_shift=bars_since_last_shift_val,
             amd_phase=None,
             amd_manipulation_detected=None,
             amd_distribution_direction=None,
@@ -5313,6 +5646,53 @@ class FeatureFactory:
             ssl_touches_val = _pool_fields["ssl_touches"]
             pool_count_val = _pool_fields["pool_count"]
             _price_in_premium = _pool_fields["price_in_premium"]
+
+            # Smart Money Concepts (Phase 164 Plan 04): Supply/Demand Zones
+            # (soft-consumes _fvg_midpoint/_price_in_premium above), then
+            # BOS/CHoCH, then AMD Cycle -- each pre-slices its own causal
+            # window ending at the current bar, matching every other SMC
+            # helper's slicing above. AMD reads FeatureCache's overnight
+            # state, kept current by the update_overnight_range() call
+            # earlier in this loop (before the warm-up skip).
+            _zones_lookback = config.smc_zones_lookback
+            _zones_start = max(0, i - _zones_lookback + 1)
+            _zone_fields = _compute_supply_demand_zones(
+                opens[_zones_start : i + 1],
+                highs[_zones_start : i + 1],
+                lows[_zones_start : i + 1],
+                closes[_zones_start : i + 1],
+                close_,
+                atr_val,
+                tf,
+                config,
+                _fvg_midpoint,
+                _price_in_premium,
+            )
+            demand_dist_atr_val = _zone_fields["demand_dist_atr"]
+            supply_dist_atr_val = _zone_fields["supply_dist_atr"]
+            demand_freshness_val = _zone_fields["demand_freshness"]
+            supply_freshness_val = _zone_fields["supply_freshness"]
+            active_demand_zones_val = _zone_fields["active_demand_zones"]
+            active_supply_zones_val = _zone_fields["active_supply_zones"]
+            zone_friction_score_val = _zone_fields["zone_friction_score"]
+
+            _bos_lookback = config.smc_bos_choch_lookback
+            _bos_start = max(0, i - _bos_lookback + 1)
+            _bos_fields = _compute_bos_choch(
+                highs[_bos_start : i + 1],
+                lows[_bos_start : i + 1],
+                closes[_bos_start : i + 1],
+                close_,
+                atr_val,
+                tf,
+                config,
+            )
+            bos_strength_val = _bos_fields["bos_strength"]
+            choch_strength_val = _bos_fields["choch_strength"]
+            bos_direction_val = _bos_fields["bos_direction"]
+            choch_direction_val = _bos_fields["choch_direction"]
+            smc_trend_direction_val = _bos_fields["smc_trend_direction"]
+            bars_since_last_shift_val = _bos_fields["bars_since_last_shift"]
 
             # Regime-level primitives (all from cache)
             hmm_regime_prob_val = cache.hmm_regime_prob
@@ -5731,11 +6111,11 @@ class FeatureFactory:
                 canary_constant=_CANARY_CONSTANT_VALUE,
                 canary_near_constant=canary_near_constant_val,
                 canary_acausal_placebo=canary_acausal_placebo_val,
-                # Smart Money Concepts (36, Phase 164). Order Blocks +
-                # Breaker/Mitigation (7, Plan 02) and FVG + Liquidity Sweeps
-                # + Liquidity Pools (11, Plan 03) are real computed values
-                # now; the remaining 18 fields (zones/BOS-CHoCH/AMD) stay
-                # placeholder None until Plan 04 lands.
+                # Smart Money Concepts (36, Phase 164) -- all 8 sub-concepts
+                # now real computed values: Order Blocks + Breaker/Mitigation
+                # (7, Plan 02), FVG + Liquidity Sweeps + Liquidity Pools (11,
+                # Plan 03), Supply/Demand Zones + BOS/CHoCH + AMD Cycle (18,
+                # Plan 04).
                 ob_bull_dist_atr=ob_bull_dist_atr_val,
                 ob_bear_dist_atr=ob_bear_dist_atr_val,
                 ob_strength=ob_strength_val,
@@ -5755,19 +6135,19 @@ class FeatureFactory:
                 bsl_touches=bsl_touches_val,
                 ssl_touches=ssl_touches_val,
                 pool_count=pool_count_val,
-                demand_dist_atr=None,
-                supply_dist_atr=None,
-                demand_freshness=None,
-                supply_freshness=None,
-                active_demand_zones=None,
-                active_supply_zones=None,
-                zone_friction_score=None,
-                bos_strength=None,
-                choch_strength=None,
-                bos_direction=None,
-                choch_direction=None,
-                smc_trend_direction=None,
-                bars_since_last_shift=None,
+                demand_dist_atr=demand_dist_atr_val,
+                supply_dist_atr=supply_dist_atr_val,
+                demand_freshness=demand_freshness_val,
+                supply_freshness=supply_freshness_val,
+                active_demand_zones=active_demand_zones_val,
+                active_supply_zones=active_supply_zones_val,
+                zone_friction_score=zone_friction_score_val,
+                bos_strength=bos_strength_val,
+                choch_strength=choch_strength_val,
+                bos_direction=bos_direction_val,
+                choch_direction=choch_direction_val,
+                smc_trend_direction=smc_trend_direction_val,
+                bars_since_last_shift=bars_since_last_shift_val,
                 amd_phase=None,
                 amd_manipulation_detected=None,
                 amd_distribution_direction=None,
