@@ -23,7 +23,7 @@ from typing import TYPE_CHECKING
 
 import numpy as np
 
-from src.core.bar_accumulator import _RTH_OPEN_ET
+from src.core.bar_accumulator import _RTH_CLOSE_ET, _RTH_OPEN_ET
 from src.intelligence.context.session_context import _et_from_utc
 
 if TYPE_CHECKING:
@@ -96,6 +96,22 @@ class FeatureCache:
     _wk_vol_sum: float = field(default=0.0, repr=False)
     _wk_year_week: tuple = field(default=(-1, -1), repr=False)  # (iso_year, iso_week)
 
+    # Internal accumulators for weekly high/low/close + prior-completed-week
+    # snapshot (Phase 165 Plan 04, D-09). Extends update_wk_vwap()'s existing
+    # _wk_year_week reset block rather than building a second parallel
+    # weekly-boundary mechanism -- these three run alongside
+    # _wk_tp_vol_sum/_wk_vol_sum and reset on the same ISO-week transition.
+    # _prior_wk_* are the PRIOR COMPLETED week's snapshot (pivot-point
+    # convention: never the week in progress, which would be partially
+    # self-referential via its own close) -- None until a first full week
+    # has rolled over.
+    _wk_high: float | None = field(default=None, repr=False)
+    _wk_low: float | None = field(default=None, repr=False)
+    _wk_close: float | None = field(default=None, repr=False)
+    _prior_wk_high: float | None = field(default=None, repr=False)
+    _prior_wk_low: float | None = field(default=None, repr=False)
+    _prior_wk_close: float | None = field(default=None, repr=False)
+
     # Internal accumulators for AMD overnight-range tracking (Phase 164 Plan 01,
     # analogous to the weekly-VWAP accumulators above). _overnight_day is the
     # calendar date (UTC) on which the current accumulation cycle began -- see
@@ -124,6 +140,50 @@ class FeatureCache:
     _sess_hvn_nearest: float | None = field(default=None, repr=False)  # legacy nearest_hvn_level
     _sess_price_in_va: float = field(default=0.0, repr=False)
     _sess_in_lvn: float = field(default=0.0, repr=False)
+
+    # Internal state for session_levels.py's D-08 rewrite (Phase 165 Plan 04).
+    # NEVER FeatureVector fields -- Plan 05 derives the 16 ATR-normalized/
+    # bounded session_levels columns from this raw state in compute(); no
+    # atr_val is available in a mutator (same division of labour as
+    # update_session_vp()/_derive_session_vp()).
+    #
+    # _sl_overnight_high/_sl_overnight_low track a DIFFERENT window from
+    # Phase 164's _overnight_high/_overnight_low/_overnight_day (the AMD
+    # 20:00-UTC accumulation-phase window): this is the ET non-RTH block of
+    # bars between one session close and the next session open. The two are
+    # deliberately tracked separately, never unified -- sharing state between
+    # two conceptually different "overnight" windows would silently corrupt
+    # both.
+    #
+    # _sl_session_day is a separate key from Phase 163's _session_day for the
+    # same reason: two mutators sharing one boundary key would each see "no
+    # change" after the other flips it first, silently breaking both resets.
+    _sl_session_day: object = field(default=None, repr=False)  # ET session day key
+    _sl_session_open: float | None = field(
+        default=None, repr=False
+    )  # open of first bar this session day
+    _sl_session_high: float | None = field(default=None, repr=False)  # running high since that open
+    _sl_session_low: float | None = field(default=None, repr=False)  # running low since that open
+    _sl_session_close: float | None = field(
+        default=None, repr=False
+    )  # latest close within current session day
+    _sl_prior_session_high: float | None = field(default=None, repr=False)
+    _sl_prior_session_low: float | None = field(default=None, repr=False)
+    _sl_prior_session_close: float | None = field(default=None, repr=False)
+    _sl_gap_filled: float = field(default=0.0, repr=False)  # D-13 latch, reset each session day
+    _sl_on_acc_high: float | None = field(
+        default=None, repr=False
+    )  # running non-RTH accumulator, current block
+    _sl_on_acc_low: float | None = field(default=None, repr=False)
+    _sl_overnight_high: float | None = field(
+        default=None, repr=False
+    )  # frozen at last completed session rollover
+    _sl_overnight_low: float | None = field(default=None, repr=False)
+    _sl_asia_day: object = field(
+        default=None, repr=False
+    )  # ET date the current Asian block started
+    _sl_asia_high: float | None = field(default=None, repr=False)
+    _sl_asia_low: float | None = field(default=None, repr=False)
 
     def refresh_regime(self, bars: list[dict], config: FeatureFactoryConfig) -> None:
         """Recompute regime-level features from bars and update cache.
@@ -193,6 +253,26 @@ class FeatureCache:
 
         Resets accumulators at ISO week boundary. Called by the pipeline or backfill
         once per bar, after FeatureFactory.compute().
+
+        Also tracks weekly high/low/close and the prior-completed-week
+        snapshot (Phase 165 Plan 04, D-09) inside this SAME reset block,
+        rather than building a second parallel weekly-boundary mechanism.
+        Two points a future reader needs:
+
+        - Weekly pivot levels are derived (in Plan 05) from the PRIOR
+          COMPLETED week's high/low/close, not the week in progress. Using
+          the running week would make the pivot partially self-referential
+          (its `close` component is the current bar) and would re-anchor
+          intraweek; prior-week anchoring is the standard pivot-point
+          convention and is causally clean.
+        - update_wk_vwap() is called from advance_bar(), which runs AFTER
+          compute(). On the first bar of a new ISO week, compute() therefore
+          still reads the week-before-last's snapshot -- a one-bar LAG at
+          each week boundary. This is accepted deliberately: a lag can only
+          ever withhold information, never leak future information, so it is
+          the safe direction. Do not "fix" it by moving the weekly reset
+          into a pre-compute mutator; that would duplicate the ISO-week
+          boundary mechanism D-09 exists to prevent.
         """
         iso = bar_ts.isocalendar()
         year_week = (iso.year, iso.week)
@@ -200,6 +280,16 @@ class FeatureCache:
             self._wk_tp_vol_sum = 0.0
             self._wk_vol_sum = 0.0
             self._wk_year_week = year_week
+            if self._wk_high is not None:
+                self._prior_wk_high = self._wk_high
+                self._prior_wk_low = self._wk_low
+                self._prior_wk_close = self._wk_close
+            self._wk_high = None
+            self._wk_low = None
+            self._wk_close = None
+        self._wk_high = high if self._wk_high is None else max(self._wk_high, high)
+        self._wk_low = low if self._wk_low is None else min(self._wk_low, low)
+        self._wk_close = close
         typical = (high + low + close) / 3.0
         self._wk_tp_vol_sum += typical * volume
         self._wk_vol_sum += volume
@@ -309,6 +399,103 @@ class FeatureCache:
         self._sess_hvn_nearest = None
         self._sess_price_in_va = 0.0
         self._sess_in_lvn = 0.0
+
+    # Retires the archived session_levels.py plugin's bar-count session
+    # detection outright (D-07) -- that plugin's three magic-number constants
+    # (a 1-minute-bar assumption, wrong on every timeframe v3 actually runs:
+    # ~5 sessions of bars at 5m, ~15 sessions at 15m, ~60 sessions/~12 weeks
+    # at 1h, ~1.5 years of calendar days at 1d) exist nowhere below; every
+    # boundary decision here is timestamp-driven via _et_from_utc +
+    # _RTH_OPEN_ET/_RTH_CLOSE_ET instead.
+    def update_session_levels(
+        self,
+        bar_ts: datetime,
+        open_: float,
+        high: float,
+        low: float,
+        close: float,
+        config: FeatureFactoryConfig,
+    ) -> None:
+        """Track session/overnight/Asian-block/weekly-adjacent state for session_levels.py's
+        D-08 rewrite (Phase 165 Plan 04), timestamp-driven throughout -- NO bar count
+        appears anywhere in this method (see the retirement note immediately above
+        this method for the three archived constants this replaces and their real
+        per-timeframe magnitudes).
+
+        Follows update_session_vp()'s ET-wall-clock session-day derivation exactly
+        (same DST-correctness rationale: this gates a STATEFUL accumulator reset, so
+        a DST misfire would corrupt state, not just one read-only flag). Never
+        raises, on any input (naive datetime, zero prices, a single bar, sparse
+        history).
+
+        Overnight here is a DIFFERENT window from Phase 164's AMD
+        _overnight_high/_overnight_low/_overnight_day (the 20:00-UTC accumulation
+        phase): this is the ET non-RTH block of bars between one session's close
+        and the next session's open. The two windows are deliberately tracked
+        separately via the _sl_ prefix -- see the field-block comment above.
+
+        ATR-normalized outputs (the 16 FeatureVector columns) are derived in
+        compute() by Plan 05, never here -- no atr_val is available in a mutator,
+        the same division of labour as update_session_vp()/_derive_session_vp().
+        """
+        ts = bar_ts if bar_ts.tzinfo is not None else bar_ts.replace(tzinfo=UTC)
+        et = _et_from_utc(ts)
+        et_date = et.date()
+        session_day = et_date if et.time() >= _RTH_OPEN_ET else et_date - timedelta(days=1)
+        in_rth = _RTH_OPEN_ET <= et.time() < _RTH_CLOSE_ET
+
+        if session_day != self._sl_session_day:
+            if self._sl_session_day is not None:
+                self._sl_prior_session_high = self._sl_session_high
+                self._sl_prior_session_low = self._sl_session_low
+                self._sl_prior_session_close = self._sl_session_close
+                if self._sl_on_acc_high is not None:
+                    self._sl_overnight_high = self._sl_on_acc_high
+                    self._sl_overnight_low = self._sl_on_acc_low
+            self._sl_on_acc_high = None
+            self._sl_on_acc_low = None
+            self._sl_gap_filled = 0.0
+            self._sl_session_open = open_
+            self._sl_session_high = high
+            self._sl_session_low = low
+            self._sl_session_day = session_day
+        else:
+            self._sl_session_high = (
+                high if self._sl_session_high is None else max(self._sl_session_high, high)
+            )
+            self._sl_session_low = (
+                low if self._sl_session_low is None else min(self._sl_session_low, low)
+            )
+        self._sl_session_close = close
+
+        if not in_rth:
+            self._sl_on_acc_high = (
+                high if self._sl_on_acc_high is None else max(self._sl_on_acc_high, high)
+            )
+            self._sl_on_acc_low = (
+                low if self._sl_on_acc_low is None else min(self._sl_on_acc_low, low)
+            )
+
+        if (
+            self._sl_prior_session_close is not None
+            and self._sl_session_low is not None
+            and self._sl_session_high is not None
+            and self._sl_session_low <= self._sl_prior_session_close <= self._sl_session_high
+        ):
+            self._sl_gap_filled = 1.0
+
+        asia_start = config.session_levels_asia_start_et_hour
+        asia_end = config.session_levels_asia_end_et_hour
+        if et.hour >= asia_start or et.hour < asia_end:
+            asia_day = et_date if et.hour >= asia_start else et_date - timedelta(days=1)
+            if asia_day != self._sl_asia_day:
+                self._sl_asia_high = None
+                self._sl_asia_low = None
+                self._sl_asia_day = asia_day
+            self._sl_asia_high = (
+                high if self._sl_asia_high is None else max(self._sl_asia_high, high)
+            )
+            self._sl_asia_low = low if self._sl_asia_low is None else min(self._sl_asia_low, low)
 
     def advance_bar(
         self,
