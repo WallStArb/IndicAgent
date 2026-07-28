@@ -190,6 +190,14 @@ class FeatureVectorPipeline(BaseDaemon):
         above; `self._feature_factory_config` is asserted non-None at this method's
         only call site (bars are already flowing, so `_prewarm_threshold_config()` has
         already run in `_setup()`).
+
+        Also replays `update_overnight_range()` over the same buffered history
+        (Phase 164 Plan 04) -- without this, AMD's overnight-range state would
+        cold-start on every restart while VP/S-R state does not (T-164-07),
+        silently freezing amd_phase/amd_manipulation_detected/
+        amd_distribution_direction/manip_strength at neutral defaults until a
+        full new accumulation cycle passes. Same warm-up source and exclusion
+        as `update_wk_vwap()`/`update_session_vp()` above.
         """
         key = f"{symbol}:{tf}"
         if key not in self._feature_caches:
@@ -206,6 +214,10 @@ class FeatureVectorPipeline(BaseDaemon):
                     bar.close,
                     float(bar.volume),
                     self._feature_factory_config,
+                )
+            for bar in buffered:
+                cache.update_overnight_range(
+                    bar.ts, bar.high, bar.low, self._feature_factory_config
                 )
             self._feature_caches[key] = cache
         return self._feature_caches[key]
@@ -1161,6 +1173,12 @@ class FeatureVectorPipeline(BaseDaemon):
         # reads FeatureCache's raw session levels to derive the 14 ATR-normalized
         # VP fields. Mirrors compute_batch()'s per-bar update_session_vp() call.
         cache.update_session_vp(bar.ts, bar.high, bar.low, bar.close, float(bar.volume), config)
+
+        # AMD overnight-range accumulator (Phase 164 Plan 04): update BEFORE
+        # compute() reads FeatureCache's overnight-range/manipulation state
+        # to derive the 4 AMD FeatureVector fields. Mirrors compute_batch()'s
+        # per-bar update_overnight_range() call immediately above.
+        cache.update_overnight_range(bar.ts, bar.high, bar.low, config)
 
         try:
             vector = FeatureFactory.compute(bars_dicts, bar.symbol, bar.tf, cache, config)

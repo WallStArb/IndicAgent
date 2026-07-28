@@ -43,7 +43,7 @@ from src.intelligence.feature_cache import (
     _compute_session_vp_profile,
 )
 from src.intelligence.schemas import FeatureVector
-from src.intelligence.utils import find_peaks, find_troughs
+from src.intelligence.utils import clamp, find_peaks, find_troughs
 from src.intelligence.utils.gradient_utils import freshness_decay, linear_ramp
 
 # ---------------------------------------------------------------------------
@@ -4213,6 +4213,11 @@ _BOS_FALLBACK: dict[str, float] = {
     "bars_since_last_shift": 0.0,
 }
 
+_AMD_PHASE_UNKNOWN = 0.0
+_AMD_PHASE_ACCUMULATION = 1.0
+_AMD_PHASE_MANIPULATION = 2.0
+_AMD_PHASE_DISTRIBUTION = 3.0
+
 
 def _compute_supply_demand_zones(
     opens: np.ndarray,
@@ -4488,6 +4493,71 @@ def _compute_bos_choch(
         "choch_direction": float(choch_direction),
         "smc_trend_direction": float(trend),
         "bars_since_last_shift": bars_since_last_shift,
+    }
+
+
+def _amd_phase_ordinal(bar_ts: datetime | None, config: FeatureFactoryConfig) -> float:
+    """Ordinal-encode the current AMD cycle phase from bar_ts's UTC hour (Plan 04).
+
+    0.0=unknown (no timestamp), 1.0=accumulation, 2.0=manipulation,
+    3.0=distribution -- matches migration 266's column COMMENT and
+    164-RESEARCH.md's Anti-patterns A2 mapping. Ported from AMDCyclePlugin's
+    phase determination (archive/smc_context/amd_cycle.py); boundaries are
+    the same 4 APR-backed UTC hours FeatureCache.update_overnight_range()
+    already uses for its own cycle-key derivation.
+    """
+    if bar_ts is None:
+        return _AMD_PHASE_UNKNOWN
+    ts = bar_ts if bar_ts.tzinfo is not None else bar_ts.replace(tzinfo=UTC)
+    hour = ts.hour
+    accum_start = config.smc_amd_accum_start_utc_hour
+    manip_end = config.smc_amd_manip_end_utc_hour
+    dist_end = config.smc_amd_dist_end_utc_hour
+    if hour >= accum_start:
+        return _AMD_PHASE_ACCUMULATION
+    if hour < manip_end:
+        return _AMD_PHASE_MANIPULATION
+    if hour < dist_end:
+        return _AMD_PHASE_DISTRIBUTION
+    return _AMD_PHASE_ACCUMULATION
+
+
+def _derive_amd_cycle(
+    cache: FeatureCache,
+    bar_ts: datetime | None,
+    config: FeatureFactoryConfig,
+) -> dict[str, float]:
+    """Derive the 4 clamped/ordinal AMD FeatureVector fields from FeatureCache state (Plan 04).
+
+    Reads FeatureCache's overnight-range/manipulation state (set by
+    update_overnight_range(), called once per bar by the caller before
+    compute()/inside compute_batch()'s loop) -- never recomputes overnight
+    range itself, matching _derive_session_vp()'s "read raw cache state,
+    derive bounded output" shape. amd_phase is ordinal-encoded here (see
+    _amd_phase_ordinal); manip_strength is clamped to [0,1]
+    (164-RESEARCH.md Pitfall 3 -- the mutator's raw breach-depth ratio can
+    exceed 1.0 on an overshoot breach). amd_distribution_direction is gated
+    to the distribution phase only, matching AMDCyclePlugin's own
+    "dist_direction only meaningful during distribution" semantics --
+    FeatureCache's raw amd_distribution_direction stays set from the
+    manipulation breach bar through the rest of the cycle for the mutator's
+    own internal bookkeeping, but this derivation only surfaces it once the
+    cycle has actually reached distribution.
+
+    Never raises: a cold cache (no update_overnight_range() call yet) reads
+    back its dataclass defaults (all 0.0), which this function treats as
+    "no manipulation detected yet" -- a genuine neutral reading, not an
+    error state.
+    """
+    phase = _amd_phase_ordinal(bar_ts, config)
+    amd_distribution_direction = (
+        cache.amd_distribution_direction if phase == _AMD_PHASE_DISTRIBUTION else 0.0
+    )
+    return {
+        "amd_phase": phase,
+        "amd_manipulation_detected": float(cache.amd_manipulation_detected),
+        "amd_distribution_direction": float(amd_distribution_direction),
+        "manip_strength": clamp(cache.manip_strength, 0.0, 1.0),
     }
 
 
@@ -5089,6 +5159,12 @@ class FeatureFactory:
         smc_trend_direction_val = _bos_fields["smc_trend_direction"]
         bars_since_last_shift_val = _bos_fields["bars_since_last_shift"]
 
+        _amd_fields = _derive_amd_cycle(cache, bar_ts, config)
+        amd_phase_val = _amd_fields["amd_phase"]
+        amd_manipulation_detected_val = _amd_fields["amd_manipulation_detected"]
+        amd_distribution_direction_val = _amd_fields["amd_distribution_direction"]
+        manip_strength_val = _amd_fields["manip_strength"]
+
         _dow = _dow_encoding(bar_ts)
 
         # Renaissance Primitives (Phase 142.5 Plan 01)
@@ -5383,10 +5459,10 @@ class FeatureFactory:
             choch_direction=choch_direction_val,
             smc_trend_direction=smc_trend_direction_val,
             bars_since_last_shift=bars_since_last_shift_val,
-            amd_phase=None,
-            amd_manipulation_detected=None,
-            amd_distribution_direction=None,
-            manip_strength=None,
+            amd_phase=amd_phase_val,
+            amd_manipulation_detected=amd_manipulation_detected_val,
+            amd_distribution_direction=amd_distribution_direction_val,
+            manip_strength=manip_strength_val,
         )
 
     @staticmethod
@@ -5466,6 +5542,15 @@ class FeatureFactory:
             # boundary-reset accumulator) stays current through warmup --
             # matches the live pipeline's per-bar update_session_vp() call site.
             cache.update_session_vp(bar_ts, high_, low_, close_, vol_, config)
+
+            # AMD overnight-range accumulator (Phase 164 Plan 04): update on
+            # EVERY bar, including warm-up, matching update_session_vp's
+            # treatment immediately above -- otherwise the overnight
+            # high/low state would cold-start mid-cycle whenever a batch run
+            # starts inside the accumulation window. Same call-site
+            # convention as the live per-bar handler and warm-up replay
+            # block in services/feature_vector_pipeline.py.
+            cache.update_overnight_range(bar_ts, high_, low_, config)
 
             # Skip warm-up
             if i < warm_up_bars:
@@ -5693,6 +5778,12 @@ class FeatureFactory:
             choch_direction_val = _bos_fields["choch_direction"]
             smc_trend_direction_val = _bos_fields["smc_trend_direction"]
             bars_since_last_shift_val = _bos_fields["bars_since_last_shift"]
+
+            _amd_fields = _derive_amd_cycle(cache, bar_ts, config)
+            amd_phase_val = _amd_fields["amd_phase"]
+            amd_manipulation_detected_val = _amd_fields["amd_manipulation_detected"]
+            amd_distribution_direction_val = _amd_fields["amd_distribution_direction"]
+            manip_strength_val = _amd_fields["manip_strength"]
 
             # Regime-level primitives (all from cache)
             hmm_regime_prob_val = cache.hmm_regime_prob
@@ -6148,10 +6239,10 @@ class FeatureFactory:
                 choch_direction=choch_direction_val,
                 smc_trend_direction=smc_trend_direction_val,
                 bars_since_last_shift=bars_since_last_shift_val,
-                amd_phase=None,
-                amd_manipulation_detected=None,
-                amd_distribution_direction=None,
-                manip_strength=None,
+                amd_phase=amd_phase_val,
+                amd_manipulation_detected=amd_manipulation_detected_val,
+                amd_distribution_direction=amd_distribution_direction_val,
+                manip_strength=manip_strength_val,
             )
 
             results.append((bar_ts, fv))
