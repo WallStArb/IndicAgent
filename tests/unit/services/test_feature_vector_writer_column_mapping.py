@@ -7,7 +7,9 @@ Migration 159 expanded the tuple from 61 to 70 elements; migration 206's
 docstring) extended it to 161 (159 post migration 211's redundant-field
 drop); migration 223 extended it to 164 (5 canary columns); migration 255
 (Phase 163 Plan 01) extended it to 181 (17 structural VP/SR columns,
-appended after the canary fields):
+appended after the canary fields); migration 266 (Phase 164 Plan 01)
+extended it to 217 (36 SMC institutional-footprint columns, appended after
+the structural VP/SR fields):
 
   $1   (params[0])   -> feature_vector_id       UUID (content-key)
   $2   (params[1])   -> symbol                  str
@@ -234,16 +236,17 @@ def _make_sentinel_record():
 
 
 def test_params_length_is_159():
-    """_record_to_insert_params must return exactly 181 elements (159 post migration
+    """_record_to_insert_params must return exactly 217 elements (159 post migration
     211's new_high_flag/new_low_flag drop, 164 after migration 223's 5 canary
-    columns, 181 after migration 255's 17 structural VP/SR columns — see
+    columns, 181 after migration 255's 17 structural VP/SR columns, 217 after
+    migration 266's 36 SMC institutional-footprint columns — see
     feature_vector_persistence.py docstring)."""
     from services.feature_vector_writer import _record_to_insert_params
 
     record = _make_sentinel_record()
     params = _record_to_insert_params(record)
 
-    assert len(params) == 181, f"Expected 181, got {len(params)}"
+    assert len(params) == 217, f"Expected 217, got {len(params)}"
 
 
 def test_feature_vector_id_at_index_0():
@@ -455,12 +458,30 @@ def test_vol_skew_product_at_index_158():
 
 def test_sr_level_count_at_index_180_is_last_element():
     """params[180] ($181) must be sr_level_count sentinel value 61.17 -- the
-    final column, appended after the canary fields by migration 255 (Phase 163
-    Plan 01)."""
+    final column of the pre-Phase-164 contract, appended after the canary
+    fields by migration 255 (Phase 163 Plan 01). No longer the true last
+    element of the tuple as of migration 266 (Phase 164 Plan 01) -- 36 SMC
+    institutional-footprint columns are appended after it; see
+    test_manip_strength_at_index_216_is_last_element below for the new tail."""
     from services.feature_vector_writer import _record_to_insert_params
 
     record = _make_sentinel_record()
     params = _record_to_insert_params(record)
 
-    assert len(params) == 181
+    assert len(params) == 217
     assert params[180] == pytest.approx(61.17), f"$181 (sr_level_count) wrong: {params[180]}"
+
+
+def test_manip_strength_at_index_216_is_last_element():
+    """params[216] ($217) must be manip_strength -- the final column, appended
+    after the structural VP/SR fields by migration 266's 36 SMC
+    institutional-footprint columns (Phase 164 Plan 01). manip_strength is
+    None here since _make_sentinel_record() does not set any of the 36 new
+    SMC fields (contract-only, placeholder None until Plans 02-04)."""
+    from services.feature_vector_writer import _record_to_insert_params
+
+    record = _make_sentinel_record()
+    params = _record_to_insert_params(record)
+
+    assert len(params) == 217
+    assert params[216] is None, f"$217 (manip_strength) wrong: {params[216]}"

@@ -677,10 +677,12 @@ class TestComputePurity:
         + 8 Plan 04 + 8 Plan 05.5 Renaissance primitives = 150 (2 of the
         original 91 later removed as redundant, migration 211) + 5 canary/
         control predictors (Phase 143.1 Plan 02, todo 068) = 155, + 17
-        structural VP/SR fields (Phase 163 Plan 01, migration 255) = 172
-        (final total). See 142.5-05-SUMMARY.md / 142.5-03-SUMMARY.md /
-        142.5-04-SUMMARY.md Deviations for the actual dependency-DAG-valid
-        merge order vs. the phase outline's originally assumed counts.
+        structural VP/SR fields (Phase 163 Plan 01, migration 255) = 172,
+        + 36 SMC institutional-footprint fields (Phase 164 Plan 01,
+        migration 266) = 208 (final total). See 142.5-05-SUMMARY.md /
+        142.5-03-SUMMARY.md / 142.5-04-SUMMARY.md Deviations for the actual
+        dependency-DAG-valid merge order vs. the phase outline's originally
+        assumed counts.
         """
         import dataclasses
 
@@ -689,7 +691,7 @@ class TestComputePurity:
         cache = FeatureCache()
         fv = FeatureFactory.compute(bars, "SPY", "1m", cache, config)
         fields = dataclasses.fields(fv)
-        assert len(fields) == 172, f"Expected 172 fields, got {len(fields)}"
+        assert len(fields) == 208, f"Expected 208 fields, got {len(fields)}"
         for f in fields:
             val = getattr(fv, f.name)
             # Optional cross-sectional fields (momentum_rank_z, volume_rank_z,

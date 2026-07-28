@@ -457,7 +457,8 @@ def test_vector_to_params_all_features_present() -> None:
     after migration 211, 2026-07-09 -- 161 after migration 206's 2026-07-08
     persistence-wiring fix, then -2 for the redundant new_high_flag/new_low_flag
     removal, 164 after migration 223's 5 canary columns, 181 after migration
-    255's 17 structural VP/SR columns, Phase 163 Plan 01)."""
+    255's 17 structural VP/SR columns (Phase 163 Plan 01), 217 after migration
+    266's 36 SMC institutional-footprint columns (Phase 164 Plan 01)."""
     fv = _make_zero_vector()
     ts = datetime(2025, 1, 2, 14, 30, 0, tzinfo=UTC)
     params = _vector_to_params(
@@ -468,8 +469,8 @@ def test_vector_to_params_all_features_present() -> None:
         regime=None,
         fv=fv,
     )
-    # 1 content-key + 8 structural + 172 feature floats = 181 total
-    assert len(params) == 181, f"Expected 181 params, got {len(params)}"
+    # 1 content-key + 8 structural + 208 feature floats = 217 total
+    assert len(params) == 217, f"Expected 217 params, got {len(params)}"
 
 
 def test_vector_to_params_symbol_tf_ts() -> None:
