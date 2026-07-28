@@ -3940,6 +3940,332 @@ def _compute_trend_structure(
 
 
 # ---------------------------------------------------------------------------
+# Swing Momentum / Fibonacci Zones — stateless swing geometry (Phase 165 Plan 03)
+# ---------------------------------------------------------------------------
+
+# D-01: the archived plugin already returns {} (empty dict, "not computed")
+# on insufficient data -- unlike _SWING_FALLBACK/_TREND_STRUCTURE_FALLBACK,
+# there is no fake-numeric-default bug to fix here. Still all-None, matching
+# the FeatureVector float | None convention every other fallback in this
+# module follows.
+_SWING_MOMENTUM_FALLBACK: dict[str, float | None] = {
+    "swing_amplitude_ratio": None,
+    "swing_amplitude_expanding": None,
+    "swing_amplitude_intensity": None,
+    "swing_velocity_bars": None,
+    "swing_velocity_bias": None,
+    "struct_energy": None,
+    "struct_accel_bias": None,
+    "swing_volume_confirmation": None,
+}
+
+
+def _dedup_swing_extremes(
+    extremes: list[tuple[float, int, str]],
+) -> list[tuple[float, int, str]]:
+    """Drop consecutive same-type extremes, keeping the dominant one.
+
+    Ported verbatim from the archived module-level swing_momentum.py
+    ``_dedup_extremes`` (lines 233-255), renamed to avoid colliding with a
+    future SMC-tier helper of the same generic name in this module. When
+    two consecutive highs appear without an intervening low, keep the
+    higher one; when two consecutive lows appear, keep the lower one --
+    this is what guarantees the alternating high/low pattern swing-leg
+    amplitude/velocity analysis requires.
+    """
+    if not extremes:
+        return extremes
+
+    result: list[tuple[float, int, str]] = [extremes[0]]
+    for current in extremes[1:]:
+        prev = result[-1]
+        if current[2] == prev[2]:
+            if current[2] == "high" and current[0] >= prev[0]:
+                result[-1] = current
+            elif current[2] == "low" and current[0] <= prev[0]:
+                result[-1] = current
+        else:
+            result.append(current)
+
+    return result
+
+
+def _detect_swing_extremes(
+    highs: np.ndarray,
+    lows: np.ndarray,
+    confirm_n: int,
+    max_extremes: int,
+) -> list[tuple[float, int, str]]:
+    """Self-contained confirm-window swing extreme detector (D-06 Finding B).
+
+    Deliberately does NOT call find_peaks/find_troughs -- swing momentum
+    uses its own independent confirmation algorithm (a bar is a confirmed
+    peak/trough when it equals the max/min over its own inclusive window on
+    both sides), a different, self-contained calculation from the shared
+    pivot pass _compute_swing_structure/_compute_trend_structure use.
+    Unifying the two would change swing momentum's output.
+
+    The >= max / <= min comparison means a flat run of equal highs (or
+    lows) confirms EVERY bar in that run as its own extreme -- that is why
+    _dedup_swing_extremes exists, to collapse consecutive same-type
+    duplicates down to one dominant extreme per swing leg.
+
+    Indices in the returned tuples are positions within the highs/lows
+    ARRAYS PASSED IN (the caller's own pre-sliced window), not any larger
+    series.
+
+    Returns at most the trailing max_extremes confirmed, deduplicated
+    extremes; never raises (a too-short input yields an empty list).
+    """
+    extremes: list[tuple[float, int, str]] = []
+    n_bars = len(highs)
+    for i in range(confirm_n, n_bars - confirm_n):
+        lo_idx = i - confirm_n
+        hi_idx = i + confirm_n + 1
+        window_high = highs[lo_idx:hi_idx]
+        window_low = lows[lo_idx:hi_idx]
+        is_peak = highs[i] >= np.max(window_high)
+        is_trough = lows[i] <= np.min(window_low)
+        if is_peak:
+            extremes.append((float(highs[i]), i, "high"))
+        elif is_trough:
+            extremes.append((float(lows[i]), i, "low"))
+
+    extremes = _dedup_swing_extremes(extremes)
+    return extremes[-max_extremes:]
+
+
+def _compute_swing_momentum(
+    highs: np.ndarray,
+    lows: np.ndarray,
+    volumes: np.ndarray,
+    config: FeatureFactoryConfig,
+) -> dict[str, float | None]:
+    """Stateless swing-momentum amplitude/velocity/energy (D-01/D-06/D-15).
+
+    NOTE the signature carries no atr_val/close_ parameter -- deliberate.
+    Every one of the 8 outputs below is derived from amplitudes only
+    through the ratio of the last amplitude to the mean of the last three,
+    a ratio in which a common positive divisor cancels out exactly. The
+    archived plugin normalized each amplitude by ATR first (falling back to
+    a divisor of 1.0 when ATR was unavailable) and added a small additive
+    epsilon to the denominator so the divide could never blow up -- that
+    epsilon is the only reason the ATR divisor was not already a no-op, and
+    it made the result silently depend on the absolute price scale. Both
+    are deleted here; the epsilon's job is replaced by an explicit
+    amp_mean <= 0 guard below, which returns the all-None fallback instead
+    of a scale-dependent number. This makes the function EXACTLY
+    ATR-invariant. test_swing_momentum_atr_invariance is the proof
+    obligation for this claim -- if it ever fails, this deletion was wrong
+    and must be reverted, not the test weakened.
+
+    Ports i3_structure/swing_momentum.py's compute_full() over its own
+    self-contained _detect_swing_extremes() confirm-window pass.
+
+    Fixes two archived implementation-vs-docstring bugs rather than porting
+    them: the mean amplitude used as the ratio's denominator only covers
+    the LAST three amplitudes, not the full history, and the "expanding"
+    classification checks whether the LAST three amplitudes are increasing,
+    not the first three -- both match the archived plugin's own docstring
+    and migration 267's binding COMMENT; neither matches what the archived
+    plugin's code actually did.
+
+    Falls back to _SWING_MOMENTUM_FALLBACK (all-None) when the lookback
+    window is too short, fewer than config.swing_momentum_max_extremes
+    confirmed extremes exist, or the recent mean amplitude is not positive
+    (flat prices) -- never raises.
+    """
+    h = highs[-config.swing_momentum_lookback_bars :]
+    lo = lows[-config.swing_momentum_lookback_bars :]
+    v = volumes[-config.swing_momentum_lookback_bars :]
+    if len(h) < 2 * config.swing_momentum_confirm_n + 1:
+        return dict(_SWING_MOMENTUM_FALLBACK)
+
+    extremes = _detect_swing_extremes(
+        h, lo, config.swing_momentum_confirm_n, config.swing_momentum_max_extremes
+    )
+    if len(extremes) < config.swing_momentum_max_extremes:
+        return dict(_SWING_MOMENTUM_FALLBACK)
+
+    amps = [abs(extremes[k][0] - extremes[k + 1][0]) for k in range(len(extremes) - 1)]
+    vels = [
+        max(float(abs(extremes[k + 1][1] - extremes[k][1])), 1.0) for k in range(len(extremes) - 1)
+    ]
+    if not amps or not vels:
+        return dict(_SWING_MOMENTUM_FALLBACK)
+
+    amp_recent = amps[-3:]
+    amp_mean = float(np.mean(amp_recent))
+    if amp_mean <= 0:
+        return dict(_SWING_MOMENTUM_FALLBACK)
+
+    swing_amplitude_ratio = amps[-1] / amp_mean
+    _is_expanding = len(amps) >= 3 and amps[-3] < amps[-2] < amps[-1]
+    swing_amplitude_expanding = 1.0 if _is_expanding else 0.0  # gradient-exempt
+    swing_amplitude_intensity = (
+        linear_ramp(
+            swing_amplitude_ratio,
+            config.swing_momentum_intensity_ramp_lo,
+            config.swing_momentum_intensity_ramp_hi,
+        )
+        if swing_amplitude_expanding == 1.0  # gradient-exempt: categorical flag, not a score
+        else 0.0
+    )
+
+    swing_velocity_bars = float(vels[-1])
+    swing_velocity_bias: float | None
+    if len(vels) >= 2:
+        if vels[-1] < vels[-2]:
+            swing_velocity_bias = 1.0
+        elif vels[-1] > vels[-2]:
+            swing_velocity_bias = -1.0
+        else:
+            swing_velocity_bias = 0.0
+    else:
+        swing_velocity_bias = None
+
+    speed_factor = clamp(
+        config.swing_momentum_reference_bars / max(swing_velocity_bars, 1.0),
+        config.swing_momentum_speed_factor_min,
+        config.swing_momentum_speed_factor_max,
+    )
+    struct_energy = clamp(
+        swing_amplitude_ratio * speed_factor / config.swing_momentum_energy_divisor,
+        0.0,
+        1.0,
+    )
+
+    # struct_accel_bias: ported verbatim from the archived
+    # _compute_accel_bias -- collect the retained highs/lows in bar order,
+    # compare the last 2 of each side.
+    ext_highs = [(p, idx) for p, idx, t in extremes if t == "high"]
+    ext_lows = [(p, idx) for p, idx, t in extremes if t == "low"]
+    if len(ext_highs) < 2 or len(ext_lows) < 2:
+        struct_accel_bias = 0.0
+    else:
+        h1, h2 = ext_highs[-2][0], ext_highs[-1][0]
+        l1, l2 = ext_lows[-2][0], ext_lows[-1][0]
+        if h2 > h1 and l2 > l1:
+            struct_accel_bias = 1.0
+        elif h2 < h1 and l2 < l1:
+            struct_accel_bias = -1.0
+        else:
+            struct_accel_bias = 0.0
+
+    # swing_volume_confirmation (D-15): mean volume over the bar-index span
+    # of the most recent confirmed swing leg, divided by mean volume over
+    # the whole bounded window -- a free column off computation already
+    # happening, no new state.
+    window_mean_volume = float(v.mean()) if len(v) > 0 else 0.0
+    swing_volume_confirmation: float | None
+    if window_mean_volume > 0:
+        i0 = min(extremes[-2][1], extremes[-1][1])
+        i1 = max(extremes[-2][1], extremes[-1][1])
+        leg_mean_volume = float(v[i0 : i1 + 1].mean())
+        swing_volume_confirmation = leg_mean_volume / window_mean_volume
+    else:
+        swing_volume_confirmation = None
+
+    return {
+        "swing_amplitude_ratio": float(swing_amplitude_ratio),
+        "swing_amplitude_expanding": swing_amplitude_expanding,
+        "swing_amplitude_intensity": float(swing_amplitude_intensity),
+        "swing_velocity_bars": swing_velocity_bars,
+        "swing_velocity_bias": swing_velocity_bias,
+        "struct_energy": float(struct_energy),
+        "struct_accel_bias": struct_accel_bias,
+        "swing_volume_confirmation": swing_volume_confirmation,
+    }
+
+
+# APR-EXEMPT: definitional Fibonacci retracement ratios, the same exemption
+# class as "the 5 in momentum_z_5" per CLAUDE.md's APR-exempt list -- not a
+# tunable to migrate. Migration 267's SQL COMMENT carries the same note;
+# keep the two consistent.
+_FIB_RATIOS: tuple[float, ...] = (0.236, 0.382, 0.500, 0.618, 0.786)
+
+_FIB_FALLBACK: dict[str, float | None] = {
+    "nearest_fib_ratio": None,
+    "nearest_fib_dist_atr": None,
+    "fib_cluster_strength": None,
+    "in_fib_discount_zone": None,
+}
+
+
+def _compute_fib_zones(
+    close_: float,
+    atr_val: float,
+    swing_fields: dict[str, Any],
+    config: FeatureFactoryConfig,
+) -> dict[str, float | None]:
+    """Fibonacci retracement zones off the SAME bar's shared swing pass (D-05).
+
+    Consumes swing_fields["swing_high_price"]/["swing_low_price"] -- the
+    in-memory intermediates _compute_swing_structure already produced for
+    this bar. This IS D-05's fix: the archived plugin's cross-plugin read
+    plus its rolling-high/low fallback existed only because the old
+    wave-based pipeline could not guarantee the swing-detector plugin ran
+    first in the same pass; v3's compute()/compute_batch() calls this
+    function AFTER the shared swing pass on the same bar, so the swing
+    prices are simply already available as local values. No fallback
+    branch is reimplemented here -- no rolling-high/low substitute over the
+    raw OHLCV arrays.
+
+    Returns _FIB_FALLBACK (all-None) when either swing price is missing or
+    non-finite, when the swing range is non-positive, or when atr_val is
+    missing/non-finite/non-positive -- matching migration 267's COMMENT.
+    Never raises.
+    """
+    swing_high_price = swing_fields.get("swing_high_price")
+    swing_low_price = swing_fields.get("swing_low_price")
+    if (
+        swing_high_price is None
+        or swing_low_price is None
+        or not math.isfinite(swing_high_price)
+        or not math.isfinite(swing_low_price)
+    ):
+        return dict(_FIB_FALLBACK)
+
+    swing_range = swing_high_price - swing_low_price
+    if swing_range <= 0:
+        return dict(_FIB_FALLBACK)
+
+    atr_valid = atr_val is not None and math.isfinite(atr_val) and atr_val > 0
+    if not atr_valid:
+        return dict(_FIB_FALLBACK)
+
+    levels = [swing_low_price + ratio * swing_range for ratio in _FIB_RATIOS]
+    nearest_idx = min(range(len(levels)), key=lambda k: abs(levels[k] - close_))
+    nearest_fib_ratio = float(_FIB_RATIOS[nearest_idx])
+    nearest_fib_dist_atr = abs(close_ - levels[nearest_idx]) / atr_val
+    # gradient-exempt: zone-membership flag, not a score
+    in_fib_discount_zone = 1.0 if levels[2] <= close_ <= levels[4] else 0.0  # gradient-exempt
+
+    # fib_cluster_fallback_divisor (the FeatureFactoryConfig field seeded in
+    # Plan 01) is DELIBERATELY DORMANT: the archived fallback only fired
+    # when ATR was unavailable, and the atr_valid guard above already
+    # returns the all-None fallback in exactly that case -- this branch is
+    # unreachable by construction, not a missed wiring. Candidate for
+    # removal if the base 4 fib fields fail their incremental-IC screen.
+    threshold = atr_val / config.fib_cluster_atr_divisor
+    cluster_count = sum(
+        1
+        for i in range(len(levels))
+        for j in range(i + 1, len(levels))
+        if abs(levels[i] - levels[j]) < threshold
+    )
+    max_pairs = len(levels) * (len(levels) - 1) / 2
+    fib_cluster_strength = cluster_count / max_pairs if max_pairs > 0 else 0.0
+
+    return {
+        "nearest_fib_ratio": nearest_fib_ratio,
+        "nearest_fib_dist_atr": nearest_fib_dist_atr,
+        "fib_cluster_strength": fib_cluster_strength,
+        "in_fib_discount_zone": in_fib_discount_zone,
+    }
+
+
+# ---------------------------------------------------------------------------
 # Smart Money Concepts — Order Blocks + Breaker/Mitigation (Phase 164 Plan 02)
 # ---------------------------------------------------------------------------
 
@@ -5568,6 +5894,33 @@ class FeatureFactory:
         price_position_val: float | None = _trend_fields["price_position"]
         trend_duration_bars_val: float | None = _trend_fields["trend_duration_bars"]
 
+        # Swing Momentum / Fibonacci Zones (Phase 165 Plan 03): swing
+        # momentum reads its own self-contained confirm-window extreme
+        # detector (D-06 Finding B), not find_peaks/find_troughs; fibonacci
+        # zones consumes _swing_fields' swing_high_price/swing_low_price
+        # in-memory intermediates directly -- no cross-plugin fallback (D-05).
+        _swing_momentum_fields = _compute_swing_momentum(highs, lows, volumes, config)
+        swing_amplitude_ratio_val: float | None = _swing_momentum_fields["swing_amplitude_ratio"]
+        swing_amplitude_expanding_val: float | None = _swing_momentum_fields[
+            "swing_amplitude_expanding"
+        ]
+        swing_amplitude_intensity_val: float | None = _swing_momentum_fields[
+            "swing_amplitude_intensity"
+        ]
+        swing_velocity_bars_val: float | None = _swing_momentum_fields["swing_velocity_bars"]
+        swing_velocity_bias_val: float | None = _swing_momentum_fields["swing_velocity_bias"]
+        struct_energy_val: float | None = _swing_momentum_fields["struct_energy"]
+        struct_accel_bias_val: float | None = _swing_momentum_fields["struct_accel_bias"]
+        swing_volume_confirmation_val: float | None = _swing_momentum_fields[
+            "swing_volume_confirmation"
+        ]
+
+        _fib_fields = _compute_fib_zones(close_, atr_val, _swing_fields, config)
+        nearest_fib_ratio_val: float | None = _fib_fields["nearest_fib_ratio"]
+        nearest_fib_dist_atr_val: float | None = _fib_fields["nearest_fib_dist_atr"]
+        fib_cluster_strength_val: float | None = _fib_fields["fib_cluster_strength"]
+        in_fib_discount_zone_val: float | None = _fib_fields["in_fib_discount_zone"]
+
         # Smart Money Concepts (Phase 164 Plan 02): Order Blocks + stateless
         # Breaker/Mitigation, single pure pass per RESEARCH.md's mandated
         # order_blocks -> breaker/mitigation sequencing. Plans 03-04 append
@@ -5946,10 +6299,11 @@ class FeatureFactory:
             amd_manipulation_detected=amd_manipulation_detected_val,
             amd_distribution_direction=amd_distribution_direction_val,
             manip_strength=manip_strength_val,
-            # Swing Detection + Trend Structure (13, Phase 165 Plan 02): real
-            # computed values from the shared _swing_fields/_trend_fields
-            # pass above. Fib/Session Structure (28) remain None
-            # placeholders -- Plans 03-04's scope.
+            # Swing Detection + Trend Structure (13, Phase 165 Plan 02) +
+            # Swing Momentum + Fibonacci Zones (12, Phase 165 Plan 03): real
+            # computed values from the shared _swing_fields/_trend_fields/
+            # _swing_momentum_fields/_fib_fields passes above. Session
+            # Structure (16) remains None placeholders -- Plan 04's scope.
             swing_high_dist_atr=swing_high_dist_atr_val,
             swing_low_dist_atr=swing_low_dist_atr_val,
             swing_high_type=swing_high_type_val,
@@ -5963,18 +6317,18 @@ class FeatureFactory:
             structure_integrity=structure_integrity_val,
             price_position=price_position_val,
             trend_duration_bars=trend_duration_bars_val,
-            swing_amplitude_ratio=None,
-            swing_amplitude_expanding=None,
-            swing_amplitude_intensity=None,
-            swing_velocity_bars=None,
-            swing_velocity_bias=None,
-            struct_energy=None,
-            struct_accel_bias=None,
-            swing_volume_confirmation=None,
-            nearest_fib_ratio=None,
-            nearest_fib_dist_atr=None,
-            fib_cluster_strength=None,
-            in_fib_discount_zone=None,
+            swing_amplitude_ratio=swing_amplitude_ratio_val,
+            swing_amplitude_expanding=swing_amplitude_expanding_val,
+            swing_amplitude_intensity=swing_amplitude_intensity_val,
+            swing_velocity_bars=swing_velocity_bars_val,
+            swing_velocity_bias=swing_velocity_bias_val,
+            struct_energy=struct_energy_val,
+            struct_accel_bias=struct_accel_bias_val,
+            swing_volume_confirmation=swing_volume_confirmation_val,
+            nearest_fib_ratio=nearest_fib_ratio_val,
+            nearest_fib_dist_atr=nearest_fib_dist_atr_val,
+            fib_cluster_strength=fib_cluster_strength_val,
+            in_fib_discount_zone=in_fib_discount_zone_val,
             prior_session_high_dist_atr=None,
             prior_session_low_dist_atr=None,
             prior_session_close_dist_atr=None,
@@ -6214,6 +6568,35 @@ class FeatureFactory:
             structure_integrity_val = _trend_fields["structure_integrity"]
             price_position_val = _trend_fields["price_position"]
             trend_duration_bars_val = _trend_fields["trend_duration_bars"]
+
+            # Swing Momentum / Fibonacci Zones (Phase 165 Plan 03): swing
+            # momentum pre-slices its own causal window ending at the
+            # current bar (its own confirm-window detector, not
+            # find_peaks/find_troughs, D-06 Finding B); fibonacci zones
+            # needs no new slice -- it consumes _swing_fields' prices, not
+            # arrays, and _swing_fields was already computed above for this
+            # same bar.
+            _sm_start = max(0, i - config.swing_momentum_lookback_bars + 1)
+            _swing_momentum_fields = _compute_swing_momentum(
+                highs[_sm_start : i + 1],
+                lows[_sm_start : i + 1],
+                volumes[_sm_start : i + 1],
+                config,
+            )
+            swing_amplitude_ratio_val = _swing_momentum_fields["swing_amplitude_ratio"]
+            swing_amplitude_expanding_val = _swing_momentum_fields["swing_amplitude_expanding"]
+            swing_amplitude_intensity_val = _swing_momentum_fields["swing_amplitude_intensity"]
+            swing_velocity_bars_val = _swing_momentum_fields["swing_velocity_bars"]
+            swing_velocity_bias_val = _swing_momentum_fields["swing_velocity_bias"]
+            struct_energy_val = _swing_momentum_fields["struct_energy"]
+            struct_accel_bias_val = _swing_momentum_fields["struct_accel_bias"]
+            swing_volume_confirmation_val = _swing_momentum_fields["swing_volume_confirmation"]
+
+            _fib_fields = _compute_fib_zones(close_, atr_val, _swing_fields, config)
+            nearest_fib_ratio_val = _fib_fields["nearest_fib_ratio"]
+            nearest_fib_dist_atr_val = _fib_fields["nearest_fib_dist_atr"]
+            fib_cluster_strength_val = _fib_fields["fib_cluster_strength"]
+            in_fib_discount_zone_val = _fib_fields["in_fib_discount_zone"]
 
             # Smart Money Concepts (Phase 164 Plan 02): Order Blocks +
             # stateless Breaker/Mitigation -- pre-slice a causal window ending
@@ -6809,8 +7192,9 @@ class FeatureFactory:
                 manip_strength=manip_strength_val,
                 # Swing Detection + Trend Structure (13, Phase 165 Plan 02):
                 # real computed values from the shared _swing_fields/
-                # _trend_fields pass above. Fib/Session Structure (28) remain
-                # None placeholders -- Plans 03-04's scope.
+                # _trend_fields/_swing_momentum_fields/_fib_fields passes
+                # above (Phase 165 Plans 02-03). Session Structure (16)
+                # remains None placeholders -- Plan 04's scope.
                 swing_high_dist_atr=swing_high_dist_atr_val,
                 swing_low_dist_atr=swing_low_dist_atr_val,
                 swing_high_type=swing_high_type_val,
@@ -6824,18 +7208,18 @@ class FeatureFactory:
                 structure_integrity=structure_integrity_val,
                 price_position=price_position_val,
                 trend_duration_bars=trend_duration_bars_val,
-                swing_amplitude_ratio=None,
-                swing_amplitude_expanding=None,
-                swing_amplitude_intensity=None,
-                swing_velocity_bars=None,
-                swing_velocity_bias=None,
-                struct_energy=None,
-                struct_accel_bias=None,
-                swing_volume_confirmation=None,
-                nearest_fib_ratio=None,
-                nearest_fib_dist_atr=None,
-                fib_cluster_strength=None,
-                in_fib_discount_zone=None,
+                swing_amplitude_ratio=swing_amplitude_ratio_val,
+                swing_amplitude_expanding=swing_amplitude_expanding_val,
+                swing_amplitude_intensity=swing_amplitude_intensity_val,
+                swing_velocity_bars=swing_velocity_bars_val,
+                swing_velocity_bias=swing_velocity_bias_val,
+                struct_energy=struct_energy_val,
+                struct_accel_bias=struct_accel_bias_val,
+                swing_volume_confirmation=swing_volume_confirmation_val,
+                nearest_fib_ratio=nearest_fib_ratio_val,
+                nearest_fib_dist_atr=nearest_fib_dist_atr_val,
+                fib_cluster_strength=fib_cluster_strength_val,
+                in_fib_discount_zone=in_fib_discount_zone_val,
                 prior_session_high_dist_atr=None,
                 prior_session_low_dist_atr=None,
                 prior_session_close_dist_atr=None,
