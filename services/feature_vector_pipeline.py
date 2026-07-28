@@ -198,6 +198,16 @@ class FeatureVectorPipeline(BaseDaemon):
         amd_distribution_direction/manip_strength at neutral defaults until a
         full new accumulation cycle passes. Same warm-up source and exclusion
         as `update_wk_vwap()`/`update_session_vp()` above.
+
+        Also replays the `update_session_levels` mutator over the same buffered
+        history (Phase 165 Plan 04) -- without this, the session/overnight/Asian/
+        weekly-adjacent state built for `session_levels.py`'s rewrite would
+        cold-start on every restart that does not land exactly on a session
+        boundary, silently freezing all 16 Plan 05 FeatureVector columns at
+        NULL until a full session and a full ISO week have elapsed -- the
+        same T-164-07 cold-start gap Phase 164 had to fix retroactively. Same
+        warm-up source and exclusion as `update_wk_vwap()`/
+        `update_session_vp()`/`update_overnight_range()` above.
         """
         key = f"{symbol}:{tf}"
         if key not in self._feature_caches:
@@ -218,6 +228,10 @@ class FeatureVectorPipeline(BaseDaemon):
             for bar in buffered:
                 cache.update_overnight_range(
                     bar.ts, bar.high, bar.low, self._feature_factory_config
+                )
+            for bar in buffered:
+                cache.update_session_levels(
+                    bar.ts, bar.open, bar.high, bar.low, bar.close, self._feature_factory_config
                 )
             self._feature_caches[key] = cache
         return self._feature_caches[key]
@@ -1223,6 +1237,12 @@ class FeatureVectorPipeline(BaseDaemon):
         # to derive the 4 AMD FeatureVector fields. Mirrors compute_batch()'s
         # per-bar update_overnight_range() call immediately above.
         cache.update_overnight_range(bar.ts, bar.high, bar.low, config)
+
+        # Session-levels accumulator (Phase 165 Plan 04): update BEFORE
+        # compute() reads FeatureCache's session/overnight/Asian/weekly-
+        # adjacent state (Plan 05 derives the 16 FeatureVector fields).
+        # Mirrors compute_batch()'s per-bar update_session_levels() call.
+        cache.update_session_levels(bar.ts, bar.open, bar.high, bar.low, bar.close, config)
 
         try:
             vector = FeatureFactory.compute(bars_dicts, bar.symbol, bar.tf, cache, config)

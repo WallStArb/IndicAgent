@@ -6414,6 +6414,7 @@ class FeatureFactory:
             bar_ts = bar["ts"]
             if isinstance(bar_ts, datetime) and bar_ts.tzinfo is None:
                 bar_ts = bar_ts.replace(tzinfo=UTC)
+            open_ = float(bar["open"])
             high_ = float(bar["high"])
             low_ = float(bar["low"])
             close_ = float(bar["close"])
@@ -6434,6 +6435,15 @@ class FeatureFactory:
             # block in services/feature_vector_pipeline.py.
             cache.update_overnight_range(bar_ts, high_, low_, config)
 
+            # Session-levels accumulator (Phase 165 Plan 04): update on EVERY
+            # bar, including warm-up, matching update_session_vp's/
+            # update_overnight_range's treatment immediately above -- firing
+            # through warm-up is what keeps the session/overnight/Asian/weekly
+            # state from cold-starting mid-session. `open_` is read above
+            # (moved up from its former post-warm-up-gate position) so it is
+            # available here.
+            cache.update_session_levels(bar_ts, open_, high_, low_, close_, config)
+
             # Skip warm-up
             if i < warm_up_bars:
                 cache.advance_bar(bar_ts, high_, low_, close_, vol_)
@@ -6451,8 +6461,6 @@ class FeatureFactory:
             w_lows = lows[window_start : i + 1]
             w_closes = closes[window_start : i + 1]
             w_volumes = volumes[window_start : i + 1]
-
-            open_ = float(bar["open"])
 
             # Series-backed features (index into precomputed series)
             atr_val = float(s.atr_raw[i - 1]) if i - 1 < len(s.atr_raw) else 0.0
