@@ -2211,7 +2211,7 @@ Plans:
 - [x] 163-02-PLAN.md — Wire session-VP into live+batch compute paths, derive 14 VP outputs (2 original + 12 new), remove stale I3 None-branch, regression test
 - [x] 163-03-PLAN.md — Stateless inline pivot-clustering S/R: ATR-unit sr_support_dist/sr_resist_dist plus resistance_strength/support_strength/resistance_age_bars/support_age_bars/sr_level_count from the same clustering pass (D-19), D-05 docstring cleanup, regression test
 
-### Phase 164: SMC Institutional Footprint Primitives 📋 PLANNED
+### Phase 164: SMC Institutional Footprint Primitives 🚧 IN PROGRESS (1/4 plans)
 
 **Goal:** Port the archived v2.x Smart Money Concepts (SMC) plugins
 (`src/intelligence/archive/smc_context/`) into v3 as atomic distance/strength/duration/count
@@ -2288,8 +2288,9 @@ hard code dependency, sequencing preference only.
 **Requirements**: No formal REQUIREMENTS.md IDs (none exist for this project — per Phase 163
 precedent); governed by derived REQ-164-01..09 (order blocks, breaker/mitigation, FVG, sweeps,
 pools, zones, BOS/CHoCH, AMD, data contract) — see `164-01-PLAN.md`'s source-coverage audit.
-**Plans:** 4 plans in 4 sequential waves (all edit `feature_factory.py` — no parallelism possible;
-this is one compute-path port). Migration 259 re-verify-at-execution flagged (RESEARCH Open Q3).
+**Plans:** 1/4 plans executed (4 plans in 4 sequential waves — all edit `feature_factory.py`, no
+parallelism possible; this is one compute-path port). Migration 259 re-verify-at-execution flagged
+(RESEARCH Open Q3; resolved as migration 266 at execution time, see 164-01-SUMMARY.md).
 Historical `feature_vectors` backfill deliberately deferred to the consolidated 163/164/165 pass
 (todo 176); shared collinearity/incremental-IC sweep is a phase-exit follow-up, not a task.
 
@@ -2297,7 +2298,7 @@ Plans:
 
 **Wave 1**
 
-- [ ] 164-01-PLAN.md — Data contract: migration 259 (36 SMC columns + feature_registry + feature.smc.* APR keys) + FeatureVector/domain/persistence slice + FeatureFactoryConfig wiring + FeatureCache.update_overnight_range() mutator [wave 1]
+- [x] 164-01-PLAN.md — Data contract: migration 259 (36 SMC columns + feature_registry + feature.smc.* APR keys) + FeatureVector/domain/persistence slice + FeatureFactoryConfig wiring + FeatureCache.update_overnight_range() mutator [wave 1]
 
 **Wave 2** *(blocked on Wave 1 completion)*
 

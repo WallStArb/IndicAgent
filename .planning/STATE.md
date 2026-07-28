@@ -3,8 +3,8 @@ gsd_state_version: 1.0
 milestone: v3.1
 milestone_name: AlphaEngine Validation + Alpha Scoring
 status: ready_to_execute
-stopped_at: "Phase 167 COMPLETE (6/6 plans): full 2006-2026 corpus backfilled into construction_spreads, both live Validation Gates PASSED against the real OOS population. Post-execution /simplify + /gsd:code-review 167 ran same session -- found and fixed 1 critical bug (CR-01, --backfill turnover-seed fix, live verdict unaffected) + 5 warnings. CLAUDE.md/gotchas.md updated with a corrected asyncpg JSONB codec claim and 3 new worktree/test gotchas. Pushed to origin/main (b7f1ed4b). Phase 156-159's stated precondition is now met; next decision is the user's."
-last_updated: "2026-07-27T13:46:36.000Z"
+stopped_at: "Phase 164 Plan 01 (SMC Institutional Footprint data contract) executed -- 1/4 plans complete. Migration 266 (36 feature_vectors columns + registry rows + 39 feature.smc.* APR keys), FeatureVector/FEATURE_VECTOR_DOMAIN/persistence-slice contract for all 36 new fields (172->208 total, threaded as None placeholders), FeatureFactoryConfig wired from APR at both live and batch sites, and a new FeatureCache.update_overnight_range() AMD mutator (built and unit-verified, not yet invoked). Full tests/unit/ suite green (0 failures). Plans 02-04 replace the None placeholders with real computed values next."
+last_updated: "2026-07-28T01:43:59.125Z"
 progress:
   total_phases: 12
   completed_phases: 9
@@ -134,10 +134,25 @@ substitution probe for rates) · todo 129 (revived cross-service short-lived-con
 todos 172/173 (non-blocking Phase 148 findings) · todo 009 Parts A-D.
 
 *Tier 4 -- deprioritized, do not resume without re-reading why:* Phase 151 (Feature Primitives
-Expansion, planned and ready but not the next priority -- see Guiding lens above), Phase
-164/165 (feature-expansion track, same reasoning), Phase 145 (StratificationDimension
-Formalization, unblocked but not planned), todo 176 (historical VP/SR backfill) and todo 175
-(structural candidate Part 2 -- both exist only to serve an overridden plan, see todo 179).
+Expansion, planned and ready but not the next priority -- see Guiding lens above), Phase 145
+(StratificationDimension Formalization, unblocked but not planned), todo 175 (structural
+candidate Part 2 -- exists only to serve an overridden plan, see todo 179).
+
+*Tier 0 -- EXPLICIT USER OVERRIDE 2026-07-27, supersedes Tier 4's Phase 164/165 deprioritization
+below:* user wants Phase 164 (SMC, already planned, 4 waves ready) and Phase 165 (Swing/Fib/
+Trend, not yet planned) built regardless of the evidence-gate reasoning that deprioritized them
+-- explicit "build out the features regardless" instruction, not evidence-triggered. Sequencing
+decided the same session: **plan Phase 165 (`/gsd-plan-phase 165`) -> execute Phase 164 ->
+execute Phase 165 -> ONE combined `backfill_feature_factory.py --compute-only --refresh` pass**
+covering the current 20-day staleness gap, Phase 163's VP/SR historical NULLs (todo 176), and
+both phases' new columns in a single recompute, not three separate ones. Rationale for the
+single-pass batching (not the feature-expansion decision itself, which is the user's call): the
+`--refresh` recompute is cheap/unattended background compute; phase execution is expensive/
+attended engineering time -- batching avoids paying the ~8h recompute cost twice for 164 and a
+third time for 165. Both 164 and 165 edit `feature_factory.py` -- execute sequentially, not
+concurrently, to avoid the same file being touched by two waves at once. Todo 197 (HMM
+forward-filter perf fix, ~30% of compute cost) is unrelated to this and NOT a prerequisite --
+it's a separate, correctness-sensitive change still gated on its own review.
 
 *Tier 5 -- gate status changed 2026-07-27:* Phase 156-159 (Portfolio State/Sizing/Execution/Cost)
 was gated on Phase 167 producing a proven signal -- **that gate cleared: Phase 167's both
@@ -181,6 +196,7 @@ Full P2/P3 todo backlog: `.planning/todos/PRIORITIES.md`. Idea-level scoring:
 | 166 | Frame/Execution Recalibration | COMPLETE (6/6 plans, 4 waves, 2026-07-23) -- baseline and scalar candidates FAIL gate166 decisively; structural candidate halted pending Phase 163. Part 2 (todos 175/176) deprioritized by todo 179's finding. |
 | 163 | VP/SR Structural Primitives | COMPLETE (3/3 plans, 2026-07-24, verification 15/15 must-haves) -- closes todo 153. Historical backfill still open (todo 176, deprioritized) |
 | 167 | Cross-Sectional Trade Construction (T3) | COMPLETE (6/6 plans, 2026-07-27) -- both live Validation Gates PASSED (gate1_passes=true, gate2_passes_overall=true); Phase 156-159's stated precondition is now met. See Current Focus. |
+| 164 | SMC Institutional Footprint Primitives | IN PROGRESS (1/4 plans, 2026-07-27) -- Plan 01 (data contract) complete: 36 new feature_vectors columns + registry rows + FeatureVector fields (172->208 total) threaded as None placeholders, 39 feature.smc.* APR keys wired into FeatureFactoryConfig at both live/batch sites, FeatureCache.update_overnight_range() AMD mutator built (not yet invoked). Plans 02-04 (order blocks/breaker/mitigation, FVG/sweeps/pools, zones/BOS-CHoCH/AMD) replace the None placeholders with real computed values. |
 
 Current row counts and every downstream measurement number live in
 [Corpus pipeline state](project_corpus_pipeline_state.md) -- that file is the single source of
@@ -217,7 +233,7 @@ ON CONFLICT (symbol, tf) DO UPDATE SET fetch_complete = true;
 
 - Phase 162 (ic_engine Corpus Pipeline Throughput): added 2026-07-18, planned 2026-07-22, executed and COMPLETE 2026-07-23.
 - Phase 163 (VP/SR Structural Primitives): added 2026-07-20, planned and reviewed, executed and COMPLETE 2026-07-24.
-- Phase 164 (SMC Institutional Footprint Primitives): added 2026-07-20, planned 2026-07-25 (4 plans, 4 waves, `gsd-plan-checker` verified). Deprioritized 2026-07-26 behind Phase 167 -- stays planned and ready, not executed.
+- Phase 164 (SMC Institutional Footprint Primitives): added 2026-07-20, planned 2026-07-25 (4 plans, 4 waves, `gsd-plan-checker` verified). Deprioritized 2026-07-26 behind Phase 167, then explicit user override 2026-07-27 (Tier 0) reinstated it regardless of the evidence-gate reasoning. Plan 01 (data contract) executed 2026-07-27 -- 1/4 plans complete, see Phase Summary table.
 - Phase 166 (Frame/Execution Recalibration): added 2026-07-23, planned and executed same day -- COMPLETE, verdict: neither candidate promoted. Direct follow-on (todo 179) found the real cause (see Current Focus).
 - Phase 151 (Feature Primitives Expansion + Interaction Layer): planned 2026-07-24, cross-AI reviewed and revised same day (Codex found 3 HIGH-severity findings, all fixed as real plan changes). 9 plans, execution-ready. Deprioritized 2026-07-26 behind Phase 167 (see Current Focus) -- stays planned and ready, not the next priority.
 - Phase 167 (Cross-Sectional Trade Construction, T3): added 2026-07-26 after T3 passed decisively -- the first thesis in the edge-source-thesis tree to clear its own bar. Planned (6 plans), executed, COMPLETE 2026-07-27 -- both live Validation Gates PASSED. Full detail in Current Focus above.
@@ -229,65 +245,38 @@ restoration + Phase 148 planning (2026-07-22) · Phase 148 finalized, todo 160's
 scope found and fixed -- 40 bars across 14 symbols, 20x the known count (2026-07-22) · Phase 148
 executed, both irreversible OOS gates run, verdict DO NOT PROMOTE (2026-07-22/23) · Phase 163
 executed, Gate 2's real cause found (todo 179), Layer-1 regime-coverage foundation fixed -- todo
-168 closed, todo 169 shipped (2026-07-24).
+168 closed, todo 169 shipped (2026-07-24) · Phase 167 planned and executed end-to-end (6/6 plans,
+2026-07-27), both live Validation Gates PASSED, post-execution `/simplify` + code-review found and
+fixed 1 critical + 5 warnings (CR-01 turnover-seed bug, WR-01 APR migration, 3 doc/glossary fixes,
+WR-05 filename-collision fix), CLAUDE.md/gotchas.md corrected same session.
 
 ## Session
 
-**Last session:** 2026-07-27T11:44:00.000Z
+**Last session:** 2026-07-27T21:41:31.000Z
 
-**Stopped at:** Phase 167 Plan 06 (final plan) executed. Full 2006-2026 corpus backfilled into
-`construction_spreads`; both live Validation Gates ran against the real OOS population and
-BOTH PASSED (`gate1_passes=true`, `gate2_passes_overall=true`). Phase 167 is COMPLETE (6/6
-plans). `docs/research/trade-construction-layer.md`, `docs/research/data-edge-source-thesis.md`,
-`docs/operations/operations-infrastructure.md`, and `docs/reference/cheatsheet.md` all updated
-with the live verdict and runbook detail. The Phase 156-159 execution/sizing chain's stated
-precondition is now met; the decision whether to proceed is the user's. Todo 183's `ic_engine`
-corpus recompute was still running concurrently throughout this plan's execution (confirmed via
-`ps aux`) -- re-verify its status before trusting it as still-running in a future session, since
-it touches unrelated tables (`feature_ic_scores`/`alpha_ensemble_ic`) with no overlap with
-`construction_spreads`. Todo 184 (T5 canary-leakage check, CLOSED) and todo 182 (15m
-bootstrap-threads benchmark) remain ready/independent, unstarted.
+**Stopped at:** Phase 164 Plan 01 (SMC Institutional Footprint data contract) executed --
+1/4 plans complete. Migration 266 (36 `feature_vectors` columns + registry rows + 39
+`feature.smc.*` APR keys), `FeatureVector`/`FEATURE_VECTOR_DOMAIN`/persistence-slice contract
+for all 36 new fields (172->208 total, threaded as `None` placeholders), `FeatureFactoryConfig`
+wired from APR at both live (`feature_vector_pipeline.py`) and batch
+(`backfill_feature_factory.py`) sites, and a new `FeatureCache.update_overnight_range()` AMD
+mutator (built and unit-verified, not yet invoked -- Plan 04's job). Full `tests/unit/` suite
+green (0 failures) after fixing 9 stale field-count assertions across 6 test files that broke
+when the 36 new columns landed. Plans 02 (order blocks/breaker/mitigation), 03 (FVG/sweeps/
+pools), 04 (zones/BOS-CHoCH/AMD) replace the `None` placeholders with real computed values next.
 
-**This session's arc:** Continued from a prior session that planned Phase 167's 6 plans (schema,
-pure construction primitives, write-path service, Gate 1 core, Gate 2 core) and executed Plans
-01-05. This session executed Plan 06, the plan whose entire purpose is running the construction
-for real rather than proving the code correct: pre-registered four equivalence tolerance bands
-before backfilling, ran the full corpus backfill, verified equivalence to the original T3
-falsification script (all four bands PASS, `n_bars` matches T3's own published value almost
-exactly), caught and fixed a genuine bug during the first live Gate 1 run (a missing JSONB type
-codec on a bare `asyncpg` connection), ran both gates live, and transcribed the actual verdicts
-(both PASS) into the four governing docs with the same fidelity Phase 148 recorded its DO NOT
-PROMOTE verdict.
-
-**Post-execution gates run 2026-07-27 (same session, after Plan 06):** `/simplify` deduped ~60
-lines of repeated setup logic between `_run_evaluate_gate`/`_run_evaluate_attribution` and fixed
-an inaccurate docstring claim about shared permutation draws (no behavior change). `/gsd:code-review
-167` found 1 critical + 5 warnings, all fixed same session:
-- **CR-01 (real bug, fixed):** `--backfill` mode seeded prior-leg turnover from the table's
-  globally latest row regardless of mode -- correct only when the table starts empty. A
-  re-backfill against a non-empty table (e.g. picking up a newly-onboarded symbol's earlier
-  history) would have fabricated a non-null `one_way_turnover` for the true first bar instead of
-  the required NULL. Confirmed the ALREADY-RECORDED live verdict above is unaffected (table was
-  genuinely empty at backfill time). Fixed with a regression test that reproduces the corruption
-  against the pre-fix code.
-- **WR-01:** hardcoded `0.05` Gate-1 null-p significance threshold migrated to APR
-  (`alpha.construction.null_p_threshold`, migration 261).
-- **WR-02/03/04:** 5 broken doc cross-references, one numeric transcription error
-  (`0.0006`->`0.0005` in an in-sample diagnostic cell), one stale glossary status line -- all
-  fixed.
-- **WR-05:** `write_verdict_artifact`'s timestamped filename had only second-level resolution;
-  two same-second calls would silently clobber each other. Fixed with a numeric-suffix
-  disambiguation + regression test.
-- Two structural findings (shared JSONB-codec connection helper across services; `cfg()`'s
-  list-default cast bug) deliberately deferred -- out of this diff's scope, filed as
-  [todo 187](.planning/todos/pending/187-cross-sectional-spread-tracker-altitude-cleanup.md), P3.
-
-**CLAUDE.md maintenance (same session):** corrected an existing CLAUDE.md line that stated
-asyncpg JSONB decoding as unconditional -- it's only true on a pooled `BaseBatch.create_pool()`
-connection; a bare `asyncpg.connect()` (exactly what CR-01's sibling bug hit) has no codec.
-`docs/reference/gotchas.md` gained 3 entries: worktree `.venv` not inherited (breaks pre-commit
-hooks), worktree isolation unsafe for plans whose deliverable is gitignored
-(`logs/`/`corpus_manifests/*.json`), integration tests overwrite committed corpus manifests.
+**This session's arc:** Resumed a prior session where Task 1 (migration + schema/domain/
+persistence contract) had been executed and verified but left uncommitted. Re-verified Task 1
+against the plan's own automated gates (registry==dataclass drift gate, persistence completeness
+test, ruff) before committing it as its own atomic commit -- confirmed genuinely complete, not
+redone. Executed Task 2 (enumerated every hardcoded numeric constant across the 8 archived
+`smc_context` plugin files, seeded 39 `feature.smc.*` APR keys with `[conventional]` provenance,
+wired `FeatureFactoryConfig` + both config-build sites) and Task 3 (`update_overnight_range()`
+mutator, adapted the archived plugin's close-based manipulation-detection test to the mutator's
+fixed high/low-only signature, verified with a synthetic multi-day overnight-sweep script).
+Fixed the 9 stale-count test breakage as a small dedicated commit per the plan's own instruction,
+matching the exact pattern every prior phase (163, 143.1, migration 206/211/223) hit when adding
+`FeatureVector` columns.
 
 **Pushed to `origin/main` 2026-07-27** (`b7f1ed4b`) -- 57 commits, spanning this session's Phase
 167 work plus prior unpushed session history. No feature branch existed (Phase 167's
