@@ -2345,13 +2345,13 @@ normalization, APR namespace precedent, `FeatureCache` session-boundary mutator 
 **Requirements**: no formal `REQUIREMENTS.md` exists for this project — `165-CONTEXT.md`'s
 D-01..D-15 decision IDs are the requirement set, carried verbatim in each plan's `requirements`
 frontmatter (same convention as Phases 163/164/166).
-**Plans:** 5 plans, 5 waves (sequential — every plan touches `feature_factory.py`, so file ownership
+**Plans:** 1/5 plans executed. 5 plans, 5 waves (sequential — every plan touches `feature_factory.py`, so file ownership
 forces one wave per plan; Plan 03 additionally consumes Plan 02's in-memory swing intermediates per
 D-05, and Plan 05 consumes Plan 04's `FeatureCache` state).
 
 Plans:
 
-- [ ] 165-01-PLAN.md — Data contract: migration 267 (41 columns + 41 `feature_registry` rows + 17 APR
+- [x] 165-01-PLAN.md — Data contract: migration 267 (41 columns + 41 `feature_registry` rows + 17 APR
   keys), `FeatureVector`/`FEATURE_VECTOR_DOMAIN`/`FeatureFactoryConfig`/persistence wiring, both config
   build sites, and the test-suite count blast radius
 - [ ] 165-02-PLAN.md — `swing_detector.py` (7) + `trend_structure.py` (6) = 13 columns off one shared
