@@ -3565,6 +3565,243 @@ def _compute_sr_dist_atr(
     }
 
 
+# ---------------------------------------------------------------------------
+# Smart Money Concepts — Order Blocks + Breaker/Mitigation (Phase 164 Plan 02)
+# ---------------------------------------------------------------------------
+
+_OB_FALLBACK: dict[str, float] = {
+    "ob_bull_dist_atr": 0.0,
+    "ob_bear_dist_atr": 0.0,
+    "ob_strength": 0.0,
+    "ob_mitigated_flag": 0.0,
+    "breaker_dist_atr": 0.0,
+    "breaker_block_active": 0.0,
+    "ob_mitigation_pct": 0.0,
+}
+
+
+def _ob_check_mitigated(
+    price_array: np.ndarray,
+    ob_level: float,
+    impulse_end: int,
+    n: int,
+    bearish: bool = False,
+) -> float:
+    """Has price fully traded through the OB zone since formation?
+
+    Ported verbatim from archive/smc_context/order_blocks.py's
+    OrderBlocksPlugin._check_mitigated: a bullish OB (checks the low series,
+    bearish=False) mitigates once a later bar's low trades at/below the OB's
+    own low; a bearish OB (checks the high series, bearish=True) mitigates
+    once a later bar's high trades at/above the OB's own high. Scans from
+    impulse_end (the impulse bars themselves are excluded) to the end of the
+    window.
+    """
+    for j in range(impulse_end, n):
+        if bearish and price_array[j] >= ob_level:
+            return 1.0
+        if not bearish and price_array[j] <= ob_level:
+            return 1.0
+    return 0.0
+
+
+def _compute_order_blocks(
+    opens: np.ndarray,
+    highs: np.ndarray,
+    lows: np.ndarray,
+    closes: np.ndarray,
+    volumes: np.ndarray,
+    close_: float,
+    atr_val: float,
+    tf: str,
+    config: FeatureFactoryConfig,
+) -> dict[str, float]:
+    """Order Blocks + stateless Breaker/Mitigation, one pure pass (Phase 164 Plan 02).
+
+    Ports order_blocks.py / breaker_blocks.py / mitigation_blocks.py's detection
+    geometry as ONE stateless full-window scan, per 164-RESEARCH.md's mandated
+    order_blocks -> breaker/mitigation sequencing and its explicit correction
+    that both archived plugins' self._state cross-call memory must NOT survive
+    the port: every order block found during the scan (mitigated or not) is
+    retained in-pass as `candidates`; breaker/mitigation derive directly from
+    that same list, never from a FeatureCache mutator or module-level state.
+
+    Bullish OB: last bearish candle before an impulse_bars-long bullish
+    impulse. Bearish OB: mirror image. An OB is "mitigated" once a later
+    bar's wick fully trades through its own zone (_ob_check_mitigated).
+    nearest_bull_ob / nearest_bear_ob track the closest-by-price candidate of
+    each direction (mitigated or not -- a broken zone's location is still
+    informative, unlike the archived plugin, which only ever reports the
+    single most-recently-scanned unmitigated OB across both directions); the
+    single closest candidate overall drives ob_strength/ob_mitigated_flag/
+    ob_mitigation_pct. A breaker is the most-recently-formed (by bar index)
+    mitigated OB, polarity-flipped (a mitigated bull OB becomes a bearish
+    breaker zone, and vice versa); active when price sits inside its zone or
+    has approached from the flip-relevant side -- matches breaker_blocks.py's
+    _from_state logic exactly, just recomputed in-pass instead of read from
+    self._state. ob_mitigation_pct is 1.0 when the nearest-overall OB is
+    itself already fully mitigated, else the max fractional overlap between
+    every bar's [low, high] since its formation and its own [bottom, top]
+    zone (mitigation_blocks.py's running-max logic, recomputed in-pass).
+
+    tf is accepted for interface parity with _compute_sr_dist_atr but unused
+    here -- order-block lookback is a flat (non-per-tf) APR key per migration
+    266, not a per-tf dict like sr_lookback_by_tf.
+
+    Falls back to _OB_FALLBACK (never raises, never NaN/Inf) when atr_val is
+    invalid or the window has too few bars to run the impulse scan.
+    """
+    atr_valid = atr_val is not None and math.isfinite(atr_val) and atr_val > 0
+    if not atr_valid:
+        return dict(_OB_FALLBACK)
+
+    lookback = config.smc_order_blocks_lookback
+    o = opens[-lookback:]
+    h = highs[-lookback:]
+    lo = lows[-lookback:]
+    c = closes[-lookback:]
+    v = volumes[-lookback:]
+    n_bars = len(c)
+
+    impulse_bars = config.smc_order_blocks_impulse_bars
+    opposing_lookback = config.smc_order_blocks_opposing_candle_lookback
+    significant_move_pct = config.smc_order_blocks_significant_move_pct
+
+    if n_bars < impulse_bars + opposing_lookback + 1:
+        return dict(_OB_FALLBACK)
+
+    avg_volume = float(v.mean()) if v.size else 0.0
+    candidates: list[dict[str, float]] = []
+
+    i = impulse_bars
+    while i < n_bars:
+        impulse_start = i - impulse_bars
+
+        if all(c[j] > o[j] for j in range(impulse_start, i)):
+            impulse_move = c[i - 1] - o[impulse_start]
+            if abs(impulse_move) > close_ * significant_move_pct:
+                ob_idx = None
+                for k in range(impulse_start - 1, max(0, impulse_start - opposing_lookback), -1):
+                    if c[k] < o[k]:
+                        ob_idx = k
+                        break
+                if ob_idx is not None:
+                    impulse_vol = float(v[impulse_start:i].mean())
+                    strength = min(1.0, impulse_vol / avg_volume) if avg_volume > 0 else 0.5
+                    mitigated = _ob_check_mitigated(lo, float(lo[ob_idx]), i, n_bars)
+                    candidates.append(
+                        {
+                            "type": 1.0,
+                            "top": float(h[ob_idx]),
+                            "bottom": float(lo[ob_idx]),
+                            "strength": float(strength),
+                            "mitigated": mitigated,
+                            "idx": float(ob_idx),
+                            "impulse_end": float(i),
+                        }
+                    )
+
+        if all(c[j] < o[j] for j in range(impulse_start, i)):
+            impulse_move = c[i - 1] - o[impulse_start]
+            if abs(impulse_move) > close_ * significant_move_pct:
+                ob_idx = None
+                for k in range(impulse_start - 1, max(0, impulse_start - opposing_lookback), -1):
+                    if c[k] > o[k]:
+                        ob_idx = k
+                        break
+                if ob_idx is not None:
+                    impulse_vol = float(v[impulse_start:i].mean())
+                    strength = min(1.0, impulse_vol / avg_volume) if avg_volume > 0 else 0.5
+                    mitigated = _ob_check_mitigated(h, float(h[ob_idx]), i, n_bars, bearish=True)
+                    candidates.append(
+                        {
+                            "type": -1.0,
+                            "top": float(h[ob_idx]),
+                            "bottom": float(lo[ob_idx]),
+                            "strength": float(strength),
+                            "mitigated": mitigated,
+                            "idx": float(ob_idx),
+                            "impulse_end": float(i),
+                        }
+                    )
+
+        i += 1
+
+    if not candidates:
+        return dict(_OB_FALLBACK)
+
+    def _mid(cand: dict[str, float]) -> float:
+        return (cand["top"] + cand["bottom"]) / 2.0
+
+    def _dist(cand: dict[str, float]) -> float:
+        return abs(close_ - _mid(cand))
+
+    bull_candidates = [cand for cand in candidates if cand["type"] == 1.0]
+    bear_candidates = [cand for cand in candidates if cand["type"] == -1.0]
+    nearest_bull = min(bull_candidates, key=_dist) if bull_candidates else None
+    nearest_bear = min(bear_candidates, key=_dist) if bear_candidates else None
+    nearest_overall = min(candidates, key=_dist)
+
+    ob_bull_dist_atr = _dist(nearest_bull) / atr_val if nearest_bull is not None else 0.0
+    ob_bear_dist_atr = _dist(nearest_bear) / atr_val if nearest_bear is not None else 0.0
+    ob_strength = float(nearest_overall["strength"])
+    ob_mitigated_flag = float(nearest_overall["mitigated"])
+
+    ob_mitigation_pct = 0.0
+    if ob_mitigated_flag == 1.0:
+        ob_mitigation_pct = 1.0
+    else:
+        m_top = nearest_overall["top"]
+        m_bottom = nearest_overall["bottom"]
+        ob_range = m_top - m_bottom
+        if ob_range > 0:
+            # Scan from impulse_end (matching _ob_check_mitigated's own
+            # convention), NOT idx+1 -- the impulse bars themselves naturally
+            # span the OB zone as price transits away from it (their own
+            # formation), which is not a genuine later retest/erosion.
+            overlap_start = int(nearest_overall["impulse_end"])
+            max_pct = 0.0
+            for j in range(overlap_start, n_bars):
+                overlap_low = max(float(lo[j]), m_bottom)
+                overlap_high = min(float(h[j]), m_top)
+                overlap = max(0.0, overlap_high - overlap_low)
+                bar_pct = overlap / ob_range
+                if bar_pct > max_pct:
+                    max_pct = bar_pct
+            ob_mitigation_pct = min(1.0, max_pct)
+
+    # Breaker (RESEARCH.md: derive statelessly from the same in-pass
+    # candidates list, never self._state). Candidate = the most-recently-
+    # formed mitigated OB; its polarity flips (breaker_blocks.py's rule).
+    breaker_dist_atr = 0.0
+    breaker_block_active = 0.0
+    mitigated_obs = [cand for cand in candidates if cand["mitigated"] == 1.0]
+    if mitigated_obs:
+        breaker_ob = max(mitigated_obs, key=lambda cand: cand["idx"])
+        b_top = breaker_ob["top"]
+        b_bottom = breaker_ob["bottom"]
+        breaker_direction = -breaker_ob["type"]  # flipped polarity vs. the mitigated OB
+        b_mid = (b_top + b_bottom) / 2.0
+        in_zone = b_bottom <= close_ <= b_top
+        if in_zone:
+            breaker_block_active = 1.0
+        elif breaker_direction > 0.0 and close_ < b_bottom:
+            breaker_block_active = 1.0
+        elif breaker_direction < 0.0 and close_ > b_top:
+            breaker_block_active = 1.0
+        breaker_dist_atr = abs(close_ - b_mid) / atr_val
+
+    return {
+        "ob_bull_dist_atr": float(ob_bull_dist_atr),
+        "ob_bear_dist_atr": float(ob_bear_dist_atr),
+        "ob_strength": float(ob_strength),
+        "ob_mitigated_flag": float(ob_mitigated_flag),
+        "breaker_dist_atr": float(breaker_dist_atr),
+        "breaker_block_active": float(breaker_block_active),
+        "ob_mitigation_pct": float(ob_mitigation_pct),
+    }
+
+
 def _build_feature_vector(
     *,
     momentum_z_fast: float,
@@ -4089,6 +4326,22 @@ class FeatureFactory:
         support_age_bars_val: float | None = _sr_fields["support_age_bars"]
         sr_level_count_val: float | None = _sr_fields["sr_level_count"]
 
+        # Smart Money Concepts (Phase 164 Plan 02): Order Blocks + stateless
+        # Breaker/Mitigation, single pure pass per RESEARCH.md's mandated
+        # order_blocks -> breaker/mitigation sequencing. Plans 03-04 append
+        # fair_value_gap/liquidity_sweeps/liquidity_pools/supply_demand_zones/
+        # bos_choch/amd_cycle after this block, in that order.
+        _ob_fields = _compute_order_blocks(
+            opens, highs, lows, closes, volumes, close_, atr_val, tf, config
+        )
+        ob_bull_dist_atr_val = _ob_fields["ob_bull_dist_atr"]
+        ob_bear_dist_atr_val = _ob_fields["ob_bear_dist_atr"]
+        ob_strength_val = _ob_fields["ob_strength"]
+        ob_mitigated_flag_val = _ob_fields["ob_mitigated_flag"]
+        breaker_dist_atr_val = _ob_fields["breaker_dist_atr"]
+        breaker_block_active_val = _ob_fields["breaker_block_active"]
+        ob_mitigation_pct_val = _ob_fields["ob_mitigation_pct"]
+
         _dow = _dow_encoding(bar_ts)
 
         # Renaissance Primitives (Phase 142.5 Plan 01)
@@ -4347,16 +4600,17 @@ class FeatureFactory:
             canary_constant=_CANARY_CONSTANT_VALUE,
             canary_near_constant=canary_near_constant_val,
             canary_acausal_placebo=canary_acausal_placebo_val,
-            # Smart Money Concepts (36, Phase 164 Plan 01): placeholder None --
-            # no compute logic exists yet in this plan. Plans 02-04 replace
-            # these with real ATR-distance/bounded/count/ordinal values.
-            ob_bull_dist_atr=None,
-            ob_bear_dist_atr=None,
-            ob_strength=None,
-            ob_mitigated_flag=None,
-            breaker_dist_atr=None,
-            breaker_block_active=None,
-            ob_mitigation_pct=None,
+            # Smart Money Concepts (36, Phase 164). Order Blocks +
+            # Breaker/Mitigation (7, Plan 02) are real computed values now;
+            # the remaining 29 fields (FVG/sweeps/pools/zones/BOS-CHoCH/AMD)
+            # stay placeholder None until Plans 03-04 land.
+            ob_bull_dist_atr=ob_bull_dist_atr_val,
+            ob_bear_dist_atr=ob_bear_dist_atr_val,
+            ob_strength=ob_strength_val,
+            ob_mitigated_flag=ob_mitigated_flag_val,
+            breaker_dist_atr=breaker_dist_atr_val,
+            breaker_block_active=breaker_block_active_val,
+            ob_mitigation_pct=ob_mitigation_pct_val,
             fvg_dist_atr=None,
             fvg_size_atr=None,
             fvg_open_count=None,
@@ -4564,6 +4818,31 @@ class FeatureFactory:
             resistance_age_bars_val = _sr_fields["resistance_age_bars"]
             support_age_bars_val = _sr_fields["support_age_bars"]
             sr_level_count_val = _sr_fields["sr_level_count"]
+
+            # Smart Money Concepts (Phase 164 Plan 02): Order Blocks +
+            # stateless Breaker/Mitigation -- pre-slice a causal window ending
+            # at the current bar (never the full series, to avoid lookahead),
+            # matching S/R's lookback slicing immediately above.
+            _ob_lookback = config.smc_order_blocks_lookback
+            _ob_start = max(0, i - _ob_lookback + 1)
+            _ob_fields = _compute_order_blocks(
+                opens[_ob_start : i + 1],
+                highs[_ob_start : i + 1],
+                lows[_ob_start : i + 1],
+                closes[_ob_start : i + 1],
+                volumes[_ob_start : i + 1],
+                close_,
+                atr_val,
+                tf,
+                config,
+            )
+            ob_bull_dist_atr_val = _ob_fields["ob_bull_dist_atr"]
+            ob_bear_dist_atr_val = _ob_fields["ob_bear_dist_atr"]
+            ob_strength_val = _ob_fields["ob_strength"]
+            ob_mitigated_flag_val = _ob_fields["ob_mitigated_flag"]
+            breaker_dist_atr_val = _ob_fields["breaker_dist_atr"]
+            breaker_block_active_val = _ob_fields["breaker_block_active"]
+            ob_mitigation_pct_val = _ob_fields["ob_mitigation_pct"]
 
             # Regime-level primitives (all from cache)
             hmm_regime_prob_val = cache.hmm_regime_prob
@@ -4982,16 +5261,17 @@ class FeatureFactory:
                 canary_constant=_CANARY_CONSTANT_VALUE,
                 canary_near_constant=canary_near_constant_val,
                 canary_acausal_placebo=canary_acausal_placebo_val,
-                # Smart Money Concepts (36, Phase 164 Plan 01): placeholder
-                # None -- no compute logic exists yet in this plan. Plans
-                # 02-04 replace these with real computed values.
-                ob_bull_dist_atr=None,
-                ob_bear_dist_atr=None,
-                ob_strength=None,
-                ob_mitigated_flag=None,
-                breaker_dist_atr=None,
-                breaker_block_active=None,
-                ob_mitigation_pct=None,
+                # Smart Money Concepts (36, Phase 164). Order Blocks +
+                # Breaker/Mitigation (7, Plan 02) are real computed values
+                # now; the remaining 29 fields (FVG/sweeps/pools/zones/
+                # BOS-CHoCH/AMD) stay placeholder None until Plans 03-04 land.
+                ob_bull_dist_atr=ob_bull_dist_atr_val,
+                ob_bear_dist_atr=ob_bear_dist_atr_val,
+                ob_strength=ob_strength_val,
+                ob_mitigated_flag=ob_mitigated_flag_val,
+                breaker_dist_atr=breaker_dist_atr_val,
+                breaker_block_active=breaker_block_active_val,
+                ob_mitigation_pct=ob_mitigation_pct_val,
                 fvg_dist_atr=None,
                 fvg_size_atr=None,
                 fvg_open_count=None,
