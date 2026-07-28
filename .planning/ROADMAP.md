@@ -2345,7 +2345,7 @@ normalization, APR namespace precedent, `FeatureCache` session-boundary mutator 
 **Requirements**: no formal `REQUIREMENTS.md` exists for this project — `165-CONTEXT.md`'s
 D-01..D-15 decision IDs are the requirement set, carried verbatim in each plan's `requirements`
 frontmatter (same convention as Phases 163/164/166).
-**Plans:** 2/5 plans executed. 5 plans, 5 waves (sequential — every plan touches `feature_factory.py`, so file ownership
+**Plans:** 3/5 plans executed. 5 plans, 5 waves (sequential — every plan touches `feature_factory.py`, so file ownership
 forces one wave per plan; Plan 03 additionally consumes Plan 02's in-memory swing intermediates per
 D-05, and Plan 05 consumes Plan 04's `FeatureCache` state).
 
@@ -2358,9 +2358,11 @@ Plans:
   APR-backed `find_peaks`/`find_troughs` pass; D-01's all-`None` fallback replaces both files'
   fake-numeric defaults; exports the raw swing high/low intermediates Plan 03 consumes. Mutation-verified
   (commit `a748d13d` discipline) 2026-07-28.
-- [ ] 165-03-PLAN.md — `swing_momentum.py` (8, incl. D-15's `swing_volume_confirmation`) +
+- [x] 165-03-PLAN.md — `swing_momentum.py` (8, incl. D-15's `swing_volume_confirmation`) +
   `fibonacci_zones.py` (4) = 12 columns; deletes the cross-plugin fallback outright (D-05), fixes two
-  archived implementation-vs-docstring bugs, and removes the provably-cancelling ATR divisor
+  archived implementation-vs-docstring bugs, and removes the provably-cancelling ATR divisor.
+  Mutation-verification caught and fixed a real `math.isclose` `rel_tol` precision bug in its own test.
+  Executed 2026-07-28.
 - [ ] 165-04-PLAN.md — `FeatureCache` session-levels state layer: 22 new fields,
   `update_session_levels()` timestamp mutator (retires `_SESSION_BARS`/`_WEEK_BARS`/`_OVERNIGHT_BARS`,
   D-07/D-08), `update_wk_vwap()` ISO-week high/low/close extension (D-09), all 3 call sites wired
