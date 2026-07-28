@@ -359,6 +359,49 @@ def _make_zero_vector() -> FeatureVector:
         up_vol_body_diff=0.0,
         ret_vol_ratio_fast=0.0,
         vol_skew_product=0.0,
+        # Swing/Fib/Trend/Session Structure (Phase 165 Plan 01) — construction
+        # requires these non-optional fields; nullable so None is valid.
+        swing_high_dist_atr=None,
+        swing_low_dist_atr=None,
+        swing_high_type=None,
+        swing_low_type=None,
+        swing_pattern=None,
+        swing_high_age_bars=None,
+        swing_low_age_bars=None,
+        trend_direction=None,
+        trend_strength=None,
+        trend_leg_count=None,
+        structure_integrity=None,
+        price_position=None,
+        trend_duration_bars=None,
+        swing_amplitude_ratio=None,
+        swing_amplitude_expanding=None,
+        swing_amplitude_intensity=None,
+        swing_velocity_bars=None,
+        swing_velocity_bias=None,
+        struct_energy=None,
+        struct_accel_bias=None,
+        swing_volume_confirmation=None,
+        nearest_fib_ratio=None,
+        nearest_fib_dist_atr=None,
+        fib_cluster_strength=None,
+        in_fib_discount_zone=None,
+        prior_session_high_dist_atr=None,
+        prior_session_low_dist_atr=None,
+        prior_session_close_dist_atr=None,
+        overnight_high_dist_atr=None,
+        overnight_low_dist_atr=None,
+        overnight_range_pct=None,
+        opening_gap_pct=None,
+        weekly_pivot_dist_atr=None,
+        weekly_r1_dist_atr=None,
+        weekly_r2_dist_atr=None,
+        weekly_s1_dist_atr=None,
+        weekly_s2_dist_atr=None,
+        nearest_level_dist_atr=None,
+        asian_session_high_dist_atr=None,
+        asian_session_low_dist_atr=None,
+        gap_filled=None,
     )
 
 
@@ -458,7 +501,9 @@ def test_vector_to_params_all_features_present() -> None:
     persistence-wiring fix, then -2 for the redundant new_high_flag/new_low_flag
     removal, 164 after migration 223's 5 canary columns, 181 after migration
     255's 17 structural VP/SR columns (Phase 163 Plan 01), 217 after migration
-    266's 36 SMC institutional-footprint columns (Phase 164 Plan 01)."""
+    266's 36 SMC institutional-footprint columns (Phase 164 Plan 01), 258
+    after migration 267's 41 swing/fib/trend/session structure columns
+    (Phase 165 Plan 01)."""
     fv = _make_zero_vector()
     ts = datetime(2025, 1, 2, 14, 30, 0, tzinfo=UTC)
     params = _vector_to_params(
@@ -469,8 +514,8 @@ def test_vector_to_params_all_features_present() -> None:
         regime=None,
         fv=fv,
     )
-    # 1 content-key + 8 structural + 208 feature floats = 217 total
-    assert len(params) == 217, f"Expected 217 params, got {len(params)}"
+    # 1 content-key + 8 structural + 249 feature floats = 258 total
+    assert len(params) == 258, f"Expected 258 params, got {len(params)}"
 
 
 def test_vector_to_params_symbol_tf_ts() -> None:

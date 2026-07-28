@@ -424,9 +424,11 @@ def test_feature_vector_domain_complete():
     2026-07-09 as redundant with dist_from_high/dist_from_low, migration 211)
     + 5 canary/control predictors (Phase 143.1 Plan 02, todo 068) = 155, + 17
     structural VP/SR fields (Phase 163 Plan 01, migration 255) = 172, + 36
-    SMC institutional-footprint fields (Phase 164 Plan 01, migration 266) = 208."""
+    SMC institutional-footprint fields (Phase 164 Plan 01, migration 266) = 208,
+    + 41 swing/fib/trend/session structure fields (Phase 165 Plan 01,
+    migration 267) = 249."""
     fv_fields = {f.name for f in dataclasses.fields(FeatureVector)}
-    assert len(FEATURE_VECTOR_DOMAIN) == 208
+    assert len(FEATURE_VECTOR_DOMAIN) == 249
     assert set(FEATURE_VECTOR_DOMAIN.keys()) == fv_fields
 
 

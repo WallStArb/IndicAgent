@@ -56,6 +56,21 @@ new _SMC_FIELD_NAMES slice, appended at the end of the column list. All 36
 values are None placeholders in this plan -- Plans 02-04 wire real compute
 logic in without touching this file's column wiring again.
 
+2026-07-28: extended to 258 columns (migration 267, Phase 165 Plan 01). 41
+new Swing/Fib/Trend/Session Structure fields (swing detection, trend
+structure, swing momentum, fibonacci zones, session levels -- all
+ATR-distance/bounded/count/categorical, never a raw price level or raw bar
+index, D-02/D-04) added to FeatureVector as a contiguous block immediately
+BEFORE the canary fields (unlike the SMC block above -- D-01's nullable-field
+fix requires these 41 fields to be non-defaulted `float | None`, so dataclass
+ordering forces them ahead of the first defaulted field). Same
+derive-by-name discipline via a new _SWING_FIB_TREND_FIELD_NAMES slice,
+appended at the end of the column list (SQL column order does not need to
+match dataclass field order since every accessor is by name -- this module's
+established append-only convention). All 41 values are None placeholders in
+this plan -- Plans 02-04 wire real compute logic in without touching this
+file's column wiring again.
+
 Ring 1: imports FeatureVector from src.intelligence.schemas.
 Do not import from Ring 2 (services/) or Ring 3 (api/, production/).
 """
@@ -137,6 +152,22 @@ _SMC_FIELD_NAMES: tuple[str, ...] = _ALL_FEATURE_VECTOR_FIELD_NAMES[
     + 1
 ]
 
+# The 41 new Swing/Fib/Trend/Session Structure fields (Phase 165 Plan 01,
+# migration 267) are a fifth contiguous, same-order slice -- immediately
+# preceding the canary fields in the dataclass (D-01's nullable-field fix
+# requires these to be non-defaulted `float | None`, so Python dataclass
+# field ordering places this block BEFORE _CANARY_FIELD_NAMES rather than
+# after it like _SMC_FIELD_NAMES above). Same derive-don't-hand-type
+# discipline as the four slices above; appended at the end of the column
+# list below (SQL column order does not need to match dataclass field order
+# since every accessor is by name).
+_SWING_FIB_TREND_FIELD_NAMES: tuple[str, ...] = _ALL_FEATURE_VECTOR_FIELD_NAMES[
+    _ALL_FEATURE_VECTOR_FIELD_NAMES.index(
+        "swing_high_dist_atr"
+    ) : _ALL_FEATURE_VECTOR_FIELD_NAMES.index("gap_filled")
+    + 1
+]
+
 
 def _compute_bar_close_ts(bar_ts: datetime, tf: str) -> datetime:
     """Compute bar close timestamp from bar open timestamp and timeframe.
@@ -171,13 +202,15 @@ def validate_feature_vector(vector: FeatureVector) -> list[str]:
 
 # ── Canonical INSERT/UPSERT SQL ───────────────────────────────────────────────
 
-# 181 columns (as of 2026-07-23): $1 content-key, $2-$8 structural, $9-$62
+# 258 columns (as of 2026-07-28): $1 content-key, $2-$8 structural, $9-$62
 # original feature floats, $63-$70 migration-159 additions, $71-$159
 # migration-206 Renaissance primitives (2026-07-08 fix, then reduced from 91
 # to 89 primitives 2026-07-09), $160-$164 migration-223 canary/control
 # predictors, $165-$181 migration-255 structural VP/SR fields (Phase 163
-# Plan 01, see module docstring).
-# Column order is binding — matches migration 159/206/223/255 column definition order.
+# Plan 01), $182-$217 migration-266 SMC institutional-footprint fields
+# (Phase 164 Plan 01), $218-$258 migration-267 swing/fib/trend/session
+# structure fields (Phase 165 Plan 01, see module docstring).
+# Column order is binding — matches migration 159/206/223/255/266/267 column definition order.
 _STRUCTURAL_PREFIX_COLUMN_NAMES: tuple[str, ...] = (
     "feature_vector_id",
     "symbol",
@@ -260,6 +293,7 @@ _ALL_COLUMN_NAMES: tuple[str, ...] = (
     + _CANARY_FIELD_NAMES
     + _STRUCTURAL_VP_SR_FIELD_NAMES
     + _SMC_FIELD_NAMES
+    + _SWING_FIB_TREND_FIELD_NAMES
 )
 _TOTAL_COLUMNS = len(_ALL_COLUMN_NAMES)
 
@@ -352,7 +386,7 @@ def feature_vector_to_insert_params(
     regime_label_source: str,
     vector: FeatureVector,
 ) -> tuple:
-    """Serialize a FeatureVector to the canonical 181-element INSERT tuple.
+    """Serialize a FeatureVector to the canonical 258-element INSERT tuple.
 
     Column order matches FEATURE_VECTOR_INSERT_SQL exactly:
       $1:        feature_vector_id (content-key UUID)
@@ -371,6 +405,13 @@ def feature_vector_to_insert_params(
                  Plan 02, todo 068) in dataclasses.fields(FeatureVector) order
       $165-$181: 17 structural VP/SR fields (migration 255, Phase 163 Plan 01)
                  in dataclasses.fields(FeatureVector) order
+      $182-$217: 36 Smart Money Concepts fields (migration 266, Phase 164
+                 Plan 01) in dataclasses.fields(FeatureVector) order — all
+                 None placeholders until Plans 02-04 wire real compute logic
+      $218-$258: 41 Swing/Fib/Trend/Session Structure fields (migration 267,
+                 Phase 165 Plan 01) in dataclasses.fields(FeatureVector)
+                 order — all None placeholders until Plans 02-04 wire real
+                 compute logic
 
     Args:
         symbol: Instrument symbol (e.g. 'SPY').
@@ -387,7 +428,7 @@ def feature_vector_to_insert_params(
         vector: Fully-populated FeatureVector from FeatureFactory.compute().
 
     Returns:
-        181-element tuple for use with asyncpg executemany() or psycopg2
+        258-element tuple for use with asyncpg executemany() or psycopg2
         execute_batch(). Compatible with both drivers — asyncpg and psycopg2
         handle uuid.UUID and datetime natively.
 
@@ -515,4 +556,9 @@ def feature_vector_to_insert_params(
         # VP/SR fields (module docstring). All None until Plans 02-04 wire real
         # compute logic in.
         *(getattr(vector, name) for name in _SMC_FIELD_NAMES),
+        # Swing/Fib/Trend/Session Structure fields (migration 267, Phase 165
+        # Plan 01) — same derive-by-name discipline, appended immediately
+        # after the SMC fields (module docstring). All None until Plans 02-04
+        # wire real compute logic in.
+        *(getattr(vector, name) for name in _SWING_FIB_TREND_FIELD_NAMES),
     )

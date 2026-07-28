@@ -1208,9 +1208,16 @@ class FeatureVector:
     Renaissance primitives).
 
     Frozen dataclass (not Pydantic) per D-08: pure-function output, no IO,
-    immutable after construction. Non-optional fields typed float, no defaults
-    — every field must be supplied by the caller. The 3 Optional fields are
-    cross-sectional ranks that were never implemented — always None (todo 103).
+    immutable after construction. Most non-optional fields are typed float,
+    no defaults — every field must be supplied by the caller. The Phase 165
+    Swing/Fib/Trend/Session Structure block below is the one exception to
+    "non-optional means float": those 41 fields are `float | None` by design
+    (no default) -- D-01's nullable-field fix. A numeric placeholder for
+    "insufficient data" (e.g. the archived plugins' trend_direction=0.0,
+    price_position=0.5) is exactly the todo-153 silent-wrong-answer failure
+    mode this codebase already paid to discover once; None means "not
+    measured," never a fake measurement. The 3 Optional cross-sectional
+    fields are ranks that were never implemented — always None (todo 103).
 
     Groups and field order are binding (schema column names in feature_vectors):
       Momentum (7): fast/mid/slow return z-scores, range, intra-bar close position, gap, reversal z
@@ -1235,6 +1242,15 @@ class FeatureVector:
       Realized Variance / Volatility (14, Phase 142.5 Plan 03): realized_var_ratio_fast/slow, range_to_close, true_range_pct, vol_of_vol, high_low_corr, variance_ratio_fast/slow, vol_asymmetry_z, bb_pct_b_fast/slow, hv_z_fast/slow, hv_ratio
       Alternative Volatility Estimators (3, Phase 142.5 Plan 04): parkinson_vol_z, garman_klass_vol_z, yang_zhang_vol_z
       Volatility Dynamics (5, Phase 142.5 Plan 04): parkinson/garman_klass/yang_zhang_vol_velocity, vol_velocity_z, intraday_noise_ratio
+      Session-level — Swing/Fib/Trend/Session Structure (41, Phase 165 Plan 01):
+        swing detection (7), trend structure (6), swing momentum (8), fibonacci
+        zones (4), session levels (16). All `float | None` with NO default
+        (D-01 nullable-field fix -- see class-level docstring paragraph above),
+        placed immediately before the defaulted canary block below (dataclass
+        field ordering requires every non-defaulted field to precede every
+        defaulted one). All ATR-distance/bounded/count/categorical placeholders
+        (None until Plans 02-04 wire real compute logic); never a raw price
+        level or raw bar index (D-02/D-04).
       Canary / Control Predictors (5, Phase 143.1 Plan 02, todo 068): canary_noise_gaussian, canary_noise_uniform, canary_constant, canary_near_constant, canary_acausal_placebo
       Session-level — Smart Money Concepts (36, Phase 164 Plan 01): order blocks (4),
         breaker/mitigation blocks (3), fair value gaps (3), liquidity sweeps (4),
@@ -1242,9 +1258,10 @@ class FeatureVector:
         All ATR-distance/bounded/count/ordinal placeholders (None until Plans 02-04
         wire real compute logic); never a raw price level (D-16).
       Cross-sectional (3, nullable): momentum/volume/volatility rank z-scores
-      Total: 208 (164 required + 44 optional [3 cross-sectional + 5 canary + 36 SMC,
-      all defaulted for cold-start/construction-site blast-radius reasons -- see
-      Canary field comments and the Smart Money Concepts block comment above])
+      Total: 249 (205 required [164 + 41 Swing/Fib/Trend/Session Structure] +
+      44 optional [3 cross-sectional + 5 canary + 36 SMC, all defaulted for
+      cold-start/construction-site blast-radius reasons -- see Canary field
+      comments and the Smart Money Concepts block comment above])
     """
 
     # Momentum (7 total: 5 original + 2 new scale-named)
@@ -1480,6 +1497,62 @@ class FeatureVector:
     up_vol_body_diff: float  # up_vol_ratio_fast - body_ratio, approx bounded [-1,1] (no APR)
     ret_vol_ratio_fast: float  # ret_lag_fast / atr_z, unbounded symmetric around 0 (no APR)
     vol_skew_product: float  # ret_skew_z * volume_z, unbounded symmetric around 0 (no APR)
+    # Swing/Fib/Trend/Session Structure (41, Phase 165 Plan 01). D-01 nullable
+    # fix: every field here is `float | None` with NO default, ported from the
+    # archived i3_structure plugins with their silent-numeric-default bug
+    # fixed at the type level (the archived swing_detector.py/trend_structure.py
+    # emit fake-plausible placeholders like trend_direction=0.0/price_position=0.5
+    # when insufficient data exists to measure anything real -- the same
+    # failure mode already fixed once for poc_dist_atr/va_position/
+    # sr_support_dist/sr_resist_dist, todo 153). This block must precede the
+    # defaulted canary block below -- Python dataclass field ordering forbids a
+    # non-defaulted field after a defaulted one.
+    # Swing Detection (7, Phase 165 Plan 02, D-01/D-02)
+    swing_high_dist_atr: float | None
+    swing_low_dist_atr: float | None
+    swing_high_type: float | None
+    swing_low_type: float | None
+    swing_pattern: float | None
+    swing_high_age_bars: float | None
+    swing_low_age_bars: float | None
+    # Trend Structure (6, Phase 165 Plan 02, D-01 nullable-fix)
+    trend_direction: float | None
+    trend_strength: float | None
+    trend_leg_count: float | None
+    structure_integrity: float | None
+    price_position: float | None
+    trend_duration_bars: float | None
+    # Swing Momentum (8, Phase 165 Plan 03, D-03/D-15)
+    swing_amplitude_ratio: float | None
+    swing_amplitude_expanding: float | None
+    swing_amplitude_intensity: float | None
+    swing_velocity_bars: float | None
+    swing_velocity_bias: float | None
+    struct_energy: float | None
+    struct_accel_bias: float | None
+    swing_volume_confirmation: float | None
+    # Fibonacci Zones (4, Phase 165 Plan 03, D-04/D-05)
+    nearest_fib_ratio: float | None
+    nearest_fib_dist_atr: float | None
+    fib_cluster_strength: float | None
+    in_fib_discount_zone: float | None
+    # Session Levels (16, Phase 165 Plan 04, D-07..D-09/D-13)
+    prior_session_high_dist_atr: float | None
+    prior_session_low_dist_atr: float | None
+    prior_session_close_dist_atr: float | None
+    overnight_high_dist_atr: float | None
+    overnight_low_dist_atr: float | None
+    overnight_range_pct: float | None
+    opening_gap_pct: float | None
+    weekly_pivot_dist_atr: float | None
+    weekly_r1_dist_atr: float | None
+    weekly_r2_dist_atr: float | None
+    weekly_s1_dist_atr: float | None
+    weekly_s2_dist_atr: float | None
+    nearest_level_dist_atr: float | None
+    asian_session_high_dist_atr: float | None
+    asian_session_low_dist_atr: float | None
+    gap_filled: float | None
     # Canary / Control Predictors (5, Phase 143.1 Plan 02, todo 068) — genuine
     # FeatureVector fields (not measurement-time-only diagnostics), so
     # feature_registry's row-count/name-set alignment gates stay satisfied.

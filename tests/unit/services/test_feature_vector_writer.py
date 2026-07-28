@@ -197,6 +197,49 @@ def _make_valid_feature_vector():
         up_vol_body_diff=0.0,
         ret_vol_ratio_fast=0.0,
         vol_skew_product=0.0,
+        # Swing/Fib/Trend/Session Structure (Phase 165 Plan 01) — construction
+        # requires these non-optional fields; nullable so None is valid.
+        swing_high_dist_atr=None,
+        swing_low_dist_atr=None,
+        swing_high_type=None,
+        swing_low_type=None,
+        swing_pattern=None,
+        swing_high_age_bars=None,
+        swing_low_age_bars=None,
+        trend_direction=None,
+        trend_strength=None,
+        trend_leg_count=None,
+        structure_integrity=None,
+        price_position=None,
+        trend_duration_bars=None,
+        swing_amplitude_ratio=None,
+        swing_amplitude_expanding=None,
+        swing_amplitude_intensity=None,
+        swing_velocity_bars=None,
+        swing_velocity_bias=None,
+        struct_energy=None,
+        struct_accel_bias=None,
+        swing_volume_confirmation=None,
+        nearest_fib_ratio=None,
+        nearest_fib_dist_atr=None,
+        fib_cluster_strength=None,
+        in_fib_discount_zone=None,
+        prior_session_high_dist_atr=None,
+        prior_session_low_dist_atr=None,
+        prior_session_close_dist_atr=None,
+        overnight_high_dist_atr=None,
+        overnight_low_dist_atr=None,
+        overnight_range_pct=None,
+        opening_gap_pct=None,
+        weekly_pivot_dist_atr=None,
+        weekly_r1_dist_atr=None,
+        weekly_r2_dist_atr=None,
+        weekly_s1_dist_atr=None,
+        weekly_s2_dist_atr=None,
+        nearest_level_dist_atr=None,
+        asian_session_high_dist_atr=None,
+        asian_session_low_dist_atr=None,
+        gap_filled=None,
     )
 
 
@@ -236,18 +279,20 @@ def _make_valid_payload():
 
 
 def test_record_to_insert_params_returns_159_tuple():
-    """_record_to_insert_params returns exactly 217 elements matching INSERT columns
+    """_record_to_insert_params returns exactly 258 elements matching INSERT columns
     (post migration 211, 2026-07-09 -- redundant new_high_flag/new_low_flag removed;
     164 after migration 223's 5 canary columns; 181 after migration 255's 17
     structural VP/SR columns (Phase 163 Plan 01); 217 after migration 266's 36
-    SMC institutional-footprint columns (Phase 164 Plan 01)."""
+    SMC institutional-footprint columns (Phase 164 Plan 01); 258 after
+    migration 267's 41 swing/fib/trend/session structure columns (Phase 165
+    Plan 01)."""
     from services.feature_vector_writer import _record_to_insert_params
 
     record = _make_valid_record()
     params = _record_to_insert_params(record)
 
     assert isinstance(params, tuple)
-    assert len(params) == 217, f"Expected 217, got {len(params)}"
+    assert len(params) == 258, f"Expected 258, got {len(params)}"
 
 
 def test_record_to_insert_params_feature_vector_id_is_uuid():
@@ -347,11 +392,13 @@ def test_feature_vector_id_differs_for_different_inputs():
 
 
 def test_parse_payload_valid_record_returns_159_param_tuple():
-    """Valid FeatureVectorRecord payload parses to a 217-element params tuple
+    """Valid FeatureVectorRecord payload parses to a 258-element params tuple
     (post migration 211, 2026-07-09 -- redundant new_high_flag/new_low_flag
     removed; 164 after migration 223's 5 canary columns; 181 after migration
     255's 17 structural VP/SR columns (Phase 163 Plan 01); 217 after migration
-    266's 36 SMC institutional-footprint columns (Phase 164 Plan 01)."""
+    266's 36 SMC institutional-footprint columns (Phase 164 Plan 01); 258
+    after migration 267's 41 swing/fib/trend/session structure columns
+    (Phase 165 Plan 01)."""
     from services.feature_vector_writer import FeatureVectorWriter
 
     svc = FeatureVectorWriter.__new__(FeatureVectorWriter)
@@ -366,7 +413,7 @@ def test_parse_payload_valid_record_returns_159_param_tuple():
     assert not invalid
     assert len(valid) == 1
     assert isinstance(valid[0], tuple)
-    assert len(valid[0]) == 217, f"Expected 217-element tuple, got {len(valid[0])}"
+    assert len(valid[0]) == 258, f"Expected 258-element tuple, got {len(valid[0])}"
 
 
 def test_parse_payload_malformed_returns_empty_valid_invalid_payload():
@@ -514,17 +561,19 @@ def test_insert_sql_targets_feature_vectors():
 
 
 def test_insert_sql_has_159_placeholders():
-    """_INSERT_FEATURE_VECTOR_SQL must have exactly 217 positional placeholders $1..$217
+    """_INSERT_FEATURE_VECTOR_SQL must have exactly 258 positional placeholders $1..$258
     (post migration 211, 2026-07-09 -- redundant new_high_flag/new_low_flag removed;
     164 after migration 223's 5 canary columns; 181 after migration 255's 17
     structural VP/SR columns (Phase 163 Plan 01); 217 after migration 266's 36
-    SMC institutional-footprint columns (Phase 164 Plan 01)."""
+    SMC institutional-footprint columns (Phase 164 Plan 01); 258 after
+    migration 267's 41 swing/fib/trend/session structure columns (Phase 165
+    Plan 01)."""
     import re
 
     from services.feature_vector_writer import _INSERT_FEATURE_VECTOR_SQL
 
     placeholders = re.findall(r"\$\d+", _INSERT_FEATURE_VECTOR_SQL)
-    assert len(placeholders) == 217, f"Expected 217 placeholders, got {len(placeholders)}"
+    assert len(placeholders) == 258, f"Expected 258 placeholders, got {len(placeholders)}"
 
 
 def test_insert_sql_includes_feature_vector_id_column():

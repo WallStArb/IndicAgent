@@ -9,7 +9,9 @@ drop); migration 223 extended it to 164 (5 canary columns); migration 255
 (Phase 163 Plan 01) extended it to 181 (17 structural VP/SR columns,
 appended after the canary fields); migration 266 (Phase 164 Plan 01)
 extended it to 217 (36 SMC institutional-footprint columns, appended after
-the structural VP/SR fields):
+the structural VP/SR fields); migration 267 (Phase 165 Plan 01) extended it
+to 258 (41 swing/fib/trend/session structure columns, appended after the SMC
+fields):
 
   $1   (params[0])   -> feature_vector_id       UUID (content-key)
   $2   (params[1])   -> symbol                  str
@@ -222,6 +224,51 @@ def _make_sentinel_record():
         up_vol_body_diff=60.06,
         ret_vol_ratio_fast=60.07,
         vol_skew_product=60.08,
+        # Swing/Fib/Trend/Session Structure (Phase 165 Plan 01) — construction
+        # requires these non-optional fields; nullable so None is valid.
+        # None here since these are contract-only placeholders (Plans 02-04
+        # wire real compute logic).
+        swing_high_dist_atr=None,
+        swing_low_dist_atr=None,
+        swing_high_type=None,
+        swing_low_type=None,
+        swing_pattern=None,
+        swing_high_age_bars=None,
+        swing_low_age_bars=None,
+        trend_direction=None,
+        trend_strength=None,
+        trend_leg_count=None,
+        structure_integrity=None,
+        price_position=None,
+        trend_duration_bars=None,
+        swing_amplitude_ratio=None,
+        swing_amplitude_expanding=None,
+        swing_amplitude_intensity=None,
+        swing_velocity_bars=None,
+        swing_velocity_bias=None,
+        struct_energy=None,
+        struct_accel_bias=None,
+        swing_volume_confirmation=None,
+        nearest_fib_ratio=None,
+        nearest_fib_dist_atr=None,
+        fib_cluster_strength=None,
+        in_fib_discount_zone=None,
+        prior_session_high_dist_atr=None,
+        prior_session_low_dist_atr=None,
+        prior_session_close_dist_atr=None,
+        overnight_high_dist_atr=None,
+        overnight_low_dist_atr=None,
+        overnight_range_pct=None,
+        opening_gap_pct=None,
+        weekly_pivot_dist_atr=None,
+        weekly_r1_dist_atr=None,
+        weekly_r2_dist_atr=None,
+        weekly_s1_dist_atr=None,
+        weekly_s2_dist_atr=None,
+        nearest_level_dist_atr=None,
+        asian_session_high_dist_atr=None,
+        asian_session_low_dist_atr=None,
+        gap_filled=None,
     )
     return FeatureVectorRecord(
         symbol="SPY",
@@ -236,17 +283,18 @@ def _make_sentinel_record():
 
 
 def test_params_length_is_159():
-    """_record_to_insert_params must return exactly 217 elements (159 post migration
+    """_record_to_insert_params must return exactly 258 elements (159 post migration
     211's new_high_flag/new_low_flag drop, 164 after migration 223's 5 canary
     columns, 181 after migration 255's 17 structural VP/SR columns, 217 after
-    migration 266's 36 SMC institutional-footprint columns — see
+    migration 266's 36 SMC institutional-footprint columns, 258 after
+    migration 267's 41 swing/fib/trend/session structure columns — see
     feature_vector_persistence.py docstring)."""
     from services.feature_vector_writer import _record_to_insert_params
 
     record = _make_sentinel_record()
     params = _record_to_insert_params(record)
 
-    assert len(params) == 217, f"Expected 217, got {len(params)}"
+    assert len(params) == 258, f"Expected 258, got {len(params)}"
 
 
 def test_feature_vector_id_at_index_0():
@@ -462,26 +510,47 @@ def test_sr_level_count_at_index_180_is_last_element():
     fields by migration 255 (Phase 163 Plan 01). No longer the true last
     element of the tuple as of migration 266 (Phase 164 Plan 01) -- 36 SMC
     institutional-footprint columns are appended after it; see
-    test_manip_strength_at_index_216_is_last_element below for the new tail."""
+    test_gap_filled_at_index_257_is_last_element below for the current tail
+    (migration 267, Phase 165 Plan 01)."""
     from services.feature_vector_writer import _record_to_insert_params
 
     record = _make_sentinel_record()
     params = _record_to_insert_params(record)
 
-    assert len(params) == 217
+    assert len(params) == 258
     assert params[180] == pytest.approx(61.17), f"$181 (sr_level_count) wrong: {params[180]}"
 
 
 def test_manip_strength_at_index_216_is_last_element():
-    """params[216] ($217) must be manip_strength -- the final column, appended
-    after the structural VP/SR fields by migration 266's 36 SMC
-    institutional-footprint columns (Phase 164 Plan 01). manip_strength is
-    None here since _make_sentinel_record() does not set any of the 36 new
-    SMC fields (contract-only, placeholder None until Plans 02-04)."""
+    """params[216] ($217) must be manip_strength -- the final column of the
+    pre-Phase-165 contract, appended after the structural VP/SR fields by
+    migration 266's 36 SMC institutional-footprint columns (Phase 164 Plan
+    01). No longer the true last element of the tuple as of migration 267
+    (Phase 165 Plan 01) -- 41 swing/fib/trend/session structure columns are
+    appended after it; see test_gap_filled_at_index_257_is_last_element below
+    for the new tail. manip_strength is None here since
+    _make_sentinel_record() does not set any of the 36 SMC fields
+    (contract-only, placeholder None until Plans 02-04)."""
     from services.feature_vector_writer import _record_to_insert_params
 
     record = _make_sentinel_record()
     params = _record_to_insert_params(record)
 
-    assert len(params) == 217
+    assert len(params) == 258
     assert params[216] is None, f"$217 (manip_strength) wrong: {params[216]}"
+
+
+def test_gap_filled_at_index_257_is_last_element():
+    """params[257] ($258) must be gap_filled -- the final column, appended
+    after the SMC fields by migration 267's 41 swing/fib/trend/session
+    structure columns (Phase 165 Plan 01). gap_filled is None here since
+    _make_sentinel_record() does not set any of the 41 new Phase 165 fields
+    (contract-only, placeholder None until Plans 02-04)."""
+    from services.feature_vector_writer import _record_to_insert_params
+
+    record = _make_sentinel_record()
+    params = _record_to_insert_params(record)
+
+    assert len(params) == 258
+    assert params[257] is None, f"$258 (gap_filled) wrong: {params[257]}"
+    assert params[257] == params[-1], "gap_filled must be the true last element"
