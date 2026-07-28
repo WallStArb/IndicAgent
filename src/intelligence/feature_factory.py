@@ -44,6 +44,7 @@ from src.intelligence.feature_cache import (
 )
 from src.intelligence.schemas import FeatureVector
 from src.intelligence.utils import find_peaks, find_troughs
+from src.intelligence.utils.gradient_utils import linear_ramp
 
 # ---------------------------------------------------------------------------
 # Algorithm version tracking
@@ -3830,12 +3831,13 @@ def _compute_fvg(
     sits above bar1's high (the impulsive bar2 leaves an untraded gap);
     bearish is the mirror (bar3's high below bar1's low). A gap is "filled"
     once a later bar's wick trades back through its near edge. Unlike the
-    archived plugin (which returns open_fvgs[-1], the OLDEST still-open gap
-    from its backward scan order -- see Phase 164 Plan 03 commit notes), this
-    selects the MOST RECENT unfilled gap by formation index (largest bar3
-    index), matching order_blocks.py's nearest-by-recency convention and the
-    literal meaning of "most recent." fvg_open_count is the full count of
-    unfilled gaps in-window, independent of which one is selected.
+    archived plugin (whose descending-index scan order makes its returned
+    open_fvgs[-1] the OLDEST still-open gap, not the newest -- see Phase 164
+    Plan 03 commit notes), this selects the MOST RECENT unfilled gap by
+    formation index (largest bar3 index), matching order_blocks.py's
+    nearest-by-recency convention and the literal meaning of "most recent."
+    fvg_open_count is the full count of unfilled gaps in-window, independent
+    of which one is selected.
 
     fvg_midpoint is returned as an extra, NON-persisted key -- an in-pass
     local for Plan 04's supply/demand-zones block (soft dependency per
@@ -3904,6 +3906,288 @@ def _compute_fvg(
         "fvg_open_count": float(len(candidates)),
         "fvg_midpoint": float(midpoint),
     }
+
+
+# ---------------------------------------------------------------------------
+# Smart Money Concepts — Liquidity Sweeps + Liquidity Pools (Phase 164 Plan 03)
+# ---------------------------------------------------------------------------
+
+_SWEEP_FALLBACK: dict[str, float] = {
+    "sweep_detected": 0.0,
+    "sweep_strength": 0.0,
+    "reclaim_velocity": 0.0,
+    "bars_since_last_sweep": 0.0,
+}
+
+_POOL_FALLBACK: dict[str, float] = {
+    "bsl_dist_atr": 0.0,
+    "ssl_dist_atr": 0.0,
+    "bsl_touches": 0.0,
+    "ssl_touches": 0.0,
+    "pool_count": 0.0,
+    "price_in_premium": 0.0,
+}
+
+
+def _compute_liquidity_sweeps(
+    highs: np.ndarray,
+    lows: np.ndarray,
+    closes: np.ndarray,
+    close_: float,
+    atr_val: float,
+    tf: str,
+    config: FeatureFactoryConfig,
+) -> dict[str, float]:
+    """Liquidity Sweeps -- stateless wick-beyond-swing + reclaim scan (Plan 03).
+
+    Ports liquidity_sweeps.py's geometry directly: a bullish sweep wicks
+    below a swing low then closes back above it (smart money grabs sell
+    stops before reversing); bearish is the mirror. sweep_strength and
+    reclaim_velocity keep the archived plugin's linear_ramp bounding
+    ([0,1], via config's ramp-max APR keys). bars_since_last_sweep is new
+    (not in the archived output) -- bars from the most recent sweep's
+    formation bar to the current bar, causal, non-negative.
+
+    "Most recent sweep" = the sweep with the largest bar_idx (matches the
+    archived plugin's own max-by-bar_idx selection, unlike FVG's port which
+    corrected an inverted selection -- liquidity_sweeps.py's logic was
+    already right).
+
+    Falls back to _SWEEP_FALLBACK (never raises, never NaN/Inf, 0.0 bars-
+    since-last-sweep when no sweep is ever found in-window -- same "absence
+    has no defined age" convention as resistance_age_bars/support_age_bars)
+    when atr_val is invalid or the window is too short for swing detection.
+
+    tf is accepted for interface parity with the other SMC helpers -- unused
+    here (flat, non-per-tf lookback per migration 266).
+    """
+    del tf
+    atr_valid = atr_val is not None and math.isfinite(atr_val) and atr_val > 0
+    if not atr_valid:
+        return dict(_SWEEP_FALLBACK)
+
+    lookback = config.smc_liquidity_sweeps_lookback
+    h = highs[-lookback:]
+    lo = lows[-lookback:]
+    c = closes[-lookback:]
+    n_bars = len(c)
+
+    neighbor = config.smc_liquidity_sweeps_swing_neighbor
+    if n_bars < 2 * neighbor + 1:
+        return dict(_SWEEP_FALLBACK)
+
+    swing_highs = find_peaks(h, n=neighbor)
+    swing_lows = find_troughs(lo, n=neighbor)
+    if not swing_highs and not swing_lows:
+        return dict(_SWEEP_FALLBACK)
+
+    reclaim_bars = config.smc_liquidity_sweeps_reclaim_bars
+    depth_ramp_max = config.smc_liquidity_sweeps_depth_ramp_max_pct
+    reclaim_ramp_max = config.smc_liquidity_sweeps_reclaim_velocity_ramp_max
+
+    sweeps: list[dict[str, float]] = []
+
+    for sl_idx in swing_lows:
+        sl_price = float(lo[sl_idx])
+        for i in range(sl_idx + neighbor + 1, n_bars):
+            if lo[i] < sl_price and c[i] > sl_price:
+                depth_pct = (sl_price - float(lo[i])) / sl_price * 100.0
+                reclaimed = 0.0
+                if i + reclaim_bars < n_bars and all(
+                    c[i + k] > sl_price for k in range(1, reclaim_bars + 1)
+                ):
+                    reclaimed = 1.0
+                sweep_strength = linear_ramp(depth_pct, 0.0, depth_ramp_max)
+                reclaim_velocity = (
+                    linear_ramp(1.0 / max(1, reclaim_bars), 0.0, reclaim_ramp_max)
+                    if reclaimed
+                    else 0.0
+                )
+                sweeps.append(
+                    {
+                        "sweep_strength": sweep_strength,
+                        "reclaim_velocity": reclaim_velocity,
+                        "bar_idx": float(i),
+                    }
+                )
+
+    for sh_idx in swing_highs:
+        sh_price = float(h[sh_idx])
+        for i in range(sh_idx + neighbor + 1, n_bars):
+            if h[i] > sh_price and c[i] < sh_price:
+                depth_pct = (float(h[i]) - sh_price) / sh_price * 100.0
+                reclaimed = 0.0
+                if i + reclaim_bars < n_bars and all(
+                    c[i + k] < sh_price for k in range(1, reclaim_bars + 1)
+                ):
+                    reclaimed = 1.0
+                sweep_strength = linear_ramp(depth_pct, 0.0, depth_ramp_max)
+                reclaim_velocity = (
+                    linear_ramp(1.0 / max(1, reclaim_bars), 0.0, reclaim_ramp_max)
+                    if reclaimed
+                    else 0.0
+                )
+                sweeps.append(
+                    {
+                        "sweep_strength": sweep_strength,
+                        "reclaim_velocity": reclaim_velocity,
+                        "bar_idx": float(i),
+                    }
+                )
+
+    if not sweeps:
+        return dict(_SWEEP_FALLBACK)
+
+    latest = max(sweeps, key=lambda s: s["bar_idx"])
+    return {
+        "sweep_detected": 1.0,
+        "sweep_strength": float(latest["sweep_strength"]),
+        "reclaim_velocity": float(latest["reclaim_velocity"]),
+        "bars_since_last_sweep": float(n_bars - 1 - int(latest["bar_idx"])),
+    }
+
+
+def _compute_liquidity_pools(
+    highs: np.ndarray,
+    lows: np.ndarray,
+    closes: np.ndarray,
+    close_: float,
+    atr_val: float,
+    tf: str,
+    config: FeatureFactoryConfig,
+) -> dict[str, float]:
+    """Liquidity Pools -- single-timeframe-descoped port (Phase 164 Plan 03).
+
+    Ports liquidity_pools.py's equal-highs/equal-lows + session-high/low
+    detection only -- named prior-week/prior-day high/low levels are DESCOPED
+    per 164-RESEARCH.md: they require a second daily-timeframe frame the live
+    compute(bars, symbol, tf, cache, config) single-timeframe signature
+    cannot provide. bsl_dist_atr/
+    ssl_dist_atr reuse the already-correct ATR-normalized formula from the
+    archived source (only the raw bsl_level/ssl_level/bsl_type/ssl_type are
+    dropped, per the field-by-field audit). bsl_touches/ssl_touches derive
+    from the selected level's cluster-size type string, same as the archived
+    plugin's _touches_for(). price_in_premium is returned as an extra,
+    NON-persisted key -- an in-pass local for Plan 04's supply/demand-zones
+    block (soft dependency), never threaded into _build_feature_vector.
+
+    Nearest-level selection: highest significance first (config's
+    significance_weights dict), then nearest by distance -- matches
+    liquidity_pools.py's own _nearest() tie-break rule exactly.
+
+    Falls back to _POOL_FALLBACK (never raises, never NaN/Inf) when atr_val
+    is invalid or the window is too short for swing detection.
+
+    tf is accepted for interface parity with the other SMC helpers -- unused
+    here (flat, non-per-tf lookback per migration 266).
+    """
+    del tf
+    atr_valid = atr_val is not None and math.isfinite(atr_val) and atr_val > 0
+    if not atr_valid:
+        return dict(_POOL_FALLBACK)
+
+    lookback = config.smc_liquidity_pools_lookback
+    h = highs[-lookback:]
+    lo = lows[-lookback:]
+    n_bars = len(h)
+
+    neighbor = config.smc_liquidity_pools_swing_neighbor
+    if n_bars < 2 * neighbor + 1:
+        return dict(_POOL_FALLBACK)
+
+    weights = config.smc_liquidity_pools_significance_weights
+    tolerance = atr_val * config.smc_liquidity_pools_equal_level_tolerance_atr_mult
+
+    swing_high_idx = find_peaks(h, n=neighbor)
+    swing_low_idx = find_troughs(lo, n=neighbor)
+
+    eq_highs = _find_equal_price_clusters([float(h[i]) for i in swing_high_idx], tolerance)
+    eq_lows = _find_equal_price_clusters([float(lo[i]) for i in swing_low_idx], tolerance)
+
+    bsl_candidates: list[tuple[float, str, float]] = []
+    ssl_candidates: list[tuple[float, str, float]] = []
+
+    for level, touches in eq_highs:
+        if level > close_:
+            lvl_type = "eq_highs_3" if touches >= 3 else "eq_highs_2"
+            bsl_candidates.append((level, lvl_type, weights.get(lvl_type, 0.0)))
+
+    for level, touches in eq_lows:
+        if level < close_:
+            lvl_type = "eq_lows_3" if touches >= 3 else "eq_lows_2"
+            ssl_candidates.append((level, lvl_type, weights.get(lvl_type, 0.0)))
+
+    session_bars = config.smc_liquidity_pools_session_bars
+    session_high = float(np.max(h[-session_bars:])) if n_bars >= session_bars else float(np.max(h))
+    session_low = float(np.min(lo[-session_bars:])) if n_bars >= session_bars else float(np.min(lo))
+    if session_high > close_:
+        bsl_candidates.append((session_high, "session_high", weights.get("session_high", 0.0)))
+    if session_low < close_:
+        ssl_candidates.append((session_low, "session_low", weights.get("session_low", 0.0)))
+
+    pool_count = float(len(bsl_candidates) + len(ssl_candidates))
+
+    bsl = (
+        min(bsl_candidates, key=lambda cand: (-cand[2], abs(cand[0] - close_)))
+        if bsl_candidates
+        else None
+    )
+    ssl = (
+        min(ssl_candidates, key=lambda cand: (-cand[2], abs(cand[0] - close_)))
+        if ssl_candidates
+        else None
+    )
+
+    bsl_dist_atr = abs(bsl[0] - close_) / atr_val if bsl is not None else 0.0
+    bsl_touches = _pool_touches_for(bsl[1]) if bsl is not None else 0.0
+    ssl_dist_atr = abs(close_ - ssl[0]) / atr_val if ssl is not None else 0.0
+    ssl_touches = _pool_touches_for(ssl[1]) if ssl is not None else 0.0
+
+    range_high = float(np.max(h))
+    range_low = float(np.min(lo))
+    midpoint = (range_high + range_low) / 2.0
+    price_in_premium = 1.0 if close_ >= midpoint else 0.0
+
+    return {
+        "bsl_dist_atr": float(bsl_dist_atr),
+        "ssl_dist_atr": float(ssl_dist_atr),
+        "bsl_touches": float(bsl_touches),
+        "ssl_touches": float(ssl_touches),
+        "pool_count": pool_count,
+        "price_in_premium": float(price_in_premium),
+    }
+
+
+def _find_equal_price_clusters(prices: list[float], tolerance: float) -> list[tuple[float, int]]:
+    """Cluster prices within tolerance -> (mean_price, touch_count) for clusters >=2.
+
+    Ported from liquidity_pools.py's _find_equal_levels: single-pass O(N)
+    clustering over sorted prices (each price joins the last open cluster if
+    within tolerance of that cluster's mean, else starts a new one).
+    """
+    if not prices:
+        return []
+    sorted_prices = sorted(prices)
+    clusters: list[list[float]] = []
+    for p in sorted_prices:
+        if clusters and abs(p - float(np.mean(clusters[-1]))) <= tolerance:
+            clusters[-1].append(p)
+        else:
+            clusters.append([p])
+    return [(float(np.mean(c)), len(c)) for c in clusters if len(c) >= 2]
+
+
+def _pool_touches_for(lvl_type: str) -> float:
+    """Touch count implied by a liquidity-pool level's type label.
+
+    Ported from liquidity_pools.py's _touches_for(): "_3" suffix -> 3
+    touches, "_2" suffix -> 2 touches, else (session_high/session_low) -> 1.
+    """
+    if "3" in lvl_type:
+        return 3.0
+    if "2" in lvl_type:
+        return 2.0
+    return 1.0
 
 
 def _build_feature_vector(
@@ -4446,16 +4730,30 @@ class FeatureFactory:
         breaker_block_active_val = _ob_fields["breaker_block_active"]
         ob_mitigation_pct_val = _ob_fields["ob_mitigation_pct"]
 
-        # Smart Money Concepts (Phase 164 Plan 03): Fair Value Gaps land here;
-        # Liquidity Sweeps + Liquidity Pools (single-tf descoped) append after
-        # in Task 2, per RESEARCH.md's mandated sequencing. fvg_midpoint is
-        # staged as an in-pass local (not persisted) for Plan 04's
+        # Smart Money Concepts (Phase 164 Plan 03): Fair Value Gaps, then
+        # Liquidity Sweeps, then Liquidity Pools (single-tf descoped), per
+        # RESEARCH.md's mandated sequencing. fvg_midpoint/price_in_premium
+        # are staged as in-pass locals (not persisted) for Plan 04's
         # supply/demand-zones block.
         _fvg_fields = _compute_fvg(opens, highs, lows, closes, close_, atr_val, tf, config)
         fvg_dist_atr_val = _fvg_fields["fvg_dist_atr"]
         fvg_size_atr_val = _fvg_fields["fvg_size_atr"]
         fvg_open_count_val = _fvg_fields["fvg_open_count"]
         _fvg_midpoint = _fvg_fields["fvg_midpoint"]  # Plan 04 zones local, not persisted
+
+        _sweep_fields = _compute_liquidity_sweeps(highs, lows, closes, close_, atr_val, tf, config)
+        sweep_detected_val = _sweep_fields["sweep_detected"]
+        sweep_strength_val = _sweep_fields["sweep_strength"]
+        reclaim_velocity_val = _sweep_fields["reclaim_velocity"]
+        bars_since_last_sweep_val = _sweep_fields["bars_since_last_sweep"]
+
+        _pool_fields = _compute_liquidity_pools(highs, lows, closes, close_, atr_val, tf, config)
+        bsl_dist_atr_val = _pool_fields["bsl_dist_atr"]
+        ssl_dist_atr_val = _pool_fields["ssl_dist_atr"]
+        bsl_touches_val = _pool_fields["bsl_touches"]
+        ssl_touches_val = _pool_fields["ssl_touches"]
+        pool_count_val = _pool_fields["pool_count"]
+        _price_in_premium = _pool_fields["price_in_premium"]  # Plan 04 zones local, not persisted
 
         _dow = _dow_encoding(bar_ts)
 
@@ -4716,10 +5014,10 @@ class FeatureFactory:
             canary_near_constant=canary_near_constant_val,
             canary_acausal_placebo=canary_acausal_placebo_val,
             # Smart Money Concepts (36, Phase 164). Order Blocks +
-            # Breaker/Mitigation (7, Plan 02) and FVG (3, Plan 03 Task 1) are
-            # real computed values now; the remaining 26 fields (sweeps/
-            # pools/zones/BOS-CHoCH/AMD) stay placeholder None until Plan 03
-            # Task 2 / Plan 04 land.
+            # Breaker/Mitigation (7, Plan 02) and FVG + Liquidity Sweeps +
+            # Liquidity Pools (11, Plan 03) are real computed values now; the
+            # remaining 18 fields (zones/BOS-CHoCH/AMD) stay placeholder None
+            # until Plan 04 lands.
             ob_bull_dist_atr=ob_bull_dist_atr_val,
             ob_bear_dist_atr=ob_bear_dist_atr_val,
             ob_strength=ob_strength_val,
@@ -4730,15 +5028,15 @@ class FeatureFactory:
             fvg_dist_atr=fvg_dist_atr_val,
             fvg_size_atr=fvg_size_atr_val,
             fvg_open_count=fvg_open_count_val,
-            sweep_detected=None,
-            sweep_strength=None,
-            reclaim_velocity=None,
-            bars_since_last_sweep=None,
-            bsl_dist_atr=None,
-            ssl_dist_atr=None,
-            bsl_touches=None,
-            ssl_touches=None,
-            pool_count=None,
+            sweep_detected=sweep_detected_val,
+            sweep_strength=sweep_strength_val,
+            reclaim_velocity=reclaim_velocity_val,
+            bars_since_last_sweep=bars_since_last_sweep_val,
+            bsl_dist_atr=bsl_dist_atr_val,
+            ssl_dist_atr=ssl_dist_atr_val,
+            bsl_touches=bsl_touches_val,
+            ssl_touches=ssl_touches_val,
+            pool_count=pool_count_val,
             demand_dist_atr=None,
             supply_dist_atr=None,
             demand_freshness=None,
@@ -4960,11 +5258,11 @@ class FeatureFactory:
             breaker_block_active_val = _ob_fields["breaker_block_active"]
             ob_mitigation_pct_val = _ob_fields["ob_mitigation_pct"]
 
-            # Smart Money Concepts (Phase 164 Plan 03 Task 1): FVG -- pre-
-            # slices its own causal window ending at the current bar (never
-            # the full series), matching OB's slicing immediately above.
-            # fvg_midpoint is an in-pass local only (Plan 04 zones). Liquidity
-            # Sweeps + Liquidity Pools append after in Task 2.
+            # Smart Money Concepts (Phase 164 Plan 03): FVG, then Liquidity
+            # Sweeps, then Liquidity Pools -- each pre-slices its own causal
+            # window ending at the current bar (never the full series),
+            # matching OB's slicing immediately above. fvg_midpoint/
+            # price_in_premium are in-pass locals only (Plan 04 zones).
             _fvg_lookback = config.smc_fvg_lookback
             _fvg_start = max(0, i - _fvg_lookback + 1)
             _fvg_fields = _compute_fvg(
@@ -4981,6 +5279,40 @@ class FeatureFactory:
             fvg_size_atr_val = _fvg_fields["fvg_size_atr"]
             fvg_open_count_val = _fvg_fields["fvg_open_count"]
             _fvg_midpoint = _fvg_fields["fvg_midpoint"]
+
+            _sweep_lookback = config.smc_liquidity_sweeps_lookback
+            _sweep_start = max(0, i - _sweep_lookback + 1)
+            _sweep_fields = _compute_liquidity_sweeps(
+                highs[_sweep_start : i + 1],
+                lows[_sweep_start : i + 1],
+                closes[_sweep_start : i + 1],
+                close_,
+                atr_val,
+                tf,
+                config,
+            )
+            sweep_detected_val = _sweep_fields["sweep_detected"]
+            sweep_strength_val = _sweep_fields["sweep_strength"]
+            reclaim_velocity_val = _sweep_fields["reclaim_velocity"]
+            bars_since_last_sweep_val = _sweep_fields["bars_since_last_sweep"]
+
+            _pool_lookback = config.smc_liquidity_pools_lookback
+            _pool_start = max(0, i - _pool_lookback + 1)
+            _pool_fields = _compute_liquidity_pools(
+                highs[_pool_start : i + 1],
+                lows[_pool_start : i + 1],
+                closes[_pool_start : i + 1],
+                close_,
+                atr_val,
+                tf,
+                config,
+            )
+            bsl_dist_atr_val = _pool_fields["bsl_dist_atr"]
+            ssl_dist_atr_val = _pool_fields["ssl_dist_atr"]
+            bsl_touches_val = _pool_fields["bsl_touches"]
+            ssl_touches_val = _pool_fields["ssl_touches"]
+            pool_count_val = _pool_fields["pool_count"]
+            _price_in_premium = _pool_fields["price_in_premium"]
 
             # Regime-level primitives (all from cache)
             hmm_regime_prob_val = cache.hmm_regime_prob
@@ -5400,10 +5732,10 @@ class FeatureFactory:
                 canary_near_constant=canary_near_constant_val,
                 canary_acausal_placebo=canary_acausal_placebo_val,
                 # Smart Money Concepts (36, Phase 164). Order Blocks +
-                # Breaker/Mitigation (7, Plan 02) and FVG (3, Plan 03 Task 1)
-                # are real computed values now; the remaining 26 fields
-                # (sweeps/pools/zones/BOS-CHoCH/AMD) stay placeholder None
-                # until Plan 03 Task 2 / Plan 04 land.
+                # Breaker/Mitigation (7, Plan 02) and FVG + Liquidity Sweeps
+                # + Liquidity Pools (11, Plan 03) are real computed values
+                # now; the remaining 18 fields (zones/BOS-CHoCH/AMD) stay
+                # placeholder None until Plan 04 lands.
                 ob_bull_dist_atr=ob_bull_dist_atr_val,
                 ob_bear_dist_atr=ob_bear_dist_atr_val,
                 ob_strength=ob_strength_val,
@@ -5414,15 +5746,15 @@ class FeatureFactory:
                 fvg_dist_atr=fvg_dist_atr_val,
                 fvg_size_atr=fvg_size_atr_val,
                 fvg_open_count=fvg_open_count_val,
-                sweep_detected=None,
-                sweep_strength=None,
-                reclaim_velocity=None,
-                bars_since_last_sweep=None,
-                bsl_dist_atr=None,
-                ssl_dist_atr=None,
-                bsl_touches=None,
-                ssl_touches=None,
-                pool_count=None,
+                sweep_detected=sweep_detected_val,
+                sweep_strength=sweep_strength_val,
+                reclaim_velocity=reclaim_velocity_val,
+                bars_since_last_sweep=bars_since_last_sweep_val,
+                bsl_dist_atr=bsl_dist_atr_val,
+                ssl_dist_atr=ssl_dist_atr_val,
+                bsl_touches=bsl_touches_val,
+                ssl_touches=ssl_touches_val,
+                pool_count=pool_count_val,
                 demand_dist_atr=None,
                 supply_dist_atr=None,
                 demand_freshness=None,
