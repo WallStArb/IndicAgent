@@ -218,6 +218,11 @@ Examples:
 [rca_analysis] Minimum consecutive OFI bars. Phase 118 RCA starting guess -- DB had no rows at calibration time. ML learning target.
 ```
 
+**Calibration backlog:** `docs/foundation/apr-calibration-backlog.md` tracks which gate-shaped
+`[initial_estimate]` keys still need a real empirical study, so this doesn't require
+re-grepping all `config_schema` rows each time. Update it when a key moves from guess to
+validated.
+
 ---
 
 ## Adding a New Parameter
