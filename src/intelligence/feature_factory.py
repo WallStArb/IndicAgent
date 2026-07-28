@@ -4296,20 +4296,29 @@ def _suffix_max(arr: np.ndarray) -> np.ndarray:
 def _level_breached_since(
     suffix_extreme: np.ndarray, start: int, level: float, bearish: bool
 ) -> float:
-    """Shared O(1) primitive for "has price wicked through `level` at or
-    after bar `start`?" -- the single underlying check order blocks'
-    mitigation test and FVG's fill test both perform (previously two
-    independent implementations of the same thing: a Python for-loop here,
-    a fresh np.any() slice there).
+    """Shared O(1) primitive for "has the series described by suffix_extreme
+    crossed `level` at or after index `start`?" -- a pure geometric query,
+    parameterized entirely by which suffix-extrema array and comparison
+    direction the caller passes in:
 
-    Pass suffix_extreme=_suffix_max(highs) with bearish=True to test for a
-    rise to/above `level` (bearish OB / bearish FVG), or
-    suffix_extreme=_suffix_min(lows) with bearish=False to test for a drop
-    to/below `level` (bullish OB / bullish FVG). start >= len(suffix_extreme)
-    (nothing left to scan) returns 0.0, matching the original scan's
-    behavior over an empty range. Equivalence with the original per-call
-    forward-scan/np.any implementations proven by fuzz test across 20,000
-    random trials before this refactor was applied (zero mismatches).
+    - bearish=True: rise to/above `level`. Pass suffix_extreme=_suffix_max(highs).
+    - bearish=False: drop to/below `level`. Pass suffix_extreme=_suffix_min(lows).
+
+    start >= len(suffix_extreme) (nothing left to scan) returns 0.0.
+
+    Used by order blocks' mitigation test (bearish OB checks highs for a
+    rise to/above its own high; bullish OB checks lows for a drop to/below
+    its own low) and FVG's fill test (same shape, gap edges instead of OB
+    edges) -- previously two independent implementations of this identical
+    check: a Python for-loop here, a fresh np.any() slice there. The
+    `bearish` name follows this file's established bullish/bearish SMC
+    vocabulary (inherited from the order-block scan this replaced) rather
+    than an abstract direction enum, since every caller in this file already
+    thinks in those terms.
+
+    Equivalence with the original per-call forward-scan/np.any
+    implementations proven by fuzz test across 20,000 random trials before
+    this refactor was applied (zero mismatches).
     """
     n = len(suffix_extreme)
     if start >= n:
@@ -4338,7 +4347,6 @@ def _compute_order_blocks(
     volumes: np.ndarray,
     close_: float,
     atr_val: float,
-    tf: str,
     config: FeatureFactoryConfig,
 ) -> dict[str, float]:
     """Order Blocks + stateless Breaker/Mitigation, one pure pass (Phase 164 Plan 02).
@@ -4371,10 +4379,6 @@ def _compute_order_blocks(
     every bar's [low, high] since its formation and its own [bottom, top]
     zone (mitigation_blocks.py's running-max logic, recomputed in-pass).
 
-    tf is accepted for interface parity with _compute_sr_dist_atr but unused
-    here -- order-block lookback is a flat (non-per-tf) APR key per migration
-    266, not a per-tf dict like sr_lookback_by_tf.
-
     Falls back to _OB_FALLBACK (never raises, never NaN/Inf) when atr_val is
     invalid or the window has too few bars to run the impulse scan.
     """
@@ -4405,6 +4409,12 @@ def _compute_order_blocks(
     suf_max_h = _suffix_max(h)
 
     avg_volume = float(v.mean()) if v.size else 0.0
+
+    def _ob_strength(impulse_vol: float) -> float:
+        if avg_volume > 0:
+            return min(1.0, impulse_vol / avg_volume)
+        return config.smc_order_blocks_strength_fallback
+
     candidates: list[dict[str, float]] = []
 
     i = impulse_bars
@@ -4420,12 +4430,7 @@ def _compute_order_blocks(
                         ob_idx = k
                         break
                 if ob_idx is not None:
-                    impulse_vol = float(v[impulse_start:i].mean())
-                    strength = (
-                        min(1.0, impulse_vol / avg_volume)
-                        if avg_volume > 0
-                        else config.smc_order_blocks_strength_fallback
-                    )
+                    strength = _ob_strength(float(v[impulse_start:i].mean()))
                     mitigated = _level_breached_since(
                         suf_min_lo, i, float(lo[ob_idx]), bearish=False
                     )
@@ -4450,12 +4455,7 @@ def _compute_order_blocks(
                         ob_idx = k
                         break
                 if ob_idx is not None:
-                    impulse_vol = float(v[impulse_start:i].mean())
-                    strength = (
-                        min(1.0, impulse_vol / avg_volume)
-                        if avg_volume > 0
-                        else config.smc_order_blocks_strength_fallback
-                    )
+                    strength = _ob_strength(float(v[impulse_start:i].mean()))
                     mitigated = _level_breached_since(suf_max_h, i, float(h[ob_idx]), bearish=True)
                     candidates.append(
                         {
@@ -4497,9 +4497,10 @@ def _compute_order_blocks(
         ob_range = m_top - m_bottom
         if ob_range > 0:
             # Scan from impulse_end (matching _level_breached_since's own
-            # start-index convention above), NOT idx+1 -- the impulse bars themselves naturally
-            # span the OB zone as price transits away from it (their own
-            # formation), which is not a genuine later retest/erosion.
+            # start-index convention above), NOT idx+1 -- the impulse bars
+            # themselves naturally span the OB zone as price transits away
+            # from it (their own formation), which is not a genuine later
+            # retest/erosion.
             overlap_start = int(nearest_overall["impulse_end"])
             max_pct = 0.0
             for j in range(overlap_start, n_bars):
@@ -6186,7 +6187,7 @@ class FeatureFactory:
         # fair_value_gap/liquidity_sweeps/liquidity_pools/supply_demand_zones/
         # bos_choch/amd_cycle after this block, in that order.
         _ob_fields = _compute_order_blocks(
-            opens, highs, lows, closes, volumes, close_, atr_val, tf, config
+            opens, highs, lows, closes, volumes, close_, atr_val, config
         )
         ob_bull_dist_atr_val = _ob_fields["ob_bull_dist_atr"]
         ob_bear_dist_atr_val = _ob_fields["ob_bear_dist_atr"]
@@ -6901,7 +6902,6 @@ class FeatureFactory:
                 volumes[_ob_start : i + 1],
                 close_,
                 atr_val,
-                tf,
                 config,
             )
             ob_bull_dist_atr_val = _ob_fields["ob_bull_dist_atr"]
