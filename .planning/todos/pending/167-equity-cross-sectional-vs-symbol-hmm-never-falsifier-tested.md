@@ -114,6 +114,15 @@ refresh's fingerprint change forces a recompute anyway. Order: this scoped pass 
 gate verdict recorded (closes this todo) -> todo 176's `--refresh` runs -> any subsequent
 `ic_engine` work runs as one full-scope pass after that, not a second narrow equity-only one.
 
+**Plan update 2026-07-29:** the narrow equity-scoped pass this section describes was never
+actually completed -- restarted twice for real fingerprint-gate bugs (todos 182/198, both
+fixed) and left stopped, not relaunched. Given todo 176's `--refresh` needs to run regardless
+and a market-data-gap catchup is also queued first (see todo 176's Step 0), the plan now skips
+straight to the "any subsequent `ic_engine` work runs as one full-scope pass" branch already
+described above -- no separate narrow equity-only completion first. Full sequence (queued,
+pending a server reboot for safety patches): market data catchup -> todo 176's `--refresh` ->
+one full-corpus (equity + rates) `ic_engine` pass, which closes this todo as a side effect.
+
 ## References
 
 - `services/ic_engine.py:965` -- the suppression mechanism

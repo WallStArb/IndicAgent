@@ -73,22 +73,49 @@ fix); the upsert SQL itself is structurally tested
 (`tests/unit/test_feature_vector_persistence_completeness.py`,
 `tests/unit/services/test_backfill_feature_factory.py`).
 
-**Revised steps:**
+**Revised steps (updated 2026-07-29 -- Step 0 added, Step 1's command corrected):**
 
-1. Run `backfill_feature_factory.py --compute-only --refresh` (full corpus unless scope is
-   narrowed at run time). No DELETE step needed.
+0. **Market data gap first.** `market_data_ohlcv_tradeable` confirmed live 2026-07-29: latest
+   bar is 2026-07-24 across all timeframes (~4.5-5.5 days stale, `1d` worst at 5d11h) --
+   expected given live ingestion is intentionally paused
+   (`[[project_ingestion_intentionally_paused]]`). Run
+   `PYTHONPATH=. .venv/bin/python scripts/infrastructure/backfill/infrastructure_run_historical_pipeline.py --days 7`
+   (all active symbols/timeframes by default; 7 days gives margin over the measured gap). **Do
+   NOT use `backfill_feature_factory.py`'s own `--fetch-only`/combined mode for this** --
+   traced its Stage 1 (`run_fetch_stage`, `services/backfill_feature_factory.py:721`): it skips
+   any `(symbol, tf)` pair with `backfill_status.fetch_complete=true`, which is already true for
+   the entire corpus from its original historical backfill. Running it again would silently
+   no-op on the fetch and never touch the recent-days gap -- confirmed by reading the source,
+   not assumed. `infrastructure_run_historical_pipeline.py` has no such checkpoint.
+1. THEN run `backfill_feature_factory.py --compute-only --refresh` (full corpus unless scope is
+   narrowed at run time) -- `--compute-only` explicitly skips its own Stage 1 (redundant with
+   step 0 and subject to the checkpoint above). `--refresh` bypasses
+   `backfill_status.status='complete'` so it reprocesses every row, including the newly-fetched
+   recent bars from step 0. No DELETE step needed (UPSERT in place).
 2. Verify via a spot-check that `sr_support_dist`/`poc_dist_atr`/etc. are non-NULL and
    non-constant across a sample of recomputed rows (mirror the "non-constant" regression guard
    Phase 163 Plan 02 added for the live path).
 3. Confirm `ic_engine`'s corpus fingerprinting (Phase 162) correctly detects the recomputed rows
-   as a fingerprint change and doesn't silently skip recompute for affected cells.
+   as a fingerprint change and doesn't silently skip recompute for affected cells -- todo 198's
+   fix (2026-07-29) makes this safer: a `feature_registry` status change alone won't force a
+   false full recompute, but a genuine `feature_vectors` content change (this backfill) still
+   correctly invalidates.
 4. Document which date range / symbol set was actually backfilled, for todo 175's future
    reference.
+5. **THEN run one full-corpus `ic_engine.py` pass** (all 80 symbols, equity + rates) --
+   supersedes the narrower equity-only relaunch queued for todo 167; that todo's own file
+   already commits to this exact sequencing ("not a second narrow equity-only one"). Do NOT
+   relaunch the equity-scoped `ic_engine` run concurrently with steps 0-1 -- reading
+   `feature_vectors` while `--refresh` is mid-UPDATE on those same rows risks torn reads, and
+   any work done now gets fingerprint-invalidated the moment `--refresh` lands anyway.
 
 **Not yet run** -- this todo tracks the mechanism now existing, not the actual recompute having
-happened. `feature_vectors` was also found 20 days stale overall (unrelated root cause -- live
-ingestion is intentionally paused, see `[[project_ingestion_intentionally_paused]]`), so the
-`--refresh` run doubles as closing that gap too, in one pass.
+happened. **Queued to run next, after a pending server reboot for safety patches** (nothing
+currently running needs graceful shutdown -- `ic_engine` already stopped; every Docker
+container, including `ib-gateway`, has `restart: always`/`unless-stopped` and `docker.service`
+is enabled at boot, so no manual restart steps needed post-reboot). `feature_vectors` was also
+found 20 days stale overall (unrelated root cause -- live ingestion is intentionally paused),
+so this run doubles as closing that gap too, in one pass.
 
 ## Acceptance criteria
 
