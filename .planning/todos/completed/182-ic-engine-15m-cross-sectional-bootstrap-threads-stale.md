@@ -1,11 +1,30 @@
 ---
-status: pending
+status: completed
 priority: P1
 filed: 2026-07-25
+closed: 2026-07-29
 source: live diagnostic during todo 092's corpus recompute — 100% single-core CPU, zero
   active Postgres queries, observed directly via `top`/`ps`/`pg_stat_activity` while the
   15m `low_bull` cross-sectional cell ran
 ---
+
+## Resolution (2026-07-29)
+
+Independently re-diagnosed (same evidence: 24-core box at load-avg 1.5, one thread pinned
+90%+, the 15m `high_bear` cell alone measured at 2h08m serial) during a live equity-scoped
+`ic_engine.py --symbols <49 equity symbols>` run (the same run [167](../pending/167-equity-cross-sectional-vs-symbol-hmm-never-falsifier-tested.md)
+needs). Fixed via `ConfigService.set()` (not a migration — this repo's config write path):
+`alpha.ic.cross_sectional_bootstrap_threads.{15m,1h,1d}` raised from `1` to `8`, changed_by
+`brandon`, reason cites this todo's measurement. `.1d`/`.1h` raised alongside `.15m` rather
+than left at the todo's "lowest priority, likely fine" guess — same unmeasured-`[conventional]`
+shape of assumption, no reason to leave two of three unverified.
+
+Did not run the formal wall-clock/RSS benchmark this todo's Fix section specified (step 1) —
+the live run itself is the benchmark; re-verify actual `15m`/`1h` cross-sectional wall time
+against pre-fix per-cell timings (already in `logs/ic_engine.log` from the run this was found
+in) once the equity-scoped run completes post-[198](../completed/198-ic-engine-fingerprint-gate-false-invalidation.md).
+`162-HUMAN-UAT.md` item 3 still needs its own update per this todo's step 5 — not done here,
+separate action.
 
 # `alpha.ic.cross_sectional_bootstrap_threads.15m=1` is empirically stale — this is 162-HUMAN-UAT.md item 3, now with live evidence it fails
 

@@ -83,6 +83,37 @@ Direction 1 chosen and executed partially:
    `symbol_hmm` computation itself. Then re-run `equity_regime_separation_gate.py` (no
    `--force` needed) for the real verdict.
 
+## Sequencing dependency vs. todo 176 (found 2026-07-28)
+
+Step 3's scoped `ic_engine.py --symbols <49 equity symbols>` pass is currently in-flight
+(started 2026-07-28T03:00 UTC, ~60% through all (symbol, tf, regime) cells as of 15:06 UTC --
+not yet complete as of this writing).
+
+**Do not restart it** -- it's answering this todo's own question (does cross-sectional regime
+routing separate IC better than per-symbol HMM for equity), which is orthogonal to whether
+Phase 163-165's new structural columns are populated. Let it finish and run
+`equity_regime_separation_gate.py` for the real verdict as step 3 already directs.
+
+**But its `feature_ic_scores` output should not be treated as durable past that verdict.**
+Todo 176 (feature_vectors historical backfill, scope widened 2026-07-28 to all 94 new
+structural columns across Phases 163-165) is still pending and has not yet run against these
+same 49 symbols. When it does, `--refresh` recomputes and UPSERTs *every* `feature_vectors`
+column per row via `compute_batch()` (not just the 94 new ones -- whatever changed in
+upstream compute/data logic since the row was originally written applies too), which changes
+the row's Phase 162 fingerprint and correctly forces any subsequent `ic_engine` pass to
+recompute those cells rather than skip them. So this run's `feature_ic_scores` rows for these
+49 symbols become fingerprint-stale the moment todo 176's `--refresh` lands -- not wrong for
+the regime-separation question this todo asks today, but not assumed valid forever either.
+
+**Sequencing implication:** today's scoped pass finishing does NOT mean this todo's
+downstream consumers (or any future full-corpus `ic_engine` measurement work, e.g. scoring
+Phase 163-165's new features) can run concurrently with or ahead of todo 176's `--refresh`.
+Concurrent would risk read/write inconsistency on `feature_vectors` (partial-UPDATE visibility
+mid-clustering-pass); ahead-of would just be redundant compute, thrown away the moment the
+refresh's fingerprint change forces a recompute anyway. Order: this scoped pass finishes ->
+gate verdict recorded (closes this todo) -> todo 176's `--refresh` runs -> any subsequent
+`ic_engine` work runs as one full-scope pass after that, not a second narrow equity-only one.
+
 ## References
 
 - `services/ic_engine.py:965` -- the suppression mechanism

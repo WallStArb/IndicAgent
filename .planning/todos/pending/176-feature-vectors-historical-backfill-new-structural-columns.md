@@ -10,9 +10,22 @@ decision: Delete + full recompute (option a), confirmed 2026-07-23. Full 58-symb
   multi-year corpus is in scope unless a narrower window is confirmed sufficient at run time.
 ---
 
-# feature_vectors' 17 new VP/SR columns are NULL on every pre-existing row -- need a targeted historical backfill, not a naive re-run
+# feature_vectors' 94 new structural columns (Phases 163-165) are NULL on every pre-existing row -- need a targeted historical backfill, not a naive re-run
 
-## Context
+## Scope widened 2026-07-28
+
+Filed against Phase 163 alone (17 VP/SR columns). Phase 164 (36 SMC columns, migration 266) and
+Phase 165 (41 swing/fib/trend/session columns, migration 267) have since landed with the
+identical NULL-on-historical-rows problem -- same root cause (`ON CONFLICT DO NOTHING`), same
+fix mechanism (the `--refresh` UPSERT path below, which is column-list-generic and already
+covers all three phases' columns without further code changes). PRIORITIES.md's explicit user
+override (2026-07-27: "build Phase 164 + Phase 165 regardless of the evidence-gate reasoning
+above... then one combined `--refresh` recompute") already commits to backfilling all 94 columns
+in one pass, not three separate ones -- this todo's scope now reflects that. The deprioritization
+reasoning below (todo 179's `mid_bull` finding) predates that override and no longer blocks this;
+kept for historical context only.
+
+## Context (original, Phase 163)
 
 Phase 163 (migration 255) added 17 new `feature_vectors` columns (12 ATR-normalized VP fields
 per D-16/D-17/D-18, 5 S/R strength/age/count fields per D-19) and wired `FeatureFactory.compute()`
@@ -79,9 +92,10 @@ ingestion is intentionally paused, see `[[project_ingestion_intentionally_paused
 
 ## Acceptance criteria
 
-- [x] Backfill mechanism chosen (delete + full recompute, 2026-07-23)
+- [x] Backfill mechanism chosen (delete + full recompute, 2026-07-23; superseded by --refresh
+      UPSERT, 2026-07-27 -- see above)
 - [ ] Historical `feature_vectors` rows (scope per above) have non-NULL, non-constant values in
-      all 17 new VP/SR columns
+      all 94 new structural columns (17 VP/SR + 36 SMC + 41 swing/fib/trend/session)
 - [ ] `ic_engine` corpus fingerprint correctly triggers recompute for cells whose feature values
       changed as a result of this backfill
 - [ ] Documented which date range / symbol set was actually backfilled, for todo 175's future
