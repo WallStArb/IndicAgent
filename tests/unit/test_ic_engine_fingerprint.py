@@ -379,7 +379,7 @@ def test_fingerprint_invalid_on_partial_match_two_of_three():
 
 
 # ---------------------------------------------------------------------------
-# Task 4 (todo 190): status-only staleness -- a feature_registry.status_hash
+# Task 4 (todo 198): status-only staleness -- a feature_registry.status_hash
 # change must never force a recompute of the expensive bootstrap-CI math.
 # Verified against the real code (main()'s registry-drift gate at the
 # get_all_features()/get_active_features() comment): ic_engine always computes
@@ -508,7 +508,7 @@ def test_feature_status_refresh_sql_is_idempotent_via_is_distinct_from():
 
 # ---------------------------------------------------------------------------
 # Task 4: _classify_fingerprint -- the ONE decision function shared by both the
-# per-symbol and cross-sectional prepass loops (todo 190), so the two passes
+# per-symbol and cross-sectional prepass loops (todo 198), so the two passes
 # can never diverge in what counts as valid/stale/invalid.
 # ---------------------------------------------------------------------------
 
@@ -567,7 +567,7 @@ def test_classify_fingerprint_force_refresh_overrides_status_only_stale_to_inval
 # ---------------------------------------------------------------------------
 # Task 4: _partition_symbol_cells -- aggregates one symbol's per-cell
 # _classify_fingerprint results into (invalid_cells, needs_status_refresh) as
-# TWO INDEPENDENT values (2026-07-29 code review regression, todo 190).
+# TWO INDEPENDENT values (2026-07-29 code review regression, todo 198).
 #
 # The bug this guards against: the original wiring used a single elif to
 # bucket a symbol as EITHER dispatched (has an invalid cell) OR needing a

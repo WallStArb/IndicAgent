@@ -5,7 +5,7 @@ invalidates on any commit landing anywhere in the repo, which silently discarded
 ~31h of a real corpus run's checkpoints when an unrelated branch merge shifted
 HEAD's hash. The content key must (1) change when a file actually imported by
 ic_engine changes SEMANTICALLY, (2) stay stable across a comment/docstring-only
-edit to an imported file (2026-07-29 rca_analysis, todo 190 -- raw-byte hashing
+edit to an imported file (2026-07-29 rca_analysis, todo 198 -- raw-byte hashing
 was found forcing full recompute of multi-day runs on a live comment-only
 commit that altered zero computed output), and (3) stay stable when unrelated
 repo files (including anything outside the src/ and services/ first-party
