@@ -599,6 +599,17 @@ class ICEngineConfig:
             if isinstance(_raw_regime_groups, str)
             else json.dumps(_raw_regime_groups)
         )
+        # Lookaheads per (tf, scale) -- todo 146: a single global grid measured a
+        # different real-world horizon per tf under the same scale name. One loop
+        # over scale builds all four dicts instead of 4 near-identical comprehensions
+        # (/simplify review, 2026-07-29).
+        _lookahead_by_scale = {
+            scale: {
+                tf: int(cfg.get_sync(f"alpha.ic.lookahead.{tf}.{scale}", fb[scale]))
+                for tf, fb in LOOKAHEAD_FALLBACKS_BY_TF.items()
+            }
+            for scale in ("fast", "mid", "slow", "extended")
+        }
         return cls(
             min_observations=int(cfg.get_sync("alpha.ic.min_observations", 500)),
             fdr_alpha=float(cfg.get_sync("alpha.ic.fdr_alpha", 0.05)),
@@ -611,24 +622,10 @@ class ICEngineConfig:
             subsample_min_stride=int(cfg.get_sync("alpha.ic.subsample_min_stride", 5)),
             min_reliable_n=int(cfg.get_sync("alpha.ic.min_reliable_n", 100)),
             cluster_max_corr=float(cfg.get_sync("alpha.ic.cluster_max_corr", 0.70)),
-            # Lookaheads per (tf, scale) -- todo 146: a single global grid measured
-            # a different real-world horizon per tf under the same scale name.
-            lookahead_fast={
-                tf: int(cfg.get_sync(f"alpha.ic.lookahead.{tf}.fast", fb["fast"]))
-                for tf, fb in LOOKAHEAD_FALLBACKS_BY_TF.items()
-            },
-            lookahead_mid={
-                tf: int(cfg.get_sync(f"alpha.ic.lookahead.{tf}.mid", fb["mid"]))
-                for tf, fb in LOOKAHEAD_FALLBACKS_BY_TF.items()
-            },
-            lookahead_slow={
-                tf: int(cfg.get_sync(f"alpha.ic.lookahead.{tf}.slow", fb["slow"]))
-                for tf, fb in LOOKAHEAD_FALLBACKS_BY_TF.items()
-            },
-            lookahead_extended={
-                tf: int(cfg.get_sync(f"alpha.ic.lookahead.{tf}.extended", fb["extended"]))
-                for tf, fb in LOOKAHEAD_FALLBACKS_BY_TF.items()
-            },
+            lookahead_fast=_lookahead_by_scale["fast"],
+            lookahead_mid=_lookahead_by_scale["mid"],
+            lookahead_slow=_lookahead_by_scale["slow"],
+            lookahead_extended=_lookahead_by_scale["extended"],
             # Cross-sectional equity regime model flag (migration 174)
             equity_model_enabled=str(
                 cfg.get_sync("alpha.regime.equity_model_enabled", "true")

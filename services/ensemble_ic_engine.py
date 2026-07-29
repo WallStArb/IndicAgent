@@ -202,6 +202,15 @@ class EnsembleICConfig:
     @classmethod
     def from_apr(cls, cfg: dict[str, Any]) -> EnsembleICConfig:
         """Load all EnsembleIC APR parameters from the raw config dict in one pass."""
+        # Lookaheads per (tf, scale) -- todo 146: one loop over scale builds all four
+        # dicts instead of 4 near-identical comprehensions (/simplify review, 2026-07-29).
+        _lookahead_by_scale = {
+            scale: {
+                tf: _cfg(cfg, f"alpha.ic.lookahead.{tf}.{scale}", fb[scale])
+                for tf, fb in LOOKAHEAD_FALLBACKS_BY_TF.items()
+            }
+            for scale in ("fast", "mid", "slow", "extended")
+        }
         return cls(
             fdr_alpha=_cfg(cfg, "alpha.ic.fdr_alpha", 0.05),
             walk_forward_folds=_cfg(cfg, "alpha.ic.walk_forward_folds", 3),
@@ -211,22 +220,10 @@ class EnsembleICConfig:
             subsample_min_stride=_cfg(cfg, "alpha.ic.subsample_min_stride", 5),
             min_reliable_n=_cfg(cfg, "alpha.ic.min_reliable_n", 100),
             hac_max_lag=_cfg(cfg, "alpha.ic.hac_max_lag", 3),
-            lookahead_fast={
-                tf: _cfg(cfg, f"alpha.ic.lookahead.{tf}.fast", fb["fast"])
-                for tf, fb in LOOKAHEAD_FALLBACKS_BY_TF.items()
-            },
-            lookahead_mid={
-                tf: _cfg(cfg, f"alpha.ic.lookahead.{tf}.mid", fb["mid"])
-                for tf, fb in LOOKAHEAD_FALLBACKS_BY_TF.items()
-            },
-            lookahead_slow={
-                tf: _cfg(cfg, f"alpha.ic.lookahead.{tf}.slow", fb["slow"])
-                for tf, fb in LOOKAHEAD_FALLBACKS_BY_TF.items()
-            },
-            lookahead_extended={
-                tf: _cfg(cfg, f"alpha.ic.lookahead.{tf}.extended", fb["extended"])
-                for tf, fb in LOOKAHEAD_FALLBACKS_BY_TF.items()
-            },
+            lookahead_fast=_lookahead_by_scale["fast"],
+            lookahead_mid=_lookahead_by_scale["mid"],
+            lookahead_slow=_lookahead_by_scale["slow"],
+            lookahead_extended=_lookahead_by_scale["extended"],
             n_workers=_cfg(cfg, "infra.ensemble_ic_engine.workers", 12),
             pooled_fetch_itersize=_cfg(
                 cfg, "infra.ensemble_ic_engine.pooled_fetch_itersize", 50_000
