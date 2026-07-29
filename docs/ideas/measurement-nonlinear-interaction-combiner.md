@@ -1,6 +1,10 @@
 # Non-Linear Interaction Combiner — Idea (Edge Source Thesis T5)
 
-**Status:** Idea — not planned. Needs a Fable rigor pass before promotion to `docs/research/`.
+**Status:** Promoted — see `docs/research/data-edge-source-thesis.md` §T5 (added 2026-07-25) for
+the current, actively-maintained version. That doc also covers the post-promotion canary-leakage
+check (todo 184, closed) and the empirical 1d replication
+(`docs/analysis/t5-replication-1d-per-symbol.csv`). This file is kept as the original idea
+record, not the live reference.
 **Author:** Claude (Sonnet 5), interactive session, 2026-07-25 — not a Fable dispatch. This doc
 is a design proposal; nothing here has been empirically tested yet.
 **Origin:** Raised in conversation while resolving the fork in `.planning/STATE.md` ("invest in

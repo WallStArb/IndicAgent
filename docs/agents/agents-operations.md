@@ -22,7 +22,7 @@ Without the auditor, a crash in `indicagent-bar-aggregator` would cascade: `indi
 
 ### Why `_DAG_ORDER` Is the Single Source of Truth
 
-`_DAG_ORDER` in `services/service_auditor_agent.py` is the canonical registry. CLAUDE.md says "Never maintain a parallel list here." The reason: two lists drift. When a service is added to CLAUDE.md's architecture overview but not to `_DAG_ORDER`, the auditor does not know about it and cannot restart it. The code is authoritative.
+`_DAG_ORDER` in `services/service_auditor.py` is the canonical registry. CLAUDE.md says "Never maintain a parallel list here." The reason: two lists drift. When a service is added to CLAUDE.md's architecture overview but not to `_DAG_ORDER`, the auditor does not know about it and cannot restart it. The code is authoritative.
 
 ### Why Layered Restart (Not Random)
 
@@ -73,7 +73,7 @@ The layers below map to `_DAG_ORDER` priority numbers. Lower priority = restarts
 | L10 — top-level services | 10 | `api`, `dashboard` |
 | Meta-monitor | 11 | `service-auditor` |
 
-### `_DAG_ORDER` (authoritative — from `services/service_auditor_agent.py`)
+### `_DAG_ORDER` (authoritative — from `services/service_auditor.py`)
 
 ```python
 _DAG_ORDER: dict[str, int] = {
@@ -244,7 +244,7 @@ Follow these steps in order. Missing any step means the auditor cannot monitor o
 
 **Step 1: Add to `_DAG_ORDER` at the right layer.**
 
-Open `services/service_auditor_agent.py`. Find the layer comment that matches your service's role. Add an entry with the correct priority number. Lower numbers restart first — your service should be higher (later) than its dependencies.
+Open `services/service_auditor.py`. Find the layer comment that matches your service's role. Add an entry with the correct priority number. Lower numbers restart first — your service should be higher (later) than its dependencies.
 
 ```python
 "indicagent-my-new-service": 7,  # priority 7: downstream of intelligence-pipeline (6)
@@ -338,7 +338,7 @@ These services are timer-triggered oneshots — they run, do work, and exit. `in
 - `indicagent-weight-updater`, `indicagent-shadow-auditor` (timer-triggered)
 - `indicagent-feature-validation` (daily), `indicagent-hmm-training` (monthly)
 
-All are in `_ONESHOT_UNITS` in `service_auditor_agent.py` and are excluded from the restart logic. To verify a timer fired: `systemctl list-timers --all | grep <name>`. To see run logs: `journalctl -u indicagent-<name>`.
+All are in `_ONESHOT_UNITS` in `service_auditor.py` and are excluded from the restart logic. To verify a timer fired: `systemctl list-timers --all | grep <name>`. To see run logs: `journalctl -u indicagent-<name>`.
 
 ### Health Check Commands
 
@@ -367,5 +367,5 @@ curl -s 'http://localhost:9090/api/v1/query?query=agent_last_message_timestamp_s
 
 - `docs/agents/agents-foundation.md` — BaseAgent contract, liveness signals, OODA loop rationale
 - `docs/agents/agents-writers.md` — BaseWriter and the persistence pattern
-- `services/service_auditor_agent.py` — `_DAG_ORDER`, `_LAG_THRESHOLDS`, `_AGENT_ID_TO_UNIT` (authoritative source)
+- `services/service_auditor.py` — `_DAG_ORDER`, `_LAG_THRESHOLDS`, `_AGENT_ID_TO_UNIT` (authoritative source)
 - `docs/platform/platform-foundation.md` (planned) — infrastructure layer design

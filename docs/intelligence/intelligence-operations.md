@@ -17,7 +17,7 @@ OPS for intelligence services: Service DAG, health endpoints, metrics, debugging
 
 ### Canonical Registry
 
-**File:** `services/service_auditor_agent.py:_DAG_ORDER`
+**File:** `services/service_auditor.py:_DAG_ORDER`
 
 ### Layer Structure
 
@@ -67,7 +67,7 @@ L11 Meta
 
 ### Lag Thresholds
 
-**File:** `services/service_auditor_agent.py:_LAG_THRESHOLDS`
+**File:** `services/service_auditor.py:_LAG_THRESHOLDS`
 
 | Service | Threshold (ms) | Purpose |
 |---------|----------------|---------|
@@ -439,4 +439,4 @@ Default: 16384 tokens. Increase via `OLLAMA_NUM_CTX` for longer prompts (reduces
 - **Plugins:** `intelligence-plugins.md` — Plugin protocol, tier lists
 - **AI Agents:** `intelligence-ai.md` — Swarm agents, LLM chain
 - **Observability:** `src/observability/` — Metrics, spans, tracing
-- **Service Auditor:** `services/service_auditor_agent.py` — DAG order, lag thresholds
+- **Service Auditor:** `services/service_auditor.py` — DAG order, lag thresholds

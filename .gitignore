@@ -215,7 +215,7 @@ appendonly.aof
 .env.production.local
 
 # Application specific
-data/
+/data/
 *.db
 cache/
 *.sqlite

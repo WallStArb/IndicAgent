@@ -64,11 +64,15 @@ def test_decay_at_mid_selects_mid_bars():
         _cell("extended", -0.1),
     ]
     result = _select_hold_bars_from_decay(cells, decay_threshold=0.1, scale_to_bars=_SCALE_TO_BARS)
-    assert result == 5
+    assert result == (5, False)
 
 
 def test_all_scales_above_threshold_selects_extended():
-    """ic_sharpe = [0.5, 0.4, 0.3, 0.2], all above 0.1 -> edge persists to extended (60)."""
+    """ic_sharpe = [0.5, 0.4, 0.3, 0.2], all above 0.1 -> edge persists to extended (60).
+
+    No scale ever crossed decay_threshold, so this is right-censored (todo 088): we
+    confirmed non-decay up to 60 bars but don't know if it persists beyond that.
+    """
     cells = [
         _cell("fast", 0.5),
         _cell("mid", 0.4),
@@ -76,11 +80,14 @@ def test_all_scales_above_threshold_selects_extended():
         _cell("extended", 0.2),
     ]
     result = _select_hold_bars_from_decay(cells, decay_threshold=0.1, scale_to_bars=_SCALE_TO_BARS)
-    assert result == 60
+    assert result == (60, True)
 
 
 def test_decay_at_fast_selects_minimal_hold():
-    """fast itself (0.05) is already below threshold -> minimal hold_bars = 1."""
+    """fast itself (0.05) is already below threshold -> minimal hold_bars = 1.
+
+    A confirmed decay crossing at the very first scale -- not censored (todo 088).
+    """
     cells = [
         _cell("fast", 0.05),
         _cell("mid", 0.03),
@@ -88,7 +95,7 @@ def test_decay_at_fast_selects_minimal_hold():
         _cell("extended", -0.1),
     ]
     result = _select_hold_bars_from_decay(cells, decay_threshold=0.1, scale_to_bars=_SCALE_TO_BARS)
-    assert result == 1
+    assert result == (1, False)
 
 
 def test_unqualified_cell_excluded_despite_high_ic_sharpe_noise_case():
@@ -104,7 +111,7 @@ def test_unqualified_cell_excluded_despite_high_ic_sharpe_noise_case():
     result = _select_hold_bars_from_decay(cells, decay_threshold=0.1, scale_to_bars=_SCALE_TO_BARS)
     # fast is excluded from the walk entirely; qualifying order starts at mid.
     # mid(0.4) above threshold, slow(0.05) below -> preceding qualifying scale is mid -> 5.
-    assert result == 5
+    assert result == (5, False)
 
 
 def test_unreliable_cell_excluded_despite_passing_fdr_low_n_case():
@@ -118,7 +125,7 @@ def test_unreliable_cell_excluded_despite_passing_fdr_low_n_case():
         _cell("extended", -0.1, passes_fdr=True, reliable=True),
     ]
     result = _select_hold_bars_from_decay(cells, decay_threshold=0.1, scale_to_bars=_SCALE_TO_BARS)
-    assert result == 5
+    assert result == (5, False)
 
 
 def test_unstable_cell_excluded_despite_passing_fdr_and_reliable():
@@ -135,7 +142,7 @@ def test_unstable_cell_excluded_despite_passing_fdr_and_reliable():
         _cell("extended", -0.1, passes_fdr=True, reliable=True, walk_forward_stable=True),
     ]
     result = _select_hold_bars_from_decay(cells, decay_threshold=0.1, scale_to_bars=_SCALE_TO_BARS)
-    assert result == 5
+    assert result == (5, False)
 
 
 def test_all_cells_unqualified_returns_none():
@@ -166,8 +173,8 @@ def test_none_ic_sharpe_skipped_not_treated_as_below_threshold():
     ]
     result = _select_hold_bars_from_decay(cells, decay_threshold=0.1, scale_to_bars=_SCALE_TO_BARS)
     # mid has no data (skipped); slow and extended both above threshold ->
-    # edge persists to extended.
-    assert result == 60
+    # edge persists to extended. No crossing observed -> right-censored (todo 088).
+    assert result == (60, True)
 
 
 def test_empty_cell_list_returns_none():
@@ -189,7 +196,8 @@ def test_extended_never_qualifies_returns_last_measured_scale_not_ceiling():
         # no "extended" cell at all
     ]
     result = _select_hold_bars_from_decay(cells, decay_threshold=0.1, scale_to_bars=_SCALE_TO_BARS)
-    assert result == 20
+    # No crossing observed within the measured scales -> right-censored (todo 088).
+    assert result == (20, True)
 
 
 def test_only_fast_qualifies_above_threshold_returns_fast_bars_not_ceiling():
@@ -198,4 +206,5 @@ def test_only_fast_qualifies_above_threshold_returns_fast_bars_not_ceiling():
     """
     cells = [_cell("fast", 0.5)]
     result = _select_hold_bars_from_decay(cells, decay_threshold=0.1, scale_to_bars=_SCALE_TO_BARS)
-    assert result == 1
+    # No crossing observed -> right-censored (todo 088).
+    assert result == (1, True)

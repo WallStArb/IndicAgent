@@ -167,15 +167,15 @@ of what was removed and why. These three are what's actually still live.
 
 | Doc | Status | One-line |
 |---|---|---|
-| [2026-06-20: v3.0 Ground-Up Architecture](../plans/2026-06-20-alphaengine-architecture.md) | Approved design | The v3.0 rebuild's foundational architecture doc |
+| [2026-06-20: v3.0 Ground-Up Architecture](../plans/archive/2026-06-20-alphaengine-architecture.md) | Approved design | The v3.0 rebuild's foundational architecture doc |
 | [2026-06-25: v3.0 Alpha Lifecycle Schema](../plans/2026-06-25-v30-alpha-lifecycle-schema.md) | APPROVED | Referenced by Phases 142A/142B/147 (renumbered 2026-07-04) |
-| [2026-06-19: HMM/GARCH/Kalman APR Migration](../plans/2026-06-19-hmm-garch-kalman-apr-migration.md) | Complete — migration 153 live; `feature.hmm.*` keys read in `src/intelligence/services/hmm_trainer.py` | APR migration plan for HMM/GARCH/Kalman params (2026-07-12: status corrected, was blank; doc's own checklist was never updated but the work shipped) |
+| [2026-06-19: HMM/GARCH/Kalman APR Migration](../plans/archive/2026-06-19-hmm-garch-kalman-apr-migration.md) | Complete — migration 153 live; `feature.hmm.*` keys read in `src/intelligence/services/hmm_trainer.py` | APR migration plan for HMM/GARCH/Kalman params (2026-07-12: status corrected, was blank; doc's own checklist was never updated but the work shipped) |
 | [2026-06-26: Salvageable AI & Intelligence Concepts from v2.x](../plans/2026-06-26-salvageable-ai-concepts.md) | EXTRACTED | What survived the v2.x → v3.0 transition |
 | [2026-06-27: ETF Universe Expansion](../plans/2026-06-27-etf-universe-expansion.md) | Complete — applied 2026-07-01 | 58→80 instruments live (migrations 188/190); DB-verified 80 active instruments |
 | [2026-06-28: HMM Regime Audit & Optimization](../plans/2026-06-28-hmm-regime-audit-optimization.md) | — | Companion to todo 026 |
 | [2026-06-28: Renaissance Obstacle Map v3.1+](../plans/2026-06-28-renaissance-obstacle-map.md) | Planned, unblocked after V1 corpus rerun | Obstacle map for the v3.1+ path |
 | [2026-06-30: AlphaEngine V1 — Methodology Hypotheses](../plans/2026-06-30-alphaengine-methodology-hypotheses.md) | Active | Three hypotheses requiring empirical validation |
-| [2026-06-30: AlphaEngine V1 — Execution Plan](../plans/2026-06-30-alphaengine-v1-execution-plan.md) | Phase A/B COMPLETE; superseded by later phases | Tracked Phase A/B execution only; Phase 142A/142B/143/143.1 have since shipped — see ROADMAP.md for current state |
+| [2026-06-30: AlphaEngine V1 — Execution Plan](../plans/archive/2026-06-30-alphaengine-v1-execution-plan.md) | Phase A/B COMPLETE; superseded by later phases | Tracked Phase A/B execution only; Phase 142A/142B/143/143.1 have since shipped — see ROADMAP.md for current state |
 | [2026-07-01: Cross-Sectional Regime Model Implementation](../plans/2026-07-01-cross-sectional-regime-model.md) | — | Implementation plan for the `market_regimes` cross-sectional system |
 | [2026-07-11: IC Quality & Sign-Symmetry Strategy](../plans/2026-07-11-ic-quality-and-sign-symmetry-strategy.md) | Strategy — sequencing agreed, fixes not yet implemented | Synthesizes todos 091/093/094/096/088 sequencing; full design for Phase 143.1 |
 | [SHADOW-REVIEW: Phase 147 Live Promotion Criteria](../plans/SHADOW-REVIEW.md) | FROZEN | Numerically-evaluable live-promotion gate criteria, committed before any shadow data exists |

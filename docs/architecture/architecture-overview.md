@@ -155,7 +155,7 @@ L9:  signal-auditor, signal-replay, parity-auditor, alerting-agent
 L10: service-auditor (meta: monitors all above)
 ```
 
-**Source of truth:** `_DAG_ORDER` in `services/service_auditor_agent.py`
+**Source of truth:** `_DAG_ORDER` in `services/service_auditor.py`
 
 ---
 

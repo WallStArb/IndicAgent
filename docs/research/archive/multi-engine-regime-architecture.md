@@ -421,7 +421,7 @@ territory, different mechanism (fitted HMM vs. deterministic percentile-rank loo
 
 **Verdict: prove the percentile-rank version first, build an HMM engine only if it proves
 insufficient.** Reasoning:
-1. This codebase's own stated principle (`docs/plans/2026-06-20-alphaengine-architecture.md`):
+1. This codebase's own stated principle (`docs/plans/archive/2026-06-20-alphaengine-architecture.md`):
    "simple features with positive IC beat complex ones... because they are more robust."
 2. The one HMM already in production (E0) is *currently under active audit* for exactly the
    failure modes HMMs are prone to — non-causal full-history fit (todo 034), missing

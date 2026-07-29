@@ -48,3 +48,38 @@ runs deliberately **last**, specifically because "calibrating against a possibly
 horizon (096)... would produce a well-tuned wrong number" (143.1-CONTEXT.md). Merging them would
 have silently collapsed a locked sequencing decision without re-confirming it — exactly what
 that guardrail exists to prevent. Keep this todo standalone.
+
+## CLOSED 2026-07-29 — implemented as proposed
+
+`_select_hold_bars_from_decay` (`services/ensemble_ic_engine.py`) now returns
+`tuple[int, bool] | None` — `(hold_bars, censored)` instead of a bare `int`. `censored=False`
+means an actual below-threshold IC-decay crossing was observed (a confirmed boundary);
+`censored=True` means every qualifying scale stayed above threshold and the walk simply ran out
+of measured scales (right-censored — persistence beyond `hold_bars` is unknown, not confirmed).
+
+`_calibrate_hold_max_bars` now tracks a per-`(regime, tf)` censored count alongside the existing
+per-symbol median aggregation (median calc itself untouched — still pools confirmed and censored
+`hold_bars` values together, that pooling-policy question is explicitly NOT resolved by this
+todo, only made visible) and threads it into the `config_history.reason` string written at
+calibration time, e.g. `"...; 3/5 right-censored (no confirmed decay boundary within measured
+scales -- true persistence beyond hold_bars is unknown, not confirmed; todo 088)"`. This is
+this project's own provenance record for exactly this distinction, per the original ask.
+
+`_write_median_calibration`'s shared `reason_fn` signature widened from `Callable[[int], str]`
+to `Callable[[tuple[str, str], int], str]` (passes the `(regime, tf)` key so callers can look up
+per-key auxiliary state without a second dict threaded through the shared loop) — the two
+`_calibrate_stop_target` call sites updated to accept and ignore the new key param, no behavior
+change there.
+
+Full test coverage: `tests/unit/test_ensemble_ic_decay.py` updated for the new
+`(hold_bars, censored)` tuple return, including explicit assertions on the censored flag for
+both confirmed-crossing and right-censored scenarios. `_calibrate_hold_max_bars`'s reason-string
+plumbing itself not directly unit tested (async, requires a DB pool — no existing pattern in
+this codebase for mocking that layer; the pure-function boundary is where the real logic and
+test coverage lives). Full `tests/unit/` suite green.
+
+**Not addressed, out of scope for this todo:** whether censored and confirmed values *should*
+be pooled differently in the median (the todo's item (b), "decide deliberately whether censored
+and confirmed values should be pooled") — that's a real statistical-policy question deferred to
+whoever next looks at `hold_max_bars` calibration quality with the now-visible censored
+fraction in hand, not resolved here.

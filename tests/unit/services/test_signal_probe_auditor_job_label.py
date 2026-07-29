@@ -22,9 +22,6 @@ class TestJobLabelContract:
         src_path = (
             pathlib.Path(__file__).resolve().parents[3] / "services" / "signal_probe_auditor.py"
         )
-        if not src_path.exists():
-            pytest.skip("signal_probe_auditor.py not yet created")
-
         tree = ast.parse(src_path.read_text())
         found = any(
             isinstance(node, ast.Constant) and node.value == "signal-probe-auditor"
