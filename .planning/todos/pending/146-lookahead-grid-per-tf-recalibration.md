@@ -178,6 +178,34 @@ via silently empty cells -- that's a Step 3 implementation detail, not a new ope
 Apply only at the next scheduled rebuild window (rides Phase 162), pre-registered per
 `docs/plans/methodology-change-ledger.md`.
 
+## Addendum (2026-07-29) — downstream consequence confirmed in live `config_state`
+
+Independently verified, while investigating a TSMOM/momentum-edge discussion, that this
+todo's already-diagnosed root cause has a live downstream symptom: `alpha.frame.hold_max_bars.
+<regime>.1d` and `.<regime>.1h` are **100% seed-only in production right now** — checked
+`config_history` directly, all 36 history rows for each of those two timeframes are the
+2026-07-02 `[initial_estimate]` placeholder (`"Initial estimate: conservative hold_max_bars
+default pending EIC-02 calibration"`), zero real `EIC-02` calibration rows ever, for either
+timeframe. `5m` (36/74 real calibrations) and `15m` (31/71) calibrate fine by comparison.
+
+This is not a new bug — it is exactly what this todo's own finding predicts: `1h` has zero
+`feature_ic_scores` rows at `slow`/`extended` corpus-wide (session-completeness collapse), so
+`_calibrate_hold_max_bars`'s per-symbol qualifying gate (`passes_fdr AND reliable AND
+walk_forward_stable`) has nothing to evaluate for those cells and silently returns 0 written
+keys, forever, until Step 3 ships. `1d`'s case is the same mechanism from the other finding
+above: `extended=60`'s "near-optimal" read was the pre-fix flat-CI artifact, so `1d` cells at
+`slow`/`extended` under the *current* grid are being asked to confirm a decay boundary that
+was never real, and (per the momentum_z_slow spot-check this session: 0/53 FDR passes at 1d
+non-pooled) essentially never can.
+
+**Practical implication for Step 3's rollout:** re-deriving `hold_max_bars` under the new
+per-tf grid (`1d`: 1/2/5/10; `1h`: 1/2, no slow/extended tier by design) should be treated as
+part of the same rebuild step, not a separate follow-up — until then, anything reading
+`alpha.frame.hold_max_bars.*.1d` or `.*.1h` for real position-sizing/hold decisions is reading
+an uncalibrated 3.5-week-old guess, not a measurement. Worth a `calibration_status` (seed vs.
+calibrated) surfaced wherever these keys are consumed, so this doesn't silently recur for
+some other (regime, tf) cell in the future.
+
 ## References
 
 - `docs/research/fable-2026-07-19-lookahead-and-target-calibration-review.md` Q1 --
