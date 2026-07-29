@@ -30,7 +30,7 @@ _project_root = Path(__file__).parent.parent.parent
 if str(_project_root) not in sys.path:
     sys.path.insert(0, str(_project_root))
 
-from services.ensemble_ic_engine import _select_hold_bars_from_decay
+from services.ensemble_ic_engine import EnsembleICConfig, _select_hold_bars_from_decay
 
 _SCALE_TO_BARS = {"fast": 1, "mid": 5, "slow": 20, "extended": 60}
 
@@ -208,3 +208,35 @@ def test_only_fast_qualifies_above_threshold_returns_fast_bars_not_ceiling():
     result = _select_hold_bars_from_decay(cells, decay_threshold=0.1, scale_to_bars=_SCALE_TO_BARS)
     # No crossing observed -> right-censored (todo 088).
     assert result == (1, True)
+
+
+# ---------------------------------------------------------------------------
+# Todo 146: per-tf lookahead grid
+# ---------------------------------------------------------------------------
+
+
+def test_ensemble_ic_config_lookaheads_for_returns_per_tf_values():
+    """Same per-tf resolution as ICEngineConfig.lookaheads_for -- todo 146."""
+    config = EnsembleICConfig(
+        fdr_alpha=0.05,
+        walk_forward_folds=3,
+        sharpe_window_size=2000,
+        sharpe_min_windows=30,
+        subsample_min_stride=5,
+        min_reliable_n=100,
+        hac_max_lag=3,
+        lookahead_fast={"5m": 1, "15m": 1, "1h": 1, "1d": 1},
+        lookahead_mid={"5m": 6, "15m": 2, "1h": 2, "1d": 2},
+        lookahead_slow={"5m": 12, "15m": 5, "1h": 20, "1d": 5},
+        lookahead_extended={"5m": 39, "15m": 10, "1h": 60, "1d": 10},
+        n_workers=1,
+        pooled_fetch_itersize=50_000,
+        decay_threshold=0.05,
+        min_qualifying_fraction=0.60,
+        wf_stability_ratio=3.0,
+        gate_lookahead="fast",
+        wf_stability_metric="ic_ratio",
+        min_obs_per_regime=3000,
+    )
+    assert config.lookaheads_for("5m") == {"fast": 1, "mid": 6, "slow": 12, "extended": 39}
+    assert config.lookaheads_for("1h") == {"fast": 1, "mid": 2, "slow": 20, "extended": 60}

@@ -26,10 +26,23 @@ _FULL_CFG_DICT = {
     "alpha.ic.subsample_min_stride": "5",
     "alpha.ic.min_reliable_n": "100",
     "alpha.ic.hac_max_lag": "3",
-    "alpha.ic.lookahead.fast": "1",
-    "alpha.ic.lookahead.mid": "5",
-    "alpha.ic.lookahead.slow": "20",
-    "alpha.ic.lookahead.extended": "60",
+    # Todo 146: per-tf lookahead grid (replaces the old flat alpha.ic.lookahead.{scale} keys)
+    "alpha.ic.lookahead.5m.fast": "1",
+    "alpha.ic.lookahead.5m.mid": "6",
+    "alpha.ic.lookahead.5m.slow": "12",
+    "alpha.ic.lookahead.5m.extended": "39",
+    "alpha.ic.lookahead.15m.fast": "1",
+    "alpha.ic.lookahead.15m.mid": "2",
+    "alpha.ic.lookahead.15m.slow": "5",
+    "alpha.ic.lookahead.15m.extended": "10",
+    "alpha.ic.lookahead.1h.fast": "1",
+    "alpha.ic.lookahead.1h.mid": "2",
+    "alpha.ic.lookahead.1h.slow": "20",
+    "alpha.ic.lookahead.1h.extended": "60",
+    "alpha.ic.lookahead.1d.fast": "1",
+    "alpha.ic.lookahead.1d.mid": "2",
+    "alpha.ic.lookahead.1d.slow": "5",
+    "alpha.ic.lookahead.1d.extended": "10",
     "infra.ensemble_ic_engine.workers": "12",
     # EnsembleIC-specific keys (migration 195)
     "alpha.ensemble_ic.decay_threshold": "0.1",
@@ -60,10 +73,11 @@ def test_from_apr_binds_all_keys():
     assert cfg.subsample_min_stride == 5
     assert cfg.min_reliable_n == 100
     assert cfg.hac_max_lag == 3
-    assert cfg.lookahead_fast == 1
-    assert cfg.lookahead_mid == 5
-    assert cfg.lookahead_slow == 20
-    assert cfg.lookahead_extended == 60
+    assert cfg.lookahead_fast == {"5m": 1, "15m": 1, "1h": 1, "1d": 1}
+    assert cfg.lookahead_mid == {"5m": 6, "15m": 2, "1h": 2, "1d": 2}
+    assert cfg.lookahead_slow == {"5m": 12, "15m": 5, "1h": 20, "1d": 5}
+    assert cfg.lookahead_extended == {"5m": 39, "15m": 10, "1h": 60, "1d": 10}
+    assert cfg.lookaheads_for("5m") == {"fast": 1, "mid": 6, "slow": 12, "extended": 39}
 
 
 def test_from_apr_applies_defaults_when_keys_missing():

@@ -162,10 +162,10 @@ class EnsembleICConfig:
     subsample_min_stride: int
     min_reliable_n: int
     hac_max_lag: int
-    lookahead_fast: int
-    lookahead_mid: int
-    lookahead_slow: int
-    lookahead_extended: int
+    lookahead_fast: dict[str, int]
+    lookahead_mid: dict[str, int]
+    lookahead_slow: dict[str, int]
+    lookahead_extended: dict[str, int]
     n_workers: int
     pooled_fetch_itersize: int
     # EnsembleIC-specific keys (migration 195)
@@ -189,14 +189,13 @@ class EnsembleICConfig:
     target_mfe_percentile: float = 50.0
     stop_target_min_qualifying_symbols: int = 3
 
-    @property
-    def lookaheads(self) -> dict[str, int]:
-        """Gradient-scale lookahead mapping -- built once; frozen after construction."""
+    def lookaheads_for(self, tf: str) -> dict[str, int]:
+        """Gradient-scale lookahead mapping for ONE timeframe (todo 146)."""
         return {
-            "fast": self.lookahead_fast,
-            "mid": self.lookahead_mid,
-            "slow": self.lookahead_slow,
-            "extended": self.lookahead_extended,
+            "fast": self.lookahead_fast[tf],
+            "mid": self.lookahead_mid[tf],
+            "slow": self.lookahead_slow[tf],
+            "extended": self.lookahead_extended[tf],
         }
 
     @classmethod
@@ -211,10 +210,22 @@ class EnsembleICConfig:
             subsample_min_stride=_cfg(cfg, "alpha.ic.subsample_min_stride", 5),
             min_reliable_n=_cfg(cfg, "alpha.ic.min_reliable_n", 100),
             hac_max_lag=_cfg(cfg, "alpha.ic.hac_max_lag", 3),
-            lookahead_fast=_cfg(cfg, "alpha.ic.lookahead.fast", 1),
-            lookahead_mid=_cfg(cfg, "alpha.ic.lookahead.mid", 5),
-            lookahead_slow=_cfg(cfg, "alpha.ic.lookahead.slow", 20),
-            lookahead_extended=_cfg(cfg, "alpha.ic.lookahead.extended", 60),
+            lookahead_fast={
+                tf: _cfg(cfg, f"alpha.ic.lookahead.{tf}.fast", 1)
+                for tf in ("5m", "15m", "1h", "1d")
+            },
+            lookahead_mid={
+                tf: _cfg(cfg, f"alpha.ic.lookahead.{tf}.mid", fb)
+                for tf, fb in {"5m": 6, "15m": 2, "1h": 2, "1d": 2}.items()
+            },
+            lookahead_slow={
+                tf: _cfg(cfg, f"alpha.ic.lookahead.{tf}.slow", fb)
+                for tf, fb in {"5m": 12, "15m": 5, "1h": 20, "1d": 5}.items()
+            },
+            lookahead_extended={
+                tf: _cfg(cfg, f"alpha.ic.lookahead.{tf}.extended", fb)
+                for tf, fb in {"5m": 39, "15m": 10, "1h": 60, "1d": 10}.items()
+            },
             n_workers=_cfg(cfg, "infra.ensemble_ic_engine.workers", 12),
             pooled_fetch_itersize=_cfg(
                 cfg, "infra.ensemble_ic_engine.pooled_fetch_itersize", 50_000
@@ -917,7 +928,7 @@ def _run_ensemble_ic_worker(args: tuple) -> dict[str, Any]:
                 alpha_regime = alpha_scores[mask]
 
                 for scale in _SCALES:
-                    lookahead_bars = config.lookaheads[scale]
+                    lookahead_bars = config.lookaheads_for(tf)[scale]
                     returns_scale = returns_by_scale.get(scale)
                     if returns_scale is None:
                         continue
@@ -1306,7 +1317,9 @@ class EnsembleICEngine(BaseBatch):
         per_regime_tf: dict[tuple[str, str], list[int]] = {}
         censored_count: dict[tuple[str, str], int] = {}
         for (_symbol, tf, regime), cells in groups.items():
-            result = _select_hold_bars_from_decay(cells, config.decay_threshold, config.lookaheads)
+            result = _select_hold_bars_from_decay(
+                cells, config.decay_threshold, config.lookaheads_for(tf)
+            )
             if result is None:
                 continue
             hold_bars, censored = result
