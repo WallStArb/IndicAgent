@@ -78,7 +78,8 @@ _JOB = "forward-return-writer"
 
 # Gradient scale identifiers — schema column names for forward return horizons.
 # Schema holds the concept (fast/mid/slow/extended); APR holds the period in bars
-# under alpha.ic.lookahead.{scale}. Loaded at runtime from APR.
+# under alpha.ic.lookahead.{tf}.{scale} (todo 146: per-tf, not shared across tfs).
+# Loaded at runtime from APR.
 _SCALES: tuple[str, ...] = ("fast", "mid", "slow", "extended")
 
 # Fallback defaults used only when APR key is absent (pre-migration bootstrap).

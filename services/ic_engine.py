@@ -4253,6 +4253,7 @@ def main() -> None:
     parser.add_argument(
         "--tf",
         nargs="*",
+        choices=_DEFAULT_TFS,
         default=_DEFAULT_TFS,
         help="Timeframes to process (default: 5m 15m 1h 1d)",
     )
