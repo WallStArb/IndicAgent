@@ -46,8 +46,18 @@ STATE.md's Tier 0 for full sequencing detail.
 
 ## P0 — Fix soon (integrity/correctness gaps already surfaced)
 
-**No live P0 as of 2026-07-27** — todo 183 closed (recompute completed clean); the rest of
-this section (below) is stale/resolved, kept for record only.
+**Live P0 as of 2026-07-29:** [202](pending/202-per-tf-lookahead-grid-downstream-consumers-stale.md)
+— todo 146's per-tf lookahead grid landed (migration 269 + `ICEngineConfig`/
+`EnsembleICConfig`/`forward_return_writer.py`), but `forward_returns` (36.7M rows, all
+under the OLD grid) has no automatic rebuild path and its fingerprint is already
+invalidated — the next `ic_engine` run will write horizon-mismatched `feature_ic_scores`
+unless `infrastructure_truncate_derived_tables.sh` runs first, in order, as part of
+whichever corpus rebuild is next (todo 176's queued sequence). Also 4 downstream
+measurement/validation scripts (`corpus_manifest_verifier.py`, `ops_ic_shrinkage.py`,
+`ops_oos_holdout_eval.py`, + 3 smaller ones) still read the old global grid and will
+silently produce wrong verdicts post-rebuild.
+
+The rest of this section (below) is stale/resolved, kept for record only.
 
 | Todo | Gap |
 |---|---|
