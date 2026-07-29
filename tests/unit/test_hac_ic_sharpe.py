@@ -147,10 +147,10 @@ def test_rolling_metrics_returns_five_tuple():
         subsample_min_stride=5,
         min_reliable_n=100,
         cluster_max_corr=0.70,
-        lookahead_fast=1,
-        lookahead_mid=5,
-        lookahead_slow=20,
-        lookahead_extended=60,
+        lookahead_fast={"5m": 1, "15m": 1, "1h": 1, "1d": 1},
+        lookahead_mid={"5m": 6, "15m": 2, "1h": 2, "1d": 2},
+        lookahead_slow={"5m": 12, "15m": 5, "1h": 20, "1d": 5},
+        lookahead_extended={"5m": 39, "15m": 10, "1h": 60, "1d": 10},
         equity_model_enabled=True,
         min_obs_daily=1000,
         hac_max_lag=3,
@@ -174,3 +174,37 @@ def test_rolling_metrics_returns_five_tuple():
     assert sharpe_arr.shape == (n_features,)
     assert sharpe_hac_arr.shape == (n_features,)
     assert n_windows >= 3
+
+
+# ---------------------------------------------------------------------------
+# Todo 146: per-tf lookahead grid
+# ---------------------------------------------------------------------------
+
+
+def test_lookaheads_for_returns_per_tf_values():
+    """lookaheads_for(tf) must resolve each scale from that tf's own dict entry,
+    not a single global scalar -- the whole point of todo 146's per-tf grid fix."""
+    config = ICEngineConfig(
+        min_observations=500,
+        fdr_alpha=0.05,
+        walk_forward_folds=3,
+        sharpe_window_size=50,
+        sharpe_window_size_subsampled=50,
+        sharpe_min_windows=3,
+        subsample_min_stride=5,
+        min_reliable_n=100,
+        cluster_max_corr=0.70,
+        lookahead_fast={"5m": 1, "15m": 1, "1h": 1, "1d": 1},
+        lookahead_mid={"5m": 6, "15m": 2, "1h": 2, "1d": 2},
+        lookahead_slow={"5m": 12, "15m": 5, "1h": 20, "1d": 5},
+        lookahead_extended={"5m": 39, "15m": 10, "1h": 60, "1d": 10},
+        equity_model_enabled=True,
+        min_obs_daily=1000,
+        hac_max_lag=3,
+        cs_chunk_ts=5000,
+        symbol_fetch_chunk_rows=5000,
+        n_workers=1,
+    )
+    assert config.lookaheads_for("5m") == {"fast": 1, "mid": 6, "slow": 12, "extended": 39}
+    assert config.lookaheads_for("15m") == {"fast": 1, "mid": 2, "slow": 5, "extended": 10}
+    assert config.lookaheads_for("1d") == {"fast": 1, "mid": 2, "slow": 5, "extended": 10}

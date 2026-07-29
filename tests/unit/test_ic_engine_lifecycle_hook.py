@@ -71,7 +71,14 @@ class _FakeLifecycleCursor:
             return
 
         if "FROM feature_ic_scores fis" in sql:
-            weight_version, training_window_end, lookahead_bars = params
+            weight_version, training_window_end, *tf_bars_flat = params
+            # Todo 146: lookahead_mid is tf-specific now -- the real query's WHERE
+            # clause is a flattened (tf, bars, tf, bars, ...) OR-chain instead of one
+            # scalar lookahead_bars. Rebuild it as a set of (tf, bars) pairs to match
+            # the same way the production SQL's OR-of-ANDs does.
+            tf_bars_pairs = {
+                (tf_bars_flat[i], tf_bars_flat[i + 1]) for i in range(0, len(tf_bars_flat), 2)
+            }
             weight_lookup = {
                 (r["tf"], r["regime"], r["feature_name"]): r["weight"]
                 for r in self.conn.ensemble_weight_rows
@@ -95,7 +102,7 @@ class _FakeLifecycleCursor:
             for r in self.conn.corpus_rows:
                 if r["training_window_end"] != training_window_end:
                     continue
-                if r["lookahead_bars"] != lookahead_bars:
+                if (r["tf"], r["lookahead_bars"]) not in tf_bars_pairs:
                     continue
                 standing_weight = weight_lookup.get((r["tf"], r["regime"], r["feature_name"]), 0.0)
                 result_rows.append(
@@ -296,10 +303,10 @@ def _make_config(**overrides) -> ICEngineConfig:
         subsample_min_stride=5,
         min_reliable_n=100,
         cluster_max_corr=0.70,
-        lookahead_fast=1,
-        lookahead_mid=5,
-        lookahead_slow=20,
-        lookahead_extended=60,
+        lookahead_fast={"5m": 1, "15m": 1, "1h": 1, "1d": 1},
+        lookahead_mid={"5m": 5, "15m": 5, "1h": 5, "1d": 5},
+        lookahead_slow={"5m": 20, "15m": 20, "1h": 20, "1d": 20},
+        lookahead_extended={"5m": 60, "15m": 60, "1h": 60, "1d": 60},
         equity_model_enabled=True,
         min_obs_daily=1000,
         hac_max_lag=3,
@@ -846,7 +853,10 @@ def test_lookahead_pinning_uses_only_mid_lookahead_rows(tmp_path):
     """4 rows per (feature, tf, regime) at lookahead_bars in {1,5,20,60}; hook must use
     ONLY the mid (5) row per cell -- new_observations must equal the sum over mid-only
     rows, not all 4 lookaheads (a naive sum-all implementation would overcount ~4x)."""
-    config = _make_config(lookahead_mid=5, meta_fdr_min_fraction=0.50)
+    config = _make_config(
+        lookahead_mid={"5m": 5, "15m": 2, "1h": 2, "1d": 2},
+        meta_fdr_min_fraction=0.50,
+    )
     cells = []
     for tf, regime in [("5m", "r0"), ("5m", "r1"), ("5m", "r2"), ("5m", "r3")]:
         for lookahead in (1, 5, 20, 60):
@@ -862,6 +872,21 @@ def test_lookahead_pinning_uses_only_mid_lookahead_rows(tmp_path):
                     lookahead_bars=lookahead,
                 )
             )
+    # A 15m row at lookahead_bars=5 -- same bar count as 5m's mid, but 15m's real mid
+    # is 2. This row must NOT be picked up by the gate query; if it were, it would
+    # prove the filter is still matching on lookahead_bars alone, ignoring tf.
+    cells.append(
+        _cell(
+            "featB",
+            "15m",
+            "r0",
+            ic_ci_lower=0.03,
+            passes_fdr=True,
+            n_independent=9999,
+            status="shadow_only",
+            lookahead_bars=5,
+        )
+    )
     conn = _FakeLifecycleConn(cells)
     registry = _FakeRegistryService({"featB": {"status": "shadow_only", "eligible": False}})
 
@@ -869,7 +894,7 @@ def test_lookahead_pinning_uses_only_mid_lookahead_rows(tmp_path):
 
     assert registry.advance_calls == [
         ("featB", True, 4000)
-    ]  # 4 mid-lookahead cells * 1000, not 16*1000
+    ]  # 4 real 5m-mid cells * 1000; the mis-tf'd 15m/lookahead=5 row (n=9999) must be excluded
 
 
 # ---------------------------------------------------------------------------

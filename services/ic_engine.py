@@ -453,10 +453,10 @@ class ICEngineConfig:
     subsample_min_stride: int
     min_reliable_n: int
     cluster_max_corr: float
-    lookahead_fast: int
-    lookahead_mid: int
-    lookahead_slow: int
-    lookahead_extended: int
+    lookahead_fast: dict[str, int]
+    lookahead_mid: dict[str, int]
+    lookahead_slow: dict[str, int]
+    lookahead_extended: dict[str, int]
     equity_model_enabled: bool
     min_obs_daily: int
     hac_max_lag: int
@@ -563,14 +563,16 @@ class ICEngineConfig:
     # field.
     refresh_min_new_fraction: float = 0.0
 
-    @property
-    def lookaheads(self) -> dict[str, int]:
-        """Gradient-scale lookahead mapping — built once; frozen after construction."""
+    def lookaheads_for(self, tf: str) -> dict[str, int]:
+        """Gradient-scale lookahead mapping for ONE timeframe (todo 146: bar counts
+        differ per tf -- 60 bars is ~3 months at 1d but ~5 hours at 5m, so a single
+        global grid was measuring a different real-world horizon per tf under the
+        same scale name)."""
         return {
-            "fast": self.lookahead_fast,
-            "mid": self.lookahead_mid,
-            "slow": self.lookahead_slow,
-            "extended": self.lookahead_extended,
+            "fast": self.lookahead_fast[tf],
+            "mid": self.lookahead_mid[tf],
+            "slow": self.lookahead_slow[tf],
+            "extended": self.lookahead_extended[tf],
         }
 
     @classmethod
@@ -602,11 +604,24 @@ class ICEngineConfig:
             subsample_min_stride=int(cfg.get_sync("alpha.ic.subsample_min_stride", 5)),
             min_reliable_n=int(cfg.get_sync("alpha.ic.min_reliable_n", 100)),
             cluster_max_corr=float(cfg.get_sync("alpha.ic.cluster_max_corr", 0.70)),
-            # Lookaheads per scale -- column names are gradient-scale identifiers
-            lookahead_fast=int(cfg.get_sync("alpha.ic.lookahead.fast", 1)),
-            lookahead_mid=int(cfg.get_sync("alpha.ic.lookahead.mid", 5)),
-            lookahead_slow=int(cfg.get_sync("alpha.ic.lookahead.slow", 20)),
-            lookahead_extended=int(cfg.get_sync("alpha.ic.lookahead.extended", 60)),
+            # Lookaheads per (tf, scale) -- todo 146: a single global grid measured
+            # a different real-world horizon per tf under the same scale name.
+            lookahead_fast={
+                tf: int(cfg.get_sync(f"alpha.ic.lookahead.{tf}.fast", 1))
+                for tf in ("5m", "15m", "1h", "1d")
+            },
+            lookahead_mid={
+                tf: int(cfg.get_sync(f"alpha.ic.lookahead.{tf}.mid", fb))
+                for tf, fb in {"5m": 6, "15m": 2, "1h": 2, "1d": 2}.items()
+            },
+            lookahead_slow={
+                tf: int(cfg.get_sync(f"alpha.ic.lookahead.{tf}.slow", fb))
+                for tf, fb in {"5m": 12, "15m": 5, "1h": 20, "1d": 5}.items()
+            },
+            lookahead_extended={
+                tf: int(cfg.get_sync(f"alpha.ic.lookahead.{tf}.extended", fb))
+                for tf, fb in {"5m": 39, "15m": 10, "1h": 60, "1d": 10}.items()
+            },
             # Cross-sectional equity regime model flag (migration 174)
             equity_model_enabled=str(
                 cfg.get_sync("alpha.regime.equity_model_enabled", "true")
@@ -1739,7 +1754,7 @@ def _compute_one_regime_cell(
     accumulated into all_results, and needs no changes for this to work correctly
     regardless of how many passes contributed rows.
     """
-    lookaheads = config.lookaheads
+    lookaheads = config.lookaheads_for(tf)
     subsample_min_stride = config.subsample_min_stride
     min_reliable_n = config.min_reliable_n
     walk_forward_folds = config.walk_forward_folds
@@ -2084,7 +2099,7 @@ def _compute_symbol_tf(
     Returns (pooled_rows, regime_rows, stats_dict) where stats_dict contains
     all_results, pvals_flat, pval_result_idxs, n_committed, n_skipped, n_passing_wf.
     """
-    lookaheads = config.lookaheads
+    lookaheads = config.lookaheads_for(tf)
     subsample_min_stride = config.subsample_min_stride
     min_reliable_n = config.min_reliable_n
     fdr_alpha = config.fdr_alpha
@@ -2687,7 +2702,7 @@ def _compute_one_cross_sectional_cell(
     the caller (_compute_cross_sectional_tf), same division of responsibility as
     _compute_one_regime_cell/_compute_symbol_tf.
     """
-    lookaheads = config.lookaheads
+    lookaheads = config.lookaheads_for(tf)
     subsample_min_stride = config.subsample_min_stride
     min_reliable_n = config.min_reliable_n
     walk_forward_folds = config.walk_forward_folds
@@ -3912,9 +3927,20 @@ def _run_lifecycle_hook(
     # each (feature_name, tf, regime) triple yields exactly one row -- never 4 -- and
     # standing weight is read at the APR champion weight_version (Fable N4), never the
     # most-recent-by-computed_at row (which could silently be a challenger epoch).
+    # Todo 146: lookahead_mid is now tf-specific (5m=6, 15m=2, 1h=2, 1d=2) -- a bare
+    # `lookahead_bars = %s` scalar can no longer correctly pin "the mid scale" across
+    # all 4 timeframes in one filter, since "mid" means a different bar count per tf.
+    # Match (tf, lookahead_bars) pairs explicitly instead of a single scalar.
+    tf_bars_conditions = " OR ".join(
+        "(fis.tf = %s AND fis.lookahead_bars = %s)" for _ in config.lookahead_mid
+    )
+    tf_bars_params: list[Any] = []
+    for tf_key, bars in config.lookahead_mid.items():
+        tf_bars_params.extend([tf_key, bars])
+
     with write_conn.cursor() as cur:
         cur.execute(
-            """
+            f"""
             SELECT fis.feature_name, fis.tf, fis.regime, fis.ic_ci_lower, fis.ic_ci_upper,
                    fis.ic_sign, fis.passes_fdr,
                    fis.reliable, fis.n_independent, fis.feature_status_at_eval,
@@ -3930,9 +3956,9 @@ def _run_lifecycle_hook(
               AND fis.is_pooled = true
               AND fis.regime != '_pooled'
               AND fis.training_window_end = %s
-              AND fis.lookahead_bars = %s
+              AND ({tf_bars_conditions})
             """,
-            (config.ensemble_weight_version, training_window_end, config.lookahead_mid),
+            (config.ensemble_weight_version, training_window_end, *tf_bars_params),
         )
         cols = [d[0] for d in cur.description]
         cell_rows = [dict(zip(cols, row, strict=True)) for row in cur.fetchall()]
