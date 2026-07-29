@@ -81,7 +81,12 @@ _JOB = "forward-return-writer"
 _SCALES: tuple[str, ...] = ("fast", "mid", "slow", "extended")
 
 # Fallback defaults used only when APR key is absent (pre-migration bootstrap).
-_SCALE_FALLBACKS: dict[str, int] = {"fast": 1, "mid": 5, "slow": 20, "extended": 60}
+_SCALE_FALLBACKS_BY_TF: dict[str, dict[str, int]] = {
+    "5m": {"fast": 1, "mid": 6, "slow": 12, "extended": 39},
+    "15m": {"fast": 1, "mid": 2, "slow": 5, "extended": 10},
+    "1h": {"fast": 1, "mid": 2, "slow": 20, "extended": 60},
+    "1d": {"fast": 1, "mid": 2, "slow": 5, "extended": 10},
+}
 
 _DEFAULT_TFS: list[str] = ["5m", "15m", "1h", "1d"]
 
@@ -707,12 +712,20 @@ def main() -> None:
                     cfg.get_sync("alpha.ic.insert_batch_size", _INSERT_BATCH_SIZE_DEFAULT)
                 )
 
-                # Load lookahead periods from APR (alpha.ic.lookahead.{scale})
-                lookaheads = {
-                    scale: int(cfg.get_sync(f"alpha.ic.lookahead.{scale}", fb))
-                    for scale, fb in _SCALE_FALLBACKS.items()
+                # Load lookahead periods from APR, per tf (alpha.ic.lookahead.{tf}.{scale})
+                # -- todo 146: a single global grid was measuring a different real-world
+                # horizon per tf under the same scale name (60 bars is ~3 months at 1d,
+                # ~5 hours at 5m).
+                lookaheads_by_tf = {
+                    tf: {
+                        scale: int(cfg.get_sync(f"alpha.ic.lookahead.{tf}.{scale}", fb))
+                        for scale, fb in _SCALE_FALLBACKS_BY_TF[tf].items()
+                    }
+                    for tf in args.tf
                 }
-                _logger.info("forward_return_writer.lookaheads", lookaheads=lookaheads)
+                _logger.info(
+                    "forward_return_writer.lookaheads_by_tf", lookaheads_by_tf=lookaheads_by_tf
+                )
 
                 # TRAINING_WINDOW_END gate — must be computed and logged before any SQL.
                 # Required flag (OOS holdout enforcement point one layer up, not a bare
@@ -755,7 +768,7 @@ def main() -> None:
                                 f"alpha.quant.max_abs_return.{tf}", _MAX_ABS_RETURN_FALLBACKS[tf]
                             )
                         ),
-                        lookaheads,
+                        lookaheads_by_tf[tf],
                     )
                     for tf in tfs
                 }
@@ -767,7 +780,7 @@ def main() -> None:
                 # Built once per run, not once per (symbol, tf) cell — both depend only on
                 # lookaheads/tf and the fixed _SCALES tuple, invariant across the symbol loop.
                 forward_return_sql_by_tf = {
-                    tf: _build_forward_return_sql(lookaheads, tf) for tf in tfs
+                    tf: _build_forward_return_sql(lookaheads_by_tf[tf], tf) for tf in tfs
                 }
                 insert_sql = _build_insert_sql(_SCALES)
 
@@ -784,7 +797,7 @@ def main() -> None:
                                 tf=tf,
                                 training_window_end=training_window_end,
                                 tracer=tracer,
-                                lookaheads=lookaheads,
+                                lookaheads=lookaheads_by_tf[tf],
                                 max_abs_return_by_scale=max_abs_return_by_tf_scale[tf],
                                 forward_return_sql=forward_return_sql_by_tf[tf],
                                 insert_sql=insert_sql,

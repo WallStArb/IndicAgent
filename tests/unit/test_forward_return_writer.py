@@ -23,6 +23,7 @@ if str(_project_root) not in sys.path:
     sys.path.insert(0, str(_project_root))
 
 from services.forward_return_writer import (
+    _SCALE_FALLBACKS_BY_TF,
     _SCALES,
     _apply_cross_symbol_corroboration,
     _build_corroborated_windows_temp_table_sql,
@@ -174,6 +175,15 @@ def test_forward_log_return_not_same_bar_ratio():
 # ---------------------------------------------------------------------------
 
 _LOOKAHEADS = {"fast": 1, "mid": 5, "slow": 20, "extended": 60}
+
+
+def test_scale_fallbacks_differ_per_tf():
+    """_SCALE_FALLBACKS_BY_TF must have distinct values per todo 146's confirmed grid --
+    a single shared fallback dict would silently apply 1d's numbers to 5m/15m/1h."""
+    assert _SCALE_FALLBACKS_BY_TF["5m"] == {"fast": 1, "mid": 6, "slow": 12, "extended": 39}
+    assert _SCALE_FALLBACKS_BY_TF["15m"] == {"fast": 1, "mid": 2, "slow": 5, "extended": 10}
+    assert _SCALE_FALLBACKS_BY_TF["1h"] == {"fast": 1, "mid": 2, "slow": 20, "extended": 60}
+    assert _SCALE_FALLBACKS_BY_TF["1d"] == {"fast": 1, "mid": 2, "slow": 5, "extended": 10}
 
 
 def test_forward_return_sql_emits_suspect_flag_per_scale():
