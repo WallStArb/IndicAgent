@@ -56,6 +56,7 @@ run, compute the same clamped value manually:
 from __future__ import annotations
 
 import argparse
+import ast
 import dataclasses
 import hashlib
 import json
@@ -67,7 +68,7 @@ from concurrent.futures import ProcessPoolExecutor, ThreadPoolExecutor, as_compl
 from contextlib import contextmanager
 from datetime import UTC, datetime
 from pathlib import Path
-from typing import Any
+from typing import Any, Literal
 
 import numpy as np
 
@@ -1062,6 +1063,124 @@ def _fingerprint_is_valid(stored: dict[str, Any] | None, current: dict[str, Any]
     )
 
 
+def _fingerprint_computational_key(fp: dict[str, Any]) -> dict[str, Any]:
+    """The subset of a fingerprint that gates whether the expensive bootstrap-CI
+    compute must rerun -- upstream_watermark minus its feature_registry component.
+
+    feature_registry.status_hash never changes WHAT gets computed: ic_engine's
+    per-cell compute always calls get_all_features(), never get_active_features()
+    (see main()'s registry-drift gate), so every feature is bootstrap-CI'd
+    regardless of status. status only feeds the feature_status_at_eval provenance
+    column on each row -- treating a status-hash change as computationally
+    invalidating (2026-07-29 rca_analysis, todo 190) forces a full multi-hour
+    recompute for an edit that alters zero computed IC/CI value.
+
+    NOTE (2026-07-29 code review): status_hash also moves on registry MEMBERSHIP
+    changes (feature added/removed/renamed), which DOES change computed output --
+    excluding it here is safe only because main()'s "Feature registry alignment
+    gate" forces membership to equal FeatureVector's fields exactly, so a real
+    membership change requires a FeatureVector edit that moves code_content_key
+    instead. If that gate is ever relaxed, this function must be revisited to
+    track membership separately from status.
+    """
+    watermark = fp.get("upstream_watermark") or {}
+    return {
+        "code_content_key": fp.get("code_content_key"),
+        "apr_snapshot_key": fp.get("apr_snapshot_key"),
+        "upstream_watermark": {k: v for k, v in watermark.items() if k != "feature_registry"},
+    }
+
+
+def _fingerprint_is_computationally_valid(
+    stored: dict[str, Any] | None, current: dict[str, Any]
+) -> bool:
+    """True when everything that can actually move a computed IC/CI value
+    matches -- ignores feature_registry.status_hash (see
+    _fingerprint_computational_key). A cell valid here but not under
+    _fingerprint_is_valid is status-only-stale: safe to skip the expensive
+    compute, but its feature_status_at_eval provenance needs a cheap refresh
+    (_fingerprint_is_status_only_stale, _FEATURE_STATUS_REFRESH_SQL).
+    """
+    if stored is None:
+        return False
+    return _fingerprint_computational_key(stored) == _fingerprint_computational_key(current)
+
+
+def _fingerprint_is_status_only_stale(
+    stored: dict[str, Any] | None, current: dict[str, Any]
+) -> bool:
+    """True iff the cell's expensive compute is reusable but its
+    feature_status_at_eval provenance is stale -- computationally valid AND
+    NOT fully valid. False on a never-computed cell (stored=None): that must
+    take the full compute path, not a metadata-only refresh of rows that don't
+    exist. False when computationally invalid too: that's a full recompute,
+    which already rewrites feature_status_at_eval as a side effect -- a
+    separate refresh there would be redundant, and if ordered wrong relative
+    to the recompute, could clobber it.
+    """
+    return _fingerprint_is_computationally_valid(stored, current) and not _fingerprint_is_valid(
+        stored, current
+    )
+
+
+_FingerprintClassification = Literal["valid", "status_only_stale", "invalid"]
+
+
+def _classify_fingerprint(
+    stored: dict[str, Any] | None, current: dict[str, Any], *, force_refresh: bool
+) -> _FingerprintClassification:
+    """The one decision function shared by both the per-symbol and cross-
+    sectional prepass loops (2026-07-29 rca_analysis, todo 190) -- both call
+    this instead of independently re-deriving valid/stale/invalid, so the two
+    passes structurally cannot diverge in what counts as which.
+
+    force_refresh (the --refresh CLI flag) always forces "invalid", matching
+    the pre-existing args.refresh semantics unchanged: an explicit refresh
+    request means redo everything, not just a status-only metadata touch-up.
+    """
+    if force_refresh or not _fingerprint_is_computationally_valid(stored, current):
+        return "invalid"
+    return "status_only_stale" if _fingerprint_is_status_only_stale(stored, current) else "valid"
+
+
+def _partition_symbol_cells(
+    cell_classifications: dict[tuple[str, str], _FingerprintClassification],
+) -> tuple[list[tuple[str, str]], bool]:
+    """Aggregates one symbol's per-cell _classify_fingerprint results into
+    (invalid_cells, needs_status_refresh) -- TWO INDEPENDENT values, never an
+    either/or bucket (2026-07-29 code review regression, todo 190).
+
+    The bug this replaced: the original wiring used a single elif to bucket a
+    symbol as EITHER dispatched (has an invalid cell) OR needing a status
+    refresh (no invalid cell, but a status_only_stale one) -- never both. A
+    symbol with an invalid cell in one (tf, pass_type) AND a status_only_stale
+    cell in a DIFFERENT (tf, pass_type) got dispatched (correctly, for the
+    invalid cell) but its status_only_stale sibling was silently never
+    refreshed: the dispatched worker's redundant recompute of that
+    fingerprint-valid sibling hits feature_ic_scores' ON CONFLICT ... DO
+    NOTHING (T-162-03-06 -- deliberately harmless pre-todo-190, since a
+    fingerprint-valid sibling's recomputed row was always byte-identical to
+    what's already there), which now silently discards the fresh
+    feature_status_at_eval, while the post-compute fingerprint upsert (which
+    covers ALL of a dispatched symbol's cells, unconditionally -- see the
+    "UPSERT fingerprint rows for ALL of this symbol's expected cells" comment
+    below) stamps that cell's fingerprint fresh anyway. Net effect: permanent,
+    silent status drift, never detected or corrected on any future run --
+    exactly the "silent wrong answer" failure mode this project treats as
+    worse than a loud crash.
+
+    dispatch is `bool(invalid_cells)`, independent of needs_status_refresh --
+    callers must act on both, not chain them as if/elif.
+    """
+    invalid_cells = [
+        cell_key for cell_key, result in cell_classifications.items() if result == "invalid"
+    ]
+    needs_status_refresh = any(
+        result == "status_only_stale" for result in cell_classifications.values()
+    )
+    return invalid_cells, needs_status_refresh
+
+
 # Scoped to the exact ic_cell_fingerprints PK columns (symbol, tf, pass_type via
 # regime_scope, training_window_end) -- never a bare training_window_end filter,
 # which would delete valid unrelated cells at the same window (T-162-03-03).
@@ -1104,6 +1223,23 @@ _FINGERPRINT_UPSERT_SQL = """
         apr_snapshot_key = EXCLUDED.apr_snapshot_key,
         upstream_watermark = EXCLUDED.upstream_watermark,
         computed_at = EXCLUDED.computed_at
+"""
+
+# Companion to _fingerprint_is_status_only_stale (todo 190): a cheap metadata-only
+# refresh for cells whose expensive bootstrap-CI math is still valid but whose
+# feature_status_at_eval provenance has drifted from a feature_registry status
+# transition. IS DISTINCT FROM (not !=, which is NULL-unsafe) keeps this a no-op
+# UPDATE on rows already current -- safe and cheap to run on every status-only-
+# stale symbol/cell, not just the one whose status actually moved, since we only
+# know the AGGREGATE status_hash changed, not which individual feature moved.
+_FEATURE_STATUS_REFRESH_SQL = """
+    UPDATE feature_ic_scores fis
+    SET feature_status_at_eval = fr.status
+    FROM feature_registry fr
+    WHERE fis.feature_name = fr.feature_name
+      AND fis.symbol = ANY(%(symbols)s)
+      AND fis.training_window_end = %(training_window_end)s
+      AND fis.feature_status_at_eval IS DISTINCT FROM fr.status
 """
 
 
@@ -3133,6 +3269,38 @@ def _write_ic_results(
     return n_committed
 
 
+def _normalized_source_for_hash(source: bytes) -> bytes:
+    """AST-normalized source bytes for content hashing.
+
+    Comments and whitespace/formatting are never part of the AST, so they drop
+    out for free; docstrings (the first `Expr`/`Constant` string statement in a
+    module/function/class body) are explicitly blanked below. Without this, a
+    pure comment or docstring reword -- e.g. the actual todo-165 commit
+    "reword post-merge-caught comment tripping causal-safety lint" -- moves the
+    hash exactly as much as a real logic change, forcing a multi-day corpus run
+    to discard and recompute everything for a edit that alters zero computed
+    output. Falls back to the raw bytes on a parse failure: that only makes the
+    hash MORE change-sensitive for that one file, never masks a real change, so
+    it's a safe direction to fail in.
+    """
+    try:
+        tree = ast.parse(source)
+    except SyntaxError:
+        return source
+    docstring_holders = (ast.Module, ast.FunctionDef, ast.AsyncFunctionDef, ast.ClassDef)
+    for node in ast.walk(tree):
+        if not isinstance(node, docstring_holders) or not node.body:
+            continue
+        first = node.body[0]
+        if (
+            isinstance(first, ast.Expr)
+            and isinstance(first.value, ast.Constant)
+            and isinstance(first.value.value, str)
+        ):
+            first.value.value = ""
+    return ast.dump(tree).encode()
+
+
 def _checkpoint_content_key() -> str:
     """Content hash of every first-party module actually imported into this process.
 
@@ -3152,6 +3320,13 @@ def _checkpoint_content_key() -> str:
     dependency set can't silently drift out of date as ic_engine's real imports
     change -- it's derived from what Python actually loaded, including the full
     transitive graph, not from a list a future edit could forget to update.
+
+    Hashes AST-normalized source (`_normalized_source_for_hash`), not raw bytes
+    (2026-07-29 rca_analysis, todo 190): comment/docstring-only edits to any of
+    the ~30 transitively-loaded first-party modules were forcing full recompute
+    of multi-day runs for changes that alter zero computed output -- confirmed
+    against a live comment-only commit landing mid-run. A real semantic change
+    still moves the hash; this only removes false positives.
     """
     repo_root = Path(__file__).resolve().parent.parent
     # Allowlist first-party source roots (Ring 0/1/2 per naming-system.md) rather
@@ -3169,7 +3344,7 @@ def _checkpoint_content_key() -> str:
             paths.add(path)
     for path in sorted(paths):
         try:
-            hasher.update(path.read_bytes())
+            hasher.update(_normalized_source_for_hash(path.read_bytes()))
         except OSError:
             continue
     # 12 hex chars (48 bits) -- generous collision margin, short enough to stay
@@ -4184,6 +4359,20 @@ def main() -> None:
             # Use get_all_features() — NOT get_active_features() — so the gate
             # passes even when features have been deprecated. The alignment gate
             # checks schema completeness, not lifecycle state.
+            #
+            # LOAD-BEARING for fingerprint safety (2026-07-29 code review, todo 190):
+            # _fingerprint_computational_key excludes feature_registry.status_hash
+            # from what invalidates a cell, on the grounds that status never changes
+            # WHAT gets computed. That's only true of status; status_hash also moves
+            # on registry MEMBERSHIP changes (a feature added/removed/renamed), which
+            # DOES change computed output. Membership drift is safe to exclude only
+            # because THIS gate forces registry membership to equal FeatureVector's
+            # fields exactly -- so any real membership change requires editing
+            # FeatureVector, a semantic AST change that moves code_content_key (which
+            # IS in the computational key) via _normalized_source_for_hash. If this
+            # gate is ever relaxed (e.g. registry-only computed features), that
+            # coupling breaks silently and _fingerprint_computational_key must be
+            # revisited to also track membership explicitly.
             # ----------------------------------------------------------
             registry_svc = FeatureRegistryService()
             registry_svc.load_sync(conn)
@@ -4344,6 +4533,19 @@ def main() -> None:
             symbols_to_compute: list[str] = []
             invalid_cells_by_symbol: dict[str, list[tuple[str, str]]] = {}
             current_fp_cache: dict[str, dict[tuple[str, str], dict[str, Any]]] = {}
+            # todo 190: a symbol with zero invalid cells but >=1 status_only_stale
+            # cell (feature_registry.status_hash moved, nothing computational did)
+            # skips the expensive compute but still needs feature_status_at_eval
+            # refreshed on its already-written rows -- see the refresh block below.
+            # symbols_status_only_stale is the skip-compute set (mutually exclusive
+            # with symbols_to_compute, used to decide fingerprint re-upsert scope);
+            # symbols_needing_status_refresh is the UPDATE scope and is a SUPERSET
+            # of it -- a symbol dispatched for an unrelated invalid cell can ALSO
+            # need a status refresh for a different, fingerprint-valid sibling cell
+            # (2026-07-29 code review regression -- see _partition_symbol_cells'
+            # docstring for why these must never be collapsed into one bucket).
+            symbols_status_only_stale: list[str] = []
+            symbols_needing_status_refresh: list[str] = []
 
             if not args.cross_sectional_only:
                 for symbol in symbols:
@@ -4351,7 +4553,7 @@ def main() -> None:
                         symbol, tfs, symbol_regime_class, group_by_name, equity_model_enabled
                     )
                     cell_fps: dict[tuple[str, str], dict[str, Any]] = {}
-                    invalid_this_symbol: list[tuple[str, str]] = []
+                    cell_classifications: dict[tuple[str, str], _FingerprintClassification] = {}
                     for tf, pass_type in expected_cells:
                         current_fp = {
                             "code_content_key": content_key,
@@ -4367,12 +4569,20 @@ def main() -> None:
                         }
                         cell_fps[(tf, pass_type)] = current_fp
                         stored = stored_fingerprints.get((symbol, tf, pass_type))
-                        if args.refresh or not _fingerprint_is_valid(stored, current_fp):
-                            invalid_this_symbol.append((tf, pass_type))
+                        cell_classifications[(tf, pass_type)] = _classify_fingerprint(
+                            stored, current_fp, force_refresh=args.refresh
+                        )
                     current_fp_cache[symbol] = cell_fps
+                    invalid_this_symbol, needs_status_refresh = _partition_symbol_cells(
+                        cell_classifications
+                    )
+                    if needs_status_refresh:
+                        symbols_needing_status_refresh.append(symbol)
                     if invalid_this_symbol:
                         symbols_to_compute.append(symbol)
                         invalid_cells_by_symbol[symbol] = invalid_this_symbol
+                    elif needs_status_refresh:
+                        symbols_status_only_stale.append(symbol)
 
             # ----------------------------------------------------------
             # Cross-sectional cell discovery + fingerprint pre-pass (only when
@@ -4426,7 +4636,16 @@ def main() -> None:
                                 ),
                             }
                             stored = stored_fingerprints.get((cs_symbol_key, tf, "cross_sectional"))
-                            valid = (not args.refresh) and _fingerprint_is_valid(stored, current_fp)
+                            # Same _classify_fingerprint call as the per-symbol loop above
+                            # (todo 190) -- the two passes cannot diverge in what counts as
+                            # valid/status_only_stale/invalid. "valid" here preserves its
+                            # pre-existing meaning exactly (skip the expensive compute):
+                            # status_only_stale cells skip compute too, same as fully-valid
+                            # ones, and are additionally flagged for the cheap metadata-only
+                            # refresh below.
+                            classification = _classify_fingerprint(
+                                stored, current_fp, force_refresh=args.refresh
+                            )
                             cs_cell_plan.append(
                                 {
                                     "group_name": group_name,
@@ -4434,7 +4653,7 @@ def main() -> None:
                                     "regime_label": regime_label,
                                     "group_symbols": group_symbols,
                                     "cs_symbol_key": cs_symbol_key,
-                                    "valid": valid,
+                                    "classification": classification,
                                     "current_fp": current_fp,
                                 }
                             )
@@ -4445,16 +4664,25 @@ def main() -> None:
             # smaller than len(symbols)+len(cs_cell_plan)).
             n_watermark_queries = 1 + len(fr_fv_cache) + len(mr_tags_cache)
             _logger.info("ic_engine.fingerprint_watermark_queries", count=n_watermark_queries)
-            n_cs_skip = sum(1 for c in cs_cell_plan if c["valid"])
+            n_cs_skip = sum(1 for c in cs_cell_plan if c["classification"] != "invalid")
+            n_cs_status_only_stale = sum(
+                1 for c in cs_cell_plan if c["classification"] == "status_only_stale"
+            )
             _logger.info(
                 "ic_engine.fingerprint_partition",
                 n_symbols=len(symbols) if not args.cross_sectional_only else 0,
                 n_symbols_skip=(
-                    (len(symbols) - len(symbols_to_compute)) if not args.cross_sectional_only else 0
+                    (len(symbols) - len(symbols_to_compute) - len(symbols_status_only_stale))
+                    if not args.cross_sectional_only
+                    else 0
+                ),
+                n_symbols_status_only_stale=(
+                    len(symbols_status_only_stale) if not args.cross_sectional_only else 0
                 ),
                 n_symbols_compute=len(symbols_to_compute),
                 n_cs_cells=len(cs_cell_plan),
-                n_cs_skip=n_cs_skip,
+                n_cs_skip=n_cs_skip - n_cs_status_only_stale,
+                n_cs_status_only_stale=n_cs_status_only_stale,
                 n_cs_compute=len(cs_cell_plan) - n_cs_skip,
             )
 
@@ -4481,6 +4709,62 @@ def main() -> None:
                                 },
                             )
                 conn.commit()
+
+            # todo 190: status-only-stale cells skip the expensive compute entirely,
+            # but their feature_status_at_eval provenance still needs refreshing to
+            # the current feature_registry snapshot. The UPDATE's scope is
+            # symbols_needing_status_refresh (NOT symbols_status_only_stale) -- a
+            # symbol dispatched for an unrelated invalid cell can still have a
+            # different, fingerprint-valid sibling cell whose rows the dispatch's
+            # ON CONFLICT DO NOTHING recompute cannot touch (see
+            # _partition_symbol_cells' docstring); only symbols_status_only_stale
+            # (the fully-skipped subset) additionally needs its fingerprint
+            # re-upserted here, since a dispatched symbol's fingerprints are already
+            # re-upserted fresh by the existing post-compute path below. Cross-
+            # sectional POOLED rows all share symbol='POOLED' regardless of
+            # regime_group/tf/regime (feature_ic_scores has no regime_group column),
+            # and feature_registry.status_hash is one global value per run, so a
+            # single refresh_symbols set -- real symbols plus 'POOLED' once if any
+            # cross-sectional cell is status_only_stale -- covers every case in one
+            # UPDATE via _FEATURE_STATUS_REFRESH_SQL's symbol = ANY(...).
+            status_only_stale_cs_cells = [
+                c for c in cs_cell_plan if c["classification"] == "status_only_stale"
+            ]
+            refresh_symbols = list(symbols_needing_status_refresh)
+            if status_only_stale_cs_cells:
+                refresh_symbols.append(_CROSS_SECTIONAL_SYMBOL)
+            if refresh_symbols:
+                with conn.cursor() as cur:
+                    cur.execute(
+                        _FEATURE_STATUS_REFRESH_SQL,
+                        {"symbols": refresh_symbols, "training_window_end": training_window_end},
+                    )
+                    n_status_rows_refreshed = cur.rowcount
+                fp_refresh_rows = [
+                    _fp_row(symbol, tf, pass_type, training_window_end, fp)
+                    for symbol in symbols_status_only_stale
+                    for (tf, pass_type), fp in current_fp_cache[symbol].items()
+                ] + [
+                    _fp_row(
+                        cell["cs_symbol_key"],
+                        cell["tf"],
+                        "cross_sectional",
+                        training_window_end,
+                        cell["current_fp"],
+                    )
+                    for cell in status_only_stale_cs_cells
+                ]
+                with conn.cursor() as cur:
+                    psycopg2.extras.execute_batch(cur, _FINGERPRINT_UPSERT_SQL, fp_refresh_rows)
+                conn.commit()
+                _logger.info(
+                    "ic_engine.feature_status_refresh",
+                    n_symbols_status_only_stale=len(symbols_status_only_stale),
+                    n_symbols_needing_status_refresh=len(symbols_needing_status_refresh),
+                    n_cs_status_only_stale=len(status_only_stale_cs_cells),
+                    n_rows_refreshed=n_status_rows_refreshed,
+                    n_fingerprints_reupserted=len(fp_refresh_rows),
+                )
 
             # ----------------------------------------------------------
             # Build worker args -- workers open their own read connections.
@@ -4634,7 +4918,7 @@ def main() -> None:
                     group_symbols = cell["group_symbols"]
                     cs_symbol_key = cell["cs_symbol_key"]
 
-                    if cell["valid"]:
+                    if cell["classification"] != "invalid":
                         _logger.info(
                             "ic_engine.cross_sectional_cell_skipped_fingerprint_valid",
                             regime_group=group_name,

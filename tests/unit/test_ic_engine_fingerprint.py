@@ -28,15 +28,21 @@ if str(_project_root) not in sys.path:
 
 from services.ic_engine import (
     _COMPUTATIONAL_CONFIG_FIELDS,
+    _FEATURE_STATUS_REFRESH_SQL,
     _FINGERPRINT_INVALIDATE_DELETE_SQL,
     _OPERATIONAL_CONFIG_FIELDS,
     ICEngineConfig,
+    _classify_fingerprint,
     _compute_apr_snapshot_key,
     _compute_cross_sectional_tf,
     _compute_one_regime_cell,
     _compute_symbol_tf,
     _compute_upstream_watermark,
+    _fingerprint_computational_key,
+    _fingerprint_is_computationally_valid,
+    _fingerprint_is_status_only_stale,
     _fingerprint_is_valid,
+    _partition_symbol_cells,
     _symbol_expected_cells,
 )
 
@@ -370,6 +376,246 @@ def test_fingerprint_invalid_on_partial_match_two_of_three():
     """A partial match (2 of 3 components equal) is a full miss, never a partial skip."""
     stored = dict(_FULL_MATCH_CURRENT, upstream_watermark={"forward_returns": {"count": 99}})
     assert _fingerprint_is_valid(stored, _FULL_MATCH_CURRENT) is False
+
+
+# ---------------------------------------------------------------------------
+# Task 4 (todo 190): status-only staleness -- a feature_registry.status_hash
+# change must never force a recompute of the expensive bootstrap-CI math.
+# Verified against the real code (main()'s registry-drift gate at the
+# get_all_features()/get_active_features() comment): ic_engine always computes
+# every feature regardless of status, so status never gates WHAT gets computed
+# -- it only feeds the feature_status_at_eval provenance column. A status-hash
+# mismatch with every other component matching must be treated as "cheap
+# metadata refresh needed", never "recompute everything".
+# ---------------------------------------------------------------------------
+
+_STATUS_MATCH_CURRENT = {
+    "code_content_key": "code123",
+    "apr_snapshot_key": "apr456",
+    "upstream_watermark": {
+        "forward_returns": {"count": 10},
+        "feature_registry": {"status_hash": "hash_now"},
+    },
+}
+
+
+def test_fingerprint_computational_key_drops_feature_registry():
+    key = _fingerprint_computational_key(_STATUS_MATCH_CURRENT)
+    assert "feature_registry" not in key["upstream_watermark"]
+    assert key["upstream_watermark"]["forward_returns"] == {"count": 10}
+
+
+def test_fingerprint_computational_key_keeps_other_watermark_components():
+    fp = dict(
+        _STATUS_MATCH_CURRENT,
+        upstream_watermark={
+            "forward_returns": {"count": 10},
+            "feature_vectors": {"count": 10},
+            "market_regimes": {"count": 5},
+            "feature_registry": {"status_hash": "hash_now"},
+        },
+    )
+    key = _fingerprint_computational_key(fp)
+    assert set(key["upstream_watermark"]) == {
+        "forward_returns",
+        "feature_vectors",
+        "market_regimes",
+    }
+
+
+def test_computationally_valid_when_only_feature_registry_status_hash_differs():
+    stored = dict(
+        _STATUS_MATCH_CURRENT,
+        upstream_watermark=dict(
+            _STATUS_MATCH_CURRENT["upstream_watermark"],
+            feature_registry={"status_hash": "hash_before"},
+        ),
+    )
+    assert _fingerprint_is_computationally_valid(stored, _STATUS_MATCH_CURRENT) is True
+
+
+def test_computationally_invalid_when_forward_returns_differs_too():
+    stored = dict(
+        _STATUS_MATCH_CURRENT,
+        upstream_watermark={
+            "forward_returns": {"count": 99},
+            "feature_registry": {"status_hash": "hash_before"},
+        },
+    )
+    assert _fingerprint_is_computationally_valid(stored, _STATUS_MATCH_CURRENT) is False
+
+
+def test_computationally_invalid_on_code_content_key_mismatch():
+    stored = dict(_STATUS_MATCH_CURRENT, code_content_key="different")
+    assert _fingerprint_is_computationally_valid(stored, _STATUS_MATCH_CURRENT) is False
+
+
+def test_computationally_invalid_on_none_stored():
+    assert _fingerprint_is_computationally_valid(None, _STATUS_MATCH_CURRENT) is False
+
+
+def test_status_only_stale_true_when_computationally_valid_but_not_fully_valid():
+    stored = dict(
+        _STATUS_MATCH_CURRENT,
+        upstream_watermark=dict(
+            _STATUS_MATCH_CURRENT["upstream_watermark"],
+            feature_registry={"status_hash": "hash_before"},
+        ),
+    )
+    assert _fingerprint_is_status_only_stale(stored, _STATUS_MATCH_CURRENT) is True
+
+
+def test_status_only_stale_false_when_fully_valid():
+    """Nothing changed at all -- true full skip, no refresh needed."""
+    stored = dict(_STATUS_MATCH_CURRENT)
+    assert _fingerprint_is_status_only_stale(stored, _STATUS_MATCH_CURRENT) is False
+
+
+def test_status_only_stale_false_when_computationally_invalid_too():
+    """A real data/code change alongside the status change is a full recompute,
+    not a status-only refresh -- the expensive path already rewrites
+    feature_status_at_eval as a side effect, so a separate refresh would be
+    redundant (and, if ordered wrong, could clobber the fresh recompute)."""
+    stored = dict(
+        _STATUS_MATCH_CURRENT,
+        upstream_watermark={
+            "forward_returns": {"count": 99},
+            "feature_registry": {"status_hash": "hash_before"},
+        },
+    )
+    assert _fingerprint_is_status_only_stale(stored, _STATUS_MATCH_CURRENT) is False
+
+
+def test_status_only_stale_false_on_none_stored():
+    """A never-before-computed cell must go through the full compute path, not
+    a metadata-only refresh of rows that don't exist yet."""
+    assert _fingerprint_is_status_only_stale(None, _STATUS_MATCH_CURRENT) is False
+
+
+def test_feature_status_refresh_sql_targets_feature_ic_scores_via_registry_join():
+    sql_upper = _FEATURE_STATUS_REFRESH_SQL.upper()
+    assert "UPDATE FEATURE_IC_SCORES" in sql_upper
+    assert "FEATURE_REGISTRY" in sql_upper
+    assert "FEATURE_STATUS_AT_EVAL" in sql_upper
+
+
+def test_feature_status_refresh_sql_is_idempotent_via_is_distinct_from():
+    """IS DISTINCT FROM (not plain !=, which is NULL-unsafe) -- a no-op refresh
+    on already-current rows must not touch them, keeping this cheap even when
+    called on a large already-fresh symbol set."""
+    assert "IS DISTINCT FROM" in _FEATURE_STATUS_REFRESH_SQL.upper()
+
+
+# ---------------------------------------------------------------------------
+# Task 4: _classify_fingerprint -- the ONE decision function shared by both the
+# per-symbol and cross-sectional prepass loops (todo 190), so the two passes
+# can never diverge in what counts as valid/stale/invalid.
+# ---------------------------------------------------------------------------
+
+_STATUS_STALE_STORED = dict(
+    _STATUS_MATCH_CURRENT,
+    upstream_watermark=dict(
+        _STATUS_MATCH_CURRENT["upstream_watermark"],
+        feature_registry={"status_hash": "hash_before"},
+    ),
+)
+_FULLY_STALE_STORED = dict(
+    _STATUS_MATCH_CURRENT,
+    upstream_watermark={
+        "forward_returns": {"count": 99},
+        "feature_registry": {"status_hash": "hash_before"},
+    },
+)
+
+
+def test_classify_fingerprint_valid_on_full_match():
+    result = _classify_fingerprint(
+        dict(_STATUS_MATCH_CURRENT), _STATUS_MATCH_CURRENT, force_refresh=False
+    )
+    assert result == "valid"
+
+
+def test_classify_fingerprint_status_only_stale_on_status_hash_mismatch_alone():
+    result = _classify_fingerprint(_STATUS_STALE_STORED, _STATUS_MATCH_CURRENT, force_refresh=False)
+    assert result == "status_only_stale"
+
+
+def test_classify_fingerprint_invalid_on_computational_mismatch():
+    result = _classify_fingerprint(_FULLY_STALE_STORED, _STATUS_MATCH_CURRENT, force_refresh=False)
+    assert result == "invalid"
+
+
+def test_classify_fingerprint_invalid_on_no_stored():
+    result = _classify_fingerprint(None, _STATUS_MATCH_CURRENT, force_refresh=False)
+    assert result == "invalid"
+
+
+def test_classify_fingerprint_force_refresh_overrides_full_match_to_invalid():
+    """--refresh means redo everything, including cells that are fully valid --
+    matches the pre-existing args.refresh semantics, not a status-only refresh."""
+    result = _classify_fingerprint(
+        dict(_STATUS_MATCH_CURRENT), _STATUS_MATCH_CURRENT, force_refresh=True
+    )
+    assert result == "invalid"
+
+
+def test_classify_fingerprint_force_refresh_overrides_status_only_stale_to_invalid():
+    result = _classify_fingerprint(_STATUS_STALE_STORED, _STATUS_MATCH_CURRENT, force_refresh=True)
+    assert result == "invalid"
+
+
+# ---------------------------------------------------------------------------
+# Task 4: _partition_symbol_cells -- aggregates one symbol's per-cell
+# _classify_fingerprint results into (invalid_cells, needs_status_refresh) as
+# TWO INDEPENDENT values (2026-07-29 code review regression, todo 190).
+#
+# The bug this guards against: the original wiring used a single elif to
+# bucket a symbol as EITHER dispatched (has an invalid cell) OR needing a
+# status refresh (no invalid cell, but a status_only_stale one) -- never
+# both. A symbol with an invalid cell in one (tf, pass_type) AND a
+# status_only_stale cell in a DIFFERENT (tf, pass_type) got dispatched (for
+# the invalid cell) but its status_only_stale sibling was silently never
+# refreshed: the dispatched worker's redundant recompute of that
+# fingerprint-valid sibling hits feature_ic_scores' ON CONFLICT ... DO
+# NOTHING (T-162-03-06), discarding the fresh feature_status_at_eval, while
+# the post-compute fingerprint upsert (which covers ALL of a dispatched
+# symbol's cells, unconditionally) stamps that cell's fingerprint fresh
+# anyway -- permanent, silent status drift, never detected on any future run.
+# ---------------------------------------------------------------------------
+
+
+def test_partition_symbol_cells_all_valid_no_dispatch_no_refresh():
+    result = _partition_symbol_cells({("5m", "pooled"): "valid"})
+    assert result == ([], False)
+
+
+def test_partition_symbol_cells_invalid_only_dispatches_no_refresh_from_that_cell():
+    result = _partition_symbol_cells({("5m", "pooled"): "invalid"})
+    assert result == ([("5m", "pooled")], False)
+
+
+def test_partition_symbol_cells_status_only_stale_only_no_dispatch_needs_refresh():
+    result = _partition_symbol_cells({("1d", "pooled"): "status_only_stale"})
+    assert result == ([], True)
+
+
+def test_partition_symbol_cells_mixed_invalid_and_status_only_stale_dispatches_and_refreshes():
+    """The exact regression case: an invalid cell in one (tf, pass_type) and a
+    status_only_stale cell in another must produce BOTH a dispatch (for the
+    invalid cell) AND needs_status_refresh=True (for the sibling) -- never
+    collapsed into an either/or bucket."""
+    result = _partition_symbol_cells(
+        {("5m", "pooled"): "invalid", ("1d", "pooled"): "status_only_stale"}
+    )
+    assert result == ([("5m", "pooled")], True)
+
+
+def test_partition_symbol_cells_multiple_invalid_cells_all_collected():
+    result = _partition_symbol_cells(
+        {("5m", "pooled"): "invalid", ("1d", "pooled"): "invalid", ("1h", "pooled"): "valid"}
+    )
+    assert set(result[0]) == {("5m", "pooled"), ("1d", "pooled")}
+    assert result[1] is False
 
 
 # ---------------------------------------------------------------------------

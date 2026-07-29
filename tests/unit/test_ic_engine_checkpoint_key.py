@@ -4,9 +4,12 @@ _checkpoint_content_key replaced a git-HEAD-short key (2026-07-15) -- HEAD
 invalidates on any commit landing anywhere in the repo, which silently discarded
 ~31h of a real corpus run's checkpoints when an unrelated branch merge shifted
 HEAD's hash. The content key must (1) change when a file actually imported by
-ic_engine changes, and (2) stay stable when unrelated repo files (including
-anything outside the src/ and services/ first-party roots -- venvs, tests,
-docs) change.
+ic_engine changes SEMANTICALLY, (2) stay stable across a comment/docstring-only
+edit to an imported file (2026-07-29 rca_analysis, todo 190 -- raw-byte hashing
+was found forcing full recompute of multi-day runs on a live comment-only
+commit that altered zero computed output), and (3) stay stable when unrelated
+repo files (including anything outside the src/ and services/ first-party
+roots -- venvs, tests, docs) change.
 
 No DB, no subprocess. Pure Python inspection of sys.modules.
 """
@@ -30,13 +33,15 @@ def test_content_key_is_deterministic_for_unchanged_modules() -> None:
     assert first == second
 
 
-def test_content_key_changes_when_a_first_party_module_changes(monkeypatch) -> None:
+def test_content_key_changes_when_a_first_party_module_changes_semantically(
+    monkeypatch,
+) -> None:
     # Simulate a real edit to a module ic_engine has imported: mutate the file
     # backing an already-loaded first-party module, then re-derive the key.
     # Must live under services/ or src/ -- the function only hashes those roots.
     fake_module_path = _project_root / "services" / "_fake_checkpoint_dep.py"
     try:
-        fake_module_path.write_bytes(b"# marker A\n")
+        fake_module_path.write_bytes(b"x = 1\n")
         before = _checkpoint_content_key()
 
         monkeypatch.setitem(
@@ -47,9 +52,35 @@ def test_content_key_changes_when_a_first_party_module_changes(monkeypatch) -> N
         after_add = _checkpoint_content_key()
         assert after_add != before
 
-        fake_module_path.write_bytes(b"# marker B\n")
+        fake_module_path.write_bytes(b"x = 2\n")
         after_edit = _checkpoint_content_key()
         assert after_edit != after_add
+    finally:
+        fake_module_path.unlink(missing_ok=True)
+
+
+def test_content_key_ignores_comment_and_docstring_only_edits(monkeypatch) -> None:
+    # The exact failure mode found live 2026-07-29: a "reword comment" commit
+    # (services/ic_engine.py history has one -- ca4ef569) must NOT force a full
+    # corpus recompute, since it changes zero computed output.
+    fake_module_path = _project_root / "services" / "_fake_checkpoint_dep2.py"
+    try:
+        fake_module_path.write_bytes(
+            b'def foo(x):\n    """original docstring."""\n    # a comment\n    return x + 1\n'
+        )
+        monkeypatch.setitem(
+            sys.modules,
+            "services._fake_checkpoint_dep2",
+            types.SimpleNamespace(__file__=str(fake_module_path)),
+        )
+        before = _checkpoint_content_key()
+
+        fake_module_path.write_bytes(
+            b'def foo(x):\n    """a totally reworded, longer docstring."""\n'
+            b"    # a completely different comment\n    return x + 1\n"
+        )
+        after = _checkpoint_content_key()
+        assert after == before
     finally:
         fake_module_path.unlink(missing_ok=True)
 
