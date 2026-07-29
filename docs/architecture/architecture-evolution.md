@@ -64,11 +64,11 @@ Consolidated I1-I7 into a single in-process agent:
 
 | Service | File | Systemd Unit | Metrics Port | Purpose |
 |---------|------|--------------|--------------|---------|
-| IBKR Provider | `ibkr_provider_agent.py` | `indicagent-ibkr-provider` | :9129 | IBKR dual streams (5s RTB + 1m aggregation) |
-| Provider Merger | `provider_merger_agent.py` | `indicagent-provider-merger` | :9130 | Routes `market.bars.raw.*` → `market.bars` |
-| Bar Aggregator | `bar_aggregator_agent.py` | `indicagent-bar-aggregator-compute` | :9120 | 1m → HTF (5m-1d) aggregation |
-| Bar Writer | `bar_writer_agent.py` | `indicagent-bar-writer` | :9121 | Writes `market_data_ohlcv` (batch) |
-| Bar Auditor | `bar_auditor_agent.py` | `indicagent-bar-auditor` | :9123 | Gap detection → `market.events.gap_requests` |
+| IBKR Provider | `ibkr_provider.py` | `indicagent-ibkr-provider` | :9129 | IBKR dual streams (5s RTB + 1m aggregation) |
+| Provider Merger | `provider_merger.py` | `indicagent-provider-merger` | :9130 | Routes `market.bars.raw.*` → `market.bars` |
+| Bar Aggregator | `bar_aggregator.py` | `indicagent-bar-aggregator-compute` | :9120 | 1m → HTF (5m-1d) aggregation |
+| Bar Writer | `bar_writer.py` | `indicagent-bar-writer` | :9121 | Writes `market_data_ohlcv` (batch) |
+| Bar Auditor | `bar_auditor.py` | `indicagent-bar-auditor` | :9123 | Gap detection → `market.events.gap_requests` |
 | Roll Batch | `scripts/ops/roll/ops_roll_batch.py` | `indicagent-roll-batch` (timer, 8pm) | — | Calendar-based futures roll detection + front-month promotion |
 | Intelligence Pipeline | `intelligence_pipeline_agent.py` | `indicagent-intelligence-pipeline` | :9125 | I1-I7 unified, in-process |
 | Signal Writer | `signal_writer_agent.py` | `indicagent-signal-writer` | :9119 | Writes `signal_ledger` (batch) |
@@ -84,7 +84,7 @@ Consolidated I1-I7 into a single in-process agent:
 | LLM Writer | `llm_writer_service.py` | `indicagent-llm-writer` | :9117 | Writes `llm_calls` + outcome back-fill |
 | AI Narrative | `narrative_group_compute_agent.py` | `indicagent-ai-narrative` | :9113 | I8 LLM analysis |
 | Cross Asset | `cross_asset_service.py` | `indicagent-cross-asset` | :9118 | Cross-asset spread dynamics |
-| Service Auditor | `service_auditor_agent.py` | `indicagent-service-auditor` | :9131 | Pipeline health monitor and self-healer |
+| Service Auditor | `service_auditor.py` | `indicagent-service-auditor` | :9131 | Pipeline health monitor and self-healer |
 | Alpha Swarm | `alpha_swarm_agent.py` | `indicagent-alpha-swarm` | — | Runs alpha agents on I7 signals; emits signal lineage |
 | Lineage Writer | `lineage_writer_agent.py` | `indicagent-lineage-writer` | — | Persists signal-affecting lineage to `signal_lineage` |
 | ML Data Quality | `ml_data_quality_agent.py` | `indicagent-ml-data-quality` (timer) | — | Audits `intelligence_features` for training data quality |
@@ -204,13 +204,13 @@ Consolidated I1-I7 into a single in-process agent:
 
 | Role | Class | Base | File |
 |------|-------|------|------|
-| Provider | `IBKRProvider` | `BaseProvider` | `services/ibkr_provider_agent.py` |
-| Merger | `ProviderMerger` | `BaseAgent` | `services/provider_merger_agent.py` |
+| Provider | `IBKRProvider` | `BaseProvider` | `services/ibkr_provider.py` |
+| Merger | `ProviderMerger` | `BaseAgent` | `services/provider_merger.py` |
 | Compute | `IntelligencePipeline` | `BaseAgent` | `services/intelligence_pipeline_agent.py` |
-| Compute | `BarAggregator` | `BaseAgent` | `services/bar_aggregator_agent.py` |
-| Auditor | `BarAuditor` | `BaseAgent` | `services/bar_auditor_agent.py` |
+| Compute | `BarAggregator` | `BaseAgent` | `services/bar_aggregator.py` |
+| Auditor | `BarAuditor` | `BaseAgent` | `services/bar_auditor.py` |
 | Auditor | `ParityAuditor` | `BaseAgent` | `services/parity_auditor_agent.py` |
-| Writer | `BarWriter` | `BaseAgent` | `services/bar_writer_agent.py` |
+| Writer | `BarWriter` | `BaseAgent` | `services/bar_writer.py` |
 | Writer | `FeatureWriter` | `BaseAgent` | `services/feature_writer_agent.py` |
 | Writer | `SignalWriter` | `BaseAgent` | `services/signal_writer_agent.py` |
 | Tracker | `SignalTracker` | `BaseAgent` | `services/signal_tracker_compute_agent.py` |

@@ -116,7 +116,7 @@ PERSISTENCE_BATCH_LATENCY.record((time.monotonic() - t0) * 1000, {"agent_id": se
 
 ### `PERSISTENCE_CONSUMER_LAG`
 
-`BaseWriter` overrides `_report_consumer_lag()` to report `len(self._buffer)` as the lag gauge. This runs every 15 seconds as a background task. The service auditor reads this metric (via `_AGENT_ID_TO_UNIT` in `service_auditor_agent.py`) to detect stalled writers and trigger restarts.
+`BaseWriter` overrides `_report_consumer_lag()` to report `len(self._buffer)` as the lag gauge. This runs every 15 seconds as a background task. The service auditor reads this metric (via `_AGENT_ID_TO_UNIT` in `service_auditor.py`) to detect stalled writers and trigger restarts.
 
 ### Per-Writer Metrics (automatic)
 

@@ -28,7 +28,7 @@ Resilience is layered: detect failure early (watchdogs), isolate it (circuit bre
 
 **DLQ:** `BaseWriter._parse_payload` returns `None` (route whole payload to DLQ) or `[]` (valid parse, no signals — do not DLQ). Every DLQ event increments `agent_dlq_total`. DLQ messages are quarantined for investigation, not silently dropped.
 
-**Service Auditor (`ServiceAuditor`):** Monitors all services via systemd unit state. `_DAG_ORDER` in `services/service_auditor_agent.py` defines restart sequence — services earlier in the DAG restart before services that depend on them. `_LAG_THRESHOLDS` defines consumer lag thresholds per service.
+**Service Auditor (`ServiceAuditor`):** Monitors all services via systemd unit state. `_DAG_ORDER` in `services/service_auditor.py` defines restart sequence — services earlier in the DAG restart before services that depend on them. `_LAG_THRESHOLDS` defines consumer lag thresholds per service.
 
 **Parity Auditor:** `ParityAuditor` certifies feature writes after 60 consecutive clean parity cycles. If parity fails, the auditor flags the write path for investigation before corruption compounds.
 
@@ -36,7 +36,7 @@ Resilience is layered: detect failure early (watchdogs), isolate it (circuit bre
 
 - Every daemon service must emit `WATCHDOG=1` on each processed message — inherited from `BaseAgent`.
 - `_parse_payload` returning `None` routes the whole payload to DLQ. Return `[]` for valid-but-empty to prevent double-DLQ.
-- The `_DAG_ORDER` in `service_auditor_agent.py` is the single source of truth for restart order — never maintain a parallel list.
+- The `_DAG_ORDER` in `service_auditor.py` is the single source of truth for restart order — never maintain a parallel list.
 - Circuit breaker `OPEN→HALF_OPEN` recovery only fires inside `call()` — manual tracking requires explicit `allow_request()` calls.
 
 ## Recipe

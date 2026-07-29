@@ -60,6 +60,38 @@ one-size-fits-all helper would have silently broken. Better to migrate the one g
 and document why the other two don't fit than to force a bad abstraction for the sake of
 closing the todo completely.
 
+## CLOSED 2026-07-29 -- the remaining item was already resolved, no further action needed
+
+Re-checked `ic_engine.py`'s own local `_short_lived_conn(settings)` (deferred above pending
+todo 183's recompute, which has since completed) with fresh eyes rather than assuming the old
+framing still applied:
+
+- **The 3 dsn-based worker connections this todo originally targeted are already migrated.**
+  `grep -n "short_lived_conn(dsn)"` in `services/ic_engine.py` shows all 3 sites
+  (`_compute_symbol_tf` x2 at lines 2100/2314, `_compute_cross_sectional_tf` x1 at line 2973)
+  already use the shared `short_lived_conn(dsn)` from `services/_batch_utils.py` (imported at
+  line 91) -- confirmed zero remaining hand-rolled `psycopg2.connect(dsn)` call sites in the
+  file. This must have landed as a side effect of other work between this todo's last update
+  and now; the file's own docstring for `short_lived_conn` (in `_batch_utils.py`) already names
+  these exact 3 sites as what it replaced.
+- **`_short_lived_conn(settings)` (the Settings-based main-process helper) has nothing left to
+  migrate TO.** Its body (`services/ic_engine.py:402-418`) already delegates to the shared
+  `connect_db_from_url` via the one-line `_connect_db(settings)` wrapper -- there's no
+  hand-rolled `psycopg2.connect` underneath it. A dedicated Settings-based shared
+  context-manager (`short_lived_conn_from_settings`) was already tried once during this same
+  todo's `cross_sectional_regime_model.py` migration and explicitly deleted after landing with
+  zero callers (see the /simplify correction note above) -- re-verified 2026-07-29 via
+  `grep -rn "short_lived_conn_from_settings"` returning nothing repo-wide. Building it again for
+  ic_engine.py alone would repeat the same premature-abstraction mistake that pass already
+  caught once.
+
+All four originally-identified duplication sites are now accounted for: 1 migrated
+(`cross_sectional_regime_model.py`), 1 confirmed dead (`equity_regime_model.py`), 2 confirmed
+deliberately distinct with real incident-motivated configs (`regime_writer.py`,
+`backfill_feature_factory.py`), and `ic_engine.py`'s own connections (both the dsn-based worker
+side and the Settings-based main-process side) are already on shared helpers. Nothing left in
+this todo's scope. Moved to `completed/`.
+
 # `ic_engine.py`'s 3 dsn-based worker connections still hand-rolled — extract a shared helper
 
 ## Problem (narrowed 2026-07-17 — main()-side half already fixed)

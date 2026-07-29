@@ -163,7 +163,7 @@ Phase 147 (I7 due diligence) -- cheap, gates nothing.
 Full P2/P3 todo backlog: `.planning/todos/PRIORITIES.md`. Idea-level scoring:
 `docs/research/intelligence-lifecycle-backlog-matrix.md`.
 
-**Execution plan:** `docs/plans/2026-06-30-alphaengine-v1-execution-plan.md`
+**Execution plan:** `docs/plans/archive/2026-06-30-alphaengine-v1-execution-plan.md`
 
 ## v3.0 Phase Summary (SHIPPED 2026-06-25)
 

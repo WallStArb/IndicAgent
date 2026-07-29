@@ -289,11 +289,11 @@ All topic strings constructed via `src/core/stream_keys.py` — never hardcoded.
 
 | File | Class | Unit | Port |
 |------|-------|------|------|
-| `services/ibkr_provider_agent.py` | `IBKRProvider` | `indicagent-ibkr-provider` | :9129 |
-| `services/provider_merger_agent.py` | `ProviderMerger` | `indicagent-provider-merger` | :9130 |
-| `services/bar_aggregator_agent.py` | `BarAggregator` | `indicagent-bar-aggregator-compute` | :9120 |
-| `services/bar_writer_agent.py` | `BarWriter` | `indicagent-bar-writer` | :9121 |
-| `services/bar_auditor_agent.py` | `BarAuditor` | `indicagent-bar-auditor` | :9123 |
+| `services/ibkr_provider.py` | `IBKRProvider` | `indicagent-ibkr-provider` | :9129 |
+| `services/provider_merger.py` | `ProviderMerger` | `indicagent-provider-merger` | :9130 |
+| `services/bar_aggregator.py` | `BarAggregator` | `indicagent-bar-aggregator-compute` | :9120 |
+| `services/bar_writer.py` | `BarWriter` | `indicagent-bar-writer` | :9121 |
+| `services/bar_auditor.py` | `BarAuditor` | `indicagent-bar-auditor` | :9123 |
 | `scripts/ops/roll/ops_roll_batch.py` | roll-batch timer | `indicagent-roll-batch` (timer, 8pm) | — |
 
 **Intelligence layer:**
@@ -319,7 +319,7 @@ All topic strings constructed via `src/core/stream_keys.py` — never hardcoded.
 | `services/parity_auditor_agent.py` | `ParityAuditor` | `indicagent-parity-auditor` | :9133 |
 | `services/signal_auditor_agent.py` | `SignalAuditor` | `indicagent-signal-auditor` | :9128 |
 | `services/signal_replay_auditor_agent.py` | `SignalReplayAuditor` | `indicagent-signal-replay` | — |
-| `services/service_auditor_agent.py` | `ServiceAuditor` | `indicagent-service-auditor` | :9131 |
+| `services/service_auditor.py` | `ServiceAuditor` | `indicagent-service-auditor` | :9131 |
 
 **ML layer (timer-triggered):**
 

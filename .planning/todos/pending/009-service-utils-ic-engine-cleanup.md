@@ -50,13 +50,12 @@ issues — all are DRY / APR-compliance / altitude improvements. Group into one 
 
 ---
 
-## Part A — APR Services Sweep (~5 constants in `services/`, verified 2026-07-12)
+## Part A — APR Services Sweep (~4 constants in `services/`, verified 2026-07-29)
 
-| File | Constant | Value | APR key | Status (2026-07-12) |
+| File | Constant | Value | APR key | Status (2026-07-29) |
 |---|---|---|---|---|
 | `services/backfill_feature_factory.py` | `_INSERT_BATCH_SIZE = 500` | 500 | `infra.backfill.insert_batch_size` | still hardcoded, confirmed live |
 | `services/forward_return_writer.py` | `_INSERT_BATCH_SIZE_DEFAULT = 500` | 500 | `infra.forward_return_writer.insert_batch_size` | partially migrated — an `alpha.ic.insert_batch_size` cfg read exists near line 475, but the module constant is still the hardcoded fallback/default param elsewhere; verify scope before assuming this is fully done |
-| `services/regime_writer.py` | `_UPDATE_BATCH_SIZE = 500` | 500 | `infra.regime_writer.update_batch_size` | still hardcoded, confirmed live |
 | `services/regime_writer.py` | `_MIN_OBS_FACTOR = 50` | 50 | `alpha.hmm.min_obs_factor` | still hardcoded, confirmed live |
 | `services/signal_auditor.py` | `_AUDIT_INTERVAL = 300` | 300 | `infra.signal_auditor.audit_interval_seconds` | still hardcoded, confirmed live |
 
@@ -64,6 +63,11 @@ issues — all are DRY / APR-compliance / altitude improvements. Group into one 
 `_OUTPUT_QUEUE_MAXSIZE`, no longer applies — that file doesn't exist anymore (v2.x pipeline,
 archived; CLAUDE.md confirms `indicagent-intelligence-pipeline.service` is `failed` with
 `ExecStart` pointing at a deleted file).
+
+**Dropped 2026-07-29:** `services/regime_writer.py`'s `_UPDATE_BATCH_SIZE = 500` row no longer
+applies — `grep` confirms this constant no longer exists in `regime_writer.py`; the update path
+was rewritten to use `bulk_update_by_key` (COPY + JOIN-UPDATE, `services/_batch_utils.py`),
+which has no batch-size concept to migrate to APR.
 
 Each migration: INSERT into `config_schema` + `config_state`, remove module constant,
 load via `ConfigService.get()` at init. Description must include `[initial_estimate]`.
@@ -73,10 +77,10 @@ load via `ConfigService.get()` at init. Description must include `[initial_estim
 
 ## Part B — Promote 4 Batch Scripts to BaseBatch + Systemd (verified 2026-07-12: none done)
 
-The v3.0 AlphaEngine DAG has 6 nodes. Two (`EnsembleBuilder`, `AlphaEmitter`) are
-proper `BaseBatch` services. Four are procedural scripts with no class, no systemd unit,
-and no OTel coverage — confirmed still true 2026-07-12 (`grep "class.*BaseBatch"` across all
-four target files returns nothing). Promote all four:
+The v3.0 AlphaEngine DAG has 6 nodes. Two are proper `BaseBatch` services (already correctly
+named `EnsembleTrainer` / `AlphaPublisher` — see dropped rename rows below). Four are procedural
+scripts with no class, no systemd unit, and no OTel coverage — confirmed still true 2026-07-12
+(`grep "class.*BaseBatch"` across all four target files returns nothing). Promote all four:
 
 | Current file | Correct class name | Rationale |
 |---|---|---|
@@ -90,15 +94,13 @@ unit under `production/systemd/`, D-06 `job_completed_total{job, status}` at exi
 registration in `_DAG_ORDER` and `_AGENT_ID_TO_UNIT` in `service_auditor.py`,
 `setup_service_logging()` call.
 
-**Also fix non-canonical suffixes on existing BaseBatch services:**
-
-| Current | Correct | File rename |
-|---|---|---|
-| `EnsembleBuilder` | `EnsembleOptimizer` | `services/ensemble_builder.py` → `services/ensemble_optimizer.py` |
-| `AlphaEmitter` | `AlphaPublisher` | `services/alpha_emitter.py` → `services/alpha_publisher.py` |
-
-File renames require: systemd unit rename, `_DAG_ORDER` / `_AGENT_ID_TO_UNIT` update,
-test sweep (`grep -r "EnsembleBuilder\|AlphaEmitter" tests/`).
+**Dropped 2026-07-29 — both already done, and one target name was wrong:**
+`AlphaEmitter` → `AlphaPublisher`: already shipped (`services/alpha_publisher.py` has
+`class AlphaPublisher(BaseBatch)`, registered in `service_auditor.py`'s `_DAG_ORDER`).
+`EnsembleBuilder` → `EnsembleOptimizer`: moot as originally written — `EnsembleBuilder` no
+longer exists anywhere in the codebase; the live class took a different final name,
+`EnsembleTrainer` (`services/ensemble_trainer.py`, `indicagent-ensemble-trainer` unit), not
+`EnsembleOptimizer`. Nothing left to rename.
 
 **Gate:** 004 Issue 6 (`compute()` unification) complete — confirms batch and live paths unified before renaming the classes. Issues 1-5 already done (Phase 139).
 

@@ -390,7 +390,7 @@ git commit -m "feat(migrations): ETF universe expansion 58→79 — new tags, re
 
 ## Task 0b: Migration 190 — CWB (Convertible Bond) Addition
 
-**STATUS: PENDING.** CWB was added after migration 188 already ran; 189 is reserved by `docs/plans/2026-07-01-cross-sectional-regime-model.md` (`189_regime_group.sql`), so this is a standalone follow-up migration.
+**STATUS: COMPLETE** (2026-07-29 status check: `instruments` table has a live CWB row — migration 190 applied). CWB was added after migration 188 already ran; 189 was reserved by `docs/plans/2026-07-01-cross-sectional-regime-model.md` (`189_regime_group.sql`), so this was a standalone follow-up migration.
 
 **Files:**
 - Create: `production/migrations/190_etf_expansion_cwb.sql`

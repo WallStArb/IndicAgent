@@ -420,7 +420,6 @@ async def test_base_agent_tracks_setup_failure() -> None:
 
 
 @pytest.mark.asyncio
-@pytest.mark.skip(reason="Task 4: topic_alert_requests not yet added to stream_keys.py")
 async def test_base_agent_send_alert_publishes_to_kafka() -> None:
     """BaseDaemon._send_alert() publishes to alert.requests topic via Kafka producer."""
 
@@ -428,30 +427,28 @@ async def test_base_agent_send_alert_publishes_to_kafka() -> None:
         async def _run(self) -> None:
             self._stop_event.set()
 
-    # Mock topic_alert_requests at import point in base.py (Task 4 will add it to stream_keys.py)
-    with patch("src.core.agent.base.topic_alert_requests", return_value="test.alert.requests"):
-        with patch("src.core.agent.base.BaseDaemon._register_signal_handlers"):
-            a = AlertAgent(name="alert_test")
-            # Mock the producer with an async method
-            from unittest.mock import AsyncMock
+    with patch("src.core.agent.base.BaseDaemon._register_signal_handlers"):
+        a = AlertAgent(name="alert_test")
+        # Mock the producer with an async method
+        from unittest.mock import AsyncMock
 
-            mock_producer = AsyncMock()
-            a._producer = mock_producer
-            # Mock settings for env_name
-            a._settings = MagicMock()
-            a._settings.env_name = "test"
-            # Call _send_alert
-            await a._send_alert("CRITICAL", "test alert", context={"symbol": "ES"})
-            # Verify producer.publish was called
-            mock_producer.produce.assert_called_once()
-            call_args = mock_producer.produce.call_args
-            assert "alert.requests" in call_args[0][0]  # topic contains alert.requests
-            payload = call_args[0][1]
-            assert payload["severity"] == "CRITICAL"
-            assert payload["message"] == "test alert"
-            assert payload["source"] == "alert_test"
-            assert "timestamp" in payload
-            assert payload["symbol"] == "ES"
+        mock_producer = AsyncMock()
+        a._producer = mock_producer
+        # settings.env_name drives the topic key (real topic_alert_requests() runs unmocked)
+        a.settings = MagicMock()
+        a.settings.env_name = "test"
+        # Call _send_alert
+        await a._send_alert("CRITICAL", "test alert", context={"symbol": "ES"})
+        # Verify producer.publish was called
+        mock_producer.publish.assert_called_once()
+        call_args = mock_producer.publish.call_args
+        assert "alert.requests" in call_args[0][0]  # topic contains alert.requests
+        payload = call_args[0][1]
+        assert payload["severity"] == "CRITICAL"
+        assert payload["message"] == "test alert"
+        assert payload["source"] == "alert_test"
+        assert "timestamp" in payload
+        assert payload["symbol"] == "ES"
 
 
 @pytest.mark.asyncio

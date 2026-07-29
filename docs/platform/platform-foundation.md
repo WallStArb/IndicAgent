@@ -62,7 +62,7 @@ All 14 Docker containers use `restart: unless-stopped` (or `restart: always` for
 
 ### L1-L10 Service DAG
 
-Services are organized in dependency layers. Higher layers depend on lower layers. The canonical registry is `_DAG_ORDER` in `services/service_auditor_agent.py`.
+Services are organized in dependency layers. Higher layers depend on lower layers. The canonical registry is `_DAG_ORDER` in `services/service_auditor.py`.
 
 ```
 L1  ibkr-provider, bar-replay            — data ingestion + bar replay
@@ -211,7 +211,7 @@ Full infrastructure reference: `docs/operations/operations-infrastructure.md`.
    WantedBy=multi-user.target
    ```
 3. Install and enable: `sudo cp production/systemd/indicagent-<name>.service /etc/systemd/system/ && sudo systemctl daemon-reload && sudo systemctl enable --now indicagent-<name>.service`
-4. Add to `_DAG_ORDER` in `services/service_auditor_agent.py`.
+4. Add to `_DAG_ORDER` in `services/service_auditor.py`.
 5. Add OTel signals — see Phase 108 SOP in `docs/platform/platform-observability.md`.
 
 **Mandatory unit file fields:** `Type=notify`, `WatchdogSec=60`, `NotifyAccess=main`. Without these, watchdog heartbeating is broken and `watchdog_notify_suppressed_total` increments.

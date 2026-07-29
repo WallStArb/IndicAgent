@@ -12,16 +12,16 @@ All services extend `BaseAgent` (`src/core/agent/base.py`). For role taxonomy an
 
 | Service | Unit | File | Role | Publishes To |
 |---------|------|------|------|-------------|
-| IBKR Provider | `indicagent-ibkr-provider` | `ibkr_provider_agent.py` | Provider | `market.bars.raw.ibkr` |
-| Provider Merger | `indicagent-provider-merger` | `provider_merger_agent.py` | Merger | `market.bars` |
+| IBKR Provider | `indicagent-ibkr-provider` | `ibkr_provider.py` | Provider | `market.bars.raw.ibkr` |
+| Provider Merger | `indicagent-provider-merger` | `provider_merger.py` | Merger | `market.bars` |
 
 ## Bar Processing Tier
 
 | Service | Unit | File | Role | Publishes To |
 |---------|------|------|------|-------------|
-| Bar Aggregator | `indicagent-bar-aggregator` | `bar_aggregator_agent.py` | Service | `market.bars.htf` |
-| Bar Writer | `indicagent-bar-writer` | `bar_writer_agent.py` | Writer | `market_data_ohlcv` (DB) |
-| Bar Auditor | `indicagent-bar-auditor` | `bar_auditor_agent.py` | Auditor | `market.events.gap_requests` |
+| Bar Aggregator | `indicagent-bar-aggregator` | `bar_aggregator.py` | Service | `market.bars.htf` |
+| Bar Writer | `indicagent-bar-writer` | `bar_writer.py` | Writer | `market_data_ohlcv` (DB) |
+| Bar Auditor | `indicagent-bar-auditor` | `bar_auditor.py` | Auditor | `market.events.gap_requests` |
 
 > **Roll detection:** `indicagent-roll-compute` and `indicagent-contract-metadata-writer` daemons have been replaced by the nightly `indicagent-roll-batch` systemd timer (runs at 8pm via `scripts/ops/roll/ops_roll_batch.py`). `inactive (dead)` between runs is correct — do not treat as failure. Monitor: `systemctl list-timers --all | grep roll-batch`.
 
@@ -58,7 +58,7 @@ Runs I1→I7 entirely in-process (132 plugins). DB-ignorant. See `docs/architect
 | Signal Replay | `indicagent-signal-replay` | `signal_replay_agent.py` | Auditor | Replay-based TTL evaluation (batch size: `REPLAY_BATCH_SIZE` default 100, interval: `REPLAY_INTERVAL_SECONDS` default 300s) |
 | Parity Auditor | `indicagent-parity-auditor` | `parity_auditor_agent.py` | Auditor | 5-min parity comparison; certifies after 60 clean cycles |
 | Feature Snapshot Writer | `indicagent-feature-snapshot-writer` | `feature_snapshot_writer_agent.py` | Writer | Shadow dual-write |
-| Service Auditor | `indicagent-service-auditor` | `service_auditor_agent.py` | Auditor | Pipeline health monitor and self-healer |
+| Service Auditor | `indicagent-service-auditor` | `service_auditor.py` | Auditor | Pipeline health monitor and self-healer |
 
 ## ML Tier (Timer-Based)
 

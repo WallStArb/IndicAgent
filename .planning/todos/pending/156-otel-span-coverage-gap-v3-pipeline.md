@@ -61,6 +61,33 @@ Medium -- no new infrastructure needed (propagation already works, `observed_spa
 already exists and is proven in 6 files); the work is applying the existing pattern to the
 missing call sites, plus the base-class design decision in step 2 above.
 
+## Step 1 done 2026-07-29
+
+Wrapped `ensemble_trainer.py`'s and `alpha_publisher.py`'s top-level `execute()` in
+`observed_span("ensemble_trainer.execute", ...)` / `observed_span("alpha_publisher.execute", ...)`
+(the async `src/observability/spans.py` variant -- both are asyncpg-based `BaseBatch`
+subclasses, not the sync psycopg2 pattern `ic_engine.py`/`forward_return_writer.py` use for
+their `ProcessPoolExecutor` workers). Both already call `init_otel_providers(...)` in `main()`
+before `.run()` invokes `execute()`, so `observed_span`'s default tracer resolution
+(`trace.get_tracer("indicagent")`, used when no explicit `tracer=` is passed -- `BaseBatch`
+has no `self.tracer` attribute unlike `BaseDaemon`) picks up the real configured provider, not
+a no-op. `weight_version_override` attached as a span attribute on both (empty string when
+unset, matching this project's existing null-safety convention for OTel attributes). Both spans
+wrap the whole `_execute_inner` call including the existing manifest-error-recording try/except,
+so a mid-run exception still gets recorded on the span (via `observed_span`'s own
+`record_exception`/ERROR-status handling) in addition to the manifest write. No new span-testing
+infrastructure added -- none of the 6 already-instrumented files (`feature_vector_pipeline.py`,
+`feature_vector_writer.py`, `forward_return_writer.py`, `ic_engine.py`, `llm_writer.py`,
+`context_writer.py`) have one either; consistent with the existing pattern, not a gap unique to
+this change. Full `tests/unit/` suite green.
+
+**Steps 2 and 3 still open** — the base-class default-span-wrapping design decision (should
+`BaseDaemon`/`BaseWriter`/`BaseBatch` auto-wrap their main per-cycle/per-batch method the same
+way the 5 mandatory metrics signals are automatic?) and the broader remaining-services audit
+(gap detection's `_run_audit`, `ml_*` batch services, `bar_auditor.py`'s price-sanity task,
+etc.) are real, separate scoping questions, not mechanical follow-through from step 1 — kept
+open rather than attempted in the same pass.
+
 ## References
 
 - `src/observability/spans.py` -- `observed_span()`, the existing pattern to reuse

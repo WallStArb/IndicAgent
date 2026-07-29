@@ -64,7 +64,7 @@ ContFuture (`continuous=True`) hangs on multi-year requests — use named contra
 - **Async mock gotcha**: `AsyncMock` with instance-level `__aiter__` silently yields 0 iterations — Python dunder lookup is on the type. Define `__aiter__` at class level in a real class when mocking async iterables (e.g., AIOKafkaConsumer).
 - **Mock gotcha**: `isinstance(val, (int, float))` not `if val` — MagicMock is truthy, `float(MagicMock())` returns 1.0.
 - **Service test `__new__` pattern**: `tests/unit/service_tests/` uses `ServiceClass.__new__(ServiceClass)` to bypass `__init__`. Any new instance attribute added in `__init__` must also be manually set in the test — otherwise service silently fails mid-test with a misleading error.
-- **ServiceSpec fields in tests**: `ServiceSpec(unit, metrics_port, lag_threshold_messages, dag_order, market_hours_only)` — check `services/service_auditor_agent.py` for current fields before constructing test fixtures.
+- **ServiceSpec fields in tests**: `ServiceSpec(unit, metrics_port, lag_threshold_messages, dag_order, market_hours_only)` — check `services/service_auditor.py` for current fields before constructing test fixtures.
 - **Pytest**: `.venv/bin/pytest` not bare `python -m pytest`.
 - **Integration tests can clobber a committed corpus manifest**: any `tests/integration/` suite that exercises a `BaseBatch` service (e.g. `-k cross_sectional_spread`) writes real `.planning/corpus_manifests/<service>.json` files as a side effect; running the suite after a real production run overwrites that manifest with synthetic test data. `git checkout -- .planning/corpus_manifests/<file>.json` to restore; this is expected test-fixture behavior, not corruption.
 

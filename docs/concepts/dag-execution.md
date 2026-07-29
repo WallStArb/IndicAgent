@@ -34,7 +34,7 @@ Two levels of DAG execution operate simultaneously.
 Raw OHLCV → I1 (no deps) → I2 (depends on I1) → I3 → I4 → I5 → I6 SMC → I6 Conf → I7
 ```
 
-**Service DAG (across services, L1-L10):** 25+ microservices connected via Kafka topics. `_DAG_ORDER` in `services/service_auditor_agent.py` defines the canonical restart sequence — services earlier in the DAG restart before services that depend on them.
+**Service DAG (across services, L1-L10):** 25+ microservices connected via Kafka topics. `_DAG_ORDER` in `services/service_auditor.py` defines the canonical restart sequence — services earlier in the DAG restart before services that depend on them.
 
 Both DAGs enforce the same invariant: data flows forward only. A plugin or service can never create a cycle.
 
@@ -44,7 +44,7 @@ Both DAGs enforce the same invariant: data flows forward only. A plugin or servi
 - Execution order must be deterministic given the same dependency graph.
 - The plugin DAG is computed once at startup — not recomputed per bar. Per-bar overhead is negligible.
 - A plugin's `inputs` list is its contract: it may not read from tier outputs not listed there.
-- `_DAG_ORDER` in `service_auditor_agent.py` is the single source of truth for service restart order — no parallel list anywhere.
+- `_DAG_ORDER` in `service_auditor.py` is the single source of truth for service restart order — no parallel list anywhere.
 
 ## Recipe
 

@@ -7,6 +7,11 @@ source: Phase 166 (Frame/Execution Recalibration) D-06 -- consolidated Part 2 de
   "capture todos immediately" convention
 gate: Phase 164 (SMC Institutional Footprint Primitives) executed + Phase 165 (Swing/Fib/Trend
   Structure Primitives) planned and executed + anchored-VWAP net-new scoping done
+status_update_2026-07-29: 2 of 3 prerequisites now cleared -- Phase 164 and Phase 165 both
+  COMPLETE per ROADMAP.md (2026-07-28). Anchored-VWAP scoping still not done (no registered
+  phase). Historical feature_vectors backfill for both phases' columns is running now (todo 176)
+  -- per this todo's own "Do NOT" section, verify columns are non-NULL live before building
+  against them, don't assume schema-complete means data-complete.
 ---
 
 # Extend Phase 166's structural confluence candidate with SMC/swing/fib/anchored-VWAP sources

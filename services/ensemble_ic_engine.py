@@ -291,7 +291,7 @@ def _select_hold_bars_from_decay(
     cells: list[dict[str, Any]],
     decay_threshold: float,
     scale_to_bars: dict[str, int],
-) -> int | None:
+) -> tuple[int, bool] | None:
     """Pure function: select hold_bars from one (symbol, tf, regime) group's IC decay curve.
 
     A cell must satisfy every flag in _QUALIFYING_FLAGS to participate in the decay
@@ -314,6 +314,14 @@ def _select_hold_bars_from_decay(
     Returns None if there are zero qualifying cells for this group -- the caller must
     interpret this as "no qualifying signal; skip calibration, leave the prior APR
     value in place" rather than defaulting to any hold_bars value.
+
+    Otherwise returns (hold_bars, censored) (todo 088). `censored=False` means a
+    below-threshold crossing was actually observed -- the returned hold_bars is a
+    CONFIRMED decay boundary. `censored=True` means every qualifying scale stayed
+    above threshold and the walk simply ran out of measured scales -- the returned
+    hold_bars is the longest scale confirmed non-decaying, but whether the edge
+    persists beyond it is right-censored (unknown), not confirmed. Callers must not
+    conflate the two when aggregating across symbols.
     """
     qualifying = [c for c in cells if all(c.get(flag) is True for flag in _QUALIFYING_FLAGS)]
     if not qualifying:
@@ -330,11 +338,14 @@ def _select_hold_bars_from_decay(
         if ic_sharpe is None:
             continue  # no data at this scale -- skip, do not treat as a decay crossing
         if ic_sharpe < decay_threshold:
-            return preceding_bars if preceding_bars is not None else 1
+            # Confirmed decay boundary observed -- not censored.
+            return (preceding_bars if preceding_bars is not None else 1, False)
         preceding_bars = scale_to_bars[scale]
 
-    # preceding_bars, not the extended ceiling -- see docstring.
-    return preceding_bars if preceding_bars is not None else 1
+    # No scale ever crossed decay_threshold -- right-censored: the true decay point,
+    # if one exists, lies beyond the longest scale actually measured. Not the same
+    # claim as a confirmed boundary -- see docstring.
+    return (preceding_bars if preceding_bars is not None else 1, True)
 
 
 # ---------------------------------------------------------------------------
@@ -1041,13 +1052,17 @@ async def _write_median_calibration(
     config_service: ConfigService,
     per_regime_tf: dict[tuple[str, str], list[float]],
     key_template: str,
-    reason_fn: Callable[[int], str],
+    reason_fn: Callable[[tuple[str, str], int], str],
     as_int: bool = False,
 ) -> int:
     """Shared write loop for both `_calibrate_hold_max_bars` and `_calibrate_stop_target`:
     one `ConfigService.set` per (regime, tf) cell, value = median across that cell's
     qualifying per-symbol values. Callers already early-return 0 for an empty
     `per_regime_tf`, so this is never invoked with nothing to write.
+
+    `reason_fn` receives the (regime, tf) key alongside n_qualifying so callers that
+    track per-key auxiliary state (e.g. `_calibrate_hold_max_bars`' censored fraction,
+    todo 088) can look it up without a second dict threaded through this shared loop.
     """
     n_written = 0
     for (regime, tf), qualifying_values in per_regime_tf.items():
@@ -1059,7 +1074,7 @@ async def _write_median_calibration(
             key,
             str(value),
             changed_by="ensemble-ic-engine",
-            reason=reason_fn(n_qualifying),
+            reason=reason_fn((regime, tf), n_qualifying),
         )
         n_written += 1
     return n_written
@@ -1283,14 +1298,22 @@ class EnsembleICEngine(BaseBatch):
             groups.setdefault(key, []).append(row)
 
         # per_regime_tf[(regime, tf)] = list of qualifying per-symbol hold_bars values.
+        # censored_count[(regime, tf)] = how many of those were right-censored (todo 088:
+        # no confirmed decay boundary observed, not the same as a confirmed one) --
+        # tracked separately so the median calc itself stays untouched and the
+        # confirmed/censored mix is only ever surfaced for provenance, not silently
+        # dropped or treated as equivalent.
         per_regime_tf: dict[tuple[str, str], list[int]] = {}
+        censored_count: dict[tuple[str, str], int] = {}
         for (_symbol, tf, regime), cells in groups.items():
-            hold_bars = _select_hold_bars_from_decay(
-                cells, config.decay_threshold, config.lookaheads
-            )
-            if hold_bars is None:
+            result = _select_hold_bars_from_decay(cells, config.decay_threshold, config.lookaheads)
+            if result is None:
                 continue
-            per_regime_tf.setdefault((regime, tf), []).append(hold_bars)
+            hold_bars, censored = result
+            key = (regime, tf)
+            per_regime_tf.setdefault(key, []).append(hold_bars)
+            if censored:
+                censored_count[key] = censored_count.get(key, 0) + 1
 
         if not per_regime_tf:
             return 0
@@ -1303,10 +1326,13 @@ class EnsembleICEngine(BaseBatch):
             config_service,
             per_regime_tf,
             "alpha.frame.hold_max_bars.{regime}.{tf}",
-            lambda n_qualifying: (
+            lambda key, n_qualifying: (
                 "calibrated from IC decay curve (EIC-02); median across "
                 f"{n_qualifying} qualifying ({qualifying_flags_desc}) "
-                f"symbols; decay_threshold={config.decay_threshold}"
+                f"symbols; decay_threshold={config.decay_threshold}; "
+                f"{censored_count.get(key, 0)}/{n_qualifying} right-censored "
+                "(no confirmed decay boundary within measured scales -- true "
+                "persistence beyond hold_bars is unknown, not confirmed; todo 088)"
             ),
             as_int=True,
         )
@@ -1398,7 +1424,7 @@ class EnsembleICEngine(BaseBatch):
             config_service,
             per_regime_tf_stop,
             "alpha.frame.stop_atr_mult.{regime}.{tf}",
-            lambda n_qualifying: (
+            lambda _key, n_qualifying: (
                 "calibrated from uncensored closed_target MAE excursions (Phase "
                 f"166 D-01b/D-03.1); {config.stop_mae_percentile}th percentile of "
                 f"ATR-rescaled MAE, median across {n_qualifying} qualifying "
@@ -1410,7 +1436,7 @@ class EnsembleICEngine(BaseBatch):
             config_service,
             per_regime_tf_target,
             "alpha.frame.target_r_multiple.{regime}.{tf}",
-            lambda n_qualifying: (
+            lambda _key, n_qualifying: (
                 "calibrated from uncensored closed_max_hold MFE excursions "
                 f"(Phase 166 D-01b/D-03.1); {config.target_mfe_percentile}th "
                 f"percentile of R-unit MFE, median across {n_qualifying} "

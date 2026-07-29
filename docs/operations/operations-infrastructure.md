@@ -153,7 +153,7 @@ async def _watchdog_notify(self) -> None:
 
 ### Service DAG
 
-**Canonical source:** `_DAG_ORDER` in `services/service_auditor_agent.py`
+**Canonical source:** `_DAG_ORDER` in `services/service_auditor.py`
 
 ```
 L0  Infrastructure sentinels

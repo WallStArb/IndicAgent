@@ -501,7 +501,7 @@ class AlphaSwarm(BaseGroupCoordinator):
 ### Step 4: Add to Service DAG
 
 ```python
-# services/service_auditor_agent.py
+# services/service_auditor.py
 _DAG_ORDER = {
     ...
     "indicagent-alpha-swarm": 8,

@@ -317,7 +317,7 @@ Nothing in Phase C or beyond starts before IC is measured and positive. Shadow m
 
 - **IC + ensemble methodology (canonical, current):** `docs/intelligence/intelligence-alphaengine-methodology.md` — IC estimation, IC shrinkage, weight combination methods, ensemble output validation, weighting recipe governance. Self-contained; no need to read `ensemble_trainer.py`/`ops_ic_shrinkage.py` or historical plan docs to understand how the live ensemble is computed.
 - **Live weighting recipe state:** `concept_registry` table, `domain='ensemble_strategy'` — query directly rather than trusting any doc's snapshot of "what's active."
-- **Architecture spec (historical):** `docs/plans/2026-06-20-alphaengine-architecture.md` — full design with feature list
+- **Architecture spec (historical):** `docs/plans/archive/2026-06-20-alphaengine-architecture.md` — full design with feature list
 - **IC methodology (historical, superseded by the methodology doc above):** `docs/plans/2026-06-20-alphaengine-ic-spec.md`
 - **AnalogEngine:** `docs/plans/2026-06-20-analogengine-design.md` — deferred; pgvector similarity search
 - **Feature Factory foundation:** `src/intelligence/features/` (Phase A implementation)

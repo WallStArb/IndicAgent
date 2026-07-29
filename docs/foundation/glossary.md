@@ -685,7 +685,7 @@ Runs entirely in the cold batch layer (weekly IC Engine, nightly Ensemble Builde
 
 **Status:** pre-implementation (v3.0 Phase A-C)
 
-**Canonical doc:** `docs/plans/2026-06-20-alphaengine-architecture.md`
+**Canonical doc:** `docs/plans/archive/2026-06-20-alphaengine-architecture.md`
 
 **Internal stages:** `docs/intelligence/intelligence-layer-architecture.md` breaks this Layer 1
 down further into Stage 0-4 (Primitive Measurement → Stratification → Edge Measurement →
@@ -1153,7 +1153,7 @@ The FeatureVector is the atomic unit of v3.0. Everything downstream — IC measu
 
 **Not:** a plugin output (plugins receive FeatureVectors as input in I5-I7). Not a signal (signals are emitted when ensemble alpha crosses a threshold). Not a row in `intelligence_features` (v2.x JSONB table, superseded).
 
-**Canonical doc:** `docs/plans/2026-06-20-alphaengine-architecture.md §FeatureVector Contract`
+**Canonical doc:** `docs/plans/archive/2026-06-20-alphaengine-architecture.md §FeatureVector Contract`
 **Status:** design (v3.0 Phase A)
 
 ---
