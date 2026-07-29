@@ -51,6 +51,7 @@ from opentelemetry.trace import StatusCode
 project_root = Path(__file__).parent.parent
 sys.path.insert(0, str(project_root))
 
+from services._batch_utils import LOOKAHEAD_FALLBACKS_BY_TF as _SCALE_FALLBACKS_BY_TF
 from services._batch_utils import load_config_service_sync as _load_config_service
 from src.config.settings import Settings
 from src.core.integrity_monitor import emit_integrity_fact_sync
@@ -81,12 +82,8 @@ _JOB = "forward-return-writer"
 _SCALES: tuple[str, ...] = ("fast", "mid", "slow", "extended")
 
 # Fallback defaults used only when APR key is absent (pre-migration bootstrap).
-_SCALE_FALLBACKS_BY_TF: dict[str, dict[str, int]] = {
-    "5m": {"fast": 1, "mid": 6, "slow": 12, "extended": 39},
-    "15m": {"fast": 1, "mid": 2, "slow": 5, "extended": 10},
-    "1h": {"fast": 1, "mid": 2, "slow": 20, "extended": 60},
-    "1d": {"fast": 1, "mid": 2, "slow": 5, "extended": 10},
-}
+# Todo 146: shared with ICEngineConfig/EnsembleICConfig via _batch_utils.LOOKAHEAD_FALLBACKS_BY_TF
+# (imported above as _SCALE_FALLBACKS_BY_TF) -- single source of truth for the per-tf grid.
 
 _DEFAULT_TFS: list[str] = ["5m", "15m", "1h", "1d"]
 

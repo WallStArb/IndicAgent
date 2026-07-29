@@ -71,14 +71,13 @@ class _FakeLifecycleCursor:
             return
 
         if "FROM feature_ic_scores fis" in sql:
-            weight_version, training_window_end, *tf_bars_flat = params
-            # Todo 146: lookahead_mid is tf-specific now -- the real query's WHERE
-            # clause is a flattened (tf, bars, tf, bars, ...) OR-chain instead of one
-            # scalar lookahead_bars. Rebuild it as a set of (tf, bars) pairs to match
-            # the same way the production SQL's OR-of-ANDs does.
-            tf_bars_pairs = {
-                (tf_bars_flat[i], tf_bars_flat[i + 1]) for i in range(0, len(tf_bars_flat), 2)
-            }
+            weight_version, training_window_end = params
+            # Todo 146 (post-review): lookahead_mid is tf-specific now, but the real
+            # query no longer embeds a tf/lookahead_bars filter in SQL at all --
+            # _run_lifecycle_hook fetches every scale's rows for this training_window_end
+            # and pins "the mid scale" in Python afterward, matching every other
+            # lookahead consumer in ic_engine.py. The fake mirrors that: no
+            # lookahead_bars filtering here, just training_window_end.
             weight_lookup = {
                 (r["tf"], r["regime"], r["feature_name"]): r["weight"]
                 for r in self.conn.ensemble_weight_rows
@@ -96,13 +95,12 @@ class _FakeLifecycleCursor:
                 "n_independent",
                 "feature_status_at_eval",
                 "ic_sharpe_hac",
+                "lookahead_bars",
                 "standing_weight",
             ]
             result_rows = []
             for r in self.conn.corpus_rows:
                 if r["training_window_end"] != training_window_end:
-                    continue
-                if (r["tf"], r["lookahead_bars"]) not in tf_bars_pairs:
                     continue
                 standing_weight = weight_lookup.get((r["tf"], r["regime"], r["feature_name"]), 0.0)
                 result_rows.append(

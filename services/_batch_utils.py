@@ -174,6 +174,39 @@ def cfg(cfg_dict: dict[str, Any], key: str, default: Any) -> Any:
     return type(default)(val)
 
 
+LOOKAHEAD_FALLBACKS_BY_TF: dict[str, dict[str, int]] = {
+    "5m": {"fast": 1, "mid": 6, "slow": 12, "extended": 39},
+    "15m": {"fast": 1, "mid": 2, "slow": 5, "extended": 10},
+    "1h": {"fast": 1, "mid": 2, "slow": 20, "extended": 60},
+    "1d": {"fast": 1, "mid": 2, "slow": 5, "extended": 10},
+}
+"""Todo 146's confirmed per-tf IC lookahead grid. 1h's slow/extended are UNCHANGED
+from the old global default (20/60) -- 1h has no viable slow/extended tier at all
+(session-bounded completeness collapses to 0%), but structurally removing that tier
+requires touching ic_engine.py's fixed _SCALES-indexed compute loops (deferred to a
+separate follow-up todo). Single source of truth for ICEngineConfig, EnsembleICConfig,
+and forward_return_writer.py's from_apr()/loading logic -- do not re-literal this grid
+in any of those files; import it from here."""
+
+
+def lookaheads_for_tf(
+    lookahead_fast: dict[str, int],
+    lookahead_mid: dict[str, int],
+    lookahead_slow: dict[str, int],
+    lookahead_extended: dict[str, int],
+    tf: str,
+) -> dict[str, int]:
+    """Shared resolver behind ICEngineConfig.lookaheads_for/EnsembleICConfig.lookaheads_for
+    (todo 146). Both classes stay independent frozen+picklable dataclasses (separate
+    ProcessPoolExecutor pools) -- only the per-tf lookup logic itself is shared."""
+    return {
+        "fast": lookahead_fast[tf],
+        "mid": lookahead_mid[tf],
+        "slow": lookahead_slow[tf],
+        "extended": lookahead_extended[tf],
+    }
+
+
 def get_dict_config(cfg_service: ConfigService, key: str, default: dict) -> dict:
     """Read a JSON-object APR key via `ConfigService.get_sync()`, tolerating either a
     pre-parsed dict (the normal case -- `load_config_service_sync`'s `_parse_value`

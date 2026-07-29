@@ -89,8 +89,8 @@ sys.path.insert(0, str(project_root))
 # same shared IC math module (todo 048) rather than one reaching into the other's
 # internals. EnsembleICConfig below mirrors ICEngineConfig's shared-key shape by
 # convention, not by import (no direct type dependency).
+from services._batch_utils import LOOKAHEAD_FALLBACKS_BY_TF, connect_db_from_url, lookaheads_for_tf
 from services._batch_utils import cfg as _cfg
-from services._batch_utils import connect_db_from_url
 from services._batch_utils import load_apr_dict_async as _load_apr_dict
 from src.config.config_service import ConfigService  # EIC-02: alpha.frame.hold_max_bars writes
 from src.config.settings import Settings
@@ -191,12 +191,13 @@ class EnsembleICConfig:
 
     def lookaheads_for(self, tf: str) -> dict[str, int]:
         """Gradient-scale lookahead mapping for ONE timeframe (todo 146)."""
-        return {
-            "fast": self.lookahead_fast[tf],
-            "mid": self.lookahead_mid[tf],
-            "slow": self.lookahead_slow[tf],
-            "extended": self.lookahead_extended[tf],
-        }
+        return lookaheads_for_tf(
+            self.lookahead_fast,
+            self.lookahead_mid,
+            self.lookahead_slow,
+            self.lookahead_extended,
+            tf,
+        )
 
     @classmethod
     def from_apr(cls, cfg: dict[str, Any]) -> EnsembleICConfig:
@@ -211,20 +212,20 @@ class EnsembleICConfig:
             min_reliable_n=_cfg(cfg, "alpha.ic.min_reliable_n", 100),
             hac_max_lag=_cfg(cfg, "alpha.ic.hac_max_lag", 3),
             lookahead_fast={
-                tf: _cfg(cfg, f"alpha.ic.lookahead.{tf}.fast", 1)
-                for tf in ("5m", "15m", "1h", "1d")
+                tf: _cfg(cfg, f"alpha.ic.lookahead.{tf}.fast", fb["fast"])
+                for tf, fb in LOOKAHEAD_FALLBACKS_BY_TF.items()
             },
             lookahead_mid={
-                tf: _cfg(cfg, f"alpha.ic.lookahead.{tf}.mid", fb)
-                for tf, fb in {"5m": 6, "15m": 2, "1h": 2, "1d": 2}.items()
+                tf: _cfg(cfg, f"alpha.ic.lookahead.{tf}.mid", fb["mid"])
+                for tf, fb in LOOKAHEAD_FALLBACKS_BY_TF.items()
             },
             lookahead_slow={
-                tf: _cfg(cfg, f"alpha.ic.lookahead.{tf}.slow", fb)
-                for tf, fb in {"5m": 12, "15m": 5, "1h": 20, "1d": 5}.items()
+                tf: _cfg(cfg, f"alpha.ic.lookahead.{tf}.slow", fb["slow"])
+                for tf, fb in LOOKAHEAD_FALLBACKS_BY_TF.items()
             },
             lookahead_extended={
-                tf: _cfg(cfg, f"alpha.ic.lookahead.{tf}.extended", fb)
-                for tf, fb in {"5m": 39, "15m": 10, "1h": 60, "1d": 10}.items()
+                tf: _cfg(cfg, f"alpha.ic.lookahead.{tf}.extended", fb["extended"])
+                for tf, fb in LOOKAHEAD_FALLBACKS_BY_TF.items()
             },
             n_workers=_cfg(cfg, "infra.ensemble_ic_engine.workers", 12),
             pooled_fetch_itersize=_cfg(
@@ -920,6 +921,10 @@ def _run_ensemble_ic_worker(args: tuple) -> dict[str, Any]:
             regime_labels = np.array([r["regime_label"] for r in fetched], dtype=object)
 
             distinct_regimes = sorted({r for r in regime_labels.tolist() if r is not None})
+            # tf is invariant across the regime/scale loops below -- resolve once per
+            # tf iteration instead of rebuilding the 4-entry dict on every (regime, scale)
+            # pair (todo 146 review finding: was rebuilt up to n_regimes x 4 times here).
+            tf_lookaheads = config.lookaheads_for(tf)
 
             for regime in distinct_regimes:
                 mask = regime_labels == regime
@@ -928,7 +933,7 @@ def _run_ensemble_ic_worker(args: tuple) -> dict[str, Any]:
                 alpha_regime = alpha_scores[mask]
 
                 for scale in _SCALES:
-                    lookahead_bars = config.lookaheads_for(tf)[scale]
+                    lookahead_bars = tf_lookaheads[scale]
                     returns_scale = returns_by_scale.get(scale)
                     if returns_scale is None:
                         continue
@@ -1314,11 +1319,15 @@ class EnsembleICEngine(BaseBatch):
         # tracked separately so the median calc itself stays untouched and the
         # confirmed/censored mix is only ever surfaced for provenance, not silently
         # dropped or treated as equivalent.
+        # tf repeats across every symbol/regime combo in groups -- resolve each tf's
+        # lookaheads once rather than re-deriving the 4-entry dict per (symbol, tf, regime).
+        distinct_tfs = {tf for (_symbol, tf, _regime) in groups}
+        lookaheads_by_tf = {tf: config.lookaheads_for(tf) for tf in distinct_tfs}
         per_regime_tf: dict[tuple[str, str], list[int]] = {}
         censored_count: dict[tuple[str, str], int] = {}
         for (_symbol, tf, regime), cells in groups.items():
             result = _select_hold_bars_from_decay(
-                cells, config.decay_threshold, config.lookaheads_for(tf)
+                cells, config.decay_threshold, lookaheads_by_tf[tf]
             )
             if result is None:
                 continue

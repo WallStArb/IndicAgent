@@ -88,7 +88,13 @@ from observability.corpus_manifest import CorpusManifest
 project_root = Path(__file__).parent.parent
 sys.path.insert(0, str(project_root))
 
-from services._batch_utils import Float32ChunkAccumulator, connect_db_from_url, short_lived_conn
+from services._batch_utils import (
+    LOOKAHEAD_FALLBACKS_BY_TF,
+    Float32ChunkAccumulator,
+    connect_db_from_url,
+    lookaheads_for_tf,
+    short_lived_conn,
+)
 from services._batch_utils import load_config_service_sync as _load_config_service
 from src.config.settings import Settings
 from src.core.agent.base_batch import BaseBatch
@@ -568,12 +574,13 @@ class ICEngineConfig:
         differ per tf -- 60 bars is ~3 months at 1d but ~5 hours at 5m, so a single
         global grid was measuring a different real-world horizon per tf under the
         same scale name)."""
-        return {
-            "fast": self.lookahead_fast[tf],
-            "mid": self.lookahead_mid[tf],
-            "slow": self.lookahead_slow[tf],
-            "extended": self.lookahead_extended[tf],
-        }
+        return lookaheads_for_tf(
+            self.lookahead_fast,
+            self.lookahead_mid,
+            self.lookahead_slow,
+            self.lookahead_extended,
+            tf,
+        )
 
     @classmethod
     def from_apr(cls, cfg: Any) -> ICEngineConfig:
@@ -607,20 +614,20 @@ class ICEngineConfig:
             # Lookaheads per (tf, scale) -- todo 146: a single global grid measured
             # a different real-world horizon per tf under the same scale name.
             lookahead_fast={
-                tf: int(cfg.get_sync(f"alpha.ic.lookahead.{tf}.fast", 1))
-                for tf in ("5m", "15m", "1h", "1d")
+                tf: int(cfg.get_sync(f"alpha.ic.lookahead.{tf}.fast", fb["fast"]))
+                for tf, fb in LOOKAHEAD_FALLBACKS_BY_TF.items()
             },
             lookahead_mid={
-                tf: int(cfg.get_sync(f"alpha.ic.lookahead.{tf}.mid", fb))
-                for tf, fb in {"5m": 6, "15m": 2, "1h": 2, "1d": 2}.items()
+                tf: int(cfg.get_sync(f"alpha.ic.lookahead.{tf}.mid", fb["mid"]))
+                for tf, fb in LOOKAHEAD_FALLBACKS_BY_TF.items()
             },
             lookahead_slow={
-                tf: int(cfg.get_sync(f"alpha.ic.lookahead.{tf}.slow", fb))
-                for tf, fb in {"5m": 12, "15m": 5, "1h": 20, "1d": 5}.items()
+                tf: int(cfg.get_sync(f"alpha.ic.lookahead.{tf}.slow", fb["slow"]))
+                for tf, fb in LOOKAHEAD_FALLBACKS_BY_TF.items()
             },
             lookahead_extended={
-                tf: int(cfg.get_sync(f"alpha.ic.lookahead.{tf}.extended", fb))
-                for tf, fb in {"5m": 39, "15m": 10, "1h": 60, "1d": 10}.items()
+                tf: int(cfg.get_sync(f"alpha.ic.lookahead.{tf}.extended", fb["extended"]))
+                for tf, fb in LOOKAHEAD_FALLBACKS_BY_TF.items()
             },
             # Cross-sectional equity regime model flag (migration 174)
             equity_model_enabled=str(
@@ -3927,24 +3934,21 @@ def _run_lifecycle_hook(
     # each (feature_name, tf, regime) triple yields exactly one row -- never 4 -- and
     # standing weight is read at the APR champion weight_version (Fable N4), never the
     # most-recent-by-computed_at row (which could silently be a challenger epoch).
-    # Todo 146: lookahead_mid is now tf-specific (5m=6, 15m=2, 1h=2, 1d=2) -- a bare
-    # `lookahead_bars = %s` scalar can no longer correctly pin "the mid scale" across
-    # all 4 timeframes in one filter, since "mid" means a different bar count per tf.
-    # Match (tf, lookahead_bars) pairs explicitly instead of a single scalar.
-    tf_bars_conditions = " OR ".join(
-        "(fis.tf = %s AND fis.lookahead_bars = %s)" for _ in config.lookahead_mid
-    )
-    tf_bars_params: list[Any] = []
-    for tf_key, bars in config.lookahead_mid.items():
-        tf_bars_params.extend([tf_key, bars])
-
+    # Todo 146: lookahead_mid is now tf-specific (5m=6, 15m=2, 1h=2, 1d=2) -- "the mid
+    # scale" is no longer one bar count across all 4 timeframes. Pin per-tf in Python
+    # after the fetch (matching every other lookahead consumer in this file --
+    # _compute_one_regime_cell/_compute_symbol_tf/_compute_one_cross_sectional_cell all
+    # resolve config.lookaheads_for(tf) in Python, never by embedding tf->bars into SQL)
+    # rather than building a dynamic per-tf OR-chain here: row volume for one training
+    # window (features x regimes x 4 tfs x 4 scales) is trivial, so there's no
+    # performance reason to push this filter into the query.
     with write_conn.cursor() as cur:
         cur.execute(
-            f"""
+            """
             SELECT fis.feature_name, fis.tf, fis.regime, fis.ic_ci_lower, fis.ic_ci_upper,
                    fis.ic_sign, fis.passes_fdr,
                    fis.reliable, fis.n_independent, fis.feature_status_at_eval,
-                   fis.ic_sharpe_hac, COALESCE(ew.weight, 0.0) AS standing_weight
+                   fis.ic_sharpe_hac, fis.lookahead_bars, COALESCE(ew.weight, 0.0) AS standing_weight
             FROM feature_ic_scores fis
             LEFT JOIN ensemble_weights ew
                    ON ew.symbol = 'UNIVERSE'
@@ -3956,12 +3960,12 @@ def _run_lifecycle_hook(
               AND fis.is_pooled = true
               AND fis.regime != '_pooled'
               AND fis.training_window_end = %s
-              AND ({tf_bars_conditions})
             """,
-            (config.ensemble_weight_version, training_window_end, *tf_bars_params),
+            (config.ensemble_weight_version, training_window_end),
         )
         cols = [d[0] for d in cur.description]
-        cell_rows = [dict(zip(cols, row, strict=True)) for row in cur.fetchall()]
+        all_rows = [dict(zip(cols, row, strict=True)) for row in cur.fetchall()]
+        cell_rows = [r for r in all_rows if r["lookahead_bars"] == config.lookahead_mid[r["tf"]]]
 
     # Fable N5: zero-cell guard. A per-symbol-only run or a run with the equity model
     # disabled yields zero POOLED cells for this training_window_end -- every fraction
