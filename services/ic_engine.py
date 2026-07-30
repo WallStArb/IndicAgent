@@ -162,6 +162,18 @@ _VECTOR_DOMAIN = "quant"
 _FEATURE_NAMES: list[str] = [f.name for f in dataclasses.fields(FeatureVector)]
 
 # Gradient scale names for forward return horizons (matching forward_returns columns).
+#
+# NOT a fallback default and NOT dead code (2026-07-30 per-tf active-scale-set task,
+# Finding 1 correction): ICEngineConfig.active_scales_for(tf) does not read this tuple
+# -- from_apr() (below) populates active_scales exclusively from
+# ACTIVE_SCALES_FALLBACKS_BY_TF (services/_batch_utils.py), a separate constant. This
+# this module-level constant is no longer read by any function in THIS file (all 12
+# former call sites now resolve per-tf via config.active_scales_for(tf) instead), but it is
+# still imported and used directly, all-four-scales-always, by
+# scripts/ops/alpha/ops_vol_normalized_target_ab.py (lines 85, 192-193, 204, 224, 332)
+# -- that script was intentionally left out of this task's scope and is tracked
+# separately as todo 209. Do not delete this constant without migrating that script
+# first.
 _SCALES: tuple[str, ...] = ("fast", "mid", "slow", "extended")
 
 # Sentinel regime value for pooled (cross-regime) IC rows.
