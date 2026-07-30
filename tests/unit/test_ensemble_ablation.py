@@ -621,6 +621,11 @@ def test_render_report_contains_required_sections_and_flags():
     assert "momentum" in text and "0.25" in text  # the attribution delta
     assert "control family absent from all strata" in text
     assert "diagnostic" in text  # remediation-is-human footer
+    # Todo 202: this file's AblationConfig deliberately still reads the old flat
+    # lookahead grid (todo 146's plan scoped it out as a 4th independent copy) --
+    # the report must carry a loud, visible warning saying so, not silently omit it.
+    assert "STALE LOOKAHEAD GRID" in text
+    assert "todo 146" in text
 
 
 def test_render_report_control_breach_escalates():

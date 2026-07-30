@@ -732,6 +732,18 @@ def render_report(
         "REDUCED OOS IC (the family was contributing). diff_p is conservative under "
         "the arms' positive dependence; bh_p is one corpus-wide BH-FDR pass."
     )
+    lines.append("")
+    lines.append(
+        "> **STALE LOOKAHEAD GRID (todo 146/202)**: `AblationConfig` still reads the "
+        f"old flat `alpha.ic.lookahead.{{scale}}` keys (`{config.lookaheads}`), NOT the "
+        "per-tf `alpha.ic.lookahead.{tf}.{scale}` grid `ic_engine.py`/`ensemble_ic_engine.py`/"
+        "`forward_return_writer.py` use since todo 146. Every `stride = max(subsample_"
+        "min_stride, config.lookaheads[scale])` computed in this report uses the WRONG "
+        "bar count for every tf except whichever one happens to match this flat grid "
+        "-- deliberately left unfixed here (todo 146's own plan scoped this file out as "
+        "a 4th independent copy, todo 202 tracks it as a real gap). Do not treat this "
+        "report's attribution numbers as trustworthy until this is fixed."
+    )
 
     # --- Section 1: replication check ---------------------------------------
     lines.append("")
@@ -960,6 +972,14 @@ async def main() -> int:
         async with pool.acquire() as conn:
             apr_cfg = await _load_apr(conn)
             config = AblationConfig.from_apr(apr_cfg)
+            print(
+                "WARNING: AblationConfig reads the OLD flat alpha.ic.lookahead.{scale} "
+                f"keys ({config.lookaheads}), not the per-tf grid production has used "
+                "since todo 146 -- this report's attribution numbers are computed "
+                "against the wrong bar count for every tf except whichever one happens "
+                "to match. See todo 202. NOT fixed here (todo 146's own plan scoped "
+                "this file out as a standalone forensics tool).\n"
+            )
             weight_version = (
                 args.weight_version
                 if args.weight_version
