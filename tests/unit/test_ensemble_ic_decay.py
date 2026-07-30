@@ -229,6 +229,12 @@ def test_ensemble_ic_config_lookaheads_for_returns_per_tf_values():
         lookahead_mid={"5m": 6, "15m": 2, "1h": 2, "1d": 2},
         lookahead_slow={"5m": 12, "15m": 5, "1h": 20, "1d": 5},
         lookahead_extended={"5m": 39, "15m": 10, "1h": 60, "1d": 10},
+        active_scales={
+            "5m": ("fast", "mid", "slow", "extended"),
+            "15m": ("fast", "mid", "slow", "extended"),
+            "1h": ("fast", "mid"),
+            "1d": ("fast", "mid", "slow", "extended"),
+        },
         n_workers=1,
         pooled_fetch_itersize=50_000,
         decay_threshold=0.05,
