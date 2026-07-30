@@ -71,6 +71,7 @@ import asyncpg
 import numpy as np
 from scipy.stats import rankdata, shapiro
 
+from services._batch_utils import LOOKAHEAD_FALLBACKS_BY_TF
 from src.config.settings import Settings
 from src.intelligence.statistics.ic_math import (
     _circular_block_bootstrap_ic,
@@ -93,13 +94,6 @@ _BOOTSTRAP_SEED_DEFAULT = 42
 
 _LATEST_VINTAGE_SQL = "SELECT max(training_window_end) FROM feature_ic_scores"
 
-_LOOKAHEAD_APR_KEYS = {
-    "fast": "alpha.ic.lookahead.fast",
-    "mid": "alpha.ic.lookahead.mid",
-    "slow": "alpha.ic.lookahead.slow",
-    "extended": "alpha.ic.lookahead.extended",
-}
-_LOOKAHEAD_DEFAULTS = {"fast": 1, "mid": 5, "slow": 20, "extended": 60}
 
 _BOUNDARY_CELLS_SQL = """
     SELECT feature_name, symbol, tf, regime, lookahead_bars, training_window_end,
@@ -405,11 +399,21 @@ async def main() -> int:
             print("ERROR: feature_ic_scores is empty -- nothing to sample.")
             return 0
 
-        lookaheads = {
-            scale: await _load_config_int(pool, key, _LOOKAHEAD_DEFAULTS[scale])
-            for scale, key in _LOOKAHEAD_APR_KEYS.items()
+        # Todo 146/202: lookahead grid is per-tf now -- a single global bars->scale map
+        # is ill-defined once the same bar count means a different scale on different
+        # tfs. Cells are sampled across all 4 tfs in one pass (see docstring), so the
+        # reverse map must be looked up per cell's own tf, not once globally.
+        lookaheads_by_tf = {
+            tf: {
+                scale: await _load_config_int(pool, f"alpha.ic.lookahead.{tf}.{scale}", default)
+                for scale, default in fallbacks.items()
+            }
+            for tf, fallbacks in LOOKAHEAD_FALLBACKS_BY_TF.items()
         }
-        bars_to_scale = {bars: scale for scale, bars in lookaheads.items()}
+        bars_to_scale_by_tf = {
+            tf: {bars: scale for scale, bars in scales.items()}
+            for tf, scales in lookaheads_by_tf.items()
+        }
         subsample_min_stride = await _load_config_int(pool, "alpha.ic.subsample_min_stride", 5)
 
         # Component A (todo 091): APR-backed bootstrap params, loaded regardless of
@@ -474,7 +478,7 @@ async def main() -> int:
         suspect_by_stratum: dict[tuple[str, bool], int] = {}
 
         for cell in cells:
-            scale = bars_to_scale.get(cell["lookahead_bars"])
+            scale = bars_to_scale_by_tf.get(cell["tf"], {}).get(cell["lookahead_bars"])
             if scale is None:
                 n_skipped += 1
                 continue
