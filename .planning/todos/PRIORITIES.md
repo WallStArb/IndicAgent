@@ -46,7 +46,20 @@ STATE.md's Tier 0 for full sequencing detail.
 
 ## P0 — Fix soon (integrity/correctness gaps already surfaced)
 
-**Live P0 as of 2026-07-29:** [202](pending/202-per-tf-lookahead-grid-downstream-consumers-stale.md)
+**Live P0 as of 2026-07-29:** [203](pending/203-canary-rng-seed-not-per-symbol-cross-sectional-pseudo-replication.md)
+— **seeding fix + broadcast-feature audit DONE 2026-07-29** (see plan
+`docs/superpowers/plans/2026-07-29-canary-seed-and-broadcast-feature-audit.md`);
+`symbol` now included in `_canary_sub_seed`'s hash, `ops_broadcast_feature_audit.py`
+confirms `vix_z`/`yield_slope_z`/`flight_quality` + all session/calendar features
+share the same pseudo-replication exposure the canaries had. Building an actual
+broadcast-aware significance test remains open (real design question, not filed as
+its own todo yet). Full end-to-end confirmation (a green
+`ops_canary_integrity_assert.py` run) still waits on todo 202's corpus rebuild.
+Sibling finding [204](pending/204-canary-acausal-placebo-pooled-not-detected.md) —
+`canary_acausal_placebo` not clearing its POOLED gate for an unrelated, undiagnosed
+reason.
+
+[202](pending/202-per-tf-lookahead-grid-downstream-consumers-stale.md)
 — todo 146's per-tf lookahead grid landed (migration 269 + `ICEngineConfig`/
 `EnsembleICConfig`/`forward_return_writer.py`), but `forward_returns` (36.7M rows, all
 under the OLD grid) has no automatic rebuild path and its fingerprint is already

@@ -99,6 +99,7 @@ from services._batch_utils import load_config_service_sync as _load_config_servi
 from src.config.settings import Settings
 from src.core.agent.base_batch import BaseBatch
 from src.core.integrity_monitor import INTEGRITY_MONITOR_INSERT_SQL, emit_integrity_fact_sync
+from src.core.rng import hash_key_to_int
 from src.core.service_utils import format_iso_ts, setup_service_logging
 from src.intelligence.feature_registry_service import FeatureRegistryService
 from src.intelligence.schemas import FeatureVector
@@ -1444,9 +1445,6 @@ def _cluster_features(X_nd: np.ndarray, cluster_max_corr: float) -> np.ndarray:
 def _derive_worker_rng_seed(cell_key: str, bootstrap_seed: int) -> int:
     """Deterministic per-cell RNG seed for the circular block bootstrap CI.
 
-    Uses hashlib (not Python's built-in hash()) to avoid PYTHONHASHSEED
-    randomization, which is per-process and would make seeds non-reproducible
-    across ic_engine invocations even with a fixed bootstrap_seed APR key.
     Restores the removed `_derive_worker_rng_seed(symbol, bootstrap_seed)` pattern
     (git show c6f5056b^:services/ic_engine.py), generalized from "symbol" to any
     cell-identifying string so both the per-symbol ProcessPoolExecutor path
@@ -1455,10 +1453,14 @@ def _derive_worker_rng_seed(cell_key: str, bootstrap_seed: int) -> int:
     own deterministic, reproducible, collision-resistant seed without any DB write
     or shared RNG state (ProcessPoolExecutor workers are compute-only, CLAUDE.md).
 
-    Derived as bootstrap_seed + MD5(cell_key)[:8] % 2**31.
+    Derived as bootstrap_seed + MD5(cell_key)[:8] % 2**31. The hash-to-int step is
+    the shared Ring-0 primitive (src/core/rng.py, extracted 2026-07-29 /simplify
+    pass, todo 203, after src/intelligence/feature_factory.py's canary seeding
+    independently re-derived the same idiom) -- this function's own combination
+    formula is unchanged, so every existing (cell_key, bootstrap_seed) pair still
+    produces byte-identical output to before the extraction.
     """
-    cell_hash = int(hashlib.md5(cell_key.encode()).hexdigest()[:8], 16)
-    return bootstrap_seed + cell_hash % (2**31)
+    return bootstrap_seed + hash_key_to_int(cell_key) % (2**31)
 
 
 def _sign_consistent_wf_pass_count(fold_ic_arr: np.ndarray, ic_vector_nd: np.ndarray) -> np.ndarray:
