@@ -207,25 +207,25 @@ class TestFeatureVectorCanaryFields:
 class TestCanarySubSeed:
     def test_deterministic_for_same_inputs(self) -> None:
         bar_ts = datetime(2026, 3, 4, 14, 30, tzinfo=UTC)
-        s1 = _canary_sub_seed(bar_ts, base_seed=90042, offset=0)
-        s2 = _canary_sub_seed(bar_ts, base_seed=90042, offset=0)
+        s1 = _canary_sub_seed(bar_ts, "SPY", base_seed=90042, offset=0)
+        s2 = _canary_sub_seed(bar_ts, "SPY", base_seed=90042, offset=0)
         assert s1 == s2
 
     def test_different_offsets_give_different_seeds(self) -> None:
         bar_ts = datetime(2026, 3, 4, 14, 30, tzinfo=UTC)
-        seeds = {_canary_sub_seed(bar_ts, base_seed=90042, offset=o) for o in range(3)}
+        seeds = {_canary_sub_seed(bar_ts, "SPY", base_seed=90042, offset=o) for o in range(3)}
         assert len(seeds) == 3, "offsets must never collide onto the same sub-seed"
 
     def test_different_bar_ts_give_different_seeds(self) -> None:
-        s1 = _canary_sub_seed(datetime(2026, 3, 4, 14, 30, tzinfo=UTC), 90042, 0)
-        s2 = _canary_sub_seed(datetime(2026, 3, 4, 14, 31, tzinfo=UTC), 90042, 0)
+        s1 = _canary_sub_seed(datetime(2026, 3, 4, 14, 30, tzinfo=UTC), "SPY", 90042, 0)
+        s2 = _canary_sub_seed(datetime(2026, 3, 4, 14, 31, tzinfo=UTC), "SPY", 90042, 0)
         assert s1 != s2
 
     def test_stable_across_repeated_calls_no_hash_randomization(self) -> None:
         """Uses pure arithmetic, not Python hash() -- must be stable across
         interpreter invocations (ProcessPoolExecutor workers)."""
         bar_ts = datetime(2026, 3, 4, 14, 30, tzinfo=UTC)
-        results = [_canary_sub_seed(bar_ts, 90042, 1) for _ in range(5)]
+        results = [_canary_sub_seed(bar_ts, "SPY", 90042, 1) for _ in range(5)]
         assert len(set(results)) == 1
 
 
@@ -237,20 +237,20 @@ class TestCanarySubSeed:
 class TestNoiseCanaries:
     def test_gaussian_deterministic_for_fixed_seed(self) -> None:
         bar_ts = datetime(2026, 3, 4, 14, 30, tzinfo=UTC)
-        v1 = _canary_noise_gaussian(bar_ts, base_seed=90042)
-        v2 = _canary_noise_gaussian(bar_ts, base_seed=90042)
+        v1 = _canary_noise_gaussian(bar_ts, "SPY", base_seed=90042)
+        v2 = _canary_noise_gaussian(bar_ts, "SPY", base_seed=90042)
         assert v1 == v2
 
     def test_uniform_deterministic_for_fixed_seed(self) -> None:
         bar_ts = datetime(2026, 3, 4, 14, 30, tzinfo=UTC)
-        v1 = _canary_noise_uniform(bar_ts, base_seed=90042)
-        v2 = _canary_noise_uniform(bar_ts, base_seed=90042)
+        v1 = _canary_noise_uniform(bar_ts, "SPY", base_seed=90042)
+        v2 = _canary_noise_uniform(bar_ts, "SPY", base_seed=90042)
         assert v1 == v2
 
     def test_different_seed_gives_different_value(self) -> None:
         bar_ts = datetime(2026, 3, 4, 14, 30, tzinfo=UTC)
-        v1 = _canary_noise_gaussian(bar_ts, base_seed=90042)
-        v2 = _canary_noise_gaussian(bar_ts, base_seed=1)
+        v1 = _canary_noise_gaussian(bar_ts, "SPY", base_seed=90042)
+        v2 = _canary_noise_gaussian(bar_ts, "SPY", base_seed=1)
         assert v1 != v2
 
     def test_gaussian_and_uniform_are_independently_seeded(self) -> None:
@@ -258,8 +258,8 @@ class TestNoiseCanaries:
         offset=1 (Uniform) must diverge; verified structurally via distinct
         sub-seeds (TestCanarySubSeed) and behaviorally here via output shape."""
         bar_ts = datetime(2026, 3, 4, 14, 30, tzinfo=UTC)
-        gaussian_val = _canary_noise_gaussian(bar_ts, base_seed=90042)
-        uniform_val = _canary_noise_uniform(bar_ts, base_seed=90042)
+        gaussian_val = _canary_noise_gaussian(bar_ts, "SPY", base_seed=90042)
+        uniform_val = _canary_noise_uniform(bar_ts, "SPY", base_seed=90042)
         # Uniform draw is bounded [0, 1); Gaussian is not. If the two used the
         # same seed/generator with no offset distinction, the raw draws could
         # coincide in shape across many bars -- assert the uniform draw
@@ -270,7 +270,7 @@ class TestNoiseCanaries:
     def test_uniform_is_bounded_zero_to_one_across_many_bars(self) -> None:
         base = datetime(2026, 3, 4, 14, 30, tzinfo=UTC)
         for i in range(200):
-            v = _canary_noise_uniform(base + timedelta(minutes=i), base_seed=90042)
+            v = _canary_noise_uniform(base + timedelta(minutes=i), "SPY", base_seed=90042)
             assert 0.0 <= v < 1.0
 
     def test_gaussian_is_not_degenerate_across_many_bars(self) -> None:
@@ -278,9 +278,69 @@ class TestNoiseCanaries:
         single repeated value (which would indicate a seeding bug)."""
         base = datetime(2026, 3, 4, 14, 30, tzinfo=UTC)
         values = [
-            _canary_noise_gaussian(base + timedelta(minutes=i), base_seed=90042) for i in range(200)
+            _canary_noise_gaussian(base + timedelta(minutes=i), "SPY", base_seed=90042)
+            for i in range(200)
         ]
         assert np.std(values) > 0.5  # N(0,1) should show std close to 1.0
+
+
+# ---------------------------------------------------------------------------
+# Symbol differentiation: the actual bug (todo 203)
+# ---------------------------------------------------------------------------
+
+
+class TestCanarySymbolDifferentiation:
+    """The actual bug (todo 203): _canary_sub_seed omitted `symbol` entirely, so
+    every symbol got the IDENTICAL 'random' draw at a given bar_ts -- confirmed
+    live in feature_vectors (bit-identical canary_noise_gaussian/uniform/
+    near_constant across every pooled symbol at the same timestamp). This defeats
+    their purpose as cross-sectional negative controls: any measurement pooling
+    multiple symbols (ic_engine.py's _compute_cross_sectional_tf) saw severe
+    pseudo-replication as a result."""
+
+    def test_different_symbols_give_different_sub_seeds(self) -> None:
+        bar_ts = datetime(2026, 3, 4, 14, 30, tzinfo=UTC)
+        s_spy = _canary_sub_seed(bar_ts, "SPY", base_seed=90042, offset=0)
+        s_qqq = _canary_sub_seed(bar_ts, "QQQ", base_seed=90042, offset=0)
+        assert s_spy != s_qqq
+
+    def test_same_symbol_and_bar_ts_still_deterministic(self) -> None:
+        bar_ts = datetime(2026, 3, 4, 14, 30, tzinfo=UTC)
+        s1 = _canary_sub_seed(bar_ts, "SPY", base_seed=90042, offset=0)
+        s2 = _canary_sub_seed(bar_ts, "SPY", base_seed=90042, offset=0)
+        assert s1 == s2
+
+    def test_gaussian_canary_differs_across_symbols_at_same_bar_ts(self) -> None:
+        bar_ts = datetime(2026, 3, 4, 14, 30, tzinfo=UTC)
+        v_spy = _canary_noise_gaussian(bar_ts, "SPY", base_seed=90042)
+        v_qqq = _canary_noise_gaussian(bar_ts, "QQQ", base_seed=90042)
+        assert v_spy != v_qqq
+
+    def test_uniform_canary_differs_across_symbols_at_same_bar_ts(self) -> None:
+        bar_ts = datetime(2026, 3, 4, 14, 30, tzinfo=UTC)
+        v_spy = _canary_noise_uniform(bar_ts, "SPY", base_seed=90042)
+        v_qqq = _canary_noise_uniform(bar_ts, "QQQ", base_seed=90042)
+        assert v_spy != v_qqq
+
+    def test_near_constant_canary_differs_across_symbols_at_same_bar_ts(self) -> None:
+        bar_ts = datetime(2026, 3, 4, 14, 30, tzinfo=UTC)
+        v_spy = _canary_near_constant(bar_ts, "SPY", base_seed=90042)
+        v_qqq = _canary_near_constant(bar_ts, "QQQ", base_seed=90042)
+        assert v_spy != v_qqq
+        # Still both tiny deviations from the constant -- symbol differentiation
+        # must not break the "near constant" property.
+        assert abs(v_spy - _CANARY_CONSTANT_VALUE) < 1e-3
+        assert abs(v_qqq - _CANARY_CONSTANT_VALUE) < 1e-3
+
+    def test_many_symbols_produce_a_real_spread_not_a_few_repeated_clusters(self) -> None:
+        """A weak fix (e.g. only 2-3 effective buckets due to a poor hash mix)
+        would still show up as clustering across a large symbol set -- assert
+        real spread, not just pairwise inequality."""
+        bar_ts = datetime(2026, 3, 4, 14, 30, tzinfo=UTC)
+        symbols = [f"SYM{i}" for i in range(50)]
+        values = [_canary_noise_gaussian(bar_ts, s, base_seed=90042) for s in symbols]
+        assert len(set(values)) == 50
+        assert np.std(values) > 0.5
 
 
 # ---------------------------------------------------------------------------
@@ -294,21 +354,21 @@ class TestConstantCanaries:
 
     def test_near_constant_is_literal_plus_tiny_noise(self) -> None:
         bar_ts = datetime(2026, 3, 4, 14, 30, tzinfo=UTC)
-        v = _canary_near_constant(bar_ts, base_seed=90042)
+        v = _canary_near_constant(bar_ts, "SPY", base_seed=90042)
         assert v != _CANARY_CONSTANT_VALUE
         assert abs(v - _CANARY_CONSTANT_VALUE) < 1e-3  # tiny, not a real signal
 
     def test_near_constant_is_deterministic(self) -> None:
         bar_ts = datetime(2026, 3, 4, 14, 30, tzinfo=UTC)
-        v1 = _canary_near_constant(bar_ts, base_seed=90042)
-        v2 = _canary_near_constant(bar_ts, base_seed=90042)
+        v1 = _canary_near_constant(bar_ts, "SPY", base_seed=90042)
+        v2 = _canary_near_constant(bar_ts, "SPY", base_seed=90042)
         assert v1 == v2
 
     def test_near_constant_uses_a_different_sub_seed_than_noise_canaries(self) -> None:
         bar_ts = datetime(2026, 3, 4, 14, 30, tzinfo=UTC)
-        near_const_seed = _canary_sub_seed(bar_ts, 90042, offset=2)
-        gaussian_seed = _canary_sub_seed(bar_ts, 90042, offset=0)
-        uniform_seed = _canary_sub_seed(bar_ts, 90042, offset=1)
+        near_const_seed = _canary_sub_seed(bar_ts, "SPY", 90042, offset=2)
+        gaussian_seed = _canary_sub_seed(bar_ts, "SPY", 90042, offset=0)
+        uniform_seed = _canary_sub_seed(bar_ts, "SPY", 90042, offset=1)
         assert near_const_seed not in (gaussian_seed, uniform_seed)
 
 

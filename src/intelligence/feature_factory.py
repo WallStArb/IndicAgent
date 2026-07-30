@@ -29,6 +29,7 @@ from __future__ import annotations
 import bisect
 import calendar
 import dataclasses
+import hashlib
 import math
 from collections import deque
 from dataclasses import dataclass, field
@@ -1775,39 +1776,53 @@ _CANARY_CONSTANT_VALUE: float = 1.0
 _CANARY_NEAR_CONSTANT_EPSILON: float = 1e-6
 
 
-def _canary_sub_seed(bar_ts: datetime, base_seed: int, offset: int) -> int:
-    """Deterministic per-bar sub-seed derived from bar_ts + the APR base seed
-    + a per-canary offset. Pure arithmetic (no Python hash()) so the value is
-    stable across processes/interpreter versions -- required for
-    ProcessPoolExecutor workers and for the "same bar inputs + seed -> same
-    value" determinism contract. Different offsets give independently
-    seeded, distributionally-distinct draws from one shared APR base seed
-    (never reusing one generator/seed for two different canaries).
+def _canary_sub_seed(bar_ts: datetime, symbol: str, base_seed: int, offset: int) -> int:
+    """Deterministic per-(symbol, bar) sub-seed derived from symbol + bar_ts +
+    the APR base seed + a per-canary offset.
+
+    2026-07-29 fix (todo 203): previously omitted `symbol` entirely -- every
+    symbol received the IDENTICAL "random" draw at a given bar_ts, confirmed
+    live in feature_vectors (bit-identical canary_noise_gaussian/uniform/
+    near_constant across every pooled symbol at the same timestamp). Any
+    cross-sectional measurement pooling multiple symbols (this project's own
+    ic_engine.py _compute_cross_sectional_tf, or an ad hoc diagnostic doing the
+    same) saw severe pseudo-replication as a result -- the true independent
+    draw count per bar_ts was 1, not n_symbols, defeating these negative
+    controls' entire purpose.
+
+    Uses hashlib.md5 (not Python's built-in hash()) for the symbol component,
+    mirroring ic_engine.py's _derive_worker_rng_seed(cell_key, bootstrap_seed)
+    exactly -- stable across processes/interpreter versions
+    (PYTHONHASHSEED-independent), required for ProcessPoolExecutor workers and
+    the "same bar inputs + seed -> same value" determinism contract. The
+    bar_ts/offset arithmetic component is unchanged from the original (still
+    pure arithmetic, no hash() there either).
     """
     ts_int = int(bar_ts.timestamp() * 1000)
-    return (base_seed * 1_000_003 + ts_int * 97 + offset) % (2**32)
+    symbol_hash = int(hashlib.md5(symbol.encode()).hexdigest()[:8], 16)
+    return (base_seed * 1_000_003 + ts_int * 97 + offset + symbol_hash) % (2**32)
 
 
-def _canary_noise_gaussian(bar_ts: datetime, base_seed: int) -> float:
+def _canary_noise_gaussian(bar_ts: datetime, symbol: str, base_seed: int) -> float:
     """Pure Gaussian noise, N(0, 1) (offset=0). Negative control: must never
     carry IC."""
-    rng = np.random.default_rng(_canary_sub_seed(bar_ts, base_seed, offset=0))
+    rng = np.random.default_rng(_canary_sub_seed(bar_ts, symbol, base_seed, offset=0))
     return float(rng.standard_normal())
 
 
-def _canary_noise_uniform(bar_ts: datetime, base_seed: int) -> float:
+def _canary_noise_uniform(bar_ts: datetime, symbol: str, base_seed: int) -> float:
     """Pure Uniform[0, 1) noise (offset=1), independently seeded from the
     Gaussian canary. Two distributionally-distinct RNG sources both agreeing
     they are null is stronger pipeline-integrity evidence than one alone."""
-    rng = np.random.default_rng(_canary_sub_seed(bar_ts, base_seed, offset=1))
+    rng = np.random.default_rng(_canary_sub_seed(bar_ts, symbol, base_seed, offset=1))
     return float(rng.uniform(0.0, 1.0))
 
 
-def _canary_near_constant(bar_ts: datetime, base_seed: int) -> float:
+def _canary_near_constant(bar_ts: datetime, symbol: str, base_seed: int) -> float:
     """_CANARY_CONSTANT_VALUE plus tiny deterministic epsilon noise
     (offset=2) -- verifies degenerate near-zero-variance input handling
     without being bit-identical to the pure constant canary."""
-    rng = np.random.default_rng(_canary_sub_seed(bar_ts, base_seed, offset=2))
+    rng = np.random.default_rng(_canary_sub_seed(bar_ts, symbol, base_seed, offset=2))
     return _CANARY_CONSTANT_VALUE + _CANARY_NEAR_CONSTANT_EPSILON * float(rng.standard_normal())
 
 
@@ -6334,9 +6349,9 @@ class FeatureFactory:
         # current bar) -- _canary_acausal_placebo() naturally returns 0.0
         # here since i+2 is always out of bounds; the genuine forward-shifted
         # leak is only exercisable in compute_batch() (full-history backfill).
-        canary_noise_gaussian_val = _canary_noise_gaussian(bar_ts, config.canary_rng_seed)
-        canary_noise_uniform_val = _canary_noise_uniform(bar_ts, config.canary_rng_seed)
-        canary_near_constant_val = _canary_near_constant(bar_ts, config.canary_rng_seed)
+        canary_noise_gaussian_val = _canary_noise_gaussian(bar_ts, symbol, config.canary_rng_seed)
+        canary_noise_uniform_val = _canary_noise_uniform(bar_ts, symbol, config.canary_rng_seed)
+        canary_near_constant_val = _canary_near_constant(bar_ts, symbol, config.canary_rng_seed)
         canary_acausal_placebo_val = _canary_acausal_placebo(closes, len(closes) - 1)
 
         return _build_feature_vector(
@@ -7090,9 +7105,11 @@ class FeatureFactory:
             # passed by the caller (backfill), so the acausal placebo can
             # genuinely reference bars i+1/i+2 -- the deliberate look-ahead
             # leak this canary exists to calibrate.
-            canary_noise_gaussian_val = _canary_noise_gaussian(bar_ts, config.canary_rng_seed)
-            canary_noise_uniform_val = _canary_noise_uniform(bar_ts, config.canary_rng_seed)
-            canary_near_constant_val = _canary_near_constant(bar_ts, config.canary_rng_seed)
+            canary_noise_gaussian_val = _canary_noise_gaussian(
+                bar_ts, symbol, config.canary_rng_seed
+            )
+            canary_noise_uniform_val = _canary_noise_uniform(bar_ts, symbol, config.canary_rng_seed)
+            canary_near_constant_val = _canary_near_constant(bar_ts, symbol, config.canary_rng_seed)
             canary_acausal_placebo_val = _canary_acausal_placebo(closes, i)
 
             # Build FeatureVector
