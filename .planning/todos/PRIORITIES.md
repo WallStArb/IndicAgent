@@ -28,18 +28,21 @@ resist overfitting. A todo that would earn its way to P0/P1 under these tests (a
 integrity gap, an unproven claim masquerading as settled) outranks one that's merely convenient.
 
 **Current probable path (updated 2026-07-30 -- phase-level, see `.planning/STATE.md` for full
-detail, not duplicated here):** Phase 164/165 (SMC + swing/fib/trend/session primitives) both
-COMPLETE; their combined `--refresh` recompute ran 2026-07-29 but wiped `feature_vectors.regime`
-(todo 205, fixed same day) -- a repair pipeline (`regime_writer` → `forward_return_writer` →
-`cross_sectional_regime_model` → `ic_engine`) relaunched 2026-07-30 and is **still running as of
-this update; nothing that reads regime labels, `feature_ic_scores`, or `ensemble_weights` should
-start until it completes** (STATE.md's Tier -1). Phase 167 (T3) remains COMPLETE, both live
-Validation Gates PASSED — user has redirected priority away from Phase 156-159 (execution)
-toward validating the features/regimes/IC/ensemble stack first. This same week surfaced a
-cluster of measurement-integrity bugs: todo 146's per-tf lookahead grid shipped to production
-APR but is provisional for 5m/15m/1h pending todo 208's empirical check; canary RNG seeding
-fixed (todo 203) but a sibling POOLED-gate anomaly (todo 204) is still undiagnosed. Full detail
-and live-verification commands: `.planning/STATE.md`'s "Active saga" section.
+detail, not duplicated here):** Phase 164/165/167 all COMPLETE; user has redirected priority
+away from Phase 156-159 (execution) toward validating the features/regimes/IC/ensemble stack
+first. The per-tf-active-scale-set branch merged 2026-07-30 (`ic_engine.py`'s hardcoded scales
+-> per-tf `active_scales_for(tf)`), whose own final review found and same-day fixed todo 208
+(the same-ET-session forward-return completeness gate was silently zeroing 1h's completeness
+for a reason that doesn't hold up) -- `forward_returns` truncated and rebuilt clean under the
+corrected definition, **corpus pipeline currently on step 5/8 (`ic_engine`), started 13:19 EDT,
+historically ~27h; nothing that reads `feature_ic_scores`/`ensemble_weights` should start until
+it completes** (STATE.md's Tier -1). Three follow-on `_SCALES`-hardcoding cleanups (209/210/211)
+are scoped and ready in `docs/plans/2026-07-30-ic-scale-cleanup-plan.md`; a design doc on the
+grid's actual per-tf horizon values (`docs/research/2026-07-30-forward-return-horizon-grid-refactor.md`)
+recommends aligning them to each tf's real holding period rather than an arbitrary/uniform grid.
+Canary RNG seeding fixed (todo 203) but a sibling POOLED-gate anomaly (todo 204) is still
+undiagnosed. Full detail and live-verification commands: `.planning/STATE.md`'s "Current saga"
+section.
 
 ---
 
@@ -60,22 +63,22 @@ Sibling finding [204](pending/204-canary-acausal-placebo-pooled-not-detected.md)
 reason.
 
 **[202](../completed/202-per-tf-lookahead-grid-downstream-consumers-stale.md) CLOSED
-2026-07-30** — all items (the truncate+rebuild AND all 7 downstream script fixes) were
-actually done 2026-07-29, correctly sequenced, tested; the todo file just never got
-updated and slipped past this session's own earlier "still open" read and the
-`dd49c36e` audit. Moved to `completed/` with full verification detail. One caveat
-carries forward: the rebuild ran under the still-session-gated logic 208 disputes, so it
-may need a second rebuild if 208's Step 2 lands.
+2026-07-30** — all items done and verified; see `completed/` for detail.
 
-**[146](pending/146-lookahead-grid-per-tf-recalibration.md) / [208](pending/208-intraday-same-session-forward-return-gate-inconsistent-with-trade-construction.md)
-— bumped P1→P0 2026-07-30 (todo-priorities audit).** 146's per-tf grid already SHIPPED to
-production APR (migration 269, `config_state`) for 5m/15m/1h, but 208 (filed 2026-07-30)
-found live 1h `mid` completeness at only 53.5% and disputes the session-boundedness premise
-146's grid was derived under — an unproven claim already masquerading as settled in
-production, exactly this project's own P0 bar. 208's Step 1 (`ops_lookahead_horizon_response.py
---allow-overnight`) is cheap and ready to run, blocked only on todo 202's in-flight corpus
-rebuild repopulating `feature_ic_scores`. Do not treat 146's grid as final for those 3 tfs, and
-do not build further on it, until 208's empirical check runs.
+**[208](pending/208-intraday-same-session-forward-return-gate-inconsistent-with-trade-construction.md)
+Step 1/2 DONE 2026-07-30 — `forward_return_writer.py`'s same-ET-session completeness gate
+removed for 5m/15m/1h**, matching how 1d always worked (`complete_{scale}` now means "the
+forward bar exists," full stop, at every tf). `forward_returns` truncated and rebuilt clean
+under the corrected definition; migration 272 reverted 1h's now-unjustified `active_scales`
+exclusion. **[146](pending/146-lookahead-grid-per-tf-recalibration.md)'s grid is no longer
+disputed on session-boundedness** (that premise is resolved), but its actual per-tf horizon
+VALUES remain open — see `docs/research/2026-07-30-forward-return-horizon-grid-refactor.md`,
+which recommends deriving them from each tf's real holding period (via
+`_select_hold_bars_from_decay`) rather than re-deriving 146's grid as-is. 208's Step 3 (the
+grid-shape/values question) and the characterization run
+(`ops_lookahead_horizon_response.py`, safe to run now once a small 5m gap is closed) are the
+next concrete steps, not urgent-P0 anymore now that the production-blocking premise is fixed —
+downgrade from P0 once the characterization run confirms the design doc's direction.
 
 The rest of this section (below) is stale/resolved, kept for record only.
 
@@ -117,7 +120,7 @@ remain in this chain.
 | ~~176~~ | **CLOSED 2026-07-30** — moved to `completed/`. 1d's 0% VP populated was the last open question; traced directly in `feature_factory.py:6188-6189` (`if tf == "1d": vp_extra = dict(_NEUTRAL_VP_EXTRA)`) — deliberate, documented since Phase 163 Plan 02 ("a single daily bar has no intraday distribution, so session-anchored VP is not meaningful"), not a backfill gap. S/R (separate mechanism) confirmed 100% populated at 1d as its own code comment claims. SMC/swing/S/R all non-NULL and non-constant (stddev-checked) across the full corpus. See `completed/176-...md`. |
 | [179](pending/179-gate166-concurrent-exposure-diagnostic.md) | **Stale entry corrected 2026-07-30 (todo-priorities audit).** Todo 183's corpus recompute (the thing this entry said was still pending) completed 2026-07-26/27 (`completed/183-...`), and 179's own sweep was re-run under corrected labels 2026-07-27 (`scripts/analysis/live_recalibrated_regime_sweep_check.py`, 270 cells, 108 adequately covered, **zero pass** — confirms the old-label finding, not a new negative result). The strategic fork this todo raised is resolved via T3 (Phase 167, independent of this regime question). This investigation reads as concluded, not actionable — **candidate for closing or converting to a decision record** rather than continuing to carry it as an open P1 pending item; the user's call, not made here. |
 | [167](pending/167-equity-cross-sectional-vs-symbol-hmm-never-falsifier-tested.md) | **Plan changed 2026-07-29 — no longer a standalone equity-scoped relaunch,** folded into 176's queued sequence (market-data-gap catchup → 176's `--refresh` → one full-corpus `ic_engine` pass). **176's `--refresh` step confirmed run 2026-07-30** (see 176's updated entry above), but the sequence's final step (a full-corpus equity+rates `ic_engine` pass) has not yet run — that pass is what would actually close this todo. Currently blocked behind todo 202's in-flight regime_writer→forward_return_writer→cross_sectional_regime_model→ic_engine relaunch (single-writer discipline: do not run a second `ic_engine` pass concurrently). |
-| [210](pending/210-ensemble-ic-worker-scales.md) | **Bumped P2→P1 same day it was filed** — `_run_ensemble_ic_worker`'s per-scale loop has no `complete_{scale}` term at all (unlike `ic_engine.py`, which correctly gates on it), so once `ensemble_alpha` is repopulated it will compute and persist `alpha_ensemble_ic` rows for `1h` from session-crossing, non-executable returns (live-measured: `complete_slow`/`complete_extended` are 0.0000 true but `return_slow`/`return_extended` are ~99.9% non-NULL) — exactly the Invariant 1 violation the session gate exists to prevent. Currently latent only because `ensemble_alpha` is empty; fix before it's next repopulated, not opportunistically. |
+| [210](pending/210-ensemble-ic-worker-scales.md) | **Bumped P2→P1 same day it was filed; premise updated 2026-07-30 after todo 208's session-gate fix, verdict unchanged.** `_run_ensemble_ic_worker`'s per-scale loop has no `complete_{scale}` term at all (unlike `ic_engine.py`, which correctly gates on it), so once `ensemble_alpha` is repopulated it will compute and persist `alpha_ensemble_ic` rows from forward returns whose completeness flag says the horizon doesn't actually exist yet. (The originally-cited illustration — 1h's session-crossing `slow`/`extended` — is now stale since that gate is gone; the underlying gap, silently including incomplete rows, is identical either way.) Fix scoped in `docs/plans/2026-07-30-ic-scale-cleanup-plan.md` Task 1, reusing `ops_ensemble_ablation.py`'s already-correct `apply_complete_gate` pattern. Currently latent only because `ensemble_alpha` is empty; fix before it's next repopulated. |
 
 **Note (2026-07-26):** [179](pending/179-gate166-concurrent-exposure-diagnostic.md)'s "strategic choice" fork is
 now resolved in one direction — T3 (cross-sectional long-short) passed decisively today (see

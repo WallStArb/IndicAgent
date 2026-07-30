@@ -1,9 +1,32 @@
 ---
 status: pending
-priority: P1
+priority: P2
 filed: 2026-07-30
 source: user pushback on todo 146's session-bounded grid for 1h + follow-up architecture
   review this session
+---
+
+**Steps 1/2 DONE 2026-07-30 (commit `8521c400`), downgraded P1→P2 — the production-blocking part
+is fixed.** `forward_return_writer.py`'s same-ET-session `complete_{scale}` gate is removed for
+5m/15m/1h; it now means "the forward bar exists," identically at every tf, matching 1d's
+always-was semantics. Migration 272 reverted 1h's now-unjustified `active_scales` exclusion.
+`forward_returns` truncated and rebuilt clean under the corrected definition; the corpus pipeline
+relaunched from step 3 and is running `ic_engine` as of this note (see `.planning/STATE.md`'s
+"Current saga"). **What's genuinely still open is Step 3** — the grid-shape/tier-count/values
+question below — now informed by a full design pass:
+`docs/research/2026-07-30-forward-return-horizon-grid-refactor.md` (v1.2). That doc's verdict:
+the `ic_engine.py` compute path is already cardinality-agnostic (no code blocker left there);
+what's genuinely wrong is narrower — a sampled numeric axis (bar counts) was given semantic
+gradient names, and the actual per-tf horizon VALUES should be chosen to bracket each tf's real
+holding period (via `_select_hold_bars_from_decay`'s existing but currently-starved decay walk),
+not from a top-down calendar ladder or arbitrary log-spacing. Live evidence this matters:
+`hold_max_bars` is pinned at the 60-bar ceiling in every regime for 1h/1d today — that walk has
+never once converged for either tf. Next concrete step: run the characterization
+(`ops_lookahead_horizon_response.py`, safe now, needs one small `_OVERNIGHT_HORIZON_GRIDS` gap
+closed for 5m first) once the in-flight `ic_engine` run completes. The rest of this file (below)
+is the original filing, kept for the Step 3 problem statement and evidence — superseded by the
+research doc where they conflict.
+
 ---
 
 # `forward_return_writer`'s same-ET-session completeness gate (5m/15m/1h) has no
