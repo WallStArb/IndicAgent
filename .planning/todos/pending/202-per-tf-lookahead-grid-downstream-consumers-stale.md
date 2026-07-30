@@ -10,6 +10,20 @@ source: /code-review of todo 146's per-tf IC lookahead grid landing (commits
 # forward_returns rebuild + 7 downstream measurement/validation scripts still assume the
 # old global 1/5/20/60 grid -- next full-corpus run risks silently mismatched IC scores
 
+## Correction (2026-07-30)
+
+[208](208-intraday-same-session-forward-return-gate-inconsistent-with-trade-construction.md)
+found that the same-ET-session completeness gate this todo's Item 1 rebuild sequence would
+apply to `forward_returns` for 5m/15m/1h is itself under active reconsideration -- Invariant
+1 does not require session-boundedness, and 1h's live completeness under the current gate is
+as low as 53.5% at the `mid` tier. Before running Item 1's truncate-and-rebuild step, check
+208's Step 1 (`ops_lookahead_horizon_response.py --allow-overnight`) status: if 208's Step 2
+lands first (removing the session gate for intraday tfs), rebuilding `forward_returns` now
+under the still-session-gated `_build_forward_return_sql` produces a second rebuild almost
+immediately after, once the gate changes. Sequence this todo's rebuild after 208's empirical
+Step 1 resolves, not in parallel with it, for 5m/15m/1h. `1d` is unaffected either way (no
+session gate applies to it), so nothing here blocks a 1d-only rebuild.
+
 ## What
 
 Todo 146's plan (`docs/superpowers/plans/2026-07-29-per-tf-ic-lookahead-grid.md`) scoped
@@ -128,3 +142,6 @@ bundle them into one PR; each script's fix is testable in isolation.
   supersedes (but does not delete) the 4 old flat keys
 - `scripts/infrastructure/backfill/infrastructure_truncate_derived_tables.sh` -- the
   existing truncate mechanism item 1 needs re-invoked
+- [208](208-intraday-same-session-forward-return-gate-inconsistent-with-trade-construction.md)
+  -- disputes whether the session gate this todo's Item 1 rebuild would apply to 5m/15m/1h
+  should exist at all; check its status before sequencing the rebuild
