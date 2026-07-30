@@ -352,24 +352,27 @@ REGIME_WRITER_OWNED_COLUMN_NAMES: tuple[str, ...] = (
 #   assigning its own heuristic regime value on every bar -- see that file's
 #   _process_bar_compute docstring.)
 #
-# - hmm_regime_prob/hmm_entropy/hmm_duration: NOT solely regime_writer's, unlike
-#   regime -- FeatureFactory.compute()/compute_batch() (feature_cache.py's inline
-#   K=3 forward-filter HMM) also populates these same field names on every FeatureVector,
-#   a second, different model writing the same column name as regime_writer's fitted
-#   K=5 HMM. Confirmed live on 2026-07-30: 11% of SPY/1d rows carrying regime_writer's
-#   probability triple violated the same-model invariant hmm_regime_prob <= max(p_up,
-#   p_ranging, p_down), i.e. the two models' outputs were already mixed in this column.
-#   Excluding them here preserves regime_writer's explicitly-claimed values from being
-#   silently overwritten by the K=3 compute value on --refresh, same protection as
-#   regime -- but note this exclusion only stops --refresh from being the tiebreaker by
-#   accident, it does not un-mix rows that already carry a K=3 value written before
-#   regime_writer ever reached them. These three ARE live ML input: ensemble_trainer.py's
-#   `_get_feature_columns()` (`_META_COLS` excludes regime/regime_label_source but not
-#   these three) feeds them to ensemble training as ordinary features, so a row whose
-#   value came from K=3 vs K=5 is silently indistinguishable downstream. Which model
-#   *should* be authoritative for this column name is a separate, unresolved design
-#   question (todo 207) -- resolution is presumably a rename (distinct hmm_*_k3 vs
-#   hmm_*_fitted columns), not a preference call.
+# - hmm_regime_prob/hmm_entropy/hmm_duration: now exactly like regime -- callers
+#   always pass None. FeatureFactory.compute()/compute_batch() previously also
+#   populated these same field names via feature_cache.py's inline K=3
+#   forward-filter HMM, a second, different model writing the same column as
+#   regime_writer's fitted K=5 HMM; confirmed live on 2026-07-30 that this had
+#   already mixed the two models' outputs in production (11% same-model-invariant
+#   violation on SPY/1d rows). Resolved 2026-07-30 (todo 207, closed): the K=3
+#   model's output had zero live consumer beyond echoing into this now-removed
+#   wiring, so FeatureFactory.compute()/compute_batch() now pass None for all
+#   three unconditionally, and the dead K=3 forward-pass compute itself was
+#   deleted from feature_cache.py's refresh_regime() (~30% of that function's
+#   cost, per todo 197's earlier profiling). regime_writer.py is now the sole
+#   writer of these 3 columns going forward -- no new mixed-provenance rows
+#   can be created. This does NOT retroactively clean already-persisted rows:
+#   because these columns are excluded from DO UPDATE SET, any row that
+#   already carries a stale K=3 value (written before this fix, or before
+#   regime_writer's next pass reaches that symbol/tf) keeps it indefinitely --
+#   a --refresh cannot clear it, only regime_writer's own
+#   `WHERE regime IS NULL` pass does. ensemble_trainer.py's _META_COLS now
+#   excludes these 3 names too (added alongside this fix) so an unlabeled
+#   row's NULL is never silently imputed to a fabricated 0.0 during training.
 #
 # - regime_label_source: NOT actually regime_writer-owned (absent from
 #   REGIME_WRITER_OWNED_COLUMN_NAMES) -- every caller hardcodes the constant 'filtered'

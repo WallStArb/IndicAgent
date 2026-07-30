@@ -5595,9 +5595,9 @@ def _build_feature_vector(
     resistance_age_bars: float | None = None,
     support_age_bars: float | None = None,
     sr_level_count: float | None = None,
-    hmm_regime_prob: float,
-    hmm_entropy: float,
-    hmm_duration: float,
+    hmm_regime_prob: float | None,
+    hmm_entropy: float | None,
+    hmm_duration: float | None,
     hurst: float,
     shannon: float,
     garch_ratio: float,
@@ -6374,9 +6374,16 @@ class FeatureFactory:
             atr_z=atr_z_val,
             vol_ratio=_vol_ratio(closes, config.vol_short_bars, config.vol_long_bars),
             **_structural_fields,
-            hmm_regime_prob=cache.hmm_regime_prob,
-            hmm_entropy=cache.hmm_entropy,
-            hmm_duration=cache.hmm_duration,
+            # regime_writer.py is the sole writer of these 3 columns (todo 207,
+            # 2026-07-30) -- FeatureCache's inline K=3 forward-filter HMM
+            # (cache.hmm_regime_prob/hmm_entropy/hmm_duration) has zero live
+            # consumer of its own once this FeatureVector stops echoing it, so
+            # persisting a value here only recreated the two-model column
+            # collision regime_writer's fitted K=5 HMM already owns. None matches
+            # how `regime` itself is already always None from every compute path.
+            hmm_regime_prob=None,
+            hmm_entropy=None,
+            hmm_duration=None,
             hurst=cache.hurst,
             shannon=cache.shannon,
             garch_ratio=cache.garch_ratio,
@@ -6865,10 +6872,13 @@ class FeatureFactory:
                 _amd_fields,
             )
 
-            # Regime-level primitives (all from cache)
-            hmm_regime_prob_val = cache.hmm_regime_prob
-            hmm_entropy_val = cache.hmm_entropy
-            hmm_duration_val = cache.hmm_duration
+            # Regime-level primitives (all from cache). hmm_regime_prob/entropy/
+            # duration are always None here -- regime_writer.py is the sole
+            # writer of those 3 columns (todo 207, 2026-07-30); see the
+            # matching comment at the compute() call site above for why.
+            hmm_regime_prob_val = None
+            hmm_entropy_val = None
+            hmm_duration_val = None
             hurst_val = cache.hurst
             shannon_val = cache.shannon
             garch_ratio_val = cache.garch_ratio
@@ -7329,9 +7339,11 @@ def _cold_start_vector(cache: FeatureCache, tf: str) -> FeatureVector:
         resistance_age_bars=None,
         support_age_bars=None,
         sr_level_count=None,
-        hmm_regime_prob=cache.hmm_regime_prob,
-        hmm_entropy=cache.hmm_entropy,
-        hmm_duration=cache.hmm_duration,
+        # regime_writer.py is the sole writer of these 3 columns (todo 207,
+        # 2026-07-30) -- see the matching comment at compute()'s call site.
+        hmm_regime_prob=None,
+        hmm_entropy=None,
+        hmm_duration=None,
         hurst=cache.hurst,
         shannon=cache.shannon,
         garch_ratio=cache.garch_ratio,

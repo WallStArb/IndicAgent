@@ -215,13 +215,24 @@ class FeatureCache:
         # --- GARCH(1,1) sigma / realized vol ratio ---
         self.garch_ratio = _garch_ratio(closes, config.garch_window)
 
-        # --- HMM forward pass (2D, log-return + realized-vol) ---
-        hmm_prob, hmm_entropy, hmm_label = _hmm_forward_2d(closes)
-        self.hmm_regime_prob = hmm_prob
-        self.hmm_entropy = hmm_entropy
-        if self._hmm_regime_label != -1 and hmm_label != self._hmm_regime_label:
-            self.hmm_duration = 0.0
-        self._hmm_regime_label = hmm_label
+        # hmm_regime_prob/hmm_entropy/hmm_duration deliberately NOT computed here
+        # (removed 2026-07-30, todo 207): this K=3 forward-filter HMM had zero
+        # live consumer once FeatureFactory stopped echoing it into FeatureVector
+        # -- regime_writer.py's fitted, BIC-selected K=5 HMM is the sole writer
+        # of those 3 columns. Running a full-history forward pass every
+        # regime_cache_refresh_bars cycle for a value nobody read was pure waste
+        # (the mechanism this removed: _hmm_forward_2d, a Python-loop
+        # forward-algorithm pass over the entire close series -- its lower-level
+        # helper _hmm_forward_step is kept, still used by
+        # backfill_feature_factory.py's unrelated ctf_regime_align computation).
+        # self.hmm_regime_prob/hmm_entropy remain declared on FeatureCache at
+        # their dataclass defaults, permanently inert. self.hmm_duration and
+        # self._hmm_regime_label are ALSO now inert, but not "at their default"
+        # in the same sense -- advance_bar() no longer increments hmm_duration
+        # (its only reset, on regime-state change, lived here and was removed
+        # the same day) and _hmm_regime_label is simply never written again.
+        # All 4 kept declared (not deleted) to bound this change's blast radius
+        # to the compute engine; safe to delete outright in a future pass.
 
         # --- HMA slope z-score ---
         hma_val = _hma(closes, config.hma_period)
@@ -508,10 +519,14 @@ class FeatureCache:
 
         Called once per bar by the pipeline and backfill. Encapsulates:
         - Weekly VWAP accumulation and above_wk_vwap flag
-        - HMM duration counter increment
+
+        hmm_duration counter increment removed 2026-07-30 (todo 207): its only
+        reset (on HMM state change, in refresh_regime()) was removed the same
+        day as dead compute, so incrementing without ever resetting would have
+        made this a monotonically-increasing counter forever rather than
+        staying inert like the other 2 removed hmm_* fields.
         """
         self.update_wk_vwap(bar_ts, high, low, close, volume)
-        self.hmm_duration += 1.0
 
     def update_cross_asset(
         self,
@@ -893,7 +908,14 @@ def _garch_ratio(close: np.ndarray, window: int) -> float:
     return garch_sigma / realized_vol if realized_vol > 1e-10 else 1.0
 
 
-# HMM default parameters (forward-only, 2D)
+# HMM default parameters (forward-only, 2D). _hmm_forward_2d (the higher-level
+# refresh_regime() wrapper) and _hmm_entropy were removed 2026-07-30 (todo 207,
+# dead compute -- see refresh_regime()'s comment above), but _hmm_forward_step
+# and these 3 arrays + _HMM_K stay: services/backfill_feature_factory.py's
+# CTF regime-alignment computation (ctf_regime_align, a live FeatureVector
+# field, distinct from the removed hmm_regime_prob/hmm_entropy/hmm_duration)
+# imports and calls _hmm_forward_step directly on higher-timeframe bars, a
+# genuinely different consumer of the same low-level forward-algorithm step.
 _HMM_A = np.array(
     [
         [0.95, 0.025, 0.025],
@@ -916,36 +938,6 @@ _HMM_VARS_2D = np.array(
     ]
 )
 _HMM_K = 3
-
-
-def _hmm_forward_2d(close: np.ndarray, vol_window: int = 20) -> tuple[float, float, int]:
-    """Forward HMM pass (2D: log_return + realized_vol). No backward smoother.
-
-    Returns (dominant_state_prob, shannon_entropy_of_state_probs, dominant_state_label).
-    dominant_state_label is the argmax of the final alpha vector (integer 0..K-1).
-    Extracted from src/intelligence/features/smc_context/hmm_regime.py _forward_step.
-    """
-    if len(close) < vol_window + 1:
-        # Cold start: uniform prior
-        probs = np.full(_HMM_K, 1.0 / _HMM_K)
-        return float(np.max(probs)), _hmm_entropy(probs), 0
-
-    log_returns = np.log(np.maximum(close[1:], 1e-10) / np.maximum(close[:-1], 1e-10))
-    log_returns = np.where(np.isfinite(log_returns), log_returns, 0.0)
-
-    alpha = np.full(_HMM_K, 1.0 / _HMM_K)
-    ret_buf: deque = deque(maxlen=vol_window)
-
-    for ret in log_returns:
-        ret_buf.append(float(ret))
-        realized_vol = float(np.std(list(ret_buf))) if len(ret_buf) >= 2 else 0.005
-        obs = np.array([ret, realized_vol])
-        _hmm_forward_step(obs, alpha)
-
-    dominant_prob = float(np.max(alpha))
-    entropy = _hmm_entropy(alpha)
-    dominant_label = int(np.argmax(alpha))
-    return dominant_prob, entropy, dominant_label
 
 
 def _hmm_forward_step(obs: np.ndarray, alpha: np.ndarray) -> None:
@@ -979,12 +971,6 @@ def _hmm_forward_step(obs: np.ndarray, alpha: np.ndarray) -> None:
         alpha[:] = unnorm / total
     else:
         alpha[:] = 1.0 / _HMM_K
-
-
-def _hmm_entropy(probs: np.ndarray) -> float:
-    """Shannon entropy of HMM state probability vector."""
-    safe = np.maximum(probs, 1e-300)
-    return float(-np.sum(safe * np.log(safe)))
 
 
 def _wma(series: np.ndarray, k: int) -> float:

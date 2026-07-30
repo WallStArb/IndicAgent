@@ -1,7 +1,8 @@
 ---
-status: pending
+status: completed
 priority: P2
 filed: 2026-07-30
+closed: 2026-07-30
 source: found investigating todo 205 (feature_vectors.regime --refresh clobber) — a second,
   narrower dual-writer collision on the same mechanism, already contained but not eliminated
 renumbered: from 206 (2026-07-30) -- collided with a concurrent session's todo 206
@@ -66,14 +67,59 @@ publish time — the provenance claim is technically inaccurate at insert time (
 causal forward-filter, so the value is accurate by the time anything could read it). Not worth
 a standalone fix; note only in case this column gains a consumer later.
 
-## Recommended fix (not executed)
+## Resolution (2026-07-30) — option (b) executed
 
-Either: (a) rename the K=3 inline fields to something distinct (e.g.
-`hmm_regime_prob_fast`/`hmm_entropy_fast`/`hmm_duration_fast`) if they're meant to be a
-persisted, queryable real-time signal in their own right, or (b) stop persisting the K=3
-model's values into `feature_vectors` at all if they're purely a live in-memory signal for
-I7-style gating and were never meant to be a training feature — check whether anything reads
-these fields expecting the K=3 (not K=5) semantics before choosing between (a)/(b). Either way,
-add a regression test asserting no code path can write a non-`regime_writer` value into these
-three columns when `regime IS NOT NULL` for that row, closing the gap structurally instead of
-by gating-contract coincidence.
+Investigated whether anything reads the K=3 model's live value under any name before choosing
+between (a) rename vs (b) stop persisting, per the fork above. Traced every consumer of
+`cache.hmm_regime_prob`/`hmm_entropy`/`hmm_duration` and `FeatureVector.hmm_regime_prob`/
+`hmm_entropy`/`hmm_duration` repo-wide: the only reads were the 3
+`FeatureFactory.compute()`/`compute_batch()` call sites that echoed the cache value into the
+constructed `FeatureVector` (now removed) and `ensemble_trainer.py`'s blind
+`information_schema.columns`-based feature discovery (doesn't care about provenance, just wants
+*a* numeric value — which is exactly the contamination risk, not a reason to keep two writers).
+No other live code — not even the archived-adjacent I7/narrative/SMC-context modules checked
+along the way — reads a "fast/real-time" K=3 semantic under any name. Per this project's Musk-5-step
+mandate ("delete before adding, don't add features for hypothetical future requirements"),
+renaming (option a) would have preserved unused optionality nobody asked for; deleting is the
+ruthless, correct call.
+
+**Executed:**
+1. `src/intelligence/feature_factory.py`: all 3 `FeatureVector` construction sites (`compute()`,
+   `compute_batch()`'s main per-bar loop, and its cold-start `_cold_start_vector` fallback) now
+   pass `hmm_regime_prob=None`/`hmm_entropy=None`/`hmm_duration=None` unconditionally, matching
+   how `regime` was already always `None`. `_build_feature_vector`'s parameter types and
+   `FeatureVector`'s dataclass field types (`src/intelligence/schemas.py`) updated from `float`
+   to `float | None` to match reality (previously a type lie — always None in practice, declared
+   non-Optional).
+2. `src/intelligence/feature_cache.py`: deleted the now-fully-dead K=3 forward-pass compute
+   itself from `refresh_regime()` — `_hmm_forward_2d` (a Python-loop forward-algorithm pass over
+   the entire close series on every `regime_cache_refresh_bars` cycle, part of todo 197's ~30%
+   compute-cost finding) and `_hmm_entropy`, confirmed zero remaining callers repo-wide before
+   removal. `hurst`/`shannon`/`garch_ratio`/`hma_slope_z`/`adx` (the function's other outputs,
+   genuinely live) untouched.
+3. **Caught mid-fix, real near-miss:** an initial repo-wide-assumed-but-actually-file-scoped grep
+   missed that `services/backfill_feature_factory.py` imports `_hmm_forward_step`/`_HMM_K`
+   directly for a *different*, genuinely live computation (`ctf_regime_align`, a cross-timeframe
+   regime-alignment feature, distinct from `hmm_regime_prob`/etc.) — reusing the same low-level
+   forward-algorithm step on higher-timeframe bars. Caught by the full test suite (4 collection
+   `ImportError`s), not by review — restored `_hmm_forward_step`/`_HMM_A`/`_HMM_MEANS_2D`/
+   `_HMM_VARS_2D`/`_HMM_K` (confirmed via full repo-wide grep this time), keeping only the
+   genuinely-orphaned `_hmm_forward_2d`/`_hmm_entropy` removed.
+4. Updated 3 test files: `test_feature_factory.py`'s two `_from_cache` tests (which had asserted
+   the leak itself as correct behavior) rewritten as `_never_leaks_cache_value` tests, forcing a
+   confident cache value and asserting `None` regardless; added cold-start and `compute_batch()`
+   coverage (neither existed before); `test_refresh_regime_updates_cache` updated to assert the
+   5 still-live fields update while `hmm_regime_prob` stays at its dataclass default.
+5. `feature_vector_persistence.py`'s `_EXTERNALLY_OWNED_COLUMN_NAMES` comment updated — no
+   longer describes a "two models racing" tiebreaker, now correctly states `regime_writer.py` is
+   unconditionally the sole writer of all 5 excluded columns.
+
+**Deliberately left in place:** `FeatureCache.hmm_regime_prob`/`hmm_entropy`/`hmm_duration`/
+`_hmm_regime_label` dataclass field *declarations* remain (permanently inert, always at
+defaults) — removing them outright is a larger structural change (risk of breaking
+introspection/serialization call sites not fully audited in this pass) than the actual goal
+(eliminate the wasted compute) required. Noted in `refresh_regime()`'s comment as safe to
+delete in a future cleanup.
+
+Full unit suite green (4845 passed, 2 pre-existing skips), ruff/black clean on every touched
+file.

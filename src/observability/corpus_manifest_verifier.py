@@ -400,10 +400,16 @@ _FEATURE_COLUMNS = [
     "va_position",
     "sr_support_dist",
     "sr_resist_dist",
-    "hmm_regime_prob",
-    "hmm_entropy",
     "hurst",
 ]
+# hmm_regime_prob/hmm_entropy/hmm_duration deliberately excluded here, same
+# reason `regime` already is (todo 207, 2026-07-30): regime_writer.py's
+# `UPDATE ... WHERE regime IS NULL` pass -- not FeatureFactory -- is what
+# populates these, and its coverage is inherently partial (symbols with
+# degenerate HMM fits are reasoned exclusions, see todo 168). This gate's
+# contract is "did feature computation populate its outputs" -- a
+# regime-labeling coverage check is a different question and belongs in its
+# own gate with its own threshold, not folded into max_null_rate here.
 
 
 def _check_feature_null_rates(

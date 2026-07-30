@@ -1,9 +1,44 @@
 ---
-status: pending
+status: completed
 priority: P2
 filed: 2026-07-27
+closed: 2026-07-30
 source: found via cProfile while investigating feature_vectors compute throughput -- SPY/5m's
   full 20-year history, single symbol/tf, took ~10 min to compute; profiling isolated the cost
+---
+
+## Resolution (2026-07-30) — superseded by deletion, not optimization
+
+Closing todo 207 (`feature_vectors.hmm_regime_prob`/`hmm_entropy`/`hmm_duration` dual-writer
+collision) required tracing every consumer of `_hmm_forward_2d`'s output, and found zero live
+consumer beyond the now-removed `FeatureVector` echo this todo already correctly identified as
+IC-measured (see "Why this isn't a quick fix" below — that reasoning was right, the columns
+*were* live-consumed, just not by anything that needed the K=3 *value specifically*).
+`regime_writer.py`'s fitted K=5 HMM is the sole real consumer of the `hmm_regime_prob`/
+`hmm_entropy`/`hmm_duration` column *names*; the K=3 forward-filter computed here had never
+earned authority over them (no BIC validation, ever). So the right fix wasn't "make this
+incremental" (option 2/3 below) — it was delete the call entirely, since the output was going
+nowhere.
+
+`refresh_regime()` no longer calls `_hmm_forward_2d`/computes `hmm_regime_prob`/`hmm_entropy`/
+`hmm_duration` at all; `_hmm_forward_2d` and `_hmm_entropy` (the two symbols solely responsible
+for the ~30% cost measured below) were deleted from `feature_cache.py` outright, confirmed zero
+remaining callers repo-wide. `_hmm_forward_step`/`_HMM_A`/`_HMM_MEANS_2D`/`_HMM_VARS_2D`/`_HMM_K`
+were kept (not deleted) — `services/backfill_feature_factory.py` imports and calls
+`_hmm_forward_step` directly for a genuinely different, live computation (`ctf_regime_align`, a
+cross-timeframe regime-alignment feature), reusing the same low-level forward-algorithm step on
+higher-timeframe bars; this dependency was missed on a first pass (file-scoped grep, not
+repo-wide) and caught by the full test suite (4 collection `ImportError`s), not by review.
+
+The reset-every-window design question this todo raised (point 1 in "What needs to happen") is
+now moot — there's no more replay happening in this context to redesign. `hurst`/`shannon`/
+`garch_ratio`/`hma_slope_z`/`adx` (the *other* things `refresh_regime()` computes, sharing the
+same 30-bar cadence and full-window-replay pattern) are untouched by this fix and still replay
+from scratch every cycle — if that remaining cost is ever worth investigating, it needs its own
+todo; this one's scope was specifically the HMM sub-computation, now gone.
+
+Full detail: `.planning/todos/completed/207-hmm-column-name-collision-k3-k5.md`.
+
 ---
 
 # `FeatureCache`'s inline forward-filter HMM resets to uniform prior and replays the full window from scratch every 30 bars -- ~30% of total feature-compute cost, and possibly not even the statistically correct design

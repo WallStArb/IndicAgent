@@ -172,13 +172,11 @@ class FeatureVectorPipeline(BaseDaemon):
         A newly created cache is warmed from already-seeded/buffered bar history
         (todo 159) so `above_wk_vwap` reflects real week-to-date volume-weighted price
         instead of starting cold after every restart. Warm-up calls `update_wk_vwap()`
-        directly, NOT the bundled `advance_bar()` -- replaying `hmm_duration`'s
-        unconditional `+= 1.0` across up to 199 buffered bars would set it to a
-        plausibly-large, equally-fabricated value (a false claim of long regime
-        persistence) rather than the true bars-since-last-regime-change count, which
-        isn't recoverable without re-running HMM classification retroactively.
-        `hmm_duration` is left cold (0.0) on purpose, matching the already-documented,
-        self-correcting-at-next-regime-change behavior (lower severity, per todo 159).
+        directly rather than the bundled `advance_bar()`, keeping this warm-up path
+        decoupled from whatever else `advance_bar()` accumulates per bar (today: only
+        `update_wk_vwap()` itself -- `advance_bar()`'s prior `hmm_duration += 1.0`
+        increment was removed 2026-07-30, todo 207, since its only reset was removed
+        the same day as dead compute; see `feature_cache.py`'s `advance_bar()`).
         The most recent bar in history is excluded since it is the bar currently being
         processed and receives its own `advance_bar()` call after `compute()` below.
 

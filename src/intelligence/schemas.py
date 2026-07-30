@@ -1312,10 +1312,12 @@ class FeatureVector:
     resistance_age_bars: float | None
     support_age_bars: float | None
     sr_level_count: float | None
-    # Regime-level (11)
-    hmm_regime_prob: float
-    hmm_entropy: float
-    hmm_duration: float
+    # Regime-level (11). hmm_regime_prob/hmm_entropy/hmm_duration are always
+    # None from FeatureFactory -- regime_writer.py is the sole writer of
+    # these 3 columns (todo 207, 2026-07-30), same as `regime` itself.
+    hmm_regime_prob: float | None
+    hmm_entropy: float | None
+    hmm_duration: float | None
     hurst: float
     shannon: float
     garch_ratio: float

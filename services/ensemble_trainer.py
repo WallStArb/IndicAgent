@@ -443,6 +443,16 @@ async def _get_feature_columns(conn: asyncpg.Connection) -> list[str]:
             "regime",
             "regime_label_source",
             "created_at",
+            # regime_writer.py's UPDATE ... WHERE regime IS NULL pass is the
+            # sole writer of these 3 (todo 207, 2026-07-30); coverage is
+            # inherently partial, so an unlabeled row's NULL here is not
+            # "no signal" the way it is for a genuine feature -- without this
+            # exclusion it gets silently imputed to 0.0 below (outside the
+            # real support of a dominant-state probability), a fabricated
+            # value training would otherwise never detect.
+            "hmm_regime_prob",
+            "hmm_entropy",
+            "hmm_duration",
         }
     )
     rows = await conn.fetch("""
