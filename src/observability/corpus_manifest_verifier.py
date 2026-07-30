@@ -12,6 +12,7 @@ Crashes loud with RuntimeError on any failure.
 
 from __future__ import annotations
 
+import json
 import sys
 from pathlib import Path
 from typing import Any
@@ -56,6 +57,19 @@ _APR_DEFAULT_LOOKAHEADS_BY_TF: dict[str, dict[str, int]] = {
     "1d": {"fast": 1, "mid": 2, "slow": 5, "extended": 10},
 }
 
+# Todo 208/per-tf-active-scale-set design (2026-07-30): alpha.ic.active_scales.{tf}
+# controls WHICH of the 4 scales ic_engine actually attempts per tf -- 1h excludes
+# slow/extended (0.000 measured forward_returns completeness under the same-session
+# gate). Mirrors services/_batch_utils.py's ACTIVE_SCALES_FALLBACKS_BY_TF BY VALUE, not
+# by import -- src/observability/ is Ring 0, see this file's Ring-0-boundary comment
+# above for _LOOKAHEAD_SCALES. Keep in sync with that dict by hand if it ever changes.
+_APR_DEFAULT_ACTIVE_SCALES_BY_TF: dict[str, tuple[str, ...]] = {
+    "5m": ("fast", "mid", "slow", "extended"),
+    "15m": ("fast", "mid", "slow", "extended"),
+    "1h": ("fast", "mid"),
+    "1d": ("fast", "mid", "slow", "extended"),
+}
+
 
 def _open_db_conn() -> Any:
     """Open a sync psycopg2 connection using standard project credentials."""
@@ -73,8 +87,10 @@ def _load_apr_values(conn: Any) -> dict[str, Any]:
         for tf in _APR_DEFAULT_LOOKAHEADS_BY_TF
         for scale in _LOOKAHEAD_SCALES
     ]
+    active_scales_keys = [f"alpha.ic.active_scales.{tf}" for tf in _APR_DEFAULT_ACTIVE_SCALES_BY_TF]
     keys = [
         *lookahead_keys,
+        *active_scales_keys,
         _APR_KEY_MIN_ROWS_PER_SYMBOL_REGIME,
         _APR_KEY_MAX_NULL_RATE,
         _APR_KEY_NULL_RATE_SAMPLE_SIZE,
@@ -87,10 +103,25 @@ def _load_apr_values(conn: Any) -> dict[str, Any]:
         )
         rows = {r[0]: r[1] for r in cur.fetchall()}
 
+    active_scales_by_tf: dict[str, tuple[str, ...]] = {}
+    for tf, default_scales in _APR_DEFAULT_ACTIVE_SCALES_BY_TF.items():
+        raw = rows.get(f"alpha.ic.active_scales.{tf}")
+        if raw is None:
+            active_scales_by_tf[tf] = default_scales
+            continue
+        try:
+            parsed = json.loads(raw)
+            active_scales_by_tf[tf] = tuple(parsed) if parsed else default_scales
+        except (ValueError, TypeError):
+            active_scales_by_tf[tf] = default_scales
+
     lookaheads_by_tf: dict[str, set[int]] = {}
     for tf, defaults_by_scale in _APR_DEFAULT_LOOKAHEADS_BY_TF.items():
         bars: set[int] = set()
+        active_scales = active_scales_by_tf.get(tf, tuple(defaults_by_scale.keys()))
         for scale, default in defaults_by_scale.items():
+            if scale not in active_scales:
+                continue
             raw = rows.get(f"alpha.ic.lookahead.{tf}.{scale}")
             try:
                 bars.add(int(raw) if raw is not None else default)

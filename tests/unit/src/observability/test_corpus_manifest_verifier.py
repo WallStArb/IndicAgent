@@ -80,10 +80,15 @@ def test_load_apr_values_falls_back_per_tf_when_keys_absent():
     conn = _FakeConn(config_rows=[])
     apr = _load_apr_values(conn)
     for tf, defaults in _APR_DEFAULT_LOOKAHEADS_BY_TF.items():
+        if tf == "1h":
+            continue  # 1h's active_scales excludes slow/extended -- asserted separately below
         assert apr["lookaheads_by_tf"][tf] == set(defaults.values())
     # Confirms tfs genuinely differ -- proves this isn't accidentally passing because
     # every tf's fallback happens to be identical.
     assert apr["lookaheads_by_tf"]["5m"] != apr["lookaheads_by_tf"]["15m"]
+    # 1h's active_scales fallback (fast/mid only) excludes slow(20)/extended(60) --
+    # not the full default grid like the other tfs.
+    assert apr["lookaheads_by_tf"]["1h"] == {1, 2}
 
 
 def test_load_apr_values_partial_override_only_affects_that_tf():
@@ -154,3 +159,46 @@ def test_verify_data_quality_check3_passes_with_correct_per_tf_grid(tmp_path):
         # Fixture doesn't provide enough fetch_results/description for checks 4-7;
         # that's fine, this test only asserts Check 3 itself passes.
         pass
+
+
+def test_load_apr_values_scopes_lookaheads_by_active_scales_for_1h():
+    """1h's active_scales excludes slow/extended (live since migration 271) -- Check 3's
+    expected set for 1h must reflect only the ACTIVE scales' bar counts, not all 4
+    unconditionally, or the check will false-positive-fail on every real corpus run."""
+    conn = _FakeConn(
+        config_rows=[
+            ("alpha.ic.active_scales.1h", '["fast","mid"]'),
+        ]
+    )
+    apr = _load_apr_values(conn)
+    assert apr["lookaheads_by_tf"]["1h"] == {1, 2}  # fast=1, mid=2 -- NOT {1,2,20,60}
+
+
+def test_load_apr_values_active_scales_falls_back_when_key_absent():
+    """No alpha.ic.active_scales.* rows at all -- must fall back to the by-value mirror
+    of ACTIVE_SCALES_FALLBACKS_BY_TF (1h -> fast/mid only), not silently include all 4."""
+    conn = _FakeConn(config_rows=[])
+    apr = _load_apr_values(conn)
+    assert apr["lookaheads_by_tf"]["1h"] == {1, 2}
+    assert apr["lookaheads_by_tf"]["5m"] == {1, 6, 12, 39}  # 5m keeps all 4, unaffected
+
+
+def test_verify_data_quality_check3_passes_for_1h_with_only_two_scales(tmp_path):
+    """Positive case mirroring test_verify_data_quality_check3_passes_with_correct_per_tf_grid
+    but for 1h post-fix: only fast(1)/mid(2) rows exist, and Check 3 must NOT raise."""
+    verifier = CorpusManifestVerifier(tmp_path)
+    fetch_results = [
+        [(2,)],
+        [("1h", 10)],
+        [
+            ("1h", 1, 3),
+            ("1h", 2, 3),
+        ],
+    ]
+    conn = _FakeConn(config_rows=[], fetch_results=fetch_results)
+    try:
+        verifier.verify_data_quality(conn, required_tfs=["1h"], required_symbols=["A", "B"])
+    except RuntimeError as err:
+        assert "missing lookaheads" not in str(err)
+    except (IndexError, TypeError, AttributeError):
+        pass  # fixture doesn't provide enough fetch_results for checks 4-7; fine here
