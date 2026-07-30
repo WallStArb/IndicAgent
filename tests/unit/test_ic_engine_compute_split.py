@@ -290,6 +290,27 @@ def test_per_symbol_per_scale_subsample_uses_slice_not_fancy_index():
     assert "X_regime[stride]" in source and "X_regime_nd[stride]" in source
 
 
+def _assert_subsample_and_rank_outputs_equal(a: tuple, b: tuple) -> None:
+    """Shared assertion for _subsample_and_rank's 8-tuple output: every array must
+    match exactly between two calls that are expected to be output-equivalent
+    (varying only a wall-time-only parameter like feature_block_columns or
+    max_workers). Used by both the feature-blocking and threading equivalence
+    tests below."""
+    a_X_raw, a_ranks_X, a_ranks_Y, a_ic, a_p, a_ci_lower, a_ci_upper, a_folds = a
+    b_X_raw, b_ranks_X, b_ranks_Y, b_ic, b_p, b_ci_lower, b_ci_upper, b_folds = b
+
+    np.testing.assert_array_equal(a_X_raw, b_X_raw)
+    np.testing.assert_array_equal(a_ranks_X, b_ranks_X)
+    np.testing.assert_array_equal(a_ranks_Y, b_ranks_Y)
+    np.testing.assert_array_equal(a_ic, b_ic)
+    np.testing.assert_array_equal(a_p, b_p)
+    np.testing.assert_array_equal(a_ci_lower, b_ci_lower)
+    np.testing.assert_array_equal(a_ci_upper, b_ci_upper)
+    assert len(a_folds) == len(b_folds)
+    for a_fold, b_fold in zip(a_folds, b_folds):
+        np.testing.assert_array_equal(a_fold, b_fold)
+
+
 def test_subsample_and_rank_feature_blocked_matches_unblocked():
     """Synthetic, DB-free equivalence check (162-01 Task 3): feature-blocked
     output must equal unblocked output on a small in-memory array.
@@ -342,37 +363,58 @@ def test_subsample_and_rank_feature_blocked_matches_unblocked():
         **common_kwargs,
     )
 
-    (
-        u_X_raw,
-        u_ranks_X,
-        u_ranks_Y,
-        u_ic,
-        u_p,
-        u_ci_lower,
-        u_ci_upper,
-        u_folds,
-    ) = unblocked
-    (
-        b_X_raw,
-        b_ranks_X,
-        b_ranks_Y,
-        b_ic,
-        b_p,
-        b_ci_lower,
-        b_ci_upper,
-        b_folds,
-    ) = blocked
+    _assert_subsample_and_rank_outputs_equal(unblocked, blocked)
 
-    np.testing.assert_array_equal(u_X_raw, b_X_raw)
-    np.testing.assert_array_equal(u_ranks_X, b_ranks_X)
-    np.testing.assert_array_equal(u_ranks_Y, b_ranks_Y)
-    np.testing.assert_array_equal(u_ic, b_ic)
-    np.testing.assert_array_equal(u_p, b_p)
-    np.testing.assert_array_equal(u_ci_lower, b_ci_lower)
-    np.testing.assert_array_equal(u_ci_upper, b_ci_upper)
-    assert len(u_folds) == len(b_folds)
-    for u_fold, b_fold in zip(u_folds, b_folds):
-        np.testing.assert_array_equal(u_fold, b_fold)
+
+def test_subsample_and_rank_threaded_matches_serial():
+    """Todo 215: config.per_symbol_bootstrap_threads makes the per-symbol path's
+    previously-hardcoded max_workers=1 configurable. Threading must change wall
+    time only, never output -- same invariant test_subsample_and_rank_feature_
+    blocked_matches_unblocked verifies for feature-blocking, applied here to
+    thread count: _blocked_bootstrap_ci's resample indices are fully determined
+    by starts_matrix before any resampling begins (drawn once, serially, before
+    the feature-block loop), and np.percentile(boot_ics, ..., axis=0) is
+    invariant to the order results land in along that axis -- so dispatching the
+    same n_boot resamples across threads instead of one at a time must not
+    change ci_lower/ci_upper (or anything else _subsample_and_rank returns).
+    """
+    from services.ic_engine import _subsample_and_rank
+
+    rng_data = np.random.default_rng(19)
+    n_sub = 400
+    n_features = 8
+    X_sub_nd = rng_data.normal(size=(n_sub, n_features)).astype(np.float32)
+    returns_scale = rng_data.normal(size=n_sub)
+    valid_mask = np.ones(n_sub, dtype=bool)
+    valid_mask[:30] = False
+
+    common_kwargs = dict(
+        walk_forward_folds=3,
+        embargo_bars=1,
+        min_reliable_n=2,
+        bootstrap_block_size=10,
+        bootstrap_resamples=80,
+        feature_block_columns=3,  # exercise multiple feature blocks too
+    )
+
+    serial = _subsample_and_rank(
+        X_sub_nd,
+        valid_mask,
+        returns_scale,
+        rng=np.random.default_rng(42),
+        max_workers=1,
+        **common_kwargs,
+    )
+    threaded = _subsample_and_rank(
+        X_sub_nd,
+        valid_mask,
+        returns_scale,
+        rng=np.random.default_rng(42),
+        max_workers=4,
+        **common_kwargs,
+    )
+
+    _assert_subsample_and_rank_outputs_equal(serial, threaded)
 
 
 def test_cell_too_large_error_raised_by_both_cell_functions():

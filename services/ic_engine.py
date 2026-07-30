@@ -514,16 +514,32 @@ class ICEngineConfig:
     # Todo 129 (2026-07-17), converted to a per-tf dict by todo 133 (162-02 Task 1,
     # migration 250): thread pool size for _subsample_and_rank's re-rank+IC step,
     # cross-sectional pass ONLY. 5m defaults threaded (largest cells benefit); 15m/1h/1d
-    # default serial=1 (finish in minutes, threading only adds dispatch overhead) --
-    # must NEVER be raised for the per-symbol path's call sites, which already run
-    # inside an n_workers-way ProcessPoolExecutor pool; threading on top of that
-    # oversubscribes cores instead of speeding anything up. Safe to raise per-tf here
-    # because the cross-sectional pass runs single-process, after the per-symbol pool
-    # has already shut down -- nothing else is contending for cores at that point.
-    # Thread count changes wall time only, never output -- guaranteed structurally by
-    # 162-01's precomputed resample-index matrix (starts_matrix), drawn once per scale.
+    # default serial=1 (finish in minutes, threading only adds dispatch overhead).
+    # CORRECTED 2026-07-30 (todo 215): migration 250's original description claimed
+    # raising this for the per-symbol path would "oversubscribe cores instead of
+    # speeding anything up" -- that was asserted, never measured, and an isolated-
+    # single-worker live benchmark found the opposite (scipy's rankdata/argsort
+    # releases the GIL; threading gave a real 2-6x wall-time reduction). See
+    # per_symbol_bootstrap_threads below, migration 274 for the corrected persisted
+    # description. Thread count changes wall time only, never output -- guaranteed
+    # structurally by 162-01's precomputed resample-index matrix (starts_matrix),
+    # drawn once per scale.
     cross_sectional_bootstrap_threads: dict[str, int] = dataclasses.field(
         default_factory=lambda: {"5m": 6, "15m": 1, "1h": 1, "1d": 1}
+    )
+    # Todo 215 (2026-07-30): per-symbol-path sibling of cross_sectional_bootstrap_threads
+    # above, same shape (per-tf, same underlying _blocked_bootstrap_ci call) -- see that
+    # field's comment for the corrected oversubscription claim. Previously hardcoded
+    # max_workers=1 (this field did not exist). All-1s here, NOT the benchmarked value:
+    # unlike the cross-sectional pass (runs single-process after the per-symbol pool has
+    # already shut down), this path runs INSIDE all n_workers processes simultaneously,
+    # and whether a given thread count nets positive under that real concurrent
+    # contention (vs. the clean isolated-worker benchmark) has not yet been measured --
+    # deliberately not tested live while a corpus pipeline run was in flight (see
+    # STATE.md). Migration 273. Raise only after a dedicated multi-worker contention
+    # benchmark, not by inference from the isolated-worker numbers alone.
+    per_symbol_bootstrap_threads: dict[str, int] = dataclasses.field(
+        default_factory=lambda: {"5m": 1, "15m": 1, "1h": 1, "1d": 1}
     )
     # Phase 143.1-04 (Component E, todo 094): champion/challenger behavior switch shared
     # with ensemble_trainer.py's alpha.ensemble.sign_symmetric. Gates ONLY the
@@ -707,6 +723,12 @@ class ICEngineConfig:
                 "alpha.ic.cross_sectional_bootstrap_threads",
                 {"5m": 6, "15m": 1, "1h": 1, "1d": 1},
             ),
+            # Todo 215, migration 273.
+            per_symbol_bootstrap_threads=_load_per_tf_apr_dict(
+                cfg,
+                "infra.ic_engine.per_symbol_bootstrap_threads",
+                {"5m": 1, "15m": 1, "1h": 1, "1d": 1},
+            ),
             # 162-01 Task 3 (todos 139/140, migration 249).
             feature_block_columns=int(cfg.get_sync("alpha.ic.feature_block_columns", 32)),
             max_cell_rows=int(cfg.get_sync("alpha.ic.max_cell_rows", 1_200_000)),
@@ -811,6 +833,8 @@ _OPERATIONAL_CONFIG_FIELDS: frozenset[str] = frozenset(
         # drawn once per scale before the feature-block loop). Explicitly OPERATIONAL
         # per this plan's own directive.
         "cross_sectional_bootstrap_threads",
+        # Same reasoning as cross_sectional_bootstrap_threads directly above -- todo 215.
+        "per_symbol_bootstrap_threads",
         # Memory-layout chunk size only -- bit-identical by construction (162-01
         # SUMMARY: synthetic feature-blocked-vs-unblocked equivalence verified).
         "feature_block_columns",
@@ -1902,9 +1926,8 @@ def _compute_one_regime_cell(
         # -------------------------------------------------------
         # Shared feature-blocked rank -> IC -> circular block bootstrap CI ->
         # walk-forward fold pipeline (162-01 Task 3, todos 139/140). Per-symbol
-        # path -- always serial bootstrap (todo 131, max_workers=1): this
-        # already runs inside a ProcessPoolExecutor pool; threading on top
-        # would oversubscribe, not speed anything up.
+        # path, thread count now per-tf configurable (todo 215,
+        # config.per_symbol_bootstrap_threads[tf] -- see that field's comment).
         # -------------------------------------------------------
         (
             X_raw_scale,
@@ -1925,7 +1948,7 @@ def _compute_one_regime_cell(
             bootstrap_block_size=config.bootstrap_block_size[tf],
             bootstrap_resamples=config.bootstrap_resamples,
             rng=rng,
-            max_workers=1,
+            max_workers=config.per_symbol_bootstrap_threads[tf],
             feature_block_columns=config.feature_block_columns,
         )
         Y_scale = returns_scale[valid_mask]
@@ -2454,7 +2477,9 @@ def _compute_symbol_tf(
                     # used for the point estimate above.
                     # Per-symbol path -- always serial (todo 131); see
                     # circular_block_bootstrap_ic_serial's docstring for why this has no
-                    # max_workers knob to accidentally raise.
+                    # max_workers knob to accidentally raise, and why todo 215's
+                    # per-symbol threading fix (a different function, _blocked_
+                    # bootstrap_ic) deliberately did not extend to this call site.
                     ci_lower_arr, ci_upper_arr = circular_block_bootstrap_ic_serial(
                         x_daily,
                         y_daily,
