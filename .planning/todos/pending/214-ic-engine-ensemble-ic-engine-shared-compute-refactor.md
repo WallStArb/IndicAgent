@@ -45,3 +45,12 @@ proven stable again — refactoring on top of settled, verified behavior, not mo
 
 Real, multi-file refactor — not a quick pass. Scope as its own plan once picked up, not a
 quick task.
+
+## Partial progress (2026-07-30)
+
+A narrow slice landed incidentally: the `{scale: {tf: lookahead_bars}}` dict-construction
+duplicated across `ICEngineConfig.from_apr`, `EnsembleICConfig.from_apr`, and
+`AblationConfig.from_apr` was consolidated into `lookahead_by_scale_from_apr()`
+(`services/_batch_utils.py`), commit `955e6fbe`. This is one small instance of the
+duplication class this todo describes, not the compute-core consolidation (fetch → mask →
+rank-IC → walk-forward folds) that is this todo's actual scope. Still open.

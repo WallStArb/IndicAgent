@@ -1,10 +1,18 @@
 ---
-status: pending
+status: completed
 priority: P2
 filed: 2026-07-30
+completed: 2026-07-30
 source: final whole-branch review of docs/superpowers/plans/2026-07-30-per-tf-active-scale-set.md
   found these two additional consumers, distinct from todos 209/210
 ---
+
+**Part 2 DONE 2026-07-30** (commit `02506239`) — `ops_interaction_primitives_pilot.py`
+migrated to `active_scales_for(tf)` and the per-tf `alpha.ic.lookahead.{tf}.{scale}` keys;
+the independent stale-global-key bug fixed alongside it. Extracted a new, shared
+`services._batch_utils.bars_to_scale_map()` in the same commit (a third independent copy
+of the bars->scale reverse-map would otherwise have been added). Full test suite green.
+Both parts of this todo are now closed.
 
 **Part 1 of 2 DONE 2026-07-30** (commit `658378a6`) — `ops_ensemble_ablation.py` migrated:
 `AblationConfig` now mirrors `ICEngineConfig`'s shape exactly (per-tf `lookahead_{scale}` dicts +
