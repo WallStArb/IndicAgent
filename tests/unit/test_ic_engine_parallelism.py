@@ -4,12 +4,14 @@ bootstrap thread configuration.
 Tests validate the worker function signature and ICEngineConfig's per-tf thread
 dict without a live DB connection. `_derive_worker_rng_seed` is live (2026-07-29
 correction: an earlier version of this docstring claimed it was removed -- it
-was not; it's the per-cell seed for the circular block bootstrap CI at both the
-per-symbol path (`_compute_one_regime_cell`, keyed by symbol) and the
-cross-sectional path (`_compute_one_cross_sectional_cell`, keyed by
-`f"{tf}:{regime_label}"`), and also backs the canary negative controls in
-`src/intelligence/feature_factory.py` via the shared `src/core/rng.py` primitive
-it was extracted onto during todo 203's /simplify pass).
+was not). It derives ONE seed per call site -- `_run_ic_worker` (line ~3649,
+keyed by `symbol`) for the per-symbol ProcessPoolExecutor path, `main()`
+(line ~4928, keyed by the literal string `"cross_sectional"`) for the
+single-process cross-sectional pass -- which is then reused/advanced across
+every (regime, scale) cell that call computes, never re-seeded per-cell. It
+also backs the canary negative controls in
+`src/intelligence/feature_factory.py` via the shared `src/core/rng.py`
+primitive it was extracted onto during todo 203's /simplify pass.
 """
 
 from __future__ import annotations
