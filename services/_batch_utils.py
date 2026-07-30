@@ -217,8 +217,12 @@ def _get_json_typed_config(cfg_service: ConfigService, key: str, default: dict |
     value.
     """
     v = cfg_service.get_sync(key, default)
-    if isinstance(v, type(default)):
-        return v
+    if isinstance(default, dict):
+        if isinstance(v, dict):
+            return v
+    elif isinstance(default, list):
+        if isinstance(v, list):
+            return v
     if isinstance(v, str):
         return json.loads(v)
     return default
@@ -245,6 +249,12 @@ def canonicalize_active_scales(scales: list[str] | tuple[str, ...]) -> tuple[str
     Raises ValueError on any name outside _CANONICAL_SCALE_ORDER -- a typo'd scale
     name must fail loud, not silently shrink the active set (CLAUDE.md: silent
     wrong answers are worse than loud crashes).
+
+    An empty input list (`[]`) normalizes to a genuinely empty tuple `()` -- this
+    function does NOT fall back to any default for an empty input. (The fallback
+    to a tf's default active-scale set happens one layer up, in the config-read
+    helpers, and only when the APR key is entirely ABSENT -- an explicitly
+    configured empty list is passed through here as-is and stays empty.)
     """
     scale_set = set(scales)
     unknown = scale_set - set(_CANONICAL_SCALE_ORDER)

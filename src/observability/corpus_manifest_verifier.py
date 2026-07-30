@@ -309,6 +309,9 @@ class CorpusManifestVerifier:
                 missing = expected_for_tf - actual_lookaheads
                 if missing:
                     raise RuntimeError(f"TF {tf} missing lookaheads: {missing}")
+                unexpected = actual_lookaheads - expected_for_tf
+                if unexpected:
+                    raise RuntimeError(f"TF {tf} has unexpected lookaheads: {unexpected}")
 
         # Check 4: Feature NULL rate < threshold per numeric column in feature_vectors
         _logger.info("corpus_verification.checking_feature_null_rates")

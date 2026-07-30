@@ -13,25 +13,29 @@ _IC_ENGINE_PATH = Path(__file__).parent.parent.parent / "services" / "ic_engine.
 
 # Lines allowed to reference the bare _SCALES name: its own definition, and any
 # future explicitly-reviewed exception added here with a comment explaining why.
-_ALLOWED_LINE_PATTERNS = (
-    r"^_SCALES:\s*tuple\[str, \.\.\.\]\s*=",  # the definition itself
-    # ACTIVE_SCALES_FALLBACKS_BY_TF (Task 2, services/_batch_utils.py) contains the
-    # substring "_SCALES" but is a distinct identifier -- the per-tf fallback dict
-    # consumed by ICEngineConfig.from_apr, not the module-level _SCALES tuple this
-    # boundary test is guarding against. Import and single from_apr usage site only.
-    r".*ACTIVE_SCALES_FALLBACKS_BY_TF.*",
-)
+_ALLOWED_LINE_PATTERNS = (r"^_SCALES:\s*tuple\[str, \.\.\.\]\s*=",)  # the definition itself
+
+# ACTIVE_SCALES_FALLBACKS_BY_TF (Task 2, services/_batch_utils.py) contains the
+# substring "_SCALES" but is a distinct identifier -- the per-tf fallback dict
+# consumed by ICEngineConfig.from_apr, not the module-level _SCALES tuple this
+# boundary test is guarding against. Stripped out of each line (not allow-listed
+# as a whole-line regex) before checking for a bare _SCALES token, so a line that
+# combines a legitimate reference to this identifier with an unrelated bare
+# _SCALES use is still caught.
+_ALLOWED_SUBSTRING = "ACTIVE_SCALES_FALLBACKS_BY_TF"
 
 
 def test_no_bare_scales_reference_outside_allow_list():
     lines = _IC_ENGINE_PATH.read_text().splitlines()
     violations = []
     for i, line in enumerate(lines, start=1):
-        if "_SCALES" not in line:
+        stripped = line.strip()
+        if any(re.match(pat, stripped) for pat in _ALLOWED_LINE_PATTERNS):
             continue
-        if any(re.match(pat, line.strip()) for pat in _ALLOWED_LINE_PATTERNS):
+        remainder = stripped.replace(_ALLOWED_SUBSTRING, "")
+        if "_SCALES" not in remainder:
             continue
-        violations.append((i, line.strip()))
+        violations.append((i, stripped))
     assert not violations, (
         "Bare _SCALES reference(s) found outside the allow-list -- use "
         f"config.active_scales_for(tf) instead: {violations}"

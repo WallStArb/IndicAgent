@@ -202,3 +202,29 @@ def test_verify_data_quality_check3_passes_for_1h_with_only_two_scales(tmp_path)
         assert "missing lookaheads" not in str(err)
     except (IndexError, TypeError, AttributeError):
         pass  # fixture doesn't provide enough fetch_results for checks 4-7; fine here
+
+
+def test_verify_data_quality_check3_fails_on_unexpected_lookaheads_for_1h(tmp_path):
+    """Symmetric-direction case (final whole-branch review finding 1): 1h's
+    active_scales excludes slow/extended, so its expected set is only {1, 2}
+    (fast, mid). If feature_ic_scores somehow also has a lookahead_bars=20 (slow)
+    row for 1h -- e.g. the by-value ACTIVE_SCALES_FALLBACKS_BY_TF/
+    _APR_DEFAULT_ACTIVE_SCALES_BY_TF mirrors drifting out of sync, or a stale row
+    an exclusion-driven purge failed to clear -- Check 3 must still catch it. Prior
+    to this fix, Check 3 only computed `expected - actual` (missing) and silently
+    ignored anything present in `actual` but absent from `expected`."""
+    verifier = CorpusManifestVerifier(tmp_path)
+
+    fetch_results = [
+        [(2,)],  # check 1: symbol count query
+        [("1h", 10)],  # check 2: pooled rows by tf
+        [  # check 3: 1h has fast(1)/mid(2) as expected, PLUS an unexpected slow(20) row
+            ("1h", 1, 3),
+            ("1h", 2, 3),
+            ("1h", 20, 3),
+        ],
+    ]
+    conn = _FakeConn(config_rows=[], fetch_results=fetch_results)
+
+    with pytest.raises(RuntimeError, match="unexpected lookaheads"):
+        verifier.verify_data_quality(conn, required_tfs=["1h"], required_symbols=["A", "B"])

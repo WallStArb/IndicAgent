@@ -208,7 +208,13 @@ class EnsembleICConfig:
 
     def active_scales_for(self, tf: str) -> tuple[str, ...]:
         """Mirrors ICEngineConfig.active_scales_for (2026-07-30 design) -- same
-        per-tf active-scale semantics, independent frozen dataclass."""
+        per-tf active-scale semantics, independent frozen dataclass.
+
+        NOTE: as of this writing, this field/method is loaded but not yet wired
+        into production compute here -- `_run_ensemble_ic_worker`'s per-scale loop
+        still iterates the module-level hardcoded `_SCALES` tuple directly instead
+        of calling this method. Only test files call `active_scales_for` today.
+        Wiring it in is tracked separately (see todo 210); out of scope here."""
         return self.active_scales[tf]
 
     @classmethod
