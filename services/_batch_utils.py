@@ -6,6 +6,7 @@ from __future__ import annotations
 import csv
 import io
 import json
+from collections.abc import Callable
 from contextlib import contextmanager
 from typing import Any
 
@@ -192,6 +193,21 @@ forward_return_writer.py's from_apr()/loading logic -- do not re-literal this gr
 in any of those files; import it from here."""
 
 
+def lookahead_by_scale_from_apr(get: Callable[[str, Any], Any]) -> dict[str, dict[str, int]]:
+    """Build the {scale: {tf: lookahead_bars}} config-derived dict (todo 146), shared
+    by ICEngineConfig.from_apr, EnsembleICConfig.from_apr, and AblationConfig.from_apr.
+    `get(key, default)` abstracts over ConfigService.get_sync (ic_engine.py, wrapped
+    in int() by the caller) vs. the dict-based cfg() helper above (ensemble_ic_engine.py,
+    ops_ensemble_ablation.py) -- the two getter shapes those three from_apr()s use."""
+    return {
+        scale: {
+            tf: get(f"alpha.ic.lookahead.{tf}.{scale}", fb[scale])
+            for tf, fb in LOOKAHEAD_FALLBACKS_BY_TF.items()
+        }
+        for scale in _CANONICAL_SCALE_ORDER
+    }
+
+
 def lookaheads_for_tf(
     lookahead_fast: dict[str, int],
     lookahead_mid: dict[str, int],
@@ -249,12 +265,8 @@ def _get_json_typed_config(cfg_service: ConfigService, key: str, default: dict |
     value.
     """
     v = cfg_service.get_sync(key, default)
-    if isinstance(default, dict):
-        if isinstance(v, dict):
-            return v
-    elif isinstance(default, list):
-        if isinstance(v, list):
-            return v
+    if isinstance(v, type(default)):
+        return v
     if isinstance(v, str):
         return json.loads(v)
     return default

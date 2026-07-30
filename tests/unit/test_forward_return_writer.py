@@ -197,7 +197,7 @@ def test_build_forward_return_sql_no_session_gate_for_any_tf():
     anywhere in the generated SQL, replacing the removed
     test_forward_return_session_boundary.py suite."""
     for tf in ("5m", "15m", "1h", "1d"):
-        sql = _build_forward_return_sql(_LOOKAHEADS, tf)
+        sql = _build_forward_return_sql(_LOOKAHEADS)
         assert "America/New_York" not in sql, f"{tf} SQL must not reference ET session boundary"
         assert "fwd_ts_fast" not in sql, f"{tf} SQL must not build forward-timestamp LEAD columns"
         assert "::date" not in sql, f"{tf} SQL must not compare calendar dates"
@@ -213,7 +213,7 @@ def test_forward_return_sql_emits_suspect_flag_per_scale():
     price for one scale must not mark other scales' returns, which use a different
     exit bar, as suspect) and not a single shared ceiling (see
     test_scale_max_abs_return_* below for why a flat ceiling is wrong)."""
-    sql = _build_forward_return_sql(_LOOKAHEADS, "5m")
+    sql = _build_forward_return_sql(_LOOKAHEADS)
     for scale in _LOOKAHEADS:
         assert f"return_{scale}_suspect" in sql
         assert f"abs(return_{scale}) > %(max_abs_return_{scale})s" in sql
@@ -245,7 +245,7 @@ def test_forward_return_sql_suspect_flag_references_materialized_return():
     column, not re-derive from open_entry/open_{scale} -- Postgres SELECT-list
     aliases aren't visible to sibling expressions at the same query level, so the
     suspect predicate has to live in the outer SELECT over the `returns` CTE."""
-    sql = _build_forward_return_sql(_LOOKAHEADS, "1d")
+    sql = _build_forward_return_sql(_LOOKAHEADS)
     assert "returns AS (" in sql
     assert sql.index("FROM returns") > sql.index("return_fast_suspect")
 

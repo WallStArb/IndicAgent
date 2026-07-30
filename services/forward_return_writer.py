@@ -191,7 +191,7 @@ def forward_log_return(opens: np.ndarray, n: int) -> np.ndarray:
 # ROWS BETWEEN CURRENT ROW AND 61 FOLLOWING — explicit frame to avoid default
 # range-frame semantics which can produce unexpected results on ties (RESEARCH.md F8).
 # Only bars with timestamp <= TRAINING_WINDOW_END are included in the window.
-def _build_forward_return_sql(lookaheads: dict[str, int], tf: str) -> str:
+def _build_forward_return_sql(lookaheads: dict[str, int]) -> str:
     """Build LEAD()-based SQL using APR-backed lookahead periods.
 
     lookaheads maps scale name -> period in bars (e.g. {"fast": 1, "mid": 5, ...}).
@@ -218,9 +218,6 @@ def _build_forward_return_sql(lookaheads: dict[str, int], tf: str) -> str:
     sibling SELECT-list alias in the same query level — it needs the already-materialized
     return_{scale} value, not a re-derivation from open_entry/open_{scale}.
     """
-    del tf  # no longer branches session-gate behavior (todo 208) -- kept in the
-    # signature for call-site symmetry with the rest of this module's per-(symbol, tf)
-    # functions, not because this function still needs it.
     max_n = max(lookaheads.values())
     frame_size = max_n + 1
 
@@ -765,7 +762,7 @@ def main() -> None:
                 # Built once per run, not once per (symbol, tf) cell — both depend only on
                 # lookaheads/tf and the fixed _SCALES tuple, invariant across the symbol loop.
                 forward_return_sql_by_tf = {
-                    tf: _build_forward_return_sql(lookaheads_by_tf[tf], tf) for tf in tfs
+                    tf: _build_forward_return_sql(lookaheads_by_tf[tf]) for tf in tfs
                 }
                 insert_sql = _build_insert_sql(_SCALES)
 

@@ -67,6 +67,7 @@ from __future__ import annotations
 
 import asyncio
 import dataclasses
+import functools
 import sys
 from collections.abc import Callable, Iterable
 from concurrent.futures import ProcessPoolExecutor
@@ -91,9 +92,9 @@ sys.path.insert(0, str(project_root))
 # convention, not by import (no direct type dependency).
 from services._batch_utils import (
     ACTIVE_SCALES_FALLBACKS_BY_TF,
-    LOOKAHEAD_FALLBACKS_BY_TF,
     canonicalize_active_scales,
     connect_db_from_url,
+    lookahead_by_scale_from_apr,
     lookaheads_for_tf,
 )
 from services._batch_utils import cfg as _cfg
@@ -218,15 +219,9 @@ class EnsembleICConfig:
     @classmethod
     def from_apr(cls, cfg: dict[str, Any]) -> EnsembleICConfig:
         """Load all EnsembleIC APR parameters from the raw config dict in one pass."""
-        # Lookaheads per (tf, scale) -- todo 146: one loop over scale builds all four
-        # dicts instead of 4 near-identical comprehensions (/simplify review, 2026-07-29).
-        _lookahead_by_scale = {
-            scale: {
-                tf: _cfg(cfg, f"alpha.ic.lookahead.{tf}.{scale}", fb[scale])
-                for tf, fb in LOOKAHEAD_FALLBACKS_BY_TF.items()
-            }
-            for scale in ("fast", "mid", "slow", "extended")
-        }
+        # Lookaheads per (tf, scale) -- todo 146. Shared loading logic lives in
+        # lookahead_by_scale_from_apr (services/_batch_utils.py).
+        _lookahead_by_scale = lookahead_by_scale_from_apr(functools.partial(_cfg, cfg))
         # Active-scale set per tf (2026-07-30 design) -- see ICEngineConfig's
         # identical field for the full rationale. list(fb) NOT fb directly: _cfg()'s
         # JSON-safe branch only triggers on a list/dict default, and
@@ -960,6 +955,7 @@ def _run_ensemble_ic_worker(args: tuple) -> dict[str, Any]:
             # tf iteration instead of rebuilding the 4-entry dict on every (regime, scale)
             # pair (todo 146 review finding: was rebuilt up to n_regimes x 4 times here).
             tf_lookaheads = config.lookaheads_for(tf)
+            tf_active_scales = config.active_scales_for(tf)
 
             for regime in distinct_regimes:
                 mask = regime_labels == regime
@@ -967,7 +963,7 @@ def _run_ensemble_ic_worker(args: tuple) -> dict[str, Any]:
                     continue
                 alpha_regime = alpha_scores[mask]
 
-                for scale in config.active_scales_for(tf):
+                for scale in tf_active_scales:
                     lookahead_bars = tf_lookaheads[scale]
                     returns_scale = returns_by_scale.get(scale)
                     if returns_scale is None:

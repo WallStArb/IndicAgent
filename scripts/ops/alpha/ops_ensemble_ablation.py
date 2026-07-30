@@ -70,15 +70,17 @@ sys.path.insert(0, str(Path(__file__).parent.parent.parent.parent))
 
 import asyncio
 import dataclasses
+import functools
 from typing import Any
 
 import asyncpg
 import numpy as np
 
-from services._batch_utils import ACTIVE_SCALES_FALLBACKS_BY_TF, LOOKAHEAD_FALLBACKS_BY_TF
+from services._batch_utils import ACTIVE_SCALES_FALLBACKS_BY_TF
 from services._batch_utils import canonicalize_active_scales as _canonicalize_active_scales
 from services._batch_utils import cfg as _cfg
 from services._batch_utils import load_apr_dict_async as _load_apr
+from services._batch_utils import lookahead_by_scale_from_apr as _lookahead_by_scale_from_apr
 from services._batch_utils import lookaheads_for_tf as _lookaheads_for_tf
 from services.ensemble_ic_engine import _SCALE_RETURN_COLUMNS
 from src.config.settings import Settings
@@ -424,13 +426,7 @@ class AblationConfig:
 
     @classmethod
     def from_apr(cls, cfg: dict[str, Any]) -> AblationConfig:
-        lookahead_by_scale = {
-            scale: {
-                tf: _cfg(cfg, f"alpha.ic.lookahead.{tf}.{scale}", fb[scale])
-                for tf, fb in LOOKAHEAD_FALLBACKS_BY_TF.items()
-            }
-            for scale in ("fast", "mid", "slow", "extended")
-        }
+        lookahead_by_scale = _lookahead_by_scale_from_apr(functools.partial(_cfg, cfg))
         active_scales = {
             tf: _canonicalize_active_scales(_cfg(cfg, f"alpha.ic.active_scales.{tf}", list(fb)))
             for tf, fb in ACTIVE_SCALES_FALLBACKS_BY_TF.items()

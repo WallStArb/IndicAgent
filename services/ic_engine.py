@@ -90,11 +90,11 @@ sys.path.insert(0, str(project_root))
 
 from services._batch_utils import (
     ACTIVE_SCALES_FALLBACKS_BY_TF,
-    LOOKAHEAD_FALLBACKS_BY_TF,
     Float32ChunkAccumulator,
     canonicalize_active_scales,
     connect_db_from_url,
     get_list_config,
+    lookahead_by_scale_from_apr,
     lookaheads_for_tf,
     short_lived_conn,
 )
@@ -160,21 +160,6 @@ _VECTOR_DOMAIN = "quant"
 # Feature names derived from FeatureVector dataclass -- stays in sync automatically.
 # Do NOT hardcode the 61 names; this list is the single source of truth.
 _FEATURE_NAMES: list[str] = [f.name for f in dataclasses.fields(FeatureVector)]
-
-# Gradient scale names for forward return horizons (matching forward_returns columns).
-#
-# NOT a fallback default and NOT dead code (2026-07-30 per-tf active-scale-set task,
-# Finding 1 correction): ICEngineConfig.active_scales_for(tf) does not read this tuple
-# -- from_apr() (below) populates active_scales exclusively from
-# ACTIVE_SCALES_FALLBACKS_BY_TF (services/_batch_utils.py), a separate constant. This
-# module-level constant is no longer read by any function in THIS file (all 12
-# former call sites now resolve per-tf via config.active_scales_for(tf) instead), but it is
-# still imported and used directly, all-four-scales-always, by
-# scripts/ops/alpha/ops_vol_normalized_target_ab.py (lines 85, 192-193, 204, 224, 332)
-# -- that script was intentionally left out of this task's scope and is tracked
-# separately as todo 209. Do not delete this constant without migrating that script
-# first.
-_SCALES: tuple[str, ...] = ("fast", "mid", "slow", "extended")
 
 # Sentinel regime value for pooled (cross-regime) IC rows.
 # The feature_ic_scores PK includes regime (NOT NULL), so we can't store NULL.
@@ -625,16 +610,11 @@ class ICEngineConfig:
             else json.dumps(_raw_regime_groups)
         )
         # Lookaheads per (tf, scale) -- todo 146: a single global grid measured a
-        # different real-world horizon per tf under the same scale name. One loop
-        # over scale builds all four dicts instead of 4 near-identical comprehensions
-        # (/simplify review, 2026-07-29).
-        _lookahead_by_scale = {
-            scale: {
-                tf: int(cfg.get_sync(f"alpha.ic.lookahead.{tf}.{scale}", fb[scale]))
-                for tf, fb in LOOKAHEAD_FALLBACKS_BY_TF.items()
-            }
-            for scale in ("fast", "mid", "slow", "extended")
-        }
+        # different real-world horizon per tf under the same scale name. Shared
+        # loading logic lives in lookahead_by_scale_from_apr (services/_batch_utils.py).
+        _lookahead_by_scale = lookahead_by_scale_from_apr(
+            lambda key, default: int(cfg.get_sync(key, default))
+        )
         # Active-scale set per tf (2026-07-30 design) -- which of the four scales
         # ic_engine actually attempts, distinct from the bar-count VALUES above
         # (lookahead_{fast,mid,slow,extended}), which stay populated even for an
