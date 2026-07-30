@@ -6,6 +6,20 @@ source: final whole-branch review of docs/superpowers/plans/2026-07-30-per-tf-ac
   found these two additional consumers, distinct from todos 209/210
 ---
 
+**Part 1 of 2 DONE 2026-07-30** (commit `658378a6`) — `ops_ensemble_ablation.py` migrated:
+`AblationConfig` now mirrors `ICEngineConfig`'s shape exactly (per-tf `lookahead_{scale}` dicts +
+`active_scales`, loaded via the shared `services._batch_utils` helpers). **Fixing this surfaced a
+second, independent bug in the same file, not part of the original filing below**: `AblationConfig`
+was ALSO still reading the pre-todo-146 flat global `alpha.ic.lookahead.{scale}` keys (no `{tf}`
+component) — the script's own code carried a self-aware runtime warning citing todo 202 as the
+tracker, but todo 202 closed without ever picking this up. Fixed in the same commit. Full test
+suite green.
+
+**Part 2 (`ops_interaction_primitives_pilot.py`) NOT started** — still needs the `_SCALES`
+migration described below, plus its own independent stale-global-key bug (same class as the one
+just found and fixed in part 1 — check for it explicitly, don't assume the `_SCALES` fix alone
+covers it).
+
 # Two more standalone ops scripts still read hardcoded, uniform-across-tfs scale
 # tuples/keys -- one has an independent pre-existing bug unrelated to this plan
 

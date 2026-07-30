@@ -1,11 +1,20 @@
 ---
-status: pending
+status: completed
 priority: P1
 filed: 2026-07-30
+completed: 2026-07-30
 source: task reviewer finding during SDD execution of docs/superpowers/plans/2026-07-30-per-tf-active-scale-set.md
   Task 4 (services/ensemble_ic_engine.py's EnsembleICConfig mirror + audit); premise
   corrected by the plan's final whole-branch review same day -- see Correction below
 ---
+
+**CLOSED 2026-07-30** (commit `75c2eb3a`) — folded `complete_{scale}` into the same SQL `CASE`
+expression that already masked `return_{scale}_suspect`, in both `_WORKER_FETCH_SQL` and
+`_POOLED_WORKER_FETCH_SQL`; existing downstream `None`-check + `np.isfinite` mask handle the
+rest with zero new Python logic. Per-scale loop now calls `config.active_scales_for(tf)`. 4 new
+tests in `tests/unit/test_ensemble_ic_worker_fetch.py`. Live-data verification (confirming
+`ensemble_alpha`'s next real run excludes session-crossing/incomplete returns) still pending —
+`ensemble_alpha` is empty until the in-flight `ic_engine` → `ensemble_trainer` pass completes.
 
 # `_run_ensemble_ic_worker`'s per-scale loop still iterates the hardcoded flat `_SCALES`
 # tuple, not `EnsembleICConfig.active_scales_for(tf)` -- a real measurement-integrity risk,

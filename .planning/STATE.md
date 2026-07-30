@@ -3,8 +3,8 @@ gsd_state_version: 1.0
 milestone: v3.1
 milestone_name: AlphaEngine Validation + Alpha Scoring
 status: ready_to_execute
-stopped_at: "per-tf-active-scale-set branch merged to main 2026-07-30 (was already merged to origin by a concurrent session hours before this session fetched -- reconciled via reset+cherry-pick, no work lost). Todo 208 (same-ET-session forward-return completeness gate) fixed same day: forward_return_writer.py's complete_{scale} no longer session-gates 5m/15m/1h, matching 1d's always-was-gapless semantics. forward_returns truncated and rebuilt clean under the corrected definition; corpus pipeline relaunched from step 3, currently on step 5/8 (ic_engine, started 2026-07-30 13:19 EDT, historically ~27h). Todos 202/205/207/212 closed; 209/210/211/214 filed with an execution plan (docs/plans/2026-07-30-ic-scale-cleanup-plan.md). A design doc on the horizon-grid's actual VALUES (docs/research/2026-07-30-forward-return-horizon-grid-refactor.md, v1.2) recommends aligning each tf's measured horizons to that tf's real holding period (via the existing _select_hold_bars_from_decay decay walk) rather than a uniform grid -- live evidence: hold_max_bars is pinned at the 60-bar ceiling in every regime for 1h/1d today, meaning that walk has never converged for either tf. Do not start new corpus-write work until the running ic_engine pass completes."
-last_updated: "2026-07-30T17:40:00.000Z"
+stopped_at: "per-tf-active-scale-set branch merged to main 2026-07-30 (was already merged to origin by a concurrent session hours before this session fetched -- reconciled via reset+cherry-pick, no work lost). Todo 208 (same-ET-session forward-return completeness gate) fixed same day: forward_return_writer.py's complete_{scale} no longer session-gates 5m/15m/1h, matching 1d's always-was-gapless semantics. forward_returns truncated and rebuilt clean under the corrected definition; corpus pipeline relaunched from step 3, on step 5/8 (ic_engine, started 2026-07-30 13:19 EDT, writing rows as of last check -- historically ~27h total). Todos 202/205/207/209/210/212 closed; 211 half-done (ops_ensemble_ablation.py migrated + a second, independently-found stale-lookahead-key bug fixed in the same file; ops_interaction_primitives_pilot.py -- Task 4 of docs/plans/2026-07-30-ic-scale-cleanup-plan.md -- not started). Todo 214 (ic_engine/ensemble_ic_engine shared-compute refactor) filed, deliberately deferred. A design doc on the horizon-grid's actual VALUES (docs/research/2026-07-30-forward-return-horizon-grid-refactor.md, v1.2) recommends aligning each tf's measured horizons to that tf's real holding period (via the existing _select_hold_bars_from_decay decay walk) rather than a uniform grid -- live evidence: hold_max_bars is pinned at the 60-bar ceiling in every regime for 1h/1d today, meaning that walk has never converged for either tf. Do not start new corpus-write work until the running ic_engine pass completes."
+last_updated: "2026-07-30T18:25:00.000Z"
 progress:
   total_phases: 12
   completed_phases: 11
@@ -58,10 +58,27 @@ that doesn't apply anywhere else in this codebase's trade-construction layer. **
 -- `complete_{scale}` now means "the forward bar exists," identically at every tf, matching how
 1d always worked; migration 272 reverted 1h's now-unjustified `active_scales` exclusion;
 `forward_returns` truncated and rebuilt clean under the corrected definition; corpus pipeline
-relaunched from step 3, **currently on step 5/8 (`ic_engine`, started 2026-07-30 13:19 EDT --
-re-verify via `ps aux | grep ic_engine` and `tail logs/corpus_pipeline/resume_20260730_1240.log`
-before trusting this in a later session, historically ~27h). Do not start new corpus-write work
-until it completes.**
+relaunched from step 3, **on step 5/8 (`ic_engine`, started 2026-07-30 13:19 EDT, confirmed
+writing real rows to `feature_ic_scores` as of the last check this session -- re-verify via
+`ps aux | grep ic_engine` and `tail logs/corpus_pipeline/resume_20260730_1240.log`
+before trusting this in a later session, historically ~27h total). Do not start new corpus-write
+work until it completes.**
+
+**Same-day follow-through on the `_SCALES`-hardcoding cleanup cluster** (plan:
+`docs/plans/2026-07-30-ic-scale-cleanup-plan.md`, all commits on `main`, tests green
+throughout): Task 1/todo 210 -- `ensemble_ic_engine.py`'s worker never checked
+`complete_{scale}` in either fetch path (a real measurement-integrity gap, not just wasted
+compute) and iterated the flat `_SCALES` tuple instead of `active_scales_for(tf)`, both fixed.
+Task 2/todo 209 -- `ops_vol_normalized_target_ab.py` migrated to a new `_load_active_scales`
+helper. Task 3/todo 211 (part 1 of 2) -- `ops_ensemble_ablation.py` migrated to a per-tf
+`AblationConfig` (mirrors `ICEngineConfig`'s shape exactly); **this surfaced a second,
+independent bug in the same file**, not caught by the original 211 filing: `AblationConfig`
+was still reading the pre-todo-146 flat global `alpha.ic.lookahead.{scale}` keys (no `{tf}`
+component) -- the script's own code carried a self-aware runtime warning about this, citing
+todo 202 as the tracker, but todo 202 closed without ever picking it up. Fixed in the same
+commit as the `_SCALES` migration. **Remaining: Task 4/todo 211 (part 2) --
+`ops_interaction_primitives_pilot.py` -- same `_SCALES` migration, plus its own independent
+stale-lookahead-key bug (same class as the one just found), not yet started.**
 
 Todo 210 (`ensemble_ic_engine.py`'s worker loop never checked `complete_{scale}` at all -- a
 real measurement-integrity gap, not just wasted compute) plus its two sibling `_SCALES`-cleanup
