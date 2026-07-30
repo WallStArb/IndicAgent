@@ -79,7 +79,7 @@ def test_from_apr_binds_all_keys():
     assert cfg.lookahead_extended == {"5m": 39, "15m": 10, "1h": 60, "1d": 10}
     assert cfg.lookaheads_for("5m") == {"fast": 1, "mid": 6, "slow": 12, "extended": 39}
     assert cfg.active_scales_for("5m") == ("fast", "mid", "slow", "extended")
-    assert cfg.active_scales_for("1h") == ("fast", "mid")
+    assert cfg.active_scales_for("1h") == ("fast", "mid", "slow", "extended")
 
 
 def test_from_apr_applies_defaults_when_keys_missing():
@@ -92,7 +92,7 @@ def test_from_apr_applies_defaults_when_keys_missing():
     assert cfg.gate_lookahead == "fast"
     assert cfg.wf_stability_metric == "ic_ratio"
     assert cfg.sharpe_window_size_subsampled == 100
-    assert cfg.active_scales_for("1h") == ("fast", "mid")
+    assert cfg.active_scales_for("1h") == ("fast", "mid", "slow", "extended")
     assert cfg.active_scales_for("5m") == ("fast", "mid", "slow", "extended")
 
 
@@ -100,9 +100,12 @@ def test_ensemble_ic_config_active_scales_for_returns_canonical_tuple():
     """Todo (2026-07-30 per-tf active-scale-set design): active_scales_for resolves
     the per-tf active-scale tuple from APR fallback defaults when unset -- mirrors
     ICEngineConfig.active_scales_for's identical semantics on the independent
-    EnsembleICConfig frozen dataclass."""
+    EnsembleICConfig frozen dataclass. All four tfs currently resolve to all four
+    scales (migration 272 reverted 1h's exclusion once its cause -- the same-session
+    completeness gate -- was removed); this test asserts the resolver mechanism
+    works, not that any tf is currently restricted."""
     cfg = EnsembleICConfig.from_apr({})
-    assert cfg.active_scales_for("1h") == ("fast", "mid")
+    assert cfg.active_scales_for("1h") == ("fast", "mid", "slow", "extended")
     assert cfg.active_scales_for("5m") == ("fast", "mid", "slow", "extended")
 
 

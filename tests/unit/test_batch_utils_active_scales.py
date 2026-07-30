@@ -44,15 +44,16 @@ def test_active_scales_fallbacks_cover_all_four_tfs():
     assert set(ACTIVE_SCALES_FALLBACKS_BY_TF.keys()) == {"5m", "15m", "1h", "1d"}
 
 
-def test_active_scales_fallback_1h_excludes_slow_extended():
-    """1h's slow/extended have 0.000 measured completeness under the current
-    same-session gate (see todo 208) -- the fallback reflects today's data, not a
-    permanent commitment. Reversible via config alone once todo 208 resolves."""
-    assert ACTIVE_SCALES_FALLBACKS_BY_TF["1h"] == ("fast", "mid")
+def test_active_scales_fallback_1h_reverted_to_all_four():
+    """1h's earlier slow/extended exclusion was based on 0.000 completeness measured
+    under the same-ET-session gate that forward_return_writer.py has since removed
+    (todo 208, migration 272) -- that gate was the sole reason 1h's slow/extended
+    read as unmeasurable, not a property of 1h itself. Reverted to all four."""
+    assert ACTIVE_SCALES_FALLBACKS_BY_TF["1h"] == ("fast", "mid", "slow", "extended")
 
 
 def test_active_scales_fallback_other_tfs_keep_all_four():
-    for tf in ("5m", "15m", "1d"):
+    for tf in ("5m", "15m", "1h", "1d"):
         assert ACTIVE_SCALES_FALLBACKS_BY_TF[tf] == ("fast", "mid", "slow", "extended")
 
 

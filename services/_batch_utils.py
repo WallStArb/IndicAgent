@@ -180,12 +180,15 @@ LOOKAHEAD_FALLBACKS_BY_TF: dict[str, dict[str, int]] = {
     "1h": {"fast": 1, "mid": 2, "slow": 20, "extended": 60},
     "1d": {"fast": 1, "mid": 2, "slow": 5, "extended": 10},
 }
-"""Todo 146's confirmed per-tf IC lookahead grid. 1h's slow/extended are UNCHANGED
-from the old global default (20/60) -- 1h has no viable slow/extended tier at all
-(session-bounded completeness collapses to 0%), but structurally removing that tier
-requires touching ic_engine.py's fixed _SCALES-indexed compute loops (deferred to a
-separate follow-up todo). Single source of truth for ICEngineConfig, EnsembleICConfig,
-and forward_return_writer.py's from_apr()/loading logic -- do not re-literal this grid
+"""Todo 146's confirmed per-tf IC lookahead grid, as bar-count VALUES (distinct from
+ACTIVE_SCALES_FALLBACKS_BY_TF above, which controls which of these are attempted).
+1h's slow(20)/extended(60) are unchanged from the old global default -- these bar
+counts were never the problem; the now-removed same-ET-session completeness gate
+(todo 208) was. Whether 20/60 bars is still the *right* grid for 1h once measured
+under the corrected, session-agnostic completeness definition is a separate, open
+tier-count/spacing question (todo 208's Step 3, deliberately deferred, not settled
+by this table). Single source of truth for ICEngineConfig, EnsembleICConfig, and
+forward_return_writer.py's from_apr()/loading logic -- do not re-literal this grid
 in any of those files; import it from here."""
 
 
@@ -269,18 +272,19 @@ def canonicalize_active_scales(scales: list[str] | tuple[str, ...]) -> tuple[str
 ACTIVE_SCALES_FALLBACKS_BY_TF: dict[str, tuple[str, ...]] = {
     "5m": _CANONICAL_SCALE_ORDER,
     "15m": _CANONICAL_SCALE_ORDER,
-    "1h": ("fast", "mid"),
+    "1h": _CANONICAL_SCALE_ORDER,
     "1d": _CANONICAL_SCALE_ORDER,
 }
 """Per-tf active-scale set (2026-07-30 design, docs/superpowers/specs/2026-07-30-
-per-tf-active-scale-set-design.md). 1h excludes slow/extended: live-measured
-0.000 completeness under the current same-ET-session completeness gate (see
-LOOKAHEAD_FALLBACKS_BY_TF's docstring above and todo 208). This reflects today's
-measured data, not a permanent commitment -- reversible via a single config
-change (alpha.ic.active_scales.1h) alone, no code change, if todo 208's
-investigation into removing the session gate changes what's measurable. Single
-source of truth for ICEngineConfig/EnsembleICConfig's from_apr() -- do not
-re-literal this table in either file; import it from here."""
+per-tf-active-scale-set-design.md). All four tfs currently active at all four
+scales (reverted 2026-07-30, migration 272): 1h's earlier slow/extended exclusion
+was based on 0.000 completeness measured under the same-ET-session gate that
+forward_return_writer.py has since removed (todo 208) -- that gate was the sole
+reason 1h's slow/extended read as unmeasurable, not a property of 1h itself.
+Reversible again via a single config change (alpha.ic.active_scales.1h) alone,
+no code change, if a future investigation finds a real reason to exclude a
+scale for some tf. Single source of truth for ICEngineConfig/EnsembleICConfig's
+from_apr() -- do not re-literal this table in either file; import it from here."""
 
 
 def get_list_config(cfg_service: ConfigService, key: str, default: list) -> list:

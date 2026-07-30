@@ -186,6 +186,27 @@ def test_scale_fallbacks_differ_per_tf():
     assert _SCALE_FALLBACKS_BY_TF["1d"] == {"fast": 1, "mid": 2, "slow": 5, "extended": 10}
 
 
+def test_build_forward_return_sql_no_session_gate_for_any_tf():
+    """todo 208 (2026-07-30): the prior same-ET-session complete_{scale} check for
+    intraday tfs (5m/15m/1h) silently zeroed completeness across the trading-day
+    boundary (1h's slow/extended measured at 0.000 completeness, mid at 53.5%) --
+    discarding real signal for a reason that doesn't hold (1d never gated on
+    overnight gaps; the trade-construction layer is already session-agnostic and
+    bar-indexed). complete_{scale} must now mean the same thing -- forward bar
+    exists -- at every tf, with no fwd_ts LEAD columns or ET-date comparison
+    anywhere in the generated SQL, replacing the removed
+    test_forward_return_session_boundary.py suite."""
+    for tf in ("5m", "15m", "1h", "1d"):
+        sql = _build_forward_return_sql(_LOOKAHEADS, tf)
+        assert "America/New_York" not in sql, f"{tf} SQL must not reference ET session boundary"
+        assert "fwd_ts_fast" not in sql, f"{tf} SQL must not build forward-timestamp LEAD columns"
+        assert "::date" not in sql, f"{tf} SQL must not compare calendar dates"
+        for scale in _LOOKAHEADS:
+            assert (
+                f"(open_{scale} IS NOT NULL) AS complete_{scale}" in sql
+            ), f"{tf}'s complete_{scale} must be a bare NULL check, same as every other tf"
+
+
 def test_forward_return_sql_emits_suspect_flag_per_scale():
     """Every scale gets its own return_{scale}_suspect column, gated on its own
     %(max_abs_return_{scale})s param -- not a single row-level flag (a corrupt exit

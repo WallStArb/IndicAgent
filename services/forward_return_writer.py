@@ -197,12 +197,17 @@ def _build_forward_return_sql(lookaheads: dict[str, int], tf: str) -> str:
     lookaheads maps scale name -> period in bars (e.g. {"fast": 1, "mid": 5, ...}).
     The max period + 1 determines the ROWS BETWEEN frame size.
 
-    For intraday timeframes (5m, 15m, 1h), the complete_{scale} flag also checks that
-    the forward bar falls on the same ET calendar date as the current bar, preventing
-    overnight-gap contamination (e.g. a 15:55 ET bar matching the next morning's 09:30
-    open across the overnight gap).
-
-    For daily (1d), no session-boundary check is applied — gaps are the expected signal.
+    No session-boundary gate for any tf, including intraday (5m/15m/1h) — todo 208
+    (2026-07-30): the prior same-ET-session complete_{scale} check for intraday tfs
+    zeroed out completeness across the trading-day boundary (e.g. 1h's slow/extended
+    at 0.000, mid at 53.5%), silently discarding real signal for a reason that doesn't
+    hold up — overnight/weekend gaps are a known, accepted market property (1d has
+    never gated on them), and the trade-construction layer that actually holds
+    positions (`counterfactual_tracker.py`, `hold_max_bars`) is already session-
+    agnostic and bar-indexed. `complete_{scale}` now means the same thing at every
+    tf: the forward bar exists (`open_{scale} IS NOT NULL`). `return_{scale}` itself
+    was never session-gated — this only changes what gets marked complete, not how
+    returns are computed.
 
     return_{scale}_suspect (todo 148) flags |return_{scale}| > %(max_abs_return_{scale})s — a
     per-(tf, scale) plausibility ceiling catching corrupt IBKR prints (e.g. a $1000 print on a
@@ -213,9 +218,11 @@ def _build_forward_return_sql(lookaheads: dict[str, int], tf: str) -> str:
     sibling SELECT-list alias in the same query level — it needs the already-materialized
     return_{scale} value, not a re-derivation from open_entry/open_{scale}.
     """
+    del tf  # no longer branches session-gate behavior (todo 208) -- kept in the
+    # signature for call-site symmetry with the rest of this module's per-(symbol, tf)
+    # functions, not because this function still needs it.
     max_n = max(lookaheads.values())
     frame_size = max_n + 1
-    is_intraday = tf in ("5m", "15m", "1h")
 
     # Build comma-separated LEAD column list (each needs a comma separator)
     lead_col_list = [
@@ -232,30 +239,10 @@ def _build_forward_return_sql(lookaheads: dict[str, int], tf: str) -> str:
     ]
     return_cols = ",\n    ".join(return_col_list)
 
-    if is_intraday:
-        # Add forward-timestamp LEAD columns to detect overnight crossings.
-        fwd_ts_col_list = [
-            f"LEAD(m.timestamp, {n + 1}) OVER w AS fwd_ts_{scale}"
-            for scale, n in lookaheads.items()
-        ]
-        fwd_ts_cols = ",\n        ".join(fwd_ts_col_list)
-        fwd_ts_select = f",\n        {fwd_ts_cols}"
-
-        # complete_{scale}: open must be present AND forward bar is same ET calendar date.
-        # AT TIME ZONE 'America/New_York' is DST-aware (handles spring-forward/fall-back).
-        complete_col_list = [
-            f"(\n        open_{scale} IS NOT NULL\n"
-            f"        AND (fwd_ts_{scale} AT TIME ZONE 'America/New_York')::date\n"
-            f"            = (bar_ts AT TIME ZONE 'America/New_York')::date\n"
-            f"    ) AS complete_{scale}"
-            for scale in lookaheads
-        ]
-    else:
-        # Daily: overnight gaps are part of the signal; no session-boundary gate.
-        fwd_ts_select = ""
-        complete_col_list = [
-            f"(open_{scale} IS NOT NULL) AS complete_{scale}" for scale in lookaheads
-        ]
+    # complete_{scale}: forward bar exists. Same rule at every tf (todo 208) -- no
+    # session-boundary check, no fwd_ts LEAD columns needed.
+    fwd_ts_select = ""
+    complete_col_list = [f"(open_{scale} IS NOT NULL) AS complete_{scale}" for scale in lookaheads]
 
     complete_cols = ",\n    ".join(complete_col_list)
 
