@@ -325,3 +325,31 @@ is lost: the horizon a 1h slow tier would target is already occupied by 1d fast/
 All four rows final - no cell remains provisional. 1d's compression from
 1/5/20/60 to 1/2/5/10 is the one revision from the original Step 2 table; 5m/15m/1h are
 unchanged from the pilot's candidates, now confirmed at full-corpus scale.
+
+---
+
+## Addendum (2026-07-30) - Q1(a)'s "deliberate, correct gate" framing and Step 2's
+## (i)/(ii) fork are reopened, not settled
+
+Q1(a) above calls the intraday same-ET-session completeness gate "a deliberate, correct
+gate ... per Invariant 1." That characterization does not hold up on a closer read of
+Invariant 1's own text (`docs/foundation/v3-north-star.md`): the rule is executable
+open-to-open pricing, not same-session pricing. 1d already crosses sessions and is fully
+Invariant-1-compliant. The trade-construction layer that builds ML training labels
+(`counterfactual_tracker.py`, `alpha_frame_writer.py`) has no session concept at all and
+never has — `hold_max_bars` is seeded at 60 bars uniformly even for 1h.
+
+Step 2's fork was "(i) accept session-bounded per-tf grids ... or (ii) define an
+overnight-inclusive return type ... Recommend (i) unless Step 1 shows IC still rising at
+the session boundary." Step 1's own full-corpus run found exactly that ambiguous signal
+for 5m/15m and never ran option (ii) to resolve it before Step 2 locked in (i) anyway.
+1h's case turned out more extreme than this doc's numbers suggested at the time: a
+2026-07-30 `forward_returns` rebuild measured 1h `mid` (2-bar) completeness at 53.5%
+corpus-wide — roughly half of all 1h bars, not just late-session ones, have no valid
+multi-bar forward return under the gate.
+
+The "confirmed Step 2 candidate grid" table above and its "all four rows final" verdict
+are now provisional for 5m/15m/1h (not 1d, which has no session gate either way). Open
+investigation: `.planning/todos/pending/208-intraday-same-session-forward-return-gate-inconsistent-with-trade-construction.md`
+— re-running Step 1 with the `--allow-overnight` diagnostic to actually resolve the
+(i)/(ii) fork this doc deferred, rather than continue treating (i) as decided.

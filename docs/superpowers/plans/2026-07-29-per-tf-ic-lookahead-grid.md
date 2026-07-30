@@ -2,6 +2,14 @@
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
+> **Note (2026-07-30):** This plan shipped (migration 269, applied 2026-07-29) and its grid
+> is live. But the grid's own premise for 5m/15m/1h — that the same-ET-session completeness
+> gate is a correct constraint to design around, e.g. 1h's "no viable slow/extended tier" —
+> is now an open question, not settled fact; see
+> `.planning/todos/pending/208-intraday-same-session-forward-return-gate-inconsistent-with-trade-construction.md`.
+> `1d`'s row is unaffected. Do not read this plan's rationale text below as still-current
+> justification for the session gate itself.
+
 **Goal:** Replace the single global `alpha.ic.lookahead.{fast,mid,slow,extended}` bar-count grid (currently `1/5/20/60`, identical across all four timeframes) with per-timeframe values, using the grid confirmed by todo 146's full-corpus, stride-corrected diagnostic (`5m`=1/6/12/39, `15m`=1/2/5/10, `1h`=1/2/20/60 unchanged-slow-extended, `1d`=1/2/5/10).
 
 **Architecture:** Three independent config surfaces (`ic_engine.py`'s `ICEngineConfig`, `ensemble_ic_engine.py`'s `EnsembleICConfig`, `forward_return_writer.py`'s inline APR loader) each currently read 4 flat scalar `alpha.ic.lookahead.{scale}` keys and reuse the same values for every timeframe. Each becomes tf-keyed (`dict[str, int]` per scale, matching the existing `bootstrap_block_size: dict[str, int]` precedent already in `ICEngineConfig`). A fourth site — `ic_engine.py`'s `_run_lifecycle_hook` — filters `feature_ic_scores` by a single global `lookahead_bars` value and must become tf-scoped too, since "mid" no longer means the same bar count on every timeframe.
