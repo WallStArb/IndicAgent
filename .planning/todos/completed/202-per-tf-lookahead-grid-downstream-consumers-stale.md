@@ -145,3 +145,32 @@ bundle them into one PR; each script's fix is testable in isolation.
 - [208](208-intraday-same-session-forward-return-gate-inconsistent-with-trade-construction.md)
   -- disputes whether the session gate this todo's Item 1 rebuild would apply to 5m/15m/1h
   should exist at all; check its status before sequencing the rebuild
+
+## CLOSED (2026-07-30): all items confirmed done -- this todo sat stale in `pending/` after landing
+
+**Every item in this todo was actually completed the same evening it was filed**, but the file
+itself was never updated, so it kept appearing "open" through two later review passes (this
+session's earlier recommendation to work on it, and the 2026-07-30 todo-priorities audit,
+`dd49c36e`, which also missed it). Verified directly against git history and a live DB check,
+not assumed:
+
+- **Item 1 (CRITICAL truncate + rebuild)** -- confirmed done: `forward_returns` across all 4
+  tfs carries `computed_at` in a single tight 2026-07-30 01:10-01:54 UTC window (35.6M rows),
+  consistent with a full rebuild, not incremental appends.
+- **Items 2-4 (7 downstream scripts)** -- confirmed done via git log, ALL landed the evening
+  before the rebuild (2026-07-29 20:16-20:37 EDT = 2026-07-30 00:16-00:37 UTC, correctly
+  sequenced before the 01:10 UTC rebuild so the readers were fixed before the data they'd read
+  changed): `2874a177` (`corpus_manifest_verifier.py`), `400be13b` (`ops_ic_shrinkage.py`),
+  `4ee7d44f` (`ops_oos_holdout_eval.py`), `ddf5dc30` (`ops_ic_null_calibration.py`),
+  `9557138e` (`ops_vol_normalized_target_ab.py`), `3dca2c8a` (`ic_sharpe_stride_bias_check.py`),
+  and `36d07975` (`ops_ensemble_ablation.py` -- the one file this todo scoped OUT of the
+  tf-scoping rewrite got the "explicit, loud guard" treatment instead, exactly as this todo's
+  own text proposed, not a silent gap). Each commit carries its own new/updated unit tests;
+  spot-checked `test_ic_shrinkage_step.py` + `test_ensemble_ablation.py` green on 2026-07-30.
+  The last commit's own message states "7 of 7 downstream consumers tracked in todo 202 --
+  all landed."
+
+**One caveat carried forward, not resolved by this closure**: Item 1's rebuild was built under
+the still-session-gated `forward_return_writer` logic that [208](208-intraday-same-session-forward-return-gate-inconsistent-with-trade-construction.md)
+disputes for 5m/15m/1h -- if 208's empirical check leads to removing that gate, `forward_returns`
+will need a second rebuild then. That's 208's open scope, not a reason to keep this todo open.

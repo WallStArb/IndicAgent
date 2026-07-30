@@ -1,7 +1,8 @@
 ---
-status: pending
+status: complete
 priority: P1
 filed: 2026-07-23
+closed: 2026-07-30
 source: Phase 163 (VP/SR Structural Primitives) execution -- discovered mid-phase while
   executing Wave 3, confirmed against live persistence code before filing
 gate: Phase 163 fully executed (all 3 waves) -- this todo is the operational follow-up,
@@ -9,6 +10,25 @@ gate: Phase 163 fully executed (all 3 waves) -- this todo is the operational fol
 decision: Delete + full recompute (option a), confirmed 2026-07-23. Full 58-symbol/multi-tf/
   multi-year corpus is in scope unless a narrower window is confirmed sufficient at run time.
 ---
+
+## CLOSED 2026-07-30 -- 1d's 0% VP resolved as by-design, not a gap
+
+Traced directly in `src/intelligence/feature_factory.py:6188-6189`:
+`if tf == "1d": vp_extra = dict(_NEUTRAL_VP_EXTRA)` -- every VP field (session AND rolling)
+is explicitly forced to `None` for `1d`, with a docstring (line 3359) dating to Phase 163
+Plan 02: "a single daily bar has no intraday distribution, so session-anchored VP is not
+meaningful." S/R (`sr_support_dist` etc., a separate pivot-clustering mechanism, not volume
+profile) is a different code path -- `_compute_sr_dist_atr` is "always computed" per the
+comment at line 6201-6204 -- and live-verified at 100.0% populated for `1d`, matching that
+claim exactly. Non-constant check (stddev) confirms real variance everywhere a column is
+actually populated (`ob_bull_dist_atr` 1d stddev 1.64, `swing_high_dist_atr` 1d stddev 2.98,
+`sr_support_dist` 1d stddev 3.39) -- no degenerate/constant fallback anywhere.
+
+All three acceptance criteria below are now satisfied: SMC/swing/S/R are non-NULL and
+non-constant across the full corpus; VP's 1d exclusion is the intended behavior, not a
+remaining gap, so "0% populated" for that one (tf, field-group) combination is the correct
+end state, not an open item. `ic_engine` fingerprint invalidation (criterion 2) already rode
+the same 2026-07-29 `--refresh` this todo tracked. No further action.
 
 ## Status update (2026-07-30, todo-priorities audit)
 
@@ -142,9 +162,11 @@ so this run doubles as closing that gap too, in one pass.
 
 - [x] Backfill mechanism chosen (delete + full recompute, 2026-07-23; superseded by --refresh
       UPSERT, 2026-07-27 -- see above)
-- [ ] Historical `feature_vectors` rows (scope per above) have non-NULL, non-constant values in
-      all 94 new structural columns (17 VP/SR + 36 SMC + 41 swing/fib/trend/session)
-- [ ] `ic_engine` corpus fingerprint correctly triggers recompute for cells whose feature values
-      changed as a result of this backfill
-- [ ] Documented which date range / symbol set was actually backfilled, for todo 175's future
-      reference
+- [x] Historical `feature_vectors` rows (scope per above) have non-NULL, non-constant values in
+      all 94 new structural columns (17 VP/SR + 36 SMC + 41 swing/fib/trend/session) -- confirmed
+      2026-07-30, with 1d's VP fields correctly all-NULL by design (see CLOSED note above), not
+      an exception to this criterion
+- [x] `ic_engine` corpus fingerprint correctly triggers recompute for cells whose feature values
+      changed as a result of this backfill -- rode the 2026-07-29 `--refresh` run
+- [x] Documented which date range / symbol set was actually backfilled, for todo 175's future
+      reference -- full corpus, all active symbols/tfs, 2026-07-29 `--refresh` run (see todo 202)

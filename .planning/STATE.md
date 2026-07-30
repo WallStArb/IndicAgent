@@ -3,8 +3,8 @@ gsd_state_version: 1.0
 milestone: v3.1
 milestone_name: AlphaEngine Validation + Alpha Scoring
 status: ready_to_execute
-stopped_at: "Phase 165 COMPLETE (5/5 plans) -- all 41 swing/fib/trend/session columns carry real computed values in both compute() and compute_batch(), phase-closing gate passed. Next: user decision on the combined Phase 164+165 backfill_feature_factory.py --compute-only --refresh pass (Tier 0)."
-last_updated: "2026-07-28T12:00:00.000Z"
+stopped_at: "Tier 0's --refresh recompute ran (2026-07-29), landed Phase 164/165's 77 columns, but wiped feature_vectors.regime via an upsert bug (todo 205, root-caused + fixed same day). Repair pipeline (regime_writer -> forward_return_writer -> cross_sectional_regime_model -> ic_engine) relaunched 2026-07-30 06:22 UTC, regime_writer still running as of last check (~65% of 36.8M rows repaired, up from ~45% earlier). Do not start new corpus-write work until it completes -- see todo 202."
+last_updated: "2026-07-30T14:00:00.000Z"
 progress:
   total_phases: 12
   completed_phases: 11
@@ -29,76 +29,73 @@ accelerate, automate -- in that order. This is why Phase 167 (cheap, already-pro
 sequenced ahead of Phase 151/164/165 (expensive, unproven): don't accelerate feature-expansion
 work that hasn't been shown to be the actual bottleneck.
 
-**Current focus (updated 2026-07-26):** Milestone v3.1's defining verdict stands: Phase 148
+**Current focus (updated 2026-07-30):** Milestone v3.1's defining verdict stands: Phase 148
 found Gate 1 (signal proof) PASS but Gate 2 (execution proof) FAIL -- do not promote the
-existing per-symbol directional construction to live capital. Phase 166's frame/execution
-recalibration couldn't fix it; todo 179's investigation found why -- `mid_bull`'s raw
-un-barriered forward return is negative at every horizon, a genuine market-data finding no
-stop/target/hold tuning can fix.
-
-**That closed the fork to three options: more features (Phase 151/164/165), a different
-construction/model over the *existing* features (Edge Source Thesis T2/T3/T5), or accept no
-edge on this branch. Resolved 2026-07-26: T3 (cross-sectional long-short decile spread) passed
-decisively** at both lookahead scales, clearing a shuffled-ranking-null guard —
-`scripts/analysis/t3_cross_sectional_long_short_ctf_momentum_check.py`. First thesis in the
-whole tree to clear its own bar. **Registered as Phase 167 (Cross-Sectional Trade
-Construction)** -- sequenced ahead of Phase 156-159 (would produce the signal those size/execute)
-and ahead of Phase 151/164/165 (proven and cheap beats unproven and expensive).
-
-**Phase 167 is now COMPLETE (2026-07-27, 6/6 plans).** `services/cross_sectional_spread_tracker.py`
-productionized T3's script, applied the todo 030 cost-hurdle sweep, backfilled the full
-2006-2026 corpus into `construction_spreads` (24,924 bars), and ran both live Validation Gates
-against the real OOS population: Gate 1 (shadow spread Sharpe) `gate1_passes=true`, Gate 2
-(attribution honesty) `gate2_passes_overall=true`. **Both PASSED** -- unlike Phase 148's
-per-symbol directional construction, which passed Gate 1 but failed Gate 2. Per
-`docs/research/trade-construction-layer.md`'s Sequencing section, this means the Phase 156-159
-execution/sizing chain's stated precondition (a proven, attribution-honest signal) is now met
-for this construction. Full verdict detail, the binding pass rule, and the retrospective-caveat
-text: `docs/research/trade-construction-layer.md`'s Validation Gates section, transcribed from
-`logs/construction_verdicts/gate1_20260727T112626Z.json`/`gate2_20260727T112642Z.json`. **The
-decision whether and how to proceed toward Phase 156-159 with this construction as the signal
-source is the user's** -- not made by this phase.
-
-T5 (non-linear combiner) cleared its canary-leakage check 2026-07-26 (todo 184, CLOSED) -- the
-0.30 OOS IC (~3x anything else measured) is NOT explained by look-ahead leakage (all 4 negative
-controls clean by standalone IC; the positive control's presence doesn't move aggregate IC,
-Δ=+0.0007). **Independent replication at equity/1d ran 2026-07-27
-(`scripts/analysis/t5_nonlinear_combiner_replication_1d.py`): PARTIAL replication, NOT the same
-finding.** Tree combiner clears its own bootstrap CI in the cross-sectional-neutral rigor pass
-(`point_ic`=0.0164, `ci_lower`=0.0081) -- real, not dead -- but the magnitude collapsed ~16x
-from the original 1h result (0.258 -> 0.0164). **Revised read: T5 is confirmed SMALL, not
-confirmed LARGE.** Separately surfaced: `ctf_momentum` shows NEGATIVE mean IC at 1d
-(`point_ic`=-0.0244, does not clear zero), the opposite of its validated positive 15m behavior
-that Phase 167's live gates both passed on. **Resolved 2026-07-27 (todo 189): this is a
-measurement artifact, not real timeframe instability** -- `_CTF_HIGHER_TF` maps `1d -> 1d`
-(self-referential, no timeframe above 1d exists in the corpus), so `ctf_momentum` silently
-degenerates from a genuine cross-timeframe RSI at every other tf into a plain same-tf RSI
-oscillator at 1d -- a classic mean-reversion signal, comparing two different features under one
-name. The 15m feature Phase 167 trades is unaffected. Doc corrected in
-`docs/research/data-edge-source-thesis.md`'s T5 section. Also added a genuine methodological fix during this replication: BH-FDR
-correction (sign-gated) across the ~80 per-symbol tests, which neither the original 1h script
-nor its leak-check ever applied despite the research doc's own stated bar requiring it. 15m
-replication (the tf Phase 167's live construction actually trades on, directly actionable)
-deliberately deferred -- ~8.1M rows vs 1d's ~330K, unsafe to load given concurrent memory
-contention from todo 183's `ic_engine` recompute; see
-[todo 188](.planning/todos/pending/188-t5-replication-15m-deferred-memory-contention.md).
-Full detail: `docs/research/data-edge-source-thesis.md`'s T5 section (v1.4), full per-symbol
-table: `docs/analysis/t5-replication-1d-per-symbol.csv`. **T2
-(regime-conditional persistence, the thing that motivated testing T3/T5) is CONFIRMED DEAD,
-no longer provisional.** Todo 183's corpus recompute completed 2026-07-27T21:55 UTC
-(`ic_engine.run_complete`, both `equity`/`rates` groups, zero errors, ~27.6h). Todo 179's sweep
-was re-run the same day directly against live `market_regimes.regime_label` (genuinely
-corrected, not the offline proxy the 2026-07-24 sweep used) --
-`scripts/analysis/live_recalibrated_regime_sweep_check.py`: 270 cells tested, 108 adequately
-covered, zero pass. The previously-interesting `high_bear` lead (5/8 passes in the OLD-label
-offline sweep) has all 36 of its live cells stuck at 12-13 day-clusters, below the 20-cluster
-floor -- genuinely untestable in the current OOS window, not a new negative finding, confirming
-what todo 092's offline analysis already suspected. Full detail appended to
-`.planning/todos/pending/179-gate166-concurrent-exposure-diagnostic.md`. Doesn't affect T3's own
-result, which has no regime dependency.
-
-Phase 144/143.1/162/163 are all COMPLETE -- see Phase Summary table below for detail, not
+per-symbol directional construction to live capital. Phase 167 (Cross-Sectional Trade
+Construction, T3) resolved the fork this opened -- **COMPLETE 2026-07-27, both live Validation
+Gates PASSED** (`gate1_passes=true`, `gate2_passes_overall=true`), the first construction in the
+tree to clear both. T2 (regime-conditional persistence) is CONFIRMED DEAD (270 cells tested,
+zero pass on live corrected labels). T5 (non-linear combiner) is confirmed SMALL, not LARGE (1d
+replication collapsed ~16x from the original 1h finding; 15m replication, the directly
+actionable tf, still pending -- todo 188). Full detail on all three: `docs/research/data-edge-source-thesis.md`.
+Phase 144/143.1/162/163/164/165/167 are all COMPLETE -- see Phase Summary table below, not
 duplicated here.
+
+**Active saga (2026-07-29/30): Tier 0's recompute landed, then broke regime labels, now
+mid-repair.** The combined Phase 164+165 `--refresh` pass (Tier 0, below) finally ran
+2026-07-29, landing both phases' 77 new columns -- but its own upsert clobbered
+`feature_vectors.regime` across all 36.8M rows (a generic `DO UPDATE SET` included columns
+`regime_writer.py` owns, not the `--refresh` caller). Root-caused and fixed same day as
+[todo 205](.planning/todos/completed/205-refresh-upsert-clobbers-regime-writer-owned-columns.md)
+(`feature_vector_persistence.py` + regression test) -- this only prevents recurrence on the
+*next* `--refresh`, the wipe itself still needed repairing. Repair pipeline (`regime_writer` ->
+`forward_return_writer` -> `cross_sectional_regime_model` -> `ic_engine`) relaunched 2026-07-30
+06:22 UTC; **regime_writer still running as of last check (~65% of 36.8M rows repaired, live
+verify via `ps aux | grep regime_writer` +
+`SELECT count(*) FROM feature_vectors WHERE regime IS NOT NULL`). Do not start new
+corpus-write work (ic_engine runs, regime sweeps, ensemble retrains) until this completes.**
+[Todo 202](.planning/todos/completed/202-per-tf-lookahead-grid-downstream-consumers-stale.md)
+**CLOSED 2026-07-30 -- correcting an error this file itself carried for part of today's
+session:** all of 202's items (the CRITICAL `forward_returns` truncate+rebuild, verified via
+`computed_at` clustering in a single 2026-07-30 01:10-01:54 UTC window across all 4 tfs, AND
+all 7 downstream script fixes) were actually already done -- landed 2026-07-29 20:16-20:37 EDT,
+correctly sequenced before the rebuild, each with its own passing tests. The todo file simply
+never got updated, which is why it read as open through two separate checks (this session's
+initial "not done, confirmed via git log" claim -- that check's window was too narrow, only
+looking at commits since the `dd49c36e` audit rather than the todo's full history -- and the
+`dd49c36e` audit itself). Don't re-litigate 202; it's genuinely closed. One caveat carries
+forward: the rebuild ran under the still-session-gated logic 208 disputes, so it may need a
+second rebuild if 208's Step 2 lands.
+
+**Same week, a cluster of measurement-integrity bugs surfaced and were mostly fixed:**
+[todo 146](.planning/todos/pending/146-lookahead-grid-per-tf-recalibration.md)'s per-tf IC
+lookahead grid **shipped to production APR** (migration 269, 2026-07-29) but is **provisional
+for 5m/15m/1h** -- [todo 208](.planning/todos/pending/208-intraday-same-session-forward-return-gate-inconsistent-with-trade-construction.md)
+(filed 2026-07-30) found live 1h `mid` completeness only 53.5% and disputes the
+session-boundedness premise the grid was derived under; don't treat 146 as final for those 3 tfs
+until 208's empirical check runs (blocked behind the regime repair above). Canary negative
+controls were silently pseudo-replicated cross-sectionally (same RNG seed at a given timestamp
+regardless of symbol) -- per-symbol seeding fix shipped
+[todo 203](.planning/todos/pending/203-canary-rng-seed-not-per-symbol-cross-sectional-pseudo-replication.md);
+a broadcast-feature audit confirmed the same exposure applies to `vix_z`/`yield_slope_z`/
+`flight_quality`/session-calendar features (a real broadcast-aware significance test remains
+open, not yet its own todo). A sibling anomaly, `canary_acausal_placebo` not clearing its POOLED
+gate, is still undiagnosed -- [todo 204](.planning/todos/pending/204-canary-acausal-placebo-pooled-not-detected.md).
+The dead K=3 HMM compute path (superseded by K=5 years ago but never deleted) is now actually
+deleted, closing [todo 207](.planning/todos/completed/207-hmm-column-name-collision-k3-k5.md) and
+[todo 197](.planning/todos/completed/197-hmm-forward-filter-window-reset-every-refresh.md).
+
+**Concurrent, uncommitted work in progress (separate worktree, not yet merged):**
+`.claude/worktrees/per-tf-active-scale-set` (branch `worktree-per-tf-active-scale-set`) is
+implementing `docs/plans/2026-07-30-per-tf-active-scale-set.md` -- `canonicalize_active_scales`
++ per-tf active-scale fallback table for `ic_engine.py`, one commit in
+(`b7ae5400`) plus uncommitted edits to `ic_engine.py` and 5 test files. Don't assume this is
+stale/abandoned; check `git -C .claude/worktrees/per-tf-active-scale-set status` before touching
+it.
+
+**Todo backlog reprioritized/audited against live ground truth 2026-07-30** (commit `dd49c36e`)
+-- `.planning/todos/PRIORITIES.md` is current as of that pass; don't re-derive priority from
+older snapshots in this file or ROADMAP.md.
 
 **Next actions, priority order:**
 
@@ -118,41 +115,37 @@ combination only; `alpha_events` confirmed sparse/emission-gated, not a dense fu
 ranking input without further work; not yet investigated further). Phase 151 (Feature
 Primitives Expansion, already planned) is the next-tier option if these don't pan out.
 
-*Tier 2b -- concretely staged 2026-07-27, waiting only on todo 183's process to exit:* todo 167
-(equity cross-sectional-vs-symbol-HMM stratification falsifier, never tested unlike rates').
-Migration 262 applied (`dual_write_symbol_hmm=true` for equity), falsifier gate script written
-and verified (`scripts/analysis/equity_regime_separation_gate.py`, generalized from Phase 144's
-D-05 gate) -- correctly reports BLOCKED (zero `symbol_hmm` rows for the real 49-symbol
-equity-routed universe, confirmed via `instrument_tags`, not the naive `asset_class` filter
-which returns the wrong symbols entirely). Next action: once todo 183 exits, run a scoped
-`ic_engine.py --symbols <49 equity symbols>` pass (single-writer discipline -- do not run
-concurrently with 183), then re-run the gate for the real verdict. Bumped P2→P1.
+*Tier 2b -- concretely staged, now folded into todo 176's queued sequence, waiting on Tier -1's
+pipeline to exit:* todo 167 (equity cross-sectional-vs-symbol-HMM stratification falsifier,
+never tested unlike rates'). Migration 262 applied (`dual_write_symbol_hmm=true` for equity),
+falsifier gate script written and verified (`scripts/analysis/equity_regime_separation_gate.py`,
+generalized from Phase 144's D-05 gate). Next action: once the Tier -1 pipeline exits, run a
+scoped `ic_engine.py --symbols <49 equity symbols>` pass (single-writer discipline), then re-run
+the gate for the real verdict.
 
-*Tier 3 -- ready now, independent of the above:* todo 182 (15m cross-sectional bootstrap
-threads stale) · todo 088 (`hold_max_bars` type safety) · todo 170 (`volatility_pct`
-substitution probe for rates) · todo 129 (revived cross-service short-lived-conn helper) ·
-todos 172/173 (non-blocking Phase 148 findings) · todo 009 Parts A-D.
+*Tier 3 -- ready now, independent of the above:* **corrected 2026-07-30 -- todos 182, 088, 170,
+and 129 (all previously listed here) are already CLOSED, confirmed live in `completed/`; this
+line was stale.** What's actually still open and pipeline-independent: **todo 202's Items 2-4**
+(7-script tf-scoping fix, pure code, no live-corpus dependency -- see "Active saga" above; a
+live-verified window exists to land this before the Tier -1 pipeline's `ic_engine` step starts)
+· todos 172/173 (non-blocking Phase 148 findings) · todo 009 Parts A-D.
 
 *Tier 4 -- deprioritized, do not resume without re-reading why:* Phase 151 (Feature Primitives
 Expansion, planned and ready but not the next priority -- see Guiding lens above), Phase 145
 (StratificationDimension Formalization, unblocked but not planned), todo 175 (structural
 candidate Part 2 -- exists only to serve an overridden plan, see todo 179).
 
-*Tier 0 -- EXPLICIT USER OVERRIDE 2026-07-27, supersedes Tier 4's Phase 164/165 deprioritization
-below. STATUS 2026-07-28: both phases now COMPLETE -- Phase 164 (2026-07-28, 4/4 plans) and
-Phase 165 (2026-07-28, 5/5 plans). Only the final step remains:* the sequencing decided
-2026-07-27 was **plan Phase 165 -> execute Phase 164 -> execute Phase 165 -> ONE combined
-`backfill_feature_factory.py --compute-only --refresh` pass**, covering the current staleness
-gap, Phase 163's VP/SR historical NULLs (todo 176), and both phases' 77 new columns (36 SMC +
-41 swing/fib/trend/session) in a single recompute, not three separate ones. Rationale for the
-single-pass batching (not the feature-expansion decision itself, which was the user's call): the
-`--refresh` recompute is cheap/unattended background compute; phase execution is expensive/
-attended engineering time -- batching avoids paying the ~8h recompute cost twice. **This
-recompute pass has NOT been started** -- it is the single remaining action to close out Tier 0,
-and whether/when to kick it off is the user's decision (a multi-hour production compute job on
-a TimescaleDB hypertable), not something to launch autonomously. Todo 197 (HMM forward-filter
-perf fix, ~30% of compute cost) is unrelated to this and NOT a prerequisite -- it's a separate,
-correctness-sensitive change still gated on its own review.
+*Tier 0 -- CLOSED 2026-07-29, but its side effect is now Tier -1 (see below):* the combined
+`backfill_feature_factory.py --compute-only --refresh` pass ran 2026-07-29, landing Phase
+164/165's 77 new columns and Phase 163's deferred VP/SR historical backfill (todo 176). It also
+wiped `feature_vectors.regime` (todo 205, fixed same day). No longer an open action item itself.
+
+*Tier -1 -- ACTIVE, supersedes every tier below until it clears:* the regime-repair pipeline
+(`regime_writer` -> `forward_return_writer` -> `cross_sectional_regime_model` -> `ic_engine`)
+relaunched 2026-07-30 06:22 UTC is still running -- see "Active saga" above. Nothing that reads
+`feature_vectors.regime`, `feature_ic_scores`, or `ensemble_weights` should start until it
+completes. Re-verify before trusting this: `ps aux | grep -E
+"regime_writer|forward_return_writer|cross_sectional_regime_model|ic_engine"`.
 
 *Tier 5 -- gate status changed 2026-07-27:* Phase 156-159 (Portfolio State/Sizing/Execution/Cost)
 was gated on Phase 167 producing a proven signal -- **that gate cleared: Phase 167's both

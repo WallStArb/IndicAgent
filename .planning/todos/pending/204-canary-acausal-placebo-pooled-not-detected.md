@@ -39,9 +39,10 @@ measurement processes this specific feature, not in the raw feature data itself.
 
 1. **Stale vintage**: `feature_ic_scores` has never been recomputed since
    2025-12-24 -- possibly predates a code path that's since been fixed, or the
-   corpus's forward_returns/feature_vectors alignment was different then. Todo 202
-   already gates a full corpus rebuild for an unrelated reason (per-tf lookahead grid)
-   -- this todo's finding might simply resolve once that rebuild happens, or might not.
+   corpus's forward_returns/feature_vectors alignment was different then. A full
+   `ic_engine` pass against the current corpus (queued behind the Tier -1 regime-repair
+   pipeline, `.planning/STATE.md`) would test this -- this todo's finding might simply
+   resolve once that pass runs, or might not.
 2. **Price-sanity/outlier clipping applied to a feature that looks like a return**:
    `canary_acausal_placebo` is deliberately constructed to have the exact shape of a
    return column (`ln(close[t+2]/close[t+1])`). If `ic_engine.py`'s corrupt-print /
@@ -55,16 +56,16 @@ measurement processes this specific feature, not in the raw feature data itself.
 
 ## Fix
 
-Not diagnosed yet. Next step: re-run `ops_canary_integrity_assert.py` after todo
-202's corpus rebuild lands (cheap, free confirmation/denial of Hypothesis 1). If it
-still fails post-rebuild, trace `_compute_cross_sectional_tf`'s handling of
-`canary_acausal_placebo` specifically (inspect this one feature's `X_raw` column and
-intermediate `non_degenerate_mask`/`ic_vec` values at a breakpoint) before touching
-any production code.
+Not diagnosed yet. Next step: re-run `ops_canary_integrity_assert.py` after the Tier -1
+regime-repair pipeline's `ic_engine` step lands a fresh `feature_ic_scores` vintage (cheap,
+free confirmation/denial of Hypothesis 1). If it still fails post-rebuild, trace
+`_compute_cross_sectional_tf`'s handling of `canary_acausal_placebo` specifically (inspect
+this one feature's `X_raw` column and intermediate `non_degenerate_mask`/`ic_vec` values at
+a breakpoint) before touching any production code.
 
 ## References
 
 - `scripts/ops/alpha/ops_canary_integrity_assert.py` -- the gate that caught this
 - `.planning/todos/pending/203-canary-rng-seed-not-per-symbol-cross-sectional-pseudo-replication.md` -- sibling finding, confirmed different root cause
-- `.planning/todos/pending/202-per-tf-lookahead-grid-downstream-consumers-stale.md` -- gates the corpus rebuild that would test Hypothesis 1
+- `.planning/todos/completed/202-per-tf-lookahead-grid-downstream-consumers-stale.md` -- CLOSED 2026-07-30; the corpus-rebuild readiness work that would let Hypothesis 1 be tested once `ic_engine` actually runs
 - `services/ic_engine.py` `_compute_cross_sectional_tf` -- where this would need tracing if Hypothesis 1 is ruled out

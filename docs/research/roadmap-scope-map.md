@@ -1,10 +1,10 @@
 # Roadmap Scope & Impact Map
 
 **Status:** current
-**Last Updated:** 2026-07-27 (Phase 166 diagnosed Gate 2's failure decisively — neither
-candidate promoted; Phase 167 then found a construction that passes both gates — see area 1
-and the ranking note below; re-ranked against `PROJECT.md`'s confirmed endgame: personal live
-trading capital)
+**Last Updated:** 2026-07-30 (a cluster of measurement-integrity bugs surfaced in the
+Core Alpha Pipeline this week — canary cross-sectional pseudo-replication, a regime-wipe upsert
+bug, a provisional per-tf lookahead grid — see area 1's new bullet; doesn't change the ranking
+below, these are execution-quality fixes to an already-#1-ranked area, not a new area)
 **Purpose:** one page, high level — what's weak or missing in each major area of the system,
 what's being proposed to address it, and roughly how much it matters. Built for product-management
 scanning (scope and breadth), not implementation detail. For depth: `idea-catalog.md` is the full
@@ -64,6 +64,7 @@ unblocked. See area 1's bullets below for detail.
 - No proof the intelligence vectors (Quant/Macro/Flow/Qual) are actually statistically independent — orthogonality is asserted, not measured.
 - No single unified orthogonalization/marginal-value gate exists — but the underlying discipline is real and distributed, not simply absent (corrected 2026-07-18, see `unified-orthogonalization-layer.md`'s superseded-note): feature-grain redundancy is already handled by `ensemble_trainer`'s live Ledoit-Wolf cluster deflation (decision D4); regime-grain substitution testing is specced in Phase 145; portfolio-grain effective-N/Kelly is specced in Phase 157 (not yet planned). The real gap is Phase 145 hasn't shipped and Phase 157 hasn't been planned, not that orthogonalization is unaddressed.
 - Edge measurement is Spearman-IC only — blind to real-but-nonmonotonic relationships.
+- **New 2026-07-30: a cluster of measurement-integrity bugs, mostly fixed same-week, one still open.** Canary negative controls (and by extension every broadcast/market-wide feature — `vix_z`, session/calendar features) were pseudo-replicated cross-sectionally, sharing one RNG draw across all symbols at a given timestamp instead of drawing independently per symbol — fixed (todo 203), but the general broadcast-aware significance test this implies is still an open design question. Separately, the Phase 164/165 `--refresh` recompute's upsert clobbered `feature_vectors.regime` for all 36.8M rows (todo 205, fixed, repair pipeline running as of this update — see `.planning/STATE.md`). And todo 146's per-tf IC lookahead grid, though already shipped to production APR, is now disputed for 5m/15m/1h by todo 208's live completeness numbers (1h `mid` only 53.5%) — treat that grid as provisional, not settled, until 208's empirical check runs. None of these change Phase 167's own T3 result (no dependency on regime labels or the disputed grid tiers), but they matter for trusting *other* measurements taken from the same corpus in this window.
 
 **Proposed:**
 - ~~Todo 183's corpus recompute, then re-run todo 179's regime sweep~~ — **DONE 2026-07-27.** T2's "dead" verdict is now confirmed on live corrected regime labels (270 cells, zero pass), no longer provisional. Doesn't affect T3/Phase 167's own result (no regime dependency).

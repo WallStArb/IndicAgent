@@ -227,3 +227,32 @@ tried: regime PERSISTENCE/duration (how many consecutive bars/days has `high_bea
 a brief 1-3 day blip vs. a sustained multi-week regime) rather than a lagging MA position;
 or a shorter-horizon trend filter. Not pursued further this session -- moved to the live
 `market_regimes` recompute decision per user's explicit "do 1 then 2" sequencing.
+
+## CLOSED (2026-07-30): live recompute confirmed run; `high_bear` lead confirmed NOT viable, not just untried
+
+This todo's own two "not yet done" items above (the live `market_regimes` recompute for both
+`equity` and `rates`) are stale as of this close -- both ran. The recompute this file deferred
+folded into the corpus-wide `ic_engine` recompute (todo 183), which completed 2026-07-27T21:55
+UTC (both `equity`/`rates` groups, zero errors). The calibrated causal-rank cuts from this
+todo's two fixes above are what that recompute's `market_regimes` labels reflect.
+
+The `high_bear` "well-motivated next research direction" this file left open was re-tested the
+same week directly against those live corrected labels (todo 179,
+`scripts/analysis/live_recalibrated_regime_sweep_check.py`): 270 cells tested, 108 adequately
+covered, **zero pass**. All 36 `high_bear` cells specifically are stuck at 12-13 day-clusters,
+below the 20-cluster adequacy floor -- genuinely untestable in the current OOS window, not a
+new negative finding so much as confirmation that this lead can't be evaluated yet, not that
+it's false. Full detail: `.planning/todos/pending/179-gate166-concurrent-exposure-diagnostic.md`.
+The regime-persistence/duration idea raised above as a candidate next step was never pursued
+and remains open if anyone wants to revisit `high_bear` later -- not tracked as its own todo.
+
+**Since this close, a second recompute wiped and is repairing the same labels:** the 2026-07-29
+Tier 0 `--refresh` pass clobbered `feature_vectors.regime` (todo 205) -- unrelated to this
+todo's own fix (a different upsert bug), but it means live `market_regimes`/regime labels are
+mid-repair as of this note, not settled. The repair pipeline reuses the same calibrated cuts
+this todo shipped, so nothing here needs re-doing once it finishes -- see `.planning/STATE.md`'s
+Tier -1 for live status.
+
+**Closing this todo** -- both defined deliverables (empirical recalibration, live recompute)
+are done; the side-finding it surfaced (`high_bear`) has a real, resolved-for-now answer
+(untestable, not confirmed) rather than being silently dropped.

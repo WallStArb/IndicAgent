@@ -37,79 +37,20 @@
 `docs/research/intelligence-lifecycle-backlog-matrix.md` scores every planned phase
 on Effort/Risk/Reward (plus a "Foundational" flag that jumps the queue regardless of raw
 reward) — that table, not this list, is the source of truth for *which phase matters more*.
-This section only adds the other axis: *which phases are actually eligible to start right now*,
-by cross-referencing that matrix against live blocker status. Phase numbers stay stable IDs
-either way — re-sort this list freely; never renumber a phase to reflect priority.
+Phase numbers stay stable IDs regardless of priority — re-sort freely; never renumber a phase
+to reflect priority.
 
-**Don't conflate readiness with value** (a mistake caught and reverted while drafting this
-section, 2026-07-13): being unblocked makes a phase eligible, not important. Concept Registry
-(160) has zero dependencies but the matrix rates it "Reward: Low now, Med long-run" — it doesn't
-outrank Phase 144 just because it can start today. PrecedentEngine (149/150) stays the matrix's
-own LOW tier / XL effort / High risk / Speculative reward even after its OOS gates pass — "gates
-passed" removes a blocker, it doesn't promote the idea to HIGH value.
+**Don't conflate readiness with value:** being unblocked makes a phase eligible, not important.
+A phase with zero dependencies can still rank below one that's blocked, if the matrix scores it
+lower on reward.
 
-**Right now (2026-07-13), combining both axes:**
-
-1. **Phase 143.1** — *in progress* (143.1-07 re-run, ETA ~2026-07-14). Not in the matrix (it's a
-   measurement-integrity fix, not a discretionary idea) but everything below either inherits its
-   corrected evidence or is blocked on it directly.
-
-2. **Phase 144 (`regime_group`)** — matrix's only HIGH-tier phase, marked **Foundational**
-   (Cross-Group Lead-Lag IC and PrecedentEngine both need the peer groups it produces). Code
-   complete (6/6 plans); blocked only on 143.1's verdict script, not on further design work.
-
-3. **MEDIUM tier, in the matrix's own reward order** — tag taxonomy audit and HMM regime
-   remainder (both batch into Phase 144, travel with it) → **Phase 148** (Reward: "High,
-   eventual" — the actual OOS retirement gate, currently failing FRAME-04 16/17 cells pre-fix,
-   re-evaluate after 143.1) → **Phase 146** (Reward: "High, latent," evidence-gated into 144's
-   batch) → **Phase 151** (Reward: "Med-High, evidence-backed" — evidence gate already cleared,
-   genuinely ready for `/gsd-discuss-phase`, not blocked on 143.1 at all) → Cross-Group Lead-Lag
-   IC (gated on 144) → `market_data_ohlcv` active-bars view (todo 035, S-effort, Foundational) →
-   **Phase 160 Concept Registry** (Low now/Med long-run — real but not urgent) → **Phase 145**
-   (not scoreable yet, blocked on 144's verdict) → **Phase 147** (Med, conditional on an
-   unevaluated CORPUS-07 gate — not near-term actionable) → **Phase 161 Controlled Vocabulary**
-   (Low reward, behind Concept Registry) → **Phases 152-153 IntegrityMonitor** (High long-run,
-   low now — insurance; explicitly must not jump ahead of 144/148).
-
-4. **LOW tier — correctly parked:** **Phase 149-150 PrecedentEngine** (Speculative/XL/High-risk —
-   needs its own cheap pilot step before any full build, regardless of what Phase 148's gates
-   say) and **Phase 155 Alternative Data Vectors** (Med reward, "not actionable — no data source
-   chosen"), alongside non-phase LOW items (session/skew/factor regime variants, HMM variant
-   redesigns).
-
-5. **Phases 156-159 (v4.0 Execution Layer) — not in the matrix at all** (numbered 2026-07-12,
-   after the matrix's 2026-07-08 writing date). Gap, not a verdict: file a todo to get these
-   scored rather than assuming their hard v3.2 dependency gate also means low value — those are
-   different questions.
-
-**Musk 5-Step + Renaissance framing (2026-07-13)** — applying CLAUDE.md's mandated design lens
-explicitly to this list, in order (full parallel pass for `pending/`/`deferred/` todos:
-`.planning/todos/PRIORITIES.md`):
-
-- **1. Requirements less dumb:** Phase 151 already went through this — its ≤50-cap,
-  theory-motivated-hypothesis design was chosen specifically *over* the combinatorial
-  Interaction Factory (deferred todo 019) because ~30K ungated candidates fails BH-FDR power
-  at any threshold. That's the Renaissance "empirical over theoretical" test applied at design
-  time, not bolted on after.
-
-- **2. Delete:** deferred todo 019 (Interaction Factory) and deferred todo 021 (AnalogEngine,
-  closed 2026-07-13 as a Phase 149/150 duplicate) are the phase-adjacent deletions this pass
-  found — both were superseded designs still sitting open instead of closed. No live phase
-  itself is a delete candidate today; all planned phases trace to either a proof gate (147/148)
-  or a named dependent (144→145/149).
-
-- **3. Simplify:** Phase 151's own ≤50-interaction cap *is* the simplify step already applied —
-  worth naming explicitly since it's easy to mistake for a scope limitation rather than a
-  deliberate rejection of a larger, statistically-invalid design.
-
-- **4. Accelerate:** the priority list above (143.1 → 144 → 148 → ...) already is this step —
-  don't re-derive it; this framing pass doesn't change the ordering, it explains *why* 149-150
-  correctly isn't at the top despite being the most narratively exciting phase (Renaissance:
-  reward is scored against evidence, not the idea's own ambition).
-
-- **5. Automate:** not yet applicable at the phase level — nothing here is a proven-manual,
-  repeated process yet. Revisit once Phase 148's gate-evaluation scripts (SCORE-02/03) have run
-  enough times to show what's worth automating versus what still needs a human call.
+**Current sequencing lives in `.planning/STATE.md`'s "Next actions, priority order" tiers, not
+here** — that section is refreshed every session and is the single source of truth for *what's
+next right now*; this section previously duplicated a dated snapshot of it (last rewritten
+2026-07-13) and drifted badly out of sync (STATE.md had since moved through Phase 144/148/166/
+167/163/164/165 completions this section never saw). Rather than re-deriving another snapshot
+that will rot the same way, this section stays a pointer: read STATE.md for now, the matrix
+above for long-run value, and PRIORITIES.md for todo-level (sub-phase) sequencing.
 
 ## Phases
 

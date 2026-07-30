@@ -27,20 +27,19 @@ model complexity · never drop data that could contain signal · earn promotion 
 resist overfitting. A todo that would earn its way to P0/P1 under these tests (a live-path
 integrity gap, an unproven claim masquerading as settled) outranks one that's merely convenient.
 
-**Current probable path (updated 2026-07-27 -- phase-level, see `.planning/STATE.md` for full
-detail, not duplicated here):** **Phase 167 (Cross-Sectional Trade Construction, T3) is
-COMPLETE** -- both live Validation Gates PASSED against the real OOS population
-(`gate1_passes=true`, `gate2_passes_overall=true`), unlike Phase 148's per-symbol directional
-construction, which failed Gate 2. This clears the stated precondition for Phase 156-159
-(execution/sizing); user has redirected priority away from 156-159 toward validating the
-features/regimes/IC/ensemble stack first (2026-07-27). T5 (non-linear combiner) partially
-replicated at 1d same day -- confirmed SMALL not LARGE (~16x magnitude collapse from the
-original 1h finding); 15m replication (the directly actionable tf) deferred, see todo 188.
-Todo 183's corpus recompute completed 2026-07-27 (closed); T2's regime-sweep verdict is now
-confirmed dead on live data, no longer provisional (unrelated to T3/Phase 167's own validity).
-**Explicit user override, same day:** build Phase 164 + Phase 165 regardless of the evidence-gate
-reasoning above -- plan 165, execute both, then one combined `--refresh` recompute. See
-STATE.md's Tier 0 for full sequencing detail.
+**Current probable path (updated 2026-07-30 -- phase-level, see `.planning/STATE.md` for full
+detail, not duplicated here):** Phase 164/165 (SMC + swing/fib/trend/session primitives) both
+COMPLETE; their combined `--refresh` recompute ran 2026-07-29 but wiped `feature_vectors.regime`
+(todo 205, fixed same day) -- a repair pipeline (`regime_writer` → `forward_return_writer` →
+`cross_sectional_regime_model` → `ic_engine`) relaunched 2026-07-30 and is **still running as of
+this update; nothing that reads regime labels, `feature_ic_scores`, or `ensemble_weights` should
+start until it completes** (STATE.md's Tier -1). Phase 167 (T3) remains COMPLETE, both live
+Validation Gates PASSED — user has redirected priority away from Phase 156-159 (execution)
+toward validating the features/regimes/IC/ensemble stack first. This same week surfaced a
+cluster of measurement-integrity bugs: todo 146's per-tf lookahead grid shipped to production
+APR but is provisional for 5m/15m/1h pending todo 208's empirical check; canary RNG seeding
+fixed (todo 203) but a sibling POOLED-gate anomaly (todo 204) is still undiagnosed. Full detail
+and live-verification commands: `.planning/STATE.md`'s "Active saga" section.
 
 ---
 
@@ -54,21 +53,19 @@ confirms `vix_z`/`yield_slope_z`/`flight_quality` + all session/calendar feature
 share the same pseudo-replication exposure the canaries had. Building an actual
 broadcast-aware significance test remains open (real design question, not filed as
 its own todo yet). Full end-to-end confirmation (a green
-`ops_canary_integrity_assert.py` run) still waits on todo 202's corpus rebuild.
+`ops_canary_integrity_assert.py` run) still waits on a fresh `ic_engine` pass — the
+Tier -1 regime-repair pipeline (`.planning/STATE.md`) currently in flight.
 Sibling finding [204](pending/204-canary-acausal-placebo-pooled-not-detected.md) —
 `canary_acausal_placebo` not clearing its POOLED gate for an unrelated, undiagnosed
 reason.
 
-[202](pending/202-per-tf-lookahead-grid-downstream-consumers-stale.md)
-— todo 146's per-tf lookahead grid landed (migration 269 + `ICEngineConfig`/
-`EnsembleICConfig`/`forward_return_writer.py`), but `forward_returns` (36.7M rows, all
-under the OLD grid) has no automatic rebuild path and its fingerprint is already
-invalidated — the next `ic_engine` run will write horizon-mismatched `feature_ic_scores`
-unless `infrastructure_truncate_derived_tables.sh` runs first, in order, as part of
-whichever corpus rebuild is next (todo 176's queued sequence). Also 4 downstream
-measurement/validation scripts (`corpus_manifest_verifier.py`, `ops_ic_shrinkage.py`,
-`ops_oos_holdout_eval.py`, + 3 smaller ones) still read the old global grid and will
-silently produce wrong verdicts post-rebuild.
+**[202](../completed/202-per-tf-lookahead-grid-downstream-consumers-stale.md) CLOSED
+2026-07-30** — all items (the truncate+rebuild AND all 7 downstream script fixes) were
+actually done 2026-07-29, correctly sequenced, tested; the todo file just never got
+updated and slipped past this session's own earlier "still open" read and the
+`dd49c36e` audit. Moved to `completed/` with full verification detail. One caveat
+carries forward: the rebuild ran under the still-session-gated logic 208 disputes, so it
+may need a second rebuild if 208's Step 2 lands.
 
 **[146](pending/146-lookahead-grid-per-tf-recalibration.md) / [208](pending/208-intraday-same-session-forward-return-gate-inconsistent-with-trade-construction.md)
 — bumped P1→P0 2026-07-30 (todo-priorities audit).** 146's per-tf grid already SHIPPED to
@@ -111,14 +108,13 @@ remain in this chain.
 
 | Todo | Why now |
 |---|---|
-| [065](pending/065-emission-layer-calibration-proposals.md) | EM-CAL threshold calibration — both prerequisite gates (rebuild, EIC-04) cleared 2026-07-09. **Caution added 2026-07-30**: that clearance predates todo 202/208's grid rework (per-tf lookahead grid, 5m/15m/1h provisional pending 208's empirical check). Calibrating against pre-rebuild data now risks redoing this once the corpus/grid settle — same mistake this todo's own history already flagged once. Wait for todo 202's corpus rebuild to finish before starting. |
+| [065](pending/065-emission-layer-calibration-proposals.md) | EM-CAL threshold calibration — both prerequisite gates (rebuild, EIC-04) cleared 2026-07-09. **Caution added 2026-07-30**: that clearance predates todo 146/208's grid rework (per-tf lookahead grid, 5m/15m/1h provisional pending 208's empirical check). Calibrating against pre-rebuild data now risks redoing this once the corpus/grid settle — same mistake this todo's own history already flagged once. Wait for the Tier -1 regime-repair pipeline's `ic_engine` step to finish (`.planning/STATE.md`) before starting. |
 | [079](pending/079-anytime-valid-e-values-corpus-reruns.md) | Anytime-valid inference pilot (one tf) — new statistical primitive, deliberately staged small |
 | [080](pending/080-ensemble-combination-e-candidates-queue.md) | Posterior-blended weighting (L5-1) — testable now via existing A/B judge, zero new data |
-| [092](pending/092-equity-regime-model-threshold-calibration.md) | **FIXED 2026-07-24 for both enabled regime groups (code + migrations 257/258), live recompute not yet run for either.** Equity's `breadth_frac` (guessed 0.40/0.60 raw-fraction cut) and rates' `curve_z`/`credit_z` (guessed +-0.5/0.0 z-score cuts, actually WORSE imbalance — 30.8x vs equity's 12-17x) both fixed with the same causal-expanding-rank pattern (shared `causal_rank.py` helper), symmetric 0.33/0.67 (and 0.5 median-split for credit) cuts, self-calibrating by construction. TDD, full suite green. Offline re-derivation confirms equity's imbalance roughly halved; re-running the day's regime sweep under the fix surfaced `high_bear` conflating "buyable dip" vs "structural bear" (every real 2008/2018/2020/2022 crash fails, cleanest passes are non-crisis dips) — a well-motivated next research direction, not a confirmed edge. **Remaining: the actual live `market_regimes` recompute (multi-hour, both regime_groups, invalidates `feature_ic_scores`/`ensemble_weights`/`ensemble_alpha` downstream) — deliberately not run yet, next session's decision.** `commodity_momentum_ts`/`fx_dollar_carry` have the identical anti-pattern but are `enabled: false` with zero live data — not fixed blind. |
 | [054](pending/054-shadow-alpha-events-monitoring.md) | Shadow alpha_events monitoring — prevents delayed detection of feature decay/threshold bugs |
 | [124](pending/124-market-ohlcv-tradeable-view-tier2-audit.md) | **Fixed 2026-07-21** — `backfill_feature_factory.py`, `regime_writer.py`, `forward_return_writer.py` all migrated to `market_data_ohlcv_tradeable`; boundary + all directly-relevant unit tests pass, ruff/black clean. Recompute of `confirmed_corrupt` rows (todo 160, expanded 2026-07-22 to 16 symbols via a discovery-mechanism fix) **complete 2026-07-22** — see `completed/160-vwo-dia-kre-corrupt-prints-uncorrected.md`. Remaining 11 Tier-2 files still need individual style/DRY-vs-correctness judgment calls, no live reproduction found for any of them yet. |
 | [169](pending/169-no-regime-coverage-completeness-check.md) | **Built and tested 2026-07-24, not yet deployed.** `services/regime_coverage_auditor.py` ships with unit tests (`tests/unit/services/test_regime_coverage_auditor.py`) and matching systemd unit files (`production/systemd/indicagent-regime-coverage-auditor.{service,timer}`, daily 06:00 UTC, same pattern as every other auditor). It already earned its keep once — immediately found 14 symbols, not the 7 known at filing time (closed as [168](../completed/168-seven-symbols-zero-per-symbol-hmm-regime-labels.md)). Remaining: actually enable the timer on the live host (`systemctl enable/start`) — a real persistent infra change, deliberately not done without explicit go-ahead. |
-| [176](pending/176-feature-vectors-historical-backfill-new-structural-columns.md) | **Recompute confirmed run 2026-07-30 (todo-priorities audit, live DB check)** — superseding the "not yet run" status below, which is now stale. `ob_bull_dist_atr` (SMC) 36.85M/36.85M populated (100%), `swing_high_dist_atr` (swing) 36.81M/36.85M (~99.9%). VP/SR (`nearest_hvn_above_dist_atr`) is partial: 5m/15m/1h ~65-70% populated, **1d is 0% populated** — not yet diagnosed whether that's a legitimate design gap (VP/SR may not be meaningful for daily bars, which lack intraday session structure) or a real backfill gap; needs a follow-up check before treating 176 as closed. This same `--refresh` recompute is also what caused the todo 205 regime-wipe incident (fixed same day) — the two are connected, not independent events. Original context (widened scope, fix mechanism) below is otherwise still accurate. |
+| ~~176~~ | **CLOSED 2026-07-30** — moved to `completed/`. 1d's 0% VP populated was the last open question; traced directly in `feature_factory.py:6188-6189` (`if tf == "1d": vp_extra = dict(_NEUTRAL_VP_EXTRA)`) — deliberate, documented since Phase 163 Plan 02 ("a single daily bar has no intraday distribution, so session-anchored VP is not meaningful"), not a backfill gap. S/R (separate mechanism) confirmed 100% populated at 1d as its own code comment claims. SMC/swing/S/R all non-NULL and non-constant (stddev-checked) across the full corpus. See `completed/176-...md`. |
 | [179](pending/179-gate166-concurrent-exposure-diagnostic.md) | **Stale entry corrected 2026-07-30 (todo-priorities audit).** Todo 183's corpus recompute (the thing this entry said was still pending) completed 2026-07-26/27 (`completed/183-...`), and 179's own sweep was re-run under corrected labels 2026-07-27 (`scripts/analysis/live_recalibrated_regime_sweep_check.py`, 270 cells, 108 adequately covered, **zero pass** — confirms the old-label finding, not a new negative result). The strategic fork this todo raised is resolved via T3 (Phase 167, independent of this regime question). This investigation reads as concluded, not actionable — **candidate for closing or converting to a decision record** rather than continuing to carry it as an open P1 pending item; the user's call, not made here. |
 | [167](pending/167-equity-cross-sectional-vs-symbol-hmm-never-falsifier-tested.md) | **Plan changed 2026-07-29 — no longer a standalone equity-scoped relaunch,** folded into 176's queued sequence (market-data-gap catchup → 176's `--refresh` → one full-corpus `ic_engine` pass). **176's `--refresh` step confirmed run 2026-07-30** (see 176's updated entry above), but the sequence's final step (a full-corpus equity+rates `ic_engine` pass) has not yet run — that pass is what would actually close this todo. Currently blocked behind todo 202's in-flight regime_writer→forward_return_writer→cross_sectional_regime_model→ic_engine relaunch (single-writer discipline: do not run a second `ic_engine` pass concurrently). |
 
@@ -133,6 +129,7 @@ scoping it as a phase via `/gsd-discuss-phase`.
 
 | Todo | What |
 |---|---|
+| [209](pending/209-rolling-vp-suppressed-for-1d-never-independently-reviewed.md) | New 2026-07-30, found while closing 176: `poc_rolling_dist_atr`/`poc_session_rolling_divergence_atr` (D-18's rolling-track VP additions, tf-agnostic by construction) are suppressed for `tf='1d'` via the same code branch as session VP (which correctly doesn't apply to 1d) -- but the rolling case was never independently reviewed for tf-applicability across any of Phase 163's three design-review passes. Likely dropping real signal (a 1d bar's dislocation from a ~2-year value anchor is a coherent auction-market-theory concept per D-18's own argument), not a considered exclusion. Needs an incremental-IC check before promoting, same discipline as any other structural column. |
 | [186](pending/186-ic-math-cross-sectional-block-bootstrap-gap.md) | New 2026-07-26, same review as 185: `ic_math.py` has a per-symbol circular block bootstrap but no cross-sectional (pooled-panel) variant, so T5's within-bar_ts rigor check approximated it ad hoc. Lower urgency than 185 — the approximation is conservative and the script says so; do this once a real (non-exploratory) T3/T5 candidate needs it. |
 | [188](pending/188-t5-replication-15m-deferred-memory-contention.md) | T5's 1d replication (2026-07-27) partially confirmed the non-linear-combiner finding but at ~16x smaller magnitude than the original 1h result -- confirmed SMALL not LARGE. 15m (the tf Phase 167's live construction actually trades) is the directly actionable replication, deferred on memory contention with todo 183's concurrent recompute. **Todo 183 has since completed and the host has ~20GB free (re-verify before running) -- the deferral reason is gone, ready to run now.** The `ctf_momentum` 1d-vs-15m sign flip this originally surfaced is resolved -- see [189](pending/189-ctf-momentum-1d-self-referential-htf-not-cross-timeframe.md). |
 | [177](pending/177-bar-history-maxlen-caps-windows-beyond-200.md) | `FeatureVectorPipeline`'s `BarHistory(maxlen=200)` silently caps every live-path window below 200 bars regardless of its APR-configured size. Phase 163's CR-02 found and fixed this for one field (`feature.session_vp.rolling_window`, migration 256 + regression test); this todo tracks the broader gap — several pre-existing windows (`momentum_zscore_window`/`hurst_window`/`vix_zscore_window`, all default 252) already silently exceed 200 too. |
