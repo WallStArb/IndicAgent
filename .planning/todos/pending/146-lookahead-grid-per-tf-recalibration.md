@@ -10,7 +10,43 @@ source: Fable 5 review (docs/research/fable-2026-07-19-lookahead-and-target-cali
 # `alpha.ic.lookahead.{fast,mid,slow,extended}` is one uniform bar-count grid across
 # all 4 tfs; empirically it breaks 1h/15m/5m's slow/extended tiers -- needs per-tf grids
 
-## Problem
+## Status (2026-07-30) — Step 3 shipped, but this todo's own grid is now provisional
+## for 5m/15m/1h, not confirmed
+
+**Step 3 landed** (migration 269, 2026-07-29 — `config_state` verified live 2026-07-30):
+`alpha.ic.lookahead.{tf}.{scale}` per-tf keys exist and are read by `ICEngineConfig`/
+`EnsembleICConfig`/`forward_return_writer.py`. The "rides Phase 162" framing in Step 3's
+original text below is stale — Phase 162 completed independently 2026-07-23; the actual
+rebuild vehicle ended up being a later, separate corpus-rebuild pass. `1h`'s `slow`/
+`extended` keys are still present in `config_state` (`20`/`60`, inherited from the old
+grid) rather than removed — they are known-degenerate placeholders, not a real "--" (the
+`_SCALES` array-shape refactor needed to actually drop them is deferred, see below).
+
+**This todo's central premise needs correcting.** The Problem section below (2026-07-19
+text) calls the same-ET-session completeness gate "a deliberate, correct Invariant-1
+constraint." Re-examined 2026-07-30 (see [208](208-intraday-same-session-forward-return-gate-inconsistent-with-trade-construction.md)):
+that characterization does not hold up. Invariant 1 (`docs/foundation/v3-north-star.md`)
+requires executable open-to-open pricing, not same-session pricing — 1d already crosses
+sessions and is fully Invariant-1-compliant. The trade-construction layer that actually
+builds ML training labels (`counterfactual_tracker.py`, `hold_max_bars` seeded at 60 bars
+uniformly even for 1h) has no session concept at all and never has. Live completeness
+numbers from this morning's `forward_returns` rebuild make the cost concrete: **1h's
+`mid` (2-bar) completeness is 53.5%** — roughly half of all 1h bars, not just
+late-session ones, have no valid forward return at even the shortest multi-bar horizon
+under the current gate.
+
+**Practical effect: do not treat the "Step 2 grid as shipped" table below as
+locked for 5m/15m/1h.** It was derived under the assumption that session-boundedness is
+a correct, load-bearing constraint — [208](208-intraday-same-session-forward-return-gate-inconsistent-with-trade-construction.md)
+is actively checking whether that assumption should be dropped, which would change the
+grid for three of the four rows and potentially the tier *count* itself (`_SCALES`'s
+fixed 4-wide shape, also never independently derived — see 208). `1d`'s row is
+unaffected either way (no session gate applies to it). Read the rest of this todo as
+"how the currently-live grid was derived," not as a closed decision — 208 is now the
+todo that decides whether it needs to change again.
+
+## Problem (2026-07-19 text — the "deliberate, correct" framing below is superseded by
+## the Status section above; kept verbatim for the historical record)
 
 Confirmed live (`config_state`/`config_schema`): `alpha.ic.lookahead.{fast,mid,slow,
 extended} = 1/5/20/60` bars, every one `[initial_estimate]`, never empirically
@@ -160,23 +196,29 @@ stride discipline, so it's what production actually measures at 1d/60 today, con
 with the original review's independent evidence for that cell (`n_independent` ~372-451,
 FDR pass 0.83%, Component F's `1d/high_bull/extended` collapse).
 
-**Final confirmed Step 2 grid (all 4 rows, pre-register at Phase 162 rebuild):**
+**Step 2 grid as shipped in migration 269 (2026-07-29, live in `config_state` —
+PROVISIONAL for 5m/15m/1h, see Status section at top):**
 
 | tf | fast | mid | slow | extended |
 |---|---|---|---|---|
 | 5m | 1 | 6 | 12 | 39 |
 | 15m | 1 | 2 | 5 | 10 |
-| 1h | 1 | 2 | -- | -- |
+| 1h | 1 | 2 | 20 (degenerate) | 60 (degenerate) |
 | 1d | 1 | 2 | 5 | 10 |
 
-1h has no slow/extended tier by design (Q1(c)'s decision (a), confirmed): the
-ensemble/eligibility layer needs to encode per-tf tier availability explicitly rather than
-via silently empty cells -- that's a Step 3 implementation detail, not a new open question.
+1h's `slow`/`extended` keys were left at their old values rather than removed — they are
+known-degenerate (zero completeness under the session gate, see Status section), not a
+real "--" tier. Actually dropping them requires restructuring `ic_engine.py`'s fixed
+`_SCALES` 4-wide array shape, deliberately left out of scope here (see 208 for why that
+restructuring may be needed for a different reason too — the tier count itself, not just
+which values fill it).
 
-**Step 3 is still NOT done and still correctly deferred** -- do not change
-`alpha.ic.lookahead.*` now; this would invalidate every fingerprint/checkpoint mid-corpus.
-Apply only at the next scheduled rebuild window (rides Phase 162), pre-registered per
-`docs/plans/methodology-change-ledger.md`.
+**Step 3 shipped 2026-07-29** (migration 269) — superseding the "still NOT done" text
+this section originally had. `alpha.ic.lookahead.{tf}.{scale}` is live and read by
+`ICEngineConfig`/`EnsembleICConfig`/`forward_return_writer.py`. What remains open is not
+whether Step 3 happened, but whether the grid it applied is correct for 5m/15m/1h —
+that question now belongs to [208](208-intraday-same-session-forward-return-gate-inconsistent-with-trade-construction.md),
+not this todo.
 
 ## Addendum (2026-07-29) — downstream consequence confirmed in live `config_state`
 
@@ -208,6 +250,11 @@ some other (regime, tf) cell in the future.
 
 ## References
 
+- [208](208-intraday-same-session-forward-return-gate-inconsistent-with-trade-construction.md)
+  -- the successor todo that now owns the open question: whether the same-session gate
+  this todo's grid was derived under should exist at all for 5m/15m/1h, and whether the
+  fixed 4-tier shape is the right one. Read 208 before treating any grid in this file as
+  final.
 - `docs/research/fable-2026-07-19-lookahead-and-target-calibration-review.md` Q1 --
   full analysis this todo implements Step 1-2 of
 - `scripts/ops/alpha/ops_lookahead_horizon_response.py` -- the diagnostic (read-only,
