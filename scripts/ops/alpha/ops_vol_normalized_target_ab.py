@@ -81,6 +81,7 @@ import asyncpg
 import numpy as np
 from scipy.stats import rankdata, spearmanr
 
+from services._batch_utils import LOOKAHEAD_FALLBACKS_BY_TF
 from services.ic_engine import _CROSS_SECTIONAL_SYMBOL, _FEATURE_NAMES, _SCALES
 from src.config.settings import Settings
 from src.intelligence.statistics.ic_math import (
@@ -98,13 +99,6 @@ _SUBSAMPLE_MIN_STRIDE_DEFAULT = 5
 
 _LATEST_VINTAGE_SQL = "SELECT max(training_window_end) FROM feature_ic_scores"
 
-_LOOKAHEAD_APR_KEYS = {
-    "fast": "alpha.ic.lookahead.fast",
-    "mid": "alpha.ic.lookahead.mid",
-    "slow": "alpha.ic.lookahead.slow",
-    "extended": "alpha.ic.lookahead.extended",
-}
-_LOOKAHEAD_DEFAULTS = {"fast": 1, "mid": 5, "slow": 20, "extended": 60}
 
 # asyncpg (unlike psycopg2, used elsewhere in this project) only supports positional
 # $1/$2/... parameters -- no %(name)s named-parameter binding.
@@ -308,7 +302,7 @@ async def _evaluate_stratum(
     tf: str,
     regime: str,
     vintage,
-    lookaheads: dict[str, int],
+    lookaheads_by_tf: dict[str, dict[str, int]],
     subsample_min_stride: int,
     cs_chunk_ts: int,
 ) -> list[dict]:
@@ -317,6 +311,9 @@ async def _evaluate_stratum(
     main(). Each result carries raw_qualifying (already final, from production's own
     corpus-wide passes_fdr) plus per-feature vol p-values for main() to pool.
     """
+    # Todo 146/202: lookahead grid is per-tf now -- this stratum's own tf is already a
+    # parameter, so resolve once here rather than the caller passing one shared dict.
+    lookaheads = lookaheads_by_tf[tf]
     baseline_rows = await pool.fetch(_BASELINE_SQL, _CROSS_SECTIONAL_SYMBOL, regime, tf, vintage)
     if not baseline_rows:
         return []
@@ -428,9 +425,12 @@ async def main() -> int:
             print("ERROR: feature_ic_scores is empty -- nothing to sample.")
             return 0
 
-        lookaheads = {
-            scale: await _load_config_int(pool, key, _LOOKAHEAD_DEFAULTS[scale])
-            for scale, key in _LOOKAHEAD_APR_KEYS.items()
+        lookaheads_by_tf = {
+            tf: {
+                scale: await _load_config_int(pool, f"alpha.ic.lookahead.{tf}.{scale}", default)
+                for scale, default in fallbacks.items()
+            }
+            for tf, fallbacks in LOOKAHEAD_FALLBACKS_BY_TF.items()
         }
         subsample_min_stride = await _load_config_int(
             pool, "alpha.ic.subsample_min_stride", _SUBSAMPLE_MIN_STRIDE_DEFAULT
@@ -472,7 +472,7 @@ async def main() -> int:
                     tf,
                     regime,
                     vintage,
-                    lookaheads,
+                    lookaheads_by_tf,
                     subsample_min_stride,
                     args.cs_chunk_ts,
                 )
