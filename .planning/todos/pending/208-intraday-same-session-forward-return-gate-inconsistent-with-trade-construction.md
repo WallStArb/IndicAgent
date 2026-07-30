@@ -8,7 +8,56 @@ source: user pushback on todo 146's session-bounded grid for 1h + follow-up arch
 
 # `forward_return_writer`'s same-ET-session completeness gate (5m/15m/1h) has no
 # analog in the trade-construction layer that actually consumes bars -- likely
-# suppressing real signal, not protecting executability
+# suppressing real signal, not protecting executability. Compounded by a second,
+# related rigidity: the fixed 4-tier `fast/mid/slow/extended` scale shape is itself
+# uniform across all 4 tfs with no empirical basis.
+
+## Live completeness numbers (2026-07-30, this morning's forward_returns rebuild,
+## current session-gated grid -- confirms the severity is worse than the pre-rebuild
+## estimate this todo originally cited)
+
+```
+SELECT tf, avg(complete_fast::int), avg(complete_mid::int),
+       avg(complete_slow::int), avg(complete_extended::int)
+FROM forward_returns GROUP BY tf;
+```
+
+| tf | fast | mid | slow | extended |
+|---|---|---|---|---|
+| 5m | 0.972 | 0.903 | 0.821 | 0.461 |
+| 15m | 0.920 | 0.881 | 0.762 | 0.566 |
+| 1h | 0.689 | 0.535 | 0.000 | 0.000 |
+| 1d | 1.000 | 0.999 | 0.999 | 0.997 |
+
+**1h's `mid` (2-bar horizon) completeness is 53.5% -- essentially half of every 1h bar
+in the corpus, not just late-session ones, has no valid forward return at even the
+shortest multi-bar horizon.** Any signal firing in roughly the back half of a trading
+day at 1h is structurally invisible to IC measurement regardless of quality. 5m/15m
+degrade the same way at their `extended` tier (46-57% complete). This is the concrete,
+measured form of the user's point: "if you were to buy or sell into a signal at 3pm
+[the] last 1h bar[,] how it reacts the next day or few days is immaterial [under the
+current gate] ... that seems like we are throwing away signal."
+
+## Second, compounding finding: the 4-tier `fast/mid/slow/extended` shape is itself
+## an unexamined, hardcoded assumption -- not just the session gate's cutoff point
+
+`ic_engine.py`'s `_SCALES` tuple is a fixed 4-wide array threaded through ~13
+positionally-indexed call sites (`_compute_one_regime_cell`, `_compute_symbol_tf`,
+`_compute_cross_sectional_tf`, the SQL/array-building sections feeding them). This
+shape was never derived per-tf from first principles (how many horizon points does a
+tf's decay curve actually need, given how many bars it has to work with) -- it is
+inherited array-shape convenience, most naturally justified for 1d, stamped onto 5m/
+15m/1h uniformly. Todo 146 itself flagged this exact restructuring as explicitly out
+of scope, "deliberately left ... under time pressure ahead of an imminent full-corpus
+run" -- i.e., known, not overlooked, just deferred. Two distinct questions therefore
+need answering, not one: (a) *where* should the forward-return boundary be (this
+todo's original scope, the session-gate question), and (b) *how many* horizon tiers,
+and at what spacing, should each tf actually get once (a) is resolved -- 5m has 78
+bars/session and might warrant more than 4 sample points to characterize its decay
+curve; 1h, once no longer artificially capped at 7 bars/session, might want a
+differently-shaped grid than "fast/mid/slow/extended" implies. Don't re-derive a new
+4-tier grid under the corrected session definition and call the design work done --
+the tier *count* itself needs the same scrutiny the boundary just got.
 
 ## Problem
 
@@ -101,11 +150,16 @@ contiguous, bar-indexed, no-session-gate construction 1d already uses. This is a
 changes for 5m/15m/1h), so it must ride a full corpus rebuild, same discipline as todo
 146's own Step 3 -- do not partially apply.
 
-**Step 3:** re-derive the per-tf lookahead grid (todo 146's table) under the new
-contiguous definition -- 1h in particular may regain a real slow/extended tier once it's
+**Step 3:** re-derive the per-tf lookahead grid under the new contiguous definition --
+and treat the tier *count* as open too, not just the bar values within a fixed
+4-slot template. 1h in particular may regain real longer-horizon coverage once it's
 no longer artificially capped at 7 bars/session, which would also unblock the
 `alpha.frame.hold_max_bars.*.1h` calibration gap todo 146's 2026-07-29 addendum already
-flagged as silently stuck on seed values.
+flagged as silently stuck on seed values. If a tf genuinely wants more or fewer than 4
+tiers, that requires restructuring `ic_engine.py`'s fixed `_SCALES` array shape (~13
+positionally-indexed call sites) -- todo 146's explicitly-deferred out-of-scope item
+#1. Do not silently re-cram a differently-shaped decay curve back into 4 named slots
+just to avoid that refactor.
 
 **If Step 1 instead shows IC decaying to noise past the boundary** -- a legitimate
 possible outcome, not assumed -- then the session-bounded grid stands as correctly
@@ -119,7 +173,10 @@ signal).
 Step 1 is cheap (existing tool, one more `--max-symbols 80` run per tf, read-only).
 Step 2 is a real production code change (`forward_return_writer.py` + tests) that must
 ride a full corpus rebuild -- do not attempt as a quick patch outside a planned rebuild
-window.
+window. Step 3's tier-count question, if it turns out a tf needs a non-4-slot grid, is
+a bigger lift than Step 2 alone -- the `_SCALES` array-shape refactor todo 146 deferred
+-- and should be scoped as its own follow-up once Step 1's data says whether it's
+actually needed, not speculatively built now.
 
 ## References
 
