@@ -1,9 +1,15 @@
 ---
-status: pending
+status: completed
 priority: P3
 filed: 2026-07-30
+completed: 2026-07-30
 source: final-review re-review of docs/superpowers/plans/2026-07-30-per-tf-active-scale-set.md
 ---
+
+**CLOSED 2026-07-30** — fixed in commit `739b434f`: `_load_apr_values` now checks
+`parsed is None` instead of a bare truthy check, with a regression test
+(`test_load_apr_values_active_scales_explicit_empty_list_stays_empty`) proving an
+explicit `"[]"` produces a genuinely empty set instead of falling back to the default.
 
 # `corpus_manifest_verifier.py`'s `_load_apr_values` treats an explicit empty
 # active-scale list the same as an absent key -- inconsistent with the Ring 2 path
