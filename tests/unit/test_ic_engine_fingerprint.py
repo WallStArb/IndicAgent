@@ -65,6 +65,12 @@ def _make_config(**overrides) -> ICEngineConfig:
         lookahead_mid={"5m": 6, "15m": 2, "1h": 2, "1d": 2},
         lookahead_slow={"5m": 12, "15m": 5, "1h": 20, "1d": 5},
         lookahead_extended={"5m": 39, "15m": 10, "1h": 60, "1d": 10},
+        active_scales={
+            "5m": ("fast", "mid", "slow", "extended"),
+            "15m": ("fast", "mid", "slow", "extended"),
+            "1h": ("fast", "mid"),
+            "1d": ("fast", "mid", "slow", "extended"),
+        },
         equity_model_enabled=True,
         min_obs_daily=1000,
         hac_max_lag=3,
@@ -74,6 +80,15 @@ def _make_config(**overrides) -> ICEngineConfig:
     )
     base.update(overrides)
     return ICEngineConfig(**base)
+
+
+def test_make_config_includes_active_scales_default():
+    """_make_config's base dict must include active_scales or every existing test
+    in this file breaks on ICEngineConfig's field-count growth -- same discipline
+    as every prior field addition (see this file's existing base dict)."""
+    cfg = _make_config()
+    assert cfg.active_scales["1h"] == ("fast", "mid")
+    assert cfg.active_scales["5m"] == ("fast", "mid", "slow", "extended")
 
 
 # ---------------------------------------------------------------------------
@@ -150,6 +165,51 @@ def test_apr_snapshot_key_unchanged_by_cross_sectional_bootstrap_threads_change(
     """
     cfg_a = _make_config(cross_sectional_bootstrap_threads={"5m": 6, "15m": 1, "1h": 1, "1d": 1})
     cfg_b = _make_config(cross_sectional_bootstrap_threads={"5m": 1, "15m": 1, "1h": 1, "1d": 1})
+    assert _compute_apr_snapshot_key(cfg_a) == _compute_apr_snapshot_key(cfg_b)
+
+
+# ---------------------------------------------------------------------------
+# active_scales field (2026-07-30 per-tf active-scale-set design)
+# ---------------------------------------------------------------------------
+
+
+def test_active_scales_for_returns_canonical_tuple():
+    cfg = _make_config()
+    assert cfg.active_scales_for("1h") == ("fast", "mid")
+    assert cfg.active_scales_for("5m") == ("fast", "mid", "slow", "extended")
+
+
+def test_apr_snapshot_key_moves_on_active_scales_change():
+    """active_scales is COMPUTATIONAL -- excluding a scale changes which cells get
+    attempted, so it must move the fingerprint or a stale cell would silently be
+    treated as already-correct under the old scale set."""
+    cfg_a = _make_config(
+        active_scales={
+            "5m": ("fast", "mid", "slow", "extended"),
+            "15m": ("fast", "mid", "slow", "extended"),
+            "1h": ("fast", "mid", "slow", "extended"),
+            "1d": ("fast", "mid", "slow", "extended"),
+        }
+    )
+    cfg_b = _make_config(
+        active_scales={
+            "5m": ("fast", "mid", "slow", "extended"),
+            "15m": ("fast", "mid", "slow", "extended"),
+            "1h": ("fast", "mid"),
+            "1d": ("fast", "mid", "slow", "extended"),
+        }
+    )
+    assert _compute_apr_snapshot_key(cfg_a) != _compute_apr_snapshot_key(cfg_b)
+
+
+def test_apr_snapshot_key_deterministic_regardless_of_active_scales_tuple_order():
+    """An operator reordering the configured JSON array (semantically identical
+    active set) must NOT move the fingerprint -- canonicalize_active_scales()
+    (called at load time in from_apr, not here) is what guarantees this in
+    production; this test proves _compute_apr_snapshot_key itself doesn't need to
+    re-sort, AS LONG AS both configs already hold canonically-ordered tuples."""
+    cfg_a = _make_config(active_scales={"5m": ("fast", "mid"), "15m": (), "1h": (), "1d": ()})
+    cfg_b = _make_config(active_scales={"5m": ("fast", "mid"), "15m": (), "1h": (), "1d": ()})
     assert _compute_apr_snapshot_key(cfg_a) == _compute_apr_snapshot_key(cfg_b)
 
 

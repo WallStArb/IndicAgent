@@ -398,6 +398,12 @@ def test_cell_too_large_error_raised_by_both_cell_functions():
         lookahead_mid={"5m": 6, "15m": 2, "1h": 2, "1d": 2},
         lookahead_slow={"5m": 12, "15m": 5, "1h": 20, "1d": 5},
         lookahead_extended={"5m": 39, "15m": 10, "1h": 60, "1d": 10},
+        active_scales={
+            "5m": ("fast", "mid", "slow", "extended"),
+            "15m": ("fast", "mid", "slow", "extended"),
+            "1h": ("fast", "mid"),
+            "1d": ("fast", "mid", "slow", "extended"),
+        },
         equity_model_enabled=True,
         min_obs_daily=1000,
         hac_max_lag=3,

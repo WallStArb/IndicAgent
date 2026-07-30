@@ -89,9 +89,12 @@ project_root = Path(__file__).parent.parent
 sys.path.insert(0, str(project_root))
 
 from services._batch_utils import (
+    ACTIVE_SCALES_FALLBACKS_BY_TF,
     LOOKAHEAD_FALLBACKS_BY_TF,
     Float32ChunkAccumulator,
+    canonicalize_active_scales,
     connect_db_from_url,
+    get_list_config,
     lookaheads_for_tf,
     short_lived_conn,
 )
@@ -464,6 +467,7 @@ class ICEngineConfig:
     lookahead_mid: dict[str, int]
     lookahead_slow: dict[str, int]
     lookahead_extended: dict[str, int]
+    active_scales: dict[str, tuple[str, ...]]
     equity_model_enabled: bool
     min_obs_daily: int
     hac_max_lag: int
@@ -583,6 +587,14 @@ class ICEngineConfig:
             tf,
         )
 
+    def active_scales_for(self, tf: str) -> tuple[str, ...]:
+        """Which scales ic_engine actually attempts computation for on this tf
+        (2026-07-30 per-tf active-scale-set design). A scale absent here still has
+        a bar-count value in lookahead_{fast,mid,slow,extended} (metadata persists)
+        but is never attempted -- distinct from a scale that's active but happens
+        to score below a reliability gate at runtime."""
+        return self.active_scales[tf]
+
     @classmethod
     def from_apr(cls, cfg: Any) -> ICEngineConfig:
         """Load all IC engine APR parameters from ConfigService in one pass."""
@@ -611,6 +623,19 @@ class ICEngineConfig:
             }
             for scale in ("fast", "mid", "slow", "extended")
         }
+        # Active-scale set per tf (2026-07-30 design) -- which of the four scales
+        # ic_engine actually attempts, distinct from the bar-count VALUES above
+        # (lookahead_{fast,mid,slow,extended}), which stay populated even for an
+        # excluded scale. canonicalize_active_scales() guarantees a deterministic
+        # tuple order regardless of how the configured JSON array is written, so
+        # _compute_apr_snapshot_key's fingerprint never moves on a semantically-
+        # unchanged reorder.
+        active_scales = {
+            tf: canonicalize_active_scales(
+                get_list_config(cfg, f"alpha.ic.active_scales.{tf}", list(fb))
+            )
+            for tf, fb in ACTIVE_SCALES_FALLBACKS_BY_TF.items()
+        }
         return cls(
             min_observations=int(cfg.get_sync("alpha.ic.min_observations", 500)),
             fdr_alpha=float(cfg.get_sync("alpha.ic.fdr_alpha", 0.05)),
@@ -627,6 +652,7 @@ class ICEngineConfig:
             lookahead_mid=_lookahead_by_scale["mid"],
             lookahead_slow=_lookahead_by_scale["slow"],
             lookahead_extended=_lookahead_by_scale["extended"],
+            active_scales=active_scales,
             # Cross-sectional equity regime model flag (migration 174)
             equity_model_enabled=str(
                 cfg.get_sync("alpha.regime.equity_model_enabled", "true")
@@ -725,6 +751,10 @@ _COMPUTATIONAL_CONFIG_FIELDS: frozenset[str] = frozenset(
         "lookahead_mid",  # forward-return horizon
         "lookahead_slow",  # forward-return horizon
         "lookahead_extended",  # forward-return horizon
+        # Which scales are attempted at all for a tf (2026-07-30 design) -- excluding
+        # a scale changes which feature_ic_scores rows get written, same class of
+        # change as the lookahead bar-count values themselves.
+        "active_scales",
         # Changes which regime label SOURCE (market_regimes vs feature_vectors.regime)
         # feeds every non-pooled row's regime/regime_scope columns -- see
         # _compute_symbol_tf's mr_dict docstring.
