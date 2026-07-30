@@ -152,21 +152,79 @@ changes for 5m/15m/1h), so it must ride a full corpus rebuild, same discipline a
 
 **Step 3:** re-derive the per-tf lookahead grid under the new contiguous definition --
 and treat the tier *count* as open too, not just the bar values within a fixed
-4-slot template. 1h in particular may regain real longer-horizon coverage once it's
-no longer artificially capped at 7 bars/session, which would also unblock the
-`alpha.frame.hold_max_bars.*.1h` calibration gap todo 146's 2026-07-29 addendum already
-flagged as silently stuck on seed values. If a tf genuinely wants more or fewer than 4
-tiers, that requires restructuring `ic_engine.py`'s fixed `_SCALES` array shape (~13
-positionally-indexed call sites) -- todo 146's explicitly-deferred out-of-scope item
-#1. Do not silently re-cram a differently-shaped decay curve back into 4 named slots
-just to avoid that refactor.
+4-slot template. See "Design: what the grid should actually be" below for the specific
+proposed method, not just the fact that it's open.
 
 **If Step 1 instead shows IC decaying to noise past the boundary** -- a legitimate
 possible outcome, not assumed -- then the session-bounded grid stands as correctly
 derived, and this todo closes with that finding recorded (the architectural
 inconsistency in point 2 above would still be worth resolving on its own terms, e.g. by
 adding an explicit session-boundary control feature, but would no longer imply lost
-signal).
+signal). The Step 3 design below is orthogonal to which outcome occurs -- it's about
+how many/which horizons to measure once the *ceiling* per tf is known, whichever way
+Step 1 resolves it.
+
+## Design: what the grid should actually be (2026-07-30 addendum, not just where the
+## boundary sits)
+
+Prompted by a direct question: does the `fast/mid/slow/extended` framing that makes
+sense for something like SMA/EMA periods actually hold for forward-return lookaheads?
+**No, and the two shouldn't have been designed the same way.**
+
+An MA period is a backward-looking smoothing window over data already observed --
+computing a 20-bar and a 50-bar SMA side by side costs nothing extra, has no
+completeness/censoring interaction, and carries no statistical multiple-testing burden.
+Picking 4 of them vs. 8 is a free choice. A forward-return horizon is a *prediction
+target* embedded in a significance-testing pipeline -- each additional horizon is a real
+IC estimate, a real CI (Fisher-z or bootstrap), and a real addition to the FDR
+correction's family size, and it's exactly the thing that gets censored when data runs
+out (this todo's whole finding). `fast/mid/slow/extended` is CLAUDE.md's documented
+*naming style* for APR gradients ("use scale qualifiers instead of numbers so a key
+stays meaningful without a magic constant") -- that is a naming convention, not a
+cardinality mandate. Somewhere it got read as "there must be exactly 4 gradient points,"
+and that reading was never independently justified. The actual source of "4" is
+`ic_engine.py`'s `_SCALES` tuple -- a hardcoded 4-slot array threaded through ~13
+positionally-indexed call sites, an implementation artifact inherited from 1d's original
+design and stamped onto every tf uniformly. Todo 146's own candidate grid values are a
+tell: its text says they were "picked to keep completeness in a reasonable range" under
+the session gate -- i.e., reverse-engineered to survive a constraint, not derived from
+where each tf's actual IC-vs-horizon curve has real structure.
+
+**Proposed method, once Step 1/2 settle the ceiling per tf:**
+
+1. Use `ops_lookahead_horizon_response.py`'s existing dense, roughly log-spaced grid
+   (already denser than 4 points per tf -- e.g. 5m tests `{1,3,6,12,26,39,66}`) as the
+   *characterization* tool, not just a one-off diagnostic. Log-spacing is the right
+   shape because return-IC decay curves are typically power-law-ish in horizon -- even
+   resolution in log-horizon gives even resolution across the actual timescales that
+   matter (minutes vs. hours vs. days), unlike linear spacing, which over-samples short
+   horizons and under-samples long ones.
+2. From that curve per tf, identify: where completeness collapses below a usable floor
+   (the real ceiling, post-208), where CI half-width overtakes the IC point estimate
+   (the statistical noise floor -- exactly what killed 1d's old `extended=60`), and
+   where the curve's *shape* changes (rises, peaks, decays). Those inflection points are
+   where a production measurement point earns its keep.
+3. Let the number of production horizons be whatever that curve says, per tf -- not a
+   number fixed in advance. 1h might genuinely want 2 real points; 5m might want 6.
+   That's a finding, not something to design around.
+4. **Decouple measurement resolution from decision granularity.** `ic_engine` can
+   measure IC densely to characterize the curve; `hold_max_bars`/ensemble weighting only
+   need to consume the 1-2 points that are actually tradeable and reliable. Right now
+   both are forced through the same 4 `_SCALES` slots -- the wrong coupling.
+5. Mechanically: store the per-tf grid as a JSON list (`alpha.ic.lookahead.{tf}`, a
+   variable-length array) rather than four scalar named keys
+   (`alpha.ic.lookahead.{tf}.{fast,mid,slow,extended}`) -- this project's own APR
+   "behavioral list" pattern (CLAUDE.md's APR mandate, category 2: "lists controlling
+   WHAT the algorithm processes → APR as JSON"; full spec
+   `docs/foundation/adaptive-parameter-registry.md`). Named qualifiers can still be
+   used for whichever 1-2 points feed downstream decisions -- that's a separate,
+   smaller-cardinality concern from the measurement grid itself.
+
+This requires the `_SCALES` array-shape refactor both 146 and this todo have now
+flagged and deferred -- 146 explicitly, at Phase 138 corpus-rebuild time; this todo,
+pending Step 1's data. Recommend not deferring it a third time once Step 1 lands --
+scope it as its own follow-up plan at that point, informed by real per-tf curve shapes
+rather than argued in the abstract.
 
 ## Sizing
 
