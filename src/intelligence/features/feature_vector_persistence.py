@@ -315,8 +315,74 @@ VALUES (
 """
 
 _PK_COLUMN_NAMES = frozenset({"symbol", "tf", "bar_ts"})
+
+# Single source of truth for regime_writer.py's column ownership (Ring 1, this module,
+# is the legal place for it -- services/regime_writer.py, Ring 2, imports FROM here,
+# never the reverse). regime_writer batch-UPDATEs these 8 columns via one atomic
+# `UPDATE feature_vectors ... WHERE regime IS NULL` pass, per-symbol fitted K=5 HMM
+# (BIC-validated, APR-governed via alpha.hmm.random_state). Previously this ownership
+# list was hand-typed independently in two places (here and regime_writer.py's own
+# set_cols literal) -- exactly the hand-typed-list-drift failure mode this module's own
+# docstring already documents (2026-07-08, todo 176): a column added to one list and not
+# the other fails silently. Deriving both from one tuple makes that drift structurally
+# impossible instead of merely tested-for.
+REGIME_WRITER_OWNED_COLUMN_NAMES: tuple[str, ...] = (
+    "regime",
+    "hmm_prob_trending_up",
+    "hmm_prob_ranging",
+    "hmm_prob_trending_down",
+    "hmm_regime_prob",
+    "hmm_entropy",
+    "hmm_duration",
+    "hmm_churn",
+)
+
+# Of REGIME_WRITER_OWNED_COLUMN_NAMES' 8 columns, hmm_prob_trending_up/hmm_prob_ranging/
+# hmm_prob_trending_down/hmm_churn aren't in this module's column list at all (safe by
+# construction -- no caller here ever writes them). The intersection with
+# _ALL_COLUMN_NAMES is what must be excluded from DO UPDATE SET:
+#
+# - regime: callers always pass None (they don't compute a regime label themselves).
+#   If included in DO UPDATE SET, a --refresh recompute would silently overwrite every
+#   already-labeled row's regime back to NULL with EXCLUDED's always-None value,
+#   discarding regime_writer's prior work corpus-wide. Confirmed root cause of the
+#   2026-07-30 incident: a --refresh run nulled feature_vectors.regime across all
+#   36.8M rows this way. (A second, independent violation of the same invariant was
+#   found and fixed the same day: services/feature_vector_pipeline.py's live path was
+#   assigning its own heuristic regime value on every bar -- see that file's
+#   _process_bar_compute docstring.)
+#
+# - hmm_regime_prob/hmm_entropy/hmm_duration: NOT solely regime_writer's, unlike
+#   regime -- FeatureFactory.compute()/compute_batch() (feature_cache.py's inline
+#   K=3 forward-filter HMM) also populates these same field names on every FeatureVector,
+#   a second, different model writing the same column name as regime_writer's fitted
+#   K=5 HMM. Confirmed live on 2026-07-30: 11% of SPY/1d rows carrying regime_writer's
+#   probability triple violated the same-model invariant hmm_regime_prob <= max(p_up,
+#   p_ranging, p_down), i.e. the two models' outputs were already mixed in this column.
+#   Excluding them here preserves regime_writer's explicitly-claimed values from being
+#   silently overwritten by the K=3 compute value on --refresh, same protection as
+#   regime -- but note this exclusion only stops --refresh from being the tiebreaker by
+#   accident, it does not un-mix rows that already carry a K=3 value written before
+#   regime_writer ever reached them. These three ARE live ML input: ensemble_trainer.py's
+#   `_get_feature_columns()` (`_META_COLS` excludes regime/regime_label_source but not
+#   these three) feeds them to ensemble training as ordinary features, so a row whose
+#   value came from K=3 vs K=5 is silently indistinguishable downstream. Which model
+#   *should* be authoritative for this column name is a separate, unresolved design
+#   question (todo 207) -- resolution is presumably a rename (distinct hmm_*_k3 vs
+#   hmm_*_fitted columns), not a preference call.
+#
+# - regime_label_source: NOT actually regime_writer-owned (absent from
+#   REGIME_WRITER_OWNED_COLUMN_NAMES) -- every caller hardcodes the constant 'filtered'
+#   already, so exclusion vs inclusion here is a no-op in practice. Left excluded for
+#   symmetry with regime; if this field ever becomes genuinely computed/contested,
+#   revisit.
+_EXTERNALLY_OWNED_COLUMN_NAMES = frozenset(REGIME_WRITER_OWNED_COLUMN_NAMES) | {
+    "regime_label_source"
+}
 _UPDATE_SET_SQL = ",\n    ".join(
-    f"{name} = EXCLUDED.{name}" for name in _ALL_COLUMN_NAMES if name not in _PK_COLUMN_NAMES
+    f"{name} = EXCLUDED.{name}"
+    for name in _ALL_COLUMN_NAMES
+    if name not in _PK_COLUMN_NAMES and name not in _EXTERNALLY_OWNED_COLUMN_NAMES
 )
 
 # feature_vectors' real uniqueness constraint is (symbol, tf, bar_ts) -- NOT

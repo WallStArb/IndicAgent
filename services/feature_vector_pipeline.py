@@ -1252,23 +1252,31 @@ class FeatureVectorPipeline(BaseDaemon):
         # mirroring compute_batch()'s per-bar cache.advance_bar() call (todo 158).
         cache.advance_bar(bar.ts, bar.high, bar.low, bar.close, float(bar.volume))
 
-        # Regime label from HMM dominant state probability
-        # High hmm_regime_prob + low entropy = dominant regime active
-        hmm_prob = cache.hmm_regime_prob
-        if hmm_prob >= 0.6:
-            regime: str | None = "ranging" if cache.hmm_entropy < 0.5 else "trending_up"
-        elif hmm_prob >= 0.4:
-            regime = "ranging"
-        else:
-            regime = None  # uncertain / cold start
-
+        # regime is always None here -- regime_writer.py is the sole writer of
+        # feature_vectors.regime, via its own separate, restart-safe
+        # `UPDATE ... WHERE regime IS NULL` pass over the fitted per-symbol
+        # K=5 HMM (BIC-selected, APR-governed via alpha.hmm.random_state).
+        # This path previously derived a heuristic regime label from
+        # cache.hmm_regime_prob/hmm_entropy (FeatureCache's separate, fixed-
+        # params K=3 forward-filter -- a 2-bucket "ranging"/"trending_up" rule
+        # that could never produce "trending_down"). No downstream consumer
+        # of topic_feature_vectors reads that value -- feature_vector_writer.py
+        # just persists it via FEATURE_VECTOR_INSERT_SQL's DO NOTHING, and
+        # every real regime consumer (alpha_frame_writer.py,
+        # counterfactual_tracker.py, llm_writer.py) reads the persisted
+        # column later expecting regime_writer's authoritative label. Because
+        # regime_writer's discovery (`WHERE regime IS NULL`) is symbol-level
+        # and restart-safe, a live bar assigned a non-NULL heuristic value
+        # here would never be revisited once inserted -- a silent, permanent
+        # single-writer-invariant violation on a measurement-critical column
+        # (found and fixed 2026-07-30, same investigation as todo 205).
         record = FeatureVectorRecord(
             symbol=bar.symbol,
             tf=bar.tf,
             bar_ts=bar.ts,
             pipeline_version=_PIPELINE_VERSION,
             feature_factory_version=FEATURE_FACTORY_VERSION,
-            regime=regime,
+            regime=None,
             regime_label_source="filtered",
             vector=vector,
         )

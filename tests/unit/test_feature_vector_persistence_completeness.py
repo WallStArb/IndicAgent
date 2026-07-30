@@ -39,6 +39,7 @@ from src.intelligence.features.feature_vector_persistence import (
     FEATURE_VECTOR_INSERT_SQL_PSYCOPG2,
     FEATURE_VECTOR_UPSERT_SQL,
     FEATURE_VECTOR_UPSERT_SQL_PSYCOPG2,
+    REGIME_WRITER_OWNED_COLUMN_NAMES,
     feature_vector_to_insert_params,
 )
 from src.intelligence.schemas import FeatureVector
@@ -162,20 +163,67 @@ def test_upsert_params_tuple_length_matches_sql():
     assert len(params) == n_placeholders
 
 
+# Mirrors feature_vector_persistence._EXTERNALLY_OWNED_COLUMN_NAMES. Deliberately not
+# imported: these tests pin the two names independently of the module's own exclusion
+# set, so a mistaken edit to the source frozenset still fails loud here instead of the
+# test becoming tautological against the thing it's checking.
+_EXTERNALLY_OWNED_COLUMNS = {
+    "regime",
+    "regime_label_source",
+    "hmm_regime_prob",
+    "hmm_entropy",
+    "hmm_duration",
+}
+_NEVER_UPDATED_COLUMNS = {"symbol", "tf", "bar_ts"} | _EXTERNALLY_OWNED_COLUMNS
+
+
+def _upsert_set_columns() -> list[str]:
+    """Column names on the left of `= EXCLUDED.<same>` in DO UPDATE SET, in order."""
+    match = re.search(r"DO UPDATE SET\s*(.*?)\s*\Z", FEATURE_VECTOR_UPSERT_SQL, re.DOTALL)
+    assert match, "Could not parse DO UPDATE SET clause"
+    return re.findall(r"(\w+)\s*=\s*EXCLUDED\.\1", match.group(1))
+
+
 def test_upsert_updates_every_non_pk_column_exactly_once():
     """DO UPDATE SET must cover every column except the (symbol, tf, bar_ts)
-    conflict target -- a column silently missing from SET would keep its old
-    (possibly NULL, pre-fix) value forever on every future recompute, the
-    exact bug this statement exists to close."""
-    set_clause_match = re.search(
-        r"DO UPDATE SET\s*(.*?)\s*\Z", FEATURE_VECTOR_UPSERT_SQL, re.DOTALL
-    )
-    assert set_clause_match, "Could not parse DO UPDATE SET clause"
-    set_columns = re.findall(r"(\w+)\s*=\s*EXCLUDED\.\1", set_clause_match.group(1))
+    conflict target and columns owned by a different writer -- a column
+    silently missing from SET would keep its old (possibly NULL, pre-fix)
+    value forever on every future recompute, the exact bug this statement
+    exists to close.
+
+    _EXTERNALLY_OWNED_COLUMNS are deliberately excluded: they're owned by
+    regime_writer.py's separate UPDATE pass, not by whatever caller builds
+    this row. Including regime was the actual root cause of the 2026-07-30
+    incident (a --refresh run nulled it corpus-wide) -- see
+    test_upsert_never_overwrites_externally_owned_columns below.
+    """
+    set_columns = _upsert_set_columns()
     all_columns = _sql_column_names(FEATURE_VECTOR_UPSERT_SQL)
-    expected = [c for c in all_columns if c not in {"symbol", "tf", "bar_ts"}]
+    expected = [c for c in all_columns if c not in _NEVER_UPDATED_COLUMNS]
     assert set_columns == expected
     assert len(set_columns) == len(set(set_columns)), "Duplicate column in DO UPDATE SET"
+
+
+def test_upsert_never_overwrites_externally_owned_columns():
+    """_EXTERNALLY_OWNED_COLUMNS must never appear in DO UPDATE SET.
+
+    backfill_feature_factory.py and FeatureVectorWriter always pass
+    regime=None (they don't compute regime -- regime_writer.py does, via a
+    separate `UPDATE ... WHERE regime IS NULL` pass run afterward). If the
+    refresh UPSERT's DO UPDATE SET included regime, every --refresh
+    recompute would silently overwrite every already-labeled row's regime
+    back to EXCLUDED's always-None value -- confirmed as exactly what
+    happened corpus-wide (36.8M rows) on 2026-07-30. hmm_regime_prob/
+    hmm_entropy/hmm_duration have the same exposure from a second writer
+    (FeatureFactory's inline K=3 HMM computes the same field names) --
+    confirmed live via an 11% same-model-invariant violation rate on
+    SPY/1d rows carrying regime_writer's K=5 probability triple.
+    """
+    overlap = set(_upsert_set_columns()) & _EXTERNALLY_OWNED_COLUMNS
+    assert not overlap, (
+        f"DO UPDATE SET includes externally-owned column(s) {overlap} -- a "
+        f"--refresh run will silently overwrite another writer's prior work"
+    )
 
 
 def test_psycopg2_variants_have_no_leftover_placeholders():
@@ -187,3 +235,26 @@ def test_psycopg2_variants_have_no_leftover_placeholders():
     assert FEATURE_VECTOR_UPSERT_SQL_PSYCOPG2.count("%s") == len(
         set(_sql_column_names(FEATURE_VECTOR_UPSERT_SQL))
     )
+
+
+# ── Cross-module ownership identity (todo 205 follow-up, 2026-07-30) ──────────
+#
+# regime_writer.py's set_cols used to be an independent hand-typed literal --
+# exactly the two-lists-drift failure mode this module's own docstring already
+# documents for FeatureVector fields (2026-07-08). Fixed by having
+# regime_writer.py import REGIME_WRITER_OWNED_COLUMN_NAMES from this module
+# instead of defining its own copy. This test verifies the import wiring is
+# actually in place (not just that someone happened to type the same 8 names
+# twice) -- an identity check, not a value-equality check, so a revert to a
+# hand-typed literal fails loud even if the literal's values still match today.
+
+
+def test_regime_writer_set_cols_is_the_canonical_tuple_not_a_copy():
+    """services/regime_writer.py must import REGIME_WRITER_OWNED_COLUMN_NAMES
+    from feature_vector_persistence.py rather than defining its own literal --
+    the two ownership lists (this module's DO UPDATE SET exclusion and
+    regime_writer's UPDATE set_cols) must be structurally the same object,
+    not independently maintained copies that can silently drift apart."""
+    import services.regime_writer as regime_writer_module
+
+    assert regime_writer_module.REGIME_WRITER_OWNED_COLUMN_NAMES is REGIME_WRITER_OWNED_COLUMN_NAMES

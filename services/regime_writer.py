@@ -75,6 +75,9 @@ from services._batch_utils import bulk_update_by_key as _bulk_update_by_key
 from services._batch_utils import load_config_service_sync as _load_config_service_shared
 from src.config.settings import Settings
 from src.core.service_utils import setup_service_logging
+from src.intelligence.features.feature_vector_persistence import (
+    REGIME_WRITER_OWNED_COLUMN_NAMES,
+)
 from src.intelligence.hmm_jit import alpha_pass_jit as _alpha_pass_jit
 from src.observability.metrics import (
     JOB_COMPLETED_TOTAL,
@@ -692,16 +695,16 @@ def _write_regime_results(
                 table="feature_vectors",
                 temp_table="_regime_writer_staging",
                 key_cols=["symbol", "tf", "bar_ts"],
-                set_cols=[
-                    "regime",
-                    "hmm_prob_trending_up",
-                    "hmm_prob_ranging",
-                    "hmm_prob_trending_down",
-                    "hmm_regime_prob",
-                    "hmm_entropy",
-                    "hmm_duration",
-                    "hmm_churn",
-                ],
+                # Ordered tuple, not a set, because bulk_update_by_key's `rows` param
+                # requires (*set_cols, *key_cols) positional order -- see the
+                # docstring on the fitting function above:
+                # (regime, p_up, p_ranging, p_down, prob_val, entropy_val,
+                # duration, hmm_churn, symbol, tf, ts). Imported from
+                # feature_vector_persistence.py (Ring 1) rather than hand-typed
+                # here so this ownership list can never drift from the one
+                # feature_vector_persistence.py excludes from --refresh's
+                # DO UPDATE SET -- both now derive from the same source of truth.
+                set_cols=list(REGIME_WRITER_OWNED_COLUMN_NAMES),
                 col_types={
                     "regime": "text",
                     "hmm_prob_trending_up": "double precision",
