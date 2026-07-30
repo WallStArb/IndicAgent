@@ -183,6 +183,19 @@ def test_load_apr_values_active_scales_falls_back_when_key_absent():
     assert apr["lookaheads_by_tf"]["5m"] == {1, 6, 12, 39}  # 5m keeps all 4, unaffected
 
 
+def test_load_apr_values_active_scales_explicit_empty_list_stays_empty():
+    """todo 212: an operator-configured alpha.ic.active_scales.{tf} = '[]' (a deliberate
+    "no scales active" state) must NOT be treated the same as the key being absent --
+    it must produce a genuinely empty expected set, matching
+    canonicalize_active_scales([]) == () in services/_batch_utils.py (the Ring 2 path
+    this Ring 0 copy mirrors). Before the fix, `tuple(parsed) if parsed else default`
+    silently fell back to the tf's default scale set for both an absent key AND an
+    explicit empty list."""
+    conn = _FakeConn(config_rows=[("alpha.ic.active_scales.1h", "[]")])
+    apr = _load_apr_values(conn)
+    assert apr["lookaheads_by_tf"]["1h"] == set()  # NOT {1, 2} (the fast/mid default)
+
+
 def test_verify_data_quality_check3_passes_for_1h_with_only_two_scales(tmp_path):
     """Positive case mirroring test_verify_data_quality_check3_passes_with_correct_per_tf_grid
     but for 1h post-fix: only fast(1)/mid(2) rows exist, and Check 3 must NOT raise."""

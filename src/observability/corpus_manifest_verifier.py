@@ -107,8 +107,12 @@ def _load_apr_values(conn: Any) -> dict[str, Any]:
     for tf, default_scales in _APR_DEFAULT_ACTIVE_SCALES_BY_TF.items():
         raw = rows.get(f"alpha.ic.active_scales.{tf}")
         try:
+            # None (key absent) -> default_scales. A present-but-empty "[]" is a
+            # deliberate "no scales active" configuration and must NOT fall back to
+            # the default -- matches canonicalize_active_scales([]) == () in
+            # services/_batch_utils.py, the Ring 2 path this Ring 0 copy mirrors.
             parsed = json.loads(raw) if raw is not None else None
-            active_scales_by_tf[tf] = tuple(parsed) if parsed else default_scales
+            active_scales_by_tf[tf] = default_scales if parsed is None else tuple(parsed)
         except (ValueError, TypeError):
             active_scales_by_tf[tf] = default_scales
 
