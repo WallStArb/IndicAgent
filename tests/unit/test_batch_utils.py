@@ -21,10 +21,30 @@ if str(_project_root) not in sys.path:
 
 from services._batch_utils import (
     Float32ChunkAccumulator,
+    bars_to_scale_map,
     cfg,
     connect_db_from_url,
     load_apr_dict_async,
 )
+
+
+class TestBarsToScaleMap:
+    def test_inverts_scale_to_bars(self) -> None:
+        result = bars_to_scale_map({"fast": 1, "mid": 6, "slow": 12, "extended": 39})
+        assert result == {1: "fast", 6: "mid", 12: "slow", 39: "extended"}
+
+    def test_raises_on_collision(self) -> None:
+        """Todo 211 part 2: this collision check was missing from two prior
+        independent reimplementations of this reverse-map (ops_ic_shrinkage.py,
+        ops_ic_null_calibration.py), which would silently drop a cell (last write
+        wins) instead of failing loudly -- CLAUDE.md: silent wrong answers are worse
+        than loud crashes."""
+        with pytest.raises(ValueError, match="collides"):
+            bars_to_scale_map({"fast": 5, "mid": 5})
+
+    def test_collision_error_includes_context_label(self) -> None:
+        with pytest.raises(ValueError, match="tf='1h'"):
+            bars_to_scale_map({"fast": 5, "mid": 5}, context="1h")
 
 
 class TestCfg:

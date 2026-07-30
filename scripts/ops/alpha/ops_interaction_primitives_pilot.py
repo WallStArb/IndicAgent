@@ -48,12 +48,26 @@ sys.path.insert(0, str(Path(__file__).parent.parent.parent.parent))
 import asyncpg
 import numpy as np
 
+from services._batch_utils import LOOKAHEAD_FALLBACKS_BY_TF
+from services._batch_utils import bars_to_scale_map as _bars_to_scale_map
+from services._batch_utils import cfg as _cfg
 from src.config.settings import Settings
 from src.intelligence.statistics.ic_math import apply_bh_fdr, partial_spearman_ic
 
 _SCALES = ("fast", "mid", "slow", "extended")
-_LOOKAHEAD_DEFAULTS = {"fast": 1, "mid": 5, "slow": 20, "extended": 60}
-_LOOKAHEAD_KEYS = tuple(f"alpha.ic.lookahead.{scale}" for scale in _SCALES)
+# Todo 211 part 2: this previously read the pre-todo-146 flat global
+# alpha.ic.lookahead.{scale} keys (no {tf} component) via one shared lookahead_bars ->
+# scale map applied across every tf's cells -- post-146, lookahead_bars for a given
+# scale name differs per tf (e.g. 1h's "mid" is 2 bars, 5m's "mid" is 6), so a single
+# global map silently mis-resolved or dropped cells whose tf's real bar count wasn't
+# among the four flat values. Fixed by mirroring ICEngineConfig.from_apr()'s per-tf
+# resolution, via the same shared services._batch_utils helpers ops_ensemble_ablation.py
+# already migrated to (todo 211 part 1).
+_LOOKAHEAD_KEYS = tuple(
+    f"alpha.ic.lookahead.{tf}.{scale}"
+    for tf, fallbacks in LOOKAHEAD_FALLBACKS_BY_TF.items()
+    for scale in fallbacks
+)
 _CONFIG_KEYS = (
     "alpha.ic.subsample_min_stride",
     "alpha.ic.partial_control_condition_max",
@@ -81,26 +95,21 @@ async def _load_config(conn: asyncpg.Connection) -> dict[str, str]:
     return {r["config_key"]: r["config_value"] for r in rows}
 
 
-def _build_lookahead_map(config: dict[str, str]) -> dict[int, str]:
-    """lookahead_bars -> scale name, from the loaded APR config. Raises loudly on a
-    collision (two lookahead.* keys misconfigured to resolve to the same
-    lookahead_bars value) rather than silently letting the second overwrite the
-    first in the map -- every cell with that lookahead_bars value would otherwise be
-    sliced against the wrong scale's return_{scale}/complete_{scale} columns with no
-    error."""
-    lookahead_scale_map: dict[int, str] = {}
-    for scale in _SCALES:
-        val = config.get(f"alpha.ic.lookahead.{scale}")
-        lookahead_bars = int(val) if val is not None else _LOOKAHEAD_DEFAULTS[scale]
-        if lookahead_bars in lookahead_scale_map:
-            raise ValueError(
-                f"alpha.ic.lookahead.{scale}={lookahead_bars} collides with scale "
-                f"{lookahead_scale_map[lookahead_bars]!r}, already mapped to that same "
-                "lookahead_bars value -- two lookahead APR keys must not resolve to the "
-                "same lookahead_bars."
-            )
-        lookahead_scale_map[lookahead_bars] = scale
-    return lookahead_scale_map
+def _build_lookahead_map(config: dict[str, str], tf: str) -> dict[int, str]:
+    """lookahead_bars -> scale name for ONE timeframe, from the loaded APR config.
+
+    Valid only within the tf it was built for -- post-todo-146, the same scale name
+    (e.g. "mid") resolves to a different lookahead_bars value per tf, so this map must
+    never be reused across tfs (see module-level _LOOKAHEAD_KEYS comment). Collision
+    detection (same-tf lookahead.{tf}.* keys misconfigured to the same lookahead_bars
+    value) lives in the shared services._batch_utils.bars_to_scale_map -- see its
+    docstring for why this must never silently let the second overwrite the first."""
+    fallbacks = LOOKAHEAD_FALLBACKS_BY_TF[tf]
+    scale_to_bars = {
+        scale: _cfg(config, f"alpha.ic.lookahead.{tf}.{scale}", fallbacks[scale])
+        for scale in _SCALES
+    }
+    return _bars_to_scale_map(scale_to_bars, context=tf)
 
 
 def _lookahead_to_scale(lookahead_bars: int, lookahead_scale_map: dict[int, str]) -> str:
@@ -425,7 +434,6 @@ async def main() -> int:
     try:
         async with pool.acquire() as conn:
             config = await _load_config(conn)
-            lookahead_scale_map = _build_lookahead_map(config)
 
             subsample_min_stride_raw = config.get("alpha.ic.subsample_min_stride")
             subsample_min_stride = int(subsample_min_stride_raw) if subsample_min_stride_raw else 5
@@ -487,6 +495,7 @@ async def main() -> int:
             results = []
             for tf, tf_cells in cells_by_tf.items():
                 try:
+                    lookahead_scale_map = _build_lookahead_map(config, tf)
                     dataset = await _fetch_tf_dataset(
                         conn,
                         tf,

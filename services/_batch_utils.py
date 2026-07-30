@@ -210,6 +210,35 @@ def lookaheads_for_tf(
     }
 
 
+def bars_to_scale_map(scale_to_bars: dict[str, int], *, context: str = "") -> dict[int, str]:
+    """Invert a {scale: lookahead_bars} mapping (e.g. one tf's `lookaheads_for_tf()`
+    output) into {lookahead_bars: scale}, raising loudly on a collision (two scales
+    resolving to the same bar count) instead of silently letting the second overwrite
+    the first -- an uncaught collision would slice a cell against the wrong scale's
+    return_{scale}/complete_{scale} columns with no error. Single source of truth for
+    this reverse-lookup, shared by every ops script that maps a `feature_ic_scores.
+    lookahead_bars` DB value back to a scale name (todo 211 part 2's own fix
+    surfaced two prior independent reimplementations, `ops_ic_shrinkage.py`'s
+    `_lookahead_bars_to_scale_by_tf` and `ops_ic_null_calibration.py`'s inline
+    comprehension, neither of which had this collision check).
+
+    `context` is an optional caller-supplied label (e.g. a tf name) included only in
+    the error message, for a clearer failure.
+    """
+    bars_to_scale: dict[int, str] = {}
+    for scale, bars in scale_to_bars.items():
+        if bars in bars_to_scale:
+            label = f" (tf={context!r})" if context else ""
+            raise ValueError(
+                f"lookahead_bars={bars} for scale={scale!r} collides with scale "
+                f"{bars_to_scale[bars]!r}{label}, already mapped to that same "
+                "lookahead_bars value -- two lookahead APR keys must not resolve to "
+                "the same lookahead_bars."
+            )
+        bars_to_scale[bars] = scale
+    return bars_to_scale
+
+
 def _get_json_typed_config(cfg_service: ConfigService, key: str, default: dict | list) -> Any:
     """Shared implementation behind `get_dict_config`/`get_list_config`: read a
     JSON-typed APR key via `ConfigService.get_sync()`, tolerating either a pre-parsed

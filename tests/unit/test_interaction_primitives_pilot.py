@@ -80,26 +80,35 @@ def test_lookahead_to_scale_resolves_from_explicit_map():
 
 
 def test_build_lookahead_map_uses_defaults_when_config_empty():
-    lookahead_scale_map = _build_lookahead_map({})
-    assert lookahead_scale_map == {1: "fast", 5: "mid", 20: "slow", 60: "extended"}
+    lookahead_scale_map = _build_lookahead_map({}, "1h")
+    assert lookahead_scale_map == {1: "fast", 2: "mid", 20: "slow", 60: "extended"}
 
 
 def test_build_lookahead_map_honors_configured_overrides():
-    config = {"alpha.ic.lookahead.fast": "2", "alpha.ic.lookahead.mid": "10"}
-    lookahead_scale_map = _build_lookahead_map(config)
-    assert lookahead_scale_map[2] == "fast"
+    config = {"alpha.ic.lookahead.1h.fast": "3", "alpha.ic.lookahead.1h.mid": "10"}
+    lookahead_scale_map = _build_lookahead_map(config, "1h")
+    assert lookahead_scale_map[3] == "fast"
     assert lookahead_scale_map[10] == "mid"
     assert lookahead_scale_map[20] == "slow"  # unconfigured -> default
     assert lookahead_scale_map[60] == "extended"
 
 
+def test_build_lookahead_map_is_scoped_per_tf():
+    """The same scale name resolves to a different lookahead_bars value per tf
+    (todo 211 part 2 fix) -- a map built for one tf must reflect that tf's own
+    grid, not another tf's, even with no APR overrides configured."""
+    assert _build_lookahead_map({}, "5m")[6] == "mid"
+    assert _build_lookahead_map({}, "1h")[2] == "mid"
+    assert 6 not in _build_lookahead_map({}, "1h")
+
+
 def test_build_lookahead_map_raises_on_collision():
-    """Two lookahead.* keys misconfigured to the same lookahead_bars value must fail
-    loudly -- a silent dict-overwrite would corrupt every cell with that value by
+    """Two lookahead.{tf}.* keys misconfigured to the same lookahead_bars value must
+    fail loudly -- a silent dict-overwrite would corrupt every cell with that value by
     slicing it against the wrong scale's return_{scale}/complete_{scale} columns."""
-    config = {"alpha.ic.lookahead.fast": "5", "alpha.ic.lookahead.mid": "5"}
+    config = {"alpha.ic.lookahead.1h.fast": "5", "alpha.ic.lookahead.1h.mid": "5"}
     try:
-        _build_lookahead_map(config)
+        _build_lookahead_map(config, "1h")
         raise AssertionError("expected ValueError for colliding lookahead_bars values")
     except ValueError:
         pass
