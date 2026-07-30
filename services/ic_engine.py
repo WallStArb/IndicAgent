@@ -1860,7 +1860,8 @@ def _compute_one_regime_cell(
         n_features=len(cluster_ids_nd),
     )
 
-    for scale_idx, scale in enumerate(_SCALES):
+    scales = config.active_scales_for(tf)
+    for scale_idx, scale in enumerate(scales):
         lookahead_bars = lookaheads[scale]
 
         # Per-scale subsampling: stride = max(min_stride, lookahead_bars).
@@ -2142,6 +2143,7 @@ def _compute_symbol_tf(
     walk_forward_folds = config.walk_forward_folds
     cluster_max_corr = config.cluster_max_corr
     n_features = len(_FEATURE_NAMES)
+    scales = config.active_scales_for(tf)
 
     with _observed_span("ic_engine.compute_symbol_tf", tracer, symbol=symbol, tf=tf):
         # Short-lived fetch connection -- opened here, closed as soon as the
@@ -2215,8 +2217,8 @@ def _compute_symbol_tf(
             # ------------------------------------------------------------------
             # Load forward returns aligned by bar_ts
             # ------------------------------------------------------------------
-            return_cols = ", ".join(f"return_{s}" for s in _SCALES)
-            complete_cols = ", ".join(f"complete_{s}" for s in _SCALES)
+            return_cols = ", ".join(f"return_{s}" for s in scales)
+            complete_cols = ", ".join(f"complete_{s}" for s in scales)
             fr_sql = f"""
                 SELECT bar_ts, {return_cols}, {complete_cols}
                 FROM forward_returns
@@ -2249,7 +2251,7 @@ def _compute_symbol_tf(
             bar_ts_aligned = bar_ts_arr[aligned_idx_arr]
             del bar_ts_arr
 
-            n_scales = len(_SCALES)
+            n_scales = len(scales)
             # returns_mat: [n_aligned, n_scales]; complete_mat: [n_aligned, n_scales]
             returns_mat = np.full((len(aligned_idx), n_scales), np.nan)
             complete_mat = np.zeros((len(aligned_idx), n_scales), dtype=bool)
@@ -2357,15 +2359,15 @@ def _compute_symbol_tf(
         # standard 20K intraday gate does not apply — calibrated for different observation frequency.
         # ------------------------------------------------------------------
         min_obs_daily = config.min_obs_daily
-        n_scales = len(_SCALES)
+        n_scales = len(scales)
 
         # Fresh short-lived connection for the context-features loop below --
         # opened here (not carried over from the fetch phase above) so it was
         # never idle across the clustering/bootstrap loop that just ran.
         with short_lived_conn(dsn) as conn:
 
-            return_cols_cf = ", ".join(f"fr.return_{s}" for s in _SCALES)
-            complete_cols_cf = ", ".join(f"fr.complete_{s}" for s in _SCALES)
+            return_cols_cf = ", ".join(f"fr.return_{s}" for s in scales)
+            complete_cols_cf = ", ".join(f"fr.complete_{s}" for s in scales)
             cf_sql_tmpl = f"""
                 SELECT DISTINCT ON (DATE(fv.bar_ts))
                     DATE(fv.bar_ts)    AS obs_date,
@@ -2427,7 +2429,7 @@ def _compute_symbol_tf(
                 # (scipy fcluster returns integers starting from 1; max ~61 for 61 features).
                 cf_cluster_id = 10000 + cf_idx
 
-                for scale_idx, scale in enumerate(_SCALES):
+                for scale_idx, scale in enumerate(scales):
                     lookahead_bars = lookaheads[scale]
 
                     # 162-03: no per-feature already-present skip -- the whole-cell
@@ -2744,6 +2746,7 @@ def _compute_one_cross_sectional_cell(
     walk_forward_folds = config.walk_forward_folds
     cluster_max_corr = config.cluster_max_corr
     n_features = len(_FEATURE_NAMES)
+    scales = config.active_scales_for(tf)
 
     n_raw = len(X_raw)
 
@@ -2771,7 +2774,7 @@ def _compute_one_cross_sectional_cell(
 
     all_results: list[dict] = []
 
-    for scale_idx, scale in enumerate(_SCALES):
+    for scale_idx, scale in enumerate(scales):
         lookahead_bars = lookaheads[scale]
         # Scale-specific embargo: each scale purges only its own lookahead window (P3 fix).
         embargo_bars = lookahead_bars
@@ -3006,6 +3009,7 @@ def _compute_cross_sectional_tf(
     # (162-01 Task 3), which pulls them from `config` itself rather than receiving
     # them as separate params, matching _compute_one_regime_cell's convention.
     n_features = len(_FEATURE_NAMES)
+    scales = config.active_scales_for(tf)
 
     cs_chunk_ts: int = config.cs_chunk_ts
 
@@ -3060,8 +3064,8 @@ def _compute_cross_sectional_tf(
             conn.commit()
 
         feature_cols = ", ".join(f'"fv"."{f}"' for f in _FEATURE_NAMES)
-        return_cols = ", ".join(f'"fr".return_{s}' for s in _SCALES)
-        complete_cols = ", ".join(f'"fr".complete_{s}' for s in _SCALES)
+        return_cols = ", ".join(f'"fr".return_{s}' for s in scales)
+        complete_cols = ", ".join(f'"fr".complete_{s}' for s in scales)
 
         # Step 1: Pre-fetch regime timestamps.
         # market_regimes has one row per (tf, ts, regime_label) -- e.g. 120K rows for
@@ -3121,7 +3125,7 @@ def _compute_cross_sectional_tf(
             ORDER BY fv.bar_ts
         """
 
-        n_scales = len(_SCALES)
+        n_scales = len(scales)
         # Float32ChunkAccumulator (todo 087) owns the buffer-to-array bookkeeping shared
         # with _compute_symbol_tf's own OOM fix above; the ts_chunk re-execution mechanics
         # and the ret/cmp matrices (different dtypes, NULL-substitution logic -- not the
