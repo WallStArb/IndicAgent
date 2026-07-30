@@ -106,6 +106,7 @@ from __future__ import annotations
 import argparse
 import asyncio
 import sys
+from datetime import datetime
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).parent.parent.parent.parent))
@@ -335,6 +336,19 @@ def _parse_args() -> argparse.Namespace:
         "every horizon is orders of magnitude more expensive than Fisher-z and is not "
         "what this flag is for; use a shortlist from a prior Fisher-z pass instead.",
     )
+    parser.add_argument(
+        "--vintage",
+        type=str,
+        default=None,
+        help="ISO 8601 UTC timestamp to use as the sample's upper time bound, overriding "
+        "the default MAX(training_window_end) lookup from feature_ic_scores. Needed "
+        "because that table is empty between a forward_returns rebuild and the next "
+        "ic_engine run -- this diagnostic recomputes forward returns directly from "
+        "market_data_ohlcv_tradeable and never reads feature_ic_scores/forward_returns "
+        "for anything but this cutoff, so a known corpus training_window_end (e.g. from "
+        "the pipeline run that's populating it) works just as well as feature_ic_scores' "
+        "own vintage.",
+    )
     args = parser.parse_args()
     if args.bootstrap and not args.features:
         parser.error("--bootstrap requires --features (a shortlist) -- see module docstring.")
@@ -393,9 +407,18 @@ async def main() -> int:
     pool = await asyncpg.create_pool(dsn=dsn)
 
     try:
-        vintage = await pool.fetchval(_LATEST_VINTAGE_SQL)
+        if args.vintage:
+            vintage = datetime.fromisoformat(args.vintage)
+            if vintage.tzinfo is None:
+                print("ERROR: --vintage must be timezone-aware (e.g. end with +00:00 or Z).")
+                return 0
+        else:
+            vintage = await pool.fetchval(_LATEST_VINTAGE_SQL)
         if vintage is None:
-            print("ERROR: feature_ic_scores is empty -- no vintage to anchor the sample.")
+            print(
+                "ERROR: feature_ic_scores is empty -- no vintage to anchor the sample. "
+                "Pass --vintage <ISO8601 UTC timestamp> to override."
+            )
             return 0
         apr = await load_apr_dict_async(pool)
         min_reliable_n = args.min_reliable_n or int(
