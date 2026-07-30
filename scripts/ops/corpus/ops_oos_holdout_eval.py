@@ -43,8 +43,8 @@ from statsmodels.stats.multitest import multipletests
 project_root = Path(__file__).parent.parent.parent.parent
 sys.path.insert(0, str(project_root))
 
+from services._batch_utils import LOOKAHEAD_FALLBACKS_BY_TF, load_apr_dict_async
 from services._batch_utils import cfg as _cfg
-from services._batch_utils import load_apr_dict_async
 from services.forward_return_writer import forward_log_return
 from services.ic_engine import _FEATURE_NAMES
 from src.config.settings import Settings, get_active_contracts
@@ -63,9 +63,6 @@ _logger = structlog.get_logger(__name__)
 _DEFAULT_TFS: list[str] = ["5m", "15m", "1h", "1d"]
 _DEFAULT_REPORT_PATH = "docs/analysis/oos-holdout-eval.md"
 _DEFAULT_LOOK_LOG_PATH = ".planning/oos_look_log.jsonl"
-
-# Gradient scale fallback lookaheads (mirrors forward_return_writer._SCALE_FALLBACKS).
-_SCALE_FALLBACKS: dict[str, int] = {"fast": 1, "mid": 5, "slow": 20, "extended": 60}
 
 
 # ---------------------------------------------------------------------------
@@ -357,7 +354,7 @@ async def main() -> None:
         description="Read-only OOS holdout IC scorer — diagnostic only, never a promotion gate."
     )
     parser.add_argument("--symbols", nargs="*", default=None)
-    parser.add_argument("--tf", nargs="*", default=_DEFAULT_TFS)
+    parser.add_argument("--tf", nargs="*", choices=_DEFAULT_TFS, default=_DEFAULT_TFS)
     parser.add_argument("--report-path", default=_DEFAULT_REPORT_PATH)
     parser.add_argument("--look-log-path", default=_DEFAULT_LOOK_LOG_PATH)
     args = parser.parse_args()
@@ -372,9 +369,15 @@ async def main() -> None:
         significant_drop_fraction = float(
             _cfg(apr, "alpha.validation.oos_significant_drop_fraction", 0.5)
         )
-        lookaheads = {
-            scale: int(_cfg(apr, f"alpha.ic.lookahead.{scale}", fb))
-            for scale, fb in _SCALE_FALLBACKS.items()
+        # Todo 146/202: lookahead grid is per-tf now -- scoring OOS IC at a single shared
+        # grid for every tf would compare against horizons the corpus doesn't actually
+        # use for that tf, silently decoupling the OOS-vs-in-sample comparison.
+        lookaheads_by_tf = {
+            tf: {
+                scale: int(_cfg(apr, f"alpha.ic.lookahead.{tf}.{scale}", default))
+                for scale, default in fallbacks.items()
+            }
+            for tf, fallbacks in LOOKAHEAD_FALLBACKS_BY_TF.items()
         }
 
         oos_start = await _read_oos_start(pool)
@@ -402,7 +405,9 @@ async def main() -> None:
             for bar_ts_arr, opens_arr, feature_matrix in all_symbol_rows:
                 if len(bar_ts_arr) == 0:
                     continue
-                results = _score_symbol_tf(bar_ts_arr, opens_arr, feature_matrix, lookaheads)
+                results = _score_symbol_tf(
+                    bar_ts_arr, opens_arr, feature_matrix, lookaheads_by_tf[tf]
+                )
                 per_tf_results[tf].extend(results)
 
             _apply_corpus_fdr(per_tf_results[tf], fdr_alpha)
