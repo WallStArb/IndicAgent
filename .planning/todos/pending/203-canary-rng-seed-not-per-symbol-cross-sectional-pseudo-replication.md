@@ -29,9 +29,18 @@ These 3 canaries exist specifically to catch calibration problems in cross-secti
 measurement (`feature_registry` docs them as `status='candidate'`, never promoted,
 `group_name='control'`). Because they're duplicated identically across every pooled
 symbol at a timestamp, their true independent draw count per bar_ts is 1, not
-n_symbols -- severe pseudo-replication. `ic_engine.py`/`ensemble_ic_engine.py` currently
-never reference "canary" at all (`grep -n canary` returns nothing) -- these controls are
-not wired into any live check, so this has been silently present and undetected.
+n_symbols -- severe pseudo-replication.
+
+**Correction (2026-07-29):** the original filing's claim that this control was "not
+wired into any live check" was wrong -- it only checked `ic_engine.py`/
+`ensemble_ic_engine.py` directly. `scripts/ops/alpha/ops_canary_integrity_assert.py`
+(todo 068, Phase 143.1-02) already exists, is wired into
+`ops_corpus_pipeline_run.sh` immediately after the ic_engine step, and IS already
+firing today -- though for a different, independently-diagnosed reason
+(`canary_acausal_placebo` not clearing its POOLED gate, split out to todo 204, NOT
+caused by this todo's seeding bug). This todo's Fix item 2 ("wire canaries into a
+live check") is therefore already satisfied by existing infrastructure and is
+REMOVED below -- nothing new needs to be built there.
 
 **Empirical confirmation this session:** ran `ops_lookahead_horizon_response.py`'s new
 `--bootstrap` per-feature recheck (circular block bootstrap CI, the same method
@@ -62,34 +71,27 @@ statistically correct tool for those, no exposure.
 
 ## Fix
 
-Two independent fixes, different urgency:
+1. **Canary seeding -- DONE 2026-07-29** (`docs/superpowers/plans/2026-07-29-canary-seed-and-broadcast-feature-audit.md`
+   Task 1): `symbol` added into `_canary_sub_seed`'s hash input, mirroring
+   `ic_engine.py`'s own `_derive_worker_rng_seed(cell_key, bootstrap_seed)` pattern.
+   No historical backfill triggered -- these 3 columns have zero live consumers today
+   (`status='candidate'`, only read via `feature_ic_scores`, which is already gated
+   on todo 202's rebuild for an unrelated reason); the next scheduled corpus rebuild
+   produces correct values with no dedicated backfill needed.
 
-1. **Canary seeding (the actual bug):** add `symbol` into `_canary_sub_seed`'s hash
-   input, matching the pattern `ic_engine.py`'s own `_derive_worker_rng_seed(cell_key,
-   bootstrap_seed)` already uses (hash a composite cell-identifying string, not just
-   time). This is a `feature_vectors` schema-compatible value change (same columns,
-   same dtypes) but changes historical canary values -- needs a decision on whether
-   existing rows are backfilled/recomputed or left as a known-bad historical vintage
-   with a cutover date, same discipline as any other measurement-methodology change
-   (`docs/plans/methodology-change-ledger.md`).
+2. ~~Wire canaries into a live check~~ -- REMOVED, already existed
+   (`ops_canary_integrity_assert.py`, todo 068) before this todo was filed; the
+   original claim otherwise was a research error, corrected above.
 
-2. **Wire canaries into a live check** (currently zero live consumer): `ic_engine.py`'s
-   cross-sectional path should assert canary features never pass FDR/CI, and alert
-   (not silently pass) if they do -- this is exactly the kind of self-check that would
-   have caught this bug at introduction instead of it surviving undetected through
-   however many corpus rebuilds since canaries were added.
-
-3. **Broadcast-feature significance testing (the broader class):** any feature that is
-   identical across symbols at a fixed `bar_ts` (macro/cross-asset features: `vix_z`,
-   `yield_slope_z`, likely others -- worth a corpus-wide audit of which of the 244
-   active features are actually symbol-invariant, not just assumed) needs a
-   significance test that treats DISTINCT bar_ts as the unit of resampling, not
-   (symbol, bar_ts) pairs -- e.g. collapse to one row per bar_ts before bootstrapping,
-   or a dedicated time-series-only block bootstrap for that feature subset. Using the
-   standard per-symbol cross-sectional bootstrap on a broadcast feature silently
-   understates its true CI width, the same failure mode as the canary bug, just with a
-   real (not zero) underlying correlation making it much harder to notice without a
-   canary-style negative control catching it first.
+3. **Broadcast-feature significance testing -- AUDITED, not yet fixed** (same plan,
+   Task 2): `scripts/ops/alpha/ops_broadcast_feature_audit.py` empirically classifies
+   which of the 244 active features are symbol-invariant (broadcast) vs idiosyncratic,
+   confirming `vix_z`/`yield_slope_z`/`flight_quality` (group='macro') plus every
+   session/calendar-derived feature share this exposure. Building the actual
+   broadcast-aware significance test (collapse to one row per bar_ts before
+   bootstrapping, or a dedicated time-series-only test for that feature subset) is a
+   real methodology decision, not mechanical implementation -- remains open, to be
+   scoped as its own todo once someone is ready to design it, not bundled here.
 
 ## References
 

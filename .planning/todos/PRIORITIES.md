@@ -47,15 +47,17 @@ STATE.md's Tier 0 for full sequencing detail.
 ## P0 — Fix soon (integrity/correctness gaps already surfaced)
 
 **Live P0 as of 2026-07-29:** [203](pending/203-canary-rng-seed-not-per-symbol-cross-sectional-pseudo-replication.md)
-— 3 of 5 canary negative-control features (`canary_noise_gaussian`/`canary_noise_uniform`/
-`canary_near_constant`) are seeded by `(bar_ts, canary_rng_seed)` only, no `symbol` —
-confirmed bit-identical across every symbol at a given timestamp, live in `feature_vectors`.
-Severe cross-sectional pseudo-replication defeats their purpose; production `ic_engine.py`
-has zero live check on them (`grep canary` returns nothing), so this was silently
-undetected. Broader exposure: any market-wide/broadcast feature (`vix_z`, `yield_slope_z`
-confirmed) pooled cross-sectionally has the same unreliable-CI exposure under both
-Fisher-z and the per-symbol block bootstrap. Found via a shortlist bootstrap-CI recheck of
-todo 146's horizon-response diagnostic.
+— **seeding fix + broadcast-feature audit DONE 2026-07-29** (see plan
+`docs/superpowers/plans/2026-07-29-canary-seed-and-broadcast-feature-audit.md`);
+`symbol` now included in `_canary_sub_seed`'s hash, `ops_broadcast_feature_audit.py`
+confirms `vix_z`/`yield_slope_z`/`flight_quality` + all session/calendar features
+share the same pseudo-replication exposure the canaries had. Building an actual
+broadcast-aware significance test remains open (real design question, not filed as
+its own todo yet). Full end-to-end confirmation (a green
+`ops_canary_integrity_assert.py` run) still waits on todo 202's corpus rebuild.
+Sibling finding [204](pending/204-canary-acausal-placebo-pooled-not-detected.md) —
+`canary_acausal_placebo` not clearing its POOLED gate for an unrelated, undiagnosed
+reason.
 
 [202](pending/202-per-tf-lookahead-grid-downstream-consumers-stale.md)
 — todo 146's per-tf lookahead grid landed (migration 269 + `ICEngineConfig`/
