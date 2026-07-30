@@ -12,7 +12,6 @@ Crashes loud with RuntimeError on any failure.
 
 from __future__ import annotations
 
-import json
 import sys
 from pathlib import Path
 from typing import Any
@@ -33,14 +32,29 @@ _DB_DEFAULTS = {
 }
 
 # APR keys and their fallback defaults
-_APR_KEY_LOOKAHEADS = "alpha.ic.lookaheads"
 _APR_KEY_MIN_ROWS_PER_SYMBOL_REGIME = "corpus.min_rows_per_symbol_regime"
 _APR_KEY_MAX_NULL_RATE = "corpus.verifier.max_null_rate"
 _APR_KEY_NULL_RATE_SAMPLE_SIZE = "infra.corpus_verifier.null_rate_sample_size"
-_APR_DEFAULT_LOOKAHEADS = [1, 5, 20, 60]
 _APR_DEFAULT_MIN_ROWS_PER_SYMBOL_REGIME = 9
 _APR_DEFAULT_MAX_NULL_RATE = 0.05
 _APR_DEFAULT_NULL_RATE_SAMPLE_SIZE = 10000
+
+# Todo 146: alpha.ic.lookahead.{tf}.{scale} is per-tf, not a single shared grid -- a bar
+# count means a different scale on different tfs (e.g. 5 is 15m's old slow AND part of
+# nothing consistent post-146). The old alpha.ic.lookaheads (plural) APR key this file
+# previously read was never actually seeded in any migration; every lookup silently used
+# the hardcoded fallback below, uniformly across all 4 tfs. This mirrors the Ring 2
+# services layer's LOOKAHEAD_FALLBACKS_BY_TF dict (services package, _batch_utils
+# module) BY VALUE, not by import -- src/observability/ is Ring 0 and must not import
+# the services layer, per this repo's pre-commit Ring 0 boundary check. Keep in sync
+# with that dict by hand if the grid ever changes.
+_LOOKAHEAD_SCALES = ("fast", "mid", "slow", "extended")
+_APR_DEFAULT_LOOKAHEADS_BY_TF: dict[str, dict[str, int]] = {
+    "5m": {"fast": 1, "mid": 6, "slow": 12, "extended": 39},
+    "15m": {"fast": 1, "mid": 2, "slow": 5, "extended": 10},
+    "1h": {"fast": 1, "mid": 2, "slow": 20, "extended": 60},
+    "1d": {"fast": 1, "mid": 2, "slow": 5, "extended": 10},
+}
 
 
 def _open_db_conn() -> Any:
@@ -54,8 +68,13 @@ def _load_apr_values(conn: Any) -> dict[str, Any]:
     Falls back to hardcoded defaults when keys are absent (e.g., before
     migration adds them). Always returns a complete dict.
     """
+    lookahead_keys = [
+        f"alpha.ic.lookahead.{tf}.{scale}"
+        for tf in _APR_DEFAULT_LOOKAHEADS_BY_TF
+        for scale in _LOOKAHEAD_SCALES
+    ]
     keys = [
-        _APR_KEY_LOOKAHEADS,
+        *lookahead_keys,
         _APR_KEY_MIN_ROWS_PER_SYMBOL_REGIME,
         _APR_KEY_MAX_NULL_RATE,
         _APR_KEY_NULL_RATE_SAMPLE_SIZE,
@@ -68,14 +87,16 @@ def _load_apr_values(conn: Any) -> dict[str, Any]:
         )
         rows = {r[0]: r[1] for r in cur.fetchall()}
 
-    raw_lookaheads = rows.get(_APR_KEY_LOOKAHEADS)
-    if raw_lookaheads is not None:
-        try:
-            lookaheads = set(json.loads(raw_lookaheads))
-        except (json.JSONDecodeError, TypeError):
-            lookaheads = set(_APR_DEFAULT_LOOKAHEADS)
-    else:
-        lookaheads = set(_APR_DEFAULT_LOOKAHEADS)
+    lookaheads_by_tf: dict[str, set[int]] = {}
+    for tf, defaults_by_scale in _APR_DEFAULT_LOOKAHEADS_BY_TF.items():
+        bars: set[int] = set()
+        for scale, default in defaults_by_scale.items():
+            raw = rows.get(f"alpha.ic.lookahead.{tf}.{scale}")
+            try:
+                bars.add(int(raw) if raw is not None else default)
+            except (ValueError, TypeError):
+                bars.add(default)
+        lookaheads_by_tf[tf] = bars
 
     raw_min_rows = rows.get(_APR_KEY_MIN_ROWS_PER_SYMBOL_REGIME)
     if raw_min_rows is not None:
@@ -105,7 +126,7 @@ def _load_apr_values(conn: Any) -> dict[str, Any]:
         null_rate_sample_size = _APR_DEFAULT_NULL_RATE_SAMPLE_SIZE
 
     return {
-        "lookaheads": lookaheads,
+        "lookaheads_by_tf": lookaheads_by_tf,
         "min_rows_per_symbol_regime": min_rows_per_symbol_regime,
         "max_null_rate": max_null_rate,
         "null_rate_sample_size": null_rate_sample_size,
@@ -205,7 +226,7 @@ class CorpusManifestVerifier:
         - Consistency (training_window_end consistent, no NULL regimes, no zero-weight strata)
         """
         apr = _load_apr_values(conn)
-        expected_lookaheads: set[int] = apr["lookaheads"]
+        expected_lookaheads_by_tf: dict[str, set[int]] = apr["lookaheads_by_tf"]
 
         # Check 1: Distinct symbol coverage per TF
         _logger.info("corpus_verification.checking_symbol_coverage")
@@ -256,7 +277,8 @@ class CorpusManifestVerifier:
 
             for tf in required_tfs:
                 actual_lookaheads = lookaheads_by_tf.get(tf, set())
-                missing = expected_lookaheads - actual_lookaheads
+                expected_for_tf = expected_lookaheads_by_tf.get(tf, set())
+                missing = expected_for_tf - actual_lookaheads
                 if missing:
                     raise RuntimeError(f"TF {tf} missing lookaheads: {missing}")
 
