@@ -1,6 +1,6 @@
 # Forward-Return Horizon Grid — Is `fast/mid/slow/extended` the Right Shape?
 
-**Version:** 1.1
+**Version:** 1.2
 **Status:** proposal — architecture verdict and staged plan; the per-tf horizon VALUES remain
 open pending the empirical characterization run in §6, which is unblocked and ready to run
 **Priority:** medium-high (measurement-integrity plumbing; blocks nothing today, but every
@@ -12,17 +12,28 @@ future corpus rebuild re-pays the cost of not settling it)
 re-verified against the working tree at commit `8ba7c7e9` (branch
 `worktree-per-tf-active-scale-set`); no claim is carried over from todo 208's text without
 independent check. No live IC data was consulted — `feature_ic_scores` is empty (see §6).
-**Amended by:** Sonnet 5, same day. Two changes: (1) §0.3 originally asserted
+**Amended by:** Sonnet 5, same day, two rounds. **Round 1:** (1) §0.3 originally asserted
 `forward_return_writer` had already completed at a specific timestamp — that was checked and
-found FALSE at the time (it was still running, ~46% through); corrected below to state the
-dependency correctly rather than assert a wrong completion time (it has since actually
-completed, confirmed live: `DONE in 2291s`, and `ic_engine` is now running as of this edit).
-(2) §6.3's grid-selection rule is replaced with a calendar-anchored version per user direction
-(2026-07-30 discussion) — confirmed, independently, that gradient names are a legitimate
-*relative* label for smoothing-window indicators (MA/MACD) but not for forward-return horizons,
-which need to represent the same real-world time span across every tf to be comparable; the
-original rule (select purely by completeness/power, log-spaced) didn't guarantee that. See §6.3
-for the resolved rule.
+found FALSE at the time (it was still running, ~46% through); corrected to state the dependency
+correctly rather than assert a wrong completion time (it has since actually completed, confirmed
+live: `DONE in 2291s`, and `ic_engine` is now running). (2) §6.3's grid-selection rule was first
+revised to a *calendar-anchored* version — one shared ladder of real time spans (e.g.
+~30min/~2hr/~1day/~1week), converted to bar counts per tf — on the finding that gradient names
+are a legitimate *relative* label for smoothing-window indicators (MA/MACD) but not for
+forward-return horizons, which need to represent the same real-world span to be comparable.
+**Round 2 (supersedes the calendar-ladder mechanism from round 1, keeps its diagnosis):**
+user pushback, correct on both counts: (a) a single ladder spanning all four tfs overclaims —
+30 min is essentially 5m-only (unreachable at 1h's native resolution, meaningless at 1d), so
+most rungs wouldn't actually be shared; (b) the real organizing principle isn't an externally
+invented calendar ladder at all, it's **alignment with the holding period a signal at that tf
+would actually use** — a live-data check (below, §6.3) shows this is not hypothetical: 1h and
+1d's `hold_max_bars` are pinned at exactly 60 across *every* regime today, which is the grid's
+ceiling value, not a measured answer — the decay walk has never converged for either tf because
+the current horizon grid doesn't reach far enough to bracket where their real decay boundary is.
+§6.3 now derives the grid from a per-tf plausible-holding-period range (mechanical prior from
+bar frequency, refined by the existing FDR/walk-forward-gated decay walk) instead of a shared
+calendar axis; cross-tf comparability becomes an emergent property where two tfs' plausible
+ranges happen to overlap, not a top-down design goal.
 
 ---
 
@@ -146,14 +157,16 @@ positional config fields) with **one ordered, variable-length list of bar counts
 retire the scale names to what they actually are — *ordered physical column slots* in
 `forward_returns`, i.e. schema identifiers, APR-exempt under CLAUDE.md; and add explicit
 bar-count-valued **decision anchors** so the 1–2 points downstream logic consumes stop being
-selected by a cross-tf-unstable name. Choose the actual per-tf bar-count VALUES from a **shared
-calendar ladder** (one ordered set of real time spans — e.g. ~30 min / ~2 hr / ~1 day / ~1
-week — defined once, converted to bar counts per tf, filtered by each tf's own reachability
-ceiling) rather than from per-tf-independent log-spacing, so a stored horizon means the same
-real-world span everywhere it is comparable at all — see §6.3. Keep the **storage width at 4**
-for now and treat widening past 4 as a separate, data-gated decision that no evidence currently
-supports. Do not do any of this until the characterization run in §6 exists and the in-flight
-rebuild has finished — and when it is done, batch it with todos 209/210/211 into a single
+selected by a cross-tf-unstable name. Choose the actual per-tf bar-count VALUES by **aligning
+the grid to the holding period a signal at that tf would actually use** — a mechanical
+bar-frequency prior per tf, characterized densely via the existing diagnostic, with the actual
+boundary picked by `_select_hold_bars_from_decay`'s already-gated decay walk rather than by a
+top-down calendar ladder — see §6.3. Live evidence this matters: `hold_max_bars` is pinned at
+the grid's ceiling (60) across *every* regime for 1h and 1d today, meaning the decay walk has
+never once converged for those two tfs. Keep the **storage width at 4** for now and treat
+widening past 4 as a separate, data-gated decision that no evidence currently supports. Do not
+do any of this until the characterization run in §6 exists and the in-flight rebuild has
+finished — and when it is done, batch it with todos 209/210/211 into a single
 rebuild window (§5).
 
 ---
@@ -380,13 +393,22 @@ move a measurement horizon without touching any decision, and you can re-point a
 anchor without re-measuring anything, but you can never end up with a decision reading a
 horizon nobody measured.
 
-**`hold_max_bars` is the one consumer that legitimately needs the whole curve, not an anchor.**
-`_select_hold_bars_from_decay` walks the horizons in ascending order looking for the first
-FDR-and-walk-forward-qualifying cell whose `ic_sharpe` drops below `decay_threshold`, and
-returns the preceding horizon's bar count. That walk is the *correct* place for IC-shape
-selection, because it is already gated on `passes_fdr AND reliable AND walk_forward_stable`
-and already distinguishes a confirmed decay boundary from a right-censored one (todo 088).
-Two consequences worth stating plainly:
+**`hold_max_bars` is the one consumer that legitimately needs the whole curve, not an anchor —
+and it is currently not getting one.** `_select_hold_bars_from_decay` walks the horizons in
+ascending order looking for the first FDR-and-walk-forward-qualifying cell whose `ic_sharpe`
+drops below `decay_threshold`, and returns the preceding horizon's bar count. That walk is the
+*correct* place for IC-shape selection, because it is already gated on `passes_fdr AND reliable
+AND walk_forward_stable` and already distinguishes a confirmed decay boundary from a
+right-censored one (todo 088). **Live check against `config_state` (2026-07-30):
+`alpha.frame.hold_max_bars.*.1h` and `.*.1d` are pinned at exactly 60 — the grid's ceiling — in
+every single regime, with zero variation.** 5m/15m vary by regime (1, 5, or 60), which is what a
+real decay-driven answer looks like; 1h/1d's uniform ceiling means the walk has never once
+converged for either tf — it isn't that 60 bars is the right answer, it's that the grid runs out
+of horizon before the walk can find out. This is the direct, present-day cost of §6.3's original
+sin: the production grid was never shaped to bracket where a tf's real holding-period boundary
+might be, so the one consumer that most needs an accurate answer has been silently getting a
+default. §6.3 (revised) fixes the grid-selection rule specifically to close this gap. Two further
+consequences worth stating plainly:
 - The walk needs **K ≥ 3** to ever return a non-censored answer that is not the trivial
   `hold_bars = 1`. A tf whose grid the data collapses to 2 points has effectively opted out of
   empirical hold-horizon calibration and will always report `censored=True`. That is a hard
@@ -499,67 +521,98 @@ header says so):
 
 ### 6.3 The pre-registered grid-selection rule (write this down *before* looking at IC)
 
-**Resolved 2026-07-30 (calendar-anchoring amendment — see header).** Per §1.2, placement must
-key on availability and power, not on signal. That alone is not sufficient: log-spacing each
-tf's grid independently by power would still let "the 2nd point" mean an unrelated real-world
-span at every tf — the exact category error §1.1 already condemned in the *names*, just
-reappearing one level down in the *selection method*. A forward-return horizon has to represent
-the same real-world time span across every tf to be a meaningful, comparable measurement — that
-is the whole point of measuring it, and it is not true of a smoothing window (§1.1's MA/MACD
-contrast: a "fast" vs "slow" moving average is a legitimate relative label because nothing
-requires the absolute period to mean the same thing across timeframes; a "what happens next"
-question does require that, because it is the actual object a portfolio decision — hold this
-position 30 minutes vs. a week — is asking about). The rule below wraps the original
-availability/power gate around a shared calendar ladder instead of replacing it:
+**Resolved 2026-07-30, round 2 (holding-period-alignment amendment — see header; supersedes
+round 1's calendar-ladder mechanism).** Per §1.2, placement must key on availability and power,
+not on signal. That is necessary but not sufficient, and round 1 of this amendment initially
+tried to add a second axis — a calendar span shared identically across every tf — to fix it.
+User pushback (2026-07-30) correctly rejected that specific mechanism: a rung like "30 minutes"
+is unreachable at 1h's native resolution and meaningless at 1d, so a single ladder spanning all
+four tfs mostly wouldn't be shared at all — it would just be relabeled per-tf log-spacing with
+extra steps. The real organizing principle is **narrower and already partially built into this
+codebase**: a tf's measured horizons should bracket the holding period a position entered on
+that tf's signal would actually use, and this project already has a mechanism whose entire job
+is to determine that — `_select_hold_bars_from_decay` (§4) — it just isn't being fed a grid wide
+enough to let it answer honestly.
 
-1. **Define one calendar ladder, shared across every tf, chosen once.** A geometrically-spaced
-   sequence of real time spans — the exact rungs are a calibration detail to pin down against
-   §6.1's actual data, not asserted here, but should land roughly 3–5x apart and span "the next
-   few bars" through "several trading sessions": something in the shape of ~30 min, ~2 hr, ~1
-   trading day, ~1 week. Defined once, not per tf — that is the entire fix.
-2. **Convert each rung to a bar count per tf** using that tf's own bar interval and a ~6.5-hour
-   trading session (this codebase's existing working assumption — 5m: 78 bars/session, 15m: 26
-   bars/session, 1h: ~7 bars/session, 1d: 1 bar/session, per todo 208's own numbers). Sub-day
-   rungs convert directly (`target_minutes / bar_interval_minutes`); multi-day rungs convert via
-   `bars_per_session × trading_days`. Round to the nearest whole bar.
-3. **A rung finer than a tf's own bar interval does not exist for that tf — it is dropped, not
-   approximated.** 1h cannot express "30 minutes ahead"; its native resolution is coarser than
-   that rung. This is why per-tf participation on the shared ladder is naturally sparse rather
-   than forced-uniform: 5m likely reaches every rung; 1d likely reaches only the longest one or
-   two. Sparse-but-shared beats dense-but-incomparable.
-4. **Apply the original reachability gate to the converted bar count, unchanged:** discard a
-   rung whose bar count exceeds `h_max(tf)` (the completeness/power ceiling from §6.2), and snap
-   to the nearest dense-grid horizon actually measured in the characterization run.
-5. **Always include native 1-bar resolution** as the finest point — same rationale as before:
-   the shortest executable horizon, the one point every tf can express identically in bar terms,
-   and what `gate_lookahead` already and safely assumes. (1-bar is, not coincidentally, also
-   where every tf's own native resolution rung would land if it were on the shared ladder — the
-   two rules agree here, not just coexist.)
-6. **Cap at K ≤ 4** (physical slot width). **Floor at K ≥ 3 where reachable** —
-   `_select_hold_bars_from_decay` needs 3 points to ever return a non-censored answer (§4). If
-   fewer than 3 ladder rungs are reachable for a tf, that tf has opted out of empirical
-   hold-horizon calibration regardless of selection method — a real, pre-flagged possibility
-   (§4's note on todo 208's "1h might genuinely want 2 points"), not a failure of this rule.
+**Live evidence this is a real gap, not a hypothetical one.** Checked directly against
+`config_state` (2026-07-30):
 
-Neither half of this is sufficient alone: pure log-spacing-by-power (the original rule) can
-produce four horizons with no shared real-world meaning across tfs; a calendar ladder with no
-reachability gate would happily seed a horizon a tf's data cannot reliably support. The two
-together are the actual answer — comparable AND measurable.
+```
+alpha.frame.hold_max_bars.*.1h   →  60, EVERY regime, no exceptions
+alpha.frame.hold_max_bars.*.1d   →  60, EVERY regime, no exceptions
+alpha.frame.hold_max_bars.*.5m   →  1, 5, or 60 — varies by regime
+alpha.frame.hold_max_bars.*.15m  →  1 or 60 — varies by regime
+```
 
-**Confirms this design if:** `h_max` and the noise-floor crossing differ materially across tfs
-(so a per-tf-derived grid is doing real work, not just relabeling a grid that would have come out
-the same anyway), *and* completeness now extends well past the session boundary at 1h/15m (so
-the ceiling is data-length-bound, not session-bound), *and* the resulting per-tf grids, once
-converted back to calendar time, actually land near the shared ladder rather than requiring the
-ladder itself to be re-tuned per tf (if every tf's reachable ceiling forces a wildly different
-ladder, the "shared" premise itself needs revisiting, not just the grid).
+60 is not a measured answer for 1h/1d — it is the grid's ceiling (the old `extended` slot,
+migration 214's comment: "the longest ... value across all cells is 60 bars"). A calibration
+that lands on the ceiling in *every single regime* for a tf means the decay walk never found a
+decay boundary — it ran out of horizon before the signal died and reported the max by
+construction, indistinguishable from `censored=True` at every cell (todo 088's own distinction,
+just never triggered here because there's nothing past 60 to expose the censoring). 5m/15m's
+regime-varying values (1 vs 5 vs 60) are what a real, decay-driven answer looks like by
+contrast. Converted to real time, 60 bars is ~2.5 days at 1h and ~3 months at 1d — two
+completely different real holding periods wearing an identical, coincidental number, and the
+system currently has zero empirical signal on which one (if either) is actually correct.
 
-**Refutes / de-scopes this design if:** all four tfs land on `K = 4` with roughly the same
-log-spacing shape after normalizing for bars-per-session. In that case the fixed-4 grid was
-accidentally right, and the correct outcome is the cheap subset of §2 only — consolidate 20
-APR keys into 4, add the two decision anchors (the name-pinning defect in §1.1 is real
-regardless of what the curve says), re-point the bar-count values, and skip everything else.
-**That is a genuinely possible outcome and should not be argued away.**
+**The rule:**
+
+1. **Set a per-tf *plausible holding-period range* from mechanical facts, not from any tf's own
+   measured IC.** Bar frequency and a ~6.5-hour trading session (this codebase's existing
+   working assumption — 5m: 78 bars/session, 15m: 26, 1h: ~7, 1d: 1, per todo 208's own numbers)
+   give a structural prior: a 5m signal is mechanically implausible to hold for weeks without
+   becoming a different, lower-frequency strategy in practice; a 1d signal is mechanically
+   implausible to exit same-day. The range should be generous (this is a *prior*, not the
+   answer) — e.g., 5m's prior might span minutes to a couple of sessions; 1d's might span days
+   to a couple of months. This step uses no IC data at all, which is what keeps it clear of
+   selection-on-outcome.
+2. **Characterize densely within that prior range**, via `ops_lookahead_horizon_response.py`
+   (§6.1) — no production consequence, this is exactly what the diagnostic is for.
+3. **Apply the unchanged §6.2 reachability gate** (`completeness ≥ 0.80`, `n_valid ≥
+   min_reliable_n`) to find `h_max(tf)`, same as before — this still determines the outer bound
+   independent of any calendar or holding-period reasoning.
+4. **Let `_select_hold_bars_from_decay`'s existing FDR-and-walk-forward-gated walk pick the
+   actual boundary** from the dense characterization, now that the characterization range is
+   wide enough to contain it instead of stopping at an arbitrary ceiling. This is the safe way
+   to let data determine holding period without picking horizons "where the curve looks
+   interesting" — the walk is a *threshold-crossing* test (first point below `decay_threshold`,
+   properly significance-gated), not a *maximum-selection* test, so it does not import the
+   winner's-curse bias §1.2 warned against.
+5. **Seed the production K ≤ 4 grid to bracket that boundary** — include a point clearly before
+   it (signal still alive), one at or near it, and (budget permitting) one clearly past it
+   (confirms the decay rather than assuming it) — plus native 1-bar resolution, always included,
+   same rationale as before: the shortest executable horizon, the one point every tf expresses
+   identically, and what `gate_lookahead` already and safely assumes.
+6. **Cap at K ≤ 4** (physical slot width). **Floor at K ≥ 3 where reachable** — the walk needs 3
+   points to ever return a non-censored answer. If the mechanical prior range plus the
+   reachability gate together can't support 3 points for a tf, that tf has opted out of
+   empirical hold-horizon calibration regardless of selection method — a real, pre-flagged
+   possibility (§4's note on todo 208's "1h might genuinely want 2 points"), not a failure of
+   this rule.
+
+**Cross-tf comparability is now an emergent property, not a design goal.** Where two tfs'
+plausible holding-period ranges genuinely overlap — 15m and 1h both plausibly cover
+"several hours to a couple of days" — their grids will naturally land near shared real-world
+horizons, and comparing their IC at that point becomes meaningful. Where they don't overlap —
+5m's realistic range and 1d's realistic range share almost nothing — the grids won't share
+points, and forcing them to would have measured two different questions at the same label
+anyway. This is strictly better than round 1's shared ladder: it gets the comparability benefit
+exactly where it's real, and doesn't manufacture a false one where it isn't.
+
+**Confirms this design if:** 1h/1d's dense characterization run shows `ic_sharpe` actually
+crossing `decay_threshold` somewhere within the widened prior range (proving the current 60-bar
+ceiling was genuinely truncating the walk, not coincidentally correct), *and* the resulting
+per-tf grids differ enough in real time that a single global grid would have been wrong for at
+least one tf.
+
+**Refutes / de-scopes this design if:** 1h/1d's `ic_sharpe` is still above `decay_threshold` at
+every horizon the widened characterization reaches (i.e., these tfs' signals genuinely don't
+decay within any horizon this corpus can measure, and 60 bars was never actually a truncation).
+In that case the fixed-4 grid was accidentally fine for those two tfs, and the correct outcome
+is the cheap subset of §2 only — consolidate 20 APR keys into 4, add the two decision anchors
+(the name-pinning defect in §1.1 is real regardless of what the curve says), re-point the
+bar-count values, and skip the rest. **That is a genuinely possible outcome and should not be
+argued away.**
 
 ### 6.4 Cross-check once `feature_ic_scores` repopulates
 
@@ -638,13 +691,15 @@ that can contradict each other, and a cardinality cap set by vocabulary rather t
 
 Fix the interface — one ordered list of bar counts per tf, plus explicit bar-count decision
 anchors validated as grid members. Leave the storage width at 4 until data says otherwise.
-Choose grid points by censoring and power, never by where IC looks best — **and choose the
-underlying calendar targets from one shared ladder, not per-tf independently**, so a stored
-horizon means the same real-world span at every tf it's reachable for; the same category-error
-argument that killed gradient names for returns (§1.1) applies one level down to how the values
-themselves get picked. And do none of it until the characterization run — which is available
-today, not blocked — says whether the per-tf grids actually differ enough to be worth a rebuild
-window.
+Choose grid points by censoring and power, never by where IC looks best — **and shape the grid
+per tf to bracket that tf's actual holding-period boundary**, using a mechanical bar-frequency
+prior plus the existing FDR/walk-forward-gated decay walk, not a top-down calendar ladder
+applied uniformly. This is not a hypothetical improvement: `hold_max_bars` is pinned at the
+grid's ceiling in *every* regime for 1h and 1d today, meaning the one consumer built specifically
+to answer "how long should we hold this" has never gotten an answer for either tf — it's been
+silently returning the ceiling by default. And do none of it until the characterization run —
+which is available today, not blocked — confirms the current grid is genuinely truncating that
+walk rather than the ceiling coincidentally being correct.
 
 ---
 
@@ -669,3 +724,7 @@ window.
   (`lookahead` text + `lookahead_bars` int), `269`/`271`/`272` (the current key families)
 - `scripts/ops/alpha/ops_lookahead_horizon_response.py` — the characterization instrument;
   `--vintage` is why §6.1 is not blocked
+- `production/migrations/214_alpha_frames_compression.sql` — provenance of the 60-bar ceiling
+  cited in §4/§6.3's live `hold_max_bars` evidence
+- `.planning/todos/completed/088-*.md` — the `censored`/right-censored distinction
+  `_select_hold_bars_from_decay` already implements and that §4/§6.3 build on
