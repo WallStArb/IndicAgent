@@ -142,7 +142,7 @@ def test_worker_loop_resolves_active_scales_for_tf():
 
 ---
 
-### Task 2: `ops_vol_normalized_target_ab.py` — migrate off flat `_SCALES` (todo 209, P2)
+### Task 2: `ops_vol_normalized_target_ab.py` — migrate off flat `_SCALES` (todo 209, P2) — DONE 2026-07-30
 
 **Files:**
 - Edit: `scripts/ops/alpha/ops_vol_normalized_target_ab.py`

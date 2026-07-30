@@ -72,6 +72,7 @@ from __future__ import annotations
 
 import argparse
 import asyncio
+import json
 import sys
 from pathlib import Path
 
@@ -81,8 +82,12 @@ import asyncpg
 import numpy as np
 from scipy.stats import rankdata, spearmanr
 
-from services._batch_utils import LOOKAHEAD_FALLBACKS_BY_TF
-from services.ic_engine import _CROSS_SECTIONAL_SYMBOL, _FEATURE_NAMES, _SCALES
+from services._batch_utils import (
+    ACTIVE_SCALES_FALLBACKS_BY_TF,
+    LOOKAHEAD_FALLBACKS_BY_TF,
+    canonicalize_active_scales,
+)
+from services.ic_engine import _CROSS_SECTIONAL_SYMBOL, _FEATURE_NAMES
 from src.config.settings import Settings
 from src.intelligence.statistics.ic_math import (
     _p_values_from_ic,
@@ -175,22 +180,42 @@ async def _load_config_float(pool: asyncpg.Pool, key: str, default: float) -> fl
     return float(row) if row is not None else default
 
 
+async def _load_active_scales(pool: asyncpg.Pool, tf: str) -> tuple[str, ...]:
+    """Read alpha.ic.active_scales.{tf} (a JSON-array APR key, config_value stored as
+    text) and canonicalize -- same resolution ICEngineConfig.from_apr() uses, just
+    without a ConfigService wrapper (this script talks to config_state directly, like
+    _load_config_int/_load_config_float above). Falls back to
+    ACTIVE_SCALES_FALLBACKS_BY_TF[tf] when the key is unset."""
+    row = await pool.fetchval(
+        "SELECT config_value FROM config_state WHERE config_key = $1",
+        f"alpha.ic.active_scales.{tf}",
+    )
+    if row is None:
+        return ACTIVE_SCALES_FALLBACKS_BY_TF[tf]
+    return canonicalize_active_scales(json.loads(row))
+
+
 async def _fetch_regime_timestamps(pool: asyncpg.Pool, tf: str, regime: str, vintage) -> list:
     rows = await pool.fetch(_REGIME_TS_SQL, tf, regime, vintage)
     return [r["ts"] for r in rows]
 
 
 async def _fetch_pooled_arrays(
-    pool: asyncpg.Pool, tf: str, regime_ts: list, cs_chunk_ts: int
+    pool: asyncpg.Pool, tf: str, regime_ts: list, cs_chunk_ts: int, scales: tuple[str, ...]
 ) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
     """Chunked fetch of feature_vectors x forward_returns, pooled across all symbols,
     for the given regime timestamps -- mirrors _compute_cross_sectional_tf's chunk_sql
     exactly (same JOIN, same Invariant 1 return_type filter), read-only, no new query
     shape.
+
+    scales: this tf's active scale set (todo 209) -- forward_returns always has all 4
+    physical return_{scale}/complete_{scale} columns regardless of tf, but only the
+    active subset is fetched/returned here, matching what ic_engine.py actually
+    computes for this tf.
     """
     feature_cols = ", ".join(f'fv."{f}"' for f in _FEATURE_NAMES)
-    return_cols = ", ".join(f"fr.return_{s}" for s in _SCALES)
-    complete_cols = ", ".join(f"fr.complete_{s}" for s in _SCALES)
+    return_cols = ", ".join(f"fr.return_{s}" for s in scales)
+    complete_cols = ", ".join(f"fr.complete_{s}" for s in scales)
     chunk_sql = f"""
         SELECT fv.bar_ts, {feature_cols}, {return_cols}, {complete_cols}
         FROM feature_vectors fv
@@ -201,7 +226,7 @@ async def _fetch_pooled_arrays(
         ORDER BY fv.bar_ts
     """
     n_features = len(_FEATURE_NAMES)
-    n_scales = len(_SCALES)
+    n_scales = len(scales)
     X_chunks: list[np.ndarray] = []
     ret_chunks: list[np.ndarray] = []
     cmp_chunks: list[np.ndarray] = []
@@ -221,7 +246,7 @@ async def _fetch_pooled_arrays(
         ret_chunk = np.full((n_batch, n_scales), np.nan)
         cmp_chunk = np.zeros((n_batch, n_scales), dtype=bool)
         for i, row in enumerate(rows):
-            for j, scale in enumerate(_SCALES):
+            for j, scale in enumerate(scales):
                 val = row[f"return_{scale}"]
                 ret_chunk[i, j] = val if val is not None else np.nan
                 cmp_chunk[i, j] = bool(row[f"complete_{scale}"])
@@ -303,6 +328,7 @@ async def _evaluate_stratum(
     regime: str,
     vintage,
     lookaheads_by_tf: dict[str, dict[str, int]],
+    scales_by_tf: dict[str, tuple[str, ...]],
     subsample_min_stride: int,
     cs_chunk_ts: int,
 ) -> list[dict]:
@@ -314,6 +340,7 @@ async def _evaluate_stratum(
     # Todo 146/202: lookahead grid is per-tf now -- this stratum's own tf is already a
     # parameter, so resolve once here rather than the caller passing one shared dict.
     lookaheads = lookaheads_by_tf[tf]
+    scales = scales_by_tf[tf]  # todo 209: per-tf active scale set, not the flat _SCALES tuple
     baseline_rows = await pool.fetch(_BASELINE_SQL, _CROSS_SECTIONAL_SYMBOL, regime, tf, vintage)
     if not baseline_rows:
         return []
@@ -324,12 +351,14 @@ async def _evaluate_stratum(
     regime_ts = await _fetch_regime_timestamps(pool, tf, regime, vintage)
     if not regime_ts:
         return []
-    X_raw, returns_mat, complete_mat = await _fetch_pooled_arrays(pool, tf, regime_ts, cs_chunk_ts)
+    X_raw, returns_mat, complete_mat = await _fetch_pooled_arrays(
+        pool, tf, regime_ts, cs_chunk_ts, scales
+    )
     if len(X_raw) == 0:
         return []
 
     results: list[dict] = []
-    for scale_idx, scale in enumerate(_SCALES):
+    for scale_idx, scale in enumerate(scales):
         lookahead_bars = lookaheads[scale]
         baseline = baseline_by_lookahead.get(lookahead_bars)
         if not baseline:
@@ -432,6 +461,7 @@ async def main() -> int:
             }
             for tf, fallbacks in LOOKAHEAD_FALLBACKS_BY_TF.items()
         }
+        scales_by_tf = {tf: await _load_active_scales(pool, tf) for tf in _TFS}
         subsample_min_stride = await _load_config_int(
             pool, "alpha.ic.subsample_min_stride", _SUBSAMPLE_MIN_STRIDE_DEFAULT
         )
@@ -473,6 +503,7 @@ async def main() -> int:
                     regime,
                     vintage,
                     lookaheads_by_tf,
+                    scales_by_tf,
                     subsample_min_stride,
                     args.cs_chunk_ts,
                 )

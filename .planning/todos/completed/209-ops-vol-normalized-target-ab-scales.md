@@ -1,10 +1,18 @@
 ---
-status: pending
+status: completed
 priority: P2
 filed: 2026-07-30
+completed: 2026-07-30
 source: task reviewer finding during SDD execution of docs/superpowers/plans/2026-07-30-per-tf-active-scale-set.md
   Task 3 (services/ic_engine.py's 12 _SCALES call-site substitution)
 ---
+
+**CLOSED 2026-07-30** — migrated to a new `_load_active_scales` helper (reads
+`alpha.ic.active_scales.{tf}` from `config_state` directly, matching this script's existing
+`_load_config_int`/`_load_config_float` pattern, then `canonicalize_active_scales`). Threaded a
+new `scales`/`scales_by_tf` parameter through `_fetch_pooled_arrays`/`_evaluate_stratum`/`main()`,
+replacing all 5 `_SCALES` call sites. 3 new unit tests
+(`tests/unit/scripts/test_ops_vol_normalized_target_ab.py`). Full suite green.
 
 # `ops_vol_normalized_target_ab.py` (Component F) still reads the flat, uniform-across-tfs
 # `_SCALES` tuple directly -- now silently drifts from what `ic_engine.py` actually computes
