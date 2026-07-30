@@ -60,7 +60,7 @@ from scipy.stats import rankdata
 project_root = Path(__file__).parent.parent.parent.parent
 sys.path.insert(0, str(project_root))
 
-from services._batch_utils import bulk_update_by_key, connect_db_from_url
+from services._batch_utils import LOOKAHEAD_FALLBACKS_BY_TF, bulk_update_by_key, connect_db_from_url
 from services._batch_utils import cfg as _cfg
 from services._batch_utils import load_apr_dict_async as _load_apr_dict
 from src.config.config_service import ConfigService
@@ -232,15 +232,24 @@ def _spearman_ic(x: np.ndarray, y: np.ndarray) -> float | None:
     return float(_vectorized_ic(rx, ry)[0])
 
 
-def _lookahead_bars_to_scale(lookaheads: dict[str, int]) -> dict[int, str]:
-    return {bars: scale for scale, bars in lookaheads.items()}
+def _lookahead_bars_to_scale_by_tf(
+    lookaheads_by_tf: dict[str, dict[str, int]],
+) -> dict[str, dict[int, str]]:
+    """Todo 146/202: a single global bars->scale map is ill-defined once the same bar
+    count means a different scale on different tfs (e.g. 5 is 15m's old slow AND part
+    of nothing consistent post-146; 15m's and 1d's extended both happen to be 10).
+    Build the reverse map per tf instead."""
+    return {
+        tf: {bars: scale for scale, bars in scales.items()}
+        for tf, scales in lookaheads_by_tf.items()
+    }
 
 
 def build_out_of_fold_errors(
     pooled_by_stratum: dict[tuple[str, str], list[dict[str, Any]]],
     cells_by_stratum: dict[tuple[str, str], list[dict[str, Any]]],
     feature_to_group: dict[str, str],
-    bars_to_scale: dict[int, str],
+    bars_to_scale_by_tf: dict[str, dict[int, str]],
     k: float,
 ) -> tuple[list[float], list[float], int]:
     """Pure function (no DB): given already-fetched pooled cross-sectional series per
@@ -265,6 +274,11 @@ def build_out_of_fold_errors(
         n = len(pooled)
         if n < 4:
             continue
+
+        # stratum_key is (tf, regime) -- every cell in stratum_cells shares this tf, so
+        # the bars->scale map only needs resolving once per stratum, not per cell.
+        tf, _regime = stratum_key
+        bars_to_scale = bars_to_scale_by_tf.get(tf, {})
 
         cell_results: list[dict[str, Any]] = []
         for cell in stratum_cells:
@@ -339,13 +353,13 @@ async def _run_out_of_fold_gate(
     feature_to_group: dict[str, str],
     k: float,
     oos_start: datetime,
-    lookaheads: dict[str, int],
+    lookaheads_by_tf: dict[str, dict[str, int]],
 ) -> tuple[bool, float, float, int]:
     """DB orchestration for Part B: fetch cross-sectional pooled series per (tf, regime)
     stratum (one query per stratum, cross-symbol average computed in SQL), then hand off
     to the pure `build_out_of_fold_errors` for the split/prior/error math.
     """
-    bars_to_scale = _lookahead_bars_to_scale(lookaheads)
+    bars_to_scale_by_tf = _lookahead_bars_to_scale_by_tf(lookaheads_by_tf)
 
     async with apool.acquire() as conn:
         cells = await conn.fetch(_POOLED_RELIABLE_CELLS_SQL)
@@ -376,7 +390,7 @@ async def _run_out_of_fold_gate(
             pooled_by_stratum[(tf, regime)] = [dict(r) for r in fetched]
 
     shrunk_errors, raw_errors, n_evaluated = build_out_of_fold_errors(
-        pooled_by_stratum, cells_by_stratum, feature_to_group, bars_to_scale, k
+        pooled_by_stratum, cells_by_stratum, feature_to_group, bars_to_scale_by_tf, k
     )
     passed, mean_shrunk, mean_raw = evaluate_out_of_fold_gate(shrunk_errors, raw_errors)
     return passed, mean_shrunk, mean_raw, n_evaluated
@@ -397,11 +411,13 @@ async def main() -> int:
             apr = await _load_apr_dict(conn)
 
         k = float(_cfg(apr, "alpha.ic.shrinkage_k", 100.0))
-        lookaheads = {
-            "fast": int(_cfg(apr, "alpha.ic.lookahead.fast", 1)),
-            "mid": int(_cfg(apr, "alpha.ic.lookahead.mid", 5)),
-            "slow": int(_cfg(apr, "alpha.ic.lookahead.slow", 20)),
-            "extended": int(_cfg(apr, "alpha.ic.lookahead.extended", 60)),
+        # Todo 146/202: lookahead grid is per-tf now, not one shared scale->bars dict.
+        lookaheads_by_tf = {
+            tf: {
+                scale: int(_cfg(apr, f"alpha.ic.lookahead.{tf}.{scale}", default))
+                for scale, default in fallbacks.items()
+            }
+            for tf, fallbacks in LOOKAHEAD_FALLBACKS_BY_TF.items()
         }
 
         async with apool.acquire() as conn:
@@ -446,7 +462,7 @@ async def main() -> int:
 
         # --- Part B: out-of-fold hard gate ---
         passed, mean_shrunk, mean_raw, n_evaluated = await _run_out_of_fold_gate(
-            apool, sync_conn, feature_to_group, k, oos_start, lookaheads
+            apool, sync_conn, feature_to_group, k, oos_start, lookaheads_by_tf
         )
 
         print("## E1 Out-of-Fold Acceptance Gate (D-05, HARD GATE)\n")

@@ -221,10 +221,10 @@ class TestBuildOutOfFoldErrors:
         }
         pooled_by_stratum = {("5m", "high_bear"): pooled}
         feature_to_group = {"feat_a": "momentum"}
-        bars_to_scale = {1: "fast"}
+        bars_to_scale_by_tf = {"5m": {1: "fast"}}
 
         shrunk_errors, raw_errors, n_evaluated = build_out_of_fold_errors(
-            pooled_by_stratum, cells_by_stratum, feature_to_group, bars_to_scale, k=10.0
+            pooled_by_stratum, cells_by_stratum, feature_to_group, bars_to_scale_by_tf, k=10.0
         )
         assert n_evaluated == 1
         assert len(shrunk_errors) == 1
@@ -242,7 +242,11 @@ class TestBuildOutOfFoldErrors:
         }
         pooled_by_stratum = {("5m", "high_bear"): pooled}
         shrunk_errors, raw_errors, n_evaluated = build_out_of_fold_errors(
-            pooled_by_stratum, cells_by_stratum, {"feat_a": "momentum"}, {1: "fast"}, k=10.0
+            pooled_by_stratum,
+            cells_by_stratum,
+            {"feat_a": "momentum"},
+            {"5m": {1: "fast"}},
+            k=10.0,
         )
         assert n_evaluated == 0
         assert shrunk_errors == []
@@ -269,10 +273,41 @@ class TestBuildOutOfFoldErrors:
             {("5m", "high_bear"): pooled},
             cells_by_stratum,
             {"feat_a": "momentum"},
-            {1: "fast"},
+            {"5m": {1: "fast"}},
             k=10.0,
         )
         assert n_evaluated == 0
+
+    def test_cross_tf_bars_do_not_leak(self) -> None:
+        """Todo 146/202 adversarial case: a stratum's tf is 15m, but bars_to_scale_by_tf
+        only has an entry for 5m at this cell's lookahead_bars. Must be skipped, not
+        matched against another tf's map -- proves no cross-tf leakage, same defect
+        class as ic_engine.py's lifecycle-hook gate query fixed under todo 146 itself."""
+        n = 20
+        rng = np.random.default_rng(2)
+        returns = rng.normal(size=n).tolist()
+        feat_a = rng.normal(size=n).tolist()
+        pooled = _make_pooled_series(n, {"feat_a": feat_a}, returns)
+        cells_by_stratum = {
+            ("15m", "high_bear"): [
+                {
+                    "feature_name": "feat_a",
+                    "tf": "15m",
+                    "regime": "high_bear",
+                    "lookahead_bars": 1,  # valid for 5m's map below, not for 15m's (absent)
+                }
+            ]
+        }
+        shrunk_errors, raw_errors, n_evaluated = build_out_of_fold_errors(
+            {("15m", "high_bear"): pooled},
+            cells_by_stratum,
+            {"feat_a": "momentum"},
+            {"5m": {1: "fast"}},  # no "15m" key at all
+            k=10.0,
+        )
+        assert n_evaluated == 0
+        assert shrunk_errors == []
+        assert raw_errors == []
 
     def test_embargo_exceeding_series_length_skips_cell(self) -> None:
         """A large embargo (lookahead_bars) relative to series length pushes
@@ -295,7 +330,7 @@ class TestBuildOutOfFoldErrors:
             {("5m", "high_bear"): pooled},
             cells_by_stratum,
             {"feat_a": "momentum"},
-            {100: "fast"},
+            {"5m": {100: "fast"}},
             k=10.0,
         )
         assert n_evaluated == 0
