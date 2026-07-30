@@ -32,11 +32,13 @@ every consumer of `market_regimes`, not just IC measurement, and is arguably the
 grade fix (don't patch a symptom in the measurement layer when the generating process is the
 actual defect). Worth deciding between the two approaches before implementing.
 
-**Do not implement yet:** this todo's fix target overlaps directly with the files the active
-143.1 sequencing chain (todo 094 → 096 → 088, see PRIORITIES.md P0) is currently validating
-(`ic_engine.py`'s regime-stratification path). Land after that chain clears, per the same
-reasoning as todo 009's Part E deferral — don't double the diff on code someone else is mid-way
-through re-validating.
+**Gate cleared 2026-07-30 (todo-priorities audit):** the 094→096→088 sequencing chain this was
+waiting on is now fully closed (PRIORITIES.md: "Status 2026-07-29: the entire chain is now fully
+closed" — 096 and 088 both moved to `completed/`). The "do not implement yet" instruction below
+no longer applies on that basis. This todo's OWN scoping question above (rewrite against
+`market_regimes` vs. fix at the source in `equity_regime_model.py`) is still open and unrelated
+to the cleared gate — that decision, not the sequencing chain, is what's left before
+implementing.
 
 # 005 — IC Engine: Regime Transition Purge Window
 

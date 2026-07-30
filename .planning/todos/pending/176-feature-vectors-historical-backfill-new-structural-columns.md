@@ -10,6 +10,27 @@ decision: Delete + full recompute (option a), confirmed 2026-07-23. Full 58-symb
   multi-year corpus is in scope unless a narrower window is confirmed sufficient at run time.
 ---
 
+## Status update (2026-07-30, todo-priorities audit)
+
+**The combined `--refresh` recompute has run.** Live DB check: SMC (`ob_bull_dist_atr`)
+36,854,098/36,854,099 populated (100%); swing (`swing_high_dist_atr`) 36,811,016/36,854,099
+(~99.9%). This same `--refresh` run is what caused the todo 205 regime-wipe incident (root
+cause fixed same day) — the two are the same event, not independent.
+
+**VP/SR (`nearest_hvn_above_dist_atr`) is only partially populated**, and unevenly across tfs:
+
+| tf | total rows | VP/SR populated |
+|---|---|---|
+| 5m | 25,443,790 | 18,007,814 (70.8%) |
+| 15m | 8,824,030 | 5,485,726 (62.2%) |
+| 1h | 2,254,176 | 1,107,427 (49.1%) |
+| 1d | 332,103 | **0 (0%)** |
+
+1d's 0% is worth checking before treating this todo as closed: either a legitimate design gap
+(VP/SR is a session-level concept that may not apply to daily bars, which have no intraday
+session structure to accumulate a volume profile from) or a real remaining backfill gap. Not
+diagnosed in this pass — flagging rather than guessing.
+
 # feature_vectors' 94 new structural columns (Phases 163-165) are NULL on every pre-existing row -- need a targeted historical backfill, not a naive re-run
 
 ## Scope widened 2026-07-28

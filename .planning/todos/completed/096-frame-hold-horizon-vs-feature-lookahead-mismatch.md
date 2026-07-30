@@ -1,4 +1,14 @@
 ---
+status: completed
+closed: 2026-07-30
+**Resolution (2026-07-30):** Fully resolved — moved from `pending/` to `completed/` during a
+todo-priorities audit. The "remaining work" noted below (the full corpus re-run before 088 could
+proceed) completed 2026-07-21 per `.planning/todos/PRIORITIES.md`'s locked-sequencing record:
+"096 (done, unblocked 2026-07-21)". 088 itself (the final step in that sequencing chain) shipped
+2026-07-29 (`completed/088-hold-max-bars-censoring-not-tracked.md`). This file's own body below
+was never updated to reflect that — PRIORITIES.md was the accurate source of truth the whole
+time, the standalone file just went stale. No further action needed.
+---
 **Created:** 2026-07-11
 **Updated:** 2026-07-13 — **IMPLEMENTED.** Fable sign-off obtained (Decision A: GO on the
 fixed-subsampled-window estimator fix with a new APR key, w=100, mandatory threshold rescale;
