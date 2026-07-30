@@ -210,11 +210,9 @@ class EnsembleICConfig:
         """Mirrors ICEngineConfig.active_scales_for (2026-07-30 design) -- same
         per-tf active-scale semantics, independent frozen dataclass.
 
-        NOTE: as of this writing, this field/method is loaded but not yet wired
-        into production compute here -- `_run_ensemble_ic_worker`'s per-scale loop
-        still iterates the module-level hardcoded `_SCALES` tuple directly instead
-        of calling this method. Only test files call `active_scales_for` today.
-        Wiring it in is tracked separately (see todo 210); out of scope here."""
+        Wired into `_run_ensemble_ic_worker`'s per-scale loop (todo 210, fixed
+        2026-07-30) -- the worker no longer iterates the module-level `_SCALES`
+        tuple directly."""
         return self.active_scales[tf]
 
     @classmethod
@@ -680,17 +678,23 @@ async def _assert_prerequisites(
 # Sources from ensemble_alpha (every scored bar), NOT alpha_events (the emission-gated
 # execution subset) -- see module docstring's measurement-population invariant.
 # return_{scale} is masked to NULL when its own return_{scale}_suspect flag is set
-# (todo 148 price-sanity guard) -- masked once here in SQL rather than fetching the raw
-# value + suspect flag and branching in Python per row. The existing None-check in
-# returns_by_scale construction (`np.nan if r[col] is None else float(r[col])`) already
-# treats NULL as "exclude," so no downstream code needs a separate suspect-flag lookup.
+# (todo 148 price-sanity guard) OR when complete_{scale} is false (todo 210 -- the forward
+# bar doesn't exist yet / wasn't measured; ic_engine.py has always masked on this, this
+# worker never did) -- masked once here in SQL rather than fetching the raw value +
+# flags and branching in Python per row. The existing None-check in returns_by_scale
+# construction (`np.nan if r[col] is None else float(r[col])`) plus the downstream
+# `np.isfinite` valid_mask already treat NULL as "exclude," so no additional Python-side
+# masking is needed for either flag.
 _WORKER_FETCH_SQL = """
     SELECT ea.alpha_score,
-           CASE WHEN fr.return_fast_suspect THEN NULL ELSE fr.return_fast END AS return_fast,
-           CASE WHEN fr.return_mid_suspect THEN NULL ELSE fr.return_mid END AS return_mid,
-           CASE WHEN fr.return_slow_suspect THEN NULL ELSE fr.return_slow END AS return_slow,
-           CASE WHEN fr.return_extended_suspect THEN NULL ELSE fr.return_extended END
-               AS return_extended,
+           CASE WHEN fr.return_fast_suspect OR NOT fr.complete_fast
+               THEN NULL ELSE fr.return_fast END AS return_fast,
+           CASE WHEN fr.return_mid_suspect OR NOT fr.complete_mid
+               THEN NULL ELSE fr.return_mid END AS return_mid,
+           CASE WHEN fr.return_slow_suspect OR NOT fr.complete_slow
+               THEN NULL ELSE fr.return_slow END AS return_slow,
+           CASE WHEN fr.return_extended_suspect OR NOT fr.complete_extended
+               THEN NULL ELSE fr.return_extended END AS return_extended,
            mr.regime_label
     FROM ensemble_alpha ea
     JOIN forward_returns fr
@@ -715,17 +719,24 @@ _WORKER_FETCH_SQL = """
 # symbol at a given (tf, bar_ts) shares exactly one regime_label by construction --
 # grouping by (regime_label, bar_ts) within a fixed tf is therefore equivalent to
 # grouping by the full (tf, regime, bar_ts) triple.
-# Same NULL-masking as _WORKER_FETCH_SQL (todo 148) -- masking here, before
-# _aggregate_pooled_series runs, means the pooled reducer's existing `if value is not
-# None` skip (see _RunningMean usage below) already excludes suspect values from each
-# column's cross-symbol mean with no extra suspect-flag plumbing needed.
+# Same NULL-masking as _WORKER_FETCH_SQL (todo 148 suspect flag + todo 210 completeness
+# flag) -- masking here, before _aggregate_pooled_series runs, means the pooled reducer's
+# existing `if value is not None` skip (see _RunningMean usage below) already excludes
+# both suspect AND incomplete values from each column's cross-symbol mean BEFORE they're
+# averaged in, with no extra plumbing needed. This is also what makes the ordering correct
+# for the pooled path specifically: a masked-to-NULL value never reaches _RunningMean.add()
+# in the first place, so there's no risk of an incomplete row contaminating a mean and then
+# being "corrected" after the fact.
 _POOLED_WORKER_FETCH_SQL = """
     SELECT ea.symbol, ea.bar_ts, ea.alpha_score,
-           CASE WHEN fr.return_fast_suspect THEN NULL ELSE fr.return_fast END AS return_fast,
-           CASE WHEN fr.return_mid_suspect THEN NULL ELSE fr.return_mid END AS return_mid,
-           CASE WHEN fr.return_slow_suspect THEN NULL ELSE fr.return_slow END AS return_slow,
-           CASE WHEN fr.return_extended_suspect THEN NULL ELSE fr.return_extended END
-               AS return_extended,
+           CASE WHEN fr.return_fast_suspect OR NOT fr.complete_fast
+               THEN NULL ELSE fr.return_fast END AS return_fast,
+           CASE WHEN fr.return_mid_suspect OR NOT fr.complete_mid
+               THEN NULL ELSE fr.return_mid END AS return_mid,
+           CASE WHEN fr.return_slow_suspect OR NOT fr.complete_slow
+               THEN NULL ELSE fr.return_slow END AS return_slow,
+           CASE WHEN fr.return_extended_suspect OR NOT fr.complete_extended
+               THEN NULL ELSE fr.return_extended END AS return_extended,
            mr.regime_label
     FROM ensemble_alpha ea
     JOIN forward_returns fr
@@ -956,7 +967,7 @@ def _run_ensemble_ic_worker(args: tuple) -> dict[str, Any]:
                     continue
                 alpha_regime = alpha_scores[mask]
 
-                for scale in _SCALES:
+                for scale in config.active_scales_for(tf):
                     lookahead_bars = tf_lookaheads[scale]
                     returns_scale = returns_by_scale.get(scale)
                     if returns_scale is None:

@@ -45,6 +45,16 @@ def test_worker_fetch_sql_masks_suspect_returns_to_null():
         assert "CASE WHEN" in _POOLED_WORKER_FETCH_SQL
 
 
+def test_worker_fetch_sql_also_masks_on_completeness_flag():
+    """todo 210: both fetch paths must ALSO mask return_{scale} to NULL when
+    complete_{scale} is false -- ic_engine.py has always done this, this worker
+    never did, meaning it would happily compute IC from a forward return whose
+    horizon doesn't actually exist yet as a valid observation."""
+    for scale in ("fast", "mid", "slow", "extended"):
+        assert f"complete_{scale}" in _WORKER_FETCH_SQL
+        assert f"complete_{scale}" in _POOLED_WORKER_FETCH_SQL
+
+
 def _make_config(**overrides) -> EnsembleICConfig:
     defaults = dict(
         fdr_alpha=0.05,
@@ -263,3 +273,124 @@ class TestWorkerFetch:
         assert result["errors"] == []
         assert result["is_pooled"] is True
         assert len(result["rows"]) > 0
+
+
+class TestCompletenessMasking:
+    """todo 210: complete_{scale}=false rows must never contribute to IC/pooled-mean
+    computation -- ic_engine.py has always enforced this; this worker never did."""
+
+    def test_non_pooled_scale_with_all_incomplete_rows_produces_no_result_row(self):
+        """A scale whose every row is masked-incomplete (return_{scale}=None,
+        simulating what complete_{scale}=false produces via the SQL CASE
+        expression) must yield zero valid observations -- below min_reliable_n,
+        no row at all -- while the OTHER scales, unaffected, still compute
+        normally. Proves the completeness mask is real, not a no-op.
+
+        500 rows (not 20): extended's default lookahead is 60 bars, so its stride
+        (max(subsample_min_stride, lookahead_bars) = 60) needs at least
+        min_reliable_n(5) * 60 rows to clear the reliability floor at all --
+        with too few rows every scale but fast would be dropped regardless of
+        completeness masking, which would make this test pass for the wrong
+        reason (or fail to distinguish the masked scale from an unrelated
+        sample-size drop)."""
+        rows = [
+            {
+                "alpha_score": float(i % 5) - 2.0,
+                "return_fast": float(i % 5) * 0.001,
+                "return_mid": float(i % 5) * 0.002,
+                "return_slow": None,  # every row masked -- simulates complete_slow=false
+                "return_extended": float(i % 5) * 0.004,
+                "regime_label": "bull",
+            }
+            for i in range(500)
+        ]
+        mock_conn = MagicMock()
+        mock_conn.cursor.return_value = _mock_cursor(rows)
+
+        with patch("services.ensemble_ic_engine.connect_db_from_url", return_value=mock_conn):
+            result = _run_ensemble_ic_worker(_worker_args(_make_config()))
+
+        assert result["errors"] == []
+        lookaheads_present = {row["lookahead"] for row in result["rows"]}
+        assert "slow" not in lookaheads_present
+        assert {"fast", "mid", "extended"} <= lookaheads_present
+
+    def test_pooled_incomplete_symbol_does_not_contaminate_cross_symbol_mean(self):
+        """Two symbols at the same (regime, bar_ts) cells: AAA's return_fast is
+        entirely masked-incomplete (None), BBB's is a real constant. The pooled
+        mean for 'fast' must equal BBB's value exactly -- proving AAA's masked
+        rows never entered _RunningMean at all, not that they were averaged in
+        and then somehow corrected. If masking happened AFTER averaging instead
+        of before, this would fail (the mean would be skewed or NaN)."""
+        raw_rows = []
+        for i in range(20):
+            raw_rows.append(
+                {
+                    "symbol": "AAA",
+                    "bar_ts": datetime(2026, 1, 1, i, tzinfo=UTC),
+                    "alpha_score": 1.0,
+                    "return_fast": None,  # masked -- simulates complete_fast=false for AAA
+                    "return_mid": 0.002,
+                    "return_slow": 0.003,
+                    "return_extended": 0.004,
+                    "regime_label": "bull",
+                }
+            )
+            raw_rows.append(
+                {
+                    "symbol": "BBB",
+                    "bar_ts": datetime(2026, 1, 1, i, tzinfo=UTC),
+                    "alpha_score": -1.0,
+                    "return_fast": 0.01,
+                    "return_mid": 0.002,
+                    "return_slow": 0.003,
+                    "return_extended": 0.004,
+                    "regime_label": "bull",
+                }
+            )
+
+        mock_cursor = MagicMock()
+        mock_cursor.__enter__.return_value = mock_cursor
+        mock_cursor.__exit__.return_value = False
+        mock_cursor.__iter__.return_value = iter(raw_rows)
+
+        mock_conn = MagicMock()
+        mock_conn.cursor.return_value = mock_cursor
+
+        with patch("services.ensemble_ic_engine.connect_db_from_url", return_value=mock_conn):
+            from services.ensemble_ic_engine import _aggregate_pooled_series
+
+            pooled = _aggregate_pooled_series(iter(raw_rows), "5m")
+
+        assert len(pooled) == 20
+        for cell in pooled:
+            assert cell["return_fast"] == 0.01  # BBB's value alone, not blended with None
+
+    def test_worker_resolves_active_scales_for_tf_not_flat_module_constant(self):
+        """The per-scale loop must call config.active_scales_for(tf), not iterate
+        the flat module-level _SCALES tuple -- construct a config where 1h excludes
+        slow/extended and confirm the worker never produces rows for those scales
+        at 1h, even though the fetched data has real values for them."""
+        config = _make_config(
+            active_scales={
+                "5m": ("fast", "mid", "slow", "extended"),
+                "15m": ("fast", "mid", "slow", "extended"),
+                "1h": ("fast", "mid"),
+                "1d": ("fast", "mid", "slow", "extended"),
+            }
+        )
+        mock_conn = MagicMock()
+        # 500 rows, not the shared helper's default 20 -- mid's default lookahead (5
+        # bars) needs at least min_reliable_n(5) * stride(5) = 25 rows to clear the
+        # reliability floor; 20 would drop 'mid' for an unrelated sample-size reason
+        # and produce a false pass/fail unrelated to active_scales_for wiring.
+        mock_conn.cursor.return_value = _mock_cursor(_fetched_rows(500))
+
+        with patch("services.ensemble_ic_engine.connect_db_from_url", return_value=mock_conn):
+            result = _run_ensemble_ic_worker(_worker_args(config, tfs=["1h"]))
+
+        assert result["errors"] == []
+        lookaheads_present = {row["lookahead"] for row in result["rows"]}
+        assert lookaheads_present == {"fast", "mid"}
+        assert "slow" not in lookaheads_present
+        assert "extended" not in lookaheads_present
