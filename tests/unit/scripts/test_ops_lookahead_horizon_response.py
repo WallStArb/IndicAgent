@@ -17,11 +17,31 @@ import numpy as np
 import pytest
 
 from scripts.ops.alpha.ops_lookahead_horizon_response import (
+    _OVERNIGHT_HORIZON_GRIDS,
     _feature_significance,
     _fetch_all_symbols_horizon_rows,
     _parse_args,
     _stride_for_horizon,
 )
+
+
+class TestOvernightHorizonGrids:
+    def test_5m_15m_1h_all_supported(self):
+        """2026-07-30 gap fix (docs/research/2026-07-30-forward-return-horizon-grid-
+        refactor.md sec. 6.1): 5m was missing, so --allow-overnight silently rejected
+        it -- without the flag, a default-mode 5m run still applied the same-ET-session
+        completeness gate forward_return_writer.py removed (todo 208), measuring a
+        different completeness definition than production. 1d is correctly absent: it
+        never had a session gate to skip."""
+        assert set(_OVERNIGHT_HORIZON_GRIDS) == {"5m", "15m", "1h"}
+
+    def test_5m_grid_is_sorted_ascending(self):
+        assert list(_OVERNIGHT_HORIZON_GRIDS["5m"]) == sorted(_OVERNIGHT_HORIZON_GRIDS["5m"])
+
+    def test_5m_grid_multi_day_points_match_bars_per_session(self):
+        """78 bars/session (tf_window.py's _BARS_PER_DAY for 5m) x 1,2,5,10 days,
+        mirroring the spacing already used by the 15m/1h grids."""
+        assert {78, 156, 390, 780}.issubset(set(_OVERNIGHT_HORIZON_GRIDS["5m"]))
 
 
 class TestStrideForHorizon:

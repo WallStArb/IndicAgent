@@ -148,9 +148,16 @@ _TFS = ("5m", "15m", "1h", "1d")
 # session (15m=26, 1h=7, from tf_window.py's _BARS_PER_DAY) x N trading days, same
 # day-count spacing as _HORIZON_GRIDS["1d"] (1,2,5,10,20) for direct comparability.
 _OVERNIGHT_HORIZON_GRIDS: dict[str, tuple[int, ...]] = {
+    "5m": (1, 3, 6, 12, 26, 39, 66, 78, 156, 390, 780),  # +1,2,5,10-day multi-day points
     "15m": (1, 2, 5, 10, 22, 26, 52, 130, 260),  # +1,2,5,10-day multi-day points
     "1h": (1, 2, 4, 6, 7, 14, 35, 70),  # +1,2,5,10-day multi-day points
 }
+"""2026-07-30 gap fix (docs/research/2026-07-30-forward-return-horizon-grid-refactor.md
+sec. 6.1): 5m was missing from this table, so --allow-overnight rejected it outright --
+without the flag, a default-mode 5m run still applied the same-ET-session completeness
+gate that forward_return_writer.py removed (todo 208), measuring a different
+completeness definition than production now uses. 78 bars/session (tf_window.py's
+_BARS_PER_DAY), same 1,2,5,10-day multi-day spacing as the 15m/1h grids."""
 _DEFAULT_MAX_SYMBOLS = 30
 _MIN_RELIABLE_N_DEFAULT = 100
 _MIN_STRIDE_DEFAULT = 5
@@ -312,11 +319,11 @@ def _parse_args() -> argparse.Namespace:
     parser.add_argument(
         "--allow-overnight",
         action="store_true",
-        help="Skip the same-ET-session completeness gate for intraday tfs (1h/15m only "
-        "-- 5m is not supported, see _OVERNIGHT_HORIZON_GRIDS) and use the extended "
-        "multi-day horizon grid instead of the session-bounded default. Tests whether "
-        "the session-bounded convention is the right invariant for that tf, or an "
-        "overly conservative default. Original (no-flag) behavior is unchanged.",
+        help="Skip the same-ET-session completeness gate for intraday tfs (5m/15m/1h "
+        "-- see _OVERNIGHT_HORIZON_GRIDS) and use the extended multi-day horizon grid "
+        "instead of the session-bounded default. Tests whether the session-bounded "
+        "convention is the right invariant for that tf, or an overly conservative "
+        "default. Original (no-flag) behavior is unchanged.",
     )
     parser.add_argument(
         "--features",
@@ -466,8 +473,9 @@ async def main() -> int:
         if args.allow_overnight:
             if not args.tf or args.tf not in _OVERNIGHT_HORIZON_GRIDS:
                 print(
-                    "ERROR: --allow-overnight requires --tf 1h or --tf 15m "
-                    "(5m/1d not supported -- see _OVERNIGHT_HORIZON_GRIDS)."
+                    "ERROR: --allow-overnight requires --tf 5m, 15m, or 1h "
+                    "(1d not supported -- it never had a same-session gate, see "
+                    "_OVERNIGHT_HORIZON_GRIDS)."
                 )
                 return 0
 
