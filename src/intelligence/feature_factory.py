@@ -29,7 +29,6 @@ from __future__ import annotations
 import bisect
 import calendar
 import dataclasses
-import hashlib
 import math
 from collections import deque
 from dataclasses import dataclass, field
@@ -38,6 +37,7 @@ from typing import Any
 
 import numpy as np
 
+from src.core.rng import hash_key_to_int
 from src.intelligence.feature_cache import (
     FeatureCache,
     _compute_session_value_area,
@@ -1790,16 +1790,17 @@ def _canary_sub_seed(bar_ts: datetime, symbol: str, base_seed: int, offset: int)
     draw count per bar_ts was 1, not n_symbols, defeating these negative
     controls' entire purpose.
 
-    Uses hashlib.md5 (not Python's built-in hash()) for the symbol component,
-    mirroring ic_engine.py's _derive_worker_rng_seed(cell_key, bootstrap_seed)
-    exactly -- stable across processes/interpreter versions
-    (PYTHONHASHSEED-independent), required for ProcessPoolExecutor workers and
-    the "same bar inputs + seed -> same value" determinism contract. The
-    bar_ts/offset arithmetic component is unchanged from the original (still
-    pure arithmetic, no hash() there either).
+    The symbol component uses hash_key_to_int (src/core/rng.py) -- the shared
+    Ring-0 primitive also used by ic_engine.py's _derive_worker_rng_seed(cell_key,
+    bootstrap_seed) (extracted 2026-07-29 /simplify pass after this function
+    independently re-derived the same MD5-hash-to-int idiom) -- stable across
+    processes/interpreter versions (PYTHONHASHSEED-independent), required for
+    ProcessPoolExecutor workers and the "same bar inputs + seed -> same value"
+    determinism contract. The bar_ts/offset arithmetic component is unchanged from
+    the original (still pure arithmetic, no hash() there either).
     """
     ts_int = int(bar_ts.timestamp() * 1000)
-    symbol_hash = int(hashlib.md5(symbol.encode()).hexdigest()[:8], 16)
+    symbol_hash = hash_key_to_int(symbol)
     return (base_seed * 1_000_003 + ts_int * 97 + offset + symbol_hash) % (2**32)
 
 

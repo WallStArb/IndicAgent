@@ -162,26 +162,18 @@ async def main() -> int:
                 for f in active_features:
                     values_by_feature[f][r["bar_ts"]].append(r[f])
 
-            # Separate features by data availability
+            # Separate features by data availability, then classify -- each feature's
+            # values are converted to arrays once and reused for both checks.
             insufficient_data_features = []
-            classifiable_features = []
+            broadcast_features = []
             for f in active_features:
                 values_dict = {
                     ts: np.array(v, dtype=np.float64) for ts, v in values_by_feature[f].items()
                 }
                 if _count_finite_values_total(values_dict) < args.min_symbols:
                     insufficient_data_features.append(f)
-                else:
-                    classifiable_features.append(f)
-
-            broadcast_features = [
-                f
-                for f in classifiable_features
-                if _classify_broadcast(
-                    {ts: np.array(v, dtype=np.float64) for ts, v in values_by_feature[f].items()},
-                    _BROADCAST_EPSILON,
-                )
-            ]
+                elif _classify_broadcast(values_dict, _BROADCAST_EPSILON):
+                    broadcast_features.append(f)
 
             print(f"## tf={tf} ({len(bar_ts_list)} timestamps sampled, {len(rows)} rows)\n")
             print(f"Broadcast features ({len(broadcast_features)}):")
