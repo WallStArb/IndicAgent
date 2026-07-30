@@ -296,7 +296,7 @@ def test_fetch_sql_statistical_invariants():
     refactor cannot silently drop them: executable returns filter, OOS >= boundary,
     complete_* columns fetched for gating. Plus weight_version scoping on the
     stored-baseline join (never blend another variant's alpha into the check)."""
-    sql = build_stratum_fetch_sql(["momentum_z_fast", "obv_z"])
+    sql = build_stratum_fetch_sql(["momentum_z_fast", "obv_z"], ("fast", "mid", "slow", "extended"))
     assert "return_type = 'executable_open_to_open'" in sql
     assert "fv.bar_ts >= $4" in sql
     for scale in ("fast", "mid", "slow", "extended"):
@@ -321,14 +321,17 @@ def test_weights_and_strata_sql_scope_to_universe_and_version():
 
 
 def test_ablation_config_from_apr_defaults_match_engines():
-    """Fallback defaults must be byte-identical to EnsembleICConfig.from_apr's --
-    a divergent fallback would silently measure with different gates on a DB
-    missing a key."""
+    """Fallback defaults must be byte-identical to EnsembleICConfig.from_apr's per-tf
+    grid -- a divergent fallback would silently measure with different gates on a DB
+    missing a key. Todo 211: this used to assert a single flat (pre-todo-146) grid;
+    now per-tf, matching ICEngineConfig.from_apr's shape exactly."""
     config = AblationConfig.from_apr({})
     assert config.subsample_min_stride == 5
     assert config.min_reliable_n == 100
     assert config.fdr_alpha == 0.05
-    assert config.lookaheads == {"fast": 1, "mid": 5, "slow": 20, "extended": 60}
+    assert config.lookaheads_for("5m") == {"fast": 1, "mid": 6, "slow": 12, "extended": 39}
+    assert config.lookaheads_for("1h") == {"fast": 1, "mid": 2, "slow": 20, "extended": 60}
+    assert config.active_scales_for("5m") == ("fast", "mid", "slow", "extended")
 
 
 def test_ablation_config_from_apr_reads_keys():
@@ -337,16 +340,18 @@ def test_ablation_config_from_apr_reads_keys():
             "alpha.ic.subsample_min_stride": 7,
             "alpha.ic.min_reliable_n": 150,
             "alpha.ic.fdr_alpha": 0.10,
-            "alpha.ic.lookahead.fast": 2,
-            "alpha.ic.lookahead.mid": 10,
-            "alpha.ic.lookahead.slow": 40,
-            "alpha.ic.lookahead.extended": 120,
+            "alpha.ic.lookahead.5m.fast": 2,
+            "alpha.ic.lookahead.5m.mid": 10,
+            "alpha.ic.lookahead.5m.slow": 40,
+            "alpha.ic.lookahead.5m.extended": 120,
+            "alpha.ic.active_scales.1h": '["fast","mid"]',
         }
     )
     assert config.subsample_min_stride == 7
     assert config.min_reliable_n == 150
     assert config.fdr_alpha == 0.10
-    assert config.lookaheads == {"fast": 2, "mid": 10, "slow": 40, "extended": 120}
+    assert config.lookaheads_for("5m") == {"fast": 2, "mid": 10, "slow": 40, "extended": 120}
+    assert config.active_scales_for("1h") == ("fast", "mid")
 
 
 def test_prepare_stratum_arrays_trainer_conventions():
@@ -387,7 +392,9 @@ def test_prepare_stratum_arrays_trainer_conventions():
             "stored_alpha": None,
         },
     ]
-    bar_ts_arr, X, gated, stored = prepare_stratum_arrays(rows, ["f_a", "f_b"])
+    bar_ts_arr, X, gated, stored = prepare_stratum_arrays(
+        rows, ["f_a", "f_b"], ("fast", "mid", "slow", "extended")
+    )
     assert X.dtype == np.float32
     np.testing.assert_allclose(X, [[1.5, 0.0], [-0.5, 2.0]])
     assert list(bar_ts_arr) == [t1, t2]
@@ -403,14 +410,16 @@ def test_prepare_stratum_arrays_trainer_conventions():
 # Task 5: attribution assembly
 # ---------------------------------------------------------------------------
 
+_TFS = ("5m", "15m", "1h", "1d")
 _TEST_CONFIG = AblationConfig(
     subsample_min_stride=1,
     min_reliable_n=50,
     fdr_alpha=0.05,
-    lookahead_fast=1,
-    lookahead_mid=1,
-    lookahead_slow=1,
-    lookahead_extended=1,
+    lookahead_fast={tf: 1 for tf in _TFS},
+    lookahead_mid={tf: 1 for tf in _TFS},
+    lookahead_slow={tf: 1 for tf in _TFS},
+    lookahead_extended={tf: 1 for tf in _TFS},
+    active_scales={tf: ("fast", "mid", "slow", "extended") for tf in _TFS},
 )
 
 
@@ -621,11 +630,9 @@ def test_render_report_contains_required_sections_and_flags():
     assert "momentum" in text and "0.25" in text  # the attribution delta
     assert "control family absent from all strata" in text
     assert "diagnostic" in text  # remediation-is-human footer
-    # Todo 202: this file's AblationConfig deliberately still reads the old flat
-    # lookahead grid (todo 146's plan scoped it out as a 4th independent copy) --
-    # the report must carry a loud, visible warning saying so, not silently omit it.
-    assert "STALE LOOKAHEAD GRID" in text
-    assert "todo 146" in text
+    # Todo 211 (fixed 2026-07-30): AblationConfig now reads the real per-tf grid,
+    # so the report no longer needs the old STALE LOOKAHEAD GRID warning.
+    assert "STALE LOOKAHEAD GRID" not in text
 
 
 def test_render_report_control_breach_escalates():

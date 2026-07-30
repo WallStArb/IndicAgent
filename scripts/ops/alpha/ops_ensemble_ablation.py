@@ -75,9 +75,12 @@ from typing import Any
 import asyncpg
 import numpy as np
 
+from services._batch_utils import ACTIVE_SCALES_FALLBACKS_BY_TF, LOOKAHEAD_FALLBACKS_BY_TF
+from services._batch_utils import canonicalize_active_scales as _canonicalize_active_scales
 from services._batch_utils import cfg as _cfg
 from services._batch_utils import load_apr_dict_async as _load_apr
-from services.ensemble_ic_engine import _SCALE_RETURN_COLUMNS, _SCALES
+from services._batch_utils import lookaheads_for_tf as _lookaheads_for_tf
+from services.ensemble_ic_engine import _SCALE_RETURN_COLUMNS
 from src.config.settings import Settings
 from src.intelligence.statistics.ic_math import (
     _fisher_z_ci,
@@ -331,7 +334,7 @@ _WEIGHTS_SQL = """
 _FAMILIES_SQL = "SELECT DISTINCT group_name FROM feature_registry ORDER BY group_name"
 
 
-def build_stratum_fetch_sql(feature_names: list[str]) -> str:
+def build_stratum_fetch_sql(feature_names: list[str], scales: tuple[str, ...]) -> str:
     """OOS panel fetch for one (tf, regime) stratum.
 
     Placeholders: $1=tf, $2=regime_label, $3=weight_version, $4=oos_start.
@@ -339,10 +342,12 @@ def build_stratum_fetch_sql(feature_names: list[str]) -> str:
       (ensemble_trainer.py lines 792-799) -- feature_vectors.regime holds
       per-symbol HMM labels; the cross-sectional stratum label lives in
       market_regimes (regime_group='equity', tf, ts=bar_ts).
-    - JOIN forward_returns with the executable filter (Invariant 1) plus the four
-      return_* AND complete_* columns for pre-pooling completeness gating. return_*
-      is NULL-masked in SQL when its own return_{scale}_suspect flag is set (todo 148
-      price-sanity guard) -- same CASE-in-SQL pattern as ensemble_ic_engine.py's
+    - JOIN forward_returns with the executable filter (Invariant 1) plus this tf's
+      ACTIVE return_* AND complete_* columns (todo 211 -- not all 4 unconditionally;
+      matches what ic_engine.py actually measures for this tf) for pre-pooling
+      completeness gating. return_* is NULL-masked in SQL when its own
+      return_{scale}_suspect flag is set (todo 148 price-sanity guard) -- same
+      CASE-in-SQL pattern as ensemble_ic_engine.py's
       _WORKER_FETCH_SQL/_POOLED_WORKER_FETCH_SQL, required to keep this harness's
       pool_means_by_bar an honest replica of production's _aggregate_pooled_series
       (pinned by test_pool_means_by_bar_matches_aggregate_pooled_series) now that the
@@ -360,9 +365,9 @@ def build_stratum_fetch_sql(feature_names: list[str]) -> str:
     return_cols = ", ".join(
         f"CASE WHEN fr.{_SCALE_RETURN_COLUMNS[s]}_suspect THEN NULL "
         f"ELSE fr.{_SCALE_RETURN_COLUMNS[s]} END AS {_SCALE_RETURN_COLUMNS[s]}"
-        for s in _SCALES
+        for s in scales
     )
-    complete_cols = ", ".join(f"fr.complete_{s}" for s in _SCALES)
+    complete_cols = ", ".join(f"fr.complete_{s}" for s in scales)
     return f"""
         SELECT fv.symbol, fv.bar_ts, {col_list}, {return_cols}, {complete_cols},
                ea.alpha_score AS stored_alpha
@@ -387,40 +392,63 @@ class AblationConfig:
     EnsembleICConfig.from_apr's for the shared keys -- a divergent fallback would
     silently measure with different gates on a DB missing a key. No new APR keys:
     every threshold here already exists under alpha.ic.*.
+
+    lookahead_{scale}/active_scales are per-tf dicts, matching ICEngineConfig's
+    exact shape -- todo 211 (2026-07-30): this previously read the pre-todo-146
+    flat global alpha.ic.lookahead.{scale} keys (no {tf} component), silently
+    computing every non-matching tf's stride against the wrong bar count. Fixed
+    by mirroring ICEngineConfig.from_apr()'s per-tf resolution exactly, via the
+    same shared services._batch_utils helpers.
     """
 
     subsample_min_stride: int
     min_reliable_n: int
     fdr_alpha: float
-    lookahead_fast: int
-    lookahead_mid: int
-    lookahead_slow: int
-    lookahead_extended: int
+    lookahead_fast: dict[str, int]
+    lookahead_mid: dict[str, int]
+    lookahead_slow: dict[str, int]
+    lookahead_extended: dict[str, int]
+    active_scales: dict[str, tuple[str, ...]]
 
-    @property
-    def lookaheads(self) -> dict[str, int]:
-        return {
-            "fast": self.lookahead_fast,
-            "mid": self.lookahead_mid,
-            "slow": self.lookahead_slow,
-            "extended": self.lookahead_extended,
-        }
+    def lookaheads_for(self, tf: str) -> dict[str, int]:
+        return _lookaheads_for_tf(
+            self.lookahead_fast,
+            self.lookahead_mid,
+            self.lookahead_slow,
+            self.lookahead_extended,
+            tf,
+        )
+
+    def active_scales_for(self, tf: str) -> tuple[str, ...]:
+        return self.active_scales[tf]
 
     @classmethod
     def from_apr(cls, cfg: dict[str, Any]) -> AblationConfig:
+        lookahead_by_scale = {
+            scale: {
+                tf: _cfg(cfg, f"alpha.ic.lookahead.{tf}.{scale}", fb[scale])
+                for tf, fb in LOOKAHEAD_FALLBACKS_BY_TF.items()
+            }
+            for scale in ("fast", "mid", "slow", "extended")
+        }
+        active_scales = {
+            tf: _canonicalize_active_scales(_cfg(cfg, f"alpha.ic.active_scales.{tf}", list(fb)))
+            for tf, fb in ACTIVE_SCALES_FALLBACKS_BY_TF.items()
+        }
         return cls(
             subsample_min_stride=_cfg(cfg, "alpha.ic.subsample_min_stride", 5),
             min_reliable_n=_cfg(cfg, "alpha.ic.min_reliable_n", 100),
             fdr_alpha=_cfg(cfg, "alpha.ic.fdr_alpha", 0.05),
-            lookahead_fast=_cfg(cfg, "alpha.ic.lookahead.fast", 1),
-            lookahead_mid=_cfg(cfg, "alpha.ic.lookahead.mid", 5),
-            lookahead_slow=_cfg(cfg, "alpha.ic.lookahead.slow", 20),
-            lookahead_extended=_cfg(cfg, "alpha.ic.lookahead.extended", 60),
+            lookahead_fast=lookahead_by_scale["fast"],
+            lookahead_mid=lookahead_by_scale["mid"],
+            lookahead_slow=lookahead_by_scale["slow"],
+            lookahead_extended=lookahead_by_scale["extended"],
+            active_scales=active_scales,
         )
 
 
 def prepare_stratum_arrays(
-    fv_rows: list[Any], feature_names: list[str]
+    fv_rows: list[Any], feature_names: list[str], scales: tuple[str, ...]
 ) -> tuple[np.ndarray, np.ndarray, dict[str, np.ndarray], np.ndarray]:
     """Convert fetched panel rows (asyncpg Records or dicts) into scoring arrays.
 
@@ -428,6 +456,9 @@ def prepare_stratum_arrays(
     (the reconstruction check depends on matching the trainer's dtype path).
     Returns are complete-gated per row via apply_complete_gate. stored_alpha is
     NaN where the LEFT JOIN found no ensemble_alpha row.
+
+    scales: this tf's active scale set (todo 211) -- only these columns exist in
+    fv_rows (build_stratum_fetch_sql fetched exactly this set).
 
     Returns:
         (bar_ts_arr [n_rows] object, X [n_rows, n_features] float32,
@@ -439,7 +470,7 @@ def prepare_stratum_arrays(
         dtype=np.float32,
     )
     gated_returns_by_scale: dict[str, np.ndarray] = {}
-    for scale in _SCALES:
+    for scale in scales:
         return_col = _SCALE_RETURN_COLUMNS[scale]
         raw = np.array(
             [float(r[return_col]) if r[return_col] is not None else np.nan for r in fv_rows]
@@ -559,8 +590,9 @@ def compute_stratum_attribution(
             ablated_weights = zero_family(signed_weights, group_names, family)
             pooled_by_arm[family] = pool_means_by_bar(bar_idx, n_bars, X @ ablated_weights)
 
-    for scale in _SCALES:
-        stride = max(config.subsample_min_stride, config.lookaheads[scale])
+    tf_lookaheads = config.lookaheads_for(tf)
+    for scale in config.active_scales_for(tf):
+        stride = max(config.subsample_min_stride, tf_lookaheads[scale])
         pooled_returns = pooled_returns_by_scale[scale]
         baseline = compute_arm_ic(
             pooled_by_arm[_BASELINE_ARM], pooled_returns, stride, config.min_reliable_n
@@ -732,19 +764,6 @@ def render_report(
         "REDUCED OOS IC (the family was contributing). diff_p is conservative under "
         "the arms' positive dependence; bh_p is one corpus-wide BH-FDR pass."
     )
-    lines.append("")
-    lines.append(
-        "> **STALE LOOKAHEAD GRID (todo 146/202)**: `AblationConfig` still reads the "
-        f"old flat `alpha.ic.lookahead.{{scale}}` keys (`{config.lookaheads}`), NOT the "
-        "per-tf `alpha.ic.lookahead.{tf}.{scale}` grid `ic_engine.py`/`ensemble_ic_engine.py`/"
-        "`forward_return_writer.py` use since todo 146. Every `stride = max(subsample_"
-        "min_stride, config.lookaheads[scale])` computed in this report uses the WRONG "
-        "bar count for every tf except whichever one happens to match this flat grid "
-        "-- deliberately left unfixed here (todo 146's own plan scoped this file out as "
-        "a 4th independent copy, todo 202 tracks it as a real gap). Do not treat this "
-        "report's attribution numbers as trustworthy until this is fixed."
-    )
-
     # --- Section 1: replication check ---------------------------------------
     lines.append("")
     lines.append("### Section 1: Baseline replication check (recomputed vs stored ensemble_alpha)")
@@ -972,14 +991,6 @@ async def main() -> int:
         async with pool.acquire() as conn:
             apr_cfg = await _load_apr(conn)
             config = AblationConfig.from_apr(apr_cfg)
-            print(
-                "WARNING: AblationConfig reads the OLD flat alpha.ic.lookahead.{scale} "
-                f"keys ({config.lookaheads}), not the per-tf grid production has used "
-                "since todo 146 -- this report's attribution numbers are computed "
-                "against the wrong bar count for every tf except whichever one happens "
-                "to match. See todo 202. NOT fixed here (todo 146's own plan scoped "
-                "this file out as a standalone forensics tool).\n"
-            )
             weight_version = (
                 args.weight_version
                 if args.weight_version
@@ -1052,8 +1063,9 @@ async def main() -> int:
                     np.array([float(r["ic_sharpe"]) for r in weight_recs]),
                 )
 
+                scales = config.active_scales_for(tf)
                 fv_rows = await conn.fetch(
-                    build_stratum_fetch_sql(feature_names),
+                    build_stratum_fetch_sql(feature_names, scales),
                     tf,
                     regime,
                     weight_version,
@@ -1073,7 +1085,7 @@ async def main() -> int:
                     continue
 
                 bar_ts_arr, X, gated_returns, stored_alpha = prepare_stratum_arrays(
-                    fv_rows, feature_names
+                    fv_rows, feature_names, scales
                 )
                 unique_ts, bar_idx = np.unique(bar_ts_arr, return_inverse=True)
                 n_bars = len(unique_ts)
@@ -1095,7 +1107,7 @@ async def main() -> int:
 
                 pooled_returns_by_scale = {
                     scale: pool_means_by_bar(bar_idx, n_bars, gated_returns[scale])
-                    for scale in _SCALES
+                    for scale in scales
                 }
                 all_rows.extend(
                     compute_stratum_attribution(
