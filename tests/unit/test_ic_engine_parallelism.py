@@ -2,12 +2,14 @@
 bootstrap thread configuration.
 
 Tests validate the worker function signature and ICEngineConfig's per-tf thread
-dict without a live DB connection. _derive_worker_rng_seed was removed when the
-circular block bootstrap gained a `max_workers` threading knob (no separate
-per-worker RNG derivation needed -- the resample-index matrix is drawn once per
-scale, before threading, per 162-01's precomputed starts_matrix invariant); the
-circular block bootstrap itself is what is live (services/ic_engine.py's
-_subsample_and_rank -> _circular_block_bootstrap_ic).
+dict without a live DB connection. `_derive_worker_rng_seed` is live (2026-07-29
+correction: an earlier version of this docstring claimed it was removed -- it
+was not; it's the per-cell seed for the circular block bootstrap CI at both the
+per-symbol path (`_compute_one_regime_cell`, keyed by symbol) and the
+cross-sectional path (`_compute_one_cross_sectional_cell`, keyed by
+`f"{tf}:{regime_label}"`), and also backs the canary negative controls in
+`src/intelligence/feature_factory.py` via the shared `src/core/rng.py` primitive
+it was extracted onto during todo 203's /simplify pass).
 """
 
 from __future__ import annotations
@@ -24,6 +26,7 @@ from services.ic_engine import (
     ICEngineConfig,
     _compute_one_cross_sectional_cell,
     _compute_one_regime_cell,
+    _derive_worker_rng_seed,
     _run_ic_worker,
 )
 
@@ -99,3 +102,18 @@ def test_per_symbol_cell_never_indexes_cross_sectional_bootstrap_threads():
     ProcessPoolExecutor pool; threading on top would oversubscribe cores."""
     source = inspect.getsource(_compute_one_regime_cell)
     assert "cross_sectional_bootstrap_threads" not in source
+
+
+def test_derive_worker_rng_seed_pinned_to_known_values():
+    """Regression pin for the 2026-07-29 /simplify extraction (todo 203): this
+    function's hash-to-int step moved to src/core/rng.py's hash_key_to_int, but
+    its own combination formula (bootstrap_seed + hash % 2**31) must produce
+    byte-identical output to before the extraction for every existing caller --
+    a silent change here would reseed every live bootstrap CI and canary value
+    corpus-wide. Values below were computed against the pre-extraction formula
+    (bootstrap_seed + int(hashlib.md5(cell_key.encode()).hexdigest()[:8], 16) %
+    2**31) and must never change."""
+    assert _derive_worker_rng_seed("SPY", 42) == 1769859002
+    assert _derive_worker_rng_seed("QQQ", 90042) == 1900974734
+    assert _derive_worker_rng_seed("1h:trending_up", 12345) == 848047474
+    assert _derive_worker_rng_seed("cross_sectional", 42) == 1716234523

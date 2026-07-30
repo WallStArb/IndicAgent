@@ -332,6 +332,18 @@ class TestCanarySymbolDifferentiation:
         assert abs(v_spy - _CANARY_CONSTANT_VALUE) < 1e-3
         assert abs(v_qqq - _CANARY_CONSTANT_VALUE) < 1e-3
 
+    def test_canary_sub_seed_pinned_to_known_values(self) -> None:
+        """Regression pin for the 2026-07-29 /simplify extraction: the symbol-hash
+        step moved to src/core/rng.py's hash_key_to_int, but this function's own
+        combination formula must produce byte-identical output to before the
+        extraction -- a silent change here would reseed every canary value
+        corpus-wide. Values pinned against the pre-extraction formula (base_seed *
+        1_000_003 + ts_int * 97 + offset + int(hashlib.md5(symbol.encode())
+        .hexdigest()[:8], 16)) % 2**32 and must never change."""
+        bar_ts = datetime(2026, 3, 4, 14, 30, tzinfo=UTC)
+        assert _canary_sub_seed(bar_ts, "SPY", 90042, 0) == 305804158
+        assert _canary_sub_seed(bar_ts, "QQQ", 90042, 1) == 2584313539
+
     def test_many_symbols_produce_a_real_spread_not_a_few_repeated_clusters(self) -> None:
         """A weak fix (e.g. only 2-3 effective buckets due to a poor hash mix)
         would still show up as clustering across a large symbol set -- assert

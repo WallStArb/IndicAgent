@@ -36,7 +36,8 @@ CAVEATS:
   rare, event-driven signal didn't fire in this narrow window. Features flagged as
   'broadcast' with low data density or known event-driven semantics should be treated
   as inconclusive, not confirmed.
-- Features with zero finite values anywhere (never implemented, always NULL) are listed
+- Features with fewer than `min_symbols` finite values total across the sampled
+  bar_ts's (e.g. never implemented and always NULL, or legitimately sparse) are listed
   separately under "Insufficient data" and should not be conflated with structurally
   broadcast features.
 
