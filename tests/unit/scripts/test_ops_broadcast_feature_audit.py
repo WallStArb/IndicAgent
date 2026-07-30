@@ -13,7 +13,10 @@ from __future__ import annotations
 
 import numpy as np
 
-from scripts.ops.alpha.ops_broadcast_feature_audit import _classify_broadcast
+from scripts.ops.alpha.ops_broadcast_feature_audit import (
+    _classify_broadcast,
+    _count_finite_values_total,
+)
 
 
 class TestClassifyBroadcast:
@@ -55,3 +58,26 @@ class TestClassifyBroadcast:
         """No bar_ts groups to compare -- nothing contradicts 'broadcast', matching
         the loop's natural behavior (never entered, returns the initial True)."""
         assert _classify_broadcast({}, epsilon=1e-9) is True
+
+
+class TestCountFiniteValuesTotal:
+    def test_counts_finite_values_across_all_bar_ts(self) -> None:
+        values_by_bar_ts = {
+            "t1": np.array([1.5, 1.5, 1.5]),
+            "t2": np.array([2.0, 2.0, np.nan]),
+        }
+        assert _count_finite_values_total(values_by_bar_ts) == 5
+
+    def test_all_nan_returns_zero(self) -> None:
+        values_by_bar_ts = {
+            "t1": np.array([np.nan, np.nan]),
+            "t2": np.array([np.nan, np.nan]),
+        }
+        assert _count_finite_values_total(values_by_bar_ts) == 0
+
+    def test_empty_dict_returns_zero(self) -> None:
+        assert _count_finite_values_total({}) == 0
+
+    def test_single_bar_ts_counts_correctly(self) -> None:
+        values_by_bar_ts = {"t1": np.array([1.5, 2.0, np.nan, 3.0])}
+        assert _count_finite_values_total(values_by_bar_ts) == 3

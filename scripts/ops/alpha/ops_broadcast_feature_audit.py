@@ -30,6 +30,16 @@ builds a broadcast-aware significance test (a separate, real methodology decisio
 not mechanical) -- building schema/persistence with no current consumer would be
 premature (YAGNI).
 
+CAVEATS:
+- A 'broadcast' classification relies on a recent-window sample (default 20 most recent
+  bar_ts) to detect structure. A truly per-symbol feature might appear broadcast if its
+  rare, event-driven signal didn't fire in this narrow window. Features flagged as
+  'broadcast' with low data density or known event-driven semantics should be treated
+  as inconclusive, not confirmed.
+- Features with zero finite values anywhere (never implemented, always NULL) are listed
+  separately under "Insufficient data" and should not be conflated with structurally
+  broadcast features.
+
 Usage:
     python scripts/ops/alpha/ops_broadcast_feature_audit.py
     python scripts/ops/alpha/ops_broadcast_feature_audit.py --tf 1h --n-timestamps 20
@@ -83,6 +93,15 @@ def _classify_broadcast(values_by_bar_ts: dict[Any, np.ndarray], epsilon: float)
     return True
 
 
+def _count_finite_values_total(values_by_bar_ts: dict[Any, np.ndarray]) -> int:
+    """Count total finite (non-NaN) values across all bar_ts groups."""
+    total = 0
+    for values in values_by_bar_ts.values():
+        finite = values[np.isfinite(values)]
+        total += len(finite)
+    return total
+
+
 def _parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--tf", choices=_TFS, default=None, help="Restrict to one timeframe.")
@@ -108,11 +127,13 @@ async def main() -> int:
         print("# Broadcast-Feature Audit\n")
         print(
             f"Classifying {len(active_features)} active features per tf as 'broadcast' "
-            "(identical across every symbol at a bar_ts) or 'idiosyncratic' (varies by "
-            f"symbol). epsilon={_BROADCAST_EPSILON}, min_symbols={args.min_symbols}, "
-            f"n_timestamps={args.n_timestamps}. A broadcast feature pooled cross-"
-            "sectionally has severe pseudo-replication exposure in any significance "
-            "test that treats (symbol, bar_ts) pairs as independent -- see todo 203.\n"
+            "(identical across every symbol at a bar_ts), 'idiosyncratic' (varies by "
+            f"symbol), or 'insufficient data'. epsilon={_BROADCAST_EPSILON}, min_symbols="
+            f"{args.min_symbols}, n_timestamps={args.n_timestamps}. A broadcast feature "
+            "pooled cross-sectionally has severe pseudo-replication exposure in any "
+            "significance test that treats (symbol, bar_ts) pairs as independent -- see "
+            "todo 203. See docstring for caveats on rare-event features and sampling "
+            "window bias.\n"
         )
 
         for tf in tfs:
@@ -141,9 +162,21 @@ async def main() -> int:
                 for f in active_features:
                     values_by_feature[f][r["bar_ts"]].append(r[f])
 
+            # Separate features by data availability
+            insufficient_data_features = []
+            classifiable_features = []
+            for f in active_features:
+                values_dict = {
+                    ts: np.array(v, dtype=np.float64) for ts, v in values_by_feature[f].items()
+                }
+                if _count_finite_values_total(values_dict) < args.min_symbols:
+                    insufficient_data_features.append(f)
+                else:
+                    classifiable_features.append(f)
+
             broadcast_features = [
                 f
-                for f in active_features
+                for f in classifiable_features
                 if _classify_broadcast(
                     {ts: np.array(v, dtype=np.float64) for ts, v in values_by_feature[f].items()},
                     _BROADCAST_EPSILON,
@@ -158,12 +191,26 @@ async def main() -> int:
                 print(f"  {f:<32} group={group}{flag}")
             print()
 
+            if insufficient_data_features:
+                print(f"Insufficient data ({len(insufficient_data_features)}):")
+                print(
+                    "  (fewer than min_symbols finite values total -- likely unimplemented/always-null,"
+                )
+                print("   not evidence of broadcast structure; see docstring caveat)")
+                for f in sorted(insufficient_data_features):
+                    group = group_by_feature.get(f, "?")
+                    print(f"  {f:<32} group={group}")
+                print()
+
         print(
             "---\nA feature listed with '<-- UNEXPECTED GROUP' is broadcast in the data but "
             "not tagged macro/session/calendar in feature_registry -- worth checking whether "
-            "it's mis-tagged or genuinely should carry this exposure warning. This report is "
-            "informational only (no writes) -- see script docstring for why persistence is "
-            "deferred."
+            "it's mis-tagged or genuinely should carry this exposure warning.\n"
+            "A feature flagged as broadcast but with low data density or known event-driven "
+            "semantics may reflect 'no event occurred in this recent sample window' rather than "
+            "genuine bar_ts-level broadcast structure -- treat such cases as inconclusive.\n"
+            "This report is informational only (no writes) -- see script docstring for why "
+            "persistence is deferred."
         )
         return 0
     finally:
