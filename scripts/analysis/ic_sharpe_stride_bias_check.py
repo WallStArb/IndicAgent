@@ -44,14 +44,21 @@ def _fetch_apr(cur, key: str, default):
     return type(default)(row[0]) if row else default
 
 
+# Todo 146/202: lookahead grid is per-tf now, not one shared scale->bars grid -- 5m's
+# real mid=6 has a very different stride profile than 1h's mid=2, so this script's own
+# "does ic_sharpe mechanically decay with stride" question can have a different answer
+# per tf. Test every tf's own live grid, not one flat snapshot.
 _settings = Settings()
 _dsn = _settings.database_url.replace("postgresql+asyncpg://", "postgresql://")
 with psycopg2.connect(_dsn) as _conn, _conn.cursor() as _cur:
-    LOOKAHEADS = {
-        "fast": _fetch_apr(_cur, "alpha.ic.lookahead.fast", 1),
-        "mid": _fetch_apr(_cur, "alpha.ic.lookahead.mid", 5),
-        "slow": _fetch_apr(_cur, "alpha.ic.lookahead.slow", 20),
-        "extended": _fetch_apr(_cur, "alpha.ic.lookahead.extended", 60),
+    LOOKAHEADS_BY_TF = {
+        tf: {
+            "fast": _fetch_apr(_cur, f"alpha.ic.lookahead.{tf}.fast", 1),
+            "mid": _fetch_apr(_cur, f"alpha.ic.lookahead.{tf}.mid", 5),
+            "slow": _fetch_apr(_cur, f"alpha.ic.lookahead.{tf}.slow", 20),
+            "extended": _fetch_apr(_cur, f"alpha.ic.lookahead.{tf}.extended", 60),
+        }
+        for tf in ("5m", "15m", "1h", "1d")
     }
     SUBSAMPLE_MIN_STRIDE = _fetch_apr(_cur, "alpha.ic.subsample_min_stride", 5)
     SHARPE_WINDOW_SIZE_SUBSAMPLED = _fetch_apr(_cur, "alpha.ic.sharpe_window_size_subsampled", 100)
@@ -59,18 +66,21 @@ with psycopg2.connect(_dsn) as _conn, _conn.cursor() as _cur:
     HAC_MAX_LAG = _fetch_apr(_cur, "alpha.ic.hac_max_lag", 3)
 DECAY_THRESHOLD = 0.1  # script-local Monte Carlo reporting cutoff, not an APR key
 
-STRIDES = {scale: max(SUBSAMPLE_MIN_STRIDE, lookahead) for scale, lookahead in LOOKAHEADS.items()}
+STRIDES_BY_TF = {
+    tf: {scale: max(SUBSAMPLE_MIN_STRIDE, lookahead) for scale, lookahead in lookaheads.items()}
+    for tf, lookaheads in LOOKAHEADS_BY_TF.items()
+}
 print(
     "Live APR values used:",
     {
-        "lookaheads": LOOKAHEADS,
+        "lookaheads_by_tf": LOOKAHEADS_BY_TF,
         "subsample_min_stride": SUBSAMPLE_MIN_STRIDE,
         "sharpe_window_size_subsampled": SHARPE_WINDOW_SIZE_SUBSAMPLED,
         "sharpe_min_windows": SHARPE_MIN_WINDOWS,
         "hac_max_lag": HAC_MAX_LAG,
     },
 )
-print("Strides derived from live APR (scale: stride):", STRIDES)
+print("Strides derived from live APR (tf -> scale: stride):", STRIDES_BY_TF)
 
 
 @dataclass
@@ -130,25 +140,27 @@ def stride_ic_sharpe(x_raw: np.ndarray, y_raw: np.ndarray, stride: int) -> float
     return float(sharpe_arr[0]), n_windows
 
 
-def run(true_rho: float, n_raw: int, n_reps: int, seed: int) -> None:
+def run(
+    tf: str, strides: dict[str, int], true_rho: float, n_raw: int, n_reps: int, seed: int
+) -> None:
     rng = np.random.default_rng(seed)
-    results: dict[str, list[float]] = {scale: [] for scale in LOOKAHEADS}
-    n_windows_by_scale: dict[str, list[int]] = {scale: [] for scale in LOOKAHEADS}
+    results: dict[str, list[float]] = {scale: [] for scale in strides}
+    n_windows_by_scale: dict[str, list[int]] = {scale: [] for scale in strides}
 
     for _rep in range(n_reps):
         x_raw, y_raw = make_raw_series(n_raw, true_rho, rng)
-        for scale, stride in STRIDES.items():
+        for scale, stride in strides.items():
             sharpe, n_windows = stride_ic_sharpe(x_raw, y_raw, stride)
             if not np.isnan(sharpe):
                 results[scale].append(sharpe)
             n_windows_by_scale[scale].append(n_windows)
 
-    print(f"\n=== true_rho={true_rho}, n_raw={n_raw}, n_reps={n_reps} ===")
+    print(f"\n=== tf={tf}, true_rho={true_rho}, n_raw={n_raw}, n_reps={n_reps} ===")
     print(
         f"{'scale':<10} {'stride':>6} {'window_sz':>10} {'n_windows':>10} "
         f"{'mean_sharpe':>12} {'median_sharpe':>14} {'pct_below_0.1':>14} {'n_valid':>8}"
     )
-    for scale, stride in STRIDES.items():
+    for scale, stride in strides.items():
         vals = np.array(results[scale])
         # Fixed subsampled-bar window (todo 096's fix): constant across every stride
         # by construction, not raw_bars // stride -- printed per-scale only so the
@@ -177,5 +189,6 @@ if __name__ == "__main__":
     N_REPS = 150
     SEED = 42
 
-    for true_rho in (0.0, 0.03, 0.06, 0.10):
-        run(true_rho, N_RAW, N_REPS, SEED)
+    for tf, strides in STRIDES_BY_TF.items():
+        for true_rho in (0.0, 0.03, 0.06, 0.10):
+            run(tf, strides, true_rho, N_RAW, N_REPS, SEED)
