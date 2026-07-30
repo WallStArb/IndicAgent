@@ -167,7 +167,7 @@ _FEATURE_NAMES: list[str] = [f.name for f in dataclasses.fields(FeatureVector)]
 # Finding 1 correction): ICEngineConfig.active_scales_for(tf) does not read this tuple
 # -- from_apr() (below) populates active_scales exclusively from
 # ACTIVE_SCALES_FALLBACKS_BY_TF (services/_batch_utils.py), a separate constant. This
-# this module-level constant is no longer read by any function in THIS file (all 12
+# module-level constant is no longer read by any function in THIS file (all 12
 # former call sites now resolve per-tf via config.active_scales_for(tf) instead), but it is
 # still imported and used directly, all-four-scales-always, by
 # scripts/ops/alpha/ops_vol_normalized_target_ab.py (lines 85, 192-193, 204, 224, 332)
@@ -641,7 +641,8 @@ class ICEngineConfig:
         # excluded scale. canonicalize_active_scales() guarantees a deterministic
         # tuple order regardless of how the configured JSON array is written, so
         # _compute_apr_snapshot_key's fingerprint never moves on a semantically-
-        # unchanged reorder.
+        # unchanged reorder. list(fb) NOT fb directly: get_list_config's `default: list`
+        # type contract expects a list, not ACTIVE_SCALES_FALLBACKS_BY_TF's tuple values.
         active_scales = {
             tf: canonicalize_active_scales(
                 get_list_config(cfg, f"alpha.ic.active_scales.{tf}", list(fb))

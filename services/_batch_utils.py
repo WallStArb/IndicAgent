@@ -207,19 +207,26 @@ def lookaheads_for_tf(
     }
 
 
-def get_dict_config(cfg_service: ConfigService, key: str, default: dict) -> dict:
-    """Read a JSON-object APR key via `ConfigService.get_sync()`, tolerating either a
-    pre-parsed dict (the normal case -- `load_config_service_sync`'s `_parse_value`
-    already `json.loads()`s `value_type='json'` keys at cache-load time) or a raw JSON
-    string (test/fallback default path). `cfg()` above can't be reused here: its
-    `type(default)(val)` cast breaks for a dict default against a raw JSON-string value.
+def _get_json_typed_config(cfg_service: ConfigService, key: str, default: dict | list) -> Any:
+    """Shared implementation behind `get_dict_config`/`get_list_config`: read a
+    JSON-typed APR key via `ConfigService.get_sync()`, tolerating either a pre-parsed
+    dict/list (the normal case -- `load_config_service_sync`'s `_parse_value` already
+    `json.loads()`s `value_type='json'` keys at cache-load time) or a raw JSON string
+    (test/fallback default path). `cfg()` above can't be reused here: its
+    `type(default)(val)` cast breaks for a dict/list default against a raw JSON-string
+    value.
     """
     v = cfg_service.get_sync(key, default)
-    if isinstance(v, dict):
+    if isinstance(v, type(default)):
         return v
     if isinstance(v, str):
         return json.loads(v)
     return default
+
+
+def get_dict_config(cfg_service: ConfigService, key: str, default: dict) -> dict:
+    """Read a JSON-object APR key -- see `_get_json_typed_config`."""
+    return _get_json_typed_config(cfg_service, key, default)
 
 
 _CANONICAL_SCALE_ORDER: tuple[str, ...] = ("fast", "mid", "slow", "extended")
@@ -267,17 +274,9 @@ re-literal this table in either file; import it from here."""
 
 
 def get_list_config(cfg_service: ConfigService, key: str, default: list) -> list:
-    """Read a JSON-array APR key via ConfigService.get_sync(), tolerating either a
-    pre-parsed list (the normal case -- load_config_service_sync's _parse_value
-    already json.loads()s value_type='json' keys at cache-load time) or a raw JSON
-    string (test/fallback default path). Sibling of get_dict_config above -- same
-    isinstance-guard shape, list instead of dict."""
-    v = cfg_service.get_sync(key, default)
-    if isinstance(v, list):
-        return v
-    if isinstance(v, str):
-        return json.loads(v)
-    return default
+    """Read a JSON-array APR key -- see `_get_json_typed_config`. Sibling of
+    `get_dict_config` above."""
+    return _get_json_typed_config(cfg_service, key, default)
 
 
 class Float32ChunkAccumulator:

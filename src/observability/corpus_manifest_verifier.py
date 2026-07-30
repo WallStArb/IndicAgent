@@ -106,11 +106,8 @@ def _load_apr_values(conn: Any) -> dict[str, Any]:
     active_scales_by_tf: dict[str, tuple[str, ...]] = {}
     for tf, default_scales in _APR_DEFAULT_ACTIVE_SCALES_BY_TF.items():
         raw = rows.get(f"alpha.ic.active_scales.{tf}")
-        if raw is None:
-            active_scales_by_tf[tf] = default_scales
-            continue
         try:
-            parsed = json.loads(raw)
+            parsed = json.loads(raw) if raw is not None else None
             active_scales_by_tf[tf] = tuple(parsed) if parsed else default_scales
         except (ValueError, TypeError):
             active_scales_by_tf[tf] = default_scales
