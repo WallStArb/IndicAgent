@@ -305,6 +305,12 @@ def _make_config(**overrides) -> ICEngineConfig:
         lookahead_mid={"5m": 5, "15m": 5, "1h": 5, "1d": 5},
         lookahead_slow={"5m": 20, "15m": 20, "1h": 20, "1d": 20},
         lookahead_extended={"5m": 60, "15m": 60, "1h": 60, "1d": 60},
+        active_scales={
+            "5m": ("fast", "mid", "slow", "extended"),
+            "15m": ("fast", "mid", "slow", "extended"),
+            "1h": ("fast", "mid"),
+            "1d": ("fast", "mid", "slow", "extended"),
+        },
         equity_model_enabled=True,
         min_obs_daily=1000,
         hac_max_lag=3,

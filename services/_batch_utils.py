@@ -207,19 +207,86 @@ def lookaheads_for_tf(
     }
 
 
-def get_dict_config(cfg_service: ConfigService, key: str, default: dict) -> dict:
-    """Read a JSON-object APR key via `ConfigService.get_sync()`, tolerating either a
-    pre-parsed dict (the normal case -- `load_config_service_sync`'s `_parse_value`
-    already `json.loads()`s `value_type='json'` keys at cache-load time) or a raw JSON
-    string (test/fallback default path). `cfg()` above can't be reused here: its
-    `type(default)(val)` cast breaks for a dict default against a raw JSON-string value.
+def _get_json_typed_config(cfg_service: ConfigService, key: str, default: dict | list) -> Any:
+    """Shared implementation behind `get_dict_config`/`get_list_config`: read a
+    JSON-typed APR key via `ConfigService.get_sync()`, tolerating either a pre-parsed
+    dict/list (the normal case -- `load_config_service_sync`'s `_parse_value` already
+    `json.loads()`s `value_type='json'` keys at cache-load time) or a raw JSON string
+    (test/fallback default path). `cfg()` above can't be reused here: its
+    `type(default)(val)` cast breaks for a dict/list default against a raw JSON-string
+    value.
     """
     v = cfg_service.get_sync(key, default)
-    if isinstance(v, dict):
-        return v
+    if isinstance(default, dict):
+        if isinstance(v, dict):
+            return v
+    elif isinstance(default, list):
+        if isinstance(v, list):
+            return v
     if isinstance(v, str):
         return json.loads(v)
     return default
+
+
+def get_dict_config(cfg_service: ConfigService, key: str, default: dict) -> dict:
+    """Read a JSON-object APR key -- see `_get_json_typed_config`."""
+    return _get_json_typed_config(cfg_service, key, default)
+
+
+_CANONICAL_SCALE_ORDER: tuple[str, ...] = ("fast", "mid", "slow", "extended")
+
+
+def canonicalize_active_scales(scales: list[str] | tuple[str, ...]) -> tuple[str, ...]:
+    """Normalize a configured active-scale list to _CANONICAL_SCALE_ORDER, deduped.
+
+    The APR value's configured order is never semantically meaningful -- an
+    operator editing alpha.ic.active_scales.{tf} via /config/parameters could
+    write ["mid","fast"] or ["fast","mid"] and mean the identical active set.
+    Canonicalizing here (rather than sorting inside _compute_apr_snapshot_key)
+    keeps the fingerprint hash deterministic without special-casing tuple-valued
+    dict entries in a function shared by every other COMPUTATIONAL config field.
+
+    Raises ValueError on any name outside _CANONICAL_SCALE_ORDER -- a typo'd scale
+    name must fail loud, not silently shrink the active set (CLAUDE.md: silent
+    wrong answers are worse than loud crashes).
+
+    An empty input list (`[]`) normalizes to a genuinely empty tuple `()` -- this
+    function does NOT fall back to any default for an empty input. (The fallback
+    to a tf's default active-scale set happens one layer up, in the config-read
+    helpers, and only when the APR key is entirely ABSENT -- an explicitly
+    configured empty list is passed through here as-is and stays empty.)
+    """
+    scale_set = set(scales)
+    unknown = scale_set - set(_CANONICAL_SCALE_ORDER)
+    if unknown:
+        raise ValueError(
+            f"canonicalize_active_scales: unknown scale name(s) {sorted(unknown)} -- "
+            f"must be a subset of {_CANONICAL_SCALE_ORDER}."
+        )
+    return tuple(s for s in _CANONICAL_SCALE_ORDER if s in scale_set)
+
+
+ACTIVE_SCALES_FALLBACKS_BY_TF: dict[str, tuple[str, ...]] = {
+    "5m": _CANONICAL_SCALE_ORDER,
+    "15m": _CANONICAL_SCALE_ORDER,
+    "1h": ("fast", "mid"),
+    "1d": _CANONICAL_SCALE_ORDER,
+}
+"""Per-tf active-scale set (2026-07-30 design, docs/superpowers/specs/2026-07-30-
+per-tf-active-scale-set-design.md). 1h excludes slow/extended: live-measured
+0.000 completeness under the current same-ET-session completeness gate (see
+LOOKAHEAD_FALLBACKS_BY_TF's docstring above and todo 208). This reflects today's
+measured data, not a permanent commitment -- reversible via a single config
+change (alpha.ic.active_scales.1h) alone, no code change, if todo 208's
+investigation into removing the session gate changes what's measurable. Single
+source of truth for ICEngineConfig/EnsembleICConfig's from_apr() -- do not
+re-literal this table in either file; import it from here."""
+
+
+def get_list_config(cfg_service: ConfigService, key: str, default: list) -> list:
+    """Read a JSON-array APR key -- see `_get_json_typed_config`. Sibling of
+    `get_dict_config` above."""
+    return _get_json_typed_config(cfg_service, key, default)
 
 
 class Float32ChunkAccumulator:

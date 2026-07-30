@@ -89,7 +89,13 @@ sys.path.insert(0, str(project_root))
 # same shared IC math module (todo 048) rather than one reaching into the other's
 # internals. EnsembleICConfig below mirrors ICEngineConfig's shared-key shape by
 # convention, not by import (no direct type dependency).
-from services._batch_utils import LOOKAHEAD_FALLBACKS_BY_TF, connect_db_from_url, lookaheads_for_tf
+from services._batch_utils import (
+    ACTIVE_SCALES_FALLBACKS_BY_TF,
+    LOOKAHEAD_FALLBACKS_BY_TF,
+    canonicalize_active_scales,
+    connect_db_from_url,
+    lookaheads_for_tf,
+)
 from services._batch_utils import cfg as _cfg
 from services._batch_utils import load_apr_dict_async as _load_apr_dict
 from src.config.config_service import ConfigService  # EIC-02: alpha.frame.hold_max_bars writes
@@ -166,6 +172,7 @@ class EnsembleICConfig:
     lookahead_mid: dict[str, int]
     lookahead_slow: dict[str, int]
     lookahead_extended: dict[str, int]
+    active_scales: dict[str, tuple[str, ...]]
     n_workers: int
     pooled_fetch_itersize: int
     # EnsembleIC-specific keys (migration 195)
@@ -199,6 +206,17 @@ class EnsembleICConfig:
             tf,
         )
 
+    def active_scales_for(self, tf: str) -> tuple[str, ...]:
+        """Mirrors ICEngineConfig.active_scales_for (2026-07-30 design) -- same
+        per-tf active-scale semantics, independent frozen dataclass.
+
+        NOTE: as of this writing, this field/method is loaded but not yet wired
+        into production compute here -- `_run_ensemble_ic_worker`'s per-scale loop
+        still iterates the module-level hardcoded `_SCALES` tuple directly instead
+        of calling this method. Only test files call `active_scales_for` today.
+        Wiring it in is tracked separately (see todo 210); out of scope here."""
+        return self.active_scales[tf]
+
     @classmethod
     def from_apr(cls, cfg: dict[str, Any]) -> EnsembleICConfig:
         """Load all EnsembleIC APR parameters from the raw config dict in one pass."""
@@ -210,6 +228,14 @@ class EnsembleICConfig:
                 for tf, fb in LOOKAHEAD_FALLBACKS_BY_TF.items()
             }
             for scale in ("fast", "mid", "slow", "extended")
+        }
+        # Active-scale set per tf (2026-07-30 design) -- see ICEngineConfig's
+        # identical field for the full rationale. list(fb) NOT fb directly: _cfg()'s
+        # JSON-safe branch only triggers on a list/dict default, and
+        # ACTIVE_SCALES_FALLBACKS_BY_TF's values are tuples.
+        active_scales = {
+            tf: canonicalize_active_scales(_cfg(cfg, f"alpha.ic.active_scales.{tf}", list(fb)))
+            for tf, fb in ACTIVE_SCALES_FALLBACKS_BY_TF.items()
         }
         return cls(
             fdr_alpha=_cfg(cfg, "alpha.ic.fdr_alpha", 0.05),
@@ -224,6 +250,7 @@ class EnsembleICConfig:
             lookahead_mid=_lookahead_by_scale["mid"],
             lookahead_slow=_lookahead_by_scale["slow"],
             lookahead_extended=_lookahead_by_scale["extended"],
+            active_scales=active_scales,
             n_workers=_cfg(cfg, "infra.ensemble_ic_engine.workers", 12),
             pooled_fetch_itersize=_cfg(
                 cfg, "infra.ensemble_ic_engine.pooled_fetch_itersize", 50_000

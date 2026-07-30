@@ -175,16 +175,16 @@ R(T, N) = ln( open[T+N+1] / open[T+1] )
 
 ### Lookahead Horizons
 
-Four horizons per TF, stored as gradient column names:
+Up to four horizons per TF, stored as gradient column names. Horizon count is now per-tf, not a fixed four for every tf: `alpha.ic.active_scales.{tf}` controls which scales are actually attempted for a given tf (e.g. `1h` has only `fast`/`mid` active as of the 2026-07-30 per-tf active-scale-set design), and the bar count for each active scale comes from the per-tf `alpha.ic.lookahead.{tf}.{scale}` APR keys (todo 146 replaced the old single global `alpha.ic.lookahead.{scale}` grid with these).
 
 | Column | Description |
 |--------|-------------|
-| `return_fast` | Shortest lookahead (APR: `alpha.ic.lookahead.fast`) |
+| `return_fast` | Shortest lookahead (APR: `alpha.ic.lookahead.{tf}.fast`) |
 | `return_mid` | Mid lookahead |
 | `return_slow` | Slow lookahead |
 | `return_extended` | Longest lookahead |
 
-The IC engine measures all four. The ensemble uses the horizon with the highest IC Sharpe per (feature, TF, regime) — the researcher does not pre-select.
+The IC engine measures all active scales for a tf. The ensemble uses the horizon with the highest IC Sharpe per (feature, TF, regime) — the researcher does not pre-select.
 
 ### Gap Flag
 
