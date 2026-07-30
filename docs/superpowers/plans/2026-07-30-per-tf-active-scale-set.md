@@ -761,6 +761,163 @@ Follow CLAUDE.md's Done-Coding SOP steps 4-6 (commit on feature branch → `git 
 
 ---
 
+### Task 7 (added mid-execution — real finding from Task 6's downstream sweep, not part of the original spec):
+`corpus_manifest_verifier.py`'s Check 3 will hard-fail on every corpus run once 1h's `active_scales` takes effect
+
+**Why this exists:** Task 6's repo-wide `_SCALES` sweep found `src/observability/corpus_manifest_verifier.py`'s `verify_data_quality` Check 3 unconditionally expects all 4 scale-derived lookaheads (`{1,2,20,60}`) present in `feature_ic_scores` for every tf, including `1h`. Once `active_scales.1h = ["fast","mid"]` takes effect (live since Task 5's migration) and `ic_engine` runs against real 1h data, `ic_engine` will structurally never write `lookahead_bars` 20/60 rows for `1h` — so this check will raise `RuntimeError: TF 1h missing lookaheads: {20, 60}` **unconditionally, on every future corpus pipeline run**. This is not compute waste (unlike todos 209/210) — it is a false-positive crash-loud gate that will actively block the corpus pipeline the very next time it's resumed past `ic_engine`, which is the documented next step after this plan closes. Must be fixed before this plan's final merge, not deferred.
+
+Distinct from todo 202's already-fixed HIGH-2 finding in this same file (commit `2874a177`): that fix scoped the lookahead *bar-count values* per tf (replacing a phantom global APR key with the real per-tf `alpha.ic.lookahead.{tf}.{scale}` keys). It did not and could not anticipate `active_scales` — a concept this plan introduces — excluding whole scales per tf. Todo 202's fix still assumes all 4 configured scales per tf should appear; this plan invalidates that assumption for `1h`.
+
+**Files:**
+- Modify: `src/observability/corpus_manifest_verifier.py` (`_load_apr_values`, lines ~42-100; the `_LOOKAHEAD_SCALES`/`_APR_DEFAULT_LOOKAHEADS_BY_TF` module constants, lines ~42-56)
+- Test: `tests/unit/src/observability/test_corpus_manifest_verifier.py` (extend; one existing test needs updating, not just new tests added)
+
+**Architectural constraint — read before implementing:** this file lives in `src/observability/`, which is **Ring 0** (per this file's own existing comment at line ~44: "Ring 0 and must not import the services layer, per this repo's pre-commit Ring 0 boundary check"). The fix **cannot** import `ACTIVE_SCALES_FALLBACKS_BY_TF`/`canonicalize_active_scales` from `services/_batch_utils.py` — it must mirror the values **by value**, exactly matching how `_LOOKAHEAD_SCALES`/`_APR_DEFAULT_LOOKAHEADS_BY_TF` already mirror `services/_batch_utils.py`'s lookahead grid by value (same existing pattern, same existing "keep in sync by hand" comment convention — copy that convention for the new constant, don't invent a different one).
+
+**Step 1: Write the failing tests.** Add to `tests/unit/src/observability/test_corpus_manifest_verifier.py`:
+
+```python
+def test_load_apr_values_scopes_lookaheads_by_active_scales_for_1h():
+    """1h's active_scales excludes slow/extended (live since migration 271) -- Check 3's
+    expected set for 1h must reflect only the ACTIVE scales' bar counts, not all 4
+    unconditionally, or the check will false-positive-fail on every real corpus run."""
+    conn = _FakeConn(
+        config_rows=[
+            ("alpha.ic.active_scales.1h", '["fast","mid"]'),
+        ]
+    )
+    apr = _load_apr_values(conn)
+    assert apr["lookaheads_by_tf"]["1h"] == {1, 2}  # fast=1, mid=2 -- NOT {1,2,20,60}
+
+
+def test_load_apr_values_active_scales_falls_back_when_key_absent():
+    """No alpha.ic.active_scales.* rows at all -- must fall back to the by-value mirror
+    of ACTIVE_SCALES_FALLBACKS_BY_TF (1h -> fast/mid only), not silently include all 4."""
+    conn = _FakeConn(config_rows=[])
+    apr = _load_apr_values(conn)
+    assert apr["lookaheads_by_tf"]["1h"] == {1, 2}
+    assert apr["lookaheads_by_tf"]["5m"] == {1, 6, 12, 39}  # 5m keeps all 4, unaffected
+
+
+def test_verify_data_quality_check3_passes_for_1h_with_only_two_scales(tmp_path):
+    """Positive case mirroring test_verify_data_quality_check3_passes_with_correct_per_tf_grid
+    but for 1h post-fix: only fast(1)/mid(2) rows exist, and Check 3 must NOT raise."""
+    verifier = CorpusManifestVerifier(tmp_path)
+    fetch_results = [
+        [(2,)],
+        [("1h", 10)],
+        [
+            ("1h", 1, 3),
+            ("1h", 2, 3),
+        ],
+    ]
+    conn = _FakeConn(config_rows=[], fetch_results=fetch_results)
+    try:
+        verifier.verify_data_quality(conn, required_tfs=["1h"], required_symbols=["A", "B"])
+    except RuntimeError as err:
+        assert "missing lookaheads" not in str(err)
+    except (IndexError, TypeError, AttributeError):
+        pass  # fixture doesn't provide enough fetch_results for checks 4-7; fine here
+```
+
+Also **update** the existing `test_load_apr_values_falls_back_per_tf_when_keys_absent` (currently asserts `apr["lookaheads_by_tf"][tf] == set(defaults.values())` for every tf including `1h`, via `_APR_DEFAULT_LOOKAHEADS_BY_TF` which still has all 4 bar-count values seeded for `1h` — that dict is untouched by this plan, only which of its values actually get INCLUDED in the expected set changes). Split the assertion: keep the blanket loop for `5m`/`15m`/`1d` (unaffected, still all 4), and assert `1h` separately as `{1, 2}` (only `fast`/`mid`'s bar counts, `20`/`60` excluded).
+
+**Step 2: Run tests to verify they fail.**
+
+Run: `.venv/bin/pytest tests/unit/src/observability/test_corpus_manifest_verifier.py -v`
+Expected: the 3 new tests FAIL, and the updated existing test FAILS (current code still includes `20`/`60` unconditionally for `1h`).
+
+**Step 3: Implement the by-value mirror + APR read + scoped construction.**
+
+After the existing `_LOOKAHEAD_SCALES`/`_APR_DEFAULT_LOOKAHEADS_BY_TF` block (~line 56), add:
+
+```python
+# Todo 208/per-tf-active-scale-set design (2026-07-30): alpha.ic.active_scales.{tf}
+# controls WHICH of the 4 scales ic_engine actually attempts per tf -- 1h excludes
+# slow/extended (0.000 measured forward_returns completeness under the same-session
+# gate). Mirrors services/_batch_utils.py's ACTIVE_SCALES_FALLBACKS_BY_TF BY VALUE, not
+# by import -- src/observability/ is Ring 0, see this file's Ring-0-boundary comment
+# above for _LOOKAHEAD_SCALES. Keep in sync with that dict by hand if it ever changes.
+_APR_DEFAULT_ACTIVE_SCALES_BY_TF: dict[str, tuple[str, ...]] = {
+    "5m": ("fast", "mid", "slow", "extended"),
+    "15m": ("fast", "mid", "slow", "extended"),
+    "1h": ("fast", "mid"),
+    "1d": ("fast", "mid", "slow", "extended"),
+}
+```
+
+In `_load_apr_values`, add `json` to the imports at the top of the file (`import json`, alongside the existing `import sys`).
+
+Add the active-scales APR keys to the keys fetched (near the existing `lookahead_keys` construction):
+
+```python
+    active_scales_keys = [
+        f"alpha.ic.active_scales.{tf}" for tf in _APR_DEFAULT_ACTIVE_SCALES_BY_TF
+    ]
+    keys = [
+        *lookahead_keys,
+        *active_scales_keys,
+        _APR_KEY_MIN_ROWS_PER_SYMBOL_REGIME,
+        _APR_KEY_MAX_NULL_RATE,
+        _APR_KEY_NULL_RATE_SAMPLE_SIZE,
+    ]
+```
+
+Then, before the existing `lookaheads_by_tf` construction loop, resolve the active-scale set per tf (raw `config_value` is always TEXT regardless of `value_type`, same as every other key this file reads manually — parse with `json.loads`, falling back to the by-value mirror on any parse failure, same defensive pattern already used for `int()`/`float()` elsewhere in this function):
+
+```python
+    active_scales_by_tf: dict[str, tuple[str, ...]] = {}
+    for tf, default_scales in _APR_DEFAULT_ACTIVE_SCALES_BY_TF.items():
+        raw = rows.get(f"alpha.ic.active_scales.{tf}")
+        if raw is None:
+            active_scales_by_tf[tf] = default_scales
+            continue
+        try:
+            parsed = json.loads(raw)
+            active_scales_by_tf[tf] = tuple(parsed) if parsed else default_scales
+        except (ValueError, TypeError):
+            active_scales_by_tf[tf] = default_scales
+```
+
+Then change the existing `lookaheads_by_tf` construction loop (currently iterates all 4 scales unconditionally) to skip scales not in that tf's active set:
+
+```python
+    lookaheads_by_tf: dict[str, set[int]] = {}
+    for tf, defaults_by_scale in _APR_DEFAULT_LOOKAHEADS_BY_TF.items():
+        bars: set[int] = set()
+        active_scales = active_scales_by_tf.get(tf, tuple(defaults_by_scale.keys()))
+        for scale, default in defaults_by_scale.items():
+            if scale not in active_scales:
+                continue
+            raw = rows.get(f"alpha.ic.lookahead.{tf}.{scale}")
+            try:
+                bars.add(int(raw) if raw is not None else default)
+            except (ValueError, TypeError):
+                bars.add(default)
+        lookaheads_by_tf[tf] = bars
+```
+
+(This is the exact pre-existing loop with one `if scale not in active_scales: continue` guard added — do not restructure anything else about it.)
+
+**Step 4: Run tests to verify they pass.**
+
+Run: `.venv/bin/pytest tests/unit/src/observability/test_corpus_manifest_verifier.py -v`
+Expected: PASS (all existing + 3 new tests).
+
+**Step 5: Run the full unit test suite.**
+
+Run: `.venv/bin/pytest tests/unit/ -q`
+Expected: 0 failures.
+
+**Step 6: Commit.**
+
+```bash
+git add src/observability/corpus_manifest_verifier.py tests/unit/src/observability/test_corpus_manifest_verifier.py
+git commit -m "fix(corpus_manifest_verifier): scope Check 3's expected lookaheads by active_scales"
+```
+
+---
+
 ## Self-Review Notes (completed during plan authoring, not a step to execute)
 
 - **Spec coverage:** every decision in `docs/superpowers/specs/2026-07-30-per-tf-active-scale-set-design.md`'s "Design — mechanism" section has a task (Task 1: canonicalization + fallback table; Task 2: `ICEngineConfig` field/fingerprint; Task 3: 12 call sites; Task 5: migration). "Design — values" (1h's exact scale set) is Task 5's migration content. "Downstream sweep" is Task 4 Step 7 (`ensemble_ic_engine.py`, found to need no change beyond the mirrored field) + Task 6 (verification of `ops_ic_shrinkage.py` and the dashboard, both found to need no change). "Rejected alternatives" and "Out of scope" are not implementation items by design.
