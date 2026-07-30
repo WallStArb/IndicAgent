@@ -86,6 +86,11 @@ ContFuture (`continuous=True`) hangs on multi-year requests — use named contra
 - **GSD worktree executors don't inherit gitignored `.venv`**: a fresh `git worktree add` has no `.venv`, so `.venv/bin/ruff`/`black`/`pytest` don't exist and the pre-commit hook's lint/format checks fail with "not found" on the first commit attempt. Fix: `ln -s <primary-checkout-path>/.venv .venv` from the worktree root before committing (the symlink is itself gitignored, won't be committed). Don't bypass with `--no-verify`.
 - **Worktree isolation is unsafe for a GSD plan whose real deliverable is gitignored** (`logs/`, `.planning/corpus_manifests/*.json`): the worktree is force-removed after merge, silently destroying anything not committed. Route such plans through sequential (non-worktree) execution instead.
 
+## Git / Concurrent Sessions
+
+- **Isolated commits when concurrent work is suspected**: create a detached-HEAD scratch worktree off `origin/main` (`git worktree add <tmp-dir> origin/main --detach`), copy in just the specific files to change, commit, push, then `git worktree remove --force`. Never commit directly in the primary checkout if `git status` shows unexpected uncommitted files — that's another session's in-progress work.
+- **`git push origin HEAD:main` from a detached-HEAD worktree does NOT fast-forward the primary checkout's local `main`** — its `git log -1` can go stale relative to `origin/main` after repeated pushes. Use `git fetch origin main && git log origin/main -1` as ground truth, not the primary checkout's local branch.
+
 ## Resolved (Historical Reference)
 
 - **CIS weights column mismatch (fixed Phase 091):** `_load_cis_weights` was querying the `weights` JSONB column (always `{}`); actual learned weights live in `trend_w`/`momentum_w`/etc. columns. Fixed to read individual columns scoped to `asset_cluster='global' AND timeframe='global'`.
