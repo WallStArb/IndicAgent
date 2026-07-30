@@ -50,6 +50,25 @@ fi
 RUN_START=$(date +%s)
 STEP_ERRORS=()
 
+# Durable, append-only, non-timestamped-filename record of every step's wall-clock
+# cost across every invocation of this script (including --from-step resumes) --
+# distinct from the per-run $LOG_DIR/*.log/.out files, which get a fresh timestamped
+# name each invocation and therefore can't answer "which step actually dominates
+# runtime" without manually reconstructing history across however many files a
+# restarted run produced (todo 217).
+STEP_TIMINGS_LOG="$LOG_DIR/step_timings.jsonl"
+
+log_step_timing() {
+    local step=$1 name=$2 start_epoch=$3 end_epoch=$4 status=$5 logfile=$6
+    printf '{"run_start":"%s","step":%d,"name":"%s","start":"%s","end":"%s","duration_s":%d,"status":"%s","logfile":"%s"}\n' \
+        "$(date -u -d "@$RUN_START" +%Y-%m-%dT%H:%M:%SZ)" \
+        "$step" "$name" \
+        "$(date -u -d "@$start_epoch" +%Y-%m-%dT%H:%M:%SZ)" \
+        "$(date -u -d "@$end_epoch" +%Y-%m-%dT%H:%M:%SZ)" \
+        "$(( end_epoch - start_epoch ))" "$status" "$logfile" \
+        >> "$STEP_TIMINGS_LOG"
+}
+
 banner() {
     local step=$1
     local name=$2
@@ -183,12 +202,14 @@ run_step() {
     if PYTHONUNBUFFERED=1 "${cmd[@]}" > "$logfile" 2>&1; then
         echo "  DONE in $(elapsed_since "$t0")"
         tail -5 "$logfile" | sed 's/^/  /'
+        log_step_timing "$step" "$name" "$t0" "$(date +%s)" "done" "$logfile"
     else
         local rc=$?
         echo "  FAILED (exit $rc) after $(elapsed_since "$t0")"
         echo "  Last 20 lines of $logfile:"
         tail -20 "$logfile" | sed 's/^/    /'
         STEP_ERRORS+=("step $step ($name)")
+        log_step_timing "$step" "$name" "$t0" "$(date +%s)" "failed" "$logfile"
         echo
         echo "  Pipeline halted. Fix the error then resume with:"
         echo "    bash scripts/ops/corpus/ops_corpus_pipeline_run.sh --from-step $step${SYMBOLS_ARG:+ --symbols $SYMBOLS_ARG}"
