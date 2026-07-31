@@ -469,12 +469,19 @@ def _compute_symbol_tf(
     min_state_occupation: float = 0.05,
     churn_window: int = 10,
     min_obs_factor: int = _MIN_OBS_FACTOR_DEFAULT,
+    n_restarts: int = 1,
 ) -> tuple[list[tuple], bool, float] | None:
     """Fit HMM for one (symbol, tf) cell. Returns (update_rows, converged, heldout_ll) or None.
 
     No DB writes — clears any open transaction before the server-side cursor, then runs pure
     HMM compute. Each tuple in update_rows matches the UPDATE SQL parameter order:
     (regime, p_up, p_ranging, p_down, prob_val, entropy_val, duration, hmm_churn, symbol, tf, ts).
+
+    n_restarts (APR: alpha.hmm.n_restarts, default 1) fits n_restarts seeds derived
+    deterministically as hmm_random_state + i and keeps whichever converged model has
+    the highest log-likelihood (todo 108). At the default of 1, only hmm_random_state
+    itself is tried — same-seed convergence retry included — reproducing the prior
+    single-seed behavior exactly.
 
     Returns None if OHLCV is absent/insufficient (existing behavior) OR if the
     occupation gate (P2b) flags the fit as degenerate/non-converged/too-short —
@@ -536,41 +543,68 @@ def _compute_symbol_tf(
     # Fall back to diag if too few observations for full covariance to be reliable.
     eff_cov_type = covariance_type if len(obs_matrix) >= full_cov_min_obs else "diag"
 
-    model = GaussianHMM(
-        n_components=n_components,
-        covariance_type=eff_cov_type,
-        n_iter=n_iter,
-        random_state=hmm_random_state,
-    )
-    model.fit(obs_matrix)
-
-    # Convergence check — non-convergence means EM stopped early; labels are valid
-    # but may be suboptimal. Retry once with doubled iterations before proceeding.
-    converged = bool(model.monitor_.converged)
-    if not converged:
-        _logger.warning(
-            "regime_writer.hmm_not_converged_retry",
-            symbol=symbol,
-            tf=tf,
-            n_iter=n_iter,
-        )
-        retry_model = GaussianHMM(
+    # Multi-seed restart (todo 108): fit n_restarts seeds derived deterministically as
+    # hmm_random_state + i, keep whichever converged model has the highest log-likelihood.
+    # GaussianHMM's EM objective is non-convex, so a single seed can land in a worse local
+    # optimum than a different seed would find. Each seed still gets the original
+    # same-seed convergence retry (doubled n_iter) before being scored, so this loop is a
+    # strict superset of the old single-seed behavior: convergence always wins over
+    # non-convergence, log-likelihood is the tiebreaker within the same convergence status.
+    # At n_restarts=1 (APR default) exactly one seed (hmm_random_state itself) is tried,
+    # so this reduces byte-for-byte to the historical single-seed-fit-plus-retry code path.
+    model = None
+    converged = False
+    best_ll = float("-inf")
+    for i in range(n_restarts):
+        seed = hmm_random_state + i
+        candidate = GaussianHMM(
             n_components=n_components,
             covariance_type=eff_cov_type,
-            n_iter=n_iter * 2,
-            random_state=hmm_random_state,
+            n_iter=n_iter,
+            random_state=seed,
         )
-        retry_model.fit(obs_matrix)
-        if retry_model.monitor_.converged:
-            model = retry_model
-            converged = True
-        else:
+        candidate.fit(obs_matrix)
+
+        # Convergence check — non-convergence means EM stopped early; labels are valid
+        # but may be suboptimal. Retry once with doubled iterations before proceeding.
+        candidate_converged = bool(candidate.monitor_.converged)
+        if not candidate_converged:
             _logger.warning(
-                "regime_writer.hmm_not_converged_final",
+                "regime_writer.hmm_not_converged_retry",
                 symbol=symbol,
                 tf=tf,
-                n_iter=n_iter * 2,
+                n_iter=n_iter,
+                seed=seed,
             )
+            retry_model = GaussianHMM(
+                n_components=n_components,
+                covariance_type=eff_cov_type,
+                n_iter=n_iter * 2,
+                random_state=seed,
+            )
+            retry_model.fit(obs_matrix)
+            if retry_model.monitor_.converged:
+                candidate = retry_model
+                candidate_converged = True
+            else:
+                _logger.warning(
+                    "regime_writer.hmm_not_converged_final",
+                    symbol=symbol,
+                    tf=tf,
+                    n_iter=n_iter * 2,
+                    seed=seed,
+                )
+
+        candidate_ll = float(candidate.score(obs_matrix))
+
+        # Prefer any converged candidate over any non-converged one; among candidates
+        # with the same convergence status, keep the highest log-likelihood. Booleans
+        # compare as 0/1 in Python, so this tuple comparison always ranks convergence
+        # ahead of log-likelihood.
+        if model is None or (candidate_converged, candidate_ll) > (converged, best_ll):
+            model = candidate
+            converged = candidate_converged
+            best_ll = candidate_ll
 
     # Held-out log-likelihood: score last heldout_fraction of bars.
     # Model is fit on full series; this is diagnostic only — does not gate write.
@@ -791,7 +825,7 @@ def _run_symbol_worker(args: tuple) -> dict:
         args: (symbol, tfs, dsn, n_components, vol_window, momentum_window,
                vol_of_vol_window, n_iter, hmm_random_state, covariance_type,
                min_hold_bars, heldout_fraction, full_cov_min_obs,
-               min_state_occupation, churn_window, min_obs_factor)
+               min_state_occupation, churn_window, min_obs_factor, n_restarts)
 
     Returns:
         dict with keys:
@@ -816,6 +850,7 @@ def _run_symbol_worker(args: tuple) -> dict:
         min_state_occupation,
         churn_window,
         min_obs_factor,
+        n_restarts,
     ) = args
 
     setup_service_logging("logs/regime_writer.log")
@@ -847,6 +882,7 @@ def _run_symbol_worker(args: tuple) -> dict:
                     min_state_occupation=min_state_occupation,
                     churn_window=churn_window,
                     min_obs_factor=min_obs_factor,
+                    n_restarts=n_restarts,
                 )
                 if result is None:
                     results.append(
@@ -971,6 +1007,7 @@ def main() -> None:
                 vol_window = int(cfg.get_sync("feature.hmm.vol_window", 20))
                 n_iter = int(cfg.get_sync("feature.hmm.n_iter", 200))
                 hmm_random_state = int(cfg.get_sync("alpha.hmm.random_state", 42))
+                n_restarts = int(cfg.get_sync("alpha.hmm.n_restarts", 1))
                 momentum_window = int(cfg.get_sync("feature.hmm.obs_momentum_window", 20))
                 vol_of_vol_window = int(cfg.get_sync("feature.hmm.obs_vol_of_vol_window", 20))
                 covariance_type = cfg.get_sync("feature.hmm.covariance_type", "full")
@@ -1008,6 +1045,7 @@ def main() -> None:
                 heldout_fraction=heldout_fraction,
                 min_state_occupation=min_state_occupation,
                 churn_window=churn_window,
+                n_restarts=n_restarts,
             )
 
             worker_args = [
@@ -1028,6 +1066,7 @@ def main() -> None:
                     min_state_occupation,
                     churn_window,
                     min_obs_factor,
+                    n_restarts,
                 )
                 for symbol in symbols
             ]

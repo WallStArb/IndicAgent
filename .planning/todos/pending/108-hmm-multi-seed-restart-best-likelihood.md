@@ -8,6 +8,14 @@ source: todo 026 P2a, split out after verifying it's the one item in 026 with no
 
 # Multi-seed HMM restart, keep best log-likelihood (todo 026 P2a)
 
+**Restart mechanism built 2026-07-31** — `alpha.hmm.n_restarts` APR key (migration 277,
+default 1, byte-identical to prior single-seed behavior at default) and the multi-seed loop
+in `regime_writer.py` are in, with tests proving both the default-preserving property and
+best-log-likelihood selection on synthetic seeds. Remaining scope: the empirical
+before/after validation (log-likelihood + label-agreement delta on a few real symbols) and
+any corpus-wide rollout decision — deliberately not attempted here, needs live corpus
+compute time this session avoided touching.
+
 ## Gap
 
 `regime_writer.py:513-547` fits `GaussianHMM` with a single fixed seed

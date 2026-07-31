@@ -24,6 +24,7 @@ if str(_project_root) not in sys.path:
 
 from unittest.mock import MagicMock
 
+import services.regime_writer as regime_writer_module
 from services.regime_writer import (
     _LABEL_RANGING,
     _LABEL_TRENDING_DOWN,
@@ -625,3 +626,194 @@ def test_compute_symbol_tf_no_db_write():
     for c in cursor.execute.call_args_list:
         sql = c[0][0].upper() if c[0] else ""
         assert "UPDATE" not in sql, f"Worker issued an UPDATE: {sql}"
+
+
+# ---------------------------------------------------------------------------
+# Tests: alpha.hmm.n_restarts multi-seed restart (todo 108)
+# ---------------------------------------------------------------------------
+
+
+def test_compute_symbol_tf_n_restarts_default_fits_once_on_convergence(monkeypatch):
+    """n_restarts defaults to 1 -- when the single seed converges on the first try,
+    exactly one GaussianHMM is instantiated, at hmm_random_state, matching the prior
+    single-seed code path exactly (no multi-seed loop overhead at the default).
+
+    n_restarts is intentionally NOT passed here -- this proves the *default* behavior,
+    not merely that n_restarts=1 works when explicitly requested.
+    """
+    n = 500
+    closes = _make_ranging_closes(n)
+    volumes = _make_volumes(n)
+    timestamps = _make_timestamps(n)
+    conn = _make_mock_conn(closes, volumes, timestamps)
+
+    call_log: list[dict] = []
+    real_gaussian_hmm = regime_writer_module.GaussianHMM
+
+    class _TrackedHMM(real_gaussian_hmm):
+        def __init__(self, *args, **kwargs):
+            call_log.append(
+                {"n_iter": kwargs.get("n_iter"), "random_state": kwargs.get("random_state")}
+            )
+            super().__init__(*args, **kwargs)
+
+    monkeypatch.setattr(regime_writer_module, "GaussianHMM", _TrackedHMM)
+
+    result = _compute_symbol_tf(
+        conn=conn,
+        symbol="SPY",
+        tf="1d",
+        n_components=3,
+        vol_window=20,
+        n_iter=50,
+        hmm_random_state=42,
+        momentum_window=20,
+        vol_of_vol_window=20,
+        min_state_occupation=0.0,
+    )
+
+    assert result is not None
+    assert len(call_log) == 1, f"Expected exactly 1 GaussianHMM fit at the default, got {call_log}"
+    assert call_log[0] == {"n_iter": 50, "random_state": 42}
+
+
+def test_compute_symbol_tf_n_restarts_default_preserves_same_seed_retry(monkeypatch):
+    """n_restarts=1 (default) must preserve the prior same-seed, doubled-n_iter retry
+    on non-convergence -- exactly 2 GaussianHMM fits, BOTH using hmm_random_state, never
+    hmm_random_state + 1. This is the load-bearing default-preserving property: the new
+    multi-seed loop must not silently turn a single-seed retry into a second, different
+    seed being tried.
+
+    hmmlearn's monitor_.converged reads True whenever the EM loop ran its full n_iter
+    budget (by construction of ConvergenceMonitor.converged), so real non-convergence
+    can't be forced deterministically via n_iter alone -- the first fit's convergence
+    flag is force-overridden here to exercise the retry branch under test.
+    """
+    from types import SimpleNamespace
+
+    n = 500
+    closes = _make_ranging_closes(n)
+    volumes = _make_volumes(n)
+    timestamps = _make_timestamps(n)
+    conn = _make_mock_conn(closes, volumes, timestamps)
+
+    call_log: list[dict] = []
+    fit_count = {"n": 0}
+    real_gaussian_hmm = regime_writer_module.GaussianHMM
+
+    class _ForceFirstNonConvergedHMM(real_gaussian_hmm):
+        def __init__(self, *args, **kwargs):
+            call_log.append(
+                {"n_iter": kwargs.get("n_iter"), "random_state": kwargs.get("random_state")}
+            )
+            super().__init__(*args, **kwargs)
+
+        def fit(self, X, lengths=None):
+            super().fit(X, lengths)
+            fit_count["n"] += 1
+            if fit_count["n"] == 1:
+                self.monitor_ = SimpleNamespace(converged=False)
+            return self
+
+    monkeypatch.setattr(regime_writer_module, "GaussianHMM", _ForceFirstNonConvergedHMM)
+
+    result = _compute_symbol_tf(
+        conn=conn,
+        symbol="SPY",
+        tf="1d",
+        n_components=3,
+        vol_window=20,
+        n_iter=50,
+        hmm_random_state=42,
+        momentum_window=20,
+        vol_of_vol_window=20,
+        min_state_occupation=0.0,
+        # n_restarts intentionally omitted -- proves the default, not an explicit 1.
+    )
+
+    assert result is not None
+    assert (
+        len(call_log) == 2
+    ), f"Expected exactly 2 GaussianHMM fits (original + same-seed retry), got {call_log}"
+    assert call_log[0] == {"n_iter": 50, "random_state": 42}
+    assert call_log[1] == {
+        "n_iter": 100,
+        "random_state": 42,
+    }, "Retry must reuse hmm_random_state (not hmm_random_state + 1) and double n_iter"
+
+
+def test_compute_symbol_tf_n_restarts_selects_highest_log_likelihood(monkeypatch):
+    """n_restarts > 1 must select the converged candidate with the highest log-likelihood.
+
+    Monkeypatches GaussianHMM.score() so a specific, non-obvious seed (hmm_random_state + 2,
+    neither the first nor the last seed tried) is engineered to report the highest
+    log-likelihood regardless of the real data-driven score -- this isolates the
+    *selection* logic under test from whatever any particular seed's real likelihood
+    happens to be on this fixture. No real market data; reuses this file's synthetic
+    ranging-price fixture. Model identity is verified via _stationary_distribution's
+    input (the transmat_ of whichever model the restart loop picked), the first place
+    downstream of the loop that touches the chosen model.
+    """
+    from types import SimpleNamespace
+
+    n = 500
+    closes = _make_ranging_closes(n)
+    volumes = _make_volumes(n)
+    timestamps = _make_timestamps(n)
+    conn = _make_mock_conn(closes, volumes, timestamps)
+
+    hmm_random_state = 42
+    n_restarts = 4
+    winning_seed = hmm_random_state + 2  # neither the first nor the last seed tried
+
+    real_gaussian_hmm = regime_writer_module.GaussianHMM
+    seed_to_transmat: dict[int, np.ndarray] = {}
+
+    class _ControlledHMM(real_gaussian_hmm):
+        def fit(self, X, lengths=None):
+            super().fit(X, lengths)
+            if self.random_state == winning_seed:
+                # Force convergence so the engineered score below is what decides the
+                # winner: convergence status ranks ahead of log-likelihood in the
+                # selection tuple, so a non-converged "winner" would lose regardless
+                # of its score.
+                self.monitor_ = SimpleNamespace(converged=True)
+            seed_to_transmat[self.random_state] = self.transmat_.copy()
+            return self
+
+        def score(self, X, lengths=None):
+            if self.random_state == winning_seed:
+                return 1e6  # engineered to dominate every other seed's real score
+            return super().score(X, lengths)
+
+    monkeypatch.setattr(regime_writer_module, "GaussianHMM", _ControlledHMM)
+
+    captured: dict = {}
+    real_stationary_distribution = regime_writer_module._stationary_distribution
+
+    def _capture_stationary_distribution(transmat):
+        captured["transmat"] = np.asarray(transmat).copy()
+        return real_stationary_distribution(transmat)
+
+    monkeypatch.setattr(
+        regime_writer_module, "_stationary_distribution", _capture_stationary_distribution
+    )
+
+    result = _compute_symbol_tf(
+        conn=conn,
+        symbol="SPY",
+        tf="1d",
+        n_components=3,
+        vol_window=20,
+        n_iter=50,
+        hmm_random_state=hmm_random_state,
+        momentum_window=20,
+        vol_of_vol_window=20,
+        min_state_occupation=0.0,
+        n_restarts=n_restarts,
+    )
+
+    assert result is not None
+    assert "transmat" in captured, "Model selection never reached _stationary_distribution"
+    assert winning_seed in seed_to_transmat, "Winning seed was never fit"
+    np.testing.assert_array_equal(captured["transmat"], seed_to_transmat[winning_seed])
