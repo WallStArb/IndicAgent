@@ -121,6 +121,14 @@ _MAX_CHUNK_DAYS: dict[str, int] = {
 # Exceeding it triggers Error 162 (query cancelled). We track request timestamps and
 # pre-emptively sleep before making a request that would breach the limit, eliminating
 # reactive pacing violations entirely.
+#
+# APR-overridable (todo 050, migration 276): the backfill script's
+# _load_ibkr_rate_limit_config() overlays infra.ibkr.rate_limit_max_requests /
+# infra.ibkr.rate_limit_window_sec onto the already-constructed `_hist_rate_limiter`
+# singleton below via its reconfigure() method -- these two constants only supply the
+# fallback defaults used to build that singleton at import time; see
+# _SlidingWindowRateLimiter.reconfigure() for why the usual "mutate the module
+# constant in place" pattern doesn't reach this one.
 _IBKR_HIST_RATE_LIMIT = 55  # conservative: hard limit is 60; 5-slot buffer absorbs jitter
 _IBKR_HIST_WINDOW_S = 600.0  # 10-minute sliding window (IBKR's documented period)
 
@@ -176,6 +184,27 @@ class _SlidingWindowRateLimiter:
         self._max = max_requests
         self._window = window_s
         self._ts: deque[float] = deque()
+
+    def reconfigure(self, max_requests: int, window_s: float) -> None:
+        """Overlay APR-configured rate-limit parameters onto this already-constructed
+        singleton in place (infra.ibkr.rate_limit_max_requests /
+        infra.ibkr.rate_limit_window_sec, todo 050, migration 276).
+
+        Unlike `_MAX_CHUNK_DAYS`/`_HIST_REQUEST_TIMEOUT_SEC`/etc above -- which are
+        read fresh from their module-level constant at each call site, so mutating
+        the constant after import is enough -- this limiter reads `max_requests`/
+        `window_s` exactly once, in `__init__`, to seed `self._max`/`self._window`.
+        `_hist_rate_limiter` below is constructed eagerly at module import time,
+        before any DB connection or ConfigService overlay could possibly run, so
+        overlaying `_IBKR_HIST_RATE_LIMIT`/`_IBKR_HIST_WINDOW_S` after that point
+        would never reach it. This method is the overlay entry point instead --
+        called explicitly from the backfill script's `_load_ibkr_rate_limit_config()`
+        at startup, same call site as the other `_load_ibkr_*_config()` loaders.
+        Does not touch `self._ts`: any timestamps already recorded stay valid: only
+        future `acquire()` calls see the new limits.
+        """
+        self._max = max_requests
+        self._window = window_s
 
     async def acquire(self) -> None:
         """Block until a request slot is available, then record the request timestamp."""

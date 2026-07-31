@@ -492,6 +492,39 @@ def _load_ibkr_retry_config(settings: Settings) -> None:
         print(f"  (APR retry-config lookup failed, using hardcoded defaults: {error})")
 
 
+def _load_ibkr_rate_limit_config(settings: Settings) -> None:
+    """Overlay the APR-configured historical-data rate-limit parameters
+    (infra.ibkr.rate_limit_max_requests / infra.ibkr.rate_limit_window_sec,
+    migration 276) onto ibkr._hist_rate_limiter in place via its reconfigure()
+    method. Unlike the loaders above, this doesn't mutate a module-level constant
+    that's read fresh at each call site -- _hist_rate_limiter is a singleton
+    constructed eagerly at ibkr.py import time, so the config has to be pushed
+    into the already-built instance instead. Same fallback contract as the loaders
+    above -- falls back to the hardcoded defaults (55 requests / 600s window) if
+    the APR keys aren't present or the DB is unreachable.
+    """
+    try:
+        conn = connect_db(settings)
+        try:
+            with conn.cursor() as cur:
+                cur.execute(
+                    "SELECT config_key, config_value FROM config_state "
+                    "WHERE config_key IN ("
+                    "'infra.ibkr.rate_limit_max_requests', "
+                    "'infra.ibkr.rate_limit_window_sec')"
+                )
+                rows = dict(cur.fetchall())
+        finally:
+            conn.close()
+        max_requests = int(
+            rows.get("infra.ibkr.rate_limit_max_requests", ibkr._IBKR_HIST_RATE_LIMIT)
+        )
+        window_s = float(rows.get("infra.ibkr.rate_limit_window_sec", ibkr._IBKR_HIST_WINDOW_S))
+        ibkr._hist_rate_limiter.reconfigure(max_requests, window_s)
+    except Exception as error:
+        print(f"  (APR rate-limit lookup failed, using hardcoded defaults: {error})")
+
+
 def _reorder_contracts_by_gap(
     contracts: list[Any], settings: Settings, timeframes: list[str]
 ) -> list[Any]:
@@ -1034,6 +1067,7 @@ def main() -> None:
     _load_ibkr_chunk_days_config(settings)
     _load_ibkr_hist_timeout_config(settings)
     _load_ibkr_retry_config(settings)
+    _load_ibkr_rate_limit_config(settings)
 
     print("Historical Backfill Pipeline")
     print(f"  Contracts : {[c.symbol for c in contracts]}")

@@ -349,6 +349,85 @@ class TestLoadIbkrRetryConfig:
             self._restore_ibkr_defaults()
 
 
+class TestLoadIbkrRateLimitConfig:
+    """todo 050: _load_ibkr_rate_limit_config() overlays
+    infra.ibkr.rate_limit_max_requests / rate_limit_window_sec (migration 276) onto
+    ibkr._hist_rate_limiter in place via its reconfigure() method -- the singleton is
+    constructed eagerly at ibkr.py import time, so unlike the loaders above this can't
+    just mutate a module-level constant read fresh at each call site.
+    """
+
+    def _restore_ibkr_defaults(self):
+        from src.providers import ibkr
+
+        ibkr._hist_rate_limiter.reconfigure(ibkr._IBKR_HIST_RATE_LIMIT, ibkr._IBKR_HIST_WINDOW_S)
+
+    def test_overlays_both_keys_when_present(self):
+        from scripts.infrastructure.backfill.infrastructure_run_historical_pipeline import (
+            _load_ibkr_rate_limit_config,
+        )
+        from src.providers import ibkr
+
+        try:
+            mock_conn = MagicMock()
+            mock_cursor = MagicMock()
+            mock_conn.cursor.return_value.__enter__.return_value = mock_cursor
+            mock_cursor.fetchall.return_value = [
+                ("infra.ibkr.rate_limit_max_requests", "40"),
+                ("infra.ibkr.rate_limit_window_sec", "300.0"),
+            ]
+            with patch(
+                "scripts.infrastructure.backfill.infrastructure_run_historical_pipeline.connect_db",
+                return_value=mock_conn,
+            ):
+                _load_ibkr_rate_limit_config(MagicMock())
+
+            assert ibkr._hist_rate_limiter._max == 40
+            assert ibkr._hist_rate_limiter._window == 300.0
+        finally:
+            self._restore_ibkr_defaults()
+
+    def test_missing_keys_keep_hardcoded_defaults(self):
+        from scripts.infrastructure.backfill.infrastructure_run_historical_pipeline import (
+            _load_ibkr_rate_limit_config,
+        )
+        from src.providers import ibkr
+
+        try:
+            mock_conn = MagicMock()
+            mock_cursor = MagicMock()
+            mock_conn.cursor.return_value.__enter__.return_value = mock_cursor
+            mock_cursor.fetchall.return_value = []
+            with patch(
+                "scripts.infrastructure.backfill.infrastructure_run_historical_pipeline.connect_db",
+                return_value=mock_conn,
+            ):
+                _load_ibkr_rate_limit_config(MagicMock())
+
+            assert ibkr._hist_rate_limiter._max == ibkr._IBKR_HIST_RATE_LIMIT
+            assert ibkr._hist_rate_limiter._window == ibkr._IBKR_HIST_WINDOW_S
+        finally:
+            self._restore_ibkr_defaults()
+
+    def test_db_error_falls_back_to_hardcoded_defaults_without_raising(self):
+        from scripts.infrastructure.backfill.infrastructure_run_historical_pipeline import (
+            _load_ibkr_rate_limit_config,
+        )
+        from src.providers import ibkr
+
+        try:
+            with patch(
+                "scripts.infrastructure.backfill.infrastructure_run_historical_pipeline.connect_db",
+                side_effect=Exception("db unreachable"),
+            ):
+                _load_ibkr_rate_limit_config(MagicMock())  # must not raise
+
+            assert ibkr._hist_rate_limiter._max == ibkr._IBKR_HIST_RATE_LIMIT
+            assert ibkr._hist_rate_limiter._window == ibkr._IBKR_HIST_WINDOW_S
+        finally:
+            self._restore_ibkr_defaults()
+
+
 def _make_mock_conn(fetchall_result=None):
     mock_conn = MagicMock()
     mock_cursor = MagicMock()

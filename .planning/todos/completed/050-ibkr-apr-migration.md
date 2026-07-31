@@ -1,5 +1,23 @@
 # ibkr.py — migrate hardcoded numeric constants to APR
 
+**CLOSED 2026-07-31** — remaining rate-limiter scope done.
+`infra.ibkr.rate_limit_max_requests`/`infra.ibkr.rate_limit_window_sec` (migration 276) added,
+`_SlidingWindowRateLimiter` redesigned with a `reconfigure(max_requests, window_s)` method so
+APR values actually reach it, called from a new `_load_ibkr_rate_limit_config()` in the backfill
+script's startup sequence, same call site and fallback contract as the existing
+`_load_ibkr_chunk_days_config()`/`_load_ibkr_hist_timeout_config()`/`_load_ibkr_retry_config()`
+loaders. Chose `reconfigure()` over lazy construction: `_hist_rate_limiter` stays constructed
+eagerly at import time exactly as before, so `tests/unit/conftest.py`'s
+`_reset_ibkr_hist_rate_limiter` fixture (todo 122) needed zero changes — it still monkeypatches
+`.acquire` on an always-valid, already-constructed singleton. Default behavior (55 req/600s
+window) preserved byte-for-byte for every existing caller unless an operator explicitly changes
+the APR values; `self._ts` (already-recorded request timestamps) is left untouched by
+`reconfigure()`, only `self._max`/`self._window` change. 6 tests added
+(`tests/unit/scripts/test_run_historical_pipeline.py::TestLoadIbkrRateLimitConfig` plus the
+existing `TestLoadIbkrRetryConfig` re-verified): overlay applies both keys, missing keys keep
+hardcoded defaults, DB error falls back without raising. `.venv/bin/pytest tests/unit/ -k ibkr`
+and `tests/unit/scripts/test_run_historical_pipeline.py` both green, no regressions.
+
 **Found:** 2026-07-02, while fixing todo 049 (Error 162 no-data heuristic hardening).
 
 **Status check 2026-07-14 (corpus-rebuild idle window):** this todo's own premise ("zero
