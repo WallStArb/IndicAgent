@@ -656,7 +656,7 @@ methodology), not a novel technique this phase is inventing — see Sources.
 | A3 | `hysteresis_legs()`'s recommended pairwise "weakest-held vs. strongest-challenger, iterate until stable" algorithm shape is the correct interpretation of D-01's "leg-level hysteresis" wording | Architecture Patterns, Pattern 1 | An alternative valid interpretation (not developed in depth here) could instead gate on the *aggregate* leg composition change rather than pairwise per-symbol swaps; the pairwise version was chosen because it most literally matches D-01's own "a symbol... stays held unless a challenger... clears a margin" per-instrument phrasing, and because it composes cleanly with the existing `one_way_turnover()` frozenset-diff measurement without any changes to that function. |
 | A4 | Next-free migration number is 275 (highest on disk is 274 as of this research session) | Architecture Patterns, Recommended Project Structure | Per todo 095's documented collision risk (also called out explicitly in Phase 167's own migration 260 header), the planner/executor MUST re-verify `ls production/migrations/ \| sort -n \| tail` against the live DB immediately before applying any new migration — this number can and has drifted between research and execution in concurrent-session scenarios (see MEMORY.md's `feedback_concurrent_sessions_shared_dir`). |
 
-## Open Questions
+## Open Questions (RESOLVED)
 
 1. **Should the gross-spread non-degradation check (D-04.2) share statistical machinery with the
    Sharpe-delta gate (D-04.1), or should it be a simpler descriptive comparison (e.g., a fixed
@@ -671,6 +671,9 @@ methodology), not a novel technique this phase is inventing — see Sources.
      4 above) for consistency and because it's already available at zero marginal statistical
      cost — but flag this for the planner's/discuss-phase's explicit confirmation since CONTEXT.md
      did not fully specify D-04.2's statistical rigor level.
+   - **RESOLVED (Plan 168-04):** ships a distinct `gross_spread_not_degraded` wrapper reusing the
+     same `frame_gate_passes` bootstrap-CI machinery with an APR-backed tolerance, per the
+     recommendation above.
 
 2. **How many bars does the OOS window actually contain for the cost-gated construction once
    built?** Phase 167's own OOS window (`alpha.validation.oos_start`) produced 650 bars / 130
@@ -679,6 +682,8 @@ methodology), not a novel technique this phase is inventing — see Sources.
    directly, but the planner should confirm this is still true (no shrinkage from the hysteresis
    mechanism itself, which doesn't skip bars any differently than the baseline) rather than
    assume it.
+   - **RESOLVED (Plan 168-05, Task 3):** deferred to the live backfill + gate run itself — an
+     inherently empirical question, confirmed at execution time rather than assumed on paper.
 
 3. **What is the correct behavior when `hysteresis_legs` returns `None` (degenerate universe,
    same rule as `decile_legs`) but `prior_long`/`prior_short` are non-empty?** The existing
@@ -689,6 +694,8 @@ methodology), not a novel technique this phase is inventing — see Sources.
    "prior" state either way), and add an explicit test for it (Phase 167's own test suite does
    not appear to test this exact interaction for the baseline, based on the test name list
    reviewed).
+   - **RESOLVED (Plan 168-05):** confirmed "skip and carry forward unchanged state" is correct,
+     with a dedicated named test covering the interaction.
 
 ## Environment Availability
 
