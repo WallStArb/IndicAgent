@@ -173,7 +173,7 @@ corpus gets computed once under final logic.
 
 ## References
 
-- `.planning/todos/pending/146-lookahead-grid-per-tf-recalibration.md`,
+- `.planning/todos/completed/146-lookahead-grid-per-tf-recalibration.md`,
   `.planning/todos/pending/208-intraday-same-session-forward-return-gate-inconsistent-with-trade-construction.md`,
   `.planning/todos/pending/202-per-tf-lookahead-grid-downstream-consumers-stale.md`
 - `services/_batch_utils.py` — `cfg()`, `LOOKAHEAD_FALLBACKS_BY_TF`, `lookaheads_for_tf`

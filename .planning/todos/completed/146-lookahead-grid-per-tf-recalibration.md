@@ -1,11 +1,23 @@
 ---
-status: pending
+status: completed
 priority: P1
 filed: 2026-07-19
+completed: 2026-07-31
 source: Fable 5 review (docs/research/fable-2026-07-19-lookahead-and-target-calibration-review.md,
   Q1) + this session's horizon-response diagnostic run
   (scripts/ops/alpha/ops_lookahead_horizon_response.py, 20-symbol sample)
 ---
+
+**CLOSED 2026-07-31** — all three Fix steps done (Steps 1/2 done 2026-07-20, Step 3 shipped
+2026-07-29 via migration 269), and the 2026-07-30 characterization run resolved the reopened
+question this file's Status section had flagged: migration 269's provisional grid is not shown
+wrong under corrected (post-todo-208) semantics — "no re-migration, no third rebuild cycle."
+Nothing left in this todo's own scope. The one genuinely new question the characterization run
+surfaced (whether decay-walk-on-pooled-median-IC is even the right method for `hold_max_bars`
+selection, given IC rises alongside CI width rather than decaying within any tested horizon) is
+not a loose end — it's now explicitly owned by
+[208](../pending/208-intraday-same-session-forward-return-gate-inconsistent-with-trade-construction.md),
+which was updated same-day to absorb it rather than letting it fall through the cracks.
 
 # `alpha.ic.lookahead.{fast,mid,slow,extended}` is one uniform bar-count grid across
 # all 4 tfs; empirically it breaks 1h/15m/5m's slow/extended tiers -- needs per-tf grids

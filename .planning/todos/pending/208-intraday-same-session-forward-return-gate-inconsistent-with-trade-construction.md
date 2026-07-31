@@ -21,11 +21,34 @@ gradient names, and the actual per-tf horizon VALUES should be chosen to bracket
 holding period (via `_select_hold_bars_from_decay`'s existing but currently-starved decay walk),
 not from a top-down calendar ladder or arbitrary log-spacing. Live evidence this matters:
 `hold_max_bars` is pinned at the 60-bar ceiling in every regime for 1h/1d today — that walk has
-never once converged for either tf. Next concrete step: run the characterization
-(`ops_lookahead_horizon_response.py`, safe now, needs one small `_OVERNIGHT_HORIZON_GRIDS` gap
-closed for 5m first) once the in-flight `ic_engine` run completes. The rest of this file (below)
-is the original filing, kept for the Step 3 problem statement and evidence — superseded by the
-research doc where they conflict.
+never once converged for either tf. The rest of this file (below) is the original filing, kept
+for the Step 3 problem statement and evidence — superseded by the research doc where they
+conflict.
+
+**Characterization run COMPLETE 2026-07-30 evening** (done, not still pending — see
+`completed/146-lookahead-grid-per-tf-recalibration.md`'s "Characterization run results" section
+for full numbers): confirms this todo's Steps 1/2 fix was correct (baseline 1h collapses to
+0 completeness at 6 bars; production-matching overnight semantics hold ~1.0 completeness to
+70+ bars) and confirms migration 269's provisional grid is not shown wrong under the corrected
+semantics — every current per-tf value sits in the completeness≈1.0, FDR-significant zone.
+**Decision made: no re-migration, no third rebuild.** Todo 146 closed 2026-07-31 on that basis.
+
+**This todo now explicitly owns what 146 reframed as the deeper open question**, since 146's
+scope is closed: not "what are the right grid numbers" (answered — current grid holds) but
+"does holding-period selection via decay-walk-on-pooled-median-IC even make sense as a method,"
+given that under overnight semantics `median_abs_ic` rises roughly monotonically with horizon
+at 5m/15m/1h rather than showing a decay-then-flatten curve, with CI half-width widening in
+lockstep (a shape the diagnostic's own methodology note calls "consistent with pure noise, not
+real signal growth"). Candidate next steps, none started, each a real design pass not a
+mechanical fix: (a) test whether a per-feature (not pooled-median) decay walk looks different —
+dominant features like `ctf_momentum`/`yield_slope_z` might decay while the median is dragged by
+many near-zero-IC features; (b) gate `hold_max_bars` selection on CI-half-width materiality
+(stop extending once CI exceeds an economically-meaningful IC threshold) instead of waiting for
+a point-estimate decay this data suggests may not exist in-sample; (c) accept that `hold_max_bars`
+for 1h/1d may be legitimately execution-cost-bound (todo 030's cost-hurdle verdict already
+resolved) rather than signal-decay-bound, and stop deriving it from IC curves for those tfs at
+all. Not blocking the in-flight `ic_engine` pass or anything gated on it — this is a standalone
+methodology question for `_select_hold_bars_from_decay`.
 
 ---
 
@@ -261,7 +284,7 @@ actually needed, not speculatively built now.
 
 ## References
 
-- `.planning/todos/pending/146-lookahead-grid-per-tf-recalibration.md` -- the grid this
+- `.planning/todos/completed/146-lookahead-grid-per-tf-recalibration.md` -- the grid this
   todo would supersede for 5m/15m/1h if Step 1 confirms
 - `docs/research/fable-2026-07-19-lookahead-and-target-calibration-review.md` Q1 Step 2
   -- the deferred (i)/(ii) fork this todo resolves

@@ -134,7 +134,7 @@ bundle them into one PR; each script's fix is testable in isolation.
 
 ## References
 
-- `.planning/todos/pending/146-lookahead-grid-per-tf-recalibration.md` -- the grid's
+- `.planning/todos/completed/146-lookahead-grid-per-tf-recalibration.md` -- the grid's
   empirical derivation and Step 3 rollout note
 - `docs/superpowers/plans/2026-07-29-per-tf-ic-lookahead-grid.md` -- the implementation
   plan this todo's landed work followed (Tasks 1-4 complete)

@@ -707,7 +707,7 @@ walk rather than the ceiling coincidentally being correct.
 
 - `.planning/todos/pending/208-intraday-same-session-forward-return-gate-inconsistent-with-trade-construction.md`
   — the proposal this document stress-tests; §1.2 disagrees with its Step-3 selection method
-- `.planning/todos/pending/146-lookahead-grid-per-tf-recalibration.md` — the per-tf bar-count
+- `.planning/todos/completed/146-lookahead-grid-per-tf-recalibration.md` — the per-tf bar-count
   grid this would supersede
 - `.planning/todos/pending/{209,210,211,214}-*.md` — the four already-filed consumers/refactors
   that must be sequenced with this
