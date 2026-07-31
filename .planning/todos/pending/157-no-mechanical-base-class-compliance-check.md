@@ -9,6 +9,22 @@ source: user question mid-session ("is our code enforcing our reuse of base clas
 
 # No mechanical check enforces base-class reuse (BaseDaemon/BaseWriter/BaseBatch) or observability wiring -- convention only
 
+**Items 1-2 CLOSED 2026-07-31** -- `tests/unit/test_service_base_class_compliance.py` (static
+ast-based check: every daemon-shaped class in `services/*.py` -- has an async `run`/`_run`
+method, or its `_to_snake_case()`-derived agent_id is a key in `service_auditor.py`'s
+`_AGENT_ID_TO_UNIT` -- must reach `BaseDaemon`/`BaseWriter`/`BaseBatch` via a static
+class-name -> base-name graph walk over `src/` + `services/`, equivalent to an MRO check
+without importing anything) and `tests/unit/test_no_prometheus_client_import.py` (grep-based,
+matching `test_market_data_ohlcv_boundary.py`'s allow-list pattern) added, both passing clean
+against current code -- zero allow-list entries needed for either (the base-class check found
+30 daemon-shaped candidates, all compliant, including `AlphaSwarm`/`NarrativeSwarm` which only
+resolve through the transitive `BaseGroupCoordinator -> BaseDaemon` chain, not a direct base --
+verified the graph-walk is load-bearing, not a check that trivially passes on direct bases
+only). No ruff `TID251`/banned-api config existed to reuse (checked `pyproject.toml`), so the
+prometheus_client check is grep-based like the reference test, not a ruff rule. Item 3 (spans)
+remains open, gated on [[156-otel-span-coverage-gap-v3-pipeline]] resolving its own step 2
+first.
+
 ## Problem
 
 Investigated what's actually enforced vs. what's convention-only for shared infrastructure
