@@ -67,6 +67,14 @@ This isn't optional. Since the derivation logic is a black box to the consumer b
 
 This query layer must not share a name, table, or API surface with `alpha_events`/`alpha_ensemble_ic`. Those are the real, promotion-gated ensemble path — currently dormant, Gate 2 status pending re-test on the in-flight corpus rebuild. Conflating "here's a raw informational read" with "here's the validated tradeable signal" would let an external consumer accidentally trust an unvalidated number as if it had cleared the same bar `alpha_score` is held to.
 
+### No New Persistence — Query the Existing Tables Directly
+
+**Correction (2026-07-31, user-flagged):** an earlier draft of this doc proposed a materialized view or a new dedicated writer, refreshed on a schedule, sitting between the API and `feature_vectors`/`market_regimes`. That's wrong — it re-computes/re-copies data that is *already* computed and *already* persisted by the pipeline that's already running (`feature_factory`, `regime_writer`). There is no new compute to do. The API queries `feature_vectors` and `market_regimes` directly, at request time, full stop.
+
+The operational-isolation concern that motivated the materialized-view idea (external polling contending with `ic_engine`/`feature_factory`'s write load on the same table — a real, previously-documented near-miss on this exact table) is legitimate but doesn't justify a new compute step to solve it. Point lookups keyed on `(symbol, tf, bar_ts)` — the table's actual primary key — are cheap regardless of table size. If polling volume ever becomes a real, measured problem, the fix is an infrastructure-level one (connection pooling, a read replica, rate limiting) applied to a proven load pattern — not a speculative new pipeline stage built ahead of any evidence it's needed.
+
+**Broader "API-first" principle (user's framing):** this project should generally have API coverage for its data, not just this one surface. That's a real, separate initiative and explicitly out of scope here — this doc stays narrow: one thin, stateless, read-only endpoint over data that already exists.
+
 ---
 
 ## Deferred
@@ -74,6 +82,7 @@ This query layer must not share a name, table, or API surface with `alpha_events
 - **Per-group weighted composite scores** — blocked on `last_ic_sharpe` (or equivalent) actually being populated at real coverage. Its own future measurement question with its own validation gate once the corpus rebuild + IC re-scoring lands.
 - **Forward-looking forecasts** ("likely weak market today," hedge-timing predictions) — this is a new predictive claim, not a distillation of current state. Needs the same IC/statistical rigor as any new alpha candidate before anything gates a real decision on it. Explicitly out of scope for this doc; a candidate for its own thesis on `docs/research/data-edge-source-thesis.md`-style falsification treatment if pursued.
 - **Dashboard/UI** — user explicitly deferred this; this doc scopes the query API only.
+- **API-first coverage for the rest of the platform** — user's stated broader principle (this project should have API surfaces for its data generally, not just this one table pair) is agreed but explicitly out of scope for this doc; a separate, larger initiative to scope later.
 
 ---
 
