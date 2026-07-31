@@ -1,0 +1,25 @@
+[Unit]
+Description=IndicAgent Feature Vector Pipeline — v3.0 FeatureFactory compute (I1-I4 replacement)
+After=network-online.target indicagent-wave2.target
+Requires=indicagent-infrastructure.target
+StartLimitIntervalSec=300
+StartLimitBurst=5
+
+[Service]
+Type=simple
+User=bg
+WorkingDirectory=/home/bg/dev/indicagent
+Environment=PYTHONPATH=/home/bg/dev/indicagent
+Environment=PYTHONUNBUFFERED=1
+ExecStart=/home/bg/dev/indicagent/.venv/bin/python services/feature_vector_pipeline.py
+Restart=always
+WatchdogSec=60
+NotifyAccess=main
+RestartSec=10
+StandardOutput=journal
+StandardError=journal
+SyslogIdentifier=indicagent-feature-vector-pipeline
+LimitNOFILE=65536
+
+[Install]
+WantedBy=multi-user.target

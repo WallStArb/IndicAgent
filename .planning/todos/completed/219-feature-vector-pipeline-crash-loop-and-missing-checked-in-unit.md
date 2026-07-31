@@ -1,9 +1,21 @@
 ---
-status: pending
+status: completed
 priority: P0
 filed: 2026-07-31
+closed: 2026-07-31
 source: writing tests/unit/services/test_service_auditor_registry_integrity.py for todo 200 -- the existence check surfaced this live
 ---
+
+**CLOSED 2026-07-31** -- both parts done. (1) `"feature.smc.order_blocks.strength_fallback"`
+added to `_THRESHOLD_KEYS` in `services/feature_vector_pipeline.py` (it already had a
+`config_schema`/`config_state` row, default 0.5 -- only the `_THRESHOLD_KEYS` tuple entry was
+missing, which is what `_check_prewarmed()`'s fail-loud guard was correctly catching).
+`systemctl reset-failed` + `start` confirmed the daemon comes up and stays up (no crash-loop
+restart observed). (2) `production/systemd/indicagent-feature-vector-pipeline.service` added,
+transcribed directly from the live `systemctl cat` output (After=...wave2.target, matches the
+box exactly) -- no live redeploy needed since content was already identical, this closes the
+repo/deploy drift only. Todo 200's test (`test_service_auditor_registry_integrity.py`) updated
+to drop the now-stale `_MISSING_UNIT_ALLOWLIST` entry for this unit.
 
 # `indicagent-feature-vector-pipeline` has been crash-looping (start-limit-hit) for ~2 days,
 # silently -- and its systemd unit file was never checked into `production/systemd/`

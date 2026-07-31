@@ -629,6 +629,7 @@ class FeatureVectorPipeline(BaseDaemon):
         ("feature.smc.order_blocks.impulse_bars", 3),
         ("feature.smc.order_blocks.significant_move_pct", 0.003),
         ("feature.smc.order_blocks.opposing_candle_lookback", 10),
+        ("feature.smc.order_blocks.strength_fallback", 0.5),
         ("feature.smc.breaker.lookback", 10),
         ("feature.smc.mitigation.lookback", 10),
         ("feature.smc.fvg.lookback", 100),

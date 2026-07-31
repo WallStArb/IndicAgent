@@ -107,7 +107,12 @@ reason.
 | Todo | Gap |
 |---|---|
 | [099](pending/099-bootstrap-ci-staged-validation-gate-not-cleared-5m-residual.md) | P2 — the bootstrap CI staged-validation gate's 6 SUSPECT cells trace to 5 diagnostic-only (`is_pooled=false`) breaches + 1 capital-relevant cell that independently clears its own bound — no longer blocks Plan 07. Underlying statistical question (why 5m autocorrelation/momentum features resist both Fisher-z and block-bootstrap) remains open as non-blocking follow-up. |
-| [219](pending/219-feature-vector-pipeline-crash-loop-and-missing-checked-in-unit.md) | `indicagent-feature-vector-pipeline` (live, always-on v3.0 compute daemon) crash-looping/`start-limit-hit` on the box since 2026-07-29 07:36 EDT (~2 days), root cause a one-line missing `_THRESHOLD_KEYS` entry (`feature.smc.order_blocks.strength_fallback`); also missing from checked-in `production/systemd/` entirely (repo/deploy drift). Surfaced by todo 200's new registry-integrity test, not independently root-caused/fixed yet. |
+
+**[219](../completed/219-feature-vector-pipeline-crash-loop-and-missing-checked-in-unit.md) CLOSED 2026-07-31** —
+`indicagent-feature-vector-pipeline` had been crash-looping/`start-limit-hit` since 2026-07-29
+07:36 EDT (~2 days), surfaced by todo 200's registry-integrity test. Fixed same day: missing
+`_THRESHOLD_KEYS` entry added, daemon restarted and confirmed stable; missing checked-in
+`production/systemd/` unit file also added (repo/deploy drift).
 
 ## P1 — High value, quick, fully unblocked
 

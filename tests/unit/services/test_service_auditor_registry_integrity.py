@@ -23,10 +23,11 @@ reason rather than silently fixed here (out of this test-authoring task's scope)
     `scripts/ops/corpus/ops_corpus_pipeline_run.sh`'s header, which documents these as
     orchestrated by that shell script instead. PERMANENT, by design.
   - `indicagent-feature-vector-pipeline` -- a live, always-on daemon, NOT a oneshot -- IS
-    deployed on the box (`systemctl status` shows it loaded+enabled) but has been
+    deployed on the box (`systemctl status` shows it loaded+enabled) but had been
     `failed`/start-limit-hit for ~2 days as of this writing, AND its unit file was never
-    checked into production/systemd/ at all (repo/deploy drift). PENDING -- filed as todo 219
-    rather than guessed at here.
+    checked into production/systemd/ at all (repo/deploy drift). Filed as todo 219 and
+    CLOSED same day: missing `_THRESHOLD_KEYS` entry fixed, unit file checked in, daemon
+    restarted and confirmed stable.
 
 CI-clean: no systemctl, no DB, no network -- pure filesystem read of production/systemd/.
 """
@@ -89,16 +90,6 @@ _MISSING_UNIT_ALLOWLIST: dict[str, str] = {
     "indicagent-counterfactual-tracker": (
         "PERMANENT: Phase 142B oneshot, same corpus-pipeline-script-only pattern as "
         "indicagent-regime-writer above."
-    ),
-    "indicagent-feature-vector-pipeline": (
-        "PENDING (todo 219, filed 2026-07-31): unlike the entries above, this IS a live "
-        "always-on daemon (DAG priority 6, not in _ONESHOT_UNITS) and IS deployed on the "
-        "box (systemctl shows it loaded+enabled) -- it has simply never been checked into "
-        "production/systemd/ (repo/deploy drift). Also independently found to be "
-        "failed/start-limit-hit for ~2 days as of filing (unrelated crash: missing "
-        "_THRESHOLD_KEYS entry in feature_vector_pipeline.py). Not fixed here -- out of "
-        "this test-authoring task's scope; remove this entry once todo 219 lands the "
-        "checked-in unit file."
     ),
 }
 
