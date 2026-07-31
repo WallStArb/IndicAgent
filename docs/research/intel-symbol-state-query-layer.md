@@ -143,7 +143,12 @@ Must not share a name, table, or API surface with `alpha_events`/`alpha_ensemble
 
 **The strata gradients are new — they don't exist as raw output anywhere, so delivery mode is a real choice:**
 - **On-demand (pull):** compute the gradient at request time from `feature_vectors`, no new persistence, no new compute stage. Cheapest, ships fastest.
-- **Live (push):** a new `BaseDaemon` subscribing to the *existing* `topic_feature_vectors`, computing the gradient per bar as vectors arrive, publishing to a new topic (e.g. `topic_symbol_state_gradient`), consumed by a new writer into a new table if durable/queryable history is also wanted. This is the same shape as the existing feature pipeline, not a novel pattern — real work (new `BaseDaemon`, OTel signals, DAG registration, lag-threshold APR key), but idiomatic, not scope creep.
+- **Live (push):** a new `BaseDaemon` subclass subscribing to the *existing* `topic_feature_vectors`, computing the gradient per bar as vectors arrive, publishing to a new topic (e.g. `topic_symbol_state_gradient`), consumed by a new writer into a new table if durable/queryable history is also wanted. This reuses `BaseDaemon`, an existing Ring 0 class (`src/core/agent/base.py:108`) every compute daemon in this codebase already extends — it is not new daemon infrastructure, it's one more subclass of infrastructure that already exists and is already proven.
+
+**Observability/guardrails are bundled in, not bolted on, by extending `BaseDaemon`:**
+- The 5 mandatory OTel health signals (`agent_last_message_timestamp_seconds`, `agent_crash_total`, `agent_dlq_total`, `watchdog_notify_total`, `watchdog_notify_suppressed_total`) are auto-inherited — zero per-service code, per CLAUDE.md's OTel Health Contract.
+- `observed_span()` (`src/observability/spans.py`) for tracing, `setup_service_logging()` for structured logs to `logs/<name>.log`, and the standard DLQ pattern (`BaseWriter._parse_payload`'s `None`-vs-`[]` contract) if a persistence writer is added — all existing, reused conventions, not new ones invented for this service.
+- The only genuinely new registration work: one `stream_keys.py` topic entry, one `_DAG_ORDER`/`_AGENT_ID_TO_UNIT` registration, one `alert.lag.*` APR key seeded for the new topic's lag threshold — each a small, mechanical addition following an existing pattern, not new mechanism design.
 
 **Recommended sequencing:**
 1. Raw feature/regime read API (repoint `src/api/routes/features.py` off the dead `intelligence_features` table) — useful immediately, ships fastest, needed regardless of what follows.
