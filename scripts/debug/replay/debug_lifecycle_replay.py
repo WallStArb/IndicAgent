@@ -3,9 +3,15 @@
 debug_lifecycle_replay.py — historical signal outcome replay via dual-track evaluation
 
 Evaluates dual-track outcomes (zone + market tracks) for pending signals by replaying
-market_data_ohlcv bars chronologically per (symbol, timeframe) and writing to trade_executions.
+market_data_ohlcv_tradeable bars chronologically per (symbol, timeframe) and writing to
+trade_executions.
 Run to rebuild signal outcomes after schema migration, data corruption, or backfill completion.
 Requires TimescaleDB with market_data_ohlcv; intelligence_pipeline must be stopped.
+
+Reads the tradeable view, not the raw table (todo 124): a synthetic-fill placeholder bar
+replayed through zone/stop/target evaluation would report a false "price never moved"
+outcome for a period that may have had a real (unfetched) gap, rather than the genuine
+price action this tool exists to replay.
 """
 
 from __future__ import annotations
@@ -512,7 +518,7 @@ async def _process_symbol_tf(
             if bar_cursor is None:
                 bars = await conn.fetch(
                     """SELECT timestamp, open, high, low, close
-                       FROM market_data_ohlcv
+                       FROM market_data_ohlcv_tradeable
                        WHERE symbol = $1 AND timeframe = $2
                          AND timestamp >= $3
                        ORDER BY timestamp ASC
@@ -525,7 +531,7 @@ async def _process_symbol_tf(
             else:
                 bars = await conn.fetch(
                     """SELECT timestamp, open, high, low, close
-                       FROM market_data_ohlcv
+                       FROM market_data_ohlcv_tradeable
                        WHERE symbol = $1 AND timeframe = $2
                          AND timestamp > $3
                        ORDER BY timestamp ASC

@@ -40,43 +40,23 @@ _ALLOW_LIST: dict[str, str] = {
         "(services/cross_sectional_regime_model.py is the live replacement), not currently "
         "invoked by the corpus pipeline."
     ),
-    "services/bar_replay_provider.py": (
-        "PENDING (todo 124): Not yet classified -- Tier-2 audit follow-up (see design doc's "
-        "'not yet classified' list, 2026-07-16)."
-    ),
-    "scripts/ops/roll/ops_roll_batch.py": (
-        "PENDING (todo 124): Not yet classified -- Tier-2 audit follow-up."
-    ),
-    "scripts/infrastructure/backfill/infrastructure_fetch_htf_bars.py": (
-        "PENDING (todo 124): Not yet classified -- Tier-2 audit follow-up."
-    ),
-    "src/providers/base_provider_agent.py": (
-        "PENDING (todo 124): Not yet classified -- likely wants the full calendar grid "
-        "intentionally (backfill completeness count against the calendar target), but not "
-        "verified. Tier-2 follow-up."
-    ),
-    "src/intelligence/services/bar_history_seeder.py": (
-        "PENDING (todo 124): Not yet classified -- Tier-2 audit follow-up."
-    ),
     "scripts/ops/pipeline/ops_pipeline_status.py": (
         "PERMANENT: Monitoring wants the full grid -- gaps are the signal here, not noise. "
         "Correctly left alone (design doc's 'correctly left alone' list)."
     ),
-    "scripts/infrastructure/backfill/infrastructure_context_features_writer.py": (
-        "PENDING (todo 124): Not yet classified -- Tier-2 audit follow-up."
-    ),
     "scripts/infrastructure/backfill/infrastructure_run_historical_pipeline.py": (
-        "PENDING (todo 124): Backfill bookkeeping (min/max timestamp checks) against the "
-        "full calendar grid -- plausibly intentional, not verified. Tier-2 audit follow-up."
-    ),
-    "scripts/debug/analysis/debug_bic_k_selection.py": (
-        "PENDING (todo 124): Debug tooling -- Tier-2 audit follow-up."
-    ),
-    "scripts/debug/replay/debug_lifecycle_replay.py": (
-        "PENDING (todo 124): Debug tooling -- Tier-2 audit follow-up."
-    ),
-    "src/persistence/repository/feature_snapshot_repository.py": (
-        "PENDING (todo 124): Not yet classified -- Tier-2 audit follow-up."
+        "PERMANENT + PENDING mix, resolved 2026-07-31 (todo 124): the min(timestamp) gap-"
+        "reorder query migrated to the tradeable view (behaviorally identical either way --\n"
+        "normalize_bars() never fabricates a synthetic fill before a symbol's first real "
+        "bar). The remaining raw-table reads (_detect_gaps, the INSERT/UPSERT writer paths, "
+        "run_normalize's own fetch_bars/store_bars) are PERMANENT and intentional: this "
+        "script both creates AND consumes its own synthetic fills as a self-consistent "
+        "'calendar slot already handled' bookkeeping system -- _detect_gaps deliberately "
+        "treats a prior synthetic fill as 'already there' so a genuinely-closed weekend/"
+        "holiday slot isn't re-requested from IBKR forever. Its own comments (the "
+        "'[rca_analysis 2026-07-05, F1/F2]' block) confirm this is deliberate design, not an "
+        "oversight -- migrating these to the tradeable view would break the idempotent "
+        "re-run behavior the tool depends on."
     ),
     "src/api/routes/market_data.py": (
         "PERMANENT: Raw display/API surface, not a measurement input -- correctly left alone "

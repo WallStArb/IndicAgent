@@ -1,8 +1,13 @@
 """BarReplayProvider — L1 one-shot.
 
-Phase 81. Reads market_data_ohlcv chronologically and feeds bars into the
-pipeline via market.bars (1m) and market.bars.htf (HTF). Self-terminates
+Phase 81. Reads market_data_ohlcv_tradeable chronologically and feeds bars into
+the pipeline via market.bars (1m) and market.bars.htf (HTF). Self-terminates
 when caught up to NOW() - 5 minutes.
+
+Reads the tradeable view, not the raw table (todo 124): this replays bars into
+the live real-time topics as if they were arriving from the market now — a
+raw-table read would replay synthetic-fill/flat-carry-forward placeholder bars
+into the pipeline as if real trading activity occurred.
 """
 
 from __future__ import annotations
@@ -37,7 +42,7 @@ DEFAULT_RATE_BPS = float(os.environ.get("BAR_REPLAY_BARS_PER_SEC", "10"))
 
 
 class BarReplayProvider(BaseDaemon):
-    """One-shot L1 provider that replays market_data_ohlcv into the pipeline.
+    """One-shot L1 provider that replays market_data_ohlcv_tradeable into the pipeline.
 
     Publishes 1m bars to topic_market_bars and HTF bars to topic_market_bars_htf,
     preserving temporal ordering. Self-terminates with exit code 0 when
@@ -86,7 +91,7 @@ class BarReplayProvider(BaseDaemon):
     async def _fetch_batch(self, after_ts: datetime | None) -> list[asyncpg.Record]:
         query = """
             SELECT symbol, timeframe, timestamp, open, high, low, close, volume
-            FROM market_data_ohlcv
+            FROM market_data_ohlcv_tradeable
             WHERE ($1::timestamptz IS NULL OR timestamp > $1)
             ORDER BY timestamp ASC,
               CASE timeframe

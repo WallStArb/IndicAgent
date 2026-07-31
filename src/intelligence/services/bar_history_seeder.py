@@ -1,6 +1,7 @@
 """BarHistorySeeder — startup warmup for intelligence compute agents.
 
-Seeds bar_history from intelligence_features (and falls back to market_data_ohlcv),
+Seeds bar_history from intelligence_features (and falls back to
+market_data_ohlcv_tradeable),
 then re-publishes the most recent stored IntelligenceEvent per (symbol, tf) so the
 dashboard shows current state without waiting for the next live bar.
 
@@ -218,7 +219,11 @@ class BarHistorySeeder:
         all_tasks = [_seed_one(sym, tf) for sym in active_contracts for tf in timeframes]
         await _gather_in_batches(all_tasks)
 
-        # Fallback: seed bar_history from market_data_ohlcv for combos still below threshold
+        # Fallback: seed bar_history from market_data_ohlcv_tradeable for combos still
+        # below threshold. Tradeable view, not the raw table (todo 124): bar_history
+        # feeds the live compute path's rolling-window indicators directly -- a
+        # synthetic-fill placeholder bar seeded here would corrupt momentum/volatility
+        # state at startup, not just leave a harmless gap.
         fallback_seeded = 0
 
         async def _fallback_one(symbol: str, tf: str) -> None:
@@ -233,7 +238,7 @@ class BarHistorySeeder:
                     rows = await db.execute_query(
                         f"""
                         SELECT timestamp, open, high, low, close, volume
-                        FROM market_data_ohlcv
+                        FROM market_data_ohlcv_tradeable
                         WHERE symbol = $1 AND timeframe = $2
                           AND timestamp > NOW() - INTERVAL '{lookback_secs} seconds'
                         ORDER BY timestamp DESC

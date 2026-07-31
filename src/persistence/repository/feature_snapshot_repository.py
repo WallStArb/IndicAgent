@@ -15,7 +15,7 @@ logger = structlog.get_logger(__name__)
 
 
 class FeatureSnapshotRepository:
-    """Read-only access to intelligence_features and market_data_ohlcv for warmup."""
+    """Read-only access to intelligence_features and market_data_ohlcv_tradeable for warmup."""
 
     def __init__(self, db_manager: Any) -> None:
         self._db = db_manager
@@ -67,16 +67,21 @@ class FeatureSnapshotRepository:
         limit: int,
         lookback_secs: int,
     ) -> list[dict[str, Any]]:
-        """Return recent rows from market_data_ohlcv when intelligence_features is sparse.
+        """Return recent rows from market_data_ohlcv_tradeable when intelligence_features
+        is sparse.
 
         Each row has keys: timestamp, open, high, low, close, volume.
         Returns [] on query failure.
+
+        Tradeable view, not the raw table (todo 124): this seeds live compute-agent
+        warmup state (same category as bar_history_seeder.py's fallback path) -- a
+        synthetic-fill placeholder bar would corrupt indicator warmup state at startup.
         """
         try:
             return await self._db.execute_query(
                 """
                 SELECT timestamp, open, high, low, close, volume
-                FROM market_data_ohlcv
+                FROM market_data_ohlcv_tradeable
                 WHERE symbol = $1 AND timeframe = $2
                   AND timestamp > NOW() - ($3 * INTERVAL '1 second')
                 ORDER BY timestamp DESC

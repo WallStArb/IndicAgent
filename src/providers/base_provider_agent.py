@@ -208,16 +208,23 @@ class BaseProvider(BaseDaemon):
         end_ts: datetime,
         expected_bars: int,
     ) -> bool:
-        """Return True if market_data_ohlcv already has >= expected_bars for this window.
+        """Return True if market_data_ohlcv_tradeable already has >= expected_bars for
+        this window.
 
         Prevents redundant IBKR historical fetches on restart or duplicate gap requests.
+        Reads the tradeable view, not the raw table (todo 124): expected_bars is a pure
+        calendar-time count (window_seconds // tf_seconds), and this gate decides
+        whether to skip a real IBKR fetch -- counting synthetic-fill placeholder rows
+        would let a window that's entirely flat-filled (e.g. during an outage) be
+        judged "already filled," silently masking a genuine data gap with fake bars
+        instead of backfilling it for real.
         """
         if self._db_pool is None or expected_bars <= 0:
             return False
         async with self._db_pool.acquire() as conn:
             count = await conn.fetchval(
                 """
-                SELECT COUNT(*) FROM market_data_ohlcv
+                SELECT COUNT(*) FROM market_data_ohlcv_tradeable
                 WHERE symbol = $1 AND timeframe = $2
                   AND timestamp >= $3 AND timestamp < $4
                 """,

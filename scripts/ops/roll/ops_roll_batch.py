@@ -164,8 +164,12 @@ async def detect_expired_front_months(conn: asyncpg.Connection, today: date) -> 
         # may be inaccurate for some (e.g. GC/SI/HG expire at end of delivery month,
         # not 3 days before the 25th of the prior month). A contract with bars in
         # the last 26 hours is still trading regardless of what the formula says.
+        # market_data_ohlcv_tradeable, not the raw table (todo 124): a synthetic-fill
+        # placeholder bar (flat OHLC, volume=0) is not evidence the contract is still
+        # trading -- reading the raw table risks a permanently-"recent" false positive
+        # for an expired contract whose calendar grid keeps getting gap-filled.
         recent_bar = await conn.fetchval(
-            """SELECT 1 FROM market_data_ohlcv
+            """SELECT 1 FROM market_data_ohlcv_tradeable
                WHERE symbol = $1 AND timestamp > NOW() - INTERVAL '28 hours' LIMIT 1""",
             symbol,
         )
@@ -258,7 +262,7 @@ async def _volume_validation(
     since = datetime.now(UTC) - timedelta(days=3)
     rows = await conn.fetch(
         """SELECT symbol, SUM(volume)::float as total_vol
-           FROM market_data_ohlcv
+           FROM market_data_ohlcv_tradeable
            WHERE symbol = ANY($1) AND timestamp >= $2
            GROUP BY symbol""",
         [old_contract, new_contract],

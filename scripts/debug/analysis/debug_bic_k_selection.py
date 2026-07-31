@@ -193,9 +193,13 @@ def main() -> None:
         # Fetch OHLCV
         conn.commit()  # ensure no open transaction before server-side cursor
         with conn.cursor("ohlcv_bic") as cur:
+            # Tradeable view, not the raw table (todo 124): this K-selection study
+            # mirrors regime_writer.py's own OHLCV fetch, which reads the tradeable
+            # view -- reading the raw table here would fit against a different
+            # (synthetic-fill-polluted) observation matrix than production HMM fits.
             cur.execute(
                 "SELECT timestamp, close, volume "
-                "FROM market_data_ohlcv "
+                "FROM market_data_ohlcv_tradeable "
                 "WHERE symbol = %s AND timeframe = %s "
                 "ORDER BY timestamp ASC",
                 (symbol, _TF),

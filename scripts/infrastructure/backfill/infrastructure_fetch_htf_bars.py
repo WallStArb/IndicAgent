@@ -2,10 +2,14 @@
 """
 infrastructure_fetch_htf_bars.py — higher-timeframe bar backfill via 1m aggregation
 
-Replays 1m bars from market_data_ohlcv through BarAccumulator and publishes completed
-HTF bars to topic_market_bars_htf for intelligence_pipeline consumption.
+Replays 1m bars from market_data_ohlcv_tradeable through BarAccumulator and publishes
+completed HTF bars to topic_market_bars_htf for intelligence_pipeline consumption.
 Run when HTF bars are missing or after gap-filling; intelligence_pipeline must be running.
 Requires market_data_ohlcv populated with 1m bars; stop bar_aggregator during run.
+
+Reads the tradeable view, not the raw table (todo 124): a synthetic-fill/flat-carry-
+forward 1m placeholder bar aggregated through BarAccumulator would produce a fabricated
+HTF candle published to the live topic, not a genuine gap.
 """
 
 from __future__ import annotations
@@ -84,14 +88,14 @@ async def _fetch_1m_bars(
     since: datetime,
     until: datetime,
 ) -> list[dict]:
-    """Fetch 1m bars from market_data_ohlcv in time-ascending order."""
+    """Fetch 1m bars from market_data_ohlcv_tradeable in time-ascending order."""
     rows = await conn.fetch(
         """
         SELECT symbol,
                timestamp AS ts,
                'rth'     AS session_type,
                open, high, low, close, volume
-        FROM market_data_ohlcv
+        FROM market_data_ohlcv_tradeable
         WHERE symbol = ANY($1)
           AND timeframe = '1m'
           AND timestamp >= $2

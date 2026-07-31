@@ -66,13 +66,18 @@ def _zscore_from_deque(history: deque, window: int) -> float:
 
 
 def _fetch_daily_bars(conn: Any, symbol: str) -> list[dict]:
-    """Fetch 1d OHLCV from market_data_ohlcv ordered by timestamp ASC.
+    """Fetch 1d OHLCV from market_data_ohlcv_tradeable ordered by timestamp ASC.
 
     Returns list of dicts with keys: ts (date), close (float).
+
+    Tradeable view, not the raw table (todo 124): mirrors backfill_feature_factory.py's
+    _fetch_bars_from_db (already migrated) -- a synthetic-fill placeholder daily bar
+    (flat close = prev close) would inject a fake zero-return day into vix_z/yield_slope_z's
+    rolling z-score, diluting the real signal these context_features feed to the IC engine.
     """
     sql = """
         SELECT timestamp::date AS ts, close
-        FROM market_data_ohlcv
+        FROM market_data_ohlcv_tradeable
         WHERE symbol = %s AND timeframe = '1d'
         ORDER BY timestamp ASC
     """

@@ -518,8 +518,12 @@ def _reorder_contracts_by_gap(
         conn = connect_db(settings)
         try:
             with conn.cursor() as cur:
+                # Tradeable view, not the raw table (todo 124) -- purely for clarity, not
+                # a behavior change: normalize_bars() never fabricates a synthetic fill
+                # before a symbol's first real bar (needs a prev_close to seed from), so
+                # min(timestamp) is identical either way.
                 cur.execute(
-                    "SELECT symbol, timeframe, min(timestamp) FROM market_data_ohlcv "
+                    "SELECT symbol, timeframe, min(timestamp) FROM market_data_ohlcv_tradeable "
                     "WHERE timeframe = ANY(%s) GROUP BY symbol, timeframe",
                     (gap_tfs,),
                 )
