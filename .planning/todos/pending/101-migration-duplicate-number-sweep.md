@@ -5,6 +5,26 @@ filed: 2026-07-12
 source: todo 095 resolution — discovered while fixing the db/migrations/ vs production/migrations/ split
 ---
 
+**Narrowed 2026-07-31** — pre-flight duplicate-number check added
+(`tests/unit/test_migration_number_uniqueness.py`). Verifying current state before building the
+guard turned up a bigger update than expected: the 14 groups this file originally documented were
+**already resolved** by commit `18551320` (2026-07-18, "renumber to close 14 duplicate
+leading-number collisions") — a full, verified renumber of `production/migrations/` to a clean
+001-234 sequence, done as its own dedicated session exactly as this file's "Not in scope" section
+called for. That work is DONE; do not repeat it.
+
+What's still open: while confirming the current state, the new guard found **one brand-new
+collision at `240`** (`240_counterfactual_tracker_chunk_size.sql` and
+`240_cross_symbol_corroboration_apr_key.sql`) that appeared *after* the 18551320 renumbering —
+two concurrent worktree sessions again independently picking the same "next free" number. This is
+exactly the regrowth this file's "Update (2026-07-17)" section predicted would happen without a
+preflight check. The new test allow-lists this single group (with reason) so it passes clean
+today, and will fail on any further NEW collision going forward. Resolving the `240` pair itself
+(renumbering, confirming no filename references) remains open and is deliberately deferred to its
+own session per this file's original scope note — same live-DB-adjacent risk profile, just one
+pair now instead of fourteen groups — do not attempt it in a follow-up without an explicit
+go-ahead.
+
 # `production/migrations/` has 13 duplicate-number groups, not just the one todo 095 flagged
 
 ## Finding
