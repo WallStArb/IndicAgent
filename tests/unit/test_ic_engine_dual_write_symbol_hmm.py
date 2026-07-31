@@ -43,6 +43,7 @@ from services.ic_engine import (  # noqa: E402
     ICEngineConfig,
     _compute_one_regime_cell,
     _group_cells_for_metrics,
+    _merge_skip_reasons,
 )
 
 
@@ -102,7 +103,7 @@ def test_pooled_cell_produces_is_pooled_true_rows():
     X, returns_mat, complete_mat = _synthetic_inputs()
     config = _make_config()
     rng = np.random.default_rng(1)
-    rows, n_skipped = _compute_one_regime_cell(
+    rows, n_skipped, _skip_reasons = _compute_one_regime_cell(
         _POOLED_REGIME_SENTINEL,
         True,
         np.ones(len(X), dtype=bool),
@@ -130,7 +131,7 @@ def test_regime_cell_uses_resolved_regime_scope_param():
     config = _make_config()
     rng = np.random.default_rng(1)
     mask = np.ones(len(X), dtype=bool)
-    rows, _ = _compute_one_regime_cell(
+    rows, _, _skip_reasons = _compute_one_regime_cell(
         "trending_up",
         False,
         mask,
@@ -164,7 +165,7 @@ def test_compute_one_regime_cell_always_recomputes_every_feature():
     config = _make_config()
     mask = np.ones(len(X), dtype=bool)
 
-    rows, n_skipped = _compute_one_regime_cell(
+    rows, n_skipped, skip_reasons = _compute_one_regime_cell(
         "trending_up",
         False,
         mask,
@@ -182,7 +183,7 @@ def test_compute_one_regime_cell_always_recomputes_every_feature():
     )
     assert len(rows) > 0
 
-    rows2, n_skipped2 = _compute_one_regime_cell(
+    rows2, n_skipped2, skip_reasons2 = _compute_one_regime_cell(
         "trending_up",
         False,
         mask,
@@ -212,6 +213,107 @@ def test_compute_one_regime_cell_always_recomputes_every_feature():
     # never an "already_present" dedup skip -- both calls have identical inputs,
     # so their skip counts must match exactly.
     assert n_skipped == n_skipped2
+    assert skip_reasons == skip_reasons2
+
+
+def test_degenerate_feature_populates_skip_reasons() -> None:
+    """todo 009/2026-07-31 fix: skip_reasons must attribute a degenerate (constant)
+    column to 'degenerate_feature' with the correct count -- this breakdown is what
+    the caller (main process) now uses to emit IC_ENGINE_CELLS_SKIPPED_TOTAL, since
+    this function itself never touches OTel (runs inside a ProcessPoolExecutor
+    worker with no metrics exporter initialized)."""
+    X, returns_mat, complete_mat = _synthetic_inputs()
+    X[:, 0] = 5.0  # feature 0 constant -> std == 0 -> degenerate
+    config = _make_config()
+    mask = np.ones(len(X), dtype=bool)
+
+    rows, n_skipped, skip_reasons = _compute_one_regime_cell(
+        _POOLED_REGIME_SENTINEL,
+        True,
+        mask,
+        "pooled",
+        X_aligned=X,
+        returns_mat=returns_mat,
+        complete_mat=complete_mat,
+        config=config,
+        symbol="TEST",
+        tf="5m",
+        rng=np.random.default_rng(1),
+        training_window_end=None,
+        feature_status_map=None,
+        run_ts=None,
+    )
+
+    # n_rows=40 also makes the extended scale's stride-39 subsample (n_independent=2)
+    # fall below min_reliable_n=4, so insufficient_n fires too -- assert the
+    # decomposition sums correctly rather than a brittle single-reason count.
+    assert skip_reasons.get("degenerate_feature") == 1
+    assert n_skipped == sum(skip_reasons.values())
+    # Degenerate features still get a row per surviving scale (ic_value=None), same
+    # as before this fix -- skip_reasons is bookkeeping for the metric, not a filter
+    # on result_rows.
+    degenerate_rows = [r for r in rows if r["feature_name"] == _FEATURE_NAMES[0]]
+    assert degenerate_rows
+    assert all(r["ic_value"] is None for r in degenerate_rows)
+
+
+def test_insufficient_n_populates_skip_reasons() -> None:
+    """A cell too small to clear min_reliable_n must attribute every feature's skip
+    to 'insufficient_n' -- both the pre-subsample size check and the post-valid-mask
+    check share this same reason string (see _compute_one_regime_cell's two
+    insufficient_n sites)."""
+    X, returns_mat, complete_mat = _synthetic_inputs(n_rows=40)
+    config = dataclasses.replace(_make_config(), min_reliable_n=1000)  # unreachable
+    mask = np.ones(len(X), dtype=bool)
+
+    rows, n_skipped, skip_reasons = _compute_one_regime_cell(
+        _POOLED_REGIME_SENTINEL,
+        True,
+        mask,
+        "pooled",
+        X_aligned=X,
+        returns_mat=returns_mat,
+        complete_mat=complete_mat,
+        config=config,
+        symbol="TEST",
+        tf="5m",
+        rng=np.random.default_rng(1),
+        training_window_end=None,
+        feature_status_map=None,
+        run_ts=None,
+    )
+
+    assert rows == []
+    n_scales = len(config.active_scales_for("5m"))
+    assert skip_reasons.get("insufficient_n") == n_scales * len(_FEATURE_NAMES)
+    assert n_skipped == n_scales * len(_FEATURE_NAMES)
+
+
+class TestMergeSkipReasons:
+    """_merge_skip_reasons accumulates per-cell skip_reasons dicts into a running
+    total, in place -- the pure (OTel-free) mechanism _compute_symbol_tf uses to
+    combine skip breakdowns across its pooled call + regime_passes loop before
+    returning them to the caller for eventual emission."""
+
+    def test_merges_disjoint_reasons(self) -> None:
+        total: dict[str, int] = {"degenerate_feature": 2}
+        _merge_skip_reasons(total, {"insufficient_n": 3})
+        assert total == {"degenerate_feature": 2, "insufficient_n": 3}
+
+    def test_accumulates_shared_reason(self) -> None:
+        total: dict[str, int] = {"insufficient_n": 3}
+        _merge_skip_reasons(total, {"insufficient_n": 4})
+        assert total == {"insufficient_n": 7}
+
+    def test_empty_addition_is_a_no_op(self) -> None:
+        total: dict[str, int] = {"degenerate_feature": 1}
+        _merge_skip_reasons(total, {})
+        assert total == {"degenerate_feature": 1}
+
+    def test_empty_total_absorbs_addition(self) -> None:
+        total: dict[str, int] = {}
+        _merge_skip_reasons(total, {"degenerate_feature": 1, "insufficient_n": 2})
+        assert total == {"degenerate_feature": 1, "insufficient_n": 2}
 
 
 def test_group_cells_for_metrics_treats_regime_scope_as_part_of_grouping_key():
@@ -307,7 +409,7 @@ def test_compute_one_regime_cell_attributes_scales_correctly_for_reduced_tf():
     config = dataclasses.replace(_make_config(), bootstrap_block_size={"5m": 2, "1h": 2})
     mask = np.ones(n_rows, dtype=bool)
 
-    rows, _ = _compute_one_regime_cell(
+    rows, _, _skip_reasons = _compute_one_regime_cell(
         _POOLED_REGIME_SENTINEL,
         True,
         mask,

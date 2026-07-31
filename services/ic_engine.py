@@ -1787,7 +1787,7 @@ def _compute_one_regime_cell(
     training_window_end: Any,
     feature_status_map: dict[str, str] | None,
     run_ts: datetime,
-) -> tuple[list[dict], int]:
+) -> tuple[list[dict], int, dict[str, int]]:
     """Compute clustering + per-scale IC/CI/walk-forward/Sharpe for ONE regime cell.
 
     Extracted from _compute_symbol_tf's single-pass loop (todo: restore symbol_hmm
@@ -1806,11 +1806,19 @@ def _compute_one_regime_cell(
     never re-seeded per-cell, advanced monotonically across every cell a worker
     computes for its symbol).
 
-    Returns (result_rows, n_skipped_features) for this cell only. Does NOT populate
-    pvals_flat/pval_result_idxs -- cluster-representative selection for BH-FDR runs
-    downstream in _compute_symbol_tf, after ALL cells (across every pass) have been
-    accumulated into all_results, and needs no changes for this to work correctly
-    regardless of how many passes contributed rows.
+    Returns (result_rows, n_skipped_features, skip_reasons) for this cell only.
+    skip_reasons is {skip_reason: count}, the same breakdown
+    IC_ENGINE_CELLS_SKIPPED_TOTAL needs -- this function itself never touches OTel
+    (runs inside a ProcessPoolExecutor worker, which has no metrics exporter
+    initialized; a direct .add() call here would silently no-op forever, see todo
+    009/2026-07-31 fix). The caller emits the real metric from the main process,
+    where result_rows/skip_reasons from every worker are aggregated.
+
+    Does NOT populate pvals_flat/pval_result_idxs -- cluster-representative
+    selection for BH-FDR runs downstream in _compute_symbol_tf, after ALL cells
+    (across every pass) have been accumulated into all_results, and needs no
+    changes for this to work correctly regardless of how many passes contributed
+    rows.
     """
     lookaheads = config.lookaheads_for(tf)
     subsample_min_stride = config.subsample_min_stride
@@ -1820,6 +1828,7 @@ def _compute_one_regime_cell(
     n_features = len(_FEATURE_NAMES)
 
     result_rows: list[dict] = []
+    skip_reasons: dict[str, int] = {}
     n_skipped = 0
 
     X_regime = X_aligned[mask]
@@ -1841,13 +1850,11 @@ def _compute_one_regime_cell(
     feature_stds = np.std(X_regime, axis=0, dtype=np.float64)
     degenerate_mask = feature_stds < 1e-8
     non_degenerate_mask = ~degenerate_mask
-    n_degenerate = degenerate_mask.sum()
+    n_degenerate = int(degenerate_mask.sum())
     if n_degenerate > 0:
-        for _ in range(n_degenerate):
-            IC_ENGINE_CELLS_SKIPPED_TOTAL.add(
-                1,
-                {"symbol": symbol, "tf": tf, "skip_reason": "degenerate_feature"},
-            )
+        skip_reasons["degenerate_feature"] = (
+            skip_reasons.get("degenerate_feature", 0) + n_degenerate
+        )
         n_skipped += n_degenerate
 
     # Non-degenerate slice of full regime matrix — shared across scales.
@@ -1857,9 +1864,10 @@ def _compute_one_regime_cell(
         # for-loop over regime_passes; this cell has no "next regime" to fall
         # through to now that each cell is its own function call, so the
         # equivalent behavior is to return immediately with whatever
-        # result_rows/n_skipped this cell has accumulated so far (empty rows;
-        # n_skipped already reflects the degenerate-feature count above).
-        return result_rows, n_skipped
+        # result_rows/n_skipped/skip_reasons this cell has accumulated so far
+        # (empty rows; n_skipped/skip_reasons already reflect the
+        # degenerate-feature count above).
+        return result_rows, n_skipped, skip_reasons
 
     # ------------------------------------------------------------------
     # Distance-threshold dendrogram clustering per (symbol, tf, regime)
@@ -1898,9 +1906,8 @@ def _compute_one_regime_cell(
         n_independent = len(X_sub_scale)
 
         if n_independent < min_reliable_n:
-            IC_ENGINE_CELLS_SKIPPED_TOTAL.add(
-                len(_FEATURE_NAMES),
-                {"symbol": symbol, "tf": tf, "skip_reason": "insufficient_n"},
+            skip_reasons["insufficient_n"] = skip_reasons.get("insufficient_n", 0) + len(
+                _FEATURE_NAMES
             )
             n_skipped += len(_FEATURE_NAMES)
             continue
@@ -1912,9 +1919,8 @@ def _compute_one_regime_cell(
         n_valid = valid_mask.sum()
 
         if n_valid < min_reliable_n:
-            IC_ENGINE_CELLS_SKIPPED_TOTAL.add(
-                len(_FEATURE_NAMES),
-                {"symbol": symbol, "tf": tf, "skip_reason": "insufficient_n"},
+            skip_reasons["insufficient_n"] = skip_reasons.get("insufficient_n", 0) + len(
+                _FEATURE_NAMES
             )
             n_skipped += len(_FEATURE_NAMES)
             continue
@@ -2066,7 +2072,19 @@ def _compute_one_regime_cell(
                 }
             )
 
-    return result_rows, n_skipped
+    return result_rows, n_skipped, skip_reasons
+
+
+def _merge_skip_reasons(total: dict[str, int], addition: dict[str, int]) -> None:
+    """Accumulate a cell/pass-level skip_reasons dict into a running total, in place.
+
+    Pure, OTel-free (unlike the counter it ultimately feeds) so it can run inside a
+    ProcessPoolExecutor worker without needing any exporter initialized there --
+    only the caller in main(), after aggregating every worker's result, actually
+    calls IC_ENGINE_CELLS_SKIPPED_TOTAL.add() with the merged counts.
+    """
+    for reason, count in addition.items():
+        total[reason] = total.get(reason, 0) + count
 
 
 def _group_cells_for_metrics(
@@ -2152,7 +2170,13 @@ def _compute_symbol_tf(
     When None (equity_model_enabled=False), falls back to feature_vectors.regime.
 
     Returns (pooled_rows, regime_rows, stats_dict) where stats_dict contains
-    all_results, pvals_flat, pval_result_idxs, n_committed, n_skipped, n_passing_wf.
+    all_results, pvals_flat, pval_result_idxs, n_committed, n_skipped, n_passing_wf,
+    skip_reasons ({skip_reason: count}), and cell_emissions (the pre-computed
+    _group_cells_for_metrics() output) -- the latter two exist purely so the caller
+    (in the main process) can emit IC_ENGINE_CELLS_SKIPPED_TOTAL/
+    IC_ENGINE_CELLS_COMPLETED_TOTAL/FEATURE_IC_PASSING_WALKFORWARD_TOTAL itself;
+    this function never touches OTel (see the emission block at the end of this
+    function's body for why).
     """
     lookaheads = config.lookaheads_for(tf)
     subsample_min_stride = config.subsample_min_stride
@@ -2305,8 +2329,9 @@ def _compute_symbol_tf(
         pval_result_idxs: list[int] = []
         n_committed = 0
         n_skipped = 0
+        skip_reasons: dict[str, int] = {}
 
-        pooled_rows, pooled_skipped = _compute_one_regime_cell(
+        pooled_rows, pooled_skipped, pooled_skip_reasons = _compute_one_regime_cell(
             _POOLED_REGIME_SENTINEL,
             True,
             np.ones(len(aligned_idx), dtype=bool),
@@ -2324,6 +2349,7 @@ def _compute_symbol_tf(
         )
         all_results.extend(pooled_rows)
         n_skipped += pooled_skipped
+        _merge_skip_reasons(skip_reasons, pooled_skip_reasons)
 
         # Primary pass (today's exact existing behavior) + optional dual-write pass
         # (restore symbol_hmm measurement for regime-group-routed symbols, only when
@@ -2346,7 +2372,7 @@ def _compute_symbol_tf(
 
         for label_array, labels_this_pass, resolved_scope in regime_passes:
             for regime_label in labels_this_pass:
-                pass_rows, pass_skipped = _compute_one_regime_cell(
+                pass_rows, pass_skipped, pass_skip_reasons = _compute_one_regime_cell(
                     regime_label,
                     False,
                     label_array == regime_label,
@@ -2364,6 +2390,7 @@ def _compute_symbol_tf(
                 )
                 all_results.extend(pass_rows)
                 n_skipped += pass_skipped
+                _merge_skip_reasons(skip_reasons, pass_skip_reasons)
 
         # ------------------------------------------------------------------
         # Context features: daily-cadence features in context_features table.
@@ -2423,9 +2450,8 @@ def _compute_symbol_tf(
                 # Daily-cadence features use min_obs_daily_features gate (APR: alpha.ic.min_obs_daily_features);
                 # standard 20K intraday gate does not apply — calibrated for different observation frequency.
                 if n_cf_days < min_obs_daily:
-                    IC_ENGINE_CELLS_SKIPPED_TOTAL.add(
-                        n_scales,
-                        {"symbol": symbol, "tf": tf, "skip_reason": "insufficient_daily_n"},
+                    skip_reasons["insufficient_daily_n"] = (
+                        skip_reasons.get("insufficient_daily_n", 0) + n_scales
                     )
                     continue
 
@@ -2458,8 +2484,8 @@ def _compute_symbol_tf(
                     n_valid = int(valid_mask.sum())
 
                     if n_valid < min_obs_daily:
-                        IC_ENGINE_CELLS_SKIPPED_TOTAL.add(
-                            1, {"symbol": symbol, "tf": tf, "skip_reason": "insufficient_daily_n"}
+                        skip_reasons["insufficient_daily_n"] = (
+                            skip_reasons.get("insufficient_daily_n", 0) + 1
                         )
                         continue
 
@@ -2649,19 +2675,24 @@ def _compute_symbol_tf(
         n_committed = len(all_results)
 
         # ------------------------------------------------------------------
-        # Per-cell OTel metrics
-        # ------------------------------------------------------------------
+        # Per-cell OTel metrics -- computed here (pure, no OTel calls), emitted by
+        # the caller in the main process (todo 009/2026-07-31 fix). This function
+        # runs inside a ProcessPoolExecutor worker with no metrics exporter
+        # initialized (_run_ic_worker: "No OTel tracer -- workers log only") --
+        # calling any counter/gauge instrument's add-or-set method directly from
+        # here would silently no-op forever, exactly as it did before this fix.
+        # cell_emissions/n_passing_wf/skip_reasons flow back through
+        # _run_ic_worker's return dict instead.
+        #
         # all_results is populated by 1 pooled call above plus a loop over
         # 1-or-2 regime_passes (primary, and optionally a dual-write
         # symbol_hmm pass -- see regime_passes construction above).
         # _group_cells_for_metrics groups on (regime, is_pooled, regime_scope)
         # so a dual-write symbol_hmm cell never gets conflated with a primary
         # cross-sectional cell sharing the same HMM regime label string.
-        for attrs, count in _group_cells_for_metrics(all_results, symbol, tf):
-            IC_ENGINE_CELLS_COMPLETED_TOTAL.add(count, attrs)
-
+        # ------------------------------------------------------------------
+        cell_emissions = _group_cells_for_metrics(all_results, symbol, tf)
         n_passing_wf = sum(1 for r in all_results if r.get("passes_walkforward"))
-        FEATURE_IC_PASSING_WALKFORWARD_TOTAL.set(n_passing_wf, {"symbol": symbol, "tf": tf})
 
         return (
             pooled_rows,
@@ -2673,6 +2704,8 @@ def _compute_symbol_tf(
                 "all_results": all_results,
                 "pvals_flat": pvals_flat,
                 "pval_result_idxs": pval_result_idxs,
+                "skip_reasons": skip_reasons,
+                "cell_emissions": cell_emissions,
             },
         )
 
@@ -3671,7 +3704,15 @@ def _run_ic_worker(args: tuple) -> dict:
     Returns:
         dict with keys: symbol, pooled_rows (list), regime_rows (list),
         all_results (list), pvals_flat (list), pval_result_idxs (list),
-        n_skipped (int), error (str|None)
+        n_skipped (int), error (str|None), cell_emissions (list[tuple[dict, int]]),
+        n_passing_wf_by_tf (dict[tf, int]), skip_reasons_by_tf (dict[tf, dict[str, int]]).
+        The last three exist purely so the main process can emit
+        IC_ENGINE_CELLS_COMPLETED_TOTAL/FEATURE_IC_PASSING_WALKFORWARD_TOTAL/
+        IC_ENGINE_CELLS_SKIPPED_TOTAL itself -- this worker has no OTel exporter
+        initialized (see "No OTel tracer" above), so it never calls any OTel
+        instrument directly; every metric-worthy count is data until main() decides
+        to emit it (todo 009/2026-07-31 fix -- these 3 metrics were previously
+        emitted from inside this worker and silently never reached Prometheus).
     """
     (
         symbol,
@@ -3708,6 +3749,11 @@ def _run_ic_worker(args: tuple) -> dict:
     pval_result_idxs: list[int] = []
     total_skipped = 0
     error_msg = None
+    # OTel-metric-worthy data, accumulated across every tf this worker computes --
+    # emitted by main() only, never from inside this worker (see docstring above).
+    cell_emissions: list[tuple[dict, int]] = []
+    n_passing_wf_by_tf: dict[str, int] = {}
+    skip_reasons_by_tf: dict[str, dict[str, int]] = {}
 
     try:
         for tf in tfs:
@@ -3734,6 +3780,9 @@ def _run_ic_worker(args: tuple) -> dict:
                 regime_rows.extend(tf_regime)
                 total_skipped += stats.get("n_skipped", 0)
                 all_results.extend(stats.get("all_results", []))
+                cell_emissions.extend(stats.get("cell_emissions", []))
+                n_passing_wf_by_tf[tf] = stats.get("n_passing_wf", 0)
+                skip_reasons_by_tf[tf] = stats.get("skip_reasons", {})
             except CellTooLargeError:
                 # Crash-loud (162-01 Task 3, todo 140): re-raise instead of the
                 # generic swallow-and-continue-to-next-tf behavior below -- an
@@ -3765,6 +3814,9 @@ def _run_ic_worker(args: tuple) -> dict:
         "pval_result_idxs": pval_result_idxs,
         "n_skipped": total_skipped,
         "error": error_msg,
+        "cell_emissions": cell_emissions,
+        "n_passing_wf_by_tf": n_passing_wf_by_tf,
+        "skip_reasons_by_tf": skip_reasons_by_tf,
     }
 
 
@@ -4931,6 +4983,30 @@ def main() -> None:
                                 settings, result, per_symbol_results
                             )
                             total_skipped += result["n_skipped"]
+                            # Per-cell OTel metrics (todo 009/2026-07-31 fix): computed
+                            # inside the worker (pure, no OTel calls -- it has no
+                            # exporter initialized), emitted only here in the main
+                            # process. Unconditional on result["error"] -- a per-tf
+                            # failure still leaves any OTHER tf's data valid (see the
+                            # comment above on pooled_rows/regime_rows never being
+                            # dropped), so its metrics are real and should count too.
+                            for cell_attrs, cell_count in result.get("cell_emissions", []):
+                                IC_ENGINE_CELLS_COMPLETED_TOTAL.add(cell_count, cell_attrs)
+                            for wf_tf, n_passing_wf in result.get("n_passing_wf_by_tf", {}).items():
+                                FEATURE_IC_PASSING_WALKFORWARD_TOTAL.set(
+                                    n_passing_wf, {"symbol": symbol, "tf": wf_tf}
+                                )
+                            for skip_tf, reasons in result.get("skip_reasons_by_tf", {}).items():
+                                for skip_reason, skip_count in reasons.items():
+                                    if skip_count:
+                                        IC_ENGINE_CELLS_SKIPPED_TOTAL.add(
+                                            skip_count,
+                                            {
+                                                "symbol": symbol,
+                                                "tf": skip_tf,
+                                                "skip_reason": skip_reason,
+                                            },
+                                        )
                             if not result["error"]:
                                 # UPSERT fingerprint rows for ALL of this symbol's
                                 # expected cells (not just the ones found invalid)
