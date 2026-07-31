@@ -1,9 +1,33 @@
 ---
-status: pending
+status: completed
 priority: P2
 filed: 2026-07-27
 source: /simplify altitude review of the feature_vector_writer deploy fix
 ---
+
+**CLOSED 2026-07-31** -- `tests/unit/services/test_service_auditor_registry_integrity.py`
+added: checks (1) every `_AGENT_ID_TO_UNIT` value / `_DAG_ORDER` key maps to a real
+`.service`/`.target` file under `production/systemd/`, and (2) none match a deny-list of
+CLAUDE.md-confirmed-archived units (`indicagent-feature-writer`, `indicagent-intelligence-
+pipeline`). The deny-list check (this todo's original 18-day-outage bug) passes clean --
+confirmed fixed and holding.
+
+The existence check (item 1) surfaced two real, previously-undetected gaps, each documented
+with a reason in the test's new `_MISSING_UNIT_ALLOWLIST` rather than silently patched here
+(out of this todo's scope, per its own explicit instruction not to guess-fix
+`service_auditor.py`):
+- 6 Phase 138/142 IC-pipeline entries (`regime-writer`, `forward-return-writer`, `ic-engine`,
+  `ensemble-ic-engine`, `alpha-frame-writer`, `counterfactual-tracker`) have no systemd unit
+  at all, live or checked-in -- confirmed intentional, run via
+  `scripts/ops/corpus/ops_corpus_pipeline_run.sh` instead. PERMANENT.
+- `indicagent-feature-vector-pipeline` -- a live, always-on daemon (not a oneshot) -- IS
+  deployed on the box but was found `failed`/start-limit-hit for ~2 days (crash-looping on a
+  missing `_THRESHOLD_KEYS` entry) and was never checked into `production/systemd/`. Filed as
+  new **todo 219** (P0) rather than fixed inline.
+
+Deploy-time class-vs-unit CI check (does every `services/*.py` class have a corresponding
+systemd unit file at all) remains a separate, unfiled, bigger todo per this todo's original
+scope note.
 
 # service_auditor.py's registry has no check against pointing at archived/nonexistent units -- same collision has now happened twice
 
