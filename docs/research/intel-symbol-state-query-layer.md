@@ -1,8 +1,8 @@
 # Symbol State Query Layer — Design
 
-**Status:** draft, refined after independent Opus review + a descriptive-vs-predictive correction (2026-07-31) — see "Review History"
+**Status:** draft, gradient encoding locked (2026-07-31) — see "Review History" for the full correction trail
 **Priority:** medium — real gap (no live query surface exists), useful regardless of live-ingestion status
-**Reviewed:** first-principles/Renaissance-lens critique in-session, an independent Opus-model review, and a further in-session correction on what "composite" actually means. Not yet Fable-reviewed.
+**Reviewed:** first-principles/Renaissance-lens critique in-session, an independent Opus-model review, a descriptive-vs-predictive correction, and a Kafka-delivery investigation. Not yet Fable-reviewed.
 **Tags:** query-api, observability, regime, feature-registry, read-only
 
 ---
@@ -61,12 +61,29 @@ Even under the descriptive framing, blending *volatility* + *trend* + *volume* i
 
 ## Recommended Scope
 
-A read-only query API over what's already measured and already persisted:
+A read-only query API over what's already measured and already persisted. The primary, default output per stratum is a numeric gradient, not raw fields or text — raw member-level access stays available as an optional deeper tier for anyone who wants it, but it's not what a consumer sees by default.
 
 1. **Regime state** — cross-sectional regime from `market_regimes` (resolved by the symbol's asset class → `regime_group`), plus per-symbol HMM regime from `feature_vectors.regime` with explicit `regime_available: false` on NULL.
-2. **Raw feature reads** — current `feature_vectors` values for a symbol/tf, filtered to `is_control = false AND status = 'active'`, organized by `feature_registry.group_name`.
-3. **Descriptive per-stratum summaries** — a mean/percentile-vs-history read for magnitude-type strata (volatility first); a conviction-strength + direction pair for directional strata (structure first). Explicitly labeled as descriptive, never as a predictive/tradeable signal.
+2. **Per-stratum gradient (primary, default output)** — see "Gradient Encoding" below. One number for magnitude-type strata, two for directional-type strata. Fully numeric, no text, no expertise required to consume.
+3. **Raw feature reads (optional, secondary tier)** — current `feature_vectors` values for a symbol/tf, filtered to `is_control = false AND status = 'active'`, organized by `feature_registry.group_name`. Available for a consumer who wants to see what's behind a gradient, not the default response.
 4. **No cross-stratum composite.** Each consumer combines strata for their own decision; a single "comprehensive" number is rejected on coherence grounds (see above), not deferred pending validation.
+
+### Gradient Encoding (locked, 2026-07-31)
+
+**Magnitude-type strata (volatility is the worked example): one number, `gradient ∈ [-1, +1]`.**
+
+Defined as *signed deviation from typical*: take the stratum's current reading (e.g. average z-score across its member features), rank it against its own trailing history, map that percentile onto `[-1, +1]` (`0` = typical/50th percentile, `+1` = extreme-high edge of its own history, `-1` = extreme-low edge). Safe as a single number because there's a real, coherent "above vs. below normal" axis for a magnitude reading with nothing to cancel against.
+
+**Directional-type strata (structure, momentum: two numbers, never one.**
+
+- `direction ∈ [-1, +1]` — net lean (e.g. `long_fraction − short_fraction` among the group's directional features), same percentile-vs-history mapping as above.
+- `conviction ∈ [0, 1]` — how strong/reliable the current reading is (e.g. percentile-scaled average `|z|` across the same features), independent of which way it leans.
+
+A single blended number for a directional stratum was tried and rejected twice already in this doc (once as a raw average, once as a threshold count) — both times because `direction ≈ 0` is ambiguous between "genuinely quiet" and "strong opposing signals canceling out." The `direction`/`conviction` pair is the numeric-only way to keep that distinguishable: low conviction means the reading is quiet or unreliable regardless of what direction says; high conviction with `direction ≈ 0` means real signals are actively conflicting — a materially different, and more decision-relevant, state than quiet.
+
+**This is a normalization/encoding choice, not a validation claim** — mapping an already-computed percentile onto a bounded range doesn't assert predictive value, so it doesn't reopen the IC/FDR issue. Same category of decision as choosing to z-score a feature in the first place.
+
+**Categorical/state strata** (`session`, `calendar`, `regime`) don't fit the gradient shape at all — they're flags or labels, not continuous readings (`in_ny_session: true`, not a percentile). These stay as direct state reads, not gradients.
 
 ### No New Persistence — Query the Existing Tables Directly, Time-Bounded
 
@@ -90,10 +107,10 @@ Must not share a name, table, or API surface with `alpha_events`/`alpha_ensemble
 
 ### APR Keys Required
 
-- `infra.symbol_state.lookback_days` — the time-bound default
+- `infra.symbol_state.lookback_days` — the time-bound default for raw-read queries
 - `feature.symbol_state.group_map` (JSON) — if groupings ever diverge from `feature_registry.group_name`
-- `feature.symbol_state.percentile_window_days` — the trailing-history window for percentile-vs-history framing (this is a tunable calibration choice, same category as any other lookback window elsewhere in this codebase)
-- `feature.symbol_state.summary_statistic` — mean vs. median for magnitude-type rollups, if this ever needs to be configurable rather than fixed
+- `feature.symbol_state.percentile_window_days` — the trailing-history window the gradient's percentile ranking is computed against
+- `feature.symbol_state.summary_statistic` — mean vs. median for the pre-percentile magnitude/direction aggregation, if this ever needs to be configurable rather than fixed
 
 ### Response Contract
 
@@ -102,30 +119,36 @@ Must not share a name, table, or API surface with `alpha_events`/`alpha_ensemble
   "envelope": { "contract_version": "...", "taxonomy_version": "...", "pipeline_version": "...",
                 "bar_ts": "...", "coverage_flags": [...] },
   "regime": { "cross_sectional": "...", "symbol_hmm": "...", "regime_available": true },
-  "strata": [
-    { "id": "volatility", "kind": "magnitude",
-      "summary": { "avg_z": 1.8, "percentile_60d": 90 },
-      "members": [ {name, value, formula_short}, ... ] },
-    { "id": "structure", "kind": "directional",
-      "summary": { "conviction_avg_abs_z": 1.2, "direction": {"long_frac": 0.7, "short_frac": 0.3} },
-      "members": [ {name, value, formula_short}, ... ] }
-  ]
+  "strata": {
+    "volatility":  { "kind": "magnitude",   "gradient": 0.62 },
+    "structure":   { "kind": "directional", "direction": -0.15, "conviction": 0.71 },
+    "session":     { "kind": "state",       "value": "in_ny_session" }
+  },
+  "raw": {
+    "volatility": [ {name, value, formula_short}, ... ],
+    "structure":  [ {name, value, formula_short}, ... ]
+  }
 }
 ```
 
-`kind` makes the magnitude/directional distinction explicit in the contract itself, so a consumer (or a future implementer) can't accidentally average a directional stratum's raw members the naive way. If group membership or summary methodology changes, that's a `taxonomy_version` bump, not a silent redefinition under an unchanged field name.
+`strata` is the primary, default-consumed field — pure numbers, `kind` tells a consumer which shape to expect without needing to understand the underlying features. `raw` is present but optional/secondary — a consumer who wants to see what's behind a gradient can look, but it's not what's returned by default. `kind` also protects against a future implementer accidentally averaging a directional stratum's raw members the naive way. If group membership or gradient methodology changes, that's a `taxonomy_version` bump, not a silent redefinition under an unchanged field name.
 
 ---
 
-## Smallest Useful First Slice (recommended starting point)
+## Delivery: API and Kafka
 
-Repoint `src/api/routes/features.py` from the dead `intelligence_features` table to `feature_vectors` + `market_regimes`, with:
-- Time-bounded queries (`infra.symbol_state.lookback_days`)
-- Control/status filtering (`is_control = false AND status = 'active'`)
-- Freshness + coverage metadata on every response
-- Raw member reads only — no strata summaries yet
+**Raw feature vectors already have a live push mechanism — no new work needed for that piece.** `topic_feature_vectors` exists today; `FeatureVectorPipeline` (a `BaseDaemon`) publishes every computed bar to it, and `feature_vector_writer` is just one of potentially many independent consumer groups reading it. An external system can subscribe to this exact topic today (its own consumer group) and receive the same real-time stream, the same way v2's `topic_intelligence` let consumers subscribe to I1-I6. Verified live: the writer (`indicagent-feature-vector-writer.service`) is running; the publisher (`indicagent-feature-vector-pipeline.service`) is currently `failed`, consistent with live ingestion being paused — nothing is flowing right now, but the mechanism is real and resumes automatically once the pipeline is back up, no new code required.
 
-This is unambiguously useful today (dashboards, debugging, research) regardless of live-ingestion state and ships in a fraction of the effort of the full design. Descriptive strata summaries (the magnitude/directional split above) are the natural second slice once the raw-read layer is in place and the magnitude-vs-directional classification has been worked out per group.
+`market_regimes` has no equivalent topic — its writers (`cross_sectional_regime_model.py`, `equity_regime_model.py`) are batch jobs (`ProcessPoolExecutor` + one serial batch `INSERT`, not `BaseDaemon`), which is the correct, established pattern for periodic bulk recomputation in this codebase, not an oversight. Kafka is reserved for the live per-bar hot path; a regime refit over a large historical window is not that, and routing it through a low-retention transport bus would misuse it as an ETL pipe.
+
+**The strata gradients are new — they don't exist as raw output anywhere, so delivery mode is a real choice:**
+- **On-demand (pull):** compute the gradient at request time from `feature_vectors`, no new persistence, no new compute stage. Cheapest, ships fastest.
+- **Live (push):** a new `BaseDaemon` subscribing to the *existing* `topic_feature_vectors`, computing the gradient per bar as vectors arrive, publishing to a new topic (e.g. `topic_symbol_state_gradient`), consumed by a new writer into a new table if durable/queryable history is also wanted. This is the same shape as the existing feature pipeline, not a novel pattern — real work (new `BaseDaemon`, OTel signals, DAG registration, lag-threshold APR key), but idiomatic, not scope creep.
+
+**Recommended sequencing:**
+1. Raw feature/regime read API (repoint `src/api/routes/features.py` off the dead `intelligence_features` table) — useful immediately, ships fastest, needed regardless of what follows.
+2. Strata gradients, on-demand via the same API — the actual distilled output this doc is about.
+3. Live gradient push via Kafka, only once a real consumer needs sub-request-latency delivery rather than polling — build the `BaseDaemon` + new topic at that point, reusing the existing `topic_feature_vectors` subscription.
 
 ---
 
@@ -135,8 +158,8 @@ This is unambiguously useful today (dashboards, debugging, research) regardless 
 - **A single cross-stratum "comprehensive" number** — rejected on coherence grounds (blends non-comparable concepts), independent of validation status.
 - **Threshold-count summaries** (`|z| > 1.5` style) — rejected; a hidden, worse-governed weight than CIS's own, discards direction entirely. Superseded by the magnitude/direction-pair design above.
 - **Forward-looking forecasts** (hedge-timing predictions) — a new predictive claim needing full IC/statistical rigor, structurally different from distilling current state.
-- **Dashboard/UI** — explicitly out of scope; this doc scopes the query API only.
-- **Kafka/Redpanda publishing** — considered and cut; no live bar stream to publish today, and adding one is a full compute-stage build contradicting this doc's thin/read-only scope.
+- **Dashboard/UI** — explicitly out of scope; this doc scopes the query/delivery layer only.
+- **Live Kafka push for the strata gradients** — not rejected (corrected from an earlier pass in this doc that called this scope creep); genuinely useful, genuinely real work, sequenced after the on-demand version has a real consumer needing push delivery. Raw feature vectors already have a working push mechanism (`topic_feature_vectors`) and need no new work at all.
 - **API-first coverage for the rest of the platform** — agreed as a good general principle, explicitly a separate, larger initiative.
 
 ---
@@ -146,6 +169,8 @@ This is unambiguously useful today (dashboards, debugging, research) regardless 
 1. **First-principles/Renaissance-lens critique (in-session):** killed a whole-symbol group-averaged composite score and a materialized-view persistence design (right conclusion on persistence, wrong initial reasoning).
 2. **Independent Opus-model review** (given only the doc + codebase, not the conversation): verified all live-data claims against the DB directly. Corrected: `feature_ic_scores` existed and was missed; `market_regimes` has no symbol dimension; `feature_vectors` is 263 not ~344 columns; the `control`/canary group was missed entirely (real leak risk); the "cheap point lookups" persistence argument didn't hold for the actual use case (measured 14s, fixed via time-bounding); the threshold-counting idea was a hidden, worse-governed weight than CIS's.
 3. **User correction (source-agnostic design):** compute and persistence don't distinguish live vs. replay input — the "3-days-stale blocks this" framing conflated a transient operational state with a design flaw.
-4. **User correction (descriptive vs. predictive, this pass):** the blanket "no composites" conclusion conflated a forecasting claim (needs IC/FDR validation) with a descriptive current-state summary (doesn't). Corrected to: descriptive per-stratum summaries are in scope, with magnitude-type and directional-type strata requiring different (and for directional strata, split) treatment; predictive composites and a cross-stratum "comprehensive" number remain rejected, for validation and coherence reasons respectively.
+4. **User correction (descriptive vs. predictive):** the blanket "no composites" conclusion conflated a forecasting claim (needs IC/FDR validation) with a descriptive current-state summary (doesn't). Corrected to: descriptive per-stratum summaries are in scope, with magnitude-type and directional-type strata requiring different (and for directional strata, split) treatment; predictive composites and a cross-stratum "comprehensive" number remain rejected, for validation and coherence reasons respectively.
+5. **User correction (delivery mechanism):** questioned why Kafka wasn't integrated, prompting a direct check of the actual codebase rather than assumption — found `topic_feature_vectors` already exists and already supports independent subscribers (verified: writer running, publisher currently `failed` consistent with paused ingestion); found `market_regimes`'s batch writers correctly don't use Kafka (live-per-bar vs. periodic-bulk is the real architectural line, not an oversight). This reversed an earlier "Kafka is scope creep, cut" conclusion in this doc — it's scope creep for the *strata gradients* only if built before a real consumer needs push delivery, not scope creep in general, and raw feature vectors need no new Kafka work at all.
+6. **Gradient encoding locked-in:** requested a distilled numeric encoding (`-1` to `+1`) instead of text descriptions. Landed on: one number (`gradient`) for magnitude-type strata (percentile-vs-history, signed by above/below typical); two numbers (`direction`, `conviction`) for directional-type strata, specifically to preserve the quiet-vs-conflicting distinction the doc's cancellation objection depends on — a single blended number for a directional stratum reintroduces that exact ambiguity in numeric form.
 
 *Drafted in a Claude Code session, verified live against the running database. Not yet Fable-reviewed.*
