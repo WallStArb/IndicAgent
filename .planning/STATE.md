@@ -243,6 +243,14 @@ ON CONFLICT (symbol, tf) DO UPDATE SET fetch_complete = true;
 
 ## Roadmap Evolution
 
+- Phase 169 (Symbol State Query Layer): added 2026-07-31. Scoped through extensive same-session
+  design work (rejected a predictive composite score, an independent Opus review that corrected
+  several factual errors along the way, a descriptive-vs-predictive correction, and a locked
+  `-1`/`+1` gradient encoding -- one number for magnitude strata like volatility, a
+  direction+conviction pair for directional strata like structure). Not yet planned -- design doc
+  only: `docs/research/intel-symbol-state-query-layer.md`. Independent of Phase 168 (reads
+  `feature_vectors`/`market_regimes`, not `construction_spreads`).
+
 - Phase 168 (Cost-Hurdle-Adjusted Spread Construction, T3 Follow-On): added 2026-07-31 as a
   parallel track while the in-flight `ic_engine` recompute runs (zero compute contention --
   pure scoping/discussion work). Follow-on to Phase 167's cross-sectional long-short
