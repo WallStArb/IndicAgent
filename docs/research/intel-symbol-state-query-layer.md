@@ -133,6 +133,15 @@ Must not share a name, table, or API surface with `alpha_events`/`alpha_ensemble
 
 `strata` is the primary, default-consumed field — pure numbers, `kind` tells a consumer which shape to expect without needing to understand the underlying features. `raw` is present but optional/secondary — a consumer who wants to see what's behind a gradient can look, but it's not what's returned by default. `kind` also protects against a future implementer accidentally averaging a directional stratum's raw members the naive way. If group membership or gradient methodology changes, that's a `taxonomy_version` bump, not a silent redefinition under an unchanged field name.
 
+### Extendibility
+
+The compute logic is generic, parameterized by two things per stratum: which features belong to it, and its `kind` (`magnitude` / `directional` / `state`). It is not hardcoded per-stratum, which makes most future extension a config change, not new code:
+
+- **Adding a new stratum** (e.g. volume/demand) means defining its feature membership and classifying its `kind` — a `magnitude`-type addition reuses the existing percentile-vs-history gradient formula unchanged; a `directional`-type addition reuses the existing `direction`/`conviction` pair unchanged. Zero new compute logic in either case.
+- **Regrouping features, or diverging from `feature_registry.group_name`'s taxonomy**, is a config/APR change (`feature.symbol_state.group_map`, with a `taxonomy_version` bump) in the common case, not a schema migration — this is exactly why groupings were deliberately decoupled from `group_name`'s fixed DB check-constraint earlier in this doc. A migration is only needed if a genuinely new category must be added to `feature_registry.group_name` itself (a separate, rarer case, since that constraint is a fixed enum).
+- **The response contract's `taxonomy_version`/`kind` fields exist specifically to make this evolution safe** — a consumer reads `kind` to know how to interpret a stratum rather than assuming, and a `taxonomy_version` bump signals when membership or methodology changed, rather than a field silently meaning something different under an unchanged name.
+- **What is *not* free:** a fundamentally new `kind` beyond magnitude/directional/state (nothing has come up requiring one yet) would need real new compute logic, not just config — extendibility applies to adding more strata of the existing kinds, not to inventing new kinds of summary.
+
 ---
 
 ## Delivery: API and Kafka
