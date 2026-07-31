@@ -37,7 +37,7 @@ import time
 import uuid
 from collections.abc import Generator, Iterable
 from contextlib import contextmanager
-from datetime import UTC, datetime
+from datetime import datetime
 from pathlib import Path
 from typing import Any
 
@@ -55,7 +55,7 @@ from services._batch_utils import LOOKAHEAD_FALLBACKS_BY_TF as _SCALE_FALLBACKS_
 from services._batch_utils import load_config_service_sync as _load_config_service
 from src.config.settings import Settings
 from src.core.integrity_monitor import emit_integrity_fact_sync
-from src.core.service_utils import setup_service_logging
+from src.core.service_utils import parse_training_window_end, setup_service_logging
 from src.intelligence.statistics.ic_math import scale_max_abs_return
 from src.observability.metrics import (
     FORWARD_RETURN_WRITER_ROWS_WRITTEN_TOTAL,
@@ -712,13 +712,7 @@ def main() -> None:
                 # TRAINING_WINDOW_END gate — must be computed and logged before any SQL.
                 # Required flag (OOS holdout enforcement point one layer up, not a bare
                 # MAX(bar_ts) fallback) — see docs/plans/OOS-EVAL-PROTOCOL.md.
-                training_window_end = datetime.fromisoformat(args.training_window_end)
-                if training_window_end.tzinfo is None:
-                    raise ValueError(
-                        "--training-window-end must be timezone-aware ISO 8601 (UTC). "
-                        "Naive datetimes are rejected to preserve the UTC-only invariant."
-                    )
-                training_window_end = training_window_end.astimezone(UTC)
+                training_window_end = parse_training_window_end(args.training_window_end)
                 _logger.info(
                     "forward_return_writer.training_window_end_explicit",
                     value=str(training_window_end),

@@ -465,6 +465,20 @@ def _expand(nd_arr: np.ndarray, mask: np.ndarray, n: int) -> np.ndarray:
     return out
 
 
+def expand_int(nd_arr: np.ndarray, mask: np.ndarray, n: int) -> list[int | None]:
+    """Scatter nd_arr (non-degenerate features) into a None-filled n-length int list.
+
+    Int sibling of _expand — that one fills with NaN (float arrays only); this one
+    is for per-feature columns that must stay integer-typed (e.g. cluster_id) where
+    NaN isn't a valid fill value.
+    """
+    out: list[int | None] = [None] * n
+    nd_positions = np.where(mask)[0]
+    for i, pos in enumerate(nd_positions):
+        out[pos] = int(nd_arr[i])
+    return out
+
+
 def _nan_to_none(v: float) -> float | None:
     return None if np.isnan(v) else float(v)
 

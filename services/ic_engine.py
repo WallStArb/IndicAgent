@@ -103,7 +103,11 @@ from src.config.settings import Settings
 from src.core.agent.base_batch import BaseBatch
 from src.core.integrity_monitor import INTEGRITY_MONITOR_INSERT_SQL, emit_integrity_fact_sync
 from src.core.rng import hash_key_to_int
-from src.core.service_utils import format_iso_ts, setup_service_logging
+from src.core.service_utils import (
+    format_iso_ts,
+    parse_training_window_end,
+    setup_service_logging,
+)
 from src.intelligence.feature_registry_service import FeatureRegistryService
 from src.intelligence.schemas import FeatureVector
 from src.intelligence.statistics.ic_math import (
@@ -117,6 +121,7 @@ from src.intelligence.statistics.ic_math import (
     build_walk_forward_folds,
     circular_block_bootstrap_ic_serial,
     evaluate_guard_fraction,
+    expand_int,
     magnitude_conditional_ic,
     sign_hit_rate,
     update_cumulative_e_value,
@@ -1863,10 +1868,7 @@ def _compute_one_regime_cell(
     # ------------------------------------------------------------------
     cluster_ids_nd = _cluster_features(X_regime_nd, cluster_max_corr)
     # Expand to full feature space: None for degenerate, cluster_id for non-degenerate
-    cluster_id_full: list[int | None] = [None] * n_features
-    nd_positions = np.where(non_degenerate_mask)[0]
-    for _i, _pos in enumerate(nd_positions):
-        cluster_id_full[_pos] = int(cluster_ids_nd[_i])
+    cluster_id_full = expand_int(cluster_ids_nd, non_degenerate_mask, n_features)
 
     _logger.info(
         "ic_engine.clustering",
@@ -2785,10 +2787,7 @@ def _compute_one_cross_sectional_cell(
         return [], n_skipped
 
     cluster_ids_nd = _cluster_features(X_nd, cluster_max_corr)
-    cluster_id_full: list[int | None] = [None] * n_features
-    nd_positions = np.where(non_degenerate_mask)[0]
-    for _i, _pos in enumerate(nd_positions):
-        cluster_id_full[_pos] = int(cluster_ids_nd[_i])
+    cluster_id_full = expand_int(cluster_ids_nd, non_degenerate_mask, n_features)
 
     all_results: list[dict] = []
 
@@ -4476,13 +4475,7 @@ def main() -> None:
             # ----------------------------------------------------------
             run_ts = datetime.now(UTC)
 
-            training_window_end = datetime.fromisoformat(args.training_window_end)
-            if training_window_end.tzinfo is None:
-                raise ValueError(
-                    "--training-window-end must be timezone-aware ISO 8601 (UTC). "
-                    "Naive datetimes are rejected to preserve the UTC-only invariant."
-                )
-            training_window_end = training_window_end.astimezone(UTC)
+            training_window_end = parse_training_window_end(args.training_window_end)
             _logger.info("ic_engine.training_window_end_explicit", value=str(training_window_end))
 
             _logger.info(

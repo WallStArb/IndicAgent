@@ -30,7 +30,9 @@ from src.core.kafka_utils import KafkaProducerClient
 from src.core.stream_keys import topic_signal_audit
 
 # Constants
-_AUDIT_INTERVAL = 300  # 5 minutes between audit cycles
+# APR fallback default, live value read from infra.signal_auditor.audit_interval_seconds
+# (migration 275, todo 009 Part A).
+_AUDIT_INTERVAL_DEFAULT = 300  # 5 minutes between audit cycles
 _RTH_BUFFER_MINUTES = 30  # run audits RTH + 30 min buffer
 _COVERAGE_TFS: tuple[str, ...] = ("1m", "5m", "15m", "1h")  # Timeframes audited for signal coverage
 _CIS_LOOKBACK_DAYS = 5  # Rolling window for CIS distribution check
@@ -90,6 +92,8 @@ class SignalAuditor(BaseDaemon):
         # APR-backed audit lookback — loaded in _setup() from config_service.
         # Default matches APR seed value (migration 142).
         self._audit_lookback_hours: int = 1
+        # APR-backed audit cycle interval — loaded in _setup() from config_service.
+        self._audit_interval_seconds: int = _AUDIT_INTERVAL_DEFAULT
 
         self._agent_attrs = {"agent": self.name}
 
@@ -112,6 +116,12 @@ class SignalAuditor(BaseDaemon):
         self._audit_lookback_hours = int(
             self.get_config("feature.signal_auditor.audit_lookback_hours", default=1)
         )
+        self._audit_interval_seconds = int(
+            self.get_config(
+                "infra.signal_auditor.audit_interval_seconds",
+                default=_AUDIT_INTERVAL_DEFAULT,
+            )
+        )
 
         self._db_pool = await create_db_pool(self.settings.database_url, min_size=1, max_size=3)
         self._kafka_producer = KafkaProducerClient(
@@ -131,7 +141,7 @@ class SignalAuditor(BaseDaemon):
             await self._db_pool.close()
 
     async def _run(self) -> None:
-        """Audit on startup, then every _AUDIT_INTERVAL seconds during market hours."""
+        """Audit on startup, then every _audit_interval_seconds during market hours."""
         # lag_task created by BaseDaemon.start() at line 155
         await self._run_audit()
 
@@ -139,7 +149,7 @@ class SignalAuditor(BaseDaemon):
             try:
                 await asyncio.wait_for(
                     self._stop_event.wait(),
-                    timeout=_AUDIT_INTERVAL,
+                    timeout=self._audit_interval_seconds,
                 )
                 break
             except TimeoutError:

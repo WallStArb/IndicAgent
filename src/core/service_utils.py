@@ -276,6 +276,23 @@ def format_iso_ts(dt: datetime) -> str:
     return dt.isoformat().replace("+00:00", "Z")
 
 
+def parse_training_window_end(raw: str) -> datetime:
+    """Parse a --training-window-end CLI arg into a UTC-aware datetime.
+
+    Unlike parse_iso_ts, naive datetimes are rejected (not silently assumed UTC) —
+    this is the OOS holdout enforcement point (docs/plans/OOS-EVAL-PROTOCOL.md);
+    a caller passing a naive value likely meant a different timezone and needs to
+    find out immediately, not have it silently reinterpreted as UTC.
+    """
+    dt = datetime.fromisoformat(raw)
+    if dt.tzinfo is None:
+        raise ValueError(
+            "--training-window-end must be timezone-aware ISO 8601 (UTC). "
+            "Naive datetimes are rejected to preserve the UTC-only invariant."
+        )
+    return dt.astimezone(UTC)
+
+
 _configured_log_file: str | None = None
 
 

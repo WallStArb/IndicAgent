@@ -11,7 +11,45 @@
 
 # 009 — Phase B infra cleanup batch (merged 012, 032)
 
-**Part E closed 2026-07-23:** Phase 162-01 extracted `build_walk_forward_folds(n_obs, n_folds,
+**Part A closed 2026-07-31** (migration 275): all 4 constants migrated to APR --
+`infra.backfill.insert_batch_size`, `alpha.ic.insert_batch_size` (code already read this
+key, migration was the missing piece -- see below), `alpha.hmm.min_obs_factor`,
+`infra.signal_auditor.audit_interval_seconds`. All 3 code-side migrations (backfill,
+regime_writer, signal_auditor) thread the live value through their existing
+ProcessPoolExecutor worker-args tuple / `BaseDaemon.get_config()` pattern, matching each
+file's established style. `forward_return_writer.py`'s code was already wired
+(`cfg.get_sync("alpha.ic.insert_batch_size", ...)`) but the key was never seeded --
+the read was silently always falling back to the hardcoded default until this migration.
+Seeded at exact pre-migration values, byte-identical behavior. Tests green
+(`tests/unit/services/test_backfill_feature_factory.py` updated for the new worker-args
+tuple shape), ruff/black clean.
+
+**Part D closed 2026-07-31** -- 4 items, 2 done as originally scoped, 2 found stale:
+- **Item 1 DONE**: `parse_training_window_end(raw: str) -> datetime` added to
+  `src/core/service_utils.py`, replacing the identical 8-line block in
+  `services/ic_engine.py` and `services/forward_return_writer.py`. New direct test
+  `tests/unit/test_service_utils_parse_training_window_end.py`.
+- **Item 2 STALE, nothing to do**: the inline `is_intraday = tf in ("5m", "15m", "1h")`
+  check this item targeted no longer exists in `forward_return_writer.py` -- removed as
+  part of todo 208's same-ET-session gate removal (2026-07-30), before this item was
+  picked up.
+- **Item 3 DONE**: `expand_int(nd_arr, mask, n) -> list[int | None]` added to
+  `src/intelligence/statistics/ic_math.py` as the int-typed sibling of `_expand`
+  (which fills NaN, invalid for an int column). Replaces the identical 4-line manual
+  scatter loop at both of `ic_engine.py`'s occurrences (per-symbol pass, cross-sectional
+  pass). Direct tests `tests/unit/test_ic_math_expand_int.py`, incl. a byte-identical
+  comparison against the original inline loop on a random mask.
+- **Item 4 DONE, but not exactly as scoped**: `_meta_eligible`'s "pure function with no
+  service dependencies" premise was stale -- it calls `_resolve_per_tf`, which is a real
+  (if thin) dependency. Moved both `_resolve_per_tf` (-> `resolve_per_tf`) and
+  `_meta_eligible` (-> `meta_eligible`) together to `services/_batch_utils.py`, the
+  already-established shared home for `cfg()` (which `resolve_per_tf` itself calls) and
+  imported by 16 other services -- not the originally-suggested new
+  `src/intelligence/ic_utils.py` module. `ensemble_trainer.py` now imports both under
+  their original private names (`_resolve_per_tf`, `_meta_eligible`) so all existing call
+  sites and tests (`test_ensemble_trainer.py`, `test_ensemble_meta_fdr.py`) are unchanged.
+
+Part E closed 2026-07-23: Phase 162-01 extracted `build_walk_forward_folds(n_obs, n_folds,
 embargo_bars)` into `src/intelligence/statistics/ic_math.py`, replacing all 4 inline copies
 (3 in `ic_engine.py`, 1 in `ensemble_ic_engine.py`), with direct unit tests
 (`tests/unit/test_ic_math_walk_forward_folds.py`). This resolves Part E's entire remaining

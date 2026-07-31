@@ -106,7 +106,9 @@ _DEFAULT_TFS: list[str] = ["5m", "15m", "1h", "1d"]
 
 # Minimum obs rows per (symbol, tf) = n_components * this factor.
 # Below this, the fit is meaningless (too few state transitions to estimate A).
-_MIN_OBS_FACTOR = 50
+# APR fallback default, live value read from alpha.hmm.min_obs_factor (migration 275,
+# todo 009 Part A).
+_MIN_OBS_FACTOR_DEFAULT = 50
 
 # Canonical regime label set — no other values written to DB.
 _LABEL_TRENDING_UP = "trending_up"
@@ -466,6 +468,7 @@ def _compute_symbol_tf(
     full_cov_min_obs: int = 500,
     min_state_occupation: float = 0.05,
     churn_window: int = 10,
+    min_obs_factor: int = _MIN_OBS_FACTOR_DEFAULT,
 ) -> tuple[list[tuple], bool, float] | None:
     """Fit HMM for one (symbol, tf) cell. Returns (update_rows, converged, heldout_ll) or None.
 
@@ -513,7 +516,7 @@ def _compute_symbol_tf(
         vol_of_vol_window=vol_of_vol_window,
     )
 
-    min_rows = n_components * _MIN_OBS_FACTOR
+    min_rows = n_components * min_obs_factor
     if len(valid_ts) < min_rows:
         _logger.warning(
             "regime_writer.insufficient_obs",
@@ -788,7 +791,7 @@ def _run_symbol_worker(args: tuple) -> dict:
         args: (symbol, tfs, dsn, n_components, vol_window, momentum_window,
                vol_of_vol_window, n_iter, hmm_random_state, covariance_type,
                min_hold_bars, heldout_fraction, full_cov_min_obs,
-               min_state_occupation, churn_window)
+               min_state_occupation, churn_window, min_obs_factor)
 
     Returns:
         dict with keys:
@@ -812,6 +815,7 @@ def _run_symbol_worker(args: tuple) -> dict:
         full_cov_min_obs,
         min_state_occupation,
         churn_window,
+        min_obs_factor,
     ) = args
 
     setup_service_logging("logs/regime_writer.log")
@@ -842,6 +846,7 @@ def _run_symbol_worker(args: tuple) -> dict:
                     full_cov_min_obs=full_cov_min_obs,
                     min_state_occupation=min_state_occupation,
                     churn_window=churn_window,
+                    min_obs_factor=min_obs_factor,
                 )
                 if result is None:
                     results.append(
@@ -974,6 +979,9 @@ def main() -> None:
                 full_cov_min_obs = int(cfg.get_sync("feature.hmm.full_cov_min_obs", 500))
                 min_state_occupation = float(cfg.get_sync("feature.hmm.min_state_occupation", 0.05))
                 churn_window = int(cfg.get_sync("feature.hmm.churn_window", 10))
+                min_obs_factor = int(
+                    cfg.get_sync("alpha.hmm.min_obs_factor", _MIN_OBS_FACTOR_DEFAULT)
+                )
 
                 symbols = args.symbols if args.symbols else _discover_symbols(_conn)
                 tfs: list[str] = args.tf
@@ -1019,6 +1027,7 @@ def main() -> None:
                     full_cov_min_obs,
                     min_state_occupation,
                     churn_window,
+                    min_obs_factor,
                 )
                 for symbol in symbols
             ]

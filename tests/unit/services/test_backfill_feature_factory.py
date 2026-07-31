@@ -727,8 +727,9 @@ def test_refresh_reprocesses_complete_pairs() -> None:
         mock_pool.map.assert_called_once()
         worker_args = list(mock_pool.map.call_args[0][1])
         assert len(worker_args) == 1
-        # Last positional element of each worker-args tuple is the refresh flag
-        assert worker_args[0][-1] is True
+        # Second-to-last positional element of each worker-args tuple is the refresh
+        # flag (last is insert_batch_size, todo 009 Part A APR migration).
+        assert worker_args[0][-2] is True
 
 
 def test_batch_insert_default_uses_insert_sql() -> None:

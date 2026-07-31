@@ -109,8 +109,9 @@ _BARS_PER_DAY: dict[str, int] = {
 
 _TRADING_DAYS_PER_YEAR: int = 252
 
-# Batch size for feature_vectors INSERT
-_INSERT_BATCH_SIZE: int = 500
+# Batch size for feature_vectors INSERT — APR fallback default, live value read from
+# infra.backfill.insert_batch_size (migration 275, todo 009 Part A).
+_INSERT_BATCH_SIZE_DEFAULT: int = 500
 
 # Chunk read size from market_data_ohlcv (T3: never load full history at once)
 _READ_CHUNK_BARS: int = 2000
@@ -899,6 +900,9 @@ def run_compute_stage(
     # fell through to the hardcoded 0.80 default and any dashboard edit to coverage_gate was
     # silently ignored.
     coverage_threshold = float(cfg.get_sync("threshold.backfill.coverage_gate", 0.80))
+    insert_batch_size = int(
+        cfg.get_sync("infra.backfill.insert_batch_size", _INSERT_BATCH_SIZE_DEFAULT)
+    )
 
     # Warm-up bars = dominant rolling window (momentum_zscore_window = 252)
     warm_up_bars = config.momentum_zscore_window
@@ -972,6 +976,7 @@ def run_compute_stage(
             warm_up_bars,
             cross_asset_by_date,
             refresh,
+            insert_batch_size,
         )
         for symbol in pending_symbols
     ]
@@ -1038,7 +1043,7 @@ def _run_compute_worker(args: tuple) -> dict:
 
     Args:
         args: (symbol, tfs, dsn, config, pipeline_version, warm_up_bars,
-               cross_asset_by_date, refresh)
+               cross_asset_by_date, refresh, insert_batch_size)
                Packed as a tuple for ProcessPoolExecutor.map compatibility.
 
     Returns:
@@ -1054,6 +1059,7 @@ def _run_compute_worker(args: tuple) -> dict:
         warm_up_bars,
         cross_asset_by_date,
         refresh,
+        insert_batch_size,
     ) = args
 
     # Initialize logging in subprocess (each process needs its own handler)
@@ -1082,6 +1088,7 @@ def _run_compute_worker(args: tuple) -> dict:
                     warm_up_bars=warm_up_bars,
                     cross_asset_by_date=cross_asset_by_date,
                     refresh=refresh,
+                    insert_batch_size=insert_batch_size,
                 )
 
                 depth_years = _DEPTH_YEARS[tf]
@@ -1148,6 +1155,7 @@ def _compute_symbol_tf(
     warm_up_bars: int,
     cross_asset_by_date: dict,
     refresh: bool = False,
+    insert_batch_size: int = _INSERT_BATCH_SIZE_DEFAULT,
 ) -> int:
     """Compute FeatureVectors for one (symbol, tf) pair.
 
@@ -1227,7 +1235,7 @@ def _compute_symbol_tf(
         )
         insert_batch.append(row)
 
-        if len(insert_batch) >= _INSERT_BATCH_SIZE:
+        if len(insert_batch) >= insert_batch_size:
             _batch_insert(conn, insert_batch, refresh=refresh)
             total_inserted += len(insert_batch)
             insert_batch = []
