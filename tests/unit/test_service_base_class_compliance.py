@@ -49,6 +49,7 @@ import functools
 from pathlib import Path
 
 from src.core.agent.base import _to_snake_case
+from tests.unit._allow_list_scan import stale_allow_list_entries, unexpected_violations
 
 _REPO_ROOT = Path(__file__).parent.parent.parent
 _SERVICES_DIR = _REPO_ROOT / "services"
@@ -151,22 +152,19 @@ def _find_candidates() -> dict[str, tuple[str, bool]]:
 
 def test_every_daemon_shaped_service_class_extends_a_base_class():
     candidates = _find_candidates()
-    violations = {
-        qualified: class_name
-        for qualified, (class_name, compliant) in candidates.items()
-        if not compliant and qualified not in _ALLOW_LIST
-    }
-    assert not violations, (
-        f"Daemon-shaped class(es) not extending BaseDaemon/BaseWriter/BaseBatch (directly "
-        f"or transitively): {violations}. Either extend one of those bases (preferred -- "
-        "this is what wires the 5 mandatory OTel signals), or add an entry to _ALLOW_LIST "
-        "in this file with a one-line reason if this is a genuine, deliberate exception."
+    noncompliant = (qualified for qualified, (_, compliant) in candidates.items() if not compliant)
+    unexpected = unexpected_violations(noncompliant, _ALLOW_LIST)
+    assert not unexpected, (
+        "Daemon-shaped class(es) not extending BaseDaemon/BaseWriter/BaseBatch (directly "
+        f"or transitively): {[(q, candidates[q][0]) for q in unexpected]}. Either extend "
+        "one of those bases (preferred -- this is what wires the 5 mandatory OTel "
+        "signals), or add an entry to _ALLOW_LIST in this file with a one-line reason if "
+        "this is a genuine, deliberate exception."
     )
 
 
 def test_base_class_allow_list_has_no_stale_entries():
-    candidates = _find_candidates()
-    stale = set(_ALLOW_LIST) - set(candidates)
+    stale = stale_allow_list_entries(_find_candidates(), _ALLOW_LIST)
     assert not stale, (
         f"Allow-list entries that no longer match any daemon-shaped candidate class: "
         f"{stale}. Either the class was fixed to extend a base (remove its entry here) or "

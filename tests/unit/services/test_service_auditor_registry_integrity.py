@@ -34,7 +34,10 @@ CI-clean: no systemctl, no DB, no network -- pure filesystem read of production/
 
 from __future__ import annotations
 
+import functools
 from pathlib import Path
+
+import pytest
 
 from services.service_auditor import _AGENT_ID_TO_UNIT, _DAG_ORDER
 
@@ -94,6 +97,7 @@ _MISSING_UNIT_ALLOWLIST: dict[str, str] = {
 }
 
 
+@functools.cache
 def _unit_file_exists(unit: str) -> bool:
     return (_SYSTEMD_DIR / f"{unit}.service").exists() or (_SYSTEMD_DIR / f"{unit}.target").exists()
 
@@ -102,29 +106,22 @@ def _unit_file_exists(unit: str) -> bool:
 #    documented missing-unit allow-list -------------------------------------------------
 
 
-def test_dag_order_keys_map_to_real_systemd_units():
+@pytest.mark.parametrize(
+    "label, units",
+    [
+        ("_DAG_ORDER key(s)", _DAG_ORDER),
+        ("_AGENT_ID_TO_UNIT value(s)", set(_AGENT_ID_TO_UNIT.values())),
+    ],
+)
+def test_registry_units_map_to_real_systemd_units(label, units):
     missing = sorted(
         unit
-        for unit in _DAG_ORDER
+        for unit in units
         if not _unit_file_exists(unit) and unit not in _MISSING_UNIT_ALLOWLIST
     )
     assert not missing, (
-        f"_DAG_ORDER key(s) with no matching .service/.target file under production/systemd/ "
+        f"{label} with no matching .service/.target file under production/systemd/ "
         f"and not on _MISSING_UNIT_ALLOWLIST: {missing}"
-    )
-
-
-def test_agent_id_to_unit_values_map_to_real_systemd_units():
-    missing = sorted(
-        {
-            unit
-            for unit in _AGENT_ID_TO_UNIT.values()
-            if not _unit_file_exists(unit) and unit not in _MISSING_UNIT_ALLOWLIST
-        }
-    )
-    assert not missing, (
-        f"_AGENT_ID_TO_UNIT value(s) with no matching .service/.target file under "
-        f"production/systemd/ and not on _MISSING_UNIT_ALLOWLIST: {missing}"
     )
 
 
@@ -144,17 +141,16 @@ def test_missing_unit_allowlist_has_no_stale_entries():
 # -- Deny-list: no registry entry may point at a confirmed-archived unit -------------
 
 
-def test_dag_order_keys_not_on_archived_denylist():
-    hits = sorted(set(_DAG_ORDER) & set(_ARCHIVED_UNIT_DENYLIST))
+@pytest.mark.parametrize(
+    "label, units",
+    [
+        ("_DAG_ORDER key(s)", _DAG_ORDER),
+        ("_AGENT_ID_TO_UNIT value(s)", set(_AGENT_ID_TO_UNIT.values())),
+    ],
+)
+def test_registry_units_not_on_archived_denylist(label, units):
+    hits = sorted(set(units) & set(_ARCHIVED_UNIT_DENYLIST))
     assert not hits, (
-        f"_DAG_ORDER key(s) pointing at a confirmed-archived unit: "
-        f"{[(unit, _ARCHIVED_UNIT_DENYLIST[unit]) for unit in hits]}"
-    )
-
-
-def test_agent_id_to_unit_values_not_on_archived_denylist():
-    hits = sorted(set(_AGENT_ID_TO_UNIT.values()) & set(_ARCHIVED_UNIT_DENYLIST))
-    assert not hits, (
-        f"_AGENT_ID_TO_UNIT value(s) pointing at a confirmed-archived unit: "
+        f"{label} pointing at a confirmed-archived unit: "
         f"{[(unit, _ARCHIVED_UNIT_DENYLIST[unit]) for unit in hits]}"
     )

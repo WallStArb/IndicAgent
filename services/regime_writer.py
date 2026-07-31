@@ -595,6 +595,16 @@ def _compute_symbol_tf(
                     seed=seed,
                 )
 
+        # At n_restarts=1 (APR default) there is exactly one candidate and it is
+        # unconditionally kept -- skip the O(len(obs_matrix)) scoring pass entirely,
+        # since the comparison below would never actually run. Saves one full
+        # forward-algorithm pass per symbol/tf cell at the shipped default, with no
+        # behavior change (still byte-identical to the pre-todo-108 single-seed path).
+        if n_restarts == 1:
+            model = candidate
+            converged = candidate_converged
+            break
+
         candidate_ll = float(candidate.score(obs_matrix))
 
         # Prefer any converged candidate over any non-converged one; among candidates

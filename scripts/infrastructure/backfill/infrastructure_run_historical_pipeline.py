@@ -495,13 +495,11 @@ def _load_ibkr_retry_config(settings: Settings) -> None:
 def _load_ibkr_rate_limit_config(settings: Settings) -> None:
     """Overlay the APR-configured historical-data rate-limit parameters
     (infra.ibkr.rate_limit_max_requests / infra.ibkr.rate_limit_window_sec,
-    migration 276) onto ibkr._hist_rate_limiter in place via its reconfigure()
-    method. Unlike the loaders above, this doesn't mutate a module-level constant
-    that's read fresh at each call site -- _hist_rate_limiter is a singleton
-    constructed eagerly at ibkr.py import time, so the config has to be pushed
-    into the already-built instance instead. Same fallback contract as the loaders
-    above -- falls back to the hardcoded defaults (55 requests / 600s window) if
-    the APR keys aren't present or the DB is unreachable.
+    migration 276) onto ibkr._IBKR_HIST_RATE_LIMIT / ibkr._IBKR_HIST_WINDOW_S in
+    place, same pattern as the loaders above -- _hist_rate_limiter.acquire() reads
+    these module constants fresh on every call. Same fallback contract as the
+    loaders above -- falls back to the hardcoded defaults (55 requests / 600s
+    window) if the APR keys aren't present or the DB is unreachable.
     """
     try:
         conn = connect_db(settings)
@@ -516,11 +514,10 @@ def _load_ibkr_rate_limit_config(settings: Settings) -> None:
                 rows = dict(cur.fetchall())
         finally:
             conn.close()
-        max_requests = int(
-            rows.get("infra.ibkr.rate_limit_max_requests", ibkr._IBKR_HIST_RATE_LIMIT)
-        )
-        window_s = float(rows.get("infra.ibkr.rate_limit_window_sec", ibkr._IBKR_HIST_WINDOW_S))
-        ibkr._hist_rate_limiter.reconfigure(max_requests, window_s)
+        if "infra.ibkr.rate_limit_max_requests" in rows:
+            ibkr._IBKR_HIST_RATE_LIMIT = int(rows["infra.ibkr.rate_limit_max_requests"])
+        if "infra.ibkr.rate_limit_window_sec" in rows:
+            ibkr._IBKR_HIST_WINDOW_S = float(rows["infra.ibkr.rate_limit_window_sec"])
     except Exception as error:
         print(f"  (APR rate-limit lookup failed, using hardcoded defaults: {error})")
 

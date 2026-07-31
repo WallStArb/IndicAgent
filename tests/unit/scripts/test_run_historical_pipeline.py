@@ -352,15 +352,15 @@ class TestLoadIbkrRetryConfig:
 class TestLoadIbkrRateLimitConfig:
     """todo 050: _load_ibkr_rate_limit_config() overlays
     infra.ibkr.rate_limit_max_requests / rate_limit_window_sec (migration 276) onto
-    ibkr._hist_rate_limiter in place via its reconfigure() method -- the singleton is
-    constructed eagerly at ibkr.py import time, so unlike the loaders above this can't
-    just mutate a module-level constant read fresh at each call site.
+    ibkr._IBKR_HIST_RATE_LIMIT / ibkr._IBKR_HIST_WINDOW_S in place, same pattern as
+    the sibling loaders above.
     """
 
     def _restore_ibkr_defaults(self):
         from src.providers import ibkr
 
-        ibkr._hist_rate_limiter.reconfigure(ibkr._IBKR_HIST_RATE_LIMIT, ibkr._IBKR_HIST_WINDOW_S)
+        ibkr._IBKR_HIST_RATE_LIMIT = 55
+        ibkr._IBKR_HIST_WINDOW_S = 600.0
 
     def test_overlays_both_keys_when_present(self):
         from scripts.infrastructure.backfill.infrastructure_run_historical_pipeline import (
@@ -382,8 +382,8 @@ class TestLoadIbkrRateLimitConfig:
             ):
                 _load_ibkr_rate_limit_config(MagicMock())
 
-            assert ibkr._hist_rate_limiter._max == 40
-            assert ibkr._hist_rate_limiter._window == 300.0
+            assert ibkr._IBKR_HIST_RATE_LIMIT == 40
+            assert ibkr._IBKR_HIST_WINDOW_S == 300.0
         finally:
             self._restore_ibkr_defaults()
 
@@ -404,8 +404,8 @@ class TestLoadIbkrRateLimitConfig:
             ):
                 _load_ibkr_rate_limit_config(MagicMock())
 
-            assert ibkr._hist_rate_limiter._max == ibkr._IBKR_HIST_RATE_LIMIT
-            assert ibkr._hist_rate_limiter._window == ibkr._IBKR_HIST_WINDOW_S
+            assert ibkr._IBKR_HIST_RATE_LIMIT == 55
+            assert ibkr._IBKR_HIST_WINDOW_S == 600.0
         finally:
             self._restore_ibkr_defaults()
 
@@ -422,8 +422,8 @@ class TestLoadIbkrRateLimitConfig:
             ):
                 _load_ibkr_rate_limit_config(MagicMock())  # must not raise
 
-            assert ibkr._hist_rate_limiter._max == ibkr._IBKR_HIST_RATE_LIMIT
-            assert ibkr._hist_rate_limiter._window == ibkr._IBKR_HIST_WINDOW_S
+            assert ibkr._IBKR_HIST_RATE_LIMIT == 55
+            assert ibkr._IBKR_HIST_WINDOW_S == 600.0
         finally:
             self._restore_ibkr_defaults()
 

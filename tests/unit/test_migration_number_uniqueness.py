@@ -26,6 +26,8 @@ import re
 from collections import defaultdict
 from pathlib import Path
 
+from tests.unit._allow_list_scan import stale_allow_list_entries, unexpected_violations
+
 _REPO_ROOT = Path(__file__).parent.parent.parent
 _MIGRATIONS_DIR = _REPO_ROOT / "production" / "migrations"
 _NUMBER_PATTERN = re.compile(r"^(\d+)_.+\.sql$")
@@ -64,21 +66,18 @@ def _duplicate_number_groups() -> dict[str, list[str]]:
 
 
 def test_no_new_migration_number_collisions():
-    duplicates = _duplicate_number_groups()
-    unexpected = set(duplicates) - set(_ALLOW_LIST)
+    unexpected = unexpected_violations(_duplicate_number_groups(), _ALLOW_LIST)
     assert not unexpected, (
         "New duplicate migration number prefix(es) found under production/migrations/, "
-        f"not on the allow-list: {sorted(unexpected)}. Pick the next free number instead "
+        f"not on the allow-list: {unexpected}. Pick the next free number instead "
         "(check `ls production/migrations/ | sort -n | tail`); if this collision is "
         "genuinely intentional, add it to _ALLOW_LIST in this file with a real reason."
     )
 
 
 def test_migration_number_allow_list_has_no_stale_entries():
-    duplicates = _duplicate_number_groups()
-    stale = set(_ALLOW_LIST) - set(duplicates)
+    stale = stale_allow_list_entries(_duplicate_number_groups(), _ALLOW_LIST)
     assert not stale, (
         f"Allow-list entries that no longer match any duplicate migration number: "
-        f"{sorted(stale)}. The collision was resolved (renumbered) -- remove its entry "
-        "here."
+        f"{stale}. The collision was resolved (renumbered) -- remove its entry here."
     )
