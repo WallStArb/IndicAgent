@@ -2480,6 +2480,32 @@ Plans:
 
 - [x] 167-06-PLAN.md - live backfill, live gate runs, verdicts recorded in the research docs + runbook (wave 5)
 
+### Phase 168: Cost-Hurdle-Adjusted Spread Construction (T3 Follow-On)
+
+**Goal:** Turn `cross_sectional_spread_tracker`'s cost-hurdle sweep from a purely descriptive measurement into a prescriptive, leg-level rebalance rule shipped as a parallel `ctf_momentum_decile_ls_cost_gated` construction, and produce a real four-part D-04 verdict on whether it beats Phase 167's validated baseline net-of-cost — where a HOLD is a legitimate outcome.
+**Requirements**: D-01 (leg-level hysteresis band), D-02 (parallel construction_name, no in-place mutation), D-03 (flat 10bp cost floor via existing APR key), D-04.1-D-04.4 (paired delta-CI Sharpe gate, gross-spread non-degradation, turnover diagnostic, stateful shuffled null re-run)
+**Depends on:** Phase 167
+**Plans:** 5 plans, 4 waves
+
+Plans:
+
+**Wave 1** *(parallel — disjoint files)*
+
+- [ ] 168-01-PLAN.md - empirical margin calibration script + migration 275 seeding `alpha.construction.bps_per_feature_unit` / `gross_degradation_tolerance_frac` (wave 1)
+- [ ] 168-02-PLAN.md - `hysteresis_legs()` / `resolve_hysteresis_margin()` / `validate_hysteresis_config()` pure functions + 8 unit tests (wave 1)
+
+**Wave 2** *(blocked on Wave 1 completion)*
+
+- [ ] 168-03-PLAN.md - `--construction-variant` parameterization, hysteresis wired into `process_bar`, cross-construction isolation integration test (wave 2)
+
+**Wave 3** *(blocked on Wave 2 completion)*
+
+- [ ] 168-04-PLAN.md - `--evaluate-delta-gate` mode: bar-matched paired delta CI (D-04.1), gross-spread non-degradation (D-04.2), quarantined turnover diagnostic (D-04.3) (wave 3)
+
+**Wave 4** *(blocked on Wave 3 completion)*
+
+- [ ] 168-05-PLAN.md - stateful sequential shuffled null (D-04.4), binding four-part verdict, live backfill + live gate run, verdict transcribed into `trade-construction-layer.md` (wave 4)
+
 ---
 
 **Correction (2026-07-12, same day as the note above was first written):** this section previously said Phases 152/153 should be **prioritized now**, ahead of the intelligence-layer work. That was wrong and contradicted the milestone bullet above's own existing, correct caution ("Do not let either jump ahead of Phase 142B/143 or 148, which carry present-tense value the backlog matrix rates higher"). Monitoring decay of alpha that hasn't been proven to exist yet is monitoring a null: Phase 148's OOS gates (EIC-04 + FRAME-04) have not passed on corrected data — **FRAME-04 currently fails 16/17 cells** on the pre-143.1-fix baseline, so there is no proven capturable edge for 152/153 to watch decay in yet. **Corrected sequencing:** finish 143.1 (091→097→094→E1-vs-E2 re-run→096→088) → re-run EIC-04/FRAME-04 honestly on corrected data → only then decide between (a) building 152/153's decay/health monitoring or (b) expanding discovery (Phase 151/PrecedentEngine) based on what that gate actually says. Phase 157's kill-switch design above still correctly notes its dependency on Phase 153 eventually existing — that dependency is real, it's just not a reason to build 153 before Phase 148 resolves.
