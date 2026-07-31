@@ -25,6 +25,7 @@ from services._batch_utils import (
     cfg,
     connect_db_from_url,
     load_apr_dict_async,
+    resolve_per_tf,
 )
 
 
@@ -130,6 +131,24 @@ class TestCfg:
         cfg_dict = {"alpha.regime.groups": {"equity": True}}
         result = cfg(cfg_dict, "alpha.regime.groups", {})
         assert result == {"equity": True}
+
+
+class TestResolvePerTf:
+    """Relocated from services/ensemble_trainer.py (todo 009 Part D Item 4) -- direct
+    test at the new canonical home, in addition to the coverage that already runs
+    through ensemble_trainer.py's re-exported _resolve_per_tf alias
+    (test_ensemble_trainer.py)."""
+
+    def test_uses_global_default_when_no_per_tf_override(self) -> None:
+        assert resolve_per_tf({}, "alpha.ensemble.min_passing_features", "1h", 5) == 5
+
+    def test_uses_per_tf_override_when_present(self) -> None:
+        cfg_dict = {"alpha.ensemble.min_passing_features.1h": "3"}
+        assert resolve_per_tf(cfg_dict, "alpha.ensemble.min_passing_features", "1h", 5) == 3
+
+    def test_per_tf_override_scoped_to_its_own_tf(self) -> None:
+        cfg_dict = {"alpha.ensemble.min_passing_features.1h": "3"}
+        assert resolve_per_tf(cfg_dict, "alpha.ensemble.min_passing_features", "15m", 5) == 5
 
 
 class TestLoadAprDictAsync:

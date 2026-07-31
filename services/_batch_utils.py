@@ -179,48 +179,14 @@ def resolve_per_tf(cfg_dict: dict[str, Any], key_base: str, tf: str, default: An
     """Resolve a per-timeframe APR override, falling back to the global default.
 
     Exact precedent: alpha.frame.hold_max_bars.<regime>.<tf> (services/alpha_frame_writer.py).
-    Relocated from services/ensemble_trainer.py (todo 009 Part D Item 4) — a pure
-    function whose only dependency (cfg() above) already lives here, so a second
-    consumer can use it without importing the whole ensemble_trainer service.
+    Relocated from services/ensemble_trainer.py (todo 009 Part D Item 4) — a pure,
+    generic one-liner whose only dependency (cfg() above) already lives here, so a
+    second consumer can use it without importing the whole ensemble_trainer service.
+    meta_eligible (BH-FDR eligibility, ensemble_trainer-specific domain logic) stays
+    in ensemble_trainer.py and calls this — only the generic resolver belongs in a
+    shared services-wide utils file, not the eligibility logic built on top of it.
     """
     return cfg(cfg_dict, f"{key_base}.{tf}", default)
-
-
-def meta_eligible(
-    fdr_pass_rows: list[dict], cfg_dict: dict[str, Any], min_fraction: float, min_cells: int
-) -> dict[str, set[str]]:
-    """Return, per timeframe, feature names whose BH-FDR pass-rate across that
-    timeframe's eligible cells meets the threshold.
-
-    Scoped per-tf rather than pooled globally: timeframes are not exchangeable draws of
-    the same experiment (different bars/day, different noise floor, different horizon),
-    so pooling BH-FDR outcomes across all 4 timeframes into one fraction conflates
-    cross-timeframe power differences with feature quality — a feature genuinely strong
-    at 1d can get vetoed everywhere by a weak showing in 5m noise. Each row must carry
-    'feature_name', 'tf', 'fdr_pass_rate', 'n_cells'.
-
-    min_cells is the GLOBAL fallback; alpha.ensemble.meta_fdr_min_cells.<tf> (todo 164)
-    resolves per-timeframe via resolve_per_tf, falling back to min_cells when unset --
-    excludes (feature, tf) pairs with too little evidence to make the fraction meaningful.
-
-    Denominator (fdr_pass_rate) is restricted to cross-sectional cells that pass all
-    ensemble eligibility filters (symbol='POOLED', is_pooled=true, regime != '_pooled',
-    reliable=true, ic_sharpe_hac IS NOT NULL, passes_walkforward=true, plus the
-    flag-gated significance clause -- see services/ensemble_trainer.py's
-    `_eligibility_where()`) — the same population consumed by `_process_stratum`.
-
-    Relocated from services/ensemble_trainer.py (todo 009 Part D Item 4).
-    """
-    result: dict[str, set[str]] = {}
-    for r in fdr_pass_rows:
-        effective_min_cells = resolve_per_tf(
-            cfg_dict, "alpha.ensemble.meta_fdr_min_cells", r["tf"], min_cells
-        )
-        if r["n_cells"] < effective_min_cells:
-            continue
-        if r["fdr_pass_rate"] >= min_fraction:
-            result.setdefault(r["tf"], set()).add(r["feature_name"])
-    return result
 
 
 LOOKAHEAD_FALLBACKS_BY_TF: dict[str, dict[str, int]] = {

@@ -106,7 +106,7 @@ _DEFAULT_TFS: list[str] = ["5m", "15m", "1h", "1d"]
 
 # Minimum obs rows per (symbol, tf) = n_components * this factor.
 # Below this, the fit is meaningless (too few state transitions to estimate A).
-# APR fallback default, live value read from alpha.hmm.min_obs_factor (migration 275,
+# APR fallback default, live value read from feature.hmm.min_obs_factor (migration 275,
 # todo 009 Part A).
 _MIN_OBS_FACTOR_DEFAULT = 50
 
@@ -980,7 +980,7 @@ def main() -> None:
                 min_state_occupation = float(cfg.get_sync("feature.hmm.min_state_occupation", 0.05))
                 churn_window = int(cfg.get_sync("feature.hmm.churn_window", 10))
                 min_obs_factor = int(
-                    cfg.get_sync("alpha.hmm.min_obs_factor", _MIN_OBS_FACTOR_DEFAULT)
+                    cfg.get_sync("feature.hmm.min_obs_factor", _MIN_OBS_FACTOR_DEFAULT)
                 )
 
                 symbols = args.symbols if args.symbols else _discover_symbols(_conn)

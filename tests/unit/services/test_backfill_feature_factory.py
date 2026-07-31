@@ -727,9 +727,20 @@ def test_refresh_reprocesses_complete_pairs() -> None:
         mock_pool.map.assert_called_once()
         worker_args = list(mock_pool.map.call_args[0][1])
         assert len(worker_args) == 1
-        # Second-to-last positional element of each worker-args tuple is the refresh
-        # flag (last is insert_batch_size, todo 009 Part A APR migration).
-        assert worker_args[0][-2] is True
+        # Unpack by name (matches _run_compute_worker's documented args: order) rather
+        # than a magic tuple index -- stays correct if the tuple grows again.
+        (
+            _symbol,
+            _tfs,
+            _dsn,
+            _config,
+            _pipeline_version,
+            _warm_up_bars,
+            _cross_asset_by_date,
+            refresh,
+            _insert_batch_size,
+        ) = worker_args[0]
+        assert refresh is True
 
 
 def test_batch_insert_default_uses_insert_sql() -> None:

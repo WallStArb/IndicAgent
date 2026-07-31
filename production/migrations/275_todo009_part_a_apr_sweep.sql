@@ -6,7 +6,7 @@
 --
 --   services/backfill_feature_factory.py  _INSERT_BATCH_SIZE           500  -> infra.backfill.insert_batch_size
 --   services/forward_return_writer.py     _INSERT_BATCH_SIZE_DEFAULT   500  -> alpha.ic.insert_batch_size
---   services/regime_writer.py             _MIN_OBS_FACTOR              50   -> alpha.hmm.min_obs_factor
+--   services/regime_writer.py             _MIN_OBS_FACTOR              50   -> feature.hmm.min_obs_factor
 --   services/signal_auditor.py            _AUDIT_INTERVAL              300  -> infra.signal_auditor.audit_interval_seconds
 --
 -- forward_return_writer.py's code path already reads
@@ -44,16 +44,22 @@ VALUES
     'throughput knob -- output is invariant to this value. Not an ML learning target.'
 ),
 (
-    'alpha.hmm.min_obs_factor',
+    'feature.hmm.min_obs_factor',
     'int',
     '50',
-    1, 1000,
+    10, 1000,
     '[initial_estimate] Minimum obs-row multiplier for regime_writer.py''s HMM fit '
     'gate: min_rows = n_components * min_obs_factor. Below this, the fit is '
     'meaningless (too few state transitions to estimate the transition matrix). '
     'Raising this makes the fit more conservative (skips more thin symbol/tf '
     'cells); lowering it risks fitting HMMs on insufficient data. Not an ML '
-    'learning target -- a data-sufficiency gate, not a model parameter.'
+    'learning target -- a data-sufficiency gate, not a model parameter. Domain '
+    'is feature.hmm.* (matches the other 10 HMM tunables regime_writer.py reads '
+    'in the same block -- n_components, vol_window, full_cov_min_obs, etc.), not '
+    'alpha.hmm.* (reserved for alpha.hmm.random_state, the one HMM key that '
+    'specifically invalidates downstream alpha outputs when changed). min_value '
+    'floored at 10, not 1 -- a multiplier of 1 would let min_rows collapse to '
+    'n_components alone, defeating the gate the key exists to enforce.'
 ),
 (
     'infra.signal_auditor.audit_interval_seconds',
@@ -69,7 +75,7 @@ INSERT INTO config_state (config_key, config_value, version)
 VALUES
     ('infra.backfill.insert_batch_size', '500', 1),
     ('alpha.ic.insert_batch_size', '500', 1),
-    ('alpha.hmm.min_obs_factor', '50', 1),
+    ('feature.hmm.min_obs_factor', '50', 1),
     ('infra.signal_auditor.audit_interval_seconds', '300', 1)
 ON CONFLICT (config_key) DO NOTHING;
 
@@ -81,7 +87,7 @@ VALUES
      'Seed at pre-migration hardcoded value -- code already read this key with no '
      'row ever inserted, so the live read was silently always falling back to the '
      'hardcoded default, todo 009 Part A [initial_estimate]'),
-    (NOW(), 'alpha.hmm.min_obs_factor', 1, '50', 'migration_275',
+    (NOW(), 'feature.hmm.min_obs_factor', 1, '50', 'migration_275',
      'Seed at pre-migration hardcoded value, todo 009 Part A [initial_estimate]'),
     (NOW(), 'infra.signal_auditor.audit_interval_seconds', 1, '300', 'migration_275',
      'Seed at pre-migration hardcoded value, todo 009 Part A [initial_estimate]')

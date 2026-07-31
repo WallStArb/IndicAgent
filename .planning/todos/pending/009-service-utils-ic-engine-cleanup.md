@@ -13,7 +13,7 @@
 
 **Part A closed 2026-07-31** (migration 275): all 4 constants migrated to APR --
 `infra.backfill.insert_batch_size`, `alpha.ic.insert_batch_size` (code already read this
-key, migration was the missing piece -- see below), `alpha.hmm.min_obs_factor`,
+key, migration was the missing piece -- see below), `feature.hmm.min_obs_factor`,
 `infra.signal_auditor.audit_interval_seconds`. All 3 code-side migrations (backfill,
 regime_writer, signal_auditor) thread the live value through their existing
 ProcessPoolExecutor worker-args tuple / `BaseDaemon.get_config()` pattern, matching each
@@ -23,6 +23,17 @@ the read was silently always falling back to the hardcoded default until this mi
 Seeded at exact pre-migration values, byte-identical behavior. Tests green
 (`tests/unit/services/test_backfill_feature_factory.py` updated for the new worker-args
 tuple shape), ruff/black clean.
+
+**Post-commit `/simplify` review (2026-07-31) corrected two things in migration 275
+before it left this session**: (1) `min_obs_factor`'s domain was originally seeded as
+`alpha.hmm.min_obs_factor`, copy-pasted from `alpha.hmm.random_state`'s precedent --
+wrong: `regime_writer.py` reads 10 other HMM tunables in the same block under
+`feature.hmm.*`, and `random_state` is the deliberate one-off exception (it invalidates
+downstream alpha outputs when changed, the other 10 don't). Renamed to
+`feature.hmm.min_obs_factor`, matching the dominant convention; live DB rows
+deleted/re-seeded under the corrected key before this had a second consumer. (2) The
+key's `min_value` bound was `1`, which lets an operator set `min_rows = n_components`
+alone -- defeating the data-sufficiency gate the key exists to enforce. Raised to `10`.
 
 **Part D closed 2026-07-31** -- 4 items, 2 done as originally scoped, 2 found stale:
 - **Item 1 DONE**: `parse_training_window_end(raw: str) -> datetime` added to
@@ -39,15 +50,24 @@ tuple shape), ruff/black clean.
   scatter loop at both of `ic_engine.py`'s occurrences (per-symbol pass, cross-sectional
   pass). Direct tests `tests/unit/test_ic_math_expand_int.py`, incl. a byte-identical
   comparison against the original inline loop on a random mask.
-- **Item 4 DONE, but not exactly as scoped**: `_meta_eligible`'s "pure function with no
-  service dependencies" premise was stale -- it calls `_resolve_per_tf`, which is a real
-  (if thin) dependency. Moved both `_resolve_per_tf` (-> `resolve_per_tf`) and
-  `_meta_eligible` (-> `meta_eligible`) together to `services/_batch_utils.py`, the
-  already-established shared home for `cfg()` (which `resolve_per_tf` itself calls) and
-  imported by 16 other services -- not the originally-suggested new
-  `src/intelligence/ic_utils.py` module. `ensemble_trainer.py` now imports both under
-  their original private names (`_resolve_per_tf`, `_meta_eligible`) so all existing call
-  sites and tests (`test_ensemble_trainer.py`, `test_ensemble_meta_fdr.py`) are unchanged.
+- **Item 4 DONE, but not exactly as scoped -- and revised once more by the
+  post-commit `/simplify` review**: `_meta_eligible`'s "pure function with no service
+  dependencies" premise was stale -- it calls `_resolve_per_tf`, a real (if thin)
+  dependency. First pass moved both `_resolve_per_tf` and `_meta_eligible` together to
+  `services/_batch_utils.py`. The `/simplify` altitude review caught that this
+  over-generalized: `meta_eligible` is ensemble_trainer-specific BH-FDR eligibility
+  logic (cites `_eligibility_where()`, has exactly one consumer) dumped into a
+  generic cross-service utils file just because its one dependency happened to live
+  there -- a bad precedent for where the next similar helper gets placed. Corrected:
+  only `resolve_per_tf` (genuinely generic, a one-line `cfg()` wrapper) stays in
+  `services/_batch_utils.py`, with a direct test added there
+  (`tests/unit/test_batch_utils.py::TestResolvePerTf`, closing the "missing test at
+  the new home" gap the same review flagged). `_meta_eligible` moved back to
+  `services/ensemble_trainer.py`, now calling the shared `_resolve_per_tf` instead of
+  a locally-duplicated copy. All existing call sites and tests
+  (`test_ensemble_trainer.py`, `test_ensemble_meta_fdr.py`) unchanged either way --
+  they only ever exercised the public `_resolve_per_tf`/`_meta_eligible` names
+  ensemble_trainer.py re-exports.
 
 Part E closed 2026-07-23: Phase 162-01 extracted `build_walk_forward_folds(n_obs, n_folds,
 embargo_bars)` into `src/intelligence/statistics/ic_math.py`, replacing all 4 inline copies

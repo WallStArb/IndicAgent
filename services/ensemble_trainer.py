@@ -60,7 +60,6 @@ import math
 
 from services._batch_utils import cfg as _cfg
 from services._batch_utils import load_apr_dict_async as _load_apr
-from services._batch_utils import meta_eligible as _meta_eligible
 from services._batch_utils import resolve_per_tf as _resolve_per_tf
 from src.config.settings import Settings
 from src.core.agent.base_batch import BaseBatch
@@ -375,6 +374,46 @@ def _effective_sign_symmetric(cli_sign_symmetric: bool | None, apr_default: bool
     distinct from an explicit `False`, which must still override the APR default.
     """
     return cli_sign_symmetric if cli_sign_symmetric is not None else apr_default
+
+
+def _meta_eligible(
+    fdr_pass_rows: list[dict], cfg: dict[str, Any], min_fraction: float, min_cells: int
+) -> dict[str, set[str]]:
+    """Return, per timeframe, feature names whose BH-FDR pass-rate across that
+    timeframe's eligible cells meets the threshold.
+
+    Scoped per-tf rather than pooled globally: timeframes are not exchangeable draws of
+    the same experiment (different bars/day, different noise floor, different horizon),
+    so pooling BH-FDR outcomes across all 4 timeframes into one fraction conflates
+    cross-timeframe power differences with feature quality — a feature genuinely strong
+    at 1d can get vetoed everywhere by a weak showing in 5m noise. Each row must carry
+    'feature_name', 'tf', 'fdr_pass_rate', 'n_cells'.
+
+    min_cells is the GLOBAL fallback; alpha.ensemble.meta_fdr_min_cells.<tf> (todo 164)
+    resolves per-timeframe via _resolve_per_tf, falling back to min_cells when unset --
+    excludes (feature, tf) pairs with too little evidence to make the fraction meaningful.
+
+    Denominator (fdr_pass_rate) is restricted to cross-sectional cells that pass all
+    ensemble eligibility filters (symbol='POOLED', is_pooled=true, regime != '_pooled',
+    reliable=true, ic_sharpe_hac IS NOT NULL, passes_walkforward=true, plus the
+    flag-gated significance clause -- see `_eligibility_where()`) — the same population
+    consumed by _process_stratum.
+
+    Kept here rather than in services/_batch_utils.py (todo 009 Part D Item 4, revised
+    2026-07-31 code review): this is ensemble_trainer-specific BH-FDR eligibility logic
+    with exactly one consumer, not a generic cross-service utility -- only its dependency
+    (_resolve_per_tf) is generic enough to live in the shared batch-utils module.
+    """
+    result: dict[str, set[str]] = {}
+    for r in fdr_pass_rows:
+        effective_min_cells = _resolve_per_tf(
+            cfg, "alpha.ensemble.meta_fdr_min_cells", r["tf"], min_cells
+        )
+        if r["n_cells"] < effective_min_cells:
+            continue
+        if r["fdr_pass_rate"] >= min_fraction:
+            result.setdefault(r["tf"], set()).add(r["feature_name"])
+    return result
 
 
 # ---------------------------------------------------------------------------
