@@ -248,6 +248,56 @@ an uncalibrated 3.5-week-old guess, not a measurement. Worth a `calibration_stat
 calibrated) surfaced wherever these keys are consumed, so this doesn't silently recur for
 some other (regime, tf) cell in the future.
 
+## Characterization run results (2026-07-30 evening) — decision: do NOT re-migrate now
+
+Ran `ops_lookahead_horizon_response.py` (baseline + `--allow-overnight` for 5m/15m/1h,
+30 symbols, vintage `2025-12-24T05:15:00Z`) to answer whether migration 269's provisional
+grid needs revision before trusting the in-flight `ic_engine` pass. Full logs:
+`logs/ops_diagnostics/lookahead_horizon_response_*_20260730_1755.log`.
+
+**First finding — independently validates today's todo 208 fix.** Baseline (old
+same-session-gated semantics) 1h collapses to `completeness=0.000` at `horizon_bars=6`
+(zero rows, a structural ceiling per the script's own framing). The `--allow-overnight`
+variant (matching production's post-208 semantics) holds `completeness≈1.000` at the
+same horizon and all the way out to `horizon_bars=70` (8,068 obs). Same pattern for 5m
+(overnight: completeness≈1.00 through 780 bars) and 15m (completeness≈1.00 through 260
+bars). Confirms the session-gate WAS silently discarding real, complete data, and that
+today's fix is correct.
+
+**Second finding — the deeper premise doesn't resolve cleanly, and that's itself the
+answer for now.** Under the production-matching (overnight) semantics, `median_abs_ic`
+does not show a decay-then-flatten curve for 5m, 15m, or 1h within any tested horizon —
+it rises roughly monotonically out to the longest horizon tried in each (5m: 0.0035→0.0511
+over 1→780 bars; 15m: 0.0047→0.0290 over 1→260 bars; 1h: 0.0030→0.0111 over 1→70 bars),
+**with `median_ci_halfwidth` widening in lockstep** (5m: 0.0057→0.0714; 15m: 0.0057→0.0413;
+1h: 0.0058→0.0218). The diagnostic's own methodology note is explicit that this exact
+shape — IC rising alongside CI width — is "consistent with pure noise, not real signal
+growth," not confirmed economically-widening edge. This is a strong, concrete explanation
+for the standing observation (STATE.md, this session) that `_select_hold_bars_from_decay`
+has never converged for 1h/1d and sits pinned at its 60-bar ceiling in every regime: the
+walk is looking for a decay point that may not exist within any horizon range short enough
+to be tradeable, at least not in this pooled-across-all-244-features median view.
+
+**Decision:** migration 269's provisional grid is not shown to be wrong by this data —
+every current fast/mid/slow/extended value for every tf sits inside the
+completeness≈1.0, FDR-significant-signal region under corrected semantics (no
+zero-completeness trap remains anywhere in the current grid; that was the old bug, now
+fixed). **No re-migration, no third rebuild cycle.** The in-flight `ic_engine` pass is
+not invalidated by this finding and its output should be trusted once complete.
+
+**What actually remains open, reframed:** not "what are the right grid numbers" but "does
+holding-period selection via decay-walk-on-pooled-median-IC even make sense as a method,
+given this curve shape." Candidate next steps (not started, needs a real design pass, not
+mechanical): (a) test whether a per-feature (not pooled-median) decay walk looks different
+— a handful of dominant features like `ctf_momentum`/`yield_slope_z` might decay while the
+median is dragged by many near-zero features with widening CIs; (b) reconsider the
+selection criterion entirely — e.g. gate on CI-half-width materiality (stop extending the
+horizon once the CI grows wider than some economically-meaningful IC threshold) rather
+than waiting for a point-estimate decay that this data suggests may not exist in-sample;
+(c) accept that `hold_max_bars` for 1h/1d may be legitimately execution-cost-bound (todo
+030's cost-hurdle verdict) rather than signal-decay-bound, and stop trying to derive it
+from IC curves at all for those tfs.
+
 ## References
 
 - [208](208-intraday-same-session-forward-return-gate-inconsistent-with-trade-construction.md)

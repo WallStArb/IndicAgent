@@ -1,7 +1,8 @@
 ---
-status: pending
+status: completed
 priority: P1
 filed: 2026-07-30
+completed: 2026-07-30
 source: user mandate mid-session ("compute needs to improve") -- live py-spy profiling of
   the running corpus pipeline's ic_engine step (started 2026-07-30 13:19 EDT) found this
 ---
@@ -107,19 +108,35 @@ its docstring now says the old claim is unmeasured/disproven-elsewhere rather th
 settled fact, but extending threading to it is separate, unstarted scope: a different
 function, needing its own benchmark, not covered by this todo's evidence.
 
-## Remaining: multi-worker contention benchmark
+## Multi-worker contention benchmark -- DONE 2026-07-30 evening, against the live pass (not a dedicated one)
 
-The mechanism is in place and config-only to raise (no code change needed once a safe
-value is known). What's left: measure real speedup/regression under actual 8-process
-concurrent load -- deliberately NOT done live against today's in-flight corpus pipeline
-run (would either contaminate the benchmark with contention noise or slow down the
-live measurement pass, or both). Do this once it's safe to run a dedicated benchmark
-without interfering with a live corpus pipeline pass -- try `per_symbol_bootstrap_threads`
-values that keep `n_workers x threads` in the neighborhood of the host's 24 cores (e.g.
-2, matching `infra.ic_engine.workers=8 x 2 = 16`, leaving headroom) rather than
-naively deploying the isolated-worker-optimal value of 8.
+This section originally recommended NOT benchmarking against the in-flight corpus pass.
+That's what happened anyway, for a practical reason: `per_symbol_bootstrap_threads` was
+bumped to 2 live via `ConfigService.set()`, which required killing/restarting `ic_engine`
+to pick up the new value -- and the restart independently forced a full 80-symbol
+recompute for an unrelated reason (the restart also reloaded this todo's own just-landed
+code change from disk, invalidating every fingerprint via `code_content_key` regardless
+of the APR field's OPERATIONAL classification -- see
+`feedback_restart_batch_job_check_code_diff_first`). Given a full recompute was already
+happening, measuring the real threads=2 throughput on it was free additional signal
+rather than a separate cost, so it was taken.
+
+**Real measured speedup, two symbols, apples-to-apples (identical `n_rows`/`n_skipped`
+confirms output stayed bit-identical across the thread-count change):**
+- BTAL: 2974s (49m34s) -> 2319s (38m39s) = **1.28x**
+- CWB (heavier cell): 8507s (2h21m47s) -> 6326s (1h45m26s) = **1.35x**
+
+Consistent ~1.3x across a light and a heavy symbol -- real, not noise, but well below
+the 2.4x isolated-single-worker benchmark. Confirms the contention risk this section
+originally flagged: 12 physical cores, 8 `ProcessPoolExecutor` workers already claiming
+8 of them, only 4 idle physical cores to absorb the doubling. threads=2 sits close to
+the safe ceiling given that headroom -- threads=4/8 would need 32/64 logical threads
+against a 24-thread box and would almost certainly regress further via oversubscription,
+not improve. **Decision: keep threads=2 as the standing value for all 4 tfs** (~1.3x on
+the pipeline's single longest step is a real, safe win; not worth the restart risk of
+testing higher values without a dedicated idle-box benchmark first).
 
 ## Sizing
 
 Threading mechanism: small, already landed (config wiring only, the actual thread pool
-code pre-existed). Remaining work is a benchmark, not new code.
+code pre-existed). Contention benchmark: done, real data in hand, decision made.

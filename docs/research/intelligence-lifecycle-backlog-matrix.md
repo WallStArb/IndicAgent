@@ -1,6 +1,6 @@
 # v3.0 Intelligence Lifecycle — Priority Matrix
 
-**Last rewritten:** 2026-07-08, full **Operational context refresh 2026-07-26, touched up 2026-07-27** (Phase 167 completion, Phase 164 planning, T5 1d replication) (the dated
+**Last rewritten:** 2026-07-08, full **Operational context refresh 2026-07-26, touched up 2026-07-27, 2026-07-31** (Phase 167 completion, Phase 164 planning, T5 1d replication, Phase 168 planned) (the dated
 append-log format this doc had drifted into was cut — see git history if the historical
 narrative is ever needed; resolved items live in `.planning/todos/completed/` and ROADMAP.md's
 Phase Summary tables). **Filename is stable, not date-stamped**
@@ -55,6 +55,26 @@ completed 2026-07-27T21:55 UTC; todo 179's sweep was re-run the same day against
 corrected labels (270 cells, zero pass) — the "no edge" verdict is now confirmed, not
 provisional. Doesn't affect T3/Phase 167's own result (no regime dependency).
 
+**2026-07-30/31: a real correctness bug (todo 208) was found and fixed in `forward_return_writer.py`'s
+same-ET-session completeness gate** — it was silently zeroing 1h's `slow`/`extended` completeness
+for a reason that doesn't hold up under the horizon-response diagnostic. Fixed for all intraday
+tfs, `forward_returns` truncated and rebuilt clean (35.6M rows) under the corrected definition,
+and the full corpus pipeline relaunched from `regime_writer`. **A full 80-symbol `ic_engine` pass
+is in flight as of this writing** (started 13:19 EDT 2026-07-30, ~49/80 symbols done as of
+2026-07-31 ~20:35 UTC, ETA ~2026-08-01 midday/early afternoon) — nothing that reads
+`feature_ic_scores`/`ensemble_alpha` should start until it completes. The diagnostic itself
+resolved cleanly: today's session-gate fix is confirmed correct, and migration 269's provisional
+per-tf lookahead grid is confirmed not wrong under the corrected semantics — **this run is
+trustworthy, not a third rebuild waiting to happen.** Separately, `ic_engine`'s bootstrap CI
+(todo 215) was vectorized and measured at ~1.3x real speedup (contention-limited, below the 2.4x
+isolated benchmark) — kept as the standing config, no further tuning without a dedicated
+idle-box benchmark. Canary RNG seeding (todo 203) fixed; a sibling POOLED-gate anomaly (todo 204)
+remains undiagnosed pending this run's output. **Phase 168 (Cost-Hurdle-Adjusted Spread
+Construction, T3 follow-on)** was scoped and planned 2026-07-31 as a parallel, zero-compute-
+contention track alongside the live `ic_engine` run — 5 plans/4 waves, cross-AI reviewed
+(Codex+Agy), ready to execute (`/gsd:execute-phase 168`), not yet run. See its row in the HIGH
+tier's Phases table below.
+
 ---
 
 ## HIGH — do first
@@ -83,6 +103,7 @@ threshold calibration, split out of todo 026's P3).
 | Idea | Effort | Risk | Reward | Note |
 |---|---|---|---|---|
 | **Phase 167: Cross-Sectional Trade Construction (T3)** | M | Low-Med | **High, proven** | **COMPLETE 2026-07-27 (6/6 plans).** `services/cross_sectional_spread_tracker.py` productionized T3, applied the todo 030 cost-hurdle sweep, backfilled the full 2006-2026 corpus into `construction_spreads` (24,924 bars), and ran both live Validation Gates against the real OOS population: Gate 1 (shadow spread Sharpe) and Gate 2 (attribution honesty) both PASSED — the first construction in project history to clear both, unlike Phase 148's per-symbol directional construction. Clears Phase 156-159's stated precondition; **whether to proceed is the user's decision — redirected 2026-07-27 toward validating the signal-generation stack first, not automatic.** See `docs/research/trade-construction-layer.md`, `docs/research/data-edge-source-thesis.md`. |
+| Phase 168: Cost-Hurdle-Adjusted Spread Construction (T3 follow-on) | M | Low-Med | High, evidence-backed | **PLANNED 2026-07-31** (5 plans, 4 waves, `gsd-plan-checker` PASSED, decision coverage 4/4). Applies todo 030's cost-hurdle sweep as a construction-layer change (which symbols/legs survive realistic transaction costs), no new features. Cross-AI reviewed (Codex + Agy/Antigravity), 9 findings incorporated via targeted revision. Scoped as a zero-compute-contention parallel track while the in-flight `ic_engine` recompute runs. Execution-ready (`/gsd:execute-phase 168`), not yet run. See `docs/research/trade-construction-layer.md`. |
 | Phase 144: Cross-Sectional Regime Model (`regime_group`) | L | Med | High | **COMPLETE 2026-07-22** (6/6 plans, D-05 verdict landed). The symbol_hmm restoration fix (`dual_write_symbol_hmm`, migration 247) unblocked D-05, which then ran for real: **F1 not triggered** (TLT's per-symbol HMM stays deficient, demotion holds — matches the original 2026-07-02 finding) and **F2 triggered for 15m/5m** (rates cross-sectional is ALSO deficient at high frequency — pre-registered build trigger for a factor-augmented HMM challenger, pending confirmation `volatility_pct` hasn't already passed its own substitution gate for rates). Full verdict in ROADMAP.md's Phase 144 section. Cross-Group Lead-Lag IC and Phase 145 are now unblocked by this row closing — see their own rows for current status. |
 | Phase 166: Frame/Execution Recalibration | L | Med | High | **COMPLETE 2026-07-23** (6/6 plans, registered from todo 174). **VERDICT: neither candidate promoted** — baseline and scalar (retuned stop/target) both fail gate166's max-drawdown ceiling (9.60x and 26.18x vs. 0.25). Direct follow-on (todo 179, same day) found the real cause: `mid_bull`'s raw un-barriered forward return is negative at every horizon — a market-data finding, not an execution-frame defect. Closes the "recalibrate the frame" hypothesis conclusively; reframes the open question to Phase 151/164/165 (invest in features) vs. accept-no-edge (see Operational context above). No longer gates anything — still gates Phases 149-159 in the sense that neither fork is resolved yet. |
 | Phase 162: ic_engine Corpus Pipeline Throughput | M-L | Med | High | **COMPLETE 2026-07-23** (4/4 plans). Whole-cell `ic_cell_fingerprints` mechanism shipped and empirically proven equivalent to a forced `--refresh` recompute (`ops_ic_fingerprint_equivalence.py`, byte-identical `feature_ic_scores`, ~80x faster on skip). The Med risk rating proved warranted, not just cautious: post-execution code review found a real BLOCKER (CR-01) in the per-symbol fingerprint watermark's cross-sectional scoping — exactly the "silent-wrong-IC risk, not just a crash" this row flagged in advance — found and fixed same session, independently re-verified. 3 of 7 success criteria (full-corpus wall-clock, surgical-invalidation timing, thread benchmark) need an actual 80-symbol corpus run to close empirically, tracked in `162-HUMAN-UAT.md`, not blocking. Bundled todos 122/129(partial)/133/134/139/140 — closed. |

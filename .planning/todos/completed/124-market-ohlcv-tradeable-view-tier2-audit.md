@@ -1,11 +1,69 @@
 ---
-status: pending
+status: done
 priority: P1
 filed: 2026-07-16
+closed: 2026-07-31
 source: split from todo 035's full-tree audit (docs/plans/2026-07-16-market-data-ohlcv-active-bars-boundary-design.md)
 reclassified: 2026-07-20 -- P3->P1, "style/DRY only" claim below is now WRONG for
   backfill_feature_factory.py; see "2026-07-20 correction" section
 ---
+
+## 2026-07-31 — remaining 10 Tier-2 files closed, boundary test allow-list clean
+
+All 10 files carried on `test_market_data_ohlcv_boundary.py`'s `_ALLOW_LIST` as
+"PENDING (todo 124)" are now resolved. 9 migrated to `market_data_ohlcv_tradeable`
+(genuine correctness gaps, not just style/DRY) and removed from the allow-list entirely;
+1 (`infrastructure_run_historical_pipeline.py`) partially migrated with the rest
+reclassified PERMANENT with a written rationale:
+
+- **`services/bar_replay_provider.py`** — replays bars into the LIVE `market.bars`/
+  `market.bars.htf` topics as if arriving in real time. Migrated (todo's own worry:
+  systemd unit's `ExecStart` is stale, pointing at a nonexistent
+  `bar_replay_provider_agent` module -- separate bug, same class as todo 200, not fixed
+  here).
+- **`scripts/ops/roll/ops_roll_batch.py`** — both the "is this contract still trading"
+  liveness check and the pre-roll volume-validation SUM(volume) query migrated. The
+  liveness check specifically: an expired futures contract's calendar grid could
+  otherwise show a permanently-"recent" synthetic-fill bar, masking that it needs
+  rolling.
+- **`scripts/infrastructure/backfill/infrastructure_fetch_htf_bars.py`** — aggregates 1m
+  bars into HTF candles published to the live topic; a synthetic-fill 1m bar would
+  fabricate a fake HTF candle.
+- **`src/providers/base_provider_agent.py`** — real bug, not just a Tier-2 style call:
+  `_gap_already_filled`'s `expected_bars` is a pure calendar-time count
+  (`window_seconds // tf_seconds`); this gate decides whether to skip a real IBKR fetch.
+  Counting raw rows let a synthetic-fill-only window be judged "already filled,"
+  silently masking a genuine outage gap forever instead of backfilling it. No existing
+  test for this file.
+- **`src/intelligence/services/bar_history_seeder.py`** — the `market_data_ohlcv`
+  fallback path seeds `BarHistory`, the live compute path's rolling-window state
+  directly, at agent startup.
+- **`scripts/infrastructure/backfill/infrastructure_context_features_writer.py`** —
+  mirrors `backfill_feature_factory.py`'s already-migrated OHLCV fetch; feeds
+  `vix_z`/`yield_slope_z`/`flight_quality` into `context_features`, an IC engine
+  measurement input.
+- **`scripts/infrastructure/backfill/infrastructure_run_historical_pipeline.py`** —
+  investigated in full, not left as a hedge. The `min(timestamp)` gap-reorder query
+  migrated (zero behavior change: `normalize_bars()` can never fabricate a fill before a
+  symbol's first real bar). Everything else (`_detect_gaps`, the writer paths,
+  `run_normalize`'s own fetch/store) is genuinely PERMANENT: this script both creates
+  and consumes its own synthetic fills as a self-consistent "calendar slot handled"
+  bookkeeping system -- `_detect_gaps` deliberately treats a prior synthetic fill as
+  "already there" so a correctly-closed weekend/holiday slot isn't re-requested from
+  IBKR on every re-run. Migrating those would break the idempotent design (confirmed via
+  the file's own `[rca_analysis 2026-07-05, F1/F2]` comment block). Allow-list entry
+  updated to PERMANENT with this reasoning instead of staying open indefinitely.
+- **`scripts/debug/analysis/debug_bic_k_selection.py`** — mirrors `regime_writer.py`'s
+  own OHLCV fetch for a K-selection study; reading the raw table would fit against a
+  different observation matrix than production HMM fits.
+- **`scripts/debug/replay/debug_lifecycle_replay.py`** — replays bars through zone/stop/
+  target signal-outcome evaluation, writing to `trade_executions`; a synthetic-fill bar
+  would report a false "price never moved" outcome.
+- **`src/persistence/repository/feature_snapshot_repository.py`** — `get_ohlcv_fallback`
+  seeds live compute-agent warmup state, same category as `bar_history_seeder.py`.
+
+Todo 160's DELETE + recompute step (mentioned below) remains open -- unaffected by this
+batch, still gated on DB quiet time as noted 2026-07-21.
 
 ## 2026-07-21 progress — the 3 proven-impact files are fixed
 

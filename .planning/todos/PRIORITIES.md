@@ -27,22 +27,61 @@ model complexity · never drop data that could contain signal · earn promotion 
 resist overfitting. A todo that would earn its way to P0/P1 under these tests (a live-path
 integrity gap, an unproven claim masquerading as settled) outranks one that's merely convenient.
 
-**Current probable path (updated 2026-07-30 -- phase-level, see `.planning/STATE.md` for full
-detail, not duplicated here):** Phase 164/165/167 all COMPLETE; user has redirected priority
+**Current probable path (updated 2026-07-30 evening -- phase-level, see `.planning/STATE.md` for
+full detail, not duplicated here):** Phase 164/165/167 all COMPLETE; user has redirected priority
 away from Phase 156-159 (execution) toward validating the features/regimes/IC/ensemble stack
 first. The per-tf-active-scale-set branch merged 2026-07-30 (`ic_engine.py`'s hardcoded scales
 -> per-tf `active_scales_for(tf)`), whose own final review found and same-day fixed todo 208
 (the same-ET-session forward-return completeness gate was silently zeroing 1h's completeness
 for a reason that doesn't hold up) -- `forward_returns` truncated and rebuilt clean under the
-corrected definition, **corpus pipeline currently on step 5/8 (`ic_engine`), started 13:19 EDT,
-historically ~27h; nothing that reads `feature_ic_scores`/`ensemble_weights` should start until
-it completes** (STATE.md's Tier -1). The three follow-on `_SCALES`-hardcoding cleanups
-(209/210/211) scoped in `docs/plans/2026-07-30-ic-scale-cleanup-plan.md` are all now DONE
-(211 closed 2026-07-30); a design doc on the
-grid's actual per-tf horizon values (`docs/research/2026-07-30-forward-return-horizon-grid-refactor.md`)
-recommends aligning them to each tf's real holding period rather than an arbitrary/uniform grid.
+corrected definition. The three follow-on `_SCALES`-hardcoding cleanups (209/210/211) scoped in
+`docs/plans/2026-07-30-ic-scale-cleanup-plan.md` are all now DONE (211 closed 2026-07-30).
 Canary RNG seeding fixed (todo 203) but a sibling POOLED-gate anomaly (todo 204) is still
-undiagnosed. Full detail and live-verification commands: `.planning/STATE.md`'s "Current saga"
+undiagnosed.
+
+**Live checkpoint 2026-07-31 ~20:35 UTC (re-verify before trusting -- `grep symbol_computed
+logs/ic_engine.log`, `ps aux | grep ic_engine`, `SELECT count(*) FROM feature_ic_scores`):**
+`ic_engine` at 49/80 symbols, `feature_ic_scores` at 1,637,175 rows, workers healthy (8
+forkserver processes, high CPU, no errors in log tail). ~27h elapsed since the 13:19 EDT
+2026-07-30 restart -> ETA **~2026-08-01 midday/early afternoon**, consistent with the prior
+checkpoint below. Two todos closed in parallel while this run is in flight (pure code, no corpus
+dependency): **todo 124** (`market_data_ohlcv` Tier-2 boundary migration, commit `82861b0b`) and
+**todo 009 Parts A/D** (APR sweep + pure-function cleanup, commit `bd3c5ced`). New **todo 218**
+filed 2026-07-31 spot-checking the live recompute: `BIL` showing implausible per-symbol IC on
+thin regime cells -- not diagnosed, check `passes_fdr` once the run completes.
+
+**Prior checkpoint, 2026-07-30 22:35 UTC-ish (superseded by the above, kept for continuity):**
+`ic_engine` (step 5/8) was killed and restarted same day to test todo 215's thread-count APR
+bump; the restart also picked up todo 215's own just-landed code change, which invalidated every
+fingerprint and forced a full 80-symbol recompute (wall-clock cost only, no data lost -- see
+STATE.md for the full incident and the banked lesson `feedback_restart_batch_job_check_code_diff_first`).
+**Todo 215 CLOSED** -- real measured speedup confirmed across two symbols of different
+weight (BTAL 1.28x, CWB 1.35x, ~1.3x average), well below the 2.4x isolated benchmark as
+expected from contention, but real and consistent. Decision made: threads=2 kept as the
+standing value (near the safe ceiling given 12 physical cores / 8 workers already busy);
+not worth testing higher without a dedicated idle-box benchmark.
+
+**Todo 146/208's characterization diagnostic (`ops_lookahead_horizon_response.py`) COMPLETE,
+decision resolved: no re-migration, no third rebuild.** Results (see todo 146's file for full
+writeup) confirm today's session-gate fix was correct (baseline 1h collapses to 0 completeness
+at 6 bars; production-matching overnight mode holds ~1.0 completeness to 70+ bars) AND confirm
+migration 269's provisional grid is not shown wrong -- every current per-tf value sits inside
+the completeness~1.0, FDR-significant zone under corrected semantics. The deeper question
+(does `_select_hold_bars_from_decay`'s premise even hold, given median IC rises with CI width
+rather than decaying within any tested horizon) is reframed as an open research question in
+todo 146, not an action item. **The in-flight `ic_engine` pass is confirmed trustworthy --
+nothing blocks trusting its output once it completes.**
+
+**Sequencing plan, next few days:** (1) let `ic_engine` finish; (2) once complete, run
+everything gated on it -- todo 203's final `ops_canary_integrity_assert.py` confirmation, todo
+210's live verification against a repopulated `ensemble_alpha`, todo 065 (EM-CAL calibration),
+todo 167 (equity vs symbol-HMM falsifier test), todo 204; (3) only once that chain is stable,
+start todo 214 (deferred refactor) and opportunistically profile todo 216 on the next natural
+`regime_writer` run (todo 211 corrected -- both parts already CLOSED as of 14:54 EDT today,
+commit `02506239`, not open work); (4) separately, not blocked on any of the above -- scope Phase 167/T3's
+cost-hurdle-adjusted spread construction (`docs/research/trade-construction-layer.md`) as a new
+phase via `/gsd-discuss-phase`; this is the actual highest-value next step, proceeding is the
+user's call. Full detail and live-verification commands: `.planning/STATE.md`'s "Current saga"
 section.
 
 ---
@@ -71,20 +110,26 @@ reason.
 
 | Todo | Why now |
 |---|---|
-| [215](pending/215-ic-engine-bootstrap-ci-vectorization.md) | **New 2026-07-30, user compute-speed mandate.** Live `py-spy` profiling of the running corpus pipeline's `ic_engine` step (5/5 samples) found its bootstrap CI's 2000-resample loop is a serial Python for-loop calling `scipy.stats.rankdata` ~32,000 times per cell — the confirmed hot path of the pipeline's single longest-running step. Fix must preserve documented bit-identical RNG/output guarantees and bounded memory (prior 2026-07-18 OOM); design+implement+verify offline, deploy on the next corpus run only. |
-| [216](pending/216-regime-writer-hmm-fit-cost-profiling.md) | **New 2026-07-30, user compute-speed mandate.** `regime_writer` (step 2) took 13,053s (3h37m) in today's run — the pipeline's other dominant cost alongside 215's `ic_engine` finding, but not yet profiled (process wasn't running at audit time). Needs a live `py-spy dump` next time it runs before any fix is designed. |
-| [217](pending/217-corpus-pipeline-step-timing-instrumentation.md) | **New 2026-07-30, user compute-speed mandate.** Step durations only exist as `DONE in Ns` lines scattered across differently-named per-run log files; scoping 215/216 required log archaeology. Add a durable, queryable per-step timing record to the orchestrator — cheap, mechanical. |
+| [216](pending/216-regime-writer-hmm-fit-cost-profiling.md) | Still not profiled — `regime_writer` wasn't running today after the 09:59 EDT step-2 completion. Opportunistic next step: catch it live (`py-spy dump`) whenever it next runs (e.g. if the horizon-grid diagnostic forces a re-rebuild) rather than forcing a standalone run just to profile it. |
+| [217](pending/217-corpus-pipeline-step-timing-instrumentation.md) | **Implemented 2026-07-30** (commit `5905172b`) — `run_step()` now appends to `logs/corpus_pipeline/step_timings.jsonl`. Not yet verified live (no step has completed since the commit landed mid-run); will self-confirm the moment the current `ic_engine` step finishes or fails. Close once that first line appears. |
 | [065](pending/065-emission-layer-calibration-proposals.md) | EM-CAL threshold calibration — both prerequisite gates (rebuild, EIC-04) cleared 2026-07-09. **Caution added 2026-07-30**: that clearance predates todo 146/208's grid rework (per-tf lookahead grid; 208's session-gate premise is now fixed, but the grid's actual values are still open, see 208's row above). Calibrating against pre-rebuild data now risks redoing this once the corpus/grid settle — same mistake this todo's own history already flagged once. Wait for the in-flight `ic_engine` pass to finish (`.planning/STATE.md`'s Tier -1) before starting. |
 | [079](pending/079-anytime-valid-e-values-corpus-reruns.md) | Anytime-valid inference pilot (one tf) — new statistical primitive, deliberately staged small |
 | [080](pending/080-ensemble-combination-e-candidates-queue.md) | Posterior-blended weighting (L5-1) — testable now via existing A/B judge, zero new data |
 | [054](pending/054-shadow-alpha-events-monitoring.md) | Shadow alpha_events monitoring — prevents delayed detection of feature decay/threshold bugs |
-| [124](pending/124-market-ohlcv-tradeable-view-tier2-audit.md) | **Fixed 2026-07-21** — `backfill_feature_factory.py`, `regime_writer.py`, `forward_return_writer.py` all migrated to `market_data_ohlcv_tradeable`; boundary + all directly-relevant unit tests pass, ruff/black clean. Recompute of `confirmed_corrupt` rows (todo 160, expanded 2026-07-22 to 16 symbols via a discovery-mechanism fix) **complete 2026-07-22** — see `completed/160-vwo-dia-kre-corrupt-prints-uncorrected.md`. Remaining 11 Tier-2 files still need individual style/DRY-vs-correctness judgment calls, no live reproduction found for any of them yet. |
 | [169](pending/169-no-regime-coverage-completeness-check.md) | **Built and tested 2026-07-24, not yet deployed.** `services/regime_coverage_auditor.py` ships with unit tests (`tests/unit/services/test_regime_coverage_auditor.py`) and matching systemd unit files (`production/systemd/indicagent-regime-coverage-auditor.{service,timer}`, daily 06:00 UTC, same pattern as every other auditor). It already earned its keep once — immediately found 14 symbols, not the 7 known at filing time (closed as [168](../completed/168-seven-symbols-zero-per-symbol-hmm-regime-labels.md)). Remaining: actually enable the timer on the live host (`systemctl enable/start`) — a real persistent infra change, deliberately not done without explicit go-ahead. |
 | [179](pending/179-gate166-concurrent-exposure-diagnostic.md) | **Stale entry corrected 2026-07-30 (todo-priorities audit).** Todo 183's corpus recompute (the thing this entry said was still pending) completed 2026-07-26/27 (`completed/183-...`), and 179's own sweep was re-run under corrected labels 2026-07-27 (`scripts/analysis/live_recalibrated_regime_sweep_check.py`, 270 cells, 108 adequately covered, **zero pass** — confirms the old-label finding, not a new negative result). The strategic fork this todo raised is resolved via T3 (Phase 167, independent of this regime question). This investigation reads as concluded, not actionable — **candidate for closing or converting to a decision record** rather than continuing to carry it as an open P1 pending item; the user's call, not made here. |
 | [167](pending/167-equity-cross-sectional-vs-symbol-hmm-never-falsifier-tested.md) | **Plan changed 2026-07-29 — no longer a standalone equity-scoped relaunch,** folded into 176's queued sequence (market-data-gap catchup → 176's `--refresh` → one full-corpus `ic_engine` pass). **176's `--refresh` step confirmed run 2026-07-30** (see 176's updated entry above), but the sequence's final step (a full-corpus equity+rates `ic_engine` pass) has not yet run — that pass is what would actually close this todo. Currently blocked behind todo 202's in-flight regime_writer→forward_return_writer→cross_sectional_regime_model→ic_engine relaunch (single-writer discipline: do not run a second `ic_engine` pass concurrently). |
 **[210](../completed/210-ensemble-ic-worker-scales.md) CLOSED 2026-07-30** — fixed (commit
 `75c2eb3a`); live-data verification against a repopulated `ensemble_alpha` still pending the
 in-flight `ic_engine` run.
+
+**[124](../completed/124-market-ohlcv-tradeable-view-tier2-audit.md) CLOSED 2026-07-31**
+(commit `82861b0b`, done in parallel with the in-flight `ic_engine` run — pure code, no
+corpus dependency) — remaining 10 Tier-2 files all resolved: 9 migrated to
+`market_data_ohlcv_tradeable` (several genuine correctness gaps, not just style/DRY —
+see the completed file for detail), 1 (`infrastructure_run_historical_pipeline.py`)
+mostly reclassified PERMANENT with written rationale. Boundary test allow-list's
+PENDING entries: 0.
 
 **Note (2026-07-26):** [179](pending/179-gate166-concurrent-exposure-diagnostic.md)'s "strategic choice" fork is
 now resolved in one direction — T3 (cross-sectional long-short) passed decisively today (see
@@ -97,6 +142,7 @@ scoping it as a phase via `/gsd-discuss-phase`.
 
 | Todo | What |
 |---|---|
+| [218](pending/218-bil-thin-cell-per-symbol-ic-instability.md) | New 2026-07-31, found spot-checking the in-flight `ic_engine` recompute in parallel while it runs: `BIL` (near-zero-vol T-bill ETF) shows implausible per-symbol IC (0.5-0.73, incl. a calendar feature) on thin regime cells (n_independent 116-160) — isolated to BIL only, no other symbol shows the pattern. Not diagnosed; check `passes_fdr` once the run completes before assuming a live-path bug. |
 | [208](pending/208-intraday-same-session-forward-return-gate-inconsistent-with-trade-construction.md) | **Downgraded from P0 2026-07-30** — Steps 1/2 DONE (`forward_return_writer.py`'s same-ET-session gate removed for 5m/15m/1h, `forward_returns` rebuilt clean under the corrected definition). What's left is Step 3, the grid's actual per-tf horizon VALUES — see `docs/research/2026-07-30-forward-return-horizon-grid-refactor.md`, which recommends deriving them from each tf's real holding period via `_select_hold_bars_from_decay` rather than re-deriving 146's grid as-is. Next step: the characterization run (`ops_lookahead_horizon_response.py`, safe now, needs one small 5m gap closed first) once the in-flight `ic_engine` run completes. |
 | [213](pending/213-rolling-vp-suppressed-for-1d-never-independently-reviewed.md) | New 2026-07-30, found while closing 176: `poc_rolling_dist_atr`/`poc_session_rolling_divergence_atr` (D-18's rolling-track VP additions, tf-agnostic by construction) are suppressed for `tf='1d'` via the same code branch as session VP (which correctly doesn't apply to 1d) -- but the rolling case was never independently reviewed for tf-applicability across any of Phase 163's three design-review passes. Likely dropping real signal (a 1d bar's dislocation from a ~2-year value anchor is a coherent auction-market-theory concept per D-18's own argument), not a considered exclusion. Needs an incremental-IC check before promoting, same discipline as any other structural column. Renumbered from 209 -- collided with a same-day, independently-filed todo from the per-tf-active-scale-set final review. |
 | [186](pending/186-ic-math-cross-sectional-block-bootstrap-gap.md) | New 2026-07-26, same review as 185: `ic_math.py` has a per-symbol circular block bootstrap but no cross-sectional (pooled-panel) variant, so T5's within-bar_ts rigor check approximated it ad hoc. Lower urgency than 185 — the approximation is conservative and the script says so; do this once a real (non-exploratory) T3/T5 candidate needs it. |
@@ -110,7 +156,7 @@ scoping it as a phase via `/gsd-discuss-phase`.
 | [039](pending/039-tag-stratified-ic-population-check.md) | Population-count check before tag-stratified cross-sectional IC |
 | [081](pending/081-emission-meta-labeling-and-conviction-cross-ref.md) | Emission meta-labeling gate — check overlap with 065/EM-HYST before building |
 | [089](pending/089-ensemble-ic-engine-recurring-cadence.md) | No recurring `ensemble_ic_engine` schedule exists — IC-decay trigger input can go stale |
-| [009](pending/009-service-utils-ic-engine-cleanup.md) | Phase B infra cleanup batch — APR compliance sweep, `BaseBatch` promotion, naming vocab, shared-utility DRY fixes. Part E (`ic_engine.py` pure-function extraction) closed 2026-07-23 via Phase 162-01; Parts A-D remain open |
+| [009](pending/009-service-utils-ic-engine-cleanup.md) | Phase B infra cleanup batch — APR compliance sweep, `BaseBatch` promotion, naming vocab, shared-utility DRY fixes. Parts A and D closed 2026-07-31 (commit `bd3c5ced`, done in parallel with the in-flight `ic_engine` corpus run — pure code/infra, no corpus dependency). Part E closed 2026-07-23 via Phase 162-01. Parts B/C (promote 4 scripts to `BaseBatch`+systemd, naming-vocab doc update) remain open — real scoped work, not mechanical. |
 | [191](pending/191-feature-scoring-beyond-ic.md) | Feature scoring beyond IC (near-term derived metrics) |
 | [050](pending/050-ibkr-apr-migration.md) | Migrate `ibkr.py` hardcoded constants to APR |
 | [052](pending/052-adversarial-data-error-hunt.md) | Adversarial data-error hunt batch job |
