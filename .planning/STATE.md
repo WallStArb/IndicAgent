@@ -3,14 +3,14 @@ gsd_state_version: 1.0
 milestone: v3.1
 milestone_name: AlphaEngine Validation + Alpha Scoring
 status: ready_to_execute
-stopped_at: "per-tf-active-scale-set branch merged to main 2026-07-30 (was already merged to origin by a concurrent session hours before this session fetched -- reconciled via reset+cherry-pick, no work lost). Todo 208 (same-ET-session forward-return completeness gate) fixed same day: forward_return_writer.py's complete_{scale} no longer session-gates 5m/15m/1h, matching 1d's always-was-gapless semantics. forward_returns truncated and rebuilt clean under the corrected definition; corpus pipeline relaunched from step 3, on step 5/8 (ic_engine, started 2026-07-30 13:19 EDT, still running as of 15:22 EDT -- historically ~27h total, do not start new corpus-write work until it completes). Todos 202/205/207/209/210/211/212 all closed. Todo 214 (ic_engine/ensemble_ic_engine shared-compute refactor) filed, its full scope (fetch/mask/rank-IC/walk-forward compute-core consolidation) still deliberately deferred, but one narrow slice landed 2026-07-30 (commit 955e6fbe): the duplicated {scale: {tf: lookahead_bars}} dict-construction across ic_engine.py/ensemble_ic_engine.py/ops_ensemble_ablation.py consolidated into lookahead_by_scale_from_apr() (services/_batch_utils.py). That commit was recovered from an uncommitted working-tree diff left by a second, independent Claude Code session (PID 1465138, same repo dir) that exited mid-session without committing; verified not orphaned (live pty/parent chain) before it exited naturally, then salvaged via the normal /simplify -> review -> test -> commit SOP once confirmed unowned -- see feedback_concurrent_sessions_shared_dir for the general pattern. A design doc on the horizon-grid's actual VALUES (docs/research/2026-07-30-forward-return-horizon-grid-refactor.md, v1.2) recommends aligning each tf's measured horizons to that tf's real holding period (via the existing _select_hold_bars_from_decay decay walk) rather than a uniform grid -- live evidence: hold_max_bars is pinned at the 60-bar ceiling in every regime for 1h/1d today, meaning that walk has never converged for either tf."
-last_updated: "2026-07-30T19:25:00.000Z"
+stopped_at: Phase 168 context gathered
+last_updated: "2026-07-31T10:53:33.339Z"
 progress:
   total_phases: 12
-  completed_phases: 11
-  total_plans: 51
-  completed_plans: 51
-  percent: 100
+  completed_phases: 9
+  total_plans: 45
+  completed_plans: 44
+  percent: 75
 ---
 
 # Project State
@@ -146,10 +146,24 @@ are ALSO fully closed as of 2026-07-30 -- not the pipeline currently running (se
 
 *Tier -1 -- ACTIVE, supersedes every tier below until it clears:* the corpus pipeline relaunched
 2026-07-30 from step 3 (`forward_return_writer`, to pick up todo 208's session-gate fix) is on
-step 5/8 (`ic_engine`, started 13:19 EDT) -- see "Current saga" above. Nothing that reads
+step 5/8 (`ic_engine`, started 13:19 EDT 2026-07-30). **Verified live 2026-07-31T10:38 UTC via
+`logs/ic_engine.log`: 25/80 symbols done** (`progress: "25/80"` on the last `symbol_computed`
+line). At that pace (~17.3h for 25 symbols), full completion is **~38h more remaining (~2026-08-02
+midday)** -- noticeably slower than the "historically ~27h" baseline, consistent with two
+already-known compounding factors: `threads=2`'s measured 1.28-1.35x speedup (not the 2.4x
+isolated-worker benchmark, per todo 215) and the corpus now carrying 244 feature columns/symbol
+(the historical baseline predates Phase 163/164/165's +77 columns). Nothing that reads
 `feature_ic_scores` or `ensemble_weights` should start until it completes. Re-verify before
-trusting this: `ps aux | grep ic_engine` and `tail -15
-logs/corpus_pipeline/resume_20260730_1240.log`.
+trusting this in a later session: `ps aux | grep ic_engine`, `tail -30 logs/ic_engine.log | grep
+symbol_computed`, `tail -15 logs/corpus_pipeline/resume_20260730_1240.log`.
+
+A same-day partial-data check (safe, read-only, ran alongside the live pipeline) found
+`ctf_momentum` at 15m holding up on the first 21 symbols computed under the corrected corpus:
+872 cells, 91.4% positive sign, 63% passing the bootstrap CI gate, mean IC 0.0527, mean IC
+Sharpe 0.4389, BIL (T-bill ETF, near-zero movement) the one sensible outlier. **Early
+reinforcement of Phase 167/T3's already-proven result, not new evidence** -- `bh_adjusted_p` is
+NULL for all rows so far (FDR correction is a corpus-wide pass that only runs once at the very
+end), so this is a legitimate partial read of real per-cell stats, not a final verdict.
 
 *Tier 5 -- gate status changed 2026-07-27:* Phase 156-159 (Portfolio State/Sizing/Execution/Cost)
 was gated on Phase 167 producing a proven signal -- **that gate cleared: Phase 167's both
@@ -229,6 +243,13 @@ ON CONFLICT (symbol, tf) DO UPDATE SET fetch_complete = true;
 
 ## Roadmap Evolution
 
+- Phase 168 (Cost-Hurdle-Adjusted Spread Construction, T3 Follow-On): added 2026-07-31 as a
+  parallel track while the in-flight `ic_engine` recompute runs (zero compute contention --
+  pure scoping/discussion work). Follow-on to Phase 167's cross-sectional long-short
+  construction (both live Validation Gates PASSED); applies todo 030's cost-hurdle sweep as a
+  construction-layer change (which symbols/legs survive transaction costs), no new features.
+  See `docs/research/trade-construction-layer.md`.
+
 - Phase 162 (ic_engine Corpus Pipeline Throughput): added 2026-07-18, planned 2026-07-22, executed and COMPLETE 2026-07-23.
 - Phase 163 (VP/SR Structural Primitives): added 2026-07-20, planned and reviewed, executed and COMPLETE 2026-07-24.
 - Phase 164 (SMC Institutional Footprint Primitives): added 2026-07-20, planned 2026-07-25 (4 plans, 4 waves, `gsd-plan-checker` verified). Deprioritized 2026-07-26 behind Phase 167, then explicit user override 2026-07-27 (Tier 0) reinstated it regardless of the evidence-gate reasoning. Plan 01 (data contract) executed 2026-07-27; Plan 02 (order blocks + stateless breaker/mitigation), Plan 03 (FVG + liquidity sweeps + liquidity pools), and Plan 04 (supply/demand zones + BOS/CHoCH + AMD cycle) all executed 2026-07-28 -- COMPLETE, 4/4 plans, see Phase Summary table. Next per Tier 0's sequencing: plan Phase 165, execute Phase 165, then one combined `backfill_feature_factory.py --compute-only --refresh` pass covering both phases' new columns.
@@ -251,9 +272,9 @@ WR-05 filename-collision fix), CLAUDE.md/gotchas.md corrected same session.
 
 ## Session
 
-**Last session:** 2026-07-28T12:00:00.000Z
+**Last session:** 2026-07-31T10:53:33.256Z
 
-**Stopped at:** Phase 165 COMPLETE (5/5 plans). Plan 05 (session levels derivation +
+**Stopped at:** Phase 168 context gathered
 phase-closing gate) executed: `_derive_session_levels()` derives the final 16 columns from
 Plan 04's `FeatureCache` state, wired into both `compute()`/`compute_batch()`; the phase-closing
 `test_phase165_all_41_fields_non_constant_batch` gate confirms all 41 Phase 165 columns now
