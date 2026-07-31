@@ -29,15 +29,17 @@ from services.backfill_feature_factory import (
     _BARS_PER_DAY,
     _DEFAULT_CLIENT_ID,
     _INSERT_FEATURE_VECTORS_SQL,
-    _TARGET_TIMEFRAMES,
+    _TARGET_TIMEFRAMES_DEFAULT,
     _TRADING_DAYS_PER_YEAR,
     _UPSERT_FEATURE_VECTORS_SQL,
     _batch_insert,
+    _get_target_timeframes,
     _log_coverage_report,
     _theoretical_max,
     _vector_to_params,
     run_compute_stage,
 )
+from src.config.config_service import ConfigService
 from src.intelligence.feature_cache import FeatureCache
 from src.intelligence.feature_factory import FeatureFactory, FeatureFactoryConfig
 from src.intelligence.schemas import FeatureVector
@@ -696,7 +698,7 @@ def test_refresh_reprocesses_complete_pairs() -> None:
                     "rows_written": 1000,
                     "theoretical_max": 1200,
                 }
-                for tf in _TARGET_TIMEFRAMES
+                for tf in _TARGET_TIMEFRAMES_DEFAULT
             },
         ),
         patch("services.backfill_feature_factory.ProcessPoolExecutor") as mock_pool_cls,
@@ -710,7 +712,7 @@ def test_refresh_reprocesses_complete_pairs() -> None:
                 "error": None,
                 "results": [
                     {"tf": tf, "rows_written": 1000, "theoretical_max": 1200, "pct": 0.83}
-                    for tf in _TARGET_TIMEFRAMES
+                    for tf in _TARGET_TIMEFRAMES_DEFAULT
                 ],
             }
         ]
@@ -787,7 +789,8 @@ def test_fetch_resume_skips_fetch_complete_pairs() -> None:
 
     # All TFs fetch_complete=true
     status_map = {
-        ("SPY", tf): {"fetch_complete": True, "status": "complete"} for tf in _TARGET_TIMEFRAMES
+        ("SPY", tf): {"fetch_complete": True, "status": "complete"}
+        for tf in _TARGET_TIMEFRAMES_DEFAULT
     }
 
     async def _async_true() -> bool:
@@ -813,6 +816,10 @@ def test_fetch_resume_skips_fetch_complete_pairs() -> None:
         patch(
             "services.backfill_feature_factory.get_active_contracts",
             return_value=[mock_instrument],
+        ),
+        patch(
+            "services.backfill_feature_factory._load_config_service",
+            return_value=MagicMock(),
         ),
         patch(
             "services.backfill_feature_factory._load_status_map",
@@ -843,8 +850,27 @@ def test_fetch_resume_skips_fetch_complete_pairs() -> None:
 
 def test_target_tfs_excludes_1m() -> None:
     """1m is NOT a backfill target — live pipeline owns 1m."""
-    assert "1m" not in _TARGET_TIMEFRAMES
-    assert set(_TARGET_TIMEFRAMES) == {"5m", "15m", "1h", "1d"}
+    assert "1m" not in _TARGET_TIMEFRAMES_DEFAULT
+    assert set(_TARGET_TIMEFRAMES_DEFAULT) == {"5m", "15m", "1h", "1d"}
+
+
+def test_get_target_timeframes_defaults_when_apr_key_absent() -> None:
+    """todo 199: feature.factory.target_timeframes must fall back to the exact prior
+    hardcoded _TARGET_TIMEFRAMES value when the APR key is unset in config_state --
+    a bare ConfigService with an empty cache (no DB load) reproduces that "key absent"
+    condition, since ConfigService.get_sync() is a plain cache.get(key, default)."""
+    cfg = ConfigService(database_url="")
+    assert _get_target_timeframes(cfg) == ["5m", "15m", "1h", "1d"]
+    assert _get_target_timeframes(cfg) == _TARGET_TIMEFRAMES_DEFAULT
+
+
+def test_get_target_timeframes_honors_apr_override() -> None:
+    """An explicit config_state value must win over the hardcoded default -- this is
+    the entire point of the APR migration (todo 199): an operator can reconfigure
+    which timeframes get processed without a code change."""
+    cfg = ConfigService(database_url="")
+    cfg._cache["feature.factory.target_timeframes"] = ["5m", "1h"]
+    assert _get_target_timeframes(cfg) == ["5m", "1h"]
 
 
 # ---------------------------------------------------------------------------

@@ -1,5 +1,5 @@
 ---
-status: pending
+status: completed
 priority: P3
 filed: 2026-07-29
 source: Discovered mid-execution of todo 176's Step 1 (full-corpus --refresh recompute) --
@@ -9,6 +9,22 @@ source: Discovered mid-execution of todo 176's Step 1 (full-corpus --refresh rec
   same session: not computing 1m features is intentional, existing behavior -- not a gap.
   This todo tracks only the APR-hardcoding cleanup, not a "should we add 1m" scope question.
 ---
+
+**CLOSED 2026-07-31** -- `_TARGET_TIMEFRAMES` migrated to APR key
+`feature.factory.target_timeframes` (migration 278,
+`production/migrations/278_feature_factory_target_timeframes_apr.sql`), default value
+unchanged (`["5m", "15m", "1h", "1d"]`), byte-identical behavior unless explicitly
+reconfigured. The module constant is now `_TARGET_TIMEFRAMES_DEFAULT`, used only as the
+APR fallback default (same role as `feature.sr.lookback_by_tf`'s inline dict default and
+`alpha.ic.active_scales.{tf}`'s `ACTIVE_SCALES_FALLBACKS_BY_TF`), loaded via a new
+`_get_target_timeframes(cfg)` helper (`services/backfill_feature_factory.py`) called from
+both `run_fetch_stage()` and `run_compute_stage()`, which feeds `_load_status_map()` and
+both TF-iteration loops. Migration 278 applied to the live DB (config_schema/config_state/
+config_history rows only). `backfill_feature_factory.py` was not run against live data
+(confirmed not currently active in the corpus pipeline -- `ic_engine.py` is the live stage
+running). Tests updated/added in `tests/unit/services/test_backfill_feature_factory.py`
+(`test_get_target_timeframes_defaults_when_apr_key_absent`,
+`test_get_target_timeframes_honors_apr_override`); full file green (28/28).
 
 # `_TARGET_TIMEFRAMES` in backfill_feature_factory.py is a hardcoded list -- should be an APR key (behavioral-list category)
 
@@ -52,6 +68,6 @@ any other in-flight work. Low priority.
 
 ## Acceptance criteria
 
-- [ ] Migrate `_TARGET_TIMEFRAMES` to an APR key (`config_schema`/`config_state` migration +
+- [x] Migrate `_TARGET_TIMEFRAMES` to an APR key (`config_schema`/`config_state` migration +
       `ConfigService.get()` load at init), removing the hardcoded list literal from
       `services/backfill_feature_factory.py:92`

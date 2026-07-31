@@ -48,6 +48,7 @@ sys.path.insert(0, str(project_root))
 
 
 from services._batch_utils import get_dict_config as _get_dict_config
+from services._batch_utils import get_list_config as _get_list_config
 from services._batch_utils import load_config_service_sync as _load_config_service
 from src.config.config_service import ConfigService
 from src.config.settings import Settings, get_active_contracts
@@ -88,8 +89,24 @@ _JOB = "backfill-feature-factory"
 # Default IBKR client-id — 40 per CLAUDE.md. Provider uses 35. 56+ exceeds cap.
 _DEFAULT_CLIENT_ID: int = 40
 
-# Target timeframes for backfill (1m is NOT a backfill target — live pipeline owns 1m)
-_TARGET_TIMEFRAMES: list[str] = ["5m", "15m", "1h", "1d"]
+# Target timeframes for backfill (1m is NOT a backfill target — live pipeline owns 1m,
+# confirmed intentional, todo 199). This literal is now only the APR fallback default --
+# the live driver is feature.factory.target_timeframes, loaded via _get_target_timeframes()
+# below (todo 199: behavioral-list APR migration, CLAUDE.md APR mandate category 2).
+_TARGET_TIMEFRAMES_DEFAULT: list[str] = ["5m", "15m", "1h", "1d"]
+
+
+def _get_target_timeframes(cfg: ConfigService) -> list[str]:
+    """Load the APR-backed set of timeframes backfill_feature_factory processes.
+
+    feature.factory.target_timeframes (migration 278, todo 199) -- JSON array,
+    default ["5m", "15m", "1h", "1d"], byte-identical to the prior hardcoded
+    _TARGET_TIMEFRAMES module constant unless an operator explicitly reconfigures it.
+    """
+    return _get_list_config(
+        cfg, "feature.factory.target_timeframes", list(_TARGET_TIMEFRAMES_DEFAULT)
+    )
+
 
 # Depth years per TF (D-09, phase 137 spec)
 _DEPTH_YEARS: dict[str, int] = {
@@ -736,9 +753,12 @@ async def run_fetch_stage(
     etf_contracts = _filter_etf_contracts(contracts, symbols)
     _logger.info("fetch_stage_start", contracts=len(etf_contracts), client_id=client_id)
 
+    cfg = _load_config_service(db_conn)
+    target_timeframes = _get_target_timeframes(cfg)
+
     # Load existing status to skip already-fetched pairs
     all_symbols = [c.symbol for c in etf_contracts]
-    status_map = _load_status_map(db_conn, all_symbols, _TARGET_TIMEFRAMES)
+    status_map = _load_status_map(db_conn, all_symbols, target_timeframes)
 
     provider = IBKRProvider(
         host=settings.ib_host,
@@ -762,7 +782,7 @@ async def run_fetch_stage(
                     _logger.warning("qualify_failed", symbol=instrument.symbol)
                     continue
 
-                for tf in _TARGET_TIMEFRAMES:
+                for tf in target_timeframes:
                     key = (instrument.symbol, tf)
                     existing = status_map.get(key, {})
 
@@ -895,6 +915,7 @@ def run_compute_stage(
     """
     cfg = _load_config_service(db_conn)
     config = _build_feature_factory_config(cfg)
+    target_timeframes = _get_target_timeframes(cfg)
     # todo 178 IN-01: was "threshold.backfill.coverage_threshold", which was never seeded --
     # migration 153 only ever seeded "threshold.backfill.coverage_gate", so the read always
     # fell through to the hardcoded 0.80 default and any dashboard edit to coverage_gate was
@@ -923,7 +944,7 @@ def run_compute_stage(
     contracts = get_active_contracts(settings)
     etf_contracts = _filter_etf_contracts(contracts, symbols)
     all_symbols = [c.symbol for c in etf_contracts]
-    status_map = _load_status_map(db_conn, all_symbols, _TARGET_TIMEFRAMES)
+    status_map = _load_status_map(db_conn, all_symbols, target_timeframes)
     coverage: dict[tuple[str, str], dict] = {}
     dsn = settings.database_url
 
@@ -935,7 +956,7 @@ def run_compute_stage(
     for instrument in etf_contracts:
         symbol = instrument.symbol
         needs_compute = False
-        for tf in _TARGET_TIMEFRAMES:
+        for tf in target_timeframes:
             key = (symbol, tf)
             existing = status_map.get(key, {})
             if existing.get("status") == "complete" and not refresh:
@@ -969,7 +990,7 @@ def run_compute_stage(
     worker_args = [
         (
             symbol,
-            _TARGET_TIMEFRAMES,
+            target_timeframes,
             dsn,
             config,
             pipeline_version,

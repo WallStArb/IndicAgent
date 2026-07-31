@@ -206,7 +206,6 @@ scoping it as a phase via `/gsd-discuss-phase`.
 | [022](pending/022-bi-superset.md) | Self-service BI (Superset) for ad-hoc analytics |
 | [115](pending/115-days-to-month-end-exact-redundancy.md) | `days_to_month_end` is an exact affine complement of `month_position` (Pearson correlation -1) — perfectly collinear, remove one. |
 | [189](pending/189-ctf-momentum-1d-self-referential-htf-not-cross-timeframe.md) | Mostly resolved 2026-07-27 same-day as filing: `ctf_momentum`'s 1d-vs-15m sign flip was a measurement artifact (`_CTF_HIGHER_TF` maps `1d -> 1d`, self-referential), doc corrected. Remaining: optional design decision + audit of sibling fallbacks, not urgent. |
-| [199](pending/199-feature-vectors-missing-1m-timeframe-scope.md) | New 2026-07-29, found mid-execution of todo 176's Step 1 recompute: `_TARGET_TIMEFRAMES = ["5m", "15m", "1h", "1d"]` in `backfill_feature_factory.py:92` is a hardcoded list — confirmed with user that not computing 1m features is intentional, so this is purely an APR "behavioral list" governance cleanup, not a scope gap. |
 | [201](pending/201-docs-baseagent-naming-drift-agents-platform-cluster.md) | New 2026-07-29, found during a repo cleanup pass: `docs/agents/*` + `docs/platform/platform-foundation.md` + `docs/architecture/architecture-evolution.md` describe a `BaseAgent` class that no longer exists (`grep -rn "class BaseAgent"` returns nothing) — live base class is `BaseDaemon`. Needs a real contract-verification pass, not a mechanical rename, since the described behavior may have drifted beyond the name. |
 
 ---
