@@ -1,9 +1,18 @@
 # DAG Topology & Methodology
 
-**Version:** 2.8
-**Status:** current
-**Last Updated:** 2026-05-27
+**Version:** 2.9
+**Status:** current (base-class contract only — see staleness note below)
+**Last Updated:** 2026-07-31
 **Tags:** dag, agent-taxonomy, service-dag, topology, pipeline, orchestration
+
+> **Staleness note (2026-07-31):** the file/unit/port references throughout this doc
+> (`intelligence_pipeline_agent.py`, `feature_writer_agent.py`, etc.) name the ARCHIVED v2.x
+> pipeline (no live consumer as of 2026-07-02 per CLAUDE.md), not the live v3.0
+> `feature_vector_pipeline` / `feature_vector_writer` registry, and the per-service metrics-port
+> scheme shown has been superseded by OTLP push to a central collector (see
+> `docs/agents/agents-operations.md`'s Metrics Ports section). Only the Agent Taxonomy /
+> base-class content was corrected as part of closing todo 201; the DAG diagram itself needs a
+> separate resync against `services/service_auditor.py` — tracked as a follow-up todo.
 
 ## Overview
 
@@ -24,7 +33,7 @@ Each agent has exactly one role, expressed in its class name suffix:
 | `Tracker` | Business object lifecycle. | Read/Write | `SignalTracker` |
 | `Auditor` | Data integrity validation + self-healing. | Read | `BarAuditor`, `ParityAuditor` |
 
-All agents extend `BaseAgent` (`src/core/agent/base.py`). See `docs/agents/agents-foundation.md` for lifecycle contract.
+All agents extend `BaseDaemon` (`src/core/agent/base.py`; renamed from `BaseAgent` during the v3.0 rebuild — see `docs/agents/agents-foundation.md`'s Naming note), with `BaseWriter` and `BaseBatch` as the persistence/oneshot-batch specializations. See `docs/agents/agents-foundation.md` for the lifecycle contract.
 
 ---
 
@@ -359,6 +368,6 @@ All topic strings constructed via `src/core/stream_keys.py` — never hardcoded.
 ## See Also
 
 - `docs/intelligence/intelligence-plugins.md` — Plugin protocol, InputSpec, tier lists
-- `docs/agents/agents-foundation.md` — BaseAgent lifecycle contract and role taxonomy
+- `docs/agents/agents-foundation.md` — BaseDaemon lifecycle contract and role taxonomy
 - `docs/agents/agents-operations.md` — Service mesh, DAG topology, and operations
 - `docs/foundation/design-principles.md` — Architectural design principles

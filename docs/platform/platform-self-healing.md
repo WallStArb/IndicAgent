@@ -1,8 +1,8 @@
 # Self-Healing Architecture
 
-**Version:** 2.8
+**Version:** 2.9
 **Status:** current
-**Last Updated:** 2026-05-28
+**Last Updated:** 2026-07-31
 **Tags:** self-healing, otel, watchdog, circuit-breaker, alerting, phase-108
 **Phase:** 108 — Self-Healing Hardening (complete)
 
@@ -18,14 +18,22 @@ IndicAgent implements a comprehensive self-healing architecture that automatical
 
 ## OTel Health Contract
 
-Every daemon service inheriting from `BaseAgent` MUST emit these five signals. This is code-review enforced — new agents that don't inherit BaseAgent are rejected.
+Every daemon service inheriting from `BaseDaemon` (renamed from `BaseAgent` during the v3.0
+rebuild — see `docs/agents/agents-foundation.md`'s Naming note) MUST emit these five signals.
+This is code-review enforced — new agents that don't inherit `BaseDaemon` are rejected.
 
-### Mandatory Signals (inherited from BaseAgent)
+### Mandatory Signals (inherited from BaseDaemon)
+
+**Label correction 2026-07-31:** `agent_crash_total`'s label key is `agent`, not `agent_id` —
+verified against `src/core/agent/base.py`'s `_crash_attrs = {"agent": self._agent_label}`. This
+also affects CLAUDE.md's OTel Health Contract section, which states all five signals use
+`agent_id`; that is out of scope to fix here (CLAUDE.md is not under `docs/`) but is a real
+discrepancy worth correcting separately.
 
 | Signal | Type | Labels | Purpose |
 |--------|------|--------|---------|
 | `agent_last_message_timestamp_seconds` | Gauge | `agent_id` | Liveness; Unix timestamp of last processed message. Stale > 120s → stall detection |
-| `agent_crash_total` | Counter | `agent_id` | Uncaught exceptions in `_run()` |
+| `agent_crash_total` | Counter | `agent` | Uncaught exceptions in `_run()` |
 | `agent_dlq_total` | Counter | `agent_id` | DLQ routing events |
 | `watchdog_notify_total` | Counter | `agent_id` | Successful sd_notify WATCHDOG=1 pings |
 | `watchdog_notify_suppressed_total` | Counter | `agent_id` | Suppressed pings (agent alive but idle/stalled) |
@@ -63,7 +71,14 @@ When a service stalls (no message processed for 60s), systemd auto-restarts it.
 
 ### Watchdog Implementation
 
-`BaseAgent._watchdog_notify()` implements sd_notify correctly:
+`BaseDaemon._watchdog_notify()` (renamed from `BaseAgent`) implements sd_notify correctly:
+
+**Corrected 2026-07-31:** the suppress threshold below was previously `interval_s * 2`. That
+formula had a real bug, fixed in the current code: for a service with `max_idle_seconds=300`,
+`interval_s * 2` (~120s at a typical `WatchdogSec=60`) is *less* than `max_idle_seconds`, so
+systemd's `WatchdogSec` killed the process after only 120s of idle — before `_stall_watchdog()`
+(which waits the full 300s) ever got to fire its own, more graceful `sys.exit(1)`. The fix clamps
+the suppress threshold to be at least `max_idle_seconds`:
 
 ```python
 async def _watchdog_notify(self) -> None:
@@ -74,10 +89,12 @@ async def _watchdog_notify(self) -> None:
     import sdnotify
     notifier = sdnotify.SystemdNotifier()
     interval_s = usec / 2_000_000  # Ping at half watchdog interval
+    # Suppress threshold must be >= max_idle_seconds so _stall_watchdog fires first.
+    stale_threshold = max(self.max_idle_seconds, interval_s * 2)
     while self.running:
         should_notify = True
         if self.max_idle_seconds > 0 and self._last_message_ts is not None:
-            should_notify = (time.monotonic() - self._last_message_ts) < interval_s * 2
+            should_notify = (time.monotonic() - self._last_message_ts) < stale_threshold
         if should_notify:
             notifier.notify("WATCHDOG=1")
             WATCHDOG_NOTIFY_TOTAL.add(1, self._last_msg_ts_attrs)
@@ -273,7 +290,7 @@ All alerts fire from Grafana on Prometheus metrics.
 
 | Failure Mode | Detection | Recovery | OTel Signal |
 |--------------|-----------|----------|-------------|
-| Service crash | BaseAgent exception handler | Systemd restart | `agent_crash_total` |
+| Service crash | BaseDaemon exception handler | Systemd restart | `agent_crash_total` |
 | Consumer stall | ServiceAuditor Prometheus query | Systemd restart | `consumer_stall_detected_total` |
 | Watchdog timeout | systemd WatchdogSec | systemd restart | `watchdog_notify_suppressed_total` |
 | DB disconnect | FastAPI health check | Alert + manual | `api_health` |

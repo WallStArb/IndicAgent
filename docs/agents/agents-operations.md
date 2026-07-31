@@ -1,6 +1,20 @@
 # Agents Operations — Service Mesh, DAG Topology & Lifecycle Management
 
-**Version:** 2.8.0 | **Status:** current | **Last Updated:** 2026-05-29
+**Version:** 2.9.0 | **Status:** current | **Last Updated:** 2026-07-31
+
+> **Staleness note (2026-07-31):** the `_DAG_ORDER`, `_AGENT_ID_TO_UNIT`, and Metrics Ports
+> tables below were captured from `services/service_auditor.py` as of the base class rename
+> pass (2026-05-29) and had drifted — several service names below (`feature-writer`,
+> `intelligence-pipeline`, `parity-auditor`, `feature-snapshot-writer`) belong to the
+> ARCHIVED v2.x pipeline (no live consumer as of 2026-07-02 per `CLAUDE.md`), not the live
+> v3.0 registry (`feature-vector-pipeline`, `feature-vector-writer`, etc.). The per-service
+> Metrics Ports scheme has also been superseded: daemons now push OTel metrics via OTLP gRPC
+> to a central collector (`:4317`), not per-service Prometheus scrape ports, for all but a
+> handful of legacy exceptions (see the Metrics Ports section below). This note-and-flag was
+> done as part of closing todo 201 (BaseAgent → BaseDaemon naming drift); a full resync of
+> these tables against the live registry is tracked separately — see
+> `.planning/todos/pending/` for the follow-up. `services/service_auditor.py` remains the
+> only authoritative source in the meantime.
 
 ---
 
@@ -124,35 +138,19 @@ _DAG_ORDER: dict[str, int] = {
 }
 ```
 
-### `_LAG_THRESHOLDS` (messages before DEGRADED)
+### Lag Thresholds (messages before DEGRADED)
 
-```python
-_LAG_THRESHOLDS: dict[str, int] = {
-    "indicagent-provider-merger": 500,
-    "indicagent-bar-aggregator": 500,
-    "indicagent-bar-auditor": 200,
-    "indicagent-bar-writer": 1000,
-    "indicagent-intelligence-pipeline": 500,
-    "indicagent-cross-asset": 200,
-    "indicagent-macro-compute": 500,
-    "indicagent-feature-writer": 1000,
-    "indicagent-signal-tracker-compute": 500,
-    "indicagent-signal-writer": 500,
-    "indicagent-lifecycle-writer": 500,
-    "indicagent-lineage-writer": 500,
-    "indicagent-alpha-swarm": 200,
-    "indicagent-narrative-compute": 200,
-    "indicagent-llm-writer": 500,
-    "indicagent-swarm-ledger-writer": 500,
-    "indicagent-signal-metrics-writer": 500,
-    "indicagent-graduation-compute": 500,
-    "indicagent-graduation-writer": 500,
-    "indicagent-ctx-writer": 500,
-    "indicagent-dlq-drain": 500,
-}
-```
+**Behavioral drift from the version of this doc stamped 2026-05-29:** `_LAG_THRESHOLDS` is no
+longer a hardcoded module-level dict. Per the Adaptive Parameter Registry migration (CLAUDE.md
+Service Registry gotcha), thresholds are now seeded as `alert.lag.*` keys in `config_state` and
+loaded at startup by `ServiceAuditor._load_lag_thresholds()`, then hot-reloaded when `alert.lag.*`
+Kafka config-update messages arrive — no code change or restart needed to retune a threshold.
+`services/service_auditor.py` keeps a code comment noting the original 21 entries were seeded by
+`production/migrations/103_config_foundation.sql` (Phase 109 Plan 05 Task 3); check
+`config_state` directly (or `/config/parameters` in the dashboard) for current values rather than
+looking for a static dict in the source.
 
-Services absent from `_LAG_THRESHOLDS` are not Kafka consumers (providers, infra sentinels, top-level services). Their health is determined solely by systemd unit state.
+Services absent from an `alert.lag.*` key are not Kafka consumers (providers, infra sentinels, top-level services). Their health is determined solely by systemd unit state.
 
 ### `_AGENT_ID_TO_UNIT` (label → systemd unit)
 
@@ -192,29 +190,20 @@ _AGENT_ID_TO_UNIT: dict[str, str] = {
 
 ## Metrics Ports
 
-Each daemon service exposes OTel metrics via its assigned port. All ports are scraped by the OTel Collector at `:4317` and forwarded to Prometheus at `:9090`.
+**Corrected 2026-07-31 — this section previously described a pull/scrape model that does not
+match the code.** `BaseDaemon.start()` calls `init_otel_providers(name)`
+(`src/observability/otel.py`), which configures an `OTLPMetricExporter` — every daemon **pushes**
+metrics via OTLP gRPC to the central OTel Collector at `OTEL_EXPORTER_OTLP_ENDPOINT`
+(`http://localhost:4317` by default), not the other way around. There is no per-service scrape
+port for the standard five OTel signals; init is a hard failure (raises, crashes the process) if
+the collector is unreachable, so a missing collector is loud, not silent. The Collector fans
+metrics out to Prometheus (`:9090` → Grafana `:3001`), traces to Tempo, and logs to Loki (see
+`docs/platform/platform-observability.md`).
 
-| Service | systemd unit suffix | Metrics port |
-|---------|---------------------|-------------|
-| IBKRProvider | `ibkr-provider` | `:9129` |
-| ProviderMerger | `provider-merger` | `:9130` |
-| BarAggregator | `bar-aggregator` | `:9120` |
-| BarWriter | `bar-writer` | `:9121` |
-| BarAuditor | `bar-auditor` | `:9123` |
-| CrossAssetService | `cross-asset` | `:9118` |
-| IntelligencePipeline | `intelligence-pipeline` | `:9125` |
-| FeatureWriter | `feature-writer` | `:9116` |
-| FeatureSnapshotWriter | `feature-snapshot-writer` | `:9132` |
-| ParityAuditor | `parity-auditor` | `:9133` |
-| SignalWriter | `signal-writer` | `:9119` |
-| SignalTracker | `signal-tracker-compute` | `:9115` |
-| SignalAuditor | `signal-auditor` | `:9128` |
-| SignalMetricsAnalyzer | `signal-metrics-compute` | `:9126` |
-| NarrativeSwarm | `narrative-compute` | `:9113` |
-| LLMWriter | `llm-writer` | `:9117` |
-| ServiceAuditor | `service-auditor` | `:9131` |
-
-Services absent from this table (API, dashboard, timer-based oneshots) do not expose dedicated metrics ports — their health is determined by systemd unit state only.
+A small number of services additionally expose their own `METRICS_PORT`-configured HTTP endpoint
+for reasons unrelated to the standard OTel signals (e.g. `config_service` on `:9005`,
+`self_healer` on `:9007`) — check the service's own module docstring before assuming a numbered
+port applies generally; it does not describe `BaseDaemon`'s default behavior.
 
 ---
 
@@ -247,23 +236,27 @@ Follow these steps in order. Missing any step means the auditor cannot monitor o
 Open `services/service_auditor.py`. Find the layer comment that matches your service's role. Add an entry with the correct priority number. Lower numbers restart first — your service should be higher (later) than its dependencies.
 
 ```python
-"indicagent-my-new-service": 7,  # priority 7: downstream of intelligence-pipeline (6)
+"indicagent-my-new-service": 7,  # priority 7: downstream of feature-vector-pipeline (6)
 ```
 
-**Step 2: Add to `_LAG_THRESHOLDS` (if it is a Kafka consumer).**
+**Step 2: Seed a lag threshold (if it is a Kafka consumer).**
 
-Set the threshold to the maximum acceptable consumer lag in messages. Compute agents: 200-500. Writers: 500-1000. If the service is not a Kafka consumer (provider, timer, top-level), skip this step.
+Lag thresholds are APR-backed, not a hardcoded dict (see Lag Thresholds above) — seed an
+`alert.lag.<name>` key in `config_state` (via migration or the `/config/parameters` dashboard)
+with the maximum acceptable consumer lag in messages. Compute agents: 200-500. Writers: 500-1000.
+If the service is not a Kafka consumer (provider, timer, top-level), skip this step.
+
+**Step 3: Add to `_AGENT_ID_TO_UNIT`.**
+
+The key must exactly match `BaseDaemon._to_snake_case(ClassName)` — the auto-derived `name` (and
+therefore the `agent_id` label on both `PERSISTENCE_CONSUMER_LAG` and
+`agent_last_message_timestamp_seconds`) unless the constructor passes an explicit `name=`
+override. This applies to every `BaseDaemon` subclass, not just `BaseWriter` — the auditor uses
+this same map for stall detection (`agent_last_message_timestamp_seconds`) as well as buffer-lag
+detection (`PERSISTENCE_CONSUMER_LAG`).
 
 ```python
-"indicagent-my-new-service": 500,
-```
-
-**Step 3: Add to `_AGENT_ID_TO_UNIT` (if it is a `BaseWriter`).**
-
-The key must exactly match the `name=` argument passed to `super().__init__()` in the service's constructor. This is how the auditor maps a Prometheus label to a systemd unit.
-
-```python
-"my_new_service_agent": "indicagent-my-new-service",
+"my_new_service": "indicagent-my-new-service",
 ```
 
 **Step 4: Create the systemd unit file.**
@@ -282,10 +275,10 @@ sudo systemctl start indicagent-my-new-service
 After the service starts, confirm the five mandatory signals appear in Prometheus within 60 seconds:
 
 ```bash
-curl -s 'http://localhost:9090/api/v1/query?query=agent_last_message_timestamp_seconds{agent_id="my_new_service_agent"}' | jq .
+curl -s 'http://localhost:9090/api/v1/query?query=agent_last_message_timestamp_seconds{agent_id="my_new_service"}' | jq .
 ```
 
-If the gauge is missing, the `name=` argument passed to `super().__init__()` does not match `_AGENT_ID_TO_UNIT`.
+If the gauge is missing, the auto-derived `name` (or explicit `name=` override) does not match `_AGENT_ID_TO_UNIT`.
 
 ---
 
@@ -317,14 +310,17 @@ A service at L6 cannot process messages if its upstream topic (produced by L3) i
 
 ### Log File Naming Convention
 
-Log files follow `logs/<agent_snake_case>_agent.log`. The name is derived from the `name=` argument to `super().__init__()`. Examples:
+Log files follow `logs/<name>.log` — **no `_agent` suffix** (that convention was retired along
+with the `BaseAgent` → `BaseDaemon` rename; see `docs/agents/agents-foundation.md`). `<name>`
+defaults to `BaseDaemon._to_snake_case(ClassName)` unless the constructor passes an explicit
+`name=` override. Examples (live v3.0 services):
 
 | Service | Log file |
 |---------|---------|
-| `indicagent-feature-writer` | `logs/feature_writer_agent.log` |
-| `indicagent-alpha-swarm` | `logs/alpha_swarm_compute_agent.log` |
-| `indicagent-intelligence-pipeline` | `logs/intelligence_pipeline_agent.log` |
-| `indicagent-narrative-compute` | `logs/narrative_group_compute_agent.log` |
+| `indicagent-feature-vector-writer` | `logs/feature_vector_writer.log` |
+| `indicagent-feature-vector-pipeline` | `logs/feature_vector_pipeline.log` |
+| `indicagent-alpha-swarm` | `logs/alpha_swarm.log` |
+| `indicagent-narrative-compute` | `logs/NarrativeSynthesizer.log` (worker class name, not the coordinator's) |
 
 If in doubt: `ls logs/ | grep <partial_name>`.
 
@@ -365,7 +361,7 @@ curl -s 'http://localhost:9090/api/v1/query?query=agent_last_message_timestamp_s
 
 ## See Also
 
-- `docs/agents/agents-foundation.md` — BaseAgent contract, liveness signals, OODA loop rationale
+- `docs/agents/agents-foundation.md` — BaseDaemon contract, liveness signals, OODA loop rationale
 - `docs/agents/agents-writers.md` — BaseWriter and the persistence pattern
-- `services/service_auditor.py` — `_DAG_ORDER`, `_LAG_THRESHOLDS`, `_AGENT_ID_TO_UNIT` (authoritative source)
-- `docs/platform/platform-foundation.md` (planned) — infrastructure layer design
+- `services/service_auditor.py` — `_DAG_ORDER`, `_AGENT_ID_TO_UNIT` (authoritative source); lag thresholds live in `config_state` (`alert.lag.*`), loaded by `_load_lag_thresholds()`
+- `docs/platform/platform-foundation.md` — infrastructure layer design

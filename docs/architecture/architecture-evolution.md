@@ -1,11 +1,21 @@
-# IndicAgent v2.8 — Current Architecture State
+# IndicAgent v2.8 — Historical Architecture Snapshot (v2.x pipeline, ARCHIVED)
 
 **Version:** 2.8
-**Status:** current
-**Last Updated:** 2026-05-27
+**Status:** historical — describes the ARCHIVED v2.x I1-I7 pipeline, not current production architecture
+**Last Updated:** 2026-05-27 (staleness note added 2026-07-31)
 **Tags:** architecture, evolution, versioning, pipeline, swarm, ml-infrastructure
 
-> This is the single source of truth for the current production architecture. For design history and evolution, see `archive/`.
+> **This document no longer describes current production architecture.** Per CLAUDE.md, the
+> v2.x pipeline this doc documents (`IntelligencePipeline`, `intelligence_features`,
+> `signal_ledger`, I1-I7 plugins) is **ARCHIVED with no live consumer as of 2026-07-02**. Live
+> production architecture is v3.0's Feature Factory / AlphaEngine pipeline: `IBKR TWS →
+> FeatureVectorPipeline → FeatureVectorWriter → feature_vectors → forward_return_writer →
+> ic_engine → ensemble_trainer/EnsembleICEngine → alpha_publisher → alpha_events`. See
+> `CLAUDE.md`'s Architecture and Pipeline sections and `src/intelligence/CLAUDE.md` for current
+> state. This doc is retained as a historical record of the v2.0-v2.7 evolution (the version
+> history below is accurate as *history*); do not use it to answer "what does the system do
+> today." A dedicated resync/re-archive of this file is tracked as a follow-up (see the
+> `.planning/todos/pending/` entry filed alongside todo 201's closure).
 
 ## Executive Summary
 
@@ -202,18 +212,26 @@ Consolidated I1-I7 into a single in-process agent:
 
 ## Agent Classes
 
+**Base class corrected 2026-07-31:** this table originally said `BaseAgent` throughout; the base
+class was renamed `BaseDaemon` during the v3.0 rebuild (`src/core/agent/base.py`; see
+`docs/agents/agents-foundation.md`). Several of the files below (`intelligence_pipeline_agent.py`,
+`feature_writer_agent.py`, `signal_writer_agent.py`, `signal_tracker_compute_agent.py`,
+`parity_auditor_agent.py`) belong to the ARCHIVED v2.x pipeline per this doc's header note and
+may no longer exist under these names — this table is left as a historical record of the v2.x
+class layout, only the base-class name is corrected.
+
 | Role | Class | Base | File |
 |------|-------|------|------|
 | Provider | `IBKRProvider` | `BaseProvider` | `services/ibkr_provider.py` |
-| Merger | `ProviderMerger` | `BaseAgent` | `services/provider_merger.py` |
-| Compute | `IntelligencePipeline` | `BaseAgent` | `services/intelligence_pipeline_agent.py` |
-| Compute | `BarAggregator` | `BaseAgent` | `services/bar_aggregator.py` |
-| Auditor | `BarAuditor` | `BaseAgent` | `services/bar_auditor.py` |
-| Auditor | `ParityAuditor` | `BaseAgent` | `services/parity_auditor_agent.py` |
-| Writer | `BarWriter` | `BaseAgent` | `services/bar_writer.py` |
-| Writer | `FeatureWriter` | `BaseAgent` | `services/feature_writer_agent.py` |
-| Writer | `SignalWriter` | `BaseAgent` | `services/signal_writer_agent.py` |
-| Tracker | `SignalTracker` | `BaseAgent` | `services/signal_tracker_compute_agent.py` |
+| Merger | `ProviderMerger` | `BaseDaemon` | `services/provider_merger.py` |
+| Compute | `IntelligencePipeline` | `BaseDaemon` | `services/intelligence_pipeline_agent.py` |
+| Compute | `BarAggregator` | `BaseDaemon` | `services/bar_aggregator.py` |
+| Auditor | `BarAuditor` | `BaseDaemon` | `services/bar_auditor.py` |
+| Auditor | `ParityAuditor` | `BaseDaemon` | `services/parity_auditor_agent.py` |
+| Writer | `BarWriter` | `BaseWriter` | `services/bar_writer.py` |
+| Writer | `FeatureWriter` | `BaseWriter` | `services/feature_writer_agent.py` |
+| Writer | `SignalWriter` | `BaseWriter` | `services/signal_writer_agent.py` |
+| Tracker | `SignalTracker` | `BaseDaemon` | `services/signal_tracker_compute_agent.py` |
 
 ## Intelligence Tiers
 
@@ -333,6 +351,7 @@ Signal status strings: `"pending"`, `"active"`, `"regime_suppressed"` — raw st
 
 ## See Also
 
-- `docs/agents/agents-foundation.md` — BaseAgent lifecycle contract and role taxonomy
+- `docs/agents/agents-foundation.md` — BaseDaemon lifecycle contract and role taxonomy
 - `docs/agents/agents-operations.md` — Service mesh, DAG topology, and operations
 - `observability.md` — Metrics and monitoring patterns
+- `CLAUDE.md` — current v3.0 pipeline and architecture (supersedes this doc's "current state" framing)

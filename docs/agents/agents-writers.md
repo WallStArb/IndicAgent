@@ -1,16 +1,16 @@
 # Agents Writers — BaseWriter & the Persistence Pattern
 
-**Version:** 2.8.0 | **Status:** current | **Last Updated:** 2026-05-29
+**Version:** 2.9.0 | **Status:** current | **Last Updated:** 2026-07-31
 
 ---
 
 ## Purpose
 
-`BaseWriter` is the second layer of the agent hierarchy, sitting above `BaseAgent`. It adds everything needed to move data from Kafka into TimescaleDB safely: bounded buffering, size-and-time flush triggers, offset commit gating, overflow protection, and DLQ routing.
+`BaseWriter` (`src/core/agent/base_writer.py`) is the second layer of the agent hierarchy, sitting above `BaseDaemon` (`src/core/agent/base.py`; formerly named `BaseAgent` before the v3.0 rebuild — see `docs/agents/agents-foundation.md`'s Naming note). It adds everything needed to move data from Kafka into TimescaleDB safely: bounded buffering, size-and-time flush triggers, offset commit gating, overflow protection, and DLQ routing.
 
 **Audience:** Engineers adding a new persistence service, debugging a stalled writer, or investigating DLQ events.
 
-The separation between `BaseAgent` and `BaseWriter` exists because compute agents and writer agents have opposite failure modes. A compute agent that crashes loses nothing — messages stay in Kafka. A writer agent that crashes mid-batch risks writing partial rows. `BaseWriter` makes the atomic batch guarantee concrete: flush succeeds and offset commits, or flush fails and the batch stays buffered for retry.
+The separation between `BaseDaemon` and `BaseWriter` exists because compute agents and writer agents have opposite failure modes. A compute agent that crashes loses nothing — messages stay in Kafka. A writer agent that crashes mid-batch risks writing partial rows. `BaseWriter` makes the atomic batch guarantee concrete: flush succeeds and offset commits, or flush fails and the batch stays buffered for retry.
 
 Writers are the **only agents with DB write access**. They must never appear on the compute hot path.
 
@@ -56,21 +56,23 @@ _setup()
 _run() [default implementation]
   └─→ async for message in self._consumer.messages():
         _record_message_consumed()            liveness tick
-        parsed = _parse_payload(payload)
-        if parsed is None:
-          _maybe_route_to_dlq(payload, exc)  DLQ + counter
-          continue
-        if parsed == []:
-          continue                            skip silently — no DLQ, no buffer entry
-        _buffer_rows(parsed)                  appends to self._buffer
+        if payload_model is set on the class:
+          validated = TypeAdapter(payload_model).validate_python(payload)
+          ValidationError → _maybe_route_to_dlq(payload, error); continue
+        valid, invalid = _parse_payload(validated_or_raw_payload)
+        if invalid and not valid:
+          _maybe_route_to_dlq(payload, Exception("Parse failed"))  DLQ + counter
+        if valid:
+          _buffer_rows(valid)                 appends to self._buffer
+        (both [] → skip silently: no DLQ, no buffer entry)
         if buffer > alert threshold:
           sleep(0.5)                          backpressure
         await maybe_flush()                   flush if size or time threshold met
 
 _teardown()
-  └─→ _do_flush()                  final flush of remaining buffer
-  └─→ consumer.stop()              close Kafka consumer
-  └─→ pool.close() / db.close()   close DB connections
+  └─→ _do_flush()                  final flush of remaining buffer (only if non-empty)
+  └─→ consumer.stop()              close Kafka consumer (auto-close guard: fires even if a
+  └─→ pool.close() / db.close()   close DB connections   subclass overrides _teardown() without calling super())
 ```
 
 ### `_create_consumer()` Helper
@@ -95,15 +97,25 @@ It reads `bootstrap_servers` from `self.settings`, sets `enable_auto_commit=Fals
 
 ### `_parse_payload` Return Contract
 
-This is the most important contract in `BaseWriter`. The return value controls the fate of the message:
+This is the most important contract in `BaseWriter`. The signature is
+`_parse_payload(self, payload: dict) -> tuple[list, list]` — it returns a `(valid_rows, invalid_rows)`
+pair, **not** a single `list | None` (an earlier version of this contract used a single return
+value; the code moved to a tuple so a payload's valid rows can be buffered even when some sibling
+rows in the same message fail validation). The tuple controls the fate of the message:
 
 | Return value | Meaning | What happens |
 |-------------|---------|--------------|
-| `list` (non-empty) | Valid rows to persist | Rows are buffered, flushed to DB on next flush cycle |
-| `[]` (empty list) | All rows invalid, skip silently | No DLQ, no buffer entry — message acknowledged |
-| `None` | Payload is unparseable | `_maybe_route_to_dlq()` fires, `parse_failures_total` increments |
+| `(rows, [])` — valid non-empty | All rows valid | Rows are buffered, flushed to DB on next flush cycle |
+| `(rows, invalid)` — both non-empty | Partially valid | Valid rows are buffered; invalid ones are dropped silently (not DLQed — the payload as a whole was understood) |
+| `([], [])` | Nothing to do | Skip silently — no DLQ, no buffer entry, message acknowledged |
+| `([], invalid)` — only invalid non-empty | Payload is unparseable | `_maybe_route_to_dlq()` fires, `parse_failures_total` increments |
 
-**Critical distinction:** Return `[]` (empty list) when individual rows fail validation but the payload envelope is understood. Return `None` only when the payload itself is malformed and cannot be interpreted at all. Returning `None` on a per-row validation failure causes the base writer to DLQ the entire payload — double-penalizing a partially-valid batch.
+**Critical distinction:** the DLQ path only fires when `valid` is empty AND `invalid` is non-empty
+(base class check: `if invalid and not valid`). Populate `invalid` for malformed/unparseable rows;
+as long as at least one row parses into `valid`, the message is treated as a normal partial
+success and never reaches the DLQ. Subclasses using `payload_model` (a pydantic model set as a
+`ClassVar` on the writer) get an extra pre-validation pass in the base `_run()` loop — a
+`ValidationError` there routes straight to the DLQ before `_parse_payload` is even called.
 
 ### `PERSISTENCE_BATCH_LATENCY`
 
@@ -139,7 +151,7 @@ PERSISTENCE_BATCH_LATENCY.record((time.monotonic() - t0) * 1000, {"agent_id": se
 
 ```python
 from src.core.agent.base_writer import BaseWriter
-import asyncpg
+from src.core.database_manager import create_pool
 
 class MyWriter(BaseWriter):
 
@@ -157,22 +169,28 @@ class MyWriter(BaseWriter):
 
     async def _setup(self) -> None:
         self._create_consumer()   # wires self._consumer
-        self._pool = await asyncpg.create_pool(
-            dsn=self.settings.timescaledb_dsn,
+        # Use database_manager.create_pool, not bare asyncpg.create_pool — it
+        # registers the JSONB codec (see CLAUDE.md's asyncpg gotcha). Assign to
+        # self._pool specifically: BaseWriter._teardown()'s auto-close guard
+        # looks for that exact attribute name.
+        self._pool = await create_pool(
+            self.settings.database_url,
             min_size=2,
             max_size=10,
         )
 
-    def _parse_payload(self, payload: dict) -> list | None:
-        """Return list of row dicts, [] for all-invalid, None for unparseable."""
+    def _parse_payload(self, payload: dict) -> tuple[list, list]:
+        """Return (valid_rows, invalid_rows). DLQ fires only when valid is empty
+        AND invalid is non-empty — see the Data Contracts section above."""
         if "symbol" not in payload or "ts" not in payload:
-            return None   # payload envelope is malformed
-        rows = []
+            return [], [payload]   # envelope malformed — nothing valid, so this DLQs
+        valid, invalid = [], []
         for item in payload.get("items", []):
             if not isinstance(item.get("value"), (int, float)):
-                continue   # skip invalid rows — don't DLQ the whole batch
-            rows.append({"symbol": payload["symbol"], "ts": payload["ts"], "value": item["value"]})
-        return rows  # [] is fine here — empty batch is silently skipped
+                invalid.append(item)   # bad row — don't DLQ the whole batch
+                continue
+            valid.append({"symbol": payload["symbol"], "ts": payload["ts"], "value": item["value"]})
+        return valid, invalid  # ([], []) is fine here — empty batch is silently skipped
 
     async def _flush_batch(self, batch: list) -> None:
         """Write batch to DB. Must be idempotent (upsert, not insert)."""
@@ -201,7 +219,7 @@ class MyWriter(BaseWriter):
 
 When `agent_dlq_total` increments, payloads are being routed to the DLQ topic (if configured) or logged and discarded. To investigate:
 
-1. Check `logs/<agent_name>_agent.log` for `agent.dlq_discard` events.
+1. Check `logs/<name>.log` (no `_agent` suffix) for `daemon.dlq_discard` events.
 2. If a DLQ topic is configured, inspect it: `docker exec redpanda rpk topic consume <dlq_topic> --num 5`.
 3. Identify the pattern (schema mismatch, missing fields, upstream producer change).
 4. Fix the upstream producer or update `_parse_payload` to handle the new schema.
@@ -209,7 +227,7 @@ When `agent_dlq_total` increments, payloads are being routed to the DLQ topic (i
 
 ### `parse_failures_total` Incrementing
 
-This counter increments when `_parse_payload` returns `None`. Common causes:
+This counter increments when `_parse_payload` returns invalid-only (`valid` empty, `invalid` non-empty) — see the Data Contracts section above. Common causes:
 
 - Upstream producer changed the payload schema without updating the writer.
 - A new field is required by `_parse_payload` but missing from older messages being replayed.
@@ -219,7 +237,7 @@ This counter increments when `_parse_payload` returns `None`. Common causes:
 
 ```bash
 # Query Prometheus directly
-curl -s 'http://localhost:9090/api/v1/query?query=histogram_quantile(0.99,rate(feature_writer_agent_flush_latency_seconds_bucket[5m]))' | jq .
+curl -s 'http://localhost:9090/api/v1/query?query=histogram_quantile(0.99,rate(feature_vector_writer_flush_latency_seconds_bucket[5m]))' | jq .
 ```
 
 P99 flush latency above 500ms usually indicates DB connection pool exhaustion or a slow index rebuild.
@@ -232,7 +250,7 @@ P99 flush latency above 500ms usually indicates DB connection pool exhaustion or
 
 ## See Also
 
-- `docs/agents/agents-foundation.md` — BaseAgent contract and liveness signals
+- `docs/agents/agents-foundation.md` — BaseDaemon contract and liveness signals
 - `docs/agents/agents-operations.md` — service mesh, DAG topology, how writers fit in the restart order
 - `src/core/agent/base_writer.py` — source of truth
 - `src/observability/metrics.py` — canonical metric definitions

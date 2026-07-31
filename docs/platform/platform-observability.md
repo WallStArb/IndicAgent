@@ -1,7 +1,7 @@
 # Platform Observability
 
-**Version:** 2.8
-**Last Updated:** 2026-05-29
+**Version:** 2.9
+**Last Updated:** 2026-07-31
 **Status:** current
 
 ---
@@ -118,7 +118,7 @@ with observed_span("plugin_compute", attributes={
 
 ### Initialization
 
-`BaseAgent.start()` calls `init_otel_providers()` and `setup_otlp_logging()` automatically. Manual call only needed in non-agent entry points (e.g., oneshot scripts):
+`BaseDaemon.start()` (renamed from `BaseAgent` during the v3.0 rebuild — see `docs/agents/agents-foundation.md`'s Naming note) calls `init_otel_providers()` and `setup_otlp_logging()` automatically. Manual call only needed in non-agent entry points (e.g., oneshot scripts):
 
 ```python
 from src.observability.otel import init_otel_providers
@@ -156,12 +156,16 @@ gauge_instrument.add(-1, {"label_key": "value"})   # decrement
 
 ### Mandatory OTel signals (Phase 108, D-04)
 
-Every new daemon inheriting `BaseAgent` automatically emits these five signals. No per-service code needed:
+Every new daemon inheriting `BaseDaemon` automatically emits these five signals. No per-service code needed:
+
+**Label correction 2026-07-31:** `agent_crash_total`'s label key is `agent`, not `agent_id` — see
+`src/core/agent/base.py`'s `_crash_attrs = {"agent": self._agent_label}`. This also affects
+CLAUDE.md's OTel Health Contract section (out of scope to fix here; flagged separately).
 
 | Signal | Type | Label | When |
 |--------|------|-------|------|
 | `agent_last_message_timestamp_seconds` | Gauge | `agent_id` | Every processed message — stall detection |
-| `agent_crash_total` | Counter | `agent_id` | Uncaught exception in `_run()` |
+| `agent_crash_total` | Counter | `agent` | Uncaught exception in `_run()` |
 | `agent_dlq_total` | Counter | `agent_id` | DLQ routing events |
 | `watchdog_notify_total` | Counter | `agent_id` | Successful `sd_notify WATCHDOG=1` pings |
 | `watchdog_notify_suppressed_total` | Counter | `agent_id` | Suppressed pings: agent alive but idle/stalled |

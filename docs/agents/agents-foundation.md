@@ -1,16 +1,18 @@
-# Agents Foundation — BaseAgent Contract & Fundamental Patterns
+# Agents Foundation — BaseDaemon Contract & Fundamental Patterns
 
-**Version:** 2.8.0 | **Status:** current | **Last Updated:** 2026-05-29
+**Version:** 2.9.0 | **Status:** current | **Last Updated:** 2026-07-31
 
 ---
 
 ## Purpose
 
-Every daemon in IndicAgent is a `BaseAgent` subclass. This document explains what `BaseAgent` provides automatically, why it was built that way, and what a new service author must (and must not) do.
+Every daemon in IndicAgent is a `BaseDaemon` subclass (`src/core/agent/base.py`). This document explains what `BaseDaemon` provides automatically, why it was built that way, and what a new service author must (and must not) do. `BaseWriter` (`src/core/agent/base_writer.py`) and `BaseBatch` (`src/core/agent/base_batch.py`) are the two specialized subclasses — see `docs/agents/agents-writers.md` for `BaseWriter`.
+
+**Naming note:** an earlier version of this base class was named `BaseAgent`; it was renamed to `BaseDaemon` during the v3.0 rebuild (the class no longer carries an `Agent` suffix, matching the repo-wide retirement of the `_agent` suffix from Ring 2 file/class names — see `CLAUDE.md`'s oneshot `_agent.py` exceptions list for the few deliberate holdouts). This doc previously described the `BaseAgent` contract and had drifted from the current code; it has been corrected against `src/core/agent/base.py` as of 2026-07-31.
 
 **Audience:** Engineers writing a new service from scratch, or debugging why an existing service is misbehaving.
 
-`BaseAgent` exists because every agent shares the same operational concerns: SIGTERM handling, OTel instrumentation, systemd watchdog integration, structured logging, and consumer-lag reporting. Without a shared base, each service would reinvent these — inconsistently. With `BaseAgent`, all five mandatory OTel signals are inherited with no per-service code required.
+`BaseDaemon` exists because every agent shares the same operational concerns: SIGTERM handling, OTel instrumentation, systemd watchdog integration, structured logging, and consumer-lag reporting. Without a shared base, each service would reinvent these — inconsistently. With `BaseDaemon`, all five mandatory OTel signals are inherited with no per-service code required.
 
 ---
 
@@ -18,7 +20,7 @@ Every daemon in IndicAgent is a `BaseAgent` subclass. This document explains wha
 
 ### OODA Loop Rationale
 
-Every `BaseAgent` operates on the OODA loop (Observe-Orient-Decide-Act):
+Every `BaseDaemon` operates on the OODA loop (Observe-Orient-Decide-Act):
 
 - **Observe:** Consume Kafka events and OTel metrics to understand the operational environment.
 - **Orient:** Evaluate internal health — is lag too high? Is the buffer near overflow?
@@ -40,7 +42,7 @@ Without drain semantics, a systemd restart mid-batch leaves uncommitted Kafka of
 3. `_teardown()` runs (closes consumers, flushes buffers, closes pools).
 4. The process exits cleanly.
 
-This is why `BaseAgent` registers signal handlers via `asyncio.get_running_loop().add_signal_handler()` — not `signal.signal()`, which is not safe inside an asyncio event loop.
+This is why `BaseDaemon` registers signal handlers via `asyncio.get_running_loop().add_signal_handler()` — not `signal.signal()`, which is not safe inside an asyncio event loop.
 
 ### Why Health Liveness Ties to Message Receipt
 
@@ -61,19 +63,37 @@ Process-alive checks (`systemctl status`) catch crashes but miss stalls: a proce
 ```
 start()
   ├─→ _register_signal_handlers()         SIGTERM/SIGINT → _stop_event.set()
-  ├─→ init_otel_providers(name)            idempotent; first call wins
+  ├─→ init_otel_providers(name)            idempotent; first call wins. HARD FAILURE if
+  │                                        the OTel collector is unreachable (raises,
+  │                                        crashes the process so systemd restarts visibly
+  │                                        — metrics export is not optional).
   ├─→ setup_otlp_logging(name)             additive to file logging
+  ├─→ _pre_setup_config_load()             [Phase 109] load OPS config snapshot from
+  │                                        config_state BEFORE _setup(), non-fatal
   ├─→ _setup()                             [override] connect Kafka, seed state
-  ├─→ background: _report_consumer_lag()   noop in BaseAgent; overridden by writers
-  ├─→ background: _watchdog_notify()       sd_notify WATCHDOG=1 at half-interval
+  │                                        (can now read the config snapshot above);
+  │                                        wrapped in _setup_with_retry() when
+  │                                        circuit_breaker = True on the subclass
+  ├─→ _setup_config_consumer()             [Phase 109] subscribe to Kafka for config
+  │                                        hot-reload AFTER _setup(), non-fatal
+  ├─→ background: _report_consumer_lag()   noop in BaseDaemon; overridden by BaseWriter
+  ├─→ background: _watchdog_notify()       sd_notify WATCHDOG=1; liveness-gated once
+  │                                        max_idle_seconds > 0 (suppresses pings once
+  │                                        idle, letting _stall_watchdog fire first)
   ├─→ background: _stall_watchdog()        sys.exit(1) if idle > max_idle_seconds
   └─→ _run()                               [ABSTRACT] main message loop
-        │  exception → log agent.run_failed + AGENT_CRASH_TOTAL
+        │  exception → log daemon.run_failed + AGENT_CRASH_TOTAL
         └─→ finally:
-              ├─→ cancel background tasks
+              ├─→ cancel background tasks (lag/watchdog/stall)
               ├─→ _teardown()              [override] drain/close connections
-              └─→ stop()                   [override] final flush logic
+              ├─→ _teardown_config_consumer() [Phase 109] unsubscribe config consumer
+              └─→ stop()                   [override] final flush logic; logs daemon.stopped
 ```
+
+Log events use the `daemon.*` role prefix for base-class infra events (`daemon.starting`,
+`daemon.stopped`, `daemon.run_failed`, `daemon.setup_failed`, `daemon.dlq_discard`,
+`daemon.stall_detected`) rather than a per-service `agent_id` — an intentional exception to the
+`{derived_agent_id}.action` convention used elsewhere (see `src/core/agent/base.py` docstrings).
 
 ### The Two Required Override Points
 
@@ -106,7 +126,7 @@ Set `circuit_breaker = True` on a subclass to enable exponential backoff retry o
 
 ### 5 Mandatory OTel Signals (Phase 108 SOP, D-04)
 
-All BaseAgent subclasses automatically emit these five signals — **no per-service code is needed**.
+All BaseDaemon subclasses automatically emit these five signals — **no per-service code is needed**.
 
 | Metric | Type | Label | Purpose |
 |--------|------|-------|---------|
@@ -133,16 +153,23 @@ async def _run(self) -> None:
 
 ### Structured Logging
 
-The logger is pre-bound with `agent=name`. Standard event names (use these consistently):
+The logger is pre-bound with `agent=name`. Base-class infra events use the `daemon.` prefix (not
+a per-service name — see the lifecycle diagram above):
 
-- `agent.starting` — initialization begins
-- `agent.stopped` — clean shutdown
-- `agent.run_failed` — unhandled exception in `_run()`
-- `agent.dlq_discard` — DLQ discard (when no DLQ topic is configured)
+- `daemon.starting` — initialization begins
+- `daemon.stopped` — clean shutdown
+- `daemon.run_failed` — unhandled exception in `_run()`
+- `daemon.setup_failed` — unhandled exception in `_setup()`
+- `daemon.dlq_discard` — DLQ discard (when no DLQ topic is configured)
+- `daemon.stall_detected` — `_stall_watchdog()` fired, process about to `sys.exit(1)`
 
 Never use `event=` as a keyword argument to structlog — it collides with the positional event argument. Use `signal=`, `payload=`, `data=` instead.
 
-Log files: `logs/<agent_snake_case>_agent.log`. For example, `BarAggregator` logs to `logs/bar_aggregator.log`. BaseAgent derives this path automatically from the `name` argument — pass `name="bar_aggregator"` to get the right file.
+Log files: `logs/<name>.log`, where `<name>` defaults to the snake_case conversion of the class
+name (`BarAggregator` → `logs/bar_aggregator.log`) but can be overridden by passing `name=` before
+`super().__init__()`. There is no `_agent` suffix — that convention was retired along with the
+`BaseAgent` name itself (a handful of oneshot `_agent.py` *file* names are deliberately preserved
+per CLAUDE.md, but the log path derivation never added a suffix).
 
 ---
 
@@ -151,10 +178,10 @@ Log files: `logs/<agent_snake_case>_agent.log`. For example, `BarAggregator` log
 ### Minimal Agent Recipe
 
 ```python
-from src.core.agent.base import BaseAgent
+from src.core.agent.base import BaseDaemon
 from src.core.kafka_utils import KafkaConsumerClient
 
-BaseAgent:(BaseAgent):
+class MyDaemon(BaseDaemon):
 
     async def _setup(self) -> None:
         self._consumer = KafkaConsumerClient(
@@ -172,8 +199,8 @@ BaseAgent:(BaseAgent):
             self._record_message_consumed()
             try:
                 await self._process(payload)
-            except Exception as exc:
-                await self._send_to_dlq(payload, exc)
+            except Exception as error:
+                await self._send_to_dlq(payload, error)
 
     async def _teardown(self) -> None:
         if self._consumer:
@@ -197,7 +224,7 @@ BaseAgent:(BaseAgent):
 
 The class name, file name, systemd unit, and log file all derive from the same concept name:
 
-- `alpha_signal` → `AlphaSwarm` / `services/alpha_signal_agent.py` / `indicagent-alpha-signal` / `logs/alpha_signal_agent.log`
+- `alpha_swarm` → `AlphaSwarm` / `services/alpha_swarm.py` / `indicagent-alpha-swarm` / `logs/alpha_swarm.log`
 
 Role suffixes map to invariant responsibilities:
 
@@ -219,7 +246,7 @@ Role suffixes map to invariant responsibilities:
 The agent is either crashed or stalled. Check in order:
 
 1. `systemctl status indicagent-<name>` — is the process running?
-2. `tail -50 logs/<agent_name>_agent.log` — any exceptions?
+2. `tail -50 logs/<name>.log` — any exceptions? (no `_agent` suffix — see Log File Naming above)
 3. `docker exec redpanda rpk group describe <consumer_group> -t` — is the Kafka topic producing messages?
 
 ### Service Crashed (FAILED state)
@@ -234,13 +261,13 @@ The service auditor handles this automatically for most services. Manual interve
 ### Reading Logs
 
 ```bash
-tail -100 logs/<agent_snake_case>_agent.log
+tail -100 logs/<name>.log
 ```
 
 Log output is JSON (structlog). Key fields: `event` (log message), `agent` (agent name), `timestamp`. For grep:
 
 ```bash
-grep '"level":"error"' logs/intelligence_pipeline_agent.log | tail -20
+grep '"level":"error"' logs/feature_vector_pipeline.log | tail -20
 ```
 
 ---
@@ -270,7 +297,9 @@ The full DAG mandate and all seven architectural invariants are in `docs/foundat
 - `docs/agents/agents-operations.md` — service mesh management and DAG topology
 - `docs/architecture/architecture-dag-topology.md` — full system map: every service, topic, and invariant
 - `docs/foundation/design-principles.md` — DAG invariants (Principle 11) and all architectural north stars
-- `src/core/agent/base.py` — source of truth for lifecycle implementation
+- `src/core/agent/base.py` — source of truth for lifecycle implementation (`BaseDaemon`)
+- `src/core/agent/base_writer.py` — `BaseWriter` subclass, source of truth for the persistence pattern
+- `src/core/agent/base_batch.py` — `BaseBatch` subclass, source of truth for oneshot batch compute jobs
 - `src/observability/metrics.py` — canonical OTel metric definitions
 - `src/observability/spans.py` — `observed_span()` helper and ATTR_* constants for tracing
 - `CLAUDE.md` — Key Rules section (gotchas and critical patterns)

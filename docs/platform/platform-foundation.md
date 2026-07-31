@@ -1,7 +1,7 @@
 # Platform Foundation
 
-**Version:** 2.8
-**Last Updated:** 2026-05-29
+**Version:** 2.9
+**Last Updated:** 2026-07-31
 **Status:** current
 
 ---
@@ -64,6 +64,13 @@ All 14 Docker containers use `restart: unless-stopped` (or `restart: always` for
 
 Services are organized in dependency layers. Higher layers depend on lower layers. The canonical registry is `_DAG_ORDER` in `services/service_auditor.py`.
 
+> **Staleness note (2026-07-31):** the illustrative layer diagram below predates the v3.0
+> Feature Factory rename — `intelligence-pipeline`, `feature-writer`, `parity-auditor`, and
+> `feature-snapshot-writer` name the ARCHIVED v2.x pipeline (no live consumer as of 2026-07-02
+> per CLAUDE.md), not the live `feature-vector-pipeline` / `feature-vector-writer` registry.
+> Treat this as a snapshot of the DAG's *shape* only; `services/service_auditor.py`'s
+> `_DAG_ORDER` is the sole source of truth for current layer membership.
+
 ```
 L1  ibkr-provider, bar-replay            — data ingestion + bar replay
 L2  provider-merger                      — stream merge
@@ -87,7 +94,10 @@ L10 service-auditor                      — meta: monitors + restarts all above
 
 **ML batch services** (`ml-training`, `ml-orchestrator`, `ml-data-quality`, `ml-discovery`) are timer-triggered, not daemons. `inactive (dead)` between runs is correct — do not treat as failures.
 
-**Roll batch** (`roll-batch`) runs nightly at 8pm. Detects calendar-based futures rolls, promotes front-month contracts in `contract_metadata`, broadcasts updates via Kafka.
+**Roll batch** (`roll-batch`) is documented as running nightly at 8pm, detecting calendar-based
+futures rolls and promoting front-month contracts in `contract_metadata` via Kafka broadcast —
+but per CLAUDE.md, **all systemd timers are confirmed disabled as of 2026-07-02**. Verify with
+`systemctl list-timers | grep indicagent` before assuming this runs on schedule.
 
 ### Docker Container Inventory
 
@@ -154,7 +164,7 @@ systemctl status indicagent-intelligence-pipeline
 docker ps
 
 # Service logs
-tail -20 logs/<service>_agent.log
+tail -20 logs/<service>.log
 ```
 
 ### Checking Data Flow
@@ -188,7 +198,10 @@ Full infrastructure reference: `docs/operations/operations-infrastructure.md`.
 
 ### Adding a New systemd Daemon
 
-1. Create `services/<name>_agent.py` following the `BaseAgent` pattern.
+1. Create `services/<name>.py` subclassing `BaseDaemon` (`src/core/agent/base.py`) — or
+   `BaseWriter`/`BaseBatch` for persistence/oneshot-batch roles. Filenames no longer carry an
+   `_agent` suffix (a handful of oneshot scripts keep it deliberately; see CLAUDE.md's exceptions
+   list) — this was retired along with the `BaseAgent` → `BaseDaemon` rename.
 2. Add a unit file to `production/systemd/indicagent-<name>.service`:
    ```ini
    [Unit]
@@ -200,7 +213,7 @@ Full infrastructure reference: `docs/operations/operations-infrastructure.md`.
    Type=notify
    User=bg
    WorkingDirectory=/home/bg/dev/indicagent
-   ExecStart=/home/bg/dev/indicagent/.venv/bin/python -m services.<name>_agent
+   ExecStart=/home/bg/dev/indicagent/.venv/bin/python -m services.<name>
    Restart=always
    RestartSec=5
    WatchdogSec=60
@@ -239,7 +252,7 @@ Diagnosis:
 systemctl list-units --all | grep indicagent | grep -v running
 
 # Check the failing service logs
-tail -50 logs/<service>_agent.log
+tail -50 logs/<service>.log
 
 # Check upstream services
 systemctl status indicagent-bar-aggregator indicagent-provider-merger

@@ -206,7 +206,7 @@ scoping it as a phase via `/gsd-discuss-phase`.
 | [022](pending/022-bi-superset.md) | Self-service BI (Superset) for ad-hoc analytics |
 | [115](pending/115-days-to-month-end-exact-redundancy.md) | `days_to_month_end` is an exact affine complement of `month_position` (Pearson correlation -1) — perfectly collinear, remove one. |
 | [189](pending/189-ctf-momentum-1d-self-referential-htf-not-cross-timeframe.md) | Mostly resolved 2026-07-27 same-day as filing: `ctf_momentum`'s 1d-vs-15m sign flip was a measurement artifact (`_CTF_HIGHER_TF` maps `1d -> 1d`, self-referential), doc corrected. Remaining: optional design decision + audit of sibling fallbacks, not urgent. |
-| [201](pending/201-docs-baseagent-naming-drift-agents-platform-cluster.md) | New 2026-07-29, found during a repo cleanup pass: `docs/agents/*` + `docs/platform/platform-foundation.md` + `docs/architecture/architecture-evolution.md` describe a `BaseAgent` class that no longer exists (`grep -rn "class BaseAgent"` returns nothing) — live base class is `BaseDaemon`. Needs a real contract-verification pass, not a mechanical rename, since the described behavior may have drifted beyond the name. |
+| [220](pending/220-docs-agents-platform-cluster-v3-dag-registry-resync.md) | New 2026-07-31, found while closing todo 201: `docs/agents/*` + `docs/platform/*` + `docs/architecture/*` embed static `_DAG_ORDER`/`_AGENT_ID_TO_UNIT`/metrics-port snapshots that predate the v3.0 rename (describe archived v2.x services like `FeatureWriter`/`IntelligencePipeline` as current). Also surfaced: CLAUDE.md's OTel Health Contract section has a wrong label key (`agent_crash_total` is `agent`, not `agent_id`) — fix that part first, it's small and high-value. |
 
 ---
 
