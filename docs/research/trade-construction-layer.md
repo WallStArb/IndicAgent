@@ -36,7 +36,7 @@ own point, not yet quantified for this specific construction).
 approaches exist" question raised alongside Phase 164/165's feature-expansion fork. Still
 correct and, if anything, more load-bearing than when written: `docs/research/data-edge-source-thesis.md`'s
 T2 (regime-conditional absolute-direction persistence) was falsified 2026-07-24 across an
-exhaustive 234-cell sweep (`.planning/todos/pending/179-gate166-concurrent-exposure-diagnostic.md`)
+exhaustive 234-cell sweep (`.planning/todos/completed/179-gate166-concurrent-exposure-diagnostic.md`)
 -- the *per-symbol directional* construction row 1 of this doc's own table found no edge
 anywhere. That's exactly the failure mode T3 (row 2, cross-sectional long-short) was designed
 to be robust to: T3 doesn't need per-symbol absolute direction to be right, only the *ranking*
@@ -393,7 +393,7 @@ signal source -- is the user's, not a decision this doc or this phase makes unil
   T5 (non-linear combiner) -- the full candidate comparison
 - `docs/ideas/measurement-nonlinear-interaction-combiner.md` -- T5, the sibling construction/
   modeling-change candidate to test alongside this doc
-- `.planning/todos/pending/179-gate166-concurrent-exposure-diagnostic.md` -- T2's falsification,
+- `.planning/todos/completed/179-gate166-concurrent-exposure-diagnostic.md` -- T2's falsification,
   the finding that sharpened this doc's priority
 - Todo 030 (cost-hurdle APR calibration) -- Step 0 cost floors feed the rebalance rule and the
   net-of-cost measurement; closed and removed from `.planning/todos/`, its result summarized in

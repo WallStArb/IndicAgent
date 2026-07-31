@@ -1,12 +1,28 @@
 ---
-status: pending
+status: completed
 priority: P1
 filed: 2026-07-23
+completed: 2026-07-31
 source: Ad hoc diagnostic run against Phase 166's already-materialized gate166_scalar OOS
   population, prompted by a strategic review of "are we generating real, tradeable alpha."
   Read-only; no gate re-run, no config/DB writes, no live capital risk.
 gate: none -- this is itself the gate/measurement work, not gated by anything
 ---
+
+**CLOSED 2026-07-31** — investigation reads as concluded, not actionable. Every method tried
+(concentration-aware sizing, regime-conditional direction, single-symbol isolation, joint
+cross-sectional x symbol_hmm stratification, raw-return decomposition, out-of-window historical
+replication) converged on the same result: zero regime/direction slice in the per-symbol
+directional construction (Phase 148/166) shows a real, replicating, non-circular positive
+expectancy. The strategic fork this raised (invest in more features vs. a different
+construction vs. accept no edge) is resolved independently of that verdict — **T3
+(cross-sectional long-short, Phase 167) passed decisively and both live Validation Gates
+PASSED**, so the project moved to a different construction rather than continuing to chase a
+regime-conditional fix for the old one. The one open acceptance-criteria box (baseline
+population re-verification) is moot for the same reason — nothing depends on re-scoring the
+per-symbol directional baseline going forward. Findings stay valuable as a decision record
+(the sign-symmetric-ensemble / regime-conditional-direction question it surfaced is still live
+via 143.1-08's HOLD verdict and todo 147, tracked there, not re-opened here).
 
 # Gate166's catastrophic max-drawdown may be a portfolio-concentration artifact, not proof of no edge -- needs a proper correlation-aware re-score
 

@@ -242,7 +242,7 @@ same week directly against those live corrected labels (todo 179,
 covered, **zero pass**. All 36 `high_bear` cells specifically are stuck at 12-13 day-clusters,
 below the 20-cluster adequacy floor -- genuinely untestable in the current OOS window, not a
 new negative finding so much as confirmation that this lead can't be evaluated yet, not that
-it's false. Full detail: `.planning/todos/pending/179-gate166-concurrent-exposure-diagnostic.md`.
+it's false. Full detail: `.planning/todos/completed/179-gate166-concurrent-exposure-diagnostic.md`.
 The regime-persistence/duration idea raised above as a candidate next step was never pursued
 and remains open if anyone wants to revisit `high_bear` later -- not tracked as its own todo.
 

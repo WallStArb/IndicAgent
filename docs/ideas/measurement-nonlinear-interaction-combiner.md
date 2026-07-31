@@ -129,7 +129,7 @@ features under the linear/absolute-direction construction T2 just falsified.
 - `docs/research/data-edge-source-thesis.md` — T5's parent doc; T2's falsification is the
   motivating finding
 - `docs/research/trade-construction-layer.md` — T3, the sibling candidate construction change
-- `.planning/todos/pending/179-gate166-concurrent-exposure-diagnostic.md` — T2's falsification
+- `.planning/todos/completed/179-gate166-concurrent-exposure-diagnostic.md` — T2's falsification
   evidence and the day-clustered bootstrap / BH-FDR methodology this test should reuse
 - `docs/research/measurement-ic-engine.md` — existing IC measurement methodology (`ic_math.py`)
   this test's evaluation discipline should stay consistent with

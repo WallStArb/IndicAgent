@@ -108,7 +108,7 @@ labels alone). **Zero cells, at any granularity tested, show real non-circular p
 expectancy.** T2 is dead by this doc's own pre-registered criterion -- regime conditioning,
 as currently implemented (a single categorical stratification dimension feeding a linear
 IC-weighted combiner), is not where this system's edge lives. Full trail:
-`.planning/todos/pending/179-gate166-concurrent-exposure-diagnostic.md`.
+`.planning/todos/completed/179-gate166-concurrent-exposure-diagnostic.md`.
 
 **Original test (2026-07-24) ran against old, pre-todo-092 labels; re-verified live 2026-07-27,
 caveat now closed.** The original 234-cell sweep used the raw-value cross-sectional cuts
@@ -122,7 +122,7 @@ buyable-dip vs. structural-bear) does not survive on live data either -- all 36 
 cells sit at 12-13 day-clusters, below the `alpha.validation.regime_gate_min_clusters` coverage
 floor, genuinely untestable in the current OOS window, not a new negative finding. **T2's death
 is now confirmed on live, non-stale data -- no longer provisional.** Full detail:
-`.planning/todos/pending/179-gate166-concurrent-exposure-diagnostic.md`'s live-label
+`.planning/todos/completed/179-gate166-concurrent-exposure-diagnostic.md`'s live-label
 re-verification section. Separately, this test also only covers the feature set live as of
 2026-07-24 (through Phase 163, with the 17 new structural columns still incomplete on
 historical rows per todo 176) -- it says nothing about features Phase 164/165 hasn't built yet.
@@ -398,7 +398,7 @@ pulled last.
   floors; closed and removed from `.planning/todos/`, its result summarized in this doc above
 - `docs/plans/archive/2026-06-29-feature-scoring-beyond-ic.md` -- marginal contribution / shrinkage
   (the machinery that keeps thesis evidence honest)
-- `.planning/todos/pending/179-gate166-concurrent-exposure-diagnostic.md` -- T2's falsification
+- `.planning/todos/completed/179-gate166-concurrent-exposure-diagnostic.md` -- T2's falsification
   evidence, full 234-cell sweep and historical replication check
 - `docs/research/trade-construction-layer.md` -- T3's construction and validation design
 - `docs/ideas/measurement-nonlinear-interaction-combiner.md` -- T5's design and overfitting

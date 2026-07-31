@@ -15,7 +15,7 @@ breaches -- confirming this todo's step 4 concern (rates' worse pre-fix imbalanc
 recur in practice. 30,788 rows committed, 10,678 skipped (fingerprint-matched), corpus FDR
 backfill applied to 618,604 rows. This directly unblocked todo 179's regime-sweep re-run
 (T2 confirmed dead on live corrected labels, no longer provisional -- see
-`.planning/todos/pending/179-gate166-concurrent-exposure-diagnostic.md`).
+`.planning/todos/completed/179-gate166-concurrent-exposure-diagnostic.md`).
 
 ## Resolution (2026-07-26, same day, in progress)
 
@@ -148,6 +148,6 @@ triggered for real.
   memmap-backed-assembly contingency this incident triggers
 - `[[project_todo092_breadth_regime_causal_rank_fix]]` — the regime rebalance that changed
   population distribution and caused this
-- `.planning/todos/pending/179-gate166-concurrent-exposure-diagnostic.md` — blocked on this
+- `.planning/todos/completed/179-gate166-concurrent-exposure-diagnostic.md` — blocked on this
   recompute completing
 - `logs/ic_engine.log.1` — full run log, failure at 2026-07-26T00:40:55.271400Z
