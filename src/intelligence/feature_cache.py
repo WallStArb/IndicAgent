@@ -538,7 +538,10 @@ class FeatureCache:
         """Populate cross-asset proxy fields from available ETF OHLCV bars.
 
         Called when cross-asset HTF bars arrive. All three features are computed
-        from OHLCV only — no tick data, no live frames injection.
+        from OHLCV only — no tick data, no live frames injection. Delegates to
+        _compute_cross_asset(), the sole implementation of this math (todo 222) --
+        also used by CrossAssetState for callers that only need these 3 fields
+        without FeatureCache's other ~87.
 
         Parameters
         ----------
@@ -547,41 +550,7 @@ class FeatureCache:
         shy_bars: SHY bar history (for yield_slope_z)
         config: Frozen FeatureFactoryConfig with zscore windows
         """
-        window = config.vix_zscore_window
-
-        # vix_z: SPY trailing realized volatility z-score (proxy for VIX)
-        if len(spy_bars) >= 2:
-            spy_closes = np.array([b["close"] for b in spy_bars], dtype=float)
-            spy_returns = np.diff(np.log(np.maximum(spy_closes, 1e-10)))
-            rv_window = min(config.cross_asset_rv_window, len(spy_returns))
-            realized_vol = float(np.std(spy_returns[-rv_window:]))
-            self._spy_realized_vol_history.append(realized_vol)
-            self.vix_z = _zscore_from_deque(self._spy_realized_vol_history, window)
-
-        # flight_quality: TLT/SPY relative-return divergence (positive = risk-off)
-        if len(tlt_bars) >= 2 and len(spy_bars) >= 2:
-            n = min(len(tlt_bars), len(spy_bars))
-            tlt_closes = np.array([b["close"] for b in tlt_bars[-n:]], dtype=float)
-            spy_closes_n = np.array([b["close"] for b in spy_bars[-n:]], dtype=float)
-            tlt_ret = float(tlt_closes[-1] / tlt_closes[0] - 1.0) if tlt_closes[0] > 0 else 0.0
-            spy_ret = (
-                float(spy_closes_n[-1] / spy_closes_n[0] - 1.0) if spy_closes_n[0] > 0 else 0.0
-            )
-            self.flight_quality = tlt_ret - spy_ret
-
-        # yield_slope_z: TLT/SHY return ratio z-score (2Y-10Y proxy)
-        yzw = config.yield_curve_zscore_window
-        if len(tlt_bars) >= 2 and len(shy_bars) >= 2:
-            n = min(len(tlt_bars), len(shy_bars))
-            tlt_closes = np.array([b["close"] for b in tlt_bars[-n:]], dtype=float)
-            shy_closes = np.array([b["close"] for b in shy_bars[-n:]], dtype=float)
-            tlt_rets = np.diff(np.log(np.maximum(tlt_closes, 1e-10)))
-            shy_rets = np.diff(np.log(np.maximum(shy_closes, 1e-10)))
-            min_len = min(len(tlt_rets), len(shy_rets))
-            if min_len > 0:
-                ratio = float(tlt_rets[-1]) - float(shy_rets[-1])
-                self._yield_ratio_history.append(ratio)
-            self.yield_slope_z = _zscore_from_deque(self._yield_ratio_history, yzw)
+        _compute_cross_asset(self, spy_bars, tlt_bars, shy_bars, config)
 
     def update_overnight_range(
         self,
@@ -672,6 +641,92 @@ class FeatureCache:
                 self.amd_manipulation_detected = 1.0
                 self.manip_strength = (on_low - low) / on_range if on_range > 0 else 0.0
                 self.amd_distribution_direction = 1.0
+
+
+# ---------------------------------------------------------------------------
+# Cross-asset broadcast state (todo 222) -- a minimal sibling of FeatureCache's
+# own vix_z/flight_quality/yield_slope_z fields, for callers that need only these
+# 3 outputs (e.g. feature_vector_pipeline.py's shared per-tf broadcast state,
+# computed once per genuinely-new SPY/TLT/SHY bar and copied onto every symbol's
+# own FeatureCache) rather than paying for FeatureCache's other ~87 unrelated
+# fields. Both this class and FeatureCache.update_cross_asset() delegate to the
+# same _compute_cross_asset() -- one implementation of the math, not two.
+# ---------------------------------------------------------------------------
+
+
+@dataclass
+class CrossAssetState:
+    """Holds just vix_z/flight_quality/yield_slope_z plus the 2 internal rolling
+    histories update_cross_asset() needs -- see module docstring for why this
+    exists alongside FeatureCache instead of reusing it wholesale.
+    """
+
+    vix_z: float = 0.0
+    flight_quality: float = 0.0
+    yield_slope_z: float = 0.0
+    _spy_realized_vol_history: deque = field(default_factory=lambda: deque(maxlen=500), repr=False)
+    _yield_ratio_history: deque = field(default_factory=lambda: deque(maxlen=500), repr=False)
+
+    def update_cross_asset(
+        self,
+        spy_bars: list[dict],
+        tlt_bars: list[dict],
+        shy_bars: list[dict],
+        config: FeatureFactoryConfig,
+    ) -> None:
+        """Populate vix_z/flight_quality/yield_slope_z -- see FeatureCache.update_cross_asset()
+        for parameter docs; identical contract, delegates to the same implementation.
+        """
+        _compute_cross_asset(self, spy_bars, tlt_bars, shy_bars, config)
+
+
+def _compute_cross_asset(
+    state: FeatureCache | CrossAssetState,
+    spy_bars: list[dict],
+    tlt_bars: list[dict],
+    shy_bars: list[dict],
+    config: FeatureFactoryConfig,
+) -> None:
+    """Compute vix_z/flight_quality/yield_slope_z onto `state` from ETF OHLCV bars.
+
+    Shared by FeatureCache.update_cross_asset() and CrossAssetState.update_cross_asset()
+    -- `state` only needs .vix_z/.flight_quality/.yield_slope_z/._spy_realized_vol_history/
+    ._yield_ratio_history, so either class works via duck typing. See FeatureCache's
+    update_cross_asset() docstring for the parameter contract.
+    """
+    window = config.vix_zscore_window
+
+    # vix_z: SPY trailing realized volatility z-score (proxy for VIX)
+    if len(spy_bars) >= 2:
+        spy_closes = np.array([b["close"] for b in spy_bars], dtype=float)
+        spy_returns = np.diff(np.log(np.maximum(spy_closes, 1e-10)))
+        rv_window = min(config.cross_asset_rv_window, len(spy_returns))
+        realized_vol = float(np.std(spy_returns[-rv_window:]))
+        state._spy_realized_vol_history.append(realized_vol)
+        state.vix_z = _zscore_from_deque(state._spy_realized_vol_history, window)
+
+    # flight_quality: TLT/SPY relative-return divergence (positive = risk-off)
+    if len(tlt_bars) >= 2 and len(spy_bars) >= 2:
+        n = min(len(tlt_bars), len(spy_bars))
+        tlt_closes = np.array([b["close"] for b in tlt_bars[-n:]], dtype=float)
+        spy_closes_n = np.array([b["close"] for b in spy_bars[-n:]], dtype=float)
+        tlt_ret = float(tlt_closes[-1] / tlt_closes[0] - 1.0) if tlt_closes[0] > 0 else 0.0
+        spy_ret = float(spy_closes_n[-1] / spy_closes_n[0] - 1.0) if spy_closes_n[0] > 0 else 0.0
+        state.flight_quality = tlt_ret - spy_ret
+
+    # yield_slope_z: TLT/SHY return ratio z-score (2Y-10Y proxy)
+    yzw = config.yield_curve_zscore_window
+    if len(tlt_bars) >= 2 and len(shy_bars) >= 2:
+        n = min(len(tlt_bars), len(shy_bars))
+        tlt_closes = np.array([b["close"] for b in tlt_bars[-n:]], dtype=float)
+        shy_closes = np.array([b["close"] for b in shy_bars[-n:]], dtype=float)
+        tlt_rets = np.diff(np.log(np.maximum(tlt_closes, 1e-10)))
+        shy_rets = np.diff(np.log(np.maximum(shy_closes, 1e-10)))
+        min_len = min(len(tlt_rets), len(shy_rets))
+        if min_len > 0:
+            ratio = float(tlt_rets[-1]) - float(shy_rets[-1])
+            state._yield_ratio_history.append(ratio)
+        state.yield_slope_z = _zscore_from_deque(state._yield_ratio_history, yzw)
 
 
 # ---------------------------------------------------------------------------

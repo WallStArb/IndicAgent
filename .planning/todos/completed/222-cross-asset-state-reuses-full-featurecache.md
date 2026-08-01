@@ -1,5 +1,5 @@
 ---
-status: pending
+status: completed
 priority: P3
 filed: 2026-07-31
 source: /simplify altitude review of todo 221's cross-asset broadcast fix
@@ -59,3 +59,42 @@ implementation (or its logic) off `FeatureCache` itself. That's a real, cross-fi
 
 Small-to-medium -- mostly a data-structure extraction plus 2 test-file updates, but touches a
 shared class 3 files reference, so needs care, not a blind refactor.
+
+## Fixed 2026-07-31
+
+Steps 1-3 done, step 4 deliberately NOT done (see below). In `src/intelligence/feature_cache.py`:
+
+1. Extracted `_compute_cross_asset(state, spy_bars, tlt_bars, shy_bars, config)` -- a module-
+   level function containing exactly the math `FeatureCache.update_cross_asset()` used to
+   have inline. Operates on any object exposing `.vix_z`/`.flight_quality`/`.yield_slope_z`/
+   `._spy_realized_vol_history`/`._yield_ratio_history` (duck typing), so it works unmodified
+   against either `FeatureCache` or the new `CrossAssetState`.
+2. Added `CrossAssetState` -- a small dataclass with exactly those 5 fields plus a thin
+   `update_cross_asset()` method delegating to `_compute_cross_asset()`. `FeatureCache.
+   update_cross_asset()` was rewritten to delegate to the same function -- one implementation
+   of the math, not two, closing the exact duplication risk this todo was filed to prevent.
+3. `services/feature_vector_pipeline.py`'s `self._cross_asset_state` is now
+   `dict[str, CrossAssetState]`, not `dict[str, FeatureCache]` -- `_get_cross_asset_state()`/
+   `_refresh_cross_asset_state()`/`_cross_asset_state_for_bar()` type hints updated to match.
+   The shared per-tf broadcast state no longer pays for FeatureCache's other ~87 fields.
+4. New regression test `tests/unit/test_feature_factory.py::TestCrossAssetProxies::
+   test_cross_asset_state_matches_feature_cache` asserts `CrossAssetState.update_cross_asset()`
+   and `FeatureCache.update_cross_asset()` produce byte-identical output given the same
+   inputs -- the guard against this shared implementation ever silently diverging again.
+5. The 2 existing tests that call `FeatureCache().update_cross_asset(...)` directly needed
+   ZERO changes -- `FeatureCache`'s public API/behavior is unchanged, only its internals now
+   delegate. Confirmed by running both files unmodified: 97/97 passed.
+
+**Step 4 (migrating `backfill_feature_factory.py`'s `_build_cross_asset_series()` onto the same
+shared structure) deliberately NOT done.** Read that function directly before deciding: it's a
+genuinely different algorithm, not just a different data structure -- an O(1)-per-date
+incremental computation (`flight_quality` as cumulative TLT/SPY divergence from a fixed
+period-start anchor) built for processing a full historical date range once, versus the live
+path's O(window)-per-tick full-window recompute from a rolling buffered `BarHistory`. Unifying
+them would be a behavior-changing algorithmic change to the batch path that computes the
+in-flight corpus rebuild's training data -- correctly out of scope for a data-structure
+cleanup, and not attempted. `backfill_feature_factory.py` was not touched.
+
+`tests/unit/ -q` full suite green (exit 0) throughout. `ic_engine`'s in-flight corpus rebuild
+confirmed still healthy and untouched (this fix only touches `feature_cache.py` and
+`feature_vector_pipeline.py`, neither in its dependency chain).

@@ -50,7 +50,7 @@ from src.core.stream_keys import (
     topic_signal_dlq,
     topic_system_events,
 )
-from src.intelligence.feature_cache import FeatureCache
+from src.intelligence.feature_cache import CrossAssetState, FeatureCache
 from src.intelligence.feature_factory import (
     FEATURE_FACTORY_VERSION,
     FeatureFactory,
@@ -138,15 +138,16 @@ class FeatureVectorPipeline(BaseDaemon):
         # Per-(symbol, tf) FeatureCache — lazily created via _get_cache()
         self._feature_caches: dict[str, FeatureCache] = {}
 
-        # Per-tf cross-asset broadcast state (todo 221) — lazily created via
-        # _get_cross_asset_state(). Separate from per-symbol FeatureCache instances:
-        # FeatureCache.update_cross_asset() appends to an internal realized-vol deque
-        # on every call, so calling it directly on a per-symbol cache on every symbol's
-        # own bar tick would append duplicate observations and corrupt the trailing
-        # z-score window. This holds the one shared per-tf state, refreshed only when
-        # a genuinely new SPY/TLT/SHY bar arrives, then broadcast onto whichever
-        # symbol's cache is being computed.
-        self._cross_asset_state: dict[str, FeatureCache] = {}
+        # Per-tf cross-asset broadcast state (todo 221/222) — lazily created via
+        # _get_cross_asset_state(). A CrossAssetState, not a full per-symbol FeatureCache
+        # (todo 222): it exists only to hold vix_z/flight_quality/yield_slope_z, and
+        # update_cross_asset() appends to an internal realized-vol deque on every call --
+        # calling it directly on a per-symbol FeatureCache on every symbol's own bar tick
+        # would append duplicate observations and corrupt the trailing z-score window.
+        # This holds the one shared per-tf state, refreshed only when a genuinely new
+        # SPY/TLT/SHY bar arrives, then broadcast onto whichever symbol's cache is
+        # being computed.
+        self._cross_asset_state: dict[str, CrossAssetState] = {}
 
         self._config_service: ConfigService | None = None  # initialised in _setup()
         self._feature_factory_config: FeatureFactoryConfig | None = None
@@ -261,7 +262,7 @@ class FeatureVectorPipeline(BaseDaemon):
             for b in bars
         ]
 
-    def _refresh_cross_asset_state(self, state: FeatureCache, tf: str) -> None:
+    def _refresh_cross_asset_state(self, state: CrossAssetState, tf: str) -> None:
         """Recompute vix_z/flight_quality/yield_slope_z from current SPY/TLT/SHY history.
 
         Call only when a genuinely new bar for one of the 3 role symbols has just been
@@ -276,20 +277,20 @@ class FeatureVectorPipeline(BaseDaemon):
             self._feature_factory_config,
         )
 
-    def _get_cross_asset_state(self, tf: str) -> FeatureCache:
-        """Return the shared per-tf cross-asset broadcast state (todo 221), creating and
+    def _get_cross_asset_state(self, tf: str) -> CrossAssetState:
+        """Return the shared per-tf cross-asset broadcast state (todo 221/222), creating and
         warming it from whatever SPY/TLT/SHY history is already buffered on first access
         (mirrors _get_cache()'s warm-up-from-buffered-history pattern). Read-only accessor --
         does not decide whether to refresh an already-existing state; see
         _cross_asset_state_for_bar() for the per-tick refresh-or-reuse decision.
         """
         if tf not in self._cross_asset_state:
-            state = FeatureCache()
+            state = CrossAssetState()
             self._refresh_cross_asset_state(state, tf)
             self._cross_asset_state[tf] = state
         return self._cross_asset_state[tf]
 
-    def _cross_asset_state_for_bar(self, bar: BarMessage) -> FeatureCache:
+    def _cross_asset_state_for_bar(self, bar: BarMessage) -> CrossAssetState:
         """Return bar.tf's cross-asset broadcast state, refreshing it first if `bar` is
         itself a genuinely new SPY/TLT/SHY bar. Single call site for the "when to refresh"
         rule -- callers never need to know which symbols trigger a refresh.

@@ -15,7 +15,7 @@ from pathlib import Path
 import numpy as np
 import pytest
 
-from src.intelligence.feature_cache import FeatureCache
+from src.intelligence.feature_cache import CrossAssetState, FeatureCache
 
 # These imports will fail RED until implementation exists.
 from src.intelligence.feature_factory import (
@@ -873,6 +873,27 @@ class TestCrossAssetProxies:
         cache = FeatureCache()
         cache.update_cross_asset(spy_bars, tlt_bars, shy_bars, config)
         assert math.isfinite(cache.yield_slope_z)
+
+    def test_cross_asset_state_matches_feature_cache(self) -> None:
+        """CrossAssetState.update_cross_asset() (todo 222) must produce byte-identical
+        vix_z/flight_quality/yield_slope_z to FeatureCache.update_cross_asset() given the
+        same inputs -- both delegate to the same _compute_cross_asset(), so this is the
+        regression guard against that shared implementation ever diverging again.
+        """
+        spy_bars = _make_bars(60, seed=1)
+        tlt_bars = _make_bars(60, seed=2)
+        shy_bars = _make_bars(60, seed=3)
+        config = _make_config()
+
+        cache = FeatureCache()
+        cache.update_cross_asset(spy_bars, tlt_bars, shy_bars, config)
+
+        state = CrossAssetState()
+        state.update_cross_asset(spy_bars, tlt_bars, shy_bars, config)
+
+        assert state.vix_z == cache.vix_z
+        assert state.flight_quality == cache.flight_quality
+        assert state.yield_slope_z == cache.yield_slope_z
 
     def test_cross_asset_values_appear_in_compute_output(self) -> None:
         """compute() must surface vix_z/flight_quality/yield_slope_z from cache."""
