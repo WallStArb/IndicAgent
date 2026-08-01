@@ -77,7 +77,52 @@ show, empirically, whether `XLE`'s forward-return predictability from a feature 
 `momentum_z_fast` is conditionally stronger/weaker/different when interacted with its crude-
 price loading -- without ever forcing `XLE` into "the equity bucket" or "the energy bucket."
 
-## Fix (not yet started -- real design/measurement work)
+## Pilot result (2026-08-01) -- exploratory gradient-conditional IC test, negative
+
+Ran a bounded, read-only pilot testing the core idea directly (no schema/APR changes, no
+corpus rebuild) before committing to the Fix steps below: `partial_spearman_ic` and a
+magnitude-conditional split on an external factor proxy (`GLD` for `GDX`'s gold exposure,
+`DBC` for the energy names' crude/broad-commodity exposure), across the 5 hybrid symbols x 10
+representative features, at `tf=1d`.
+
+**Screening pass:** raw ICs were uniformly small (~0.001-0.05). Applying real BH-FDR
+correction (alpha=0.05) across the full 195-test family, 4 tests survived: `GDX
+momentum_z_fast` (partial IC and low-|GLD-move| split), `GDX ofi_z` (partial), `XLE ofi_z`
+(partial, marginal at fdr_p=0.043). The standout: `GDX momentum_z_fast` in low-|GLD-move|
+periods, IC=-0.087, bootstrap CI=[-0.123,-0.047], n=2324.
+
+**Replication attempt 1 (flawed):** tested the same pattern at 1h/15m using `return_fast` --
+failed to replicate (wrong sign at 1h, null at 15m). But `return_fast` means 1 bar ahead at
+every tf (`alpha.ic.lookahead.{tf}.fast`), so this compared a ~1-hour and ~15-minute horizon
+against 1d's ~1-day horizon -- not a fair test, caught by a user question mid-review.
+
+**Replication attempt 2 (horizon-matched):** re-ran using 1h's `return_slow` (20 bars, ~3
+trading days -- the closest available approximation to "1 day ahead," since no 1h lookahead
+scale lands on exactly one trading day). Result: both high- and low-|GLD-move| splits sit
+essentially at zero (IC=-0.0019 and -0.0028), bootstrap CI=[-0.0317,+0.0216], no differential
+at all. This is a *stronger* disconfirmation than attempt 1 -- the fairer comparison shows even
+less trace of the pattern than the mismatched one did.
+
+**Verdict: negative result, real information, not a wasted pass.** The 1d `GDX
+momentum_z_fast` finding does not survive cross-timeframe replication even under a fair
+horizon comparison -- most consistent with a false positive specific to that one timeframe's
+sample (BH-FDR controls the expected false-discovery *rate* within a test family, not the
+reliability of any single survivor; replication is the actual check, and it failed here).
+**Recommendation: do not prioritize the Fix steps below based on this pilot.** This doesn't
+kill the underlying idea for all possible variations (only 5 symbols, 10 features, one
+factor-proxy pairing, and one 50/50 magnitude split were tested), but it removes the empirical
+urgency that would justify building the full measurement layer now. Revisit if a different,
+better-motivated `(symbol, tag, feature)` triple surfaces independently, or once the
+securities universe scales enough to make a broader sweep worthwhile. Suggest downgrading this
+todo's priority (P2 -> P3) on this basis -- flagging as a recommendation, not changing it
+unilaterally per `PRIORITIES.md`'s own rule that tier placement is the project owner's call.
+
+Scripts (scratch, not committed to the repo, not preserved past the session): screening +
+first replication attempt, and BH-FDR + horizon-matched replication -- both read-only, no
+production writes. Re-derivable from this section's methodology description if needed again.
+
+## Fix (not yet started -- real design/measurement work, currently NOT recommended -- see
+## Pilot result above)
 
 1. Pick the initial mechanism: partial-IC-with-control (does a feature's IC on symbol X change
    after controlling for an external factor return series, scaled by X's calibrated tag
