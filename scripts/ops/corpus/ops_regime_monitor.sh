@@ -12,7 +12,10 @@ set -u
 cd /home/bg/dev/indicagent
 LOG=logs/regime_writer.log
 WEDGE_COUNT_FILE=logs/regime_wedge_count
-SUDO_PASS='***REDACTED-SUDO-PASSWORD***'
+if [[ -z "${SUDO_PASS:-}" ]]; then
+  echo "SUDO_PASS not set in environment (expected export in ~/.bashrc) -- refusing to run" >&2
+  exit 1
+fi
 PYSPY=/home/bg/.local/bin/py-spy
 
 main_pid() { pgrep -f "regime_writer.py --refit" | head -1; }
