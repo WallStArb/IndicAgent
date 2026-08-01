@@ -1,12 +1,18 @@
 # Pipeline Optimization Strategy
 
 **Version:** 2.8
-**Status:** current
+**Status:** stale (v2.x, see banner)
 **Last Updated:** 2026-04-21
 **Tags:** performance, pipeline-throughput, parallelization, bottleneck, optimization, latency
 **Related:** `docs/research/pipeline-throughput-bottleneck-analysis.md` · `docs/architecture/current-state.md`
 
 ---
+
+> **Staleness note (2026-08-01):** This doc's throughput analysis (~4.5 bars/sec, I2-I6
+> sequential tier bottleneck) benchmarks the ARCHIVED v2.x `IntelligencePipeline`, which has no
+> live consumer as of 2026-07-02 per CLAUDE.md. It does not describe v3.0's
+> `FeatureVectorPipeline` performance characteristics. Not yet rewritten for v3.0 -- tracked for
+> a future doc pass, not fixed here.
 
 ## Performance Challenge
 

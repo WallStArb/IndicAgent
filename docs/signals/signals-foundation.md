@@ -1,8 +1,14 @@
 # Signals Foundation — The Signal Ledger Architecture
 
-**Version:** 3.0.0 | **Status:** current | **Last Updated:** 2026-06-16
+**Version:** 3.0.0 | **Status:** stale (v2.x, see banner) | **Last Updated:** 2026-06-16
 
 ---
+
+> **Staleness note (2026-08-01):** This doc describes the Signal Ledger Architecture
+> (`signal_events`/`trade_frames`/`trade_executions`, `SignalTracker`, `CounterfactualTracker`)
+> as the live ML training data source. That v2.x SLA has no live consumer as of 2026-07-02 per
+> CLAUDE.md; `feature_vectors` is the current training corpus. Not yet rewritten for v3.0 --
+> tracked for a future doc pass, not fixed here.
 
 ## Purpose
 

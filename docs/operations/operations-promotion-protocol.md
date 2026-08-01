@@ -1,8 +1,15 @@
 # Alpha Promotion Protocol: From Swarm (Path B) to Kernel (Path A)
 
 **Version:** 2.8
-**Status:** current
+**Status:** stale (v2.x, see banner)
 **Last Updated:** 2026-05-02
+
+> **Staleness note (2026-08-01):** This doc describes promoting swarm alphas
+> (`alpha_multiplier_shadow`, correlation against `signal_ledger` pnl_r,
+> `intelligence_contributors.json`) from Path B to a production kernel — the ARCHIVED v2.x
+> promotion mechanism, with no live consumer as of 2026-07-02 per CLAUDE.md; v3.0's promotion
+> path is `ic_engine` → `ensemble_trainer`/`EnsembleICEngine` → `alpha_publisher`. Not yet
+> rewritten for v3.0 -- tracked for a future doc pass, not fixed here.
 
 ## 1. Objective
 To maintain the integrity of our real-time trading kernel by ensuring that only statistically validated, performant, and audit-ready intelligence ("Alphas") are promoted from the experimental swarm (Path B) to the production kernel (Path A).

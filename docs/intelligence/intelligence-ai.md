@@ -2,10 +2,16 @@
 
 **Version:** 1.0.0
 **Last Updated:** 2026-05-28
-**Status:** current
+**Status:** stale (v2.x, see banner)
 **Milestone:** v2.8 — AI Platform + Evolvable Agents
 
 ---
+
+> **Staleness note (2026-08-01):** This doc describes the I8 AI Narrative layer consuming
+> `IntelligenceEvent` (full I1-I7 feature vector) from `intelligence.journal` — that upstream
+> ARCHIVED v2.x pipeline has no live consumer as of 2026-07-02 per CLAUDE.md, though a
+> narrative service still runs (see CLAUDE.md's "Narrative service" entry) against different,
+> v3.0 inputs. Not yet rewritten for v3.0 -- tracked for a future doc pass, not fixed here.
 
 ## Purpose
 

@@ -1,11 +1,16 @@
 # DAG Execution
 
 **Version:** 1.0
-**Status:** current
+**Status:** stale (v2.x, see banner)
 **Last Updated:** 2026-05-30
 **Tags:** dag, topological-sort, parallelism, plugin-dependencies
 
 > Plugin dependencies are declared, not scheduled — a topological sort derives execution order and reveals parallelism automatically.
+
+> **Staleness note (2026-08-01):** The Plugin DAG section (I1-I7, 132 plugins, one topological
+> sort per bar) describes the ARCHIVED v2.x `IntelligencePipeline`, with no live consumer as of
+> 2026-07-02 per CLAUDE.md; the Service DAG (`_DAG_ORDER` in `service_auditor.py`) section
+> still applies. Not yet rewritten for v3.0 -- tracked for a future doc pass, not fixed here.
 
 ## The Problem It Solves
 

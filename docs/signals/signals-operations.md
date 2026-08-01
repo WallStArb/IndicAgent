@@ -1,8 +1,13 @@
 # Signals Operations — Debugging lifecycle services and signal health
 
-**Version:** 2.8.0 | **Status:** current | **Last Updated:** 2026-05-29
+**Version:** 2.8.0 | **Status:** stale (v2.x, see banner) | **Last Updated:** 2026-05-29
 
 ---
+
+> **Staleness note (2026-08-01):** This doc covers operating `SignalTracker`,
+> `SignalReplayAuditor`, and `SignalMetricsAnalyzer` — all part of the ARCHIVED v2.x signal
+> lifecycle system, with no live consumer as of 2026-07-02 per CLAUDE.md. Not yet rewritten for
+> v3.0 -- tracked for a future doc pass, not fixed here.
 
 ## Purpose
 

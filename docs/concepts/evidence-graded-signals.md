@@ -1,11 +1,16 @@
 # Evidence-Graded Signals
 
 **Version:** 1.0
-**Status:** current
+**Status:** stale (v2.x, see banner)
 **Last Updated:** 2026-05-30
 **Tags:** signal-quality, confluence, multi-factor, evidence
 
 > A signal requires agreement from multiple independent evidence sources — no single indicator can produce a tradeable signal.
+
+> **Staleness note (2026-08-01):** This doc describes the Composite Intelligence Score (CIS)
+> gating I7 setup plugins — the ARCHIVED v2.x signal-quality system, with no live consumer as
+> of 2026-07-02 per CLAUDE.md. Not yet rewritten for v3.0 -- tracked for a future doc pass, not
+> fixed here.
 
 ## The Problem It Solves
 
@@ -39,7 +44,7 @@ The Composite Intelligence Score (CIS) aggregates 6 independent buckets into a d
 
 **Gate:** A signal requires `|cis_score| > 0.35` AND 3+ buckets agreeing with the signal direction. A high-magnitude score from only 2 buckets fails the gate.
 
-**Independence design:** Each bucket reads from a different analytical dimension — trend (statistical), momentum (oscillator consensus), structure (price geometry), pattern (visual formations), institutional (order flow), regime (market state). Correlation between buckets is monitored; high inter-bucket correlation reduces the gate threshold benefit.
+**Independence design:** Each bucket reads from a different analytical dimension — trend (statistical), momentum (oscillator consensus), structure (price geometry), pattern (visual formations), institutional (order flow), regime. Correlation between buckets is monitored; high inter-bucket correlation reduces the gate threshold benefit.
 
 **Adaptive weights:** Bootstrap weights (version 0) are manually tuned. The architecture supports learned weights from the `cis_weights` DB table — logistic regression over historical signal outcomes per bucket. Every `CISResult` carries `weights_version`; all signals in `signal_ledger` are traceable to the exact weight set that produced them.
 

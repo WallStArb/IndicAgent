@@ -1,11 +1,17 @@
 # Regime Awareness
 
 **Version:** 1.0
-**Status:** current
+**Status:** stale (v2.x, see banner)
 **Last Updated:** 2026-05-30
 **Tags:** market-regime, non-stationarity, context-classification, adaptive-signals
 
 > Market behavior is non-stationary — rules that work in trending markets fail in ranging ones. Every signal must know what kind of market it is operating in.
+
+> **Staleness note (2026-08-01):** This doc describes the I4 regime tier and the I7 regime gate
+> (`signal_metrics` table) — part of the ARCHIVED v2.x pipeline, with no live consumer as of
+> 2026-07-02 per CLAUDE.md. The dual regime system (per-symbol HMM vs cross-sectional
+> VIX×breadth) is the current live equivalent. Not yet rewritten for v3.0 -- tracked for a
+> future doc pass, not fixed here.
 
 ## The Problem It Solves
 
@@ -13,7 +19,7 @@ A trend-following signal that works in a trending market will bleed out in a ran
 
 ## The Principle
 
-Classify market state continuously. Condition all signals on current regime. Never apply a rule learned in one regime to a different regime without explicit regime conditioning.
+Classify regime continuously. Condition all signals on current regime. Never apply a rule learned in one regime to a different regime without explicit regime conditioning.
 
 This requires:
 1. **Multiple independent regime dimensions** — volatility, trend, momentum, and hidden state are not the same thing and should not be collapsed into one label

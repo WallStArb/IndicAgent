@@ -2,10 +2,16 @@
 
 **Version:** 1.0.0
 **Last Updated:** 2026-05-28
-**Status:** current
+**Status:** stale (v2.x, see banner)
 **Milestone:** v2.8 — AI Platform + Evolvable Agents
 
 ---
+
+> **Staleness note (2026-08-01):** This doc describes the ARCHIVED v2.x I1-I8 tiered pipeline
+> (IntelligencePipeline, AlphaSwarm, NarrativeSwarm, `signal_ledger` outcomes feeding ML
+> training) as the live hot-path architecture. That system has no live consumer as of
+> 2026-07-02 per CLAUDE.md. See CLAUDE.md's Architecture section for the current v3.0
+> pipeline. Not yet rewritten for v3.0 -- tracked for a future doc pass, not fixed here.
 
 ## Purpose
 

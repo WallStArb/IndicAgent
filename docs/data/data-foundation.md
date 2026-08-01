@@ -2,9 +2,16 @@
 
 **Version:** 1.0.0
 **Last Updated:** 2026-05-29
-**Status:** current
+**Status:** stale (v2.x, see banner)
 
 ---
+
+> **Staleness note (2026-08-01):** This doc names `IntelligencePipeline` as a contract-selection
+> consumer (ARCHIVED, no live consumer as of 2026-07-02 per CLAUDE.md) and describes
+> `production/scripts/roll_batch.py` running nightly via systemd timer — the script has since
+> moved to `scripts/ops/roll/ops_roll_batch.py` and, per CLAUDE.md, all systemd timers are
+> confirmed disabled as of 2026-07-02. Not yet rewritten -- tracked for a future doc pass, not
+> fixed here.
 
 ## Purpose
 

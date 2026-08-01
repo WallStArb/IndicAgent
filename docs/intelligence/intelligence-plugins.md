@@ -2,10 +2,16 @@
 
 **Version:** 1.1.0
 **Last Updated:** 2026-06-14
-**Status:** current
+**Status:** stale (v2.x, see banner)
 **Milestone:** v2.8 — AI Platform + Evolvable Agents
 
 ---
+
+> **Staleness note (2026-08-01):** This doc describes how to implement I1-I7 `PatternPlugin`
+> plugins against the ARCHIVED v2.x `IntelligencePipeline` DAG/wave system. That pipeline has
+> no live consumer as of 2026-07-02 per CLAUDE.md. See CLAUDE.md's Architecture section for
+> the current v3.0 pipeline. Not yet rewritten for v3.0 -- tracked for a future doc pass, not
+> fixed here.
 
 ## Purpose
 

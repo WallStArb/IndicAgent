@@ -1,10 +1,15 @@
 # Signals — Extrinsic Confidence Layer
 
 **Version:** 1.0
-**Status:** current
+**Status:** stale (v2.x, see banner)
 **Last Updated:** 2026-06-16
 
 ---
+
+> **Staleness note (2026-08-01):** This doc describes the Extrinsic Confidence Layer as
+> implemented by I7 plugins emitting into `signal_events` — the ARCHIVED v2.x signal system,
+> with no live consumer as of 2026-07-02 per CLAUDE.md. Not yet rewritten for v3.0 -- tracked
+> for a future doc pass, not fixed here.
 
 ## 1. Purpose
 

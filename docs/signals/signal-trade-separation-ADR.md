@@ -8,6 +8,12 @@
 
 ---
 
+> **Staleness note (2026-08-01):** The 3-table `signal_events`/`trade_frames`/`trade_executions`
+> architecture this ADR decided on was itself archived along with the rest of the v2.x Signal
+> Ledger Architecture (no live consumer as of 2026-07-02 per CLAUDE.md). The decision record
+> remains valid history; it does not describe the live system. See CLAUDE.md's Architecture
+> section.
+
 ## Context
 
 The `signal_ledger` table was a correct v1 design for a single-tier signal persistence layer. As the system matured through Phases 120-127, it accumulated 47 columns mixing three distinct semantic concerns:

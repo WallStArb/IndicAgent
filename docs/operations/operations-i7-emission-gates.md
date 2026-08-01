@@ -1,8 +1,14 @@
 # I7 Emission Gates - Signal Quality Enforcement
 
 **Version:** 2.8
-**Status:** current
+**Status:** stale (v2.x, see banner)
 **Last Updated:** 2026-05-26
+
+> **Staleness note (2026-08-01):** This doc describes emission gates in
+> `src/intelligence/trading/signal_schema.py` enforced on I7 trading signals — the ARCHIVED
+> v2.x signal system, with no live consumer as of 2026-07-02 per CLAUDE.md. Not yet rewritten
+> for v3.0 -- tracked for a future doc pass, not fixed here.
+
 ## Purpose
 
 Emission gates in `src/intelligence/trading/signal_schema.py` enforce structural validity on all I7 trading signals before publication. This prevents invalid signals from reaching the ledger and downstream systems.

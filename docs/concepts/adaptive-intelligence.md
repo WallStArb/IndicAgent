@@ -1,11 +1,16 @@
 # Adaptive Intelligence
 
 **Version:** 1.0
-**Status:** current
+**Status:** stale (v2.x, see banner)
 **Last Updated:** 2026-05-30
 **Tags:** adaptive-weighting, statistical-validation, signal-quality, feedback-loops
 
 > Every component that influences a decision must earn that influence through statistical proof, and must lose it when evidence degrades.
+
+> **Staleness note (2026-08-01):** This doc's shadow-governance fitness dataset
+> (`signal_events`+`trade_frames`+`trade_executions`, `shadow_registry_ensure()`) describes the
+> ARCHIVED v2.x adaptive-weighting system, with no live consumer as of 2026-07-02 per
+> CLAUDE.md. Not yet rewritten for v3.0 -- tracked for a future doc pass, not fixed here.
 
 ## The Problem It Solves
 

@@ -1,13 +1,19 @@
 # Signal Ledger Architecture (SLA)
 
 **Version:** 1.0
-**Status:** current
+**Status:** stale (v2.x, see banner)
 **Last Updated:** 2026-06-16
 **Tags:** sla, signal-events, trade-frames, trade-executions, counterfactual, ml-training, survivorship-bias
 
 > Every signal fire, every trade hypothesis, every execution — three concerns, three tables, one unbiased training set.
 
 ---
+
+> **Staleness note (2026-08-01):** This doc describes the Signal Ledger Architecture
+> (`signal_events`/`trade_frames`/`trade_executions`/`signal_ledger`) as the live ML training
+> foundation. That v2.x SLA has no live consumer as of 2026-07-02 per CLAUDE.md;
+> `feature_vectors` is the current training corpus. Not yet rewritten for v3.0 -- tracked for a
+> future doc pass, not fixed here.
 
 ## What the SLA Is
 

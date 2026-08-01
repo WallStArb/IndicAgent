@@ -1,11 +1,17 @@
 # Temporal Data Architecture
 
 **Version:** 1.0
-**Status:** current
+**Status:** stale (v2.x, see banner)
 **Last Updated:** 2026-05-30
 **Tags:** time-series, immutability, timescaledb, data-retention
 
 > Every market event is a timestamped, immutable record — nothing is dropped, everything is queryable by time.
+
+> **Staleness note (2026-08-01):** This doc cites `intelligence_features` and
+> `signal_events`/`trade_frames`/`trade_executions`/`signal_ledger` as the primary durable
+> hypertables. Those v2.x tables have no live consumer as of 2026-07-02 per CLAUDE.md; the
+> live tables are `feature_vectors`, `alpha_frames`, and `alpha_events`. Not yet rewritten for
+> v3.0 -- tracked for a future doc pass, not fixed here.
 
 ## The Problem It Solves
 

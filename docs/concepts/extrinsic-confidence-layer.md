@@ -1,13 +1,18 @@
 # Extrinsic Confidence Layer (ECL)
 
 **Version:** 1.0
-**Status:** current
+**Status:** stale (v2.x, see banner)
 **Last Updated:** 2026-06-16
 **Tags:** ecl, signal-quality, survivorship-bias, ml-training, emission, annotation
 
 > Extrinsic market context is a feature for the ML model to learn from, not a gate for the system to filter on. Annotate; never suppress.
 
 ---
+
+> **Staleness note (2026-08-01):** This doc describes the Extrinsic Confidence Layer as a live
+> contract enforced on I7 plugins emitting into `signal_events` — the ARCHIVED v2.x signal
+> system, with no live consumer as of 2026-07-02 per CLAUDE.md. Not yet rewritten for v3.0 --
+> tracked for a future doc pass, not fixed here.
 
 ## What ECL Is
 

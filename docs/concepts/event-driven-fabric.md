@@ -1,11 +1,17 @@
 # Event-Driven Fabric
 
 **Version:** 1.0
-**Status:** current
+**Status:** stale (v2.x, see banner)
 **Last Updated:** 2026-05-30
 **Tags:** event-driven, messaging, decoupling, kafka
 
 > Agents communicate exclusively through named topics — no agent ever calls another directly.
+
+> **Staleness note (2026-08-01):** The event-driven-fabric principle itself still holds in
+> v3.0, but this doc's worked example (`intelligence_pipeline` → `topic_intelligence_features`
+> / `topic_intelligence_i7` → `feature_writer_service`/`signal_writer_service`) names the
+> ARCHIVED v2.x topology, with no live consumer as of 2026-07-02 per CLAUDE.md. Not yet
+> rewritten for v3.0 -- tracked for a future doc pass, not fixed here.
 
 ## The Problem It Solves
 

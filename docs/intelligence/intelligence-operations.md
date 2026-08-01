@@ -2,10 +2,16 @@
 
 **Version:** 1.0.0
 **Last Updated:** 2026-05-28
-**Status:** current
+**Status:** stale (v2.x, see banner)
 **Milestone:** v2.8 — AI Platform + Evolvable Agents
 
 ---
+
+> **Staleness note (2026-08-01):** This doc's Service DAG (L5 `indicagent-intelligence-pipeline`,
+> L6 `indicagent-feature-writer`/`indicagent-signal-writer`/etc., L7 AI/LLM layer) describes
+> the ARCHIVED v2.x service topology, not the live v3.0 registry in
+> `services/service_auditor.py`. That v2.x pipeline has no live consumer as of 2026-07-02 per
+> CLAUDE.md. Not yet rewritten for v3.0 -- tracked for a future doc pass, not fixed here.
 
 ## Purpose
 

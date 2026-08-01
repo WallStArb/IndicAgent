@@ -1,11 +1,16 @@
 # Progressive Intelligence Extraction
 
 **Version:** 1.0
-**Status:** current
+**Status:** stale (v2.x, see banner)
 **Last Updated:** 2026-05-30
 **Tags:** intelligence-tiers, abstraction-layers, feature-extraction, signal-pipeline
 
 > Raw market data contains no signal — it must be transformed through sequential layers of increasing abstraction before patterns emerge.
+
+> **Staleness note (2026-08-01):** This doc describes the eight-tier I1-I8 `IntelligenceEvent`
+> pipeline as the live abstraction ladder. That v2.x tier system has no live consumer as of
+> 2026-07-02 per CLAUDE.md. Not yet rewritten for v3.0 -- tracked for a future doc pass, not
+> fixed here.
 
 ## The Problem It Solves
 

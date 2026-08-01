@@ -5,6 +5,13 @@
 
 ---
 
+> **Staleness note (2026-08-01):** This runbook's table-specific backup examples target
+> `signal_ledger` — an ARCHIVED v2.x table with no live consumer as of 2026-07-02 per
+> CLAUDE.md. **The commands below target ARCHIVED tables — do not run against production
+> without first verifying the target table still exists and is the live one** (`feature_vectors`,
+> `alpha_frames`, `alpha_events` are the current equivalents). Not yet rewritten for v3.0 --
+> tracked for a future doc pass, not fixed here.
+
 ## Overview
 
 This guide covers backup and restore procedures for IndicAgent. Recovery is prioritized by criticality: DB > plugin state > Kafka > configuration.

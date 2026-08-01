@@ -1,11 +1,16 @@
 # Plugin Composability
 
 **Version:** 1.0
-**Status:** current
+**Status:** stale (v2.x, see banner)
 **Last Updated:** 2026-05-30
 **Tags:** plugins, composability, extensibility, pipeline
 
 > Intelligence is entirely composed of plugins — the pipeline shell is empty; adding intelligence means writing a plugin, not modifying core code.
+
+> **Staleness note (2026-08-01):** This doc describes the `IntelligencePipeline` plugin
+> protocol (`TIER_I1`..`TIER_I7` registration in `register_plugins.py`) as the live
+> extensibility mechanism. That v2.x plugin tier has no live consumer as of 2026-07-02 per
+> CLAUDE.md. Not yet rewritten for v3.0 -- tracked for a future doc pass, not fixed here.
 
 ## The Problem It Solves
 

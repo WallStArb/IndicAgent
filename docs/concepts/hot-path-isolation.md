@@ -1,11 +1,17 @@
 # Hot-Path Isolation
 
 **Version:** 1.0
-**Status:** current
+**Status:** stale (v2.x, see banner)
 **Last Updated:** 2026-05-30
 **Tags:** latency, real-time, io-isolation, performance
 
 > Real-time compute is strictly isolated from storage and I/O — the hot path never blocks on a database or network call.
+
+> **Staleness note (2026-08-01):** The hot/warm/cold isolation principle still holds in v3.0,
+> but this doc's worked example (`IntelligencePipeline`, I1-I7 plugin DAG, `FeatureWriter`/
+> `SignalWriter`) names the ARCHIVED v2.x pipeline, with no live consumer as of 2026-07-02 per
+> CLAUDE.md — the live equivalent is `FeatureVectorPipeline`/`FeatureVectorWriter`. Not yet
+> rewritten for v3.0 -- tracked for a future doc pass, not fixed here.
 
 ## The Problem It Solves
 
