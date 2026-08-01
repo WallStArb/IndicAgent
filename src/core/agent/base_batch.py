@@ -27,7 +27,11 @@ import structlog
 from src.core.database_manager import create_pool
 from src.core.service_utils import setup_service_logging
 from src.observability.corpus_manifest import CorpusManifest
-from src.observability.metrics import JOB_COMPLETED_TOTAL, flush_and_shutdown_metrics
+from src.observability.metrics import (
+    JOB_COMPLETED_TOTAL,
+    JOB_DURATION_SECONDS,
+    flush_and_shutdown_metrics,
+)
 from src.observability.spans import observed_span
 
 
@@ -187,13 +191,15 @@ class BaseBatch(abc.ABC):
     # -----------------------------------------------------------------------
 
     def _emit_completion(self, status: str, elapsed_s: float) -> None:
-        """Emit job_completed_total counter and structured completion log.
+        """Emit job_completed_total/job_duration_seconds and a structured completion log.
 
         D-06 contract: job label must match systemd unit %n suffix (kebab-case).
         Callers must invoke flush_and_shutdown_metrics() before process exit so
         the OTLP exporter drains.
         """
-        JOB_COMPLETED_TOTAL.add(1, {"job": self.job_name, "status": status})
+        attrs = {"job": self.job_name, "status": status}
+        JOB_COMPLETED_TOTAL.add(1, attrs)
+        JOB_DURATION_SECONDS.record(elapsed_s, attrs)
         self.logger.info(
             "batch_computer.completed",
             job=self.job_name,

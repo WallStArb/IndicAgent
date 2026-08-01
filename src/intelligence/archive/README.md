@@ -5,9 +5,10 @@ Archived in Phase 137 Plan 6 (D-09 cutover). All files are intact and unmodified
 ## Why Archived
 
 The v3.0 ground-up rebuild (Phase 137) replaces the 138-plugin I5/I6/I7 dispatch
-layer with `FeatureFactory.compute()` — a single pure-function call that produces
-36 typed `FeatureVector` primitives per bar. The plugin system is retired from the
-live pipeline but preserved here as institutional memory.
+layer with `FeatureFactory.compute()` — a single pure-function call that produced
+36 typed `FeatureVector` primitives per bar at cutover (grown to 249 since;
+recompute rather than trusting either number). The plugin system is retired from
+the live pipeline but preserved here as institutional memory.
 
 Phase 138 (IC discovery) will determine which I7 signal patterns have positive
 expected value and deserve promotion to alpha scorers in the v3.0 AlphaEngine.

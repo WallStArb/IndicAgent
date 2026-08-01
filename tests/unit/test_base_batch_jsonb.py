@@ -28,8 +28,13 @@ class _ConcreteBaseBatch(BaseBatch):
     job_name = "test-job"
     compute_version = "0.0.1"
 
+    def __init__(self, db_dsn: str, should_fail: bool = False) -> None:
+        super().__init__(db_dsn)
+        self._should_fail = should_fail
+
     async def execute(self, pool) -> None:
-        pass
+        if self._should_fail:
+            raise RuntimeError("boom")
 
 
 # ---------------------------------------------------------------------------

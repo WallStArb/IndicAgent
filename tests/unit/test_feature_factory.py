@@ -1,8 +1,10 @@
 """Unit tests for FeatureFactory + FeatureCache (Phase 137 Plan 3).
 
 TDD protocol: all tests written RED before implementation.
-Tests cover all 36 FeatureVector primitives, purity, forward-only HMM,
-OHLCV-proxy flow, and cross-asset proxies.
+Tests cover the Phase 137 baseline FeatureVector primitives (36 at the time;
+FeatureVector has grown to 249 since -- later additions are covered by
+dedicated test files, e.g. test_feature_factory_p7.py), purity, forward-only
+HMM, OHLCV-proxy flow, and cross-asset proxies.
 """
 
 from __future__ import annotations

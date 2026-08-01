@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """FeatureVectorPipeline — v3.0 FeatureFactory pipeline.
 
-Computes all 36 FeatureVector primitives via FeatureFactory.compute() per bar,
+Computes all 249 FeatureVector primitives via FeatureFactory.compute() per bar,
 wraps in FeatureVectorRecord, and publishes to topic_feature_vectors.
 
 D-09 cutover: I5/I6/I7 plugin dispatch removed. feature.* APR keys prewarmed

@@ -1,4 +1,4 @@
-"""FeatureFactory — pure-function library for computing all 54 FeatureVector primitives.
+"""FeatureFactory — pure-function library for computing all 249 FeatureVector primitives.
 
 STATELESS CONTRACT (D-08): FeatureFactory has no __init__ and stores no config.
 The FeatureFactoryConfig frozen dataclass is built ONCE by the caller
@@ -6140,7 +6140,7 @@ class FeatureFactory:
         cache: FeatureCache,
         config: FeatureFactoryConfig,
     ) -> FeatureVector:
-        """Compute all 54 FeatureVector primitives from bars + cache + config.
+        """Compute all 249 FeatureVector primitives from bars + cache + config.
 
         PURE FUNCTION: no IO, no ConfigService.get(), no DB reads, no Kafka.
         All tunable numerics come from the config argument (SC-9).
@@ -6158,7 +6158,10 @@ class FeatureFactory:
 
         Returns
         -------
-        FeatureVector with all 54 fields set to finite floats.
+        FeatureVector with all 249 fields populated -- most set to finite
+        floats, but 85 are `float | None` by design (41 Phase 165 Swing/Fib
+        + 44 optional cross-sectional/canary/SMC placeholders); see the
+        FeatureVector class docstring for the full breakdown.
         """
         if len(bars) < 2:
             return _cold_start_vector(cache, tf)

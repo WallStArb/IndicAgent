@@ -1202,10 +1202,11 @@ SignalMetricsEvent = Annotated[
 
 @dataclasses.dataclass(frozen=True)
 class FeatureVector:
-    """142 orthogonal feature primitives computed per bar by FeatureFactory
-    (61 v3.0 baseline + 18 Phase 142.5 Plan 01 + 22 Phase 142.5 Plan 02 +
-    12 Phase 142.5 Plan 05 + 21 Phase 142.5 Plan 03 + 8 Phase 142.5 Plan 04
-    Renaissance primitives).
+    """249 orthogonal feature primitives computed per bar by FeatureFactory.
+    See the "Groups and field order are binding" breakdown below (ends in
+    "Total: 249") for full group-by-group provenance -- that breakdown is
+    the maintained source of truth; keep it (not this line) in sync when
+    fields are added.
 
     Frozen dataclass (not Pydantic) per D-08: pure-function output, no IO,
     immutable after construction. Most non-optional fields are typed float,
@@ -1242,6 +1243,7 @@ class FeatureVector:
       Realized Variance / Volatility (14, Phase 142.5 Plan 03): realized_var_ratio_fast/slow, range_to_close, true_range_pct, vol_of_vol, high_low_corr, variance_ratio_fast/slow, vol_asymmetry_z, bb_pct_b_fast/slow, hv_z_fast/slow, hv_ratio
       Alternative Volatility Estimators (3, Phase 142.5 Plan 04): parkinson_vol_z, garman_klass_vol_z, yang_zhang_vol_z
       Volatility Dynamics (5, Phase 142.5 Plan 04): parkinson/garman_klass/yang_zhang_vol_velocity, vol_velocity_z, intraday_noise_ratio
+      Price-Volume Interactions (8, Phase 142.5 Plan 05.5): vol_body_product, ret_vol_product_fast, price_vol_corr_fast/slow, range_vol_product, up_vol_body_diff, ret_vol_ratio_fast, vol_skew_product
       Session-level — Swing/Fib/Trend/Session Structure (41, Phase 165 Plan 01):
         swing detection (7), trend structure (6), swing momentum (8), fibonacci
         zones (4), session levels (16). All `float | None` with NO default

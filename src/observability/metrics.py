@@ -447,6 +447,34 @@ JOB_COMPLETED_TOTAL = _meter.create_counter(
     description="Oneshot job completions by name and status",
 )
 
+# Buckets span 1s-32h -- the BaseBatch fleet ranges from quick per-symbol
+# jobs to 30+ hour corpus rebuilds (e.g. ensemble_ic_engine). Default OTel
+# buckets top out at 10s, which would collapse every long-running job into
+# the +Inf bucket and make percentile queries meaningless for exactly the
+# jobs most worth watching.
+JOB_DURATION_SECONDS = _meter.create_histogram(
+    "job_duration_seconds",
+    description="Oneshot job (BaseBatch.execute()) wall-clock duration by name and status",
+    unit="s",
+    explicit_bucket_boundaries_advisory=[
+        1,
+        5,
+        15,
+        30,
+        60,
+        120,
+        300,
+        600,
+        1800,
+        3600,
+        7200,
+        14400,
+        28800,
+        57600,
+        115200,
+    ],
+)
+
 # ---------------------------------------------------------------------------
 # API health gauge (Phase 108)
 # ---------------------------------------------------------------------------
