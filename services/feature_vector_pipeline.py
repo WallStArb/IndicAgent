@@ -85,13 +85,10 @@ _OUTPUT_QUEUE_MAXSIZE = 500
 _MAX_QUEUE_DEPTH = 500
 _PIPELINE_VERSION = "3.0.0"
 
-# Cross-asset proxy roles for FeatureCache.update_cross_asset() (todo 221) — fixed
-# identity constants (which ticker plays the equity/long-bond/short-bond role), not
-# a tunable parameter, matching backfill_feature_factory.py's _SPY/_TLT/_SHY convention.
-_CROSS_ASSET_SPY = "SPY"
-_CROSS_ASSET_TLT = "TLT"
-_CROSS_ASSET_SHY = "SHY"
-_CROSS_ASSET_SYMBOLS = frozenset({_CROSS_ASSET_SPY, _CROSS_ASSET_TLT, _CROSS_ASSET_SHY})
+# Cross-asset proxy roles for FeatureCache.update_cross_asset() (todo 221) -- fixed identity
+# constants (which ticker plays the equity/long-bond/short-bond role), not a tunable
+# parameter, matching backfill_feature_factory.py's _SPY/_TLT/_SHY convention.
+_CROSS_ASSET_SYMBOLS = frozenset({"SPY", "TLT", "SHY"})
 
 
 # ---------------------------------------------------------------------------
@@ -273,22 +270,34 @@ class FeatureVectorPipeline(BaseDaemon):
         """
         assert self._feature_factory_config is not None, "FeatureFactoryConfig not prewarmed"
         state.update_cross_asset(
-            self._bars_to_dicts(self._bar_history.get(_CROSS_ASSET_SPY, tf)),
-            self._bars_to_dicts(self._bar_history.get(_CROSS_ASSET_TLT, tf)),
-            self._bars_to_dicts(self._bar_history.get(_CROSS_ASSET_SHY, tf)),
+            self._bars_to_dicts(self._bar_history.get("SPY", tf)),
+            self._bars_to_dicts(self._bar_history.get("TLT", tf)),
+            self._bars_to_dicts(self._bar_history.get("SHY", tf)),
             self._feature_factory_config,
         )
 
     def _get_cross_asset_state(self, tf: str) -> FeatureCache:
         """Return the shared per-tf cross-asset broadcast state (todo 221), creating and
         warming it from whatever SPY/TLT/SHY history is already buffered on first access
-        (mirrors _get_cache()'s warm-up-from-buffered-history pattern).
+        (mirrors _get_cache()'s warm-up-from-buffered-history pattern). Read-only accessor --
+        does not decide whether to refresh an already-existing state; see
+        _cross_asset_state_for_bar() for the per-tick refresh-or-reuse decision.
         """
         if tf not in self._cross_asset_state:
             state = FeatureCache()
             self._refresh_cross_asset_state(state, tf)
             self._cross_asset_state[tf] = state
         return self._cross_asset_state[tf]
+
+    def _cross_asset_state_for_bar(self, bar: BarMessage) -> FeatureCache:
+        """Return bar.tf's cross-asset broadcast state, refreshing it first if `bar` is
+        itself a genuinely new SPY/TLT/SHY bar. Single call site for the "when to refresh"
+        rule -- callers never need to know which symbols trigger a refresh.
+        """
+        state = self._get_cross_asset_state(bar.tf)
+        if bar.symbol in _CROSS_ASSET_SYMBOLS:
+            self._refresh_cross_asset_state(state, bar.tf)
+        return state
 
     async def stop(self) -> None:
         self.logger.info("agent.shutdown_initiated", agent=self.name)
@@ -1258,15 +1267,12 @@ class FeatureVectorPipeline(BaseDaemon):
 
         bars_dicts = self._bars_to_dicts(raw_bars)
 
-        # Cross-asset broadcast state (todo 221): refresh the shared per-tf state only
-        # when a genuinely new SPY/TLT/SHY bar just arrived, then copy the latest
-        # vix_z/flight_quality/yield_slope_z onto THIS symbol's own cache before
-        # compute() reads them. Every symbol/tf gets the same broadcast values, updated
-        # only on real cross-asset bar arrivals -- not recomputed (and not re-appended
+        # Cross-asset broadcast state (todo 221): copy the latest vix_z/flight_quality/
+        # yield_slope_z onto THIS symbol's own cache before compute() reads them. Every
+        # symbol/tf gets the same broadcast values, updated only on real cross-asset bar
+        # arrivals (see _cross_asset_state_for_bar) -- not recomputed (and not re-appended
         # to the internal realized-vol deque) on every other symbol's own tick.
-        cross_state = self._get_cross_asset_state(bar.tf)
-        if bar.symbol in _CROSS_ASSET_SYMBOLS:
-            self._refresh_cross_asset_state(cross_state, bar.tf)
+        cross_state = self._cross_asset_state_for_bar(bar)
         cache.vix_z = cross_state.vix_z
         cache.flight_quality = cross_state.flight_quality
         cache.yield_slope_z = cross_state.yield_slope_z

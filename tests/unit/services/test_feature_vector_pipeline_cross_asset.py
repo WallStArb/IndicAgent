@@ -71,20 +71,33 @@ def _tick(agent, symbol: str, minute_offset: int, close: float) -> BarMessage:
     return bar
 
 
+_3_ROUND_CLOSES = {
+    "SPY": (100.0, 102.5, 99.0),
+    "TLT": (90.0, 88.0, 91.0),
+    "SHY": (80.0, 80.3, 80.1),
+}
+_2_ROUND_CLOSES = {"SPY": (100.0, 102.5), "TLT": (90.0, 88.0), "SHY": (80.0, 80.3)}
+
+
+async def _seed_and_tick_cross_asset(agent, closes: dict[str, tuple[float, ...]]) -> None:
+    """Tick SPY/TLT/SHY together for len(closes["SPY"]) rounds, processing the SPY bar
+    (the one that triggers a cross-asset refresh) through the live compute path each round.
+    """
+    n_rounds = len(closes["SPY"])
+    for i in range(n_rounds):
+        for symbol in ("SPY", "TLT", "SHY"):
+            _tick(agent, symbol, i, closes[symbol][i])
+        spy_bar = agent._bar_history.get("SPY", "1m")[-1]
+        await agent._process_bar_compute(spy_bar, t0=0.0, gap=False)
+
+
 @pytest.mark.unit
 @pytest.mark.asyncio
 async def test_spy_ticks_populate_cross_asset_state():
     """3 genuinely new SPY/TLT/SHY bars (2 realized-vol observations) must move vix_z and
     flight_quality off their 0.0 dataclass defaults."""
     agent = _make_test_agent()
-
-    closes = {"SPY": (100.0, 102.5, 99.0), "TLT": (90.0, 88.0, 91.0), "SHY": (80.0, 80.3, 80.1)}
-    for i in range(3):
-        for symbol in ("SPY", "TLT", "SHY"):
-            _tick(agent, symbol, i, closes[symbol][i])
-        # Only the SPY tick is required to trigger a refresh; process it last per round.
-        spy_bar = agent._bar_history.get("SPY", "1m")[-1]
-        await agent._process_bar_compute(spy_bar, t0=0.0, gap=False)
+    await _seed_and_tick_cross_asset(agent, _3_ROUND_CLOSES)
 
     state = agent._get_cross_asset_state("1m")
     assert state.vix_z != 0.0, "vix_z must move off its dataclass default once SPY bars flow"
@@ -99,13 +112,7 @@ async def test_cross_asset_values_broadcast_to_other_symbols():
     values on its own cache, not the 0.0 dataclass default (the exact live bug todo 221 found).
     """
     agent = _make_test_agent()
-
-    closes = {"SPY": (100.0, 102.5, 99.0), "TLT": (90.0, 88.0, 91.0), "SHY": (80.0, 80.3, 80.1)}
-    for i in range(3):
-        for symbol in ("SPY", "TLT", "SHY"):
-            _tick(agent, symbol, i, closes[symbol][i])
-        spy_bar = agent._bar_history.get("SPY", "1m")[-1]
-        await agent._process_bar_compute(spy_bar, t0=0.0, gap=False)
+    await _seed_and_tick_cross_asset(agent, _3_ROUND_CLOSES)
 
     aapl_bar = _tick(agent, "AAPL", 3, 150.0)
     await agent._process_bar_compute(aapl_bar, t0=0.0, gap=False)
@@ -128,13 +135,7 @@ async def test_non_cross_asset_bar_does_not_duplicate_realized_vol_history():
     with duplicate observations of the same underlying SPY data.
     """
     agent = _make_test_agent()
-
-    closes = {"SPY": (100.0, 102.5), "TLT": (90.0, 88.0), "SHY": (80.0, 80.3)}
-    for i in range(2):
-        for symbol in ("SPY", "TLT", "SHY"):
-            _tick(agent, symbol, i, closes[symbol][i])
-        spy_bar = agent._bar_history.get("SPY", "1m")[-1]
-        await agent._process_bar_compute(spy_bar, t0=0.0, gap=False)
+    await _seed_and_tick_cross_asset(agent, _2_ROUND_CLOSES)
 
     state = agent._get_cross_asset_state("1m")
     depth_after_spy_ticks = len(state._spy_realized_vol_history)

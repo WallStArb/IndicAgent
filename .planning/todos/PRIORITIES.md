@@ -212,6 +212,7 @@ scoping it as a phase via `/gsd-discuss-phase`.
 
 | Todo | What |
 |---|---|
+| [222](pending/222-cross-asset-state-reuses-full-featurecache.md) | New 2026-07-31, `/simplify` altitude finding on todo 221's fix: the cross-asset broadcast state reuses the full ~90-field `FeatureCache` for 3 fields, diverging from `backfill_feature_factory.py`'s own dedicated-structure convention for the same computation. Real fix touches a shared class + 2 existing test files; deliberately not done inline, see file for why. |
 | [056](pending/056-phase146-147-v2x-retirement-stale.md) | ROADMAP Phase 147/148 text rewritten 2026-07-19 (operator call resolved: archive not delete, decouple from proof gates). Remaining scope: the actual decommission-in-fact execution (git mv v2.x code to archive/, disable dead systemd units, rename-not-drop the frozen v2.x tables) — real multi-file operation, do with a clean git state. |
 | [022](pending/022-bi-superset.md) | Self-service BI (Superset) for ad-hoc analytics |
 | [115](pending/115-days-to-month-end-exact-redundancy.md) | `days_to_month_end` is an exact affine complement of `month_position` (Pearson correlation -1) — perfectly collinear, remove one. |
