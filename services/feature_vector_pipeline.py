@@ -85,6 +85,14 @@ _OUTPUT_QUEUE_MAXSIZE = 500
 _MAX_QUEUE_DEPTH = 500
 _PIPELINE_VERSION = "3.0.0"
 
+# Cross-asset proxy roles for FeatureCache.update_cross_asset() (todo 221) — fixed
+# identity constants (which ticker plays the equity/long-bond/short-bond role), not
+# a tunable parameter, matching backfill_feature_factory.py's _SPY/_TLT/_SHY convention.
+_CROSS_ASSET_SPY = "SPY"
+_CROSS_ASSET_TLT = "TLT"
+_CROSS_ASSET_SHY = "SHY"
+_CROSS_ASSET_SYMBOLS = frozenset({_CROSS_ASSET_SPY, _CROSS_ASSET_TLT, _CROSS_ASSET_SHY})
+
 
 # ---------------------------------------------------------------------------
 # FeatureVectorPipeline
@@ -132,6 +140,16 @@ class FeatureVectorPipeline(BaseDaemon):
 
         # Per-(symbol, tf) FeatureCache — lazily created via _get_cache()
         self._feature_caches: dict[str, FeatureCache] = {}
+
+        # Per-tf cross-asset broadcast state (todo 221) — lazily created via
+        # _get_cross_asset_state(). Separate from per-symbol FeatureCache instances:
+        # FeatureCache.update_cross_asset() appends to an internal realized-vol deque
+        # on every call, so calling it directly on a per-symbol cache on every symbol's
+        # own bar tick would append duplicate observations and corrupt the trailing
+        # z-score window. This holds the one shared per-tf state, refreshed only when
+        # a genuinely new SPY/TLT/SHY bar arrives, then broadcast onto whichever
+        # symbol's cache is being computed.
+        self._cross_asset_state: dict[str, FeatureCache] = {}
 
         self._config_service: ConfigService | None = None  # initialised in _setup()
         self._feature_factory_config: FeatureFactoryConfig | None = None
@@ -230,6 +248,47 @@ class FeatureVectorPipeline(BaseDaemon):
                 )
             self._feature_caches[key] = cache
         return self._feature_caches[key]
+
+    @staticmethod
+    def _bars_to_dicts(bars: object) -> list[dict]:
+        """Convert a BarHistory deque to the list-of-dicts shape FeatureCache expects."""
+        return [
+            {
+                "open": b.open,
+                "high": b.high,
+                "low": b.low,
+                "close": b.close,
+                "volume": b.volume,
+                "ts": b.ts,
+            }
+            for b in bars
+        ]
+
+    def _refresh_cross_asset_state(self, state: FeatureCache, tf: str) -> None:
+        """Recompute vix_z/flight_quality/yield_slope_z from current SPY/TLT/SHY history.
+
+        Call only when a genuinely new bar for one of the 3 role symbols has just been
+        appended to self._bar_history -- see _cross_asset_state's docstring for why this
+        must not be called per-symbol-tick.
+        """
+        assert self._feature_factory_config is not None, "FeatureFactoryConfig not prewarmed"
+        state.update_cross_asset(
+            self._bars_to_dicts(self._bar_history.get(_CROSS_ASSET_SPY, tf)),
+            self._bars_to_dicts(self._bar_history.get(_CROSS_ASSET_TLT, tf)),
+            self._bars_to_dicts(self._bar_history.get(_CROSS_ASSET_SHY, tf)),
+            self._feature_factory_config,
+        )
+
+    def _get_cross_asset_state(self, tf: str) -> FeatureCache:
+        """Return the shared per-tf cross-asset broadcast state (todo 221), creating and
+        warming it from whatever SPY/TLT/SHY history is already buffered on first access
+        (mirrors _get_cache()'s warm-up-from-buffered-history pattern).
+        """
+        if tf not in self._cross_asset_state:
+            state = FeatureCache()
+            self._refresh_cross_asset_state(state, tf)
+            self._cross_asset_state[tf] = state
+        return self._cross_asset_state[tf]
 
     async def stop(self) -> None:
         self.logger.info("agent.shutdown_initiated", agent=self.name)
@@ -1068,7 +1127,7 @@ class FeatureVectorPipeline(BaseDaemon):
                     try:
                         if _topic == _cross_asset_topic:
                             tf = payload.get("tf", "1m")
-                            await self._cache_mgr.update_cross_asset(tf, payload)
+                            await self._cache_mgr.store_cross_asset_payload(tf, payload)
                         elif _topic == _macro_topic:
                             tf = payload.get("timeframe", payload.get("tf", "1m"))
                             macro_fields = {
@@ -1197,17 +1256,20 @@ class FeatureVectorPipeline(BaseDaemon):
         if not raw_bars:
             return
 
-        bars_dicts = [
-            {
-                "open": b.open,
-                "high": b.high,
-                "low": b.low,
-                "close": b.close,
-                "volume": b.volume,
-                "ts": b.ts,
-            }
-            for b in raw_bars
-        ]
+        bars_dicts = self._bars_to_dicts(raw_bars)
+
+        # Cross-asset broadcast state (todo 221): refresh the shared per-tf state only
+        # when a genuinely new SPY/TLT/SHY bar just arrived, then copy the latest
+        # vix_z/flight_quality/yield_slope_z onto THIS symbol's own cache before
+        # compute() reads them. Every symbol/tf gets the same broadcast values, updated
+        # only on real cross-asset bar arrivals -- not recomputed (and not re-appended
+        # to the internal realized-vol deque) on every other symbol's own tick.
+        cross_state = self._get_cross_asset_state(bar.tf)
+        if bar.symbol in _CROSS_ASSET_SYMBOLS:
+            self._refresh_cross_asset_state(cross_state, bar.tf)
+        cache.vix_z = cross_state.vix_z
+        cache.flight_quality = cross_state.flight_quality
+        cache.yield_slope_z = cross_state.yield_slope_z
 
         # Refresh regime features every N bars (slow path; compute() reads from cache)
         cache.bars_since_regime_refresh += 1

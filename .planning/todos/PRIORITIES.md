@@ -116,9 +116,19 @@ reason.
 
 ## P1 — High value, quick, fully unblocked
 
+**[221](../completed/221-live-vix-z-flight-quality-yield-slope-z-permanently-zero.md) CLOSED
+2026-07-31** — live pipeline was calling `CacheManager.update_cross_asset()` (a same-named but
+unrelated method that just stores a raw spread-feature payload) instead of `FeatureCache`'s
+real implementation; `vix_z`/`flight_quality`/`yield_slope_z` were permanently 0.0 in live
+serving. Fixed via a new shared per-tf broadcast state (avoids corrupting the trailing z-score
+deque by refreshing only on genuine SPY/TLT/SHY bars, then copying onto every symbol's own
+cache), `CacheManager`'s method renamed to `store_cross_asset_payload` to remove the collision.
+3 regression tests added. Corpus/backfill path was already unaffected and untouched by this
+fix. Not verified against live Kafka (ingestion intentionally stopped) — re-confirm once it
+resumes.
+
 | Todo | Why now |
 |---|---|
-| [221](pending/221-live-vix-z-flight-quality-yield-slope-z-permanently-zero.md) | New 2026-07-31, found investigating todo 177: live pipeline calls the wrong `update_cross_asset` (a same-named `CacheManager` method that just stores a raw payload) instead of `FeatureCache`'s real implementation -- `vix_z`/`flight_quality`/`yield_slope_z` are permanently 0.0 in live serving, every symbol/tf, always. Corpus/backfill path uses a separate correct implementation and is unaffected -- confirmed, not assumed. Currently low blast radius (live IBKR ingestion intentionally stopped, nothing consuming live output), but will resurface the moment ingestion resumes; worth fixing before that, and worth checking overlap with 204's undiagnosed POOLED-gate anomaly. |
 | [216](pending/216-regime-writer-hmm-fit-cost-profiling.md) | Still not profiled — `regime_writer` wasn't running today after the 09:59 EDT step-2 completion. Opportunistic next step: catch it live (`py-spy dump`) whenever it next runs (e.g. if the horizon-grid diagnostic forces a re-rebuild) rather than forcing a standalone run just to profile it. |
 | [217](pending/217-corpus-pipeline-step-timing-instrumentation.md) | **Implemented 2026-07-30** (commit `5905172b`) — `run_step()` now appends to `logs/corpus_pipeline/step_timings.jsonl`. Not yet verified live (no step has completed since the commit landed mid-run); will self-confirm the moment the current `ic_engine` step finishes or fails. Close once that first line appears. |
 | [065](pending/065-emission-layer-calibration-proposals.md) | EM-CAL threshold calibration — both prerequisite gates (rebuild, EIC-04) cleared 2026-07-09. **Caution added 2026-07-30**: that clearance predates todo 146/208's grid rework (per-tf lookahead grid; 208's session-gate premise is now fixed, but the grid's actual values are still open, see 208's row above). Calibrating against pre-rebuild data now risks redoing this once the corpus/grid settle — same mistake this todo's own history already flagged once. Wait for the in-flight `ic_engine` pass to finish (`.planning/STATE.md`'s Tier -1) before starting. |

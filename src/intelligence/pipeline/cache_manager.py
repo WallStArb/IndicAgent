@@ -232,8 +232,15 @@ class CacheManager:
     # Stream cache update methods (D-19)
     # ------------------------------------------------------------------
 
-    async def update_cross_asset(self, tf: str, payload: dict) -> None:
-        """Store latest cross-asset payload for the given timeframe."""
+    async def store_cross_asset_payload(self, tf: str, payload: dict) -> None:
+        """Store latest cross-asset spread-feature payload (topic_cross_asset) for CacheSnapshot.
+
+        Renamed from update_cross_asset (todo 221) -- was colliding in name (but not
+        contract) with FeatureCache.update_cross_asset(), which computes vix_z/
+        flight_quality/yield_slope_z from raw SPY/TLT/SHY OHLCV bars. This method just
+        stores cross_asset_analyzer's already-computed spread/correlation payload
+        (corr_z, eq_index features) for CacheSnapshot/API exposure -- unrelated data.
+        """
         async with self._cross_asset_lock:
             self._cross_asset[tf] = payload
         self._logger.debug("cache_manager.cross_asset_updated", tf=tf)

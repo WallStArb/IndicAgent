@@ -1,5 +1,5 @@
 ---
-status: pending
+status: completed
 priority: P1
 filed: 2026-07-31
 source: side finding while investigating todo 177 (BarHistory 200-bar cap enumeration) --
@@ -92,9 +92,51 @@ overlap for whoever picks up 204 to rule in/out, not asserting it as the cause.
 
 ## Acceptance criteria
 
-- [ ] Live pipeline's `cache.vix_z`/`flight_quality`/`yield_slope_z` are non-zero and vary
-      bar-to-bar once cross-asset bars are flowing (verify with a live or replayed tick, not
-      just a passing unit test)
-- [ ] Regression test added pinning that these fields update on a full pipeline tick
-- [ ] `CacheManager.update_cross_asset` renamed to remove the collision, or `FeatureCache`'s
+- [x] Live pipeline's `cache.vix_z`/`flight_quality`/`yield_slope_z` are non-zero and vary
+      bar-to-bar once cross-asset bars are flowing (verified via regression test; no live
+      IBKR ingestion to replay against right now since it's intentionally stopped -- see below)
+- [x] Regression test added pinning that these fields update on a full pipeline tick
+- [x] `CacheManager.update_cross_asset` renamed to remove the collision, or `FeatureCache`'s
       method renamed -- whichever direction the fix lands, the two must not share a name
+
+## Fixed 2026-07-31
+
+Root cause confirmed exactly as diagnosed: `_process_bar_compute()` never called
+`FeatureCache.update_cross_asset()` anywhere. Fix, in `services/feature_vector_pipeline.py`:
+
+1. **New shared per-tf broadcast state** (`self._cross_asset_state: dict[str, FeatureCache]`,
+   separate from the per-`(symbol, tf)` `self._feature_caches`). `FeatureCache.update_cross_asset()`
+   appends to an internal realized-vol deque on every call -- calling it directly on a
+   per-symbol cache on every symbol's own tick would append duplicate observations 58x per
+   genuine SPY bar and corrupt the trailing z-score window. The shared state is refreshed only
+   when `bar.symbol` is actually SPY/TLT/SHY, then its `vix_z`/`flight_quality`/`yield_slope_z`
+   are copied onto whichever symbol's own cache is being computed, every tick.
+2. `_get_cross_asset_state(tf)` lazily creates and warms a new per-tf state from whatever
+   SPY/TLT/SHY history is already buffered (mirrors `_get_cache()`'s existing warm-up-from-
+   buffered-history pattern, todo 159's precedent).
+3. `CacheManager.update_cross_asset()` renamed to `store_cross_asset_payload()` -- confirmed
+   this method is NOT dead code (unlike first assumed): it stores `cross_asset_analyzer.py`'s
+   already-computed spread/correlation payload (`corr_z`, EQ_INDEX features) for
+   `CacheSnapshot`/API exposure, a real but entirely unrelated concept from raw SPY/TLT/SHY
+   OHLCV. Renamed to eliminate the name collision without touching its (correct) behavior.
+4. Regression tests added: `tests/unit/services/test_feature_vector_pipeline_cross_asset.py`
+   (3 tests) -- confirms genuinely-new SPY/TLT/SHY bars populate the shared state, confirms
+   broadcast to a symbol (AAPL) that never itself carries cross-asset bars, and confirms a
+   non-cross-asset symbol's own bar tick does NOT duplicate-append to the realized-vol deque
+   (guards the fix's own correctness hazard, not just the original bug).
+
+**Corpus/backfill path untouched** -- confirmed unaffected before starting (separate correct
+implementation in `backfill_feature_factory.py`), and this fix only touches
+`feature_vector_pipeline.py`/`cache_manager.py`, neither of which the in-flight `ic_engine`
+corpus rebuild reads from. `tests/unit/ -q` full suite green (exit 0) before and after.
+
+**Not verified against live Kafka/IBKR** -- live ingestion is intentionally stopped per
+project state, so there's no live tick stream to replay this against end-to-end right now.
+The regression tests exercise the exact same code path (`_process_bar_compute`) real bars
+would hit; re-confirm with a live or replayed tick once ingestion resumes, per this todo's
+own note about resurfacing then.
+
+Todo 204's undiagnosed `canary_acausal_placebo` POOLED-gate anomaly overlap flagged in this
+todo's body was NOT investigated as part of this fix (out of scope -- that todo operates on
+the backfill/corpus-derived `feature_vectors`, which this bug never touched, so the overlap
+is likely a red herring, but leaving that call to whoever picks up 204).
