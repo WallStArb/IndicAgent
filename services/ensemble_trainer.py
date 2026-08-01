@@ -538,15 +538,7 @@ class EnsembleTrainer(BaseBatch):
     async def execute(self, pool: asyncpg.Pool) -> None:  # type: ignore[override]
         """Run the full ensemble weight derivation and alpha scoring pipeline."""
         manifest = CorpusManifest("ensemble_trainer", CorpusManifest.DEFAULT_MANIFEST_DIR)
-        try:
-            await self._execute_inner(pool, manifest)
-        except Exception as error:
-            manifest.add_error(str(error))
-            try:
-                manifest.write()
-            except Exception:
-                pass
-            raise
+        await self._run_with_manifest_capture(manifest, self._execute_inner(pool, manifest))
 
     async def _execute_inner(self, pool: asyncpg.Pool, manifest: CorpusManifest) -> None:
         async with pool.acquire() as conn:

@@ -102,10 +102,22 @@ def _get_target_timeframes(cfg: ConfigService) -> list[str]:
     feature.factory.target_timeframes (migration 278, todo 199) -- JSON array,
     default ["5m", "15m", "1h", "1d"], byte-identical to the prior hardcoded
     _TARGET_TIMEFRAMES module constant unless an operator explicitly reconfigures it.
+
+    Validated here against _DEPTH_YEARS.keys() -- every configured tf must have a depth
+    entry, or run_fetch_stage's later bare `_DEPTH_YEARS[tf]` subscript would KeyError
+    partway through a live IBKR fetch, after some symbols already advanced past
+    backfill_status (CLAUDE.md: silent/late failure is worse than a loud one at load time).
     """
-    return _get_list_config(
+    tfs = _get_list_config(
         cfg, "feature.factory.target_timeframes", list(_TARGET_TIMEFRAMES_DEFAULT)
     )
+    _unknown = [tf for tf in tfs if tf not in _DEPTH_YEARS]
+    if _unknown:
+        raise AssertionError(
+            f"feature.factory.target_timeframes contains {_unknown!r}, which has no "
+            f"_DEPTH_YEARS entry ({sorted(_DEPTH_YEARS)}) -- add one before enabling this tf"
+        )
+    return tfs
 
 
 # Depth years per TF (D-09, phase 137 spec)

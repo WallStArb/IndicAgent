@@ -6,10 +6,17 @@ a raw topic_cross_asset payload for CacheSnapshot and has nothing to do with com
 vix_z/flight_quality/yield_slope_z from SPY/TLT/SHY OHLCV bars. Every live feature vector
 carried these three fields at their dataclass default (0.0) forever.
 
-Also guards the fix's own correctness hazard: FeatureCache.update_cross_asset() appends to
-an internal realized-vol deque on every call, so calling it once per-symbol-tick (rather
-than once per genuinely-new SPY/TLT/SHY bar) would silently corrupt the trailing z-score
-window with duplicate observations.
+Also guards two correctness hazards a code-review pass on the original todo 221/222 fix
+found (both re-opened, in weaker form, the exact silent-zero bug this file guards against):
+
+1. update_cross_asset() appends to an internal realized-vol deque on every call, so
+   triggering a refresh on EVERY role symbol's bar (not just one) would append the same
+   observation up to 3x per bar period, corrupting the trailing z-score window. Only the
+   equity role symbol's (self._cross_asset_symbols[0]) bar triggers a refresh now --
+   see test_non_equity_role_bars_do_not_trigger_refresh below.
+2. The first-access warm-up must replay buffered history bar-by-bar, not append a single
+   observation for the whole buffer -- otherwise vix_z/yield_slope_z cold-start at 0.0 for
+   `window` bars after every restart. See test_warm_up_replays_full_buffered_history below.
 """
 
 import dataclasses
@@ -148,3 +155,58 @@ async def test_non_cross_asset_bar_does_not_duplicate_realized_vol_history():
         "AAPL's own bar tick must not append to the SPY realized-vol deque -- it is not a "
         "genuinely new SPY/TLT/SHY bar"
     )
+
+
+@pytest.mark.unit
+@pytest.mark.asyncio
+async def test_non_equity_role_bars_do_not_trigger_refresh():
+    """Routing ALL THREE role symbols' bars through _process_bar_compute (not just SPY) must
+    still append exactly ONE observation per bar period, not up to 3 -- a prior version of
+    this fix refreshed on any of SPY/TLT/SHY's bars, tripling deque appends and corrupting
+    the trailing z-score window (each distinct value was repeated exactly 3x).
+    """
+    agent = _make_test_agent()
+    n_rounds = len(_STANDARD_CLOSES["SPY"])
+    for i in range(n_rounds):
+        for symbol in ("SPY", "TLT", "SHY"):
+            bar = _tick(agent, symbol, i, _STANDARD_CLOSES[symbol][i])
+            await agent._process_bar_compute(bar, t0=0.0, gap=False)
+
+    state = agent._get_cross_asset_state("1m")
+    # n_rounds - 1: the vix_z branch of _compute_cross_asset needs >= 2 SPY bars to compute a
+    # return, so round 0's single-bar SPY refresh appends nothing -- that's real math, not the
+    # bug under test. What this asserts is "no MORE than one append per subsequent round".
+    assert len(state._spy_realized_vol_history) == n_rounds - 1, (
+        f"expected exactly {n_rounds - 1} realized-vol observations (one per bar period once "
+        f">= 2 SPY bars exist), got {len(state._spy_realized_vol_history)} -- TLT/SHY bars "
+        "must not trigger a refresh"
+    )
+
+
+@pytest.mark.unit
+@pytest.mark.asyncio
+async def test_warm_up_replays_full_buffered_history():
+    """First access after buffered (not live-ticked) SPY/TLT/SHY history must replay it
+    bar-by-bar, not append a single observation for the whole buffer -- otherwise vix_z/
+    yield_slope_z cold-start at their 0.0 dataclass default for `window` bars after every
+    restart, even though history was already seeded from the DB (_seed_bar_history_from_db).
+    """
+    agent = _make_test_agent()
+    closes = {
+        "SPY": (100.0, 101.0, 99.0, 102.0),
+        "TLT": (90.0, 89.0, 91.0, 88.0),
+        "SHY": (80.0, 80.2, 80.1, 80.3),
+    }
+    n_bars = len(closes["SPY"])
+    for i in range(n_bars):
+        for symbol in ("SPY", "TLT", "SHY"):
+            _tick(agent, symbol, i, closes[symbol][i])
+
+    # No _process_bar_compute call -- this exercises the cold first-access warm-up path only.
+    state = agent._get_cross_asset_state("1m")
+    assert len(state._spy_realized_vol_history) == n_bars - 1, (
+        f"warm-up must replay all {n_bars - 1} realized-vol observations available from the "
+        f"buffered history, got {len(state._spy_realized_vol_history)} -- a cold-started "
+        "single-entry warm-up would leave vix_z at 0.0 for `window` bars after every restart"
+    )
+    assert state.vix_z != 0.0, "vix_z must be populated immediately after warm-up, not 0.0"

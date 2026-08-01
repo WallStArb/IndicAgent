@@ -20,6 +20,7 @@ from typing import Any
 import _path_bootstrap  # noqa: F401 — project root on sys.path
 
 from services._batch_utils import get_dict_config as _get_dict_config
+from services._batch_utils import get_list_config as _get_list_config
 from src.config.config_service import ConfigService
 from src.config.settings import (
     get_active_contracts,
@@ -85,10 +86,12 @@ _OUTPUT_QUEUE_MAXSIZE = 500
 _MAX_QUEUE_DEPTH = 500
 _PIPELINE_VERSION = "3.0.0"
 
-# Cross-asset proxy roles for FeatureCache.update_cross_asset() (todo 221) -- fixed identity
-# constants (which ticker plays the equity/long-bond/short-bond role), not a tunable
-# parameter, matching backfill_feature_factory.py's _SPY/_TLT/_SHY convention.
-_CROSS_ASSET_SYMBOLS = frozenset({"SPY", "TLT", "SHY"})
+# Cross-asset proxy roles for FeatureCache.update_cross_asset() (todo 221) -- APR fallback
+# default only, in (equity, long_bond, short_bond) role order. Which tickers play each role
+# is a behavioral list (CLAUDE.md APR mandate category 2: "lists controlling WHAT the
+# algorithm processes"), so the live driver is feature.cross_asset.role_symbols
+# (migration 279), loaded into self._cross_asset_symbols during _prewarm_threshold_config().
+_CROSS_ASSET_SYMBOLS_DEFAULT: tuple[str, str, str] = ("SPY", "TLT", "SHY")
 
 
 # ---------------------------------------------------------------------------
@@ -139,15 +142,13 @@ class FeatureVectorPipeline(BaseDaemon):
         self._feature_caches: dict[str, FeatureCache] = {}
 
         # Per-tf cross-asset broadcast state (todo 221/222) — lazily created via
-        # _get_cross_asset_state(). A CrossAssetState, not a full per-symbol FeatureCache
-        # (todo 222): it exists only to hold vix_z/flight_quality/yield_slope_z, and
-        # update_cross_asset() appends to an internal realized-vol deque on every call --
-        # calling it directly on a per-symbol FeatureCache on every symbol's own bar tick
-        # would append duplicate observations and corrupt the trailing z-score window.
-        # This holds the one shared per-tf state, refreshed only when a genuinely new
-        # SPY/TLT/SHY bar arrives, then broadcast onto whichever symbol's cache is
-        # being computed.
+        # _get_cross_asset_state(); see _refresh_cross_asset_state()'s docstring for why
+        # this is a single shared per-tf state rather than being computed directly on
+        # each symbol's own FeatureCache.
         self._cross_asset_state: dict[str, CrossAssetState] = {}
+        # (equity, long_bond, short_bond) role order -- APR default until
+        # _prewarm_threshold_config() loads feature.cross_asset.role_symbols.
+        self._cross_asset_symbols: tuple[str, str, str] = _CROSS_ASSET_SYMBOLS_DEFAULT
 
         self._config_service: ConfigService | None = None  # initialised in _setup()
         self._feature_factory_config: FeatureFactoryConfig | None = None
@@ -262,41 +263,68 @@ class FeatureVectorPipeline(BaseDaemon):
             for b in bars
         ]
 
-    def _refresh_cross_asset_state(self, state: CrossAssetState, tf: str) -> None:
-        """Recompute vix_z/flight_quality/yield_slope_z from current SPY/TLT/SHY history.
-
-        Call only when a genuinely new bar for one of the 3 role symbols has just been
-        appended to self._bar_history -- see _cross_asset_state's docstring for why this
-        must not be called per-symbol-tick.
-        """
-        assert self._feature_factory_config is not None, "FeatureFactoryConfig not prewarmed"
-        state.update_cross_asset(
-            self._bars_to_dicts(self._bar_history.get("SPY", tf)),
-            self._bars_to_dicts(self._bar_history.get("TLT", tf)),
-            self._bars_to_dicts(self._bar_history.get("SHY", tf)),
-            self._feature_factory_config,
+    def _cross_asset_role_bars(self, tf: str) -> tuple[list[dict], list[dict], list[dict]]:
+        """Return (equity, long_bond, short_bond) bar-history dicts for self._cross_asset_symbols."""
+        equity, long_bond, short_bond = self._cross_asset_symbols
+        return (
+            self._bars_to_dicts(self._bar_history.get(equity, tf)),
+            self._bars_to_dicts(self._bar_history.get(long_bond, tf)),
+            self._bars_to_dicts(self._bar_history.get(short_bond, tf)),
         )
 
+    def _refresh_cross_asset_state(self, state: CrossAssetState, tf: str) -> None:
+        """Recompute vix_z/flight_quality/yield_slope_z from current role-symbol history.
+
+        Call only on a genuinely new bar for the equity role symbol (self._cross_asset_symbols[0])
+        -- see _cross_asset_state_for_bar(). update_cross_asset() appends to an internal
+        realized-vol deque on every call, so triggering on all 3 role symbols' bars instead of
+        just one would append the same observation up to 3x per bar period and corrupt the
+        trailing z-score window. That is why cross-asset state lives in a single shared per-tf
+        CrossAssetState, broadcast onto every symbol's own cache, instead of being computed
+        directly on each symbol's own FeatureCache.
+        """
+        assert self._feature_factory_config is not None, "FeatureFactoryConfig not prewarmed"
+        equity_bars, long_bond_bars, short_bond_bars = self._cross_asset_role_bars(tf)
+        state.update_cross_asset(
+            equity_bars, long_bond_bars, short_bond_bars, self._feature_factory_config
+        )
+
+    def _warm_cross_asset_state(self, state: CrossAssetState, tf: str) -> None:
+        """Replay buffered role-symbol history bar-by-bar so vix_z/yield_slope_z's rolling
+        z-score windows are populated on first access after a restart, instead of cold-starting
+        at the 0.0 dataclass default for `window` bars (mirrors _get_cache()'s buffered-history
+        replay, T-164-07) -- a single _refresh_cross_asset_state() call over the whole buffer
+        would append only ONE observation, not one per historical bar.
+        """
+        assert self._feature_factory_config is not None, "FeatureFactoryConfig not prewarmed"
+        equity_bars, long_bond_bars, short_bond_bars = self._cross_asset_role_bars(tf)
+        for i in range(2, max(len(equity_bars), len(long_bond_bars), len(short_bond_bars)) + 1):
+            state.update_cross_asset(
+                equity_bars[:i],
+                long_bond_bars[:i],
+                short_bond_bars[:i],
+                self._feature_factory_config,
+            )
+
     def _get_cross_asset_state(self, tf: str) -> CrossAssetState:
-        """Return the shared per-tf cross-asset broadcast state (todo 221/222), creating and
-        warming it from whatever SPY/TLT/SHY history is already buffered on first access
-        (mirrors _get_cache()'s warm-up-from-buffered-history pattern). Read-only accessor --
-        does not decide whether to refresh an already-existing state; see
-        _cross_asset_state_for_bar() for the per-tick refresh-or-reuse decision.
+        """Return the shared per-tf cross-asset broadcast state, creating and warming it
+        from buffered role-symbol history on first access. Read-only accessor -- see
+        _cross_asset_state_for_bar() for the refresh-or-reuse decision.
         """
         if tf not in self._cross_asset_state:
             state = CrossAssetState()
-            self._refresh_cross_asset_state(state, tf)
+            self._warm_cross_asset_state(state, tf)
             self._cross_asset_state[tf] = state
         return self._cross_asset_state[tf]
 
     def _cross_asset_state_for_bar(self, bar: BarMessage) -> CrossAssetState:
-        """Return bar.tf's cross-asset broadcast state, refreshing it first if `bar` is
-        itself a genuinely new SPY/TLT/SHY bar. Single call site for the "when to refresh"
-        rule -- callers never need to know which symbols trigger a refresh.
+        """Return bar.tf's cross-asset broadcast state, refreshing it first if `bar` is a
+        genuinely new bar for the equity role symbol (see _refresh_cross_asset_state()).
+        Single call site for the "when to refresh" rule -- callers never need to know which
+        symbol triggers it.
         """
         state = self._get_cross_asset_state(bar.tf)
-        if bar.symbol in _CROSS_ASSET_SYMBOLS:
+        if bar.symbol == self._cross_asset_symbols[0]:
             self._refresh_cross_asset_state(state, bar.tf)
         return state
 
@@ -1011,6 +1039,24 @@ class FeatureVectorPipeline(BaseDaemon):
             session_levels_asia_end_et_hour=_int("feature.session_levels.asia_end_et_hour", 4),
         )
 
+        # feature.cross_asset.role_symbols (migration 279) -- not part of FeatureFactoryConfig
+        # (it's pipeline-level routing, not a compute parameter), so it's loaded independently
+        # of the _int/_float/_dict helpers above and their _THRESHOLD_KEYS-membership assertion.
+        # Order is load-bearing (equity, long_bond, short_bond roles) -- kept as a tuple, not a
+        # frozenset, and validated at load time so a misconfigured key fails loud here rather
+        # than silently emitting all-zero cross-asset features forever (CLAUDE.md: silent wrong
+        # answers are worse than loud crashes).
+        await cs.get("feature.cross_asset.role_symbols", list(_CROSS_ASSET_SYMBOLS_DEFAULT))
+        _role_symbols = _get_list_config(
+            cs, "feature.cross_asset.role_symbols", list(_CROSS_ASSET_SYMBOLS_DEFAULT)
+        )
+        if len(_role_symbols) != 3:
+            raise AssertionError(
+                f"feature.cross_asset.role_symbols must have exactly 3 entries "
+                f"(equity, long_bond, short_bond roles), got {_role_symbols!r}"
+            )
+        self._cross_asset_symbols = (_role_symbols[0], _role_symbols[1], _role_symbols[2])
+
         self.logger.info(
             "feature_vector_pipeline.feature_config_loaded",
             key_count=len(self._THRESHOLD_KEYS),
@@ -1268,11 +1314,10 @@ class FeatureVectorPipeline(BaseDaemon):
 
         bars_dicts = self._bars_to_dicts(raw_bars)
 
-        # Cross-asset broadcast state (todo 221): copy the latest vix_z/flight_quality/
-        # yield_slope_z onto THIS symbol's own cache before compute() reads them. Every
-        # symbol/tf gets the same broadcast values, updated only on real cross-asset bar
-        # arrivals (see _cross_asset_state_for_bar) -- not recomputed (and not re-appended
-        # to the internal realized-vol deque) on every other symbol's own tick.
+        # Cross-asset broadcast (todo 221): copy this tf's shared vix_z/flight_quality/
+        # yield_slope_z onto this symbol's own cache before compute() reads them -- see
+        # _refresh_cross_asset_state() for why refreshes are rate-limited to genuinely-new
+        # SPY/TLT/SHY bars.
         cross_state = self._cross_asset_state_for_bar(bar)
         cache.vix_z = cross_state.vix_z
         cache.flight_quality = cross_state.flight_quality

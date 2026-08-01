@@ -110,15 +110,7 @@ class AlphaPublisher(BaseBatch):
     async def execute(self, pool: asyncpg.Pool) -> None:  # type: ignore[override]
         """Read ensemble_alpha, enforce gates, write alpha_events, publish to Kafka."""
         manifest = CorpusManifest("alpha_publisher", CorpusManifest.DEFAULT_MANIFEST_DIR)
-        try:
-            await self._execute_inner(pool, manifest)
-        except Exception as error:
-            manifest.add_error(str(error))
-            try:
-                manifest.write()
-            except Exception:
-                pass
-            raise
+        await self._run_with_manifest_capture(manifest, self._execute_inner(pool, manifest))
 
     _INSERT_SQL = """
         INSERT INTO alpha_events (

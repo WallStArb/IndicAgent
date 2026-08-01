@@ -60,6 +60,7 @@ def make_agent() -> FeatureVectorPipeline:
     agent._regime_cache = {}
     agent._feature_caches = {}
     agent._cross_asset_state = {}
+    agent._cross_asset_symbols = ("SPY", "TLT", "SHY")
     agent._kafka_producer = AsyncMock()
     agent._background_tasks = set()
     agent._bar_e2e_latency = MagicMock()

@@ -31,51 +31,12 @@ if TYPE_CHECKING:
 
 
 @dataclass
-class _CrossAssetFields:
-    """vix_z/flight_quality/yield_slope_z + the 2 internal histories update_cross_asset()
-    needs (todo 222). A shared base rather than duplicate field declarations on FeatureCache
-    and CrossAssetState -- the "these 5 fields travel together" contract is structural
-    (inheritance), not carried by naming convention alone.
-    """
-
-    vix_z: float = 0.0  # SPY realized-vol proxy (VXX/VIXY absent from universe)
-    flight_quality: float = 0.0  # TLT/SPY divergence
-    yield_slope_z: float = 0.0  # TLT/SHY ratio z-score
-    _spy_realized_vol_history: deque = field(default_factory=lambda: deque(maxlen=500), repr=False)
-    _yield_ratio_history: deque = field(default_factory=lambda: deque(maxlen=500), repr=False)
-
-    def update_cross_asset(
-        self,
-        spy_bars: list[dict],
-        tlt_bars: list[dict],
-        shy_bars: list[dict],
-        config: FeatureFactoryConfig,
-    ) -> None:
-        """Populate vix_z/flight_quality/yield_slope_z from available ETF OHLCV bars.
-
-        Called when cross-asset HTF bars arrive. All three features are computed from
-        OHLCV only -- no tick data, no live frames injection. Inherited identically by
-        FeatureCache and CrossAssetState; delegates to _compute_cross_asset(), the sole
-        implementation of this math.
-
-        Parameters
-        ----------
-        spy_bars: SPY bar history (for vix_z proxy via realized volatility)
-        tlt_bars: TLT bar history (for flight_quality and yield_slope_z)
-        shy_bars: SHY bar history (for yield_slope_z)
-        config: Frozen FeatureFactoryConfig with zscore windows
-        """
-        _compute_cross_asset(self, spy_bars, tlt_bars, shy_bars, config)
-
-
-@dataclass
-class FeatureCache(_CrossAssetFields):
+class FeatureCache:
     """Mutable state container for FeatureFactory.compute().
 
     Regime-level fields are refreshed every regime_cache_refresh_bars bars
     via refresh_regime(). CTF fields are updated when an HTF bar arrives.
-    Cross-asset fields (vix_z/flight_quality/yield_slope_z, inherited from
-    _CrossAssetFields) are updated via update_cross_asset(). Session-level
+    Cross-asset fields are updated via update_cross_asset(). Session-level
     fields are reset at session open by the caller.
     """
 
@@ -88,6 +49,16 @@ class FeatureCache(_CrossAssetFields):
     hma_slope_z: float = 0.0
     adx: float = 0.0
     bars_since_regime_refresh: int = 0
+
+    # Cross-asset cached from cross-asset ETF bars (updated via update_cross_asset()).
+    # Same 5 fields, same _compute_cross_asset() implementation, as CrossAssetState
+    # below (see that class's docstring for why the fields are declared twice instead
+    # of shared via inheritance).
+    vix_z: float = 0.0  # SPY realized-vol proxy (VXX/VIXY absent from universe)
+    flight_quality: float = 0.0  # TLT/SPY divergence
+    yield_slope_z: float = 0.0  # TLT/SHY ratio z-score
+    _spy_realized_vol_history: deque = field(default_factory=lambda: deque(maxlen=500), repr=False)
+    _yield_ratio_history: deque = field(default_factory=lambda: deque(maxlen=500), repr=False)
 
     # CTF from HTF cached state (populated when HTF bar arrives)
     ctf_momentum: float = 0.0
@@ -558,8 +529,28 @@ class FeatureCache(_CrossAssetFields):
         """
         self.update_wk_vwap(bar_ts, high, low, close, volume)
 
-    # update_cross_asset() is inherited from _CrossAssetFields (todo 222) -- not
-    # redeclared here.
+    def update_cross_asset(
+        self,
+        spy_bars: list[dict],
+        tlt_bars: list[dict],
+        shy_bars: list[dict],
+        config: FeatureFactoryConfig,
+    ) -> None:
+        """Populate vix_z/flight_quality/yield_slope_z from available ETF OHLCV bars.
+
+        Called when cross-asset HTF bars arrive. All three features are computed from
+        OHLCV only -- no tick data, no live frames injection. Delegates to
+        _compute_cross_asset(), the sole implementation of this math (shared with
+        CrossAssetState below).
+
+        Parameters
+        ----------
+        spy_bars: SPY bar history (for vix_z proxy via realized volatility)
+        tlt_bars: TLT bar history (for flight_quality and yield_slope_z)
+        shy_bars: SHY bar history (for yield_slope_z)
+        config: Frozen FeatureFactoryConfig with zscore windows
+        """
+        _compute_cross_asset(self, spy_bars, tlt_bars, shy_bars, config)
 
     def update_overnight_range(
         self,
@@ -657,21 +648,40 @@ class FeatureCache(_CrossAssetFields):
 # callers that need only vix_z/flight_quality/yield_slope_z (e.g.
 # feature_vector_pipeline.py's shared per-tf broadcast state, computed once per
 # genuinely-new SPY/TLT/SHY bar and copied onto every symbol's own FeatureCache)
-# rather than paying for FeatureCache's other ~87 unrelated fields. Both classes
-# inherit _CrossAssetFields, so update_cross_asset() -- and the 5 fields it reads
-# and writes -- has exactly one declaration, not two.
+# rather than paying for FeatureCache's other ~87 unrelated fields. Declares the
+# same 5 fields as FeatureCache directly (not shared via inheritance -- 5 field
+# declarations is cheaper than a dedicated base class); update_cross_asset() on
+# both classes delegates to _compute_cross_asset() below, the one shared
+# implementation of the math.
 # ---------------------------------------------------------------------------
 
 
 @dataclass
-class CrossAssetState(_CrossAssetFields):
-    """Just _CrossAssetFields -- see module comment above for why this exists
-    alongside FeatureCache instead of reusing it wholesale.
+class CrossAssetState:
+    """vix_z/flight_quality/yield_slope_z + the 2 internal histories update_cross_asset()
+    needs -- see module comment above for why this exists alongside FeatureCache.
     """
+
+    vix_z: float = 0.0
+    flight_quality: float = 0.0
+    yield_slope_z: float = 0.0
+    _spy_realized_vol_history: deque = field(default_factory=lambda: deque(maxlen=500), repr=False)
+    _yield_ratio_history: deque = field(default_factory=lambda: deque(maxlen=500), repr=False)
+
+    def update_cross_asset(
+        self,
+        spy_bars: list[dict],
+        tlt_bars: list[dict],
+        shy_bars: list[dict],
+        config: FeatureFactoryConfig,
+    ) -> None:
+        """Populate vix_z/flight_quality/yield_slope_z -- see FeatureCache.update_cross_asset()
+        for the parameter contract; both delegate to _compute_cross_asset() below."""
+        _compute_cross_asset(self, spy_bars, tlt_bars, shy_bars, config)
 
 
 def _compute_cross_asset(
-    state: _CrossAssetFields,
+    state: FeatureCache | CrossAssetState,
     spy_bars: list[dict],
     tlt_bars: list[dict],
     shy_bars: list[dict],
@@ -679,9 +689,9 @@ def _compute_cross_asset(
 ) -> None:
     """Compute vix_z/flight_quality/yield_slope_z onto `state` from ETF OHLCV bars.
 
-    Shared implementation behind _CrossAssetFields.update_cross_asset(), inherited
-    identically by FeatureCache and CrossAssetState. See that method's docstring for
-    the parameter contract.
+    Shared implementation behind both FeatureCache.update_cross_asset() and
+    CrossAssetState.update_cross_asset(). See either method's docstring for the
+    parameter contract.
     """
     window = config.vix_zscore_window
 
