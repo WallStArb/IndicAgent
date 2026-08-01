@@ -2,70 +2,100 @@
 status: pending
 priority: P2
 filed: 2026-08-01
-source: session review of commodity/fx regime-group disablement while discussing symbol-universe scope with user
+source: session review of commodity/fx regime-group disablement while discussing symbol-universe
+  scope with user. Revised same day: fx confirmed collision-free and ready to enable; commodity
+  sub-groups' thinness identified as a separate, near-term-fixable axis (unify into one
+  `commodity` group) distinct from the equity-collision axis now owned by todo 225.
 ---
 
-# Commodity/FX regime-group re-enablement decision (todo 041's original taxonomy question, refreshed)
+# Commodity/FX regime-group re-enablement (todo 041's original taxonomy question, refreshed)
 
 ## Problem
 
 `alpha.regime.groups` (migration 222) ships 4 of 6 groups disabled: `commodity_energy`,
 `commodity_metals`, `commodity_agri`, `fx`. Both `commodity_momentum_ts.py` and
 `fx_dollar_carry.py` are fully implemented, not stubs -- they've shipped `enabled: false`
-since inception, gated on "todo 041" (tag exposure-vs-sensitivity taxonomy audit),
-referenced across `ROADMAP.md`/`roadmap-decision-log.md`/Phase 144 docs but never filed as
-its own standalone pending todo file until now.
+since inception, gated on "todo 041" (tag exposure-vs-sensitivity taxonomy audit), referenced
+across `ROADMAP.md`/`roadmap-decision-log.md`/Phase 144 docs but never filed as its own
+standalone pending todo until this session.
 
-**Concrete blocker, confirmed live in today's data (2026-08-01):** `OIH`, `XLE`, `XOP` all
-carry both an `eq_*` tag (`eq_sector`/`eq_sub_sector`, matching the enabled `equity` group)
-and `commodity_energy_crude` (matching the disabled `commodity_energy` group) simultaneously.
-The router raises `AmbiguousRegimeGroupError` -- fail loud, never silently pick one -- the
-instant a symbol matches more than one *enabled* group. Flipping `commodity_energy.enabled`
-to `true` today would crash the next `ic_engine` run on the first of these three symbols it
-hits.
+This turned out to bundle two genuinely separate problems, now split apart:
 
-Phase 146 (Empirical Instrument Tag Calibrator, closed 2026-07-17) folded todo 041's
-taxonomy-soundness question directly into `docs/research/stratification-instrument-tag-calibrator.md`
-rather than resolving it as a standalone decision -- but Phase 144's own completion notes
-(2026-07-22, five days *after* Phase 146 closed) still list commodity/fx enablement as
-blocked on it, and the OIH/XLE/XOP collision is still live in the data today. Nobody has come
-back to actually apply the taxonomy decision and flip the flags.
+**1. `fx` has no problem at all.** Verified (2026-08-01): `UUP`/`FXA`/`FXE`/`IBIT` carry zero
+tag collisions with any other enabled group, on either Job 1 (`cross_sectional_regime_model.py`'s
+peer-averaging) or Job 2 (`ic_engine.py`'s `_build_symbol_regime_class` routing). It can be
+enabled today with zero code changes and zero crash risk. The only reason it hasn't happened is
+sequencing -- see Fix.
+
+**2. Commodity groups have two independent problems, not one.**
+- **Equity-tag collision (Job 2, single-membership routing):** `OIH`/`XLE`/`XOP`/`AMLP`
+  (energy) and `GDX` (metals) all carry both an `eq_*` tag (matching the enabled `equity`
+  group) and a `commodity_*` tag simultaneously. `ic_engine.py`'s router requires exactly one
+  group per symbol and raises `AmbiguousRegimeGroupError` on multi-match by design (never
+  silently picks one). These 5 symbols are *already* routed to `equity` today (since `equity`
+  is enabled and they match it); enabling any commodity sub-group makes them double-eligible
+  with no resolution rule. **This axis is now owned by
+  [225](225-multi-vector-systematic-regime-join-hybrid-sensitivity-symbols.md)** -- its
+  gradient-conditional IC approach lets a hybrid symbol answer to both axes independently
+  instead of forcing a pick. Not solved by anything in this todo.
+- **Group thinness (Job 1, peer-set size):** independent of the collision question above, the
+  three commodity sub-groups are each too small on their own to compute a reliable
+  cross-sectional signal. `commodity_energy` has 4 members (all 4 collide with equity anyway),
+  `commodity_metals` has 5 (only `GDX` collides), `commodity_agri` has exactly 1 (`DBA` --
+  unusable alone). `commodity_momentum_ts.py`'s own docstring targets 4-8 instrument peer
+  groups; `commodity_agri` doesn't clear that bar at all. **This axis is fixable now,
+  independent of 225** -- see Fix step 2.
+
+Bonus finding while checking group membership: `DBC` (Invesco DB Commodity Index -- the
+cleanest possible commodity holder, GSCI-weighted, zero equity-tag collision) carries a
+`commodity_broad` tag that isn't matched by *any* current group's `tag_filter`. It's currently
+routed to nothing, a pure oversight independent of both problems above.
 
 ## Why this matters
 
-- Symbols tagged `fx_*`/`commodity_*` (9 distinct: 4 energy, 5 metals, 1 agri, 5 fx/crypto)
-  currently get pooled IC only, never regime-stratified IC -- a real measurement gap for
-  those symbols relative to the equity/rates groups.
-- `commodity_agri` has only 1 tagged instrument (`DBA`) against the module's own stated 4-8
-  instrument design range (`commodity_momentum_ts.py` docstring) -- even after the
-  taxonomy/routing question is resolved, agri may need more coverage before its regime
-  signal is statistically meaningful. Deliberately not filing that as a separate expansion
-  todo yet -- see Fix step 3.
-- Every new-instrument corpus change re-triggers the full 6-step pipeline (historically
-  20-30+ hours); resolving the routing question before touching instrument coverage avoids
-  wasted rebuild cycles on groups that would immediately crash if enabled.
+- Symbols tagged `fx_*`/`commodity_*` (9 distinct: 4 energy, 5 metals, 1 agri, 5 fx/crypto, plus
+  `DBC` unrouted entirely) currently get pooled IC only, never regime-stratified IC -- a real
+  measurement gap relative to the equity/rates groups.
+- Every new-instrument or config-affecting corpus change re-triggers the full pipeline
+  (historically 20-30+ hours); sequencing fx-now / commodity-unification-next / 225-after
+  avoids wasted rebuild cycles on groups that would immediately crash or produce thin,
+  unreliable signal if enabled as-is.
+- Unifying the commodity sub-groups now (rather than waiting on individual sub-group expansion)
+  matches the project's stated long-term direction of scaling the securities universe against
+  future cluster compute -- start with one coarser, statistically sturdier `commodity` group
+  now; re-split into energy/metals/agri later once each sub-group has enough dedicated members
+  on its own. Not a permanent design, a staged one.
 
-## Fix (not yet started)
+## Fix
 
-1. Decide the actual tag-routing rule for dual-exposure symbols (OIH/XLE/XOP-shaped: literal
-   sector ETF + commodity-sensitivity tag). Options sketched in
-   `docs/research/roadmap-decision-log.md`'s Phase 144 section: (a) keep them in equity by
-   convention (current default, already judged "not a blocker" for Job-1 peer-set purity as
-   of 2026-07-22, revisit only if Phase 146 tag calibration shows material contamination --
-   has anyone actually checked that since?), (b) give commodity/exposure tags lower routing
-   priority than sensitivity/sector tags, (c) exclude dual-tagged symbols from whichever
-   group activates second.
-2. Re-verify Phase 146's tag calibration output
-   (`docs/research/stratification-instrument-tag-calibrator.md`) for whether it actually
-   flags OIH/XLE/XOP-style contamination now that real data exists -- its 2026-07-17 closure
-   predates Phase 144 completing and predates the current corpus.
-3. Once routing is decided: flip `commodity_energy`/`commodity_metals`/`fx` to
-   `enabled: true` in `alpha.regime.groups` (`config_state`), confirm zero
-   `AmbiguousRegimeGroupError` on the current instrument set, and separately assess whether
-   `commodity_agri` (N=1) needs instrument-count expansion before its group is worth enabling
-   too -- don't conflate that with the routing decision.
-4. Batch into a future scheduled corpus rebuild rather than triggering a standalone one (same
-   discipline as todos 155/171).
+**Near-term, unblocked, not gated on todo 225:**
+
+1. Enable `fx` in `alpha.regime.groups` (`config_state`) -- flip `enabled: true`. Batch into
+   the next scheduled corpus rebuild rather than disrupting the one currently in flight (same
+   discipline as todos 155/171); don't expect it to retroactively apply to cells already
+   computed by an in-progress run.
+2. Unify `commodity_energy`/`commodity_metals`/`commodity_agri` into a single `commodity`
+   group (~10 members once combined: `OIH`/`XLE`/`XOP`/`AMLP`/`GLD`/`SLV`/`PPLT`/`DBB`/`GDX`/
+   `DBA`, plus `DBC` once its `commodity_broad` tag is added to the merged group's
+   `tag_filter`). Clears `commodity_momentum_ts.py`'s 4-8 instrument design floor comfortably;
+   resolves `commodity_agri`'s N=1 problem without a separate expansion effort. **This does
+   NOT resolve the equity-tag collision** -- `AMLP`/`GDX`/`OIH`/`XLE`/`XOP` still match both
+   `equity` and the unified `commodity` group; enabling the unified group still needs either
+   225's fix or an accepted interim exclusion of those 5 symbols from one axis. Don't let this
+   step create a false impression that unifying alone unblocks enablement.
+3. Fix `DBC`'s routing gap -- add `commodity_broad` to the (unified, per step 2) `commodity`
+   group's `tag_filter`. Free N+1, zero collision risk.
+4. Re-split the unified `commodity` group back into energy/metals/agri once the securities
+   universe has grown enough that each sub-group can independently clear the 4-8 instrument
+   floor -- track against the long-term universe-scaling direction, not on a fixed date.
+
+**Blocked on [225](225-multi-vector-systematic-regime-join-hybrid-sensitivity-symbols.md):**
+
+5. Resolve the `AMLP`/`GDX`/`OIH`/`XLE`/`XOP` equity-collision axis via 225's gradient-
+   conditional IC measurement (or, if 225 stalls, revisit an explicit interim precedence
+   exception as a documented, deliberate fallback -- not a default).
+6. Once resolved, the unified `commodity` group (or its later re-split successors) can be
+   enabled without `AmbiguousRegimeGroupError` risk.
 
 ## References
 
@@ -73,13 +103,17 @@ back to actually apply the taxonomy decision and flip the flags.
   disabled by design
 - `src/intelligence/regime_signals/commodity_momentum_ts.py`,
   `src/intelligence/regime_signals/fx_dollar_carry.py` -- fully implemented, `enabled: false`
-  noted in each module's own docstring
+  noted in each module's own docstring; `commodity_momentum_ts.py`'s docstring states the 4-8
+  instrument peer-group design target this todo's unification step targets
 - `docs/research/roadmap-decision-log.md` -- "Why commodity/fx enablement is blocked" + "Why
   OIH/XLE staying in equity breadth ... isn't a blocker" decision notes
 - `.planning/phases/146-empirical-instrument-tag-calibrator-planned/146-CONTEXT.md` --
-  confirms todo 041 was folded into the canonical design doc, not resolved as its own
-  decision
+  confirms todo 041 was folded into the canonical design doc, not resolved as its own decision
 - `docs/plans/2026-06-27-etf-universe-expansion.md` -- 58->80 ETF expansion that populated
   these groups' tags in the first place
-- Live query used to confirm the collision is still current:
-  `SELECT symbol, array_agg(tag) FROM instrument_tags WHERE symbol IN ('OIH','XLE','XOP') GROUP BY symbol`
+- `.planning/todos/pending/225-multi-vector-systematic-regime-join-hybrid-sensitivity-symbols.md`
+  -- owns the equity-collision axis; this todo owns fx-enablement and commodity-group-thinness,
+  explicitly not the same problem
+- Live queries used to confirm current state:
+  `SELECT symbol, array_agg(tag) FROM instrument_tags WHERE symbol IN ('OIH','XLE','XOP','AMLP','GDX') GROUP BY symbol`
+  and `SELECT symbol, array_agg(tag) FROM instrument_tags WHERE symbol = 'DBC' GROUP BY symbol`
