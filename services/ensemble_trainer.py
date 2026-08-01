@@ -82,7 +82,6 @@ from src.observability.metrics import (
     ENSEMBLE_SHRINKAGE_INTENSITY_GAUGE,
 )
 from src.observability.otel import OTelInitError, init_otel_providers
-from src.observability.spans import observed_span
 
 _logger = structlog.get_logger(__name__)
 
@@ -533,25 +532,21 @@ class EnsembleTrainer(BaseBatch):
         self._weight_version_override = weight_version_override
         self._sign_symmetric_override = sign_symmetric_override
 
+    def _span_attrs(self) -> dict[str, Any]:
+        return {"weight_version_override": self._weight_version_override or ""}
+
     async def execute(self, pool: asyncpg.Pool) -> None:  # type: ignore[override]
         """Run the full ensemble weight derivation and alpha scoring pipeline."""
         manifest = CorpusManifest("ensemble_trainer", CorpusManifest.DEFAULT_MANIFEST_DIR)
-        # todo 156: ensemble_trainer had zero spans despite being on the v3.0
-        # measurement/decision-integrity critical path -- alpha_publisher (the DAG's
-        # terminal writer) gates on this service's own manifest success.
-        async with observed_span(
-            "ensemble_trainer.execute",
-            weight_version_override=self._weight_version_override or "",
-        ):
+        try:
+            await self._execute_inner(pool, manifest)
+        except Exception as error:
+            manifest.add_error(str(error))
             try:
-                await self._execute_inner(pool, manifest)
-            except Exception as error:
-                manifest.add_error(str(error))
-                try:
-                    manifest.write()
-                except Exception:
-                    pass
-                raise
+                manifest.write()
+            except Exception:
+                pass
+            raise
 
     async def _execute_inner(self, pool: asyncpg.Pool, manifest: CorpusManifest) -> None:
         async with pool.acquire() as conn:

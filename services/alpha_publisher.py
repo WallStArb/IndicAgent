@@ -51,7 +51,6 @@ from src.observability.metrics import (
     ALPHA_PUBLISHER_EMISSIONS_TOTAL,
 )
 from src.observability.otel import OTelInitError, init_otel_providers
-from src.observability.spans import observed_span
 
 _logger = structlog.get_logger(__name__)
 
@@ -105,25 +104,21 @@ class AlphaPublisher(BaseBatch):
         """
         return _cfg(cfg, f"alpha.quant.cost_hurdle.{tf}", 0.0)
 
+    def _span_attrs(self) -> dict[str, Any]:
+        return {"weight_version_override": self._weight_version_override or ""}
+
     async def execute(self, pool: asyncpg.Pool) -> None:  # type: ignore[override]
         """Read ensemble_alpha, enforce gates, write alpha_events, publish to Kafka."""
         manifest = CorpusManifest("alpha_publisher", CorpusManifest.DEFAULT_MANIFEST_DIR)
-        # todo 156: alpha_publisher is the sole alpha_events writer -- the terminal stage
-        # of the whole v3.0 DAG -- and previously had zero spans, making a slow or
-        # silently-degraded run invisible in any trace view.
-        async with observed_span(
-            "alpha_publisher.execute",
-            weight_version_override=self._weight_version_override or "",
-        ):
+        try:
+            await self._execute_inner(pool, manifest)
+        except Exception as error:
+            manifest.add_error(str(error))
             try:
-                await self._execute_inner(pool, manifest)
-            except Exception as error:
-                manifest.add_error(str(error))
-                try:
-                    manifest.write()
-                except Exception:
-                    pass
-                raise
+                manifest.write()
+            except Exception:
+                pass
+            raise
 
     _INSERT_SQL = """
         INSERT INTO alpha_events (

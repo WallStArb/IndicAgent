@@ -88,6 +88,45 @@ way the 5 mandatory metrics signals are automatic?) and the broader remaining-se
 etc.) are real, separate scoping questions, not mechanical follow-through from step 1 — kept
 open rather than attempted in the same pass.
 
+## Step 2 decided and done 2026-07-31
+
+Investigated whether `BaseDaemon`/`BaseWriter`/`BaseBatch` could auto-wrap spans the same
+mechanical way the 5 metrics signals are automatic. Verdict: **not uniformly** — `BaseDaemon`
+itself can't, because its `_run()` is abstract and runs for the life of the process (often
+hours/days, consuming an unbounded Kafka stream inside a subclass-owned loop) with no per-unit
+boundary the base class can see; a single span wrapping the whole call would never close until
+shutdown, which is an anti-pattern for tracing backends, not a useful signal.
+
+`BaseWriter` turned out to **already have this solved**, just not documented as such:
+`_do_flush()` (`base_writer.py:270`) already wraps every `_flush_batch()` call in
+`writer.flush`, and `_run()`'s default consume loop already wraps every message in
+`writer.process_message` (`base_writer.py:316`) — both base-class methods, automatic for any
+subclass today. Nothing needed changing here; this todo's own step-1 investigation undercounted
+coverage by only grepping for direct `observed_span` call sites, missing that `BaseWriter`
+wraps via `self.tracer.start_as_current_span(...)` directly instead.
+
+`BaseBatch` was the real gap — `execute()` (the one bounded per-run unit, structurally
+identical to what `BaseWriter._flush_batch` already gets) had zero automatic span coverage.
+Fixed: `BaseBatch.run()` (`src/core/agent/base_batch.py`) now wraps the `execute(pool)` call in
+`observed_span(f"{self.job_name}.execute", **self._span_attrs())` — `_span_attrs()` is a new
+overridable hook (default `{}`) letting subclasses attach extra span attributes without needing
+their own `observed_span` call. This closes the gap for all 8 live `BaseBatch` subclasses at
+once: `ensemble_trainer.py`, `alpha_publisher.py` (already had manual spans — now redundant,
+removed, with their `weight_version_override` attribute moved to `_span_attrs()` so no
+information is lost), plus 6 subclasses that had **zero** span coverage until now:
+`cross_sectional_spread_tracker.py`, `counterfactual_tracker.py`, `ensemble_ic_engine.py`,
+`alpha_scorer.py`, `alpha_frame_writer.py`, `tag_calibrator.py`. None of these 8 were running
+live at implementation time (all are oneshot batch jobs, not daemons); the corpus-critical
+`ic_engine.py` is NOT a `BaseBatch` subclass yet (still the procedural script todo 009 Part B
+tracks promoting) so this change does not touch it or risk the in-flight corpus rebuild.
+`tests/unit/ -q` green (105 tests across the 3 directly-touched files, full suite unaffected).
+
+**Resolves 157 item 3's blocker** — see that todo for the resulting compliance-test scope.
+
+**Step 3 (broader remaining-services audit: `bar_auditor.py`, `ml_*` batch services, gap
+detection's `_run_audit`) remains open** — those aren't `BaseDaemon`/`BaseWriter`/`BaseBatch`
+gaps closed by this change; still needs its own per-service review.
+
 ## References
 
 - `src/observability/spans.py` -- `observed_span()`, the existing pattern to reuse

@@ -72,9 +72,15 @@ existing boundary-test pattern:
    exception with a reason, matching the `market_data_ohlcv` boundary test's own convention.
 2. A banned-import ruff rule (or the same grep-test pattern) for `prometheus_client` -- cheap,
    mechanical, currently-zero-cost to add since there are no real violations to grandfather in.
-3. Whether to require spans is really [[156]]'s decision (step 2 there: should `BaseDaemon`
-   provide a default span automatically, closing this gap architecturally rather than via a
-   test that nags after the fact) -- resolve 156 first, this todo's item 1/2 don't depend on it.
+3. **Resolved 2026-07-31 — see [[156-otel-span-coverage-gap-v3-pipeline]]'s "Step 2 decided and
+   done" section.** `BaseDaemon` can't auto-wrap (no per-unit boundary in its abstract `_run()`);
+   `BaseWriter` already auto-wraps (`writer.flush`/`writer.process_message`, pre-existing, not
+   previously credited); `BaseBatch.run()` now auto-wraps `execute()` for all 8 subclasses. This
+   gives item 3 a concrete, mechanical scope: a compliance test should assert that any class
+   reaching `BaseBatch` or `BaseWriter` gets span coverage for free (verify the base-class
+   wrapping itself still exists, not a per-service nag), and explicitly document direct
+   `BaseDaemon` subclasses as convention-only/not mechanically enforceable, with the reasoning
+   recorded in 156. Test not yet written — this note unblocks it, doesn't close it.
 
 ## Sizing
 

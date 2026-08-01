@@ -64,3 +64,35 @@ been done)
 - [ ] IC impact verified for any field whose live-computed value changes as a result
 - [ ] Migration 256's `feature.session_vp.rolling_window` description updated again if this todo
       changes its live-path behavior (currently accurately describes it as capped)
+
+## Step 1 (enumeration) done 2026-07-31
+
+Full sweep of `config_state` for numeric `feature.*` keys exceeding 200, cross-referenced
+against `FeatureFactoryConfig`'s field list and each field's actual consumption site. **22
+fields confirmed with a live default > 200. 19 are genuinely `BarHistory`-capped** (18 directly
+at the 200-bar limit via `feature_factory.py`'s `_precompute_series`/`compute()`, plus
+`smc_liquidity_pools_session_bars` which is capped first by its own 150-bar lookback so
+raising the 200 cap alone wouldn't fix it): `momentum_zscore_window`, `hurst_window`,
+`ret_acf_zscore_window`, `high_52w_window`, `ret_skew_zscore_window`, `amihud_zscore_window`,
+`dollar_vol_window`, `vol_percentile_window`, `obv_window`, `ret_kurtosis_zscore_window`,
+`high_low_corr_window`, `vol_asymmetry_window`, `hv_ratio_window`, `parkinson_vol_zscore_window`,
+`garman_klass_vol_zscore_window`, `yang_zhang_vol_zscore_window`, `price_vol_corr_fast`,
+`price_vol_corr_slow`, `session_vp_rolling_window` (previously fixed via migration 256,
+description-only).
+
+**2 fields turned out NOT to be `BarHistory`-capped at all, for a worse reason**:
+`vix_zscore_window` and `yield_curve_zscore_window` are read by `FeatureCache.update_cross_asset()`
+(`feature_cache.py:550,573`), but that method is never called anywhere in the live pipeline --
+`cache.vix_z`/`cache.yield_slope_z` (and `cache.flight_quality`, same dead method) sit at their
+dataclass default (0.0) permanently, unrelated to any 200-bar cap. **Filed separately as
+[[221-live-vix-z-flight-quality-yield-slope-z-permanently-zero]]** -- a distinct, more severe
+bug than this todo tracks, not a BarHistory-cap variant.
+
+`FeatureFactoryConfig` fields >200 that are NOT in scope here (excluded from the 22 above):
+`feature.hmm.lookback_days.*`, `feature.hmm.full_cov_min_obs`, `feature.hmm.min_rows_for_training`
+(HMM training lives in `regime_writer.py`, a separate path), `feature.session.opening_range_*_minute`,
+`feature.*.max_buffer_size` (not trailing-bar-count semantics).
+
+No fixes made this pass -- steps 2-3 (fix-shape decision + IC verification) remain open,
+correctly deferred until the in-flight corpus rebuild completes and a real design decision is
+made, per this todo's own gating.

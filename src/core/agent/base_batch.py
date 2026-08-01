@@ -18,6 +18,7 @@ from __future__ import annotations
 import abc
 import hashlib
 import time
+from typing import Any
 
 import asyncpg
 import structlog
@@ -25,6 +26,7 @@ import structlog
 from src.core.database_manager import create_pool
 from src.core.service_utils import setup_service_logging
 from src.observability.metrics import JOB_COMPLETED_TOTAL, flush_and_shutdown_metrics
+from src.observability.spans import observed_span
 
 
 class BaseBatch(abc.ABC):
@@ -67,21 +69,28 @@ class BaseBatch(abc.ABC):
         error handling, and pool management.
         """
 
+    def _span_attrs(self) -> dict[str, Any]:
+        """Extra attributes for the auto-created execute() span. Override in subclasses."""
+        return {}
+
     # -----------------------------------------------------------------------
     # Entry point
     # -----------------------------------------------------------------------
 
     async def run(self) -> None:
-        """Template method: pool setup → execute → D-06 emission → teardown.
+        """Template method: pool setup → execute (spanned) → D-06 emission → teardown.
 
         Always emits job_completed_total (success or failure) so Grafana
-        dashboards show the last run result regardless of outcome.
+        dashboards show the last run result regardless of outcome. execute()
+        is wrapped in a span automatically (todo 156/157) -- every BaseBatch
+        subclass gets execute()-level tracing without calling observed_span itself.
         """
         await self._setup_pool()
         t0 = time.monotonic()
         status = "success"
         try:
-            await self.execute(self._pool)
+            async with observed_span(f"{self.job_name}.execute", **self._span_attrs()):
+                await self.execute(self._pool)
         except Exception as error:
             status = "failure"
             self.logger.error(
