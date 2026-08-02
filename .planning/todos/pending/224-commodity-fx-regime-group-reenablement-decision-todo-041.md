@@ -70,10 +70,13 @@ routed to nothing, a pure oversight independent of both problems above.
 
 **Near-term, unblocked, not gated on todo 225:**
 
-1. Enable `fx` in `alpha.regime.groups` (`config_state`) -- flip `enabled: true`. Batch into
-   the next scheduled corpus rebuild rather than disrupting the one currently in flight (same
-   discipline as todos 155/171); don't expect it to retroactively apply to cells already
-   computed by an in-progress run.
+1. **DONE 2026-08-01** (migration 280): `fx` flipped to `enabled: true` in
+   `alpha.regime.groups`, plus `dual_write_symbol_hmm: true` (not originally scoped in this
+   step, added to avoid reproducing the same per-symbol-HMM-measurement gap already fixed
+   twice for rates/equity via migrations 247/262). Confirmed zero effect on the currently
+   in-flight `ic_engine` run (started 2026-07-30 17:08:55 EDT, config loaded once at process
+   startup) -- takes effect on the NEXT `cross_sectional_regime_model.py` +
+   `ic_engine.py` invocation.
 2. Unify `commodity_energy`/`commodity_metals`/`commodity_agri` into a single `commodity`
    group (~10 members once combined: `OIH`/`XLE`/`XOP`/`AMLP`/`GLD`/`SLV`/`PPLT`/`DBB`/`GDX`/
    `DBA`, plus `DBC` once its `commodity_broad` tag is added to the merged group's
