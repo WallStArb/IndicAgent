@@ -10,6 +10,10 @@ source: throughput brainstorm following todo 216's BLAS thread-cap fix -- todo 2
 # `regime_writer.py`'s `GaussianHMM(n_iter=200)` cap may be far above actual convergence
 # -- check before assuming 200 is load-bearing
 
+## Status
+
+**step 1 DONE 2026-08-02** — log call added (commits 5c86ffeb, 7a0d7de1); measurement instrumentation ready for live corpus run.
+
 ## Problem
 
 Todo 216 (BLAS thread cap, closed 2026-08-02) found that all 244 successful HMM fits in

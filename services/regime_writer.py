@@ -616,12 +616,17 @@ def _compute_symbol_tf(
             converged = candidate_converged
             best_ll = candidate_ll
 
+    # Log HMM convergence iteration count for todo 226 (n_iter=200 headroom check).
+    # NOTE: model.monitor_.converged is always True after hmmlearn's fit() completes
+    # (it only exits when iter == n_iter OR tolerance is met, never partway through).
+    # The real cap-hit signal for analysts is iters_used == n_iter_cap, not the converged
+    # field — see hmmlearn 0.3.3 ConvergenceMonitor source for details.
     _logger.info(
         "regime_writer.hmm_convergence_iters",
         symbol=symbol,
         tf=tf,
         iters_used=int(model.monitor_.iter),
-        n_iter_cap=n_iter,
+        n_iter_cap=int(model.monitor_.n_iter),
         converged=converged,
     )
 

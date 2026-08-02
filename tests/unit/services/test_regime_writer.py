@@ -513,9 +513,11 @@ def test_compute_symbol_tf_logs_convergence_iterations():
     """_compute_symbol_tf must log the actual EM iteration count used per cell.
 
     This is measurement-only instrumentation for todo 226 (n_iter=200 headroom
-    check) -- asserts the log event fires with correct fields AND that the
-    function's return value is unaffected by adding the log call, confirming
-    the instrumentation has zero effect on fit output.
+    check) -- asserts the log event fires with correct fields. Zero side-effect
+    evidence comes from sibling tests (test_compute_symbol_tf_returns_tuple_structure,
+    test_compute_symbol_tf_regime_values, test_compute_symbol_tf_probabilities_sum_to_one)
+    continuing to pass unmodified, confirming the instrumentation has no effect on
+    fit output or label computation.
     """
     from structlog.testing import capture_logs
 
@@ -755,7 +757,9 @@ def test_compute_symbol_tf_n_restarts_default_preserves_same_seed_retry(monkeypa
             super().fit(X, lengths)
             fit_count["n"] += 1
             if fit_count["n"] == 1:
-                self.monitor_ = SimpleNamespace(converged=False, iter=5)
+                real_iter = self.monitor_.iter
+                real_n_iter = self.monitor_.n_iter
+                self.monitor_ = SimpleNamespace(converged=False, iter=real_iter, n_iter=real_n_iter)
             return self
 
     monkeypatch.setattr(regime_writer_module, "GaussianHMM", _ForceFirstNonConvergedHMM)
@@ -820,7 +824,9 @@ def test_compute_symbol_tf_n_restarts_selects_highest_log_likelihood(monkeypatch
                 # winner: convergence status ranks ahead of log-likelihood in the
                 # selection tuple, so a non-converged "winner" would lose regardless
                 # of its score.
-                self.monitor_ = SimpleNamespace(converged=True, iter=10)
+                real_iter = self.monitor_.iter
+                real_n_iter = self.monitor_.n_iter
+                self.monitor_ = SimpleNamespace(converged=True, iter=real_iter, n_iter=real_n_iter)
             seed_to_transmat[self.random_state] = self.transmat_.copy()
             return self
 
