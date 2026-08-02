@@ -1,6 +1,6 @@
 # StratificationDimension — A Unified Conditioning Layer
 
-**Version:** 1.1
+**Version:** 1.2
 **Status:** draft — Phase 144 (regime_group producer) COMPLETE 2026-07-22; Phase 145 (this
 doc's own contract, formalization) unblocked 2026-07-22, **not yet started**
 **Priority:** high (blocks AnalogEngine's retrieval correctness; names a real glossary gap)
@@ -140,6 +140,43 @@ rather than starting a new one — this is still the right single home for the t
    it credit for — the specific reason (IBKR gateway support) is unconfirmed either way, but the
    real blocker is real: no data, no roll infra for a single leg let alone two, and the
    single-front-month shape is structurally the wrong shape for a curve regardless.
+
+**Live-verification sweep (2026-08-01, prompted by the VX correction above — checked what else
+in this doc had drifted since 2026-07-06 without a doc update):**
+
+7. **`_build_symbol_regime_class` exists again — the 2026-07-06 "corrected, does not exist"
+   note (item 5 above) is now itself stale.** Phase 144 (completed 2026-07-22) built a function
+   by exactly that name: `services/ic_engine.py:270`, called at line 4457, with its own test
+   file (`tests/unit/test_ic_engine_routing.py`). The 2026-07-06 correction was accurate *at the
+   time* — the function genuinely didn't exist yet — but the name wasn't "invented" after all,
+   it was simply written later. Don't cite the "does not exist" framing as still true; check
+   live before repeating it a third time.
+8. **`market_regimes`'s primary key column is `regime_group`, not `asset_class`.** This doc
+   (line ~157, from the 2026-07-06 pass) states the PK is `(asset_class, tf, ts)`. Live schema:
+   `PRIMARY KEY (regime_group, tf, ts)`. The column was renamed by migration 222 (per
+   `cross_sectional_regime_model.py`'s own header comment) — predates this doc's 2026-07-06
+   pass, so this wasn't drift since then, it was already wrong and never caught.
+9. **The Sequencing section's "P3... still at guessed defaults 0.33/0.67/0.40/0.60" claim is
+   stale — todo 092 (closed 2026-07-30) fixed exactly this.** Live `config_state`:
+   `alpha.equity_regime.breadth_bear = 0.33`, `breadth_bull = 0.67` (matches `vix_low_pct`/
+   `vix_high_pct`, already 0.33/0.67) — both axes now self-calibrating causal-rank cuts, not the
+   old fixed 0.40/0.60 guessed thresholds this doc's Sequencing section still describes as
+   outstanding work. See `src/intelligence/regime_signals/breadth_vol.py`'s own CALIBRATION
+   docstring for the full history (the 0.40/0.60 guess had caused equity breadth to be
+   >50%-pre-classified "bull" before regime logic ever ran — todo 092 replaced it with the same
+   causal-expanding-rank transform `vix_pct` already used).
+10. **Confirmed still accurate, no drift:** `alpha.decay.regime_shift_fraction = 0.60` (live
+    `config_state`, matches doc); `feature_ic_scores.regime_scope` CHECK constraint and live
+    values (`cross_sectional`/`symbol_hmm`/`pooled`, all three populated with real row counts);
+    universe count (80, still matches the 2026-07-06 correction); `concept_registry.domain`
+    CHECK constraint still only allows `('feature', 'ensemble_strategy')` — `regime_model`
+    remains genuinely unseeded, exactly as this doc already states.
+11. **Not independently re-verified, flagged as a general caveat instead:** most in-line code
+    line-number citations throughout this doc (`ic_engine.py:150/440/555-584`,
+    `regime_writer.py:300/347/490`, etc.) are now several months of commits stale and likely
+    off by tens of lines each — the functions/behavior they describe were spot-checked above and
+    still exist, but treat any specific line number in this doc as approximate, re-grep before
+    citing one in new work rather than trusting it verbatim.
 
 ---
 
