@@ -627,6 +627,11 @@ File names follow the class rename. `bar_aggregator_agent.py` → `bar_aggregato
 Ring 3 follows surface-specific conventions (REST, TypeScript, systemd) and is not subject to the taxonomy suffix rules. However it must be updated in Wave 4 to reflect Ring 1/2 renames and to fix Tier 3 abbreviations in Python.
 
 **Dashboard — display string updates (`dashboard/src/hooks/use-observability-stream.ts`):**
+**DONE, superseded (verified live 2026-08-01):** none of the four old `*ComputeAgent` strings
+below exist in this file anymore — the whole string-mapping mechanism this table describes was
+replaced with direct snake_case `agent_id` keys (e.g. `agentAge["alpha_swarm"]`, live at line
+213 today), not a `"SignalTrackerComputeAgent" -> "SignalTracker"` display-string table. Kept
+below for historical context only; do not use as a current task list.
 
 | Current string | Target string |
 |----------------|---------------|
@@ -634,8 +639,6 @@ Ring 3 follows surface-specific conventions (REST, TypeScript, systemd) and is n
 | `"AlphaSwarmComputeAgent"` | `"AlphaSwarm"` |
 | `"CrossAssetComputeAgent"` | `"CrossAssetAnalyzer"` |
 | `"GraduationComputeAgent"` | `"GraduationAnalyzer"` |
-
-Also update `agentAge["AlphaSwarmComputeAgent"]` key reference on line 213.
 
 **API — import updates (flow from Ring 1/2 renames):**
 
@@ -647,10 +650,10 @@ Also update `agentAge["AlphaSwarmComputeAgent"]` key reference on line 213.
 
 | File | Current | Target |
 |------|---------|--------|
-| `src/api/routes/narrative.py:96` | `bar_ctx` | `bar_context` |
-| `src/api/routes/narrative.py:107` | `i7_ctx` | `i7_context` |
-| `src/api/routes/health.py:94-95` | `resp` | `response` |
-| `src/api/routes/drift.py`, `ai_stats.py`, `narrative.py`, `signals.py` | `except Exception as exc:` | `except Exception as error:` |
+| `src/api/routes/narrative.py:95` | ~~`bar_ctx`~~ **DONE** | `bar_context` (verified live 2026-08-01, was cited at line 96) |
+| `src/api/routes/narrative.py:106` | ~~`i7_ctx`~~ **DONE** | `i7_context` (verified live 2026-08-01, was cited at line 107) |
+| `src/api/routes/health.py` | ~~`resp`~~ **DONE** | `response` (verified live 2026-08-01 — zero `resp` occurrences remain; was cited at lines 94-95) |
+| `src/api/routes/health.py:46,66` | `except Exception as e:` | `except Exception as error:` — **still pending** (verified live 2026-08-01; `drift.py` already done, `ai_stats.py`/`signals.py`/`narrative.py` have no matching `except Exception as` clause at all) |
 
 **TypeScript note:** `SymbolConfigManager` in `dashboard/src/lib/symbol-config.ts` uses `Manager` which is idiomatic TypeScript for this pattern. Ring 3 follows surface-specific conventions — leave unchanged.
 

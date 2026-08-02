@@ -27,15 +27,21 @@ deferred behind their named triggers. Nothing in this pass reverses a verdict. W
 the facts under it, because Phase 142B.1 completed 2026-07-04 between this doc's writing and now:
 
 1. **Config unification is still not done and the drift is still live.** Verified today:
-   `ICEngineConfig.from_apr` falls back to `sharpe_min_windows=10` (`services/ic_engine.py:310`)
-   while `EnsembleICConfig.from_apr` falls back to `30` (`services/ensemble_ic_engine.py:177`);
+   `ICEngineConfig.from_apr` falls back to `sharpe_min_windows=10` (`services/ic_engine.py:661`
+   as of 2026-08-01, was cited at `:310`) while `EnsembleICConfig.from_apr` falls back to `30`
+   (`services/ensemble_ic_engine.py:177`);
    `config_state` carries 30, so the divergence remains latent. `services/_batch_utils.py` still
    has no `load_shared_ic_fields`; nobody built the recommendation. It is now four days stale
    and still the single actionable item in this doc.
 2. **0b shrinkage is BUILT, and it passed this doc's own "first test of the kernel question."**
    142B.1 shipped it as a pure shared module — `src/intelligence/ensemble/shrinkage.py`
    (`shrink_ic`, `leave_one_out_group_prior`; no DB, no config imports), applied by
-   `scripts/ops/alpha/ops_ic_shrinkage.py`, consumed by `services/ensemble_trainer.py:537`.
+   `scripts/ops/alpha/ops_ic_shrinkage.py`. **Correction (verified 2026-08-01): `shrink_ic`
+   has zero callers in `services/ensemble_trainer.py`** — the `:537` citation was wrong, not
+   just stale; grep across the repo finds `shrink_ic` used only inside
+   `scripts/ops/alpha/ops_ic_shrinkage.py` itself. Re-verify who actually consumes this module's
+   output (or whether it's a standalone script with no live-service consumer yet) before citing
+   `ensemble_trainer.py` as the consumer again.
    Migration 196 added `ic_shrunk`/`shrinkage_weight` to `feature_ic_scores` (13,567 of
    256,566 rows populated — reliable cells only, by design). It landed once, in a sibling
    kernel module, not inside one engine — exactly the outcome the "Measurement Gaps" table
@@ -48,9 +54,19 @@ the facts under it, because Phase 142B.1 completed 2026-07-04 between this doc's
    trigger is still not met: the E1/E2 A/B judgment is still pending and
    `scripts/ops/alpha/ops_ensemble_weight_compare.py` keys its win decision on this schema,
    so an in-flight decision remains keyed to it.
-4. **The kernel-coverage gap is unchanged.** Todo 032 is still pending; `build_walk_forward_folds`,
-   `compute_ic_for_window`, `apply_corpus_fdr` exist nowhere; both engines still call
-   `multipletests` independently (`ic_engine.py:71`, `ensemble_ic_engine.py:67,889`).
+4. **The kernel-coverage gap claim needs re-checking, not just re-citing — verified 2026-08-01 it
+   has partially changed.** `ic_engine.py` no longer imports `multipletests` directly at all
+   (checked: zero import hits) — it now calls a shared `apply_bh_fdr()` helper
+   (`src/intelligence/statistics/ic_math.py:545`, used at `ic_engine.py:3625` inside
+   `_backfill_bh_fdr`). `ensemble_ic_engine.py` still imports and calls `multipletests` directly
+   (`:84` import, `:1259` call — was cited at `:67,889`). So the two engines have NOT converged
+   on the doc's originally-hoped-for shared kernel, but they've also diverged further in a way
+   this doc doesn't capture: one moved to a shared helper, the other didn't, and it's not yet
+   clear whether `apply_bh_fdr` is the intended unification point or an independent parallel
+   fix. This needs a real re-investigation (is `apply_bh_fdr` new since 142B.1? does it produce
+   the same FDR semantics as `ensemble_ic_engine.py`'s inline `multipletests` call? was
+   `build_walk_forward_folds`/`compute_ic_for_window`/`apply_corpus_fdr` ever built under a
+   different name?) — not answered here, flagged as a follow-up rather than guessed at.
    P1 (no trailing-IC table), P5 (`training_window_start` absent), P6 (no effective-N
    correction), 0a, and 0c (todo 191 still pending) all re-verified unbuilt. No
    `predictor_ic_scores` or predictor-registration trace anywhere — as this doc said.
@@ -66,7 +82,8 @@ the facts under it, because Phase 142B.1 completed 2026-07-04 between this doc's
    `edge-source-thesis.md` → `data-edge-source-thesis.md`;
    `intel-11-dual-system-discrete-vs-portfolio.md` → `docs/research/archive/`. The "What Intel-12
    and Intel-13 Should Actually Say" section's substance still applies to the renamed docs.
-   Minor: the second kernel consumer's import is now `ensemble_ic_engine.py:82` (was :75).
+   Minor: the second kernel consumer's import is now `ensemble_ic_engine.py:105` (verified
+   2026-08-01; was cited as :82, before that :75 — moves every pass, treat as approximate).
 7. **Open Question 6 is answered by shipped code:** the prior grain went live as leave-one-out
    `(group_name, regime, tf)` per D-06 (`ops_ic_shrinkage.py:compute_shrinkage_updates`),
    symbol- and lookahead-agnostic; features without a `feature_registry.group_name` are
@@ -115,7 +132,7 @@ Checked directly, not assumed:
 | D1's proposed piece | Status | Evidence |
 |---|---|---|
 | One stats kernel library, zero I/O, zero APR reads | **Built for the IC core; not the full hygiene chain** | `src/intelligence/statistics/ic_math.py` — Fisher-z CI, vectorized Spearman IC, p-values, HAC-corrected Sharpe/Sortino/win-rate, `SharpeWindowConfig` Protocol for duck-typed config access. Pure functions, no DB, no module-global mutable state. D1's kernel spec also listed corpus-level BH-FDR and walk-forward folds; those remain per-engine: both engines call `statsmodels.multipletests` independently, and fold construction is duplicated (the fold-stability *gates* deliberately differ per D-142A-R1, so that part is divergence by decision, not drift). |
-| Both engines import the shared kernel | **Built** | `ic_engine.py:84` and `ensemble_ic_engine.py:75` both import from `ic_math.py`; `ops_oos_holdout_eval.py:49` is a third consumer. |
+| Both engines import the shared kernel | **Built** | `ic_engine.py:113` and `ensemble_ic_engine.py:105` both import from `ic_math.py` (verified 2026-08-01; previously cited as :84/:75); `ops_oos_holdout_eval.py:52` is a third consumer (was :49). |
 | One config dataclass | **Not built** | `ICEngineConfig` and `EnsembleICConfig` are two separate frozen dataclasses, each independently declaring the same 11 APR-backed fields (`fdr_alpha`, `walk_forward_folds`, `sharpe_window_size`, `sharpe_min_windows`, `subsample_min_stride`, `min_reliable_n`, `hac_max_lag`, all four lookahead gradients) plus a per-service `n_workers` (different `infra.*` keys by design, correctly not shared). `EnsembleICConfig`'s own docstring calls these out as "shared ICEngineConfig-style keys" — the duplication is acknowledged in a comment, not resolved. The fallback defaults have already drifted: `sharpe_min_windows` falls back to 10 in `ICEngineConfig.from_apr` and 30 in `EnsembleICConfig.from_apr` (live APR value: 30), latent only because config_state wins. |
 | One `predictor_ic_scores` table | **Not built** | `feature_ic_scores` and `alpha_ensemble_ic` are fully separate schemas at different grains: feature-vintage PK (`feature_name, symbol, tf, regime, lookahead_bars, training_window_end`) vs event-vintage PK (`event_row_id, scored_at`). No `predictor_kind`/`predictor_ref` discriminator anywhere in the codebase. Even `is_pooled` semantics differ: `alpha_ensemble_ic` CHECK-constrains it to `symbol = 'POOLED'`; in `feature_ic_scores` it also covers per-symbol regime-pooled rows. |
 | One orchestration service | **Not built** | Two separate `BaseBatch` services, two separate DAG nodes in `service_auditor.py` (`indicagent-ic-engine`, `indicagent-ensemble-ic-engine`), confirmed oneshot-and-inactive-between-runs is correct for both independently. |
@@ -281,7 +298,7 @@ referenced in it: `docs/plans/archive/2026-06-29-ic-engine-improvements.md` (a P
 what IC alone cannot see). Checked against current code and DB, the improvements audit is 4/7
 executed: Phase A shipped P0 (walk-forward contamination), P2 (corpus-level BH-FDR), P3
 (scale-specific embargo), and P4 (single-linkage clustering, `method="single"` at
-`ic_engine.py:414`). What remains open are gaps in the measurement itself, not in how many
+`ic_engine.py:1487`, verified 2026-08-01, was cited at `:414`). What remains open are gaps in the measurement itself, not in how many
 services compute it; that makes them more load-bearing to "is the ensemble trustworthy" than
 anything in the unification question above:
 
@@ -289,7 +306,7 @@ anything in the unification question above:
 |---|---|---|
 | **P1: trailing IC series** (`ic_trailing_series`, 60-trading-day rolling window) | Not built; no such table exists | The ensemble weighter reads one static IC number per cell with zero recency signal; it cannot distinguish "worked for 5 years, dead for 6 months" from "working now." Source doc scopes it as its own phase at roughly 60x the compute of a static run. |
 | **P5: IC vintage** (`training_window_start` column) | Not built; `feature_ic_scores` has only `training_window_end` | A 2019-2023 estimate is silently treated as equally valid as a 2023-2026 one. The source doc itself notes P1 supersedes this for recency-sensitive use; P5 is the cheap schema-only fallback. |
-| **P6: cross-sectional effective N** (`N_eff = N_raw / (1 + (n_symbols-1)·rho_bar)`) | Not built. The `n_eff` near `ic_engine.py:1501` is a metrics gauge reporting existing `n_independent`, not this correction | 58 symbols on the same bar share regime/macro exposure and are not 58 independent observations; CIs on POOLED cross-sectional rows are overconfident. Affects POOLED rows only. |
+| **P6: cross-sectional effective N** (`N_eff = N_raw / (1 + (n_symbols-1)·rho_bar)`) | Not built. The `n_eff`/`EFFECTIVE_N_GAUGE.set()` pair is at `ic_engine.py:3338-3339` (verified 2026-08-01, was cited at `:1501`) — still just a metrics gauge reporting existing `n_independent`, not this correction | 58 symbols on the same bar share regime/macro exposure and are not 58 independent observations; CIs on POOLED cross-sectional rows are overconfident. Affects POOLED rows only. |
 | **0a: marginal contribution** (partial IC after regressing out the active set) | Not built, unscheduled (todo 191 pending) | Standalone IC admits features that add zero marginal value over what the ensemble already holds. |
 | **0b: shrinkage** (`ic_shrunk`, empirical-Bayes toward peer-group prior) | ~~Not built, but **scheduled**~~ **BUILT** *(Fable 5 review, 2026-07-06)*: shipped in 142B.1 as `src/intelligence/ensemble/shrinkage.py` (pure module) + `scripts/ops/alpha/ops_ic_shrinkage.py` (applier) + migration 196 (`ic_shrunk`/`shrinkage_weight` columns); 13,567 rows populated | Corrects winner's-curse bias on every persisted estimate. The one piece of the beyond-IC doc with a committed home. |
 | **0c: calibration** (reliability curve / Brier on predicted magnitude) | Not built, unscheduled | IC says the ordering correlates; calibration says the magnitude is honest, which is the property position sizing (Kelly) actually depends on. |

@@ -859,7 +859,7 @@ not yet stamped onto a `concept_registry.metadata` field, since no candidate row
 
 **Real-candidate check (2026-07-06):** grepped `services/ic_engine.py` for a competing
 correlation-calculation method - none exists. The live engine computes Spearman IC by ranking
-both the feature and forward-return series (`rankdata`, `services/ic_engine.py:70` and every
+both the feature and forward-return series (`rankdata`, `services/ic_engine.py:84` — verified 2026-08-01, was cited at `:70` — and every
 call site keyed off it) and correlating the ranks. This matters for the domain's own founding
 description, which listed "Spearman, rank-IC, HAC methods" as three candidates: **two of those
 three names are the same computation.** Spearman correlation *is* Pearson-on-ranks - "rank-IC" is

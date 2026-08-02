@@ -112,7 +112,15 @@ APR key `feature.hmm.obs_vector_version` (not yet seeded) should increment on an
 ## Related Docs
 
 - `docs/intelligence/intelligence-alphaengine.md` -- IC engine design
-- `docs/plans/2026-07-01-regime-stratification-alternatives.md` -- volatility_regime + volume_regime as IC stratification dimensions
-- `.planning/todos/pending/026-hmm-improvement-plan.md` -- P3/P4 gated HMM work
-- `.planning/todos/pending/030-regime-stratification-alternatives.md` -- volume_regime implementation
-- `services/regime_writer.py:137` -- `_build_obs_matrix()` implementation
+- `docs/research/stratification-dimension-unification.md` -- canonical, current home for
+  volatility_regime/volume_regime/dispersion/correlation/etc. as IC stratification dimension
+  candidates (corrected 2026-08-01; superseded `docs/plans/archive/2026-07-01-regime-stratification-alternatives.md`,
+  which this doc's stale citation pointed at under a non-`archive/` path that no longer exists)
+- `.planning/todos/deferred/026-hmm-regime-audit-optimization.md` -- P3/P4 gated HMM work
+  (corrected 2026-08-01: was cited as `pending/026-hmm-improvement-plan.md`, wrong folder and
+  wrong filename)
+- Todo 030 (corrected 2026-08-01: does not exist anywhere in `.planning/todos/` under this or
+  any other number matching "regime-stratification-alternatives" -- likely renumbered or folded
+  into another todo at some point; not re-derived here, drop this citation rather than guess)
+- `services/regime_writer.py:159` -- `_build_obs_matrix()` implementation (verified 2026-08-01,
+  was cited at `:137`)

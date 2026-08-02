@@ -27,9 +27,9 @@ just this doc's argument. Eight findings drifted and carry dated inline correcti
    concrete Phases 144, 145. Header corrected above.
 2. **The incumbent per-symbol HMM changed on 2026-07-06.** Phase 143 Plan 01 (LIFECYCLE-00,
    commits `11b1047e`/`009a76c7`/`a5c79856`) shipped a degenerate-model occupation-fraction gate
-   (`_check_occupation_gate()`, `services/regime_writer.py:300`, APR
+   (`_check_occupation_gate()`, `services/regime_writer.py:325` (verified 2026-08-01, was cited at `:300`), APR
    `feature.hmm.min_state_occupation = 0.05`) and a rolling label-change instability feature
-   (`_compute_hmm_churn()`, `regime_writer.py:347`, new nullable `feature_vectors.hmm_churn`
+   (`_compute_hmm_churn()`, `regime_writer.py:372` (verified 2026-08-01, was cited at `:347`), new nullable `feature_vectors.hmm_churn`
    column via migration 201, APR `feature.hmm.churn_window = 10`; column live, 0 rows populated
    until the next regime_writer run). This doc's picture of provider #1 predates both; inline
    notes added where it matters (contract `score()`, the degenerate-state-risk rationale).
@@ -40,13 +40,13 @@ just this doc's argument. Eight findings drifted and carry dated inline correcti
    remainder. Corrected inline.
 4. **The "standing counterexample" is half-fixed.** `feature_ic_scores` gained a `regime_scope`
    qualifier column in Phase 141.1 (live values via psql: `cross_sectional`/`pooled`/
-   `symbol_hmm`, stamped by `_resolve_regime_scope()`, `services/ic_engine.py:150`). Labels are
+   `symbol_hmm`, stamped by `_resolve_regime_scope()`, `services/ic_engine.py:224` (verified 2026-08-01, was cited at `:150`)). Labels are
    no longer *unqualified*; the invariant survives as the generalization (scope is a 3-value
    source tag, not a full `(dimension, label)` identity that scales past two dimensions).
    Corrected inline and in References.
 5. **`_build_symbol_regime_class` does not exist** anywhere in the codebase (grep: zero hits).
    The real hand-wiring is the `mr_dict` cross-sectional join and `_resolve_regime_scope`
-   (`ic_engine.py:150, 440, 555-584`). The hand-wiring premise stands; the function name was
+   (def at `ic_engine.py:224`, call sites at `:2338, :2367` — verified 2026-08-01, was cited as `:150, 440, 555-584`). The hand-wiring premise stands; the function name was
    invented. Corrected inline.
 6. **Universe is 80 symbols, not 58** (live count: `instruments` where `is_active` and
    `asset_class='equity'` returns 80; ETF Universe Expansion completed). Dispersion row
@@ -171,12 +171,14 @@ in this doc had drifted since 2026-07-06 without a doc update):**
     universe count (80, still matches the 2026-07-06 correction); `concept_registry.domain`
     CHECK constraint still only allows `('feature', 'ensemble_strategy')` — `regime_model`
     remains genuinely unseeded, exactly as this doc already states.
-11. **Not independently re-verified, flagged as a general caveat instead:** most in-line code
-    line-number citations throughout this doc (`ic_engine.py:150/440/555-584`,
-    `regime_writer.py:300/347/490`, etc.) are now several months of commits stale and likely
-    off by tens of lines each — the functions/behavior they describe were spot-checked above and
-    still exist, but treat any specific line number in this doc as approximate, re-grep before
-    citing one in new work rather than trusting it verbatim.
+11. **Line-number cleanup (2026-08-01):** every in-line code line-number citation in this doc has
+    now been individually re-verified and corrected in place (items 2, 4, 5 above show the
+    before/after) — all were stale by tens to hundreds of lines from months of subsequent
+    commits, none pointed at deleted or renamed functions. `regime_writer.py:490` (the
+    `hmm_jit`-wiring citation near the end of this doc) was not independently re-checked in this
+    pass — treat it as approximate until someone does. General lesson: line numbers in any doc
+    drift fast in an actively-changed file; re-grep before citing one in new work rather than
+    trusting a doc's citation verbatim, even a recently-reconciled one.
 
 ---
 
@@ -319,7 +321,7 @@ or table stores a bare label without its dimension qualifier. *(corrected 2026-0
 The original "standing counterexample" here - `feature_ic_scores.regime` mixing 9
 cross-sectional with 5 per-symbol labels unqualified - was fixed at scope grain by Phase 141.1:
 the table now carries a `regime_scope` column (live values `cross_sectional`/`pooled`/
-`symbol_hmm`, stamped by `_resolve_regime_scope()`, `services/ic_engine.py:150`). The invariant
+`symbol_hmm`, stamped by `_resolve_regime_scope()`, `services/ic_engine.py:224` (verified 2026-08-01, was cited at `:150`)). The invariant
 is not thereby satisfied, only its worst live instance: `regime_scope` is a 3-value *source*
 tag hardcoded to the two incumbent systems plus pooling, not a dimension name - it cannot
 represent a third dimension without another enum edit, which is exactly the hand-wiring this
@@ -361,7 +363,7 @@ Today, HMM and cross-sectional regime are each hand-wired into `ic_engine.py`'s 
 as one-off integrations. *(corrected 2026-07-06, Fable 5: the function name
 `_build_symbol_regime_class` cited here previously does not exist anywhere in the codebase;
 the real hand-wiring is the `mr_dict` ts→label join from `market_regimes` and the
-`_resolve_regime_scope()` source-tag branch, `services/ic_engine.py:150, 440, 555-584` — the
+`_resolve_regime_scope()` source-tag branch, `services/ic_engine.py:224, 2338, 2367` (verified 2026-08-01, was cited as `:150, 440, 555-584`) — the
 premise stands, the symbol was wrong.)* Under this contract, every consumer reads through the
 same interface, and a new dimension — say, factor style — starts competing for adoption via the
 substitution test without any consumer's code changing.
@@ -484,7 +486,7 @@ insufficient) becomes every candidate's default mechanism, not just E1/E2's. Thr
   Building more HMM engines before that audit resolves multiplies an unresolved risk instead
   of fixing it once. *(updated 2026-07-06, Fable 5: the degenerate-state half now has a shipped
   mitigation - Phase 143 LIFECYCLE-00's occupation-fraction gate,
-  `_check_occupation_gate()` in `regime_writer.py:300`, skips writing labels from any fit where
+  `_check_occupation_gate()` in `regime_writer.py:325` (verified 2026-08-01, was cited at `:300`), skips writing labels from any fit where
   a state's occupation falls below `feature.hmm.min_state_occupation`, plus a `hmm_churn`
   rolling-instability column for downstream regime-shift discrimination. The non-causal
   full-history-fit half - todo 026 P4a/P4b - remains gated and unresolved, so the argument

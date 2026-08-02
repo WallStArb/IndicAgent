@@ -33,7 +33,7 @@ test precisely; (1) is broader and vaguer.
 
 Confirmed live in code, not assumed:
 
-- `quarter_position` (`src/intelligence/feature_factory.py:2794`) — continuous [0,1] linear
+- `quarter_position` (`src/intelligence/feature_factory.py:3084`, `_quarter_position()`) — continuous [0,1] linear
   position within the quarter, 0.0 at start, ~1.0 at end. Docstring/schema comment already
   references "earnings/rebalancing cycle" as the motivating use case — this feature was built
   with something like this hypothesis in mind, never tested against it.

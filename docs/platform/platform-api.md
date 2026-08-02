@@ -76,7 +76,7 @@ app.include_router(stream.router, prefix="/stream")
 
 ### Health router prefix gotcha
 
-The health router prefix is `/health`, NOT `/api/health`. This is set at `src/api/main.py:131`. Routes are:
+The health router prefix is `/health`, NOT `/api/health`. This is set at `src/api/main.py:196` (verified 2026-08-01, was cited at `:131`). Routes are:
 - `GET /health/system`
 - `GET /health/database`
 - `GET /health/kafka`

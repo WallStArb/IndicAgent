@@ -51,8 +51,9 @@ assumed. Stating them first because the rest of the document depends on them:
 
 2. **The "~13 positionally-indexed `_SCALES` call sites in `ic_engine.py`" no longer exist.**
    Today's per-tf active-scale-set merge replaced all of them. Every compute site now binds
-   `scales = config.active_scales_for(tf)` (`ic_engine.py:1876, 2159, 2762, 3025`), iterates
-   `enumerate(scales)` (`:1877, :2445, :2790`), sizes arrays with `n_scales = len(scales)`
+   `scales = config.active_scales_for(tf)` (`ic_engine.py:1890, 2188, 2802, 3062` — verified
+   2026-08-01, was cited at `:1876, 2159, 2762, 3025`), iterates
+   `enumerate(scales)` (approximate, not independently re-verified), sizes arrays with `n_scales = len(scales)`
    (`:2264`), and builds SQL column lists from `scales` (`:2232-2233`). The remaining
    positional indexing (`row[1 + j]`, `row[1 + n_scales + j]`, `complete_mat[:, scale_idx]`)
    is already parameterized by `len(scales)` — it is cardinality-agnostic.
