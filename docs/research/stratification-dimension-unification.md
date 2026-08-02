@@ -1,10 +1,12 @@
 # StratificationDimension — A Unified Conditioning Layer
 
-**Version:** 1.0
-**Status:** draft — extracted from 2026-07-02 top-down architecture review for independent iteration
+**Version:** 1.1
+**Status:** draft — Phase 144 (regime_group producer) COMPLETE 2026-07-22; Phase 145 (this
+doc's own contract, formalization) unblocked 2026-07-22, **not yet started**
 **Priority:** high (blocks AnalogEngine's retrieval correctness; names a real glossary gap)
 **Milestone:** v3.15 "Conditioning & Identity Foundation" - formalized in ROADMAP.md 2026-07-03 as Phases 144, 145 (no longer "Phases TBD"; see 2026-07-06 re-verification below)
-**Last Updated:** 2026-07-06 (Fable 5 re-verification pass against live code/schema and Phase 143's executed LIFECYCLE-00; previously 2026-07-02)
+**Last Updated:** 2026-08-01 (reconciliation pass — Phase 144 completion, D-05 verdict, Phase 145
+unblocked status, fx enablement, todo 135/167/224/225/111 cross-links; previously 2026-07-06)
 **Tags:** regime, stratification, conditioning, governance, hmm, concept-registry, analog-engine
 **Source:** `.planning/research/2026-07-02-v3-topdown-architecture.md` §1.3, §2.4, §3 (D5, D8), §7 (Q4) — Author: Fable 5
 **Informed by:** Fable 5 - consolidation audit corrections, recommendations in § Open Questions, and design revisions marked *(Fable's revision)* inline (2026-07-02)
@@ -66,6 +68,62 @@ consumer reading labels through yet another bespoke path, and `regime_model` now
 gate shape, row grain options, effective-N floor - in `concept-unified-registry.md`'s
 2026-07-06 Domain Vetting pass, unseeded until it has real candidates). Build timing unchanged:
 nothing here should be built before v3.15 planning.
+
+**Reconciliation pass (2026-08-01):** this doc had drifted a full milestone-stage behind actual
+state. Consolidating scattered todo conversation back into this canonical doc, per user request,
+rather than starting a new one — this is still the right single home for the topic.
+
+1. **Phase 144 is now COMPLETE (landed 2026-07-22),** not "formalized but unbuilt" as this doc's
+   header still implied. `regime_group` is a real, live dispatcher with 4 signal types
+   (`breadth_vol`/equity, `curve_credit`/rates, `commodity_momentum_ts`/3 commodity sub-groups,
+   `fx_dollar_carry`/fx) — see `services/cross_sectional_regime_model.py` and each module under
+   `src/intelligence/regime_signals/`. `equity` and `rates` are live (`enabled: true`); `fx` was
+   just enabled 2026-08-01 (migration 280, `alpha.regime.groups` v4) — confirmed zero tag
+   collisions, takes effect on the next corpus rebuild. Commodity sub-groups remain disabled,
+   gated on unifying three too-thin sub-groups into one (`commodity_agri` is N=1) plus an
+   equity-tag collision for 5 symbols (`XLE`/`OIH`/`XOP`/`AMLP`/`GDX`) — tracked as
+   [todo 224](../../.planning/todos/pending/224-commodity-fx-regime-group-reenablement-decision-todo-041.md).
+2. **D-05's verdict landed 2026-07-22** (ROADMAP Phase 144 section): F1 not triggered (per-symbol
+   HMM stays deficient for TLT/rates, demotion holds), F2 triggered for rates cross-sectional at
+   15m/5m (also deficient at high frequency). **This unblocked Phase 145
+   (StratificationDimension Formalization) for `/gsd-discuss-phase 145` on 2026-07-22 — it has
+   not been started.** Phase 145 is the actual vehicle for writing the `Protocol`/ABC as real
+   code, ratifying the `concept_registry` row-grain decision, and scoping which candidate
+   dimensions (correlation regime, liquidity regime, term structure, posterior-weighted soft
+   stratification — all already in this doc's candidate table below) get planned next. Tracked
+   as [todo 111](../../.planning/todos/pending/111-stratification-classification.md). **This is
+   the concrete next step for anyone who wants to act on this doc, not a new design pass.**
+3. **Todo 135** (filed 2026-07-18, still pending): the cross-sectional grid *shapes* themselves
+   (equity's 9 cells, rates' 6) were fixed deterministic designs, never selected via a
+   statistical criterion the way the per-symbol HMM's K=5 was (Phase 140.5's BIC study). This is
+   distinct from — and sits logically underneath — every candidate-dimension question in this
+   doc: before asking "should we add a 5th dimension," it's worth asking "is the *shape* of the
+   two dimensions we already depend on even right." Explicitly scoped to run through this doc's
+   own substitution-test machinery once Phase 145 ships it.
+4. **Todo 167** (filed 2026-07-21, P1, still pending) is a live, concrete instance of this doc's
+   Gate 2 (Substitution Test) — it asks whether equity's cross-sectional label actually
+   separates IC better than per-symbol HMM, the same question D-05 already answered for
+   rates/TLT but never for equity. The falsifier gate script
+   (`scripts/analysis/equity_regime_separation_gate.py`) is written and blocked only on fresh
+   `symbol_hmm`-scope data, which the `ic_engine` corpus rebuild in flight as of this note is
+   expected to produce as a side effect (`dual_write_symbol_hmm=true` set on `equity` via
+   migration 262). Re-run the gate once that completes for a real verdict — do not treat this as
+   still needing new design work, it's a data dependency away from an answer.
+5. **Todo 225** (filed 2026-08-01, pilot came back negative same day) tested a mechanism
+   adjacent to but distinct from this doc's `StratificationDimension` contract: gradient-
+   conditional partial IC on a symbol's *calibrated tag exposure weight* (continuous, no
+   discrete bucket), not a new discrete regime dimension. Worth keeping the vocabulary separate
+   — this doc's candidates all produce a `labels: list[str]` per the contract; 225's mechanism
+   deliberately produces none. The negative pilot result doesn't bear on any candidate in the
+   table below.
+6. **`term_structure` candidate correction:** this doc's table (below) states equity-specific VX
+   term structure "remains genuinely blocked on IBKR gateway support unconfirmed." **Checked
+   live 2026-08-01: `VIX` and `VX` are both present in `instruments` with
+   `contract_details->>'asset_class'='futures'`** — futures contract data is being tracked. This
+   doesn't confirm multiple-contract-month curve data is actually ingested (that's a narrower
+   claim than "the symbol exists"), but the blanket "blocked" framing is stale and should be
+   re-verified against live `market_data_ohlcv` contract coverage before being cited again,
+   rather than assumed still true.
 
 ---
 
@@ -402,7 +460,7 @@ insufficient) becomes every candidate's default mechanism, not just E1/E2's. Thr
 | `volume_pct` | Expanding percentile rank of `rel_volume` | Plausibly captures participation/liquidity distinct from volatility's dispersion-of-outcomes | **Gated on orthogonality study** — volume and volatility spikes are well-documented to co-move; must clear the correlation check before admission, not approved alongside `volatility_pct` by default |
 | `skew_tail` | Rolling return skewness percentile | High-vol-positive-skew (lottery-like) vs. high-vol-negative-skew (crash risk) are different prediction problems at the same vol percentile | **Gated on orthogonality study** — skew clusters with vol in the tails, exactly where this dimension would matter most |
 | `session_position` | Deterministic wall-clock session bucket (open/midday/close), via existing `normalize_session_type()` | Zero look-ahead risk by construction, near-certainly orthogonal to price/volume-derived dimensions, zero incremental compute | Deprioritized 2026-07-01 — cheap and safe is not the same as valuable; no case made for session effects mattering at this system's swing (not HFT) cadence. Only intraday TFs benefit |
-| `term_structure` | Percentile rank of futures curve slope (contango/backwardation) for commodity/rates `regime_group`s; yield-curve slope proxy for `rates` specifically | Carry cost and roll yield flip sign across curve regimes; factor relationships in `fi_*` bonds and commodity futures are documented to differ by curve shape. Also the natural proxy for monetary-policy stance (hiking/cutting/pausing) — folded in here rather than added as a separate rate-cycle axis, per gate 0's redundancy logic (curve slope and policy stance are the same underlying dynamic, not two independent ones) | Per `regime_group`, not universe-wide — computable from existing IBKR futures feeds for commodity/rates symbols already active; needs its own APR percentile thresholds; orthogonality vs. `volatility_pct`/`dispersion` not yet studied, no exemption asserted. **Not the same candidate as VX term structure** (`docs/research/catalog.md`'s intel-08 entry) — that's equity vol term structure specifically, needs two VX contract months, and remains genuinely blocked on IBKR gateway support unconfirmed; this row is the commodity/rates curve, already computable from active symbols |
+| `term_structure` | Percentile rank of futures curve slope (contango/backwardation) for commodity/rates `regime_group`s; yield-curve slope proxy for `rates` specifically | Carry cost and roll yield flip sign across curve regimes; factor relationships in `fi_*` bonds and commodity futures are documented to differ by curve shape. Also the natural proxy for monetary-policy stance (hiking/cutting/pausing) — folded in here rather than added as a separate rate-cycle axis, per gate 0's redundancy logic (curve slope and policy stance are the same underlying dynamic, not two independent ones) | Per `regime_group`, not universe-wide — computable from existing IBKR futures feeds for commodity/rates symbols already active; needs its own APR percentile thresholds; orthogonality vs. `volatility_pct`/`dispersion` not yet studied, no exemption asserted. **Not the same candidate as VX term structure** (`docs/research/catalog.md`'s intel-08 entry) — that's equity vol term structure specifically, needs two VX contract months; `instruments` confirmed to track both `VIX`/`VX` symbols live as of 2026-08-01 (see Reconciliation pass above), so the "blocked on IBKR gateway support" framing is stale — re-verify actual multi-contract-month curve data in `market_data_ohlcv` before citing as blocked or unblocked; this row is the commodity/rates curve, already computable from active symbols |
 
 *(added 2026-07-18)* `term_structure` folded in from a session comparing this candidate list
 against standard hedge-fund regime taxonomy. Two other candidates raised in that comparison

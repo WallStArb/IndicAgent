@@ -132,3 +132,10 @@ one full-corpus (equity + rates) `ic_engine` pass, which closes this todo as a s
   an equity-scoped equivalent would follow
 - `docs/superpowers/specs/2026-07-21-restore-symbol-hmm-ic-measurement-for-routed-symbols-design.md`
   -- design doc that first surfaced this as an explicit out-of-scope follow-up
+- **Cross-links added 2026-08-01 (consolidation pass):** `docs/research/stratification-dimension-unification.md`
+  -- this todo is a live instance of that doc's Gate 2 (Substitution Test); the doc's own
+  reconciliation section (2026-08-01) now points back here as the concrete next step.
+  [todo 135](135-cross-sectional-regime-grid-shape-never-validated.md) -- sibling question
+  (is the grid *shape* itself validated), logically downstream of this one -- resolve this todo
+  first. [todo 111](111-stratification-classification.md) / ROADMAP Phase 145 -- the broader
+  formalization phase this todo's result should feed into once it lands.

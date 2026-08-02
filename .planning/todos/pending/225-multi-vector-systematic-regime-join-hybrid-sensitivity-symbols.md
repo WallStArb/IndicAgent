@@ -188,3 +188,7 @@ production writes. Re-derivable from this section's methodology description if n
   control/interaction inputs per tag
 - Live verification of the hybrid-sensitivity symbol set used to motivate this:
   `SELECT symbol, array_agg(tag) FROM instrument_tags WHERE symbol IN ('OIH','XLE','XOP','AMLP','GDX') GROUP BY symbol`
+- **Cross-link added 2026-08-01 (consolidation pass):** `docs/research/stratification-dimension-unification.md`
+  -- explicitly NOT the same mechanism as that doc's `StratificationDimension` contract (this
+  todo's gradient-conditional partial IC produces a continuous conditioning, not a discrete
+  `labels: list[str]`); noted there to prevent future conflation of the two approaches.

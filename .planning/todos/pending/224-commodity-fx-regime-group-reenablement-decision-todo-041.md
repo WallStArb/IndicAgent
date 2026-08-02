@@ -120,3 +120,7 @@ routed to nothing, a pure oversight independent of both problems above.
 - Live queries used to confirm current state:
   `SELECT symbol, array_agg(tag) FROM instrument_tags WHERE symbol IN ('OIH','XLE','XOP','AMLP','GDX') GROUP BY symbol`
   and `SELECT symbol, array_agg(tag) FROM instrument_tags WHERE symbol = 'DBC' GROUP BY symbol`
+- **Cross-link added 2026-08-01 (consolidation pass):** `docs/research/stratification-dimension-unification.md`
+  -- this todo's `regime_group` enablement work is the producer side of that doc's contract;
+  the doc's 2026-08-01 reconciliation section now cites this todo directly for fx/commodity
+  status.

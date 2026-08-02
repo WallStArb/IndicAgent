@@ -39,6 +39,20 @@ corrected definition. The three follow-on `_SCALES`-hardcoding cleanups (209/210
 Canary RNG seeding fixed (todo 203) but a sibling POOLED-gate anomaly (todo 204) is still
 undiagnosed.
 
+**2026-08-01: regime-stratification todo cluster consolidated.** `docs/research/stratification-dimension-unification.md`
+(the canonical doc for "what other ways could we stratify/condition IC by regime" — already
+covered dispersion/correlation/term-structure/factor-regime/liquidity as named candidates, plus
+a full governance model, months before today's conversation reinvented several of them) was a
+full milestone-stage stale (last touched 2026-07-06; Phase 144 completed 2026-07-22 since then,
+D-05's verdict landed, Phase 145 unblocked-but-never-started). Reconciled and cross-linked to
+todos 135 (grid-shape never validated — literally "was the equity 9-cell grid BIC-selected the
+way HMM K=5 was" — no), 167 (equity-vs-symbol-HMM substitution test, near an answer, blocked
+only on the in-flight `ic_engine` run), 224 (fx/commodity enablement), 225 (gradient-conditional
+IC, explicitly a different mechanism from this doc's contract, kept distinct), and 111/Phase 145
+(the actual planned vehicle to formalize the contract and scope new candidates — unblocked since
+2026-07-22, not started). **Read the doc's "Reconciliation pass (2026-08-01)" section first**
+before re-deriving any of this from scratch in a future session.
+
 **2026-08-01: todo 220 closed** (docs/agents/platform/architecture DAG registry resync + CLAUDE.md
 OTel label fix). Surfaced new project-level context worth flagging here: the user stated the
 v2.x I1-I7 path will eventually be revived as a second, conventional intelligence path alongside

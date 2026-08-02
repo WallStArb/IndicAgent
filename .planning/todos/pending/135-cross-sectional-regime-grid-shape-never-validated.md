@@ -66,3 +66,12 @@ anyway — solve it once, generically, rather than per-dimension).
   orthogonality gate machinery this would run through
 - `.planning/todos/deferred/026-hmm-regime-audit-optimization.md` — 2026-07-09 finding that the
   cross-sectional model is the live-path stratification key, not the per-symbol HMM
+- **Cross-links added 2026-08-01 (consolidation pass):**
+  [todo 167](167-equity-cross-sectional-vs-symbol-hmm-never-falsifier-tested.md) — sibling
+  unvalidated-default question (does cross-sectional beat per-symbol HMM at all for equity),
+  currently closer to an answer (blocked only on the in-flight `ic_engine` run, not new design
+  work) — worth resolving 167 first since a "cross-sectional wins" verdict is a precondition for
+  caring about 135's grid-*shape* question at all.
+  [todo 111](111-stratification-classification.md) / ROADMAP Phase 145 — the actual planned
+  vehicle for building the substitution-test machinery this todo is gated on; unblocked since
+  2026-07-22, not yet started.
