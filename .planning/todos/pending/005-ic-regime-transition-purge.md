@@ -40,6 +40,28 @@ no longer applies on that basis. This todo's OWN scoping question above (rewrite
 to the cleared gate — that decision, not the sequencing chain, is what's left before
 implementing.
 
+**Re-verified 2026-08-02 (user asked "is this still valid"):** confirmed against current live
+code, not just this todo's own history. `equity_regime_model.py` is deprecated as of Phase 144
+(2026-07-12), superseded by `services/cross_sectional_regime_model.py` as the actual live
+`market_regimes` label source. Checked that successor directly: it has **zero hysteresis/
+smoothing logic anywhere in the file** -- same transition-flicker gap this todo originally found,
+carried over unchanged (Phase 144's own docstring confirms it was a pure architectural
+generalization, no functional change to the label-generation algorithm itself). `docs/research/
+stratification-dimension-unification.md` independently corroborates this is a known, unaddressed
+gap for percentile-rank-based regime dimensions (its own line ~496-497 notes `regime_writer.py`'s
+`min_hold_bars` smoothing pattern "applies to a percentile-rank series" too -- i.e. the same fix
+this todo's "corrected fix target" section already proposed). **Verdict: still necessary and
+valid.** Correct the stale file citation to `cross_sectional_regime_model.py` when this is
+finally scoped. Recommend the "fix at the source" option over the downstream `ic_engine.py`
+purge mask, consistent with both this todo's own 2026-07-19 reasoning and the unification doc's
+stated remediation path.
+
+**Sequencing note:** do NOT implement this while the in-flight `ic_engine` corpus pass
+(started 2026-07-30, still running as of 2026-08-02) is active -- it's consuming today's
+unsmoothed `market_regimes` labels for its cross-sectional equity/rates computation. Changing
+the regime-generation algorithm mid-run would invalidate that run's results from the point of
+change forward, same class of risk as todos 226/229. Sequence after that run completes.
+
 # 005 — IC Engine: Regime Transition Purge Window
 
 **Priority: Medium — correctness improvement, not a blocker**
