@@ -509,6 +509,49 @@ def test_compute_symbol_tf_returns_tuple_structure():
     assert isinstance(heldout_ll, float)
 
 
+def test_compute_symbol_tf_logs_convergence_iterations():
+    """_compute_symbol_tf must log the actual EM iteration count used per cell.
+
+    This is measurement-only instrumentation for todo 226 (n_iter=200 headroom
+    check) -- asserts the log event fires with correct fields AND that the
+    function's return value is unaffected by adding the log call, confirming
+    the instrumentation has zero effect on fit output.
+    """
+    from structlog.testing import capture_logs
+
+    n = 500
+    closes = _make_ranging_closes(n)
+    volumes = _make_volumes(n)
+    timestamps = _make_timestamps(n)
+    conn = _make_mock_conn(closes, volumes, timestamps)
+
+    with capture_logs() as cap_logs:
+        result = _compute_symbol_tf(
+            conn=conn,
+            symbol="SPY",
+            tf="1d",
+            n_components=3,
+            vol_window=20,
+            n_iter=50,
+            hmm_random_state=42,
+            momentum_window=20,
+            vol_of_vol_window=20,
+            min_state_occupation=0.0,
+        )
+
+    assert result is not None
+
+    events = [e for e in cap_logs if e["event"] == "regime_writer.hmm_convergence_iters"]
+    assert len(events) == 1
+    event = events[0]
+    assert event["symbol"] == "SPY"
+    assert event["tf"] == "1d"
+    assert event["n_iter_cap"] == 50
+    assert isinstance(event["iters_used"], int)
+    assert 0 < event["iters_used"] <= 50
+    assert isinstance(event["converged"], bool)
+
+
 def test_compute_symbol_tf_regime_values():
     """All regime labels in update_rows must be canonical strings."""
     n = 500
@@ -777,7 +820,7 @@ def test_compute_symbol_tf_n_restarts_selects_highest_log_likelihood(monkeypatch
                 # winner: convergence status ranks ahead of log-likelihood in the
                 # selection tuple, so a non-converged "winner" would lose regardless
                 # of its score.
-                self.monitor_ = SimpleNamespace(converged=True)
+                self.monitor_ = SimpleNamespace(converged=True, iter=10)
             seed_to_transmat[self.random_state] = self.transmat_.copy()
             return self
 

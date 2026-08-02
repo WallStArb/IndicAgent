@@ -616,6 +616,15 @@ def _compute_symbol_tf(
             converged = candidate_converged
             best_ll = candidate_ll
 
+    _logger.info(
+        "regime_writer.hmm_convergence_iters",
+        symbol=symbol,
+        tf=tf,
+        iters_used=int(model.monitor_.iter),
+        n_iter_cap=n_iter,
+        converged=converged,
+    )
+
     # Held-out log-likelihood: score last heldout_fraction of bars.
     # Model is fit on full series; this is diagnostic only — does not gate write.
     heldout_ll = float("nan")
