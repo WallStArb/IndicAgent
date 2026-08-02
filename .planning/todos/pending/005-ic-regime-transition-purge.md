@@ -62,6 +62,17 @@ unsmoothed `market_regimes` labels for its cross-sectional equity/rates computat
 the regime-generation algorithm mid-run would invalidate that run's results from the point of
 change forward, same class of risk as todos 226/229. Sequence after that run completes.
 
+**Measurement-first design doc written 2026-08-02:**
+`docs/plans/2026-08-02-regime-label-transition-quality-measurement-design.md`. Rejects the
+10-20% ic_sharpe claim above as unverified (traced to a planning doc, never measured). Specs
+a read-only diagnostic (no production changes) that measures, out-of-sample, whether
+combined-label hysteresis smoothing and/or a purge window actually move IC, before either
+gets implemented. Went through an Opus review (5 Critical findings) and a full rewrite;
+every load-bearing number in the final version independently re-verified against the live
+DB. This todo's own "fix" code sample (the purge-mask sketch below) is superseded by that
+spec's Component 3 (splits into `purge_back`/`purge_fwd` with per-scale widths) -- read the
+spec before implementing anything here.
+
 # 005 — IC Engine: Regime Transition Purge Window
 
 **Priority: Medium — correctness improvement, not a blocker**
