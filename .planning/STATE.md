@@ -122,19 +122,20 @@ candidate Part 2 -- exists only to serve an overridden plan, see todo 179).
 backfill (todo 176). Its regime-wipe side effect (todo 205) and the resulting repair pipeline
 are ALSO fully closed as of 2026-07-30 -- not the pipeline currently running (see Tier -1).
 
-*Tier -1 -- ACTIVE, supersedes every tier below until it clears:* the corpus pipeline relaunched
-2026-07-30 from step 3 (`forward_return_writer`, to pick up todo 208's session-gate fix) is on
-step 5/8 (`ic_engine`, started 13:19 EDT 2026-07-30). **Verified live 2026-08-02 ~18:58 UTC:**
-the per-symbol phase is DONE -- all 81 symbols present in `feature_ic_scores` (2,923,011 rows
-and still growing). The run is now in its cross-sectional pooled-IC pass (`equity` group's 5
-cells and `rates` group's 23 cells complete so far, currently on `rates`/5m/`steep_wide`; `fx`
-absent as expected -- migration 280 enabled it 2026-08-01, after this run's startup config
-load, so it takes effect next full rebuild, not this one). `pid 1638298`, elapsed ~2d22h, 256%
-CPU, healthy -- no sign of a stall, but **running well past even the prior revised "~2026-08-02
-midday" ETA**, which should not be trusted going forward without a fresh read. Nothing that
-reads `feature_ic_scores` or `ensemble_weights` should start until it completes. Re-verify
-before trusting this in a later session: `ps -p 1638298 -o etime,%cpu`, `grep
-cross_sectional_computed logs/ic_engine.log | tail`, `SELECT count(*) FROM feature_ic_scores`.
+*Tier -1 -- HALTED 2026-08-02, supersedes every tier below until it clears:* the corpus
+pipeline relaunched 2026-07-30 from step 3 (`forward_return_writer`) reached `ic_engine`
+(step 5/8) run_complete at **2026-08-02 19:19:25 UTC** -- 81/81 symbols, 2,924,007
+`feature_ic_scores` rows, zero error-level log lines, FDR backfill already complete
+(`passes_fdr` non-NULL on every row), elapsed ~70.2h. Clean on its own terms. **But the
+wrapper script's next gate, `ops_canary_integrity_assert.py`, FATAL-halted the pipeline
+before steps 6-8 (`ic_shrinkage`/`ensemble_trainer`/`alpha_publisher`) ran.** Two findings
+from that gate, both filed: **todo 204 CLOSED** (positive control `canary_acausal_placebo`
+now clears correctly, 231/239 cells -- confirms the gate itself works and the prior failure
+was a stale-vintage artifact) and **new todo 230** (3 negative-control canaries falsely
+cleared the gate, 8/717 cell-tests ≈1.1% -- below this project's own documented ~5% naive-CI
+noise baseline, root cause not diagnosed: could be the gate needing a Binomial-tolerance
+check instead of zero-tolerance, or a real artifact -- do not guess-fix). **Steps 6-8 do not
+run until 230 is resolved or the gate is deliberately overridden (user's call).**
 
 **Parallel to this run, 2026-08-02 (pure code/docs, no corpus dependency):** todo 216 (BLAS
 thread oversubscription across all 5 `ProcessPoolExecutor` batch services) CLOSED, migration

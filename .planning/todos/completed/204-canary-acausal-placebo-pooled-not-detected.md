@@ -1,7 +1,8 @@
 ---
-status: pending
+status: completed
 priority: P0
 filed: 2026-07-29
+closed: 2026-08-02
 source: re-running ops_canary_integrity_assert.py while fixing todo 203 (canary RNG seed bug)
 ---
 
@@ -54,14 +55,21 @@ measurement processes this specific feature, not in the raw feature data itself.
    zero-variance for the POOLED family specifically, even though per-symbol variance
    is real.
 
-## Fix
+## Resolution (2026-08-02): Hypothesis 1 CONFIRMED -- stale vintage was the cause
 
-Not diagnosed yet. Next step: re-run `ops_canary_integrity_assert.py` after the Tier -1
-regime-repair pipeline's `ic_engine` step lands a fresh `feature_ic_scores` vintage (cheap,
-free confirmation/denial of Hypothesis 1). If it still fails post-rebuild, trace
-`_compute_cross_sectional_tf`'s handling of `canary_acausal_placebo` specifically (inspect
-this one feature's `X_raw` column and intermediate `non_degenerate_mask`/`ic_vec` values at
-a breakpoint) before touching any production code.
+The corpus run that finished 2026-08-02 19:19:25 UTC populated a fresh `feature_ic_scores`
+vintage. `canary_acausal_placebo`/POOLED now clears the significance gate in **231 of 239
+`(tf, regime)` cells (96.7%)**, with real, substantial, non-degenerate CIs (e.g.
+`ic_value=0.58`, `ic_ci_lower=0.57` at 15m/flat_tight) -- not the `[0, 0]` degenerate
+signature this todo originally found. Hypothesis 1 ("possibly predates a code path
+that's since been fixed") is confirmed, not just plausible. **Close this todo on that
+basis** -- no further diagnosis needed, Hypotheses 2/3 don't need testing now that 1
+already explains the full resolution.
+
+**Do not conflate with todo 230**, filed from the same gate run: a DIFFERENT, opposite-
+direction finding (negative-control canaries falsely clearing the gate, not the positive
+control failing to clear it) that this run's overall FATAL halt also surfaced. Separate
+root cause, separate todo.
 
 ## References
 

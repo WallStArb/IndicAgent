@@ -114,12 +114,19 @@ section.
 confirms `vix_z`/`yield_slope_z`/`flight_quality` + all session/calendar features
 share the same pseudo-replication exposure the canaries had. Building an actual
 broadcast-aware significance test remains open (real design question, not filed as
-its own todo yet). Full end-to-end confirmation (a green
-`ops_canary_integrity_assert.py` run) still waits on the in-flight `ic_engine` pass
-(`.planning/STATE.md`'s Tier -1).
-Sibling finding [204](pending/204-canary-acausal-placebo-pooled-not-detected.md) —
-`canary_acausal_placebo` not clearing its POOLED gate for an unrelated, undiagnosed
-reason.
+its own todo yet).
+
+**[204](../completed/204-canary-acausal-placebo-pooled-not-detected.md) CLOSED 2026-08-02** —
+the 2026-08-02 corpus pass (`ic_engine` run_complete 19:19:25 UTC) confirmed Hypothesis 1
+(stale vintage): `canary_acausal_placebo`/POOLED now clears its significance gate in 231/239
+cells (96.7%, was 0/239), with real non-degenerate CIs. No further diagnosis needed.
+
+**New P0 [230](pending/230-canary-negative-controls-pooled-false-clears.md)** — found by the
+same gate run: 3 NEGATIVE-control canaries falsely cleared the POOLED gate (8/717 cell-tests,
+~1.1%, below the ~5% naive-CI baseline this project's own diagnostics document as expected
+noise) — `ops_canary_integrity_assert.py` FATAL-halted the pipeline before `ic_shrinkage`/
+`ensemble_trainer`/`alpha_publisher` ran. Root cause not diagnosed (gate-tolerance gap vs. real
+artifact, both live) — do not guess-fix.
 
 | Todo | Gap |
 |---|---|
