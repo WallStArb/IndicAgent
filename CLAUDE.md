@@ -1,6 +1,6 @@
 # CLAUDE.md
 
-Version: 5.54.1
+Version: 5.54.2
 
 **Project nature:** Passion/learning project — not a production system. Architectural decisions prioritize correctness, rigor, and institutional-grade thinking. Renaissance Capital / Jim Simons principles are the north star. When giving advice, apply the same rigor you would to a system built to last — do not hedge around operational risk that doesn't apply.
 
@@ -165,7 +165,7 @@ Non-negotiable. Any violation is wrong regardless of whether it works locally.
 
 ## OTel Health Contract
 
-Every `BaseDaemon` subclass auto-inherits 5 mandatory OTel signals (D-26, non-negotiable): `agent_last_message_timestamp_seconds`, `agent_crash_total`, `agent_dlq_total`, `watchdog_notify_total`, `watchdog_notify_suppressed_total` — all labeled `agent_id`. No per-service code needed.
+Every `BaseDaemon` subclass auto-inherits 5 mandatory OTel signals (D-26, non-negotiable): `agent_last_message_timestamp_seconds`, `agent_crash_total`, `agent_dlq_total`, `watchdog_notify_total`, `watchdog_notify_suppressed_total`. Four are labeled `agent_id`; `agent_crash_total` uses label key `agent` instead (`src/core/agent/base.py`'s `_crash_attrs`). No per-service code needed.
 **Oneshot (D-06):** emit `job_completed_total{job, status}` at exit. `job` label matches systemd unit `%n` suffix exactly (kebab-case).
 
 ## Infrastructure

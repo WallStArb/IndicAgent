@@ -14,8 +14,14 @@
 > `CLAUDE.md`'s Architecture and Pipeline sections and `src/intelligence/CLAUDE.md` for current
 > state. This doc is retained as a historical record of the v2.0-v2.7 evolution (the version
 > history below is accurate as *history*); do not use it to answer "what does the system do
-> today." A dedicated resync/re-archive of this file is tracked as a follow-up (see the
-> `.planning/todos/pending/` entry filed alongside todo 201's closure).
+> today."
+>
+> **Decision (todo 220, 2026-08-01): stays in place, not moved to `docs/architecture/archive/`.**
+> Per user direction, the project intends to eventually revive this v2.x path as a second, more
+> conventional intelligence path running alongside v3.0's Renaissance-style AlphaEngine — not to
+> retire it permanently. Treating this doc as pure dead history and archiving it away would work
+> against that plan; it's the closest thing to a design reference for what gets revived. Re-check
+> this decision if the revival is later abandoned outright.
 
 ## Executive Summary
 

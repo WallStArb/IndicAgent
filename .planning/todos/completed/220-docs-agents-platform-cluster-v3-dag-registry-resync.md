@@ -1,11 +1,39 @@
 ---
-status: pending
+status: completed
 priority: P3
 filed: 2026-07-31
+closed: 2026-08-01
 source: Discovered while closing todo 201 (BaseAgent -> BaseDaemon naming drift) -- a much
   larger, separate staleness problem was found in the same doc cluster and flagged rather than
   fixed, per that todo's own "flag rather than execute a big restructuring" guidance.
 ---
+
+## Closed 2026-08-01
+
+All three acceptance criteria met, with one deliberate deviation from the original plan on
+criterion 3, driven by new information from the user in the same session (see
+`project_dual_intelligence_path_plan.md`): the project intends to eventually revive the v2.x
+I1-I7 path as a second, conventional intelligence path alongside v3.0's AlphaEngine, not retire
+it permanently.
+
+1. **CLAUDE.md fix** — done. `agent_crash_total` now correctly documented as using label key
+   `agent`, the other four signals `agent_id`.
+2. **Full resync of `agents-operations.md` and `platform-foundation.md`** — done, verbatim
+   transcription of live `_DAG_ORDER` (57 entries) and `_AGENT_ID_TO_UNIT` (29 entries) from
+   `services/service_auditor.py`. Also noted a real code asymmetry found in passing:
+   `indicagent-roll-batch` is in `_ONESHOT_UNITS` but has no `_DAG_ORDER` entry — flagged in
+   both docs, not fixed (out of scope, a code question not a doc one).
+3. **`architecture-dag-topology.md` and `architecture-evolution.md`** — **not** resynced to
+   v3.0 line-by-line as originally planned. Instead, reframed as explicit v2.x design-reference
+   docs (status changed from misleading "current" to "historical / future-revival reference"),
+   pointing readers to the two docs above for the live v3.0 DAG. Rationale: given the revival
+   plan, rewriting this content to v3.0 would have destroyed the only preserved design record of
+   the path that's coming back — worse than leaving it correctly labeled as v2.x. Also fixed an
+   unrelated real bug in `architecture-dag-topology.md`'s mermaid diagram (arrows pointed to
+   undefined nodes `SIGLED`/`SIGOUT`; corrected to the actual `signal_events`/`trade_frames`/
+   `signal_ledger` node IDs per the Persistence Tier table).
+   `architecture-evolution.md` stays in place (not moved to `docs/architecture/archive/`) for
+   the same reason.
 
 # `docs/agents/*`, `docs/platform/*`, `docs/architecture/*` service registry tables predate the v3.0 rename and need a full resync
 

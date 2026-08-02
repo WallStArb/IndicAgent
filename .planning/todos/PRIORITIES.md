@@ -39,6 +39,15 @@ corrected definition. The three follow-on `_SCALES`-hardcoding cleanups (209/210
 Canary RNG seeding fixed (todo 203) but a sibling POOLED-gate anomaly (todo 204) is still
 undiagnosed.
 
+**2026-08-01: todo 220 closed** (docs/agents/platform/architecture DAG registry resync + CLAUDE.md
+OTel label fix). Surfaced new project-level context worth flagging here: the user stated the
+v2.x I1-I7 path will eventually be revived as a second, conventional intelligence path alongside
+v3.0's AlphaEngine, not retired permanently (`project_dual_intelligence_path_plan.md` in
+memory). This softens todo 223's delete-vs-archive call (lean archive, Group B explicitly kept)
+and is in mild tension with todo 056's "decommission-in-fact" framing (archive-not-delete is
+still compatible, but the systemd-unit-disable / table-rename steps there should be re-read
+against this plan before executing, not assumed still fully correct as scoped).
+
 **Live checkpoint 2026-07-31 ~20:35 UTC (re-verify before trusting -- `grep symbol_computed
 logs/ic_engine.log`, `ps aux | grep ic_engine`, `SELECT count(*) FROM feature_ic_scores`):**
 `ic_engine` at 49/80 symbols, `feature_ic_scores` at 1,637,175 rows, workers healthy (8
@@ -228,7 +237,6 @@ per-tick recompute, unifying them would be a behavior change to the corpus-compu
 | [022](pending/022-bi-superset.md) | Self-service BI (Superset) for ad-hoc analytics |
 | [115](pending/115-days-to-month-end-exact-redundancy.md) | `days_to_month_end` is an exact affine complement of `month_position` (Pearson correlation -1) — perfectly collinear, remove one. |
 | [189](pending/189-ctf-momentum-1d-self-referential-htf-not-cross-timeframe.md) | Mostly resolved 2026-07-27 same-day as filing: `ctf_momentum`'s 1d-vs-15m sign flip was a measurement artifact (`_CTF_HIGHER_TF` maps `1d -> 1d`, self-referential), doc corrected. Remaining: optional design decision + audit of sibling fallbacks, not urgent. |
-| [220](pending/220-docs-agents-platform-cluster-v3-dag-registry-resync.md) | New 2026-07-31, found while closing todo 201: `docs/agents/*` + `docs/platform/*` + `docs/architecture/*` embed static `_DAG_ORDER`/`_AGENT_ID_TO_UNIT`/metrics-port snapshots that predate the v3.0 rename (describe archived v2.x services like `FeatureWriter`/`IntelligencePipeline` as current). Also surfaced: CLAUDE.md's OTel Health Contract section has a wrong label key (`agent_crash_total` is `agent`, not `agent_id`) — fix that part first, it's small and high-value. |
 
 ---
 

@@ -1,7 +1,7 @@
 # Platform Foundation
 
-**Version:** 2.9
-**Last Updated:** 2026-07-31
+**Version:** 2.10
+**Last Updated:** 2026-08-01
 **Status:** current
 
 ---
@@ -60,37 +60,52 @@ All 14 Docker containers use `restart: unless-stopped` (or `restart: always` for
 
 ## Architecture
 
-### L1-L10 Service DAG
+### Service DAG (priority 0-11)
 
-Services are organized in dependency layers. Higher layers depend on lower layers. The canonical registry is `_DAG_ORDER` in `services/service_auditor.py`.
+Services are organized in dependency layers, numbered by `_DAG_ORDER` priority in
+`services/service_auditor.py` (lower restarts first). This diagram is a resync of the same
+diagram in `docs/agents/agents-operations.md`'s "Layer Topology" table — kept here in ASCII
+form for a quick-reference view; `_DAG_ORDER` itself is the sole source of truth.
 
-> **Staleness note (2026-07-31):** the illustrative layer diagram below predates the v3.0
-> Feature Factory rename — `intelligence-pipeline`, `feature-writer`, `parity-auditor`, and
-> `feature-snapshot-writer` name the ARCHIVED v2.x pipeline (no live consumer as of 2026-07-02
-> per CLAUDE.md), not the live `feature-vector-pipeline` / `feature-vector-writer` registry.
-> Treat this as a snapshot of the DAG's *shape* only; `services/service_auditor.py`'s
-> `_DAG_ORDER` is the sole source of truth for current layer membership.
+> **Resynced 2026-08-01 (todo 220):** replaced v2.x names (`intelligence-pipeline`,
+> `feature-writer`, `parity-auditor`, `feature-snapshot-writer` — archived, no live consumer as
+> of 2026-07-02) with the live v3.0 Feature Factory registry. **Note for future readers:** the
+> project intends to eventually revive a second, more conventional intelligence path alongside
+> v3.0's Renaissance-style AlphaEngine (resuming the paused v2.x signal chain, not deleting it)
+> — if that happens, `_DAG_ORDER` will grow v2.x-style entries again and this diagram will need
+> re-resyncing, not a permanent "these names are gone" assumption.
 
 ```
-L1  ibkr-provider, bar-replay            — data ingestion + bar replay
-L2  provider-merger                      — stream merge
-L3  bar-aggregator, bar-auditor          — bar processing
-L4  bar-writer                           — OHLCV persistence
-L5  intelligence-pipeline, cross-asset,  — I1-I7 compute + context
-    macro-compute
-L6  feature-writer, signal-writer,       — persistence writers (parallel)
-    signal-tracker-compute, lifecycle-writer,
-    lineage-writer, ctx-writer
-L7  alpha-swarm, narrative-compute,      — AI/LLM layer
-    llm-writer, swarm-ledger-writer
-L8  signal-metrics-compute,              — analytics
-    signal-metrics-writer, graduation-compute,
-    graduation-writer, feature-snapshot-writer,
-    ml-training
-L9  signal-auditor, signal-replay,       — audit, parity, alerting
-    parity-auditor, alerting-agent
-L10 service-auditor                      — meta: monitors + restarts all above
+P0   redpanda-ready, redpanda-watchdog,     — infra sentinels
+     timescaledb-ready
+P1   ibkr-provider, bar-replay              — data ingestion
+P2   provider-merger                        — stream merge
+P3   bar-aggregator, bar-auditor            — bar processing
+P4   bar-writer                             — OHLCV persistence
+P5   cross-asset, macro-compute             — intelligence context
+P6   feature-vector-pipeline                — Feature Factory compute
+P7   feature-vector-writer, signal-writer,  — persistence writers (parallel)
+     signal-tracker-compute, lifecycle-writer,
+     lineage-writer, ctx-writer
+P8   alpha-swarm, narrative-compute,        — AI/LLM layer + analytics +
+     llm-writer, swarm-ledger-writer,         IC/ensemble/alpha oneshots +
+     signal-metrics-compute/-writer,          all other timer-triggered
+     graduation-compute/-writer,              oneshots (ML batch, shadow,
+     regime-writer, forward-return-writer,    feature-validation,
+     ic-engine, ensemble-trainer,              hmm-training, memory-batch)
+     alpha-publisher, ensemble-ic-engine,
+     alpha-frame-writer, counterfactual-tracker,
+     ml-training, ...
+P9   signal-auditor, signal-replay,         — audit, parity, alerting,
+     alerting-agent, dlq-drain,                config, self-healing
+     config-service, outbox-dispatcher,
+     self-healing-agent
+P10  api, dashboard                         — top-level services
+P11  service-auditor                        — meta: monitors + restarts all above
 ```
+
+`indicagent-roll-batch` is a timer-triggered oneshot but has no `_DAG_ORDER` entry in the
+current code (a live asymmetry, not a doc gap).
 
 **ML batch services** (`ml-training`, `ml-orchestrator`, `ml-data-quality`, `ml-discovery`) are timer-triggered, not daemons. `inactive (dead)` between runs is correct — do not treat as failures.
 
@@ -158,7 +173,7 @@ systemctl list-units --all | grep indicagent
 systemctl list-timers --all | grep indicagent
 
 # Specific service
-systemctl status indicagent-intelligence-pipeline
+systemctl status indicagent-feature-vector-pipeline
 
 # Docker containers
 docker ps
@@ -244,7 +259,7 @@ Full infrastructure reference: `docs/operations/operations-infrastructure.md`.
 
 The DAG has hard dependencies: an L3 outage starves L5+. Example:
 
-- `bar-aggregator` (L3) fails → no bars published → `intelligence-pipeline` (L5) processes nothing → all L6/L7/L8 persistence agents go idle → `agent_last_message_timestamp_seconds` goes stale → Grafana `Service Stall` alert fires within 120s.
+- `bar-aggregator` (P3) fails → no bars published → `feature-vector-pipeline` (P6) processes nothing → all P7/P8 persistence agents go idle → `agent_last_message_timestamp_seconds` goes stale → Grafana `Service Stall` alert fires within 120s.
 
 Diagnosis:
 ```bash

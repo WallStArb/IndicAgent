@@ -1,20 +1,17 @@
 # Agents Operations — Service Mesh, DAG Topology & Lifecycle Management
 
-**Version:** 2.9.0 | **Status:** current | **Last Updated:** 2026-07-31
+**Version:** 2.10.0 | **Status:** current | **Last Updated:** 2026-08-01
 
-> **Staleness note (2026-07-31):** the `_DAG_ORDER`, `_AGENT_ID_TO_UNIT`, and Metrics Ports
-> tables below were captured from `services/service_auditor.py` as of the base class rename
-> pass (2026-05-29) and had drifted — several service names below (`feature-writer`,
-> `intelligence-pipeline`, `parity-auditor`, `feature-snapshot-writer`) belong to the
-> ARCHIVED v2.x pipeline (no live consumer as of 2026-07-02 per `CLAUDE.md`), not the live
-> v3.0 registry (`feature-vector-pipeline`, `feature-vector-writer`, etc.). The per-service
-> Metrics Ports scheme has also been superseded: daemons now push OTel metrics via OTLP gRPC
-> to a central collector (`:4317`), not per-service Prometheus scrape ports, for all but a
-> handful of legacy exceptions (see the Metrics Ports section below). This note-and-flag was
-> done as part of closing todo 201 (BaseAgent → BaseDaemon naming drift); a full resync of
-> these tables against the live registry is tracked separately — see
-> `.planning/todos/pending/` for the follow-up. `services/service_auditor.py` remains the
-> only authoritative source in the meantime.
+> **Resynced 2026-08-01 (todo 220):** the `_DAG_ORDER` and `_AGENT_ID_TO_UNIT` tables below are
+> a verbatim transcription of `services/service_auditor.py` as of that date — v2.x names
+> (`feature-writer`, `intelligence-pipeline`, `parity-auditor`, `feature-snapshot-writer`) have
+> been replaced with their live v3.0 equivalents (`feature-vector-writer`,
+> `feature-vector-pipeline`, etc.). **Note for future readers:** the project intends to
+> eventually run a second, more conventional intelligence path alongside v3.0's
+> Renaissance-style AlphaEngine (reviving the paused v2.x signal chain, not replacing it) — if
+> that happens, `_DAG_ORDER` will grow v2.x entries back in, and this table will need
+> re-resyncing rather than treating the v2.x names as permanently retired. `services/service_auditor.py`
+> remains the single authoritative source; treat this table as a snapshot, not a live mirror.
 
 ---
 
@@ -32,7 +29,7 @@ This document describes how the system of agents is managed: the service auditor
 
 systemd provides process liveness (WatchdogSec kills hung processes). Prometheus provides metrics and lag. Neither alone gives graduated, DAG-aware response. The `ServiceAuditor` adds the third layer: it reads both systemd unit state and Prometheus consumer-lag metrics, then applies a graduated response policy — DEGRADED (log), RESTART (systemctl), ESCALATE (DLQ + stop retrying) — in dependency order.
 
-Without the auditor, a crash in `indicagent-bar-aggregator` would cascade: `indicagent-intelligence-pipeline` would keep running but receive no bars, look healthy to systemd, and silently produce no output. The auditor detects the lag stall and restarts the right service in the right order.
+Without the auditor, a crash in `indicagent-bar-aggregator` would cascade: `indicagent-feature-vector-pipeline` would keep running but receive no bars, look healthy to systemd, and silently produce no output. The auditor detects the lag stall and restarts the right service in the right order.
 
 ### Why `_DAG_ORDER` Is the Single Source of Truth
 
@@ -40,7 +37,7 @@ Without the auditor, a crash in `indicagent-bar-aggregator` would cascade: `indi
 
 ### Why Layered Restart (Not Random)
 
-Restarting services in random order causes thundering-herd failures: if `indicagent-intelligence-pipeline` (L6 in the auditor's priority numbering) restarts before `indicagent-bar-aggregator` (L3) is healthy, the pipeline starts with empty state and processes zero messages. Restart order follows `_DAG_ORDER` priority: lower number restarts first.
+Restarting services in random order causes thundering-herd failures: if `indicagent-feature-vector-pipeline` (priority 6 in the auditor's numbering) restarts before `indicagent-bar-aggregator` (priority 3) is healthy, the pipeline starts with empty state and processes zero messages. Restart order follows `_DAG_ORDER` priority: lower number restarts first.
 
 ### Why Lag-Based Health (Not Just Process Liveness)
 
@@ -80,12 +77,17 @@ The layers below map to `_DAG_ORDER` priority numbers. Lower priority = restarts
 | L3 — bar processing | 3 | `bar-aggregator`, `bar-auditor` |
 | L4 — bar persistence | 4 | `bar-writer` |
 | L5 — intelligence context | 5 | `cross-asset`, `macro-compute` |
-| L6 — intelligence pipeline | 6 | `intelligence-pipeline` |
-| L7 — persistence writers | 7 | `feature-writer`, `signal-writer`, `signal-tracker-compute`, `lifecycle-writer`, `lineage-writer`, `ctx-writer` |
-| L8 — AI/analytics layer | 8 | `alpha-swarm`, `narrative-compute`, `llm-writer`, `swarm-ledger-writer`, `signal-metrics-compute`, `signal-metrics-writer`, `graduation-compute`, `graduation-writer`, and all timer-triggered oneshot services |
-| L9 — audit, parity, alerting | 9 | `signal-auditor`, `signal-replay`, `alerting-agent`, `dlq-drain` |
+| L6 — feature factory pipeline | 6 | `feature-vector-pipeline` |
+| L7 — persistence writers | 7 | `feature-vector-writer`, `signal-writer`, `signal-tracker-compute`, `lifecycle-writer`, `lineage-writer`, `ctx-writer` |
+| L8 — AI/analytics + IC/ensemble/alpha oneshots | 8 | `alpha-swarm`, `narrative-compute`, `llm-writer`, `swarm-ledger-writer`, `signal-metrics-compute`, `signal-metrics-writer`, `graduation-compute`, `graduation-writer`, `regime-writer`, `forward-return-writer`, `ic-engine`, `ensemble-trainer`, `alpha-publisher`, `ensemble-ic-engine`, `alpha-frame-writer`, `counterfactual-tracker`, and all timer-triggered oneshot services (ML batch, shadow, feature-validation, hmm-training, memory-batch) |
+| L9 — audit, parity, alerting, config/self-healing | 9 | `signal-auditor`, `signal-replay`, `alerting-agent`, `dlq-drain`, `config-service`, `outbox-dispatcher`, `self-healing-agent` |
 | L10 — top-level services | 10 | `api`, `dashboard` |
 | Meta-monitor | 11 | `service-auditor` |
+
+**Not in `_DAG_ORDER` despite being a timer-triggered oneshot:** `indicagent-roll-batch` is
+listed in `_ONESHOT_UNITS` (so the auditor knows not to treat "inactive between runs" as a
+failure) but has no `_DAG_ORDER` entry at all — a live asymmetry in the code, not a doc
+staleness artifact; noted here rather than silently reproduced.
 
 ### `_DAG_ORDER` (authoritative — from `services/service_auditor.py`)
 
@@ -102,8 +104,8 @@ _DAG_ORDER: dict[str, int] = {
     "indicagent-bar-writer": 4,
     "indicagent-cross-asset": 5,
     "indicagent-macro-compute": 5,
-    "indicagent-intelligence-pipeline": 6,
-    "indicagent-feature-writer": 7,
+    "indicagent-feature-vector-pipeline": 6,
+    "indicagent-feature-vector-writer": 7,
     "indicagent-signal-tracker-compute": 7,
     "indicagent-signal-writer": 7,
     "indicagent-lifecycle-writer": 7,
@@ -117,26 +119,46 @@ _DAG_ORDER: dict[str, int] = {
     "indicagent-signal-metrics-writer": 8,
     "indicagent-graduation-compute": 8,
     "indicagent-graduation-writer": 8,
-    # oneshot timer services (priority 8 — inactive between runs is correct)
+    "indicagent-ml-training": 8,
+    "indicagent-ml-signal-training-materialize": 8,
+    "indicagent-memory-batch": 8,  # oneshot: nightly 21:00 memory backfill + calibration promotion
+    # timer-triggered oneshots (priority 8 — inactive between runs is correct)
     "indicagent-weight-updater": 8,
     "indicagent-shadow-auditor": 8,
+    "indicagent-shadow-validator": 8,  # oneshot: weekly Mon 07:00 UTC, promotion-only
+    "indicagent-feature-parity-auditor": 8,
+    "indicagent-confidence-calibration-monitor": 8,
+    "indicagent-signal-probe-auditor": 8,
     "indicagent-ml-orchestrator": 8,
     "indicagent-ml-data-quality": 8,
     "indicagent-ml-discovery": 8,
-    "indicagent-ml-training": 8,
-    "indicagent-ml-signal-training-materialize": 8,
-    "indicagent-roll-batch": 8,  # nightly 8pm timer; futures roll detection
     "indicagent-feature-validation": 8,
     "indicagent-hmm-training": 8,
+    # Phase 138 IC pipeline oneshots (inactive between IC pipeline runs is correct)
+    "indicagent-regime-writer": 8,
+    "indicagent-forward-return-writer": 8,
+    "indicagent-ic-engine": 8,
+    # Phase 139 ensemble + alpha emission oneshots (inactive between IC pipeline runs is correct)
+    "indicagent-ensemble-trainer": 8,
+    "indicagent-alpha-publisher": 8,
+    "indicagent-ensemble-ic-engine": 8,  # Phase 142A
+    "indicagent-alpha-frame-writer": 8,  # Phase 142B
+    "indicagent-counterfactual-tracker": 8,  # Phase 142B
     "indicagent-signal-auditor": 9,
     "indicagent-signal-replay": 9,
     "indicagent-alerting-agent": 9,
     "indicagent-dlq-drain": 9,
+    "indicagent-config-service": 9,  # OPS config HTTP API (port 9001)
+    "indicagent-outbox-dispatcher": 9,
+    "indicagent-self-healing-agent": 9,
     "indicagent-api": 10,
     "indicagent-dashboard": 10,
     "indicagent-service-auditor": 11,
 }
 ```
+
+Note: `indicagent-roll-batch` is a timer-triggered oneshot (`_ONESHOT_UNITS`) with no
+`_DAG_ORDER` entry — see the callout above the layer table.
 
 ### Lag Thresholds (messages before DEGRADED)
 
@@ -158,33 +180,41 @@ The `PERSISTENCE_CONSUMER_LAG` metric uses `agent_id` label whose value comes fr
 
 ```python
 _AGENT_ID_TO_UNIT: dict[str, str] = {
-    "bar_writer_agent":              "indicagent-bar-writer",
-    "bar_aggregator_agent":          "indicagent-bar-aggregator",
-    "intelligence_pipeline_agent":   "indicagent-intelligence-pipeline",
-    "feature_writer_agent":          "indicagent-feature-writer",
-    "SignalTracker":      "indicagent-signal-tracker-compute",
-    "signal_writer_agent":           "indicagent-signal-writer",
-    "llm_writer_agent":              "indicagent-llm-writer",
-    "CrossAssetAnalyzer":        "indicagent-cross-asset",
-    "bar_auditor_agent":             "indicagent-bar-auditor",
-    "provider_merger_agent":         "indicagent-provider-merger",
-    "lifecycle_writer_agent":        "indicagent-lifecycle-writer",
-    "lineage_writer_agent":          "indicagent-lineage-writer",
-    "signal_metrics_compute":        "indicagent-signal-metrics-compute",
+    "bar_writer":                    "indicagent-bar-writer",
+    "bar_aggregator":                "indicagent-bar-aggregator",
+    "feature_vector_pipeline":       "indicagent-feature-vector-pipeline",
+    "feature_vector_writer":         "indicagent-feature-vector-writer",
+    "signal_tracker":                "indicagent-signal-tracker-compute",
+    "signal_writer":                 "indicagent-signal-writer",
+    "llm_writer":                    "indicagent-llm-writer",
+    "cross_asset_analyzer":          "indicagent-cross-asset",
+    "bar_auditor":                   "indicagent-bar-auditor",
+    "provider_merger":               "indicagent-provider-merger",
+    "lifecycle_writer":              "indicagent-lifecycle-writer",
+    "lineage_writer":                "indicagent-lineage-writer",
+    "signal_metrics_analyzer":       "indicagent-signal-metrics-compute",
     "signal_metrics_writer":         "indicagent-signal-metrics-writer",
-    "AlphaSwarm":        "indicagent-alpha-swarm",
-    "NarrativeSwarm":    "indicagent-narrative-compute",
+    "alpha_swarm":                   "indicagent-alpha-swarm",
+    "narrative_swarm":               "indicagent-narrative-compute",
     "swarm_ledger_writer":           "indicagent-swarm-ledger-writer",
-    "MacroAnalyzer":             "indicagent-macro-compute",
-    "signal_auditor_agent":          "indicagent-signal-auditor",
-    "GraduationAnalyzer":        "indicagent-graduation-compute",
-    "graduation_writer_agent":       "indicagent-graduation-writer",
-    "ctx_writer_agent":              "indicagent-ctx-writer",
+    "macro_analyzer":                "indicagent-macro-compute",
+    "signal_auditor":                "indicagent-signal-auditor",
+    "graduation_analyzer":           "indicagent-graduation-compute",
+    "graduation_writer":             "indicagent-graduation-writer",
+    "context_writer":                "indicagent-ctx-writer",
     "bar_replay_provider":           "indicagent-bar-replay",
     "signal_replay_auditor":         "indicagent-signal-replay",
-    "dlq_drain_agent":               "indicagent-dlq-drain",
+    "dlq_writer":                    "indicagent-dlq-drain",
+    # Phase 109 services (config foundation + self-healing engine)
+    "config_service":                "indicagent-config-service",
+    "outbox_dispatcher_agent":       "indicagent-outbox-dispatcher",
+    "self_healer":                   "indicagent-self-healing-agent",
 }
 ```
+
+Key format changed since the 2026-05-29 snapshot: keys are now the auto-derived
+`BaseDaemon._to_snake_case(ClassName)` agent_id (e.g. `signal_tracker`, not `SignalTracker` or
+`signal_tracker_agent`) — see the comment in `service_auditor.py` above this dict.
 
 ---
 
@@ -299,7 +329,7 @@ The service auditor handles this automatically for most services. Manual interve
 
 ### Diagnosing Startup Cascade Failures
 
-If `indicagent-intelligence-pipeline` fails to start, check in layer order:
+If `indicagent-feature-vector-pipeline` fails to start, check in layer order:
 
 1. Is Redpanda healthy? `docker exec redpanda rpk cluster health`
 2. Is TimescaleDB accepting connections? `PGPASSWORD=postgres psql -U postgres -h localhost -d indicagent -c "SELECT 1"`

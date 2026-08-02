@@ -41,6 +41,26 @@ kept as historical reference and NOT included in this count):
 copy was unreachable from anywhere, with zero coupling to `shadow_validator.py` or anything
 else. Not part of the remaining decision below.
 
+## Update 2026-08-01: Group B's fate is resolved -- v2.x path will be revived, not deleted
+
+User direction (2026-08-01, same session as todo 220's doc resync): the project intends to
+eventually run the v2.x signal path again as a second, more conventional intelligence path
+alongside v3.0's Renaissance-style AlphaEngine -- two intelligence paths, not a
+migrate-and-retire. This resolves Group B's stated ambiguity below ("depends on whether/when
+the paused IBKR ingestion chain resumes... needs the ingestion-resume plan settled first, or an
+explicit 'we're not resuming the v2.x signal path' call") in the direction of **keep, don't
+fold into #1's delete decision**. Group B (26+ SLA/I7 plugin test files) stays as-is pending the
+actual revival work; do not delete or archive it as part of executing this todo's #1 decision.
+
+This does NOT resolve the `shadow_validator.py` / `register_plugins.py` coupling in the section
+below -- `shadow_registry` itself is still confirmed dead data (36 rows, `last_eval_at IS NULL`)
+independent of whether the v2.x path is revived, so that part of the delete-vs-archive call
+still applies to the confirmed-dead ~150-file subtree + Group A tests. It also strengthens the
+case for **archive over delete** for the dead subtree itself (option 1b): if the revival
+resumes the v2.x signal path with I1-I7 intact, some of what's dead today (not just Group B's
+test coverage) may become live again, and archived-but-recoverable beats "recreate from git
+history" for a path with a stated revival intent, not just a hypothetical one.
+
 ## The `shadow_validator.py` coupling (why this isn't a pure zero-reference case)
 
 `register_plugins.py` (and transitively the whole tree) IS imported by one live,
@@ -113,4 +133,4 @@ This is a decision, not a mechanical fix -- pick one per bullet and execute:
 - [ ] Decision recorded (delete vs. archive) for the ~150-file dead subtree + shadow_validator.py coupling
 - [ ] Decision executed: files removed or moved, shadow_validator.py updated or decommissioned
 - [ ] Group A's 18 test files removed or moved alongside their subject code
-- [ ] Group B explicitly deferred with a stated trigger condition (ingestion resume decision), or resolved if that decision is already made elsewhere
+- [x] Group B explicitly deferred with a stated trigger condition (ingestion resume decision), or resolved if that decision is already made elsewhere -- **resolved 2026-08-01: keep, v2.x signal path has a stated revival intent, not deleted/folded into #1**

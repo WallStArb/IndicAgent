@@ -1,18 +1,24 @@
-# DAG Topology & Methodology
+# DAG Topology & Methodology (v2.x Intelligence Pipeline)
 
-**Version:** 2.9
-**Status:** current (base-class contract only — see staleness note below)
-**Last Updated:** 2026-07-31
-**Tags:** dag, agent-taxonomy, service-dag, topology, pipeline, orchestration
+**Version:** 2.10
+**Status:** historical / future-revival reference (base-class contract corrected; DAG diagram is v2.x — see note below)
+**Last Updated:** 2026-08-01
+**Tags:** dag, agent-taxonomy, service-dag, topology, pipeline, orchestration, v2.x
 
-> **Staleness note (2026-07-31):** the file/unit/port references throughout this doc
-> (`intelligence_pipeline_agent.py`, `feature_writer_agent.py`, etc.) name the ARCHIVED v2.x
-> pipeline (no live consumer as of 2026-07-02 per CLAUDE.md), not the live v3.0
-> `feature_vector_pipeline` / `feature_vector_writer` registry, and the per-service metrics-port
-> scheme shown has been superseded by OTLP push to a central collector (see
-> `docs/agents/agents-operations.md`'s Metrics Ports section). Only the Agent Taxonomy /
-> base-class content was corrected as part of closing todo 201; the DAG diagram itself needs a
-> separate resync against `services/service_auditor.py` — tracked as a follow-up todo.
+> **Reframed 2026-08-01 (todo 220):** everything below the Agent Taxonomy section (the mermaid
+> DAG, Topic Registry, Service Inventory) describes the **v2.x I1-I7 Intelligence Pipeline** —
+> archived, no live consumer as of 2026-07-02 per CLAUDE.md. This is deliberately **not**
+> resynced to the live v3.0 registry: per user direction (2026-08-01), the project intends to
+> eventually run this v2.x path again as a second, more conventional intelligence path
+> alongside v3.0's Renaissance-style AlphaEngine — not to delete it. This doc is kept as the
+> design reference for that revival, not as a claim that it's currently running.
+>
+> **For the CURRENT live v3.0 DAG**, see `docs/agents/agents-operations.md` (Layer Topology /
+> `_DAG_ORDER`) and `docs/platform/platform-foundation.md` (Service DAG diagram) — both resynced
+> against `services/service_auditor.py` as of this date. The per-service metrics-port scheme
+> shown below (`:9125`, `:9116`, etc.) has also been superseded on the live v3.0 path by OTLP
+> push to a central collector (see `docs/agents/agents-operations.md`'s Metrics Ports section);
+> it's preserved here only as part of the v2.x design record.
 
 ## Overview
 
@@ -120,10 +126,12 @@ graph TD
 
     %% Persistence
     FWRITE --> INTFEAT
-    SWRITE --> SIGLED
+    SWRITE --> SIGEVENT
+    SWRITE --> TF
     STRACK -->|"lifecycle.transitions"| LCWRITE
-    LCWRITE --> SIGOUT
-    SREPLAY --> SIGLED
+    LCWRITE --> SIGEVENT
+    LCWRITE --> TF
+    SREPLAY --> SIGVIEW
     NARR -->|"llm.calls"| LLMWRITE
     LLMWRITE --> LLMDB
 
