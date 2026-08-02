@@ -317,6 +317,7 @@ def _make_config(**overrides) -> ICEngineConfig:
         cs_chunk_ts=5000,
         symbol_fetch_chunk_rows=5000,
         n_workers=1,
+        blas_threads_per_worker=1,
         decay_materiality_threshold=0.005,
         guard_fail_rate_max=0.995,
         guard_fail_rate_min=0.85,

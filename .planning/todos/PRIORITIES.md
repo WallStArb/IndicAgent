@@ -101,9 +101,12 @@ completes.**
 everything gated on it -- todo 203's final `ops_canary_integrity_assert.py` confirmation, todo
 210's live verification against a repopulated `ensemble_alpha`, todo 065 (EM-CAL calibration),
 todo 167 (equity vs symbol-HMM falsifier test), todo 204; (3) only once that chain is stable,
-start todo 214 (deferred refactor) and opportunistically profile todo 216 on the next natural
-`regime_writer` run (todo 211 corrected -- both parts already CLOSED as of 14:54 EDT today,
-commit `02506239`, not open work); (4) separately, not blocked on any of the above -- scope Phase 167/T3's
+start todo 214 (deferred refactor) (todo 211 corrected -- both parts already CLOSED as of 14:54
+EDT today, commit `02506239`, not open work); (4) separately, not blocked on any of the above --
+**todo 216 CLOSED 2026-08-02** -- root cause found without needing a live profile (BLAS thread
+oversubscription, fixed system-wide across all 5 ProcessPoolExecutor batch services, migration
+281), real-world wall-clock delta self-confirms on the next `regime_writer` run's own logs, no
+follow-up action needed; scope Phase 167/T3's
 cost-hurdle-adjusted spread construction (`docs/research/trade-construction-layer.md`) as a new
 phase via `/gsd-discuss-phase`; this is the actual highest-value next step, proceeding is the
 user's call. Full detail and live-verification commands: `.planning/STATE.md`'s "Current saga"
@@ -152,8 +155,7 @@ resumes.
 
 | Todo | Why now |
 |---|---|
-| [216](pending/216-regime-writer-hmm-fit-cost-profiling.md) | Still not profiled — `regime_writer` wasn't running today after the 09:59 EDT step-2 completion. Opportunistic next step: catch it live (`py-spy dump`) whenever it next runs (e.g. if the horizon-grid diagnostic forces a re-rebuild) rather than forcing a standalone run just to profile it. |
-| [217](pending/217-corpus-pipeline-step-timing-instrumentation.md) | **Implemented 2026-07-30** (commit `5905172b`) — `run_step()` now appends to `logs/corpus_pipeline/step_timings.jsonl`. Not yet verified live (no step has completed since the commit landed mid-run); will self-confirm the moment the current `ic_engine` step finishes or fails. Close once that first line appears. |
+| [217](pending/217-corpus-pipeline-step-timing-instrumentation.md) | **Implemented 2026-07-30** (commit `e87cefa6`) — `run_step()` now appends to `logs/corpus_pipeline/step_timings.jsonl`. Not yet verified live (no step has completed via `run_step` since the commit landed mid-run — the in-flight `ic_engine` run was already past step 4 when it merged); will self-confirm the moment the current `ic_engine` step finishes or fails. Close once that first line appears. |
 | [065](pending/065-emission-layer-calibration-proposals.md) | EM-CAL threshold calibration — both prerequisite gates (rebuild, EIC-04) cleared 2026-07-09. **Caution added 2026-07-30**: that clearance predates todo 146/208's grid rework (per-tf lookahead grid; 208's session-gate premise is now fixed, but the grid's actual values are still open, see 208's row above). Calibrating against pre-rebuild data now risks redoing this once the corpus/grid settle — same mistake this todo's own history already flagged once. Wait for the in-flight `ic_engine` pass to finish (`.planning/STATE.md`'s Tier -1) before starting. |
 | [079](pending/079-anytime-valid-e-values-corpus-reruns.md) | Anytime-valid inference pilot (one tf) — new statistical primitive, deliberately staged small |
 | [080](pending/080-ensemble-combination-e-candidates-queue.md) | Posterior-blended weighting (L5-1) — testable now via existing A/B judge, zero new data |

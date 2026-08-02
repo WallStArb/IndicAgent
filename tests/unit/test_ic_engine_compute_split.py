@@ -452,6 +452,7 @@ def test_cell_too_large_error_raised_by_both_cell_functions():
         cs_chunk_ts=5000,
         symbol_fetch_chunk_rows=5000,
         n_workers=1,
+        blas_threads_per_worker=1,
     )
     tiny_config = dataclasses.replace(base_config, max_cell_rows=5)
 

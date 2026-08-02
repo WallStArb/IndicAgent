@@ -56,7 +56,6 @@ import contextlib
 import math
 import sys
 import time
-from concurrent.futures import ProcessPoolExecutor
 from pathlib import Path
 from typing import Any
 
@@ -73,6 +72,7 @@ sys.path.insert(0, str(project_root))
 
 from services._batch_utils import bulk_update_by_key as _bulk_update_by_key
 from services._batch_utils import load_config_service_sync as _load_config_service_shared
+from services._batch_utils import make_worker_pool as _make_worker_pool
 from src.config.settings import Settings
 from src.core.service_utils import setup_service_logging
 from src.intelligence.features.feature_vector_persistence import (
@@ -1036,6 +1036,8 @@ def main() -> None:
                 n_workers = args.workers
                 if n_workers is None:
                     n_workers = int(cfg.get_sync("infra.regime_writer.workers", 1))
+                # todo 216: BLAS thread cap, see make_worker_pool()/limit_blas_threads().
+                blas_threads_per_worker = int(cfg.get_sync("infra.blas_threads_per_worker", 1))
             finally:
                 _conn.close()
             # dsn is passed to workers; no connection is held in main beyond this point.
@@ -1084,7 +1086,6 @@ def main() -> None:
             # Pre-compile the JIT in the main process before spawning workers.
             # With cache=True the compile writes __pycache__ once; workers then load
             # the artifact read-only — no concurrent compile, no file-lock race.
-            # No initializer= argument needed; start-method agnostic (fork and spawn).
             _jit_emit = np.zeros((10, n_components), dtype=np.float64)
             _jit_log_A = np.log(np.full((n_components, n_components), 1.0 / n_components))
             _jit_pi0 = np.full(n_components, 1.0 / n_components)
@@ -1099,7 +1100,7 @@ def main() -> None:
                 options="-c idle_in_transaction_session_timeout=0",
             )
             try:
-                with ProcessPoolExecutor(max_workers=n_workers) as pool:
+                with _make_worker_pool(n_workers, blas_threads_per_worker) as pool:
                     for result in pool.map(_run_symbol_worker, worker_args, chunksize=1):
                         symbol = result["symbol"]
                         if result["error"]:

@@ -236,6 +236,7 @@ def test_ensemble_ic_config_lookaheads_for_returns_per_tf_values():
             "1d": ("fast", "mid", "slow", "extended"),
         },
         n_workers=1,
+        blas_threads_per_worker=1,
         pooled_fetch_itersize=50_000,
         decay_threshold=0.05,
         min_qualifying_fraction=0.60,

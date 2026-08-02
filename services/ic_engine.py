@@ -64,7 +64,7 @@ import math
 import sys
 import time
 from collections import defaultdict
-from concurrent.futures import ProcessPoolExecutor, ThreadPoolExecutor, as_completed
+from concurrent.futures import ThreadPoolExecutor, as_completed
 from contextlib import contextmanager
 from datetime import UTC, datetime
 from pathlib import Path
@@ -94,8 +94,10 @@ from services._batch_utils import (
     canonicalize_active_scales,
     connect_db_from_url,
     get_list_config,
+    limit_blas_threads,
     lookahead_by_scale_from_apr,
     lookaheads_for_tf,
+    make_worker_pool,
     short_lived_conn,
 )
 from services._batch_utils import load_config_service_sync as _load_config_service
@@ -476,6 +478,7 @@ class ICEngineConfig:
     cs_chunk_ts: int
     symbol_fetch_chunk_rows: int
     n_workers: int
+    blas_threads_per_worker: int
     # Phase 143 Plan 03: post-run lifecycle hook (LIFECYCLE-03/04/05) thresholds.
     # Defaulted (matching the APR defaults from_apr() falls back to) rather than
     # required -- from_apr() always binds these explicitly in production; the
@@ -685,6 +688,8 @@ class ICEngineConfig:
             ),
             # Worker pool size (override via --workers CLI flag).
             n_workers=int(cfg.get_sync("infra.ic_engine.workers", 1)),
+            # todo 216: BLAS thread cap, see make_worker_pool()/limit_blas_threads().
+            blas_threads_per_worker=int(cfg.get_sync("infra.blas_threads_per_worker", 1)),
             # Phase 143 Plan 03: post-run lifecycle hook (LIFECYCLE-03/04/05).
             # Reused APR keys (migration 161/172) -- not new, so demotion and the
             # ensemble's own inclusion gate share one threshold and can't drift apart.
@@ -817,6 +822,9 @@ _OPERATIONAL_CONFIG_FIELDS: frozenset[str] = frozenset(
         "cs_chunk_ts",  # cross-sectional fetch chunk size -- pure throughput knob
         "symbol_fetch_chunk_rows",  # per-symbol fetch chunk size -- pure throughput knob
         "n_workers",  # ProcessPoolExecutor pool size -- pure throughput knob
+        # Per-worker BLAS thread cap (todo 216) -- empirically verified OPERATIONAL, not
+        # assumed. See limit_blas_threads()'s docstring in _batch_utils.py for the test.
+        "blas_threads_per_worker",
         # Post-run lifecycle hook (_apply_feature_transitions/_run_lifecycle_hook)
         # ONLY -- operates on feature_registry/ensemble decisions AFTER
         # feature_ic_scores rows are already written; never affects the rows
@@ -4429,6 +4437,13 @@ def main() -> None:
             _cfg_svc = _load_config_service(conn)
             config = ICEngineConfig.from_apr(_cfg_svc)
 
+            # Cap this (main) process's own BLAS thread pool -- covers the
+            # cross-sectional pass's ThreadPoolExecutor bootstrap below, which runs
+            # in-process and shares this process's OpenBLAS state. Per-symbol
+            # ProcessPoolExecutor workers are capped separately via initializer=
+            # at their own pool construction (todo 216).
+            limit_blas_threads(config.blas_threads_per_worker)
+
             # ----------------------------------------------------------
             # Phase 144 Plan 05: regime_group routing. equity_model_enabled is
             # retired as a standalone APR kill-switch (alpha.regime.equity_model_enabled)
@@ -4949,7 +4964,7 @@ def main() -> None:
                 # ----------------------------------------------------------
                 n_done = 0
                 if worker_args:
-                    with ProcessPoolExecutor(max_workers=n_workers) as pool:
+                    with make_worker_pool(n_workers, config.blas_threads_per_worker) as pool:
                         futures = {pool.submit(_run_ic_worker, wa): wa[0] for wa in worker_args}
                         for future in as_completed(futures):
                             result = future.result()

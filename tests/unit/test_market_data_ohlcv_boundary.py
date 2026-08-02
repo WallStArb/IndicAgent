@@ -17,6 +17,12 @@ import functools
 import re
 from pathlib import Path
 
+from tests.unit._source_grep_helpers import (
+    assert_allow_list_has_no_stale_entries,
+    assert_no_unlisted_references,
+    find_pattern_references,
+)
+
 _REPO_ROOT = Path(__file__).parent.parent.parent
 _RAW_TABLE_PATTERN = re.compile(r"\b(?:FROM|JOIN)\s+market_data_ohlcv\b(?!_tradeable)")
 _SEARCH_DIRS = ("services", "src", "scripts")
@@ -102,34 +108,26 @@ _ALLOW_LIST: dict[str, str] = {
 def _find_raw_table_references() -> dict[str, int]:
     """Returns {relative_path: match_count} for every .py/.sh file under _SEARCH_DIRS that
     references the raw market_data_ohlcv table (not the _tradeable view)."""
-    hits: dict[str, int] = {}
-    for search_dir in _SEARCH_DIRS:
-        for pattern in ("*.py", "*.sh"):
-            for path in (_REPO_ROOT / search_dir).rglob(pattern):
-                text = path.read_text(encoding="utf-8", errors="ignore")
-                count = len(_RAW_TABLE_PATTERN.findall(text))
-                if count:
-                    hits[str(path.relative_to(_REPO_ROOT))] = count
-    return hits
+    return find_pattern_references(
+        _REPO_ROOT, _SEARCH_DIRS, _RAW_TABLE_PATTERN, file_globs=("*.py", "*.sh")
+    )
 
 
 def test_every_raw_market_data_ohlcv_reference_is_on_the_allow_list():
     hits = _find_raw_table_references()
-    unexpected = set(hits) - set(_ALLOW_LIST)
-    assert not unexpected, (
-        f"New raw `market_data_ohlcv` read(s) found, not on the allow-list: {unexpected}. "
-        "If this is a genuine new call site, either point it at "
-        "`market_data_ohlcv_tradeable` (preferred, if it needs tradeable bars only) or add "
-        "it to _ALLOW_LIST in this file with a one-line reason (if it genuinely needs the "
-        "full calendar grid)."
+    assert_no_unlisted_references(
+        hits,
+        _ALLOW_LIST,
+        what="raw `market_data_ohlcv` read(s)",
+        remedy=(
+            "If this is a genuine new call site, either point it at "
+            "`market_data_ohlcv_tradeable` (preferred, if it needs tradeable bars only) or "
+            "add it to _ALLOW_LIST in this file with a one-line reason (if it genuinely "
+            "needs the full calendar grid)."
+        ),
     )
 
 
 def test_allow_list_has_no_stale_entries():
     hits = _find_raw_table_references()
-    stale = set(_ALLOW_LIST) - set(hits)
-    assert not stale, (
-        f"Allow-list entries that no longer match any raw `market_data_ohlcv` reference: "
-        f"{stale}. Either the file was fixed (remove its entry here) or moved/renamed "
-        "(update the path)."
-    )
+    assert_allow_list_has_no_stale_entries(hits, _ALLOW_LIST)

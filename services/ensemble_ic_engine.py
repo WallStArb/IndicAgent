@@ -70,7 +70,6 @@ import dataclasses
 import functools
 import sys
 from collections.abc import Callable, Iterable
-from concurrent.futures import ProcessPoolExecutor
 from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
@@ -96,6 +95,7 @@ from services._batch_utils import (
     connect_db_from_url,
     lookahead_by_scale_from_apr,
     lookaheads_for_tf,
+    make_worker_pool,
 )
 from services._batch_utils import cfg as _cfg
 from services._batch_utils import load_apr_dict_async as _load_apr_dict
@@ -175,6 +175,7 @@ class EnsembleICConfig:
     lookahead_extended: dict[str, int]
     active_scales: dict[str, tuple[str, ...]]
     n_workers: int
+    blas_threads_per_worker: int
     pooled_fetch_itersize: int
     # EnsembleIC-specific keys (migration 195)
     decay_threshold: float
@@ -245,6 +246,8 @@ class EnsembleICConfig:
             lookahead_extended=_lookahead_by_scale["extended"],
             active_scales=active_scales,
             n_workers=_cfg(cfg, "infra.ensemble_ic_engine.workers", 12),
+            # todo 216: BLAS thread cap, see make_worker_pool()/limit_blas_threads().
+            blas_threads_per_worker=_cfg(cfg, "infra.blas_threads_per_worker", 1),
             pooled_fetch_itersize=_cfg(
                 cfg, "infra.ensemble_ic_engine.pooled_fetch_itersize", 50_000
             ),
@@ -1235,7 +1238,7 @@ class EnsembleICEngine(BaseBatch):
         corpus_pval_result_idxs: list[int] = []
         worker_errors: list[str] = []
 
-        with ProcessPoolExecutor(max_workers=config.n_workers) as exe:
+        with make_worker_pool(config.n_workers, config.blas_threads_per_worker) as exe:
             for result in exe.map(_run_ensemble_ic_worker, worker_args, chunksize=1):
                 worker_errors.extend(result["errors"])
                 offset = len(corpus_all_results)

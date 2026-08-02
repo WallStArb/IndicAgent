@@ -32,7 +32,6 @@ import bisect
 import math
 import sys
 from collections import deque
-from concurrent.futures import ProcessPoolExecutor
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from typing import Any
@@ -50,6 +49,7 @@ sys.path.insert(0, str(project_root))
 from services._batch_utils import get_dict_config as _get_dict_config
 from services._batch_utils import get_list_config as _get_list_config
 from services._batch_utils import load_config_service_sync as _load_config_service
+from services._batch_utils import make_worker_pool as _make_worker_pool
 from src.config.config_service import ConfigService
 from src.config.settings import Settings, get_active_contracts
 from src.core.market_calendar import get_market_calendar
@@ -936,6 +936,8 @@ def run_compute_stage(
     insert_batch_size = int(
         cfg.get_sync("infra.backfill.insert_batch_size", _INSERT_BATCH_SIZE_DEFAULT)
     )
+    # todo 216: BLAS thread cap, see make_worker_pool()/limit_blas_threads().
+    blas_threads_per_worker = int(cfg.get_sync("infra.blas_threads_per_worker", 1))
 
     # Warm-up bars = dominant rolling window (momentum_zscore_window = 252)
     warm_up_bars = config.momentum_zscore_window
@@ -1020,7 +1022,7 @@ def run_compute_stage(
         n_workers=n_workers,
     )
 
-    with ProcessPoolExecutor(max_workers=n_workers) as pool:
+    with _make_worker_pool(n_workers, blas_threads_per_worker) as pool:
         for result in pool.map(_run_compute_worker, worker_args, chunksize=1):
             symbol = result["symbol"]
             if result["error"]:

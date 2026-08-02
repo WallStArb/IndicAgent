@@ -163,6 +163,7 @@ def test_rolling_metrics_returns_five_tuple():
         cs_chunk_ts=5000,
         symbol_fetch_chunk_rows=5000,
         n_workers=1,
+        blas_threads_per_worker=1,
     )
 
     result = _compute_ic_rolling_metrics(
@@ -216,6 +217,7 @@ def test_lookaheads_for_returns_per_tf_values():
         cs_chunk_ts=5000,
         symbol_fetch_chunk_rows=5000,
         n_workers=1,
+        blas_threads_per_worker=1,
     )
     assert config.lookaheads_for("5m") == {"fast": 1, "mid": 6, "slow": 12, "extended": 39}
     assert config.lookaheads_for("15m") == {"fast": 1, "mid": 2, "slow": 5, "extended": 10}

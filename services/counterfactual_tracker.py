@@ -49,7 +49,7 @@ import re
 import sys
 from collections import deque
 from collections.abc import Callable, Iterable, Sequence
-from concurrent.futures import ProcessPoolExecutor, as_completed
+from concurrent.futures import as_completed
 from dataclasses import dataclass
 from datetime import UTC, datetime
 from pathlib import Path
@@ -68,6 +68,7 @@ sys.path.insert(0, str(project_root))
 from services._batch_utils import cfg as _cfg
 from services._batch_utils import connect_db_from_url
 from services._batch_utils import load_apr_dict_async as _load_apr
+from services._batch_utils import make_worker_pool as _make_worker_pool
 from services.alpha_frame_writer import FrameConfig, compute_frame_geometry
 from src.config.settings import Settings
 from src.core.agent.base_batch import BaseBatch
@@ -796,6 +797,8 @@ class CounterfactualTracker(BaseBatch):
             itersize = _cfg(cfg, "infra.counterfactual_tracker.itersize", 5000)
             n_workers = _cfg(cfg, "infra.counterfactual_tracker.workers", 12)
             chunk_size = _cfg(cfg, "infra.counterfactual_tracker.chunk_size", 5000)
+            # todo 216: BLAS thread cap, see make_worker_pool()/limit_blas_threads().
+            blas_threads_per_worker = _cfg(cfg, "infra.blas_threads_per_worker", 1)
             chunk_index = await _load_chunk_index(conn, "alpha_frames")
 
             partitions = await conn.fetch(
@@ -845,7 +848,7 @@ class CounterfactualTracker(BaseBatch):
         def _row_lists() -> Iterable[list[dict[str, Any]]]:
             nonlocal total_degenerate_atr_skips
             n_done = 0
-            with ProcessPoolExecutor(max_workers=n_workers) as exe:
+            with _make_worker_pool(n_workers, blas_threads_per_worker) as exe:
                 # as_completed, not exe.map(): map() yields in SUBMISSION order, so one slow
                 # symbol/tf partition (e.g. an intraday tf over a 20y history) would stall
                 # every later-ordered symbol's flush even though it already finished computing

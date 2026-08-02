@@ -701,7 +701,7 @@ def test_refresh_reprocesses_complete_pairs() -> None:
                 for tf in _TARGET_TIMEFRAMES_DEFAULT
             },
         ),
-        patch("services.backfill_feature_factory.ProcessPoolExecutor") as mock_pool_cls,
+        patch("services.backfill_feature_factory._make_worker_pool") as mock_pool_cls,
     ):
         mock_cfg_load.return_value = MagicMock()
         mock_cfg_build.return_value = _make_config()

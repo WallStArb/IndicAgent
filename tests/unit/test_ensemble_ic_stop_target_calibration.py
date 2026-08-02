@@ -211,6 +211,7 @@ def _make_config(**overrides: Any) -> EnsembleICConfig:
             "1d": ("fast", "mid", "slow", "extended"),
         },
         n_workers=1,
+        blas_threads_per_worker=1,
         pooled_fetch_itersize=1000,
         decay_threshold=0.05,
         min_qualifying_fraction=0.6,
