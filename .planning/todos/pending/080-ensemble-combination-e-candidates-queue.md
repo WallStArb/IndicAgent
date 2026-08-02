@@ -15,10 +15,32 @@ HMM's own posteriors are often 55/45 and the system already stores them
 `alpha_score = Σ_r P(r|bar) · (w_r · features)`. Removes the alpha discontinuity at every
 boundary crossing (today manufactures emission churn from label noise), degrades gracefully
 exactly where the Phase 144 conditioning decision worries labels are weakest, uses zero new data.
-Cross-sectional strata get the analogous treatment from `market_regimes.regime_prob_vector`
-(already JSONB). One new `weight_version`, judged per-stratum by the existing D-10 win rule; zero
-new parameters; a scoring-path change in `ensemble_trainer`/`alpha_publisher` behind a variant
-flag, no new tables.
+
+**Correction 2026-08-02: the cross-sectional-strata claim above does not hold, per
+`docs/plans/2026-07-15-regime-boundary-churn-diagnostic-design.md`'s own Context section**
+(this todo's Phase 0 prerequisite, written to design the diagnostic that must run before L5-1
+is built). That doc traced `cross_sectional_regime_model.py`'s `_assign_labels` directly:
+`market_regimes.regime_prob_vector` is `{sig1_key: sig1_value, sig2_key: sig2_value}` — the
+raw signals that fed hard-threshold bucketing, **not a probability distribution over labels.**
+There is no `P(regime|bar)` to consume for cross-sectional strata; "the analogous treatment"
+does not exist without inventing one (a real design task, not "already JSONB"). The per-symbol
+HMM side (`hmm_prob_*`) is unaffected by this correction — those genuinely are posteriors.
+
+**Sequencing dependency, also 2026-08-02:** `docs/plans/2026-08-02-regime-label-transition-quality-measurement-design.md`
+(todo 005) investigates the same `_bucket()`/`_assign_labels()` hard-threshold mechanics from
+a different angle — IC measurement contamination, not scoring churn. If todo 005's diagnostic
+finds combined-label smoothing worth implementing at the source, that independently reduces
+the label flicker feeding this todo's boundary-churn question too. **Run todo 005 first.**
+Running this todo's Phase 0 diagnostic (`scripts/analysis/regime_boundary_churn_check.py`,
+built and tested, never executed) against today's unsmoothed labels risks a materiality
+reading inflated by flicker that todo 005 might independently eliminate — re-run this
+diagnostic after todo 005 resolves, don't trust a pre-005 result as final.
+
+One new `weight_version`, judged per-stratum by the existing D-10 win rule; zero new
+parameters; a scoring-path change in `ensemble_trainer`/`alpha_publisher` behind a variant
+flag, no new tables. Cross-sectional-strata soft-blending scope is now open (needs its own
+posterior-construction design, not a free reuse of `regime_prob_vector`) rather than the
+"zero new data" claim originally stated.
 
 ## L5-2 — Hierarchical family-then-feature allocation (HRP-lite)
 

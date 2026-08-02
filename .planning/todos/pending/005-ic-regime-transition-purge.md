@@ -73,6 +73,13 @@ DB. This todo's own "fix" code sample (the purge-mask sketch below) is supersede
 spec's Component 3 (splits into `purge_back`/`purge_fwd` with per-scale widths) -- read the
 spec before implementing anything here.
 
+**Sequencing relative to todo 080/L5-1, 2026-08-02:** not a duplicate of that todo (different
+consumer -- IC measurement here vs. ensemble scoring there -- different fix mechanism,
+different gate criteria). But if this todo's diagnostic promotes combined-label smoothing at
+the source, that independently reduces the boundary flicker feeding todo 080's L5-1 question.
+**This todo runs first.** Todo 080's Phase 0 diagnostic should not be trusted as a final
+materiality reading if run before this one resolves.
+
 # 005 — IC Engine: Regime Transition Purge Window
 
 **Priority: Medium — correctness improvement, not a blocker**
