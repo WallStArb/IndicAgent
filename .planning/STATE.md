@@ -64,29 +64,13 @@ writing real rows to `feature_ic_scores` as of the last check this session -- re
 before trusting this in a later session, historically ~27h total). Do not start new corpus-write
 work until it completes.**
 
-**Same-day follow-through on the `_SCALES`-hardcoding cleanup cluster** (plan:
-`docs/plans/2026-07-30-ic-scale-cleanup-plan.md`, all commits on `main`, tests green
-throughout): Task 1/todo 210 -- `ensemble_ic_engine.py`'s worker never checked
-`complete_{scale}` in either fetch path (a real measurement-integrity gap, not just wasted
-compute) and iterated the flat `_SCALES` tuple instead of `active_scales_for(tf)`, both fixed.
-Task 2/todo 209 -- `ops_vol_normalized_target_ab.py` migrated to a new `_load_active_scales`
-helper. Task 3/todo 211 (part 1 of 2) -- `ops_ensemble_ablation.py` migrated to a per-tf
-`AblationConfig` (mirrors `ICEngineConfig`'s shape exactly); **this surfaced a second,
-independent bug in the same file**, not caught by the original 211 filing: `AblationConfig`
-was still reading the pre-todo-146 flat global `alpha.ic.lookahead.{scale}` keys (no `{tf}`
-component) -- the script's own code carried a self-aware runtime warning about this, citing
-todo 202 as the tracker, but todo 202 closed without ever picking it up. Fixed in the same
-commit as the `_SCALES` migration. **Remaining: Task 4/todo 211 (part 2) --
-`ops_interaction_primitives_pilot.py` -- same `_SCALES` migration, plus its own independent
-stale-lookahead-key bug (same class as the one just found), not yet started.**
-
-Todo 210 (`ensemble_ic_engine.py`'s worker loop never checked `complete_{scale}` at all -- a
-real measurement-integrity gap, not just wasted compute) plus its two sibling `_SCALES`-cleanup
-todos (209, 211) and a trivial fix (212, corpus_manifest_verifier's empty-list bug, CLOSED) are
-scoped in `docs/plans/2026-07-30-ic-scale-cleanup-plan.md`, ready to execute once `ic_engine`
-settles. Todo 214 (ic_engine.py/ensemble_ic_engine.py's duplicated per-scale compute logic --
-the root cause that let 210 exist undetected) is filed, deliberately deferred until this chain
-is stable. A design doc on the grid's actual per-tf VALUES,
+**`_SCALES`-hardcoding cleanup cluster (`docs/plans/2026-07-30-ic-scale-cleanup-plan.md`) --
+ALL FOUR TASKS CLOSED 2026-07-30** (todos 209/210/211/212, all in `completed/`; todo 210 was
+the real one -- `ensemble_ic_engine.py`'s worker never checked `complete_{scale}` at all, a
+measurement-integrity gap, not just wasted compute). Todo 214
+(`ic_engine.py`/`ensemble_ic_engine.py`'s duplicated per-scale compute logic -- the root cause
+that let 210 exist undetected) remains open, deliberately deferred until this chain stays
+stable through a full corpus cycle. A design doc on the grid's actual per-tf VALUES,
 `docs/research/2026-07-30-forward-return-horizon-grid-refactor.md` (v1.2), recommends aligning
 each tf's measured horizons to that tf's real holding period via the existing (but currently
 starved) `_select_hold_bars_from_decay` decay walk, rather than a uniform or arbitrary grid --
@@ -109,9 +93,6 @@ features/regimes/IC/ensemble signal-generation stack validated first ("real prov
 before any execution-layer investment. Do not resume Phase 156-159 scoping without the user
 re-raising it.
 
-*Tier 1b -- CLOSED 2026-07-27:* todo 183's corpus recompute completed; todo 179's regime sweep
-re-run under corrected labels; final T2 verdict is dead, confirmed live. No longer a blocker.
-
 *Tier 2 -- serves the redirected priority:* todo 188 (T5 15m replication, deferred on memory
 contention -- see above); the open `alpha_ensemble_ic`/`alpha_events` question (is the linear-only combiner adequate, or
 does it need revision -- confirmed `ensemble_trainer.py`'s `resolve_stratum_weights` is linear
@@ -127,12 +108,9 @@ gate). **The in-flight `ic_engine` run (Tier -1) is a full, unscoped pass -- che
 already covers the 49 equity symbols this todo needs before assuming a second scoped run is
 still required once it completes.**
 
-*Tier 3 -- ready now, independent of the pipeline:* `docs/plans/2026-07-30-ic-scale-cleanup-plan.md`'s
-Tasks 2-4 (todos 209/211, three ops scripts still importing a flat `_SCALES` tuple -- pure
-mechanical migrations, unit-testable without live data). Task 1 (todo 210, the real
-measurement-integrity fix in `ensemble_ic_engine.py`) is also codeable/testable now via mocks;
-only its live-data verification step needs `ensemble_alpha` repopulated. Also: todos 172/173
-(non-blocking Phase 148 findings), todo 009 Parts A-D.
+*Tier 3 -- ready now, independent of the pipeline:* todo 009 Parts B/C (Parts A/D closed
+2026-07-31 -- promote 4 scripts to `BaseBatch`+systemd, naming-vocab doc update, still open).
+Todos 172/173 (non-blocking Phase 148 findings) also live here, lower urgency.
 
 *Tier 4 -- deprioritized, do not resume without re-reading why:* Phase 151 (Feature Primitives
 Expansion, planned and ready but not the next priority -- see Guiding lens above), Phase 145
@@ -146,16 +124,29 @@ are ALSO fully closed as of 2026-07-30 -- not the pipeline currently running (se
 
 *Tier -1 -- ACTIVE, supersedes every tier below until it clears:* the corpus pipeline relaunched
 2026-07-30 from step 3 (`forward_return_writer`, to pick up todo 208's session-gate fix) is on
-step 5/8 (`ic_engine`, started 13:19 EDT 2026-07-30). **Verified live 2026-07-31T10:38 UTC via
-`logs/ic_engine.log`: 25/80 symbols done** (`progress: "25/80"` on the last `symbol_computed`
-line). At that pace (~17.3h for 25 symbols), full completion is **~38h more remaining (~2026-08-02
-midday)** -- noticeably slower than the "historically ~27h" baseline, consistent with two
-already-known compounding factors: `threads=2`'s measured 1.28-1.35x speedup (not the 2.4x
-isolated-worker benchmark, per todo 215) and the corpus now carrying 244 feature columns/symbol
-(the historical baseline predates Phase 163/164/165's +77 columns). Nothing that reads
-`feature_ic_scores` or `ensemble_weights` should start until it completes. Re-verify before
-trusting this in a later session: `ps aux | grep ic_engine`, `tail -30 logs/ic_engine.log | grep
-symbol_computed`, `tail -15 logs/corpus_pipeline/resume_20260730_1240.log`.
+step 5/8 (`ic_engine`, started 13:19 EDT 2026-07-30). **Verified live 2026-08-02 ~18:58 UTC:**
+the per-symbol phase is DONE -- all 81 symbols present in `feature_ic_scores` (2,923,011 rows
+and still growing). The run is now in its cross-sectional pooled-IC pass (`equity` group's 5
+cells and `rates` group's 23 cells complete so far, currently on `rates`/5m/`steep_wide`; `fx`
+absent as expected -- migration 280 enabled it 2026-08-01, after this run's startup config
+load, so it takes effect next full rebuild, not this one). `pid 1638298`, elapsed ~2d22h, 256%
+CPU, healthy -- no sign of a stall, but **running well past even the prior revised "~2026-08-02
+midday" ETA**, which should not be trusted going forward without a fresh read. Nothing that
+reads `feature_ic_scores` or `ensemble_weights` should start until it completes. Re-verify
+before trusting this in a later session: `ps -p 1638298 -o etime,%cpu`, `grep
+cross_sectional_computed logs/ic_engine.log | tail`, `SELECT count(*) FROM feature_ic_scores`.
+
+**Parallel to this run, 2026-08-02 (pure code/docs, no corpus dependency):** todo 216 (BLAS
+thread oversubscription across all 5 `ProcessPoolExecutor` batch services) CLOSED, migration
+281 -- not yet confirmed at production scale, self-confirms on the next full pipeline run since
+it landed after this run's `regime_writer` step. Reviewing that fix surfaced todo 229 (a
+separate, deeper bug: hmmlearn's `monitor_.converged` is unconditionally `True` post-fit,
+making `regime_writer.py`'s same-seed convergence retry structurally unreachable since it
+shipped) -- design proven, implementation deferred pending this run's own convergence-iteration
+log data. Todo 005 (regime-label transition IC contamination) got a measurement-first design
+doc after an Opus review + rewrite corrected its own motivating statistic (measured on the
+wrong population initially). See `docs/research/intelligence-lifecycle-backlog-matrix.md`'s
+Operational Context section for full detail on both threads, not duplicated here.
 
 A same-day partial-data check (safe, read-only, ran alongside the live pipeline) found
 `ctf_momentum` at 15m holding up on the first 21 symbols computed under the corrected corpus:

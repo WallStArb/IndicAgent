@@ -27,51 +27,42 @@ model complexity · never drop data that could contain signal · earn promotion 
 resist overfitting. A todo that would earn its way to P0/P1 under these tests (a live-path
 integrity gap, an unproven claim masquerading as settled) outranks one that's merely convenient.
 
-**Current probable path (updated 2026-07-30 evening -- phase-level, see `.planning/STATE.md` for
-full detail, not duplicated here):** Phase 164/165/167 all COMPLETE; user has redirected priority
-away from Phase 156-159 (execution) toward validating the features/regimes/IC/ensemble stack
-first. The per-tf-active-scale-set branch merged 2026-07-30 (`ic_engine.py`'s hardcoded scales
--> per-tf `active_scales_for(tf)`), whose own final review found and same-day fixed todo 208
-(the same-ET-session forward-return completeness gate was silently zeroing 1h's completeness
-for a reason that doesn't hold up) -- `forward_returns` truncated and rebuilt clean under the
-corrected definition. The three follow-on `_SCALES`-hardcoding cleanups (209/210/211) scoped in
-`docs/plans/2026-07-30-ic-scale-cleanup-plan.md` are all now DONE (211 closed 2026-07-30).
-Canary RNG seeding fixed (todo 203) but a sibling POOLED-gate anomaly (todo 204) is still
-undiagnosed.
+**Phase-level status:** see `.planning/STATE.md` and
+`docs/research/intelligence-lifecycle-backlog-matrix.md`'s Operational Context -- not
+duplicated here. Two open items with no phase home yet: todo 204 (POOLED-gate anomaly,
+undiagnosed since 2026-07-30) and todo 218 (`BIL` implausible per-symbol IC on thin cells,
+filed 2026-07-31, check `passes_fdr` once the in-flight run completes).
 
-**2026-08-01: regime-stratification todo cluster consolidated.** `docs/research/stratification-dimension-unification.md`
-(the canonical doc for "what other ways could we stratify/condition IC by regime" — already
-covered dispersion/correlation/term-structure/factor-regime/liquidity as named candidates, plus
-a full governance model, months before today's conversation reinvented several of them) was a
-full milestone-stage stale (last touched 2026-07-06; Phase 144 completed 2026-07-22 since then,
-D-05's verdict landed, Phase 145 unblocked-but-never-started). Reconciled and cross-linked to
-todos 135 (grid-shape never validated — literally "was the equity 9-cell grid BIC-selected the
-way HMM K=5 was" — no), 167 (equity-vs-symbol-HMM substitution test, near an answer, blocked
-only on the in-flight `ic_engine` run), 224 (fx/commodity enablement), 225 (gradient-conditional
-IC, explicitly a different mechanism from this doc's contract, kept distinct), and 111/Phase 145
-(the actual planned vehicle to formalize the contract and scope new candidates — unblocked since
-2026-07-22, not started). **Read the doc's "Reconciliation pass (2026-08-01)" section first**
-before re-deriving any of this from scratch in a future session.
+**Regime-stratification cluster consolidated 2026-08-01** -- read
+`docs/research/stratification-dimension-unification.md`'s "Reconciliation pass (2026-08-01)"
+section before re-deriving candidate stratification dimensions from scratch; it already
+cross-links todos 135/167/224/225/111 (Phase 145).
 
-**2026-08-01: todo 220 closed** (docs/agents/platform/architecture DAG registry resync + CLAUDE.md
-OTel label fix). Surfaced new project-level context worth flagging here: the user stated the
-v2.x I1-I7 path will eventually be revived as a second, conventional intelligence path alongside
-v3.0's AlphaEngine, not retired permanently (`project_dual_intelligence_path_plan.md` in
-memory). This softens todo 223's delete-vs-archive call (lean archive, Group B explicitly kept)
-and is in mild tension with todo 056's "decommission-in-fact" framing (archive-not-delete is
-still compatible, but the systemd-unit-disable / table-rename steps there should be re-read
-against this plan before executing, not assumed still fully correct as scoped).
+**Dual intelligence-path plan (stated 2026-08-01, `project_dual_intelligence_path_plan.md` in
+memory):** v2.x I1-I7 will eventually run again as a second path alongside v3.0's AlphaEngine,
+not retired permanently -- governs todo 223's archive-not-delete call and todo 056's
+decommission-in-fact framing (re-read that plan before executing either).
 
-**Live checkpoint 2026-07-31 ~20:35 UTC (re-verify before trusting -- `grep symbol_computed
-logs/ic_engine.log`, `ps aux | grep ic_engine`, `SELECT count(*) FROM feature_ic_scores`):**
-`ic_engine` at 49/80 symbols, `feature_ic_scores` at 1,637,175 rows, workers healthy (8
-forkserver processes, high CPU, no errors in log tail). ~27h elapsed since the 13:19 EDT
-2026-07-30 restart -> ETA **~2026-08-01 midday/early afternoon**, consistent with the prior
-checkpoint below. Two todos closed in parallel while this run is in flight (pure code, no corpus
-dependency): **todo 124** (`market_data_ohlcv` Tier-2 boundary migration, commit `82861b0b`) and
-**todo 009 Parts A/D** (APR sweep + pure-function cleanup, commit `bd3c5ced`). New **todo 218**
-filed 2026-07-31 spot-checking the live recompute: `BIL` showing implausible per-symbol IC on
-thin regime cells -- not diagnosed, check `passes_fdr` once the run completes.
+**Live checkpoint 2026-08-02 ~18:58 UTC (re-verify -- `ps -p 1638298 -o etime,%cpu`, `grep
+cross_sectional_computed logs/ic_engine.log`, `SELECT count(*) FROM feature_ic_scores`):**
+`ic_engine`'s per-symbol phase is done (81/81 symbols, 2.92M `feature_ic_scores` rows,
+growing); now in the cross-sectional pooled-IC pass (`equity`+`rates` partially done, `fx`
+absent as expected -- enabled 2026-08-01, after this run's startup config load). Healthy,
+256% CPU, elapsed ~2d22h -- running well past the prior "~2026-08-01 midday" ETA with no sign
+of a stall; don't trust either number without a fresh read.
+
+**Todo throughput/measurement work landed 2026-08-02, parallel to the same in-flight run (pure
+code/docs, zero corpus dependency):** todo 216 CLOSED (BLAS thread-cap fix, migration 281,
+self-confirms next full pipeline run); todo 229 filed from reviewing 216's branch (hmmlearn's
+`monitor_.converged` is structurally always `True` post-fit, making `regime_writer`'s same-seed
+retry unreachable since it shipped -- fix proven, deferred pending measurement data); todos
+226-228 filed (n_iter headroom, ic_engine bootstrap-resample design question, I/O-vs-CPU
+triage); todo 005 got a measurement-first design doc after an Opus review + rewrite corrected
+its own motivating statistic (`docs/plans/2026-08-02-regime-label-transition-quality-measurement-design.md`);
+todo 080 corrected (stale premise disproven by a sibling 2026-07-15 doc, never updated until
+now) and cross-linked to 005 (005 resolves first). Full detail on all of this:
+`docs/research/intelligence-lifecycle-backlog-matrix.md`'s Operational Context, not duplicated
+here.
 
 **Prior checkpoint, 2026-07-30 22:35 UTC-ish (superseded by the above, kept for continuity):**
 `ic_engine` (step 5/8) was killed and restarted same day to test todo 215's thread-count APR

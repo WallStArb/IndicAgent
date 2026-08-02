@@ -1,6 +1,6 @@
 # v3.0 Intelligence Lifecycle — Priority Matrix
 
-**Last rewritten:** 2026-07-08, full **Operational context refresh 2026-07-26, touched up 2026-07-27, 2026-07-31** (Phase 167 completion, Phase 164 planning, T5 1d replication, Phase 168 planned) (the dated
+**Last rewritten:** 2026-07-08, full **Operational context refresh 2026-07-26, touched up 2026-07-27, 2026-07-31, 2026-08-02** (Phase 167 completion, Phase 164 planning, T5 1d replication, Phase 168 planned, corpus-throughput todos 215/216/217/226/229, todo 005 measurement-first design) (the dated
 append-log format this doc had drifted into was cut — see git history if the historical
 narrative is ever needed; resolved items live in `.planning/todos/completed/` and ROADMAP.md's
 Phase Summary tables). **Filename is stable, not date-stamped**
@@ -59,21 +59,63 @@ provisional. Doesn't affect T3/Phase 167's own result (no regime dependency).
 same-ET-session completeness gate** — it was silently zeroing 1h's `slow`/`extended` completeness
 for a reason that doesn't hold up under the horizon-response diagnostic. Fixed for all intraday
 tfs, `forward_returns` truncated and rebuilt clean (35.6M rows) under the corrected definition,
-and the full corpus pipeline relaunched from `regime_writer`. **A full 80-symbol `ic_engine` pass
-is in flight as of this writing** (started 13:19 EDT 2026-07-30, ~49/80 symbols done as of
-2026-07-31 ~20:35 UTC, ETA ~2026-08-01 midday/early afternoon) — nothing that reads
-`feature_ic_scores`/`ensemble_alpha` should start until it completes. The diagnostic itself
-resolved cleanly: today's session-gate fix is confirmed correct, and migration 269's provisional
-per-tf lookahead grid is confirmed not wrong under the corrected semantics — **this run is
-trustworthy, not a third rebuild waiting to happen.** Separately, `ic_engine`'s bootstrap CI
-(todo 215) was vectorized and measured at ~1.3x real speedup (contention-limited, below the 2.4x
-isolated benchmark) — kept as the standing config, no further tuning without a dedicated
-idle-box benchmark. Canary RNG seeding (todo 203) fixed; a sibling POOLED-gate anomaly (todo 204)
-remains undiagnosed pending this run's output. **Phase 168 (Cost-Hurdle-Adjusted Spread
-Construction, T3 follow-on)** was scoped and planned 2026-07-31 as a parallel, zero-compute-
-contention track alongside the live `ic_engine` run — 5 plans/4 waves, cross-AI reviewed
-(Codex+Agy), ready to execute (`/gsd:execute-phase 168`), not yet run. See its row in the HIGH
-tier's Phases table below.
+and the full corpus pipeline relaunched from `regime_writer`. The diagnostic itself resolved
+cleanly: the session-gate fix is confirmed correct, and migration 269's provisional per-tf
+lookahead grid is confirmed not wrong under the corrected semantics — **this run is
+trustworthy, not a third rebuild waiting to happen.** Canary RNG seeding (todo 203) fixed; a
+sibling POOLED-gate anomaly (todo 204) remains undiagnosed pending this run's output. **Phase
+168 (Cost-Hurdle-Adjusted Spread Construction, T3 follow-on)** was scoped and planned 2026-07-31
+as a parallel, zero-compute-contention track alongside the live `ic_engine` run — 5 plans/4
+waves, cross-AI reviewed (Codex+Agy), ready to execute (`/gsd:execute-phase 168`), not yet run.
+See its row in the HIGH tier's Phases table below.
+
+**Corpus pipeline throughput work, 2026-07-30 through 2026-08-02 (todos 215/216/217, parallel
+to the same in-flight `ic_engine` run — pure code/infra, no corpus dependency):** `ic_engine`'s
+bootstrap CI (todo 215) was vectorized and measured at ~1.3x real speedup (contention-limited,
+below the 2.4x isolated benchmark) — kept as the standing config, no further tuning without a
+dedicated idle-box benchmark. **Todo 216 (BLAS thread oversubscription) CLOSED 2026-08-02** —
+every `ProcessPoolExecutor`-based batch service (`regime_writer`, `ic_engine`,
+`ensemble_ic_engine`, `counterfactual_tracker`, `backfill_feature_factory`) was defaulting to
+one OpenBLAS thread per core inside each worker, an N-way oversubscription measured at 2.5x
+slower even in isolation; fixed system-wide (migration 281), not yet confirmed at production
+scale since it landed after the in-flight run's `regime_writer` step already finished —
+self-confirms on the next full pipeline run. Reviewing that fix's own branch surfaced a deeper,
+separate bug (**todo 229**): hmmlearn's `ConvergenceMonitor.converged` is unconditionally `True`
+after any completed fit (verified against source and empirically), making `regime_writer.py`'s
+same-seed convergence retry (todo 108) structurally unreachable since it shipped — todo 216's
+own "zero retries across 244 fits" finding was a tautology, not evidence of clean convergence.
+Design decision settled and proven (`monitor_.iter < monitor_.n_iter` is the exact fix);
+implementation deliberately deferred pending the next run's convergence-iteration log data
+(todo 226, the measurement step now shipped) to size the fix's throughput cost before paying
+for it. Todo 217 (step-timing instrumentation) landed 2026-07-30, still unverified against a
+live full run.
+
+**Live checkpoint 2026-08-02 ~18:58 UTC:** `ic_engine`'s per-symbol phase is done (all 81
+symbols in `feature_ic_scores`, 2.92M rows and growing); now in its cross-sectional pooled-IC
+pass (`equity`+`rates` groups partially done, `fx` absent as expected — enabled 2026-08-01,
+after this run's startup config load). `pid 1638298`, elapsed ~2d22h, 256% CPU, healthy. Running
+longer than the prior "~2026-08-01 midday" ETA with no sign of a stall — re-verify before
+trusting either number in a later session.
+
+**Regime-label transition quality, 2026-08-02 (todo 005, a measurement question, not yet a
+Phase):** the roadmap doc that originally motivated todo 005's IC-purge-window proposal
+(`docs/plans/archive/2026-06-26-renaissance-optimization-roadmap.md`, item IC-003) asserted a
+10-20% `ic_sharpe` improvement that was never checked against real data — rejected as a design
+input. A measurement-first design doc
+(`docs/plans/2026-08-02-regime-label-transition-quality-measurement-design.md`) specs a
+read-only diagnostic to test, out-of-sample, whether combined-label hysteresis smoothing and/or
+a purge window actually move IC before either touches production. Went through an Opus review
+(5 Critical findings) and a full rewrite; every load-bearing number independently re-verified
+against the live DB, including a correction to the diagnostic's own motivating statistic
+(`market_regimes` is a 24/7 calendar grid — only 18.6% of rows join to `feature_vectors`;
+corrected transition-flicker rate is 52.1% on equity/5m, 95.7% on rates/5m, not the 24% first
+reported). Cross-linked to a sibling todo (080/L5-1, ensemble-scoring boundary churn — different
+consumer, not a duplicate; 005 should resolve first since its fix would reduce the flicker 080's
+never-yet-run diagnostic would otherwise read as artifact) and to
+`docs/plans/2026-07-15-regime-boundary-churn-diagnostic-design.md` (that todo's own prerequisite
+doc, which found `regime_prob_vector` is raw signal values, not a posterior — a premise 080's own
+text still asserted uncorrected until this pass caught it). Not yet an implementation plan; next
+step if pursued is planning the diagnostic script itself.
 
 ---
 
