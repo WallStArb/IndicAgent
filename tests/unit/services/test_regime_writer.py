@@ -755,7 +755,7 @@ def test_compute_symbol_tf_n_restarts_default_preserves_same_seed_retry(monkeypa
             super().fit(X, lengths)
             fit_count["n"] += 1
             if fit_count["n"] == 1:
-                self.monitor_ = SimpleNamespace(converged=False)
+                self.monitor_ = SimpleNamespace(converged=False, iter=5)
             return self
 
     monkeypatch.setattr(regime_writer_module, "GaussianHMM", _ForceFirstNonConvergedHMM)
