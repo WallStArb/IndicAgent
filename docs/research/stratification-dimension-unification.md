@@ -116,14 +116,30 @@ rather than starting a new one — this is still the right single home for the t
    — this doc's candidates all produce a `labels: list[str]` per the contract; 225's mechanism
    deliberately produces none. The negative pilot result doesn't bear on any candidate in the
    table below.
-6. **`term_structure` candidate correction:** this doc's table (below) states equity-specific VX
-   term structure "remains genuinely blocked on IBKR gateway support unconfirmed." **Checked
-   live 2026-08-01: `VIX` and `VX` are both present in `instruments` with
-   `contract_details->>'asset_class'='futures'`** — futures contract data is being tracked. This
-   doesn't confirm multiple-contract-month curve data is actually ingested (that's a narrower
-   claim than "the symbol exists"), but the blanket "blocked" framing is stale and should be
-   re-verified against live `market_data_ohlcv` contract coverage before being cited again,
-   rather than assumed still true.
+6. **`term_structure` candidate — correction to the correction (2026-08-01, same day):** an
+   earlier revision of this note (now itself wrong, corrected here) claimed the "blocked on IBKR
+   gateway support" framing was stale because `VIX`/`VX` exist in `instruments`. That's true but
+   answers the wrong question and understated the real blocker — checked properly this time:
+   - `market_data_ohlcv` has **zero rows** for either `VIX` or `VX` — no bar data has ever been
+     ingested for these symbols, not "some data, needs more."
+   - `contract_metadata` (the roll-tracking table — `roll_from`/`roll_to`/`roll_date`/
+     `is_front_month`) has **zero rows** for either symbol either — the roll mechanism has never
+     run for VX.
+   - Both `instruments` rows carry `"expiry": ""` — they're registered as a single generic
+     rolling-front-month series (the same shape every other tracked future uses, one row that
+     gets promoted at roll time), not as N simultaneously-live dated contract months.
+   - **User correction (2026-08-01): a single rolling front-month series cannot produce a term
+     structure at all, independent of the data-gap above.** Term structure requires at least two
+     *distinct, simultaneously-trading* contract months (e.g. front + second month) compared
+     against each other at the same timestamp; the existing roll infrastructure is built to
+     produce one continuous series, not track two independently-rolling legs and their spread.
+     Building this needs new contract-tracking shape (ingest ≥2 named VX contract months
+     concurrently, each with its own roll schedule, plus curve-point alignment logic across two
+     independently-rolling legs), not just "turn on data collection for the existing VX row."
+   The original doc's "blocked" framing was closer to right than my first-pass correction gave
+   it credit for — the specific reason (IBKR gateway support) is unconfirmed either way, but the
+   real blocker is real: no data, no roll infra for a single leg let alone two, and the
+   single-front-month shape is structurally the wrong shape for a curve regardless.
 
 ---
 
@@ -460,7 +476,7 @@ insufficient) becomes every candidate's default mechanism, not just E1/E2's. Thr
 | `volume_pct` | Expanding percentile rank of `rel_volume` | Plausibly captures participation/liquidity distinct from volatility's dispersion-of-outcomes | **Gated on orthogonality study** — volume and volatility spikes are well-documented to co-move; must clear the correlation check before admission, not approved alongside `volatility_pct` by default |
 | `skew_tail` | Rolling return skewness percentile | High-vol-positive-skew (lottery-like) vs. high-vol-negative-skew (crash risk) are different prediction problems at the same vol percentile | **Gated on orthogonality study** — skew clusters with vol in the tails, exactly where this dimension would matter most |
 | `session_position` | Deterministic wall-clock session bucket (open/midday/close), via existing `normalize_session_type()` | Zero look-ahead risk by construction, near-certainly orthogonal to price/volume-derived dimensions, zero incremental compute | Deprioritized 2026-07-01 — cheap and safe is not the same as valuable; no case made for session effects mattering at this system's swing (not HFT) cadence. Only intraday TFs benefit |
-| `term_structure` | Percentile rank of futures curve slope (contango/backwardation) for commodity/rates `regime_group`s; yield-curve slope proxy for `rates` specifically | Carry cost and roll yield flip sign across curve regimes; factor relationships in `fi_*` bonds and commodity futures are documented to differ by curve shape. Also the natural proxy for monetary-policy stance (hiking/cutting/pausing) — folded in here rather than added as a separate rate-cycle axis, per gate 0's redundancy logic (curve slope and policy stance are the same underlying dynamic, not two independent ones) | Per `regime_group`, not universe-wide — computable from existing IBKR futures feeds for commodity/rates symbols already active; needs its own APR percentile thresholds; orthogonality vs. `volatility_pct`/`dispersion` not yet studied, no exemption asserted. **Not the same candidate as VX term structure** (`docs/research/catalog.md`'s intel-08 entry) — that's equity vol term structure specifically, needs two VX contract months; `instruments` confirmed to track both `VIX`/`VX` symbols live as of 2026-08-01 (see Reconciliation pass above), so the "blocked on IBKR gateway support" framing is stale — re-verify actual multi-contract-month curve data in `market_data_ohlcv` before citing as blocked or unblocked; this row is the commodity/rates curve, already computable from active symbols |
+| `term_structure` | Percentile rank of futures curve slope (contango/backwardation) for commodity/rates `regime_group`s; yield-curve slope proxy for `rates` specifically | Carry cost and roll yield flip sign across curve regimes; factor relationships in `fi_*` bonds and commodity futures are documented to differ by curve shape. Also the natural proxy for monetary-policy stance (hiking/cutting/pausing) — folded in here rather than added as a separate rate-cycle axis, per gate 0's redundancy logic (curve slope and policy stance are the same underlying dynamic, not two independent ones) | Per `regime_group`, not universe-wide — computable from existing IBKR futures feeds for commodity/rates symbols already active; needs its own APR percentile thresholds; orthogonality vs. `volatility_pct`/`dispersion` not yet studied, no exemption asserted. **Not the same candidate as VX term structure** (`docs/research/catalog.md`'s intel-08 entry) — that's equity vol term structure specifically, needs two simultaneously-tracked VX contract months compared against each other, not a single rolling front-month series. Verified 2026-08-01: `instruments` has `VIX`/`VX` rows but zero `market_data_ohlcv` bars and zero `contract_metadata` roll history for either — no data, no roll infra, and the single-front-month shape both rows use structurally cannot produce a curve even once data exists. Real blocker, larger than a data-collection flip; see Reconciliation pass above. This row is the commodity/rates curve, already computable from active symbols with real data |
 
 *(added 2026-07-18)* `term_structure` folded in from a session comparing this candidate list
 against standard hedge-fund regime taxonomy. Two other candidates raised in that comparison
