@@ -1,0 +1,66 @@
+---
+status: pending
+priority: P2
+filed: 2026-08-02
+source: throughput brainstorm following todo 215 -- todo 215 already falsified batching
+  and landed threading (~1.3x, capped by 24-core contention); this is the remaining
+  algorithmic lever on the same hot path
+---
+
+# `_blocked_bootstrap_ci`'s fixed 2000-resample count is a bigger lever than more
+# threading, but it breaks the function's current bit-identical guarantee -- scope
+# the tolerance change explicitly before touching code
+
+## Problem
+
+Todo 215 (`.planning/todos/completed/215-ic-engine-bootstrap-ci-vectorization.md`,
+completed 2026-07-30) confirmed
+`_blocked_bootstrap_ci`'s cost is dominated by `scipy.stats.rankdata`'s real O(n log n)
+sort, not per-call dispatch overhead (batching was measured and falsified). Threading
+landed a real ~1.3x win but is now core-contention-capped (8 `ic_engine` workers x 2
+threads already near the 24-logical-core ceiling; todo 215 explicitly found threads=4/8
+would regress via oversubscription, not improve).
+
+The remaining lever is doing less total work: `alpha.ic.bootstrap_resamples` = 2000 is
+fixed regardless of how quickly the CI's Monte Carlo standard error actually stabilizes.
+Many cells likely converge well before 2000 resamples; a fixed count either wastes
+compute on already-stable cells or (less likely, worth checking) under-resamples noisy
+ones.
+
+## Constraint -- this is the hard part, not the algorithm
+
+`_subsample_and_rank`'s existing docstring guarantees the resample index matrix is
+**bit-identical**, not approximately equal, across runs (verified: one batched
+`rng.integers(..., size=(B, K))` call consumes the RNG stream identically to B
+sequential calls -- see todo 215's evidence). An adaptive/early-stopping resample count
+inherently breaks this: the number of resamples drawn becomes data-dependent, so two
+runs with different early-stop thresholds produce different N, different RNG stream
+consumption, and a CI that is close but not bit-identical to the fixed-2000 baseline.
+
+This is not a "just add an early-stop check" change -- it requires:
+1. Deciding whether bit-identical reproducibility is actually load-bearing for this
+   specific CI (as opposed to the HMM regime labels, which clearly are, per
+   [[project_hmm_improvement_decisions]]) -- if IC confidence intervals are consumed
+   downstream as a threshold gate (e.g. significance testing) rather than as an exact
+   value compared run-to-run, a documented *tolerance* (e.g. CI bounds within 1e-4)
+   may be an acceptable replacement invariant.
+2. If tolerance is acceptable: design the stopping rule (e.g. stop once the running
+   percentile estimate's Monte Carlo SE drops below some threshold, checked every K
+   resamples to keep it vectorizable), and re-derive whatever unit tests currently
+   assert exact reproducibility (`test_subsample_and_rank_threaded_matches_serial` and
+   any sibling test asserting bit-identical resample counts).
+3. If bit-identical reproducibility is NOT negotiable: this todo is closed as "not
+   viable," and threads=2 (todo 215's landed value) is the ceiling on this path.
+
+## What to do
+
+Start with step 1 above -- a design decision, not code. Check what actually consumes
+IC confidence intervals downstream (`ic_shrinkage`? ensemble gating?) and whether any
+consumer needs exact run-to-run reproducibility or just a stable-enough estimate.
+Bring the answer back before writing any resample-count logic.
+
+## Sizing
+
+Design/decision step: small. Implementation, if approved: medium (new stopping-rule
+code + new tolerance-based tests replacing the exact-match tests it obsoletes) +
+requires a full corpus re-run to confirm no downstream regression.
