@@ -167,6 +167,11 @@ PERMANENT). Boundary test allow-list's PENDING entries: 0.
 | [227](pending/227-ic-engine-adaptive-bootstrap-resample-early-stop.md) | New 2026-08-02. Contingent on a design decision: does `_blocked_bootstrap_ci` need bit-identical reproducibility (load-bearing like HMM) or is a documented tolerance acceptable? That choice gates whether adaptive/early-stopping resample is feasible or requires a full redesign. |
 | [228](pending/228-corpus-pipeline-unmeasured-steps-io-vs-cpu-triage.md) | New 2026-08-02. Blocked on [217](pending/217-corpus-pipeline-step-timing-instrumentation.md) landing + one full pipeline run (step-time data for all 8 steps now available). Then: classify steps 1/6/7/8 as I/O- vs CPU-bound before applying thread-tuning lessons from todos 215/216. |
 
+**[231](../completed/231-t5-1h-lightgbm-check-oom-corpus-outgrew-script.md) CLOSED 2026-08-02** —
+fixed a chunked-fetch OOM (shared fix across all 3 T5 scripts) and used it to re-verify the 1h
+finding under corrected `forward_returns`: holds, magnitude down ~30-40%. [188](pending/188-t5-replication-15m-deferred-memory-contention.md)'s
+15m replication above can reuse the same fix but hasn't run yet.
+
 ## P3 — Hygiene, docs, process (opportunistic)
 
 **[222](../completed/222-cross-asset-state-reuses-full-featurecache.md) CLOSED 2026-07-31** —
