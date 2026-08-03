@@ -623,8 +623,8 @@ def causal_entity_expanding_mean(
 ) -> np.ndarray:
     """Causal (shift(1), expanding) per-entity mean of `values`.
 
-    Guards against the exact leak found in the T5 non-linear-combiner falsification test
-    (docs/ideas/measurement-nonlinear-interaction-combiner.md, 2026-07-26): a pooled model
+    Guards against the exact leak found in the nonlinear_interaction_combiner falsification test
+    (docs/research/archive/measurement-nonlinear-interaction-combiner.md, 2026-07-26): a pooled model
     trained across many symbols can implicitly learn each symbol's own persistent long-run
     drift (a fixed-membership factor exposure, e.g. via `entity_ids`-correlated feature
     patterns) as a proxy for genuine bar-level signal, rather than predicting real deviations

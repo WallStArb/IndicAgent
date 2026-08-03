@@ -3,14 +3,14 @@ status: completed
 priority: P3
 filed: 2026-08-03
 closed: 2026-08-03
-source: T5-at-5m float16 downcast overflow investigation
+source: nonlinear_interaction_combiner-at-5m float16 downcast overflow investigation
 ---
 
 ## What
 
-Diagnosing a `RuntimeWarning: overflow encountered in cast` while trying to run T5's non-linear
+Diagnosing a `RuntimeWarning: overflow encountered in cast` while trying to run nonlinear_interaction_combiner's non-linear
 combiner replication at 5m with `feature_dtype=np.float16` (a memory necessity at that row
-count, see `docs/research/data-edge-source-thesis.md`'s T5 section), a full-corpus scan
+count, see `docs/research/data-edge-source-thesis.md`'s nonlinear_interaction_combiner section), a full-corpus scan
 (`MAX(ABS(col))` across all 253 `feature_vectors` float columns, 5m equity rows only) found
 exactly 3 columns exceed float16's ~65504 max magnitude:
 
@@ -60,7 +60,7 @@ This changes the read on both:
 ## Impact and current workaround (updated 2026-08-03)
 
 Because of the row-count split above, the float16-scoped 5m fetch path
-(`scripts/analysis/_t5_nonlinear_combiner_shared.py`) now treats these two cases differently
+(`scripts/analysis/_nonlinear_interaction_combiner_shared.py`) now treats these two cases differently
 instead of excluding all three columns uniformly:
 
 - `hmm_duration` stays fully excluded (`FLOAT16_UNSAFE_COLS`) -- clipping a distribution that's
@@ -85,11 +85,11 @@ are lower priority given the confirmed-rare (3-6 row) incidence -- worth a quick
 ATR floor/guard against near-zero denominators if picked up alongside `hmm_duration`, but not
 worth a dedicated pass on its own.
 
-## T5-training-integrity check (2026-08-03, same session) -- closes the concern for T5 specifically
+## nonlinear_interaction_combiner-training-integrity check (2026-08-03, same session) -- closes the concern for nonlinear_interaction_combiner specifically
 
-Raised because `hmm_duration` was NOT in `_t5_nonlinear_combiner_shared.py`'s universal
+Raised because `hmm_duration` was NOT in `_nonlinear_interaction_combiner_shared.py`'s universal
 `EXCLUDE_COLS` -- only excluded from the float16-scoped 5m fetch, meaning the already-completed
-1h/15m T5 runs (this session's headline "substantial at 1h/15m" finding) trained on it. Checked
+1h/15m nonlinear_interaction_combiner runs (this session's headline "substantial at 1h/15m" finding) trained on it. Checked
 whether it's tf-specific before assuming urgency:
 
 - **The bug is present at every tf, not just 5m** -- `max(abs(hmm_duration))` is
@@ -103,17 +103,17 @@ whether it's tf-specific before assuming urgency:
   walk-forward models** (not inferred from correlation alone, since a tree can exploit
   interaction structure a pairwise correlation wouldn't show): `hmm_duration` ranked 89-233 out
   of 248 features across all 5 folds, importance 0-3 vs `ctf_momentum`'s 400+. **It was never a
-  meaningful driver -- the published T5 1h/15m results are not an artifact of this bug.**
+  meaningful driver -- the published nonlinear_interaction_combiner 1h/15m results are not an artifact of this bug.**
 
 **Fix applied:** moved `hmm_duration` from the float16-scoped `FLOAT16_UNSAFE_COLS` into the
-universal `EXCLUDE_COLS` in `_t5_nonlinear_combiner_shared.py` -- it's excluded from every T5 tf
+universal `EXCLUDE_COLS` in `_nonlinear_interaction_combiner_shared.py` -- it's excluded from every nonlinear_interaction_combiner tf
 now, not just 5m, since it's confirmed broken everywhere and carries no real signal at any of
 them. This is a methodology cleanup, not a result change (re-verified the 1h feature set drops
 from 248 to 247 columns; nothing else shifts).
 
 **Still open, unaffected by the above:** the actual root cause in whatever computes/writes
 `hmm_duration` (likely `regime_writer.py`, given todo 207 already established it's the sole
-authoritative writer post-2026-07-30) -- this fix only stops T5 from training on a known-broken
+authoritative writer post-2026-07-30) -- this fix only stops nonlinear_interaction_combiner from training on a known-broken
 column, it does not fix the column itself for any other live consumer.
 
 ## Root cause found and fixed at the data layer (2026-08-03, `superpowers:systematic-debugging`)
@@ -163,8 +163,8 @@ on any `regime IS NULL` row across all 4 tfs, and every `regime IS NOT NULL` row
 (same 345-2284 max `hmm_duration` as before). Audit trail sums to exactly 10,062,758, matching
 the applied count. Full unit suite green before and after.
 
-`_t5_nonlinear_combiner_shared.py`'s `EXCLUDE_COLS` comment updated to reflect the column is now
-data-clean, not still broken -- `hmm_duration` stays excluded from T5 training as a deliberate,
+`_nonlinear_interaction_combiner_shared.py`'s `EXCLUDE_COLS` comment updated to reflect the column is now
+data-clean, not still broken -- `hmm_duration` stays excluded from nonlinear_interaction_combiner training as a deliberate,
 conservative choice (never a meaningful driver of already-published results, re-including it now
 would require re-running every number for no demonstrated benefit), not because the data is bad
 anymore.

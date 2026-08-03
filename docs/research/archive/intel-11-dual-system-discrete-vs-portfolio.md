@@ -5,9 +5,9 @@
 > there is nothing left to coordinate between "tracks," because there is one model. Three
 > survivors were extracted and this doc retired rather than rewritten:
 >
-> 1. **The T3 falsification deliverables** (cross-sectional rank IC measurement mode + decile-
+> 1. **The cross_sectional_relative_value falsification deliverables** (cross-sectional rank IC measurement mode + decile-
 >    spread frame variant) → `docs/research/intel-15-measurement-engine.md`, "Addendum: Cross-
->    Sectional Rank IC (T3 Falsification Mode)".
+>    Sectional Rank IC (cross_sectional_relative_value Falsification Mode)".
 > 2. **The combiner upgrade sequencing** (0b shrunk weights → 0c calibrated units → learned
 >    combiner only if it beats calibrated-linear OOS) — already canonical in
 >    `docs/plans/archive/2026-06-29-feature-scoring-beyond-ic.md` / `intel-15`'s Measurement Gaps
@@ -85,8 +85,8 @@ An institutional-alignment review of intel-10 (2026-07-01) concluded:
   that symbol's full volatility plus market beta. Cross-sectional long-short on a 58-ETF
   universe is far more forgiving: relative-value ranking cancels idiosyncratic noise and
   hedges beta, so an IC too weak to trade directionally can still pay as a spread. Edge
-  thesis T3 (`docs/research/edge-source-thesis.md`) — relative mispricing across correlated
-  instruments — is only testable through this track at all. If T3 is where the edge actually
+  thesis cross_sectional_relative_value (`docs/research/edge-source-thesis.md`) — relative mispricing across correlated
+  instruments — is only testable through this track at all. If cross_sectional_relative_value is where the edge actually
   lives, DiscreteTrack alone would conclude "no edge" while a spread portfolio on the same
   features makes money. That asymmetry, not institutional convention, is the strongest
   argument for scoping PortfolioTrack.

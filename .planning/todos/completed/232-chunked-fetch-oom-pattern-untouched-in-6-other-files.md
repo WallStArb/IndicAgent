@@ -9,10 +9,10 @@ source: /simplify altitude review of todo 231's OOM fix
 ## What
 
 Todo 231 fixed `[dict(r) for r in rows]` fed to `pd.DataFrame(...)` OOM-killing
-`scripts/analysis/t5_nonlinear_combiner_lightgbm_check.py` by adding a general-purpose
+`scripts/analysis/nonlinear_interaction_combiner_lightgbm_check.py` by adding a general-purpose
 `_fetch_frame_chunked(db_dsn, sql_tf_query, batch_size)` helper (streams via an asyncpg
 server-side cursor, downcasts float64->float32 per chunk, folds periodically to bound peak
-memory). The two T5 replication scripts now import and share it.
+memory). The two nonlinear_interaction_combiner replication scripts now import and share it.
 
 The `/simplify` altitude review on that fix found the identical unsafe pattern (`[dict(r) for r
 in rows]` -> `pd.DataFrame`) untouched, verbatim, in six other places:
@@ -25,7 +25,7 @@ in rows]` -> `pd.DataFrame`) untouched, verbatim, in six other places:
 - **`services/graduation_analyzer.py:262`** — this one is live production code, not an
   exploratory script.
 
-`_fetch_frame_chunked` has zero T5/domain vocabulary (generic `db_dsn`/`sql`/`tf` signature) and
+`_fetch_frame_chunked` has zero nonlinear_interaction_combiner/domain vocabulary (generic `db_dsn`/`sql`/`tf` signature) and
 qualifies as Ring 0 portable infrastructure per CLAUDE.md's naming rules, but it currently lives
 as a private (`_`-prefixed) symbol inside one specific hypothesis-test script — not discoverable
 by any of the six files above. Deliberately NOT fixed in the same session as todo 231: rewiring
@@ -53,20 +53,20 @@ priority queue, per this project's own [[feedback_check_archived_before_investig
   via `_OOS_QUERY_SQL` — 5 narrow columns, filtered to one `weight_epoch`, not `feature_vectors`'
   263-column full-corpus scan.** `alpha_frames` is currently `count(*) = 0` (Phase 168 hasn't
   shipped), and even at scale a 5-column trade-frame table is nowhere near the width/row-count
-  product that OOM-killed the T5 scripts. No real risk here either.
-- The T5-family scripts are also not doing the Ring-0-worthy generic reuse the original framing
+  product that OOM-killed the nonlinear_interaction_combiner scripts. No real risk here either.
+- The nonlinear_interaction_combiner-family scripts are also not doing the Ring-0-worthy generic reuse the original framing
   assumed: `gate166_frame_recalibration_eval.py`/`score03_gate2_execution_eval.py` already
   cross-import underscore-prefixed symbols from `phase143_1_08_shadow_validation.py` — the same
-  "shared via private cross-import" shape T5's three scripts now use, and an established
-  (if imperfect) convention in this specific directory already, not a T5-specific violation.
+  "shared via private cross-import" shape nonlinear_interaction_combiner's three scripts now use, and an established
+  (if imperfect) convention in this specific directory already, not a nonlinear_interaction_combiner-specific violation.
 
 **Revised next step, downgraded P2 -> P3:** the only genuine OOM-risk pattern in this codebase
-is "full `feature_vectors` corpus x wide column count," which exists solely in the three T5
+is "full `feature_vectors` corpus x wide column count," which exists solely in the three nonlinear_interaction_combiner
 scripts — already fixed and already sharing one implementation. Promoting `_fetch_frame_chunked`
 to `src/core/` now would be premature abstraction for consumers that don't exist (CLAUDE.md:
 "Don't design for hypothetical future requirements"). The one real, low-cost cleanup still worth
 doing: extract `_fetch_frame_chunked`/`_extract_training_arrays`/`_bootstrap_ic_stats`/
-`_per_symbol_ic_ci` out of `t5_nonlinear_combiner_lightgbm_check.py`'s private namespace into a
+`_per_symbol_ic_ci` out of `nonlinear_interaction_combiner_lightgbm_check.py`'s private namespace into a
 small `t5`-scoped shared module (not `src/core/`, not `graduation_analyzer.py` — neither needs
 it), so the two replication scripts stop importing underscore-prefixed names across a module
 boundary. Do this opportunistically, not urgently.
@@ -74,7 +74,7 @@ boundary. Do this opportunistically, not urgently.
 ## Closed as moot (2026-08-03)
 
 The extraction this todo's remaining scope asked for already happened
-(`scripts/analysis/_t5_nonlinear_combiner_shared.py`, created 2026-08-02) — but todo 234's
+(`scripts/analysis/_nonlinear_interaction_combiner_shared.py`, created 2026-08-02) — but todo 234's
 follow-on OOM investigation (2026-08-03) then found the whole `_fetch_frame_chunked` /
 `_extract_training_arrays` design was itself the architectural defect (see 234's resolution) and
 replaced both with `fetch_training_matrix()`, a different function that never materializes a

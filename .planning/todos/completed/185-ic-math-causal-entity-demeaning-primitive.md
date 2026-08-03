@@ -3,10 +3,10 @@ status: closed
 priority: P1
 filed: 2026-07-26
 closed: 2026-07-26
-source: /simplify altitude review of scripts/analysis/t5_nonlinear_combiner_lightgbm_check.py
+source: /simplify altitude review of scripts/analysis/nonlinear_interaction_combiner_lightgbm_check.py
 ---
 
-# `ic_math.py` has no causal per-entity (per-symbol) demeaning primitive — every future pooled-panel test will hit the same drift-leak bug T5 just caught
+# `ic_math.py` has no causal per-entity (per-symbol) demeaning primitive — every future pooled-panel test will hit the same drift-leak bug nonlinear_interaction_combiner just caught
 
 **CLOSED 2026-07-26.** Added `causal_entity_expanding_mean(entity_ids, values, min_periods)` to
 `src/intelligence/statistics/ic_math.py`, immediately after `build_walk_forward_folds`. Pure
@@ -29,7 +29,7 @@ No regressions: full existing `ic_math.py` test suite
 `test_ic_math_guard_fraction.py`) still green.
 
 **Not yet done, deliberately out of scope for this todo:** migrating
-`t5_nonlinear_combiner_lightgbm_check.py`'s own inline demeaning to call this new primitive
+`nonlinear_interaction_combiner_lightgbm_check.py`'s own inline demeaning to call this new primitive
 instead of its ad hoc `df.groupby(...).shift(1).expanding(...)` — the script's own version is
 correct and already tested via the canary-leakage check (todo 184); swapping it to call the
 new shared primitive is a trivial follow-up, not blocking, and safe to do opportunistically
@@ -37,7 +37,7 @@ next time that script is touched.
 
 ## Original finding (unchanged)
 
-Building the T5 (non-linear combiner) falsification test, a naive pooled-training result showed
+Building the nonlinear_interaction_combiner (non-linear combiner) falsification test, a naive pooled-training result showed
 IC=0.30 with 80/80 symbols passing — ~3x anything else measured in this corpus. Investigation
 found the cause: some ETFs simply have a persistently different long-run average return than
 others across the whole 20-year sample (train/test half-correlation of per-symbol mean
@@ -51,5 +51,5 @@ validation gate #2 ("Attribution honesty") already pre-registered.
 
 - `src/intelligence/statistics/ic_math.py` — `causal_entity_expanding_mean`, the new primitive
 - `tests/unit/test_ic_math_causal_entity_demean.py` — its test suite
-- `scripts/analysis/t5_nonlinear_combiner_lightgbm_check.py` — the inline fix this generalizes
+- `scripts/analysis/nonlinear_interaction_combiner_lightgbm_check.py` — the inline fix this generalizes
 - `docs/research/trade-construction-layer.md` — validation gate #2 ("Attribution honesty")

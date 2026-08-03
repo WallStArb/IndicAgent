@@ -20,7 +20,7 @@ caveat are recorded in the Validation Gates section below, transcribed from
 `logs/construction_verdicts/gate1_20260727T112626Z.json` and
 `logs/construction_verdicts/gate2_20260727T112642Z.json`.
 
-**Updated 2026-07-26** -- `scripts/analysis/t3_cross_sectional_long_short_ctf_momentum_check.py`
+**Updated 2026-07-26** -- `scripts/analysis/t3_cross_sectional_long_short_ctf_momentum_check.py` (deleted 2026-07-28, git-history only)
 ran the falsification test this doc exists to enable: equity/15m, `ctf_momentum`, top/bottom
 decile dollar-neutral spread. **Passed decisively at both lookahead scales** (fast: mean
 spread 5.9bp/bar, `ci_lower`=5.6bp; slow: mean spread 11.1bp/bar, `ci_lower`=9.7bp), and
@@ -330,7 +330,7 @@ re-run here.
 ### Intentional divergences from the cross_sectional_relative_value falsification script, and the equivalence check
 
 `services/cross_sectional_spread_tracker.py` productionizes
-`scripts/analysis/t3_cross_sectional_long_short_ctf_momentum_check.py`. Four differences are
+`scripts/analysis/t3_cross_sectional_long_short_ctf_momentum_check.py` (deleted 2026-07-28, git-history only). Four differences are
 DESIGNED, not bugs:
 
 1. **Deterministic `(feature_value, symbol)` tie-break** replacing pandas' input-order-dependent

@@ -1,6 +1,6 @@
 """Unit tests for causal_entity_expanding_mean (todo 185).
 
-Guards against the T5 non-linear-combiner leak (static per-symbol drift learned as a
+Guards against the nonlinear_interaction_combiner leak (static per-symbol drift learned as a
 fixed-membership factor exposure) recurring in any future pooled-panel measurement. DB-free.
 """
 

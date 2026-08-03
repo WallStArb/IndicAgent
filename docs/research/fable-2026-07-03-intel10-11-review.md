@@ -74,20 +74,20 @@ The invariant says: one forecast per (symbol, tf, bar) is the end state; AnalogE
 
 The doc's own coordination rule ("DiscreteTrack events can be a feature of PortfolioTrack but never the reverse") is a symptom of the frame, not a solution: once confluences are predictors inside the single ensemble (F1), the dependency question evaporates — there is nothing to coordinate because there is one model. "Two products on one validation substrate" is the earlier-generation-shop architecture the doc's own institutional review warned about, kept alive one section after the Simons-lens review refuted it. The doc records both positions without noticing they conflict; the Simons position wins.
 
-### F8. The T3 argument is the doc's strongest content, and it does not require a "track" — it requires a measurement mode. [HIGH]
+### F8. The cross_sectional_relative_value argument is the doc's strongest content, and it does not require a "track" — it requires a measurement mode. [HIGH]
 
-The asymmetry argument is genuinely load-bearing: per-symbol directional trading is the hardest way to monetize small IC; cross-sectional long-short cancels idiosyncratic noise and hedges beta; if T3 (`edge-source-thesis.md`) is where the edge lives, a directional-only system concludes "no edge" while a spread portfolio on the same features pays. Correct, and worth acting on *earlier and cheaper* than the doc proposes.
+The asymmetry argument is genuinely load-bearing: per-symbol directional trading is the hardest way to monetize small IC; cross-sectional long-short cancels idiosyncratic noise and hedges beta; if cross_sectional_relative_value (`edge-source-thesis.md`) is where the edge lives, a directional-only system concludes "no edge" while a spread portfolio on the same features pays. Correct, and worth acting on *earlier and cheaper* than the doc proposes.
 
-The minimal falsification instrument for T3 is not a portfolio constructor. It is:
+The minimal falsification instrument for cross_sectional_relative_value is not a portfolio constructor. It is:
 
-1. **Cross-sectional rank IC as a Measurement Engine mode** — per-bar Spearman of `alpha_score` (or any predictor) against forward returns *across the 58-symbol universe*, aggregated over bars, with the cross-sectional effective-N correction that edge-source-thesis §P6 already flags as missing (58 correlated symbols on one bar are not 58 observations). This is a kernel extension, weeks not quarters, and it directly measures T3's premise.
+1. **Cross-sectional rank IC as a Measurement Engine mode** — per-bar Spearman of `alpha_score` (or any predictor) against forward returns *across the 58-symbol universe*, aggregated over bars, with the cross-sectional effective-N correction that edge-source-thesis §P6 already flags as missing (58 correlated symbols on one bar are not 58 observations). This is a kernel extension, weeks not quarters, and it directly measures cross_sectional_relative_value's premise.
 2. **A counterfactual decile-spread simulation** in the 142B frame machinery — long top decile, short bottom decile, dollar-neutral, at the executable-return definition, cost-hurdle applied per leg. This is `alpha_frames` with a portfolio-shaped frame variant, not a new system.
 
-If (1) shows cross-sectional IC materially exceeding time-series IC and (2) shows the spread paying net of the cost floor, *then* a portfolio-constructor design doc is warranted — with evidence in hand rather than institutional analogy. If not, T3 dies cheaply. This converts intel-11's "unscoped future System 2" into one concrete near-term measurement deliverable and one frame variant, which is the Renaissance-correct order: measure first, construct later.
+If (1) shows cross-sectional IC materially exceeding time-series IC and (2) shows the spread paying net of the cost floor, *then* a portfolio-constructor design doc is warranted — with evidence in hand rather than institutional analogy. If not, cross_sectional_relative_value dies cheaply. This converts intel-11's "unscoped future System 2" into one concrete near-term measurement deliverable and one frame variant, which is the Renaissance-correct order: measure first, construct later.
 
 ### F9. Scoping PortfolioTrack as a named parallel track is premature architecture — the doc half-knows this. [MEDIUM]
 
-"Prerequisite honesty" already says don't scope before 142A's gate, and "the first concrete deliverable is a design doc, not code." Good instincts. But naming a zero-code future system as a *track* — with its own consumer, its own definition of working, its own sequencing section — is exactly the parallel-system proliferation the One-Book invariant exists to block, applied to the doc's own proposal. At this account size and stage, the portfolio constructor (netting, risk model, turnover optimization) remains a v4.0 concern gated on the F8 evidence; it needs a paragraph in the roadmap, not a track identity. The useful residue of the PortfolioTrack section is: (a) the T3 testability argument (→ F8 deliverables), (b) the combiner upgrade sequencing 0b→0c→learned-only-if-it-beats-calibrated-linear-OOS (already canonical in feature-scoring-beyond-ic; intel-11 adds nothing beyond a correct restatement), (c) the observation that netting/risk-allocation/turnover live only at the portfolio layer (true; belongs in the v4.0 gate description).
+"Prerequisite honesty" already says don't scope before 142A's gate, and "the first concrete deliverable is a design doc, not code." Good instincts. But naming a zero-code future system as a *track* — with its own consumer, its own definition of working, its own sequencing section — is exactly the parallel-system proliferation the One-Book invariant exists to block, applied to the doc's own proposal. At this account size and stage, the portfolio constructor (netting, risk model, turnover optimization) remains a v4.0 concern gated on the F8 evidence; it needs a paragraph in the roadmap, not a track identity. The useful residue of the PortfolioTrack section is: (a) the cross_sectional_relative_value testability argument (→ F8 deliverables), (b) the combiner upgrade sequencing 0b→0c→learned-only-if-it-beats-calibrated-linear-OOS (already canonical in feature-scoring-beyond-ic; intel-11 adds nothing beyond a correct restatement), (c) the observation that netting/risk-allocation/turnover live only at the portfolio layer (true; belongs in the v4.0 gate description).
 
 ### F10. Trigger-state staleness: the doc's own scoping trigger has (mechanically) fired. [LOW]
 
@@ -101,7 +101,7 @@ intel-11: "PortfolioTrack gets scoped only after Phase 142A proves ensemble OOS 
 - **Shrinkage-mandatory, effective-N, frozen-at-fire-time claims, out_of_scope tracking, symmetric decay/re-promotion, never-delete-retired.** All correct, all consistent with the Phase 142B SHADOW-REVIEW pre-commitment pattern and the 149B semantics.
 - **intel-10's Concept Registry deferral** (F4) — verified consistent both directions.
 - **intel-11's One Model, One Book invariant** — correct; too important to live in a draft idea doc (see R3).
-- **intel-11's T3 asymmetry argument** — the strongest single reason cross-sectional measurement must exist.
+- **intel-11's cross_sectional_relative_value asymmetry argument** — the strongest single reason cross-sectional measurement must exist.
 - **Both docs' refusal to grow execution/sizing semantics** — Kelly/portfolio/execution stay v4.0; capacity/crowding stays out of scope. Right at this scale.
 
 ## 4. Direct Corrections
@@ -127,7 +127,7 @@ The split does **not** earn its keep in current form. Replace the pair with:
 - Keep open questions 1 and 3; retire 2 (resolved per F5); convert 4 into a `concept_gate` field.
 
 **R2 — Retire intel-11 as a standalone doc**, extracting three survivors:
-- The **T3 falsification deliverables** (cross-sectional rank IC measurement mode + decile-spread frame variant, F8) → a short new idea doc (or an intel-15 addendum, since it is a Measurement Engine mode) with the effective-N correction named as part of the spec.
+- The **cross_sectional_relative_value falsification deliverables** (cross-sectional rank IC measurement mode + decile-spread frame variant, F8) → a short new idea doc (or an intel-15 addendum, since it is a Measurement Engine mode) with the effective-N correction named as part of the spec.
 - The **combiner upgrade sequencing** → already canonical in `2026-06-29-feature-scoring-beyond-ic.md`; add a cross-reference, delete the restatement.
 - The **institutional-review record** (why discrete-named-patterns is a deliberate departure) → one paragraph of context in rewritten intel-10.
 
@@ -148,6 +148,6 @@ Net effect: one rewritten idea doc (confluence-as-predictor), one short measurem
 - `.planning/research/2026-07-02-v3-topdown-architecture.md` (D1-D4, D9, §2.2-2.5), `.planning/research/2026-07-02-v3-bottomup-audit.md` (§4.6 emission tier, §1.2 void-publishing live leg)
 - `docs/research/intel-13-analog-engine.md` (Score Object deletion; return-distribution primitive; definedness rules), `docs/research/intel-15-measurement-engine.md` (unification status post-142A), `docs/research/intel-12-stratification-dimension.md`
 - `docs/research/concept-governance-registries.md` (four-table MVP; intel-10 mapping rule; baseline shrinkage)
-- `docs/research/edge-source-thesis.md` (T3, §P6 cross-sectional effective N)
+- `docs/research/edge-source-thesis.md` (cross_sectional_relative_value, §P6 cross-sectional effective N)
 - `docs/plans/2026-06-29-feature-scoring-beyond-ic.md` (§0b/0c — now gate-1 prerequisites)
 - ROADMAP.md — Phase 142A status (complete 2026-07-02), Phases 145-147 (stale pre-intel-13 spec), 142B/SHADOW-REVIEW pattern

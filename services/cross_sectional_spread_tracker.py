@@ -3,25 +3,26 @@
 decile long-short spread.
 
 This module is the productionization of
-`scripts/analysis/t3_cross_sectional_long_short_ctf_momentum_check.py` — the Edge Source
-Thesis T3 falsification script that passed decisively (STATE.md, 2026-07-26). Everything here
+`scripts/analysis/t3_cross_sectional_long_short_ctf_momentum_check.py` (deleted 2026-07-28,
+git-history only) — the Edge Source Thesis cross_sectional_relative_value falsification script
+that passed decisively (STATE.md, 2026-07-26). Everything here
 is a pure, side-effect-free function with no DB or Kafka I/O, so equivalence to the proof
 script's ranking mechanic can be asserted directly in a unit test, and Plan 03's service becomes
 thin orchestration over already-proven math.
 
 CORRECTNESS INVARIANTS:
 - Legs are FLAT equal-weight, never vol-scaled (design decision 1, RESEARCH.md Pitfall 1). The
-  design doc's Minimal Design step 3 says "vol-scaled per symbol," but the T3 script that
+  design doc's Minimal Design step 3 says "vol-scaled per symbol," but the cross_sectional_relative_value script that
   actually earned this phase uses `long_leg[return_col].mean() - short_leg[return_col].mean()`.
   Build exactly what was proven; vol-scaling is a separate, testable enhancement with its own
   before/after comparison, never a silent upgrade folded in here.
 - The ranked feature is `ctf_momentum` directly, never `ensemble_alpha` (D-01/D-02) — a single
   feature, no composite score. This module never reads `ensemble_alpha`.
 - `decile_legs` breaks ties deterministically by `(feature_value, symbol)` ascending (design
-  decision 2). This is a RECORDED REPRODUCIBILITY DIVERGENCE from the T3 proof script, which
+  decision 2). This is a RECORDED REPRODUCIBILITY DIVERGENCE from the cross_sectional_relative_value proof script, which
   ranks via pandas `sort_values(feature)` whose tie order depends on input row order. On a
   continuous z-scored feature exact ties are effectively measure-zero, so this does not change
-  what T3 proved — it makes the persisted output reproducible across runs. If a future feature
+  what cross_sectional_relative_value proved — it makes the persisted output reproducible across runs. If a future feature
   with a discrete or heavily-quantized distribution is ever ranked by this machinery, that
   "ties are irrelevant" judgment must be re-examined (Codex review, MEDIUM).
 - `one_way_turnover` returns `None`, never `0.0`, when no predecessor legs exist (design
@@ -118,15 +119,15 @@ def decile_legs(
 ) -> tuple[list[str], list[str]] | None:
     """Split a cross-section into a dollar-neutral (short_leg, long_leg) pair.
 
-    Reproduces the T3 script's `_decile_spread_per_bar`/`_legs_per_bar` ranking mechanic
+    Reproduces the cross_sectional_relative_value script's `_decile_spread_per_bar`/`_legs_per_bar` ranking mechanic
     exactly: `n_leg = max(1, round(n * decile_fraction))`, `None` returned when
-    `n < 2 * n_leg` (too few symbols to form two disjoint legs). The T3 script ranks ascending
+    `n < 2 * n_leg` (too few symbols to form two disjoint legs). The cross_sectional_relative_value script ranks ascending
     via `sort_values(feature_col)`, so `iloc[:n_leg]` (the lowest feature values) is the SHORT
     leg and `iloc[-n_leg:]` (the highest) is the LONG leg — this function preserves that
     short-is-lowest / long-is-highest correspondence.
 
     Tie-break: symbols are sorted by `(feature_value, symbol)` ascending, not just
-    `feature_value`. This is an intentional, RECORDED REPRODUCIBILITY DIVERGENCE from the T3
+    `feature_value`. This is an intentional, RECORDED REPRODUCIBILITY DIVERGENCE from the cross_sectional_relative_value
     script (design decision 2) — pandas `sort_values` on a single column leaves tie order
     dependent on input row order, which is fine for a one-off script but not for a persisted,
     reproducible table. The judgment that exact ties are effectively measure-zero rests on
@@ -196,7 +197,7 @@ def one_way_turnover(
 ) -> float | None:
     """Mean one-way leg turnover between the prior bar's legs and the current bar's legs.
 
-    Matches the T3 script's `_cost_hurdle_check` exactly: `n_leg = len(cur_long)` (the CURRENT
+    Matches the cross_sectional_relative_value script's `_cost_hurdle_check` exactly: `n_leg = len(cur_long)` (the CURRENT
     universe size, never `len(prev_long)` — the universe can change bar to bar, and the script's
     choice is the one whose result was measured), `long_changed = len(cur_long - prev_long) /
     n_leg`, `short_changed = len(cur_short - prev_short) / n_leg`, returning their mean.
@@ -345,7 +346,7 @@ def shuffled_ranking_null_p(
     (`return_fast` vs `return_slow`) is being tested -- only on that bar's symbol count and the
     RNG's draw sequence. Calling this function once per scale with the SAME `seed` therefore
     reproduces a bit-identical sequence of within-bar permutations for both scales. NOTE this is
-    weaker than the T3 script's `_generate_shuffled_feature_draws` efficiency lesson (generate
+    weaker than the cross_sectional_relative_value script's `_generate_shuffled_feature_draws` efficiency lesson (generate
     the draws once, reuse across scales): each call here independently re-runs the permutation
     loop, so the draws are reproduced identically but not literally cached/reused -- correct,
     with the redundant work accepted given the OOS window's small size (hundreds of bars, tens
@@ -733,7 +734,7 @@ def attribution_verdict(
 
 
 # ---------------------------------------------------------------------------
-# Panel query (reproduces the T3 script's `_FV_SQL`, scripts/analysis/
+# Panel query (reproduces the cross_sectional_relative_value script's `_FV_SQL`, scripts/analysis/
 # t3_cross_sectional_long_short_ctf_momentum_check.py lines 63-78, exactly).
 # ---------------------------------------------------------------------------
 #
@@ -962,7 +963,7 @@ class CrossSectionalSpreadTracker(BaseBatch):
                 legs = decile_legs(symbols, feature_values, decile_fraction)
                 if legs is None:
                     # Too few symbols to form two disjoint legs -- skip the bar entirely,
-                    # matching the T3 script's `continue` (design decisions, step 4). Never
+                    # matching the cross_sectional_relative_value script's `continue` (design decisions, step 4). Never
                     # logged per-bar (CLAUDE.md: never log per-row inside a loop over the full
                     # corpus) -- counted and reported once at the end of the run.
                     n_bars_skipped_degenerate += 1
@@ -1116,7 +1117,7 @@ def _build_panel_by_bar(
 
 
 def _gate1_verdict_text(scale: str, binding: dict[str, Any] | None, null_clears: bool) -> str:
-    """The three-way verdict distinction from the T3 script's `_run_one_scale`: a genuine
+    """The three-way verdict distinction from the cross_sectional_relative_value script's `_run_one_scale`: a genuine
     pass, a CI-clears-but-null-not-distinguishable result (a dollar-neutral construction
     artifact, NOT a pass), or a CI-does-not-clear-zero failure."""
     if binding is None:
@@ -1238,7 +1239,7 @@ async def _run_evaluate_gate(db_dsn: str) -> None:
         panel_rows = [dict(r) for r in await conn.fetch(_GATE_PANEL_SQL, _TF, oos_start)]
 
         # (4) In-sample diagnostic segment (design decision 2): a clearly labeled diagnostic,
-        # NEVER fed into gate1_passes. Exists solely to make the T3 script's published
+        # NEVER fed into gate1_passes. Exists solely to make the cross_sectional_relative_value script's published
         # full-2006-2026-history numbers comparable to this OOS verdict. Fetched here, before
         # the connection closes, alongside the OOS query above.
         in_sample_gate_rows = [
@@ -1601,7 +1602,7 @@ async def _run_evaluate_attribution(db_dsn: str) -> None:
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(
         description=(
-            "Cross-Sectional Spread Tracker -- builds the T3 dollar-neutral decile "
+            "Cross-Sectional Spread Tracker -- builds the cross_sectional_relative_value dollar-neutral decile "
             "long-short construction (D-03/D-04)"
         )
     )

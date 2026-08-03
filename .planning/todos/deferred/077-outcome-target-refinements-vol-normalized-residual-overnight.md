@@ -20,7 +20,7 @@ on); low-medium for L3-4 (diagnostic).
 
 `return_x(symbol) - beta * return_x(SPY)`, beta from Phase 146's Instrument Tag Calibrator
 (`stratification-instrument-tag-calibrator.md`, already committed to producing measured, FDR-corrected
-factor betas). This is the outcome definition T3 actually requires: a cross-sectional edge is a
+factor betas). This is the outcome definition cross_sectional_relative_value actually requires: a cross-sectional edge is a
 claim about *idiosyncratic* mispricing, and measuring candidate features (todo 073) against raw
 returns lets market-timing leak into what looks like relative-value IC. Verdict: features whose
 IC survives against raw returns but dies against residual returns are market-timing features

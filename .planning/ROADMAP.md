@@ -180,7 +180,7 @@ above for long-run value, and PRIORITIES.md for todo-level (sub-phase) sequencin
 - [x] **Phase 39: Data Quality + DB Health (Expanded)** — CIS null repair, ohlcv chunk compress, signal_ledger generated columns, CHECK constraints, signal_performance_segmented, IC computation, data quality monitoring (completed 2026-03-19)
 - [x] **Phase 39.1: Intelligence Layer Enforcement (INSERTED)** — regime_type Protocol enforcement, SignalStatus + SignalOutcome enums, pre-commit hooks, VWAP/ShannonEntropy bug fixes, SQL hardening, topic namespace cleanup (completed 2026-03-19)
 - [x] **Phase 40: DAG Refactor — Clean Foundation** — signal_generator decomposed into 6 DAG microservices, 8 Redpanda topics, systemd units, E2E pipeline integration test (completed 2026-03-19)
-- [x] **Phase 41: Intelligence Gap Fill** — i6 FVG/OB alignment from real data, POC/VAH/VAL as T1/T2 targets, multi-TF S/R context; VWAP/session TF guards, aggregator active-from-all-ranked assertion (completed 2026-03-20)
+- [x] **Phase 41: Intelligence Gap Fill** — i6 FVG/OB alignment from real data, POC/VAH/VAL as retail_immediacy_provision/regime_conditional_persistence targets, multi-TF S/R context; VWAP/session TF guards, aggregator active-from-all-ranked assertion (completed 2026-03-20)
 - [x] **Phase 42: Candlestick Pattern Expansion** — 18 new I5 patterns + CandlestickPatternSetup confidence tier weights (completed 2026-03-20)
 - [x] **Phase 43: Performance & Stability Emergency** — market_data_ohlcv rebuilt (15,740→21 chunks), feature_writer i7/i8 buffering, asyncio.to_thread plugin execution, lifecycle O(1) active-signal index, ndarray calibration pre-alloc, _run_refresh_loop helper, 328K stale signals expired (executed 2026-03-20; threading.Lock test gap closed in Phase 49)
 - [x] **Phase 44: I7 DAG Refactor** — ~458 LOC duplication extracted into shared utilities, validate_tier() enforcement, cross_timeframe decomposed, make_signal() factory + validate_signal() enforcement (completed 2026-03-21)
@@ -1520,7 +1520,7 @@ Tags that are fully computable from the factor vector (all 8 OLS betas) must not
 
 **Plans:** 5/5 plans complete
 
-- [x] 146-01-PLAN.md — Wave 0 taxonomy cleanup: credit_cycle merge (D-03), housing_cycle delete (D-07), spread_leg evidence backfill + contract test (D-09), glossary T7 fix
+- [x] 146-01-PLAN.md — Wave 0 taxonomy cleanup: credit_cycle merge (D-03), housing_cycle delete (D-07), spread_leg evidence backfill + contract test (D-09), glossary statistical_factor_residual fix
 - [x] 146-02-PLAN.md — Measurement-contract migration 238: revised schema + valid_from/valid_to (D-10), factor-series seeding (D-02/D-04/D-05/D-06/D-08), 7 APR keys
 - [x] 146-03-PLAN.md — factor_math.py: standardized OLS loading + HAC SE, long-short constructor, vol proxy adapter (reuses ic_math + breadth_vol)
 - [x] 146-04-PLAN.md — TagCalibrator(BaseBatch) generic 3-pass calibration engine + decision-logic tests (TAG-01)
@@ -2350,30 +2350,31 @@ Plans:
 
 - [x] 166-06-PLAN.md — calibrate/regenerate/simulate/score all arms one-shot, verdict doc, Part 2 follow-on todo (D-01, D-03, D-04, D-05, D-06) [wave 4]
 
-### Phase 167: Cross-Sectional Trade Construction (T3) ✅ COMPLETE (2026-07-27) -- both live Validation Gates PASSED (6 plans, 5 waves)
+### Phase 167: Cross-Sectional Trade Construction (cross_sectional_relative_value) ✅ COMPLETE (2026-07-27) -- both live Validation Gates PASSED (6 plans, 5 waves)
 
 **Goal:** Build the cross-sectional long-short construction `docs/research/trade-construction-layer.md`
 designs (v1: rank the equity universe by a feature at each bar, long the top decile / short
 the bottom decile, dollar-neutral) plus its shadow measurement — turning Edge Source Thesis's
-T3 from a validated finding into a real, cost-aware, monitored construction.
+cross_sectional_relative_value from a validated finding into a real, cost-aware, monitored construction.
 
-**Why this phase exists (added 2026-07-26):** T2 (regime-conditional persistence) was
-falsified 2026-07-24 (todo 179's 234-cell sweep — see caveat below). T3 was tested as a cheap
+**Why this phase exists (added 2026-07-26):** regime_conditional_persistence (regime-conditional persistence) was
+falsified 2026-07-24 (todo 179's 234-cell sweep — see caveat below). cross_sectional_relative_value was tested as a cheap
 falsification script before committing to Phase 164/165's feature-expansion effort and
 **passed decisively at both lookahead scales**
-(`scripts/analysis/t3_cross_sectional_long_short_ctf_momentum_check.py`, `ctf_momentum`,
+(`scripts/analysis/t3_cross_sectional_long_short_ctf_momentum_check.py` -- deleted 2026-07-28,
+git-history only, see `docs/research/data-edge-source-thesis.md`'s References -- `ctf_momentum`,
 equity/15m: fast mean spread 5.9bp/bar `ci_lower`=5.6bp, slow mean spread 11.1bp/bar
 `ci_lower`=9.7bp, both clearing a shuffled-ranking-null guard at `P(null>=observed)=0.0000`).
 This is the first thesis anywhere in the edge-source-thesis tree to clear its own
-pre-registered bar convincingly. Full result: `docs/research/data-edge-source-thesis.md`'s T3
+pre-registered bar convincingly. Full result: `docs/research/data-edge-source-thesis.md`'s cross_sectional_relative_value
 section.
 
-**Caveat resolved 2026-07-27, kept for record:** T2's falsification ran under cross-sectional
+**Caveat resolved 2026-07-27, kept for record:** regime_conditional_persistence's falsification ran under cross-sectional
 regime labels later found miscalibrated and fixed the same day (todo 092) — its "dead" verdict
 was provisional pending a full re-run through the corrected pipeline. Todo 183's recompute
 completed 2026-07-27T21:55 UTC; todo 179's sweep was re-run the same day directly against the
 live, corrected `market_regimes.regime_label` — 270 cells tested, 108 adequately covered, zero
-pass. **T2 is now confirmed dead, no longer provisional.** T3's result was always independent of
+pass. **regime_conditional_persistence is now confirmed dead, no longer provisional.** cross_sectional_relative_value's result was always independent of
 this caveat (it reads `feature_vectors`/`forward_returns` directly, no regime dependency) and is
 unaffected either way.
 
@@ -2385,7 +2386,7 @@ not duplicated here):**
 
 - **First open item, before scoping plans:** apply the todo 030 cost-hurdle treatment to the
   spread construction specifically — a long-short spread's cost dynamics differ from a
-  directional trade's (this doc's own point), and today's T3 result is gross-only.
+  directional trade's (this doc's own point), and today's cross_sectional_relative_value result is gross-only.
 
 - Construction + shadow measurement is queries and a batch service, not new infrastructure — it
   reads `alpha_events`/`feature_vectors`/`forward_returns` like everything else in this system.
@@ -2397,7 +2398,7 @@ Phase 148). Not gated on Phase 166 or the 156-159 execution/sizing chain.
 produce a Gate-2-passing signal — sequence **before** Phase 156 (Portfolio State Foundation)
 and the rest of the 156-159 execution/sizing chain, which size and execute a signal this phase
 would help produce, not replace. Independent of Phase 164/165 (feature-expansion track,
-attacks the *feature* side under the same construction T2 falsified) — parallel work, neither
+attacks the *feature* side under the same construction regime_conditional_persistence falsified) — parallel work, neither
 blocks the other.
 
 **Requirements**: No formal REQUIREMENTS.md IDs (standing-doc-driven, same pattern as Phase
@@ -2427,7 +2428,7 @@ systemd timer.
 
 - Gate 1 evaluates `bar_ts >= alpha.validation.oos_start` (the OOS segment). Note this is the
   OPPOSITE direction from `counterfactual_tracker.py`'s in-sample FRAME-04 gate. The in-sample
-  segment is reported as a labeled diagnostic only, for comparison against T3's published
+  segment is reported as a labeled diagnostic only, for comparison against cross_sectional_relative_value's published
   full-history numbers.
 
 - Gate 2 operationalized: static bucket membership = each symbol's time-averaged net leg
@@ -2438,24 +2439,24 @@ systemd timer.
   assessments) - no task exists for either.
 
 - Flat equal-weight legs, no vol-scaling: the design doc's step 3 calls for vol-scaling but the
-  T3 script that earned this phase does not use it. Build what was proven (RESEARCH.md Pitfall 1).
+  cross_sectional_relative_value script that earned this phase does not use it. Build what was proven (RESEARCH.md Pitfall 1).
 
 **References:**
 
 - `docs/research/trade-construction-layer.md` — full construction design, sizing/cost
   discussion, validation gates
 
-- `docs/research/data-edge-source-thesis.md` — T3 section (today's result), T2 section
+- `docs/research/data-edge-source-thesis.md` — cross_sectional_relative_value section (today's result), regime_conditional_persistence section
   (falsification, now confirmed not provisional)
 
 - `scripts/analysis/t3_cross_sectional_long_short_ctf_momentum_check.py` — the falsification
-  script and its result
+  script and its result (deleted 2026-07-28, git-history only)
 
 - `.planning/todos/pending/030-cost-hurdle-apr-calibration.md` — cost floors this phase's first
   open item needs
 
 - `.planning/todos/completed/183-ic-engine-max-cell-rows-breached-by-todo092-rebalance.md` — the
-  corpus recompute that unblocked T2's re-verification (completed 2026-07-27, closed; never
+  corpus recompute that unblocked regime_conditional_persistence's re-verification (completed 2026-07-27, closed; never
   gated this phase's own start)
 
 Plans:
@@ -2480,7 +2481,7 @@ Plans:
 
 - [x] 167-06-PLAN.md - live backfill, live gate runs, verdicts recorded in the research docs + runbook (wave 5)
 
-### Phase 168: Cost-Hurdle-Adjusted Spread Construction (T3 Follow-On)
+### Phase 168: Cost-Hurdle-Adjusted Spread Construction (cross_sectional_relative_value Follow-On)
 
 **Goal:** Turn `cross_sectional_spread_tracker`'s cost-hurdle sweep from a purely descriptive measurement into a prescriptive, leg-level rebalance rule shipped as a parallel `ctf_momentum_decile_ls_cost_gated` construction, and produce a real four-part D-04 verdict on whether it beats Phase 167's validated baseline net-of-cost — where a HOLD is a legitimate outcome.
 **Requirements**: D-01 (leg-level hysteresis band), D-02 (parallel construction_name, no in-place mutation), D-03 (flat 10bp cost floor via existing APR key), D-04.1-D-04.4 (paired delta-CI Sharpe gate, gross-spread non-degradation, turnover diagnostic, stateful shuffled null re-run)

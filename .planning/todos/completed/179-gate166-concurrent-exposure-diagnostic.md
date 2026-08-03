@@ -15,7 +15,7 @@ cross-sectional x symbol_hmm stratification, raw-return decomposition, out-of-wi
 replication) converged on the same result: zero regime/direction slice in the per-symbol
 directional construction (Phase 148/166) shows a real, replicating, non-circular positive
 expectancy. The strategic fork this raised (invest in more features vs. a different
-construction vs. accept no edge) is resolved independently of that verdict — **T3
+construction vs. accept no edge) is resolved independently of that verdict — **cross_sectional_relative_value
 (cross-sectional long-short, Phase 167) passed decisively and both live Validation Gates
 PASSED**, so the project moved to a different construction rather than continuing to chase a
 regime-conditional fix for the old one. The one open acceptance-criteria box (baseline

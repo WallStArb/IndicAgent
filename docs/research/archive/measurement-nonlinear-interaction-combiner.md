@@ -1,7 +1,7 @@
-# Non-Linear Interaction Combiner — Idea (Edge Source Thesis T5)
+# Non-Linear Interaction Combiner — Idea (Edge Source Thesis nonlinear_interaction_combiner)
 
 **Status:** ARCHIVED 2026-08-03 — fully superseded and absorbed into
-`docs/research/data-edge-source-thesis.md` §T5, the single live reference for T5 (design,
+`docs/research/data-edge-source-thesis.md` §nonlinear_interaction_combiner, the single live reference for nonlinear_interaction_combiner (design,
 results, canary-leakage check, 1h/1d/15m replication history, all current numbers). Kept here
 only as a historical record of the original design proposal (2026-07-25) — not read for current
 status.
@@ -11,9 +11,9 @@ is a design proposal; nothing here has been empirically tested yet.
 better features/signal (Phase 164/165) ... or accept this branch has no OOS-detectable edge")
 — specifically, the question "what other signal construction approaches exist, if this is how
 Renaissance/Jane Street-style quant systems work at their core."
-**Companion to:** `docs/research/data-edge-source-thesis.md` (this is candidate thesis **T5**)
-and `docs/research/trade-construction-layer.md` (T5's sibling candidate — T3 changes the
-*construction*, T5 changes the *combiner*; both are cheaper to test than Phase 164/165's
+**Companion to:** `docs/research/data-edge-source-thesis.md` (this is candidate thesis **nonlinear_interaction_combiner**)
+and `docs/research/trade-construction-layer.md` (nonlinear_interaction_combiner's sibling candidate — cross_sectional_relative_value changes the
+*construction*, nonlinear_interaction_combiner changes the *combiner*; both are cheaper to test than Phase 164/165's
 feature expansion and both attack the current champion population directly).
 
 ---
@@ -108,7 +108,7 @@ Cheap to run — no new data, no new features, no new infrastructure. Reuses `fe
 `forward_returns` exactly like `ic_engine.py`/`ensemble_trainer.py` already do; this could run
 as an offline/shadow experiment (a single analysis script, similar in shape to todo 179's
 sweep scripts) before committing to Phase 164/165's multi-week feature-build effort. Recommend
-running this alongside `docs/research/trade-construction-layer.md`'s T3 (cross-sectional
+running this alongside `docs/research/trade-construction-layer.md`'s cross_sectional_relative_value (cross-sectional
 long-short) before deciding whether Phase 164/165 is warranted — both test the *existing* 150
 features under a different construction or model, which is strictly cheaper than adding
 features under the linear/absolute-direction construction T2 just falsified.
@@ -119,16 +119,16 @@ features under the linear/absolute-direction construction T2 just falsified.
   and per the edge-source-thesis doc's default posture, the honest prior is skepticism until
   evidence lands.
 - Not a proposal to replace `ensemble_trainer.py`'s linear combiner in production. That
-  decision, if T5's test result warrants it, is a separate, later phase with its own gates.
-- Not a substitute for T3 (cross-sectional construction) — they test different hypotheses
+  decision, if nonlinear_interaction_combiner's test result warrants it, is a separate, later phase with its own gates.
+- Not a substitute for cross_sectional_relative_value (cross-sectional construction) — they test different hypotheses
   (combiner linearity vs. absolute-vs-relative construction) and both are worth running; a
-  positive T5 result and a positive T3 result are not mutually exclusive.
+  positive nonlinear_interaction_combiner result and a positive cross_sectional_relative_value result are not mutually exclusive.
 
 ## References
 
-- `docs/research/data-edge-source-thesis.md` — T5's parent doc; T2's falsification is the
+- `docs/research/data-edge-source-thesis.md` — nonlinear_interaction_combiner's parent doc; T2's falsification is the
   motivating finding
-- `docs/research/trade-construction-layer.md` — T3, the sibling candidate construction change
+- `docs/research/trade-construction-layer.md` — cross_sectional_relative_value, the sibling candidate construction change
 - `.planning/todos/completed/179-gate166-concurrent-exposure-diagnostic.md` — T2's falsification
   evidence and the day-clustered bootstrap / BH-FDR methodology this test should reuse
 - `docs/research/measurement-ic-engine.md` — existing IC measurement methodology (`ic_math.py`)

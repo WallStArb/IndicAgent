@@ -34,10 +34,16 @@ visible threshold, silently skewing a feature without ever triggering an implaus
 This is exactly the class of thing worth fixing at the root (the shared helper) rather than
 patching the two columns this investigation happened to notice.
 
-**Current mitigation, already sufficient for known consumers:** T5's fetch path
-(`_t5_nonlinear_combiner_shared.py`) already clips the ~9 offending cells for these two columns
-before the float16 downcast at 5m -- this todo is about the underlying feature-computation gap,
-not an unhandled crash risk today.
+**No longer even the mitigated case (2026-08-03):** the float16 downcast this clip existed for was
+itself removed the same day -- 5m's `feature_dtype=np.float16` OOM-killed regardless (LightGBM's
+Python bridge upcasts any non-float32/float64 array back to a full float32 copy internally,
+defeating the intended memory saving; root-caused via `superpowers:systematic-debugging`).
+`nonlinear_interaction_combiner`'s fetch path (`_nonlinear_interaction_combiner_shared.py`) now
+uses float32 at every tf including 5m, matching 1h/1d/15m, so the ~9 offending cells (max
+~96,512) are comfortably inside float32's range and the clip-before-cast logic was deleted as
+dead code rather than kept as an inert safety net. This todo is about the underlying
+feature-computation gap, not an unhandled crash risk today -- that conclusion is unchanged, but
+there is no longer any clip anywhere protecting against it, mitigated or not.
 
 ## Why not fixed in the same session as todo 236
 

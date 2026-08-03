@@ -12,7 +12,7 @@ here), then again via this Fable review. Todo 013's "Option A" sketch (standalon
 **Source:** `docs/research/fable-2026-07-07-renaissance-layer-refinements.md` §3 (L1-1, L1-3),
 executive summary item 1 — the single highest-conviction finding in the doc.
 **Priority:** HIGHEST — the system trains its ensemble exclusively on cross-sectional POOLED
-strata (`ensemble_trainer.py:317,430-431,469,540`) yet has zero cross-sectional features. T3
+strata (`ensemble_trainer.py:317,430-431,469,540`) yet has zero cross-sectional features. cross_sectional_relative_value
 (cross-sectional relative mispricing) is the lowest-IC-bar edge thesis on record
 (`data-edge-source-thesis.md`) and currently has no features that directly serve it.
 **Gate:** needs a new cross-sectional batch step in the corpus DAG (after
@@ -56,7 +56,7 @@ were always meant to own it, or land in a sibling table if the one-writer-per-ta
 the DAG invariant is preferred. Decide at planning.
 
 **Pairs with:** the still-unbuilt cross-sectional rank IC mode (`measurement-ic-engine.md`
-Addendum) — build both in the same phase; it's T3's honest falsification instrument and this
+Addendum) — build both in the same phase; it's cross_sectional_relative_value's honest falsification instrument and this
 family's honest measurement, each validates the other.
 
 ## Filter check

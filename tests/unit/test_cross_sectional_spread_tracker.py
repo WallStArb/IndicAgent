@@ -200,8 +200,10 @@ def test_turnover_across_run_boundary():
 
 
 def test_cost_hurdle_sweep():
-    gross_spread = 0.00059  # T3's measured 5.9bp/bar fast-scale gross spread
-    turnover = 0.195  # T3's measured mean one-way leg turnover
+    gross_spread = (
+        0.00059  # cross_sectional_relative_value's measured 5.9bp/bar fast-scale gross spread
+    )
+    turnover = 0.195  # cross_sectional_relative_value's measured mean one-way leg turnover
     cost_bps = [1, 3, 5, 10]
 
     result = net_spread_by_cost_bps(gross_spread, turnover, cost_bps)
@@ -211,7 +213,7 @@ def test_cost_hurdle_sweep():
         expected = gross_spread - (bps / 10000) * turnover
         assert result[str(bps)] == pytest.approx(expected)
 
-    # D-05: net spread survives at every tested cost floor at T3's measured turnover -- this
+    # D-05: net spread survives at every tested cost floor at cross_sectional_relative_value's measured turnover -- this
     # is the live-computation guard against anyone hardcoding "it survives".
     assert all(v > 0 for v in result.values())
 
@@ -260,7 +262,7 @@ def test_spread_is_flat_equal_weight():
     result = spread_from_legs(returns_by_symbol, long_leg, short_leg)
     # mean(0.02, 0.00) - mean(-0.01, -0.03) = 0.01 - (-0.02) = 0.03. A vol-scaled
     # implementation would fail this assertion -- that is intentional: the flat version is
-    # what T3 proved.
+    # what cross_sectional_relative_value proved.
     assert result == pytest.approx(0.03)
 
     # A None return is skipped, never coerced to 0.0.

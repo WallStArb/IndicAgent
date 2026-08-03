@@ -26,7 +26,7 @@ several N>20,000 cells) -- but this was a partitioning artifact, caught before b
 Subdividing a pooled sample into smaller, temporally-scattered sub-cells can mechanically
 inflate apparent Sharpe regardless of which variable does the splitting (reduced inter-window
 serial correlation from non-contiguous sub-sampling, not real information). Added a shuffled-
-bucket null control (same discipline as every other falsifier script in this project, e.g. T3's
+bucket null control (same discipline as every other falsifier script in this project, e.g. cross_sectional_relative_value's
 shuffled-ranking null) -- shuffle `vol_bucket` within each `curve_credit_label` group (preserves
 each label's own bucket-size distribution), repeat the identical computation, compare. **Result:
 the random-bucket null (mean=63.9, max=78 features showing >10% uplift across 20 draws) is

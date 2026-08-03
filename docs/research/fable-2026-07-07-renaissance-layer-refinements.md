@@ -26,7 +26,7 @@ surface named and disciplined; (W) weak-signal diversification, not strong-signa
    `volume_rank_z` / `volatility_rank_z` were designed in Phase 139, are declared in
    `schemas.py:1453` and the persistence SQL (`feature_vector_persistence.py:91,296` - "None
    until Phase 139 enrichment"), and are 0/36.7M populated with no writer anywhere (grep
-   verified). Meanwhile the edge-source thesis (`data-edge-source-thesis.md`) identifies T3
+   verified). Meanwhile the edge-source thesis (`data-edge-source-thesis.md`) identifies cross_sectional_relative_value
    (cross-sectional relative mispricing) as the *lowest-IC-bar thesis on the list*, and the
    ensemble already trains exclusively on cross-sectional POOLED strata. The features that would
    most directly serve the most winnable thesis are the ones that don't exist.
@@ -42,7 +42,7 @@ surface named and disciplined; (W) weak-signal diversification, not strong-signa
    measurement-time joins (no new writer, `forward_returns` stays immutable), and Phase 145's
    tag calibrator is already about to produce the measured betas the residual target needs.
    Pairs directly with the still-unbuilt cross-sectional rank IC mode
-   (`measurement-ic-engine.md` Addendum) as T3's honest test.
+   (`measurement-ic-engine.md` Addendum) as cross_sectional_relative_value's honest test.
 4. **Add the OHLCV microstructure-proxy family (L1-2): Corwin-Schultz spread, Roll spread,
    Amihud illiquidity.** Computable from bars alone, a genuinely distinct information family
    (liquidity/friction, not price/vol/volume level), and dual-use: the same estimators give
@@ -152,7 +152,7 @@ reserved `feature_vectors` columns it was always meant to own, or land in a sibl
 one-writer-per-table reading of the DAG invariant is preferred - decide at planning, both defensible.
 
 - (F) Standard `ic_engine` measurement; additionally these are the features for which the
-  cross-sectional rank IC mode (`measurement-ic-engine.md` Addendum, T3's falsification
+  cross-sectional rank IC mode (`measurement-ic-engine.md` Addendum, cross_sectional_relative_value's falsification
   instrument, still unbuilt) gives the honest read - build both in the same phase and each
   validates the other. (O) ~15-20 new columns in the standard corpus-level FDR pool; ranks are
   bounded, no new normalization freedom. (W) This is the canonical Renaissance move: many small
@@ -354,7 +354,7 @@ pooled IC the whole system keys on is currently vol-biased.
 
 `return_x(symbol) - beta * return_x(SPY)`, beta from Phase 145's Instrument Tag Calibrator -
 which is already committed to producing measured, FDR-corrected factor betas
-(`stratification-instrument-tag-calibrator.md`). This is the outcome definition T3 actually requires: a
+(`stratification-instrument-tag-calibrator.md`). This is the outcome definition cross_sectional_relative_value actually requires: a
 cross-sectional edge is a claim about *idiosyncratic* mispricing, and measuring candidate
 features against raw returns lets market-timing leak into what looks like relative-value IC.
 The attribution-honesty gate in `trade-construction-layer.md` (spread P&L must not be a static
@@ -363,7 +363,7 @@ factor tilt) becomes partially testable at the IC layer, years before a portfoli
 - (F) Features whose IC survives against raw returns but dies against residual returns are
   market-timing features wearing relative-value costume; that verdict is the test. (O) Beta
   estimation is owned by Phase 145's own gate discipline; this proposal adds no estimator.
-  (W) Sharpens the weakest-signal thesis (T3). (C) Measurement-time join once 145 lands;
+  (W) Sharpens the weakest-signal thesis (cross_sectional_relative_value). (C) Measurement-time join once 145 lands;
   sequence it into the same v3.15 batched rerun.
 
 ### L3-3. Frame-outcome labels as a second outcome definition (post-142B, zero new infra)

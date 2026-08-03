@@ -7,9 +7,9 @@ design/audit follow-ons, not urgent
 
 ## Finding
 
-`docs/research/data-edge-source-thesis.md`'s T5 section flagged an "unexplained
+`docs/research/data-edge-source-thesis.md`'s nonlinear_interaction_combiner section flagged an "unexplained
 timeframe-instability": `ctf_momentum` shows validated **positive** IC at equity/15m (Phase
-167's live construction trades this) but **negative** mean IC at equity/1d (T5's 1d
+167's live construction trades this) but **negative** mean IC at equity/1d (nonlinear_interaction_combiner's 1d
 replication, 2026-07-27). The doc speculated "classic short-horizon-momentum /
 long-horizon-reversal... not yet confirmed."
 
@@ -43,7 +43,7 @@ a genuine, different-tf HTF).
 
 ## Why this matters
 
-- The T5 1d replication's "`ctf_momentum` negative at 1d" comparison point is invalid as
+- The nonlinear_interaction_combiner 1d replication's "`ctf_momentum` negative at 1d" comparison point is invalid as
   evidence about the *same* feature's stability across timeframes -- it was comparing apples
   (1h-context momentum) to oranges (1d self-referential RSI) and didn't know it.
 - Any future construction that treats `ctf_momentum` as "the same feature, timeframe-portable"
@@ -53,7 +53,7 @@ a genuine, different-tf HTF).
 
 ## Recommended fix (not yet done)
 
-1. Update `docs/research/data-edge-source-thesis.md`'s T5 section: replace the "not yet
+1. Update `docs/research/data-edge-source-thesis.md`'s nonlinear_interaction_combiner section: replace the "not yet
    investigated" framing with this mechanical explanation, and correct the implied claim that
    the 1d result says anything about `ctf_momentum`'s cross-tf stability.
 2. Decide on the underlying design gap: either (a) exclude 1d from any `ctf_momentum`
@@ -72,10 +72,10 @@ Doc correction (item 1) is small and should happen alongside this todo's filing.
 judgment calls / audits, not urgent -- no live construction currently depends on 1d's
 `ctf_momentum`.
 
-**Update 2026-07-27:** Item 1 done -- `docs/research/data-edge-source-thesis.md`'s T5 section
+**Update 2026-07-27:** Item 1 done -- `docs/research/data-edge-source-thesis.md`'s nonlinear_interaction_combiner section
 corrected same day. Same session also tested `ctf_momentum`'s two siblings
-(`ctf_vwap_align`/`ctf_regime_align`) through the identical T3 methodology
-(`scripts/analysis/t3_ctf_family_check.py`): both rejected (`ctf_vwap_align` clears the
+(`ctf_vwap_align`/`ctf_regime_align`) through the identical cross_sectional_relative_value methodology
+(`scripts/analysis/t3_ctf_family_check.py` -- deleted 2026-07-28, git-history only): both rejected (`ctf_vwap_align` clears the
 statistical bar but dies on turnover cost; `ctf_regime_align` doesn't clear its own CI at
 either scale) -- `ctf_momentum` is not one member of a productive "CTF family," recorded in
 the same doc section. Items 2/3 (design decision on 1d's degenerate HTF, audit of other
