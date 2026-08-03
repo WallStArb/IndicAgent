@@ -24,7 +24,7 @@ from unittest.mock import AsyncMock
 from uuid import uuid4
 
 import pytest
-from fastapi import FastAPI
+from fastapi import APIRouter, FastAPI
 from fastapi.testclient import TestClient
 
 from src.api import dependencies
@@ -106,16 +106,8 @@ class _FakeDatabaseManager:
 
 def _build_test_app() -> FastAPI:
     app = FastAPI()
-    app.include_router(health.router, prefix="/health")
-    app.include_router(market_data.router, prefix="/api")
-    app.include_router(instruments.router, prefix="/api")
-    app.include_router(features.router, prefix="/api")
-    app.include_router(signals.router, prefix="/api")
-    app.include_router(narrative.router, prefix="/api")
-    app.include_router(ai_stats.router, prefix="/api")
-    app.include_router(drift.router, prefix="/api/drift")
-    app.include_router(validation.router, prefix="/api/validation")
-    app.include_router(vocabulary.router, prefix="/api/vocabulary")
+    for router, prefix in _ROUTERS:
+        app.include_router(router, prefix=prefix)
     return app
 
 
@@ -126,18 +118,40 @@ def _resolve_path(path_template: str) -> str:
     return path
 
 
-def _collect_get_routes(app: FastAPI) -> list[str]:
+# (router, prefix) pairs, the single source `_build_test_app` and `_collect_get_routes` both
+# read from. Introspecting the assembled `app.routes` after `include_router()` used to work
+# (each sub-route flattened into the top-level list with its own `.path`/`.methods`), but a
+# fastapi bump wraps included routers in `fastapi.routing._IncludedRouter` instead, which
+# exposes no `.path`/`.methods` of its own -- collecting from the router objects directly,
+# before they're handed to `include_router()`, sidesteps that internal representation entirely
+# rather than re-coupling to whatever fastapi's wrapper looks like this time.
+_ROUTERS: list[tuple[APIRouter, str]] = [
+    (health.router, "/health"),
+    (market_data.router, "/api"),
+    (instruments.router, "/api"),
+    (features.router, "/api"),
+    (signals.router, "/api"),
+    (narrative.router, "/api"),
+    (ai_stats.router, "/api"),
+    (drift.router, "/api/drift"),
+    (validation.router, "/api/validation"),
+    (vocabulary.router, "/api/vocabulary"),
+]
+
+
+def _collect_get_routes() -> list[str]:
     paths = []
-    for route in app.routes:
-        methods = getattr(route, "methods", None)
-        if not methods or "GET" not in methods:
-            continue
-        paths.append(_resolve_path(route.path))
+    for router, prefix in _ROUTERS:
+        for route in router.routes:
+            methods = getattr(route, "methods", None)
+            if not methods or "GET" not in methods:
+                continue
+            paths.append(_resolve_path(prefix + route.path))
     return paths
 
 
 _test_app = _build_test_app()
-_GET_ROUTE_PATHS = _collect_get_routes(_test_app)
+_GET_ROUTE_PATHS = _collect_get_routes()
 
 
 @pytest.fixture

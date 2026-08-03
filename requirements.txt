@@ -12,7 +12,14 @@ uvloop>=0.22.0; sys_platform != "win32"
 
 # Data Processing
 numpy>=2.0.0,<2.5.0  # numba's runtime check hard-fails to import above 2.4 (confirmed live 2026-08-03)
-pandas>=2.2.0,<3.0.0  # pandas 3.0 is a breaking major version; no evidence yet that anything here needs it
+pandas>=2.2.0,<3.0.0  # blocked on 3.0, not a code-risk judgment call: every currently
+# installable, non-yanked mlflow version in this project's accepted range (mlflow>=2.10, a real
+# live dependency -- src/core/ml/registry.py, ml_trainer.py, ml_scorer_agent.py) itself depends
+# on pandas<3 (confirmed via `uv pip install`'s resolver, 2026-08-03). This codebase's own usage
+# was separately audited clean against every pandas-3.0 breaking-change category (no
+# `dtype == object` checks, no `inplace=True`, no deprecated offset aliases, no pytz, no
+# `observed=` groupby calls, no pandas chained assignment, no `Series.add()` against a
+# DataFrame) -- revisit once mlflow ships a pandas 3-compatible release.
 pandas-market-calendars>=4.3
 pyarrow>=14.0.0
 polars>=1.0
@@ -43,14 +50,13 @@ structlog>=25.5.0
 cramjam>=2.8.0
 ib_insync>=0.9.86
 pydantic>=2.12.0
-pydantic-ai>=1.0,<2
+pydantic-ai>=2.0,<3
 pydantic-settings>=2.12.0
 tzdata>=2025.1
 
 # LLM Platform
 litellm>=1.40.0,<2.0.0
 instructor>=1.0.0,<2.0.0
-mistralai>=1.0.0,<2.0.0
 
 # Development & Testing
 black>=26.1.0
@@ -62,5 +68,5 @@ numba>=0.65.0
 pytest>=8.4.0
 pytest-asyncio>=1.1.0
 ruff>=0.15.0
-tqdm==4.67.3
+tqdm>=4.67.3  # was exact-pinned with no recorded reason; pydantic-ai 2.x's own resolution already needs 4.70+
 vulture>=2.11
