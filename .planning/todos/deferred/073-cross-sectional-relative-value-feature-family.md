@@ -2,6 +2,18 @@
 
 **Status (moved to deferred/, 2026-07-10):** New FeatureFactory feature-family build meant for the v3.15 corpus-rerun batch / Phase 151's remit, not a standalone build -- the source doc explicitly warns against running these piecemeal. Revive alongside that batch or Phase 151 planning.
 
+**Cross-ref added 2026-08-03 (re-found independently while diagnosing todo 245, then matched
+against this existing file before writing anything new):** confirmed live -- `momentum_rank_z`/
+`volatility_rank_z`/`volume_rank_z` are still 100% NULL corpus-wide across all four tfs
+(~37M rows), still hardcoded to `None` at both call sites in `feature_factory.py`. Contributes
+zero to any current measurement (confirmed harmless, not silently biasing anything). Worth
+noting for whenever this gets re-prioritized, not a reason to act now: this todo's original
+"HIGHEST priority" framing (2026-07-08) predates Phase 167's success, which came from
+`ctf_momentum`, not this family. If [todo 245](../pending/245-nonlinear-interaction-combiner-trains-on-lookahead-contaminated-ctf-momentum.md)/[todo 243](../pending/243-ctf-momentum-batch-join-lookahead-bias.md)'s
+measurement shows `ctf_momentum`'s lookahead leak was doing real work, this family becomes the
+obvious independent cross-sectional fallback -- a different reason to revive it than the one it
+was filed under, not a reason to build it before that question resolves.
+
 
 **Merged 2026-07-08:** this exact finding was independently discovered twice — first as todo
 013 (2026-06-28; the completed-todo file itself was deleted 2026-07-09 as doc bloat once merged
