@@ -54,3 +54,11 @@ Revive the StratificationDimension formalization — unblocked as of 2026-07-22 
 yet started. Everything else here (new candidates, tag taxonomy audit) either enters through
 that same gate or has its own independent, unrelated trigger — see each component's canonical
 doc, not duplicated here.
+
+## CLOSED 2026-08-03 -- superseded by ROADMAP Phase 145
+
+Confirmed `.planning/ROADMAP.md` line 1472: "Phase 145: StratificationDimension Formalization
+📋 PLANNED" is live. PRIORITIES.md's own scoping rule says phase-scoped work belongs to the
+ROADMAP/phase track, not the pending/ todo index -- keeping both would only recreate the exact
+drift CLAUDE.md already warns about. Closing this pending file; Phase 145's ROADMAP entry is
+now the sole source of truth for this work's status.

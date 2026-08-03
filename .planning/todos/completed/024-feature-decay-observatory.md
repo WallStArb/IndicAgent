@@ -67,3 +67,11 @@ the ensemble if 009's demotion logic never fires.
 - Dashboard loads in < 3s for 12-month date range
 - IC Sharpe heatmap correctly flags `is_decaying=true` features in red
 - Correlation crowding scatter matches ad-hoc SQL verification for 3 spot-checked features
+
+## REJECTED, not pursued -- 2026-08-03
+
+Cut alongside todo 022 (Superset), which this is entirely gated on. The underlying diagnostic
+questions (feature decay, crowding) are legitimate and stay real -- if feature decay ever
+becomes an actual observed problem (not hypothetical), build the heatmap/trend charts directly
+as a Grafana panel over `feature_ic_stats`/`feature_ic_scores`, which already exists and needs
+no new service. Don't stand up Superset first just to build this dashboard.

@@ -36,3 +36,10 @@ structurally instead of only printing it.
 Small, mechanical -- the timing data already exists at the print site, this just adds
 a durable sink for it. Good "automate" candidate per CLAUDE.md's 5-step mandate (don't
 make future investigations re-derive this by hand every time).
+
+## CLOSED 2026-08-03 -- confirmed live
+
+`logs/corpus_pipeline/step_timings.jsonl` verified with real entries across two
+separate pipeline runs (step 5/`ic_engine` from the 2026-07-30 run finishing
+2026-08-02T19:19:37Z; steps 6/7/8 from the 2026-08-02 20:17 run). Durable, queryable,
+survives `--from-step` restarts as designed. No further action needed.

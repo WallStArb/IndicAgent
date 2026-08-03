@@ -138,3 +138,10 @@ research curiosity rather than a live risk. If it resurfaces (via
 to catch it live with `py-spy`/`pg_stat_activity` monitoring at the exact scheduled `next_start`,
 since retroactive analysis has no evidence trail to work with (job_history/postgres logs don't
 retain long enough, confirmed above).
+
+## CLOSED 2026-08-03
+
+Confirmed live: `systemctl is-active indicagent-compression-auditor` returns `active`. The class
+of bug is closed permanently regardless of whether the scheduler root cause is ever found; the
+residual curiosity self-surfaces via `compression_auditor.overdue_chunks_detected` if it recurs,
+so it doesn't need its own standing todo.

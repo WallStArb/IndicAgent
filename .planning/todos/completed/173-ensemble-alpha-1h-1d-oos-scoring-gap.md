@@ -73,3 +73,18 @@ recurring cadence (large, a genuine unbuilt piece per todo 089) or whether this 
   recurring `ensemble_ic_engine` schedule)
 - [166](166-1d-ensemble-eligibility-small-sample-treatment.md) -- possible related 1d
   observation, different symptom (small sample vs. zero rows) -- check for shared cause
+
+## CLOSED 2026-08-03
+
+Verified live (`SELECT tf, count(*) FILTER (WHERE bar_ts >= '2025-12-24T05:15:00Z') FROM
+ensemble_alpha WHERE tf IN ('1h','1d') AND weight_version='run_2025122405150000' GROUP BY 1`):
+1h now has 71,972 OOS rows, 1d has 10,126 -- the specific "never computed" gap this todo
+reported is resolved by the 2026-08-02 corpus run (`ensemble_trainer`/`alpha_publisher` steps
+7/8). Fix step 1's question is answered: not a structural 1h/1d exclusion, just a run that
+hadn't happened yet for this weight_version.
+
+**Not closed by this:** whether to formally re-score Gate 1 (D-04, irreversible) across all 4
+timeframes is a separate promotion-decision question this todo never owned, and todo 089's
+"no recurring ensemble_ic_engine cadence" concern stands independently -- this run happening
+doesn't establish it happens routinely. Both remain open under their own todos (089, 166) if
+still relevant.

@@ -35,3 +35,18 @@ Full design spec at `docs/research/bi-analytics-layer-design.md`. MVP scope:
 - ~2GB RAM, no contention on server (16GB available)
 
 Pre-requisites: Current phases (67-68) should complete first. Also consider stopping unused MLflow container (1.9GB reclaimable).
+
+## REJECTED, not pursued -- 2026-08-03
+
+Cut during a backlog-quality pass applying this project's Renaissance-quality bar. Standing up
+a whole new Docker service + continuous aggregates + read-only DB role is real infra footprint
+for pure convenience -- this is a single-operator system (endgame: personal live trading
+capital, not a commercial product) where the operator already queries TimescaleDB directly via
+psql and writes ad-hoc analysis scripts constantly (every todo in this backlog demonstrates
+that fluency). No proof-of-alpha value, doesn't instrument anything that isn't already
+instrumented via Grafana/OTel. Fails Musk step 1 (question the requirement) -- the underlying
+"explore signal outcomes without writing SQL" problem doesn't actually exist for this user.
+Also badly stale: the named continuous aggregates (`analytics_signal_calibration` etc.)
+describe v2.x-era tables that predate the v3.0 rebuild. If a genuine self-service BI need
+surfaces later, re-scope from scratch against the current schema rather than reviving this.
+Todo 024 (dependent) cut alongside for the same reason.

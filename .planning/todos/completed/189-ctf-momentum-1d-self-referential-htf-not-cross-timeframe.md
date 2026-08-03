@@ -80,3 +80,12 @@ statistical bar but dies on turnover cost; `ctf_regime_align` doesn't clear its 
 either scale) -- `ctf_momentum` is not one member of a productive "CTF family," recorded in
 the same doc section. Items 2/3 (design decision on 1d's degenerate HTF, audit of other
 self-referential fallbacks) remain open, still not urgent.
+
+## CLOSED 2026-08-03
+
+Both remaining items have no actionable payoff left. Item 2 is explicitly deferred by its own
+text ("only if a live 1d construction later needs it" -- none does). Item 3 (audit whether
+`ctf_vwap_align`/`ctf_regime_align` share the same degenerate-1d fallback) is now moot: both
+were independently rejected as dead features same-day (fail cost/CI bars at every tf tested),
+so whether their 1d value is also degenerate has zero consequence for anything live. No further
+tracking needed; revive only if a new construction resurrects one of these features.
