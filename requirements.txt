@@ -12,14 +12,11 @@ uvloop>=0.22.0; sys_platform != "win32"
 
 # Data Processing
 numpy>=2.0.0,<2.5.0  # numba's runtime check hard-fails to import above 2.4 (confirmed live 2026-08-03)
-pandas>=2.2.0,<3.0.0  # blocked on 3.0, not a code-risk judgment call: every currently
-# installable, non-yanked mlflow version in this project's accepted range (mlflow>=2.10, a real
-# live dependency -- src/core/ml/registry.py, ml_trainer.py, ml_scorer_agent.py) itself depends
-# on pandas<3 (confirmed via `uv pip install`'s resolver, 2026-08-03). This codebase's own usage
-# was separately audited clean against every pandas-3.0 breaking-change category (no
-# `dtype == object` checks, no `inplace=True`, no deprecated offset aliases, no pytz, no
-# `observed=` groupby calls, no pandas chained assignment, no `Series.add()` against a
-# DataFrame) -- revisit once mlflow ships a pandas 3-compatible release.
+pandas>=3.0.0,<4.0.0  # upgraded 2026-08-03 after removing mlflow, whose own dependency range
+# was the sole thing capping pandas<3. Codebase's own usage was separately audited clean against
+# every pandas-3.0 breaking-change category (no `dtype == object` checks, no `inplace=True`, no
+# deprecated offset aliases, no pytz, no `observed=` groupby calls, no pandas chained assignment,
+# no `Series.add()` against a DataFrame). Full unit suite green post-upgrade.
 pandas-market-calendars>=4.3
 pyarrow>=14.0.0
 polars>=1.0
@@ -31,7 +28,19 @@ tsfresh>=0.21.1
 hmmlearn>=0.3.0
 langgraph>=1.0.0
 lightgbm>=4.0
-mlflow>=2.10
+# mlflow removed 2026-08-03: its only real callers (src/core/ml/registry.py,
+# src/intelligence/services/ml_trainer.py, src/intelligence/ai/alpha/ml_scorer_agent.py) are
+# dormant v2.x-era code predating the v3.0 rebuild (last touched 2026-05-30 to 2026-06-18,
+# before v3.0 started 2026-06-20), have no live systemd unit (indicagent-ml-training.service +
+# timer both disabled), and the actual live v3.0 ML/ensemble path (services/ensemble_trainer.py,
+# services/ensemble_ic_engine.py) never imports mlflow at all. The registry logic it wrapped
+# (versioning/promotion/staging) was already fully custom-built against the ml_models table --
+# mlflow itself only ever provided serialization (LightGBM has native save/load) and
+# param/metric logging (this project already does that via plain Postgres columns everywhere
+# else), at the cost of a whole separate tracking-server dependency chain (flask, gunicorn,
+# alembic, sqlalchemy, docker, graphene, huey, matplotlib, skops) that was also the sole blocker
+# on pandas<3 and protobuf<7. If this ML path is rebuilt, rebuild it native rather than
+# reinstalling mlflow.
 scikit-learn>=1.5.0
 shap>=0.44
 threadpoolctl>=3.1.0
@@ -47,7 +56,6 @@ opentelemetry-sdk>=1.20.0
 structlog>=25.5.0
 
 # Settings / Config
-cramjam>=2.8.0
 ib_insync>=0.9.86
 pydantic>=2.12.0
 pydantic-ai>=2.0,<3

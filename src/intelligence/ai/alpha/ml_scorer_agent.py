@@ -23,7 +23,6 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING, Any, ClassVar
 
-import mlflow
 import numpy as np
 import structlog
 
@@ -152,6 +151,13 @@ class MLEvaluator(Evaluator):
                 run_id = await self._registry.get_latest_run_id(segment_dict)
                 if run_id is not None:
                     try:
+                        # Lazy import: mlflow was removed from requirements.txt 2026-08-03
+                        # (dormant dependency, see requirements.txt's own note) -- deferring the
+                        # import here, same pattern as ModelRegistry.load_latest(), means this
+                        # module still imports cleanly for callers that never reach this path
+                        # (e.g. AlphaSwarm's own test suite) instead of failing at import time.
+                        import mlflow
+
                         artifact = mlflow.artifacts.load_dict(
                             f"runs:/{run_id}/shap_importance.json"
                         )
