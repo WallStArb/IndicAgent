@@ -8,6 +8,34 @@ source: rigor review of `docs/research/data-edge-source-thesis.md` -- checking e
 
 # `nonlinear_interaction_combiner` has never been tested against the baseline its own falsification criterion names
 
+## Status (2026-08-03)
+
+Code fix landed: commit `816032e2` adds `fit_linear_ensemble_weights()` +
+`score_linear_ensemble()` to `scripts/analysis/_nonlinear_interaction_combiner_shared.py` -- a
+fold-local, causally-fit linear ensemble reusing `ensemble_trainer.py`'s own weighting
+primitives (`compute_shrinkage_covariance`, `mean_variance_weights`, `derive_weights`,
+`cluster_deflate_weights`, plus a new `covariance_to_correlation()` extracted into
+`covariance.py`). Wired into `run_nonlinear_interaction_combiner_check()` as a third
+`linear_score` arm; `ctf_momentum` kept as the secondary arm per this todo's own ask. The
+PRIMARY VERDICT is decided via a paired bootstrap of the IC difference
+(`paired_bootstrap_ic_difference`, same file) rather than comparing two marginal CIs for
+non-overlap -- tree and linear score identical rows, so a non-overlap test is systematically
+underpowered there.
+
+Peer-reviewed (independent agent, verified against the live corpus, not just read-through) and
+two blocking issues from that review are already fixed in the same commit: features are now
+z-scored before weighting/covariance (unstandardized raw `feature_vectors` columns span a
+~150x scale range, so weights were dominated by whichever column had the largest raw variance
+regardless of IC -- confirmed empirically pre-fix, pooled IC roughly doubled once standardized),
+and `max_fit_rows` default lowered 1M -> 200K after the same review measured ~8.1GB transient
+memory at 1M rows against this module's prior documented OOM history at 15m/5m scale.
+
+**Still open:** the actual re-run across 1h/1d/15m/5m and reading the new PRIMARY VERDICT this
+todo was written to get -- hasn't happened yet (multi-hour, DB-heavy job, deliberately not
+started opportunistically). Leaving `status: pending` until that re-run lands; the 5 new
+Signal-Extraction candidates and todo 238 both still wait behind this per the doc's own
+sequencing note.
+
 ## What
 
 The pre-registered falsification bar, written in `docs/research/data-edge-source-thesis.md`

@@ -8,6 +8,23 @@ source: rigor review of `docs/research/data-edge-source-thesis.md` -- verifying 
 
 # `nonlinear_interaction_combiner`'s walk-forward embargo is measured in pooled-panel ROWS, not bars
 
+## Status (2026-08-03)
+
+Code fix landed: commit `816032e2` adds `_pooled_panel_folds()` to
+`scripts/analysis/_nonlinear_interaction_combiner_shared.py`, building walk-forward folds over
+the distinct `bar_ts` index (via `build_walk_forward_folds`, unchanged) and mapping bar-index
+boundaries back to row slices -- the "better" fix this todo names, not the multiply-by-rows-
+per-bar approximation. Unit-tested (`tests/unit/test_nonlinear_interaction_combiner_shared.py`)
+against synthetic uneven-symbols-per-bar panels, including a degenerate-case equivalence check
+against `build_walk_forward_folds` called directly. Peer-reviewed (independent agent, verified
+correct against the real corpus's actual per-tf bar counts).
+
+**Still open:** the actual re-run across 1h/1d/15m/5m under the corrected methodology, and
+recording whether the published numbers move -- this todo's own "Fix" section calls for exactly
+that, and it hasn't happened yet (multi-hour, DB-heavy job, deliberately not started
+opportunistically alongside other concurrent work in this repo). Leaving `status: pending` until
+that re-run lands.
+
 ## What
 
 `scripts/analysis/_nonlinear_interaction_combiner_shared.py` calls:
