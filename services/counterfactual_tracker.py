@@ -205,8 +205,20 @@ def frame_gate_passes(
     cluster_members: dict[Any, list[float]] = {}
     for pnl, cluster_id in zip(pnl_r_values, cluster_ids):
         cluster_members.setdefault(cluster_id, []).append(pnl)
+    # Sorted at two levels (todo 172), not raw dict/list insertion order: cluster_id is a
+    # calendar date (bar_ts::date), so sorting clusters also gives chronological order for
+    # free. BCa resampling below is seeded with a FIXED bootstrap_random_state -- a fixed
+    # seed draws specific index positions from cluster_means, so an array whose element
+    # order depended on row-fetch order (TimescaleDB doesn't guarantee stable interleaving
+    # across parallel chunk scans for a plain ORDER BY bar_ts) made the resulting CI
+    # silently non-reproducible run-to-run on unchanged data. Sorting each cluster's own
+    # pnl values before averaging additionally makes np.mean's summation order
+    # deterministic -- floating-point addition is not associative, so leaving within-
+    # cluster order to row-fetch order would still leave ULP-level noise in cluster_means
+    # even after the (larger) inter-cluster ordering bug above is fixed.
     cluster_means = np.array(
-        [float(np.mean(values)) for values in cluster_members.values()], dtype=float
+        [float(np.mean(sorted(cluster_members[cid]))) for cid in sorted(cluster_members)],
+        dtype=float,
     )
 
     if len(cluster_means) < 2:

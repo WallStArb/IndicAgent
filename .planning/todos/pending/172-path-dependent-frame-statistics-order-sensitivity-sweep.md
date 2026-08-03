@@ -94,6 +94,28 @@ regression test asserting cluster-mean array order is independent of input row o
 for item 1 (the broader sweep) is unknown until the grep/audit pass is actually run -- could be
 zero additional findings, or could surface something more consequential elsewhere.
 
+## Item 2 FIXED 2026-08-03
+
+`frame_gate_passes` (`services/counterfactual_tracker.py`) now sorts `cluster_members` by
+`cluster_id` before building `cluster_means`, AND sorts each cluster's own pnl values before
+averaging -- turned out to need both levels, not one. A regression test
+(`test_cluster_mean_array_order_independent_of_row_fetch_order`,
+`tests/unit/test_frame_gate.py`) feeding the identical (pnl, cluster_id) pairs in two
+different row orders caught a residual ULP-level (~1e-16) discrepancy after only the
+inter-cluster sort was applied: floating-point addition is not associative, so
+`np.mean()`'s summation order over a row-fetch-order-dependent list still left tiny noise in
+`cluster_means` even once cluster POSITION was deterministic. Sorting the within-cluster
+values too closed that gap -- the test now asserts exact tuple equality (`result_a ==
+result_b`), not an approximate tolerance. Fixes both callers (`evaluate_frame_gate` calls
+`frame_gate_passes` directly, no separate fix needed there). Since `frame_gate_passes` is a
+pure deterministic function, this is confirmed correct via `/simplify`-equivalent scrutiny
+(the test itself reproduces the original 148-05 bug shape before the fix, then confirms it's
+gone) rather than needing a live corpus re-run -- no `alpha_frames`/gate-verdict data changes,
+only reproducibility of a value that was already correctly computed at least once per input
+set.
+
+Item 1 (the broader path-dependent-statistics sweep) remains open, unscoped.
+
 ## References
 
 - `.planning/phases/148-alpha-scoring-system-planned/148-05-PLAN.md` -- the plan this was

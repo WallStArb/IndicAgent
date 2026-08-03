@@ -126,6 +126,41 @@ def test_bootstrap_random_state_makes_ci_lower_reproducible():
     assert ci_lower_a == ci_lower_b
 
 
+def test_cluster_mean_array_order_independent_of_row_fetch_order():
+    """Todo 172: cluster_means used to be built via dict insertion order
+    (cluster_members.setdefault(...).append(...) over rows in fetch order), so a fixed-seed
+    BCa resample on the SAME set of day-means at different array positions produced a
+    different ci_lower -- non-reproducible run-to-run on unchanged data, since TimescaleDB
+    doesn't guarantee stable row interleaving across parallel chunk scans for a plain
+    ORDER BY bar_ts. Feeding the identical (pnl, cluster_id) pairs in two different row
+    orders (simulating two different chunk-scan interleavings) must now return the exact
+    same ci_lower/ci_upper, since cluster_means is sorted by cluster_id before resampling."""
+    rng = np.random.default_rng(17)
+    day_means = {f"day_{i}": float(rng.normal(0.05, 0.2)) for i in range(60)}
+    pnl_a: list[float] = []
+    clusters_a: list[str] = []
+    for day, mean in day_means.items():
+        for _ in range(5):
+            pnl_a.append(float(mean + rng.normal(0, 0.01)))
+            clusters_a.append(day)
+
+    # Same (pnl, cluster_id) pairs, shuffled row order -- a different "chunk-scan
+    # interleaving" of the identical underlying data.
+    paired = list(zip(pnl_a, clusters_a))
+    shuffle_rng = np.random.default_rng(99)
+    shuffled = [paired[i] for i in shuffle_rng.permutation(len(paired))]
+    pnl_b, clusters_b = (list(t) for t in zip(*shuffled))
+
+    result_a = frame_gate_passes(
+        pnl_a, clusters_a, min_n=30, bootstrap_max_n=5000, bootstrap_batch=1000
+    )
+    result_b = frame_gate_passes(
+        pnl_b, clusters_b, min_n=30, bootstrap_max_n=5000, bootstrap_batch=1000
+    )
+
+    assert result_a == result_b
+
+
 def test_analytic_clt_path_used_above_bootstrap_max_n():
     """When day-cluster count exceeds bootstrap_max_n, the analytic CLT lower bound is
     used instead of BCa (BCa's jackknife is infeasible at high cluster counts, review H4).
