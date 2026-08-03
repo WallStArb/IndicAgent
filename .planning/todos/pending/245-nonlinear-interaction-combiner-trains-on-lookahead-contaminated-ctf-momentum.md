@@ -75,16 +75,28 @@ between the two arms is compromised, not just each arm's absolute IC. This is a 
 to run the `ctf_momentum`-excluded diagnostic below before trusting any 1h/15m/5m PRIMARY VERDICT,
 even a "tree beats linear with a tight, non-overlapping paired CI" one.
 
+## Third rigor pass, same day: the diagnostic in "Fix / next step" below was itself incomplete when first written
+
+`EXCLUDE_COLS` (checked directly, not assumed) contains neither `ctf_vwap_align` nor
+`ctf_regime_align` either -- both are also live trained columns in this matrix, and todo 243's
+own text is explicit that all three CTF fields ("`ctf_momentum`, `ctf_vwap_align`,
+`ctf_regime_align`") share the identical contaminated join, not just `ctf_momentum`. The
+diagnostic as first written here ("exclude `ctf_momentum`, re-test") would have left two more
+lookahead-contaminated channels open -- if the tree's uplift survived that partial exclusion, it
+would have been wrongly read as "the leak wasn't the explanation," when the leak could still be
+running through the other two untouched columns. Corrected below: exclude all three.
+
 ## Fix / next step
 
 Do not re-run todos 239/240's corrected methodology at 1h/15m/5m until one of:
-1. Todo 243's join fix lands and the affected `ctf_momentum` values are recomputed for the
-   scoped sample/corpus needed, or
-2. A clean diagnostic re-run excludes `ctf_momentum` from `EXCLUDE_COLS` for a scoped comparison
-   -- if the tree's uplift over the linear arm survives `ctf_momentum`'s removal, that's real
-   evidence the result isn't just riding the leak; if it collapses, that's the answer too. Cheap
-   (one extra `EXCLUDE_COLS` entry, no corpus changes), and answers the confound question
-   directly without waiting on todo 243's own fix/recompute decision.
+1. Todo 243's join fix lands and the affected `ctf_momentum`/`ctf_vwap_align`/`ctf_regime_align`
+   values are recomputed for the scoped sample/corpus needed, or
+2. A clean diagnostic re-run adds `ctf_momentum`, `ctf_vwap_align`, AND `ctf_regime_align` to
+   `EXCLUDE_COLS` for a scoped comparison -- all three, not just `ctf_momentum` (see above) -- if
+   the tree's uplift over the linear arm survives removing all three, that's real evidence the
+   result isn't just riding the leak; if it collapses, that's the answer too. Cheap (three
+   `EXCLUDE_COLS` entries, no corpus changes), and answers the confound question directly without
+   waiting on todo 243's own fix/recompute decision.
 
 Option 2 is the faster, non-blocking path and doesn't require deciding todo 243's corpus-recompute
 question first. Recommend doing option 2 before or alongside todo 243's own read-only measurement.
