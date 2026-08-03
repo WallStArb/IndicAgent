@@ -22,7 +22,7 @@ See: .planning/PROJECT.md
 **Core value:** Alpha must be demonstrated empirically before any ensemble weight is assigned.
 
 **Guiding lens (Renaissance / Musk, per CLAUDE.md's north star):** every claim in this section
-must be empirically demonstrated, not assumed -- T3 below earned its place by clearing a
+must be empirically demonstrated, not assumed -- cross_sectional_relative_value below earned its place by clearing a
 shuffled-ranking-null guard, not by a plausible story. Before building anything, apply Musk's
 5-step mandate: question whether the requirement is real, delete before adding, simplify,
 accelerate, automate -- in that order. This is why Phase 167 (cheap, already-proven) is
@@ -32,68 +32,85 @@ work that hasn't been shown to be the actual bottleneck.
 **Current focus (updated 2026-07-30):** Milestone v3.1's defining verdict stands: Phase 148
 found Gate 1 (signal proof) PASS but Gate 2 (execution proof) FAIL -- do not promote the
 per-symbol directional construction to live capital. Phase 167 (Cross-Sectional Trade
-Construction, T3) resolved the fork this opened -- **COMPLETE 2026-07-27, both live Validation
+Construction, cross_sectional_relative_value) resolved the fork this opened -- **COMPLETE 2026-07-27, both live Validation
 Gates PASSED** (`gate1_passes=true`, `gate2_passes_overall=true`), the first construction in the
 tree to clear both -- though which tf it should trade at is itself an open question: `_TF="15m"`
 was inherited from the original falsification script, never comparatively tested against 5m for
-this specific construction (todo 235, new 2026-08-03). T2 (regime-conditional persistence) is
-CONFIRMED DEAD (270 cells tested, zero pass on live corrected labels). T5 (non-linear combiner)
+this specific construction (todo 235, new 2026-08-03). regime_conditional_persistence (regime-conditional persistence) is
+CONFIRMED DEAD (270 cells tested, zero pass on live corrected labels). nonlinear_interaction_combiner (non-linear combiner)
 now replicated at all three tfs (todo 234 CLOSED 2026-08-03 -- root-caused via
 `superpowers:systematic-debugging`, the wide-DataFrame fetch pattern itself was the OOM defect,
 not any single operation on it; fixed by building the training matrix directly from asyncpg rows,
 matching `ensemble_trainer.py`'s existing pattern): **substantial at 1h and 15m** (the directly
 actionable tf, cross-sectional-neutral `point_ic` 0.18-0.25), **small specifically at 1d**
 (`point_ic`=0.0127, 1d's own `ctf_momentum` baseline separately known-degenerate, todo 189). Five
-new Signal-Extraction candidates (T6-T10) added the same session, none tested yet. Full detail on
+new Signal-Extraction candidates (`cointegrated_pairs_residual`, `statistical_factor_residual`,
+`cross_asset_lead_lag`, `adaptive_combiner_weights`, `jump_diffusion_decomposition`) added the
+same session, none tested yet. Full detail on
 all theses: `docs/research/data-edge-source-thesis.md` (v1.8).
 Phase 144/143.1/162/163/164/165/167 are all COMPLETE -- see Phase Summary table below, not
 duplicated here.
 
-**Current saga (2026-07-30): the per-tf-active-scale-set branch landed, exposed the session-gate
-bug it was named after, and that's now fixed too.** The branch (`ic_engine.py`'s hardcoded
-`_SCALES` tuple -> per-tf `active_scales_for(tf)`, migration 271) was already merged to
-`origin/main` by a concurrent session before this session fetched -- reconciled cleanly (reset
-local `main` to `origin/main`, cherry-picked this session's own STATE-realignment work on top,
-resolved one todo-numbering collision). Full history: `git log --oneline` around commit
-`46dc307d` (the merge) and `9a1a6ca2`/`2b5e6c60` (the reconciliation). **Lesson banked in
-[[feedback_concurrent_sessions_shared_dir]]: `git fetch origin` before trusting local git state
-or a prior memory snapshot as current -- local can be an entire merge behind origin.**
+**Current saga (2026-08-03, latest): a `ctf_momentum` mechanics question surfaced a live/batch
+divergence, whose review chain surfaced a more serious, still-unmeasured integrity question
+directly touching Phase 167's proof.** Todo 241 (live serving used a crude same-bar intrabar-
+return proxy for `ctf_momentum` where batch used a causal Wilder RSI -- two different statistics
+sharing one column name) is FIXED and committed (`8b2cf690`). Its own review chain (`/simplify`
++ an independent code-reviewer subagent) surfaced three more: **todo 243 (P0, NOT yet fixed)** --
+batch's LTF-to-HTF join selects the still-forming HTF bar, not the last completed one, real
+lookahead up to 55min (5m/15m) or a full day (1h) in every published `ctf_momentum` IC number at
+those tfs -- and `cross_sectional_spread_tracker.py` ranks directly on `ctf_momentum`, Phase
+167's sole ranking signal and **the first and only construction to pass both live Validation
+Gates**. Mechanism confirmed mechanically; magnitude NOT yet measured. Per explicit user
+direction: measure the impact (read-only, scoped sample) before touching the join or triggering
+any corpus recompute -- this is now the single highest-value open question in the tree, ahead of
+any feature-expansion or new-construction work, because it bears on whether Phase 167's already-
+"proven" result needs re-litigating. Todo 242 (P3, `_CTF_HIGHER_TF` not APR-governed) and todo
+244 (P3, `ctf_vwap_align`/`ctf_regime_align` never computed live -- both already-rejected
+features, zero blast radius) are real but low-urgency siblings, not blocking.
 
-That branch's own final review flagged [todo 208](.planning/todos/pending/208-intraday-same-session-forward-return-gate-inconsistent-with-trade-construction.md):
-`forward_return_writer.py`'s same-ET-session completeness gate was silently zeroing 1h's
-`slow`/`extended` completeness and capping `mid` at 53.5%, for a reason (session boundaries)
-that doesn't apply anywhere else in this codebase's trade-construction layer. **Fixed same day**
--- `complete_{scale}` now means "the forward bar exists," identically at every tf, matching how
-1d always worked; migration 272 reverted 1h's now-unjustified `active_scales` exclusion;
-`forward_returns` truncated and rebuilt clean under the corrected definition; corpus pipeline
-relaunched from step 3, **on step 5/8 (`ic_engine`, started 2026-07-30 13:19 EDT, confirmed
-writing real rows to `feature_ic_scores` as of the last check this session -- re-verify via
-`ps aux | grep ic_engine` and `tail logs/corpus_pipeline/resume_20260730_1240.log`
-before trusting this in a later session, historically ~27h total). Do not start new corpus-write
-work until it completes.**
+Separately, the same session's rigor review of `docs/research/data-edge-source-thesis.md` found
+nonlinear_interaction_combiner's own pre-registered falsification bar had never actually been
+tested (compared only to `ctf_momentum` alone, not "the existing linear ensemble" the bar names)
+and its walk-forward embargo was measured in pooled-panel rows, not bars (todos 240/239). **Both
+FIXED and committed** (`816032e2`): a new fold-local linear-ensemble comparison arm (reusing
+`ensemble_trainer.py`'s own weighting primitives) plus a corrected bar-to-row fold mapping, with
+a paired-bootstrap PRIMARY VERDICT replacing the prior single-baseline comparison. An independent
+review caught and fixed 2 more issues in the same pass (unstandardized features dominating
+weights by raw scale, not IC; a memory footprint too close to this module's prior OOM history).
+**Still open: the actual 1h/1d/15m/5m re-run under the corrected methodology** -- multi-hour,
+DB-heavy, deliberately not started without checking host contention first (another session was
+concurrently committing throughout this work).
 
-**`_SCALES`-hardcoding cleanup cluster (`docs/plans/2026-07-30-ic-scale-cleanup-plan.md`) --
-ALL FOUR TASKS CLOSED 2026-07-30** (todos 209/210/211/212, all in `completed/`; todo 210 was
-the real one -- `ensemble_ic_engine.py`'s worker never checked `complete_{scale}` at all, a
-measurement-integrity gap, not just wasted compute). Todo 214
-(`ic_engine.py`/`ensemble_ic_engine.py`'s duplicated per-scale compute logic -- the root cause
-that let 210 exist undetected) remains open, deliberately deferred until this chain stays
-stable through a full corpus cycle. A design doc on the grid's actual per-tf VALUES,
-`docs/research/2026-07-30-forward-return-horizon-grid-refactor.md` (v1.2), recommends aligning
-each tf's measured horizons to that tf's real holding period via the existing (but currently
-starved) `_select_hold_bars_from_decay` decay walk, rather than a uniform or arbitrary grid --
-live evidence: `hold_max_bars` is pinned at the 60-bar ceiling in *every* regime for 1h and 1d
-today, meaning that walk has never once converged for either tf.
+Also this session: todo 172's item 2 (frame_gate_passes cluster-mean non-determinism) FIXED;
+item 1 (broader path-dependent-statistics sweep) remains open, unscoped. Todo 218 (BIL thin-cell
+IC instability) root-caused via direct peer comparison (SHY/IEF) and closed -- deliberately not
+fixed, folded as corroborating evidence into todo 099 whenever that gets real design attention.
+Todo 157 (base-class compliance mechanical check) fully closed. Full detail, all cross-refs:
+`.planning/todos/PRIORITIES.md`'s 2026-08-03 status-sync entry.
 
-Todo 146's per-tf lookahead grid (migration 269) is no longer blocked by 208's *premise*
-(session-boundedness is resolved), but its *values* remain open pending the research doc's
-characterization step (`ops_lookahead_horizon_response.py`, safe to run now, needs one small
-`_OVERNIGHT_HORIZON_GRIDS` gap closed for 5m first) plus the in-flight `ic_engine` run's real
-measurement. Canary RNG pseudo-replication fixed ([todo 203](.planning/todos/pending/203-canary-rng-seed-not-per-symbol-cross-sectional-pseudo-replication.md));
-sibling `canary_acausal_placebo` POOLED-gate anomaly still undiagnosed
-([todo 204](.planning/todos/pending/204-canary-acausal-placebo-pooled-not-detected.md)).
+**2026-07-30 thread (compressed 2026-08-03 -- reconciliation/merge detail dropped, git log has
+it):** the per-tf-active-scale-set fix (migration 271) and todo 208's same-ET-session gate fix
+(`complete_{scale}` now means "the forward bar exists" at every tf; migration 272;
+`forward_returns` rebuilt clean) both landed, triggering the corpus pipeline relaunch whose
+outcome is recorded authoritatively in Tier -1 below -- not restated here. `_SCALES`-hardcoding
+cleanup: todos 209/210/211/212 CLOSED; todo 214 (the duplicated-compute-logic root cause) still
+open, deliberately deferred until this chain is stable through a full cycle. Todo 146's per-tf
+lookahead grid (migration 269): session-boundedness premise resolved, actual VALUES still open
+pending `ops_lookahead_horizon_response.py` characterization + real measurement -- design doc:
+`docs/research/2026-07-30-forward-return-horizon-grid-refactor.md`. Todo 203 (canary RNG
+pseudo-replication) fixed; todo 204 status is in Tier -1 below (don't restate here).
 
 **Next actions, priority order:**
+
+*Tier 0.5 -- NEW 2026-08-03, outranks Tier 1: read-only measurement, not a build.* Todo 243
+(`ctf_momentum` batch-join lookahead bias) -- quantify how much a corrected HTF join shifts
+`ctf_momentum`'s measured IC at 5m/15m/1h before any decision on a corpus recompute or on
+re-running Phase 167's gates. This bears directly on whether the project's single most
+consequential proof-of-alpha result to date needs re-litigating; per explicit user direction,
+measure first, decide after -- do not trigger a corpus-wide recompute unilaterally. Cheap
+(scoped sample, no `feature_vectors` writes) and answers a real open question ahead of any new
+feature/construction work.
 
 *Tier 1 -- decision point, REDIRECTED 2026-07-27 by explicit user instruction:* Phase 156-159
 (execution/sizing) is NOT the priority even though its precondition is cleared. User wants the
@@ -101,9 +118,14 @@ features/regimes/IC/ensemble signal-generation stack validated first ("real prov
 before any execution-layer investment. Do not resume Phase 156-159 scoping without the user
 re-raising it.
 
-*Tier 2 -- serves the redirected priority:* todo 234 CLOSED 2026-08-03 -- T5's 15m result now
-in, and it's the more consequential read of T5 than 1d's small-magnitude number was: substantial
-at the tf that's actually tradeable. todo 235 (T3-at-5m, never comparatively tested against 15m
+*Tier 2 -- serves the redirected priority:* todo 234 CLOSED 2026-08-03 -- nonlinear_interaction_combiner's 15m result now
+in, and it's the more consequential read of nonlinear_interaction_combiner than 1d's small-magnitude number was: substantial
+at the tf that's actually tradeable. **Caveat added 2026-08-03: that "substantial" read was
+measured against a since-corrected methodology bug (todos 239/240 -- pooled-panel embargo units,
+tree-vs-one-column baseline instead of tree-vs-linear-ensemble). Code fix is landed and
+committed; the actual 1h/1d/15m/5m re-run under the corrected methodology has NOT happened yet
+-- the published 0.18-0.25 numbers are not re-confirmed until it does.** todo 235
+(cross_sectional_relative_value-at-5m, never comparatively tested against 15m
 for this construction -- new 2026-08-03); the open `alpha_ensemble_ic`/`alpha_events` question (is the linear-only combiner adequate, or
 does it need revision -- confirmed `ensemble_trainer.py`'s `resolve_stratum_weights` is linear
 combination only; `alpha_events` confirmed sparse/emission-gated, not a dense full-universe
@@ -163,9 +185,12 @@ A same-day partial-data check (safe, read-only, ran alongside the live pipeline)
 `ctf_momentum` at 15m holding up on the first 21 symbols computed under the corrected corpus:
 872 cells, 91.4% positive sign, 63% passing the bootstrap CI gate, mean IC 0.0527, mean IC
 Sharpe 0.4389, BIL (T-bill ETF, near-zero movement) the one sensible outlier. **Early
-reinforcement of Phase 167/T3's already-proven result, not new evidence** -- `bh_adjusted_p` is
+reinforcement of Phase 167/cross_sectional_relative_value's already-proven result, not new evidence** -- `bh_adjusted_p` is
 NULL for all rows so far (FDR correction is a corpus-wide pass that only runs once at the very
-end), so this is a legitimate partial read of real per-cell stats, not a final verdict.
+end), so this is a legitimate partial read of real per-cell stats, not a final verdict. **This
+15m read is exactly the number todo 243 (Tier 0.5) puts in question** -- the `ctf_momentum`
+values behind it came from the batch join now confirmed to select the still-forming HTF bar at
+15m, so this "reinforcement" needs re-reading once 243's magnitude measurement lands.
 
 *Tier 5 -- gate status changed 2026-07-27:* Phase 156-159 (Portfolio State/Sizing/Execution/Cost)
 was gated on Phase 167 producing a proven signal -- **that gate cleared: Phase 167's both
@@ -208,7 +233,7 @@ Full P2/P3 todo backlog: `.planning/todos/PRIORITIES.md`. Idea-level scoring:
 | 162 | ic_engine Corpus Pipeline Throughput | COMPLETE (4/4 plans, 2026-07-23) -- whole-cell fingerprint mechanism, equivalence-proven |
 | 166 | Frame/Execution Recalibration | COMPLETE (6/6 plans, 4 waves, 2026-07-23) -- baseline and scalar candidates FAIL gate166 decisively; structural candidate halted pending Phase 163. Part 2 (todos 175/176) deprioritized by todo 179's finding. |
 | 163 | VP/SR Structural Primitives | COMPLETE (3/3 plans, 2026-07-24, verification 15/15 must-haves) -- closes todo 153. Historical backfill still open (todo 176, deprioritized) |
-| 167 | Cross-Sectional Trade Construction (T3) | COMPLETE (6/6 plans, 2026-07-27) -- both live Validation Gates PASSED (gate1_passes=true, gate2_passes_overall=true); Phase 156-159's stated precondition is now met. See Current Focus. |
+| 167 | Cross-Sectional Trade Construction (cross_sectional_relative_value) | COMPLETE (6/6 plans, 2026-07-27) -- both live Validation Gates PASSED (gate1_passes=true, gate2_passes_overall=true); Phase 156-159's stated precondition is now met. See Current Focus. |
 | 164 | SMC Institutional Footprint Primitives | COMPLETE (4/4 plans, 2026-07-28) -- all 36 SMC FeatureVector fields now real computed values in both FeatureFactory.compute() and compute_batch(). Plan 01 (data contract): 36 new feature_vectors columns + registry rows + FeatureVector fields (172->208 total), 39 feature.smc.* APR keys, FeatureCache.update_overnight_range() AMD mutator built. Plan 02 (order blocks + stateless breaker/mitigation): 7 fields via _compute_order_blocks(); 2 bugs caught and fixed during TDD. Plan 03 (FVG + liquidity sweeps + liquidity pools): 12 fields via _compute_fvg()/_compute_liquidity_sweeps()/_compute_liquidity_pools() (single-tf descoped, PWH/PWL/PDH/PDL dropped); an FVG selection bug found and fixed. Plan 04 (supply/demand zones + BOS/CHoCH + AMD cycle): final 18 fields via _compute_supply_demand_zones()/_compute_bos_choch()/_derive_amd_cycle(); update_overnight_range() wired into compute_batch(), the live per-bar handler, and the warm-up replay block, closing the AMD state-lifecycle cold-start gap. Historical backfill for all 36 columns deliberately deferred to the consolidated 163/164/165 recompute pass (todo 176). |
 | 165 | Swing/Fib/Trend/Session Structure Primitives | COMPLETE (5/5 plans, 2026-07-28) -- migration 267 adds 41 new feature_vectors columns + registry rows (group_name='session') for swing detection (7), trend structure (6), swing momentum (8), fibonacci zones (4), session levels (16); zero raw price levels or raw bar indices (D-02/D-04); all 41 fields float \| None, no fake-numeric defaults (D-01). 17 feature.swing.*/feature.trend_structure.*/feature.swing_momentum.*/feature.fib.*/feature.session_levels.* APR keys wired into both live and batch FeatureFactoryConfig sites. `_compute_swing_structure()`/`_compute_trend_structure()` (13 cols, shared `find_peaks`/`find_troughs` pass, D-06), `_compute_swing_momentum()`/`_compute_fib_zones()` (12 cols, deletes the archived cross-plugin fallback outright per D-05), `update_session_levels()` FeatureCache mutator (22 new internal state fields, D-07/D-08/D-09) + `_derive_session_levels()` (final 16 cols) all wired into both `compute()`/`compute_batch()`. Phase-closing gate (`test_phase165_all_41_fields_non_constant_batch`) confirms all 41 columns produce real values; `feature_registry` DB check confirms 41 rows with `added_phase='165'`. Every plan's mutation-verification pass (commit `a748d13d` discipline) surfaced and fixed a real bug in the plan's own tests or comments (a `math.isclose` `rel_tol` masking, a structurally-blind accumulator-collision test, a vacuous live/batch parity check, and a post-merge causal-safety-lint false positive) -- the discipline earned its keep every time it ran. Historical `feature_vectors` backfill for all 41 columns deliberately deferred to the consolidated 163/164/165 recompute pass (todo 176 / STATE.md Tier 0). |
 
@@ -253,7 +278,7 @@ ON CONFLICT (symbol, tf) DO UPDATE SET fetch_complete = true;
   only: `docs/research/intel-symbol-state-query-layer.md`. Independent of Phase 168 (reads
   `feature_vectors`/`market_regimes`, not `construction_spreads`).
 
-- Phase 168 (Cost-Hurdle-Adjusted Spread Construction, T3 Follow-On): added 2026-07-31 as a
+- Phase 168 (Cost-Hurdle-Adjusted Spread Construction, cross_sectional_relative_value Follow-On): added 2026-07-31 as a
   parallel track while the in-flight `ic_engine` recompute runs (zero compute contention --
   pure scoping/discussion work). Follow-on to Phase 167's cross-sectional long-short
   construction (both live Validation Gates PASSED); applies todo 030's cost-hurdle sweep as a
@@ -266,19 +291,7 @@ ON CONFLICT (symbol, tf) DO UPDATE SET fetch_complete = true;
 - Phase 165 (Swing/Fib/Trend Structure Primitives): planned 2026-07-27 (5 plans, 5 waves, sequential -- every plan touches `feature_factory.py`). Plan 01 (data contract: migration 267, 41 new columns/registry rows/APR keys) executed 2026-07-28. Plan 02 (swing detection + trend structure, 13/41 columns, mutation-verified) executed 2026-07-28. Plan 03 (swing momentum + fibonacci zones, 12/41 columns, 25/41 total, mutation-verified) executed 2026-07-28. Plan 04 (session levels FeatureCache state layer, 22 new state fields, mutation-verified) executed 2026-07-28. Plan 05 (final 16-column derivation + phase-closing gate) executed 2026-07-28 -- **COMPLETE, 5/5 plans.** All 41 `feature_registry` rows (`added_phase='165'`) confirmed live in DB. Per Tier 0's sequencing, next action is the ONE combined `backfill_feature_factory.py --compute-only --refresh` pass covering both Phase 164's and Phase 165's new columns (~8h estimated, not yet started -- the user's decision when to kick off, not automatic).
 - Phase 166 (Frame/Execution Recalibration): added 2026-07-23, planned and executed same day -- COMPLETE, verdict: neither candidate promoted. Direct follow-on (todo 179) found the real cause (see Current Focus).
 - Phase 151 (Feature Primitives Expansion + Interaction Layer): planned 2026-07-24, cross-AI reviewed and revised same day (Codex found 3 HIGH-severity findings, all fixed as real plan changes). 9 plans, execution-ready. Deprioritized 2026-07-26 behind Phase 167 (see Current Focus) -- stays planned and ready, not the next priority.
-- Phase 167 (Cross-Sectional Trade Construction, T3): added 2026-07-26 after T3 passed decisively -- the first thesis in the edge-source-thesis tree to clear its own bar. Planned (6 plans), executed, COMPLETE 2026-07-27 -- both live Validation Gates PASSED. Full detail in Current Focus above.
-
-**Prior session history (resolved, not duplicated here per this project's "no resolved history"
-convention -- full detail in git log and `.planning/todos/completed/`):** 143.1-08 shadow-mode
-resolution (2026-07-21) · todos 164/165 ensemble-eligibility fixes (2026-07-21) · symbol_hmm
-restoration + Phase 148 planning (2026-07-22) · Phase 148 finalized, todo 160's real corrupt-print
-scope found and fixed -- 40 bars across 14 symbols, 20x the known count (2026-07-22) · Phase 148
-executed, both irreversible OOS gates run, verdict DO NOT PROMOTE (2026-07-22/23) · Phase 163
-executed, Gate 2's real cause found (todo 179), Layer-1 regime-coverage foundation fixed -- todo
-168 closed, todo 169 shipped (2026-07-24) · Phase 167 planned and executed end-to-end (6/6 plans,
-2026-07-27), both live Validation Gates PASSED, post-execution `/simplify` + code-review found and
-fixed 1 critical + 5 warnings (CR-01 turnover-seed bug, WR-01 APR migration, 3 doc/glossary fixes,
-WR-05 filename-collision fix), CLAUDE.md/gotchas.md corrected same session.
+- Phase 167 (Cross-Sectional Trade Construction, cross_sectional_relative_value): added 2026-07-26 after cross_sectional_relative_value passed decisively -- the first thesis in the edge-source-thesis tree to clear its own bar. Planned (6 plans), executed, COMPLETE 2026-07-27 -- both live Validation Gates PASSED. Full detail in Current Focus above.
 
 ## Session
 

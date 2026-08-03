@@ -1,7 +1,8 @@
 ---
-status: pending
+status: completed
 priority: P2
 filed: 2026-07-31
+closed: 2026-08-03
 source: reviewing in-flight ic_engine recompute output while it runs (parallel-track review, not the recompute's own scope)
 ---
 

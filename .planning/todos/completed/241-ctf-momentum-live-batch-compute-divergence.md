@@ -1,7 +1,8 @@
 ---
-status: pending
+status: completed
 priority: P1
 filed: 2026-08-03
+closed: 2026-08-03
 source: user question about ctf_momentum's HTF tracking mechanics, mid-session
 ---
 
@@ -111,5 +112,4 @@ user direction 2026-08-03: measuring the impact comes before touching the batch 
 triggering any corpus recompute -- see 243 for the full mechanism and next steps.
 
 Verification: 7/7 tests in `tests/unit/services/test_ctf_momentum_live_batch_parity.py` pass;
-full `tests/unit/` suite green (no regressions). Not yet committed -- next step per this
-project's Done-Coding SOP.
+full `tests/unit/` suite green (no regressions). **Committed 2026-08-03: `8b2cf690`.**
