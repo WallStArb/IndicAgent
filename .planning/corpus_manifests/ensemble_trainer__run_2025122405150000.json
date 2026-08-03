@@ -1,7 +1,7 @@
 {
   "step_name": "ensemble_trainer",
   "step_version": "1.0",
-  "timestamp": "2026-07-19T21:49:43.997602+00:00",
+  "timestamp": "2026-08-02T20:42:45.609532+00:00",
   "status": "success",
   "inputs": {
     "weight_version": "run_2025122405150000"
@@ -9,10 +9,12 @@
   "outputs": {
     "ensemble_weights": {
       "table": "ensemble_weights",
-      "rows_total": 47,
+      "rows_total": 190,
       "rows_by_tf": {
-        "15m": 20,
-        "5m": 27
+        "1d": 29,
+        "15m": 38,
+        "1h": 44,
+        "5m": 79
       }
     }
   },

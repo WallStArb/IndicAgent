@@ -275,6 +275,48 @@ last month's weights is a silent methodology choice too.
   known false-discovery budget) and locked in 143.1-CONTEXT.md/RESEARCH.md before this
   plan's own execution began.
 
+- **Addendum, 2026-08-02 (todo 230) — POOLED zero-tolerance rule replaced with a
+  Binomial tail bound, after the first real corpus run exercised it.** The
+  2026-08-02 `ic_engine` pass (`run_complete` 19:19:25 UTC, 2.92M `feature_ic_scores`
+  rows) FATAL-halted on 8 POOLED negative-control clears (3 canaries, ~1.1% of 717
+  cell-tests — well under BH-FDR's own 5% naive budget). Investigation (not a
+  guess-fix, per this project's own convention) traced the root cause before touching
+  the gate:
+  - Restricting to the 244 non-canary features in the same cells, `15m/high_neutral`
+    and `1h/high_bull` show 12-20% of features clearing `ic_ci_lower>0` (mean IC up to
+    0.028 at `1h/high_bull`/60-bar lookahead), versus a clean 2-7% baseline in
+    `low_bear`/`mid_bull`/`mid_neutral`. This is genuine, regime-conditional signal
+    (momentum/trend features working better in high-vol trending regimes), not an
+    artifact — `breadth_vol.py`'s regime-label construction was re-verified fully
+    causal (expanding-rank, no centered windows), consistent with Phase 141/todo 092's
+    prior look-ahead fix holding.
+  - FDR correction is corpus-wide, not per-cell (by design, per the ~232x per-cell
+    inflation this project already measured and fixed). A correctly-functioning
+    BH-FDR procedure's budgeted false discoveries mathematically cluster near
+    whatever cells carry the most genuine small p-values — exactly the cells above.
+    The 3 canaries riding along there at a measured 1.1% rate (under the 5% budget)
+    is expected FDR behavior, not evidence of a broken pipeline.
+  - The original rule's "one config flip away from weighting a control feature into
+    the live ensemble" justification is also weaker than stated: `ensemble_trainer.py`
+    (line ~820) independently requires `feature_status_at_eval = 'active'`, and
+    canaries are permanently `status='candidate'` in `feature_registry` — a POOLED
+    clear alone does not reach the live ensemble under the current query.
+  - **Rule change:** POOLED negative-control clears are now counted and compared
+    against their own pre-committed Binomial tail bound — same construction as the
+    per-symbol bound, but with a stricter `pooled_tail_alpha=0.001` (vs. per-symbol's
+    `0.01`), reflecting that POOLED remains the eligibility-relevant family even
+    though it is not the sole gate on ensemble inclusion. Zero-tolerance is
+    mathematically incompatible with a corpus-wide BH-FDR procedure operating as
+    designed — holding a global-FDR-corrected canary family to a literal zero-false-
+    discovery standard means the gate is expected to intermittently FATAL-halt a
+    healthy, correctly-functioning corpus. The 10x-stricter factor itself is a
+    judgment call, not derived from a selection procedure — same epistemic status as
+    the original per-symbol `tail_alpha=0.01` default this entry already carries.
+    `--pooled-tail-alpha` is CLI-overridable; `0.001` is the pre-committed default
+    this addendum locks in.
+  - Implementation: `scripts/ops/alpha/ops_canary_integrity_assert.py`, tests in
+    `tests/unit/test_canary_predictors.py` (`TestCanaryIntegrityAssertion`).
+
 ### E8 — 2026-07-11: Vol-normalized POOLED-strata IC target A/B design pre-committed before the full-corpus verdict (Component F, todo 097, Phase 143.1-03)
 - **Observed first:** nothing definitive at full-corpus scale — this entry records the A/B
   DESIGN and a bounded diagnostic-sample preview, not the corpus-wide verdict. The

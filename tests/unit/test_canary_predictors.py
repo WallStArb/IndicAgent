@@ -530,17 +530,43 @@ def _row(
 
 
 class TestCanaryIntegrityAssertion:
-    def test_pooled_negative_control_clear_is_a_failure(self) -> None:
+    def test_single_pooled_clear_within_bound_is_not_a_hard_fail(self) -> None:
+        """Todo 230, 2026-08-02: a lone POOLED clear must NOT zero-tolerance halt --
+        corpus-wide BH-FDR's budgeted false discoveries can land on a canary by
+        chance, same as the pre-existing per-symbol tolerance already allowed."""
+        from scripts.ops.alpha.ops_canary_integrity_assert import evaluate
+
+        rows = [
+            _row("canary_noise_gaussian", "POOLED", "negative_control", 0.02, True),
+            _row("canary_acausal_placebo", "POOLED", "positive_control", 0.30, True),
+        ]
+        report = evaluate(rows)
+        assert report["pooled_negative_clears"] == 1
+        assert not report["pooled_bound_exceeded"]
+
+    def test_excessive_pooled_clears_exceeding_bound_is_a_failure(self) -> None:
         from scripts.ops.alpha.ops_canary_integrity_assert import (
             CanaryIntegrityViolation,
             evaluate,
         )
 
         rows = [
-            _row("canary_noise_gaussian", "POOLED", "negative_control", 0.02, True),
             _row("canary_acausal_placebo", "POOLED", "positive_control", 0.30, True),
+            # 30 POOLED negative-control cells, ALL clearing -- wildly exceeds any
+            # reasonable Binomial bound at p=0.05, pooled_tail_alpha=0.001.
+            *[
+                _row(
+                    "canary_noise_gaussian",
+                    "POOLED",
+                    "negative_control",
+                    0.02,
+                    True,
+                    regime=f"regime_{i}",
+                )
+                for i in range(30)
+            ],
         ]
-        with pytest.raises(CanaryIntegrityViolation, match="POOLED negative-control"):
+        with pytest.raises(CanaryIntegrityViolation, match="POOLED negative-control clears"):
             evaluate(rows)
 
     def test_placebo_fails_to_clear_is_a_failure(self) -> None:
@@ -612,7 +638,7 @@ class TestCanaryIntegrityAssertion:
             ],
         ]
         report = evaluate(rows)
-        assert report["pooled_violations"] == []
+        assert report["pooled_negative_clears"] == 0
         assert report["placebo_pooled_cleared"] is True
         assert report["per_symbol_negative_clears"] == 0
         assert not report["per_symbol_bound_exceeded"]

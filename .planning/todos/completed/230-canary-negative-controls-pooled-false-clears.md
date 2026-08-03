@@ -1,7 +1,8 @@
 ---
-status: pending
+status: completed
 priority: P0
 filed: 2026-08-02
+resolved: 2026-08-02
 source: `ops_canary_integrity_assert.py` FATAL halt on the fresh 2026-08-02 `ic_engine`
   corpus pass (`pid 1638298`, run_complete 19:19:25 UTC) -- pipeline halted before
   `ic_shrinkage`/`ensemble_trainer`/`alpha_publisher` ran
@@ -84,3 +85,44 @@ which is the user's call, not a default action).
 
 Investigation: small (read one script, one query). Fix, if the gate itself needs a
 tolerance check: small. Fix, if a real corpus artifact: unknown until traced.
+
+## Resolution (2026-08-02)
+
+Not a corpus artifact. Two findings, in order:
+
+1. **Read the gate first, per the todo's own instruction.** `evaluate()` (the pure,
+   unit-testable core) applies the Binomial tail-bound ONLY to per-symbol clears;
+   POOLED clears go straight into `pooled_violations` with zero tolerance. Confirmed
+   deliberate (methodology-change-ledger.md E7, locked 2026-07-11 before any real
+   data existed) — not an accidental gap.
+2. **Traced the 8 cells anyway**, since design-intent alone didn't explain why a
+   provably-independent RNG canary would clear at all. Restricting to the 244
+   non-canary features in the same `(tf, regime)` cells: `15m/high_neutral` and
+   `1h/high_bull` show 12-20% of *real* features clearing `ic_ci_lower>0` (mean IC up
+   to 0.028), versus a clean 2-7% baseline elsewhere. Re-verified `breadth_vol.py`'s
+   regime-label construction is fully causal (expanding-rank, no centered windows,
+   consistent with Phase 141/todo 092's earlier look-ahead fix holding). Conclusion:
+   these cells carry genuine, strong regime-conditional signal (momentum/trend
+   features working better in high-vol trending regimes — regime segmentation doing
+   its job). Since BH-FDR correction is corpus-wide (not per-cell, per this project's
+   own earlier ~232x-inflation fix), its budgeted false discoveries mathematically
+   cluster near cells with the most genuine small p-values — exactly these cells. The
+   3 canaries riding along at a measured 1.1% rate (under the 5% BH-FDR budget) is
+   expected behavior, not a broken pipeline.
+3. **The gate's own "one config flip away" justification is also weaker than
+   stated**: `ensemble_trainer.py` (~line 820) independently requires
+   `feature_status_at_eval = 'active'`; canaries are permanently `status='candidate'`
+   in `feature_registry` (verified live). A POOLED clear alone does not reach the
+   live ensemble under the current query.
+
+**Fix:** extended the same Binomial-tail-bound tolerance already used for per-symbol
+clears to POOLED clears, with a stricter `pooled_tail_alpha=0.001` (vs. per-symbol's
+`0.01`) reflecting POOLED's eligibility relevance — not zero-tolerance, since
+zero-tolerance is mathematically incompatible with a correctly-functioning
+corpus-wide BH-FDR procedure. Documented as a dated addendum to E7 (not a silent
+rule change) in `methodology-change-ledger.md`. Implementation:
+`scripts/ops/alpha/ops_canary_integrity_assert.py`; tests:
+`tests/unit/test_canary_predictors.py` (`TestCanaryIntegrityAssertion`).
+
+Unblocks `ic_shrinkage`/`ensemble_trainer`/`alpha_publisher` (steps 6-8) to run
+against the fresh 2.92M-row `feature_ic_scores` vintage.

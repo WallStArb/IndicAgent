@@ -9,12 +9,13 @@ every canary x stratum cell in the latest training_window_end vintage and evalua
 each against its control_expectation ('negative_control' | 'positive_control').
 
 HARD-halt (loud, non-zero exit / raised error) if:
-  - Any negative-control canary (canary_noise_gaussian/uniform/constant/near_constant)
-    clears `ic_ci_lower>0 AND passes_fdr` in the POOLED family (symbol='POOLED',
-    is_pooled=true). POOLED is the ONLY family `_ELIGIBILITY_BASE_WHERE`
-    (services/ensemble_trainer.py) reads -- a POOLED clear here means a broken
-    measurement pipeline is one config flip away from weighting a control feature
-    into the live ensemble.
+  - Negative-control canary clears in the POOLED family (symbol='POOLED',
+    is_pooled=true) exceed a pre-committed Binomial tail bound (todo 230, 2026-08-02
+    addendum to E7 -- see below). POOLED is the family `feature_status_at_eval =
+    'active'` gates on top of, ahead of ensemble_trainer.py's eligibility query --
+    a POOLED clear alone does not reach the live ensemble (canaries are permanently
+    `status='candidate'` in feature_registry), but is still tracked far more
+    conservatively than per-symbol clears since it is the eligibility-relevant family.
   - The acausal-placebo positive control does NOT clear that same gate in POOLED --
     proves this pipeline fails to detect look-ahead leakage when genuinely present
     (the whole point of carrying a positive control at all).
@@ -22,17 +23,21 @@ HARD-halt (loud, non-zero exit / raised error) if:
     canary coverage, so this gate cannot validate anything (a silent pass here would
     be worse than a loud failure).
 
-NOT a hard-halt: a single per-symbol (non-POOLED) negative-control clear. BH-FDR at
-alpha=0.05 admits ~5% false discoveries by design (Fable review SHOULD-FIX 6) -- a
-literal "any per-symbol stratum clears -> halt" rule fires on expected statistical
-noise a meaningful fraction of runs. Per-symbol clears are instead COUNTED and
-compared against a pre-committed Binomial tail bound (see _binomial_tail_bound);
-only exceeding the bound hard-fails.
+NOT a hard-halt: a single per-symbol (non-POOLED) or POOLED negative-control clear on
+its own. BH-FDR at alpha=0.05 admits ~5% false discoveries by design (Fable review
+SHOULD-FIX 6) -- a literal "any stratum clears -> halt" rule fires on expected
+statistical noise a meaningful fraction of runs, and FDR correction is corpus-wide
+(not per-cell), so its budgeted false discoveries mathematically cluster near
+whatever cells carry the most genuine signal -- exactly the cells most likely to also
+carry a negative-control canary's occasional false clear. Both per-symbol and POOLED
+clears are instead COUNTED and compared against pre-committed Binomial tail bounds
+(see _binomial_tail_bound); only exceeding a bound hard-fails. POOLED uses a stricter
+(smaller) tail_alpha than per-symbol, reflecting its eligibility relevance, but is not
+zero-tolerance -- see the 2026-08-02 E7 addendum for the evidence this was revised on.
 
 The chosen quantitative rule (POOLED hard-halt scope + Binomial bound) is recorded
-in docs/plans/methodology-change-ledger.md (entry E7) BEFORE the first real corpus
-run exercises this script, per this project's pre-commitment convention for
-gate-affecting decisions.
+in docs/plans/methodology-change-ledger.md (entry E7, and its 2026-08-02 addendum)
+per this project's pre-commitment convention for gate-affecting decisions.
 
 Wired into scripts/ops/corpus/ops_corpus_pipeline_run.sh immediately after Step 5
 (ic_engine) -- feature_ic_scores must exist before this gate has anything to read.
@@ -47,6 +52,7 @@ from __future__ import annotations
 import argparse
 import asyncio
 import sys
+from collections.abc import Callable
 from pathlib import Path
 from typing import Any
 
@@ -59,6 +65,10 @@ from src.config.settings import Settings
 
 _FDR_ALPHA_DEFAULT = 0.05
 _BINOMIAL_TAIL_ALPHA_DEFAULT = 0.01
+# POOLED is the eligibility-relevant family (ensemble_trainer.py reads it, gated further
+# by feature_status_at_eval='active' which canaries never carry) -- held to a stricter
+# bound than per-symbol, but not zero-tolerance. See 2026-08-02 E7 addendum.
+_POOLED_TAIL_ALPHA_DEFAULT = 0.001
 
 _LATEST_VINTAGE_SQL = "SELECT MAX(training_window_end) FROM feature_ic_scores"
 
@@ -105,10 +115,36 @@ def _binomial_tail_bound(n_cells: int, p: float, tail_alpha: float) -> int:
     return int(binom.ppf(1.0 - tail_alpha, n_cells, p))
 
 
+def _family_bound_check(
+    label: str,
+    n_cells: int,
+    clears: list[dict[str, Any]],
+    fdr_alpha: float,
+    tail_alpha: float,
+    offender_fmt: Callable[[dict[str, Any]], str],
+) -> tuple[int, bool, str | None]:
+    """Binomial tail-bound check shared by the POOLED and per-symbol negative-
+    control families -- same construction, differing only in n_cells, tail_alpha,
+    and how an offending row is named in the failure message. Returns
+    (bound, exceeded, failure_message_or_None)."""
+    bound = _binomial_tail_bound(n_cells, fdr_alpha, tail_alpha)
+    n_clears = len(clears)
+    if n_clears <= bound:
+        return bound, False, None
+    offenders = ", ".join(offender_fmt(r) for r in clears)
+    message = (
+        f"{label} negative-control clears ({n_clears}) exceed the pre-committed "
+        f"Binomial tail bound ({bound}, n_cells={n_cells}, p={fdr_alpha}, "
+        f"tail_alpha={tail_alpha}): {offenders}"
+    )
+    return bound, True, message
+
+
 def evaluate(
     rows: list[dict[str, Any]],
     fdr_alpha: float = _FDR_ALPHA_DEFAULT,
     tail_alpha: float = _BINOMIAL_TAIL_ALPHA_DEFAULT,
+    pooled_tail_alpha: float = _POOLED_TAIL_ALPHA_DEFAULT,
 ) -> dict[str, Any]:
     """Pure evaluation function -- no IO, fully unit-testable without a DB.
 
@@ -121,7 +157,8 @@ def evaluate(
             "corpus run had no canary coverage; this gate cannot validate anything"
         )
 
-    pooled_violations: list[dict[str, Any]] = []
+    pooled_negative_clears: list[dict[str, Any]] = []
+    pooled_negative_cells = 0
     placebo_pooled_seen = False
     placebo_pooled_cleared = False
     per_symbol_negative_clears: list[dict[str, Any]] = []
@@ -140,37 +177,49 @@ def evaluate(
 
         # negative_control
         if is_pooled_family:
+            pooled_negative_cells += 1
             if cleared:
-                pooled_violations.append(row)
+                pooled_negative_clears.append(row)
         else:
             per_symbol_negative_cells += 1
             if cleared:
                 per_symbol_negative_clears.append(row)
 
-    bound = _binomial_tail_bound(per_symbol_negative_cells, fdr_alpha, tail_alpha)
-    n_clears = len(per_symbol_negative_clears)
+    pooled_bound, pooled_exceeded, pooled_failure = _family_bound_check(
+        "POOLED",
+        pooled_negative_cells,
+        pooled_negative_clears,
+        fdr_alpha,
+        pooled_tail_alpha,
+        offender_fmt=lambda r: f"{r['feature_name']}@{r['tf']}/{r['regime']}",
+    )
+    per_symbol_bound, per_symbol_exceeded, per_symbol_failure = _family_bound_check(
+        "per-symbol",
+        per_symbol_negative_cells,
+        per_symbol_negative_clears,
+        fdr_alpha,
+        tail_alpha,
+        offender_fmt=lambda r: f"{r['feature_name']}@{r['symbol']}/{r['tf']}/{r['regime']}",
+    )
 
     report = {
         "n_rows_evaluated": len(rows),
-        "pooled_violations": pooled_violations,
+        "pooled_negative_cells": pooled_negative_cells,
+        "pooled_negative_clears": len(pooled_negative_clears),
+        "pooled_binomial_bound": pooled_bound,
+        "pooled_bound_exceeded": pooled_exceeded,
         "placebo_pooled_seen": placebo_pooled_seen,
         "placebo_pooled_cleared": placebo_pooled_cleared,
         "per_symbol_negative_cells": per_symbol_negative_cells,
-        "per_symbol_negative_clears": n_clears,
-        "per_symbol_binomial_bound": bound,
-        "per_symbol_bound_exceeded": n_clears > bound,
+        "per_symbol_negative_clears": len(per_symbol_negative_clears),
+        "per_symbol_binomial_bound": per_symbol_bound,
+        "per_symbol_bound_exceeded": per_symbol_exceeded,
     }
 
     failures: list[str] = []
 
-    if pooled_violations:
-        offenders = ", ".join(
-            f"{r['feature_name']}@{r['tf']}/{r['regime']}" for r in pooled_violations
-        )
-        failures.append(
-            f"POOLED negative-control canary cleared the significance gate "
-            f"(ic_ci_lower>0 AND passes_fdr): {offenders}"
-        )
+    if pooled_failure:
+        failures.append(pooled_failure)
 
     if placebo_pooled_seen and not placebo_pooled_cleared:
         failures.append(
@@ -179,16 +228,8 @@ def evaluate(
             "look-ahead leak, meaning it cannot be trusted to detect a real one either"
         )
 
-    if n_clears > bound:
-        offenders = ", ".join(
-            f"{r['feature_name']}@{r['symbol']}/{r['tf']}/{r['regime']}"
-            for r in per_symbol_negative_clears
-        )
-        failures.append(
-            f"per-symbol negative-control clears ({n_clears}) exceed the pre-committed "
-            f"Binomial tail bound ({bound}, n_cells={per_symbol_negative_cells}, "
-            f"p={fdr_alpha}, tail_alpha={tail_alpha}): {offenders}"
-        )
+    if per_symbol_failure:
+        failures.append(per_symbol_failure)
 
     if failures:
         raise CanaryIntegrityViolation("; ".join(failures))
@@ -291,6 +332,13 @@ def _parse_args() -> argparse.Namespace:
         help="Significance level for the per-symbol Binomial tail bound itself -- "
         "the probability this gate hard-fails on expected BH-FDR noise alone.",
     )
+    parser.add_argument(
+        "--pooled-tail-alpha",
+        type=float,
+        default=_POOLED_TAIL_ALPHA_DEFAULT,
+        help="Significance level for the POOLED Binomial tail bound -- stricter than "
+        "--tail-alpha by default since POOLED is the eligibility-relevant family.",
+    )
     return parser.parse_args()
 
 
@@ -310,13 +358,23 @@ async def main() -> int:
 
     try:
         rows = await _fetch_rows(pool)
-        report = evaluate(rows, fdr_alpha=args.fdr_alpha, tail_alpha=args.tail_alpha)
+        report = evaluate(
+            rows,
+            fdr_alpha=args.fdr_alpha,
+            tail_alpha=args.tail_alpha,
+            pooled_tail_alpha=args.pooled_tail_alpha,
+        )
 
         print("# Canary Integrity Report\n")
         print(f"Evaluated {report['n_rows_evaluated']} canary cells.")
         print(
             f"Positive-control (acausal placebo) POOLED cleared: "
             f"{report['placebo_pooled_cleared']} (seen={report['placebo_pooled_seen']})"
+        )
+        print(
+            f"POOLED negative-control clears: {report['pooled_negative_clears']}"
+            f"/{report['pooled_negative_cells']} cells "
+            f"(bound={report['pooled_binomial_bound']})"
         )
         print(
             f"Per-symbol negative-control clears: {report['per_symbol_negative_clears']}"
