@@ -110,7 +110,14 @@ re-running Phase 167's gates. This bears directly on whether the project's singl
 consequential proof-of-alpha result to date needs re-litigating; per explicit user direction,
 measure first, decide after -- do not trigger a corpus-wide recompute unilaterally. Cheap
 (scoped sample, no `feature_vectors` writes) and answers a real open question ahead of any new
-feature/construction work.
+feature/construction work. **Blast radius wider than 243's own file scoped it, found 2026-08-03
+cross-checking it against this session's own 239/240 work: `ctf_momentum` is one of ~247 trained
+columns in nonlinear_interaction_combiner's matrix (not excluded), and the tree's own
+feature_importances_ measured it at 400+ -- see [todo 245](.planning/todos/pending/245-nonlinear-interaction-combiner-trains-on-lookahead-contaminated-ctf-momentum.md).
+Verified (checked live DB, not assumed): the live production ensemble is NOT contaminated --
+`ctf_momentum` has zero `ensemble_weights` rows, fails BH-FDR eligibility at every tf. The
+confound is scoped to Phase 167's standalone ranking use and nonlinear_interaction_combiner's
+training matrix, not `alpha_publisher`.**
 
 *Tier 1 -- decision point, REDIRECTED 2026-07-27 by explicit user instruction:* Phase 156-159
 (execution/sizing) is NOT the priority even though its precondition is cleared. User wants the
@@ -123,8 +130,10 @@ in, and it's the more consequential read of nonlinear_interaction_combiner than 
 at the tf that's actually tradeable. **Caveat added 2026-08-03: that "substantial" read was
 measured against a since-corrected methodology bug (todos 239/240 -- pooled-panel embargo units,
 tree-vs-one-column baseline instead of tree-vs-linear-ensemble). Code fix is landed and
-committed; the actual 1h/1d/15m/5m re-run under the corrected methodology has NOT happened yet
--- the published 0.18-0.25 numbers are not re-confirmed until it does.** todo 235
+committed. The re-run is now gated further: `ctf_momentum` (tree feature_importances_ 400+, one
+of the tree's most-relied-on inputs) is itself lookahead-contaminated at 1h/15m/5m per todo 243
+-- see todo 245. 1d re-run is safe and unblocked now; 1h/15m/5m wait on 245's diagnostic (or
+243's fix).** todo 235
 (cross_sectional_relative_value-at-5m, never comparatively tested against 15m
 for this construction -- new 2026-08-03); the open `alpha_ensemble_ic`/`alpha_events` question (is the linear-only combiner adequate, or
 does it need revision -- confirmed `ensemble_trainer.py`'s `resolve_stratum_weights` is linear
