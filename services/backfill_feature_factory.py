@@ -348,10 +348,12 @@ def _build_ctf_series(
     htf_bars: list[dict],
     config: FeatureFactoryConfig,
 ) -> dict:
-    """Build {htf_bar_ts: (ctf_momentum, ctf_vwap_align, ctf_regime_align)} in O(n).
+    """Build {htf_bar_period_start: (ctf_momentum, ctf_vwap_align, ctf_regime_align)} in O(n).
 
     Single-pass streaming computation: Wilder RSI + cumulative VWAP + HMM forward.
     Avoids O(n²) slice reprocessing. All values are causal — bar k uses only bars 0..k.
+    Keys are period-start timestamps, matching `htf_bars[k]["ts"]` exactly; callers that
+    need close-time keys (see `_compute_symbol_tf`'s todo-243 shift) remap after the fact.
     """
     n = len(htf_bars)
     if n < 2:
@@ -394,6 +396,32 @@ def _build_ctf_series(
         htf_bars[k]["ts"]: (float(ctf_mom[k]), float(ctf_vwap[k]), float(ctf_regime[k]))
         for k in range(n)
     }
+
+
+def _rekey_ctf_series_to_actual_close(ctf_by_ts: dict, tf: str, htf_tf: str) -> dict:
+    """Re-key `_build_ctf_series`'s dict from HTF period-start to each bar's ACTUAL close
+    (todo 243) -- the next HTF bar's own start, not a flat nominal-duration offset.
+
+    Only applies to genuine cross-timeframe pairs (`tf != htf_tf`, e.g. 5m/15m->1h,
+    1h->1d): the batch join (`bisect.bisect_right(ctf_ts_list, bar_ts) - 1` in
+    FeatureFactory.compute_batch) would otherwise select a still-forming HTF bar for LTF
+    rows inside its still-open window -- real lookahead. A flat offset (`ts + nominal
+    duration`) is wrong for real partial bars: confirmed against production data, the
+    RTH-session-opening 1h bar is a genuine 30-minute partial (e.g. 13:30-14:00 UTC), and
+    a flat offset would overshoot its true close by 30 minutes, silently routing LTF rows
+    in that overshoot window to a stale, older bar instead of the correct, already-closed
+    one. The last HTF bar has no known successor in this dict and is dropped -- its true
+    close isn't knowable from data on hand; the next backfill run picks it up once its
+    successor bar exists.
+
+    1d's self-referential case (`tf == htf_tf`) is returned unchanged: re-keying it would
+    select the *prior* day's bar instead of the current, already-closed one -- see
+    `_CTF_HIGHER_TF`'s docstring.
+    """
+    if tf == htf_tf:
+        return ctf_by_ts
+    ts_sorted = sorted(ctf_by_ts.keys())
+    return {ts_sorted[i + 1]: ctf_by_ts[ts_sorted[i]] for i in range(len(ts_sorted) - 1)}
 
 
 def _connect_db(settings: Settings) -> Any:
@@ -1208,7 +1236,9 @@ def _compute_symbol_tf(
     if htf_tf:
         htf_bars = _fetch_bars_from_db(conn, symbol, htf_tf)
         if htf_bars:
-            ctf_by_ts = _build_ctf_series(htf_bars, config)
+            ctf_by_ts = _rekey_ctf_series_to_actual_close(
+                _build_ctf_series(htf_bars, config), tf, htf_tf
+            )
             htf_ts_list = sorted(ctf_by_ts.keys())
             _logger.debug(
                 "ctf_series_built", symbol=symbol, tf=tf, htf_tf=htf_tf, htf_bars=len(htf_bars)

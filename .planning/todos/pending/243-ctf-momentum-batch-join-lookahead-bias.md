@@ -1,7 +1,8 @@
 ---
-status: pending
+status: fixed-pending-recompute-decision
 priority: P0
 filed: 2026-08-03
+fixed: 2026-08-03
 source: code-reviewer subagent review of todo 241's live-path fix, mechanism
   independently verified against source before filing
 ---
@@ -82,36 +83,48 @@ Gate 1/Gate 2 verdicts -- is unmeasured. Do not assume it invalidates Phase 167 
 measuring; also do not dismiss it as immaterial without measuring. This is the explicit
 project mandate: "earn promotion through proof," which cuts both ways here.
 
-## Fix (not yet applied -- deliberately, pending measurement)
+## Fix -- APPLIED 2026-08-03
 
-Two candidate approaches, not yet chosen:
+Applied the correctness fix (zero-cost, no recompute triggered): `_rekey_ctf_series_to_actual_close()`
+(new function, `services/backfill_feature_factory.py`) re-keys `_build_ctf_series`'s dict from HTF
+period-start to each bar's **actual** close -- the next HTF bar's own start -- for genuine
+cross-timeframe pairs (`tf != htf_tf`) before the `bisect_right` join runs. The 1d self-referential
+case (`tf == htf_tf`) is returned unchanged, as originally scoped.
 
-1. **Shift the batch join back one HTF bar** -- key the CTF dict by HTF *close* time
-   (`ts + TF_DURATIONS[htf_tf]`) instead of period-start `ts`, keeping `bisect_right`
-   semantics, so the selected bar is always the last one that had genuinely closed by
-   `bar_ts`. Simplest, most surgical fix; makes batch match what live's causal
-   implementation already does.
-2. Alternatively, `bisect_left(ctf_ts_list, bar_ts) - 1` against the existing period-start
-   keys achieves the same effective shift without touching the dict's key semantics --
-   needs careful verification against the 1d self-referential case (must stay
-   "current bar is valid" there, not regress to "yesterday's bar" for 1d).
+Rejected the two originally-proposed approaches in favor of a third: neither `ts + TF_DURATIONS[htf_tf]`
+(flat offset) nor `bisect_left` against unshifted keys is correct, because HTF bars are not always
+their full nominal duration. **Confirmed against production data** (`market_data_ohlcv_tradeable`,
+SPY 1h, 2026-07-27): the RTH-session-opening 1h bar is a genuine 30-minute partial (13:30-14:00 UTC,
+gap-to-next = 30min), not a full 60-minute bar. A flat `+3600s` offset would overshoot that bar's true
+close by 30 minutes, silently routing 5m/15m rows in the overshoot window to a stale, older bar instead
+of the correct, already-closed partial one -- found during code review of the flat-offset fix, before
+it shipped. The applied fix instead keys each bar by its **actual successor's start timestamp** (the
+only value that is always correct, partial bar or not); the last HTF bar in any given fetch has no
+known successor and is dropped from the re-keyed dict rather than guessed at.
 
-Whichever is chosen, keep the `1d -> 1d` self-referential case on its current, correct
-same-bar semantics -- do not change it.
+Regression tests: `tests/unit/services/test_ctf_momentum_live_batch_parity.py`'s
+`TestCtfBatchJoinLookaheadFix` (4 tests) -- exercises `_rekey_ctf_series_to_actual_close()` directly
+(not a duplicated re-key expression), covering the original lookahead scenario, the partial-bar
+scenario, and the 1d self-referential no-op. Full `tests/unit/` suite green, ruff/black clean.
+Peer-reviewed (code-reviewer subagent) before finalizing; the partial-bar finding it raised is what's
+now fixed.
 
-## Next step (per user direction 2026-08-03: measure before touching)
+## Next step (per user direction 2026-08-03: measure before touching the corpus)
 
-1. **Read-only measurement first.** Quantify how much the join fix changes `ctf_momentum`'s
+The join fix itself is done and affects only *future* backfill/recompute runs -- it does not
+retroactively touch any existing `feature_vectors` row. What's still explicitly gated on the user:
+
+1. **Read-only measurement first.** Quantify how much the fixed join changes `ctf_momentum`'s
    measured per-symbol/cross-sectional IC at 5m/15m/1h -- rerun (or diff against) the existing
-   `ic_engine`/nonlinear_interaction_combiner-style measurement scripts with a corrected join
+   `ic_engine`/nonlinear_interaction_combiner-style measurement scripts with the corrected join
    applied to a scoped sample, without touching the live `feature_vectors` corpus.
 2. Based on that measurement, decide: (a) is a corpus-wide recompute of `ctf_momentum`
    (and `ctf_vwap_align`/`ctf_regime_align`) warranted, and (b) does Phase 167's Gate 1/Gate 2
    verdict need re-running under corrected values. Both are real, expensive, load-bearing
    decisions -- explicitly the user's call, not something to trigger unilaterally.
-3. Only after 1-2: apply the join fix to `feature_factory.py`, re-run affected IC/gate
-   measurements for real, update `docs/research/data-edge-source-thesis.md` and Phase 167's
-   verdict record with the corrected numbers.
+3. Only after 1-2: re-run affected IC/gate measurements for real against a corpus computed with
+   the now-fixed join, update `docs/research/data-edge-source-thesis.md` and Phase 167's verdict
+   record with the corrected numbers.
 
 ## Cross-refs
 
