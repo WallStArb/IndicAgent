@@ -69,8 +69,13 @@ The `build_<name>_prompt(ctx: AIContext) -> str` function:
 - v2+ pattern: accepts the typed AIContext directly (see `_render_full_context`)
 - v1 pattern (legacy): accepted a flat dict from `_context_to_dict`
 
-Always include `prompt_version` in AgentOutput.payload so LineageRecorder
-attribution is correct.
+Set `prompt_version = ACTIVE_VERSION` as a class attribute on the agent itself
+(not just in AgentOutput.payload) -- `_build_audit_context()` reads
+`self.prompt_version` to attribute every `llm_calls` audit row, and raises
+`RuntimeError` on the agent's first `_llm_generate()`/`_llm_generate_structured()`/
+`_run_typed()` call if it was left unset. Non-LLM agents that never reach
+`_build_audit_context()` (e.g. `MLEvaluator`, which does pure LightGBM inference)
+are exempt -- but any agent that calls the LLM must set it.
 
 ## _compute() Contract
 

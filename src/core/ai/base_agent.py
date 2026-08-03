@@ -258,6 +258,18 @@ class BaseAIWorker(BaseDaemon, ABC):
                 "agent must be constructed inside _setup() after super()._setup()"
             )
 
+    def _require_prompt_version(self) -> None:
+        """Fail loudly if prompt_version is unset (CLAUDE.md: every BaseAIWorker
+        subclass must set it from ACTIVE_VERSION). Checked in _build_audit_context(),
+        not __init_subclass__, so non-LLM Evaluator subclasses (e.g. MLEvaluator)
+        that never build an audit context have no obligation to set it."""
+        if not self.prompt_version:
+            raise RuntimeError(
+                f"{self.__class__.__name__} ({self.agent_id}): prompt_version is empty — "
+                "set the class attribute from your agent's ACTIVE_VERSION constant "
+                "before calling _llm_generate()/_llm_generate_structured()"
+            )
+
     def _agent_span(self, name: str, context: SignalContext, **extra):
         """Return an observed_span pre-populated with standard agent attributes."""
         return observed_span(
@@ -272,7 +284,14 @@ class BaseAIWorker(BaseDaemon, ABC):
     def _build_audit_context(
         self, context: SignalContext, prompt: str, call_id: str, *, include_called_at: bool = True
     ) -> dict[str, Any]:
-        """Build the base audit_context dict for an LLM call."""
+        """Build the base audit_context dict for an LLM call.
+
+        Single choke point for all three LLM-invoking methods (_llm_generate,
+        _llm_generate_structured, _run_typed) -- _require_prompt_version() is
+        enforced here rather than at each call site so no current or future
+        caller of this method can bypass it.
+        """
+        self._require_prompt_version()
         audit_context: dict[str, Any] = {
             "call_id": call_id,
             "symbol": context.symbol,

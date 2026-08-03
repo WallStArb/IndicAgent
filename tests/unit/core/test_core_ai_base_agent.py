@@ -2,8 +2,7 @@
 
 import asyncio
 from datetime import datetime
-from typing import ClassVar
-from unittest.mock import MagicMock
+from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 from pydantic import BaseModel
@@ -202,20 +201,28 @@ class _Result(BaseModel):
     value: float
 
 
+def _make_agent(**class_attrs) -> BaseAIWorker:
+    """Build a concrete BaseAIWorker subclass with the given class attributes.
+
+    Auto-assigns a unique agent_id (unless class_attrs overrides it) --
+    __init_subclass__ raises RegistryError on duplicate agent_id, so hardcoded
+    literal ids in hand-rolled test subclasses risk collision across tests.
+    """
+    if not hasattr(_make_agent, "_counter"):
+        _make_agent._counter = 0
+    _make_agent._counter += 1
+    class_attrs.setdefault("agent_id", f"test_worker_{_make_agent._counter}")
+
+    return type("_TestWorker", (ConcreteAgent,), class_attrs)()
+
+
 def _make_typed_agent() -> BaseAIWorker:
-    """Build a concrete BaseAIWorker subclass with result_type = _Result."""
+    """Build a concrete BaseAIWorker subclass with result_type = _Result.
 
-    # Use a function-call counter to generate unique agent_ids for test isolation
-    if not hasattr(_make_typed_agent, "_counter"):
-        _make_typed_agent._counter = 0
-    _make_typed_agent._counter += 1
-    unique_id = f"typed_worker_{_make_typed_agent._counter}"
-
-    class TypedWorker(ConcreteAgent):
-        agent_id = unique_id
-        result_type: ClassVar[type[BaseModel]] = _Result
-
-    return TypedWorker()
+    prompt_version is set because _run_typed() flows through
+    _build_audit_context(), which now enforces _require_prompt_version().
+    """
+    return _make_agent(result_type=_Result, prompt_version="typed_worker_v1")
 
 
 def _make_ctx() -> SignalContext:
@@ -313,6 +320,17 @@ class TestRunTyped:
         with pytest.raises(RuntimeError, match="result_type is None"):
             asyncio.run(run())
 
+    def test_raises_when_prompt_version_unset(self):
+        """_run_typed() flows through _build_audit_context() same as the other
+        two LLM-calling methods -- an agent with result_type set but no
+        prompt_version override must fail loudly here too, not just on
+        _llm_generate()/_llm_generate_structured()."""
+        agent = _make_agent(result_type=_Result)
+        ctx = _make_ctx()
+
+        with pytest.raises(RuntimeError, match="prompt_version is empty"):
+            asyncio.run(agent._run_typed(ctx, prompt="p", system="s"))
+
     def test_timeout_derived_from_timeout_s(self, monkeypatch):
         """make_llm_adapter is called with timeout == worker._timeout_s."""
         agent = _make_typed_agent()
@@ -357,3 +375,48 @@ class TestRunTyped:
                 (ConcreteAgent,),
                 {"result_type": int, "agent_id": "bad", "group": "alpha"},
             )
+
+
+class TestRequirePromptVersion:
+    """Tests for the prompt_version audit-attribution guard (CLAUDE.md: every
+    BaseAIWorker subclass must set prompt_version from ACTIVE_VERSION)."""
+
+    @pytest.mark.parametrize(
+        "call",
+        [
+            lambda agent, ctx: agent._llm_generate(
+                ctx, prompt="p", system="s", max_tokens=10, timeout=1.0
+            ),
+            lambda agent, ctx: agent._llm_generate_structured(
+                ctx, prompt="p", system="s", response_model=_Result, max_tokens=10, timeout=1.0
+            ),
+        ],
+        ids=["_llm_generate", "_llm_generate_structured"],
+    )
+    def test_raises_when_prompt_version_unset(self, call):
+        """An agent that forgets to override prompt_version must fail loudly on
+        first LLM call, not silently write prompt_version="" into llm_calls."""
+        agent = _make_agent()
+        agent._llm = MagicMock()  # bypass _require_llm(); real failure is prompt_version
+        ctx = _make_ctx()
+
+        with pytest.raises(RuntimeError, match="prompt_version is empty"):
+            asyncio.run(call(agent, ctx))
+
+    def test_llm_generate_proceeds_when_prompt_version_set(self):
+        """An agent that correctly sets prompt_version passes the guard and
+        reaches the real LLM call."""
+        agent = _make_agent(prompt_version="versioned_v1")
+        mock_llm = MagicMock()
+        mock_llm.generate = AsyncMock(return_value="response")
+        agent._llm = mock_llm
+        ctx = _make_ctx()
+
+        result, call_id = asyncio.run(
+            agent._llm_generate(ctx, prompt="p", system="s", max_tokens=10, timeout=1.0)
+        )
+
+        assert result == "response"
+        mock_llm.generate.assert_called_once()
+        audit_context = mock_llm.generate.call_args.kwargs["audit_context"]
+        assert audit_context["prompt_version"] == "versioned_v1"

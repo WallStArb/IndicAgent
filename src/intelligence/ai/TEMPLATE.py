@@ -3,9 +3,14 @@
 Copy this file when adding a new swarm agent. Required steps:
 1. Pick a unique agent_id ending in _v1 (lowercase, underscored).
 2. Define output_schema ClassVar with the LLM JSON keys you expect.
-3. Implement _compute(): build prompt → LLM call → parse → return multiplier output.
-4. Pair with a <name>_prompts.py exposing PROMPT_REGISTRY and ACTIVE_VERSION; agent-specific
-   field validators (e.g. _validate_<agent>_fields) belong in the prompts file too.
+3. Create a paired <name>_prompts.py exposing PROMPT_REGISTRY and ACTIVE_VERSION; move
+   ACTIVE_VERSION, build_template_prompt(), and _validate_template_fields() there and
+   import them at module level (see src/intelligence/ai/alpha/skeptic_prompts.py for the
+   shape). Until you do, the placeholders below keep this file self-contained and
+   importable -- ACTIVE_VERSION MUST stay a module-level name either way: it's read at
+   class-body-evaluation time by prompt_version = ACTIVE_VERSION, and _build_audit_context()
+   raises RuntimeError on first LLM call if that attribute is unset.
+4. Implement _compute(): build prompt → LLM call → parse → return multiplier output.
 5. Register in services/alpha_swarm.py self._agents list.
 
 Reference implementation: src/intelligence/ai/alpha/skeptic_agent.py
@@ -33,11 +38,27 @@ _SYSTEM_MESSAGE = (
     '{"score": float, "confidence": float, "reasoning": str}'
 )
 
+# Placeholders -- move these three to a paired <name>_prompts.py (step 3 above) and
+# import them at module level instead. Kept here so this file stays self-contained
+# and importable as shipped (e.g. by the DAG-invariant module sweep in
+# tests/unit/intelligence/test_dag_invariants.py).
+ACTIVE_VERSION = "template_v1"
+
+
+def build_template_prompt(context: SignalContext) -> str:
+    """Replace with real prompt construction from context."""
+    raise NotImplementedError("copy this template and implement build_<name>_prompt()")
+
+
+def _validate_template_fields(parsed: dict) -> dict | None:
+    """Replace with real field validation matching output_schema."""
+    raise NotImplementedError("copy this template and implement _validate_<name>_fields()")
+
 
 class TemplateEvaluator(Evaluator):
     """One-line description of what this evaluator decides and why."""
 
-    # Required class attributes — every multiplier evaluator MUST set these six.
+    # Required class attributes — every multiplier evaluator MUST set these seven.
     output_schema: ClassVar[dict] = {
         "score": float,  # agent-specific key (rename per agent)
         "confidence": float,  # always required
@@ -45,6 +66,7 @@ class TemplateEvaluator(Evaluator):
     }
 
     agent_id = "template_evaluator"  # MUST match shadow_registry.component_name
+    prompt_version = ACTIVE_VERSION  # required -- _build_audit_context() raises if unset
     group = "alpha"  # one of: "alpha", "narrative", "risk"
     tiers_needed = frozenset({Tier.I1, Tier.I4, Tier.I6})  # tiers consumed
     latency_budget_ms = 5000.0  # asyncio.wait_for in BaseAIWorker.compute
@@ -68,12 +90,6 @@ class TemplateEvaluator(Evaluator):
         Phase 80: discount-only formula — multiplier should be <= 1.0 until
         calibration data exists. Clamp range [0.0, 2.0] preserved for future boosting.
         """
-        from src.intelligence.ai.alpha.template_prompts import (
-            ACTIVE_VERSION,
-            _validate_template_fields,
-            build_template_prompt,
-        )
-
         prompt = build_template_prompt(context)
         response, call_id = await self._llm_generate(
             context,
