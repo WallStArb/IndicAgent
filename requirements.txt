@@ -60,6 +60,8 @@ ib_insync>=0.9.86
 pydantic>=2.12.0
 pydantic-ai>=2.0,<3
 pydantic-settings>=2.12.0
+pyyaml>=6.0  # hard-imported by src/core/ai/registry.py; was previously unpinned, only present
+# transitively via huggingface-hub/langchain-core
 tzdata>=2025.1
 
 # LLM Platform

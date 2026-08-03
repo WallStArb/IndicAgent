@@ -27,8 +27,6 @@ from pathlib import Path
 from typing import Any
 
 import asyncpg
-import mlflow
-import mlflow.lightgbm
 import numpy as np
 import shap
 import structlog
@@ -88,6 +86,11 @@ class MLTrainer(BaseDaemon):
         self._last_trained_count: int = 0
 
     async def _setup(self) -> None:
+        # Lazy import: mlflow was removed from requirements.txt 2026-08-03 (dormant
+        # dependency) -- deferring the import here means this module still imports cleanly
+        # for any caller that never reaches this dormant training path.
+        import mlflow
+
         self._pool = await create_db_pool(self.settings.database_url)
         self._registry = ModelRegistry(self._pool)
         self._last_trained_count = self._read_checkpoint()
@@ -196,6 +199,8 @@ class MLTrainer(BaseDaemon):
         n_regime >= 100 was enforced here during training.
         """
         import lightgbm as lgb
+        import mlflow
+        import mlflow.lightgbm
         from sklearn.metrics import log_loss, roc_auc_score
 
         seg_df = filter_segment(df, segment)
