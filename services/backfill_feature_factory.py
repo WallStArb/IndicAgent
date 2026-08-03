@@ -426,7 +426,7 @@ def _rekey_ctf_series_to_actual_close(ctf_by_ts: dict, tf: str, htf_tf: str) -> 
 
 def _connect_db(settings: Settings) -> Any:
     """Synchronous psycopg connection."""
-    conn = psycopg.connect(dsn=settings.database_url)
+    conn = psycopg.connect(settings.database_url)
     conn.autocommit = True
     # No register_uuid() equivalent needed -- psycopg adapts uuid.UUID (e.g.
     # feature_vector_id, a content-key UUID) natively, unlike psycopg2.

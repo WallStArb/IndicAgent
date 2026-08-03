@@ -775,7 +775,7 @@ def detect_gaps(
 
 def connect_db(settings: Settings) -> Any:
     """Create a synchronous psycopg connection from Settings DSN."""
-    conn = psycopg.connect(dsn=settings.database_url)
+    conn = psycopg.connect(settings.database_url)
     conn.autocommit = True
     return conn
 
