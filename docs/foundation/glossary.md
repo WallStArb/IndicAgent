@@ -341,7 +341,7 @@ A tier-0 atomic feature computed as a deterministic, stateless, O(1) function of
 
 ### Tag category taxonomy (`exposure`, `sensitivity`, `factor_regime`, `cycle_position`, `signal_role`, `macro_driver`)
 
-**Note (Phase 146, T7):** `tag_vocabulary.category` is a display/organizational label only — it groups tags for narrative and dashboard purposes. The TagCalibrator (Phase 146's empirical calibration engine) never reads `category` for measurement logic; the measurement contract for a tag lives entirely in its `factor_series` and `measurement_type` columns. A tag's category does not determine whether or how it is measured.
+**Note (Phase 146, statistical_factor_residual):** `tag_vocabulary.category` is a display/organizational label only — it groups tags for narrative and dashboard purposes. The TagCalibrator (Phase 146's empirical calibration engine) never reads `category` for measurement logic; the measurement contract for a tag lives entirely in its `factor_series` and `measurement_type` columns. A tag's category does not determine whether or how it is measured.
 
 **Collision rule:** two tags must not share the same `factor_series` value. `factor_series` identifies the one measurable factor-loading concept a tag represents (per the "concept over specific proxy" principle — the registered thing is a factor loading, not a specific proxy ticker); if two tags pointed at the same `factor_series`, they would be redundant measurements of the same underlying quantity under different names (the exact defect `credit_cycle`/`credit_risk` had before their Phase 146 merge — see the banned-alias note after `macro_driver` below).
 
@@ -942,7 +942,7 @@ measurement path, not a consumer of this class or its output.
 A dollar-neutral portfolio formed at each bar by ranking the active equity cross-section on a
 single qualifying feature and taking the top decile long against the bottom decile short,
 measured at portfolio level — one spread return per bar, never per symbol. Phase 167's
-productionization of the T3 Edge Source Thesis falsification result (the first thesis in
+productionization of the cross_sectional_relative_value Edge Source Thesis falsification result (the first thesis in
 `docs/research/data-edge-source-thesis.md`'s tree to clear its own shuffled-ranking-null bar).
 
 **Naming-system derivation chain** (`docs/foundation/naming-system.md`): concept
@@ -958,7 +958,7 @@ systemd-registered) unit `indicagent-cross-sectional-spread-tracker.service`.
 - A consumer of `ensemble_alpha` (D-01, Phase 167 CONTEXT.md). This construction ranks a raw
   qualifying feature (`ctf_momentum` in v1) directly, deliberately bypassing the linear
   IC-weighted combiner whose Gate 2 (execution proof) already failed in Phase 148. Building on
-  top of `ensemble_alpha` would test an already-suspect input; the entire point of the T3 result
+  top of `ensemble_alpha` would test an already-suspect input; the entire point of the cross_sectional_relative_value result
   this phase productionizes is that ranking a raw feature directly is what cleared the bar.
 
 **Banned:** "decile portfolio," "long-short frame," "spread signal" (retired synonyms — use

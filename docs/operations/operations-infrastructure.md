@@ -205,7 +205,7 @@ L11 Meta
 ### Manual/On-Demand Batch Services (no systemd timer)
 
 Some batch services are deliberately NOT in `_DAG_ORDER` above and have no systemd unit or
-timer at all. `services/cross_sectional_spread_tracker.py` (Phase 167, the T3 cross-sectional
+timer at all. `services/cross_sectional_spread_tracker.py` (Phase 167, the cross_sectional_relative_value cross-sectional
 decile long-short construction) is one of these, alongside `alpha_scorer.py`,
 `counterfactual_tracker.py`, and `tag_calibrator.py`. Reasons a construction stays manual/
 on-demand rather than getting a registered timer:

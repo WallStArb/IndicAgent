@@ -74,7 +74,7 @@ the facts under it, because Phase 142B.1 completed 2026-07-04 between this doc's
    dispatch, todo 046 / D-01: `symbol='POOLED'` rows via `_aggregate_pooled_series`). Do not
    mistake this for the Addendum's cross-sectional rank IC — it averages alpha_score and
    returns *across* symbols first, then computes a time-series IC of the aggregate. The
-   per-bar Spearman *across the universe* (T3 falsification mode) remains unbuilt; see the
+   per-bar Spearman *across the universe* (cross_sectional_relative_value falsification mode) remains unbuilt; see the
    inline marker in the Addendum.
 6. **Stale cross-references** (docs/ideas reorganization since 2026-07-03):
    `intel-12-stratification-dimension.md` → `stratification-dimension-unification.md`;
@@ -330,7 +330,7 @@ unity.)*
 
 ---
 
-## Addendum: Cross-Sectional Rank IC (T3 Falsification Mode)
+## Addendum: Cross-Sectional Rank IC (cross_sectional_relative_value Falsification Mode)
 
 **Added 2026-07-03**, extracted from `docs/research/intel-11-dual-system-discrete-vs-portfolio.md`
 on its retirement (`.planning/research/2026-07-03-intel10-11-fable-review.md`, F8/R2) — a
@@ -340,7 +340,7 @@ Measurement Engine mode, not a separate track or system.
 small IC — it requires each symbol's signal to overcome that symbol's full volatility plus market
 beta. Cross-sectional long-short on the 58-ETF universe is far more forgiving: relative-value
 ranking cancels idiosyncratic noise and hedges beta, so an IC too weak to trade directionally can
-still pay as a spread. Edge thesis T3 (`docs/research/edge-source-thesis.md`) — relative mispricing
+still pay as a spread. Edge thesis cross_sectional_relative_value (`docs/research/data-edge-source-thesis.md`) — relative mispricing
 across correlated instruments — is only testable through this measurement, and a time-series-only
 system would silently conclude "no edge" while a spread on the same features pays.
 
@@ -357,8 +357,8 @@ system would silently conclude "no edge" while a spread on the same features pay
    pooled dispatch (`symbol='POOLED'` rows via `_aggregate_pooled_series` in
    `ensemble_ic_engine.py`) is NOT this. It averages alpha_score and returns across symbols
    first, then computes a time-series IC of the aggregate; this mode is the per-bar Spearman
-   ACROSS the universe. Averaging destroys exactly the cross-sectional ranking information T3
-   is a thesis about. Do not count POOLED rows as evidence for or against T3.)*
+   ACROSS the universe. Averaging destroys exactly the cross-sectional ranking information cross_sectional_relative_value
+   is a thesis about. Do not count POOLED rows as evidence for or against cross_sectional_relative_value.)*
 2. **A counterfactual decile-spread simulation** in the 142B frame machinery — long top decile,
    short bottom decile, dollar-neutral, at the executable-return definition, cost-hurdle applied
    per leg. This is `alpha_frames` with a portfolio-shaped frame variant, not a new system.

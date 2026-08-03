@@ -218,7 +218,7 @@ work below):**
   diagnostic, not a conditioning axis) — not a duplicate, but check before building either.
 - **Liquidity regime** — expanding percentile rank of universe median dollar volume per bar.
   Distinct axis from vol and correlation; directly tests the small-scale immediacy-provision
-  thesis (T1), whose falsification condition is "edge concentrates in less-liquid conditions."
+  thesis (retail_immediacy_provision), whose falsification condition is "edge concentrates in less-liquid conditions."
 - **Posterior-weighted IC (soft stratification, a variance-reduction refinement, not a new
   dimension)** — `feature_vectors` already stores full HMM posteriors (`hmm_prob_*`,
   `hmm_entropy`). Hard-label stratification throws boundary observations into one cell at full

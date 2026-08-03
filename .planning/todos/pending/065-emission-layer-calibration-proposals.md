@@ -52,7 +52,7 @@ Proposals, ranked by the review:
   seeds (1.5/1.2/1.0/0.8) are admitted guesses, not calibrated.
 - **EM-STAMP** (cheap, do opportunistically) — `weight_computed_at` on `alpha_events` for
   decay-awareness; stamp now, only gate on it once a decay curve is actually measured.
-- **EM-RANK** (gated) — cross-sectional rank gate; depends on a separate T3/Cross-Sectional Rank
+- **EM-RANK** (gated) — cross-sectional rank gate; depends on a separate cross_sectional_relative_value/Cross-Sectional Rank
   IC verdict landing first. Has an honest boundary note vs. Trade Construction Layer — don't
   duplicate that scope.
 - **EM-HYST** (likely skip) — hysteresis for flap reduction. Review recommends a pre-registered

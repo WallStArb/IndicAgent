@@ -153,7 +153,7 @@ tail -50 logs/shadow_validator.log
 
 ## Cross-Sectional Spread Tracker (Phase 167, manual/on-demand only, no timer)
 
-`services/cross_sectional_spread_tracker.py` -- T3's dollar-neutral decile long-short
+`services/cross_sectional_spread_tracker.py` -- cross_sectional_relative_value's dollar-neutral decile long-short
 construction. See `docs/operations/operations-infrastructure.md`'s "Manual/On-Demand Batch
 Services" section for why this has no systemd unit/timer.
 

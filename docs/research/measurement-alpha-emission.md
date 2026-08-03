@@ -214,7 +214,7 @@ saying so.
 return on weight age shows no negative slope at p<0.05 (controlling for tf and regime). Then
 the gate idea dies and the stamp remains as cheap provenance.
 
-### EM-RANK - Cross-sectional rank gate (real case, deliberately gated on T3)
+### EM-RANK - Cross-sectional rank gate (real case, deliberately gated on cross_sectional_relative_value)
 
 **The question:** today every (symbol, tf) emits against an absolute bar in isolation. A
 Renaissance-shaped alternative asks "is this symbol's score extreme *relative to the universe
@@ -231,7 +231,7 @@ frozen fact on the event either way - the stamp is worth building even if the ga
 **What it needs from Stage 3:** nothing new mechanically - `ensemble_alpha` already scores
 every symbol per bar. What it needs *epistemically* is the Cross-Sectional Rank IC addendum
 (`measurement-ic-engine.md`) clearing first: if cross-sectional rank IC is not measurably
-better than pooled time-series IC on this universe (edge thesis T3), a rank gate at emission
+better than pooled time-series IC on this universe (edge thesis cross_sectional_relative_value), a rank gate at emission
 is decoration.
 
 **Boundary honesty:** ranking is also step 2 of the Trade Construction Layer's design. The
@@ -240,11 +240,11 @@ contract); construction decides *how a portfolio is built from conviction* (and 
 `ensemble_alpha` surface for that, per § Interfaces). If the construction layer ships its
 cross-sectional long-short v1, EM-RANK becomes largely redundant for that track and should be
 re-justified for the per-symbol directional track alone before surviving. Sequencing verdict:
-**do not build before the T3 falsification measurement runs**; the stamp (`cross_rank_pct`)
+**do not build before the cross_sectional_relative_value falsification measurement runs**; the stamp (`cross_rank_pct`)
 may ride any earlier migration.
 
 **Falsified if:** on the OOS window, the rank-gated event set's net-of-cost long-short spread
-does not beat the absolute-threshold event set's at matched event count - or if the T3
+does not beat the absolute-threshold event set's at matched event count - or if the cross_sectional_relative_value
 addendum itself fails (cross-sectional rank IC ≤ pooled), which kills it upstream without a
 build.
 
@@ -334,7 +334,7 @@ measured cross-symbol miscalibration is ever demonstrated at the (tf, regime) le
    migration next touches `alpha_events` - stamps before gates, always.
 4. **EM-HYST measurement** runs as a query against the first post-rebuild event set; its
    pre-committed decision bar then closes or scopes the mechanism.
-5. **EM-RANK** waits for the T3 / Cross-Sectional Rank IC addendum verdict and re-justifies
+5. **EM-RANK** waits for the cross_sectional_relative_value / Cross-Sectional Rank IC addendum verdict and re-justifies
    itself against whatever the Trade Construction Layer has become by then.
 6. The `alpha.emission.gates` APR list can be introduced with EM-CAL's PR (seeded to the
    incumbent stack, behavior-preserving) so later gates are config, not code forks.
@@ -377,7 +377,7 @@ calibrated threshold makes the shadow event set more representative of what woul
 - `docs/research/trade-construction-layer.md` - downstream consumer; § Interfaces fixes the
   trigger-stream vs. conviction-surface split
 - `docs/research/measurement-ic-engine.md` - Cross-Sectional Rank IC addendum (EM-RANK's
-  upstream gate, thesis T3)
+  upstream gate, thesis cross_sectional_relative_value)
 - `docs/plans/OOS-EVAL-PROTOCOL.md` - every falsification test above runs under it
 - `.planning/todos/pending/030-cost-hurdle-apr-calibration.md` - cost floors feeding EM-CAL's
   net-of-cost objective

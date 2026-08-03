@@ -676,11 +676,28 @@ is that this adds little -- not filed as its own thesis, just parked here as a c
 check if a future feature-primitives pass (Phase 151-style) is already in motion, not a reason
 to start one.
 
-**UPDATE 2026-08-03: 5m gap found and closed.** `scripts/analysis/nonlinear_interaction_combiner_replication_5m.py`
+**UPDATE 2026-08-03: 5m gap found, not yet closed -- two OOM kills, two different causes, root
+cause fixed, empirical result still outstanding.** `scripts/analysis/nonlinear_interaction_combiner_replication_5m.py`
 was built in the same commit that fixed 15m's OOM (`28083dd7`, "replicate at 15m/5m") but was
-never actually run -- no output CSV, not reflected above. Running now (float16 feature matrix,
-same OOM mitigation as 15m; 5m is ~2.9x 15m's row count); confirmed live in-process later the
-same day, no 5m CSV in `docs/analysis/` yet. Result to be recorded here once complete. It
+never actually run -- no output CSV, not reflected above.
+
+Attempt 1 (float16 feature matrix, same mitigation as 15m; 5m is ~2.9x 15m's row count):
+OOM-killed on the last, largest walk-forward fold. Root-caused via
+`superpowers:systematic-debugging`, not re-guessed: LightGBM's Python bridge
+(`lightgbm/basic.py`'s `_np2d_to_np1d`) silently upcasts any non-float32/float64 array to a full
+float32 COPY before every `Dataset`/`predict()` call, so float16 storage didn't reduce what
+LightGBM actually trained on -- it added a second, transient float32 copy of the active fold ON
+TOP of the resident float16 array, worse than storing float32 to begin with. Fixed: reverted to
+float32 (matching 1h/1d/15m exactly), deleted the now-dead float16 support path rather than
+leaving it as inert complexity.
+
+Attempt 2 (float32, post-fix): OOM-killed again, but at only ~14.85GB anon-rss -- well under the
+~24GB float32 `X` should need -- confirmed via kernel log (`journalctl -k`) simultaneously with a
+**separate Docker container OOM-killing in a different cgroup the same second**. This is
+host-wide memory contention (Postgres shared_buffers/checkpointer/autovacuum, concurrent sessions,
+the full observability stack all sharing this 29GB host), not a defect in the fix -- environmental,
+not a second code bug. Logs from both failed attempts cleared 2026-08-03 for a clean rerun; no
+5m CSV exists in `docs/analysis/` yet. Result to be recorded here once a run completes. It
 inherits all three caveats above, including the row-unit embargo (todo 239), which at 5m is 96
 rows ≈ 1.2 bars.
 
