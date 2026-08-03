@@ -9,8 +9,9 @@ import asyncio
 from datetime import UTC, datetime, timedelta
 
 import asyncpg
+import orjson
 import pytest
-from aiokafka import AIOKafkaProducer
+from confluent_kafka import Producer
 
 from src.config.settings import get_settings
 from src.core.stream_keys import topic_intelligence_i7_signals
@@ -43,11 +44,12 @@ async def test_is_backfill_roundtrip():
         )
 
         # Publish signal payload through Kafka
-        producer = AIOKafkaProducer(
-            bootstrap_servers=settings.kafka_bootstrap_servers,
-            client_id="test_backfill_producer",
+        producer = Producer(
+            {
+                "bootstrap.servers": settings.kafka_bootstrap_servers,
+                "client.id": "test_backfill_producer",
+            }
         )
-        await producer.start()
 
         # Signal payload with old timestamp (publisher computes is_backfill=True)
         signal_payload = {
@@ -73,12 +75,12 @@ async def test_is_backfill_roundtrip():
 
         # Publish to intelligence.i7.signals topic
         topic = topic_intelligence_i7_signals(settings.env_name)
-        await producer.send_and_wait(
+        producer.produce(
             topic,
             key=test_signal_id.encode(),
-            value=signal_payload,
+            value=orjson.dumps(signal_payload),
         )
-        await producer.stop()
+        producer.flush(10.0)
 
         # Wait for downstream writer to persist (poll with retry/backoff up to 30s)
         max_wait = timedelta(seconds=30)

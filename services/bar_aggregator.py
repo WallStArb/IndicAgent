@@ -202,7 +202,7 @@ class BarAggregator(BaseDaemon):
 
     async def _setup(self) -> None:
         """Connect Kafka producer and consumer (single attempt — retries handled by BaseDaemon._setup_with_retry)."""
-        import aiokafka
+        import confluent_kafka
 
         self._kafka_producer = KafkaProducerClient(
             bootstrap_servers=self.settings.kafka_bootstrap_servers
@@ -212,12 +212,15 @@ class BarAggregator(BaseDaemon):
         self._kafka_consumer = self._make_consumer()
         await self._kafka_consumer.start()
 
-        # AGG-AUDIT-LOW-6: cache the lag check consumer instead of creating per-call
-        self._lag_consumer = aiokafka.AIOKafkaConsumer(
-            bootstrap_servers=self.settings.kafka_bootstrap_servers,
-            group_id="bar_aggregator_consumer",
+        # AGG-AUDIT-LOW-6: cache the lag check consumer instead of creating per-call.
+        # Not subscribed to anything — used purely for committed()/get_watermark_offsets()
+        # queries against the shared "bar_aggregator_consumer" group in _get_consumer_lag().
+        self._lag_consumer = confluent_kafka.Consumer(
+            {
+                "bootstrap.servers": self.settings.kafka_bootstrap_servers,
+                "group.id": "bar_aggregator_consumer",
+            }
         )
-        await self._lag_consumer.start()
 
         # Restore state from checkpoint topic
         restored = await self._restore_state_checkpoint()
@@ -344,7 +347,7 @@ class BarAggregator(BaseDaemon):
             await self._kafka_producer.stop()
         if self._lag_consumer is not None:
             try:
-                await self._lag_consumer.stop()
+                await asyncio.to_thread(self._lag_consumer.close)
             except Exception:
                 pass
 
@@ -507,8 +510,8 @@ class BarAggregator(BaseDaemon):
                         )
                         # Don't crash on single bar failure — continue consuming
 
-                # Consumer restart — recreate consumer object to avoid aiokafka
-                # "Did you call start twice?" error on stop()+start() of same instance.
+                # Consumer restart — recreate consumer object; a closed
+                # confluent_kafka.Consumer cannot be reused after close().
                 if self._consumer_restart_needed and self.running:
                     try:
                         await self._kafka_consumer.stop()
@@ -585,25 +588,25 @@ class BarAggregator(BaseDaemon):
         """Get current consumer lag using committed offsets vs log end offset.
 
         Uses committed offset (matches rpk group describe) rather than the
-        aiokafka internal fetch position, which can diverge from committed state.
+        librdkafka internal fetch position, which can diverge from committed state.
         """
         try:
             inner = getattr(self._kafka_consumer, "_consumer", None)
             if inner is None or self._lag_consumer is None:
                 return 0
-            partitions = inner.assignment()
+            partitions = await asyncio.to_thread(inner.assignment)
             if not partitions:
                 return 0
 
-            tp = next(iter(partitions))
-            end_offsets, committed = await asyncio.gather(
-                self._lag_consumer.end_offsets([tp]),
-                inner.committed(tp),
+            tp = partitions[0]
+            _low, high = await asyncio.to_thread(
+                self._lag_consumer.get_watermark_offsets, tp, timeout=10.0
             )
-            if committed is None:
+            committed_list = await asyncio.to_thread(self._lag_consumer.committed, [tp], 10.0)
+            if not committed_list or committed_list[0].offset < 0:
                 return 0
 
-            return max(0, end_offsets[tp] - committed)
+            return max(0, high - committed_list[0].offset)
         except Exception:
             return 0  # Assume healthy if lag check fails
 

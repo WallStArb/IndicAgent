@@ -1,7 +1,15 @@
 # Core Infrastructure
 aiohttp>=3.9.0
-aiokafka>=0.13.0
 asyncpg>=0.31.0
+confluent-kafka>=2.15.0  # replaced aiokafka 2026-08-03: librdkafka C bindings for hot-path
+# throughput/latency (Redpanda specifically benefits from librdkafka clients). No native
+# asyncio support -- src/core/kafka_utils.py hand-rolls the wrapper via asyncio.to_thread
+# rather than confluent_kafka.aio.AIOProducer, which drops per-message headers (breaks OTel
+# trace propagation).
+orjson>=3.10  # replaced stdlib json in kafka_utils.py's hot publish/consume path (2026-08-03):
+# 2-10x faster ser/deser. Silently serializes NaN/Infinity to `null` (verified empirically)
+# instead of stdlib json's non-standard `NaN` literal -- produces spec-compliant JSON that
+# non-Python consumers can actually parse.
 fastapi>=0.129.0
 httpx>=0.27.0
 msgpack>=1.0.0

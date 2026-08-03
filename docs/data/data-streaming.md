@@ -223,31 +223,28 @@ IBKR TWS → IBKRProvider (market.bars.raw.ibkr)
 | `:9644` | Admin API |
 | `:18843` | Schema Registry (available but not yet used) |
 
-### Producer configuration (aiokafka defaults)
+### Producer configuration (`KafkaProducerClient`, `src/core/kafka_utils.py`)
+
+librdkafka (via confluent-kafka) config, set in `KafkaProducerClient.start()`:
 
 ```python
-producer = AIOKafkaProducer(
-    bootstrap_servers=settings.kafka_bootstrap_servers,
-    acks="all",        # wait for all replicas (durability)
-    retries=3,         # retry on transient failure
-    max_in_flight_requests_per_connection=5,
-    batch_size=16384,
-    linger_ms=10,
-    compression_type="snappy",
-)
+Producer({
+    "bootstrap.servers": settings.kafka_bootstrap_servers,
+    "acks": "all",                  # wait for all replicas (durability)
+    "enable.idempotence": True,     # exactly-once-per-partition producer semantics
+    "compression.type": "lz4",      # ~60% bytes saved on JSON, negligible CPU
+})
 ```
 
-### Consumer configuration (aiokafka defaults)
+### Consumer configuration (`KafkaConsumerClient`, `src/core/kafka_utils.py`)
 
 ```python
-consumer = AIOKafkaConsumer(
-    bootstrap_servers=settings.kafka_bootstrap_servers,
-    group_id="feature_writer_group",
-    auto_offset_reset="earliest",   # no data loss on new group
-    enable_auto_commit=False,       # commit only after successful processing
-    max_poll_records=100,
-    max_poll_interval_ms=300000,    # 5min max between polls
-)
+Consumer({
+    "bootstrap.servers": settings.kafka_bootstrap_servers,
+    "group.id": "feature_writer_group",
+    "auto.offset.reset": "earliest",   # no data loss on new group
+    "enable.auto.commit": False,       # commit only after successful processing
+})
 ```
 
 ### Schema evolution

@@ -5,7 +5,7 @@ import json
 from datetime import UTC, datetime, timedelta
 
 import pytest
-from aiokafka import AIOKafkaConsumer, AIOKafkaProducer
+from confluent_kafka import Consumer, Producer
 
 
 @pytest.mark.asyncio
@@ -15,9 +15,8 @@ async def test_session_boundary_under_load():
     # Test 1: Verify infrastructure is accessible
     print("Testing Kafka connectivity...")
     try:
-        producer = AIOKafkaProducer(bootstrap_servers="localhost:19092", client_id="test_producer")
-        await producer.start()
-        await producer.stop()
+        producer = Producer({"bootstrap.servers": "localhost:19092", "client.id": "test_producer"})
+        producer.flush(10.0)
         print("✓ Kafka connectivity verified")
     except Exception as e:
         print(f"✗ Kafka connectivity failed: {e}")
@@ -26,14 +25,16 @@ async def test_session_boundary_under_load():
     # Test 2: Test topic existence
     print("Testing topic access...")
     try:
-        consumer = AIOKafkaConsumer(
-            "development.market.bars",
-            bootstrap_servers="localhost:19092",
-            auto_offset_reset="earliest",
-            client_id="test_topic_check",
+        consumer = Consumer(
+            {
+                "bootstrap.servers": "localhost:19092",
+                "group.id": "test_topic_check",
+                "auto.offset.reset": "earliest",
+                "client.id": "test_topic_check",
+            }
         )
-        await consumer.start()
-        await consumer.stop()
+        consumer.subscribe(["development.market.bars"])
+        consumer.close()
         print("✓ Topic access verified")
     except Exception as e:
         print(f"✗ Topic access failed: {e}")
@@ -41,8 +42,7 @@ async def test_session_boundary_under_load():
 
     # Test 3: Produce test bars spanning session boundary
     print("Producing test bars...")
-    producer = AIOKafkaProducer(bootstrap_servers="localhost:19092", client_id="test_producer")
-    await producer.start()
+    producer = Producer({"bootstrap.servers": "localhost:19092", "client.id": "test_producer"})
 
     symbol = "ES"
     # Produce bars from 15:55 ET to 16:05 ET (across RTH close at 16:00 ET)
@@ -62,12 +62,13 @@ async def test_session_boundary_under_load():
             "source": "test",
             "session_type": "rth",
         }
-        await producer.send_and_wait(
+        producer.produce(
             "development.market.bars", value=json.dumps(bar).encode(), key=f"{symbol}:1m".encode()
         )
+        producer.poll(0)
         bars_produced += 1
 
-    await producer.stop()
+    producer.flush(10.0)
     print(f"✓ Produced {bars_produced} test bars")
 
     # Test 4: Verify bars were produced by checking topic offsets
@@ -117,35 +118,45 @@ async def test_session_boundary_under_load():
 
     # Test 5: Check if bar aggregator is consuming and producing HTF bars
     print("Checking bar aggregator HTF output...")
-    htf_consumer = AIOKafkaConsumer(
-        "development.market.bars.htf",
-        bootstrap_servers="localhost:19092",
-        auto_offset_reset="latest",  # Get new HTF bars
-        group_id="test_htf_consumer",
-        enable_auto_commit=False,
-        client_id="test_htf_consumer",
+    htf_consumer = Consumer(
+        {
+            "bootstrap.servers": "localhost:19092",
+            "group.id": "test_htf_consumer",
+            "auto.offset.reset": "latest",  # Get new HTF bars
+            "enable.auto.commit": False,
+            "client.id": "test_htf_consumer",
+        }
     )
-    await htf_consumer.start()
+    htf_consumer.subscribe(["development.market.bars.htf"])
 
     htf_bars = []
     htf_timeout = asyncio.Future()
 
     async def consume_htf_for_duration():
         try:
-            async for msg in htf_consumer:
-                htf_data = json.loads(msg.value)
+            while True:
+                msg = await asyncio.to_thread(htf_consumer.poll, 1.0)
+                if msg is None:
+                    continue
+                if msg.error():
+                    continue
+                htf_data = json.loads(msg.value())
                 htf_bars.append(htf_data)
                 if len(htf_bars) >= 5:  # Expect at least 5 HTF bars
                     htf_timeout.set_result(True)
+                    return
         except Exception as e:
             htf_timeout.set_exception(e)
 
+    consume_task = asyncio.create_task(consume_htf_for_duration())
     try:
         await asyncio.wait_for(htf_timeout, timeout=60)  # 60 second timeout
     except TimeoutError:
         print(f"HTF timeout: only collected {len(htf_bars)} HTF bars")
+    finally:
+        consume_task.cancel()
 
-    await htf_consumer.stop()
+    htf_consumer.close()
 
     # Final validation
     print(f"Collected {len(htf_bars)} HTF bars")

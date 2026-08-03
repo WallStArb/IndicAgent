@@ -264,15 +264,14 @@ async def test_setup_single_attempt_success():
     mock_producer.start = AsyncMock(return_value=None)
     mock_consumer = AsyncMock()
     mock_consumer.start = AsyncMock(return_value=None)
-    mock_lag_consumer = AsyncMock()
-    mock_lag_consumer.start = AsyncMock(return_value=None)
+    mock_lag_consumer = MagicMock()
 
     agent._restore_state_checkpoint = AsyncMock(return_value=True)
 
     with (
         patch("services.bar_aggregator.KafkaProducerClient", return_value=mock_producer),
         patch("services.bar_aggregator.KafkaConsumerClient", return_value=mock_consumer),
-        patch("aiokafka.AIOKafkaConsumer", return_value=mock_lag_consumer),
+        patch("confluent_kafka.Consumer", return_value=mock_lag_consumer),
     ):
         await agent._setup()
 
@@ -283,7 +282,7 @@ async def test_setup_single_attempt_success():
 @pytest.mark.asyncio
 async def test_setup_propagates_exception():
     """_setup() must propagate exceptions so BaseDaemon._setup_with_retry can retry."""
-    from aiokafka.errors import KafkaConnectionError
+    from confluent_kafka import KafkaException
 
     from services.bar_aggregator import BarAggregator
 
@@ -297,11 +296,11 @@ async def test_setup_propagates_exception():
     agent.name = "bar_aggregator"
 
     mock_producer = AsyncMock()
-    mock_producer.start = AsyncMock(side_effect=KafkaConnectionError())
+    mock_producer.start = AsyncMock(side_effect=KafkaException(None))
 
     with (
         patch("services.bar_aggregator.KafkaProducerClient", return_value=mock_producer),
-        pytest.raises(KafkaConnectionError),
+        pytest.raises(KafkaException),
     ):
         await agent._setup()
 

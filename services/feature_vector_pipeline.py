@@ -1400,7 +1400,7 @@ class FeatureVectorPipeline(BaseDaemon):
         record_dict["bar_ts"] = format_iso_ts(bar.ts)
 
         # Fire-and-forget publish -- non-blocking hot path
-        # aiokafka batches internally via linger_ms; create_task keeps compute async.
+        # librdkafka batches internally via linger.ms; create_task keeps compute async.
         env = self.settings.env_name
         topic = topic_feature_vectors(env)
         msg_key = message_key(bar.symbol, bar.tf)
