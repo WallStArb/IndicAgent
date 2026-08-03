@@ -25,9 +25,13 @@ See: .planning/PROJECT.md
 must be empirically demonstrated, not assumed -- cross_sectional_relative_value below earned its place by clearing a
 shuffled-ranking-null guard, not by a plausible story. Before building anything, apply Musk's
 5-step mandate: question whether the requirement is real, delete before adding, simplify,
-accelerate, automate -- in that order. This is why Phase 167 (cheap, already-proven) is
-sequenced ahead of Phase 151/164/165 (expensive, unproven): don't accelerate feature-expansion
-work that hasn't been shown to be the actual bottleneck.
+accelerate, automate -- in that order. **Corrected 2026-08-03 -- this sentence used to lump
+Phase 164/165 in with Phase 151 as "deprioritized, expensive, unproven"; that's stale. Phase
+164/165 were deprioritized behind Phase 167 on 2026-07-26, then the user explicitly overrode
+that call the next day (Tier 0) and both executed to COMPLETE by 2026-07-28, columns already
+backfilled and live in the corpus (see Phase Summary table).** Phase 151 alone remains planned
+but not executed, still deliberately behind Phase 167: don't accelerate feature-expansion work
+that hasn't been shown to be the actual bottleneck.
 
 **Current focus (updated 2026-07-30):** Milestone v3.1's defining verdict stands: Phase 148
 found Gate 1 (signal proof) PASS but Gate 2 (execution proof) FAIL -- do not promote the
