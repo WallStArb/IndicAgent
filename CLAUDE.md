@@ -1,6 +1,7 @@
 # CLAUDE.md
 
-Version: 5.54.3
+Version: 5.54.4
+<!-- Bump the patch version on every substantive edit to this file (convention, not enforced). -->
 
 **Project nature:** Passion/learning project — not a production system. Architectural decisions prioritize correctness, rigor, and institutional-grade thinking. Renaissance Capital / Jim Simons principles are the north star. When giving advice, apply the same rigor you would to a system built to last — do not hedge around operational risk that doesn't apply.
 
@@ -132,7 +133,9 @@ Non-negotiable. Any violation is wrong regardless of whether it works locally.
 - **ProcessPoolExecutor workers are compute-only**: workers must return serializable results (rows, dicts) to the main process. All DB writes go through a single serial connection in main. Never open a write connection or call execute_batch/conn.commit() for writes from a worker subprocess — concurrent writers on the same TimescaleDB hypertable cause index-page deadlocks. (Fixed in regime_writer; pattern applies to all batch services: ic_engine, backfill_feature_factory, etc.)
 - **Killing a ProcessPoolExecutor-based service's main process orphans its workers**: `kill <main_pid>` does not reap forkserver worker subprocesses — they survive, still holding DB connections/still writing. Always follow with `ps aux | grep <script.py> | awk '{print $2}' | xargs kill` and confirm zero remain before restarting.
 - **Never log per-row inside a loop over the full corpus** (millions of rows on `--backfill`): a `logger.warning()` per occurrence floods the log file and adds real per-row overhead on a hot path. Accumulate a local counter and report once per partition/run instead — same shape whether the loop runs in-process or inside a `ProcessPoolExecutor` worker (worker accumulates and returns the count; main process sums and logs once). Pattern: `ic_engine.py`'s `n_skipped`. (Fixed in alpha_frame_writer.py/counterfactual_tracker.py, Phase 142B code review.)
+- **Never materialize a wide (`SELECT tbl.*`) full-corpus DataFrame**: a 200+-column × millions-of-rows fetch costs another full-width copy on *every* subsequent pandas op (concat, reorder, column extraction) — patching one OOM (chunked fetch, `del df`) just moves the kill to the next line, confirmed the hard way on `feature_vectors` (todo 234). Build the matrix directly from asyncpg rows instead, never materializing the wide frame — pattern already in `ensemble_trainer.py` and `scripts/analysis/_t5_nonlinear_combiner_shared.py`'s `fetch_training_matrix`.
 - **`KafkaProducerClient.publish()` kwarg is `msg=`** — not `value=`. Wrong kwarg silently fails at flush.
+- **AI agent rules below (`BaseGroupCoordinator`, `BaseAIWorker`, Ollama, swarm confidence) describe dormant-stack code** — real invariants worth maintaining if this code is touched, not currently-running production behavior. See Architecture note above.
 - **`BaseGroupCoordinator` agent construction**: agents needing `self._llm_chain` must be constructed in `_setup()` after `super()._setup()` — `_llm_chain` is `None` in `__init__`.
 - **AI agents MUST use `self._llm_generate(context, ...)`** — never call `self._llm.generate()` directly.
 - **`prompt_version` class attribute** on every `BaseAIWorker` subclass — set from agent's `ACTIVE_VERSION` constant.
@@ -141,6 +144,7 @@ Non-negotiable. Any violation is wrong regardless of whether it works locally.
 - **Timestamp serialization**: use `format_iso_ts(dt)` from `service_utils.py`. Never inline `.isoformat().replace("+00:00", "Z")`.
 - **`get_active_contracts()`** is a module-level function in `settings.py`. Call as `get_active_contracts(settings)`, not `settings.get_active_contracts()`.
 - **asyncpg**: JSONB → `dict` (no `json.loads()`/`json.dumps()`), but ONLY on a pooled connection from `BaseBatch`'s `create_pool()`, which registers the codec. A bare `asyncpg.connect()` (e.g. a read-only reporting/evaluation branch) has no codec; jsonb columns come back as raw JSON text. Call `src.core.database_manager._setup_codecs(conn)` explicitly on any bare connection that reads jsonb. Timestamps → `datetime`. UUIDs → `str()` before Kafka.
+- **asyncpg dtype casting**: derive column types from `conn.prepare(sql).get_attributes()` (schema), never from inferring dtype off fetched row data — a column that's all-NULL in an early chunk (e.g. a late-backfilled feature, Phase 164/165) silently mistypes if inferred from data, and a downstream `dtype.kind in "fc"` filter then drops it from training with no error.
 - **structlog `event` kwarg collision**: Never pass `event=<value>` — use `signal=`, `payload=`, `data=` instead.
 - **Service registry**: when adding a service, update `_DAG_ORDER` and `_AGENT_ID_TO_UNIT` in `service_auditor.py`; seed its lag threshold as an `alert.lag.*` APR key (loaded by `_load_lag_thresholds()`, hot-reloaded via Kafka) — do not hardcode it.
 - **`INDICAGENT_ENV` consistency**: Mixed env prefixes → services subscribe to different topics → zero data flow.
@@ -150,6 +154,7 @@ Non-negotiable. Any violation is wrong regardless of whether it works locally.
 - **`BaseWriter._parse_payload` return contract**: `None` → DLQ whole payload. `[]` → all-invalid (no DLQ). Only return `None` for truly unparseable payloads.
 - **Exception variable name is `error`** — `except X as error:`, not `exc`.
 - **File/class renames require test sweep:** `grep -r "OldName" tests/` — test imports break at pytest collection, not lint.
+- **`git add` with multiple pathspecs aborts entirely if ANY path doesn't match** (e.g. staging the pre-rename side of an already-`pending/`→`completed/`-moved todo file) — none of the valid paths get staged either, not just the bad one. Stage an already-renamed path alone (`git add -- <new_path>`; git auto-detects the rename) before batching it with others.
 - **`BaseWriter.__init__` requires `name: str`** (non-optional): when removing `name=` from any writer, also update `BaseWriter.__init__` to accept `name: str | None = None`.
 - **Oneshot `_agent.py` exceptions:** `services/feature_validation_agent.py`, `services/hmm_training_agent.py`, `services/ml_training_agent.py`, `services/ml_signal_training_agent.py` — `_agent` suffix intentionally preserved.
 - **API health router prefix is `/health`** not `/api/health`. Routes: `/health/system`, `/health/database`, etc.
