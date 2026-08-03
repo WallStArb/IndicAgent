@@ -6,9 +6,16 @@
 > for I1-I4, with I5-I7 archived outright. Do not follow the "Creating a New I7 Plugin" or
 > restart instructions below expecting them to work — kept for historical reference and for
 > whenever/if this subsystem is formally reactivated or ported. LLM Provider Chain / LiteLLM /
-> audit-stream sections below verified live and accurate as of 2026-07-05 (`src/core/llm/chain.py`,
-> `litellm_backend.py`, `llm_writer` scoring). `shadow_registry`'s 36 rows all have `last_eval_at IS NULL` —
-> confirmed dead, not just I5-I7.
+> audit-stream sections below (`src/core/llm/chain.py`, `litellm_backend.py`, `llm_writer` scoring)
+> describe correct code as of 2026-07-05 — but "verified" there meant read-against-source, not
+> confirmed running: `BaseAIWorker` and its swarm/narrative consumers (`services/alpha_swarm.py`,
+> `services/narrative_swarm.py`) have had zero commits since the V3 rebuild started 2026-06-20,
+> and `indicagent-alpha-swarm`/`indicagent-narrative-compute` are both `disabled`/`inactive` in
+> systemd as of 2026-08-03 — consistent with `shadow_registry`'s 36 rows all having
+> `last_eval_at IS NULL` (confirmed dead, not just I5-I7). AI is planned to come into v3.0
+> eventually; how it will surface is not yet decided (2026-08-03) — this is dormant-pending-design,
+> not archived like I1-I7. Don't cite "verified live" language for this stack without checking
+> `systemctl status`/git log first.
 
 ## Throughput
 
