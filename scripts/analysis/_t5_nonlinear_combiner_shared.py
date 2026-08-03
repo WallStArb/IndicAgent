@@ -60,7 +60,31 @@ EXCLUDE_COLS = {
     "canary_near_constant",
     "canary_noise_gaussian",
     "canary_noise_uniform",
+    # Confirmed broken at every tf (todo 236, 2026-08-03), not a 5m-only float16 numeric issue:
+    # max(abs(hmm_duration)) is 4,819/30,077/130,242/367,391 bars at 1d/1h/15m/5m respectively --
+    # implausible at every one of them (even 1d's is ~13 years of continuous same-regime), just
+    # under float16's ~65504 ceiling at 1d/1h and over it at 15m/5m. Live evidence of a
+    # regime_writer.py duration-tracking defect (reset-on-transition or an accumulation boundary
+    # it shouldn't cross), not a legitimate large value. Universally excluded rather than
+    # float16-scoped: re-verified via actual LightGBM feature_importances_ on the already-trained
+    # 1h model that it was never a meaningful driver (rank 89-233/248 across all 5 folds,
+    # importance 0-3 vs ctf_momentum's 400+) -- excluding it doesn't change any published T5
+    # result, it just stops training on a column known to carry no real signal.
+    "hmm_duration",
 }
+
+# Nothing currently needs float16-only exclusion (hmm_duration graduated to EXCLUDE_COLS above,
+# 2026-08-03, once its overflow turned out to be a universal data defect rather than a tf-scoped
+# numeric-range issue). Kept as an extension point for a future column that IS legitimately
+# large -- like weekly_r1_dist_atr/weekly_r2_dist_atr below, which get clipped rather than
+# excluded -- but only overflows float16's range at 5m specifically.
+FLOAT16_UNSAFE_COLS: set[str] = set()
+
+# Safely under float16's ~65504 max magnitude. Applied only to the handful of cells that would
+# otherwise overflow (measured: 3 rows in weekly_r1_dist_atr, 6 in weekly_r2_dist_atr, out of
+# 25,443,790) -- clipping instead of excluding those columns preserves the feature for every
+# other row rather than discarding it corpus-wide over an extreme-tail minority.
+_FLOAT16_CLIP_MAGNITUDE = 60_000
 
 FV_FROM = """
     FROM feature_vectors fv
@@ -161,12 +185,23 @@ async def fetch_training_matrix(
     """
     conn = await asyncpg.connect(db_dsn)
     try:
+        # Session-scoped only (SET, not ALTER SYSTEM) -- reverts when this connection closes,
+        # never touches the live default (8MB) any other backend sees. Found live at 5m's scale
+        # (2026-08-03): the default forced Postgres into a heavily disk-spilled external sort for
+        # `ORDER BY (bar_ts, symbol)` over ~24.6M rows (confirmed via `pg_stat_activity`'s
+        # `wait_event=BuffileRead`, not guessed), on pace to take hours. `max_parallel_workers_per_gather`
+        # is 12 on this host; capping at 128MB keeps the worst case (every worker spilling
+        # simultaneously) under ~900MB Postgres-side, deliberately conservative given the fetch's
+        # own X allocation needs the bulk of this host's free memory concurrently.
+        await conn.execute("SET work_mem = '128MB'")
         schema = await conn.prepare(FV_SQL)
+        unsafe_cols = FLOAT16_UNSAFE_COLS if feature_dtype == np.float16 else set()
         feature_cols = [
             attr.name
             for attr in schema.get_attributes()
             if attr.type.name in ("float4", "float8")
             and attr.name not in EXCLUDE_COLS
+            and attr.name not in unsafe_cols
             and attr.name != "return_fast"
         ]
 
@@ -266,7 +301,43 @@ async def fetch_training_matrix(
                 # `.astype` rather than `to_numpy(dtype=...)`: a feature that is all-NULL across
                 # this batch arrives as an object column of Nones, which numpy cannot cast but
                 # pandas maps to NaN -- and NaN is what LightGBM wants for a missing feature.
-                X[targets[keep]] = block[feature_cols].astype(feature_dtype).to_numpy()[keep]
+                # Clip before cast (float16 only): `.clip()` leaves NaN untouched and is a no-op
+                # for the ~25.4M-9 cells already inside range, only bending the ~9 measured
+                # extreme cells (see FLOAT16_UNSAFE_COLS's comment) down to a finite, still-huge
+                # value instead of `+/-inf` -- preserves the column's signal instead of dropping
+                # it, per this project's "never drop data that could contain signal" principle.
+                to_cast = block[feature_cols]
+                if feature_dtype == np.float16:
+                    to_cast = to_cast.clip(
+                        lower=-_FLOAT16_CLIP_MAGNITUDE, upper=_FLOAT16_CLIP_MAGNITUDE
+                    )
+                cast = to_cast.astype(feature_dtype).to_numpy()[keep]
+                # Defense in depth beyond FLOAT16_UNSAFE_COLS and the clip above: both were built
+                # from a point-in-time full-corpus scan, not a guarantee against a future column
+                # (or a future corpus refresh) whose values grow past `_FLOAT16_CLIP_MAGNITUDE`.
+                # A downcast that silently turns a finite value into +/-inf is exactly the
+                # "silent wrong answer" this project's principles rule out -- confirmed a real,
+                # not hypothetical, risk (this exact failure mode is what surfaced
+                # FLOAT16_UNSAFE_COLS in the first place, via a `RuntimeWarning: overflow
+                # encountered in cast` in a live run). Finite-in must mean finite-out; anything
+                # else fails loud, immediately, with the offending columns named, rather than
+                # continuing to train on corrupted rows. Scoped to float16 only -- float32's
+                # range is wide enough that this has never been an issue for 1h/1d/15m, and the
+                # extra float64 comparison array below would be pure overhead on those
+                # already-verified paths for no real protection gained.
+                if feature_dtype == np.float16:
+                    orig = block[feature_cols].to_numpy(dtype=np.float64)[keep]
+                    newly_infinite = np.isinf(cast) & np.isfinite(orig)
+                    if newly_infinite.any():
+                        bad_cols = [
+                            feature_cols[j] for j in np.unique(np.nonzero(newly_infinite)[1])
+                        ]
+                        raise RuntimeError(
+                            f"float16 downcast produced +/-inf from finite input in columns "
+                            f"{bad_cols} at rows {row}:{end} -- add to FLOAT16_UNSAFE_COLS "
+                            f"rather than silently training on corrupted values"
+                        )
+                X[targets[keep]] = cast
             return end
 
         row = 0
