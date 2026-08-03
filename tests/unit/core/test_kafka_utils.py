@@ -121,22 +121,23 @@ async def test_consumer_client_messages_yields_tuples() -> None:
     mock_msg_no_key.error.return_value = None
     mock_msg_no_key.headers.return_value = None
 
-    responses = [mock_msg_with_key, mock_msg_no_key]
+    # _consume_loop_blocking batch-polls via consume(), not one message per poll().
+    batches = [[mock_msg_with_key, mock_msg_no_key]]
     call_count = 0
 
-    def _poll(timeout):
-        # After the two test messages, behave like a real idle poll() timeout
-        # (returns None) so the background consume-loop thread just spins gently
+    def _consume(num_messages, timeout):
+        # After the one test batch, behave like a real idle consume() timeout
+        # (returns []) so the background consume-loop thread just spins gently
         # until the test's aclosing() block sets stop_event.
         nonlocal call_count
-        if call_count < len(responses):
-            msg = responses[call_count]
+        if call_count < len(batches):
+            batch = batches[call_count]
             call_count += 1
-            return msg
-        return None
+            return batch
+        return []
 
     mock_consumer = MagicMock()
-    mock_consumer.poll.side_effect = _poll
+    mock_consumer.consume.side_effect = _consume
 
     with patch("src.core.kafka_utils.Consumer", return_value=mock_consumer):
         client = KafkaConsumerClient(

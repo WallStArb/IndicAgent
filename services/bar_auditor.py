@@ -296,7 +296,7 @@ class BarAuditor(BaseDaemon):
             return
         try:
             records = await self._contract_consumer.getmany(timeout_ms=0, max_records=100)
-            count = sum(len(msgs) for msgs in records.values())
+            count = len(records)
             if count > 0:
                 self._record_message_consumed()  # Track liveness for stall detection
                 invalidate_active_contracts_cache()

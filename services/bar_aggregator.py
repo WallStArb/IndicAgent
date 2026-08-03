@@ -599,10 +599,13 @@ class BarAggregator(BaseDaemon):
                 return 0
 
             tp = partitions[0]
-            _low, high = await asyncio.to_thread(
-                self._lag_consumer.get_watermark_offsets, tp, timeout=10.0
+            # Independent RPCs -- run concurrently rather than serially (the aiokafka
+            # version used asyncio.gather for the same two calls; lost in the
+            # mechanical port to confluent-kafka's differently-shaped API).
+            (_low, high), committed_list = await asyncio.gather(
+                asyncio.to_thread(self._lag_consumer.get_watermark_offsets, tp, timeout=10.0),
+                asyncio.to_thread(self._lag_consumer.committed, [tp], 10.0),
             )
-            committed_list = await asyncio.to_thread(self._lag_consumer.committed, [tp], 10.0)
             if not committed_list or committed_list[0].offset < 0:
                 return 0
 

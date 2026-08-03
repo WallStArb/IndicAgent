@@ -21,9 +21,10 @@ the synchronous librdkafka API instead, preserving full header support.
 from __future__ import annotations
 
 import asyncio
+import functools
 import threading
 import time as _time
-from collections.abc import AsyncGenerator
+from collections.abc import AsyncGenerator, Callable
 
 import orjson
 import structlog
@@ -41,6 +42,40 @@ from opentelemetry.propagate import extract, inject
 from src.observability.metrics import KAFKA_PUBLISH_SECONDS
 
 logger = structlog.get_logger(__name__)
+
+# Matches the bounded queue size in KafkaConsumerClient.messages() -- caps how many
+# messages cross the consume-thread/event-loop boundary in one run_coroutine_threadsafe
+# round trip.
+_CONSUME_BATCH_SIZE = 500
+
+
+async def _put_batch(queue: asyncio.Queue, batch: list) -> None:
+    """Awaits queue.put() for each message in one coroutine, so a single
+    run_coroutine_threadsafe(...).result() call from the consume thread enqueues the
+    whole batch instead of paying one cross-thread round trip per message."""
+    for msg in batch:
+        await queue.put(msg)
+
+
+def _run_blocking_loop(
+    fn: Callable[[threading.Event], None],
+) -> tuple[asyncio.Task, threading.Event]:
+    """Launch fn in one dedicated background thread for its whole lifetime (a single
+    asyncio.to_thread submission, not one per iteration/poll) -- submitting a fresh
+    executor task every tick would flood the shared default thread pool's queue under
+    fast polling (confirmed: an unthrottled per-iteration version pathologically grew
+    to double-digit GB RSS in testing). fn must loop `while not event.is_set(): ...`.
+    Shared by KafkaProducerClient's poll loop and KafkaConsumerClient's consume loop.
+    """
+    stop_event = threading.Event()
+    task = asyncio.create_task(asyncio.to_thread(fn, stop_event))
+    return task, stop_event
+
+
+async def _stop_blocking_loop(task: asyncio.Task, stop_event: threading.Event) -> None:
+    """Signal a _run_blocking_loop task to exit and wait for it to actually stop."""
+    stop_event.set()
+    await task
 
 
 class _KafkaHeadersCarrier:
@@ -92,7 +127,7 @@ class KafkaProducerClient:
         self._bootstrap = bootstrap_servers
         self._producer: Producer | None = None
         self._poll_task: asyncio.Task | None = None
-        self._stop_event = threading.Event()
+        self._stop_event: threading.Event | None = None
 
     async def start(self) -> None:
         """Create the underlying confluent_kafka.Producer and start the poll loop.
@@ -111,29 +146,26 @@ class KafkaProducerClient:
                 "compression.type": "lz4",
             }
         )
-        self._stop_event.clear()
-        self._poll_task = asyncio.create_task(asyncio.to_thread(self._poll_loop_blocking))
+        self._poll_task, self._stop_event = _run_blocking_loop(self._poll_loop_blocking)
         logger.info("KafkaProducerClient started successfully")
 
-    def _poll_loop_blocking(self) -> None:
-        """Runs entirely inside the single background thread from start()'s
-        asyncio.to_thread call. publish() already calls poll(0) inline for
-        low-latency confirmation on the common path; this loop exists so callbacks
-        still get serviced (and librdkafka's internal queue stays healthy) when
-        nothing is being published.
+    def _poll_loop_blocking(self, stop_event: threading.Event) -> None:
+        """Runs entirely inside the single background thread _run_blocking_loop starts.
+        publish() already calls poll(0) inline for low-latency confirmation on the
+        common path; this loop exists so callbacks still get serviced (and librdkafka's
+        internal queue stays healthy) when nothing is being published.
         """
         producer = self._producer
         assert producer is not None
-        while not self._stop_event.is_set():
+        while not stop_event.is_set():
             producer.poll(0.1)
 
     async def stop(self) -> None:
         """Stop the poll loop and flush pending sends."""
         if self._producer is None:
             return
-        self._stop_event.set()
-        if self._poll_task is not None:
-            await self._poll_task
+        if self._poll_task is not None and self._stop_event is not None:
+            await _stop_blocking_loop(self._poll_task, self._stop_event)
             self._poll_task = None
         await asyncio.to_thread(self._producer.flush, 10.0)
 
@@ -328,10 +360,11 @@ class KafkaConsumerClient:
         total_lag = 0
         for tp in partitions:
             try:
-                _low, high = await asyncio.to_thread(
-                    self._consumer.get_watermark_offsets, tp, timeout=10.0
+                # Independent RPCs per partition -- run concurrently rather than serially.
+                (_low, high), committed = await asyncio.gather(
+                    asyncio.to_thread(self._consumer.get_watermark_offsets, tp, timeout=10.0),
+                    asyncio.to_thread(self._consumer.committed, [tp], 10.0),
                 )
-                committed = await asyncio.to_thread(self._consumer.committed, [tp], 10.0)
                 current = committed[0].offset if committed and committed[0].offset >= 0 else _low
                 total_lag += max(0, high - current)
             except Exception as e:
@@ -342,19 +375,16 @@ class KafkaConsumerClient:
                 )
         return total_lag
 
-    async def getmany(self, *, timeout_ms: int = 0, max_records: int = 100) -> dict:
+    async def getmany(self, *, timeout_ms: int = 0, max_records: int = 100) -> list:
         """Non-blocking batch fetch — thin delegation to confluent_kafka's consume().
 
-        Returns {"_all": [Message, ...]} immediately with any buffered messages
-        (when timeout_ms=0). Callers only sum len() across .values(), so a single
-        flat bucket preserves the same contract as aiokafka's per-partition dict
-        without needing genuine per-partition grouping. Used by agents that need to
-        drain messages without blocking (e.g. BarAuditor contract cache invalidation).
+        Returns [Message, ...] immediately with any buffered messages (when
+        timeout_ms=0). Used by agents that need to drain messages without blocking
+        (e.g. BarAuditor contract cache invalidation).
         """
-        messages = await asyncio.to_thread(
+        return await asyncio.to_thread(
             self._consumer.consume, num_messages=max_records, timeout=timeout_ms / 1000
         )
-        return {"_all": messages}
 
     def _consume_loop_blocking(
         self,
@@ -366,15 +396,23 @@ class KafkaConsumerClient:
         lifetime (a single asyncio.to_thread submission, not one per message) —
         submitting a fresh executor task per poll() call would flood the shared
         default thread pool's queue under high consume throughput, the same failure
-        mode fixed in KafkaProducerClient's poll loop. asyncio.run_coroutine_threadsafe
-        .result() blocks this thread on a full queue, giving genuine backpressure
-        against a slow consumer instead of buffering unboundedly in local memory.
+        mode fixed in KafkaProducerClient's poll loop.
+
+        Batch-polls via consume() rather than one message per poll() call: pushing
+        each message across the thread boundary individually means paying a full
+        run_coroutine_threadsafe round trip (schedule + block-and-wait) per message
+        on the path this whole migration exists to speed up. Handing a whole batch
+        across in one round trip amortizes that cost over up to _CONSUME_BATCH_SIZE
+        messages instead. queue.put() on a full queue still blocks this thread
+        (via .result()), so backpressure against a slow consumer is preserved —
+        just applied per-batch instead of per-message.
         """
+        consumer = self._consumer
         while not stop_event.is_set():
-            msg = self._consumer.poll(1.0)
-            if msg is None:
+            batch = consumer.consume(num_messages=_CONSUME_BATCH_SIZE, timeout=1.0)
+            if not batch:
                 continue
-            asyncio.run_coroutine_threadsafe(queue.put(msg), loop).result()
+            asyncio.run_coroutine_threadsafe(_put_batch(queue, batch), loop).result()
 
     async def messages(self) -> AsyncGenerator[tuple[str, str | None, dict]]:
         """Yield (topic, key, payload_dict) tuples from subscribed topics.
@@ -386,10 +424,9 @@ class KafkaConsumerClient:
               - payload (dict): Decoded JSON payload dict.
         """
         loop = asyncio.get_running_loop()
-        queue: asyncio.Queue = asyncio.Queue(maxsize=500)
-        stop_event = threading.Event()
-        consume_task = asyncio.create_task(
-            asyncio.to_thread(self._consume_loop_blocking, loop, queue, stop_event)
+        queue: asyncio.Queue = asyncio.Queue(maxsize=_CONSUME_BATCH_SIZE)
+        consume_task, stop_event = _run_blocking_loop(
+            functools.partial(self._consume_loop_blocking, loop, queue)
         )
         try:
             while True:
@@ -425,5 +462,4 @@ class KafkaConsumerClient:
                 finally:
                     otel_context.detach(token)
         finally:
-            stop_event.set()
-            await consume_task
+            await _stop_blocking_loop(consume_task, stop_event)

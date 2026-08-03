@@ -226,7 +226,7 @@ def test_upsert_never_overwrites_externally_owned_columns():
     )
 
 
-def test_psycopg2_variants_have_no_leftover_placeholders():
+def test_psycopg_variants_have_no_leftover_placeholders():
     assert "$" not in FEATURE_VECTOR_INSERT_SQL_PSYCOPG
     assert "$" not in FEATURE_VECTOR_UPSERT_SQL_PSYCOPG
     assert FEATURE_VECTOR_INSERT_SQL_PSYCOPG.count("%s") == len(
