@@ -86,6 +86,38 @@ lookahead-contaminated channels open -- if the tree's uplift survived that parti
 would have been wrongly read as "the leak wasn't the explanation," when the leak could still be
 running through the other two untouched columns. Corrected below: exclude all three.
 
+## 1h diagnostic RESULT, 2026-08-03 -- confirms the hypothesis, magnitude quantified
+
+`nonlinear_interaction_combiner_ctf_leak_diagnostic_1h.py` ran to completion (~85 min).
+Cross-sectional-neutral point_ic, paired bootstrap, tree vs linear ensemble:
+
+| | tree | linear | tree-linear diff |
+|---|---|---|---|
+| WITH CTF cols (published methodology) | 0.1811 | 0.0163 | 0.1648 (ci_lower=0.1608) |
+| WITHOUT CTF cols (leak excluded) | 0.0171 | 0.0065 | 0.0106 (ci_lower=0.0064) |
+
+**Tree's point_ic collapsed 90.6% (0.1811 -> 0.0171) once the three lookahead-contaminated CTF
+columns were removed.** The published "substantial at 1h" nonlinear_interaction_combiner finding
+was overwhelmingly an artifact of the leak, not genuine non-linear structure -- confirmed, not
+hypothesized. `n_pass_fdr_positive` for the tree fell from 80/80 (with leak) to 21/80 (without) --
+the "universal across all 80 symbols" character of the original finding was almost entirely
+leak-driven.
+
+**Not a total null result, though.** A small, real, statistically significant tree-vs-linear edge
+survives leak removal: diff=0.0106, ci_lower=0.0064 (excludes zero). Genuine evidence some
+non-linear structure exists beyond linear combination at 1h -- just ~15x smaller than the
+uncontrolled measurement implied. This clean number (0.0171) now sits in the same small range as
+1d's already-published, never-contaminated number (0.0127) -- a coherent picture, not a
+contradictory one.
+
+Mechanism confirmed as predicted: the tree's greater flexibility let it extract disproportionately
+more of the leak than the linear arm could (which is capped at 20% weight per feature) --
+consistent with the earlier prediction that the leak would bias the tree-vs-linear COMPARISON
+itself, not just inflate both arms equally.
+
+**Still open:** 15m and 5m (also leak-affected per todo 243's table) have NOT been re-tested --
+this 1h result does not automatically generalize. Todo 243's own join bug is still unfixed.
+
 ## Fix / next step
 
 Do not re-run todos 239/240's corrected methodology at 1h/15m/5m until one of:

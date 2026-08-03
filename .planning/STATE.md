@@ -107,12 +107,16 @@ pseudo-replication) fixed; todo 204 status is in Tier -1 below (don't restate he
 
 **Next actions, priority order:**
 
-*Tier 0.5 -- NEW 2026-08-03, outranks Tier 1: read-only measurement, not a build.* `ctf_momentum`
-batch-join lookahead bias (todos 243/245) -- full story in Current Saga above, not restated here.
-**In flight**: `nonlinear_interaction_combiner_ctf_leak_diagnostic_1h.py` launched 2026-08-03
-13:02 (background), runs the corrected-methodology 1h check twice, with vs without the three
-contaminated CTF columns -- direct read on whether the tree's uplift was riding the leak. Check
-for completion before starting anything else that touches this same measurement chain.
+*Tier 0.5 -- outranks Tier 1: read-only measurement, not a build.* `ctf_momentum` batch-join
+lookahead bias (todos 243/245). **1h diagnostic COMPLETE 2026-08-03** (`nonlinear_interaction_combiner_ctf_leak_diagnostic_1h.py`,
+full result in todo 245): tree's cross-sectional-neutral point_ic **collapsed 90.6% (0.1811 ->
+0.0171)** once the three contaminated CTF columns were excluded -- confirms the published
+"substantial at 1h" finding was overwhelmingly leak-driven, not genuine non-linear structure. A
+small, real, statistically significant tree-vs-linear edge DOES survive (diff=0.0106,
+ci_lower=0.0064) -- ~15x smaller than published, not a total null. **Next: same with/without-CTF
+diagnostic at 15m and 5m (also leak-affected, NOT yet tested; 1h result doesn't auto-generalize)
+-- 15m is ~4x 1h's row count (~8.8M vs ~2.2M), expect a longer run. Todo 243's actual join bug is
+still unfixed regardless of these diagnostic results.**
 
 *Tier 1 -- decision point, REDIRECTED 2026-07-27 by explicit user instruction:* Phase 156-159
 (execution/sizing) is NOT the priority even though its precondition is cleared. User wants the
