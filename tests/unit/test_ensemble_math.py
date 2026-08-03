@@ -10,7 +10,10 @@ import numpy as np
 import pytest
 
 from src.intelligence.ensemble.alpha_score import compute_alpha_score
-from src.intelligence.ensemble.covariance import compute_shrinkage_covariance
+from src.intelligence.ensemble.covariance import (
+    compute_shrinkage_covariance,
+    covariance_to_correlation,
+)
 from src.intelligence.ensemble.feature_selector import (
     compute_quality_weight,
     select_features_per_stratum,
@@ -199,6 +202,46 @@ class TestComputeShrinkageCovariance:
         X = np.random.default_rng(7).standard_normal((50, 4))
         cov, _ = compute_shrinkage_covariance(X)
         np.testing.assert_allclose(cov, cov.T, atol=1e-12)
+
+
+# ---------------------------------------------------------------------------
+# covariance_to_correlation tests -- extracted from ensemble_trainer.py's own inline
+# conversion (todo 240 follow-on, so scripts/analysis' new linear-ensemble comparison arm
+# could reuse it instead of a third ad hoc copy of the same guarded division).
+# ---------------------------------------------------------------------------
+
+
+class TestCovarianceToCorrelation:
+    def test_diagonal_is_always_one(self) -> None:
+        X = np.random.default_rng(3).standard_normal((200, 5))
+        cov, _ = compute_shrinkage_covariance(X)
+        corr = covariance_to_correlation(cov)
+        np.testing.assert_allclose(np.diag(corr), 1.0)
+
+    def test_matches_manual_normalization_for_well_conditioned_input(self) -> None:
+        X = np.random.default_rng(11).standard_normal((500, 4))
+        cov, _ = compute_shrinkage_covariance(X)
+        corr = covariance_to_correlation(cov)
+        std = np.sqrt(np.diag(cov))
+        expected = cov / np.outer(std, std)
+        np.testing.assert_allclose(corr, expected, atol=1e-10)
+
+    def test_zero_variance_feature_yields_zero_off_diagonal_not_nan_or_inf(self) -> None:
+        """A feature with zero variance (e.g. a constant column) must not poison the
+        correlation matrix with NaN/inf from a divide-by-zero -- those entries are 0.0,
+        the diagonal is still forced to 1.0."""
+        cov = np.array([[0.0, 0.0, 0.0], [0.0, 2.0, 0.5], [0.0, 0.5, 1.0]])
+        corr = covariance_to_correlation(cov)
+        assert np.all(np.isfinite(corr))
+        assert corr[0, 0] == pytest.approx(1.0)
+        assert corr[0, 1] == pytest.approx(0.0)
+        assert corr[1, 0] == pytest.approx(0.0)
+
+    def test_symmetric_input_yields_symmetric_output(self) -> None:
+        X = np.random.default_rng(5).standard_normal((100, 6))
+        cov, _ = compute_shrinkage_covariance(X)
+        corr = covariance_to_correlation(cov)
+        np.testing.assert_allclose(corr, corr.T, atol=1e-12)
 
 
 # ---------------------------------------------------------------------------

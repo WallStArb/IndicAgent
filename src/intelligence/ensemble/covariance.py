@@ -49,3 +49,30 @@ def compute_shrinkage_covariance(
     lw = LedoitWolf(store_precision=False, assume_centered=False)
     lw.fit(X)
     return lw.covariance_, float(lw.shrinkage_)
+
+
+def covariance_to_correlation(cov_matrix: np.ndarray) -> np.ndarray:
+    """Convert a covariance matrix to its correlation matrix, guarding zero/near-zero variance.
+
+    Extracted from services/ensemble_trainer.py's own inline conversion (previously duplicated
+    ad hoc at every call site) so cluster-detection callers share one implementation. Diagonal
+    entries near-zero variance would otherwise divide to +-inf/NaN; those entries are set to 0.0
+    (no reliable correlation signal) with the diagonal itself forced to 1.0 regardless.
+
+    Parameters
+    ----------
+    cov_matrix:
+        Covariance matrix, shape [n_features, n_features] (typically the LW-shrunk covariance
+        from compute_shrinkage_covariance()).
+
+    Returns
+    -------
+    np.ndarray
+        Correlation matrix, same shape, diagonal exactly 1.0.
+    """
+    diag_var = np.diag(cov_matrix)
+    with np.errstate(divide="ignore", invalid="ignore"):
+        outer_std = np.sqrt(np.outer(diag_var, diag_var))
+        corr_matrix = np.where(outer_std > 1e-10, cov_matrix / outer_std, 0.0)
+        np.fill_diagonal(corr_matrix, 1.0)
+    return corr_matrix

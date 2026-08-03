@@ -31,6 +31,7 @@ for causal per-symbol demeaning while 15m used `ic_math.py`'s vectorized
 from __future__ import annotations
 
 import gc
+import math
 import resource
 from dataclasses import dataclass
 from pathlib import Path
@@ -40,13 +41,35 @@ import lightgbm as lgb
 import numpy as np
 import pandas as pd
 
+from src.intelligence.ensemble.covariance import (
+    compute_shrinkage_covariance,
+    covariance_to_correlation,
+)
+from src.intelligence.ensemble.weights import (
+    cluster_deflate_weights,
+    derive_weights,
+    mean_variance_weights,
+)
 from src.intelligence.statistics.ic_math import (
     _p_values_from_ic,
     apply_bh_fdr,
     build_walk_forward_folds,
     causal_entity_expanding_mean,
     circular_block_bootstrap_ic_serial,
+    compute_ic_vectorized,
 )
+
+# Mirror the live APR defaults ensemble_trainer.py reads via ConfigService (verified in
+# config_state 2026-08-03: alpha.ensemble.max_feature_weight=0.20, max_cluster_correlation=0.80,
+# max_cluster_weight=0.40, mv_condition_max=1000, alpha.ic.shrinkage_k=100). This module is
+# offline/DB-independent research code (no ConfigService dependency anywhere else in it), so
+# these are hardcoded literals -- same pattern every other tf-calibrated constant in the sibling
+# per-tf scripts already uses, not a fresh guess.
+_LINEAR_MAX_FEATURE_WEIGHT = 0.20
+_LINEAR_MAX_CLUSTER_CORR = 0.80
+_LINEAR_MAX_CLUSTER_WEIGHT = 0.40
+_LINEAR_MV_CONDITION_MAX = 1000.0
+_LINEAR_SHRINKAGE_K = 100.0
 
 EXCLUDE_COLS = {
     "symbol",
@@ -326,6 +349,251 @@ async def fetch_training_matrix(
     )
 
 
+def _pooled_panel_folds(
+    bar_ts: np.ndarray,
+    n_folds: int,
+    embargo_bars: int,
+    min_reliable_n: int,
+) -> list[tuple[int, int, int]]:
+    """Map build_walk_forward_folds' BAR-unit boundaries onto row-index slices for a pooled
+    (symbol x bar_ts) panel.
+
+    Todo 239: this module's callers used to pass `n_valid=len(X)` -- a pooled-panel ROW count,
+    ~80 symbols per bar_ts -- directly to `build_walk_forward_folds`, which does all of its
+    boundary arithmetic in whatever unit `n_valid` is expressed in. Every `_EMBARGO_BARS`
+    constant in the sibling per-tf scripts is documented as a BAR count (e.g. "24 = 1 day of 1h
+    bars"), so on an ~80-symbol panel an intended 24-bar embargo was actually ~0.3 bars of real
+    train/test separation. `build_walk_forward_folds` itself is untouched (it is correct and
+    shared with ic_engine.py/ensemble_ic_engine.py, where n_valid genuinely IS a bar count) --
+    this function fixes only how this module's pooled-panel usage feeds it: build the fold
+    boundaries over the distinct bar_ts index (where embargo_bars means what it says), then map
+    each bar-index boundary back to the row index where that bar's block of rows begins. This
+    also removes the split-inside-a-bar behavior the row-unit version had, where a fold boundary
+    could land between two symbols of the identical bar_ts.
+
+    Parameters
+    ----------
+    bar_ts:
+        The panel's bar_ts column as a sortable 1-D array (e.g. int64 epoch-ns), already sorted
+        ascending with every bar_ts's rows contiguous -- guaranteed by this module's
+        `ORDER BY bar_ts ASC, symbol ASC` fetch (FV_SQL).
+
+    Returns
+    -------
+    list[(train_end_row, test_start_row, test_end_row)]
+        Row-index boundaries, one tuple per surviving fold (folds too small in BAR units are
+        already dropped inside build_walk_forward_folds).
+    """
+    unique_bar_ts, first_row_of_bar = np.unique(bar_ts, return_index=True)
+    n_bar_ts = len(unique_bar_ts)
+    n_rows = len(bar_ts)
+
+    def _bar_to_row(bar_index: int) -> int:
+        if bar_index <= 0:
+            return 0
+        if bar_index >= n_bar_ts:
+            return n_rows
+        return int(first_row_of_bar[bar_index])
+
+    folds_bar = build_walk_forward_folds(
+        n_valid=n_bar_ts,
+        n_folds=n_folds,
+        embargo_bars=embargo_bars,
+        min_reliable_n=min_reliable_n,
+    )
+
+    row_folds = []
+    for test_start_bar, test_end_bar in folds_bar:
+        train_end_bar = test_start_bar - embargo_bars
+        if train_end_bar < min_reliable_n:
+            continue
+        row_folds.append(
+            (_bar_to_row(train_end_bar), _bar_to_row(test_start_bar), _bar_to_row(test_end_bar))
+        )
+    return row_folds
+
+
+def _median_impute(X: np.ndarray, median: np.ndarray) -> np.ndarray:
+    """Fill NaN entries of X with the given per-column median. Returns X itself (no copy) when
+    there is nothing to fill -- avoids an unconditional copy of what can be a multi-GB array at
+    this module's scale. Computes the NaN mask once, reused for both the emptiness check and the
+    fill, rather than scanning X for NaN twice."""
+    nan_mask = np.isnan(X)
+    if nan_mask.any():
+        return np.where(nan_mask, median, X)
+    return X
+
+
+@dataclass
+class LinearEnsembleFit:
+    """Everything needed to score a held-out slice with fit_linear_ensemble_weights' output.
+    Bundled rather than a bare weights array because scoring needs the SAME impute/standardize
+    values the fit used -- see score_linear_ensemble()."""
+
+    weights: np.ndarray
+    impute_median: np.ndarray
+    feature_mean: np.ndarray
+    feature_std: np.ndarray
+
+
+def score_linear_ensemble(fit: LinearEnsembleFit, X: np.ndarray) -> np.ndarray:
+    """Impute (fit's own median) then standardize (fit's own mean/std) then dot -- the fit-time
+    transform applied identically to whatever slice is being scored, never re-derived from the
+    scored slice itself (that would leak information about held-out rows into their own score's
+    normalization). Single expression so the intermediate imputed-but-unstandardized array isn't
+    kept alive as a second full-size copy alongside the standardized one (CPython drops its
+    refcount to zero as soon as this expression finishes using it)."""
+    return (
+        (_median_impute(X, fit.impute_median) - fit.feature_mean) / fit.feature_std
+    ) @ fit.weights
+
+
+def fit_linear_ensemble_weights(
+    X_train: np.ndarray,
+    y_train: np.ndarray,
+    *,
+    max_fit_rows: int = 200_000,
+    rng_seed: int = 42,
+) -> LinearEnsembleFit:
+    """Todo 240's pre-registered comparison arm: a causally-fit, shrunk-IC-weighted linear
+    combination over X_train's columns, reusing ensemble_trainer.py's own weighting primitives
+    verbatim (compute_shrinkage_covariance, covariance_to_correlation, mean_variance_weights,
+    derive_weights, cluster_deflate_weights) rather than inventing a fresh combination scheme for
+    this test -- this is the number docs/research/data-edge-source-thesis.md's falsification
+    criterion actually asks for ("must show uplift over the existing linear ensemble", not over
+    one hand-picked column).
+
+    Deliberate, documented scope reduction from the live pipeline (not a silent gap): production
+    ensemble_trainer.py selects features from BH-FDR-passing `feature_ic_scores` rows, applies a
+    staleness-decayed quality weight, and shrinks each feature's IC toward a category-specific
+    (e.g. cross_tf, macro) leave-one-out peer-group prior sourced from that table. None of that
+    exists inside a single walk-forward fold's raw feature matrix -- there is no independent
+    peer-group category available here. This function uses the one defensible simplification
+    available: shrink each feature's raw in-fold IC toward the mean IC of every OTHER feature in
+    the same fold (one global peer group), with n_eff = the actual number of rows the fit used --
+    same empirical-Bayes shrink_ic()/leave_one_out_group_prior() formula (src/intelligence/
+    ensemble/shrinkage.py), a smaller peer group, not a different algorithm, but inlined
+    VECTORIZED across all features at once rather than calling those two scalar functions once
+    per feature: `n_eff` is identical for every feature in a given fold, so
+    `leave_one_out_group_prior`'s per-call `np.sum(group_ic_values)` (the same ~250-element array
+    every time) collapses to one array-level sum, and `shrink_ic`'s `w = n_eff / (n_eff + k)` is
+    one scalar shared by every feature -- calling either function ~250 times per fold (5 folds x
+    every nonlinear_interaction_combiner run) bought nothing the vectorized form doesn't already
+    give byte-identically.
+
+    Features are z-scored (fit sample's own mean/std) before covariance/IC-weighting and before
+    scoring -- required, not optional: `compute_alpha_score`'s own module docstring states the
+    live composite formula `alpha = sum(w_i * ic_sign_i * z_i)` assumes "z_i are already z-scored
+    features", and this corpus's raw feature_vectors columns span a ~150x scale range (measured:
+    momentum_z_fast stddev 1.02 vs resistance_age_bars stddev 31.6 on a real 1h sample) with
+    several genuinely unbounded/unnormalized columns (rsi_*, adx, *_age_bars, *_duration_bars,
+    trend/pool counters). Feeding raw scale into sum-to-1-normalized weights lets whichever
+    column happens to have the largest raw variance dominate the score regardless of its IC --
+    confirmed empirically pre-fix: the single strongest feature by |IC| contributed 114x less to
+    the raw-scale score's variance than a ~4x-weaker-IC, high-variance column, and the resulting
+    pooled IC roughly doubled once the identical function was re-run on z-scored inputs. IC
+    itself (`compute_ic_vectorized`, Spearman/rank-based) is scale-invariant either way -- this
+    only changes the covariance/weight-derivation and the final dot-product scale, but that is
+    exactly where the bug was.
+
+    Standardizing also indirectly fixes the mean-variance branch's condition-number gate: an
+    unstandardized covariance's condition number scales with the raw feature-variance spread and
+    structurally exceeded `_LINEAR_MV_CONDITION_MAX` on every real corpus sample checked (1424 vs
+    a gate of 1000, on 300K real 1h rows) -- meaning the "try mean-variance, fall back to
+    IC-proportional" structure below was silently never taking its first branch. Standardized
+    covariance is far better conditioned, so the mean-variance path can now actually engage.
+
+    Sign convention (matches services/ensemble_trainer.py's resolve_stratum_weights() exactly,
+    not just its overall shape): `ic_signs = sign(ic_shrunk)` is this fold's own reference
+    direction per feature (there is no separately-persisted historical IC sign available inside
+    a single walk-forward fold, so this fold's own shrunk estimate IS the reference). The
+    mean-variance branch signs mv_raw's OUTPUT by ic_signs BEFORE the positive-magnitude cap
+    (`derive_weights(ic_signs * mv_raw, ...)`), which zeroes -- not sign-flips -- any feature
+    where the unconstrained Sigma^-1.mu solve disagrees with that feature's own reference
+    direction (BLOCKER 3 in ensemble_trainer.py's resolve_stratum_weights docstring: pre-signing
+    the INPUT instead, or re-deriving the sign from mv_raw's own sign, is mathematically wrong
+    once correlated features are involved). The IC-proportional fallback signs `|ic_shrunk|`'s
+    positive-magnitude weights by the same `ic_signs` at the end, for the same reason
+    aged_quality_weights is already positive-convention in production.
+
+    `max_fit_rows` bounds the rows used to estimate IC/covariance (LedoitWolf + rankdata cost
+    scale with n_obs, and the expanding-window folds' training slice is the near-entire corpus by
+    the last fold -- tens of millions of rows at 5m/15m, the scale that already forced this
+    module's OOM-avoidance design elsewhere). Measured directly (not estimated): this function on
+    a 1M-row x 247-col float32 array peaks ~8.1GB transient above baseline, mostly
+    compute_ic_vectorized's rankdata rank/sorter buffers plus LedoitWolf's internal copies. At
+    15m's real scale (~8.82M rows, ~1.47M-row largest test slice, X itself ~8.7GB resident) that
+    8.1GB stacks on top of the fold's live LightGBM Booster and lands within ~2GB of the exact
+    OOM this module was already killed at once (todo 234, ~21.8GB anon-rss, 29GB host). 200_000
+    rows (this default) is still ~800x oversampled relative to ~250 features for a Ledoit-Wolf
+    shrinkage estimator explicitly designed to be stable well below n>>p, at roughly 1/5 the
+    transient cost. A fixed-seed random subsample of the (already causally-bounded, strictly-
+    before-the-test-fold) training slice introduces no leakage, only a smaller effective N for
+    the shrinkage estimate -- which is exactly what n_eff communicates to the shrinkage formula.
+    Scoring still runs on the FULL held-out test slice via score_linear_ensemble(); only
+    weight-FITTING is bounded.
+
+    NaN features (a real condition in this corpus -- LightGBM handles them natively, this linear
+    combination cannot) are median-imputed using only the fit sample's own per-feature median.
+
+    Returns
+    -------
+    LinearEnsembleFit
+        weights: shape [n_features], to be applied to STANDARDIZED features (see
+            score_linear_ensemble -- never dot this directly against raw feature values).
+        impute_median, feature_mean, feature_std: the fit sample's own values, to be applied
+            identically to whatever slice is later scored (score_linear_ensemble does this),
+            never re-derived from the scored slice itself.
+    """
+    n_train = X_train.shape[0]
+    if n_train > max_fit_rows:
+        rng = np.random.default_rng(rng_seed)
+        sample_idx = rng.choice(n_train, size=max_fit_rows, replace=False)
+        X_fit = X_train[sample_idx]
+        y_fit = y_train[sample_idx]
+    else:
+        X_fit = X_train
+        y_fit = y_train
+
+    impute_median = np.nanmedian(X_fit, axis=0)
+    impute_median = np.where(np.isfinite(impute_median), impute_median, 0.0)
+    X_filled = _median_impute(X_fit, impute_median)
+
+    feature_mean = X_filled.mean(axis=0)
+    feature_std = X_filled.std(axis=0)
+    feature_std = np.where(feature_std > 1e-12, feature_std, 1.0)  # constant-column guard
+    X_std = (X_filled - feature_mean) / feature_std
+
+    # Spearman IC is rank-based, hence scale-invariant -- identical whether computed on X_filled
+    # or X_std. Computed on X_std anyway so there is exactly one "the features used here" array
+    # in this function, not two large float arrays alive simultaneously.
+    ic_raw = compute_ic_vectorized(X_std, y_fit)
+    ic_raw = np.where(np.isfinite(ic_raw), ic_raw, 0.0)
+
+    # Vectorized shrink_ic()/leave_one_out_group_prior() -- see docstring above for why this is
+    # the identical formula, not a fresh one.
+    n_eff = float(X_std.shape[0])
+    loo_prior = (ic_raw.sum() - ic_raw) / max(len(ic_raw) - 1, 1)
+    shrink_weight = n_eff / (n_eff + _LINEAR_SHRINKAGE_K) if n_eff > 0 else 0.0
+    ic_shrunk = shrink_weight * ic_raw + (1.0 - shrink_weight) * loo_prior
+    ic_signs = np.sign(ic_shrunk)
+
+    cov, _shrinkage = compute_shrinkage_covariance(X_std)
+    corr = covariance_to_correlation(cov)
+
+    mv_raw, _cond = mean_variance_weights(cov, ic_shrunk, _LINEAR_MV_CONDITION_MAX)
+    if mv_raw is not None:
+        weights = derive_weights(ic_signs * mv_raw, _LINEAR_MAX_FEATURE_WEIGHT) * ic_signs
+    else:
+        magnitude = derive_weights(np.abs(ic_shrunk), _LINEAR_MAX_FEATURE_WEIGHT)
+        magnitude = cluster_deflate_weights(
+            magnitude, corr, _LINEAR_MAX_CLUSTER_CORR, _LINEAR_MAX_CLUSTER_WEIGHT
+        )
+        weights = magnitude * ic_signs
+
+    return LinearEnsembleFit(weights, impute_median, feature_mean, feature_std)
+
+
 def bootstrap_ic_stats(
     score: np.ndarray, actual: np.ndarray, block_size: int, n_boot: int, seed: int
 ) -> dict[str, float | bool]:
@@ -343,6 +611,62 @@ def bootstrap_ic_stats(
         "ci_lower": float(ci_lower[0]),
         "ci_upper": float(ci_upper[0]),
         "passes": bool(ci_lower[0] > 0),
+    }
+
+
+def paired_bootstrap_ic_difference(
+    score_a: np.ndarray,
+    score_b: np.ndarray,
+    actual: np.ndarray,
+    block_size: int,
+    n_boot: int,
+    seed: int,
+) -> dict[str, float | bool]:
+    """Bootstrap CI of the PAIRED IC difference (IC(score_a) - IC(score_b) against the same
+    actual), using IDENTICAL resampled row indices for both scores on every iteration -- not two
+    independently bootstrapped marginal CIs.
+
+    Why this exists rather than comparing two bootstrap_ic_stats() calls by CI non-overlap: when
+    both scores are measured on the SAME rows (as tree_score and linear_score are here), their
+    bootstrap ICs are strongly positively correlated -- non-overlap of two marginal CIs is a
+    conservative, systematically underpowered test for whether their difference is significant
+    (same reasoning as a paired vs. independent-samples t-test). The paired difference's own CI
+    is the correctly-powered test for exactly this comparison.
+
+    Reuses the same circular-block resampling mechanic ic_math.py's
+    circular_block_bootstrap_ic_serial / _circular_block_bootstrap_ic use internally (shared
+    block-start draw per iteration, re-rank the resampled subset every iteration -- per that
+    module's own documented correctness requirement: Spearman IC is defined on ranks WITHIN THE
+    SAMPLE being correlated, so reusing global pre-computed ranks across a resampled, non-
+    contiguous subset silently narrows the CI). Implemented here via the public
+    compute_ic_vectorized (fed a 2-column [score_a, score_b] matrix so both are re-ranked and
+    correlated against the identically-resampled actual in one call) rather than importing
+    ic_math.py's private _circular_block_bootstrap_ic, since that function only returns
+    per-column marginal percentiles -- it discards the paired per-iteration values this needs.
+    """
+    n = len(actual)
+    n_blocks = math.ceil(n / block_size)
+    offsets = np.arange(block_size)
+    X = np.column_stack([score_a, score_b])
+
+    rng = np.random.default_rng(seed)
+    diffs = np.empty(n_boot)
+    for b in range(n_boot):
+        starts = rng.integers(0, n, size=n_blocks)
+        idx = (starts[:, None] + offsets).ravel()[:n] % n
+        ic_pair = compute_ic_vectorized(X[idx], actual[idx])
+        diffs[b] = ic_pair[0] - ic_pair[1]
+
+    point_a = float(pd.Series(score_a).rank().corr(pd.Series(actual).rank()))
+    point_b = float(pd.Series(score_b).rank().corr(pd.Series(actual).rank()))
+    ci_lower = float(np.percentile(diffs, 2.5))
+    ci_upper = float(np.percentile(diffs, 97.5))
+    return {
+        "point_diff": point_a - point_b,
+        "ci_lower": ci_lower,
+        "ci_upper": ci_upper,
+        "a_significantly_better": bool(ci_lower > 0),
+        "b_significantly_better": bool(ci_upper < 0),
     }
 
 
@@ -423,8 +747,12 @@ def train_and_predict_oos(
     print(
         f"Training matrix: {X.shape[0]} rows x {X.shape[1]} cols, ~{X.nbytes / 1e9:.2f}GB ({X.dtype})"
     )
-    folds = build_walk_forward_folds(
-        n_valid=n_valid,
+    # Todo 239: fold boundaries must be computed in BAR units (this is a pooled symbol x bar_ts
+    # panel, ~80 rows per bar_ts) then mapped back to row slices -- not built directly on
+    # n_valid=len(X), which are ROWS. See _pooled_panel_folds' docstring for the bug this fixes.
+    bar_ts_int = pd.DatetimeIndex(meta["bar_ts"]).asi8
+    folds = _pooled_panel_folds(
+        bar_ts_int,
         n_folds=n_folds,
         embargo_bars=embargo_bars,
         min_reliable_n=min_reliable_n,
@@ -439,10 +767,7 @@ def train_and_predict_oos(
 
     oos_frames = []
     fitted_models = []
-    for k, (test_start, test_end) in enumerate(folds):
-        train_end = test_start - embargo_bars
-        if train_end < min_reliable_n:
-            continue
+    for k, (train_end, test_start, test_end) in enumerate(folds):
         # `X[:train_end]` alone is a numpy VIEW (zero-copy). Boolean-indexing it with
         # `fold_valid` always allocates a fresh copy, even when the mask is all-True -- which
         # it is in every current caller, since `fetch_training_matrix` drops the causal-demeaning
@@ -476,10 +801,20 @@ def train_and_predict_oos(
             fitted_models.append(model)
 
         test_idx = np.arange(test_start, test_end)
-        preds = model.predict(X[test_idx])
+        X_test = X[test_idx]
+        preds = model.predict(X_test)
+
+        # Todo 240: the pre-registered linear-ensemble arm, fit on this fold's identical
+        # training slice (causal -- never sees test_idx). Weight-fitting is bounded to
+        # max_fit_rows (see fit_linear_ensemble_weights' docstring); scoring runs on the full
+        # held-out test slice, same as the tree.
+        linear_fit = fit_linear_ensemble_weights(X_train, y_train, rng_seed=bootstrap_seed)
+        linear_preds = score_linear_ensemble(linear_fit, X_test)
+
         fold_df = meta.iloc[test_idx].copy()
         fold_df[target_col] = y[test_idx]
         fold_df["tree_score"] = preds
+        fold_df["linear_score"] = linear_preds
         fold_df["fold"] = k
         oos_frames.append(fold_df)
 
@@ -573,39 +908,41 @@ async def run_nonlinear_interaction_combiner_check(
     print(f"\nTotal OOS (out-of-fold) rows: {len(oos)}")
 
     print(
-        f"\n=== Per-symbol OOS IC: tree_score vs {baseline_feature} "
-        f"(tf={tf}, target=return_fast_demeaned) ==="
+        f"\n=== Per-symbol OOS IC: tree_score vs linear_score (PRIMARY, todo 240) vs "
+        f"{baseline_feature} (secondary) (tf={tf}, target=return_fast_demeaned) ==="
     )
-    tree_ic = per_symbol_ic_ci(
-        oos,
-        "tree_score",
-        "return_fast_demeaned",
-        bootstrap_block_size,
-        n_boot,
-        bootstrap_seed,
-        min_symbol_rows,
-    )
-    baseline_ic = per_symbol_ic_ci(
-        oos,
-        baseline_feature,
-        "return_fast_demeaned",
-        bootstrap_block_size,
-        n_boot,
-        bootstrap_seed,
-        min_symbol_rows,
-    )
+    arms = {
+        "tree_score": "tree_score",
+        "linear_score": "linear_score",
+        baseline_feature: baseline_feature,
+    }
+    ic_by_label = {
+        label: per_symbol_ic_ci(
+            oos,
+            col,
+            "return_fast_demeaned",
+            bootstrap_block_size,
+            n_boot,
+            bootstrap_seed,
+            min_symbol_rows,
+        )
+        for label, col in arms.items()
+    }
+    tree_ic = ic_by_label["tree_score"]
+    linear_ic = ic_by_label["linear_score"]
+    baseline_ic = ic_by_label[baseline_feature]
 
-    # BH-FDR pass across the family of ~80 per-symbol tests, for tree and baseline
-    # independently. _p_values_from_ic takes one shared n per call (matches its production
-    # usage in ic_engine.py, where a single call covers one symbol's several features at that
-    # symbol's own n) -- since each SYMBOL here has its own distinct OOS row count, call it once
-    # per symbol with that symbol's own n, not once for the whole vector with an approximated
-    # shared n. _p_values_from_ic is TWO-TAILED (significantly different from zero in EITHER
-    # direction) -- `reject` alone answers "is this symbol's IC significant," not "is it
-    # significantly POSITIVE." Gate on sign too, matching the one-sided ci_lower>0 semantics
-    # `passes` already uses, or a symbol with a strong significant NEGATIVE IC would silently
-    # count as a "pass" here.
-    for label, ic_df in (("tree_score", tree_ic), (baseline_feature, baseline_ic)):
+    # BH-FDR pass across the family of ~80 per-symbol tests, independently per arm.
+    # _p_values_from_ic takes one shared n per call (matches its production usage in
+    # ic_engine.py, where a single call covers one symbol's several features at that symbol's
+    # own n) -- since each SYMBOL here has its own distinct OOS row count, call it once per
+    # symbol with that symbol's own n, not once for the whole vector with an approximated shared
+    # n. _p_values_from_ic is TWO-TAILED (significantly different from zero in EITHER direction)
+    # -- `reject` alone answers "is this symbol's IC significant," not "is it significantly
+    # POSITIVE." Gate on sign too, matching the one-sided ci_lower>0 semantics `passes` already
+    # uses, or a symbol with a strong significant NEGATIVE IC would silently count as a "pass"
+    # here.
+    for label, ic_df in ic_by_label.items():
         if len(ic_df) == 0:
             continue
         p_values = np.array(
@@ -629,12 +966,21 @@ async def run_nonlinear_interaction_combiner_check(
             f"{int(ic_df['passes_fdr'].sum())}/{len(ic_df)}"
         )
 
-    merged = tree_ic.merge(baseline_ic, on="symbol", suffixes=("_tree", "_baseline"))
-    uplift = merged["point_ic_tree"] - merged["point_ic_baseline"]
+    merged = tree_ic.merge(linear_ic, on="symbol", suffixes=("_tree", "_linear")).merge(
+        baseline_ic.add_suffix("_baseline").rename(columns={"symbol_baseline": "symbol"}),
+        on="symbol",
+    )
+    uplift_vs_linear = merged["point_ic_tree"] - merged["point_ic_linear"]
+    uplift_vs_baseline = merged["point_ic_tree"] - merged["point_ic_baseline"]
     print(
-        f"\nPer-symbol IC uplift (tree - {baseline_feature}): "
-        f"mean={uplift.mean():.4f}  median={uplift.median():.4f}  "
-        f"n_symbols_tree_better={int((uplift > 0).sum())}/{len(merged)}"
+        f"\nPer-symbol IC uplift (tree - linear_score, PRIMARY): "
+        f"mean={uplift_vs_linear.mean():.4f}  median={uplift_vs_linear.median():.4f}  "
+        f"n_symbols_tree_better={int((uplift_vs_linear > 0).sum())}/{len(merged)}"
+    )
+    print(
+        f"Per-symbol IC uplift (tree - {baseline_feature}, secondary): "
+        f"mean={uplift_vs_baseline.mean():.4f}  median={uplift_vs_baseline.median():.4f}  "
+        f"n_symbols_tree_better={int((uplift_vs_baseline > 0).sum())}/{len(merged)}"
     )
 
     out_dir = Path("docs/analysis")
@@ -646,12 +992,16 @@ async def run_nonlinear_interaction_combiner_check(
     tree_pass_rate = tree_ic["passes"].mean() if len(tree_ic) else 0.0
     baseline_pass_rate = baseline_ic["passes"].mean() if len(baseline_ic) else 0.0
     tree_fdr_rate = tree_ic["passes_fdr"].mean() if len(tree_ic) else 0.0
-    if tree_pass_rate > baseline_pass_rate * 1.5 and uplift.mean() > 0 and tree_fdr_rate > 0.5:
+    if (
+        tree_pass_rate > baseline_pass_rate * 1.5
+        and uplift_vs_baseline.mean() > 0
+        and tree_fdr_rate > 0.5
+    ):
         verdict = (
             f"Tree combiner shows a real uplift over the single best standalone feature, "
             f"surviving BH-FDR correction at {tf} -- strong evidence toward nonlinear_interaction_combiner being real."
         )
-    elif uplift.mean() <= 0:
+    elif uplift_vs_baseline.mean() <= 0:
         verdict = (
             f"Tree combiner does NOT beat the single best standalone feature's own IC on "
             f"identical held-out data at {tf} -- no evidence of a nonlinear_interaction_combiner effect at this tf."
@@ -661,7 +1011,7 @@ async def run_nonlinear_interaction_combiner_check(
             f"Mixed/weak result at {tf} -- some uplift but not decisive after BH-FDR "
             f"correction; read the per-symbol table before drawing a conclusion either way."
         )
-    print(f"\nVERDICT: {verdict}")
+    print(f"\nSECONDARY VERDICT (tree vs {baseline_feature}): {verdict}")
 
     # Rigor pass: decompose common-market-factor vs genuine within-symbol (cross-sectional,
     # dollar-neutral-relevant) signal, then bootstrap CI the latter properly. The naive
@@ -673,7 +1023,8 @@ async def run_nonlinear_interaction_combiner_check(
     # dollar-neutral construction.
     print("\n\n=== Rigor pass: within-bar_ts (cross-sectional-neutral) component, bootstrap CI ===")
     oos_sorted = oos.sort_values(["bar_ts", "symbol"]).reset_index(drop=True)
-    for score_col in ("tree_score", baseline_feature):
+    rigor_stats: dict[str, dict[str, float | bool]] = {}
+    for score_col in ("tree_score", "linear_score", baseline_feature):
         work = oos_sorted.dropna(subset=[score_col, "return_fast_demeaned"]).copy()
         bar_mean_score = work.groupby("bar_ts")[score_col].transform("mean")
         bar_mean_actual = work.groupby("bar_ts")["return_fast_demeaned"].transform("mean")
@@ -683,8 +1034,70 @@ async def run_nonlinear_interaction_combiner_check(
         n_symbols_per_bar = work.groupby("bar_ts").size().median()
         block_size = max(10, int(n_symbols_per_bar * cross_sectional_block_bars))
         stats = bootstrap_ic_stats(within_score, within_actual, block_size, n_boot, bootstrap_seed)
+        rigor_stats[score_col] = stats
         print(
             f"\n{score_col}: n={len(work)}  block_size={block_size} (~{cross_sectional_block_bars} "
             f"bar_ts x {n_symbols_per_bar:.0f} symbols)  point_ic={stats['point_ic']:.4f}  "
             f"ci_lower={stats['ci_lower']:.4f}  ci_upper={stats['ci_upper']:.4f}  passes={stats['passes']}"
         )
+
+    # PRIMARY VERDICT (todo 240): the pre-registered falsification bar is tree vs the causally-
+    # fit linear ensemble, not tree vs one hand-picked column -- and decided via a PAIRED
+    # bootstrap of the IC difference, not a non-overlapping-marginal-CI test. Tree and linear
+    # score IDENTICAL rows, so their bootstrap ICs are strongly positively correlated; comparing
+    # two marginal CIs for non-overlap is conservative and systematically underpowered here (see
+    # paired_bootstrap_ic_difference's docstring). Built on a row set common to BOTH arms
+    # (dropna on both score columns together), not each arm's own independently-filtered `work`
+    # from the loop above -- required for the resampled indices to stay paired row-for-row.
+    work_primary = oos_sorted.dropna(subset=["tree_score", "linear_score", "return_fast_demeaned"])
+    bar_mean_tree = work_primary.groupby("bar_ts")["tree_score"].transform("mean")
+    bar_mean_linear = work_primary.groupby("bar_ts")["linear_score"].transform("mean")
+    bar_mean_actual_primary = work_primary.groupby("bar_ts")["return_fast_demeaned"].transform(
+        "mean"
+    )
+    within_tree = (work_primary["tree_score"] - bar_mean_tree).to_numpy(dtype=float)
+    within_linear = (work_primary["linear_score"] - bar_mean_linear).to_numpy(dtype=float)
+    within_actual_primary = (
+        work_primary["return_fast_demeaned"] - bar_mean_actual_primary
+    ).to_numpy(dtype=float)
+    n_symbols_per_bar_primary = work_primary.groupby("bar_ts").size().median()
+    block_size_primary = max(10, int(n_symbols_per_bar_primary * cross_sectional_block_bars))
+
+    paired = paired_bootstrap_ic_difference(
+        within_tree,
+        within_linear,
+        within_actual_primary,
+        block_size_primary,
+        n_boot,
+        bootstrap_seed,
+    )
+    print(
+        f"\nPaired bootstrap (tree - linear), cross-sectional-neutral: n={len(work_primary)}  "
+        f"point_diff={paired['point_diff']:.4f}  ci_lower={paired['ci_lower']:.4f}  "
+        f"ci_upper={paired['ci_upper']:.4f}"
+    )
+    tree_point_ic = rigor_stats["tree_score"]["point_ic"]
+    linear_point_ic = rigor_stats["linear_score"]["point_ic"]
+    if paired["a_significantly_better"]:
+        primary_verdict = (
+            f"Tree combiner's cross-sectional-neutral point_ic ({tree_point_ic:.4f}) is "
+            f"significantly higher than the causally-fit linear ensemble's ({linear_point_ic:.4f}) "
+            f"at {tf} (paired bootstrap diff={paired['point_diff']:.4f}, "
+            f"ci_lower={paired['ci_lower']:.4f} > 0) -- passes the pre-registered "
+            f"nonlinear_interaction_combiner falsification bar."
+        )
+    elif paired["b_significantly_better"]:
+        primary_verdict = (
+            f"Linear ensemble's cross-sectional-neutral point_ic ({linear_point_ic:.4f}) is "
+            f"significantly higher than the tree's ({tree_point_ic:.4f}) at {tf} (paired bootstrap "
+            f"diff={paired['point_diff']:.4f}, ci_upper={paired['ci_upper']:.4f} < 0) -- the "
+            f"pre-registered bar FAILS: no evidence non-linearity is the bottleneck here."
+        )
+    else:
+        primary_verdict = (
+            f"Tree ({tree_point_ic:.4f}) vs linear ensemble ({linear_point_ic:.4f}) at {tf}: paired "
+            f"bootstrap diff={paired['point_diff']:.4f}, CI [{paired['ci_lower']:.4f}, "
+            f"{paired['ci_upper']:.4f}] includes zero -- inconclusive on the pre-registered bar, "
+            f"read the per-symbol table."
+        )
+    print(f"\nPRIMARY VERDICT (tree vs linear ensemble, pre-registered): {primary_verdict}")
