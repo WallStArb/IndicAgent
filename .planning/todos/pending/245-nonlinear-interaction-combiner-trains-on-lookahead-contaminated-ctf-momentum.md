@@ -56,6 +56,25 @@ nonlinear_interaction_combiner number (`point_ic`=0.0127, small) does not need t
   Phase 167's standalone ranking use (todo 243) and nonlinear_interaction_combiner's training
   matrix (this todo), not the live ensemble.
 
+## Follow-up rigor pass, same day: the leak likely biases the PRIMARY VERDICT's comparison itself, not just both arms' absolute magnitude
+
+Checked whether the same lookahead-join bug pattern (`bisect_right` against period-start-stamped
+HTF bars) exists anywhere else in the corpus, beyond the CTF family -- it does not. One call site
+(`feature_factory.py:6925`), feeding only `_build_ctf_series`'s three CTF columns. **Isolated, not
+systemic** -- confirmed by grep, not assumed.
+
+More importantly: `fit_linear_ensemble_weights` (todo 240's new linear-ensemble arm) caps any
+single feature's contribution at `_LINEAR_MAX_FEATURE_WEIGHT = 0.20` of total weight
+(`_nonlinear_interaction_combiner_shared.py:68`). LightGBM has no equivalent per-feature
+contribution ceiling -- a tree can lean on one powerful column across arbitrarily many splits,
+unconstrained. If `ctf_momentum`'s lookahead leak is a genuinely strong (not noisy) signal, the
+tree can extract more of it than the linear arm is structurally permitted to. This means the
+PRIMARY VERDICT's paired-bootstrap comparison (tree vs linear) is at risk of being biased toward
+"tree wins" for a reason that has nothing to do with non-linear structure -- the DIFFERENCE
+between the two arms is compromised, not just each arm's absolute IC. This is a stronger reason
+to run the `ctf_momentum`-excluded diagnostic below before trusting any 1h/15m/5m PRIMARY VERDICT,
+even a "tree beats linear with a tight, non-overlapping paired CI" one.
+
 ## Fix / next step
 
 Do not re-run todos 239/240's corrected methodology at 1h/15m/5m until one of:
