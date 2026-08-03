@@ -1,7 +1,7 @@
 """FeatureRegistryService — DB-backed feature lifecycle governance.
 
 Singleton service that loads all feature_registry rows at daemon startup and
-provides read access throughout execution. Both the IC engine (psycopg2, sync)
+provides read access throughout execution. Both the IC engine (psycopg, sync)
 and ensemble trainer (asyncpg, async) use this service.
 
 Row count gate:
@@ -59,8 +59,8 @@ _AUTOMATED_REASONS = frozenset({"ic_promotion", "ic_demotion"})
 class _TransitionNoOp(Exception):
     """Internal sentinel: optimistic lock missed (rowcount == 0).
 
-    Raised inside record_transition_sync's `with conn:` block to force a
-    rollback of the UPDATE without inserting a transition-log row, then
+    Raised inside record_transition_sync's `conn.transaction()` block to force
+    a rollback of the UPDATE without inserting a transition-log row, then
     caught by the caller to return False. Never escapes the method.
     """
 
@@ -124,10 +124,10 @@ class FeatureRegistryService:
         )
 
     def load_sync(self, conn: Any) -> None:
-        """Load all feature_registry rows via psycopg2 connection.
+        """Load all feature_registry rows via psycopg connection.
 
-        Same semantics as load() but uses the cursor/fetchall psycopg2 pattern.
-        Required by ic_engine.py which uses psycopg2 throughout.
+        Same semantics as load() but uses the cursor/fetchall psycopg pattern.
+        Required by ic_engine.py which uses psycopg throughout.
         Raises RuntimeError if row count != 61.
 
         Row count gate checks total DB rows regardless of status. Alignment gate
@@ -357,8 +357,12 @@ class FeatureRegistryService:
 
         Mirrors _write_transition_record's two-statement body (INSERT
         feature_transition_log + UPDATE feature_registry.status) but uses a
-        psycopg2 cursor and `with conn:` transaction semantics so it is
-        callable from ic_engine's sync, no-event-loop context.
+        psycopg cursor and `conn.transaction()` semantics so it is callable
+        from ic_engine's sync, no-event-loop context. Deliberately NOT a bare
+        `with conn:` -- ic_engine calls this repeatedly across many features
+        on the SAME caller-owned connection, and psycopg (unlike psycopg2)
+        closes the connection on a bare `with conn:` exit; conn.transaction()
+        commits/rolls back the same way without closing (confirmed empirically).
 
         The UPDATE carries `WHERE status = %s` (from_status) as an optimistic
         lock: if zero rows match (feature already transitioned by a prior or
@@ -406,7 +410,7 @@ class FeatureRegistryService:
             )
 
         try:
-            with conn:
+            with conn.transaction():
                 with conn.cursor() as cur:
                     cur.execute(update_sql, (to_status, feature_name, from_status))
                     if cur.rowcount == 0:
@@ -476,12 +480,14 @@ class FeatureRegistryService:
         ic_engine's per-run materiality check (Plan 03), not by any registry
         counter.
 
-        In one `with conn:` transaction: increments consecutive_shadow_passes
+        In one conn.transaction() block: increments consecutive_shadow_passes
         if passed else resets it to 0, and always adds new_observations to
         observations_since_demotion. Mutates the in-memory cache to match on
-        commit.
+        commit. Not a bare `with conn:` -- see record_transition_sync's
+        docstring for why (psycopg closes the connection on that exit; this
+        caller-owned connection is reused across many features per run).
         """
-        with conn:
+        with conn.transaction():
             with conn.cursor() as cur:
                 cur.execute(
                     """

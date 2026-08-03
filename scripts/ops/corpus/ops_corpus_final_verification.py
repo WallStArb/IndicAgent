@@ -13,7 +13,7 @@ from __future__ import annotations
 import sys
 from pathlib import Path
 
-import psycopg2
+import psycopg
 import structlog
 
 project_root = Path(__file__).parent.parent
@@ -54,7 +54,7 @@ def main() -> None:
         sys.exit(1)
 
     db_dsn = settings.database_url.replace("postgresql+asyncpg://", "postgresql://")
-    conn = psycopg2.connect(db_dsn)
+    conn = psycopg.connect(db_dsn)
     try:
         verifier.verify_data_quality(conn, REQUIRED_TFS, [])
         _logger.info("corpus_verification.data_quality_verified")

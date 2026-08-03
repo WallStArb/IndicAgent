@@ -16,7 +16,7 @@ import sys
 from datetime import UTC, datetime
 from pathlib import Path
 
-import psycopg2
+import psycopg
 
 project_root = Path(__file__).parent.parent.parent
 sys.path.insert(0, str(project_root))
@@ -133,7 +133,7 @@ _PRESERVED_TABLES = [
 
 
 def _db_conn(settings: Settings):
-    return psycopg2.connect(settings.database_url)
+    return psycopg.connect(settings.database_url)
 
 
 def _acquire_lock(conn) -> bool:

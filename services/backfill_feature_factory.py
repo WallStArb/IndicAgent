@@ -37,8 +37,7 @@ from pathlib import Path
 from typing import Any
 
 import numpy as np
-import psycopg2
-import psycopg2.extras
+import psycopg
 import structlog
 
 # Set up sys.path before project imports
@@ -67,8 +66,8 @@ from src.intelligence.feature_factory import (
     FeatureFactoryConfig,
 )
 from src.intelligence.features.feature_vector_persistence import (
-    FEATURE_VECTOR_INSERT_SQL_PSYCOPG2,
-    FEATURE_VECTOR_UPSERT_SQL_PSYCOPG2,
+    FEATURE_VECTOR_INSERT_SQL_PSYCOPG,
+    FEATURE_VECTOR_UPSERT_SQL_PSYCOPG,
     feature_vector_to_insert_params,
 )
 from src.intelligence.schemas import FeatureVector
@@ -166,7 +165,7 @@ _CTF_HIGHER_TF: dict[str, str] = {
 }
 
 # ---------------------------------------------------------------------------
-# DB helpers (psycopg2 sync — mirrors run_historical_pipeline.py pattern)
+# DB helpers (psycopg sync — mirrors run_historical_pipeline.py pattern)
 # ---------------------------------------------------------------------------
 
 _STORE_OHLCV_SQL = """
@@ -249,8 +248,8 @@ WHERE symbol = ANY(%s) AND tf = ANY(%s)
 # tf, bar_ts) DO NOTHING means a naive re-run silently skips every bar that already
 # exists, so new columns (e.g. Phase 163's 17 VP/SR fields) never populate on
 # pre-existing rows no matter how many times the backfill re-runs.
-_INSERT_FEATURE_VECTORS_SQL = FEATURE_VECTOR_INSERT_SQL_PSYCOPG2
-_UPSERT_FEATURE_VECTORS_SQL = FEATURE_VECTOR_UPSERT_SQL_PSYCOPG2
+_INSERT_FEATURE_VECTORS_SQL = FEATURE_VECTOR_INSERT_SQL_PSYCOPG
+_UPSERT_FEATURE_VECTORS_SQL = FEATURE_VECTOR_UPSERT_SQL_PSYCOPG
 
 
 def _build_cross_asset_series(
@@ -401,12 +400,11 @@ def _build_ctf_series(
 
 
 def _connect_db(settings: Settings) -> Any:
-    """Synchronous psycopg2 connection."""
-    conn = psycopg2.connect(dsn=settings.database_url)
+    """Synchronous psycopg connection."""
+    conn = psycopg.connect(dsn=settings.database_url)
     conn.autocommit = True
-    # Register UUID adapter so psycopg2 can serialize uuid.UUID objects.
-    # Without this, feature_vector_id (content-key UUID) raises can not adapt type UUID.
-    psycopg2.extras.register_uuid()
+    # No register_uuid() equivalent needed -- psycopg adapts uuid.UUID (e.g.
+    # feature_vector_id, a content-key UUID) natively, unlike psycopg2.
     return conn
 
 
@@ -865,7 +863,7 @@ async def run_fetch_stage(
                                 for b in canonical
                             ]
                             with db_conn.cursor() as cur:
-                                psycopg2.extras.execute_batch(cur, _STORE_OHLCV_SQL, params)
+                                cur.executemany(_STORE_OHLCV_SQL, params)
                             db_conn.commit()
                             total_bars_fetched += len(params)
                             _logger.info(
@@ -1072,7 +1070,7 @@ def run_compute_stage(
 def _run_compute_worker(args: tuple) -> dict:
     """Worker function for ProcessPoolExecutor — runs in subprocess.
 
-    Opens its own psycopg2 connection (connections are not picklable and
+    Opens its own psycopg connection (connections are not picklable and
     must not be shared across processes). No OTel tracer — workers log only;
     main process aggregates results and emits metrics.
 
@@ -1106,11 +1104,11 @@ def _run_compute_worker(args: tuple) -> dict:
     error_msg = None
 
     try:
-        conn = psycopg2.connect(dsn)
+        conn = psycopg.connect(dsn)
         # autocommit=True prevents InFailedSqlTransaction from poisoning later TFs
         # on per-cell exceptions; no conn.rollback() needed.
         conn.autocommit = True
-        psycopg2.extras.register_uuid()
+        # No register_uuid() equivalent needed -- psycopg adapts uuid.UUID natively.
 
         for tf in tfs:
             try:
@@ -1300,7 +1298,7 @@ def _compute_symbol_tf(
 
 
 def _batch_insert(conn: Any, rows: list[tuple], refresh: bool = False) -> None:
-    """Batch-insert feature_vectors rows via psycopg2 execute_batch.
+    """Batch-insert feature_vectors rows via psycopg executemany().
 
     refresh=True selects the DO UPDATE variant (todo 176 recompute mode) so
     existing rows are actually overwritten instead of silently skipped.
@@ -1309,7 +1307,7 @@ def _batch_insert(conn: Any, rows: list[tuple], refresh: bool = False) -> None:
         return
     sql = _UPSERT_FEATURE_VECTORS_SQL if refresh else _INSERT_FEATURE_VECTORS_SQL
     with conn.cursor() as cur:
-        psycopg2.extras.execute_batch(cur, sql, rows)
+        cur.executemany(sql, rows)
     conn.commit()
 
 

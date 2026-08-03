@@ -240,7 +240,7 @@ class TestRecordTransitionIsSync:
 
 
 # ---------------------------------------------------------------------------
-# Fake psycopg2-style connection/cursor for record_transition_sync tests
+# Fake psycopg-style connection/cursor for record_transition_sync tests
 # ---------------------------------------------------------------------------
 
 
@@ -268,9 +268,29 @@ class _FakeCursor:
             raise RuntimeError("simulated mid-transaction failure")
 
 
+class _FakeTransaction:
+    """Mirrors psycopg's conn.transaction() semantics: commits on clean exit,
+    rolls back and re-raises on exception. Deliberately NOT the connection's own
+    __enter__/__exit__ (bare `with conn:`) -- psycopg (unlike psycopg2) closes
+    the connection on that exit, which would break record_transition_sync's real
+    caller (ic_engine reuses the same connection across many features per run)."""
+
+    def __init__(self, conn: _FakeConn) -> None:
+        self._conn = conn
+
+    def __enter__(self) -> _FakeTransaction:
+        return self
+
+    def __exit__(self, exc_type: object, exc_val: object, exc_tb: object) -> bool:
+        if exc_type is None:
+            self._conn.committed = True
+        else:
+            self._conn.rolled_back = True
+        return False  # never swallow — mirrors psycopg propagation
+
+
 class _FakeConn:
-    """Mirrors psycopg2 `with conn:` transaction semantics: commits on clean
-    exit, rolls back and re-raises on exception. No real DB touched."""
+    """No real DB touched. See _FakeTransaction for commit/rollback semantics."""
 
     def __init__(
         self,
@@ -286,15 +306,8 @@ class _FakeConn:
     def cursor(self) -> _FakeCursor:
         return _FakeCursor(self)
 
-    def __enter__(self) -> _FakeConn:
-        return self
-
-    def __exit__(self, exc_type: object, exc_val: object, exc_tb: object) -> bool:
-        if exc_type is None:
-            self.committed = True
-        else:
-            self.rolled_back = True
-        return False  # never swallow — mirrors psycopg2 propagation
+    def transaction(self) -> _FakeTransaction:
+        return _FakeTransaction(self)
 
 
 def _feature_row(

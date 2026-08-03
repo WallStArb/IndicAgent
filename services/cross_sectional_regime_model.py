@@ -52,8 +52,7 @@ from typing import Any
 
 import numpy as np
 import pandas as pd
-import psycopg2
-import psycopg2.extras
+import psycopg
 import structlog
 
 project_root = Path(__file__).parent.parent
@@ -270,7 +269,7 @@ def _fetch_group_bars(dsn: str, tf: str, symbols: list[str]) -> dict[str, pd.Dat
         WHERE symbol = ANY(%s) AND timeframe = %s
         ORDER BY symbol, timestamp ASC
     """
-    fresh_conn = psycopg2.connect(dsn)
+    fresh_conn = psycopg.connect(dsn)
     fresh_conn.autocommit = True
     try:
         with fresh_conn.cursor() as cur:
@@ -329,7 +328,7 @@ def _write_rows(conn: Any, rows: list[tuple]) -> int:
         for r in rows
     ]
     with conn.cursor() as cur:
-        psycopg2.extras.execute_batch(cur, insert_sql, batch)
+        cur.executemany(insert_sql, batch)
     conn.commit()
     return len(batch)
 

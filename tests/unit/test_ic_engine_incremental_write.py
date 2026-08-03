@@ -60,17 +60,21 @@ class _FakeBackfillCursor:
         else:
             self._rows = []
 
+    def executemany(self, sql: str, argslist) -> None:
+        self.conn.executemany_calls.append((sql, list(argslist)))
+
     def fetchall(self):
         return self._rows
 
 
 class _FakeBackfillConn:
-    """Simulates enough of a psycopg2 connection for _backfill_bh_fdr."""
+    """Simulates enough of a psycopg connection for _backfill_bh_fdr."""
 
     def __init__(self, pending_rows: list[tuple]):
         self.pending_rows = pending_rows
         self.executed_sql: list[str] = []
         self.executed_params: list[tuple | None] = []
+        self.executemany_calls: list[tuple[str, list]] = []
         self.committed = False
 
     def cursor(self):
@@ -83,16 +87,10 @@ class _FakeBackfillConn:
 _TWE = datetime(2026, 7, 17, tzinfo=UTC)
 
 
-def test_backfill_bh_fdr_queries_only_pending_rows(monkeypatch):
+def test_backfill_bh_fdr_queries_only_pending_rows():
     """The SELECT must scope to this training_window_end and passes_fdr IS NULL --
     non-representative rows (already locked to passes_fdr=False at compute time)
     must never be re-touched."""
-    calls: list[tuple] = []
-    monkeypatch.setattr(
-        ic_module.psycopg2.extras,
-        "execute_values",
-        lambda cur, sql, argslist, **kw: calls.append((sql, argslist)),
-    )
     conn = _FakeBackfillConn(pending_rows=[])
 
     updates = ic_module._backfill_bh_fdr(conn, _TWE, fdr_alpha=0.05)
@@ -101,22 +99,15 @@ def test_backfill_bh_fdr_queries_only_pending_rows(monkeypatch):
     assert any("passes_fdr IS NULL" in sql for sql in conn.executed_sql)
     assert any("training_window_end" in sql for sql in conn.executed_sql)
     # Nothing pending -> no UPDATE attempted, no wasted round trip.
-    assert calls == []
+    assert conn.executemany_calls == []
     assert conn.committed is False
 
 
-def test_backfill_bh_fdr_applies_one_corpus_wide_multipletests_call(monkeypatch):
+def test_backfill_bh_fdr_applies_one_corpus_wide_multipletests_call():
     """10 low-p, 190 null-p representative rows (mirrors
     test_ensemble_ic_bh_fdr's synthetic split) -- exactly 10 must pass BH-FDR,
     and the UPDATE payload must carry those precise pass/fail labels."""
     import numpy as np
-
-    calls: list[tuple] = []
-    monkeypatch.setattr(
-        ic_module.psycopg2.extras,
-        "execute_values",
-        lambda cur, sql, argslist, **kw: calls.append((sql, argslist)),
-    )
 
     rng = np.random.default_rng(11)
     low_p = rng.uniform(0.0, 0.001, size=10)
@@ -134,21 +125,24 @@ def test_backfill_bh_fdr_applies_one_corpus_wide_multipletests_call(monkeypatch)
     assert not any(u["passes_fdr"] for u in updates[10:])
     assert conn.committed is True
 
-    # Exactly one batched UPDATE call carrying every pending row.
-    assert len(calls) == 1
-    sql, argslist = calls[0]
+    # Exactly one batched executemany() call carrying every pending row (ported
+    # from psycopg2.extras.execute_values' single UPDATE-FROM-VALUES statement
+    # to a plain per-row UPDATE via executemany() -- psycopg has no direct
+    # equivalent of execute_values' inlined multi-row VALUES-list trick).
+    assert len(conn.executemany_calls) == 1
+    sql, argslist = conn.executemany_calls[0]
     assert "UPDATE feature_ic_scores" in sql
-    assert "FROM (VALUES" in sql
+    assert "SET bh_adjusted_p = %s, passes_fdr = %s" in sql
     assert len(argslist) == 200
 
 
 def test_backfill_bh_fdr_update_rows_key_on_primary_key_columns():
-    """UPDATE...FROM(VALUES) rows must carry the exact feature_ic_scores primary
-    key column set (feature_name, symbol, tf, regime, lookahead_bars,
-    training_window_end) so the join can't silently mismatch a row."""
+    """The per-row UPDATE's WHERE clause must carry the exact feature_ic_scores
+    primary key column set (feature_name, symbol, tf, regime, lookahead_bars,
+    training_window_end) so it can't silently mismatch a row."""
     source = inspect.getsource(ic_module._backfill_bh_fdr)
     for col in ("feature_name", "symbol", "tf", "regime", "lookahead_bars", "training_window_end"):
-        assert f"t.{col} = v.{col}" in source, f"UPDATE join must match on t.{col} = v.{col}"
+        assert f"{col} = %s" in source, f"UPDATE WHERE clause must match on {col} = %s"
 
 
 # ---------------------------------------------------------------------------
@@ -190,6 +184,9 @@ def test_write_symbol_results_opens_and_closes_its_own_connection(monkeypatch):
                 def __exit__(self_inner, *exc):
                     return False
 
+                def executemany(self_inner, sql, rows):
+                    pass
+
             return _Cur()
 
         def commit(self):
@@ -200,7 +197,6 @@ def test_write_symbol_results_opens_and_closes_its_own_connection(monkeypatch):
 
     fake_conn = _FakeConn()
     monkeypatch.setattr(ic_module, "_connect_db", lambda settings: fake_conn)
-    monkeypatch.setattr(ic_module.psycopg2.extras, "execute_batch", lambda cur, sql, rows: None)
 
     n_written = ic_module._write_symbol_results(
         settings=object(),

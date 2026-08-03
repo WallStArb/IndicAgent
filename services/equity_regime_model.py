@@ -29,7 +29,7 @@ CORRECTNESS INVARIANTS:
   Main process computes breadth/VIX from raw data, passes compact pre-computed arrays to workers.
   This avoids pickling 27M-row ETF datasets across process boundaries.
 - ProcessPoolExecutor with submit() pattern; one task per TF.
-- JSONB written via json.dumps (psycopg2 requires explicit serialization for JSONB).
+- JSONB written via json.dumps (psycopg requires explicit serialization for JSONB).
 
 Data flow:
   Main process: fetch raw data → compute vix_pct + breadth_fraction → compact params → workers
@@ -61,8 +61,7 @@ from typing import Any
 
 import numpy as np
 import pandas as pd
-import psycopg2
-import psycopg2.extras
+import psycopg
 import structlog
 
 project_root = Path(__file__).parent.parent
@@ -116,7 +115,7 @@ def _tf_window(daily_window: int, tf: str) -> int:
 
 
 def _connect_db(settings: Settings) -> Any:
-    conn = psycopg2.connect(settings.database_url)
+    conn = psycopg.connect(settings.database_url)
     conn.autocommit = False
     return conn
 
@@ -292,7 +291,7 @@ def _compute_breadth_fraction(
           )
         ORDER BY m.symbol, m.timestamp ASC
     """
-    fresh_conn = psycopg2.connect(dsn)
+    fresh_conn = psycopg.connect(dsn)
     fresh_conn.autocommit = True  # read-only; no transactions needed
     try:
         with fresh_conn.cursor() as cur:
@@ -352,7 +351,7 @@ def _fetch_spy_bars(dsn: str, tf: str) -> tuple[list, list[float]]:
         WHERE symbol = 'SPY' AND timeframe = %s AND volume > 0
         ORDER BY timestamp ASC
     """
-    fresh_conn = psycopg2.connect(dsn)
+    fresh_conn = psycopg.connect(dsn)
     fresh_conn.autocommit = True
     try:
         with fresh_conn.cursor() as cur:
@@ -577,7 +576,7 @@ def main() -> None:
                 _logger.warning("equity_regime_model.no_rows_for_tf", tf=tf)
                 continue
 
-            # psycopg2 JSONB requires json.dumps
+            # psycopg JSONB requires json.dumps
             batch_dicts = [
                 {
                     "tf": r[0],
@@ -589,7 +588,7 @@ def main() -> None:
             ]
 
             with conn.cursor() as cur:
-                psycopg2.extras.execute_batch(cur, insert_sql, batch_dicts)
+                cur.executemany(insert_sql, batch_dicts)
             conn.commit()
 
             distinct_labels = {r[2] for r in rows}

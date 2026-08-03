@@ -17,7 +17,7 @@ _I3_SEED_QUERY: str = """
     LIMIT 1
 """
 
-# psycopg2 placeholder variant (%s) — used by run_historical_pipeline.py replay path
+# psycopg placeholder variant (%s) — used by run_historical_pipeline.py replay path
 # If you add parameters to `_I3_SEED_QUERY`, update the `.replace()` chain below to match.
 _I3_SEED_QUERY_PG: str = _I3_SEED_QUERY.replace("$1", "%s").replace("$2", "%s")
 

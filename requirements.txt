@@ -13,7 +13,16 @@ orjson>=3.10  # replaced stdlib json in kafka_utils.py's hot publish/consume pat
 fastapi>=0.129.0
 httpx>=0.27.0
 msgpack>=1.0.0
-psycopg2-binary>=2.9.7
+psycopg[binary,pool]>=3.2  # replaced psycopg2-binary 2026-08-03: psycopg2 is officially
+# feature-frozen/security-only; psycopg3 is its maintained successor. Kept DB-API
+# compatible enough that the sync execute/executemany/COPY patterns used across ~35
+# batch/ProcessPoolExecutor services ported directly -- only execute_values (one
+# UPDATE-FROM-VALUES site, ic_engine.py) and RealDictCursor (-> row_factory=dict_row,
+# 6 files) needed real porting, not just a rename. See docs/reference/gotchas.md's
+# psycopg2->psycopg3 entry if touching any sync DB connection code: `with conn:` closes it
+# under psycopg (unlike psycopg2, which only committed/rolled back) -- use
+# conn.transaction() instead for a connection meant to be reused across calls, and
+# uuid.UUID/JSON-via-dict adapt natively (no register_uuid()/Json() wrapper needed).
 sdnotify>=0.3.2
 uvicorn[standard]>=0.40.0
 uvloop>=0.22.0; sys_platform != "win32"

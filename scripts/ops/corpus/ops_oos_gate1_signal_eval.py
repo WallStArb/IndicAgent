@@ -81,7 +81,7 @@ _GATE_ID = "gate1_signal"
 # Copied from services.ensemble_ic_engine._WORKER_FETCH_SQL verbatim, with the single
 # predicate `ea.bar_ts < %s` changed to `ea.bar_ts >= %s` (OOS side, D-02/D-03) and %s
 # placeholders converted to asyncpg's $N style (this script is not dispatched through a
-# ProcessPoolExecutor -- it is a simpler standalone one-shot, so no psycopg2 worker
+# ProcessPoolExecutor -- it is a simpler standalone one-shot, so no psycopg worker
 # indirection is needed). Table, join shape, and the executable-return filter are
 # unchanged: still ensemble_alpha (every scored bar, not the post-emission execution
 # subset), still fr.return_type = 'executable_open_to_open', still the market_regimes join.

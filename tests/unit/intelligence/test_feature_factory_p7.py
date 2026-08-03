@@ -446,7 +446,7 @@ def test_vector_to_params_length():
     hardcoded 70 and was never updated when migration 206 widened the contract.
     """
     from src.intelligence.features.feature_vector_persistence import (
-        FEATURE_VECTOR_INSERT_SQL_PSYCOPG2,
+        FEATURE_VECTOR_INSERT_SQL_PSYCOPG,
     )
 
     cfg = _make_cfg()
@@ -455,5 +455,5 @@ def test_vector_to_params_length():
     ts = datetime(2026, 1, 7, 14, 0, tzinfo=UTC)
     fv = FeatureFactory.compute(bars, "SPY", "1m", cache, cfg)
     row = _vector_to_params("SPY", "1m", ts, "v3.0.0", None, fv)
-    expected = FEATURE_VECTOR_INSERT_SQL_PSYCOPG2.count("%s")
+    expected = FEATURE_VECTOR_INSERT_SQL_PSYCOPG.count("%s")
     assert len(row) == expected, f"Expected {expected}, got {len(row)}"

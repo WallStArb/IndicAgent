@@ -243,13 +243,13 @@ class TestFetchAndStoreBars:
         rows = fetch_bars(mock_conn, "ESH6", "1m")
         assert len(rows) == 1 and rows[0]["symbol"] == "ESH6" and "timestamp" in rows[0]
 
-    def test_store_bars_calls_execute_batch(self):
+    def test_store_bars_calls_executemany(self):
         from scripts.infrastructure.backfill.infrastructure_run_historical_pipeline import (
             store_bars,
         )
 
         mock_conn = MagicMock()
-        mock_conn.cursor.return_value.__enter__.return_value = MagicMock()
+        mock_cur = mock_conn.cursor.return_value.__enter__.return_value
         bars = [
             {
                 "timestamp": _ts_bf(9, 30),
@@ -260,8 +260,8 @@ class TestFetchAndStoreBars:
                 "volume": 1000,
             }
         ]
-        with patch("psycopg2.extras.execute_batch"):
-            store_bars(mock_conn, bars, symbol="ESH6", timeframe="5m")
+        store_bars(mock_conn, bars, symbol="ESH6", timeframe="5m")
+        mock_cur.executemany.assert_called_once()
         mock_conn.commit.assert_called_once()
 
 

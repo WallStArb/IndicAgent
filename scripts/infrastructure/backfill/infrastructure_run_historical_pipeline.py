@@ -23,8 +23,7 @@ from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from typing import Any
 
-import psycopg2
-import psycopg2.extras
+import psycopg
 import structlog
 
 # Set up sys.path BEFORE importing from src
@@ -130,7 +129,7 @@ def _upsert_contract_metadata(db_conn: Any, metadata: list[ContractMetadata]) ->
     """Upsert contract metadata records.
 
     Args:
-        db_conn: psycopg2 connection
+        db_conn: psycopg connection
         metadata: List of ContractMetadata objects
 
     Returns:
@@ -176,7 +175,7 @@ def _upsert_contract_metadata(db_conn: Any, metadata: list[ContractMetadata]) ->
     ]
 
     with db_conn.cursor() as cur:
-        psycopg2.extras.execute_batch(cur, sql, params)
+        cur.executemany(sql, params)
     db_conn.commit()
     return len(params)
 
@@ -775,8 +774,8 @@ def detect_gaps(
 
 
 def connect_db(settings: Settings) -> Any:
-    """Create a synchronous psycopg2 connection from Settings DSN."""
-    conn = psycopg2.connect(dsn=settings.database_url)
+    """Create a synchronous psycopg connection from Settings DSN."""
+    conn = psycopg.connect(dsn=settings.database_url)
     conn.autocommit = True
     return conn
 
@@ -880,7 +879,7 @@ def store_bars(
     """Upsert bars into market_data_ohlcv. Returns count inserted.
 
     Args:
-        conn: psycopg2 connection
+        conn: psycopg connection
         bars: List of bar dicts with timestamp, open, high, low, close, volume
         symbol: Used for contract lookup (e.g., current active contract)
         timeframe: Timeframe string
@@ -906,7 +905,7 @@ def store_bars(
         for b in bars
     ]
     with conn.cursor() as cur:
-        psycopg2.extras.execute_batch(cur, _STORE_SQL, params)
+        cur.executemany(_STORE_SQL, params)
     conn.commit()
     return len(params)
 

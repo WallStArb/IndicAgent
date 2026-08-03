@@ -29,7 +29,7 @@ from dataclasses import dataclass
 from pathlib import Path
 
 import numpy as np
-import psycopg2
+import psycopg
 
 _project_root = Path(__file__).resolve().parents[0]
 sys.path.insert(0, "/home/bg/dev/indicagent")
@@ -50,7 +50,7 @@ def _fetch_apr(cur, key: str, default):
 # per tf. Test every tf's own live grid, not one flat snapshot.
 _settings = Settings()
 _dsn = _settings.database_url.replace("postgresql+asyncpg://", "postgresql://")
-with psycopg2.connect(_dsn) as _conn, _conn.cursor() as _cur:
+with psycopg.connect(_dsn) as _conn, _conn.cursor() as _cur:
     LOOKAHEADS_BY_TF = {
         tf: {
             "fast": _fetch_apr(_cur, f"alpha.ic.lookahead.{tf}.fast", 1),

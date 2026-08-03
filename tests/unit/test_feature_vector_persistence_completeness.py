@@ -36,9 +36,9 @@ sys.path.insert(0, str(project_root))
 
 from src.intelligence.features.feature_vector_persistence import (
     FEATURE_VECTOR_INSERT_SQL,
-    FEATURE_VECTOR_INSERT_SQL_PSYCOPG2,
+    FEATURE_VECTOR_INSERT_SQL_PSYCOPG,
     FEATURE_VECTOR_UPSERT_SQL,
-    FEATURE_VECTOR_UPSERT_SQL_PSYCOPG2,
+    FEATURE_VECTOR_UPSERT_SQL_PSYCOPG,
     REGIME_WRITER_OWNED_COLUMN_NAMES,
     feature_vector_to_insert_params,
 )
@@ -227,12 +227,12 @@ def test_upsert_never_overwrites_externally_owned_columns():
 
 
 def test_psycopg2_variants_have_no_leftover_placeholders():
-    assert "$" not in FEATURE_VECTOR_INSERT_SQL_PSYCOPG2
-    assert "$" not in FEATURE_VECTOR_UPSERT_SQL_PSYCOPG2
-    assert FEATURE_VECTOR_INSERT_SQL_PSYCOPG2.count("%s") == len(
+    assert "$" not in FEATURE_VECTOR_INSERT_SQL_PSYCOPG
+    assert "$" not in FEATURE_VECTOR_UPSERT_SQL_PSYCOPG
+    assert FEATURE_VECTOR_INSERT_SQL_PSYCOPG.count("%s") == len(
         set(_sql_column_names(FEATURE_VECTOR_INSERT_SQL))
     )
-    assert FEATURE_VECTOR_UPSERT_SQL_PSYCOPG2.count("%s") == len(
+    assert FEATURE_VECTOR_UPSERT_SQL_PSYCOPG.count("%s") == len(
         set(_sql_column_names(FEATURE_VECTOR_UPSERT_SQL))
     )
 

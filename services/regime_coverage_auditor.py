@@ -21,9 +21,9 @@ import sys
 import time
 from pathlib import Path
 
-import psycopg2
-import psycopg2.extras
+import psycopg
 import structlog
+from psycopg.rows import dict_row
 
 project_root = Path(__file__).parent.parent
 sys.path.insert(0, str(project_root))
@@ -48,15 +48,15 @@ _COVERAGE_GAP_SQL = """
 """
 
 
-def _connect_db(settings: Settings) -> psycopg2.extensions.connection:
-    conn = psycopg2.connect(
+def _connect_db(settings: Settings) -> psycopg.Connection:
+    conn = psycopg.connect(
         settings.database_url, options="-c idle_in_transaction_session_timeout=0"
     )
     conn.autocommit = True
     return conn
 
 
-def _fetch_coverage_gaps(cur: psycopg2.extensions.cursor) -> list[str]:
+def _fetch_coverage_gaps(cur: psycopg.Cursor) -> list[str]:
     """Pure-ish helper — exported for unit tests. Takes an open cursor, returns the
     list of symbols with zero non-null feature_vectors.regime rows."""
     cur.execute(_COVERAGE_GAP_SQL)
@@ -77,7 +77,7 @@ def main() -> None:
     try:
         settings = Settings()
         conn = _connect_db(settings)
-        with conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor) as cur:
+        with conn.cursor(row_factory=dict_row) as cur:
             gap_symbols = _fetch_coverage_gaps(cur)
 
         if gap_symbols:

@@ -76,9 +76,8 @@ from typing import Any
 
 import asyncpg
 import numpy as np
-import psycopg2
-import psycopg2.extras
 import structlog
+from psycopg.rows import dict_row
 from scipy.stats import rankdata
 from statsmodels.stats.multitest import multipletests
 
@@ -917,7 +916,7 @@ def _run_ensemble_ic_worker(args: tuple) -> dict[str, Any]:
                     # math, so it cannot be folded into a SQL-side AVG here. No
                     # per-symbol filter means row count scales with symbols x bars;
                     # a named (server-side) cursor streams rows in itersize-sized
-                    # batches instead of psycopg2's default of buffering the entire
+                    # batches instead of psycopg's default of buffering the entire
                     # result client-side on execute() -- _aggregate_pooled_series
                     # accumulates a running sum/count per group as it consumes the
                     # cursor, so peak memory is O(distinct cells), not O(raw rows).
@@ -925,14 +924,12 @@ def _run_ensemble_ic_worker(args: tuple) -> dict[str, Any]:
                     # any transaction left open by a prior tf iteration on this same
                     # connection before declaring the named cursor.
                     conn.commit()
-                    with conn.cursor(
-                        name=f"pooled_fetch_{tf}", cursor_factory=psycopg2.extras.RealDictCursor
-                    ) as cur:
+                    with conn.cursor(name=f"pooled_fetch_{tf}", row_factory=dict_row) as cur:
                         cur.itersize = config.pooled_fetch_itersize
                         cur.execute(_POOLED_WORKER_FETCH_SQL, (tf, weight_version, oos_start))
                         fetched = _aggregate_pooled_series(cur, tf)
                 else:
-                    with conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor) as cur:
+                    with conn.cursor(row_factory=dict_row) as cur:
                         cur.execute(_WORKER_FETCH_SQL, (symbol, tf, weight_version, oos_start))
                         fetched = cur.fetchall()
             except Exception as error:

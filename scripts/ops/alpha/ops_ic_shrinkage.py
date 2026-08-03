@@ -52,9 +52,8 @@ from typing import Any
 
 import asyncpg
 import numpy as np
-import psycopg2
-import psycopg2.extras
 import structlog
+from psycopg.rows import dict_row
 from scipy.stats import rankdata
 
 project_root = Path(__file__).parent.parent.parent.parent
@@ -261,7 +260,7 @@ def build_out_of_fold_errors(
     Returns (shrunk_errors, raw_errors, n_cells_evaluated) — feed directly into
     `evaluate_out_of_fold_gate`. Split out from the DB-fetching orchestration in
     `_run_out_of_fold_gate` so the split/prior/error math is independently unit-testable
-    with synthetic in-memory series (no DB, no asyncpg, no psycopg2).
+    with synthetic in-memory series (no DB, no asyncpg, no psycopg).
     """
     shrunk_errors: list[float] = []
     raw_errors: list[float] = []
@@ -370,7 +369,7 @@ async def _run_out_of_fold_gate(
         cells_by_stratum.setdefault(key, []).append(dict(cell))
 
     pooled_by_stratum: dict[tuple[str, str], list[dict[str, Any]]] = {}
-    with sync_conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor) as cur:
+    with sync_conn.cursor(row_factory=dict_row) as cur:
         for (tf, regime), stratum_cells in cells_by_stratum.items():
             feature_names = sorted({c["feature_name"] for c in stratum_cells})
             col_list = ", ".join(f'AVG(fv."{name}") AS "{name}"' for name in feature_names)

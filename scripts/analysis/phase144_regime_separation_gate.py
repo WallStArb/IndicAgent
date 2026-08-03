@@ -55,8 +55,8 @@ _project_root = Path(__file__).resolve().parent.parent.parent
 if str(_project_root) not in sys.path:
     sys.path.insert(0, str(_project_root))
 
-import psycopg2  # noqa: E402
-import psycopg2.extras  # noqa: E402
+import psycopg  # noqa: E402
+from psycopg.rows import dict_row  # noqa: E402
 
 _GAP_DEFICIENT = 0.01
 _GAP_ADEQUATE = 0.05
@@ -82,7 +82,7 @@ _LABEL_TRENDING_DOWN = "trending_down"
 
 
 def _dsn() -> str:
-    """Build a psycopg2 DSN from env vars, matching CLAUDE.md's documented
+    """Build a psycopg DSN from env vars, matching CLAUDE.md's documented
     PGPASSWORD=postgres psql -U postgres -h localhost -d indicagent convention."""
     user = os.getenv("POSTGRES_USER", "postgres")
     password = os.getenv("POSTGRES_PASSWORD", "postgres")
@@ -93,7 +93,7 @@ def _dsn() -> str:
 
 
 def _connect() -> Any:
-    conn = psycopg2.connect(_dsn())
+    conn = psycopg.connect(_dsn())
     conn.autocommit = False
     return conn
 
@@ -169,7 +169,7 @@ def _fetch_mean_ic_by_tf_regime(
         GROUP BY tf, regime
         ORDER BY tf, regime
     """
-    with conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor) as cur:
+    with conn.cursor(row_factory=dict_row) as cur:
         cur.execute(sql, params)
         return [dict(row) for row in cur.fetchall()]
 

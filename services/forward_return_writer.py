@@ -42,8 +42,7 @@ from pathlib import Path
 from typing import Any
 
 import numpy as np
-import psycopg2
-import psycopg2.extras
+import psycopg
 import structlog
 from opentelemetry import trace
 from opentelemetry.trace import StatusCode
@@ -121,7 +120,7 @@ def _make_forward_return_id(
 
 
 # ---------------------------------------------------------------------------
-# Sync span helper — matches observed_span semantics for sync psycopg2 services
+# Sync span helper — matches observed_span semantics for sync psycopg services
 # ---------------------------------------------------------------------------
 
 
@@ -130,7 +129,7 @@ def observed_span(name: str, tracer: Any, **attrs: Any) -> Generator[Any]:
     """Sync context manager mirroring src/observability/spans.py:observed_span.
 
     Creates a span, records exceptions, sets ERROR status on raise.
-    Used here because forward_return_writer is sync (psycopg2), not async.
+    Used here because forward_return_writer is sync (psycopg), not async.
     """
     with tracer.start_as_current_span(name, attributes=attrs) as span:
         try:
@@ -519,12 +518,12 @@ def _label_symbol_tf(
                 n_suspect += 1
 
         with conn.cursor() as cur:
-            psycopg2.extras.execute_batch(
-                cur,
-                insert_sql,
-                insert_rows,
-                page_size=batch_size,
-            )
+            # Manual page_size-equivalent chunking (psycopg's executemany() has no
+            # page_size param -- it batches internally, but not tunable per-call the
+            # way execute_batch was) -- keeps alpha.ic.insert_batch_size a real,
+            # non-dead APR knob rather than silently dropping its effect.
+            for i in range(0, len(insert_rows), batch_size):
+                cur.executemany(insert_sql, insert_rows[i : i + batch_size])
         conn.commit()
 
         n_inserted = len(insert_rows)
@@ -660,9 +659,10 @@ def main() -> None:
 
     try:
         settings = Settings()
-        psycopg2.extras.register_uuid()
+        # No register_uuid() equivalent needed -- psycopg adapts uuid.UUID natively
+        # (verified empirically 2026-08-03), unlike psycopg2 which required this call.
         with observed_span("forward_return_writer.run", tracer):
-            conn = psycopg2.connect(
+            conn = psycopg.connect(
                 settings.database_url,
                 options="-c idle_in_transaction_session_timeout=0",
             )
@@ -796,7 +796,7 @@ def main() -> None:
                                     conn.close()
                                 except Exception:
                                     pass
-                                conn = psycopg2.connect(
+                                conn = psycopg.connect(
                                     settings.database_url,
                                     options="-c idle_in_transaction_session_timeout=0",
                                 )

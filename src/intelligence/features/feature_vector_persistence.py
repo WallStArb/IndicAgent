@@ -7,7 +7,7 @@ Single source of truth for:
   - Row serializer: FeatureVector fields -> INSERT tuple, one element per column
 
 Both the live write path (FeatureVectorWriter, asyncpg) and the batch compute
-path (backfill_feature_factory, psycopg2) import from here. One schema
+path (backfill_feature_factory, psycopg) import from here. One schema
 definition, two consumers — schema drift is structurally impossible.
 
 2026-07-08: extended from 70 to 161 columns. Phase 142.5 added 91 primitive
@@ -285,7 +285,7 @@ _STRUCTURAL_PREFIX_COLUMN_NAMES: tuple[str, ...] = (
 )
 
 # Single source of truth for column order -- both SQL statements below and the
-# psycopg2 placeholder count are derived from this tuple, so they cannot drift
+# psycopg placeholder count are derived from this tuple, so they cannot drift
 # out of sync with each other the way separately-hand-typed VALUES lists could.
 _ALL_COLUMN_NAMES: tuple[str, ...] = (
     _STRUCTURAL_PREFIX_COLUMN_NAMES
@@ -405,17 +405,17 @@ FEATURE_VECTOR_UPSERT_SQL = (
 )
 
 
-# psycopg2 callers use %s placeholders; asyncpg uses $N. Both forms encode the
+# psycopg callers use %s placeholders; asyncpg uses $N. Both forms encode the
 # same column contract. Callers choose the right constant for their driver.
 # Descending replacement order prevents $1 matching inside $10, $11, etc.
-def _to_psycopg2_placeholders(sql: str) -> str:
+def _to_psycopg_placeholders(sql: str) -> str:
     for i in range(_TOTAL_COLUMNS, 0, -1):
         sql = sql.replace(f"${i}", "%s")
     return sql
 
 
-FEATURE_VECTOR_INSERT_SQL_PSYCOPG2 = _to_psycopg2_placeholders(FEATURE_VECTOR_INSERT_SQL)
-FEATURE_VECTOR_UPSERT_SQL_PSYCOPG2 = _to_psycopg2_placeholders(FEATURE_VECTOR_UPSERT_SQL)
+FEATURE_VECTOR_INSERT_SQL_PSYCOPG = _to_psycopg_placeholders(FEATURE_VECTOR_INSERT_SQL)
+FEATURE_VECTOR_UPSERT_SQL_PSYCOPG = _to_psycopg_placeholders(FEATURE_VECTOR_UPSERT_SQL)
 
 
 # ── Content-key derivation ────────────────────────────────────────────────────
@@ -497,9 +497,9 @@ def feature_vector_to_insert_params(
         vector: Fully-populated FeatureVector from FeatureFactory.compute().
 
     Returns:
-        258-element tuple for use with asyncpg executemany() or psycopg2
-        execute_batch(). Compatible with both drivers — asyncpg and psycopg2
-        handle uuid.UUID and datetime natively.
+        258-element tuple for use with asyncpg or psycopg executemany().
+        Compatible with both drivers — asyncpg and psycopg handle uuid.UUID
+        and datetime natively.
 
     Raises:
         ValueError: If regime_label_source is not in VALID_REGIME_LABEL_SOURCES.

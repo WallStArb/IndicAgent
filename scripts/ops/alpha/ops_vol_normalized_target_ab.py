@@ -105,7 +105,7 @@ _SUBSAMPLE_MIN_STRIDE_DEFAULT = 5
 _LATEST_VINTAGE_SQL = "SELECT max(training_window_end) FROM feature_ic_scores"
 
 
-# asyncpg (unlike psycopg2, used elsewhere in this project) only supports positional
+# asyncpg (unlike psycopg, used elsewhere in this project) only supports positional
 # $1/$2/... parameters -- no %(name)s named-parameter binding.
 _REGIMES_SQL = """
     SELECT DISTINCT regime FROM feature_ic_scores

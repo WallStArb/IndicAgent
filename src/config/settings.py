@@ -500,10 +500,10 @@ def get_active_contracts(settings: Settings | None = None) -> list[Instrument]:
     # Lock released here — DB query runs without holding the lock (Pitfall 2)
 
     try:
-        import psycopg2
+        import psycopg
 
         # All three queries share one connection (one-third the overhead of 3 separate connects).
-        with psycopg2.connect(s.database_url) as conn:
+        with psycopg.connect(s.database_url) as conn:
             with conn.cursor() as cur:
                 # 1. Futures templates — provide point_value, tick_size, session_id etc.
                 cur.execute(
@@ -611,9 +611,9 @@ def get_all_futures_contracts(settings: Settings | None = None) -> list[Instrume
 
     s = settings or _default_settings()
     try:
-        import psycopg2
+        import psycopg
 
-        with psycopg2.connect(s.database_url) as conn:
+        with psycopg.connect(s.database_url) as conn:
             with conn.cursor() as cur:
                 cur.execute(
                     "SELECT symbol, base, contract_details "

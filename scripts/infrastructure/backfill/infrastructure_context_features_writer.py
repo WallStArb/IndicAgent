@@ -20,8 +20,7 @@ from pathlib import Path
 from typing import Any
 
 import numpy as np
-import psycopg2
-import psycopg2.extras
+import psycopg
 import structlog
 
 project_root = Path(__file__).parent.parent.parent
@@ -245,7 +244,7 @@ def _write_feature(
         return len(rows)
 
     with conn.cursor() as cur:
-        psycopg2.extras.execute_batch(cur, _UPSERT_SQL, rows)
+        cur.executemany(_UPSERT_SQL, rows)
     conn.commit()
     _logger.info(
         "context_features_writer.wrote",
@@ -276,7 +275,7 @@ def main() -> None:
     args = parser.parse_args()
 
     settings = Settings()
-    conn = psycopg2.connect(settings.database_url)
+    conn = psycopg.connect(settings.database_url)
 
     _logger.info("context_features_writer.start", dry_run=args.dry_run)
 

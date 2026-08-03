@@ -60,7 +60,7 @@ from pathlib import Path
 from typing import Any
 
 import numpy as np
-import psycopg2
+import psycopg
 import structlog
 from hmmlearn.hmm import GaussianHMM
 from opentelemetry import trace
@@ -842,7 +842,7 @@ def _discover_symbols(conn: Any) -> list[str]:
 def _run_symbol_worker(args: tuple) -> dict:
     """Worker function for ProcessPoolExecutor — runs in subprocess.
 
-    Opens its own psycopg2 connection for OHLCV reads only. Runs HMM compute
+    Opens its own psycopg connection for OHLCV reads only. Runs HMM compute
     and returns update_rows to the main process; never writes to the DB.
 
     Args:
@@ -885,7 +885,7 @@ def _run_symbol_worker(args: tuple) -> dict:
     error_msg = None
 
     try:
-        conn = psycopg2.connect(dsn, options="-c idle_in_transaction_session_timeout=0")
+        conn = psycopg.connect(dsn, options="-c idle_in_transaction_session_timeout=0")
 
         for tf in tfs:
             try:
@@ -1021,7 +1021,7 @@ def main() -> None:
         with tracer.start_as_current_span("regime_writer.run") as run_span:
             # Open a short-lived connection for APR load + symbol discovery, then close it.
             # Workers open their own connections — nothing is shared across processes.
-            _conn = psycopg2.connect(
+            _conn = psycopg.connect(
                 dsn,
                 options="-c idle_in_transaction_session_timeout=0",
             )
@@ -1109,7 +1109,7 @@ def main() -> None:
             total_updated = 0
             failures: list[str] = []
 
-            write_conn = psycopg2.connect(
+            write_conn = psycopg.connect(
                 dsn,
                 options="-c idle_in_transaction_session_timeout=0",
             )

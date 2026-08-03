@@ -268,11 +268,11 @@ def _generate_markdown(
 
 
 def main():
-    import psycopg2
+    import psycopg
 
     from src.core.database_manager import get_connection_params
 
-    conn = psycopg2.connect(**get_connection_params(settings.database_url))
+    conn = psycopg.connect(**get_connection_params(settings.database_url))
 
     try:
         training_window_end = _get_latest_training_window(conn)

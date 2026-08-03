@@ -12,7 +12,7 @@ the real unique index), not just a style complaint.
 
 Two variants, mirroring the sync/async split already established elsewhere in this
 codebase (e.g. FeatureRegistryService.record_transition_sync vs. its async sibling):
-callers on a plain psycopg2 connection (ic_engine.py, forward_return_writer.py -- both
+callers on a plain psycopg connection (ic_engine.py, forward_return_writer.py -- both
 sync, argparse-style batch scripts) use emit_integrity_fact_sync(); callers on an
 asyncpg connection (vocabulary_drift.py) use emit_integrity_fact_async().
 
@@ -57,7 +57,7 @@ import structlog
 _logger = structlog.get_logger(__name__)
 
 # Shared INSERT shape -- the one place that defines the composite ON CONFLICT key.
-# psycopg2-style (%s positional placeholders).
+# psycopg-style (%s positional placeholders).
 INTEGRITY_MONITOR_INSERT_SQL = """
 INSERT INTO integrity_monitor
     (monitor_type, subject, metric_name, metric_value, threshold_value, passed, training_window_end)
@@ -103,7 +103,7 @@ def emit_integrity_fact_sync(
     idempotency_check: bool = False,
     commit: bool = False,
 ) -> None:
-    """Guarded single-row INSERT into integrity_monitor over a sync psycopg2 conn.
+    """Guarded single-row INSERT into integrity_monitor over a sync psycopg conn.
 
     See module docstring for the idempotency_check and commit design rationale.
     Never raises -- an emit failure is logged and swallowed (guard behavior).

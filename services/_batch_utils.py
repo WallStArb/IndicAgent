@@ -1,4 +1,4 @@
-"""Shared utilities for batch oneshot services (psycopg2-based, plus a small asyncpg
+"""Shared utilities for batch oneshot services (psycopg-based, plus a small asyncpg
 APR-loading helper for the async batch services)."""
 
 from __future__ import annotations
@@ -12,7 +12,7 @@ from contextlib import contextmanager
 from typing import Any
 
 import numpy as np
-import psycopg2
+import psycopg
 import structlog
 
 from src.config.config_service import ConfigService
@@ -29,13 +29,13 @@ _CONFIG_QUERY = (
 
 
 def connect_db_from_url(db_url: str) -> Any:
-    """Open a psycopg2 connection from a raw DB URL, autocommit off.
+    """Open a psycopg connection from a raw DB URL, autocommit off.
 
     Shared by ic_engine.py and ensemble_ic_engine.py's ProcessPoolExecutor workers
     (each opens its own read-only connection per dispatch) and by ic_engine's
     higher-level _connect_db(settings) wrapper (todo 047 follow-up, 2026-07-02).
     """
-    conn = psycopg2.connect(db_url)
+    conn = psycopg.connect(db_url)
     conn.autocommit = False
     return conn
 
@@ -62,7 +62,7 @@ def short_lived_conn(dsn: str):
 def load_config_service_sync(conn: Any) -> ConfigService:
     """Load all APR keys from config_state into a cache-only ConfigService.
 
-    conn: open psycopg2 connection. No DB reference is stored in the returned
+    conn: open psycopg connection. No DB reference is stored in the returned
     ConfigService — only the in-memory cache is populated.
     """
     cfg = ConfigService(database_url="")
@@ -93,7 +93,7 @@ def bulk_update_by_key(
     between CPU-bound serial row updates and a bulk operation.
 
     rows: each tuple ordered as (*set_cols, *key_cols) — matches the parameter order
-    psycopg2 execute_batch callers already use for `SET ... WHERE key = %s` statements.
+    psycopg executemany() callers already use for `SET ... WHERE key = %s` statements.
     conn: caller commits; this function does not call conn.commit().
     """
     all_cols = set_cols + key_cols
@@ -107,10 +107,10 @@ def bulk_update_by_key(
         for row in rows:
             writer.writerow("" if v is None else v for v in row)
         buf.seek(0)
-        cur.copy_expert(
-            f"COPY {temp_table} ({', '.join(all_cols)}) FROM STDIN WITH (FORMAT CSV)",
-            buf,
-        )
+        with cur.copy(
+            f"COPY {temp_table} ({', '.join(all_cols)}) FROM STDIN WITH (FORMAT CSV)"
+        ) as copy:
+            copy.write(buf.getvalue())
 
         set_clause = ", ".join(f"{c} = v.{c}" for c in set_cols)
         key_clause = " AND ".join(f"t.{c} = v.{c}" for c in key_cols)

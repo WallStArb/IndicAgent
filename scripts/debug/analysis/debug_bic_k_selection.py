@@ -17,7 +17,7 @@ from collections import Counter
 from pathlib import Path
 
 import numpy as np
-import psycopg2
+import psycopg
 from hmmlearn.hmm import GaussianHMM
 from sklearn.preprocessing import StandardScaler
 
@@ -160,7 +160,7 @@ def main() -> None:
     settings = Settings()
     dsn = settings.database_url
 
-    conn = psycopg2.connect(dsn, options="-c idle_in_transaction_session_timeout=0")
+    conn = psycopg.connect(dsn, options="-c idle_in_transaction_session_timeout=0")
 
     # Load APR window parameters from config_state
     with conn.cursor() as cur:

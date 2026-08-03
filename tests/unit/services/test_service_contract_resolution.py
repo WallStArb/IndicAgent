@@ -40,15 +40,15 @@ def _reset_cache() -> None:
 
 
 def _make_mock_db_conn(futures_rows: list, non_futures_rows: list | None = None) -> MagicMock:
-    """Build a single psycopg2 connection mock for get_active_contracts().
+    """Build a single psycopg connection mock for get_active_contracts().
 
-    get_active_contracts() uses ONE psycopg2.connect() that runs three queries
+    get_active_contracts() uses ONE psycopg.connect() that runs three queries
     in sequence on the same cursor:
       1. Load futures templates from instruments table (asset_class='futures')
       2. Query contract_metadata for front-month futures symbols
       3. Query instruments for non-futures (is_active=true, asset_class!='futures')
 
-    Returns a single mock connection. Use with patch("psycopg2.connect", return_value=conn).
+    Returns a single mock connection. Use with patch("psycopg.connect", return_value=conn).
     """
     if non_futures_rows is None:
         non_futures_rows = []
@@ -119,7 +119,7 @@ class TestGetActiveContractsAlwaysOn:
         """Must return list[Instrument], not list[str]."""
         mock_settings = _make_settings()
         conn = _make_mock_db_conn([("ESM6", "ES", "CME")], [_EURUSD_NF_ROW])
-        with patch("psycopg2.connect", return_value=conn):
+        with patch("psycopg.connect", return_value=conn):
             result = get_active_contracts(mock_settings)
         assert isinstance(result, list)
         assert len(result) > 0
@@ -130,14 +130,14 @@ class TestGetActiveContractsAlwaysOn:
         """DB must always be queried (one connect, three queries on one cursor)."""
         mock_settings = _make_settings()
         conn = _make_mock_db_conn([], [])
-        with patch("psycopg2.connect", return_value=conn) as mock_connect:
+        with patch("psycopg.connect", return_value=conn) as mock_connect:
             get_active_contracts(mock_settings)
         assert mock_connect.call_count == 1
 
     def test_db_error_returns_empty_when_cache_cold(self):
         """On DB error with cold cache, must return empty list (not s.contracts)."""
         mock_settings = _make_settings()
-        with patch("psycopg2.connect", side_effect=Exception("DB connection refused")):
+        with patch("psycopg.connect", side_effect=Exception("DB connection refused")):
             result = get_active_contracts(mock_settings)
         assert result == []
 
@@ -145,7 +145,7 @@ class TestGetActiveContractsAlwaysOn:
         """get_active_symbols() convenience wrapper must return list[str]."""
         mock_settings = _make_settings()
         conn = _make_mock_db_conn([("ESM6", "ES", "CME")], [_EURUSD_NF_ROW])
-        with patch("psycopg2.connect", return_value=conn):
+        with patch("psycopg.connect", return_value=conn):
             result = get_active_symbols(mock_settings)
         assert isinstance(result, list)
         for item in result:
@@ -156,10 +156,10 @@ class TestGetActiveContractsAlwaysOn:
         mock_settings = _make_settings()
         conn1 = _make_mock_db_conn([("ESM6", "ES", "CME")], [_EURUSD_NF_ROW])
         conn2 = _make_mock_db_conn([("ESM6", "ES", "CME")], [_EURUSD_NF_ROW])
-        with patch("psycopg2.connect", return_value=conn1):
+        with patch("psycopg.connect", return_value=conn1):
             instruments = get_active_contracts(mock_settings)
         _reset_cache()
-        with patch("psycopg2.connect", return_value=conn2):
+        with patch("psycopg.connect", return_value=conn2):
             symbols = get_active_symbols(mock_settings)
         assert symbols == [i.symbol for i in instruments]
 
@@ -177,7 +177,7 @@ class TestGetActiveContractsDbEnabled:
         """With DB working, must return list[Instrument]."""
         mock_settings = _make_settings()
         conn = _make_mock_db_conn([("ESM6", "ES", "CME")], [_EURUSD_NF_ROW])
-        with patch("psycopg2.connect", return_value=conn):
+        with patch("psycopg.connect", return_value=conn):
             result = get_active_contracts(mock_settings)
         assert isinstance(result, list)
         for item in result:
@@ -188,7 +188,7 @@ class TestGetActiveContractsDbEnabled:
         inherited from config-file contracts (not empty defaults)."""
         mock_settings = _make_settings()
         conn = _make_mock_db_conn([("ESM6", "ES", "CME")], [])
-        with patch("psycopg2.connect", return_value=conn):
+        with patch("psycopg.connect", return_value=conn):
             result = get_active_contracts(mock_settings)
         futures = [i for i in result if i.asset_class == AssetClass.FUTURES]
         assert len(futures) >= 1
@@ -203,7 +203,7 @@ class TestGetActiveContractsDbEnabled:
         """Non-futures Instruments (FX, equity) must come from instruments DB table."""
         mock_settings = _make_settings()
         conn = _make_mock_db_conn([("ESM6", "ES", "CME")], [_EURUSD_NF_ROW])
-        with patch("psycopg2.connect", return_value=conn):
+        with patch("psycopg.connect", return_value=conn):
             result = get_active_contracts(mock_settings)
         fx = [i for i in result if i.asset_class == AssetClass.FX]
         assert len(fx) >= 1, "FX instruments from instruments table must be included"
@@ -213,7 +213,7 @@ class TestGetActiveContractsDbEnabled:
         """The futures DB query must filter by is_front_month = true."""
         mock_settings = _make_settings()
         conn = _make_mock_db_conn([], [])
-        with patch("psycopg2.connect", return_value=conn):
+        with patch("psycopg.connect", return_value=conn):
             get_active_contracts(mock_settings)
         # Single connection, single cursor: second execute() call is the futures query
         cursor = conn.cursor.return_value.__enter__.return_value
@@ -226,7 +226,7 @@ class TestGetActiveContractsDbEnabled:
         """The instruments query must exclude futures rows."""
         mock_settings = _make_settings()
         conn = _make_mock_db_conn([], [])
-        with patch("psycopg2.connect", return_value=conn):
+        with patch("psycopg.connect", return_value=conn):
             get_active_contracts(mock_settings)
         # Single connection, single cursor: third execute() call is the non-futures query
         cursor = conn.cursor.return_value.__enter__.return_value
@@ -249,7 +249,7 @@ class TestGetActiveContractsDbFallback:
     def test_db_error_returns_empty_when_cache_cold(self):
         """On DB connection error with cold cache, must return empty list."""
         mock_settings = _make_settings()
-        with patch("psycopg2.connect", side_effect=Exception("DB connection refused")):
+        with patch("psycopg.connect", side_effect=Exception("DB connection refused")):
             result = get_active_contracts(mock_settings)
         assert isinstance(result, list)
         assert result == [], "Cold-start DB error must return empty list, not s.contracts"
@@ -261,13 +261,13 @@ class TestGetActiveContractsDbFallback:
         mock_settings = _make_settings()
         # Pre-warm the cache
         conn = _make_mock_db_conn([("ESM6", "ES", "CME")], [_EURUSD_NF_ROW])
-        with patch("psycopg2.connect", return_value=conn):
+        with patch("psycopg.connect", return_value=conn):
             cached = get_active_contracts(mock_settings)
         assert len(cached) > 0
 
         # Expire TTL so the next call re-queries — but now DB is down
         settings_mod._active_contracts_last_refresh = 0.0
-        with patch("psycopg2.connect", side_effect=Exception("DB down")):
+        with patch("psycopg.connect", side_effect=Exception("DB down")):
             result = get_active_contracts(mock_settings)
         assert result == cached, "Warm-cache fallback must return cached instruments"
 
@@ -285,7 +285,7 @@ class TestGetActiveContractsCache:
         """Second call within 60 seconds must return cached result without DB query."""
         mock_settings = _make_settings()
         conn = _make_mock_db_conn([("ESM6", "ES", "CME")], [_EURUSD_NF_ROW])
-        with patch("psycopg2.connect", return_value=conn) as mock_connect:
+        with patch("psycopg.connect", return_value=conn) as mock_connect:
             result1 = get_active_contracts(mock_settings)
             result2 = get_active_contracts(mock_settings)
         # One connect call on first query; zero on second (cached)
@@ -301,7 +301,7 @@ class TestGetActiveContractsCache:
         mock_settings = _make_settings()
         conn1 = _make_mock_db_conn([("ESM6", "ES", "CME")], [_EURUSD_NF_ROW])
         conn2 = _make_mock_db_conn([("ESM6", "ES", "CME")], [_EURUSD_NF_ROW])
-        with patch("psycopg2.connect", side_effect=[conn1, conn2]) as mock_connect:
+        with patch("psycopg.connect", side_effect=[conn1, conn2]) as mock_connect:
             get_active_contracts(mock_settings)
             call_count_after_first = mock_connect.call_count
             settings_mod._active_contracts_last_refresh = time.monotonic() - 61.0
@@ -324,7 +324,7 @@ class TestGetActiveContractsReturnType:
         """get_active_contracts() must NOT return list[str]."""
         mock_settings = _make_settings()
         conn = _make_mock_db_conn([("ESM6", "ES", "CME")], [_EURUSD_NF_ROW])
-        with patch("psycopg2.connect", return_value=conn):
+        with patch("psycopg.connect", return_value=conn):
             result = get_active_contracts(mock_settings)
         if result:
             assert not isinstance(
@@ -335,7 +335,7 @@ class TestGetActiveContractsReturnType:
         """get_active_symbols() must return list[str]."""
         mock_settings = _make_settings()
         conn = _make_mock_db_conn([("ESM6", "ES", "CME")], [_EURUSD_NF_ROW])
-        with patch("psycopg2.connect", return_value=conn):
+        with patch("psycopg.connect", return_value=conn):
             result = get_active_symbols(mock_settings)
         assert isinstance(result, list)
         if result:

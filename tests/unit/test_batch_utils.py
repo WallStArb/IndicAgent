@@ -198,7 +198,7 @@ class TestLoadAprDictAsync:
 
 class TestConnectDbFromUrl:
     def test_disables_autocommit(self) -> None:
-        with patch("services._batch_utils.psycopg2.connect") as mock_connect:
+        with patch("services._batch_utils.psycopg.connect") as mock_connect:
             mock_conn = MagicMock()
             mock_connect.return_value = mock_conn
 

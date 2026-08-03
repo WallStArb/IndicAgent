@@ -74,8 +74,6 @@ import numpy as np
 
 # Corpus manifest system
 sys.path.insert(0, "src")
-import psycopg2
-import psycopg2.extras
 import structlog
 from opentelemetry import trace
 from opentelemetry.trace import StatusCode
@@ -364,7 +362,7 @@ _CROSS_SECTIONAL_INSERT_SQL = (
 
 
 # ---------------------------------------------------------------------------
-# Sync span helper -- matches observed_span semantics for sync psycopg2 services
+# Sync span helper -- matches observed_span semantics for sync psycopg services
 # ---------------------------------------------------------------------------
 
 
@@ -408,7 +406,7 @@ def _observed_span(name: str, tracer: Any, **attrs: Any):
 
 
 def _connect_db(settings: Settings) -> Any:
-    """Open a psycopg2 connection to the TimescaleDB instance."""
+    """Open a psycopg connection to the TimescaleDB instance."""
     return connect_db_from_url(settings.database_url)
 
 
@@ -2220,10 +2218,10 @@ def _compute_symbol_tf(
             # Named (server-side) cursor + itersize: rows are fetched from the server in
             # bounded batches, so peak memory is O(chunk_rows), not O(all rows). A plain
             # conn.cursor() -- what this used before -- pulls the ENTIRE result across
-            # the wire into psycopg2's client-side buffer at execute() time regardless of
+            # the wire into the driver's client-side buffer at execute() time regardless of
             # how the Python side iterates it; itersize on an unnamed cursor is a no-op
             # (the prior comment here describing "fetchmany(itersize) under the hood" was
-            # incorrect psycopg2 semantics, not an actual fix). That gap caused the
+            # incorrect assumption, not an actual fix). That gap caused the
             # 2026-07-09 per-symbol ProcessPoolExecutor OOM: QQQ/5m alone (392K rows x
             # 150 features) measured at 4.3 GB peak RSS materialising bar_ts_list/
             # regime_list/X_list before conversion; with 12 workers concurrently in their
@@ -3367,7 +3365,7 @@ def _write_ic_results(
     n_committed = 0
     if pooled_rows:
         with conn.cursor() as cur:
-            psycopg2.extras.execute_batch(cur, _POOLED_INSERT_SQL, pooled_rows)
+            cur.executemany(_POOLED_INSERT_SQL, pooled_rows)
         n_committed += len(pooled_rows)
         # Commit now rather than batching with regime_rows below: regime_rows is
         # typically far larger, and ON CONFLICT DO NOTHING makes an early commit
@@ -3376,7 +3374,7 @@ def _write_ic_results(
         conn.commit()
     if regime_rows:
         with conn.cursor() as cur:
-            psycopg2.extras.execute_batch(cur, _REGIME_INSERT_SQL, regime_rows)
+            cur.executemany(_REGIME_INSERT_SQL, regime_rows)
         n_committed += len(regime_rows)
     conn.commit()
     return n_committed
@@ -3552,7 +3550,7 @@ def _write_cross_sectional_results(
     """
     if all_results:
         with conn.cursor() as cur:
-            psycopg2.extras.execute_batch(cur, _CROSS_SECTIONAL_INSERT_SQL, all_results)
+            cur.executemany(_CROSS_SECTIONAL_INSERT_SQL, all_results)
         conn.commit()
     return len(all_results)
 
@@ -3581,7 +3579,7 @@ def _upsert_cell_fingerprints(settings: Settings, fp_rows: list[dict]) -> None:
         return
     with _short_lived_conn(settings) as conn:
         with conn.cursor() as cur:
-            psycopg2.extras.execute_batch(cur, _FINGERPRINT_UPSERT_SQL, fp_rows)
+            cur.executemany(_FINGERPRINT_UPSERT_SQL, fp_rows)
         conn.commit()
 
 
@@ -3646,32 +3644,29 @@ def _backfill_bh_fdr(
     ]
 
     with conn.cursor() as cur:
-        psycopg2.extras.execute_values(
-            cur,
+        # Ported from psycopg2.extras.execute_values' single UPDATE-FROM-(VALUES)
+        # statement to a plain per-row UPDATE via executemany() -- psycopg has no
+        # direct equivalent of execute_values' inlined multi-row VALUES-list trick.
+        # executemany() batches internally in psycopg 3.1+ ("Performance of
+        # Cursor.executemany() has been improved using batch mode internally" per
+        # psycopg's own changelog), so this isn't a naive N-roundtrip regression.
+        cur.executemany(
             """
-            UPDATE feature_ic_scores AS t
-            SET bh_adjusted_p = v.bh_adjusted_p, passes_fdr = v.passes_fdr
-            FROM (VALUES %s) AS v(
-                feature_name, symbol, tf, regime, lookahead_bars,
-                training_window_end, bh_adjusted_p, passes_fdr
-            )
-            WHERE t.feature_name = v.feature_name
-                AND t.symbol = v.symbol
-                AND t.tf = v.tf
-                AND t.regime = v.regime
-                AND t.lookahead_bars = v.lookahead_bars
-                AND t.training_window_end = v.training_window_end
+            UPDATE feature_ic_scores
+            SET bh_adjusted_p = %s, passes_fdr = %s
+            WHERE feature_name = %s AND symbol = %s AND tf = %s AND regime = %s
+                AND lookahead_bars = %s AND training_window_end = %s
             """,
             [
                 (
+                    u["bh_adjusted_p"],
+                    u["passes_fdr"],
                     u["feature_name"],
                     u["symbol"],
                     u["tf"],
                     u["regime"],
                     u["lookahead_bars"],
                     training_window_end,
-                    u["bh_adjusted_p"],
-                    u["passes_fdr"],
                 )
                 for u in updates
             ],
@@ -3837,7 +3832,7 @@ def _run_ic_worker(args: tuple) -> dict:
 # fact to integrity_monitor per run (observability only -- feature_transition_log stays
 # the sole authoritative transition record) and the IC staleness gauge.
 #
-# Sync psycopg2 throughout -- ic_engine.py is a plain argparse script (no class, no
+# Sync psycopg throughout -- ic_engine.py is a plain argparse script (no class, no
 # BaseBatch, no async/await anywhere). Guarded so a hook failure logs loudly but never
 # corrupts the already-committed IC results (the hook runs after the primary write is
 # durable).
@@ -4219,8 +4214,8 @@ def _run_lifecycle_hook(
             #
             # Deferred, not executed here: registry_svc.record_transition_sync /
             # advance_shadow_counters_sync (called from Step 4 below) each wrap
-            # their own SQL in `with conn:` on this SAME write_conn, which commits
-            # (or rolls back, on an optimistic-lock no-op) immediately on exit.
+            # their own SQL in conn.transaction() on this SAME write_conn, which
+            # commits (or rolls back, on an optimistic-lock no-op) immediately on exit.
             # Executing this INSERT eagerly here would let the first Step 4
             # registry call silently commit/rollback it before the intended
             # single commit point. Instead we only accumulate the row now and
@@ -4281,7 +4276,7 @@ def _run_lifecycle_hook(
     # Flush Step 3's accumulated per-stratum guard facts now -- unconditionally,
     # on both the hold and non-hold paths, and strictly after Step 4/5 have
     # either run or been skipped by a hold. This is what keeps the facts out of
-    # registry_svc's `with conn:` commit/rollback windows above.
+    # registry_svc's conn.transaction() commit/rollback windows above.
     if pending_guard_facts:
         with write_conn.cursor() as cur:
             # Reuses the same INTEGRITY_MONITOR_INSERT_SQL constant emit_integrity_fact_sync
@@ -4296,7 +4291,7 @@ def _run_lifecycle_hook(
     # Single commit point for the whole hook: the deferred guard facts above +
     # either Step 4/5's writes (non-hold) or nothing further (hold) all land
     # together here. Step 4's individual registry transitions still self-commit
-    # one at a time via FeatureRegistryService's `with conn:` pattern (a
+    # one at a time via FeatureRegistryService's conn.transaction() pattern (a
     # pre-existing constraint of that shared Ring-1 service, not something this
     # fix needs to solve) -- but each transition is individually rerun-safe via
     # its own optimistic `WHERE status = %s` lock (from_status), so a crash
@@ -4897,7 +4892,7 @@ def main() -> None:
                     for cell in status_only_stale_cs_cells
                 ]
                 with conn.cursor() as cur:
-                    psycopg2.extras.execute_batch(cur, _FINGERPRINT_UPSERT_SQL, fp_refresh_rows)
+                    cur.executemany(_FINGERPRINT_UPSERT_SQL, fp_refresh_rows)
                 conn.commit()
                 _logger.info(
                     "ic_engine.feature_status_refresh",

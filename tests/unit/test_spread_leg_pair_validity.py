@@ -22,7 +22,7 @@ from __future__ import annotations
 
 import functools
 
-import psycopg2
+import psycopg
 import pytest
 
 _LIVE_DB_DSN = "postgresql://postgres:postgres@localhost:5432/indicagent"
@@ -48,7 +48,7 @@ def _fetch_live_rows(query: str) -> list[tuple] | None:
     """Runs `query` against the live DB, returning raw rows, or None if unreachable
     (shared connect/execute/finally boilerplate for the two cached fetchers below)."""
     try:
-        conn = psycopg2.connect(_LIVE_DB_DSN)
+        conn = psycopg.connect(_LIVE_DB_DSN)
     except Exception:
         return None
     try:

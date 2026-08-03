@@ -72,7 +72,7 @@ def compute(
     Both returned series are indexed by timestamp and share the same index.
     NaN values indicate warmup bars -- caller drops them before dispatch.
 
-    ref_bars/params are the only inputs -- no psycopg2 import, no DB access.
+    ref_bars/params are the only inputs -- no psycopg import, no DB access.
     """
     if "SPY" not in ref_bars:
         return None

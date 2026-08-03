@@ -749,20 +749,20 @@ def test_batch_insert_default_uses_insert_sql() -> None:
     """Default (refresh=False) must use the DO NOTHING statement -- never touches
     an existing row, matching the live write path's idempotent-skip semantics."""
     mock_conn = MagicMock()
-    with patch("services.backfill_feature_factory.psycopg2.extras.execute_batch") as mock_batch:
-        _batch_insert(mock_conn, [("row",)], refresh=False)
-    mock_batch.assert_called_once()
-    assert mock_batch.call_args[0][1] == _INSERT_FEATURE_VECTORS_SQL
+    mock_cur = mock_conn.cursor.return_value.__enter__.return_value
+    _batch_insert(mock_conn, [("row",)], refresh=False)
+    mock_cur.executemany.assert_called_once()
+    assert mock_cur.executemany.call_args[0][0] == _INSERT_FEATURE_VECTORS_SQL
 
 
 def test_batch_insert_refresh_uses_upsert_sql() -> None:
     """refresh=True (todo 176) must use the DO UPDATE statement so existing rows
     actually get overwritten with freshly computed values, including new columns."""
     mock_conn = MagicMock()
-    with patch("services.backfill_feature_factory.psycopg2.extras.execute_batch") as mock_batch:
-        _batch_insert(mock_conn, [("row",)], refresh=True)
-    mock_batch.assert_called_once()
-    assert mock_batch.call_args[0][1] == _UPSERT_FEATURE_VECTORS_SQL
+    mock_cur = mock_conn.cursor.return_value.__enter__.return_value
+    _batch_insert(mock_conn, [("row",)], refresh=True)
+    mock_cur.executemany.assert_called_once()
+    assert mock_cur.executemany.call_args[0][0] == _UPSERT_FEATURE_VECTORS_SQL
 
 
 # ---------------------------------------------------------------------------

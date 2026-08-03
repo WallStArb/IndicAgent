@@ -57,9 +57,8 @@ from typing import Any, NamedTuple
 
 import asyncpg
 import numpy as np
-import psycopg2
-import psycopg2.extras
 import structlog
+from psycopg.rows import dict_row
 from scipy.stats import bootstrap
 
 project_root = Path(__file__).parent.parent
@@ -377,20 +376,20 @@ def _scan_symbol_tf(
     only, per ic_engine.py's convention) over a potentially large bar stream, so visibility is
     an aggregate the caller reports once, not a log line per degenerate frame."""
     conn.commit()  # clear any stale transaction before the bounded fetches below
-    with conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor) as cur:
+    with conn.cursor(row_factory=dict_row) as cur:
         cur.execute(_OPEN_FRAMES_SQL, (symbol, tf))
         open_frames = cur.fetchall()
     if not open_frames:
         return [], 0
 
-    with conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor) as cur:
+    with conn.cursor(row_factory=dict_row) as cur:
         cur.execute(_IC_CI_LOWER_SQL, (symbol, tf))
         ic_by_regime = {
             row["regime"]: (row["ic_ci_lower"], row["scored_at"]) for row in cur.fetchall()
         }
 
     min_bar_ts = open_frames[0]["bar_ts"]
-    with conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor) as cur:
+    with conn.cursor(row_factory=dict_row) as cur:
         cur.execute(_ATR_SEED_SQL, (symbol, tf, min_bar_ts, atr_period + 1))
         seed_bars = list(reversed(cur.fetchall()))  # DESC fetch -> chronological order
 
@@ -408,7 +407,7 @@ def _scan_symbol_tf(
 
     conn.commit()  # precondition for declaring a named (server-side) cursor
     cursor_name = f"cf_scan_{symbol}_{tf}"
-    with conn.cursor(name=cursor_name, cursor_factory=psycopg2.extras.RealDictCursor) as cur:
+    with conn.cursor(name=cursor_name, row_factory=dict_row) as cur:
         cur.itersize = itersize
         cur.execute(_BAR_SCAN_SQL, (symbol, tf, min_bar_ts))
 
@@ -542,7 +541,7 @@ def _run_counterfactual_worker(args: tuple) -> dict[str, Any]:
             # Connection-staleness check + reconnect before each per-symbol unit of work
             # (mirrors infrastructure_run_historical_pipeline.py's precedent).
             try:
-                with conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor) as probe_cur:
+                with conn.cursor(row_factory=dict_row) as probe_cur:
                     probe_cur.execute("SELECT 1")
             except Exception:
                 try:

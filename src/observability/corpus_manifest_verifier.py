@@ -17,7 +17,7 @@ import sys
 from pathlib import Path
 from typing import Any
 
-import psycopg2
+import psycopg
 import structlog
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
@@ -72,8 +72,8 @@ _APR_DEFAULT_ACTIVE_SCALES_BY_TF: dict[str, tuple[str, ...]] = {
 
 
 def _open_db_conn() -> Any:
-    """Open a sync psycopg2 connection using standard project credentials."""
-    return psycopg2.connect(**_DB_DEFAULTS)
+    """Open a sync psycopg connection using standard project credentials."""
+    return psycopg.connect(**_DB_DEFAULTS)
 
 
 def _load_apr_values(conn: Any) -> dict[str, Any]:

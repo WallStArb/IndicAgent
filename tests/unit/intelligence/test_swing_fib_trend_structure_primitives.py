@@ -17,7 +17,7 @@ import math
 from datetime import UTC, datetime, timedelta
 
 import numpy as np
-import psycopg2
+import psycopg
 import pytest
 
 from src.intelligence.feature_cache import FeatureCache
@@ -1349,7 +1349,7 @@ def test_phase165_field_set_matches_registry():
         assert FEATURE_VECTOR_DOMAIN[field] == "structural", f"{field} not tagged 'structural'"
 
     try:
-        conn = psycopg2.connect("postgresql://postgres:postgres@localhost:5432/indicagent")
+        conn = psycopg.connect("postgresql://postgres:postgres@localhost:5432/indicagent")
     except Exception:
         pytest.skip("Cannot connect to the live indicagent DB")
     try:

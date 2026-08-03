@@ -67,25 +67,26 @@ def test_compute_symbol_tf_return_keys():
 
 
 def test_compute_symbol_tf_has_no_db_write_code():
-    """_compute_symbol_tf should not contain execute_batch calls.
+    """_compute_symbol_tf should not contain executemany calls.
 
     This is a simple grep check for the pattern. After the compute/write split,
-    execute_batch should only be in _write_ic_results. A leading conn.commit()
-    is permitted -- it clears a stale read-only transaction so a named
-    (server-side) cursor can be declared (same precondition regime_writer.py's
-    _compute_symbol_tf and ensemble_ic_engine.py's pooled fetch document at
-    their own named-cursor call sites); that's a transaction-boundary reset,
-    not a persistence operation, so it doesn't violate the invariant this test
-    guards -- which is that no result rows get written from compute.
+    executemany (psycopg2.extras.execute_batch's replacement post-psycopg3
+    migration, 2026-08-03) should only be in _write_ic_results. A leading
+    conn.commit() is permitted -- it clears a stale read-only transaction so a
+    named (server-side) cursor can be declared (same precondition
+    regime_writer.py's _compute_symbol_tf and ensemble_ic_engine.py's pooled
+    fetch document at their own named-cursor call sites); that's a
+    transaction-boundary reset, not a persistence operation, so it doesn't
+    violate the invariant this test guards -- which is that no result rows get
+    written from compute.
     """
 
     source = inspect.getsource(_compute_symbol_tf)
 
-    # execute_batch should NOT be in _compute_symbol_tf
-    assert "execute_batch" not in source, (
-        "_compute_symbol_tf should not contain execute_batch "
-        "(DB writes moved to _write_ic_results)"
-    )
+    # executemany should NOT be in _compute_symbol_tf
+    assert (
+        "executemany" not in source
+    ), "_compute_symbol_tf should not contain executemany (DB writes moved to _write_ic_results)"
 
 
 def test_write_ic_results_exists():
@@ -114,13 +115,14 @@ def test_write_ic_results_exists():
 
 
 def test_write_ic_results_has_db_write_code():
-    """_write_ic_results should contain execute_batch for DB writes."""
+    """_write_ic_results should contain executemany for DB writes."""
     import services.ic_engine as ic_module
 
     source = inspect.getsource(ic_module._write_ic_results)
 
-    # execute_batch SHOULD be in _write_ic_results
-    assert "execute_batch" in source, "_write_ic_results must contain execute_batch for DB writes"
+    # executemany SHOULD be in _write_ic_results (psycopg2.extras.execute_batch's
+    # replacement post-psycopg3 migration, 2026-08-03)
+    assert "executemany" in source, "_write_ic_results must contain executemany for DB writes"
 
     # commit() SHOULD be in _write_ic_results
     assert "conn.commit()" in source, "_write_ic_results must call conn.commit() for DB writes"
