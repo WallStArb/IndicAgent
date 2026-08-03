@@ -39,6 +39,11 @@ class BarHistory:
         self._maxlen = maxlen
         self._data: dict[str, deque[BarMessage]] = {}
 
+    @property
+    def maxlen(self) -> int:
+        """Configured per-(symbol, tf) capacity -- read-only, set at construction."""
+        return self._maxlen
+
     def append(self, bar: BarMessage) -> None:
         """Append a completed bar to the deque for (bar.symbol, bar.tf).
 

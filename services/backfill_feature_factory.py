@@ -54,6 +54,7 @@ from src.config.settings import Settings, get_active_contracts
 from src.core.market_calendar import get_market_calendar
 from src.core.service_utils import setup_service_logging
 from src.intelligence.feature_cache import (
+    _CTF_HIGHER_TF,
     _HMM_K,
     FeatureCache,
     _hmm_forward_step,
@@ -154,15 +155,11 @@ _SPY = "SPY"
 _TLT = "TLT"
 _SHY = "SHY"
 
-# CTF higher-timeframe mapping: source TF → HTF used for CTF features
-# 1d uses itself as HTF: CTF at bar T computed from daily bars up to T (causal; bisect_right
-# selects the current bar's CTF which is valid since the bar has closed at computation time).
-_CTF_HIGHER_TF: dict[str, str] = {
-    "5m": "1h",
-    "15m": "1h",
-    "1h": "1d",
-    "1d": "1d",
-}
+# _CTF_HIGHER_TF (source TF -> HTF used for CTF features) now lives in
+# src.intelligence.feature_cache, shared with feature_vector_pipeline.py's live-path
+# update (todo 241). 1d uses itself as HTF: CTF at bar T computed from daily bars up to
+# T (causal; bisect_right selects the current bar's CTF which is valid since the bar
+# has closed at computation time).
 
 # ---------------------------------------------------------------------------
 # DB helpers (psycopg sync — mirrors run_historical_pipeline.py pattern)

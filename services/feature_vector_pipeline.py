@@ -18,6 +18,7 @@ import time
 from typing import Any
 
 import _path_bootstrap  # noqa: F401 — project root on sys.path
+import numpy as np
 
 from services._batch_utils import get_dict_config as _get_dict_config
 from services._batch_utils import get_list_config as _get_list_config
@@ -51,7 +52,12 @@ from src.core.stream_keys import (
     topic_signal_dlq,
     topic_system_events,
 )
-from src.intelligence.feature_cache import CrossAssetState, FeatureCache
+from src.intelligence.feature_cache import (
+    _CTF_HIGHER_TF,
+    CrossAssetState,
+    FeatureCache,
+    _rsi_simple,
+)
 from src.intelligence.feature_factory import (
     FEATURE_FACTORY_VERSION,
     FeatureFactory,
@@ -92,6 +98,36 @@ _PIPELINE_VERSION = "3.0.0"
 # algorithm processes"), so the live driver is feature.cross_asset.role_symbols
 # (migration 279), loaded into self._cross_asset_symbols during _prewarm_threshold_config().
 _CROSS_ASSET_SYMBOLS_DEFAULT: tuple[str, str, str] = ("SPY", "TLT", "SHY")
+
+# Inverse of feature_cache._CTF_HIGHER_TF: which LTF caches read ctf_momentum from a
+# given HTF timeframe when a bar on that HTF arrives (todo 241). e.g. a "1h" bar updates
+# both "5m" and "15m" caches; a "1d" bar updates "1h" (and its own, self-referential --
+# see _CTF_HIGHER_TF's docstring) cache.
+_CTF_LOWER_TFS: dict[str, list[str]] = {
+    htf: [ltf for ltf, mapped_htf in _CTF_HIGHER_TF.items() if mapped_htf == htf]
+    for htf in set(_CTF_HIGHER_TF.values())
+}
+
+
+def _assert_rsi_mid_period_fits_bar_history(rsi_mid_period: int, bar_history_maxlen: int) -> None:
+    """ctf_momentum's live-path RSI (todo 241, _update_ctf_cache_from_htf_bar) reads
+    rsi_mid_period bars from self._bar_history (BarHistory(maxlen=200) by default,
+    __init__). _wilder_rsi_series returns an all-50.0 (-> ctf_momentum=0.0) series when
+    n < period + 1 -- an operator raising this APR key at/above the buffer size would
+    silently zero ctf_momentum for every symbol with no error, no metric, no log. Fail
+    loud at config-load time instead (CLAUDE.md: silent wrong answers are worse than loud
+    crashes; same pattern _prewarm_threshold_config's _check_prewarmed uses). Same
+    systemic BarHistory-cap class of gap todo 177 tracks for other >200 window fields --
+    not duplicating that todo's broader fix-shape decision, just failing loud for this one
+    APR-tunable field rather than letting it join the list silently. Extracted as a plain
+    function (no self, no config service) so it's unit-testable without mocking DB/Kafka.
+    """
+    if rsi_mid_period + 1 > bar_history_maxlen:
+        raise AssertionError(
+            f"feature.period.rsi.mid={rsi_mid_period} would exceed BarHistory's "
+            f"maxlen={bar_history_maxlen} -- ctf_momentum would silently compute as 0.0 "
+            f"for every symbol (see todo 177/241)"
+        )
 
 
 # ---------------------------------------------------------------------------
@@ -183,7 +219,7 @@ class FeatureVectorPipeline(BaseDaemon):
             "VX" if any(c.symbol == "VX" for c in self._contracts) else None
         )
 
-    def _get_cache(self, symbol: str, tf: str) -> FeatureCache:
+    def _get_cache(self, symbol: str, tf: str, *, exclude_last: bool = True) -> FeatureCache:
         """Return the FeatureCache for (symbol, tf), creating one on first access.
 
         A newly created cache is warmed from already-seeded/buffered bar history
@@ -194,8 +230,17 @@ class FeatureVectorPipeline(BaseDaemon):
         `update_wk_vwap()` itself -- `advance_bar()`'s prior `hmm_duration += 1.0`
         increment was removed 2026-07-30, todo 207, since its only reset was removed
         the same day as dead compute; see `feature_cache.py`'s `advance_bar()`).
-        The most recent bar in history is excluded since it is the bar currently being
-        processed and receives its own `advance_bar()` call after `compute()` below.
+        The most recent bar in history is excluded by default since it is normally the
+        bar currently being processed, which receives its own `advance_bar()` call
+        after `compute()` below.
+
+        `exclude_last=False` (todo 241 follow-up): the CTF propagation path
+        (`_update_ctf_cache_from_htf_bar`) calls this for LTF caches that are NOT the
+        tf currently being processed -- every buffered bar for that other tf is
+        genuinely historical, none of it will get a separate `advance_bar()` call, so
+        excluding the last one would silently and permanently lose one bar's
+        contribution to `_wk_tp_vol_sum`/session-VP/overnight-range/session-levels
+        state for any cache first created via that path.
 
         Also replays `update_session_vp()` over the same buffered history (Phase 163
         code review CR-01) -- without this, `_sess_bars` starts empty on every restart
@@ -228,7 +273,8 @@ class FeatureVectorPipeline(BaseDaemon):
         if key not in self._feature_caches:
             assert self._feature_factory_config is not None, "FeatureFactoryConfig not prewarmed"
             cache = FeatureCache()
-            buffered = list(self._bar_history.get(symbol, tf))[:-1]
+            history = list(self._bar_history.get(symbol, tf))
+            buffered = history[:-1] if exclude_last else history
             for bar in buffered:
                 cache.update_wk_vwap(bar.ts, bar.high, bar.low, bar.close, float(bar.volume))
                 cache.update_session_vp(
@@ -1039,6 +1085,10 @@ class FeatureVectorPipeline(BaseDaemon):
             session_levels_asia_end_et_hour=_int("feature.session_levels.asia_end_et_hour", 4),
         )
 
+        _assert_rsi_mid_period_fits_bar_history(
+            self._feature_factory_config.rsi_mid_period, self._bar_history.maxlen
+        )
+
         # feature.cross_asset.role_symbols (migration 279) -- not part of FeatureFactoryConfig
         # (it's pipeline-level routing, not a compute parameter), so it's loaded independently
         # of the _int/_float/_dict helpers above and their _THRESHOLD_KEYS-membership assertion.
@@ -1096,6 +1146,16 @@ class FeatureVectorPipeline(BaseDaemon):
             await seeder.seed(self._bar_history)
         except Exception as error:
             self.logger.warning("bar_history.seed_failed", error=str(error))
+            return
+        # Recompute ctf_momentum from seeded HTF history immediately (todo 241 follow-up) --
+        # without this, every symbol emits the FeatureCache dataclass default (0.0) until its
+        # next live "1h"/"1d" bar arrives (up to an hour, or up to a full day), silently
+        # diverging from batch even though the underlying computation is now the same formula.
+        # Same cold-start class of gap _get_cache()'s own docstring documents fixing for
+        # above_wk_vwap/session-VP/overnight-range/session-levels state.
+        for symbol in self._symbols:
+            for htf_tf in _CTF_LOWER_TFS:
+                self._update_ctf_cache_from_htf_bar(symbol, htf_tf, create_if_missing=True)
 
     async def _run(self) -> None:
         drain_task = asyncio.create_task(self._out_queue.drain_loop(lambda: self.running))
@@ -1328,9 +1388,11 @@ class FeatureVectorPipeline(BaseDaemon):
         if cache.bars_since_regime_refresh >= config.regime_cache_refresh_bars:
             cache.refresh_regime(bars_dicts, config)
 
-        # Update CTF cache when HTF bar arrives
-        if bar.tf in ("15m", "1h", "4h", "1d"):
-            self._update_ctf_cache_from_bar(bar, cache)
+        # Update CTF cache(s) when a timeframe that serves as another tf's HTF source
+        # arrives (todo 241) -- bar.tf in _CTF_LOWER_TFS means bar.tf is itself an HTF
+        # (today: "1h" or "1d").
+        if bar.tf in _CTF_LOWER_TFS:
+            self._update_ctf_cache_from_htf_bar(bar.symbol, bar.tf)
 
         # Session-VP accumulator (Phase 163 Plan 02): update BEFORE compute()
         # reads FeatureCache's raw session levels to derive the 14 ATR-normalized
@@ -1419,14 +1481,60 @@ class FeatureVectorPipeline(BaseDaemon):
         self._bar_e2e_latency.record(pipeline_latency_ms, {"symbol": bar.symbol, "tf": bar.tf})
         self._bars_processed.add(1)
 
-    def _update_ctf_cache_from_bar(self, bar: BarMessage, cache: FeatureCache) -> None:
-        """Update CTF fields in FeatureCache when an HTF bar arrives.
+    def _update_ctf_cache_from_htf_bar(
+        self, symbol: str, htf_tf: str, *, create_if_missing: bool = False
+    ) -> None:
+        """Recompute ctf_momentum for every LTF cache sourced from (symbol, htf_tf).
 
-        CTF primitives are read by lower-TF compute() calls. Simple proxy:
-        bar intra-bar return as ctf_momentum; other fields hold prior cached values.
+        Uses the identical causal Wilder RSI computation as
+        backfill_feature_factory.py's _build_ctf_series() (both route through
+        feature_cache._rsi_simple) so live-served and corpus-measured ctf_momentum are
+        the same statistic (todo 241 -- prior live implementation was a same-bar
+        intrabar-return proxy, a different feature entirely from what every IC
+        measurement, including Phase 167's live cross_sectional_relative_value tracker,
+        was validated against).
+
+        Recomputes over up to 200 buffered HTF bars on every HTF bar arrival (once/hour
+        for "1h", once/day for "1d", per symbol) rather than maintaining incremental
+        Wilder state -- negligible cost at that cadence, and avoids a second
+        hand-rolled implementation of the smoothing recursion.
+
+        `create_if_missing` (todo 241 follow-up, code-review finding #3): False during
+        live steady-state (the `_process_bar_compute` call site) -- this method runs
+        concurrently with other (symbol, tf) workers via `PerKeyWorkerManager`, and
+        `_get_cache(..., exclude_last=False)` assumes every buffered bar is already
+        historical. If an LTF cache does not exist yet, its most recent buffered bar
+        may be one `_process_bar_inner` has appended but not yet run
+        `_process_bar_compute` for (there's a real `await` between those two steps) --
+        eagerly creating the cache here would apply that bar's session-VP/overnight-
+        range/session-levels contribution now AND a second time when its own worker
+        reaches it, double-counting. Skipping (this method silently no-ops for that
+        LTF until its own worker creates the cache the normal way) is safe: the next
+        HTF arrival re-propagates ctf_momentum into it once it exists.
+        True only at cold-start (`_seed_bar_history_from_db`'s caller, before `_run()`
+        starts the process loop) -- no concurrent bar processing exists yet at that
+        point, so eager creation from purely-historical seeded bars is race-free and
+        is what closes the cold-start gap (ctf_momentum stuck at 0.0 for up to an hour
+        or a day after every restart) code review found.
         """
-        if bar.open > 0:
-            cache.ctf_momentum = (bar.close - bar.open) / bar.open
+        assert self._feature_factory_config is not None, "FeatureFactoryConfig not prewarmed"
+        lower_tfs = _CTF_LOWER_TFS.get(htf_tf)
+        if not lower_tfs:
+            return
+        htf_bars = self._bar_history.get(symbol, htf_tf)
+        if not htf_bars:
+            return
+        closes = np.array([b.close for b in htf_bars], dtype=float)
+        rsi = _rsi_simple(closes, self._feature_factory_config.rsi_mid_period)
+        ctf_momentum = float(np.clip((rsi - 50.0) / 50.0, -1.0, 1.0))
+        for ltf in lower_tfs:
+            if create_if_missing:
+                cache = self._get_cache(symbol, ltf, exclude_last=False)
+            else:
+                cache = self._feature_caches.get(f"{symbol}:{ltf}")
+                if cache is None:
+                    continue
+            cache.ctf_momentum = ctf_momentum
 
     def _assemble_checkpoint_extra(self) -> dict:
         return {

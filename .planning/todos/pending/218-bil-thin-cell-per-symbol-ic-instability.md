@@ -63,6 +63,38 @@ cells" observation rather than a live-path bug. If FDR doesn't catch it either, 
 Hypothesis 1 first (cheapest, read-only) before assuming a regime-assignment or data-quality
 bug.
 
+## CLOSED 2026-08-03 -- root-caused, Hypothesis 1 confirmed
+
+**FDR check (against the completed 2026-08-02 `ic_engine` run):** partial catch only. Of 276
+thin (`n_independent < 200`)/extreme (`ic_value > 0.3`) BIL cells, `passes_fdr` filters 184 but
+92 (33%) still clear it -- FDR does not fully explain this away, confirming it's not just "the
+raw CI gate is too permissive," Hypothesis 1 needed a real check.
+
+**Hypothesis 1 confirmed via direct peer comparison** (BIL vs SHY/IEF, matched tf/regime
+cells, same query shape, non-pooled non-canary features):
+
+| symbol | 1d inverted_tight IC stddev | 1d steep_wide IC stddev | avg n_independent (1d) |
+|---|---|---|---|
+| BIL | 0.206 | 0.212 | 116-124 |
+| IEF | 0.090 | 0.106 | 106-111 |
+| SHY | 0.085 | 0.105 | 106-111 |
+
+BIL's per-cell IC point-estimate dispersion is ~2-2.5x SHY/IEF's in identical regime cells,
+with a smaller effective N on top -- the classic thin-N/low-variance instability signature,
+now measured against matched low-volatility peers rather than asserted. Hypothesis 2
+(regime mis-assignment) and Hypothesis 3 (data-quality) are both superseded -- the peer
+comparison isolates the effect to BIL's own IC-estimation noise, not a labeling or ingestion
+defect.
+
+**Not fixed, deliberately** -- this is not a live-path bug (isolated to one thinly-traded,
+near-zero-vol symbol, root cause confirmed and bounded) and no fix has been scoped or
+justified yet per this project's "don't accelerate work steps 1-3 haven't justified" mandate.
+The general fix this points at -- a minimum-`n_independent` floor on the CI gate for thin
+per-symbol cells -- is the same underlying statistical gap [todo 099](099-bootstrap-ci-staged-validation-gate-not-cleared-5m-residual.md)
+already tracks (5m autocorrelation/momentum features resisting both Fisher-z and
+block-bootstrap on thin cells). Fold BIL's case in as corroborating evidence if/when 099's
+methodology question gets real design attention -- don't build a BIL-specific patch.
+
 ## References
 
 - `feature_ic_scores` -- read-only query, see this todo's filing session for the exact SQL
