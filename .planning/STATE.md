@@ -107,21 +107,12 @@ pseudo-replication) fixed; todo 204 status is in Tier -1 below (don't restate he
 
 **Next actions, priority order:**
 
-*Tier 0.5 -- NEW 2026-08-03, outranks Tier 1: read-only measurement, not a build.* Todo 243
-(`ctf_momentum` batch-join lookahead bias) -- quantify how much a corrected HTF join shifts
-`ctf_momentum`'s measured IC at 5m/15m/1h before any decision on a corpus recompute or on
-re-running Phase 167's gates. This bears directly on whether the project's single most
-consequential proof-of-alpha result to date needs re-litigating; per explicit user direction,
-measure first, decide after -- do not trigger a corpus-wide recompute unilaterally. Cheap
-(scoped sample, no `feature_vectors` writes) and answers a real open question ahead of any new
-feature/construction work. **Blast radius wider than 243's own file scoped it, found 2026-08-03
-cross-checking it against this session's own 239/240 work: `ctf_momentum` is one of ~247 trained
-columns in nonlinear_interaction_combiner's matrix (not excluded), and the tree's own
-feature_importances_ measured it at 400+ -- see [todo 245](.planning/todos/pending/245-nonlinear-interaction-combiner-trains-on-lookahead-contaminated-ctf-momentum.md).
-Verified (checked live DB, not assumed): the live production ensemble is NOT contaminated --
-`ctf_momentum` has zero `ensemble_weights` rows, fails BH-FDR eligibility at every tf. The
-confound is scoped to Phase 167's standalone ranking use and nonlinear_interaction_combiner's
-training matrix, not `alpha_publisher`.**
+*Tier 0.5 -- NEW 2026-08-03, outranks Tier 1: read-only measurement, not a build.* `ctf_momentum`
+batch-join lookahead bias (todos 243/245) -- full story in Current Saga above, not restated here.
+**In flight**: `nonlinear_interaction_combiner_ctf_leak_diagnostic_1h.py` launched 2026-08-03
+13:02 (background), runs the corrected-methodology 1h check twice, with vs without the three
+contaminated CTF columns -- direct read on whether the tree's uplift was riding the leak. Check
+for completion before starting anything else that touches this same measurement chain.
 
 *Tier 1 -- decision point, REDIRECTED 2026-07-27 by explicit user instruction:* Phase 156-159
 (execution/sizing) is NOT the priority even though its precondition is cleared. User wants the
@@ -129,21 +120,14 @@ features/regimes/IC/ensemble signal-generation stack validated first ("real prov
 before any execution-layer investment. Do not resume Phase 156-159 scoping without the user
 re-raising it.
 
-*Tier 2 -- serves the redirected priority:* todo 234 CLOSED 2026-08-03 -- nonlinear_interaction_combiner's 15m result now
-in, and it's the more consequential read of nonlinear_interaction_combiner than 1d's small-magnitude number was: substantial
-at the tf that's actually tradeable. **Caveat added 2026-08-03: that "substantial" read was
-measured against a since-corrected methodology bug (todos 239/240 -- pooled-panel embargo units,
-tree-vs-one-column baseline instead of tree-vs-linear-ensemble). Code fix is landed and
-committed. The re-run is now gated further: `ctf_momentum` (tree feature_importances_ 400+, one
-of the tree's most-relied-on inputs) is itself lookahead-contaminated at 1h/15m/5m per todo 243
--- see todo 245. 1d re-run is safe and unblocked now; 1h/15m/5m wait on 245's diagnostic (or
-243's fix).** todo 235
-(cross_sectional_relative_value-at-5m, never comparatively tested against 15m
-for this construction -- new 2026-08-03); the open `alpha_ensemble_ic`/`alpha_events` question (is the linear-only combiner adequate, or
-does it need revision -- confirmed `ensemble_trainer.py`'s `resolve_stratum_weights` is linear
-combination only; `alpha_events` confirmed sparse/emission-gated, not a dense full-universe
-ranking input without further work; not yet investigated further). Phase 151 (Feature
-Primitives Expansion, already planned) is the next-tier option if these don't pan out.
+*Tier 2 -- serves the redirected priority:* todo 234 CLOSED 2026-08-03 -- nonlinear_interaction_combiner's 15m result
+substantial at the tf that's actually tradeable, **but see Tier 0.5/Current Saga: that read needs
+re-confirming once the CTF-leak diagnostic lands (1d re-run is safe now, 1h/15m/5m wait).** todo
+235 (cross_sectional_relative_value-at-5m, never comparatively tested against 15m for this
+construction); the open `alpha_ensemble_ic`/`alpha_events` question (is the linear-only combiner
+adequate -- confirmed `ensemble_trainer.py`'s `resolve_stratum_weights` is linear combination
+only; `alpha_events` confirmed sparse/emission-gated, not a dense ranking input; not yet
+investigated further). Phase 151 is the next-tier option if these don't pan out.
 
 *Tier 2b -- concretely staged, waiting on Tier -1's pipeline to exit:* todo 167 (equity
 cross-sectional-vs-symbol-HMM stratification falsifier, never tested unlike rates'). Migration
@@ -298,48 +282,15 @@ ON CONFLICT (symbol, tf) DO UPDATE SET fetch_complete = true;
   construction-layer change (which symbols/legs survive transaction costs), no new features.
   See `docs/research/trade-construction-layer.md`.
 
-- Phase 162 (ic_engine Corpus Pipeline Throughput): added 2026-07-18, planned 2026-07-22, executed and COMPLETE 2026-07-23.
-- Phase 163 (VP/SR Structural Primitives): added 2026-07-20, planned and reviewed, executed and COMPLETE 2026-07-24.
-- Phase 164 (SMC Institutional Footprint Primitives): added 2026-07-20, planned 2026-07-25 (4 plans, 4 waves, `gsd-plan-checker` verified). Deprioritized 2026-07-26 behind Phase 167, then explicit user override 2026-07-27 (Tier 0) reinstated it regardless of the evidence-gate reasoning. Plan 01 (data contract) executed 2026-07-27; Plan 02 (order blocks + stateless breaker/mitigation), Plan 03 (FVG + liquidity sweeps + liquidity pools), and Plan 04 (supply/demand zones + BOS/CHoCH + AMD cycle) all executed 2026-07-28 -- COMPLETE, 4/4 plans, see Phase Summary table. Next per Tier 0's sequencing: plan Phase 165, execute Phase 165, then one combined `backfill_feature_factory.py --compute-only --refresh` pass covering both phases' new columns.
-- Phase 165 (Swing/Fib/Trend Structure Primitives): planned 2026-07-27 (5 plans, 5 waves, sequential -- every plan touches `feature_factory.py`). Plan 01 (data contract: migration 267, 41 new columns/registry rows/APR keys) executed 2026-07-28. Plan 02 (swing detection + trend structure, 13/41 columns, mutation-verified) executed 2026-07-28. Plan 03 (swing momentum + fibonacci zones, 12/41 columns, 25/41 total, mutation-verified) executed 2026-07-28. Plan 04 (session levels FeatureCache state layer, 22 new state fields, mutation-verified) executed 2026-07-28. Plan 05 (final 16-column derivation + phase-closing gate) executed 2026-07-28 -- **COMPLETE, 5/5 plans.** All 41 `feature_registry` rows (`added_phase='165'`) confirmed live in DB. Per Tier 0's sequencing, next action is the ONE combined `backfill_feature_factory.py --compute-only --refresh` pass covering both Phase 164's and Phase 165's new columns (~8h estimated, not yet started -- the user's decision when to kick off, not automatic).
-- Phase 166 (Frame/Execution Recalibration): added 2026-07-23, planned and executed same day -- COMPLETE, verdict: neither candidate promoted. Direct follow-on (todo 179) found the real cause (see Current Focus).
-- Phase 151 (Feature Primitives Expansion + Interaction Layer): planned 2026-07-24, cross-AI reviewed and revised same day (Codex found 3 HIGH-severity findings, all fixed as real plan changes). 9 plans, execution-ready. Deprioritized 2026-07-26 behind Phase 167 (see Current Focus) -- stays planned and ready, not the next priority.
-- Phase 167 (Cross-Sectional Trade Construction, cross_sectional_relative_value): added 2026-07-26 after cross_sectional_relative_value passed decisively -- the first thesis in the edge-source-thesis tree to clear its own bar. Planned (6 plans), executed, COMPLETE 2026-07-27 -- both live Validation Gates PASSED. Full detail in Current Focus above.
+- Phase 151 (Feature Primitives Expansion + Interaction Layer): planned 2026-07-24, cross-AI reviewed and revised same day (Codex found 3 HIGH-severity findings, all fixed as real plan changes). 9 plans, execution-ready. Deprioritized 2026-07-26 behind Phase 167 (see Guiding lens above) -- stays planned and ready, not the next priority.
+
+(Entries for Phases 162/163/164/165/166/167 removed 2026-08-03 -- all COMPLETE, already fully
+described in the Phase Summary table above; this section is for phases with no table row yet.)
 
 ## Session
 
-**Last session:** 2026-07-31T12:00:00.000Z
-
-**Stopped at:** Phase 168 planned -- 5 plans in 4 waves, plan-checker passed (0 blockers,
-1 warning resolved), decision coverage 4/4, Nyquist validation strategy in place. Reviewed by
-Codex + Agy/Antigravity (REVIEWS.md); 9 concrete findings incorporated via targeted revision
-(re-checker-passed, decision-coverage re-passed 4/4). Ready to execute: `/gsd:execute-phase 168`.
-
-**Prior session's Phase 165 close-out note (preserved, unrelated to Phase 168):** Phase 165's
-phase-closing gate executed: `_derive_session_levels()` derives the final 16 columns from
-Plan 04's `FeatureCache` state, wired into both `compute()`/`compute_batch()`; the phase-closing
-`test_phase165_all_41_fields_non_constant_batch` gate confirms all 41 Phase 165 columns now
-produce real, non-constant values in both compute paths. `feature_registry` DB check confirms
-41 live rows with `added_phase='165'`. A post-merge test failure (a Plan 05 comment's literal
-"backward compatibility" phrase tripped the causal-safety look-ahead scanner
-`test_no_smooth_or_backward_in_factory`) was caught by the post-merge gate and fixed same-session
-(`ca4ef569`) -- reworded, not suppressed. Next: the user's decision on Tier 0's final step, the
-combined Phase 164+165 `backfill_feature_factory.py --compute-only --refresh` pass (~8h,
-covers 77 new columns + Phase 163's deferred VP/SR backfill, not yet started).
-
-**This session's arc:** Resumed from a prior session's handoff (Plan 02 finalization, committed
-as `1bc98d0f`). Continued via `/gsd-execute-phase 165`, dispatching sequential single-plan-wave
-`gsd-executor` subagents in worktree isolation for Waves 3-5. Wave 3 (Plan 03: swing momentum +
-fibonacci zones) merged clean, tracking committed `88eb4a2c`. Wave 4 (Plan 04: session levels
-state layer) merged clean, tracking committed `d244977b`. Wave 5 (Plan 05: session levels
-derivation + phase-closing gate, commits `aa7d1532`/`ddf3474f`/`41cd741c`/`76bf478a`) merged, but
-the post-merge `tests/unit/` gate caught one real failure -- fixed directly (`ca4ef569`) rather
-than deferred. Every one of Plans 02-05's own mutation-verification passes (commit `a748d13d`
-discipline) surfaced and fixed a genuine bug in that plan's own tests, not just confirmed green:
-a `math.isclose` `rel_tol` masking (Plan 03), a structurally-blind accumulator-collision test
-(Plan 04), and a vacuous live/batch parity check (Plan 05) -- worth noting since it validates the
-discipline itself, not just this phase's output. Marked Phase 165 COMPLETE in ROADMAP.md/STATE.md
-(manual edits, not `gsd-sdk query roadmap.update-plan-progress`, which corrupted both files' text
-in an earlier session per MEMORY.md's `feedback_gsd_state_frontmatter_resync` note) and updated
-Tier 0's status to reflect both Phase 164 and Phase 165 now complete, with only the combined
-recompute pass remaining.
+**Last GSD-phase-level session:** 2026-07-31T12:00:00.000Z. **Stopped at:** Phase 168 planned --
+5 plans in 4 waves, plan-checker passed, reviewed by Codex + Agy/Antigravity, 9 findings
+incorporated. Ready to execute: `/gsd:execute-phase 168`. (Phase 165's own execution detail --
+wave-by-wave commits, mutation-verification catches -- is fully resolved and git-log-recoverable;
+trimmed here 2026-08-03. See the Phase Summary table above for what it shipped.)
