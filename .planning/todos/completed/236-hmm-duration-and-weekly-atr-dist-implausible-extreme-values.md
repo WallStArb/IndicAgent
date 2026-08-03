@@ -1,7 +1,8 @@
 ---
-status: pending
+status: completed
 priority: P3
 filed: 2026-08-03
+closed: 2026-08-03
 source: T5-at-5m float16 downcast overflow investigation
 ---
 
@@ -114,3 +115,62 @@ from 248 to 247 columns; nothing else shifts).
 `hmm_duration` (likely `regime_writer.py`, given todo 207 already established it's the sole
 authoritative writer post-2026-07-30) -- this fix only stops T5 from training on a known-broken
 column, it does not fix the column itself for any other live consumer.
+
+## Root cause found and fixed at the data layer (2026-08-03, `superpowers:systematic-debugging`)
+
+Traced to source rather than left as "likely regime_writer.py": read `regime_writer.py`'s actual
+`duration` computation (`_compute_symbol_tf`, lines ~700-709) -- it's a correct, per-(symbol, tf)
+reset-on-state-change counter, computed fresh from `smoothed_states` every run, with no
+cross-symbol or cross-run state leakage. **Not the source.** Traced further: `regime` was NULL
+for 100% of the specific rows carrying implausible `hmm_duration` values (e.g. DBA/5m:
+`hmm_duration`=367,391 on a symbol with only 367,208 total rows -- mathematically impossible
+under "duration counts consecutive same-state bars within this symbol's own history"). Checked
+corpus-wide: **airtight, zero exceptions** -- every single extreme value, at every tf, occurs
+exclusively on rows where `regime IS NULL`; every row where `regime IS NOT NULL` has a sane
+`hmm_duration` (max 345-2284 bars across all 4 tfs).
+
+This pointed at the pre-todo-207 K3 `FeatureCache` path instead of regime_writer.py. Read the
+actual deleted code via `git show f4912816^:src/intelligence/feature_cache.py`:
+`advance_bar()` did `self.hmm_duration += 1.0` unconditionally on every bar; the only reset
+(`refresh_regime()`) fired exclusively when a separate, periodic K3 forward-pass model's own
+label happened to change since the prior check. For any symbol where that K3 model's label
+rarely or never changed (a real risk -- todo 207 already documented K3 as "fixed-params,
+forward-filter only, never validated by BIC," a cost-driven approximation, not a fitted model),
+the counter simply never reset, accumulating "bars processed since cache start" instead of a
+meaningful regime duration. Todo 207 (2026-07-30) deleted this entire path outright
+(`_hmm_forward_2d`/`_hmm_entropy` removed, `advance_bar()`'s increment removed,
+`FeatureFactory.compute()` now writes all 3 fields as `None` unconditionally) -- **the generator
+of new bad values has been dead code since 2026-07-30.** What remained was ~10M already-written
+stale rows from before that fix, on cells `regime_writer.py`'s K5-authoritative fit had never
+successfully labeled (degenerate model / insufficient obs -- so nothing had ever overwritten the
+old K3 garbage there).
+
+Also checked whether `hmm_regime_prob`/`hmm_entropy` (written by the identical dead K3 path, same
+atomic tuple) share the contamination: **yes, silently** -- both are non-NULL on 100% of rows
+regardless of `regime`, meaning wherever `regime IS NULL` they also still carry stale K3-era
+values. These didn't surface via an implausibility check the way `hmm_duration` did, since a
+probability/entropy value has no natural "too large" signature -- arguably a worse case of
+"silent wrong answer" than the one that got noticed.
+
+**Fix applied:** `scripts/ops/corpus/ops_stale_k3_hmm_fields_cleanup.py` (dry-run by default,
+`--apply` required, same safety convention as `ops_known_corrupt_print_cleanup.py`) -- nulls
+`hmm_duration`/`hmm_regime_prob`/`hmm_entropy` specifically where `regime IS NULL`, batched per
+(symbol, tf) pair with an `integrity_monitor` audit record per pair. Per this project's
+Renaissance data-retention discipline: no row deleted, `regime` and every other column
+untouched, only the 3 confirmed-stale fields nulled. **Applied and verified live:** 10,062,758
+rows cleaned across 77 (symbol, tf) pairs; post-apply query confirms zero non-NULL values remain
+on any `regime IS NULL` row across all 4 tfs, and every `regime IS NOT NULL` row is untouched
+(same 345-2284 max `hmm_duration` as before). Audit trail sums to exactly 10,062,758, matching
+the applied count. Full unit suite green before and after.
+
+`_t5_nonlinear_combiner_shared.py`'s `EXCLUDE_COLS` comment updated to reflect the column is now
+data-clean, not still broken -- `hmm_duration` stays excluded from T5 training as a deliberate,
+conservative choice (never a meaningful driver of already-published results, re-including it now
+would require re-running every number for no demonstrated benefit), not because the data is bad
+anymore.
+
+**Split into two todos going forward:** this todo (`hmm_duration`/`hmm_regime_prob`/
+`hmm_entropy`, the airtight, fully-root-caused half) is CLOSED. The `weekly_r1_dist_atr`/
+`weekly_r2_dist_atr` ATR-floor half turned out to be a much bigger, shared-helper design question
+(affects 15+ ATR-normalized distance columns, not just these two) that deserves its own scoping
+rather than a rushed patch -- filed as [237](../pending/237-atr-distance-features-no-floor-guard-shared-helper.md).

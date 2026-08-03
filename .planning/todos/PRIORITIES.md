@@ -195,8 +195,19 @@ deliberately left untouched — its incremental algorithm genuinely differs from
 per-tick recompute, unifying them would be a behavior change to the corpus-computation path.
 97/97 directly-affected tests green, full suite green.
 
+**[236](../completed/236-hmm-duration-and-weekly-atr-dist-implausible-extreme-values.md) CLOSED
+2026-08-03** — root-caused via `superpowers:systematic-debugging`: `hmm_duration`'s implausible
+values (also silently affecting `hmm_regime_prob`/`hmm_entropy`) traced to a since-deleted K3
+`FeatureCache` counter (todo 207) that never reset for symbols where its own low-quality forward
+model rarely changed label — airtight, 100% of extreme values on `regime IS NULL` rows, zero on
+`regime IS NOT NULL`. `ops_stale_k3_hmm_fields_cleanup.py --apply` nulled 10,062,758 stale rows
+across 77 (symbol, tf) pairs; verified live, audited via `integrity_monitor`. Split off the
+ATR-floor half (much bigger shared-helper question, not root-caused to the same certainty) as
+[237](pending/237-atr-distance-features-no-floor-guard-shared-helper.md).
+
 | Todo | What |
 |---|---|
+| [237](pending/237-atr-distance-features-no-floor-guard-shared-helper.md) | New 2026-08-03, split from 236. `feature_factory.py`'s shared `_above`/`_below` helper (15+ ATR-normalized distance columns) guards `atr_val > 0` but not "numerically tiny" — confirmed real via BIL/5m/2012 (a near-zero-ATR blowup), but only 3-6 rows out of 25.4M cross any visible threshold. Needs a real APR-governed floor design, not a rushed two-column patch. |
 | [056](pending/056-phase146-147-v2x-retirement-stale.md) | ROADMAP Phase 147/148 text rewritten 2026-07-19 (operator call resolved: archive not delete, decouple from proof gates). Remaining scope: the actual decommission-in-fact execution (git mv v2.x code to archive/, disable dead systemd units, rename-not-drop the frozen v2.x tables) — real multi-file operation, do with a clean git state. |
 | [225](pending/225-multi-vector-systematic-regime-join-hybrid-sensitivity-symbols.md) | Downgraded P2→P3 2026-08-01 per its own pilot finding (was left un-actioned in this file until this cleanup pass): read-only pilot on 5 hybrid symbols (`OIH`/`XLE`/`XOP`/`AMLP`/`GDX`) came back negative — the one BH-FDR survivor (`GDX momentum_z_fast`) failed cross-timeframe replication, flat null. Real information, not wasted effort; don't build the Fix steps until a better-motivated candidate surfaces or the universe scales. Full methodology in the todo file's "Pilot result" section. |
 | [022](pending/022-bi-superset.md) | Self-service BI (Superset) for ad-hoc analytics |

@@ -60,16 +60,19 @@ EXCLUDE_COLS = {
     "canary_near_constant",
     "canary_noise_gaussian",
     "canary_noise_uniform",
-    # Confirmed broken at every tf (todo 236, 2026-08-03), not a 5m-only float16 numeric issue:
-    # max(abs(hmm_duration)) is 4,819/30,077/130,242/367,391 bars at 1d/1h/15m/5m respectively --
-    # implausible at every one of them (even 1d's is ~13 years of continuous same-regime), just
-    # under float16's ~65504 ceiling at 1d/1h and over it at 15m/5m. Live evidence of a
-    # regime_writer.py duration-tracking defect (reset-on-transition or an accumulation boundary
-    # it shouldn't cross), not a legitimate large value. Universally excluded rather than
-    # float16-scoped: re-verified via actual LightGBM feature_importances_ on the already-trained
-    # 1h model that it was never a meaningful driver (rank 89-233/248 across all 5 folds,
-    # importance 0-3 vs ctf_momentum's 400+) -- excluding it doesn't change any published T5
-    # result, it just stops training on a column known to carry no real signal.
+    # Root-caused and cleaned at the data layer (todo 236, 2026-08-03): stale values from a
+    # since-deleted K3 FeatureCache counter (dead code removed by todo 207, 2026-07-30) had
+    # implausible magnitudes at every tf (e.g. 1h's max was 30,077 bars, ~13 years of continuous
+    # same-regime) specifically on rows regime_writer.py's K5-authoritative fit had never
+    # successfully labeled (`regime IS NULL`). `ops_stale_k3_hmm_fields_cleanup.py --apply`
+    # nulled all ~10.06M affected rows corpus-wide; wherever `regime IS NOT NULL`, hmm_duration
+    # was already a correct K5 value (confirmed live: max(abs()) there is 345-2284 bars across
+    # every tf, entirely plausible) and was untouched. The column is data-clean now, not still
+    # broken -- still excluded here as a deliberate, conservative choice: it was never a
+    # meaningful driver of the already-published T5 results (re-verified via actual LightGBM
+    # feature_importances_ on the real fitted 1h models: rank 89-233/248 across all 5 folds,
+    # importance 0-3 vs ctf_momentum's 400+), so re-including it now would require re-running
+    # every published number for no demonstrated benefit.
     "hmm_duration",
 }
 
