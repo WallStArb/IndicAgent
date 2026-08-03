@@ -1,6 +1,6 @@
 # CLAUDE.md
 
-Version: 5.54.2
+Version: 5.54.3
 
 **Project nature:** Passion/learning project — not a production system. Architectural decisions prioritize correctness, rigor, and institutional-grade thinking. Renaissance Capital / Jim Simons principles are the north star. When giving advice, apply the same rigor you would to a system built to last — do not hedge around operational risk that doesn't apply.
 
@@ -37,7 +37,7 @@ any work NOT driven through `/gsd-execute-phase`, still invoke `/simplify` manua
 
 ## Architecture
 
-**Layers (v3.0):** Feature Factory (replaces I1-I4) · I5-I7 archived · I8 AI (Ollama; effective model `nemotron-3-nano:4b` set by `OLLAMA_MODEL` in `.env` — the `settings.py` code default `gemma4:e4b` is NOT pulled locally, so a missing `.env` entry breaks all LLM calls)
+**Layers (v3.0):** Feature Factory (replaces I1-I4) · I5-I7 archived · I8 AI (Ollama; effective model `nemotron-3-nano:4b` set by `OLLAMA_MODEL` in `.env` — the `settings.py` code default `gemma4:e4b` is NOT pulled locally, so a missing `.env` entry breaks all LLM calls). **I8 is target-state, not confirmed-running:** `BaseAIWorker`/`alpha_swarm`/`narrative_swarm` have had zero commits since the v3.0 rebuild started 2026-06-20, and both `indicagent-alpha-swarm`/`indicagent-narrative-compute` are `disabled`/`inactive` — dormant-pending-design, not archived like I1-I7. Check `systemctl status` + `git log` before citing this stack as live. Detail: `src/intelligence/CLAUDE.md`'s top banner.
 **Pipeline (v2.x — ARCHIVED, no live consumer as of 2026-07-02):** `indicagent-intelligence-pipeline.service` is `failed`; `ExecStart` points at a deleted file. Do not restart this unit expecting it to work. Full architecture: `src/intelligence/CLAUDE.md`.
 **Pipeline (v3.0):** `IBKR TWS → FeatureVectorPipeline (compute) → FeatureVectorWriter → feature_vectors → forward_return_writer → ic_engine → ensemble_trainer/EnsembleICEngine (alpha_ensemble_ic) → alpha_publisher → alpha_events`. `alpha_publisher` is the sole `alpha_events` writer.
 **Typed Bus (v2.x — ARCHIVED, no live consumer as of 2026-07-02):** `IntelligenceEvent` (`src/intelligence/schemas.py`) — tiered JSONB (i1/i2/i3/i4/i5/smc/i6), persisted to `intelligence_features` by `feature_writer`. `indicagent-feature-writer.service` is `inactive (dead)`.
@@ -58,7 +58,7 @@ any work NOT driven through `/gsd-execute-phase`, still invoke `/simplify` manua
 - `src/intelligence/schemas.py` — canonical typed bus schemas
 - `src/config/settings.py` — `Settings`, `get_active_contracts()`, `Instrument` definitions
 - `src/providers/ibkr.py` — all ib_insync logic (no imports outside this file)
-- **Narrative service:** `services/narrative_swarm.py` (`NarrativeSwarm`) → `indicagent-narrative-compute`. Worker: `NarrativeSynthesizer` in `src/intelligence/ai/narrative/narrative_agent.py`.
+- **Narrative service (dormant, see Architecture note above):** `services/narrative_swarm.py` (`NarrativeSwarm`) → `indicagent-narrative-compute`. Worker: `NarrativeSynthesizer` in `src/intelligence/ai/narrative/narrative_agent.py`.
 
 ## Data Flow
 
