@@ -1,0 +1,25 @@
+[Unit]
+Description=IndicAgent Compression Auditor — ground-truth TimescaleDB compression drift detection + self-healing (todo 233)
+After=network-online.target indicagent-timescaledb-ready.service
+Requires=indicagent-infrastructure.target
+StartLimitIntervalSec=300
+StartLimitBurst=5
+
+[Service]
+Type=simple
+User=bg
+WorkingDirectory=/home/bg/dev/indicagent
+Environment=PYTHONPATH=/home/bg/dev/indicagent
+Environment=PYTHONUNBUFFERED=1
+ExecStart=/home/bg/dev/indicagent/.venv/bin/python services/compression_auditor.py
+Restart=always
+WatchdogSec=60
+NotifyAccess=main
+RestartSec=10
+StandardOutput=journal
+StandardError=journal
+SyslogIdentifier=indicagent-compression-auditor
+LimitNOFILE=65536
+
+[Install]
+WantedBy=multi-user.target

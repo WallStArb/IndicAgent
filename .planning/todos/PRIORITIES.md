@@ -254,7 +254,7 @@ per-tick recompute, unifying them would be a behavior change to the corpus-compu
 | [022](pending/022-bi-superset.md) | Self-service BI (Superset) for ad-hoc analytics |
 | [115](pending/115-days-to-month-end-exact-redundancy.md) | `days_to_month_end` is an exact affine complement of `month_position` (Pearson correlation -1) — perfectly collinear, remove one. |
 | [189](pending/189-ctf-momentum-1d-self-referential-htf-not-cross-timeframe.md) | Mostly resolved 2026-07-27 same-day as filing: `ctf_momentum`'s 1d-vs-15m sign flip was a measurement artifact (`_CTF_HIGHER_TF` maps `1d -> 1d`, self-referential), doc corrected. Remaining: optional design decision + audit of sibling fallbacks, not urgent. |
-| [233](pending/233-timescaledb-compression-policy-scheduler-silent-noop.md) | New 2026-08-02. `alpha_events`/`ensemble_alpha` compression jobs reported 57/57 "Success" while compressing 0 chunks; manual `CALL run_job()` fixed it instantly (reclaimed ~13GB, DB 76GB→63GB). Root cause (why the scheduler path no-ops but a direct call works) not yet diagnosed. |
+| [233](pending/233-timescaledb-compression-policy-scheduler-silent-noop.md) | **Permanent fix shipped 2026-08-02** (root cause investigation exhausted its evidence trail, moved on): new `services/compression_auditor.py` daemon checks `timescaledb_information.chunks` against each hypertable's own `compress_after` every 6h — ground truth, not `job_stats` — and self-heals via `CALL run_job()`. Deployed, live, confirmed clean. Underlying scheduler-internals question stays open but low-priority now that the risk class is closed for every hypertable, present or future. |
 
 ---
 

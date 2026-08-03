@@ -118,6 +118,7 @@ _DAG_ORDER: dict[str, int] = {
     "indicagent-signal-replay": 9,  # priority 9: observes signal-ledger state
     "indicagent-alerting-agent": 9,  # priority 9: depends on all above for alert sources
     "indicagent-dlq-drain": 9,  # priority 9: writes DLQ topics from all above layers to dlq_events
+    "indicagent-compression-auditor": 9,  # priority 9: DB-only, no pipeline dependency beyond TimescaleDB (tier 0); todo 233
     # Phase 109 services (config foundation + self-healing engine).
     # Lag thresholds for these units, when needed, will be seeded into config_state
     # under alert.lag.* keys by Plan 05 Task 3.
@@ -166,6 +167,7 @@ _AGENT_ID_TO_UNIT: dict[str, str] = {
     "bar_replay_provider": "indicagent-bar-replay",
     "signal_replay_auditor": "indicagent-signal-replay",
     "dlq_writer": "indicagent-dlq-drain",
+    "compression_auditor": "indicagent-compression-auditor",  # todo 233
     # Phase 109 services (config foundation + self-healing engine).
     # Lag thresholds for these units, when needed, will be seeded into config_state
     # under alert.lag.* keys by Plan 05 Task 3.
