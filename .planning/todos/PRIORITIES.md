@@ -27,11 +27,13 @@ model complexity · never drop data that could contain signal · earn promotion 
 resist overfitting. A todo that would earn its way to P0/P1 under these tests (a live-path
 integrity gap, an unproven claim masquerading as settled) outranks one that's merely convenient.
 
-**Phase-level status:** see `.planning/STATE.md` and
-`docs/research/intelligence-lifecycle-backlog-matrix.md`'s Operational Context -- not
-duplicated here. Two open items with no phase home yet: todo 204 (POOLED-gate anomaly,
-undiagnosed since 2026-07-30) and todo 218 (`BIL` implausible per-symbol IC on thin cells,
-filed 2026-07-31, check `passes_fdr` once the in-flight run completes).
+**Phase-level status and in-flight run state:** see `.planning/STATE.md`'s "Current saga"
+section (authoritative, live) and
+`docs/research/intelligence-lifecycle-backlog-matrix.md`'s Operational Context -- never
+duplicated here; a run-status snapshot pasted into this file goes stale within hours and this
+file's job is prioritization, not a live dashboard. One open item with no phase home yet: todo
+218 (`BIL` implausible per-symbol IC on thin cells, filed 2026-07-31, check `passes_fdr` once
+the in-flight run completes).
 
 **Regime-stratification cluster consolidated 2026-08-01** -- read
 `docs/research/stratification-dimension-unification.md`'s "Reconciliation pass (2026-08-01)"
@@ -43,65 +45,14 @@ memory):** v2.x I1-I7 will eventually run again as a second path alongside v3.0'
 not retired permanently -- governs todo 223's archive-not-delete call and todo 056's
 decommission-in-fact framing (re-read that plan before executing either).
 
-**Live checkpoint 2026-08-02 ~18:58 UTC (re-verify -- `ps -p 1638298 -o etime,%cpu`, `grep
-cross_sectional_computed logs/ic_engine.log`, `SELECT count(*) FROM feature_ic_scores`):**
-`ic_engine`'s per-symbol phase is done (81/81 symbols, 2.92M `feature_ic_scores` rows,
-growing); now in the cross-sectional pooled-IC pass (`equity`+`rates` partially done, `fx`
-absent as expected -- enabled 2026-08-01, after this run's startup config load). Healthy,
-256% CPU, elapsed ~2d22h -- running well past the prior "~2026-08-01 midday" ETA with no sign
-of a stall; don't trust either number without a fresh read.
-
-**Todo throughput/measurement work landed 2026-08-02, parallel to the same in-flight run (pure
-code/docs, zero corpus dependency):** todo 216 CLOSED (BLAS thread-cap fix, migration 281,
-self-confirms next full pipeline run); todo 229 filed from reviewing 216's branch (hmmlearn's
-`monitor_.converged` is structurally always `True` post-fit, making `regime_writer`'s same-seed
-retry unreachable since it shipped -- fix proven, deferred pending measurement data); todos
-226-228 filed (n_iter headroom, ic_engine bootstrap-resample design question, I/O-vs-CPU
-triage); todo 005 got a measurement-first design doc after an Opus review + rewrite corrected
-its own motivating statistic (`docs/plans/2026-08-02-regime-label-transition-quality-measurement-design.md`);
-todo 080 corrected (stale premise disproven by a sibling 2026-07-15 doc, never updated until
-now) and cross-linked to 005 (005 resolves first). Full detail on all of this:
-`docs/research/intelligence-lifecycle-backlog-matrix.md`'s Operational Context, not duplicated
-here.
-
-**Prior checkpoint, 2026-07-30 22:35 UTC-ish (superseded by the above, kept for continuity):**
-`ic_engine` (step 5/8) was killed and restarted same day to test todo 215's thread-count APR
-bump; the restart also picked up todo 215's own just-landed code change, which invalidated every
-fingerprint and forced a full 80-symbol recompute (wall-clock cost only, no data lost -- see
-STATE.md for the full incident and the banked lesson `feedback_restart_batch_job_check_code_diff_first`).
-**Todo 215 CLOSED** -- real measured speedup confirmed across two symbols of different
-weight (BTAL 1.28x, CWB 1.35x, ~1.3x average), well below the 2.4x isolated benchmark as
-expected from contention, but real and consistent. Decision made: threads=2 kept as the
-standing value (near the safe ceiling given 12 physical cores / 8 workers already busy);
-not worth testing higher without a dedicated idle-box benchmark.
-
-**Todo 146/208's characterization diagnostic (`ops_lookahead_horizon_response.py`) COMPLETE,
-decision resolved: no re-migration, no third rebuild.** Results (see
-`completed/146-lookahead-grid-per-tf-recalibration.md` for full writeup) confirm today's
-session-gate fix was correct (baseline 1h collapses to 0 completeness at 6 bars;
-production-matching overnight mode holds ~1.0 completeness to 70+ bars) AND confirm migration
-269's provisional grid is not shown wrong -- every current per-tf value sits inside the
-completeness~1.0, FDR-significant zone under corrected semantics. **Todo 146 closed 2026-07-31
-on this basis.** The deeper question (does `_select_hold_bars_from_decay`'s premise even hold,
-given median IC rises with CI width rather than decaying within any tested horizon) is now
-explicitly owned by todo 208 (updated same day), not an action item on its own. **The in-flight
-`ic_engine` pass is confirmed trustworthy -- nothing blocks trusting its output once it
-completes.**
-
-**Sequencing plan, next few days:** (1) let `ic_engine` finish; (2) once complete, run
-everything gated on it -- todo 203's final `ops_canary_integrity_assert.py` confirmation, todo
-210's live verification against a repopulated `ensemble_alpha`, todo 065 (EM-CAL calibration),
-todo 167 (equity vs symbol-HMM falsifier test), todo 204; (3) only once that chain is stable,
-start todo 214 (deferred refactor) (todo 211 corrected -- both parts already CLOSED as of 14:54
-EDT today, commit `02506239`, not open work); (4) separately, not blocked on any of the above --
-**todo 216 CLOSED 2026-08-02** -- root cause found without needing a live profile (BLAS thread
-oversubscription, fixed system-wide across all 5 ProcessPoolExecutor batch services, migration
-281), real-world wall-clock delta self-confirms on the next `regime_writer` run's own logs, no
-follow-up action needed; scope Phase 167/T3's
-cost-hurdle-adjusted spread construction (`docs/research/trade-construction-layer.md`) as a new
-phase via `/gsd-discuss-phase`; this is the actual highest-value next step, proceeding is the
-user's call. Full detail and live-verification commands: `.planning/STATE.md`'s "Current saga"
-section.
+**Sequencing plan for the in-flight `ic_engine` corpus pass (STATE.md has live status):** once
+complete, run everything gated on it -- todo 203's final `ops_canary_integrity_assert.py`
+confirmation, todo 210's live verification against a repopulated `ensemble_alpha`, todo 065
+(EM-CAL calibration), todo 167 (equity vs symbol-HMM falsifier test). Once that chain is
+stable: todo 214 (deferred ic_engine/ensemble_ic_engine compute-core refactor), and scoping
+Phase 167/T3's cost-hurdle-adjusted spread construction
+(`docs/research/trade-construction-layer.md`) as a new phase via `/gsd-discuss-phase` --
+proceeding on the latter is the user's call.
 
 ---
 
@@ -121,35 +72,27 @@ the 2026-08-02 corpus pass (`ic_engine` run_complete 19:19:25 UTC) confirmed Hyp
 (stale vintage): `canary_acausal_placebo`/POOLED now clears its significance gate in 231/239
 cells (96.7%, was 0/239), with real non-degenerate CIs. No further diagnosis needed.
 
-**New P0 [230](pending/230-canary-negative-controls-pooled-false-clears.md)** — found by the
-same gate run: 3 NEGATIVE-control canaries falsely cleared the POOLED gate (8/717 cell-tests,
-~1.1%, below the ~5% naive-CI baseline this project's own diagnostics document as expected
-noise) — `ops_canary_integrity_assert.py` FATAL-halted the pipeline before `ic_shrinkage`/
-`ensemble_trainer`/`alpha_publisher` ran. Root cause not diagnosed (gate-tolerance gap vs. real
-artifact, both live) — do not guess-fix.
+**[230](../completed/230-canary-negative-controls-pooled-false-clears.md) CLOSED 2026-08-02** —
+not a corpus artifact: `15m/high_neutral`/`1h/high_bull` carry genuine regime-conditional
+signal, so BH-FDR's budgeted false discoveries mathematically cluster there and 3 canaries rode
+along under the 5% noise budget. Gate's POOLED zero-tolerance rule replaced with a stricter
+Binomial tail bound (`pooled_tail_alpha=0.001`), documented as an E7 addendum.
 
 | Todo | Gap |
 |---|---|
 | [099](pending/099-bootstrap-ci-staged-validation-gate-not-cleared-5m-residual.md) | P2 — the bootstrap CI staged-validation gate's 6 SUSPECT cells trace to 5 diagnostic-only (`is_pooled=false`) breaches + 1 capital-relevant cell that independently clears its own bound — no longer blocks Plan 07. Underlying statistical question (why 5m autocorrelation/momentum features resist both Fisher-z and block-bootstrap) remains open as non-blocking follow-up. |
 
-**[219](../completed/219-feature-vector-pipeline-crash-loop-and-missing-checked-in-unit.md) CLOSED 2026-07-31** —
-`indicagent-feature-vector-pipeline` had been crash-looping/`start-limit-hit` since 2026-07-29
-07:36 EDT (~2 days), surfaced by todo 200's registry-integrity test. Fixed same day: missing
-`_THRESHOLD_KEYS` entry added, daemon restarted and confirmed stable; missing checked-in
-`production/systemd/` unit file also added (repo/deploy drift).
+**[219](../completed/219-feature-vector-pipeline-crash-loop-and-missing-checked-in-unit.md)
+CLOSED 2026-07-31** — crash-loop fixed same day (missing `_THRESHOLD_KEYS` entry, missing
+checked-in systemd unit).
 
 ## P1 — High value, quick, fully unblocked
 
 **[221](../completed/221-live-vix-z-flight-quality-yield-slope-z-permanently-zero.md) CLOSED
-2026-07-31** — live pipeline was calling `CacheManager.update_cross_asset()` (a same-named but
-unrelated method that just stores a raw spread-feature payload) instead of `FeatureCache`'s
-real implementation; `vix_z`/`flight_quality`/`yield_slope_z` were permanently 0.0 in live
-serving. Fixed via a new shared per-tf broadcast state (avoids corrupting the trailing z-score
-deque by refreshing only on genuine SPY/TLT/SHY bars, then copying onto every symbol's own
-cache), `CacheManager`'s method renamed to `store_cross_asset_payload` to remove the collision.
-3 regression tests added. Corpus/backfill path was already unaffected and untouched by this
-fix. Not verified against live Kafka (ingestion intentionally stopped) — re-confirm once it
-resumes.
+2026-07-31** — `vix_z`/`flight_quality`/`yield_slope_z` were permanently 0.0 in live serving
+(wrong `CacheManager` method collision); fixed via shared per-tf broadcast state, 3 regression
+tests added. Not verified against live Kafka (ingestion intentionally stopped) — re-confirm
+once it resumes.
 
 | Todo | Why now |
 |---|---|
@@ -166,31 +109,19 @@ resumes.
 in-flight `ic_engine` run.
 
 **[179](../completed/179-gate166-concurrent-exposure-diagnostic.md) CLOSED 2026-07-31** —
-investigation reads as concluded, not actionable (every method tried found zero replicating
-positive expectancy in the per-symbol directional construction); the strategic fork it raised
-is resolved independently via Phase 167/T3's decisive pass. See the completed file's closing
-note for detail.
+concluded, not actionable: every method tried found zero replicating positive expectancy in
+the per-symbol directional construction; the strategic fork it raised is resolved independently
+via Phase 167/T3's decisive pass (T3 cross-sectional long-short passed decisively — see
+`docs/research/data-edge-source-thesis.md`), making `docs/research/trade-construction-layer.md`
+the concrete near-term next step ahead of Phase 164/165.
 
-**[146](../completed/146-lookahead-grid-per-tf-recalibration.md) CLOSED 2026-07-31** — all
-three Fix steps done, and the 2026-07-30 characterization run resolved the reopened grid-value
-question (no re-migration needed). The one genuinely new question it surfaced (decay-walk
-method validity for `hold_max_bars`) is explicitly absorbed by [208](pending/208-intraday-same-session-forward-return-gate-inconsistent-with-trade-construction.md),
-updated same-day — see 208's row below for its remaining scope.
+**[146](../completed/146-lookahead-grid-per-tf-recalibration.md) CLOSED 2026-07-31** — grid-value
+question resolved, no re-migration needed. The one new question it surfaced (decay-walk method
+validity for `hold_max_bars`) is absorbed by [208](pending/208-intraday-same-session-forward-return-gate-inconsistent-with-trade-construction.md).
 
-**[124](../completed/124-market-ohlcv-tradeable-view-tier2-audit.md) CLOSED 2026-07-31**
-(commit `82861b0b`, done in parallel with the in-flight `ic_engine` run — pure code, no
-corpus dependency) — remaining 10 Tier-2 files all resolved: 9 migrated to
-`market_data_ohlcv_tradeable` (several genuine correctness gaps, not just style/DRY —
-see the completed file for detail), 1 (`infrastructure_run_historical_pipeline.py`)
-mostly reclassified PERMANENT with written rationale. Boundary test allow-list's
-PENDING entries: 0.
-
-**Note (2026-07-26):** [179](../completed/179-gate166-concurrent-exposure-diagnostic.md)'s "strategic choice" fork is
-now resolved in one direction — T3 (cross-sectional long-short) passed decisively today (see
-`docs/research/data-edge-source-thesis.md`, T3 section), making `docs/research/trade-construction-layer.md`
-the concrete near-term next step ahead of Phase 164/165. Not yet filed as a todo (it's phase-scoped,
-not a `pending/` item) — the recommended move is cost-hurdle-adjusting the spread construction, then
-scoping it as a phase via `/gsd-discuss-phase`.
+**[124](../completed/124-market-ohlcv-tradeable-view-tier2-audit.md) CLOSED 2026-07-31** — all
+10 remaining Tier-2 files resolved (9 migrated to `market_data_ohlcv_tradeable`, 1 reclassified
+PERMANENT). Boundary test allow-list's PENDING entries: 0.
 
 ## P2 — Real value, not urgent
 
@@ -232,7 +163,6 @@ scoping it as a phase via `/gsd-discuss-phase`.
 | [173](pending/173-ensemble-alpha-1h-1d-oos-scoring-gap.md) | New 2026-07-22, found after Gate 1's real (irreversible) run: `ensemble_alpha` has zero OOS-side rows at `1h` for any weight_version and zero at `1d` for the champion/default weight_version — Gate 1's recorded PASS verdict covers only 5m/15m (640 cells), disclosed in the promotion decision record rather than presented as a full 4-timeframe pass. Cannot re-run Gate 1 to fix (D-04); investigation-first, may overlap todo 089/166's root cause. |
 | [223](pending/223-src-intelligence-i1-i7-dead-code-153-files-30k-lines.md) | New 2026-08-01, found during a "clean up docs tests scripts dead code" survey pass: `src/intelligence/`'s I1-I7 orchestration/plugin tree (~153 files, ~30k lines) has no live production entry point (`services/intelligence_pipeline.py` is physically deleted) — reachable only via `shadow_validator.py`'s weekly job, which queries a table (`shadow_registry`) already confirmed dead. One clean orphaned duplicate (`features/i5_patterns/`, 17 files) already deleted same day. The rest needs an explicit delete-vs-archive decision plus a matching call on 18 Group-A dead-pipeline tests and 26+ Group-B SLA/I7-plugin tests (Group B depends on whether the paused IBKR ingestion chain resumes through the v2.x signal path or not). |
 | [224](pending/224-commodity-fx-regime-group-reenablement-decision-todo-041.md) | New 2026-08-01, refreshed/filed as its own todo (previously only referenced inline as "todo 041"), **revised same day** into two independent tracks now that the problem is fully understood: (1) near-term, unblocked — **step 1 DONE 2026-08-01 (migration 280): `fx` enabled**, zero effect on the in-flight `ic_engine` run (config loaded once at startup), takes effect next corpus rebuild; still open — unify `commodity_energy`/`commodity_metals`/`commodity_agri` into one `commodity` group (fixes each sub-group's individual thinness, esp. agri's N=1), and fix `DBC`'s `commodity_broad` tag never being wired into any `tag_filter`; (2) blocked on [225](pending/225-multi-vector-systematic-regime-join-hybrid-sensitivity-symbols.md) — the `AMLP`/`GDX`/`OIH`/`XLE`/`XOP` equity-tag collision, unaffected by unification, still needs 225's gradient approach (or an explicit interim exception) before those 5 symbols' commodity membership can actually be enabled. |
-| [225](pending/225-multi-vector-systematic-regime-join-hybrid-sensitivity-symbols.md) | New 2026-08-01. **Pilot run same day (read-only, no production writes) came back negative** — 5 hybrid symbols (`OIH`/`XLE`/`XOP`/`AMLP`/`GDX`) × 10 features, BH-FDR-corrected, 4 tests survived at `tf=1d`; the standout (`GDX momentum_z_fast`) failed cross-timeframe replication even under a horizon-matched retest (1h `return_slow`, ~3 trading days) — flat null, no differential. Real information, not wasted effort: recommend downgrading P2→P3 and not building the Fix steps until a better-motivated candidate surfaces or the universe scales. Full methodology and numbers in the todo file's "Pilot result" section. |
 | [226](pending/226-regime-writer-n-iter-convergence-headroom-check.md) | New 2026-08-02. **Step 1 DONE 2026-08-02**: log `model.monitor_.iter` per (symbol, tf) cell (commit 5c86ffeb + fix 7a0d7de1). Next step: analyze distribution to decide if n_iter=200 cap is oversized. |
 | [227](pending/227-ic-engine-adaptive-bootstrap-resample-early-stop.md) | New 2026-08-02. Contingent on a design decision: does `_blocked_bootstrap_ci` need bit-identical reproducibility (load-bearing like HMM) or is a documented tolerance acceptable? That choice gates whether adaptive/early-stopping resample is feasible or requires a full redesign. |
 | [228](pending/228-corpus-pipeline-unmeasured-steps-io-vs-cpu-triage.md) | New 2026-08-02. Blocked on [217](pending/217-corpus-pipeline-step-timing-instrumentation.md) landing + one full pipeline run (step-time data for all 8 steps now available). Then: classify steps 1/6/7/8 as I/O- vs CPU-bound before applying thread-tuning lessons from todos 215/216. |
@@ -251,10 +181,12 @@ per-tick recompute, unifying them would be a behavior change to the corpus-compu
 | Todo | What |
 |---|---|
 | [056](pending/056-phase146-147-v2x-retirement-stale.md) | ROADMAP Phase 147/148 text rewritten 2026-07-19 (operator call resolved: archive not delete, decouple from proof gates). Remaining scope: the actual decommission-in-fact execution (git mv v2.x code to archive/, disable dead systemd units, rename-not-drop the frozen v2.x tables) — real multi-file operation, do with a clean git state. |
+| [225](pending/225-multi-vector-systematic-regime-join-hybrid-sensitivity-symbols.md) | Downgraded P2→P3 2026-08-01 per its own pilot finding (was left un-actioned in this file until this cleanup pass): read-only pilot on 5 hybrid symbols (`OIH`/`XLE`/`XOP`/`AMLP`/`GDX`) came back negative — the one BH-FDR survivor (`GDX momentum_z_fast`) failed cross-timeframe replication, flat null. Real information, not wasted effort; don't build the Fix steps until a better-motivated candidate surfaces or the universe scales. Full methodology in the todo file's "Pilot result" section. |
 | [022](pending/022-bi-superset.md) | Self-service BI (Superset) for ad-hoc analytics |
 | [115](pending/115-days-to-month-end-exact-redundancy.md) | `days_to_month_end` is an exact affine complement of `month_position` (Pearson correlation -1) — perfectly collinear, remove one. |
 | [189](pending/189-ctf-momentum-1d-self-referential-htf-not-cross-timeframe.md) | Mostly resolved 2026-07-27 same-day as filing: `ctf_momentum`'s 1d-vs-15m sign flip was a measurement artifact (`_CTF_HIGHER_TF` maps `1d -> 1d`, self-referential), doc corrected. Remaining: optional design decision + audit of sibling fallbacks, not urgent. |
 | [233](pending/233-timescaledb-compression-policy-scheduler-silent-noop.md) | **Permanent fix shipped 2026-08-02** (root cause investigation exhausted its evidence trail, moved on): new `services/compression_auditor.py` daemon checks `timescaledb_information.chunks` against each hypertable's own `compress_after` every 6h — ground truth, not `job_stats` — and self-heals via `CALL run_job()`. Deployed, live, confirmed clean. Underlying scheduler-internals question stays open but low-priority now that the risk class is closed for every hypertable, present or future. |
+| [232](pending/232-chunked-fetch-oom-pattern-untouched-in-6-other-files.md) | Downgraded from P2 2026-08-02: its "6 files at risk, one is live production" framing didn't survive fact-checking — `graduation_analyzer.py` isn't deployed and reads two 0-row archived-subsystem tables; the other 4 scripts query `alpha_frames` (0 rows, 5 narrow columns), not `feature_vectors`. Real OOM risk was T5-only and is already fixed. Remaining scope: extract the shared helpers out of `t5_nonlinear_combiner_lightgbm_check.py`'s private namespace into a small T5-scoped module — opportunistic, not urgent. |
 
 ---
 
