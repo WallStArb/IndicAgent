@@ -12,7 +12,7 @@ from src.providers.ibkr import IBKRProvider
 
 @pytest.fixture
 def mock_ib():
-    """Mock ib_insync.IB instance."""
+    """Mock ib_async.IB instance."""
     ib = MagicMock()
     ib.isConnected.return_value = True
     ib.pendingTickersEvent = MagicMock()
@@ -62,7 +62,7 @@ class TestConnect:
 class TestFetchHistoricalBars:
     @pytest.mark.asyncio
     async def test_returns_ohlcv_bars(self, provider, mock_ib):
-        """fetch_historical_bars maps ib_insync BarData to OHLCVBar list."""
+        """fetch_historical_bars maps ib_async BarData to OHLCVBar list."""
 
         mock_bar = MagicMock()
         mock_bar.date = datetime(2026, 2, 1, 9, 30, tzinfo=UTC)
@@ -112,7 +112,7 @@ class TestFetchHistoricalBars:
         signal so the fast path fires instead, matching how the codebase's other
         no-data tests are already written.
         """
-        from ib_insync import BarDataList
+        from ib_async import BarDataList
 
         ibkr_module._no_data_req_ids.clear()
         req_id = 90200
@@ -162,7 +162,7 @@ class TestFetchHistoricalBars:
         calls = {"n": 0}
 
         async def fake_req(*args, **kwargs):
-            from ib_insync import BarDataList
+            from ib_async import BarDataList
 
             calls["n"] += 1
             if calls["n"] == 1:
@@ -193,16 +193,16 @@ class TestFetchHistoricalBars:
         """Two CONSECUTIVE confirmed Error 162 chunks are strong enough evidence to
         stop the backward walk (todo 049 confirmation threshold)."""
         # Local import: src.providers.ibkr (imported at module level above) applies
-        # a Python 3.14 event-loop workaround before eventkit/ib_insync get pulled
-        # in transitively -- importing ib_insync directly at module level here,
+        # a Python 3.14 event-loop workaround before eventkit/ib_async get pulled
+        # in transitively -- importing ib_async directly at module level here,
         # ahead of that workaround, would trip the same failure.
-        from ib_insync import BarDataList
+        from ib_async import BarDataList
 
         ibkr_module._no_data_req_ids.clear()
         calls = {"n": 0}
 
         async def fake_req(*args, **kwargs):
-            # Real ib_insync.reqHistoricalDataAsync always returns a BarDataList
+            # Real ib_async.reqHistoricalDataAsync always returns a BarDataList
             # with .reqId set (even when empty) -- see F3 2026-07-05: the provider
             # now matches Error 162 callbacks to this exact reqId instead of a
             # global snapshot-diff, so the mock must carry a real reqId for the
@@ -258,7 +258,7 @@ class TestStreamTicks:
         task = asyncio.create_task(collect_one())
         await asyncio.sleep(0)  # let stream_ticks initialize queue + loop
 
-        # Simulate ib_insync callback firing
+        # Simulate ib_async callback firing
         provider._handle_pending_tickers([mock_ticker])
         await asyncio.wait_for(task, timeout=2.0)
 

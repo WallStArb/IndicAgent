@@ -116,7 +116,7 @@ HTF bars are published to `market.bars.htf` and consumed directly by `Intelligen
 | File | Role |
 |------|------|
 | `src/providers/base_provider_agent.py` | `BaseProvider` — abstract contract for all providers |
-| `src/providers/ibkr.py` | All ib_insync logic; `stream_official_bars()`, `stream_real_time_bars()` |
+| `src/providers/ibkr.py` | All ib_async logic; `stream_official_bars()`, `stream_real_time_bars()` |
 | `src/providers/ibkr_adapter.py` | `IBKRAdapter` — dual IBKR streams, publishes `BarMessage` to Kafka |
 | `services/ibkr_provider.py` | `IBKRProvider` — systemd service wrapper |
 | `services/provider_merger.py` | `ProviderMerger` — routing, failover, quality side-channel |

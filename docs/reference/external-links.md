@@ -60,8 +60,8 @@ Add new links here as you discover useful resources — keeps everything in one 
 |----------|-----|-------|
 | TWS API Docs | https://interactivebrokers.github.io/tws-api/ | Main reference — reqHistoricalData, reqMktData |
 | TWS API GitHub | https://github.com/InteractiveBrokers/tws-api | Python client source |
-| ib_insync Docs | https://ib-insync.readthedocs.io/ | Asyncio wrapper — IB(), Contract, util.run() |
-| ib_insync GitHub | https://github.com/erdewit/ib_insync | Source + examples |
+| ib_async Docs | https://ib-api-reloaded.github.io/ib_async/ | Asyncio wrapper — IB(), Contract, util.run() (replaced ib_insync 2026-08-03, unmaintained since 2021) |
+| ib_async GitHub | https://github.com/ib-api-reloaded/ib_async | Source + examples |
 | IBKR Contract Search | https://interactivebrokers.github.io/tws-api/basic_contracts.html | Futures, FX, Crypto contract specs |
 | IBKR Generic Tick Types | https://interactivebrokers.github.io/tws-api/tick_types.html | Tick 233 = RTVolume (futures only) |
 | IBKR Gateway Docker | https://github.com/gnzsnz/ib-gateway | `ghcr.io/gnzsnz/ib-gateway:stable` — used in production |

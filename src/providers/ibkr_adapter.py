@@ -98,7 +98,7 @@ class IBKRAdapter:
         sym_to_instrument: dict[str, Instrument] = {i.symbol: i for i in instruments}
 
         # Bounded: drops here surface via PROVIDER_BARS_DROPPED_TOTAL{reason="queue_full"}
-        # rather than blocking the ib_insync callback thread.
+        # rather than blocking the ib_async callback thread.
         bar_queue: asyncio.Queue = asyncio.Queue(maxsize=10_000)
         loop = asyncio.get_running_loop()
 
@@ -159,7 +159,7 @@ class IBKRAdapter:
                 logger.error("official_bars_stream error", exc_info=error)
 
         # Watchdog: detect TWS disconnect so _stream_loop can reconnect.
-        # After error 1100 (TWS lost), ib_insync restores the TCP connection
+        # After error 1100 (TWS lost), ib_async restores the TCP connection
         # (error 1102) but keepUpToDate and RTB subscriptions must be
         # re-established. We signal via a sentinel on bar_queue so stream_bars
         # raises and _stream_loop catches it, calling _reconnect().

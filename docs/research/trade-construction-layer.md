@@ -1,7 +1,7 @@
 # Trade Construction Layer -- From Forecast to Position
 
 **Version:** 1.3
-**Status:** live -- `services/cross_sectional_spread_tracker.py` productionizes T3's
+**Status:** live -- `services/cross_sectional_spread_tracker.py` productionizes cross_sectional_relative_value's
 construction; both live Validation Gates ran against the real OOS population 2026-07-27 and
 BOTH PASSED. See the Validation Gates section below for the full verdict.
 **Priority:** high (weakness #5 from the 2026-07-01 council review: the layer is absent, and
@@ -26,7 +26,7 @@ decile dollar-neutral spread. **Passed decisively at both lookahead scales** (fa
 spread 5.9bp/bar, `ci_lower`=5.6bp; slow: mean spread 11.1bp/bar, `ci_lower`=9.7bp), and
 cleared a shuffled-ranking-null guard at `P(null ≥ observed)=0.0000` both times -- not a
 dollar-neutral construction artifact. Gross only, no cost model yet. Full result and
-methodology: `docs/research/data-edge-source-thesis.md` T3 section. This doc's v1 design
+methodology: `docs/research/data-edge-source-thesis.md` cross_sectional_relative_value section. This doc's v1 design
 (construction + shadow measurement, 1-2 phases) is now ready to scope for real, with the
 todo 030 cost-hurdle treatment applied to the spread construction specifically as the first
 open item (a long-short spread's cost dynamics differ from a directional trade's -- this doc's
@@ -35,21 +35,21 @@ own point, not yet quantified for this specific construction).
 **Reviewed 2026-07-25** -- re-read in full while resolving the "what other signal construction
 approaches exist" question raised alongside Phase 164/165's feature-expansion fork. Still
 correct and, if anything, more load-bearing than when written: `docs/research/data-edge-source-thesis.md`'s
-T2 (regime-conditional absolute-direction persistence) was falsified 2026-07-24 across an
+regime_conditional_persistence (regime-conditional absolute-direction persistence) was falsified 2026-07-24 across an
 exhaustive 234-cell sweep (`.planning/todos/completed/179-gate166-concurrent-exposure-diagnostic.md`)
 -- the *per-symbol directional* construction row 1 of this doc's own table found no edge
-anywhere. That's exactly the failure mode T3 (row 2, cross-sectional long-short) was designed
-to be robust to: T3 doesn't need per-symbol absolute direction to be right, only the *ranking*
+anywhere. That's exactly the failure mode cross_sectional_relative_value (row 2, cross-sectional long-short) was designed
+to be robust to: cross_sectional_relative_value doesn't need per-symbol absolute direction to be right, only the *ranking*
 across the 58-instrument universe, which is a structurally different and easier bar. This doc
 was already scoped and gated correctly -- the gate it was waiting on (Phase 142A's OOS proof)
-resolved 2026-07-22, and T2's death 2026-07-24 sharpens the case further, so this is
+resolved 2026-07-22, and regime_conditional_persistence's death 2026-07-24 sharpens the case further, so this is
 recommended as a near-term next step alongside/before Phase 164/165 rather than an
 indefinitely-deferred v4.0 concern. See `docs/research/data-edge-source-thesis.md`'s Roadmap
-Demands §5 for the fuller comparison against Phase 164/165 and T5 (non-linear combiner,
+Demands §5 for the fuller comparison against Phase 164/165 and nonlinear_interaction_combiner (non-linear combiner,
 `docs/ideas/measurement-nonlinear-interaction-combiner.md`).
 
-**Companion to:** `docs/research/data-edge-source-thesis.md` (thesis T3 is only testable through this
-layer) and `docs/research/measurement-ic-engine.md`'s Cross-Sectional Rank IC addendum (T3's
+**Companion to:** `docs/research/data-edge-source-thesis.md` (thesis cross_sectional_relative_value is only testable through this
+layer) and `docs/research/measurement-ic-engine.md`'s Cross-Sectional Rank IC addendum (cross_sectional_relative_value's
 falsification measurement, which must clear before this construction layer is warranted).
 **Note (2026-07-03):** this doc's original companion, `intel-11-dual-system-discrete-vs-portfolio.md`,
 was retired -- see `docs/research/archive/intel-11-dual-system-discrete-vs-portfolio.md`. Per
@@ -85,7 +85,7 @@ in the roadmap tests rows 2-4.
   bottom, dollar-neutral: the market factor nets out, so the P&L stream is the *spread* -- driven by the forecast, not by whether SPY went up. The Sharpe of a hedged spread on weak
   IC routinely beats the Sharpe of unhedged directional trades on the same IC.
 - **It changes the falsification story.** If per-symbol directional fails the cost hurdle
-  (todo 030 Step 0) but the spread portfolio pays, the edge is real and relative (thesis T3).
+  (todo 030 Step 0) but the spread portfolio pays, the edge is real and relative (thesis cross_sectional_relative_value).
   Without this layer, that outcome is indistinguishable from "no edge."
 - **Costs differ:** a rebalanced spread portfolio trades *changes in the ranking*, not every
   signal -- turnover control is a portfolio property, unavailable to independent per-symbol
@@ -185,7 +185,7 @@ Layer roadmap (Phases 156-159):
   multi-broker margin aggregation needed; keep basic utilization tiers only.
 - **TradeAgent's broker-agnostic canonical order model** -- the *abstraction* (internal logic
   speaks one order format, translated at the boundary) is good practice and already matches
-  this project's existing invariant that `src/providers/ibkr.py` is the sole `ib_insync`
+  this project's existing invariant that `src/providers/ibkr.py` is the sole `ib_async`
   boundary. Descope everything downstream of that: no multi-broker adapters, no MCP-per-broker,
   no rule-based routing table -- there is exactly one broker connection.
 - **TradeAgent's signal/universe filtering** (asset-class/sector allow-blocklists) -- descope
@@ -217,10 +217,10 @@ Layer roadmap (Phases 156-159):
 2. **Attribution honesty:** spread P&L must load on the forecast (rank-weighted return
    spread), not on a static factor tilt (e.g., permanently long low-vol sectors) -- regress
    spread returns on static bucket membership; if a fixed membership explains most of it,
-   the "forecast" is a factor exposure in disguise (edge thesis T4, cap expectations
+   the "forecast" is a factor exposure in disguise (edge thesis horizon_risk_premium, cap expectations
    accordingly).
 3. **Comparison to DiscreteTrack directional on the same features** -- this comparison IS the
-   T3 test from the edge-source thesis; record the verdict there.
+   cross_sectional_relative_value test from the edge-source thesis; record the verdict there.
 
 ### Live verdicts (2026-07-27, Phase 167 Plan 06)
 
@@ -262,11 +262,11 @@ for both scales): fast `null_p=0.0`, `null_mean=-0.0000033`, `null_std=0.0000603
 `null_p < 0.05` by a wide margin -- the real ranking-driven spread is not distinguishable from
 a dollar-neutral-bucketing artifact at the 0.0000 level in 40 draws.
 
-**In-sample diagnostic (NOT the gate)** -- the comparable figures to T3's published
+**In-sample diagnostic (NOT the gate)** -- the comparable figures to cross_sectional_relative_value's published
 full-2006-2026-history result, measured on `bar_ts < oos_start`, 24,273 bars / 4,855
 day-clusters: fast `ci_lower` ranges 0.0005 (1bp) down to 0.0004 (10bp), slow `ci_lower`
 ranges 0.0009 (1bp) down to 0.0008 (10bp), all `passes=true`. These in-sample cells are never
-fed into `gate1_passes` -- they exist only so a reader can compare against T3's own published
+fed into `gate1_passes` -- they exist only so a reader can compare against cross_sectional_relative_value's own published
 full-history numbers.
 
 **Gate 2 -- attribution honesty**
@@ -321,13 +321,13 @@ vector, whatever the verdict -- 80 symbols total):
 
 **Gate 3 -- comparison to per-symbol directional on the same features**
 
-Already satisfied by the T2-vs-T3 comparison in `docs/research/data-edge-source-thesis.md` --
-T2 (per-symbol directional, regime-conditional) was falsified 2026-07-24 across an exhaustive
-234-cell sweep, and T3 (this cross-sectional construction) passed decisively on the identical
+Already satisfied by the regime_conditional_persistence-vs-cross_sectional_relative_value comparison in `docs/research/data-edge-source-thesis.md` --
+regime_conditional_persistence (per-symbol directional, regime-conditional) was falsified 2026-07-24 across an exhaustive
+234-cell sweep, and cross_sectional_relative_value (this cross-sectional construction) passed decisively on the identical
 features. No new work required for this gate; the comparison already exists and is not
 re-run here.
 
-### Intentional divergences from the T3 falsification script, and the equivalence check
+### Intentional divergences from the cross_sectional_relative_value falsification script, and the equivalence check
 
 `services/cross_sectional_spread_tracker.py` productionizes
 `scripts/analysis/t3_cross_sectional_long_short_ctf_momentum_check.py`. Four differences are
@@ -341,17 +341,17 @@ DESIGNED, not bugs:
 3. **A non-finite or missing feature value raises** instead of being silently sorted -- should
    never fire in practice, since the panel query filters `ctf_momentum IS NOT NULL`.
 4. **Gate 1 is evaluated on the OOS segment** (`bar_ts >= alpha.validation.oos_start`) while
-   the T3 script reported full-history numbers -- this is why the in-sample diagnostic cells
+   the cross_sectional_relative_value script reported full-history numbers -- this is why the in-sample diagnostic cells
    above exist; they are the comparable figures, and the OOS cells above are not expected to
    match the script's originally published values exactly.
 
 Any difference NOT on this list would be a bug until proven otherwise. Before trusting the
 gates above, the productionized construction's turnover and gross-spread statistics were
 checked against four tolerance bands FIXED BEFORE the backfill ran (a pre-registration, not a
-post-hoc justification), each +/-20% relative of T3's originally published full-history
+post-hoc justification), each +/-20% relative of cross_sectional_relative_value's originally published full-history
 values:
 
-| Statistic | T3 reference | Band | Observed | Result |
+| Statistic | cross_sectional_relative_value reference | Band | Observed | Result |
 |---|---|---|---|---|
 | mean `one_way_turnover` | 0.195 | [0.156, 0.234] | 0.1949 | PASS |
 | median `one_way_turnover` | 0.0625 | [0.0500, 0.0750] | 0.0625 | PASS (exact) |
@@ -359,9 +359,9 @@ values:
 | mean `gross_spread_slow` | 11.1 bp/bar | [8.88, 13.32] bp/bar | 11.15 bp/bar | PASS |
 
 All four cleared. The productionized construction also processed exactly 24,924 bars
-(`n_bars_processed`), matching T3's own published full-history `n_bars=24,924` for both scales
+(`n_bars_processed`), matching cross_sectional_relative_value's own published full-history `n_bars=24,924` for both scales
 to within zero (one distinct-bar-count difference between the two runs' corpus snapshots,
-consistent with a single trading bar added to the corpus between T3's 2026-07-26 run and this
+consistent with a single trading bar added to the corpus between cross_sectional_relative_value's 2026-07-26 run and this
 2026-07-27 run, not a discrepancy requiring investigation).
 
 ## Sequencing
@@ -377,7 +377,7 @@ It is shadow-measurement only -- no live capital, deliberately not on a systemd 
 
 **Current state (2026-07-27):** all three Validation Gates above have been evaluated for
 real, and all three PASSED. Gate 1 (shadow spread Sharpe) PASS, Gate 2 (attribution honesty)
-PASS, Gate 3 (comparison to per-symbol directional) already satisfied by T2's falsification.
+PASS, Gate 3 (comparison to per-symbol directional) already satisfied by regime_conditional_persistence's falsification.
 **This means the Phase 156-159 execution/sizing chain's stated precondition -- a proven,
 attribution-honest signal to size and execute -- is now met for this cross-sectional
 construction.** Unlike Phase 148's per-symbol directional construction (Gate 1 PASS, Gate 2
@@ -388,12 +388,12 @@ signal source -- is the user's, not a decision this doc or this phase makes unil
 ## References
 
 - `docs/research/archive/intel-11-dual-system-discrete-vs-portfolio.md` -- retired strategic frame (historical only)
-- `docs/research/measurement-ic-engine.md` -- Cross-Sectional Rank IC addendum, T3's falsification gate
-- `docs/research/data-edge-source-thesis.md` -- thesis T2 (falsified 2026-07-24), T3 (this doc),
-  T5 (non-linear combiner) -- the full candidate comparison
-- `docs/ideas/measurement-nonlinear-interaction-combiner.md` -- T5, the sibling construction/
+- `docs/research/measurement-ic-engine.md` -- Cross-Sectional Rank IC addendum, cross_sectional_relative_value's falsification gate
+- `docs/research/data-edge-source-thesis.md` -- thesis regime_conditional_persistence (falsified 2026-07-24), cross_sectional_relative_value (this doc),
+  nonlinear_interaction_combiner (non-linear combiner) -- the full candidate comparison
+- `docs/ideas/measurement-nonlinear-interaction-combiner.md` -- nonlinear_interaction_combiner, the sibling construction/
   modeling-change candidate to test alongside this doc
-- `.planning/todos/completed/179-gate166-concurrent-exposure-diagnostic.md` -- T2's falsification,
+- `.planning/todos/completed/179-gate166-concurrent-exposure-diagnostic.md` -- regime_conditional_persistence's falsification,
   the finding that sharpened this doc's priority
 - Todo 030 (cost-hurdle APR calibration) -- Step 0 cost floors feed the rebalance rule and the
   net-of-cost measurement; closed and removed from `.planning/todos/`, its result summarized in

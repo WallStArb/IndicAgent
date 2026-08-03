@@ -1,8 +1,8 @@
 """
-IBKRProvider — DataProvider implementation for Interactive Brokers (ib_insync).
+IBKRProvider — DataProvider implementation for Interactive Brokers (ib_async).
 
-Wraps all ib_insync logic. The daemon and backfill script interact only
-with the DataProvider protocol — no ib_insync imports outside this file.
+Wraps all ib_async logic. The daemon and backfill script interact only
+with the DataProvider protocol — no ib_async imports outside this file.
 """
 
 from __future__ import annotations
@@ -18,9 +18,10 @@ from collections import deque
 from collections.abc import AsyncIterator, Awaitable, Callable
 from datetime import UTC, datetime, timedelta
 
-# Python 3.14 removed implicit event loop creation. eventkit (ib_insync dependency)
-# calls asyncio.get_event_loop() at module import time. Pre-create a loop to satisfy
-# the import; connect() will redirect main_event_loop to the real running loop.
+# Python 3.14 removed implicit event loop creation. eventkit (ib_async dependency,
+# published as aeventkit but still imported as `eventkit`) calls asyncio.get_event_loop()
+# at module import time. Pre-create a loop to satisfy the import; connect() will redirect
+# main_event_loop to the real running loop.
 # nest_asyncio is intentionally NOT applied here: we use connectAsync() (async API)
 # exclusively, and nest_asyncio.apply() breaks Python 3.14's current_task() tracking,
 # causing asyncio.timeout() failures throughout the process.
@@ -29,7 +30,7 @@ try:
 except RuntimeError:
     asyncio.set_event_loop(asyncio.new_event_loop())
 
-from ib_insync import IB, ContFuture, Contract, Forex, Future, Stock
+from ib_async import IB, ContFuture, Contract, Forex, Future, Stock
 
 from src.config.settings import Settings  # noqa: E402
 from src.core.bar_normalizer import (  # noqa: E402
@@ -61,8 +62,8 @@ from src.providers.base import OHLCVBar, Tick  # noqa: E402
 
 logger = logging.getLogger(__name__)
 
-# Pre-labeled drop counters for ib_insync → asyncio bridge. Incrementing
-# from the ib_insync thread is safe (prometheus_client Counters are thread-safe).
+# Pre-labeled drop counters for ib_async → asyncio bridge. Incrementing
+# from the ib_async thread is safe (prometheus_client Counters are thread-safe).
 _M_DROPPED_RTB_QUEUE_FULL_ATTRS = {
     "provider": "ibkr",
     "agent": "ibkr_provider_agent",
@@ -79,7 +80,7 @@ _M_DROPPED_TICK_QUEUE_FULL_ATTRS = {
     "reason": "tick_queue_full",
 }
 
-# Map our timeframe strings to ib_insync barSizeSetting values
+# Map our timeframe strings to ib_async barSizeSetting values
 _TF_TO_IB: dict[str, str] = {
     "1m": "1 min",
     "5m": "5 mins",
@@ -130,11 +131,11 @@ _MAX_CHUNK_DAYS: dict[str, int] = {
 _IBKR_HIST_RATE_LIMIT = 55  # conservative: hard limit is 60; 5-slot buffer absorbs jitter
 _IBKR_HIST_WINDOW_S = 600.0  # 10-minute sliding window (IBKR's documented period)
 
-# Defense-in-depth outer timeout on reqHistoricalDataAsync, in addition to ib_insync's
+# Defense-in-depth outer timeout on reqHistoricalDataAsync, in addition to ib_async's
 # own internal `timeout=60` default on that call. [rca_analysis] Live 2026-07-05 backfill
 # runs hung for 25+ minutes with near-zero CPU and no "reqHistoricalData: Timeout for..."
 # warning ever logged -- confirmed via py-spy + strace that the main thread was genuinely
-# idle in epoll_wait, not blocked on a synchronous call, meaning ib_insync's own internal
+# idle in epoll_wait, not blocked on a synchronous call, meaning ib_async's own internal
 # asyncio.wait_for(future, timeout=60) never fired despite far exceeding 60s elapsed.
 # This module already documents Python 3.14 asyncio.timeout()/wait_for reliability risk
 # (see the nest_asyncio note above) -- this constant does not assume this wrapper is
@@ -145,7 +146,7 @@ _IBKR_HIST_WINDOW_S = 600.0  # 10-minute sliding window (IBKR's documented perio
 _HIST_REQUEST_TIMEOUT_SEC = 90.0
 
 # [rca_analysis 2026-07-05, F4] reqContractDetailsAsync (qualify_instrument,
-# resolve_instrument) has no timeout at all in ib_insync -- not even an internal
+# resolve_instrument) has no timeout at all in ib_async -- not even an internal
 # default like reqHistoricalDataAsync's timeout=60. Same failure class as the
 # historical-data hang; a contract-qualification hang would otherwise only be
 # caught by the external bar-count watchdog (much slower, much less specific).
@@ -207,7 +208,7 @@ class _SlidingWindowRateLimiter:
 _hist_rate_limiter = _SlidingWindowRateLimiter()
 
 # reqIds where Error 162 carried "no data".
-# Written by _on_ib_error (ib_insync thread), consumed+cleared by _fetch_historical_bars_impl
+# Written by _on_ib_error (ib_async thread), consumed+cleared by _fetch_historical_bars_impl
 # (asyncio thread). GIL makes set.add/difference_update thread-safe without a lock.
 _no_data_req_ids: set[int] = set()
 
@@ -227,7 +228,7 @@ _ibkr_circuit_breaker = PluginCircuitBreaker(
 _ibkr_open_since: float | None = None
 
 # Error 326 hardening: cross-thread signal for clientId collision detection.
-# ib_insync fires errorEvent from its internal thread; the asyncio connect path
+# ib_async fires errorEvent from its internal thread; the asyncio connect path
 # waits on this Event to detect Error 326 within seconds of connectAsync() returning.
 _error_326_detected: threading.Event = threading.Event()
 _MAX_CLIENT_ID = 50
@@ -237,7 +238,7 @@ _ERR_326 = "Error 326"  # IBKR clientId-already-in-use sentinel string
 
 
 def _on_ib_error(reqId: int, errorCode: int, errorString: str, contract) -> None:
-    """ib_insync errorEvent handler. Runs on ib_insync's internal thread."""
+    """ib_async errorEvent handler. Runs on ib_async's internal thread."""
     if errorCode == 326:
         _error_326_detected.set()
         IBKR_ERROR_326_TOTAL.add(1, {"provider": "ibkr", "action": "detected"})
@@ -476,9 +477,9 @@ async def _connect_with_circuit_breaker(
 
 
 def _normalize_ib_bar_ts(raw_date) -> datetime:
-    """Normalize an ib_insync bar.date to a UTC-aware datetime.
+    """Normalize an ib_async bar.date to a UTC-aware datetime.
 
-    ib_insync returns either a `datetime` (possibly naive) or an ISO-8601 string
+    ib_async returns either a `datetime` (possibly naive) or an ISO-8601 string
     depending on `formatDate` and bar size. Always produce a tz-aware UTC datetime.
     """
     ts = raw_date if isinstance(raw_date, datetime) else datetime.fromisoformat(str(raw_date))
@@ -517,7 +518,7 @@ async def reset_circuit_breaker() -> bool:
 
 
 class IBKRProvider:
-    """DataProvider implementation for Interactive Brokers via ib_insync."""
+    """DataProvider implementation for Interactive Brokers via ib_async."""
 
     name = "ibkr"
 
@@ -941,7 +942,7 @@ class IBKRProvider:
                 contract = Stock(symbol=instrument.symbol, exchange=instrument.exchange)
 
             # [rca_analysis 2026-07-05, F4] reqContractDetailsAsync has NO timeout of its
-            # own in ib_insync (unlike reqHistoricalDataAsync's internal default=60) --
+            # own in ib_async (unlike reqHistoricalDataAsync's internal default=60) --
             # fully unbounded without this wrapper. Same failure class as the historical-
             # data hang migration 199 fixed elsewhere in this file.
             details = await asyncio.wait_for(
@@ -1020,7 +1021,7 @@ class IBKRProvider:
             self._ib.cancelMktData(contract)
 
     def _normalize_ticker(self, ticker) -> Tick | None:
-        """Normalize an ib_insync Ticker to a Tick. Returns None if no valid price."""
+        """Normalize an ib_async Ticker to a Tick. Returns None if no valid price."""
         symbol = getattr(ticker.contract, "localSymbol", None)
         if not symbol:
             return None
@@ -1054,7 +1055,7 @@ class IBKRProvider:
         )
 
     def _handle_pending_tickers(self, tickers) -> None:
-        """ib_insync callback — runs on ib_insync's thread. Bridge to asyncio queue."""
+        """ib_async callback — runs on ib_async's thread. Bridge to asyncio queue."""
         if not self._tick_queue or not self._loop:
             return
         try:
@@ -1073,7 +1074,7 @@ class IBKRProvider:
     async def stream_ticks(self, symbols: list[str]) -> AsyncIterator[Tick]:
         """Async iterator yielding normalized Ticks.
 
-        Bridges ib_insync's sync callbacks to asyncio via a bounded Queue.
+        Bridges ib_async's sync callbacks to asyncio via a bounded Queue.
         Subscribes to all symbols via reqMktData on entry.
         """
         self._loop = asyncio.get_event_loop()
@@ -1101,7 +1102,7 @@ class IBKRProvider:
     async def stream_real_time_bars(self, symbols: list[str]) -> AsyncIterator[tuple[str, object]]:
         """Async iterator yielding (symbol, RealTimeBar) tuples as 5-second bars arrive.
 
-        Bridges ib_insync's sync updateEvent callbacks to asyncio via a bounded Queue.
+        Bridges ib_async's sync updateEvent callbacks to asyncio via a bounded Queue.
         whatToShow per asset class: CASH -> MIDPOINT, all others -> TRADES.
         useRTH=False: include all sessions (pre/post market, 24h crypto/FX).
 
@@ -1121,7 +1122,7 @@ class IBKRProvider:
             bars = self._ib.reqRealTimeBars(contract, barSize=5, whatToShow=what, useRTH=False)
 
             def _on_bar(bars_list, has_new_bar, *, _symbol=symbol):
-                """ib_insync callback — runs on ib_insync thread; bridge to asyncio queue."""
+                """ib_async callback — runs on ib_async thread; bridge to asyncio queue."""
                 if not has_new_bar or not bars_list:
                     return
                 bar = bars_list[-1]
@@ -1229,7 +1230,7 @@ class IBKRProvider:
             # Cleanup subscriptions
             for bars, cb in subscribed:
                 bars.updateEvent -= cb
-                # Note: ib_insync automatically cancels keepUpToDate when the IB instance
+                # Note: ib_async automatically cancels keepUpToDate when the IB instance
                 # is cleaned up, but we could explicitly cancel if needed.
 
     async def resolve_instrument(self, query: str) -> Instrument | None:

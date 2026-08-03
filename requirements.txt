@@ -56,7 +56,10 @@ opentelemetry-sdk>=1.20.0
 structlog>=25.5.0
 
 # Settings / Config
-ib_insync>=0.9.86
+ib_async>=2.1.0  # ib_insync fork replaced 2026-08-03: erdewit/ib_insync stalled since 2021;
+# ib_async is the actively-maintained, API-compatible successor (also fixes asyncio
+# event-loop bugs). aeventkit (ib_async's own eventkit fork) installs under the same
+# `eventkit` import name -- no code changes needed for that dependency.
 pydantic>=2.12.0
 pydantic-ai>=2.0,<3
 pydantic-settings>=2.12.0

@@ -58,7 +58,7 @@ any work NOT driven through `/gsd-execute-phase`, still invoke `/simplify` manua
 - `src/core/ai/` — AI agent infrastructure (`BaseAIWorker`, `Evaluator`, `AgentOutput`, `WorkerContext`, `IAIAgent`). `SignalContext` in `src/intelligence/ai/context.py`. `BaseGroupCoordinator` in `src/intelligence/ai/group_coordinator.py`.
 - `src/intelligence/schemas.py` — canonical typed bus schemas
 - `src/config/settings.py` — `Settings`, `get_active_contracts()`, `Instrument` definitions
-- `src/providers/ibkr.py` — all ib_insync logic (no imports outside this file)
+- `src/providers/ibkr.py` — all ib_async logic (no imports outside this file)
 - **Narrative service (dormant, see Architecture note above):** `services/narrative_swarm.py` (`NarrativeSwarm`) → `indicagent-narrative-compute`. Worker: `NarrativeSynthesizer` in `src/intelligence/ai/narrative/narrative_agent.py`.
 
 ## Data Flow
@@ -176,7 +176,7 @@ Every `BaseDaemon` subclass auto-inherits 5 mandatory OTel signals (D-26, non-ne
 ## Infrastructure
 
 - **Server:** `192.168.68.53` — Claude Code runs ON this machine; never SSH.
-- **IBKR Gateway:** Docker (`ib-gateway` container), bound to `127.0.0.1:7497`. All ib_insync in `src/providers/ibkr.py` only. VIX=`"VX"`, client IDs 35+.
+- **IBKR Gateway:** Docker (`ib-gateway` container), bound to `127.0.0.1:7497`. All ib_async in `src/providers/ibkr.py` only. VIX=`"VX"`, client IDs 35+.
 - **Redpanda**: Kafka-compatible. Topics: dots, via `stream_keys.py`. Retention: minimal (transport, not storage).
 - **Contracts**: always `get_active_contracts()` — never hardcode. Restart daemons on futures expiry.
 - **Roll flow:** `roll-batch` (`scripts/ops/roll/ops_roll_batch.py`) — promotes front-month in `contract_metadata`, broadcasts via Kafka. Documented as nightly 8pm, but **all systemd timers are confirmed disabled as of 2026-07-02** — verify with `systemctl list-timers | grep indicagent` before assuming this runs on schedule.

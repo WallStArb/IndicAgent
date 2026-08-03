@@ -116,7 +116,7 @@ class DataProviderAdapter(Protocol):
     this protocol to plug into the MergerAgent-based pipeline.
 
     Contrast with the existing DataProvider Protocol above (tick/RTB stream):
-    - DataProvider: legacy low-level tick/RTB API (ib_insync coupled)
+    - DataProvider: legacy low-level tick/RTB API (ib_async coupled)
     - DataProviderAdapter: new normalized bar-level API (BarMessage typed bus)
 
     provider_name must be a lower-case identifier used in topic keys,

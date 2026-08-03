@@ -9,7 +9,7 @@
 
 ## IBKR Provider (`ibkr.py`)
 
-All ib_insync logic is isolated here. **No ib_insync imports anywhere else.**
+All ib_async logic is isolated here. **No ib_async imports anywhere else.**
 
 ### Asset Class Rules
 
