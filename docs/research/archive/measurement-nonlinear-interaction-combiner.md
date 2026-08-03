@@ -1,10 +1,10 @@
 # Non-Linear Interaction Combiner — Idea (Edge Source Thesis T5)
 
-**Status:** Promoted — see `docs/research/data-edge-source-thesis.md` §T5 (added 2026-07-25) for
-the current, actively-maintained version. That doc also covers the post-promotion canary-leakage
-check (todo 184, closed) and the empirical 1d replication
-(`docs/analysis/t5-replication-1d-per-symbol.csv`). This file is kept as the original idea
-record, not the live reference.
+**Status:** ARCHIVED 2026-08-03 — fully superseded and absorbed into
+`docs/research/data-edge-source-thesis.md` §T5, the single live reference for T5 (design,
+results, canary-leakage check, 1h/1d/15m replication history, all current numbers). Kept here
+only as a historical record of the original design proposal (2026-07-25) — not read for current
+status.
 **Author:** Claude (Sonnet 5), interactive session, 2026-07-25 — not a Fable dispatch. This doc
 is a design proposal; nothing here has been empirically tested yet.
 **Origin:** Raised in conversation while resolving the fork in `.planning/STATE.md` ("invest in

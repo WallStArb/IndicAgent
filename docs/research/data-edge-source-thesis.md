@@ -1,16 +1,34 @@
 # Edge Source Thesis -- Where Does Our Edge Come From?
 
-**Version:** 1.4
+**Version:** 1.8
 **Status:** draft -- standing document; every claim here is falsifiable and must be revisited
 as evidence lands
 **Priority:** high -- **T3 PASSED 2026-07-26, PRODUCTIONIZED AND GATED 2026-07-27** (Phase 167,
 both live Validation Gates PASSED against the real OOS population -- first thesis on this list
-to clear its own bar AND reach production); **T5 partially replicated at 1d 2026-07-27** (real
-but much smaller effect than the original 1h finding, ~16x magnitude collapse -- confirmed
-small, not confirmed large); T4 remains the only untested thesis
+to clear its own bar AND reach production, though which tf it should trade at is itself now an
+open question, see T3's own note below); **T5 confirmed real and SUBSTANTIAL at 1h and 15m (the
+actionable tf), small specifically at 1d** -- full replication across all three tfs now complete
+(2026-08-03); five new Signal-Extraction candidates added (T6-T10, none tested yet); T4 remains
+the only untested thesis.
 **Milestone:** standing -- not tied to a phase
-**Last Updated:** 2026-07-27
+**Last Updated:** 2026-08-03
 **Tags:** edge, thesis, counterparty, renaissance, falsifiable, first-principles
+
+**Reorganized 2026-08-03** -- this doc always implicitly mixed two different kinds of claim
+(see "What is deliberately NOT on this list" below, which already named "type #1" vs "type #2"
+theses without ever visually separating them). Split into two groups: **Trade Constructions**
+(T1, T3, T4 -- each proposes a specific trade with a named counterparty) and **Signal-Extraction
+Questions** (T2, T5, and new candidates T6-T10 -- each asks whether processing the *same* feature
+corpus differently reveals predictive power the current linear/pooled approach misses). A
+positive Signal-Extraction result isn't a strategy on its own -- it feeds into a Trade
+Construction (e.g., ranking by a non-linear combined score instead of a raw feature). T-numbers
+are unchanged from prior versions; only the grouping and headings moved. New candidates T6-T10
+(cointegrated pairs, statistical factor residual, lead-lag structure, continuously-adaptive
+combiner weights, jump/diffusion decomposition) proposed and written up in full the same
+session, not yet tested. T6/T9/T10 name explicit stochastic-process constructs (Ornstein-
+Uhlenbeck half-life, Kalman state-space, jump-diffusion decomposition) -- the closest this doc
+gets to continuous-time stochastic calculus; none of it applies further than this (no SDEs, no
+options-style path-dependent payoffs anywhere in scope).
 
 **Reviewed 2026-07-25** -- re-read in full against todo 179's 2026-07-24 finding (an exhaustive
 234-cell regime × symbol_hmm × lookahead-scale sweep for any absolute-direction, regime-
@@ -79,7 +97,19 @@ surviving result would actually *be*.
 
 ## Candidate Edge Theses (each falsifiable)
 
-### T1 -- Small-scale immediacy provision (counterparty: constrained flow)
+Two different kinds of claim live here. **Trade Constructions** propose a specific trade with a
+named counterparty -- why the mispricing exists and who's systematically on the other side of
+it. **Signal-Extraction Questions** don't propose a new trade at all -- they ask whether
+processing the *same* feature corpus differently (a different grouping, a different combination
+rule, a different temporal structure) reveals predictive power the current linear/pooled
+approach misses. A positive Signal-Extraction result feeds *into* a Trade Construction (e.g.,
+ranking by a non-linear combined score instead of a raw feature); it isn't a strategy on its
+own. See "What is deliberately NOT on this list" below for the bar a new Signal-Extraction claim
+must clear.
+
+### Trade Constructions
+
+#### T1 -- Small-scale immediacy provision (counterparty: constrained flow)
 At this account size (retail, no capacity pressure), the system can take the other side of
 flows too small for institutions to bother with: end-of-day rebalance pressure in
 lower-liquidity sector ETFs, overnight-gap mean reversion where market makers widen out.
@@ -88,7 +118,99 @@ crumbs below their minimum ticket. **Falsification:** the surviving cells should
 concentrate in the less-liquid half of the universe and around session boundaries; if edge
 concentrates in SPY/QQQ mid-session, T1 is wrong.
 
-### T2 -- Regime-conditional persistence (counterparty: unconditional models) -- **FALSIFIED, CONFIRMED 2026-07-27 on live corrected labels -- no longer provisional**
+#### T3 -- Cross-sectional relative mispricing (counterparty: single-name flows) -- **PASSED 2026-07-26, PRODUCTIONIZED AND GATED 2026-07-27**
+Individual ETFs get pushed off fair relative value by idiosyncratic flows (sector rotation,
+thematic retail); the *ranking* across 58 correlated instruments mean-reverts even when no
+single instrument is predictable directionally. **Why we might win:** relative-value noise
+cancellation is statistically much easier than directional prediction; this is the
+lowest-IC-requirement thesis on the list. **Falsification:** cross-sectional long-short
+spread portfolios built from feature rankings must show positive net return where per-symbol
+directional trades on the same features don't. Requires the cross-sectional rank IC measurement
+mode (`docs/research/measurement-ic-engine.md`, "Addendum: Cross-Sectional Rank IC") to even
+test. If the spread portfolio is no better than directional, T3 is dead.
+
+**Result (`scripts/analysis/t3_cross_sectional_long_short_ctf_momentum_check.py`, 2026-07-26):**
+equity/15m, `ctf_momentum` (the strongest, most cross-regime-consistent-sign symbol-varying
+feature per a live `feature_ic_scores` query), top/bottom decile, dollar-neutral,
+day-clustered bootstrap (`services/counterfactual_tracker.py`'s `frame_gate_passes`,
+verbatim -- no new statistics). **Passed decisively at both lookahead scales:**
+
+| Scale | n_bars | mean spread | ci_lower | shuffled-null P(null ≥ observed) |
+|---|---|---|---|---|
+| fast (lookahead=1) | 24,924 | 0.000587 | 0.000562 | 0.0000 |
+| slow (lookahead=20) | 24,924 | 0.001115 | 0.000969 | 0.0000 |
+
+The shuffled-ranking null (permute feature-to-symbol assignment within each bar, rebuild the
+identical decile construction, 40 draws) is the required guard against this being a pure
+dollar-neutral-bucketing artifact -- it isn't; the real result clears every null draw. This is
+the first thesis on this list to clear its own pre-registered bar convincingly. Gross spread
+only (no cost model applied yet) -- before treating this as an actionable finding it still
+needs: (1) the todo 030 cost-hurdle treatment applied to the spread construction specifically
+(a long-short spread's cost dynamics differ from a directional trade's), and (2) scoping
+`docs/research/trade-construction-layer.md` as a real phase rather than a one-off script.
+
+**Productionized and gated (Phase 167, 2026-07-27):** the falsification script became a real
+service, `services/cross_sectional_spread_tracker.py`, and both items above are now done. A
+full 2006-2026 backfill populated `construction_spreads` (24,924 bars), and both live
+Validation Gates ran against the real OOS population with the cost-hurdle sweep applied at
+every tier: Gate 1 (shadow spread Sharpe, net of cost) PASSED, and Gate 2 (attribution
+honesty -- is the P&L a disguised static factor tilt) PASSED. Full numeric detail, the binding
+Gate 1 pass rule, and the Gate 2 retrospective-versus-causal caveat are recorded in
+`docs/research/trade-construction-layer.md`'s Validation Gates section (not duplicated here --
+one doc owns the gate numbers). **Both gates clearing means the Phase 156-159
+execution/sizing chain's stated precondition is now met for this construction** -- unlike
+Phase 148's per-symbol directional construction, which passed Gate 1 but failed Gate 2. **Note
+this only means the construction is statistically validated, not that it is live -- no capital
+has been deployed anywhere in this project; Phase 156-159 (the actual execution/sizing layer)
+has not been started.**
+
+**Open question, found 2026-08-03: `_TF="15m"` (`services/cross_sectional_spread_tracker.py:105`)
+is an inherited default, not a comparative finding.** It came from whichever tf the original
+falsification script happened to test first, not from testing T3's actual netted spread
+construction at other tfs. The one existing 5m result (todo 030) measured *standalone
+directional* IC against cost floors, not T3's dollar-neutral netted spread -- which this doc's
+own item 1 (below) already notes has different cost dynamics. Todo 235 tracks running T3's real
+methodology at 5m before treating 15m as the right choice rather than just the first one tried.
+
+**Sibling CTF features tested, both rejected (`scripts/analysis/t3_ctf_family_check.py`,
+2026-07-27):** `ctf_momentum` has two untested siblings from the same `_build_ctf_series()`
+function (`services/backfill_feature_factory.py`) -- `ctf_vwap_align` (sign of close vs. HTF
+cumulative VWAP) and `ctf_regime_align` (HTF HMM forward-pass state, 0=ranging/1=trending) --
+already computed and sitting in `feature_vectors`, zero new data cost to test through the
+identical T3 methodology (same bootstrap, same shuffled-null guard, same cost-hurdle sweep).
+Neither survives:
+
+| Feature | Scale | ci_lower | shuffled-null p | mean 1-way turnover/bar | Best net spread (1bp) |
+|---|---|---|---|---|---|
+| `ctf_vwap_align` | fast | 0.0000094 (passes) | 0.0000 (real, not artifact) | 0.719 | **-0.45 bps/bar (fails every cost tier)** |
+| `ctf_vwap_align` | slow | -0.0000759 (fails) | 0.075 | 0.719 | n/a |
+| `ctf_regime_align` | fast | -0.0000230 (fails) | 0.975 | 0.872 | n/a |
+| `ctf_regime_align` | slow | -0.0000651 (fails) | 0.025 | 0.872 | n/a |
+
+`ctf_vwap_align`'s fast-scale result is a genuine, non-artifact cross-sectional signal (clears
+both the bootstrap CI and the shuffled-ranking null) -- but it flips leg membership on ~72% of
+symbols per bar, so its gross edge (0.27 bps/bar) is smaller than even the cheapest 1bp
+round-trip cost floor. `ctf_regime_align` doesn't clear its own CI at either scale and churns
+even harder (~87-90% turnover) -- a binary HMM state is not a stable enough per-bar ranking
+signal for this construction. **Verdict: `ctf_momentum` is not one member of a productive
+"CTF family" -- it is the only one of the three that survives real trading frictions.** Answers
+the "should we run multiple CTF-style features" question empirically rather than by building
+more of them speculatively: no, not from this specific family. A different cross-timeframe
+primitive (not derived from `_build_ctf_series()`) would need its own from-scratch case, not an
+assumed extension of this result.
+
+#### T4 -- Horizon arbitrage at 1h/1d (counterparty: nobody -- risk premium)
+The honest fallback: at longer horizons with low turnover, small conditional tilts
+(vol-conditioned momentum, flight-to-quality) earn modest risk-adjusted returns that are
+partly repackaged risk premia. **Why we might win:** we don't need to win against anyone;
+we need to harvest systematically without behavioral errors. **Falsification:** returns
+should survive but shrink substantially when regressed against standard factor exposures.
+This thesis caps expectations at "good systematic beta," which is a legitimate but
+different product.
+
+### Signal-Extraction Questions
+
+#### T2 -- Regime-conditional persistence (counterparty: unconditional models) -- **FALSIFIED, CONFIRMED 2026-07-27 on live corrected labels -- no longer provisional**
 Features with zero pooled IC but real conditional IC (the whole stratification premise).
 Participants running unconditional models mis-price bars in minority regimes.
 **Why we might win:** most simple systematic flows are not regime-conditioned; conditioning
@@ -131,86 +253,7 @@ historical rows per todo 176) -- it says nothing about features Phase 164/165 ha
 interaction effect involving regime exists -- only that a *linear*, single-dimension,
 categorical treatment of it doesn't clear a bar. See T5 below.
 
-### T3 -- Cross-sectional relative mispricing (counterparty: single-name flows) -- **PASSED 2026-07-26, PRODUCTIONIZED AND GATED 2026-07-27**
-Individual ETFs get pushed off fair relative value by idiosyncratic flows (sector rotation,
-thematic retail); the *ranking* across 58 correlated instruments mean-reverts even when no
-single instrument is predictable directionally. **Why we might win:** relative-value noise
-cancellation is statistically much easier than directional prediction; this is the
-lowest-IC-requirement thesis on the list. **Falsification:** cross-sectional long-short
-spread portfolios built from feature rankings must show positive net return where per-symbol
-directional trades on the same features don't. Requires the cross-sectional rank IC measurement
-mode (`docs/research/measurement-ic-engine.md`, "Addendum: Cross-Sectional Rank IC") to even
-test. If the spread portfolio is no better than directional, T3 is dead.
-
-**Result (`scripts/analysis/t3_cross_sectional_long_short_ctf_momentum_check.py`, 2026-07-26):**
-equity/15m, `ctf_momentum` (the strongest, most cross-regime-consistent-sign symbol-varying
-feature per a live `feature_ic_scores` query), top/bottom decile, dollar-neutral,
-day-clustered bootstrap (`services/counterfactual_tracker.py`'s `frame_gate_passes`,
-verbatim -- no new statistics). **Passed decisively at both lookahead scales:**
-
-| Scale | n_bars | mean spread | ci_lower | shuffled-null P(null ≥ observed) |
-|---|---|---|---|---|
-| fast (lookahead=1) | 24,924 | 0.000587 | 0.000562 | 0.0000 |
-| slow (lookahead=20) | 24,924 | 0.001115 | 0.000969 | 0.0000 |
-
-The shuffled-ranking null (permute feature-to-symbol assignment within each bar, rebuild the
-identical decile construction, 40 draws) is the required guard against this being a pure
-dollar-neutral-bucketing artifact -- it isn't; the real result clears every null draw. This is
-the first thesis on this list to clear its own pre-registered bar convincingly. Gross spread
-only (no cost model applied yet) -- before treating this as an actionable finding it still
-needs: (1) the todo 030 cost-hurdle treatment applied to the spread construction specifically
-(a long-short spread's cost dynamics differ from a directional trade's), and (2) scoping
-`docs/research/trade-construction-layer.md` as a real phase rather than a one-off script.
-
-**Productionized and gated (Phase 167, 2026-07-27):** the falsification script became a real
-service, `services/cross_sectional_spread_tracker.py`, and both items above are now done. A
-full 2006-2026 backfill populated `construction_spreads` (24,924 bars), and both live
-Validation Gates ran against the real OOS population with the cost-hurdle sweep applied at
-every tier: Gate 1 (shadow spread Sharpe, net of cost) PASSED, and Gate 2 (attribution
-honesty -- is the P&L a disguised static factor tilt) PASSED. Full numeric detail, the binding
-Gate 1 pass rule, and the Gate 2 retrospective-versus-causal caveat are recorded in
-`docs/research/trade-construction-layer.md`'s Validation Gates section (not duplicated here --
-one doc owns the gate numbers). **Both gates clearing means the Phase 156-159
-execution/sizing chain's stated precondition is now met for this construction** -- unlike
-Phase 148's per-symbol directional construction, which passed Gate 1 but failed Gate 2.
-
-**Sibling CTF features tested, both rejected (`scripts/analysis/t3_ctf_family_check.py`,
-2026-07-27):** `ctf_momentum` has two untested siblings from the same `_build_ctf_series()`
-function (`services/backfill_feature_factory.py`) -- `ctf_vwap_align` (sign of close vs. HTF
-cumulative VWAP) and `ctf_regime_align` (HTF HMM forward-pass state, 0=ranging/1=trending) --
-already computed and sitting in `feature_vectors`, zero new data cost to test through the
-identical T3 methodology (same bootstrap, same shuffled-null guard, same cost-hurdle sweep).
-Neither survives:
-
-| Feature | Scale | ci_lower | shuffled-null p | mean 1-way turnover/bar | Best net spread (1bp) |
-|---|---|---|---|---|---|
-| `ctf_vwap_align` | fast | 0.0000094 (passes) | 0.0000 (real, not artifact) | 0.719 | **-0.45 bps/bar (fails every cost tier)** |
-| `ctf_vwap_align` | slow | -0.0000759 (fails) | 0.075 | 0.719 | n/a |
-| `ctf_regime_align` | fast | -0.0000230 (fails) | 0.975 | 0.872 | n/a |
-| `ctf_regime_align` | slow | -0.0000651 (fails) | 0.025 | 0.872 | n/a |
-
-`ctf_vwap_align`'s fast-scale result is a genuine, non-artifact cross-sectional signal (clears
-both the bootstrap CI and the shuffled-ranking null) -- but it flips leg membership on ~72% of
-symbols per bar, so its gross edge (0.27 bps/bar) is smaller than even the cheapest 1bp
-round-trip cost floor. `ctf_regime_align` doesn't clear its own CI at either scale and churns
-even harder (~87-90% turnover) -- a binary HMM state is not a stable enough per-bar ranking
-signal for this construction. **Verdict: `ctf_momentum` is not one member of a productive
-"CTF family" -- it is the only one of the three that survives real trading frictions.** Answers
-the "should we run multiple CTF-style features" question empirically rather than by building
-more of them speculatively: no, not from this specific family. A different cross-timeframe
-primitive (not derived from `_build_ctf_series()`) would need its own from-scratch case, not an
-assumed extension of this result.
-
-### T4 -- Horizon arbitrage at 1h/1d (counterparty: nobody -- risk premium)
-The honest fallback: at longer horizons with low turnover, small conditional tilts
-(vol-conditioned momentum, flight-to-quality) earn modest risk-adjusted returns that are
-partly repackaged risk premia. **Why we might win:** we don't need to win against anyone;
-we need to harvest systematically without behavioral errors. **Falsification:** returns
-should survive but shrink substantially when regressed against standard factor exposures.
-This thesis caps expectations at "good systematic beta," which is a legitimate but
-different product.
-
-### T5 -- Non-linear interaction structure (counterparty: linear-model participants) -- candidate, added 2026-07-25
+#### T5 -- Non-linear interaction structure (counterparty: linear-model participants) -- confirmed SMALL, not LARGE
 The ensemble combiner (`ensemble_trainer.py`) is a linear, shrunk-IC-weighted sum of
 per-feature marginal predictive power. It can express "feature X predicts returns" but
 structurally cannot express "feature X predicts returns only when feature Y crosses a
@@ -226,8 +269,9 @@ bootstrap CI, and BH-FDR correction as everything else in this doc, must show a 
 significant Sharpe/IC uplift over the existing linear ensemble on the *same* features. If it
 doesn't, T5 is dead -- the bottleneck isn't the combiner's linearity, which strengthens the
 case for either T3 (construction, not modeling) or that this feature set genuinely has no
-edge to extract regardless of how it's combined. Full design and overfitting controls:
-`docs/ideas/measurement-nonlinear-interaction-combiner.md`.
+edge to extract regardless of how it's combined. Original design proposal and overfitting
+controls (archived 2026-08-03, fully absorbed below -- not the live reference):
+`docs/research/archive/measurement-nonlinear-interaction-combiner.md`.
 
 **Result (`scripts/analysis/t5_nonlinear_combiner_lightgbm_check.py`, 2026-07-26): canary-leakage
 check clears this specific failure mode -- genuinely interesting, still not a confirmed pass.**
@@ -315,18 +359,183 @@ two different features under one name. Do not treat `ctf_momentum` as timeframe-
 specifically; every other tf is fine. Full detail and recommended fix: todo 189.
 
 **Revised verdict: T5 is neither confirmed nor dead -- it is confirmed SMALL, not confirmed
-LARGE.** The original 1h finding likely overstated the effect's true, tf-general size. Next
-legitimate step, if pursued further: replicate at 15m (the tf Phase 167's live construction
-actually runs on, so directly actionable) -- deferred at write time due to memory contention
-with the concurrent todo 183 `ic_engine` recompute (~8.1M rows vs 1d's ~330K); revisit once that
-recompute completes or with a memory-safer chunked approach.
+LARGE.** The original 1h finding likely overstated the effect's true, tf-general size.
+
+**UPDATE 2026-08-02: both the 1h and 1d numbers above independently re-verified under a
+corrected corpus -- both hold, both come down moderately, T5's verdict is unchanged.** Two real
+changes accumulated since the numbers above were first measured, neither reflected in either
+prior run: (1) `forward_returns` was truncated and rebuilt under todo 208's corrected
+same-session-boundary definition (~2026-07-30), changing the target variable itself; (2)
+`feature_vectors` grew from ~150 to 263 columns (migrations 266/267, Phase 164/165 SMC +
+swing/fib/trend primitives, 2026-07-27/28) -- the 1d replication above ran before the historical
+backfill for those columns completed. Re-ran both original scripts with identical logic (only a
+memory-safety fix to the data-loading/training layer, todo 231 -- confirmed byte-identical
+results across repeated runs of the fixed code, so this is a data re-verification, not a
+methodology change):
+
+- **1h:** tree mean `point_ic`=0.2139 (80/80 pass, was 0.2992) vs `ctf_momentum`'s 0.0533 (79/80
+  pass, was 0.0887). Cross-sectional-neutral: tree 0.1822 (`ci_lower`=0.1791, was 0.258/0.254)
+  vs baseline 0.0511 (`ci_lower`=0.0476, was 0.080/0.076) -- both drop ~30-40%, both still clear
+  CI decisively.
+- **1d:** cross-sectional-neutral tree `point_ic`=0.0127 (`ci_lower`=0.0048, was 0.0164/0.0081)
+  vs `ctf_momentum` -0.0105 (`ci_lower`=-0.0198, still negative -- the known same-tf-RSI
+  artifact, todo 189, unaffected by today's changes) -- a ~22% dip, smaller than 1h's drop,
+  still clears zero. Per-symbol BH-FDR-positive count remains thin either way (1/80).
+
+**Read: both prior numbers were partly inflated by the pre-correction data, but the qualitative
+verdict does not change** -- confirmed real, confirmed SMALL at both tfs measured.
+
+**UPDATE 2026-08-03: 15m completed successfully -- and the result is NOT small, it's close to
+1h's magnitude.** 15m OOM-killed four times in a row across two sessions, each time after the
+prior fix closed one memory sink and exposed the next (data-fetch materialization, todo 231;
+per-fold model retention; two transient-copy steps in the causal-demeaning sort). Root-caused
+properly (not patched further) via `superpowers:systematic-debugging`: the wide ~8.5M-row x
+264-col pandas DataFrame's *existence* was the defect, not any one operation on it -- measured,
+not estimated, the fetch alone consumed 18.5GB before any processing started, and every
+subsequent full-frame pandas op stacked another ~9.3GB on top; no patch ordering fit in 29GB.
+Fix: `_t5_nonlinear_combiner_shared.py` rewritten to build the training matrix directly from
+asyncpg rows (two-pass: narrow key/target columns first, then wide feature columns scattered
+into a preallocated array), matching `services/ensemble_trainer.py:909-928`'s existing
+production pattern instead of declining it. Verified architecture-only: the 1d re-run under the
+new code is bit-identical to its pre-change output. 15m itself: peak 14.65GB (was killed at
+~21.8GB), zero OOMs, `pytest tests/unit/` green.
+
+**15m result: tree mean `point_ic`=0.2899 (80/80 pass CI, 80/80 survive BH-FDR positive) vs
+`ctf_momentum`'s 0.0677 (uplift mean 0.2222, 80/80 symbols tree-better). Cross-sectional-neutral:
+tree 0.2506 (`ci_lower`=0.2489) vs baseline 0.0610 (`ci_lower`=0.0593), both clear CI
+decisively.** This is much closer to 1h's magnitude (0.1822 cross-sectional-neutral) than to
+1d's (0.0127) -- and 15m is the tf that actually matters, since it's what Phase 167's live
+construction trades. Read: T5's magnitude is not uniformly small across timeframes -- it's
+small specifically at 1d (and 1d's own `ctf_momentum` baseline is separately known-degenerate,
+todo 189), and substantial at both 1h and, now confirmed, 15m. The one prior open
+question -- "does the huge 1h number generalize, or was it an artifact of that specific tf" --
+is answered: it generalizes to the tf that's actually tradeable. (Note: the script's own printed
+VERDICT string reads "Mixed/weak" here due to a pre-existing, unrelated threshold-logic bug in
+the verdict heuristic -- `tree_pass_rate > baseline_pass_rate * 1.5` can't fire when both rates
+already saturate near 1.0 -- the numbers above are the substantive result, not that string.)
+
+Full per-symbol tables: `docs/analysis/t5-1h-per-symbol.csv`,
+`docs/analysis/t5-replication-1d-per-symbol.csv`,
+`docs/analysis/t5-replication-15m-per-symbol.csv` (all current as of 2026-08-03).
+
+#### T6-T10 -- Five new Signal-Extraction candidates, added 2026-08-03, none tested yet
+
+T2 tested one grouping (discrete price-trend regime) and one combination rule (linear). T5
+tested one combination rule (non-linear tree) on the same grouping (none -- pooled). That leaves
+real gaps: different **groupings** (pairwise structural relationships, orthogonalized factors),
+different **temporal structure** (lead-lag, not contemporaneous), and different **combination
+dynamics** (continuous adaptation, not a discrete regime switch or a static fit). Ideas that
+would just re-run T2's regime-conditioning against a different regime definition (liquidity
+regime, volume regime) were considered and dropped -- too close to an already-falsified instance
+to justify a new T-number without first checking whether the falsification generalizes.
+
+This universe's binding constraint (see "Breadth Is the Binding Constraint" below) matters here:
+effective breadth ~8-15 across 80 correlated ETFs. That rules out some classic stat-arb
+approaches at face value (true cointegration wants economically related PAIRS, not a broad
+basket) but doesn't rule out others (factor decomposition works fine on a small, correlated
+universe -- that's exactly the regime PCA is built for).
+
+**T6 -- Cointegrated pairs residual (counterparty: basket/index flows that ignore pairwise structure).**
+A genuinely different grouping than T2 (regime) or T3 (broad cross-sectional rank): specific,
+economically-linked pairs (sector leveraged/inverse pairs, a miner ETF vs. the metal it tracks,
+`TLT`/`IEF`) tested for a stable cointegrating relationship whose short-run deviations
+mean-revert -- the classical Engle-Granger/Johansen stat-arb structure. **Falsification:** (1)
+screen candidate pairs by economic relatedness, not a blind correlation scan across all 80
+symbols (a blind scan risks the exact multiple-comparisons trap this project's own FDR
+discipline exists to catch). (2) Engle-Granger test for cointegration on log-price pairs, with an
+OOS stability check -- a pair cointegrated in-sample but not OOS is noise, not structure. (3) For
+pairs that pass, day-clustered bootstrap CI on whether the residual z-score predicts forward
+reversion, same statistical bar as every other thesis here. If zero pairs both cointegrate OOS
+and show predictive residual reversion, T6 is dead. **Cost:** cheap -- existing daily closes are
+sufficient for the cointegration screen; only pairs that pass need the full IC/bootstrap
+treatment. **Stochastic-calculus detail (added 2026-08-03):** for pairs that cointegrate, model
+the spread as an Ornstein-Uhlenbeck process (`dX_t = θ(μ - X_t)dt + σdW_t`) rather than trading
+off an arbitrary lookback window -- the fitted `θ` gives a closed-form mean-reversion half-life
+(`ln(2)/θ`), the standard stat-arb sizing/holding-period signal for a cointegrated spread, more
+principled than a fixed z-score lookback chosen by hand.
+
+**T7 -- Statistical factor residual (counterparty: index/factor-only investors).** Decompose the
+cross-sectional return matrix into its top-K statistical factors (PCA over the correlated
+80-ETF universe) and test whether the idiosyncratic residual -- what's left after removing the
+common factors -- is more predictable than the raw or simply-demeaned return. The classical
+Avellaneda-Lee stat-arb structure: instead of ranking by a feature (T3) or conditioning on a
+discrete regime (T2), this asks whether orthogonalizing away the shared market/sector factors
+first reveals structure invisible in the raw cross-section. **Falsification:** fit PCA (or a
+simpler factor model) causally -- no look-ahead in the factor loadings, same discipline as T5's
+per-symbol demeaning fix -- and test whether `ctf_momentum` (or the T5 tree score) computed on
+the residual return series shows a materially higher IC than on raw returns. If residualizing
+doesn't change the IC picture, T7 is dead. **Risk to flag up front:** with effective breadth
+~8-15, a PCA over 80 highly-correlated ETFs may only have 3-5 meaningful factors before hitting
+noise -- the K-selection question needs a real answer (parallel to HMM's K=5 BIC study, not a
+guess) before this result can be trusted.
+
+**T8 -- Lead-lag / cross-asset temporal precedence (counterparty: participants who don't
+cross-reference correlated instruments in real time).** Existing broadcast features (`vix_z`,
+`yield_slope_z`, `flight_quality`) encode *contemporaneous* market-level context only. Nothing
+tests whether one equity ETF's move at time *t* predicts a **different, specific** ETF's move at
+*t+1* -- a genuine pairwise temporal lead-lag relationship (a large, liquid sector ETF leading a
+smaller/less liquid one). Every other thesis on this list is contemporaneous (same-bar); T8 is
+specifically about information propagating across symbols with a lag. **Falsification:**
+cross-correlation or Granger-causality screen across symbol pairs at 15m, held to the same
+day-clustered bootstrap + BH-FDR bar as everything else here -- critically, tested against
+`ctf_momentum` as a covariate, since a lagging symbol's own `ctf_momentum` might already explain
+an apparent lead-lag effect. If no pair shows lead-lag power beyond what the lagging symbol's own
+existing features already capture, T8 is dead. **Cost:** most expensive of the four -- ~3,160
+candidate ordered pairs across 80 symbols needs a pre-filter (economic relatedness or
+liquidity-tier proximity) before FDR correction even applies, to avoid a multiple-comparisons
+trap.
+
+**T9 -- Continuously-adaptive combiner weights (counterparty: participants on stale,
+periodically-refit weights).** `ensemble_trainer.py`'s shrunk-IC weights are re-estimated in
+discrete batch runs, not continuously. T2 tested discrete regime-conditional weight switching
+and it failed; T9 asks whether letting weights drift smoothly and continuously (an
+exponentially-weighted rolling IC, or a Kalman filter -- the discrete-time analog of a
+continuous-time linear stochastic system, with weights as latent, slowly-varying state)
+captures real time-variation a periodic step-function re-fit misses between recompute cycles.
+Orthogonal to both T2 (continuous drift vs. discrete regime switch) and T5 (adaptive linear
+weights vs. static non-linear combination) -- no new grouping or model family, just a different
+update dynamic on the existing linear combiner. **Falsification:** build a walk-forward EWMA (or
+Kalman-filtered) weight update over the same per-feature IC series `ensemble_trainer.py` already
+computes, with a pre-specified halflife (not tuned to the result), and compare OOS IC/Sharpe
+against the current periodic-batch weights over the identical held-out window. If it doesn't
+clear a real uplift, T9 is dead -- feature predictive power is stable enough on the existing
+recompute cadence. **Cost:** cheapest of the four -- reuses `feature_ic_scores`' existing time
+series directly, no new grouping or pairwise screen.
+
+**T10 -- Jump/diffusion decomposition (counterparty: participants who conflate gap risk with
+trend risk).** All existing volatility features (`garch_volatility`, `hurst_exponent`) treat
+price movement as one undifferentiated process. Realized-variance theory splits it into two
+economically distinct components: a continuous diffusion part (steady drift/trend) and a jump
+part (discontinuous, news-driven gaps) -- separable via bipower variation vs. total realized
+variance (Barndorff-Nielsen/Shephard) or an explicit jump-diffusion fit. **Why we might win:** a
+symbol whose recent volatility is jump-dominated (news risk) behaves differently going forward
+than one whose volatility is diffusion-dominated (trend continuation) -- if the current single
+undifferentiated vol features blend these, they may be averaging away a real distinction, the
+same "combiner/grouping is blind to structure that exists" pattern as T2/T5, applied to feature
+*construction* instead of combination. **Falsification:** compute a jump-ratio feature (jump
+variation / total variation) per symbol per bar from existing intraday OHLCV, test whether it
+adds incremental IC beyond the existing GARCH/Hurst features on the same target -- not whether
+it's predictive alone (a new feature that only duplicates existing information isn't evidence of
+anything). If it adds nothing beyond what GARCH/Hurst already capture, T10 is dead. **Cost:**
+cheap -- pure feature-engineering exercise on data already in `market_data_ohlcv`, no new
+grouping, no new data source; closer in shape to a Phase 151 primitive candidate than a new
+combiner or construction, but named here since the *specific processing/decomposition
+advantage* (separating jump from diffusion risk) is the falsifiable claim, not just "add a
+feature."
+
+**Sequencing, cheapest-first:** T9 (reuses existing IC time series) -> T10 (feature-engineering
+only, existing OHLCV) -> T7 (PCA on existing closes) -> T6 (pairs screen, existing closes,
+narrow candidate list) -> T8 (most expensive, needs the multiple-comparisons pre-filter done
+carefully first). None are urgent -- independent of the in-flight T5-at-15m/T3-at-5m work, pick
+up whenever that settles.
 
 ### What is deliberately NOT on this list
 "Our features are better" (they are public) and "our ML is better" (we run a linear
 IC-weighted combiner; the institutions we'd be beating run more) as *unqualified* claims. Any
-future thesis of type #2 (processing) must name the specific processing advantage -- e.g.,
+future Signal-Extraction Question must name the specific processing advantage -- e.g.,
 regime-conditional structure (T2, now falsified), the AnalogEngine's non-parametric
-retrieval, or T5's named linear-vs-non-linear gap -- not assert generic model superiority.
+retrieval, T5's named linear-vs-non-linear gap, or T6-T10's named
+grouping/association/dynamic/decomposition -- not assert generic model superiority.
 
 ## Breadth Is the Binding Constraint (added 2026-07-01, Simons-lens review)
 
@@ -373,7 +582,7 @@ pulled last.
    multi-week feature-expansion effort: **T3** (cross-sectional relative value -- construction
    change, no new features, `docs/research/trade-construction-layer.md`, now unblocked since
    Phase 142A's OOS gate cleared 2026-07-22) and **T5** (non-linear combiner -- modeling change,
-   no new features, `docs/ideas/measurement-nonlinear-interaction-combiner.md`). Both attack
+   no new features, `docs/research/archive/measurement-nonlinear-interaction-combiner.md`). Both attack
    the *construction/modeling* side of the failure with the existing 150 features; Phase
    164/165 attacks the *feature* side using the same linear/absolute-direction construction
    that T2 just falsified. T3 and T5 are cheaper to test (reuse existing corpus and
@@ -386,6 +595,10 @@ pulled last.
    outside this corpus's observed range and needs the canary-leakage check (see T5 above)
    before it can support or damage anything. Until that check runs, T5 is neither evidence
    for nor against committing to Phase 164/165 -- don't cite it either way.
+7. **Added 2026-08-03, post-taxonomy-reorg.** Five new Signal-Extraction candidates (T6-T10)
+   proposed, full design and cheapest-first sequencing above. None are urgent -- they're
+   independent of the in-flight T5-at-15m/T3-at-5m work and can be picked
+   up whenever that settles.
 
 ## References
 
@@ -401,8 +614,8 @@ pulled last.
 - `.planning/todos/completed/179-gate166-concurrent-exposure-diagnostic.md` -- T2's falsification
   evidence, full 234-cell sweep and historical replication check
 - `docs/research/trade-construction-layer.md` -- T3's construction and validation design
-- `docs/ideas/measurement-nonlinear-interaction-combiner.md` -- T5's design and overfitting
-  controls (new, 2026-07-25)
+- `docs/research/archive/measurement-nonlinear-interaction-combiner.md` -- T5's original design
+  proposal and overfitting controls (2026-07-25, archived 2026-08-03, fully absorbed above)
 - `scripts/analysis/t3_cross_sectional_long_short_ctf_momentum_check.py` -- T3's falsification
   script and 2026-07-26 pass result
 - `scripts/analysis/t5_nonlinear_combiner_lightgbm_check.py` -- T5's falsification script and

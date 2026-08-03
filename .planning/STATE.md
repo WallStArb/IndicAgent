@@ -34,10 +34,18 @@ found Gate 1 (signal proof) PASS but Gate 2 (execution proof) FAIL -- do not pro
 per-symbol directional construction to live capital. Phase 167 (Cross-Sectional Trade
 Construction, T3) resolved the fork this opened -- **COMPLETE 2026-07-27, both live Validation
 Gates PASSED** (`gate1_passes=true`, `gate2_passes_overall=true`), the first construction in the
-tree to clear both. T2 (regime-conditional persistence) is CONFIRMED DEAD (270 cells tested,
-zero pass on live corrected labels). T5 (non-linear combiner) is confirmed SMALL, not LARGE (1d
-replication collapsed ~16x from the original 1h finding; 15m replication, the directly
-actionable tf, still pending -- todo 188). Full detail on all three: `docs/research/data-edge-source-thesis.md`.
+tree to clear both -- though which tf it should trade at is itself an open question: `_TF="15m"`
+was inherited from the original falsification script, never comparatively tested against 5m for
+this specific construction (todo 235, new 2026-08-03). T2 (regime-conditional persistence) is
+CONFIRMED DEAD (270 cells tested, zero pass on live corrected labels). T5 (non-linear combiner)
+now replicated at all three tfs (todo 234 CLOSED 2026-08-03 -- root-caused via
+`superpowers:systematic-debugging`, the wide-DataFrame fetch pattern itself was the OOM defect,
+not any single operation on it; fixed by building the training matrix directly from asyncpg rows,
+matching `ensemble_trainer.py`'s existing pattern): **substantial at 1h and 15m** (the directly
+actionable tf, cross-sectional-neutral `point_ic` 0.18-0.25), **small specifically at 1d**
+(`point_ic`=0.0127, 1d's own `ctf_momentum` baseline separately known-degenerate, todo 189). Five
+new Signal-Extraction candidates (T6-T10) added the same session, none tested yet. Full detail on
+all theses: `docs/research/data-edge-source-thesis.md` (v1.8).
 Phase 144/143.1/162/163/164/165/167 are all COMPLETE -- see Phase Summary table below, not
 duplicated here.
 
@@ -93,8 +101,10 @@ features/regimes/IC/ensemble signal-generation stack validated first ("real prov
 before any execution-layer investment. Do not resume Phase 156-159 scoping without the user
 re-raising it.
 
-*Tier 2 -- serves the redirected priority:* todo 188 (T5 15m replication, deferred on memory
-contention -- see above); the open `alpha_ensemble_ic`/`alpha_events` question (is the linear-only combiner adequate, or
+*Tier 2 -- serves the redirected priority:* todo 234 CLOSED 2026-08-03 -- T5's 15m result now
+in, and it's the more consequential read of T5 than 1d's small-magnitude number was: substantial
+at the tf that's actually tradeable. todo 235 (T3-at-5m, never comparatively tested against 15m
+for this construction -- new 2026-08-03); the open `alpha_ensemble_ic`/`alpha_events` question (is the linear-only combiner adequate, or
 does it need revision -- confirmed `ensemble_trainer.py`'s `resolve_stratum_weights` is linear
 combination only; `alpha_events` confirmed sparse/emission-gated, not a dense full-universe
 ranking input without further work; not yet investigated further). Phase 151 (Feature

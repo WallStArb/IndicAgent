@@ -1,7 +1,8 @@
 ---
-status: pending
+status: completed
 priority: P2
 filed: 2026-07-27
+closed: 2026-08-03
 source: T5's 1d independent replication, deferred the 15m follow-on due to memory contention
 ---
 
@@ -29,15 +30,23 @@ PASSED using this exact feature at this tf). Unexplained timeframe instability
 
 ## Next step
 
-**Todo 183's recompute completed 2026-07-27T21:55 UTC** (the ~9GB it was holding is freed;
-host has ~20GB free as of this writing — re-verify via `free -h` before running, but the
-deferral reason is gone). Rerun the same pipeline at `_TF="15m"` with an
-appropriately recalibrated embargo (this project's `alpha.ic.bootstrap_block_size.15m`=26,
-vs. 1d's/1h's 10) and row floor. Reuse `t5_nonlinear_combiner_replication_1d.py`'s structure
-(imports `_train_and_predict_oos`/`_per_symbol_ic_ci` from the original 1h script, overrides
-its module-globals explicitly -- see that script's own comments on why the override is
-necessary, a real Python gotcha this session caught before it silently ran the wrong embargo).
+The original deferral reason (todo 183's concurrent recompute contending for memory) cleared
+weeks ago. `scripts/analysis/t5_nonlinear_combiner_replication_15m.py` now exists (built off the
+shared `_t5_nonlinear_combiner_shared.py` module, not a copy-pasted override of the 1h script's
+globals) and has been attempted multiple times since -- each attempt hit a distinct OOM (data
+fetch, then source-frame retention, then per-fold model retention). Current status and the
+active fix: [234](234-t5-15m-lightgbm-oom-survives-both-prior-fixes.md). This todo's remaining
+scope is superseded by 234 -- close this one once 234 resolves rather than tracking the run
+attempt in two places.
 
 If the 15m result shows a magnitude closer to the 1h finding than the 1d one, that would be
 meaningful evidence the effect is tf-dependent in a specific, not-yet-understood way rather than
 simply an artifact that shrinks with lower-frequency data in general.
+
+## Resolution (2026-08-03)
+
+Todo 234 resolved the OOM (root-cause architectural fix, not a patch -- see that file). 15m
+completed: tree cross-sectional-neutral `point_ic`=0.2506, much closer to 1h's 0.1822 than 1d's
+0.0127. Answers this todo's own closing question directly -- yes, the effect is tf-dependent in
+the specific way hypothesized: substantial at 1h and 15m (the actionable tf), small specifically
+at 1d. Full detail: `docs/research/data-edge-source-thesis.md`'s T5 section (v1.8).
