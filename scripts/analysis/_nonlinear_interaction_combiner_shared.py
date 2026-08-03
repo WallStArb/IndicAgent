@@ -144,8 +144,41 @@ class TrainingMatrix:
     n_bar_ts: int
 
 
+def _select_feature_columns(
+    attrs: list[tuple[str, str]],
+    extra_exclude_cols: frozenset[str] = frozenset(),
+) -> list[str]:
+    """Filter a prepared statement's (name, pg_type_name) column attributes down to the trained
+    feature columns -- float4/float8, not `return_fast` (the target), not in EXCLUDE_COLS or the
+    caller's own `extra_exclude_cols`.
+
+    `extra_exclude_cols` exists so a diagnostic run (todo 245: does nonlinear_interaction_combiner's
+    result survive removing the lookahead-contaminated ctf_momentum/ctf_vwap_align/
+    ctf_regime_align columns) can exclude additional columns WITHOUT mutating the module-level
+    `EXCLUDE_COLS` constant every other caller reads. Hand-editing that shared constant for one
+    ad hoc run, then remembering to revert it before the next real run, is exactly the kind of
+    manual, easy-to-forget step that silently corrupts a later run in a repo other sessions
+    concurrently commit to -- this parameter makes "with" and "without" two ordinary function
+    calls instead.
+
+    Pure function (schema attributes in, column names out) so this is unit-testable without a
+    live DB connection -- extracted from fetch_training_matrix's inline list comprehension for
+    exactly that reason.
+    """
+    exclude = EXCLUDE_COLS | extra_exclude_cols
+    return [
+        name
+        for name, type_name in attrs
+        if type_name in ("float4", "float8") and name not in exclude and name != "return_fast"
+    ]
+
+
 async def fetch_training_matrix(
-    db_dsn: str, tf: str, target_min_periods: int, feature_dtype: type = np.float32
+    db_dsn: str,
+    tf: str,
+    target_min_periods: int,
+    feature_dtype: type = np.float32,
+    extra_exclude_cols: frozenset[str] = frozenset(),
 ) -> TrainingMatrix:
     """Build X/y/meta directly, without ever materializing a wide DataFrame of every feature.
 
@@ -215,13 +248,10 @@ async def fetch_training_matrix(
         # own X allocation needs the bulk of this host's free memory concurrently.
         await conn.execute("SET work_mem = '128MB'")
         schema = await conn.prepare(FV_SQL)
-        feature_cols = [
-            attr.name
-            for attr in schema.get_attributes()
-            if attr.type.name in ("float4", "float8")
-            and attr.name not in EXCLUDE_COLS
-            and attr.name != "return_fast"
-        ]
+        feature_cols = _select_feature_columns(
+            [(attr.name, attr.type.name) for attr in schema.get_attributes()],
+            extra_exclude_cols=extra_exclude_cols,
+        )
 
         # ---- Pass 1: keys + target.
         sym_parts: list[np.ndarray] = []
@@ -856,6 +886,7 @@ async def run_nonlinear_interaction_combiner_check(
     fdr_alpha: float = 0.05,
     cross_sectional_block_bars: int = 2,
     feature_dtype: type = np.float32,
+    extra_exclude_cols: frozenset[str] = frozenset(),
 ) -> None:
     """The full nonlinear_interaction_combiner falsification pipeline for one timeframe: fetch, causal per-symbol demean,
     feature select, walk-forward train, per-symbol OOS IC with BH-FDR correction, a
@@ -869,6 +900,13 @@ async def run_nonlinear_interaction_combiner_check(
     current caller, including 5m, uses that default -- a float16 attempt at 5m was tried and
     reverted (see `fetch_training_matrix`'s docstring for why: LightGBM upcasts it back to
     float32 internally anyway, making float16 storage a pure memory cost, not a saving).
+
+    `extra_exclude_cols` (todo 245): additional feature columns to withhold from the training
+    matrix, ON TOP of the module-level EXCLUDE_COLS, without mutating that shared constant --
+    see `_select_feature_columns`'s docstring. `baseline_feature` MUST NOT be a member of
+    `extra_exclude_cols` (the baseline's value is read back out of the fetched training matrix
+    by column name; excluding it removes the column entirely and the lookup below raises
+    ValueError -- fails loud rather than silently comparing against the wrong thing).
     """
     # Causal per-symbol demeaning (found live 2026-07-26) happens inside fetch_training_matrix,
     # against three narrow columns rather than the full feature frame: the naive pooled-training
@@ -881,7 +919,11 @@ async def run_nonlinear_interaction_combiner_check(
     # to do with bar-level signal. Subtracting each symbol's own CAUSAL (shift(1), expanding,
     # never look-ahead) mean return_fast before training/measuring removes that fixed effect.
     data = await fetch_training_matrix(
-        db_dsn, tf, target_min_periods=50, feature_dtype=feature_dtype
+        db_dsn,
+        tf,
+        target_min_periods=50,
+        feature_dtype=feature_dtype,
+        extra_exclude_cols=extra_exclude_cols,
     )
     print(f"Loaded {data.n_raw} equity {tf} rows.")
     print(f"Distinct symbols: {data.n_symbols}  Distinct bar_ts: {data.n_bar_ts}")

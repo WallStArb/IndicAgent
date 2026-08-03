@@ -18,7 +18,9 @@ if str(_project_root) not in sys.path:
     sys.path.insert(0, str(_project_root))
 
 from scripts.analysis._nonlinear_interaction_combiner_shared import (
+    EXCLUDE_COLS,
     _pooled_panel_folds,
+    _select_feature_columns,
     bootstrap_ic_stats,
     fit_linear_ensemble_weights,
     paired_bootstrap_ic_difference,
@@ -204,6 +206,60 @@ class TestScoreLinearEnsemble:
 
         score = score_linear_ensemble(fit, X_test)
         assert np.all(np.isfinite(score))
+
+
+class TestSelectFeatureColumns:
+    """Todo 245: the CTF-leak diagnostic needs to exclude ctf_momentum/ctf_vwap_align/
+    ctf_regime_align WITHOUT mutating the shared EXCLUDE_COLS module constant (which every
+    other caller, including the eventual 'real' re-run, also reads) -- a hand-edit-then-revert
+    on shared state is exactly the kind of manual, forgettable step that silently corrupts a
+    later run in a repo other sessions are concurrently committing to."""
+
+    def _attrs(self, names_and_types: list[tuple[str, str]]):
+        return names_and_types
+
+    def test_selects_float_columns_not_in_exclude_cols(self) -> None:
+        attrs = [("momentum_z_fast", "float4"), ("symbol", "text"), ("bar_ts", "timestamptz")]
+        result = _select_feature_columns(attrs)
+        assert result == ["momentum_z_fast"]
+
+    def test_excludes_return_fast_even_though_its_a_float_column(self) -> None:
+        attrs = [("momentum_z_fast", "float4"), ("return_fast", "float4")]
+        result = _select_feature_columns(attrs)
+        assert result == ["momentum_z_fast"]
+
+    def test_excludes_module_level_exclude_cols_by_default(self) -> None:
+        excluded_name = next(iter(EXCLUDE_COLS))
+        attrs = [("momentum_z_fast", "float4"), (excluded_name, "float4")]
+        result = _select_feature_columns(attrs)
+        assert result == ["momentum_z_fast"]
+
+    def test_extra_exclude_cols_removes_additional_columns_without_touching_module_constant(
+        self,
+    ) -> None:
+        before = frozenset(EXCLUDE_COLS)
+        attrs = [
+            ("momentum_z_fast", "float4"),
+            ("ctf_momentum", "float4"),
+            ("ctf_vwap_align", "float4"),
+            ("ctf_regime_align", "float4"),
+        ]
+        result = _select_feature_columns(
+            attrs,
+            extra_exclude_cols=frozenset({"ctf_momentum", "ctf_vwap_align", "ctf_regime_align"}),
+        )
+        assert result == ["momentum_z_fast"]
+        assert EXCLUDE_COLS == before  # module constant untouched -- the whole point
+
+    def test_extra_exclude_cols_defaults_to_empty_no_behavior_change(self) -> None:
+        attrs = [("momentum_z_fast", "float4"), ("ctf_momentum", "float4")]
+        result = _select_feature_columns(attrs)
+        assert result == ["momentum_z_fast", "ctf_momentum"]
+
+    def test_preserves_schema_order(self) -> None:
+        attrs = [("z_col", "float4"), ("a_col", "float4"), ("m_col", "float4")]
+        result = _select_feature_columns(attrs)
+        assert result == ["z_col", "a_col", "m_col"]
 
 
 class TestPairedBootstrapIcDifference:
