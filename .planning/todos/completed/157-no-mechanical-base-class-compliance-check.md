@@ -1,7 +1,8 @@
 ---
-status: pending
+status: completed
 priority: P2
 filed: 2026-07-20
+closed: 2026-08-03
 source: user question mid-session ("is our code enforcing our reuse of base classes with the
   shared observability, tracability, metrics, guardrails etc"), 2026-07-20 -- direct follow-up
   to [[156-otel-span-coverage-gap-v3-pipeline]], investigated same session.
@@ -88,6 +89,27 @@ Small-to-medium -- the boundary-test pattern to copy already exists and is prove
 work is defining the "which classes should extend which base" heuristic precisely enough to
 avoid false positives on legitimately-exempt files (oneshot `_agent.py` scripts, thin CLI
 wrappers, etc. -- see CLAUDE.md's own documented exceptions for prior art on what's exempt).
+
+## Item 3 CLOSED 2026-08-03
+
+`tests/unit/test_span_coverage_compliance.py` added: three static-AST tests confirming
+`BaseBatch.run()` still calls `observed_span(...)` around `execute()`, and
+`BaseWriter._do_flush()`/`BaseWriter._run()` still call `start_as_current_span("writer.flush"
+/"writer.process_message", ...)`. Per 156's own scoping, this guards the base-class wrapping
+mechanism itself (a future refactor accidentally removing it would silently drop tracing for
+every subclass at once), not per-subclass opt-in -- inheritance already makes span coverage
+automatic once a class reaches `BaseBatch`/`BaseWriter`, which
+`test_service_base_class_compliance.py` already separately guards. `BaseDaemon` direct
+subclasses are explicitly out of scope, documented in the test file's own docstring per 156's
+"no per-unit boundary" finding.
+
+Mutation-verified (this project's `a748d13d` discipline): temporarily removed the
+`observed_span` wrapping from `BaseBatch.run()`, confirmed the new test fails with a clear
+message, restored the file, confirmed green again -- the test is load-bearing, not vacuous.
+Full `tests/unit/` suite green (excluding one unrelated file mid-edit by a concurrent session
+at commit time).
+
+All three items of todo 157 are now closed.
 
 ## References
 
