@@ -11,8 +11,8 @@ uvicorn[standard]>=0.40.0
 uvloop>=0.22.0; sys_platform != "win32"
 
 # Data Processing
-numpy>=2.0.0
-pandas>=2.2.0
+numpy>=2.0.0,<2.5.0  # numba's runtime check hard-fails to import above 2.4 (confirmed live 2026-08-03)
+pandas>=2.2.0,<3.0.0  # pandas 3.0 is a breaking major version; no evidence yet that anything here needs it
 pandas-market-calendars>=4.3
 pyarrow>=14.0.0
 polars>=1.0
