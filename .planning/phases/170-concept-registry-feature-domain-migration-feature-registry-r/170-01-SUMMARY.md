@@ -92,3 +92,12 @@ None - no external service configuration required. Migration was applied directl
 ---
 *Phase: 170-concept-registry-feature-domain-migration-feature-registry-r*
 *Completed: 2026-08-04*
+
+## Self-Check: PASSED
+
+- FOUND: production/migrations/283_concept_registry_feature_domain_schema.sql
+- FOUND: tests/integration/test_concept_parent_lineage.py
+- FOUND: .planning/phases/170-concept-registry-feature-domain-migration-feature-registry-r/170-01-SUMMARY.md
+- FOUND: b0f9f371 (Task 1 commit)
+- FOUND: 8cce6139 (Task 2 commit)
+- FOUND: f959efc8 (docs: SUMMARY commit)
