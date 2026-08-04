@@ -89,14 +89,14 @@ import structlog  # noqa: E402
 
 from services._batch_utils import cfg as _cfg  # noqa: E402
 from services._batch_utils import load_apr_dict_async as _load_apr  # noqa: E402
-from services.counterfactual_tracker import (  # noqa: E402
+from src.config.settings import Settings  # noqa: E402
+from src.core.agent.base_batch import BaseBatch  # noqa: E402
+from src.core.database_manager import connect_with_codecs  # noqa: E402
+from src.intelligence.statistics.gate_math import (  # noqa: E402
     _DEFAULT_BOOTSTRAP_RANDOM_STATE,
     evaluate_frame_gate,
     frame_gate_passes,
 )
-from src.config.settings import Settings  # noqa: E402
-from src.core.agent.base_batch import BaseBatch  # noqa: E402
-from src.core.database_manager import connect_with_codecs  # noqa: E402
 from src.observability.corpus_manifest import CorpusManifest  # noqa: E402
 from src.observability.otel import OTelInitError, init_otel_providers  # noqa: E402
 
