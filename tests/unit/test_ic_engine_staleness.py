@@ -26,8 +26,8 @@ from tests.unit.test_ic_engine_lifecycle_hook import (
     _cell,
     _FakeLifecycleConn,
     _FakeManifest,
-    _FakeRegistryService,
     _make_config,
+    _make_registries,
 )
 
 # ---------------------------------------------------------------------------
@@ -104,8 +104,8 @@ def _run_hook(tmp_path: Path, cells: list[dict]) -> None:
     ]
     conn = _FakeLifecycleConn(cells, ensemble_weight_rows=ew)
     feature_names = {c["feature_name"] for c in cells}
-    registry = _FakeRegistryService({name: {"status": "active"} for name in feature_names})
-    _run_lifecycle_hook(conn, registry, config, _T1, _FakeManifest(tmp_path))
+    registry, concept = _make_registries({name: {"status": "active"} for name in feature_names})
+    _run_lifecycle_hook(conn, registry, concept, config, _T1, _FakeManifest(tmp_path))
 
 
 def test_hook_reads_prior_manifest_and_completes_without_error(tmp_path):

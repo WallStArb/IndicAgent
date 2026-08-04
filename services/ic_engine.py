@@ -3883,11 +3883,18 @@ def _run_ic_worker(args: tuple) -> dict:
 # ---------------------------------------------------------------------------
 # Post-run lifecycle hook (Phase 143 Plan 03: LIFECYCLE-03/04/05)
 #
-# Closes the loop opened by feature_registry's status column: features that lose IC
-# demote to shadow_only, recovered ones promote back through the same evidence bar,
-# and a regime dislocation is never misread as mass decay. Writes one gate-evaluation
-# fact to integrity_monitor per run (observability only -- feature_transition_log stays
-# the sole authoritative transition record) and the IC staleness gauge.
+# Closes the loop opened by the feature governance registry's status column:
+# features that lose IC demote to shadow_only, recovered ones promote back
+# through the same evidence bar, and a regime dislocation is never misread as
+# mass decay. Writes one gate-evaluation fact to integrity_monitor per run
+# (observability only -- feature_transition_log / concept_transition_log stay
+# the authoritative transition record) and the IC staleness gauge.
+#
+# Phase 170 Plan 06 (todo 118 scope item 4, SHADOW MODE): every transition is
+# now applied to BOTH feature_registry (via registry_svc, retained until Plan
+# 08's DROP) and concept_registry domain='feature' (via concept_svc), and the
+# two outcomes are compared -- see _apply_feature_transitions for the parity
+# precondition and divergence assertion this produces.
 #
 # Sync psycopg throughout -- ic_engine.py is a plain argparse script (no class, no
 # BaseBatch, no async/await anywhere). Guarded so a hook failure logs loudly but never
@@ -3938,6 +3945,7 @@ def _get_prior_ic_engine_completion(
 def _apply_feature_transitions(
     write_conn: Any,
     registry_svc: FeatureRegistryService,
+    concept_svc: ConceptRegistryService,
     config: ICEngineConfig,
     cell_rows: list[dict],
     material_fail_count: int,
@@ -3948,6 +3956,13 @@ def _apply_feature_transitions(
     `if not any_hold:` guard wraps a single call instead of re-indenting this
     whole block (todo 144 /simplify pass) -- logic is unchanged from before that
     extraction.
+
+    Phase 170 Plan 06 (todo 118 scope item 4, shadow mode): every lifecycle
+    decision made here is applied to BOTH registry_svc (feature_registry,
+    retained until Plan 08's DROP) and concept_svc (concept_registry
+    domain='feature'), and the two outcomes are compared. A split-brain
+    between the two governance registries is a loud crash (RuntimeError +
+    a durable integrity_monitor fact), never a silent partial write.
     """
     # Step 4: per-feature aggregation (GROUP BY feature_name) -- demotion/promotion.
     cells_by_feature: dict[str, list[dict]] = defaultdict(list)
@@ -3955,12 +3970,66 @@ def _apply_feature_transitions(
         cells_by_feature[cell["feature_name"]].append(cell)
 
     demotion_fraction_floor = 1.0 - config.meta_fdr_min_fraction
+
+    # PARITY PRECONDITION (Phase 170 Plan 06, T-170-17): before applying any
+    # transition, both governance registries must already agree on every
+    # concept's status -- a split-brain here means a PRIOR run already applied
+    # a decision to only one side, and continuing would compound it. n_parity
+    # is the size of the CONCEPT-side map (Plan 08's WEAK-evidence-tier check
+    # reads this against `SELECT count(*) FROM concept_registry WHERE
+    # domain='feature'`). ic_engine's status-branching READ below uses the
+    # concept-side map (concept_status_by_feature), matching Task 1's
+    # "repoint reads to concept_registry" intent -- registry_svc remains a
+    # WRITE target only from this point on.
+    concept_status_by_feature = {c["name"]: c["status"] for c in concept_svc.get_all_concepts()}
     registry_status_by_feature = {
         f["feature_name"]: f["status"] for f in registry_svc.get_all_features()
     }
+    n_parity = len(concept_status_by_feature)
+    all_feature_names = set(concept_status_by_feature) | set(registry_status_by_feature)
+    parity_mismatched = sorted(
+        name
+        for name in all_feature_names
+        if registry_status_by_feature.get(name) != concept_status_by_feature.get(name)
+    )
+    if parity_mismatched:
+        n_mismatched = len(parity_mismatched)
+        # Bounded sample (CLAUDE.md: never log per-row over the full corpus) --
+        # first 20 names plus the total count, never one line per feature.
+        sample = parity_mismatched[:20]
+        _logger.error(
+            "ic_engine.registry_parity_mismatch",
+            n_mismatched=n_mismatched,
+            sample=sample,
+            training_window_end=str(training_window_end),
+        )
+        # commit=True is MANDATORY: the raise below prevents _run_lifecycle_hook
+        # from ever reaching its single commit point, so a defaulted commit=False
+        # emit would be rolled back -- the divergence record destroyed by the
+        # very divergence it documents. See the INTEGRITY-FACT DURABILITY note.
+        emit_integrity_fact_sync(
+            write_conn,
+            "ic_lifecycle",
+            None,
+            "registry_divergence",
+            float(n_mismatched),
+            0.0,
+            False,
+            training_window_end,
+            commit=True,
+        )
+        raise RuntimeError(
+            f"feature_registry/concept_registry status parity broken for "
+            f"{n_mismatched} feature(s) (sample: {sample}) -- a split-brain "
+            "between the two governance registries, refusing to apply further "
+            "transitions on top of it"
+        )
+
+    m_compared = 0
+    divergences: list[str] = []
 
     for feature_name, cells in cells_by_feature.items():
-        status = registry_status_by_feature.get(feature_name)
+        status = concept_status_by_feature.get(feature_name)
 
         if status == "active":
             active_feature_cells = [c for c in cells if c["feature_status_at_eval"] == "active"]
@@ -4003,6 +4072,29 @@ def _apply_feature_transitions(
                     ic_sharpe=worst_cell["ic_sharpe_hac"],
                     ic_n=ic_n,
                 )
+                # Dual write (shadow mode, todo 118 item 4): mirror the same
+                # transition onto concept_registry. Reason mapping:
+                # 'ic_demotion' -> 'demotion_performance' (concept_transition_log's
+                # trigger_reason CHECK vocabulary does not accept the 'ic_*'
+                # spellings). Metric mapping: ic_sharpe -> gate_metric,
+                # ic_n -> gate_n, ic_value -> ci_lower.
+                concept_transitioned = concept_svc.record_transition_sync(
+                    write_conn,
+                    domain="feature",
+                    name=feature_name,
+                    from_status="active",
+                    to_status="shadow_only",
+                    reason="demotion_performance",
+                    gate_metric=worst_cell["ic_sharpe_hac"],
+                    gate_n=ic_n,
+                    ci_lower=worst_cell_ic_value,
+                )
+                m_compared += 1
+                if transitioned != concept_transitioned:
+                    divergences.append(
+                        f"{feature_name}: active->shadow_only "
+                        f"registry_svc={transitioned} concept_svc={concept_transitioned}"
+                    )
                 if transitioned:
                     ALPHA_DECAY_ENSEMBLE_REBUILD_TOTAL.add(1, {"feature_name": feature_name})
 
@@ -4014,6 +4106,30 @@ def _apply_feature_transitions(
             registry_svc.advance_shadow_counters_sync(
                 write_conn, feature_name, passed, new_observations
             )
+            concept_svc.advance_shadow_counters_sync(
+                write_conn,
+                domain="feature",
+                name=feature_name,
+                passed=passed,
+                new_observations=new_observations,
+            )
+            m_compared += 1
+            registry_counters = registry_svc.get_feature(feature_name) or {}
+            concept_counters = next(
+                (c for c in concept_svc.get_all_concepts() if c["name"] == feature_name), {}
+            )
+            if registry_counters.get("consecutive_shadow_passes") != concept_counters.get(
+                "consecutive_shadow_passes"
+            ) or registry_counters.get("observations_since_demotion") != concept_counters.get(
+                "observations_since_demotion"
+            ):
+                divergences.append(
+                    f"{feature_name}: shadow_counters "
+                    f"registry_svc={registry_counters.get('consecutive_shadow_passes')}/"
+                    f"{registry_counters.get('observations_since_demotion')} "
+                    f"concept_svc={concept_counters.get('consecutive_shadow_passes')}/"
+                    f"{concept_counters.get('observations_since_demotion')}"
+                )
             if registry_svc.is_promotion_eligible(
                 feature_name,
                 config.decay_recovery_min_observations,
@@ -4030,8 +4146,78 @@ def _apply_feature_transitions(
                     "active",
                     "ic_promotion",
                 )
+                # Dual write: fdr_passed=True is EARNED here, not asserted for
+                # convenience -- promotion is already gated upstream by
+                # config.meta_fdr_min_fraction over passes_fdr cells (the `passed`
+                # bool computed above from this run's passes_fdr fraction, and
+                # is_promotion_eligible's multi-run consecutive-pass/observation
+                # floors), which IS the executed multiplicity correction Plan 02's
+                # fail-closed guard asks the caller to attest to. Never pass
+                # fdr_passed=True anywhere that fraction wasn't actually computed.
+                concept_transitioned = concept_svc.record_transition_sync(
+                    write_conn,
+                    domain="feature",
+                    name=feature_name,
+                    from_status="shadow_only",
+                    to_status="active",
+                    reason="promotion",
+                    fdr_passed=True,
+                )
+                m_compared += 1
+                if transitioned != concept_transitioned:
+                    divergences.append(
+                        f"{feature_name}: shadow_only->active "
+                        f"registry_svc={transitioned} concept_svc={concept_transitioned}"
+                    )
                 if transitioned:
                     ALPHA_DECAY_ENSEMBLE_REBUILD_TOTAL.add(1, {"feature_name": feature_name})
+
+    # Emitted UNCONDITIONALLY -- on both the clean and divergent path, before any
+    # raise -- and reached only when `if not any_hold` let _apply_feature_transitions
+    # run at all (a hold run performs no dual write, so it has nothing to verify
+    # and correctly emits nothing). THIS FACT IS PLAN 08'S SOLE AUTHORISING
+    # EVIDENCE FOR AN IRREVERSIBLE DROP: its metric name exists nowhere else in
+    # the codebase or database, so a row bearing it is positive proof the
+    # dual-write comparison block executed to completion -- an absence of
+    # registry_divergence rows cannot make that distinction, since zero runs
+    # produce zero divergences just as reliably as a clean run does.
+    # commit=True for the same reason as the parity-precondition emit above:
+    # the divergent path raises immediately after.
+    emit_integrity_fact_sync(
+        write_conn,
+        "ic_lifecycle",
+        f"parity_concepts={n_parity}|transitions_compared={m_compared}",
+        "registry_dual_write_verified",
+        float(m_compared),
+        0.0,
+        not divergences,
+        training_window_end,
+        commit=True,
+    )
+
+    if divergences:
+        sample = divergences[:20]
+        _logger.error(
+            "ic_engine.registry_dual_write_divergence",
+            n_divergences=len(divergences),
+            sample=sample,
+            training_window_end=str(training_window_end),
+        )
+        emit_integrity_fact_sync(
+            write_conn,
+            "ic_lifecycle",
+            None,
+            "registry_divergence",
+            float(len(divergences)),
+            0.0,
+            False,
+            training_window_end,
+            commit=True,
+        )
+        raise RuntimeError(
+            f"registry dual-write divergence across {len(divergences)} transition "
+            f"outcome(s) (sample: {sample})"
+        )
 
     # Step 5: one integrity_monitor gate-evaluation fact per (non-hold) run. Uses the
     # shared emit_integrity_fact_sync helper (todo 150) with commit=False and
@@ -4057,6 +4243,7 @@ def _apply_feature_transitions(
 def _run_lifecycle_hook(
     write_conn: Any,
     registry_svc: FeatureRegistryService,
+    concept_svc: ConceptRegistryService,
     config: ICEngineConfig,
     training_window_end: Any,
     manifest: CorpusManifest,
@@ -4067,6 +4254,10 @@ def _run_lifecycle_hook(
 
     See ic_engine's module docstring reference and 143-03-PLAN.md for the full
     demotion/promotion/hold specification (Fable N3/N4/N5 fixes included below).
+
+    Phase 170 Plan 06: concept_svc is the SAME ConceptRegistryService instance
+    main() already constructed and load_sync'd for the alignment gate (Task 1)
+    -- never construct a second one here.
     """
     log = _logger
 
@@ -4326,14 +4517,28 @@ def _run_lifecycle_hook(
         # Step 4/5: per-feature demotion/promotion, then the decay_cells_flagged
         # fact -- extracted to _apply_feature_transitions (todo 144 /simplify
         # pass) so this guard wraps one call instead of ~100 re-indented lines.
+        # Phase 170 Plan 06: this is also the ONLY path that reaches the
+        # dual-write comparison block -- a hold run genuinely performs no dual
+        # write, so it correctly has nothing to verify and emits no
+        # registry_dual_write_verified fact for this training_window_end.
+        # _apply_feature_transitions may raise (parity or divergence) -- the
+        # caller in main() wraps _run_lifecycle_hook in a guarded try/except,
+        # so this never corrupts the already-committed IC results, only
+        # aborts the lifecycle hook for this run.
         _apply_feature_transitions(
-            write_conn, registry_svc, config, cell_rows, material_fail_count, training_window_end
+            write_conn,
+            registry_svc,
+            concept_svc,
+            config,
+            cell_rows,
+            material_fail_count,
+            training_window_end,
         )
 
     # Flush Step 3's accumulated per-stratum guard facts now -- unconditionally,
     # on both the hold and non-hold paths, and strictly after Step 4/5 have
     # either run or been skipped by a hold. This is what keeps the facts out of
-    # registry_svc's conn.transaction() commit/rollback windows above.
+    # registry_svc's/concept_svc's conn.transaction() commit/rollback windows above.
     if pending_guard_facts:
         with write_conn.cursor() as cur:
             # Reuses the same INTEGRITY_MONITOR_INSERT_SQL constant emit_integrity_fact_sync
@@ -4348,12 +4553,13 @@ def _run_lifecycle_hook(
     # Single commit point for the whole hook: the deferred guard facts above +
     # either Step 4/5's writes (non-hold) or nothing further (hold) all land
     # together here. Step 4's individual registry transitions still self-commit
-    # one at a time via FeatureRegistryService's conn.transaction() pattern (a
-    # pre-existing constraint of that shared Ring-1 service, not something this
-    # fix needs to solve) -- but each transition is individually rerun-safe via
-    # its own optimistic `WHERE status = %s` lock (from_status), so a crash
-    # mid-Step-4 leaves no integrity_monitor fact at all (nothing flushed yet)
-    # and the whole window is safely retriable from scratch on the next run.
+    # one at a time via FeatureRegistryService's and ConceptRegistryService's own
+    # conn.transaction() patterns (a pre-existing constraint of those shared
+    # Ring-1 services, not something this fix needs to solve) -- but each
+    # transition is individually rerun-safe via its own optimistic
+    # `WHERE status = %s` lock (from_status), so a crash mid-Step-4 leaves no
+    # integrity_monitor fact at all (nothing flushed yet) and the whole window
+    # is safely retriable from scratch on the next run.
     write_conn.commit()
 
     # Step 6: IC staleness gauge (LIFECYCLE-05). Runs exactly once, regardless of
@@ -5298,6 +5504,7 @@ def main() -> None:
                     _run_lifecycle_hook(
                         post_compute_conn,
                         registry_svc,
+                        concept_svc,
                         config,
                         training_window_end,
                         manifest,
