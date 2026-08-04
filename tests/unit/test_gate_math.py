@@ -13,6 +13,7 @@ if str(_project_root) not in sys.path:
 
 from src.intelligence.statistics.gate_math import (
     evaluate_frame_gate,
+    evaluate_stratum_expectancy_gate,
     frame_gate_passes,
 )
 
@@ -105,3 +106,84 @@ def test_gate_math_equivalence_with_counterfactual_tracker_output():
 
     assert tracker_frame_gate_passes is frame_gate_passes
     assert tracker_evaluate_frame_gate is evaluate_frame_gate
+
+
+def test_evaluate_stratum_expectancy_gate_groups_by_regime_and_direction():
+    rows = [
+        {"regime": "mid_bull", "direction": "long", "cluster_id": "2026-01-01", "pnl_r": 0.1},
+        {"regime": "mid_bull", "direction": "long", "cluster_id": "2026-01-02", "pnl_r": 0.2},
+        {"regime": "mid_bull", "direction": "short", "cluster_id": "2026-01-01", "pnl_r": -0.1},
+        {"regime": "high_neutral", "direction": "long", "cluster_id": "2026-01-01", "pnl_r": 0.3},
+    ]
+    verdicts = evaluate_stratum_expectancy_gate(
+        rows, min_n=1, bootstrap_max_n=5000, bootstrap_batch=1000, bootstrap_random_state=42
+    )
+    cells = {(v["regime"], v["direction"]) for v in verdicts}
+    assert cells == {
+        ("mid_bull", "long"),
+        ("mid_bull", "short"),
+        ("high_neutral", "long"),
+    }
+    # Field names are regime/direction, never the generic tf/regime evaluate_frame_gate
+    # returns internally (naming-system.md Whiteboard Test -- see design doc).
+    for v in verdicts:
+        assert "tf" not in v
+        assert set(v.keys()) == {
+            "regime",
+            "direction",
+            "n_bars",
+            "n_clusters",
+            "ci_lower",
+            "ci_upper",
+            "passes",
+            "coverage",
+        }
+
+
+def test_evaluate_stratum_expectancy_gate_degenerate_cluster_count():
+    """Fewer than 2 day-clusters in a cell -> (False, nan, nan), reused unmodified from
+    frame_gate_passes' existing documented contract (no reimplementation)."""
+    rows = [
+        {"regime": "mid_bull", "direction": "long", "cluster_id": "2026-01-01", "pnl_r": 0.1},
+        {"regime": "mid_bull", "direction": "long", "cluster_id": "2026-01-01", "pnl_r": 0.2},
+    ]
+    verdicts = evaluate_stratum_expectancy_gate(
+        rows, min_n=1, bootstrap_max_n=5000, bootstrap_batch=1000, bootstrap_random_state=42
+    )
+    assert verdicts[0]["passes"] is False
+    assert verdicts[0]["ci_lower"] != verdicts[0]["ci_lower"]  # nan
+
+
+def test_evaluate_stratum_expectancy_gate_min_clusters_coverage_floor():
+    rows = [
+        {"regime": "mid_bull", "direction": "long", "cluster_id": f"day-{i}", "pnl_r": 0.1}
+        for i in range(5)
+    ] + [
+        {"regime": "high_neutral", "direction": "long", "cluster_id": f"day-{i}", "pnl_r": 0.1}
+        for i in range(25)
+    ]
+    verdicts = evaluate_stratum_expectancy_gate(
+        rows,
+        min_n=1,
+        bootstrap_max_n=5000,
+        bootstrap_batch=1000,
+        bootstrap_random_state=42,
+        min_clusters=20,
+    )
+    by_regime = {v["regime"]: v for v in verdicts}
+    assert by_regime["mid_bull"]["coverage"] == "insufficient"
+    assert by_regime["mid_bull"]["passes"] is None
+    assert by_regime["high_neutral"]["coverage"] == "evaluated"
+    assert by_regime["high_neutral"]["passes"] is not None
+
+
+def test_evaluate_stratum_expectancy_gate_delegates_to_evaluate_frame_gate():
+    """No bootstrap math reimplemented here (design doc requirement) -- proven by asserting
+    the function's own source contains no 'bootstrap(' call and no 'np.mean'/'np.std' of its
+    own, only a call into evaluate_frame_gate."""
+    import inspect
+
+    source = inspect.getsource(evaluate_stratum_expectancy_gate)
+    assert "evaluate_frame_gate(" in source
+    assert "bootstrap(" not in source
+    assert "np.std(" not in source

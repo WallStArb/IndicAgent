@@ -178,3 +178,58 @@ def evaluate_frame_gate(
             }
         )
     return verdicts
+
+
+def evaluate_stratum_expectancy_gate(
+    rows: Iterable[dict[str, Any]],
+    min_n: int,
+    bootstrap_max_n: int,
+    bootstrap_batch: int,
+    bootstrap_random_state: int = _DEFAULT_BOOTSTRAP_RANDOM_STATE,
+    min_clusters: int | None = None,
+) -> list[dict[str, Any]]:
+    """Day-clustered bootstrap expectancy verdict per (regime, direction) stratum.
+
+    Each input row carries `regime`, `direction`, `cluster_id` (a calendar date), and
+    `pnl_r` (the realized or simulated per-bar return for that stratum). Delegates
+    entirely to `evaluate_frame_gate` with `group_key=lambda r: (r["regime"],
+    r["direction"])` -- no bootstrap logic is reimplemented here, matching
+    `evaluate_spread_gate`'s own precedent in `cross_sectional_spread_tracker.py`
+    (design decision: docs/plans/2026-08-04-stratum-expectancy-gate-design.md).
+
+    Answers the question todo 179 (.planning/todos/completed/179-gate166-concurrent-
+    exposure-diagnostic.md) had to answer by hand: does a given regime x direction
+    stratum have a statistically valid, non-zero expected value, or is it noise?
+
+    Returns one verdict dict per (regime, direction) cell: `regime`, `direction`,
+    `n_bars`, `n_clusters`, `ci_lower`, `ci_upper`, `passes`, `coverage`. `passes=True`
+    means this stratum's day-clustered bootstrap CI lower bound clears zero -- a
+    statistically valid, non-zero expected value, not proof of a tradeable edge on its
+    own (the caller must also check `n_bars`/`n_clusters`/`coverage` against whatever
+    sufficiency floor its own context requires).
+
+    No consumer wires this into a live construction yet (per the design doc's explicit
+    non-goal) -- this is tested, reusable infrastructure, not an active gate.
+    """
+    verdicts = evaluate_frame_gate(
+        rows,
+        min_n,
+        bootstrap_max_n,
+        bootstrap_batch,
+        bootstrap_random_state,
+        group_key=lambda row: (row["regime"], row["direction"]),
+        min_clusters=min_clusters,
+    )
+    return [
+        {
+            "regime": v["tf"],
+            "direction": v["regime"],
+            "n_bars": v["n_frames"],
+            "n_clusters": v["n_clusters"],
+            "ci_lower": v["ci_lower"],
+            "ci_upper": v["ci_upper"],
+            "passes": v["passes"],
+            "coverage": v["coverage"],
+        }
+        for v in verdicts
+    ]
