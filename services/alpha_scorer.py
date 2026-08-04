@@ -58,9 +58,9 @@ from services._batch_utils import (
     cfg,  # noqa: E402
     load_apr_dict_async,  # noqa: E402
 )
-from services.counterfactual_tracker import evaluate_frame_gate  # noqa: E402
 from src.config.settings import Settings, get_active_contracts  # noqa: E402
 from src.core.agent.base_batch import BaseBatch  # noqa: E402
+from src.intelligence.statistics.gate_math import evaluate_frame_gate  # noqa: E402
 
 # Deterministic decile bucketing per (symbol, tf, regime) cohort (RESEARCH.md Assumption
 # A3: deciles are cohort-local, not global across the corpus). ORDER BY alpha_score, bar_ts,

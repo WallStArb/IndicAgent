@@ -56,13 +56,13 @@ from scripts.analysis.phase143_1_08_shadow_validation import (  # noqa: E402
     _max_drawdown,
 )
 from services._batch_utils import cfg as _cfg  # noqa: E402
-from services.counterfactual_tracker import (  # noqa: E402
+from src.config.settings import Settings  # noqa: E402
+from src.core.service_utils import format_iso_ts  # noqa: E402
+from src.intelligence.statistics.gate_math import (  # noqa: E402
     _DEFAULT_BOOTSTRAP_RANDOM_STATE,
     evaluate_frame_gate,
     frame_gate_passes,
 )
-from src.config.settings import Settings  # noqa: E402
-from src.core.service_utils import format_iso_ts  # noqa: E402
 
 _CHAMPION_WEIGHT_EPOCH = "143.1-08-champion"
 

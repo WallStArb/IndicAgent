@@ -22,12 +22,12 @@ import pandas as pd
 sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
 
 from services._batch_utils import cfg as _cfg  # noqa: E402
-from services.counterfactual_tracker import (  # noqa: E402
+from src.config.settings import Settings  # noqa: E402
+from src.intelligence.statistics.gate_math import (  # noqa: E402
     _DEFAULT_BOOTSTRAP_RANDOM_STATE,
     evaluate_frame_gate,
     frame_gate_passes,
 )
-from src.config.settings import Settings  # noqa: E402
 
 _OOS_QUERY_SQL = """
     SELECT bar_ts, direction, regime, bar_ts::date AS cluster_id, counterfactual_pnl_r AS pnl_r

@@ -401,7 +401,7 @@ def evaluate_spread_gate(
 ) -> list[dict[str, Any]]:
     """Pure grouping/verdict core for Validation Gate 1 -- delegates the day-clustered
     block-bootstrap machinery (the small-cluster-count / large-cluster-count method switch
-    documented on `frame_gate_passes`) to `counterfactual_tracker.evaluate_frame_gate`
+    documented on `frame_gate_passes`) to `gate_math.evaluate_frame_gate`
     VERBATIM. No bootstrap math is reimplemented here (design decision 5, RESEARCH.md's Todo
     186 Scope Assessment: a
     spread return is a single scalar time series per bar, not a pooled panel, so the
@@ -1427,7 +1427,7 @@ async def _run_evaluate_attribution(db_dsn: str) -> None:
     """--evaluate-attribution CLI mode: Validation Gate 2 -- attribution honesty. Decomposes
     the realized OOS spread (`bar_ts >= alpha.validation.oos_start`) into a static,
     time-invariant leg-membership benchmark plus a residual, then gates the residual through
-    the SAME day-clustered bootstrap Gate 1 uses (`counterfactual_tracker.frame_gate_passes`,
+    the SAME day-clustered bootstrap Gate 1 uses (`gate_math.frame_gate_passes`,
     reused verbatim via `attribution_verdict` -- no new bootstrap machinery). Structured
     exactly like `_run_evaluate_gate`: a plain `asyncpg.connect` (not a pool -- this is a
     read-only reporting branch), no database writes, no D-06 `job_completed_total` emission --
