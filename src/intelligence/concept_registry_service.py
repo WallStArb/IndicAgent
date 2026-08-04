@@ -27,6 +27,46 @@ _logger = structlog.get_logger()
 # operator-only (same rule as FeatureRegistryService._AUTOMATED_REASONS).
 
 
+class _TransitionNoOp(Exception):
+    """Internal sentinel: optimistic lock missed (rowcount == 0) on the sync CAS path.
+
+    Raised inside record_transition_sync's `conn.transaction()` block to force a
+    rollback of the CAS UPDATE (and any as-yet-unexecuted shadow-counter reset or
+    transition-log INSERT) without inserting a log row, then caught by the caller
+    to return False. Never escapes the method. Same rationale as
+    FeatureRegistryService's `_TransitionNoOp` (feature_registry_service.py).
+    """
+
+
+# Automated sync-path transition reasons (ic_engine's no-event-loop lifecycle hook,
+# Plan 06). These are the concept-table equivalents of feature_registry_service's
+# {'ic_promotion', 'ic_demotion'} -- concept_transition_log's trigger_reason CHECK
+# does not accept the 'ic_*' spellings at all (migration 225): promotion/demotion
+# map to 'promotion'/'demotion_performance' respectively. 'operator_override'
+# targeting 'deprecated' remains the only legitimate automated-adjacent path to
+# that status (a human decision recorded through the sync API, not an automated
+# reason).
+_AUTOMATED_SYNC_REASONS = frozenset({"promotion", "demotion_performance"})
+
+# concept_transition_log.trigger_reason's full CHECK vocabulary (migration 225).
+# Validated in Python before any write so a typo'd reason surfaces as a ValueError
+# with the offending value named, not an opaque Postgres CHECK violation raised
+# mid-transaction.
+_VALID_TRANSITION_REASONS = frozenset(
+    {
+        "promotion",
+        "demotion_performance",
+        "demotion_decay",
+        "demotion_redundancy",
+        "operator_override",
+        "parent_cascade",
+        "candidate_timeout",
+        "implementation_change",
+        "genesis_seed",
+    }
+)
+
+
 @dataclass(frozen=True)
 class GateState:
     """Snapshot of one concept's registry status + gate/eval-cache state.
@@ -248,6 +288,87 @@ _GATE_PROMOTE_UPDATE_SQL = """
 """
 
 
+# ---------------------------------------------------------------------------
+# Synchronous lifecycle path (psycopg, ic_engine's no-event-loop context)
+# ---------------------------------------------------------------------------
+#
+# Ports FeatureRegistryService.record_transition_sync / advance_shadow_counters_sync /
+# is_promotion_eligible (src/intelligence/feature_registry_service.py) onto the concept
+# tables for todo 118 scope item 2 (Phase 170 Plan 04). Sits alongside the async
+# record_comparison_outcome path above without disturbing it -- both halves of this
+# class share the same concept_registry/concept_gate/concept_transition_log tables but
+# serve different callers (asyncpg for ops_ensemble_weight_compare.py's ensemble_strategy
+# domain, psycopg for ic_engine's feature-domain lifecycle hook in a no-event-loop
+# context). This plan adds the capability only -- ic_engine/ensemble_trainer still call
+# FeatureRegistryService until Plan 06 cuts the writers over.
+
+_LOAD_CONCEPTS_SYNC_SQL = """
+    SELECT r.name, r.status, r.group_name, r.is_control, r.control_expectation,
+           g.min_gate_metric, g.min_gate_n, g.fdr_required, g.fdr_alpha,
+           g.consecutive_shadow_passes, g.observations_since_demotion
+    FROM concept_registry r
+    JOIN concept_gate g USING (concept_id)
+    WHERE r.domain = %s
+"""
+
+# CAS UPDATE: `AND status = %s` is the optimistic lock (invariant 9, mirrors
+# _CAS_PROMOTE_SQL above) -- a stale from_status matches zero rows, the caller raises
+# _TransitionNoOp, and the whole transaction (including any log INSERT) rolls back.
+# `enabled = (%s = 'active')` maintains migration 284's enabled-tracks-status invariant
+# in the SAME statement as the status write, never as a separate follow-up UPDATE.
+_CAS_TRANSITION_SYNC_SQL = """
+    UPDATE concept_registry
+    SET status = %s, enabled = (%s = 'active')
+    WHERE domain = %s AND name = %s AND status = %s
+"""
+
+# Demotion counter reset (Fable review N1, HIGH -- ported from feature_registry_service's
+# record_transition_sync): whenever to_status == 'shadow_only', the recovery counters
+# reset to 0 in the SAME transaction as the CAS UPDATE above, so a feature that decayed,
+# recovered, and decayed again must re-earn the full evidence bar rather than re-promoting
+# off a single passing run. Two statements rather than feature_registry's single one
+# (the counters now live on concept_gate, a different table than status), but still
+# inside the same conn.transaction() -- the atomicity property that made the original
+# correct is preserved.
+_RESET_SHADOW_COUNTERS_SYNC_SQL = """
+    UPDATE concept_gate g
+    SET consecutive_shadow_passes = 0,
+        observations_since_demotion = 0
+    FROM concept_registry r
+    WHERE g.concept_id = r.concept_id AND r.domain = %s AND r.name = %s
+"""
+
+_TRANSITION_LOG_INSERT_SYNC_SQL = """
+    INSERT INTO concept_transition_log
+        (concept_id, domain, name, from_status, to_status, trigger_reason,
+         corpus_build_ref, gate_metric, gate_n, ci_lower, notes)
+    SELECT concept_id, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s
+    FROM concept_registry
+    WHERE domain = %s AND name = %s
+"""
+
+_ADVANCE_SHADOW_COUNTERS_SYNC_SQL = """
+    UPDATE concept_gate g
+    SET consecutive_shadow_passes = CASE
+            WHEN %s THEN g.consecutive_shadow_passes + 1
+            ELSE 0
+        END,
+        observations_since_demotion = g.observations_since_demotion + %s
+    FROM concept_registry r
+    WHERE g.concept_id = r.concept_id AND r.domain = %s AND r.name = %s
+"""
+
+# Fallback lookup for record_transition_sync's L-6 FDR guard when the concept was never
+# load_sync'ed (cold cache) -- the guard must not silently skip fail-closed enforcement
+# just because the caller happened not to call load_sync first.
+_FDR_REQUIRED_LOOKUP_SYNC_SQL = """
+    SELECT g.fdr_required
+    FROM concept_registry r
+    JOIN concept_gate g USING (concept_id)
+    WHERE r.domain = %s AND r.name = %s
+"""
+
+
 class ConceptNotFoundError(Exception):
     """No concept_registry+concept_gate row for the given (domain, name)."""
 
@@ -274,6 +395,17 @@ class ConceptRegistryService:
     invariant of the service, not a documented assumption a second caller could
     forget.
     """
+
+    def __init__(self) -> None:
+        """Initialise the sync-path in-memory cache.
+
+        Does not disturb the async side above: record_comparison_outcome is fully
+        stateless (every call takes its own conn) and continues to work correctly on
+        an instance that was never load_sync'ed. self._concepts / self._loaded_domain
+        exist solely for the synchronous psycopg path below.
+        """
+        self._concepts: dict[str, dict[str, Any]] = {}
+        self._loaded_domain: str | None = None
 
     async def record_comparison_outcome(
         self,
@@ -460,3 +592,282 @@ class ConceptRegistryService:
                     corpus_build_ref=corpus_build_ref,
                 )
             return decision
+
+    # ------------------------------------------------------------------
+    # Synchronous lifecycle path (psycopg, ic_engine's no-event-loop context)
+    # ------------------------------------------------------------------
+
+    def load_sync(self, conn: Any, domain: str) -> None:
+        """Load all concept_registry+concept_gate rows for one domain via psycopg.
+
+        Populates the in-memory cache keyed by name. Required by ic_engine.py
+        (Plan 06), which uses psycopg throughout and has no running event loop.
+
+        Deliberately NO row-count gate inside this method: FeatureRegistryService
+        hard-coded `len(rows) == len(dataclasses.fields(FeatureVector))`, which
+        imports a feature-domain dataclass into a cross-domain governance service.
+        The alignment gate (registry names vs FeatureVector fields) stays the
+        CALLER's responsibility -- it already is, since ic_engine/ensemble_trainer
+        each run their own comparison against dataclasses.fields(FeatureVector).
+        """
+        with conn.cursor() as cur:
+            cur.execute(_LOAD_CONCEPTS_SYNC_SQL, (domain,))
+            rows = cur.fetchall()
+            col_names = [desc[0] for desc in cur.description]
+
+        self._concepts = {row[0]: dict(zip(col_names, row)) for row in rows}
+        self._loaded_domain = domain
+        _logger.info(
+            "concept_registry.loaded_sync",
+            domain=domain,
+            n_concepts=len(self._concepts),
+        )
+
+    def _fdr_required_sync(self, conn: Any, domain: str, name: str) -> bool:
+        """Resolve concept_gate.fdr_required for the L-6 promotion guard.
+
+        Reads the in-memory cache when load_sync populated it; falls back to a
+        direct DB read (inside the caller's transaction) when the cache is cold,
+        so the fail-closed guard is never silently skipped just because the
+        caller happened not to call load_sync first.
+        """
+        cached = self._concepts.get(name)
+        if cached is not None:
+            return bool(cached.get("fdr_required", False))
+        with conn.cursor() as cur:
+            cur.execute(_FDR_REQUIRED_LOOKUP_SYNC_SQL, (domain, name))
+            row = cur.fetchone()
+        return bool(row[0]) if row is not None else False
+
+    def record_transition_sync(
+        self,
+        conn: Any,
+        *,
+        domain: str,
+        name: str,
+        from_status: str,
+        to_status: str,
+        reason: str,
+        gate_metric: float | None = None,
+        gate_n: float | None = None,
+        ci_lower: float | None = None,
+        corpus_build_ref: str | None = None,
+        fdr_passed: bool | None = None,
+        notes: str | None = None,
+    ) -> bool:
+        """Blocking, transactional, optimistic-locked lifecycle transition.
+
+        Ports FeatureRegistryService.record_transition_sync's semantics onto the
+        concept tables (todo 118 scope item 2). Deliberately `with conn.transaction():`,
+        NEVER a bare `with conn:` -- ic_engine calls this repeatedly across many
+        concepts on the SAME caller-owned connection, and psycopg (unlike psycopg2)
+        closes the connection on a bare `with conn:` exit; conn.transaction()
+        commits/rolls back the same way without closing (confirmed empirically for
+        feature_registry_service's identical pattern).
+
+        Guards, each raising ValueError BEFORE any write:
+          - to_status == 'deprecated' and reason in _AUTOMATED_SYNC_REASONS --
+            deprecated is operator-only.
+          - reason not in concept_transition_log's CHECK vocabulary -- caught here
+            in Python, with the offending value named, instead of as an opaque
+            Postgres CHECK violation mid-transaction.
+
+        L-6 fail-closed promotion guard (todo 118, mirrors Plan 02's async guard):
+        when to_status == 'active' and this concept's concept_gate.fdr_required is
+        true, a caller that cannot prove fdr_passed is True is refused -- logged at
+        WARNING and returns False WITHOUT writing anything.
+
+        CAS UPDATE carries `AND status = %s` (from_status) as an optimistic lock:
+        zero rows matched means the concept was already transitioned by a prior or
+        concurrent run, so the whole transaction (including the log INSERT) rolls
+        back and this method returns False -- a rerun against an already-transitioned
+        concept is a safe no-op, never a duplicate transition or orphan log row. The
+        SAME UPDATE statement also maintains migration 284's `enabled = (status =
+        'active')` invariant.
+
+        Demotion counter reset (Fable review N1, HIGH): whenever to_status ==
+        'shadow_only', a second statement (same transaction) resets
+        consecutive_shadow_passes and observations_since_demotion to 0 on
+        concept_gate -- without it, a concept that previously satisfied the
+        recovery floors, got promoted, and later decays again would re-promote
+        after a single passing run on its second shadow period instead of
+        re-earning the full evidence bar.
+
+        On a successful commit, mutates self._concepts[name] so a subsequent
+        is_promotion_eligible read within the same process sees fresh state
+        immediately, never stale data.
+
+        Returns True if the transition was applied, False on optimistic-lock no-op
+        or FDR-unverified block. Re-raises any other exception after the
+        transaction rolls back.
+        """
+        if to_status == "deprecated" and reason in _AUTOMATED_SYNC_REASONS:
+            raise ValueError(
+                "automated transitions may not target deprecated; deprecated is operator-only"
+            )
+        if reason not in _VALID_TRANSITION_REASONS:
+            raise ValueError(
+                f"invalid trigger_reason {reason!r}: not in concept_transition_log's "
+                f"CHECK vocabulary {sorted(_VALID_TRANSITION_REASONS)}"
+            )
+
+        reset_counters = to_status == "shadow_only"
+
+        try:
+            with conn.transaction():
+                if to_status == "active":
+                    fdr_required = self._fdr_required_sync(conn, domain, name)
+                    if fdr_required and fdr_passed is not True:
+                        _logger.warning(
+                            "concept_registry.promotion_blocked_fdr_unverified",
+                            domain=domain,
+                            name=name,
+                            fdr_passed=fdr_passed,
+                        )
+                        return False
+
+                with conn.cursor() as cur:
+                    cur.execute(
+                        _CAS_TRANSITION_SYNC_SQL,
+                        (to_status, to_status, domain, name, from_status),
+                    )
+                    if cur.rowcount == 0:
+                        raise _TransitionNoOp()
+
+                    if reset_counters:
+                        cur.execute(_RESET_SHADOW_COUNTERS_SYNC_SQL, (domain, name))
+
+                    cur.execute(
+                        _TRANSITION_LOG_INSERT_SYNC_SQL,
+                        (
+                            domain,
+                            name,
+                            from_status,
+                            to_status,
+                            reason,
+                            corpus_build_ref,
+                            gate_metric,
+                            gate_n,
+                            ci_lower,
+                            notes,
+                            domain,
+                            name,
+                        ),
+                    )
+        except _TransitionNoOp:
+            _logger.info(
+                "concept_registry.transition_noop_sync",
+                domain=domain,
+                name=name,
+                from_status=from_status,
+                to_status=to_status,
+                reason=reason,
+            )
+            return False
+        except Exception as error:
+            _logger.error(
+                "concept_registry.transition_write_error_sync",
+                domain=domain,
+                name=name,
+                from_status=from_status,
+                to_status=to_status,
+                error=str(error),
+            )
+            raise
+
+        concept = self._concepts.get(name)
+        if concept is not None:
+            concept["status"] = to_status
+            if reset_counters:
+                concept["consecutive_shadow_passes"] = 0
+                concept["observations_since_demotion"] = 0
+        _logger.info(
+            "concept_registry.transition_recorded_sync",
+            domain=domain,
+            name=name,
+            from_status=from_status,
+            to_status=to_status,
+            reason=reason,
+        )
+        return True
+
+    def advance_shadow_counters_sync(
+        self,
+        conn: Any,
+        *,
+        domain: str,
+        name: str,
+        passed: bool,
+        new_observations: int,
+    ) -> None:
+        """Advance a shadow_only concept's recovery counters after a corpus run.
+
+        The ONLY counter mutation path outside record_transition_sync's reset --
+        there is no fail-counter for active concepts; demotion is decided by the
+        caller's per-run materiality check, not by any registry counter (mirrors
+        FeatureRegistryService.advance_shadow_counters_sync exactly).
+
+        One conn.transaction() block: increments consecutive_shadow_passes if
+        passed else resets it to 0, and always adds new_observations to
+        observations_since_demotion. Mutates the in-memory cache to match on
+        commit. Not a bare `with conn:` -- see record_transition_sync's docstring
+        for why (psycopg closes the connection on that exit; this caller-owned
+        connection is reused across many concepts per run).
+        """
+        with conn.transaction():
+            with conn.cursor() as cur:
+                cur.execute(
+                    _ADVANCE_SHADOW_COUNTERS_SYNC_SQL,
+                    (passed, new_observations, domain, name),
+                )
+
+        concept = self._concepts.get(name)
+        if concept is not None:
+            if passed:
+                concept["consecutive_shadow_passes"] = (
+                    concept.get("consecutive_shadow_passes", 0) + 1
+                )
+            else:
+                concept["consecutive_shadow_passes"] = 0
+            concept["observations_since_demotion"] = (
+                concept.get("observations_since_demotion", 0) + new_observations
+            )
+        _logger.info(
+            "concept_registry.shadow_counters_advanced_sync",
+            domain=domain,
+            name=name,
+            passed=passed,
+            new_observations=new_observations,
+        )
+
+    def is_promotion_eligible(
+        self,
+        name: str,
+        recovery_min_observations: int,
+        recovery_min_passes: int,
+    ) -> bool:
+        """Evidence-only shadow_only -> active promotion predicate.
+
+        True iff consecutive_shadow_passes >= recovery_min_passes AND
+        observations_since_demotion >= recovery_min_observations, read from the
+        in-memory cache. Both floors are caller-supplied (APR-sourced by the
+        caller) -- never hard-coded here. No calendar/date input is consulted;
+        recovery is evidence-only.
+
+        Returns False for an unknown name.
+        """
+        concept = self._concepts.get(name)
+        if concept is None:
+            return False
+        passes = concept.get("consecutive_shadow_passes", 0)
+        observations = concept.get("observations_since_demotion", 0)
+        return passes >= recovery_min_passes and observations >= recovery_min_observations
+
+    def get_all_concepts(self) -> list[dict[str, Any]]:
+        """Return ALL loaded concepts regardless of status.
+
+        The alignment-gate/status-map read ic_engine and ensemble_trainer need in
+        Plan 06 (mirrors FeatureRegistryService.get_all_features). Empty before
+        load_sync is called.
+        """
+        return list(self._concepts.values())
