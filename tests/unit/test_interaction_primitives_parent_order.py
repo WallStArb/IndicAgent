@@ -1,8 +1,9 @@
 """Executed proof that the Phase 170 Plan 07 parent-list reorder is inert.
 
-Plan 07 repointed ops_interaction_primitives_pilot.py's lineage read from
-feature_registry.parent_features (a bare TEXT[] preserving whatever order the row
-was written in) to a concept_registry/concept_parent join returning
+Plan 07 repointed ops_interaction_primitives_pilot.py's lineage read from the
+retired dimension table's parent_features column (a bare TEXT[] preserving
+whatever order the row was written in) to a concept_registry/concept_parent join
+returning
 array_agg(p.name ORDER BY p.name) -- alphabetical order, which is NOT necessarily
 the original insertion order (2 of the 8 live interaction primitives actually
 differ, live-verified). concept_parent carries no ordinality column by design

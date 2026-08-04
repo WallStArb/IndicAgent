@@ -99,7 +99,7 @@ class TestComputeShrinkageUpdates:
             assert np.isfinite(ic_shrunk)
 
     def test_row_without_group_mapping_is_skipped(self) -> None:
-        """A feature absent from feature_registry.group_name cannot form a peer group
+        """A feature absent from concept_registry.group_name cannot form a peer group
         and must be skipped, not crash or default to an empty-string group."""
         ic_rows = [
             _row("feat_unmapped", "SPY", "5m", "high_bear", 5, 100, 0.10),

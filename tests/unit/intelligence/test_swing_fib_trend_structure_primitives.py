@@ -1331,15 +1331,15 @@ def test_phase165_all_41_fields_non_constant_batch(session_bars, cfg):
 
 
 # ---------------------------------------------------------------------------
-# (i) field-set cross-check: dataclass, domain registry, feature_registry
+# (i) field-set cross-check: dataclass, domain registry, concept_registry
 # ---------------------------------------------------------------------------
 
 
 def test_phase165_field_set_matches_registry():
     """All 41 Phase 165 fields must be real FeatureVector fields, tagged
-    'structural' in FEATURE_VECTOR_DOMAIN, and present in feature_registry
-    with added_phase='165' -- skips cleanly if the live DB is unreachable so
-    this test stays CI-clean (house pattern, matches
+    'structural' in FEATURE_VECTOR_DOMAIN, and present in concept_registry
+    (domain='feature') with added_phase='165' -- skips cleanly if the live DB is
+    unreachable so this test stays CI-clean (house pattern, matches
     tests/unit/test_spread_leg_pair_validity.py)."""
     fv_fields = {f.name for f in dataclasses.fields(FeatureVector)}
     assert len(_PHASE_165_FIELDS) == 41
@@ -1354,13 +1354,15 @@ def test_phase165_field_set_matches_registry():
         pytest.skip("Cannot connect to the live indicagent DB")
     try:
         with conn.cursor() as cur:
-            cur.execute("SELECT feature_name FROM feature_registry WHERE added_phase = '165'")
+            cur.execute(
+                "SELECT name FROM concept_registry WHERE domain = 'feature' AND added_phase = '165'"
+            )
             registry_names = {row[0] for row in cur.fetchall()}
     finally:
         conn.close()
 
     assert registry_names == set(_PHASE_165_FIELDS), (
-        f"feature_registry added_phase='165' mismatch. "
+        f"concept_registry(domain='feature') added_phase='165' mismatch. "
         f"Missing from registry: {set(_PHASE_165_FIELDS) - registry_names}; "
         f"extra in registry: {registry_names - set(_PHASE_165_FIELDS)}"
     )

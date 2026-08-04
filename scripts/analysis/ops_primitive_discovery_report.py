@@ -5,7 +5,7 @@ Documents the query/report structure for ranking all 152 FeatureVector
 primitives (61 baseline + 91 new Renaissance primitives) by IC Sharpe once a
 corpus run has populated feature_ic_scores for them. Does NOT implement the
 full query logic yet — that lands once Plans 01-05.5 implement the primitives,
-Plan 06 seeds feature_registry + applies migration 206, and a corpus backfill
+Plan 06 seeds concept_registry (domain='feature') + applies migration 206, and a corpus backfill
 + IC engine run populates feature_ic_scores for the new columns.
 
 IC-driven discovery pattern (services/ic_engine.py): the IC engine evaluates

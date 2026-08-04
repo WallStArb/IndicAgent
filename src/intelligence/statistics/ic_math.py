@@ -714,7 +714,7 @@ def partial_spearman_ic(
     Pearson-on-ranks primitive used everywhere else in this module). Equivalent to
     the classic single-control partial-correlation formula and generalizes cleanly
     to k>1 controls -- every Renaissance interaction primitive has exactly 2 parent
-    atomics (feature_registry.parent_features), so k=2 is the pilot's actual shape.
+    atomics (concept_parent edges), so k=2 is the pilot's actual shape.
 
     Working with centered ranks (intercept-free regression) improves numerical
     stability without changing the mathematical result. Both residual regressions
