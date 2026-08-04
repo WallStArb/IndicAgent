@@ -256,12 +256,13 @@ def test_watermark_differs_on_market_regimes_relabel_hash_change_alone():
     assert base != mutated
 
 
-def test_watermark_differs_on_feature_registry_status_hash_change_alone():
-    """A feature_registry status transition (e.g. active -> shadow_only) moves the
-    status-hash component even though feature_registry carries no timestamp column.
+def test_watermark_differs_on_concept_registry_status_hash_change_alone():
+    """A concept_registry (domain='feature') status transition (e.g.
+    active -> shadow_only) moves the status-hash component even though
+    concept_registry carries no timestamp column relevant to this watermark.
     """
-    base = {"feature_registry": {"status_hash": "xyz789"}}
-    mutated = {"feature_registry": {"status_hash": "uvw456"}}
+    base = {"concept_registry": {"status_hash": "xyz789"}}
+    mutated = {"concept_registry": {"status_hash": "uvw456"}}
     assert base != mutated
 
 
@@ -334,7 +335,7 @@ def test_compute_upstream_watermark_per_symbol_cross_sectional_scopes_to_own_sym
         fake_conn,
         "SPY",
         "1d",
-        feature_registry_watermark={"status_hash": "precomputed"},
+        concept_registry_watermark={"status_hash": "precomputed"},
     )
     assert len(fake_conn._cursor.captured_params) == 2
     for params in fake_conn._cursor.captured_params:
@@ -361,7 +362,7 @@ def test_compute_upstream_watermark_group_pooled_scopes_to_regime_group_and_peer
         is_group_pooled=True,
         regime_group="equity",
         symbol_list=["SPY", "QQQ"],
-        feature_registry_watermark={"status_hash": "precomputed"},
+        concept_registry_watermark={"status_hash": "precomputed"},
     )
     fr_fv_params, mr_params = (
         fake_conn._cursor.captured_params[0],
@@ -440,14 +441,16 @@ def test_fingerprint_invalid_on_partial_match_two_of_three():
 
 
 # ---------------------------------------------------------------------------
-# Task 4 (todo 198): status-only staleness -- a feature_registry.status_hash
+# Task 4 (todo 198): status-only staleness -- a concept_registry.status_hash
 # change must never force a recompute of the expensive bootstrap-CI math.
 # Verified against the real code (main()'s registry-drift gate at the
-# get_all_features()/get_active_features() comment): ic_engine always computes
-# every feature regardless of status, so status never gates WHAT gets computed
-# -- it only feeds the feature_status_at_eval provenance column. A status-hash
-# mismatch with every other component matching must be treated as "cheap
-# metadata refresh needed", never "recompute everything".
+# get_all_concepts() comment): ic_engine always computes every feature
+# regardless of status, so status never gates WHAT gets computed -- it only
+# feeds the feature_status_at_eval provenance column. A status-hash mismatch
+# with every other component matching must be treated as "cheap metadata
+# refresh needed", never "recompute everything".
+#
+# Phase 170 Plan 06: watermark key renamed "feature_registry" -> "concept_registry".
 # ---------------------------------------------------------------------------
 
 _STATUS_MATCH_CURRENT = {
@@ -455,14 +458,14 @@ _STATUS_MATCH_CURRENT = {
     "apr_snapshot_key": "apr456",
     "upstream_watermark": {
         "forward_returns": {"count": 10},
-        "feature_registry": {"status_hash": "hash_now"},
+        "concept_registry": {"status_hash": "hash_now"},
     },
 }
 
 
-def test_fingerprint_computational_key_drops_feature_registry():
+def test_fingerprint_computational_key_drops_concept_registry():
     key = _fingerprint_computational_key(_STATUS_MATCH_CURRENT)
-    assert "feature_registry" not in key["upstream_watermark"]
+    assert "concept_registry" not in key["upstream_watermark"]
     assert key["upstream_watermark"]["forward_returns"] == {"count": 10}
 
 
@@ -473,7 +476,7 @@ def test_fingerprint_computational_key_keeps_other_watermark_components():
             "forward_returns": {"count": 10},
             "feature_vectors": {"count": 10},
             "market_regimes": {"count": 5},
-            "feature_registry": {"status_hash": "hash_now"},
+            "concept_registry": {"status_hash": "hash_now"},
         },
     )
     key = _fingerprint_computational_key(fp)
@@ -484,12 +487,12 @@ def test_fingerprint_computational_key_keeps_other_watermark_components():
     }
 
 
-def test_computationally_valid_when_only_feature_registry_status_hash_differs():
+def test_computationally_valid_when_only_concept_registry_status_hash_differs():
     stored = dict(
         _STATUS_MATCH_CURRENT,
         upstream_watermark=dict(
             _STATUS_MATCH_CURRENT["upstream_watermark"],
-            feature_registry={"status_hash": "hash_before"},
+            concept_registry={"status_hash": "hash_before"},
         ),
     )
     assert _fingerprint_is_computationally_valid(stored, _STATUS_MATCH_CURRENT) is True
@@ -500,10 +503,38 @@ def test_computationally_invalid_when_forward_returns_differs_too():
         _STATUS_MATCH_CURRENT,
         upstream_watermark={
             "forward_returns": {"count": 99},
-            "feature_registry": {"status_hash": "hash_before"},
+            "concept_registry": {"status_hash": "hash_before"},
         },
     )
     assert _fingerprint_is_computationally_valid(stored, _STATUS_MATCH_CURRENT) is False
+
+
+def test_computational_key_unchanged_by_registry_key_rename():
+    """Direct proof the Phase 170 Plan 06 cutover cannot trigger a recompute:
+    a fingerprint built with the OLD watermark key ('feature_registry') and one
+    built with the NEW key ('concept_registry'), otherwise identical, must
+    produce EQUAL computational keys -- _fingerprint_computational_key drops
+    whichever key is present under the SAME "concept_registry" filter name, so
+    if the key/filter pairing were ever mismatched, this would be the first
+    test to catch it.
+    """
+    fp_old_key = {
+        "code_content_key": "code123",
+        "apr_snapshot_key": "apr456",
+        "upstream_watermark": {
+            "forward_returns": {"count": 10},
+            "feature_registry": {"status_hash": "hash_before_rename"},
+        },
+    }
+    fp_new_key = {
+        "code_content_key": "code123",
+        "apr_snapshot_key": "apr456",
+        "upstream_watermark": {
+            "forward_returns": {"count": 10},
+            "concept_registry": {"status_hash": "hash_after_rename"},
+        },
+    }
+    assert _fingerprint_computational_key(fp_old_key) == _fingerprint_computational_key(fp_new_key)
 
 
 def test_computationally_invalid_on_code_content_key_mismatch():
@@ -520,7 +551,7 @@ def test_status_only_stale_true_when_computationally_valid_but_not_fully_valid()
         _STATUS_MATCH_CURRENT,
         upstream_watermark=dict(
             _STATUS_MATCH_CURRENT["upstream_watermark"],
-            feature_registry={"status_hash": "hash_before"},
+            concept_registry={"status_hash": "hash_before"},
         ),
     )
     assert _fingerprint_is_status_only_stale(stored, _STATUS_MATCH_CURRENT) is True
@@ -541,7 +572,7 @@ def test_status_only_stale_false_when_computationally_invalid_too():
         _STATUS_MATCH_CURRENT,
         upstream_watermark={
             "forward_returns": {"count": 99},
-            "feature_registry": {"status_hash": "hash_before"},
+            "concept_registry": {"status_hash": "hash_before"},
         },
     )
     assert _fingerprint_is_status_only_stale(stored, _STATUS_MATCH_CURRENT) is False
@@ -556,7 +587,7 @@ def test_status_only_stale_false_on_none_stored():
 def test_feature_status_refresh_sql_targets_feature_ic_scores_via_registry_join():
     sql_upper = _FEATURE_STATUS_REFRESH_SQL.upper()
     assert "UPDATE FEATURE_IC_SCORES" in sql_upper
-    assert "FEATURE_REGISTRY" in sql_upper
+    assert "CONCEPT_REGISTRY" in sql_upper
     assert "FEATURE_STATUS_AT_EVAL" in sql_upper
 
 
@@ -577,14 +608,14 @@ _STATUS_STALE_STORED = dict(
     _STATUS_MATCH_CURRENT,
     upstream_watermark=dict(
         _STATUS_MATCH_CURRENT["upstream_watermark"],
-        feature_registry={"status_hash": "hash_before"},
+        concept_registry={"status_hash": "hash_before"},
     ),
 )
 _FULLY_STALE_STORED = dict(
     _STATUS_MATCH_CURRENT,
     upstream_watermark={
         "forward_returns": {"count": 99},
-        "feature_registry": {"status_hash": "hash_before"},
+        "concept_registry": {"status_hash": "hash_before"},
     },
 )
 

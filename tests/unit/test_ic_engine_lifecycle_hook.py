@@ -10,8 +10,10 @@ tests/unit/intelligence/test_feature_registry_service.py (Plan 02).
 from __future__ import annotations
 
 import inspect
+import re
 import sys
 from pathlib import Path
+from unittest.mock import patch
 
 _project_root = Path(__file__).parent.parent.parent
 if str(_project_root) not in sys.path:
@@ -19,6 +21,9 @@ if str(_project_root) not in sys.path:
 
 from datetime import UTC, datetime
 
+import pytest
+
+import services.ic_engine as ic_engine_module
 from services.ic_engine import ICEngineConfig, _apply_feature_transitions, _run_lifecycle_hook
 
 # ---------------------------------------------------------------------------
@@ -251,6 +256,85 @@ class _FakeRegistryService:
     def is_promotion_eligible(self, feature_name, recovery_min_observations, recovery_min_passes):
         return self._features.get(feature_name, {}).get("eligible", False)
 
+    def get_feature(self, feature_name):
+        return self._features.get(feature_name)
+
+
+class _FakeConceptRegistryService:
+    """Fake ConceptRegistryService exposing only the sync methods the lifecycle
+    hook's dual write calls (Phase 170 Plan 06). Mirrors _FakeRegistryService's
+    shape and commit-on-exit behavior, but uses the concept-table sync API's
+    keyword-only argument names (domain/name/from_status/to_status/reason/
+    gate_metric/gate_n/ci_lower/fdr_passed) rather than FeatureRegistryService's
+    positional ic_value/ic_sharpe/ic_n shape.
+    """
+
+    def __init__(self, concepts: dict[str, dict]):
+        # concepts: name -> {"status": str}
+        self._concepts = concepts
+        self.transition_calls: list[tuple] = []
+        self.advance_calls: list[tuple] = []
+        self.transition_return_value = True
+
+    def get_all_concepts(self):
+        return [{"name": k, "status": v["status"]} for k, v in self._concepts.items()]
+
+    def record_transition_sync(
+        self,
+        conn,
+        *,
+        domain,
+        name,
+        from_status,
+        to_status,
+        reason,
+        gate_metric=None,
+        gate_n=None,
+        ci_lower=None,
+        corpus_build_ref=None,
+        fdr_passed=None,
+        notes=None,
+    ):
+        self.transition_calls.append(
+            (
+                domain,
+                name,
+                from_status,
+                to_status,
+                reason,
+                gate_metric,
+                gate_n,
+                ci_lower,
+                fdr_passed,
+            )
+        )
+        if self.transition_return_value:
+            self._concepts[name]["status"] = to_status
+        # Mirrors _FakeRegistryService's commit-on-exit simulation -- the real
+        # ConceptRegistryService.record_transition_sync also wraps its SQL in
+        # conn.transaction(), which commits on clean exit.
+        conn.commit()
+        return self.transition_return_value
+
+    def advance_shadow_counters_sync(self, conn, *, domain, name, passed, new_observations):
+        self.advance_calls.append((domain, name, passed, new_observations))
+        conn.commit()
+
+
+def _make_registries(
+    features: dict[str, dict],
+) -> tuple[_FakeRegistryService, _FakeConceptRegistryService]:
+    """Build a matched pair of fake registry services from the SAME status dict --
+    the shape every pre-Plan-06 test in this file uses, guaranteeing the parity
+    precondition passes and every dual-write comparison agrees by construction.
+    Independent dict copies so mutating one side's status (e.g. a demotion) never
+    accidentally mutates the other -- exactly the independence the real
+    registry_svc/concept_svc dual write has, and the reason a genuine divergence
+    is even detectable."""
+    registry = _FakeRegistryService({k: dict(v) for k, v in features.items()})
+    concept = _FakeConceptRegistryService({k: dict(v) for k, v in features.items()})
+    return registry, concept
+
 
 # ---------------------------------------------------------------------------
 # Helpers
@@ -373,9 +457,9 @@ def test_demotion_triggers_on_materially_failing_active_feature(tmp_path):
         for i in range(10)
     ]
     conn = _FakeLifecycleConn(cells, ensemble_weight_rows=ew)
-    registry = _FakeRegistryService({"featA": {"status": "active"}})
+    registry, concept = _make_registries({"featA": {"status": "active"}})
 
-    _run_lifecycle_hook(conn, registry, config, _T1, _make_manifest(tmp_path))
+    _run_lifecycle_hook(conn, registry, concept, config, _T1, _make_manifest(tmp_path))
 
     assert len(registry.transition_calls) == 1
     call = registry.transition_calls[0]
@@ -414,9 +498,9 @@ def test_demotion_boundary_below_threshold_not_demoted(tmp_path):
         for i in range(10)
     ]
     conn = _FakeLifecycleConn(cells, ensemble_weight_rows=ew)
-    registry = _FakeRegistryService({"featA": {"status": "active"}})
+    registry, concept = _make_registries({"featA": {"status": "active"}})
 
-    _run_lifecycle_hook(conn, registry, config, _T1, _make_manifest(tmp_path))
+    _run_lifecycle_hook(conn, registry, concept, config, _T1, _make_manifest(tmp_path))
 
     assert registry.transition_calls == []
 
@@ -449,9 +533,9 @@ def test_demotion_boundary_at_threshold_demoted(tmp_path):
         for i in range(10)
     ]
     conn = _FakeLifecycleConn(cells, ensemble_weight_rows=ew)
-    registry = _FakeRegistryService({"featA": {"status": "active"}})
+    registry, concept = _make_registries({"featA": {"status": "active"}})
 
-    _run_lifecycle_hook(conn, registry, config, _T1, _make_manifest(tmp_path))
+    _run_lifecycle_hook(conn, registry, concept, config, _T1, _make_manifest(tmp_path))
 
     assert len(registry.transition_calls) == 1
     assert registry.transition_calls[0][2] == "shadow_only"
@@ -476,9 +560,9 @@ def test_zero_standing_weight_not_demoted(tmp_path):
         )
     # No ensemble_weight_rows at all -> standing_weight COALESCEs to 0.0 for every cell.
     conn = _FakeLifecycleConn(cells, ensemble_weight_rows=[])
-    registry = _FakeRegistryService({"featA": {"status": "active"}})
+    registry, concept = _make_registries({"featA": {"status": "active"}})
 
-    _run_lifecycle_hook(conn, registry, config, _T1, _make_manifest(tmp_path))
+    _run_lifecycle_hook(conn, registry, concept, config, _T1, _make_manifest(tmp_path))
 
     assert registry.transition_calls == []
 
@@ -503,9 +587,9 @@ def test_promotion_when_eligible_zero_ensemble_weights_writes(tmp_path):
         for i in range(4)
     ]
     conn = _FakeLifecycleConn(cells)
-    registry = _FakeRegistryService({"featB": {"status": "shadow_only", "eligible": True}})
+    registry, concept = _make_registries({"featB": {"status": "shadow_only", "eligible": True}})
 
-    _run_lifecycle_hook(conn, registry, config, _T1, _make_manifest(tmp_path))
+    _run_lifecycle_hook(conn, registry, concept, config, _T1, _make_manifest(tmp_path))
 
     assert len(registry.transition_calls) == 1
     call = registry.transition_calls[0]
@@ -533,9 +617,9 @@ def test_no_promotion_when_ineligible(tmp_path):
         for i in range(4)
     ]
     conn = _FakeLifecycleConn(cells)
-    registry = _FakeRegistryService({"featB": {"status": "shadow_only", "eligible": False}})
+    registry, concept = _make_registries({"featB": {"status": "shadow_only", "eligible": False}})
 
-    _run_lifecycle_hook(conn, registry, config, _T1, _make_manifest(tmp_path))
+    _run_lifecycle_hook(conn, registry, concept, config, _T1, _make_manifest(tmp_path))
 
     assert registry.transition_calls == []
     # Counters still advanced even when not (yet) eligible.
@@ -580,10 +664,15 @@ def test_regime_shift_cold_start_within_seeded_rails_does_not_hold(tmp_path):
     ]
     market_regimes = [{"regime_group": "equity", "regime_label": r} for r in regimes]
     conn = _FakeLifecycleConn(cells, ensemble_weight_rows=ew, market_regime_rows=market_regimes)
-    registry = _FakeRegistryService({"featA": {"status": "active"}})
+    registry, concept = _make_registries({"featA": {"status": "active"}})
 
     _run_lifecycle_hook(
-        conn, registry, _make_config(meta_fdr_min_fraction=0.50), _T1, _make_manifest(tmp_path)
+        conn,
+        registry,
+        concept,
+        _make_config(meta_fdr_min_fraction=0.50),
+        _T1,
+        _make_manifest(tmp_path),
     )
 
     # Did not hold: Step 4 ran, so featA's material-fail fraction (96/100=96% >=
@@ -612,10 +701,15 @@ def test_regime_shift_cold_start_above_rail_holds(tmp_path):
     ]
     market_regimes = [{"regime_group": "equity", "regime_label": r} for r in regimes]
     conn = _FakeLifecycleConn(cells, ensemble_weight_rows=ew, market_regime_rows=market_regimes)
-    registry = _FakeRegistryService({"featA": {"status": "active"}})
+    registry, concept = _make_registries({"featA": {"status": "active"}})
 
     _run_lifecycle_hook(
-        conn, registry, _make_config(meta_fdr_min_fraction=0.50), _T1, _make_manifest(tmp_path)
+        conn,
+        registry,
+        concept,
+        _make_config(meta_fdr_min_fraction=0.50),
+        _T1,
+        _make_manifest(tmp_path),
     )
 
     assert registry.transition_calls == []
@@ -637,10 +731,15 @@ def test_regime_shift_small_stratum_never_hold_authoritative(tmp_path):
     ]
     market_regimes = [{"regime_group": "equity", "regime_label": r} for r in regimes]
     conn = _FakeLifecycleConn(cells, ensemble_weight_rows=ew, market_regime_rows=market_regimes)
-    registry = _FakeRegistryService({"featA": {"status": "active"}})
+    registry, concept = _make_registries({"featA": {"status": "active"}})
 
     _run_lifecycle_hook(
-        conn, registry, _make_config(meta_fdr_min_fraction=0.50), _T1, _make_manifest(tmp_path)
+        conn,
+        registry,
+        concept,
+        _make_config(meta_fdr_min_fraction=0.50),
+        _T1,
+        _make_manifest(tmp_path),
     )
 
     assert len(registry.transition_calls) == 1  # demotion proceeded, guard didn't block it
@@ -657,10 +756,15 @@ def test_regime_shift_suspiciously_low_fail_rate_alerts_not_holds(tmp_path):
     cells = _stratum_cells("featB", "15m", regimes, n_fail=10)
     market_regimes = [{"regime_group": "equity", "regime_label": r} for r in regimes]
     conn = _FakeLifecycleConn(cells, market_regime_rows=market_regimes)
-    registry = _FakeRegistryService({"featB": {"status": "active"}})
+    registry, concept = _make_registries({"featB": {"status": "active"}})
 
     _run_lifecycle_hook(
-        conn, registry, _make_config(meta_fdr_min_fraction=0.50), _T1, _make_manifest(tmp_path)
+        conn,
+        registry,
+        concept,
+        _make_config(meta_fdr_min_fraction=0.50),
+        _T1,
+        _make_manifest(tmp_path),
     )
 
     assert len(conn.guard_fact_inserts) == 1
@@ -691,10 +795,15 @@ def test_regime_shift_unmapped_regime_label_buckets_to_unmapped_stratum(tmp_path
     ]
     # No market_regime_rows at all -- every regime label fails the lookup.
     conn = _FakeLifecycleConn(cells, ensemble_weight_rows=ew, market_regime_rows=[])
-    registry = _FakeRegistryService({"featA": {"status": "active"}})
+    registry, concept = _make_registries({"featA": {"status": "active"}})
 
     _run_lifecycle_hook(
-        conn, registry, _make_config(meta_fdr_min_fraction=0.50), _T1, _make_manifest(tmp_path)
+        conn,
+        registry,
+        concept,
+        _make_config(meta_fdr_min_fraction=0.50),
+        _T1,
+        _make_manifest(tmp_path),
     )
 
     assert len(conn.guard_fact_inserts) == 1
@@ -727,10 +836,17 @@ def test_regime_shift_two_independent_strata_only_failing_one_holds(tmp_path):
         ],
         market_regime_rows=market_regimes,
     )
-    registry = _FakeRegistryService({"featA": {"status": "active"}, "featB": {"status": "active"}})
+    registry, concept = _make_registries(
+        {"featA": {"status": "active"}, "featB": {"status": "active"}}
+    )
 
     _run_lifecycle_hook(
-        conn, registry, _make_config(meta_fdr_min_fraction=0.50), _T1, _make_manifest(tmp_path)
+        conn,
+        registry,
+        concept,
+        _make_config(meta_fdr_min_fraction=0.50),
+        _T1,
+        _make_manifest(tmp_path),
     )
 
     assert registry.transition_calls == []  # global hold, even though only one stratum tripped
@@ -764,10 +880,15 @@ def test_guard_facts_deferred_past_registry_triggered_commit(tmp_path):
     ]
     market_regimes = [{"regime_group": "equity", "regime_label": r} for r in regimes]
     conn = _FakeLifecycleConn(cells, ensemble_weight_rows=ew, market_regime_rows=market_regimes)
-    registry = _FakeRegistryService({"featA": {"status": "active"}})
+    registry, concept = _make_registries({"featA": {"status": "active"}})
 
     _run_lifecycle_hook(
-        conn, registry, _make_config(meta_fdr_min_fraction=0.50), _T1, _make_manifest(tmp_path)
+        conn,
+        registry,
+        concept,
+        _make_config(meta_fdr_min_fraction=0.50),
+        _T1,
+        _make_manifest(tmp_path),
     )
 
     # Demotion actually happened -- proves record_transition_sync ran and
@@ -813,10 +934,15 @@ def test_regime_shift_empirical_band_takes_over_after_min_history(tmp_path):
         market_regime_rows=market_regimes,
         guard_history_rows=history_rows,
     )
-    registry = _FakeRegistryService({"featA": {"status": "active"}})
+    registry, concept = _make_registries({"featA": {"status": "active"}})
 
     _run_lifecycle_hook(
-        conn, registry, _make_config(meta_fdr_min_fraction=0.50), _T1, _make_manifest(tmp_path)
+        conn,
+        registry,
+        concept,
+        _make_config(meta_fdr_min_fraction=0.50),
+        _T1,
+        _make_manifest(tmp_path),
     )
 
     assert registry.transition_calls == []  # held: 0.99 is far outside the tight empirical band
@@ -841,9 +967,9 @@ def test_idempotency_short_circuit_on_existing_fact(tmp_path):
         )
     ]
     conn = _FakeLifecycleConn(cells, existing_integrity_rows=[{"training_window_end": _T1}])
-    registry = _FakeRegistryService({"featA": {"status": "active"}})
+    registry, concept = _make_registries({"featA": {"status": "active"}})
 
-    _run_lifecycle_hook(conn, registry, config, _T1, _make_manifest(tmp_path))
+    _run_lifecycle_hook(conn, registry, concept, config, _T1, _make_manifest(tmp_path))
 
     assert registry.transition_calls == []
     assert not any("FROM feature_ic_scores fis" in sql for sql in conn.executed_sql)
@@ -893,9 +1019,9 @@ def test_lookahead_pinning_uses_only_mid_lookahead_rows(tmp_path):
         )
     )
     conn = _FakeLifecycleConn(cells)
-    registry = _FakeRegistryService({"featB": {"status": "shadow_only", "eligible": False}})
+    registry, concept = _make_registries({"featB": {"status": "shadow_only", "eligible": False}})
 
-    _run_lifecycle_hook(conn, registry, config, _T1, _make_manifest(tmp_path))
+    _run_lifecycle_hook(conn, registry, concept, config, _T1, _make_manifest(tmp_path))
 
     assert registry.advance_calls == [
         ("featB", True, 4000)
@@ -940,9 +1066,9 @@ def test_weight_version_pinning_to_champion(tmp_path):
         },
     ]
     conn = _FakeLifecycleConn(cells, ensemble_weight_rows=ew)
-    registry = _FakeRegistryService({"featA": {"status": "active"}})
+    registry, concept = _make_registries({"featA": {"status": "active"}})
 
-    _run_lifecycle_hook(conn, registry, config, _T1, _make_manifest(tmp_path))
+    _run_lifecycle_hook(conn, registry, concept, config, _T1, _make_manifest(tmp_path))
 
     # v1 weight (0.1) * |ic_ci_lower| (0.02) = 0.002, BELOW materiality_threshold (0.005) -> not material.
     # If v2_challenger's weight (100.0) had been used instead: 100*0.02=2.0, hugely material.
@@ -958,9 +1084,9 @@ def test_weight_version_pinning_to_champion(tmp_path):
 def test_zero_cell_guard_writes_no_fact(tmp_path):
     config = _make_config()
     conn = _FakeLifecycleConn(corpus_rows=[])  # zero POOLED rows for this window
-    registry = _FakeRegistryService({})
+    registry, concept = _make_registries({})
 
-    _run_lifecycle_hook(conn, registry, config, _T1, _make_manifest(tmp_path))
+    _run_lifecycle_hook(conn, registry, concept, config, _T1, _make_manifest(tmp_path))
 
     assert registry.transition_calls == []
     assert conn.integrity_inserts == []
@@ -971,8 +1097,8 @@ def test_zero_cell_run_does_not_short_circuit_a_later_run_with_cells(tmp_path):
     SAME training_window_end that DOES have cells must still run to completion."""
     config = _make_config(meta_fdr_min_fraction=0.50)
     empty_conn = _FakeLifecycleConn(corpus_rows=[])
-    registry = _FakeRegistryService({"featA": {"status": "active"}})
-    _run_lifecycle_hook(empty_conn, registry, config, _T1, _make_manifest(tmp_path))
+    registry, concept = _make_registries({"featA": {"status": "active"}})
+    _run_lifecycle_hook(empty_conn, registry, concept, config, _T1, _make_manifest(tmp_path))
     assert empty_conn.integrity_inserts == []
 
     # Second invocation, same training_window_end, now WITH cells, using the SAME
@@ -992,12 +1118,16 @@ def test_zero_cell_run_does_not_short_circuit_a_later_run_with_cells(tmp_path):
         {"tf": "5m", "regime": "r0", "feature_name": "featA", "weight_version": "v1", "weight": 0.5}
     ]
     conn2 = _FakeLifecycleConn(cells, ensemble_weight_rows=ew, existing_integrity_rows=[])
-    _run_lifecycle_hook(conn2, registry, config, _T1, _make_manifest(tmp_path))
-    assert len(conn2.integrity_inserts) == 1
+    _run_lifecycle_hook(conn2, registry, concept, config, _T1, _make_manifest(tmp_path))
+    # 2 facts per non-hold run since Phase 170 Plan 06: the pre-existing
+    # decay_cells_flagged fact PLUS the new registry_dual_write_verified fact
+    # (emitted unconditionally by _apply_feature_transitions).
+    assert len(conn2.integrity_inserts) == 2
 
 
 # ---------------------------------------------------------------------------
-# One integrity_monitor fact per normal run
+# integrity_monitor facts per normal run (decay_cells_flagged +, since Phase
+# 170 Plan 06, registry_dual_write_verified)
 # ---------------------------------------------------------------------------
 
 
@@ -1018,11 +1148,13 @@ def test_one_integrity_monitor_fact_per_normal_run(tmp_path):
         {"tf": "5m", "regime": "r0", "feature_name": "featA", "weight_version": "v1", "weight": 0.5}
     ]
     conn = _FakeLifecycleConn(cells, ensemble_weight_rows=ew)
-    registry = _FakeRegistryService({"featA": {"status": "active"}})
+    registry, concept = _make_registries({"featA": {"status": "active"}})
 
-    _run_lifecycle_hook(conn, registry, config, _T1, _make_manifest(tmp_path))
+    _run_lifecycle_hook(conn, registry, concept, config, _T1, _make_manifest(tmp_path))
 
-    assert len(conn.integrity_inserts) == 1
+    # 2 facts per non-hold run since Phase 170 Plan 06: decay_cells_flagged
+    # (pre-existing) plus registry_dual_write_verified (new, unconditional).
+    assert len(conn.integrity_inserts) == 2
     assert conn.committed is True
 
 
@@ -1065,9 +1197,9 @@ def test_sign_symmetric_significant_contrarian_not_demoted(tmp_path):
         for i in range(10)
     ]
     conn = _FakeLifecycleConn(cells, ensemble_weight_rows=ew)
-    registry = _FakeRegistryService({"featC": {"status": "active"}})
+    registry, concept = _make_registries({"featC": {"status": "active"}})
 
-    _run_lifecycle_hook(conn, registry, config, _T1, _make_manifest(tmp_path))
+    _run_lifecycle_hook(conn, registry, concept, config, _T1, _make_manifest(tmp_path))
 
     assert (
         registry.transition_calls == []
@@ -1108,9 +1240,9 @@ def test_sign_symmetric_ci_straddling_contrarian_is_demoted(tmp_path):
         for i in range(10)
     ]
     conn = _FakeLifecycleConn(cells, ensemble_weight_rows=ew)
-    registry = _FakeRegistryService({"featC": {"status": "active"}})
+    registry, concept = _make_registries({"featC": {"status": "active"}})
 
-    _run_lifecycle_hook(conn, registry, config, _T1, _make_manifest(tmp_path))
+    _run_lifecycle_hook(conn, registry, concept, config, _T1, _make_manifest(tmp_path))
 
     assert len(registry.transition_calls) == 1
     assert registry.transition_calls[0][:4] == ("featC", "active", "shadow_only", "ic_demotion")
@@ -1150,9 +1282,9 @@ def test_sign_symmetric_positive_cell_still_demoted(tmp_path):
         for i in range(10)
     ]
     conn = _FakeLifecycleConn(cells, ensemble_weight_rows=ew)
-    registry = _FakeRegistryService({"featA": {"status": "active"}})
+    registry, concept = _make_registries({"featA": {"status": "active"}})
 
-    _run_lifecycle_hook(conn, registry, config, _T1, _make_manifest(tmp_path))
+    _run_lifecycle_hook(conn, registry, concept, config, _T1, _make_manifest(tmp_path))
 
     assert len(registry.transition_calls) == 1
     assert registry.transition_calls[0][:4] == ("featA", "active", "shadow_only", "ic_demotion")
@@ -1189,13 +1321,267 @@ def test_sign_symmetric_off_positive_cell_decision_is_byte_identical(tmp_path):
         for i in range(10)
     ]
     conn = _FakeLifecycleConn(cells, ensemble_weight_rows=ew)
-    registry = _FakeRegistryService({"featA": {"status": "active"}})
+    registry, concept = _make_registries({"featA": {"status": "active"}})
 
-    _run_lifecycle_hook(conn, registry, config, _T1, _make_manifest(tmp_path))
+    _run_lifecycle_hook(conn, registry, concept, config, _T1, _make_manifest(tmp_path))
 
     assert len(registry.transition_calls) == 1
     call = registry.transition_calls[0]
     assert call[:4] == ("featA", "active", "shadow_only", "ic_demotion")
+
+
+# ---------------------------------------------------------------------------
+# Phase 170 Plan 06: shadow-mode dual write (todo 118 scope item 4)
+# ---------------------------------------------------------------------------
+
+
+def test_lifecycle_hook_dual_writes_both_registries(tmp_path):
+    """A demotion writes to BOTH registry_svc and concept_svc, with the reason
+    mapped to 'demotion_performance' on the concept side (concept_transition_log's
+    trigger_reason CHECK does not accept 'ic_demotion')."""
+    config = _make_config(meta_fdr_min_fraction=0.50)
+    cells = []
+    for i in range(10):
+        failing = i < 6
+        cells.append(
+            _cell(
+                "featA",
+                "5m",
+                f"regime_{i}",
+                ic_ci_lower=-0.02 if failing else 0.03,
+                passes_fdr=not failing,
+                n_independent=1000,
+                status="active",
+            )
+        )
+    ew = [
+        {
+            "tf": "5m",
+            "regime": f"regime_{i}",
+            "feature_name": "featA",
+            "weight_version": "v1",
+            "weight": 0.5,
+        }
+        for i in range(10)
+    ]
+    conn = _FakeLifecycleConn(cells, ensemble_weight_rows=ew)
+    registry, concept = _make_registries({"featA": {"status": "active"}})
+
+    _run_lifecycle_hook(conn, registry, concept, config, _T1, _make_manifest(tmp_path))
+
+    assert len(registry.transition_calls) == 1
+    assert registry.transition_calls[0][:4] == ("featA", "active", "shadow_only", "ic_demotion")
+
+    assert len(concept.transition_calls) == 1
+    # (domain, name, from_status, to_status, reason, gate_metric, gate_n, ci_lower, fdr_passed)
+    concept_call = concept.transition_calls[0]
+    assert concept_call[:5] == ("feature", "featA", "active", "shadow_only", "demotion_performance")
+
+
+def test_lifecycle_hook_raises_on_status_parity_mismatch(tmp_path):
+    """A pre-existing status divergence between the two registries (a prior run
+    already applied a decision to only one side) must raise BEFORE any new
+    transition is applied, and the registry_divergence fact it emits must carry
+    commit=True -- a defaulted commit=False here would be silently rolled back
+    by the very raise that follows, destroying the divergence record."""
+    config = _make_config(meta_fdr_min_fraction=0.50)
+    cells = [
+        _cell(
+            "featA",
+            "5m",
+            "r0",
+            ic_ci_lower=0.03,
+            passes_fdr=True,
+            n_independent=1000,
+            status="active",
+        )
+    ]
+    ew = [
+        {"tf": "5m", "regime": "r0", "feature_name": "featA", "weight_version": "v1", "weight": 0.5}
+    ]
+    conn = _FakeLifecycleConn(cells, ensemble_weight_rows=ew)
+    registry, concept = _make_registries({"featA": {"status": "active"}})
+    # Force a pre-existing split-brain: concept-side status disagrees with the
+    # registry-side status BEFORE this run applies anything.
+    concept._concepts["featA"]["status"] = "shadow_only"
+
+    emit_calls: list[dict] = []
+    real_emit = ic_engine_module.emit_integrity_fact_sync
+
+    def _spy_emit(
+        conn_arg,
+        monitor_type,
+        subject,
+        metric_name,
+        metric_value,
+        threshold_value,
+        passed,
+        training_window_end,
+        **kwargs,
+    ):
+        emit_calls.append({"metric_name": metric_name, "commit": kwargs.get("commit", False)})
+        return real_emit(
+            conn_arg,
+            monitor_type,
+            subject,
+            metric_name,
+            metric_value,
+            threshold_value,
+            passed,
+            training_window_end,
+            **kwargs,
+        )
+
+    with patch.object(ic_engine_module, "emit_integrity_fact_sync", side_effect=_spy_emit):
+        with pytest.raises(RuntimeError, match="parity"):
+            _run_lifecycle_hook(conn, registry, concept, config, _T1, _make_manifest(tmp_path))
+
+    # No transition was applied on top of the pre-existing divergence.
+    assert registry.transition_calls == []
+    assert concept.transition_calls == []
+
+    divergence_emits = [c for c in emit_calls if c["metric_name"] == "registry_divergence"]
+    assert len(divergence_emits) == 1
+    assert divergence_emits[0]["commit"] is True
+
+
+def test_lifecycle_hook_raises_on_transition_outcome_divergence(tmp_path):
+    """Force concept_svc's demotion call to return False while registry_svc's
+    returns True. Assert the per-feature loop COMPLETES (both dual-write calls
+    happen -- no mid-loop raise), that registry_dual_write_verified is emitted
+    with passed=False BEFORE the raise, and then that it raises naming the
+    divergence."""
+    config = _make_config(meta_fdr_min_fraction=0.50)
+    cells = []
+    for i in range(10):
+        failing = i < 6
+        cells.append(
+            _cell(
+                "featA",
+                "5m",
+                f"regime_{i}",
+                ic_ci_lower=-0.02 if failing else 0.03,
+                passes_fdr=not failing,
+                n_independent=1000,
+                status="active",
+            )
+        )
+    ew = [
+        {
+            "tf": "5m",
+            "regime": f"regime_{i}",
+            "feature_name": "featA",
+            "weight_version": "v1",
+            "weight": 0.5,
+        }
+        for i in range(10)
+    ]
+    conn = _FakeLifecycleConn(cells, ensemble_weight_rows=ew)
+    registry, concept = _make_registries({"featA": {"status": "active"}})
+    concept.transition_return_value = False  # diverges from registry_svc's True
+
+    with pytest.raises(RuntimeError, match="divergence"):
+        _run_lifecycle_hook(conn, registry, concept, config, _T1, _make_manifest(tmp_path))
+
+    # Loop completed: both dual-write calls were made, not aborted mid-loop.
+    assert len(registry.transition_calls) == 1
+    assert len(concept.transition_calls) == 1
+
+    dual_write_facts = [
+        row for row in conn.integrity_inserts if row[2] == "registry_dual_write_verified"
+    ]
+    assert len(dual_write_facts) == 1
+    assert dual_write_facts[0][5] is False  # passed=False
+
+    divergence_facts = [row for row in conn.integrity_inserts if row[2] == "registry_divergence"]
+    assert len(divergence_facts) == 1
+
+    # dual_write_verified was recorded before the divergence fact -- both
+    # before the raise (list order proves the emit-then-raise sequencing).
+    assert conn.integrity_inserts.index(dual_write_facts[0]) < conn.integrity_inserts.index(
+        divergence_facts[0]
+    )
+
+
+def test_lifecycle_hook_emits_dual_write_verified_fact_on_clean_run(tmp_path):
+    """A clean run with ZERO transitions still emits exactly one
+    registry_dual_write_verified fact, with passed=True, metric_value=0.0, and
+    a subject naming the full parity-concepts count -- the case Plan 08's WEAK
+    evidence tier depends on. Without this, the phase could reach Plan 08 and
+    block forever on a fact that never emits."""
+    config = _make_config(meta_fdr_min_fraction=0.50)
+    cells = []
+    for i in range(10):
+        failing = i < 4  # 40% < 50% floor -- no demotion
+        cells.append(
+            _cell(
+                "featA",
+                "5m",
+                f"regime_{i}",
+                ic_ci_lower=-0.02 if failing else 0.03,
+                passes_fdr=not failing,
+                n_independent=1000,
+                status="active",
+            )
+        )
+    ew = [
+        {
+            "tf": "5m",
+            "regime": f"regime_{i}",
+            "feature_name": "featA",
+            "weight_version": "v1",
+            "weight": 0.5,
+        }
+        for i in range(10)
+    ]
+    conn = _FakeLifecycleConn(cells, ensemble_weight_rows=ew)
+    registry, concept = _make_registries({"featA": {"status": "active"}})
+
+    _run_lifecycle_hook(conn, registry, concept, config, _T1, _make_manifest(tmp_path))
+
+    assert registry.transition_calls == []
+    assert concept.transition_calls == []
+
+    dual_write_facts = [
+        row for row in conn.integrity_inserts if row[2] == "registry_dual_write_verified"
+    ]
+    assert len(dual_write_facts) == 1
+    _monitor_type, subject, _metric_name, metric_value, _threshold, passed, _twe = dual_write_facts[
+        0
+    ]
+    assert passed is True
+    assert metric_value == 0.0
+    assert re.match(r"^parity_concepts=\d+\|transitions_compared=0$", subject)
+
+
+def test_promotion_passes_fdr_attestation(tmp_path):
+    """The concept-side promotion call must receive fdr_passed=True -- earned by
+    this run's own passes_fdr fraction gate (computed above the call) plus
+    is_promotion_eligible's multi-run consecutive-pass/observation floors,
+    which together ARE the executed multiplicity correction Plan 02's
+    fail-closed FDR guard (todo 118 L-6) requires the caller to attest to."""
+    config = _make_config(meta_fdr_min_fraction=0.50)
+    cells = [
+        _cell(
+            "featB",
+            "5m",
+            f"regime_{i}",
+            ic_ci_lower=0.03,
+            passes_fdr=True,
+            n_independent=1000,
+            status="shadow_only",
+        )
+        for i in range(4)
+    ]
+    conn = _FakeLifecycleConn(cells)
+    registry, concept = _make_registries({"featB": {"status": "shadow_only", "eligible": True}})
+
+    _run_lifecycle_hook(conn, registry, concept, config, _T1, _make_manifest(tmp_path))
+
+    assert len(concept.transition_calls) == 1
+    concept_call = concept.transition_calls[0]
+    assert concept_call[:5] == ("feature", "featB", "shadow_only", "active", "promotion")
+    assert concept_call[8] is True  # fdr_passed
 
 
 # ---------------------------------------------------------------------------

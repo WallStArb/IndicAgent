@@ -72,7 +72,6 @@ from src.intelligence.ensemble import (
     mean_variance_weights,
     select_features_per_stratum,
 )
-from src.intelligence.feature_registry_service import FeatureRegistryService
 from src.intelligence.schemas import FeatureVector
 from src.observability.corpus_manifest import CorpusManifest
 from src.observability.metrics import (
@@ -505,6 +504,61 @@ async def _assert_prerequisites(
         )
 
 
+async def _assert_concept_registry_alignment(conn: asyncpg.Connection) -> set[str]:
+    """Feature registry alignment gate (Phase 170 Plan 06, todo 118 scope item 3).
+
+    Crash-loud: concept_registry(domain='feature') must match FeatureVector
+    dataclass fields exactly. This gate checks SCHEMA COMPLETENESS, not
+    lifecycle state -- it must NOT filter by status, so it passes even when
+    features have been deprecated (deprecated features still have a
+    concept_registry row AND a FeatureVector field). Lifecycle state
+    (active/deprecated) is enforced separately via the eligibility WHERE
+    clause at the IC-scores read below.
+
+    A direct asyncpg query, not a ConceptRegistryService instantiation:
+    the service's only async surface is record_comparison_outcome (the
+    ensemble_strategy champion/challenger path); adding an async load() to
+    serve this one-line name-set gate would be scaffolding for a single
+    caller (Musk step 2 -- simplify, don't add machinery a single call site
+    doesn't need).
+
+    Extracted into its own function (rather than inlined in _execute_inner)
+    so it is directly callable from a test without standing up the whole
+    trainer -- see tests/unit/services/test_ensemble_trainer_alignment_gate.py.
+
+    Returns the registry name set on success (callers use it for the
+    n_features log field); raises RuntimeError on drift, naming BOTH sides
+    of the symmetric difference so the reader isn't left hunting the wrong
+    direction.
+
+    JOINs concept_gate (matching services/ic_engine.py's
+    _watermark_concept_registry and ConceptRegistryService's own
+    _LOAD_CONCEPTS_SYNC_SQL) rather than filtering on domain='feature' alone:
+    migration 284 seeded 2 TOMBSTONE concept_registry rows
+    (metadata->>'migrated_from'='feature_transition_log') to preserve orphaned
+    feature_transition_log history whose feature had no live row in the
+    pre-migration governance table at migration time -- these carry no
+    concept_gate row by design. An unscoped domain='feature' count is 251
+    (249 real + 2 tombstones), which would never match FeatureVector's 249
+    fields and would make this gate raise on every single run. The INNER
+    JOIN naturally excludes them.
+    """
+    registry_names = {
+        r["name"]
+        for r in await conn.fetch(
+            "SELECT cr.name FROM concept_registry cr "
+            "JOIN concept_gate cg ON cg.concept_id = cr.concept_id "
+            "WHERE cr.domain = 'feature'"
+        )
+    }
+    dataclass_names = {f.name for f in dataclasses.fields(FeatureVector)}
+    if registry_names != dataclass_names:
+        raise RuntimeError(
+            f"concept_registry(domain='feature') drift: {registry_names ^ dataclass_names}"
+        )
+    return registry_names
+
+
 # ---------------------------------------------------------------------------
 # EnsembleTrainer
 # ---------------------------------------------------------------------------
@@ -587,21 +641,11 @@ class EnsembleTrainer(BaseBatch):
             # --- Startup gates ---
             await _assert_prerequisites(conn, config.sign_symmetric)
 
-            # --- Feature registry alignment gate ---
-            # Use get_all_features() — NOT get_active_features() — for alignment gate.
-            # Lifecycle state (active/deprecated) is enforced separately via WHERE clause.
-            # The alignment gate checks schema completeness regardless of status.
-            registry_svc = FeatureRegistryService()
-            await registry_svc.load(pool)
-            all_registry_names = {r["feature_name"] for r in registry_svc.get_all_features()}
-            dataclass_names = {f.name for f in dataclasses.fields(FeatureVector)}
-            if all_registry_names != dataclass_names:
-                raise RuntimeError(
-                    f"feature_registry drift: {all_registry_names ^ dataclass_names}"
-                )
+            # --- Feature registry alignment gate (Phase 170 Plan 06) ---
+            all_registry_names = await _assert_concept_registry_alignment(conn)
 
             self.logger.info(
-                "ensemble_trainer.registry_loaded",
+                "ensemble_trainer.concept_registry_loaded",
                 n_features=len(all_registry_names),
                 weight_half_life_days=config.weight_half_life_days,
             )
@@ -810,6 +854,11 @@ class EnsembleTrainer(BaseBatch):
         # feature_status_at_eval = 'active' ensures we only train on IC scores from
         # periods when the feature was actively governed — excludes candidate and
         # shadow_only periods where IC data was gathered but feature not yet promoted.
+        # Phase 170 Plan 06: this filter needs NO change from the concept_registry
+        # cutover -- it reads a feature_ic_scores COLUMN that ic_engine stamps, and
+        # Plan 06 Task 1 repointed that column's source (ic_engine's
+        # _FEATURE_STATUS_REFRESH_SQL / lifecycle-hook write) to concept_registry;
+        # this consumer query was already correct and untouched.
         ic_rows = await conn.fetch(
             f"""
             SELECT feature_name, ic_sharpe_hac, ic_shrunk, shrinkage_weight,
