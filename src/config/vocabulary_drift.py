@@ -165,13 +165,22 @@ _WINDOWED_NAMESPACE_QUERIES: dict[str, str] = {
 }
 
 # asset_class / tier have no natural time column bounding their source tables
-# (instruments.is_active, feature_registry.tier) -- both tables are small,
+# (instruments.is_active, concept_registry.metadata->>'tier'), both small,
 # non-hypertable, operator-facing dimension tables, not append-only event streams,
 # so no recent-window bound applies (nothing to bound: a full scan of ~60 instruments
-# or ~150 feature_registry rows is not the DoS surface T-161-02 targets).
+# or concept_registry's ~256 rows -- domain='feature' plus domain='ensemble_strategy'
+# plus migration 284's 2 gate-less tombstone rows, Phase 170 Plan 07's cutover from
+# the retired feature-only ~249-row predecessor table -- is not the DoS surface
+# T-161-02 targets).
 _UNWINDOWED_NAMESPACE_QUERIES: dict[str, str] = {
     "asset_class": "SELECT DISTINCT contract_details->>'asset_class' FROM instruments WHERE is_active = true",
-    "tier": "SELECT DISTINCT tier FROM feature_registry",
+    # metadata ? 'tier' excludes domain='ensemble_strategy' rows (no tier key) and
+    # the 2 gate-less tombstones (also no tier key) -- without this guard, a NULL
+    # tier would enter the observed vocabulary set and the drift audit would
+    # report a spurious unregistered code every single run. Live-verified
+    # (Phase 170 Plan 07): identical to the predecessor table's own 3-value
+    # (0_atomic, 1_interaction, 2_theory) result.
+    "tier": "SELECT DISTINCT metadata->>'tier' FROM concept_registry WHERE domain = 'feature' AND metadata ? 'tier'",
 }
 
 _REGIME_GROUP_GUARD_SQL = (

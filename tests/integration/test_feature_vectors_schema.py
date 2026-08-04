@@ -15,11 +15,12 @@ a divergence between the two is exactly the failure mode this test exists to cat
 
 IMPORTANT: This test validates the real database (indicagent), not indicagent_test —
 same override idiom as tests/integration/test_pipeline_flow.py. indicagent_test has
-no feature_vectors/feature_registry schema at all in this environment (pre-existing
-gap, confirmed unrelated to this migration — see 142.5-06-SUMMARY.md Deviations), so
-this test bypasses get_settings() (whose module-level Settings singleton would
-otherwise cache conftest.py's indicagent_test DATABASE_URL) and connects directly to
-the real dev database that migration 206 was applied against.
+no feature_vectors schema (nor, historically, the retiring feature-registry
+dimension table) at all in this environment (pre-existing gap, confirmed unrelated
+to this migration — see 142.5-06-SUMMARY.md Deviations), so this test bypasses
+get_settings() (whose module-level Settings singleton would otherwise cache
+conftest.py's indicagent_test DATABASE_URL) and connects directly to the real dev
+database that migration 206 was applied against.
 
 Run: pytest tests/integration/ -m integration
 """
@@ -269,26 +270,48 @@ async def test_renaissance_columns_exist() -> None:
 
 
 @pytest.mark.asyncio
-async def test_feature_registry_row_count_matches_gate() -> None:
-    """feature_registry's row count must match feature_registry_service._REGISTRY_ROW_COUNT
-    (the startup alignment gate), which is derived as len(dataclasses.fields(FeatureVector))
-    and so grows whenever a field is added - not asserted against a fixed number here, since
-    hardcoding one just guarantees this test goes stale again at the next field addition
-    (confirmed 2026-07-14: the count had drifted from an earlier 150 to today's 155 with no
-    corresponding test update).
+async def test_concept_registry_feature_row_count_matches_gate() -> None:
+    """concept_registry's domain='feature' row count must match
+    len(dataclasses.fields(FeatureVector)) (the startup alignment gate's derivation),
+    so it grows whenever a field is added - not asserted against a fixed number here,
+    since hardcoding one just guarantees this test goes stale again at the next field
+    addition (confirmed 2026-07-14: the count had drifted from an earlier 150 to that
+    day's 155 with no corresponding test update).
 
-    Without this, FeatureRegistryService.load() raises RuntimeError at daemon startup
-    (antigravity H2/H3).
+    Phase 170 Plan 07: repointed from the retiring registry service module's
+    own _REGISTRY_ROW_COUNT constant (that module is deleted in Plan 08) to a
+    locally-derived field count -- same anti-drift derivation, without importing
+    a module this test would otherwise outlive.
+
+    Row count excludes migration 284's 2 gate-less tombstone concept_registry rows
+    (new_high_flag/new_low_flag, kept only to preserve orphaned
+    feature_transition_log history) via an INNER JOIN concept_gate -- matching
+    services/ic_engine.py's _watermark_concept_registry and ConceptRegistryService's
+    own _LOAD_CONCEPTS_SYNC_SQL semantics exactly. Without that join this query
+    returns 251, never matching FeatureVector's 249 fields, and this test would
+    permanently fail.
+
+    Without this alignment holding, ConceptRegistryService.load_sync() raises at
+    daemon startup (antigravity H2/H3, ported from the retiring registry
+    service's original gate).
     """
-    from src.intelligence.feature_registry_service import _REGISTRY_ROW_COUNT
+    import dataclasses
+
+    from src.intelligence.schemas import FeatureVector
+
+    expected_count = len(dataclasses.fields(FeatureVector))
 
     conn = await asyncpg.connect(_DB_URL)
     try:
-        count = await conn.fetchval("SELECT COUNT(*) FROM feature_registry")
+        count = await conn.fetchval(
+            "SELECT COUNT(*) FROM concept_registry cr "
+            "JOIN concept_gate cg ON cg.concept_id = cr.concept_id "
+            "WHERE cr.domain = 'feature'"
+        )
     finally:
         await conn.close()
 
-    assert count == _REGISTRY_ROW_COUNT, (
-        f"feature_registry has {count} rows; expected {_REGISTRY_ROW_COUNT} "
-        "(_REGISTRY_ROW_COUNT, derived from FeatureVector's field count)."
+    assert count == expected_count, (
+        f"concept_registry(domain='feature') has {count} rows; expected "
+        f"{expected_count} (len(dataclasses.fields(FeatureVector))). See migration 284."
     )

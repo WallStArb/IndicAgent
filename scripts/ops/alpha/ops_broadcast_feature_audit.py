@@ -16,16 +16,16 @@ when the true independent draw count per bar_ts is 1, not n_symbols -- severe
 pseudo-replication, inflating apparent significance for ANY feature with this
 structure, whether or not the underlying relationship is real.
 
-feature_registry.group_name already has a 'macro' category (vix_z, yield_slope_z,
-flight_quality) -- but 'session'/'calendar' features (e.g. dow_sin, hour_of_day_cos,
-in_ny_session, power_hour) are ALSO derived purely from bar_ts, hence equally
-broadcast, and are NOT captured by 'macro'. This script classifies EMPIRICALLY (from
-actual feature_vectors data, not by trusting group_name), then cross-references
+concept_registry.group_name (domain='feature') already has a 'macro' category (vix_z,
+yield_slope_z, flight_quality) -- but 'session'/'calendar' features (e.g. dow_sin,
+hour_of_day_cos, in_ny_session, power_hour) are ALSO derived purely from bar_ts, hence
+equally broadcast, and are NOT captured by 'macro'. This script classifies EMPIRICALLY
+(from actual feature_vectors data, not by trusting group_name), then cross-references
 against group_name to confirm/deny the hypothesis and surface any surprises (a
 feature broadcast but NOT in macro/session/calendar, or vice versa).
 
 Read-only, no persistence -- classification is a printed report only. Whether/how to
-make this classification durable (a feature_registry column) is deferred to whoever
+make this classification durable (a concept_registry column) is deferred to whoever
 builds a broadcast-aware significance test (a separate, real methodology decision,
 not mechanical) -- building schema/persistence with no current consumer would be
 premature (YAGNI).
@@ -76,7 +76,17 @@ _SAMPLE_TIMESTAMPS_SQL = """
     ORDER BY bar_ts DESC
     LIMIT $3
 """
-_FEATURE_REGISTRY_SQL = "SELECT feature_name, group_name, status FROM feature_registry"
+# concept_gate is INNER JOINed (not a bare domain='feature' filter) to exclude
+# migration 284's 2 gate-less tombstone concept_registry rows -- matching
+# services/ic_engine.py's _watermark_concept_registry / ConceptRegistryService's
+# own _LOAD_CONCEPTS_SYNC_SQL semantics exactly (Phase 170 Plan 07, live-verified:
+# both queries return the identical 249-row/md5 result with this join).
+_CONCEPT_REGISTRY_SQL = """
+    SELECT cr.name AS feature_name, cr.group_name, cr.status
+    FROM concept_registry cr
+    JOIN concept_gate cg ON cg.concept_id = cr.concept_id
+    WHERE cr.domain = 'feature'
+"""
 
 
 def _classify_broadcast(values_by_bar_ts: dict[Any, np.ndarray], epsilon: float) -> bool:
@@ -118,7 +128,7 @@ async def main() -> int:
     pool = await asyncpg.create_pool(dsn=dsn)
 
     try:
-        registry_rows = await pool.fetch(_FEATURE_REGISTRY_SQL)
+        registry_rows = await pool.fetch(_CONCEPT_REGISTRY_SQL)
         status_by_feature = {r["feature_name"]: r["status"] for r in registry_rows}
         group_by_feature = {r["feature_name"]: r["group_name"] for r in registry_rows}
         active_features = [f for f in _FEATURE_NAMES if status_by_feature.get(f) == "active"]
@@ -197,7 +207,7 @@ async def main() -> int:
 
         print(
             "---\nA feature listed with '<-- UNEXPECTED GROUP' is broadcast in the data but "
-            "not tagged macro/session/calendar in feature_registry -- worth checking whether "
+            "not tagged macro/session/calendar in concept_registry -- worth checking whether "
             "it's mis-tagged or genuinely should carry this exposure warning.\n"
             "A feature flagged as broadcast but with low data density or known event-driven "
             "semantics may reflect 'no event occurred in this recent sample window' rather than "

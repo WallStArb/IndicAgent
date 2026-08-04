@@ -6,7 +6,7 @@ out-of-fold acceptance gate (D-04/D-05/D-06, Phase 142B.1).
 Two responsibilities, both pure-importable where the actual math lives:
 
 (A) Compute pass: for every `reliable = true` `feature_ic_scores` row, shrink
-    `ic_sharpe_hac` toward a leave-one-out `(feature_registry.group_name, regime, tf)`
+    `ic_sharpe_hac` toward a leave-one-out `(concept_registry.group_name, regime, tf)`
     peer-group prior via `shrink_ic()` (src/intelligence/ensemble/shrinkage.py, Plan 02),
     and bulk-UPDATE `ic_shrunk`/`shrinkage_weight` by the 6-column PK using
     `services/_batch_utils.py::bulk_update_by_key` — keeps `ic_engine.py`'s large,
@@ -44,6 +44,7 @@ Usage:
 
 from __future__ import annotations
 
+import argparse
 import asyncio
 import sys
 from datetime import datetime
@@ -97,7 +98,24 @@ _RELIABLE_ROWS_SQL = """
     WHERE reliable = true AND ic_sharpe_hac IS NOT NULL
 """
 
-_FEATURE_GROUP_SQL = "SELECT feature_name, group_name FROM feature_registry"
+# concept_gate is INNER JOINed (not a bare domain='feature' filter) to exclude
+# migration 284's 2 gate-less tombstone concept_registry rows (new_high_flag/
+# new_low_flag, kept only to preserve orphaned feature_transition_log history) --
+# matching services/ic_engine.py's _watermark_concept_registry and
+# ConceptRegistryService's own _LOAD_CONCEPTS_SYNC_SQL semantics exactly. Without
+# this join, the two tombstones (group_name IS NULL) would enter feature_to_group
+# as two extra dict entries not present in the retired dimension table this
+# repointed from -- harmless to compute_shrinkage_updates today (no
+# feature_ic_scores row names either tombstone) but a BEFORE/AFTER row-count
+# divergence against that predecessor table nonetheless (Phase 170 Plan 07,
+# live-verified: both queries return the identical 249-row/md5 result with this
+# join).
+_FEATURE_GROUP_SQL = """
+    SELECT cr.name AS feature_name, cr.group_name
+    FROM concept_registry cr
+    JOIN concept_gate cg ON cg.concept_id = cr.concept_id
+    WHERE cr.domain = 'feature'
+"""
 
 _POOLED_RELIABLE_CELLS_SQL = """
     SELECT DISTINCT feature_name, tf, regime, lookahead_bars
@@ -153,7 +171,7 @@ def compute_shrinkage_updates(
 
     Peer group is keyed purely on `(group_name, regime, tf)` — NOT scoped to symbol or
     lookahead_bars — matching D-06's literal spec ("feature family x regime x tf").
-    Rows whose feature has no `feature_registry.group_name` mapping are skipped (cannot
+    Rows whose feature has no `concept_registry.group_name` mapping are skipped (cannot
     form a peer group without a family label). Non-finite `shrink_ic` outputs are
     dropped, never persisted (Pitfall 1's degenerate-input guard already returns a
     defined value for n_eff<=0; this is defense-in-depth against any other NaN/Inf
@@ -400,7 +418,21 @@ async def _run_out_of_fold_gate(
 # ---------------------------------------------------------------------------
 
 
+def _parse_args() -> argparse.Namespace:
+    """No real flags (this script takes none by design -- see module docstring's
+    Usage), but a real ArgumentParser is required so `--help`/an unrecognized flag
+    exits 0/2 with a usage message BEFORE any DB connection is opened, rather than
+    being silently ignored and falling through into the live compute-and-write
+    pass below. Phase 170 Plan 07: discovered live when this script's own --help
+    acceptance check actually ran the full compute pass (no argparse existed
+    before this fix) -- caught and killed before any write landed
+    (config_history shows no post-fix ic_input change)."""
+    parser = argparse.ArgumentParser(description=__doc__)
+    return parser.parse_args()
+
+
 async def main() -> int:
+    _parse_args()
     settings = Settings()
     dsn = settings.database_url.replace("postgresql+asyncpg://", "postgresql://")
     apool = await asyncpg.create_pool(dsn=dsn)

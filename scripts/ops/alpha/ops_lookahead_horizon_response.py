@@ -59,7 +59,7 @@ TYPICAL feature and are structurally blind to a concentrated signal in a minorit
 the ~244 active features -- a median can sit inside its own CI at every horizon while
 a handful of individual features have real, CI-distinguishable IC the aggregate
 statistic outvotes. Each horizon row now also reports, restricted to
-`feature_registry.status = 'active'` features (excludes the 5 `candidate`-status
+`concept_registry.status = 'active'` features (domain='feature'; excludes the 5 `candidate`-status
 canary/placebo controls from the "is there real signal" count): how many individually
 clear a raw CI-excludes-zero bar, and how many survive Benjamini-Hochberg FDR
 correction across that horizon's active-feature family (`alpha.ic.fdr_alpha`, same
@@ -168,7 +168,18 @@ _LATEST_VINTAGE_SQL = "SELECT max(training_window_end) FROM feature_ic_scores"
 _SYMBOLS_SQL = """
     SELECT DISTINCT symbol FROM feature_vectors WHERE tf = $1 ORDER BY symbol LIMIT $2
 """
-_FEATURE_REGISTRY_SQL = "SELECT feature_name, status FROM feature_registry"
+# concept_gate is INNER JOINed (not a bare domain='feature' filter) to exclude
+# migration 284's 2 gate-less tombstone concept_registry rows -- matching
+# services/ic_engine.py's _watermark_concept_registry semantics exactly (Phase
+# 170 Plan 07; the two tombstones are not in _FEATURE_NAMES so this join is
+# belt-and-suspenders here, not behavior-changing, but keeps every
+# concept_registry(domain='feature') read in this file scoped identically).
+_CONCEPT_REGISTRY_SQL = """
+    SELECT cr.name AS feature_name, cr.status
+    FROM concept_registry cr
+    JOIN concept_gate cg ON cg.concept_id = cr.concept_id
+    WHERE cr.domain = 'feature'
+"""
 _TOP_N_FEATURES = 10
 
 
@@ -330,8 +341,8 @@ def _parse_args() -> argparse.Namespace:
         type=str,
         default=None,
         help="Comma-separated feature names (must match _FEATURE_NAMES) to restrict "
-        "the per-feature report to, instead of all feature_registry active features. "
-        "Canaries are always reported separately regardless of this flag.",
+        "the per-feature report to, instead of all concept_registry (domain='feature') "
+        "active features. Canaries are always reported separately regardless of this flag.",
     )
     parser.add_argument(
         "--bootstrap",
@@ -436,7 +447,7 @@ async def main() -> int:
         )
         fdr_alpha = float(_cfg(apr, "alpha.ic.fdr_alpha", 0.05))
 
-        registry_rows = await pool.fetch(_FEATURE_REGISTRY_SQL)
+        registry_rows = await pool.fetch(_CONCEPT_REGISTRY_SQL)
         status_by_feature = {r["feature_name"]: r["status"] for r in registry_rows}
         active_mask = np.array([status_by_feature.get(f) == "active" for f in _FEATURE_NAMES])
         candidate_mask = np.array([status_by_feature.get(f) == "candidate" for f in _FEATURE_NAMES])

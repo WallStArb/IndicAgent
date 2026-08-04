@@ -299,9 +299,12 @@ FEATURE_VECTOR_DOMAIN: dict[str, str] = {
     "canary_acausal_placebo": "control",
     # Session-level — Smart Money Concepts (36, Phase 164 Plan 01). Tag matches
     # the archived plugins' own capability_tags value (RESEARCH.md A5) -- this
-    # is a separate, unconstrained screening vocabulary from feature_registry's
-    # CHECK-constrained group_name column (which uses 'structure' instead,
-    # see migration 266's header note).
+    # is a separate screening vocabulary from concept_registry (domain='feature')
+    # .group_name (which uses 'structure' instead, see migration 266's header
+    # note). Phase 170 Plan 07: group_name is deliberately UNCONSTRAINED TEXT on
+    # concept_registry (migration 283 L-10), unlike the retired predecessor
+    # table's 11-value CHECK -- this FEATURE_VECTOR_DOMAIN dict remains its own
+    # separate, always-unconstrained vocabulary regardless of that change.
     "ob_bull_dist_atr": "smart_money",
     "ob_bear_dist_atr": "smart_money",
     "ob_strength": "smart_money",
@@ -1763,9 +1766,10 @@ def _ret_vol_ratio(ret_lag: float, atr_z: float, eps: float = 1e-10) -> float:
 # Canary / Control Predictor primitive functions (Phase 143.1 Plan 02, todo 068)
 # ---------------------------------------------------------------------------
 # Genuine FeatureVector fields (not measurement-time-only diagnostics) so
-# feature_registry's row-count/name-set alignment gates stay satisfied
-# (FeatureRegistryService.load() enforces len(rows) == len(FeatureVector
-# fields) plus exact name-set equality). Negative controls (noise, constant,
+# concept_registry (domain='feature')'s row-count/name-set alignment gates stay
+# satisfied (ic_engine.py/ensemble_trainer.py's alignment checks enforce
+# len(rows) == len(FeatureVector fields) plus exact name-set equality, Phase
+# 170 Plan 06/07). Negative controls (noise, constant,
 # near-constant) must never clear an IC significance gate; the acausal
 # placebo (positive control) must clear one spectacularly, proving this
 # pipeline can detect look-ahead leakage when it is actually present.

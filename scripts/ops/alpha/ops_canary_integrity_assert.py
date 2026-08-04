@@ -4,7 +4,8 @@ ops_canary_integrity_assert.py -- Component D corpus-run integrity gate (todo 06
 Phase 143.1-02).
 
 Expectation-aware, false-halt-aware assertion over the 5 canary/control predictors
-(feature_registry.is_control=true rows, migration 223). Queries feature_ic_scores for
+(concept_registry domain='feature', is_control=true rows; migrations 283/284). Queries
+feature_ic_scores for
 every canary x stratum cell in the latest training_window_end vintage and evaluates
 each against its control_expectation ('negative_control' | 'positive_control').
 
@@ -14,7 +15,7 @@ HARD-halt (loud, non-zero exit / raised error) if:
     addendum to E7 -- see below). POOLED is the family `feature_status_at_eval =
     'active'` gates on top of, ahead of ensemble_trainer.py's eligibility query --
     a POOLED clear alone does not reach the live ensemble (canaries are permanently
-    `status='candidate'` in feature_registry), but is still tracked far more
+    `status='candidate'` in concept_registry), but is still tracked far more
     conservatively than per-symbol clears since it is the eligibility-relevant family.
   - The acausal-placebo positive control does NOT clear that same gate in POOLED --
     proves this pipeline fails to detect look-ahead leakage when genuinely present
@@ -78,7 +79,7 @@ _CANARY_ROWS_SQL = """
         s.ic_ci_lower, s.ic_ci_upper, s.passes_fdr, s.cumulative_e_value,
         r.control_expectation
     FROM feature_ic_scores s
-    JOIN feature_registry r ON r.feature_name = s.feature_name
+    JOIN concept_registry r ON r.name = s.feature_name AND r.domain = 'feature'
     WHERE r.is_control = true
       AND s.training_window_end = $1
 """

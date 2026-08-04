@@ -4,7 +4,7 @@
 specifically, instead of the script's existing boundary-nearest sampling across all
 features. This adds the flag and its parsing/SQL wiring; no live corpus-scale run is
 executed by this todo. No DB, no asyncio -- pure parsing + SQL-string-shape tests,
-mirroring tests/unit/scripts/test_ops_feature_registry_override.py's sys.argv
+mirroring tests/unit/scripts/test_ops_concept_registry_override.py's sys.argv
 monkeypatch convention and test_forward_return_writer.py's SQL-structure convention.
 """
 

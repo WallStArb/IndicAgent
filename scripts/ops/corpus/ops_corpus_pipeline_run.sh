@@ -154,7 +154,7 @@ check_canary_integrity() {
     echo "======================================"
     echo " Canary Integrity Gate (Component D, todo 068, Phase 143.1-02)"
     echo " Expectation-aware, false-halt-aware assertion over the 5 canary/"
-    echo " control predictors (feature_registry.is_control=true rows)"
+    echo " control predictors (concept_registry domain='feature', is_control=true rows)"
     echo " $(date)"
     echo "======================================"
 

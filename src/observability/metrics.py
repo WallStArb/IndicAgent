@@ -1267,9 +1267,10 @@ ALPHA_DECAY_CELLS_FLAGGED = counter(
 )
 ALPHA_DECAY_ENSEMBLE_REBUILD_TOTAL = counter(
     "alpha_decay_ensemble_rebuild_total",
-    "Count of real feature_registry transitions (active->shadow_only demotion, "
-    "shadow_only->active promotion) written by ic_engine's post-run lifecycle hook. "
-    "Zero on a regime-shift hold or idempotency short-circuit.",
+    "Count of real concept_registry (domain='feature') transitions "
+    "(active->shadow_only demotion, shadow_only->active promotion) written by "
+    "ic_engine's post-run lifecycle hook. Zero on a regime-shift hold or "
+    "idempotency short-circuit.",
 )
 IC_ENGINE_LAST_RUN_AGE_DAYS = point_gauge(
     "ic_engine_last_run_age_days",

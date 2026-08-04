@@ -1559,9 +1559,9 @@ class FeatureVector:
     gap_filled: float | None
     # Canary / Control Predictors (5, Phase 143.1 Plan 02, todo 068) — genuine
     # FeatureVector fields (not measurement-time-only diagnostics), so
-    # feature_registry's row-count/name-set alignment gates stay satisfied.
-    # is_control=true rows, status='candidate' (never promoted) in feature_registry
-    # -- second line of defense beyond is_control. Negative controls (noise,
+    # concept_registry (domain='feature')'s row-count/name-set alignment gates
+    # stay satisfied. is_control=true rows, status='candidate' (never promoted)
+    # in concept_registry -- second line of defense beyond is_control. Negative controls (noise,
     # constant, near-constant) must never clear an IC significance gate; the
     # acausal placebo positive control must clear one spectacularly, proving
     # this pipeline can detect look-ahead leakage. See ops_canary_integrity_assert.py.
