@@ -3,7 +3,7 @@
 ops_interaction_primitives_pilot.py -- todo 037 partial-IC pilot.
 
 Answers: do the 8 already-live Renaissance interaction primitives
-(feature_registry.tier='1_interaction') carry genuine incremental IC after
+(concept_registry.metadata->>'tier'='1_interaction', domain='feature') carry genuine incremental IC after
 controlling for their parent atomics, or is their naive IC fully explained by the
 parents? Reuses already-measured cross-sectional feature_ic_scores rows
 (is_pooled=true, symbol='POOLED', regime=<real regime label> -- the highest-power
@@ -122,29 +122,49 @@ def _lookahead_to_scale(lookahead_bars: int, lookahead_scale_map: dict[int, str]
 
 
 async def _load_interaction_features(conn: asyncpg.Connection) -> list[dict]:
-    """tier='1_interaction' rows from feature_registry with their parent atomics.
+    """metadata->>'tier'='1_interaction' rows from concept_registry (domain='feature')
+    with their parent atomics, joined through concept_parent.
 
     Validated here, once, before any per-tf work starts: every Renaissance
     interaction primitive has exactly 2 parent atomics (the partial_spearman_ic
     call below assumes and unpacks exactly 2). Failing loudly here rather than via
     an implicit tuple-unpack deep in the per-cell loop means a future registry row
     with a different arity can never silently corrupt or crash a partially-completed
-    run -- it fails before any DB fetch or measurement work begins.
+    run -- it fails before any DB fetch or measurement work begins. The arity check
+    now comes from FK-enforced concept_parent edges rather than an unvalidated
+    TEXT[] column, so a malformed edge set is structurally harder to produce in the
+    first place -- this check remains as defense-in-depth, not the sole guard.
+
+    Parent ORDER (Phase 170 Plan 07): concept_parent carries no ordinality column
+    (migration 283's header), so parents come back sorted alphabetically via
+    array_agg(... ORDER BY p.name), which is NOT necessarily the original
+    retired dimension table's bare TEXT[] insertion order. This is proven inert,
+    not assumed inert -- see tests/unit/test_interaction_primitives_parent_order.py,
+    which asserts partial_spearman_ic and _compute_not_null_mask are invariant
+    under a parent swap. If that test ever fails, the fix is an explicit
+    ordinality column on concept_parent, not silently accepting a changed
+    statistic.
     """
-    rows = await conn.fetch(
-        "SELECT feature_name, parent_features FROM feature_registry "
-        "WHERE tier = '1_interaction' AND status = 'active' "
-        "ORDER BY feature_name"
-    )
+    rows = await conn.fetch("""
+        SELECT c.name AS feature_name,
+               array_agg(p.name ORDER BY p.name) AS parent_features
+        FROM concept_registry c
+        JOIN concept_parent cp ON cp.child_concept_id = c.concept_id
+        JOIN concept_registry p ON p.concept_id = cp.parent_concept_id
+        WHERE c.domain = 'feature' AND c.metadata->>'tier' = '1_interaction'
+          AND c.status = 'active'
+        GROUP BY c.name
+        ORDER BY c.name
+        """)
     features = []
     for r in rows:
         parents = list(r["parent_features"])
         if len(parents) != 2:
             raise ValueError(
-                f"feature_registry row {r['feature_name']!r} has {len(parents)} "
-                f"parent_features ({parents!r}) -- partial_spearman_ic's 2-control shape "
-                "assumes exactly 2 parent atomics per interaction primitive. Update this "
-                "script's cell-processing logic if that invariant ever changes."
+                f"concept_registry row {r['feature_name']!r} has {len(parents)} "
+                f"parent_features ({parents!r}) via concept_parent -- partial_spearman_ic's "
+                "2-control shape assumes exactly 2 parent atomics per interaction primitive. "
+                "Update this script's cell-processing logic if that invariant ever changes."
             )
         features.append({"feature_name": r["feature_name"], "parents": parents})
     return features
@@ -458,7 +478,7 @@ async def main() -> int:
 
             features = await _load_interaction_features(conn)
             if not features:
-                return _fail("no tier='1_interaction' rows found in feature_registry.")
+                return _fail("no tier='1_interaction' rows found in concept_registry.")
             feature_names = [f["feature_name"] for f in features]
             parents_by_feature = {f["feature_name"]: f["parents"] for f in features}
 
