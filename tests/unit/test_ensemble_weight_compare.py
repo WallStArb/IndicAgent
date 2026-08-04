@@ -242,3 +242,32 @@ def test_registry_outcome_empty():
     assert eval_n == 0.0
     assert win_strata_count == 0
     assert win_only_n == 0.0
+
+
+# ---------------------------------------------------------------------------
+# L-3 (todo 118): every REGISTRY: FAILED site must exit non-zero.
+# ---------------------------------------------------------------------------
+
+
+def test_registry_failure_paths_return_nonzero():
+    """Crude but exactly the regression L-3 names: read the module source, find
+    every line containing 'REGISTRY: FAILED', and assert the next `return`
+    statement within the following 6 lines is `return 1` -- never `return 0`.
+    """
+    source_path = _scripts_alpha_dir / "ops_ensemble_weight_compare.py"
+    lines = source_path.read_text().splitlines()
+
+    failure_line_indices = [i for i, line in enumerate(lines) if "REGISTRY: FAILED" in line]
+    assert failure_line_indices, "expected at least one REGISTRY: FAILED site"
+
+    for idx in failure_line_indices:
+        window = lines[idx + 1 : idx + 7]
+        return_lines = [line for line in window if line.strip().startswith("return ")]
+        assert return_lines, (
+            f"no return statement found within 6 lines after REGISTRY: FAILED "
+            f"at source line {idx + 1}"
+        )
+        assert return_lines[0].strip() == "return 1", (
+            f"REGISTRY: FAILED at source line {idx + 1} is followed by "
+            f"{return_lines[0].strip()!r}, expected 'return 1'"
+        )

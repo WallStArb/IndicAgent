@@ -34,6 +34,7 @@ def _state(**overrides) -> GateState:
         min_promotion_consecutive=2,
         min_new_observations=2000.0,
         min_gate_n=1000.0,
+        fdr_required=False,
     )
     base.update(overrides)
     return GateState(**base)
@@ -208,6 +209,99 @@ def test_won_requires_eval_metric():
 
 
 # ---------------------------------------------------------------------------
+# fdr_required / fdr_passed fail-closed guard (todo 118 L-6, Phase 170)
+# ---------------------------------------------------------------------------
+
+
+def test_win_blocked_when_fdr_required_and_fdr_passed_none():
+    """A win for a concept whose gate requires FDR, with no proof the caller ran
+    multiplicity correction (fdr_passed=None, the default), must be blocked --
+    None is unproven, not False."""
+    decision = decide_comparison_action(
+        _state(fdr_required=True),
+        won=True,
+        eval_metric=0.05,
+        eval_n=3000.0,
+        corpus_build_ref="run_A",
+    )
+    assert decision.action == "blocked_fdr_unverified"
+
+
+def test_win_blocked_when_fdr_required_and_fdr_passed_false():
+    """A win for a concept whose gate requires FDR, where the caller explicitly
+    states the correction did not survive (fdr_passed=False), must be blocked."""
+    decision = decide_comparison_action(
+        _state(fdr_required=True),
+        won=True,
+        eval_metric=0.05,
+        eval_n=3000.0,
+        corpus_build_ref="run_A",
+        fdr_passed=False,
+    )
+    assert decision.action == "blocked_fdr_unverified"
+
+
+def test_win_allowed_when_fdr_required_and_fdr_passed_true():
+    """A win for a concept whose gate requires FDR, with proof the correction was
+    applied and survived (fdr_passed=True), proceeds through ordinary win handling."""
+    decision = decide_comparison_action(
+        _state(fdr_required=True),
+        won=True,
+        eval_metric=0.05,
+        eval_n=3000.0,
+        corpus_build_ref="run_A",
+        fdr_passed=True,
+    )
+    assert decision.action in ("record_win", "promote")
+
+
+def test_win_allowed_when_fdr_not_required_and_fdr_passed_none():
+    """Backwards compatibility: a gate with fdr_required=False is unaffected by the
+    new guard regardless of fdr_passed -- unchanged behaviour from before Phase 170."""
+    decision = decide_comparison_action(
+        _state(fdr_required=False),
+        won=True,
+        eval_metric=0.05,
+        eval_n=3000.0,
+        corpus_build_ref="run_A",
+    )
+    assert decision.action in ("record_win", "promote")
+
+
+def test_loss_recorded_even_when_fdr_required_and_unproven():
+    """The FDR guard applies to WINS only. A loss is never a promotion and must
+    still be recorded -- swallowing losses would keep a decaying concept's
+    consecutive counter alive, the opposite of fail-closed."""
+    decision = decide_comparison_action(
+        _state(fdr_required=True),
+        won=False,
+        eval_metric=None,
+        eval_n=3000.0,
+        corpus_build_ref="run_A",
+    )
+    assert decision.action == "record_loss"
+
+
+def test_fdr_guard_runs_after_evidence_floor():
+    """Guard ordering regression: a state that is BOTH below the evidence floor
+    AND FDR-unproven must return 'blocked_evidence_floor', not
+    'blocked_fdr_unverified' -- pins that the FDR guard runs strictly after the
+    evidence-mass floor, per the plan's stated insertion point."""
+    decision = decide_comparison_action(
+        _state(
+            fdr_required=True,
+            last_eval_corpus_build_ref="run_A",
+            last_eval_n=5000.0,
+        ),
+        won=True,
+        eval_metric=0.05,
+        eval_n=6999.0,  # (6999 - 5000) < min_new_observations=2000.0
+        corpus_build_ref="run_B",
+    )
+    assert decision.action == "blocked_evidence_floor"
+
+
+# ---------------------------------------------------------------------------
 # Transactional apply (Task 4): SQL-constant regression tests + FakeConn flows.
 # The effective pytest-asyncio mode in this environment is strict despite
 # pytest.ini's addopts listing --asyncio-mode=auto (matches the established
@@ -277,6 +371,7 @@ def _row(**overrides):
         min_promotion_consecutive=None,
         min_new_observations=None,
         min_gate_n=None,
+        fdr_required=False,
     )
     base.update(overrides)
     return base
@@ -305,6 +400,21 @@ def test_transition_insert_sql_carries_corpus_build_ref():
 def test_load_sql_joins_gate():
     assert "concept_gate" in _LOAD_CONCEPT_SQL
     assert "concept_registry" in _LOAD_CONCEPT_SQL
+
+
+def test_load_concept_sql_holds_row_lock():
+    """L-2 (Phase 160 review finding 1), closed by verification under Phase 170:
+    the read-modify-write in record_comparison_outcome carries no CAS of its own --
+    it is safe only because _LOAD_CONCEPT_SQL's FOR UPDATE lock is held from load
+    through write inside a single conn.transaction(). This regression test fails
+    if either half of that guarantee is ever removed: the lock clause itself, or
+    the single-transaction scope it must be held inside."""
+    import inspect
+
+    assert "FOR UPDATE" in _LOAD_CONCEPT_SQL
+    assert "g.fdr_required" in _LOAD_CONCEPT_SQL
+    source = inspect.getsource(ConceptRegistryService.record_comparison_outcome)
+    assert "conn.transaction()" in source
 
 
 def test_gate_update_sqls_touch_cache_columns():

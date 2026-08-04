@@ -44,6 +44,7 @@ class GateState:
     min_promotion_consecutive: int
     min_new_observations: float
     min_gate_n: float
+    fdr_required: bool
 
 
 @dataclass(frozen=True)
@@ -60,6 +61,11 @@ class ComparisonDecision:
         'blocked_same_corpus'    - invariant 2 precondition: corpus has not advanced
         'blocked_min_n'          - invariant 7: initial effective-N floor unmet
         'blocked_evidence_floor' - F3: < min_new_observations new evidence since last eval
+        'blocked_fdr_unverified' - a win whose concept_gate.fdr_required is True but the
+                                   caller did not prove (fdr_passed is not True) that BH-FDR
+                                   multiplicity correction was actually applied and survived
+                                   this round (todo 118 L-6); the guard applies to wins only
+                                   -- a loss is always recorded regardless of fdr_required
         'noop_deprecated'        - deprecated is operator-only; automated path never touches it
     Blocked/noop decisions write nothing to the DB. The service layer (Task 4's
     record_comparison_outcome) additionally produces 'blocked_status_race' when its
@@ -79,14 +85,21 @@ def decide_comparison_action(
     eval_metric: float | None,
     eval_n: float,
     corpus_build_ref: str,
+    fdr_passed: bool | None = None,
 ) -> ComparisonDecision:
     """Pure decision core for one A/B comparison outcome against one concept.
 
     Ordering matters: status guard, then invariant 2's corpus-advance precondition,
     then invariant 7's initial floor, then F3's evidence-mass floor, then the
-    win/loss bookkeeping. eval_metric is the challenger's mean ic_ci_lower over WIN
-    strata (D-15 citation rule: never ic_value); eval_n is the challenger's summed
-    n_independent over all compared strata (effective N, not raw bars).
+    FDR-verification guard (todo 118 L-6), then the win/loss bookkeeping.
+    eval_metric is the challenger's mean ic_ci_lower over WIN strata (D-15 citation
+    rule: never ic_value); eval_n is the challenger's summed n_independent over all
+    compared strata (effective N, not raw bars).
+
+    fdr_passed means "this outcome's win determination survived an actually-executed
+    multiplicity correction across the strata compared this round". None means the
+    caller ran no such correction -- which is NOT the same as False and must be
+    treated as unproven, i.e. blocked, whenever state.fdr_required is True.
     """
     if won and eval_metric is None:
         raise ValueError("won=True requires eval_metric (mean ic_ci_lower over WIN strata)")
@@ -123,6 +136,17 @@ def decide_comparison_action(
     if state.last_eval_n is not None and (eval_n - state.last_eval_n) < state.min_new_observations:
         return ComparisonDecision(
             "blocked_evidence_floor",
+            state.promotion_consecutive,
+            state.promotion_eval_metrics,
+            None,
+        )
+
+    # T-170-04 / todo 118 L-6: this guard applies to WINS only. A loss is never a
+    # promotion and must still be recorded -- swallowing losses would keep a
+    # decaying concept's consecutive counter alive, the opposite of fail-closed.
+    if won and state.fdr_required and fdr_passed is not True:
+        return ComparisonDecision(
+            "blocked_fdr_unverified",
             state.promotion_consecutive,
             state.promotion_eval_metrics,
             None,
@@ -166,7 +190,8 @@ _LOAD_CONCEPT_SQL = """
     SELECT r.concept_id, r.status,
            g.promotion_consecutive, g.promotion_eval_metrics,
            g.last_eval_corpus_build_ref, g.last_eval_n,
-           g.min_promotion_consecutive, g.min_new_observations, g.min_gate_n
+           g.min_promotion_consecutive, g.min_new_observations, g.min_gate_n,
+           g.fdr_required
     FROM concept_registry r
     JOIN concept_gate g USING (concept_id)
     WHERE r.domain = $1 AND r.name = $2
@@ -199,6 +224,10 @@ _TRANSITION_INSERT_SQL = """
 # the gate row locked from load through this write inside record_comparison_outcome's
 # single transaction. Without that lock, a promote path racing a concurrent
 # record_loss could commit a wrong status flip, not just a stale cache.
+# L-2 closed by verification under Phase 170: no second CAS was added; the FOR
+# UPDATE lock already provides the guarantee, and test_load_concept_sql_holds_row_lock
+# pins both halves (the lock clause and the single conn.transaction() scope) as a
+# regression test that fails if either is ever removed.
 _GATE_CACHE_UPDATE_SQL = """
     UPDATE concept_gate
     SET last_eval_metric = $2, last_eval_n = $3, last_eval_at = $4,
@@ -236,10 +265,14 @@ class ConceptRegistryService:
     candidate -> active with trigger_reason='promotion'. It structurally cannot
     target 'deprecated' (operator-only) or write annotation content.
 
-    L-7 (Phase 160 cross-AI review): this service never reads
-    concept_gate.fdr_required. BH-FDR enforcement lives entirely upstream in
-    ops_ensemble_weight_compare.py - a future second caller of
-    record_comparison_outcome must not assume this service enforces FDR itself.
+    FDR enforcement is fail-closed inside this method (todo 118 L-6, Phase 170):
+    concept_gate.fdr_required IS read here (_LOAD_CONCEPT_SQL), and a caller that
+    cannot prove multiplicity correction was applied and survived this round
+    (fdr_passed is not True) cannot record a win or a promotion for a concept whose
+    gate requires it -- record_comparison_outcome's fdr_passed argument, threaded
+    into decide_comparison_action's 'blocked_fdr_unverified' guard, makes this an
+    invariant of the service, not a documented assumption a second caller could
+    forget.
     """
 
     async def record_comparison_outcome(
@@ -256,12 +289,20 @@ class ConceptRegistryService:
         default_min_new_observations: float,
         default_min_gate_n: float,
         notes: str | None = None,
+        fdr_passed: bool | None = None,
     ) -> ComparisonDecision:
         """Apply one A/B comparison outcome for one concept, transactionally.
 
         The default_* floors are APR-resolved by the caller
         (alpha.concept_registry.<domain>_* keys); a non-NULL concept_gate column
         overrides its default. Blocked/noop decisions write nothing.
+
+        fdr_passed (todo 118 L-6): "this outcome's win determination survived an
+        actually-executed multiplicity correction across the strata compared this
+        round". None means the caller ran none -- treated as unproven, i.e. blocked,
+        whenever this concept's concept_gate.fdr_required is True. A caller whose
+        gate does not require FDR (fdr_required=False) is unaffected regardless of
+        what it passes here.
 
         The entire read-decide-write sequence runs inside one transaction, with
         _LOAD_CONCEPT_SQL's FOR UPDATE row lock held throughout: a concurrent
@@ -294,6 +335,7 @@ class ConceptRegistryService:
                 min_gate_n=(
                     row["min_gate_n"] if row["min_gate_n"] is not None else default_min_gate_n
                 ),
+                fdr_required=row["fdr_required"],
             )
 
             decision = decide_comparison_action(
@@ -302,6 +344,7 @@ class ConceptRegistryService:
                 eval_metric=eval_metric,
                 eval_n=eval_n,
                 corpus_build_ref=corpus_build_ref,
+                fdr_passed=fdr_passed,
             )
 
             if decision.action in (
@@ -309,6 +352,7 @@ class ConceptRegistryService:
                 "blocked_same_corpus",
                 "blocked_min_n",
                 "blocked_evidence_floor",
+                "blocked_fdr_unverified",
             ):
                 _logger.info(
                     "concept_registry.comparison_blocked",
@@ -316,6 +360,8 @@ class ConceptRegistryService:
                     name=name,
                     action=decision.action,
                     corpus_build_ref=corpus_build_ref,
+                    fdr_required=state.fdr_required,
+                    fdr_passed=fdr_passed,
                 )
                 return decision
 

@@ -232,7 +232,9 @@ async def main() -> int:
             "concept_registry name (domain=ensemble_strategy) for the challenger "
             "recipe, e.g. e2_mean_variance. weight_version is a data-scoping epoch "
             "tag (migration 224) and cannot identify the recipe, so it is stated "
-            "explicitly here. Omit to run report-only (no registry write)."
+            "explicitly here. Omit to run report-only (no registry write). An "
+            "unknown name is a hard failure (exit 1) validated before any registry "
+            "write, not a report-only warning (todo 118 L-4)."
         ),
     )
     parser.add_argument(
@@ -269,6 +271,14 @@ async def main() -> int:
                 print(f"## D-12 Ensemble Weight Compare\n\nFAILED to read APR config: {error}")
                 return 0
 
+            # todo 118 L-3 scope note: this script's overall report is always exit 0
+            # (the module docstring's stated contract, unlike ops_ensemble_ic_gate.py's
+            # single boolean gate) -- these three report-only failure paths (missing
+            # gate_lookahead, missing compare_fdr_alpha, the alpha_ensemble_ic query
+            # failure) predate the registry path entirely and are deliberately left
+            # at `return 0` here. L-3 only hardens the registry block further below
+            # (every failure print there now returns 1); changing report-only exit
+            # semantics is a separate behavioural change, out of scope for this plan.
             if gate_lookahead is None:
                 print(
                     "## D-12 Ensemble Weight Compare\n\n"
@@ -385,6 +395,14 @@ async def main() -> int:
         # corpus-level BH-FDR pattern; results are written straight back into
         # stratum_data in place, the same "mutate the result container" convention
         # ops_oos_holdout_eval.py's _apply_corpus_fdr already uses.
+        # todo 118 L-6: fdr_correction_applied records whether the BH-FDR machinery
+        # actually ran this round (p_raw_list non-empty). `won` is already gated on
+        # bh_reject via _final_verdict's WIN rule, so this flag is not re-deriving
+        # that decision -- it asserts the correction ran at all, so the service's
+        # new fail-closed guard can distinguish "ran and vetoed" from "never ran",
+        # making "the caller forgot to run it" structurally impossible to promote
+        # through regardless of what a future caller claims about `won`.
+        fdr_correction_applied = bool(p_raw_list)
         reject, p_corrected = apply_bh_fdr(p_raw_list, compare_fdr_alpha)
         for idx, key in enumerate(p_raw_index):
             stratum_data[key]["p_bh"] = float(p_corrected[idx])
@@ -467,7 +485,23 @@ async def main() -> int:
                         print(
                             f"REGISTRY: FAILED - unknown champion concept '{args.champion_concept}'"
                         )
-                        return 0
+                        return 1
+
+                # L-4: validate challenger concept existence before any write -- the
+                # symmetric check the champion gets above. This is the primary
+                # defence; the ConceptNotFoundError catch further below stays in
+                # place as defence-in-depth.
+                challenger_exists = await conn.fetchval(
+                    "SELECT COUNT(*) FROM concept_registry "
+                    "WHERE domain = 'ensemble_strategy' AND name = $1",
+                    args.challenger_concept,
+                )
+                if challenger_exists == 0:
+                    print()
+                    print(
+                        f"REGISTRY: FAILED - unknown challenger concept '{args.challenger_concept}'"
+                    )
+                    return 1
 
                 apr_keys = [
                     "alpha.concept_registry.ensemble_strategy_min_promotion_consecutive",
@@ -487,7 +521,7 @@ async def main() -> int:
                         "REGISTRY: FAILED - alpha.concept_registry.* gate keys missing "
                         "from config_state; apply migration 233 before recording."
                     )
-                    return 0
+                    return 1
 
                 service = ConceptRegistryService()
                 try:
@@ -510,6 +544,7 @@ async def main() -> int:
                         default_min_gate_n=float(
                             apr["alpha.concept_registry.ensemble_strategy_min_observations"]
                         ),
+                        fdr_passed=fdr_correction_applied,
                         notes=(
                             f"A/B vs champion "
                             f"{args.champion_concept or args.champion} "
@@ -527,7 +562,24 @@ async def main() -> int:
                 except ConceptNotFoundError as error:
                     print()
                     print(f"REGISTRY: FAILED - {error}")
-                    return 0
+                    return 1
+
+                # L-6/T-170-04: the service's fail-closed FDR guard tripped -- this
+                # run's win determination could not be proven to have survived
+                # multiplicity correction. Halt loudly (exit 1) instead of falling
+                # through to the M-6 annotation write and the win-shaped summary
+                # line below, so an automated caller cannot mistake this for a
+                # recorded outcome.
+                if decision.action == "blocked_fdr_unverified":
+                    print()
+                    print(
+                        f"REGISTRY: BLOCKED - concept={args.challenger_concept} "
+                        f"won={won} fdr_passed={fdr_correction_applied} -- "
+                        "concept_gate.fdr_required is true and multiplicity "
+                        "correction was not proven to have survived this round "
+                        "(todo 118 L-6)"
+                    )
+                    return 1
 
                 # M-6: append-only concept_annotation for every recording action
                 if decision.action in ("record_win", "record_loss", "promote"):
