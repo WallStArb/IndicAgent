@@ -5,7 +5,7 @@ challenger/c6, plus a gate_evaluations INSERT, per CONTEXT.md D-08).
 
 No DB, no Kafka -- these tests exercise the pure evidence-assembly core
 (assemble_gate2_evidence and its helpers) on synthetic rows, plus the group_key
-round-trip contract of services.counterfactual_tracker.evaluate_frame_gate itself.
+round-trip contract of src.intelligence.statistics.gate_math.evaluate_frame_gate itself.
 """
 
 from __future__ import annotations
@@ -27,7 +27,7 @@ from scripts.analysis.score03_gate2_execution_eval import (
     _write_gate2_row,
     assemble_gate2_evidence,
 )
-from services.counterfactual_tracker import evaluate_frame_gate
+from src.intelligence.statistics.gate_math import evaluate_frame_gate
 
 
 def _synthetic_rows() -> list[dict]:

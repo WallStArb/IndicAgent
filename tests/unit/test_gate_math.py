@@ -89,22 +89,18 @@ def test_evaluate_frame_gate_min_clusters_marks_insufficient():
 
 
 def test_gate_math_equivalence_with_counterfactual_tracker_output():
-    """Equivalence proof (design doc requirement): identical fixture data through the
-    extracted gate_math functions must match services.counterfactual_tracker's
-    frame_gate_passes/evaluate_frame_gate byte-for-byte, once Task 2 repoints that module
-    to import from here. Import both under their current names -- after Task 2 lands,
-    services.counterfactual_tracker.frame_gate_passes IS this module's frame_gate_passes
-    (same function object via re-export), so this test asserts object identity, the
-    strongest possible equivalence proof.
+    """Equivalence guard (todo 249): `services.counterfactual_tracker` calls
+    `evaluate_frame_gate` internally (its `--evaluate-gate` CLI mode) by importing it from
+    this module, not by reimplementing it -- this asserts object identity, the strongest
+    possible proof that stays true, so a future change can't silently fork the two back
+    apart. `frame_gate_passes` has no consumer left in `counterfactual_tracker.py` (all
+    real consumers -- production and test -- were repointed to import from here directly),
+    so there is nothing left to compare it against.
     """
     from services.counterfactual_tracker import (
         evaluate_frame_gate as tracker_evaluate_frame_gate,
     )
-    from services.counterfactual_tracker import (
-        frame_gate_passes as tracker_frame_gate_passes,
-    )
 
-    assert tracker_frame_gate_passes is frame_gate_passes
     assert tracker_evaluate_frame_gate is evaluate_frame_gate
 
 

@@ -20,7 +20,7 @@ _project_root = Path(__file__).parent.parent.parent
 if str(_project_root) not in sys.path:
     sys.path.insert(0, str(_project_root))
 
-from services.counterfactual_tracker import frame_gate_passes
+from src.intelligence.statistics.gate_math import frame_gate_passes
 
 
 def test_below_min_n_short_circuits():

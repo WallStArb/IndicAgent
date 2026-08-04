@@ -15,7 +15,7 @@ tie-break ORDER BY alpha_score, bar_ts, frame_id -- Codex MEDIUM: an undefined t
 makes NTILE decile assignment unstable across runs) and writes one row per
 (symbol, tf, regime, alpha_score_decile) cell to alpha_strategy_scores, including:
   - sample_n / n_clusters / ci_lower / ci_upper -- reused UNMODIFIED from
-    counterfactual_tracker.evaluate_frame_gate's day-clustered bootstrap machinery (no new
+    gate_math.evaluate_frame_gate's day-clustered bootstrap machinery (no new
     or reimplemented statistics in this module)
   - win_rate / sharpe_annualized / max_drawdown -- per-cell descriptive diagnostics
   - ic_alpha_score_corr -- per-cohort rank correlation between alpha_score_decile and
@@ -241,7 +241,7 @@ class AlphaScorer(BaseBatch):
     """Batch compute service: alpha_frames -> alpha_strategy_scores.
 
     Aggregates closed primary alpha_frames into per-(symbol, tf, regime, alpha_score_decile)
-    diagnostic cells, reusing counterfactual_tracker.evaluate_frame_gate for the day-clustered
+    diagnostic cells, reusing gate_math.evaluate_frame_gate for the day-clustered
     bootstrap CI (no new statistics). See module docstring for the group-key shape constraint.
     """
 

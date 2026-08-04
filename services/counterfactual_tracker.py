@@ -72,8 +72,7 @@ from src.core.agent.base_batch import BaseBatch
 from src.core.database_manager import connect_with_codecs
 from src.intelligence.statistics.gate_math import (
     _DEFAULT_BOOTSTRAP_RANDOM_STATE,
-    evaluate_frame_gate,  # noqa: F401 (re-exported for tests/unit/test_score03_gate2_execution_eval.py, tests/unit/test_gate_math.py)
-    frame_gate_passes,  # noqa: F401 (re-exported for tests/unit/test_frame_gate.py, tests/unit/test_gate_math.py)
+    evaluate_frame_gate,
 )
 from src.observability.corpus_manifest import CorpusManifest
 from src.observability.metrics import COUNTERFACTUAL_TRACKER_IC_ROW_AGE_SECONDS
