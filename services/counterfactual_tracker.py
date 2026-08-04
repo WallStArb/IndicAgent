@@ -73,6 +73,7 @@ from src.core.database_manager import connect_with_codecs
 from src.intelligence.statistics.gate_math import (
     _DEFAULT_BOOTSTRAP_RANDOM_STATE,
     evaluate_frame_gate,
+    frame_gate_passes,  # noqa: F401 (re-exported for services.cross_sectional_spread_tracker)
 )
 from src.observability.corpus_manifest import CorpusManifest
 from src.observability.metrics import COUNTERFACTUAL_TRACKER_IC_ROW_AGE_SECONDS
