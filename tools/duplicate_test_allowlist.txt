@@ -46,3 +46,10 @@ tests/unit/services test_validator_rejects_non_numeric_confidence
 tests/unit/services test_result_accepts_valid_payload
 tests/unit/services test_result_clamps_out_of_range
 tests/unit/services test_result_rejects_non_numeric_confidence
+
+# Task 1 (todo 249): gate_math.py extraction tests. Tests appear in both
+# test_counterfactual_tracker.py (original source) and test_gate_math.py (extracted module).
+# Intentional duplicates proving the extraction is behavior-preserving before Task 2 repoints
+# counterfactual_tracker to import from gate_math.
+tests/unit test_evaluate_frame_gate_groups_by_tf_and_regime
+tests/unit test_evaluate_frame_gate_min_clusters_marks_insufficient
