@@ -5,8 +5,8 @@ protocol for ensemble degradation (G-2, fable-2026-07-07-renaissance-layer-refin
 section 11).
 
 When ensemble OOS IC degrades between epochs, this script is the mechanical first
-pass that replaces ad-hoc EIC-05-style forensics: for every feature_registry
-group_name family (11 live values as of 2026-07-13: calendar, control, cross_tf,
+pass that replaces ad-hoc EIC-05-style forensics: for every concept_registry
+(domain='feature') group_name family (11 live values as of 2026-07-13: calendar, control, cross_tf,
 macro, momentum, oscillator, regime, session, structure, volatility, volume), zero
 that family's ensemble_weights, recompute the composite alpha score on the OOS
 window through the IDENTICAL code path as the baseline, and re-measure IC per
@@ -94,10 +94,10 @@ from src.intelligence.statistics.ic_math import (
 from src.observability.corpus_manifest import CorpusManifest
 
 # Sentinel arm name for the all-families baseline. Dunder-wrapped so it can never
-# collide with a real feature_registry.group_name (snake_case identifiers).
+# collide with a real concept_registry.group_name (snake_case identifiers).
 _BASELINE_ARM = "__baseline__"
 
-# The canary family (feature_registry.is_control rows share this group_name).
+# The canary family (concept_registry.is_control rows share this group_name).
 _CONTROL_FAMILY = "control"
 
 # Std threshold below which an arm's pooled score series is degenerate (near
@@ -319,13 +319,14 @@ _STRATA_SQL = """
     ORDER BY tf, regime
 """
 
-# Per-stratum weight vector joined to feature_registry for the family label.
-# The trainer's registry-alignment gate guarantees every feature_name has exactly
-# one feature_registry row, so this join can never drop a weighted feature.
+# Per-stratum weight vector joined to concept_registry (domain='feature') for the
+# family label. The trainer's alignment gate guarantees every feature_name has
+# exactly one concept_registry(domain='feature') row, so this join can never drop
+# a weighted feature.
 _WEIGHTS_SQL = """
     SELECT ew.feature_name, ew.weight, ew.ic_sharpe, freg.group_name
     FROM ensemble_weights ew
-    JOIN feature_registry freg ON freg.feature_name = ew.feature_name
+    JOIN concept_registry freg ON freg.name = ew.feature_name AND freg.domain = 'feature'
     WHERE ew.weight_version = $1 AND ew.symbol = 'UNIVERSE'
       AND ew.tf = $2 AND ew.regime = $3
     ORDER BY ew.feature_name
@@ -333,7 +334,14 @@ _WEIGHTS_SQL = """
 
 # Sweep families from the registry at runtime (11 live values as of 2026-07-13),
 # never a hardcoded list -- includes 'control' by design (see module docstring).
-_FAMILIES_SQL = "SELECT DISTINCT group_name FROM feature_registry ORDER BY group_name"
+# group_name IS NOT NULL is NEW and necessary: concept_registry.group_name is
+# nullable because domain='ensemble_strategy' rows (and migration 284's 2
+# gate-less tombstone domain='feature' rows) have none; without the guard a NULL
+# family would enter the ablation sweep as a spurious "family."
+_FAMILIES_SQL = (
+    "SELECT DISTINCT group_name FROM concept_registry "
+    "WHERE domain = 'feature' AND group_name IS NOT NULL ORDER BY group_name"
+)
 
 
 def build_stratum_fetch_sql(feature_names: list[str], scales: tuple[str, ...]) -> str:
