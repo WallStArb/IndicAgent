@@ -144,3 +144,17 @@ None - no external service configuration required.
 ---
 *Phase: 170-concept-registry-feature-domain-migration-feature-registry-r*
 *Completed: 2026-08-04*
+
+## Self-Check: PASSED
+
+- FOUND: services/ic_engine.py
+- FOUND: services/ensemble_trainer.py
+- FOUND: tests/unit/services/test_ensemble_trainer_alignment_gate.py
+- FOUND: tests/unit/test_ic_engine_lifecycle_hook.py
+- FOUND: tests/unit/test_ic_engine_fingerprint.py
+- FOUND: tests/unit/test_ic_engine_staleness.py
+- FOUND: .planning/phases/170-concept-registry-feature-domain-migration-feature-registry-r/170-06-SUMMARY.md
+- FOUND: 3de7ae55 (Task 1 commit)
+- FOUND: 29c4b3db (Task 2 commit)
+- FOUND: 34a0609b (Task 3 commit)
+- FOUND: cf1629e8 (SUMMARY commit)
