@@ -180,6 +180,11 @@ def evaluate_frame_gate(
     return verdicts
 
 
+# Only these three of evaluate_frame_gate's eight verdict keys differ for the
+# (regime, direction) specialization -- see evaluate_stratum_expectancy_gate's docstring.
+_STRATUM_VERDICT_RENAME = {"tf": "regime", "regime": "direction", "n_frames": "n_bars"}
+
+
 def evaluate_stratum_expectancy_gate(
     rows: Iterable[dict[str, Any]],
     min_n: int,
@@ -208,6 +213,14 @@ def evaluate_stratum_expectancy_gate(
     own (the caller must also check `n_bars`/`n_clusters`/`coverage` against whatever
     sufficiency floor its own context requires).
 
+    Only three of `evaluate_frame_gate`'s eight verdict keys are renamed here
+    (`tf`->`regime`, `regime`->`direction`, `n_frames`->`n_bars`); the rest
+    (`n_clusters`/`ci_lower`/`ci_upper`/`passes`/`coverage`) pass through unchanged.
+    `_STRATUM_VERDICT_RENAME` names only that delta, so this function's output shape
+    tracks `evaluate_frame_gate`'s automatically instead of restating it -- same
+    precedent `evaluate_spread_gate` (`cross_sectional_spread_tracker.py`) established
+    for the (scale, cost_bps) specialization.
+
     No consumer wires this into a live construction yet (per the design doc's explicit
     non-goal) -- this is tested, reusable infrastructure, not an active gate.
     """
@@ -221,15 +234,5 @@ def evaluate_stratum_expectancy_gate(
         min_clusters=min_clusters,
     )
     return [
-        {
-            "regime": v["tf"],
-            "direction": v["regime"],
-            "n_bars": v["n_frames"],
-            "n_clusters": v["n_clusters"],
-            "ci_lower": v["ci_lower"],
-            "ci_upper": v["ci_upper"],
-            "passes": v["passes"],
-            "coverage": v["coverage"],
-        }
-        for v in verdicts
+        {_STRATUM_VERDICT_RENAME.get(key, key): value for key, value in v.items()} for v in verdicts
     ]
