@@ -108,6 +108,7 @@ from src.core.service_utils import (
     parse_training_window_end,
     setup_service_logging,
 )
+from src.intelligence.concept_registry_service import ConceptRegistryService
 from src.intelligence.feature_registry_service import FeatureRegistryService
 from src.intelligence.schemas import FeatureVector
 from src.intelligence.statistics.ic_math import (
@@ -824,7 +825,7 @@ _OPERATIONAL_CONFIG_FIELDS: frozenset[str] = frozenset(
         # assumed. See limit_blas_threads()'s docstring in _batch_utils.py for the test.
         "blas_threads_per_worker",
         # Post-run lifecycle hook (_apply_feature_transitions/_run_lifecycle_hook)
-        # ONLY -- operates on feature_registry/ensemble decisions AFTER
+        # ONLY -- operates on concept_registry/ensemble decisions AFTER
         # feature_ic_scores rows are already written; never affects the rows
         # themselves. Verified via grep: only referenced inside those two functions.
         "decay_materiality_threshold",
@@ -893,30 +894,51 @@ def _check_cell_size(n_rows: int, config: ICEngineConfig, context_label: str) ->
 # Per-table upstream watermark (162-03 Task 2, resolves RESEARCH Open Question #1)
 #
 # A naive MAX(bar_ts)/COUNT(*) watermark is blind to an in-place VALUE mutation
-# (price-sanity correction, HMM relabel, feature_registry status transition) that
+# (price-sanity correction, HMM relabel, concept_registry status transition) that
 # changes zero rows and zero timestamps -- exactly the failure class this function
 # exists to catch. Every component below is either a write-timestamp column that
 # bumps on correction (forward_returns.computed_at) or a content hash over the
-# actual values (market_regimes/instrument_tags/feature_registry), never bar_ts/
+# actual values (market_regimes/instrument_tags/concept_registry), never bar_ts/
 # COUNT alone.
 # ---------------------------------------------------------------------------
 
 
-def _watermark_feature_registry(conn: Any) -> dict[str, Any]:
-    """(e) feature_registry status hash -- run-invariant, applies to EVERY pass_type
-    (every row type -- pooled/symbol_hmm/cross_sectional -- writes
-    feature_status_at_eval from this same snapshot).
+def _watermark_concept_registry(conn: Any) -> dict[str, Any]:
+    """(e) concept_registry (domain='feature') status hash -- run-invariant,
+    applies to EVERY pass_type (every row type -- pooled/symbol_hmm/cross_sectional
+    -- writes feature_status_at_eval from this same snapshot).
 
     Takes no cell-scoped input, so compute this exactly ONCE per ic_engine.py
     invocation and pass the result into every cell's watermark (162 simplify-pass --
     previously recomputed on every single per-cell call, up to ~700+ identical
     round trips for a full corpus run).
+
+    Phase 170 Plan 06: repointed from feature_registry to concept_registry
+    (domain='feature'). The md5 INPUT STRING keeps the exact same shape
+    (`name || '=' || status ORDER BY name`, formerly `feature_name || '=' ||
+    status ORDER BY feature_name`) so that, with both registries in sync, the
+    hash VALUE is byte-identical to before the repoint -- see
+    _fingerprint_computational_key's docstring for why that identity matters.
+
+    JOINs concept_gate (like ConceptRegistryService's own _LOAD_CONCEPTS_SYNC_SQL)
+    rather than filtering on domain='feature' alone: migration 284 seeded 2
+    TOMBSTONE concept_registry rows (metadata->>'migrated_from' =
+    'feature_transition_log') for orphaned feature_transition_log history whose
+    feature_name no longer exists in feature_registry -- these carry no
+    concept_gate row by design (284's header, "ORPHANED TRANSITION-LOG ROWS").
+    An unscoped domain='feature' count is 251 (249 real + 2 tombstones), which
+    would never match feature_registry's 249 and would permanently fail this
+    plan's own byte-identical-hash acceptance criterion, plus make the alignment
+    gate below raise on every single run. The INNER JOIN naturally excludes them,
+    matching ConceptRegistryService's own semantics exactly (verified live,
+    2026-08-04: both hashes equal 4fadbe90ab6050fa12e7f25196f32b28 with this join).
     """
     with conn.cursor() as cur:
         cur.execute(
             "SELECT md5(COALESCE(string_agg("
-            "feature_name || '=' || status, '' ORDER BY feature_name), '')) "
-            "FROM feature_registry"
+            "cr.name || '=' || cr.status, '' ORDER BY cr.name), '')) "
+            "FROM concept_registry cr JOIN concept_gate cg USING (concept_id) "
+            "WHERE cr.domain = 'feature'"
         )
         (status_hash,) = cur.fetchone()
     return {"status_hash": status_hash}
@@ -1034,7 +1056,7 @@ def _compute_upstream_watermark(
     is_group_pooled: bool = False,
     regime_group: str | None = None,
     symbol_list: list[str] | None = None,
-    feature_registry_watermark: dict[str, Any] | None = None,
+    concept_registry_watermark: dict[str, Any] | None = None,
     fr_fv_cache: dict[tuple[str | None, str], dict[str, Any]] | None = None,
     mr_tags_cache: dict[tuple[str | None, str], dict[str, Any]] | None = None,
 ) -> dict[str, Any]:
@@ -1064,16 +1086,16 @@ def _compute_upstream_watermark(
     Components (c) market_regimes and (d) instrument_tags additionally apply,
     keyed by regime_group and symbol_list respectively.
 
-    (e) feature_registry status applies to EVERY row type -- every row
-    (pooled/symbol_hmm/cross_sectional, per-symbol or group-pooled) writes
-    feature_status_at_eval from the same registry snapshot.
+    (e) concept_registry (domain='feature') status applies to EVERY row type --
+    every row (pooled/symbol_hmm/cross_sectional, per-symbol or group-pooled)
+    writes feature_status_at_eval from the same registry snapshot.
 
     Timestamps serialized via format_iso_ts() (never inline .isoformat()). Does
     NOT log -- callers accumulate a counter across all per-cell calls and log
     ONCE per run (corpus-loop logging rule, CLAUDE.md).
 
-    Caching (162 simplify-pass): feature_registry_watermark is run-invariant --
-    pass it in precomputed once (via _watermark_feature_registry) rather than
+    Caching (162 simplify-pass): concept_registry_watermark is run-invariant --
+    pass it in precomputed once (via _watermark_concept_registry) rather than
     letting this function requery it per cell. fr_fv_cache/mr_tags_cache are
     optional caller-owned memoization dicts keyed by ((symbol-or-regime_group), tf);
     when provided, this function populates them on first computation for a given
@@ -1114,10 +1136,10 @@ def _compute_upstream_watermark(
                 mr_tags_cache[mr_tags_key] = mr_tags
             watermark.update(mr_tags)
 
-    watermark["feature_registry"] = (
-        feature_registry_watermark
-        if feature_registry_watermark is not None
-        else _watermark_feature_registry(conn)
+    watermark["concept_registry"] = (
+        concept_registry_watermark
+        if concept_registry_watermark is not None
+        else _watermark_concept_registry(conn)
     )
 
     return watermark
@@ -1141,31 +1163,56 @@ def _fingerprint_is_valid(stored: dict[str, Any] | None, current: dict[str, Any]
     )
 
 
+# Phase 170 Plan 06: _fingerprint_computational_key must drop BOTH the pre-cutover
+# ("feature_registry") and post-cutover ("concept_registry") watermark key names,
+# not just the new one. A stored ic_cell_fingerprints row written by yesterday's
+# (pre-Plan-06) code carries "feature_registry" in its upstream_watermark; the very
+# next run's freshly-computed fingerprint carries "concept_registry" instead. If the
+# filter only dropped "concept_registry", the OLD stored row's "feature_registry"
+# entry would survive filtering while the NEW current fingerprint's watermark would
+# not have a corresponding entry to compare it against -- a spurious computational-key
+# mismatch on literally every cell in the corpus on the first post-cutover run, i.e.
+# exactly the ~70h recompute this whole plan exists to avoid. Dropping both names
+# keeps stored (old key) and current (new key) fingerprints computationally equal
+# through the transition, and is a permanent no-op once every stored row has been
+# refreshed to the new key (see test_computational_key_unchanged_by_registry_key_rename).
+_LEGACY_REGISTRY_WATERMARK_KEYS = frozenset({"feature_registry", "concept_registry"})
+
+
 def _fingerprint_computational_key(fp: dict[str, Any]) -> dict[str, Any]:
     """The subset of a fingerprint that gates whether the expensive bootstrap-CI
-    compute must rerun -- upstream_watermark minus its feature_registry component.
+    compute must rerun -- upstream_watermark minus its registry-status component.
 
-    feature_registry.status_hash never changes WHAT gets computed: ic_engine's
-    per-cell compute always calls get_all_features(), never get_active_features()
-    (see main()'s registry-drift gate), so every feature is bootstrap-CI'd
-    regardless of status. status only feeds the feature_status_at_eval provenance
-    column on each row -- treating a status-hash change as computationally
-    invalidating (2026-07-29 rca_analysis, todo 198) forces a full multi-hour
-    recompute for an edit that alters zero computed IC/CI value.
+    concept_registry.status_hash never changes WHAT gets computed: ic_engine's
+    per-cell compute always calls get_all_concepts(), never a status-filtered
+    accessor (see main()'s registry-drift gate), so every feature is
+    bootstrap-CI'd regardless of status. status only feeds the
+    feature_status_at_eval provenance column on each row -- treating a
+    status-hash change as computationally invalidating (2026-07-29
+    rca_analysis, todo 198) forces a full multi-hour recompute for an edit
+    that alters zero computed IC/CI value.
 
     NOTE (2026-07-29 code review): status_hash also moves on registry MEMBERSHIP
     changes (feature added/removed/renamed), which DOES change computed output --
-    excluding it here is safe only because main()'s "Feature registry alignment
-    gate" forces membership to equal FeatureVector's fields exactly, so a real
-    membership change requires a FeatureVector edit that moves code_content_key
-    instead. If that gate is ever relaxed, this function must be revisited to
-    track membership separately from status.
+    excluding it here is safe only because main()'s alignment gate forces
+    concept_registry(domain='feature') membership to equal FeatureVector's
+    fields exactly, so a real membership change requires a FeatureVector edit
+    that moves code_content_key instead. If that gate is ever relaxed, this
+    function must be revisited to track membership separately from status.
+
+    Phase 170 Plan 06: watermark dict key renamed "feature_registry" ->
+    "concept_registry" (_compute_upstream_watermark). This function filters out
+    BOTH names via _LEGACY_REGISTRY_WATERMARK_KEYS -- see that constant's
+    docstring for why a single-name filter would spuriously invalidate every
+    cell on the first post-cutover run.
     """
     watermark = fp.get("upstream_watermark") or {}
     return {
         "code_content_key": fp.get("code_content_key"),
         "apr_snapshot_key": fp.get("apr_snapshot_key"),
-        "upstream_watermark": {k: v for k, v in watermark.items() if k != "feature_registry"},
+        "upstream_watermark": {
+            k: v for k, v in watermark.items() if k not in _LEGACY_REGISTRY_WATERMARK_KEYS
+        },
     }
 
 
@@ -1173,7 +1220,7 @@ def _fingerprint_is_computationally_valid(
     stored: dict[str, Any] | None, current: dict[str, Any]
 ) -> bool:
     """True when everything that can actually move a computed IC/CI value
-    matches -- ignores feature_registry.status_hash (see
+    matches -- ignores concept_registry.status_hash (see
     _fingerprint_computational_key). A cell valid here but not under
     _fingerprint_is_valid is status-only-stale: safe to skip the expensive
     compute, but its feature_status_at_eval provenance needs a cheap refresh
@@ -1305,19 +1352,28 @@ _FINGERPRINT_UPSERT_SQL = """
 
 # Companion to _fingerprint_is_status_only_stale (todo 198): a cheap metadata-only
 # refresh for cells whose expensive bootstrap-CI math is still valid but whose
-# feature_status_at_eval provenance has drifted from a feature_registry status
+# feature_status_at_eval provenance has drifted from a concept_registry status
 # transition. IS DISTINCT FROM (not !=, which is NULL-unsafe) keeps this a no-op
 # UPDATE on rows already current -- safe and cheap to run on every status-only-
 # stale symbol/cell, not just the one whose status actually moved, since we only
 # know the AGGREGATE status_hash changed, not which individual feature moved.
+# Phase 170 Plan 06: repointed from feature_registry to concept_registry
+# (domain='feature'), joined on name = feature_name. Also joins concept_gate
+# (matching _watermark_concept_registry and ConceptRegistryService's own
+# _LOAD_CONCEPTS_SYNC_SQL) to exclude migration 284's 2 gate-less tombstone
+# rows -- belt-and-suspenders, since no feature_ic_scores row has ever named
+# either tombstone feature (verified live, 2026-08-04), but this keeps every
+# concept_registry(domain='feature') read in this file scoped identically.
 _FEATURE_STATUS_REFRESH_SQL = """
     UPDATE feature_ic_scores fis
-    SET feature_status_at_eval = fr.status
-    FROM feature_registry fr
-    WHERE fis.feature_name = fr.feature_name
+    SET feature_status_at_eval = cr.status
+    FROM concept_registry cr
+    JOIN concept_gate cg ON cg.concept_id = cr.concept_id
+    WHERE cr.domain = 'feature'
+      AND fis.feature_name = cr.name
       AND fis.symbol = ANY(%(symbols)s)
       AND fis.training_window_end = %(training_window_end)s
-      AND fis.feature_status_at_eval IS DISTINCT FROM fr.status
+      AND fis.feature_status_at_eval IS DISTINCT FROM cr.status
 """
 
 
@@ -2166,8 +2222,9 @@ def _compute_symbol_tf(
     it gets killed server-side before ever being used again — the corpus
     re-run was silently writing zero rows as a result).
 
-    feature_status_map: dict mapping feature_name → status from feature_registry.
-    If provided, each IC score row receives feature_status_at_eval from this map.
+    feature_status_map: dict mapping feature_name → status from concept_registry
+    (domain='feature'). If provided, each IC score row receives
+    feature_status_at_eval from this map.
     Defaults to 'unknown' for any feature not found in the map.
 
     mr_dict: optional dict {ts -> regime_label} from market_regimes for this TF.
@@ -4497,14 +4554,18 @@ def main() -> None:
             )
 
             # ----------------------------------------------------------
-            # Feature registry alignment gate
+            # Feature registry alignment gate (Phase 170 Plan 06: repointed READS
+            # to concept_registry(domain='feature'); registry_svc/FeatureRegistryService
+            # is still constructed below and remains the writer for
+            # _apply_feature_transitions's lifecycle transitions until Plan 06 Task 2's
+            # dual write lands, and Plan 08's eventual DROP removes it entirely).
             # Crash-loud: registry must match FeatureVector dataclass fields exactly.
-            # Use get_all_features() — NOT get_active_features() — so the gate
+            # Use get_all_concepts() — NOT a status-filtered accessor — so the gate
             # passes even when features have been deprecated. The alignment gate
             # checks schema completeness, not lifecycle state.
             #
             # LOAD-BEARING for fingerprint safety (2026-07-29 code review, todo 198):
-            # _fingerprint_computational_key excludes feature_registry.status_hash
+            # _fingerprint_computational_key excludes concept_registry.status_hash
             # from what invalidates a cell, on the grounds that status never changes
             # WHAT gets computed. That's only true of status; status_hash also moves
             # on registry MEMBERSHIP changes (a feature added/removed/renamed), which
@@ -4519,17 +4580,21 @@ def main() -> None:
             # ----------------------------------------------------------
             registry_svc = FeatureRegistryService()
             registry_svc.load_sync(conn)
-            all_registry_names = {r["feature_name"] for r in registry_svc.get_all_features()}
+
+            concept_svc = ConceptRegistryService()
+            concept_svc.load_sync(conn, domain="feature")
+            all_registry_names = {r["name"] for r in concept_svc.get_all_concepts()}
             dataclass_names = {f.name for f in dataclasses.fields(FeatureVector)}
             if all_registry_names != dataclass_names:
                 raise RuntimeError(
-                    f"feature_registry drift: {all_registry_names ^ dataclass_names}. "
-                    "Run migration to sync registry with FeatureVector."
+                    f"concept_registry(domain='feature') drift: "
+                    f"{all_registry_names ^ dataclass_names}. "
+                    "Run migration 284 (or its successor) to sync concept_registry "
+                    "with FeatureVector."
                 )
-            # Build status map for workers: plain dict is picklable; FeatureRegistryService is not.
+            # Build status map for workers: plain dict is picklable; ConceptRegistryService is not.
             feature_status_map: dict[str, str] = {
-                r["feature_name"]: (r["status"] or "unknown")
-                for r in registry_svc.get_all_features()
+                r["name"]: (r["status"] or "unknown") for r in concept_svc.get_all_concepts()
             }
 
             # ----------------------------------------------------------
@@ -4587,7 +4652,7 @@ def main() -> None:
             # once and reused across every cell's _compute_upstream_watermark call
             # below (162 simplify-pass -- previously each was recomputed on every
             # single per-cell call; see _compute_upstream_watermark's docstring).
-            feature_registry_watermark = _watermark_feature_registry(conn)
+            concept_registry_watermark = _watermark_concept_registry(conn)
             fr_fv_cache: dict[tuple[str | None, str], dict[str, Any]] = {}
             mr_tags_cache: dict[tuple[str | None, str], dict[str, Any]] = {}
             with conn.cursor() as cur:
@@ -4671,7 +4736,7 @@ def main() -> None:
             invalid_cells_by_symbol: dict[str, list[tuple[str, str]]] = {}
             current_fp_cache: dict[str, dict[tuple[str, str], dict[str, Any]]] = {}
             # todo 198: a symbol with zero invalid cells but >=1 status_only_stale
-            # cell (feature_registry.status_hash moved, nothing computational did)
+            # cell (concept_registry.status_hash moved, nothing computational did)
             # skips the expensive compute but still needs feature_status_at_eval
             # refreshed on its already-written rows -- see the refresh block below.
             # symbols_status_only_stale is the skip-compute set (mutually exclusive
@@ -4699,7 +4764,7 @@ def main() -> None:
                                 conn,
                                 symbol,
                                 tf,
-                                feature_registry_watermark=feature_registry_watermark,
+                                concept_registry_watermark=concept_registry_watermark,
                                 fr_fv_cache=fr_fv_cache,
                                 mr_tags_cache=mr_tags_cache,
                             ),
@@ -4767,7 +4832,7 @@ def main() -> None:
                                     is_group_pooled=True,
                                     regime_group=group_name,
                                     symbol_list=group_symbols,
-                                    feature_registry_watermark=feature_registry_watermark,
+                                    concept_registry_watermark=concept_registry_watermark,
                                     fr_fv_cache=fr_fv_cache,
                                     mr_tags_cache=mr_tags_cache,
                                 ),
@@ -4795,7 +4860,7 @@ def main() -> None:
                                 }
                             )
 
-            # 1 (feature_registry, computed once above) + actual cache-miss round
+            # 1 (concept_registry, computed once above) + actual cache-miss round
             # trips -- reflects real DB round trips, not cells checked (162
             # simplify-pass; multiple cells share a cache key, so this is now
             # smaller than len(symbols)+len(cs_cell_plan)).
@@ -4849,7 +4914,7 @@ def main() -> None:
 
             # todo 198: status-only-stale cells skip the expensive compute entirely,
             # but their feature_status_at_eval provenance still needs refreshing to
-            # the current feature_registry snapshot. The UPDATE's scope is
+            # the current concept_registry snapshot. The UPDATE's scope is
             # symbols_needing_status_refresh (NOT symbols_status_only_stale) -- a
             # symbol dispatched for an unrelated invalid cell can still have a
             # different, fingerprint-valid sibling cell whose rows the dispatch's
@@ -4860,7 +4925,7 @@ def main() -> None:
             # re-upserted fresh by the existing post-compute path below. Cross-
             # sectional POOLED rows all share symbol='POOLED' regardless of
             # regime_group/tf/regime (feature_ic_scores has no regime_group column),
-            # and feature_registry.status_hash is one global value per run, so a
+            # and concept_registry.status_hash is one global value per run, so a
             # single refresh_symbols set -- real symbols plus 'POOLED' once if any
             # cross-sectional cell is status_only_stale -- covers every case in one
             # UPDATE via _FEATURE_STATUS_REFRESH_SQL's symbol = ANY(...).
