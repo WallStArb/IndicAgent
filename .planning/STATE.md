@@ -3,8 +3,8 @@ gsd_state_version: 1.0
 milestone: v3.1
 milestone_name: AlphaEngine Validation + Alpha Scoring
 status: blocked
-stopped_at: CTF join-fix scoped recompute plan written, ready pending user go-ahead -- Phase 168 blocked until Phase 167 re-verified
-last_updated: "2026-08-05T00:00:00.000Z"
+stopped_at: CTF join-fix recompute's prerequisite infra bugs fixed (todos 252-254) -- surgical UPDATE + ic_engine refresh + Gate 1 re-run still not executed, gated on user go-ahead; Phase 168 stays blocked
+last_updated: "2026-08-05T09:45:02.551Z"
 progress:
   total_phases: 12
   completed_phases: 9
@@ -38,10 +38,12 @@ this now exists and is ready to run pending user go-ahead:
    other feature-compute change since these rows were last written (`pipeline_version` is
    uniformly `"3.0.0"` across the whole corpus and does not function as a vintage marker --
    confirmed live 2026-08-05).
+
 2. Force `ic_engine.py --refresh --tf 15m --symbols <80 equities>` afterward. Required, not
    optional: `ic_engine`'s own staleness detection fingerprints `feature_vectors` by
    `MAX(bar_ts)`/`COUNT(*)` only, not a content hash, so the surgical UPDATE above is invisible to
    it -- `feature_ic_scores` would otherwise stay silently frozen on leaked values indefinitely.
+
 3. Re-run Gate 1 through the real production path (`cross_sectional_spread_tracker.py
    --backfill`/`--evaluate-gate`) under a new gate_id (the existing `gate1_ctf_momentum_decile_ls`
    already has a recorded PASS from the leaked-join run and D-04's run-once guard refuses a second
@@ -65,15 +67,18 @@ values even if that halt cleared today. This is incidental, not a designed safeg
 
 **Branches after the recompute's verdict, decided in advance so the fork doesn't need
 re-litigating when it resolves:**
+
 - **If PASS:** Phase 168 (cost-hurdle spread refinement) and Phase 156-159
   (execution/sizing/kill-switch) unblock -- the real path from proven signal to deployable
   capital. Nothing before this point should touch execution infrastructure.
+
 - **If FAIL:** back to discovery, not construction. Priority becomes the five untested
   Signal-Extraction candidates (`cointegrated_pairs_residual`, `statistical_factor_residual`,
   `cross_asset_lead_lag`, `adaptive_combiner_weights`, `jump_diffusion_decomposition`) and
   `nonlinear_interaction_combiner`'s N1 residual-form test (the recommended next design once the
   tree's structural mismatch to this corpus -- no per-feature exposure cap -- is accounted for;
   see `docs/research/measurement-nonlinear-interaction-combiner.md`).
+
 - Either branch converges on the same already-stated project principle: prove edge before
   production infra, never the reverse.
 
