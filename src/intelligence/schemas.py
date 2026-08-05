@@ -1202,9 +1202,9 @@ SignalMetricsEvent = Annotated[
 
 @dataclasses.dataclass(frozen=True)
 class FeatureVector:
-    """255 orthogonal feature primitives computed per bar by FeatureFactory.
+    """259 orthogonal feature primitives computed per bar by FeatureFactory.
     See the "Groups and field order are binding" breakdown below (ends in
-    "Total: 255") for full group-by-group provenance -- that breakdown is
+    "Total: 259") for full group-by-group provenance -- that breakdown is
     the maintained source of truth; keep it (not this line) in sync when
     fields are added.
 
@@ -1230,7 +1230,8 @@ class FeatureVector:
       Regime-level (10): HMM prob/entropy/duration, Hurst, Shannon, GARCH ratio, HMA slope, ADX, Aroon fast/slow
       Oscillators (6): RSI and CCI at fast/mid/slow scales
       Cross-asset (3): VIX z-score, flight-to-quality, yield slope
-      Calendar (17: 11 original + 6 Phase 151 Plan 01): NY/London session, overlap, power hour, opening range, weekly VWAP, dow sin/cos, month position, quarter position, days to month end, quarter cycle sin/cos, TDOM sin/cos, minute-of-hour sin/cos
+      Calendar (17: 11 original + 6 Phase 151 Plan 01 Task 1): NY/London session, overlap, power hour, opening range, weekly VWAP, dow sin/cos, month position, quarter position, days to month end, quarter cycle sin/cos, TDOM sin/cos, minute-of-hour sin/cos
+      Velocity Primitives (4, Phase 151 Plan 01 Task 2): momentum_z_velocity_fast/mid/slow, vwap_dev_sigma_velocity -- first-difference-then-re-z-scored construction of an already-computed z-score series (same shape as vol_velocity_z)
       Cross-timeframe (3): momentum/VWAP/regime alignment from HTF cache
       Statistical/liquidity (4): Amihud illiquidity, 52w high distance, return skewness, return autocorrelation
       Bar Anatomy Ratios (8, Phase 142.5 Plan 01): body/wick ratios, range vs ATR, direction, overnight gap(+z), range efficiency
@@ -1260,9 +1261,9 @@ class FeatureVector:
         All ATR-distance/bounded/count/ordinal placeholders (None until Plans 02-04
         wire real compute logic); never a raw price level (D-16).
       Cross-sectional (3, nullable): momentum/volume/volatility rank z-scores
-      Total: 255 (211 required [164 + 41 Swing/Fib/Trend/Session Structure +
-      6 Calendar Cycle/TDOM/Minute, Phase 151 Plan 01] + 44 optional [3
-      cross-sectional + 5 canary + 36 SMC, all defaulted for
+      Total: 259 (215 required [164 + 41 Swing/Fib/Trend/Session Structure +
+      6 Calendar Cycle/TDOM/Minute + 4 Velocity Primitives, Phase 151 Plan 01]
+      + 44 optional [3 cross-sectional + 5 canary + 36 SMC, all defaulted for
       cold-start/construction-site blast-radius reasons -- see Canary field
       comments and the Smart Money Concepts block comment above])
     """
@@ -1363,6 +1364,22 @@ class FeatureVector:
     tdom_cos: float  # cos(2*pi*trading_day_of_month/weekdays_in_month)
     minute_of_hour_sin: float  # sin(2*pi*bar_ts.minute/60); constant at 1h/1d by construction
     minute_of_hour_cos: float  # cos(2*pi*bar_ts.minute/60); constant at 1h/1d by construction
+    # Velocity Primitives (4, Phase 151 Plan 01 Task 2, todo 123). First-
+    # difference-then-re-z-scored construction of an already-computed
+    # z-score series (identical shape to vol_velocity_z, reuses
+    # _vol_velocity_z_series_full).
+    momentum_z_velocity_fast: (
+        float  # zscore(diff(momentum_z_fast)) (APR: feature.momentum_velocity.window)
+    )
+    momentum_z_velocity_mid: (
+        float  # zscore(diff(momentum_z_mid)) (APR: feature.momentum_velocity.window)
+    )
+    momentum_z_velocity_slow: (
+        float  # zscore(diff(momentum_z_slow)) (APR: feature.momentum_velocity.window)
+    )
+    vwap_dev_sigma_velocity: (
+        float  # zscore(diff(vwap_dev_sigma)) (APR: feature.vwap_velocity.window)
+    )
     # Cross-timeframe (3)
     ctf_momentum: float
     ctf_vwap_align: float

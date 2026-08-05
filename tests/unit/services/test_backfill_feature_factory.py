@@ -150,6 +150,8 @@ def _make_config() -> FeatureFactoryConfig:
         intraday_noise_window=20,
         price_vol_corr_fast=10,
         price_vol_corr_slow=30,
+        momentum_velocity_window=20,
+        vwap_velocity_window=20,
     )
 
 
@@ -253,6 +255,10 @@ def _make_zero_vector() -> FeatureVector:
         tdom_cos=1.0,
         minute_of_hour_sin=0.0,
         minute_of_hour_cos=1.0,
+        momentum_z_velocity_fast=0.0,
+        momentum_z_velocity_mid=0.0,
+        momentum_z_velocity_slow=0.0,
+        vwap_dev_sigma_velocity=0.0,
         ctf_momentum=0.0,
         ctf_vwap_align=0.0,
         ctf_regime_align=0.0,
@@ -511,7 +517,8 @@ def test_vector_to_params_all_features_present() -> None:
     255's 17 structural VP/SR columns (Phase 163 Plan 01), 217 after migration
     266's 36 SMC institutional-footprint columns (Phase 164 Plan 01), 258
     after migration 267's 41 swing/fib/trend/session structure columns
-    (Phase 165 Plan 01)."""
+    (Phase 165 Plan 01), 268 after migration 286's 10 calendar cycle/TDOM/
+    minute + velocity columns (Phase 151 Plan 01)."""
     fv = _make_zero_vector()
     ts = datetime(2025, 1, 2, 14, 30, 0, tzinfo=UTC)
     params = _vector_to_params(
@@ -522,8 +529,8 @@ def test_vector_to_params_all_features_present() -> None:
         regime=None,
         fv=fv,
     )
-    # 1 content-key + 8 structural + 249 feature floats = 258 total
-    assert len(params) == 258, f"Expected 258 params, got {len(params)}"
+    # 1 content-key + 8 structural + 259 feature floats = 268 total
+    assert len(params) == 268, f"Expected 268 params, got {len(params)}"
 
 
 def test_vector_to_params_symbol_tf_ts() -> None:

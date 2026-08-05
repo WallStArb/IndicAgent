@@ -133,6 +133,8 @@ def _make_cfg(**overrides) -> FeatureFactoryConfig:
         intraday_noise_window=20,
         price_vol_corr_fast=10,
         price_vol_corr_slow=30,
+        momentum_velocity_window=20,
+        vwap_velocity_window=20,
     )
     defaults.update(overrides)
     return FeatureFactoryConfig(**defaults)
@@ -428,7 +430,7 @@ def test_feature_vector_domain_complete():
     + 41 swing/fib/trend/session structure fields (Phase 165 Plan 01,
     migration 267) = 249."""
     fv_fields = {f.name for f in dataclasses.fields(FeatureVector)}
-    assert len(FEATURE_VECTOR_DOMAIN) == 255
+    assert len(FEATURE_VECTOR_DOMAIN) == 259
     assert set(FEATURE_VECTOR_DOMAIN.keys()) == fv_fields
 
 

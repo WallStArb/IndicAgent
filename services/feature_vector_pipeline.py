@@ -754,6 +754,9 @@ class FeatureVectorPipeline(BaseDaemon):
         ("feature.intraday_noise.window", 20),
         ("feature.price_vol_corr.fast", 10),
         ("feature.price_vol_corr.slow", 30),
+        # --- migration 286: Phase 151 Plan 01 Task 2 velocity primitives ---
+        ("feature.momentum_velocity.window", 14),
+        ("feature.vwap_velocity.window", 14),
         ("alpha.ic.canary_rng_seed", 90042),
         ("feature.session_vp.value_area_pct", 0.70),
         ("feature.session_vp.n_buckets", 50),
@@ -976,6 +979,8 @@ class FeatureVectorPipeline(BaseDaemon):
             intraday_noise_window=_int("feature.intraday_noise.window", 20),
             price_vol_corr_fast=_int("feature.price_vol_corr.fast", 10),
             price_vol_corr_slow=_int("feature.price_vol_corr.slow", 30),
+            momentum_velocity_window=_int("feature.momentum_velocity.window", 14),
+            vwap_velocity_window=_int("feature.vwap_velocity.window", 14),
             canary_rng_seed=_int("alpha.ic.canary_rng_seed", 90042),
             session_vp_value_area_pct=_float("feature.session_vp.value_area_pct", 0.70),
             session_vp_n_buckets=_int("feature.session_vp.n_buckets", 50),

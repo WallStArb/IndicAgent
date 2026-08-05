@@ -129,6 +129,8 @@ def _make_cfg() -> FeatureFactoryConfig:
         intraday_noise_window=20,
         price_vol_corr_fast=10,
         price_vol_corr_slow=30,
+        momentum_velocity_window=20,
+        vwap_velocity_window=20,
     )
 
 
@@ -664,6 +666,10 @@ def test_build_feature_vector_guards_nan():
         yang_zhang_vol_velocity=0.0,
         vol_velocity_z=0.0,
         intraday_noise_ratio=1.0,
+        momentum_z_velocity_fast=0.0,
+        momentum_z_velocity_mid=0.0,
+        momentum_z_velocity_slow=0.0,
+        vwap_dev_sigma_velocity=0.0,
         vol_body_product=0.0,
         ret_vol_product_fast=0.0,
         price_vol_corr_fast=0.0,
@@ -826,6 +832,10 @@ def test_build_feature_vector_none_passthrough():
         yang_zhang_vol_velocity=0.0,
         vol_velocity_z=0.0,
         intraday_noise_ratio=1.0,
+        momentum_z_velocity_fast=0.0,
+        momentum_z_velocity_mid=0.0,
+        momentum_z_velocity_slow=0.0,
+        vwap_dev_sigma_velocity=0.0,
         vol_body_product=0.0,
         ret_vol_product_fast=0.0,
         price_vol_corr_fast=0.0,

@@ -1,4 +1,4 @@
-"""FeatureFactory — pure-function library for computing all 255 FeatureVector primitives.
+"""FeatureFactory — pure-function library for computing all 259 FeatureVector primitives.
 
 STATELESS CONTRACT (D-08): FeatureFactory has no __init__ and stores no config.
 The FeatureFactoryConfig frozen dataclass is built ONCE by the caller
@@ -189,6 +189,11 @@ FEATURE_VECTOR_DOMAIN: dict[str, str] = {
     "tdom_cos": "calendar",
     "minute_of_hour_sin": "calendar",
     "minute_of_hour_cos": "calendar",
+    # Velocity Primitives (Phase 151 Plan 01 Task 2)
+    "momentum_z_velocity_fast": "quant",
+    "momentum_z_velocity_mid": "quant",
+    "momentum_z_velocity_slow": "quant",
+    "vwap_dev_sigma_velocity": "quant",
     # Cross-timeframe
     "ctf_momentum": "quant",
     "ctf_vwap_align": "quant",
@@ -452,6 +457,8 @@ class FeatureFactoryConfig:
         intraday_noise_window: APR feature.intraday_noise.window
         price_vol_corr_fast: APR feature.price_vol_corr.fast
         price_vol_corr_slow: APR feature.price_vol_corr.slow
+        momentum_velocity_window: APR feature.momentum_velocity.window
+        vwap_velocity_window: APR feature.vwap_velocity.window
         session_vp_value_area_pct: APR feature.session_vp.value_area_pct
         session_vp_n_buckets: APR feature.session_vp.n_buckets
         session_vp_hvn_threshold: APR feature.session_vp.hvn_threshold
@@ -622,6 +629,12 @@ class FeatureFactoryConfig:
     # Renaissance Primitives — Price-Volume Interactions (Phase 142.5 Plan 05.5)
     price_vol_corr_fast: int  # feature.price_vol_corr.fast
     price_vol_corr_slow: int  # feature.price_vol_corr.slow
+    # Velocity Primitives (Phase 151 Plan 01 Task 2, todo 123). Separate keys
+    # per family (not a reuse of vol_velocity_window) per naming-system.md
+    # section 7's gradient rule -- momentum-velocity and VWAP-velocity are
+    # semantically distinct families.
+    momentum_velocity_window: int  # feature.momentum_velocity.window
+    vwap_velocity_window: int  # feature.vwap_velocity.window
     # Canary / Control Predictors (Phase 143.1 Plan 02, todo 068). Seed for
     # both noise canaries (Gaussian and Uniform draw independent sub-seeds
     # from this one base seed -- see _canary_sub_seed). Defaulted (unlike
@@ -2998,15 +3011,21 @@ def _yang_zhang_vol_z_series_full(
     return _fixed_window_zscore_series(yz, zscore_window)
 
 
-def _vol_velocity_z_series_full(atr_z: np.ndarray, window: int) -> np.ndarray:
-    """z-score of the rolling velocity (first difference) of atr_z over
-    `window`. result[i] == streaming vol_velocity_z at bar i. Fully
+def _vol_velocity_z_series_full(series: np.ndarray, window: int) -> np.ndarray:
+    """z-score of the rolling velocity (first difference) of `series` over
+    `window`. result[i] == streaming velocity-of-series at bar i. Fully
     vectorized O(n).
+
+    Generic over the input array (Phase 151 Plan 01 Task 2): originally
+    written for atr_z (-> vol_velocity_z) but the same construction is
+    reused byte-identically for momentum_z_fast/mid/slow (->
+    momentum_z_velocity_fast/mid/slow) and vwap_dev_sigma (->
+    vwap_dev_sigma_velocity).
     """
-    n = len(atr_z)
+    n = len(series)
     if n < 2:
         return np.zeros(n, dtype=float)
-    velocity = np.diff(atr_z.astype(float))
+    velocity = np.diff(series.astype(float))
     padded = np.concatenate([[0.0], velocity])
     return _fixed_window_zscore_series(padded, window)
 
@@ -3240,6 +3259,11 @@ class _PrecomputedSeries:
     # Renaissance Primitives — Price-Volume Interactions (Phase 142.5 Plan 05.5)
     price_vol_corr_fast: np.ndarray
     price_vol_corr_slow: np.ndarray
+    # Velocity Primitives (Phase 151 Plan 01 Task 2)
+    momentum_z_velocity_fast: np.ndarray
+    momentum_z_velocity_mid: np.ndarray
+    momentum_z_velocity_slow: np.ndarray
+    vwap_dev_sigma_velocity: np.ndarray
 
 
 def _precompute_series(
@@ -3263,6 +3287,20 @@ def _precompute_series(
     # recomputing it from closes.
     price_vol_abs_rets = np.abs(np.diff(np.log(np.maximum(closes.astype(float), 1e-10))))
 
+    # Captured as locals (Phase 151 Plan 01 Task 2) so the velocity primitives
+    # below can reuse them without recomputation -- _vol_velocity_z_series_full
+    # needs the already-computed z-score arrays, not a recomputation from closes.
+    momentum_z_fast_arr = _momentum_z_series_full(
+        closes, config.momentum_window_fast, config.momentum_zscore_window
+    )
+    momentum_z_mid_arr = _momentum_z_series_full(
+        closes, config.momentum_window_mid, config.momentum_zscore_window
+    )
+    momentum_z_slow_arr = _momentum_z_series_full(
+        closes, config.momentum_window_slow, config.momentum_zscore_window
+    )
+    vwap_dev_sigma_arr = _vwap_dev_sigma_series_full(opens, highs, lows, closes, volumes)
+
     return _PrecomputedSeries(
         atr_raw=atr_raw,
         atr_z=atr_z,
@@ -3275,17 +3313,11 @@ def _precompute_series(
             closes, highs, lows, volumes, config.cvd_slope_bars, config.ofi_zscore_window
         ),
         volume_z=_volume_z_series_full(volumes, config.volume_zscore_window),
-        momentum_z_fast=_momentum_z_series_full(
-            closes, config.momentum_window_fast, config.momentum_zscore_window
-        ),
-        momentum_z_mid=_momentum_z_series_full(
-            closes, config.momentum_window_mid, config.momentum_zscore_window
-        ),
-        momentum_z_slow=_momentum_z_series_full(
-            closes, config.momentum_window_slow, config.momentum_zscore_window
-        ),
+        momentum_z_fast=momentum_z_fast_arr,
+        momentum_z_mid=momentum_z_mid_arr,
+        momentum_z_slow=momentum_z_slow_arr,
         momentum_reversal_z=_momentum_reversal_z_series_full(closes, config.momentum_zscore_window),
-        vwap_dev_sigma=_vwap_dev_sigma_series_full(opens, highs, lows, closes, volumes),
+        vwap_dev_sigma=vwap_dev_sigma_arr,
         rsi_fast=_rsi_series_full(closes, config.rsi_fast_period),
         rsi_mid=_rsi_series_full(closes, config.rsi_mid_period),
         rsi_slow=_rsi_series_full(closes, config.rsi_slow_period),
@@ -3390,6 +3422,18 @@ def _precompute_series(
         ),
         price_vol_corr_slow=_price_vol_corr_series_full(
             closes, volumes, config.price_vol_corr_slow, abs_rets=price_vol_abs_rets
+        ),
+        momentum_z_velocity_fast=_vol_velocity_z_series_full(
+            momentum_z_fast_arr, config.momentum_velocity_window
+        ),
+        momentum_z_velocity_mid=_vol_velocity_z_series_full(
+            momentum_z_mid_arr, config.momentum_velocity_window
+        ),
+        momentum_z_velocity_slow=_vol_velocity_z_series_full(
+            momentum_z_slow_arr, config.momentum_velocity_window
+        ),
+        vwap_dev_sigma_velocity=_vol_velocity_z_series_full(
+            vwap_dev_sigma_arr, config.vwap_velocity_window
         ),
     )
 
@@ -5773,6 +5817,10 @@ def _build_feature_vector(
     yang_zhang_vol_velocity: float,
     vol_velocity_z: float,
     intraday_noise_ratio: float,
+    momentum_z_velocity_fast: float,
+    momentum_z_velocity_mid: float,
+    momentum_z_velocity_slow: float,
+    vwap_dev_sigma_velocity: float,
     vol_body_product: float,
     ret_vol_product_fast: float,
     price_vol_corr_fast: float,
@@ -6036,6 +6084,10 @@ def _build_feature_vector(
         yang_zhang_vol_velocity=_guard(yang_zhang_vol_velocity, 0.0),
         vol_velocity_z=_guard(vol_velocity_z, 0.0),
         intraday_noise_ratio=_guard(intraday_noise_ratio, 1.0),
+        momentum_z_velocity_fast=_guard(momentum_z_velocity_fast, 0.0),
+        momentum_z_velocity_mid=_guard(momentum_z_velocity_mid, 0.0),
+        momentum_z_velocity_slow=_guard(momentum_z_velocity_slow, 0.0),
+        vwap_dev_sigma_velocity=_guard(vwap_dev_sigma_velocity, 0.0),
         vol_body_product=_guard(vol_body_product, 0.0),
         ret_vol_product_fast=_guard(ret_vol_product_fast, 0.0),
         price_vol_corr_fast=_guard(price_vol_corr_fast, 0.0),
@@ -6206,7 +6258,7 @@ class FeatureFactory:
         cache: FeatureCache,
         config: FeatureFactoryConfig,
     ) -> FeatureVector:
-        """Compute all 255 FeatureVector primitives from bars + cache + config.
+        """Compute all 259 FeatureVector primitives from bars + cache + config.
 
         PURE FUNCTION: no IO, no ConfigService.get(), no DB reads, no Kafka.
         All tunable numerics come from the config argument (SC-9).
@@ -6224,7 +6276,7 @@ class FeatureFactory:
 
         Returns
         -------
-        FeatureVector with all 255 fields populated -- most set to finite
+        FeatureVector with all 259 fields populated -- most set to finite
         floats, but 85 are `float | None` by design (41 Phase 165 Swing/Fib
         + 44 optional cross-sectional/canary/SMC placeholders); see the
         FeatureVector class docstring for the full breakdown.
@@ -6594,6 +6646,12 @@ class FeatureFactory:
             ),
             vol_velocity_z=_series_last(s.vol_velocity_z, 0.0),
             intraday_noise_ratio=_series_last(s.intraday_noise_ratio, 1.0),
+            # Velocity Primitives (Phase 151 Plan 01 Task 2) — read from the
+            # precomputed series built once above, same pattern as vol_velocity_z.
+            momentum_z_velocity_fast=_series_last(s.momentum_z_velocity_fast, 0.0),
+            momentum_z_velocity_mid=_series_last(s.momentum_z_velocity_mid, 0.0),
+            momentum_z_velocity_slow=_series_last(s.momentum_z_velocity_slow, 0.0),
+            vwap_dev_sigma_velocity=_series_last(s.vwap_dev_sigma_velocity, 0.0),
             # Renaissance Primitives (Phase 142.5 Plan 05.5) — price-volume
             # interactions. 6 window-free combinators computed inline above
             # from already-captured parent scalars; the 2 rolling
@@ -7173,6 +7231,20 @@ class FeatureFactory:
             intraday_noise_ratio_val = (
                 float(s.intraday_noise_ratio[i]) if i < len(s.intraday_noise_ratio) else 1.0
             )
+            # Velocity Primitives (Phase 151 Plan 01 Task 2) — same
+            # precomputed-series indexing pattern as vol_velocity_z above.
+            momentum_z_velocity_fast_val = (
+                float(s.momentum_z_velocity_fast[i]) if i < len(s.momentum_z_velocity_fast) else 0.0
+            )
+            momentum_z_velocity_mid_val = (
+                float(s.momentum_z_velocity_mid[i]) if i < len(s.momentum_z_velocity_mid) else 0.0
+            )
+            momentum_z_velocity_slow_val = (
+                float(s.momentum_z_velocity_slow[i]) if i < len(s.momentum_z_velocity_slow) else 0.0
+            )
+            vwap_dev_sigma_velocity_val = (
+                float(s.vwap_dev_sigma_velocity[i]) if i < len(s.vwap_dev_sigma_velocity) else 0.0
+            )
 
             # Renaissance Primitives (Phase 142.5 Plan 05.5) — price-volume
             # interactions. The 6 window-free combinators reuse already-
@@ -7348,6 +7420,10 @@ class FeatureFactory:
                 yang_zhang_vol_velocity=yang_zhang_vol_velocity_val,
                 vol_velocity_z=vol_velocity_z_val,
                 intraday_noise_ratio=intraday_noise_ratio_val,
+                momentum_z_velocity_fast=momentum_z_velocity_fast_val,
+                momentum_z_velocity_mid=momentum_z_velocity_mid_val,
+                momentum_z_velocity_slow=momentum_z_velocity_slow_val,
+                vwap_dev_sigma_velocity=vwap_dev_sigma_velocity_val,
                 vol_body_product=vol_body_product_val,
                 ret_vol_product_fast=ret_vol_product_fast_val,
                 price_vol_corr_fast=price_vol_corr_fast_val,
@@ -7556,6 +7632,13 @@ def _cold_start_vector(cache: FeatureCache, tf: str) -> FeatureVector:
         yang_zhang_vol_velocity=0.0,
         vol_velocity_z=0.0,
         intraday_noise_ratio=1.0,
+        # Phase 151 Plan 01 Task 2: a velocity is undefined with fewer than 2
+        # bars; 0.0 is the correct neutral, matching vol_velocity_z's own
+        # cold-start default immediately above.
+        momentum_z_velocity_fast=0.0,
+        momentum_z_velocity_mid=0.0,
+        momentum_z_velocity_slow=0.0,
+        vwap_dev_sigma_velocity=0.0,
         vol_body_product=0.0,
         ret_vol_product_fast=0.0,
         price_vol_corr_fast=0.0,
