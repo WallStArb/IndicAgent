@@ -964,7 +964,7 @@ def test_feature_factory_cold_start_returns_vector() -> None:
 
 
 # ---------------------------------------------------------------------------
-# Test 9: _build_cross_asset_series — O(D) incremental parity
+# Test 9: build_cross_asset_series — O(D) incremental parity
 # ---------------------------------------------------------------------------
 
 
@@ -1025,7 +1025,7 @@ class TestBuildCrossAssetSeries:
         """New incremental O(D) implementation must produce identical values to O(D×N)
         reference on the 3 pre-existing macro fields -- no regression from Phase 151
         Plan 04's 5-field extension. Also asserts the return type is CrossAssetRecord."""
-        from services.backfill_feature_factory import _build_cross_asset_series
+        from src.intelligence.features.cross_asset_series import build_cross_asset_series
 
         config = _make_config()
         spy = _make_daily_bars(300, seed=1, start_close=450.0)
@@ -1036,7 +1036,7 @@ class TestBuildCrossAssetSeries:
         lqd = _make_daily_bars(300, seed=6, start_close=112.0)
 
         reference = _reference_cross_asset_series(spy, tlt, shy, tip, hyg, lqd, config)
-        result = _build_cross_asset_series(spy, tlt, shy, tip, hyg, lqd, config)
+        result = build_cross_asset_series(spy, tlt, shy, tip, hyg, lqd, config)
 
         assert set(result.keys()) == set(reference.keys()), "date keys differ"
         for d in reference:
@@ -1054,7 +1054,7 @@ class TestBuildCrossAssetSeries:
             ), f"{d}: yield_slope_z {res.yield_slope_z} != {ref_ys}"
 
     def test_all_values_finite(self) -> None:
-        from services.backfill_feature_factory import _build_cross_asset_series
+        from src.intelligence.features.cross_asset_series import build_cross_asset_series
 
         config = _make_config()
         spy = _make_daily_bars(50, seed=10)
@@ -1063,7 +1063,7 @@ class TestBuildCrossAssetSeries:
         tip = _make_daily_bars(50, seed=13)
         hyg = _make_daily_bars(50, seed=14)
         lqd = _make_daily_bars(50, seed=15)
-        result = _build_cross_asset_series(spy, tlt, shy, tip, hyg, lqd, config)
+        result = build_cross_asset_series(spy, tlt, shy, tip, hyg, lqd, config)
         for d, values in result.items():
             for field_name in CrossAssetRecord._fields:
                 v = getattr(values, field_name)
@@ -1073,7 +1073,7 @@ class TestBuildCrossAssetSeries:
         """Dates with SPY/TLT/SHY coverage but no TIP/HYG/LQD coverage (pre-listing
         dates) must still emit vix_z/yield_slope_z -- TIP/HYG/LQD unavailability
         must NOT skip the whole date, only zero the affected spread fields."""
-        from services.backfill_feature_factory import _build_cross_asset_series
+        from src.intelligence.features.cross_asset_series import build_cross_asset_series
 
         config = _make_config()
         spy = _make_daily_bars(60, seed=20)
@@ -1084,7 +1084,7 @@ class TestBuildCrossAssetSeries:
         hyg = _make_daily_bars(60, seed=24)[-20:]
         lqd = _make_daily_bars(60, seed=25)[-20:]
 
-        result = _build_cross_asset_series(spy, tlt, shy, tip, hyg, lqd, config)
+        result = build_cross_asset_series(spy, tlt, shy, tip, hyg, lqd, config)
         early_dates = sorted(result.keys())[:10]
         assert early_dates, "expected early dates with SPY/TLT/SHY-only coverage"
         for d in early_dates:
@@ -1181,7 +1181,7 @@ class TestComputeBatchExternalInjection:
 
 
 # ---------------------------------------------------------------------------
-# Test 11: _build_symbol_beta_series (Phase 151 Plan 04, todo 180)
+# Test 11: build_symbol_beta_series (Phase 151 Plan 04, todo 180)
 # ---------------------------------------------------------------------------
 
 
@@ -1189,26 +1189,26 @@ class TestBuildSymbolBetaSeries:
     def test_spy_equity_beta_z_always_none(self) -> None:
         """symbol='SPY' must yield equity_beta_z=None at every date (self-regression
         against itself is degenerate -- beta identically 1)."""
-        from services.backfill_feature_factory import _build_symbol_beta_series
+        from src.intelligence.features.cross_asset_series import build_symbol_beta_series
 
         config = _make_config()
         spy = _make_daily_bars(120, seed=1, start_close=450.0)
         tlt = _make_daily_bars(120, seed=2, start_close=95.0)
 
-        result = _build_symbol_beta_series(spy, spy, tlt, "SPY", config)
+        result = build_symbol_beta_series(spy, spy, tlt, "SPY", config)
         assert result, "expected at least one date"
         for _d, (equity_beta_z, _rate_beta_z) in result.items():
             assert equity_beta_z is None
 
     def test_tlt_rate_beta_z_always_none(self) -> None:
         """symbol='TLT' must yield rate_beta_z=None at every date."""
-        from services.backfill_feature_factory import _build_symbol_beta_series
+        from src.intelligence.features.cross_asset_series import build_symbol_beta_series
 
         config = _make_config()
         spy = _make_daily_bars(120, seed=1, start_close=450.0)
         tlt = _make_daily_bars(120, seed=2, start_close=95.0)
 
-        result = _build_symbol_beta_series(tlt, spy, tlt, "TLT", config)
+        result = build_symbol_beta_series(tlt, spy, tlt, "TLT", config)
         assert result, "expected at least one date"
         for _d, (_equity_beta_z, rate_beta_z) in result.items():
             assert rate_beta_z is None
@@ -1216,14 +1216,14 @@ class TestBuildSymbolBetaSeries:
     def test_non_proxy_symbol_yields_finite_betas(self) -> None:
         """A symbol that is neither SPY nor TLT gets finite (non-None) betas for
         both factors once enough history has accumulated."""
-        from services.backfill_feature_factory import _build_symbol_beta_series
+        from src.intelligence.features.cross_asset_series import build_symbol_beta_series
 
         config = _make_config()
         sym = _make_daily_bars(120, seed=3, start_close=200.0)
         spy = _make_daily_bars(120, seed=1, start_close=450.0)
         tlt = _make_daily_bars(120, seed=2, start_close=95.0)
 
-        result = _build_symbol_beta_series(sym, spy, tlt, "XYZ", config)
+        result = build_symbol_beta_series(sym, spy, tlt, "XYZ", config)
         assert result, "expected at least one date"
         last_date = sorted(result.keys())[-1]
         equity_beta_z, rate_beta_z = result[last_date]
