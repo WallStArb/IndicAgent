@@ -85,6 +85,7 @@ ALLOWLIST_PATTERNS: list[re.Pattern[str]] = [
     re.compile(r"crossover_detect"),  # tested utility function
     # --- Day-of-week / calendar ---
     re.compile(r"is_monday|is_friday|is_\w+day\b"),
+    re.compile(r"opex_flag"),  # calendar event flag (options expiration Friday), not a score
     # --- Type/category categorical fields ---
     re.compile(r"fvg_type|sweep_type|swing_high_type|swing_low_type"),
     re.compile(r"ob_type"),  # order block type {-1, 0, 1} categorical

@@ -215,6 +215,12 @@ FEATURE_VECTOR_DOMAIN: dict[str, str] = {
     "sb_corr_z": "macro",
     "equity_beta_z": "macro",
     "rate_beta_z": "macro",
+    # Named Interaction Primitives (Phase 151 Plan 05, todos 066/104)
+    "ret_div_1m_5m": "quant",
+    "ret_div_5m_1h": "quant",
+    "ret_div_1h_1d": "quant",
+    "opex_flag": "calendar",
+    "quad_witching_flag": "calendar",
     # Cross-timeframe
     "ctf_momentum": "quant",
     "ctf_vwap_align": "quant",
@@ -3295,6 +3301,30 @@ def _minute_of_hour_encoding(bar_ts: datetime) -> tuple[float, float]:
     return math.sin(angle), math.cos(angle)
 
 
+def _opex_flag(bar_ts: datetime) -> float:
+    """1.0 iff bar_ts falls on the monthly options-expiration Friday, else 0.0.
+
+    Formula (Phase 151 Plan 05, todos 066/104): dow == Friday (weekday() == 4)
+    AND week_of_month == 3, where week_of_month = (day - 1) // 7 + 1. Matches
+    docs/research/signal-temporal-atomic-primitives.md's prescribed formula
+    literally. Deliberately no market-holiday table -- the source doc rejects
+    one as nonstationary institutional data (same rationale as _tdom_encoding
+    above).
+    """
+    week_of_month = (bar_ts.day - 1) // 7 + 1
+    return 1.0 if (bar_ts.weekday() == 4 and week_of_month == 3) else 0.0
+
+
+def _quad_witching_flag(bar_ts: datetime) -> float:
+    """1.0 iff bar_ts is a quarterly quad-witching Friday, else 0.0.
+
+    Formula: _opex_flag(bar_ts) == 1.0 AND bar_ts.month % 3 == 0 (quarter-end
+    month). Calls _opex_flag directly rather than restating its condition
+    (Phase 151 Plan 05).
+    """
+    return 1.0 if (_opex_flag(bar_ts) == 1.0 and bar_ts.month % 3 == 0) else 0.0
+
+
 # ---------------------------------------------------------------------------
 # _PrecomputedSeries — bundled series arrays for a bar window
 # ---------------------------------------------------------------------------
@@ -6030,6 +6060,11 @@ def _build_feature_vector(
     sb_corr_z: float,
     equity_beta_z: float | None,
     rate_beta_z: float | None,
+    ret_div_1m_5m: float | None,
+    ret_div_5m_1h: float | None,
+    ret_div_1h_1d: float | None,
+    opex_flag: float,
+    quad_witching_flag: float,
     vol_body_product: float,
     ret_vol_product_fast: float,
     price_vol_corr_fast: float,
@@ -6315,6 +6350,11 @@ def _build_feature_vector(
         sb_corr_z=_guard(sb_corr_z, 0.0),
         equity_beta_z=_guard(equity_beta_z),
         rate_beta_z=_guard(rate_beta_z),
+        ret_div_1m_5m=_guard(ret_div_1m_5m),
+        ret_div_5m_1h=_guard(ret_div_5m_1h),
+        ret_div_1h_1d=_guard(ret_div_1h_1d),
+        opex_flag=_guard(opex_flag, 0.0),
+        quad_witching_flag=_guard(quad_witching_flag, 0.0),
         vol_body_product=_guard(vol_body_product, 0.0),
         ret_vol_product_fast=_guard(ret_vol_product_fast, 0.0),
         price_vol_corr_fast=_guard(price_vol_corr_fast, 0.0),
@@ -6509,7 +6549,11 @@ class FeatureFactory:
         FeatureVector class docstring for the full breakdown.
         """
         if len(bars) < 2:
-            return _cold_start_vector(cache, tf)
+            # Phase 151 Plan 05: bar_ts, when available (len(bars) == 1), is
+            # threaded through so opex_flag/quad_witching_flag compute real
+            # values even at cold start -- both need only bar_ts, not history.
+            _cold_start_bar_ts = bars[-1]["ts"] if bars else None
+            return _cold_start_vector(cache, tf, _cold_start_bar_ts)
 
         opens = np.array([b["open"] for b in bars], dtype=float)
         highs = np.array([b["high"] for b in bars], dtype=float)
@@ -6930,6 +6974,19 @@ class FeatureFactory:
             sb_corr_z=cache.sb_corr_z,
             equity_beta_z=None if symbol == "SPY" else cache.equity_beta_z,
             rate_beta_z=None if symbol == "TLT" else cache.rate_beta_z,
+            # Named Interaction Primitives (Phase 151 Plan 05). The 3 cross-TF
+            # divergences have NO live-path plumbing today (batch is the
+            # corpus/IC-measurement path; the LTF/HTF merge-walk builders live
+            # only in backfill_feature_factory.py) -- always None here, same
+            # asymmetry already documented for the Plan 04 cross-asset gap
+            # (todo filed at that plan's Task 4). opex_flag/quad_witching_flag
+            # need only bar_ts, which IS in scope on both paths, so they
+            # compute real values here too.
+            ret_div_1m_5m=None,
+            ret_div_5m_1h=None,
+            ret_div_1h_1d=None,
+            opex_flag=_opex_flag(bar_ts),
+            quad_witching_flag=_quad_witching_flag(bar_ts),
             # Renaissance Primitives (Phase 142.5 Plan 05.5) — price-volume
             # interactions. 6 window-free combinators computed inline above
             # from already-captured parent scalars; the 2 rolling
@@ -6961,6 +7018,7 @@ class FeatureFactory:
         ctf_by_ts: dict | None = None,
         ctf_ts_list: list | None = None,
         beta_by_date: dict | None = None,
+        ltf_ret_by_ts: dict | None = None,
     ) -> list[tuple[datetime, FeatureVector]]:
         """Compute FeatureVector for every bar in bars in O(n). Returns (bar_ts, fv) pairs.
 
@@ -6986,12 +7044,21 @@ class FeatureFactory:
             + 5 D-19 strength/age/count fields) computed stateless inline via
             _compute_sr_dist_atr() over a bounded per-tf lookback window built from
             OHLCV -- no cache/tick-data dependency, same mechanism in live and batch.
+          - ret_div_5m_1h/ret_div_1h_1d (Phase 151 Plan 05) read ctf_by_ts's
+            htf_last_log_ret field (same bisect lookup as CTF above), timeframe-
+            pinned to tf=="5m"/"1h" respectively, None elsewhere. ret_div_1m_5m
+            reads ltf_ret_by_ts (a separate causal merge-walk dict, tf=="5m"
+            only), None wherever the key is absent (~99% of 5m bars -- 1m
+            OHLCV coverage is far shorter than 5m's, a documented data
+            limitation, not a defect).
         When cross_asset_by_date is None (live path):
           - cross-asset and CTF groups read from cache (unchanged behavior); VP and S/R
             use the same OHLCV-derived computation as the batch path. beta_by_date is
             ignored on this path -- equity_beta_z/rate_beta_z read from cache (0.0 live
             default until plan 151-09 wires a live-path writer), same SPY/TLT None
-            special-case applied via the `symbol` argument.
+            special-case applied via the `symbol` argument. The 3 cross-TF divergences
+            have no live-path plumbing today -- always None (Plan 05, same asymmetry
+            documented for the Plan 04 cross-asset gap).
         """
         if len(bars) < 2:
             return []
@@ -7369,13 +7436,19 @@ class FeatureFactory:
             tdom_sin_val, tdom_cos_val = _tdom_encoding(bar_ts)
             minute_of_hour_sin_val, minute_of_hour_cos_val = _minute_of_hour_encoding(bar_ts)
 
-            # CTF: from pre-built causal dict (batch) or cache (live)
+            # CTF: from pre-built causal dict (batch) or cache (live). ctf_by_ts
+            # values are CtfValues NamedTuples (Phase 151 Plan 05 extended this
+            # from a bare 3-tuple to add htf_last_log_ret) -- always accessed by
+            # attribute name below, never positional unpacking.
+            _htf_last_log_ret_val: float | None = None
             if ctf_by_ts is not None and ctf_ts_list is not None:
                 _idx = bisect.bisect_right(ctf_ts_list, bar_ts) - 1
                 if _idx >= 0:
-                    ctf_momentum_val, ctf_vwap_align_val, ctf_regime_align_val = ctf_by_ts[
-                        ctf_ts_list[_idx]
-                    ]
+                    _ctf = ctf_by_ts[ctf_ts_list[_idx]]
+                    ctf_momentum_val = _ctf.ctf_momentum
+                    ctf_vwap_align_val = _ctf.ctf_vwap_align
+                    ctf_regime_align_val = _ctf.ctf_regime_align
+                    _htf_last_log_ret_val = _ctf.htf_last_log_ret
                 else:
                     ctf_momentum_val = ctf_vwap_align_val = ctf_regime_align_val = 0.0
             else:
@@ -7397,6 +7470,29 @@ class FeatureFactory:
             overnight_gap_z_val = float(s.overnight_gap_z[i]) if i < len(s.overnight_gap_z) else 0.0
             range_efficiency_val = _range_efficiency(close_, prev_close_, high_, low_)
             ret_lag_1_val = _ret_lag_1(closes[: i + 1])
+
+            # Named Interaction Primitives cross-TF divergences (Phase 151 Plan
+            # 05, todos 066/104). Each is timeframe-pinned to the LOWER tf of
+            # its pair and None everywhere else -- None means "this pair is
+            # undefined here," never a fake 0.0 (indistinguishable from "the
+            # two timeframes actually agree"). own_bar_log_return reuses
+            # ret_lag_1_val (already computed above) rather than recomputing
+            # the identical log(C_t/C_{t-1}) formula.
+            if tf == "5m" and ltf_ret_by_ts is not None and bar_ts in ltf_ret_by_ts:
+                ret_div_1m_5m_val = ltf_ret_by_ts[bar_ts] - ret_lag_1_val
+            else:
+                ret_div_1m_5m_val = None
+            if tf == "5m" and _htf_last_log_ret_val is not None:
+                ret_div_5m_1h_val = ret_lag_1_val - _htf_last_log_ret_val
+            else:
+                ret_div_5m_1h_val = None
+            if tf == "1h" and _htf_last_log_ret_val is not None:
+                ret_div_1h_1d_val = ret_lag_1_val - _htf_last_log_ret_val
+            else:
+                ret_div_1h_1d_val = None
+            opex_flag_val = _opex_flag(bar_ts)
+            quad_witching_flag_val = _quad_witching_flag(bar_ts)
+
             ret_lag_2_val = _ret_lag_2(closes[: i + 1])
             ret_lag_3_val = _ret_lag_3(closes[: i + 1])
             ret_lag_fast_val = _ret_lag_fast(closes[: i + 1], config.ret_lag_fast)
@@ -7814,6 +7910,11 @@ class FeatureFactory:
                 sb_corr_z=sb_corr_z_val,
                 equity_beta_z=equity_beta_z_val,
                 rate_beta_z=rate_beta_z_val,
+                ret_div_1m_5m=ret_div_1m_5m_val,
+                ret_div_5m_1h=ret_div_5m_1h_val,
+                ret_div_1h_1d=ret_div_1h_1d_val,
+                opex_flag=opex_flag_val,
+                quad_witching_flag=quad_witching_flag_val,
                 vol_body_product=vol_body_product_val,
                 ret_vol_product_fast=ret_vol_product_fast_val,
                 price_vol_corr_fast=price_vol_corr_fast_val,
@@ -7837,8 +7938,17 @@ class FeatureFactory:
         return results
 
 
-def _cold_start_vector(cache: FeatureCache, tf: str) -> FeatureVector:
-    """Return a valid FeatureVector with cold-start defaults (0.0 / neutral values)."""
+def _cold_start_vector(
+    cache: FeatureCache, tf: str, bar_ts: datetime | None = None
+) -> FeatureVector:
+    """Return a valid FeatureVector with cold-start defaults (0.0 / neutral values).
+
+    bar_ts (Phase 151 Plan 05): optional, supplied only when len(bars) == 1
+    (the caller has exactly one bar, so a real timestamp exists even though
+    there's no prior bar to derive a return from). opex_flag/quad_witching_flag
+    use it to compute real values here rather than a neutral placeholder --
+    both are pure functions of bar_ts alone, no history required.
+    """
     if tf == "1d":
         poc_dist_atr = 0.0
         va_position = 0.5
@@ -8063,6 +8173,18 @@ def _cold_start_vector(cache: FeatureCache, tf: str) -> FeatureVector:
         sb_corr_z=0.0,
         equity_beta_z=None,
         rate_beta_z=None,
+        # Phase 151 Plan 05: cold start (len(bars) < 2) has no bar history, so
+        # the 3 cross-TF divergences (which need a prior/HTF return) are
+        # always None here -- "not measured" is correct with zero bars. The 2
+        # calendar event flags need only bar_ts (no history), so they compute
+        # real values when bar_ts is available (len(bars) == 1); with zero
+        # bars there is no timestamp at all, so they fall back to 0.0 (the
+        # same neutral convention already used above for dow_sin/cos etc).
+        ret_div_1m_5m=None,
+        ret_div_5m_1h=None,
+        ret_div_1h_1d=None,
+        opex_flag=_opex_flag(bar_ts) if bar_ts is not None else 0.0,
+        quad_witching_flag=_quad_witching_flag(bar_ts) if bar_ts is not None else 0.0,
         vol_body_product=0.0,
         ret_vol_product_fast=0.0,
         price_vol_corr_fast=0.0,

@@ -287,6 +287,11 @@ def _make_zero_vector() -> FeatureVector:
         sb_corr_z=0.0,
         equity_beta_z=0.0,
         rate_beta_z=0.0,
+        ret_div_1m_5m=None,
+        ret_div_5m_1h=None,
+        ret_div_1h_1d=None,
+        opex_flag=0.0,
+        quad_witching_flag=0.0,
         ctf_momentum=0.0,
         ctf_vwap_align=0.0,
         ctf_regime_align=0.0,
@@ -549,7 +554,8 @@ def test_vector_to_params_all_features_present() -> None:
     minute + velocity columns (Phase 151 Plan 01), 279 after migration 288's
     11 recency/statistical atomics columns (Phase 151 Plan 03), 286 after
     migration 289's 7 cross-asset spread/beta atomics columns (Phase 151
-    Plan 04)."""
+    Plan 04), 291 after migration 290's 5 Named Interaction Primitives
+    columns (Phase 151 Plan 05)."""
     fv = _make_zero_vector()
     ts = datetime(2025, 1, 2, 14, 30, 0, tzinfo=UTC)
     params = _vector_to_params(
@@ -560,8 +566,8 @@ def test_vector_to_params_all_features_present() -> None:
         regime=None,
         fv=fv,
     )
-    # 1 content-key + 8 structural + 277 feature floats = 286 total
-    assert len(params) == 286, f"Expected 286 params, got {len(params)}"
+    # 1 content-key + 8 structural + 282 feature floats = 291 total
+    assert len(params) == 291, f"Expected 291 params, got {len(params)}"
 
 
 def test_vector_to_params_symbol_tf_ts() -> None:
@@ -1223,3 +1229,67 @@ class TestBuildSymbolBetaSeries:
         equity_beta_z, rate_beta_z = result[last_date]
         assert equity_beta_z is not None and math.isfinite(equity_beta_z)
         assert rate_beta_z is not None and math.isfinite(rate_beta_z)
+
+
+# ---------------------------------------------------------------------------
+# Test 12: _build_ltf_return_series (Phase 151 Plan 05, todo 066)
+# ---------------------------------------------------------------------------
+
+
+class TestBuildLtfReturnSeries:
+    def test_never_derives_from_a_1m_bar_strictly_after_target_ts(self) -> None:
+        """Causality guard (T-151-10): no returned value may be derived from a
+        1m bar whose own ts is strictly after the target 5m bar's ts."""
+        from services.backfill_feature_factory import _build_ltf_return_series
+
+        base = datetime(2026, 1, 2, 14, 30, 0, tzinfo=UTC)
+        ltf_bars = [
+            {"ts": base + timedelta(minutes=i), "close": 100.0 + i * 0.1} for i in range(20)
+        ]
+        target_ts_list = [base + timedelta(minutes=i) for i in (2, 7, 12, 17, 25)]
+
+        result = _build_ltf_return_series(ltf_bars, target_ts_list)
+
+        assert result, "expected at least one entry"
+        for target_ts in result:
+            eligible = [b for b in ltf_bars if b["ts"] <= target_ts]
+            assert eligible, f"no eligible 1m bar for {target_ts}, should not be in result"
+            last_eligible_ts = eligible[-1]["ts"]
+            assert last_eligible_ts <= target_ts, (
+                f"selected 1m bar ts {last_eligible_ts} is after target {target_ts} "
+                "-- lookahead bias"
+            )
+
+    def test_matches_manual_log_return_at_exact_bar_boundary(self) -> None:
+        """When target_ts exactly matches a 1m bar's own ts, the returned value
+        must be log(close[k] / close[k-1]) for that bar."""
+        from services.backfill_feature_factory import _build_ltf_return_series
+
+        base = datetime(2026, 1, 2, 14, 30, 0, tzinfo=UTC)
+        closes = [100.0, 101.0, 99.5, 102.0]
+        ltf_bars = [{"ts": base + timedelta(minutes=i), "close": c} for i, c in enumerate(closes)]
+        target_ts_list = [base + timedelta(minutes=3)]
+
+        result = _build_ltf_return_series(ltf_bars, target_ts_list)
+        expected = math.log(closes[3] / closes[2])
+        assert result[target_ts_list[0]] == pytest.approx(expected, abs=1e-12)
+
+    def test_no_entry_before_any_eligible_1m_bar(self) -> None:
+        """A target_ts strictly before the first 1m bar's ts yields no entry."""
+        from services.backfill_feature_factory import _build_ltf_return_series
+
+        base = datetime(2026, 1, 2, 14, 30, 0, tzinfo=UTC)
+        ltf_bars = [{"ts": base + timedelta(minutes=i), "close": 100.0 + i} for i in range(5)]
+        target_ts_list = [base - timedelta(minutes=1)]
+
+        result = _build_ltf_return_series(ltf_bars, target_ts_list)
+        assert target_ts_list[0] not in result
+
+    def test_empty_inputs_return_empty_dict(self) -> None:
+        from services.backfill_feature_factory import _build_ltf_return_series
+
+        assert _build_ltf_return_series([], [datetime(2026, 1, 1, tzinfo=UTC)]) == {}
+        assert (
+            _build_ltf_return_series([{"ts": datetime(2026, 1, 1, tzinfo=UTC), "close": 1.0}], [])
+            == {}
+        )
