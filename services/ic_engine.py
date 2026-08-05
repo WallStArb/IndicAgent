@@ -4115,9 +4115,7 @@ def _apply_feature_transitions(
             )
             m_compared += 1
             registry_counters = registry_svc.get_feature(feature_name) or {}
-            concept_counters = next(
-                (c for c in concept_svc.get_all_concepts() if c["name"] == feature_name), {}
-            )
+            concept_counters = concept_svc.get_concept(feature_name) or {}
             if registry_counters.get("consecutive_shadow_passes") != concept_counters.get(
                 "consecutive_shadow_passes"
             ) or registry_counters.get("observations_since_demotion") != concept_counters.get(
@@ -4789,7 +4787,10 @@ def main() -> None:
 
             concept_svc = ConceptRegistryService()
             concept_svc.load_sync(conn, domain="feature")
-            all_registry_names = {r["name"] for r in concept_svc.get_all_concepts()}
+            # Single get_all_concepts() call, reused below -- avoids rebuilding the
+            # same ~249-row list twice in a row (2026-08-04 simplify-pass finding).
+            all_concepts = concept_svc.get_all_concepts()
+            all_registry_names = {r["name"] for r in all_concepts}
             dataclass_names = {f.name for f in dataclasses.fields(FeatureVector)}
             if all_registry_names != dataclass_names:
                 raise RuntimeError(
@@ -4800,7 +4801,7 @@ def main() -> None:
                 )
             # Build status map for workers: plain dict is picklable; ConceptRegistryService is not.
             feature_status_map: dict[str, str] = {
-                r["name"]: (r["status"] or "unknown") for r in concept_svc.get_all_concepts()
+                r["name"]: (r["status"] or "unknown") for r in all_concepts
             }
 
             # ----------------------------------------------------------

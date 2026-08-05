@@ -871,3 +871,14 @@ class ConceptRegistryService:
         load_sync is called.
         """
         return list(self._concepts.values())
+
+    def get_concept(self, name: str) -> dict[str, Any] | None:
+        """O(1) single-concept lookup (mirrors FeatureRegistryService.get_feature).
+
+        Callers needing one concept's record must use this, not
+        `next((c for c in get_all_concepts() if c["name"] == name), None)` --
+        that pattern materializes and linearly scans the full concept list
+        (2026-08-04 simplify-pass finding, ~249 rows) for what should be a
+        single dict lookup. Returns None for an unknown name.
+        """
+        return self._concepts.get(name)

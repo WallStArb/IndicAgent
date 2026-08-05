@@ -279,6 +279,12 @@ class _FakeConceptRegistryService:
     def get_all_concepts(self):
         return [{"name": k, "status": v["status"]} for k, v in self._concepts.items()]
 
+    def get_concept(self, name):
+        concept = self._concepts.get(name)
+        if concept is None:
+            return None
+        return {"name": name, **concept}
+
     def record_transition_sync(
         self,
         conn,
