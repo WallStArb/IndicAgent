@@ -2262,6 +2262,39 @@ def _merge_skip_reasons(total: dict[str, int], addition: dict[str, int]) -> None
         total[reason] = total.get(reason, 0) + count
 
 
+def _build_regime_passes(
+    regime_aligned_market: np.ndarray,
+    distinct_regimes: list,
+    regime_aligned: np.ndarray,
+    cross_sectional: bool,
+    dual_write_symbol_hmm: bool,
+    cluster_regime_conditioned: bool,
+    primary_resolved_scope: str,
+) -> list[tuple[np.ndarray, list, str]]:
+    """Build the list of (label_array, distinct_labels, resolved_scope) passes
+    _compute_symbol_tf's per-label-array loop iterates over.
+
+    Pure, DB-free extraction (Phase 151 Plan 02, mirrors _group_cells_for_metrics'
+    own extraction rationale) of the regime_passes construction previously inline
+    in _compute_symbol_tf -- lets Task 3's unit tests assert directly on
+    regime_passes' length/resolved_scope without a live DB connection.
+
+    Primary pass is always exactly one entry. An additional 'symbol_hmm' entry is
+    appended once when cross_sectional AND (dual_write_symbol_hmm OR
+    cluster_regime_conditioned) -- the `or` is not a double-append, matching
+    _compute_symbol_tf's own gate exactly (see that function's inline comment for
+    the two gates' provenance). Never includes the pooled sentinel -- pooled is
+    handled once, separately, by the caller.
+    """
+    regime_passes: list[tuple[np.ndarray, list, str]] = [
+        (regime_aligned_market, distinct_regimes, primary_resolved_scope)
+    ]
+    if cross_sectional and (dual_write_symbol_hmm or cluster_regime_conditioned):
+        distinct_symbol_hmm_regimes = [r for r in set(regime_aligned) if r is not None]
+        regime_passes.append((regime_aligned, distinct_symbol_hmm_regimes, "symbol_hmm"))
+    return regime_passes
+
+
 def _group_cells_for_metrics(
     all_results: list[dict], symbol: str, tf: str
 ) -> list[tuple[dict[str, Any], int]]:
@@ -2536,33 +2569,27 @@ def _compute_symbol_tf(
 
         # Primary pass (today's exact existing behavior) + optional symbol_hmm pass
         # (restore per-symbol-HMM-regime-stratified measurement for regime-group-routed
-        # symbols) share the same per-label-array loop shape -- built as a list of
-        # (label_array, distinct_labels, resolved_scope) passes rather than duplicated
-        # inline, and reusing distinct_regimes (computed once above, /simplify finding:
-        # it was previously dead code, recomputed via a second full set() pass over
-        # regime_aligned_market) instead of recomputing it here. The symbol_hmm pass's
-        # own distinct-label set is computed fresh since it operates over regime_aligned
-        # -- a genuinely different array from regime_aligned_market whenever
-        # cross_sectional=True. Never includes the pooled sentinel in either pass --
-        # pooled is handled once, above.
-        #
-        # Two independent gates decide whether the symbol_hmm pass runs, both must be
-        # true alongside cross_sectional:
-        #   - dual_write_symbol_hmm: per-group field (alpha.regime.groups[*]) governing
-        #     whether THIS symbol's routed regime group opts into symbol_hmm dual-write
-        #     (live: rates only, migration 247).
-        #   - cluster_regime_conditioned: Phase 151 Plan 02's run-level APR switch
-        #     (alpha.ensemble.cluster_regime_conditioned, migration 286) that makes the
-        #     second stratification axis unconditional across every routed symbol,
-        #     regardless of that symbol's group's dual_write_symbol_hmm setting.
-        # The `or` is not a double-append -- regime_passes always gets at most one
-        # symbol_hmm entry, appended once, whichever gate (or both) is true.
-        regime_passes: list[tuple[np.ndarray, list, str]] = [
-            (regime_aligned_market, distinct_regimes, _resolve_regime_scope(False, cross_sectional))
-        ]
-        if cross_sectional and (dual_write_symbol_hmm or cluster_regime_conditioned):
-            distinct_symbol_hmm_regimes = [r for r in set(regime_aligned) if r is not None]
-            regime_passes.append((regime_aligned, distinct_symbol_hmm_regimes, "symbol_hmm"))
+        # symbols) share the same per-label-array loop shape, built by
+        # _build_regime_passes (extracted pure helper, Phase 151 Plan 02) rather than
+        # duplicated inline. distinct_regimes is computed once above (/simplify
+        # finding: it was previously dead code, recomputed via a second full set()
+        # pass over regime_aligned_market) and passed straight through. Two
+        # independent gates decide whether the symbol_hmm pass runs, both require
+        # cross_sectional=True: dual_write_symbol_hmm (per-group field,
+        # alpha.regime.groups[*], live: rates only, migration 247) OR
+        # cluster_regime_conditioned (Phase 151 Plan 02's run-level APR switch,
+        # migration 286, making the second stratification axis unconditional across
+        # every routed symbol). See _build_regime_passes' own docstring for the
+        # no-double-append guarantee.
+        regime_passes = _build_regime_passes(
+            regime_aligned_market,
+            distinct_regimes,
+            regime_aligned,
+            cross_sectional,
+            dual_write_symbol_hmm,
+            cluster_regime_conditioned,
+            _resolve_regime_scope(False, cross_sectional),
+        )
 
         for label_array, labels_this_pass, resolved_scope in regime_passes:
             for regime_label in labels_this_pass:
