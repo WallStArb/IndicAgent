@@ -41,6 +41,8 @@ def test_compute_symbol_tf_return_keys():
     # 162-03: existing_keys removed -- the whole-cell fingerprint gate in main()
     # is the sole skip decision now, replacing the per-feature existing_keys
     # snapshot this function used to receive.
+    # Phase 151 Plan 02: cluster_regime_conditioned added, threaded through the
+    # identical path dual_write_symbol_hmm already takes (migration 286).
     expected_params = [
         "dsn",
         "symbol",
@@ -53,6 +55,7 @@ def test_compute_symbol_tf_return_keys():
         "feature_status_map",
         "mr_dict",
         "dual_write_symbol_hmm",
+        "cluster_regime_conditioned",
     ]
     assert params == expected_params, f"Expected params {expected_params}, got {params}"
 

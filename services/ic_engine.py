@@ -554,6 +554,15 @@ class ICEngineConfig:
     # APR fallback (false) so direct-constructor test sites (test_hac_ic_sharpe.py
     # precedent, commit b47595b9) do not break on this dataclass's field-count growth.
     sign_symmetric: bool = False
+    # Phase 151 Plan 02: global switch widening the existing regime_passes symbol_hmm
+    # stratification pass (previously gated ONLY by a routed symbol's per-group
+    # dual_write_symbol_hmm field, migration 247) to run for every regime-group-routed
+    # symbol. Purely additive (new regime_scope='symbol_hmm' rows only), unlike
+    # dual_write_symbol_hmm this is a run-level APR key, not a per-group field --
+    # resolved once here, not via _resolve_symbol_routing. Defaulted to the APR
+    # seed (migration 286: true) so direct-constructor test sites match production
+    # behavior by default.
+    cluster_regime_conditioned: bool = True
     # Phase 144 Plan 05: regime_group routing. Raw JSON string (or already-parsed
     # list[dict] normalized to a JSON string here -- see from_apr()) of the
     # alpha.regime.groups APR config -- passed to
@@ -723,6 +732,11 @@ class ICEngineConfig:
             # reads -- one flag, two consumers, so the champion/challenger switch can't
             # drift between eligibility and the lifecycle hook's demote predicate.
             sign_symmetric=bool(cfg.get_sync("alpha.ensemble.sign_symmetric", False)),
+            # Phase 151 Plan 02 (migration 286). Same read idiom as sign_symmetric
+            # directly above -- resolved once here, never re-read inside a per-cell loop.
+            cluster_regime_conditioned=bool(
+                cfg.get_sync("alpha.ensemble.cluster_regime_conditioned", True)
+            ),
             regime_groups_json=regime_groups_json,
             # Todo 133 (162-02 Task 1, migration 250): per-tf dict, mirrors
             # bootstrap_block_size above. Old scalar key
@@ -801,6 +815,11 @@ _COMPUTATIONAL_CONFIG_FIELDS: frozenset[str] = frozenset(
         # feed which cross-sectional cell and which regime labels a per-symbol row
         # gets -- a routing change moves real rows, not just downstream policy.
         "regime_groups_json",
+        # Widens the symbol_hmm regime_passes gate (see the field's own dataclass
+        # comment) -- toggling it changes WHICH feature_ic_scores rows exist
+        # (new regime_scope='symbol_hmm' rows appear/disappear), the same class of
+        # routing change as regime_groups_json directly above.
+        "cluster_regime_conditioned",
         "sharpe_window_size_subsampled",  # fixed subsampled-bar window -- moves ic_sharpe
         # 162-04 Task 2: currently UNUSED (0=disabled, no read path). Classified
         # COMPUTATIONAL as a deliberate conservative safety margin (same reasoning as
@@ -1519,6 +1538,7 @@ def _symbol_expected_cells(
     symbol_regime_class: dict[str, str],
     group_by_name: dict[str, dict],
     equity_model_enabled: bool,
+    cluster_regime_conditioned: bool = False,
 ) -> list[tuple[str, str]]:
     """The full set of (tf, pass_type) fingerprint cells one symbol writes.
 
@@ -1528,7 +1548,13 @@ def _symbol_expected_cells(
     'pooled' is always written exactly once per tf (regardless of label source).
     The primary regime pass writes 'cross_sectional' when this symbol is routed to
     an enabled group, else 'symbol_hmm'. An additional 'symbol_hmm' dual-write pass
-    is added when the routed group has dual_write_symbol_hmm=true.
+    is added when the routed group has dual_write_symbol_hmm=true OR the Phase 151
+    Plan 02 run-level cluster_regime_conditioned switch is true (migration 286) --
+    mirrors _compute_symbol_tf's two-condition symbol_hmm-pass gate exactly. Getting
+    this wrong would silently stop tracking staleness for the
+    widened symbol_hmm cells: an untracked cell is never re-checked against a fresh
+    upstream_watermark, so it would never be redispatched once written, even as
+    feature_vectors grows underneath it.
     """
     routed_group_name, dual_write = _resolve_symbol_routing(
         symbol, symbol_regime_class, group_by_name, equity_model_enabled
@@ -1540,7 +1566,7 @@ def _symbol_expected_cells(
     for tf in tfs:
         cells.append((tf, "pooled"))
         cells.append((tf, primary_pass_type))
-        if cross_sectional and dual_write:
+        if cross_sectional and (dual_write or cluster_regime_conditioned):
             cells.append((tf, "symbol_hmm"))
     return cells
 
@@ -2236,6 +2262,39 @@ def _merge_skip_reasons(total: dict[str, int], addition: dict[str, int]) -> None
         total[reason] = total.get(reason, 0) + count
 
 
+def _build_regime_passes(
+    regime_aligned_market: np.ndarray,
+    distinct_regimes: list,
+    regime_aligned: np.ndarray,
+    cross_sectional: bool,
+    dual_write_symbol_hmm: bool,
+    cluster_regime_conditioned: bool,
+    primary_resolved_scope: str,
+) -> list[tuple[np.ndarray, list, str]]:
+    """Build the list of (label_array, distinct_labels, resolved_scope) passes
+    _compute_symbol_tf's per-label-array loop iterates over.
+
+    Pure, DB-free extraction (Phase 151 Plan 02, mirrors _group_cells_for_metrics'
+    own extraction rationale) of the regime_passes construction previously inline
+    in _compute_symbol_tf -- lets Task 3's unit tests assert directly on
+    regime_passes' length/resolved_scope without a live DB connection.
+
+    Primary pass is always exactly one entry. An additional 'symbol_hmm' entry is
+    appended once when cross_sectional AND (dual_write_symbol_hmm OR
+    cluster_regime_conditioned) -- the `or` is not a double-append, matching
+    _compute_symbol_tf's own gate exactly (see that function's inline comment for
+    the two gates' provenance). Never includes the pooled sentinel -- pooled is
+    handled once, separately, by the caller.
+    """
+    regime_passes: list[tuple[np.ndarray, list, str]] = [
+        (regime_aligned_market, distinct_regimes, primary_resolved_scope)
+    ]
+    if cross_sectional and (dual_write_symbol_hmm or cluster_regime_conditioned):
+        distinct_symbol_hmm_regimes = [r for r in set(regime_aligned) if r is not None]
+        regime_passes.append((regime_aligned, distinct_symbol_hmm_regimes, "symbol_hmm"))
+    return regime_passes
+
+
 def _group_cells_for_metrics(
     all_results: list[dict], symbol: str, tf: str
 ) -> list[tuple[dict[str, Any], int]]:
@@ -2286,6 +2345,7 @@ def _compute_symbol_tf(
     feature_status_map: dict[str, str] | None = None,
     mr_dict: dict | None = None,
     dual_write_symbol_hmm: bool = False,
+    cluster_regime_conditioned: bool = False,
 ) -> tuple[list[dict], list[dict], dict[str, Any]]:
     """Compute IC for all (regime, lookahead) cells for one (symbol, tf).
 
@@ -2318,6 +2378,12 @@ def _compute_symbol_tf(
     When provided (equity_model_enabled=True), regime labels come from market_regimes
     instead of feature_vectors.regime, enabling cross-symbol IC stratification.
     When None (equity_model_enabled=False), falls back to feature_vectors.regime.
+
+    cluster_regime_conditioned: Phase 151 Plan 02 global switch (run-level
+    ICEngineConfig field, not per-group like dual_write_symbol_hmm). When True
+    (alongside dual_write_symbol_hmm), widens the symbol_hmm regime_passes entry
+    to run for every cross-sectionally-routed symbol, not only those whose group
+    sets dual_write_symbol_hmm. See the regime_passes construction below.
 
     Returns (pooled_rows, regime_rows, stats_dict) where stats_dict contains
     all_results, pvals_flat, pval_result_idxs, n_committed, n_skipped, n_passing_wf,
@@ -2501,24 +2567,29 @@ def _compute_symbol_tf(
         n_skipped += pooled_skipped
         _merge_skip_reasons(skip_reasons, pooled_skip_reasons)
 
-        # Primary pass (today's exact existing behavior) + optional dual-write pass
-        # (restore symbol_hmm measurement for regime-group-routed symbols, only when
-        # this symbol's routed group has dual_write_symbol_hmm set true in
-        # alpha.regime.groups) share the same per-label-array loop shape -- built as
-        # a list of (label_array, distinct_labels, resolved_scope) passes rather than
-        # duplicated inline, and reusing distinct_regimes (computed once above,
-        # /simplify finding: it was previously dead code, recomputed via a second
-        # full set() pass over regime_aligned_market) instead of recomputing it here.
-        # Dual-write's own distinct-label set is computed fresh since it operates
-        # over regime_aligned -- a genuinely different array from
-        # regime_aligned_market whenever cross_sectional=True. Never includes the
-        # pooled sentinel in either pass -- pooled is handled once, above.
-        regime_passes: list[tuple[np.ndarray, list, str]] = [
-            (regime_aligned_market, distinct_regimes, _resolve_regime_scope(False, cross_sectional))
-        ]
-        if cross_sectional and dual_write_symbol_hmm:
-            distinct_symbol_hmm_regimes = [r for r in set(regime_aligned) if r is not None]
-            regime_passes.append((regime_aligned, distinct_symbol_hmm_regimes, "symbol_hmm"))
+        # Primary pass (today's exact existing behavior) + optional symbol_hmm pass
+        # (restore per-symbol-HMM-regime-stratified measurement for regime-group-routed
+        # symbols) share the same per-label-array loop shape, built by
+        # _build_regime_passes (extracted pure helper, Phase 151 Plan 02) rather than
+        # duplicated inline. distinct_regimes is computed once above (/simplify
+        # finding: it was previously dead code, recomputed via a second full set()
+        # pass over regime_aligned_market) and passed straight through. Two
+        # independent gates decide whether the symbol_hmm pass runs, both require
+        # cross_sectional=True: dual_write_symbol_hmm (per-group field,
+        # alpha.regime.groups[*], live: rates only, migration 247) OR
+        # cluster_regime_conditioned (Phase 151 Plan 02's run-level APR switch,
+        # migration 286, making the second stratification axis unconditional across
+        # every routed symbol). See _build_regime_passes' own docstring for the
+        # no-double-append guarantee.
+        regime_passes = _build_regime_passes(
+            regime_aligned_market,
+            distinct_regimes,
+            regime_aligned,
+            cross_sectional,
+            dual_write_symbol_hmm,
+            cluster_regime_conditioned,
+            _resolve_regime_scope(False, cross_sectional),
+        )
 
         for label_array, labels_this_pass, resolved_scope in regime_passes:
             for regime_label in labels_this_pass:
@@ -3837,12 +3908,18 @@ def _run_ic_worker(args: tuple) -> dict:
 
     Args:
         args: (symbol, tfs, dsn, training_window_end, config, run_ts,
-               feature_status_map, mr_dict_by_tf, dual_write_symbol_hmm) --
+               feature_status_map, mr_dict_by_tf, dual_write_symbol_hmm,
+               cluster_regime_conditioned) --
                mr_dict_by_tf is already scoped to THIS symbol's own regime_group
                (Phase 144 Plan 05: mr_dicts_by_group.get(symbol_regime_class.get(
                symbol)) in main()), never another group's labels.
                dual_write_symbol_hmm (bool) -- resolved once per symbol from its
                routed group's APR field (alpha.regime.groups[*].dual_write_symbol_hmm).
+               cluster_regime_conditioned (bool) -- Phase 151 Plan 02's run-level APR
+               switch (config.cluster_regime_conditioned), threaded explicitly through
+               this tuple the same way dual_write_symbol_hmm is, even though it is
+               also reachable via config -- keeps both symbol_hmm-pass gates visible
+               at the same call-site shape.
                162-03: no existing_keys parameter -- the whole-cell fingerprint gate
                in main() is the sole skip decision, applied BEFORE a symbol is ever
                dispatched to a worker; a dispatched worker always recomputes every
@@ -3871,6 +3948,7 @@ def _run_ic_worker(args: tuple) -> dict:
         feature_status_map,
         mr_dict_by_tf,
         dual_write_symbol_hmm,
+        cluster_regime_conditioned,
     ) = args
 
     from src.core.service_utils import setup_service_logging
@@ -3917,6 +3995,7 @@ def _run_ic_worker(args: tuple) -> dict:
                     feature_status_map=feature_status_map,
                     mr_dict=mr_dict_by_tf.get(tf) if mr_dict_by_tf else None,
                     dual_write_symbol_hmm=dual_write_symbol_hmm,
+                    cluster_regime_conditioned=cluster_regime_conditioned,
                 )
                 # Adjust pval_result_idxs to point into this worker's global all_results list.
                 offset = len(all_results)
@@ -5051,7 +5130,12 @@ def main() -> None:
             if not args.cross_sectional_only:
                 for symbol in symbols:
                     expected_cells = _symbol_expected_cells(
-                        symbol, tfs, symbol_regime_class, group_by_name, equity_model_enabled
+                        symbol,
+                        tfs,
+                        symbol_regime_class,
+                        group_by_name,
+                        equity_model_enabled,
+                        config.cluster_regime_conditioned,
                     )
                     cell_fps: dict[tuple[str, str], dict[str, Any]] = {}
                     cell_classifications: dict[tuple[str, str], _FingerprintClassification] = {}
@@ -5298,6 +5382,13 @@ def main() -> None:
                             feature_status_map,
                             mr_dicts_by_group.get(routed_group_name) if enabled_groups else None,
                             dual_write_symbol_hmm if enabled_groups else False,
+                            # Global run-level switch (migration 286), NOT resolved via
+                            # _resolve_symbol_routing -- unlike dual_write_symbol_hmm this
+                            # is not a per-group field. The cross_sectional gate inside
+                            # _compute_symbol_tf (mr_dict is not None) already excludes
+                            # the enabled_groups=False case, so no extra guard is needed
+                            # here.
+                            config.cluster_regime_conditioned,
                         )
                     )
 

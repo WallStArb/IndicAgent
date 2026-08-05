@@ -917,3 +917,81 @@ def test_symbol_expected_cells_pooled_always_present_exactly_once_per_tf():
     ):
         for tf in _TFS:
             assert cells.count((tf, "pooled")) == 1
+
+
+# ---------------------------------------------------------------------------
+# Phase 151 Plan 02: _symbol_expected_cells' cluster_regime_conditioned param
+# must mirror _compute_symbol_tf's widened symbol_hmm gate exactly -- a drift
+# here would silently stop tracking staleness for the widened symbol_hmm cells
+# (see the function's own docstring for the failure mode).
+# ---------------------------------------------------------------------------
+
+
+def test_symbol_expected_cells_cluster_regime_conditioned_widens_routed_symbol():
+    """A routed symbol with dual_write_symbol_hmm=False but
+    cluster_regime_conditioned=True still gets a symbol_hmm cell -- the `or`
+    gate, not just the per-group flag.
+    """
+    cells = _symbol_expected_cells(
+        "SPY",
+        _TFS,
+        {"SPY": "equity"},
+        {"equity": {"dual_write_symbol_hmm": False}},
+        True,
+        cluster_regime_conditioned=True,
+    )
+    assert set(cells) == {
+        ("5m", "pooled"),
+        ("5m", "cross_sectional"),
+        ("5m", "symbol_hmm"),
+        ("1d", "pooled"),
+        ("1d", "cross_sectional"),
+        ("1d", "symbol_hmm"),
+    }
+
+
+def test_symbol_expected_cells_cluster_regime_conditioned_default_false_preserves_prior_behavior():
+    """Omitting cluster_regime_conditioned (default False) reproduces the
+    pre-Phase-151 behavior byte-for-byte for a routed, non-dual-write symbol.
+    """
+    cells = _symbol_expected_cells(
+        "SPY", _TFS, {"SPY": "equity"}, {"equity": {"dual_write_symbol_hmm": False}}, True
+    )
+    assert set(cells) == {
+        ("5m", "pooled"),
+        ("5m", "cross_sectional"),
+        ("1d", "pooled"),
+        ("1d", "cross_sectional"),
+    }
+
+
+def test_symbol_expected_cells_cluster_regime_conditioned_no_double_append_with_dual_write():
+    """Both dual_write_symbol_hmm=True and cluster_regime_conditioned=True: still
+    exactly one symbol_hmm cell per tf, not two (the `or` must not double-append,
+    mirroring _compute_symbol_tf's own no-double-append guarantee).
+    """
+    cells = _symbol_expected_cells(
+        "TLT",
+        _TFS,
+        {"TLT": "rates"},
+        {"rates": {"dual_write_symbol_hmm": True}},
+        True,
+        cluster_regime_conditioned=True,
+    )
+    for tf in _TFS:
+        assert cells.count((tf, "symbol_hmm")) == 1
+    assert len(cells) == 6
+
+
+def test_symbol_expected_cells_cluster_regime_conditioned_no_effect_when_not_cross_sectional():
+    """cluster_regime_conditioned=True on an UNROUTED symbol changes nothing --
+    the gate requires cross_sectional=True first, matching _compute_symbol_tf's
+    `cross_sectional and (...)` short-circuit.
+    """
+    cells = _symbol_expected_cells("SPY", _TFS, {}, {}, True, cluster_regime_conditioned=True)
+    assert set(cells) == {
+        ("5m", "pooled"),
+        ("5m", "symbol_hmm"),
+        ("1d", "pooled"),
+        ("1d", "symbol_hmm"),
+    }
