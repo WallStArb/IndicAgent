@@ -35,7 +35,8 @@ from typing import TYPE_CHECKING, NamedTuple
 import numpy as np
 import structlog
 
-from src.intelligence.feature_cache import _safe_corr, _zscore_from_deque
+from src.intelligence.feature_cache import _zscore_from_deque
+from src.intelligence.utils import safe_corr
 
 if TYPE_CHECKING:
     from src.intelligence.feature_factory import FeatureFactoryConfig
@@ -211,8 +212,8 @@ def build_cross_asset_series(
             slow_n = min(config.sb_corr_window_slow, len(sb_spy_ret_hist))
             spy_arr = np.array(sb_spy_ret_hist)
             tlt_arr = np.array(sb_tlt_ret_hist)
-            sb_corr_fast = _safe_corr(spy_arr[-fast_n:], tlt_arr[-fast_n:])
-            sb_corr_slow = _safe_corr(spy_arr[-slow_n:], tlt_arr[-slow_n:])
+            sb_corr_fast = safe_corr(spy_arr[-fast_n:], tlt_arr[-fast_n:])
+            sb_corr_slow = safe_corr(spy_arr[-slow_n:], tlt_arr[-slow_n:])
             sb_corr_history.append(sb_corr_fast)
             sb_corr_z = _zscore_from_deque(sb_corr_history, config.sb_corr_zscore_window)
 
@@ -358,7 +359,12 @@ def build_symbol_beta_series(
                 sym_arr = np.array(sym_ret_hist)
                 if not is_spy:
                     spy_arr = np.array(spy_ret_hist)
-                    var_spy = float(np.var(spy_arr))
+                    # ddof=1 matches np.cov's default (sample covariance, divides
+                    # by N-1) -- a ddof=0 var here would leave the OLS slope
+                    # biased high by N/(N-1) (code review WR-01, Phase 151
+                    # post-execution review: ~11% at the schema's minimum
+                    # factor_beta_window of 10, ~1.7% at the seeded default of 60).
+                    var_spy = float(np.var(spy_arr, ddof=1))
                     cov_spy = float(np.cov(sym_arr, spy_arr)[0, 1])
                     raw_equity_beta = cov_spy / var_spy if var_spy > 1e-12 else 0.0
                     equity_beta_hist.append(raw_equity_beta)
@@ -367,7 +373,7 @@ def build_symbol_beta_series(
                     )
                 if not is_tlt:
                     tlt_arr = np.array(tlt_ret_hist)
-                    var_tlt = float(np.var(tlt_arr))
+                    var_tlt = float(np.var(tlt_arr, ddof=1))  # see WR-01 note above
                     cov_tlt = float(np.cov(sym_arr, tlt_arr)[0, 1])
                     raw_rate_beta = cov_tlt / var_tlt if var_tlt > 1e-12 else 0.0
                     rate_beta_hist.append(raw_rate_beta)

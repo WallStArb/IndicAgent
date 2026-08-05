@@ -25,6 +25,7 @@ import numpy as np
 
 from src.core.bar_accumulator import _RTH_CLOSE_ET, _RTH_OPEN_ET
 from src.intelligence.context.session_context import _et_from_utc
+from src.intelligence.utils import safe_corr
 
 if TYPE_CHECKING:
     from src.intelligence.feature_factory import FeatureFactoryConfig
@@ -62,23 +63,36 @@ class FeatureCache:
     # Cross-asset — Spread/Beta Atomics (Phase 151 Plan 04, todos 123/180).
     # tip_tlt_ret_z/hyg_lqd_ret_z/sb_corr_* are symbol-independent, same
     # update_cross_asset() broadcast mechanism as the 3 fields above.
-    # equity_beta_z/rate_beta_z default 0.0 here (unconditionally, no
-    # SPY/TLT special-case at cache level -- that null override is applied
-    # at FeatureVector construction time, per Task 1); they are per-SYMBOL
-    # and populated by a different mechanism than update_cross_asset()
-    # (batch: _build_symbol_beta_series; live: not yet wired, plan 151-09).
+    # equity_beta_z/rate_beta_z default None here (per FeatureVector's own
+    # contract: None means "not measured", never a fake numeric placeholder --
+    # schemas.py's docstring is explicit that a self-regression beta is
+    # nullable BY DESIGN). No SPY/TLT special-case is needed at cache level
+    # (unlike the other symbol-independent fields above): None is already the
+    # correct value for every symbol until the live-path wiring lands (batch:
+    # _build_symbol_beta_series; live: not yet wired, plan 151-09 left this
+    # explicitly out of scope, see todo 264). Previously defaulted to 0.0,
+    # which fabricated a fake "zero beta" indistinguishable from a genuine
+    # measurement on every live-serving row (code review WR-03, Phase 151
+    # post-execution review).
     tip_tlt_ret_z: float = 0.0
     hyg_lqd_ret_z: float = 0.0
     sb_corr_fast: float = 0.0
     sb_corr_slow: float = 0.0
     sb_corr_z: float = 0.0
-    equity_beta_z: float = 0.0
-    rate_beta_z: float = 0.0
-    _tip_tlt_ratio_history: deque = field(default_factory=lambda: deque(maxlen=500), repr=False)
-    _hyg_lqd_ratio_history: deque = field(default_factory=lambda: deque(maxlen=500), repr=False)
-    _sb_corr_history: deque = field(default_factory=lambda: deque(maxlen=500), repr=False)
-    _equity_beta_history: deque = field(default_factory=lambda: deque(maxlen=500), repr=False)
-    _rate_beta_history: deque = field(default_factory=lambda: deque(maxlen=500), repr=False)
+    equity_beta_z: float | None = None
+    rate_beta_z: float | None = None
+    # maxlen=2520 matches the true APR ceiling for each backing zscore_window
+    # key (migration 289: feature.tip_tlt/hyg_lqd/sb_corr/factor_beta.zscore_window,
+    # all max_value=2520) -- a smaller maxlen would silently truncate the live
+    # path below whatever an ML tuner configures, while the batch path
+    # (build_cross_asset_series) always sizes to the full configured window.
+    # Same bug class this codebase already found and fixed once (migration
+    # 256, CR-02); code review WR-02, Phase 151 post-execution review.
+    _tip_tlt_ratio_history: deque = field(default_factory=lambda: deque(maxlen=2520), repr=False)
+    _hyg_lqd_ratio_history: deque = field(default_factory=lambda: deque(maxlen=2520), repr=False)
+    _sb_corr_history: deque = field(default_factory=lambda: deque(maxlen=2520), repr=False)
+    _equity_beta_history: deque = field(default_factory=lambda: deque(maxlen=2520), repr=False)
+    _rate_beta_history: deque = field(default_factory=lambda: deque(maxlen=2520), repr=False)
     # sb_corr_fast/slow need SPY/TLT's own raw log-return history to compute a
     # rolling correlation (Rule 2 addition beyond the plan's literal 5-deque
     # list -- the correlation is structurally uncomputable without persisting
@@ -647,8 +661,8 @@ class FeatureCache:
                 slow_n = min(config.sb_corr_window_slow, len(self._sb_spy_log_ret_history))
                 spy_arr = np.array(self._sb_spy_log_ret_history)
                 tlt_arr = np.array(self._sb_tlt_log_ret_history)
-                self.sb_corr_fast = _safe_corr(spy_arr[-fast_n:], tlt_arr[-fast_n:])
-                self.sb_corr_slow = _safe_corr(spy_arr[-slow_n:], tlt_arr[-slow_n:])
+                self.sb_corr_fast = safe_corr(spy_arr[-fast_n:], tlt_arr[-fast_n:])
+                self.sb_corr_slow = safe_corr(spy_arr[-slow_n:], tlt_arr[-slow_n:])
                 self._sb_corr_history.append(self.sb_corr_fast)
                 self.sb_corr_z = _zscore_from_deque(
                     self._sb_corr_history, config.sb_corr_zscore_window
@@ -1231,21 +1245,3 @@ def _zscore_from_deque(history: deque, window: int) -> float:
     if std < 1e-8:
         return 0.0
     return float((float(history[-1]) - float(arr.mean())) / std)
-
-
-def _safe_corr(x: np.ndarray, y: np.ndarray) -> float:
-    """Pearson correlation coefficient between two equal-length arrays.
-
-    Returns 0.0 for degenerate input (fewer than 2 samples or zero variance
-    in either series) rather than NaN. Local to this module (not imported
-    from feature_factory.py's _correlation()) to avoid a circular import --
-    feature_factory.py already imports FeatureCache from this module.
-    """
-    if len(x) < 2 or len(y) < 2:
-        return 0.0
-    xm = x - x.mean()
-    ym = y - y.mean()
-    denom = float(np.sqrt(np.dot(xm, xm) * np.dot(ym, ym)))
-    if denom < 1e-10:
-        return 0.0
-    return float(np.dot(xm, ym) / denom)

@@ -145,3 +145,23 @@ def guard_intraday_only(frames: dict[str, Any]) -> bool:
     """
     tf = frames.get("timeframe", "")
     return not tf or tf in INTRADAY_ONLY_TFS
+
+
+def safe_corr(x: np.ndarray, y: np.ndarray) -> float:
+    """Pearson correlation coefficient between two equal-length arrays.
+
+    Returns 0.0 for degenerate input (fewer than 2 samples or zero variance
+    in either series) rather than NaN. Canonical implementation -- previously
+    duplicated as feature_factory.py's `_correlation()` and feature_cache.py's
+    `_safe_corr()` (byte-identical formulas, different names, in different
+    modules that couldn't import from each other directly without a cycle);
+    consolidated here (code review IN-01, Phase 151 post-execution review).
+    """
+    if len(x) < 2 or len(y) < 2:
+        return 0.0
+    xm = x - x.mean()
+    ym = y - y.mean()
+    denom = float(np.sqrt(np.dot(xm, xm) * np.dot(ym, ym)))
+    if denom < 1e-10:
+        return 0.0
+    return float(np.dot(xm, ym) / denom)

@@ -3,9 +3,22 @@ status: pending
 priority: P3
 found_during: phase-151-post-execution-simplify
 found_date: 2026-08-05
+updated: 2026-08-05
 ---
 
 # equity_beta_z/rate_beta_z are allocated on FeatureCache but never computed on the live path
+
+## Update 2026-08-05 (code review WR-03 fixed the fake-zero part, wiring gap remains)
+
+Code review (151-REVIEW.md WR-03) caught the sharpest edge of this: the live default was
+`0.0`, not `None`, fabricating a fake "zero beta" indistinguishable from a genuine
+measurement -- a direct violation of `FeatureVector`'s own "None means not measured"
+contract, which every sibling cross-asset field correctly honors. **Fixed**: `FeatureCache.
+equity_beta_z`/`rate_beta_z` now default to `None` (`src/intelligence/feature_cache.py`),
+so an unwired live row now honestly reads NULL instead of a fabricated 0.0. The wiring gap
+itself (no live computation exists at all) is UNCHANGED and still needs the work below --
+this update only closes the "silent wrong answer" half of the problem, not the "feature
+doesn't work live yet" half.
 
 ## What
 
@@ -20,8 +33,9 @@ grep -rn "equity_beta_history\|rate_beta_history" services/ src/ --include="*.py
 # zero hits outside the declaration in feature_cache.py
 ```
 
-The live `compute()` path reads `cache.equity_beta_z`/`cache.rate_beta_z`, which sit at their
-dataclass default of `0.0` forever on any live-serving row.
+The live `compute()` path reads `cache.equity_beta_z`/`cache.rate_beta_z`, which (as of the
+2026-08-05 fix above) now correctly stay `None` rather than a fabricated `0.0` on any
+live-serving row -- but still carry no real live-computed value at all.
 
 ## Context
 

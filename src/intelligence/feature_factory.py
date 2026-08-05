@@ -1,4 +1,4 @@
-"""FeatureFactory — pure-function library for computing all 270 FeatureVector primitives.
+"""FeatureFactory — pure-function library for computing all 292 FeatureVector primitives.
 
 STATELESS CONTRACT (D-08): FeatureFactory has no __init__ and stores no config.
 The FeatureFactoryConfig frozen dataclass is built ONCE by the caller
@@ -46,7 +46,7 @@ from src.intelligence.feature_cache import (
 )
 from src.intelligence.features.cross_asset_series import CrossAssetRecord
 from src.intelligence.schemas import FeatureVector
-from src.intelligence.utils import clamp, find_peaks, find_troughs
+from src.intelligence.utils import clamp, find_peaks, find_troughs, safe_corr
 from src.intelligence.utils.gradient_utils import freshness_decay, linear_ramp
 
 # ---------------------------------------------------------------------------
@@ -1732,21 +1732,6 @@ def _true_range_pct(
     return tr / close
 
 
-def _correlation(x: np.ndarray, y: np.ndarray) -> float:
-    """Pearson correlation coefficient between two equal-length arrays.
-    Returns 0.0 for degenerate input (fewer than 2 samples or zero variance
-    in either series).
-    """
-    if len(x) < 2 or len(y) < 2:
-        return 0.0
-    xm = x - x.mean()
-    ym = y - y.mean()
-    denom = float(np.sqrt(np.dot(xm, xm) * np.dot(ym, ym)))
-    if denom < 1e-10:
-        return 0.0
-    return float(np.dot(xm, ym) / denom)
-
-
 def _variance_ratio(closes: np.ndarray, n: int) -> float:
     """Lo-MacKinlay variance ratio: Var(N-period return) / (N * Var(1-period
     return)), using overlapping N-period sums computed over ALL available
@@ -2948,7 +2933,7 @@ def _vol_of_vol_series_full(atr_z: np.ndarray, window: int) -> np.ndarray:
 
 
 def _high_low_corr_series_full(highs: np.ndarray, lows: np.ndarray, window: int) -> np.ndarray:
-    """result[i] == streaming _correlation(H, L) over the trailing (expanding
+    """result[i] == streaming safe_corr(H, L) over the trailing (expanding
     until saturated) `window` bars ending at bar i. O(n x window).
     """
     n = len(highs)
@@ -2958,7 +2943,7 @@ def _high_low_corr_series_full(highs: np.ndarray, lows: np.ndarray, window: int)
     for i in range(n):
         w = min(window, i + 1)
         start = i + 1 - w
-        result[i] = _correlation(h[start : i + 1], lo[start : i + 1])
+        result[i] = safe_corr(h[start : i + 1], lo[start : i + 1])
     return result
 
 
@@ -3228,7 +3213,7 @@ def _price_vol_corr_series_full(
     intentionally consistent with that established rolling-correlation
     pattern rather than introducing a one-off O(n) prefix-sum variant that
     would diverge from it. Degeneracy handling (near-zero variance in either
-    slice -> 0.0) delegates to `_correlation()`, the same shared helper
+    slice -> 0.0) delegates to `safe_corr()`, the same shared helper
     _high_low_corr_series_full already uses.
 
     `abs_rets` may be passed in precomputed (the fast/slow calls in
@@ -3252,7 +3237,7 @@ def _price_vol_corr_series_full(
         vol_w = vols[start + 1 : i + 1]
         if len(rets_w) < 2:
             continue
-        result[i] = _correlation(rets_w, vol_w)
+        result[i] = safe_corr(rets_w, vol_w)
     return result
 
 
@@ -6630,7 +6615,7 @@ class FeatureFactory:
         cache: FeatureCache,
         config: FeatureFactoryConfig,
     ) -> FeatureVector:
-        """Compute all 270 FeatureVector primitives from bars + cache + config.
+        """Compute all 292 FeatureVector primitives from bars + cache + config.
 
         PURE FUNCTION: no IO, no ConfigService.get(), no DB reads, no Kafka.
         All tunable numerics come from the config argument (SC-9).
@@ -6648,7 +6633,7 @@ class FeatureFactory:
 
         Returns
         -------
-        FeatureVector with all 270 fields populated -- most set to finite
+        FeatureVector with all 292 fields populated -- most set to finite
         floats, but 85 are `float | None` by design (41 Phase 165 Swing/Fib
         + 44 optional cross-sectional/canary/SMC placeholders); see the
         FeatureVector class docstring for the full breakdown.

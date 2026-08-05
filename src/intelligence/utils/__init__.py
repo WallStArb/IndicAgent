@@ -12,6 +12,7 @@ from src.intelligence.utils.core import (  # noqa: F401
     guard_intraday_only,
     is_num,
     linreg_slope,
+    safe_corr,
     utc_datetime_from_df,
 )
 
@@ -23,5 +24,6 @@ __all__ = [
     "guard_intraday_only",
     "is_num",
     "linreg_slope",
+    "safe_corr",
     "utc_datetime_from_df",
 ]
