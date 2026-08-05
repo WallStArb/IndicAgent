@@ -1,7 +1,8 @@
 ---
-status: pending
+status: partially-fixed
 priority: P1
 filed: 2026-08-04
+fixed: 2026-08-05
 source: conversation working through "where do we go to see what has edge" -- concluded
   feature_ic_scores already has everything needed (training_window_end is the walk-forward
   time axis, history accrues automatically as new corpus runs land), the only real gap is a
@@ -55,3 +56,24 @@ answers to the same question.
   never feature_registry or concept_registry. Keep it that way (measurement layer stays the
   source for reporting; governance layer stays actuator-only, per the 2026-08-04 architecture
   review's measurement/governance/reporting split).
+
+## Fix applied 2026-08-05 (migration 297) -- views done, skeleton retirement deferred
+
+**Done:** `feature_edge_by_regime` and `feature_edge_by_symbol` views created (migration 297),
+matching the two grains this todo specified exactly. Filters were verified against
+`services/ic_engine.py`'s actual live write/read paths, not taken from this todo's own prose
+(which described one unreachable filter combination) -- full derivation trail is in migration
+297's own header comment, not repeated here. Verified both views against live synthetic rows
+covering all 3 `regime_scope` values (cross_sectional/pooled/symbol_hmm) -- each row landed in
+exactly the view it belonged to, `symbol_hmm` rows in neither (correct, no view covers that
+grain yet -- not asked for by this todo).
+
+**Deferred, not done:** retiring `scripts/analysis/ops_primitive_discovery_report.py` (the
+orphaned skeleton this view supersedes). Phase 170 (feature_registry -> Concept Registry
+migration) is running in a separate, concurrent session as of 2026-08-04 per `.planning/STATE.md`,
+and its most recent commit (`fb638e86`) already swept a comment-only reference through this exact
+file. Deleting or modifying it now risks a real conflict with that session's in-flight work --
+confirmed via `git log -- scripts/analysis/ops_primitive_discovery_report.py`, not assumed.
+Re-open this decision (finish the report generator on top of the new views, or delete the
+skeleton outright as superseded scaffolding, per this todo's original framing) once Phase 170
+merges to `main`.
