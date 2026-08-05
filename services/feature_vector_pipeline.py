@@ -11,17 +11,18 @@ at init. FeatureCache refreshed every regime_cache_refresh_bars bars.
 from __future__ import annotations
 
 import asyncio
+import bisect
 import dataclasses
 import os
 import signal as _signal
 import time
+from datetime import UTC, date, datetime
 from typing import Any
 
 import _path_bootstrap  # noqa: F401 — project root on sys.path
 import numpy as np
 
 from services._batch_utils import get_dict_config as _get_dict_config
-from services._batch_utils import get_list_config as _get_list_config
 from src.config.config_service import ConfigService
 from src.config.settings import (
     get_active_contracts,
@@ -54,7 +55,6 @@ from src.core.stream_keys import (
 )
 from src.intelligence.feature_cache import (
     _CTF_HIGHER_TF,
-    CrossAssetState,
     FeatureCache,
     _rsi_simple,
 )
@@ -62,6 +62,17 @@ from src.intelligence.feature_factory import (
     FEATURE_FACTORY_VERSION,
     FeatureFactory,
     FeatureFactoryConfig,
+)
+from src.intelligence.features.cross_asset_series import (
+    CROSS_ASSET_SYMBOLS,
+    HYG,
+    LQD,
+    SHY,
+    SPY,
+    TIP,
+    TLT,
+    CrossAssetRecord,
+    build_cross_asset_series,
 )
 from src.intelligence.pipeline import (
     CacheManager,
@@ -92,12 +103,15 @@ _OUTPUT_QUEUE_MAXSIZE = 500
 _MAX_QUEUE_DEPTH = 500
 _PIPELINE_VERSION = "3.0.0"
 
-# Cross-asset proxy roles for FeatureCache.update_cross_asset() (todo 221) -- APR fallback
-# default only, in (equity, long_bond, short_bond) role order. Which tickers play each role
-# is a behavioral list (CLAUDE.md APR mandate category 2: "lists controlling WHAT the
-# algorithm processes"), so the live driver is feature.cross_asset.role_symbols
-# (migration 279), loaded into self._cross_asset_symbols during _prewarm_threshold_config().
-_CROSS_ASSET_SYMBOLS_DEFAULT: tuple[str, str, str] = ("SPY", "TLT", "SHY")
+# Cross-asset (Plan 151-09 Task 2): daily-grain SQL, fetched once at setup and at most
+# once per UTC day thereafter. See _load_cross_asset_series()'s docstring for why this
+# replaced todo 221/222's per-timeframe CrossAssetState mechanism (a confirmed grain
+# mismatch against the canonical daily-broadcast definition, not just a rescoping).
+_CROSS_ASSET_FETCH_SQL = (
+    "SELECT timestamp, open, high, low, close, volume "
+    "FROM market_data_ohlcv_tradeable WHERE symbol = $1 AND timeframe = '1d' "
+    "ORDER BY timestamp ASC"
+)
 
 # Inverse of feature_cache._CTF_HIGHER_TF: which LTF caches read ctf_momentum from a
 # given HTF timeframe when a bar on that HTF arrives (todo 241). e.g. a "1h" bar updates
@@ -177,14 +191,16 @@ class FeatureVectorPipeline(BaseDaemon):
         # Per-(symbol, tf) FeatureCache — lazily created via _get_cache()
         self._feature_caches: dict[str, FeatureCache] = {}
 
-        # Per-tf cross-asset broadcast state (todo 221/222) — lazily created via
-        # _get_cross_asset_state(); see _refresh_cross_asset_state()'s docstring for why
-        # this is a single shared per-tf state rather than being computed directly on
-        # each symbol's own FeatureCache.
-        self._cross_asset_state: dict[str, CrossAssetState] = {}
-        # (equity, long_bond, short_bond) role order -- APR default until
-        # _prewarm_threshold_config() loads feature.cross_asset.role_symbols.
-        self._cross_asset_symbols: tuple[str, str, str] = _CROSS_ASSET_SYMBOLS_DEFAULT
+        # Cross-asset daily series (Plan 151-09 Task 2) — date -> CrossAssetRecord,
+        # built by _load_cross_asset_series() (the SAME build_cross_asset_series() the
+        # batch path calls) at setup and at most once per UTC day thereafter. Replaces
+        # todo 221/222's per-timeframe CrossAssetState mechanism, which computed these
+        # fields from THIS TIMEFRAME's own intraday bar history -- a confirmed grain
+        # mismatch against the canonical daily-broadcast definition schemas.py documents
+        # and the corpus was measured against. See _load_cross_asset_series()'s docstring.
+        self._cross_asset_by_date: dict[date, CrossAssetRecord] = {}
+        self._cross_asset_dates_sorted: list[date] = []
+        self._cross_asset_built_on: date | None = None
 
         self._config_service: ConfigService | None = None  # initialised in _setup()
         self._feature_factory_config: FeatureFactoryConfig | None = None
@@ -309,70 +325,123 @@ class FeatureVectorPipeline(BaseDaemon):
             for b in bars
         ]
 
-    def _cross_asset_role_bars(self, tf: str) -> tuple[list[dict], list[dict], list[dict]]:
-        """Return (equity, long_bond, short_bond) bar-history dicts for self._cross_asset_symbols."""
-        equity, long_bond, short_bond = self._cross_asset_symbols
-        return (
-            self._bars_to_dicts(self._bar_history.get(equity, tf)),
-            self._bars_to_dicts(self._bar_history.get(long_bond, tf)),
-            self._bars_to_dicts(self._bar_history.get(short_bond, tf)),
-        )
+    async def _load_cross_asset_series(self) -> None:
+        """Fetch 1d bars for CROSS_ASSET_SYMBOLS and build self._cross_asset_by_date via
+        build_cross_asset_series() -- the SAME function the batch path calls (Plan
+        151-09 Task 1/2). That shared call is the entire live/batch parity mechanism;
+        this method never hand-rolls the math.
 
-    def _refresh_cross_asset_state(self, state: CrossAssetState, tf: str) -> None:
-        """Recompute vix_z/flight_quality/yield_slope_z from current role-symbol history.
+        Replaces todo 221/222's per-timeframe CrossAssetState mechanism (`_refresh_
+        cross_asset_state`/`_warm_cross_asset_state`/`_get_cross_asset_state`/
+        `_cross_asset_state_for_bar`, all removed by this plan), which computed vix_z/
+        flight_quality/yield_slope_z from THIS TIMEFRAME's own bar history
+        (`self._bar_history.get(role_symbol, tf)` -- 5m bars at tf=="5m", 1h bars at
+        tf=="1h", ...). That is a materially different statistical object than the
+        canonical daily-broadcast definition: schemas.py's FeatureVector docstring
+        states these fields are "broadcast to every symbol on a given date, like vix_z
+        above" (one value per calendar date, computed from DAILY closes), and
+        build_cross_asset_series only ever receives "1d" bars from the batch caller.
+        The per-tf mechanism was a confirmed grain mismatch against the corpus every
+        IC/gate measurement was built against -- not a placeholder-vs-real-value bug
+        (those 3 fields were already non-zero), a train-serve skew bug. See
+        151-09-SUMMARY.md's Grain Mismatch Finding section for the full evidence trail
+        (schemas.py:1437, backfill_feature_factory.py's daily-bars-only call site,
+        this method's own predecessor's tf-scoped bar_history read).
 
-        Call only on a genuinely new bar for the equity role symbol (self._cross_asset_symbols[0])
-        -- see _cross_asset_state_for_bar(). update_cross_asset() appends to an internal
-        realized-vol deque on every call, so triggering on all 3 role symbols' bars instead of
-        just one would append the same observation up to 3x per bar period and corrupt the
-        trailing z-score window. That is why cross-asset state lives in a single shared per-tf
-        CrossAssetState, broadcast onto every symbol's own cache, instead of being computed
-        directly on each symbol's own FeatureCache.
+        Reads market_data_ohlcv_tradeable (never the raw market_data_ohlcv calendar-
+        grid table, todo 124) via self._db, the daemon's own DB handle -- legitimate
+        per DAG invariant 2 (root CLAUDE.md): compute daemons "may hold a DB handle
+        for their own reads". Assigns to self._cross_asset_by_date/
+        self._cross_asset_dates_sorted only after every symbol's fetch and the builder
+        call succeed, so a mid-fetch exception leaves the prior (possibly empty,
+        possibly yesterday's still-good) state untouched rather than a partial one --
+        callers (_setup(), the day-rollover task in _process_bar_compute()) catch any
+        exception, log exactly one warning, and do not retry until the next UTC day.
         """
         assert self._feature_factory_config is not None, "FeatureFactoryConfig not prewarmed"
-        equity_bars, long_bond_bars, short_bond_bars = self._cross_asset_role_bars(tf)
-        state.update_cross_asset(
-            equity_bars, long_bond_bars, short_bond_bars, self._feature_factory_config
+        bars_by_symbol: dict[str, list[dict]] = {}
+        for symbol in CROSS_ASSET_SYMBOLS:
+            rows = await self._db.execute_query(_CROSS_ASSET_FETCH_SQL, symbol)
+            bars_by_symbol[symbol] = [
+                {
+                    "ts": (
+                        r["timestamp"]
+                        if r["timestamp"].tzinfo
+                        else r["timestamp"].replace(tzinfo=UTC)
+                    ),
+                    "open": float(r["open"]),
+                    "high": float(r["high"]),
+                    "low": float(r["low"]),
+                    "close": float(r["close"]),
+                    "volume": float(r["volume"]),
+                }
+                for r in rows
+            ]
+
+        cross_asset_by_date = build_cross_asset_series(
+            bars_by_symbol[SPY],
+            bars_by_symbol[TLT],
+            bars_by_symbol[SHY],
+            bars_by_symbol[TIP],
+            bars_by_symbol[HYG],
+            bars_by_symbol[LQD],
+            self._feature_factory_config,
         )
+        self._cross_asset_by_date = cross_asset_by_date
+        self._cross_asset_dates_sorted = sorted(cross_asset_by_date.keys())
 
-    def _warm_cross_asset_state(self, state: CrossAssetState, tf: str) -> None:
-        """Replay buffered role-symbol history bar-by-bar so vix_z/yield_slope_z's rolling
-        z-score windows are populated on first access after a restart, instead of cold-starting
-        at the 0.0 dataclass default for `window` bars (mirrors _get_cache()'s buffered-history
-        replay, T-164-07) -- a single _refresh_cross_asset_state() call over the whole buffer
-        would append only ONE observation, not one per historical bar.
-        """
-        assert self._feature_factory_config is not None, "FeatureFactoryConfig not prewarmed"
-        equity_bars, long_bond_bars, short_bond_bars = self._cross_asset_role_bars(tf)
-        for i in range(2, max(len(equity_bars), len(long_bond_bars), len(short_bond_bars)) + 1):
-            state.update_cross_asset(
-                equity_bars[:i],
-                long_bond_bars[:i],
-                short_bond_bars[:i],
-                self._feature_factory_config,
-            )
+    def _cross_asset_record_for_date(self, d: date) -> CrossAssetRecord:
+        """Return the cross-asset record for the most recent date <= d (causal: never a
+        future date). Falls back to CrossAssetRecord()'s all-0.0 defaults when d
+        predates the earliest available date or the series never loaded -- with
+        self._cross_asset_dates_sorted empty, bisect returns index -1 for every date,
+        always hitting this fallback (today's exact degradation path).
 
-    def _get_cross_asset_state(self, tf: str) -> CrossAssetState:
-        """Return the shared per-tf cross-asset broadcast state, creating and warming it
-        from buffered role-symbol history on first access. Read-only accessor -- see
-        _cross_asset_state_for_bar() for the refresh-or-reuse decision.
+        Deliberately "most recent <= d", not build_cross_asset_series' own exact-date
+        lookup (FeatureFactory.compute_batch's `cross_asset_by_date.get(bar_ts.date(),
+        CrossAssetRecord())`): the live daemon processes bars on the CURRENT,
+        still-forming trading day, whose own 1d bar does not exist in the DB until
+        end-of-day. An exact match would zero every cross-asset field for the entire
+        live trading session, every single day -- strictly worse than yesterday's
+        still-real value. For any date that IS a key in self._cross_asset_by_date
+        (every historical, already-closed date the batch path also has), "most recent
+        <= d" reduces to an exact match, so the live/batch parity claim holds to
+        1e-12 on real historical dates -- it only differs on the still-open date.
         """
-        if tf not in self._cross_asset_state:
-            state = CrossAssetState()
-            self._warm_cross_asset_state(state, tf)
-            self._cross_asset_state[tf] = state
-        return self._cross_asset_state[tf]
+        idx = bisect.bisect_right(self._cross_asset_dates_sorted, d) - 1
+        if idx < 0:
+            return CrossAssetRecord()
+        return self._cross_asset_by_date[self._cross_asset_dates_sorted[idx]]
 
-    def _cross_asset_state_for_bar(self, bar: BarMessage) -> CrossAssetState:
-        """Return bar.tf's cross-asset broadcast state, refreshing it first if `bar` is a
-        genuinely new bar for the equity role symbol (see _refresh_cross_asset_state()).
-        Single call site for the "when to refresh" rule -- callers never need to know which
-        symbol triggers it.
+    async def _refresh_cross_asset_series(self, built_for: date) -> None:
+        """Off-hot-path daily rebuild -- scheduled by _process_bar_compute()'s UTC-day
+        check, never awaited inline. self._cross_asset_built_on is already set to
+        `built_for` by the caller before this task is created, so a second bar crossing
+        the same UTC boundary before this completes cannot double-trigger a rebuild.
+
+        On failure: log exactly one warning and return -- self._cross_asset_by_date/
+        self._cross_asset_dates_sorted are left at their PRIOR state (not wiped to
+        empty), since _load_cross_asset_series() only assigns after every symbol's
+        fetch and the builder call succeed. Keeping yesterday's still-real values on a
+        transient failure is strictly better than forcing every field to 0.0 for a day
+        that already had good data (CLAUDE.md: never drop data that could contain
+        signal) -- 0.0 is reserved for genuine cold start / total fetch failure, not a
+        one-day hiccup on an otherwise-healthy series.
+
+        Logs once per day with the date and the number of dates now available -- never
+        per bar (CLAUDE.md's never-log-per-row rule applies here too: this fires at
+        most once per UTC day, but the same discipline).
         """
-        state = self._get_cross_asset_state(bar.tf)
-        if bar.symbol == self._cross_asset_symbols[0]:
-            self._refresh_cross_asset_state(state, bar.tf)
-        return state
+        try:
+            await self._load_cross_asset_series()
+        except Exception as error:
+            self.logger.warning("cross_asset.series_load_failed", error=str(error))
+            return
+        self.logger.info(
+            "cross_asset.series_refreshed",
+            date=str(built_for),
+            n_dates=len(self._cross_asset_by_date),
+        )
 
     async def stop(self) -> None:
         self.logger.info("agent.shutdown_initiated", agent=self.name)
@@ -385,6 +454,19 @@ class FeatureVectorPipeline(BaseDaemon):
         # ConfigService: shared pool, prewarm feature.* and threshold.* keys.
         self._config_service = ConfigService(self.settings.database_url, pool=self._db.pool)
         await self._prewarm_threshold_config()
+
+        # Cross-asset daily series (Plan 151-09 Task 2) -- needs both self._db (just
+        # initialised above) and self._feature_factory_config (needs the z-score
+        # windows, just prewarmed above). Set _cross_asset_built_on BEFORE the load
+        # attempt so a failure here does not retry on every subsequent bar within the
+        # same UTC day -- see _load_cross_asset_series()'s docstring for why a failure
+        # degrades to the prior (here: empty, all-0.0-via-CrossAssetRecord()) state
+        # rather than crashing.
+        self._cross_asset_built_on = datetime.now(UTC).date()
+        try:
+            await self._load_cross_asset_series()
+        except Exception as error:
+            self.logger.warning("cross_asset.series_load_failed", error=str(error))
 
         self._kafka_producer = KafkaProducerClient(
             bootstrap_servers=self.settings.kafka_bootstrap_servers
@@ -1116,23 +1198,14 @@ class FeatureVectorPipeline(BaseDaemon):
             self._feature_factory_config.rsi_mid_period, self._bar_history.maxlen
         )
 
-        # feature.cross_asset.role_symbols (migration 279) -- not part of FeatureFactoryConfig
-        # (it's pipeline-level routing, not a compute parameter), so it's loaded independently
-        # of the _int/_float/_dict helpers above and their _THRESHOLD_KEYS-membership assertion.
-        # Order is load-bearing (equity, long_bond, short_bond roles) -- kept as a tuple, not a
-        # frozenset, and validated at load time so a misconfigured key fails loud here rather
-        # than silently emitting all-zero cross-asset features forever (CLAUDE.md: silent wrong
-        # answers are worse than loud crashes).
-        await cs.get("feature.cross_asset.role_symbols", list(_CROSS_ASSET_SYMBOLS_DEFAULT))
-        _role_symbols = _get_list_config(
-            cs, "feature.cross_asset.role_symbols", list(_CROSS_ASSET_SYMBOLS_DEFAULT)
-        )
-        if len(_role_symbols) != 3:
-            raise AssertionError(
-                f"feature.cross_asset.role_symbols must have exactly 3 entries "
-                f"(equity, long_bond, short_bond roles), got {_role_symbols!r}"
-            )
-        self._cross_asset_symbols = (_role_symbols[0], _role_symbols[1], _role_symbols[2])
+        # feature.cross_asset.role_symbols (migration 279) is no longer read: Plan
+        # 151-09 Task 2 replaced the per-timeframe, role-symbol-substitutable
+        # CrossAssetState mechanism with a daily-grain build_cross_asset_series() call
+        # over the FIXED CROSS_ASSET_SYMBOLS tuple (SPY/TLT/SHY/TIP/HYG/LQD) -- matching
+        # the batch path, which never read this APR key either (its call site hardcodes
+        # the same 6 symbols). The migration-279 config_schema/config_state rows are now
+        # orphaned; left in place (DB row cleanup is out of this task's scope) but a
+        # todo is filed to consider a follow-up migration to remove them.
 
         self.logger.info(
             "feature_vector_pipeline.feature_config_loaded",
@@ -1401,14 +1474,31 @@ class FeatureVectorPipeline(BaseDaemon):
 
         bars_dicts = self._bars_to_dicts(raw_bars)
 
-        # Cross-asset broadcast (todo 221): copy this tf's shared vix_z/flight_quality/
-        # yield_slope_z onto this symbol's own cache before compute() reads them -- see
-        # _refresh_cross_asset_state() for why refreshes are rate-limited to genuinely-new
-        # SPY/TLT/SHY bars.
-        cross_state = self._cross_asset_state_for_bar(bar)
-        cache.vix_z = cross_state.vix_z
-        cache.flight_quality = cross_state.flight_quality
-        cache.yield_slope_z = cross_state.yield_slope_z
+        # Once-per-UTC-day cross-asset refresh (Plan 151-09 Task 2): a date comparison
+        # only -- the actual DB read/rebuild is scheduled as a fire-and-forget task, off
+        # this hot path (bar latency is instrumented, bar_e2e_latency_ms). Set
+        # _cross_asset_built_on BEFORE scheduling so a second bar crossing the same UTC
+        # boundary before the task completes cannot double-trigger.
+        today = datetime.now(UTC).date()
+        if today != self._cross_asset_built_on:
+            self._cross_asset_built_on = today
+            refresh_task = asyncio.create_task(self._refresh_cross_asset_series(today))
+            self._background_tasks.add(refresh_task)
+            refresh_task.add_done_callback(self._background_tasks.discard)
+
+        # Cross-asset broadcast (Plan 151-09 Task 2): look up this bar's own date in the
+        # daily series -- see _cross_asset_record_for_date()'s docstring for the
+        # "most recent <= d" causal fallback (never a future date) and why this
+        # replaced todo 221/222's per-timeframe CrossAssetState mechanism.
+        _ca = self._cross_asset_record_for_date(bar.ts.date())
+        cache.vix_z = _ca.vix_z
+        cache.flight_quality = _ca.flight_quality
+        cache.yield_slope_z = _ca.yield_slope_z
+        cache.tip_tlt_ret_z = _ca.tip_tlt_ret_z
+        cache.hyg_lqd_ret_z = _ca.hyg_lqd_ret_z
+        cache.sb_corr_fast = _ca.sb_corr_fast
+        cache.sb_corr_slow = _ca.sb_corr_slow
+        cache.sb_corr_z = _ca.sb_corr_z
 
         # Refresh regime features every N bars (slow path; compute() reads from cache)
         cache.bars_since_regime_refresh += 1
