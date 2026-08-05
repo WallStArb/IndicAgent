@@ -1044,6 +1044,8 @@ def run_compute_stage(
             pipeline_version,
             warm_up_bars,
             cross_asset_by_date,
+            spy_bars,
+            tlt_bars,
             refresh,
             insert_batch_size,
         )
@@ -1112,8 +1114,13 @@ def _run_compute_worker(args: tuple) -> dict:
 
     Args:
         args: (symbol, tfs, dsn, config, pipeline_version, warm_up_bars,
-               cross_asset_by_date, refresh, insert_batch_size)
+               cross_asset_by_date, spy_1d_bars, tlt_1d_bars, refresh,
+               insert_batch_size)
                Packed as a tuple for ProcessPoolExecutor.map compatibility.
+               spy_1d_bars/tlt_1d_bars are the SAME arrays run_compute_stage
+               already fetched once (to build cross_asset_by_date) -- passed
+               through rather than refetched per symbol (found during Phase
+               151's post-execution /simplify pass, 2026-08-05).
 
     Returns:
         dict with keys: symbol, results (list of {tf, rows_written, theoretical_max,
@@ -1127,6 +1134,8 @@ def _run_compute_worker(args: tuple) -> dict:
         pipeline_version,
         warm_up_bars,
         cross_asset_by_date,
+        spy_1d_bars,
+        tlt_1d_bars,
         refresh,
         insert_batch_size,
     ) = args
@@ -1146,6 +1155,17 @@ def _run_compute_worker(args: tuple) -> dict:
         conn.autocommit = True
         # No register_uuid() equivalent needed -- psycopg adapts uuid.UUID natively.
 
+        # Per-symbol factor-beta series (O(D) single pass over daily bars,
+        # Phase 151 Plan 04) -- built ONCE per symbol here, not once per tf
+        # inside _compute_symbol_tf (a prior version rebuilt it, plus a
+        # redundant SPY/TLT 1d refetch, on every one of the 4 tf calls).
+        # Daily grain, broadcast to all timeframes -- see _compute_symbol_tf's
+        # docstring.
+        symbol_1d_bars = _fetch_bars_from_db(conn, symbol, "1d")
+        beta_by_date = build_symbol_beta_series(
+            symbol_1d_bars, spy_1d_bars, tlt_1d_bars, symbol, config
+        )
+
         for tf in tfs:
             try:
                 rows_written = _compute_symbol_tf(
@@ -1156,6 +1176,8 @@ def _run_compute_worker(args: tuple) -> dict:
                     pipeline_version=pipeline_version,
                     warm_up_bars=warm_up_bars,
                     cross_asset_by_date=cross_asset_by_date,
+                    beta_by_date=beta_by_date,
+                    symbol_1d_bars=symbol_1d_bars,
                     refresh=refresh,
                     insert_batch_size=insert_batch_size,
                 )
@@ -1223,6 +1245,8 @@ def _compute_symbol_tf(
     pipeline_version: str,
     warm_up_bars: int,
     cross_asset_by_date: dict,
+    beta_by_date: dict,
+    symbol_1d_bars: list[dict],
     refresh: bool = False,
     insert_batch_size: int = _INSERT_BATCH_SIZE_DEFAULT,
 ) -> int:
@@ -1233,10 +1257,14 @@ def _compute_symbol_tf(
          hyg_lqd_ret_z, sb_corr_fast/slow/z): from pre-built incremental
          causal series keyed by date.
       2. Factor betas (equity_beta_z, rate_beta_z, Phase 151 Plan 04): from a
-         per-symbol O(D) incremental series keyed by date, built fresh for
-         each (symbol, tf) call alongside the CTF build below (daily grain,
-         broadcast to all timeframes -- rebuilding per tf costs one extra
-         O(D) pass over ~5K daily bars, trivial next to the 5m/15m/1h fetch).
+         per-symbol O(D) incremental series keyed by date. Daily grain,
+         broadcast to all timeframes -- `beta_by_date`/`symbol_1d_bars` are
+         built ONCE per symbol by the caller (`_run_compute_worker`), not
+         rebuilt per tf here; a prior version rebuilt both plus a redundant
+         SPY/TLT 1d refetch on every one of the 4 tf calls (found during
+         Phase 151's post-execution /simplify pass, 2026-08-05 -- ~320
+         redundant DB round-trips + O(5000)-date Python loops across a
+         full corpus recompute).
       3. CTF (ctf_momentum, ctf_vwap_align, ctf_regime_align): from O(n) single-pass
          series keyed by HTF bar timestamp; looked up by bisect for each source bar.
       4. VP/SR (poc_dist_atr, va_position, + 17 structural fields): computed from OHLCV
@@ -1265,17 +1293,11 @@ def _compute_symbol_tf(
                 "ctf_series_built", symbol=symbol, tf=tf, htf_tf=htf_tf, htf_bars=len(htf_bars)
             )
 
-    # Build per-symbol factor-beta series (O(D) single pass over daily bars,
-    # Phase 151 Plan 04). Daily grain regardless of `tf` -- see docstring above.
-    symbol_1d_bars = _fetch_bars_from_db(conn, symbol, "1d")
-    spy_1d_bars = _fetch_bars_from_db(conn, SPY, "1d")
-    tlt_1d_bars = _fetch_bars_from_db(conn, TLT, "1d")
-    beta_by_date = build_symbol_beta_series(
-        symbol_1d_bars, spy_1d_bars, tlt_1d_bars, symbol, config
-    )
-
     cache = FeatureCache()
-    bars = _fetch_bars_from_db(conn, symbol, tf)
+    # tf=="1d" reuses the caller's already-fetched daily bars instead of an
+    # identical second fetch (same finding as above -- this was previously a
+    # duplicate query for exactly this one tf out of the 4).
+    bars = symbol_1d_bars if tf == "1d" else _fetch_bars_from_db(conn, symbol, tf)
     total_bars = len(bars)
 
     # ret_div_1m_5m's LTF series (Phase 151 Plan 05, todo 066): only built at

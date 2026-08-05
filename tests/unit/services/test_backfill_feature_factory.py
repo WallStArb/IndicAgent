@@ -800,6 +800,8 @@ def test_refresh_reprocesses_complete_pairs() -> None:
             _pipeline_version,
             _warm_up_bars,
             _cross_asset_by_date,
+            _spy_1d_bars,
+            _tlt_1d_bars,
             refresh,
             _insert_batch_size,
         ) = worker_args[0]

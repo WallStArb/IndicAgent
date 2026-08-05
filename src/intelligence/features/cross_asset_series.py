@@ -35,7 +35,7 @@ from typing import TYPE_CHECKING, NamedTuple
 import numpy as np
 import structlog
 
-from src.intelligence.feature_cache import _zscore_from_deque
+from src.intelligence.feature_cache import _safe_corr, _zscore_from_deque
 
 if TYPE_CHECKING:
     from src.intelligence.feature_factory import FeatureFactoryConfig
@@ -211,8 +211,8 @@ def build_cross_asset_series(
             slow_n = min(config.sb_corr_window_slow, len(sb_spy_ret_hist))
             spy_arr = np.array(sb_spy_ret_hist)
             tlt_arr = np.array(sb_tlt_ret_hist)
-            sb_corr_fast = _safe_corr_np(spy_arr[-fast_n:], tlt_arr[-fast_n:])
-            sb_corr_slow = _safe_corr_np(spy_arr[-slow_n:], tlt_arr[-slow_n:])
+            sb_corr_fast = _safe_corr(spy_arr[-fast_n:], tlt_arr[-fast_n:])
+            sb_corr_slow = _safe_corr(spy_arr[-slow_n:], tlt_arr[-slow_n:])
             sb_corr_history.append(sb_corr_fast)
             sb_corr_z = _zscore_from_deque(sb_corr_history, config.sb_corr_zscore_window)
 
@@ -285,27 +285,6 @@ def build_cross_asset_series(
         )
 
     return result
-
-
-def _safe_corr_np(x: np.ndarray, y: np.ndarray) -> float:
-    """Pearson correlation coefficient between two equal-length arrays.
-
-    Returns 0.0 for degenerate input (fewer than 2 samples or zero variance
-    in either series) rather than NaN. Local copy of feature_cache.py's
-    _safe_corr() -- moved here alongside build_cross_asset_series (Plan
-    151-09 Task 1); kept as a distinct private helper rather than importing
-    feature_cache._safe_corr to keep the move surgical (identical math, not
-    consolidated in this task -- a residual dedup opportunity, not a
-    regression).
-    """
-    if len(x) < 2 or len(y) < 2:
-        return 0.0
-    xm = x - x.mean()
-    ym = y - y.mean()
-    denom = float(np.sqrt(np.dot(xm, xm) * np.dot(ym, ym)))
-    if denom < 1e-10:
-        return 0.0
-    return float(np.dot(xm, ym) / denom)
 
 
 def build_symbol_beta_series(
