@@ -1663,7 +1663,7 @@ prerequisite, not just a nice-to-have).
 **Regime-conditioned cluster membership (extension of Phase 140 P2):**
 Phase 140's collinearity clustering is global. Extend to regime-conditioned clusters: one cluster membership table per HMM state. Features uncorrelated in trending may be 0.8 correlated in ranging — global clustering misses this. APR key: `alpha.ensemble.cluster_regime_conditioned = true` [planned].
 
-**Plans:** 4/9 plans executed
+**Plans:** 5/9 plans executed
 
 Plans:
 
@@ -1671,7 +1671,7 @@ Plans:
 - [x] 151-02-PLAN.md — Wave 1: regime-conditioned collinearity clustering, `symbol_hmm` as a second stratification axis (migration 260, 1 APR key)
 - [x] 151-03-PLAN.md — Wave 2: atomics B, 10 `bars_since_*` recency primitives + `abs_ret_autocorr_1` (migration 261, 2 APR keys)
 - [x] 151-04-PLAN.md — Wave 3: atomics C, 2 macro spreads + stock-bond correlation + 2 factor betas (migration 262, 7 APR keys)
-- [ ] 151-05-PLAN.md — Wave 4: interaction layer A, the 5 named roster candidates (3 cross-TF divergences + 2 event flags, migration 263)
+- [x] 151-05-PLAN.md — Wave 4: interaction layer A, the 5 named roster candidates (3 cross-TF divergences + 2 event flags, migration 263)
 - [ ] 151-06-PLAN.md — Wave 5: interaction layer B, 10 theory-motivated compounds with stated hypotheses (migration 264, zero APR keys by design)
 - [ ] 151-09-PLAN.md - Wave 5: live-path cross-asset fix - shared Ring-1 series builder, live/batch parity assertion, once-per-UTC-day refresh (no migration, added by the cross-AI review pass)
 - [ ] 151-07-PLAN.md - Wave 6: corpus recompute (resumable `--recompute` mode with a partition-completion manifest, defeating `ON CONFLICT DO NOTHING`, closes todo 176) + tier-0 atomic IC sweep
