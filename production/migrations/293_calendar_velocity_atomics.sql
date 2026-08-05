@@ -1,4 +1,4 @@
--- Migration 287: Calendar Cycle/TDOM/Minute + Velocity Atomics — Phase 151 Plan 01
+-- Migration 293: Calendar Cycle/TDOM/Minute + Velocity Atomics — Phase 151 Plan 01
 --
 -- Adds the first batch of Phase 151 tier-0 atomic primitives: 6 calendar
 -- coordinates (todo 104) and 4 velocity primitives (todo 123), 10 new
@@ -21,8 +21,18 @@
 -- own first apply attempt) -- discovered only after applying, since the
 -- sibling's file lives on a different, not-yet-merged worktree branch and
 -- was invisible to this worktree's own `ls production/migrations/` check.
--- 287 is the verified next-free number, checked against both worktree
--- branches' git trees and config_history before this file's final apply.
+-- 287 was applied next as the verified-at-the-time next-free number, checked
+-- against both worktree branches' git trees and config_history before that
+-- apply -- but collided a second time with 287_single_name_equity_expansion.sql,
+-- an unrelated concurrent session's migration that also landed on 287 and was
+-- independently applied (todo 260, filed 2026-08-05, confirmed both migrations
+-- ran cleanly as separate scripts with no functional conflict -- collision was
+-- cosmetic/ordering-only, caught by tests/unit/test_migration_number_uniqueness.py).
+-- Renumbered a second time to 293 (verified next-free via
+-- `ls production/migrations/ | sort -t_ -k1 -n | tail` on 2026-08-05) -- this
+-- session's own file, per todo 260's resolution ("whichever session is still
+-- active should renumber its own file"). The other session's
+-- 287_single_name_equity_expansion.sql is untouched.
 --
 -- Column type: DOUBLE PRECISION for all 10 new columns, matching every other
 -- feature_vectors column added since migration 201 (no `real`/float32 column
@@ -141,9 +151,9 @@ ON CONFLICT (config_key) DO NOTHING;
 
 INSERT INTO config_history (timestamp, config_key, version, config_value, changed_by, reason)
 VALUES
-    (NOW(), 'feature.momentum_velocity.window', 1, '14', 'migration_287',
+    (NOW(), 'feature.momentum_velocity.window', 1, '14', 'migration_293',
      'Seed momentum-velocity z-score window, Phase 151 [conventional]'),
-    (NOW(), 'feature.vwap_velocity.window', 1, '14', 'migration_287',
+    (NOW(), 'feature.vwap_velocity.window', 1, '14', 'migration_293',
      'Seed VWAP-velocity z-score window, Phase 151 [conventional]')
 ON CONFLICT DO NOTHING;
 

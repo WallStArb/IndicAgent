@@ -1112,28 +1112,41 @@ def test_session_levels_dist_in_atr_units(cfg):
 # ---------------------------------------------------------------------------
 
 
-def _build_weekly_pivot_bars() -> list[dict]:
-    """10 bars, constant true range, spanning one ISO-week boundary (7
-    calendar days apart) so the prior-completed-week snapshot is populated
-    (and ATR is warmed -- config.adx_period=7) by the final bar."""
+def _build_weekly_pivot_bars(mid_step: float = 0.5, range_half_width: float = 0.5) -> list[dict]:
+    """10 bars spanning one ISO-week boundary (7 calendar days apart) so the
+    prior-completed-week snapshot is populated (and ATR is warmed --
+    config.adx_period=7) by the final bar. mid_step drifts each bar's mid price;
+    range_half_width sets each bar's high/low offset around its mid (governs ATR
+    magnitude). Defaults (0.5/0.5) produce an ordinary ATR; a much smaller
+    range_half_width (todo 237's regression test) reproduces a BIL-style
+    near-zero-ATR flat period."""
     base_ts = datetime(2026, 7, 6, 13, 30, tzinfo=UTC)  # Monday, ISO week 28
-    mids = [100.0 + 0.5 * i for i in range(10)]
+    mids = [100.0 + mid_step * i for i in range(10)]
     tss = [base_ts + timedelta(days=i) for i in range(7)] + [
         base_ts + timedelta(days=7),
         base_ts + timedelta(days=8),
         base_ts + timedelta(days=9),
     ]
     return [
-        {"open": m, "high": m + 0.5, "low": m - 0.5, "close": m, "volume": 1_000.0, "ts": ts}
+        {
+            "open": m,
+            "high": m + range_half_width,
+            "low": m - range_half_width,
+            "close": m,
+            "volume": 1_000.0,
+            "ts": ts,
+        }
         for m, ts in zip(mids, tss)
     ]
 
 
-def test_session_levels_weekly_pivot_pinned(cfg):
-    """Weekly pivot/R1/R2/S1/S2 must equal the hand-computed formulas off the
-    PRIOR COMPLETED week's high/low/close within 1e-9 on the final bar, and
-    must be None on every bar of the first week (no prior week exists yet)."""
-    bars_local = _build_weekly_pivot_bars()
+def _run_weekly_pivot_bars(
+    bars_local: list[dict], cfg: FeatureFactoryConfig
+) -> list[FeatureVector]:
+    """Drive the mutator+compute()+advance_bar() sequence every weekly-pivot test in
+    this section needs, bar by bar starting at index 1 (index 0 is never
+    mutator-visited, matching both compute()/compute_batch()'s own i=1..n-1
+    convention). Returns one FeatureVector per visited bar, in bar order."""
     cache = FeatureCache()
     results: list[FeatureVector] = []
     for i in range(1, len(bars_local)):
@@ -1148,6 +1161,15 @@ def test_session_levels_weekly_pivot_pinned(cfg):
         fv = FeatureFactory.compute(bars_local[: i + 1], "SPY", "5m", cache, cfg)
         results.append(fv)
         cache.advance_bar(bar["ts"], bar["high"], bar["low"], bar["close"], bar["volume"])
+    return results
+
+
+def test_session_levels_weekly_pivot_pinned(cfg):
+    """Weekly pivot/R1/R2/S1/S2 must equal the hand-computed formulas off the
+    PRIOR COMPLETED week's high/low/close within 1e-9 on the final bar, and
+    must be None on every bar of the first week (no prior week exists yet)."""
+    bars_local = _build_weekly_pivot_bars()
+    results = _run_weekly_pivot_bars(bars_local, cfg)
 
     # Bars index 1..6 (week 1; index 0 is never mutator-visited, matching both
     # compute()/compute_batch()'s own i=1..n-1 convention) -- all None, no
@@ -1174,6 +1196,30 @@ def test_session_levels_weekly_pivot_pinned(cfg):
     assert math.isclose(final_fv.weekly_r2_dist_atr, (r2 - close_) / atr_val, abs_tol=1e-9)
     assert math.isclose(final_fv.weekly_s1_dist_atr, (close_ - s1) / atr_val, abs_tol=1e-9)
     assert math.isclose(final_fv.weekly_s2_dist_atr, (close_ - s2) / atr_val, abs_tol=1e-9)
+
+
+def test_session_levels_weekly_pivot_tiny_atr_gated_not_exploded(cfg):
+    """todo 237 regression: a legitimately-positive but numerically-tiny ATR (BIL-style
+    flat period) must gate weekly_r1/r2_dist_atr to None via _is_valid_atr's
+    min_atr_pct floor, not let (level - close_) / atr_val explode to an implausible
+    magnitude (confirmed pre-fix: up to 96,512 for weekly_r1_dist_atr)."""
+    bars_local = _build_weekly_pivot_bars(mid_step=0.0000001, range_half_width=0.00001)
+    results = _run_weekly_pivot_bars(bars_local, cfg)
+
+    final_fv = results[-1]
+    # Gated to None, not an exploded ratio -- the whole point of the floor.
+    assert final_fv.weekly_pivot_dist_atr is None
+    assert final_fv.weekly_r1_dist_atr is None
+    assert final_fv.weekly_r2_dist_atr is None
+    assert final_fv.weekly_s1_dist_atr is None
+    assert final_fv.weekly_s2_dist_atr is None
+
+    # Sanity: prove the gate is actually about the FLOOR, not some other cold-start
+    # condition -- disabling the floor (min_atr_pct=0.0) on the SAME tiny-ATR bars
+    # recovers real (non-None) values, matching pre-fix `atr_val > 0` behavior.
+    cfg_unfloored = dataclasses.replace(cfg, atr_normalization_min_pct=0.0)
+    results_unfloored = _run_weekly_pivot_bars(bars_local, cfg_unfloored)
+    assert results_unfloored[-1].weekly_r1_dist_atr is not None
 
 
 # ---------------------------------------------------------------------------

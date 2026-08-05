@@ -38,7 +38,7 @@
 -- feature.yield_curve.zscore_window, feature.cross_asset.rv_window). The
 -- "macro" namespace is NOT sanctioned for APR keys (root CLAUDE.md).
 --
--- Phase 170 parity (Section 5 below, same requirement as migration 287/288's
+-- Phase 170 parity (Section 5 below, same requirement as migration 293/288's
 -- own header notes): ic_engine.py's _apply_feature_transitions runs a PARITY
 -- PRECONDITION on every corpus pass (Phase 170 Plan 06, T-170-17) that
 -- hard-stops if any feature_registry row lacks a concept_registry

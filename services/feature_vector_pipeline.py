@@ -836,7 +836,7 @@ class FeatureVectorPipeline(BaseDaemon):
         ("feature.intraday_noise.window", 20),
         ("feature.price_vol_corr.fast", 10),
         ("feature.price_vol_corr.slow", 30),
-        # --- migration 287: Phase 151 Plan 01 Task 2 velocity primitives ---
+        # --- migration 293: Phase 151 Plan 01 Task 2 velocity primitives ---
         ("feature.momentum_velocity.window", 14),
         ("feature.vwap_velocity.window", 14),
         # --- migration 288: Phase 151 Plan 03 recency/statistical atomics ---
@@ -933,6 +933,7 @@ class FeatureVectorPipeline(BaseDaemon):
         ("feature.fib.cluster_fallback_divisor", 20.0),
         ("feature.session_levels.asia_start_et_hour", 20),
         ("feature.session_levels.asia_end_et_hour", 4),
+        ("feature.atr_normalization.min_atr_pct", 0.0001),
     )
 
     async def _prewarm_threshold_config(self) -> None:
@@ -1192,6 +1193,7 @@ class FeatureVectorPipeline(BaseDaemon):
             fib_cluster_atr_divisor=_float("feature.fib.cluster_atr_divisor", 2.0),
             session_levels_asia_start_et_hour=_int("feature.session_levels.asia_start_et_hour", 20),
             session_levels_asia_end_et_hour=_int("feature.session_levels.asia_end_et_hour", 4),
+            atr_normalization_min_pct=_float("feature.atr_normalization.min_atr_pct", 0.0001),
         )
 
         _assert_rsi_mid_period_fits_bar_history(

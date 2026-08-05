@@ -680,6 +680,9 @@ def _build_feature_factory_config(cfg: ConfigService) -> FeatureFactoryConfig:
         session_levels_asia_start_et_hour=int(
             cfg.get_sync("feature.session_levels.asia_start_et_hour", 20)
         ),
+        atr_normalization_min_pct=float(
+            cfg.get_sync("feature.atr_normalization.min_atr_pct", 0.0001)
+        ),
         session_levels_asia_end_et_hour=int(
             cfg.get_sync("feature.session_levels.asia_end_et_hour", 4)
         ),

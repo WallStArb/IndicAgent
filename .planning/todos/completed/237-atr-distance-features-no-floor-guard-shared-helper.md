@@ -1,7 +1,8 @@
 ---
-status: pending
+status: fixed
 priority: P3
 filed: 2026-08-03
+fixed: 2026-08-05
 source: root-causing todo 236's weekly_r1_dist_atr/weekly_r2_dist_atr half via
   superpowers:systematic-debugging
 ---
@@ -65,3 +66,48 @@ shows the same "smoothly growing, near-zero-denominator" signature at a magnitud
 float16 threshold (a quick `stddev`/`percentile` scan across the 15+ affected columns, corpus-
 wide) to confirm the floor's practical value before spending APR-key design effort on a
 theoretical risk.
+
+## Fix applied 2026-08-05
+
+Fixed at the root, ahead of the imminent Phase 151 full-corpus recompute (151-07) rather than
+deferred further -- recomputing a known numeric bug would just force a second recompute later.
+
+Went broader than the "shared helper" framing above once the actual blast radius was mapped:
+the near-zero-ATR gate wasn't one `_above`/`_below` pair, it was TWO separate copies of the same
+inline `atr_val is not None and math.isfinite(atr_val) and atr_val > 0` check (six call sites)
+plus a THIRD, narrower `_is_valid_atr(atr_val)` helper already shared by the six SMC compute
+functions (six more call sites) -- 12 total call sites across
+`_derive_session_vp`/`_compute_sr_dist_atr`/`_compute_swing_structure`/`_compute_trend_structure`/
+`_compute_fib_zones`/`_derive_session_levels`/`_compute_order_blocks`/`_compute_fvg`/
+`_compute_liquidity_sweeps`/`_compute_liquidity_pools`/`_compute_supply_demand_zones`/
+`_compute_bos_choch`. Consolidated all 12 onto the one `_is_valid_atr`, broadened to
+`_is_valid_atr(atr_val, close_, min_atr_pct)`: `atr_val >= min_atr_pct * abs(close_)` in addition
+to the pre-existing `> 0` check -- relative to close_, not absolute, so it holds across
+instruments at any price scale. `_derive_session_vp`/`_derive_session_levels` didn't take
+`config: FeatureFactoryConfig` before; added it (4 call-site updates across
+`compute()`/`compute_batch()`).
+
+New APR key `feature.atr_normalization.min_atr_pct` (migration 294, applied live), seeded 0.0001
+(1bp of price) [conventional], ML learning target: yes. Added `atr_normalization_min_pct` field
+to `FeatureFactoryConfig`; hydrated in both `backfill_feature_factory.py` (batch) and
+`feature_vector_pipeline.py` (live) plus `feature_vector_pipeline.py`'s `_THRESHOLD_KEYS`
+prewarm list (caught by `test_every_key_read_building_feature_factory_config_is_prewarmed` --
+missing this step silently ignores `config_state` on the live path forever).
+
+Skipped the corpus-wide stddev/percentile scan this todo's "Next step" suggested doing first --
+moot once the decision was "fix now, ahead of the recompute" rather than "decide whether it's
+worth fixing": the recompute itself is about to regenerate every affected column from scratch
+under the corrected gate, making a pre-fix scan of soon-to-be-replaced data low-value.
+
+Regression tests added: `TestIsValidAtr` in `tests/unit/test_feature_factory.py` (8 pure-function
+cases: None/non-finite/zero/negative rejected, ordinary ATR passes, exact-floor boundary,
+just-below-floor rejected, floor=0.0 recovers pre-fix `atr_val > 0` behavior, default matches
+migration 294's seed) plus an end-to-end BIL-style scenario in
+`tests/unit/intelligence/test_swing_fib_trend_structure_primitives.py`
+(`test_session_levels_weekly_pivot_tiny_atr_gated_not_exploded`): a near-zero-true-range weekly
+bar sequence now gates `weekly_pivot/r1/r2/s1/s2_dist_atr` to `None` instead of exploding, and
+disabling the floor on the identical bars recovers non-None values (proves the gate is the floor,
+not incidental cold-start).
+
+Verified: `tests/unit/` full suite green (including the new tests), `ruff check` clean on every
+touched Python file.

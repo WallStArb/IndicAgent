@@ -23,6 +23,7 @@ from src.intelligence.feature_cache import CrossAssetState, FeatureCache
 from src.intelligence.feature_factory import (
     FeatureFactory,
     FeatureFactoryConfig,
+    _is_valid_atr,
     _rolling_zscore_series,
 )
 from src.intelligence.schemas import FeatureVector
@@ -1508,3 +1509,56 @@ def test_compute_batch_parity() -> None:
         assert math.isclose(
             live_val, batch_val, abs_tol=1e-6
         ), f"Parity mismatch for {field_name}: compute()={live_val} vs compute_batch()={batch_val}"
+
+
+class TestIsValidAtr:
+    """todo 237: _is_valid_atr is the shared guard for every ATR-normalized distance
+    feature in this module (session VP, S/R, swing/trend structure, fibonacci zones,
+    session levels, and all 6 SMC compute functions). A bare `atr_val > 0` check lets a
+    legitimately-positive but numerically-tiny ATR through, and `(level - close_) /
+    atr_val` then explodes -- confirmed live: weekly_r1_dist_atr up to 96,512 during a
+    genuinely flat BIL period. min_atr_pct floors atr_val as a fraction of close_."""
+
+    def test_none_is_invalid(self) -> None:
+        assert _is_valid_atr(None, 100.0, 0.0001) is False
+
+    def test_non_finite_is_invalid(self) -> None:
+        assert _is_valid_atr(float("nan"), 100.0, 0.0001) is False
+        assert _is_valid_atr(float("inf"), 100.0, 0.0001) is False
+
+    def test_zero_or_negative_is_invalid(self) -> None:
+        assert _is_valid_atr(0.0, 100.0, 0.0001) is False
+        assert _is_valid_atr(-1.0, 100.0, 0.0001) is False
+
+    def test_ordinary_atr_is_valid(self) -> None:
+        """A typical ATR (well above the floor relative to close_) passes."""
+        assert _is_valid_atr(1.0, 100.0, 0.0001) is True
+
+    def test_tiny_but_positive_atr_below_floor_is_now_invalid(self) -> None:
+        """The BIL-style regression case: atr_val > 0 but far below min_atr_pct of
+        close_ -- the exact case a bare `atr_val > 0` check let through pre-fix."""
+        close_ = 91.70
+        atr_val = 0.0001  # ~0.0001% of close_, far below the 0.01% (1bp) default floor
+        assert _is_valid_atr(atr_val, close_, 0.0001) is False
+
+    def test_boundary_at_exactly_the_floor_is_valid(self) -> None:
+        close_ = 100.0
+        min_atr_pct = 0.0001
+        atr_val = min_atr_pct * close_  # exactly at the floor
+        assert _is_valid_atr(atr_val, close_, min_atr_pct) is True
+
+    def test_just_below_the_floor_is_invalid(self) -> None:
+        close_ = 100.0
+        min_atr_pct = 0.0001
+        atr_val = min_atr_pct * close_ - 1e-9
+        assert _is_valid_atr(atr_val, close_, min_atr_pct) is False
+
+    def test_floor_disabled_via_config_zero_matches_pre_fix_behavior(self) -> None:
+        """min_atr_pct=0.0 recovers the old bare `atr_val > 0` behavior exactly --
+        proves the floor is additive, not a change to the pre-existing >0 gate."""
+        assert _is_valid_atr(1e-12, 91.70, 0.0) is True
+
+    def test_default_config_min_atr_pct_matches_migration_294_seed(self) -> None:
+        assert FeatureFactoryConfig.__dataclass_fields__[
+            "atr_normalization_min_pct"
+        ].default == pytest.approx(0.0001)

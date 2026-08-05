@@ -1,8 +1,9 @@
 ---
-status: pending
+status: fixed
 priority: P3
 found_during: phase-151-wave-4
 found_date: 2026-08-05
+fixed: 2026-08-05
 ---
 
 # production/migrations/287_*.sql: two files share migration number 287
@@ -49,3 +50,22 @@ for its own file rather than a third party touching either.
 Not this session's file to rename -- `287_single_name_equity_expansion.sql` belongs to a
 different, concurrently-active session. Renaming it unilaterally risks conflicting with that
 session's own in-flight work/notes referencing the filename.
+
+## Fix applied 2026-08-05
+
+Renumbered this session's own file: `287_calendar_velocity_atomics.sql` ->
+`293_calendar_velocity_atomics.sql` (293 verified next-free via
+`ls production/migrations/ | sort -t_ -k1 -n | tail` at fix time). Updated every internal/
+external reference: the migration's own header comment (documents both the 286->287 and
+287->293 renumbering history), the two dependent migrations' Phase-170-parity comments
+(288, 289), `feature_vector_persistence.py`'s docstrings/column-order comments,
+`feature_vector_pipeline.py`'s inline comment, and 3 test files' comments
+(`test_feature_vector_writer_column_mapping.py`, `test_feature_vector_writer.py`,
+`test_backfill_feature_factory.py`). Corrected the 2 already-applied `config_history` rows via
+`UPDATE ... WHERE changed_by='migration_287' AND config_key IN ('feature.momentum_velocity.window',
+'feature.vwap_velocity.window')` -- scoped precisely so the sibling session's own `migration_287`
+row (if any existed; confirmed it did not touch `config_history` at all) could not be touched.
+`287_single_name_equity_expansion.sql` untouched throughout.
+
+Verified: `tests/unit/test_migration_number_uniqueness.py` green (both tests), plus the 3 touched
+test files green (92 tests).

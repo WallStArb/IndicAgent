@@ -11,7 +11,7 @@ appended after the canary fields); migration 266 (Phase 164 Plan 01)
 extended it to 217 (36 SMC institutional-footprint columns, appended after
 the structural VP/SR fields); migration 267 (Phase 165 Plan 01) extended it
 to 258 (41 swing/fib/trend/session structure columns, appended after the SMC
-fields); migration 287 (Phase 151 Plan 01) extended it to 268 (10 calendar
+fields); migration 293 (Phase 151 Plan 01) extended it to 268 (10 calendar
 cycle/TDOM/minute + velocity columns, appended after the swing/fib/trend
 fields); migration 288 (Phase 151 Plan 03) extended it to 279 (11
 recency/statistical atomics columns, appended after the calendar/velocity
@@ -127,7 +127,7 @@ def _make_sentinel_record():
         quarter_position=47.48,
         days_to_month_end=47.49,
         # Calendar Cycle/TDOM/Minute + Velocity (Phase 151 Plan 01) — wired
-        # into the persisted tuple by migration 287 (see
+        # into the persisted tuple by migration 293 (see
         # feature_vector_persistence.py docstring).
         quarter_cycle_sin=47.50,
         quarter_cycle_cos=47.51,
@@ -358,7 +358,7 @@ def test_params_length_is_159():
     columns, 181 after migration 255's 17 structural VP/SR columns, 217 after
     migration 266's 36 SMC institutional-footprint columns, 258 after
     migration 267's 41 swing/fib/trend/session structure columns, 268 after
-    migration 287's 10 calendar cycle/TDOM/minute + velocity columns, 279
+    migration 293's 10 calendar cycle/TDOM/minute + velocity columns, 279
     after migration 288's 11 recency/statistical atomics columns, 286 after
     migration 289's 7 cross-asset spread/beta atomics columns, 291 after
     migration 290's 5 Named Interaction Primitives columns, 301 after
@@ -619,7 +619,7 @@ def test_gap_filled_at_index_257():
     """params[257] ($258) must be gap_filled -- the final column of the
     pre-Phase-151 contract, appended after the SMC fields by migration 267's
     41 swing/fib/trend/session structure columns (Phase 165 Plan 01). No
-    longer the true last element of the tuple as of migration 287 (Phase 151
+    longer the true last element of the tuple as of migration 293 (Phase 151
     Plan 01) -- 10 calendar cycle/TDOM/minute + velocity columns are appended
     after it; see test_abs_ret_autocorr_1_at_index_278_is_last_element
     below for the current tail. gap_filled is None here since
@@ -637,7 +637,7 @@ def test_gap_filled_at_index_257():
 def test_vwap_dev_sigma_velocity_at_index_267():
     """params[267] ($268) must be vwap_dev_sigma_velocity sentinel value
     47.59 -- the final column of the pre-Phase-151-Plan-03 contract, appended
-    after the Swing/Fib/Trend/Session Structure fields by migration 287's 10
+    after the Swing/Fib/Trend/Session Structure fields by migration 293's 10
     calendar cycle/TDOM/minute + velocity columns (Phase 151 Plan 01). No
     longer the true last element of the tuple as of migration 288 (Phase 151
     Plan 03) -- 11 recency/statistical atomics columns are appended after it;

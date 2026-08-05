@@ -574,6 +574,7 @@ class FeatureFactoryConfig:
         fib_cluster_atr_divisor: APR feature.fib.cluster_atr_divisor
         session_levels_asia_start_et_hour: APR feature.session_levels.asia_start_et_hour
         session_levels_asia_end_et_hour: APR feature.session_levels.asia_end_et_hour
+        atr_normalization_min_pct: APR feature.atr_normalization.min_atr_pct
     """
 
     momentum_window_fast: int  # feature.momentum.window_fast
@@ -830,6 +831,7 @@ class FeatureFactoryConfig:
     fib_cluster_atr_divisor: float = 2.0  # feature.fib.cluster_atr_divisor
     session_levels_asia_start_et_hour: int = 20  # feature.session_levels.asia_start_et_hour
     session_levels_asia_end_et_hour: int = 4  # feature.session_levels.asia_end_et_hour
+    atr_normalization_min_pct: float = 0.0001  # feature.atr_normalization.min_atr_pct
 
 
 # ---------------------------------------------------------------------------
@@ -3797,6 +3799,7 @@ def _derive_session_vp(
     close_: float,
     atr_val: float,
     poc_price_rolling: float | None,
+    config: FeatureFactoryConfig,
 ) -> dict[str, float | None]:
     """Derive the 14 ATR-normalized/bounded VP FeatureVector fields.
 
@@ -3805,13 +3808,14 @@ def _derive_session_vp(
     plus the compute-path atr_val -- no raw price level is ever returned or
     persisted (D-16). poc_dist_atr/va_position fall back to the legacy neutral
     defaults (0.0/0.5) when session state or atr_val is unavailable (cold
-    start / degenerate histogram / atr_val <= 0), matching the pre-existing
-    tf=='1d' convention. The 12 new fields fall back to None in the same
-    conditions -- they are brand-new columns with no legacy default to
-    preserve. price_in_value_area/in_lvn are already-bounded 0/1 flags on the
+    start / degenerate histogram / atr_val invalid per _is_valid_atr, i.e.
+    <= 0 or below config.atr_normalization_min_pct of close_ -- todo 237),
+    matching the pre-existing tf=='1d' convention. The 12 new fields fall
+    back to None in the same conditions -- they are brand-new columns with
+    no legacy default to preserve. price_in_value_area/in_lvn are already-bounded 0/1 flags on the
     cache and need no ATR normalization.
     """
-    atr_valid = atr_val is not None and math.isfinite(atr_val) and atr_val > 0
+    atr_valid = _is_valid_atr(atr_val, close_, config.atr_normalization_min_pct)
 
     poc = cache._sess_poc
     vah = cache._sess_vah
@@ -3964,11 +3968,13 @@ def _compute_sr_dist_atr(
     resistance_age_bars/support_age_bars/sr_level_count come from the SAME
     cluster objects, at effectively zero extra cost (D-19).
 
-    Falls back to all-zero for any side/field when atr_val <= 0, the window
-    has insufficient bars for find_peaks/find_troughs, or no qualifying pivot
-    cluster exists on that side -- never raises.
+    Falls back to all-zero for any side/field when atr_val is invalid per
+    _is_valid_atr (<= 0 or below config.atr_normalization_min_pct of close_
+    -- todo 237), the window has insufficient bars for find_peaks/
+    find_troughs, or no qualifying pivot cluster exists on that side --
+    never raises.
     """
-    atr_valid = atr_val is not None and math.isfinite(atr_val) and atr_val > 0
+    atr_valid = _is_valid_atr(atr_val, close_, config.atr_normalization_min_pct)
     if not atr_valid:
         return dict(_SR_FALLBACK)
 
@@ -4102,7 +4108,7 @@ def _compute_swing_structure(
     (with empty indices/zero n_bars) when atr_val is invalid or the window
     is too short for find_peaks/find_troughs -- never raises.
     """
-    atr_valid = atr_val is not None and math.isfinite(atr_val) and atr_val > 0
+    atr_valid = _is_valid_atr(atr_val, close_, config.atr_normalization_min_pct)
     if not atr_valid:
         result: dict[str, float | None | list[int] | int] = dict(_SWING_FALLBACK)
         result["swing_high_price"] = None
@@ -4235,7 +4241,7 @@ def _compute_trend_structure(
 
     Never raises.
     """
-    atr_valid = atr_val is not None and math.isfinite(atr_val) and atr_val > 0
+    atr_valid = _is_valid_atr(atr_val, close_, config.atr_normalization_min_pct)
     if not atr_valid:
         return dict(_TREND_STRUCTURE_FALLBACK)
 
@@ -4646,7 +4652,7 @@ def _compute_fib_zones(
     if swing_range <= 0:
         return dict(_FIB_FALLBACK)
 
-    atr_valid = atr_val is not None and math.isfinite(atr_val) and atr_val > 0
+    atr_valid = _is_valid_atr(atr_val, close_, config.atr_normalization_min_pct)
     if not atr_valid:
         return dict(_FIB_FALLBACK)
 
@@ -4682,10 +4688,31 @@ def _compute_fib_zones(
 # ---------------------------------------------------------------------------
 
 
-def _is_valid_atr(atr_val: float | None) -> bool:
-    """Shared guard for the 6 SMC compute functions below: True iff atr_val
-    is a finite, strictly positive number safe to normalize distances by."""
-    return atr_val is not None and math.isfinite(atr_val) and atr_val > 0
+def _is_valid_atr(atr_val: float | None, close_: float, min_atr_pct: float) -> bool:
+    """Shared guard for the 12 ATR-normalized distance features consolidated onto
+    it by todo 237 (session VP, S/R, swing/trend structure, fibonacci zones,
+    session levels, all 6 SMC compute functions): True iff atr_val is finite,
+    strictly positive, AND at least min_atr_pct of close_ -- safe to divide a
+    price distance by without exploding. NOT YET used by every ATR-ratio
+    feature in this module -- `_informed_flow`/`_range_vs_atr` still use their
+    own independent `atr > 1e-10` absolute epsilon (todo 266 tracks routing
+    them through this same gate).
+
+    A bare `atr_val > 0` check (this function's pre-todo-237 form) passes a
+    legitimately-positive but numerically-tiny ATR -- e.g. BIL (an
+    ultra-short-duration T-bill ETF) during a genuinely flat period -- and
+    `(level - close_) / atr_val` then blows up to an implausible magnitude
+    (confirmed live: weekly_r1_dist_atr up to 96,512) with no separate check
+    ever catching it. min_atr_pct (feature.atr_normalization.min_atr_pct) is
+    relative to close_, not an absolute floor, so it holds across instruments
+    at any price scale.
+    """
+    return (
+        atr_val is not None
+        and math.isfinite(atr_val)
+        and atr_val > 0
+        and atr_val >= min_atr_pct * abs(close_)
+    )
 
 
 def _dist_to_midpoint(close_: float, boundary_a: float, boundary_b: float) -> float:
@@ -4804,7 +4831,7 @@ def _compute_order_blocks(
     Falls back to _OB_FALLBACK (never raises, never NaN/Inf) when atr_val is
     invalid or the window has too few bars to run the impulse scan.
     """
-    atr_valid = _is_valid_atr(atr_val)
+    atr_valid = _is_valid_atr(atr_val, close_, config.atr_normalization_min_pct)
     if not atr_valid:
         return dict(_OB_FALLBACK)
 
@@ -5015,7 +5042,7 @@ def _compute_fvg(
     Falls back to _FVG_FALLBACK (never raises, never NaN/Inf) when atr_val is
     invalid or the window has fewer than 3 bars.
     """
-    atr_valid = _is_valid_atr(atr_val)
+    atr_valid = _is_valid_atr(atr_val, close_, config.atr_normalization_min_pct)
     if not atr_valid:
         return dict(_FVG_FALLBACK)
 
@@ -5131,7 +5158,7 @@ def _compute_liquidity_sweeps(
     has no defined age" convention as resistance_age_bars/support_age_bars)
     when atr_val is invalid or the window is too short for swing detection.
     """
-    atr_valid = _is_valid_atr(atr_val)
+    atr_valid = _is_valid_atr(atr_val, close_, config.atr_normalization_min_pct)
     if not atr_valid:
         return dict(_SWEEP_FALLBACK)
 
@@ -5256,7 +5283,7 @@ def _compute_liquidity_pools(
     Falls back to _POOL_FALLBACK (never raises, never NaN/Inf) when atr_val
     is invalid or the window is too short for swing detection.
     """
-    atr_valid = _is_valid_atr(atr_val)
+    atr_valid = _is_valid_atr(atr_val, close_, config.atr_normalization_min_pct)
     if not atr_valid:
         return dict(_POOL_FALLBACK)
 
@@ -5433,7 +5460,7 @@ def _compute_supply_demand_zones(
     Falls back to _ZONE_FALLBACK (never raises, never NaN/Inf) when atr_val
     is invalid or the window is too short to run the base+impulse scan.
     """
-    atr_valid = _is_valid_atr(atr_val)
+    atr_valid = _is_valid_atr(atr_val, close_, config.atr_normalization_min_pct)
     if not atr_valid:
         return dict(_ZONE_FALLBACK)
 
@@ -5610,7 +5637,7 @@ def _compute_bos_choch(
     Falls back to _BOS_FALLBACK (never raises, never NaN/Inf) when atr_val is
     invalid or fewer than 2 swing highs/lows exist in-window.
     """
-    atr_valid = _is_valid_atr(atr_val)
+    atr_valid = _is_valid_atr(atr_val, close_, config.atr_normalization_min_pct)
     if not atr_valid:
         return dict(_BOS_FALLBACK)
 
@@ -5788,6 +5815,7 @@ def _derive_session_levels(
     close_: float,
     atr_val: float | None,
     tf: str,
+    config: FeatureFactoryConfig,
 ) -> dict[str, float | None]:
     """Derive the 16 ATR-normalized/bounded/flag session-levels FeatureVector fields.
 
@@ -5826,7 +5854,7 @@ def _derive_session_levels(
     its dataclass defaults (all None), which this function propagates as the
     correct "no data yet" reading, not an error state.
     """
-    atr_valid = atr_val is not None and math.isfinite(atr_val) and atr_val > 0
+    atr_valid = _is_valid_atr(atr_val, close_, config.atr_normalization_min_pct)
     if not atr_valid:
         return dict(_SESSION_LEVELS_FALLBACK)
 
@@ -6678,7 +6706,7 @@ class FeatureFactory:
                 volumes[-_roll_window:],
                 config,
             )
-            vp_extra = _derive_session_vp(cache, close_, atr_val, poc_price_rolling)
+            vp_extra = _derive_session_vp(cache, close_, atr_val, poc_price_rolling, config)
 
         # S/R (Phase 163 Plan 03): stateless inline pivot-clustering, unlike VP,
         # is valid for tf=='1d' too (no single-daily-bar-has-no-distribution
@@ -6709,7 +6737,7 @@ class FeatureFactory:
         # .py's _process_bar_compute) is required to call
         # cache.update_session_levels(...) before compute() runs -- this
         # function only reads the cache, never mutates it.
-        _session_level_fields = _derive_session_levels(cache, close_, atr_val, tf)
+        _session_level_fields = _derive_session_levels(cache, close_, atr_val, tf, config)
 
         # Smart Money Concepts (Phase 164 Plan 02): Order Blocks + stateless
         # Breaker/Mitigation, single pure pass per RESEARCH.md's mandated
@@ -7323,7 +7351,7 @@ class FeatureFactory:
                     volumes[_roll_start : i + 1],
                     config,
                 )
-                vp_extra = _derive_session_vp(cache, close_, atr_val, poc_price_rolling)
+                vp_extra = _derive_session_vp(cache, close_, atr_val, poc_price_rolling, config)
 
             # S/R (Phase 163 Plan 03): stateless inline pivot-clustering, valid
             # for tf=='1d' too (D-19) -- pre-slice the causal window ending at
@@ -7383,7 +7411,7 @@ class FeatureFactory:
             # fields, derived from FeatureCache's raw state --
             # cache.update_session_levels(...) was already called for this
             # bar in this loop's per-bar preamble above.
-            _session_level_fields = _derive_session_levels(cache, close_, atr_val, tf)
+            _session_level_fields = _derive_session_levels(cache, close_, atr_val, tf, config)
 
             # Smart Money Concepts (Phase 164 Plan 02): Order Blocks +
             # stateless Breaker/Mitigation -- pre-slice a causal window ending
