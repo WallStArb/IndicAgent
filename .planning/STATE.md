@@ -2,9 +2,9 @@
 gsd_state_version: 1.0
 milestone: v3.1
 milestone_name: AlphaEngine Validation + Alpha Scoring
-status: ready_to_execute
-stopped_at: Phase 168 planned --
-last_updated: "2026-08-04T14:30:34.083Z"
+status: blocked
+stopped_at: CTF join-fix scoped recompute plan written, ready pending user go-ahead -- Phase 168 blocked until Phase 167 re-verified
+last_updated: "2026-08-05T00:00:00.000Z"
 progress:
   total_phases: 12
   completed_phases: 9
@@ -14,6 +14,96 @@ progress:
 ---
 
 # Project State
+
+## Strategic Plan (last revised 2026-08-05) -- read this before anything else in this file
+
+**Honest current status: no construction in this project has a currently-confirmed, live proof of
+edge.** Phase 148's per-symbol directional construction failed Gate 2. Phase 167's cross-sectional
+construction was recorded PASS on both gates 2026-07-27, but that record does not currently hold
+-- its sole ranking feature (`ctf_momentum`) has a confirmed lookahead-leaked batch join (todo
+243), and two independent diagnostic-tier measurements (SPY single-symbol pilot; a full
+cross-sectional Gate 1 re-verification) both agree the corrected join flips Gate 1 to FAIL. Not
+yet authoritative-tier. `nonlinear_interaction_combiner` has a small real residual, not the
+"substantial" edge originally published. Every large number this investigation touched in the
+2026-08-03/04 window turned out mostly-to-entirely leak-driven once checked properly.
+
+**The single question that gates everything downstream: does the cross-sectional construction
+(Phase 167) survive a clean re-measurement under the corrected join?** A full execution plan for
+this now exists and is ready to run pending user go-ahead:
+`docs/plans/2026-08-05-ctf-join-fix-scoped-recompute-and-gate1-reverify.md`. Summary:
+
+1. Surgical UPDATE of `feature_vectors.ctf_momentum`/`ctf_vwap_align`/`ctf_regime_align` for the
+   80-equity/15m scope only (~8.8M rows) -- NOT `backfill_feature_factory.py --refresh`, which
+   would recompute the full ~250-column row at current HEAD and conflate this fix with every
+   other feature-compute change since these rows were last written (`pipeline_version` is
+   uniformly `"3.0.0"` across the whole corpus and does not function as a vintage marker --
+   confirmed live 2026-08-05).
+2. Force `ic_engine.py --refresh --tf 15m --symbols <80 equities>` afterward. Required, not
+   optional: `ic_engine`'s own staleness detection fingerprints `feature_vectors` by
+   `MAX(bar_ts)`/`COUNT(*)` only, not a content hash, so the surgical UPDATE above is invisible to
+   it -- `feature_ic_scores` would otherwise stay silently frozen on leaked values indefinitely.
+3. Re-run Gate 1 through the real production path (`cross_sectional_spread_tracker.py
+   --backfill`/`--evaluate-gate`) under a new gate_id (the existing `gate1_ctf_momentum_decile_ls`
+   already has a recorded PASS from the leaked-join run and D-04's run-once guard refuses a second
+   write to it) with `alpha.construction.null_shuffles` raised from 40 to 1000+ first (40 draws is
+   too coarse a resolution -- 1/40 -- for a run-once, no-do-overs significance gate).
+
+**What's already ready, not blocking:** `forward_returns`' OOS region is genuinely populated
+(todo 253, real `forward_return_writer.py`, corroboration logic intact, 302,039 rows). D-04 gate
+governance is wired into `cross_sectional_spread_tracker.py` and confirmed via
+`gate_evaluations`/`.planning/gate_look_log.jsonl` that no prior completed look for this
+construction exists outside the leaked-join run -- the corrected-join run will be a legitimate
+first look under that gate_id.
+
+**Separately verified 2026-08-05, not urgent but tracked:** none of the three CTF columns
+currently clear `ensemble_trainer.py`'s meta-FDR ensemble-eligibility gate under the still-leaked
+data (`ctf_momentum` 0/138 cells pass FDR; `ctf_regime_align` fails `min_cells` in every
+timeframe; `ctf_vwap_align` maxes at 28.6%) -- so even though steps 6-8 of the corpus pipeline are
+separately halted (todo 230), nothing would silently enter `alpha_ensemble_ic` on the leaked
+values even if that halt cleared today. This is incidental, not a designed safeguard -- see
+[todo 256](../todos/pending/256-ctf-columns-no-explicit-ensemble-exclusion-pending-join-fix-recompute.md).
+
+**Branches after the recompute's verdict, decided in advance so the fork doesn't need
+re-litigating when it resolves:**
+- **If PASS:** Phase 168 (cost-hurdle spread refinement) and Phase 156-159
+  (execution/sizing/kill-switch) unblock -- the real path from proven signal to deployable
+  capital. Nothing before this point should touch execution infrastructure.
+- **If FAIL:** back to discovery, not construction. Priority becomes the five untested
+  Signal-Extraction candidates (`cointegrated_pairs_residual`, `statistical_factor_residual`,
+  `cross_asset_lead_lag`, `adaptive_combiner_weights`, `jump_diffusion_decomposition`) and
+  `nonlinear_interaction_combiner`'s N1 residual-form test (the recommended next design once the
+  tree's structural mismatch to this corpus -- no per-feature exposure cap -- is accounted for;
+  see `docs/research/measurement-nonlinear-interaction-combiner.md`).
+- Either branch converges on the same already-stated project principle: prove edge before
+  production infra, never the reverse.
+
+**Deliberately paused pending step 3 above, not because they're bad ideas but because starting
+any of them now means building on an unconfirmed foundation** (Musk mandate: delete/pause before
+accelerate) -- Phase 168, Phase 156-159, Phase 171 (HMM walk-forward wiring, see below), the five
+new Signal-Extraction candidates. Corpus-hygiene backlog (todo 250 hypertable, todo 252
+fingerprint-deletion-no-archive) is real but lower-urgency and can be picked up opportunistically
+without blocking the main line.
+
+**Expectation to hold, not a consolation-prize framing:** every "large" edge found in this corpus
+so far has collapsed 44-91% once a leak was corrected, with a small real residual surviving each
+time. If that pattern holds, real edge here is probably small (single-digit-bps scale), not a
+headline number -- consistent with Renaissance's own actual history. The win condition for this
+milestone is a confirmed small edge with a clean gate record, not a big trade.
+
+**HMM issue status (asked 2026-08-04): fix built and TDD-tested, NOT deployed.**
+`_walk_forward_hmm_labels`/`_seed_prior_from_label`/`_hmm_seed_stability_check` exist in
+`regime_writer.py` (todo 248) with 6 passing unit tests, but zero call sites reference
+`_walk_forward_hmm_labels` from the live path -- `_compute_symbol_tf` still does the full-history
+fit. Confirmed by direct grep 2026-08-04, not assumed. Phase 171 (wire it in) exists in ROADMAP.md
+as a stub with 0 plans, explicitly sequenced behind this Strategic Plan's step 3 to avoid two
+overlapping corpus-recompute-scale efforts running at once.
+
+**Phase 170 (feature_registry -> Concept Registry migration) is running in a separate, concurrent
+session as of 2026-08-04 -- do not touch `feature_registry`/`concept_registry` files, migrations,
+or ROADMAP.md's Phase 170 section from this thread of work.** Independent subsystem, no expected
+file overlap with the Strategic Plan above.
+
+---
 
 ## Project Reference
 
@@ -33,134 +123,47 @@ backfilled and live in the corpus (see Phase Summary table).** Phase 151 alone r
 but not executed, still deliberately behind Phase 167: don't accelerate feature-expansion work
 that hasn't been shown to be the actual bottleneck.
 
-**Current focus (updated 2026-07-30, status corrected 2026-08-04):** Milestone v3.1's defining
-verdict stands: Phase 148 found Gate 1 (signal proof) PASS but Gate 2 (execution proof) FAIL --
-do not promote the per-symbol directional construction to live capital. Phase 167 (Cross-Sectional
-Trade Construction, cross_sectional_relative_value) resolved the fork this opened -- was recorded
-2026-07-27 as **COMPLETE, both live Validation Gates PASSED** (`gate1_passes=true`,
-`gate2_passes_overall=true`), the first construction in the tree to clear both. **That verdict is
-now UNVERIFIED, not confirmed, as of 2026-08-04: `cross_sectional_spread_tracker.py` ranks solely
-on `ctf_momentum` (`_FEATURE = "ctf_momentum"`), the same feature todo 243 confirmed runs through
-a lookahead-leaking batch join. The corrected-join point_ic at 15m -- `_TF` Phase 167 actually
-trades -- collapses to +0.0047 (CI [-0.0007,0.0100], not significant); see the "re-read" note
-below (originally written 2026-08-03, its implication for the *original* Gate 1/Gate 2 measurement,
-not just the same-day reinforcement check, was not drawn until 2026-08-04). Do not cite Phase 167
-as a proven result, and do not start Phase 168 (its direct follow-on) until Phase 167's Gate 1/Gate
-2 are re-run under the corrected join. Full detail: todo 243.** Which tf it should trade at is a
-separate, still-open question even once re-verified: `_TF="15m"`
-was inherited from the original falsification script, never comparatively tested against 5m for
-this specific construction (todo 235, new 2026-08-03). regime_conditional_persistence (regime-conditional persistence) is
-CONFIRMED DEAD (270 cells tested, zero pass on live corrected labels). nonlinear_interaction_combiner (non-linear combiner)
-replicated at all three tfs (todo 234 CLOSED 2026-08-03 -- root-caused via
-`superpowers:systematic-debugging`, the wide-DataFrame fetch pattern itself was the OOM defect,
-not any single operation on it; fixed by building the training matrix directly from asyncpg rows,
-matching `ensemble_trainer.py`'s existing pattern), but the original "substantial at 1h and 15m"
-read is now known to be overwhelmingly leak-driven -- see Current Saga below, don't cite the old
-number. Five new Signal-Extraction candidates (`cointegrated_pairs_residual`,
-`statistical_factor_residual`, `cross_asset_lead_lag`, `adaptive_combiner_weights`,
-`jump_diffusion_decomposition`) added the same session, none tested yet. Full detail on
-all theses: `docs/research/data-edge-source-thesis.md` (v1.8, itself stale on this same point --
-todo 247).
-Phase 144/143.1/162/163/164/165/167 are all COMPLETE -- see Phase Summary table below, not
-duplicated here.
+**Current focus (updated 2026-08-05):** Milestone v3.1's defining verdict stands: Phase 148 found
+Gate 1 (signal proof) PASS but Gate 2 (execution proof) FAIL -- do not promote the per-symbol
+directional construction to live capital. Phase 167 (Cross-Sectional Trade Construction,
+`cross_sectional_relative_value`) was recorded 2026-07-27 as COMPLETE, both live Validation Gates
+PASSED, but that verdict is UNVERIFIED -- see the Strategic Plan section at the top of this file
+for current status and the ready-to-execute recompute/re-verification plan. Do not cite Phase 167
+as a proven result and do not start Phase 168 until that plan runs and produces a real verdict.
 
-**Current saga (2026-08-03, latest): a `ctf_momentum` mechanics question surfaced a live/batch
-divergence, whose review chain surfaced a more serious integrity question directly touching
-Phase 167's proof -- now measured, magnitude confirmed real and large.** Todo 241 (live serving
-used a crude same-bar intrabar-return proxy for `ctf_momentum` where batch used a causal Wilder
-RSI -- two different statistics sharing one column name) is FIXED and committed (`8b2cf690`). Its
-own review chain (`/simplify` + an independent code-reviewer subagent) surfaced three more:
-**todo 243 -- FIXED and committed (`42c69b93`)** -- batch's LTF-to-HTF join selected the
-still-forming HTF bar, not the last completed one; `_rekey_ctf_series_to_actual_close()` now
-re-keys each HTF bar to its actual successor's start. Affects `ctf_momentum`/`ctf_vwap_align`/
-`ctf_regime_align`, all 3 sharing the join; 1d self-referential and unaffected. Fix is code-only
-so far -- no corpus recompute triggered yet, per explicit user direction to measure first.
+Which tf Phase 167 should trade at is a separate, still-open question even once re-verified --
+`_TF="15m"` was inherited from the original falsification script, never comparatively tested
+against 5m for this construction (todo 235). `regime_conditional_persistence` is CONFIRMED DEAD
+(270 cells tested, zero pass on live corrected labels). `nonlinear_interaction_combiner` has a
+small real residual surviving the CTF-leak correction at all three affected tfs, not the
+"substantial" edge originally published -- collapse 90.6%/79.1%/43.8% at 1h/15m/5m respectively,
+with the surviving residual growing as tf gets finer even as collapse % shrinks (leak magnitude
+is roughly bounded by HTF bar duration; total predictive power grows at finer granularity). Full
+numbers: [CTF leak status](project_ctf_momentum_leak_and_nonlinear_combiner_status.md) in memory.
+Five new Signal-Extraction candidates (`cointegrated_pairs_residual`, `statistical_factor_residual`,
+`cross_asset_lead_lag`, `adaptive_combiner_weights`, `jump_diffusion_decomposition`) remain
+untested. Full detail on all theses: `docs/research/data-edge-source-thesis.md` (stale on the CTF
+point pending todo 247's doc-reconciliation pass). Phase 144/143.1/162/163/164/165/167 are all
+COMPLETE -- see Phase Summary table below.
 
-**Measured impact, 2026-08-03 (SPY single-symbol pilot, old join vs fixed join, same executable
-open-to-open forward returns):** 1h flips sign (point_ic +0.0517 -> **-0.0159**, CI
-[-0.0276,-0.0035]); 15m collapses to noise (+0.0746 -> **+0.0047**, CI [-0.0007,0.0100], no
-longer significant); 5m survives but shrinks ~89% (+0.0555 -> **+0.0064**, CI [0.0034,0.0092],
-still significant). **Full cross-sectional (all ~80 symbols) diagnostic at 1h (todo 245) already
-confirmed the same story at scale**: tree's cross-sectional-neutral point_ic collapsed 90.6%
-(0.1811 -> 0.0171) once all 3 CTF columns were excluded from the training matrix;
-n_pass_fdr_positive fell 80/80 -> 21/80. A small, real, statistically significant residual edge
-survives (tree-linear diff=0.0106, ci_lower=0.0064) -- ~15x smaller than published, not a total
-null. **15m CONFIRMED same story** (todo 245): tree's cross-sectional-neutral point_ic collapsed
-79.1% (0.2504 -> 0.0524), n_pass_fdr_positive fell 80/80 -> 73/80, residual diff=0.0348
-ci_lower=0.0330 -- again real but far smaller than published. **5m LANDED 2026-08-04, todo 245
-now fully closed at all three affected tfs**: collapsed 43.8% (0.1741 -> 0.0979),
-n_pass_fdr_positive 80/80 -> 79/80, residual diff=0.0710 ci_lower=0.0701. **Pattern across tfs:
-collapse % shrinks as tf gets finer (90.6% -> 79.1% -> 43.8%) while the absolute surviving
-residual grows (0.0106 -> 0.0348 -> 0.0710)** -- consistent with the leak's magnitude being
-roughly bounded by HTF bar duration (~constant) while the tree's total predictive power grows at
-finer granularity, so the leak's proportional share shrinks even as the real edge grows. **Todo
-247 (doc reconciliation) and the corpus-recompute decision are both unblocked now** -- see
-Current Focus above for the sharper finding this unblocks: Phase 167's live tracker
-(`cross_sectional_spread_tracker.py`) ranks solely on `ctf_momentum`, so its own Gate 1/Gate 2
-verdict is UNVERIFIED, not just this research thread -- do not start Phase 168 until re-verified.
-
-**Todo 253 -- new blocker found 2026-08-04 attempting Phase 167's Gate 1 re-verification, root
-cause revised same day.** Building a read-only harness to re-run Gate 1 against the corrected
-`ctf_momentum` join found `construction_spreads` (Phase 167's own table) EMPTY (routine, expected
--- truncated by a corpus rebuild, the tracker has no systemd timer) and `forward_returns` frozen
-at `oos_start` for all 4 tfs. **First-pass theory ("step 3 got silently skipped by a --from-step
-resume") turned out wrong** -- reading `docs/plans/OOS-EVAL-PROTOCOL.md` confirmed the OOS holdout
-is enforced by two deliberate, working-as-designed layers (orchestrator clamp +
-`forward_return_writer.py`/`ic_engine.py`'s required `--training-window-end` flag, no bare-MAX
-fallback) that make it structurally impossible for the *normal* pipeline to ever write
-`forward_returns` past `oos_start`, skip or no skip -- that's the holdout doing its job. **The
-real gap: Phase 167's Gate 1/Gate 2 is a third, ungoverned OOS scorer** that (unlike the
-protocol's own sanctioned diagnostic scorer, `ops_oos_holdout_eval.py`, which computes OOS
-returns ON THE FLY from raw bars via `forward_log_return()`, no persisted-table dependency) reads
-`return_fast`/`return_slow` straight from `forward_returns`, assuming rows exist there. They
-only ever did via an undocumented one-off manual population, which a routine, correct
-`TRUNCATE forward_returns` (part of the standard derived-table rebuild script) then erased, with
-nothing sanctioned to repopulate it. `ensemble_alpha` (live-emitted score, no realized-outcome
-dependency) is unaffected -- todo 210's OOS-row confirmation there still stands.
-
-**The cadence question resolved itself mechanically, not by interpretation.** Checking whether
-Phase 167's 2026-07-27 look was ever recorded in this project's own look-tracking machinery
-(`gate_evaluations` table + `.planning/gate_look_log.jsonl`, built for Phase 148/166's gates via
-`ops_oos_gate1_signal_eval.py`'s proven D-04 run-once pattern) found it never was -- Phase 167's
-Gate 1/Gate 2 wrote only to a freely-re-runnable `logs/construction_verdicts/*.json` file, never
-to the actual governance table. Zero recorded completed look exists for this construction, so a
-future real run is unambiguously a first look. **Fixed 2026-08-04**:
-`cross_sectional_spread_tracker.py`'s `_run_evaluate_gate()`/`_run_evaluate_attribution()` now
-write to `gate_evaluations`/`gate_look_log.jsonl` via the same reused pattern (atomic
-re-assert-then-insert, `--dry-run` escape hatch for dev-time checks), gate_id disambiguated by
-construction name (`gate1_ctf_momentum_decile_ls`/`gate2_ctf_momentum_decile_ls`). 5 new unit
-tests, full `tests/unit/` suite green, ruff/black clean. `counterfactual_tracker.py` (Phase 142B)
-has the same un-governed-gate gap, not fixed here -- separate scope, flagged in todo 253.
-`forward_returns`' OOS-region emptiness itself is unchanged by this fix (still needs the
-authoritative-tier population todo 253 describes before an actual re-verification run) -- this
-closes the governance gap the investigation surfaced, not the underlying data gap.
-
-Todo 242 (P3, `_CTF_HIGHER_TF`
-not APR-governed) and todo 244 (P3, `ctf_vwap_align`/`ctf_regime_align` never computed live --
-both already-rejected features, zero blast radius) are real but low-urgency siblings, not
-blocking. Separately, `docs/research/measurement-nonlinear-interaction-combiner.md` was
-un-archived (was archived same day, then reopened once the CTF-leak finding reopened the design
-question) and substantially deepened by a dispatched Opus pass: a critique of why an unconstrained
-tree is structurally mismatched to this corpus (no per-feature exposure cap, ~4,500x-larger
-search space than the pairwise-interaction hypothesis, item 5's SHAP/gain-attribution step never
-run), concrete alternatives (LightGBM `interaction_constraints` on `feature_registry.group_name`,
-regime-conditional capped linear ensemble, residual-form fitting), and two full pre-registered
-test designs (N1/N2) -- verified against real code before trusting (LightGBM version,
-`feature_registry` group counts, `ensemble_trainer.py`'s regime join all checked, all correct).
-
-Separately, the same session's rigor review of `docs/research/data-edge-source-thesis.md` found
-nonlinear_interaction_combiner's own pre-registered falsification bar had never actually been
-tested (compared only to `ctf_momentum` alone, not "the existing linear ensemble" the bar names)
-and its walk-forward embargo was measured in pooled-panel rows, not bars (todos 240/239). **Both
-FIXED and committed** (`816032e2`): a new fold-local linear-ensemble comparison arm (reusing
-`ensemble_trainer.py`'s own weighting primitives) plus a corrected bar-to-row fold mapping, with
-a paired-bootstrap PRIMARY VERDICT replacing the prior single-baseline comparison. An independent
-review caught and fixed 2 more issues in the same pass (unstandardized features dominating
-weights by raw scale, not IC; a memory footprint too close to this module's prior OOM history).
-**1d re-run done** (safe/unblocked, self-referential join, no CTF-leak exposure --
-`docs/analysis/t5-replication-1d-per-symbol.csv`). **1h/15m/5m re-runs remain gated on todo 245's
-CTF-leak diagnostic (see Current Saga above)** -- the corrected methodology's own re-run at those
-tfs would still be measuring a leak-contaminated training matrix until that resolves.
+**CTF join-fix investigation (todos 241/243/245/253/256), status as of 2026-08-05 -- compressed
+from a much longer append-log; full narrative is in
+[project_ctf_momentum_leak_and_nonlinear_combiner_status.md](project_ctf_momentum_leak_and_nonlinear_combiner_status.md)
+and each todo file, not restated here.** The join bug is root-caused, fixed in code
+(`_rekey_ctf_series_to_actual_close()`, committed), and measured: two independent diagnostic-tier
+re-verifications (SPY single-symbol pilot; a full 80-symbol cross-sectional Gate 1 reverify
+script) both agree the corrected join flips Phase 167's Gate 1 from PASS to FAIL. Neither is
+authoritative yet -- the corpus (`feature_vectors.ctf_momentum`/`ctf_vwap_align`/`ctf_regime_align`)
+has never actually been recomputed with the fix. `forward_returns`' OOS region is genuinely
+populated (todo 253) and D-04 gate governance is live in `cross_sectional_spread_tracker.py`, so
+both real prerequisites are done. **A full scoped execution plan now exists** (see Strategic Plan
+above) -- ready to run pending user go-ahead, not still an open design question. Todo 256
+(separately verified 2026-08-05: none of the 3 CTF columns currently clear ensemble eligibility
+under the leaked data, so nothing has silently entered `alpha_ensemble_ic`) tracks the residual
+risk until the recompute lands. `docs/research/measurement-nonlinear-interaction-combiner.md`
+also has a structural critique of the tree estimator (no per-feature exposure cap) plus two
+pre-registered follow-on test designs (N1/N2), not yet run -- N1 (residual-form) is the
+recommended next move once the CTF thread closes.
 
 **New, separate thread the same night: `regime_writer.py`'s per-symbol HMM has a real
 parameter-level lookahead bug, confirmed, fixed, tested, and measured to NOT help (todos 026/248)
@@ -217,11 +220,11 @@ pseudo-replication) fixed; todo 204 status is in Tier -1 below (don't restate he
 
 **Next actions, priority order:**
 
-*Tier 0.5 -- outranks Tier 1: read-only measurement, not a build.* `ctf_momentum` batch-join
-lookahead bias (todos 243/245) -- full current status in Current Saga above, not restated here.
-15m/5m cross-sectional diagnostics in flight; once they land, the open decision is whether a
-corpus-wide recompute of the 3 CTF columns is warranted and whether Phase 167's Gate 1/Gate 2
-verdict needs re-running under corrected values.
+*Tier 0.5 -- outranks Tier 1: execute the scoped recompute plan.* `ctf_momentum` batch-join
+lookahead bias (todos 243/245/256) -- full current status in the Strategic Plan section above,
+not restated here. The recompute/re-verification plan is written and ready
+(`docs/plans/2026-08-05-ctf-join-fix-scoped-recompute-and-gate1-reverify.md`); only the
+user go-ahead to execute it remains.
 
 *Tier 1 -- decision point, REDIRECTED 2026-07-27 by explicit user instruction:* Phase 156-159
 (execution/sizing) is NOT the priority even though its precondition is cleared. User wants the
@@ -230,8 +233,8 @@ before any execution-layer investment. Do not resume Phase 156-159 scoping witho
 re-raising it.
 
 *Tier 2 -- serves the redirected priority:* todo 234 CLOSED 2026-08-03 -- nonlinear_interaction_combiner's 15m result
-substantial at the tf that's actually tradeable, **but see Tier 0.5/Current Saga: that read needs
-re-confirming once the CTF-leak diagnostic lands (1d re-run is safe now, 1h/15m/5m wait).** todo
+substantial at the tf that's actually tradeable, **but see Tier 0.5/Strategic Plan: that read needs
+re-confirming once the corpus recompute lands (1d re-run is safe now, 1h/15m/5m wait).** todo
 235 (cross_sectional_relative_value-at-5m, never comparatively tested against 15m for this
 construction); the open `alpha_ensemble_ic`/`alpha_events` question (is the linear-only combiner
 adequate -- confirmed `ensemble_trainer.py`'s `resolve_stratum_weights` is linear combination
