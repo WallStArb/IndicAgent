@@ -661,3 +661,186 @@ class TestPhase151CrossTfDivergences:
             assert fv.ctf_momentum == pytest.approx(0.42, abs=1e-12)
             assert fv.ctf_vwap_align == pytest.approx(-1.0, abs=1e-12)
             assert fv.ctf_regime_align == pytest.approx(1.0, abs=1e-12)
+
+
+# ---------------------------------------------------------------------------
+# Phase 151 Plan 06: Theory-Motivated Interaction Layer
+# ---------------------------------------------------------------------------
+
+
+class TestTheoryMotivatedInteractionProducts:
+    """Each of the 10 compounds must equal the exact product of its two
+    parents on the same FeatureVector, to 1e-12, on a synthetic bar window --
+    both live (compute()) and batch (compute_batch()) paths."""
+
+    _PAIRS = {
+        "momentum_vol_regime_product": ("momentum_z_fast", "hv_ratio"),
+        "momentum_trend_product": ("momentum_z_fast", "adx"),
+        "breakout_volume_product": ("dist_from_high_fast", "volume_z"),
+        "reversion_hurst_product": ("momentum_reversal_z", "hurst"),
+        "quarter_momentum_product": ("quarter_position", "momentum_z_fast"),
+        "variance_ratio_momentum_product": ("variance_ratio_fast", "momentum_z_fast"),
+        "illiquidity_momentum_product": ("amihud_illiq_z", "momentum_z_fast"),
+        "yield_slope_momentum_product": ("yield_slope_z", "momentum_z_fast"),
+        "vix_reversion_product": ("vix_z", "momentum_reversal_z"),
+        "efficiency_volume_product": ("efficiency_ratio_fast", "volume_z"),
+    }
+
+    def test_live_path_products_match_parents(self) -> None:
+        from src.intelligence.feature_cache import FeatureCache
+        from src.intelligence.feature_factory import FeatureFactory
+
+        config = _make_config_for_min_window()
+        cache = FeatureCache()
+        bars = _make_bars_dicts(80)
+        fv = FeatureFactory.compute(bars, "SPY", "5m", cache, config)
+
+        for compound, (p1, p2) in self._PAIRS.items():
+            expected = getattr(fv, p1) * getattr(fv, p2)
+            actual = getattr(fv, compound)
+            assert actual == pytest.approx(
+                expected, abs=1e-12
+            ), f"{compound}: expected {p1}*{p2}={expected}, got {actual}"
+
+    def test_batch_path_products_match_parents(self) -> None:
+        from src.intelligence.feature_cache import FeatureCache
+        from src.intelligence.feature_factory import FeatureFactory
+
+        config = _make_config_for_min_window()
+        cache = FeatureCache()
+        bars = _make_bars_dicts(80)
+        results = FeatureFactory.compute_batch(bars, "SPY", "5m", cache, config, warm_up_bars=5)
+        assert results, "compute_batch returned no results"
+
+        for _, fv in results:
+            for compound, (p1, p2) in self._PAIRS.items():
+                expected = getattr(fv, p1) * getattr(fv, p2)
+                actual = getattr(fv, compound)
+                assert actual == pytest.approx(
+                    expected, abs=1e-12
+                ), f"{compound}: expected {p1}*{p2}={expected}, got {actual}"
+
+    # No cross-path (live vs batch) parity test for these 10 compounds:
+    # momentum_trend_product/reversion_hurst_product depend on cache.adx/
+    # cache.hurst, which are populated by compute_batch()'s periodic
+    # refresh_regime() call but stay at FeatureCache's cold default in a
+    # single isolated compute() call against a fresh cache -- a pre-existing
+    # cache-warm-up asymmetry, not something this plan introduces or is
+    # scoped to fix. TestPhase151BatchLiveParity above deliberately excludes
+    # cache-backed fields for the same reason.
+
+
+class TestGuardCountedTripwire:
+    """_guard_counted is a counted, observable tripwire for the 10 Theory-
+    Motivated Interaction compounds -- never a silent nan_to_num collapse
+    (Codex code-review MEDIUM finding). A float64 product of two z-scores
+    cannot reach ±inf short of ~1e154 per factor -- structurally unreachable
+    for a real z-score -- so this guard is a tripwire, not a value-shaping
+    clamp; these tests exercise the tripwire directly with contrived
+    non-finite inputs rather than trying to organically overflow real data."""
+
+    def test_finite_value_passes_through_unchanged(self) -> None:
+        from src.intelligence.feature_factory import _guard_counted
+
+        assert _guard_counted(3.14, "momentum_vol_regime_product") == 3.14
+
+    def test_nonfinite_value_substitutes_zero_and_increments_counter(self) -> None:
+        from src.intelligence.feature_factory import (
+            _GUARD_COUNTED_SUBSTITUTIONS,
+            _guard_counted,
+        )
+
+        _GUARD_COUNTED_SUBSTITUTIONS.clear()
+        result = _guard_counted(float("inf"), "momentum_vol_regime_product")
+        assert result == 0.0
+        assert _GUARD_COUNTED_SUBSTITUTIONS["momentum_vol_regime_product"] == 1
+
+        # A second substitution on the same compound (this time -inf) increments again.
+        result2 = _guard_counted(float("-inf"), "momentum_vol_regime_product")
+        assert result2 == 0.0
+        assert _GUARD_COUNTED_SUBSTITUTIONS["momentum_vol_regime_product"] == 2
+
+        # nan on a DIFFERENT compound increments its own independent counter.
+        _guard_counted(float("nan"), "vix_reversion_product")
+        assert _GUARD_COUNTED_SUBSTITUTIONS["vix_reversion_product"] == 1
+        assert _GUARD_COUNTED_SUBSTITUTIONS["momentum_vol_regime_product"] == 2
+
+        _GUARD_COUNTED_SUBSTITUTIONS.clear()
+
+
+class TestGuardCountedReport:
+    """_report_guard_counted_substitutions emits ONE structured log line
+    naming only non-zero-count compounds, resets counters, and emits
+    nothing at all when every counter is zero -- CLAUDE.md's never-log-
+    per-row-over-the-corpus rule applied to compute_batch()'s up-to-36.7M-row
+    loop."""
+
+    def test_emits_nothing_when_all_counts_zero(self) -> None:
+        from structlog.testing import capture_logs
+
+        from src.intelligence.feature_factory import (
+            _GUARD_COUNTED_SUBSTITUTIONS,
+            _report_guard_counted_substitutions,
+        )
+
+        _GUARD_COUNTED_SUBSTITUTIONS.clear()
+        with capture_logs() as cap_logs:
+            _report_guard_counted_substitutions()
+        assert cap_logs == []
+
+    def test_emits_one_line_naming_only_nonzero_compounds_then_resets(self) -> None:
+        from structlog.testing import capture_logs
+
+        from src.intelligence.feature_factory import (
+            _GUARD_COUNTED_SUBSTITUTIONS,
+            _guard_counted,
+            _report_guard_counted_substitutions,
+        )
+
+        _GUARD_COUNTED_SUBSTITUTIONS.clear()
+        _guard_counted(float("inf"), "momentum_vol_regime_product")
+        _guard_counted(float("inf"), "momentum_vol_regime_product")
+        _guard_counted(float("nan"), "vix_reversion_product")
+
+        with capture_logs() as cap_logs:
+            _report_guard_counted_substitutions()
+
+        assert len(cap_logs) == 1, f"expected exactly one log line, got {cap_logs}"
+        event = cap_logs[0]
+        assert event["event"] == "theory_interaction_guard_substitutions"
+        assert event["substitutions"] == {
+            "momentum_vol_regime_product": 2,
+            "vix_reversion_product": 1,
+        }
+
+        # Reset after the report -- a second report call with no new
+        # substitutions in between must emit nothing.
+        assert _GUARD_COUNTED_SUBSTITUTIONS == {}
+        with capture_logs() as cap_logs2:
+            _report_guard_counted_substitutions()
+        assert cap_logs2 == []
+
+    def test_compute_batch_calls_report_at_most_once_and_stays_silent_on_real_data(
+        self,
+    ) -> None:
+        """End-to-end: compute_batch() over realistic (non-overflowing)
+        synthetic data never fires the tripwire, so its call-site-wired
+        report is silent -- confirms the wiring without duplicating the
+        direct-unit-test content coverage above."""
+        from structlog.testing import capture_logs
+
+        from src.intelligence.feature_cache import FeatureCache
+        from src.intelligence.feature_factory import FeatureFactory
+
+        config = _make_config_for_min_window()
+        cache = FeatureCache()
+        bars = _make_bars_dicts(80)
+
+        with capture_logs() as cap_logs:
+            results = FeatureFactory.compute_batch(bars, "SPY", "5m", cache, config, warm_up_bars=5)
+
+        assert results, "compute_batch returned no results"
+        theory_events = [
+            e for e in cap_logs if e.get("event") == "theory_interaction_guard_substitutions"
+        ]
+        assert len(theory_events) == 0, "no substitutions expected on realistic synthetic data"

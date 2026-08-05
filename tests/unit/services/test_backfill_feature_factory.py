@@ -292,6 +292,16 @@ def _make_zero_vector() -> FeatureVector:
         ret_div_1h_1d=None,
         opex_flag=0.0,
         quad_witching_flag=0.0,
+        momentum_vol_regime_product=0.0,
+        momentum_trend_product=0.0,
+        breakout_volume_product=0.0,
+        reversion_hurst_product=0.0,
+        quarter_momentum_product=0.0,
+        variance_ratio_momentum_product=0.0,
+        illiquidity_momentum_product=0.0,
+        yield_slope_momentum_product=0.0,
+        vix_reversion_product=0.0,
+        efficiency_volume_product=0.0,
         ctf_momentum=0.0,
         ctf_vwap_align=0.0,
         ctf_regime_align=0.0,
@@ -555,7 +565,8 @@ def test_vector_to_params_all_features_present() -> None:
     11 recency/statistical atomics columns (Phase 151 Plan 03), 286 after
     migration 289's 7 cross-asset spread/beta atomics columns (Phase 151
     Plan 04), 291 after migration 290's 5 Named Interaction Primitives
-    columns (Phase 151 Plan 05)."""
+    columns (Phase 151 Plan 05), 301 after migration 291's 10
+    Theory-Motivated Interaction columns (Phase 151 Plan 06)."""
     fv = _make_zero_vector()
     ts = datetime(2025, 1, 2, 14, 30, 0, tzinfo=UTC)
     params = _vector_to_params(
@@ -566,8 +577,8 @@ def test_vector_to_params_all_features_present() -> None:
         regime=None,
         fv=fv,
     )
-    # 1 content-key + 8 structural + 282 feature floats = 291 total
-    assert len(params) == 291, f"Expected 291 params, got {len(params)}"
+    # 1 content-key + 8 structural + 292 feature floats = 301 total
+    assert len(params) == 301, f"Expected 301 params, got {len(params)}"
 
 
 def test_vector_to_params_symbol_tf_ts() -> None:

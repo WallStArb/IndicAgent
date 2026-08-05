@@ -443,9 +443,10 @@ def test_feature_vector_domain_complete():
     primitives (Phase 151 Plan 01) = 259, + 11 recency/statistical atomics
     (Phase 151 Plan 03) = 270, + 7 cross-asset spread/beta atomics
     (Phase 151 Plan 04) = 277, + 5 Named Interaction Primitives (3 cross-TF
-    divergences + 2 calendar event flags, Phase 151 Plan 05) = 282."""
+    divergences + 2 calendar event flags, Phase 151 Plan 05) = 282, + 10
+    Theory-Motivated Interactions (Phase 151 Plan 06) = 292."""
     fv_fields = {f.name for f in dataclasses.fields(FeatureVector)}
-    assert len(FEATURE_VECTOR_DOMAIN) == 282
+    assert len(FEATURE_VECTOR_DOMAIN) == 292
     assert set(FEATURE_VECTOR_DOMAIN.keys()) == fv_fields
 
 

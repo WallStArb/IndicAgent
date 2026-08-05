@@ -1202,9 +1202,9 @@ SignalMetricsEvent = Annotated[
 
 @dataclasses.dataclass(frozen=True)
 class FeatureVector:
-    """282 orthogonal feature primitives computed per bar by FeatureFactory.
+    """292 orthogonal feature primitives computed per bar by FeatureFactory.
     See the "Groups and field order are binding" breakdown below (ends in
-    "Total: 282") for full group-by-group provenance -- that breakdown is
+    "Total: 292") for full group-by-group provenance -- that breakdown is
     the maintained source of truth; keep it (not this line) in sync when
     fields are added.
 
@@ -1237,6 +1237,13 @@ class FeatureVector:
         return divergences (ret_div_1m_5m/5m_1h/1h_1d, nullable + timeframe-pinned,
         see field comments) + 2 calendar event flags (opex_flag, quad_witching_flag,
         non-nullable, no market-holiday table by design)
+      Theory-Motivated Interactions (10, Phase 151 Plan 06): momentum_vol_regime_product,
+        momentum_trend_product, breakout_volume_product, reversion_hurst_product,
+        quarter_momentum_product, variance_ratio_momentum_product, illiquidity_momentum_product,
+        yield_slope_momentum_product, vix_reversion_product, efficiency_volume_product --
+        10 curated compound features, each a single product of two tier-0 columns with a
+        stated finance-theory hypothesis (see field comments); non-nullable, guarded via
+        _guard_counted (observable tripwire, not a silent nan_to_num collapse)
       Calendar (17: 11 original + 6 Phase 151 Plan 01 Task 1): NY/London session, overlap, power hour, opening range, weekly VWAP, dow sin/cos, month position, quarter position, days to month end, quarter cycle sin/cos, TDOM sin/cos, minute-of-hour sin/cos
       Velocity Primitives (4, Phase 151 Plan 01 Task 2): momentum_z_velocity_fast/mid/slow, vwap_dev_sigma_velocity -- first-difference-then-re-z-scored construction of an already-computed z-score series (same shape as vol_velocity_z)
       Recency / Statistical Atomics (11, Phase 151 Plan 03, todo 180): bars_since_high/low_fast/slow,
@@ -1273,10 +1280,11 @@ class FeatureVector:
         All ATR-distance/bounded/count/ordinal placeholders (None until Plans 02-04
         wire real compute logic); never a raw price level (D-16).
       Cross-sectional (3, nullable): momentum/volume/volatility rank z-scores
-      Total: 282 (233 required [164 + 41 Swing/Fib/Trend/Session Structure +
+      Total: 292 (243 required [164 + 41 Swing/Fib/Trend/Session Structure +
       6 Calendar Cycle/TDOM/Minute + 4 Velocity Primitives + 11 Recency/
       Statistical Atomics + 5 Cross-asset Spread/Beta (non-nullable) + 2
-      Calendar Event Flags (non-nullable), Phase 151 Plans 01 + 03 + 04 + 05]
+      Calendar Event Flags (non-nullable) + 10 Theory-Motivated Interactions
+      (non-nullable), Phase 151 Plans 01 + 03 + 04 + 05 + 06]
       + 49 optional [3 cross-sectional + 5 canary + 36 SMC + 2 Cross-asset
       factor betas (Phase 151 Plan 04, nullable for the factor proxy's own
       self-regression) + 3 Cross-TF divergences (Phase 151 Plan 05, nullable
@@ -1479,6 +1487,28 @@ class FeatureVector:
     quad_witching_flag: (
         float  # 1.0 iff opex_flag==1.0 AND month % 3 == 0 (quarterly quad-witching), else 0.0
     )
+    # Theory-Motivated Interactions (10, Phase 151 Plan 06). 10 curated
+    # compound features, each a SINGLE operation (product) on two numeric
+    # tier-0 columns, each carrying a one-sentence finance-theory hypothesis
+    # (feature_registry.formula_short). Non-nullable floats: every parent is
+    # always computed (defaulting to 0.0 at cold start), so the product is
+    # always defined. hv_ratio/adx/hurst/variance_ratio_fast/vix_z/
+    # yield_slope_z are the numeric tier-0 proxies substituting for the
+    # "regime label" candidate sources named in ROADMAP (categorical
+    # regime strings cannot be a product operand) -- Open Question 2's
+    # resolution, see plan doc. Guarded via _guard_counted (not plain
+    # _guard) so a non-finite substitution is a COUNTED, observable
+    # tripwire rather than a silent nan_to_num collapse.
+    momentum_vol_regime_product: float  # momentum_z_fast * hv_ratio; momentum carries more strongly when realized vol is contracting (low-vol anomaly, Frazzini & Pedersen 2014)
+    momentum_trend_product: float  # momentum_z_fast * adx; momentum persists when trend strength is high, decays into noise when choppy
+    breakout_volume_product: float  # dist_from_high_fast * volume_z; a breakout confirmed by abnormal volume continues more often than an unconfirmed one
+    reversion_hurst_product: float  # momentum_reversal_z * hurst; short-term reversal is stronger when the series is anti-persistent (Hurst < 0.5)
+    quarter_momentum_product: float  # quarter_position * momentum_z_fast; quarter-end window dressing/dealer gamma unwind amplify existing momentum into the quarter close
+    variance_ratio_momentum_product: float  # variance_ratio_fast * momentum_z_fast; momentum is informative in trending microstructure, noise in mean-reverting
+    illiquidity_momentum_product: float  # amihud_illiq_z * momentum_z_fast; illiquidity amplifies price impact, so identical order flow moves price further and momentum persists longer
+    yield_slope_momentum_product: float  # yield_slope_z * momentum_z_fast; term-structure regime conditions equity momentum (carry-times-term-structure candidate source)
+    vix_reversion_product: float  # vix_z * momentum_reversal_z; the short-term reversal premium is larger in high-volatility regimes where liquidity provision is compensated more
+    efficiency_volume_product: float  # efficiency_ratio_fast * volume_z; directional efficiency confirmed by volume distinguishes a real trend from directionless drift
     # Cross-timeframe (3)
     ctf_momentum: float
     ctf_vwap_align: float

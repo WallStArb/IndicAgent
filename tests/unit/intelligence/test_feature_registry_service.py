@@ -728,3 +728,52 @@ def test_every_interaction_row_has_exactly_two_parents():
             )
             is False
         )
+
+
+# ---------------------------------------------------------------------------
+# Phase 151 Plan 06: tier='1_interaction' population cap (ROADMAP design rule)
+#
+# ROADMAP's Theory-Motivated Interaction Layer design rules are explicit: a
+# curated layer, NOT a combinatorial factory. A combinatorial candidate pool
+# (e.g. ~30K compound candidates run through BH-FDR at alpha=0.05) produces
+# ~1,500 expected false discoveries and destroys the correction's power
+# guarantees -- the deferred todo 019 design, rejected on statistical-power
+# grounds before this phase existed. 50 tests at FDR=0.05 has well-understood
+# power; 30K does not. The <=50 cap is the Musk-step-3 "simplify" applied at
+# design time, made a permanent machine-enforced invariant here rather than
+# staying a prose commitment a future migration can quietly breach.
+#
+# Note: placed at module tail deliberately, not immediately after
+# test_every_interaction_row_has_exactly_two_parents() above -- that
+# location sits inside a pre-existing indentation defect (this file's
+# test_false_when_observations_unmet/test_false_when_neither_met/
+# test_reads_floors_from_passed_arguments_not_hardcoded/
+# test_false_for_unknown_feature are indented as if TestIsPromotionEligible
+# methods but actually nest as dead code inside the module-level arity test
+# function above them, so pytest never collects them). That defect predates
+# this plan and is out of scope here (SCOPE BOUNDARY); this test is placed
+# at the true, unambiguous module tail so it is not swallowed by the same
+# defect.
+# ---------------------------------------------------------------------------
+
+
+def test_interaction_tier_population_within_cap():
+    """Permanent cap guard: tier='1_interaction' population must never exceed
+    ROADMAP Phase 151's design cap of 50 rows (see module comment above)."""
+    import psycopg
+
+    try:
+        conn = psycopg.connect(_LIVE_DB_DSN)
+    except Exception:
+        pytest.skip("Cannot connect to the live indicagent DB")
+    try:
+        with conn.cursor() as cur:
+            cur.execute("SELECT count(*) FROM feature_registry WHERE tier = '1_interaction'")
+            (count,) = cur.fetchone()
+    finally:
+        conn.close()
+
+    assert count <= 50, (
+        f"tier='1_interaction' population is {count}, exceeding ROADMAP Phase 151's "
+        "design cap of 50 -- see module comment above for the BH-FDR power rationale"
+    )
