@@ -7932,9 +7932,9 @@ def _cold_start_vector(cache: FeatureCache, tf: str) -> FeatureVector:
         # Phase 151 Plan 03: _cold_start_vector has no config parameter
         # (called only when len(bars) < 2, same constraint documented at
         # Phase 151 Plan 01's cold-start deviation above), so the true
-        # per-window saturating value (window-1) cannot be read from live
-        # APR here. Uses each field's seeded APR default window
-        # (dist_window_fast=20, dist_window_slow=50, high_52w_window=252)
+        # per-window saturating value (window minus one) cannot be read from
+        # live APR here. Uses each field's seeded APR default window (dist
+        # windows fast/slow are 20/50, the 52-week high/low window is 252)
         # as a literal -- the same bare-literal convention every other field
         # in this function already follows for the identical reason.
         bars_since_high_fast=19.0,
