@@ -104,6 +104,17 @@ symbol-independent fields in the batch path; equity_beta_z/rate_beta_z
 computed per-symbol in the batch path, cache-defaulted 0.0 on the live path
 pending plan 151-09's live wiring).
 
+2026-08-05: extended to 291 columns (migration 290, Phase 151 Plan 05). 5 new
+Named Interaction Primitives fields -- ret_div_1m_5m/5m_1h/1h_1d (3 cross-TF
+return divergences, nullable + timeframe-pinned) + opex_flag/quad_witching_flag
+(2 non-nullable calendar event flags) -- added to FeatureVector as ONE
+contiguous block immediately after Plan 04's rate_beta_z field. Same
+derive-by-name discipline via a new _PHASE151_INTERACTION_NAMED_FIELD_NAMES
+slice, appended at the end of the column list. All 5 values are real computed
+floats/None from day one (the 3 divergences None where the tf pair is
+undefined or, for ret_div_1m_5m, where 1m OHLCV coverage is absent -- both
+event flags real computed floats on both live and batch paths).
+
 Ring 1: imports FeatureVector from src.intelligence.schemas.
 Do not import from Ring 2 (services/) or Ring 3 (api/, production/).
 """
@@ -243,6 +254,20 @@ _PHASE151_CROSS_ASSET_FIELD_NAMES: tuple[str, ...] = _ALL_FEATURE_VECTOR_FIELD_N
     + 1
 ]
 
+# The 5 new Phase 151 Plan 05 fields (migration 290) are a ninth contiguous,
+# same-order slice -- 3 cross-TF return divergences (ret_div_1m_5m/5m_1h/1h_1d)
+# immediately followed by 2 calendar event flags (opex_flag,
+# quad_witching_flag), declared as ONE contiguous run in schemas.py
+# immediately after Plan 04's rate_beta_z field. Same derive-don't-hand-type
+# discipline as the eight slices above; appended at the end of the column
+# list below.
+_PHASE151_INTERACTION_NAMED_FIELD_NAMES: tuple[str, ...] = _ALL_FEATURE_VECTOR_FIELD_NAMES[
+    _ALL_FEATURE_VECTOR_FIELD_NAMES.index("ret_div_1m_5m") : _ALL_FEATURE_VECTOR_FIELD_NAMES.index(
+        "quad_witching_flag"
+    )
+    + 1
+]
+
 
 def _compute_bar_close_ts(bar_ts: datetime, tf: str) -> datetime:
     """Compute bar close timestamp from bar open timestamp and timeframe.
@@ -277,7 +302,7 @@ def validate_feature_vector(vector: FeatureVector) -> list[str]:
 
 # ── Canonical INSERT/UPSERT SQL ───────────────────────────────────────────────
 
-# 286 columns (as of 2026-08-05): $1 content-key, $2-$8 structural, $9-$62
+# 291 columns (as of 2026-08-05): $1 content-key, $2-$8 structural, $9-$62
 # original feature floats, $63-$70 migration-159 additions, $71-$159
 # migration-206 Renaissance primitives (2026-07-08 fix, then reduced from 91
 # to 89 primitives 2026-07-09), $160-$164 migration-223 canary/control
@@ -288,8 +313,9 @@ def validate_feature_vector(vector: FeatureVector) -> list[str]:
 # cycle/TDOM/minute + velocity fields (Phase 151 Plan 01), $269-$279
 # migration-288 recency/statistical atomics fields (Phase 151 Plan 03),
 # $280-$286 migration-289 cross-asset spread/beta atomics fields (Phase 151
-# Plan 04, see module docstring).
-# Column order is binding — matches migration 159/206/223/255/266/267/287/288/289 column definition order.
+# Plan 04), $287-$291 migration-290 Named Interaction Primitives fields
+# (Phase 151 Plan 05, see module docstring).
+# Column order is binding — matches migration 159/206/223/255/266/267/287/288/289/290 column definition order.
 _STRUCTURAL_PREFIX_COLUMN_NAMES: tuple[str, ...] = (
     "feature_vector_id",
     "symbol",
@@ -376,6 +402,7 @@ _ALL_COLUMN_NAMES: tuple[str, ...] = (
     + _PHASE151_CALENDAR_VELOCITY_FIELD_NAMES
     + _PHASE151_RECENCY_FIELD_NAMES
     + _PHASE151_CROSS_ASSET_FIELD_NAMES
+    + _PHASE151_INTERACTION_NAMED_FIELD_NAMES
 )
 _TOTAL_COLUMNS = len(_ALL_COLUMN_NAMES)
 
@@ -537,7 +564,7 @@ def feature_vector_to_insert_params(
     regime_label_source: str,
     vector: FeatureVector,
 ) -> tuple:
-    """Serialize a FeatureVector to the canonical 286-element INSERT tuple.
+    """Serialize a FeatureVector to the canonical 291-element INSERT tuple.
 
     Column order matches FEATURE_VECTOR_INSERT_SQL exactly:
       $1:        feature_vector_id (content-key UUID)
@@ -572,6 +599,9 @@ def feature_vector_to_insert_params(
       $280-$286: 7 cross-asset spread/beta atomics fields (migration 289,
                  Phase 151 Plan 04) in dataclasses.fields(FeatureVector)
                  order — all real computed floats/None from day one
+      $287-$291: 5 Named Interaction Primitives fields (migration 290, Phase
+                 151 Plan 05) in dataclasses.fields(FeatureVector) order —
+                 all real computed floats/None from day one
 
     Args:
         symbol: Instrument symbol (e.g. 'SPY').
@@ -588,7 +618,7 @@ def feature_vector_to_insert_params(
         vector: Fully-populated FeatureVector from FeatureFactory.compute().
 
     Returns:
-        286-element tuple for use with asyncpg or psycopg executemany().
+        291-element tuple for use with asyncpg or psycopg executemany().
         Compatible with both drivers — asyncpg and psycopg handle uuid.UUID
         and datetime natively.
 
@@ -736,4 +766,9 @@ def feature_vector_to_insert_params(
         # after the recency/statistical atomics fields (module docstring).
         # All real computed floats/None from day one.
         *(getattr(vector, name) for name in _PHASE151_CROSS_ASSET_FIELD_NAMES),
+        # Named Interaction Primitives fields (migration 290, Phase 151 Plan
+        # 05) — same derive-by-name discipline, appended immediately after
+        # the cross-asset spread/beta fields (module docstring). All real
+        # computed floats/None from day one.
+        *(getattr(vector, name) for name in _PHASE151_INTERACTION_NAMED_FIELD_NAMES),
     )

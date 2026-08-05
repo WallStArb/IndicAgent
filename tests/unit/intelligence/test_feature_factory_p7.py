@@ -21,8 +21,10 @@ from src.intelligence.feature_factory import (
     _high_52w_dist_series_full,
     _in_london_kz,
     _opening_range,
+    _opex_flag,
     _pearson_acf1,
     _power_hour,
+    _quad_witching_flag,
     _ret_acf1_z_series_full,
     _ret_skew_z_series_full,
     _rsi,
@@ -440,9 +442,10 @@ def test_feature_vector_domain_complete():
     migration 267) = 249, + 6 calendar cycle/TDOM/minute + 4 velocity
     primitives (Phase 151 Plan 01) = 259, + 11 recency/statistical atomics
     (Phase 151 Plan 03) = 270, + 7 cross-asset spread/beta atomics
-    (Phase 151 Plan 04) = 277."""
+    (Phase 151 Plan 04) = 277, + 5 Named Interaction Primitives (3 cross-TF
+    divergences + 2 calendar event flags, Phase 151 Plan 05) = 282."""
     fv_fields = {f.name for f in dataclasses.fields(FeatureVector)}
-    assert len(FEATURE_VECTOR_DOMAIN) == 277
+    assert len(FEATURE_VECTOR_DOMAIN) == 282
     assert set(FEATURE_VECTOR_DOMAIN.keys()) == fv_fields
 
 
@@ -471,3 +474,69 @@ def test_vector_to_params_length():
     row = _vector_to_params("SPY", "1m", ts, "v3.0.0", None, fv)
     expected = FEATURE_VECTOR_INSERT_SQL_PSYCOPG.count("%s")
     assert len(row) == expected, f"Expected {expected}, got {len(row)}"
+
+
+# ---------------------------------------------------------------------------
+# opex_flag / quad_witching_flag (Phase 151 Plan 05, todo 104)
+# ---------------------------------------------------------------------------
+
+
+def test_opex_flag_third_friday():
+    """2026-03-20 is the third Friday of March 2026 -- the monthly OPEX date."""
+    assert _opex_flag(datetime(2026, 3, 20, 15, 0, tzinfo=UTC)) == 1.0
+
+
+def test_opex_flag_second_friday_not_flagged():
+    assert _opex_flag(datetime(2026, 3, 13, 15, 0, tzinfo=UTC)) == 0.0
+
+
+def test_opex_flag_fourth_friday_not_flagged():
+    assert _opex_flag(datetime(2026, 3, 27, 15, 0, tzinfo=UTC)) == 0.0
+
+
+def test_opex_flag_third_thursday_not_flagged():
+    """Same calendar week as the third Friday, but wrong day-of-week."""
+    assert _opex_flag(datetime(2026, 3, 19, 15, 0, tzinfo=UTC)) == 0.0
+
+
+def test_quad_witching_flag_march_opex():
+    """March is a quarter-end month (month % 3 == 0) -- its OPEX Friday is quad-witching."""
+    assert _quad_witching_flag(datetime(2026, 3, 20, 15, 0, tzinfo=UTC)) == 1.0
+
+
+def test_quad_witching_flag_april_opex_not_quarter_end():
+    """April's third Friday (2026-04-17) is a regular monthly OPEX, not quad-witching
+    (April is not a quarter-end month)."""
+    assert _opex_flag(datetime(2026, 4, 17, 15, 0, tzinfo=UTC)) == 1.0
+    assert _quad_witching_flag(datetime(2026, 4, 17, 15, 0, tzinfo=UTC)) == 0.0
+
+
+def test_quad_witching_flag_calls_opex_flag_not_restated():
+    """Guards Pitfall correction: quad_witching_flag must call _opex_flag(), not
+    restate its dow/week_of_month condition inline."""
+    import inspect
+
+    src = inspect.getsource(_quad_witching_flag)
+    assert "_opex_flag(" in src
+
+
+def test_opex_and_quad_witching_flag_annual_counts():
+    """Over a full synthetic year of daily bars, opex_flag must fire exactly 12
+    times (once per month) and quad_witching_flag exactly 4 times (once per
+    quarter)."""
+    import datetime as _dt
+
+    year = 2026
+    day = _dt.date(year, 1, 1)
+    one_day = _dt.timedelta(days=1)
+    opex_count = 0
+    quad_count = 0
+    while day.year == year:
+        bar_ts = datetime(day.year, day.month, day.day, 15, 0, tzinfo=UTC)
+        if _opex_flag(bar_ts) == 1.0:
+            opex_count += 1
+        if _quad_witching_flag(bar_ts) == 1.0:
+            quad_count += 1
+        day += one_day
+    assert opex_count == 12, f"expected 12 OPEX Fridays in {year}, got {opex_count}"
+    assert quad_count == 4, f"expected 4 quad-witching Fridays in {year}, got {quad_count}"

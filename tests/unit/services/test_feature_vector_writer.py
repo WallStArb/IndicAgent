@@ -111,6 +111,11 @@ def _make_valid_feature_vector():
         sb_corr_z=0.0,
         equity_beta_z=0.0,
         rate_beta_z=0.0,
+        ret_div_1m_5m=None,
+        ret_div_5m_1h=None,
+        ret_div_1h_1d=None,
+        opex_flag=0.0,
+        quad_witching_flag=0.0,
         ctf_momentum=0.0,
         ctf_vwap_align=0.0,
         ctf_regime_align=0.0,
@@ -322,7 +327,7 @@ def test_record_to_insert_params_returns_159_tuple():
     params = _record_to_insert_params(record)
 
     assert isinstance(params, tuple)
-    assert len(params) == 286, f"Expected 286, got {len(params)}"
+    assert len(params) == 291, f"Expected 291, got {len(params)}"
 
 
 def test_record_to_insert_params_feature_vector_id_is_uuid():
@@ -445,7 +450,7 @@ def test_parse_payload_valid_record_returns_159_param_tuple():
     assert not invalid
     assert len(valid) == 1
     assert isinstance(valid[0], tuple)
-    assert len(valid[0]) == 286, f"Expected 286-element tuple, got {len(valid[0])}"
+    assert len(valid[0]) == 291, f"Expected 291-element tuple, got {len(valid[0])}"
 
 
 def test_parse_payload_malformed_returns_empty_valid_invalid_payload():
@@ -607,7 +612,7 @@ def test_insert_sql_has_159_placeholders():
     from services.feature_vector_writer import _INSERT_FEATURE_VECTOR_SQL
 
     placeholders = re.findall(r"\$\d+", _INSERT_FEATURE_VECTOR_SQL)
-    assert len(placeholders) == 286, f"Expected 286 placeholders, got {len(placeholders)}"
+    assert len(placeholders) == 291, f"Expected 291 placeholders, got {len(placeholders)}"
 
 
 def test_insert_sql_includes_feature_vector_id_column():

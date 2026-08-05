@@ -1202,9 +1202,9 @@ SignalMetricsEvent = Annotated[
 
 @dataclasses.dataclass(frozen=True)
 class FeatureVector:
-    """277 orthogonal feature primitives computed per bar by FeatureFactory.
+    """282 orthogonal feature primitives computed per bar by FeatureFactory.
     See the "Groups and field order are binding" breakdown below (ends in
-    "Total: 277") for full group-by-group provenance -- that breakdown is
+    "Total: 282") for full group-by-group provenance -- that breakdown is
     the maintained source of truth; keep it (not this line) in sync when
     fields are added.
 
@@ -1232,6 +1232,11 @@ class FeatureVector:
       Cross-asset (10: 3 original + 7 Phase 151 Plan 04): VIX z-score, flight-to-quality,
         yield slope, TIP/TLT and HYG/LQD spread z-scores, stock-bond correlation
         fast/slow/z, equity/rate factor betas (2 nullable, see field comments)
+      Named Interaction Primitives (5, Phase 151 Plan 05, todos 066/104): the 5
+        pre-specified, Fable-reviewed tier-1 interaction candidates -- 3 cross-TF
+        return divergences (ret_div_1m_5m/5m_1h/1h_1d, nullable + timeframe-pinned,
+        see field comments) + 2 calendar event flags (opex_flag, quad_witching_flag,
+        non-nullable, no market-holiday table by design)
       Calendar (17: 11 original + 6 Phase 151 Plan 01 Task 1): NY/London session, overlap, power hour, opening range, weekly VWAP, dow sin/cos, month position, quarter position, days to month end, quarter cycle sin/cos, TDOM sin/cos, minute-of-hour sin/cos
       Velocity Primitives (4, Phase 151 Plan 01 Task 2): momentum_z_velocity_fast/mid/slow, vwap_dev_sigma_velocity -- first-difference-then-re-z-scored construction of an already-computed z-score series (same shape as vol_velocity_z)
       Recency / Statistical Atomics (11, Phase 151 Plan 03, todo 180): bars_since_high/low_fast/slow,
@@ -1268,16 +1273,20 @@ class FeatureVector:
         All ATR-distance/bounded/count/ordinal placeholders (None until Plans 02-04
         wire real compute logic); never a raw price level (D-16).
       Cross-sectional (3, nullable): momentum/volume/volatility rank z-scores
-      Total: 277 (231 required [164 + 41 Swing/Fib/Trend/Session Structure +
+      Total: 282 (233 required [164 + 41 Swing/Fib/Trend/Session Structure +
       6 Calendar Cycle/TDOM/Minute + 4 Velocity Primitives + 11 Recency/
-      Statistical Atomics + 5 Cross-asset Spread/Beta (non-nullable), Phase 151
-      Plans 01 + 03 + 04]
-      + 46 optional [3 cross-sectional + 5 canary + 36 SMC + 2 Cross-asset
+      Statistical Atomics + 5 Cross-asset Spread/Beta (non-nullable) + 2
+      Calendar Event Flags (non-nullable), Phase 151 Plans 01 + 03 + 04 + 05]
+      + 49 optional [3 cross-sectional + 5 canary + 36 SMC + 2 Cross-asset
       factor betas (Phase 151 Plan 04, nullable for the factor proxy's own
-      self-regression), all defaulted/nullable for cold-start/construction-site
-      blast-radius or degenerate-self-regression reasons -- see Canary field
-      comments, the Smart Money Concepts block comment, and the Cross-asset
-      Spread/Beta field comments above])
+      self-regression) + 3 Cross-TF divergences (Phase 151 Plan 05, nullable
+      -- timeframe-pinned, None where the pair is undefined or, for
+      ret_div_1m_5m, where 1m OHLCV coverage is absent), all defaulted/
+      nullable for cold-start/construction-site blast-radius,
+      degenerate-self-regression, or timeframe-undefined reasons -- see
+      Canary field comments, the Smart Money Concepts block comment, and the
+      Cross-asset Spread/Beta and Named Interaction Primitives field comments
+      above])
     """
 
     # Momentum (7 total: 5 original + 2 new scale-named)
@@ -1441,6 +1450,35 @@ class FeatureVector:
     rate_beta_z: (
         float | None
     )  # zscore(rolling OLS slope of symbol daily log_ret on TLT daily log_ret); None for TLT itself (APR: feature.factor_beta.window / .zscore_window)
+    # Named Interaction Primitives (5, Phase 151 Plan 05, todos 066/104) --
+    # the 5 pre-specified, Fable-reviewed tier-1 interaction candidates from
+    # ROADMAP's consolidated roster. ret_div_1m_5m/5m_1h/1h_1d are
+    # `float | None` with NO default (required-but-nullable, same idiom as
+    # equity_beta_z/rate_beta_z above): each is pinned to the LOWER
+    # timeframe of its pair and is None everywhere else -- None means "this
+    # tf pair is undefined here," never a fake 0.0 divergence (which would
+    # be indistinguishable from "the two timeframes actually agree").
+    # ret_div_1m_5m is additionally None wherever 1m OHLCV coverage is
+    # absent (~99% of the 5m corpus -- 1m coverage is 2026-03-23..2026-06-23
+    # versus 5m's 2006-06-02..2026-07-07, a deliberate, documented data
+    # limitation, not a defect). opex_flag/quad_witching_flag are
+    # non-nullable floats (1.0/0.0), always computable from bar_ts alone --
+    # see the two helper functions' docstrings for the exact formulas.
+    ret_div_1m_5m: (
+        float | None
+    )  # last 1m log return - own 5m log return; populated at tf=="5m" only, and only where 1m OHLCV exists
+    ret_div_5m_1h: (
+        float | None
+    )  # own 5m log return - last 1h log return; populated at tf=="5m" only
+    ret_div_1h_1d: (
+        float | None
+    )  # own 1h log return - last 1d log return; populated at tf=="1h" only
+    opex_flag: (
+        float  # 1.0 iff dow==Friday AND week_of_month==3 (monthly options expiration), else 0.0
+    )
+    quad_witching_flag: (
+        float  # 1.0 iff opex_flag==1.0 AND month % 3 == 0 (quarterly quad-witching), else 0.0
+    )
     # Cross-timeframe (3)
     ctf_momentum: float
     ctf_vwap_align: float

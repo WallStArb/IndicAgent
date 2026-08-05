@@ -34,7 +34,7 @@ import sys
 from collections import deque
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
-from typing import Any
+from typing import Any, NamedTuple
 
 import numpy as np
 import psycopg
@@ -575,16 +575,35 @@ def _build_symbol_beta_series(
     return result
 
 
+class CtfValues(NamedTuple):
+    """4-field CTF payload keyed by HTF bar timestamp (Phase 151 Plan 05).
+
+    Extends the original 3-field ctf_momentum/ctf_vwap_align/ctf_regime_align
+    payload with htf_last_log_ret (the HTF bar's own causal log return),
+    consumed by the ret_div_5m_1h/ret_div_1h_1d cross-TF divergences.
+    NamedTuple with keyword-construction-only at every call site (mirroring
+    CrossAssetRecord, Phase 151 Plan 04) -- positional unpacking of a growing
+    tuple is exactly the drift risk both changes remove (Codex review
+    precedent, see 151-04-SUMMARY.md).
+    """
+
+    ctf_momentum: float
+    ctf_vwap_align: float
+    ctf_regime_align: float
+    htf_last_log_ret: float
+
+
 def _build_ctf_series(
     htf_bars: list[dict],
     config: FeatureFactoryConfig,
 ) -> dict:
-    """Build {htf_bar_period_start: (ctf_momentum, ctf_vwap_align, ctf_regime_align)} in O(n).
+    """Build {htf_bar_period_start: CtfValues} in O(n).
 
-    Single-pass streaming computation: Wilder RSI + cumulative VWAP + HMM forward.
-    Avoids O(n²) slice reprocessing. All values are causal — bar k uses only bars 0..k.
-    Keys are period-start timestamps, matching `htf_bars[k]["ts"]` exactly; callers that
-    need close-time keys (see `_compute_symbol_tf`'s todo-243 shift) remap after the fact.
+    Single-pass streaming computation: Wilder RSI + cumulative VWAP + HMM forward
+    + causal HTF log return. Avoids O(n²) slice reprocessing. All values are
+    causal — bar k uses only bars 0..k. Keys are period-start timestamps,
+    matching `htf_bars[k]["ts"]` exactly; callers that need close-time keys (see
+    `_compute_symbol_tf`'s todo-243 shift) remap after the fact.
     """
     n = len(htf_bars)
     if n < 2:
@@ -623,8 +642,20 @@ def _build_ctf_series(
         label = int(np.argmax(hmm_alpha))
         ctf_regime[i + 1] = 0.0 if label == 0 else 1.0
 
+    # htf_last_log_ret (Phase 151 Plan 05): the HTF bar's own causal log
+    # return, log(close[k] / close[k-1]), 0.0 at k=0 (no prior bar). Feeds
+    # ret_div_5m_1h/ret_div_1h_1d -- distinct from ctf_momentum (Wilder RSI,
+    # a smoothed multi-bar oscillator) and from log_rets above (that array's
+    # length is n-1, unpadded; htf_last_log_ret is n-aligned and padded).
+    htf_last_log_ret = np.concatenate(([0.0], log_rets))
+
     return {
-        htf_bars[k]["ts"]: (float(ctf_mom[k]), float(ctf_vwap[k]), float(ctf_regime[k]))
+        htf_bars[k]["ts"]: CtfValues(
+            ctf_momentum=float(ctf_mom[k]),
+            ctf_vwap_align=float(ctf_vwap[k]),
+            ctf_regime_align=float(ctf_regime[k]),
+            htf_last_log_ret=float(htf_last_log_ret[k]),
+        )
         for k in range(n)
     }
 
@@ -653,6 +684,43 @@ def _rekey_ctf_series_to_actual_close(ctf_by_ts: dict, tf: str, htf_tf: str) -> 
         return ctf_by_ts
     ts_sorted = sorted(ctf_by_ts.keys())
     return {ts_sorted[i + 1]: ctf_by_ts[ts_sorted[i]] for i in range(len(ts_sorted) - 1)}
+
+
+def _build_ltf_return_series(ltf_bars: list[dict], target_ts_list: list) -> dict:
+    """Build {target_bar_ts: last 1m log return at-or-before target_bar_ts} in
+    O(n+m), Phase 151 Plan 05 (todo 066) -- feeds ret_div_1m_5m.
+
+    Single merge walk over two already-sorted-ascending timestamp lists
+    (`ltf_bars` from `_fetch_bars_from_db`, `target_ts_list` the caller's 5m
+    bar timestamps -- both fetched oldest-first per that function's own
+    contract). Causal: a target timestamp only ever picks up a 1m bar whose
+    own `ts` is <= the target timestamp, never one strictly after it -- the
+    1m log return itself is `log(close[k] / close[k-1])` for that 1m bar, the
+    same causal definitional formula as `_ret_lag_1` elsewhere in this
+    codebase. No entry is emitted for a target timestamp with zero eligible
+    (at-or-before) 1m bars yet (typically the very start of 1m coverage).
+    """
+    if not ltf_bars or not target_ts_list:
+        return {}
+
+    result: dict = {}
+    closes = [float(b["close"]) for b in ltf_bars]
+    ts_list = [b["ts"] for b in ltf_bars]
+    n = len(ltf_bars)
+    j = 0
+    prev_close: float | None = None
+    last_log_ret: float | None = None
+
+    for target_ts in target_ts_list:
+        while j < n and ts_list[j] <= target_ts:
+            if prev_close is not None and prev_close > 0.0 and closes[j] > 0.0:
+                last_log_ret = math.log(closes[j] / prev_close)
+            prev_close = closes[j]
+            j += 1
+        if last_log_ret is not None:
+            result[target_ts] = last_log_ret
+
+    return result
 
 
 def _connect_db(settings: Settings) -> Any:
@@ -1487,6 +1555,10 @@ def _compute_symbol_tf(
          via FeatureCache.update_session_vp() / _compute_sr_dist_atr() (Phase 163), the
          identical mechanism the live path uses (D-05 -- the prior claim that this group
          was uncomputable in batch was a stale, never-verified assumption).
+      5. Named Interaction Primitives cross-TF divergences (ret_div_1m_5m/5m_1h/
+         1h_1d, Phase 151 Plan 05): ret_div_5m_1h/1h_1d reuse CtfValues'
+         htf_last_log_ret (extended alongside CTF above); ret_div_1m_5m reads a
+         separate O(n+m) causal merge-walk series (ltf_ret_by_ts, tf=="5m" only).
 
     Returns total rows inserted into feature_vectors.
     """
@@ -1518,6 +1590,16 @@ def _compute_symbol_tf(
     bars = _fetch_bars_from_db(conn, symbol, tf)
     total_bars = len(bars)
 
+    # ret_div_1m_5m's LTF series (Phase 151 Plan 05, todo 066): only built at
+    # tf=="5m" -- 1m OHLCV coverage is 2026-03-23..2026-06-23 versus 5m's
+    # 2006-06-02..2026-07-07, so this is a real, documented ~1% coverage
+    # limitation (migration comment + SUMMARY), not an implementation defect.
+    ltf_ret_by_ts: dict = {}
+    if tf == "5m":
+        ltf_bars = _fetch_bars_from_db(conn, symbol, "1m")
+        if ltf_bars:
+            ltf_ret_by_ts = _build_ltf_return_series(ltf_bars, [b["ts"] for b in bars])
+
     if total_bars < warm_up_bars + 2:
         _logger.warning(
             "insufficient_bars",
@@ -1541,6 +1623,23 @@ def _compute_symbol_tf(
         ctf_by_ts=ctf_by_ts or None,
         ctf_ts_list=htf_ts_list or None,
         beta_by_date=beta_by_date or None,
+        ltf_ret_by_ts=ltf_ret_by_ts or None,
+    )
+
+    # Coverage log (Phase 151 Plan 05): once per (symbol, tf), never per row
+    # (CLAUDE.md's never-log-per-row-over-the-corpus rule). Counts how many
+    # emitted vectors carry a non-None value for each of the 3 divergences.
+    _n_ret_div_1m_5m = sum(1 for _, fv in batch_results if fv.ret_div_1m_5m is not None)
+    _n_ret_div_5m_1h = sum(1 for _, fv in batch_results if fv.ret_div_5m_1h is not None)
+    _n_ret_div_1h_1d = sum(1 for _, fv in batch_results if fv.ret_div_1h_1d is not None)
+    _logger.info(
+        "cross_tf_divergence_coverage",
+        symbol=symbol,
+        tf=tf,
+        total_bars=len(batch_results),
+        ret_div_1m_5m_non_none=_n_ret_div_1m_5m,
+        ret_div_5m_1h_non_none=_n_ret_div_5m_1h,
+        ret_div_1h_1d_non_none=_n_ret_div_1h_1d,
     )
 
     insert_batch: list[tuple] = []

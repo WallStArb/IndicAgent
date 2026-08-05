@@ -542,3 +542,122 @@ class TestAbsRetAutocorrSeriesFull:
         result = _ret_autocorr_series_full(closes, 1, use_abs=True)
         finite = result[np.isfinite(result)]
         assert np.all(finite >= -1.0 - 1e-9) and np.all(finite <= 1.0 + 1e-9)
+
+
+# ---------------------------------------------------------------------------
+# Phase 151 Plan 05: cross-TF return divergences (todos 066/104)
+# ---------------------------------------------------------------------------
+
+
+class TestPhase151CrossTfDivergences:
+    """ret_div_5m_1h/ret_div_1h_1d are timeframe-pinned to tf=="5m"/"1h"
+    respectively and None everywhere else -- even with a populated ctf_by_ts."""
+
+    def test_15m_never_populates_5m_1h_or_1h_1d_divergence(self) -> None:
+        from services.backfill_feature_factory import CtfValues
+        from src.intelligence.feature_cache import FeatureCache
+        from src.intelligence.feature_factory import FeatureFactory
+
+        config = _make_config_for_min_window()
+        cache = FeatureCache()
+        bars = _make_bars_dicts(60)
+        ctf_ts_list = [bars[0]["ts"]]
+        ctf_by_ts = {
+            bars[0]["ts"]: CtfValues(
+                ctf_momentum=0.1,
+                ctf_vwap_align=1.0,
+                ctf_regime_align=1.0,
+                htf_last_log_ret=0.01,
+            )
+        }
+        results = FeatureFactory.compute_batch(
+            bars,
+            "SPY",
+            "15m",
+            cache,
+            config,
+            warm_up_bars=5,
+            ctf_by_ts=ctf_by_ts,
+            ctf_ts_list=ctf_ts_list,
+        )
+        assert results, "compute_batch returned no results"
+        for _, fv in results:
+            assert fv.ret_div_5m_1h is None
+            assert fv.ret_div_1h_1d is None
+
+    def test_5m_ret_div_5m_1h_matches_own_return_minus_htf_last_log_ret(self) -> None:
+        from services.backfill_feature_factory import CtfValues
+        from src.intelligence.feature_cache import FeatureCache
+        from src.intelligence.feature_factory import FeatureFactory, _ret_lag_1
+
+        config = _make_config_for_min_window()
+        cache = FeatureCache()
+        bars = _make_bars_dicts(60)
+        ctf_ts_list = [bars[0]["ts"]]
+        htf_last_log_ret = 0.0123456789
+        ctf_by_ts = {
+            bars[0]["ts"]: CtfValues(
+                ctf_momentum=0.2,
+                ctf_vwap_align=1.0,
+                ctf_regime_align=0.0,
+                htf_last_log_ret=htf_last_log_ret,
+            )
+        }
+        results = FeatureFactory.compute_batch(
+            bars,
+            "SPY",
+            "5m",
+            cache,
+            config,
+            warm_up_bars=5,
+            ctf_by_ts=ctf_by_ts,
+            ctf_ts_list=ctf_ts_list,
+        )
+        assert results, "compute_batch returned no results"
+
+        ts_to_idx = {b["ts"]: idx for idx, b in enumerate(bars)}
+        closes_arr = np.array([b["close"] for b in bars])
+        for bar_ts, fv in results:
+            i = ts_to_idx[bar_ts]
+            own_log_ret = _ret_lag_1(closes_arr[: i + 1])
+            expected = own_log_ret - htf_last_log_ret
+            assert fv.ret_div_5m_1h == pytest.approx(
+                expected, abs=1e-12
+            ), f"bar {i}: got {fv.ret_div_5m_1h}, expected {expected}"
+            assert fv.ret_div_1h_1d is None
+
+    def test_ctf_momentum_unaffected_by_ctf_values_extension(self) -> None:
+        """CtfValues extended ctf_by_ts's payload from a 3-tuple to a 4-field
+        NamedTuple (Phase 151 Plan 05) -- the 3 pre-existing CTF features must
+        still read identically off the same source, byte-for-byte."""
+        from services.backfill_feature_factory import CtfValues
+        from src.intelligence.feature_cache import FeatureCache
+        from src.intelligence.feature_factory import FeatureFactory
+
+        config = _make_config_for_min_window()
+        cache = FeatureCache()
+        bars = _make_bars_dicts(60)
+        ctf_ts_list = [bars[0]["ts"]]
+        ctf_by_ts = {
+            bars[0]["ts"]: CtfValues(
+                ctf_momentum=0.42,
+                ctf_vwap_align=-1.0,
+                ctf_regime_align=1.0,
+                htf_last_log_ret=0.005,
+            )
+        }
+        results = FeatureFactory.compute_batch(
+            bars,
+            "SPY",
+            "5m",
+            cache,
+            config,
+            warm_up_bars=5,
+            ctf_by_ts=ctf_by_ts,
+            ctf_ts_list=ctf_ts_list,
+        )
+        assert results, "compute_batch returned no results"
+        for _, fv in results:
+            assert fv.ctf_momentum == pytest.approx(0.42, abs=1e-12)
+            assert fv.ctf_vwap_align == pytest.approx(-1.0, abs=1e-12)
+            assert fv.ctf_regime_align == pytest.approx(1.0, abs=1e-12)

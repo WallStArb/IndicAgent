@@ -210,8 +210,10 @@ class TestFeatureVectorCanaryFields:
         # +4 velocity primitives (Phase 151 Plan 01 Task 2) = 259, +11
         # recency/statistical atomics (Phase 151 Plan 03, added after this
         # test was written) = 270, +7 cross-asset spread/beta atomics
-        # (Phase 151 Plan 04, added after this test was written) = 277.
-        assert total == 150 + 5 + 17 + 36 + 41 + 6 + 4 + 11 + 7
+        # (Phase 151 Plan 04, added after this test was written) = 277, +5
+        # Named Interaction Primitives (Phase 151 Plan 05, added after this
+        # test was written) = 282.
+        assert total == 150 + 5 + 17 + 36 + 41 + 6 + 4 + 11 + 7 + 5
 
 
 # ---------------------------------------------------------------------------
@@ -513,8 +515,9 @@ class TestFeatureFactoryIntegration:
         # fields (Phase 151 Plan 01 Task 1) = 255, +4 velocity primitives
         # (Phase 151 Plan 01 Task 2) = 259, +11 recency/statistical atomics
         # (Phase 151 Plan 03) = 270, +7 cross-asset spread/beta atomics
-        # (Phase 151 Plan 04) = 277.
-        assert len(dataclasses.fields(fv)) == 277
+        # (Phase 151 Plan 04) = 277, +5 Named Interaction Primitives
+        # (Phase 151 Plan 05) = 282.
+        assert len(dataclasses.fields(fv)) == 282
 
 
 # ---------------------------------------------------------------------------
