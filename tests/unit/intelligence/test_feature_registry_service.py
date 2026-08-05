@@ -607,6 +607,66 @@ class TestIsPromotionEligible:
             is False
         )
 
+
+# ---------------------------------------------------------------------------
+# T-151-09: parent_features arity contract (Phase 151 Plan 05)
+#
+# ROADMAP's Theory-Motivated Interaction Layer design-rules paragraph
+# incorrectly says interaction features register with parent_features=[].
+# Every live tier='1_interaction' row must carry exactly 2 non-empty
+# parent_features (migration 169's own column comment: 1_interaction is "a
+# deterministic combination of two tier-0 features").
+# scripts/ops/alpha/ops_interaction_primitives_pilot.py's own ValueError
+# guard is the second line of defense; this is the first -- modeled on
+# tests/unit/test_spread_leg_pair_validity.py's live-DB-read-with-graceful-
+# skip shape.
+# ---------------------------------------------------------------------------
+
+_LIVE_DB_DSN = "postgresql://postgres:postgres@localhost:5432/indicagent"
+
+
+def _fetch_interaction_rows() -> list[tuple[str, list[str] | None]] | None:
+    """Returns [(feature_name, parent_features), ...] for every live
+    tier='1_interaction' feature_registry row, or None if the DB is
+    unreachable (caller must pytest.skip on None, not fail)."""
+    import psycopg
+
+    try:
+        conn = psycopg.connect(_LIVE_DB_DSN)
+    except Exception:
+        return None
+    try:
+        with conn.cursor() as cur:
+            cur.execute(
+                "SELECT feature_name, parent_features FROM feature_registry "
+                "WHERE tier = '1_interaction'"
+            )
+            return cur.fetchall()
+    finally:
+        conn.close()
+
+
+def test_every_interaction_row_has_exactly_two_parents():
+    """Permanent regression guard: every tier='1_interaction' feature_registry
+    row must have exactly 2 parent_features, neither empty/None. Stops a
+    future migration from re-introducing ROADMAP's parent_features=[]."""
+    rows = _fetch_interaction_rows()
+    if rows is None:
+        pytest.skip("Cannot connect to the live indicagent DB")
+
+    assert rows, "expected at least one tier='1_interaction' row"
+    bad_arity = []
+    empty_parent = []
+    for feature_name, parent_features in rows:
+        if parent_features is None or len(parent_features) != 2:
+            bad_arity.append((feature_name, parent_features))
+            continue
+        if any(not p for p in parent_features):
+            empty_parent.append((feature_name, parent_features))
+
+    assert not bad_arity, f"tier=1_interaction rows with parent_features arity != 2: {bad_arity}"
+    assert not empty_parent, f"tier=1_interaction rows with an empty parent entry: {empty_parent}"
+
     def test_false_when_observations_unmet(self):
         row = _feature_row(
             status="shadow_only",
