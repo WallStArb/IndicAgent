@@ -3,8 +3,8 @@ gsd_state_version: 1.0
 milestone: v3.1
 milestone_name: AlphaEngine Validation + Alpha Scoring
 status: blocked
-stopped_at: CTF join-fix recompute's prerequisite infra bugs fixed (todos 252-254) -- surgical UPDATE + ic_engine refresh + Gate 1 re-run still not executed, gated on user go-ahead; Phase 168 stays blocked
-last_updated: "2026-08-05T09:45:02.551Z"
+stopped_at: Phase 151 (v3.2) waves 1-5 executed, code-reviewed, fixed, and pushed to origin/main (2026-08-05) -- see Phase 151 note below. Waves 6-7 (corpus recompute + IC sweep) intentionally paused pending the in-flight single-name-equity backfill (todo 259, 111-symbol universe) finishing, so the recompute runs once against the final symbol set rather than twice. Separately, HMM walk-forward parameter-lookahead fix (todo 248) implemented+tested but shipped disabled (alpha.hmm.walk_forward.enabled=false) -- flipping it on is a distinct, later decision. CTF join-fix recompute (todos 252-254, Phase 168 blocker) status UNCHANGED by this session -- still gated on user go-ahead, not touched.
+last_updated: "2026-08-05T19:30:00.000Z"
 progress:
   total_phases: 12
   completed_phases: 9
@@ -411,7 +411,7 @@ ON CONFLICT (symbol, tf) DO UPDATE SET fetch_complete = true;
   build cost-hurdle machinery on top of a ranking signal (`ctf_momentum`) with a confirmed,
   unresolved lookahead leak. See `docs/research/trade-construction-layer.md`.
 
-- Phase 151 (Feature Primitives Expansion + Interaction Layer): planned 2026-07-24, cross-AI reviewed and revised same day (Codex found 3 HIGH-severity findings, all fixed as real plan changes). 9 plans, execution-ready. Deprioritized 2026-07-26 behind Phase 167 (see Guiding lens above) -- stays planned and ready, not the next priority.
+- Phase 151 (Feature Primitives Expansion + Interaction Layer): planned 2026-07-24, cross-AI reviewed and revised same day (Codex found 3 HIGH-severity findings, all fixed as real plan changes). **UPDATE 2026-08-05: waves 1-5 (plans 01-06, 09; 7 of 9) executed, /simplify'd, code-reviewed (1 critical + 5 warning findings, all but 2 deferred-as-todo fixed), and pushed to origin/main.** `FeatureVector` grew 249->292 fields. Waves 6-7 (151-07 corpus recompute, 151-08 interaction IC sweep) intentionally paused -- not deprioritized behind Phase 167 anymore, but sequenced to run once against the new 111-symbol universe (todo 259's in-flight backfill) instead of twice. See STATE.md frontmatter `stopped_at` for full current status.
 
 (Entries for Phases 162/163/164/165/166/167 removed 2026-08-03 -- all COMPLETE, already fully
 described in the Phase Summary table above; this section is for phases with no table row yet.)
