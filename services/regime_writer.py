@@ -110,6 +110,22 @@ _DEFAULT_TFS: list[str] = ["5m", "15m", "1h", "1d"]
 # todo 009 Part A).
 _MIN_OBS_FACTOR_DEFAULT = 50
 
+# todo 248 walk-forward HMM: (refit_every_bars, initial_warmup_bars) per tf, APR
+# fallback defaults only (live values read per-tf from
+# alpha.hmm.walk_forward.refit_every_bars.<tf> / .initial_warmup_bars.<tf>, migration
+# TBD). 1h is the pilot's directly-measured value; 15m is the broadened pilot's own
+# independently-confirmed value (same schedule, 4x bar density); 5m scales the same
+# schedule by its own 12x density ratio (not independently piloted); 1d is a fresh,
+# unpiloted ~1yr-refit/~2yr-warmup estimate at daily bar density. See
+# docs/analysis/hmm-parameter-lookahead-pilot-spy-1h.md for the full derivation and
+# per-tf certainty caveats.
+_WALK_FORWARD_DEFAULT_PARAMS: dict[str, tuple[int, int]] = {
+    "5m": (19800, 39600),
+    "15m": (6600, 13200),
+    "1h": (1650, 3300),
+    "1d": (252, 504),
+}
+
 # Canonical regime label set — no other values written to DB.
 _LABEL_TRENDING_UP = "trending_up"
 _LABEL_TRENDING_DOWN = "trending_down"
@@ -265,6 +281,84 @@ def _log_emit_full(obs: np.ndarray, means: np.ndarray, covars: np.ndarray) -> np
                 np.sum(diff**2 / diag_var, axis=1) + np.sum(np.log(2 * math.pi * diag_var))
             )
     return log_emit
+
+
+def _compute_log_emit(
+    obs: np.ndarray, means: np.ndarray, covars: np.ndarray, cov_type: str
+) -> np.ndarray:
+    """Dispatch to _log_emit_full/_log_emit_diag based on a fitted model's own
+    covariance_type, handling the diag-covars-from-a-full-shaped-array extraction
+    (hmmlearn stores diag covars as (K, d, d) with off-diagonals zeroed OR as (K, d)
+    depending on version/path -- both are handled here).
+
+    Shared by every caller that needs log emissions from an already-fitted
+    GaussianHMM (`_walk_forward_hmm_labels`, `_hmm_seed_stability_check`,
+    `_compute_symbol_tf`, `_walk_forward_hmm_full`) -- this exact ~10-line dispatch
+    was independently copy-pasted at all 4 call sites before being extracted here;
+    factoring it out means a future fix (e.g. to the ndim==3 guard) lands once.
+    """
+    if cov_type == "full":
+        return _log_emit_full(obs, means, covars)
+    d = means.shape[1]
+    covars_diag = covars[:, np.arange(d), np.arange(d)] if covars.ndim == 3 else covars
+    return _log_emit_diag(obs, means, covars_diag)
+
+
+def _state_groups(label_map: dict[int, str]) -> tuple[list[int], list[int], list[int]]:
+    """This model's bullish/ranging/bearish STATE-INDEX sets, derived from its own
+    label_map. Meaningful only relative to THIS specific fit -- state 2 in one
+    independently-fit model has no relationship to state 2 in another (raw indices
+    are not comparable across fits; see `_seed_prior_from_label`'s docstring).
+
+    Returns (bullish_states, ranging_states, bearish_states).
+    """
+    bullish_states = [k for k, v in label_map.items() if v in _BULLISH_LABELS]
+    ranging_states = [k for k, v in label_map.items() if v == _LABEL_RANGING]
+    bearish_states = [k for k, v in label_map.items() if v in _BEARISH_LABELS]
+    return bullish_states, ranging_states, bearish_states
+
+
+def _alpha_history_to_regime_probs(
+    alpha_history: np.ndarray,
+    bullish_states: list[int],
+    ranging_states: list[int],
+    bearish_states: list[int],
+) -> tuple[list[float], list[float], list[float], list[float], list[float]]:
+    """Vectorized per-bar (p_up, p_ranging, p_down, prob_val, entropy_val) from a
+    segment's alpha vectors -- shared by `_compute_symbol_tf` and
+    `_walk_forward_hmm_full`, both of which previously computed this identically
+    via a per-bar Python loop (`sum(alpha[s] for s in states)` + per-bar np.max/
+    np.sum/np.log calls). Operating on the whole (n, K) array at once instead of
+    row-by-row is both less code and meaningfully cheaper at corpus scale (tens of
+    thousands of bars per segment).
+
+    alpha_history: shape (n, K), one row per bar.
+    Returns 5 lists, each length n, index-aligned to alpha_history's rows.
+    """
+    p_up = (
+        alpha_history[:, bullish_states].sum(axis=1)
+        if bullish_states
+        else np.zeros(len(alpha_history))
+    )
+    p_ranging = (
+        alpha_history[:, ranging_states].sum(axis=1)
+        if ranging_states
+        else np.zeros(len(alpha_history))
+    )
+    p_down = (
+        alpha_history[:, bearish_states].sum(axis=1)
+        if bearish_states
+        else np.zeros(len(alpha_history))
+    )
+    prob_val = alpha_history.max(axis=1)
+    entropy_val = -np.sum(alpha_history * np.log(np.maximum(alpha_history, 1e-300)), axis=1)
+    return (
+        p_up.tolist(),
+        p_ranging.tolist(),
+        p_down.tolist(),
+        prob_val.tolist(),
+        entropy_val.tolist(),
+    )
 
 
 def _alpha_pass(
@@ -545,16 +639,7 @@ def _walk_forward_hmm_labels(
 
         seg_end = min(boundary + refit_every_bars, n)
         seg_scaled = scaler.transform(obs_matrix[boundary:seg_end])
-        if eff_cov_type == "full":
-            log_emit = _log_emit_full(seg_scaled, model.means_, model.covars_)
-        else:
-            d = model.means_.shape[1]
-            covars_diag = (
-                model.covars_[:, np.arange(d), np.arange(d)]
-                if model.covars_.ndim == 3
-                else model.covars_
-            )
-            log_emit = _log_emit_diag(seg_scaled, model.means_, covars_diag)
+        log_emit = _compute_log_emit(seg_scaled, model.means_, model.covars_, eff_cov_type)
         log_A = np.log(np.maximum(model.transmat_, 1e-300))
         raw_states, _ = _alpha_pass_jit(log_emit, log_A, pi0)
         smoothed = _smooth_states(raw_states, min_hold_bars)
@@ -566,6 +651,323 @@ def _walk_forward_hmm_labels(
         boundary = seg_end
 
     return labels, segments
+
+
+def _walk_forward_hmm_full(
+    obs_matrix: np.ndarray,
+    n_components: int,
+    covariance_type: str,
+    n_iter: int,
+    hmm_random_state: int,
+    refit_every_bars: int,
+    initial_warmup_bars: int,
+    min_hold_bars: int,
+    full_cov_min_obs: int,
+    min_state_occupation: float,
+) -> list[dict[str, Any]]:
+    """Production-parity walk-forward decode (todo 248): per-segment version of
+    `_walk_forward_hmm_labels` that additionally returns the per-bar alpha vectors,
+    each segment's own convergence status, and each segment's own degenerate-occupation
+    gate result -- everything `_compute_symbol_tf_walk_forward` needs to assemble
+    `feature_vectors`' full column set (p_up/p_ranging/p_down/prob/entropy/duration),
+    not just the bare regime label `_walk_forward_hmm_labels` returns.
+
+    Kept as a separate function rather than extending `_walk_forward_hmm_labels` in
+    place: that function's existing (labels, segments) contract is exercised by the
+    Gate 4 pilot scripts and their own tests (docs/analysis/hmm-parameter-lookahead-pilot-*.md);
+    changing its return shape would silently break those without touching their code.
+    The per-segment refit/decode logic itself is intentionally duplicated (not
+    delegated to the other function) because the alpha vectors this function needs
+    are exactly the array `_walk_forward_hmm_labels` computes and then discards
+    (`raw_states, _ = _alpha_pass_jit(...)`) -- delegating would mean re-running the
+    HMM fit and decode a second time per segment, doubling the walk-forward path's
+    compute cost for no reason.
+
+    Each segment gets the SAME non-convergence retry `_compute_symbol_tf` gives its
+    single full-series fit (doubled n_iter, one retry) -- omitting it here would make
+    every genuinely-recoverable segment more likely to trip the degenerate gate below
+    purely from under-iterating, not from an actual bad fit.
+
+    Returns one dict per refit segment (NOT one dict per bar), each:
+        {
+            "seg_start": int, "seg_end": int,  # half-open [seg_start, seg_end) bar-index
+                range into obs_matrix / valid_ts (both 1:1 index-aligned by construction)
+            "labels": list[str],        # len == seg_end - seg_start
+            "p_up": list[float], "p_ranging": list[float], "p_down": list[float],
+            "prob_val": list[float], "entropy_val": list[float],  # same length, one
+                per bar -- computed here (not by the caller) because bullish/ranging/
+                bearish STATE-INDEX membership is only meaningful relative to THIS
+                segment's own `label_map` (state 2 in one segment's independently-fit
+                model has no relationship to state 2 in the next segment's model);
+                exposing raw alpha + a bare label_map to the caller would just move
+                this same per-segment index resolution into the caller for no benefit.
+            "converged": bool,
+            "is_degenerate": bool,     # _check_occupation_gate's verdict for this segment
+            "gate_info": dict,         # _check_occupation_gate's diagnostics for this segment
+        }
+    Degenerate/non-converged segments ARE included (not silently dropped) -- this
+    function is a pure reporter of what each segment's fit produced; the caller
+    (`_compute_symbol_tf_walk_forward`) decides whether to write a segment's bars,
+    mirroring the existing separation between `_check_occupation_gate` (decides) and
+    `_compute_symbol_tf` (acts on the decision) in the single-fit path.
+    """
+    n = len(obs_matrix)
+    if n < initial_warmup_bars + n_components:
+        raise ValueError(
+            f"Insufficient history for walk-forward HMM: {n} obs, "
+            f"need >= {initial_warmup_bars + n_components}"
+        )
+
+    segment_results: list[dict[str, Any]] = []
+    boundary = initial_warmup_bars
+    prior_label: str | None = None
+
+    while boundary < n:
+        train_slice = obs_matrix[:boundary]
+        scaler = StandardScaler()
+        train_scaled = scaler.fit_transform(train_slice)
+
+        eff_cov_type = covariance_type if len(train_scaled) >= full_cov_min_obs else "diag"
+        model = GaussianHMM(
+            n_components=n_components,
+            covariance_type=eff_cov_type,
+            n_iter=n_iter,
+            random_state=hmm_random_state,
+        )
+        model.fit(train_scaled)
+        converged = bool(model.monitor_.converged)
+        if not converged:
+            retry_model = GaussianHMM(
+                n_components=n_components,
+                covariance_type=eff_cov_type,
+                n_iter=n_iter * 2,
+                random_state=hmm_random_state,
+            )
+            retry_model.fit(train_scaled)
+            if retry_model.monitor_.converged:
+                model = retry_model
+                converged = True
+
+        label_map = _build_label_map(model.means_)
+
+        stationary_prior = _stationary_distribution(model.transmat_)
+        if prior_label is None:
+            pi0 = stationary_prior
+        else:
+            pi0 = _seed_prior_from_label(label_map, prior_label, n_components, stationary_prior)
+
+        seg_end = min(boundary + refit_every_bars, n)
+        seg_scaled = scaler.transform(obs_matrix[boundary:seg_end])
+        log_emit = _compute_log_emit(seg_scaled, model.means_, model.covars_, eff_cov_type)
+        log_A = np.log(np.maximum(model.transmat_, 1e-300))
+        raw_states, alpha_history = _alpha_pass_jit(log_emit, log_A, pi0)
+        smoothed = _smooth_states(raw_states, min_hold_bars)
+        seg_labels = [label_map[int(s)] for s in smoothed]
+
+        is_degenerate, gate_info = _check_occupation_gate(
+            smoothed, n_components, min_state_occupation, converged
+        )
+
+        # This segment's own state groups, derived from its own label_map -- see
+        # _state_groups' docstring for why raw state indices aren't comparable
+        # across independently-fit segments.
+        bullish_states, ranging_states, bearish_states = _state_groups(label_map)
+        p_up_list, p_ranging_list, p_down_list, prob_val_list, entropy_val_list = (
+            _alpha_history_to_regime_probs(
+                alpha_history, bullish_states, ranging_states, bearish_states
+            )
+        )
+
+        segment_results.append(
+            {
+                "seg_start": boundary,
+                "seg_end": seg_end,
+                "labels": seg_labels,
+                "p_up": p_up_list,
+                "p_ranging": p_ranging_list,
+                "p_down": p_down_list,
+                "prob_val": prob_val_list,
+                "entropy_val": entropy_val_list,
+                "converged": converged,
+                "is_degenerate": is_degenerate,
+                "gate_info": gate_info,
+            }
+        )
+        prior_label = seg_labels[-1]
+        boundary = seg_end
+
+    return segment_results
+
+
+def _compute_symbol_tf_walk_forward(
+    conn: Any,
+    symbol: str,
+    tf: str,
+    n_components: int,
+    vol_window: int,
+    n_iter: int,
+    hmm_random_state: int,
+    momentum_window: int,
+    vol_of_vol_window: int,
+    refit_every_bars: int,
+    initial_warmup_bars: int,
+    covariance_type: str = "full",
+    min_hold_bars: int = 3,
+    full_cov_min_obs: int = 500,
+    min_state_occupation: float = 0.05,
+    churn_window: int = 10,
+    min_obs_factor: int = _MIN_OBS_FACTOR_DEFAULT,
+) -> tuple[list[tuple], bool, float] | None:
+    """Walk-forward alternative to `_compute_symbol_tf` (todo 248) -- same
+    (update_rows, converged, heldout_ll) | None contract, so `_run_symbol_worker`'s
+    caller only needs to branch on which function to call, not how to use the result.
+
+    Bars before `initial_warmup_bars` (insufficient history for even the first
+    refit) are simply ABSENT from `update_rows` -- never written, which for a
+    freshly-recomputed `feature_vectors` row (regime IS NULL) leaves them
+    correctly NULL rather than fabricating a value. `feature_vectors.regime`'s
+    existing NULL is already a tracked, monitored state
+    (`REGIME_WRITER_NULL_REGIME_REMAINING`), not an error condition -- this reuses
+    that existing convention rather than inventing new NULL-writing logic.
+    Precondition (not enforced by this function, must hold at the caller/deployment
+    level): this must only run against rows that do not already carry a DIFFERENT
+    method's regime value for the same (symbol, tf) -- e.g. right after a fresh
+    `backfill_feature_factory.py --recompute` pass, which leaves `regime` NULL for
+    every row. Running walk-forward as a partial re-run over a corpus already
+    populated by the single-fit path would silently blend two different
+    computation methods under one column for the warm-up-prefix bars (whatever
+    they last held) versus the rest (freshly walk-forward-computed) -- see todo
+    248's SUMMARY/deployment notes.
+
+    Bars belonging to a degenerate or non-converged segment (`_walk_forward_hmm_full`'s
+    per-segment gate) are also absent from `update_rows` -- skipped at SEGMENT
+    granularity, not cell granularity: a bad fit in one multi-year window does not
+    discard decades of otherwise-good segments the way `_compute_symbol_tf`'s single
+    global gate would. `duration` (bars in the current regime) resets to a fresh
+    count at the first bar following any skipped segment, since bar-to-bar
+    continuity through an un-written gap cannot be verified.
+
+    `converged` in the return tuple is True iff every segment that actually
+    contributed rows to `update_rows` converged (skipped segments don't count
+    against it, having contributed nothing). `heldout_ll` is always NaN: unlike
+    the single-fit path's one held-out tail of one unified model, walk-forward has
+    no single model whose held-out score is well-defined across segment
+    boundaries -- honest NaN rather than inventing an ad hoc definition, consistent
+    with this field's existing "diagnostic only, does not gate write" contract.
+    """
+    fetched = _fetch_obs_matrix(
+        conn,
+        symbol,
+        tf,
+        n_components,
+        vol_window,
+        momentum_window,
+        vol_of_vol_window,
+        min_obs_factor,
+    )
+    if fetched is None:
+        return None
+    obs_matrix, valid_ts = fetched
+
+    try:
+        segment_results = _walk_forward_hmm_full(
+            obs_matrix,
+            n_components,
+            covariance_type,
+            n_iter,
+            hmm_random_state,
+            refit_every_bars,
+            initial_warmup_bars,
+            min_hold_bars,
+            full_cov_min_obs,
+            min_state_occupation,
+        )
+    except ValueError:
+        # Same "insufficient history" condition _walk_forward_hmm_full raises for
+        # -- min_obs_factor's gate above already ensures n_components * min_obs_factor
+        # rows exist, but initial_warmup_bars (tf-calibrated, can be large -- e.g.
+        # 5m's ~39,600-bar warmup) is a stricter, independent floor. Same skip
+        # marker as every other "not enough data" case in this file.
+        _logger.warning(
+            "regime_writer.walk_forward_insufficient_warmup",
+            symbol=symbol,
+            tf=tf,
+            n_obs=len(valid_ts),
+            initial_warmup_bars=initial_warmup_bars,
+        )
+        return None
+
+    # Churn is a property of the LABEL SEQUENCE, not the fitting mechanism, so it is
+    # computed once on the concatenation of every WRITTEN (non-degenerate) segment's
+    # labels, in bar order -- same _compute_hmm_churn helper the single-fit path
+    # uses, just fed a sequence that may have gaps at skipped-segment boundaries.
+    # Those gaps are exactly where duration/prev_label also reset below, so churn's
+    # own "first bar after a gap has no real predecessor" edge case lines up with
+    # the same discontinuity duration already treats specially.
+    all_written_labels: list[str] = []
+    for seg in segment_results:
+        if not seg["is_degenerate"]:
+            all_written_labels.extend(seg["labels"])
+    churn_values = _compute_hmm_churn(all_written_labels, churn_window)
+
+    update_rows: list[tuple] = []
+    any_written = False
+    all_written_converged = True
+    duration = 0
+    prev_label: str | None = None
+    churn_cursor = 0
+    for seg in segment_results:
+        if seg["is_degenerate"]:
+            _logger.warning(
+                "regime_writer.walk_forward_segment_skipped",
+                symbol=symbol,
+                tf=tf,
+                seg_start=seg["seg_start"],
+                seg_end=seg["seg_end"],
+                **seg["gate_info"],
+            )
+            # Duration continuity cannot be trusted across a skipped gap.
+            duration = 0
+            prev_label = None
+            continue
+
+        any_written = True
+        all_written_converged = all_written_converged and seg["converged"]
+        seg_ts = valid_ts[seg["seg_start"] : seg["seg_end"]]
+
+        for i, label in enumerate(seg["labels"]):
+            if label == prev_label:
+                duration += 1
+            else:
+                duration = 1
+                prev_label = label
+            update_rows.append(
+                (
+                    label,
+                    seg["p_up"][i],
+                    seg["p_ranging"][i],
+                    seg["p_down"][i],
+                    seg["prob_val"][i],
+                    seg["entropy_val"][i],
+                    float(duration),
+                    float(churn_values[churn_cursor]),
+                    symbol,
+                    tf,
+                    seg_ts[i],
+                )
+            )
+            churn_cursor += 1
+
+    if not any_written:
+        _logger.warning(
+            "regime_writer.walk_forward_all_segments_degenerate",
+            symbol=symbol,
+            tf=tf,
+            n_segments=len(segment_results),
+        )
+        return None
+
+    return update_rows, all_written_converged, float("nan")
 
 
 def _hmm_seed_stability_check(
@@ -614,16 +1016,7 @@ def _hmm_seed_stability_check(
 
         label_map = _build_label_map(model.means_)
         pi0 = _stationary_distribution(model.transmat_)
-        if eff_cov_type == "full":
-            log_emit = _log_emit_full(obs_matrix, model.means_, model.covars_)
-        else:
-            d = model.means_.shape[1]
-            covars_diag = (
-                model.covars_[:, np.arange(d), np.arange(d)]
-                if model.covars_.ndim == 3
-                else model.covars_
-            )
-            log_emit = _log_emit_diag(obs_matrix, model.means_, covars_diag)
+        log_emit = _compute_log_emit(obs_matrix, model.means_, model.covars_, eff_cov_type)
         log_A = np.log(np.maximum(model.transmat_, 1e-300))
         raw_states, _ = _alpha_pass_jit(log_emit, log_A, pi0)
         labels_by_seed[seed] = [label_map[int(s)] for s in raw_states]
@@ -650,41 +1043,27 @@ def _hmm_seed_stability_check(
 # ---------------------------------------------------------------------------
 
 
-def _compute_symbol_tf(
+def _fetch_obs_matrix(
     conn: Any,
     symbol: str,
     tf: str,
     n_components: int,
     vol_window: int,
-    n_iter: int,
-    hmm_random_state: int,
     momentum_window: int,
     vol_of_vol_window: int,
-    covariance_type: str = "full",
-    min_hold_bars: int = 3,
-    heldout_fraction: float = 0.2,
-    full_cov_min_obs: int = 500,
-    min_state_occupation: float = 0.05,
-    churn_window: int = 10,
-    min_obs_factor: int = _MIN_OBS_FACTOR_DEFAULT,
-    n_restarts: int = 1,
-) -> tuple[list[tuple], bool, float] | None:
-    """Fit HMM for one (symbol, tf) cell. Returns (update_rows, converged, heldout_ll) or None.
+    min_obs_factor: int,
+) -> tuple[np.ndarray, list] | None:
+    """Fetch OHLCV and build the raw (unscaled) HMM observation matrix for one
+    (symbol, tf) cell. Shared prefix between `_compute_symbol_tf` (single full-series
+    fit) and `_compute_symbol_tf_walk_forward` (todo 248) — both need the identical
+    raw series; each then applies its OWN scaling policy (single-fit standardizes
+    once globally, walk-forward standardizes per-segment on the training prefix
+    only, per `_walk_forward_hmm_labels`'s docstring on why a globally-fit scaler
+    is the same class of leak in miniature).
 
-    No DB writes — clears any open transaction before the server-side cursor, then runs pure
-    HMM compute. Each tuple in update_rows matches the UPDATE SQL parameter order:
-    (regime, p_up, p_ranging, p_down, prob_val, entropy_val, duration, hmm_churn, symbol, tf, ts).
-
-    n_restarts (APR: alpha.hmm.n_restarts, default 1) fits n_restarts seeds derived
-    deterministically as hmm_random_state + i and keeps whichever converged model has
-    the highest log-likelihood (todo 108). At the default of 1, only hmm_random_state
-    itself is tried — same-seed convergence retry included — reproducing the prior
-    single-seed behavior exactly.
-
-    Returns None if OHLCV is absent/insufficient (existing behavior) OR if the
-    occupation gate (P2b) flags the fit as degenerate/non-converged/too-short —
-    _check_occupation_gate's skip reasons all funnel into this same None marker
-    so _run_symbol_worker/main() handle every skip path uniformly.
+    Returns None if OHLCV is absent/insufficient — logs the same
+    `regime_writer.no_ohlcv`/`regime_writer.insufficient_obs` events either caller
+    previously logged inline, so behavior is unchanged by this extraction.
     """
     timestamps = []
     closes = []
@@ -731,6 +1110,59 @@ def _compute_symbol_tf(
             min_required=min_rows,
         )
         return None
+
+    return obs_matrix, valid_ts
+
+
+def _compute_symbol_tf(
+    conn: Any,
+    symbol: str,
+    tf: str,
+    n_components: int,
+    vol_window: int,
+    n_iter: int,
+    hmm_random_state: int,
+    momentum_window: int,
+    vol_of_vol_window: int,
+    covariance_type: str = "full",
+    min_hold_bars: int = 3,
+    heldout_fraction: float = 0.2,
+    full_cov_min_obs: int = 500,
+    min_state_occupation: float = 0.05,
+    churn_window: int = 10,
+    min_obs_factor: int = _MIN_OBS_FACTOR_DEFAULT,
+    n_restarts: int = 1,
+) -> tuple[list[tuple], bool, float] | None:
+    """Fit HMM for one (symbol, tf) cell. Returns (update_rows, converged, heldout_ll) or None.
+
+    No DB writes — clears any open transaction before the server-side cursor, then runs pure
+    HMM compute. Each tuple in update_rows matches the UPDATE SQL parameter order:
+    (regime, p_up, p_ranging, p_down, prob_val, entropy_val, duration, hmm_churn, symbol, tf, ts).
+
+    n_restarts (APR: alpha.hmm.n_restarts, default 1) fits n_restarts seeds derived
+    deterministically as hmm_random_state + i and keeps whichever converged model has
+    the highest log-likelihood (todo 108). At the default of 1, only hmm_random_state
+    itself is tried — same-seed convergence retry included — reproducing the prior
+    single-seed behavior exactly.
+
+    Returns None if OHLCV is absent/insufficient (existing behavior) OR if the
+    occupation gate (P2b) flags the fit as degenerate/non-converged/too-short —
+    _check_occupation_gate's skip reasons all funnel into this same None marker
+    so _run_symbol_worker/main() handle every skip path uniformly.
+    """
+    fetched = _fetch_obs_matrix(
+        conn,
+        symbol,
+        tf,
+        n_components,
+        vol_window,
+        momentum_window,
+        vol_of_vol_window,
+        min_obs_factor,
+    )
+    if fetched is None:
+        return None
+    obs_matrix, valid_ts = fetched
 
     # Standardize per-series: fit on this series, transform in-place.
     # Both fit() and alpha-pass receive the scaled matrix so means/covars
@@ -843,15 +1275,7 @@ def _compute_symbol_tf(
     pi0 = _stationary_distribution(model.transmat_)
 
     # Precompute log emissions then run causal alpha-pass.
-    if eff_cov_type == "full":
-        log_emit = _log_emit_full(obs_matrix, model.means_, model.covars_)
-    else:
-        d = model.means_.shape[1]
-        if model.covars_.ndim == 3:
-            covars_diag = model.covars_[:, np.arange(d), np.arange(d)]
-        else:
-            covars_diag = model.covars_
-        log_emit = _log_emit_diag(obs_matrix, model.means_, covars_diag)
+    log_emit = _compute_log_emit(obs_matrix, model.means_, model.covars_, eff_cov_type)
 
     log_A = np.log(np.maximum(model.transmat_, 1e-300))
     raw_states, alpha_history = _alpha_pass_jit(log_emit, log_A, pi0)
@@ -879,12 +1303,12 @@ def _compute_symbol_tf(
 
     label_map = _build_label_map(model.means_)
     # For K>=4, hmm_prob_trending_up/down aggregate all bullish/bearish probability mass.
-    # bullish_states: all states labeled trending_up or transition_up
-    # bearish_states: all states labeled trending_down or transition_down
-    # ranging_states: all states labeled ranging (typically one middle state)
-    bullish_states = [k for k, v in label_map.items() if v in _BULLISH_LABELS]
-    bearish_states = [k for k, v in label_map.items() if v in _BEARISH_LABELS]
-    ranging_states = [k for k, v in label_map.items() if v == _LABEL_RANGING]
+    bullish_states, ranging_states, bearish_states = _state_groups(label_map)
+    p_up_list, p_ranging_list, p_down_list, prob_val_list, entropy_val_list = (
+        _alpha_history_to_regime_probs(
+            alpha_history, bullish_states, ranging_states, bearish_states
+        )
+    )
 
     # P2c hmm_churn — rolling label-change rate over the prior churn_window bars.
     # Computed on the actual mapped labels (not raw state indices) so it stays
@@ -892,9 +1316,8 @@ def _compute_symbol_tf(
     labels_seq = [label_map[int(s)] for s in smoothed_states]
     churn_values = _compute_hmm_churn(labels_seq, churn_window)
 
-    # Explicit loop — required for index-based alpha_history access and stateful
-    # duration counter simultaneously. Uses smoothed states for regime label and
-    # duration; alpha_history reflects the raw forward-filter probability.
+    # Explicit loop — required for the stateful duration counter (alpha-derived
+    # probabilities are already vectorized above via _alpha_history_to_regime_probs).
     update_rows: list[tuple] = []
     prev_state: int | None = None
     duration = 0
@@ -905,20 +1328,14 @@ def _compute_symbol_tf(
         else:
             duration = 1
             prev_state = state_idx
-        alpha = alpha_history[i]
-        p_up = float(sum(alpha[s] for s in bullish_states))
-        p_ranging = float(sum(alpha[s] for s in ranging_states))
-        p_down = float(sum(alpha[s] for s in bearish_states))
-        prob_val = float(np.max(alpha))
-        entropy_val = float(-np.sum(alpha * np.log(np.maximum(alpha, 1e-300))))
         update_rows.append(
             (
                 label_map[state_idx],
-                p_up,
-                p_ranging,
-                p_down,
-                prob_val,
-                entropy_val,
+                p_up_list[i],
+                p_ranging_list[i],
+                p_down_list[i],
+                prob_val_list[i],
+                entropy_val_list[i],
                 float(duration),
                 float(churn_values[i]),
                 symbol,
@@ -1047,7 +1464,23 @@ def _run_symbol_worker(args: tuple) -> dict:
         args: (symbol, tfs, dsn, n_components, vol_window, momentum_window,
                vol_of_vol_window, n_iter, hmm_random_state, covariance_type,
                min_hold_bars, heldout_fraction, full_cov_min_obs,
-               min_state_occupation, churn_window, min_obs_factor, n_restarts)
+               min_state_occupation, churn_window, min_obs_factor, n_restarts,
+               walk_forward_enabled, walk_forward_params)
+
+        walk_forward_enabled (todo 248, APR: alpha.hmm.walk_forward.enabled,
+            default False): when True, every tf routes through
+            `_compute_symbol_tf_walk_forward` instead of `_compute_symbol_tf`'s
+            single full-series fit -- see that function's docstring for the
+            precondition this requires at the deployment level (only run against
+            a freshly-recomputed corpus, never as a partial re-run over rows a
+            prior single-fit pass already populated).
+        walk_forward_params: dict[str, tuple[int, int]] mapping tf ->
+            (refit_every_bars, initial_warmup_bars), tf-calibrated (APR:
+            alpha.hmm.walk_forward.refit_every_bars.<tf> /
+            .initial_warmup_bars.<tf>) since bars-per-refit-window is the
+            actionable variable behind the pilot's cross-tf stability finding
+            (docs/analysis/hmm-parameter-lookahead-pilot-spy-1h.md's broadened
+            results). Only consulted when walk_forward_enabled is True.
 
     Returns:
         dict with keys:
@@ -1073,6 +1506,8 @@ def _run_symbol_worker(args: tuple) -> dict:
         churn_window,
         min_obs_factor,
         n_restarts,
+        walk_forward_enabled,
+        walk_forward_params,
     ) = args
 
     setup_service_logging("logs/regime_writer.log")
@@ -1087,25 +1522,47 @@ def _run_symbol_worker(args: tuple) -> dict:
 
         for tf in tfs:
             try:
-                result = _compute_symbol_tf(
-                    conn=conn,
-                    symbol=symbol,
-                    tf=tf,
-                    n_components=n_components,
-                    vol_window=vol_window,
-                    momentum_window=momentum_window,
-                    vol_of_vol_window=vol_of_vol_window,
-                    n_iter=n_iter,
-                    hmm_random_state=hmm_random_state,
-                    covariance_type=covariance_type,
-                    min_hold_bars=min_hold_bars,
-                    heldout_fraction=heldout_fraction,
-                    full_cov_min_obs=full_cov_min_obs,
-                    min_state_occupation=min_state_occupation,
-                    churn_window=churn_window,
-                    min_obs_factor=min_obs_factor,
-                    n_restarts=n_restarts,
-                )
+                if walk_forward_enabled:
+                    refit_every_bars, initial_warmup_bars = walk_forward_params[tf]
+                    result = _compute_symbol_tf_walk_forward(
+                        conn=conn,
+                        symbol=symbol,
+                        tf=tf,
+                        n_components=n_components,
+                        vol_window=vol_window,
+                        n_iter=n_iter,
+                        hmm_random_state=hmm_random_state,
+                        momentum_window=momentum_window,
+                        vol_of_vol_window=vol_of_vol_window,
+                        refit_every_bars=refit_every_bars,
+                        initial_warmup_bars=initial_warmup_bars,
+                        covariance_type=covariance_type,
+                        min_hold_bars=min_hold_bars,
+                        full_cov_min_obs=full_cov_min_obs,
+                        min_state_occupation=min_state_occupation,
+                        churn_window=churn_window,
+                        min_obs_factor=min_obs_factor,
+                    )
+                else:
+                    result = _compute_symbol_tf(
+                        conn=conn,
+                        symbol=symbol,
+                        tf=tf,
+                        n_components=n_components,
+                        vol_window=vol_window,
+                        momentum_window=momentum_window,
+                        vol_of_vol_window=vol_of_vol_window,
+                        n_iter=n_iter,
+                        hmm_random_state=hmm_random_state,
+                        covariance_type=covariance_type,
+                        min_hold_bars=min_hold_bars,
+                        heldout_fraction=heldout_fraction,
+                        full_cov_min_obs=full_cov_min_obs,
+                        min_state_occupation=min_state_occupation,
+                        churn_window=churn_window,
+                        min_obs_factor=min_obs_factor,
+                        n_restarts=n_restarts,
+                    )
                 if result is None:
                     results.append(
                         {
@@ -1242,6 +1699,33 @@ def main() -> None:
                     cfg.get_sync("feature.hmm.min_obs_factor", _MIN_OBS_FACTOR_DEFAULT)
                 )
 
+                # todo 248: walk-forward parameter-lookahead fix. Defaults to False --
+                # landing this code must not itself change any existing regime label;
+                # flipping this on (then running --refit) is a separate, later,
+                # explicit deployment decision per the todo's own "genuine sequencing
+                # decision" framing, not something this migration's seed value forces.
+                walk_forward_enabled = bool(cfg.get_sync("alpha.hmm.walk_forward.enabled", False))
+                # Per-tf (refit_every_bars, initial_warmup_bars) -- see
+                # _WALK_FORWARD_DEFAULT_PARAMS' own docstring/comment above for the
+                # full per-tf provenance and certainty caveats.
+                walk_forward_params: dict[str, tuple[int, int]] = {
+                    tf_key: (
+                        int(
+                            cfg.get_sync(
+                                f"alpha.hmm.walk_forward.refit_every_bars.{tf_key}",
+                                _WALK_FORWARD_DEFAULT_PARAMS[tf_key][0],
+                            )
+                        ),
+                        int(
+                            cfg.get_sync(
+                                f"alpha.hmm.walk_forward.initial_warmup_bars.{tf_key}",
+                                _WALK_FORWARD_DEFAULT_PARAMS[tf_key][1],
+                            )
+                        ),
+                    )
+                    for tf_key in _WALK_FORWARD_DEFAULT_PARAMS
+                }
+
                 symbols = args.symbols if args.symbols else _discover_symbols(_conn)
                 tfs: list[str] = args.tf
 
@@ -1270,6 +1754,7 @@ def main() -> None:
                 min_state_occupation=min_state_occupation,
                 churn_window=churn_window,
                 n_restarts=n_restarts,
+                walk_forward_enabled=walk_forward_enabled,
             )
 
             worker_args = [
@@ -1291,6 +1776,8 @@ def main() -> None:
                     churn_window,
                     min_obs_factor,
                     n_restarts,
+                    walk_forward_enabled,
+                    walk_forward_params,
                 )
                 for symbol in symbols
             ]

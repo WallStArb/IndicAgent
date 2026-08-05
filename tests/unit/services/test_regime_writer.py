@@ -1083,3 +1083,324 @@ def test_hmm_seed_stability_check_is_deterministic():
     result_b = _hmm_seed_stability_check(obs, **kwargs)
 
     assert result_a == result_b
+
+
+# ---------------------------------------------------------------------------
+# Tests: _walk_forward_hmm_full / _compute_symbol_tf_walk_forward (todo 248)
+# ---------------------------------------------------------------------------
+
+
+def test_walk_forward_hmm_full_matches_labels_from_bare_labels_function():
+    """_walk_forward_hmm_full's labels must match _walk_forward_hmm_labels' own output
+    exactly for the same input -- the two functions duplicate the per-segment fit/decode
+    logic deliberately (see _walk_forward_hmm_full's docstring), so this pins that the
+    duplication has not silently diverged."""
+    from services.regime_writer import _walk_forward_hmm_full, _walk_forward_hmm_labels
+
+    n = 900
+    closes = _make_ranging_closes(n)
+    volumes = _make_volumes(n)
+    timestamps = _make_timestamps(n)
+    obs, _ = _build_obs_matrix(
+        timestamps, closes, volumes, vol_window=20, momentum_window=20, vol_of_vol_window=20
+    )
+
+    kwargs = dict(
+        n_components=3,
+        covariance_type="diag",
+        n_iter=50,
+        hmm_random_state=_HMM_RANDOM_STATE,
+        refit_every_bars=200,
+        initial_warmup_bars=300,
+        min_hold_bars=3,
+        full_cov_min_obs=0,
+    )
+
+    bare_labels, bare_segments = _walk_forward_hmm_labels(obs, **kwargs)
+    full_segments = _walk_forward_hmm_full(obs, min_state_occupation=0.0, **kwargs)
+
+    full_labels: list[str] = []
+    for seg in full_segments:
+        full_labels.extend(seg["labels"])
+
+    assert full_labels == bare_labels
+    assert [(s["seg_start"], s["seg_end"]) for s in full_segments] == [
+        (train_end, seg_end) for train_end, _seg_start, seg_end in bare_segments
+    ]
+
+
+def test_walk_forward_hmm_full_probabilities_sum_to_one_per_bar():
+    """p_up + p_ranging + p_down must sum to ~1.0 for every bar in every segment,
+    mirroring _compute_symbol_tf's own equivalent invariant."""
+    from services.regime_writer import _walk_forward_hmm_full
+
+    n = 900
+    closes = _make_ranging_closes(n)
+    volumes = _make_volumes(n)
+    timestamps = _make_timestamps(n)
+    obs, _ = _build_obs_matrix(
+        timestamps, closes, volumes, vol_window=20, momentum_window=20, vol_of_vol_window=20
+    )
+
+    segments = _walk_forward_hmm_full(
+        obs,
+        n_components=3,
+        covariance_type="diag",
+        n_iter=50,
+        hmm_random_state=_HMM_RANDOM_STATE,
+        refit_every_bars=200,
+        initial_warmup_bars=300,
+        min_hold_bars=3,
+        full_cov_min_obs=0,
+        min_state_occupation=0.0,
+    )
+
+    assert len(segments) > 1, "test needs multiple segments to be meaningful"
+    for seg in segments:
+        for p_up, p_ranging, p_down in zip(seg["p_up"], seg["p_ranging"], seg["p_down"]):
+            total = p_up + p_ranging + p_down
+            assert abs(total - 1.0) < 1e-6, f"Probabilities sum to {total}, expected ~1.0"
+
+
+def test_walk_forward_hmm_full_flags_degenerate_short_final_segment():
+    """A trailing segment far shorter than n_components * a sane occupation floor
+    must be flagged degenerate by the SAME _check_occupation_gate the single-fit
+    path uses -- proves the per-segment gate is actually wired in, not a no-op."""
+    from services.regime_writer import _walk_forward_hmm_full
+
+    n = 1000
+    closes = _make_ranging_closes(n)
+    volumes = _make_volumes(n)
+    timestamps = _make_timestamps(n)
+    obs, _ = _build_obs_matrix(
+        timestamps, closes, volumes, vol_window=20, momentum_window=20, vol_of_vol_window=20
+    )
+
+    segments = _walk_forward_hmm_full(
+        obs,
+        n_components=3,
+        covariance_type="diag",
+        n_iter=50,
+        hmm_random_state=_HMM_RANDOM_STATE,
+        refit_every_bars=300,
+        initial_warmup_bars=300,
+        min_hold_bars=3,
+        full_cov_min_obs=0,
+        # High occupation floor makes a short trailing segment likely to trip it --
+        # deliberately strict for this test, not representative of a production value.
+        min_state_occupation=0.30,
+    )
+
+    assert any(seg["is_degenerate"] for seg in segments), (
+        "Expected at least one segment to be flagged degenerate under a strict "
+        "occupation floor -- if this fails, the per-segment gate may not be wired in."
+    )
+
+
+def test_compute_symbol_tf_walk_forward_returns_tuple_structure():
+    """Same (update_rows, converged, heldout_ll) contract as _compute_symbol_tf, so
+    _run_symbol_worker's caller can branch on which function ran without caring."""
+    from services.regime_writer import _compute_symbol_tf_walk_forward
+
+    n = 900
+    closes = _make_ranging_closes(n)
+    volumes = _make_volumes(n)
+    timestamps = _make_timestamps(n)
+    conn = _make_mock_conn(closes, volumes, timestamps)
+
+    result = _compute_symbol_tf_walk_forward(
+        conn=conn,
+        symbol="SPY",
+        tf="1h",
+        n_components=3,
+        vol_window=20,
+        n_iter=50,
+        hmm_random_state=42,
+        momentum_window=20,
+        vol_of_vol_window=20,
+        refit_every_bars=200,
+        initial_warmup_bars=300,
+        covariance_type="diag",
+        full_cov_min_obs=0,
+        min_state_occupation=0.0,
+    )
+
+    assert result is not None
+    update_rows, converged, heldout_ll = result
+    assert isinstance(update_rows, list)
+    assert len(update_rows) > 0
+    assert len(update_rows[0]) == 11
+    assert isinstance(converged, bool)
+    assert isinstance(heldout_ll, float)
+    import math
+
+    assert math.isnan(heldout_ll), (
+        "heldout_ll must be NaN for the walk-forward path -- no single unified "
+        "model has a well-defined held-out score across segment boundaries."
+    )
+
+
+def test_compute_symbol_tf_walk_forward_omits_warmup_prefix_bars():
+    """Bars before initial_warmup_bars must be entirely absent from update_rows --
+    never written, so they stay NULL rather than inheriting a stale value."""
+    from services.regime_writer import _compute_symbol_tf_walk_forward
+
+    n = 900
+    closes = _make_ranging_closes(n)
+    volumes = _make_volumes(n)
+    timestamps = _make_timestamps(n)
+    conn = _make_mock_conn(closes, volumes, timestamps)
+
+    result = _compute_symbol_tf_walk_forward(
+        conn=conn,
+        symbol="SPY",
+        tf="1h",
+        n_components=3,
+        vol_window=20,
+        n_iter=50,
+        hmm_random_state=42,
+        momentum_window=20,
+        vol_of_vol_window=20,
+        refit_every_bars=200,
+        initial_warmup_bars=300,
+        covariance_type="diag",
+        full_cov_min_obs=0,
+        min_state_occupation=0.0,
+    )
+
+    assert result is not None
+    update_rows, _converged, _heldout_ll = result
+    # obs matrix has (n - valid_start) rows after _build_obs_matrix's own warmup
+    # trim (vol_window=momentum_window=vol_of_vol_window=20, so valid_start=19);
+    # walk-forward then additionally requires initial_warmup_bars=300 before the
+    # first label -- total written rows must be strictly less than the raw obs
+    # count by at least initial_warmup_bars.
+    obs, _valid_ts = _build_obs_matrix(
+        timestamps, closes, volumes, vol_window=20, momentum_window=20, vol_of_vol_window=20
+    )
+    assert len(update_rows) <= len(obs) - 300
+
+
+def test_compute_symbol_tf_walk_forward_duration_resets_after_skipped_segment():
+    """If a middle segment is degenerate and skipped, the first written bar of the
+    NEXT segment must start a fresh duration count (1), not continue counting from
+    whatever duration the prior (written) segment reached -- continuity through an
+    unwritten gap cannot be verified."""
+    from unittest.mock import patch
+
+    import services.regime_writer as regime_writer_module
+    from services.regime_writer import _compute_symbol_tf_walk_forward
+
+    n = 900
+    closes = _make_ranging_closes(n)
+    volumes = _make_volumes(n)
+    timestamps = _make_timestamps(n)
+    conn = _make_mock_conn(closes, volumes, timestamps)
+
+    real_gate = regime_writer_module._check_occupation_gate
+    call_count = {"n": 0}
+
+    def _flaky_gate(smoothed_states, n_components, min_state_occupation, converged):
+        # Force exactly the SECOND segment to be flagged degenerate regardless of
+        # its actual occupation -- isolates the duration-reset behavior from
+        # needing to construct data that degenerates a specific segment naturally.
+        call_count["n"] += 1
+        if call_count["n"] == 2:
+            return True, {"reason": "forced_for_test"}
+        return real_gate(smoothed_states, n_components, min_state_occupation, converged)
+
+    with patch.object(regime_writer_module, "_check_occupation_gate", side_effect=_flaky_gate):
+        result = _compute_symbol_tf_walk_forward(
+            conn=conn,
+            symbol="SPY",
+            tf="1h",
+            n_components=3,
+            vol_window=20,
+            n_iter=50,
+            hmm_random_state=42,
+            momentum_window=20,
+            vol_of_vol_window=20,
+            refit_every_bars=200,
+            initial_warmup_bars=300,
+            covariance_type="diag",
+            full_cov_min_obs=0,
+            min_state_occupation=0.0,
+        )
+
+    assert result is not None
+    update_rows, _converged, _heldout_ll = result
+    # 3 segments total (300-500, 500-700, 700-900, indexed into obs_matrix/valid_ts --
+    # NOT the raw timestamps list, which _build_obs_matrix trims by valid_start bars).
+    # Segment 2 (500-700) forced degenerate. First row of the third segment (obs
+    # index 700) must have duration == 1.
+    _obs, valid_ts = _build_obs_matrix(
+        timestamps, closes, volumes, vol_window=20, momentum_window=20, vol_of_vol_window=20
+    )
+    durations_by_ts = {row[10]: row[6] for row in update_rows}
+    third_segment_first_ts = valid_ts[700]
+    assert durations_by_ts[third_segment_first_ts] == 1.0
+
+
+def test_compute_symbol_tf_walk_forward_returns_none_when_all_segments_degenerate():
+    """If every segment is degenerate, the function returns None (same skip marker
+    as every other 'nothing trustworthy to write' case in this file), not an
+    empty-but-truthy update_rows list."""
+    from services.regime_writer import _compute_symbol_tf_walk_forward
+
+    n = 500
+    closes = _make_ranging_closes(n)
+    volumes = _make_volumes(n)
+    timestamps = _make_timestamps(n)
+    conn = _make_mock_conn(closes, volumes, timestamps)
+
+    result = _compute_symbol_tf_walk_forward(
+        conn=conn,
+        symbol="SPY",
+        tf="1h",
+        n_components=3,
+        vol_window=20,
+        n_iter=50,
+        hmm_random_state=42,
+        momentum_window=20,
+        vol_of_vol_window=20,
+        refit_every_bars=200,
+        initial_warmup_bars=300,
+        covariance_type="diag",
+        full_cov_min_obs=0,
+        # Impossibly strict floor -- every segment will be flagged degenerate.
+        min_state_occupation=0.99,
+    )
+
+    assert result is None
+
+
+def test_compute_symbol_tf_walk_forward_returns_none_on_insufficient_warmup():
+    """If the series is shorter than initial_warmup_bars, returns None rather than
+    raising -- the ValueError _walk_forward_hmm_full raises must be caught, not
+    propagated to the ProcessPoolExecutor worker."""
+    from services.regime_writer import _compute_symbol_tf_walk_forward
+
+    n = 500
+    closes = _make_ranging_closes(n)
+    volumes = _make_volumes(n)
+    timestamps = _make_timestamps(n)
+    conn = _make_mock_conn(closes, volumes, timestamps)
+
+    result = _compute_symbol_tf_walk_forward(
+        conn=conn,
+        symbol="SPY",
+        tf="1h",
+        n_components=3,
+        vol_window=20,
+        n_iter=50,
+        hmm_random_state=42,
+        momentum_window=20,
+        vol_of_vol_window=20,
+        refit_every_bars=200,
+        initial_warmup_bars=10_000,  # far more than the ~480 obs rows available
+        covariance_type="diag",
+        full_cov_min_obs=0,
+        min_state_occupation=0.0,
+    )
+
+    assert result is None

@@ -1,9 +1,16 @@
 ---
-status: pending
+status: completed
 priority: P0
 filed: 2026-07-29
+closed: 2026-07-29
 source: shortlist bootstrap-CI recheck of todo 146's horizon-response diagnostic
   (scripts/ops/alpha/ops_lookahead_horizon_response.py --bootstrap), this session
+note: frontmatter status was stale (fix landed same day it was filed, commit cdd53bae,
+  but the file was never moved out of pending/) -- corrected 2026-08-05 while
+  auditing open HMM/canary correctness items ahead of a corpus recompute. The
+  seeding fix itself and its broadcast audit have been done since 2026-07-29; only
+  item 3 in the body (broadcast-aware significance testing methodology) remains
+  open, tracked as its own future todo per the body's own note, not blocking.
 ---
 
 # `canary_noise_gaussian`/`canary_noise_uniform`/`canary_near_constant` are seeded by
