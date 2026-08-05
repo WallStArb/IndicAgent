@@ -59,6 +59,32 @@ class FeatureCache:
     yield_slope_z: float = 0.0  # TLT/SHY ratio z-score
     _spy_realized_vol_history: deque = field(default_factory=lambda: deque(maxlen=500), repr=False)
     _yield_ratio_history: deque = field(default_factory=lambda: deque(maxlen=500), repr=False)
+    # Cross-asset — Spread/Beta Atomics (Phase 151 Plan 04, todos 123/180).
+    # tip_tlt_ret_z/hyg_lqd_ret_z/sb_corr_* are symbol-independent, same
+    # update_cross_asset() broadcast mechanism as the 3 fields above.
+    # equity_beta_z/rate_beta_z default 0.0 here (unconditionally, no
+    # SPY/TLT special-case at cache level -- that null override is applied
+    # at FeatureVector construction time, per Task 1); they are per-SYMBOL
+    # and populated by a different mechanism than update_cross_asset()
+    # (batch: _build_symbol_beta_series; live: not yet wired, plan 151-09).
+    tip_tlt_ret_z: float = 0.0
+    hyg_lqd_ret_z: float = 0.0
+    sb_corr_fast: float = 0.0
+    sb_corr_slow: float = 0.0
+    sb_corr_z: float = 0.0
+    equity_beta_z: float = 0.0
+    rate_beta_z: float = 0.0
+    _tip_tlt_ratio_history: deque = field(default_factory=lambda: deque(maxlen=500), repr=False)
+    _hyg_lqd_ratio_history: deque = field(default_factory=lambda: deque(maxlen=500), repr=False)
+    _sb_corr_history: deque = field(default_factory=lambda: deque(maxlen=500), repr=False)
+    _equity_beta_history: deque = field(default_factory=lambda: deque(maxlen=500), repr=False)
+    _rate_beta_history: deque = field(default_factory=lambda: deque(maxlen=500), repr=False)
+    # sb_corr_fast/slow need SPY/TLT's own raw log-return history to compute a
+    # rolling correlation (Rule 2 addition beyond the plan's literal 5-deque
+    # list -- the correlation is structurally uncomputable without persisting
+    # the return series somewhere; documented as a deviation in the SUMMARY).
+    _sb_spy_log_ret_history: deque = field(default_factory=lambda: deque(maxlen=500), repr=False)
+    _sb_tlt_log_ret_history: deque = field(default_factory=lambda: deque(maxlen=500), repr=False)
 
     # CTF from HTF cached state (populated when HTF bar arrives)
     ctf_momentum: float = 0.0
@@ -534,23 +560,99 @@ class FeatureCache:
         spy_bars: list[dict],
         tlt_bars: list[dict],
         shy_bars: list[dict],
+        tip_bars: list[dict],
+        hyg_bars: list[dict],
+        lqd_bars: list[dict],
         config: FeatureFactoryConfig,
     ) -> None:
-        """Populate vix_z/flight_quality/yield_slope_z from available ETF OHLCV bars.
+        """Populate vix_z/flight_quality/yield_slope_z plus Phase 151 Plan 04's 5
+        symbol-independent cross-asset additions from available ETF OHLCV bars.
 
-        Called when cross-asset HTF bars arrive. All three features are computed from
-        OHLCV only -- no tick data, no live frames injection. Delegates to
-        _compute_cross_asset(), the sole implementation of this math (shared with
-        CrossAssetState below).
+        Called when cross-asset HTF bars arrive. All features are computed from
+        OHLCV only -- no tick data, no live frames injection. The original 3
+        fields delegate to _compute_cross_asset(), the sole implementation of
+        that math (shared with CrossAssetState below, which is deliberately
+        NOT extended with this plan's 5 new fields -- CrossAssetState exists
+        for callers needing only the original 3, see its class docstring).
+        tip_tlt_ret_z/hyg_lqd_ret_z are structural copies of the yield_slope_z
+        block above (pairwise log-return spread, z-scored over their own
+        distinct APR window -- never config.yield_curve_zscore_window, per
+        todo 123's review). sb_corr_fast/slow/z are a rolling Pearson
+        correlation between SPY and TLT log returns, theory-free like
+        hurst/skewness (no directional interpretation attached to sign).
+        equity_beta_z/rate_beta_z are NOT touched here -- they are per-symbol
+        and populated by a different mechanism (batch:
+        _build_symbol_beta_series; live: not yet wired, plan 151-09).
 
         Parameters
         ----------
-        spy_bars: SPY bar history (for vix_z proxy via realized volatility)
-        tlt_bars: TLT bar history (for flight_quality and yield_slope_z)
+        spy_bars: SPY bar history (for vix_z proxy, flight_quality, sb_corr)
+        tlt_bars: TLT bar history (for flight_quality, yield_slope_z, sb_corr)
         shy_bars: SHY bar history (for yield_slope_z)
+        tip_bars: TIP bar history (for tip_tlt_ret_z)
+        hyg_bars: HYG bar history (for hyg_lqd_ret_z)
+        lqd_bars: LQD bar history (for hyg_lqd_ret_z)
         config: Frozen FeatureFactoryConfig with zscore windows
         """
         _compute_cross_asset(self, spy_bars, tlt_bars, shy_bars, config)
+
+        # tip_tlt_ret_z: structural copy of the yield_slope_z block in
+        # _compute_cross_asset() above -- pairwise log-return spread,
+        # z-scored over its OWN distinct window (never yield_curve_zscore_window).
+        if len(tip_bars) >= 2 and len(tlt_bars) >= 2:
+            n = min(len(tip_bars), len(tlt_bars))
+            tip_closes = np.array([b["close"] for b in tip_bars[-n:]], dtype=float)
+            tlt_closes = np.array([b["close"] for b in tlt_bars[-n:]], dtype=float)
+            tip_rets = np.diff(np.log(np.maximum(tip_closes, 1e-10)))
+            tlt_rets = np.diff(np.log(np.maximum(tlt_closes, 1e-10)))
+            min_len = min(len(tip_rets), len(tlt_rets))
+            if min_len > 0:
+                ratio = float(tip_rets[-1]) - float(tlt_rets[-1])
+                self._tip_tlt_ratio_history.append(ratio)
+            self.tip_tlt_ret_z = _zscore_from_deque(
+                self._tip_tlt_ratio_history, config.tip_tlt_zscore_window
+            )
+
+        # hyg_lqd_ret_z: same structural copy, HYG/LQD instead of TIP/TLT.
+        if len(hyg_bars) >= 2 and len(lqd_bars) >= 2:
+            n = min(len(hyg_bars), len(lqd_bars))
+            hyg_closes = np.array([b["close"] for b in hyg_bars[-n:]], dtype=float)
+            lqd_closes = np.array([b["close"] for b in lqd_bars[-n:]], dtype=float)
+            hyg_rets = np.diff(np.log(np.maximum(hyg_closes, 1e-10)))
+            lqd_rets = np.diff(np.log(np.maximum(lqd_closes, 1e-10)))
+            min_len = min(len(hyg_rets), len(lqd_rets))
+            if min_len > 0:
+                ratio = float(hyg_rets[-1]) - float(lqd_rets[-1])
+                self._hyg_lqd_ratio_history.append(ratio)
+            self.hyg_lqd_ret_z = _zscore_from_deque(
+                self._hyg_lqd_ratio_history, config.hyg_lqd_zscore_window
+            )
+
+        # sb_corr_fast/slow/z: rolling Pearson correlation between SPY and TLT
+        # log returns. Theory-free (same class as hurst/skewness) -- no
+        # directional interpretation attached to the sign, here or in
+        # formula_short. The deque accumulates the FAST value only (per plan);
+        # sb_corr_z z-scores that fast-window series.
+        if len(spy_bars) >= 2 and len(tlt_bars) >= 2:
+            n = min(len(spy_bars), len(tlt_bars))
+            spy_closes = np.array([b["close"] for b in spy_bars[-n:]], dtype=float)
+            tlt_closes = np.array([b["close"] for b in tlt_bars[-n:]], dtype=float)
+            spy_rets = np.diff(np.log(np.maximum(spy_closes, 1e-10)))
+            tlt_rets = np.diff(np.log(np.maximum(tlt_closes, 1e-10)))
+            min_len = min(len(spy_rets), len(tlt_rets))
+            if min_len > 0:
+                self._sb_spy_log_ret_history.append(float(spy_rets[-1]))
+                self._sb_tlt_log_ret_history.append(float(tlt_rets[-1]))
+                fast_n = min(config.sb_corr_window_fast, len(self._sb_spy_log_ret_history))
+                slow_n = min(config.sb_corr_window_slow, len(self._sb_spy_log_ret_history))
+                spy_arr = np.array(self._sb_spy_log_ret_history)
+                tlt_arr = np.array(self._sb_tlt_log_ret_history)
+                self.sb_corr_fast = _safe_corr(spy_arr[-fast_n:], tlt_arr[-fast_n:])
+                self.sb_corr_slow = _safe_corr(spy_arr[-slow_n:], tlt_arr[-slow_n:])
+                self._sb_corr_history.append(self.sb_corr_fast)
+                self.sb_corr_z = _zscore_from_deque(
+                    self._sb_corr_history, config.sb_corr_zscore_window
+                )
 
     def update_overnight_range(
         self,
@@ -1129,3 +1231,21 @@ def _zscore_from_deque(history: deque, window: int) -> float:
     if std < 1e-8:
         return 0.0
     return float((float(history[-1]) - float(arr.mean())) / std)
+
+
+def _safe_corr(x: np.ndarray, y: np.ndarray) -> float:
+    """Pearson correlation coefficient between two equal-length arrays.
+
+    Returns 0.0 for degenerate input (fewer than 2 samples or zero variance
+    in either series) rather than NaN. Local to this module (not imported
+    from feature_factory.py's _correlation()) to avoid a circular import --
+    feature_factory.py already imports FeatureCache from this module.
+    """
+    if len(x) < 2 or len(y) < 2:
+        return 0.0
+    xm = x - x.mean()
+    ym = y - y.mean()
+    denom = float(np.sqrt(np.dot(xm, xm) * np.dot(ym, ym)))
+    if denom < 1e-10:
+        return 0.0
+    return float(np.dot(xm, ym) / denom)

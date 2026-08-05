@@ -137,6 +137,13 @@ def _make_cfg(**overrides) -> FeatureFactoryConfig:
         vwap_velocity_window=20,
         extreme_move_sigma_threshold=2.0,
         vol_spike_threshold=2.0,
+        tip_tlt_zscore_window=20,
+        hyg_lqd_zscore_window=20,
+        sb_corr_window_fast=10,
+        sb_corr_window_slow=20,
+        sb_corr_zscore_window=20,
+        factor_beta_window=20,
+        factor_beta_zscore_window=20,
     )
     defaults.update(overrides)
     return FeatureFactoryConfig(**defaults)
@@ -430,9 +437,12 @@ def test_feature_vector_domain_complete():
     structural VP/SR fields (Phase 163 Plan 01, migration 255) = 172, + 36
     SMC institutional-footprint fields (Phase 164 Plan 01, migration 266) = 208,
     + 41 swing/fib/trend/session structure fields (Phase 165 Plan 01,
-    migration 267) = 249."""
+    migration 267) = 249, + 6 calendar cycle/TDOM/minute + 4 velocity
+    primitives (Phase 151 Plan 01) = 259, + 11 recency/statistical atomics
+    (Phase 151 Plan 03) = 270, + 7 cross-asset spread/beta atomics
+    (Phase 151 Plan 04) = 277."""
     fv_fields = {f.name for f in dataclasses.fields(FeatureVector)}
-    assert len(FEATURE_VECTOR_DOMAIN) == 270
+    assert len(FEATURE_VECTOR_DOMAIN) == 277
     assert set(FEATURE_VECTOR_DOMAIN.keys()) == fv_fields
 
 

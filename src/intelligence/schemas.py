@@ -1202,9 +1202,9 @@ SignalMetricsEvent = Annotated[
 
 @dataclasses.dataclass(frozen=True)
 class FeatureVector:
-    """270 orthogonal feature primitives computed per bar by FeatureFactory.
+    """277 orthogonal feature primitives computed per bar by FeatureFactory.
     See the "Groups and field order are binding" breakdown below (ends in
-    "Total: 270") for full group-by-group provenance -- that breakdown is
+    "Total: 277") for full group-by-group provenance -- that breakdown is
     the maintained source of truth; keep it (not this line) in sync when
     fields are added.
 
@@ -1229,7 +1229,9 @@ class FeatureVector:
         rolling-track POC divergence, S/R cluster strength/age/count (D-13/D-16/D-17/D-18/D-19)
       Regime-level (10): HMM prob/entropy/duration, Hurst, Shannon, GARCH ratio, HMA slope, ADX, Aroon fast/slow
       Oscillators (6): RSI and CCI at fast/mid/slow scales
-      Cross-asset (3): VIX z-score, flight-to-quality, yield slope
+      Cross-asset (10: 3 original + 7 Phase 151 Plan 04): VIX z-score, flight-to-quality,
+        yield slope, TIP/TLT and HYG/LQD spread z-scores, stock-bond correlation
+        fast/slow/z, equity/rate factor betas (2 nullable, see field comments)
       Calendar (17: 11 original + 6 Phase 151 Plan 01 Task 1): NY/London session, overlap, power hour, opening range, weekly VWAP, dow sin/cos, month position, quarter position, days to month end, quarter cycle sin/cos, TDOM sin/cos, minute-of-hour sin/cos
       Velocity Primitives (4, Phase 151 Plan 01 Task 2): momentum_z_velocity_fast/mid/slow, vwap_dev_sigma_velocity -- first-difference-then-re-z-scored construction of an already-computed z-score series (same shape as vol_velocity_z)
       Recency / Statistical Atomics (11, Phase 151 Plan 03, todo 180): bars_since_high/low_fast/slow,
@@ -1266,12 +1268,16 @@ class FeatureVector:
         All ATR-distance/bounded/count/ordinal placeholders (None until Plans 02-04
         wire real compute logic); never a raw price level (D-16).
       Cross-sectional (3, nullable): momentum/volume/volatility rank z-scores
-      Total: 270 (226 required [164 + 41 Swing/Fib/Trend/Session Structure +
+      Total: 277 (231 required [164 + 41 Swing/Fib/Trend/Session Structure +
       6 Calendar Cycle/TDOM/Minute + 4 Velocity Primitives + 11 Recency/
-      Statistical Atomics, Phase 151 Plans 01 + 03]
-      + 44 optional [3 cross-sectional + 5 canary + 36 SMC, all defaulted for
-      cold-start/construction-site blast-radius reasons -- see Canary field
-      comments and the Smart Money Concepts block comment above])
+      Statistical Atomics + 5 Cross-asset Spread/Beta (non-nullable), Phase 151
+      Plans 01 + 03 + 04]
+      + 46 optional [3 cross-sectional + 5 canary + 36 SMC + 2 Cross-asset
+      factor betas (Phase 151 Plan 04, nullable for the factor proxy's own
+      self-regression), all defaulted/nullable for cold-start/construction-site
+      blast-radius or degenerate-self-regression reasons -- see Canary field
+      comments, the Smart Money Concepts block comment, and the Cross-asset
+      Spread/Beta field comments above])
     """
 
     # Momentum (7 total: 5 original + 2 new scale-named)
@@ -1417,6 +1423,24 @@ class FeatureVector:
     bars_since_vol_spike_fast: float  # bars since rel_volume > vol_spike_threshold, fast window (APR: feature.bars_since_vol_spike.threshold)
     bars_since_vol_spike_slow: float  # bars since rel_volume > vol_spike_threshold, slow window (APR: feature.bars_since_vol_spike.threshold)
     abs_ret_autocorr_1: float  # lag-1 Pearson autocorrelation of |log returns| (volatility clustering), bounded [-1,1] (definitional, no APR)
+    # Cross-asset — Spread/Beta Atomics (7, Phase 151 Plan 04, todos 123/180).
+    # tip_tlt_ret_z/hyg_lqd_ret_z/sb_corr_* are symbol-independent (same value
+    # broadcast to every symbol on a given date, like vix_z above).
+    # equity_beta_z/rate_beta_z are per-SYMBOL and nullable BY DESIGN: a
+    # self-regression (SPY vs SPY, TLT vs TLT) is degenerate (beta identically
+    # 1), so None is emitted for the factor proxy's own beta against itself
+    # rather than a silently-wrong constant 1.0.
+    tip_tlt_ret_z: float  # zscore(log_ret(TIP) - log_ret(TLT)) (APR: feature.tip_tlt.zscore_window)
+    hyg_lqd_ret_z: float  # zscore(log_ret(HYG) - log_ret(LQD)) (APR: feature.hyg_lqd.zscore_window)
+    sb_corr_fast: float  # rolling Pearson(log_ret(SPY), log_ret(TLT)), fast window (APR: feature.sb_corr.window_fast)
+    sb_corr_slow: float  # rolling Pearson(log_ret(SPY), log_ret(TLT)), slow window (APR: feature.sb_corr.window_slow)
+    sb_corr_z: float  # zscore(sb_corr_fast) (APR: feature.sb_corr.zscore_window)
+    equity_beta_z: (
+        float | None
+    )  # zscore(rolling OLS slope of symbol daily log_ret on SPY daily log_ret); None for SPY itself (APR: feature.factor_beta.window / .zscore_window)
+    rate_beta_z: (
+        float | None
+    )  # zscore(rolling OLS slope of symbol daily log_ret on TLT daily log_ret); None for TLT itself (APR: feature.factor_beta.window / .zscore_window)
     # Cross-timeframe (3)
     ctf_momentum: float
     ctf_vwap_align: float

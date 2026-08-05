@@ -196,6 +196,13 @@ def make_agent() -> FeatureVectorPipeline:
         vwap_velocity_window=20,
         extreme_move_sigma_threshold=2.0,
         vol_spike_threshold=2.0,
+        tip_tlt_zscore_window=20,
+        hyg_lqd_zscore_window=20,
+        sb_corr_window_fast=10,
+        sb_corr_window_slow=20,
+        sb_corr_zscore_window=20,
+        factor_beta_window=20,
+        factor_beta_zscore_window=20,
     )
     return agent
 

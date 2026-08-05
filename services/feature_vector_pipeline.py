@@ -760,6 +760,14 @@ class FeatureVectorPipeline(BaseDaemon):
         # --- migration 288: Phase 151 Plan 03 recency/statistical atomics ---
         ("feature.bars_since_extreme_move.sigma_threshold", 2.0),
         ("feature.bars_since_vol_spike.threshold", 2.0),
+        # --- migration 289: Phase 151 Plan 04 cross-asset spread/beta atomics ---
+        ("feature.tip_tlt.zscore_window", 252),
+        ("feature.hyg_lqd.zscore_window", 252),
+        ("feature.sb_corr.window_fast", 30),
+        ("feature.sb_corr.window_slow", 60),
+        ("feature.sb_corr.zscore_window", 252),
+        ("feature.factor_beta.window", 60),
+        ("feature.factor_beta.zscore_window", 252),
         ("alpha.ic.canary_rng_seed", 90042),
         ("feature.session_vp.value_area_pct", 0.70),
         ("feature.session_vp.n_buckets", 50),
@@ -988,6 +996,13 @@ class FeatureVectorPipeline(BaseDaemon):
                 "feature.bars_since_extreme_move.sigma_threshold", 2.0
             ),
             vol_spike_threshold=_float("feature.bars_since_vol_spike.threshold", 2.0),
+            tip_tlt_zscore_window=_int("feature.tip_tlt.zscore_window", 252),
+            hyg_lqd_zscore_window=_int("feature.hyg_lqd.zscore_window", 252),
+            sb_corr_window_fast=_int("feature.sb_corr.window_fast", 30),
+            sb_corr_window_slow=_int("feature.sb_corr.window_slow", 60),
+            sb_corr_zscore_window=_int("feature.sb_corr.zscore_window", 252),
+            factor_beta_window=_int("feature.factor_beta.window", 60),
+            factor_beta_zscore_window=_int("feature.factor_beta.zscore_window", 252),
             canary_rng_seed=_int("alpha.ic.canary_rng_seed", 90042),
             session_vp_value_area_pct=_float("feature.session_vp.value_area_pct", 0.70),
             session_vp_n_buckets=_int("feature.session_vp.n_buckets", 50),

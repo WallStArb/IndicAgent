@@ -143,6 +143,13 @@ def _make_config(**overrides) -> FeatureFactoryConfig:
         vwap_velocity_window=20,
         extreme_move_sigma_threshold=2.0,
         vol_spike_threshold=2.0,
+        tip_tlt_zscore_window=20,
+        hyg_lqd_zscore_window=20,
+        sb_corr_window_fast=10,
+        sb_corr_window_slow=20,
+        sb_corr_zscore_window=20,
+        factor_beta_window=20,
+        factor_beta_zscore_window=20,
         canary_rng_seed=90042,
     )
     defaults.update(overrides)
@@ -202,8 +209,9 @@ class TestFeatureVectorCanaryFields:
         # calendar cycle/TDOM/minute fields (Phase 151 Plan 01 Task 1) = 255,
         # +4 velocity primitives (Phase 151 Plan 01 Task 2) = 259, +11
         # recency/statistical atomics (Phase 151 Plan 03, added after this
-        # test was written) = 270.
-        assert total == 150 + 5 + 17 + 36 + 41 + 6 + 4 + 11
+        # test was written) = 270, +7 cross-asset spread/beta atomics
+        # (Phase 151 Plan 04, added after this test was written) = 277.
+        assert total == 150 + 5 + 17 + 36 + 41 + 6 + 4 + 11 + 7
 
 
 # ---------------------------------------------------------------------------
@@ -503,8 +511,10 @@ class TestFeatureFactoryIntegration:
         # migration 266) = 208, +41 swing/fib/trend/session structure fields
         # (Phase 165 Plan 01, migration 267) = 249, +6 calendar cycle/TDOM/minute
         # fields (Phase 151 Plan 01 Task 1) = 255, +4 velocity primitives
-        # (Phase 151 Plan 01 Task 2) = 259.
-        assert len(dataclasses.fields(fv)) == 270
+        # (Phase 151 Plan 01 Task 2) = 259, +11 recency/statistical atomics
+        # (Phase 151 Plan 03) = 270, +7 cross-asset spread/beta atomics
+        # (Phase 151 Plan 04) = 277.
+        assert len(dataclasses.fields(fv)) == 277
 
 
 # ---------------------------------------------------------------------------
