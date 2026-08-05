@@ -8,6 +8,40 @@ source: final whole-branch review of the todo-226-step-1 instrumentation branch
   which led to checking hmmlearn's actual `converged` semantics directly
 ---
 
+## Status update 2026-08-05
+
+**Code fix DONE.** Both occurrences fixed (a second one was found during implementation
+that this todo's original filing didn't catch -- `_walk_forward_hmm_full`, the todo 248
+walk-forward path, has the identical `monitor_.converged` misuse at what were lines
+738/747; `_compute_symbol_tf`'s multi-seed path at what were lines 1200/1216 is the one
+this todo originally described). Both now use `monitor_.iter < monitor_.n_iter`. Stale
+comment explaining the old always-True behavior removed from the log call site. Tests
+updated (`test_compute_symbol_tf_n_restarts_default_preserves_same_seed_retry`,
+`test_compute_symbol_tf_n_restarts_selects_highest_log_likelihood`) to force convergence
+state via `iter`/`n_iter` directly instead of the now-unread `converged` field. 40/40
+`tests/unit/services/test_regime_writer.py` pass. Ruff/black clean.
+
+**Second-order consequence #1 (todo 108's multi-seed ranking) is now live**: the
+`(candidate_converged, candidate_ll)` selection tuple was silently degraded to pure
+log-likelihood ranking for the entire time `n_restarts > 1` has been in use -- this fix
+also revives the intended "convergence ranks first" behavior. Real behavior change,
+not just a bug fix, per this todo's own note.
+
+**Still deferred, per this todo's own recommended sequencing** (not done in this pass):
+Viterbi output verification on a held-out real-data sample before/after, and the full
+corpus re-run -- both batched into the next scheduled full corpus rebuild rather than
+triggered standalone, since regime labels can legitimately change for any cell that was
+silently under-converged and will now actually retry. No blast-radius measurement
+exists yet (`logs/regime_writer.log` is empty, no run has populated todo 226's
+`hmm_convergence_iters` log since it shipped) -- get that from the next real corpus run
+before deciding how urgent the re-run is, per this todo's step 2.
+
+**Related, out of scope, noted not fixed**: `scripts/debug/analysis/debug_bic_k_selection.py:149`
+has the same `model.monitor_.converged` misuse, but it's a one-off diagnostic script (BIC
+K-selection study) where `converged` is only returned as reported output, not used for
+any retry/selection logic -- no behavior is silently wrong, just a misleading diagnostic
+field. Left alone; fix opportunistically if that script is touched again.
+
 # `regime_writer.py`'s same-seed HMM convergence retry (todo 108) has been
 # unreachable dead code since it shipped -- `monitor_.converged` is always
 # `True` after any completed `.fit()`, in hmmlearn 0.3.3

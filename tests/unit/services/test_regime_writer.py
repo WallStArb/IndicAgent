@@ -730,10 +730,10 @@ def test_compute_symbol_tf_n_restarts_default_preserves_same_seed_retry(monkeypa
     multi-seed loop must not silently turn a single-seed retry into a second, different
     seed being tried.
 
-    hmmlearn's monitor_.converged reads True whenever the EM loop ran its full n_iter
-    budget (by construction of ConvergenceMonitor.converged), so real non-convergence
-    can't be forced deterministically via n_iter alone -- the first fit's convergence
-    flag is force-overridden here to exercise the retry branch under test.
+    The code under test reads iter < n_iter as the convergence signal (todo 229),
+    not hmmlearn's always-True monitor_.converged -- real non-convergence can't be
+    forced deterministically via n_iter alone, so the first fit's monitor_ is
+    force-overridden to iter == n_iter (a cap-hit) to exercise the retry branch.
     """
     from types import SimpleNamespace
 
@@ -758,9 +758,10 @@ def test_compute_symbol_tf_n_restarts_default_preserves_same_seed_retry(monkeypa
             super().fit(X, lengths)
             fit_count["n"] += 1
             if fit_count["n"] == 1:
-                real_iter = self.monitor_.iter
                 real_n_iter = self.monitor_.n_iter
-                self.monitor_ = SimpleNamespace(converged=False, iter=real_iter, n_iter=real_n_iter)
+                # Force iter == n_iter (cap-hit) -- the code under test now reads
+                # iter < n_iter, not the always-True monitor_.converged (todo 229).
+                self.monitor_ = SimpleNamespace(iter=real_n_iter, n_iter=real_n_iter)
             return self
 
     monkeypatch.setattr(regime_writer_module, "GaussianHMM", _ForceFirstNonConvergedHMM)
@@ -821,13 +822,13 @@ def test_compute_symbol_tf_n_restarts_selects_highest_log_likelihood(monkeypatch
         def fit(self, X, lengths=None):
             super().fit(X, lengths)
             if self.random_state == winning_seed:
-                # Force convergence so the engineered score below is what decides the
-                # winner: convergence status ranks ahead of log-likelihood in the
-                # selection tuple, so a non-converged "winner" would lose regardless
-                # of its score.
-                real_iter = self.monitor_.iter
+                # Force convergence (iter < n_iter -- todo 229's real signal, not the
+                # always-True monitor_.converged) so the engineered score below is what
+                # decides the winner: convergence status ranks ahead of log-likelihood
+                # in the selection tuple, so a non-converged "winner" would lose
+                # regardless of its score.
                 real_n_iter = self.monitor_.n_iter
-                self.monitor_ = SimpleNamespace(converged=True, iter=real_iter, n_iter=real_n_iter)
+                self.monitor_ = SimpleNamespace(iter=real_n_iter - 1, n_iter=real_n_iter)
             seed_to_transmat[self.random_state] = self.transmat_.copy()
             return self
 

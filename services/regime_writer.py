@@ -735,7 +735,12 @@ def _walk_forward_hmm_full(
             random_state=hmm_random_state,
         )
         model.fit(train_scaled)
-        converged = bool(model.monitor_.converged)
+        # hmmlearn 0.3.3's monitor_.converged is always True after fit() completes
+        # (ConvergenceMonitor.converged's first disjunct is `iter == n_iter`, which is
+        # trivially satisfied whenever the EM loop runs to its cap) -- iter < n_iter is
+        # the only signal that distinguishes a genuine tolerance-convergence from a
+        # cap-hit (todo 229, proven exact against hmmlearn 0.3.3's fit() loop).
+        converged = model.monitor_.iter < model.monitor_.n_iter
         if not converged:
             retry_model = GaussianHMM(
                 n_components=n_components,
@@ -744,7 +749,7 @@ def _walk_forward_hmm_full(
                 random_state=hmm_random_state,
             )
             retry_model.fit(train_scaled)
-            if retry_model.monitor_.converged:
+            if retry_model.monitor_.iter < retry_model.monitor_.n_iter:
                 model = retry_model
                 converged = True
 
@@ -1195,9 +1200,14 @@ def _compute_symbol_tf(
         )
         candidate.fit(obs_matrix)
 
-        # Convergence check — non-convergence means EM stopped early; labels are valid
-        # but may be suboptimal. Retry once with doubled iterations before proceeding.
-        candidate_converged = bool(candidate.monitor_.converged)
+        # Convergence check — non-convergence means EM hit the n_iter cap without the
+        # tolerance criterion firing; labels are valid but may be suboptimal. Retry once
+        # with doubled iterations before proceeding. hmmlearn 0.3.3's monitor_.converged
+        # is always True after fit() completes (its first disjunct, iter == n_iter, is
+        # trivially satisfied on a cap-hit) -- iter < n_iter is the only signal that
+        # distinguishes genuine tolerance-convergence from a cap-hit (todo 229, proven
+        # exact against hmmlearn 0.3.3's fit() loop).
+        candidate_converged = candidate.monitor_.iter < candidate.monitor_.n_iter
         if not candidate_converged:
             _logger.warning(
                 "regime_writer.hmm_not_converged_retry",
@@ -1213,7 +1223,7 @@ def _compute_symbol_tf(
                 random_state=seed,
             )
             retry_model.fit(obs_matrix)
-            if retry_model.monitor_.converged:
+            if retry_model.monitor_.iter < retry_model.monitor_.n_iter:
                 candidate = retry_model
                 candidate_converged = True
             else:
@@ -1247,10 +1257,8 @@ def _compute_symbol_tf(
             best_ll = candidate_ll
 
     # Log HMM convergence iteration count for todo 226 (n_iter=200 headroom check).
-    # NOTE: model.monitor_.converged is always True after hmmlearn's fit() completes
-    # (it only exits when iter == n_iter OR tolerance is met, never partway through).
-    # The real cap-hit signal for analysts is iters_used == n_iter_cap, not the converged
-    # field — see hmmlearn 0.3.3 ConvergenceMonitor source for details.
+    # `converged` here is the corrected iter < n_iter signal (todo 229) -- a real
+    # tolerance-convergence indicator, not hmmlearn's always-True monitor_.converged.
     _logger.info(
         "regime_writer.hmm_convergence_iters",
         symbol=symbol,
