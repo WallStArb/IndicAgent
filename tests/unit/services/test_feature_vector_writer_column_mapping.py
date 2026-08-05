@@ -116,6 +116,19 @@ def _make_sentinel_record():
         month_position=47.47,
         quarter_position=47.48,
         days_to_month_end=47.49,
+        # Calendar Cycle/TDOM/Minute + Velocity (Phase 151 Plan 01) — not yet
+        # in the persisted tuple (migration lands with Plan 01 Task 2/3);
+        # construction requires these non-optional fields.
+        quarter_cycle_sin=47.50,
+        quarter_cycle_cos=47.51,
+        tdom_sin=47.52,
+        tdom_cos=47.53,
+        minute_of_hour_sin=47.54,
+        minute_of_hour_cos=47.55,
+        momentum_z_velocity_fast=47.56,
+        momentum_z_velocity_mid=47.57,
+        momentum_z_velocity_slow=47.58,
+        vwap_dev_sigma_velocity=47.59,
         ctf_momentum=48.48,
         ctf_vwap_align=49.49,
         ctf_regime_align=50.50,
@@ -283,18 +296,19 @@ def _make_sentinel_record():
 
 
 def test_params_length_is_159():
-    """_record_to_insert_params must return exactly 258 elements (159 post migration
+    """_record_to_insert_params must return exactly 268 elements (159 post migration
     211's new_high_flag/new_low_flag drop, 164 after migration 223's 5 canary
     columns, 181 after migration 255's 17 structural VP/SR columns, 217 after
     migration 266's 36 SMC institutional-footprint columns, 258 after
-    migration 267's 41 swing/fib/trend/session structure columns — see
+    migration 267's 41 swing/fib/trend/session structure columns, 268 after
+    migration 287's 10 calendar cycle/TDOM/minute + velocity columns — see
     feature_vector_persistence.py docstring)."""
     from services.feature_vector_writer import _record_to_insert_params
 
     record = _make_sentinel_record()
     params = _record_to_insert_params(record)
 
-    assert len(params) == 258, f"Expected 258, got {len(params)}"
+    assert len(params) == 268, f"Expected 268, got {len(params)}"
 
 
 def test_feature_vector_id_at_index_0():
@@ -517,7 +531,7 @@ def test_sr_level_count_at_index_180_is_last_element():
     record = _make_sentinel_record()
     params = _record_to_insert_params(record)
 
-    assert len(params) == 258
+    assert len(params) == 268
     assert params[180] == pytest.approx(61.17), f"$181 (sr_level_count) wrong: {params[180]}"
 
 
@@ -536,21 +550,41 @@ def test_manip_strength_at_index_216_is_last_element():
     record = _make_sentinel_record()
     params = _record_to_insert_params(record)
 
-    assert len(params) == 258
+    assert len(params) == 268
     assert params[216] is None, f"$217 (manip_strength) wrong: {params[216]}"
 
 
-def test_gap_filled_at_index_257_is_last_element():
-    """params[257] ($258) must be gap_filled -- the final column, appended
-    after the SMC fields by migration 267's 41 swing/fib/trend/session
-    structure columns (Phase 165 Plan 01). gap_filled is None here since
-    _make_sentinel_record() does not set any of the 41 new Phase 165 fields
+def test_gap_filled_at_index_257():
+    """params[257] ($258) must be gap_filled -- the final column of the
+    pre-Phase-151 contract, appended after the SMC fields by migration 267's
+    41 swing/fib/trend/session structure columns (Phase 165 Plan 01). No
+    longer the true last element of the tuple as of migration 287 (Phase 151
+    Plan 01) -- 10 calendar cycle/TDOM/minute + velocity columns are appended
+    after it; see test_vwap_dev_sigma_velocity_at_index_267_is_last_element
+    below for the current tail. gap_filled is None here since
+    _make_sentinel_record() does not set any of the 41 Phase 165 fields
     (contract-only, placeholder None until Plans 02-04)."""
     from services.feature_vector_writer import _record_to_insert_params
 
     record = _make_sentinel_record()
     params = _record_to_insert_params(record)
 
-    assert len(params) == 258
+    assert len(params) == 268
     assert params[257] is None, f"$258 (gap_filled) wrong: {params[257]}"
-    assert params[257] == params[-1], "gap_filled must be the true last element"
+
+
+def test_vwap_dev_sigma_velocity_at_index_267_is_last_element():
+    """params[267] ($268) must be vwap_dev_sigma_velocity sentinel value
+    47.59 -- the new final column, appended after the Swing/Fib/Trend/
+    Session Structure fields by migration 287's 10 calendar cycle/TDOM/
+    minute + velocity columns (Phase 151 Plan 01)."""
+    from services.feature_vector_writer import _record_to_insert_params
+
+    record = _make_sentinel_record()
+    params = _record_to_insert_params(record)
+
+    assert len(params) == 268
+    assert params[267] == pytest.approx(
+        47.59
+    ), f"$268 (vwap_dev_sigma_velocity) wrong: {params[267]}"
+    assert params[267] == params[-1], "vwap_dev_sigma_velocity must be the true last element"

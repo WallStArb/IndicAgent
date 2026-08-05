@@ -83,6 +83,16 @@ def _make_valid_feature_vector():
         month_position=0.5,
         quarter_position=0.25,
         days_to_month_end=0.5,
+        quarter_cycle_sin=0.0,
+        quarter_cycle_cos=1.0,
+        tdom_sin=0.0,
+        tdom_cos=1.0,
+        minute_of_hour_sin=0.0,
+        minute_of_hour_cos=1.0,
+        momentum_z_velocity_fast=0.0,
+        momentum_z_velocity_mid=0.0,
+        momentum_z_velocity_slow=0.0,
+        vwap_dev_sigma_velocity=0.0,
         ctf_momentum=0.0,
         ctf_vwap_align=0.0,
         ctf_regime_align=0.0,
@@ -279,20 +289,21 @@ def _make_valid_payload():
 
 
 def test_record_to_insert_params_returns_159_tuple():
-    """_record_to_insert_params returns exactly 258 elements matching INSERT columns
+    """_record_to_insert_params returns exactly 268 elements matching INSERT columns
     (post migration 211, 2026-07-09 -- redundant new_high_flag/new_low_flag removed;
     164 after migration 223's 5 canary columns; 181 after migration 255's 17
     structural VP/SR columns (Phase 163 Plan 01); 217 after migration 266's 36
     SMC institutional-footprint columns (Phase 164 Plan 01); 258 after
     migration 267's 41 swing/fib/trend/session structure columns (Phase 165
-    Plan 01)."""
+    Plan 01); 268 after migration 287's 10 calendar cycle/TDOM/minute +
+    velocity columns (Phase 151 Plan 01)."""
     from services.feature_vector_writer import _record_to_insert_params
 
     record = _make_valid_record()
     params = _record_to_insert_params(record)
 
     assert isinstance(params, tuple)
-    assert len(params) == 258, f"Expected 258, got {len(params)}"
+    assert len(params) == 268, f"Expected 268, got {len(params)}"
 
 
 def test_record_to_insert_params_feature_vector_id_is_uuid():
@@ -392,13 +403,14 @@ def test_feature_vector_id_differs_for_different_inputs():
 
 
 def test_parse_payload_valid_record_returns_159_param_tuple():
-    """Valid FeatureVectorRecord payload parses to a 258-element params tuple
+    """Valid FeatureVectorRecord payload parses to a 268-element params tuple
     (post migration 211, 2026-07-09 -- redundant new_high_flag/new_low_flag
     removed; 164 after migration 223's 5 canary columns; 181 after migration
     255's 17 structural VP/SR columns (Phase 163 Plan 01); 217 after migration
     266's 36 SMC institutional-footprint columns (Phase 164 Plan 01); 258
     after migration 267's 41 swing/fib/trend/session structure columns
-    (Phase 165 Plan 01)."""
+    (Phase 165 Plan 01); 268 after migration 287's 10 calendar cycle/TDOM/
+    minute + velocity columns (Phase 151 Plan 01)."""
     from services.feature_vector_writer import FeatureVectorWriter
 
     svc = FeatureVectorWriter.__new__(FeatureVectorWriter)
@@ -413,7 +425,7 @@ def test_parse_payload_valid_record_returns_159_param_tuple():
     assert not invalid
     assert len(valid) == 1
     assert isinstance(valid[0], tuple)
-    assert len(valid[0]) == 258, f"Expected 258-element tuple, got {len(valid[0])}"
+    assert len(valid[0]) == 268, f"Expected 268-element tuple, got {len(valid[0])}"
 
 
 def test_parse_payload_malformed_returns_empty_valid_invalid_payload():
@@ -561,19 +573,20 @@ def test_insert_sql_targets_feature_vectors():
 
 
 def test_insert_sql_has_159_placeholders():
-    """_INSERT_FEATURE_VECTOR_SQL must have exactly 258 positional placeholders $1..$258
+    """_INSERT_FEATURE_VECTOR_SQL must have exactly 268 positional placeholders $1..$268
     (post migration 211, 2026-07-09 -- redundant new_high_flag/new_low_flag removed;
     164 after migration 223's 5 canary columns; 181 after migration 255's 17
     structural VP/SR columns (Phase 163 Plan 01); 217 after migration 266's 36
     SMC institutional-footprint columns (Phase 164 Plan 01); 258 after
     migration 267's 41 swing/fib/trend/session structure columns (Phase 165
-    Plan 01)."""
+    Plan 01); 268 after migration 287's 10 calendar cycle/TDOM/minute +
+    velocity columns (Phase 151 Plan 01)."""
     import re
 
     from services.feature_vector_writer import _INSERT_FEATURE_VECTOR_SQL
 
     placeholders = re.findall(r"\$\d+", _INSERT_FEATURE_VECTOR_SQL)
-    assert len(placeholders) == 258, f"Expected 258 placeholders, got {len(placeholders)}"
+    assert len(placeholders) == 268, f"Expected 268 placeholders, got {len(placeholders)}"
 
 
 def test_insert_sql_includes_feature_vector_id_column():

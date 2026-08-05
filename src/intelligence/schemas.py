@@ -1202,9 +1202,9 @@ SignalMetricsEvent = Annotated[
 
 @dataclasses.dataclass(frozen=True)
 class FeatureVector:
-    """249 orthogonal feature primitives computed per bar by FeatureFactory.
+    """259 orthogonal feature primitives computed per bar by FeatureFactory.
     See the "Groups and field order are binding" breakdown below (ends in
-    "Total: 249") for full group-by-group provenance -- that breakdown is
+    "Total: 259") for full group-by-group provenance -- that breakdown is
     the maintained source of truth; keep it (not this line) in sync when
     fields are added.
 
@@ -1230,7 +1230,8 @@ class FeatureVector:
       Regime-level (10): HMM prob/entropy/duration, Hurst, Shannon, GARCH ratio, HMA slope, ADX, Aroon fast/slow
       Oscillators (6): RSI and CCI at fast/mid/slow scales
       Cross-asset (3): VIX z-score, flight-to-quality, yield slope
-      Calendar (11): NY/London session, overlap, power hour, opening range, weekly VWAP, dow sin/cos, month position, quarter position, days to month end
+      Calendar (17: 11 original + 6 Phase 151 Plan 01 Task 1): NY/London session, overlap, power hour, opening range, weekly VWAP, dow sin/cos, month position, quarter position, days to month end, quarter cycle sin/cos, TDOM sin/cos, minute-of-hour sin/cos
+      Velocity Primitives (4, Phase 151 Plan 01 Task 2): momentum_z_velocity_fast/mid/slow, vwap_dev_sigma_velocity -- first-difference-then-re-z-scored construction of an already-computed z-score series (same shape as vol_velocity_z)
       Cross-timeframe (3): momentum/VWAP/regime alignment from HTF cache
       Statistical/liquidity (4): Amihud illiquidity, 52w high distance, return skewness, return autocorrelation
       Bar Anatomy Ratios (8, Phase 142.5 Plan 01): body/wick ratios, range vs ATR, direction, overnight gap(+z), range efficiency
@@ -1260,8 +1261,9 @@ class FeatureVector:
         All ATR-distance/bounded/count/ordinal placeholders (None until Plans 02-04
         wire real compute logic); never a raw price level (D-16).
       Cross-sectional (3, nullable): momentum/volume/volatility rank z-scores
-      Total: 249 (205 required [164 + 41 Swing/Fib/Trend/Session Structure] +
-      44 optional [3 cross-sectional + 5 canary + 36 SMC, all defaulted for
+      Total: 259 (215 required [164 + 41 Swing/Fib/Trend/Session Structure +
+      6 Calendar Cycle/TDOM/Minute + 4 Velocity Primitives, Phase 151 Plan 01]
+      + 44 optional [3 cross-sectional + 5 canary + 36 SMC, all defaulted for
       cold-start/construction-site blast-radius reasons -- see Canary field
       comments and the Smart Money Concepts block comment above])
     """
@@ -1350,6 +1352,34 @@ class FeatureVector:
     month_position: float
     quarter_position: float  # position within calendar quarter [0, 1]; earnings/rebalancing cycle
     days_to_month_end: float  # (days remaining to month end) / (days in month) [0, 1]
+    # Calendar — Cycle/TDOM/Minute Coordinates (6, Phase 151 Plan 01, todo 104).
+    # First circular harmonic / trading-day-of-month / minute-of-hour, all pure
+    # functions of bar_ts (no bars array). This block is immediately followed
+    # by Plan 01 Task 2's 4 velocity fields so both form one contiguous
+    # 10-field run consumed by feature_vector_persistence.py's
+    # _PHASE151_CALENDAR_VELOCITY_FIELD_NAMES index-range slice.
+    quarter_cycle_sin: float  # sin(2*pi*quarter_position); reuses _quarter_position()
+    quarter_cycle_cos: float  # cos(2*pi*quarter_position); reuses _quarter_position()
+    tdom_sin: float  # sin(2*pi*trading_day_of_month/weekdays_in_month)
+    tdom_cos: float  # cos(2*pi*trading_day_of_month/weekdays_in_month)
+    minute_of_hour_sin: float  # sin(2*pi*bar_ts.minute/60); constant at 1h/1d by construction
+    minute_of_hour_cos: float  # cos(2*pi*bar_ts.minute/60); constant at 1h/1d by construction
+    # Velocity Primitives (4, Phase 151 Plan 01 Task 2, todo 123). First-
+    # difference-then-re-z-scored construction of an already-computed
+    # z-score series (identical shape to vol_velocity_z, reuses
+    # _vol_velocity_z_series_full).
+    momentum_z_velocity_fast: (
+        float  # zscore(diff(momentum_z_fast)) (APR: feature.momentum_velocity.window)
+    )
+    momentum_z_velocity_mid: (
+        float  # zscore(diff(momentum_z_mid)) (APR: feature.momentum_velocity.window)
+    )
+    momentum_z_velocity_slow: (
+        float  # zscore(diff(momentum_z_slow)) (APR: feature.momentum_velocity.window)
+    )
+    vwap_dev_sigma_velocity: (
+        float  # zscore(diff(vwap_dev_sigma)) (APR: feature.vwap_velocity.window)
+    )
     # Cross-timeframe (3)
     ctf_momentum: float
     ctf_vwap_align: float

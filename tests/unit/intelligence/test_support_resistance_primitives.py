@@ -147,6 +147,8 @@ def _make_cfg(**overrides: object) -> FeatureFactoryConfig:
         intraday_noise_window=20,
         price_vol_corr_fast=10,
         price_vol_corr_slow=30,
+        momentum_velocity_window=20,
+        vwap_velocity_window=20,
         session_vp_rolling_window=15,
     )
     defaults.update(overrides)

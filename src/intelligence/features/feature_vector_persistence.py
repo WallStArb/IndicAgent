@@ -71,6 +71,18 @@ established append-only convention). All 41 values are None placeholders in
 this plan -- Plans 02-04 wire real compute logic in without touching this
 file's column wiring again.
 
+2026-08-05: extended to 268 columns (migration 287, Phase 151 Plan 01). 10
+new fields -- 6 calendar cycle/TDOM/minute coordinates (Task 1) + 4 velocity
+primitives (Task 2, first-difference-then-re-z-scored construction of an
+already-computed z-score series) -- added to FeatureVector as ONE contiguous
+block immediately after the original 11-field Calendar group (both
+sub-blocks declared contiguously in schemas.py specifically so a single
+derived slice covers them). Same derive-by-name discipline as every prior
+extension via a new _PHASE151_CALENDAR_VELOCITY_FIELD_NAMES slice, appended
+at the end of the column list. All 10 values are real computed floats from
+day one (no None placeholders -- unlike the SMC/Swing blocks above, this
+plan's compute logic lands in the same task that adds the field).
+
 Ring 1: imports FeatureVector from src.intelligence.schemas.
 Do not import from Ring 2 (services/) or Ring 3 (api/, production/).
 """
@@ -168,6 +180,19 @@ _SWING_FIB_TREND_FIELD_NAMES: tuple[str, ...] = _ALL_FEATURE_VECTOR_FIELD_NAMES[
     + 1
 ]
 
+# The 10 new Phase 151 Plan 01 fields (migration 287) are a sixth contiguous,
+# same-order slice -- 6 calendar cycle/TDOM/minute coordinates (Task 1)
+# immediately followed by 4 velocity primitives (Task 2), declared as ONE
+# contiguous run in schemas.py specifically so this single index-range slice
+# covers both sub-blocks. Same derive-don't-hand-type discipline as the five
+# slices above; appended at the end of the column list below.
+_PHASE151_CALENDAR_VELOCITY_FIELD_NAMES: tuple[str, ...] = _ALL_FEATURE_VECTOR_FIELD_NAMES[
+    _ALL_FEATURE_VECTOR_FIELD_NAMES.index(
+        "quarter_cycle_sin"
+    ) : _ALL_FEATURE_VECTOR_FIELD_NAMES.index("vwap_dev_sigma_velocity")
+    + 1
+]
+
 
 def _compute_bar_close_ts(bar_ts: datetime, tf: str) -> datetime:
     """Compute bar close timestamp from bar open timestamp and timeframe.
@@ -202,15 +227,17 @@ def validate_feature_vector(vector: FeatureVector) -> list[str]:
 
 # ── Canonical INSERT/UPSERT SQL ───────────────────────────────────────────────
 
-# 258 columns (as of 2026-07-28): $1 content-key, $2-$8 structural, $9-$62
+# 268 columns (as of 2026-08-05): $1 content-key, $2-$8 structural, $9-$62
 # original feature floats, $63-$70 migration-159 additions, $71-$159
 # migration-206 Renaissance primitives (2026-07-08 fix, then reduced from 91
 # to 89 primitives 2026-07-09), $160-$164 migration-223 canary/control
 # predictors, $165-$181 migration-255 structural VP/SR fields (Phase 163
 # Plan 01), $182-$217 migration-266 SMC institutional-footprint fields
 # (Phase 164 Plan 01), $218-$258 migration-267 swing/fib/trend/session
-# structure fields (Phase 165 Plan 01, see module docstring).
-# Column order is binding — matches migration 159/206/223/255/266/267 column definition order.
+# structure fields (Phase 165 Plan 01), $259-$268 migration-287 calendar
+# cycle/TDOM/minute + velocity fields (Phase 151 Plan 01, see module
+# docstring).
+# Column order is binding — matches migration 159/206/223/255/266/267/287 column definition order.
 _STRUCTURAL_PREFIX_COLUMN_NAMES: tuple[str, ...] = (
     "feature_vector_id",
     "symbol",
@@ -294,6 +321,7 @@ _ALL_COLUMN_NAMES: tuple[str, ...] = (
     + _STRUCTURAL_VP_SR_FIELD_NAMES
     + _SMC_FIELD_NAMES
     + _SWING_FIB_TREND_FIELD_NAMES
+    + _PHASE151_CALENDAR_VELOCITY_FIELD_NAMES
 )
 _TOTAL_COLUMNS = len(_ALL_COLUMN_NAMES)
 
@@ -455,7 +483,7 @@ def feature_vector_to_insert_params(
     regime_label_source: str,
     vector: FeatureVector,
 ) -> tuple:
-    """Serialize a FeatureVector to the canonical 258-element INSERT tuple.
+    """Serialize a FeatureVector to the canonical 268-element INSERT tuple.
 
     Column order matches FEATURE_VECTOR_INSERT_SQL exactly:
       $1:        feature_vector_id (content-key UUID)
@@ -481,6 +509,9 @@ def feature_vector_to_insert_params(
                  Phase 165 Plan 01) in dataclasses.fields(FeatureVector)
                  order — all None placeholders until Plans 02-04 wire real
                  compute logic
+      $259-$268: 10 calendar cycle/TDOM/minute + velocity fields (migration
+                 287, Phase 151 Plan 01) in dataclasses.fields(FeatureVector)
+                 order — all real computed floats from day one
 
     Args:
         symbol: Instrument symbol (e.g. 'SPY').
@@ -497,7 +528,7 @@ def feature_vector_to_insert_params(
         vector: Fully-populated FeatureVector from FeatureFactory.compute().
 
     Returns:
-        258-element tuple for use with asyncpg or psycopg executemany().
+        268-element tuple for use with asyncpg or psycopg executemany().
         Compatible with both drivers — asyncpg and psycopg handle uuid.UUID
         and datetime natively.
 
@@ -630,4 +661,9 @@ def feature_vector_to_insert_params(
         # after the SMC fields (module docstring). All None until Plans 02-04
         # wire real compute logic in.
         *(getattr(vector, name) for name in _SWING_FIB_TREND_FIELD_NAMES),
+        # Calendar cycle/TDOM/minute + velocity fields (migration 287, Phase
+        # 151 Plan 01) — same derive-by-name discipline, appended immediately
+        # after the Swing/Fib/Trend/Session Structure fields (module
+        # docstring). All real computed floats from day one.
+        *(getattr(vector, name) for name in _PHASE151_CALENDAR_VELOCITY_FIELD_NAMES),
     )

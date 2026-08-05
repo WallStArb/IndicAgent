@@ -192,6 +192,8 @@ def make_agent() -> FeatureVectorPipeline:
         intraday_noise_window=20,
         price_vol_corr_fast=10,
         price_vol_corr_slow=30,
+        momentum_velocity_window=20,
+        vwap_velocity_window=20,
     )
     return agent
 
