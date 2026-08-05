@@ -43,6 +43,7 @@ from src.intelligence.feature_cache import (
     _compute_session_value_area,
     _compute_session_vp_profile,
 )
+from src.intelligence.features.cross_asset_series import CrossAssetRecord
 from src.intelligence.schemas import FeatureVector
 from src.intelligence.utils import clamp, find_peaks, find_troughs
 from src.intelligence.utils.gradient_utils import freshness_decay, linear_ramp
@@ -206,6 +207,14 @@ FEATURE_VECTOR_DOMAIN: dict[str, str] = {
     "bars_since_vol_spike_fast": "quant",
     "bars_since_vol_spike_slow": "quant",
     "abs_ret_autocorr_1": "quant",
+    # Cross-asset — Spread/Beta Atomics (Phase 151 Plan 04)
+    "tip_tlt_ret_z": "macro",
+    "hyg_lqd_ret_z": "macro",
+    "sb_corr_fast": "macro",
+    "sb_corr_slow": "macro",
+    "sb_corr_z": "macro",
+    "equity_beta_z": "macro",
+    "rate_beta_z": "macro",
     # Cross-timeframe
     "ctf_momentum": "quant",
     "ctf_vwap_align": "quant",
@@ -473,6 +482,13 @@ class FeatureFactoryConfig:
         vwap_velocity_window: APR feature.vwap_velocity.window
         extreme_move_sigma_threshold: APR feature.bars_since_extreme_move.sigma_threshold
         vol_spike_threshold: APR feature.bars_since_vol_spike.threshold
+        tip_tlt_zscore_window: APR feature.tip_tlt.zscore_window
+        hyg_lqd_zscore_window: APR feature.hyg_lqd.zscore_window
+        sb_corr_window_fast: APR feature.sb_corr.window_fast
+        sb_corr_window_slow: APR feature.sb_corr.window_slow
+        sb_corr_zscore_window: APR feature.sb_corr.zscore_window
+        factor_beta_window: APR feature.factor_beta.window
+        factor_beta_zscore_window: APR feature.factor_beta.zscore_window
         session_vp_value_area_pct: APR feature.session_vp.value_area_pct
         session_vp_n_buckets: APR feature.session_vp.n_buckets
         session_vp_hvn_threshold: APR feature.session_vp.hvn_threshold
@@ -657,6 +673,20 @@ class FeatureFactoryConfig:
     # in this same plan.
     extreme_move_sigma_threshold: float  # feature.bars_since_extreme_move.sigma_threshold
     vol_spike_threshold: float  # feature.bars_since_vol_spike.threshold
+    # Cross-asset — Spread/Beta Atomics (Phase 151 Plan 04, todos 123/180).
+    # Non-defaulted (matching extreme_move_sigma_threshold/vol_spike_threshold's
+    # own precedent immediately above) -- both real production entrypoints AND
+    # every direct FeatureFactoryConfig(...) construction site are wired in
+    # this same plan. factor_beta (not bare "beta") per glossary's ban on the
+    # unqualified term; one shared window pair serves both equity_beta_z and
+    # rate_beta_z (same statistic, different factor series).
+    tip_tlt_zscore_window: int  # feature.tip_tlt.zscore_window
+    hyg_lqd_zscore_window: int  # feature.hyg_lqd.zscore_window
+    sb_corr_window_fast: int  # feature.sb_corr.window_fast
+    sb_corr_window_slow: int  # feature.sb_corr.window_slow
+    sb_corr_zscore_window: int  # feature.sb_corr.zscore_window
+    factor_beta_window: int  # feature.factor_beta.window
+    factor_beta_zscore_window: int  # feature.factor_beta.zscore_window
     # Canary / Control Predictors (Phase 143.1 Plan 02, todo 068). Seed for
     # both noise canaries (Gaussian and Uniform draw independent sub-seeds
     # from this one base seed -- see _canary_sub_seed). Defaulted (unlike
@@ -5993,6 +6023,13 @@ def _build_feature_vector(
     bars_since_vol_spike_fast: float,
     bars_since_vol_spike_slow: float,
     abs_ret_autocorr_1: float,
+    tip_tlt_ret_z: float,
+    hyg_lqd_ret_z: float,
+    sb_corr_fast: float,
+    sb_corr_slow: float,
+    sb_corr_z: float,
+    equity_beta_z: float | None,
+    rate_beta_z: float | None,
     vol_body_product: float,
     ret_vol_product_fast: float,
     price_vol_corr_fast: float,
@@ -6271,6 +6308,13 @@ def _build_feature_vector(
         bars_since_vol_spike_fast=_guard(bars_since_vol_spike_fast, 0.0),
         bars_since_vol_spike_slow=_guard(bars_since_vol_spike_slow, 0.0),
         abs_ret_autocorr_1=_guard(abs_ret_autocorr_1, 0.0),
+        tip_tlt_ret_z=_guard(tip_tlt_ret_z, 0.0),
+        hyg_lqd_ret_z=_guard(hyg_lqd_ret_z, 0.0),
+        sb_corr_fast=_guard(sb_corr_fast, 0.0),
+        sb_corr_slow=_guard(sb_corr_slow, 0.0),
+        sb_corr_z=_guard(sb_corr_z, 0.0),
+        equity_beta_z=_guard(equity_beta_z),
+        rate_beta_z=_guard(rate_beta_z),
         vol_body_product=_guard(vol_body_product, 0.0),
         ret_vol_product_fast=_guard(ret_vol_product_fast, 0.0),
         price_vol_corr_fast=_guard(price_vol_corr_fast, 0.0),
@@ -6872,6 +6916,20 @@ class FeatureFactory:
                 s.bars_since_vol_spike_slow, float(config.dist_window_slow - 1)
             ),
             abs_ret_autocorr_1=_series_last(s.abs_ret_autocorr_1, 0.0),
+            # Cross-asset — Spread/Beta Atomics (Phase 151 Plan 04). Live path
+            # reads cache-broadcast values, same as vix_z/flight_quality/
+            # yield_slope_z above -- 0.0 at their FeatureCache dataclass
+            # default until a live-path writer populates them (plan 151-09).
+            # equity_beta_z/rate_beta_z apply the SPY/TLT self-regression
+            # None special-case here (symbol is in scope; FeatureCache itself
+            # stores an unconditional 0.0 default, per Task 1).
+            tip_tlt_ret_z=cache.tip_tlt_ret_z,
+            hyg_lqd_ret_z=cache.hyg_lqd_ret_z,
+            sb_corr_fast=cache.sb_corr_fast,
+            sb_corr_slow=cache.sb_corr_slow,
+            sb_corr_z=cache.sb_corr_z,
+            equity_beta_z=None if symbol == "SPY" else cache.equity_beta_z,
+            rate_beta_z=None if symbol == "TLT" else cache.rate_beta_z,
             # Renaissance Primitives (Phase 142.5 Plan 05.5) — price-volume
             # interactions. 6 window-free combinators computed inline above
             # from already-captured parent scalars; the 2 rolling
@@ -6902,6 +6960,7 @@ class FeatureFactory:
         cross_asset_by_date: dict | None = None,
         ctf_by_ts: dict | None = None,
         ctf_ts_list: list | None = None,
+        beta_by_date: dict | None = None,
     ) -> list[tuple[datetime, FeatureVector]]:
         """Compute FeatureVector for every bar in bars in O(n). Returns (bar_ts, fv) pairs.
 
@@ -6911,7 +6970,13 @@ class FeatureFactory:
         read from cache. Calendar features computed per bar from timestamps.
 
         When cross_asset_by_date is provided (batch path):
-          - cross-asset (vix_z, flight_quality, yield_slope_z) read from dict keyed by date
+          - cross-asset (vix_z, flight_quality, yield_slope_z, tip_tlt_ret_z, hyg_lqd_ret_z,
+            sb_corr_fast/slow/z -- Phase 151 Plan 04) read from a dict of CrossAssetRecord
+            keyed by date
+          - equity_beta_z/rate_beta_z (Phase 151 Plan 04, per-symbol) read from beta_by_date
+            keyed by date, defaulting to (None, None) when the date is absent; None is also
+            the permanent value when the caller IS the factor proxy for that beta (SPY for
+            equity_beta_z, TLT for rate_beta_z) -- a self-regression is degenerate
           - CTF (ctf_momentum, ctf_vwap_align, ctf_regime_align) read from ctf_by_ts via bisect
           - VP (poc_dist_atr, va_position, + 12 structural fields) computed from OHLCV via
             FeatureCache.update_session_vp(), called once per bar including warm-up --
@@ -6923,7 +6988,10 @@ class FeatureFactory:
             OHLCV -- no cache/tick-data dependency, same mechanism in live and batch.
         When cross_asset_by_date is None (live path):
           - cross-asset and CTF groups read from cache (unchanged behavior); VP and S/R
-            use the same OHLCV-derived computation as the batch path.
+            use the same OHLCV-derived computation as the batch path. beta_by_date is
+            ignored on this path -- equity_beta_z/rate_beta_z read from cache (0.0 live
+            default until plan 151-09 wires a live-path writer), same SPY/TLT None
+            special-case applied via the `symbol` argument.
         """
         if len(bars) < 2:
             return []
@@ -7252,14 +7320,39 @@ class FeatureFactory:
             # OFI divergence
             ofi_div_val = ofi_z_val - momentum_z_fast_val
 
-            # Cross-asset: from pre-built causal dict (batch) or cache (live)
+            # Cross-asset: from pre-built causal dict (batch) or cache (live).
+            # CrossAssetRecord is a NamedTuple (Phase 151 Plan 04) -- keyword
+            # attribute access below, never positional unpack, so field order
+            # can never silently matter as this payload grows.
             if cross_asset_by_date is not None:
-                _ca = cross_asset_by_date.get(bar_ts.date(), (0.0, 0.0, 0.0))
-                vix_z_val, flight_quality_val, yield_slope_z_val = _ca
+                _ca = cross_asset_by_date.get(bar_ts.date(), CrossAssetRecord())
+                vix_z_val = _ca.vix_z
+                flight_quality_val = _ca.flight_quality
+                yield_slope_z_val = _ca.yield_slope_z
+                tip_tlt_ret_z_val = _ca.tip_tlt_ret_z
+                hyg_lqd_ret_z_val = _ca.hyg_lqd_ret_z
+                sb_corr_fast_val = _ca.sb_corr_fast
+                sb_corr_slow_val = _ca.sb_corr_slow
+                sb_corr_z_val = _ca.sb_corr_z
             else:
                 vix_z_val = cache.vix_z
                 flight_quality_val = cache.flight_quality
                 yield_slope_z_val = cache.yield_slope_z
+                tip_tlt_ret_z_val = cache.tip_tlt_ret_z
+                hyg_lqd_ret_z_val = cache.hyg_lqd_ret_z
+                sb_corr_fast_val = cache.sb_corr_fast
+                sb_corr_slow_val = cache.sb_corr_slow
+                sb_corr_z_val = cache.sb_corr_z
+
+            # Factor betas (Phase 151 Plan 04, per-symbol): from pre-built
+            # beta_by_date dict (batch) or cache (live). Independent of the
+            # cross_asset_by_date branch above -- beta_by_date is symbol-
+            # specific, cross_asset_by_date is symbol-independent.
+            if beta_by_date is not None:
+                equity_beta_z_val, rate_beta_z_val = beta_by_date.get(bar_ts.date(), (None, None))
+            else:
+                equity_beta_z_val = None if symbol == "SPY" else cache.equity_beta_z
+                rate_beta_z_val = None if symbol == "TLT" else cache.rate_beta_z
 
             # Calendar primitives
             in_ny_session_val = _in_ny_session(bar_ts, config)
@@ -7714,6 +7807,13 @@ class FeatureFactory:
                 bars_since_vol_spike_fast=bars_since_vol_spike_fast_val,
                 bars_since_vol_spike_slow=bars_since_vol_spike_slow_val,
                 abs_ret_autocorr_1=abs_ret_autocorr_1_val,
+                tip_tlt_ret_z=tip_tlt_ret_z_val,
+                hyg_lqd_ret_z=hyg_lqd_ret_z_val,
+                sb_corr_fast=sb_corr_fast_val,
+                sb_corr_slow=sb_corr_slow_val,
+                sb_corr_z=sb_corr_z_val,
+                equity_beta_z=equity_beta_z_val,
+                rate_beta_z=rate_beta_z_val,
                 vol_body_product=vol_body_product_val,
                 ret_vol_product_fast=ret_vol_product_fast_val,
                 price_vol_corr_fast=price_vol_corr_fast_val,
@@ -7948,6 +8048,21 @@ def _cold_start_vector(cache: FeatureCache, tf: str) -> FeatureVector:
         bars_since_vol_spike_fast=19.0,
         bars_since_vol_spike_slow=49.0,
         abs_ret_autocorr_1=0.0,
+        # Phase 151 Plan 04: cold start (len(bars) < 2) has no bar history and
+        # no symbol context (this function has no `symbol` parameter -- same
+        # structural constraint documented at Plan 01/03's cold-start
+        # deviations above), so the SPY/TLT self-regression None special-case
+        # cannot be applied here. Betas are always None at cold start
+        # regardless of symbol -- "not measured" is correct with zero bars,
+        # matching the class-level docstring's None-means-not-measured
+        # convention (never a fake numeric placeholder).
+        tip_tlt_ret_z=0.0,
+        hyg_lqd_ret_z=0.0,
+        sb_corr_fast=0.0,
+        sb_corr_slow=0.0,
+        sb_corr_z=0.0,
+        equity_beta_z=None,
+        rate_beta_z=None,
         vol_body_product=0.0,
         ret_vol_product_fast=0.0,
         price_vol_corr_fast=0.0,

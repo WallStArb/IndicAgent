@@ -42,6 +42,7 @@ from services.backfill_feature_factory import (
 from src.config.config_service import ConfigService
 from src.intelligence.feature_cache import FeatureCache
 from src.intelligence.feature_factory import FeatureFactory, FeatureFactoryConfig
+from src.intelligence.features.cross_asset_series import CrossAssetRecord
 from src.intelligence.schemas import FeatureVector
 
 # ---------------------------------------------------------------------------
@@ -154,6 +155,13 @@ def _make_config() -> FeatureFactoryConfig:
         vwap_velocity_window=20,
         extreme_move_sigma_threshold=2.0,
         vol_spike_threshold=2.0,
+        tip_tlt_zscore_window=20,
+        hyg_lqd_zscore_window=20,
+        sb_corr_window_fast=10,
+        sb_corr_window_slow=20,
+        sb_corr_zscore_window=20,
+        factor_beta_window=20,
+        factor_beta_zscore_window=20,
     )
 
 
@@ -272,6 +280,13 @@ def _make_zero_vector() -> FeatureVector:
         bars_since_vol_spike_fast=0.0,
         bars_since_vol_spike_slow=0.0,
         abs_ret_autocorr_1=0.0,
+        tip_tlt_ret_z=0.0,
+        hyg_lqd_ret_z=0.0,
+        sb_corr_fast=0.0,
+        sb_corr_slow=0.0,
+        sb_corr_z=0.0,
+        equity_beta_z=0.0,
+        rate_beta_z=0.0,
         ctf_momentum=0.0,
         ctf_vwap_align=0.0,
         ctf_regime_align=0.0,
@@ -532,7 +547,9 @@ def test_vector_to_params_all_features_present() -> None:
     after migration 267's 41 swing/fib/trend/session structure columns
     (Phase 165 Plan 01), 268 after migration 287's 10 calendar cycle/TDOM/
     minute + velocity columns (Phase 151 Plan 01), 279 after migration 288's
-    11 recency/statistical atomics columns (Phase 151 Plan 03)."""
+    11 recency/statistical atomics columns (Phase 151 Plan 03), 286 after
+    migration 289's 7 cross-asset spread/beta atomics columns (Phase 151
+    Plan 04)."""
     fv = _make_zero_vector()
     ts = datetime(2025, 1, 2, 14, 30, 0, tzinfo=UTC)
     params = _vector_to_params(
@@ -543,8 +560,8 @@ def test_vector_to_params_all_features_present() -> None:
         regime=None,
         fv=fv,
     )
-    # 1 content-key + 8 structural + 270 feature floats = 279 total
-    assert len(params) == 279, f"Expected 279 params, got {len(params)}"
+    # 1 content-key + 8 structural + 277 feature floats = 286 total
+    assert len(params) == 286, f"Expected 286 params, got {len(params)}"
 
 
 def test_vector_to_params_symbol_tf_ts() -> None:
@@ -962,8 +979,16 @@ def _make_daily_bars(n: int, seed: int, start_close: float = 100.0) -> list[dict
     ]
 
 
-def _reference_cross_asset_series(spy_bars, tlt_bars, shy_bars, config) -> dict:
-    """Original O(D×N) implementation — reference for parity testing."""
+def _reference_cross_asset_series(
+    spy_bars, tlt_bars, shy_bars, tip_bars, hyg_bars, lqd_bars, config
+) -> dict:
+    """Original O(D×N) implementation — reference for parity testing.
+
+    Only asserts on the 3 pre-existing macro fields (vix_z/flight_quality/
+    yield_slope_z); tip/hyg/lqd bars are required by update_cross_asset()'s
+    Phase 151 Plan 04 signature but not checked here (no regression on the
+    3 legacy fields is this reference's entire purpose).
+    """
     spy_dates = [b["ts"].date() for b in spy_bars]
     tlt_dates = [b["ts"].date() for b in tlt_bars]
     shy_dates = [b["ts"].date() for b in shy_bars]
@@ -976,31 +1001,51 @@ def _reference_cross_asset_series(spy_bars, tlt_bars, shy_bars, config) -> dict:
         shy_end = bisect.bisect_right(shy_dates, d)
         if spy_end < 2 or tlt_end < 2 or shy_end < 2:
             continue
-        cache.update_cross_asset(spy_bars[:spy_end], tlt_bars[:tlt_end], shy_bars[:shy_end], config)
+        cache.update_cross_asset(
+            spy_bars[:spy_end],
+            tlt_bars[:tlt_end],
+            shy_bars[:shy_end],
+            tip_bars,
+            hyg_bars,
+            lqd_bars,
+            config,
+        )
         result[d] = (cache.vix_z, cache.flight_quality, cache.yield_slope_z)
     return result
 
 
 class TestBuildCrossAssetSeries:
     def test_parity_with_reference_implementation(self) -> None:
-        """New incremental O(D) implementation must produce identical values to O(D×N) reference."""
+        """New incremental O(D) implementation must produce identical values to O(D×N)
+        reference on the 3 pre-existing macro fields -- no regression from Phase 151
+        Plan 04's 5-field extension. Also asserts the return type is CrossAssetRecord."""
         from services.backfill_feature_factory import _build_cross_asset_series
 
         config = _make_config()
         spy = _make_daily_bars(300, seed=1, start_close=450.0)
         tlt = _make_daily_bars(300, seed=2, start_close=95.0)
         shy = _make_daily_bars(300, seed=3, start_close=86.0)
+        tip = _make_daily_bars(300, seed=4, start_close=110.0)
+        hyg = _make_daily_bars(300, seed=5, start_close=78.0)
+        lqd = _make_daily_bars(300, seed=6, start_close=112.0)
 
-        reference = _reference_cross_asset_series(spy, tlt, shy, config)
-        result = _build_cross_asset_series(spy, tlt, shy, config)
+        reference = _reference_cross_asset_series(spy, tlt, shy, tip, hyg, lqd, config)
+        result = _build_cross_asset_series(spy, tlt, shy, tip, hyg, lqd, config)
 
         assert set(result.keys()) == set(reference.keys()), "date keys differ"
         for d in reference:
             ref_vix, ref_fq, ref_ys = reference[d]
-            res_vix, res_fq, res_ys = result[d]
-            assert abs(res_vix - ref_vix) < 1e-10, f"{d}: vix_z {res_vix} != {ref_vix}"
-            assert abs(res_fq - ref_fq) < 1e-10, f"{d}: flight_quality {res_fq} != {ref_fq}"
-            assert abs(res_ys - ref_ys) < 1e-10, f"{d}: yield_slope_z {res_ys} != {ref_ys}"
+            res = result[d]
+            assert isinstance(
+                res, CrossAssetRecord
+            ), f"{d}: result is {type(res)}, not CrossAssetRecord"
+            assert abs(res.vix_z - ref_vix) < 1e-10, f"{d}: vix_z {res.vix_z} != {ref_vix}"
+            assert (
+                abs(res.flight_quality - ref_fq) < 1e-10
+            ), f"{d}: flight_quality {res.flight_quality} != {ref_fq}"
+            assert (
+                abs(res.yield_slope_z - ref_ys) < 1e-10
+            ), f"{d}: yield_slope_z {res.yield_slope_z} != {ref_ys}"
 
     def test_all_values_finite(self) -> None:
         from services.backfill_feature_factory import _build_cross_asset_series
@@ -1009,11 +1054,41 @@ class TestBuildCrossAssetSeries:
         spy = _make_daily_bars(50, seed=10)
         tlt = _make_daily_bars(50, seed=11)
         shy = _make_daily_bars(50, seed=12)
-        result = _build_cross_asset_series(spy, tlt, shy, config)
-        for d, (vix, fq, ys) in result.items():
-            assert math.isfinite(vix), f"{d}: vix_z not finite"
-            assert math.isfinite(fq), f"{d}: flight_quality not finite"
-            assert math.isfinite(ys), f"{d}: yield_slope_z not finite"
+        tip = _make_daily_bars(50, seed=13)
+        hyg = _make_daily_bars(50, seed=14)
+        lqd = _make_daily_bars(50, seed=15)
+        result = _build_cross_asset_series(spy, tlt, shy, tip, hyg, lqd, config)
+        for d, values in result.items():
+            for field_name in CrossAssetRecord._fields:
+                v = getattr(values, field_name)
+                assert math.isfinite(v), f"{d}: {field_name} not finite"
+
+    def test_tip_hyg_lqd_partial_coverage_emits_zero_not_skip(self) -> None:
+        """Dates with SPY/TLT/SHY coverage but no TIP/HYG/LQD coverage (pre-listing
+        dates) must still emit vix_z/yield_slope_z -- TIP/HYG/LQD unavailability
+        must NOT skip the whole date, only zero the affected spread fields."""
+        from services.backfill_feature_factory import _build_cross_asset_series
+
+        config = _make_config()
+        spy = _make_daily_bars(60, seed=20)
+        tlt = _make_daily_bars(60, seed=21)
+        shy = _make_daily_bars(60, seed=22)
+        # TIP/HYG/LQD only have bars for the LAST 20 days (simulating late listing).
+        tip = _make_daily_bars(60, seed=23)[-20:]
+        hyg = _make_daily_bars(60, seed=24)[-20:]
+        lqd = _make_daily_bars(60, seed=25)[-20:]
+
+        result = _build_cross_asset_series(spy, tlt, shy, tip, hyg, lqd, config)
+        early_dates = sorted(result.keys())[:10]
+        assert early_dates, "expected early dates with SPY/TLT/SHY-only coverage"
+        for d in early_dates:
+            values = result[d]
+            assert values.tip_tlt_ret_z == 0.0
+            assert values.hyg_lqd_ret_z == 0.0
+            # vix_z/yield_slope_z are NOT forced to 0.0 -- SPY/TLT/SHY coverage
+            # is unaffected by TIP/HYG/LQD's absence.
+            assert math.isfinite(values.vix_z)
+            assert math.isfinite(values.yield_slope_z)
 
 
 # ---------------------------------------------------------------------------
@@ -1029,7 +1104,9 @@ class TestComputeBatchExternalInjection:
 
         bars = _make_bars(60)
         bar_date = bars[-1]["ts"].date()
-        cross_asset = {bar_date: (1.23, 0.45, -0.67)}
+        cross_asset = {
+            bar_date: CrossAssetRecord(vix_z=1.23, flight_quality=0.45, yield_slope_z=-0.67)
+        }
 
         results = FeatureFactory.compute_batch(
             bars,
@@ -1095,3 +1172,54 @@ class TestComputeBatchExternalInjection:
         assert abs(fv.vix_z - 9.99) < 1e-10
         assert abs(fv.flight_quality - 8.88) < 1e-10
         assert abs(fv.yield_slope_z - 7.77) < 1e-10
+
+
+# ---------------------------------------------------------------------------
+# Test 11: _build_symbol_beta_series (Phase 151 Plan 04, todo 180)
+# ---------------------------------------------------------------------------
+
+
+class TestBuildSymbolBetaSeries:
+    def test_spy_equity_beta_z_always_none(self) -> None:
+        """symbol='SPY' must yield equity_beta_z=None at every date (self-regression
+        against itself is degenerate -- beta identically 1)."""
+        from services.backfill_feature_factory import _build_symbol_beta_series
+
+        config = _make_config()
+        spy = _make_daily_bars(120, seed=1, start_close=450.0)
+        tlt = _make_daily_bars(120, seed=2, start_close=95.0)
+
+        result = _build_symbol_beta_series(spy, spy, tlt, "SPY", config)
+        assert result, "expected at least one date"
+        for _d, (equity_beta_z, _rate_beta_z) in result.items():
+            assert equity_beta_z is None
+
+    def test_tlt_rate_beta_z_always_none(self) -> None:
+        """symbol='TLT' must yield rate_beta_z=None at every date."""
+        from services.backfill_feature_factory import _build_symbol_beta_series
+
+        config = _make_config()
+        spy = _make_daily_bars(120, seed=1, start_close=450.0)
+        tlt = _make_daily_bars(120, seed=2, start_close=95.0)
+
+        result = _build_symbol_beta_series(tlt, spy, tlt, "TLT", config)
+        assert result, "expected at least one date"
+        for _d, (_equity_beta_z, rate_beta_z) in result.items():
+            assert rate_beta_z is None
+
+    def test_non_proxy_symbol_yields_finite_betas(self) -> None:
+        """A symbol that is neither SPY nor TLT gets finite (non-None) betas for
+        both factors once enough history has accumulated."""
+        from services.backfill_feature_factory import _build_symbol_beta_series
+
+        config = _make_config()
+        sym = _make_daily_bars(120, seed=3, start_close=200.0)
+        spy = _make_daily_bars(120, seed=1, start_close=450.0)
+        tlt = _make_daily_bars(120, seed=2, start_close=95.0)
+
+        result = _build_symbol_beta_series(sym, spy, tlt, "XYZ", config)
+        assert result, "expected at least one date"
+        last_date = sorted(result.keys())[-1]
+        equity_beta_z, rate_beta_z = result[last_date]
+        assert equity_beta_z is not None and math.isfinite(equity_beta_z)
+        assert rate_beta_z is not None and math.isfinite(rate_beta_z)

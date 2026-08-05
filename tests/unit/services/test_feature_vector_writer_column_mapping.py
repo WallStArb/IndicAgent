@@ -15,6 +15,8 @@ fields); migration 287 (Phase 151 Plan 01) extended it to 268 (10 calendar
 cycle/TDOM/minute + velocity columns, appended after the swing/fib/trend
 fields); migration 288 (Phase 151 Plan 03) extended it to 279 (11
 recency/statistical atomics columns, appended after the calendar/velocity
+fields); migration 289 (Phase 151 Plan 04) extended it to 286 (7 cross-asset
+spread/beta atomics columns, appended after the recency/statistical atomics
 fields):
 
   $1   (params[0])   -> feature_vector_id       UUID (content-key)
@@ -147,6 +149,15 @@ def _make_sentinel_record():
         bars_since_vol_spike_fast=62.09,
         bars_since_vol_spike_slow=62.10,
         abs_ret_autocorr_1=62.11,
+        # Cross-asset — Spread/Beta Atomics (Phase 151 Plan 04) — wired into the
+        # persisted tuple by migration 289; appended at the true tail of the tuple.
+        tip_tlt_ret_z=62.12,
+        hyg_lqd_ret_z=62.13,
+        sb_corr_fast=62.14,
+        sb_corr_slow=62.15,
+        sb_corr_z=62.16,
+        equity_beta_z=62.17,
+        rate_beta_z=62.18,
         ctf_momentum=48.48,
         ctf_vwap_align=49.49,
         ctf_regime_align=50.50,
@@ -327,7 +338,7 @@ def test_params_length_is_159():
     record = _make_sentinel_record()
     params = _record_to_insert_params(record)
 
-    assert len(params) == 279, f"Expected 279, got {len(params)}"
+    assert len(params) == 286, f"Expected 286, got {len(params)}"
 
 
 def test_feature_vector_id_at_index_0():
@@ -550,7 +561,7 @@ def test_sr_level_count_at_index_180_is_last_element():
     record = _make_sentinel_record()
     params = _record_to_insert_params(record)
 
-    assert len(params) == 279
+    assert len(params) == 286
     assert params[180] == pytest.approx(61.17), f"$181 (sr_level_count) wrong: {params[180]}"
 
 
@@ -569,7 +580,7 @@ def test_manip_strength_at_index_216_is_last_element():
     record = _make_sentinel_record()
     params = _record_to_insert_params(record)
 
-    assert len(params) == 279
+    assert len(params) == 286
     assert params[216] is None, f"$217 (manip_strength) wrong: {params[216]}"
 
 
@@ -588,7 +599,7 @@ def test_gap_filled_at_index_257():
     record = _make_sentinel_record()
     params = _record_to_insert_params(record)
 
-    assert len(params) == 279
+    assert len(params) == 286
     assert params[257] is None, f"$258 (gap_filled) wrong: {params[257]}"
 
 
@@ -606,22 +617,39 @@ def test_vwap_dev_sigma_velocity_at_index_267():
     record = _make_sentinel_record()
     params = _record_to_insert_params(record)
 
-    assert len(params) == 279
+    assert len(params) == 286
     assert params[267] == pytest.approx(
         47.59
     ), f"$268 (vwap_dev_sigma_velocity) wrong: {params[267]}"
 
 
-def test_abs_ret_autocorr_1_at_index_278_is_last_element():
+def test_abs_ret_autocorr_1_at_index_278():
     """params[278] ($279) must be abs_ret_autocorr_1 sentinel value 62.11 --
-    the new final column, appended after the Recency/Statistical Atomics
-    fields by migration 288's 11 recency/statistical atomics columns (Phase
-    151 Plan 03)."""
+    appended after the Recency/Statistical Atomics fields by migration 288's
+    11 recency/statistical atomics columns (Phase 151 Plan 03). No longer the
+    true last element as of migration 289 (Phase 151 Plan 04) -- 7 cross-asset
+    spread/beta atomics columns are appended after it; see
+    test_rate_beta_z_at_index_285_is_last_element below for the current tail."""
     from services.feature_vector_writer import _record_to_insert_params
 
     record = _make_sentinel_record()
     params = _record_to_insert_params(record)
 
-    assert len(params) == 279
+    assert len(params) == 286
     assert params[278] == pytest.approx(62.11), f"$279 (abs_ret_autocorr_1) wrong: {params[278]}"
-    assert params[278] == params[-1], "abs_ret_autocorr_1 must be the true last element"
+
+
+def test_rate_beta_z_at_index_285_is_last_element():
+    """params[285] ($286) must be rate_beta_z sentinel value 62.18 -- the new
+    final column, appended after the Recency/Statistical Atomics fields by
+    migration 289's 7 cross-asset spread/beta atomics columns (Phase 151
+    Plan 04)."""
+    from services.feature_vector_writer import _record_to_insert_params
+
+    record = _make_sentinel_record()
+    params = _record_to_insert_params(record)
+
+    assert len(params) == 286
+    assert params[279] == pytest.approx(62.12), f"$280 (tip_tlt_ret_z) wrong: {params[279]}"
+    assert params[285] == pytest.approx(62.18), f"$286 (rate_beta_z) wrong: {params[285]}"
+    assert params[285] == params[-1], "rate_beta_z must be the true last element"

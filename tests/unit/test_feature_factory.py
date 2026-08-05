@@ -156,6 +156,14 @@ def _make_config(**overrides: int) -> FeatureFactoryConfig:
         vwap_velocity_window=20,
         extreme_move_sigma_threshold=2.0,
         vol_spike_threshold=2.0,
+        # Plan 04 (Phase 151) added 7 more: cross-asset spread/beta atomics.
+        tip_tlt_zscore_window=20,
+        hyg_lqd_zscore_window=20,
+        sb_corr_window_fast=10,
+        sb_corr_window_slow=20,
+        sb_corr_zscore_window=20,
+        factor_beta_window=20,
+        factor_beta_zscore_window=20,
     )
     defaults.update(overrides)
     return FeatureFactoryConfig(**defaults)
@@ -772,7 +780,7 @@ class TestComputePurity:
         cache = FeatureCache()
         fv = FeatureFactory.compute(bars, "SPY", "1m", cache, config)
         fields = dataclasses.fields(fv)
-        assert len(fields) == 270, f"Expected 270 fields, got {len(fields)}"
+        assert len(fields) == 277, f"Expected 277 fields, got {len(fields)}"
         for f in fields:
             val = getattr(fv, f.name)
             # Optional cross-sectional fields (momentum_rank_z, volume_rank_z,
@@ -855,9 +863,12 @@ class TestCrossAssetProxies:
         spy_bars = _make_bars(60, seed=1)
         tlt_bars = _make_bars(60, seed=2)
         shy_bars = _make_bars(60, seed=3)
+        tip_bars = _make_bars(60, seed=4)
+        hyg_bars = _make_bars(60, seed=5)
+        lqd_bars = _make_bars(60, seed=6)
         config = _make_config()
         cache = FeatureCache()
-        cache.update_cross_asset(spy_bars, tlt_bars, shy_bars, config)
+        cache.update_cross_asset(spy_bars, tlt_bars, shy_bars, tip_bars, hyg_bars, lqd_bars, config)
         assert math.isfinite(cache.vix_z)
 
     def test_update_cross_asset_populates_flight_quality(self) -> None:
@@ -865,9 +876,12 @@ class TestCrossAssetProxies:
         spy_bars = _make_bars(60, seed=1)
         tlt_bars = _make_bars(60, seed=2)
         shy_bars = _make_bars(60, seed=3)
+        tip_bars = _make_bars(60, seed=4)
+        hyg_bars = _make_bars(60, seed=5)
+        lqd_bars = _make_bars(60, seed=6)
         config = _make_config()
         cache = FeatureCache()
-        cache.update_cross_asset(spy_bars, tlt_bars, shy_bars, config)
+        cache.update_cross_asset(spy_bars, tlt_bars, shy_bars, tip_bars, hyg_bars, lqd_bars, config)
         assert math.isfinite(cache.flight_quality)
 
     def test_update_cross_asset_populates_yield_slope_z(self) -> None:
@@ -875,24 +889,115 @@ class TestCrossAssetProxies:
         spy_bars = _make_bars(60, seed=1)
         tlt_bars = _make_bars(60, seed=2)
         shy_bars = _make_bars(60, seed=3)
+        tip_bars = _make_bars(60, seed=4)
+        hyg_bars = _make_bars(60, seed=5)
+        lqd_bars = _make_bars(60, seed=6)
         config = _make_config()
         cache = FeatureCache()
-        cache.update_cross_asset(spy_bars, tlt_bars, shy_bars, config)
+        cache.update_cross_asset(spy_bars, tlt_bars, shy_bars, tip_bars, hyg_bars, lqd_bars, config)
         assert math.isfinite(cache.yield_slope_z)
+
+    def test_update_cross_asset_populates_tip_tlt_and_hyg_lqd(self) -> None:
+        """Phase 151 Plan 04: tip_tlt_ret_z/hyg_lqd_ret_z must be finite once enough
+        bars have accumulated, and 0.0 with fewer than 2 bars (cold start)."""
+        spy_bars = _make_bars(60, seed=1)
+        tlt_bars = _make_bars(60, seed=2)
+        shy_bars = _make_bars(60, seed=3)
+        tip_bars = _make_bars(60, seed=4)
+        hyg_bars = _make_bars(60, seed=5)
+        lqd_bars = _make_bars(60, seed=6)
+        config = _make_config()
+        cache = FeatureCache()
+        cache.update_cross_asset(
+            spy_bars[:1],
+            tlt_bars[:1],
+            shy_bars[:1],
+            tip_bars[:1],
+            hyg_bars[:1],
+            lqd_bars[:1],
+            config,
+        )
+        assert cache.tip_tlt_ret_z == 0.0
+        assert cache.hyg_lqd_ret_z == 0.0
+
+        cache.update_cross_asset(spy_bars, tlt_bars, shy_bars, tip_bars, hyg_bars, lqd_bars, config)
+        assert math.isfinite(cache.tip_tlt_ret_z)
+        assert math.isfinite(cache.hyg_lqd_ret_z)
+
+    def test_sb_corr_fast_bounded_and_extremes(self) -> None:
+        """sb_corr_fast must be within [-1, 1], and hit +1.0/-1.0 for perfectly
+        co-moving / perfectly opposed synthetic SPY/TLT series.
+
+        update_cross_asset() appends only the LAST bar's return per call (matching
+        the live incremental-append semantics of vix_z/yield_slope_z above) -- a
+        rolling window needs sb_corr_window_fast INCREMENTAL calls to populate the
+        deque, not one call over the full bar list. Mirrors
+        TestBuildCrossAssetSeries's incremental-slice pattern below.
+        """
+        config = _make_config()
+
+        spy_bars = _make_bars(60, seed=1)
+        # Perfectly co-moving: TLT close = k * SPY close (pure scalar multiple) ->
+        # log returns are IDENTICAL (log(k*a/k*b) == log(a/b)), so correlation is
+        # exactly 1.0 -- an additive/affine shift would NOT give exact log-return
+        # correlation (log is not linear under addition).
+        co_moving_tlt_bars = [{**b, "close": 0.5 * b["close"]} for b in spy_bars]
+        shy_bars = _make_bars(60, seed=3)
+        tip_bars = _make_bars(60, seed=4)
+        hyg_bars = _make_bars(60, seed=5)
+        lqd_bars = _make_bars(60, seed=6)
+
+        cache = FeatureCache()
+        for i in range(2, len(spy_bars) + 1):
+            cache.update_cross_asset(
+                spy_bars[:i],
+                co_moving_tlt_bars[:i],
+                shy_bars[:i],
+                tip_bars[:i],
+                hyg_bars[:i],
+                lqd_bars[:i],
+                config,
+            )
+        assert -1.0 <= cache.sb_corr_fast <= 1.0
+        assert cache.sb_corr_fast == pytest.approx(1.0, abs=1e-6)
+
+        # Perfectly opposed: TLT close = C / SPY close (pure inverse) -> log
+        # returns are exact negatives (log(C/a / (C/b)) == -log(a/b)), so
+        # correlation is exactly -1.0.
+        opposed_tlt_bars = [{**b, "close": 10000.0 / b["close"]} for b in spy_bars]
+        cache2 = FeatureCache()
+        for i in range(2, len(spy_bars) + 1):
+            cache2.update_cross_asset(
+                spy_bars[:i],
+                opposed_tlt_bars[:i],
+                shy_bars[:i],
+                tip_bars[:i],
+                hyg_bars[:i],
+                lqd_bars[:i],
+                config,
+            )
+        assert cache2.sb_corr_fast == pytest.approx(-1.0, abs=1e-6)
 
     def test_cross_asset_state_matches_feature_cache(self) -> None:
         """CrossAssetState.update_cross_asset() (todo 222) must produce byte-identical
         vix_z/flight_quality/yield_slope_z to FeatureCache.update_cross_asset() given the
         same inputs -- both delegate to the same _compute_cross_asset(), so this is the
         regression guard against that shared implementation ever diverging again.
+
+        CrossAssetState is deliberately NOT extended with Plan 04's 5 new fields (see
+        that class's docstring) -- its own update_cross_asset() keeps the original
+        3-bar-list signature, only FeatureCache's signature grew to 6 bar lists.
         """
         spy_bars = _make_bars(60, seed=1)
         tlt_bars = _make_bars(60, seed=2)
         shy_bars = _make_bars(60, seed=3)
+        tip_bars = _make_bars(60, seed=4)
+        hyg_bars = _make_bars(60, seed=5)
+        lqd_bars = _make_bars(60, seed=6)
         config = _make_config()
 
         cache = FeatureCache()
-        cache.update_cross_asset(spy_bars, tlt_bars, shy_bars, config)
+        cache.update_cross_asset(spy_bars, tlt_bars, shy_bars, tip_bars, hyg_bars, lqd_bars, config)
 
         state = CrossAssetState()
         state.update_cross_asset(spy_bars, tlt_bars, shy_bars, config)
