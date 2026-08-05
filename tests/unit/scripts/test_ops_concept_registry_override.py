@@ -147,6 +147,101 @@ class TestOpsConceptRegistryOverride:
             f"{_MODULE}.ConceptRegistryService.record_transition_sync",
             MagicMock(return_value=False),
         )
+        mock_logger = MagicMock()
+        monkeypatch.setattr(f"{_MODULE}._logger", mock_logger)
 
         assert main() == 1
         conn.commit.assert_not_called()
+        mock_logger.error.assert_called_once()
+        assert (
+            mock_logger.error.call_args[0][0]
+            == "ops_concept_registry_override.optimistic_lock_miss"
+        )
+
+    def test_fdr_passed_flag_defaults_false_and_threads_through(self, monkeypatch):
+        conn = _mock_conn_with_status("candidate")
+        monkeypatch.setattr(f"{_MODULE}.connect_db_from_url", lambda dsn: conn)
+        monkeypatch.setattr(
+            sys,
+            "argv",
+            [
+                "prog",
+                "--feature-name",
+                "some_feature",
+                "--to-status",
+                "active",
+                "--reason",
+                "x",
+            ],
+        )
+        mock_record = MagicMock(return_value=True)
+        monkeypatch.setattr(f"{_MODULE}.ConceptRegistryService.record_transition_sync", mock_record)
+
+        assert main() == 0
+        _, kwargs = mock_record.call_args
+        assert kwargs["fdr_passed"] is False
+
+    def test_fdr_passed_flag_true_when_given(self, monkeypatch):
+        conn = _mock_conn_with_status("candidate")
+        monkeypatch.setattr(f"{_MODULE}.connect_db_from_url", lambda dsn: conn)
+        monkeypatch.setattr(
+            sys,
+            "argv",
+            [
+                "prog",
+                "--feature-name",
+                "some_feature",
+                "--to-status",
+                "active",
+                "--reason",
+                "x",
+                "--fdr-passed",
+            ],
+        )
+        mock_record = MagicMock(return_value=True)
+        monkeypatch.setattr(f"{_MODULE}.ConceptRegistryService.record_transition_sync", mock_record)
+
+        assert main() == 0
+        _, kwargs = mock_record.call_args
+        assert kwargs["fdr_passed"] is True
+
+    def test_fdr_blocked_promotion_reports_distinct_event_not_optimistic_lock(self, monkeypatch):
+        """Phase 170 code review CR-01: promoting to 'active' without --fdr-passed
+        against a concept whose concept_gate.fdr_required is true must be reported
+        as an unambiguous FDR block, never as a generic 'rerun'-hinted lock miss --
+        a rerun cannot fix this case since fdr_passed never becomes True on its own.
+        """
+        conn = MagicMock()
+        cur = MagicMock()
+        # First query: _current_status -> ('candidate',). Second query (only reached
+        # because record_transition_sync below returns False): _fdr_required -> (True,).
+        cur.fetchone.side_effect = [("candidate",), (True,)]
+        conn.cursor.return_value.__enter__.return_value = cur
+        monkeypatch.setattr(f"{_MODULE}.connect_db_from_url", lambda dsn: conn)
+        monkeypatch.setattr(
+            sys,
+            "argv",
+            [
+                "prog",
+                "--feature-name",
+                "some_feature",
+                "--to-status",
+                "active",
+                "--reason",
+                "x",
+            ],
+        )
+        monkeypatch.setattr(
+            f"{_MODULE}.ConceptRegistryService.record_transition_sync",
+            MagicMock(return_value=False),
+        )
+        mock_logger = MagicMock()
+        monkeypatch.setattr(f"{_MODULE}._logger", mock_logger)
+
+        assert main() == 1
+        conn.commit.assert_not_called()
+        mock_logger.error.assert_called_once()
+        assert (
+            mock_logger.error.call_args[0][0]
+            == "ops_concept_registry_override.blocked_fdr_unverified"
+        )

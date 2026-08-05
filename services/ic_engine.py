@@ -1334,6 +1334,93 @@ _FINGERPRINT_INVALIDATE_DELETE_CROSS_SECTIONAL_SQL = """
       AND training_window_end = %(training_window_end)s
 """
 
+# Todo 252: archive-before-delete -- run immediately before each DELETE above, in the SAME
+# transaction/connection, so archive-and-delete are atomic (a crash between the two can only
+# ever leave the pre-delete row still in feature_ic_scores, never a silently-lost row with
+# nothing archived). Column list is explicit (not SELECT *) so a future feature_ic_scores
+# ALTER TABLE fails loudly here rather than silently misaligning the two tables' columns.
+#
+# fp.symbol is bound as a SEPARATE parameter (%(fp_symbol)s) from feature_ic_scores.symbol
+# (%(symbol)s) because ic_cell_fingerprints and feature_ic_scores use DIFFERENT symbol-key
+# conventions for cross-sectional cells: feature_ic_scores.symbol is always the 'POOLED'
+# sentinel there, while ic_cell_fingerprints.symbol is the real per-cell key
+# f"{group_name}:{regime_label}" (see cs_symbol_key at the cross-sectional call site) -- a
+# naive same-column JOIN would silently miss every cross-sectional fingerprint. For the
+# per-symbol variant the caller passes the same value for both params (the real instrument
+# symbol matches on both tables there), so this generalizes cleanly to both call sites.
+_ARCHIVE_BEFORE_DELETE_SQL = """
+    INSERT INTO feature_ic_scores_history (
+        feature_name, vector_domain, symbol, tf, regime, lookahead_bars, training_window_end,
+        is_pooled, n_independent, reliable, ic_value, ic_sign, p_value, ic_ci_lower, ic_ci_upper,
+        passes_ci_gate, bh_adjusted_p, passes_fdr, wf_fold_count, wf_pass_count, wf_ic_sharpe,
+        passes_walkforward, ic_sharpe, ic_sharpe_n_windows, regime_label_source, computed_at,
+        ic_sortino, ic_win_rate, cluster_id, feature_status_at_eval, ic_sharpe_hac, regime_scope,
+        ic_shrunk, shrinkage_weight, partial_ic, partial_ic_p_value, partial_ic_n,
+        passes_partial_fdr, sign_hit_rate, magnitude_conditional_ic, cumulative_e_value,
+        archived_code_content_key, archived_apr_snapshot_key, archived_upstream_watermark
+    )
+    SELECT
+        fis.feature_name, fis.vector_domain, fis.symbol, fis.tf, fis.regime, fis.lookahead_bars,
+        fis.training_window_end, fis.is_pooled, fis.n_independent, fis.reliable, fis.ic_value,
+        fis.ic_sign, fis.p_value, fis.ic_ci_lower, fis.ic_ci_upper, fis.passes_ci_gate,
+        fis.bh_adjusted_p, fis.passes_fdr, fis.wf_fold_count, fis.wf_pass_count, fis.wf_ic_sharpe,
+        fis.passes_walkforward, fis.ic_sharpe, fis.ic_sharpe_n_windows, fis.regime_label_source,
+        fis.computed_at, fis.ic_sortino, fis.ic_win_rate, fis.cluster_id,
+        fis.feature_status_at_eval, fis.ic_sharpe_hac, fis.regime_scope, fis.ic_shrunk,
+        fis.shrinkage_weight, fis.partial_ic, fis.partial_ic_p_value, fis.partial_ic_n,
+        fis.passes_partial_fdr, fis.sign_hit_rate, fis.magnitude_conditional_ic,
+        fis.cumulative_e_value,
+        fp.code_content_key, fp.apr_snapshot_key, fp.upstream_watermark
+    FROM feature_ic_scores fis
+    LEFT JOIN ic_cell_fingerprints fp
+        ON fp.symbol = %(fp_symbol)s
+       AND fp.tf = %(tf)s
+       AND fp.pass_type = %(pass_type)s
+       AND fp.training_window_end = %(training_window_end)s
+    WHERE fis.symbol = %(symbol)s
+      AND fis.tf = %(tf)s
+      AND fis.regime_scope = %(pass_type)s
+      AND fis.training_window_end = %(training_window_end)s
+"""
+
+# Cross-sectional variant of the archive step -- same shape as
+# _FINGERPRINT_INVALIDATE_DELETE_CROSS_SECTIONAL_SQL, with the same explicit regime filter.
+_ARCHIVE_BEFORE_DELETE_CROSS_SECTIONAL_SQL = """
+    INSERT INTO feature_ic_scores_history (
+        feature_name, vector_domain, symbol, tf, regime, lookahead_bars, training_window_end,
+        is_pooled, n_independent, reliable, ic_value, ic_sign, p_value, ic_ci_lower, ic_ci_upper,
+        passes_ci_gate, bh_adjusted_p, passes_fdr, wf_fold_count, wf_pass_count, wf_ic_sharpe,
+        passes_walkforward, ic_sharpe, ic_sharpe_n_windows, regime_label_source, computed_at,
+        ic_sortino, ic_win_rate, cluster_id, feature_status_at_eval, ic_sharpe_hac, regime_scope,
+        ic_shrunk, shrinkage_weight, partial_ic, partial_ic_p_value, partial_ic_n,
+        passes_partial_fdr, sign_hit_rate, magnitude_conditional_ic, cumulative_e_value,
+        archived_code_content_key, archived_apr_snapshot_key, archived_upstream_watermark
+    )
+    SELECT
+        fis.feature_name, fis.vector_domain, fis.symbol, fis.tf, fis.regime, fis.lookahead_bars,
+        fis.training_window_end, fis.is_pooled, fis.n_independent, fis.reliable, fis.ic_value,
+        fis.ic_sign, fis.p_value, fis.ic_ci_lower, fis.ic_ci_upper, fis.passes_ci_gate,
+        fis.bh_adjusted_p, fis.passes_fdr, fis.wf_fold_count, fis.wf_pass_count, fis.wf_ic_sharpe,
+        fis.passes_walkforward, fis.ic_sharpe, fis.ic_sharpe_n_windows, fis.regime_label_source,
+        fis.computed_at, fis.ic_sortino, fis.ic_win_rate, fis.cluster_id,
+        fis.feature_status_at_eval, fis.ic_sharpe_hac, fis.regime_scope, fis.ic_shrunk,
+        fis.shrinkage_weight, fis.partial_ic, fis.partial_ic_p_value, fis.partial_ic_n,
+        fis.passes_partial_fdr, fis.sign_hit_rate, fis.magnitude_conditional_ic,
+        fis.cumulative_e_value,
+        fp.code_content_key, fp.apr_snapshot_key, fp.upstream_watermark
+    FROM feature_ic_scores fis
+    LEFT JOIN ic_cell_fingerprints fp
+        ON fp.symbol = %(fp_symbol)s
+       AND fp.tf = %(tf)s
+       AND fp.pass_type = 'cross_sectional'
+       AND fp.training_window_end = %(training_window_end)s
+    WHERE fis.symbol = %(symbol)s
+      AND fis.tf = %(tf)s
+      AND fis.regime_scope = 'cross_sectional'
+      AND fis.regime = %(regime_label)s
+      AND fis.training_window_end = %(training_window_end)s
+"""
+
 _FINGERPRINT_UPSERT_SQL = """
     INSERT INTO ic_cell_fingerprints (
         symbol, tf, pass_type, training_window_end,
@@ -3979,8 +4066,13 @@ def _apply_feature_transitions(
     # reads this against `SELECT count(*) FROM concept_registry WHERE
     # domain='feature'`). ic_engine's status-branching READ below uses the
     # concept-side map (concept_status_by_feature), matching Task 1's
-    # "repoint reads to concept_registry" intent -- registry_svc remains a
-    # WRITE target only from this point on.
+    # "repoint reads to concept_registry" intent -- registry_svc is a WRITE
+    # target from this point on for the STATUS branch specifically. The
+    # shadow-counter promotion-eligibility check further below still reads
+    # registry_svc directly (unchanged from before Plan 06); that counter is
+    # verified against concept_svc's own counters by the divergence check in
+    # the dual-write loop, so it is not silently drifting, but registry_svc is
+    # not purely write-only across this whole function.
     concept_status_by_feature = {c["name"]: c["status"] for c in concept_svc.get_all_concepts()}
     registry_status_by_feature = {
         f["feature_name"]: f["status"] for f in registry_svc.get_all_features()
@@ -5101,22 +5193,24 @@ def main() -> None:
                 conn = None
                 return
 
-            # DELETE stale rows for every invalid per-symbol cell BEFORE dispatch
-            # (T-162-03-02/03: DELETE-then-insert, scoped to the exact cell key --
-            # never a bare training_window_end filter).
+            # ARCHIVE-then-DELETE stale rows for every invalid per-symbol cell BEFORE dispatch
+            # (T-162-03-02/03: DELETE-then-insert, scoped to the exact cell key -- never a bare
+            # training_window_end filter; todo 252: archive first, in the same transaction, so
+            # the prior measurement is preserved rather than silently lost the moment a code/APR
+            # change invalidates it).
             if invalid_cells_by_symbol:
                 with conn.cursor() as cur:
                     for symbol, cells in invalid_cells_by_symbol.items():
                         for tf, pass_type in cells:
-                            cur.execute(
-                                _FINGERPRINT_INVALIDATE_DELETE_SQL,
-                                {
-                                    "symbol": symbol,
-                                    "tf": tf,
-                                    "pass_type": pass_type,
-                                    "training_window_end": training_window_end,
-                                },
-                            )
+                            params = {
+                                "symbol": symbol,
+                                "fp_symbol": symbol,
+                                "tf": tf,
+                                "pass_type": pass_type,
+                                "training_window_end": training_window_end,
+                            }
+                            cur.execute(_ARCHIVE_BEFORE_DELETE_SQL, params)
+                            cur.execute(_FINGERPRINT_INVALIDATE_DELETE_SQL, params)
                 conn.commit()
 
             # todo 198: status-only-stale cells skip the expensive compute entirely,
@@ -5360,16 +5454,24 @@ def main() -> None:
                         )
                         continue
 
+                    # todo 252: archive-then-delete, same transaction -- see the per-symbol
+                    # call site above for the full rationale. fp_symbol is cs_symbol_key
+                    # (ic_cell_fingerprints' real per-cell key), NOT _CROSS_SECTIONAL_SYMBOL
+                    # (feature_ic_scores' 'POOLED' sentinel) -- see _ARCHIVE_BEFORE_DELETE_SQL's
+                    # docstring for why the two tables' symbol columns mean different things
+                    # for cross-sectional cells.
                     with _short_lived_conn(settings) as delete_conn:
                         with delete_conn.cursor() as cur:
+                            cs_params = {
+                                "symbol": _CROSS_SECTIONAL_SYMBOL,
+                                "fp_symbol": cs_symbol_key,
+                                "tf": tf,
+                                "regime_label": regime_label,
+                                "training_window_end": training_window_end,
+                            }
+                            cur.execute(_ARCHIVE_BEFORE_DELETE_CROSS_SECTIONAL_SQL, cs_params)
                             cur.execute(
-                                _FINGERPRINT_INVALIDATE_DELETE_CROSS_SECTIONAL_SQL,
-                                {
-                                    "symbol": _CROSS_SECTIONAL_SYMBOL,
-                                    "tf": tf,
-                                    "regime_label": regime_label,
-                                    "training_window_end": training_window_end,
-                                },
+                                _FINGERPRINT_INVALIDATE_DELETE_CROSS_SECTIONAL_SQL, cs_params
                             )
                         delete_conn.commit()
 

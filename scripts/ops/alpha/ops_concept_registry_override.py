@@ -61,6 +61,21 @@ def _current_status(conn, domain: str, name: str) -> str | None:
     return row[0] if row else None
 
 
+def _fdr_required(conn, domain: str, name: str) -> bool:
+    with conn.cursor() as cur:
+        cur.execute(
+            """
+            SELECT g.fdr_required
+            FROM concept_registry r
+            JOIN concept_gate g USING (concept_id)
+            WHERE r.domain = %s AND r.name = %s
+            """,
+            (domain, name),
+        )
+        row = cur.fetchone()
+    return bool(row[0]) if row is not None else False
+
+
 def main() -> int:
     parser = argparse.ArgumentParser(
         description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter
@@ -74,11 +89,30 @@ def main() -> int:
         ),
     )
     parser.add_argument("--feature-name", required=True, help="concept_registry.name value.")
-    parser.add_argument("--to-status", required=True, choices=_VALID_STATUSES)
+    parser.add_argument(
+        "--to-status",
+        required=True,
+        choices=_VALID_STATUSES,
+        help=(
+            "Target lifecycle status. 'active' additionally requires --fdr-passed "
+            "whenever the concept's concept_gate.fdr_required is true (the default "
+            "for every seeded concept) -- see --fdr-passed."
+        ),
+    )
     parser.add_argument(
         "--reason",
         required=True,
         help="Free-text justification, logged but not persisted to the DB row (see module docstring).",
+    )
+    parser.add_argument(
+        "--fdr-passed",
+        action="store_true",
+        help=(
+            "Operator attestation that this concept's promotion to 'active' has been "
+            "separately verified to survive BH-FDR multiplicity correction. Required "
+            "to promote any concept whose concept_gate.fdr_required is true (the "
+            "seeded default) -- record_transition_sync fail-closes without it."
+        ),
     )
     args = parser.parse_args()
 
@@ -113,21 +147,35 @@ def main() -> int:
             from_status=from_status,
             to_status=args.to_status,
             reason="operator_override",
+            fdr_passed=args.fdr_passed,
             notes=args.reason,
         )
 
         if not applied:
-            # No commit needed here: nothing was written (either an optimistic-lock
-            # no-op or, if to_status='active', the FDR fail-closed guard -- see
-            # ConceptRegistryService.record_transition_sync's docstring; both
-            # surface identically here as `applied=False` since neither writes).
-            _logger.error(
-                "ops_concept_registry_override.optimistic_lock_miss",
-                domain=args.domain,
-                feature_name=args.feature_name,
-                expected_from_status=from_status,
-                hint="status changed between read and write -- rerun to pick up the new status",
-            )
+            # No commit needed here: nothing was written. Disambiguate the two
+            # possible causes -- an optimistic-lock no-op (status changed under us)
+            # vs. the FDR fail-closed guard (to_status='active' and this concept's
+            # concept_gate.fdr_required is true but --fdr-passed was not given) --
+            # since a rerun only fixes the former.
+            if args.to_status == "active" and _fdr_required(conn, args.domain, args.feature_name):
+                _logger.error(
+                    "ops_concept_registry_override.blocked_fdr_unverified",
+                    domain=args.domain,
+                    feature_name=args.feature_name,
+                    hint=(
+                        "concept_gate.fdr_required is true for this concept -- "
+                        "rerun with --fdr-passed once BH-FDR correction has been "
+                        "separately verified for this promotion"
+                    ),
+                )
+            else:
+                _logger.error(
+                    "ops_concept_registry_override.optimistic_lock_miss",
+                    domain=args.domain,
+                    feature_name=args.feature_name,
+                    expected_from_status=from_status,
+                    hint="status changed between read and write -- rerun to pick up the new status",
+                )
             return 1
 
         # Explicit commit required: `_current_status`'s SELECT above already opened

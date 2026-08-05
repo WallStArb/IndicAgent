@@ -80,9 +80,14 @@ _CANARY_ROWS_SQL = """
         r.control_expectation
     FROM feature_ic_scores s
     JOIN concept_registry r ON r.name = s.feature_name AND r.domain = 'feature'
+    JOIN concept_gate cg ON cg.concept_id = r.concept_id
     WHERE r.is_control = true
       AND s.training_window_end = $1
 """
+# concept_gate is INNER JOINed for consistency with every other Phase 170-repointed
+# ops_* script's tombstone defense (ops_broadcast_feature_audit.py et al.) -- a no-op
+# today since migration 284 hardcodes is_control=false on both gate-less tombstone
+# rows, but this keeps the exclusion structural rather than incidental to that value.
 
 # e-value pilot scope (Component C, todo 079, Phase 143.1 Plan 06): tf=5m only, matching
 # services/ic_engine.py's _e_value_pilot_active gate.

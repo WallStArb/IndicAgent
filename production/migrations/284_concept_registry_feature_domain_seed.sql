@@ -257,7 +257,7 @@ SELECT
     'attach the preserved history to -- it is not a live feature and carries no concept_gate '
     'row.',
     s.to_status,
-    false,
+    (s.to_status = 'active'),
     NULL, false, NULL, NULL,
     f.first_triggered_at,
     NULL, NULL, NULL,
