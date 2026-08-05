@@ -1,7 +1,7 @@
 {
   "step_name": "cross_sectional_spread_tracker_gate",
   "step_version": "1.0",
-  "timestamp": "2026-07-27T11:26:26.980007+00:00",
+  "timestamp": "2026-08-04T23:13:01.964947+00:00",
   "status": "success",
   "inputs": {
     "n_cells": 8,

@@ -447,6 +447,204 @@ def _build_label_map(means: np.ndarray) -> dict[int, str]:
     return label_map
 
 
+def _seed_prior_from_label(
+    label_map: dict[int, str],
+    label: str,
+    n_components: int,
+    fallback_prior: np.ndarray,
+) -> np.ndarray:
+    """One-hot prior over label_map's states, concentrated on whichever state THIS model's
+    own label_map maps to `label`. Used to carry belief continuity across a walk-forward HMM
+    refit boundary (`_walk_forward_hmm_labels`) -- raw state indices are not comparable
+    across independently-fit models (state 0 can mean a different regime in each fit), but
+    semantic labels are, since `_build_label_map` normalizes every fit's clusters onto the
+    same fixed vocabulary. Falls back to `fallback_prior` if `label` isn't present in this
+    model's map -- unreachable at K=5 (every label maps to exactly one state) but a real
+    possibility at K>5 (todo 207's `_build_label_map` docstring), so fail safe rather than
+    divide by zero."""
+    pi0 = np.zeros(n_components, dtype=float)
+    for state_idx, state_label in label_map.items():
+        if state_label == label:
+            pi0[state_idx] = 1.0
+    if pi0.sum() == 0.0:
+        return fallback_prior
+    return pi0 / pi0.sum()
+
+
+def _walk_forward_hmm_labels(
+    obs_matrix: np.ndarray,
+    n_components: int,
+    covariance_type: str,
+    n_iter: int,
+    hmm_random_state: int,
+    refit_every_bars: int,
+    initial_warmup_bars: int,
+    min_hold_bars: int,
+    full_cov_min_obs: int,
+) -> tuple[list[str], list[tuple[int, int, int]]]:
+    """Walk-forward alternative to `_compute_symbol_tf`'s single full-series HMM fit
+    (todo 026/248, P4a): refits the model periodically using only the training-slice prefix
+    up to each refit boundary, then causally decodes the next segment forward with that
+    period's model before refitting again. At any bar t, the model that labeled it was fit
+    using only data through the most recent refit boundary <= t -- eliminates the
+    parameter-level lookahead channel `_compute_symbol_tf` has (decode is already causal;
+    the model's own parameters previously were not, confirmed empirically:
+    `docs/analysis/hmm-parameter-lookahead-pilot-spy-1h.md`).
+
+    Each new segment's model is seeded with an initial belief (`pi0`) derived from the label
+    the PREVIOUS segment ended on (`_seed_prior_from_label`), not a fresh stationary
+    distribution -- a stationary prior throws away real information about which regime the
+    series was just in. The first segment (no predecessor) uses its own stationary
+    distribution, same as `_compute_symbol_tf`.
+
+    `StandardScaler` is refit per segment (transform-only on the segment being decoded, fit
+    only on that segment's own training prefix) -- a globally-fit scaler is the same class of
+    leak in miniature.
+
+    Returns:
+        labels: semantic regime label per bar, aligned 1:1 with
+            `obs_matrix[initial_warmup_bars:]` (bars before that have no walk-forward label --
+            insufficient history for even the first fit).
+        segments: list of (train_end, seg_start, seg_end) per refit -- train_end is the fit
+            boundary actually used (obs_matrix[:train_end] was the only data the segment's
+            model ever saw), seg_start/seg_end is the bar-index range it labeled. Exposed for
+            causality verification, not needed by ordinary callers.
+    """
+    n = len(obs_matrix)
+    if n < initial_warmup_bars + n_components:
+        raise ValueError(
+            f"Insufficient history for walk-forward HMM: {n} obs, "
+            f"need >= {initial_warmup_bars + n_components}"
+        )
+
+    labels: list[str] = []
+    segments: list[tuple[int, int, int]] = []
+    boundary = initial_warmup_bars
+    prior_label: str | None = None
+
+    while boundary < n:
+        train_slice = obs_matrix[:boundary]
+        scaler = StandardScaler()
+        train_scaled = scaler.fit_transform(train_slice)
+
+        eff_cov_type = covariance_type if len(train_scaled) >= full_cov_min_obs else "diag"
+        model = GaussianHMM(
+            n_components=n_components,
+            covariance_type=eff_cov_type,
+            n_iter=n_iter,
+            random_state=hmm_random_state,
+        )
+        model.fit(train_scaled)
+        label_map = _build_label_map(model.means_)
+
+        stationary_prior = _stationary_distribution(model.transmat_)
+        if prior_label is None:
+            pi0 = stationary_prior
+        else:
+            pi0 = _seed_prior_from_label(label_map, prior_label, n_components, stationary_prior)
+
+        seg_end = min(boundary + refit_every_bars, n)
+        seg_scaled = scaler.transform(obs_matrix[boundary:seg_end])
+        if eff_cov_type == "full":
+            log_emit = _log_emit_full(seg_scaled, model.means_, model.covars_)
+        else:
+            d = model.means_.shape[1]
+            covars_diag = (
+                model.covars_[:, np.arange(d), np.arange(d)]
+                if model.covars_.ndim == 3
+                else model.covars_
+            )
+            log_emit = _log_emit_diag(seg_scaled, model.means_, covars_diag)
+        log_A = np.log(np.maximum(model.transmat_, 1e-300))
+        raw_states, _ = _alpha_pass_jit(log_emit, log_A, pi0)
+        smoothed = _smooth_states(raw_states, min_hold_bars)
+        seg_labels = [label_map[int(s)] for s in smoothed]
+
+        labels.extend(seg_labels)
+        segments.append((boundary, boundary, seg_end))
+        prior_label = seg_labels[-1]
+        boundary = seg_end
+
+    return labels, segments
+
+
+def _hmm_seed_stability_check(
+    obs_matrix: np.ndarray,
+    n_components: int,
+    covariance_type: str,
+    n_iter: int,
+    seeds: list[int],
+    full_cov_min_obs: int,
+) -> dict:
+    """Todo 026's bundled ask: fit `n_components`-state GaussianHMM once per seed in `seeds`
+    on the SAME obs_matrix, compare log-likelihood and semantic-label agreement across seeds.
+    Each `_walk_forward_hmm_labels` segment refit is itself a fresh non-convex EM
+    optimization, subject to the same local-optima risk todo 108's multi-seed restart already
+    addresses for `_compute_symbol_tf`'s single full-history fit -- this is the equivalent
+    diagnostic for the walk-forward path, run once per segment by a caller, not itself part
+    of `_walk_forward_hmm_labels`'s hot loop.
+
+    Labels (not raw state indices) are compared pairwise, since raw indices are not
+    comparable across independently-fit models -- `_build_label_map` normalizes each seed's
+    own fit onto the same fixed vocabulary first.
+
+    Returns:
+        {
+            "log_likelihoods": {seed: float, ...},
+            "ll_spread": float,  # max - min log-likelihood across seeds
+            "pairwise_label_agreement": {(seed_a, seed_b): float, ...},  # one entry per
+                unique seed pair (seed_a < seed_b), fraction of bars where both seeds'
+                semantic labels agree
+            "min_pairwise_agreement": float,
+        }
+    """
+    log_likelihoods: dict[int, float] = {}
+    labels_by_seed: dict[int, list[str]] = {}
+
+    for seed in seeds:
+        eff_cov_type = covariance_type if len(obs_matrix) >= full_cov_min_obs else "diag"
+        model = GaussianHMM(
+            n_components=n_components,
+            covariance_type=eff_cov_type,
+            n_iter=n_iter,
+            random_state=seed,
+        )
+        model.fit(obs_matrix)
+        log_likelihoods[seed] = float(model.score(obs_matrix))
+
+        label_map = _build_label_map(model.means_)
+        pi0 = _stationary_distribution(model.transmat_)
+        if eff_cov_type == "full":
+            log_emit = _log_emit_full(obs_matrix, model.means_, model.covars_)
+        else:
+            d = model.means_.shape[1]
+            covars_diag = (
+                model.covars_[:, np.arange(d), np.arange(d)]
+                if model.covars_.ndim == 3
+                else model.covars_
+            )
+            log_emit = _log_emit_diag(obs_matrix, model.means_, covars_diag)
+        log_A = np.log(np.maximum(model.transmat_, 1e-300))
+        raw_states, _ = _alpha_pass_jit(log_emit, log_A, pi0)
+        labels_by_seed[seed] = [label_map[int(s)] for s in raw_states]
+
+    pairwise_label_agreement: dict[tuple[int, int], float] = {}
+    for i, seed_a in enumerate(seeds):
+        for seed_b in seeds[i + 1 :]:
+            labels_a = labels_by_seed[seed_a]
+            labels_b = labels_by_seed[seed_b]
+            agree = sum(1 for a, b in zip(labels_a, labels_b) if a == b)
+            pairwise_label_agreement[(seed_a, seed_b)] = agree / len(labels_a)
+
+    lls = list(log_likelihoods.values())
+    return {
+        "log_likelihoods": log_likelihoods,
+        "ll_spread": max(lls) - min(lls),
+        "pairwise_label_agreement": pairwise_label_agreement,
+        "min_pairwise_agreement": min(pairwise_label_agreement.values()),
+    }
+
+
 # ---------------------------------------------------------------------------
 # Per-(symbol, tf) labeling
 # ---------------------------------------------------------------------------

@@ -71,6 +71,7 @@ from __future__ import annotations
 
 import argparse
 import asyncio
+import hashlib
 import json
 import math
 import statistics
@@ -92,6 +93,7 @@ from services._batch_utils import load_apr_dict_async as _load_apr  # noqa: E402
 from src.config.settings import Settings  # noqa: E402
 from src.core.agent.base_batch import BaseBatch  # noqa: E402
 from src.core.database_manager import connect_with_codecs  # noqa: E402
+from src.core.service_utils import format_iso_ts  # noqa: E402
 from src.intelligence.statistics.gate_math import (  # noqa: E402
     _DEFAULT_BOOTSTRAP_RANDOM_STATE,
     evaluate_frame_gate,
@@ -110,6 +112,18 @@ _FEATURE = "ctf_momentum"
 
 # construction_spreads.construction_name — identifies this construction among future ones.
 _CONSTRUCTION_NAME = "ctf_momentum_decile_ls"
+
+# D-04 gate governance (todo 253): gate_id identity for the gate_evaluations run-once table
+# and the append-only gate_look_log.jsonl, matching the pattern
+# scripts/ops/corpus/ops_oos_gate1_signal_eval.py already established for Phase 148's OOS
+# gates (gate1_signal/gate2_execution) -- these were never folded in when Phase 167 was built,
+# leaving construction_spreads' Gate 1/Gate 2 as the only OOS-scored gates in the codebase with
+# no run-once enforcement and no entry in the audit trail (confirmed empty for this
+# construction, .planning/gate_look_log.jsonl, 2026-08-04). Suffixed by construction name
+# (not a bare "gate1"/"gate2") so a second construction sharing this module never collides.
+_GATE1_ID = f"gate1_{_CONSTRUCTION_NAME}"
+_GATE2_ID = f"gate2_{_CONSTRUCTION_NAME}"
+_GATE_LOOK_LOG_PATH = Path(".planning/gate_look_log.jsonl")
 
 
 def decile_legs(
@@ -504,6 +518,76 @@ def write_verdict_artifact(
     timestamped_path.write_text(text)
     latest_path.write_text(text)
     return timestamped_path
+
+
+# ---------------------------------------------------------------------------
+# D-04 gate governance (todo 253): run-once enforcement + append-only audit trail, mirroring
+# scripts/ops/corpus/ops_oos_gate1_signal_eval.py's _write_gate_result/_append_gate_look_log
+# exactly (same table, same file, same atomicity guarantee) rather than inventing a second
+# mechanism for the same discipline. `write_verdict_artifact` above remains a separate,
+# unrestricted (freely-re-runnable) full-payload JSON dump for human inspection -- this is the
+# actual one-shot governance layer per docs/plans/OOS-EVAL-PROTOCOL.md.
+# ---------------------------------------------------------------------------
+
+
+async def _write_gate_result(
+    conn: asyncpg.Connection,
+    gate_id: str,
+    result: str,
+    evidence: dict[str, Any],
+    run_ts: datetime,
+) -> None:
+    """Atomic real write: re-assert no prior row for this gate_id THEN INSERT, both inside
+    ONE transaction, so a crash between the check and the write rolls back cleanly and is
+    safely retryable. D-04: this gate runs at most once per milestone gate -- a pre-existing
+    row means it already ran; refuse rather than silently accumulate a second verdict.
+    Connection-based (not pool-based, unlike ops_oos_gate1_signal_eval.py's variant) --
+    this module's evaluation modes use a single bare `asyncpg.connect`, never a pool.
+    """
+    async with conn.transaction():
+        existing = await conn.fetchval(
+            "SELECT count(*) FROM gate_evaluations WHERE gate_id = $1", gate_id
+        )
+        if existing > 0:
+            raise RuntimeError(
+                f"Gate {gate_id!r} has already run (D-04: run at most once per milestone "
+                "gate, docs/plans/OOS-EVAL-PROTOCOL.md) -- refusing to write a second "
+                "verdict row. Use --dry-run to verify script correctness without consuming "
+                "the one-shot gate."
+            )
+        await conn.execute(
+            "INSERT INTO gate_evaluations (gate_id, result, evidence, run_ts) "
+            "VALUES ($1, $2, $3::jsonb, $4)",
+            gate_id,
+            result,
+            json.dumps(_coerce_non_finite(evidence), default=str),
+            run_ts,
+        )
+
+
+def _append_gate_look_log(
+    gate_id: str,
+    run_ts: datetime,
+    snapshot: dict[str, Any],
+    *,
+    result: str | None = None,
+    path: Path = _GATE_LOOK_LOG_PATH,
+) -> None:
+    """Append one entry to the append-only gate look log (D-04 auditability, same file
+    ops_oos_gate1_signal_eval.py writes -- one shared audit trail across every OOS gate in
+    the codebase, not a per-construction copy). Only called AFTER the real write's
+    transaction commits. `path` overridable for tests (mirrors `write_verdict_artifact`'s
+    `out_dir` parameter, same testability convention)."""
+    entry: dict[str, Any] = {
+        "run_ts": format_iso_ts(run_ts),
+        "gate_id": gate_id,
+        "snapshot": snapshot,
+    }
+    if result is not None:
+        entry["result"] = result
+    path.parent.mkdir(parents=True, exist_ok=True)
+    with path.open("a") as f:
+        f.write(json.dumps(entry, default=str) + "\n")
 
 
 # ---------------------------------------------------------------------------
@@ -1193,16 +1277,23 @@ async def _load_gate_evaluation_context(conn: asyncpg.Connection, mode_flag: str
     }
 
 
-async def _run_evaluate_gate(db_dsn: str) -> None:
+async def _run_evaluate_gate(db_dsn: str, dry_run: bool = False) -> None:
     """--evaluate-gate CLI mode: Validation Gate 1 -- a day-clustered bootstrap CI over the
     persisted net-of-cost spread across the OOS window (`bar_ts >= alpha.validation.oos_start`,
     design decision 1), at every cost tier and both lookahead scales, plus a live
     shuffled-ranking null, plus a labeled in-sample diagnostic. Mirrors
     `counterfactual_tracker._run_evaluate_gate`'s shape exactly: a plain `asyncpg.connect`
     (not a pool -- this is a read-only reporting branch). No D-06 `job_completed_total`
-    emission -- this performs no persistence, unlike `CrossSectionalSpreadTracker.execute()`.
-    The only filesystem side effect is the verdict artifact written by
-    `write_verdict_artifact`; no `construction_spreads` row is ever written here.
+    emission -- never writes a `construction_spreads` row, unlike
+    `CrossSectionalSpreadTracker.execute()`. UNLESS `dry_run` is True, this DOES now write one
+    row to `gate_evaluations` and append one entry to `.planning/gate_look_log.jsonl` (D-04,
+    todo 253) -- the same run-once governance `scripts/ops/corpus/ops_oos_gate1_signal_eval.py`
+    already enforces for Phase 148's gates; a second real run for the same construction refuses
+    to write rather than silently accumulate a second verdict. `dry_run=True` computes and
+    prints/logs everything identically but skips both writes, for dev-time verification without
+    consuming the one-shot gate. The `write_verdict_artifact` JSON file remains unrestricted
+    (freely re-runnable) in both modes -- it is a human-inspection convenience, not the
+    governance layer.
     """
     conn = await _open_evaluation_connection(db_dsn)
     try:
@@ -1379,8 +1470,49 @@ async def _run_evaluate_gate(db_dsn: str) -> None:
     )
     manifest.mark_success()
     manifest.write()
-    # No D-06 job_completed_total emission -- this performs no persistence (mirrors
-    # counterfactual_tracker._run_evaluate_gate's own explicit no-persistence contract).
+    # No D-06 job_completed_total emission -- writes no construction_spreads row (mirrors
+    # counterfactual_tracker._run_evaluate_gate's own explicit no-persistence contract there).
+
+    # (7) D-04 gate governance (todo 253) -- the actual one-shot enforcement layer. A fresh
+    # connection: the read-only `conn` above already closed in its own `finally` block, and
+    # opening the write connection only after every read/compute step has succeeded keeps this
+    # write unreachable on any earlier failure (never a partial/inconsistent gate_evaluations
+    # row for a run that didn't actually finish computing a verdict).
+    fetch_sql_sha256 = hashlib.sha256((_GATE_ROWS_SQL + _GATE_PANEL_SQL).encode()).hexdigest()
+    snapshot = {
+        "oos_start": format_iso_ts(oos_start),
+        "apr_values_used": payload["apr"],
+        "input_population_row_count": len(oos_gate_rows),
+        "fetch_sql_sha256": fetch_sql_sha256,
+    }
+    if dry_run:
+        _logger.info(
+            "cross_sectional_spread_tracker.gate1_dry_run",
+            gate_id=_GATE1_ID,
+            gate1_passes=gate1_passes,
+            note="--dry-run: gate_evaluations/gate_look_log NOT written",
+        )
+    else:
+        run_ts = datetime.now(UTC)
+        write_conn = await _open_evaluation_connection(db_dsn)
+        try:
+            await _write_gate_result(
+                write_conn,
+                _GATE1_ID,
+                "pass" if gate1_passes else "fail",
+                {"snapshot": snapshot, "verdict": payload},
+                run_ts,
+            )
+        finally:
+            await write_conn.close()
+        _append_gate_look_log(
+            _GATE1_ID, run_ts, snapshot, result="pass" if gate1_passes else "fail"
+        )
+        _logger.info(
+            "cross_sectional_spread_tracker.gate1_committed",
+            gate_id=_GATE1_ID,
+            gate1_passes=gate1_passes,
+        )
 
 
 # ---------------------------------------------------------------------------
@@ -1423,17 +1555,17 @@ def _attribution_verdict_text(scale: str, verdict: dict[str, Any]) -> str:
     )
 
 
-async def _run_evaluate_attribution(db_dsn: str) -> None:
+async def _run_evaluate_attribution(db_dsn: str, dry_run: bool = False) -> None:
     """--evaluate-attribution CLI mode: Validation Gate 2 -- attribution honesty. Decomposes
     the realized OOS spread (`bar_ts >= alpha.validation.oos_start`) into a static,
     time-invariant leg-membership benchmark plus a residual, then gates the residual through
     the SAME day-clustered bootstrap Gate 1 uses (`gate_math.frame_gate_passes`,
     reused verbatim via `attribution_verdict` -- no new bootstrap machinery). Structured
     exactly like `_run_evaluate_gate`: a plain `asyncpg.connect` (not a pool -- this is a
-    read-only reporting branch), no database writes, no D-06 `job_completed_total` emission --
-    this performs no persistence, unlike `CrossSectionalSpreadTracker.execute()`. The only
-    filesystem side effect is the verdict artifact written by `write_verdict_artifact`; no
-    `construction_spreads` row is ever written here.
+    read-only reporting branch). Never writes a `construction_spreads` row, unlike
+    `CrossSectionalSpreadTracker.execute()`. UNLESS `dry_run` is True, this DOES now write one
+    row to `gate_evaluations` and append one entry to `.planning/gate_look_log.jsonl` (D-04,
+    todo 253) -- see `_run_evaluate_gate`'s docstring for the full rationale, identical here.
     """
     conn = await _open_evaluation_connection(db_dsn)
     try:
@@ -1591,8 +1723,57 @@ async def _run_evaluate_attribution(db_dsn: str) -> None:
     )
     manifest.mark_success()
     manifest.write()
-    # No D-06 job_completed_total emission -- this performs no persistence (mirrors
-    # _run_evaluate_gate's own explicit no-persistence contract).
+    # No D-06 job_completed_total emission -- writes no construction_spreads row (mirrors
+    # _run_evaluate_gate's own explicit no-persistence contract there).
+
+    # D-04 gate governance (todo 253) -- see _run_evaluate_gate's matching block for full
+    # rationale. Fresh connection: the read-only `conn` above already closed.
+    fetch_sql_sha256 = hashlib.sha256(
+        (_ATTRIBUTION_ROWS_SQL + _GATE_PANEL_SQL).encode()
+    ).hexdigest()
+    snapshot = {
+        "oos_start": format_iso_ts(oos_start),
+        "apr_values_used": {
+            "decile_fraction": decile_fraction,
+            "attribution_max_static_r2": attribution_max_static_r2,
+            "null_shuffles": null_shuffles,
+            "cost_hurdle_bps_round_trip": cost_bps,
+            "alpha.scoring.min_strategy_n": min_n,
+            "alpha.scoring.bootstrap_max_n": bootstrap_max_n,
+            "alpha.scoring.bootstrap_batch": bootstrap_batch,
+            "alpha.scoring.bootstrap_random_state": bootstrap_random_state,
+        },
+        "input_population_row_count": len(attribution_rows),
+        "fetch_sql_sha256": fetch_sql_sha256,
+    }
+    if dry_run:
+        _logger.info(
+            "cross_sectional_spread_tracker.gate2_dry_run",
+            gate_id=_GATE2_ID,
+            gate2_passes_overall=gate2_passes_overall,
+            note="--dry-run: gate_evaluations/gate_look_log NOT written",
+        )
+    else:
+        run_ts = datetime.now(UTC)
+        write_conn = await _open_evaluation_connection(db_dsn)
+        try:
+            await _write_gate_result(
+                write_conn,
+                _GATE2_ID,
+                "pass" if gate2_passes_overall else "fail",
+                {"snapshot": snapshot, "verdict": payload},
+                run_ts,
+            )
+        finally:
+            await write_conn.close()
+        _append_gate_look_log(
+            _GATE2_ID, run_ts, snapshot, result="pass" if gate2_passes_overall else "fail"
+        )
+        _logger.info(
+            "cross_sectional_spread_tracker.gate2_committed",
+            gate_id=_GATE2_ID,
+            gate2_passes_overall=gate2_passes_overall,
+        )
 
 
 # ---------------------------------------------------------------------------
@@ -1625,7 +1806,10 @@ if __name__ == "__main__":
             "Evaluate Validation Gate 1 over bar_ts >= alpha.validation.oos_start per "
             "(lookahead scale, cost tier) via the day-clustered bootstrap plus a live "
             "shuffled-ranking null. Writes a JSON verdict artifact under "
-            "logs/construction_verdicts/. Read-only -- writes no construction_spreads rows."
+            "logs/construction_verdicts/, and (unless --dry-run) one gate_evaluations row "
+            "plus one gate_look_log.jsonl entry (D-04 run-once governance, todo 253) -- a "
+            "second real run for this construction refuses rather than overwriting. Never "
+            "writes a construction_spreads row."
         ),
     )
     mode_group.add_argument(
@@ -1636,8 +1820,20 @@ if __name__ == "__main__":
             "bar_ts >= alpha.validation.oos_start by regressing the realized spread on a "
             "static, time-invariant leg-membership benchmark and gating the residual through "
             "the same day-clustered bootstrap Gate 1 uses. The benchmark is retrospective, "
-            "not causal. Writes a JSON verdict artifact under logs/construction_verdicts/. "
-            "Read-only -- writes no construction_spreads rows."
+            "not causal. Writes a JSON verdict artifact under logs/construction_verdicts/, "
+            "and (unless --dry-run) one gate_evaluations row plus one gate_look_log.jsonl "
+            "entry (D-04 run-once governance, todo 253). Never writes a construction_spreads "
+            "row."
+        ),
+    )
+    parser.add_argument(
+        "--dry-run",
+        action="store_true",
+        help=(
+            "Only meaningful with --evaluate-gate/--evaluate-attribution: compute and print/"
+            "log the verdict identically, but skip the gate_evaluations/gate_look_log.jsonl "
+            "D-04 writes -- for dev-time verification without consuming the one-shot gate. "
+            "Ignored (has no effect) for --backfill or incremental compute-and-persist."
         ),
     )
     args = parser.parse_args()
@@ -1651,8 +1847,8 @@ if __name__ == "__main__":
     db_dsn = settings.database_url.replace("postgresql+asyncpg://", "postgresql://")
 
     if args.evaluate_gate:
-        asyncio.run(_run_evaluate_gate(db_dsn))
+        asyncio.run(_run_evaluate_gate(db_dsn, dry_run=args.dry_run))
     elif args.evaluate_attribution:
-        asyncio.run(_run_evaluate_attribution(db_dsn))
+        asyncio.run(_run_evaluate_attribution(db_dsn, dry_run=args.dry_run))
     else:
         asyncio.run(CrossSectionalSpreadTracker(db_dsn, backfill=args.backfill).run())

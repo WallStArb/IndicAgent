@@ -93,14 +93,51 @@ gate. Pass criterion is inherited from EIC-04:
 of (symbol, tf, regime) cells, plus the walk-forward stability gate (EIC-03:
 IC Sharpe max/min fold ratio < 3x across folds).
 
+### Construction-level scorer (Phase 167+, folded in 2026-08-04)
+
+`services/cross_sectional_spread_tracker.py --evaluate-gate`/`--evaluate-attribution`
+is a third, authoritative-tier OOS scorer, one level below `EnsembleICEngine`:
+it evaluates a single named construction's realized spread (Gate 1: net-of-cost
+Sharpe via day-clustered bootstrap + shuffled-ranking null; Gate 2: attribution
+honesty via a static-tilt regression) over `bar_ts >= alpha.validation.oos_start`,
+rather than the whole ensemble. It reads `return_fast`/`return_slow` from
+`forward_returns` (unlike the interim scorer above, which computes returns
+on the fly) — an authoritative run therefore requires `forward_returns` to
+already have real, corroborated rows in the OOS window (todo 253's fix
+design covers how to get them there; this is NOT automatic from the normal
+corpus pipeline, which deliberately never writes past `oos_start` — see
+Enforcement points above).
+
+This scorer was NOT folded into this protocol when Phase 167 built it
+(2026-07-27), and ran its first evaluation without the run-once discipline
+below — a gap closed 2026-08-04 (todo 253): `_run_evaluate_gate`/
+`_run_evaluate_attribution` now write one row per construction to
+`gate_evaluations` (`gate_id` = `gate{1,2}_{construction_name}`) and append
+to `.planning/gate_look_log.jsonl`, atomically refusing a second write for
+the same `gate_id` — the same D-04 mechanism `ops_oos_gate1_signal_eval.py`
+(Phase 148) and Phase 166's gates already use, not a fourth parallel
+convention. `--dry-run` runs the full computation without consuming the
+one-shot gate, for dev-time verification.
+
 ## Cadence
 
-The authoritative OOS scoring (`EnsembleICEngine` in OOS mode) is run **at
-most once per milestone gate**. Re-running it to "check if it passes now"
-after a tweak is forbidden — every additional look at the holdout converts
-part of it into a training set by process, even if no code path writes to
-it. The interim diagnostic scorer may be run more freely since it is never a
-gate, but its output must not be used to tune any in-sample parameter.
+The authoritative OOS scorers (`EnsembleICEngine` in OOS mode, and each
+named construction's Gate 1/Gate 2 above) are each run **at most once per
+milestone gate, per construction**. Re-running one to "check if it passes
+now" after a tweak is forbidden — every additional look at the holdout
+converts part of it into a training set by process, even if no code path
+writes to it. `gate_evaluations`/`gate_look_log.jsonl` is the system of
+record for whether a given `gate_id` has already had its one look — check
+there before assuming a construction is eligible for a first look, don't
+infer it from whether a result "feels" already-known. A change to the
+*construction's own inputs* (e.g. a corrected feature computation feeding
+the same `gate_id`) does not automatically earn a fresh look under the
+existing `gate_id` — that is a real judgment call (does the corrected
+input make this a legitimately new first look, or does the protocol's
+spirit still treat it as the same gate), not something to resolve by
+picking a new `gate_id` to route around the guard. The interim diagnostic
+scorer may be run more freely since it is never a gate, but its output must
+not be used to tune any in-sample parameter.
 
 ## Failure rule
 

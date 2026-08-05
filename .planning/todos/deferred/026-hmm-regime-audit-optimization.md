@@ -47,7 +47,21 @@ See plan doc for full implementation notes and APR keys.
 
 **Merged with todo 034 (2026-07-01):** an independent audit found the same root cause (full-history HMM fit → non-causal parameters feeding an otherwise-causal decode) and initially proposed treating it as an unconditional P0 blocker. Corrected to route through this todo's decision gate instead — see todo 034 for the corrected framing. One genuinely new item from that audit, folded in here: **no seed-stability check exists** on HMM fits (`regime_writer.py:822`, fixed seed via APR `alpha.hmm.random_state`) — the retry-on-non-convergence path reuses the same seed rather than testing whether regime labels/log-likelihood are stable across different random inits. Add a cheap seed-stability check (fit with 3-5 seeds, compare log-likelihood spread and label agreement) as part of whatever P4a work eventually happens, same file, same validation harness.
 
-**Status:** DEFERRED — no empirical evidence that current labels are broken.
+**Status update (2026-08-03) — P4a/P4b's live remainder retired out to
+`.planning/todos/pending/248-hmm-full-history-fit-regime-label-instability-gate4-pilot.md`.**
+This todo stays open as the historical audit record (10 original findings, P0/P1a/P1b/P2b/P2c/P3
+already done or forked to todos 108/092, cross-referenced by number from
+`stratification-dimension-unification.md`/ROADMAP.md/todo 106/the 2026-07-07 fallback-decision
+doc -- keeping the number alive). The only thing that changed today is P4a/P4b finally got its
+"validate the practical impact first" gate run: `scripts/analysis/hmm_regime_parameter_lookahead_pilot_spy_1h.py`
+(SPY/1h, results in `docs/analysis/hmm-parameter-lookahead-pilot-spy-1h.md`) found label agreement
+between production's full-series fit and an expanding-window refit at just 24.9% (barely above
+the 21.7% chance baseline), with 2 of 5 regimes flipping sign in mean forward return -- real
+evidence for Gate 3, not yet Gate 4 (needs a production-quality shadow-mode IC pilot). **Do not
+duplicate that write-up here or re-plan P4a/P4b from this file -- todo 248 is the live one to
+act on; this section exists so a reader following 026's cross-references finds the pointer.**
+
+**Status (pre-2026-08-03):** DEFERRED — no empirical evidence that current labels are broken.
 
 **Background:** HMM is fit on full history (2014-2024), causally decoded via forward-filter. Forward-filter is causal (no future information in the decode step), but emission parameters and transition matrix are learned from the full window including future data. The question is whether this materially harms IC predictive power.
 

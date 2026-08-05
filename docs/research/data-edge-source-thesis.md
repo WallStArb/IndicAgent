@@ -1,19 +1,28 @@
 # Edge Source Thesis -- Where Does Our Edge Come From?
 
-**Version:** 2.0
+**Version:** 2.1
 **Status:** draft -- standing document; every claim here is falsifiable and must be revisited
 as evidence lands
-**Priority:** high -- **cross_sectional_relative_value PASSED 2026-07-26, PRODUCTIONIZED AND GATED 2026-07-27** (Phase 167,
-both live Validation Gates PASSED against the real OOS population -- first thesis on this list
-to clear its own bar AND reach production, though which tf it should trade at is itself now an
-open question, see cross_sectional_relative_value's own note below); **nonlinear_interaction_combiner confirmed real and SUBSTANTIAL at 1h and 15m (the
-actionable tf), small specifically at 1d** -- 5m replication in progress (2026-08-03, a gap found
-during a rigor review: the script existed since 2026-08-02 but was never actually run), and two
-pre-registration gaps in nonlinear_interaction_combiner's own evidence found and recorded the same day
+**Priority:** high -- **cross_sectional_relative_value's Phase 167 PASS is UNVERIFIED as of
+2026-08-04, not confirmed** (both live Validation Gates were recorded as PASSED 2026-07-27, but
+the sole ranking feature, `ctf_momentum`, was confirmed 2026-08-04 to carry real lookahead in
+its batch join -- todo 243. A diagnostic-tier re-verification under the corrected join found
+Gate 1 now FAILS, both scales' CI negative, shuffled-null no longer clearing -- see
+cross_sectional_relative_value's own note below and `docs/research/trade-construction-layer.md`
+for full detail. **Do not start Phase 168 until an authoritative re-verification lands.**);
+**nonlinear_interaction_combiner's original "SUBSTANTIAL at 1h and 15m" verdict is SUPERSEDED --
+confirmed overwhelmingly leak-driven at every tf tested** (todo 245, CLOSED 2026-08-04: 1h
+collapsed 90.6%, 15m 79.1%, 5m 43.8% once the same leaked `ctf_momentum`-family columns were
+excluded from the training matrix; a small, real, statistically significant residual survives at
+every tf -- see nonlinear_interaction_combiner's own section below for the corrected numbers, not
+"SUBSTANTIAL"). Two pre-registration gaps in nonlinear_interaction_combiner's own evidence found
+and fixed the same investigation
 ([todo 240](../../.planning/todos/pending/240-nonlinear-interaction-combiner-baseline-is-single-feature-not-the-linear-ensemble.md),
 [todo 239](../../.planning/todos/pending/239-nonlinear-interaction-combiner-embargo-passed-in-pooled-panel-rows-not-bars.md)).
 Next step pre-registered, not yet run: does cross_sectional_relative_value's construction improve ranked by nonlinear_interaction_combiner's tree score instead of
-`ctf_momentum` ([todo 238](../../.planning/todos/pending/238-nonlinear-interaction-combiner-ranked-cross-sectional-relative-value-pre-registration.md)).
+`ctf_momentum` ([todo 238](../../.planning/todos/pending/238-nonlinear-interaction-combiner-ranked-cross-sectional-relative-value-pre-registration.md))
+-- gated on cross_sectional_relative_value's own re-verification landing first, since it inherits
+the same leaked ranking feature question.
 Five Signal-Extraction candidates added 2026-08-03 (`cointegrated_pairs_residual`,
 `statistical_factor_residual`, `cross_asset_lead_lag`, `adaptive_combiner_weights`,
 `jump_diffusion_decomposition`) and three Trade Constructions the same day
@@ -21,7 +30,7 @@ Five Signal-Extraction candidates added 2026-08-03 (`cointegrated_pairs_residual
 `dealer_hedging_flow`) -- none tested. horizon_risk_premium remains untested and is the only
 thesis here whose falsification criterion still lacks a pre-registered numeric bar.
 **Milestone:** standing -- not tied to a phase
-**Last Updated:** 2026-08-03
+**Last Updated:** 2026-08-04
 **Tags:** edge, thesis, counterparty, renaissance, falsifiable, first-principles
 
 **Reorganized 2026-08-03** -- this doc always implicitly mixed two different kinds of claim
@@ -178,7 +187,7 @@ consistent with retail_immediacy_provision's "less-liquid half" prediction, but 
 *different* construction's realized leg membership, not a run of retail_immediacy_provision's criterion, and it says
 nothing about session boundaries. Do not cite it as evidence for retail_immediacy_provision.
 
-#### Cross-Sectional Relative Value (counterparty: single-name flows) -- **PASSED 2026-07-26, PRODUCTIONIZED AND GATED 2026-07-27**
+#### Cross-Sectional Relative Value (counterparty: single-name flows) -- **PASSED 2026-07-26, PRODUCTIONIZED 2026-07-27, GATE VERDICT UNVERIFIED as of 2026-08-04 (todo 243/253)**
 Individual ETFs get pushed off fair relative value by idiosyncratic flows (sector rotation,
 thematic retail); the *ranking* across 80 correlated instruments mean-reverts even when no
 single instrument is predictable directionally. **Why we might win:** relative-value noise
@@ -211,16 +220,21 @@ needs: (1) the todo 030 cost-hurdle treatment applied to the spread construction
 (a long-short spread's cost dynamics differ from a directional trade's), and (2) scoping
 `docs/research/trade-construction-layer.md` as a real phase rather than a one-off script.
 
-**Productionized and gated (Phase 167, 2026-07-27):** the falsification script became a real
-service, `services/cross_sectional_spread_tracker.py`, and both items above are now done. A
-full 2006-2026 backfill populated `construction_spreads` (24,924 bars), and both live
-Validation Gates ran against the real OOS population with the cost-hurdle sweep applied at
-every tier: Gate 1 (shadow spread Sharpe, net of cost) PASSED at the most conservative 10bp
-round-trip tier, and Gate 2 (attribution honesty -- is the P&L a disguised static factor tilt)
-PASSED. Full numeric detail, the binding Gate 1 pass rule, and the Gate 2
-retrospective-versus-causal caveat are recorded in
-`docs/research/trade-construction-layer.md`'s Validation Gates section (not duplicated here --
-one doc owns the gate numbers).
+**Productionized 2026-07-27, gate verdict UNVERIFIED as of 2026-08-04 (todo 243/253) --
+see `docs/research/trade-construction-layer.md`'s "Correction, 2026-08-04" for full detail, not
+duplicated here.** The falsification script became a real service,
+`services/cross_sectional_spread_tracker.py`, ranked solely on `ctf_momentum`. A full 2006-2026
+backfill populated `construction_spreads` (24,924 bars), and both live Validation Gates were
+recorded 2026-07-27 as PASSED against the real OOS population -- Gate 1 (shadow spread Sharpe,
+net of cost) at the most conservative 10bp round-trip tier, Gate 2 (attribution honesty). **That
+record is not currently trustworthy**: `ctf_momentum`, the sole ranking feature, was confirmed
+2026-08-04 to carry real lookahead in its batch HTF join (todo 243). A diagnostic-tier
+re-verification under the corrected join found Gate 1 now FAILS (both scales' CI negative,
+shuffled-null no longer clearing) -- not yet authoritative-tier confirmed, but consistent with a
+SPY single-symbol pilot showing the same collapse. **Do not cite either gate as PASSED, and do
+not start Phase 168, until an authoritative re-verification lands.** Full numeric detail for both
+the original and corrected-join numbers: `docs/research/trade-construction-layer.md`'s Validation
+Gates section (one doc owns the gate numbers).
 
 **Two scope limits worth carrying with the headline, both from that same section:** (1) the
 gates were evaluated on the **OOS segment only -- 650 bars across 130 day-clusters**, not the
@@ -232,12 +246,12 @@ explains, so a low `static_r2` plus a surviving residual rules out *that* explan
 establishing what does generate the return. "PASSED" here means "not shown to be a disguised
 static tilt," not "mechanism identified."
 
-**Both gates clearing means the Phase 156-159
-execution/sizing chain's stated precondition is now met for this construction** -- unlike
-Phase 148's per-symbol directional construction, which passed Gate 1 but failed Gate 2. **Note
-this only means the construction is statistically validated, not that it is live -- no capital
-has been deployed anywhere in this project; Phase 156-159 (the actual execution/sizing layer)
-has not been started.**
+**Both gates clearing was recorded as meeting the Phase 156-159 execution/sizing chain's stated
+precondition for this construction** -- unlike Phase 148's per-symbol directional construction,
+which passed Gate 1 but failed Gate 2. **That clearance is not currently valid** (see the
+correction above) -- re-verification under the corrected `ctf_momentum` join is now the
+precondition, not a cleared one. No capital has been deployed anywhere in this project regardless;
+Phase 156-159 (the actual execution/sizing layer) has not been started.
 
 **Open question, found 2026-08-03: `_TF="15m"` (`services/cross_sectional_spread_tracker.py:105`)
 is an inherited default, not a comparative finding.** It came from whichever tf the original
@@ -442,13 +456,51 @@ historical rows per todo 176) -- it says nothing about features Phase 164/165 ha
 interaction effect involving regime exists -- only that a *linear*, single-dimension,
 categorical treatment of it doesn't clear a bar. See nonlinear_interaction_combiner below.
 
-#### Nonlinear Interaction Combiner (counterparty: linear-model participants) -- real and substantial at 15m/1h, small at 1d, and measured against the wrong baseline throughout
-(Heading corrected 2026-08-03. It previously read "confirmed SMALL, not LARGE (small only at 1d;
-substantial at 1h/15m)" -- a leftover from the window when 1d was the only replication, and
-self-contradicting once 15m landed. The magnitude verdict is tf-dependent, not small. Separately,
-every run compares the tree to `ctf_momentum` alone rather than to the linear ensemble this
-thesis's own falsification bar names, so the *thesis* is not yet tested even though the *result*
-is real -- see the three caveats below and todo 240.)
+#### Nonlinear Interaction Combiner (counterparty: linear-model participants) -- small, real residual survives at every tf once the CTF leak is excluded; "SUBSTANTIAL" is SUPERSEDED
+(Heading corrected 2026-08-04, todo 247, superseding the 2026-08-03 correction below -- that
+correction's "real and substantial at 15m/1h" verdict is itself now known to have been
+overwhelmingly leak-driven, not a re-baselining issue. See "Correction, 2026-08-04 (todo
+245/247)" immediately below for the current numbers. The 2026-08-03 heading text and its
+rationale are preserved as the next paragraph for the historical record, not because it is still
+current.)
+
+*(Original 2026-08-03 heading, preserved for history: "real and substantial at 15m/1h, small at
+1d, and measured against the wrong baseline throughout." It previously read "confirmed SMALL, not
+LARGE (small only at 1d; substantial at 1h/15m)" -- a leftover from the window when 1d was the
+only replication, self-contradicting once 15m landed. Separately, every run at that time compared
+the tree to `ctf_momentum` alone rather than to the linear ensemble this thesis's own
+falsification bar names -- fixed by todo 240 the same day this section was superseded.)*
+
+**Correction, 2026-08-04 (todo 245/247):** the 1h/15m "substantial" magnitude above was measured
+before anyone checked whether the tree's advantage depended on the same lookahead-leaking
+`ctf_momentum`/`ctf_vwap_align`/`ctf_regime_align` columns todo 243 found in the batch HTF join.
+It did, overwhelmingly. Excluding all three CTF columns from the training matrix at every tf
+(same corpus, same walk-forward methodology, todo 245's with/without-CTF diagnostic):
+
+| tf | point_ic with CTF | point_ic without CTF | collapse | n_pass_fdr_positive (80 max) | residual tree-vs-linear diff | residual ci_lower |
+|---|---|---|---|---|---|---|
+| 1h | 0.1811 | 0.0171 | 90.6% | 80 -> 21 | 0.0106 | 0.0064 |
+| 15m | 0.2504 | 0.0524 | 79.1% | 80 -> 73 | 0.0348 | 0.0330 |
+| 5m | 0.1741 | 0.0979 | 43.8% | 80 -> 79 | 0.0710 | 0.0701 |
+
+A small, real, statistically significant residual edge (tree beats the fold-local linear
+ensemble baseline, not just `ctf_momentum` alone -- todo 240's fix) survives at every tf, roughly
+15-70x smaller than the pre-correction numbers below, not a total null. **Pattern**: collapse %
+shrinks as tf gets finer while the absolute surviving residual grows -- consistent with the
+leak's magnitude being roughly bounded by HTF bar duration (~constant across tf) while the tree's
+total predictive power grows at finer granularity, so the leak's proportional share shrinks even
+as the real edge grows. Verified separately: the live production ensemble (`ensemble_weights`) is
+NOT contaminated -- `ctf_momentum` has zero rows there, fails BH-FDR eligibility at every tf; the
+exposure was this research script's own training matrix and Phase 167's live ranking feature
+(see cross_sectional_relative_value's correction above), not the live signal path. **The strategic
+read this reframes**: the tree's core failure mode (no per-feature exposure cap, unlike the
+linear arm's 20% cap) is why it rode the CTF leak this hard -- a structural argument against
+unconstrained-tree interaction discovery on this corpus generally, not just a one-off bug to
+patch. `docs/research/measurement-nonlinear-interaction-combiner.md` has the deepened design
+critique and two pre-registered alternative test designs (N1 residual-form, N2 regime-conditional
+linear) not yet run. The historical result narrative below (pre-correction numbers, the canary
+checks, the embargo/baseline fixes) is preserved as an accurate record of what was measured at
+each stage -- read it as history, not as the current verdict.
 The ensemble combiner (`ensemble_trainer.py`) is a linear, shrunk-IC-weighted sum of
 per-feature marginal predictive power. It can express "feature X predicts returns" but
 structurally cannot express "feature X predicts returns only when feature Y crosses a
@@ -466,8 +518,9 @@ significant Sharpe/IC uplift over the existing linear ensemble on the *same* fea
 doesn't, nonlinear_interaction_combiner is dead -- the bottleneck isn't the combiner's linearity, which strengthens the
 case for either cross_sectional_relative_value (construction, not modeling) or that this feature set genuinely has no
 edge to extract regardless of how it's combined. Original design proposal and overfitting
-controls (archived 2026-08-03, fully absorbed below -- not the live reference):
-`docs/research/archive/measurement-nonlinear-interaction-combiner.md`.
+controls: `docs/research/measurement-nonlinear-interaction-combiner.md` (un-archived 2026-08-03 --
+the CTF-leak finding below reopened the question of whether an unconstrained tree is even the
+right model choice here; see that doc's Status header for the current framing).
 
 **Result (`scripts/analysis/nonlinear_interaction_combiner_lightgbm_check.py`, 2026-07-26): canary-leakage
 check clears this specific failure mode -- genuinely interesting, still not a confirmed pass.**

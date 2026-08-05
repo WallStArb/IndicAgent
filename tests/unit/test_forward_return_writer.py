@@ -30,6 +30,7 @@ from services.forward_return_writer import (
     _build_corroboration_update_sql,
     _build_forward_return_sql,
     _build_insert_sql,
+    _compute_high_water_mark,
     _emit_price_sanity_fact,
     forward_log_return,
 )
@@ -384,3 +385,47 @@ def test_emit_price_sanity_fact_inserts_when_not_already_ran():
     # Pre-check SELECT + INSERT -- two cursor uses -- and the insert is committed.
     assert conn.cursor.call_count == 2
     conn.commit.assert_called_once()
+
+
+# ---------------------------------------------------------------------------
+# _compute_high_water_mark (todo 253 regression -- production bug found 2026-08-04)
+# ---------------------------------------------------------------------------
+
+
+def test_high_water_mark_epoch_on_first_run():
+    """max_bar_ts=None (no prior forward_returns rows for this symbol/tf) -- epoch, so the
+    caller's query fetches full history."""
+    assert _compute_high_water_mark(None, max_n=60, tf="15m") == "1970-01-01T00:00:00+00:00"
+
+
+def test_high_water_mark_subtracts_max_n_plus_one_bars():
+    """Regression for the real production bug found 2026-08-04 (todo 253's authoritative-tier
+    run): the prior implementation issued `SELECT %s::timestamptz - INTERVAL %s` with the
+    interval as a bind parameter, which PostgreSQL rejects (`syntax error at or near "$2"`) --
+    every cell failed on any incremental run where forward_returns already had rows. This
+    exercises the pure-Python replacement directly: (max_n + 1) bars back from max_bar_ts,
+    in the tf's own bar duration."""
+    from datetime import UTC, datetime, timedelta
+
+    max_bar_ts = datetime(2026, 7, 28, 19, 45, tzinfo=UTC)
+
+    result_15m = _compute_high_water_mark(max_bar_ts, max_n=5, tf="15m")
+    assert result_15m == max_bar_ts - timedelta(minutes=(5 + 1) * 15)
+
+    result_1h = _compute_high_water_mark(max_bar_ts, max_n=24, tf="1h")
+    assert result_1h == max_bar_ts - timedelta(minutes=(24 + 1) * 60)
+
+    result_1d = _compute_high_water_mark(max_bar_ts, max_n=20, tf="1d")
+    assert result_1d == max_bar_ts - timedelta(minutes=(20 + 1) * 1440)
+
+
+def test_high_water_mark_returns_native_datetime_not_string():
+    """The prior SQL round-trip returned whatever psycopg adapted the query result to (a
+    datetime); the epoch branch returns a string. Callers bind this into a %(hwm)s parameter
+    against a timestamptz column -- psycopg must be able to adapt either shape, but the
+    non-epoch branch specifically must stay a real datetime (not e.g. accidentally
+    stringified), since arithmetic correctness depends on it."""
+    from datetime import UTC, datetime
+
+    result = _compute_high_water_mark(datetime(2026, 1, 1, tzinfo=UTC), max_n=1, tf="5m")
+    assert isinstance(result, datetime)

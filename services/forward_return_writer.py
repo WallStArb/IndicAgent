@@ -37,7 +37,7 @@ import time
 import uuid
 from collections.abc import Generator, Iterable
 from contextlib import contextmanager
-from datetime import datetime
+from datetime import datetime, timedelta
 from pathlib import Path
 from typing import Any
 
@@ -56,6 +56,7 @@ from src.config.settings import Settings
 from src.core.integrity_monitor import emit_integrity_fact_sync
 from src.core.service_utils import parse_training_window_end, setup_service_logging
 from src.intelligence.statistics.ic_math import scale_max_abs_return
+from src.observability.corpus_manifest import CorpusManifest
 from src.observability.metrics import (
     FORWARD_RETURN_WRITER_ROWS_WRITTEN_TOTAL,
     FORWARD_RETURN_WRITER_RUN_LATENCY_SECONDS,
@@ -86,6 +87,13 @@ _SCALES: tuple[str, ...] = ("fast", "mid", "slow", "extended")
 # (imported above as _SCALE_FALLBACKS_BY_TF) -- single source of truth for the per-tf grid.
 
 _DEFAULT_TFS: list[str] = ["5m", "15m", "1h", "1d"]
+
+# Bar duration per tf, used only for the high-water-mark lookback window
+# (_compute_high_water_mark) -- not a lookahead/period APR concept, just the tf's own
+# calendar duration, so this stays a plain constant, not an APR key (CLAUDE.md's APR-exempt
+# "statistical concept definitions" category: the minutes-per-bar for "5m" is fixed by what
+# "5m" means, not tunable).
+_TF_MINUTES: dict[str, int] = {"5m": 5, "15m": 15, "1h": 60, "1d": 1440}
 
 # Fallback only — actual value read from APR at runtime via cfg.get_sync()
 _INSERT_BATCH_SIZE_DEFAULT = 500
@@ -434,6 +442,28 @@ def _discover_symbols(conn: Any) -> list[str]:
 # ---------------------------------------------------------------------------
 
 
+def _compute_high_water_mark(max_bar_ts: datetime | None, max_n: int, tf: str) -> str | datetime:
+    """High-water mark for `_label_symbol_tf`'s incremental re-fetch window: on a subsequent
+    run, recompute the tail window (last `max_n + 1` bars before the current max) so
+    previously-incomplete rows get completeness updates. On the first run for a (symbol, tf)
+    (`max_bar_ts is None`), returns the epoch so the caller's query fetches full history.
+
+    Pure Python datetime arithmetic -- `max_bar_ts` is already a native `datetime` (psycopg
+    adapts `timestamptz` columns directly), so no DB round-trip is needed. Previously issued
+    as a `SELECT %s::timestamptz - INTERVAL %s` query with the interval passed as a bind
+    parameter -- PostgreSQL does not accept a parameterized `INTERVAL` literal that way
+    (`syntax error at or near "$2"`), a bug that only surfaced on an incremental run against a
+    non-empty `forward_returns` (`max_bar_ts NOT NULL`); every real corpus run recently started
+    from a freshly-truncated table, so `max_bar_ts` was always `NULL` and this branch was never
+    exercised end-to-end until now (confirmed 2026-08-04, todo 253's authoritative-tier run).
+    """
+    if max_bar_ts is None:
+        return "1970-01-01T00:00:00+00:00"
+    minutes_per_bar = _TF_MINUTES.get(tf, 1440)
+    lookback_minutes = (max_n + 1) * minutes_per_bar
+    return max_bar_ts - timedelta(minutes=lookback_minutes)
+
+
 def _label_symbol_tf(
     conn: Any,
     symbol: str,
@@ -474,18 +504,7 @@ def _label_symbol_tf(
             )
             row = cur.fetchone()
             max_bar_ts = row[0] if row else None
-        if max_bar_ts is None:
-            hwm = "1970-01-01T00:00:00+00:00"
-        else:
-            _TF_MINUTES = {"5m": 5, "15m": 15, "1h": 60, "1d": 1440}
-            minutes_per_bar = _TF_MINUTES.get(tf, 1440)
-            lookback_minutes = (max_n + 1) * minutes_per_bar
-            with conn.cursor() as cur:
-                cur.execute(
-                    "SELECT %s::timestamptz - INTERVAL %s",
-                    (max_bar_ts, f"{lookback_minutes} minutes"),
-                )
-                hwm = cur.fetchone()[0]
+        hwm = _compute_high_water_mark(max_bar_ts, max_n, tf)
 
         params = {
             "symbol": symbol,
@@ -657,6 +676,12 @@ def main() -> None:
     t0 = time.monotonic()
     status = "success"
 
+    # Todo 253 parity fix: every other corpus pipeline step (ic_engine, cross_sectional_spread_tracker,
+    # ensemble_trainer, ...) emits a CorpusManifest; this oneshot never did, so a prior investigation
+    # had to infer whether/how it last ran from `forward_returns`' own row timestamps instead of a
+    # trustworthy manifest record.
+    manifest = CorpusManifest("forward_return_writer", CorpusManifest.DEFAULT_MANIFEST_DIR)
+
     try:
         settings = Settings()
         # No register_uuid() equivalent needed -- psycopg adapts uuid.UUID natively
@@ -688,6 +713,12 @@ def main() -> None:
                         "forward_return_writer.reclassify_suspect_only_complete",
                         cleared=cleared,
                     )
+                    manifest.set_inputs(mode="reclassify_suspect_only", cleared=cleared)
+                    manifest.add_output(
+                        table_name="forward_returns", rows_total=sum(cleared.values())
+                    )
+                    manifest.mark_success()
+                    manifest.write()
                     return
 
                 batch_size = int(
@@ -820,12 +851,34 @@ def main() -> None:
                     elapsed_s=round(elapsed_s, 2),
                 )
 
+                manifest.set_inputs(
+                    mode="full",
+                    training_window_end=str(training_window_end),
+                    symbols_count=len(symbols),
+                    tfs=tfs,
+                )
+                manifest.add_output(
+                    table_name="forward_returns",
+                    rows_total=total_inserted,
+                    columns_written=[f"return_{s}" for s in _SCALES],
+                )
+                for cell in failures:
+                    manifest.add_error(f"cell_failed: {cell}")
+                if not failures:
+                    manifest.mark_success()
+                manifest.write()
+
             finally:
                 conn.close()
 
     except Exception as error:
         status = "failure"
         _logger.error("forward_return_writer.fatal_error", error=str(error))
+        manifest.add_error(str(error))
+        try:
+            manifest.write()
+        except Exception:
+            pass  # Don't let manifest write failure hide the original error
         raise
     finally:
         JOB_COMPLETED_TOTAL.add(1, {"job": _JOB, "status": status})

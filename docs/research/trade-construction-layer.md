@@ -1,18 +1,54 @@
 # Trade Construction Layer -- From Forecast to Position
 
-**Version:** 1.3
-**Status:** live -- `services/cross_sectional_spread_tracker.py` productionizes cross_sectional_relative_value's
-construction; both live Validation Gates ran against the real OOS population 2026-07-27 and
-BOTH PASSED. See the Validation Gates section below for the full verdict.
+**Version:** 1.4
+**Status:** UNVERIFIED, re-verification pending -- `services/cross_sectional_spread_tracker.py`
+productionizes cross_sectional_relative_value's construction, ranked solely on `ctf_momentum`
+(`_FEATURE = "ctf_momentum"`). **The 2026-07-27 gate run below was measured against a
+lookahead-leaking `ctf_momentum` join (todo 243), confirmed 2026-08-04 -- do not cite either gate
+as PASSED until re-run under the corrected join.** See "Correction, 2026-08-04" below the
+Validation Gates section for full detail. **Do not begin Phase 168 (this construction's
+cost-hurdle-adjusted follow-on) until this is resolved.**
 **Priority:** high (weakness #5 from the 2026-07-01 council review: the layer is absent, and
-its absence changes what "edge" means upstream) -- **both Validation Gates PASSED 2026-07-27**:
-the Phase 156-159 execution/sizing chain's stated precondition is now met
+its absence changes what "edge" means upstream) -- **re-verification of both gates is now the
+blocking precondition for the Phase 156-159 execution/sizing chain**, not a cleared precondition
 **Milestone:** future -- scoping trigger was Phase 142A's OOS gate, same as PortfolioTrack;
 that gate cleared 2026-07-22 (Gate 1 PASS)
-**Last Updated:** 2026-07-27
+**Last Updated:** 2026-08-04
 **Tags:** trade-construction, portfolio, cross-sectional, long-short, sizing, cost, kelly
 
-**Updated 2026-07-27** -- Phase 167 ran the construction for real: full 2006-2026 corpus
+**Correction, 2026-08-04 (todo 243/253):** the 2026-07-27 run below ranked the construction on
+`ctf_momentum` read from `feature_vectors`, populated at the time by a batch HTF join that
+selected the still-forming HTF bar rather than the last completed one -- confirmed real
+lookahead (todo 243). A SPY single-symbol pilot under the corrected join found 15m point_ic
+(the tf this construction actually trades) collapses from +0.0746 to +0.0047 (CI
+[-0.0007,0.0100], no longer significant) -- the feature this construction ranks on may not
+carry the signal the 2026-07-27 gates measured. Both gates below must be re-run against the
+corrected join before either verdict can be cited as current. A diagnostic-tier (not
+promotion-grade) re-verification harness exists at
+`scripts/analysis/phase167_gate1_ctf_join_fix_reverify_15m.py`; an authoritative re-run needs
+`forward_returns` populated past `alpha.validation.oos_start` first (todo 253 -- currently
+empty in that region; the normal pipeline never writes there by design, per
+`docs/plans/OOS-EVAL-PROTOCOL.md`). D-04 run-once gate governance (`gate_evaluations` +
+`.planning/gate_look_log.jsonl`) is now wired into `cross_sectional_spread_tracker.py`'s
+`--evaluate-gate`/`--evaluate-attribution` modes (2026-08-04) -- confirmed no completed look for
+this construction was ever recorded there, so a future real run is unambiguously a first look,
+not a second one under `OOS-EVAL-PROTOCOL.md`'s "at most once per milestone gate" cadence rule.
+
+**Diagnostic-tier result, 2026-08-04 (still not authoritative -- see caveat below):** the
+harness above ran. Self-check against the leaked join reproduced `gate1_passes=true`, matching
+the recorded 2026-07-27 verdict -- confirms the harness is faithful. **Against the corrected
+join: `gate1_passes=FALSE`.** Both scales' `ci_lower` flip negative (fast: 0.000187 ->
+-0.000141; slow: 0.000164 -> -0.000486), and the shuffled-ranking null no longer clears either
+scale (fast `null_p` 0.0 -> 0.675, slow 0.0 -> 1.0 -- the slow-scale observed spread is now met
+or exceeded by every one of 40 null draws). Same direction as the SPY single-symbol pilot.
+Artifact: `logs/construction_verdicts/gate1_ctf_join_reverify_15m_DIAGNOSTIC_20260804T165458Z.json`.
+**Caveat, load-bearing:** this diagnostic computes OOS returns on the fly and does NOT replicate
+`forward_return_writer.py`'s suspect-value/cross-symbol-corroboration corrections -- it is
+first-look evidence, not the authoritative re-verification. It materially raises confidence that
+an authoritative re-run will also fail, but does not settle the question.
+
+**Updated 2026-07-27 (superseded by the correction above -- kept for the record, do not cite the
+PASS verdicts standalone):** Phase 167 ran the construction for real: full 2006-2026 corpus
 backfill into `construction_spreads` (24,924 bars), both live Validation Gates evaluated
 against the real OOS population. Gate 1 (shadow spread Sharpe) PASSED and Gate 2 (attribution
 honesty) PASSED. Full numeric detail, the binding pass rule, and the Gate 2 retrospective
@@ -222,7 +258,12 @@ Layer roadmap (Phases 156-159):
 3. **Comparison to DiscreteTrack directional on the same features** -- this comparison IS the
    cross_sectional_relative_value test from the edge-source thesis; record the verdict there.
 
-### Live verdicts (2026-07-27, Phase 167 Plan 06)
+### Live verdicts (2026-07-27, Phase 167 Plan 06) -- SUPERSEDED, see "Correction, 2026-08-04" above
+
+**Do not cite the PASS verdicts below as current.** They are an accurate historical transcription
+of what the 2026-07-27 artifacts recorded, kept for the record -- but the `ctf_momentum` values
+that run ranked and measured against were confirmed 2026-08-04 to carry real lookahead (todo 243).
+Both gates need to be re-run under the corrected join before either verdict can be trusted again.
 
 Every number below is transcribed from two timestamped, strict-JSON artifacts written by
 `services/cross_sectional_spread_tracker.py` BEFORE this prose was written:
@@ -375,15 +416,19 @@ incremental, `--evaluate-gate`, and `--evaluate-attribution` CLI modes, reading
 It is shadow-measurement only -- no live capital, deliberately not on a systemd timer (see
 `docs/operations/operations-infrastructure.md`).
 
-**Current state (2026-07-27):** all three Validation Gates above have been evaluated for
-real, and all three PASSED. Gate 1 (shadow spread Sharpe) PASS, Gate 2 (attribution honesty)
-PASS, Gate 3 (comparison to per-symbol directional) already satisfied by regime_conditional_persistence's falsification.
-**This means the Phase 156-159 execution/sizing chain's stated precondition -- a proven,
-attribution-honest signal to size and execute -- is now met for this cross-sectional
-construction.** Unlike Phase 148's per-symbol directional construction (Gate 1 PASS, Gate 2
-FAIL, DO NOT PROMOTE), this construction cleared both irreversible-discipline gates. The next
-decision -- whether and how to proceed toward Phase 156-159 with this construction as the
-signal source -- is the user's, not a decision this doc or this phase makes unilaterally.
+**Current state (2026-07-27, SUPERSEDED 2026-08-04 -- see "Correction, 2026-08-04" at the top of
+this doc):** all three Validation Gates above were evaluated for real, and all three recorded a
+PASS at the time. Gate 1 (shadow spread Sharpe) PASS, Gate 2 (attribution honesty) PASS, Gate 3
+(comparison to per-symbol directional) already satisfied by regime_conditional_persistence's
+falsification. **That PASS record is not currently trustworthy**: `ctf_momentum`, the sole
+ranking feature both gates were measured against, was confirmed 2026-08-04 to carry real
+lookahead in its batch join (todo 243) -- Gate 1/Gate 2 must be re-run under the corrected join
+before the Phase 156-159 execution/sizing chain's precondition can be treated as met again.
+**Do not begin Phase 168 (this construction's own cost-hurdle follow-on) or Phase 156-159 on
+this record.** The next decision -- how and when to run the re-verification -- is the user's;
+see todo 253 for the authoritative-tier prerequisite (`forward_returns` needs OOS-region rows,
+which the normal pipeline never writes there by design) and the diagnostic-tier harness already
+built (`scripts/analysis/phase167_gate1_ctf_join_fix_reverify_15m.py`).
 
 ## References
 

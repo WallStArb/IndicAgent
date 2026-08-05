@@ -10,12 +10,13 @@ No live DB required -- these tests exercise pure functions with synthetic in-mem
 
 from __future__ import annotations
 
+import asyncio
 import inspect
 import json
 import math
 import random
 import sys
-from datetime import date, timedelta
+from datetime import UTC, date, datetime, timedelta
 from pathlib import Path
 
 _project_root = Path(__file__).parent.parent.parent
@@ -26,6 +27,8 @@ import numpy as np
 import pytest
 
 from services.cross_sectional_spread_tracker import (
+    _append_gate_look_log,
+    _write_gate_result,
     attribution_verdict,
     decile_legs,
     evaluate_spread_gate,
@@ -882,3 +885,129 @@ def test_attribution_intercept_is_not_subtracted_from_residual():
     # assertion above): the residual's bootstrap CI is centered near the retained intercept,
     # never near zero.
     assert verdict["residual_ci_lower"] > true_intercept / 2
+
+
+# ---------------------------------------------------------------------------
+# D-04 gate governance (todo 253): run-once enforcement + append-only audit trail
+# ---------------------------------------------------------------------------
+
+
+def _fake_gate_conn(existing_count: int = 0):
+    """Minimal fake asyncpg connection for _write_gate_result: records the fetchval query
+    (with args), the transaction enter/exit, and every execute() call so tests can assert on
+    the exact re-assert-then-insert sequence without a live DB."""
+    calls: dict[str, list] = {"fetchval": [], "execute": []}
+
+    class _FakeTransaction:
+        async def __aenter__(self):
+            return self
+
+        async def __aexit__(self, *exc_info):
+            return False
+
+    class _FakeConn:
+        def transaction(self):
+            return _FakeTransaction()
+
+        async def fetchval(self, sql, *args):
+            calls["fetchval"].append((sql, args))
+            return existing_count
+
+        async def execute(self, sql, *args):
+            calls["execute"].append((sql, args))
+
+    return _FakeConn(), calls
+
+
+def test_write_gate_result_inserts_when_no_prior_row():
+    conn, calls = _fake_gate_conn(existing_count=0)
+    run_ts = datetime(2026, 1, 1, tzinfo=UTC)
+
+    asyncio.run(_write_gate_result(conn, "gate1_test_construction", "pass", {"k": "v"}, run_ts))
+
+    assert len(calls["fetchval"]) == 1
+    assert calls["fetchval"][0][1] == ("gate1_test_construction",)
+    assert len(calls["execute"]) == 1
+    insert_sql, insert_args = calls["execute"][0]
+    assert "INSERT INTO gate_evaluations" in insert_sql
+    assert insert_args[0] == "gate1_test_construction"
+    assert insert_args[1] == "pass"
+    assert json.loads(insert_args[2]) == {"k": "v"}
+    assert insert_args[3] == run_ts
+
+
+def test_write_gate_result_refuses_second_write():
+    """D-04: a pre-existing row for this gate_id must refuse the write, not overwrite it --
+    the whole point of the mechanism is that a construction's gate can only ever be scored
+    once per milestone gate."""
+    conn, calls = _fake_gate_conn(existing_count=1)
+    run_ts = datetime(2026, 1, 1, tzinfo=UTC)
+
+    with pytest.raises(RuntimeError, match="already run"):
+        asyncio.run(_write_gate_result(conn, "gate1_test_construction", "pass", {"k": "v"}, run_ts))
+
+    assert len(calls["execute"]) == 0, "must never INSERT after finding an existing row"
+
+
+def test_write_gate_result_coerces_non_finite_evidence():
+    """frame_gate_passes-family verdicts legitimately contain NaN for under-powered cells
+    (same rationale as write_verdict_artifact's own _coerce_non_finite use) -- the
+    gate_evaluations.evidence write must not raise on a NaN anywhere in the payload."""
+    conn, calls = _fake_gate_conn(existing_count=0)
+    run_ts = datetime(2026, 1, 1, tzinfo=UTC)
+    evidence = {"nested": {"ci_lower": float("nan"), "n": 5}}
+
+    asyncio.run(_write_gate_result(conn, "gate1_test_construction", "fail", evidence, run_ts))
+
+    _, insert_args = calls["execute"][0]
+    stored = json.loads(insert_args[2])
+    assert stored["nested"]["ci_lower"] is None
+    assert stored["nested"]["n"] == 5
+
+
+def test_append_gate_look_log_appends_one_json_line_per_call(tmp_path):
+    log_path = tmp_path / "gate_look_log.jsonl"
+    run_ts_one = datetime(2026, 1, 1, tzinfo=UTC)
+    run_ts_two = datetime(2026, 1, 2, tzinfo=UTC)
+
+    _append_gate_look_log(
+        "gate1_test_construction",
+        run_ts_one,
+        {"oos_start": "2025-12-24T05:15:00Z"},
+        result="pass",
+        path=log_path,
+    )
+    _append_gate_look_log(
+        "gate2_test_construction",
+        run_ts_two,
+        {"oos_start": "2025-12-24T05:15:00Z"},
+        result="fail",
+        path=log_path,
+    )
+
+    lines = log_path.read_text().strip().split("\n")
+    assert len(lines) == 2, "each call must APPEND, never overwrite/truncate"
+
+    entry_one = json.loads(lines[0])
+    assert entry_one["gate_id"] == "gate1_test_construction"
+    assert entry_one["result"] == "pass"
+    assert entry_one["snapshot"] == {"oos_start": "2025-12-24T05:15:00Z"}
+
+    entry_two = json.loads(lines[1])
+    assert entry_two["gate_id"] == "gate2_test_construction"
+    assert entry_two["result"] == "fail"
+
+
+def test_append_gate_look_log_omits_result_key_when_none(tmp_path):
+    """ops_oos_holdout_eval.py-style diagnostic look-log entries have no pass/fail result --
+    the key must be absent, not present-as-null, to keep the log's shape consistent with the
+    sibling scorer's own look-log entries (checked structurally by omission, not a null)."""
+    log_path = tmp_path / "gate_look_log.jsonl"
+    run_ts = datetime(2026, 1, 1, tzinfo=UTC)
+
+    _append_gate_look_log(
+        "diagnostic_look", run_ts, {"oos_start": "2025-12-24T05:15:00Z"}, path=log_path
+    )
+
+    entry = json.loads(log_path.read_text().strip())
+    assert "result" not in entry

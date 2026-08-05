@@ -27,8 +27,11 @@ if str(_project_root) not in sys.path:
     sys.path.insert(0, str(_project_root))
 
 from services.ic_engine import (
+    _ARCHIVE_BEFORE_DELETE_CROSS_SECTIONAL_SQL,
+    _ARCHIVE_BEFORE_DELETE_SQL,
     _COMPUTATIONAL_CONFIG_FIELDS,
     _FEATURE_STATUS_REFRESH_SQL,
+    _FINGERPRINT_INVALIDATE_DELETE_CROSS_SECTIONAL_SQL,
     _FINGERPRINT_INVALIDATE_DELETE_SQL,
     _OPERATIONAL_CONFIG_FIELDS,
     ICEngineConfig,
@@ -734,6 +737,70 @@ def test_invalidate_delete_sql_is_not_a_bare_training_window_end_filter():
     # Count '=' bound-parameter style predicates in the WHERE clause: symbol, tf,
     # regime_scope, training_window_end must each appear with their own placeholder.
     assert _FINGERPRINT_INVALIDATE_DELETE_SQL.count("%(") >= 4
+
+
+# ---------------------------------------------------------------------------
+# Todo 252: archive-before-delete -- feature_ic_scores rows must be preserved
+# (never silently hard-deleted) whenever a code/APR change invalidates an
+# already-computed cell. Live end-to-end correctness (including the fp_symbol vs
+# symbol key-naming asymmetry between feature_ic_scores and ic_cell_fingerprints
+# for cross-sectional cells) was verified manually against the live schema inside a
+# rolled-back transaction before these tests were written; these are the structural/
+# shape regressions, matching this file's own DB-free convention.
+# ---------------------------------------------------------------------------
+
+
+def test_archive_before_delete_sql_targets_history_table_from_live_table():
+    sql_upper = _ARCHIVE_BEFORE_DELETE_SQL.upper()
+    assert "INSERT INTO FEATURE_IC_SCORES_HISTORY" in sql_upper
+    assert "FROM FEATURE_IC_SCORES FIS" in sql_upper
+
+
+def test_archive_before_delete_sql_scoped_to_full_cell_key():
+    """Same scoping discipline as the DELETE it precedes -- must filter on the
+    exact ic_cell_fingerprints PK columns, never a bare training_window_end filter
+    that could archive+leave-alone unrelated valid cells."""
+    sql_upper = _ARCHIVE_BEFORE_DELETE_SQL.upper()
+    for required in ("FIS.SYMBOL", "FIS.TF", "FIS.REGIME_SCOPE", "FIS.TRAINING_WINDOW_END"):
+        assert required in sql_upper, f"archive SQL missing required scoping column {required}"
+
+
+def test_archive_before_delete_sql_captures_fingerprint_provenance():
+    """Must carry the OLD (about-to-be-overwritten) ic_cell_fingerprints tuple into
+    the archived row -- reusing that table's existing provenance convention rather
+    than inventing a second one (todo 252's explicit design requirement)."""
+    sql_upper = _ARCHIVE_BEFORE_DELETE_SQL.upper()
+    assert "LEFT JOIN IC_CELL_FINGERPRINTS FP" in sql_upper
+    for col in (
+        "ARCHIVED_CODE_CONTENT_KEY",
+        "ARCHIVED_APR_SNAPSHOT_KEY",
+        "ARCHIVED_UPSTREAM_WATERMARK",
+    ):
+        assert col in sql_upper
+
+
+def test_archive_before_delete_sql_joins_fingerprint_on_separate_fp_symbol_param():
+    """Regression for the exact bug class this design guards against: a naive same-
+    column join (fp.symbol = fis.symbol) would silently miss every cross-sectional
+    fingerprint, since feature_ic_scores.symbol is the 'POOLED' sentinel there while
+    ic_cell_fingerprints.symbol is the real per-cell group:regime key. The join must
+    bind fp.symbol to its OWN parameter, not reference fis.symbol directly."""
+    assert "FP.SYMBOL = %(FP_SYMBOL)S" in _ARCHIVE_BEFORE_DELETE_SQL.upper()
+    assert "FP.SYMBOL = FIS.SYMBOL" not in _ARCHIVE_BEFORE_DELETE_SQL.upper()
+
+
+def test_archive_before_delete_cross_sectional_sql_same_shape_as_its_delete_counterpart():
+    """The cross-sectional archive variant must mirror
+    _FINGERPRINT_INVALIDATE_DELETE_CROSS_SECTIONAL_SQL's exact scoping (including the
+    explicit regime filter neither the per-symbol DELETE nor its archive counterpart
+    need), so archive and delete can never silently diverge in which rows they touch."""
+    archive_upper = _ARCHIVE_BEFORE_DELETE_CROSS_SECTIONAL_SQL.upper()
+    delete_upper = _FINGERPRINT_INVALIDATE_DELETE_CROSS_SECTIONAL_SQL.upper()
+    for required in ("FIS.SYMBOL", "FIS.TF", "FIS.REGIME", "FIS.TRAINING_WINDOW_END"):
+        assert required in archive_upper
+    assert "CROSS_SECTIONAL" in delete_upper
+    assert "FP.SYMBOL = %(FP_SYMBOL)S" in archive_upper
+    assert "FP.PASS_TYPE = 'CROSS_SECTIONAL'" in archive_upper
 
 
 # ---------------------------------------------------------------------------
