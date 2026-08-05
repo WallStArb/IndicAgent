@@ -1202,9 +1202,9 @@ SignalMetricsEvent = Annotated[
 
 @dataclasses.dataclass(frozen=True)
 class FeatureVector:
-    """259 orthogonal feature primitives computed per bar by FeatureFactory.
+    """270 orthogonal feature primitives computed per bar by FeatureFactory.
     See the "Groups and field order are binding" breakdown below (ends in
-    "Total: 259") for full group-by-group provenance -- that breakdown is
+    "Total: 270") for full group-by-group provenance -- that breakdown is
     the maintained source of truth; keep it (not this line) in sync when
     fields are added.
 
@@ -1232,6 +1232,11 @@ class FeatureVector:
       Cross-asset (3): VIX z-score, flight-to-quality, yield slope
       Calendar (17: 11 original + 6 Phase 151 Plan 01 Task 1): NY/London session, overlap, power hour, opening range, weekly VWAP, dow sin/cos, month position, quarter position, days to month end, quarter cycle sin/cos, TDOM sin/cos, minute-of-hour sin/cos
       Velocity Primitives (4, Phase 151 Plan 01 Task 2): momentum_z_velocity_fast/mid/slow, vwap_dev_sigma_velocity -- first-difference-then-re-z-scored construction of an already-computed z-score series (same shape as vol_velocity_z)
+      Recency / Statistical Atomics (11, Phase 151 Plan 03, todo 180): bars_since_high/low_fast/slow,
+        bars_since_52w_high/low, bars_since_extreme_move_fast/slow, bars_since_vol_spike_fast/slow
+        (all BOUNDED rolling-window statistics in [0, window-1], never expanding), abs_ret_autocorr_1
+        (lag-1 autocorrelation of |log returns| -- volatility clustering, distinct from the signed
+        ret_autocorr_1 below)
       Cross-timeframe (3): momentum/VWAP/regime alignment from HTF cache
       Statistical/liquidity (4): Amihud illiquidity, 52w high distance, return skewness, return autocorrelation
       Bar Anatomy Ratios (8, Phase 142.5 Plan 01): body/wick ratios, range vs ATR, direction, overnight gap(+z), range efficiency
@@ -1261,8 +1266,9 @@ class FeatureVector:
         All ATR-distance/bounded/count/ordinal placeholders (None until Plans 02-04
         wire real compute logic); never a raw price level (D-16).
       Cross-sectional (3, nullable): momentum/volume/volatility rank z-scores
-      Total: 259 (215 required [164 + 41 Swing/Fib/Trend/Session Structure +
-      6 Calendar Cycle/TDOM/Minute + 4 Velocity Primitives, Phase 151 Plan 01]
+      Total: 270 (226 required [164 + 41 Swing/Fib/Trend/Session Structure +
+      6 Calendar Cycle/TDOM/Minute + 4 Velocity Primitives + 11 Recency/
+      Statistical Atomics, Phase 151 Plans 01 + 03]
       + 44 optional [3 cross-sectional + 5 canary + 36 SMC, all defaulted for
       cold-start/construction-site blast-radius reasons -- see Canary field
       comments and the Smart Money Concepts block comment above])
@@ -1380,6 +1386,37 @@ class FeatureVector:
     vwap_dev_sigma_velocity: (
         float  # zscore(diff(vwap_dev_sigma)) (APR: feature.vwap_velocity.window)
     )
+    # Recency / Statistical Atomics (11, Phase 151 Plan 03, todo 180). The
+    # event-recency axis: bars_since_* are BOUNDED rolling-window statistics
+    # in [0, window-1] (never an expanding lookback -- see class-level
+    # boundedness note), abs_ret_autocorr_1 is volatility-clustering
+    # (magnitude autocorrelation, distinct from the signed ret_autocorr_1
+    # above). Declared as one contiguous run immediately after the Plan 01
+    # velocity block so feature_vector_persistence.py's
+    # _PHASE151_RECENCY_FIELD_NAMES derived slice covers exactly this block.
+    bars_since_high_fast: (
+        float  # bars since rolling-max(high, dist_window_fast); [0, dist_window_fast-1]
+    )
+    bars_since_high_slow: (
+        float  # bars since rolling-max(high, dist_window_slow); [0, dist_window_slow-1]
+    )
+    bars_since_low_fast: (
+        float  # bars since rolling-min(low, dist_window_fast); [0, dist_window_fast-1]
+    )
+    bars_since_low_slow: (
+        float  # bars since rolling-min(low, dist_window_slow); [0, dist_window_slow-1]
+    )
+    bars_since_52w_high: (
+        float  # bars since rolling-max(high, high_52w_window); [0, high_52w_window-1]
+    )
+    bars_since_52w_low: (
+        float  # bars since rolling-min(low, high_52w_window); [0, high_52w_window-1]
+    )
+    bars_since_extreme_move_fast: float  # bars since |log_ret| > sigma_threshold*rolling_std, fast window (APR: feature.bars_since_extreme_move.sigma_threshold)
+    bars_since_extreme_move_slow: float  # bars since |log_ret| > sigma_threshold*rolling_std, slow window (APR: feature.bars_since_extreme_move.sigma_threshold)
+    bars_since_vol_spike_fast: float  # bars since rel_volume > vol_spike_threshold, fast window (APR: feature.bars_since_vol_spike.threshold)
+    bars_since_vol_spike_slow: float  # bars since rel_volume > vol_spike_threshold, slow window (APR: feature.bars_since_vol_spike.threshold)
+    abs_ret_autocorr_1: float  # lag-1 Pearson autocorrelation of |log returns| (volatility clustering), bounded [-1,1] (definitional, no APR)
     # Cross-timeframe (3)
     ctf_momentum: float
     ctf_vwap_align: float

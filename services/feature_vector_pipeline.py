@@ -757,6 +757,9 @@ class FeatureVectorPipeline(BaseDaemon):
         # --- migration 287: Phase 151 Plan 01 Task 2 velocity primitives ---
         ("feature.momentum_velocity.window", 14),
         ("feature.vwap_velocity.window", 14),
+        # --- migration 288: Phase 151 Plan 03 recency/statistical atomics ---
+        ("feature.bars_since_extreme_move.sigma_threshold", 2.0),
+        ("feature.bars_since_vol_spike.threshold", 2.0),
         ("alpha.ic.canary_rng_seed", 90042),
         ("feature.session_vp.value_area_pct", 0.70),
         ("feature.session_vp.n_buckets", 50),
@@ -981,6 +984,10 @@ class FeatureVectorPipeline(BaseDaemon):
             price_vol_corr_slow=_int("feature.price_vol_corr.slow", 30),
             momentum_velocity_window=_int("feature.momentum_velocity.window", 14),
             vwap_velocity_window=_int("feature.vwap_velocity.window", 14),
+            extreme_move_sigma_threshold=_float(
+                "feature.bars_since_extreme_move.sigma_threshold", 2.0
+            ),
+            vol_spike_threshold=_float("feature.bars_since_vol_spike.threshold", 2.0),
             canary_rng_seed=_int("alpha.ic.canary_rng_seed", 90042),
             session_vp_value_area_pct=_float("feature.session_vp.value_area_pct", 0.70),
             session_vp_n_buckets=_int("feature.session_vp.n_buckets", 50),

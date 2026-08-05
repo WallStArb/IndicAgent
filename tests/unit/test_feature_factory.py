@@ -154,6 +154,8 @@ def _make_config(**overrides: int) -> FeatureFactoryConfig:
         price_vol_corr_slow=30,
         momentum_velocity_window=20,
         vwap_velocity_window=20,
+        extreme_move_sigma_threshold=2.0,
+        vol_spike_threshold=2.0,
     )
     defaults.update(overrides)
     return FeatureFactoryConfig(**defaults)
@@ -770,7 +772,7 @@ class TestComputePurity:
         cache = FeatureCache()
         fv = FeatureFactory.compute(bars, "SPY", "1m", cache, config)
         fields = dataclasses.fields(fv)
-        assert len(fields) == 259, f"Expected 259 fields, got {len(fields)}"
+        assert len(fields) == 270, f"Expected 270 fields, got {len(fields)}"
         for f in fields:
             val = getattr(fv, f.name)
             # Optional cross-sectional fields (momentum_rank_z, volume_rank_z,

@@ -151,6 +151,8 @@ def _make_cfg() -> FeatureFactoryConfig:
         price_vol_corr_slow=30,
         momentum_velocity_window=20,
         vwap_velocity_window=20,
+        extreme_move_sigma_threshold=2.0,
+        vol_spike_threshold=2.0,
         # session_vp_rolling_window overridden well below N=90: the production
         # default (480) exceeds the whole test session, so the rolling and
         # session-anchored tracks would only ever differ by the single bar

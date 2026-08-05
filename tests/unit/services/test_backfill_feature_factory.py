@@ -152,6 +152,8 @@ def _make_config() -> FeatureFactoryConfig:
         price_vol_corr_slow=30,
         momentum_velocity_window=20,
         vwap_velocity_window=20,
+        extreme_move_sigma_threshold=2.0,
+        vol_spike_threshold=2.0,
     )
 
 
@@ -259,6 +261,17 @@ def _make_zero_vector() -> FeatureVector:
         momentum_z_velocity_mid=0.0,
         momentum_z_velocity_slow=0.0,
         vwap_dev_sigma_velocity=0.0,
+        bars_since_high_fast=0.0,
+        bars_since_high_slow=0.0,
+        bars_since_low_fast=0.0,
+        bars_since_low_slow=0.0,
+        bars_since_52w_high=0.0,
+        bars_since_52w_low=0.0,
+        bars_since_extreme_move_fast=0.0,
+        bars_since_extreme_move_slow=0.0,
+        bars_since_vol_spike_fast=0.0,
+        bars_since_vol_spike_slow=0.0,
+        abs_ret_autocorr_1=0.0,
         ctf_momentum=0.0,
         ctf_vwap_align=0.0,
         ctf_regime_align=0.0,
@@ -518,7 +531,8 @@ def test_vector_to_params_all_features_present() -> None:
     266's 36 SMC institutional-footprint columns (Phase 164 Plan 01), 258
     after migration 267's 41 swing/fib/trend/session structure columns
     (Phase 165 Plan 01), 268 after migration 287's 10 calendar cycle/TDOM/
-    minute + velocity columns (Phase 151 Plan 01)."""
+    minute + velocity columns (Phase 151 Plan 01), 279 after migration 288's
+    11 recency/statistical atomics columns (Phase 151 Plan 03)."""
     fv = _make_zero_vector()
     ts = datetime(2025, 1, 2, 14, 30, 0, tzinfo=UTC)
     params = _vector_to_params(
@@ -529,8 +543,8 @@ def test_vector_to_params_all_features_present() -> None:
         regime=None,
         fv=fv,
     )
-    # 1 content-key + 8 structural + 259 feature floats = 268 total
-    assert len(params) == 268, f"Expected 268 params, got {len(params)}"
+    # 1 content-key + 8 structural + 270 feature floats = 279 total
+    assert len(params) == 279, f"Expected 279 params, got {len(params)}"
 
 
 def test_vector_to_params_symbol_tf_ts() -> None:
