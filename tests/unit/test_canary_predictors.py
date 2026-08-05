@@ -141,6 +141,8 @@ def _make_config(**overrides) -> FeatureFactoryConfig:
         price_vol_corr_slow=30,
         momentum_velocity_window=20,
         vwap_velocity_window=20,
+        extreme_move_sigma_threshold=2.0,
+        vol_spike_threshold=2.0,
         canary_rng_seed=90042,
     )
     defaults.update(overrides)
@@ -198,9 +200,10 @@ class TestFeatureVectorCanaryFields:
         # (Phase 164 Plan 01, migration 266) = 208, +41 swing/fib/trend/session
         # structure fields (Phase 165 Plan 01, migration 267) = 249, +6
         # calendar cycle/TDOM/minute fields (Phase 151 Plan 01 Task 1) = 255,
-        # +4 velocity primitives (Phase 151 Plan 01 Task 2, added after this
-        # test was written) = 259.
-        assert total == 150 + 5 + 17 + 36 + 41 + 6 + 4
+        # +4 velocity primitives (Phase 151 Plan 01 Task 2) = 259, +11
+        # recency/statistical atomics (Phase 151 Plan 03, added after this
+        # test was written) = 270.
+        assert total == 150 + 5 + 17 + 36 + 41 + 6 + 4 + 11
 
 
 # ---------------------------------------------------------------------------
@@ -501,7 +504,7 @@ class TestFeatureFactoryIntegration:
         # (Phase 165 Plan 01, migration 267) = 249, +6 calendar cycle/TDOM/minute
         # fields (Phase 151 Plan 01 Task 1) = 255, +4 velocity primitives
         # (Phase 151 Plan 01 Task 2) = 259.
-        assert len(dataclasses.fields(fv)) == 259
+        assert len(dataclasses.fields(fv)) == 270
 
 
 # ---------------------------------------------------------------------------

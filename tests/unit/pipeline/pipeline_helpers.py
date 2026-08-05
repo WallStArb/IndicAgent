@@ -194,6 +194,8 @@ def make_agent() -> FeatureVectorPipeline:
         price_vol_corr_slow=30,
         momentum_velocity_window=20,
         vwap_velocity_window=20,
+        extreme_move_sigma_threshold=2.0,
+        vol_spike_threshold=2.0,
     )
     return agent
 

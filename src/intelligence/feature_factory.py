@@ -1,4 +1,4 @@
-"""FeatureFactory — pure-function library for computing all 259 FeatureVector primitives.
+"""FeatureFactory — pure-function library for computing all 270 FeatureVector primitives.
 
 STATELESS CONTRACT (D-08): FeatureFactory has no __init__ and stores no config.
 The FeatureFactoryConfig frozen dataclass is built ONCE by the caller
@@ -194,6 +194,18 @@ FEATURE_VECTOR_DOMAIN: dict[str, str] = {
     "momentum_z_velocity_mid": "quant",
     "momentum_z_velocity_slow": "quant",
     "vwap_dev_sigma_velocity": "quant",
+    # Recency / Statistical Atomics (Phase 151 Plan 03, todo 180)
+    "bars_since_high_fast": "quant",
+    "bars_since_high_slow": "quant",
+    "bars_since_low_fast": "quant",
+    "bars_since_low_slow": "quant",
+    "bars_since_52w_high": "quant",
+    "bars_since_52w_low": "quant",
+    "bars_since_extreme_move_fast": "quant",
+    "bars_since_extreme_move_slow": "quant",
+    "bars_since_vol_spike_fast": "quant",
+    "bars_since_vol_spike_slow": "quant",
+    "abs_ret_autocorr_1": "quant",
     # Cross-timeframe
     "ctf_momentum": "quant",
     "ctf_vwap_align": "quant",
@@ -459,6 +471,8 @@ class FeatureFactoryConfig:
         price_vol_corr_slow: APR feature.price_vol_corr.slow
         momentum_velocity_window: APR feature.momentum_velocity.window
         vwap_velocity_window: APR feature.vwap_velocity.window
+        extreme_move_sigma_threshold: APR feature.bars_since_extreme_move.sigma_threshold
+        vol_spike_threshold: APR feature.bars_since_vol_spike.threshold
         session_vp_value_area_pct: APR feature.session_vp.value_area_pct
         session_vp_n_buckets: APR feature.session_vp.n_buckets
         session_vp_hvn_threshold: APR feature.session_vp.hvn_threshold
@@ -635,6 +649,14 @@ class FeatureFactoryConfig:
     # semantically distinct families.
     momentum_velocity_window: int  # feature.momentum_velocity.window
     vwap_velocity_window: int  # feature.vwap_velocity.window
+    # Recency / Statistical Atomics (Phase 151 Plan 03, todo 180). The 2 event
+    # thresholds behind bars_since_extreme_move_*/bars_since_vol_spike_*.
+    # Non-defaulted (matching momentum_velocity_window/vwap_velocity_window's
+    # own precedent immediately above) -- both real production entrypoints
+    # AND every direct FeatureFactoryConfig(...) construction site are wired
+    # in this same plan.
+    extreme_move_sigma_threshold: float  # feature.bars_since_extreme_move.sigma_threshold
+    vol_spike_threshold: float  # feature.bars_since_vol_spike.threshold
     # Canary / Control Predictors (Phase 143.1 Plan 02, todo 068). Seed for
     # both noise canaries (Gaussian and Uniform draw independent sub-seeds
     # from this one base seed -- see _canary_sub_seed). Defaulted (unlike
@@ -2512,6 +2534,69 @@ def _sliding_rolling_min(arr: np.ndarray, window: int) -> np.ndarray:
     return out
 
 
+# ---------------------------------------------------------------------------
+# Recency / Statistical Atomics (Phase 151 Plan 03, todo 180)
+#
+# Event-recency axis: bars_since_* are BOUNDED rolling-window statistics in
+# [0, window-1] -- the binding design constraint from todo 180's Fable review
+# (151-RESEARCH.md Pattern 1). An expanding "bars since all-time high" is a
+# different, non-stationary statistic and is explicitly rejected; do not
+# reuse _ret_autocorr_series_full's expanding-window shape here.
+# ---------------------------------------------------------------------------
+
+
+def _bars_since_rolling_extreme_series_full(
+    values: np.ndarray, window: int, mode: str
+) -> np.ndarray:
+    """result[i] == bars elapsed since the maximum (mode="max") or minimum
+    (mode="min") of values[max(0, i-window+1):i+1] was last attained, as a
+    float in [0, window-1]. result[i] == 0.0 means the extreme is the current
+    bar. O(n) total via a monotonic deque of indices (each index enters and
+    leaves the deque at most once); on ties, the most recent occurrence is
+    treated as the current extreme.
+    """
+    n = len(values)
+    out = np.zeros(n, dtype=float)
+    if n == 0:
+        return out
+    dq: deque[int] = deque()
+    for i in range(n):
+        v = values[i]
+        if mode == "max":
+            while dq and values[dq[-1]] <= v:
+                dq.pop()
+        else:  # "min"
+            while dq and values[dq[-1]] >= v:
+                dq.pop()
+        dq.append(i)
+        while dq[0] <= i - window:
+            dq.popleft()
+        out[i] = float(i - dq[0])
+    return out
+
+
+def _bars_since_event_series_full(events: np.ndarray, window: int) -> np.ndarray:
+    """result[i] == bars elapsed since the most recent True in
+    events[max(0, i-window+1):i+1], as a float in [0, window-1].
+    result[i] == 0.0 means events[i] is True. When no event occurred inside
+    the trailing window, saturates to float(window-1) -- NOT 0.0 (which would
+    falsely assert "an event just happened") and NOT NaN. O(n) total via a
+    deque of True-event indices (each index enters and leaves at most once).
+    """
+    n = len(events)
+    out = np.full(n, float(window - 1), dtype=float)
+    if n == 0:
+        return out
+    dq: deque[int] = deque()
+    for i in range(n):
+        if events[i]:
+            dq.append(i)
+        while dq and dq[0] <= i - window:
+            dq.popleft()
+        out[i] = float(i - dq[-1]) if dq else float(window - 1)
+    return out
+
+
 def _dist_from_high_series_full(
     closes: np.ndarray, highs: np.ndarray, atr_padded: np.ndarray, window: int, eps: float = 1e-10
 ) -> np.ndarray:
@@ -2621,17 +2706,26 @@ def _ret_kurtosis_z_series_full(
     return np.concatenate([np.zeros(kurt_window, dtype=float), z])
 
 
-def _ret_autocorr_series_full(closes: np.ndarray, lag: int) -> np.ndarray:
+def _ret_autocorr_series_full(closes: np.ndarray, lag: int, use_abs: bool = False) -> np.ndarray:
     """Expanding-window lag-k Pearson autocorrelation of log returns, computed
     over ALL available history up to each bar. result[i] == streaming
     _ret_autocorr(closes[:i+1], lag). O(n) total via incremental running sums
     (one new pair added per bar, no window to re-sum).
+
+    use_abs=True (Phase 151 Plan 03, todo 180): computes the identical
+    construction over |log returns| instead of signed log returns --
+    volatility-clustering (return-MAGNITUDE autocorrelation) rather than the
+    directional autocorrelation the default (use_abs=False) callers
+    (ret_autocorr_1/ret_autocorr_5) measure. Existing use_abs=False callers
+    are byte-identical to the pre-refactor behavior.
     """
     n = len(closes)
     result = np.zeros(n, dtype=float)
     if n < 2:
         return result
     log_rets = np.diff(np.log(np.maximum(closes.astype(float), 1e-10)))
+    if use_abs:
+        log_rets = np.abs(log_rets)
     m = len(log_rets)
     if m < lag + 2:
         return result
@@ -3264,6 +3358,18 @@ class _PrecomputedSeries:
     momentum_z_velocity_mid: np.ndarray
     momentum_z_velocity_slow: np.ndarray
     vwap_dev_sigma_velocity: np.ndarray
+    # Recency / Statistical Atomics (Phase 151 Plan 03, todo 180)
+    bars_since_high_fast: np.ndarray
+    bars_since_high_slow: np.ndarray
+    bars_since_low_fast: np.ndarray
+    bars_since_low_slow: np.ndarray
+    bars_since_52w_high: np.ndarray
+    bars_since_52w_low: np.ndarray
+    bars_since_extreme_move_fast: np.ndarray
+    bars_since_extreme_move_slow: np.ndarray
+    bars_since_vol_spike_fast: np.ndarray
+    bars_since_vol_spike_slow: np.ndarray
+    abs_ret_autocorr_1: np.ndarray
 
 
 def _precompute_series(
@@ -3301,13 +3407,37 @@ def _precompute_series(
     )
     vwap_dev_sigma_arr = _vwap_dev_sigma_series_full(opens, highs, lows, closes, volumes)
 
+    # Captured as a local (Phase 151 Plan 03) so the vol-spike event
+    # indicators below can reuse it without recomputation -- same reuse
+    # discipline as momentum_z_*_arr/vwap_dev_sigma_arr above.
+    rel_volume_arr = _rel_volume_series_full(volumes, config.volume_zscore_window)
+
+    # Recency / Statistical Atomics (Phase 151 Plan 03, todo 180). The 4
+    # bars_since_extreme_move_*/bars_since_vol_spike_* series need an event
+    # indicator built first: abs_log_ret (zero-padded to length n, matching
+    # atr_padded's convention) for the extreme-move family, rel_volume_arr
+    # (already computed above) for the vol-spike family.
+    abs_log_ret_padded = np.concatenate(
+        [[0.0], np.abs(np.diff(np.log(np.maximum(closes.astype(float), 1e-10))))]
+    )
+    extreme_move_sigma_fast = _rolling_std_series(abs_log_ret_padded, config.dist_window_fast)
+    extreme_move_sigma_slow = _rolling_std_series(abs_log_ret_padded, config.dist_window_slow)
+    extreme_move_event_fast = abs_log_ret_padded > (
+        config.extreme_move_sigma_threshold * extreme_move_sigma_fast
+    )
+    extreme_move_event_slow = abs_log_ret_padded > (
+        config.extreme_move_sigma_threshold * extreme_move_sigma_slow
+    )
+    vol_spike_event_fast = rel_volume_arr > config.vol_spike_threshold
+    vol_spike_event_slow = rel_volume_arr > config.vol_spike_threshold
+
     return _PrecomputedSeries(
         atr_raw=atr_raw,
         atr_z=atr_z,
         gap_z=_gap_z_series_full(
             opens, highs, lows, closes, config.adx_period, config.momentum_zscore_window
         ),
-        rel_volume=_rel_volume_series_full(volumes, config.volume_zscore_window),
+        rel_volume=rel_volume_arr,
         ofi_z=_ofi_z_series_full(closes, highs, lows, volumes, config.ofi_zscore_window),
         cvd_slope_z=_cvd_slope_z_series_full(
             closes, highs, lows, volumes, config.cvd_slope_bars, config.ofi_zscore_window
@@ -3435,6 +3565,37 @@ def _precompute_series(
         vwap_dev_sigma_velocity=_vol_velocity_z_series_full(
             vwap_dev_sigma_arr, config.vwap_velocity_window
         ),
+        bars_since_high_fast=_bars_since_rolling_extreme_series_full(
+            highs, config.dist_window_fast, "max"
+        ),
+        bars_since_high_slow=_bars_since_rolling_extreme_series_full(
+            highs, config.dist_window_slow, "max"
+        ),
+        bars_since_low_fast=_bars_since_rolling_extreme_series_full(
+            lows, config.dist_window_fast, "min"
+        ),
+        bars_since_low_slow=_bars_since_rolling_extreme_series_full(
+            lows, config.dist_window_slow, "min"
+        ),
+        bars_since_52w_high=_bars_since_rolling_extreme_series_full(
+            highs, config.high_52w_window, "max"
+        ),
+        bars_since_52w_low=_bars_since_rolling_extreme_series_full(
+            lows, config.high_52w_window, "min"
+        ),
+        bars_since_extreme_move_fast=_bars_since_event_series_full(
+            extreme_move_event_fast, config.dist_window_fast
+        ),
+        bars_since_extreme_move_slow=_bars_since_event_series_full(
+            extreme_move_event_slow, config.dist_window_slow
+        ),
+        bars_since_vol_spike_fast=_bars_since_event_series_full(
+            vol_spike_event_fast, config.dist_window_fast
+        ),
+        bars_since_vol_spike_slow=_bars_since_event_series_full(
+            vol_spike_event_slow, config.dist_window_slow
+        ),
+        abs_ret_autocorr_1=_ret_autocorr_series_full(closes, 1, use_abs=True),
     )
 
 
@@ -5821,6 +5982,17 @@ def _build_feature_vector(
     momentum_z_velocity_mid: float,
     momentum_z_velocity_slow: float,
     vwap_dev_sigma_velocity: float,
+    bars_since_high_fast: float,
+    bars_since_high_slow: float,
+    bars_since_low_fast: float,
+    bars_since_low_slow: float,
+    bars_since_52w_high: float,
+    bars_since_52w_low: float,
+    bars_since_extreme_move_fast: float,
+    bars_since_extreme_move_slow: float,
+    bars_since_vol_spike_fast: float,
+    bars_since_vol_spike_slow: float,
+    abs_ret_autocorr_1: float,
     vol_body_product: float,
     ret_vol_product_fast: float,
     price_vol_corr_fast: float,
@@ -6088,6 +6260,17 @@ def _build_feature_vector(
         momentum_z_velocity_mid=_guard(momentum_z_velocity_mid, 0.0),
         momentum_z_velocity_slow=_guard(momentum_z_velocity_slow, 0.0),
         vwap_dev_sigma_velocity=_guard(vwap_dev_sigma_velocity, 0.0),
+        bars_since_high_fast=_guard(bars_since_high_fast, 0.0),
+        bars_since_high_slow=_guard(bars_since_high_slow, 0.0),
+        bars_since_low_fast=_guard(bars_since_low_fast, 0.0),
+        bars_since_low_slow=_guard(bars_since_low_slow, 0.0),
+        bars_since_52w_high=_guard(bars_since_52w_high, 0.0),
+        bars_since_52w_low=_guard(bars_since_52w_low, 0.0),
+        bars_since_extreme_move_fast=_guard(bars_since_extreme_move_fast, 0.0),
+        bars_since_extreme_move_slow=_guard(bars_since_extreme_move_slow, 0.0),
+        bars_since_vol_spike_fast=_guard(bars_since_vol_spike_fast, 0.0),
+        bars_since_vol_spike_slow=_guard(bars_since_vol_spike_slow, 0.0),
+        abs_ret_autocorr_1=_guard(abs_ret_autocorr_1, 0.0),
         vol_body_product=_guard(vol_body_product, 0.0),
         ret_vol_product_fast=_guard(ret_vol_product_fast, 0.0),
         price_vol_corr_fast=_guard(price_vol_corr_fast, 0.0),
@@ -6258,7 +6441,7 @@ class FeatureFactory:
         cache: FeatureCache,
         config: FeatureFactoryConfig,
     ) -> FeatureVector:
-        """Compute all 259 FeatureVector primitives from bars + cache + config.
+        """Compute all 270 FeatureVector primitives from bars + cache + config.
 
         PURE FUNCTION: no IO, no ConfigService.get(), no DB reads, no Kafka.
         All tunable numerics come from the config argument (SC-9).
@@ -6276,7 +6459,7 @@ class FeatureFactory:
 
         Returns
         -------
-        FeatureVector with all 259 fields populated -- most set to finite
+        FeatureVector with all 270 fields populated -- most set to finite
         floats, but 85 are `float | None` by design (41 Phase 165 Swing/Fib
         + 44 optional cross-sectional/canary/SMC placeholders); see the
         FeatureVector class docstring for the full breakdown.
@@ -6652,6 +6835,43 @@ class FeatureFactory:
             momentum_z_velocity_mid=_series_last(s.momentum_z_velocity_mid, 0.0),
             momentum_z_velocity_slow=_series_last(s.momentum_z_velocity_slow, 0.0),
             vwap_dev_sigma_velocity=_series_last(s.vwap_dev_sigma_velocity, 0.0),
+            # Recency / Statistical Atomics (Phase 151 Plan 03, todo 180) —
+            # read from the precomputed series built once above. Fallback is
+            # the saturating value float(window-1) for each field's own
+            # window, matching the no-event-in-window convention (never 0.0,
+            # which would falsely assert "the extreme/event is the current
+            # bar").
+            bars_since_high_fast=_series_last(
+                s.bars_since_high_fast, float(config.dist_window_fast - 1)
+            ),
+            bars_since_high_slow=_series_last(
+                s.bars_since_high_slow, float(config.dist_window_slow - 1)
+            ),
+            bars_since_low_fast=_series_last(
+                s.bars_since_low_fast, float(config.dist_window_fast - 1)
+            ),
+            bars_since_low_slow=_series_last(
+                s.bars_since_low_slow, float(config.dist_window_slow - 1)
+            ),
+            bars_since_52w_high=_series_last(
+                s.bars_since_52w_high, float(config.high_52w_window - 1)
+            ),
+            bars_since_52w_low=_series_last(
+                s.bars_since_52w_low, float(config.high_52w_window - 1)
+            ),
+            bars_since_extreme_move_fast=_series_last(
+                s.bars_since_extreme_move_fast, float(config.dist_window_fast - 1)
+            ),
+            bars_since_extreme_move_slow=_series_last(
+                s.bars_since_extreme_move_slow, float(config.dist_window_slow - 1)
+            ),
+            bars_since_vol_spike_fast=_series_last(
+                s.bars_since_vol_spike_fast, float(config.dist_window_fast - 1)
+            ),
+            bars_since_vol_spike_slow=_series_last(
+                s.bars_since_vol_spike_slow, float(config.dist_window_slow - 1)
+            ),
+            abs_ret_autocorr_1=_series_last(s.abs_ret_autocorr_1, 0.0),
             # Renaissance Primitives (Phase 142.5 Plan 05.5) — price-volume
             # interactions. 6 window-free combinators computed inline above
             # from already-captured parent scalars; the 2 rolling
@@ -7246,6 +7466,65 @@ class FeatureFactory:
                 float(s.vwap_dev_sigma_velocity[i]) if i < len(s.vwap_dev_sigma_velocity) else 0.0
             )
 
+            # Recency / Statistical Atomics (Phase 151 Plan 03, todo 180) —
+            # same precomputed-series indexing pattern as the velocity
+            # primitives above. Fallback is the saturating value
+            # float(window-1) for each field's own window, matching
+            # compute()'s _series_last fallback convention exactly.
+            bars_since_high_fast_val = (
+                float(s.bars_since_high_fast[i])
+                if i < len(s.bars_since_high_fast)
+                else float(config.dist_window_fast - 1)
+            )
+            bars_since_high_slow_val = (
+                float(s.bars_since_high_slow[i])
+                if i < len(s.bars_since_high_slow)
+                else float(config.dist_window_slow - 1)
+            )
+            bars_since_low_fast_val = (
+                float(s.bars_since_low_fast[i])
+                if i < len(s.bars_since_low_fast)
+                else float(config.dist_window_fast - 1)
+            )
+            bars_since_low_slow_val = (
+                float(s.bars_since_low_slow[i])
+                if i < len(s.bars_since_low_slow)
+                else float(config.dist_window_slow - 1)
+            )
+            bars_since_52w_high_val = (
+                float(s.bars_since_52w_high[i])
+                if i < len(s.bars_since_52w_high)
+                else float(config.high_52w_window - 1)
+            )
+            bars_since_52w_low_val = (
+                float(s.bars_since_52w_low[i])
+                if i < len(s.bars_since_52w_low)
+                else float(config.high_52w_window - 1)
+            )
+            bars_since_extreme_move_fast_val = (
+                float(s.bars_since_extreme_move_fast[i])
+                if i < len(s.bars_since_extreme_move_fast)
+                else float(config.dist_window_fast - 1)
+            )
+            bars_since_extreme_move_slow_val = (
+                float(s.bars_since_extreme_move_slow[i])
+                if i < len(s.bars_since_extreme_move_slow)
+                else float(config.dist_window_slow - 1)
+            )
+            bars_since_vol_spike_fast_val = (
+                float(s.bars_since_vol_spike_fast[i])
+                if i < len(s.bars_since_vol_spike_fast)
+                else float(config.dist_window_fast - 1)
+            )
+            bars_since_vol_spike_slow_val = (
+                float(s.bars_since_vol_spike_slow[i])
+                if i < len(s.bars_since_vol_spike_slow)
+                else float(config.dist_window_slow - 1)
+            )
+            abs_ret_autocorr_1_val = (
+                float(s.abs_ret_autocorr_1[i]) if i < len(s.abs_ret_autocorr_1) else 0.0
+            )
+
             # Renaissance Primitives (Phase 142.5 Plan 05.5) — price-volume
             # interactions. The 6 window-free combinators reuse already-
             # computed scalar locals (O(1) per bar); the 2 rolling
@@ -7424,6 +7703,17 @@ class FeatureFactory:
                 momentum_z_velocity_mid=momentum_z_velocity_mid_val,
                 momentum_z_velocity_slow=momentum_z_velocity_slow_val,
                 vwap_dev_sigma_velocity=vwap_dev_sigma_velocity_val,
+                bars_since_high_fast=bars_since_high_fast_val,
+                bars_since_high_slow=bars_since_high_slow_val,
+                bars_since_low_fast=bars_since_low_fast_val,
+                bars_since_low_slow=bars_since_low_slow_val,
+                bars_since_52w_high=bars_since_52w_high_val,
+                bars_since_52w_low=bars_since_52w_low_val,
+                bars_since_extreme_move_fast=bars_since_extreme_move_fast_val,
+                bars_since_extreme_move_slow=bars_since_extreme_move_slow_val,
+                bars_since_vol_spike_fast=bars_since_vol_spike_fast_val,
+                bars_since_vol_spike_slow=bars_since_vol_spike_slow_val,
+                abs_ret_autocorr_1=abs_ret_autocorr_1_val,
                 vol_body_product=vol_body_product_val,
                 ret_vol_product_fast=ret_vol_product_fast_val,
                 price_vol_corr_fast=price_vol_corr_fast_val,
@@ -7639,6 +7929,25 @@ def _cold_start_vector(cache: FeatureCache, tf: str) -> FeatureVector:
         momentum_z_velocity_mid=0.0,
         momentum_z_velocity_slow=0.0,
         vwap_dev_sigma_velocity=0.0,
+        # Phase 151 Plan 03: _cold_start_vector has no config parameter
+        # (called only when len(bars) < 2, same constraint documented at
+        # Phase 151 Plan 01's cold-start deviation above), so the true
+        # per-window saturating value (window-1) cannot be read from live
+        # APR here. Uses each field's seeded APR default window
+        # (dist_window_fast=20, dist_window_slow=50, high_52w_window=252)
+        # as a literal -- the same bare-literal convention every other field
+        # in this function already follows for the identical reason.
+        bars_since_high_fast=19.0,
+        bars_since_high_slow=49.0,
+        bars_since_low_fast=19.0,
+        bars_since_low_slow=49.0,
+        bars_since_52w_high=251.0,
+        bars_since_52w_low=251.0,
+        bars_since_extreme_move_fast=19.0,
+        bars_since_extreme_move_slow=49.0,
+        bars_since_vol_spike_fast=19.0,
+        bars_since_vol_spike_slow=49.0,
+        abs_ret_autocorr_1=0.0,
         vol_body_product=0.0,
         ret_vol_product_fast=0.0,
         price_vol_corr_fast=0.0,

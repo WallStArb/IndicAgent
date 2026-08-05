@@ -135,6 +135,8 @@ def _make_cfg(**overrides) -> FeatureFactoryConfig:
         price_vol_corr_slow=30,
         momentum_velocity_window=20,
         vwap_velocity_window=20,
+        extreme_move_sigma_threshold=2.0,
+        vol_spike_threshold=2.0,
     )
     defaults.update(overrides)
     return FeatureFactoryConfig(**defaults)
@@ -430,7 +432,7 @@ def test_feature_vector_domain_complete():
     + 41 swing/fib/trend/session structure fields (Phase 165 Plan 01,
     migration 267) = 249."""
     fv_fields = {f.name for f in dataclasses.fields(FeatureVector)}
-    assert len(FEATURE_VECTOR_DOMAIN) == 259
+    assert len(FEATURE_VECTOR_DOMAIN) == 270
     assert set(FEATURE_VECTOR_DOMAIN.keys()) == fv_fields
 
 

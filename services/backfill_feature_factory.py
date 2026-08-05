@@ -556,6 +556,10 @@ def _build_feature_factory_config(cfg: ConfigService) -> FeatureFactoryConfig:
         price_vol_corr_slow=int(cfg.get_sync("feature.price_vol_corr.slow", 30)),
         momentum_velocity_window=int(cfg.get_sync("feature.momentum_velocity.window", 14)),
         vwap_velocity_window=int(cfg.get_sync("feature.vwap_velocity.window", 14)),
+        extreme_move_sigma_threshold=float(
+            cfg.get_sync("feature.bars_since_extreme_move.sigma_threshold", 2.0)
+        ),
+        vol_spike_threshold=float(cfg.get_sync("feature.bars_since_vol_spike.threshold", 2.0)),
         canary_rng_seed=int(cfg.get_sync("alpha.ic.canary_rng_seed", 90042)),
         session_vp_value_area_pct=float(cfg.get_sync("feature.session_vp.value_area_pct", 0.70)),
         session_vp_n_buckets=int(cfg.get_sync("feature.session_vp.n_buckets", 50)),

@@ -365,9 +365,180 @@ class TestPhase151BatchLiveParity:
             "momentum_z_velocity_mid",
             "momentum_z_velocity_slow",
             "vwap_dev_sigma_velocity",
+            # Phase 151 Plan 03: recency/statistical atomics -- extends this
+            # same parity harness rather than duplicating it.
+            "bars_since_high_fast",
+            "bars_since_high_slow",
+            "bars_since_low_fast",
+            "bars_since_low_slow",
+            "bars_since_52w_high",
+            "bars_since_52w_low",
+            "bars_since_extreme_move_fast",
+            "bars_since_extreme_move_slow",
+            "bars_since_vol_spike_fast",
+            "bars_since_vol_spike_slow",
+            "abs_ret_autocorr_1",
         ):
             live_val = getattr(live_fv, field)
             batch_val = getattr(batch_fv_last, field)
             assert live_val == pytest.approx(
                 batch_val, abs=1e-8
             ), f"{field}: live={live_val} batch={batch_val}"
+
+
+# ---------------------------------------------------------------------------
+# Phase 151 Plan 03: recency/statistical atomics (todo 180)
+# ---------------------------------------------------------------------------
+
+
+class TestBarsSinceRollingExtremeSeriesFull:
+    """_bars_since_rolling_extreme_series_full: bounded [0, window-1]
+    rolling-window recency statistic (never an expanding lookback -- the
+    binding design constraint from todo 180's Fable review)."""
+
+    def test_boundedness_randomized(self) -> None:
+        from src.intelligence.feature_factory import (
+            _bars_since_rolling_extreme_series_full,
+        )
+
+        rng = np.random.default_rng(3)
+        highs, lows, _closes = _make_bars(500, seed=3)
+        for window in (10, 20, 50):
+            out_max = _bars_since_rolling_extreme_series_full(highs, window, "max")
+            out_min = _bars_since_rolling_extreme_series_full(lows, window, "min")
+            assert np.all(out_max >= 0) and np.all(
+                out_max <= window - 1
+            ), f"window={window} max out of bounds: min={out_max.min()} max={out_max.max()}"
+            assert np.all(out_min >= 0) and np.all(
+                out_min <= window - 1
+            ), f"window={window} min out of bounds: min={out_min.min()} max={out_min.max()}"
+
+    def test_saturation_strictly_decreasing(self) -> None:
+        """A strictly-decreasing series never re-attains its earlier max inside
+        the window -- the final bar must saturate to exactly window-1."""
+        from src.intelligence.feature_factory import (
+            _bars_since_rolling_extreme_series_full,
+        )
+
+        window = 20
+        values = np.arange(200.0, 0.0, -1.0)  # strictly decreasing, len > window
+        out = _bars_since_rolling_extreme_series_full(values, window, "max")
+        assert out[-1] == float(window - 1)
+
+    def test_recency_semantics_max_at_current_bar_is_zero(self) -> None:
+        from src.intelligence.feature_factory import (
+            _bars_since_rolling_extreme_series_full,
+        )
+
+        values = np.arange(1.0, 101.0)  # strictly increasing -> max always current bar
+        out = _bars_since_rolling_extreme_series_full(values, 20, "max")
+        assert np.all(out == 0.0)
+
+    def test_recency_semantics_one_bar_later_is_one(self) -> None:
+        """A series whose max is the second-to-last bar, then one lower final
+        bar, must read 1.0 at the final bar (one bar since the extreme)."""
+        from src.intelligence.feature_factory import (
+            _bars_since_rolling_extreme_series_full,
+        )
+
+        values = np.concatenate([np.arange(1.0, 51.0), [49.5]])
+        out = _bars_since_rolling_extreme_series_full(values, 20, "max")
+        assert out[-1] == 1.0
+
+
+class TestBarsSinceEventSeriesFull:
+    """_bars_since_event_series_full: bounded [0, window-1] bars-since-most-
+    recent-True, saturating to window-1 (never 0.0/NaN) when no event
+    occurred inside the trailing window."""
+
+    def test_boundedness_randomized(self) -> None:
+        from src.intelligence.feature_factory import _bars_since_event_series_full
+
+        rng = np.random.default_rng(11)
+        events = rng.random(500) > 0.85
+        for window in (10, 20, 50):
+            out = _bars_since_event_series_full(events, window)
+            assert np.all(out >= 0) and np.all(
+                out <= window - 1
+            ), f"window={window} out of bounds: min={out.min()} max={out.max()}"
+
+    def test_saturation_no_event_in_window(self) -> None:
+        window = 10
+        from src.intelligence.feature_factory import _bars_since_event_series_full
+
+        events = np.zeros(50, dtype=bool)  # never fires
+        out = _bars_since_event_series_full(events, window)
+        assert np.all(out == float(window - 1))
+
+    def test_recency_semantics(self) -> None:
+        from src.intelligence.feature_factory import _bars_since_event_series_full
+
+        events = np.zeros(30, dtype=bool)
+        events[10] = True
+        out = _bars_since_event_series_full(events, window=15)
+        assert out[10] == 0.0, "event bar itself must read 0.0"
+        assert out[11] == 1.0, "one bar after the event must read 1.0"
+
+
+class TestAbsRetAutocorrSeriesFull:
+    """abs_ret_autocorr_1 = _ret_autocorr_series_full(closes, 1, use_abs=True):
+    volatility-clustering (return-MAGNITUDE autocorrelation), distinct from
+    the signed ret_autocorr_1."""
+
+    def test_existing_signed_callers_are_byte_identical(self) -> None:
+        """The use_abs refactor must not change ret_autocorr_1/5's existing
+        output (use_abs=False default) to 1e-12."""
+        from src.intelligence.feature_factory import _ret_autocorr_series_full
+
+        rng = np.random.default_rng(21)
+        closes = 100.0 * np.cumprod(1 + rng.normal(0, 0.01, 300))
+        for lag in (1, 5):
+            explicit = _ret_autocorr_series_full(closes, lag, use_abs=False)
+            default = _ret_autocorr_series_full(closes, lag)
+            np.testing.assert_allclose(explicit, default, atol=1e-12, rtol=0)
+
+    def test_clustered_large_moves_yield_positive_sign(self) -> None:
+        """Alternating small/large-magnitude blocks (volatility clustering)
+        must yield a positive abs_ret_autocorr_1 -- large moves follow large
+        moves, small moves follow small moves."""
+        from src.intelligence.feature_factory import _ret_autocorr_series_full
+
+        # Blocks of 20 small returns then 20 large returns, repeated -- the
+        # |return| series is strongly positively autocorrelated at lag 1.
+        rng = np.random.default_rng(5)
+        n_blocks = 10
+        block = 20
+        rets = []
+        for i in range(n_blocks):
+            scale = 0.001 if i % 2 == 0 else 0.05
+            rets.append(rng.normal(0, scale, block))
+        rets_arr = np.concatenate(rets)
+        closes = 100.0 * np.cumprod(1 + rets_arr)
+        result = _ret_autocorr_series_full(closes, 1, use_abs=True)
+        assert result[-1] > 0.0, f"Expected positive clustering signal, got {result[-1]}"
+
+    def test_alternating_magnitude_yields_negative_sign(self) -> None:
+        """A perfectly alternating small/large/small/large |return| sequence
+        must yield a negative abs_ret_autocorr_1."""
+        from src.intelligence.feature_factory import _ret_autocorr_series_full
+
+        n = 100
+        signs = np.array([1.0 if i % 2 == 0 else -1.0 for i in range(n)])
+        rng = np.random.default_rng(9)
+        rets = np.where(
+            np.arange(n) % 2 == 0,
+            0.001 * signs * (1 + rng.normal(0, 0.05, n)),
+            0.05 * signs * (1 + rng.normal(0, 0.05, n)),
+        )
+        closes = 100.0 * np.cumprod(1 + rets)
+        result = _ret_autocorr_series_full(closes, 1, use_abs=True)
+        assert result[-1] < 0.0, f"Expected negative alternating signal, got {result[-1]}"
+
+    def test_bounded_signed(self) -> None:
+        from src.intelligence.feature_factory import _ret_autocorr_series_full
+
+        rng = np.random.default_rng(31)
+        closes = 100.0 * np.cumprod(1 + rng.normal(0, 0.01, 400))
+        result = _ret_autocorr_series_full(closes, 1, use_abs=True)
+        finite = result[np.isfinite(result)]
+        assert np.all(finite >= -1.0 - 1e-9) and np.all(finite <= 1.0 + 1e-9)
