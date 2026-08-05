@@ -295,7 +295,7 @@ def test_record_to_insert_params_returns_159_tuple():
     structural VP/SR columns (Phase 163 Plan 01); 217 after migration 266's 36
     SMC institutional-footprint columns (Phase 164 Plan 01); 258 after
     migration 267's 41 swing/fib/trend/session structure columns (Phase 165
-    Plan 01); 268 after migration 286's 10 calendar cycle/TDOM/minute +
+    Plan 01); 268 after migration 287's 10 calendar cycle/TDOM/minute +
     velocity columns (Phase 151 Plan 01)."""
     from services.feature_vector_writer import _record_to_insert_params
 
@@ -409,7 +409,7 @@ def test_parse_payload_valid_record_returns_159_param_tuple():
     255's 17 structural VP/SR columns (Phase 163 Plan 01); 217 after migration
     266's 36 SMC institutional-footprint columns (Phase 164 Plan 01); 258
     after migration 267's 41 swing/fib/trend/session structure columns
-    (Phase 165 Plan 01); 268 after migration 286's 10 calendar cycle/TDOM/
+    (Phase 165 Plan 01); 268 after migration 287's 10 calendar cycle/TDOM/
     minute + velocity columns (Phase 151 Plan 01)."""
     from services.feature_vector_writer import FeatureVectorWriter
 
@@ -579,7 +579,7 @@ def test_insert_sql_has_159_placeholders():
     structural VP/SR columns (Phase 163 Plan 01); 217 after migration 266's 36
     SMC institutional-footprint columns (Phase 164 Plan 01); 258 after
     migration 267's 41 swing/fib/trend/session structure columns (Phase 165
-    Plan 01); 268 after migration 286's 10 calendar cycle/TDOM/minute +
+    Plan 01); 268 after migration 287's 10 calendar cycle/TDOM/minute +
     velocity columns (Phase 151 Plan 01)."""
     import re
 

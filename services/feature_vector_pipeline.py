@@ -754,7 +754,7 @@ class FeatureVectorPipeline(BaseDaemon):
         ("feature.intraday_noise.window", 20),
         ("feature.price_vol_corr.fast", 10),
         ("feature.price_vol_corr.slow", 30),
-        # --- migration 286: Phase 151 Plan 01 Task 2 velocity primitives ---
+        # --- migration 287: Phase 151 Plan 01 Task 2 velocity primitives ---
         ("feature.momentum_velocity.window", 14),
         ("feature.vwap_velocity.window", 14),
         ("alpha.ic.canary_rng_seed", 90042),

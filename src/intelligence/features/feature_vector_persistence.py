@@ -71,7 +71,7 @@ established append-only convention). All 41 values are None placeholders in
 this plan -- Plans 02-04 wire real compute logic in without touching this
 file's column wiring again.
 
-2026-08-05: extended to 268 columns (migration 286, Phase 151 Plan 01). 10
+2026-08-05: extended to 268 columns (migration 287, Phase 151 Plan 01). 10
 new fields -- 6 calendar cycle/TDOM/minute coordinates (Task 1) + 4 velocity
 primitives (Task 2, first-difference-then-re-z-scored construction of an
 already-computed z-score series) -- added to FeatureVector as ONE contiguous
@@ -180,7 +180,7 @@ _SWING_FIB_TREND_FIELD_NAMES: tuple[str, ...] = _ALL_FEATURE_VECTOR_FIELD_NAMES[
     + 1
 ]
 
-# The 10 new Phase 151 Plan 01 fields (migration 286) are a sixth contiguous,
+# The 10 new Phase 151 Plan 01 fields (migration 287) are a sixth contiguous,
 # same-order slice -- 6 calendar cycle/TDOM/minute coordinates (Task 1)
 # immediately followed by 4 velocity primitives (Task 2), declared as ONE
 # contiguous run in schemas.py specifically so this single index-range slice
@@ -234,10 +234,10 @@ def validate_feature_vector(vector: FeatureVector) -> list[str]:
 # predictors, $165-$181 migration-255 structural VP/SR fields (Phase 163
 # Plan 01), $182-$217 migration-266 SMC institutional-footprint fields
 # (Phase 164 Plan 01), $218-$258 migration-267 swing/fib/trend/session
-# structure fields (Phase 165 Plan 01), $259-$268 migration-286 calendar
+# structure fields (Phase 165 Plan 01), $259-$268 migration-287 calendar
 # cycle/TDOM/minute + velocity fields (Phase 151 Plan 01, see module
 # docstring).
-# Column order is binding — matches migration 159/206/223/255/266/267/286 column definition order.
+# Column order is binding — matches migration 159/206/223/255/266/267/287 column definition order.
 _STRUCTURAL_PREFIX_COLUMN_NAMES: tuple[str, ...] = (
     "feature_vector_id",
     "symbol",
@@ -510,7 +510,7 @@ def feature_vector_to_insert_params(
                  order — all None placeholders until Plans 02-04 wire real
                  compute logic
       $259-$268: 10 calendar cycle/TDOM/minute + velocity fields (migration
-                 286, Phase 151 Plan 01) in dataclasses.fields(FeatureVector)
+                 287, Phase 151 Plan 01) in dataclasses.fields(FeatureVector)
                  order — all real computed floats from day one
 
     Args:
@@ -661,7 +661,7 @@ def feature_vector_to_insert_params(
         # after the SMC fields (module docstring). All None until Plans 02-04
         # wire real compute logic in.
         *(getattr(vector, name) for name in _SWING_FIB_TREND_FIELD_NAMES),
-        # Calendar cycle/TDOM/minute + velocity fields (migration 286, Phase
+        # Calendar cycle/TDOM/minute + velocity fields (migration 287, Phase
         # 151 Plan 01) — same derive-by-name discipline, appended immediately
         # after the Swing/Fib/Trend/Session Structure fields (module
         # docstring). All real computed floats from day one.

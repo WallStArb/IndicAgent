@@ -517,7 +517,7 @@ def test_vector_to_params_all_features_present() -> None:
     255's 17 structural VP/SR columns (Phase 163 Plan 01), 217 after migration
     266's 36 SMC institutional-footprint columns (Phase 164 Plan 01), 258
     after migration 267's 41 swing/fib/trend/session structure columns
-    (Phase 165 Plan 01), 268 after migration 286's 10 calendar cycle/TDOM/
+    (Phase 165 Plan 01), 268 after migration 287's 10 calendar cycle/TDOM/
     minute + velocity columns (Phase 151 Plan 01)."""
     fv = _make_zero_vector()
     ts = datetime(2025, 1, 2, 14, 30, 0, tzinfo=UTC)
