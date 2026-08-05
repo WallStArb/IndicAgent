@@ -115,6 +115,20 @@ floats/None from day one (the 3 divergences None where the tf pair is
 undefined or, for ret_div_1m_5m, where 1m OHLCV coverage is absent -- both
 event flags real computed floats on both live and batch paths).
 
+2026-08-05: extended to 301 columns (migration 291, Phase 151 Plan 06). 10 new
+Theory-Motivated Interaction fields -- momentum_vol_regime_product,
+momentum_trend_product, breakout_volume_product, reversion_hurst_product,
+quarter_momentum_product, variance_ratio_momentum_product,
+illiquidity_momentum_product, yield_slope_momentum_product,
+vix_reversion_product, efficiency_volume_product -- 10 curated compound
+features, each a single product of two tier-0 columns with a stated
+finance-theory hypothesis, added to FeatureVector as ONE contiguous block
+immediately after Plan 05's quad_witching_flag field. Same derive-by-name
+discipline via a new _PHASE151_THEORY_INTERACTION_FIELD_NAMES slice, appended
+at the end of the column list. All 10 values are real computed floats from
+day one on both live and batch paths (non-nullable; every parent is always
+computed, defaulting to 0.0 at cold start, so the product is always defined).
+
 Ring 1: imports FeatureVector from src.intelligence.schemas.
 Do not import from Ring 2 (services/) or Ring 3 (api/, production/).
 """
@@ -268,6 +282,19 @@ _PHASE151_INTERACTION_NAMED_FIELD_NAMES: tuple[str, ...] = _ALL_FEATURE_VECTOR_F
     + 1
 ]
 
+# The 10 new Phase 151 Plan 06 fields (migration 291) are a tenth contiguous,
+# same-order slice -- the 10 Theory-Motivated Interaction compounds
+# (momentum_vol_regime_product through efficiency_volume_product), declared
+# as ONE contiguous run in schemas.py immediately after Plan 05's
+# quad_witching_flag field. Same derive-don't-hand-type discipline as the
+# nine slices above; appended at the end of the column list below.
+_PHASE151_THEORY_INTERACTION_FIELD_NAMES: tuple[str, ...] = _ALL_FEATURE_VECTOR_FIELD_NAMES[
+    _ALL_FEATURE_VECTOR_FIELD_NAMES.index(
+        "momentum_vol_regime_product"
+    ) : _ALL_FEATURE_VECTOR_FIELD_NAMES.index("efficiency_volume_product")
+    + 1
+]
+
 
 def _compute_bar_close_ts(bar_ts: datetime, tf: str) -> datetime:
     """Compute bar close timestamp from bar open timestamp and timeframe.
@@ -302,7 +329,7 @@ def validate_feature_vector(vector: FeatureVector) -> list[str]:
 
 # ── Canonical INSERT/UPSERT SQL ───────────────────────────────────────────────
 
-# 291 columns (as of 2026-08-05): $1 content-key, $2-$8 structural, $9-$62
+# 301 columns (as of 2026-08-05): $1 content-key, $2-$8 structural, $9-$62
 # original feature floats, $63-$70 migration-159 additions, $71-$159
 # migration-206 Renaissance primitives (2026-07-08 fix, then reduced from 91
 # to 89 primitives 2026-07-09), $160-$164 migration-223 canary/control
@@ -314,8 +341,9 @@ def validate_feature_vector(vector: FeatureVector) -> list[str]:
 # migration-288 recency/statistical atomics fields (Phase 151 Plan 03),
 # $280-$286 migration-289 cross-asset spread/beta atomics fields (Phase 151
 # Plan 04), $287-$291 migration-290 Named Interaction Primitives fields
-# (Phase 151 Plan 05, see module docstring).
-# Column order is binding — matches migration 159/206/223/255/266/267/287/288/289/290 column definition order.
+# (Phase 151 Plan 05), $292-$301 migration-291 Theory-Motivated Interaction
+# fields (Phase 151 Plan 06, see module docstring).
+# Column order is binding — matches migration 159/206/223/255/266/267/287/288/289/290/291 column definition order.
 _STRUCTURAL_PREFIX_COLUMN_NAMES: tuple[str, ...] = (
     "feature_vector_id",
     "symbol",
@@ -403,6 +431,7 @@ _ALL_COLUMN_NAMES: tuple[str, ...] = (
     + _PHASE151_RECENCY_FIELD_NAMES
     + _PHASE151_CROSS_ASSET_FIELD_NAMES
     + _PHASE151_INTERACTION_NAMED_FIELD_NAMES
+    + _PHASE151_THEORY_INTERACTION_FIELD_NAMES
 )
 _TOTAL_COLUMNS = len(_ALL_COLUMN_NAMES)
 
@@ -564,7 +593,7 @@ def feature_vector_to_insert_params(
     regime_label_source: str,
     vector: FeatureVector,
 ) -> tuple:
-    """Serialize a FeatureVector to the canonical 291-element INSERT tuple.
+    """Serialize a FeatureVector to the canonical 301-element INSERT tuple.
 
     Column order matches FEATURE_VECTOR_INSERT_SQL exactly:
       $1:        feature_vector_id (content-key UUID)
@@ -602,6 +631,10 @@ def feature_vector_to_insert_params(
       $287-$291: 5 Named Interaction Primitives fields (migration 290, Phase
                  151 Plan 05) in dataclasses.fields(FeatureVector) order —
                  all real computed floats/None from day one
+      $292-$301: 10 Theory-Motivated Interaction fields (migration 291,
+                 Phase 151 Plan 06) in dataclasses.fields(FeatureVector)
+                 order — all real computed floats from day one on both live
+                 and batch paths
 
     Args:
         symbol: Instrument symbol (e.g. 'SPY').
@@ -618,7 +651,7 @@ def feature_vector_to_insert_params(
         vector: Fully-populated FeatureVector from FeatureFactory.compute().
 
     Returns:
-        291-element tuple for use with asyncpg or psycopg executemany().
+        301-element tuple for use with asyncpg or psycopg executemany().
         Compatible with both drivers — asyncpg and psycopg handle uuid.UUID
         and datetime natively.
 
@@ -771,4 +804,9 @@ def feature_vector_to_insert_params(
         # the cross-asset spread/beta fields (module docstring). All real
         # computed floats/None from day one.
         *(getattr(vector, name) for name in _PHASE151_INTERACTION_NAMED_FIELD_NAMES),
+        # Theory-Motivated Interaction fields (migration 291, Phase 151 Plan
+        # 06) — same derive-by-name discipline, appended immediately after
+        # the Named Interaction Primitives fields (module docstring). All
+        # real computed floats from day one on both live and batch paths.
+        *(getattr(vector, name) for name in _PHASE151_THEORY_INTERACTION_FIELD_NAMES),
     )

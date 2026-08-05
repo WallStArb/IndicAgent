@@ -19,7 +19,9 @@ fields); migration 289 (Phase 151 Plan 04) extended it to 286 (7 cross-asset
 spread/beta atomics columns, appended after the recency/statistical atomics
 fields); migration 290 (Phase 151 Plan 05) extended it to 291 (5 Named
 Interaction Primitives columns, appended after the cross-asset spread/beta
-fields):
+fields); migration 291 (Phase 151 Plan 06) extended it to 301 (10
+Theory-Motivated Interaction columns, appended after the Named Interaction
+Primitives fields):
 
   $1   (params[0])   -> feature_vector_id       UUID (content-key)
   $2   (params[1])   -> symbol                  str
@@ -163,13 +165,27 @@ def _make_sentinel_record():
         equity_beta_z=62.17,
         rate_beta_z=62.18,
         # Named Interaction Primitives (Phase 151 Plan 05) — wired into the
-        # persisted tuple by migration 290; appended at the true tail of the
-        # tuple.
+        # persisted tuple by migration 290; no longer the true tail as of
+        # migration 291 (Phase 151 Plan 06) -- see the Theory-Motivated
+        # Interactions block immediately below.
         ret_div_1m_5m=63.01,
         ret_div_5m_1h=63.02,
         ret_div_1h_1d=63.03,
         opex_flag=63.04,
         quad_witching_flag=63.05,
+        # Theory-Motivated Interactions (Phase 151 Plan 06) — wired into the
+        # persisted tuple by migration 291; appended at the true tail of the
+        # tuple.
+        momentum_vol_regime_product=64.01,
+        momentum_trend_product=64.02,
+        breakout_volume_product=64.03,
+        reversion_hurst_product=64.04,
+        quarter_momentum_product=64.05,
+        variance_ratio_momentum_product=64.06,
+        illiquidity_momentum_product=64.07,
+        yield_slope_momentum_product=64.08,
+        vix_reversion_product=64.09,
+        efficiency_volume_product=64.10,
         ctf_momentum=48.48,
         ctf_vwap_align=49.49,
         ctf_regime_align=50.50,
@@ -337,7 +353,7 @@ def _make_sentinel_record():
 
 
 def test_params_length_is_159():
-    """_record_to_insert_params must return exactly 291 elements (159 post migration
+    """_record_to_insert_params must return exactly 301 elements (159 post migration
     211's new_high_flag/new_low_flag drop, 164 after migration 223's 5 canary
     columns, 181 after migration 255's 17 structural VP/SR columns, 217 after
     migration 266's 36 SMC institutional-footprint columns, 258 after
@@ -345,14 +361,15 @@ def test_params_length_is_159():
     migration 287's 10 calendar cycle/TDOM/minute + velocity columns, 279
     after migration 288's 11 recency/statistical atomics columns, 286 after
     migration 289's 7 cross-asset spread/beta atomics columns, 291 after
-    migration 290's 5 Named Interaction Primitives columns — see
+    migration 290's 5 Named Interaction Primitives columns, 301 after
+    migration 291's 10 Theory-Motivated Interaction columns — see
     feature_vector_persistence.py docstring)."""
     from services.feature_vector_writer import _record_to_insert_params
 
     record = _make_sentinel_record()
     params = _record_to_insert_params(record)
 
-    assert len(params) == 291, f"Expected 291, got {len(params)}"
+    assert len(params) == 301, f"Expected 301, got {len(params)}"
 
 
 def test_feature_vector_id_at_index_0():
@@ -575,7 +592,7 @@ def test_sr_level_count_at_index_180_is_last_element():
     record = _make_sentinel_record()
     params = _record_to_insert_params(record)
 
-    assert len(params) == 291
+    assert len(params) == 301
     assert params[180] == pytest.approx(61.17), f"$181 (sr_level_count) wrong: {params[180]}"
 
 
@@ -594,7 +611,7 @@ def test_manip_strength_at_index_216_is_last_element():
     record = _make_sentinel_record()
     params = _record_to_insert_params(record)
 
-    assert len(params) == 291
+    assert len(params) == 301
     assert params[216] is None, f"$217 (manip_strength) wrong: {params[216]}"
 
 
@@ -613,7 +630,7 @@ def test_gap_filled_at_index_257():
     record = _make_sentinel_record()
     params = _record_to_insert_params(record)
 
-    assert len(params) == 291
+    assert len(params) == 301
     assert params[257] is None, f"$258 (gap_filled) wrong: {params[257]}"
 
 
@@ -631,7 +648,7 @@ def test_vwap_dev_sigma_velocity_at_index_267():
     record = _make_sentinel_record()
     params = _record_to_insert_params(record)
 
-    assert len(params) == 291
+    assert len(params) == 301
     assert params[267] == pytest.approx(
         47.59
     ), f"$268 (vwap_dev_sigma_velocity) wrong: {params[267]}"
@@ -650,7 +667,7 @@ def test_abs_ret_autocorr_1_at_index_278():
     record = _make_sentinel_record()
     params = _record_to_insert_params(record)
 
-    assert len(params) == 291
+    assert len(params) == 301
     assert params[278] == pytest.approx(62.11), f"$279 (abs_ret_autocorr_1) wrong: {params[278]}"
 
 
@@ -668,25 +685,70 @@ def test_rate_beta_z_at_index_285():
     record = _make_sentinel_record()
     params = _record_to_insert_params(record)
 
-    assert len(params) == 291
+    assert len(params) == 301
     assert params[279] == pytest.approx(62.12), f"$280 (tip_tlt_ret_z) wrong: {params[279]}"
     assert params[285] == pytest.approx(62.18), f"$286 (rate_beta_z) wrong: {params[285]}"
 
 
-def test_quad_witching_flag_at_index_290_is_last_element():
+def test_quad_witching_flag_at_index_290():
     """params[290] ($291) must be quad_witching_flag sentinel value 63.05 --
-    the new final column, appended after the cross-asset spread/beta fields
-    by migration 290's 5 Named Interaction Primitives columns (Phase 151
-    Plan 05)."""
+    the final column of the pre-Phase-151-Plan-06 contract, appended after
+    the cross-asset spread/beta fields by migration 290's 5 Named
+    Interaction Primitives columns (Phase 151 Plan 05). No longer the true
+    last element as of migration 291 (Phase 151 Plan 06) -- 10
+    Theory-Motivated Interaction columns are appended after it; see
+    test_efficiency_volume_product_at_index_300_is_last_element below for
+    the current tail."""
     from services.feature_vector_writer import _record_to_insert_params
 
     record = _make_sentinel_record()
     params = _record_to_insert_params(record)
 
-    assert len(params) == 291
+    assert len(params) == 301
     assert params[286] == pytest.approx(63.01), f"$287 (ret_div_1m_5m) wrong: {params[286]}"
     assert params[287] == pytest.approx(63.02), f"$288 (ret_div_5m_1h) wrong: {params[287]}"
     assert params[288] == pytest.approx(63.03), f"$289 (ret_div_1h_1d) wrong: {params[288]}"
     assert params[289] == pytest.approx(63.04), f"$290 (opex_flag) wrong: {params[289]}"
     assert params[290] == pytest.approx(63.05), f"$291 (quad_witching_flag) wrong: {params[290]}"
-    assert params[290] == params[-1], "quad_witching_flag must be the true last element"
+
+
+def test_efficiency_volume_product_at_index_300_is_last_element():
+    """params[300] ($301) must be efficiency_volume_product sentinel value
+    64.10 -- the new final column, appended after the Named Interaction
+    Primitives fields by migration 291's 10 Theory-Motivated Interaction
+    columns (Phase 151 Plan 06)."""
+    from services.feature_vector_writer import _record_to_insert_params
+
+    record = _make_sentinel_record()
+    params = _record_to_insert_params(record)
+
+    assert len(params) == 301
+    assert params[291] == pytest.approx(
+        64.01
+    ), f"$292 (momentum_vol_regime_product) wrong: {params[291]}"
+    assert params[292] == pytest.approx(
+        64.02
+    ), f"$293 (momentum_trend_product) wrong: {params[292]}"
+    assert params[293] == pytest.approx(
+        64.03
+    ), f"$294 (breakout_volume_product) wrong: {params[293]}"
+    assert params[294] == pytest.approx(
+        64.04
+    ), f"$295 (reversion_hurst_product) wrong: {params[294]}"
+    assert params[295] == pytest.approx(
+        64.05
+    ), f"$296 (quarter_momentum_product) wrong: {params[295]}"
+    assert params[296] == pytest.approx(
+        64.06
+    ), f"$297 (variance_ratio_momentum_product) wrong: {params[296]}"
+    assert params[297] == pytest.approx(
+        64.07
+    ), f"$298 (illiquidity_momentum_product) wrong: {params[297]}"
+    assert params[298] == pytest.approx(
+        64.08
+    ), f"$299 (yield_slope_momentum_product) wrong: {params[298]}"
+    assert params[299] == pytest.approx(64.09), f"$300 (vix_reversion_product) wrong: {params[299]}"
+    assert params[300] == pytest.approx(
+        64.10
+    ), f"$301 (efficiency_volume_product) wrong: {params[300]}"
+    assert params[300] == params[-1], "efficiency_volume_product must be the true last element"

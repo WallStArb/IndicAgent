@@ -710,6 +710,16 @@ def test_build_feature_vector_guards_nan():
         up_vol_body_diff=0.0,
         ret_vol_ratio_fast=0.0,
         vol_skew_product=0.0,
+        momentum_vol_regime_product=0.0,
+        momentum_trend_product=0.0,
+        breakout_volume_product=0.0,
+        reversion_hurst_product=0.0,
+        quarter_momentum_product=0.0,
+        variance_ratio_momentum_product=0.0,
+        illiquidity_momentum_product=0.0,
+        yield_slope_momentum_product=0.0,
+        vix_reversion_product=0.0,
+        efficiency_volume_product=0.0,
     )
     assert fv.momentum_z_fast == 0.0  # nan -> fallback 0.0
     assert fv.range_position == 0.5  # inf -> fallback 0.5
@@ -899,6 +909,16 @@ def test_build_feature_vector_none_passthrough():
         up_vol_body_diff=0.0,
         ret_vol_ratio_fast=0.0,
         vol_skew_product=0.0,
+        momentum_vol_regime_product=0.0,
+        momentum_trend_product=0.0,
+        breakout_volume_product=0.0,
+        reversion_hurst_product=0.0,
+        quarter_momentum_product=0.0,
+        variance_ratio_momentum_product=0.0,
+        illiquidity_momentum_product=0.0,
+        yield_slope_momentum_product=0.0,
+        vix_reversion_product=0.0,
+        efficiency_volume_product=0.0,
     )
     assert fv.poc_dist_atr is None
     assert fv.va_position is None

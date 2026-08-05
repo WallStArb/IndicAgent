@@ -36,6 +36,7 @@ from datetime import UTC, datetime
 from typing import Any
 
 import numpy as np
+import structlog
 
 from src.core.rng import hash_key_to_int
 from src.intelligence.feature_cache import (
@@ -57,6 +58,12 @@ FEATURE_FACTORY_VERSION: str = "1.0.0"
 
 # Calendar constant: average days per quarter (365.25 / 4). Not a tunable — fixed by definition.
 _QUARTER_LENGTH_DAYS: float = 91.25
+
+# Module logger for _guard_counted's observability tripwire report ONLY
+# (Phase 151 Plan 06) -- this is the sole logging call site in this module;
+# compute()'s own docstring purity contract ("zero IO") is preserved because
+# the report is only ever invoked from compute_batch(), never from compute().
+_logger = structlog.get_logger(__name__)
 
 # ---------------------------------------------------------------------------
 # Feature-to-vector domain registry (IC Engine reads this at startup)
@@ -221,6 +228,19 @@ FEATURE_VECTOR_DOMAIN: dict[str, str] = {
     "ret_div_1h_1d": "quant",
     "opex_flag": "calendar",
     "quad_witching_flag": "calendar",
+    # Theory-Motivated Interactions (Phase 151 Plan 06). "quant" for the 8
+    # momentum/breakout/reversion/volume products, "macro" for the 2
+    # term-structure/VIX-conditioned products (#8/#9).
+    "momentum_vol_regime_product": "quant",
+    "momentum_trend_product": "quant",
+    "breakout_volume_product": "quant",
+    "reversion_hurst_product": "quant",
+    "quarter_momentum_product": "quant",
+    "variance_ratio_momentum_product": "quant",
+    "illiquidity_momentum_product": "quant",
+    "yield_slope_momentum_product": "macro",
+    "vix_reversion_product": "macro",
+    "efficiency_volume_product": "quant",
     # Cross-timeframe
     "ctf_momentum": "quant",
     "ctf_vwap_align": "quant",
@@ -3666,6 +3686,55 @@ def _guard(v: float | None, fallback: float = 0.0) -> float | None:
     return v if math.isfinite(v) else fallback
 
 
+# Module-level substitution counter for the 10 Theory-Motivated Interaction
+# compounds (Phase 151 Plan 06) ONLY -- not used by any of the ~190
+# pre-existing fields, which stay on plain _guard(). Keyed by compound
+# feature_name; incremented by _guard_counted() whenever that compound's
+# product substitutes the 0.0 fallback for a non-finite value. Reset by
+# _report_guard_counted_substitutions() after each report.
+_GUARD_COUNTED_SUBSTITUTIONS: dict[str, int] = {}
+
+
+def _guard_counted(v: float, name: str) -> float:
+    """Like _guard(v, fallback=0.0) but increments a named, observable counter.
+
+    Used exclusively by the 10 Theory-Motivated Interaction compounds (Phase
+    151 Plan 06, todo -- see plan doc). Explicit range clipping was rejected
+    at design time: a float64 product of two z-scores cannot reach ±inf short
+    of roughly 1e154 per factor -- structurally unreachable for a real
+    z-score -- so math.isfinite firing here is a tripwire against a genuine
+    numerical anomaly, never a value-shaping clamp on an "extreme but valid"
+    number. The counter exists so a firing tripwire is OBSERVABLE rather than
+    a silent collapse (Codex code-review MEDIUM finding on the plain
+    "substitute posinf/neginf with 0.0 via a bare numpy clamp call" idiom,
+    which would substitute the same 0.0 with no trace at all) -- see
+    _report_guard_counted_substitutions().
+    """
+    if math.isfinite(v):
+        return v
+    _GUARD_COUNTED_SUBSTITUTIONS[name] = _GUARD_COUNTED_SUBSTITUTIONS.get(name, 0) + 1
+    return 0.0
+
+
+def _report_guard_counted_substitutions() -> None:
+    """Emit ONE structured log line naming only non-zero-count compounds, then reset.
+
+    Called exactly once per compute_batch() call (never per row -- CLAUDE.md's
+    never-log-per-row-over-the-corpus rule; compute_batch() loops over up to
+    36.7M rows in a full corpus pass). Emits nothing when every counter is
+    zero, which is the expected case on real data given _guard_counted's
+    near-unreachability. NOT called from compute() -- that function's own
+    docstring purity contract is "zero IO"; compute() still calls
+    _guard_counted() itself (a pure in-memory increment, not IO), but any
+    live-path substitutions surface on the next compute_batch() report rather
+    than logging per live bar.
+    """
+    fired = {name: count for name, count in _GUARD_COUNTED_SUBSTITUTIONS.items() if count > 0}
+    if fired:
+        _logger.warning("theory_interaction_guard_substitutions", substitutions=fired)
+    _GUARD_COUNTED_SUBSTITUTIONS.clear()
+
+
 def _series_last(arr: np.ndarray, fallback: float) -> float:
     """Safely extract the last element of a series array with fallback."""
     return float(arr[-1]) if len(arr) > 0 else fallback
@@ -6073,6 +6142,20 @@ def _build_feature_vector(
     up_vol_body_diff: float,
     ret_vol_ratio_fast: float,
     vol_skew_product: float,
+    # Theory-Motivated Interactions (10, Phase 151 Plan 06). Raw (unguarded)
+    # products -- _guard_counted() is applied once below, inside the
+    # FeatureVector(...) construction, same single-application-point
+    # discipline as every other field's plain _guard().
+    momentum_vol_regime_product: float,
+    momentum_trend_product: float,
+    breakout_volume_product: float,
+    reversion_hurst_product: float,
+    quarter_momentum_product: float,
+    variance_ratio_momentum_product: float,
+    illiquidity_momentum_product: float,
+    yield_slope_momentum_product: float,
+    vix_reversion_product: float,
+    efficiency_volume_product: float,
     # Swing/Fib/Trend/Session Structure (41, Phase 165 Plan 01). Defaulted to
     # None -- this is a keyword-only function (`*,` above) so defaults may
     # live anywhere in the signature. No caller supplies real values yet;
@@ -6363,6 +6446,28 @@ def _build_feature_vector(
         up_vol_body_diff=_guard(up_vol_body_diff, 0.0),
         ret_vol_ratio_fast=_guard(ret_vol_ratio_fast, 0.0),
         vol_skew_product=_guard(vol_skew_product, 0.0),
+        momentum_vol_regime_product=_guard_counted(
+            momentum_vol_regime_product, "momentum_vol_regime_product"
+        ),
+        momentum_trend_product=_guard_counted(momentum_trend_product, "momentum_trend_product"),
+        breakout_volume_product=_guard_counted(breakout_volume_product, "breakout_volume_product"),
+        reversion_hurst_product=_guard_counted(reversion_hurst_product, "reversion_hurst_product"),
+        quarter_momentum_product=_guard_counted(
+            quarter_momentum_product, "quarter_momentum_product"
+        ),
+        variance_ratio_momentum_product=_guard_counted(
+            variance_ratio_momentum_product, "variance_ratio_momentum_product"
+        ),
+        illiquidity_momentum_product=_guard_counted(
+            illiquidity_momentum_product, "illiquidity_momentum_product"
+        ),
+        yield_slope_momentum_product=_guard_counted(
+            yield_slope_momentum_product, "yield_slope_momentum_product"
+        ),
+        vix_reversion_product=_guard_counted(vix_reversion_product, "vix_reversion_product"),
+        efficiency_volume_product=_guard_counted(
+            efficiency_volume_product, "efficiency_volume_product"
+        ),
         swing_high_dist_atr=_guard(swing_high_dist_atr),
         swing_low_dist_atr=_guard(swing_low_dist_atr),
         swing_high_type=_guard(swing_high_type),
@@ -6739,6 +6844,36 @@ class FeatureFactory:
         price_vol_corr_fast_val = _series_last(s.price_vol_corr_fast, 0.0)
         price_vol_corr_slow_val = _series_last(s.price_vol_corr_slow, 0.0)
 
+        # Theory-Motivated Interactions (Phase 151 Plan 06). The 13 distinct
+        # parent scalars are captured into named locals -- same rationale as
+        # the block above (volume_z_val etc.) -- so both their ORIGINAL field
+        # kwarg below and each compound reusing them here compute exactly
+        # once, never twice. Mirrors compute_batch()'s already-bound _val
+        # locals for the same 13 names.
+        momentum_z_fast_val = _series_last(s.momentum_z_fast, 0.0)
+        momentum_reversal_z_val = _series_last(s.momentum_reversal_z, 0.0)
+        adx_val = cache.adx
+        hurst_val = cache.hurst
+        hv_ratio_val = _series_last(s.hv_ratio, 1.0)
+        variance_ratio_fast_val = _series_last(s.variance_ratio_fast, 1.0)
+        efficiency_ratio_fast_val = _series_last(s.efficiency_ratio_fast, 0.0)
+        dist_from_high_fast_val = _series_last(s.dist_from_high_fast, 0.0)
+        amihud_illiq_z_val = _series_last(s.amihud_illiq_z, 0.0)
+        quarter_position_val = _quarter_position(bar_ts)
+        vix_z_val = cache.vix_z
+        yield_slope_z_val = cache.yield_slope_z
+
+        momentum_vol_regime_product_val = momentum_z_fast_val * hv_ratio_val
+        momentum_trend_product_val = momentum_z_fast_val * adx_val
+        breakout_volume_product_val = dist_from_high_fast_val * volume_z_val
+        reversion_hurst_product_val = momentum_reversal_z_val * hurst_val
+        quarter_momentum_product_val = quarter_position_val * momentum_z_fast_val
+        variance_ratio_momentum_product_val = variance_ratio_fast_val * momentum_z_fast_val
+        illiquidity_momentum_product_val = amihud_illiq_z_val * momentum_z_fast_val
+        yield_slope_momentum_product_val = yield_slope_z_val * momentum_z_fast_val
+        vix_reversion_product_val = vix_z_val * momentum_reversal_z_val
+        efficiency_volume_product_val = efficiency_ratio_fast_val * volume_z_val
+
         # Canary / Control Predictors (Phase 143.1 Plan 02). The acausal
         # placebo has no future data in this live single-bar path by
         # definition (closes only holds history up to and including the
@@ -6751,13 +6886,13 @@ class FeatureFactory:
         canary_acausal_placebo_val = _canary_acausal_placebo(closes, len(closes) - 1)
 
         return _build_feature_vector(
-            momentum_z_fast=_series_last(s.momentum_z_fast, 0.0),
+            momentum_z_fast=momentum_z_fast_val,
             momentum_z_mid=_series_last(s.momentum_z_mid, 0.0),
             range_position=range_position_val,
             bar_close_pos=_bar_close_pos(high_, low_, close_),
             gap_z=_series_last(s.gap_z, 0.0),
             momentum_z_slow=_series_last(s.momentum_z_slow, 0.0),
-            momentum_reversal_z=_series_last(s.momentum_reversal_z, 0.0),
+            momentum_reversal_z=momentum_reversal_z_val,
             informed_flow=_informed_flow(open_, close_, atr_val),
             volume_z=volume_z_val,
             ofi_z=_series_last(s.ofi_z, 0.0),
@@ -6779,11 +6914,11 @@ class FeatureFactory:
             hmm_regime_prob=None,
             hmm_entropy=None,
             hmm_duration=None,
-            hurst=cache.hurst,
+            hurst=hurst_val,
             shannon=cache.shannon,
             garch_ratio=cache.garch_ratio,
             hma_slope_z=cache.hma_slope_z,
-            adx=cache.adx,
+            adx=adx_val,
             aroon_fast=_aroon_osc(highs, lows, config.aroon_fast_period),
             aroon_slow=_aroon_osc(highs, lows, config.aroon_slow_period),
             rsi_fast=_series_last(s.rsi_fast, 50.0),
@@ -6792,9 +6927,9 @@ class FeatureFactory:
             cci_fast=_cci(highs, lows, closes, config.cci_fast_period),
             cci_mid=_cci(highs, lows, closes, config.cci_mid_period),
             cci_slow=_cci(highs, lows, closes, config.cci_slow_period),
-            vix_z=cache.vix_z,
+            vix_z=vix_z_val,
             flight_quality=cache.flight_quality,
-            yield_slope_z=cache.yield_slope_z,
+            yield_slope_z=yield_slope_z_val,
             in_ny_session=_in_ny_session(bar_ts, config),
             in_london_kz=_in_london_kz(bar_ts, config),
             in_overlap=_in_overlap(bar_ts, config),
@@ -6804,7 +6939,7 @@ class FeatureFactory:
             dow_sin=_dow[0],
             dow_cos=_dow[1],
             month_position=_month_position(bar_ts),
-            quarter_position=_quarter_position(bar_ts),
+            quarter_position=quarter_position_val,
             days_to_month_end=_days_to_month_end_fraction(bar_ts),
             quarter_cycle_sin=_qc[0],
             quarter_cycle_cos=_qc[1],
@@ -6815,7 +6950,7 @@ class FeatureFactory:
             ctf_momentum=cache.ctf_momentum,
             ctf_vwap_align=cache.ctf_vwap_align,
             ctf_regime_align=cache.ctf_regime_align,
-            amihud_illiq_z=_series_last(s.amihud_illiq_z, 0.0),
+            amihud_illiq_z=amihud_illiq_z_val,
             high_52w_dist=_series_last(s.high_52w_dist, 0.0),
             ret_skew_z=ret_skew_z_val,
             ret_acf1_z=_series_last(s.ret_acf1_z, 0.0),
@@ -6859,7 +6994,7 @@ class FeatureFactory:
             mfi_fast=_series_last(s.mfi_fast, 50.0),
             mfi_slow=_series_last(s.mfi_slow, 50.0),
             obv_z=_series_last(s.obv_z, 0.0),
-            dist_from_high_fast=_series_last(s.dist_from_high_fast, 0.0),
+            dist_from_high_fast=dist_from_high_fast_val,
             dist_from_high_slow=_series_last(s.dist_from_high_slow, 0.0),
             dist_from_low_fast=_series_last(s.dist_from_low_fast, 0.0),
             dist_from_low_slow=_series_last(s.dist_from_low_slow, 0.0),
@@ -6869,7 +7004,7 @@ class FeatureFactory:
             stoch_k_slow=_series_last(s.stoch_k_slow, 0.5),
             price_percentile_fast=_series_last(s.price_percentile_fast, 0.5),
             price_percentile_slow=_series_last(s.price_percentile_slow, 0.5),
-            efficiency_ratio_fast=_series_last(s.efficiency_ratio_fast, 0.0),
+            efficiency_ratio_fast=efficiency_ratio_fast_val,
             efficiency_ratio_slow=_series_last(s.efficiency_ratio_slow, 0.0),
             ret_kurtosis_z_fast=_series_last(s.ret_kurtosis_z_fast, 0.0),
             ret_kurtosis_z_slow=_series_last(s.ret_kurtosis_z_slow, 0.0),
@@ -6884,14 +7019,14 @@ class FeatureFactory:
             true_range_pct=_series_last(s.true_range_pct, 0.0),
             vol_of_vol=_series_last(s.vol_of_vol, 0.0),
             high_low_corr=_series_last(s.high_low_corr, 0.0),
-            variance_ratio_fast=_series_last(s.variance_ratio_fast, 1.0),
+            variance_ratio_fast=variance_ratio_fast_val,
             variance_ratio_slow=_series_last(s.variance_ratio_slow, 1.0),
             vol_asymmetry_z=_series_last(s.vol_asymmetry_z, 0.0),
             bb_pct_b_fast=_series_last(s.bb_pct_b_fast, 0.5),
             bb_pct_b_slow=_series_last(s.bb_pct_b_slow, 0.5),
             hv_z_fast=_series_last(s.hv_z_fast, 0.0),
             hv_z_slow=_series_last(s.hv_z_slow, 0.0),
-            hv_ratio=_series_last(s.hv_ratio, 1.0),
+            hv_ratio=hv_ratio_val,
             # Renaissance Primitives (Phase 142.5 Plan 04) — alternative volatility
             # estimators + volatility dynamics. All read the precomputed series (s.*)
             # built once above; velocity primitives are the O(1) difference of the
@@ -6999,6 +7134,16 @@ class FeatureFactory:
             up_vol_body_diff=up_vol_body_diff_val,
             ret_vol_ratio_fast=ret_vol_ratio_fast_val,
             vol_skew_product=vol_skew_product_val,
+            momentum_vol_regime_product=momentum_vol_regime_product_val,
+            momentum_trend_product=momentum_trend_product_val,
+            breakout_volume_product=breakout_volume_product_val,
+            reversion_hurst_product=reversion_hurst_product_val,
+            quarter_momentum_product=quarter_momentum_product_val,
+            variance_ratio_momentum_product=variance_ratio_momentum_product_val,
+            illiquidity_momentum_product=illiquidity_momentum_product_val,
+            yield_slope_momentum_product=yield_slope_momentum_product_val,
+            vix_reversion_product=vix_reversion_product_val,
+            efficiency_volume_product=efficiency_volume_product_val,
             canary_noise_gaussian=canary_noise_gaussian_val,
             canary_noise_uniform=canary_noise_uniform_val,
             canary_constant=_CANARY_CONSTANT_VALUE,
@@ -7732,6 +7877,22 @@ class FeatureFactory:
                 float(s.price_vol_corr_slow[i]) if i < len(s.price_vol_corr_slow) else 0.0
             )
 
+            # Theory-Motivated Interactions (Phase 151 Plan 06) -- 10
+            # single-operation products of two already-bound _val locals
+            # (all 13 distinct parents bound earlier in this loop iteration),
+            # same reuse-not-recompute discipline as the Price-Volume
+            # Interactions block immediately above.
+            momentum_vol_regime_product_val = momentum_z_fast_val * hv_ratio_val
+            momentum_trend_product_val = momentum_z_fast_val * adx_val
+            breakout_volume_product_val = dist_from_high_fast_val * volume_z_val
+            reversion_hurst_product_val = momentum_reversal_z_val * hurst_val
+            quarter_momentum_product_val = quarter_position_val * momentum_z_fast_val
+            variance_ratio_momentum_product_val = variance_ratio_fast_val * momentum_z_fast_val
+            illiquidity_momentum_product_val = amihud_illiq_z_val * momentum_z_fast_val
+            yield_slope_momentum_product_val = yield_slope_z_val * momentum_z_fast_val
+            vix_reversion_product_val = vix_z_val * momentum_reversal_z_val
+            efficiency_volume_product_val = efficiency_ratio_fast_val * volume_z_val
+
             # Canary / Control Predictors (Phase 143.1 Plan 02). Unlike the
             # live compute() path, `closes` here is the full-history array
             # passed by the caller (backfill), so the acausal placebo can
@@ -7923,6 +8084,16 @@ class FeatureFactory:
                 up_vol_body_diff=up_vol_body_diff_val,
                 ret_vol_ratio_fast=ret_vol_ratio_fast_val,
                 vol_skew_product=vol_skew_product_val,
+                momentum_vol_regime_product=momentum_vol_regime_product_val,
+                momentum_trend_product=momentum_trend_product_val,
+                breakout_volume_product=breakout_volume_product_val,
+                reversion_hurst_product=reversion_hurst_product_val,
+                quarter_momentum_product=quarter_momentum_product_val,
+                variance_ratio_momentum_product=variance_ratio_momentum_product_val,
+                illiquidity_momentum_product=illiquidity_momentum_product_val,
+                yield_slope_momentum_product=yield_slope_momentum_product_val,
+                vix_reversion_product=vix_reversion_product_val,
+                efficiency_volume_product=efficiency_volume_product_val,
                 canary_noise_gaussian=canary_noise_gaussian_val,
                 canary_noise_uniform=canary_noise_uniform_val,
                 canary_constant=_CANARY_CONSTANT_VALUE,
@@ -7934,6 +8105,12 @@ class FeatureFactory:
 
             # Advance cache state
             cache.advance_bar(bar_ts, high_, low_, close_, vol_)
+
+        # Theory-Motivated Interactions (Phase 151 Plan 06): emit the guard-
+        # substitution tripwire report ONCE per compute_batch() call (never
+        # per row -- CLAUDE.md's never-log-per-row-over-the-corpus rule).
+        # Emits nothing when every counter is zero (the expected case).
+        _report_guard_counted_substitutions()
 
         return results
 
@@ -8185,6 +8362,19 @@ def _cold_start_vector(
         ret_div_1h_1d=None,
         opex_flag=_opex_flag(bar_ts) if bar_ts is not None else 0.0,
         quad_witching_flag=_quad_witching_flag(bar_ts) if bar_ts is not None else 0.0,
+        # Theory-Motivated Interactions (Phase 151 Plan 06): a product of two
+        # cold-start-zero parents is 0.0 -- same convention as vol_body_product
+        # etc. immediately below.
+        momentum_vol_regime_product=0.0,
+        momentum_trend_product=0.0,
+        breakout_volume_product=0.0,
+        reversion_hurst_product=0.0,
+        quarter_momentum_product=0.0,
+        variance_ratio_momentum_product=0.0,
+        illiquidity_momentum_product=0.0,
+        yield_slope_momentum_product=0.0,
+        vix_reversion_product=0.0,
+        efficiency_volume_product=0.0,
         vol_body_product=0.0,
         ret_vol_product_fast=0.0,
         price_vol_corr_fast=0.0,
