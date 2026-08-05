@@ -116,6 +116,15 @@ def _make_sentinel_record():
         month_position=47.47,
         quarter_position=47.48,
         days_to_month_end=47.49,
+        # Calendar Cycle/TDOM/Minute + Velocity (Phase 151 Plan 01) — not yet
+        # in the persisted tuple (migration lands with Plan 01 Task 2/3);
+        # construction requires these non-optional fields.
+        quarter_cycle_sin=47.50,
+        quarter_cycle_cos=47.51,
+        tdom_sin=47.52,
+        tdom_cos=47.53,
+        minute_of_hour_sin=47.54,
+        minute_of_hour_cos=47.55,
         ctf_momentum=48.48,
         ctf_vwap_align=49.49,
         ctf_regime_align=50.50,

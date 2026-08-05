@@ -194,9 +194,10 @@ class TestFeatureVectorCanaryFields:
         # canary fields = 155, +17 structural VP/SR fields (Phase 163 Plan 01,
         # migration 255) = 172, +36 SMC institutional-footprint fields
         # (Phase 164 Plan 01, migration 266) = 208, +41 swing/fib/trend/session
-        # structure fields (Phase 165 Plan 01, migration 267, added after this
-        # test was written) = 249.
-        assert total == 150 + 5 + 17 + 36 + 41
+        # structure fields (Phase 165 Plan 01, migration 267) = 249, +6
+        # calendar cycle/TDOM/minute fields (Phase 151 Plan 01 Task 1, added
+        # after this test was written) = 255.
+        assert total == 150 + 5 + 17 + 36 + 41 + 6
 
 
 # ---------------------------------------------------------------------------
@@ -494,8 +495,9 @@ class TestFeatureFactoryIntegration:
         # 155 prior to Phase 163 Plan 01's 17 new structural VP/SR fields (migration
         # 255) = 172, +36 SMC institutional-footprint fields (Phase 164 Plan 01,
         # migration 266) = 208, +41 swing/fib/trend/session structure fields
-        # (Phase 165 Plan 01, migration 267) = 249.
-        assert len(dataclasses.fields(fv)) == 249
+        # (Phase 165 Plan 01, migration 267) = 249, +6 calendar cycle/TDOM/minute
+        # fields (Phase 151 Plan 01 Task 1) = 255.
+        assert len(dataclasses.fields(fv)) == 255
 
 
 # ---------------------------------------------------------------------------

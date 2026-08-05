@@ -1,4 +1,4 @@
-"""FeatureFactory — pure-function library for computing all 249 FeatureVector primitives.
+"""FeatureFactory — pure-function library for computing all 255 FeatureVector primitives.
 
 STATELESS CONTRACT (D-08): FeatureFactory has no __init__ and stores no config.
 The FeatureFactoryConfig frozen dataclass is built ONCE by the caller
@@ -182,6 +182,13 @@ FEATURE_VECTOR_DOMAIN: dict[str, str] = {
     "month_position": "calendar",
     "quarter_position": "calendar",
     "days_to_month_end": "calendar",
+    # Calendar — Cycle/TDOM/Minute Coordinates (Phase 151 Plan 01)
+    "quarter_cycle_sin": "calendar",
+    "quarter_cycle_cos": "calendar",
+    "tdom_sin": "calendar",
+    "tdom_cos": "calendar",
+    "minute_of_hour_sin": "calendar",
+    "minute_of_hour_cos": "calendar",
     # Cross-timeframe
     "ctf_momentum": "quant",
     "ctf_vwap_align": "quant",
@@ -3102,6 +3109,49 @@ def _days_to_month_end_fraction(bar_ts: datetime) -> float:
     return days_remaining / days_in_month
 
 
+def _quarter_cycle_encoding(bar_ts: datetime) -> tuple[float, float]:
+    """First circular harmonic of _quarter_position(): (sin(2*pi*qp), cos(2*pi*qp)).
+
+    Reuses _quarter_position() directly rather than recomputing the
+    within-quarter position (Phase 151 Plan 01, todo 104).
+    """
+    qp = _quarter_position(bar_ts)
+    angle = 2.0 * math.pi * qp
+    return math.sin(angle), math.cos(angle)
+
+
+def _tdom_encoding(bar_ts: datetime) -> tuple[float, float]:
+    """Cyclic trading-day-of-month encoding: (sin(2*pi*t/W), cos(2*pi*t/W)).
+
+    t = count of Mon-Fri weekdays from the 1st of the month through
+    bar_ts.date() inclusive. W = total Mon-Fri weekday count in that
+    calendar month. Closed-form weekday arithmetic; deliberately ignores
+    market holidays (Phase 151 Plan 01, todo 104 -- source doc rejects a
+    nonstationary holiday table). Guard W <= 0 -> (0.0, 0.0).
+    """
+    year, month = bar_ts.year, bar_ts.month
+    days_in_month = calendar.monthrange(year, month)[1]
+    first_weekday = calendar.weekday(year, month, 1)  # 0=Monday
+    # Weekday count in [1, day] inclusive: number of days in that range whose
+    # (first_weekday + offset) % 7 < 5 (Mon-Fri).
+    t = sum(1 for d in range(1, bar_ts.day + 1) if (first_weekday + d - 1) % 7 < 5)
+    w = sum(1 for d in range(1, days_in_month + 1) if (first_weekday + d - 1) % 7 < 5)
+    if w <= 0:
+        return 0.0, 0.0
+    angle = 2.0 * math.pi * t / w
+    return math.sin(angle), math.cos(angle)
+
+
+def _minute_of_hour_encoding(bar_ts: datetime) -> tuple[float, float]:
+    """Cyclic minute-of-hour encoding: (sin(2*pi*minute/60), cos(2*pi*minute/60)).
+
+    Constant at 1h/1d by construction (minute is always 0 for hourly/daily
+    bars) -- expected and correct, not a bug (Phase 151 Plan 01, todo 104).
+    """
+    angle = 2.0 * math.pi * bar_ts.minute / 60.0
+    return math.sin(angle), math.cos(angle)
+
+
 # ---------------------------------------------------------------------------
 # _PrecomputedSeries — bundled series arrays for a bar window
 # ---------------------------------------------------------------------------
@@ -5629,6 +5679,12 @@ def _build_feature_vector(
     month_position: float,
     quarter_position: float,
     days_to_month_end: float,
+    quarter_cycle_sin: float,
+    quarter_cycle_cos: float,
+    tdom_sin: float,
+    tdom_cos: float,
+    minute_of_hour_sin: float,
+    minute_of_hour_cos: float,
     ctf_momentum: float,
     ctf_vwap_align: float,
     ctf_regime_align: float,
@@ -5886,6 +5942,12 @@ def _build_feature_vector(
         month_position=month_position,
         quarter_position=_guard(quarter_position, 0.0),
         days_to_month_end=_guard(days_to_month_end, 0.0),
+        quarter_cycle_sin=_guard(quarter_cycle_sin, 0.0),
+        quarter_cycle_cos=_guard(quarter_cycle_cos, 1.0),
+        tdom_sin=_guard(tdom_sin, 0.0),
+        tdom_cos=_guard(tdom_cos, 1.0),
+        minute_of_hour_sin=_guard(minute_of_hour_sin, 0.0),
+        minute_of_hour_cos=_guard(minute_of_hour_cos, 1.0),
         ctf_momentum=_guard(ctf_momentum),
         ctf_vwap_align=_guard(ctf_vwap_align),
         ctf_regime_align=_guard(ctf_regime_align),
@@ -6144,7 +6206,7 @@ class FeatureFactory:
         cache: FeatureCache,
         config: FeatureFactoryConfig,
     ) -> FeatureVector:
-        """Compute all 249 FeatureVector primitives from bars + cache + config.
+        """Compute all 255 FeatureVector primitives from bars + cache + config.
 
         PURE FUNCTION: no IO, no ConfigService.get(), no DB reads, no Kafka.
         All tunable numerics come from the config argument (SC-9).
@@ -6162,7 +6224,7 @@ class FeatureFactory:
 
         Returns
         -------
-        FeatureVector with all 249 fields populated -- most set to finite
+        FeatureVector with all 255 fields populated -- most set to finite
         floats, but 85 are `float | None` by design (41 Phase 165 Swing/Fib
         + 44 optional cross-sectional/canary/SMC placeholders); see the
         FeatureVector class docstring for the full breakdown.
@@ -6296,6 +6358,9 @@ class FeatureFactory:
         )
 
         _dow = _dow_encoding(bar_ts)
+        _qc = _quarter_cycle_encoding(bar_ts)
+        _tdom = _tdom_encoding(bar_ts)
+        _moh = _minute_of_hour_encoding(bar_ts)
 
         # Renaissance Primitives (Phase 142.5 Plan 01)
         prev_close_ = float(closes[-2])
@@ -6418,6 +6483,12 @@ class FeatureFactory:
             month_position=_month_position(bar_ts),
             quarter_position=_quarter_position(bar_ts),
             days_to_month_end=_days_to_month_end_fraction(bar_ts),
+            quarter_cycle_sin=_qc[0],
+            quarter_cycle_cos=_qc[1],
+            tdom_sin=_tdom[0],
+            tdom_cos=_tdom[1],
+            minute_of_hour_sin=_moh[0],
+            minute_of_hour_cos=_moh[1],
             ctf_momentum=cache.ctf_momentum,
             ctf_vwap_align=cache.ctf_vwap_align,
             ctf_regime_align=cache.ctf_regime_align,
@@ -6923,6 +6994,9 @@ class FeatureFactory:
             month_position_val = _month_position(bar_ts)
             quarter_position_val = _quarter_position(bar_ts)
             days_to_month_end_val = _days_to_month_end_fraction(bar_ts)
+            quarter_cycle_sin_val, quarter_cycle_cos_val = _quarter_cycle_encoding(bar_ts)
+            tdom_sin_val, tdom_cos_val = _tdom_encoding(bar_ts)
+            minute_of_hour_sin_val, minute_of_hour_cos_val = _minute_of_hour_encoding(bar_ts)
 
             # CTF: from pre-built causal dict (batch) or cache (live)
             if ctf_by_ts is not None and ctf_ts_list is not None:
@@ -7180,6 +7254,12 @@ class FeatureFactory:
                 month_position=month_position_val,
                 quarter_position=_quarter_position(bar_ts),
                 days_to_month_end=_days_to_month_end_fraction(bar_ts),
+                quarter_cycle_sin=quarter_cycle_sin_val,
+                quarter_cycle_cos=quarter_cycle_cos_val,
+                tdom_sin=tdom_sin_val,
+                tdom_cos=tdom_cos_val,
+                minute_of_hour_sin=minute_of_hour_sin_val,
+                minute_of_hour_cos=minute_of_hour_cos_val,
                 ctf_momentum=ctf_momentum_val,
                 ctf_vwap_align=ctf_vwap_align_val,
                 ctf_regime_align=ctf_regime_align_val,
@@ -7378,6 +7458,16 @@ def _cold_start_vector(cache: FeatureCache, tf: str) -> FeatureVector:
         month_position=1.0,
         quarter_position=0.0,
         days_to_month_end=0.0,
+        # Phase 151 Plan 01: _cold_start_vector has no bar_ts (called only when
+        # len(bars) < 2), so these follow the same neutral angle=0 convention
+        # already used above for dow_sin/dow_cos and below for
+        # hour_of_day_sin/cos etc -- sin=0.0, cos=1.0.
+        quarter_cycle_sin=0.0,
+        quarter_cycle_cos=1.0,
+        tdom_sin=0.0,
+        tdom_cos=1.0,
+        minute_of_hour_sin=0.0,
+        minute_of_hour_cos=1.0,
         ctf_momentum=cache.ctf_momentum,
         ctf_vwap_align=cache.ctf_vwap_align,
         ctf_regime_align=cache.ctf_regime_align,

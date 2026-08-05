@@ -428,7 +428,7 @@ def test_feature_vector_domain_complete():
     + 41 swing/fib/trend/session structure fields (Phase 165 Plan 01,
     migration 267) = 249."""
     fv_fields = {f.name for f in dataclasses.fields(FeatureVector)}
-    assert len(FEATURE_VECTOR_DOMAIN) == 249
+    assert len(FEATURE_VECTOR_DOMAIN) == 255
     assert set(FEATURE_VECTOR_DOMAIN.keys()) == fv_fields
 
 
