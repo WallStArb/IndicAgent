@@ -1,733 +1,184 @@
 # IndicAgent
 
-A Renaissance-inspired market intelligence platform where every decision is measured, every component earns its place through statistical proof, and the system learns from every outcome — winners and counterfactuals alike.
+A Renaissance-inspired market intelligence platform, engineered end-to-end to the same proof-before-promotion discipline a quant fund would demand of a full research team. Every decision is measured, every component earns its place through statistical proof, and the system learns from every outcome, winners and counterfactuals alike.
 
-Live across 60 instruments, processing eight analytical tiers in under 10ms per bar. Quantitative domain in production today; fundamental, qualitative, and derivatives domains designed to plug into the same spine without touching a line of running code.
-
-## Why This Exists
-
-Most trading systems are black boxes: rules that fire, signals that vanish into noise, models that degrade silently. IndicAgent is built on the belief that a market intelligence system should work like a scientific instrument — observable, reproducible, and continuously learning from its own decisions.
-
-The goal is not a pipeline that produces signals, but a foundational architecture that can carry any form of market intelligence through a single shared spine. Components attach by publishing typed events; nothing already running changes. New domains plug in the same way: fundamental analysis, qualitative sentiment, derivatives volatility — all subscribers to the same bus, all contributing to a unified view.
-
-## What Makes It Different
-
-## What Makes It Different
-
-**Edge is discovered, not designed** — The researcher's job is to produce candidate features across orthogonal domains. The IC engine measures which features predict returns. The ensemble discovers what combinations matter. No human encodes what confluence looks like — the data shows it. This is the Renaissance insight: many small independent ICs combined empirically beats any hand-crafted theory about what conditions constitute a tradeable setup.
-
-**Architecture, not pipeline** — Intelligence, execution, and risk are independent subscribers to a shared event stream. Components attach by publishing; nothing already running changes.
-
-**Records counterfactuals** — Every ranked candidate is saved, not just winners. The training dataset captures what was rejected, not just what worked.
-
-**Statistical proof gates** — Bootstrap confidence intervals. p < 0.05 promotion gates. KS drift detection. CUSUM control charts. Proof, not thresholds.
-
-**Full signal lifecycle** — Zone activation through 8-class outcomes with MAE/MFE tracking. Portfolio risk embedded in every signal.
-
-**Evolvable agents** — Darwinian selection: mutation, recombination, LLM-directed mutation. Fitness = accuracy × novelty × calibration × efficiency.
-
-**Empirical memory** — Vector Intelligence Layer retrieves K most similar historical states and what price did after them. IC-weighted, independence-calibrated.
-
-**Self-improving** — CIS weights refine from outcomes. ML retrains on its own labeled data. Drift detection adjusts in real time.
-
-**Self-healing** — Services auto-restart in DAG order. Replay auditors detect gaps and resolve orphaned lifecycles.
-
-**Full lineage** — Every AI call tracked with prompt version, model, inputs, outputs. Every signal traces to raw data.
-
-**Provider-agnostic** — Pipeline consumes typed events from the bus. Any data source plugs in the same way.
-
-**API-first** — All outputs available over REST and SSE. Any HTTP client subscribes without pipeline changes.
+Trading signals are one visible output, not the reason this exists. **The actual goal is a multi-vector intelligence layer built to train AI — with a closed feedback loop where that AI's own learning reaches back into the intelligence layer and improves it:** re-tuning the parameters, computation frequency, and temporal structure that generate the layer in the first place, not just the trading decisions built on top of it. This isn't a new idea bolted on late — self-improvement, promotion, demotion, and decay are the throughline across every layer of both architecture generations, described below: the researcher proposes candidate features and hypotheses, the system itself decides empirically what predicts, and where the loop is fully built out, closes itself — tuning its own machinery rather than waiting for a human to notice and adjust it by hand.
 
 ---
 
-**Intrinsic Confidence Composite (ICC):** Every I7 plugin computes a 4-factor weighted score from pattern-internal evidence only — price structure, volume, momentum, microstructure. Weights sum to 1.0. The ICC is the plugin's standalone quality signal, recorded as `raw_confidence` on `signal_events`. Extrinsic context never touches it.
+## Core Philosophy
 
-**Extrinsic Confidence Layer (ECL):** Market context — regime state, confluence alignment, zone friction — travels on every signal as observable metadata, never as a gate that suppresses emission. Raw signals reach the training dataset uncontaminated regardless of downstream filtering. Winners and counterfactuals alike are recorded with the full feature vector at fire time, giving the ML layer a complete picture of the decision boundary — not just what worked, but what was correctly rejected.
+Most trading systems are black boxes: rules that fire, signals that vanish into noise, models that degrade silently and nobody notices until the drawdown does. This platform is built on a different premise — a market intelligence system should behave like a scientific instrument: observable, reproducible, and continuously self-auditing.
 
-**Signal Ledger Architecture (SLA):** Three tables capture the complete signal lifecycle — `signal_events` (detection: pattern fired), `trade_frames` (hypothesis: entry/stop/target), `trade_executions` (execution: actual fills). Each is immutable after write. `signal_ledger_full` joins all three during migration; becomes `signal_ledger` after Phase 129. ML trains on hypothesis-layer outcomes, not just executed trades.
+Two named disciplines govern every design decision here, applied deliberately rather than absorbed by osmosis:
 
-**Counterfactual Feedback Loop (CFL):** Every signal hypothesis — executed or not — is measured against subsequent price action. The `CounterfactualTracker` daemon populates `counterfactual_pnl_r` on every `trade_frames` row, closing the training loop for regime-suppressed and unadjudicated signals. This is the primary ML training target.
+**Renaissance Technologies / Jim Simons — proof before belief.** Nothing gets called "edge" on the strength of a good argument. Every claim survives the same statistical gauntlet (detail below) or it doesn't exist yet. Intuition proposes; measurement disposes.
 
-**Shadow Governance (SG):** Every I7 plugin and AI agent auto-enrolls in a shadow period on startup. Promotion to production requires n ≥ 100 resolved signals and a positive bootstrap CI at 95%. Demotion is automatic when EV[R] < -0.05 for 3 consecutive cycles. Components earn influence through statistical proof; they cannot be manually promoted past the gate.
+**Musk's 5-step mandate — question, delete, simplify, accelerate, automate, strictly in that order.** Before any requirement gets engineered around, it gets questioned. Before anything gets optimized, ask whether it should exist at all — don't accelerate a process that should have been deleted, and don't automate a manual step that hasn't been proven worth keeping. This ordering is enforced deliberately, not just referenced: every non-trivial design decision in this system gets run through it before implementation starts.
 
-**Adaptive Parameter Registry (APR):** Every detection threshold, confidence weight, and indicator period is a versioned DB row with a source and reason — not a constant in code. ML discovery writes calibrated values after p < 0.05; CIS weights refine from signal outcomes; calibration curves refit per setup per regime; plugin promotion is governed by bootstrap CI. Every parameter the system acts on is learnable, tracked, and hot-reloadable without a restart.
+Two structural commitments follow from combining them:
 
-**Vector Intelligence Layer (VIL):** Every bar state is embedded as a normalized vector in pgvector alongside its realized forward returns. At query time, the system retrieves the K most similar historical states and what price did after them — grounding every AI agent and scoring decision in empirical evidence rather than pattern intuition. IC-weighted, independence-calibrated, and domain-agnostic: the same substrate extends to fundamental, qualitative, and derivatives domains as they come online.
+**Edge is discovered, not designed.** Nothing in this system encodes a human's theory about what confluence looks like or what a good setup is. The pipeline produces candidate features across orthogonal domains; a statistical engine measures which ones actually predict outcomes; an ensemble discovers which combinations matter. The question "who decides what matters here?" has exactly one acceptable answer at every layer: *the data, measured* — never the researcher's intuition.
 
-**Live:** [dash.indicagent.com](https://dash.indicagent.com)
+**Counterfactuals are training data too.** Every candidate the system considers — not just the ones it acts on — gets recorded with its full context and its eventual outcome. A model trained only on what it acted on has never seen what it correctly rejected, which means it can't learn the boundary between the two. This shows up structurally everywhere: the signal ledger records rejected signals, the IC engine measures every feature unconditionally on every bar rather than only on bars a filter approved.
 
-> *Instrument everything · Signal with evidence · Learn from every outcome*
+**The intelligence layer is built to improve itself, not just to be consumed.** Promotion, demotion, and decay aren't features bolted onto one component — they're the same governing pattern applied everywhere: a feature, an agent, or a model earns influence through proof (n ≥ 100, positive bootstrap CI) and loses it automatically when its measured edge degrades, with deliberate hysteresis so recovery requires new proof rather than one lucky reading. The substrate this writes back into already exists and is live: every feature's period, computation frequency, and temporal/lookback window is a versioned, hot-reloadable Adaptive Parameter Registry row, not a hardcoded constant — exactly what an automated optimizer needs to act on directly. What's designed to close that loop autonomously (evolving those parameters via automated search rather than a human tuning a lookback window by hand) is eAI, covered in Agent Orchestration below.
 
----
-
-IndicAgent applies Renaissance Capital-style discipline at every layer: how components are named, how evidence is evaluated, how models are promoted or rejected. Mathematical precision as architecture, not decoration.
-
-It's not a pipeline but a foundational architecture that can carry any form of market intelligence through a single shared spine - quantitative today, fundamental and qualitative domains next, evolvable AI agents throughout.
+**Even classification is a falsifiable hypothesis, not an assumed fact — except where it explicitly isn't.** Every instrument carries tags (71 live today, 983 assignments, weighted, multi-valued, each sourced as human/empirical/AI) describing what it's exposed to — cycle position, macro sensitivity, factor regime. These are hypotheses, subject to the same audit-and-falsify discipline as any predictive feature, and a soft internal taxonomy built by nesting tags inherits that same falsifiability. The one thing deliberately *not* treated this way is an external classification scheme like GICS: sector membership there is a fact to sync from an authority, not a hypothesis to test — and even that gets handled with real care, because a scheme reclassifies securities over time (GICS created an entirely new sector in 2018), so membership is effective-dated rather than treated as a static label. Joining a backtest against today's membership would silently leak future information into the past, the exact same failure mode a Viterbi-decoded regime label produces — one consistent worldview about causal correctness, applied to metadata and to predictive features alike, not two different standards for two different kinds of claim.
 
 ---
 
-The core architectural bet: intelligence, execution, and risk are independent subscribers to a shared event stream - not coupled services calling each other. Every component is a microservice. Every interaction is an event. Every output is an API. New domains and agents attach by subscribing and publishing; nothing already running changes.
+## Architecture Pillars
 
-The quantitative domain is live on 60 instruments across futures, ETFs, FX, and crypto - producing evidence-graded trading signals in under 10ms, in production since early 2026, accumulating labeled training data with every bar. The architecture is designed to extend:
+**A shared, durable event bus — not services calling services.** Every component publishes typed events to a durable, replayable stream (Redpanda/Kafka-compatible); nothing calls anything else directly. A service going down means messages queue; on restart it resumes from its committed offset. A new consumer — a research notebook, a trading bot, a downstream product — bootstraps by replaying the stream from offset zero. No migration, no special onboarding, no pipeline changes. This is what makes the microservice split real instead of cosmetic: in a conventional system, services call each other via REST or RPC and end up coupled in operation even when decoupled in name. Here the coupling doesn't exist to begin with.
 
-| Domain | Status | Scope |
-|--------|--------|-------|
-| **Quantitative** | In production | 8 tiers from raw indicators through regime classification to trading signals and AI synthesis |
-| **Fundamental** | Designed | Earnings, macro data, COT positioning, sector rotation |
-| **Qualitative** | Designed | News NLP, sentiment, prediction markets, macro regime narrative |
-| **Derivatives** | Designed | Vol surface, gamma exposure, skew, options flow |
+**Deterministic DAG topology, enforced, not assumed.** The service dependency graph is derived by topological sort at startup, not hand-maintained — a circular dependency hard-crashes before any live data flows, rather than silently corrupting downstream state. A short list of invariants holds regardless of which architecture generation is running: exactly one designated writer per table (a single merger process is the sole writer to raw market data — no two services ever race to write the same row), compute stages never touch the database directly (a DB outage can't take down signal generation), every timestamp is UTC with no exceptions, and topic keys are never hardcoded strings. Compute tiers run in-process rather than hopping through the bus between every stage — the bus is a sink for finished output, not a relay between steps of the same computation, which avoids paying a Kafka round-trip N times per bar for an N-tier pipeline. Scaling is driven by measured consumer lag on the bus, not a container-orchestration autoscaler bolted on for its own sake — simpler infrastructure, same elasticity, at this system's actual scale.
 
-Each domain is an independent analysis engine. Downstream application agents - trade execution, portfolio management, risk management - consume from whichever domains they need by subscribing to the bus.
+**Microservices as real separation of concerns, not just a deployment topology.** Every service does exactly one of three things — compute, persist, or transport — and never two. A compute daemon that discovers something never writes it to the database itself; that always goes through a dedicated writer class built for exactly that job. This isn't a style preference: a service that both computes and persists can't be scaled, tested, or replaced independently, and a bug in its persistence logic corrupts its compute logic's blast radius along with it. Splitting them means either one can fail, restart, or be rewritten without touching the other.
 
-**The AI layer is multi-provider and agent-organized.** A multi-provider LLM chain (local Ollama on AMD ROCm GPU, OpenRouter for cloud fallback) runs with per-provider circuit breakers — no single model or vendor is a dependency. Specialist agents handle focused tasks; composite agents synthesize them into a coherent view, the way a trading desk works. Two deeper systems are designed behind this: an Evolvable AI framework where agents improve through Darwinian selection, and a Vector Intelligence Layer that will ground every AI conclusion in the K most similar historical bar states and what actually happened after them. Both are covered in detail below.
+**Data-source agnostic by construction.** The bus doesn't know or care what produced an event. IBKR is today's market-data source, but nothing downstream is written against IBKR specifically — a new provider, or several providers feeding different instruments simultaneously, attaches by publishing to the same typed topics. This same agnosticism is designed to extend across entire *data domains*, not just data vendors within one domain — price/volume today, with institutional positioning, options flow, news sentiment, and fundamentals each designed to plug in later as independent, differently-sourced vectors (detail below). Nothing already running has to change when a new source or domain attaches.
 
----
+**API-first.** Every signal, feature value, regime classification, and AI narrative is available over standard REST and Server-Sent Events the moment it's computed — no separate reporting layer, no batch export step. Any HTTP client, from a Jupyter notebook to a production trading bot, gets the same intelligence the internal pipeline sees, in real time, with zero effect on pipeline throughput.
 
-## The Unified Data Bus
-
-The central architectural decision: **services never call each other directly.** All communication flows through a durable, replayable event stream. Producers publish typed events; consumers subscribe to topics. A service going down means messages queue on the stream. On restart, it resumes from its committed offset - nothing lost, nothing re-requested. No service needs to know any other service exists.
-
-This is what makes the microservices split real rather than cosmetic. In a conventional setup, services call each other via REST or gRPC - decoupled in name but coupled in operation. Here, the coupling is eliminated entirely. The bus is the only contract between producers and consumers, and that contract is a typed schema - `IntelligenceEvent`.
-
-### Hot / Warm / Cold Data Tiers
-
-```
-Hot:  Market Data → Redpanda Streams → Services           (sub-ms ingestion)
-Warm: Services → Intelligence Pipeline (I1–I8)            (<10ms extraction)
-Cold: Writers → TimescaleDB (feature store, signal ledger) (async batch)
-```
-
-**Redpanda** (Kafka-compatible) on the hot path - sub-millisecond tick ingestion and stream fan-out to all downstream services. Raw market data enters here; every intelligence service reads from here. No database touches the hot path. Durable, partitioned, replayable logs - consumer groups ensure at-least-once delivery.
-
-**Replay from offset 0.** A new consumer - a trading bot, ML model, alert engine, or downstream product - bootstraps by replaying the stream from the beginning. No data migration. No special onboarding. No pipeline changes. The history is already there.
-
-### Zero Coupling Between Services
-
-Each service has exactly one responsibility:
-
-| Service | Owns |
-|---------|------|
-| Data Provider | Bar formation from high-frequency ticks (100–500+ ticks/sec), multi-timeframe aggregation |
-| Intelligence Pipeline | Unified I1–I7 in-process computation - indicators, structure, regime, patterns, SMC, confluence, trading signals |
-| Signal Writer | I7 signal persistence to signal_ledger (all ranked candidates) |
-| Signal Tracker Compute | Zone activation, MAE/MFE, outcome classification (DB-ignorant; publishes LifecycleTransition events) |
-| Lifecycle Writer | Persists LifecycleTransition events to signal_ledger |
-| Signal Metrics Compute | Rolling 30d Sharpe/win-rate per setup per regime |
-| Feature Writer | Intelligence feature persistence to TimescaleDB |
-| LLM Writer | LLM call audit trail with outcome back-fill |
-| Alpha Swarm | Routes analytical tasks to specialist swarm agents |
-| AI Narrative | I8 LLM analysis and group synthesis |
-| API | SSE fan-out and REST delivery to clients |
-
-```
-Data Source ──► [Redpanda topics] ──► intelligence_pipeline_agent (I1–I7, unified in-process)
-                                       ──► signal_writer_agent (signal_ledger persistence)
-                                       ──► feature_writer_agent (intelligence_features)
-                                       ──► alpha_swarm_agent (shadow analysis)
-                                       ──► ai_narrative_service (I8)
-                                       ──► api_service ──► SSE ──► any HTTP client
-```
-
-Each arrow is a Redpanda topic. The topics are the API between services.
-
-### Stream Keys
-
-Every stream is namespaced and typed:
-
-| Topic | Carries |
-|-------|---------|
-| `{env}.intelligence` | Full typed `IntelligenceEvent` (I1–I7 payload) keyed `SYMBOL:TF` |
-| `{env}.intelligence.i7.signals` | All ranked I7 candidates per bar (pre-ledger write) |
-| `{env}.intelligence.journal` | High-confidence signals routed to AI narrative (I8 input) |
-| `{env}.intelligence.lifecycle` | LifecycleTransition events from SignalTrackerComputeAgent |
-| `{env}.intelligence.signal_metrics` | Rolling signal performance stats per setup per regime |
-| `{env}.narratives` | I8 LLM narrative text keyed `SYMBOL:TF` |
-| `{env}.llm.calls` | Every LLM invocation (success, failure, model used) |
-| `{env}.llm.outcomes` | Signal lifecycle exits with outcome, P&L R, MAE, MFE |
-
-### The Service DAG
-
-The service DAG runs in 10 layers. Dependencies are declared, not hardcoded - the execution engine derives order via topological sort at startup. Circular dependencies are detected and hard-crash before any live data flows.
-
-```
-L1   data-provider                                    - data ingestion
-L2   provider-merger                                  - stream merge
-L3   bar-aggregator, bar-auditor                      - bar processing
-L4   bar-writer                                       - OHLCV persistence
-L5   intelligence-pipeline, cross-asset, macro-compute - I1–I7 compute + context
-L6   feature-writer, signal-writer, signal-tracker,
-     lifecycle-writer, lineage-writer                  - persistence writers (parallel)
-L7   alpha-swarm, llm-writer                          - AI/LLM layer
-L8   roll-compute, signal-metrics, graduation-writer   - analytics + rolling metrics
-L9   signal-auditor, parity-auditor, alerting-agent    - audit, parity, alerting
-L10  service-auditor                                   - meta: monitors + restarts all above
-```
-
-A meta-service at L10 monitors all others, restarts in DAG order, and escalates after repeated failures. Each service is independently deployable, restartable, and observable - systemd-managed with Prometheus lag monitoring.
-
-### DAG Invariants
-
-These are non-negotiable architectural constraints. Any code that violates one of them breaks the guarantees above.
-
-1. **`ProviderMergerAgent` is the sole writer to `market.bars`** - downstream agents are isolated from provider topology. Adding a new data source requires zero downstream changes.
-2. **I1–I7 runs entirely in-process** - Kafka is a sink, not an inter-stage pipe. No Kafka hop between intelligence tiers.
-3. **No ComputeAgent touches the database** - only WriterAgents, TrackerAgents, and AuditorAgents perform DB operations. A DB outage has zero impact on signal generation.
-4. **All topic keys via `stream_keys.py`** - no hardcoded topic strings anywhere in the codebase.
-5. **No agent calls another agent directly** - topics are the only coupling. Every agent can be restarted independently and resumes from its committed Kafka offset.
-6. **All timestamps UTC** - `datetime.now(UTC)` only. Every bar, event, and DB write is timezone-aware.
-7. **Scaling via systemd + Prometheus lag** - no Kubernetes HPA. Consumer lag is the scaling signal.
-
-Full system map with Mermaid diagram and topic registry: [`docs/architecture/architecture-dag-topology.md`](docs/architecture/architecture-dag-topology.md).
+**Self-healing and observable by default, not bolted on after an incident.** Every service auto-inherits five mandatory health signals — crash count, dead-letter-queue depth, last-heartbeat timestamp, and watchdog notifications — with zero per-service code required to opt in. A meta-service monitors the full DAG and restarts failed components in dependency order; replay auditors independently detect data gaps and resolve orphaned state without a human paging in at 2am. This is the concrete mechanism behind the "behaves like a scientific instrument" claim above — not an aspiration, an enforced default every new service gets for free.
 
 ---
 
-## Intelligence Pipeline: I1–I8
+## Intelligence Layers: Two Generations, One Discipline
 
-The quantitative domain processes data through 8 tiers. Each builds on the outputs of the tiers below it - no tier skips a level. A multi-timeframe aggregator rolls 1m bars forward to 5m, 15m, 1h, 4h, and 1d; each timeframe runs the full pipeline independently, giving every signal a multi-timeframe context.
+### Generation 1 (V2) — Event-Driven Real-Time Pipeline
 
-### Layer 1: Data Foundation
+Built and run in production starting early 2026, processing eight analytical tiers end-to-end in under 10ms per bar, live across 60 instruments spanning futures, ETFs, FX, and crypto. Currently dormant — deliberately paused, not decommissioned, to concentrate on Generation 2's more rigorous discovery epistemology before scaling infrastructure further. Full detail: [`docs/architecture/architecture-v2-event-driven-pipeline.md`](docs/architecture/architecture-v2-event-driven-pipeline.md).
 
-A data provider daemon connects to a real-time market feed and forms 1m bars from high-frequency ticks. Bar-close events trigger the full I1–I8 pipeline. The provider is an implementation detail - the pipeline consumes typed events from the bus, not from any specific broker.
+| Tier | What it does |
+|------|--------------|
+| **I1** Raw Indicators | 28 plugins, ~50 data points — RSI, MACD, Bollinger, ATR, VWAP, OFI, CVD, computed incrementally per bar |
+| **I2** Composite Events | Second-derivative signals — momentum inflection points and trend-exhaustion scoring *before* they complete |
+| **I3** Market Structure | Swing detection, S/R zones, Market Profile (POC/value area), anchored VWAP, session levels |
+| **I4** Regime Classification | Six independent statistical models — GARCH (vol regime), Kalman filter (denoised trend), HMM (regime probability distribution), BOCPD (changepoint detection), Hurst exponent (persistence vs. mean-reversion), Shannon entropy (predictability) |
+| **I5** Pattern Detection | RSI/MACD/CMF divergence, volatility squeeze, classical chart patterns |
+| **I6** Smart Money Concepts + Confluence | Institutional order-flow model — BOS/CHoCH, fair value gaps, order blocks, liquidity pools, aggregated across 6 timeframes |
+| **I7** Trading Setups | 36 setups, each a full trade thesis with entry/stop/target, adjudicated by a 6-bucket confluence scorer requiring cross-tier agreement |
+| **I8** AI Narrative | Structured LLM analysis of full signal context for every high-confidence signal, plus scheduled cross-asset group synthesis |
 
-### Layer 2: Mathematical Intelligence
+**~729 data points computed per bar, per symbol, per timeframe**, every one persisted and streamed live.
 
-**I1 - Raw Indicators**
+Every I7 signal passes through a deterministic 10-stage quality pipeline before it's ever emitted — clamp confidence to a sane range, decay it for autocorrelated re-fires, score it against six confluence buckets, gate it against structural quality and regime alignment, adjust for time-of-day win-rate history, calibrate it against real historical outcomes (isotonic regression, not a hand-picked curve), rank it against other candidates by rolling Sharpe, and run it past the specialist swarm — before a single structural-completeness check confirms nothing required is missing. No stage trusts the previous one's output blindly; each one is independently auditable.
 
-Incremental computation - each bar updates indicator state without recomputing history. RSI, MACD, Bollinger Bands, ATR, VWAP, Supertrend, Parabolic SAR, Stochastic RSI, Chaikin Money Flow, Aroon, SMA, EMA, OBV, ADX/DI, ROC, Awesome Oscillator, Accelerator Oscillator, Donchian Channels, CCI, Williams %R, MFI, Keltner Channels, Historical Volatility, Chandelier Exit, HMA, OFI, CVD. Every value published once per bar per symbol per timeframe.
+### Generation 2 (V3.0) — AlphaEngine: Statistical Alpha Discovery
 
-**I2 - Composite Events**
+The current, active build. V2's flaw wasn't its engineering — it was epistemological: 138 signal plugins encoded 138 human theories about what confluence means, and could only ever discover edges a researcher already believed in. V3.0's answer:
 
-Discrete events derived from I1 outputs. The standout plugins are second-derivative: **MomentumAcceleration** detects inflection points *before* they complete using rate-of-change on RSI, MACD, and ROC; **ExhaustionScore** composites volume, RSI extreme, reversal candlestick, and ATR spike to identify when a trend is running out of fuel - a leading indicator for regime transition.
+> The researcher proposes feature dimensions. The data validates or rejects each. No human defines which combinations matter — the IC engine measures what predicts, the ensemble discovers what combines.
 
-**I3 - Market Structure**
+| Layer | What it does |
+|-------|--------------|
+| **Feature Factory** | 277 orthogonal feature primitives as of today (growing — Phase 151 is expanding this set right now) across 11 groups (structure, session, volume, volatility, calendar, momentum, regime, and more) — each with a documented statistical rationale, computed unconditionally on every bar, no directional opinion baked in. Every primitive is registry-tiered by construction level: 163 *atomic* (built from raw price/volume alone, no other feature as an input — the clear majority), 106 *theory-derived* (composed from atomic primitives under a stated hypothesis), 8 *interaction* (explicit cross-feature conjunctions) — enforced by a database constraint, not a naming convention |
+| **Regime Layer** | Two independent HMM systems: per-symbol idiosyncratic regime (5-state, BIC-validated, causal forward-filter decoding — never Viterbi, which would leak future information) and cross-sectional systematic regime (VIX/breadth-driven market backdrop) |
+| **IC Measurement** | Spearman rank correlation between every feature and forward returns, measured per symbol first, then pooled cross-sectionally — walk-forward validated with purge/embargo, FDR-corrected across the multiple-testing problem, weighted by IC Sharpe rather than raw magnitude |
+| **Ensemble Combination** | IC-Sharpe-weighted linear combination (live), with a per-feature exposure cap so no single feature dominates. A nonlinear tree-based alternative was built and tested specifically to check for interaction structure a linear model can't express — an instructive result, not a clean win: a data-quality bug initially made it look far stronger than it was, and once corrected, a small but genuinely real residual survived, leaving an open design question about model fit that's actively being worked |
+| **Trade Construction** | Two genuinely different constructions tested empirically: per-symbol directional (signal proved real, execution economics didn't hold up) and cross-sectional relative value — ranking the universe and going long/short the extremes, dollar-neutral — which cleared both statistical gates once and is now being re-verified after a data-correctness fix |
 
-Price action context above the indicator level: swing detection, S/R zones, Market Profile (volume distribution → POC, value area), Anchored VWAP, Fibonacci, session levels. **SwingMomentum** links live momentum readings directly to structural swing context - giving I5 divergence plugins a richer foundation.
+Full layer-by-layer detail, including exactly what didn't work and why: [`docs/architecture/architecture-v3-alphaengine-pipeline.md`](docs/architecture/architecture-v3-alphaengine-pipeline.md).
 
-**I4 - Regime Classification**
+**Price and volume is the first data input vector, not the only one planned.** The system is architected around a broader concept of orthogonal *intelligence vectors* — each an independent, differently-sourced view of the market:
 
-The statistical core. Six models answer distinct questions about the current regime:
+| Vector | Reads | Status |
+|--------|-------|--------|
+| V1 Quant | Price/volume | **Built — the table above** |
+| V2 Microstructure | Order-flow proxies (tick data later) | Partially built |
+| V3 Macro | Cross-asset (VIX, yield curve, sector rotation) | Partially built |
+| V4 Calendar | Expiry cycles, rebalance windows, time-of-day effects | Built |
+| V5 Flow/Positioning | COT, dark pools, short interest | Designed |
+| V6 Derivatives/Gamma | GEX, vol surface, VRP | Designed |
+| V7 Qualitative | News, sentiment, positioning narrative | Designed |
+| V8 Fundamental | Earnings, macro releases, revisions | Designed |
 
-| Model | Question | Output |
-|-------|----------|--------|
-| **GARCH** | Is volatility expanding or contracting? | Volatility regime (low/normal/elevated/extreme) + sigma estimate |
-| **Kalman filter** | What is the true underlying trend, separate from noise? | Smooth trend slope - adapts to current signal-to-noise ratio |
-| **HMM** | Which hidden regime is most probable? | Probability *distribution* over 3 states - not just an argmax |
-| **BOCPD** | Is a new regime beginning right now? | Changepoint probability per bar - detects transitions before HMM confirms |
-| **Hurst Exponent** | Is this market persistent or mean-reverting? | H-value + persistence class - gates signal direction vs. regime |
-| **Shannon Entropy** | How predictable is the current price series? | Entropy score - feeds CIS quality multiplier |
+Each vector clears the same bar before entering the live ensemble: no exceptions, no vector gets to skip the IC-measurement gate because it's expensive or exciting.
 
-### Layer 3: Pattern Intelligence
-
-**I5 - Pattern Detection**
-
-Discrete pattern recognition on the mathematical foundation: RSI divergence, volatility squeeze (Bollinger Bands inside Keltner Channels - compression that precedes expansion), chart patterns (H&S, double top/bottom, triangles, flags, cup and handle, measured move). All feed directly into I6 confluence scoring.
-
-**I6 - Smart Money Concepts + Confluence**
-
-Institutional order flow analysis - the interpretation of price action as the footprint of large participants:
-
-- **BOS/CHoCH** - Break of Structure (trend continuation) vs. Change of Character (swing structure broken *against* the trend - the earliest structural reversal signal)
-- **FVG** (Fair Value Gap) - 3-candle price imbalance where liquidity was left unfilled. Tracked by type, fill status, and freshness
-- **BOCPD** - Bayesian Online Changepoint Detection. Detects the moment statistical properties shift in real time - before HMM confirms a new regime
-- **Liquidity pools · Order blocks · ICT Killzones · AMD cycles** - complete institutional order flow model, aggregated across 6 timeframes into a single directional score
-
-**I7 - Trading Setups**
-
-Each plugin defines a trade thesis with entry, stop-loss, and take-profit logic: `TrendFollowing` · `MeanReversion` · `LiquiditySweepReclaim` · `SqueezeExpansion` · `VWAPDeviation` · `FVGFill` · `PatternCompletion` · `DivergenceStack` · `CHoCHReversal` · `OFIContinuation` · `OFIDivergence` · `CVDDivergence` · `CrossAssetDivergence` · `AnchoredVWAPReversion` · `POCRejection` · `ORB15` · `ORB30` · `VCP` - 36 setups in total.
-
-**Named systems governing I7 signal quality:**
-
-**Intrinsic Confidence Composite (ICC)** — each plugin scores its own setup from pattern-internal factors only (price structure, volume, momentum, microstructure), producing `raw_confidence`. Extrinsic context is never an input. See `docs/architecture/setup-confidence-patterns.md`.
-
-**Extrinsic Confidence Layer (ECL)** — CTF score, HMM regime weight, zone friction, and exhaustion guard travel on every emitted signal as observable metadata. ECL vectors annotate; they never gate emission and never enter the ICC. The ECL boundary is a hard architectural invariant. See `docs/architecture/setup-confidence-patterns.md`.
-
-**Signal Ledger Architecture (SLA)** — detection (`signal_events`), hypothesis (`trade_frames`), and execution (`trade_executions`) are three separate tables, each with a single responsibility. `signal_ledger_full` (Phase 128) / `signal_ledger` (Phase 129+) joins all three for queries.
-
-**Adaptive Parameter Registry (APR)** — all detection thresholds, confidence weights, and indicator periods that govern signal generation live in the APR rather than in code. Parameters start as `[initial_estimate]` human priors and evolve as ML discovery writes calibrated values after p < 0.05. Hot-reload via Kafka outbox — no restarts required. See `docs/foundation/adaptive-parameter-registry.md`.
-
-When multiple setups fire on the same bar, the **CIS scorer** adjudicates (see below). Selected signals pass two gates:
-1. **RR gate** - viable risk:reward based on zone quality and distance to target
-2. **Regime gate** - HMM confidence threshold, regime stability, direction match. Direction mismatches are suppressed and recorded as shadow signals for counterfactual tracking
-
-Every I7 signal passes through a deterministic quality pipeline before Kafka emission - see [Signal Quality Pipeline](#signal-quality-pipeline) below.
-
-### Layer 4: AI Intelligence
-
-**I8 - AI Narrative & Synthesis**
-
-For every signal above confidence 0.7, the AI Narrative Service generates a structured analysis of the full signal context - tier state, regime, SMC context, setup rationale, entry/stop/target. The LLM receives the full `IntelligenceEvent` payload, not a template. Beyond per-signal narratives: group synthesis at configurable intervals across 6 asset groups (equity indices, energy, metals, rates, FX, crypto).
-
-The multi-provider LLM chain (local Ollama on AMD ROCm GPU, OpenRouter) runs with per-provider circuit breakers - no single model is a dependency. Every call logged to `llm_calls` for full audit. Outcomes are back-filled as signals resolve, linking every LLM call to its eventual result.
-
-### Feature Coverage
-
-Every bar for every instrument on every timeframe produces a full feature vector across all tiers.
-
-| Tier | Plugins | Data Points | What It Measures |
-|------|---------|-------------|-----------------|
-| **I1** Raw Indicators | 28 | ~50 | Price, momentum, volatility, volume math - RSI, MACD, ATR, Bollinger, VWAP, OFI, CVD, etc. |
-| **I2** Composite Events | 10 | ~20 | Discrete events from I1 - crossovers, threshold breaches, momentum acceleration, exhaustion scoring |
-| **I3** Market Structure | 8 | ~77 | Price geometry - swing points, S/R zones, market profile (POC/VA), session levels, Fibonacci zones |
-| **I4** Regime Context | 12 | ~93 | Statistical state - GARCH vol forecast, Kalman trend, HMM regime probabilities, Hurst persistence, Shannon entropy, volume profile |
-| **I5** Patterns | 16 | ~91 | Discrete patterns - RSI/MACD/CMF divergence, squeeze detection, chart patterns (H&S, triangles, flags, cup & handle) |
-| **SMC** Smart Money | 13 | ~89 | Institutional footprint - BOS/CHoCH, fair value gaps, order blocks, liquidity pools, BOCPD changepoints, AMD cycles |
-| **I6** Confluence | 6 | ~26 | Cross-timeframe alignment - trend, structure, regime, momentum, orderflow, squeeze agreement across 4 timeframes |
-| **I7** Trading Signals | 36 + 2 agg | ~283 | Actionable setups - entry/stop/target, confidence scoring, feature snapshots, CIS bucket breakdown, regime gate metadata |
-| | **129 + 2** | **~729** | |
-
-Each data point is computed incrementally per bar (O(1) via `compute_next()`, not batch), persisted to `intelligence_features` (TimescaleDB), and streamed to subscribers in real-time via SSE.
+**Universe: 111 instruments as of today** (growing — a snapshot, not a ceiling), spanning broad-market and sector ETFs through single-name equities across technology, financials, energy, mining, and industrials, backfilled to 20 years of historical depth on the core timeframes. Live trading data isn't required to find edge — historical depth is what IC measurement actually needs, so this corpus is built and validated entirely against historical data before any real-time infrastructure gets switched back on.
 
 ---
 
-## CIS: Confluence Intelligence Score
+## Agent Orchestration: Council, Not Oracle
 
-The decision engine. When multiple I7 setups fire simultaneously on the same bar, CIS adjudicates by aggregating evidence from the entire pipeline into a single directional score.
+No single model or single agent is ever trusted to make a unilateral call — this holds at every scale in the system, from a single signal's confidence score to how future evolutionary agents will be selected.
 
-### Six Evidence Buckets
+**The specialist swarm (built, live in V2).** Five independent specialist agents each assess one analytical dimension of a signal — cross-asset correlation, regime coherence, the counterfactual bear case, historical analog scoring, and a mandatory adversarial skeptic that challenges every other agent's conclusion. Their outputs compose into a calibrated multiplier; no single agent's opinion moves the needle alone, and a swarm without the skeptic collapses into groupthink by design — which is exactly why it's mandatory, not optional. `BaseGroupCoordinator` is the shared dispatcher underneath every agent group (alpha, narrative, risk), and the LLM layer itself is multi-provider (local Ollama on GPU, OpenRouter cloud fallback, per-provider circuit breakers) — no single vendor is a dependency either.
 
-| Bucket | Reads from | Weight |
-|--------|-----------|--------|
-| **Trend** | Kalman slope, trend regime, SMC trend, cross-TF alignment | 0.20 |
-| **Momentum** | RSI deviation, MACD histogram, ROC, momentum bias | 0.20 |
-| **Structure** | Swing pattern, BOS/CHoCH events, CHoCHReversal | 0.15 |
-| **Pattern** | Double top/bottom, H&S, triangle completions | 0.05 |
-| **Institutional** | Order blocks, FVG activity, supply/demand zones | 0.25 |
-| **Regime** | HMM state probabilities, BOCPD changepoint, vol regime | 0.15 |
+**Head Trader — the missing synthesis role (designed now, not yet built).** Today the swarm produces a confidence multiplier, and downstream application agents (`TradeAgent`, `PortfolioAgent`, `RiskAgent`) each act on their own slice independently — nobody actually owns "make the final call." The Head Trader formalizes that: a synthesis agent that takes the swarm's composite view, portfolio state, and regime context, and issues the actual trade decision — the way a desk's PM synthesizes input from a technician, a risk manager, and a flow trader rather than any one of them acting unilaterally. Critically, `RiskAgent`'s binding halt authority sits *above* the Head Trader, not below it — the Head Trader decides whether to trade, never whether risk limits apply. Same principle real trading desks run on: the PM can't override the risk desk.
 
-CIS fires only when `|score| > 0.35` **and** at least 3 of 6 buckets agree on direction. A single dominant bucket cannot override the rest - cross-tier confirmation is structurally required.
-
-Each bucket returns `(score, contribution)` - not just the aggregate. The breakdown is logged per signal and exposed via the API. You can see exactly which buckets drove a CIS election and by how much.
-
-### The Learning Loop
-
-Every CIS result is tagged with a `weights_version`. Every signal lifecycle outcome pairs the full CIS bucket vector at signal time with its eventual outcome. All ranked candidates - not just winners - are recorded, giving a complete view of the decision boundary including the counterfactuals CIS rejected.
-
-```
-Signal fires → CIS tags with weights_version=N
-     │
-     ▼
-Signal lifecycle: activation · zone_entry_pct · bars_to_activation · MAE · MFE
-→ 8-class outcome: never_activated · stopped_at_entry · stopped_in_trade ·
-                   target_1 · target_1_2 · target_full · ttl_expired_ahead · ttl_expired_behind
-     │
-     ▼
-Outcome + full I1–I8 feature vector → signal_ledger (labeled training data)
-     │
-     ▼
-Logistic regression → new cis_weights (version N+1)
-→ better selection → more outcome data → loop
-```
-
-The learning path: logistic regression on this dataset fits per-bucket weights that maximize outcome prediction. When updated weights are present, the scorer loads them at startup. CIS improves without code changes.
+**Evolvable AI (eAI) — the swarm's next layer.** The specialist-swarm architecture above — a population of independently-scored agents, shadow-governed, promoted only on proven fitness — is the substrate eAI is designed to evolve autonomously rather than by hand. The concept: seed a population with candidate ideas, auto-backtest each one against historical data with zero human in the loop, select on out-of-sample fitness (not in-sample score), reproduce the survivors via mutation, recombination, or LLM-directed targeted mutation, and repeat across generations until a genome proves out — at which point it's a candidate to seed a live `TradeAgent` or a promoted strategy. This isn't scoped as a generic AI-agent-improvement exercise; the concrete first application is **alpha ideation itself** — using the exact same seed → auto-backtest → select → evolve loop to explore the combination and construction design space described above (which feature-combination approach actually predicts, which construction actually trades) automatically, rather than one human-proposed design at a time. The infrastructure that loop would backtest against — the IC engine, the walk-forward gates, the statistical proof bar — already exists and is already proven; what's designed next is closing the loop so the search itself runs unattended. A concrete first slice (evolving APR parameters specifically, the tractable narrow case before full agent-genome evolution) is already scoped in a written design doc.
 
 ---
 
-## Signal Quality Pipeline
+## Institutional Rigor
 
-Every I7 signal passes through a deterministic sequence of transformations between plugin output and Kafka emission. Confidence is not a single number assigned at plugin time - it is refined at each stage by independent evidence.
+Every claim of "edge" in this system has to survive the same gauntlet before it's allowed to matter:
 
-```
-I7 plugin fires
-  → compose_confidence()        enforce [0.10, 0.95] - no plugin claims certainty
-  → pre_quality_confidence      preserve raw plugin output for ML training labels
-  → alpha decay                 0.5^(fires_since_last_win / half_life) - autocorrelation discount
-  → CIS scoring                 add cis_score, bucket_scores across 6 evidence dimensions
-  → quality gate                min(Hurst, Entropy) × KS drift penalty × empirical floor
-  → regime gate                 suppress on hmm_regime vs plugin.regime_type mismatch
-  → ToD adjustment              120-cell (regime_type, timeframe, hour_et) win-rate multiplier
-  → isotonic calibration        map raw → empirical probability via historical outcomes
-  → rank_signals()              adjusted_rank = perf_multiplier from rolling Sharpe [0.5, 1.5]
-  → select_winner()             highest-ranked regime-eligible signal; ties → confidence
-  → swarm overlay               adjusted_confidence = calibrated × swarm_multiplier (MoA, 5 agents)
-  → structural completeness     verify required fields; DLQ + metric increment on any miss
-  → emit to intelligence.i7.signals
-```
+- **Bootstrap confidence intervals, not asymptotic approximations.** A circular block bootstrap, chosen after an empirical calibration check found the standard asymptotic (Fisher-z) assumption measurably wrong on this corpus's real autocorrelation structure — a real bug caught by checking rather than trusting the textbook default.
+- **Benjamini-Hochberg FDR correction** wherever multiple hypotheses are tested simultaneously (277 features scored at once, for instance) — without it, some fraction of "significant" results would be chance alone, not signal.
+- **Non-overlapping observation windows for stability estimates.** Consecutive bars aren't independent — a 5-bar return at T and T+1 shares 4 bars of the same data. Treating every bar as its own observation silently inflates the effective sample size and understates the true standard error. IC stability is measured on windows that don't overlap, the less convenient but statistically honest way.
+- **Walk-forward validation with a purge/embargo window**, sized to the longest forward-return horizon, so no overlapping label ever leaks across a training/test boundary.
+- **Automated decay with hysteresis, not a symmetric on/off switch.** When a feature's measured edge degrades, its weight is cut immediately and automatically — no human approval in the loop, because a slow response to real decay bleeds real edge. But recovery is deliberately harder than decay: restoring a cut weight requires a full new block of independent observations proving the edge is back, not just one good reading after a bad streak — otherwise the system would oscillate on noise instead of tracking a real regime change.
+- **Shadow governance before any promotion** — n ≥ 100 resolved observations and a positive bootstrap CI at 95% confidence, for every plugin, agent, and feature. Nothing gets promoted on a good-looking p-value alone; automatic demotion triggers on sustained negative expected value.
+- **Every parameter is a versioned, provenanced database row** (the Adaptive Parameter Registry) — no hardcoded threshold, weight, or period anywhere in the codebase. Every value that changes gets a `changed_by` and a `reason`, permanently queryable.
+- **Drift detection in production** — KS tests and CUSUM control charts watch for feature-distribution and performance drift continuously, not on a quarterly review cycle.
+- **Content-addressed identity, not random IDs.** Every row's key is a hash of its own natural identity (symbol, timeframe, bar time, computation version) rather than a random UUID. Reprocessing the same inputs always produces the same key — duplicate detection and idempotent replay come for free, without a database round-trip to check "have I seen this before."
+- **Executable returns only.** Forward returns are computed market-on-open-to-market-on-open, never close-to-close — theoretical returns that assume you can trade the closing print overstate edge, especially at short horizons, and this system's IC numbers are never allowed to be inflated that way.
 
-**[1] `compose_confidence` - clamp `[0.10, 0.95]`** - enforced at plugin construction via a single shared function. No plugin can claim certainty (≥ 0.95) or produce a zero-confidence signal that would persist invisibly in lifecycle tracking. No inline clamping permitted in plugin bodies.
-
-**[2] `pre_quality_confidence` - training data integrity** - stamped before any multiplier or decay touches the signal. This field is what the ML model trains against - raw plugin output, uncontaminated by post-processing. Every downstream adjustment is auditable without corrupting the training labels.
-
-**[3] Alpha decay - `0.5^(n / half_life)`** where `n` counts fires since last win, not elapsed bars. A plugin that fires 10 consecutive bars is not 10 independent observations - each re-fire after a win is autocorrelated evidence. Confidence halves every `half_life` fires. A plugin that goes quiet and re-emerges carries zero accumulated decay - silence is not evidence of quality loss. Half-life constants (`1m=10, 5m=8, 15m=8, 1h=6` fires) are empirical priors; the training data exists to derive them from measured autocorrelation structure.
-
-**[4] Quality gate - `min(Hurst, Entropy) × KS drift penalty × empirical floor`** - `min()` not product because Hurst and Entropy both measure regime predictability and are correlated; compounding them double-penalizes the same signal. KS drift penalty (Kolmogorov-Smirnov test against historical feature distributions) discounts proportionally to out-of-distribution divergence - not a binary drop. Empirical floor derived from p10 confidence of historically profitable signals.
-
-**[5] Regime gate** - HMM regime state versus plugin's declared `regime_type` (`"trend"` / `"mean_reversion"` / `"any"`). Trend plugins suppressed in ranging regime; mean-reversion plugins suppressed in trending. Suppressed signals are still written to `signal_ledger` (`regime_suppressed`) for counterfactual tracking.
-
-**[6] Time-of-day adjustment - 120 cells** - `(regime_type, timeframe, hour_et)` lookup table of rolling historical win rates. A trend setup at RTH open has structurally different reliability than the same setup at 2pm ET. Cells with insufficient history default to neutral (1.0).
-
-**[7] Isotonic calibration** - raw confidence is systematically biased upward. Isotonic regression fits a monotone map from raw → empirical win probability using resolved signal outcomes, per `(setup_plugin, regime_type)` segment. Calibration in a trending regime is independent of calibration in a ranging regime - same plugin, different reliability profile.
-
-**[8] Ranking - `adjusted_rank` from rolling Sharpe `[0.5, 1.5]`** - validated setups (`n ≥ 30`) ranked by rolling 30-day Sharpe per regime. Unvalidated setups receive a warm-up penalty (`adjusted_rank = 0.5`) - they cannot outrank proven setups until statistically demonstrated. Winner selection: highest `adjusted_rank` among regime-eligible signals; confidence breaks ties.
-
-**[9] Swarm overlay** - after winner selection, `AlphaSwarm` applies `swarm_multiplier` from a mixture-of-agents composite (5 specialist agents: skeptic, correlation, volume, ML scorer, macro). Can reduce confidence; cannot change which signal was selected.
-
-**[10] CUSUM + shadow gate - the two feedback loops** - CUSUM control charts track win rate per setup and feed back into `perf_multiplier` without waiting for the 30-day window to catch up. Shadow gate requires `n ≥ 100` AND `bootstrap_ci_lower(pnl_r) > 0.0` (statistically positive EV at 95% CI) before a plugin enters the live stream. Demotion: `EV[R] < -0.05` for 3 consecutive evaluation cycles.
-
-Full stage-by-stage detail: [`docs/signals/signals-foundation.md`](docs/signals/signals-foundation.md) · CIS bucket weights and adaptive weight systems: [`docs/intelligence/intelligence-foundation.md`](docs/intelligence/intelligence-foundation.md)
+The Renaissance-style question this is all built to answer, ten years from now: *why don't we use this feature/strategy/model anymore?* The answer needs to live in a database row — demotion date, held-out statistic, sample size — not in someone's memory or a deleted conversation.
 
 ---
 
-## Signal Lifecycle
+## Keeping a Growing System Legible
 
-Every signal is tracked through its complete lifecycle - not fired and forgotten.
+Rigor about statistics is worth little if the codebase itself decays into inconsistent naming and duplicate concepts as it grows. Three governance systems, each enforced, not just documented:
 
-**Zone-based activation.** Signals define entry zones (proximal, distal) rather than single price levels. The tracker monitors price relative to these zones and records `zone_entry_pct` - how deep into the zone price penetrated before activating or expiring. This provides granular data on entry quality that a simple "price crossed X" model cannot.
+**A naming system with a falsifiable invariant, not a style guide.** *The vocabulary IS the model; the model IS the vocabulary* — a name is correct if and only if a domain expert who has never seen the implementation can predict the object's mathematical role, inputs, and output contract from the name alone. Three concrete tests apply it: the **Whiteboard Test** (would a quant immediately understand it, written on a whiteboard), the **Survival Test** (would the name still be true if the implementation were swapped out — an LLM for a neural net, Kafka for another queue), and the **Portability Test** (could this be extracted unchanged into an unrelated system, for foundational infrastructure). One concept name mechanically derives every layer's label — the class name, the service name, the topic name — rather than each layer inventing its own. The whole naming document is designed to be portable: it travels unchanged into a new project alongside the shared infrastructure it governs.
 
-**MAE and MFE per signal.** Maximum Adverse Excursion and Maximum Favorable Excursion are tracked from activation through exit. These are portfolio-level risk analytics embedded directly in signal tracking - the basis for optimal stop and target placement in position sizing.
+**A single-definition glossary, with a real conflict-resolution rule.** Every domain term has exactly one canonical definition; where two terms could mean the same thing, one is retired. *A term is a mathematical claim — using two terms for the same concept introduces two competing claims, and one is wrong.* When new code and the glossary disagree, the glossary wins, not the code that happens to exist — a real, enforced tie-breaker, not a soft suggestion.
 
-**8-class outcome taxonomy:**
-
-| Outcome | Meaning |
-|---------|---------|
-| `never_activated` | Price never entered the signal zone before TTL expired |
-| `stopped_at_entry` | Stop hit at or near entry, before meaningful trade developed |
-| `stopped_in_trade` | Stop hit after activation, during the trade |
-| `target_1` | First profit target reached |
-| `target_1_2` | First and second targets reached |
-| `target_full` | All targets reached |
-| `ttl_expired_ahead` | TTL expired while in profit |
-| `ttl_expired_behind` | TTL expired while at a loss |
-
-**Counterfactual recording.** All ranked candidates - not just winners - are written to `signal_ledger`. The system records the full I1–I8 feature vector, the CIS bucket breakdown, and the eventual outcome for every signal the pipeline considered. This is the decision boundary: the dataset tells the ML model not just what worked, but what *almost* worked and what was correctly rejected.
-
-**Structural validation at construction.** Every signal is built through a single public factory (`make_signal_from_frame`) that enforces structural invariants - stop distance, stop type, minimum R:R - at the construction boundary. A signal that fails these gates never enters the pipeline. The executor re-validates at the aggregation boundary. Structural guards, not version tags.
+**Concept Registry — one lifecycle-governance system, not a dozen bespoke ones.** V2 grew a sprawl of ad hoc tables, one per governed thing, no shared promotion/demotion schema between them — a real anti-pattern this project hit once and deliberately didn't repeat. Concept Registry unifies feature and ensemble-strategy lifecycle governance under one schema and one service: 279 features and 5 ensemble strategies tracked today, same promotion/demotion/decay discipline as everywhere else in this system, one place to ask "what's live and why" instead of N different tables with N different conventions.
 
 ---
 
-## The AI Swarm & Evolvable Intelligence
+## Two More Systems Built in V2
 
-### Specialist Agents and Composite Agents
+**Empirical Memory — Vector Intelligence Layer.** A pgvector-backed substrate that embeds market and signal context as vectors and retrieves the K most similar historical episodes at query time — grounding AI agent decisions in empirical precedent rather than pattern intuition, the same way a trader draws on lived experience rather than starting cold on every new setup. Real embedding pipeline (768-dimensional, via the same LLM-routing infrastructure every other AI call in the system uses), HNSW-indexed retrieval, a Markov regime-transition model for regime priors, and a statistical-process-control layer watching for drift — all with the same n ≥ 30 promotion discipline as everywhere else in this system before any calibration is trusted. Built in V2, dormant along with the rest of that generation's AI layer.
 
-The AI layer is organized the way a trading desk is organized: **specialist agents perform tasks, composite agents perform roles.**
-
-A skeptic agent challenges every signal. A correlation agent checks whether the signal is genuinely independent or a restating of existing positions. A volume agent analyzes whether order flow confirms or contradicts the setup. These are specialists - focused, fast, replaceable.
-
-Composite agents orchestrate multiple specialists into a coherent view - the same way a senior trader synthesizes input from a technical analyst, a risk manager, and a flow trader. The output isn't a single model's opinion; it's a structured multi-perspective assessment with dissent recorded.
-
-Every agent call is traced. A `LineageRecorder` tracks prompt version, model, inputs, outputs, and timing per call. Full reproducibility - you can reconstruct why any agent made any decision at any point in history.
-
-### Evolvable AI (eAI) - Agents That Evolve
-
-Beyond learning from data, the platform is designed for agents that evolve through Darwinian selection. Inspired by research in evolvable AI (PNAS 2025) and Renaissance Technologies' approach to model management.
-
-Three epochs of AI:
-
-1. **Intelligence by design** - handcrafted rules, logic, expert systems
-2. **Intelligence by learning** - training on data, gradient descent, RLHF
-3. **Intelligence by evolution** - agents that improve their own capacity for improvement
-
-Markets are non-stationary. Manual agent design produces agents that reflect current mental models. An evolutionary system discovers edges that exist beyond those models.
-
-**The agent genome** - each agent's "DNA" is a composite of independently heritable components:
-
-| Chromosome | What evolves |
-|------------|-------------|
-| System prompts | Reasoning strategy, analytical frame, chain-of-thought structure |
-| Configuration parameters | Thresholds, timeframe weights, scoring coefficients |
-| Tool sets | Which data sources and analysis tools the agent can access |
-| Model adapters | Fine-tuned weights for task-specific specialization |
-| Guardrails | Constraints and behavioral boundaries |
-
-**Three reproductive operators:**
-
-- **Mutation** - blind perturbation of genome components. Exploration. Escape local optima.
-- **Recombination** - two fit parents contribute genome segments via crossover. Prompt from parent A + config from parent B + tool set blend. Novel combinations neither parent could produce alone.
-- **LLM-directed mutation** - an LLM analyzes a parent's genome and performance, then proposes targeted improvements. Directed search with access to the full corpus of trading research as its gene pool. The most powerful operator, reserved for high-fitness parents.
-
-**Lifecycle: birth → shadow incubation → breeding → promotion → live.**
-
-Every newborn agent enters shadow mode - observing live data, producing analysis, zero production impact. Fitness is measured out-of-sample across multiple regimes. The system tracks which reproductive operator produces the fittest offspring and dynamically shifts budget toward better operators - meta-optimization of the search itself.
-
-**Composite fitness = accuracy × novelty × calibration × regime specificity × efficiency.**
-
-An agent that's right for the wrong reasons, or that duplicates an existing agent's edge, doesn't promote. The statistical gate: bootstrap CI > 0 at 95% confidence. Unique, calibrated, regime-aware alpha - nothing less clears the gate.
-
-Promotion requires both automated gates (sustained fitness across ≥ 3 regimes, stability, novelty) and human review - the *why* matters, not just the *what*. On promotion, full genome + ancestry chain is recorded permanently, traceable to generation 0.
+**The Learning Agent Council — a dedicated ML layer, orchestrated, not a single notebook model.** The same council pattern from Agent Orchestration above, applied to a different question: not "is this signal good," but "what should the model's weights actually be." A real, tested LightGBM training pipeline — walk-forward 60/20/20 temporal split with no shuffling, per-regime segmentation gated at n ≥ 100 observations before a segment is trusted, delta-gated so it skips retraining on insufficient new data rather than overfitting to noise, and every trained model versioned into an MLflow registry. Orchestrated via LangGraph, with data-quality validation and feature discovery (tsfresh extraction, regime-conditional IC) as their own dedicated stages ahead of training. Built in V2, dormant along with the rest of that generation's AI layer.
 
 ---
 
-## Machine Learning Layer (MLAgent)
+## Current Position
 
-> The feature store and signal ledger are already accumulating the labeled training data this consumes.
+Stated plainly, because the rigor above only means something if it's applied to this project's own claims too, at the resolution that actually matters: **feature-level edge is real and already measured; construction-level, capital-deployable edge is not confirmed yet — and those are different bars, not the same claim stated twice.**
 
-The ML layer closes the learning loop at the model level - replacing hand-tuned weights with a full ensemble trained on labeled signal outcomes. Five agents, orchestrated by LangGraph:
+A concrete number, not an assertion: 163 of the 277 feature primitives are atomic — built from raw price/volume alone, no other feature as an input, the registry's own lowest construction tier, and already the clear majority of the corpus. Of the ones measured so far, 102 clear FDR-corrected statistical significance on at least one symbol/timeframe/regime cell, several with walk-forward-validated IC on sample sizes past 100K independent observations — and 40 are already weighted into the live ensemble computation today. That's real, earned statistical edge at the feature level, the exact thing this system exists to measure. The primitive count itself is still growing — a new expansion is landing right now.
 
-| Agent | Role |
-|-------|------|
-| **Orchestrator** | Routes work, decides retrain / promote / escalate based on monitoring signals |
-| **Data Quality Agent** | Validates training data integrity before any model runs |
-| **Discovery Agent** | tsfresh feature extraction, Pearson IC analysis, regime-conditional IC, cross-asset lag correlation |
-| **Training Agent** | LightGBM ensemble per segment (regime × setup × TF), time-series CV, shadow mode gate |
-| **Monitoring Agent** | Evidently drift detection (KS/PSI/Wasserstein), CUSUM degradation, circuit breaker |
-
-No model reaches production without p < 0.05 with sufficient N. Borderline p-values pause the graph and require human approval - a dashboard alert presents the full model comparison; 4-hour timeout defaults to reject.
-
-**The dataset - already accumulating:**
-
-| Table | Stores | ML role |
-|-------|--------|---------|
-| `intelligence_features` | Full I1–I8 feature vector per bar (tiered JSONB) | Training inputs |
-| `signal_ledger` | Signal + 8-class lifecycle outcome, MAE, MFE, bars-in-trade | Training targets |
-| `llm_calls` | Every LLM invocation with back-filled signal outcome | LLM model scoring |
-| `signal_metrics` | Per-setup rolling 30d win rate, avg P&L R, Sharpe per regime | Performance baseline |
-| `cis_weights` | Adaptive bucket weights, versioned | Model deployment output |
-
-Every bar the pipeline processes adds a row to `intelligence_features`. Every signal that resolves adds an outcome row to `signal_ledger`. The ML layer consumes this dataset - the platform has been building it since day one.
-
-**ML stack:** `langgraph` + `langchain` · `langfuse` (self-hosted observability) · `guardrails-ai` (LLM output validation) · `scipy` + `tsfresh` (700+ statistical features) · `evidently` (drift detection) · `polars` (Rust dataframes) · `lightgbm` (tabular champion) · `shap` (TreeSHAP explainability) · `optuna` (Bayesian hyperparameter optimization) · `mlflow` (model registry) · `river` (online/incremental learning).
-
----
-
-## Adaptive Parameter Registry (APR) — Every Parameter Is a DB Row
-
-Every numeric value that governs signal behavior — detection thresholds, confidence weights, indicator periods, governance gates, regime multipliers — lives in the APR rather than in code. Hard-coded constants in `src/` are an architecture violation.
-
-Parameters are not static configuration. They start as `[initial_estimate]` human priors and move through a defined lifecycle:
-
-```
-seed → operator_tuning → ml_learned → user_override → ml_learned again
-```
-
-Every write is recorded in `config_history` with `changed_by` and `reason` — the full conversation between human judgment and empirical evidence is preserved. ML discovery writes calibrated values back after p < 0.05 with sufficient N. Updates broadcast via Kafka outbox for hot-reload; no service restarts required.
-
-### What the APR governs
-
-| Namespace | Examples |
-|-----------|---------|
-| `threshold.*` | Plugin detection gates — minimum structural strength, zone proximity, divergence depth |
-| `weights.*` | CIS bucket weights, confidence composite factors |
-| `feature.*` | Indicator periods — SMA/RSI/ATR lookback windows |
-| `regime.*` | HMM confidence thresholds, regime stability gates |
-| `shadow.*` | Promotion gates — minimum N, bootstrap CI floor |
-| `signal.*` | TTL bars, alpha decay half-life per timeframe |
-| `swarm.*` | Swarm agent weights, mixture-of-agents coefficients |
-
-### The feedback loop
-
-The APR is the write target for every learning system in the platform:
-
-- **ML discovery** — tsfresh feature extraction + IC analysis → writes optimal indicator periods and threshold values after p < 0.05
-- **CIS weight refinement** — logistic regression on outcome labels → writes updated bucket weights versioned by `weights_version`
-- **Isotonic calibration** — fits monotone confidence maps per `(setup_plugin, regime_type)` segment → writes calibration parameters back to APR
-- **Shadow governance** — bootstrap CI evaluation every N signals → writes promotion/demotion decisions
-
-Every parameter the system acts on has a path from human prior to empirically calibrated value. The APR is what makes "self-improving" a structural property rather than a marketing claim.
-
-Full spec: [`docs/foundation/adaptive-parameter-registry.md`](docs/foundation/adaptive-parameter-registry.md)
-
----
-
-## Vector Intelligence Layer - Empirical Memory for the Pipeline
-
-The I1–I7 pipeline is a sophisticated prediction machine with one critical gap: it has no memory of what it has predicted before. Every bar is processed as if it is the first bar. RSI reads 67, regime is trending, SMC structure shows a bullish order block - the pipeline computes all of this, fires a confluence score, generates a signal. Then the bar closes, price moves, and the system forgets. The intelligence state at that bar and the outcome that followed are never connected.
-
-Renaissance's edge is not in having better models - it is in having more observations per model. The Medallion fund runs thousands of overlapping signals, each carrying a small IC, and the edge compounds across their statistical independence. The critical infrastructure that makes this possible is the ability to retrieve, at any level of granularity, the historical states most similar to now and what price did after them.
-
-That infrastructure is the Vector Intelligence Layer.
-
-### What VIL Does
-
-VIL is a retrieval substrate. Its job is exactly two things:
-
-1. **Embed** - encode bar states, plugin histories, and signals as L2-normalized vectors, stored in pgvector alongside what price did afterward at T+5, T+10, T+20
-2. **Retrieve** - given the current bar as a query vector, return the K most similar historical states and their realized forward returns
-
-That is the full scope of VIL. It returns analog sets. It does not score them.
-
-The boundary is intentional. Turning an analog set into a score - directional hit rate, return distribution, composite conviction, percentile rank - belongs to the layers above. The retrieval substrate stays focused, testable, and reusable across every consumer that needs "find conditions similar to these and see what happened."
-
-The embedding serialization is the hardest problem and the one with the highest blast radius. Raw flattening of the ~100 numerical fields from `intelligence_features` fails because mixed scales (RSI 0–100, volume in millions, price in thousands) make cosine distance meaningless - dominated by magnitude, not structure. The solution: per-feature rolling z-scores (or percentile ranks for bounded features), point-in-time only, categorical fields excluded from the vector and applied as retrieval filters. The contract is versioned - a serialization change invalidates stored history and forces explicit migration, never a silent corruption.
-
-### The Five-Layer Stack
-
-VIL is the foundation of a five-layer empirical intelligence stack. Each layer has a strict contract and a single owner:
-
-```
-vil-01  Substrate         Embed · label · retrieve → list[AnalogResult]
-                          Three tables (embeddings, forward_returns, similarity_pairs)
-                          One retrieval primitive - scoped k-NN, regime filter, distance gate
-
-vil-02  Feature IC        Outcome Labeler - forward R-multiples per bar at T+5/10/20/60
-                          IC Factory - Spearman IC × IC Sharpe × FDR correction per feature
-                          Analog Finder - thin VIL wrapper returning raw analog set
-                          Question: "what predicts price, with what stability, in which regime?"
-
-vil-03  Scoring Engine    Transforms list[AnalogResult] + IC weights → Score Object
-                          Distribution · directional HR · expected R · composite z-score
-                          Conviction envelope (based on analog count + mean distance)
-                          Four resolution levels: L0 plugin, L1 symbol/TF, L2 cross-TF, L3 cross-asset
-
-vil-04  Correlation       Pairwise cosine similarity of plugin/signal/feature histories
-                          Eigenvalue decomposition → effective-N (truly independent signal sources)
-                          Redundant plugin suppression fed back to shadow_registry
-                          Question: "are you counting one observation as two?"
-
-vil-05  Signal Combiner   IC-weighted + decorrelated combination of the full live edge set
-                          Shrinks raw E[R] toward zero in proportion to IC Sharpe
-                          Marginal contribution, not standalone strength, is the value metric
-                          The terminal layer - where aggregate independent conviction lives
-```
-
-Each layer measures or transforms; none acts. VIL retrieves. vil-02 measures prediction (IC). vil-04 measures independence (effective-N). vil-03 scores each edge in isolation. vil-05 combines them into one conviction view that accounts for both trust and overlap. The separation is what makes each layer testable and the whole stack evolvable.
-
-### What VIL Enables
-
-| Consumer | What they gain |
-|---|---|
-| **LLM swarm agents** | Grounded historical evidence in every prompt: "47 similar bars found - 63% up at T+10, avg +0.4R." Agents reason over evidence, not pattern intuition |
-| **I7 governance** | Evidence-based raise/suppress: does the current intelligence state historically precede favorable moves? IC replaces hand-tuned rules |
-| **eAI fitness** | Empirical ground truth: an agent's predictions are measured against the analog distribution for the same bars. Calibration is a SQL query, not a narrative judgment |
-| **Signal independence** | With 138 plugins, if effective-N is 20, downstream confidence estimates are inflated 7x. vil-04 surfaces this continuously - `effective_plugin_count` is a live, alertable gauge |
-| **Research** | "Which features have genuine predictive power at 10-bar horizon in trending regime?" becomes a query over `feature_ic_stats`, queryable in Superset |
-| **Signal combiner** | IC-weighted, decorrelated conviction across the full live edge set - many small independent edges summing to one large stable view, the way Renaissance actually does it |
-
-### Out-of-Distribution Detection
-
-When the current bar has no analogs within the distance threshold, the market is in a state the historical record has never seen. Every model downstream - every score, every IC weight, every analog distribution - is extrapolating out-of-sample. VIL exposes an **OOD monitor**: `vil_ood_rate`, the rolling fraction of live retrievals returning no close analogs. A spike is an early warning that the current environment has decoupled from history - arriving before parametric regime classifiers catch it, because "nothing looks like this" precedes "this looks like regime X." VIL surfaces the signal; a consumer decides the response. Reduce conviction, widen intervals, alert research - the decision is explicit, never silent.
-
-### Extending Intelligence to New Domains
-
-The VIL substrate is domain-agnostic. The same embed → label → retrieve architecture that works for quantitative bar states works for any structured intelligence state. This is the foundation for the extension to fundamental and qualitative intelligence:
-
-| Domain | What gets embedded | What gets retrieved |
-|---|---|---|
-| **Fundamental** | Earnings surprise vectors, macro indicator states, COT positioning | Historical macro analogs and what equity regimes followed |
-| **Qualitative** | News sentiment vectors, prediction market states, analyst positioning | Sentiment conditions and what price environments followed |
-| **Cross-domain** | Joined quantitative + fundamental state | Conditions where multiple domains agreed - the highest-conviction analog |
-| **Derivatives** | Vol surface shape, gamma exposure, skew | Options flow regimes and what spot price did in each |
-
-Each domain plugs into the same VIL tables, the same k-NN primitive, the same scoring engine. No new infrastructure per domain - the substrate compounds with every domain added and every bar processed. The older the system, the more valuable it becomes.
-
-Full design: [`docs/research/vil-01-vector-intelligence-layer.md`](docs/research/vil-01-vector-intelligence-layer.md) through `vil-05`.
-
----
-
-## API Layer: Intelligence as Output
-
-The API is the product. Every signal, indicator value, regime classification, and AI narrative is immediately available over standard HTTP.
-
-### REST Endpoints
-
-| Endpoint | Returns |
-|----------|---------|
-| `GET /api/signals` | Signal history with full I1–I8 feature context |
-| `GET /api/signals/recent` | Recent signals with setup performance JOIN |
-| `GET /api/features` | Full I1–I8 feature vectors per bar, per symbol, per timeframe |
-| `GET /api/market-data` | OHLCV history for any instrument/timeframe |
-| `GET /api/instruments` | Active instrument list with contract metadata |
-| `GET /api/drift` | Live KS + CUSUM drift state - pipeline confidence in its own signals |
-
-### SSE Streams
-
-Persistent HTTP connections. No polling. Events push as they happen.
-
-| Stream | Pushes |
-|--------|--------|
-| `intelligence` | Full typed `IntelligenceEvent` per bar - complete I1–I8 payload |
-| `signals` | Aggregated signals as they fire, with CIS score and constituent contributions |
-| `signal_scorecard` | All ranked I7 candidates per bar - not just the winner |
-| `narratives` | I8 LLM narrative text per signal |
-| `ticks` | Live tick stream for price display |
-
-Any HTTP client - a Python trading bot, a Jupyter notebook, an alert engine, a downstream product - connects to an SSE endpoint and receives the same intelligence the internal pipeline produces, in real time, with zero effect on pipeline throughput.
-
----
-
-## Observability
-
-All services push metrics via OTel to a central Collector, which exposes a Prometheus endpoint. Grafana dashboards cover pipeline throughput per symbol/TF, per-service P50/P95/P99 latency, signal generation and regime gate drop rates, LLM call success and fallback rates, per-plugin error rates.
-
-Four visualization layers serve different audiences and time horizons:
-
-| Layer | Tool | Purpose |
-|-------|------|---------|
-| **Operational** | Grafana + Prometheus | Pipeline health, latency, throughput, service status |
-| **Market Intelligence** | Next.js dashboard (SSE) | Live signals, price panels, AI narratives, SMC context, signal scorecard |
-| **Analytics** | Apache Superset (planned) | Signal outcome analysis, setup performance, regime patterns |
-| **ML Observability** | Langfuse (self-hosted) | AI agent traces, prompt versions, model comparisons |
-
----
-
-## Application Agents & Platform Extensibility
-
-The same bus architecture that decouples intelligence domains from each other also decouples intelligence from application:
-
-| Agent | Role | Attaches via |
-|-------|------|-------------|
-| **TradeAgent** | Directional execution, position sizing, order management | Subscribes to signal streams |
-| **PortfolioAgent** | Capital allocation, Kelly sizing, performance attribution | Subscribes to execution events |
-| **RiskAgent** | VaR, drawdown enforcement, margin monitoring, emergency halt | Subscribes to portfolio state; publishes binding halt instructions |
-
-Risk enforcement is a stream subscriber - not a wrapper around execution code. Portfolio management is a stream subscriber - not a shared database. The bus is the architecture.
-
-New domains attach the same way. The fundamental analysis engine subscribes to market data, publishes `fundamental:earnings`, `fundamental:sector_rotation`. The derivatives engine publishes `deriv:vol_regime`, `deriv:gex`. Downstream agents consume from whichever domains they need. Nothing already running changes.
-
----
-
-## At a Glance
-
-| | |
-|---|---|
-| **Intelligence tiers** | I1–I8 (indicators through AI synthesis) |
-| **Plugins** | 129 + 2 aggregators across 8 tiers |
-| **Data points** | ~729 distinct fields per bar per symbol per timeframe |
-| **Instruments** | 60 - futures, ETFs, FX, crypto |
-| **Latency** | <10ms bar-to-intelligence |
-| **Data bus** | Redpanda (Kafka-compatible, sub-ms, durable, replayable) |
-| **Persistence** | TimescaleDB (feature store, signal ledger, LLM audit) |
-| **Services** | 25+ systemd microservices, DAG-orchestrated |
-| **AI providers** | Ollama (local GPU), OpenRouter, Ollama Cloud - per-provider circuit breakers |
-| **Stack** | Python · FastAPI · asyncpg · Next.js · Prometheus · Grafana |
-
-**Current state:** Quantitative domain in production since early 2026. Vector Intelligence Layer (pgvector substrate, five-layer empirical stack) designed - the foundation for IC-measured prediction, independence-calibrated confidence, and domain extension. Fundamental, qualitative, and derivatives domains designed. Application agents architecturally defined. ML layer designed, awaiting data gate. eAI framework designed.
+What's still open is the harder, more capital-relevant question one layer up: does *combining* those measured features into an actual tradeable construction survive real trading costs and execution constraints? That's a strictly higher bar — proven feature-level IC is necessary but not sufficient for a deployable strategy — and it's the one still gated. The specific open question right now: does the cross-sectional trade construction survive a clean re-measurement after a data-correctness fix to its ranking feature? Both branches of that answer have a defined next step already planned. Live status: [`.planning/STATE.md`](.planning/STATE.md).
 
 ---
 
 ## Documentation
 
-Docs in `docs/foundation/` and domain folders (`intelligence/`, `data/`, `signals/`, `agents/`, `platform/`) carry a verification contract: a document with `Status: current` has had every factual claim traced to a source file, table, or live system state at the date shown. A wrong claim is treated as corrupted data - downgraded to `draft` immediately. See [Documentation System](docs/foundation/documentation-system.md) for the full quality model.
-
-### Foundation - verified, portable
+Docs in `docs/foundation/` and domain folders carry a verification contract: a document marked `Status: current` has had every factual claim traced to a source file, table, or live system state as of the date shown. A wrong claim is treated as corrupted data, not a stale draft.
 
 | Document | Covers |
 |----------|--------|
-| [Principles](docs/foundation/principles.md) | The invariants behind every design decision |
-| [Naming System](docs/foundation/naming-system.md) | Complete vocabulary: rings, taxonomy, surfaces, mechanical derivation rules |
-| [Documentation System](docs/foundation/documentation-system.md) | Taxonomy, recipe-card format, verification lifecycle, decay model |
-
-### Intelligence Domain - verified
-
-| Document | Covers |
-|----------|--------|
-| [Intelligence Foundation](docs/intelligence/intelligence-foundation.md) | I1–I8 definitions, data flow philosophy, CIS bucket weights, adaptive weight systems |
-| [Intelligence Plugins](docs/intelligence/intelligence-plugins.md) | Plugin protocol, 132-plugin inventory, how to add a plugin |
-| [Intelligence AI](docs/intelligence/intelligence-ai.md) | Swarm agents, LLM chain, shadow governance, graduation criteria |
-| [Intelligence Operations](docs/intelligence/intelligence-operations.md) | Services, monitoring, debugging the intelligence pipeline |
-
-### Signals Domain - verified
-
-| Document | Covers |
-|----------|--------|
-| [Signals Foundation](docs/signals/signals-foundation.md) | signal_ledger schema, full signal quality pipeline (alpha decay, calibration, CIS, ranking), feedback loops |
-| [Signals Lifecycle](docs/signals/signals-lifecycle.md) | State machine, zone activation, 8-class outcome taxonomy, MAE/MFE tracking |
-| [Signals Operations](docs/signals/signals-operations.md) | Debugging stalled signals, replay auditor, TTL expiry runbooks |
-| [Signal-Trade Separation ADR](docs/architecture/signal-trade-separation-ADR.md) | 3-table schema decision (signal_events/trade_frames/trade_executions) - why, full schema, dropped columns, FK design, G0 audit |
-
-### Research & Planning - not authoritative
-
-| Document | Covers |
-|----------|--------|
-| [ML Architecture](docs/research/ai-02-ml-agent-architecture.md) | ML layer design - 5 agents, LangGraph orchestration, promotion gates |
-| [eAI Design](docs/research/ai-03-evolvable-ai-agents.md) | Evolvable AI framework - genome model, reproductive operators, fitness function |
-| [VIL - Substrate](docs/research/vil-01-vector-intelligence-layer.md) | pgvector retrieval substrate - embed, label, retrieve; schema; serialization spec |
-| [VIL - Feature IC](docs/research/vil-02-predictive-feature-intelligence.md) | Outcome Labeler, IC Factory, Analog Finder - what predicts price |
-| [VIL - Scoring Engine](docs/research/vil-03-scoring-engine.md) | Analog set → Score Object; four resolution levels; conviction envelope |
-| [VIL - Correlation](docs/research/vil-04-correlation-intelligence.md) | Effective-N; plugin/signal independence; redundancy suppression |
-| [VIL - Signal Combiner](docs/research/vil-05-signal-combiner.md) | IC-weighted, decorrelated combination of the live edge set |
-| [VIL - Platform Ideas](docs/research/vil-06-platform-ideas.md) | Regime discovery, lead-lag, hypothesis backtester, episodic memory |
-| [DAG Execution](docs/concepts/dag-execution.md) | Service DAG topology and execution model |
-| [Roadmap](.planning/ROADMAP.md) | Phase roadmap and current position |
+| [Architecture V3.0 — AlphaEngine](docs/architecture/architecture-v3-alphaengine-pipeline.md) | The current architecture, layer by layer, including every place more than one approach was tried |
+| [Architecture V2 — Event-Driven Pipeline](docs/architecture/architecture-v2-event-driven-pipeline.md) | The prior, fully-built real-time generation — dormant, not dead |
+| [Principles](docs/foundation/principles.md) | The invariants behind every design decision, both generations |
+| [Naming System](docs/foundation/naming-system.md) | The falsifiable naming invariant, the three governing tests, mechanical name derivation |
+| [Glossary](docs/foundation/glossary.md) | The single-definition controlled vocabulary every term in this system is checked against |
+| [Concept Registry](docs/research/concept-unified-registry.md) | Unified feature/strategy lifecycle governance — one system, not a dozen bespoke ones |
+| [Adaptive Parameter Registry](docs/foundation/adaptive-parameter-registry.md) | Every tunable value as a versioned DB row — the mechanism, not just the claim |
+| [North Star — Intelligence Vectors](docs/foundation/v3-north-star.md) | The full V1-V8 data-vector roadmap and Renaissance invariants |
+| [Candidate Edge Theses](docs/research/data-edge-source-thesis.md) | Every trade-construction and signal-extraction idea tried or queued, each falsifiable, with real results |
+| [Swarm Intelligence](docs/concepts/swarm-intelligence.md) | The specialist/composite agent pattern in full — how and why it's built the way it is |
+| [eAI Design (archived from V2, concept carries forward)](docs/research/archive/ai-03-evolvable-ai-agents.md) | Genome model, reproductive operators, fitness function — the full original design |
 
 ### AI Assistant
 
-- [CLAUDE.md](CLAUDE.md) - architecture, commands, conventions, gotchas
+- [CLAUDE.md](CLAUDE.md) — architecture, commands, conventions, gotchas
