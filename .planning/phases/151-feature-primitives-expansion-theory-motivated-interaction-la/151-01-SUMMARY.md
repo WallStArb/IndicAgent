@@ -151,6 +151,16 @@ None - no external service configuration required.
 - No blockers. Full `tests/unit/` suite green; live DB migration applied and verified (`feature_registry`=259 rows, `concept_registry`/`concept_gate` parity clean, `feature_registry_service.py`'s alignment gate holds).
 - Reminder for the next migration in this phase: re-verify the next-free migration number against BOTH `ls production/migrations/` AND `config_history` (or sibling worktree branches directly, if known) before applying — this plan's own migration-numbering collision (deviation 4) is exactly the failure mode a disk-only check misses under concurrent worktree execution.
 
+## Self-Check: PASSED
+
+- FOUND: `production/migrations/287_calendar_velocity_atomics.sql`
+- FOUND: `.planning/phases/151-feature-primitives-expansion-theory-motivated-interaction-la/151-01-SUMMARY.md`
+- FOUND: commit `b54bf7cc` (Task 1)
+- FOUND: commit `cffe30e0` (Task 2)
+- FOUND: commit `9e8605a0` (Task 3)
+- FOUND: commit `1070c7f4` (SUMMARY.md)
+- Verified live: `SELECT count(*) FROM feature_registry` = 259 (matches `FeatureVector` field count)
+
 ---
 *Phase: 151-feature-primitives-expansion-theory-motivated-interaction-la*
 *Completed: 2026-08-05*
