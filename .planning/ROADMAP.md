@@ -1521,6 +1521,35 @@ started as of this note.
   active todo), `docs/research/intelligence-lifecycle-backlog-matrix.md` (not independently
   scoreable yet — same gate every regime-candidate row on that page already respects).
 
+**Discussed and scoped 2026-08-06 (`/gsd-discuss-phase 145`) — context captured, ready for
+`/gsd-plan-phase 145`.** Full record: `145-CONTEXT.md`. Decisions and scope additions:
+
+- **Row-grain ratified: Option B** (one `concept_registry` row per `(dimension, regime_group)`,
+  encoded in `name`, zero new columns) — forced by Phase 144's D-05 finding that the incumbent
+  HMM is simultaneously live-quality for `equity` and deficient for `rates`; a global-status row
+  (Option A) can't represent both states at once. No longer open for the planner to re-litigate.
+- **Contract stays regime_group-agnostic re: todo 167** — Phase 145 neither blocks on nor folds
+  in todo 167's equity-side falsifier gate (still open, queued behind the in-flight corpus
+  rebuild). Option B's per-cell state absorbs whatever todo 167 eventually finds with zero
+  rework.
+- **Two statistical/causal safeguards added to scope, beyond the original design docs:**
+  (1) multiple-testing correction (BH-FDR) across the candidate-dimension pool before any
+  substitution-test "pass" promotes — `regime_model`'s three-stage cascade had no analogous
+  step to `confluence`'s already-specced gate-2 FDR correction, an asymmetry this closes; new
+  APR key `alpha.regime_stratification.fdr_alpha`. (2) mandatory acausal-placebo registration
+  test per provider (generalizing `ops_canary_integrity_assert.py`'s existing
+  `canary_acausal_placebo` mechanism) before a provider enters gate 0 — the design doc's
+  `causality_basis` field was self-declared with no enforcement, the same unverified-causality
+  shape behind three prior real incidents in this codebase (todo 243 CTF join leak, todo 248
+  HMM parameter lookahead, todo 204 canary anomaly).
+- **Effective-N floor** (regime-transition count, not raw bar count) must be derived before the
+  substitution test is trusted — same correction already flagged but undone for `hmm_variant`
+  in `concept-unified-registry.md`'s Domain Vetting section.
+- **Pilot-only candidate scope:** exactly one candidate (`volatility_pct`) run through the full
+  corrected gate stack this phase. Every other candidate-table entry stays backlog.
+- `concept_registry` schema write still sequences after Phase 170 lands; design work proceeds
+  now (no file-level collision).
+
 **Plans:** TBD at `/gsd-plan-phase 145` — not before Phase 144's D-05 verdict lands.
 
 ---
