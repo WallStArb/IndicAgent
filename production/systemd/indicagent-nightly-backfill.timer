@@ -1,0 +1,10 @@
+[Unit]
+Description=Nightly Incremental OHLCV Backfill Timer -- 02:00 UTC (after IBKR gateway's 00:05 UTC nightly restart settles)
+
+[Timer]
+OnCalendar=*-*-* 02:00:00 UTC
+Persistent=true
+Unit=indicagent-nightly-backfill.service
+
+[Install]
+WantedBy=timers.target

@@ -27,7 +27,14 @@ import psycopg
 import structlog
 
 # Set up sys.path BEFORE importing from src
-project_root = Path(__file__).parent.parent.parent
+# NOTE: this file is scripts/infrastructure/backfill/<this file> -- 4 parents reach repo
+# root (backfill/ -> infrastructure/ -> scripts/ -> root), not 3. A 3-parent count landed
+# at scripts/ and made `import src` fail unless PYTHONPATH was already set externally,
+# masked because every production invocation sets PYTHONPATH explicitly (systemd
+# Environment=, or manual `PYTHONPATH=. python ...`) -- found 2026-08-06 while building
+# infrastructure_nightly_backfill.py, whose own correctly-counted 4-parent bootstrap sits
+# right next to this file.
+project_root = Path(__file__).parent.parent.parent.parent
 sys.path.insert(0, str(project_root))
 
 
