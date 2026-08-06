@@ -77,6 +77,18 @@ routed to nothing, a pure oversight independent of both problems above.
    in-flight `ic_engine` run (started 2026-07-30 17:08:55 EDT, config loaded once at process
    startup) -- takes effect on the NEXT `cross_sectional_regime_model.py` +
    `ic_engine.py` invocation.
+
+   **FULLY CLOSED 2026-08-06**: the config flip sat unfollowed for 4 days -- nobody ran
+   `cross_sectional_regime_model.py` since, so `market_regimes` had zero `fx` rows at any tf,
+   which meant `ic_engine.py`'s startup gate (`_assert_prerequisites`, `ic_engine.py:1682`)
+   crash-loud-failed for EVERY invocation project-wide since 2026-08-02, not just fx-routed
+   ones -- discovered while trying to run a scoped refresh for todo 243's CTF join fix. Ran
+   `cross_sectional_regime_model.py` for real (all 4 tfs, all 3 enabled groups, 75s total,
+   trivial cost): `fx` now has 498,302 rows across 5m/15m/1h/1d, 2 real regime labels
+   (`strong_dollar_risk_on`/`weak_dollar_risk_on`) at 15m alone (121,284 rows). `equity`/`rates`
+   also refreshed as a side effect (idempotent recompute, same enabled-group logic, no value
+   change expected). `ic_engine.py` is unblocked for all consumers again, not just this todo's
+   own scope.
 2. Unify `commodity_energy`/`commodity_metals`/`commodity_agri` into a single `commodity`
    group (~10 members once combined: `OIH`/`XLE`/`XOP`/`AMLP`/`GLD`/`SLV`/`PPLT`/`DBB`/`GDX`/
    `DBA`, plus `DBC` once its `commodity_broad` tag is added to the merged group's
