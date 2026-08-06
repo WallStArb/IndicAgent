@@ -44,14 +44,49 @@ posterior-construction design, not a free reuse of `regime_prob_vector`) rather 
 
 ## L5-2 — Hierarchical family-then-feature allocation (HRP-lite)
 
-The 152-feature registry is family-imbalanced (31 vol vs 3 macro), and `cluster_deflate_weights`
-caps only pairwise-correlated clusters — a family of 31 moderately-correlated features can still
-absorb outsized total weight through sheer population. Allocate across families first (by
-family-level aggregate IC Sharpe), then within family — weak-signal diversification applied at
-the family grain, structurally preventing "the ensemble is secretly one volatility bet." Tree
-given by `feature_registry.group_name` (cheaper, stabler, no estimation risk vs. an estimated
-dendrogram). A pure function in `src/intelligence/ensemble/weights.py` + a variant flag; compare
-realized `effective_n` and family weight-share concentration between variants.
+**Evidence refreshed 2026-08-05 (this section was stale — "152-feature registry" and "31 vol vs
+3 macro" both predate Phase 151, which alone added 43 columns).** Live `feature_registry`
+(292 rows, all `added_phase` through 151) `group_name` distribution:
+
+```
+structure: 72   session: 62   volatility: 36   volume: 34
+calendar: 30    momentum: 19  macro: 12        regime: 10
+cross_tf: 6     oscillator: 6 control: 5
+```
+
+The imbalance is real and, if anything, more dramatic than the stale numbers implied —
+`structure` + `session` alone are 134 of 292 fields (46%) — but the original "31 vol vs 3
+macro" framing no longer matches reality and should not be cited as the motivating example
+going forward. `cluster_deflate_weights` still only caps pairwise-correlated clusters, so a
+72-member family can still absorb outsized total weight through sheer population regardless of
+pairwise correlation — the structural gap this candidate addresses is unchanged, just needs
+re-derivation against current group sizes before being written up as a real plan.
+
+**New open question, did not exist when this was last substantively written (2026-08-02):**
+"Tree given by `feature_registry.group_name`" is no longer a safe anchor as stated.
+`concept_registry` (domain='feature') already has its own `group_name` column (confirmed live,
+`concept_registry_group_name_idx`), and todo 118 (P1, "migrate feature_registry into
+concept_registry ASAP, don't leave two governance systems running in parallel") is being
+executed RIGHT NOW by Phase 170, a separate concurrent session
+(`.planning/STATE.md`: "Phase 170 ... running in a separate, concurrent session as of
+2026-08-04"). Building L5-2's family tree on `feature_registry.group_name` today risks building
+on a table mid-retirement — if Phase 170 merges while L5-2 is in flight, the family tree's
+source of truth moves out from under it. **Sequence L5-2 behind Phase 170's merge**, same
+discipline already applied elsewhere in this backlog to avoid two overlapping migration-scale
+efforts running at once (matches the corpus-recompute sequencing pattern). Once Phase 170
+lands, re-derive the group_name distribution above against `concept_registry` instead of
+`feature_registry` before starting design.
+
+E1/E2 mechanism claims re-verified 2026-08-05, still accurate: `mean_variance_weights` (E2)
+exists in `src/intelligence/ensemble/weights.py`, `scripts/ops/alpha/ops_ensemble_weight_compare.py`
+exists as the A/B judge this candidate would use.
+
+Original scoping (still the right shape, just needs the anchor question resolved first):
+allocate across families first (by family-level aggregate IC Sharpe), then within family — weak-
+signal diversification applied at the family grain, structurally preventing "the ensemble is
+secretly one [structure/session] bet." A pure function in `src/intelligence/ensemble/weights.py`
++ a variant flag; compare realized `effective_n` and family weight-share concentration between
+variants.
 
 ## L5-3 — Bayesian averaging over variants instead of champion selection (gated on 3+ variants)
 
