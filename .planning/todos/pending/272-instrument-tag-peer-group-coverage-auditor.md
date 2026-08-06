@@ -1,4 +1,7 @@
-# 271: No automated audit for thin/missing instrument_tags peer groups
+# 272: No automated audit for thin/missing instrument_tags peer groups
+
+**Renumbered from 271** 2026-08-06 -- collided with the completed
+`271-feature-ic-scores-history-not-a-hypertable.md`; content unchanged.
 
 **Filed:** 2026-08-05
 **Source:** altitude review during `/simplify` pass on migration 299 (single-name/basket

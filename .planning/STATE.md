@@ -3,8 +3,8 @@ gsd_state_version: 1.0
 milestone: v3.1
 milestone_name: AlphaEngine Validation + Alpha Scoring
 status: blocked
-stopped_at: Phase 151 (v3.2) waves 1-5 executed, code-reviewed, fixed, and pushed to origin/main (2026-08-05) -- see Phase 151 note below. Waves 6-7 (corpus recompute + IC sweep) intentionally paused pending the in-flight single-name-equity backfill (todo 259, 111-symbol universe) finishing, so the recompute runs once against the final symbol set rather than twice. Separately, HMM walk-forward parameter-lookahead fix (todo 248) implemented+tested but shipped disabled (alpha.hmm.walk_forward.enabled=false) -- flipping it on is a distinct, later decision. CTF join-fix recompute (todos 252-254, Phase 168 blocker) status UNCHANGED by this session -- still gated on user go-ahead, not touched.
-last_updated: "2026-08-05T19:30:00.000Z"
+stopped_at: Phase 151 (v3.2) waves 1-5 executed, code-reviewed, fixed, and pushed to origin/main (2026-08-05) -- see Phase 151 note below. Waves 6-7 (corpus recompute + IC sweep) intentionally paused pending the in-flight single-name-equity backfill (todo 259, 135-symbol universe as of 2026-08-06, still running under client-id 41) finishing, so the recompute runs once against the final symbol set rather than twice. Separately, HMM walk-forward parameter-lookahead fix (todo 248) implemented+tested but shipped disabled (alpha.hmm.walk_forward.enabled=false) -- flipping it on is a distinct, later decision. CTF join-fix recompute (todo 243, Phase 168 blocker): user gave go-ahead 2026-08-05 and a real `--apply` write attempt was launched, but it hit a genuine batching defect (psycopg3 `executemany()` round-tripping one row at a time -- 8.28M rows would have taken 10+ hours) compounded by undetected contention with todo 259's concurrent OHLCV backfill; killed 2026-08-06, safe (per-symbol commits, idempotent), NOT yet retried. Needs the batching fixed before the next attempt. Phase 168 remains DO-NOT-EXECUTE until this lands and Gate 1 is re-verified under the corrected join.
+last_updated: "2026-08-06T10:22:09.000Z"
 progress:
   total_phases: 12
   completed_phases: 9

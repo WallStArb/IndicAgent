@@ -204,6 +204,79 @@ recompute decision (this file's "Next step" item 2, still the user's call, still
 the hard blocker for the actual answer** -- not a diagnostic-tier limitation anymore, since the
 authoritative machinery is otherwise fully ready and proven correct.
 
+**Run 2026-08-05 night into 2026-08-06: `--apply` write attempt launched, killed -- real
+batching defect found, plus undetected contention with a concurrent OHLCV backfill.**
+`scripts/ops/corpus/ops_ctf_columns_recompute_15m.py --apply` was launched in the background
+(per the dry-run validation above) to actually write the corrected 80-symbol/15m corpus. It ran
+10+ hours (started ~23:31, still going the next morning) without finishing. Root cause: the
+script's `cur.executemany()` call (psycopg3) sends each row as its own network round-trip rather
+than a true batched statement -- confirmed via `pg_stat_activity` showing individual single-row
+`UPDATE feature_vectors ... WHERE symbol=$4 AND tf=$5 AND bar_ts=$6` statements executing one at
+a time. At ~1-2ms/round-trip, 8.28M rows is hours of pure overhead, matching the observed
+runtime. **Compounding factor, only found after the fact**: the run was concurrent with the
+client-id 41 OHLCV backfill (`infrastructure_run_historical_pipeline.py`, todo 259's in-flight
+111/135-symbol fetch, itself running 24+ hours at the time) -- contention on top of the batching
+defect. The process check done before launching only grepped for known heavy-job script names
+(`backfill_feature_factory`/`ic_engine`/`regime_writer`); it didn't match
+`infrastructure_run_historical_pipeline.py`'s name, so the collision went undetected until
+diagnosed live. User confirmed the OHLCV backfill is expected/intentional right now (todo 259
+is real, in-progress, sequenced ahead of the Phase 151 waves 6-7 corpus recompute per STATE.md).
+The `--apply` run was killed as a result -- safe to kill: per-symbol `conn.commit()` means
+whatever alphabetically-early symbols it reached stay correctly written, and the script's
+changed-row comparison logic makes re-running fully idempotent. **Verified post-kill**: SPY
+(late-alphabet among the 80) still reads `0.23211576956201058` -- the old leaked value -- at the
+known spot-check bar (`2026-01-05 15:00:00+00`), confirming the run died before reaching S and
+nothing downstream of that point got corrupted mid-write.
+
+**Not yet retried.** Before the next `--apply` attempt: (1) fix the batching -- a real
+multi-row `UPDATE ... FROM (VALUES ...)` per symbol (or psycopg3 pipeline mode) instead of
+`executemany()`, which should take this from 10+ hours to low minutes, matching the dry-run's
+92-second read-only baseline; (2) don't run it concurrently with todo 259's OHLCV backfill --
+either wait for that to finish or confirm real DB/CPU headroom first, and grep `ps aux` broadly
+rather than for a fixed list of known script names before launching any second heavy write job
+(see [[feedback_always_parallel_tracks]], reinforced by this exact miss).
+
+**Run 2026-08-06, batching fix applied + verified on SPY.** Rewrote
+`_recompute_symbol`'s write path to use `services/_batch_utils.py`'s `bulk_update_by_key()`
+(COPY into a temp table + one JOIN-UPDATE) instead of `cur.executemany()` -- same helper
+`regime_writer.py` already uses for its own `feature_vectors` writes, no new pattern
+introduced. Ruff/black clean.
+
+**Operational gotcha hit and resolved during verification**: an earlier bounded test run was
+wrapped in `timeout 60`, which killed the *client-side* python process but left the Postgres
+backend running server-side (`pg_stat_activity` showed it still `active` on the same UPDATE a
+minute later) -- a second attempt then blocked waiting on a `transactionid` lock held by the
+orphaned first one. Resolved via `pg_terminate_backend()` on the orphaned pid. Lesson: don't
+wrap a real DB-writing invocation of this script in `timeout` again; let it run to completion
+or kill it deliberately (`kill <pid>`) and confirm via `pg_stat_activity`/`ps aux` that both the
+client process and the server backend are actually gone before retrying, not just the client.
+
+**Real single-symbol write, SPY, succeeded**: `--apply --symbols SPY` completed in **145.7s**
+(130,372 rows examined, 129,153 written). Spot-check confirms the fix:
+`bar_ts='2026-01-05 15:00:00+00'` now reads `-0.12805604993218622`, matching the plan's expected
+`-0.1281` (was the leaked `0.2321` before this run).
+
+**145.7s for one symbol is much better than the dead 10+-hour run, but not the "low minutes"
+originally hoped for -- root cause is very likely `feature_vectors`' TimescaleDB compression,
+not the batching fix's own overhead.** Confirmed live: `feature_vectors` is a compressed
+hypertable, currently 80 compressed chunks + 3 uncompressed (`chunk_compression_stats`).
+SPY carries the corpus's longest 15m history, so its UPDATE likely touches most/all 80
+compressed chunks, each requiring on-the-fly decompression before the row-level UPDATE can
+apply -- exactly the failure mode `docs/foundation/performance-investigation-sop.md` calls out
+("check chunk count/compression status as first-class suspects" for a slow write against a
+TimescaleDB hypertable). **Do not extrapolate SPY's 145.7s linearly to all 80 symbols** --
+symbols with shorter history spans fewer chunks and should be proportionally faster, but the
+real full-corpus runtime is unmeasured. A plausible range is tens of minutes to low hours, not
+the 92-second dry-run baseline (that number was read-only and never paid the decompression
+cost the write path does -- exactly the SOP's "never trust a read-only test for a write-path
+question" warning, confirmed the hard way here).
+
+**Still gated on user go-ahead for the full 80-symbol run** -- current conditions are favorable
+(DB load low, todo 259's OHLCV backfill isn't hitting Postgres, only IBKR), but the runtime
+uncertainty and the scale of the write (up to ~8.7M more rows) mean this stays an explicit
+go/no-go rather than something to launch unilaterally, consistent with this file's own earlier
+"Next step" framing.
+
 ## Cross-refs
 
 - [todo 241](241-ctf-momentum-live-batch-compute-divergence.md) -- the live-path fix that
