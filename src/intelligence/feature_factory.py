@@ -1542,31 +1542,6 @@ def _obv_z(closes: np.ndarray, volumes: np.ndarray, window: int) -> float:
 # ---------------------------------------------------------------------------
 
 
-def _dist_from_high(close: float, highs: np.ndarray, atr: float, eps: float = 1e-10) -> float:
-    """Distance from the rolling high, ATR-normalized: (rolling_high_N - C) / ATR.
-
-    Unbounded non-negative (the current bar's high is always in the window,
-    so rolling_high_N >= C by construction). Returns 0.0 when ATR is near zero
-    (cold start / degenerate volatility).
-    """
-    if atr < eps:
-        return 0.0
-    rolling_high = float(np.max(highs))
-    return (rolling_high - close) / atr
-
-
-def _dist_from_low(close: float, lows: np.ndarray, atr: float, eps: float = 1e-10) -> float:
-    """Distance from the rolling low, ATR-normalized: (C - rolling_low_N) / ATR.
-
-    Unbounded non-negative (the current bar's low is always in the window,
-    so rolling_low_N <= C by construction). Returns 0.0 when ATR is near zero.
-    """
-    if atr < eps:
-        return 0.0
-    rolling_low = float(np.min(lows))
-    return (close - rolling_low) / atr
-
-
 def _range_pct(close: float, highs: np.ndarray, lows: np.ndarray, eps: float = 1e-10) -> float:
     """Rolling range as a fraction of price: (rolling_high_N - rolling_low_N) / C.
 
@@ -2646,23 +2621,33 @@ def _bars_since_event_series_full(events: np.ndarray, window: int) -> np.ndarray
 
 
 def _dist_from_high_series_full(
-    closes: np.ndarray, highs: np.ndarray, atr_padded: np.ndarray, window: int, eps: float = 1e-10
+    closes: np.ndarray,
+    highs: np.ndarray,
+    atr_padded: np.ndarray,
+    atr_valid: np.ndarray,
+    window: int,
 ) -> np.ndarray:
-    """result[i] == streaming _dist_from_high at bar i."""
+    """result[i] == streaming distance from the rolling high, ATR-normalized,
+    at bar i. `atr_valid` is the precomputed `_is_valid_atr_series` mask
+    (todo 268: hoisted by the caller and shared across all 4
+    dist_from_high/low_fast/slow calls rather than recomputed per call)."""
     rolling_high = _sliding_rolling_max(highs, window)
-    safe_atr = np.where(atr_padded > eps, atr_padded, 1.0)
+    safe_atr = np.where(atr_valid, atr_padded, 1.0)
     raw = (rolling_high - closes.astype(float)) / safe_atr
-    return np.where(atr_padded > eps, raw, 0.0)
+    return np.where(atr_valid, raw, 0.0)
 
 
 def _dist_from_low_series_full(
-    closes: np.ndarray, lows: np.ndarray, atr_padded: np.ndarray, window: int, eps: float = 1e-10
+    closes: np.ndarray, lows: np.ndarray, atr_padded: np.ndarray, atr_valid: np.ndarray, window: int
 ) -> np.ndarray:
-    """result[i] == streaming _dist_from_low at bar i."""
+    """result[i] == streaming distance from the rolling low, ATR-normalized,
+    at bar i. `atr_valid` is the precomputed `_is_valid_atr_series` mask
+    (todo 268: hoisted by the caller and shared across all 4
+    dist_from_high/low_fast/slow calls rather than recomputed per call)."""
     rolling_low = _sliding_rolling_min(lows, window)
-    safe_atr = np.where(atr_padded > eps, atr_padded, 1.0)
+    safe_atr = np.where(atr_valid, atr_padded, 1.0)
     raw = (closes.astype(float) - rolling_low) / safe_atr
-    return np.where(atr_padded > eps, raw, 0.0)
+    return np.where(atr_valid, raw, 0.0)
 
 
 def _range_pct_series_full(
@@ -3459,6 +3444,9 @@ def _precompute_series(
     """
     atr_raw = _atr_series_full(highs, lows, closes, config.adx_period)
     atr_padded = np.concatenate([[0.0], atr_raw])
+    # Shared once across all 4 dist_from_high/low_fast/slow calls below (todo
+    # 268) rather than each independently recomputing the same mask.
+    atr_valid = _is_valid_atr_series(atr_padded, closes, config.atr_normalization_min_pct)
     atr_z = _rolling_zscore_series(atr_padded, config.momentum_zscore_window)
     # Shared once for both price_vol_corr_fast/slow below (same |log return|
     # series either window correlates against volume) rather than each
@@ -3553,16 +3541,16 @@ def _precompute_series(
         mfi_slow=_mfi_series_full(highs, lows, closes, volumes, config.mfi_slow),
         obv_z=_obv_z_series_full(closes, volumes, config.obv_window),
         dist_from_high_fast=_dist_from_high_series_full(
-            closes, highs, atr_padded, config.dist_window_fast
+            closes, highs, atr_padded, atr_valid, config.dist_window_fast
         ),
         dist_from_high_slow=_dist_from_high_series_full(
-            closes, highs, atr_padded, config.dist_window_slow
+            closes, highs, atr_padded, atr_valid, config.dist_window_slow
         ),
         dist_from_low_fast=_dist_from_low_series_full(
-            closes, lows, atr_padded, config.dist_window_fast
+            closes, lows, atr_padded, atr_valid, config.dist_window_fast
         ),
         dist_from_low_slow=_dist_from_low_series_full(
-            closes, lows, atr_padded, config.dist_window_slow
+            closes, lows, atr_padded, atr_valid, config.dist_window_slow
         ),
         range_pct_fast=_range_pct_series_full(closes, highs, lows, config.range_window_fast),
         range_pct_slow=_range_pct_series_full(closes, highs, lows, config.range_window_slow),
@@ -4699,9 +4687,7 @@ def _is_valid_atr(atr_val: float | None, close_: float, min_atr_pct: float) -> b
     session levels, all 6 SMC compute functions) and todo 266 (`_informed_flow`,
     `_range_vs_atr`): True iff atr_val is finite, strictly positive, AND at
     least min_atr_pct of close_ -- safe to divide a price distance by without
-    exploding. NOT YET used by `_dist_from_high`/`_dist_from_low` (and their
-    vectorized `_series_full` counterparts) -- same ATR-ratio shape, still on
-    their own absolute `eps=1e-10` epsilon (todo 268).
+    exploding.
 
     A bare `atr_val > 0` check (this function's pre-todo-237 form) passes a
     legitimately-positive but numerically-tiny ATR -- e.g. BIL (an
@@ -4711,6 +4697,9 @@ def _is_valid_atr(atr_val: float | None, close_: float, min_atr_pct: float) -> b
     ever catching it. min_atr_pct (feature.atr_normalization.min_atr_pct) is
     relative to close_, not an absolute floor, so it holds across instruments
     at any price scale.
+
+    See `_is_valid_atr_series` for the vectorized form used by `_series_full`
+    batch functions.
     """
     return (
         atr_val is not None
@@ -4718,6 +4707,17 @@ def _is_valid_atr(atr_val: float | None, close_: float, min_atr_pct: float) -> b
         and atr_val > 0
         and atr_val >= min_atr_pct * abs(close_)
     )
+
+
+def _is_valid_atr_series(
+    atr_padded: np.ndarray, closes: np.ndarray, min_atr_pct: float
+) -> np.ndarray:
+    """Vectorized form of `_is_valid_atr` (todo 268): result[i] is True iff
+    atr_padded[i] is finite, strictly positive, AND at least min_atr_pct of
+    abs(closes[i]) -- same relative floor, applied element-wise across a full
+    `_series_full` batch array instead of one scalar per call.
+    """
+    return np.isfinite(atr_padded) & (atr_padded > 0) & (atr_padded >= min_atr_pct * np.abs(closes))
 
 
 def _dist_to_midpoint(close_: float, boundary_a: float, boundary_b: float) -> float:

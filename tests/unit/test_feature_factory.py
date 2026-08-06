@@ -23,8 +23,11 @@ from src.intelligence.feature_cache import CrossAssetState, FeatureCache
 from src.intelligence.feature_factory import (
     FeatureFactory,
     FeatureFactoryConfig,
+    _dist_from_high_series_full,
+    _dist_from_low_series_full,
     _informed_flow,
     _is_valid_atr,
+    _is_valid_atr_series,
     _range_vs_atr,
     _rolling_zscore_series,
 )
@@ -1598,3 +1601,61 @@ class TestInformedFlowRangeVsAtrFloor:
 
     def test_range_vs_atr_floor_disabled_allows_sub_eps_atr(self) -> None:
         assert _range_vs_atr(92.0, 91.0, 1e-12, 91.70, 0.0) != 0.0
+
+
+class TestIsValidAtrSeries:
+    """todo 268: vectorized form of _is_valid_atr for the _series_full batch
+    functions, which operate on a full atr_padded array rather than a per-bar
+    scalar."""
+
+    def test_matches_scalar_is_valid_atr_elementwise(self) -> None:
+        atr_padded = np.array([0.0, 1.0, 0.0001, np.nan, -1.0, 0.05])
+        closes = np.array([100.0, 100.0, 91.70, 100.0, 100.0, 100.0])
+        min_atr_pct = 0.0001
+        expected = np.array(
+            [
+                _is_valid_atr(float(a), float(c), min_atr_pct)
+                for a, c in zip(atr_padded, closes, strict=True)
+            ]
+        )
+        result = _is_valid_atr_series(atr_padded, closes, min_atr_pct)
+        np.testing.assert_array_equal(result, expected)
+
+
+class TestDistFromHighLowFloor:
+    """todo 268: _dist_from_high_series_full/_dist_from_low_series_full routed
+    through the vectorized ATR floor -- same BIL-style gap todo 266 fixed for
+    _informed_flow/_range_vs_atr, but on the vectorized batch path that backs
+    dist_from_high_fast/slow and dist_from_low_fast/slow."""
+
+    def test_dist_from_high_tiny_atr_below_floor_returns_zero(self) -> None:
+        closes = np.array([91.0, 91.5, 91.70])
+        highs = np.array([91.2, 91.8, 92.0])
+        atr_padded = np.array([1.0, 1.0, 0.0001])  # last bar far below floor
+        atr_valid = _is_valid_atr_series(atr_padded, closes, 0.0001)
+        result = _dist_from_high_series_full(closes, highs, atr_padded, atr_valid, window=3)
+        assert result[-1] == 0.0
+
+    def test_dist_from_high_ordinary_atr_computes_ratio(self) -> None:
+        closes = np.array([91.0, 91.5, 98.0])
+        highs = np.array([91.2, 91.8, 100.0])
+        atr_padded = np.array([1.0, 1.0, 2.0])
+        atr_valid = _is_valid_atr_series(atr_padded, closes, 0.0001)
+        result = _dist_from_high_series_full(closes, highs, atr_padded, atr_valid, window=3)
+        assert result[-1] == pytest.approx((100.0 - 98.0) / 2.0)
+
+    def test_dist_from_low_tiny_atr_below_floor_returns_zero(self) -> None:
+        closes = np.array([91.0, 91.5, 91.70])
+        lows = np.array([90.8, 91.2, 91.0])
+        atr_padded = np.array([1.0, 1.0, 0.0001])
+        atr_valid = _is_valid_atr_series(atr_padded, closes, 0.0001)
+        result = _dist_from_low_series_full(closes, lows, atr_padded, atr_valid, window=3)
+        assert result[-1] == 0.0
+
+    def test_dist_from_low_ordinary_atr_computes_ratio(self) -> None:
+        closes = np.array([91.0, 91.5, 98.0])
+        lows = np.array([90.8, 91.2, 90.0])
+        atr_padded = np.array([1.0, 1.0, 2.0])
+        atr_valid = _is_valid_atr_series(atr_padded, closes, 0.0001)
+        result = _dist_from_low_series_full(closes, lows, atr_padded, atr_valid, window=3)
+        assert result[-1] == pytest.approx((98.0 - 90.0) / 2.0)

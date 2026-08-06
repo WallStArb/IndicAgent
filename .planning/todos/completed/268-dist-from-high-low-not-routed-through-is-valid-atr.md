@@ -1,10 +1,45 @@
 ---
-status: pending
+status: completed
 priority: P3
 filed: 2026-08-05
+closed: 2026-08-05
 source: /simplify altitude review of todo 266's fix (_informed_flow/_range_vs_atr
   consolidation onto _is_valid_atr)
 ---
+
+## Closed 2026-08-05
+
+**Deviated from the written plan**: investigation found `_dist_from_high`/`_dist_from_low`
+(the scalar path this todo's Fix step 1 called out) have zero callers anywhere in the repo --
+both `compute()` and `compute_batch()` source `dist_from_high_fast/slow`/`dist_from_low_fast/slow`
+exclusively from `_dist_from_high_series_full`/`_dist_from_low_series_full` via
+`_precompute_series()`, never the scalar functions. Deleted them outright (CLAUDE.md: "if you
+are certain something is unused, you can delete it completely") instead of fixing dead code.
+Only the vectorized path -- the actual live path -- needed the real fix.
+
+Added `_is_valid_atr_series(atr_padded, closes, min_atr_pct) -> np.ndarray`, a vectorized sibling
+to the scalar `_is_valid_atr` (todos 237/266), and routed `_dist_from_high_series_full`/
+`_dist_from_low_series_full` through it in place of their own `atr_padded > eps` absolute
+epsilon. An efficiency review pass caught the initial version calling `_is_valid_atr_series`
+independently inside each of the 4 call sites (dist_from_high/low_fast/slow all share the same
+`atr_padded`/`closes`) -- hoisted to a single `atr_valid` computed once in `_precompute_series`
+and threaded through, eliminating 3x redundant O(n) array allocation per symbol/tf across the
+full corpus.
+
+TDD: `TestIsValidAtrSeries` (elementwise parity against the scalar `_is_valid_atr`) +
+`TestDistFromHighLowFloor` (BIL-style regression + ordinary-ratio cases for both functions).
+`/simplify`'s 4-angle pass: simplification and altitude clean; efficiency caught the redundant
+`atr_valid` computation (fixed, above); reuse caught `_gap_z_series_full` as a same-shaped
+sibling gap, out of scope here (different, non-shared local ATR computation with its own
+index alignment) -- filed as
+[269](269-gap-z-series-full-not-routed-through-is-valid-atr.md).
+
+Independent correctness review (pr-review-toolkit:code-reviewer) confirmed: right arrays at all
+4 call sites, alignment holds across degenerate lengths, guard-failure fallback preserved
+(differential check against reconstructed pre-diff output: bit-identical on ordinary data,
+BIL-style tiny-ATR case flips from a max magnitude of 1.13e7 to a clean 0.0 -- the intended
+delta and nothing else), `compute()`/`compute_batch()` parity untouched, no un-updated callers
+repo-wide. Full `tests/unit/` suite green, ruff/black clean.
 
 ## What
 
