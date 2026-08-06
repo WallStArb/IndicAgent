@@ -23,7 +23,9 @@ from src.intelligence.feature_cache import CrossAssetState, FeatureCache
 from src.intelligence.feature_factory import (
     FeatureFactory,
     FeatureFactoryConfig,
+    _informed_flow,
     _is_valid_atr,
+    _range_vs_atr,
     _rolling_zscore_series,
 )
 from src.intelligence.schemas import FeatureVector
@@ -1562,3 +1564,37 @@ class TestIsValidAtr:
         assert FeatureFactoryConfig.__dataclass_fields__[
             "atr_normalization_min_pct"
         ].default == pytest.approx(0.0001)
+
+
+class TestInformedFlowRangeVsAtrFloor:
+    """todo 266: _informed_flow/_range_vs_atr routed through the same _is_valid_atr
+    relative floor todo 237 applied to the other 12 ATR-ratio features -- replaces
+    their own inline `atr > 1e-10` absolute epsilon, which let a BIL-style
+    tiny-but-positive ATR through uncaught when it was still far below
+    min_atr_pct of close_."""
+
+    def test_informed_flow_ordinary_atr_computes_ratio(self) -> None:
+        assert _informed_flow(99.0, 100.0, 2.0, 0.0001) == pytest.approx(0.5)
+
+    def test_informed_flow_tiny_atr_below_floor_returns_zero(self) -> None:
+        """The BIL-style regression case: atr_val > 1e-10 (old gate would have
+        passed it) but far below min_atr_pct of close_."""
+        close_ = 91.70
+        atr_val = 0.0001  # ~0.0001% of close_, far below the 0.01% default floor
+        assert _informed_flow(90.0, close_, atr_val, 0.0001) == 0.0
+
+    def test_informed_flow_floor_disabled_allows_sub_eps_atr(self) -> None:
+        """min_atr_pct=0.0 relaxes the gate to a bare atr_val > 0 check, same
+        additive-floor semantics as _is_valid_atr's own floor-disabled test."""
+        assert _informed_flow(90.0, 91.70, 1e-12, 0.0) != 0.0
+
+    def test_range_vs_atr_ordinary_atr_computes_ratio(self) -> None:
+        assert _range_vs_atr(102.0, 98.0, 2.0, 100.0, 0.0001) == pytest.approx(2.0)
+
+    def test_range_vs_atr_tiny_atr_below_floor_returns_zero(self) -> None:
+        close_ = 91.70
+        atr_val = 0.0001
+        assert _range_vs_atr(92.0, 91.0, atr_val, close_, 0.0001) == 0.0
+
+    def test_range_vs_atr_floor_disabled_allows_sub_eps_atr(self) -> None:
+        assert _range_vs_atr(92.0, 91.0, 1e-12, 91.70, 0.0) != 0.0

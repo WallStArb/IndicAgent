@@ -886,12 +886,13 @@ def _rel_volume(volume: float, vol_history: deque, window: int) -> float:
     return volume / mean_vol if mean_vol > 1e-10 else 1.0
 
 
-def _informed_flow(open_price: float, close: float, atr: float) -> float:
+def _informed_flow(open_price: float, close: float, atr: float, min_atr_pct: float) -> float:
     """Directional informed flow proxy: (close - open) / ATR.
 
-    Returns 0.0 when ATR is zero.
+    Returns 0.0 when atr is invalid per `_is_valid_atr` (todo 266: routed through
+    the same relative floor as the 12 sibling ATR-ratio features, todo 237).
     """
-    return (close - open_price) / atr if atr > 1e-10 else 0.0
+    return (close - open_price) / atr if _is_valid_atr(atr, close, min_atr_pct) else 0.0
 
 
 def _vol_ratio(closes: np.ndarray, short_bars: int, long_bars: int) -> float:
@@ -1064,9 +1065,13 @@ def _lower_wick_ratio(
     return (min(open_price, close) - low) / hl
 
 
-def _range_vs_atr(high: float, low: float, atr: float, eps: float = 1e-10) -> float:
-    """Bar range relative to ATR: (H - L) / ATR_N. Unbounded positive. Returns 0.0 when atr < eps."""
-    return (high - low) / atr if atr > eps else 0.0
+def _range_vs_atr(high: float, low: float, atr: float, close_: float, min_atr_pct: float) -> float:
+    """Bar range relative to ATR: (H - L) / ATR_N. Unbounded positive.
+
+    Returns 0.0 when atr is invalid per `_is_valid_atr` (todo 266: routed through
+    the same relative floor as the 12 sibling ATR-ratio features, todo 237).
+    """
+    return (high - low) / atr if _is_valid_atr(atr, close_, min_atr_pct) else 0.0
 
 
 def _close_vs_open_direction(open_price: float, close: float) -> float:
@@ -4689,14 +4694,14 @@ def _compute_fib_zones(
 
 
 def _is_valid_atr(atr_val: float | None, close_: float, min_atr_pct: float) -> bool:
-    """Shared guard for the 12 ATR-normalized distance features consolidated onto
+    """Shared guard for the ATR-normalized distance features consolidated onto
     it by todo 237 (session VP, S/R, swing/trend structure, fibonacci zones,
-    session levels, all 6 SMC compute functions): True iff atr_val is finite,
-    strictly positive, AND at least min_atr_pct of close_ -- safe to divide a
-    price distance by without exploding. NOT YET used by every ATR-ratio
-    feature in this module -- `_informed_flow`/`_range_vs_atr` still use their
-    own independent `atr > 1e-10` absolute epsilon (todo 266 tracks routing
-    them through this same gate).
+    session levels, all 6 SMC compute functions) and todo 266 (`_informed_flow`,
+    `_range_vs_atr`): True iff atr_val is finite, strictly positive, AND at
+    least min_atr_pct of close_ -- safe to divide a price distance by without
+    exploding. NOT YET used by `_dist_from_high`/`_dist_from_low` (and their
+    vectorized `_series_full` counterparts) -- same ATR-ratio shape, still on
+    their own absolute `eps=1e-10` epsilon (todo 268).
 
     A bare `atr_val > 0` check (this function's pre-todo-237 form) passes a
     legitimately-positive but numerically-tiny ATR -- e.g. BIL (an
@@ -6808,7 +6813,9 @@ class FeatureFactory:
         body_ratio_val = _body_ratio(open_, high_, low_, close_)
         upper_wick_ratio_val = _upper_wick_ratio(open_, high_, low_, close_)
         lower_wick_ratio_val = _lower_wick_ratio(open_, high_, low_, close_)
-        range_vs_atr_val = _range_vs_atr(high_, low_, atr_val)
+        range_vs_atr_val = _range_vs_atr(
+            high_, low_, atr_val, close_, config.atr_normalization_min_pct
+        )
         close_vs_open_direction_val = _close_vs_open_direction(open_, close_)
         overnight_gap_val = _overnight_gap(open_, prev_close_)
         overnight_gap_z_val = _overnight_gap_z(opens, closes, config.overnight_gap_window)
@@ -6906,7 +6913,7 @@ class FeatureFactory:
             gap_z=_series_last(s.gap_z, 0.0),
             momentum_z_slow=_series_last(s.momentum_z_slow, 0.0),
             momentum_reversal_z=momentum_reversal_z_val,
-            informed_flow=_informed_flow(open_, close_, atr_val),
+            informed_flow=_informed_flow(open_, close_, atr_val, config.atr_normalization_min_pct),
             volume_z=volume_z_val,
             ofi_z=_series_last(s.ofi_z, 0.0),
             ofi_div=_series_last(s.ofi_z, 0.0) - _series_last(s.momentum_z_fast, 0.0),
@@ -7330,7 +7337,9 @@ class FeatureFactory:
                 close_, w_highs[-range_bars:], w_lows[-range_bars:]
             )
 
-            informed_flow_val = _informed_flow(open_, close_, atr_val)
+            informed_flow_val = _informed_flow(
+                open_, close_, atr_val, config.atr_normalization_min_pct
+            )
             vol_ratio_val = _vol_ratio(w_closes, config.vol_short_bars, config.vol_long_bars)
             cmf_val = _cmf(w_highs, w_lows, w_closes, w_volumes, config.cmf_period)
 
@@ -7622,7 +7631,9 @@ class FeatureFactory:
             body_ratio_val = _body_ratio(open_, high_, low_, close_)
             upper_wick_ratio_val = _upper_wick_ratio(open_, high_, low_, close_)
             lower_wick_ratio_val = _lower_wick_ratio(open_, high_, low_, close_)
-            range_vs_atr_val = _range_vs_atr(high_, low_, atr_val)
+            range_vs_atr_val = _range_vs_atr(
+                high_, low_, atr_val, close_, config.atr_normalization_min_pct
+            )
             close_vs_open_direction_val = _close_vs_open_direction(open_, close_)
             overnight_gap_val = _overnight_gap(open_, prev_close_)
             overnight_gap_z_val = float(s.overnight_gap_z[i]) if i < len(s.overnight_gap_z) else 0.0

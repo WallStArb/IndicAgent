@@ -1,9 +1,38 @@
 ---
-status: pending
+status: completed
 priority: P3
 filed: 2026-08-05
+closed: 2026-08-05
 source: altitude review (/simplify) of todo 237's ATR floor consolidation
 ---
+
+## Closed 2026-08-05
+
+Fixed ahead of Phase 151 waves 6-7's corpus recompute (todo 259's backfill still in flight) so
+the correct relative floor is baked into the recompute instead of needing a separate re-run
+later. Both functions now take `close_`/`min_atr_pct` and delegate to `_is_valid_atr` internally
+(`_range_vs_atr` gained a new required `close_` param it didn't have before); all 4 call sites
+thread `config.atr_normalization_min_pct` through, same as todo 237's other 12 sites.
+`_is_valid_atr`'s docstring updated to reflect both todo 237 and 266's consolidation. TDD: 6 new
+tests in `TestInformedFlowRangeVsAtrFloor` (`tests/unit/test_feature_factory.py`), including the
+BIL-style tiny-ATR-below-floor regression case for each function. Full `tests/unit/` suite green
+(84/84 in the changed file), ruff/black clean.
+
+`/simplify`'s 4-angle pass (reuse/simplification/efficiency/altitude) came back clean on 3 of 4;
+altitude review surfaced a real sibling gap -- `_dist_from_high`/`_dist_from_low` (scalar + their
+vectorized `_series_full` batch counterparts) are the same ATR-ratio shape, still on their own
+absolute `eps=1e-10` epsilon, never routed through `_is_valid_atr`. Out of scope for this diff
+(different call graph, vectorized numpy path, real behavior change) -- filed as
+[268](268-dist-from-high-low-not-routed-through-is-valid-atr.md), `_is_valid_atr`'s docstring
+updated to name it as the known remaining gap rather than overclaim full consolidation.
+
+Independent correctness review (pr-review-toolkit:code-reviewer) confirmed: guard arguments
+correct at all 4 call sites (verified `close_` vs `open_`/`prev_close_` scope, not just diff
+context), `else 0.0` fallback preserved on guard failure, `compute()`/`compute_batch()` parity
+holds (byte-identical argument tuples, `range_vs_atr` covered by `RENAISSANCE_PRIMITIVE_FIELDS`
+parity test), no off-by-one/None/type issues, test arithmetic genuine (not a copy-paste
+tautology despite both `0.0001` literals -- one is a fraction-of-close floor, the other an
+absolute ATR value 91.7x below it). Zero findings at reportable confidence.
 
 # `_informed_flow`/`_range_vs_atr` still use their own `atr > 1e-10` epsilon, not `_is_valid_atr`
 
