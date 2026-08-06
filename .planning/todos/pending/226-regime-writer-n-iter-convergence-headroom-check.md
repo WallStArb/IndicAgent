@@ -14,6 +14,40 @@ source: throughput brainstorm following todo 216's BLAS thread-cap fix -- todo 2
 
 **step 1 DONE 2026-08-02** — log call added (commits 5c86ffeb, 7a0d7de1); measurement instrumentation ready for live corpus run.
 
+**Step 2 partial data 2026-08-05**: this todo's own premise ("todo 216 found zero
+hmm_not_converged_retry cells across 244 fits") is exactly the tautology todo 229
+exposed -- the retry path was structurally unreachable before that fix landed, so
+"zero retries" never meant "clean convergence." Ran a small read-only sample
+(8 symbols x {1h,1d}, `_compute_symbol_tf` called directly, zero DB writes) AFTER
+todo 229's fix landed, using the live APR n_iter=200 (**note: the live corpus's
+actual `feature.hmm.n_iter` value is 200, but 2 of these 15 cells logged
+`n_iter_cap=400`** -- QQQ/1h and XLE/1h genuinely hit the 200 cap on their first
+fit and the now-functional retry kicked in at n_iter*2=400, converging at
+236/260 iterations. First live confirmation the retry path actually fires and
+works, not just synthetic unit test coverage).
+
+Results (15 measured, 1 skipped -- RSP/1h returned None, likely occupation-gate
+or insufficient-data, not investigated further):
+- 13/15 cells converged well under 200 (range 72-131 iterations, i.e. 36-65% of cap)
+- 2/15 cells (QQQ/1h, XLE/1h) needed the retry, converging at 236/260 -- OVER the
+  original 200 cap, under the doubled 400
+- 0/15 hit the final (possibly-doubled) cap without converging
+
+**Revised read**: n_iter=200 is NOT uniformly oversized the way this todo's title
+assumed -- most cells have real headroom, but a real minority of cells (~13% in
+this small sample) need MORE than 200 to genuinely converge, and would have been
+silently mislabeled "converged" at a hard cap-hit before todo 229's fix. Lowering
+the cap based on the majority's headroom would push more cells into needing the
+retry -- fine now that retry is real, but the case for lowering the default is
+weaker than the todo's original framing suggested. Sample is small (8 symbols,
+2 tfs, no 5m/15m -- excluded from this pass since a single 5m HMM fit on ~20yr of
+data takes minutes even with BLAS capped to 1 thread, todo 216's finding) and not
+authoritative -- a real full-corpus measurement (all symbols x all tfs) is still
+needed before any cap change, per this todo's own "don't change n_iter blind" rule.
+Leaning toward: don't lower the cap without much more data; the retry mechanism
+existing (and now working) is doing real work, not just a safety net that never
+fires.
+
 ## Problem
 
 Todo 216 (BLAS thread cap, closed 2026-08-02) found that all 244 successful HMM fits in

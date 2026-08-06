@@ -36,6 +36,13 @@ exists yet (`logs/regime_writer.log` is empty, no run has populated todo 226's
 `hmm_convergence_iters` log since it shipped) -- get that from the next real corpus run
 before deciding how urgent the re-run is, per this todo's step 2.
 
+**First live confirmation the retry path actually fires, 2026-08-05**: a small
+read-only measurement for todo 226 (8 symbols x {1h,1d}, zero DB writes) found
+QQQ/1h and XLE/1h genuinely hit the original n_iter=200 cap on their first fit
+and the retry correctly kicked in at n_iter*2=400, converging at 236/260
+iterations -- real evidence the fix works on live data, not just the synthetic
+unit tests. See todo 226 for full results.
+
 **Related, out of scope, noted not fixed**: `scripts/debug/analysis/debug_bic_k_selection.py:149`
 has the same `model.monitor_.converged` misuse, but it's a one-off diagnostic script (BIC
 K-selection study) where `converged` is only returned as reported output, not used for
