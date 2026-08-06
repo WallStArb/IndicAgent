@@ -515,6 +515,24 @@ class ICEngineConfig:
     # construction sites (test_hac_ic_sharpe.py) must not break on field-count growth.
     bootstrap_resamples: int = 2000
     bootstrap_seed: int = 42
+    # Todo 227 (2026-08-05): adaptive early-stop on the bootstrap_resamples loop --
+    # stop once the running ci_lower/ci_upper percentile estimate has stabilized
+    # (max abs change across a feature block <= bootstrap_early_stop_tol) for
+    # bootstrap_early_stop_stable_checks consecutive checkpoints, never before
+    # bootstrap_early_stop_min_resamples. Defaults to disabled: landing this code
+    # must not itself change any existing ci_lower/ci_upper value (same "off by
+    # default, flipping on is a separate deploy decision" pattern as
+    # alpha.hmm.walk_forward.enabled). Bit-identical reproducibility is NOT
+    # load-bearing for this CI -- every downstream consumer (ensemble_trainer's
+    # significance clause, alpha_publisher's direction-aware gate, counterfactual_
+    # tracker's exit condition) reads ci_lower/ci_upper as a threshold/sign gate
+    # (> 0, < 0, > cost_hurdle), never compares an exact value run-to-run. Contrast
+    # with HMM_RANDOM_STATE-style seeds, which ARE load-bearing (see glossary).
+    bootstrap_early_stop_enabled: bool = False
+    bootstrap_early_stop_check_interval: int = 200
+    bootstrap_early_stop_tol: float = 0.002
+    bootstrap_early_stop_min_resamples: int = 200
+    bootstrap_early_stop_stable_checks: int = 2
     bootstrap_block_size: dict[str, int] = dataclasses.field(
         default_factory=lambda: {"5m": 78, "15m": 26, "1h": 10, "1d": 10}
     )
@@ -723,6 +741,22 @@ class ICEngineConfig:
             # Circular block bootstrap CI (migrations 161/165/177; reactivated migration 222).
             bootstrap_resamples=int(cfg.get_sync("alpha.ic.bootstrap_resamples", 2000)),
             bootstrap_seed=int(cfg.get_sync("alpha.ic.bootstrap_seed", 42)),
+            # Todo 227 (migration 298): adaptive bootstrap early-stop, off by default.
+            bootstrap_early_stop_enabled=bool(
+                cfg.get_sync("alpha.ic.bootstrap_early_stop.enabled", False)
+            ),
+            bootstrap_early_stop_check_interval=int(
+                cfg.get_sync("alpha.ic.bootstrap_early_stop.check_interval", 200)
+            ),
+            bootstrap_early_stop_tol=float(
+                cfg.get_sync("alpha.ic.bootstrap_early_stop.tol", 0.002)
+            ),
+            bootstrap_early_stop_min_resamples=int(
+                cfg.get_sync("alpha.ic.bootstrap_early_stop.min_resamples", 200)
+            ),
+            bootstrap_early_stop_stable_checks=int(
+                cfg.get_sync("alpha.ic.bootstrap_early_stop.stable_checks", 2)
+            ),
             bootstrap_block_size=_load_per_tf_apr_dict(
                 cfg,
                 "alpha.ic.bootstrap_block_size",
@@ -804,6 +838,18 @@ _COMPUTATIONAL_CONFIG_FIELDS: frozenset[str] = frozenset(
         # algorithm output" category; changing it re-draws every CI, not just reruns.
         "bootstrap_seed",
         "bootstrap_block_size",  # per-tf block size -- moves the bootstrap CI values
+        # Todo 227 (2026-08-05): when enabled, stops the bootstrap resample loop
+        # early once the CI estimate stabilizes -- moves ci_lower/ci_upper (an
+        # approximation of the fixed-bootstrap_resamples value), unlike the
+        # thread-count fields below which are output-invariant by construction.
+        # All 5 fields classified COMPUTATIONAL together: enabled is the gate,
+        # the other 4 all shape WHEN/whether it stops early, i.e. WHAT gets
+        # computed, not just how fast.
+        "bootstrap_early_stop_enabled",
+        "bootstrap_early_stop_check_interval",
+        "bootstrap_early_stop_tol",
+        "bootstrap_early_stop_min_resamples",
+        "bootstrap_early_stop_stable_checks",
         # Conservative: currently gates ONLY the post-run lifecycle-hook demote/
         # material/worst_cell predicates (see ic_engine.py:798's docstring), not the
         # feature_ic_scores rows written by this file today. Classified COMPUTATIONAL
@@ -1734,6 +1780,11 @@ def _blocked_bootstrap_ci(
     offsets: np.ndarray,
     n_valid: int,
     pool: ThreadPoolExecutor | None,
+    early_stop_enabled: bool = False,
+    early_stop_check_interval: int = 200,
+    early_stop_tol: float = 0.002,
+    early_stop_min_resamples: int = 200,
+    early_stop_stable_checks: int = 2,
 ) -> tuple[np.ndarray, np.ndarray]:
     """95% circular block bootstrap CI for one feature block.
 
@@ -1741,6 +1792,9 @@ def _blocked_bootstrap_ci(
     scale by the caller (`_subsample_and_rank`'s CRITICAL RNG invariant) --
     this function draws no randomness of its own, so calling it once per
     feature block never perturbs RNG consumption order vs the unblocked path.
+    `starts_matrix`'s shape (and therefore the RNG draw that produced it) is
+    UNCHANGED by early-stop -- only how many of its already-drawn rows this
+    function actually spends the expensive rankdata/IC compute on varies.
 
     Threading (mirrors `_circular_block_bootstrap_ic`'s todo-131 design, but
     simpler): since every iteration's resample indices are already fully
@@ -1758,6 +1812,19 @@ def _blocked_bootstrap_ci(
     ~150-feature/32-column-block cell, multiplied by every cross-sectional
     cell on that tf). `pool=None` takes the serial path, matching the original
     `max_workers<=1` contract.
+
+    Todo 227 (2026-08-05): early_stop_enabled=False (the default) is byte-
+    identical to the pre-todo-227 function -- always computes exactly
+    starts_matrix.shape[0] resamples. When True, computes in chunks of
+    early_stop_check_interval resamples, and once at least early_stop_min_
+    resamples have been computed, stops as soon as the running ci_lower/
+    ci_upper estimate (recomputed from ALL resamples so far, elementwise
+    across the block) has changed by no more than early_stop_tol for
+    early_stop_stable_checks consecutive checkpoints. Bit-identical
+    reproducibility across different resample counts was confirmed NOT
+    load-bearing for this CI (see ICEngineConfig.bootstrap_early_stop_enabled's
+    comment) -- every downstream consumer reads ci_lower/ci_upper as a
+    threshold/sign gate, never an exact value compared run-to-run.
     """
     n_boot = starts_matrix.shape[0]
     block_p = X_raw_block.shape[1]
@@ -1768,13 +1835,53 @@ def _blocked_bootstrap_ci(
         ranks_Y_boot = rankdata(Y_scale[idx])
         return _vectorized_ic(ranks_X_boot, ranks_Y_boot)
 
-    if pool is None:
-        boot_ics = np.zeros((n_boot, block_p))
-        for b in range(n_boot):
-            boot_ics[b] = _resample_ic(b)
-    else:
-        boot_ics = np.array(list(pool.map(_resample_ic, range(n_boot))))
+    if not early_stop_enabled:
+        if pool is None:
+            boot_ics = np.zeros((n_boot, block_p))
+            for b in range(n_boot):
+                boot_ics[b] = _resample_ic(b)
+        else:
+            boot_ics = np.array(list(pool.map(_resample_ic, range(n_boot))))
+        ci_lower = np.percentile(boot_ics, 2.5, axis=0)
+        ci_upper = np.percentile(boot_ics, 97.5, axis=0)
+        return ci_lower, ci_upper
 
+    boot_ics = np.zeros((n_boot, block_p))
+    prev_ci_lower: np.ndarray | None = None
+    prev_ci_upper: np.ndarray | None = None
+    stable_count = 0
+    n_computed = 0
+    for chunk_start in range(0, n_boot, early_stop_check_interval):
+        chunk_end = min(chunk_start + early_stop_check_interval, n_boot)
+        chunk_range = range(chunk_start, chunk_end)
+        if pool is None:
+            for b in chunk_range:
+                boot_ics[b] = _resample_ic(b)
+        else:
+            for b, val in zip(chunk_range, pool.map(_resample_ic, chunk_range)):
+                boot_ics[b] = val
+        n_computed = chunk_end
+
+        if n_computed < early_stop_min_resamples:
+            continue
+
+        cur_ci_lower = np.percentile(boot_ics[:n_computed], 2.5, axis=0)
+        cur_ci_upper = np.percentile(boot_ics[:n_computed], 97.5, axis=0)
+
+        if prev_ci_lower is not None:
+            max_delta = max(
+                float(np.max(np.abs(cur_ci_lower - prev_ci_lower))),
+                float(np.max(np.abs(cur_ci_upper - prev_ci_upper))),
+            )
+            stable_count = stable_count + 1 if max_delta <= early_stop_tol else 0
+            if stable_count >= early_stop_stable_checks:
+                return cur_ci_lower, cur_ci_upper
+
+        prev_ci_lower = cur_ci_lower
+        prev_ci_upper = cur_ci_upper
+
+    # Exhausted every resample in starts_matrix without stabilizing -- same
+    # full-sample estimate the disabled path would have produced.
     ci_lower = np.percentile(boot_ics, 2.5, axis=0)
     ci_upper = np.percentile(boot_ics, 97.5, axis=0)
     return ci_lower, ci_upper
@@ -1793,6 +1900,11 @@ def _subsample_and_rank(
     rng: np.random.Generator,
     max_workers: int,
     feature_block_columns: int,
+    bootstrap_early_stop_enabled: bool = False,
+    bootstrap_early_stop_check_interval: int = 200,
+    bootstrap_early_stop_tol: float = 0.002,
+    bootstrap_early_stop_min_resamples: int = 200,
+    bootstrap_early_stop_stable_checks: int = 2,
 ) -> tuple[
     np.ndarray,
     np.ndarray,
@@ -1832,6 +1944,13 @@ def _subsample_and_rank(
 
     Walk-forward fold boundaries are likewise feature-independent and computed
     once per scale via build_walk_forward_folds, not per block.
+
+    Todo 227 (2026-08-05): bootstrap_early_stop_* params (all optional, default
+    disabled) pass straight through to _blocked_bootstrap_ci per feature block.
+    This RNG invariant is untouched by early-stop -- the index matrix above is
+    still drawn at full bootstrap_resamples size regardless; early-stop only
+    changes how many of its rows _blocked_bootstrap_ci actually spends compute
+    on before returning.
 
     Args:
         X_sub_nd: [n_sub, n_features_nd] RAW (unranked), non-degenerate feature
@@ -1903,7 +2022,17 @@ def _subsample_and_rank(
             ic_vector_nd[block_start:block_end] = _vectorized_ic(ranks_block, ranks_Y)
 
             ci_lower_block, ci_upper_block = _blocked_bootstrap_ci(
-                X_raw_block, Y_scale, starts_matrix, offsets, n_valid, pool
+                X_raw_block,
+                Y_scale,
+                starts_matrix,
+                offsets,
+                n_valid,
+                pool,
+                early_stop_enabled=bootstrap_early_stop_enabled,
+                early_stop_check_interval=bootstrap_early_stop_check_interval,
+                early_stop_tol=bootstrap_early_stop_tol,
+                early_stop_min_resamples=bootstrap_early_stop_min_resamples,
+                early_stop_stable_checks=bootstrap_early_stop_stable_checks,
             )
             ci_lower_nd[block_start:block_end] = ci_lower_block
             ci_upper_nd[block_start:block_end] = ci_upper_block
@@ -2133,6 +2262,11 @@ def _compute_one_regime_cell(
             rng=rng,
             max_workers=config.per_symbol_bootstrap_threads[tf],
             feature_block_columns=config.feature_block_columns,
+            bootstrap_early_stop_enabled=config.bootstrap_early_stop_enabled,
+            bootstrap_early_stop_check_interval=config.bootstrap_early_stop_check_interval,
+            bootstrap_early_stop_tol=config.bootstrap_early_stop_tol,
+            bootstrap_early_stop_min_resamples=config.bootstrap_early_stop_min_resamples,
+            bootstrap_early_stop_stable_checks=config.bootstrap_early_stop_stable_checks,
         )
         Y_scale = returns_scale[valid_mask]
 
@@ -3104,6 +3238,11 @@ def _compute_one_cross_sectional_cell(
             rng=rng,
             max_workers=config.cross_sectional_bootstrap_threads[tf],
             feature_block_columns=config.feature_block_columns,
+            bootstrap_early_stop_enabled=config.bootstrap_early_stop_enabled,
+            bootstrap_early_stop_check_interval=config.bootstrap_early_stop_check_interval,
+            bootstrap_early_stop_tol=config.bootstrap_early_stop_tol,
+            bootstrap_early_stop_min_resamples=config.bootstrap_early_stop_min_resamples,
+            bootstrap_early_stop_stable_checks=config.bootstrap_early_stop_stable_checks,
         )
         Y_scale = returns_scale[valid_mask]
 

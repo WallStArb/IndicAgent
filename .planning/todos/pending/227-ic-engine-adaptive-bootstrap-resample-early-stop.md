@@ -7,6 +7,48 @@ source: throughput brainstorm following todo 215 -- todo 215 already falsified b
   algorithmic lever on the same hot path
 ---
 
+## Status update 2026-08-05
+
+**Step 1 (design decision) RESOLVED**: grepped every downstream consumer of
+`ic_ci_lower`/`ic_ci_upper` (`ensemble_trainer.py`'s significance clause,
+`alpha_publisher.py`'s direction-aware gate, `counterfactual_tracker.py`'s exit
+condition, `cross_sectional_spread_tracker.py`'s bootstrap CI gate). Every single
+one reads the CI as a threshold/sign gate (`> 0`, `< 0`, `> cost_hurdle`) --
+never an exact value compared run-to-run. Bit-identical reproducibility across
+different resample counts is NOT load-bearing for this CI. A documented
+tolerance is an acceptable replacement invariant.
+
+**Implementation DONE**: `_blocked_bootstrap_ci`/`_subsample_and_rank` now take
+5 new `bootstrap_early_stop_*` params (migration 298:
+`alpha.ic.bootstrap_early_stop.{enabled,check_interval,tol,min_resamples,
+stable_checks}`), **seeded disabled** -- same "off by default, flipping on is a
+separate deploy decision" pattern as `alpha.hmm.walk_forward.enabled`, so
+landing this code changes zero existing CI values or gate decisions. When
+enabled: computes in checkpoint-sized chunks, stops once the running ci_lower/
+ci_upper estimate has changed by <= tol for `stable_checks` consecutive
+checkpoints, never before `min_resamples`. The RNG invariant (`starts_matrix`
+drawn once, full size, before the feature-block loop) is untouched -- early-stop
+only changes how many already-drawn rows get the expensive rankdata/IC compute,
+not the RNG draw itself.
+
+New fields classified `COMPUTATIONAL` in `ic_engine.py`'s fingerprint
+partition (caught by `test_computational_and_operational_fields_partition_
+dataclass_exactly` -- correctly, since enabling this changes ci_lower/ci_upper,
+unlike the output-invariant thread-count fields). 5 new tests added
+(`tests/unit/test_ic_engine_compute_split.py`) verifying: disabled path is
+byte-identical to pre-todo-227 behavior; enabled path's early stop exactly
+matches a truncated full computation (proving it's the same statistic, just
+fewer resamples); stop never fires before `min_resamples`. Full
+`tests/unit/` suite green, ruff/black clean.
+
+**Still open, deliberately not done in this pass**: flipping
+`alpha.ic.bootstrap_early_stop.enabled` on is a separate deploy decision
+requiring its own corpus re-run to confirm no gate flips from the
+approximation (same deferral discipline as todo 229's Viterbi verification).
+`check_interval`/`tol`/`min_resamples`/`stable_checks` are `[initial_estimate]`
+values, not benchmarked against real feature_vectors convergence data --
+calibrate once real data exists, same backlog category as todo 226.
+
 # `_blocked_bootstrap_ci`'s fixed 2000-resample count is a bigger lever than more
 # threading, but it breaks the function's current bit-identical guarantee -- scope
 # the tolerance change explicitly before touching code

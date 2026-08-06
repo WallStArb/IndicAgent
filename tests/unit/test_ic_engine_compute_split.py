@@ -25,6 +25,7 @@ if str(_project_root) not in sys.path:
 
 from services.ic_engine import (
     CellTooLargeError,
+    _blocked_bootstrap_ci,
     _compute_cross_sectional_tf,
     _compute_one_cross_sectional_cell,
     _compute_one_regime_cell,
@@ -420,6 +421,182 @@ def test_subsample_and_rank_threaded_matches_serial():
     )
 
     _assert_subsample_and_rank_outputs_equal(serial, threaded)
+
+
+def test_blocked_bootstrap_ci_early_stop_disabled_is_byte_identical_to_pre_todo227():
+    """Todo 227: early_stop_enabled=False (the default) must reproduce the exact
+    pre-todo-227 behavior -- always spend all starts_matrix.shape[0] resamples,
+    regardless of the new (unused, when disabled) early-stop kwargs' values.
+    """
+    rng = np.random.default_rng(7)
+    n_valid = 300
+    block_p = 5
+    n_boot = 400
+    block_size = 12
+
+    X_raw_block = rng.normal(size=(n_valid, block_p))
+    Y_scale = rng.normal(size=n_valid)
+    n_time_blocks = -(-n_valid // block_size)
+    starts_matrix = rng.integers(0, n_valid, size=(n_boot, n_time_blocks))
+    offsets = np.arange(block_size)
+
+    baseline = _blocked_bootstrap_ci(X_raw_block, Y_scale, starts_matrix, offsets, n_valid, None)
+    # Deliberately absurd early-stop kwargs (would stop almost immediately if
+    # early_stop_enabled were True) -- must have zero effect while disabled.
+    disabled = _blocked_bootstrap_ci(
+        X_raw_block,
+        Y_scale,
+        starts_matrix,
+        offsets,
+        n_valid,
+        None,
+        early_stop_enabled=False,
+        early_stop_check_interval=1,
+        early_stop_tol=1e9,
+        early_stop_min_resamples=1,
+        early_stop_stable_checks=1,
+    )
+
+    np.testing.assert_array_equal(baseline[0], disabled[0])
+    np.testing.assert_array_equal(baseline[1], disabled[1])
+
+
+def test_blocked_bootstrap_ci_early_stop_matches_truncated_full_computation():
+    """Todo 227: "stable" is inherently a two-checkpoint comparison -- the first
+    checkpoint that clears early_stop_min_resamples has no prior checkpoint to
+    compare against, so it only seeds `prev` and cannot itself trigger a stop.
+    With a huge tolerance (guaranteed "stable" on the first real comparison) and
+    early_stop_stable_checks=1, the earliest possible stop is therefore the
+    SECOND checkpoint to clear the floor -- here, check_interval == min_resamples,
+    so that's n_computed == 2 * check_interval. Verifies the early-stopped result
+    exactly matches computing the CI from only that many rows of starts_matrix
+    the ordinary (disabled) way -- proving early-stop doesn't silently compute a
+    different statistic, just fewer resamples of the same one.
+    """
+    rng = np.random.default_rng(11)
+    n_valid = 250
+    block_p = 4
+    n_boot = 1000
+    block_size = 10
+    min_resamples = 200
+    expected_stop_at = 2 * min_resamples  # see docstring
+
+    X_raw_block = rng.normal(size=(n_valid, block_p))
+    Y_scale = rng.normal(size=n_valid)
+    n_time_blocks = -(-n_valid // block_size)
+    starts_matrix = rng.integers(0, n_valid, size=(n_boot, n_time_blocks))
+    offsets = np.arange(block_size)
+
+    early_stopped = _blocked_bootstrap_ci(
+        X_raw_block,
+        Y_scale,
+        starts_matrix,
+        offsets,
+        n_valid,
+        None,
+        early_stop_enabled=True,
+        early_stop_check_interval=min_resamples,
+        early_stop_tol=1e9,  # guaranteed "stable" on the first real comparison
+        early_stop_min_resamples=min_resamples,
+        early_stop_stable_checks=1,
+    )
+    truncated_full = _blocked_bootstrap_ci(
+        X_raw_block,
+        Y_scale,
+        starts_matrix[:expected_stop_at],
+        offsets,
+        n_valid,
+        None,
+    )
+
+    np.testing.assert_array_equal(early_stopped[0], truncated_full[0])
+    np.testing.assert_array_equal(early_stopped[1], truncated_full[1])
+
+
+def test_blocked_bootstrap_ci_early_stop_never_stops_before_min_resamples():
+    """Todo 227: even with a trivially-satisfiable tolerance, early-stop must not
+    return before early_stop_min_resamples have been computed -- guards against a
+    lucky-noise false stop on very few draws. Checkpoints below the floor are
+    skipped entirely (never even seed `prev`), so the first checkpoint AT the
+    floor only seeds `prev` -- the earliest possible stop is one more
+    check_interval past the floor (see the sibling test's docstring for why a
+    stop requires two checkpoints to compare).
+    """
+    rng = np.random.default_rng(13)
+    n_valid = 200
+    block_p = 3
+    n_boot = 500
+    block_size = 8
+    min_resamples = 300
+    check_interval = 50
+    expected_stop_at = min_resamples + check_interval
+
+    X_raw_block = rng.normal(size=(n_valid, block_p))
+    Y_scale = rng.normal(size=n_valid)
+    n_time_blocks = -(-n_valid // block_size)
+    starts_matrix = rng.integers(0, n_valid, size=(n_boot, n_time_blocks))
+    offsets = np.arange(block_size)
+
+    early_stopped = _blocked_bootstrap_ci(
+        X_raw_block,
+        Y_scale,
+        starts_matrix,
+        offsets,
+        n_valid,
+        None,
+        early_stop_enabled=True,
+        early_stop_check_interval=check_interval,
+        early_stop_tol=1e9,
+        early_stop_min_resamples=min_resamples,
+        early_stop_stable_checks=1,
+    )
+    truncated_at_expected_stop = _blocked_bootstrap_ci(
+        X_raw_block, Y_scale, starts_matrix[:expected_stop_at], offsets, n_valid, None
+    )
+
+    np.testing.assert_array_equal(early_stopped[0], truncated_at_expected_stop[0])
+    np.testing.assert_array_equal(early_stopped[1], truncated_at_expected_stop[1])
+
+
+def test_subsample_and_rank_early_stop_kwargs_default_to_disabled():
+    """Todo 227: _subsample_and_rank callers that don't pass any
+    bootstrap_early_stop_* kwarg (every pre-todo-227 call site, and both live
+    ic_engine.py call sites when config.bootstrap_early_stop_enabled is False,
+    the seeded default) must get byte-identical output to before todo 227 --
+    proven by omitting the new kwargs entirely and confirming the result matches
+    an explicit early_stop_enabled=False call.
+    """
+    rng_data = np.random.default_rng(23)
+    n_sub = 300
+    n_features = 4
+    X_sub_nd = rng_data.normal(size=(n_sub, n_features)).astype(np.float32)
+    returns_scale = rng_data.normal(size=n_sub)
+    valid_mask = np.ones(n_sub, dtype=bool)
+    valid_mask[:20] = False
+
+    common_kwargs = dict(
+        walk_forward_folds=3,
+        embargo_bars=1,
+        min_reliable_n=2,
+        bootstrap_block_size=10,
+        bootstrap_resamples=60,
+        feature_block_columns=2,
+        max_workers=1,
+    )
+
+    omitted = _subsample_and_rank(
+        X_sub_nd, valid_mask, returns_scale, rng=np.random.default_rng(5), **common_kwargs
+    )
+    explicit = _subsample_and_rank(
+        X_sub_nd,
+        valid_mask,
+        returns_scale,
+        rng=np.random.default_rng(5),
+        bootstrap_early_stop_enabled=False,
+        **common_kwargs,
+    )
+
+    _assert_subsample_and_rank_outputs_equal(omitted, explicit)
 
 
 def test_cell_too_large_error_raised_by_both_cell_functions():
