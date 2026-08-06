@@ -35,20 +35,20 @@ Paper trading unavailable: BZJ6, NGJ6 (NYMEX energy), SR1H6 (SOFR) — Error 200
 
 ### Historical Backfill Chunk Sizes & Rate Limit
 
-`_MAX_CHUNK_DAYS` (per-request duration ceiling per timeframe) and `_IBKR_HIST_RATE_LIMIT` (requests per 10-min sliding window) are APR-governed (`infra.ibkr.chunk_days.*` / `infra.ibkr.rate_limit_max_requests`, `ConfigService`-backed, `config_state` table) — the module-level constants in `ibkr.py` are fallback defaults only, real values load fresh at backfill startup. Current values, all empirically re-verified 2026-08-06 against live IBKR (not inherited assumption — see `production/migrations/302_ibkr_chunk_days_and_rate_limit_recalibration.sql` for full per-key provenance, `scripts/infrastructure/backfill/ibkr_chunk_and_rate_limit_probe.py` to re-test):
+`_MAX_CHUNK_DAYS` (per-request duration ceiling per timeframe) and `_IBKR_HIST_RATE_LIMIT` (requests per 10-min sliding window) are APR-governed (`infra.ibkr.chunk_days.*` / `infra.ibkr.rate_limit_max_requests`, `ConfigService`-backed, `config_state` table) — the module-level constants in `ibkr.py` are fallback defaults only, real values load fresh at backfill startup. Current values, all empirically re-verified 2026-08-06 against live IBKR (not inherited assumption — see `production/migrations/302_ibkr_chunk_days_and_rate_limit_recalibration.sql` for full per-key provenance, `production/migrations/303_ibkr_chunk_days_15m_year_rounding_fix.sql` for the 15m correction below, `scripts/infrastructure/backfill/ibkr_chunk_and_rate_limit_probe.py` to re-test):
 
 | Timeframe | Chunk days | Note |
 |---|---|---|
 | 1m | 14 | Real IBKR boundary, not inherited guess |
 | 5m | 150 | True ceiling is 150-180d (180d confirmed bad) |
-| 15m | 400 | Crosses the 365d threshold → requested as `"N Y"`, IBKR returns a full 2yr/730d per request |
+| 15m | 730 (2yr) | 730 = 2×365 exact multiple. Migration 302 originally set this to 400, which crosses the 365d threshold and gets rounded up by `_days_to_duration_str()` to `"2 Y"` (730d) anyway — so 400 and 730 hit the identical IBKR wire request, but the chunking loop's walk-back stride used the literal 400d, causing ~330d of redundant re-fetched overlap per chunk on multi-year backfills. Migration 303 (2026-08-06) fixed this by setting the config value to match what IBKR actually returns. Checked all other chunk_days keys for the same class of bug: 4h/1h (1095d) and 1d (7300d) are exact multiples of 365, no gap; 1m/5m stay under the 365d threshold entirely. 15m was the only affected key. |
 | 4h | 1095 (3yr) | |
 | 1h | 1095 (3yr) | A full-20yr single-shot (7300d) was tested and genuinely FAILED — don't push this one further without new evidence |
 | 1d | 7300 (full 20yr, 1 request/symbol) | |
 
 Rate limit: `infra.ibkr.rate_limit_max_requests` = 58 (tested clean to 62, IBKR's own documented hard ceiling is 60 — 58 retains a real margin, not the tested edge).
 
-`fetch_historical_bars`'s duration-string construction (`"N D"` under 365 days, `"N Y"` over) lives in one shared helper, `_days_to_duration_str()` — both the continuous-contract and regular chunked branches call it. Don't reintroduce a second copy of this logic in either branch; that duplication is exactly how a real bug shipped once (the chunked branch's copy silently didn't exist for years since every prior chunk_days default happened to stay under 365).
+`fetch_historical_bars`'s duration-string construction (`"N D"` under 365 days, `"N Y"` over) lives in one shared helper, `_days_to_duration_str()` — both the continuous-contract and regular chunked branches call it. Don't reintroduce a second copy of this logic in either branch; that duplication is exactly how a real bug shipped once (the chunked branch's copy silently didn't exist for years since every prior chunk_days default happened to stay under 365). **Also note:** any `chunk_days.*` value must be an exact multiple of 365 once it crosses the 365-day threshold — otherwise `math.ceil()` rounds the actual IBKR request up past the configured value and the chunking loop's stride desyncs from the real returned window (see 15m above).
 
 ### Adding New Contracts
 1. Add to `get_active_contracts()` in `src/config/settings.py`

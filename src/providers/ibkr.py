@@ -104,19 +104,21 @@ _FUT_TICK_LIST = "233"
 # _load_ibkr_chunk_days_config() overlays infra.ibkr.chunk_days.{tf} (migration 197) onto
 # this dict in place at backfill startup. These hardcoded values are the fallback defaults.
 _MAX_CHUNK_DAYS: dict[str, int] = {
-    "1m": 6,  # per-request limit: 7 days; retention: 10+ years (see above)
-    "5m": 89,  # per-request limit: verified 90D succeeds (180D times out), 89D leaves margin.
-    #      Was 29d — the original 29-30d cap (2026-06-22) predates the sliding-window rate
-    #      limiter and may have conflated pacing (Error 162) with a duration ceiling.
-    #      Re-verified 2026-07-02 via direct probes on DBC/PPLT/SDOG.
-    "15m": 59,  # per-request limit: 60 days
-    "1h": 364,  # 1-year chunks — verified 364D succeeds cleanly (matches 1d). Was 29d,
-    #       reduced from an original 364d after "some ETFs" failed on 2026-06-22 (commit
-    #       8472a074); re-verified 2026-07-02 via direct probes on DBC/SPHB/IPO/PPLT/SDOG,
-    #       all succeeded — likely the same pacing/duration conflation as 5m above.
-    "4h": 29,
-    "1d": 364,  # 1-year chunks — daily bars support full-year requests; ~20 chunks for 20yr
+    "1m": 14,  # real IBKR per-request boundary (not the older 6-7d inherited guess).
+    "5m": 150,  # confirmed clean; true ceiling is 150-180d (180d confirmed bad), untested
+    #       further between those.
+    "15m": 730,  # 2-year chunks: 730 = 2*365 exact multiple, avoids the year-rounding
+    #        gap a non-multiple value (e.g. 400) produces -- see _days_to_duration_str()
+    "1h": 1095,  # 3-year chunks. True ceiling untested between confirmed-good 1095d and
+    #        confirmed-BAD 7300d (full-20yr single-shot genuinely failed after 375s retries).
+    "4h": 1095,  # 3-year chunks, matching 1h's confirmed-good tier.
+    "1d": 7300,  # full 20yr single-shot, 1 request/symbol.
 }
+# All values above re-verified 2026-08-06 (migrations 302, 303) via
+# scripts/infrastructure/backfill/ibkr_chunk_and_rate_limit_probe.py against real IBKR --
+# not inherited assumption. These are fallback defaults only; real values load from
+# config_state at backfill startup (see APR-overridable note above). Keep in sync with
+# config_state -- see src/providers/CLAUDE.md for the authoritative table + provenance.
 
 # IBKR enforces a hard limit of 60 historical data requests per 10-minute sliding window.
 # Exceeding it triggers Error 162 (query cancelled). We track request timestamps and
