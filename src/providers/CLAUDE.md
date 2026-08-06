@@ -35,7 +35,7 @@ Paper trading unavailable: BZJ6, NGJ6 (NYMEX energy), SR1H6 (SOFR) — Error 200
 
 ### Historical Backfill Chunk Sizes & Rate Limit
 
-`_MAX_CHUNK_DAYS` (per-request duration ceiling per timeframe) and `_IBKR_HIST_RATE_LIMIT` (requests per 10-min sliding window) are APR-governed (`infra.ibkr.chunk_days.*` / `infra.ibkr.rate_limit_max_requests`, `ConfigService`-backed, `config_state` table) — the module-level constants in `ibkr.py` are fallback defaults only, real values load fresh at backfill startup. Current values, all empirically re-verified 2026-08-06 against live IBKR (not inherited assumption — see `production/migrations/302_ibkr_chunk_days_and_rate_limit_recalibration.sql` for full per-key provenance, `production/migrations/303_ibkr_chunk_days_15m_year_rounding_fix.sql` for the 15m correction below, `scripts/infrastructure/backfill/ibkr_chunk_and_rate_limit_probe.py` to re-test):
+`_MAX_CHUNK_DAYS` (per-request duration ceiling per timeframe) and `_IBKR_HIST_RATE_LIMIT` (requests per 10-min sliding window) are APR-governed (`infra.ibkr.chunk_days.*` / `infra.ibkr.rate_limit_max_requests`, `ConfigService`-backed, `config_state` table) — the module-level constants in `ibkr.py` are fallback defaults only, real values load fresh at backfill startup. Current values, all empirically re-verified 2026-08-06 against live IBKR (not inherited assumption — see `production/migrations/302_ibkr_chunk_days_and_rate_limit_recalibration.sql` for full per-key provenance, `production/migrations/303_ibkr_chunk_days_15m_year_rounding_fix.sql` for the 15m correction below, `scripts/infrastructure/backfill/infrastructure_ibkr_chunk_and_rate_limit_probe.py` to re-test):
 
 | Timeframe | Chunk days | Note |
 |---|---|---|

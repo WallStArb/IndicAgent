@@ -21,7 +21,7 @@ in-process module constants for the duration of this one run only, and prints a
 recommendation at the end. Applying any discovered headroom to production is a separate,
 deliberate step.
 
-Usage: .venv/bin/python scripts/infrastructure/backfill/ibkr_chunk_and_rate_limit_probe.py
+Usage: .venv/bin/python scripts/infrastructure/backfill/infrastructure_ibkr_chunk_and_rate_limit_probe.py
        [--only 15m,4h] [--skip-rate-limit]
 
 --only restricts Phase 1 to the given comma-separated timeframes (still one bounded tier

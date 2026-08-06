@@ -115,7 +115,7 @@ _MAX_CHUNK_DAYS: dict[str, int] = {
     "1d": 7300,  # full 20yr single-shot, 1 request/symbol.
 }
 # All values above re-verified 2026-08-06 (migrations 302, 303) via
-# scripts/infrastructure/backfill/ibkr_chunk_and_rate_limit_probe.py against real IBKR --
+# scripts/infrastructure/backfill/infrastructure_ibkr_chunk_and_rate_limit_probe.py against real IBKR --
 # not inherited assumption. These are fallback defaults only; real values load from
 # config_state at backfill startup (see APR-overridable note above). Keep in sync with
 # config_state -- see src/providers/CLAUDE.md for the authoritative table + provenance.

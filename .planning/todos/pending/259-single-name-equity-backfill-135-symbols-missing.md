@@ -47,7 +47,7 @@ batch, run a bounded probe of two long-assumed IBKR constants in `src/providers/
 (currently 55 req/10min, APR-tagged `[conventional]` in migration 276 -- inherited developer
 convention, never independently measured against this account, unlike `_MAX_CHUNK_DAYS`'s
 `[rca_analysis]`-tagged probe citations for 5m/15m/1h). The probe script
-(`scripts/infrastructure/backfill/ibkr_chunk_and_rate_limit_probe.py`, new 2026-08-06) is
+(`scripts/infrastructure/backfill/infrastructure_ibkr_chunk_and_rate_limit_probe.py`, new 2026-08-06) is
 already armed to run automatically once client-id 41 exits (Monitor task `bikc169dk`) --
 tests widened 1d/1h chunk windows and the rate limiter up to IBKR's documented 60 req/10min
 ceiling, using real zero-row queued symbols (a successful test is real backfill progress, a
