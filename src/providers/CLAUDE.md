@@ -27,14 +27,33 @@ All ib_async logic is isolated here. **No ib_async imports anywhere else.**
 - `fetch_historical_bars()` supports `continuous=True` for back-adjusted `ContFuture` data (multi-year backfill).
 
 ### Active Contracts
-`get_active_contracts()` from `src/config/settings.py` is authoritative. As of 2026-07-05: 80 active instruments, all equity (v3.0 Phase A scope — zero active futures/FX). **This is exactly the IBKR 80-subscription limit: adding any instrument requires retiring one.** Never hardcode counts.
+`get_active_contracts()` from `src/config/settings.py` is authoritative. As of 2026-08-06: 231 active instruments, all equity asset_class (v3.0 universe expansion, migrations 296/299/301 — up from 111 at the start of that session). **Never hardcode counts, they drift fast.**
+
+**80-subscription limit is a LIVE-streaming cap, not a backfill/registration cap.** IBKR's 80-simultaneous-subscription ceiling applies to `reqMktData`/`reqHistoricalData(keepUpToDate=True)` — i.e. `indicagent-ibkr-provider`'s live path, which is intentionally stopped (see root `CLAUDE.md`'s ingestion-paused note). Historical `reqHistoricalDataAsync` backfill is pacing-limited (`infra.ibkr.rate_limit_max_requests`), not subscription-count-limited — registering and backfilling any number of instruments is fine right now. The gap is real but dormant: 231 active instruments is 151 over the 80-subscription cap, and that must be resolved (retire vs. upgrade the account's subscription tier) **before** `indicagent-ibkr-provider` is ever restarted, not before backfilling.
 
 Paper trading unavailable: BZJ6, NGJ6 (NYMEX energy), SR1H6 (SOFR) — Error 200. NG/BZ valid in live account.
 
+### Historical Backfill Chunk Sizes & Rate Limit
+
+`_MAX_CHUNK_DAYS` (per-request duration ceiling per timeframe) and `_IBKR_HIST_RATE_LIMIT` (requests per 10-min sliding window) are APR-governed (`infra.ibkr.chunk_days.*` / `infra.ibkr.rate_limit_max_requests`, `ConfigService`-backed, `config_state` table) — the module-level constants in `ibkr.py` are fallback defaults only, real values load fresh at backfill startup. Current values, all empirically re-verified 2026-08-06 against live IBKR (not inherited assumption — see `production/migrations/302_ibkr_chunk_days_and_rate_limit_recalibration.sql` for full per-key provenance, `scripts/infrastructure/backfill/ibkr_chunk_and_rate_limit_probe.py` to re-test):
+
+| Timeframe | Chunk days | Note |
+|---|---|---|
+| 1m | 14 | Real IBKR boundary, not inherited guess |
+| 5m | 150 | True ceiling is 150-180d (180d confirmed bad) |
+| 15m | 400 | Crosses the 365d threshold → requested as `"N Y"`, IBKR returns a full 2yr/730d per request |
+| 4h | 1095 (3yr) | |
+| 1h | 1095 (3yr) | A full-20yr single-shot (7300d) was tested and genuinely FAILED — don't push this one further without new evidence |
+| 1d | 7300 (full 20yr, 1 request/symbol) | |
+
+Rate limit: `infra.ibkr.rate_limit_max_requests` = 58 (tested clean to 62, IBKR's own documented hard ceiling is 60 — 58 retains a real margin, not the tested edge).
+
+`fetch_historical_bars`'s duration-string construction (`"N D"` under 365 days, `"N Y"` over) lives in one shared helper, `_days_to_duration_str()` — both the continuous-contract and regular chunked branches call it. Don't reintroduce a second copy of this logic in either branch; that duplication is exactly how a real bug shipped once (the chunked branch's copy silently didn't exist for years since every prior chunk_days default happened to stay under 365).
+
 ### Adding New Contracts
 1. Add to `get_active_contracts()` in `src/config/settings.py`
-2. INSERT to `instruments` table with `contract_details` JSONB; restart `indicagent-ibkr-provider`
-3. Backfill historical data: see root CLAUDE.md "Historical backfill" command
+2. INSERT to `instruments` table with `contract_details` JSONB
+3. Backfill historical data: see root CLAUDE.md "Historical backfill" command — no service restart needed for this step (live ingestion is paused; `indicagent-ibkr-provider` restart only matters once/if that resumes, and only after the 80-subscription gap above is resolved)
 
 ### Bar Delivery Latency
 
