@@ -64,6 +64,13 @@ _ALLOW_LIST: dict[str, str] = {
         "oversight -- migrating these to the tradeable view would break the idempotent "
         "re-run behavior the tool depends on."
     ),
+    "scripts/infrastructure/backfill/ibkr_chunk_and_rate_limit_probe.py": (
+        "PERMANENT: _pick_probe_symbols checks whether a (symbol, timeframe) has ANY row at "
+        "all -- including synthetic-fill placeholders -- to pick a genuinely never-backfilled "
+        "candidate for a real IBKR test fetch. market_data_ohlcv_tradeable's WHERE volume > 0 "
+        "filter would give a wrong answer here: a symbol could have placeholder bars (volume=0) "
+        "and zero real tradeable bars, which this check must still treat as 'has data.'"
+    ),
     "src/api/routes/market_data.py": (
         "PERMANENT: Raw display/API surface, not a measurement input -- correctly left alone "
         "(design doc's 'correctly left alone' list)."

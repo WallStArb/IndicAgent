@@ -231,6 +231,48 @@ class TestFetchHistoricalBars:
         assert calls["n"] == 2, "must stop after exactly 2 consecutive no-data chunks"
         ibkr_module._no_data_req_ids.clear()
 
+    @pytest.mark.asyncio
+    async def test_chunk_over_365_days_uses_years_not_days(self, provider, mock_ib):
+        """A chunk window over 365 days must format durationStr as 'N Y', not 'N D' --
+        IBKR rejects day-unit durations past 365 days with Error 321 ("Historical data
+        requests for durations longer than 365 days must be made in years"). The
+        continuous-contract branch already handled this; the regular chunked branch
+        (used by every real backfill) did not, because every prior _MAX_CHUNK_DAYS
+        default stayed under 365 -- discovered 2026-08-06 via a chunk-size headroom
+        probe that widened 1d to 1825 days."""
+        from ib_async import BarDataList
+
+        original_chunk_days = ibkr_module._MAX_CHUNK_DAYS["1d"]
+        ibkr_module._MAX_CHUNK_DAYS["1d"] = 1825  # 5yr -- exercises the >365 branch
+        captured_duration_strs: list[str] = []
+
+        async def fake_req(*args, **kwargs):
+            captured_duration_strs.append(kwargs["durationStr"])
+            bars = BarDataList()
+            bars.reqId = 1
+            return bars
+
+        try:
+            mock_ib.reqHistoricalDataAsync = AsyncMock(side_effect=fake_req)
+            provider._ib = mock_ib
+            provider._qualified_contracts["MSFT"] = MagicMock()
+
+            await provider.fetch_historical_bars(
+                "MSFT",
+                "1d",
+                datetime(2015, 1, 1, tzinfo=UTC),
+                datetime(2026, 1, 1, tzinfo=UTC),
+            )
+        finally:
+            ibkr_module._MAX_CHUNK_DAYS["1d"] = original_chunk_days
+
+        assert captured_duration_strs, "no requests were made"
+        for duration_str in captured_duration_strs:
+            assert duration_str.endswith(" Y") or duration_str.endswith(" D"), duration_str
+            if duration_str.endswith(" D"):
+                days = int(duration_str.split()[0])
+                assert days <= 365, f"day-unit duration must stay <=365 days, got {duration_str}"
+
 
 class TestStreamTicks:
     @pytest.mark.asyncio

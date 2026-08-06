@@ -41,9 +41,24 @@ time. NEM dropped off the queue since the last refresh (client-id 41 completed i
 
 ## Action needed
 
-Once client-id 41 finishes (currently running, started 2026-08-05 06:05, ~20 symbols), launch
-one consolidated backfill for the remaining zero-row set using a fresh client-id (43, not
-reusing 35/40/41/42):
+**Sequencing changed 2026-08-06 (user request):** before launching the full client-id 43
+batch, run a bounded probe of two long-assumed IBKR constants in `src/providers/ibkr.py` --
+`_MAX_CHUNK_DAYS` (per-request duration ceiling per timeframe) and `_IBKR_HIST_RATE_LIMIT`
+(currently 55 req/10min, APR-tagged `[conventional]` in migration 276 -- inherited developer
+convention, never independently measured against this account, unlike `_MAX_CHUNK_DAYS`'s
+`[rca_analysis]`-tagged probe citations for 5m/15m/1h). The probe script
+(`scripts/infrastructure/backfill/ibkr_chunk_and_rate_limit_probe.py`, new 2026-08-06) is
+already armed to run automatically once client-id 41 exits (Monitor task `bikc169dk`) --
+tests widened 1d/1h chunk windows and the rate limiter up to IBKR's documented 60 req/10min
+ceiling, using real zero-row queued symbols (a successful test is real backfill progress, a
+failed one writes nothing). Deliberately does NOT auto-launch client-id 43 or modify
+production APR config after -- stops and reports so any discovered headroom gets applied
+deliberately, not silently.
+
+Once the probe completes and its findings are reviewed (and any resulting
+`infra.ibkr.chunk_days.*`/`infra.ibkr.rate_limit_max_requests` APR changes applied, if
+warranted), launch the consolidated backfill for the remaining zero-row set using a fresh
+client-id (43, not reusing 35/40/41/42/44 -- 44 is the probe's own dedicated client-id):
 
 ```
 .venv/bin/python scripts/infrastructure/backfill/infrastructure_run_historical_pipeline.py \

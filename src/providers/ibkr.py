@@ -517,6 +517,19 @@ async def reset_circuit_breaker() -> bool:
     return result
 
 
+def _days_to_duration_str(total_days: int) -> str:
+    """IBKR rejects "N D" durations over 365 days (Error 321: "Historical data requests
+    for durations longer than 365 days must be made in years"). Shared by both
+    fetch_historical_bars branches (continuous-contract and regular chunked) -- they
+    independently duplicated this exact conversion until 2026-08-06, when the chunked
+    branch's missing copy caused a real bug (discovered via the chunk-size headroom probe
+    widening _MAX_CHUNK_DAYS past 365 for the first time). One shared function so the two
+    branches can't drift out of sync on this again."""
+    if total_days > 365:
+        return f"{math.ceil(total_days / 365)} Y"
+    return f"{total_days} D"
+
+
 class IBKRProvider:
     """DataProvider implementation for Interactive Brokers via ib_async."""
 
@@ -697,10 +710,7 @@ class IBKRProvider:
             # ContFuture + ADJUSTED_LAST: IBKR prohibits setting endDateTime.
             # Fetch in a single request from now backwards by total duration.
             total_days = max(1, (end - start).days + 1)
-            if total_days > 365:
-                duration_str = f"{math.ceil(total_days / 365)} Y"
-            else:
-                duration_str = f"{total_days} D"
+            duration_str = _days_to_duration_str(total_days)
             try:
                 ib_bars = await asyncio.wait_for(
                     self._ib.reqHistoricalDataAsync(
@@ -758,11 +768,12 @@ class IBKRProvider:
                 await _hist_rate_limiter.acquire()
 
                 chunk_start = max(chunk_end - timedelta(days=chunk_days - 1), start)
-                window_seconds = int((chunk_end - chunk_start).total_seconds())
+                chunk_delta = chunk_end - chunk_start
+                window_seconds = int(chunk_delta.total_seconds())
                 if window_seconds < 86400:
                     duration_str = f"{max(120, window_seconds + 60)} S"
                 else:
-                    duration_str = f"{max(1, (chunk_end - chunk_start).days + 1)} D"
+                    duration_str = _days_to_duration_str(max(1, chunk_delta.days + 1))
 
                 # Retry (infra.ibkr.retry_count, default 3) with exponential backoff
                 # (infra.ibkr.retry_backoff_base_s, default 65) on an empty result.
