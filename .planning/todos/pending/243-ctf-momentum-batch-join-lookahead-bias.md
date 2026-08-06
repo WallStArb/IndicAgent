@@ -280,11 +280,35 @@ top), so SPY's 145.7s is a reasonably representative per-symbol cost. Straight e
 decompress/recompress cycling on shared chunks rather than a one-time cost. Confirmed low
 interference risk with todo 259's OHLCV backfill before launching: different tables
 (`feature_vectors` vs `market_data_ohlcv`), backfill wrote zero rows to Postgres in a 10s
-sample (IBKR-network-bound, not a continuous DB writer), load average 0.89. **First action on
-resume if this session is interrupted**: check `ps aux | grep ctf_columns_recompute` and
-`/tmp/claude-1000/-home-bg-dev-indicagent/a4611325-7e79-45c7-acbf-f028ac56e894/scratchpad/ctf_full_apply.log`
-for progress; if finished, verify via the SPY spot-check query and move on to plan Steps 5b-7
-below.
+sample (IBKR-network-bound, not a continuous DB writer), load average 0.89.
+
+**RUN COMPLETE 2026-08-06: full 80-symbol corpus recompute DONE and verified.** `--apply`
+finished in 646.1s (10.8 min) -- 8,824,030 rows examined, 3,884,495 written. Far faster than
+the ~3.2hr extrapolated estimate: the first (killed) `--apply` attempt's per-symbol commits had
+already silently corrected every alphabetically-early symbol before it died, so this run only
+had to actually touch the remaining ~44% of rows for symbols the dead run never reached
+(idempotent diff-based design working exactly as designed). **Verification**: re-ran the
+dry-run across the full 80-symbol scope immediately after -- **0 rows would change**,
+confirming the corpus is now fully and stably corrected, no remaining drift.
+`feature_vectors.ctf_momentum`/`ctf_vwap_align`/`ctf_regime_align` at tf=15m are corrected
+corpus-wide for all 80 equities.
+
+**Plan Steps 5b-7 (not yet started)**:
+1. Force `services/ic_engine.py --refresh --tf 15m` for the 80 symbols -- required because
+   `ic_engine.py`'s own fingerprint watermark (`MAX(bar_ts)`/`COUNT(*)` on `feature_vectors`) is
+   blind to an in-place value correction that doesn't change row count. Safe regardless of the
+   gate_id_suffix governance question -- OOS enforcement means this only touches in-sample data
+   (`training_window_end` clamped to `oos_start`), not the holdout, so it doesn't itself consume
+   a gate "look."
+2. Re-check todo 256's meta-FDR eligibility table against the fresh `feature_ic_scores` (was
+   checked against stale/leaked rows).
+3. `cross_sectional_spread_tracker.py --evaluate-gate --gate-id-suffix ctf_join_v2
+   --gate-id-suffix-reason "<cite the reasoning in this file's earlier 'Real governance conflict
+   caught and resolved' section>"`, after bumping `alpha.construction.null_shuffles` from 40 to
+   1000+ first (restore to 40 after). This IS the actual holdout look.
+4. Update records regardless of outcome: close this todo with real numbers, update
+   `docs/research/data-edge-source-thesis.md` and STATE.md's Phase 167 UNVERIFIED flag,
+   re-check todo 256.
 
 ## Cross-refs
 
