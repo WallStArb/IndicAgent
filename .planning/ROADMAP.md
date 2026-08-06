@@ -1434,10 +1434,13 @@ genuine result):
 - **F2 TRIGGERED for 15m and 5m:** the `rates` cross-sectional label is ALSO deficient
   (spread < 0.01) on those two timeframes — neither conditioning axis currently separates IC
   for `rates` at high frequency. This is the pre-registered build trigger for a
-  factor-augmented HMM challenger (option c) — **pending confirmation that `volatility_pct`
-  hasn't already separately passed its own substitution gate for `rates`** (not evaluated by
-  this script; check that before considering a new model). Not a blocker to closing this
-  phase — a real, separate open question, distinct from Phase 144's own scope.
+  factor-augmented HMM challenger (option c). **Confirmation check RESOLVED 2026-07-27 (todo
+  170, closed): `volatility_pct` FAILS as a substitute** — its apparent pass was a
+  partitioning artifact (shuffled-bucket null statistically indistinguishable from the real
+  result, P=0.050); confirmed not viable for `rates` at high frequency. The factor-augmented
+  HMM challenger is therefore genuinely unblocked as a candidate (though building it remains
+  its own separate cost/benefit call, not automatic). Not a blocker to closing this phase — a
+  real, separate open question, distinct from Phase 144's own scope.
 
 **Two follow-on items filed, not silently dropped:**
 
@@ -1482,19 +1485,40 @@ registered directly after its trigger phase.
 **Depends on:** Phase 144's D-05 empirical verdict — **landed 2026-07-22, this phase is now
 unblocked for `/gsd-plan-phase 145`.** The verdict: F1 not triggered (per-symbol HMM stays
 deficient for TLT/rates, demotion holds), F2 triggered for 15m/5m (rates cross-sectional also
-deficient at high frequency — see Phase 144's section for the full verdict and its
-pending-confirmation next step). Per `stratification-dimension-unification.md`'s own stated
-build gate, this phase's row-grain decision (Option A vs B) should be informed by this real
-result, not planned blind — read Phase 144's verdict in full before starting `/gsd-discuss-phase
-145` or `/gsd-plan-phase 145`. Not yet started as of this note.
+deficient at high frequency; its pending-confirmation next step, todo 170, resolved 2026-07-27
+— `volatility_pct` FAILS as a substitute, see Phase 144's section). Per
+`stratification-dimension-unification.md`'s own stated build gate, this phase's row-grain
+decision (Option A vs B) should be informed by this real result, not planned blind — read Phase
+144's verdict in full before starting `/gsd-discuss-phase 145` or `/gsd-plan-phase 145`. Not yet
+started as of this note.
+
+**Re-checked for currency 2026-08-06 — three things changed since this entry was last touched
+(2026-08-03) that the discuss/plan session should account for, not re-derive from scratch:**
+
+1. **Todo 167 (the equity-side equivalent of Phase 144's D-05 falsifier) is still open,
+   unstarted.** Phase 144's verdict only tested `rates`/TLT — equity is the dominant slice of
+   the universe by symbol count. Proceeding with Phase 145's row-grain/candidate-dimension
+   scoping without the equity result means planning mostly blind on the group that matters
+   most. Either run todo 167 first, or explicitly scope Phase 145's contract to stay agnostic
+   to whatever it finds (don't hard-code an assumption that only `rates` needs a fallback
+   axis).
+2. **`fx` regime group went live 2026-08-06** (was purely hypothetical when this entry was last
+   edited) — a real data point for the candidate-dimension list, not a hypothetical one anymore.
+3. **Phase 170 (`feature_registry` → `concept_registry` migration) is running concurrently as
+   of 2026-08-04**, actively modifying `concept_registry`'s schema. No file-level collision with
+   this phase's *discussion* (confirmed via `STATE.md`) — the `Protocol`/ABC design and the
+   Option A/B ratification can proceed now. But the actual schema write for a new
+   `regime_model`/`hmm_variant` domain (this phase's own execution) should sequence *after*
+   Phase 170 lands, not race its in-flight migration.
 
 **Design:**
 
 - Canonical doc: `docs/research/stratification-dimension-unification.md` ("Formalization revival
   note"). Umbrella: `docs/research/stratification-governance-registries.md`.
 
-- Priority context: `.planning/todos/pending/111-stratification-classification.md`,
-  `docs/research/intelligence-lifecycle-backlog-matrix.md` (not independently
+- Priority context: `.planning/todos/completed/111-stratification-classification.md` (closed
+  2026-08-03, superseded by this ROADMAP entry — read for the Option A/B framing, not as an
+  active todo), `docs/research/intelligence-lifecycle-backlog-matrix.md` (not independently
   scoreable yet — same gate every regime-candidate row on that page already respects).
 
 **Plans:** TBD at `/gsd-plan-phase 145` — not before Phase 144's D-05 verdict lands.

@@ -91,8 +91,10 @@ rather than starting a new one — this is still the right single home for the t
    code, ratifying the `concept_registry` row-grain decision, and scoping which candidate
    dimensions (correlation regime, liquidity regime, term structure, posterior-weighted soft
    stratification — all already in this doc's candidate table below) get planned next. Tracked
-   as [todo 111](../../.planning/todos/pending/111-stratification-classification.md). **This is
-   the concrete next step for anyone who wants to act on this doc, not a new design pass.**
+   as [todo 111](../../.planning/todos/completed/111-stratification-classification.md) (closed
+   2026-08-03, superseded by the ROADMAP Phase 145 entry — that entry, not this todo, is now the
+   live status source). **This is the concrete next step for anyone who wants to act on this
+   doc, not a new design pass.**
 3. **Todo 135** (filed 2026-07-18, still pending): the cross-sectional grid *shapes* themselves
    (equity's 9 cells, rates' 6) were fixed deterministic designs, never selected via a
    statistical criterion the way the per-symbol HMM's K=5 was (Phase 140.5's BIC study). This is
