@@ -1,4 +1,4 @@
-# 259: Single-name equity backfill queue -- 133 symbols missing
+# 259: Single-name equity backfill queue -- 135 symbols missing
 
 **Filed:** 2026-08-05
 **Status:** pending -- holding until client-id 41 run finishes (user decision 2026-08-05)
@@ -13,9 +13,12 @@ crypto, transportation, mega-cap tech/media, biotech, healthcare care-delivery, 
 `wireless_infrastructure` cross-cutting tag, homebuilders, a broad growth/cyclical/defensive
 sweep, utilities/water-utility depth, and fixed-income/FX peer-group depth -- driven by an
 extended "what other areas need symbols" sweep across the same session, went through 6 rounds
-of `/simplify` + peer code review. None of migration 296's or 299's symbols have any backfill
-launched. Consolidating into one queue rather than tracking each migration's backfill
-separately (user feedback 2026-08-05: don't trickle this across multiple files).
+of `/simplify` + peer code review. Migration 301 (committed same session) added KMI/WMB as a
+second and third midstream single-name complement to EPD, requested after migration 299
+shipped -- also backfilled EPD's own missing `rate_sensitive` tag, caught by peer review.
+None of migration 296's, 299's, or 301's symbols have any backfill launched. Consolidating
+into one queue rather than tracking each migration's backfill separately (user feedback
+2026-08-05: don't trickle this across multiple files).
 
 **Full queue, verified against `market_data_ohlcv` 2026-08-05 (zero rows):**
 
@@ -23,11 +26,11 @@ separately (user feedback 2026-08-05: don't trickle this across multiple files).
 AA, ADM, AEP, AMD, AMT, AMZN, ASML, AVGO, AWK, BAC, BHP, BKNG, BLK, BNTX, CCJ, CMCSA, COIN, COP,
 COST, CRM, CRSP, CRWD, CSX, CTVA, CVS, DAL, DD, DHI, DOCS, DOW, DUK, ECL, ELV, EMR, ENPH, EPD,
 EQIX, ETHA, ETR, EXEL, F, FDX, FSLR, FXC, GE, GEV, GILD, GM, GOOGL, GS, HCA, HD, HYD, ICLN, IHF,
-ISRG, ITB, IYZ, JBHT, JETS, LEN, LIN, LLY, LMT, MARA, META, MO, MOO, MS, MSFT, MSTR, NAD, NEE,
-NFLX, NLY, NTR, NUE, NVDA, NVR, ODFL, OXY, PANW, PEP, PFE, PG, PGR, PLD, PM, QCOM, R, REGN,
+ISRG, ITB, IYZ, JBHT, JETS, KMI, LEN, LIN, LLY, LMT, MARA, META, MO, MOO, MS, MSFT, MSTR, NAD,
+NEE, NFLX, NLY, NTR, NUE, NVDA, NVR, ODFL, OXY, PANW, PEP, PFE, PG, PGR, PLD, PM, QCOM, R, REGN,
 RIOT, RSPG, RSPU, RTX, RVMD, SHW, SLB, SO, SPG, STIP, T, TDOC, THC, TMUS, TOL, TRV, TSLA, TSM,
-UBER, UNH, UNP, UPS, URA, USB, V, VCR, VDC, VGT, VHT, VOX, VPU, VRP, VRTX, VST, VZ, WHR, WMT,
-WSM, WTRG, XOM, XTL, XTN
+UBER, UNH, UNP, UPS, URA, USB, V, VCR, VDC, VGT, VHT, VOX, VPU, VRP, VRTX, VST, VZ, WHR, WMB,
+WMT, WSM, WTRG, XOM, XTL, XTN
 ```
 
 133 symbols total (up from 112 -- confirmed the queue grows every time this todo is refreshed,
@@ -56,15 +59,17 @@ backfill completes, the next step is bundling Phase 151 waves 6-7, the CTF join-
 and possibly todo 248's HMM walk-forward flag into one `ic_engine` pass -- not resuming Phase
 151 in isolation.
 
-**Session note (2026-08-05):** the universe went from 111 to 229 active instruments in one
+**Session note (2026-08-05):** the universe went from 111 to 231 active instruments in one
 sitting (roughly 2x). Stopping point reached deliberately -- confirmed with the user that
 further equity sweeps have hit diminishing returns, and more symbols now increases the
 already-large >50% zero-OHLCV-data ratio rather than delivering value. The backfill, not more
-symbol coverage, is the actual bottleneck going forward.
+symbol coverage, is the actual bottleneck going forward. KMI/WMB (migration 301) landed after
+this note was first written -- one small, targeted addition, not a resumption of the broader
+sweep.
 
 ## Why this matters
 
-`get_active_contracts()` returns 229 active rows but 133 of them (>55%) have no OHLCV data at
+`get_active_contracts()` returns 231 active rows but 135 of them (>58%) have no OHLCV data at
 all -- any downstream corpus pipeline step (feature_factory, regime_writer, ic_engine,
 cross_sectional_regime_model) that iterates active contracts will either error or silently skip
 these symbols. The entire point of this session's sector-orthogonality expansion -- filling
@@ -77,8 +82,6 @@ runs.
 - Colgate-Palmolive (CL) -- hard ticker collision with the existing WTI Crude Oil futures
   instrument (`instruments.symbol` is a primary key). Excluded from migration 299. No decision
   made on whether a symbol-aliasing workaround is worth building for one name.
-- KMI/WMB (Kinder Morgan / Williams Companies) -- proposed as a second midstream single name
-  to complement EPD, never confirmed or added. Low priority given EPD + AMLP already exist.
 - BAC.PRL (preferred-share proxy for fi_preferred depth) -- excluded on unconfirmed
   IBKR-contract-format-risk grounds (not the ticker-collision reason originally stated, which
   code review found factually wrong -- see migration 299's wave-16 comment for the correction).
