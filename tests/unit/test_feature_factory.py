@@ -23,8 +23,10 @@ from src.intelligence.feature_cache import CrossAssetState, FeatureCache
 from src.intelligence.feature_factory import (
     FeatureFactory,
     FeatureFactoryConfig,
+    _atr_series_full,
     _dist_from_high_series_full,
     _dist_from_low_series_full,
+    _gap_z_series_full,
     _informed_flow,
     _is_valid_atr,
     _is_valid_atr_series,
@@ -1659,3 +1661,49 @@ class TestDistFromHighLowFloor:
         atr_valid = _is_valid_atr_series(atr_padded, closes, 0.0001)
         result = _dist_from_low_series_full(closes, lows, atr_padded, atr_valid, window=3)
         assert result[-1] == pytest.approx((98.0 - 90.0) / 2.0)
+
+
+class TestGapZAtrFloor:
+    """todo 269: _gap_z_series_full's gap/ATR ratio gated by the shared
+    atr_valid mask (same relative floor as todos 266/268) instead of its own
+    atr_for_gap > 1e-10 absolute epsilon. atr_for_gap[k] == atr_padded[k+1]
+    (both derive from the same underlying ATR series), so the matching slice
+    into a _precompute_series-style atr_valid is atr_valid[1:1+gap_high]."""
+
+    def test_tiny_atr_below_floor_gates_gap_ratio_leaving_ordinary_atr_untouched(self) -> None:
+        # period=1 makes Wilder ATR reduce to the exact true range per bar
+        # (no EWM smoothing lag), giving full per-bar control: bar index 2
+        # is ordinary volatility (tr=1.0), bar index 3 is a genuinely-flat
+        # BIL-style bar (tr=0.0002 -- > 1e-10, the old absolute epsilon, but
+        # far below 0.0001 * 91.70 ~= 0.00917, the relative floor) with a
+        # real +0.10 open gap on top of it.
+        closes = np.array([91.70] * 6)
+        highs = np.array([91.70, 91.70, 92.20, 91.7001, 92.20, 91.70])
+        lows = np.array([91.70, 91.70, 91.20, 91.6999, 91.20, 91.70])
+        opens = np.array([91.70, 91.70, 91.70, 92.70, 91.80, 91.70])
+
+        # atr_raw here is [0, 1.0, 0.0002, 1.0, 0]. atr_valid_floored is the
+        # real _is_valid_atr_series guard (relative floor); atr_valid_unfloored
+        # reproduces the exact old atr_padded > 1e-10 absolute-epsilon
+        # predicate this todo replaces -- the two differ only at index 3,
+        # the genuinely-flat BIL-style bar (0.0002 > 1e-10 but < 0.0001 * 91.70).
+        atr_raw = _atr_series_full(highs, lows, closes, period=1)
+        atr_padded = np.concatenate([[0.0], atr_raw])
+        atr_valid_floored = _is_valid_atr_series(atr_padded, closes, min_atr_pct=0.0001)
+        atr_valid_unfloored = atr_padded > 1e-10
+
+        result_floored = _gap_z_series_full(
+            opens, closes, atr_raw, atr_valid_floored, zscore_window=3
+        )
+        result_unfloored = _gap_z_series_full(
+            opens, closes, atr_raw, atr_valid_unfloored, zscore_window=3
+        )
+
+        # Position 3's gap_raw is (91.80-91.70)/atr: unguarded uses the tiny
+        # 0.0002 ATR (explosive ratio 500), floored substitutes the fallback
+        # 1.0 denominator (bounded ratio 0.10) -- the z-scored series must
+        # diverge at this position.
+        assert result_floored[3] != pytest.approx(result_unfloored[3])
+        # Position 2's gap_raw uses tr=1.0, valid under both old and new
+        # guards -- the floor must not touch it.
+        assert result_floored[2] == pytest.approx(result_unfloored[2])

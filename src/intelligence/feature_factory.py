@@ -2282,20 +2282,30 @@ def _vwap_dev_sigma_series_full(
 
 def _gap_z_series_full(
     opens: np.ndarray,
-    highs: np.ndarray,
-    lows: np.ndarray,
     closes: np.ndarray,
-    period: int,
+    atr_raw: np.ndarray,
+    atr_valid: np.ndarray,
     zscore_window: int,
 ) -> np.ndarray:
-    """Gap-z series: ATR-normalized open gap, rolling z-scored."""
+    """Gap-z series: ATR-normalized open gap, rolling z-scored.
+
+    `atr_raw`/`atr_valid` are the shared ATR series/validity mask already
+    computed once in `_precompute_series` (todo 269 -- previously this
+    function recomputed its own `_atr_series_full(highs, lows, closes,
+    period)`, a redundant second computation of the exact same array since
+    both used `config.adx_period`; now the same array is threaded through,
+    matching the pattern `_dist_from_high_series_full`/`_dist_from_low_series_full`
+    already use). `atr_valid` is aligned index-for-index with `atr_padded`/
+    `closes`, so `atr_for_gap[k] == atr_padded[k+1]` and the matching slice
+    is `atr_valid[1:1+gap_high]`.
+    """
     n = len(closes)
     result = np.zeros(n, dtype=float)
     if n < 2:
         return result
 
     # ATR series (length = n-1)
-    atr_core = _atr_series_full(highs, lows, closes, period)
+    atr_core = atr_raw
 
     # For gap computation, we need ATR at position j to normalize gap[j+1]
     # gap[j+1] = (open[j+1] - close[j]) / ATR[j]
@@ -2308,8 +2318,9 @@ def _gap_z_series_full(
     # closes[1:-1] corresponds to close at positions 1..n-2
     if len(atr_for_gap) > 0 and len(opens) >= 2 and len(closes) >= 2:
         gap_high = min(len(opens) - 2, len(atr_for_gap))
+        gap_atr_valid = atr_valid[1 : 1 + gap_high]
         gap_raw = (opens[2 : 2 + gap_high] - closes[1 : 1 + gap_high]) / np.where(
-            atr_for_gap[:gap_high] > 1e-10, atr_for_gap[:gap_high], 1.0
+            gap_atr_valid, atr_for_gap[:gap_high], 1.0
         )
         # Z-score the gap series
         gap_z_core = _rolling_zscore_series(np.concatenate([[0.0], gap_raw]), zscore_window)
@@ -3494,9 +3505,7 @@ def _precompute_series(
     return _PrecomputedSeries(
         atr_raw=atr_raw,
         atr_z=atr_z,
-        gap_z=_gap_z_series_full(
-            opens, highs, lows, closes, config.adx_period, config.momentum_zscore_window
-        ),
+        gap_z=_gap_z_series_full(opens, closes, atr_raw, atr_valid, config.momentum_zscore_window),
         rel_volume=rel_volume_arr,
         ofi_z=_ofi_z_series_full(closes, highs, lows, volumes, config.ofi_zscore_window),
         cvd_slope_z=_cvd_slope_z_series_full(
