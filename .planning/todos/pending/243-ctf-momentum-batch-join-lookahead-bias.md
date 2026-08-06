@@ -271,11 +271,20 @@ the 92-second dry-run baseline (that number was read-only and never paid the dec
 cost the write path does -- exactly the SOP's "never trust a read-only test for a write-path
 question" warning, confirmed the hard way here).
 
-**Still gated on user go-ahead for the full 80-symbol run** -- current conditions are favorable
-(DB load low, todo 259's OHLCV backfill isn't hitting Postgres, only IBKR), but the runtime
-uncertainty and the scale of the write (up to ~8.7M more rows) mean this stays an explicit
-go/no-go rather than something to launch unilaterally, consistent with this file's own earlier
-"Next step" framing.
+**User gave go-ahead 2026-08-06; full 80-symbol `--apply` launched in background** (pid 3015442,
+started ~08:28 local). `feature_vectors` confirmed time-partitioned only (no per-symbol space
+dimension), so per-symbol compressed-chunk decompression cost doesn't shrink much for smaller
+symbols -- row counts across the 80 symbols run 16,237-130,636 (avg 110,300, clustered near the
+top), so SPY's 145.7s is a reasonably representative per-symbol cost. Straight extrapolation
+~3.2 hours; real uncertainty is whether sequential per-symbol updates cause repeated
+decompress/recompress cycling on shared chunks rather than a one-time cost. Confirmed low
+interference risk with todo 259's OHLCV backfill before launching: different tables
+(`feature_vectors` vs `market_data_ohlcv`), backfill wrote zero rows to Postgres in a 10s
+sample (IBKR-network-bound, not a continuous DB writer), load average 0.89. **First action on
+resume if this session is interrupted**: check `ps aux | grep ctf_columns_recompute` and
+`/tmp/claude-1000/-home-bg-dev-indicagent/a4611325-7e79-45c7-acbf-f028ac56e894/scratchpad/ctf_full_apply.log`
+for progress; if finished, verify via the SPY spot-check query and move on to plan Steps 5b-7
+below.
 
 ## Cross-refs
 
