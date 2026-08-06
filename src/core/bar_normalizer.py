@@ -109,6 +109,41 @@ def _slots_fx(start: datetime, end: datetime, interval: timedelta) -> list[datet
     return slots
 
 
+def _slots_from_windows(
+    windows: list[tuple[datetime, datetime]],
+    start: datetime,
+    end: datetime,
+    interval: timedelta,
+) -> list[datetime]:
+    """Emit interval-stepped slots within each (open, close) window, clipped to [start, end].
+
+    Shared by every schedule-based session type (_slots_nyse, _slots_futures) so the O(n)
+    generate-within-window property is a structural invariant rather than a convention
+    trusted to survive independent copies. Replaces a prior per-function approach that scanned
+    every interval-spaced timestamp across the full [start, end] range against every window --
+    O(total_slots x windows), ~10 billion comparisons for a single 5m/20yr NYSE symbol, which
+    made multi-year backfills across a large symbol universe computationally infeasible (found
+    live-stuck during todo 259's 129-symbol client-id 43 launch, 2026-08-06).
+
+    Converts each window's start to out_tz once, then steps both the comparison clock (in the
+    window's own tz) and the output clock (in out_tz) by the same interval in parallel --
+    avoids one astimezone() call per emitted slot. Relies on out_tz being a fixed-offset zone
+    (UTC, per this codebase's all-timestamps-UTC invariant) so wall-clock stepping equals
+    absolute-time stepping with no DST drift.
+    """
+    out_tz = start.tzinfo
+    slots: list[datetime] = []
+    for win_open, win_close in windows:
+        t = max(win_open, start)
+        window_end = min(win_close, end)
+        t_out = t.astimezone(out_tz)
+        while t <= window_end:
+            slots.append(t_out)
+            t += interval
+            t_out += interval
+    return slots
+
+
 def _slots_nyse(start: datetime, end: datetime, interval: timedelta) -> list[datetime]:
     """NYSE trading days, 04:00–20:00 ET (pre-market through after-hours).
     Half-days: session ends at early_close time instead of 20:00 ET.
@@ -143,16 +178,7 @@ def _slots_nyse(start: datetime, end: datetime, interval: timedelta) -> list[dat
         day_close = pmc_close_et if pmc_close_et.hour < 16 else full_close_et
         trading_windows.append((day_open, day_close))
 
-    slots = []
-    t = start
-    while t <= end:
-        t_et = t.astimezone(ET)
-        for win_open, win_close in trading_windows:
-            if win_open <= t_et <= win_close:
-                slots.append(t)
-                break
-        t += interval
-    return slots
+    return _slots_from_windows(trading_windows, start, end, interval)
 
 
 def _slots_futures(
@@ -192,15 +218,7 @@ def _slots_futures(
         win_close = row["market_close"].to_pydatetime().astimezone(UTC)
         windows.append((win_open, win_close))
 
-    slots = []
-    t = start
-    while t <= end:
-        for win_open, win_close in windows:
-            if win_open <= t <= win_close:
-                slots.append(t)
-                break
-        t += interval
-    return slots
+    return _slots_from_windows(windows, start, end, interval)
 
 
 # ---------------------------------------------------------------------------
