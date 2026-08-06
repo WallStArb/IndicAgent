@@ -1277,7 +1277,12 @@ async def _load_gate_evaluation_context(conn: asyncpg.Connection, mode_flag: str
     }
 
 
-async def _run_evaluate_gate(db_dsn: str, dry_run: bool = False) -> None:
+async def _run_evaluate_gate(
+    db_dsn: str,
+    dry_run: bool = False,
+    gate_id_suffix: str | None = None,
+    gate_id_suffix_reason: str | None = None,
+) -> None:
     """--evaluate-gate CLI mode: Validation Gate 1 -- a day-clustered bootstrap CI over the
     persisted net-of-cost spread across the OOS window (`bar_ts >= alpha.validation.oos_start`,
     design decision 1), at every cost tier and both lookahead scales, plus a live
@@ -1294,7 +1299,25 @@ async def _run_evaluate_gate(db_dsn: str, dry_run: bool = False) -> None:
     consuming the one-shot gate. The `write_verdict_artifact` JSON file remains unrestricted
     (freely re-runnable) in both modes -- it is a human-inspection convenience, not the
     governance layer.
+
+    `gate_id_suffix`: appended to `_GATE1_ID` as `f"{_GATE1_ID}_{gate_id_suffix}"` when the
+    construction's INPUT DATA changes underneath an already-consumed gate_id (e.g. a corrected
+    upstream join, todo 243) -- D-04's run-once guard is keyed on gate_id, so re-running under
+    corrected data with the bare gate_id would refuse to write. A suffix preserves the old
+    verdict as a historical record (computed against the pre-fix data) while letting the
+    corrected run land its own row, rather than silently overwriting or requiring a manual
+    delete. `None` (default) preserves existing behavior exactly. NOT a general escape hatch
+    from D-04's run-once discipline: `docs/plans/OOS-EVAL-PROTOCOL.md`'s Cadence section is
+    explicit that whether a corrected input earns a fresh look is "a real judgment call ...
+    not something to resolve by picking a new gate_id to route around the guard" -- the CLI
+    enforces `gate_id_suffix_reason` alongside this so that judgment call is made explicit and
+    auditable, not silently defaulted.
+
+    `gate_id_suffix_reason`: required whenever `gate_id_suffix` is set. Persisted verbatim into
+    the `gate_evaluations`/`gate_look_log.jsonl` snapshot so a future reviewer can see the actual
+    justification from the record itself.
     """
+    gate_id = _GATE1_ID if gate_id_suffix is None else f"{_GATE1_ID}_{gate_id_suffix}"
     conn = await _open_evaluation_connection(db_dsn)
     try:
         # (1) Load and validate APR, and resolve the OOS boundary, BEFORE any panel work
@@ -1484,11 +1507,12 @@ async def _run_evaluate_gate(db_dsn: str, dry_run: bool = False) -> None:
         "apr_values_used": payload["apr"],
         "input_population_row_count": len(oos_gate_rows),
         "fetch_sql_sha256": fetch_sql_sha256,
+        "gate_id_suffix_reason": gate_id_suffix_reason,
     }
     if dry_run:
         _logger.info(
             "cross_sectional_spread_tracker.gate1_dry_run",
-            gate_id=_GATE1_ID,
+            gate_id=gate_id,
             gate1_passes=gate1_passes,
             note="--dry-run: gate_evaluations/gate_look_log NOT written",
         )
@@ -1498,19 +1522,17 @@ async def _run_evaluate_gate(db_dsn: str, dry_run: bool = False) -> None:
         try:
             await _write_gate_result(
                 write_conn,
-                _GATE1_ID,
+                gate_id,
                 "pass" if gate1_passes else "fail",
                 {"snapshot": snapshot, "verdict": payload},
                 run_ts,
             )
         finally:
             await write_conn.close()
-        _append_gate_look_log(
-            _GATE1_ID, run_ts, snapshot, result="pass" if gate1_passes else "fail"
-        )
+        _append_gate_look_log(gate_id, run_ts, snapshot, result="pass" if gate1_passes else "fail")
         _logger.info(
             "cross_sectional_spread_tracker.gate1_committed",
-            gate_id=_GATE1_ID,
+            gate_id=gate_id,
             gate1_passes=gate1_passes,
         )
 
@@ -1555,7 +1577,12 @@ def _attribution_verdict_text(scale: str, verdict: dict[str, Any]) -> str:
     )
 
 
-async def _run_evaluate_attribution(db_dsn: str, dry_run: bool = False) -> None:
+async def _run_evaluate_attribution(
+    db_dsn: str,
+    dry_run: bool = False,
+    gate_id_suffix: str | None = None,
+    gate_id_suffix_reason: str | None = None,
+) -> None:
     """--evaluate-attribution CLI mode: Validation Gate 2 -- attribution honesty. Decomposes
     the realized OOS spread (`bar_ts >= alpha.validation.oos_start`) into a static,
     time-invariant leg-membership benchmark plus a residual, then gates the residual through
@@ -1566,7 +1593,11 @@ async def _run_evaluate_attribution(db_dsn: str, dry_run: bool = False) -> None:
     `CrossSectionalSpreadTracker.execute()`. UNLESS `dry_run` is True, this DOES now write one
     row to `gate_evaluations` and append one entry to `.planning/gate_look_log.jsonl` (D-04,
     todo 253) -- see `_run_evaluate_gate`'s docstring for the full rationale, identical here.
+
+    `gate_id_suffix`: see `_run_evaluate_gate`'s docstring -- identical purpose, applied to
+    `_GATE2_ID` instead of `_GATE1_ID`.
     """
+    gate_id = _GATE2_ID if gate_id_suffix is None else f"{_GATE2_ID}_{gate_id_suffix}"
     conn = await _open_evaluation_connection(db_dsn)
     try:
         # (1) Load and validate APR, and resolve the OOS boundary, BEFORE any panel work
@@ -1745,11 +1776,12 @@ async def _run_evaluate_attribution(db_dsn: str, dry_run: bool = False) -> None:
         },
         "input_population_row_count": len(attribution_rows),
         "fetch_sql_sha256": fetch_sql_sha256,
+        "gate_id_suffix_reason": gate_id_suffix_reason,
     }
     if dry_run:
         _logger.info(
             "cross_sectional_spread_tracker.gate2_dry_run",
-            gate_id=_GATE2_ID,
+            gate_id=gate_id,
             gate2_passes_overall=gate2_passes_overall,
             note="--dry-run: gate_evaluations/gate_look_log NOT written",
         )
@@ -1759,7 +1791,7 @@ async def _run_evaluate_attribution(db_dsn: str, dry_run: bool = False) -> None:
         try:
             await _write_gate_result(
                 write_conn,
-                _GATE2_ID,
+                gate_id,
                 "pass" if gate2_passes_overall else "fail",
                 {"snapshot": snapshot, "verdict": payload},
                 run_ts,
@@ -1767,11 +1799,11 @@ async def _run_evaluate_attribution(db_dsn: str, dry_run: bool = False) -> None:
         finally:
             await write_conn.close()
         _append_gate_look_log(
-            _GATE2_ID, run_ts, snapshot, result="pass" if gate2_passes_overall else "fail"
+            gate_id, run_ts, snapshot, result="pass" if gate2_passes_overall else "fail"
         )
         _logger.info(
             "cross_sectional_spread_tracker.gate2_committed",
-            gate_id=_GATE2_ID,
+            gate_id=gate_id,
             gate2_passes_overall=gate2_passes_overall,
         )
 
@@ -1836,7 +1868,42 @@ if __name__ == "__main__":
             "Ignored (has no effect) for --backfill or incremental compute-and-persist."
         ),
     )
+    parser.add_argument(
+        "--gate-id-suffix",
+        default=None,
+        help=(
+            "Only meaningful with --evaluate-gate/--evaluate-attribution: appends "
+            "_<suffix> to the gate_id written to gate_evaluations/gate_look_log.jsonl. "
+            "docs/plans/OOS-EVAL-PROTOCOL.md's Cadence section is explicit that a corrected "
+            "construction input does NOT automatically earn a fresh look under the existing "
+            "gate_id -- 'that is a real judgment call ... not something to resolve by "
+            "picking a new gate_id to route around the guard.' This flag exists for the "
+            "narrow case where that judgment call has already been made explicitly (see "
+            "--gate-id-suffix-reason, REQUIRED alongside this flag) -- it is not a general "
+            "escape hatch from D-04's run-once discipline. Omit both flags for a "
+            "construction's ordinary first-ever gate look."
+        ),
+    )
+    parser.add_argument(
+        "--gate-id-suffix-reason",
+        default=None,
+        help=(
+            "REQUIRED alongside --gate-id-suffix. A short, specific statement of why this "
+            "corrected-input re-run is a legitimate first look at the real construction, not "
+            "a second look at an already-evaluated one (per OOS-EVAL-PROTOCOL.md's Cadence "
+            "section) -- e.g. citing the todo/commit that fixed the input, and when that fix "
+            "shipped relative to the gate_id's prior run. Persisted into "
+            "gate_look_log.jsonl's snapshot so the judgment call is auditable from the "
+            "record itself, not trust-only from a docstring."
+        ),
+    )
     args = parser.parse_args()
+    if bool(args.gate_id_suffix) != bool(args.gate_id_suffix_reason):
+        parser.error(
+            "--gate-id-suffix and --gate-id-suffix-reason must be passed together -- "
+            "OOS-EVAL-PROTOCOL.md requires the corrected-input judgment call to be made "
+            "explicit and auditable, not silently defaulted."
+        )
 
     try:
         init_otel_providers("indicagent-cross-sectional-spread-tracker")
@@ -1847,8 +1914,22 @@ if __name__ == "__main__":
     db_dsn = settings.database_url.replace("postgresql+asyncpg://", "postgresql://")
 
     if args.evaluate_gate:
-        asyncio.run(_run_evaluate_gate(db_dsn, dry_run=args.dry_run))
+        asyncio.run(
+            _run_evaluate_gate(
+                db_dsn,
+                dry_run=args.dry_run,
+                gate_id_suffix=args.gate_id_suffix,
+                gate_id_suffix_reason=args.gate_id_suffix_reason,
+            )
+        )
     elif args.evaluate_attribution:
-        asyncio.run(_run_evaluate_attribution(db_dsn, dry_run=args.dry_run))
+        asyncio.run(
+            _run_evaluate_attribution(
+                db_dsn,
+                dry_run=args.dry_run,
+                gate_id_suffix=args.gate_id_suffix,
+                gate_id_suffix_reason=args.gate_id_suffix_reason,
+            )
+        )
     else:
         asyncio.run(CrossSectionalSpreadTracker(db_dsn, backfill=args.backfill).run())

@@ -139,6 +139,28 @@ picking a new `gate_id` to route around the guard. The interim diagnostic
 scorer may be run more freely since it is never a gate, but its output must
 not be used to tune any in-sample parameter.
 
+**Corrected-input re-look (added 2026-08-05, todo 243)**: `cross_sectional_spread_tracker.py`'s
+`--evaluate-gate`/`--evaluate-attribution` support a `--gate-id-suffix` (paired mandatorily with
+`--gate-id-suffix-reason`) for exactly the judgment call named above, once it has actually been
+made — not a way to avoid making it. The suffixed run gets its own `gate_evaluations` row; the
+original run stays in place as the historical record of what the pre-fix data showed. Use this
+only when ALL of the following hold, and state which apply in the required reason string:
+
+1. The input correction was discovered independently of this gate's result (via code review,
+   a different investigation, a test failure) — never because this gate's result was
+   disappointing and someone went looking for a reason to discount it.
+2. The correction was already shipped (code fix committed, tested, merged) *before* the
+   consumed `gate_id`'s recorded run — i.e. the corpus/data was simply lagging an
+   already-known-correct fix, not modified in reaction to the gate's answer.
+3. The prior recorded run measured a demonstrably different (buggy) computation, not a
+   parameter or methodology tweak to the same well-defined construction — this is "our
+   instrument was miscalibrated," not "we didn't like the reading so we adjusted the scale."
+
+If any of these doesn't hold, the corrected data does not earn a fresh look under this
+mechanism — the existing verdict stands, full stop, regardless of whether the corrected data is
+believed to change the answer. This escape hatch is intentionally narrow; do not extend its use
+by analogy without updating this section first.
+
 ## Failure rule
 
 If an OOS gate fails, diagnose using the EIC-05 structure (data starvation
