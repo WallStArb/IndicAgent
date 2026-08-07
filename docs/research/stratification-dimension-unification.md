@@ -3,11 +3,12 @@
 **Version:** 1.2
 **Status:** draft — Phase 144 (regime_group producer) COMPLETE 2026-07-22; Phase 145 (this
 doc's own contract, formalization) unblocked 2026-07-22, **not yet started**
-**Priority:** high (blocks AnalogEngine's retrieval correctness; names a real glossary gap)
+**Priority:** high (blocks PrecedentEngine's retrieval correctness; names a real glossary gap)
 **Milestone:** v3.15 "Conditioning & Identity Foundation" - formalized in ROADMAP.md 2026-07-03 as Phases 144, 145 (no longer "Phases TBD"; see 2026-07-06 re-verification below)
-**Last Updated:** 2026-08-01 (reconciliation pass — Phase 144 completion, D-05 verdict, Phase 145
-unblocked status, fx enablement, todo 135/167/224/225/111 cross-links; previously 2026-07-06)
-**Tags:** regime, stratification, conditioning, governance, hmm, concept-registry, analog-engine
+**Last Updated:** 2026-08-06 (naming correction — AnalogEngine → PrecedentEngine throughout, see
+item 12 below; previously 2026-08-01 reconciliation pass — Phase 144 completion, D-05 verdict,
+Phase 145 unblocked status, fx enablement, todo 135/167/224/225/111 cross-links; previously 2026-07-06)
+**Tags:** regime, stratification, conditioning, governance, hmm, concept-registry, precedent-engine
 **Source:** `.planning/research/2026-07-02-v3-topdown-architecture.md` §1.3, §2.4, §3 (D5, D8), §7 (Q4) — Author: Fable 5
 **Informed by:** Fable 5 - consolidation audit corrections, recommendations in § Open Questions, and design revisions marked *(Fable's revision)* inline (2026-07-02)
 **Renumbered (2026-07-04):** all "Phase 151" references below now read "Phase 144" (Cross-Sectional Regime Model, `regime_group`) per the 2026-07-04 ROADMAP phase renumbering — content unchanged, only the phase number.
@@ -17,7 +18,7 @@ against live code, psql, ROADMAP, and the Phase 143 artifacts executed since thi
 touched. The core premise (two live regime systems, per-symbol HMM in `feature_vectors.regime`
 plus the 9-label `{low/mid/high}_{bull/neutral/bear}` cross-sectional model in
 `market_regimes.regime_label`, no shared contract) re-verified accurate, as is the todo 026
-empirical-state section (numbers match the todo as of today) and the AnalogEngine sequencing
+empirical-state section (numbers match the todo as of today) and the PrecedentEngine sequencing
 claim, which is now *stronger* than this doc states: ROADMAP Phase 149's Depends-on line
 hard-codes "v3.15 complete" as of 2026-07-03, so the dependency is an encoded roadmap edge, not
 just this doc's argument. Eight findings drifted and carry dated inline corrections below:
@@ -62,7 +63,7 @@ just this doc's argument. Eight findings drifted and carry dated inline correcti
    name. "intel-12" in sibling docs means this file.
 
 Verdict after re-verification: the core proposal is still warranted as scoped, and the evidence
-has moved *toward* it (formalized milestone, encoded AnalogEngine dependency edge, a third
+has moved *toward* it (formalized milestone, encoded PrecedentEngine dependency edge, a third
 producer-side hardening landing through a phase that had to special-case the incumbent, a fourth
 consumer reading labels through yet another bespoke path, and `regime_model` now fully vetted -
 gate shape, row grain options, effective-N floor - in `concept-unified-registry.md`'s
@@ -181,6 +182,15 @@ in this doc had drifted since 2026-07-06 without a doc update):**
     pass — treat it as approximate until someone does. General lesson: line numbers in any doc
     drift fast in an actively-changed file; re-grep before citing one in new work rather than
     trusting a doc's citation verbatim, even a recently-reconciled one.
+12. **Naming correction (2026-08-06): "AnalogEngine" throughout this doc is stale — the concept
+    was renamed to `PrecedentEngine` on 2026-07-09** (`docs/research/catalog.md`, todo 055;
+    "analog" collided with this codebase's dense signal-processing vocabulary, see
+    `docs/foundation/naming-system.md`'s Whiteboard Test). That rename predates even this doc's
+    2026-08-01 reconciliation pass above, which should have caught it and didn't — the 2026-08-01
+    pass fixed schema/line-number drift but missed a vocabulary rename that had already landed in
+    the glossary three weeks earlier. Every live-prose occurrence below is corrected in place to
+    `PrecedentEngine`; only archived filenames (`analog-engine-*.md` under `docs/research/archive/`)
+    keep the old name, per this codebase's convention of not renaming historical artifacts.
 
 ---
 
@@ -253,15 +263,15 @@ never written down.
 
 ## Why This Matters Now (not just architectural tidiness)
 
-AnalogEngine's retrieval (`retrieve()`) **hard-filters** on regime labels — a bad label
+PrecedentEngine's retrieval (`retrieve()`) **hard-filters** on regime labels — a bad label
 silently pollutes every neighbor set it returns, with no downstream signal that anything went
 wrong. The IC engine, by contrast, only *stratifies* by regime labels — a bad label there
-dilutes an IC estimate but doesn't corrupt a whole retrieval. AnalogEngine is therefore more
+dilutes an IC estimate but doesn't corrupt a whole retrieval. PrecedentEngine is therefore more
 sensitive to conditioning-layer bugs than anything that currently consumes these labels. Worse:
 embeddings are versioned and expensive to rebuild (`embedding_version` bump = full re-embed).
-Building AnalogEngine's substrate on top of known-suspect strata bakes the bias into stored
+Building PrecedentEngine's substrate on top of known-suspect strata bakes the bias into stored
 vectors before anyone notices. **This is the concrete reason the unification has to happen
-before AnalogEngine, not sometime after** — it's the stated rationale for sequencing v3.15
+before PrecedentEngine, not sometime after** — it's the stated rationale for sequencing v3.15
 between v3.1 and v3.2 (roadmap D5).
 
 It does **not** block or change Phase 142B / 142B.1 — those only consume existing regime
@@ -342,7 +352,7 @@ adding a new consumer should never require special-casing a specific dimension.
 - `volatility_pct`, `dispersion` — percentile-rank candidates
 - E1-E4 from the multi-engine HMM doc (volatility structure, volume character, factor style,
   flow/positioning)
-- `ood_distance` — AnalogEngine's nearest-neighbor distance
+- `ood_distance` — PrecedentEngine's nearest-neighbor distance
 
 **Consumers (processes reading dimension labels, unchanged in what they do with them):**
 - **ic_engine** — stratifies IC by whichever dimension(s) win the substitution test; same job
@@ -350,7 +360,7 @@ adding a new consumer should never require special-casing a specific dimension.
   per dimension
 - **EnsembleTrainer** — keys weights on whichever stratification produced the tightest CI per
   predictor (the "axis selection is learned" mechanism above)
-- **AnalogEngine's `retrieve()`** — hard-filters neighbor search by dimension labels; the
+- **PrecedentEngine's `retrieve()`** — hard-filters neighbor search by dimension labels; the
   consumer most sensitive to a bad dimension (see "Why This Matters Now")
 - **MeasurementEngine** (proposed L4 unification of ic_engine + EnsembleICEngine) — both a
   consumer and the judge: it runs the substitution test that promotes/demotes dimensions
@@ -563,10 +573,10 @@ build sequence — a real category, not represented above):
 | Sentiment / GEX vector | Options gamma exposure (market-maker positioning), call/put ratio, retail NLP sentiment | Negative GEX amplifies vol, positive GEX suppresses it — directly modulates how a vol-structure dimension should be read; vendor data (CBOE) |
 | Supply chain / macro vector | Cross-asset commodity spreads (copper/gold), Baltic Dry Index, satellite inventory proxies | Commodity spreads available now via existing IBKR futures feeds; satellite data is vendor-gated |
 
-**Cross-cutting:** `ood_distance` - AnalogEngine's nearest-neighbor distance
+**Cross-cutting:** `ood_distance` - PrecedentEngine's nearest-neighbor distance
 ("unprecedentedness"), bucketed low/mid/high. A candidate dimension rather than a hand-coded
 conviction override; whether it conditions IC, caps conviction, or both is Open Question 3.
-One DAG constraint *(Fable's revision)*: `ood_distance` is produced by AnalogEngine's retrieval
+One DAG constraint *(Fable's revision)*: `ood_distance` is produced by PrecedentEngine's retrieval
 and may condition anything downstream, but must never feed back into `retrieve()`'s own filter
 set; retrieval conditioning on its own output is a cycle.
 
@@ -605,7 +615,7 @@ This is real, in-progress evidence, not a hypothetical — the doc's contract ex
 ## Sequencing
 
 Proposed as part of a new milestone, **v3.15 "Conditioning & Identity Foundation,"** between
-v3.1 and v3.2 (AnalogEngine), bundling:
+v3.1 and v3.2 (PrecedentEngine), bundling:
 
 - Phase 144 (regime_group dispatcher: commodity sub-group merge, exclude-unrouted-with-logging
   policy)
@@ -696,7 +706,7 @@ Recommendations below are proposals for ratification, not decisions.
 3. **Does OOD/unprecedentedness condition IC, cap conviction, or both?** Conditioning (make it
    a stratum, subject to the same substitution test as everything else) and conviction-capping
    (an emission-time multiplier that dampens size/confidence out-of-distribution) are different
-   mechanisms with different failure modes. The AnalogEngine substrate docs propose the latter;
+   mechanisms with different failure modes. The PrecedentEngine substrate docs propose the latter;
    this doc's framing (§ Candidate Dimensions) proposes the former. Needs a small design note
    before v3.2; plausibly both, gated separately.
 
@@ -746,7 +756,7 @@ Recommendations below are proposals for ratification, not decisions.
 - ROADMAP.md — v3.15 milestone section (milestone formalized 2026-07-03 as Phases 144, 145;
   this doc's own formalization work became integer Phase 145 on 2026-07-13, shifting the
   Tag Calibrator to Phase 146 — v3.15 is now Phases 144, 145, 146) and Phase 149's
-  Depends-on line ("v3.15 complete"), which encodes this doc's AnalogEngine sequencing claim as
+  Depends-on line ("v3.15 complete"), which encodes this doc's PrecedentEngine sequencing claim as
   a hard roadmap edge *(pointer updated 2026-07-06, Fable 5; the previous "`.planning/STATE.md`
   line 114" reference no longer points at relevant content after STATE.md edits)*
 - `concept-unified-registry.md` § Domain Vetting (2026-07-06 third pass) — the

@@ -7,7 +7,7 @@
 ## Phase Boundary
 
 Formalize governance for the conditioning layer that stratifies IC measurement and
-(eventually) AnalogEngine retrieval by regime. Concretely: write the
+(eventually) PrecedentEngine retrieval by regime. Concretely: write the
 `StratificationDimension` `Protocol`/ABC as real code, ratify the `concept_registry`
 row-grain decision for the `regime_model` domain, add the two statistical/causal
 safeguards this discussion identified as missing from the existing design docs, and

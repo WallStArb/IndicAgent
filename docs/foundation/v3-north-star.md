@@ -1,11 +1,23 @@
 # v3.0 North Star — Intelligence Vectors Concept
 
 **Version:** 1.1
-**Status:** Canonical — foundational v3.0 philosophy
-**Last Updated:** 2026-06-20
-**Tags:** intelligence-vectors, alphaengine, analogengine, ic, signal-layer, v3.0, renaissance
+**Status:** Canonical for the North Star philosophy (blockquote below) — see 2026-08-06 note on
+the PrecedentEngine mechanics sections
+**Last Updated:** 2026-06-20 (naming pass 2026-08-06: AnalogEngine → PrecedentEngine throughout,
+see note below; content otherwise unchanged)
+**Tags:** intelligence-vectors, alphaengine, precedent-engine, ic, signal-layer, v3.0, renaissance
 
 **Location:** Moved to `docs/foundation/` as canonical v3.0 origin document (2026-07-06). This establishes the Renaissance-grade principle that governs all v3.0 architectural decisions.
+
+**Staleness note (2026-08-06):** this doc predates PrecedentEngine's 2026-07-09 rename (fixed
+here, name only) *and* its later D4 rescope. The North Star philosophy blockquote below is still
+the live principle. The PrecedentEngine mechanics described in this doc (Score Object, `analog_score`/`analog_count` as an independent annotator that can "agree or disagree" with
+AlphaEngine, `signal_events` as the enrichment target) are **not current** — D4 corrected exactly
+this framing: PrecedentEngine is not a second, independent system, its predictors register into
+and are measured by AlphaEngine's own IC/ensemble machinery, and `signal_events` is v2.x
+(archived, no live consumer). Current design: `docs/research/intel-precedent-engine.md`.
+Reconciling this doc's mechanics section against that is real work, not done here — see
+[todo 275](../../.planning/todos/pending/275-v3-north-star-precedentengine-mechanics-predate-d4-rescope.md).
 
 ---
 
@@ -325,12 +337,12 @@ ENSEMBLE (hot path)         MEASUREMENT (batch)
           ▼
 ECL ANNOTATOR (cold path batch)
   ├── AlphaEngine: alpha_score_quant, ensemble_ci_lower
-  └── AnalogEngine: analog_score, analog_count, ood_flagged
+  └── PrecedentEngine: analog_score, analog_count, ood_flagged
           │
           ▼
 GOVERNANCE (cold path)
   ├── Shadow Registry: outcome P&L per plugin/vector
-  └── AnalogEngine: k-NN retrieval, Score Object, score_cache
+  └── PrecedentEngine: k-NN retrieval, Score Object, score_cache
 ```
 
 ### Layer 1 — Score Producers
@@ -357,7 +369,7 @@ Three components, one shared utility:
 
 **IC Utility** — a single stateless function: takes a time series of `(normalized_score, forward_return)` pairs, outputs IC, IC Sharpe, bootstrap CI bounds. Called by three consumers at different grains:
 - AlphaEngine: plugin × regime × TF × lookahead — answers "does this plugin predict returns?"
-- IC Factory (AnalogEngine): feature × regime × horizon — answers "does this feature define good analogs?"
+- IC Factory (PrecedentEngine): feature × regime × horizon — answers "does this feature define good analogs?"
 - Scoring Engine: sub-score × scope × horizon — answers "does this sub-score earn composite weight?"
 
 One function. Three callers. Three output tables. Never one shared table — grain and ownership differ.
@@ -390,7 +402,7 @@ Every emitted signal stores its decomposition: contributing plugin scores, IC we
 A batch process that enriches `signal_events` after emission. Two systems contribute, each owning distinct fields:
 
 - **AlphaEngine** annotates: `alpha_score_quant`, `ensemble_ci_lower`, per-vector IC summary
-- **AnalogEngine** annotates: `analog_score`, `analog_count`, `ood_flagged`
+- **PrecedentEngine** annotates: `analog_score`, `analog_count`, `ood_flagged`
 
 Neither annotates the other's fields. Neither gates emission. The ECL boundary invariant is absolute: extrinsic confidence is training signal, never a live gate.
 
@@ -398,7 +410,7 @@ Neither annotates the other's fields. Neither gates emission. The ECL boundary i
 
 **Shadow Registry** measures outcome P&L per plugin/vector. This is a separate question from IC: IC measures whether a score predicts returns as a raw predictor. Shadow measures whether the trade that resulted from the emitted signal made money. A plugin can have high IC and poor shadow (the edge exists but execution doesn't capture it). Both are necessary; neither replaces the other.
 
-**AnalogEngine** — the non-parametric complement to AlphaEngine. Embeds the full I1-I7 bar state as a vector in pgvector. Finds K most similar historical bars. Returns what price did. No model assumptions. The null result — "no close analogs exist for this bar state" — is a named, surfaced output, not a fallback. When AnalogEngine and AlphaEngine agree, conviction is high. When they disagree, that disagreement is itself a signal worth examining before acting.
+**PrecedentEngine** — the non-parametric complement to AlphaEngine. Embeds the full I1-I7 bar state as a vector in pgvector. Finds K most similar historical bars. Returns what price did. No model assumptions. The null result — "no close analogs exist for this bar state" — is a named, surfaced output, not a fallback. When PrecedentEngine and AlphaEngine agree, conviction is high. When they disagree, that disagreement is itself a signal worth examining before acting.
 
 ---
 
@@ -452,7 +464,7 @@ No signal. No plugin firing logic. No predefined theory about which feature comb
 - `regime` — HMM regime in effect at emission
 - `effective_n` — number of independent predictors that contributed
 - `score_decomposition` — JSONB: contributing feature scores, IC weights, ambient modifier values
-- `ood_flagged` — AnalogEngine: no close historical analogs exist for this bar state
+- `ood_flagged` — PrecedentEngine: no close historical analogs exist for this bar state
 
 `trade_frames` and `trade_executions` remain. They capture what was done with the alpha emission — entry type, stop, target, counterfactual P&L, actual P&L. The emission is the opportunity; the frames are the hypothesis about how to act on it.
 
@@ -468,10 +480,10 @@ This also means the 138 existing plugins are not replaced all at once. Each is m
 
 ## The Extrinsic Confidence Layer (ECL)
 
-AlphaEngine and AnalogEngine are annotators, not gates. They enrich `signal_events` cold-path after emission, feeding the ML training matrix.
+AlphaEngine and PrecedentEngine are annotators, not gates. They enrich `signal_events` cold-path after emission, feeding the ML training matrix.
 
 - AlphaEngine annotates: `alpha_score_quant`, `ensemble_ci_lower`, per-vector IC weights
-- AnalogEngine annotates: `analog_score`, `analog_count`, `ood_flagged`
+- PrecedentEngine annotates: `analog_score`, `analog_count`, `ood_flagged`
 
 The ECL boundary invariant is absolute: no extrinsic score gates emission in the hot path. The hot path stays DB-ignorant. Extrinsic context is always cold-path enrichment.
 
@@ -547,7 +559,7 @@ The infrastructure beneath the refactor is unchanged:
 - HMM regime detection remains the stratification mechanism for IC measurement and ensemble weight selection
 - APR governs all thresholds, weights, valid_until windows, and decay parameters
 - Shadow governance tracks outcome P&L and governs promotion — now at the feature/vector level rather than the signal level
-- AnalogEngine / VIL operates on the same `intelligence_features` bar state embeddings
+- PrecedentEngine / VIL operates on the same `intelligence_features` bar state embeddings
 - The three-table architecture persists: emissions → trade hypotheses → executions
 
 ---
@@ -571,7 +583,7 @@ Order flow, CVD, trade size distribution scored per bar. Orthogonal to technical
 **Phase E — Vector 3 and 4 (Macro + Calendar)**
 Calendar vector first (trivially orthogonal, time-based only). Macro vector second (cross-asset relationships already partially in context tier, shift to continuous scoring).
 
-**AnalogEngine** runs in parallel with Phase C onward. It requires pgvector infrastructure (higher build cost) but is fully independent of AlphaEngine — either can run without the other.
+**PrecedentEngine** runs in parallel with Phase C onward. It requires pgvector infrastructure (higher build cost) but is fully independent of AlphaEngine — either can run without the other.
 
 ---
 
@@ -583,4 +595,4 @@ Calendar vector first (trivially orthogonal, time-based only). Macro vector seco
 - `docs/research/analog-engine-02-ic-factory.md` — IC Factory: feature-level IC, Outcome Labeler, Analog Finder
 - `docs/research/analog-engine-03-scoring-engine.md` — Score Object: transformation from analog set to scored conviction
 - `docs/research/analog-engine-04-correlation.md` — Correlation Intelligence: effective-N measurement
-- `docs/foundation/glossary.md` — canonical term definitions (IC, ECL, AlphaEngine, AnalogEngine, VIL)
+- `docs/foundation/glossary.md` — canonical term definitions (IC, ECL, AlphaEngine, PrecedentEngine, VIL)

@@ -353,7 +353,7 @@ Archive: `.planning/milestones/v2.10-ROADMAP.md`
 
 ## Next: v3.1 → v3.15 → v3.2 → v4.0 Execution Layer
 
-v3.1 (IC empirical proof) is in progress: Phase 142A (ensemble-level IC, OOS-enforced) is complete; Phase 142B/143 validate single-frame counterfactual economics next. v3.15 (regime/stratification unification) and v3.2 (signal diversification via AnalogEngine) are planned, both gated on v3.1's OOS proof holding at scale — no work here is load-bearing for the endgame until that gate passes. v4.0 (Execution Layer: position sizing, trade construction, minimum viable risk management) is the actual live-trading on-ramp and is deliberately sequenced last, not run in parallel — see Core Value above. Current breadth/impact across all in-flight areas, re-ranked against the live-trading endgame: `docs/research/roadmap-scope-map.md`.
+v3.1 (IC empirical proof) is in progress: Phase 142A (ensemble-level IC, OOS-enforced) is complete; Phase 142B/143 validate single-frame counterfactual economics next. v3.15 (regime/stratification unification) and v3.2 (signal diversification via PrecedentEngine, renamed from AnalogEngine 2026-07-09) are planned, both gated on v3.1's OOS proof holding at scale — no work here is load-bearing for the endgame until that gate passes. v4.0 (Execution Layer: position sizing, trade construction, minimum viable risk management) is the actual live-trading on-ramp and is deliberately sequenced last, not run in parallel — see Core Value above. Current breadth/impact across all in-flight areas, re-ranked against the live-trading endgame: `docs/research/roadmap-scope-map.md`.
 
 ---
 ## Evolution

@@ -319,6 +319,6 @@ Nothing in Phase C or beyond starts before IC is measured and positive. Shadow m
 - **Live weighting recipe state:** `concept_registry` table, `domain='ensemble_strategy'` — query directly rather than trusting any doc's snapshot of "what's active."
 - **Architecture spec (historical):** `docs/plans/archive/2026-06-20-alphaengine-architecture.md` — full design with feature list
 - **IC methodology (historical, superseded by the methodology doc above):** `docs/plans/2026-06-20-alphaengine-ic-spec.md`
-- **AnalogEngine:** `docs/plans/2026-06-20-analogengine-design.md` — deferred; pgvector similarity search
+- **PrecedentEngine** (renamed from AnalogEngine 2026-07-09): `docs/research/intel-precedent-engine.md` — current design, deferred; pgvector similarity search. `docs/plans/2026-06-20-analogengine-design.md` is the archived pre-rescope version, history only.
 - **Feature Factory foundation:** `src/intelligence/features/` (Phase A implementation)
 - **Prior art:** `docs/research/archive/renaissance-alpha-pipeline.md`
