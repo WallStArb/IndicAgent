@@ -592,9 +592,9 @@ work, not a replacement of a working mechanism.
 with low-to-medium reversibility risk, not factual claims about the codebase (those were all
 verified live via grep/psql during this research session).
 
-## Open Questions
+## Open Questions (RESOLVED — see plans, 2026-08-06)
 
-1. **Where should the pilot's gate results actually be written, concretely?**
+1. **RESOLVED by 145-05.** Where should the pilot's gate results actually be written, concretely?
    - What we know: it cannot go into `concept_registry`/`concept_transition_log` (verified live
      schema blocks this). CONTEXT.md's Claude's Discretion section explicitly leaves "whether the
      effective-N floor derivation is a one-time empirical study written up in a doc, or a
@@ -609,8 +609,8 @@ verified live via grep/psql during this research session).
      working convention for "empirical pilot result that will eventually feed a registry," and
      reusing it avoids inventing a new artifact type for one phase.
 
-2. **Does the acausal-placebo registration gate (D-05) run once at "registration" time only, or
-   on every gate-cascade invocation?**
+2. **RESOLVED by 145-03.** Does the acausal-placebo registration gate (D-05) run once at
+   "registration" time only, or on every gate-cascade invocation?
    - What we know: `ops_canary_integrity_assert.py`'s mechanism runs every corpus pipeline run
      (continuous re-verification, not one-time). D-05's text says "no provider may enter gate 0...
      without first passing" — phrased as a precondition, suggesting once-per-provider, not
@@ -626,9 +626,9 @@ verified live via grep/psql during this research session).
      (a code-content-keyed check, similar in spirit to `ic_engine.py`'s existing fingerprint
      invalidation on `code_content_key` changes) rather than either pure extreme.
 
-3. **Does `_smooth_states()`-equivalent logic need to be extracted into a shared Ring-appropriate
-   location as part of this phase, or is duplicating a small smoothing helper acceptable for the
-   pilot's scope?**
+3. **RESOLVED by 145-02.** Does `_smooth_states()`-equivalent logic need to be extracted into a
+   shared Ring-appropriate location as part of this phase, or is duplicating a small smoothing
+   helper acceptable for the pilot's scope?
    - What we know: Ring rule forbids `src/intelligence/` importing from `services/`. The
      `volatility_pct` pilot plausibly needs the same `min_hold_bars` smoothing behavior for a fair
      substitution-test comparison (see Pitfall 5).
