@@ -62,6 +62,28 @@ class TestComputeShape:
         params = {"momentum_window": 60, "primary_threshold": 0.75}
         assert compute({}, params) is None
 
+    def test_peers_with_different_history_lengths_does_not_raise(self):
+        """Regression (migration 306 discovery): the unified commodity group spans
+        symbols with wildly different backfill depth (e.g. a newly-added single-name
+        equity vs. a long-tenured ETF) -- unlike the old ~11-member groups, which
+        happened to share similar tenure. compute() previously force-relabeled the
+        cross-sectional median with a single arbitrary peer's raw timestamp index via
+        .set_axis(), which requires an EXACT length match and raised
+        'Length mismatch' the first time real peers had a meaningfully different row
+        count. The fix lets pd.concat's natural union-aligned index carry through
+        instead of overwriting it."""
+        n_short, n_long, window = 200, 500, 60
+        bars = {
+            "NEW_SINGLE_NAME": _make_bars([80 + i * 0.05 for i in range(n_short)]),
+            "LONG_TENURED_ETF": _make_bars([100 + i * 0.1 for i in range(n_long)]),
+        }
+        params = {"momentum_window": window, "primary_threshold": 0.75}
+        s1, s2 = compute(bars, params)
+        # Union of both symbols' index ranges, not silently truncated/mislabeled to
+        # either peer's own length.
+        assert len(s1) == n_long
+        assert len(s2) == n_long
+
 
 class TestBuildTiers:
     def test_returns_two_tier_lists(self):

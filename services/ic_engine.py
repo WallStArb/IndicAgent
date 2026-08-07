@@ -281,6 +281,16 @@ def _build_symbol_regime_class(
     rather than silently picking the first match, since group order in the
     APR JSON is not a meaningful ranking and must never be load-bearing.
 
+    A group's optional `exclude_symbols` list is the one sanctioned escape
+    hatch from that invariant: a small, explicit, named set of symbols with
+    genuine dual-categorical membership (e.g. sector ETFs whose earnings
+    driver is a single commodity -- both their `eq_*` and `commodity_*` tags
+    are legitimately weight=1.0, not a tagging error) that this routing pass
+    should not match for this group. It is a documented, auditable carve-out
+    -- not a silent precedence rule -- and only affects Job 2's single-label
+    routing here; Job 1 (cross_sectional_regime_model.py's peer-averaging)
+    has no such constraint and keeps using the symbol as a full peer.
+
     Symbols with no matching enabled group are OMITTED from the returned
     dict -- they get no regime_group and are excluded from regime-stratified
     IC (the pooled IC pass still covers them; no data is dropped, only the
@@ -290,8 +300,12 @@ def _build_symbol_regime_class(
     group was absent or disabled. Silent mislabeling is worse than an
     explicit gap -- see the caller's loud startup log of unrouted symbols.
     """
-    prefixes_by_group: list[tuple[str, list[str]]] = [
-        (g["name"], [p.rstrip("*") for p in g.get("tag_filter", [])])
+    prefixes_by_group: list[tuple[str, list[str], frozenset[str]]] = [
+        (
+            g["name"],
+            [p.rstrip("*") for p in g.get("tag_filter", [])],
+            frozenset(g.get("exclude_symbols", [])),
+        )
         for g in group_configs
         if g.get("enabled", True)
     ]
@@ -299,8 +313,9 @@ def _build_symbol_regime_class(
     for symbol, tags in tags_by_symbol.items():
         matches = [
             group_name
-            for group_name, prefixes in prefixes_by_group
-            if any(any(t.startswith(pfx) for t in tags) for pfx in prefixes)
+            for group_name, prefixes, exclude_symbols in prefixes_by_group
+            if symbol not in exclude_symbols
+            and any(any(t.startswith(pfx) for t in tags) for pfx in prefixes)
         ]
         if len(matches) > 1:
             raise AmbiguousRegimeGroupError(

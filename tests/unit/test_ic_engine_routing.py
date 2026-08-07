@@ -92,6 +92,35 @@ class TestBuildSymbolRegimeClass:
         result = _build_symbol_regime_class(tags, _GROUPS)
         assert result["PFF"] == "rates"
 
+    def test_exclude_symbols_carves_out_named_symbol_without_raising(self):
+        """A symbol with genuine dual-categorical membership (e.g. a sector
+        ETF whose earnings driver is a single commodity -- both eq_* and
+        commodity_* tags legitimately weight=1.0) is routed via the group's
+        exclude_symbols list instead of raising AmbiguousRegimeGroupError.
+        Todo 224: AMLP/GDX/OIH/XLE/XOP carry both tags for real, not by
+        tagging error -- excluding them from commodity's match is an
+        explicit, auditable carve-out, not a silent precedence pick."""
+        commodity_group = {
+            "name": "commodity",
+            "tag_filter": ["commodity_energy_crude"],
+            "enabled": True,
+            "exclude_symbols": ["XLE"],
+        }
+        excluded_tags = {"XLE": {"eq_sector", "commodity_energy_crude"}}
+        result = _build_symbol_regime_class(excluded_tags, [_EQUITY_GROUP, commodity_group])
+        assert result["XLE"] == "equity"
+
+        not_excluded_tags = {"OIH": {"eq_sub_sector", "commodity_energy_crude"}}
+        with pytest.raises(AmbiguousRegimeGroupError):
+            _build_symbol_regime_class(not_excluded_tags, [_EQUITY_GROUP, commodity_group])
+
+    def test_exclude_symbols_absent_defaults_to_no_exclusion(self):
+        """A group with no exclude_symbols key behaves exactly as before --
+        the field is opt-in, not a required key on every group config."""
+        tags = {"TLT": {"fi_treasury"}}
+        result = _build_symbol_regime_class(tags, _GROUPS)
+        assert result["TLT"] == "rates"
+
     def test_build_symbol_regime_class_preserves_dual_write_field(self):
         """_build_symbol_regime_class itself only maps symbol -> group NAME; the
         dual_write_symbol_hmm field must be readable from the caller's own

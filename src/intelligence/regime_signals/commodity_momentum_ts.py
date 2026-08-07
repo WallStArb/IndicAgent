@@ -11,9 +11,10 @@ from Section 7's direction x primary/secondary rank scale — not an invented te
 4 labels (not 9) because commodity peer groups have 4-8 instruments — 9 would produce
 sparse buckets with unreliable IC stratification.
 
-Shared across commodity_energy, commodity_metals, commodity_agri groups.
-params_prefix differs per group; APR key momentum_window and primary_threshold are read
-from the group-specific namespace.
+Backs the single unified `commodity` regime_group (migration 306 merged the former
+commodity_energy/commodity_metals/commodity_agri groups — each was too thin on its own to
+clear the 4-8 instrument peer-group floor below). APR key momentum_window and
+primary_threshold are read from the alpha.commodity_regime.* namespace.
 
 Label-vocabulary non-overlap invariant (Pitfall 4, feature_ic_scores has no regime_group
 column — group identity is implicit in regime_label string uniqueness): this module's tier
@@ -21,8 +22,13 @@ strings (up_primary/up_secondary/down_secondary/down_primary x contango/neutral/
 MUST NOT collide with equity's (low/mid/high x bear/neutral/bull) or rates' (steep/flat/inverted
 x wide/tight) label sets. Do not rename these tiers to match another group's vocabulary.
 
-This module ships with its regime_group enabled: false (todo 041 gates enablement) —
-built now for registry completeness per CONTEXT.md Claude's Discretion.
+Peer group for THIS module's own compute() (~11 members, all used as full peers here):
+OIH/XLE/XOP/AMLP (energy), GLD/SLV/PPLT/GDX (metals), DBB (industrial metals), DBA (agri),
+DBC (broad). Downstream, ic_engine.py's per-symbol regime-stratified IC routing treats 5 of
+these (AMLP/GDX/OIH/XLE/XOP) differently: they carry genuine dual-categorical eq_*/
+commodity_* tags (sector ETFs whose earnings driver is a single commodity), so the
+`commodity` group's exclude_symbols (todo 224/225) keeps them routed to `equity` there —
+this module's own peer set is unaffected, that carve-out is Job-2-only.
 """
 
 from __future__ import annotations
@@ -72,13 +78,20 @@ def compute(
         accel_z = accel / accel_roll_std.replace(0, np.nan)
         ts_proxy_cols.append(accel_z)
 
-    idx = next(iter(ref_bars.values()))["timestamp"]
+    # pd.concat(axis=1) aligns each peer's Series on its own timestamp index and
+    # unions them -- do NOT overwrite the result with any single peer's raw index
+    # (previously .set_axis()'d onto an arbitrary first-seen symbol): peers can have
+    # meaningfully different backfill depth (a newly-added single-name equity vs. a
+    # long-tenured ETF), so their raw lengths routinely differ and a positional
+    # relabel is both wrong when it doesn't crash and guaranteed to crash when
+    # lengths merely happen to differ. Mirrors breadth_vol.py's _compute_breadth,
+    # which returns its natural concat-unioned index rather than forcing one on.
     momentum_df = pd.concat(momentum_cols, axis=1)
     ts_proxy_df = pd.concat(ts_proxy_cols, axis=1)
 
     return (
-        momentum_df.median(axis=1).set_axis(idx),
-        ts_proxy_df.median(axis=1).set_axis(idx),
+        momentum_df.median(axis=1),
+        ts_proxy_df.median(axis=1),
     )
 
 
