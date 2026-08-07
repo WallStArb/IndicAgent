@@ -3,8 +3,8 @@ gsd_state_version: 1.0
 milestone: v3.1
 milestone_name: AlphaEngine Validation + Alpha Scoring
 status: blocked
-stopped_at: Phase 145 context gathered
-last_updated: "2026-08-07T06:40:07.321Z"
+stopped_at: Phase 171 context gathered
+last_updated: "2026-08-07T19:45:18.070Z"
 progress:
   total_phases: 12
   completed_phases: 9
@@ -33,10 +33,12 @@ result, fix shipped before that result was recorded, the prior PASS measured kno
 data -- all 3 conditions from `OOS-EVAL-PROTOCOL.md`'s Cadence section satisfied).
 
 **Real numbers, OOS window, 3,803 bars / 147 day-clusters:**
+
 - **Gate 1** (`gate1_ctf_momentum_decile_ls_ctf_join_v2`, `gate1_passes=False`): fast scale
   `ci_lower=-0.000141` (doesn't clear zero), `null_p=0.649`; slow scale `ci_lower=-0.000486`,
   `null_p=0.986` (observed spread beaten by 98.6% of random-ranking draws). Both scales fail both
   criteria.
+
 - **Gate 2** (`gate2_ctf_momentum_decile_ls_ctf_join_v2`, `gate2_passes_overall=False`): after
   removing the static-tilt benchmark, no residual survives at 95% CI at either scale
   (`residual_ci_lower` -0.0000706 fast / -0.000354 slow).
@@ -394,7 +396,7 @@ described in the Phase Summary table above; this section is for phases with no t
 
 ## Session
 
-**Last GSD-phase-level session:** 2026-07-31T12:00:00.000Z. **Stopped at:** Phase 145 context gathered
+**Last GSD-phase-level session:** 2026-07-31T12:00:00.000Z. **Stopped at:** Phase 171 context gathered
 5 plans in 4 waves, plan-checker passed, reviewed by Codex + Agy/Antigravity, 9 findings
 incorporated. Ready to execute: `/gsd:execute-phase 168`. (Phase 165's own execution detail --
 wave-by-wave commits, mutation-verification catches -- is fully resolved and git-log-recoverable;
