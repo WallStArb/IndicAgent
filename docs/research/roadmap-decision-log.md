@@ -105,9 +105,14 @@ crashes." Pooled IC still covers them; no data lost.
 doesn't justify its own regime signal module; both crypto and fx are macro-liquidity-driven,
 single-symbol-per-exposure assets. Revisit only if the crypto sleeve grows past N=1.
 
-**Why commodity/fx enablement is blocked:** todo 041 (tag exposure-vs-sensitivity taxonomy audit)
-— OIH/XLE/XOP carry both `eq_*` and `commodity_energy_*` tags and would raise
-`AmbiguousRegimeGroupError` the moment `commodity_energy` is enabled.
+**Why commodity/fx enablement was blocked (historical — resolved 2026-08-07, todo 224):** todo
+041 (tag exposure-vs-sensitivity taxonomy audit) — OIH/XLE/XOP carry both `eq_*` and
+`commodity_energy_*` tags and would raise `AmbiguousRegimeGroupError` the moment
+`commodity_energy` is enabled. Resolved without todo 041 ever running as a standalone audit:
+`fx` enabled 2026-08-06, the three commodity sub-groups unified and enabled 2026-08-07
+(migration 306), and the collision resolved via a new `exclude_symbols` field on
+`_build_symbol_regime_class` rather than a taxonomy redesign — see
+`.planning/todos/completed/224-commodity-fx-regime-group-reenablement-decision-todo-041.md`.
 
 **Why OIH/XLE staying in equity breadth despite commodity-sensitivity tags isn't a blocker:**
 defensible by convention (they're equity sector funds) — revisit only if Phase 146 tag calibration

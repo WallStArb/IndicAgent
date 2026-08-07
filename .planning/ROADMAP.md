@@ -1380,6 +1380,16 @@ if todo 041's audit shows tag calibration is load-bearing for group routing (not
 descriptive), pull it into this batch; otherwise it trails independently (its own Depends-on
 already states no dependency on Phase 149-151).
 
+**Resolved 2026-07-17/2026-08-07:** todo 041 never ran as a standalone audit — Phase 146
+(Empirical Instrument Tag Calibrator) shipped closed 2026-07-17 and turned out to already
+supply the load-bearing categorical-vs-sensitivity distinction this batching note was gating
+on (`instrument_tags.weight`/`loading`/`source`), confirming the "pull it into this batch"
+branch was moot: routing-relevant tags are the `weight=1.0`, `source='human'`-or-categorical
+rows, while `source='empirical'` fractional `loading` rows are measurement-only sensitivity.
+Commodity/fx group enablement itself landed 2026-08-07 via todo 224 (migration 306), using that
+distinction plus a new `exclude_symbols` router carve-out for the 5 symbols with genuine dual
+membership — see Phase 144's section above for full detail.
+
 **Build trigger:** todo 026's Step 1 regime-IC separation decision gate — **already run
 2026-07-02**, result asset-class-dependent (SPY's HMM labels separate IC reasonably, TLT's
 don't). The pre-committed fallback for weak-separation asset classes (per-asset-class HMM vs.
@@ -1399,9 +1409,9 @@ reasoning and falsifiers: `docs/research/fable-2026-07-07-phase144-conditioning-
 **Status per 2026-07-01 architecture review** (`docs/research/fable-2026-07-01-v3-architecture-review.md` §4): confirmed live today, not a future risk — corpus symbols (all `fi_*` bonds + GLD/SLV/VNQ, plus IBIT) are excluded from equity breadth by `equity_regime_model.py`'s own filter yet get equity regime labels in IC stratification and ensemble scoring. This phase fixes the `fi_*` bonds via the rates group. Decisions made (first-principles, not re-opened for user input):
 
 - **Unrouted-until-group-enabled symbols (GLD/SLV/VNQ, IBIT):** exclude from regime-stratified IC with loud startup logging of unrouted symbols, NOT the plan's original silent default-to-equity (fixed in the plan doc's `_build_symbol_regime_class` — omits unmatched symbols, raises `AmbiguousRegimeGroupError` on multi-match, never defaults to `"equity"`). Pooled IC still covers them; no data lost. "Silent wrong answers are worse than loud crashes."
-- **Crypto lumped into the `fx` group (2026-07-07 decision):** IBIT's `tag_filter` match is `fx` (`docs/plans/2026-07-01-cross-sectional-regime-model.md` fx group now matches `["fx_*", "crypto"]`), not a standalone `crypto` group — N=1 crypto instrument doesn't support its own regime signal module, and both are macro-liquidity-driven, single-symbol-per-exposure assets. IBIT stays unrouted in practice until `fx` is enabled (same blocker as commodity, below); revisit the grouping if the crypto sleeve grows past N=1.
-- **Commodity/fx group enablement is blocked** on todo 041 (tag exposure-vs-sensitivity taxonomy audit) — OIH/XLE/XOP carry both `eq_*` and `commodity_energy_*` tags and will raise `AmbiguousRegimeGroupError` the moment `commodity_energy` is enabled. Add this as an explicit dependency edge, not just a scope-note aside.
-- Job-1 peer-set purity (OIH/XLE staying in equity breadth despite commodity sensitivity tags) is NOT a blocker — defensible by convention (equity sector funds), revisit only if Phase 146 tag calibration shows material contamination.
+- **Crypto lumped into the `fx` group (2026-07-07 decision):** IBIT's `tag_filter` match is `fx` (`docs/plans/2026-07-01-cross-sectional-regime-model.md` fx group now matches `["fx_*", "crypto"]`), not a standalone `crypto` group — N=1 crypto instrument doesn't support its own regime signal module, and both are macro-liquidity-driven, single-symbol-per-exposure assets. **Update 2026-08-06: `fx` is now enabled (migration 280) — IBIT is live-routed, no longer unrouted.** Revisit the grouping if the crypto sleeve grows past N=1 (6 crypto-tagged symbols as of 2026-08-07, only 2 with backfilled data — see todo 224's closure).
+- ~~**Commodity/fx group enablement is blocked** on todo 041 (tag exposure-vs-sensitivity taxonomy audit) — OIH/XLE/XOP carry both `eq_*` and `commodity_energy_*` tags and will raise `AmbiguousRegimeGroupError` the moment `commodity_energy` is enabled.~~ **Resolved 2026-08-07 (todo 224, migration 306), without a standalone todo 041 audit ever being filed or run.** `fx` enabled 2026-08-06; `commodity_energy`/`commodity_metals`/`commodity_agri` unified into one `commodity` group (27 members) and enabled. The `OIH`/`XLE`/`XOP`/`AMLP`/`GDX` collision was resolved via a new, explicit, tested `exclude_symbols` field on `_build_symbol_regime_class` (they keep routing to `equity` for Job 2, unchanged from before) rather than a formal taxonomy audit — Phase 146's tag calibrator (`instrument_tags.weight`/`loading`/`source`, closed 2026-07-17) already supplies the categorical-vs-sensitivity distinction "todo 041" was meant to formalize. Full detail: `.planning/todos/completed/224-commodity-fx-regime-group-reenablement-decision-todo-041.md`.
+- Job-1 peer-set purity (OIH/XLE staying in equity breadth despite commodity sensitivity tags) is NOT a blocker — defensible by convention (equity sector funds), revisit only if Phase 146 tag calibration shows material contamination. Confirmed still the case 2026-08-07: these symbols remain full `equity`-breadth peers by design (todo 224's `exclude_symbols` only scopes Job 2's single-label routing).
 
 **Sequencing:** land Phase 142A's ensemble-IC baseline first (pre-regime_group equity-only strata), then batch this phase with todo 026 P1-P3 into one ic_engine re-run — empirical pre/post comparison over blind trust that the new strata help.
 

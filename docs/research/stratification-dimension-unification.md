@@ -191,6 +191,26 @@ in this doc had drifted since 2026-07-06 without a doc update):**
     the glossary three weeks earlier. Every live-prose occurrence below is corrected in place to
     `PrecedentEngine`; only archived filenames (`analog-engine-*.md` under `docs/research/archive/`)
     keep the old name, per this codebase's convention of not renaming historical artifacts.
+13. **Item 1's "Commodity sub-groups remain disabled" is now stale — todo 224 closed 2026-08-07
+    (migration 306).** All 4 `regime_group`s (`equity`/`rates`/`commodity`/`fx`) are `enabled:
+    true` and confirmed populated in `market_regimes`. The commodity sub-groups were unified into
+    one `commodity` group (27 members, not the ~10-13 estimated when this doc's candidate table
+    and todo 224 were written — the universe expansion between filing and execution added several
+    new single-name commodity-producer equities). The `XLE`/`OIH`/`XOP`/`AMLP`/`GDX` equity-tag
+    collision this item flagged was resolved WITHOUT a formal exposure-vs-sensitivity taxonomy
+    audit (the open question this doc's history ties to "todo 041," never filed as its own
+    tracked todo — see `.planning/ROADMAP.md`'s v3.15 section, which still describes commodity/fx
+    enablement as "blocked on todo 041" and needs the same correction). Instead,
+    `ic_engine.py`'s `_build_symbol_regime_class` gained a small, explicit, tested
+    `exclude_symbols` field — those 5 symbols keep routing to `equity` for Job 2's single-label
+    IC (unchanged from before), while Job 1's peer-averaging keeps them as full peers in both
+    groups, no data dropped. Phase 146's tag calibrator (`instrument_tags.weight`/`loading`/
+    `source`, closed 2026-07-17) already gives this codebase a working categorical-vs-sensitivity
+    distinction in practice (weight=1.0 human-asserted tags are categorical/routing-eligible;
+    fractional `source='empirical'` tags with `loading`/`p_value` are calibrated sensitivity only)
+    — that's the substance a "todo 041 audit" would have formalized, and it was never gated on
+    anything further; the router carve-out is a pragmatic per-symbol exception on top of it, not
+    a substitute taxonomy. Full detail: `.planning/todos/completed/224-commodity-fx-regime-group-reenablement-decision-todo-041.md`.
 
 ---
 
