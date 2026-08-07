@@ -1,9 +1,9 @@
 ---
 phase: 171
 slug: hmm-walk-forward-regime-labeling-parameter-lookahead-fix
-status: draft
-nyquist_compliant: false
-wave_0_complete: false
+status: approved
+nyquist_compliant: true
+wave_0_complete: true
 created: 2026-08-07
 ---
 
@@ -86,11 +86,17 @@ task IDs to match the actual PLAN.md wave structure once written.*
 
 ## Validation Sign-Off
 
-- [ ] All tasks have `<automated>` verify or Wave 0 dependencies
-- [ ] Sampling continuity: no 3 consecutive tasks without automated verify
-- [ ] Wave 0 covers all MISSING references
-- [ ] No watch-mode flags
-- [ ] Feedback latency < 10s (unit suite)
-- [ ] `nyquist_compliant: true` set in frontmatter
+- [x] All tasks have `<automated>` verify or Wave 0 dependencies — confirmed by gsd-plan-checker
+      against the full 7-plan set (171-01 through 171-07), Dimension 8: PASS
+- [x] Sampling continuity: no 3 consecutive tasks without automated verify — confirmed
+- [x] Wave 0 covers all MISSING references — the scripts this doc's original Wave 0 Requirements
+      section flagged as gaps (seed-stability pilot, NULL-out/verify tool,
+      `_walk_forward_hmm_full` convergence logging, `_run_symbol_worker` dispatch test) are built
+      in plans 171-01/03/04 (wave 1); the conditional `n_restarts` threading item stays
+      unbuilt pending 171-05's pilot verdict, per its own conditional framing above
+- [x] No watch-mode flags — confirmed
+- [x] Feedback latency < 10s (unit suite) — confirmed
+- [x] `nyquist_compliant: true` set in frontmatter
 
-**Approval:** pending
+**Approval:** approved 2026-08-07 (gsd-plan-checker VERIFICATION PASSED, 3 non-blocking warnings
+addressed in this doc and 171-RESEARCH.md/171-07-PLAN.md)

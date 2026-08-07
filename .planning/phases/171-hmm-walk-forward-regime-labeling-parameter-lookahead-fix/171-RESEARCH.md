@@ -422,34 +422,25 @@ not a code removal.
 | A1 | `ic_engine.py`'s fingerprint watermark would NOT automatically detect a `feature_vectors.regime` mutation without `--refresh` (this research did not independently trace `_watermark_forward_returns_feature_vectors`'s exact SQL to confirm regime is/isn't part of the watermark hash) | Common Pitfall 2 | Low — the plan already recommends `--refresh` explicitly regardless, matching the live precedent process (`ps aux` confirms `--refresh` is the pattern already in production use for a different re-check), so this assumption doesn't change the recommended action even if wrong |
 | A2 | `ensemble_trainer`/`alpha_publisher` re-run is NOT part of this phase's 5 locked requirements (only `ic_engine`/`feature_ic_scores` re-run, Requirement 4, is explicitly named) | Runtime State Inventory | Medium — if the planner assumes ensemble/publisher re-run is implied, scope grows significantly; if the planner assumes it's out of scope and it's actually needed for the regime fix to have any downstream effect, the phase's value is diminished. Recommend confirming with the user at plan-check time, since Phase 148's Gate 2 FAIL / "do not promote to live capital" verdict already means no live capital consumes `alpha_publisher`'s output regardless — likely genuinely out of scope, but worth an explicit one-line confirmation in the plan rather than silent omission |
 
-## Open Questions
+## Open Questions (RESOLVED — see plan disposition below)
 
 1. **Does `ic_engine.py`'s `--refresh` scope for Requirement 4 need to be the full 231-symbol
    universe, or can it stay matched to whatever Phase 151 waves 6-7 scopes their own recompute
    to?**
-   - What we know: CONTEXT.md's Sequencing section says this phase's recompute rides in the
-     SAME pass as Phase 151 waves 6-7, explicitly to avoid "two overlapping corpus-recompute-scale
-     efforts."
-   - What's unclear: whether Phase 151 waves 6-7's own scope (not yet planned as of this
-     research pass — `151-07-PLAN.md`/`151-08-PLAN.md` exist but have no `-SUMMARY.md`,
-     confirming they have not executed) already covers the full 231-symbol universe or a
-     narrower one.
-   - Recommendation: the planner should re-check `.planning/phases/151-*` status at plan-check
-     time (this research pass found it un-executed but did not re-derive its exact intended
-     scope) and make Requirement 4's task explicitly say "same scope as whatever Phase 151
-     waves 6-7 ends up running," not a hardcoded symbol list.
+   - **RESOLVED by 171-06 Task 1:** scope is derived live from `SELECT DISTINCT symbol FROM
+     feature_vectors` at execution time, not hardcoded to 231 or copied from this doc. 171-06's
+     `<blocking_precondition>` also makes Phase 151 waves 6-7 completion a hard gate — the
+     rollout does not proceed until `151-07-SUMMARY.md`/`151-08-SUMMARY.md` exist, closing the
+     "not yet planned as of this research pass" gap directly rather than guessing at scope.
 
 2. **Is a dedicated `--n-restarts-comparison` CLI mode worth building into `regime_writer.py`
    itself, or is an ad hoc analysis script (matching the existing Gate 4 pilot precedent)
    sufficient for D-03's one-time pilot comparison?**
-   - What we know: the existing precedent (Gate 4 pilot) is always a standalone
-     `scripts/analysis/*.py` script, never a CLI flag on the production service.
-     Renaissance-style discipline in this codebase (D-00) favors reuse over new surface area.
-   - What's unclear: whether the pilot's own execution will be a one-off (favoring a script) or
-     something the project wants to re-run periodically (favoring a CLI flag).
-   - Recommendation: default to a one-off analysis script, consistent with every prior pilot in
-     this codebase; only add a CLI flag if the pilot's own findings suggest ongoing monitoring
-     is warranted.
+   - **RESOLVED by 171-04 Task 2:** built as a standalone `scripts/analysis/*.py` script
+     (`hmm_n_restarts_walk_forward_comparison_pilot.py`), per this doc's own recommendation — no
+     CLI flag added to the production service. `services/regime_writer.py` is explicitly
+     unmodified by that task (`git diff --stat` empty is an acceptance criterion). Revisit only if
+     the pilot's own findings (171-05) suggest ongoing monitoring is warranted.
 
 ## Environment Availability
 
