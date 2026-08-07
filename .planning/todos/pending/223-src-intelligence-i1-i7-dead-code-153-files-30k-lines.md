@@ -134,3 +134,27 @@ This is a decision, not a mechanical fix -- pick one per bullet and execute:
 - [ ] Decision executed: files removed or moved, shadow_validator.py updated or decommissioned
 - [ ] Group A's 18 test files removed or moved alongside their subject code
 - [x] Group B explicitly deferred with a stated trigger condition (ingestion resume decision), or resolved if that decision is already made elsewhere -- **resolved 2026-08-01: keep, v2.x signal path has a stated revival intent, not deleted/folded into #1**
+
+## Addendum (2026-08-07): scripts/debug/* is Group B's same category, not a separate decision
+
+Found during a "clean up old logs/dead code/scripts" pass. 8 files in `scripts/debug/replay/`,
+`scripts/debug/snapshot/`, and `scripts/debug/analysis/` exclusively touch the same ARCHIVED
+v2.x SLA tables Group B's tests exercise (`signal_ledger`, `signal_events`, `trade_frames`,
+`trade_executions`, `intelligence_features`), have zero test coverage of their own, and zero
+other references in the repo:
+
+- `debug_replay_post.py`, `debug_replay_prep.py`, `debug_feature_replay.py`,
+  `debug_lifecycle_replay.py` (`scripts/debug/replay/`)
+- `debug_signal_corpus_snapshot.py`, `debug_signal_ledger_snapshot.py`
+  (`scripts/debug/snapshot/`)
+- `debug_batch_agent_memory.py`, `debug_validate_alpha.py` (`scripts/debug/analysis/`)
+
+Same logic as Group B applies: these are debugging/replay/snapshot tooling *for* the v2.x SLA
+pipeline, not independent dead code, and the resolved 2026-08-01 direction ("keep, don't fold
+into #1's delete decision") covers them too -- **not deleted, not flagged as a separate
+decision**. Listed here only so whoever executes this todo has the complete inventory; no
+action needed unless the ingestion-resume/v2.x-revival call above changes.
+
+**Confirmed NOT in scope** (checked same pass, live v3.0 tables, left alone):
+`debug_analyze_feature_ic.py` (`feature_ic_scores`), `debug_bic_k_selection.py`
+(`feature_vectors`), `debug_memory_recall_benchmark.py` (no DB table references).
