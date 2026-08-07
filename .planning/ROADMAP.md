@@ -1502,8 +1502,10 @@ started as of this note.
    most. Either run todo 167 first, or explicitly scope Phase 145's contract to stay agnostic
    to whatever it finds (don't hard-code an assumption that only `rates` needs a fallback
    axis).
+
 2. **`fx` regime group went live 2026-08-06** (was purely hypothetical when this entry was last
    edited) — a real data point for the candidate-dimension list, not a hypothetical one anymore.
+
 3. **Phase 170 (`feature_registry` → `concept_registry` migration) is running concurrently as
    of 2026-08-04**, actively modifying `concept_registry`'s schema. No file-level collision with
    this phase's *discussion* (confirmed via `STATE.md`) — the `Protocol`/ABC design and the
@@ -1528,10 +1530,12 @@ started as of this note.
   encoded in `name`, zero new columns) — forced by Phase 144's D-05 finding that the incumbent
   HMM is simultaneously live-quality for `equity` and deficient for `rates`; a global-status row
   (Option A) can't represent both states at once. No longer open for the planner to re-litigate.
+
 - **Contract stays regime_group-agnostic re: todo 167** — Phase 145 neither blocks on nor folds
   in todo 167's equity-side falsifier gate (still open, queued behind the in-flight corpus
   rebuild). Option B's per-cell state absorbs whatever todo 167 eventually finds with zero
   rework.
+
 - **Two statistical/causal safeguards added to scope, beyond the original design docs:**
   (1) multiple-testing correction (BH-FDR) across the candidate-dimension pool before any
   substitution-test "pass" promotes — `regime_model`'s three-stage cascade had no analogous
@@ -1542,11 +1546,14 @@ started as of this note.
   `causality_basis` field was self-declared with no enforcement, the same unverified-causality
   shape behind three prior real incidents in this codebase (todo 243 CTF join leak, todo 248
   HMM parameter lookahead, todo 204 canary anomaly).
+
 - **Effective-N floor** (regime-transition count, not raw bar count) must be derived before the
   substitution test is trusted — same correction already flagged but undone for `hmm_variant`
   in `concept-unified-registry.md`'s Domain Vetting section.
+
 - **Pilot-only candidate scope:** exactly one candidate (`volatility_pct`) run through the full
   corrected gate stack this phase. Every other candidate-table entry stays backlog.
+
 - `concept_registry` schema write still sequences after Phase 170 lands; design work proceeds
   now (no file-level collision).
 
@@ -1562,12 +1569,30 @@ created.
 **Plans:** 6 plans
 
 Plans:
+**Wave 1**
+
 - [ ] 145-01-PLAN.md — `StratificationDimension` Protocol, Option B registry-name encoding, `ic_engine.py` compatibility test, design-doc + glossary ratification (wave 1)
+
+**Wave 2** *(blocked on Wave 1 completion)*
+
 - [ ] 145-02-PLAN.md — gate 0/1/2 primitives, effective-N-from-transitions (D-04), BH-FDR across the `regime_group` candidate pool (D-03) (wave 2)
 - [ ] 145-03-PLAN.md — acausal-placebo registration gate generalizing `ops_canary_integrity_assert.py` (D-05) (wave 2)
+
+**Wave 3** *(blocked on Wave 2 completion)*
+
 - [ ] 145-04-PLAN.md — `volatility_pct` pilot provider, the phase's only candidate dimension (D-06) (wave 3)
+
+**Wave 4** *(blocked on Wave 3 completion)*
+
 - [ ] 145-05-PLAN.md — pre-registered end-to-end gate-cascade run against real corpus data, standalone artifact (wave 4)
+
+**Wave 5** *(blocked on Wave 4 completion)*
+
 - [ ] 145-06-PLAN.md — bake the pilot-derived `max_correlation`/effective-N floor into the gates, register the deferred APR keys, record the verdict and next-candidate scoping (wave 5)
+
+**Cross-cutting constraints:**
+
+- No file under src/intelligence/stratification/ imports from services/
 
 ---
 
@@ -2365,20 +2390,24 @@ Plans:
 - [x] 165-01-PLAN.md — Data contract: migration 267 (41 columns + 41 `feature_registry` rows + 17 APR
   keys), `FeatureVector`/`FEATURE_VECTOR_DOMAIN`/`FeatureFactoryConfig`/persistence wiring, both config
   build sites, and the test-suite count blast radius
+
 - [x] 165-02-PLAN.md — `swing_detector.py` (7) + `trend_structure.py` (6) = 13 columns off one shared
   APR-backed `find_peaks`/`find_troughs` pass; D-01's all-`None` fallback replaces both files'
   fake-numeric defaults; exports the raw swing high/low intermediates Plan 03 consumes. Mutation-verified
   (commit `a748d13d` discipline) 2026-07-28.
+
 - [x] 165-03-PLAN.md — `swing_momentum.py` (8, incl. D-15's `swing_volume_confirmation`) +
   `fibonacci_zones.py` (4) = 12 columns; deletes the cross-plugin fallback outright (D-05), fixes two
   archived implementation-vs-docstring bugs, and removes the provably-cancelling ATR divisor.
   Mutation-verification caught and fixed a real `math.isclose` `rel_tol` precision bug in its own test.
   Executed 2026-07-28.
+
 - [x] 165-04-PLAN.md — `FeatureCache` session-levels state layer: 22 new fields,
   `update_session_levels()` timestamp mutator (retires `_SESSION_BARS`/`_WEEK_BARS`/`_OVERNIGHT_BARS`,
   D-07/D-08), `update_wk_vwap()` ISO-week high/low/close extension (D-09), all 3 call sites wired.
   Mutation-verification required redesigning one test (accumulator-collision guard was structurally
   blind under production call order) to actually expose the hazard. Executed 2026-07-28.
+
 - [x] 165-05-PLAN.md — `_derive_session_levels()`: the final 16 columns as ATR-distances/percents/flag,
   prior-completed-week pivot anchoring, `tf=='1d'` suppression of the 5 intraday-only fields, plus the
   phase-closing gate (`test_phase165_all_41_fields_non_constant_batch`) proving all 41 columns produce
@@ -2585,6 +2614,7 @@ Plans:
 **Plans:** 0 plans
 
 Plans:
+
 - [ ] TBD (run /gsd-plan-phase 169 to break down)
 
 ### Phase 170: Concept Registry Feature Domain Migration (`feature_registry` Retirement)
@@ -2622,6 +2652,7 @@ on the corpus rebuild, for its own narrower purpose. Ending the phase at plan 07
 pending on further dual-write evidence is a correct terminal outcome.
 
 Plans:
+
 - [x] 170-01-PLAN.md — Concept-table schema extensions: `concept_parent` join table + cycle guard, generalized cascade trigger, `is_control`/`control_expectation`/`group_name`, shadow-recovery counters (migration 283) [wave 1]
 - [x] 170-02-PLAN.md — Registry-mechanism hardening: fail-closed FDR enforcement inside `record_comparison_outcome`, non-zero REGISTRY failure exits, challenger-concept validation (L-2/L-3/L-4/L-6) [wave 1]
 - [x] 170-03-PLAN.md — Seed `domain='feature'`: 249 registry+gate rows, 16 lineage edges, genesis transitions, full `feature_transition_log` replay (migration 284) + parity verifier [wave 2]
@@ -2639,6 +2670,7 @@ Plans:
 **Plans:** 0 plans
 
 Plans:
+
 - [ ] TBD (run `/gsd-plan-phase 171` to break down, once the CTF/Phase 167 re-verification work clears)
 
 ---
