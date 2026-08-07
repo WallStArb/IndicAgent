@@ -806,16 +806,17 @@ approaches at face value (true cointegration wants economically related PAIRS, n
 basket) but doesn't rule out others (factor decomposition works fine on a small, correlated
 universe -- that's exactly the regime PCA is built for).
 
-**Cointegrated Pairs Residual (counterparty: basket/index flows that ignore pairwise structure).**
-A genuinely different grouping than regime_conditional_persistence (regime) or cross_sectional_relative_value (broad cross-sectional rank): specific,
-economically-linked pairs tested for a stable cointegrating relationship whose short-run
-deviations mean-revert -- the classical Engle-Granger/Johansen stat-arb structure, applied only
-to named, structurally-linked pairs (`EEM`/`VWO`, `EFA`/`EZU`, `MCHI`/`FXI`, `IEF`/`TLT`,
-`GDX`/`GLD`, `OIH`/`XOP`) to avoid the multiple-comparisons trap a blind correlation scan would
-create. **Full pre-registered design (staged Engle-Granger + OOS stability check + OU half-life
-fit + day-clustered bootstrap + cost-hurdle gate, reuse plan, live-data verification):
-`docs/research/measurement-cointegrated-pairs-residual.md`** -- ready to execute, zero remaining
-methodology debt as of 2026-08-07.
+**Cointegrated Pairs Residual -- CONFIRMED DEAD, 2026-08-07 (counterparty: basket/index flows
+that ignore pairwise structure).** A genuinely different grouping than regime_conditional_persistence (regime) or
+cross_sectional_relative_value (broad cross-sectional rank): specific, economically-linked pairs tested for a stable
+cointegrating relationship whose short-run deviations mean-revert -- the classical
+Engle-Granger/Johansen stat-arb structure, applied only to named, structurally-linked pairs
+(`EEM`/`VWO`, `EFA`/`EZU`, `MCHI`/`FXI`, `IEF`/`TLT`, `GDX`/`GLD`, `OIH`/`XOP`) to avoid the
+multiple-comparisons trap a blind correlation scan would create. **Result: 0/6 pairs cointegrate
+in-sample** (Engle-Granger p-values 0.21-0.74, none close to the 0.05 bar) -- none of this
+project's economically-motivated ETF pairs share a genuine long-run equilibrium relationship at
+daily granularity. Full pre-registered design + result:
+`docs/research/measurement-cointegrated-pairs-residual.md`.
 
 **Statistical Factor Residual (counterparty: index/factor-only investors).** Decompose the
 cross-sectional return matrix into its top-K statistical factors (PCA over the correlated
@@ -880,15 +881,15 @@ snapshot exists, nothing to fit a halflife against yet) and tracks the trigger c
 [`.planning/seeds/adaptive-combiner-weights-trailing-ic-trigger.md`](../../.planning/seeds/adaptive-combiner-weights-trailing-ic-trigger.md).
 Not ready to execute; queued, not deleted.
 
-**Jump/Diffusion Decomposition (counterparty: participants who conflate gap risk with
-trend risk).** All existing volatility features (`garch_ratio`, `hurst`) treat price movement as
-one undifferentiated process. Realized-variance theory splits it into two economically distinct
-components: a continuous diffusion part (steady drift/trend) and a jump part (discontinuous,
-news-driven gaps) -- separable via bipower variation vs. total realized variance
-(Barndorff-Nielsen/Shephard). **Full pre-registered design (exact formula, construction
-guardrails against two specific silent-bias traps, reuse plan, live-data verification):
-`docs/research/measurement-jump-diffusion-decomposition.md`** -- ready to execute, zero remaining
-methodology debt as of 2026-08-07.
+**Jump/Diffusion Decomposition -- CONFIRMED DEAD, 2026-08-07 (counterparty: participants who
+conflate gap risk with trend risk).** All existing volatility features (`garch_ratio`, `hurst`)
+treat price movement as one undifferentiated process. Realized-variance theory splits it into two
+economically distinct components: a continuous diffusion part (steady drift/trend) and a jump
+part (discontinuous, news-driven gaps) -- separable via bipower variation vs. total realized
+variance (Barndorff-Nielsen/Shephard). **SPY pilot run: partial IC's CI crosses zero pooled and
+in every regime (n=2,206). Full pre-registered design + result:
+`docs/research/measurement-jump-diffusion-decomposition.md`.** Not promoted to a wider symbol
+set.
 
 **Sequencing, revised 2026-08-07 (supersedes the original cheapest-first order below, which
 assumed a cost profile for `adaptive_combiner_weights` that live data doesn't support):**

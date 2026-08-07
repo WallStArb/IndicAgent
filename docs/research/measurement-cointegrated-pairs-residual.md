@@ -1,8 +1,7 @@
 # Cointegrated Pairs Residual — Idea (Edge Source Thesis cointegrated_pairs_residual)
 
-**Status:** Pre-registered 2026-08-07, not yet run. Ready to execute — zero remaining
-methodology debt, screen scope is 6 named pairs (no correlation scan), all data dependencies
-verified live except the final cost-comparison stage.
+**Status:** Pre-registered and run 2026-08-07. **DEAD.** 0/6 named pairs cointegrate in-sample
+(Stage 1) — Stages 2-5 never needed to run. See Result below.
 **Author:** Claude (Sonnet 5), interactive session, 2026-08-07 — not a Fable dispatch.
 **Origin:** Post-mortem of Phase 167's retraction (`ctf_momentum`'s batch-join lookahead leak,
 todo 243). Part of the fork-resolution discovery track: back to Signal-Extraction candidates,
@@ -102,6 +101,27 @@ A PASS here does not auto-promote to a live construction — that is a separate,
 If it does promote, `construction_spreads`' existing schema (`construction_name`, per-cost-tier
 `net_spread_*_by_cost_bps` JSONB) is the pattern to follow for a live tracker, matching
 `ctf_momentum_decile_ls`'s shape — not a new table design.
+
+## Result (run 2026-08-07)
+
+**DEAD.** Engle-Granger test (`statsmodels.tsa.stattools.coint`, `trend="c"`, `autolag="aic"`),
+in-sample split (`--split-date 2024-01-01`):
+
+| Pair | In-sample p-value | Stage 1 |
+|---|---|---|
+| EEM/VWO | 0.2116 | FAIL |
+| EFA/EZU | 0.6185 | FAIL |
+| MCHI/FXI | 0.6628 | FAIL |
+| IEF/TLT | 0.2408 | FAIL |
+| GDX/GLD | 0.4069 | FAIL |
+| OIH/XOP | 0.7399 | FAIL |
+
+**0/6 pairs pass Stage 1** (all p ≥ 0.05, most well above it — no pair is even borderline).
+Stages 2-5 (OOS stability, OU fit, bootstrap CI, cost gate) never ran — nothing survived to feed
+them. This is a clean, unambiguous negative result per the pre-registered rule: none of the
+6 economically-linked pairs this project's own instrument universe offers show a genuine
+cointegrating relationship at daily granularity. Script:
+`scripts/analysis/cointegrated_pairs_residual_pilot.py`.
 
 ## References
 

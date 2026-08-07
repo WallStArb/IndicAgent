@@ -1,7 +1,7 @@
 # Jump/Diffusion Decomposition — Idea (Edge Source Thesis jump_diffusion_decomposition)
 
-**Status:** Pre-registered 2026-08-07, not yet run. Ready to execute — zero remaining
-methodology debt, pilot scope is a single symbol (SPY), all data dependencies verified live.
+**Status:** Pre-registered and run 2026-08-07. **DEAD** -- CI crosses zero pooled and in every
+regime (see Result below). Not promoted to a wider symbol set.
 **Author:** Claude (Sonnet 5), interactive session, 2026-08-07 — not a Fable dispatch.
 **Origin:** Post-mortem of Phase 167's retraction (`ctf_momentum`'s batch-join lookahead leak,
 todo 243). Part of the fork-resolution discovery track: back to Signal-Extraction candidates,
@@ -79,8 +79,32 @@ crosses zero at both pooled and every regime, dead.
 
 ## Pilot scope
 
-SPY, tf=15m, full available history. Promotion to a wider symbol set only after the SPY pilot
-clears the falsification bar above.
+SPY, tf=15m. **Correction post-run, 2026-08-07: "full available history" was wrong** --
+`market_data_ohlcv_tradeable`'s 1m bars only exist from 2026-03-23 onward (~4 months), not the
+15m table's full 20-year depth. The join correctly captures essentially all of that overlap
+(2,209 of 2,288 possible 15m bars in the covered window), so the result below isn't
+under-covering the available data -- the available window itself is just narrower than assumed
+when this doc was first written. Promotion to a wider symbol set is now also gated on whether
+more 1m history exists for other symbols, not assumed.
+
+## Result (SPY pilot, run 2026-08-07)
+
+**DEAD.** `n_boot=500`, `block_size=26`, joined population n=2,206 (clears
+`min_reliable_n=100` easily, including the thinnest regime cell `trending_down` at n=144).
+
+| Cell | n | partial_ic | 95% CI |
+|---|---|---|---|
+| POOLED | 2206 | 0.0210 | [-0.0228, 0.0676] |
+| regime=ranging | 319 | 0.0253 | [-0.1084, 0.1472] |
+| regime=transition_down | 660 | 0.0253 | [-0.0466, 0.1008] |
+| regime=transition_up | 469 | 0.0269 | [-0.0799, 0.1259] |
+| regime=trending_down | 144 | 0.0679 | [-0.0207, 0.1851] |
+| regime=trending_up | 614 | 0.0116 | [-0.0848, 0.1116] |
+
+CI crosses zero in every cell, pooled and all 5 regimes, per the pre-registered rule. Bipower
+variation's jump_ratio adds no incremental IC beyond `garch_ratio`+`hurst` on this pilot --
+consistent with the doc's own stated falsification bar: dead, not merely "not yet promoted."
+Script: `scripts/analysis/jump_diffusion_decomposition_spy_pilot.py`.
 
 ## Data verified live, 2026-08-07
 
