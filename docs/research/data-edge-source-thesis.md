@@ -596,7 +596,7 @@ negative)**. Full per-symbol table: `docs/analysis/t5-replication-1d-per-symbol.
 
 **Separately, resolved 2026-07-27 (todo 189): `ctf_momentum`'s negative mean IC at 1d is a
 measurement artifact, not a timeframe-instability of one coherent feature.**
-`services/backfill_feature_factory.py`'s `_CTF_HIGHER_TF` mapping sets each tf's higher
+`FeatureFactoryConfig.ctf_higher_tf_map` (APR `feature.ctf.higher_tf_map`, todo 242) sets each tf's higher
 timeframe for the CTF group as `5m/15m -> 1h`, `1h -> 1d`, but `1d -> 1d` (self-referential --
 the corpus has no timeframe above 1d, confirmed via `SELECT DISTINCT timeframe FROM
 market_data_ohlcv`). `ctf_momentum` is a Wilder RSI computed over the HTF bars; at every other

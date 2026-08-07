@@ -1,7 +1,8 @@
 ---
-status: pending
+status: closed
 priority: P2
 filed: 2026-07-20
+closed_date: 2026-08-07
 source: user question mid-session ("do we have end to end traceability in v3? otel wired
   right in all base classes?"), 2026-07-20 -- prompted by todo 149's final-review fix adding
   OTel metrics (not spans) to BarAuditor's new price-sanity audit task.
@@ -123,9 +124,30 @@ tracks promoting) so this change does not touch it or risk the in-flight corpus 
 
 **Resolves 157 item 3's blocker** — see that todo for the resulting compliance-test scope.
 
-**Step 3 (broader remaining-services audit: `bar_auditor.py`, `ml_*` batch services, gap
-detection's `_run_audit`) remains open** — those aren't `BaseDaemon`/`BaseWriter`/`BaseBatch`
-gaps closed by this change; still needs its own per-service review.
+**Step 3 (broader remaining-services audit) done 2026-08-07.** Audited every `_run_audit`-
+shaped `BaseDaemon` service in `services/`: `bar_auditor.py`, `signal_auditor.py`,
+`compression_auditor.py`, `ml_orchestrator.py`, `ml_discovery_analyzer.py`, plus the
+non-`BaseDaemon` oneshot scripts `confidence_calibration_monitor.py`, `shadow_auditor.py`,
+`feature_parity_auditor.py`. Only 2 are actually v3.0-relevant (this todo's own title/scope):
+`bar_auditor.py` (audits `market_data_ohlcv`, the live v3.0 OHLCV table — explicitly named in
+this todo's original problem statement) and `compression_auditor.py` (generic hypertable
+compression auditor, `active running` at audit time). Both had zero span coverage on their
+audit-cycle methods (`_run_audit()`, plus `bar_auditor.py`'s `_run_price_sanity_audit()`) --
+wrapped both in `observed_span()` using `self.tracer` (`BaseDaemon` provides it, per the
+`src/core/agent/base.py` reference below), same pattern as `feature_vector_writer.py`'s
+`writer.flush` span. Tests green (`test_bar_auditor.py`, `test_bar_auditor_gaps.py`,
+`test_compression_auditor.py`).
+
+The other 6 services all read v2.x-archived tables (`intelligence_features`/`signal_ledger`/
+`signal_events`/`shadow_registry` -- confirmed dead per CLAUDE.md's Architecture section) --
+deliberately skipped, not the "v3.0 pipeline" this todo is titled about. This todo's own
+explicit scope (steps 1-3 as originally written) is now fully closed.
+
+**Separate, real gap found while doing this audit, NOT part of this todo's scope**:
+`regime_writer.py`/`backfill_feature_factory.py` (procedural scripts, not `BaseDaemon`) also
+have zero span coverage -- but that's exactly todo 009 Part B's scope (promote both to
+`BaseBatch`, which gets the automatic `execute()` span for free, same as `ensemble_trainer.py`/
+`alpha_publisher.py`). Not duplicated here; see todo 009.
 
 ## References
 

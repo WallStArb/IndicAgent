@@ -10,7 +10,8 @@ Scope note (code review finding #5, 2026-08-03): these tests confirm live's
 _update_ctf_cache_from_htf_bar() shares the same underlying Wilder RSI implementation as
 batch's _build_ctf_series() (both route through feature_cache._wilder_rsi_series /
 _rsi_simple) and that propagation reaches every LTF cache the HTF bar feeds
-(feature_cache._CTF_HIGHER_TF: 5m/15m -> 1h, 1h -> 1d, 1d -> 1d self-referential). They
+(FeatureFactoryConfig.ctf_higher_tf_map, APR feature.ctf.higher_tf_map, todo 242:
+5m/15m -> 1h, 1h -> 1d, 1d -> 1d self-referential). They
 do NOT prove live and batch select the identical HTF bar for a given LTF row -- see
 `TestCtfBatchJoinLookaheadFix` below for that (todo 243, fixed 2026-08-03): batch's caller
 (`_compute_symbol_tf` in backfill_feature_factory.py) now calls
@@ -115,7 +116,7 @@ def test_ctf_momentum_uses_shared_wilder_rsi_not_intrabar_proxy():
 
 
 def test_ctf_momentum_propagates_to_all_ltf_caches_sharing_an_htf():
-    """A single 1h bar must update both the 5m and 15m caches (feature_cache._CTF_HIGHER_TF)."""
+    """A single 1h bar must update both the 5m and 15m caches (ctf_higher_tf_map)."""
     agent = make_agent()
     period = agent._feature_factory_config.rsi_mid_period
 
@@ -131,7 +132,7 @@ def test_ctf_momentum_propagates_to_all_ltf_caches_sharing_an_htf():
 
 
 def test_ctf_momentum_1d_is_self_referential_not_cross_timeframe():
-    """1d has no HTF above it in this corpus -- _CTF_HIGHER_TF maps 1d -> 1d (todo 189).
+    """1d has no HTF above it in this corpus -- ctf_higher_tf_map maps 1d -> 1d (todo 189).
 
     Live must reproduce this degenerate case identically to batch, not silently skip it.
     """
@@ -149,15 +150,18 @@ def test_ctf_momentum_1d_is_self_referential_not_cross_timeframe():
 
 
 def test_ctf_momentum_5m_bar_arrival_does_not_fire_update():
-    """5m is never an HTF source (_CTF_HIGHER_TF's values are only "1h"/"1d") -- confirms
-    the fixed live gate (`bar.tf in _CTF_LOWER_TFS`) no longer fires on 5m/15m arrivals the
-    way the old, looser `bar.tf in ("15m", "1h", "4h", "1d")` condition incorrectly did.
+    """5m is never an HTF source (ctf_higher_tf_map's values are only "1h"/"1d") --
+    confirms the fixed live gate (`bar.tf in self._ctf_lower_tfs`) no longer fires on
+    5m/15m arrivals the way the old, looser `bar.tf in ("15m", "1h", "4h", "1d")`
+    condition incorrectly did. self._ctf_lower_tfs is instance state (todo 242) built
+    from the APR-governed ctf_higher_tf_map, not a module-level constant -- use
+    make_agent() to get a real instance instead of importing a module attribute.
     """
-    from services.feature_vector_pipeline import _CTF_LOWER_TFS
+    agent = make_agent()
 
-    assert "5m" not in _CTF_LOWER_TFS
-    assert "15m" not in _CTF_LOWER_TFS
-    assert set(_CTF_LOWER_TFS) == {"1h", "1d"}
+    assert "5m" not in agent._ctf_lower_tfs
+    assert "15m" not in agent._ctf_lower_tfs
+    assert set(agent._ctf_lower_tfs) == {"1h", "1d"}
 
 
 def test_ctf_momentum_truncates_to_bar_history_maxlen():

@@ -46,6 +46,7 @@ from src.config.config_service import ConfigService
 from src.core.agent.base import BaseDaemon
 from src.core.database_manager import create_pool as create_db_pool
 from src.core.service_utils import setup_service_logging
+from src.observability.spans import observed_span
 
 # ---------------------------------------------------------------------------
 # Constants
@@ -182,53 +183,59 @@ class CompressionAuditor(BaseDaemon):
         failures — same contract as BarAuditor._run_audit().
         """
         try:
-            _t0 = _time.monotonic()
-            grace_hours = await self._config.get(
-                _GRACE_PERIOD_KEY, default=_DEFAULT_GRACE_PERIOD_HOURS
-            )
-            async with self._db_pool.acquire() as conn:
-                rows = await conn.fetch(_DRIFT_QUERY, timedelta(hours=float(grace_hours)))
+            # observed_span must wrap the fallible body, not sit outside a try that
+            # swallows everything -- observed_span (src/observability/spans.py) only
+            # records ERROR on an exception that actually propagates out of its `with`
+            # body, and it re-raises after tagging the span, so this outer except still
+            # gets it and the "audit loop must continue" contract is unchanged.
+            async with observed_span("compression_auditor.run_audit", tracer=self.tracer):
+                _t0 = _time.monotonic()
+                grace_hours = await self._config.get(
+                    _GRACE_PERIOD_KEY, default=_DEFAULT_GRACE_PERIOD_HOURS
+                )
+                async with self._db_pool.acquire() as conn:
+                    rows = await conn.fetch(_DRIFT_QUERY, timedelta(hours=float(grace_hours)))
 
-            for row in rows:
-                # Each hypertable is its own failure domain: an anomaly processing one
-                # row (metric emission, logging, or remediation) must never prevent the
-                # remaining drifted hypertables in the same cycle from being fixed.
-                # _remediate() already swallows its own exceptions internally — this
-                # try/except is defense-in-depth for anything else in the row body.
-                try:
-                    hypertable = row["hypertable_name"]
-                    job_id = row["job_id"]
-                    overdue = row["overdue_chunks"]
-                    attrs = {**self._agent_attrs, "hypertable": hypertable}
+                for row in rows:
+                    # Each hypertable is its own failure domain: an anomaly processing one
+                    # row (metric emission, logging, or remediation) must never prevent the
+                    # remaining drifted hypertables in the same cycle from being fixed.
+                    # _remediate() already swallows its own exceptions internally — this
+                    # try/except is defense-in-depth for anything else in the row body.
+                    try:
+                        hypertable = row["hypertable_name"]
+                        job_id = row["job_id"]
+                        overdue = row["overdue_chunks"]
+                        attrs = {**self._agent_attrs, "hypertable": hypertable}
 
-                    _OVERDUE_CHUNKS_FOUND.add(overdue, attrs)
-                    self.logger.warning(
-                        "compression_auditor.overdue_chunks_detected",
-                        hypertable=hypertable,
-                        job_id=job_id,
-                        overdue_chunks=overdue,
-                        compress_after=row["compress_after"],
-                        grace_hours=grace_hours,
-                    )
-                    await self._remediate(
-                        conn_pool=self._db_pool, hypertable=hypertable, job_id=job_id
-                    )
-                except Exception as row_error:
-                    _AUDIT_ERRORS.add(1, self._agent_attrs)
-                    self.logger.error(
-                        "compression_auditor.row_processing_error",
-                        hypertable=row.get("hypertable_name", "unknown"),
-                        error=str(row_error),
-                    )
-                    # Do not re-raise — one hypertable's anomaly must not block the rest
+                        _OVERDUE_CHUNKS_FOUND.add(overdue, attrs)
+                        self.logger.warning(
+                            "compression_auditor.overdue_chunks_detected",
+                            hypertable=hypertable,
+                            job_id=job_id,
+                            overdue_chunks=overdue,
+                            compress_after=row["compress_after"],
+                            grace_hours=grace_hours,
+                        )
+                        await self._remediate(
+                            conn_pool=self._db_pool, hypertable=hypertable, job_id=job_id
+                        )
+                    except Exception as row_error:
+                        _AUDIT_ERRORS.add(1, self._agent_attrs)
+                        self.logger.error(
+                            "compression_auditor.row_processing_error",
+                            hypertable=row.get("hypertable_name", "unknown"),
+                            error=str(row_error),
+                        )
+                        # Do not re-raise — one hypertable's anomaly must not block the rest
 
-            _AUDIT_DURATION.record(_time.monotonic() - _t0, self._agent_attrs)
-            _AUDITS_RUN.add(1, self._agent_attrs)
-            self._record_message_consumed()  # liveness gauge only; no stall self-kill (max_idle_seconds=0)
-            self.logger.info(
-                "compression_auditor.audit_complete",
-                hypertables_with_drift=len(rows),
-            )
+                _AUDIT_DURATION.record(_time.monotonic() - _t0, self._agent_attrs)
+                _AUDITS_RUN.add(1, self._agent_attrs)
+                self._record_message_consumed()  # liveness gauge only; no stall self-kill (max_idle_seconds=0)
+                self.logger.info(
+                    "compression_auditor.audit_complete",
+                    hypertables_with_drift=len(rows),
+                )
 
         except Exception as error:
             _AUDIT_ERRORS.add(1, self._agent_attrs)

@@ -575,6 +575,7 @@ class FeatureFactoryConfig:
         session_levels_asia_start_et_hour: APR feature.session_levels.asia_start_et_hour
         session_levels_asia_end_et_hour: APR feature.session_levels.asia_end_et_hour
         atr_normalization_min_pct: APR feature.atr_normalization.min_atr_pct
+        ctf_higher_tf_map: APR feature.ctf.higher_tf_map
     """
 
     momentum_window_fast: int  # feature.momentum.window_fast
@@ -832,6 +833,35 @@ class FeatureFactoryConfig:
     session_levels_asia_start_et_hour: int = 20  # feature.session_levels.asia_start_et_hour
     session_levels_asia_end_et_hour: int = 4  # feature.session_levels.asia_end_et_hour
     atr_normalization_min_pct: float = 0.0001  # feature.atr_normalization.min_atr_pct
+    # CTF (cross-timeframe) higher-timeframe source mapping (todo 242, migration 305).
+    # Single source of truth for both backfill_feature_factory.py's batch
+    # _build_ctf_series() and feature_vector_pipeline.py's live per-HTF-bar update --
+    # do not duplicate this dict. Formerly a hardcoded module constant
+    # (feature_cache._CTF_HIGHER_TF); "1d" is self-referential (no timeframe above 1d
+    # exists in this corpus) -- ctf_momentum degenerates into a same-tf RSI oscillator
+    # there rather than genuine cross-timeframe signal (todo 189), kept for batch/live
+    # parity, not because it's a good statistic.
+    ctf_higher_tf_map: dict = field(  # feature.ctf.higher_tf_map
+        default_factory=lambda: {"5m": "1h", "15m": "1h", "1h": "1d", "1d": "1d"}
+    )
+
+
+def invert_ctf_higher_tf_map(higher_tf_map: dict[str, str]) -> dict[str, list[str]]:
+    """Inverse of ctf_higher_tf_map: which LTF caches read ctf_momentum from a given
+    HTF timeframe when a bar on that HTF arrives (todo 241). e.g. a "1h" bar updates
+    both "5m" and "15m" caches; a "1d" bar updates "1h" (and its own, self-referential
+    -- see ctf_higher_tf_map's docstring) cache.
+
+    Single source of truth for this derivation (todo 242 /simplify pass) -- both
+    services/feature_vector_pipeline.py's _prewarm_threshold_config() (production) and
+    tests/unit/pipeline/pipeline_helpers.py's make_agent() (test harness, which bypasses
+    _prewarm_threshold_config() via __new__()) call this instead of each carrying their
+    own copy of the inversion logic.
+    """
+    return {
+        htf: [ltf for ltf, mapped_htf in higher_tf_map.items() if mapped_htf == htf]
+        for htf in set(higher_tf_map.values())
+    }
 
 
 # ---------------------------------------------------------------------------

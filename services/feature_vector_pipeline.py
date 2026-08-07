@@ -54,7 +54,6 @@ from src.core.stream_keys import (
     topic_system_events,
 )
 from src.intelligence.feature_cache import (
-    _CTF_HIGHER_TF,
     FeatureCache,
     _rsi_simple,
 )
@@ -62,6 +61,7 @@ from src.intelligence.feature_factory import (
     FEATURE_FACTORY_VERSION,
     FeatureFactory,
     FeatureFactoryConfig,
+    invert_ctf_higher_tf_map,
 )
 from src.intelligence.features.cross_asset_series import (
     CROSS_ASSET_SYMBOLS,
@@ -113,14 +113,12 @@ _CROSS_ASSET_FETCH_SQL = (
     "ORDER BY timestamp ASC"
 )
 
-# Inverse of feature_cache._CTF_HIGHER_TF: which LTF caches read ctf_momentum from a
-# given HTF timeframe when a bar on that HTF arrives (todo 241). e.g. a "1h" bar updates
-# both "5m" and "15m" caches; a "1d" bar updates "1h" (and its own, self-referential --
-# see _CTF_HIGHER_TF's docstring) cache.
-_CTF_LOWER_TFS: dict[str, list[str]] = {
-    htf: [ltf for ltf, mapped_htf in _CTF_HIGHER_TF.items() if mapped_htf == htf]
-    for htf in set(_CTF_HIGHER_TF.values())
-}
+# NOTE: the CTF (cross-timeframe) higher-timeframe source mapping and its inverse
+# (which LTF caches read ctf_momentum from a given HTF bar) formerly lived here as
+# hardcoded module constants (_CTF_HIGHER_TF import, _CTF_LOWER_TFS derived at import
+# time). Migrated to APR (todo 242, migration 305) -- both are now instance state
+# (self._feature_factory_config.ctf_higher_tf_map, self._ctf_lower_tfs), built in
+# _prewarm_threshold_config() once ConfigService is available.
 
 
 def _assert_rsi_mid_period_fits_bar_history(rsi_mid_period: int, bar_history_maxlen: int) -> None:
@@ -204,6 +202,9 @@ class FeatureVectorPipeline(BaseDaemon):
 
         self._config_service: ConfigService | None = None  # initialised in _setup()
         self._feature_factory_config: FeatureFactoryConfig | None = None
+        # Inverse of ctf_higher_tf_map, built in _prewarm_threshold_config() once that
+        # APR value is available (todo 242) -- see the derivation site for details.
+        self._ctf_lower_tfs: dict[str, list[str]] = {}
         self._feature_factory = FeatureFactory()
 
         self._shadow_mode: bool = os.environ.get("INTELLIGENCE_PIPELINE_SHADOW", "0") == "1"
@@ -934,6 +935,10 @@ class FeatureVectorPipeline(BaseDaemon):
         ("feature.session_levels.asia_start_et_hour", 20),
         ("feature.session_levels.asia_end_et_hour", 4),
         ("feature.atr_normalization.min_atr_pct", 0.0001),
+        (
+            "feature.ctf.higher_tf_map",
+            {"5m": "1h", "15m": "1h", "1h": "1d", "1d": "1d"},
+        ),
     )
 
     async def _prewarm_threshold_config(self) -> None:
@@ -1194,10 +1199,23 @@ class FeatureVectorPipeline(BaseDaemon):
             session_levels_asia_start_et_hour=_int("feature.session_levels.asia_start_et_hour", 20),
             session_levels_asia_end_et_hour=_int("feature.session_levels.asia_end_et_hour", 4),
             atr_normalization_min_pct=_float("feature.atr_normalization.min_atr_pct", 0.0001),
+            ctf_higher_tf_map=_dict(
+                "feature.ctf.higher_tf_map",
+                {"5m": "1h", "15m": "1h", "1h": "1d", "1d": "1d"},
+            ),
         )
 
         _assert_rsi_mid_period_fits_bar_history(
             self._feature_factory_config.rsi_mid_period, self._bar_history.maxlen
+        )
+
+        # Inverse of ctf_higher_tf_map (see invert_ctf_higher_tf_map's docstring).
+        # Instance state, not module scope, because it depends on the APR-governed
+        # config value, which isn't available until _prewarm_threshold_config() runs
+        # (todo 242 -- formerly a module-level constant derived at import time, before
+        # any DB/ConfigService connection existed).
+        self._ctf_lower_tfs = invert_ctf_higher_tf_map(
+            self._feature_factory_config.ctf_higher_tf_map
         )
 
         # feature.cross_asset.role_symbols (migration 279) is no longer read: Plan
@@ -1205,9 +1223,9 @@ class FeatureVectorPipeline(BaseDaemon):
         # CrossAssetState mechanism with a daily-grain build_cross_asset_series() call
         # over the FIXED CROSS_ASSET_SYMBOLS tuple (SPY/TLT/SHY/TIP/HYG/LQD) -- matching
         # the batch path, which never read this APR key either (its call site hardcodes
-        # the same 6 symbols). The migration-279 config_schema/config_state rows are now
-        # orphaned; left in place (DB row cleanup is out of this task's scope) but a
-        # todo is filed to consider a follow-up migration to remove them.
+        # the same 6 symbols). Verified live 2026-08-07 (todo 262): migration 279 was
+        # never actually applied to this DB -- config_schema/config_state/config_history
+        # all have zero rows for this key -- so there was never a live row to clean up.
 
         self.logger.info(
             "feature_vector_pipeline.feature_config_loaded",
@@ -1256,7 +1274,7 @@ class FeatureVectorPipeline(BaseDaemon):
         # Same cold-start class of gap _get_cache()'s own docstring documents fixing for
         # above_wk_vwap/session-VP/overnight-range/session-levels state.
         for symbol in self._symbols:
-            for htf_tf in _CTF_LOWER_TFS:
+            for htf_tf in self._ctf_lower_tfs:
                 self._update_ctf_cache_from_htf_bar(symbol, htf_tf, create_if_missing=True)
 
     async def _run(self) -> None:
@@ -1508,9 +1526,9 @@ class FeatureVectorPipeline(BaseDaemon):
             cache.refresh_regime(bars_dicts, config)
 
         # Update CTF cache(s) when a timeframe that serves as another tf's HTF source
-        # arrives (todo 241) -- bar.tf in _CTF_LOWER_TFS means bar.tf is itself an HTF
-        # (today: "1h" or "1d").
-        if bar.tf in _CTF_LOWER_TFS:
+        # arrives (todo 241) -- bar.tf in self._ctf_lower_tfs means bar.tf is itself an
+        # HTF (today: "1h" or "1d").
+        if bar.tf in self._ctf_lower_tfs:
             self._update_ctf_cache_from_htf_bar(bar.symbol, bar.tf)
 
         # Session-VP accumulator (Phase 163 Plan 02): update BEFORE compute()
@@ -1637,7 +1655,7 @@ class FeatureVectorPipeline(BaseDaemon):
         or a day after every restart) code review found.
         """
         assert self._feature_factory_config is not None, "FeatureFactoryConfig not prewarmed"
-        lower_tfs = _CTF_LOWER_TFS.get(htf_tf)
+        lower_tfs = self._ctf_lower_tfs.get(htf_tf)
         if not lower_tfs:
             return
         htf_bars = self._bar_history.get(symbol, htf_tf)

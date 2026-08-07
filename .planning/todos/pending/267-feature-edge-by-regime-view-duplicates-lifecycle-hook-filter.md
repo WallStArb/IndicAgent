@@ -62,3 +62,24 @@ Either:
 
 Whichever direction: also complete the two operational checks above (post-recompute
 `ANALYZE` + `EXPLAIN ANALYZE` re-verification) in the same pass.
+
+## Tripwire landed 2026-08-07
+
+Took the lighter-weight option: `tests/unit/test_feature_edge_by_regime_filter_parity.py`,
+CI-clean (no DB, pure filesystem/regex over `services/ic_engine.py` and
+`production/migrations/297_feature_edge_summary_views.sql`). Extracts both WHERE clauses'
+AND-joined conditions into normalized sets and asserts (1) the hook's filter still matches a
+recorded baseline, (2) the view's filter still matches a recorded baseline, (3) the hook's
+predicate set is a subset of the view's -- so the view can never be looser than what the hook
+actually promotes/demotes on. Parameterized conditions (the hook's own
+`training_window_end = %s`) are excluded from comparison -- that's per-call run-scoping, not
+part of the business-rule population, and the view exposes it as a plain column instead.
+Verified the test actually catches drift: it failed as expected before this exclusion was
+added (correctly flagged `training_window_end = %s` as an unrecognized hook condition), which
+is direct evidence the extraction logic is sensitive to real differences, not just green by
+construction.
+
+**Still open, not done in this pass** (deliberately -- both need real corpus data, which
+doesn't exist yet pending todo 243's recompute): the two operational follow-ups --
+`ANALYZE feature_ic_scores` + re-`EXPLAIN ANALYZE` both views' "current edge" query pattern
+once the corpus recompute lands. Re-check this todo once todo 243 closes.

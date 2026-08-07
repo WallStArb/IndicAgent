@@ -971,18 +971,11 @@ def _compute_session_directional_nodes(
 # Pure computation helpers (used by refresh_regime)
 # ---------------------------------------------------------------------------
 
-# Cross-timeframe (CTF) higher-timeframe source mapping. Single source of truth for
-# both backfill_feature_factory.py's batch _build_ctf_series() and
-# feature_vector_pipeline.py's live per-HTF-bar update -- do not duplicate this dict.
-# "1d" is self-referential (no timeframe above 1d exists in this corpus); ctf_momentum
-# degenerates into a same-tf RSI oscillator there rather than genuine cross-timeframe
-# signal (todo 189). Kept for batch/live parity, not because it's a good statistic.
-_CTF_HIGHER_TF: dict[str, str] = {
-    "5m": "1h",
-    "15m": "1h",
-    "1h": "1d",
-    "1d": "1d",
-}
+# NOTE: the CTF (cross-timeframe) higher-timeframe source mapping formerly lived here
+# as a hardcoded module constant (_CTF_HIGHER_TF). Migrated to APR (todo 242, migration
+# 305) -- now FeatureFactoryConfig.ctf_higher_tf_map (src/intelligence/feature_factory.py,
+# feature.ctf.higher_tf_map). backfill_feature_factory.py and feature_vector_pipeline.py
+# both read it from their own FeatureFactoryConfig instance, not from this module.
 
 
 def _wilder_rsi_series(closes: np.ndarray, period: int) -> np.ndarray:

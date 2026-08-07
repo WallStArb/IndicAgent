@@ -31,7 +31,16 @@ def _threshold_keys() -> set[str]:
         re.DOTALL,
     )
     assert match, "Could not parse _THRESHOLD_KEYS from feature_vector_pipeline.py"
-    return set(re.findall(r'\("([a-zA-Z0-9_.]+)",', match.group(1)))
+    # \(\s*" (not \("): several entries wrap onto their own line, e.g.
+    #     (
+    #         "feature.sr.lookback_by_tf",
+    #         {...},
+    #     ),
+    # -- a bare \("  would silently miss these, the same multi-line blind spot fixed
+    # in _keys_read_building_feature_factory_config() below (found together, todo 242
+    # code review, 2026-08-07: fixing only one side made the other side's pre-existing
+    # gap visible as new false-positive "missing" entries).
+    return set(re.findall(r'\(\s*"([a-zA-Z0-9_.]+)",', match.group(1)))
 
 
 def _keys_read_building_feature_factory_config() -> set[str]:
@@ -41,7 +50,7 @@ def _keys_read_building_feature_factory_config() -> set[str]:
         re.DOTALL,
     )
     assert match, "Could not parse _prewarm_threshold_config() from feature_vector_pipeline.py"
-    return set(re.findall(r'_(?:int|float|dict|str|bool)\("([a-zA-Z0-9_.]+)"', match.group(0)))
+    return set(re.findall(r'_(?:int|float|dict|str|bool)\(\s*"([a-zA-Z0-9_.]+)"', match.group(0)))
 
 
 def test_every_key_read_building_feature_factory_config_is_prewarmed():

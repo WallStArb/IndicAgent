@@ -53,7 +53,6 @@ from src.config.settings import Settings, get_active_contracts
 from src.core.market_calendar import get_market_calendar
 from src.core.service_utils import setup_service_logging
 from src.intelligence.feature_cache import (
-    _CTF_HIGHER_TF,
     _HMM_K,
     FeatureCache,
     _hmm_forward_step,
@@ -163,11 +162,11 @@ _FALLBACK_WARM_UP_BARS: int = 252
 # (Plan 151-09 Task 1 moved them there alongside build_cross_asset_series/
 # build_symbol_beta_series -- single definition project-wide).
 
-# _CTF_HIGHER_TF (source TF -> HTF used for CTF features) now lives in
-# src.intelligence.feature_cache, shared with feature_vector_pipeline.py's live-path
-# update (todo 241). 1d uses itself as HTF: CTF at bar T computed from daily bars up to
-# T (causal; bisect_right selects the current bar's CTF which is valid since the bar
-# has closed at computation time).
+# CTF (cross-timeframe) higher-timeframe source mapping (config.ctf_higher_tf_map,
+# feature.ctf.higher_tf_map, todo 242) is shared with feature_vector_pipeline.py's
+# live-path update (todo 241). 1d uses itself as HTF: CTF at bar T computed from daily
+# bars up to T (causal; bisect_right selects the current bar's CTF which is valid since
+# the bar has closed at computation time).
 
 # ---------------------------------------------------------------------------
 # DB helpers (psycopg sync — mirrors run_historical_pipeline.py pattern)
@@ -366,7 +365,7 @@ def _rekey_ctf_series_to_actual_close(ctf_by_ts: dict, tf: str, htf_tf: str) -> 
 
     1d's self-referential case (`tf == htf_tf`) is returned unchanged: re-keying it would
     select the *prior* day's bar instead of the current, already-closed one -- see
-    `_CTF_HIGHER_TF`'s docstring.
+    `FeatureFactoryConfig.ctf_higher_tf_map`'s docstring (feature_factory.py).
     """
     if tf == htf_tf:
         return ctf_by_ts
@@ -685,6 +684,9 @@ def _build_feature_factory_config(cfg: ConfigService) -> FeatureFactoryConfig:
         ),
         session_levels_asia_end_et_hour=int(
             cfg.get_sync("feature.session_levels.asia_end_et_hour", 4)
+        ),
+        ctf_higher_tf_map=_get_dict_config(
+            cfg, "feature.ctf.higher_tf_map", {"5m": "1h", "15m": "1h", "1h": "1d", "1d": "1d"}
         ),
     )
 
@@ -1282,7 +1284,7 @@ def _compute_symbol_tf(
     Returns total rows inserted into feature_vectors.
     """
     # Build CTF series for this symbol (O(n) single pass over HTF bars)
-    htf_tf = _CTF_HIGHER_TF.get(tf)
+    htf_tf = config.ctf_higher_tf_map.get(tf)
     ctf_by_ts: dict = {}
     htf_ts_list: list = []
     if htf_tf:

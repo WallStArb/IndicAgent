@@ -4,7 +4,7 @@ actual IC at the tf Phase 167's live construction actually trades?
 Same measurement as ctf_momentum_join_fix_ic_impact_spy_1h.py (that script's 1h pilot found
 old-join point_ic=+0.0517 -> new-join point_ic=-0.0159, paired-diff CI [0.0626, 0.0730] --
 the "signal" was almost entirely the leak). This is the 15m rerun: 15m's CTF HTF is 1h
-(`_CTF_HIGHER_TF` in feature_cache.py), not 1d as at the 1h tf, so the join's lookahead window
+(FeatureFactoryConfig.ctf_higher_tf_map), not 1d as at the 1h tf, so the join's lookahead window
 is bounded by an HTF bar (up to 55min), not a full day -- the leak's absolute magnitude may
 differ even if the mechanism is identical.
 

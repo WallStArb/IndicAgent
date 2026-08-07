@@ -3,7 +3,7 @@ actual IC at the highest-frequency tf this corpus measures?
 
 Same measurement as ctf_momentum_join_fix_ic_impact_spy_1h.py (1h pilot: old-join
 point_ic=+0.0517 -> new-join point_ic=-0.0159, paired-diff CI [0.0626, 0.0730]) and
-..._15m.py. 5m's CTF HTF is 1h (`_CTF_HIGHER_TF` in feature_cache.py), same as 15m -- the
+..._15m.py. 5m's CTF HTF is 1h (FeatureFactoryConfig.ctf_higher_tf_map), same as 15m -- the
 join's lookahead window is bounded by a 1h HTF bar (up to 55min), not a full day.
 
 Both paths reuse the real production functions unmodified (see the 1h script's docstring for

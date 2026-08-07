@@ -71,7 +71,6 @@ from services.backfill_feature_factory import (
 )
 from src.config.settings import Settings
 from src.core.service_utils import setup_service_logging
-from src.intelligence.feature_cache import _CTF_HIGHER_TF
 from src.observability.metrics import JOB_COMPLETED_TOTAL, flush_and_shutdown_metrics
 from src.observability.otel import OTelInitError, init_otel_providers
 
@@ -102,9 +101,9 @@ def _recompute_symbol(conn: Any, symbol: str, config: Any, apply: bool) -> dict[
     """Recompute corrected CTF values for one symbol's tf=15m rows, write only the changed
     ones (unless `apply` is False, in which case nothing is written). Returns a stats dict --
     never logs per row (CLAUDE.md: accumulate a counter, report once per partition)."""
-    htf_tf = _CTF_HIGHER_TF.get(_TF)
+    htf_tf = config.ctf_higher_tf_map.get(_TF)
     if not htf_tf:
-        raise RuntimeError(f"No HTF mapping for tf={_TF!r} in _CTF_HIGHER_TF")
+        raise RuntimeError(f"No HTF mapping for tf={_TF!r} in config.ctf_higher_tf_map")
 
     htf_bars = _fetch_bars_from_db(conn, symbol, htf_tf)
     if not htf_bars:

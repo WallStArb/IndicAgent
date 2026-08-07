@@ -1,9 +1,30 @@
 ---
-status: pending
+status: closed
 priority: P3
 found_during: phase-151-plan-09
 found_date: 2026-08-05
+closed_date: 2026-08-07
+closed_reason: verified moot -- migration 279 never applied live
 ---
+
+## Closed 2026-08-07
+
+Checked the live DB before acting, per this project's "verify then delete, don't flag"
+discipline: `feature.cross_asset.role_symbols` has **zero rows** in both `config_schema` and
+`config_state`, and zero rows in `config_history` for that key (`config_history` itself has
+928 rows total, so the table isn't broken/empty -- this key specifically was never written).
+Migration 279's file exists on disk
+(`production/migrations/279_feature_vector_pipeline_cross_asset_role_symbols_apr.sql`) but was
+never executed against this database -- there is no migration-runner tracking table in this
+project (migrations are applied by hand), so nothing enforces that a written migration file
+actually ran.
+
+This todo's own premise ("still exist in the live DB") doesn't hold: there is no live orphaned
+row to delete or mark-retired. Nothing to clean up. The migration file itself stays in place
+(migrations are an append-only historical record here, not something to delete after the fact)
+-- a future reader who greps `production/migrations/` will still see 279, but `/config/parameters`
+has nothing to show for it, so the "confuses a future reader" risk this todo raised doesn't
+materialize either.
 
 # `feature.cross_asset.role_symbols` APR key (migration 279) is now orphaned
 

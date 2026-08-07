@@ -103,7 +103,7 @@ def make_agent() -> FeatureVectorPipeline:
     )
     # FeatureFactoryConfig required by _process_bar_compute() assertion.
     # Seeded with default values matching APR defaults.
-    from src.intelligence.feature_factory import FeatureFactoryConfig
+    from src.intelligence.feature_factory import FeatureFactoryConfig, invert_ctf_higher_tf_map
 
     agent._feature_factory_config = FeatureFactoryConfig(
         momentum_window_fast=5,
@@ -216,6 +216,10 @@ def make_agent() -> FeatureVectorPipeline:
         factor_beta_window=20,
         factor_beta_zscore_window=20,
     )
+    # Inverse of ctf_higher_tf_map -- normally derived in
+    # FeatureVectorPipeline._prewarm_threshold_config() (todo 242), which __new__()
+    # bypasses here, so it must be built the same way by hand via the shared helper.
+    agent._ctf_lower_tfs = invert_ctf_higher_tf_map(agent._feature_factory_config.ctf_higher_tf_map)
     return agent
 
 

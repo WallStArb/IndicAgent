@@ -51,6 +51,7 @@ from src.intelligence.statistics.price_sanity import (
     count_corroborating_symbols_batch,
 )
 from src.observability.metrics import BAR_AUDITOR_GAP_FILL_DLQ_DEPTH
+from src.observability.spans import observed_span
 
 # ---------------------------------------------------------------------------
 # Constants
@@ -467,25 +468,31 @@ class BarAuditor(BaseDaemon):
         if instruments is None:
             instruments = get_active_contracts(self.settings)
         try:
-            _ad_t0 = _time.monotonic()
-            gap_requests = await self._detect_gaps(instruments)
-            _AUDIT_DURATION.record(_time.monotonic() - _ad_t0, self._agent_attrs)
+            # observed_span must wrap the fallible body, not sit outside a try that
+            # swallows everything -- observed_span only records ERROR on an exception
+            # that actually propagates out of its `with` body (src/observability/
+            # spans.py). It re-raises after tagging the span, so this outer except
+            # still gets it and the "audit loop must continue" contract is unchanged.
+            async with observed_span("bar_auditor.run_audit", tracer=self.tracer):
+                _ad_t0 = _time.monotonic()
+                gap_requests = await self._detect_gaps(instruments)
+                _AUDIT_DURATION.record(_time.monotonic() - _ad_t0, self._agent_attrs)
 
-            for req in gap_requests:
-                await self._kafka_producer.publish(
-                    topic_gap_requests(self.env_name),
-                    req.model_dump(mode="json"),
-                    key=req.symbol,
+                for req in gap_requests:
+                    await self._kafka_producer.publish(
+                        topic_gap_requests(self.env_name),
+                        req.model_dump(mode="json"),
+                        key=req.symbol,
+                    )
+                    _GAP_REQUESTS_PUBLISHED.add(1, self._agent_attrs)
+
+                _AUDITS_RUN.add(1, self._agent_attrs)
+                self.logger.info(
+                    "bar_auditor.audit_complete",
+                    gap_requests_published=len(gap_requests),
                 )
-                _GAP_REQUESTS_PUBLISHED.add(1, self._agent_attrs)
 
-            _AUDITS_RUN.add(1, self._agent_attrs)
-            self.logger.info(
-                "bar_auditor.audit_complete",
-                gap_requests_published=len(gap_requests),
-            )
-
-            await self._run_price_sanity_audit()
+                await self._run_price_sanity_audit()
 
         except Exception as error:
             _AUDIT_ERRORS.add(1, self._agent_attrs)
@@ -508,84 +515,89 @@ class BarAuditor(BaseDaemon):
         """
         _ps_t0 = _time.monotonic()
         try:
-            async with self._price_sanity_pool.acquire() as conn:
-                apr = await load_apr_dict_async(conn)
-                batch_size = int(_cfg(apr, "infra.bar_auditor.price_sanity_batch_size", 500))
-                magnitude_threshold = float(
-                    _cfg(apr, "alpha.quant.price_sanity.magnitude_threshold", 10.0)
-                )
-                neighbor_agreement_threshold = float(
-                    _cfg(apr, "alpha.quant.price_sanity.neighbor_agreement_threshold", 2.0)
-                )
-                min_corroborating_symbols = int(
-                    _cfg(apr, "alpha.quant.cross_symbol_corroboration.min_symbols", 4)
-                )
-
-                candidates = await conn.fetch(_PRICE_SANITY_CANDIDATES_SQL, batch_size)
-                if not candidates:
-                    return
-
-                verdicts: dict[tuple[str, str, Any], CandidateVerdict] = {}
-                for row in candidates:
-                    key = (row["symbol"], row["tf"], row["bar_ts"])
-                    verdicts[key] = classify_candidate_bar(
-                        open_=float(row["open"]),
-                        high=float(row["high"]),
-                        low=float(row["low"]),
-                        close=float(row["close"]),
-                        prev_close=(
-                            float(row["prev_close"]) if row["prev_close"] is not None else None
-                        ),
-                        next_open=(
-                            float(row["next_open"]) if row["next_open"] is not None else None
-                        ),
-                        magnitude_threshold=magnitude_threshold,
-                        neighbor_agreement_threshold=neighbor_agreement_threshold,
+            # observed_span must wrap the fallible body, not sit outside a try that
+            # swallows everything -- see _run_audit's comment on the same pattern.
+            async with observed_span("bar_auditor.run_price_sanity_audit", tracer=self.tracer):
+                async with self._price_sanity_pool.acquire() as conn:
+                    apr = await load_apr_dict_async(conn)
+                    batch_size = int(_cfg(apr, "infra.bar_auditor.price_sanity_batch_size", 500))
+                    magnitude_threshold = float(
+                        _cfg(apr, "alpha.quant.price_sanity.magnitude_threshold", 10.0)
+                    )
+                    neighbor_agreement_threshold = float(
+                        _cfg(apr, "alpha.quant.price_sanity.neighbor_agreement_threshold", 2.0)
+                    )
+                    min_corroborating_symbols = int(
+                        _cfg(apr, "alpha.quant.cross_symbol_corroboration.min_symbols", 4)
                     )
 
-                corroboration_candidates = [
-                    key for key, v in verdicts.items() if v.verdict == "CONFIRMED_CORRUPT"
-                ]
-                if corroboration_candidates:
-                    n_corroborating = await count_corroborating_symbols_batch(
-                        self._price_sanity_pool,
-                        candidates=corroboration_candidates,
-                        match_mode="exact",
-                        magnitude_threshold=magnitude_threshold,
-                        neighbor_agreement_threshold=neighbor_agreement_threshold,
-                    )
-                    for key in corroboration_candidates:
-                        verdicts[key] = apply_cross_symbol_downgrade(
-                            verdicts[key],
-                            n_corroborating_symbols=n_corroborating[key],
-                            min_symbols=min_corroborating_symbols,
+                    candidates = await conn.fetch(_PRICE_SANITY_CANDIDATES_SQL, batch_size)
+                    if not candidates:
+                        return
+
+                    verdicts: dict[tuple[str, str, Any], CandidateVerdict] = {}
+                    for row in candidates:
+                        key = (row["symbol"], row["tf"], row["bar_ts"])
+                        verdicts[key] = classify_candidate_bar(
+                            open_=float(row["open"]),
+                            high=float(row["high"]),
+                            low=float(row["low"]),
+                            close=float(row["close"]),
+                            prev_close=(
+                                float(row["prev_close"]) if row["prev_close"] is not None else None
+                            ),
+                            next_open=(
+                                float(row["next_open"]) if row["next_open"] is not None else None
+                            ),
+                            magnitude_threshold=magnitude_threshold,
+                            neighbor_agreement_threshold=neighbor_agreement_threshold,
                         )
 
-                status_counts: dict[str, int] = {}
-                symbols: list[str] = []
-                tfs: list[str] = []
-                bar_tss: list[Any] = []
-                statuses: list[str] = []
-                for (symbol, tf, bar_ts), verdict in verdicts.items():
-                    status = _VERDICT_TO_STATUS[verdict.verdict]
-                    symbols.append(symbol)
-                    tfs.append(tf)
-                    bar_tss.append(bar_ts)
-                    statuses.append(status)
-                    status_counts[status] = status_counts.get(status, 0) + 1
+                    corroboration_candidates = [
+                        key for key, v in verdicts.items() if v.verdict == "CONFIRMED_CORRUPT"
+                    ]
+                    if corroboration_candidates:
+                        n_corroborating = await count_corroborating_symbols_batch(
+                            self._price_sanity_pool,
+                            candidates=corroboration_candidates,
+                            match_mode="exact",
+                            magnitude_threshold=magnitude_threshold,
+                            neighbor_agreement_threshold=neighbor_agreement_threshold,
+                        )
+                        for key in corroboration_candidates:
+                            verdicts[key] = apply_cross_symbol_downgrade(
+                                verdicts[key],
+                                n_corroborating_symbols=n_corroborating[key],
+                                min_symbols=min_corroborating_symbols,
+                            )
 
-                await conn.execute(_PRICE_SANITY_STATUS_UPDATE_SQL, symbols, tfs, bar_tss, statuses)
+                    status_counts: dict[str, int] = {}
+                    symbols: list[str] = []
+                    tfs: list[str] = []
+                    bar_tss: list[Any] = []
+                    statuses: list[str] = []
+                    for (symbol, tf, bar_ts), verdict in verdicts.items():
+                        status = _VERDICT_TO_STATUS[verdict.verdict]
+                        symbols.append(symbol)
+                        tfs.append(tf)
+                        bar_tss.append(bar_ts)
+                        statuses.append(status)
+                        status_counts[status] = status_counts.get(status, 0) + 1
 
-                for status, count in status_counts.items():
-                    _PRICE_SANITY_ROWS_CLASSIFIED.add(
-                        count, {**self._agent_attrs, "status": status}
+                    await conn.execute(
+                        _PRICE_SANITY_STATUS_UPDATE_SQL, symbols, tfs, bar_tss, statuses
                     )
 
-                self.logger.info(
-                    "bar_auditor.price_sanity_audit_complete",
-                    n_classified=len(verdicts),
-                    status_counts=status_counts,
-                )
+                    for status, count in status_counts.items():
+                        _PRICE_SANITY_ROWS_CLASSIFIED.add(
+                            count, {**self._agent_attrs, "status": status}
+                        )
+
+                    self.logger.info(
+                        "bar_auditor.price_sanity_audit_complete",
+                        n_classified=len(verdicts),
+                        status_counts=status_counts,
+                    )
         except Exception as error:
             _PRICE_SANITY_AUDIT_ERRORS.add(1, self._agent_attrs)
             self.logger.error(

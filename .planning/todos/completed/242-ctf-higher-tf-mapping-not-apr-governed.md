@@ -51,3 +51,26 @@ to `config_schema`/`config_state`. Load in both `backfill_feature_factory.py` (a
 into `_setup()`, store as instance state, derive the inverse mapping from the loaded dict same
 as today). Remove the hardcoded module-level `_CTF_HIGHER_TF` constant once both call sites
 read from APR.
+
+## Done 2026-08-07
+
+Migration 305 (`feature.ctf.higher_tf_map`, seeded byte-identical to the prior hardcoded
+dict, applied live). Added `FeatureFactoryConfig.ctf_higher_tf_map` (`src/intelligence/
+feature_factory.py`) as the field's real home, matching the existing `sr_lookback_by_tf`
+dict-field pattern -- both `backfill_feature_factory.py`'s `_build_feature_factory_config()`
+and `feature_vector_pipeline.py`'s `_prewarm_threshold_config()` now wire it from
+`ConfigService` instead of importing a hardcoded dict. Removed `feature_cache._CTF_HIGHER_TF`
+entirely (left an explanatory comment pointing at the new home, no other internal consumers
+in that file).
+
+`feature_vector_pipeline.py`'s `_CTF_LOWER_TFS` (the inverse mapping) moved from module scope
+to instance state (`self._ctf_lower_tfs`), built in `_prewarm_threshold_config()` right after
+`self._feature_factory_config` -- exactly the refactor this todo's "why not fixed in the same
+session" section anticipated. All 3 live call sites updated. `scripts/ops/corpus/
+ops_ctf_columns_recompute_15m.py` (imported `_CTF_HIGHER_TF` directly) updated to read
+`config.ctf_higher_tf_map` from its own already-threaded `FeatureFactoryConfig` instead.
+`tests/unit/pipeline/pipeline_helpers.py`'s `make_agent()` (bypasses `__init__` via
+`__new__()`) needed the same derivation added by hand since it can't call the real
+`_prewarm_threshold_config()`. `tests/unit/services/test_ctf_momentum_live_batch_parity.py`'s
+one test that imported `_CTF_LOWER_TFS` as a module attribute rewritten to use `make_agent()`
+instead. Full `tests/unit/` suite green, ruff/black clean.
