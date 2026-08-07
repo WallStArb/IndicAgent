@@ -1,12 +1,12 @@
 {
   "step_name": "cross_sectional_spread_tracker_gate",
   "step_version": "1.0",
-  "timestamp": "2026-08-04T23:13:01.964947+00:00",
+  "timestamp": "2026-08-07T11:59:56.083101+00:00",
   "status": "success",
   "inputs": {
     "n_cells": 8,
     "oos_start": "2025-12-24 05:15:00+00:00",
-    "gate1_passes": true
+    "gate1_passes": false
   },
   "outputs": {
     "construction_spreads_gate_verdicts": {

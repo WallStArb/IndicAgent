@@ -1,12 +1,12 @@
 {
   "step_name": "cross_sectional_spread_tracker_attribution",
   "step_version": "1.0",
-  "timestamp": "2026-07-27T11:26:42.322191+00:00",
+  "timestamp": "2026-08-07T12:00:31.168371+00:00",
   "status": "success",
   "inputs": {
     "n_cells": 2,
     "oos_start": "2025-12-24 05:15:00+00:00",
-    "gate2_passes_overall": true
+    "gate2_passes_overall": false
   },
   "outputs": {
     "construction_spreads_attribution_verdicts": {

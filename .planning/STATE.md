@@ -15,79 +15,61 @@ progress:
 
 # Project State
 
-## Strategic Plan (last revised 2026-08-05) -- read this before anything else in this file
+## Strategic Plan (fork RESOLVED 2026-08-07 -- read this before anything else in this file)
 
-**Honest current status: no construction in this project has a currently-confirmed, live proof of
-edge.** Phase 148's per-symbol directional construction failed Gate 2. Phase 167's cross-sectional
-construction was recorded PASS on both gates 2026-07-27, but that record does not currently hold
--- its sole ranking feature (`ctf_momentum`) has a confirmed lookahead-leaked batch join (todo
-243), and two independent diagnostic-tier measurements (SPY single-symbol pilot; a full
-cross-sectional Gate 1 re-verification) both agree the corrected join flips Gate 1 to FAIL. Not
-yet authoritative-tier. `nonlinear_interaction_combiner` has a small real residual, not the
-"substantial" edge originally published. Every large number this investigation touched in the
-2026-08-03/04 window turned out mostly-to-entirely leak-driven once checked properly.
+**RESOLVED: Phase 167's cross-sectional construction does NOT survive re-measurement under the
+corrected join. Both Validation Gates FAIL, authoritative-tier, real production path.** The
+2026-08-05 execution plan (`docs/plans/2026-08-05-ctf-join-fix-scoped-recompute-and-gate1-reverify.md`)
+ran to completion 2026-08-06/07: (1) surgical `feature_vectors` UPDATE for the 80-equity/15m scope
+verified correct (0 rows would change on re-check); (2) `ic_engine.py --refresh` (needed for todo
+256's ensemble-eligibility check, NOT a Gate 1/2 dependency -- `cross_sectional_spread_tracker.py`
+reads `feature_vectors`/`forward_returns` directly, confirmed via grep, zero references to
+`feature_ic_scores`); (3) `construction_spreads` TRUNCATEd and rebuilt via `--backfill` from the
+corrected values (its `ON CONFLICT DO NOTHING` write meant a bare re-run without truncating first
+would have silently measured stale leaked-join data -- caught before it happened); (4) Gate 1/Gate
+2 re-run through the real production path, `null_shuffles` raised 40->1000 for the run-once look,
+new gate_id suffix `ctf_join_v2` (governance reasoning: bug found independent of the gate's prior
+result, fix shipped before that result was recorded, the prior PASS measured known-corrupted
+data -- all 3 conditions from `OOS-EVAL-PROTOCOL.md`'s Cadence section satisfied).
 
-**The single question that gates everything downstream: does the cross-sectional construction
-(Phase 167) survive a clean re-measurement under the corrected join?** A full execution plan for
-this now exists and is ready to run pending user go-ahead:
-`docs/plans/2026-08-05-ctf-join-fix-scoped-recompute-and-gate1-reverify.md`. Summary:
+**Real numbers, OOS window, 3,803 bars / 147 day-clusters:**
+- **Gate 1** (`gate1_ctf_momentum_decile_ls_ctf_join_v2`, `gate1_passes=False`): fast scale
+  `ci_lower=-0.000141` (doesn't clear zero), `null_p=0.649`; slow scale `ci_lower=-0.000486`,
+  `null_p=0.986` (observed spread beaten by 98.6% of random-ranking draws). Both scales fail both
+  criteria.
+- **Gate 2** (`gate2_ctf_momentum_decile_ls_ctf_join_v2`, `gate2_passes_overall=False`): after
+  removing the static-tilt benchmark, no residual survives at 95% CI at either scale
+  (`residual_ci_lower` -0.0000706 fast / -0.000354 slow).
 
-1. Surgical UPDATE of `feature_vectors.ctf_momentum`/`ctf_vwap_align`/`ctf_regime_align` for the
-   80-equity/15m scope only (~8.8M rows) -- NOT `backfill_feature_factory.py --refresh`, which
-   would recompute the full ~250-column row at current HEAD and conflate this fix with every
-   other feature-compute change since these rows were last written (`pipeline_version` is
-   uniformly `"3.0.0"` across the whole corpus and does not function as a vintage marker --
-   confirmed live 2026-08-05).
+This confirms both prior diagnostic-tier measurements (SPY single-symbol pilot, the earlier
+diagnostic-tier cross-sectional reverify) at full authoritative tier -- not a new finding, a
+confirmation with real governance weight. `nonlinear_interaction_combiner`'s original
+"substantial" edge claim and Phase 167's "COMPLETE, both Validation Gates PASSED" verdict are both
+retracted; the small residual `nonlinear_interaction_combiner` still shows is a separate,
+already-tracked thread (see `docs/research/measurement-nonlinear-interaction-combiner.md`), not
+resurrected by this result.
 
-2. Force `ic_engine.py --refresh --tf 15m --symbols <80 equities>` afterward. Required, not
-   optional: `ic_engine`'s own staleness detection fingerprints `feature_vectors` by
-   `MAX(bar_ts)`/`COUNT(*)` only, not a content hash, so the surgical UPDATE above is invisible to
-   it -- `feature_ic_scores` would otherwise stay silently frozen on leaked values indefinitely.
+**Fork resolution (branch was decided in advance specifically so this didn't need
+re-litigating):** **FAIL branch -- back to discovery, not construction.** Priority becomes the
+five untested Signal-Extraction candidates (`cointegrated_pairs_residual`,
+`statistical_factor_residual`, `cross_asset_lead_lag`, `adaptive_combiner_weights`,
+`jump_diffusion_decomposition`) and `nonlinear_interaction_combiner`'s N1 residual-form test (the
+recommended next design once the tree's structural mismatch to this corpus -- no per-feature
+exposure cap -- is accounted for). Phase 168 (cost-hurdle spread refinement, direct Phase 167
+follow-on) and Phase 156-159 (execution/sizing/kill-switch) stay blocked -- not "unverified"
+anymore, actually FAILED; do not start either without a new, independently-proven construction
+first. Converges on the same already-stated project principle either way: prove edge before
+production infra, never the reverse.
 
-3. Re-run Gate 1 through the real production path (`cross_sectional_spread_tracker.py
-   --backfill`/`--evaluate-gate`) under a new gate_id (the existing `gate1_ctf_momentum_decile_ls`
-   already has a recorded PASS from the leaked-join run and D-04's run-once guard refuses a second
-   write to it) with `alpha.construction.null_shuffles` raised from 40 to 1000+ first (40 draws is
-   too coarse a resolution -- 1/40 -- for a run-once, no-do-overs significance gate).
+**Still open, lower priority, not blocking the fork's resolution:** todo 256's ensemble-eligibility
+re-check against fresh `feature_ic_scores` once `ic_engine.py --refresh` (launched 2026-08-06,
+still running as of this writing -- genuinely expensive: 2000-resample circular block bootstrap CI
+per cell, correctness-motivated re-ranking-every-iteration per `ic_engine.py`'s own docstring, not
+a performance bug) finishes. `docs/research/data-edge-source-thesis.md` and todo 247 need their
+stale "substantial at 1h/15m" claims corrected to this real FAIL result.
 
-**What's already ready, not blocking:** `forward_returns`' OOS region is genuinely populated
-(todo 253, real `forward_return_writer.py`, corroboration logic intact, 302,039 rows). D-04 gate
-governance is wired into `cross_sectional_spread_tracker.py` and confirmed via
-`gate_evaluations`/`.planning/gate_look_log.jsonl` that no prior completed look for this
-construction exists outside the leaked-join run -- the corrected-join run will be a legitimate
-first look under that gate_id.
-
-**Separately verified 2026-08-05, not urgent but tracked:** none of the three CTF columns
-currently clear `ensemble_trainer.py`'s meta-FDR ensemble-eligibility gate under the still-leaked
-data (`ctf_momentum` 0/138 cells pass FDR; `ctf_regime_align` fails `min_cells` in every
-timeframe; `ctf_vwap_align` maxes at 28.6%) -- so even though steps 6-8 of the corpus pipeline are
-separately halted (todo 230), nothing would silently enter `alpha_ensemble_ic` on the leaked
-values even if that halt cleared today. This is incidental, not a designed safeguard -- see
-[todo 256](../todos/pending/256-ctf-columns-no-explicit-ensemble-exclusion-pending-join-fix-recompute.md).
-
-**Branches after the recompute's verdict, decided in advance so the fork doesn't need
-re-litigating when it resolves:**
-
-- **If PASS:** Phase 168 (cost-hurdle spread refinement) and Phase 156-159
-  (execution/sizing/kill-switch) unblock -- the real path from proven signal to deployable
-  capital. Nothing before this point should touch execution infrastructure.
-
-- **If FAIL:** back to discovery, not construction. Priority becomes the five untested
-  Signal-Extraction candidates (`cointegrated_pairs_residual`, `statistical_factor_residual`,
-  `cross_asset_lead_lag`, `adaptive_combiner_weights`, `jump_diffusion_decomposition`) and
-  `nonlinear_interaction_combiner`'s N1 residual-form test (the recommended next design once the
-  tree's structural mismatch to this corpus -- no per-feature exposure cap -- is accounted for;
-  see `docs/research/measurement-nonlinear-interaction-combiner.md`).
-
-- Either branch converges on the same already-stated project principle: prove edge before
-  production infra, never the reverse.
-
-**Deliberately paused pending step 3 above, not because they're bad ideas but because starting
-any of them now means building on an unconfirmed foundation** (Musk mandate: delete/pause before
-accelerate) -- Phase 168, Phase 156-159, Phase 171 (HMM walk-forward wiring, see below), the five
-new Signal-Extraction candidates. Corpus-hygiene backlog (todo 250 hypertable, todo 252
-fingerprint-deletion-no-archive) is real but lower-urgency and can be picked up opportunistically
-without blocking the main line.
+**Corpus-hygiene backlog (todo 250 hypertable, todo 252 fingerprint-deletion-no-archive) is real
+but lower-urgency and can be picked up opportunistically without blocking the main line.**
 
 **Expectation to hold, not a consolation-prize framing:** every "large" edge found in this corpus
 so far has collapsed 44-91% once a leak was corrected, with a small real residual surviving each
@@ -128,47 +110,41 @@ backfilled and live in the corpus (see Phase Summary table).** Phase 151 alone r
 but not executed, still deliberately behind Phase 167: don't accelerate feature-expansion work
 that hasn't been shown to be the actual bottleneck.
 
-**Current focus (updated 2026-08-05):** Milestone v3.1's defining verdict stands: Phase 148 found
+**Current focus (updated 2026-08-07):** Milestone v3.1's defining verdict stands: Phase 148 found
 Gate 1 (signal proof) PASS but Gate 2 (execution proof) FAIL -- do not promote the per-symbol
 directional construction to live capital. Phase 167 (Cross-Sectional Trade Construction,
 `cross_sectional_relative_value`) was recorded 2026-07-27 as COMPLETE, both live Validation Gates
-PASSED, but that verdict is UNVERIFIED -- see the Strategic Plan section at the top of this file
-for current status and the ready-to-execute recompute/re-verification plan. Do not cite Phase 167
-as a proven result and do not start Phase 168 until that plan runs and produces a real verdict.
+PASSED, but that verdict did not survive re-measurement under the corrected `ctf_momentum` join --
+**re-verified at authoritative tier 2026-08-07, both gates now FAIL** (see the Strategic Plan
+section at the top of this file for real numbers). Do not cite Phase 167 as a proven result and do
+not start Phase 168 -- this is now a settled FAIL, not a pending re-verification.
 
-Which tf Phase 167 should trade at is a separate, still-open question even once re-verified --
-`_TF="15m"` was inherited from the original falsification script, never comparatively tested
-against 5m for this construction (todo 235). `regime_conditional_persistence` is CONFIRMED DEAD
-(270 cells tested, zero pass on live corrected labels). `nonlinear_interaction_combiner` has a
-small real residual surviving the CTF-leak correction at all three affected tfs, not the
-"substantial" edge originally published -- collapse 90.6%/79.1%/43.8% at 1h/15m/5m respectively,
-with the surviving residual growing as tf gets finer even as collapse % shrinks (leak magnitude
-is roughly bounded by HTF bar duration; total predictive power grows at finer granularity). Full
-numbers: [CTF leak status](project_ctf_momentum_leak_and_nonlinear_combiner_status.md) in memory.
-Five new Signal-Extraction candidates (`cointegrated_pairs_residual`, `statistical_factor_residual`,
+Which tf Phase 167 should trade at is now moot given the FAIL verdict above -- `_TF="15m"` was
+inherited from the original falsification script, never comparatively tested against 5m, and
+there's no live construction left to trade at any tf (todo 235 accordingly deprioritized).
+`regime_conditional_persistence` is CONFIRMED DEAD (270 cells tested, zero pass on live corrected
+labels). `nonlinear_interaction_combiner` has a small real residual surviving the CTF-leak
+correction at all three affected tfs, not the "substantial" edge originally published -- collapse
+90.6%/79.1%/43.8% at 1h/15m/5m respectively, with the surviving residual growing as tf gets finer
+even as collapse % shrinks (leak magnitude is roughly bounded by HTF bar duration; total
+predictive power grows at finer granularity). Full numbers:
+[CTF leak status](project_ctf_momentum_leak_and_nonlinear_combiner_status.md) in memory. Five new
+Signal-Extraction candidates (`cointegrated_pairs_residual`, `statistical_factor_residual`,
 `cross_asset_lead_lag`, `adaptive_combiner_weights`, `jump_diffusion_decomposition`) remain
-untested. Full detail on all theses: `docs/research/data-edge-source-thesis.md` (stale on the CTF
-point pending todo 247's doc-reconciliation pass). Phase 144/143.1/162/163/164/165/167 are all
-COMPLETE -- see Phase Summary table below.
+untested -- now the actual priority per the resolved fork above. Full detail on all theses:
+`docs/research/data-edge-source-thesis.md` (still needs its stale "substantial at 1h/15m" CTF
+claim corrected to the real FAIL result -- todo 247, unblocked, not yet executed). Phase
+144/143.1/162/163/164/165/167 are all COMPLETE -- see Phase Summary table below.
 
-**CTF join-fix investigation (todos 241/243/245/253/256), status as of 2026-08-05 -- compressed
-from a much longer append-log; full narrative is in
+**CTF join-fix investigation (todos 241/243/245/253/256) -- RESOLVED 2026-08-07, authoritative
+tier, both gates FAIL.** Full narrative in
 [project_ctf_momentum_leak_and_nonlinear_combiner_status.md](project_ctf_momentum_leak_and_nonlinear_combiner_status.md)
-and each todo file, not restated here.** The join bug is root-caused, fixed in code
-(`_rekey_ctf_series_to_actual_close()`, committed), and measured: two independent diagnostic-tier
-re-verifications (SPY single-symbol pilot; a full 80-symbol cross-sectional Gate 1 reverify
-script) both agree the corrected join flips Phase 167's Gate 1 from PASS to FAIL. Neither is
-authoritative yet -- the corpus (`feature_vectors.ctf_momentum`/`ctf_vwap_align`/`ctf_regime_align`)
-has never actually been recomputed with the fix. `forward_returns`' OOS region is genuinely
-populated (todo 253) and D-04 gate governance is live in `cross_sectional_spread_tracker.py`, so
-both real prerequisites are done. **A full scoped execution plan now exists** (see Strategic Plan
-above) -- ready to run pending user go-ahead, not still an open design question. Todo 256
-(separately verified 2026-08-05: none of the 3 CTF columns currently clear ensemble eligibility
-under the leaked data, so nothing has silently entered `alpha_ensemble_ic`) tracks the residual
-risk until the recompute lands. `docs/research/measurement-nonlinear-interaction-combiner.md`
-also has a structural critique of the tree estimator (no per-feature exposure cap) plus two
-pre-registered follow-on test designs (N1/N2), not yet run -- N1 (residual-form) is the
-recommended next move once the CTF thread closes.
+and each todo file, not restated here; real numbers are in the Strategic Plan section at the top
+of this file. Todo 256's ensemble-eligibility re-check against fresh `feature_ic_scores` is the
+only piece still open (gated on `ic_engine.py --refresh` finishing, in progress -- not a Gate 1/2
+dependency). `docs/research/measurement-nonlinear-interaction-combiner.md` has a structural
+critique of the tree estimator (no per-feature exposure cap) plus two pre-registered follow-on
+test designs (N1/N2), not yet run -- N1 (residual-form) is the recommended next move.
 
 **New, separate thread the same night: `regime_writer.py`'s per-symbol HMM has a real
 parameter-level lookahead bug, confirmed, fixed, tested, and measured to NOT help (todos 026/248)
@@ -303,12 +279,12 @@ survive.** Those values came from the pre-fix leaky join; the SPY single-symbol 
 fixed join at 15m found point_ic collapses to +0.0047 (CI [-0.0007,0.0100], not significant) --
 consistent with the leak, not genuine signal, being what that partial check saw.
 
-*Tier 5 -- gate status changed 2026-07-27, re-opened 2026-08-04:* Phase 156-159 (Portfolio
-State/Sizing/Execution/Cost) was gated on Phase 167 producing a proven signal -- recorded as
-cleared when Phase 167's both Validation Gates PASSED. **That clearance is not currently valid**
-(see Current Focus above -- Phase 167's sole ranking feature, `ctf_momentum`, is the same feature
-todo 243 confirmed leaks lookahead through the batch join; the gate needs to be re-earned under
-the corrected join before Phase 156-159 can treat it as cleared). Phase 149/150/155 (PrecedentEngine, Alt Data) -- v4.0-adjacent, no case made yet.
+*Tier 5 -- gate status changed 2026-07-27, re-opened 2026-08-04, RESOLVED 2026-08-07:* Phase
+156-159 (Portfolio State/Sizing/Execution/Cost) was gated on Phase 167 producing a proven signal --
+recorded as cleared when Phase 167's both Validation Gates PASSED. **That clearance is now
+formally revoked, not just suspended** -- the corrected-join re-verification (see Strategic Plan
+above) shows both gates FAIL at authoritative tier. Phase 156-159 stays gated; it needs an
+independently-proven construction, not a re-earned Phase 167. Phase 149/150/155 (PrecedentEngine, Alt Data) -- v4.0-adjacent, no case made yet.
 Phase 147 (I7 due diligence) -- cheap, gates nothing.
 
 Full P2/P3 todo backlog: `.planning/todos/PRIORITIES.md`. Idea-level scoring:
@@ -346,7 +322,7 @@ Full P2/P3 todo backlog: `.planning/todos/PRIORITIES.md`. Idea-level scoring:
 | 162 | ic_engine Corpus Pipeline Throughput | COMPLETE (4/4 plans, 2026-07-23) -- whole-cell fingerprint mechanism, equivalence-proven |
 | 166 | Frame/Execution Recalibration | COMPLETE (6/6 plans, 4 waves, 2026-07-23) -- baseline and scalar candidates FAIL gate166 decisively; structural candidate halted pending Phase 163. Part 2 (todos 175/176) deprioritized by todo 179's finding. |
 | 163 | VP/SR Structural Primitives | COMPLETE (3/3 plans, 2026-07-24, verification 15/15 must-haves) -- closes todo 153. Historical backfill still open (todo 176, deprioritized) |
-| 167 | Cross-Sectional Trade Construction (cross_sectional_relative_value) | COMPLETE (6/6 plans, 2026-07-27) -- **verdict UNVERIFIED as of 2026-08-04**, was recorded as both live Validation Gates PASSED (gate1_passes=true, gate2_passes_overall=true) but sole ranking feature `ctf_momentum` confirmed lookahead-leaked (todo 243); re-run required. See Current Focus. |
+| 167 | Cross-Sectional Trade Construction (cross_sectional_relative_value) | COMPLETE (6/6 plans, 2026-07-27) -- **original verdict RETRACTED, re-verified 2026-08-07: both Validation Gates FAIL** (`gate1_ctf_momentum_decile_ls_ctf_join_v2`, `gate2_ctf_momentum_decile_ls_ctf_join_v2`) after correcting the sole ranking feature `ctf_momentum`'s lookahead-leaked join (todo 243). No live construction. See Strategic Plan section. |
 | 164 | SMC Institutional Footprint Primitives | COMPLETE (4/4 plans, 2026-07-28) -- all 36 SMC FeatureVector fields now real computed values in both FeatureFactory.compute() and compute_batch(). Plan 01 (data contract): 36 new feature_vectors columns + registry rows + FeatureVector fields (172->208 total), 39 feature.smc.* APR keys, FeatureCache.update_overnight_range() AMD mutator built. Plan 02 (order blocks + stateless breaker/mitigation): 7 fields via _compute_order_blocks(); 2 bugs caught and fixed during TDD. Plan 03 (FVG + liquidity sweeps + liquidity pools): 12 fields via _compute_fvg()/_compute_liquidity_sweeps()/_compute_liquidity_pools() (single-tf descoped, PWH/PWL/PDH/PDL dropped); an FVG selection bug found and fixed. Plan 04 (supply/demand zones + BOS/CHoCH + AMD cycle): final 18 fields via _compute_supply_demand_zones()/_compute_bos_choch()/_derive_amd_cycle(); update_overnight_range() wired into compute_batch(), the live per-bar handler, and the warm-up replay block, closing the AMD state-lifecycle cold-start gap. Historical backfill for all 36 columns deliberately deferred to the consolidated 163/164/165 recompute pass (todo 176). |
 | 165 | Swing/Fib/Trend/Session Structure Primitives | COMPLETE (5/5 plans, 2026-07-28) -- migration 267 adds 41 new feature_vectors columns + registry rows (group_name='session') for swing detection (7), trend structure (6), swing momentum (8), fibonacci zones (4), session levels (16); zero raw price levels or raw bar indices (D-02/D-04); all 41 fields float \| None, no fake-numeric defaults (D-01). 17 feature.swing.*/feature.trend_structure.*/feature.swing_momentum.*/feature.fib.*/feature.session_levels.* APR keys wired into both live and batch FeatureFactoryConfig sites. `_compute_swing_structure()`/`_compute_trend_structure()` (13 cols, shared `find_peaks`/`find_troughs` pass, D-06), `_compute_swing_momentum()`/`_compute_fib_zones()` (12 cols, deletes the archived cross-plugin fallback outright per D-05), `update_session_levels()` FeatureCache mutator (22 new internal state fields, D-07/D-08/D-09) + `_derive_session_levels()` (final 16 cols) all wired into both `compute()`/`compute_batch()`. Phase-closing gate (`test_phase165_all_41_fields_non_constant_batch`) confirms all 41 columns produce real values; `feature_registry` DB check confirms 41 rows with `added_phase='165'`. Every plan's mutation-verification pass (commit `a748d13d` discipline) surfaced and fixed a real bug in the plan's own tests or comments (a `math.isclose` `rel_tol` masking, a structurally-blind accumulator-collision test, a vacuous live/batch parity check, and a post-merge causal-safety-lint false positive) -- the discipline earned its keep every time it ran. Historical `feature_vectors` backfill for all 41 columns deliberately deferred to the consolidated 163/164/165 recompute pass (todo 176 / STATE.md Tier 0). |
 
@@ -406,10 +382,10 @@ ON CONFLICT (symbol, tf) DO UPDATE SET fetch_complete = true;
   pure scoping/discussion work). Follow-on to Phase 167's cross-sectional long-short
   construction; applies todo 030's cost-hurdle sweep as a construction-layer change (which
   symbols/legs survive transaction costs), no new features. Plans are execution-ready (5 plans,
-  4 waves, Codex+Agy reviewed) but **DO NOT EXECUTE as of 2026-08-04** -- Phase 167's Gate
-  1/Gate 2 PASS this phase depends on is UNVERIFIED (see Current Focus); starting 168 now would
-  build cost-hurdle machinery on top of a ranking signal (`ctf_momentum`) with a confirmed,
-  unresolved lookahead leak. See `docs/research/trade-construction-layer.md`.
+  4 waves, Codex+Agy reviewed) but **DO NOT EXECUTE -- Phase 167's Gate 1/Gate 2 both FAILED at
+  authoritative tier 2026-08-07** (see Strategic Plan section); this phase has no live
+  construction left to refine. Blocked indefinitely pending an independently-proven construction,
+  not a re-verification. See `docs/research/trade-construction-layer.md`.
 
 - Phase 151 (Feature Primitives Expansion + Interaction Layer): planned 2026-07-24, cross-AI reviewed and revised same day (Codex found 3 HIGH-severity findings, all fixed as real plan changes). **UPDATE 2026-08-05: waves 1-5 (plans 01-06, 09; 7 of 9) executed, /simplify'd, code-reviewed (1 critical + 5 warning findings, all but 2 deferred-as-todo fixed), and pushed to origin/main.** `FeatureVector` grew 249->292 fields. Waves 6-7 (151-07 corpus recompute, 151-08 interaction IC sweep) intentionally paused -- not deprioritized behind Phase 167 anymore, but sequenced to run once against the new 111-symbol universe (todo 259's in-flight backfill) instead of twice. See STATE.md frontmatter `stopped_at` for full current status.
 

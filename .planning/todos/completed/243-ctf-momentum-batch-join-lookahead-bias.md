@@ -1,8 +1,9 @@
 ---
-status: fixed-pending-recompute-decision
+status: closed
 priority: P0
 filed: 2026-08-03
 fixed: 2026-08-03
+closed: 2026-08-07
 source: code-reviewer subagent review of todo 241's live-path fix, mechanism
   independently verified against source before filing
 ---
@@ -293,22 +294,47 @@ confirming the corpus is now fully and stably corrected, no remaining drift.
 `feature_vectors.ctf_momentum`/`ctf_vwap_align`/`ctf_regime_align` at tf=15m are corrected
 corpus-wide for all 80 equities.
 
-**Plan Steps 5b-7 (not yet started)**:
-1. Force `services/ic_engine.py --refresh --tf 15m` for the 80 symbols -- required because
-   `ic_engine.py`'s own fingerprint watermark (`MAX(bar_ts)`/`COUNT(*)` on `feature_vectors`) is
-   blind to an in-place value correction that doesn't change row count. Safe regardless of the
-   gate_id_suffix governance question -- OOS enforcement means this only touches in-sample data
-   (`training_window_end` clamped to `oos_start`), not the holdout, so it doesn't itself consume
-   a gate "look."
-2. Re-check todo 256's meta-FDR eligibility table against the fresh `feature_ic_scores` (was
-   checked against stale/leaked rows).
-3. `cross_sectional_spread_tracker.py --evaluate-gate --gate-id-suffix ctf_join_v2
-   --gate-id-suffix-reason "<cite the reasoning in this file's earlier 'Real governance conflict
-   caught and resolved' section>"`, after bumping `alpha.construction.null_shuffles` from 40 to
-   1000+ first (restore to 40 after). This IS the actual holdout look.
-4. Update records regardless of outcome: close this todo with real numbers, update
-   `docs/research/data-edge-source-thesis.md` and STATE.md's Phase 167 UNVERIFIED flag,
-   re-check todo 256.
+**CLOSED 2026-08-07 -- both Validation Gates re-verified at authoritative tier, both FAIL.**
+
+Course-correction first: step 1 below (`ic_engine.py --refresh`) turned out to NOT be a
+prerequisite for Gate 1/2 -- confirmed via direct grep, `cross_sectional_spread_tracker.py`
+never references `feature_ic_scores` anywhere; it reads `feature_vectors`/`forward_returns`
+directly. The plan doc's step ordering (5b before 6) implied a dependency that doesn't actually
+exist -- 5b only feeds todo 256's separate ensemble-eligibility check. Ran Gate 1/2 in parallel
+with the `ic_engine` refresh rather than waiting on it (which turned out to take ~15 hours --
+genuinely expensive circular-block-bootstrap CI computation across 80 symbols + 17
+cross-sectional cells, confirmed via `py-spy` thread dump as real correctness-motivated compute,
+not a hang).
+
+Second catch before running Gate 1 for real: `construction_spreads`' `INSERT` uses
+`ON CONFLICT (construction_name, tf, bar_ts) DO NOTHING` -- a bare `--backfill` re-run against
+the same date range would have silently skipped every already-existing row and measured stale
+pre-fix data, exactly the same silent-staleness shape as the `ic_engine` fingerprint problem.
+Caught by reading the actual INSERT logic before trusting the `--backfill` flag name.
+`construction_spreads` (130,625 rows, sole other consumer confirmed to be a read-only diagnostic
+script that doesn't touch it) TRUNCATEd and rebuilt from the corrected `feature_vectors`
+(59.6s, same 130,625-row count, now correct).
+
+**Real numbers, OOS window, 3,803 bars / 147 day-clusters** (`null_shuffles` raised 40->1000 via
+audited `ConfigService.set()` for this run-once look, restored to 40 immediately after):
+
+- **Gate 1** (`gate1_ctf_momentum_decile_ls_ctf_join_v2`, `gate1_passes=False`): fast
+  `ci_lower=-0.000141` (fails to clear zero), `null_p=0.649`; slow `ci_lower=-0.000486`,
+  `null_p=0.986` (observed spread beaten by 98.6% of random-ranking draws). Both scales fail
+  both criteria.
+- **Gate 2** (`gate2_ctf_momentum_decile_ls_ctf_join_v2`, `gate2_passes_overall=False`): no
+  residual survives at 95% CI after removing the static-tilt benchmark, either scale
+  (`residual_ci_lower` -0.0000706 fast / -0.000354 slow).
+
+This confirms both prior diagnostic-tier measurements at full authoritative tier. Phase 167's
+"COMPLETE, both Validation Gates PASSED" verdict is retracted. Fork resolution (decided in
+advance): FAIL branch -- back to discovery, not construction. Phase 168/156-159 stay blocked.
+Full detail: `.planning/STATE.md`'s Strategic Plan section (top of file).
+
+**Remaining, not this todo's scope, tracked separately**: todo 256's ensemble-eligibility
+re-check against fresh `feature_ic_scores` (gated on the still-running `ic_engine.py --refresh`);
+todo 247's doc-reconciliation pass on `docs/research/data-edge-source-thesis.md`'s stale
+"substantial at 1h/15m" claim.
 
 ## Cross-refs
 

@@ -1,7 +1,7 @@
 {
   "step_name": "cross_sectional_spread_tracker",
   "step_version": "1.0",
-  "timestamp": "2026-08-04T23:11:36.079187+00:00",
+  "timestamp": "2026-08-07T11:55:22.025547+00:00",
   "status": "partial",
   "inputs": {
     "mode": "backfill",
@@ -10,7 +10,7 @@
     "n_panel_rows": 8823070,
     "n_bars_processed": 130625,
     "n_bars_skipped_degenerate": 11,
-    "turnover_mean": 0.09084522497141923,
+    "turnover_mean": 0.09122881870319172,
     "turnover_median": 0.0625
   },
   "outputs": {
