@@ -8,7 +8,7 @@
 # avg_seconds_per_symbol isn't inflated by downtime the process spends idle/reconnecting.
 # Uses America/New_York for the boundary so DST transitions don't need manual adjustment.
 #
-# Usage: ./ops_client43_progress_sample.sh
+# Usage: ./infrastructure_client43_progress_sample.sh
 set -euo pipefail
 
 PID=3159680
@@ -45,8 +45,7 @@ while [ "$BOUND_EPOCH" -lt "$NOW_EPOCH" ]; do
 done
 ACTIVE_SECONDS=$((ELAPSED_SECONDS - BLACKOUT_SECONDS))
 
-read -r COMPLETE PARTIAL NOT_STARTED TOTAL <<EOF
-$(PGPASSWORD=postgres psql -U postgres -h localhost -d indicagent -t -A -F' ' -c "
+read -r COMPLETE PARTIAL NOT_STARTED TOTAL <<< "$(PGPASSWORD=postgres psql -U postgres -h localhost -d indicagent -t -A -F' ' -c "
 WITH new_syms AS (
   SELECT symbol FROM instruments WHERE is_active = true AND created_at >= '2026-08-05'
 ),
@@ -61,10 +60,9 @@ SELECT
   count(*) FILTER (WHERE n_tf = 0),
   count(*)
 FROM tf_counts;
-")
-EOF
+")"
 
-SAMPLED_AT=$(date -u +%Y-%m-%dT%H:%M:%SZ)
+SAMPLED_AT=$(date -u -d "@${NOW_EPOCH}" +%Y-%m-%dT%H:%M:%SZ)
 
 if [ "$COMPLETE" -gt 0 ]; then
     AVG_SEC=$(echo "scale=1; $ELAPSED_SECONDS / $COMPLETE" | bc)
