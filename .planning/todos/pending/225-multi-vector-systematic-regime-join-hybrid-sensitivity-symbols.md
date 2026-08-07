@@ -1,6 +1,6 @@
 ---
 status: pending
-priority: P2
+priority: P3
 filed: 2026-08-01
 source: session discussion of todo 224 (commodity/fx regime-group enablement) with user -- user
   correctly identified that forcing single-group routing discards real multi-asset-class
@@ -8,6 +8,16 @@ source: session discussion of todo 224 (commodity/fx regime-group enablement) wi
   finding the codebase already has the statistical primitives for a better mechanism than the
   originally-proposed discrete multi-membership routing rewrite.
 ---
+
+**No longer blocking anything (2026-08-07):** todo 224 shipped the `commodity` group's
+equity-tag collision fix without this todo -- `ic_engine.py`'s `_build_symbol_regime_class`
+gained a small, explicit, tested `exclude_symbols` field instead; `AMLP`/`GDX`/`OIH`/`XLE`/`XOP`
+route to `equity` for Job 2, unchanged from before, no gradient-conditional measurement needed
+to unblock enablement. This todo is now purely the independent measurement-layer idea it always
+was underneath -- "does a symbol's IC genuinely vary with its calibrated tag-weight exposure" --
+worth revisiting on its own merits, not as a dependency of anything else. Its own 2026-08-01
+pilot already came back negative (see below); P2->P3 per that pilot's own recommendation,
+now acted on since nothing else is waiting on it.
 
 # Gradient-conditional IC sensitivity across tag vectors (partial/magnitude-conditional IC
 # over calibrated `instrument_tags.weight`, not discrete regime-group routing)

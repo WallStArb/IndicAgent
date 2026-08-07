@@ -137,6 +137,21 @@ enabled but never populated), now fixed, closing half of todo 224; (2) todo 267'
 post-recompute operational checks, gated on "todo 243's corpus recompute landing," are now
 unblocked -- not actioned here, todo 267 is a separate concurrent-session thread.
 
+**Todo 224 CLOSED 2026-08-07 -- commodity regime group unified and enabled (migration 306).**
+Moved to `completed/`, dropped from the P2 table. `commodity_energy`/`commodity_metals`/
+`commodity_agri` merged into one `commodity` group (27 members, not the ~11 originally
+estimated -- the universe expansion grew commodity-tagged membership materially between filing
+and execution), `DBC`'s unrouted `commodity_broad` tag fixed, group enabled and confirmed
+populated (564,439 `market_regimes` rows, all 4 tfs, no crash). The `AMLP`/`GDX`/`OIH`/`XLE`/
+`XOP` equity-tag collision was resolved WITHOUT todo 225 -- `ic_engine.py`'s
+`_build_symbol_regime_class` gained a new `exclude_symbols` field (small, explicit, tested
+carve-out, not a silent precedence rule) instead of waiting on 225's gradient-conditional IC
+mechanism, whose own pilot had already come back negative. Todo 225 demoted P2->P3 accordingly
+(no longer blocking anything, purely an independent measurement idea now). Side effect: enabling
+the group for the first time ever surfaced a real latent bug in `commodity_momentum_ts.py`
+(never live-tested before -- shipped `enabled: false` since inception), fixed same session,
+regression test added. Commit `d6623b31`.
+
 ---
 
 ## P0 — Fix soon (integrity/correctness gaps already surfaced)
@@ -196,7 +211,6 @@ unblocked -- not actioned here, todo 267 is a separate concurrent-session thread
 | [171](pending/171-rates-dual-write-symbol-hmm-reversion-check.md) | New 2026-07-22, a "don't forget" item recorded when closing Phase 144: `rates.dual_write_symbol_hmm=true` was deliberately temporary shadow-mode measurement; F1's non-trigger answered the question but only on a scoped 12-symbol run. Batch into the next full corpus rebuild (same cluster as todo 146/155) — confirm F1 holds at full scale before reverting the flag, don't revert on a partial sample, don't forget to ever revisit it either. |
 | [172](pending/172-path-dependent-frame-statistics-order-sensitivity-sweep.md) | **Item 2 FIXED 2026-08-03** -- `frame_gate_passes`'s cluster-mean array is now sorted at both the inter-cluster and within-cluster level (the second level needed once testing exposed residual ULP-level float-summation noise from the first fix alone); regression test asserts exact reproducibility across different row-fetch orders. Item 1 (broader path-dependent-statistics sweep elsewhere in the codebase) remains open, unscoped. Did not affect Phase 148's actual gate verdicts (background: `_max_drawdown` over `alpha_frames` silently produced a non-reproducible number because same-`bar_ts` frames were treated as sequential in a cumulative-sum walk -- separately fixed for Gate 2 already). |
 | [223](pending/223-src-intelligence-i1-i7-dead-code-153-files-30k-lines.md) | New 2026-08-01, found during a "clean up docs tests scripts dead code" survey pass: `src/intelligence/`'s I1-I7 orchestration/plugin tree (~153 files, ~30k lines) has no live production entry point (`services/intelligence_pipeline.py` is physically deleted) — reachable only via `shadow_validator.py`'s weekly job, which queries a table (`shadow_registry`) already confirmed dead. One clean orphaned duplicate (`features/i5_patterns/`, 17 files) already deleted same day. The rest needs an explicit delete-vs-archive decision plus a matching call on 18 Group-A dead-pipeline tests and 26+ Group-B SLA/I7-plugin tests (Group B depends on whether the paused IBKR ingestion chain resumes through the v2.x signal path or not). |
-| [224](pending/224-commodity-fx-regime-group-reenablement-decision-todo-041.md) | **`fx` track FULLY CLOSED 2026-08-06** — the 2026-08-01 config flip (migration 280) sat unfollowed for 4 days with nobody running `cross_sectional_regime_model.py`, which meant `ic_engine.py`'s startup gate crash-loop-failed for every consumer project-wide since 2026-08-02 (found while unblocking todo 243's CTF refresh). Ran the real regime-model pass — `fx` now has 498,302 `market_regimes` rows across all 4 tfs, real signal (2 labels at 15m). `ic_engine.py` is unblocked for everyone again, not just this todo. **Still open, separate track**: unify `commodity_energy`/`commodity_metals`/`commodity_agri` into one `commodity` group (fixes thinness, esp. agri's N=1), fix `DBC`'s unrouted `commodity_broad` tag, both blocked on [225](pending/225-multi-vector-systematic-regime-join-hybrid-sensitivity-symbols.md) for the `AMLP`/`GDX`/`OIH`/`XLE`/`XOP` equity-tag collision. |
 | [226](pending/226-regime-writer-n-iter-convergence-headroom-check.md) | New 2026-08-02. **Step 1 DONE 2026-08-02**: log `model.monitor_.iter` per (symbol, tf) cell (commit 5c86ffeb + fix 7a0d7de1). Next step: analyze distribution to decide if n_iter=200 cap is oversized. |
 | [227](pending/227-ic-engine-adaptive-bootstrap-resample-early-stop.md) | New 2026-08-02. Contingent on a design decision: does `_blocked_bootstrap_ci` need bit-identical reproducibility (load-bearing like HMM) or is a documented tolerance acceptable? That choice gates whether adaptive/early-stopping resample is feasible or requires a full redesign. |
 | [228](pending/228-corpus-pipeline-unmeasured-steps-io-vs-cpu-triage.md) | New 2026-08-02. `217` (step-timing instrumentation) is CLOSED (step_timings.jsonl confirmed live) but only captured steps 5-8 so far — steps 1-4 predate the instrumentation landing mid-run. Needs one more full pipeline run from step 1 to get timing data for all 8 steps. Then: classify steps 1/6/7/8 as I/O- vs CPU-bound before applying thread-tuning lessons from todos 215/216. |
