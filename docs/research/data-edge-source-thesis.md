@@ -1,15 +1,20 @@
 # Edge Source Thesis -- Where Does Our Edge Come From?
 
-**Version:** 2.1
+**Version:** 2.2
 **Status:** draft -- standing document; every claim here is falsifiable and must be revisited
 as evidence lands
-**Priority:** high -- **cross_sectional_relative_value's Phase 167 PASS is UNVERIFIED as of
-2026-08-04, not confirmed** (both live Validation Gates were recorded as PASSED 2026-07-27, but
-the sole ranking feature, `ctf_momentum`, was confirmed 2026-08-04 to carry real lookahead in
-its batch join -- todo 243. A diagnostic-tier re-verification under the corrected join found
-Gate 1 now FAILS, both scales' CI negative, shuffled-null no longer clearing -- see
-cross_sectional_relative_value's own note below and `docs/research/trade-construction-layer.md`
-for full detail. **Do not start Phase 168 until an authoritative re-verification lands.**);
+**Priority:** high -- **cross_sectional_relative_value's Phase 167 verdict is now CONFIRMED FAIL at
+authoritative tier, 2026-08-07** (both live Validation Gates were recorded as PASSED 2026-07-27,
+but the sole ranking feature, `ctf_momentum`, was confirmed 2026-08-04 to carry real lookahead in
+its batch join -- todo 243. The authoritative re-verification ran under the corrected join with
+`null_shuffles` raised to 1000 for the run-once look: Gate 1 FAILS (`ci_lower` negative at both
+scales, `null_p` 0.649/0.986 -- the real ranking did *worse* than most random rankings), Gate 2
+FAILS (no residual survives at 95% CI after removing the static-tilt benchmark). This is a
+retraction, not an open question -- see cross_sectional_relative_value's own note below and
+`docs/research/trade-construction-layer.md` for full detail. **Phase 168 and Phase 156-159 are
+formally blocked, not "unverified" -- do not start either without a new, independently-proven
+construction first.** Fork resolution: back to the discovery track (five Signal-Extraction
+candidates below), not construction.);
 **nonlinear_interaction_combiner's original "SUBSTANTIAL at 1h and 15m" verdict is SUPERSEDED --
 confirmed overwhelmingly leak-driven at every tf tested** (todo 245, CLOSED 2026-08-04: 1h
 collapsed 90.6%, 15m 79.1%, 5m 43.8% once the same leaked `ctf_momentum`-family columns were
@@ -21,8 +26,12 @@ and fixed the same investigation
 [todo 239](../../.planning/todos/pending/239-nonlinear-interaction-combiner-embargo-passed-in-pooled-panel-rows-not-bars.md)).
 Next step pre-registered, not yet run: does cross_sectional_relative_value's construction improve ranked by nonlinear_interaction_combiner's tree score instead of
 `ctf_momentum` ([todo 238](../../.planning/todos/pending/238-nonlinear-interaction-combiner-ranked-cross-sectional-relative-value-pre-registration.md))
--- gated on cross_sectional_relative_value's own re-verification landing first, since it inherits
-the same leaked ranking feature question.
+-- **the gate this was waiting on has now resolved, and not the way todo 238's own premise
+assumed.** cross_sectional_relative_value's re-verification (above) FAILED, not passed -- the *construction* is
+confirmed dead, not just its ranking feature. Whether swapping the ranking feature inside an
+already-dead construction is still worth testing is an open call, not automatically yes or no;
+re-scope todo 238 explicitly before resuming it rather than assuming its original framing still
+holds.
 Five Signal-Extraction candidates added 2026-08-03 (`cointegrated_pairs_residual`,
 `statistical_factor_residual`, `cross_asset_lead_lag`, `adaptive_combiner_weights`,
 `jump_diffusion_decomposition`) and three Trade Constructions the same day
@@ -30,7 +39,7 @@ Five Signal-Extraction candidates added 2026-08-03 (`cointegrated_pairs_residual
 `dealer_hedging_flow`) -- none tested. horizon_risk_premium remains untested and is the only
 thesis here whose falsification criterion still lacks a pre-registered numeric bar.
 **Milestone:** standing -- not tied to a phase
-**Last Updated:** 2026-08-04
+**Last Updated:** 2026-08-07
 **Tags:** edge, thesis, counterparty, renaissance, falsifiable, first-principles
 
 **Reorganized 2026-08-03** -- this doc always implicitly mixed two different kinds of claim
@@ -765,11 +774,22 @@ discipline as cross_sectional_relative_value's shuffled-null and nonlinear_inter
 design: [todo 238](../../.planning/todos/pending/238-nonlinear-interaction-combiner-ranked-cross-sectional-relative-value-pre-registration.md).
 Gated on the 5m result above landing first, since it may change which tf(s) are worth testing.
 
-#### Five New Signal-Extraction Candidates, added 2026-08-03, none tested yet
+#### Five New Signal-Extraction Candidates, added 2026-08-03
 
 (`cointegrated_pairs_residual`, `statistical_factor_residual`, `cross_asset_lead_lag`,
 `adaptive_combiner_weights`, `jump_diffusion_decomposition` -- named T6-T10 in earlier prose;
 renamed 2026-08-03 so the label itself carries the mechanism, not just a ticket number.)
+
+**Refined 2026-08-07, post Phase 167 retraction** -- this is now the actual current-priority
+track (fork resolution, `.planning/STATE.md`: back to discovery, not construction).
+`jump_diffusion_decomposition` and `cointegrated_pairs_residual` were checked for real, unresolved
+methodology debt and found clean -- full pre-registered designs (formulas, construction
+guardrails, reuse plan, staged falsification bars) split out to dedicated docs, same pattern as
+`nonlinear_interaction_combiner`'s: `docs/research/measurement-jump-diffusion-decomposition.md`
+and `docs/research/measurement-cointegrated-pairs-residual.md`. `statistical_factor_residual`
+and `cross_asset_lead_lag` still have real open methodology debt (see their own paragraphs
+below) and are not ready to execute. `adaptive_combiner_weights`' own cost claim below is now
+verified stale/false against live data -- see its paragraph for the corrected framing.
 
 regime_conditional_persistence tested one grouping (discrete price-trend regime) and one combination rule (linear). nonlinear_interaction_combiner
 tested one combination rule (non-linear tree) on the same grouping (none -- pooled). That leaves
@@ -788,33 +808,14 @@ universe -- that's exactly the regime PCA is built for).
 
 **Cointegrated Pairs Residual (counterparty: basket/index flows that ignore pairwise structure).**
 A genuinely different grouping than regime_conditional_persistence (regime) or cross_sectional_relative_value (broad cross-sectional rank): specific,
-economically-linked pairs (sector leveraged/inverse pairs, a miner ETF vs. the metal it tracks,
-`TLT`/`IEF`) tested for a stable cointegrating relationship whose short-run deviations
-mean-revert -- the classical Engle-Granger/Johansen stat-arb structure. **Falsification:** (1)
-screen candidate pairs by economic relatedness, not a blind correlation scan across all 80
-symbols (a blind scan risks the exact multiple-comparisons trap this project's own FDR
-discipline exists to catch). (2) Engle-Granger test for cointegration on log-price pairs, with an
-OOS stability check -- a pair cointegrated in-sample but not OOS is noise, not structure. (3) For
-pairs that pass, day-clustered bootstrap CI on whether the residual z-score predicts forward
-reversion, same statistical bar as every other thesis here. If zero pairs both cointegrate OOS
-and show predictive residual reversion, cointegrated_pairs_residual is dead. (4) **A turnover and cost gate,
-pre-registered with the rest rather than added after a promising gross number** -- cross_sectional_relative_value already
-killed two sibling features (`ctf_vwap_align`, `ctf_regime_align`) that cleared their CI and
-died on turnover and the cost floor, and a mean-reverting spread traded off a z-score band is
-structurally a high-turnover construction. The same cost-hurdle sweep cross_sectional_relative_value's Gate 1 uses,
-applied to the netted pair spread, at the most conservative tier. **Tighten "economically
-related" before screening, or the screen is a correlation scan in disguise:** admit only pairs
-with a *structural* linkage -- two funds tracking the same index or overlapping baskets
-(`EEM`/`VWO`, `EFA`/`EZU`, `MCHI`/`FXI`, `IEF`/`TLT` on the same curve), or a fund and the
-commodity it holds (`GDX`/`GLD`, `OIH`/`XOP`). Two merely-correlated distinct sector ETFs are
-not a cointegration candidate; their relationship is a factor exposure, which is
-statistical_factor_residual's question, not this one. **Cost:** cheap -- existing daily closes are
-sufficient for the cointegration screen; only pairs that pass need the full IC/bootstrap
-treatment. **Stochastic-calculus detail (added 2026-08-03):** for pairs that cointegrate, model
-the spread as an Ornstein-Uhlenbeck process (`dX_t = θ(μ - X_t)dt + σdW_t`) rather than trading
-off an arbitrary lookback window -- the fitted `θ` gives a closed-form mean-reversion half-life
-(`ln(2)/θ`), the standard stat-arb sizing/holding-period signal for a cointegrated spread, more
-principled than a fixed z-score lookback chosen by hand.
+economically-linked pairs tested for a stable cointegrating relationship whose short-run
+deviations mean-revert -- the classical Engle-Granger/Johansen stat-arb structure, applied only
+to named, structurally-linked pairs (`EEM`/`VWO`, `EFA`/`EZU`, `MCHI`/`FXI`, `IEF`/`TLT`,
+`GDX`/`GLD`, `OIH`/`XOP`) to avoid the multiple-comparisons trap a blind correlation scan would
+create. **Full pre-registered design (staged Engle-Granger + OOS stability check + OU half-life
+fit + day-clustered bootstrap + cost-hurdle gate, reuse plan, live-data verification):
+`docs/research/measurement-cointegrated-pairs-residual.md`** -- ready to execute, zero remaining
+methodology debt as of 2026-08-07.
 
 **Statistical Factor Residual (counterparty: index/factor-only investors).** Decompose the
 cross-sectional return matrix into its top-K statistical factors (PCA over the correlated
@@ -826,18 +827,20 @@ first reveals structure invisible in the raw cross-section. **Falsification:** f
 simpler factor model) causally -- no look-ahead in the factor loadings, same discipline as nonlinear_interaction_combiner's
 per-symbol demeaning fix -- and test whether `ctf_momentum` (or the nonlinear_interaction_combiner tree score) computed on
 the residual return series shows a materially higher IC than on raw returns. If residualizing
-doesn't change the IC picture, statistical_factor_residual is dead. **The bar has to be cross_sectional_relative_value, not raw returns
-(tightened 2026-08-03), or this thesis can pass trivially.** cross_sectional_relative_value's productionized
-dollar-neutral decile construction is *already* a crude one-factor residualization -- going
-long the top decile and short the bottom removes most of the common market factor by
-construction. Beating raw per-symbol returns therefore proves nothing that Phase 167 has not
-already proven. The question statistical_factor_residual actually asks is whether a **K-factor** orthogonalization beats
-that existing **one-factor** one, so the comparison must be against
-`services/cross_sectional_spread_tracker.py`'s realized spread on the identical OOS rows, same
-day-clustered bootstrap, same cost-hurdle sweep. **Risk to flag up front:** with effective breadth
-~8-15, a PCA over 80 highly-correlated ETFs may only have 3-5 meaningful factors before hitting
-noise -- the K-selection question needs a real answer (parallel to HMM's K=5 BIC study, not a
-guess) before this result can be trusted.
+doesn't change the IC picture, statistical_factor_residual is dead.
+**Comparison bar corrected 2026-08-07 -- the original "beat cross_sectional_relative_value" framing (tightened
+2026-08-03) no longer holds now that Phase 167 is confirmed FAIL at authoritative tier (see this
+doc's header), not the proven champion it was when that bar was written.** The bar reverts to
+raw per-symbol IC and the existing pooled/cross-sectional IC already in `feature_ic_scores` --
+if residualizing beats those, that is real evidence a K-factor decomposition adds something the
+current pooled measurement misses; it no longer needs to clear a construction that doesn't exist
+anymore. **Not ready to execute regardless of the bar fix: the K-selection question is real,
+unresolved methodology debt, not an execution detail.** With effective breadth ~8-15, a PCA over
+80 highly-correlated ETFs may only have 3-5 meaningful factors before hitting noise -- K must be
+chosen via a pre-registered, principled method (parallel to HMM's K=5 BIC study) *before* any IC
+test runs, or reporting whichever K "looks best" post-hoc is the same p-hacking shape
+`adaptive_combiner_weights`' halflife-grid discipline below exists to prevent. Resolve K-selection
+first; do not start the IC comparison until that's written down.
 
 **Cross-Asset Lead-Lag (counterparty: participants who don't
 cross-reference correlated instruments in real time).** Existing broadcast features (`vix_z`,
@@ -863,69 +866,41 @@ mechanism-free version; if the specific one fails, that is a mark against the ge
 
 **Adaptive Combiner Weights (counterparty: participants on stale,
 periodically-refit weights).** `ensemble_trainer.py`'s shrunk-IC weights are re-estimated in
-discrete batch runs, not continuously. regime_conditional_persistence tested discrete regime-conditional weight switching
-and it failed; adaptive_combiner_weights asks whether letting weights drift smoothly and continuously (an
-exponentially-weighted rolling IC, or a Kalman filter -- the discrete-time analog of a
-continuous-time linear stochastic system, with weights as latent, slowly-varying state)
-captures real time-variation a periodic step-function re-fit misses between recompute cycles.
-Orthogonal to both regime_conditional_persistence (continuous drift vs. discrete regime switch) and nonlinear_interaction_combiner (adaptive linear
-weights vs. static non-linear combination) -- no new grouping or model family, just a different
-update dynamic on the existing linear combiner. **Falsification:** build a walk-forward EWMA (or
-Kalman-filtered) weight update over the same per-feature IC series `ensemble_trainer.py` already
-computes, with a pre-specified halflife (not tuned to the result), and compare OOS IC/Sharpe
-against the current periodic-batch weights over the identical held-out window. If it doesn't
-clear a real uplift, adaptive_combiner_weights is dead -- feature predictive power is stable enough on the existing
-recompute cadence. **"A pre-specified halflife" needs teeth (tightened 2026-08-03):** write down
-the exact grid before running (e.g. three halflives spanning an order of magnitude, motivated by
-the current recompute cadence rather than by a scan), report **every** cell, and BH-FDR across
-the grid. Reporting the best halflife out of an unstated search is the single easiest way to
-manufacture an uplift here, and it would be indistinguishable from a real one in the writeup.
-**Prioritization caveat:** a positive result has no current consumer. The live construction
-(`services/cross_sectional_spread_tracker.py`) ranks by a **single raw feature**,
-`ctf_momentum`, not by the ensemble's combined weights, so improving how those weights adapt
-changes nothing that trades today. This is a reason to sequence it as a cheap diagnostic of
-whether feature predictive power is time-varying at all -- which is genuinely useful -- not as a
-step toward a trade. **Cost:** cheapest of the five -- reuses `feature_ic_scores`' existing time
-series directly, no new grouping or pairwise screen.
+discrete batch runs, not continuously -- this asks whether letting weights drift smoothly and
+continuously (EWMA, or a Kalman filter) captures real time-variation a periodic step-function
+re-fit misses between recompute cycles. Orthogonal to both regime_conditional_persistence (continuous drift vs.
+discrete regime switch) and nonlinear_interaction_combiner (adaptive linear weights vs. static non-linear combination) --
+no new grouping or model family, just a different update dynamic on the existing linear combiner.
+**Full pre-registered design, live-verified cost/consumer corrections, and three sibling
+ensemble-combination candidates from the same source backlog (regime-posterior soft blending,
+HRP-lite family allocation, Bayesian variant averaging):
+`docs/research/measurement-adaptive-combiner-weights.md`** -- corrects the original "cheapest of
+the five" cost claim (verified false live, 2026-08-07: only one `feature_ic_scores_history`
+snapshot exists, nothing to fit a halflife against yet) and tracks the trigger condition at
+[`.planning/seeds/adaptive-combiner-weights-trailing-ic-trigger.md`](../../.planning/seeds/adaptive-combiner-weights-trailing-ic-trigger.md).
+Not ready to execute; queued, not deleted.
 
 **Jump/Diffusion Decomposition (counterparty: participants who conflate gap risk with
-trend risk).** All existing volatility features (`garch_volatility`, `hurst_exponent`) treat
-price movement as one undifferentiated process. Realized-variance theory splits it into two
-economically distinct components: a continuous diffusion part (steady drift/trend) and a jump
-part (discontinuous, news-driven gaps) -- separable via bipower variation vs. total realized
-variance (Barndorff-Nielsen/Shephard) or an explicit jump-diffusion fit. **Why we might win:** a
-symbol whose recent volatility is jump-dominated (news risk) behaves differently going forward
-than one whose volatility is diffusion-dominated (trend continuation) -- if the current single
-undifferentiated vol features blend these, they may be averaging away a real distinction, the
-same "combiner/grouping is blind to structure that exists" pattern as regime_conditional_persistence/nonlinear_interaction_combiner, applied to feature
-*construction* instead of combination. **Falsification:** compute a jump-ratio feature (jump
-variation / total variation) per symbol per bar from existing intraday OHLCV, test whether it
-adds incremental IC beyond the existing GARCH/Hurst features on the same target -- not whether
-it's predictive alone (a new feature that only duplicates existing information isn't evidence of
-anything). If it adds nothing beyond what GARCH/Hurst already capture, jump_diffusion_decomposition is dead.
-**Two construction constraints to fix before computing anything (added 2026-08-03), because
-getting either wrong produces a feature that measures the wrong thing while still looking
-plausible:** (1) Bipower variation is a *sub-bar* estimator -- it needs the returns *inside* the
-bar being labelled, so a 15m jump ratio must be built from the 1m or 5m bars within that 15m
-window, not from a rolling window of 15m bars, and it must read
-`market_data_ohlcv_tradeable` so synthetic-fill and flat-carry-forward placeholder bars don't
-register as zero-return "diffusion." (2) At daily cadence the single largest discontinuity in
-any ETF's price path is the **overnight gap**, which under Invariant 1 sits inside the entry
-price and is not tradeable -- so a naive jump measure at 1d would be dominated by exactly the
-component the executable-return definition excludes. Compute the jump ratio from intraday
-returns only, and treat the overnight gap as a separate, separately-named quantity
-(`overnight_gap_z` already exists) rather than folding it into the jump term. **Cost:**
-cheap -- pure feature-engineering exercise on data already in `market_data_ohlcv`, no new
-grouping, no new data source; closer in shape to a Phase 151 primitive candidate than a new
-combiner or construction, but named here since the *specific processing/decomposition
-advantage* (separating jump from diffusion risk) is the falsifiable claim, not just "add a
-feature."
+trend risk).** All existing volatility features (`garch_ratio`, `hurst`) treat price movement as
+one undifferentiated process. Realized-variance theory splits it into two economically distinct
+components: a continuous diffusion part (steady drift/trend) and a jump part (discontinuous,
+news-driven gaps) -- separable via bipower variation vs. total realized variance
+(Barndorff-Nielsen/Shephard). **Full pre-registered design (exact formula, construction
+guardrails against two specific silent-bias traps, reuse plan, live-data verification):
+`docs/research/measurement-jump-diffusion-decomposition.md`** -- ready to execute, zero remaining
+methodology debt as of 2026-08-07.
 
-**Sequencing, cheapest-first:** adaptive_combiner_weights (reuses existing IC time series) -> jump_diffusion_decomposition (feature-engineering
-only, existing OHLCV) -> statistical_factor_residual (PCA on existing closes) -> cointegrated_pairs_residual (pairs screen, existing closes,
-narrow candidate list) -> cross_asset_lead_lag (most expensive, needs the multiple-comparisons pre-filter done
-carefully first). None are urgent -- independent of the in-flight nonlinear_interaction_combiner-at-15m/cross_sectional_relative_value-at-5m work, pick
-up whenever that settles.
+**Sequencing, revised 2026-08-07 (supersedes the original cheapest-first order below, which
+assumed a cost profile for `adaptive_combiner_weights` that live data doesn't support):**
+`jump_diffusion_decomposition` and `cointegrated_pairs_residual` run first, in parallel (fully
+disjoint data/code paths, both have zero remaining methodology debt, both pre-registered in their
+own dedicated docs). `statistical_factor_residual` is next once its K-selection question gets a
+real, pre-registered answer (real design work, not mechanical). `adaptive_combiner_weights` is
+queued behind its own data-availability trigger (see its paragraph above), not run on any fixed
+schedule. `cross_asset_lead_lag` waits on its cheaper sibling thesis
+(`stale_reference_price_adjustment`) running first, per that paragraph's own reasoning.
+*(Original 2026-08-03 ordering, now superseded: adaptive_combiner_weights -> jump_diffusion_decomposition
+-> statistical_factor_residual -> cointegrated_pairs_residual -> cross_asset_lead_lag.)*
 
 **Combined sequencing across both groups (added 2026-08-03, after the three new Trade
 Constructions).** Cost is not the only ordering criterion -- a Trade Construction that fails
