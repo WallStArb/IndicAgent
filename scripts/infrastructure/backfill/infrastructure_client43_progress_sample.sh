@@ -25,21 +25,28 @@ if [ -z "$ELAPSED_SECONDS" ]; then
     exit 1
 fi
 
-# Sum full/partial 8pm-ET blackout windows that fall within [start, now).
+# Sum full/partial 8pm-ET blackout windows overlapping [start, now). Start scanning from
+# the calendar day before START's ET date -- guarantees the scan covers a window START
+# might fall inside the middle of -- and clip each candidate window's overlap against
+# [START, NOW) directly rather than branching on where START falls relative to 20:00.
+# A window with zero or negative overlap (i.e. before START or after NOW) contributes 0.
 NOW_EPOCH=$(date +%s)
 START_EPOCH=$((NOW_EPOCH - ELAPSED_SECONDS))
 BLACKOUT_SECONDS=0
 DAY=$(TZ=America/New_York date -d "@${START_EPOCH}" +%Y-%m-%d)
-BOUND_EPOCH=$(TZ=America/New_York date -d "${DAY} 20:00" +%s)
-if [ "$BOUND_EPOCH" -lt "$START_EPOCH" ]; then
-    BOUND_EPOCH=$(TZ=America/New_York date -d "${DAY} 20:00 +1 day" +%s)
-fi
+BOUND_EPOCH=$(TZ=America/New_York date -d "${DAY} 20:00 -1 day" +%s)
 while [ "$BOUND_EPOCH" -lt "$NOW_EPOCH" ]; do
     BLACKOUT_END=$((BOUND_EPOCH + BLACKOUT_HOURS * 3600))
-    if [ "$BLACKOUT_END" -le "$NOW_EPOCH" ]; then
-        BLACKOUT_SECONDS=$((BLACKOUT_SECONDS + BLACKOUT_HOURS * 3600))
-    else
-        BLACKOUT_SECONDS=$((BLACKOUT_SECONDS + NOW_EPOCH - BOUND_EPOCH))
+    OVERLAP_START=$BOUND_EPOCH
+    if [ "$START_EPOCH" -gt "$OVERLAP_START" ]; then
+        OVERLAP_START=$START_EPOCH
+    fi
+    OVERLAP_END=$BLACKOUT_END
+    if [ "$NOW_EPOCH" -lt "$OVERLAP_END" ]; then
+        OVERLAP_END=$NOW_EPOCH
+    fi
+    if [ "$OVERLAP_END" -gt "$OVERLAP_START" ]; then
+        BLACKOUT_SECONDS=$((BLACKOUT_SECONDS + OVERLAP_END - OVERLAP_START))
     fi
     BOUND_EPOCH=$((BOUND_EPOCH + 86400))
 done

@@ -59,6 +59,13 @@ _ALLOW_LIST: dict[str, str] = {
         "whose history is placeholder-heavy, skewing the ranking -- same reasoning as the "
         "infrastructure_ibkr_chunk_and_rate_limit_probe.py entry below."
     ),
+    "scripts/infrastructure/backfill/infrastructure_client43_progress_sample.sh": (
+        "TEMPORARY: ad-hoc tracker script for the client-43 universe expansion backfill "
+        "(delete both this entry and the script once the run finishes, see the script's own "
+        "docstring). Counts DISTINCT timeframe per symbol; needs the full calendar grid for "
+        "the same reason as the ibkr probe above -- a placeholder-only row still means IBKR "
+        "has touched that (symbol, timeframe)."
+    ),
     "scripts/infrastructure/backfill/infrastructure_run_historical_pipeline.py": (
         "PERMANENT + PENDING mix, resolved 2026-07-31 (todo 124): the min(timestamp) gap-"
         "reorder query migrated to the tradeable view (behaviorally identical either way --\n"
