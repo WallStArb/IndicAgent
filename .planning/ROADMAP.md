@@ -1550,7 +1550,24 @@ started as of this note.
 - `concept_registry` schema write still sequences after Phase 170 lands; design work proceeds
   now (no file-level collision).
 
-**Plans:** TBD at `/gsd-plan-phase 145` — not before Phase 144's D-05 verdict lands.
+**Planned 2026-08-06 (`/gsd-plan-phase 145`) — 6 plans in 5 waves, all autonomous.** Research
+(`145-RESEARCH.md`) psql-verified two blocking live-schema facts the plans design around:
+`concept_registry.domain` is still CHECK-constrained to `('feature','ensemble_strategy')` and
+`concept_gate_stack` does not exist, so the `volatility_pct` pilot writes a standalone
+`concept_transition_log`-shaped artifact under `docs/analysis/` marked pending Phase 170 backfill
+instead of a real registry row. New code lands in a new Ring 1 package
+`src/intelligence/stratification/`; nothing under `services/` is modified and no migration is
+created.
+
+**Plans:** 6 plans
+
+Plans:
+- [ ] 145-01-PLAN.md — `StratificationDimension` Protocol, Option B registry-name encoding, `ic_engine.py` compatibility test, design-doc + glossary ratification (wave 1)
+- [ ] 145-02-PLAN.md — gate 0/1/2 primitives, effective-N-from-transitions (D-04), BH-FDR across the `regime_group` candidate pool (D-03) (wave 2)
+- [ ] 145-03-PLAN.md — acausal-placebo registration gate generalizing `ops_canary_integrity_assert.py` (D-05) (wave 2)
+- [ ] 145-04-PLAN.md — `volatility_pct` pilot provider, the phase's only candidate dimension (D-06) (wave 3)
+- [ ] 145-05-PLAN.md — pre-registered end-to-end gate-cascade run against real corpus data, standalone artifact (wave 4)
+- [ ] 145-06-PLAN.md — bake the pilot-derived `max_correlation`/effective-N floor into the gates, register the deferred APR keys, record the verdict and next-candidate scoping (wave 5)
 
 ---
 
