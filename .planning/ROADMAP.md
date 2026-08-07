@@ -1626,7 +1626,7 @@ Tags that are fully computable from the factor vector (all 8 OLS betas) must not
 **Plans:** 5/5 plans complete
 
 - [x] 146-01-PLAN.md — Wave 0 taxonomy cleanup: credit_cycle merge (D-03), housing_cycle delete (D-07), spread_leg evidence backfill + contract test (D-09), glossary statistical_factor_residual fix
-- [x] 146-02-PLAN.md — Measurement-contract migration 238: revised schema + valid_from/valid_to (D-10), factor-series seeding (D-02/D-04/D-05/D-06/D-08), 7 APR keys
+- [x] 146-02-PLAN.md — Measurement-contract migration 230 (corrected 2026-08-07; doc cited stale "238", the actual `tag_vocabulary`/`instrument_tags` measurement-contract migration is `230_tag_calibrator_measurement_contract.sql`): revised schema + valid_from/valid_to (D-10), factor-series seeding (D-02/D-04/D-05/D-06/D-08), 7 APR keys
 - [x] 146-03-PLAN.md — factor_math.py: standardized OLS loading + HAC SE, long-short constructor, vol proxy adapter (reuses ic_math + breadth_vol)
 - [x] 146-04-PLAN.md — TagCalibrator(BaseBatch) generic 3-pass calibration engine + decision-logic tests (TAG-01)
 - [x] 146-05-PLAN.md — Phase 2 regime-conditioning design doc (TAG-02, design-only)
