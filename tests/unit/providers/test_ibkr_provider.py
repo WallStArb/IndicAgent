@@ -245,11 +245,21 @@ class TestFetchHistoricalBars:
         original_chunk_days = ibkr_module._MAX_CHUNK_DAYS["1d"]
         ibkr_module._MAX_CHUNK_DAYS["1d"] = 1825  # 5yr -- exercises the >365 branch
         captured_duration_strs: list[str] = []
+        ibkr_module._no_data_req_ids.clear()
+        calls = {"n": 0}
 
         async def fake_req(*args, **kwargs):
+            # Must register the reqId in _no_data_req_ids before returning an empty
+            # BarDataList -- see F3 2026-07-05 / the sibling no-data tests above:
+            # without a matching reqId, the fast no-data-abort path never fires and
+            # the retry loop falls through to real (unmocked) 65s/130s backoff sleeps,
+            # taking ~10+ minutes to finish instead of running instantly.
             captured_duration_strs.append(kwargs["durationStr"])
+            calls["n"] += 1
+            req_id = 90200 + calls["n"]
+            ibkr_module._no_data_req_ids.add(req_id)
             bars = BarDataList()
-            bars.reqId = 1
+            bars.reqId = req_id
             return bars
 
         try:
@@ -265,6 +275,7 @@ class TestFetchHistoricalBars:
             )
         finally:
             ibkr_module._MAX_CHUNK_DAYS["1d"] = original_chunk_days
+            ibkr_module._no_data_req_ids.clear()
 
         assert captured_duration_strs, "no requests were made"
         for duration_str in captured_duration_strs:
