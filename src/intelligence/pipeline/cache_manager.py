@@ -395,6 +395,13 @@ class CacheManager:
             try:
                 conn = await asyncpg.connect(self._settings.database_url)
                 try:
+                    # This connection is meant to sit idle indefinitely waiting for
+                    # NOTIFY — the DB-wide idle_session_timeout (1h) doesn't know
+                    # that and kills it every hour on the hour, forcing a reconnect
+                    # and risking a missed NOTIFY in the gap. Exempt just this
+                    # connection rather than weakening the global default, which
+                    # exists to reap genuinely leaked/forgotten connections.
+                    await conn.execute("SET idle_session_timeout = 0")
                     await conn.execute("LISTEN instruments")
                     self._listener_connected.add(1)
                     await conn.add_listener("instruments", self._on_instrument_notify)
