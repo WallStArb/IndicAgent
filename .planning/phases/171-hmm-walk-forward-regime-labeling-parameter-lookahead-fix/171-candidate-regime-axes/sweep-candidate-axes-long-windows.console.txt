@@ -1,0 +1,802 @@
+============================================================================================================
+Candidate single-security regime AXES: standalone identifiability sweep
+============================================================================================================
+  axis systematic    cols=('r_squared_vs_benchmark', 'beta_vs_benchmark') windows=[120, 250] K=[2, 3]  [idiosyncratic (low R^2) .. systematic (high R^2)]
+  axis volume_price  cols=('corr_absreturn_relvolume', 'corr_return_relvolume') windows=[120, 250] K=[2, 3]  [divergent (low corr) .. confirming (high corr)]
+symbols=17 tf=['1d', '1h'] benchmark=SPY
+n_values=[5, 10, 20] max_n=20  standardize=True (production parity)
+n_iter=200 full_cov_min_obs=500 min_hold_bars=3 min_state_occupation=0.05 vol_window=20
+pool_a_base=42 pool_b_base=1000
+bars: agreement>=0.9 AND kappa>=0.8 (both required)
+regime groups: SPY=equity, IWM=equity, TLT=rates, GLD=commodity, XLE=equity, EEM=equity, FXY=fx, SMH=equity, AAPL=UNROUTED, MSFT=UNROUTED, GOOGL=UNROUTED, AMZN=UNROUTED, JPM=UNROUTED, QQQ=equity, DIA=equity, XLF=equity, XLK=equity
+============================================================================================================
+loaded SPY/1d: n_returns=5046
+loaded IWM/1d: n_returns=5050
+       IWM/1d joined to SPY: n_overlap=5045
+loaded TLT/1d: n_returns=2632
+       TLT/1d joined to SPY: n_overlap=2632
+loaded GLD/1d: n_returns=5049
+       GLD/1d joined to SPY: n_overlap=5043
+loaded XLE/1d: n_returns=5050
+       XLE/1d joined to SPY: n_overlap=5046
+loaded EEM/1d: n_returns=5051
+       EEM/1d joined to SPY: n_overlap=5045
+loaded FXY/1d: n_returns=4891
+       FXY/1d joined to SPY: n_overlap=4887
+loaded SMH/1d: n_returns=3666
+       SMH/1d joined to SPY: n_overlap=3666
+loaded AAPL/1d: n_returns=5123
+       AAPL/1d joined to SPY: n_overlap=5046
+loaded MSFT/1d: n_returns=5025
+       MSFT/1d joined to SPY: n_overlap=5015
+loaded GOOGL/1d: n_returns=5025
+       GOOGL/1d joined to SPY: n_overlap=5015
+loaded AMZN/1d: n_returns=5025
+       AMZN/1d joined to SPY: n_overlap=5015
+loaded JPM/1d: n_returns=5113
+       JPM/1d joined to SPY: n_overlap=5045
+loaded QQQ/1d: n_returns=5052
+       QQQ/1d joined to SPY: n_overlap=5046
+loaded DIA/1d: n_returns=5049
+       DIA/1d joined to SPY: n_overlap=5044
+loaded XLF/1d: n_returns=5050
+       XLF/1d joined to SPY: n_overlap=5046
+loaded XLK/1d: n_returns=5050
+       XLK/1d joined to SPY: n_overlap=5046
+loaded SPY/1h: n_returns=30931
+loaded IWM/1h: n_returns=36521
+       IWM/1h joined to SPY: n_overlap=30784
+loaded TLT/1h: n_returns=18377
+       TLT/1h joined to SPY: n_overlap=15769
+loaded GLD/1h: n_returns=36177
+       GLD/1h joined to SPY: n_overlap=30422
+loaded XLE/1h: n_returns=36038
+       XLE/1h joined to SPY: n_overlap=30321
+loaded EEM/1h: n_returns=30169
+       EEM/1h joined to SPY: n_overlap=30162
+loaded FXY/1h: n_returns=29127
+       FXY/1h joined to SPY: n_overlap=29120
+loaded SMH/1h: n_returns=25585
+       SMH/1h joined to SPY: n_overlap=21942
+loaded AAPL/1h: n_returns=35741
+       AAPL/1h joined to SPY: n_overlap=30162
+loaded MSFT/1h: n_returns=36815
+       MSFT/1h joined to SPY: n_overlap=30148
+loaded GOOGL/1h: n_returns=36825
+       GOOGL/1h joined to SPY: n_overlap=30158
+loaded AMZN/1h: n_returns=36816
+       AMZN/1h joined to SPY: n_overlap=30149
+loaded JPM/1h: n_returns=35677
+       JPM/1h joined to SPY: n_overlap=30165
+loaded QQQ/1h: n_returns=36042
+       QQQ/1h joined to SPY: n_overlap=30316
+loaded DIA/1h: n_returns=30860
+       DIA/1h joined to SPY: n_overlap=30859
+loaded XLF/1h: n_returns=36043
+       XLF/1h joined to SPY: n_overlap=30327
+loaded XLK/1h: n_returns=36024
+       XLK/1h joined to SPY: n_overlap=30311
+
+building observation matrices for 2 axes, arms=['real', 'null']...
+264 probe jobs, 528 sweep jobs queued
+
+probe done in 6s
+
+============================================================================================================
+WINDOW-STABILITY PROBE -- what fraction of the primary statistic's variation is real?
+block_reliability = corr of the statistic across ADJACENT DISJOINT windows. The two
+estimates share no data, so this IS the signal fraction: 0.05 means 95% of what the
+HMM would fit is estimation noise. null = same on an IID-permuted series and must be
+~0.00 -- that is the instrument's calibration check, not a comparison.
+============================================================================================================
+axis          window   tf  median_reliab  min_reliab  max_reliab  median_null  med_pairs  cells
+systematic        20   1d          0.274       0.079       0.690       -0.002        251     16
+systematic        20   1h          0.119       0.022       0.409        0.014        999     16
+systematic        60   1d          0.401       0.038       0.655       -0.031         83     16
+systematic        60   1h          0.213       0.114       0.508       -0.021        332     16
+systematic       120   1d          0.359      -0.088       0.704       -0.062         41     16
+systematic       120   1h          0.274       0.099       0.451        0.001        165     16
+systematic       250   1d          0.234      -0.365       0.618       -0.101         19     15
+systematic       250   1h          0.287       0.112       0.504        0.058         79     16
+volume_price      20   1d          0.061      -0.070       0.174       -0.009        250     17
+volume_price      20   1h          0.064      -0.057       0.122        0.005        999     17
+volume_price      60   1d          0.184      -0.258       0.469       -0.018         82     17
+volume_price      60   1h          0.166       0.026       0.283        0.002        332     17
+volume_price     120   1d          0.299      -0.091       0.468       -0.102         40     17
+volume_price     120   1h          0.234      -0.021       0.446        0.012        165     17
+volume_price     250   1d          0.375      -0.018       0.652          nan         18     16
+volume_price     250   1h          0.310      -0.049       0.517       -0.013         79     17
+
+[1/528] AMZN/1h axis=volume_price w=250 K=3 arm=null agree=1.0000 kappa=1.0000 sep=1.77 sols=11 occ=0.277 (38s)
+[2/528] MSFT/1h axis=volume_price w=120 K=3 arm=null agree=0.1362 kappa=-0.2894 sep=2.04 sols=13 occ=0.274 (42s)
+[3/528] GOOGL/1h axis=volume_price w=120 K=3 arm=real agree=1.0000 kappa=1.0000 sep=2.38 sols=10 occ=0.321 (47s)
+[4/528] IWM/1h axis=volume_price w=250 K=3 arm=null agree=0.9996 kappa=0.9994 sep=2.35 sols=12 occ=0.270 (50s)
+[5/528] AMZN/1h axis=volume_price w=250 K=3 arm=real agree=0.9998 kappa=0.9997 sep=2.74 sols=12 occ=0.301 (51s)
+[6/528] GOOGL/1h axis=volume_price w=250 K=3 arm=null agree=1.0000 kappa=1.0000 sep=2.88 sols=10 occ=0.278 (54s)
+[7/528] MSFT/1h axis=volume_price w=250 K=3 arm=null agree=0.9230 kappa=0.8843 sep=2.67 sols=10 occ=0.294 (54s)
+[8/528] MSFT/1h axis=volume_price w=250 K=3 arm=real agree=0.6800 kappa=0.5092 sep=2.48 sols=10 occ=0.229 (57s)
+[9/528] AMZN/1h axis=volume_price w=120 K=3 arm=null agree=1.0000 kappa=1.0000 sep=2.03 sols=10 occ=0.272 (57s)
+[10/528] IWM/1h axis=volume_price w=120 K=3 arm=null agree=0.2077 kappa=-0.1875 sep=2.36 sols=9 occ=0.303 (58s)
+[11/528] IWM/1h axis=volume_price w=250 K=3 arm=real agree=1.0000 kappa=1.0000 sep=1.87 sols=14 occ=0.322 (58s)
+[12/528] MSFT/1h axis=volume_price w=120 K=3 arm=real agree=0.4314 kappa=0.1470 sep=2.40 sols=10 occ=0.318 (60s)
+[13/528] GOOGL/1h axis=volume_price w=120 K=3 arm=null agree=0.9644 kappa=0.9462 sep=2.31 sols=10 occ=0.278 (64s)
+[14/528] GOOGL/1h axis=volume_price w=250 K=3 arm=real agree=0.9999 kappa=0.9999 sep=2.60 sols=11 occ=0.264 (70s)
+[15/528] AMZN/1h axis=volume_price w=120 K=3 arm=real agree=0.2311 kappa=-0.1522 sep=2.57 sols=8 occ=0.290 (77s)
+[16/528] GLD/1h axis=volume_price w=250 K=3 arm=null agree=0.9120 kappa=0.8676 sep=2.22 sols=18 occ=0.265 (37s)
+[17/528] IWM/1h axis=volume_price w=120 K=3 arm=real agree=0.9991 kappa=0.9987 sep=2.37 sols=12 occ=0.296 (89s)
+[18/528] GLD/1h axis=volume_price w=120 K=3 arm=null agree=0.8160 kappa=0.7229 sep=2.52 sols=14 occ=0.285 (52s)
+[19/528] QQQ/1h axis=volume_price w=120 K=3 arm=null agree=0.4144 kappa=0.1183 sep=2.07 sols=14 occ=0.322 (56s)
+[20/528] XLF/1h axis=volume_price w=250 K=3 arm=null agree=0.4521 kappa=0.1785 sep=2.09 sols=15 occ=0.322 (45s)
+[21/528] GLD/1h axis=volume_price w=250 K=3 arm=real agree=0.9998 kappa=0.9997 sep=2.32 sols=14 occ=0.317 (61s)
+[22/528] XLK/1h axis=volume_price w=120 K=3 arm=null agree=0.3161 kappa=-0.0164 sep=2.28 sols=11 occ=0.263 (72s)
+[23/528] XLE/1h axis=volume_price w=120 K=3 arm=null agree=1.0000 kappa=1.0000 sep=1.90 sols=12 occ=0.286 (77s)
+[24/528] XLF/1h axis=volume_price w=120 K=3 arm=null agree=0.3586 kappa=0.0374 sep=2.41 sols=14 occ=0.293 (89s)
+[25/528] XLF/1h axis=volume_price w=250 K=3 arm=real agree=0.2377 kappa=-0.1384 sep=2.20 sols=11 occ=0.282 (56s)
+[26/528] XLK/1h axis=volume_price w=250 K=3 arm=null agree=0.9049 kappa=0.8565 sep=2.42 sols=15 occ=0.271 (51s)
+[27/528] QQQ/1h axis=volume_price w=250 K=3 arm=null agree=0.9999 kappa=0.9998 sep=1.90 sols=10 occ=0.284 (71s)
+[28/528] XLF/1h axis=volume_price w=120 K=3 arm=real agree=0.9996 kappa=0.9995 sep=2.58 sols=12 occ=0.284 (88s)
+[29/528] XLE/1h axis=volume_price w=120 K=3 arm=real agree=0.8011 kappa=0.7004 sep=2.30 sols=12 occ=0.305 (89s)
+[30/528] GLD/1h axis=volume_price w=120 K=3 arm=real agree=0.9999 kappa=0.9998 sep=2.50 sols=8 occ=0.317 (106s)
+[31/528] QQQ/1h axis=volume_price w=250 K=3 arm=real agree=0.9755 kappa=0.9631 sep=2.46 sols=15 occ=0.291 (58s)
+[32/528] XLK/1h axis=volume_price w=120 K=3 arm=real agree=0.9999 kappa=0.9998 sep=2.37 sols=9 occ=0.325 (91s)
+[33/528] XLE/1h axis=volume_price w=250 K=3 arm=null agree=0.6868 kappa=0.5295 sep=2.25 sols=15 occ=0.323 (77s)
+[34/528] XLE/1h axis=volume_price w=250 K=3 arm=real agree=0.9990 kappa=0.9985 sep=2.35 sols=13 occ=0.308 (56s)
+[35/528] QQQ/1h axis=volume_price w=120 K=3 arm=real agree=0.9999 kappa=0.9999 sep=2.49 sols=9 occ=0.323 (117s)
+[36/528] XLK/1h axis=volume_price w=250 K=3 arm=real agree=0.9997 kappa=0.9996 sep=2.58 sols=12 occ=0.315 (73s)
+[37/528] AAPL/1h axis=volume_price w=250 K=3 arm=real agree=0.5730 kappa=0.3597 sep=2.57 sols=10 occ=0.309 (46s)
+[38/528] AAPL/1h axis=volume_price w=120 K=3 arm=null agree=0.7151 kappa=0.5709 sep=2.47 sols=13 occ=0.291 (75s)
+[39/528] AAPL/1h axis=volume_price w=120 K=3 arm=real agree=0.9993 kappa=0.9990 sep=2.75 sols=11 occ=0.296 (61s)
+[40/528] SPY/1h axis=volume_price w=120 K=3 arm=null agree=0.1937 kappa=-0.2088 sep=2.52 sols=13 occ=0.313 (49s)
+[41/528] DIA/1h axis=volume_price w=120 K=3 arm=null agree=0.7781 kappa=0.6666 sep=2.37 sols=13 occ=0.314 (48s)
+[42/528] DIA/1h axis=systematic   w=120 K=3 arm=real agree=1.0000 kappa=1.0000 sep=1.23 sols=6 occ=0.245 (46s)
+[43/528] JPM/1h axis=volume_price w=120 K=3 arm=null agree=0.8862 kappa=0.8290 sep=1.71 sols=11 occ=0.322 (73s)
+[44/528] SPY/1h axis=volume_price w=120 K=3 arm=real agree=1.0000 kappa=1.0000 sep=2.56 sols=12 occ=0.304 (56s)
+[45/528] JPM/1h axis=volume_price w=250 K=3 arm=null agree=0.5995 kappa=0.3891 sep=2.25 sols=13 occ=0.243 (63s)
+[46/528] AAPL/1h axis=volume_price w=250 K=3 arm=null agree=1.0000 kappa=1.0000 sep=1.99 sols=8 occ=0.320 (64s)
+[47/528] JPM/1h axis=volume_price w=250 K=3 arm=real agree=0.9275 kappa=0.8907 sep=2.55 sols=11 occ=0.293 (63s)
+[48/528] SPY/1h axis=volume_price w=250 K=3 arm=null agree=0.5463 kappa=0.3205 sep=2.61 sols=14 occ=0.245 (40s)
+[49/528] DIA/1h axis=systematic   w=120 K=3 arm=null agree=0.7121 kappa=0.5672 sep=1.75 sols=10 occ=0.304 (71s)
+[50/528] JPM/1h axis=volume_price w=120 K=3 arm=real agree=0.9998 kappa=0.9997 sep=2.56 sols=10 occ=0.304 (87s)
+[51/528] DIA/1h axis=volume_price w=120 K=3 arm=real agree=0.7481 kappa=0.6222 sep=2.23 sols=12 occ=0.300 (65s)
+[52/528] IWM/1h axis=systematic   w=120 K=3 arm=real agree=0.5502 kappa=0.3291 sep=2.69 sols=14 occ=0.295 (47s)
+[53/528] DIA/1h axis=systematic   w=250 K=3 arm=null agree=0.9999 kappa=0.9998 sep=1.80 sols=11 occ=0.264 (40s)
+[54/528] DIA/1h axis=volume_price w=250 K=3 arm=real agree=0.9998 kappa=0.9997 sep=2.28 sols=12 occ=0.327 (44s)
+[55/528] SPY/1h axis=volume_price w=250 K=3 arm=real agree=0.2029 kappa=-0.1964 sep=2.63 sols=11 occ=0.326 (56s)
+[56/528] IWM/1h axis=systematic   w=120 K=3 arm=null agree=0.9996 kappa=0.9994 sep=2.40 sols=8 occ=0.303 (59s)
+[57/528] DIA/1h axis=systematic   w=250 K=3 arm=real agree=0.9641 kappa=0.9456 sep=1.32 sols=10 occ=0.270 (51s)
+[58/528] IWM/1h axis=systematic   w=250 K=3 arm=real agree=0.9997 kappa=0.9995 sep=2.57 sols=10 occ=0.210 (50s)
+[59/528] XLF/1h axis=systematic   w=120 K=3 arm=real agree=0.9996 kappa=0.9994 sep=1.44 sols=12 occ=0.233 (56s)
+[60/528] XLF/1h axis=systematic   w=120 K=3 arm=null agree=1.0000 kappa=1.0000 sep=2.23 sols=9 occ=0.296 (49s)
+[61/528] QQQ/1h axis=systematic   w=120 K=3 arm=null agree=0.9999 kappa=0.9999 sep=2.47 sols=10 occ=0.263 (36s)
+[62/528] IWM/1h axis=systematic   w=250 K=3 arm=null agree=0.9999 kappa=0.9999 sep=2.20 sols=11 occ=0.278 (64s)
+[63/528] DIA/1h axis=volume_price w=250 K=3 arm=null agree=1.0000 kappa=1.0000 sep=2.58 sols=11 occ=0.324 (82s)
+[64/528] QQQ/1h axis=systematic   w=120 K=3 arm=real agree=0.6555 kappa=0.4687 sep=2.27 sols=10 occ=0.228 (45s)
+[65/528] GLD/1h axis=systematic   w=120 K=3 arm=null agree=1.0000 kappa=1.0000 sep=1.01 sols=6 occ=0.280 (71s)
+[66/528] GLD/1h axis=systematic   w=120 K=3 arm=real agree=1.0000 kappa=0.9999 sep=2.34 sols=7 occ=0.246 (73s)
+[67/528] XLK/1h axis=systematic   w=120 K=3 arm=real agree=0.9998 kappa=0.9997 sep=1.28 sols=14 occ=0.257 (46s)
+[68/528] GLD/1h axis=systematic   w=250 K=3 arm=real agree=1.0000 kappa=0.9999 sep=2.31 sols=7 occ=0.243 (41s)
+[69/528] XLE/1h axis=systematic   w=120 K=3 arm=real agree=0.9994 kappa=0.9991 sep=2.26 sols=8 occ=0.310 (62s)
+[70/528] XLE/1h axis=systematic   w=120 K=3 arm=null agree=0.9999 kappa=0.9998 sep=2.03 sols=14 occ=0.279 (62s)
+[71/528] XLF/1h axis=systematic   w=250 K=3 arm=null agree=0.9998 kappa=0.9997 sep=2.56 sols=10 occ=0.279 (40s)
+[72/528] GLD/1h axis=systematic   w=250 K=3 arm=null agree=1.0000 kappa=1.0000 sep=2.49 sols=7 occ=0.156 (50s)
+[73/528] XLK/1h axis=systematic   w=120 K=3 arm=null agree=0.5130 kappa=0.2693 sep=2.45 sols=10 occ=0.330 (55s)
+[74/528] XLF/1h axis=systematic   w=250 K=3 arm=real agree=0.7063 kappa=0.5532 sep=1.22 sols=9 occ=0.256 (59s)
+[75/528] XLE/1h axis=systematic   w=250 K=3 arm=null agree=0.9999 kappa=0.9999 sep=1.70 sols=11 occ=0.313 (45s)
+[76/528] XLK/1h axis=systematic   w=250 K=3 arm=real agree=1.0000 kappa=1.0000 sep=2.45 sols=14 occ=0.291 (43s)
+[77/528] XLE/1h axis=systematic   w=250 K=3 arm=real agree=0.9998 kappa=0.9996 sep=2.22 sols=11 occ=0.238 (53s)
+[78/528] EEM/1h axis=volume_price w=120 K=3 arm=null agree=0.9937 kappa=0.9905 sep=2.47 sols=10 occ=0.292 (43s)
+[79/528] JPM/1h axis=systematic   w=120 K=3 arm=null agree=0.9999 kappa=0.9999 sep=2.19 sols=9 occ=0.314 (39s)
+[80/528] QQQ/1h axis=systematic   w=250 K=3 arm=real agree=0.9995 kappa=0.9992 sep=2.51 sols=11 occ=0.210 (62s)
+[81/528] XLK/1h axis=systematic   w=250 K=3 arm=null agree=0.9994 kappa=0.9991 sep=2.54 sols=11 occ=0.310 (61s)
+[82/528] JPM/1h axis=systematic   w=120 K=3 arm=real agree=1.0000 kappa=0.9999 sep=2.38 sols=9 occ=0.271 (63s)
+[83/528] AAPL/1h axis=systematic   w=120 K=3 arm=real agree=0.9998 kappa=0.9997 sep=2.37 sols=8 occ=0.254 (55s)
+[84/528] EEM/1h axis=systematic   w=120 K=3 arm=real agree=0.9928 kappa=0.9892 sep=2.45 sols=14 occ=0.321 (58s)
+[85/528] AMZN/1h axis=systematic   w=120 K=3 arm=real agree=0.4790 kappa=0.2285 sep=2.43 sols=8 occ=0.165 (37s)
+[86/528] QQQ/1h axis=systematic   w=250 K=3 arm=null agree=0.9999 kappa=0.9998 sep=2.06 sols=14 occ=0.300 (79s)
+[87/528] GOOGL/1h axis=systematic   w=120 K=3 arm=real agree=0.7832 kappa=0.6744 sep=1.96 sols=9 occ=0.296 (53s)
+[88/528] AAPL/1h axis=systematic   w=120 K=3 arm=null agree=0.7113 kappa=0.5681 sep=2.29 sols=13 occ=0.298 (65s)
+[89/528] EEM/1h axis=systematic   w=120 K=3 arm=null agree=1.0000 kappa=0.9999 sep=2.26 sols=12 occ=0.303 (59s)
+[90/528] EEM/1h axis=volume_price w=250 K=3 arm=null agree=0.7327 kappa=0.5978 sep=2.31 sols=13 occ=0.285 (31s)
+[91/528] AMZN/1h axis=systematic   w=120 K=3 arm=null agree=1.0000 kappa=1.0000 sep=2.20 sols=11 occ=0.313 (38s)
+[92/528] JPM/1h axis=systematic   w=250 K=3 arm=real agree=0.9989 kappa=0.9983 sep=2.15 sols=9 occ=0.264 (32s)
+[93/528] MSFT/1h axis=systematic   w=120 K=3 arm=null agree=0.9997 kappa=0.9996 sep=2.45 sols=13 occ=0.297 (44s)
+[94/528] AAPL/1h axis=systematic   w=250 K=3 arm=real agree=0.6175 kappa=0.4323 sep=2.07 sols=7 occ=0.304 (25s)
+[95/528] GOOGL/1h axis=systematic   w=120 K=3 arm=null agree=1.0000 kappa=1.0000 sep=2.20 sols=11 occ=0.270 (72s)
+[96/528] MSFT/1h axis=systematic   w=120 K=3 arm=real agree=0.9997 kappa=0.9995 sep=2.43 sols=10 occ=0.290 (62s)
+[97/528] JPM/1h axis=systematic   w=250 K=3 arm=null agree=1.0000 kappa=1.0000 sep=1.95 sols=13 occ=0.316 (49s)
+[98/528] AMZN/1h axis=systematic   w=250 K=3 arm=null agree=1.0000 kappa=1.0000 sep=2.65 sols=9 occ=0.310 (33s)
+[99/528] EEM/1h axis=systematic   w=250 K=3 arm=null agree=0.5873 kappa=0.3810 sep=2.26 sols=11 occ=0.322 (40s)
+[100/528] AMZN/1h axis=systematic   w=250 K=3 arm=real agree=0.7674 kappa=0.6485 sep=1.98 sols=9 occ=0.280 (34s)
+[101/528] EEM/1h axis=volume_price w=120 K=3 arm=real agree=0.7940 kappa=0.6909 sep=2.59 sols=11 occ=0.299 (83s)
+[102/528] AAPL/1h axis=systematic   w=250 K=3 arm=null agree=1.0000 kappa=1.0000 sep=2.36 sols=6 occ=0.301 (53s)
+[103/528] MSFT/1h axis=systematic   w=250 K=3 arm=null agree=0.9989 kappa=0.9983 sep=2.21 sols=12 occ=0.316 (36s)
+[104/528] FXY/1h axis=volume_price w=120 K=3 arm=null agree=0.3875 kappa=0.0811 sep=2.28 sols=12 occ=0.320 (38s)
+[105/528] EEM/1h axis=systematic   w=250 K=3 arm=real agree=1.0000 kappa=1.0000 sep=3.15 sols=14 occ=0.253 (55s)
+[106/528] EEM/1h axis=volume_price w=250 K=3 arm=real agree=1.0000 kappa=1.0000 sep=2.39 sols=14 occ=0.277 (51s)
+[107/528] FXY/1h axis=volume_price w=250 K=3 arm=null agree=0.4753 kappa=0.2116 sep=2.48 sols=11 occ=0.307 (29s)
+[108/528] GOOGL/1h axis=systematic   w=250 K=3 arm=null agree=0.9979 kappa=0.9968 sep=2.07 sols=11 occ=0.291 (65s)
+[109/528] FXY/1h axis=volume_price w=120 K=3 arm=real agree=0.4202 kappa=0.1228 sep=2.25 sols=13 occ=0.303 (39s)
+[110/528] GOOGL/1h axis=systematic   w=250 K=3 arm=real agree=0.9987 kappa=0.9980 sep=2.06 sols=12 occ=0.302 (73s)
+[111/528] FXY/1h axis=systematic   w=250 K=3 arm=real agree=1.0000 kappa=0.9999 sep=1.90 sols=15 occ=0.288 (36s)
+[112/528] FXY/1h axis=systematic   w=120 K=3 arm=null agree=0.9092 kappa=0.8613 sep=1.46 sols=8 occ=0.283 (56s)
+[113/528] SMH/1h axis=volume_price w=120 K=3 arm=null agree=0.3941 kappa=0.0913 sep=2.45 sols=13 occ=0.315 (36s)
+[114/528] FXY/1h axis=volume_price w=250 K=3 arm=real agree=0.8011 kappa=0.7024 sep=1.97 sols=15 occ=0.275 (40s)
+[115/528] MSFT/1h axis=systematic   w=250 K=3 arm=real agree=1.0000 kappa=1.0000 sep=2.48 sols=8 occ=0.328 (74s)
+[116/528] SMH/1h axis=volume_price w=250 K=3 arm=null agree=0.9999 kappa=0.9998 sep=2.37 sols=17 occ=0.291 (34s)
+[117/528] FXY/1h axis=systematic   w=250 K=3 arm=null agree=0.9557 kappa=0.9329 sep=1.86 sols=10 occ=0.270 (47s)
+[118/528] MSFT/1h axis=volume_price w=120 K=2 arm=null agree=0.9998 kappa=0.9995 sep=2.50 sols=5 occ=0.467 (22s)
+[119/528] AMZN/1h axis=volume_price w=120 K=2 arm=null agree=0.2401 kappa=-0.5281 sep=2.40 sols=5 occ=0.484 (33s)
+[120/528] GOOGL/1h axis=volume_price w=120 K=2 arm=null agree=1.0000 kappa=1.0000 sep=2.58 sols=4 occ=0.473 (35s)
+[121/528] FXY/1h axis=systematic   w=120 K=3 arm=real agree=0.9788 kappa=0.9665 sep=0.71 sols=13 occ=0.207 (71s)
+[122/528] AMZN/1h axis=volume_price w=120 K=2 arm=real agree=1.0000 kappa=1.0000 sep=2.68 sols=4 occ=0.457 (21s)
+[123/528] GOOGL/1h axis=volume_price w=120 K=2 arm=real agree=1.0000 kappa=1.0000 sep=2.90 sols=3 occ=0.416 (27s)
+[124/528] GOOGL/1h axis=volume_price w=250 K=2 arm=null agree=1.0000 kappa=1.0000 sep=2.79 sols=3 occ=0.469 (20s)
+[125/528] SMH/1h axis=volume_price w=250 K=3 arm=real agree=0.9998 kappa=0.9998 sep=2.22 sols=12 occ=0.305 (42s)
+[126/528] MSFT/1h axis=volume_price w=250 K=2 arm=real agree=1.0000 kappa=1.0000 sep=2.98 sols=3 occ=0.497 (18s)
+[127/528] GOOGL/1h axis=volume_price w=250 K=2 arm=real agree=0.9999 kappa=0.9997 sep=3.12 sols=3 occ=0.494 (21s)
+[128/528] MSFT/1h axis=volume_price w=120 K=2 arm=real agree=0.9999 kappa=0.9997 sep=2.80 sols=3 occ=0.457 (31s)
+[129/528] GLD/1h axis=volume_price w=120 K=2 arm=null agree=1.0000 kappa=1.0000 sep=2.75 sols=4 occ=0.429 (17s)
+[130/528] AMZN/1h axis=volume_price w=250 K=2 arm=null agree=0.9995 kappa=0.9989 sep=2.59 sols=4 occ=0.440 (30s)
+[131/528] AMZN/1h axis=volume_price w=250 K=2 arm=real agree=1.0000 kappa=0.9999 sep=3.00 sols=4 occ=0.465 (27s)
+[132/528] IWM/1h axis=volume_price w=250 K=2 arm=null agree=1.0000 kappa=1.0000 sep=2.42 sols=5 occ=0.464 (25s)
+[133/528] GLD/1h axis=volume_price w=120 K=2 arm=real agree=0.9996 kappa=0.9992 sep=2.71 sols=3 occ=0.465 (29s)
+[134/528] MSFT/1h axis=volume_price w=250 K=2 arm=null agree=1.0000 kappa=1.0000 sep=2.73 sols=4 occ=0.425 (43s)
+[135/528] GLD/1h axis=volume_price w=250 K=2 arm=null agree=0.9651 kappa=0.9289 sep=2.77 sols=4 occ=0.439 (30s)
+[136/528] IWM/1h axis=volume_price w=120 K=2 arm=null agree=1.0000 kappa=1.0000 sep=2.57 sols=4 occ=0.477 (37s)
+[137/528] SMH/1h axis=volume_price w=120 K=3 arm=real agree=1.0000 kappa=1.0000 sep=2.11 sols=12 occ=0.327 (78s)
+[138/528] GLD/1h axis=volume_price w=250 K=2 arm=real agree=1.0000 kappa=0.9999 sep=2.63 sols=4 occ=0.475 (26s)
+[139/528] XLK/1h axis=volume_price w=120 K=2 arm=null agree=1.0000 kappa=0.9999 sep=2.38 sols=4 occ=0.458 (20s)
+[140/528] IWM/1h axis=volume_price w=250 K=2 arm=real agree=1.0000 kappa=1.0000 sep=2.39 sols=5 occ=0.458 (38s)
+[141/528] QQQ/1h axis=volume_price w=120 K=2 arm=null agree=0.9999 kappa=0.9998 sep=2.66 sols=4 occ=0.410 (32s)
+[142/528] XLE/1h axis=volume_price w=120 K=2 arm=real agree=0.3440 kappa=-0.3101 sep=2.46 sols=3 occ=0.493 (21s)
+[143/528] XLE/1h axis=volume_price w=120 K=2 arm=null agree=0.9993 kappa=0.9985 sep=2.59 sols=5 occ=0.447 (29s)
+[144/528] IWM/1h axis=volume_price w=120 K=2 arm=real agree=0.9995 kappa=0.9990 sep=2.54 sols=4 occ=0.477 (43s)
+[145/528] XLK/1h axis=volume_price w=120 K=2 arm=real agree=1.0000 kappa=1.0000 sep=2.77 sols=3 occ=0.499 (19s)
+[146/528] XLF/1h axis=volume_price w=120 K=2 arm=null agree=1.0000 kappa=1.0000 sep=2.53 sols=5 occ=0.403 (41s)
+[147/528] QQQ/1h axis=volume_price w=120 K=2 arm=real agree=1.0000 kappa=0.9999 sep=2.84 sols=3 occ=0.491 (34s)
+[148/528] XLF/1h axis=volume_price w=120 K=2 arm=real agree=0.9999 kappa=0.9998 sep=2.70 sols=4 occ=0.473 (38s)
+[149/528] XLF/1h axis=volume_price w=250 K=2 arm=null agree=1.0000 kappa=1.0000 sep=2.78 sols=5 occ=0.474 (27s)
+[150/528] AAPL/1h axis=volume_price w=120 K=2 arm=null agree=1.0000 kappa=0.9999 sep=2.58 sols=3 occ=0.494 (21s)
+[151/528] XLE/1h axis=volume_price w=250 K=2 arm=null agree=0.9999 kappa=0.9999 sep=2.83 sols=3 occ=0.498 (27s)
+[152/528] AAPL/1h axis=volume_price w=120 K=2 arm=real agree=1.0000 kappa=1.0000 sep=2.84 sols=3 occ=0.489 (21s)
+[153/528] AAPL/1h axis=volume_price w=250 K=2 arm=real agree=0.9999 kappa=0.9999 sep=3.03 sols=3 occ=0.441 (17s)
+[154/528] XLE/1h axis=volume_price w=250 K=2 arm=real agree=0.2962 kappa=-0.4082 sep=2.50 sols=3 occ=0.493 (25s)
+[155/528] XLF/1h axis=volume_price w=250 K=2 arm=real agree=1.0000 kappa=1.0000 sep=2.97 sols=4 occ=0.483 (29s)
+[156/528] JPM/1h axis=volume_price w=120 K=2 arm=real agree=0.9999 kappa=0.9997 sep=2.70 sols=3 occ=0.466 (22s)
+[157/528] AAPL/1h axis=volume_price w=250 K=2 arm=null agree=1.0000 kappa=1.0000 sep=2.67 sols=4 occ=0.396 (20s)
+[158/528] JPM/1h axis=volume_price w=120 K=2 arm=null agree=1.0000 kappa=0.9999 sep=2.46 sols=3 occ=0.445 (25s)
+[159/528] XLK/1h axis=volume_price w=250 K=2 arm=null agree=0.9999 kappa=0.9997 sep=2.63 sols=5 occ=0.469 (28s)
+[160/528] QQQ/1h axis=volume_price w=250 K=2 arm=null agree=0.9487 kappa=0.8906 sep=2.70 sols=5 occ=0.388 (33s)
+[161/528] QQQ/1h axis=volume_price w=250 K=2 arm=real agree=1.0000 kappa=0.9999 sep=2.77 sols=7 occ=0.475 (29s)
+[162/528] SPY/1h axis=volume_price w=120 K=2 arm=real agree=0.9999 kappa=0.9998 sep=2.74 sols=3 occ=0.500 (15s)
+[163/528] DIA/1h axis=volume_price w=120 K=2 arm=null agree=0.4083 kappa=-0.1810 sep=2.62 sols=4 occ=0.436 (16s)
+[164/528] JPM/1h axis=volume_price w=250 K=2 arm=null agree=1.0000 kappa=1.0000 sep=2.66 sols=3 occ=0.466 (29s)
+[165/528] DIA/1h axis=systematic   w=120 K=2 arm=null agree=0.9999 kappa=0.9999 sep=2.39 sols=3 occ=0.453 (18s)
+[166/528] JPM/1h axis=volume_price w=250 K=2 arm=real agree=1.0000 kappa=1.0000 sep=2.76 sols=3 occ=0.459 (30s)
+[167/528] DIA/1h axis=systematic   w=120 K=2 arm=real agree=1.0000 kappa=1.0000 sep=2.00 sols=2 occ=0.431 (20s)
+[168/528] IWM/1h axis=systematic   w=120 K=2 arm=null agree=0.9999 kappa=0.9998 sep=2.68 sols=3 occ=0.489 (18s)
+[169/528] XLK/1h axis=volume_price w=250 K=2 arm=real agree=0.9998 kappa=0.9997 sep=2.83 sols=3 occ=0.485 (47s)
+[170/528] SMH/1h axis=systematic   w=250 K=3 arm=null agree=0.9999 kappa=0.9998 sep=2.21 sols=11 occ=0.322 (26s)
+[171/528] SMH/1h axis=systematic   w=250 K=3 arm=real agree=1.0000 kappa=1.0000 sep=2.32 sols=7 occ=0.276 (27s)
+[172/528] SPY/1h axis=volume_price w=250 K=2 arm=null agree=1.0000 kappa=1.0000 sep=2.64 sols=6 occ=0.471 (22s)
+[173/528] DIA/1h axis=volume_price w=120 K=2 arm=real agree=0.9999 kappa=0.9998 sep=2.75 sols=3 occ=0.499 (23s)
+[174/528] SPY/1h axis=volume_price w=120 K=2 arm=null agree=0.9996 kappa=0.9993 sep=2.73 sols=3 occ=0.432 (25s)
+[175/528] IWM/1h axis=systematic   w=120 K=2 arm=real agree=1.0000 kappa=1.0000 sep=2.70 sols=4 occ=0.480 (23s)
+[176/528] SPY/1h axis=volume_price w=250 K=2 arm=real agree=1.0000 kappa=1.0000 sep=2.87 sols=3 occ=0.460 (13s)
+[177/528] DIA/1h axis=volume_price w=250 K=2 arm=null agree=1.0000 kappa=1.0000 sep=2.73 sols=4 occ=0.489 (17s)
+[178/528] IWM/1h axis=systematic   w=250 K=2 arm=null agree=0.9999 kappa=0.9997 sep=2.60 sols=3 occ=0.468 (16s)
+[179/528] SMH/1h axis=systematic   w=120 K=3 arm=real agree=0.3363 kappa=0.0167 sep=2.04 sols=15 occ=0.289 (42s)
+[180/528] IWM/1h axis=systematic   w=250 K=2 arm=real agree=1.0000 kappa=1.0000 sep=2.72 sols=4 occ=0.434 (21s)
+[181/528] XLE/1h axis=systematic   w=120 K=2 arm=null agree=1.0000 kappa=1.0000 sep=2.72 sols=4 occ=0.449 (18s)
+[182/528] DIA/1h axis=systematic   w=250 K=2 arm=null agree=1.0000 kappa=1.0000 sep=2.49 sols=5 occ=0.473 (25s)
+[183/528] DIA/1h axis=volume_price w=250 K=2 arm=real agree=1.0000 kappa=1.0000 sep=2.79 sols=3 occ=0.472 (25s)
+[184/528] QQQ/1h axis=systematic   w=120 K=2 arm=null agree=0.9999 kappa=0.9997 sep=2.65 sols=3 occ=0.443 (18s)
+[185/528] XLE/1h axis=systematic   w=120 K=2 arm=real agree=0.9999 kappa=0.9998 sep=2.77 sols=3 occ=0.449 (25s)
+[186/528] XLF/1h axis=systematic   w=120 K=2 arm=real agree=0.9999 kappa=0.9999 sep=2.39 sols=6 occ=0.357 (27s)
+[187/528] SMH/1h axis=systematic   w=120 K=3 arm=null agree=0.9791 kappa=0.9685 sep=2.73 sols=11 occ=0.305 (54s)
+[188/528] DIA/1h axis=systematic   w=250 K=2 arm=real agree=1.0000 kappa=1.0000 sep=2.04 sols=2 occ=0.450 (34s)
+[189/528] XLF/1h axis=systematic   w=120 K=2 arm=null agree=1.0000 kappa=1.0000 sep=2.56 sols=3 occ=0.469 (29s)
+[190/528] XLK/1h axis=systematic   w=120 K=2 arm=null agree=0.9999 kappa=0.9998 sep=2.61 sols=3 occ=0.470 (18s)
+[191/528] GLD/1h axis=systematic   w=120 K=2 arm=null agree=0.9998 kappa=0.9996 sep=1.64 sols=1 occ=0.492 (32s)
+[192/528] QQQ/1h axis=systematic   w=120 K=2 arm=real agree=0.9999 kappa=0.9999 sep=2.46 sols=4 occ=0.445 (32s)
+[193/528] GLD/1h axis=systematic   w=250 K=2 arm=null agree=0.7717 kappa=0.5396 sep=1.68 sols=3 occ=0.434 (17s)
+[194/528] XLK/1h axis=systematic   w=120 K=2 arm=real agree=0.9740 kappa=0.9476 sep=2.47 sols=4 occ=0.457 (24s)
+[195/528] GLD/1h axis=systematic   w=250 K=2 arm=real agree=1.0000 kappa=1.0000 sep=1.83 sols=4 occ=0.415 (26s)
+[196/528] XLE/1h axis=systematic   w=250 K=2 arm=real agree=1.0000 kappa=1.0000 sep=2.87 sols=4 occ=0.435 (24s)
+[197/528] QQQ/1h axis=systematic   w=250 K=2 arm=real agree=1.0000 kappa=0.9999 sep=2.69 sols=6 occ=0.427 (20s)
+[198/528] XLF/1h axis=systematic   w=250 K=2 arm=null agree=1.0000 kappa=1.0000 sep=3.05 sols=4 occ=0.446 (27s)
+[199/528] GLD/1h axis=systematic   w=120 K=2 arm=real agree=0.9995 kappa=0.9989 sep=1.75 sols=2 occ=0.413 (48s)
+[200/528] JPM/1h axis=systematic   w=120 K=2 arm=null agree=1.0000 kappa=1.0000 sep=2.51 sols=4 occ=0.498 (18s)
+[201/528] JPM/1h axis=systematic   w=120 K=2 arm=real agree=0.9997 kappa=0.9993 sep=2.63 sols=4 occ=0.489 (19s)
+[202/528] EEM/1h axis=systematic   w=120 K=2 arm=real agree=1.0000 kappa=1.0000 sep=2.84 sols=6 occ=0.462 (17s)
+[203/528] EEM/1h axis=volume_price w=120 K=2 arm=null agree=1.0000 kappa=1.0000 sep=2.57 sols=3 occ=0.456 (23s)
+[204/528] QQQ/1h axis=systematic   w=250 K=2 arm=null agree=1.0000 kappa=1.0000 sep=2.72 sols=5 occ=0.471 (28s)
+[205/528] AAPL/1h axis=systematic   w=120 K=2 arm=real agree=1.0000 kappa=1.0000 sep=2.65 sols=3 occ=0.432 (21s)
+[206/528] XLE/1h axis=systematic   w=250 K=2 arm=null agree=1.0000 kappa=1.0000 sep=2.80 sols=4 occ=0.392 (32s)
+[207/528] XLK/1h axis=systematic   w=250 K=2 arm=real agree=1.0000 kappa=1.0000 sep=2.80 sols=4 occ=0.491 (28s)
+[208/528] AAPL/1h axis=systematic   w=120 K=2 arm=null agree=0.8607 kappa=0.7223 sep=2.61 sols=3 occ=0.426 (23s)
+[209/528] XLF/1h axis=systematic   w=250 K=2 arm=real agree=1.0000 kappa=1.0000 sep=2.51 sols=2 occ=0.345 (39s)
+[210/528] MSFT/1h axis=systematic   w=120 K=2 arm=null agree=0.9999 kappa=0.9999 sep=2.59 sols=3 occ=0.447 (16s)
+[211/528] GOOGL/1h axis=systematic   w=120 K=2 arm=null agree=0.9999 kappa=0.9999 sep=2.25 sols=2 occ=0.457 (23s)
+[212/528] AMZN/1h axis=systematic   w=120 K=2 arm=null agree=1.0000 kappa=1.0000 sep=2.75 sols=3 occ=0.490 (20s)
+[213/528] MSFT/1h axis=systematic   w=120 K=2 arm=real agree=1.0000 kappa=0.9999 sep=2.70 sols=6 occ=0.443 (21s)
+[214/528] EEM/1h axis=volume_price w=120 K=2 arm=real agree=0.9999 kappa=0.9998 sep=2.84 sols=3 occ=0.471 (25s)
+[215/528] EEM/1h axis=systematic   w=250 K=2 arm=real agree=1.0000 kappa=1.0000 sep=3.27 sols=5 occ=0.500 (16s)
+[216/528] JPM/1h axis=systematic   w=250 K=2 arm=null agree=1.0000 kappa=0.9999 sep=2.58 sols=3 occ=0.494 (20s)
+[217/528] AMZN/1h axis=systematic   w=120 K=2 arm=real agree=0.9999 kappa=0.9997 sep=2.41 sols=3 occ=0.500 (29s)
+[218/528] EEM/1h axis=volume_price w=250 K=2 arm=null agree=0.9999 kappa=0.9999 sep=2.60 sols=3 occ=0.447 (24s)
+[219/528] AAPL/1h axis=systematic   w=250 K=2 arm=null agree=1.0000 kappa=1.0000 sep=2.36 sols=5 occ=0.444 (22s)
+[220/528] GOOGL/1h axis=systematic   w=120 K=2 arm=real agree=0.9998 kappa=0.9996 sep=2.34 sols=4 occ=0.486 (34s)
+[221/528] JPM/1h axis=systematic   w=250 K=2 arm=real agree=1.0000 kappa=1.0000 sep=2.64 sols=5 occ=0.493 (25s)
+[222/528] EEM/1h axis=systematic   w=250 K=2 arm=null agree=1.0000 kappa=1.0000 sep=2.73 sols=4 occ=0.477 (21s)
+[223/528] EEM/1h axis=systematic   w=120 K=2 arm=null agree=1.0000 kappa=1.0000 sep=2.55 sols=3 occ=0.484 (40s)
+[224/528] XLK/1h axis=systematic   w=250 K=2 arm=null agree=1.0000 kappa=1.0000 sep=2.94 sols=3 occ=0.471 (54s)
+[225/528] AAPL/1h axis=systematic   w=250 K=2 arm=real agree=0.9997 kappa=0.9995 sep=2.78 sols=3 occ=0.437 (33s)
+[226/528] EEM/1h axis=volume_price w=250 K=2 arm=real agree=1.0000 kappa=1.0000 sep=2.78 sols=4 occ=0.465 (19s)
+[227/528] GOOGL/1h axis=systematic   w=250 K=2 arm=null agree=0.9998 kappa=0.9995 sep=2.45 sols=6 occ=0.480 (22s)
+[228/528] AMZN/1h axis=systematic   w=250 K=2 arm=null agree=0.9998 kappa=0.9996 sep=2.78 sols=4 occ=0.438 (19s)
+[229/528] MSFT/1h axis=systematic   w=250 K=2 arm=null agree=1.0000 kappa=0.9999 sep=2.60 sols=6 occ=0.444 (18s)
+[230/528] FXY/1h axis=volume_price w=250 K=2 arm=null agree=1.0000 kappa=1.0000 sep=2.56 sols=5 occ=0.418 (14s)
+[231/528] AMZN/1h axis=systematic   w=250 K=2 arm=real agree=0.9999 kappa=0.9999 sep=2.52 sols=4 occ=0.410 (26s)
+[232/528] FXY/1h axis=systematic   w=120 K=2 arm=null agree=1.0000 kappa=0.9999 sep=1.97 sols=2 occ=0.427 (21s)
+[233/528] FXY/1h axis=volume_price w=120 K=2 arm=real agree=1.0000 kappa=1.0000 sep=2.65 sols=4 occ=0.439 (23s)
+[234/528] FXY/1h axis=systematic   w=250 K=2 arm=real agree=0.9999 kappa=0.9998 sep=2.17 sols=3 occ=0.414 (23s)
+[235/528] FXY/1h axis=volume_price w=250 K=2 arm=real agree=1.0000 kappa=1.0000 sep=2.81 sols=3 occ=0.475 (21s)
+[236/528] FXY/1h axis=systematic   w=120 K=2 arm=real agree=1.0000 kappa=1.0000 sep=2.08 sols=3 occ=0.385 (27s)
+[237/528] GOOGL/1h axis=systematic   w=250 K=2 arm=real agree=1.0000 kappa=1.0000 sep=2.43 sols=3 occ=0.439 (37s)
+[238/528] SMH/1h axis=volume_price w=120 K=2 arm=real agree=0.9994 kappa=0.9987 sep=2.73 sols=3 occ=0.450 (14s)
+[239/528] SMH/1h axis=volume_price w=120 K=2 arm=null agree=0.9998 kappa=0.9997 sep=2.65 sols=4 occ=0.477 (16s)
+[240/528] TLT/1h axis=volume_price w=250 K=3 arm=null agree=0.9259 kappa=0.8885 sep=2.62 sols=14 occ=0.298 (20s)
+[241/528] FXY/1h axis=systematic   w=250 K=2 arm=null agree=1.0000 kappa=1.0000 sep=2.51 sols=2 occ=0.443 (31s)
+[242/528] SMH/1h axis=volume_price w=250 K=2 arm=real agree=0.7176 kappa=0.4344 sep=2.77 sols=3 occ=0.467 (14s)
+[243/528] FXY/1h axis=volume_price w=120 K=2 arm=null agree=1.0000 kappa=0.9999 sep=2.54 sols=4 occ=0.460 (37s)
+[244/528] TLT/1h axis=volume_price w=250 K=3 arm=real agree=0.9650 kappa=0.9472 sep=2.41 sols=12 occ=0.296 (26s)
+[245/528] TLT/1h axis=volume_price w=120 K=3 arm=real agree=0.9857 kappa=0.9784 sep=2.44 sols=12 occ=0.284 (29s)
+[246/528] SMH/1h axis=volume_price w=250 K=2 arm=null agree=1.0000 kappa=1.0000 sep=2.56 sols=6 occ=0.424 (21s)
+[247/528] TLT/1h axis=volume_price w=120 K=3 arm=null agree=1.0000 kappa=1.0000 sep=2.76 sols=10 occ=0.243 (33s)
+[248/528] MSFT/1h axis=systematic   w=250 K=2 arm=real agree=1.0000 kappa=1.0000 sep=2.65 sols=5 occ=0.391 (48s)
+[249/528] TLT/1h axis=volume_price w=120 K=2 arm=null agree=1.0000 kappa=1.0000 sep=2.74 sols=4 occ=0.426 (10s)
+[250/528] TLT/1h axis=volume_price w=120 K=2 arm=real agree=0.9998 kappa=0.9997 sep=2.75 sols=5 occ=0.474 (12s)
+[251/528] TLT/1h axis=volume_price w=250 K=2 arm=null agree=0.9999 kappa=0.9998 sep=2.73 sols=5 occ=0.471 (11s)
+[252/528] TLT/1h axis=volume_price w=250 K=2 arm=real agree=1.0000 kappa=1.0000 sep=2.73 sols=4 occ=0.495 (9s)
+[253/528] TLT/1h axis=systematic   w=120 K=3 arm=real agree=0.9997 kappa=0.9995 sep=2.80 sols=5 occ=0.236 (25s)
+[254/528] SMH/1h axis=systematic   w=250 K=2 arm=real agree=1.0000 kappa=1.0000 sep=2.21 sols=4 occ=0.418 (18s)
+[255/528] SMH/1h axis=systematic   w=120 K=2 arm=real agree=0.9999 kappa=0.9998 sep=1.79 sols=2 occ=0.414 (22s)
+[256/528] SMH/1h axis=systematic   w=250 K=2 arm=null agree=1.0000 kappa=1.0000 sep=2.72 sols=5 occ=0.416 (17s)
+[257/528] AAPL/1d axis=volume_price w=120 K=3 arm=real agree=0.9990 kappa=0.9985 sep=2.89 sols=12 occ=0.282 (6s)
+[258/528] TLT/1h axis=systematic   w=250 K=3 arm=null agree=0.9999 kappa=0.9999 sep=1.21 sols=5 occ=0.231 (24s)
+[259/528] TLT/1h axis=systematic   w=120 K=2 arm=null agree=0.9998 kappa=0.9996 sep=1.67 sols=2 occ=0.478 (11s)
+[260/528] QQQ/1d axis=volume_price w=120 K=3 arm=null agree=0.7715 kappa=0.6534 sep=2.61 sols=18 occ=0.313 (4s)
+[261/528] TLT/1h axis=systematic   w=250 K=3 arm=real agree=0.9994 kappa=0.9990 sep=2.87 sols=6 occ=0.227 (26s)
+[262/528] JPM/1d axis=volume_price w=120 K=3 arm=real agree=1.0000 kappa=1.0000 sep=2.78 sols=13 occ=0.286 (5s)
+[263/528] SMH/1h axis=systematic   w=120 K=2 arm=null agree=1.0000 kappa=1.0000 sep=2.78 sols=4 occ=0.413 (23s)
+[264/528] AAPL/1d axis=volume_price w=120 K=3 arm=null agree=0.3612 kappa=0.0096 sep=3.13 sols=17 occ=0.044 (6s)
+[265/528] GLD/1d axis=volume_price w=120 K=3 arm=null agree=0.7633 kappa=0.6433 sep=2.78 sols=16 occ=0.238 (4s)
+[266/528] XLK/1d axis=volume_price w=120 K=3 arm=null agree=0.3865 kappa=0.0782 sep=2.03 sols=18 occ=0.279 (5s)
+[267/528] TLT/1h axis=systematic   w=120 K=2 arm=real agree=1.0000 kappa=1.0000 sep=1.82 sols=3 occ=0.492 (15s)
+[268/528] EEM/1d axis=volume_price w=120 K=3 arm=null agree=0.4057 kappa=0.1084 sep=2.89 sols=17 occ=0.326 (7s)
+[269/528] DIA/1d axis=volume_price w=120 K=3 arm=null agree=0.9882 kappa=0.9809 sep=2.41 sols=13 occ=0.149 (5s)
+[270/528] IWM/1d axis=volume_price w=120 K=3 arm=null agree=1.0000 kappa=1.0000 sep=2.36 sols=13 occ=0.260 (7s)
+[271/528] AAPL/1d axis=systematic   w=120 K=3 arm=real agree=0.9990 kappa=0.9985 sep=2.12 sols=15 occ=0.317 (4s)
+[272/528] XLF/1d axis=volume_price w=120 K=3 arm=null agree=1.0000 kappa=1.0000 sep=2.36 sols=13 occ=0.304 (6s)
+[273/528] XLE/1d axis=volume_price w=120 K=3 arm=null agree=0.9400 kappa=0.8966 sep=1.19 sols=16 occ=0.118 (7s)
+[274/528] QQQ/1d axis=systematic   w=120 K=3 arm=real agree=0.9925 kappa=0.9885 sep=2.61 sols=10 occ=0.244 (4s)
+[275/528] TLT/1h axis=systematic   w=250 K=2 arm=real agree=1.0000 kappa=1.0000 sep=1.85 sols=3 occ=0.488 (13s)
+[276/528] TLT/1h axis=systematic   w=120 K=3 arm=null agree=0.4049 kappa=0.1283 sep=1.16 sols=7 occ=0.273 (32s)
+[277/528] TLT/1h axis=systematic   w=250 K=2 arm=null agree=1.0000 kappa=1.0000 sep=1.75 sols=2 occ=0.466 (14s)
+[278/528] EEM/1d axis=systematic   w=120 K=3 arm=real agree=0.9111 kappa=0.8638 sep=2.47 sols=16 occ=0.265 (4s)
+[279/528] XLE/1d axis=systematic   w=120 K=3 arm=null agree=0.9998 kappa=0.9997 sep=2.81 sols=12 occ=0.308 (5s)
+[280/528] QQQ/1d axis=systematic   w=120 K=3 arm=null agree=0.9706 kappa=0.9550 sep=3.00 sols=14 occ=0.245 (7s)
+[281/528] XLF/1d axis=systematic   w=120 K=3 arm=real agree=1.0000 kappa=1.0000 sep=3.71 sols=10 occ=0.215 (5s)
+[282/528] XLE/1d axis=systematic   w=120 K=3 arm=real agree=1.0000 kappa=1.0000 sep=3.09 sols=7 occ=0.266 (7s)
+[283/528] AAPL/1d axis=systematic   w=120 K=3 arm=null agree=0.7713 kappa=0.6560 sep=2.61 sols=12 occ=0.298 (9s)
+[284/528] XLF/1d axis=systematic   w=120 K=3 arm=null agree=0.9998 kappa=0.9997 sep=2.36 sols=12 occ=0.285 (6s)
+[285/528] XLK/1d axis=systematic   w=120 K=3 arm=null agree=1.0000 kappa=1.0000 sep=2.49 sols=14 occ=0.302 (6s)
+[286/528] IWM/1d axis=systematic   w=120 K=3 arm=null agree=1.0000 kappa=1.0000 sep=2.01 sols=10 occ=0.323 (5s)
+[287/528] JPM/1d axis=systematic   w=120 K=3 arm=real agree=1.0000 kappa=1.0000 sep=2.39 sols=11 occ=0.192 (6s)
+[288/528] SPY/1d axis=volume_price w=120 K=3 arm=null agree=1.0000 kappa=1.0000 sep=2.78 sols=11 occ=0.193 (6s)
+[289/528] XLK/1d axis=systematic   w=120 K=3 arm=real agree=1.0000 kappa=1.0000 sep=2.28 sols=10 occ=0.308 (7s)
+[290/528] IWM/1d axis=systematic   w=120 K=3 arm=real agree=1.0000 kappa=1.0000 sep=2.18 sols=11 occ=0.273 (7s)
+[291/528] JPM/1d axis=volume_price w=120 K=3 arm=null agree=0.6279 kappa=0.4463 sep=3.07 sols=17 occ=0.293 (4s)
+[292/528] EEM/1d axis=systematic   w=120 K=3 arm=null agree=0.8256 kappa=0.7374 sep=2.28 sols=17 occ=0.227 (7s)
+[293/528] DIA/1d axis=systematic   w=120 K=3 arm=null agree=0.7411 kappa=0.6071 sep=2.28 sols=13 occ=0.273 (4s)
+[294/528] DIA/1d axis=systematic   w=120 K=3 arm=real agree=0.5302 kappa=0.2859 sep=1.58 sols=12 occ=0.290 (4s)
+[295/528] GLD/1d axis=systematic   w=120 K=3 arm=null agree=1.0000 kappa=1.0000 sep=2.67 sols=3 occ=0.255 (5s)
+[296/528] JPM/1d axis=systematic   w=120 K=3 arm=null agree=0.9998 kappa=0.9997 sep=2.74 sols=14 occ=0.255 (8s)
+[297/528] XLF/1d axis=volume_price w=120 K=3 arm=real agree=0.7671 kappa=0.6497 sep=1.97 sols=12 occ=0.297 (4s)
+[298/528] AMZN/1d axis=volume_price w=120 K=3 arm=null agree=1.0000 kappa=1.0000 sep=3.94 sols=13 occ=0.235 (4s)
+[299/528] GOOGL/1d axis=volume_price w=120 K=3 arm=null agree=0.6366 kappa=0.4548 sep=2.14 sols=16 occ=0.225 (5s)
+[300/528] GLD/1d axis=systematic   w=120 K=3 arm=real agree=0.9192 kappa=0.8785 sep=2.62 sols=5 occ=0.284 (8s)
+[301/528] EEM/1d axis=volume_price w=120 K=3 arm=real agree=0.9473 kappa=0.9207 sep=2.70 sols=13 occ=0.301 (7s)
+[302/528] MSFT/1d axis=volume_price w=120 K=3 arm=null agree=1.0000 kappa=1.0000 sep=2.56 sols=14 occ=0.304 (4s)
+[303/528] XLE/1d axis=volume_price w=120 K=3 arm=real agree=0.2604 kappa=-0.1123 sep=2.13 sols=11 occ=0.312 (7s)
+[304/528] IWM/1d axis=volume_price w=120 K=3 arm=real agree=0.5649 kappa=0.3476 sep=2.42 sols=11 occ=0.322 (8s)
+[305/528] QQQ/1d axis=volume_price w=120 K=3 arm=real agree=0.6986 kappa=0.5482 sep=2.27 sols=13 occ=0.319 (8s)
+[306/528] XLK/1d axis=volume_price w=120 K=3 arm=real agree=0.9994 kappa=0.9991 sep=2.49 sols=10 occ=0.264 (7s)
+[307/528] AMZN/1d axis=systematic   w=120 K=3 arm=real agree=0.8566 kappa=0.7858 sep=2.19 sols=17 occ=0.296 (5s)
+[308/528] SPY/1d axis=volume_price w=120 K=3 arm=real agree=1.0000 kappa=1.0000 sep=2.73 sols=12 occ=0.279 (8s)
+[309/528] AMZN/1d axis=systematic   w=120 K=3 arm=null agree=1.0000 kappa=1.0000 sep=2.77 sols=10 occ=0.215 (5s)
+[310/528] DIA/1d axis=volume_price w=120 K=3 arm=real agree=0.5919 kappa=0.3929 sep=2.46 sols=12 occ=0.269 (8s)
+[311/528] MSFT/1d axis=systematic   w=120 K=3 arm=real agree=0.4428 kappa=0.1594 sep=2.22 sols=13 occ=0.281 (4s)
+[312/528] GOOGL/1d axis=systematic   w=120 K=3 arm=real agree=0.8877 kappa=0.8314 sep=2.21 sols=16 occ=0.318 (6s)
+[313/528] GLD/1d axis=volume_price w=120 K=3 arm=real agree=0.4789 kappa=0.2103 sep=2.57 sols=12 occ=0.261 (9s)
+[314/528] AAPL/1d axis=volume_price w=250 K=3 arm=real agree=0.9491 kappa=0.9237 sep=2.75 sols=12 occ=0.323 (4s)
+[315/528] GOOGL/1d axis=systematic   w=120 K=3 arm=null agree=1.0000 kappa=1.0000 sep=1.85 sols=10 occ=0.223 (7s)
+[316/528] AAPL/1d axis=systematic   w=250 K=3 arm=null agree=0.8801 kappa=0.8177 sep=2.66 sols=16 occ=0.248 (4s)
+[317/528] JPM/1d axis=volume_price w=250 K=3 arm=real agree=0.7490 kappa=0.6235 sep=2.31 sols=18 occ=0.213 (4s)
+[318/528] AAPL/1d axis=volume_price w=250 K=3 arm=null agree=0.6030 kappa=0.3927 sep=0.62 sols=17 occ=0.280 (4s)
+[319/528] GOOGL/1d axis=volume_price w=120 K=3 arm=real agree=0.7935 kappa=0.6963 sep=1.82 sols=13 occ=0.218 (7s)
+[320/528] XLE/1d axis=systematic   w=250 K=3 arm=real agree=0.9539 kappa=0.9274 sep=3.79 sols=12 occ=0.264 (4s)
+[321/528] AMZN/1d axis=volume_price w=120 K=3 arm=real agree=1.0000 kappa=1.0000 sep=2.33 sols=15 occ=0.319 (7s)
+[322/528] QQQ/1d axis=systematic   w=250 K=3 arm=real agree=0.9118 kappa=0.8653 sep=3.53 sols=15 occ=0.265 (5s)
+[323/528] MSFT/1d axis=volume_price w=120 K=3 arm=real agree=0.3297 kappa=-0.0278 sep=2.37 sols=15 occ=0.203 (7s)
+[324/528] QQQ/1d axis=systematic   w=250 K=3 arm=null agree=0.6058 kappa=0.4085 sep=2.26 sols=12 occ=0.286 (5s)
+[325/528] XLE/1d axis=systematic   w=250 K=3 arm=null agree=1.0000 kappa=1.0000 sep=3.16 sols=13 occ=0.264 (4s)
+[326/528] AAPL/1d axis=systematic   w=250 K=3 arm=real agree=1.0000 kappa=1.0000 sep=2.62 sols=17 occ=0.307 (7s)
+[327/528] XLF/1d axis=systematic   w=250 K=3 arm=real agree=0.7676 kappa=0.6430 sep=3.71 sols=14 occ=0.158 (4s)
+[328/528] MSFT/1d axis=systematic   w=120 K=3 arm=null agree=0.7414 kappa=0.6117 sep=1.69 sols=15 occ=0.320 (8s)
+[329/528] EEM/1d axis=systematic   w=250 K=3 arm=real agree=1.0000 kappa=1.0000 sep=3.78 sols=12 occ=0.279 (4s)
+[330/528] XLK/1d axis=systematic   w=250 K=3 arm=null agree=0.6298 kappa=0.4416 sep=2.30 sols=15 occ=0.268 (4s)
+[331/528] IWM/1d axis=systematic   w=250 K=3 arm=real agree=1.0000 kappa=1.0000 sep=3.15 sols=11 occ=0.160 (5s)
+[332/528] XLK/1d axis=systematic   w=250 K=3 arm=real agree=0.1672 kappa=-0.2447 sep=2.90 sols=13 occ=0.309 (5s)
+[333/528] XLF/1d axis=systematic   w=250 K=3 arm=null agree=0.7077 kappa=0.5542 sep=2.14 sols=16 occ=0.278 (7s)
+[334/528] JPM/1d axis=systematic   w=250 K=3 arm=real agree=0.6522 kappa=0.4478 sep=2.39 sols=13 occ=0.224 (4s)
+[335/528] EEM/1d axis=systematic   w=250 K=3 arm=null agree=1.0000 kappa=1.0000 sep=2.05 sols=14 occ=0.271 (6s)
+[336/528] IWM/1d axis=systematic   w=250 K=3 arm=null agree=1.0000 kappa=1.0000 sep=2.87 sols=11 occ=0.260 (5s)
+[337/528] JPM/1d axis=volume_price w=250 K=3 arm=null agree=0.9356 kappa=0.8959 sep=3.25 sols=18 occ=0.146 (5s)
+[338/528] IWM/1d axis=volume_price w=250 K=3 arm=real agree=0.8507 kappa=0.7729 sep=3.02 sols=16 occ=0.253 (3s)
+[339/528] DIA/1d axis=systematic   w=250 K=3 arm=null agree=0.9896 kappa=0.9840 sep=2.45 sols=13 occ=0.228 (5s)
+[340/528] QQQ/1d axis=volume_price w=250 K=3 arm=real agree=0.9998 kappa=0.9996 sep=2.80 sols=12 occ=0.132 (4s)
+[341/528] DIA/1d axis=systematic   w=250 K=3 arm=real agree=0.6757 kappa=0.4992 sep=1.43 sols=11 occ=0.260 (5s)
+[342/528] GLD/1d axis=systematic   w=250 K=3 arm=real agree=1.0000 kappa=1.0000 sep=2.39 sols=8 occ=0.256 (5s)
+[343/528] JPM/1d axis=systematic   w=250 K=3 arm=null agree=0.4135 kappa=0.1278 sep=3.05 sols=13 occ=0.258 (6s)
+[344/528] XLE/1d axis=volume_price w=250 K=3 arm=real agree=1.0000 kappa=1.0000 sep=2.56 sols=14 occ=0.268 (4s)
+[345/528] XLF/1d axis=volume_price w=250 K=3 arm=real agree=1.0000 kappa=1.0000 sep=2.15 sols=13 occ=0.262 (4s)
+[346/528] EEM/1d axis=volume_price w=250 K=3 arm=real agree=0.7918 kappa=0.6941 sep=2.26 sols=15 occ=0.277 (6s)
+[347/528] XLK/1d axis=volume_price w=250 K=3 arm=real agree=1.0000 kappa=1.0000 sep=1.85 sols=12 occ=0.267 (5s)
+[348/528] GLD/1d axis=systematic   w=250 K=3 arm=null agree=1.0000 kappa=1.0000 sep=2.24 sols=7 occ=0.273 (8s)
+[349/528] MSFT/1d axis=systematic   w=250 K=3 arm=real agree=0.9998 kappa=0.9997 sep=2.75 sols=13 occ=0.241 (3s)
+[350/528] AMZN/1d axis=systematic   w=250 K=3 arm=real agree=1.0000 kappa=1.0000 sep=2.86 sols=15 occ=0.168 (4s)
+[351/528] DIA/1d axis=volume_price w=250 K=3 arm=real agree=1.0000 kappa=1.0000 sep=2.62 sols=15 occ=0.274 (6s)
+[352/528] GLD/1d axis=volume_price w=250 K=3 arm=real agree=0.6440 kappa=0.4702 sep=2.54 sols=14 occ=0.241 (6s)
+[353/528] GOOGL/1d axis=systematic   w=250 K=3 arm=null agree=1.0000 kappa=1.0000 sep=1.76 sols=12 occ=0.279 (4s)
+[354/528] AMZN/1d axis=systematic   w=250 K=3 arm=null agree=1.0000 kappa=1.0000 sep=2.58 sols=13 occ=0.257 (4s)
+[355/528] SPY/1d axis=volume_price w=250 K=3 arm=real agree=0.9998 kappa=0.9997 sep=2.72 sols=10 occ=0.284 (6s)
+[356/528] AMZN/1d axis=volume_price w=250 K=3 arm=real agree=0.9300 kappa=0.8933 sep=1.76 sols=17 occ=0.234 (4s)
+[357/528] GOOGL/1d axis=systematic   w=250 K=3 arm=real agree=0.7835 kappa=0.6755 sep=2.33 sols=15 occ=0.314 (5s)
+[358/528] GOOGL/1d axis=volume_price w=250 K=3 arm=real agree=0.9214 kappa=0.8777 sep=2.99 sols=10 occ=0.248 (4s)
+[359/528] FXY/1d axis=systematic   w=120 K=3 arm=real agree=0.9849 kappa=0.9766 sep=2.56 sols=16 occ=0.232 (7s)
+[360/528] FXY/1d axis=systematic   w=250 K=3 arm=real agree=1.0000 kappa=1.0000 sep=2.78 sols=9 occ=0.238 (3s)
+[361/528] MSFT/1d axis=volume_price w=250 K=3 arm=real agree=1.0000 kappa=1.0000 sep=3.03 sols=10 occ=0.246 (5s)
+[362/528] IWM/1d axis=volume_price w=250 K=3 arm=null agree=0.3324 kappa=0.0728 sep=1.65 sols=15 occ=0.111 (3s)
+[363/528] QQQ/1d axis=volume_price w=250 K=3 arm=null agree=0.6618 kappa=0.4802 sep=2.04 sols=14 occ=0.221 (3s)
+[364/528] XLF/1d axis=volume_price w=250 K=3 arm=null agree=1.0000 kappa=1.0000 sep=2.30 sols=14 occ=0.204 (3s)
+[365/528] MSFT/1d axis=systematic   w=250 K=3 arm=null agree=0.9966 kappa=0.9949 sep=2.46 sols=17 occ=0.238 (7s)
+[366/528] FXY/1d axis=systematic   w=120 K=3 arm=null agree=1.0000 kappa=1.0000 sep=2.12 sols=11 occ=0.306 (9s)
+[367/528] FXY/1d axis=systematic   w=250 K=3 arm=null agree=1.0000 kappa=1.0000 sep=2.66 sols=14 occ=0.256 (5s)
+[368/528] SPY/1d axis=volume_price w=250 K=3 arm=null agree=0.4286 kappa=0.1970 sep=1.83 sols=19 occ=0.223 (5s)
+[369/528] XLE/1d axis=volume_price w=250 K=3 arm=null agree=0.6144 kappa=0.4280 sep=3.25 sols=14 occ=0.167 (4s)
+[370/528] FXY/1d axis=volume_price w=120 K=3 arm=null agree=0.8879 kappa=0.8280 sep=3.09 sols=17 occ=0.249 (6s)
+[371/528] DIA/1d axis=volume_price w=250 K=3 arm=null agree=0.5855 kappa=0.4077 sep=2.77 sols=15 occ=0.231 (4s)
+[372/528] FXY/1d axis=volume_price w=250 K=3 arm=real agree=0.9816 kappa=0.9722 sep=2.57 sols=14 occ=0.268 (6s)
+[373/528] FXY/1d axis=volume_price w=120 K=3 arm=real agree=0.8780 kappa=0.8164 sep=2.75 sols=13 occ=0.301 (8s)
+[374/528] XLK/1d axis=volume_price w=250 K=3 arm=null agree=0.2571 kappa=-0.0083 sep=2.05 sols=15 occ=0.111 (5s)
+[375/528] GLD/1d axis=volume_price w=250 K=3 arm=null agree=1.0000 kappa=1.0000 sep=2.22 sols=13 occ=0.186 (3s)
+[376/528] GOOGL/1d axis=volume_price w=250 K=3 arm=null agree=0.2753 kappa=-0.1106 sep=2.10 sols=14 occ=0.297 (3s)
+[377/528] MSFT/1d axis=volume_price w=250 K=3 arm=null agree=0.4010 kappa=0.0937 sep=3.52 sols=15 occ=0.168 (3s)
+[378/528] FXY/1d axis=volume_price w=250 K=3 arm=null agree=0.3409 kappa=0.0166 sep=0.47 sols=14 occ=0.246 (3s)
+[379/528] SMH/1d axis=volume_price w=120 K=3 arm=real agree=1.0000 kappa=1.0000 sep=2.63 sols=10 occ=0.298 (3s)
+[380/528] AMZN/1d axis=volume_price w=250 K=3 arm=null agree=0.7370 kappa=0.5662 sep=1.85 sols=17 occ=0.131 (5s)
+[381/528] EEM/1d axis=volume_price w=250 K=3 arm=null agree=0.5783 kappa=0.3852 sep=1.46 sols=13 occ=0.228 (5s)
+[382/528] QQQ/1d axis=volume_price w=120 K=2 arm=null agree=1.0000 kappa=1.0000 sep=3.07 sols=6 occ=0.374 (2s)
+[383/528] AAPL/1d axis=volume_price w=120 K=2 arm=null agree=1.0000 kappa=1.0000 sep=2.73 sols=7 occ=0.483 (2s)
+[384/528] JPM/1d axis=volume_price w=120 K=2 arm=real agree=0.9998 kappa=0.9996 sep=3.15 sols=5 occ=0.421 (3s)
+[385/528] SMH/1d axis=systematic   w=250 K=3 arm=real agree=0.9576 kappa=0.9294 sep=3.04 sols=17 occ=0.219 (3s)
+[386/528] SMH/1d axis=systematic   w=250 K=3 arm=null agree=1.0000 kappa=1.0000 sep=2.27 sols=15 occ=0.315 (3s)
+[387/528] SMH/1d axis=volume_price w=120 K=3 arm=null agree=0.4889 kappa=0.2112 sep=2.26 sols=16 occ=0.107 (4s)
+[388/528] SMH/1d axis=systematic   w=120 K=3 arm=null agree=1.0000 kappa=1.0000 sep=3.43 sols=10 occ=0.211 (5s)
+[389/528] SMH/1d axis=systematic   w=120 K=3 arm=real agree=0.9631 kappa=0.9442 sep=1.77 sols=10 occ=0.306 (5s)
+[390/528] IWM/1d axis=volume_price w=120 K=2 arm=null agree=0.2152 kappa=-0.5818 sep=2.94 sols=7 occ=0.485 (2s)
+[391/528] SMH/1d axis=volume_price w=250 K=3 arm=real agree=0.5983 kappa=0.3979 sep=2.97 sols=17 occ=0.213 (4s)
+[392/528] XLE/1d axis=volume_price w=120 K=2 arm=null agree=1.0000 kappa=1.0000 sep=2.68 sols=9 occ=0.407 (2s)
+[393/528] EEM/1d axis=volume_price w=120 K=2 arm=null agree=0.6596 kappa=0.3897 sep=2.90 sols=6 occ=0.339 (3s)
+[394/528] SMH/1d axis=volume_price w=250 K=3 arm=null agree=0.9240 kappa=0.8790 sep=3.67 sols=10 occ=0.129 (3s)
+[395/528] AAPL/1d axis=volume_price w=120 K=2 arm=real agree=1.0000 kappa=1.0000 sep=3.05 sols=5 occ=0.458 (4s)
+[396/528] DIA/1d axis=volume_price w=120 K=2 arm=null agree=0.2400 kappa=-0.5903 sep=3.37 sols=7 occ=0.384 (2s)
+[397/528] GLD/1d axis=volume_price w=120 K=2 arm=null agree=1.0000 kappa=1.0000 sep=3.42 sols=5 occ=0.470 (2s)
+[398/528] XLK/1d axis=systematic   w=120 K=2 arm=real agree=1.0000 kappa=1.0000 sep=3.21 sols=5 occ=0.447 (2s)
+[399/528] AAPL/1d axis=systematic   w=120 K=2 arm=real agree=1.0000 kappa=1.0000 sep=2.29 sols=4 occ=0.346 (3s)
+[400/528] XLF/1d axis=volume_price w=120 K=2 arm=null agree=1.0000 kappa=1.0000 sep=3.39 sols=8 occ=0.336 (3s)
+[401/528] XLK/1d axis=volume_price w=120 K=2 arm=null agree=1.0000 kappa=1.0000 sep=2.98 sols=5 occ=0.482 (3s)
+[402/528] XLF/1d axis=systematic   w=120 K=2 arm=real agree=1.0000 kappa=1.0000 sep=3.72 sols=5 occ=0.343 (2s)
+[403/528] AAPL/1d axis=systematic   w=120 K=2 arm=null agree=0.9998 kappa=0.9995 sep=3.01 sols=4 occ=0.328 (3s)
+[404/528] XLE/1d axis=systematic   w=120 K=2 arm=real agree=1.0000 kappa=1.0000 sep=3.65 sols=6 occ=0.376 (3s)
+[405/528] QQQ/1d axis=systematic   w=120 K=2 arm=real agree=0.8037 kappa=0.6217 sep=2.68 sols=5 occ=0.410 (4s)
+[406/528] XLK/1d axis=systematic   w=120 K=2 arm=null agree=0.9921 kappa=0.9842 sep=2.82 sols=3 occ=0.488 (3s)
+[407/528] QQQ/1d axis=systematic   w=120 K=2 arm=null agree=1.0000 kappa=1.0000 sep=3.06 sols=7 occ=0.467 (4s)
+[408/528] EEM/1d axis=systematic   w=120 K=2 arm=null agree=1.0000 kappa=1.0000 sep=2.42 sols=4 occ=0.490 (2s)
+[409/528] SPY/1d axis=volume_price w=120 K=2 arm=null agree=1.0000 kappa=1.0000 sep=1.97 sols=9 occ=0.388 (3s)
+[410/528] EEM/1d axis=systematic   w=120 K=2 arm=real agree=1.0000 kappa=1.0000 sep=3.30 sols=6 occ=0.364 (3s)
+[411/528] XLE/1d axis=systematic   w=120 K=2 arm=null agree=0.9998 kappa=0.9996 sep=3.12 sols=4 occ=0.437 (4s)
+[412/528] IWM/1d axis=systematic   w=120 K=2 arm=null agree=1.0000 kappa=1.0000 sep=2.74 sols=6 occ=0.397 (3s)
+[413/528] IWM/1d axis=systematic   w=120 K=2 arm=real agree=0.9998 kappa=0.9996 sep=2.82 sols=4 occ=0.489 (3s)
+[414/528] XLF/1d axis=systematic   w=120 K=2 arm=null agree=1.0000 kappa=1.0000 sep=2.73 sols=6 occ=0.454 (5s)
+[415/528] JPM/1d axis=systematic   w=120 K=2 arm=real agree=1.0000 kappa=1.0000 sep=3.02 sols=6 occ=0.413 (3s)
+[416/528] DIA/1d axis=systematic   w=120 K=2 arm=real agree=1.0000 kappa=1.0000 sep=3.33 sols=3 occ=0.319 (3s)
+[417/528] DIA/1d axis=systematic   w=120 K=2 arm=null agree=1.0000 kappa=1.0000 sep=2.70 sols=6 occ=0.399 (3s)
+[418/528] JPM/1d axis=volume_price w=120 K=2 arm=null agree=0.8329 kappa=0.6647 sep=3.00 sols=5 occ=0.459 (4s)
+[419/528] JPM/1d axis=systematic   w=120 K=2 arm=null agree=1.0000 kappa=1.0000 sep=2.71 sols=4 occ=0.436 (4s)
+[420/528] IWM/1d axis=volume_price w=120 K=2 arm=real agree=0.9998 kappa=0.9996 sep=2.88 sols=6 occ=0.433 (2s)
+[421/528] QQQ/1d axis=volume_price w=120 K=2 arm=real agree=1.0000 kappa=1.0000 sep=2.91 sols=4 occ=0.359 (3s)
+[422/528] DIA/1d axis=volume_price w=120 K=2 arm=real agree=1.0000 kappa=1.0000 sep=3.13 sols=5 occ=0.427 (2s)
+[423/528] GLD/1d axis=volume_price w=120 K=2 arm=real agree=1.0000 kappa=1.0000 sep=3.06 sols=4 occ=0.441 (2s)
+[424/528] AMZN/1d axis=volume_price w=120 K=2 arm=null agree=1.0000 kappa=1.0000 sep=3.29 sols=6 occ=0.423 (2s)
+[425/528] GLD/1d axis=systematic   w=120 K=2 arm=null agree=1.0000 kappa=1.0000 sep=1.87 sols=3 occ=0.430 (4s)
+[426/528] GLD/1d axis=systematic   w=120 K=2 arm=real agree=1.0000 kappa=1.0000 sep=1.84 sols=4 occ=0.480 (5s)
+[427/528] GOOGL/1d axis=volume_price w=120 K=2 arm=null agree=1.0000 kappa=1.0000 sep=2.86 sols=10 occ=0.426 (2s)
+[428/528] XLE/1d axis=volume_price w=120 K=2 arm=real agree=1.0000 kappa=1.0000 sep=3.01 sols=4 occ=0.477 (4s)
+[429/528] MSFT/1d axis=volume_price w=120 K=2 arm=null agree=1.0000 kappa=1.0000 sep=3.12 sols=7 occ=0.495 (2s)
+[430/528] EEM/1d axis=volume_price w=120 K=2 arm=real agree=0.9978 kappa=0.9955 sep=2.73 sols=8 occ=0.475 (5s)
+[431/528] MSFT/1d axis=systematic   w=120 K=2 arm=real agree=1.0000 kappa=1.0000 sep=3.52 sols=4 occ=0.499 (2s)
+[432/528] XLK/1d axis=volume_price w=120 K=2 arm=real agree=1.0000 kappa=1.0000 sep=2.98 sols=6 occ=0.491 (4s)
+[433/528] GOOGL/1d axis=systematic   w=120 K=2 arm=real agree=1.0000 kappa=1.0000 sep=3.13 sols=4 occ=0.431 (3s)
+[434/528] GOOGL/1d axis=systematic   w=120 K=2 arm=null agree=0.9871 kappa=0.9732 sep=2.20 sols=3 occ=0.407 (3s)
+[435/528] XLF/1d axis=volume_price w=120 K=2 arm=real agree=1.0000 kappa=1.0000 sep=3.06 sols=3 occ=0.475 (6s)
+[436/528] AAPL/1d axis=volume_price w=250 K=2 arm=null agree=1.0000 kappa=1.0000 sep=2.86 sols=7 occ=0.444 (2s)
+[437/528] SPY/1d axis=volume_price w=120 K=2 arm=real agree=1.0000 kappa=1.0000 sep=2.70 sols=4 occ=0.494 (6s)
+[438/528] MSFT/1d axis=systematic   w=120 K=2 arm=null agree=1.0000 kappa=1.0000 sep=3.05 sols=3 occ=0.388 (3s)
+[439/528] AMZN/1d axis=volume_price w=120 K=2 arm=real agree=1.0000 kappa=1.0000 sep=3.06 sols=5 occ=0.359 (3s)
+[440/528] AAPL/1d axis=volume_price w=250 K=2 arm=real agree=1.0000 kappa=1.0000 sep=2.93 sols=6 occ=0.488 (3s)
+[441/528] GOOGL/1d axis=volume_price w=120 K=2 arm=real agree=1.0000 kappa=1.0000 sep=2.87 sols=6 occ=0.459 (3s)
+[442/528] JPM/1d axis=volume_price w=250 K=2 arm=real agree=1.0000 kappa=1.0000 sep=3.02 sols=4 occ=0.472 (3s)
+[443/528] AAPL/1d axis=systematic   w=250 K=2 arm=null agree=1.0000 kappa=1.0000 sep=3.50 sols=5 occ=0.468 (3s)
+[444/528] MSFT/1d axis=volume_price w=120 K=2 arm=real agree=1.0000 kappa=1.0000 sep=2.54 sols=4 occ=0.357 (4s)
+[445/528] QQQ/1d axis=systematic   w=250 K=2 arm=null agree=0.8993 kappa=0.7974 sep=3.14 sols=5 occ=0.386 (2s)
+[446/528] AAPL/1d axis=systematic   w=250 K=2 arm=real agree=0.9998 kappa=0.9995 sep=2.99 sols=6 occ=0.330 (4s)
+[447/528] QQQ/1d axis=systematic   w=250 K=2 arm=real agree=1.0000 kappa=1.0000 sep=3.59 sols=8 occ=0.331 (3s)
+[448/528] AMZN/1d axis=systematic   w=120 K=2 arm=null agree=0.9971 kappa=0.9941 sep=3.08 sols=6 occ=0.420 (6s)
+[449/528] EEM/1d axis=systematic   w=250 K=2 arm=real agree=1.0000 kappa=1.0000 sep=3.76 sols=8 occ=0.365 (2s)
+[450/528] AMZN/1d axis=systematic   w=120 K=2 arm=real agree=1.0000 kappa=1.0000 sep=2.16 sols=4 occ=0.340 (6s)
+[451/528] XLE/1d axis=systematic   w=250 K=2 arm=real agree=1.0000 kappa=1.0000 sep=3.33 sols=6 occ=0.400 (3s)
+[452/528] XLK/1d axis=systematic   w=250 K=2 arm=real agree=0.9996 kappa=0.9992 sep=3.69 sols=5 occ=0.469 (2s)
+[453/528] XLF/1d axis=systematic   w=250 K=2 arm=real agree=1.0000 kappa=1.0000 sep=2.78 sols=6 occ=0.449 (3s)
+[454/528] XLK/1d axis=systematic   w=250 K=2 arm=null agree=0.8487 kappa=0.7021 sep=2.71 sols=4 occ=0.400 (3s)
+[455/528] IWM/1d axis=systematic   w=250 K=2 arm=null agree=1.0000 kappa=1.0000 sep=3.11 sols=9 occ=0.472 (2s)
+[456/528] XLE/1d axis=systematic   w=250 K=2 arm=null agree=1.0000 kappa=1.0000 sep=3.18 sols=4 occ=0.405 (3s)
+[457/528] EEM/1d axis=systematic   w=250 K=2 arm=null agree=1.0000 kappa=1.0000 sep=2.27 sols=8 occ=0.334 (3s)
+[458/528] IWM/1d axis=systematic   w=250 K=2 arm=real agree=1.0000 kappa=1.0000 sep=3.59 sols=3 occ=0.334 (3s)
+[459/528] XLF/1d axis=systematic   w=250 K=2 arm=null agree=1.0000 kappa=1.0000 sep=2.67 sols=7 occ=0.470 (4s)
+[460/528] JPM/1d axis=systematic   w=250 K=2 arm=null agree=0.9998 kappa=0.9996 sep=2.97 sols=5 occ=0.476 (3s)
+[461/528] JPM/1d axis=systematic   w=250 K=2 arm=real agree=1.0000 kappa=1.0000 sep=2.55 sols=7 occ=0.330 (4s)
+[462/528] GLD/1d axis=systematic   w=250 K=2 arm=real agree=1.0000 kappa=1.0000 sep=3.12 sols=4 occ=0.447 (3s)
+[463/528] DIA/1d axis=systematic   w=250 K=2 arm=real agree=1.0000 kappa=1.0000 sep=3.46 sols=2 occ=0.271 (3s)
+[464/528] XLE/1d axis=volume_price w=250 K=2 arm=real agree=1.0000 kappa=1.0000 sep=3.40 sols=4 occ=0.418 (2s)
+[465/528] IWM/1d axis=volume_price w=250 K=2 arm=real agree=1.0000 kappa=1.0000 sep=2.67 sols=6 occ=0.455 (2s)
+[466/528] JPM/1d axis=volume_price w=250 K=2 arm=null agree=1.0000 kappa=1.0000 sep=2.80 sols=9 occ=0.198 (3s)
+[467/528] EEM/1d axis=volume_price w=250 K=2 arm=real agree=1.0000 kappa=1.0000 sep=2.33 sols=7 occ=0.497 (2s)
+[468/528] XLF/1d axis=volume_price w=250 K=2 arm=real agree=0.7859 kappa=0.5718 sep=3.08 sols=6 occ=0.499 (2s)
+[469/528] QQQ/1d axis=volume_price w=250 K=2 arm=real agree=1.0000 kappa=1.0000 sep=2.96 sols=2 occ=0.472 (3s)
+[470/528] DIA/1d axis=systematic   w=250 K=2 arm=null agree=1.0000 kappa=1.0000 sep=2.84 sols=6 occ=0.451 (3s)
+[471/528] GLD/1d axis=systematic   w=250 K=2 arm=null agree=1.0000 kappa=1.0000 sep=2.52 sols=2 occ=0.495 (4s)
+[472/528] DIA/1d axis=volume_price w=250 K=2 arm=real agree=1.0000 kappa=1.0000 sep=3.40 sols=4 occ=0.433 (3s)
+[473/528] GLD/1d axis=volume_price w=250 K=2 arm=real agree=1.0000 kappa=1.0000 sep=3.76 sols=2 occ=0.439 (3s)
+[474/528] FXY/1d axis=systematic   w=120 K=2 arm=real agree=0.9667 kappa=0.9332 sep=2.87 sols=7 occ=0.487 (3s)
+[475/528] XLK/1d axis=volume_price w=250 K=2 arm=real agree=0.5148 kappa=0.1047 sep=3.08 sols=3 occ=0.337 (4s)
+[476/528] AMZN/1d axis=volume_price w=250 K=2 arm=real agree=1.0000 kappa=1.0000 sep=3.04 sols=4 occ=0.386 (2s)
+[477/528] AMZN/1d axis=systematic   w=250 K=2 arm=real agree=1.0000 kappa=1.0000 sep=3.61 sols=9 occ=0.350 (2s)
+[478/528] GOOGL/1d axis=systematic   w=250 K=2 arm=real agree=1.0000 kappa=1.0000 sep=3.04 sols=6 occ=0.473 (2s)
+[479/528] GOOGL/1d axis=systematic   w=250 K=2 arm=null agree=1.0000 kappa=1.0000 sep=2.10 sols=3 occ=0.390 (2s)
+[480/528] GOOGL/1d axis=volume_price w=250 K=2 arm=real agree=0.5718 kappa=0.1076 sep=2.84 sols=4 occ=0.387 (2s)
+[481/528] MSFT/1d axis=systematic   w=250 K=2 arm=null agree=1.0000 kappa=1.0000 sep=3.13 sols=4 occ=0.482 (3s)
+[482/528] MSFT/1d axis=systematic   w=250 K=2 arm=real agree=1.0000 kappa=1.0000 sep=3.90 sols=4 occ=0.432 (3s)
+[483/528] AMZN/1d axis=systematic   w=250 K=2 arm=null agree=1.0000 kappa=1.0000 sep=3.42 sols=3 occ=0.327 (3s)
+[484/528] SPY/1d axis=volume_price w=250 K=2 arm=real agree=0.3799 kappa=-0.2425 sep=3.76 sols=4 occ=0.460 (5s)
+[485/528] FXY/1d axis=systematic   w=120 K=2 arm=null agree=0.9998 kappa=0.9996 sep=2.65 sols=2 occ=0.480 (4s)
+[486/528] SPY/1d axis=volume_price w=250 K=2 arm=null agree=0.8346 kappa=0.5746 sep=2.89 sols=10 occ=0.167 (2s)
+[487/528] IWM/1d axis=volume_price w=250 K=2 arm=null agree=1.0000 kappa=1.0000 sep=3.98 sols=5 occ=0.466 (2s)
+[488/528] MSFT/1d axis=volume_price w=250 K=2 arm=real agree=0.4181 kappa=-0.1725 sep=2.82 sols=5 occ=0.485 (4s)
+[489/528] QQQ/1d axis=volume_price w=250 K=2 arm=null agree=1.0000 kappa=1.0000 sep=2.27 sols=8 occ=0.221 (2s)
+[490/528] XLE/1d axis=volume_price w=250 K=2 arm=null agree=1.0000 kappa=1.0000 sep=2.59 sols=5 occ=0.296 (2s)
+[491/528] XLF/1d axis=volume_price w=250 K=2 arm=null agree=1.0000 kappa=1.0000 sep=3.50 sols=5 occ=0.482 (2s)
+[492/528] XLK/1d axis=volume_price w=250 K=2 arm=null agree=0.8800 kappa=0.7542 sep=2.40 sols=5 occ=0.342 (2s)
+[493/528] FXY/1d axis=systematic   w=250 K=2 arm=null agree=1.0000 kappa=1.0000 sep=2.76 sols=4 occ=0.376 (3s)
+[494/528] FXY/1d axis=systematic   w=250 K=2 arm=real agree=1.0000 kappa=1.0000 sep=3.25 sols=5 occ=0.286 (3s)
+[495/528] FXY/1d axis=volume_price w=120 K=2 arm=null agree=1.0000 kappa=1.0000 sep=3.09 sols=4 occ=0.314 (3s)
+[496/528] FXY/1d axis=volume_price w=250 K=2 arm=real agree=1.0000 kappa=1.0000 sep=3.19 sols=4 occ=0.446 (3s)
+[497/528] DIA/1d axis=volume_price w=250 K=2 arm=null agree=1.0000 kappa=1.0000 sep=4.24 sols=5 occ=0.453 (2s)
+[498/528] FXY/1d axis=volume_price w=120 K=2 arm=real agree=0.8470 kappa=0.6966 sep=2.91 sols=5 occ=0.459 (4s)
+[499/528] GOOGL/1d axis=volume_price w=250 K=2 arm=null agree=1.0000 kappa=1.0000 sep=5.01 sols=8 occ=0.488 (2s)
+[500/528] MSFT/1d axis=volume_price w=250 K=2 arm=null agree=0.8844 kappa=0.6697 sep=2.54 sols=8 occ=0.226 (2s)
+[501/528] EEM/1d axis=volume_price w=250 K=2 arm=null agree=1.0000 kappa=1.0000 sep=1.55 sols=4 occ=0.409 (3s)
+[502/528] AMZN/1d axis=volume_price w=250 K=2 arm=null agree=0.7757 kappa=0.2171 sep=3.08 sols=6 occ=0.113 (3s)
+[503/528] TLT/1d axis=systematic   w=250 K=3 arm=real agree=1.0000 kappa=1.0000 sep=3.18 sols=10 occ=0.246 (2s)
+[504/528] GLD/1d axis=volume_price w=250 K=2 arm=null agree=1.0000 kappa=1.0000 sep=2.03 sols=8 occ=0.437 (3s)
+[505/528] FXY/1d axis=volume_price w=250 K=2 arm=null agree=1.0000 kappa=1.0000 sep=4.11 sols=10 occ=0.387 (3s)
+[506/528] TLT/1d axis=volume_price w=120 K=3 arm=null agree=0.9164 kappa=0.8718 sep=1.52 sols=17 occ=0.263 (2s)
+[507/528] TLT/1d axis=systematic   w=120 K=3 arm=real agree=0.8508 kappa=0.7741 sep=2.45 sols=8 occ=0.300 (3s)
+[508/528] TLT/1d axis=systematic   w=120 K=3 arm=null agree=1.0000 kappa=1.0000 sep=1.02 sols=12 occ=0.222 (3s)
+[509/528] SMH/1d axis=volume_price w=120 K=2 arm=null agree=1.0000 kappa=1.0000 sep=2.81 sols=11 occ=0.312 (1s)
+[510/528] SMH/1d axis=systematic   w=120 K=2 arm=real agree=1.0000 kappa=1.0000 sep=3.50 sols=8 occ=0.321 (2s)
+[511/528] TLT/1d axis=volume_price w=120 K=3 arm=real agree=0.9399 kappa=0.9056 sep=2.96 sols=15 occ=0.256 (3s)
+[512/528] SMH/1d axis=systematic   w=250 K=2 arm=real agree=1.0000 kappa=1.0000 sep=3.24 sols=5 occ=0.292 (2s)
+[513/528] SMH/1d axis=volume_price w=250 K=2 arm=null agree=1.0000 kappa=1.0000 sep=5.47 sols=5 occ=0.420 (1s)
+[514/528] TLT/1d axis=volume_price w=120 K=2 arm=null agree=0.7147 kappa=0.4717 sep=1.83 sols=7 occ=0.339 (1s)
+[515/528] TLT/1d axis=systematic   w=250 K=3 arm=null agree=1.0000 kappa=1.0000 sep=2.31 sols=12 occ=0.211 (4s)
+[516/528] SMH/1d axis=systematic   w=250 K=2 arm=null agree=1.0000 kappa=1.0000 sep=3.17 sols=4 occ=0.455 (2s)
+[517/528] TLT/1d axis=systematic   w=120 K=2 arm=real agree=1.0000 kappa=1.0000 sep=3.13 sols=4 occ=0.481 (2s)
+[518/528] SMH/1d axis=volume_price w=120 K=2 arm=real agree=1.0000 kappa=1.0000 sep=2.45 sols=6 occ=0.463 (3s)
+[519/528] TLT/1d axis=systematic   w=120 K=2 arm=null agree=1.0000 kappa=1.0000 sep=1.37 sols=4 occ=0.454 (2s)
+[520/528] TLT/1d axis=volume_price w=250 K=3 arm=real agree=0.7970 kappa=0.6965 sep=3.00 sols=15 occ=0.269 (3s)
+[521/528] SMH/1d axis=volume_price w=250 K=2 arm=real agree=1.0000 kappa=1.0000 sep=3.27 sols=5 occ=0.497 (2s)
+[522/528] SMH/1d axis=systematic   w=120 K=2 arm=null agree=0.6902 kappa=0.3970 sep=3.05 sols=4 occ=0.433 (3s)
+[523/528] TLT/1d axis=volume_price w=250 K=2 arm=real agree=1.0000 kappa=1.0000 sep=2.73 sols=4 occ=0.378 (1s)
+[524/528] TLT/1d axis=volume_price w=250 K=3 arm=null agree=0.3182 kappa=0.2381 sep=0.00 sols=10 occ=0.000 (2s)
+[525/528] TLT/1d axis=volume_price w=250 K=2 arm=null agree=1.0000 kappa=1.0000 sep=1.79 sols=3 occ=0.303 (1s)
+[526/528] TLT/1d axis=systematic   w=250 K=2 arm=real agree=1.0000 kappa=1.0000 sep=3.34 sols=6 occ=0.399 (1s)
+[527/528] TLT/1d axis=volume_price w=120 K=2 arm=real agree=0.9996 kappa=0.9992 sep=2.67 sols=5 occ=0.481 (2s)
+[528/528] TLT/1d axis=systematic   w=250 K=2 arm=null agree=1.0000 kappa=1.0000 sep=1.23 sols=5 occ=0.355 (1s)
+
+sweep done in 717s (total 723s)
+
+======================================================================================================================
+PER-AXIS x WINDOW x K SUMMARY at N=20 (min across cells + pass count)
+======================================================================================================================
+axis           win  K  pass/cells  min_agree  min_kappa  med_sep  min_sep max_sols   degen  worst_cell
+systematic     120  2    31/32        0.8037     0.6217     2.69     1.75        8   0/32   QQQ/1d
+systematic     120  3    22/32        0.3363     0.0167     2.31     0.71       17   0/32   SMH/1h
+systematic     250  2    32/32        0.9996     0.9992     2.84     1.83        9   0/32   XLK/1d
+systematic     250  3    24/32        0.1672    -0.2447     2.49     1.22       17   0/32   XLK/1d
+volume_price   120  2    32/34        0.3440    -0.3101     2.79     2.45        8   0/34   XLE/1h
+volume_price   120  3    19/34        0.2311    -0.1522     2.48     1.82       15   0/34   AMZN/1h
+volume_price   250  2    27/34        0.2962    -0.4082     2.90     2.33        7   0/34   XLE/1h
+volume_price   250  3    23/34        0.2029    -0.1964     2.54     1.76       18   0/34   SPY/1h
+
+======================================================================================================================
+VERDICT PER AXIS (clean = clears BOTH identifiability bars on ALL cells AND is
+0-degenerate on production's own occupation gate AND has non-trivial separation)
+======================================================================================================================
+systematic   : CLEAN at window=250 K=2 (min_agree=0.9996 min_kappa=0.9992 min_sep=1.83)
+volume_price : NO CONFIG CLEAN -- best is window=120 K=2 at 32/34 identifiable, 0 degenerate (min_agree=0.3440, worst=XLE/1h)
+
+======================================================================================================================
+FAILURE / DEGENERACY BY REGIME GROUP (does the fx/commodity/rates/intl split the
+trend axis showed reappear here?  group from ic_engine._build_symbol_regime_class)
+======================================================================================================================
+axis           win  K      UNROUTED    commodity       equity           fx        rates
+systematic     120  2          0/10          0/2         1/16          0/2          0/2
+systematic     120  3          5/10          0/2         4/16          0/2          1/2
+systematic     250  2          0/10          0/2         0/16          0/2          0/2
+systematic     250  3          4/10          0/2         4/16          0/2          0/2
+volume_price   120  2          0/10          0/2         1/18          1/2          0/2
+volume_price   120  3          4/10          1/2         8/18          2/2          0/2
+volume_price   250  2          2/10          0/2         5/18          0/2          0/2
+volume_price   250  3          3/10          1/2         5/18          1/2          1/2
+
+======================================================================================================================
+PER-CELL MATRIX at N=20 (agreement / kappa; * = clears both bars; D = degenerate)
+======================================================================================================================
+
+-- axis: systematic  [idiosyncratic (low R^2) .. systematic (high R^2)]
+cell        group                w120/K2          w120/K3          w250/K2          w250/K3
+AAPL/1d     UNROUTED     1.000/ 1.000*   0.999/ 0.998*   1.000/ 1.000*   1.000/ 1.000* 
+AMZN/1d     UNROUTED     1.000/ 1.000*   0.857/ 0.786    1.000/ 1.000*   1.000/ 1.000* 
+DIA/1d      equity       1.000/ 1.000*   0.530/ 0.286    1.000/ 1.000*   0.676/ 0.499  
+EEM/1d      equity       1.000/ 1.000*   0.911/ 0.864*   1.000/ 1.000*   1.000/ 1.000* 
+FXY/1d      fx           0.967/ 0.933*   0.985/ 0.977*   1.000/ 1.000*   1.000/ 1.000* 
+GLD/1d      commodity    1.000/ 1.000*   0.919/ 0.879*   1.000/ 1.000*   1.000/ 1.000* 
+GOOGL/1d    UNROUTED     1.000/ 1.000*   0.888/ 0.831    1.000/ 1.000*   0.783/ 0.676  
+IWM/1d      equity       1.000/ 1.000*   1.000/ 1.000*   1.000/ 1.000*   1.000/ 1.000* 
+JPM/1d      UNROUTED     1.000/ 1.000*   1.000/ 1.000*   1.000/ 1.000*   0.652/ 0.448  
+MSFT/1d     UNROUTED     1.000/ 1.000*   0.443/ 0.159    1.000/ 1.000*   1.000/ 1.000* 
+QQQ/1d      equity       0.804/ 0.622    0.992/ 0.988*   1.000/ 1.000*   0.912/ 0.865* 
+SMH/1d      equity       1.000/ 1.000*   0.963/ 0.944*   1.000/ 1.000*   0.958/ 0.929* 
+SPY/1d      equity                     -                -                -                -
+TLT/1d      rates        1.000/ 1.000*   0.851/ 0.774    1.000/ 1.000*   1.000/ 1.000* 
+XLE/1d      equity       1.000/ 1.000*   1.000/ 1.000*   1.000/ 1.000*   0.954/ 0.927* 
+XLF/1d      equity       1.000/ 1.000*   1.000/ 1.000*   1.000/ 1.000*   0.768/ 0.643  
+XLK/1d      equity       1.000/ 1.000*   1.000/ 1.000*   1.000/ 0.999*   0.167/-0.245  
+AAPL/1h     UNROUTED     1.000/ 1.000*   1.000/ 1.000*   1.000/ 0.999*   0.617/ 0.432  
+AMZN/1h     UNROUTED     1.000/ 1.000*   0.479/ 0.229    1.000/ 1.000*   0.767/ 0.648  
+DIA/1h      equity       1.000/ 1.000*   1.000/ 1.000*   1.000/ 1.000*   0.964/ 0.946* 
+EEM/1h      equity       1.000/ 1.000*   0.993/ 0.989*   1.000/ 1.000*   1.000/ 1.000* 
+FXY/1h      fx           1.000/ 1.000*   0.979/ 0.967*   1.000/ 1.000*   1.000/ 1.000* 
+GLD/1h      commodity    0.999/ 0.999*   1.000/ 1.000*   1.000/ 1.000*   1.000/ 1.000* 
+GOOGL/1h    UNROUTED     1.000/ 1.000*   0.783/ 0.674    1.000/ 1.000*   0.999/ 0.998* 
+IWM/1h      equity       1.000/ 1.000*   0.550/ 0.329    1.000/ 1.000*   1.000/ 0.999* 
+JPM/1h      UNROUTED     1.000/ 0.999*   1.000/ 1.000*   1.000/ 1.000*   0.999/ 0.998* 
+MSFT/1h     UNROUTED     1.000/ 1.000*   1.000/ 0.999*   1.000/ 1.000*   1.000/ 1.000* 
+QQQ/1h      equity       1.000/ 1.000*   0.656/ 0.469    1.000/ 1.000*   1.000/ 0.999* 
+SMH/1h      equity       1.000/ 1.000*   0.336/ 0.017    1.000/ 1.000*   1.000/ 1.000* 
+SPY/1h      equity                     -                -                -                -
+TLT/1h      rates        1.000/ 1.000*   1.000/ 1.000*   1.000/ 1.000*   0.999/ 0.999* 
+XLE/1h      equity       1.000/ 1.000*   0.999/ 0.999*   1.000/ 1.000*   1.000/ 1.000* 
+XLF/1h      equity       1.000/ 1.000*   1.000/ 0.999*   1.000/ 1.000*   0.706/ 0.553  
+XLK/1h      equity       0.974/ 0.948*   1.000/ 1.000*   1.000/ 1.000*   1.000/ 1.000* 
+
+-- axis: volume_price  [divergent (low corr) .. confirming (high corr)]
+cell        group                w120/K2          w120/K3          w250/K2          w250/K3
+AAPL/1d     UNROUTED     1.000/ 1.000*   0.999/ 0.998*   1.000/ 1.000*   0.949/ 0.924* 
+AMZN/1d     UNROUTED     1.000/ 1.000*   1.000/ 1.000*   1.000/ 1.000*   0.930/ 0.893* 
+DIA/1d      equity       1.000/ 1.000*   0.592/ 0.393    1.000/ 1.000*   1.000/ 1.000* 
+EEM/1d      equity       0.998/ 0.996*   0.947/ 0.921*   1.000/ 1.000*   0.792/ 0.694  
+FXY/1d      fx           0.847/ 0.697    0.878/ 0.816    1.000/ 1.000*   0.982/ 0.972* 
+GLD/1d      commodity    1.000/ 1.000*   0.479/ 0.210    1.000/ 1.000*   0.644/ 0.470  
+GOOGL/1d    UNROUTED     1.000/ 1.000*   0.794/ 0.696    0.572/ 0.108    0.921/ 0.878* 
+IWM/1d      equity       1.000/ 1.000*   0.565/ 0.348    1.000/ 1.000*   0.851/ 0.773  
+JPM/1d      UNROUTED     1.000/ 1.000*   1.000/ 1.000*   1.000/ 1.000*   0.749/ 0.623  
+MSFT/1d     UNROUTED     1.000/ 1.000*   0.330/-0.028    0.418/-0.173    1.000/ 1.000* 
+QQQ/1d      equity       1.000/ 1.000*   0.699/ 0.548    1.000/ 1.000*   1.000/ 1.000* 
+SMH/1d      equity       1.000/ 1.000*   1.000/ 1.000*   1.000/ 1.000*   0.598/ 0.398  
+SPY/1d      equity       1.000/ 1.000*   1.000/ 1.000*   0.380/-0.242    1.000/ 1.000* 
+TLT/1d      rates        1.000/ 0.999*   0.940/ 0.906*   1.000/ 1.000*   0.797/ 0.696  
+XLE/1d      equity       1.000/ 1.000*   0.260/-0.112    1.000/ 1.000*   1.000/ 1.000* 
+XLF/1d      equity       1.000/ 1.000*   0.767/ 0.650    0.786/ 0.572    1.000/ 1.000* 
+XLK/1d      equity       1.000/ 1.000*   0.999/ 0.999*   0.515/ 0.105    1.000/ 1.000* 
+AAPL/1h     UNROUTED     1.000/ 1.000*   0.999/ 0.999*   1.000/ 1.000*   0.573/ 0.360  
+AMZN/1h     UNROUTED     1.000/ 1.000*   0.231/-0.152    1.000/ 1.000*   1.000/ 1.000* 
+DIA/1h      equity       1.000/ 1.000*   0.748/ 0.622    1.000/ 1.000*   1.000/ 1.000* 
+EEM/1h      equity       1.000/ 1.000*   0.794/ 0.691    1.000/ 1.000*   1.000/ 1.000* 
+FXY/1h      fx           1.000/ 1.000*   0.420/ 0.123    1.000/ 1.000*   0.801/ 0.702  
+GLD/1h      commodity    1.000/ 0.999*   1.000/ 1.000*   1.000/ 1.000*   1.000/ 1.000* 
+GOOGL/1h    UNROUTED     1.000/ 1.000*   1.000/ 1.000*   1.000/ 1.000*   1.000/ 1.000* 
+IWM/1h      equity       1.000/ 0.999*   0.999/ 0.999*   1.000/ 1.000*   1.000/ 1.000* 
+JPM/1h      UNROUTED     1.000/ 1.000*   1.000/ 1.000*   1.000/ 1.000*   0.927/ 0.891* 
+MSFT/1h     UNROUTED     1.000/ 1.000*   0.431/ 0.147    1.000/ 1.000*   0.680/ 0.509  
+QQQ/1h      equity       1.000/ 1.000*   1.000/ 1.000*   1.000/ 1.000*   0.976/ 0.963* 
+SMH/1h      equity       0.999/ 0.999*   1.000/ 1.000*   0.718/ 0.434    1.000/ 1.000* 
+SPY/1h      equity       1.000/ 1.000*   1.000/ 1.000*   1.000/ 1.000*   0.203/-0.196  
+TLT/1h      rates        1.000/ 1.000*   0.986/ 0.978*   1.000/ 1.000*   0.965/ 0.947* 
+XLE/1h      equity       0.344/-0.310    0.801/ 0.700    0.296/-0.408    0.999/ 0.998* 
+XLF/1h      equity       1.000/ 1.000*   1.000/ 0.999*   1.000/ 1.000*   0.238/-0.138  
+XLK/1h      equity       1.000/ 1.000*   1.000/ 1.000*   1.000/ 1.000*   1.000/ 1.000* 
+
+======================================================================================================================
+MECHANISM at N=20: is a failure near-tied optima, or something else?
+(near-tied signature = many distinct solutions AND a tiny relative ll spread)
+======================================================================================================================
+axis           win  K  med_sols  max_sols  med_ll_spread  med_sep  min_occ
+systematic     120  2       4.0         8       0.356935     2.69    0.319
+systematic     120  3      10.0        17       0.458223     2.31    0.165
+systematic     250  2       4.5         9       0.405796     2.84    0.271
+systematic     250  3      11.0        17       0.610359     2.49    0.158
+volume_price   120  2       4.0         8       0.246899     2.79    0.357
+volume_price   120  3      12.0        15       0.452734     2.48    0.203
+volume_price   250  2       4.0         7       0.276564     2.90    0.337
+volume_price   250  3      12.5        18       0.475328     2.54    0.132
+
+======================================================================================================================
+NULL-ARM CONTROL: the SAME configuration fit on IID-permuted series (no regime
+exists by construction). A null arm that passes as cleanly as the real arm proves
+the agreement/kappa/separation/occupation gates do not discriminate for that axis.
+======================================================================================================================
+axis           win  K  real pass  NULL pass  real min_agree  NULL min_agree  real med_sep  NULL med_sep
+systematic     120  2      31/32      30/32          0.8037          0.6902          2.69          2.65
+systematic     120  3      22/32      24/32          0.3363          0.4049          2.31          2.28
+systematic     250  2      32/32      29/32          0.9996          0.7717          2.84          2.72
+systematic     250  3      24/32      26/32          0.1672          0.4135          2.49          2.26
+volume_price   120  2      32/34      27/34          0.3440          0.2152          2.79          2.71
+volume_price   120  3      19/34      13/34          0.2311          0.1362          2.48          2.39
+volume_price   250  2      27/34      30/34          0.2962          0.7757          2.90          2.72
+volume_price   250  3      23/34      15/34          0.2029          0.2571          2.54          2.25
+
+======================================================================================================================
+DISCRIMINATING SUMMARY. An axis earns a REAL verdict only if it (a) identifies on
+every cell, (b) is clean on production's occupation gate, and (c) has a median
+block_reliability above the signal floor -- (a)+(b) alone are satisfied by a threshold
+split of pure noise, as the null-arm column demonstrates. 'gate informative' records
+whether the identifiability gate separated the real arm from the null arm AT ALL; it
+is evidence about the INSTRUMENT, not a term in the axis's verdict.
+signal floor = 0.1 [initial_estimate, uncalibrated -- see doc]
+======================================================================================================================
+axis           win  K  identifies  occupation   null arm  gate informative  med reliability    VERDICT
+systematic     120  2       31/32       clean      30/32               yes            0.316   NOT REAL
+systematic     120  3       22/32       clean      24/32                NO            0.316   NOT REAL
+systematic     250  2         yes       clean      29/32               yes            0.273       REAL
+systematic     250  3       24/32       clean      26/32                NO            0.273   NOT REAL
+volume_price   120  2       32/34       clean      27/34               yes            0.256   NOT REAL
+volume_price   120  3       19/34       clean      13/34               yes            0.256   NOT REAL
+volume_price   250  2       27/34       clean      30/34                NO            0.320   NOT REAL
+volume_price   250  3       23/34       clean      15/34               yes            0.320   NOT REAL
+======================================================================================================================
+
+Results written to .planning/phases/171-hmm-walk-forward-regime-labeling-parameter-lookahead-fix/171-candidate-regime-axes/sweep-candidate-axes-long-windows.json

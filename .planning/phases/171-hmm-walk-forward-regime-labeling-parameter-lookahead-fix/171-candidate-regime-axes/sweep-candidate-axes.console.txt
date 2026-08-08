@@ -1,0 +1,1050 @@
+============================================================================================================
+Candidate single-security regime AXES: standalone identifiability sweep
+============================================================================================================
+  axis systematic    cols=('r_squared_vs_benchmark', 'beta_vs_benchmark') windows=[60] K=[2, 3]  [idiosyncratic (low R^2) .. systematic (high R^2)]
+  axis persistence   cols=('variance_ratio_q5', 'return_autocorr_lag1') windows=[60] K=[2, 3]  [mean-reverting (VR<1) .. random walk (VR=1) .. trending (VR>1)]
+  axis tail          cols=('skewness', 'log_downside_upside_semidev') windows=[120, 250] K=[2, 3]  [left-skewed/crash-prone .. symmetric .. right-skewed]
+  axis volume_price  cols=('corr_absreturn_relvolume', 'corr_return_relvolume') windows=[60] K=[2, 3]  [divergent (low corr) .. confirming (high corr)]
+symbols=17 tf=['1d', '1h'] benchmark=SPY
+n_values=[5, 10, 20] max_n=20  standardize=True (production parity)
+n_iter=200 full_cov_min_obs=500 min_hold_bars=3 min_state_occupation=0.05 vol_window=20
+pool_a_base=42 pool_b_base=1000
+bars: agreement>=0.9 AND kappa>=0.8 (both required)
+regime groups: SPY=equity, IWM=equity, TLT=rates, GLD=commodity, XLE=equity, EEM=equity, FXY=fx, SMH=equity, AAPL=UNROUTED, MSFT=UNROUTED, GOOGL=UNROUTED, AMZN=UNROUTED, JPM=UNROUTED, QQQ=equity, DIA=equity, XLF=equity, XLK=equity
+============================================================================================================
+loaded SPY/1d: n_returns=5046
+loaded IWM/1d: n_returns=5050
+       IWM/1d joined to SPY: n_overlap=5045
+loaded TLT/1d: n_returns=2632
+       TLT/1d joined to SPY: n_overlap=2632
+loaded GLD/1d: n_returns=5049
+       GLD/1d joined to SPY: n_overlap=5043
+loaded XLE/1d: n_returns=5050
+       XLE/1d joined to SPY: n_overlap=5046
+loaded EEM/1d: n_returns=5051
+       EEM/1d joined to SPY: n_overlap=5045
+loaded FXY/1d: n_returns=4891
+       FXY/1d joined to SPY: n_overlap=4887
+loaded SMH/1d: n_returns=3666
+       SMH/1d joined to SPY: n_overlap=3666
+loaded AAPL/1d: n_returns=5123
+       AAPL/1d joined to SPY: n_overlap=5046
+loaded MSFT/1d: n_returns=5025
+       MSFT/1d joined to SPY: n_overlap=5015
+loaded GOOGL/1d: n_returns=5025
+       GOOGL/1d joined to SPY: n_overlap=5015
+loaded AMZN/1d: n_returns=5025
+       AMZN/1d joined to SPY: n_overlap=5015
+loaded JPM/1d: n_returns=5113
+       JPM/1d joined to SPY: n_overlap=5045
+loaded QQQ/1d: n_returns=5052
+       QQQ/1d joined to SPY: n_overlap=5046
+loaded DIA/1d: n_returns=5049
+       DIA/1d joined to SPY: n_overlap=5044
+loaded XLF/1d: n_returns=5050
+       XLF/1d joined to SPY: n_overlap=5046
+loaded XLK/1d: n_returns=5050
+       XLK/1d joined to SPY: n_overlap=5046
+loaded SPY/1h: n_returns=30931
+loaded IWM/1h: n_returns=36521
+       IWM/1h joined to SPY: n_overlap=30784
+loaded TLT/1h: n_returns=18377
+       TLT/1h joined to SPY: n_overlap=15769
+loaded GLD/1h: n_returns=36177
+       GLD/1h joined to SPY: n_overlap=30422
+loaded XLE/1h: n_returns=36038
+       XLE/1h joined to SPY: n_overlap=30321
+loaded EEM/1h: n_returns=30169
+       EEM/1h joined to SPY: n_overlap=30162
+loaded FXY/1h: n_returns=29127
+       FXY/1h joined to SPY: n_overlap=29120
+loaded SMH/1h: n_returns=25585
+       SMH/1h joined to SPY: n_overlap=21942
+loaded AAPL/1h: n_returns=35741
+       AAPL/1h joined to SPY: n_overlap=30162
+loaded MSFT/1h: n_returns=36815
+       MSFT/1h joined to SPY: n_overlap=30148
+loaded GOOGL/1h: n_returns=36825
+       GOOGL/1h joined to SPY: n_overlap=30158
+loaded AMZN/1h: n_returns=36816
+       AMZN/1h joined to SPY: n_overlap=30149
+loaded JPM/1h: n_returns=35677
+       JPM/1h joined to SPY: n_overlap=30165
+loaded QQQ/1h: n_returns=36042
+       QQQ/1h joined to SPY: n_overlap=30316
+loaded DIA/1h: n_returns=30860
+       DIA/1h joined to SPY: n_overlap=30859
+loaded XLF/1h: n_returns=36043
+       XLF/1h joined to SPY: n_overlap=30327
+loaded XLK/1h: n_returns=36024
+       XLK/1h joined to SPY: n_overlap=30311
+
+building observation matrices for 4 axes, arms=['real', 'null']...
+536 probe jobs, 672 sweep jobs queued
+
+probe done in 10s
+
+============================================================================================================
+WINDOW-STABILITY PROBE -- what fraction of the primary statistic's variation is real?
+block_reliability = corr of the statistic across ADJACENT DISJOINT windows. The two
+estimates share no data, so this IS the signal fraction: 0.05 means 95% of what the
+HMM would fit is estimation noise. null = same on an IID-permuted series and must be
+~0.00 -- that is the instrument's calibration check, not a comparison.
+============================================================================================================
+axis          window   tf  median_reliab  min_reliab  max_reliab  median_null  med_pairs  cells
+systematic        20   1d          0.274       0.079       0.690       -0.002        251     16
+systematic        20   1h          0.119       0.022       0.409        0.014        999     16
+systematic        60   1d          0.401       0.038       0.655       -0.031         83     16
+systematic        60   1h          0.213       0.114       0.508       -0.021        332     16
+systematic       120   1d          0.359      -0.088       0.704       -0.062         41     16
+systematic       120   1h          0.274       0.099       0.451        0.001        165     16
+systematic       250   1d          0.234      -0.365       0.618       -0.101         19     15
+systematic       250   1h          0.287       0.112       0.504        0.058         79     16
+persistence       20   1d         -0.075      -0.162       0.101       -0.045        250     17
+persistence       20   1h         -0.039      -0.105      -0.012       -0.076        998     17
+persistence       60   1d          0.044      -0.142       0.190        0.035         82     17
+persistence       60   1h         -0.052      -0.104       0.013       -0.072        331     17
+persistence      120   1d          0.005      -0.480       0.346       -0.002         40     17
+persistence      120   1h         -0.065      -0.152       0.099       -0.025        164     17
+persistence      250   1d          0.093      -0.219       0.334       -0.046         18     16
+persistence      250   1h         -0.072      -0.328       0.192       -0.099         78     17
+tail              20   1d          0.032      -0.057       0.109       -0.010        251     17
+tail              20   1h         -0.009      -0.086       0.047       -0.006        999     17
+tail              60   1d          0.046      -0.169       0.273       -0.059         83     17
+tail              60   1h          0.017      -0.084       0.076        0.016        332     17
+tail             120   1d          0.022      -0.342       0.430       -0.082         41     17
+tail             120   1h         -0.005      -0.128       0.063        0.014        165     17
+tail             250   1d          0.111      -0.277       0.402       -0.123         19     16
+tail             250   1h         -0.024      -0.187       0.138       -0.000         79     17
+volume_price      20   1d          0.061      -0.070       0.174       -0.009        250     17
+volume_price      20   1h          0.064      -0.057       0.122        0.005        999     17
+volume_price      60   1d          0.184      -0.258       0.469       -0.018         82     17
+volume_price      60   1h          0.166       0.026       0.283        0.002        332     17
+volume_price     120   1d          0.299      -0.091       0.468       -0.102         40     17
+volume_price     120   1h          0.234      -0.021       0.446        0.012        165     17
+volume_price     250   1d          0.375      -0.018       0.652          nan         18     16
+volume_price     250   1h          0.310      -0.049       0.517       -0.013         79     17
+
+[1/672] AMZN/1h axis=tail         w=120 K=3 arm=real agree=1.0000 kappa=1.0000 sep=0.75 sols=8 occ=0.234 (37s)
+[2/672] GOOGL/1h axis=tail         w=120 K=3 arm=real agree=0.6220 kappa=0.4234 sep=2.00 sols=9 occ=0.237 (38s)
+[3/672] GOOGL/1h axis=volume_price w=60  K=3 arm=null agree=0.9505 kappa=0.9249 sep=2.34 sols=7 occ=0.247 (58s)
+[4/672] GOOGL/1h axis=persistence  w=60  K=3 arm=null agree=0.9999 kappa=0.9999 sep=2.47 sols=6 occ=0.252 (59s)
+[5/672] AMZN/1h axis=volume_price w=60  K=3 arm=real agree=0.9494 kappa=0.9239 sep=2.90 sols=8 occ=0.306 (61s)
+[6/672] GOOGL/1h axis=tail         w=120 K=3 arm=null agree=1.0000 kappa=1.0000 sep=0.35 sols=11 occ=0.315 (63s)
+[7/672] MSFT/1h axis=volume_price w=60  K=3 arm=real agree=0.9992 kappa=0.9989 sep=2.16 sols=11 occ=0.311 (64s)
+[8/672] GOOGL/1h axis=volume_price w=60  K=3 arm=real agree=0.9994 kappa=0.9991 sep=2.50 sols=11 occ=0.293 (67s)
+[9/672] AMZN/1h axis=volume_price w=60  K=3 arm=null agree=0.9999 kappa=0.9999 sep=2.21 sols=9 occ=0.248 (68s)
+[10/672] GOOGL/1h axis=persistence  w=60  K=3 arm=real agree=0.9992 kappa=0.9988 sep=2.26 sols=3 occ=0.267 (73s)
+[11/672] AMZN/1h axis=persistence  w=60  K=3 arm=real agree=1.0000 kappa=1.0000 sep=2.13 sols=6 occ=0.263 (73s)
+[12/672] MSFT/1h axis=tail         w=120 K=3 arm=real agree=0.6094 kappa=0.3946 sep=0.50 sols=9 occ=0.215 (40s)
+[13/672] AMZN/1h axis=tail         w=120 K=3 arm=null agree=0.2700 kappa=-0.0959 sep=0.53 sols=9 occ=0.324 (79s)
+[14/672] AMZN/1h axis=tail         w=250 K=3 arm=real agree=1.0000 kappa=1.0000 sep=2.80 sols=8 occ=0.174 (21s)
+[15/672] MSFT/1h axis=volume_price w=60  K=3 arm=null agree=0.9999 kappa=0.9999 sep=1.93 sols=9 occ=0.287 (85s)
+[16/672] MSFT/1h axis=tail         w=120 K=3 arm=null agree=0.9999 kappa=0.9998 sep=2.25 sols=8 occ=0.223 (56s)
+[17/672] MSFT/1h axis=persistence  w=60  K=3 arm=null agree=0.9983 kappa=0.9974 sep=2.30 sols=2 occ=0.272 (105s)
+[18/672] GOOGL/1h axis=tail         w=250 K=3 arm=null agree=0.1521 kappa=-0.2711 sep=1.65 sols=9 occ=0.202 (48s)
+[19/672] GOOGL/1h axis=tail         w=250 K=3 arm=real agree=0.6386 kappa=0.4583 sep=2.20 sols=8 occ=0.215 (53s)
+[20/672] MSFT/1h axis=tail         w=250 K=3 arm=real agree=1.0000 kappa=1.0000 sep=0.16 sols=6 occ=0.300 (48s)
+[21/672] MSFT/1h axis=tail         w=250 K=3 arm=null agree=0.9994 kappa=0.9991 sep=0.06 sols=9 occ=0.290 (47s)
+[22/672] IWM/1h axis=volume_price w=60  K=3 arm=null agree=0.9993 kappa=0.9990 sep=2.43 sols=12 occ=0.298 (48s)
+[23/672] AMZN/1h axis=persistence  w=60  K=3 arm=null agree=1.0000 kappa=1.0000 sep=2.28 sols=3 occ=0.267 (117s)
+[24/672] MSFT/1h axis=persistence  w=60  K=3 arm=real agree=0.9990 kappa=0.9985 sep=2.42 sols=5 occ=0.299 (121s)
+[25/672] IWM/1h axis=tail         w=120 K=3 arm=null agree=0.9999 kappa=0.9998 sep=0.49 sols=10 occ=0.319 (42s)
+[26/672] AMZN/1h axis=tail         w=250 K=3 arm=null agree=0.7112 kappa=0.5644 sep=0.68 sols=8 occ=0.288 (65s)
+[27/672] IWM/1h axis=tail         w=120 K=3 arm=real agree=0.9999 kappa=0.9998 sep=2.14 sols=9 occ=0.299 (68s)
+[28/672] IWM/1h axis=volume_price w=60  K=3 arm=real agree=1.0000 kappa=1.0000 sep=2.03 sols=13 occ=0.301 (78s)
+[29/672] IWM/1h axis=persistence  w=60  K=3 arm=null agree=0.9988 kappa=0.9983 sep=2.35 sols=5 occ=0.284 (85s)
+[30/672] IWM/1h axis=tail         w=250 K=3 arm=real agree=1.0000 kappa=1.0000 sep=1.86 sols=9 occ=0.305 (77s)
+[31/672] GLD/1h axis=tail         w=120 K=3 arm=null agree=1.0000 kappa=1.0000 sep=2.32 sols=10 occ=0.294 (48s)
+[32/672] IWM/1h axis=persistence  w=60  K=3 arm=real agree=0.9996 kappa=0.9995 sep=2.43 sols=8 occ=0.302 (97s)
+[33/672] IWM/1h axis=tail         w=250 K=3 arm=null agree=0.3501 kappa=0.0288 sep=0.60 sols=12 occ=0.281 (79s)
+[34/672] GLD/1h axis=tail         w=120 K=3 arm=real agree=0.9991 kappa=0.9986 sep=2.47 sols=9 occ=0.295 (65s)
+[35/672] GLD/1h axis=volume_price w=60  K=3 arm=real agree=0.9999 kappa=0.9998 sep=2.45 sols=9 occ=0.305 (79s)
+[36/672] GLD/1h axis=persistence  w=60  K=3 arm=real agree=0.9992 kappa=0.9988 sep=2.22 sols=7 occ=0.298 (85s)
+[37/672] GLD/1h axis=volume_price w=60  K=3 arm=null agree=0.4798 kappa=0.2182 sep=2.52 sols=10 occ=0.284 (92s)
+[38/672] QQQ/1h axis=volume_price w=60  K=3 arm=null agree=0.1641 kappa=-0.2500 sep=2.50 sols=12 occ=0.244 (76s)
+[39/672] GLD/1h axis=persistence  w=60  K=3 arm=null agree=0.9996 kappa=0.9993 sep=2.27 sols=2 occ=0.248 (87s)
+[40/672] XLF/1h axis=volume_price w=60  K=3 arm=null agree=0.2697 kappa=-0.0950 sep=1.76 sols=11 occ=0.287 (88s)
+[41/672] XLE/1h axis=volume_price w=60  K=3 arm=null agree=0.9999 kappa=0.9999 sep=2.26 sols=10 occ=0.307 (49s)
+[42/672] XLF/1h axis=persistence  w=60  K=3 arm=null agree=0.9998 kappa=0.9997 sep=2.28 sols=6 occ=0.298 (91s)
+[43/672] XLF/1h axis=volume_price w=60  K=3 arm=real agree=0.9998 kappa=0.9997 sep=2.30 sols=12 occ=0.297 (55s)
+[44/672] QQQ/1h axis=persistence  w=60  K=3 arm=null agree=0.9998 kappa=0.9997 sep=2.24 sols=5 occ=0.292 (80s)
+[45/672] XLF/1h axis=persistence  w=60  K=3 arm=real agree=0.9992 kappa=0.9988 sep=2.49 sols=5 occ=0.302 (114s)
+[46/672] XLE/1h axis=persistence  w=60  K=3 arm=real agree=0.9996 kappa=0.9993 sep=2.48 sols=8 occ=0.284 (85s)
+[47/672] XLE/1h axis=persistence  w=60  K=3 arm=null agree=0.9991 kappa=0.9986 sep=2.36 sols=5 occ=0.281 (92s)
+[48/672] QQQ/1h axis=volume_price w=60  K=3 arm=real agree=0.9982 kappa=0.9974 sep=2.63 sols=9 occ=0.292 (81s)
+[49/672] GLD/1h axis=tail         w=250 K=3 arm=real agree=0.9997 kappa=0.9996 sep=2.28 sols=11 occ=0.275 (63s)
+[50/672] GLD/1h axis=tail         w=250 K=3 arm=null agree=1.0000 kappa=1.0000 sep=0.39 sols=9 occ=0.250 (57s)
+[51/672] XLF/1h axis=tail         w=120 K=3 arm=real agree=0.9991 kappa=0.9987 sep=2.44 sols=8 occ=0.300 (62s)
+[52/672] XLE/1h axis=volume_price w=60  K=3 arm=real agree=0.9985 kappa=0.9978 sep=2.43 sols=10 occ=0.292 (74s)
+[53/672] XLF/1h axis=tail         w=120 K=3 arm=null agree=0.9999 kappa=0.9999 sep=2.13 sols=10 occ=0.291 (53s)
+[54/672] QQQ/1h axis=persistence  w=60  K=3 arm=real agree=0.9998 kappa=0.9997 sep=2.27 sols=8 occ=0.305 (130s)
+[55/672] XLK/1h axis=volume_price w=60  K=3 arm=real agree=0.9999 kappa=0.9999 sep=2.42 sols=12 occ=0.296 (81s)
+[56/672] QQQ/1h axis=tail         w=120 K=3 arm=real agree=0.9998 kappa=0.9997 sep=2.07 sols=9 occ=0.300 (54s)
+[57/672] XLE/1h axis=tail         w=120 K=3 arm=null agree=1.0000 kappa=1.0000 sep=2.21 sols=9 occ=0.277 (43s)
+[58/672] XLK/1h axis=persistence  w=60  K=3 arm=null agree=0.9988 kappa=0.9982 sep=2.30 sols=7 occ=0.283 (104s)
+[59/672] XLF/1h axis=tail         w=250 K=3 arm=null agree=0.2296 kappa=-0.1464 sep=0.09 sols=12 occ=0.233 (35s)
+[60/672] XLK/1h axis=persistence  w=60  K=3 arm=real agree=0.9991 kappa=0.9986 sep=2.31 sols=7 occ=0.267 (107s)
+[61/672] XLK/1h axis=volume_price w=60  K=3 arm=null agree=1.0000 kappa=1.0000 sep=2.40 sols=9 occ=0.265 (129s)
+[62/672] QQQ/1h axis=tail         w=250 K=3 arm=null agree=1.0000 kappa=1.0000 sep=2.49 sols=10 occ=0.282 (37s)
+[63/672] QQQ/1h axis=tail         w=120 K=3 arm=null agree=0.9999 kappa=0.9999 sep=2.21 sols=13 occ=0.298 (78s)
+[64/672] XLK/1h axis=tail         w=120 K=3 arm=real agree=1.0000 kappa=1.0000 sep=2.38 sols=12 occ=0.210 (57s)
+[65/672] XLF/1h axis=tail         w=250 K=3 arm=real agree=1.0000 kappa=1.0000 sep=2.23 sols=9 occ=0.224 (53s)
+[66/672] XLE/1h axis=tail         w=120 K=3 arm=real agree=1.0000 kappa=1.0000 sep=2.23 sols=11 occ=0.257 (81s)
+[67/672] XLE/1h axis=tail         w=250 K=3 arm=null agree=0.1696 kappa=-0.2248 sep=0.14 sols=10 occ=0.301 (51s)
+[68/672] XLK/1h axis=tail         w=250 K=3 arm=null agree=1.0000 kappa=1.0000 sep=0.76 sols=12 occ=0.230 (50s)
+[69/672] XLE/1h axis=tail         w=250 K=3 arm=real agree=1.0000 kappa=1.0000 sep=0.40 sols=11 occ=0.238 (57s)
+[70/672] XLK/1h axis=tail         w=120 K=3 arm=null agree=0.7231 kappa=0.5804 sep=0.46 sols=12 occ=0.203 (84s)
+[71/672] QQQ/1h axis=tail         w=250 K=3 arm=real agree=0.9977 kappa=0.9965 sep=2.39 sols=13 occ=0.236 (81s)
+[72/672] AAPL/1h axis=volume_price w=60  K=3 arm=null agree=0.9998 kappa=0.9997 sep=2.37 sols=9 occ=0.281 (74s)
+[73/672] AAPL/1h axis=tail         w=120 K=3 arm=real agree=0.9994 kappa=0.9991 sep=1.25 sols=7 occ=0.220 (62s)
+[74/672] AAPL/1h axis=tail         w=120 K=3 arm=null agree=0.9988 kappa=0.9983 sep=0.26 sols=12 occ=0.269 (60s)
+[75/672] JPM/1h axis=persistence  w=60  K=3 arm=null agree=0.9992 kappa=0.9988 sep=2.24 sols=5 occ=0.258 (59s)
+[76/672] JPM/1h axis=volume_price w=60  K=3 arm=null agree=0.9988 kappa=0.9981 sep=1.95 sols=10 occ=0.276 (63s)
+[77/672] AAPL/1h axis=volume_price w=60  K=3 arm=real agree=1.0000 kappa=1.0000 sep=2.74 sols=9 occ=0.319 (79s)
+[78/672] AAPL/1h axis=persistence  w=60  K=3 arm=null agree=0.9991 kappa=0.9986 sep=2.38 sols=6 occ=0.257 (86s)
+[79/672] XLK/1h axis=tail         w=250 K=3 arm=real agree=1.0000 kappa=1.0000 sep=1.81 sols=8 occ=0.266 (107s)
+[80/672] JPM/1h axis=volume_price w=60  K=3 arm=real agree=0.9977 kappa=0.9965 sep=2.42 sols=11 occ=0.311 (68s)
+[81/672] AAPL/1h axis=tail         w=250 K=3 arm=null agree=0.3138 kappa=-0.0195 sep=0.09 sols=10 occ=0.289 (47s)
+[82/672] AAPL/1h axis=tail         w=250 K=3 arm=real agree=0.6935 kappa=0.5406 sep=0.86 sols=13 occ=0.242 (65s)
+[83/672] JPM/1h axis=tail         w=120 K=3 arm=real agree=1.0000 kappa=1.0000 sep=0.15 sols=10 occ=0.209 (70s)
+[84/672] JPM/1h axis=tail         w=120 K=3 arm=null agree=0.9998 kappa=0.9997 sep=2.49 sols=9 occ=0.252 (72s)
+[85/672] JPM/1h axis=tail         w=250 K=3 arm=null agree=0.5068 kappa=0.2677 sep=2.30 sols=11 occ=0.240 (44s)
+[86/672] JPM/1h axis=tail         w=250 K=3 arm=real agree=0.6408 kappa=0.4528 sep=0.92 sols=13 occ=0.184 (61s)
+[87/672] JPM/1h axis=persistence  w=60  K=3 arm=real agree=0.9997 kappa=0.9996 sep=2.50 sols=5 occ=0.297 (103s)
+[88/672] AAPL/1h axis=persistence  w=60  K=3 arm=real agree=0.9987 kappa=0.9981 sep=2.36 sols=7 occ=0.289 (125s)
+[89/672] SPY/1h axis=tail         w=120 K=3 arm=real agree=1.0000 kappa=1.0000 sep=2.48 sols=10 occ=0.219 (52s)
+[90/672] SPY/1h axis=volume_price w=60  K=3 arm=null agree=0.7581 kappa=0.6363 sep=2.54 sols=10 occ=0.311 (77s)
+[91/672] SPY/1h axis=volume_price w=60  K=3 arm=real agree=0.9040 kappa=0.8559 sep=2.50 sols=10 occ=0.325 (78s)
+[92/672] SPY/1h axis=persistence  w=60  K=3 arm=null agree=0.9995 kappa=0.9992 sep=2.33 sols=4 occ=0.296 (81s)
+[93/672] DIA/1h axis=systematic   w=60  K=3 arm=real agree=0.9996 kappa=0.9995 sep=1.19 sols=7 occ=0.231 (68s)
+[94/672] DIA/1h axis=volume_price w=60  K=3 arm=null agree=0.2092 kappa=-0.1907 sep=2.34 sols=15 occ=0.287 (72s)
+[95/672] SPY/1h axis=tail         w=120 K=3 arm=null agree=0.9999 kappa=0.9999 sep=2.46 sols=10 occ=0.261 (79s)
+[96/672] IWM/1h axis=systematic   w=60  K=3 arm=null agree=0.9998 kappa=0.9997 sep=2.54 sols=10 occ=0.299 (43s)
+[97/672] DIA/1h axis=persistence  w=60  K=3 arm=null agree=1.0000 kappa=1.0000 sep=2.26 sols=4 occ=0.301 (69s)
+[98/672] IWM/1h axis=systematic   w=60  K=3 arm=real agree=0.9998 kappa=0.9997 sep=2.13 sols=12 occ=0.330 (52s)
+[99/672] DIA/1h axis=tail         w=120 K=3 arm=real agree=1.0000 kappa=1.0000 sep=2.32 sols=9 occ=0.293 (65s)
+[100/672] DIA/1h axis=volume_price w=60  K=3 arm=real agree=1.0000 kappa=1.0000 sep=2.53 sols=13 occ=0.305 (72s)
+[101/672] SPY/1h axis=persistence  w=60  K=3 arm=real agree=0.9999 kappa=0.9999 sep=2.30 sols=7 occ=0.308 (108s)
+[102/672] DIA/1h axis=systematic   w=60  K=3 arm=null agree=1.0000 kappa=1.0000 sep=1.22 sols=8 occ=0.272 (84s)
+[103/672] DIA/1h axis=persistence  w=60  K=3 arm=real agree=0.9993 kappa=0.9989 sep=2.38 sols=6 occ=0.258 (85s)
+[104/672] SPY/1h axis=tail         w=250 K=3 arm=null agree=1.0000 kappa=1.0000 sep=2.35 sols=12 occ=0.242 (40s)
+[105/672] SPY/1h axis=tail         w=250 K=3 arm=real agree=0.6585 kappa=0.4881 sep=2.08 sols=10 occ=0.323 (56s)
+[106/672] DIA/1h axis=tail         w=120 K=3 arm=null agree=0.2981 kappa=-0.0491 sep=2.29 sols=9 occ=0.294 (83s)
+[107/672] DIA/1h axis=tail         w=250 K=3 arm=real agree=1.0000 kappa=1.0000 sep=2.16 sols=9 occ=0.308 (41s)
+[108/672] DIA/1h axis=tail         w=250 K=3 arm=null agree=0.5503 kappa=0.3072 sep=0.36 sols=9 occ=0.228 (43s)
+[109/672] XLE/1h axis=systematic   w=60  K=3 arm=null agree=0.9995 kappa=0.9993 sep=2.07 sols=9 occ=0.305 (47s)
+[110/672] XLE/1h axis=systematic   w=60  K=3 arm=real agree=0.9990 kappa=0.9985 sep=2.23 sols=11 occ=0.293 (54s)
+[111/672] XLF/1h axis=systematic   w=60  K=3 arm=null agree=0.9999 kappa=0.9999 sep=2.15 sols=9 occ=0.311 (58s)
+[112/672] XLK/1h axis=systematic   w=60  K=3 arm=null agree=0.6766 kappa=0.5145 sep=2.60 sols=11 occ=0.294 (56s)
+[113/672] GLD/1h axis=systematic   w=60  K=3 arm=real agree=0.7830 kappa=0.6762 sep=0.96 sols=6 occ=0.281 (79s)
+[114/672] XLF/1h axis=systematic   w=60  K=3 arm=real agree=0.9122 kappa=0.8654 sep=2.36 sols=14 occ=0.277 (75s)
+[115/672] EEM/1h axis=volume_price w=60  K=3 arm=null agree=0.9999 kappa=0.9999 sep=2.28 sols=10 occ=0.288 (61s)
+[116/672] AAPL/1h axis=systematic   w=60  K=3 arm=real agree=0.9997 kappa=0.9995 sep=2.55 sols=7 occ=0.237 (44s)
+[117/672] GLD/1h axis=systematic   w=60  K=3 arm=null agree=0.7313 kappa=0.5924 sep=0.89 sols=4 occ=0.307 (88s)
+[118/672] QQQ/1h axis=systematic   w=60  K=3 arm=real agree=0.3660 kappa=0.0647 sep=2.03 sols=11 occ=0.243 (73s)
+[119/672] JPM/1h axis=systematic   w=60  K=3 arm=null agree=1.0000 kappa=1.0000 sep=2.32 sols=8 occ=0.319 (70s)
+[120/672] EEM/1h axis=persistence  w=60  K=3 arm=null agree=1.0000 kappa=0.9999 sep=2.19 sols=6 occ=0.197 (64s)
+[121/672] JPM/1h axis=systematic   w=60  K=3 arm=real agree=0.9972 kappa=0.9958 sep=1.95 sols=9 occ=0.319 (79s)
+[122/672] XLK/1h axis=systematic   w=60  K=3 arm=real agree=0.9992 kappa=0.9987 sep=2.18 sols=11 occ=0.226 (97s)
+[123/672] EEM/1h axis=systematic   w=60  K=3 arm=real agree=1.0000 kappa=1.0000 sep=2.06 sols=7 occ=0.310 (55s)
+[124/672] AAPL/1h axis=systematic   w=60  K=3 arm=null agree=1.0000 kappa=1.0000 sep=2.19 sols=9 occ=0.330 (63s)
+[125/672] QQQ/1h axis=systematic   w=60  K=3 arm=null agree=1.0000 kappa=1.0000 sep=2.33 sols=9 occ=0.284 (113s)
+[126/672] EEM/1h axis=persistence  w=60  K=3 arm=real agree=0.9991 kappa=0.9986 sep=2.35 sols=6 occ=0.212 (102s)
+[127/672] EEM/1h axis=systematic   w=60  K=3 arm=null agree=0.6093 kappa=0.4184 sep=2.55 sols=10 occ=0.263 (81s)
+[128/672] EEM/1h axis=tail         w=120 K=3 arm=null agree=1.0000 kappa=1.0000 sep=2.22 sols=10 occ=0.283 (48s)
+[129/672] AMZN/1h axis=systematic   w=60  K=3 arm=null agree=0.9998 kappa=0.9997 sep=2.40 sols=10 occ=0.322 (67s)
+[130/672] AMZN/1h axis=systematic   w=60  K=3 arm=real agree=0.9997 kappa=0.9996 sep=2.17 sols=10 occ=0.310 (70s)
+[131/672] MSFT/1h axis=systematic   w=60  K=3 arm=null agree=0.8401 kappa=0.7602 sep=2.48 sols=10 occ=0.316 (66s)
+[132/672] GOOGL/1h axis=systematic   w=60  K=3 arm=real agree=0.9999 kappa=0.9999 sep=1.98 sols=8 occ=0.304 (81s)
+[133/672] EEM/1h axis=tail         w=250 K=3 arm=null agree=0.8278 kappa=0.7395 sep=2.06 sols=16 occ=0.308 (43s)
+[134/672] EEM/1h axis=volume_price w=60  K=3 arm=real agree=1.0000 kappa=1.0000 sep=2.53 sols=8 occ=0.311 (83s)
+[135/672] EEM/1h axis=tail         w=250 K=3 arm=real agree=0.9345 kappa=0.9016 sep=2.45 sols=10 occ=0.303 (62s)
+[136/672] GOOGL/1h axis=systematic   w=60  K=3 arm=null agree=0.9985 kappa=0.9977 sep=1.93 sols=10 occ=0.231 (90s)
+[137/672] MSFT/1h axis=systematic   w=60  K=3 arm=real agree=0.9999 kappa=0.9999 sep=2.14 sols=9 occ=0.322 (81s)
+[138/672] EEM/1h axis=tail         w=120 K=3 arm=real agree=1.0000 kappa=1.0000 sep=2.32 sols=11 occ=0.308 (70s)
+[139/672] FXY/1h axis=volume_price w=60  K=3 arm=null agree=1.0000 kappa=0.9999 sep=2.47 sols=12 occ=0.320 (53s)
+[140/672] FXY/1h axis=tail         w=250 K=3 arm=real agree=0.1905 kappa=-0.1735 sep=2.42 sols=10 occ=0.203 (33s)
+[141/672] FXY/1h axis=persistence  w=60  K=3 arm=real agree=1.0000 kappa=0.9999 sep=2.26 sols=2 occ=0.298 (71s)
+[142/672] SMH/1h axis=tail         w=250 K=3 arm=real agree=0.8328 kappa=0.7470 sep=2.25 sols=13 occ=0.267 (30s)
+[143/672] FXY/1h axis=persistence  w=60  K=3 arm=null agree=1.0000 kappa=0.9999 sep=2.31 sols=5 occ=0.295 (72s)
+[144/672] SMH/1h axis=tail         w=120 K=3 arm=null agree=1.0000 kappa=1.0000 sep=2.30 sols=11 occ=0.261 (33s)
+[145/672] FXY/1h axis=volume_price w=60  K=3 arm=real agree=0.9572 kappa=0.9358 sep=2.43 sols=11 occ=0.319 (55s)
+[146/672] FXY/1h axis=tail         w=120 K=3 arm=real agree=0.9988 kappa=0.9982 sep=2.39 sols=8 occ=0.280 (52s)
+[147/672] SMH/1h axis=tail         w=120 K=3 arm=real agree=0.8131 kappa=0.7188 sep=2.09 sols=11 occ=0.315 (39s)
+[148/672] FXY/1h axis=tail         w=120 K=3 arm=null agree=0.9991 kappa=0.9986 sep=2.32 sols=9 occ=0.294 (55s)
+[149/672] FXY/1h axis=tail         w=250 K=3 arm=null agree=0.9973 kappa=0.9959 sep=2.15 sols=9 occ=0.267 (53s)
+[150/672] SMH/1h axis=volume_price w=60  K=3 arm=null agree=0.5201 kappa=0.2786 sep=2.29 sols=11 occ=0.321 (56s)
+[151/672] GOOGL/1h axis=volume_price w=60  K=2 arm=null agree=0.9996 kappa=0.9992 sep=2.49 sols=2 occ=0.459 (23s)
+[152/672] FXY/1h axis=systematic   w=60  K=3 arm=real agree=1.0000 kappa=1.0000 sep=1.19 sols=8 occ=0.264 (76s)
+[153/672] SMH/1h axis=tail         w=250 K=3 arm=null agree=1.0000 kappa=1.0000 sep=1.17 sols=10 occ=0.130 (30s)
+[154/672] FXY/1h axis=systematic   w=60  K=3 arm=null agree=1.0000 kappa=0.9999 sep=1.33 sols=8 occ=0.288 (71s)
+[155/672] AMZN/1h axis=volume_price w=60  K=2 arm=null agree=0.2280 kappa=-0.5479 sep=2.34 sols=3 occ=0.486 (22s)
+[156/672] MSFT/1h axis=volume_price w=60  K=2 arm=null agree=1.0000 kappa=1.0000 sep=2.45 sols=3 occ=0.474 (23s)
+[157/672] GOOGL/1h axis=persistence  w=60  K=2 arm=real agree=0.9999 kappa=0.9999 sep=2.41 sols=1 occ=0.426 (25s)
+[158/672] GOOGL/1h axis=persistence  w=60  K=2 arm=null agree=0.9999 kappa=0.9998 sep=2.39 sols=1 occ=0.456 (28s)
+[159/672] SMH/1h axis=volume_price w=60  K=3 arm=real agree=0.1921 kappa=-0.2049 sep=2.31 sols=11 occ=0.265 (63s)
+[160/672] AMZN/1h axis=persistence  w=60  K=2 arm=null agree=1.0000 kappa=1.0000 sep=2.26 sols=1 occ=0.440 (26s)
+[161/672] AMZN/1h axis=volume_price w=60  K=2 arm=real agree=0.9999 kappa=0.9999 sep=2.73 sols=3 occ=0.430 (22s)
+[162/672] MSFT/1h axis=volume_price w=60  K=2 arm=real agree=1.0000 kappa=1.0000 sep=2.64 sols=3 occ=0.423 (21s)
+[163/672] SMH/1h axis=persistence  w=60  K=3 arm=real agree=1.0000 kappa=1.0000 sep=2.18 sols=4 occ=0.288 (74s)
+[164/672] GOOGL/1h axis=tail         w=120 K=2 arm=real agree=1.0000 kappa=1.0000 sep=0.22 sols=2 occ=0.325 (21s)
+[165/672] AMZN/1h axis=tail         w=120 K=2 arm=real agree=0.9998 kappa=0.9995 sep=0.22 sols=3 occ=0.284 (17s)
+[166/672] GOOGL/1h axis=volume_price w=60  K=2 arm=real agree=0.9998 kappa=0.9995 sep=2.75 sols=3 occ=0.452 (30s)
+[167/672] AMZN/1h axis=persistence  w=60  K=2 arm=real agree=0.9999 kappa=0.9998 sep=2.39 sols=1 occ=0.410 (40s)
+[168/672] SMH/1h axis=persistence  w=60  K=3 arm=null agree=1.0000 kappa=1.0000 sep=2.18 sols=3 occ=0.299 (82s)
+[169/672] MSFT/1h axis=persistence  w=60  K=2 arm=real agree=1.0000 kappa=1.0000 sep=2.49 sols=1 occ=0.445 (42s)
+[170/672] GOOGL/1h axis=tail         w=120 K=2 arm=null agree=0.9999 kappa=0.9999 sep=0.29 sols=3 occ=0.374 (33s)
+[171/672] AMZN/1h axis=tail         w=120 K=2 arm=null agree=0.9999 kappa=0.9998 sep=0.40 sols=3 occ=0.380 (28s)
+[172/672] MSFT/1h axis=tail         w=120 K=2 arm=real agree=1.0000 kappa=1.0000 sep=0.18 sols=2 occ=0.293 (29s)
+[173/672] MSFT/1h axis=persistence  w=60  K=2 arm=null agree=0.9995 kappa=0.9991 sep=2.31 sols=1 occ=0.450 (48s)
+[174/672] GOOGL/1h axis=tail         w=250 K=2 arm=null agree=1.0000 kappa=1.0000 sep=0.29 sols=3 occ=0.465 (24s)
+[175/672] AMZN/1h axis=tail         w=250 K=2 arm=real agree=1.0000 kappa=1.0000 sep=0.11 sols=4 occ=0.396 (22s)
+[176/672] MSFT/1h axis=tail         w=120 K=2 arm=null agree=0.9998 kappa=0.9996 sep=0.22 sols=3 occ=0.334 (33s)
+[177/672] AMZN/1h axis=tail         w=250 K=2 arm=null agree=1.0000 kappa=0.9999 sep=0.46 sols=4 occ=0.417 (26s)
+[178/672] IWM/1h axis=volume_price w=60  K=2 arm=null agree=0.9993 kappa=0.9987 sep=2.51 sols=4 occ=0.470 (22s)
+[179/672] MSFT/1h axis=tail         w=250 K=2 arm=null agree=0.9999 kappa=0.9998 sep=0.21 sols=2 occ=0.342 (25s)
+[180/672] GOOGL/1h axis=tail         w=250 K=2 arm=real agree=1.0000 kappa=1.0000 sep=0.46 sols=4 occ=0.367 (34s)
+[181/672] MSFT/1h axis=tail         w=250 K=2 arm=real agree=1.0000 kappa=1.0000 sep=0.11 sols=3 occ=0.317 (35s)
+[182/672] IWM/1h axis=tail         w=120 K=2 arm=null agree=1.0000 kappa=1.0000 sep=0.24 sols=5 occ=0.411 (31s)
+[183/672] GLD/1h axis=volume_price w=60  K=2 arm=real agree=1.0000 kappa=1.0000 sep=2.82 sols=3 occ=0.464 (21s)
+[184/672] IWM/1h axis=tail         w=250 K=2 arm=real agree=0.9993 kappa=0.9985 sep=0.63 sols=4 occ=0.418 (30s)
+[185/672] IWM/1h axis=persistence  w=60  K=2 arm=null agree=0.9999 kappa=0.9997 sep=2.45 sols=1 occ=0.459 (39s)
+[186/672] IWM/1h axis=volume_price w=60  K=2 arm=real agree=1.0000 kappa=0.9999 sep=2.53 sols=4 occ=0.448 (37s)
+[187/672] IWM/1h axis=tail         w=250 K=2 arm=null agree=0.9996 kappa=0.9992 sep=0.26 sols=4 occ=0.399 (29s)
+[188/672] GLD/1h axis=tail         w=120 K=2 arm=real agree=1.0000 kappa=1.0000 sep=2.60 sols=5 occ=0.483 (22s)
+[189/672] GLD/1h axis=persistence  w=60  K=2 arm=real agree=1.0000 kappa=0.9999 sep=2.50 sols=1 occ=0.444 (28s)
+[190/672] XLF/1h axis=volume_price w=60  K=2 arm=null agree=1.0000 kappa=1.0000 sep=2.25 sols=4 occ=0.438 (23s)
+[191/672] GLD/1h axis=persistence  w=60  K=2 arm=null agree=0.9998 kappa=0.9995 sep=2.31 sols=1 occ=0.438 (29s)
+[192/672] GLD/1h axis=volume_price w=60  K=2 arm=null agree=0.9996 kappa=0.9992 sep=2.64 sols=3 occ=0.474 (34s)
+[193/672] GLD/1h axis=tail         w=120 K=2 arm=null agree=1.0000 kappa=1.0000 sep=0.48 sols=4 occ=0.459 (28s)
+[194/672] IWM/1h axis=tail         w=120 K=2 arm=real agree=1.0000 kappa=1.0000 sep=0.42 sols=5 occ=0.422 (45s)
+[195/672] QQQ/1h axis=volume_price w=60  K=2 arm=null agree=0.9999 kappa=0.9998 sep=2.55 sols=4 occ=0.442 (35s)
+[196/672] IWM/1h axis=persistence  w=60  K=2 arm=real agree=0.9995 kappa=0.9990 sep=2.51 sols=2 occ=0.495 (56s)
+[197/672] XLF/1h axis=volume_price w=60  K=2 arm=real agree=0.1862 kappa=-0.6291 sep=2.69 sols=5 occ=0.479 (24s)
+[198/672] QQQ/1h axis=volume_price w=60  K=2 arm=real agree=0.1196 kappa=-0.7586 sep=2.73 sols=4 occ=0.490 (24s)
+[199/672] XLE/1h axis=volume_price w=60  K=2 arm=null agree=0.9999 kappa=0.9999 sep=2.50 sols=5 occ=0.436 (30s)
+[200/672] XLE/1h axis=volume_price w=60  K=2 arm=real agree=0.9999 kappa=0.9998 sep=2.55 sols=3 occ=0.469 (24s)
+[201/672] XLF/1h axis=persistence  w=60  K=2 arm=null agree=0.9999 kappa=0.9999 sep=2.37 sols=1 occ=0.434 (34s)
+[202/672] XLE/1h axis=persistence  w=60  K=2 arm=null agree=0.9999 kappa=0.9998 sep=2.37 sols=1 occ=0.455 (33s)
+[203/672] QQQ/1h axis=persistence  w=60  K=2 arm=real agree=0.9997 kappa=0.9995 sep=2.54 sols=3 occ=0.462 (36s)
+[204/672] XLK/1h axis=volume_price w=60  K=2 arm=null agree=0.9993 kappa=0.9985 sep=2.35 sols=6 occ=0.435 (36s)
+[205/672] QQQ/1h axis=persistence  w=60  K=2 arm=null agree=0.9999 kappa=0.9997 sep=2.32 sols=2 occ=0.492 (39s)
+[206/672] GLD/1h axis=tail         w=250 K=2 arm=null agree=1.0000 kappa=0.9999 sep=0.80 sols=4 occ=0.439 (30s)
+[207/672] XLF/1h axis=persistence  w=60  K=2 arm=real agree=0.9999 kappa=0.9998 sep=2.49 sols=3 occ=0.473 (60s)
+[208/672] XLK/1h axis=volume_price w=60  K=2 arm=real agree=0.9993 kappa=0.9987 sep=2.66 sols=3 occ=0.483 (39s)
+[209/672] XLF/1h axis=tail         w=120 K=2 arm=null agree=1.0000 kappa=1.0000 sep=0.27 sols=5 occ=0.438 (24s)
+[210/672] XLE/1h axis=persistence  w=60  K=2 arm=real agree=1.0000 kappa=1.0000 sep=2.53 sols=3 occ=0.478 (52s)
+[211/672] GLD/1h axis=tail         w=250 K=2 arm=real agree=0.9999 kappa=0.9998 sep=2.37 sols=5 occ=0.474 (37s)
+[212/672] QQQ/1h axis=tail         w=120 K=2 arm=null agree=0.9999 kappa=0.9999 sep=0.31 sols=4 occ=0.464 (25s)
+[213/672] XLK/1h axis=persistence  w=60  K=2 arm=real agree=1.0000 kappa=1.0000 sep=2.58 sols=4 occ=0.492 (54s)
+[214/672] XLE/1h axis=tail         w=120 K=2 arm=real agree=0.9996 kappa=0.9991 sep=2.17 sols=3 occ=0.491 (30s)
+[215/672] XLE/1h axis=tail         w=120 K=2 arm=null agree=1.0000 kappa=1.0000 sep=0.22 sols=5 occ=0.419 (31s)
+[216/672] XLK/1h axis=tail         w=120 K=2 arm=null agree=1.0000 kappa=0.9999 sep=2.09 sols=5 occ=0.477 (27s)
+[217/672] XLF/1h axis=tail         w=120 K=2 arm=real agree=0.9997 kappa=0.9995 sep=2.43 sols=2 occ=0.488 (46s)
+[218/672] XLF/1h axis=tail         w=250 K=2 arm=real agree=1.0000 kappa=1.0000 sep=2.33 sols=3 occ=0.461 (36s)
+[219/672] XLK/1h axis=persistence  w=60  K=2 arm=null agree=1.0000 kappa=1.0000 sep=2.44 sols=1 occ=0.473 (68s)
+[220/672] QQQ/1h axis=tail         w=120 K=2 arm=real agree=1.0000 kappa=1.0000 sep=2.36 sols=3 occ=0.465 (46s)
+[221/672] XLE/1h axis=tail         w=250 K=2 arm=real agree=0.9762 kappa=0.9525 sep=2.10 sols=4 occ=0.491 (26s)
+[222/672] XLK/1h axis=tail         w=250 K=2 arm=null agree=1.0000 kappa=1.0000 sep=1.86 sols=3 occ=0.410 (22s)
+[223/672] XLF/1h axis=tail         w=250 K=2 arm=null agree=1.0000 kappa=1.0000 sep=0.27 sols=7 occ=0.393 (33s)
+[224/672] QQQ/1h axis=tail         w=250 K=2 arm=real agree=1.0000 kappa=1.0000 sep=2.55 sols=5 occ=0.485 (30s)
+[225/672] XLK/1h axis=tail         w=120 K=2 arm=real agree=0.9662 kappa=0.9323 sep=2.43 sols=6 occ=0.497 (47s)
+[226/672] XLE/1h axis=tail         w=250 K=2 arm=null agree=1.0000 kappa=0.9999 sep=0.32 sols=5 occ=0.389 (34s)
+[227/672] AAPL/1h axis=volume_price w=60  K=2 arm=real agree=0.9999 kappa=0.9998 sep=2.86 sols=3 occ=0.451 (22s)
+[228/672] QQQ/1h axis=tail         w=250 K=2 arm=null agree=0.9538 kappa=0.9063 sep=1.92 sols=6 occ=0.442 (39s)
+[229/672] AAPL/1h axis=persistence  w=60  K=2 arm=real agree=1.0000 kappa=0.9999 sep=2.41 sols=1 occ=0.498 (29s)
+[230/672] AAPL/1h axis=persistence  w=60  K=2 arm=null agree=1.0000 kappa=0.9999 sep=2.34 sols=1 occ=0.497 (27s)
+[231/672] XLK/1h axis=tail         w=250 K=2 arm=real agree=0.9993 kappa=0.9986 sep=2.56 sols=4 occ=0.412 (41s)
+[232/672] AAPL/1h axis=volume_price w=60  K=2 arm=null agree=0.9997 kappa=0.9994 sep=2.57 sols=3 occ=0.451 (38s)
+[233/672] JPM/1h axis=tail         w=120 K=2 arm=null agree=0.9999 kappa=0.9999 sep=0.22 sols=5 occ=0.395 (22s)
+[234/672] JPM/1h axis=volume_price w=60  K=2 arm=real agree=0.9997 kappa=0.9994 sep=2.71 sols=3 occ=0.452 (27s)
+[235/672] JPM/1h axis=persistence  w=60  K=2 arm=null agree=0.9999 kappa=0.9998 sep=2.28 sols=1 occ=0.448 (29s)
+[236/672] JPM/1h axis=persistence  w=60  K=2 arm=real agree=0.9999 kappa=0.9997 sep=2.57 sols=1 occ=0.493 (30s)
+[237/672] JPM/1h axis=volume_price w=60  K=2 arm=null agree=1.0000 kappa=1.0000 sep=2.42 sols=5 occ=0.423 (36s)
+[238/672] AAPL/1h axis=tail         w=120 K=2 arm=real agree=0.9999 kappa=0.9998 sep=0.17 sols=2 occ=0.305 (42s)
+[239/672] JPM/1h axis=tail         w=250 K=2 arm=real agree=0.9999 kappa=0.9997 sep=1.78 sols=4 occ=0.437 (27s)
+[240/672] AAPL/1h axis=tail         w=250 K=2 arm=null agree=1.0000 kappa=1.0000 sep=0.15 sols=3 occ=0.346 (31s)
+[241/672] JPM/1h axis=tail         w=120 K=2 arm=real agree=0.9994 kappa=0.9988 sep=2.21 sols=3 occ=0.476 (37s)
+[242/672] SPY/1h axis=volume_price w=60  K=2 arm=null agree=1.0000 kappa=1.0000 sep=2.67 sols=3 occ=0.490 (26s)
+[243/672] AAPL/1h axis=tail         w=250 K=2 arm=real agree=1.0000 kappa=1.0000 sep=0.28 sols=3 occ=0.369 (41s)
+[244/672] JPM/1h axis=tail         w=250 K=2 arm=null agree=0.9999 kappa=0.9998 sep=0.49 sols=6 occ=0.380 (34s)
+[245/672] SPY/1h axis=volume_price w=60  K=2 arm=real agree=0.9998 kappa=0.9997 sep=2.75 sols=3 occ=0.468 (19s)
+[246/672] SPY/1h axis=tail         w=120 K=2 arm=real agree=0.9995 kappa=0.9990 sep=2.49 sols=4 occ=0.442 (21s)
+[247/672] SPY/1h axis=tail         w=120 K=2 arm=null agree=1.0000 kappa=1.0000 sep=0.09 sols=6 occ=0.431 (23s)
+[248/672] SPY/1h axis=persistence  w=60  K=2 arm=null agree=0.9993 kappa=0.9986 sep=2.36 sols=1 occ=0.471 (28s)
+[249/672] SPY/1h axis=persistence  w=60  K=2 arm=real agree=0.9999 kappa=0.9998 sep=2.48 sols=2 occ=0.480 (35s)
+[250/672] SMH/1h axis=systematic   w=60  K=3 arm=null agree=0.9995 kappa=0.9992 sep=2.50 sols=7 occ=0.275 (39s)
+[251/672] AAPL/1h axis=tail         w=120 K=2 arm=null agree=0.9999 kappa=0.9997 sep=0.06 sols=2 occ=0.408 (57s)
+[252/672] SMH/1h axis=systematic   w=60  K=3 arm=real agree=1.0000 kappa=0.9999 sep=2.20 sols=9 occ=0.219 (43s)
+[253/672] IWM/1h axis=systematic   w=60  K=2 arm=null agree=1.0000 kappa=1.0000 sep=2.78 sols=3 occ=0.468 (17s)
+[254/672] IWM/1h axis=systematic   w=60  K=2 arm=real agree=1.0000 kappa=0.9999 sep=2.70 sols=3 occ=0.479 (20s)
+[255/672] DIA/1h axis=persistence  w=60  K=2 arm=null agree=0.9998 kappa=0.9996 sep=2.43 sols=1 occ=0.455 (28s)
+[256/672] DIA/1h axis=systematic   w=60  K=2 arm=real agree=0.9996 kappa=0.9992 sep=1.98 sols=1 occ=0.417 (32s)
+[257/672] DIA/1h axis=tail         w=120 K=2 arm=real agree=0.9999 kappa=0.9998 sep=2.20 sols=6 occ=0.480 (24s)
+[258/672] SPY/1h axis=tail         w=250 K=2 arm=real agree=1.0000 kappa=1.0000 sep=2.60 sols=4 occ=0.472 (18s)
+[259/672] DIA/1h axis=volume_price w=60  K=2 arm=real agree=0.9996 kappa=0.9993 sep=2.66 sols=3 occ=0.475 (30s)
+[260/672] DIA/1h axis=systematic   w=60  K=2 arm=null agree=1.0000 kappa=0.9999 sep=2.18 sols=3 occ=0.385 (38s)
+[261/672] DIA/1h axis=volume_price w=60  K=2 arm=null agree=0.3310 kappa=-0.3363 sep=2.48 sols=3 occ=0.491 (42s)
+[262/672] SPY/1h axis=tail         w=250 K=2 arm=null agree=1.0000 kappa=0.9999 sep=0.05 sols=8 occ=0.447 (28s)
+[263/672] DIA/1h axis=tail         w=250 K=2 arm=null agree=0.9992 kappa=0.9985 sep=0.14 sols=4 occ=0.485 (27s)
+[264/672] GLD/1h axis=systematic   w=60  K=2 arm=null agree=1.0000 kappa=1.0000 sep=1.66 sols=1 occ=0.467 (24s)
+[265/672] DIA/1h axis=persistence  w=60  K=2 arm=real agree=1.0000 kappa=1.0000 sep=2.51 sols=3 occ=0.470 (42s)
+[266/672] DIA/1h axis=tail         w=250 K=2 arm=real agree=1.0000 kappa=1.0000 sep=2.42 sols=3 occ=0.450 (31s)
+[267/672] DIA/1h axis=tail         w=120 K=2 arm=null agree=1.0000 kappa=1.0000 sep=0.09 sols=5 occ=0.421 (39s)
+[268/672] QQQ/1h axis=systematic   w=60  K=2 arm=real agree=0.9998 kappa=0.9997 sep=2.56 sols=4 occ=0.493 (21s)
+[269/672] XLF/1h axis=systematic   w=60  K=2 arm=real agree=1.0000 kappa=1.0000 sep=2.50 sols=4 occ=0.324 (27s)
+[270/672] XLE/1h axis=systematic   w=60  K=2 arm=null agree=0.9999 kappa=0.9997 sep=2.63 sols=2 occ=0.472 (26s)
+[271/672] EEM/1h axis=volume_price w=60  K=2 arm=null agree=0.9994 kappa=0.9989 sep=2.65 sols=3 occ=0.480 (19s)
+[272/672] XLE/1h axis=systematic   w=60  K=2 arm=real agree=1.0000 kappa=0.9999 sep=2.73 sols=4 occ=0.442 (33s)
+[273/672] GLD/1h axis=systematic   w=60  K=2 arm=real agree=1.0000 kappa=1.0000 sep=1.72 sols=2 occ=0.431 (46s)
+[274/672] JPM/1h axis=systematic   w=60  K=2 arm=real agree=1.0000 kappa=0.9999 sep=2.63 sols=4 occ=0.475 (23s)
+[275/672] XLK/1h axis=systematic   w=60  K=2 arm=null agree=1.0000 kappa=1.0000 sep=2.72 sols=3 occ=0.459 (28s)
+[276/672] XLF/1h axis=systematic   w=60  K=2 arm=null agree=1.0000 kappa=0.9999 sep=2.38 sols=2 occ=0.414 (38s)
+[277/672] XLK/1h axis=systematic   w=60  K=2 arm=real agree=0.9990 kappa=0.9981 sep=2.49 sols=3 occ=0.469 (33s)
+[278/672] AAPL/1h axis=systematic   w=60  K=2 arm=real agree=0.9997 kappa=0.9995 sep=2.73 sols=5 occ=0.454 (23s)
+[279/672] EEM/1h axis=persistence  w=60  K=2 arm=real agree=0.9999 kappa=0.9997 sep=2.35 sols=3 occ=0.496 (27s)
+[280/672] JPM/1h axis=systematic   w=60  K=2 arm=null agree=0.9988 kappa=0.9975 sep=2.45 sols=3 occ=0.414 (28s)
+[281/672] EEM/1h axis=systematic   w=60  K=2 arm=real agree=1.0000 kappa=1.0000 sep=2.84 sols=3 occ=0.478 (19s)
+[282/672] AAPL/1h axis=systematic   w=60  K=2 arm=null agree=0.9999 kappa=0.9998 sep=2.64 sols=5 occ=0.483 (26s)
+[283/672] EEM/1h axis=persistence  w=60  K=2 arm=null agree=0.9998 kappa=0.9995 sep=2.22 sols=1 occ=0.425 (29s)
+[284/672] EEM/1h axis=systematic   w=60  K=2 arm=null agree=0.9998 kappa=0.9997 sep=2.50 sols=4 occ=0.455 (21s)
+[285/672] GOOGL/1h axis=systematic   w=60  K=2 arm=null agree=1.0000 kappa=1.0000 sep=2.38 sols=2 occ=0.451 (24s)
+[286/672] GOOGL/1h axis=systematic   w=60  K=2 arm=real agree=0.9999 kappa=0.9998 sep=2.38 sols=3 occ=0.455 (27s)
+[287/672] EEM/1h axis=tail         w=120 K=2 arm=null agree=1.0000 kappa=0.9999 sep=0.11 sols=4 occ=0.489 (19s)
+[288/672] MSFT/1h axis=systematic   w=60  K=2 arm=null agree=0.9999 kappa=0.9998 sep=2.74 sols=3 occ=0.476 (24s)
+[289/672] EEM/1h axis=tail         w=250 K=2 arm=real agree=0.9991 kappa=0.9982 sep=2.64 sols=4 occ=0.487 (22s)
+[290/672] EEM/1h axis=tail         w=250 K=2 arm=null agree=0.9999 kappa=0.9997 sep=0.20 sols=5 occ=0.479 (22s)
+[291/672] QQQ/1h axis=systematic   w=60  K=2 arm=null agree=1.0000 kappa=1.0000 sep=2.67 sols=3 occ=0.450 (61s)
+[292/672] EEM/1h axis=volume_price w=60  K=2 arm=real agree=0.9999 kappa=0.9999 sep=2.71 sols=3 occ=0.489 (32s)
+[293/672] AMZN/1h axis=systematic   w=60  K=2 arm=real agree=0.9996 kappa=0.9991 sep=2.60 sols=4 occ=0.467 (32s)
+[294/672] FXY/1h axis=volume_price w=60  K=2 arm=null agree=1.0000 kappa=0.9999 sep=2.65 sols=4 occ=0.477 (25s)
+[295/672] AMZN/1h axis=systematic   w=60  K=2 arm=null agree=0.9993 kappa=0.9985 sep=2.65 sols=4 occ=0.439 (30s)
+[296/672] MSFT/1h axis=systematic   w=60  K=2 arm=real agree=0.9998 kappa=0.9996 sep=2.52 sols=5 occ=0.498 (31s)
+[297/672] FXY/1h axis=volume_price w=60  K=2 arm=real agree=0.9998 kappa=0.9996 sep=2.66 sols=4 occ=0.494 (19s)
+[298/672] FXY/1h axis=persistence  w=60  K=2 arm=null agree=0.9998 kappa=0.9997 sep=2.26 sols=1 occ=0.443 (29s)
+[299/672] FXY/1h axis=tail         w=120 K=2 arm=real agree=0.9999 kappa=0.9999 sep=0.11 sols=5 occ=0.399 (19s)
+[300/672] FXY/1h axis=persistence  w=60  K=2 arm=real agree=0.9996 kappa=0.9991 sep=2.35 sols=1 occ=0.467 (35s)
+[301/672] FXY/1h axis=systematic   w=60  K=2 arm=null agree=0.9996 kappa=0.9991 sep=1.92 sols=1 occ=0.480 (30s)
+[302/672] FXY/1h axis=tail         w=250 K=2 arm=real agree=1.0000 kappa=1.0000 sep=0.55 sols=4 occ=0.361 (19s)
+[303/672] EEM/1h axis=tail         w=120 K=2 arm=real agree=1.0000 kappa=0.9999 sep=2.62 sols=4 occ=0.484 (44s)
+[304/672] FXY/1h axis=systematic   w=60  K=2 arm=real agree=0.9996 kappa=0.9992 sep=2.06 sols=3 occ=0.388 (38s)
+[305/672] FXY/1h axis=tail         w=120 K=2 arm=null agree=1.0000 kappa=1.0000 sep=0.23 sols=5 occ=0.449 (24s)
+[306/672] TLT/1h axis=tail         w=120 K=3 arm=real agree=0.9999 kappa=0.9998 sep=2.19 sols=12 occ=0.256 (25s)
+[307/672] TLT/1h axis=volume_price w=60  K=3 arm=null agree=0.1019 kappa=-0.3453 sep=2.26 sols=10 occ=0.296 (29s)
+[308/672] TLT/1h axis=volume_price w=60  K=3 arm=real agree=0.9999 kappa=0.9999 sep=2.40 sols=9 occ=0.254 (30s)
+[309/672] FXY/1h axis=tail         w=250 K=2 arm=null agree=0.9999 kappa=0.9999 sep=0.20 sols=4 occ=0.426 (32s)
+[310/672] TLT/1h axis=tail         w=250 K=3 arm=real agree=0.9998 kappa=0.9997 sep=2.44 sols=11 occ=0.216 (26s)
+[311/672] TLT/1h axis=tail         w=250 K=3 arm=null agree=0.9999 kappa=0.9999 sep=2.21 sols=12 occ=0.288 (27s)
+[312/672] SMH/1h axis=persistence  w=60  K=2 arm=null agree=0.9999 kappa=0.9998 sep=2.35 sols=1 occ=0.440 (20s)
+[313/672] SMH/1h axis=volume_price w=60  K=2 arm=null agree=1.0000 kappa=1.0000 sep=2.66 sols=3 occ=0.443 (25s)
+[314/672] SMH/1h axis=volume_price w=60  K=2 arm=real agree=0.9991 kappa=0.9983 sep=2.73 sols=3 occ=0.485 (23s)
+[315/672] TLT/1h axis=tail         w=120 K=3 arm=null agree=0.9999 kappa=0.9999 sep=2.29 sols=11 occ=0.298 (37s)
+[316/672] SMH/1h axis=tail         w=250 K=2 arm=null agree=0.9814 kappa=0.9540 sep=0.16 sols=6 occ=0.280 (16s)
+[317/672] TLT/1h axis=volume_price w=60  K=2 arm=null agree=1.0000 kappa=1.0000 sep=2.61 sols=5 occ=0.481 (10s)
+[318/672] SMH/1h axis=tail         w=250 K=2 arm=real agree=0.7730 kappa=0.5459 sep=1.10 sols=4 occ=0.414 (24s)
+[319/672] TLT/1h axis=persistence  w=60  K=3 arm=real agree=0.9984 kappa=0.9975 sep=2.36 sols=8 occ=0.272 (46s)
+[320/672] TLT/1h axis=persistence  w=60  K=2 arm=real agree=0.9999 kappa=0.9998 sep=2.55 sols=3 occ=0.491 (11s)
+[321/672] SMH/1h axis=persistence  w=60  K=2 arm=real agree=0.9999 kappa=0.9998 sep=2.51 sols=2 occ=0.408 (35s)
+[322/672] SMH/1h axis=systematic   w=60  K=2 arm=null agree=1.0000 kappa=1.0000 sep=2.77 sols=4 occ=0.456 (17s)
+[323/672] TLT/1h axis=persistence  w=60  K=3 arm=null agree=1.0000 kappa=1.0000 sep=2.51 sols=5 occ=0.251 (51s)
+[324/672] TLT/1h axis=persistence  w=60  K=2 arm=null agree=1.0000 kappa=1.0000 sep=2.47 sols=1 occ=0.486 (15s)
+[325/672] SMH/1h axis=tail         w=120 K=2 arm=real agree=0.9999 kappa=0.9998 sep=2.26 sols=5 occ=0.436 (35s)
+[326/672] SMH/1h axis=tail         w=120 K=2 arm=null agree=0.2640 kappa=-0.3938 sep=1.55 sols=4 occ=0.406 (35s)
+[327/672] TLT/1h axis=tail         w=120 K=2 arm=null agree=1.0000 kappa=1.0000 sep=0.42 sols=6 occ=0.461 (13s)
+[328/672] TLT/1h axis=volume_price w=60  K=2 arm=real agree=0.9998 kappa=0.9997 sep=2.74 sols=4 occ=0.494 (17s)
+[329/672] TLT/1h axis=tail         w=250 K=2 arm=real agree=1.0000 kappa=1.0000 sep=2.58 sols=5 occ=0.473 (13s)
+[330/672] TLT/1h axis=tail         w=120 K=2 arm=real agree=0.9999 kappa=0.9999 sep=2.84 sols=4 occ=0.472 (18s)
+[331/672] AAPL/1d axis=persistence  w=60  K=3 arm=null agree=0.9998 kappa=0.9997 sep=2.10 sols=13 occ=0.302 (8s)
+[332/672] AAPL/1d axis=persistence  w=60  K=3 arm=real agree=0.9990 kappa=0.9985 sep=2.13 sols=9 occ=0.323 (13s)
+[333/672] JPM/1d axis=volume_price w=60  K=3 arm=real agree=0.9400 kappa=0.9093 sep=2.94 sols=14 occ=0.263 (8s)
+[334/672] JPM/1d axis=persistence  w=60  K=3 arm=null agree=0.7699 kappa=0.6472 sep=1.98 sols=7 occ=0.257 (10s)
+[335/672] JPM/1d axis=persistence  w=60  K=3 arm=real agree=0.9996 kappa=0.9994 sep=2.38 sols=9 occ=0.323 (10s)
+[336/672] SMH/1h axis=systematic   w=60  K=2 arm=real agree=1.0000 kappa=1.0000 sep=2.15 sols=2 occ=0.470 (31s)
+[337/672] AAPL/1d axis=tail         w=120 K=3 arm=real agree=0.9764 kappa=0.9644 sep=2.08 sols=12 occ=0.287 (7s)
+[338/672] AAPL/1d axis=volume_price w=60  K=3 arm=null agree=0.3649 kappa=0.0476 sep=2.63 sols=16 occ=0.236 (6s)
+[339/672] AAPL/1d axis=tail         w=120 K=3 arm=null agree=1.0000 kappa=1.0000 sep=2.00 sols=9 occ=0.197 (6s)
+[340/672] TLT/1h axis=systematic   w=60  K=2 arm=real agree=0.9999 kappa=0.9999 sep=1.81 sols=3 occ=0.495 (18s)
+[341/672] AAPL/1d axis=volume_price w=60  K=3 arm=real agree=0.6095 kappa=0.4118 sep=2.79 sols=15 occ=0.241 (11s)
+[342/672] TLT/1h axis=tail         w=250 K=2 arm=null agree=1.0000 kappa=1.0000 sep=2.29 sols=6 occ=0.455 (20s)
+[343/672] JPM/1d axis=tail         w=120 K=3 arm=real agree=0.8732 kappa=0.8099 sep=1.60 sols=11 occ=0.300 (7s)
+[344/672] IWM/1d axis=volume_price w=60  K=3 arm=null agree=0.1318 kappa=-0.3057 sep=2.62 sols=14 occ=0.272 (5s)
+[345/672] XLK/1d axis=volume_price w=60  K=3 arm=null agree=0.9559 kappa=0.9333 sep=2.86 sols=12 occ=0.274 (4s)
+[346/672] JPM/1d axis=tail         w=120 K=3 arm=null agree=1.0000 kappa=1.0000 sep=2.36 sols=13 occ=0.249 (9s)
+[347/672] DIA/1d axis=volume_price w=60  K=3 arm=null agree=0.5367 kappa=0.3002 sep=2.80 sols=13 occ=0.199 (5s)
+[348/672] TLT/1h axis=systematic   w=60  K=3 arm=real agree=0.4350 kappa=0.1537 sep=2.56 sols=5 occ=0.228 (40s)
+[349/672] EEM/1d axis=volume_price w=60  K=3 arm=null agree=0.8287 kappa=0.7436 sep=2.70 sols=17 occ=0.296 (7s)
+[350/672] XLF/1d axis=volume_price w=60  K=3 arm=null agree=1.0000 kappa=1.0000 sep=1.89 sols=12 occ=0.262 (7s)
+[351/672] TLT/1h axis=systematic   w=60  K=2 arm=null agree=0.9998 kappa=0.9996 sep=1.75 sols=1 occ=0.485 (22s)
+[352/672] XLE/1d axis=volume_price w=60  K=3 arm=null agree=1.0000 kappa=1.0000 sep=2.61 sols=14 occ=0.296 (8s)
+[353/672] QQQ/1d axis=volume_price w=60  K=3 arm=null agree=0.9389 kappa=0.9054 sep=2.27 sols=14 occ=0.192 (9s)
+[354/672] GLD/1d axis=volume_price w=60  K=3 arm=null agree=1.0000 kappa=1.0000 sep=2.60 sols=11 occ=0.290 (8s)
+[355/672] TLT/1h axis=systematic   w=60  K=3 arm=null agree=0.4247 kappa=0.1446 sep=2.39 sols=4 occ=0.212 (40s)
+[356/672] QQQ/1d axis=persistence  w=60  K=3 arm=real agree=0.9996 kappa=0.9994 sep=1.87 sols=10 occ=0.304 (9s)
+[357/672] XLE/1d axis=systematic   w=60  K=3 arm=real agree=0.9545 kappa=0.9313 sep=3.22 sols=13 occ=0.280 (5s)
+[358/672] EEM/1d axis=persistence  w=60  K=3 arm=null agree=0.9994 kappa=0.9991 sep=2.32 sols=5 occ=0.325 (7s)
+[359/672] AAPL/1d axis=systematic   w=60  K=3 arm=real agree=0.9639 kappa=0.9455 sep=2.08 sols=12 occ=0.295 (7s)
+[360/672] XLF/1d axis=systematic   w=60  K=3 arm=null agree=0.6513 kappa=0.4676 sep=2.54 sols=12 occ=0.247 (5s)
+[361/672] EEM/1d axis=persistence  w=60  K=3 arm=real agree=1.0000 kappa=1.0000 sep=2.59 sols=12 occ=0.288 (10s)
+[362/672] XLF/1d axis=systematic   w=60  K=3 arm=real agree=0.9982 kappa=0.9972 sep=2.51 sols=6 occ=0.268 (7s)
+[363/672] XLK/1d axis=systematic   w=60  K=3 arm=real agree=1.0000 kappa=1.0000 sep=1.99 sols=11 occ=0.232 (6s)
+[364/672] QQQ/1d axis=systematic   w=60  K=3 arm=real agree=1.0000 kappa=1.0000 sep=1.87 sols=10 occ=0.255 (9s)
+[365/672] AAPL/1d axis=systematic   w=60  K=3 arm=null agree=0.7666 kappa=0.6474 sep=2.71 sols=11 occ=0.232 (10s)
+[366/672] QQQ/1d axis=systematic   w=60  K=3 arm=null agree=0.9998 kappa=0.9997 sep=2.05 sols=11 occ=0.323 (9s)
+[367/672] XLE/1d axis=systematic   w=60  K=3 arm=null agree=1.0000 kappa=1.0000 sep=2.78 sols=12 occ=0.289 (10s)
+[368/672] XLF/1d axis=persistence  w=60  K=3 arm=real agree=0.9527 kappa=0.9281 sep=2.35 sols=12 occ=0.259 (6s)
+[369/672] XLK/1d axis=systematic   w=60  K=3 arm=null agree=0.9046 kappa=0.8569 sep=2.14 sols=13 occ=0.264 (9s)
+[370/672] IWM/1d axis=persistence  w=60  K=3 arm=null agree=0.9996 kappa=0.9994 sep=2.35 sols=11 occ=0.306 (8s)
+[371/672] QQQ/1d axis=persistence  w=60  K=3 arm=null agree=0.9998 kappa=0.9997 sep=1.92 sols=6 occ=0.302 (16s)
+[372/672] XLE/1d axis=persistence  w=60  K=3 arm=null agree=0.9998 kappa=0.9997 sep=1.95 sols=13 occ=0.289 (7s)
+[373/672] IWM/1d axis=persistence  w=60  K=3 arm=real agree=0.9994 kappa=0.9991 sep=2.21 sols=10 occ=0.274 (10s)
+[374/672] XLK/1d axis=persistence  w=60  K=3 arm=real agree=0.9998 kappa=0.9997 sep=2.13 sols=17 occ=0.289 (7s)
+[375/672] EEM/1d axis=systematic   w=60  K=3 arm=real agree=0.9761 kappa=0.9641 sep=2.51 sols=18 occ=0.314 (6s)
+[376/672] XLE/1d axis=persistence  w=60  K=3 arm=real agree=0.9998 kappa=0.9997 sep=2.54 sols=11 occ=0.313 (10s)
+[377/672] SPY/1d axis=volume_price w=60  K=3 arm=null agree=1.0000 kappa=1.0000 sep=2.02 sols=17 occ=0.305 (8s)
+[378/672] IWM/1d axis=systematic   w=60  K=3 arm=real agree=1.0000 kappa=1.0000 sep=1.71 sols=10 occ=0.329 (7s)
+[379/672] XLK/1d axis=persistence  w=60  K=3 arm=null agree=0.9992 kappa=0.9988 sep=2.51 sols=12 occ=0.287 (9s)
+[380/672] EEM/1d axis=systematic   w=60  K=3 arm=null agree=0.9998 kappa=0.9997 sep=2.40 sols=10 occ=0.247 (8s)
+[381/672] XLF/1d axis=persistence  w=60  K=3 arm=null agree=0.9996 kappa=0.9994 sep=2.32 sols=10 occ=0.288 (11s)
+[382/672] IWM/1d axis=systematic   w=60  K=3 arm=null agree=1.0000 kappa=1.0000 sep=2.03 sols=14 occ=0.249 (8s)
+[383/672] JPM/1d axis=systematic   w=60  K=3 arm=real agree=0.9783 kappa=0.9670 sep=2.67 sols=10 occ=0.264 (7s)
+[384/672] JPM/1d axis=systematic   w=60  K=3 arm=null agree=0.8179 kappa=0.7218 sep=1.95 sols=12 occ=0.251 (6s)
+[385/672] GLD/1d axis=persistence  w=60  K=3 arm=null agree=1.0000 kappa=1.0000 sep=2.36 sols=10 occ=0.328 (8s)
+[386/672] JPM/1d axis=volume_price w=60  K=3 arm=null agree=0.7822 kappa=0.6717 sep=1.86 sols=12 occ=0.277 (7s)
+[387/672] DIA/1d axis=persistence  w=60  K=3 arm=null agree=1.0000 kappa=1.0000 sep=2.29 sols=7 occ=0.269 (9s)
+[388/672] GLD/1d axis=persistence  w=60  K=3 arm=real agree=1.0000 kappa=1.0000 sep=2.56 sols=10 occ=0.235 (9s)
+[389/672] DIA/1d axis=systematic   w=60  K=3 arm=real agree=1.0000 kappa=1.0000 sep=1.04 sols=10 occ=0.309 (7s)
+[390/672] DIA/1d axis=systematic   w=60  K=3 arm=null agree=0.8132 kappa=0.7192 sep=1.80 sols=12 occ=0.303 (8s)
+[391/672] SPY/1d axis=persistence  w=60  K=3 arm=real agree=0.9984 kappa=0.9976 sep=2.38 sols=15 occ=0.288 (7s)
+[392/672] DIA/1d axis=persistence  w=60  K=3 arm=real agree=0.9996 kappa=0.9994 sep=2.17 sols=11 occ=0.310 (11s)
+[393/672] XLF/1d axis=volume_price w=60  K=3 arm=real agree=0.1925 kappa=-0.1780 sep=2.47 sols=13 occ=0.257 (7s)
+[394/672] GLD/1d axis=systematic   w=60  K=3 arm=null agree=0.9998 kappa=0.9997 sep=2.54 sols=3 occ=0.308 (9s)
+[395/672] IWM/1d axis=volume_price w=60  K=3 arm=real agree=0.0513 kappa=-0.4149 sep=1.83 sols=14 occ=0.286 (8s)
+[396/672] XLK/1d axis=volume_price w=60  K=3 arm=real agree=0.9121 kappa=0.8681 sep=2.29 sols=11 occ=0.317 (6s)
+[397/672] GLD/1d axis=systematic   w=60  K=3 arm=real agree=1.0000 kappa=1.0000 sep=2.41 sols=6 occ=0.283 (10s)
+[398/672] GLD/1d axis=volume_price w=60  K=3 arm=real agree=1.0000 kappa=1.0000 sep=2.59 sols=12 occ=0.236 (6s)
+[399/672] EEM/1d axis=volume_price w=60  K=3 arm=real agree=0.9998 kappa=0.9997 sep=2.66 sols=13 occ=0.321 (9s)
+[400/672] AMZN/1d axis=volume_price w=60  K=3 arm=null agree=0.5683 kappa=0.3041 sep=3.19 sols=11 occ=0.240 (6s)
+[401/672] XLE/1d axis=volume_price w=60  K=3 arm=real agree=0.9996 kappa=0.9994 sep=2.58 sols=15 occ=0.265 (9s)
+[402/672] DIA/1d axis=volume_price w=60  K=3 arm=real agree=1.0000 kappa=1.0000 sep=2.43 sols=9 occ=0.315 (7s)
+[403/672] QQQ/1d axis=volume_price w=60  K=3 arm=real agree=0.9992 kappa=0.9988 sep=2.15 sols=13 occ=0.299 (10s)
+[404/672] GOOGL/1d axis=volume_price w=60  K=3 arm=null agree=0.9237 kappa=0.8856 sep=2.71 sols=14 occ=0.271 (5s)
+[405/672] MSFT/1d axis=volume_price w=60  K=3 arm=null agree=1.0000 kappa=1.0000 sep=2.02 sols=12 occ=0.312 (7s)
+[406/672] AMZN/1d axis=persistence  w=60  K=3 arm=null agree=1.0000 kappa=1.0000 sep=2.26 sols=9 occ=0.313 (6s)
+[407/672] SPY/1d axis=persistence  w=60  K=3 arm=null agree=1.0000 kappa=1.0000 sep=2.43 sols=7 occ=0.309 (14s)
+[408/672] GOOGL/1d axis=systematic   w=60  K=3 arm=real agree=0.9994 kappa=0.9991 sep=2.81 sols=10 occ=0.289 (5s)
+[409/672] AMZN/1d axis=systematic   w=60  K=3 arm=real agree=1.0000 kappa=1.0000 sep=1.57 sols=13 occ=0.304 (6s)
+[410/672] MSFT/1d axis=persistence  w=60  K=3 arm=null agree=0.9986 kappa=0.9978 sep=2.34 sols=12 occ=0.248 (8s)
+[411/672] GOOGL/1d axis=persistence  w=60  K=3 arm=null agree=0.7205 kappa=0.5784 sep=2.40 sols=8 occ=0.253 (9s)
+[412/672] AMZN/1d axis=systematic   w=60  K=3 arm=null agree=0.6031 kappa=0.4180 sep=2.63 sols=12 occ=0.170 (7s)
+[413/672] MSFT/1d axis=systematic   w=60  K=3 arm=real agree=0.9998 kappa=0.9997 sep=2.96 sols=16 occ=0.235 (7s)
+[414/672] SPY/1d axis=volume_price w=60  K=3 arm=real agree=0.6107 kappa=0.4121 sep=2.31 sols=10 occ=0.242 (14s)
+[415/672] AMZN/1d axis=volume_price w=60  K=3 arm=real agree=0.9998 kappa=0.9997 sep=2.97 sols=11 occ=0.209 (8s)
+[416/672] MSFT/1d axis=persistence  w=60  K=3 arm=real agree=1.0000 kappa=1.0000 sep=2.16 sols=8 occ=0.248 (10s)
+[417/672] GOOGL/1d axis=persistence  w=60  K=3 arm=real agree=1.0000 kappa=1.0000 sep=2.16 sols=5 occ=0.289 (11s)
+[418/672] MSFT/1d axis=volume_price w=60  K=3 arm=real agree=1.0000 kappa=1.0000 sep=1.97 sols=12 occ=0.242 (5s)
+[419/672] AMZN/1d axis=persistence  w=60  K=3 arm=real agree=0.9992 kappa=0.9988 sep=1.79 sols=9 occ=0.268 (14s)
+[420/672] GOOGL/1d axis=systematic   w=60  K=3 arm=null agree=1.0000 kappa=1.0000 sep=1.43 sols=12 occ=0.243 (11s)
+[421/672] MSFT/1d axis=systematic   w=60  K=3 arm=null agree=0.8045 kappa=0.6932 sep=2.71 sols=11 occ=0.148 (11s)
+[422/672] EEM/1d axis=tail         w=120 K=3 arm=real agree=0.5335 kappa=0.2993 sep=2.24 sols=14 occ=0.322 (6s)
+[423/672] GOOGL/1d axis=volume_price w=60  K=3 arm=real agree=0.8015 kappa=0.7000 sep=2.27 sols=10 occ=0.287 (10s)
+[424/672] EEM/1d axis=tail         w=120 K=3 arm=null agree=0.7999 kappa=0.6998 sep=0.54 sols=12 occ=0.254 (5s)
+[425/672] IWM/1d axis=tail         w=120 K=3 arm=null agree=1.0000 kappa=1.0000 sep=2.38 sols=12 occ=0.272 (5s)
+[426/672] QQQ/1d axis=tail         w=120 K=3 arm=null agree=0.2895 kappa=0.0234 sep=3.01 sols=15 occ=0.114 (7s)
+[427/672] XLF/1d axis=tail         w=120 K=3 arm=null agree=1.0000 kappa=1.0000 sep=2.80 sols=18 occ=0.298 (5s)
+[428/672] IWM/1d axis=tail         w=120 K=3 arm=real agree=1.0000 kappa=1.0000 sep=2.25 sols=12 occ=0.230 (7s)
+[429/672] XLK/1d axis=tail         w=120 K=3 arm=null agree=0.9980 kappa=0.9969 sep=2.33 sols=10 occ=0.275 (6s)
+[430/672] XLE/1d axis=tail         w=120 K=3 arm=null agree=0.9817 kappa=0.9721 sep=1.42 sols=14 occ=0.268 (7s)
+[431/672] GLD/1d axis=tail         w=120 K=3 arm=null agree=0.6434 kappa=0.4592 sep=0.68 sols=13 occ=0.283 (4s)
+[432/672] QQQ/1d axis=tail         w=120 K=3 arm=real agree=0.9844 kappa=0.9764 sep=2.05 sols=14 occ=0.280 (12s)
+[433/672] AMZN/1d axis=tail         w=120 K=3 arm=real agree=0.8139 kappa=0.7167 sep=1.45 sols=14 occ=0.260 (5s)
+[434/672] SPY/1d axis=tail         w=120 K=3 arm=null agree=0.9992 kappa=0.9987 sep=2.75 sols=12 occ=0.169 (5s)
+[435/672] XLE/1d axis=tail         w=120 K=3 arm=real agree=1.0000 kappa=1.0000 sep=0.13 sols=12 occ=0.267 (10s)
+[436/672] SPY/1d axis=tail         w=120 K=3 arm=real agree=1.0000 kappa=1.0000 sep=2.16 sols=13 occ=0.258 (6s)
+[437/672] XLF/1d axis=tail         w=120 K=3 arm=real agree=0.9974 kappa=0.9960 sep=2.60 sols=14 occ=0.294 (10s)
+[438/672] DIA/1d axis=tail         w=120 K=3 arm=null agree=0.7231 kappa=0.5709 sep=3.11 sols=15 occ=0.210 (7s)
+[439/672] GOOGL/1d axis=tail         w=120 K=3 arm=null agree=0.6461 kappa=0.4476 sep=1.03 sols=16 occ=0.195 (4s)
+[440/672] GOOGL/1d axis=tail         w=120 K=3 arm=real agree=0.8294 kappa=0.7402 sep=2.26 sols=12 occ=0.190 (5s)
+[441/672] GLD/1d axis=tail         w=120 K=3 arm=real agree=1.0000 kappa=1.0000 sep=1.77 sols=14 occ=0.183 (7s)
+[442/672] DIA/1d axis=tail         w=120 K=3 arm=real agree=1.0000 kappa=1.0000 sep=1.82 sols=13 occ=0.278 (9s)
+[443/672] MSFT/1d axis=tail         w=120 K=3 arm=real agree=1.0000 kappa=1.0000 sep=1.80 sols=12 occ=0.249 (5s)
+[444/672] XLK/1d axis=tail         w=120 K=3 arm=real agree=1.0000 kappa=1.0000 sep=2.23 sols=13 occ=0.274 (12s)
+[445/672] AMZN/1d axis=tail         w=120 K=3 arm=null agree=0.9872 kappa=0.9790 sep=2.47 sols=13 occ=0.189 (8s)
+[446/672] AAPL/1d axis=tail         w=250 K=3 arm=real agree=0.5929 kappa=0.3893 sep=2.69 sols=15 occ=0.332 (6s)
+[447/672] JPM/1d axis=tail         w=250 K=3 arm=null agree=0.9996 kappa=0.9994 sep=2.16 sols=11 occ=0.278 (4s)
+[448/672] JPM/1d axis=tail         w=250 K=3 arm=real agree=0.9992 kappa=0.9987 sep=1.21 sols=13 occ=0.252 (5s)
+[449/672] AAPL/1d axis=tail         w=250 K=3 arm=null agree=0.9050 kappa=0.8561 sep=1.89 sols=15 occ=0.288 (6s)
+[450/672] MSFT/1d axis=tail         w=120 K=3 arm=null agree=0.9360 kappa=0.9035 sep=1.12 sols=14 occ=0.262 (8s)
+[451/672] FXY/1d axis=volume_price w=60  K=3 arm=real agree=0.2317 kappa=-0.1436 sep=2.65 sols=13 occ=0.239 (5s)
+[452/672] EEM/1d axis=tail         w=250 K=3 arm=null agree=1.0000 kappa=1.0000 sep=3.30 sols=13 occ=0.177 (4s)
+[453/672] QQQ/1d axis=tail         w=250 K=3 arm=real agree=1.0000 kappa=1.0000 sep=2.37 sols=13 occ=0.241 (6s)
+[454/672] QQQ/1d axis=tail         w=250 K=3 arm=null agree=1.0000 kappa=1.0000 sep=1.93 sols=17 occ=0.287 (7s)
+[455/672] XLE/1d axis=tail         w=250 K=3 arm=null agree=0.8804 kappa=0.8206 sep=2.25 sols=10 occ=0.267 (5s)
+[456/672] FXY/1d axis=persistence  w=60  K=3 arm=null agree=1.0000 kappa=1.0000 sep=2.35 sols=10 occ=0.265 (9s)
+[457/672] FXY/1d axis=systematic   w=60  K=3 arm=null agree=1.0000 kappa=1.0000 sep=2.56 sols=8 occ=0.145 (9s)
+[458/672] EEM/1d axis=tail         w=250 K=3 arm=real agree=0.9496 kappa=0.9215 sep=2.15 sols=14 occ=0.185 (8s)
+[459/672] XLF/1d axis=tail         w=250 K=3 arm=real agree=0.9204 kappa=0.8747 sep=2.40 sols=12 occ=0.247 (5s)
+[460/672] IWM/1d axis=tail         w=250 K=3 arm=null agree=0.9940 kappa=0.9900 sep=2.90 sols=15 occ=0.186 (6s)
+[461/672] FXY/1d axis=systematic   w=60  K=3 arm=real agree=1.0000 kappa=1.0000 sep=2.18 sols=14 occ=0.195 (10s)
+[462/672] XLK/1d axis=tail         w=250 K=3 arm=null agree=0.7263 kappa=0.5903 sep=2.12 sols=19 occ=0.240 (4s)
+[463/672] XLE/1d axis=tail         w=250 K=3 arm=real agree=0.6955 kappa=0.5384 sep=0.48 sols=12 occ=0.231 (6s)
+[464/672] FXY/1d axis=persistence  w=60  K=3 arm=real agree=0.9977 kappa=0.9965 sep=2.61 sols=14 occ=0.249 (10s)
+[465/672] DIA/1d axis=tail         w=250 K=3 arm=null agree=1.0000 kappa=1.0000 sep=3.13 sols=13 occ=0.156 (4s)
+[466/672] IWM/1d axis=tail         w=250 K=3 arm=real agree=0.8956 kappa=0.8437 sep=2.84 sols=10 occ=0.298 (8s)
+[467/672] XLF/1d axis=tail         w=250 K=3 arm=null agree=1.0000 kappa=1.0000 sep=3.50 sols=12 occ=0.187 (7s)
+[468/672] DIA/1d axis=tail         w=250 K=3 arm=real agree=0.8979 kappa=0.8428 sep=2.49 sols=14 occ=0.247 (6s)
+[469/672] XLK/1d axis=tail         w=250 K=3 arm=real agree=1.0000 kappa=1.0000 sep=2.49 sols=13 occ=0.312 (7s)
+[470/672] GLD/1d axis=tail         w=250 K=3 arm=null agree=0.9742 kappa=0.9596 sep=1.38 sols=15 occ=0.211 (4s)
+[471/672] AMZN/1d axis=tail         w=250 K=3 arm=real agree=0.2965 kappa=-0.0597 sep=2.52 sols=11 occ=0.238 (4s)
+[472/672] MSFT/1d axis=tail         w=250 K=3 arm=real agree=0.9558 kappa=0.9328 sep=1.99 sols=15 occ=0.239 (4s)
+[473/672] GOOGL/1d axis=tail         w=250 K=3 arm=null agree=0.9996 kappa=0.9994 sep=1.97 sols=16 occ=0.288 (5s)
+[474/672] SPY/1d axis=tail         w=250 K=3 arm=real agree=0.1951 kappa=-0.2046 sep=2.11 sols=15 occ=0.306 (6s)
+[475/672] FXY/1d axis=volume_price w=60  K=3 arm=null agree=0.8420 kappa=0.7624 sep=2.97 sols=15 occ=0.298 (6s)
+[476/672] GLD/1d axis=tail         w=250 K=3 arm=real agree=0.9596 kappa=0.9386 sep=2.35 sols=12 occ=0.277 (8s)
+[477/672] AMZN/1d axis=tail         w=250 K=3 arm=null agree=0.9998 kappa=0.9997 sep=2.89 sols=12 occ=0.218 (6s)
+[478/672] FXY/1d axis=tail         w=250 K=3 arm=null agree=0.9970 kappa=0.9954 sep=2.37 sols=14 occ=0.281 (4s)
+[479/672] FXY/1d axis=tail         w=120 K=3 arm=real agree=0.8973 kappa=0.8405 sep=1.79 sols=14 occ=0.213 (5s)
+[480/672] GOOGL/1d axis=tail         w=250 K=3 arm=real agree=1.0000 kappa=1.0000 sep=3.24 sols=10 occ=0.204 (6s)
+[481/672] SPY/1d axis=tail         w=250 K=3 arm=null agree=0.9904 kappa=0.9854 sep=2.43 sols=12 occ=0.263 (7s)
+[482/672] SMH/1d axis=systematic   w=60  K=3 arm=null agree=0.9978 kappa=0.9966 sep=2.29 sols=11 occ=0.258 (5s)
+[483/672] MSFT/1d axis=tail         w=250 K=3 arm=null agree=1.0000 kappa=1.0000 sep=3.07 sols=14 occ=0.288 (7s)
+[484/672] SMH/1d axis=volume_price w=60  K=3 arm=null agree=0.2171 kappa=-0.1492 sep=2.28 sols=17 occ=0.246 (4s)
+[485/672] SMH/1d axis=systematic   w=60  K=3 arm=real agree=0.3945 kappa=0.0885 sep=2.72 sols=12 occ=0.296 (5s)
+[486/672] FXY/1d axis=tail         w=250 K=3 arm=real agree=0.9888 kappa=0.9829 sep=2.03 sols=18 occ=0.261 (7s)
+[487/672] AAPL/1d axis=persistence  w=60  K=2 arm=real agree=1.0000 kappa=1.0000 sep=2.60 sols=4 occ=0.487 (3s)
+[488/672] SMH/1d axis=tail         w=250 K=3 arm=null agree=1.0000 kappa=1.0000 sep=2.17 sols=16 occ=0.249 (3s)
+[489/672] SMH/1d axis=persistence  w=60  K=3 arm=real agree=0.9997 kappa=0.9996 sep=2.26 sols=13 occ=0.293 (5s)
+[490/672] FXY/1d axis=tail         w=120 K=3 arm=null agree=1.0000 kappa=1.0000 sep=2.72 sols=8 occ=0.149 (8s)
+[491/672] SMH/1d axis=volume_price w=60  K=3 arm=real agree=1.0000 kappa=1.0000 sep=2.01 sols=12 occ=0.217 (4s)
+[492/672] JPM/1d axis=volume_price w=60  K=2 arm=real agree=1.0000 kappa=1.0000 sep=2.94 sols=5 occ=0.470 (3s)
+[493/672] JPM/1d axis=persistence  w=60  K=2 arm=null agree=1.0000 kappa=1.0000 sep=2.23 sols=2 occ=0.441 (3s)
+[494/672] SMH/1d axis=tail         w=120 K=3 arm=null agree=1.0000 kappa=1.0000 sep=2.62 sols=14 occ=0.207 (5s)
+[495/672] JPM/1d axis=persistence  w=60  K=2 arm=real agree=1.0000 kappa=1.0000 sep=2.71 sols=4 occ=0.439 (4s)
+[496/672] SMH/1d axis=persistence  w=60  K=3 arm=null agree=0.9972 kappa=0.9958 sep=2.42 sols=10 occ=0.266 (6s)
+[497/672] AAPL/1d axis=persistence  w=60  K=2 arm=null agree=0.9925 kappa=0.9847 sep=2.66 sols=8 occ=0.433 (5s)
+[498/672] SMH/1d axis=tail         w=250 K=3 arm=real agree=0.7679 kappa=0.6518 sep=2.30 sols=16 occ=0.322 (5s)
+[499/672] SMH/1d axis=tail         w=120 K=3 arm=real agree=0.7649 kappa=0.6403 sep=2.66 sols=15 occ=0.169 (6s)
+[500/672] AAPL/1d axis=volume_price w=60  K=2 arm=null agree=0.3525 kappa=-0.2940 sep=2.53 sols=8 occ=0.420 (3s)
+[501/672] AAPL/1d axis=tail         w=120 K=2 arm=real agree=1.0000 kappa=1.0000 sep=2.71 sols=11 occ=0.397 (5s)
+[502/672] EEM/1d axis=volume_price w=60  K=2 arm=null agree=1.0000 kappa=1.0000 sep=2.92 sols=3 occ=0.452 (3s)
+[503/672] JPM/1d axis=tail         w=120 K=2 arm=null agree=1.0000 kappa=1.0000 sep=0.34 sols=3 occ=0.333 (3s)
+[504/672] IWM/1d axis=volume_price w=60  K=2 arm=null agree=0.4270 kappa=-0.1358 sep=3.10 sols=5 occ=0.449 (3s)
+[505/672] AAPL/1d axis=tail         w=120 K=2 arm=null agree=1.0000 kappa=1.0000 sep=2.02 sols=3 occ=0.485 (5s)
+[506/672] JPM/1d axis=tail         w=120 K=2 arm=real agree=1.0000 kappa=1.0000 sep=2.23 sols=4 occ=0.423 (4s)
+[507/672] QQQ/1d axis=volume_price w=60  K=2 arm=null agree=0.9996 kappa=0.9992 sep=2.88 sols=3 occ=0.471 (4s)
+[508/672] XLE/1d axis=volume_price w=60  K=2 arm=null agree=0.9451 kappa=0.8889 sep=2.80 sols=5 occ=0.412 (3s)
+[509/672] DIA/1d axis=volume_price w=60  K=2 arm=null agree=0.9563 kappa=0.9105 sep=2.77 sols=7 occ=0.399 (3s)
+[510/672] XLK/1d axis=volume_price w=60  K=2 arm=null agree=1.0000 kappa=1.0000 sep=2.89 sols=5 occ=0.472 (4s)
+[511/672] QQQ/1d axis=persistence  w=60  K=2 arm=real agree=1.0000 kappa=1.0000 sep=2.48 sols=5 occ=0.494 (4s)
+[512/672] AAPL/1d axis=volume_price w=60  K=2 arm=real agree=1.0000 kappa=1.0000 sep=2.89 sols=4 occ=0.456 (8s)
+[513/672] XLF/1d axis=volume_price w=60  K=2 arm=null agree=1.0000 kappa=1.0000 sep=2.60 sols=3 occ=0.402 (4s)
+[514/672] GLD/1d axis=volume_price w=60  K=2 arm=null agree=0.9998 kappa=0.9996 sep=2.98 sols=3 occ=0.407 (4s)
+[515/672] EEM/1d axis=persistence  w=60  K=2 arm=real agree=1.0000 kappa=1.0000 sep=2.63 sols=5 occ=0.440 (3s)
+[516/672] QQQ/1d axis=systematic   w=60  K=2 arm=real agree=1.0000 kappa=1.0000 sep=2.81 sols=5 occ=0.480 (3s)
+[517/672] AAPL/1d axis=systematic   w=60  K=2 arm=real agree=0.9998 kappa=0.9996 sep=2.38 sols=3 occ=0.378 (4s)
+[518/672] XLE/1d axis=systematic   w=60  K=2 arm=real agree=1.0000 kappa=1.0000 sep=3.65 sols=4 occ=0.468 (3s)
+[519/672] XLF/1d axis=systematic   w=60  K=2 arm=real agree=0.7935 kappa=0.5803 sep=3.29 sols=4 occ=0.457 (3s)
+[520/672] AAPL/1d axis=systematic   w=60  K=2 arm=null agree=1.0000 kappa=1.0000 sep=2.64 sols=4 occ=0.408 (4s)
+[521/672] QQQ/1d axis=persistence  w=60  K=2 arm=null agree=0.9992 kappa=0.9984 sep=2.65 sols=4 occ=0.425 (7s)
+[522/672] XLE/1d axis=systematic   w=60  K=2 arm=null agree=0.9998 kappa=0.9996 sep=2.55 sols=2 occ=0.462 (4s)
+[523/672] XLK/1d axis=systematic   w=60  K=2 arm=null agree=1.0000 kappa=1.0000 sep=2.59 sols=7 occ=0.453 (3s)
+[524/672] EEM/1d axis=persistence  w=60  K=2 arm=null agree=1.0000 kappa=1.0000 sep=2.55 sols=2 occ=0.499 (6s)
+[525/672] XLE/1d axis=persistence  w=60  K=2 arm=null agree=1.0000 kappa=1.0000 sep=2.53 sols=3 occ=0.434 (3s)
+[526/672] XLF/1d axis=systematic   w=60  K=2 arm=null agree=1.0000 kappa=1.0000 sep=2.50 sols=4 occ=0.473 (5s)
+[527/672] XLK/1d axis=systematic   w=60  K=2 arm=real agree=0.9998 kappa=0.9996 sep=2.85 sols=3 occ=0.490 (4s)
+[528/672] IWM/1d axis=persistence  w=60  K=2 arm=null agree=1.0000 kappa=1.0000 sep=2.79 sols=3 occ=0.424 (4s)
+[529/672] XLK/1d axis=persistence  w=60  K=2 arm=real agree=0.9990 kappa=0.9980 sep=2.56 sols=5 occ=0.442 (3s)
+[530/672] SPY/1d axis=volume_price w=60  K=2 arm=null agree=1.0000 kappa=1.0000 sep=2.86 sols=4 occ=0.412 (2s)
+[531/672] XLF/1d axis=persistence  w=60  K=2 arm=real agree=0.9998 kappa=0.9996 sep=2.48 sols=3 occ=0.449 (3s)
+[532/672] XLK/1d axis=persistence  w=60  K=2 arm=null agree=1.0000 kappa=1.0000 sep=2.70 sols=4 occ=0.465 (3s)
+[533/672] IWM/1d axis=persistence  w=60  K=2 arm=real agree=1.0000 kappa=1.0000 sep=2.54 sols=2 occ=0.409 (6s)
+[534/672] QQQ/1d axis=systematic   w=60  K=2 arm=null agree=0.9998 kappa=0.9996 sep=2.76 sols=3 occ=0.479 (7s)
+[535/672] XLE/1d axis=persistence  w=60  K=2 arm=real agree=1.0000 kappa=1.0000 sep=2.57 sols=5 occ=0.433 (6s)
+[536/672] JPM/1d axis=systematic   w=60  K=2 arm=real agree=1.0000 kappa=1.0000 sep=3.06 sols=6 occ=0.492 (3s)
+[537/672] JPM/1d axis=systematic   w=60  K=2 arm=null agree=0.9966 kappa=0.9931 sep=2.63 sols=4 occ=0.442 (3s)
+[538/672] IWM/1d axis=systematic   w=60  K=2 arm=real agree=1.0000 kappa=1.0000 sep=3.41 sols=3 occ=0.378 (4s)
+[539/672] JPM/1d axis=volume_price w=60  K=2 arm=null agree=0.7016 kappa=0.3997 sep=2.66 sols=5 occ=0.453 (3s)
+[540/672] GLD/1d axis=persistence  w=60  K=2 arm=null agree=1.0000 kappa=1.0000 sep=2.71 sols=4 occ=0.463 (3s)
+[541/672] XLF/1d axis=persistence  w=60  K=2 arm=null agree=1.0000 kappa=1.0000 sep=2.46 sols=1 occ=0.487 (6s)
+[542/672] GLD/1d axis=persistence  w=60  K=2 arm=real agree=0.9992 kappa=0.9984 sep=2.64 sols=4 occ=0.479 (3s)
+[543/672] DIA/1d axis=systematic   w=60  K=2 arm=real agree=1.0000 kappa=1.0000 sep=2.57 sols=2 occ=0.397 (3s)
+[544/672] EEM/1d axis=systematic   w=60  K=2 arm=real agree=1.0000 kappa=1.0000 sep=2.97 sols=6 occ=0.435 (4s)
+[545/672] EEM/1d axis=systematic   w=60  K=2 arm=null agree=0.9998 kappa=0.9996 sep=2.51 sols=4 occ=0.469 (4s)
+[546/672] DIA/1d axis=persistence  w=60  K=2 arm=real agree=0.9996 kappa=0.9992 sep=2.57 sols=5 occ=0.438 (4s)
+[547/672] IWM/1d axis=systematic   w=60  K=2 arm=null agree=0.9990 kappa=0.9980 sep=2.62 sols=7 occ=0.430 (6s)
+[548/672] SPY/1d axis=persistence  w=60  K=2 arm=real agree=0.9998 kappa=0.9996 sep=2.65 sols=5 occ=0.486 (3s)
+[549/672] DIA/1d axis=persistence  w=60  K=2 arm=null agree=0.9998 kappa=0.9996 sep=2.50 sols=1 occ=0.467 (5s)
+[550/672] EEM/1d axis=volume_price w=60  K=2 arm=real agree=1.0000 kappa=1.0000 sep=2.81 sols=3 occ=0.456 (3s)
+[551/672] IWM/1d axis=volume_price w=60  K=2 arm=real agree=1.0000 kappa=1.0000 sep=3.07 sols=3 occ=0.396 (3s)
+[552/672] QQQ/1d axis=volume_price w=60  K=2 arm=real agree=0.9998 kappa=0.9996 sep=2.93 sols=6 occ=0.415 (3s)
+[553/672] XLF/1d axis=volume_price w=60  K=2 arm=real agree=1.0000 kappa=1.0000 sep=3.07 sols=4 occ=0.453 (3s)
+[554/672] XLK/1d axis=volume_price w=60  K=2 arm=real agree=0.9998 kappa=0.9996 sep=2.81 sols=3 occ=0.499 (3s)
+[555/672] SPY/1d axis=persistence  w=60  K=2 arm=null agree=1.0000 kappa=1.0000 sep=2.61 sols=3 occ=0.446 (4s)
+[556/672] DIA/1d axis=systematic   w=60  K=2 arm=null agree=0.9996 kappa=0.9992 sep=2.43 sols=4 occ=0.481 (6s)
+[557/672] GLD/1d axis=volume_price w=60  K=2 arm=real agree=1.0000 kappa=1.0000 sep=2.99 sols=3 occ=0.486 (4s)
+[558/672] XLE/1d axis=volume_price w=60  K=2 arm=real agree=0.9672 kappa=0.9345 sep=2.70 sols=6 occ=0.479 (5s)
+[559/672] GLD/1d axis=systematic   w=60  K=2 arm=null agree=1.0000 kappa=1.0000 sep=1.72 sols=2 occ=0.500 (6s)
+[560/672] GLD/1d axis=systematic   w=60  K=2 arm=real agree=1.0000 kappa=1.0000 sep=1.97 sols=3 occ=0.493 (6s)
+[561/672] GOOGL/1d axis=volume_price w=60  K=2 arm=null agree=0.9982 kappa=0.9963 sep=3.08 sols=3 occ=0.442 (3s)
+[562/672] AMZN/1d axis=volume_price w=60  K=2 arm=null agree=1.0000 kappa=1.0000 sep=3.37 sols=4 occ=0.324 (3s)
+[563/672] SPY/1d axis=volume_price w=60  K=2 arm=real agree=0.9998 kappa=0.9996 sep=2.82 sols=3 occ=0.461 (4s)
+[564/672] DIA/1d axis=volume_price w=60  K=2 arm=real agree=1.0000 kappa=1.0000 sep=2.97 sols=5 occ=0.488 (5s)
+[565/672] AMZN/1d axis=persistence  w=60  K=2 arm=null agree=1.0000 kappa=1.0000 sep=2.56 sols=4 occ=0.401 (4s)
+[566/672] GOOGL/1d axis=systematic   w=60  K=2 arm=real agree=1.0000 kappa=1.0000 sep=3.16 sols=3 occ=0.474 (2s)
+[567/672] MSFT/1d axis=persistence  w=60  K=2 arm=null agree=1.0000 kappa=1.0000 sep=2.59 sols=3 occ=0.460 (3s)
+[568/672] MSFT/1d axis=volume_price w=60  K=2 arm=null agree=0.9998 kappa=0.9996 sep=2.73 sols=3 occ=0.466 (5s)
+[569/672] GOOGL/1d axis=persistence  w=60  K=2 arm=null agree=0.9982 kappa=0.9963 sep=2.58 sols=2 occ=0.454 (4s)
+[570/672] MSFT/1d axis=persistence  w=60  K=2 arm=real agree=1.0000 kappa=1.0000 sep=2.39 sols=3 occ=0.389 (4s)
+[571/672] AMZN/1d axis=persistence  w=60  K=2 arm=real agree=0.9994 kappa=0.9987 sep=2.45 sols=2 occ=0.404 (5s)
+[572/672] AMZN/1d axis=systematic   w=60  K=2 arm=real agree=0.9998 kappa=0.9996 sep=2.52 sols=3 occ=0.463 (4s)
+[573/672] GOOGL/1d axis=persistence  w=60  K=2 arm=real agree=1.0000 kappa=1.0000 sep=2.44 sols=4 occ=0.464 (6s)
+[574/672] AMZN/1d axis=systematic   w=60  K=2 arm=null agree=1.0000 kappa=1.0000 sep=3.09 sols=5 occ=0.447 (4s)
+[575/672] MSFT/1d axis=systematic   w=60  K=2 arm=real agree=1.0000 kappa=1.0000 sep=2.74 sols=5 occ=0.490 (4s)
+[576/672] MSFT/1d axis=systematic   w=60  K=2 arm=null agree=1.0000 kappa=1.0000 sep=2.48 sols=5 occ=0.496 (4s)
+[577/672] MSFT/1d axis=volume_price w=60  K=2 arm=real agree=1.0000 kappa=1.0000 sep=2.94 sols=3 occ=0.420 (4s)
+[578/672] GOOGL/1d axis=volume_price w=60  K=2 arm=real agree=0.9998 kappa=0.9996 sep=3.04 sols=4 occ=0.482 (4s)
+[579/672] IWM/1d axis=tail         w=120 K=2 arm=null agree=1.0000 kappa=1.0000 sep=3.50 sols=6 occ=0.271 (2s)
+[580/672] AMZN/1d axis=volume_price w=60  K=2 arm=real agree=1.0000 kappa=1.0000 sep=2.77 sols=3 occ=0.372 (4s)
+[581/672] EEM/1d axis=tail         w=120 K=2 arm=real agree=0.9972 kappa=0.9943 sep=2.26 sols=4 occ=0.485 (3s)
+[582/672] QQQ/1d axis=tail         w=120 K=2 arm=null agree=1.0000 kappa=1.0000 sep=0.20 sols=5 occ=0.402 (3s)
+[583/672] QQQ/1d axis=tail         w=120 K=2 arm=real agree=1.0000 kappa=1.0000 sep=2.76 sols=7 occ=0.356 (4s)
+[584/672] GOOGL/1d axis=systematic   w=60  K=2 arm=null agree=0.9996 kappa=0.9991 sep=2.45 sols=3 occ=0.376 (7s)
+[585/672] IWM/1d axis=tail         w=120 K=2 arm=real agree=0.3746 kappa=-0.2549 sep=2.85 sols=5 occ=0.454 (4s)
+[586/672] XLE/1d axis=tail         w=120 K=2 arm=real agree=0.9994 kappa=0.9987 sep=0.50 sols=5 occ=0.415 (4s)
+[587/672] XLF/1d axis=tail         w=120 K=2 arm=real agree=1.0000 kappa=1.0000 sep=2.72 sols=4 occ=0.426 (4s)
+[588/672] XLF/1d axis=tail         w=120 K=2 arm=null agree=0.9998 kappa=0.9996 sep=2.95 sols=6 occ=0.468 (4s)
+[589/672] XLE/1d axis=tail         w=120 K=2 arm=null agree=1.0000 kappa=1.0000 sep=0.41 sols=7 occ=0.422 (4s)
+[590/672] SPY/1d axis=tail         w=120 K=2 arm=null agree=0.9998 kappa=0.9996 sep=0.28 sols=7 occ=0.454 (3s)
+[591/672] XLK/1d axis=tail         w=120 K=2 arm=real agree=1.0000 kappa=1.0000 sep=2.66 sols=4 occ=0.470 (4s)
+[592/672] XLK/1d axis=tail         w=120 K=2 arm=null agree=1.0000 kappa=1.0000 sep=0.90 sols=6 occ=0.470 (4s)
+[593/672] AMZN/1d axis=tail         w=120 K=2 arm=real agree=1.0000 kappa=1.0000 sep=2.92 sols=5 occ=0.298 (3s)
+[594/672] GLD/1d axis=tail         w=120 K=2 arm=real agree=1.0000 kappa=1.0000 sep=2.56 sols=4 occ=0.445 (4s)
+[595/672] SPY/1d axis=tail         w=120 K=2 arm=real agree=0.9998 kappa=0.9996 sep=2.46 sols=3 occ=0.476 (4s)
+[596/672] EEM/1d axis=tail         w=120 K=2 arm=null agree=1.0000 kappa=1.0000 sep=0.16 sols=4 occ=0.348 (7s)
+[597/672] DIA/1d axis=tail         w=120 K=2 arm=null agree=1.0000 kappa=1.0000 sep=0.66 sols=7 occ=0.409 (4s)
+[598/672] GLD/1d axis=tail         w=120 K=2 arm=null agree=1.0000 kappa=1.0000 sep=1.21 sols=3 occ=0.339 (4s)
+[599/672] DIA/1d axis=tail         w=120 K=2 arm=real agree=1.0000 kappa=1.0000 sep=2.25 sols=3 occ=0.488 (5s)
+[600/672] GOOGL/1d axis=tail         w=120 K=2 arm=real agree=0.6618 kappa=0.2954 sep=2.58 sols=6 occ=0.429 (3s)
+[601/672] MSFT/1d axis=tail         w=120 K=2 arm=real agree=1.0000 kappa=1.0000 sep=0.76 sols=6 occ=0.386 (3s)
+[602/672] GOOGL/1d axis=tail         w=120 K=2 arm=null agree=0.9998 kappa=0.9995 sep=0.98 sols=6 occ=0.262 (3s)
+[603/672] AAPL/1d axis=tail         w=250 K=2 arm=null agree=1.0000 kappa=1.0000 sep=1.12 sols=6 occ=0.475 (3s)
+[604/672] AMZN/1d axis=tail         w=120 K=2 arm=null agree=0.9990 kappa=0.9977 sep=2.79 sols=6 occ=0.324 (4s)
+[605/672] JPM/1d axis=tail         w=250 K=2 arm=null agree=1.0000 kappa=1.0000 sep=0.39 sols=4 occ=0.390 (2s)
+[606/672] AAPL/1d axis=tail         w=250 K=2 arm=real agree=1.0000 kappa=1.0000 sep=3.08 sols=5 occ=0.413 (4s)
+[607/672] FXY/1d axis=systematic   w=60  K=2 arm=real agree=0.9998 kappa=0.9996 sep=2.12 sols=6 occ=0.415 (3s)
+[608/672] MSFT/1d axis=tail         w=120 K=2 arm=null agree=1.0000 kappa=1.0000 sep=0.64 sols=6 occ=0.396 (5s)
+[609/672] JPM/1d axis=tail         w=250 K=2 arm=real agree=1.0000 kappa=1.0000 sep=2.03 sols=4 occ=0.441 (4s)
+[610/672] FXY/1d axis=persistence  w=60  K=2 arm=real agree=0.9998 kappa=0.9996 sep=2.66 sols=3 occ=0.465 (4s)
+[611/672] EEM/1d axis=tail         w=250 K=2 arm=null agree=0.9996 kappa=0.9991 sep=1.08 sols=5 occ=0.325 (2s)
+[612/672] FXY/1d axis=persistence  w=60  K=2 arm=null agree=1.0000 kappa=1.0000 sep=2.74 sols=3 occ=0.493 (4s)
+[613/672] FXY/1d axis=systematic   w=60  K=2 arm=null agree=1.0000 kappa=1.0000 sep=2.49 sols=4 occ=0.446 (4s)
+[614/672] EEM/1d axis=tail         w=250 K=2 arm=real agree=1.0000 kappa=1.0000 sep=2.67 sols=4 occ=0.418 (3s)
+[615/672] QQQ/1d axis=tail         w=250 K=2 arm=null agree=0.7391 kappa=0.4793 sep=2.38 sols=6 occ=0.480 (4s)
+[616/672] IWM/1d axis=tail         w=250 K=2 arm=null agree=1.0000 kappa=1.0000 sep=3.02 sols=4 occ=0.474 (3s)
+[617/672] FXY/1d axis=volume_price w=60  K=2 arm=real agree=1.0000 kappa=1.0000 sep=2.93 sols=4 occ=0.363 (5s)
+[618/672] XLE/1d axis=tail         w=250 K=2 arm=null agree=0.9988 kappa=0.9975 sep=2.45 sols=4 occ=0.452 (3s)
+[619/672] IWM/1d axis=tail         w=250 K=2 arm=real agree=1.0000 kappa=1.0000 sep=3.33 sols=4 occ=0.380 (4s)
+[620/672] XLF/1d axis=tail         w=250 K=2 arm=null agree=1.0000 kappa=1.0000 sep=3.18 sols=5 occ=0.439 (2s)
+[621/672] QQQ/1d axis=tail         w=250 K=2 arm=real agree=0.4135 kappa=-0.2936 sep=3.12 sols=8 occ=0.362 (5s)
+[622/672] XLF/1d axis=tail         w=250 K=2 arm=real agree=0.9513 kappa=0.9023 sep=2.90 sols=6 occ=0.487 (3s)
+[623/672] DIA/1d axis=tail         w=250 K=2 arm=null agree=1.0000 kappa=1.0000 sep=0.62 sols=4 occ=0.409 (2s)
+[624/672] XLK/1d axis=tail         w=250 K=2 arm=real agree=1.0000 kappa=1.0000 sep=3.01 sols=5 occ=0.420 (3s)
+[625/672] FXY/1d axis=volume_price w=60  K=2 arm=null agree=1.0000 kappa=1.0000 sep=2.84 sols=5 occ=0.434 (3s)
+[626/672] GLD/1d axis=tail         w=250 K=2 arm=null agree=0.6579 kappa=0.2361 sep=1.51 sols=5 occ=0.303 (3s)
+[627/672] XLK/1d axis=tail         w=250 K=2 arm=null agree=1.0000 kappa=1.0000 sep=2.92 sols=9 occ=0.375 (3s)
+[628/672] XLE/1d axis=tail         w=250 K=2 arm=real agree=0.4476 kappa=-0.0853 sep=1.05 sols=5 occ=0.407 (5s)
+[629/672] AMZN/1d axis=tail         w=250 K=2 arm=null agree=1.0000 kappa=1.0000 sep=3.75 sols=5 occ=0.194 (2s)
+[630/672] DIA/1d axis=tail         w=250 K=2 arm=real agree=1.0000 kappa=1.0000 sep=2.26 sols=4 occ=0.471 (4s)
+[631/672] AMZN/1d axis=tail         w=250 K=2 arm=real agree=1.0000 kappa=1.0000 sep=1.67 sols=4 occ=0.319 (3s)
+[632/672] SPY/1d axis=tail         w=250 K=2 arm=null agree=1.0000 kappa=1.0000 sep=2.86 sols=5 occ=0.442 (3s)
+[633/672] GOOGL/1d axis=tail         w=250 K=2 arm=null agree=1.0000 kappa=1.0000 sep=2.10 sols=6 occ=0.289 (2s)
+[634/672] GOOGL/1d axis=tail         w=250 K=2 arm=real agree=1.0000 kappa=1.0000 sep=4.14 sols=5 occ=0.211 (2s)
+[635/672] SPY/1d axis=tail         w=250 K=2 arm=real agree=1.0000 kappa=1.0000 sep=3.13 sols=4 occ=0.476 (4s)
+[636/672] MSFT/1d axis=tail         w=250 K=2 arm=null agree=1.0000 kappa=1.0000 sep=3.03 sols=7 occ=0.381 (3s)
+[637/672] FXY/1d axis=tail         w=120 K=2 arm=real agree=1.0000 kappa=1.0000 sep=0.52 sols=5 occ=0.474 (3s)
+[638/672] FXY/1d axis=tail         w=250 K=2 arm=real agree=1.0000 kappa=1.0000 sep=2.98 sols=5 occ=0.364 (3s)
+[639/672] MSFT/1d axis=tail         w=250 K=2 arm=real agree=1.0000 kappa=1.0000 sep=2.90 sols=5 occ=0.349 (4s)
+[640/672] FXY/1d axis=tail         w=250 K=2 arm=null agree=0.9996 kappa=0.9991 sep=2.52 sols=5 occ=0.365 (3s)
+[641/672] TLT/1d axis=tail         w=120 K=3 arm=null agree=1.0000 kappa=1.0000 sep=2.42 sols=11 occ=0.162 (2s)
+[642/672] TLT/1d axis=volume_price w=60  K=3 arm=null agree=0.7890 kappa=0.6825 sep=1.41 sols=17 occ=0.257 (3s)
+[643/672] GLD/1d axis=tail         w=250 K=2 arm=real agree=1.0000 kappa=1.0000 sep=2.36 sols=3 occ=0.347 (6s)
+[644/672] SMH/1d axis=systematic   w=60  K=2 arm=null agree=1.0000 kappa=1.0000 sep=2.48 sols=4 occ=0.491 (2s)
+[645/672] SMH/1d axis=volume_price w=60  K=2 arm=null agree=1.0000 kappa=1.0000 sep=2.99 sols=3 occ=0.455 (2s)
+[646/672] FXY/1d axis=tail         w=120 K=2 arm=null agree=1.0000 kappa=1.0000 sep=2.53 sols=4 occ=0.446 (4s)
+[647/672] SMH/1d axis=systematic   w=60  K=2 arm=real agree=1.0000 kappa=1.0000 sep=3.04 sols=5 occ=0.418 (4s)
+[648/672] TLT/1d axis=systematic   w=60  K=3 arm=real agree=0.9996 kappa=0.9994 sep=2.31 sols=9 occ=0.313 (5s)
+[649/672] TLT/1d axis=volume_price w=60  K=3 arm=real agree=1.0000 kappa=1.0000 sep=2.88 sols=11 occ=0.267 (4s)
+[650/672] TLT/1d axis=tail         w=250 K=3 arm=null agree=0.9631 kappa=0.9435 sep=2.33 sols=14 occ=0.242 (2s)
+[651/672] TLT/1d axis=systematic   w=60  K=3 arm=null agree=0.9767 kappa=0.9633 sep=1.18 sols=7 occ=0.232 (5s)
+[652/672] SMH/1d axis=persistence  w=60  K=2 arm=real agree=1.0000 kappa=1.0000 sep=2.45 sols=6 occ=0.404 (3s)
+[653/672] TLT/1d axis=tail         w=250 K=3 arm=real agree=0.9433 kappa=0.9087 sep=1.63 sols=12 occ=0.230 (3s)
+[654/672] TLT/1d axis=tail         w=120 K=3 arm=real agree=0.6705 kappa=0.5119 sep=1.79 sols=16 occ=0.245 (5s)
+[655/672] SMH/1d axis=volume_price w=60  K=2 arm=real agree=1.0000 kappa=1.0000 sep=2.47 sols=6 occ=0.428 (3s)
+[656/672] TLT/1d axis=persistence  w=60  K=3 arm=real agree=1.0000 kappa=1.0000 sep=2.44 sols=12 occ=0.280 (6s)
+[657/672] TLT/1d axis=persistence  w=60  K=3 arm=null agree=0.9992 kappa=0.9988 sep=2.24 sols=9 occ=0.245 (5s)
+[658/672] SMH/1d axis=tail         w=250 K=2 arm=real agree=1.0000 kappa=1.0000 sep=2.99 sols=7 occ=0.339 (2s)
+[659/672] SMH/1d axis=tail         w=120 K=2 arm=null agree=1.0000 kappa=1.0000 sep=0.13 sols=3 occ=0.442 (3s)
+[660/672] SMH/1d axis=tail         w=120 K=2 arm=real agree=1.0000 kappa=1.0000 sep=2.87 sols=7 occ=0.468 (3s)
+[661/672] TLT/1d axis=volume_price w=60  K=2 arm=null agree=1.0000 kappa=1.0000 sep=2.35 sols=4 occ=0.384 (2s)
+[662/672] SMH/1d axis=tail         w=250 K=2 arm=null agree=1.0000 kappa=1.0000 sep=2.01 sols=8 occ=0.428 (3s)
+[663/672] TLT/1d axis=persistence  w=60  K=2 arm=real agree=1.0000 kappa=1.0000 sep=2.54 sols=4 occ=0.484 (2s)
+[664/672] SMH/1d axis=persistence  w=60  K=2 arm=null agree=1.0000 kappa=1.0000 sep=2.57 sols=5 occ=0.493 (4s)
+[665/672] TLT/1d axis=persistence  w=60  K=2 arm=null agree=0.9996 kappa=0.9992 sep=1.97 sols=4 occ=0.483 (2s)
+[666/672] TLT/1d axis=systematic   w=60  K=2 arm=real agree=1.0000 kappa=1.0000 sep=3.04 sols=7 occ=0.451 (2s)
+[667/672] TLT/1d axis=systematic   w=60  K=2 arm=null agree=1.0000 kappa=1.0000 sep=1.58 sols=2 occ=0.408 (2s)
+[668/672] TLT/1d axis=volume_price w=60  K=2 arm=real agree=1.0000 kappa=1.0000 sep=2.79 sols=4 occ=0.376 (2s)
+[669/672] TLT/1d axis=tail         w=250 K=2 arm=null agree=1.0000 kappa=1.0000 sep=3.43 sols=5 occ=0.359 (1s)
+[670/672] TLT/1d axis=tail         w=250 K=2 arm=real agree=1.0000 kappa=1.0000 sep=2.75 sols=7 occ=0.480 (1s)
+[671/672] TLT/1d axis=tail         w=120 K=2 arm=null agree=1.0000 kappa=1.0000 sep=0.28 sols=7 occ=0.460 (1s)
+[672/672] TLT/1d axis=tail         w=120 K=2 arm=real agree=1.0000 kappa=1.0000 sep=2.70 sols=5 occ=0.486 (2s)
+
+sweep done in 1122s (total 1132s)
+
+======================================================================================================================
+PER-AXIS x WINDOW x K SUMMARY at N=20 (min across cells + pass count)
+======================================================================================================================
+axis           win  K  pass/cells  min_agree  min_kappa  med_sep  min_sep max_sols   degen  worst_cell
+systematic      60  2    31/32        0.7935     0.5803     2.62     1.72        7   0/32   XLF/1d
+systematic      60  3    28/32        0.3660     0.0647     2.18     0.96       18   0/32   QQQ/1h
+persistence     60  2    34/34        0.9990     0.9980     2.51     2.35        6   0/34   XLK/1d
+persistence     60  3    34/34        0.9527     0.9281     2.33     1.79       17   0/34   XLF/1d
+tail           120  2    32/34        0.3746    -0.2549     2.40     0.11       11   0/34   IWM/1d
+tail           120  3    24/34        0.5335     0.2993     2.11     0.13       16   0/34   EEM/1d
+tail           250  2    31/34        0.4135    -0.2936     2.48     0.11        8   0/34   QQQ/1d
+tail           250  3    21/34        0.1905    -0.2046     2.24     0.16       18   0/34   FXY/1h
+volume_price    60  2    32/34        0.1196    -0.7586     2.76     2.47        6   0/34   QQQ/1h
+volume_price    60  3    27/34        0.0513    -0.4149     2.44     1.83       15   0/34   IWM/1d
+
+======================================================================================================================
+VERDICT PER AXIS (clean = clears BOTH identifiability bars on ALL cells AND is
+0-degenerate on production's own occupation gate AND has non-trivial separation)
+======================================================================================================================
+systematic   : NO CONFIG CLEAN -- best is window=60 K=2 at 31/32 identifiable, 0 degenerate (min_agree=0.7935, worst=XLF/1d)
+persistence  : CLEAN at window=60 K=2 (min_agree=0.9990 min_kappa=0.9980 min_sep=2.35)  also: w60/K3
+tail         : NO CONFIG CLEAN -- best is window=120 K=2 at 32/34 identifiable, 0 degenerate (min_agree=0.3746, worst=IWM/1d)
+volume_price : NO CONFIG CLEAN -- best is window=60 K=2 at 32/34 identifiable, 0 degenerate (min_agree=0.1196, worst=QQQ/1h)
+
+======================================================================================================================
+FAILURE / DEGENERACY BY REGIME GROUP (does the fx/commodity/rates/intl split the
+trend axis showed reappear here?  group from ic_engine._build_symbol_regime_class)
+======================================================================================================================
+axis           win  K      UNROUTED    commodity       equity           fx        rates
+systematic      60  2          0/10          0/2         1/16          0/2          0/2
+systematic      60  3          0/10          1/2         2/16          0/2          1/2
+persistence     60  2          0/10          0/2         0/18          0/2          0/2
+persistence     60  3          0/10          0/2         0/18          0/2          0/2
+tail           120  2          1/10          0/2         1/18          0/2          0/2
+tail           120  3          5/10          0/2         3/18          1/2          1/2
+tail           250  2          0/10          0/2         3/18          0/2          0/2
+tail           250  3          5/10          0/2         7/18          1/2          0/2
+volume_price    60  2          0/10          0/2         2/18          0/2          0/2
+volume_price    60  3          2/10          0/2         4/18          1/2          0/2
+
+======================================================================================================================
+PER-CELL MATRIX at N=20 (agreement / kappa; * = clears both bars; D = degenerate)
+======================================================================================================================
+
+-- axis: systematic  [idiosyncratic (low R^2) .. systematic (high R^2)]
+cell        group                 w60/K2           w60/K3
+AAPL/1d     UNROUTED     1.000/ 1.000*   0.964/ 0.946* 
+AMZN/1d     UNROUTED     1.000/ 1.000*   1.000/ 1.000* 
+DIA/1d      equity       1.000/ 1.000*   1.000/ 1.000* 
+EEM/1d      equity       1.000/ 1.000*   0.976/ 0.964* 
+FXY/1d      fx           1.000/ 1.000*   1.000/ 1.000* 
+GLD/1d      commodity    1.000/ 1.000*   1.000/ 1.000* 
+GOOGL/1d    UNROUTED     1.000/ 1.000*   0.999/ 0.999* 
+IWM/1d      equity       1.000/ 1.000*   1.000/ 1.000* 
+JPM/1d      UNROUTED     1.000/ 1.000*   0.978/ 0.967* 
+MSFT/1d     UNROUTED     1.000/ 1.000*   1.000/ 1.000* 
+QQQ/1d      equity       1.000/ 1.000*   1.000/ 1.000* 
+SMH/1d      equity       1.000/ 1.000*   0.395/ 0.089  
+SPY/1d      equity                     -                -
+TLT/1d      rates        1.000/ 1.000*   1.000/ 0.999* 
+XLE/1d      equity       1.000/ 1.000*   0.954/ 0.931* 
+XLF/1d      equity       0.793/ 0.580    0.998/ 0.997* 
+XLK/1d      equity       1.000/ 1.000*   1.000/ 1.000* 
+AAPL/1h     UNROUTED     1.000/ 0.999*   1.000/ 0.999* 
+AMZN/1h     UNROUTED     1.000/ 0.999*   1.000/ 1.000* 
+DIA/1h      equity       1.000/ 0.999*   1.000/ 0.999* 
+EEM/1h      equity       1.000/ 1.000*   1.000/ 1.000* 
+FXY/1h      fx           1.000/ 0.999*   1.000/ 1.000* 
+GLD/1h      commodity    1.000/ 1.000*   0.783/ 0.676  
+GOOGL/1h    UNROUTED     1.000/ 1.000*   1.000/ 1.000* 
+IWM/1h      equity       1.000/ 1.000*   1.000/ 1.000* 
+JPM/1h      UNROUTED     1.000/ 1.000*   0.997/ 0.996* 
+MSFT/1h     UNROUTED     1.000/ 1.000*   1.000/ 1.000* 
+QQQ/1h      equity       1.000/ 1.000*   0.366/ 0.065  
+SMH/1h      equity       1.000/ 1.000*   1.000/ 1.000* 
+SPY/1h      equity                     -                -
+TLT/1h      rates        1.000/ 1.000*   0.435/ 0.154  
+XLE/1h      equity       1.000/ 1.000*   0.999/ 0.999* 
+XLF/1h      equity       1.000/ 1.000*   0.912/ 0.865* 
+XLK/1h      equity       0.999/ 0.998*   0.999/ 0.999* 
+
+-- axis: persistence  [mean-reverting (VR<1) .. random walk (VR=1) .. trending (VR>1)]
+cell        group                 w60/K2           w60/K3
+AAPL/1d     UNROUTED     1.000/ 1.000*   0.999/ 0.999* 
+AMZN/1d     UNROUTED     0.999/ 0.999*   0.999/ 0.999* 
+DIA/1d      equity       1.000/ 0.999*   1.000/ 0.999* 
+EEM/1d      equity       1.000/ 1.000*   1.000/ 1.000* 
+FXY/1d      fx           1.000/ 1.000*   0.998/ 0.997* 
+GLD/1d      commodity    0.999/ 0.998*   1.000/ 1.000* 
+GOOGL/1d    UNROUTED     1.000/ 1.000*   1.000/ 1.000* 
+IWM/1d      equity       1.000/ 1.000*   0.999/ 0.999* 
+JPM/1d      UNROUTED     1.000/ 1.000*   1.000/ 0.999* 
+MSFT/1d     UNROUTED     1.000/ 1.000*   1.000/ 1.000* 
+QQQ/1d      equity       1.000/ 1.000*   1.000/ 0.999* 
+SMH/1d      equity       1.000/ 1.000*   1.000/ 1.000* 
+SPY/1d      equity       1.000/ 1.000*   0.998/ 0.998* 
+TLT/1d      rates        1.000/ 1.000*   1.000/ 1.000* 
+XLE/1d      equity       1.000/ 1.000*   1.000/ 1.000* 
+XLF/1d      equity       1.000/ 1.000*   0.953/ 0.928* 
+XLK/1d      equity       0.999/ 0.998*   1.000/ 1.000* 
+AAPL/1h     UNROUTED     1.000/ 1.000*   0.999/ 0.998* 
+AMZN/1h     UNROUTED     1.000/ 1.000*   1.000/ 1.000* 
+DIA/1h      equity       1.000/ 1.000*   0.999/ 0.999* 
+EEM/1h      equity       1.000/ 1.000*   0.999/ 0.999* 
+FXY/1h      fx           1.000/ 0.999*   1.000/ 1.000* 
+GLD/1h      commodity    1.000/ 1.000*   0.999/ 0.999* 
+GOOGL/1h    UNROUTED     1.000/ 1.000*   0.999/ 0.999* 
+IWM/1h      equity       0.999/ 0.999*   1.000/ 0.999* 
+JPM/1h      UNROUTED     1.000/ 1.000*   1.000/ 1.000* 
+MSFT/1h     UNROUTED     1.000/ 1.000*   0.999/ 0.998* 
+QQQ/1h      equity       1.000/ 0.999*   1.000/ 1.000* 
+SMH/1h      equity       1.000/ 1.000*   1.000/ 1.000* 
+SPY/1h      equity       1.000/ 1.000*   1.000/ 1.000* 
+TLT/1h      rates        1.000/ 1.000*   0.998/ 0.998* 
+XLE/1h      equity       1.000/ 1.000*   1.000/ 0.999* 
+XLF/1h      equity       1.000/ 1.000*   0.999/ 0.999* 
+XLK/1h      equity       1.000/ 1.000*   0.999/ 0.999* 
+
+-- axis: tail  [left-skewed/crash-prone .. symmetric .. right-skewed]
+cell        group                w120/K2          w120/K3          w250/K2          w250/K3
+AAPL/1d     UNROUTED     1.000/ 1.000*   0.976/ 0.964*   1.000/ 1.000*   0.593/ 0.389  
+AMZN/1d     UNROUTED     1.000/ 1.000*   0.814/ 0.717    1.000/ 1.000*   0.296/-0.060  
+DIA/1d      equity       1.000/ 1.000*   1.000/ 1.000*   1.000/ 1.000*   0.898/ 0.843  
+EEM/1d      equity       0.997/ 0.994*   0.533/ 0.299    1.000/ 1.000*   0.950/ 0.922* 
+FXY/1d      fx           1.000/ 1.000*   0.897/ 0.840    1.000/ 1.000*   0.989/ 0.983* 
+GLD/1d      commodity    1.000/ 1.000*   1.000/ 1.000*   1.000/ 1.000*   0.960/ 0.939* 
+GOOGL/1d    UNROUTED     0.662/ 0.295    0.829/ 0.740    1.000/ 1.000*   1.000/ 1.000* 
+IWM/1d      equity       0.375/-0.255    1.000/ 1.000*   1.000/ 1.000*   0.896/ 0.844  
+JPM/1d      UNROUTED     1.000/ 1.000*   0.873/ 0.810    1.000/ 1.000*   0.999/ 0.999* 
+MSFT/1d     UNROUTED     1.000/ 1.000*   1.000/ 1.000*   1.000/ 1.000*   0.956/ 0.933* 
+QQQ/1d      equity       1.000/ 1.000*   0.984/ 0.976*   0.413/-0.294    1.000/ 1.000* 
+SMH/1d      equity       1.000/ 1.000*   0.765/ 0.640    1.000/ 1.000*   0.768/ 0.652  
+SPY/1d      equity       1.000/ 1.000*   1.000/ 1.000*   1.000/ 1.000*   0.195/-0.205  
+TLT/1d      rates        1.000/ 1.000*   0.671/ 0.512    1.000/ 1.000*   0.943/ 0.909* 
+XLE/1d      equity       0.999/ 0.999*   1.000/ 1.000*   0.448/-0.085    0.695/ 0.538  
+XLF/1d      equity       1.000/ 1.000*   0.997/ 0.996*   0.951/ 0.902*   0.920/ 0.875* 
+XLK/1d      equity       1.000/ 1.000*   1.000/ 1.000*   1.000/ 1.000*   1.000/ 1.000* 
+AAPL/1h     UNROUTED     1.000/ 1.000*   0.999/ 0.999*   1.000/ 1.000*   0.694/ 0.541  
+AMZN/1h     UNROUTED     1.000/ 1.000*   1.000/ 1.000*   1.000/ 1.000*   1.000/ 1.000* 
+DIA/1h      equity       1.000/ 1.000*   1.000/ 1.000*   1.000/ 1.000*   1.000/ 1.000* 
+EEM/1h      equity       1.000/ 1.000*   1.000/ 1.000*   0.999/ 0.998*   0.934/ 0.902* 
+FXY/1h      fx           1.000/ 1.000*   0.999/ 0.998*   1.000/ 1.000*   0.190/-0.173  
+GLD/1h      commodity    1.000/ 1.000*   0.999/ 0.999*   1.000/ 1.000*   1.000/ 1.000* 
+GOOGL/1h    UNROUTED     1.000/ 1.000*   0.622/ 0.423    1.000/ 1.000*   0.639/ 0.458  
+IWM/1h      equity       1.000/ 1.000*   1.000/ 1.000*   0.999/ 0.998*   1.000/ 1.000* 
+JPM/1h      UNROUTED     0.999/ 0.999*   1.000/ 1.000*   1.000/ 1.000*   0.641/ 0.453  
+MSFT/1h     UNROUTED     1.000/ 1.000*   0.609/ 0.395    1.000/ 1.000*   1.000/ 1.000* 
+QQQ/1h      equity       1.000/ 1.000*   1.000/ 1.000*   1.000/ 1.000*   0.998/ 0.997* 
+SMH/1h      equity       1.000/ 1.000*   0.813/ 0.719    0.773/ 0.546    0.833/ 0.747  
+SPY/1h      equity       1.000/ 0.999*   1.000/ 1.000*   1.000/ 1.000*   0.659/ 0.488  
+TLT/1h      rates        1.000/ 1.000*   1.000/ 1.000*   1.000/ 1.000*   1.000/ 1.000* 
+XLE/1h      equity       1.000/ 0.999*   1.000/ 1.000*   0.976/ 0.953*   1.000/ 1.000* 
+XLF/1h      equity       1.000/ 0.999*   0.999/ 0.999*   1.000/ 1.000*   1.000/ 1.000* 
+XLK/1h      equity       0.966/ 0.932*   1.000/ 1.000*   0.999/ 0.999*   1.000/ 1.000* 
+
+-- axis: volume_price  [divergent (low corr) .. confirming (high corr)]
+cell        group                 w60/K2           w60/K3
+AAPL/1d     UNROUTED     1.000/ 1.000*   0.610/ 0.412  
+AMZN/1d     UNROUTED     1.000/ 1.000*   1.000/ 1.000* 
+DIA/1d      equity       1.000/ 1.000*   1.000/ 1.000* 
+EEM/1d      equity       1.000/ 1.000*   1.000/ 1.000* 
+FXY/1d      fx           1.000/ 1.000*   0.232/-0.144  
+GLD/1d      commodity    1.000/ 1.000*   1.000/ 1.000* 
+GOOGL/1d    UNROUTED     1.000/ 1.000*   0.801/ 0.700  
+IWM/1d      equity       1.000/ 1.000*   0.051/-0.415  
+JPM/1d      UNROUTED     1.000/ 1.000*   0.940/ 0.909* 
+MSFT/1d     UNROUTED     1.000/ 1.000*   1.000/ 1.000* 
+QQQ/1d      equity       1.000/ 1.000*   0.999/ 0.999* 
+SMH/1d      equity       1.000/ 1.000*   1.000/ 1.000* 
+SPY/1d      equity       1.000/ 1.000*   0.611/ 0.412  
+TLT/1d      rates        1.000/ 1.000*   1.000/ 1.000* 
+XLE/1d      equity       0.967/ 0.934*   1.000/ 0.999* 
+XLF/1d      equity       1.000/ 1.000*   0.192/-0.178  
+XLK/1d      equity       1.000/ 1.000*   0.912/ 0.868* 
+AAPL/1h     UNROUTED     1.000/ 1.000*   1.000/ 1.000* 
+AMZN/1h     UNROUTED     1.000/ 1.000*   0.949/ 0.924* 
+DIA/1h      equity       1.000/ 0.999*   1.000/ 1.000* 
+EEM/1h      equity       1.000/ 1.000*   1.000/ 1.000* 
+FXY/1h      fx           1.000/ 1.000*   0.957/ 0.936* 
+GLD/1h      commodity    1.000/ 1.000*   1.000/ 1.000* 
+GOOGL/1h    UNROUTED     1.000/ 1.000*   0.999/ 0.999* 
+IWM/1h      equity       1.000/ 1.000*   1.000/ 1.000* 
+JPM/1h      UNROUTED     1.000/ 0.999*   0.998/ 0.996* 
+MSFT/1h     UNROUTED     1.000/ 1.000*   0.999/ 0.999* 
+QQQ/1h      equity       0.120/-0.759    0.998/ 0.997* 
+SMH/1h      equity       0.999/ 0.998*   0.192/-0.205  
+SPY/1h      equity       1.000/ 1.000*   0.904/ 0.856* 
+TLT/1h      rates        1.000/ 1.000*   1.000/ 1.000* 
+XLE/1h      equity       1.000/ 1.000*   0.999/ 0.998* 
+XLF/1h      equity       0.186/-0.629    1.000/ 1.000* 
+XLK/1h      equity       0.999/ 0.999*   1.000/ 1.000* 
+
+======================================================================================================================
+MECHANISM at N=20: is a failure near-tied optima, or something else?
+(near-tied signature = many distinct solutions AND a tiny relative ll spread)
+======================================================================================================================
+axis           win  K  med_sols  max_sols  med_ll_spread  med_sep  min_occ
+systematic      60  2       3.5         7       0.325483     2.62    0.324
+systematic      60  3      10.0        18       0.293007     2.18    0.195
+persistence     60  2       3.0         6       0.219722     2.51    0.389
+persistence     60  3       8.0        17       0.184844     2.33    0.212
+tail           120  2       4.0        11       0.294858     2.40    0.284
+tail           120  3      12.0        16       0.380604     2.11    0.169
+tail           250  2       4.0         8       0.341677     2.48    0.211
+tail           250  3      12.0        18       0.504631     2.24    0.174
+volume_price    60  2       3.0         6       0.236017     2.76    0.363
+volume_price    60  3      11.0        15       0.418140     2.44    0.209
+
+======================================================================================================================
+NULL-ARM CONTROL: the SAME configuration fit on IID-permuted series (no regime
+exists by construction). A null arm that passes as cleanly as the real arm proves
+the agreement/kappa/separation/occupation gates do not discriminate for that axis.
+======================================================================================================================
+axis           win  K  real pass  NULL pass  real min_agree  NULL min_agree  real med_sep  NULL med_sep
+systematic      60  2      31/32      32/32          0.7935          0.9966          2.62          2.51
+systematic      60  3      28/32      21/32          0.3660          0.4247          2.18          2.33
+persistence     60  2      34/34      34/34          0.9990          0.9925          2.51          2.45
+persistence     60  3      34/34      32/34          0.9527          0.7205          2.33          2.31
+tail           120  2      32/34      33/34          0.3746          0.2640          2.40          0.33
+tail           120  3      24/34      26/34          0.5335          0.2700          2.11          2.29
+tail           250  2      31/34      32/34          0.4135          0.6579          2.48          1.10
+tail           250  3      21/34      23/34          0.1905          0.1521          2.24          2.13
+volume_price    60  2      32/34      29/34          0.1196          0.2280          2.76          2.65
+volume_price    60  3      27/34      18/34          0.0513          0.1019          2.44          2.36
+
+======================================================================================================================
+DISCRIMINATING SUMMARY. An axis earns a REAL verdict only if it (a) identifies on
+every cell, (b) is clean on production's occupation gate, and (c) has a median
+block_reliability above the signal floor -- (a)+(b) alone are satisfied by a threshold
+split of pure noise, as the null-arm column demonstrates. 'gate informative' records
+whether the identifiability gate separated the real arm from the null arm AT ALL; it
+is evidence about the INSTRUMENT, not a term in the axis's verdict.
+signal floor = 0.1 [initial_estimate, uncalibrated -- see doc]
+======================================================================================================================
+axis           win  K  identifies  occupation   null arm  gate informative  med reliability    VERDICT
+systematic      60  2       31/32       clean      32/32                NO            0.281   NOT REAL
+systematic      60  3       28/32       clean      21/32               yes            0.281   NOT REAL
+persistence     60  2         yes       clean      34/34                NO           -0.006   NOT REAL
+persistence     60  3         yes       clean      32/34               yes           -0.006   NOT REAL
+tail           120  2       32/34       clean      33/34                NO           -0.002   NOT REAL
+tail           120  3       24/34       clean      26/34                NO           -0.002   NOT REAL
+tail           250  2       31/34       clean      32/34                NO            0.033   NOT REAL
+tail           250  3       21/34       clean      23/34                NO            0.033   NOT REAL
+volume_price    60  2       32/34       clean      29/34               yes            0.171   NOT REAL
+volume_price    60  3       27/34       clean      18/34               yes            0.171   NOT REAL
+======================================================================================================================
+
+Results written to .planning/phases/171-hmm-walk-forward-regime-labeling-parameter-lookahead-fix/171-candidate-regime-axes/sweep-candidate-axes.json
