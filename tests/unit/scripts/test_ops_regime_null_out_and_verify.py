@@ -10,6 +10,7 @@ multiple distinct queries in sequence, not one).
 from __future__ import annotations
 
 import json
+from datetime import UTC, datetime
 
 import pytest
 
@@ -17,10 +18,14 @@ from scripts.ops.corpus.ops_regime_null_out_and_verify import (
     _NULL_OUT_SQL,
     _STATUS_FAILED,
     _STATUS_VERIFIED_NULL,
+    _WALK_FORWARD_DEFAULT_PARAMS,
     REGIME_WRITER_OWNED_COLUMN_NAMES,
+    _load_initial_warmup_bars,
     _manifest_key,
     _parse_args,
     _run_null_out,
+    _run_verify_post_null,
+    _run_verify_post_relabel,
 )
 
 _MODULE = "scripts.ops.corpus.ops_regime_null_out_and_verify"
@@ -199,3 +204,97 @@ class TestNullOutFailedCellContinues:
         manifest = json.loads(manifest_path.read_text())
         assert manifest[_manifest_key("SPY", "1h")]["status"] == _STATUS_FAILED
         assert manifest[_manifest_key("QQQ", "1h")]["status"] == _STATUS_VERIFIED_NULL
+
+
+# ---------------------------------------------------------------------------
+# Task 2 -- verify-post-null / verify-post-relabel modes
+# ---------------------------------------------------------------------------
+
+
+class TestVerifyPostNull:
+    def test_issues_zero_update_calls(self):
+        conn = _ScriptedConn([{"fetchone": (0,)}])
+        n_failed = _run_verify_post_null(conn, ["SPY"], ["1h"])
+        assert n_failed == 0
+        assert _update_calls(conn) == []
+
+
+class TestVerifyPostRelabel:
+    def test_passes_when_rows_before_first_label_meets_warmup_floor(
+        self, tmp_path, monkeypatch, capsys
+    ):
+        monkeypatch.setattr(f"{_MODULE}._PROVENANCE_REPORT_PATH", tmp_path / "report.json")
+        first_ts = datetime(2020, 1, 1, tzinfo=UTC)
+        conn = _ScriptedConn(
+            [
+                {"fetchone": (100,)},  # initial_warmup_bars from config_state
+                {"fetchone": (500, first_ts)},  # labeled_rows, first_labeled_bar_ts
+                {"fetchone": (150,)},  # rows_before_first_label >= 100
+            ]
+        )
+
+        n_failed = _run_verify_post_relabel(conn, ["SPY"], ["1h"])
+
+        assert n_failed == 0
+        assert _update_calls(conn) == []
+        out = capsys.readouterr().out
+        assert "REQ-3 PROVENANCE: PASS" in out
+        report = json.loads((tmp_path / "report.json").read_text())
+        assert report[0]["verdict"] == "pass"
+
+    def test_fails_when_rows_before_first_label_is_one_short(self, tmp_path, monkeypatch):
+        monkeypatch.setattr(f"{_MODULE}._PROVENANCE_REPORT_PATH", tmp_path / "report.json")
+        first_ts = datetime(2020, 1, 1, tzinfo=UTC)
+        conn = _ScriptedConn(
+            [
+                {"fetchone": (100,)},
+                {"fetchone": (500, first_ts)},
+                {"fetchone": (99,)},  # one short of 100
+            ]
+        )
+
+        n_failed = _run_verify_post_relabel(conn, ["SPY"], ["1h"])
+
+        assert n_failed == 1
+        report = json.loads((tmp_path / "report.json").read_text())
+        assert report[0]["verdict"] == "fail"
+
+    def test_zero_labeled_rows_yields_no_labels_and_does_not_fail(self, tmp_path, monkeypatch):
+        monkeypatch.setattr(f"{_MODULE}._PROVENANCE_REPORT_PATH", tmp_path / "report.json")
+        conn = _ScriptedConn(
+            [
+                {"fetchone": (100,)},
+                {"fetchone": (0, None)},  # zero labeled rows
+            ]
+        )
+
+        n_failed = _run_verify_post_relabel(conn, ["SPY"], ["1h"])
+
+        assert n_failed == 0
+        assert len(conn.calls) == 2  # no third (rows-before) query issued
+        report = json.loads((tmp_path / "report.json").read_text())
+        assert report[0]["verdict"] == "no_labels"
+
+    def test_issues_zero_update_calls(self, tmp_path, monkeypatch):
+        monkeypatch.setattr(f"{_MODULE}._PROVENANCE_REPORT_PATH", tmp_path / "report.json")
+        conn = _ScriptedConn([{"fetchone": (100,)}, {"fetchone": (0, None)}])
+        _run_verify_post_relabel(conn, ["SPY"], ["1h"])
+        assert _update_calls(conn) == []
+
+
+class TestLoadInitialWarmupBars:
+    def test_reads_from_config_state_row_not_module_constant_when_present(self):
+        mocked_value = 999
+        assert mocked_value != _WALK_FORWARD_DEFAULT_PARAMS["1h"][1]
+        conn = _ScriptedConn([{"fetchone": (mocked_value,)}])
+
+        result = _load_initial_warmup_bars(conn, "1h")
+
+        assert result == mocked_value
+
+    def test_falls_back_to_module_constant_when_key_missing(self):
+        conn = _ScriptedConn([{"fetchone": None}])
+
+        result = _load_initial_warmup_bars(conn, "1h")
+
+        assert result == _WALK_FORWARD_DEFAULT_PARAMS["1h"][1]

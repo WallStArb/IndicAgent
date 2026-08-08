@@ -16,12 +16,12 @@ Three modes, one checked-in command:
 
   --mode null-out             NULL out the regime-writer-owned columns for an explicit (symbol,
                                tf) scope, one cell at a time, proving its own post-condition
-                               (zero non-NULL owned columns remain) before advancing. (This task.)
-  --mode verify-post-null     Re-run that same post-condition check without issuing any UPDATE.
-                               (Task 2.)
+                               (zero non-NULL owned columns remain) before advancing.
+  --mode verify-post-null     Re-run that same post-condition check without issuing any UPDATE --
+                               a read-only sanity re-check.
   --mode verify-post-relabel  After a walk-forward relabel pass, prove the warmup prefix is
-                               genuinely unlabeled and write a machine-readable provenance
-                               report. (Task 2.)
+                               genuinely unlabeled (no stale pre-fix value survived) and write a
+                               machine-readable provenance report.
 
 Safety, matching this project's write-path discipline (CLAUDE.md's worker-pool rule, DAG
 Invariant 3): a single serial psycopg connection in the main process, never a worker pool. Never
@@ -32,6 +32,10 @@ exactly the population this script exists to touch.
 Usage:
     python scripts/ops/corpus/ops_regime_null_out_and_verify.py --symbols SPY QQQ --tf 1h 1d
     python scripts/ops/corpus/ops_regime_null_out_and_verify.py --symbols SPY --tf 1d --dry-run
+    python scripts/ops/corpus/ops_regime_null_out_and_verify.py --symbols SPY --tf 1d \
+        --mode verify-post-null
+    python scripts/ops/corpus/ops_regime_null_out_and_verify.py --symbols SPY --tf 1d \
+        --mode verify-post-relabel
 """
 
 from __future__ import annotations
@@ -40,6 +44,7 @@ import argparse
 import json
 import sys
 import time
+from datetime import datetime
 from pathlib import Path
 from typing import Any
 
@@ -48,6 +53,7 @@ sys.path.insert(0, str(Path(__file__).parent.parent.parent.parent))
 import psycopg
 import structlog
 
+from services.regime_writer import _WALK_FORWARD_DEFAULT_PARAMS
 from src.config.settings import Settings
 from src.core.service_utils import setup_service_logging
 from src.intelligence.features.feature_vector_persistence import (
@@ -63,6 +69,7 @@ _JOB = "regime-null-out-and-verify"
 
 _DEFAULT_TFS: tuple[str, ...] = ("5m", "15m", "1h", "1d")
 _DEFAULT_MANIFEST_PATH = "cache/regime_null_out_manifest.json"
+_PROVENANCE_REPORT_PATH = Path("cache/regime_relabel_provenance_report.json")
 
 _MODE_NULL_OUT = "null-out"
 _MODE_VERIFY_POST_NULL = "verify-post-null"
@@ -89,6 +96,18 @@ _ANY_OWNED_NONNULL_SQL = (
 _PRE_NULL_LABELED_SQL = (
     "SELECT count(*) FROM feature_vectors WHERE symbol = %s AND tf = %s AND regime IS NOT NULL"
 )
+
+_LABELED_COUNT_AND_MIN_TS_SQL = (
+    "SELECT count(*) FILTER (WHERE regime IS NOT NULL), "
+    "min(bar_ts) FILTER (WHERE regime IS NOT NULL) "
+    "FROM feature_vectors WHERE symbol = %s AND tf = %s"
+)
+
+_ROWS_BEFORE_TS_SQL = (
+    "SELECT count(*) FROM feature_vectors WHERE symbol = %s AND tf = %s AND bar_ts < %s"
+)
+
+_CONFIG_VALUE_SQL = "SELECT config_value FROM config_state WHERE config_key = %s"
 
 _CHUNK_COMPRESSION_SQL = (
     "SELECT count(*) FILTER (WHERE is_compressed), count(*) "
@@ -256,6 +275,153 @@ def _run_null_out(
     return n_failed
 
 
+def _run_verify_post_null(conn: Any, symbols: list[str], tfs: list[str]) -> int:
+    n_failed = 0
+    for symbol in symbols:
+        for tf in tfs:
+            remaining_nonnull = _count_any_owned_nonnull(conn, symbol, tf)
+            passed = remaining_nonnull == 0
+            if not passed:
+                n_failed += 1
+            _logger.info(
+                "regime_null_out.verify_post_null_cell",
+                symbol=symbol,
+                tf=tf,
+                remaining_nonnull=remaining_nonnull,
+                passed=passed,
+            )
+    _logger.info(
+        "regime_null_out.run_complete",
+        mode=_MODE_VERIFY_POST_NULL,
+        n_cells=len(symbols) * len(tfs),
+        n_failed=n_failed,
+    )
+    return n_failed
+
+
+def _load_initial_warmup_bars(conn: Any, tf: str) -> int:
+    """Read alpha.hmm.walk_forward.initial_warmup_bars.<tf> straight from config_state --
+    this is a read-only ops script, so a plain SELECT is sufficient and avoids pulling the
+    async ConfigService into a synchronous script. Falls back to the module default, logging
+    loudly, only when the key is genuinely missing."""
+    key = f"alpha.hmm.walk_forward.initial_warmup_bars.{tf}"
+    with conn.cursor() as cur:
+        cur.execute(_CONFIG_VALUE_SQL, (key,))
+        row = cur.fetchone()
+    if row is None or row[0] is None:
+        fallback = _WALK_FORWARD_DEFAULT_PARAMS[tf][1]
+        _logger.warning(
+            "regime_null_out.warmup_bars_apr_fallback",
+            tf=tf,
+            config_key=key,
+            fallback=fallback,
+        )
+        return fallback
+    return int(row[0])
+
+
+def _labeled_count_and_min_ts(conn: Any, symbol: str, tf: str) -> tuple[int, datetime | None]:
+    with conn.cursor() as cur:
+        cur.execute(_LABELED_COUNT_AND_MIN_TS_SQL, (symbol, tf))
+        labeled_rows, first_labeled_bar_ts = cur.fetchone()
+    return int(labeled_rows), first_labeled_bar_ts
+
+
+def _rows_before_ts(conn: Any, symbol: str, tf: str, ts: datetime) -> int:
+    with conn.cursor() as cur:
+        cur.execute(_ROWS_BEFORE_TS_SQL, (symbol, tf, ts))
+        (count,) = cur.fetchone()
+    return int(count)
+
+
+def _run_verify_post_relabel(conn: Any, symbols: list[str], tfs: list[str]) -> int:
+    """Prove, per cell, that the warmup prefix (however many bars precede the first labeled
+    bar) is at least that tf's initial_warmup_bars -- a smaller count means either the
+    NULL-out did not cover the cell or a stale full-history-fit value survived in the
+    prefix. Pure SQL against (symbol, tf, bar_ts); needs no obs-matrix rebuild, so it cannot
+    drift from the labeling code's own feature-window logic."""
+    n_failed = 0
+    records: list[dict[str, Any]] = []
+
+    for symbol in symbols:
+        for tf in tfs:
+            initial_warmup_bars = _load_initial_warmup_bars(conn, tf)
+            labeled_rows, first_labeled_bar_ts = _labeled_count_and_min_ts(conn, symbol, tf)
+
+            if labeled_rows == 0:
+                records.append(
+                    {
+                        "symbol": symbol,
+                        "tf": tf,
+                        "labeled_rows": 0,
+                        "first_labeled_bar_ts": None,
+                        "rows_before_first_label": None,
+                        "initial_warmup_bars": initial_warmup_bars,
+                        "verdict": "no_labels",
+                    }
+                )
+                _logger.info("regime_null_out.verify_post_relabel_no_labels", symbol=symbol, tf=tf)
+                continue
+
+            rows_before_first_label = _rows_before_ts(conn, symbol, tf, first_labeled_bar_ts)
+            verdict = "pass" if rows_before_first_label >= initial_warmup_bars else "fail"
+            if verdict == "fail":
+                n_failed += 1
+
+            records.append(
+                {
+                    "symbol": symbol,
+                    "tf": tf,
+                    "labeled_rows": labeled_rows,
+                    "first_labeled_bar_ts": (
+                        first_labeled_bar_ts.isoformat()
+                        if hasattr(first_labeled_bar_ts, "isoformat")
+                        else first_labeled_bar_ts
+                    ),
+                    "rows_before_first_label": rows_before_first_label,
+                    "initial_warmup_bars": initial_warmup_bars,
+                    "verdict": verdict,
+                }
+            )
+            _logger.info(
+                "regime_null_out.verify_post_relabel_cell",
+                symbol=symbol,
+                tf=tf,
+                labeled_rows=labeled_rows,
+                rows_before_first_label=rows_before_first_label,
+                initial_warmup_bars=initial_warmup_bars,
+                verdict=verdict,
+            )
+
+    _write_provenance_report(records, _PROVENANCE_REPORT_PATH)
+    _print_provenance_banner(records, n_failed)
+
+    _logger.info(
+        "regime_null_out.run_complete",
+        mode=_MODE_VERIFY_POST_RELABEL,
+        n_cells=len(symbols) * len(tfs),
+        n_failed=n_failed,
+    )
+    return n_failed
+
+
+def _write_provenance_report(records: list[dict[str, Any]], path: Path) -> None:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    tmp = path.with_suffix(".tmp")
+    tmp.write_text(json.dumps(records, indent=2, sort_keys=True))
+    tmp.rename(path)
+
+
+def _print_provenance_banner(records: list[dict[str, Any]], n_failed: int) -> None:
+    print("=" * 80)  # noqa: T201
+    if n_failed == 0:
+        print("REQ-3 PROVENANCE: PASS")  # noqa: T201
+    else:
+        failing = [f"{r['symbol']}/{r['tf']}" for r in records if r["verdict"] == "fail"]
+        print(f"REQ-3 PROVENANCE: FAIL -- failing cells: {', '.join(failing)}")  # noqa: T201
+    print("=" * 80)  # noqa: T201
+
+
 def _parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     parser = argparse.ArgumentParser(
         description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter
@@ -321,9 +487,10 @@ def main() -> None:
     try:
         if args.mode == _MODE_NULL_OUT:
             n_failed = _run_null_out(conn, args.symbols, args.tf, Path(args.manifest), args.dry_run)
-        elif args.mode in (_MODE_VERIFY_POST_NULL, _MODE_VERIFY_POST_RELABEL):
-            # Task 2's work -- lands in the same argparse surface, same file, next commit.
-            raise NotImplementedError(f"--mode {args.mode} lands in Plan 03 Task 2")
+        elif args.mode == _MODE_VERIFY_POST_NULL:
+            n_failed = _run_verify_post_null(conn, args.symbols, args.tf)
+        elif args.mode == _MODE_VERIFY_POST_RELABEL:
+            n_failed = _run_verify_post_relabel(conn, args.symbols, args.tf)
     except Exception as error:
         status = "failure"
         _logger.error("regime_null_out.fatal_error", error=str(error))
