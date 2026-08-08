@@ -1198,6 +1198,55 @@ def test_walk_forward_hmm_full_flags_degenerate_short_final_segment():
     )
 
 
+def test_walk_forward_hmm_full_logs_convergence_iters_per_segment():
+    """_walk_forward_hmm_full must log one regime_writer.walk_forward_hmm_convergence_iters
+    event PER REFIT SEGMENT (not one per cell) -- todo 226's cap-headroom analysis only
+    covers the walk-forward path if this instrumentation exists there too. The event name
+    is deliberately distinct from the single-fit path's regime_writer.hmm_convergence_iters
+    so downstream analysis can tell which code path produced a given record."""
+    from structlog.testing import capture_logs
+
+    from services.regime_writer import _walk_forward_hmm_full
+
+    n = 900
+    closes = _make_ranging_closes(n)
+    volumes = _make_volumes(n)
+    timestamps = _make_timestamps(n)
+    obs, _ = _build_obs_matrix(
+        timestamps, closes, volumes, vol_window=20, momentum_window=20, vol_of_vol_window=20
+    )
+
+    with capture_logs() as cap_logs:
+        segments = _walk_forward_hmm_full(
+            obs,
+            n_components=3,
+            covariance_type="diag",
+            n_iter=50,
+            hmm_random_state=_HMM_RANDOM_STATE,
+            refit_every_bars=200,
+            initial_warmup_bars=300,
+            min_hold_bars=3,
+            full_cov_min_obs=0,
+            min_state_occupation=0.0,
+            symbol="SPY",
+            tf="1h",
+        )
+
+    assert len(segments) >= 3, "test needs multiple segments to be meaningful"
+
+    events = [
+        e for e in cap_logs if e["event"] == "regime_writer.walk_forward_hmm_convergence_iters"
+    ]
+    assert len(events) == len(segments)
+    for event in events:
+        assert event["symbol"] == "SPY"
+        assert event["tf"] == "1h"
+        assert isinstance(event["iters_used"], int)
+        assert isinstance(event["n_iter_cap"], int)
+        assert isinstance(event["seg_start"], int)
+        assert isinstance(event["seg_end"], int)
+
+
 def test_compute_symbol_tf_walk_forward_returns_tuple_structure():
     """Same (update_rows, converged, heldout_ll) contract as _compute_symbol_tf, so
     _run_symbol_worker's caller can branch on which function ran without caring."""

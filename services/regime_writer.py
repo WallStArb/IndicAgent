@@ -664,6 +664,8 @@ def _walk_forward_hmm_full(
     min_hold_bars: int,
     full_cov_min_obs: int,
     min_state_occupation: float,
+    symbol: str | None = None,
+    tf: str | None = None,
 ) -> list[dict[str, Any]]:
     """Production-parity walk-forward decode (todo 248): per-segment version of
     `_walk_forward_hmm_labels` that additionally returns the per-bar alpha vectors,
@@ -687,6 +689,12 @@ def _walk_forward_hmm_full(
     single full-series fit (doubled n_iter, one retry) -- omitting it here would make
     every genuinely-recoverable segment more likely to trip the degenerate gate below
     purely from under-iterating, not from an actual bad fit.
+
+    `symbol`/`tf` are log-correlation context ONLY -- never used in compute. They are
+    threaded through purely so each segment's `regime_writer.walk_forward_hmm_convergence_iters`
+    log record (todo 226) is attributable to a (symbol, tf) cell, matching the single-fit
+    path's `regime_writer.hmm_convergence_iters` log shape. Defaults to None so existing
+    keyword-arg call sites that omit them keep passing unchanged.
 
     Returns one dict per refit segment (NOT one dict per bar), each:
         {
@@ -753,6 +761,19 @@ def _walk_forward_hmm_full(
                 model = retry_model
                 converged = True
 
+        seg_end = min(boundary + refit_every_bars, n)
+        _logger.info(
+            "regime_writer.walk_forward_hmm_convergence_iters",
+            symbol=symbol,
+            tf=tf,
+            iters_used=int(model.monitor_.iter),
+            n_iter_cap=int(model.monitor_.n_iter),
+            converged=converged,
+            seg_start=boundary,
+            seg_end=seg_end,
+            train_end=boundary,
+        )
+
         label_map = _build_label_map(model.means_)
 
         stationary_prior = _stationary_distribution(model.transmat_)
@@ -761,7 +782,6 @@ def _walk_forward_hmm_full(
         else:
             pi0 = _seed_prior_from_label(label_map, prior_label, n_components, stationary_prior)
 
-        seg_end = min(boundary + refit_every_bars, n)
         seg_scaled = scaler.transform(obs_matrix[boundary:seg_end])
         log_emit = _compute_log_emit(seg_scaled, model.means_, model.covars_, eff_cov_type)
         log_A = np.log(np.maximum(model.transmat_, 1e-300))
@@ -886,6 +906,8 @@ def _compute_symbol_tf_walk_forward(
             min_hold_bars,
             full_cov_min_obs,
             min_state_occupation,
+            symbol=symbol,
+            tf=tf,
         )
     except ValueError:
         # Same "insufficient history" condition _walk_forward_hmm_full raises for
