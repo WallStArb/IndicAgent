@@ -1,0 +1,261 @@
+====================================================================================================
+HMM regime-AXIS decomposition identifiability sweep
+====================================================================================================
+  axis trend       cols=(0, 2) K=[2, 3] cov=['full', 'diag']  [trending_down .. trending_up (log_return rank)]
+n_values=[5, 10, 20] max_n=20  standardize=True (production parity)
+n_iter=200 full_cov_min_obs=500 min_hold_bars=3 min_state_occupation=0.05
+pool_a_base=42 pool_b_base=1000
+bars: agreement>=0.9 AND kappa>=0.8 (both required)
+====================================================================================================
+loaded SPY/1d: n_obs=5027
+loaded IWM/1d: n_obs=5031
+loaded TLT/1d: n_obs=2613
+loaded GLD/1d: n_obs=5030
+loaded XLE/1d: n_obs=5031
+loaded EEM/1d: n_obs=5032
+loaded FXY/1d: n_obs=4872
+loaded SMH/1d: n_obs=3647
+loaded AAPL/1d: n_obs=5104
+loaded MSFT/1d: n_obs=5006
+loaded GOOGL/1d: n_obs=5006
+loaded AMZN/1d: n_obs=5006
+loaded JPM/1d: n_obs=5094
+loaded QQQ/1d: n_obs=5033
+loaded DIA/1d: n_obs=5030
+loaded XLF/1d: n_obs=5031
+loaded XLK/1d: n_obs=5031
+loaded SPY/1h: n_obs=30912
+loaded IWM/1h: n_obs=36502
+loaded TLT/1h: n_obs=18358
+loaded GLD/1h: n_obs=36158
+loaded XLE/1h: n_obs=36019
+loaded EEM/1h: n_obs=30150
+loaded FXY/1h: n_obs=29108
+loaded SMH/1h: n_obs=25566
+loaded AAPL/1h: n_obs=35722
+loaded MSFT/1h: n_obs=36796
+loaded GOOGL/1h: n_obs=36806
+loaded AMZN/1h: n_obs=36797
+loaded JPM/1h: n_obs=35658
+loaded QQQ/1h: n_obs=36023
+loaded DIA/1h: n_obs=30841
+loaded XLF/1h: n_obs=36024
+loaded XLK/1h: n_obs=36005
+
+136 (cell x axis x K x cov_type) jobs queued
+
+[1/136] EEM/1h axis=trend      K=3 cov=full agree=1.0000 kappa=1.0000 sep=1.03 sols=1 fails=0+0 (47s)
+[2/136] FXY/1h axis=trend      K=3 cov=full agree=0.9999 kappa=0.9999 sep=1.29 sols=2 fails=0+0 (50s)
+[3/136] SMH/1h axis=trend      K=3 cov=full agree=0.9993 kappa=0.9989 sep=2.26 sols=1 fails=0+0 (52s)
+[4/136] XLE/1h axis=trend      K=3 cov=full agree=0.9999 kappa=0.9998 sep=2.23 sols=1 fails=0+0 (57s)
+[5/136] GOOGL/1h axis=trend      K=2 cov=full agree=1.0000 kappa=1.0000 sep=2.57 sols=2 fails=0+0 (20s)
+[6/136] JPM/1h axis=trend      K=3 cov=full agree=1.0000 kappa=1.0000 sep=1.75 sols=2 fails=0+0 (67s)
+[7/136] MSFT/1h axis=trend      K=3 cov=full agree=0.9999 kappa=0.9998 sep=2.19 sols=2 fails=0+0 (68s)
+[8/136] AAPL/1h axis=trend      K=3 cov=full agree=0.9983 kappa=0.9975 sep=2.30 sols=2 fails=0+0 (76s)
+[9/136] AMZN/1h axis=trend      K=2 cov=full agree=0.9998 kappa=0.9997 sep=2.49 sols=2 fails=0+0 (27s)
+[10/136] MSFT/1h axis=trend      K=2 cov=full agree=0.9999 kappa=0.9998 sep=2.44 sols=1 fails=0+0 (29s)
+[11/136] AMZN/1h axis=trend      K=3 cov=full agree=0.9967 kappa=0.9951 sep=2.06 sols=2 fails=0+0 (82s)
+[12/136] IWM/1h axis=trend      K=3 cov=full agree=1.0000 kappa=1.0000 sep=2.26 sols=1 fails=0+0 (86s)
+[13/136] DIA/1h axis=trend      K=3 cov=full agree=0.9977 kappa=0.9965 sep=2.10 sols=2 fails=0+0 (86s)
+[14/136] IWM/1h axis=trend      K=2 cov=full agree=0.9991 kappa=0.9981 sep=2.39 sols=1 fails=0+0 (30s)
+[15/136] GLD/1h axis=trend      K=2 cov=full agree=0.9999 kappa=0.9997 sep=2.58 sols=2 fails=0+0 (22s)
+[16/136] QQQ/1h axis=trend      K=2 cov=full agree=0.9997 kappa=0.9993 sep=2.39 sols=1 fails=0+0 (24s)
+[17/136] XLF/1h axis=trend      K=2 cov=full agree=1.0000 kappa=1.0000 sep=2.18 sols=2 fails=0+0 (30s)
+[18/136] SPY/1h axis=trend      K=3 cov=full agree=0.9998 kappa=0.9997 sep=2.13 sols=3 fails=0+0 (100s)
+[19/136] XLE/1h axis=trend      K=2 cov=full agree=1.0000 kappa=1.0000 sep=2.46 sols=1 fails=0+0 (25s)
+[20/136] XLK/1h axis=trend      K=2 cov=full agree=1.0000 kappa=1.0000 sep=2.39 sols=1 fails=0+0 (23s)
+[21/136] SPY/1h axis=trend      K=2 cov=full agree=0.9998 kappa=0.9996 sep=2.39 sols=1 fails=0+0 (17s)
+[22/136] AAPL/1h axis=trend      K=2 cov=full agree=1.0000 kappa=0.9999 sep=2.52 sols=1 fails=0+0 (23s)
+[23/136] DIA/1h axis=trend      K=2 cov=full agree=0.9998 kappa=0.9997 sep=2.41 sols=1 fails=0+0 (18s)
+[24/136] FXY/1h axis=trend      K=2 cov=full agree=1.0000 kappa=1.0000 sep=2.51 sols=2 fails=0+0 (18s)
+[25/136] QQQ/1h axis=trend      K=3 cov=full agree=0.9993 kappa=0.9990 sep=2.32 sols=1 fails=0+0 (112s)
+[26/136] EEM/1h axis=trend      K=2 cov=full agree=1.0000 kappa=0.9999 sep=2.54 sols=2 fails=0+0 (27s)
+[27/136] JPM/1h axis=trend      K=2 cov=full agree=0.9999 kappa=0.9998 sep=2.22 sols=2 fails=0+0 (32s)
+[28/136] SMH/1h axis=trend      K=2 cov=full agree=1.0000 kappa=0.9999 sep=2.46 sols=1 fails=0+0 (17s)
+[29/136] TLT/1h axis=trend      K=2 cov=full agree=0.9997 kappa=0.9995 sep=2.46 sols=3 fails=0+0 (12s)
+[30/136] GOOGL/1h axis=trend      K=3 cov=full agree=1.0000 kappa=1.0000 sep=2.15 sols=2 fails=0+0 (118s)
+[31/136] GLD/1h axis=trend      K=3 cov=full agree=1.0000 kappa=1.0000 sep=0.99 sols=2 fails=0+0 (120s)
+[32/136] XLK/1h axis=trend      K=3 cov=full agree=0.9996 kappa=0.9994 sep=2.22 sols=2 fails=0+0 (121s)
+[33/136] TLT/1h axis=trend      K=3 cov=full agree=1.0000 kappa=1.0000 sep=2.35 sols=4 fails=0+0 (61s)
+[34/136] XLF/1h axis=trend      K=3 cov=full agree=1.0000 kappa=1.0000 sep=1.78 sols=1 fails=0+0 (156s)
+[35/136] IWM/1h axis=trend      K=3 cov=diag agree=1.0000 kappa=1.0000 sep=2.22 sols=1 fails=0+0 (73s)
+[36/136] GLD/1h axis=trend      K=3 cov=diag agree=1.0000 kappa=1.0000 sep=0.81 sols=1 fails=0+0 (73s)
+[37/136] MSFT/1h axis=trend      K=3 cov=diag agree=0.9977 kappa=0.9966 sep=2.18 sols=2 fails=0+0 (80s)
+[38/136] EEM/1h axis=trend      K=3 cov=diag agree=1.0000 kappa=1.0000 sep=0.94 sols=2 fails=0+0 (59s)
+[39/136] QQQ/1h axis=trend      K=3 cov=diag agree=0.9996 kappa=0.9995 sep=2.28 sols=1 fails=0+0 (81s)
+[40/136] FXY/1h axis=trend      K=3 cov=diag agree=1.0000 kappa=1.0000 sep=1.22 sols=2 fails=0+0 (45s)
+[41/136] GOOGL/1h axis=trend      K=2 cov=diag agree=1.0000 kappa=0.9999 sep=2.55 sols=2 fails=0+0 (22s)
+[42/136] AMZN/1h axis=trend      K=3 cov=diag agree=0.9999 kappa=0.9999 sep=2.05 sols=3 fails=0+0 (99s)
+[43/136] AMZN/1h axis=trend      K=2 cov=diag agree=0.9997 kappa=0.9993 sep=2.48 sols=2 fails=0+0 (24s)
+[44/136] XLK/1h axis=trend      K=3 cov=diag agree=0.9987 kappa=0.9981 sep=2.16 sols=1 fails=0+0 (90s)
+[45/136] XLF/1h axis=trend      K=3 cov=diag agree=0.9994 kappa=0.9991 sep=1.77 sols=1 fails=0+0 (100s)
+[46/136] IWM/1h axis=trend      K=2 cov=diag agree=0.9999 kappa=0.9997 sep=2.38 sols=1 fails=0+0 (30s)
+[47/136] MSFT/1h axis=trend      K=2 cov=diag agree=0.9994 kappa=0.9987 sep=2.42 sols=1 fails=0+0 (32s)
+[48/136] GLD/1h axis=trend      K=2 cov=diag agree=0.9998 kappa=0.9996 sep=2.60 sols=2 fails=0+0 (22s)
+[49/136] QQQ/1h axis=trend      K=2 cov=diag agree=0.9996 kappa=0.9993 sep=2.39 sols=1 fails=0+0 (20s)
+[50/136] XLF/1h axis=trend      K=2 cov=diag agree=1.0000 kappa=1.0000 sep=2.16 sols=1 fails=0+0 (23s)
+[51/136] XLK/1h axis=trend      K=2 cov=diag agree=1.0000 kappa=1.0000 sep=2.38 sols=1 fails=0+0 (19s)
+[52/136] SPY/1h axis=trend      K=3 cov=diag agree=1.0000 kappa=1.0000 sep=2.09 sols=1 fails=0+0 (104s)
+[53/136] XLE/1h axis=trend      K=3 cov=diag agree=0.9999 kappa=0.9999 sep=2.17 sols=2 fails=0+0 (110s)
+[54/136] AAPL/1h axis=trend      K=2 cov=diag agree=1.0000 kappa=1.0000 sep=2.52 sols=1 fails=0+0 (20s)
+[55/136] JPM/1h axis=trend      K=3 cov=diag agree=0.9974 kappa=0.9960 sep=1.80 sols=1 fails=0+0 (112s)
+[56/136] XLE/1h axis=trend      K=2 cov=diag agree=0.9998 kappa=0.9996 sep=2.46 sols=1 fails=0+0 (29s)
+[57/136] EEM/1h axis=trend      K=2 cov=diag agree=0.9999 kappa=0.9997 sep=2.52 sols=2 fails=0+0 (18s)
+[58/136] QQQ/1d axis=trend      K=3 cov=full agree=1.0000 kappa=1.0000 sep=2.29 sols=1 fails=0+0 (11s)
+[59/136] SPY/1h axis=trend      K=2 cov=diag agree=0.9996 kappa=0.9993 sep=2.38 sols=1 fails=0+0 (25s)
+[60/136] DIA/1h axis=trend      K=2 cov=diag agree=0.9999 kappa=0.9997 sep=2.40 sols=1 fails=0+0 (23s)
+[61/136] JPM/1d axis=trend      K=3 cov=full agree=0.9984 kappa=0.9976 sep=1.97 sols=3 fails=0+0 (12s)
+[62/136] FXY/1h axis=trend      K=2 cov=diag agree=1.0000 kappa=1.0000 sep=2.47 sols=2 fails=0+0 (18s)
+[63/136] SMH/1h axis=trend      K=2 cov=diag agree=0.9998 kappa=0.9996 sep=2.45 sols=1 fails=0+0 (15s)
+[64/136] JPM/1h axis=trend      K=2 cov=diag agree=1.0000 kappa=1.0000 sep=2.19 sols=2 fails=0+0 (30s)
+[65/136] AAPL/1d axis=trend      K=3 cov=full agree=1.0000 kappa=1.0000 sep=2.21 sols=2 fails=0+0 (16s)
+[66/136] EEM/1d axis=trend      K=3 cov=full agree=0.9998 kappa=0.9997 sep=1.93 sols=2 fails=0+0 (13s)
+[67/136] XLE/1d axis=trend      K=3 cov=full agree=0.9976 kappa=0.9964 sep=2.16 sols=1 fails=0+0 (10s)
+[68/136] AAPL/1h axis=trend      K=3 cov=diag agree=1.0000 kappa=1.0000 sep=2.25 sols=2 fails=0+0 (129s)
+[69/136] DIA/1d axis=trend      K=3 cov=full agree=1.0000 kappa=1.0000 sep=2.50 sols=1 fails=0+0 (8s)
+[70/136] IWM/1d axis=trend      K=3 cov=full agree=0.9996 kappa=0.9994 sep=2.34 sols=1 fails=0+0 (17s)
+[71/136] XLF/1d axis=trend      K=3 cov=full agree=0.9956 kappa=0.9933 sep=2.00 sols=1 fails=0+0 (11s)
+[72/136] AAPL/1d axis=trend      K=2 cov=full agree=0.9998 kappa=0.9996 sep=2.61 sols=1 fails=0+0 (3s)
+[73/136] SPY/1d axis=trend      K=3 cov=full agree=0.9968 kappa=0.9952 sep=2.42 sols=1 fails=0+0 (12s)
+[74/136] GOOGL/1d axis=trend      K=3 cov=full agree=1.0000 kappa=1.0000 sep=2.23 sols=2 fails=0+0 (11s)
+[75/136] XLK/1d axis=trend      K=3 cov=full agree=0.9970 kappa=0.9955 sep=2.33 sols=1 fails=0+0 (13s)
+[76/136] SMH/1h axis=trend      K=3 cov=diag agree=0.9999 kappa=0.9999 sep=2.18 sols=1 fails=0+0 (92s)
+[77/136] FXY/1d axis=trend      K=3 cov=full agree=1.0000 kappa=1.0000 sep=2.11 sols=1 fails=0+0 (9s)
+[78/136] GLD/1d axis=trend      K=3 cov=full agree=0.9930 kappa=0.9894 sep=2.11 sols=2 fails=0+0 (14s)
+[79/136] EEM/1d axis=trend      K=2 cov=full agree=0.9984 kappa=0.9968 sep=2.42 sols=1 fails=0+0 (3s)
+[80/136] XLE/1d axis=trend      K=2 cov=full agree=0.9998 kappa=0.9996 sep=2.44 sols=1 fails=0+0 (3s)
+[81/136] JPM/1d axis=trend      K=2 cov=full agree=0.9986 kappa=0.9972 sep=2.25 sols=1 fails=0+0 (5s)
+[82/136] QQQ/1d axis=trend      K=2 cov=full agree=0.9988 kappa=0.9975 sep=2.38 sols=1 fails=0+0 (6s)
+[83/136] XLF/1d axis=trend      K=2 cov=full agree=0.9990 kappa=0.9980 sep=2.21 sols=1 fails=0+0 (4s)
+[84/136] AMZN/1d axis=trend      K=3 cov=full agree=0.9996 kappa=0.9994 sep=2.23 sols=1 fails=0+0 (15s)
+[85/136] MSFT/1d axis=trend      K=3 cov=full agree=0.9860 kappa=0.9789 sep=2.26 sols=2 fails=0+0 (17s)
+[86/136] SMH/1d axis=trend      K=3 cov=full agree=0.9986 kappa=0.9979 sep=2.23 sols=1 fails=0+0 (10s)
+[87/136] IWM/1d axis=trend      K=2 cov=full agree=1.0000 kappa=1.0000 sep=2.43 sols=1 fails=0+0 (5s)
+[88/136] GLD/1d axis=trend      K=2 cov=full agree=1.0000 kappa=1.0000 sep=2.47 sols=1 fails=0+0 (4s)
+[89/136] MSFT/1d axis=trend      K=2 cov=full agree=0.9998 kappa=0.9996 sep=2.45 sols=1 fails=0+0 (3s)
+[90/136] SPY/1d axis=trend      K=2 cov=full agree=0.9990 kappa=0.9979 sep=2.42 sols=1 fails=0+0 (4s)
+[91/136] TLT/1h axis=trend      K=2 cov=diag agree=0.9999 kappa=0.9999 sep=2.46 sols=2 fails=0+0 (12s)
+[92/136] DIA/1d axis=trend      K=2 cov=full agree=0.9996 kappa=0.9992 sep=2.31 sols=1 fails=0+0 (6s)
+[93/136] SMH/1d axis=trend      K=2 cov=full agree=0.9997 kappa=0.9995 sep=2.33 sols=1 fails=0+0 (3s)
+[94/136] XLK/1d axis=trend      K=2 cov=full agree=0.9958 kappa=0.9917 sep=2.38 sols=2 fails=0+0 (7s)
+[95/136] DIA/1h axis=trend      K=3 cov=diag agree=0.9981 kappa=0.9971 sep=2.09 sols=4 fails=0+0 (136s)
+[96/136] AMZN/1d axis=trend      K=2 cov=full agree=0.9994 kappa=0.9988 sep=2.58 sols=1 fails=0+0 (4s)
+[97/136] GOOGL/1d axis=trend      K=2 cov=full agree=1.0000 kappa=1.0000 sep=2.58 sols=1 fails=0+0 (5s)
+[98/136] TLT/1d axis=trend      K=2 cov=full agree=0.9973 kappa=0.9946 sep=2.57 sols=2 fails=0+0 (4s)
+[99/136] FXY/1d axis=trend      K=2 cov=full agree=0.9996 kappa=0.9992 sep=2.36 sols=1 fails=0+0 (5s)
+[100/136] TLT/1h axis=trend      K=3 cov=diag agree=0.9998 kappa=0.9997 sep=1.28 sols=2 fails=0+0 (38s)
+[101/136] TLT/1d axis=trend      K=3 cov=full agree=0.9996 kappa=0.9994 sep=2.19 sols=2 fails=0+0 (8s)
+[102/136] QQQ/1d axis=trend      K=3 cov=diag agree=0.9954 kappa=0.9931 sep=2.28 sols=1 fails=0+0 (7s)
+[103/136] JPM/1d axis=trend      K=3 cov=diag agree=0.9998 kappa=0.9997 sep=1.95 sols=1 fails=0+0 (8s)
+[104/136] DIA/1d axis=trend      K=3 cov=diag agree=0.9998 kappa=0.9997 sep=2.49 sols=1 fails=0+0 (6s)
+[105/136] EEM/1d axis=trend      K=3 cov=diag agree=0.9986 kappa=0.9979 sep=1.90 sols=1 fails=0+0 (9s)
+[106/136] GLD/1d axis=trend      K=3 cov=diag agree=1.0000 kappa=1.0000 sep=2.07 sols=3 fails=0+0 (8s)
+[107/136] AAPL/1d axis=trend      K=2 cov=diag agree=0.9996 kappa=0.9992 sep=2.60 sols=1 fails=0+0 (3s)
+[108/136] XLF/1d axis=trend      K=3 cov=diag agree=0.9998 kappa=0.9997 sep=2.01 sols=1 fails=0+0 (9s)
+[109/136] JPM/1d axis=trend      K=2 cov=diag agree=0.9996 kappa=0.9992 sep=2.23 sols=1 fails=0+0 (3s)
+[110/136] XLK/1d axis=trend      K=3 cov=diag agree=0.9909 kappa=0.9861 sep=2.32 sols=1 fails=0+0 (10s)
+[111/136] AAPL/1d axis=trend      K=3 cov=diag agree=0.9982 kappa=0.9973 sep=2.20 sols=2 fails=0+0 (13s)
+[112/136] XLE/1d axis=trend      K=3 cov=diag agree=0.9960 kappa=0.9940 sep=2.18 sols=1 fails=0+0 (11s)
+[113/136] SMH/1d axis=trend      K=3 cov=diag agree=0.9986 kappa=0.9979 sep=2.24 sols=1 fails=0+0 (5s)
+[114/136] SPY/1d axis=trend      K=3 cov=diag agree=1.0000 kappa=1.0000 sep=2.39 sols=1 fails=0+0 (10s)
+[115/136] IWM/1d axis=trend      K=3 cov=diag agree=1.0000 kappa=1.0000 sep=2.30 sols=1 fails=0+0 (12s)
+[116/136] EEM/1d axis=trend      K=2 cov=diag agree=0.9976 kappa=0.9952 sep=2.42 sols=1 fails=0+0 (3s)
+[117/136] IWM/1d axis=trend      K=2 cov=diag agree=0.9996 kappa=0.9992 sep=2.43 sols=1 fails=0+0 (3s)
+[118/136] XLE/1d axis=trend      K=2 cov=diag agree=1.0000 kappa=1.0000 sep=2.44 sols=1 fails=0+0 (3s)
+[119/136] QQQ/1d axis=trend      K=2 cov=diag agree=0.9998 kappa=0.9996 sep=2.38 sols=1 fails=0+0 (4s)
+[120/136] XLF/1d axis=trend      K=2 cov=diag agree=0.9998 kappa=0.9996 sep=2.20 sols=1 fails=0+0 (3s)
+[121/136] GOOGL/1d axis=trend      K=3 cov=diag agree=1.0000 kappa=1.0000 sep=2.21 sols=1 fails=0+0 (11s)
+[122/136] SPY/1d axis=trend      K=2 cov=diag agree=0.9998 kappa=0.9996 sep=2.43 sols=1 fails=0+0 (3s)
+[123/136] DIA/1d axis=trend      K=2 cov=diag agree=0.9998 kappa=0.9996 sep=2.32 sols=1 fails=0+0 (4s)
+[124/136] MSFT/1d axis=trend      K=3 cov=diag agree=0.9982 kappa=0.9973 sep=2.27 sols=1 fails=0+0 (13s)
+[125/136] XLK/1d axis=trend      K=2 cov=diag agree=0.9972 kappa=0.9944 sep=2.39 sols=1 fails=0+0 (4s)
+[126/136] AMZN/1d axis=trend      K=3 cov=diag agree=0.9998 kappa=0.9997 sep=2.23 sols=2 fails=0+0 (11s)
+[127/136] GLD/1d axis=trend      K=2 cov=diag agree=0.9996 kappa=0.9992 sep=2.47 sols=1 fails=0+0 (4s)
+[128/136] SMH/1d axis=trend      K=2 cov=diag agree=1.0000 kappa=1.0000 sep=2.32 sols=1 fails=0+0 (2s)
+[129/136] MSFT/1d axis=trend      K=2 cov=diag agree=1.0000 kappa=1.0000 sep=2.44 sols=1 fails=0+0 (4s)
+[130/136] GOOGL/1d axis=trend      K=2 cov=diag agree=0.9994 kappa=0.9988 sep=2.57 sols=1 fails=0+0 (3s)
+[131/136] AMZN/1d axis=trend      K=2 cov=diag agree=1.0000 kappa=1.0000 sep=2.57 sols=1 fails=0+0 (3s)
+[132/136] TLT/1d axis=trend      K=2 cov=diag agree=0.9996 kappa=0.9992 sep=2.54 sols=1 fails=0+0 (2s)
+[133/136] FXY/1d axis=trend      K=2 cov=diag agree=1.0000 kappa=1.0000 sep=2.36 sols=1 fails=0+0 (3s)
+[134/136] FXY/1d axis=trend      K=3 cov=diag agree=1.0000 kappa=1.0000 sep=2.11 sols=1 fails=0+0 (10s)
+[135/136] TLT/1d axis=trend      K=3 cov=diag agree=0.9958 kappa=0.9937 sep=2.23 sols=2 fails=0+0 (5s)
+[136/136] GOOGL/1h axis=trend      K=3 cov=diag agree=0.9991 kappa=0.9987 sep=2.12 sols=4 fails=0+0 (179s)
+
+all jobs done in 280s
+
+====================================================================================================
+PER-AXIS x CONFIG SUMMARY (min across cells + pass count; minimum is the honest signal)
+====================================================================================================
+axis         K   cov   N  pass/cells  min_agree  min_kappa  min_sep max_sols  worst_cell
+trend        2  full  20    34/34        0.9958     0.9917     2.18        3  XLK/1d
+trend        2  diag  20    34/34        0.9972     0.9944     2.16        2  XLK/1d
+trend        3  full  20    34/34        0.9860     0.9789     0.99        4  MSFT/1d
+trend        3  diag  20    34/34        0.9909     0.9861     0.81        4  XLK/1d
+
+====================================================================================================
+SMALLEST IDENTIFIABLE K PER AXIS at N=20 (all-N table is in the JSON)
+====================================================================================================
+trend      : smallest all-cell-identifiable = K=2 cov=diag (min_agree=0.9972 min_kappa=0.9944 min_sep=2.16)  also: K2/full, K3/diag, K3/full
+
+====================================================================================================
+PER-CELL MATRIX at N=20, per axis (agreement / kappa; * = clears both bars)
+====================================================================================================
+
+-- axis: trend  [trending_down .. trending_up (log_return rank)]
+cell               K2/full         K2/diag         K3/full         K3/diag
+AAPL/1d     1.000/ 1.000*  1.000/ 0.999*  1.000/ 1.000*  0.998/ 0.997*
+AMZN/1d     0.999/ 0.999*  1.000/ 1.000*  1.000/ 0.999*  1.000/ 1.000*
+DIA/1d      1.000/ 0.999*  1.000/ 1.000*  1.000/ 1.000*  1.000/ 1.000*
+EEM/1d      0.998/ 0.997*  0.998/ 0.995*  1.000/ 1.000*  0.999/ 0.998*
+FXY/1d      1.000/ 0.999*  1.000/ 1.000*  1.000/ 1.000*  1.000/ 1.000*
+GLD/1d      1.000/ 1.000*  1.000/ 0.999*  0.993/ 0.989*  1.000/ 1.000*
+GOOGL/1d    1.000/ 1.000*  0.999/ 0.999*  1.000/ 1.000*  1.000/ 1.000*
+IWM/1d      1.000/ 1.000*  1.000/ 0.999*  1.000/ 0.999*  1.000/ 1.000*
+JPM/1d      0.999/ 0.997*  1.000/ 0.999*  0.998/ 0.998*  1.000/ 1.000*
+MSFT/1d     1.000/ 1.000*  1.000/ 1.000*  0.986/ 0.979*  0.998/ 0.997*
+QQQ/1d      0.999/ 0.998*  1.000/ 1.000*  1.000/ 1.000*  0.995/ 0.993*
+SMH/1d      1.000/ 0.999*  1.000/ 1.000*  0.999/ 0.998*  0.999/ 0.998*
+SPY/1d      0.999/ 0.998*  1.000/ 1.000*  0.997/ 0.995*  1.000/ 1.000*
+TLT/1d      0.997/ 0.995*  1.000/ 0.999*  1.000/ 0.999*  0.996/ 0.994*
+XLE/1d      1.000/ 1.000*  1.000/ 1.000*  0.998/ 0.996*  0.996/ 0.994*
+XLF/1d      0.999/ 0.998*  1.000/ 1.000*  0.996/ 0.993*  1.000/ 1.000*
+XLK/1d      0.996/ 0.992*  0.997/ 0.994*  0.997/ 0.995*  0.991/ 0.986*
+AAPL/1h     1.000/ 1.000*  1.000/ 1.000*  0.998/ 0.997*  1.000/ 1.000*
+AMZN/1h     1.000/ 1.000*  1.000/ 0.999*  0.997/ 0.995*  1.000/ 1.000*
+DIA/1h      1.000/ 1.000*  1.000/ 1.000*  0.998/ 0.997*  0.998/ 0.997*
+EEM/1h      1.000/ 1.000*  1.000/ 1.000*  1.000/ 1.000*  1.000/ 1.000*
+FXY/1h      1.000/ 1.000*  1.000/ 1.000*  1.000/ 1.000*  1.000/ 1.000*
+GLD/1h      1.000/ 1.000*  1.000/ 1.000*  1.000/ 1.000*  1.000/ 1.000*
+GOOGL/1h    1.000/ 1.000*  1.000/ 1.000*  1.000/ 1.000*  0.999/ 0.999*
+IWM/1h      0.999/ 0.998*  1.000/ 1.000*  1.000/ 1.000*  1.000/ 1.000*
+JPM/1h      1.000/ 1.000*  1.000/ 1.000*  1.000/ 1.000*  0.997/ 0.996*
+MSFT/1h     1.000/ 1.000*  0.999/ 0.999*  1.000/ 1.000*  0.998/ 0.997*
+QQQ/1h      1.000/ 0.999*  1.000/ 0.999*  0.999/ 0.999*  1.000/ 0.999*
+SMH/1h      1.000/ 1.000*  1.000/ 1.000*  0.999/ 0.999*  1.000/ 1.000*
+SPY/1h      1.000/ 1.000*  1.000/ 0.999*  1.000/ 1.000*  1.000/ 1.000*
+TLT/1h      1.000/ 0.999*  1.000/ 1.000*  1.000/ 1.000*  1.000/ 1.000*
+XLE/1h      1.000/ 1.000*  1.000/ 1.000*  1.000/ 1.000*  1.000/ 1.000*
+XLF/1h      1.000/ 1.000*  1.000/ 1.000*  1.000/ 1.000*  0.999/ 0.999*
+XLK/1h      1.000/ 1.000*  1.000/ 1.000*  1.000/ 0.999*  0.999/ 0.998*
+
+====================================================================================================
+MECHANISM: state separation + solution multiplicity at N=20
+(separation = min pairwise Mahalanobis distance between fitted state means,
+ pooled-covariance units. solutions = distinct labelings among pool A's own fits.)
+====================================================================================================
+axis         K   cov  median_sep   min_sep  cells_with_multi_solutions  median_ll_spread
+trend        2  full        2.43      2.18                    10/34             0.000000
+trend        2  diag        2.43      2.16                     7/34             0.000000
+trend        3  full        2.20      0.99                    18/34             0.000215
+trend        3  diag        2.17      0.81                    13/34             0.000083
+
+====================================================================================================
+DEGENERACY GATE at N=20 (production `_check_occupation_gate`, live threshold)
+====================================================================================================
+trend       K=2 full  degenerate= 0/34  min_occupation=0.392
+trend       K=2 diag  degenerate= 0/34  min_occupation=0.389
+trend       K=3 full  degenerate= 3/34  min_occupation=0.011  [EEM/1h(0.032), FXY/1h(0.011), GLD/1h(0.029)]
+trend       K=3 diag  degenerate= 4/34  min_occupation=0.012  [GLD/1h(0.030), EEM/1h(0.033), FXY/1h(0.012), TLT/1h(0.016)]
+====================================================================================================
+
+Results written to cache/hmm_regime_axis_decomposition_identifiability_sweep.json
