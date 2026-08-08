@@ -181,6 +181,37 @@ def main() -> None:
         default=None,
         help="Override seeds directly (default: hmm_random_state + 0,1,2)",
     )
+    parser.add_argument(
+        "--full-history",
+        action="store_true",
+        help=(
+            "Bypass walk-forward windowing entirely and run the seed-stability check once "
+            "per (symbol, tf) against the ENTIRE available obs_matrix -- i.e. the same "
+            "training scope _compute_symbol_tf's production single-fit path uses. Exists "
+            "to answer the question the corrected-threshold re-pilot raised: the observed "
+            "seed instability persisted at N in the tens of thousands (well past any "
+            "covariance-estimation floor), suggesting genuine EM local-optima multimodality "
+            "independent of window size -- this flag tests whether that same multimodality "
+            "is present in the CURRENTLY-RUNNING production fit, not just the walk-forward "
+            "candidate's thinner windows. --boundaries is ignored when this flag is set."
+        ),
+    )
+    parser.add_argument(
+        "--full-cov-min-obs-override",
+        type=int,
+        default=None,
+        help=(
+            "Diagnostic-only override for feature.hmm.full_cov_min_obs, applied after the "
+            "live config read and never written back to config_state. Exists to test the "
+            "G2 seed-instability finding's root-cause hypothesis (171-PILOT-GATE.md): the "
+            "live default of 500 was never validated against the full-covariance model's own "
+            "free-parameter count (K=5, D=5 -> ~124 params: 25 means + 75 covariances + 20 "
+            "transitions + 4 initial), so the diag-covariance fallback this override targets "
+            "may simply be firing too late relative to what full covariance can support at "
+            "this K/D. Zero production impact: the flag only changes this read-only pilot's "
+            "in-memory threshold for this invocation."
+        ),
+    )
     args = parser.parse_args()
     boundary_names = [b.strip() for b in args.boundaries.split(",") if b.strip()]
 
@@ -192,7 +223,11 @@ def main() -> None:
     covariance_type = cfg["feature.hmm.covariance_type"]
     n_iter = int(cfg["feature.hmm.n_iter"])
     hmm_random_state = int(cfg["alpha.hmm.random_state"])
-    full_cov_min_obs = int(cfg["feature.hmm.full_cov_min_obs"])
+    full_cov_min_obs = (
+        args.full_cov_min_obs_override
+        if args.full_cov_min_obs_override is not None
+        else int(cfg["feature.hmm.full_cov_min_obs"])
+    )
     vol_window = int(cfg["feature.hmm.vol_window"])
     momentum_window = int(cfg["feature.hmm.obs_momentum_window"])
     vol_of_vol_window = int(cfg["feature.hmm.obs_vol_of_vol_window"])
@@ -202,9 +237,14 @@ def main() -> None:
     print("=" * 80)
     print("HMM walk-forward seed-stability pilot (REQ-5)")
     print("=" * 80)
+    override_note = (
+        f" (OVERRIDDEN from live config_state value {cfg['feature.hmm.full_cov_min_obs']})"
+        if args.full_cov_min_obs_override is not None
+        else ""
+    )
     print(
         f"n_components={n_components} covariance_type={covariance_type} n_iter={n_iter} "
-        f"hmm_random_state={hmm_random_state} full_cov_min_obs={full_cov_min_obs}"
+        f"hmm_random_state={hmm_random_state} full_cov_min_obs={full_cov_min_obs}{override_note}"
     )
     print(
         f"vol_window={vol_window} momentum_window={momentum_window} "
@@ -266,10 +306,15 @@ def main() -> None:
                 )
                 continue
 
-            boundaries = _segment_boundaries(n, initial_warmup_bars, refit_every_bars)
-            n_segments = len(boundaries)
-            selected = _select_boundaries(boundaries, boundary_names)
-            print(f"  n_obs={n} n_segments={n_segments} sampled_boundaries={selected}")
+            if args.full_history:
+                n_segments = 1
+                selected = [("full_history", n)]
+                print(f"  n_obs={n} n_segments=1 (--full-history: production-scope single fit)")
+            else:
+                boundaries = _segment_boundaries(n, initial_warmup_bars, refit_every_bars)
+                n_segments = len(boundaries)
+                selected = _select_boundaries(boundaries, boundary_names)
+                print(f"  n_obs={n} n_segments={n_segments} sampled_boundaries={selected}")
 
             boundary_results: list[dict] = []
             cell_min: float | None = None

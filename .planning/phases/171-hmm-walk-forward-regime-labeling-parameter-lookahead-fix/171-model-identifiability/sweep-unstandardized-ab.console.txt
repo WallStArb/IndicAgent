@@ -1,0 +1,119 @@
+================================================================================================
+HMM model-complexity identifiability sweep
+================================================================================================
+k_values=[3, 5] cov_types=['full'] n_values=[5, 10, 20] max_n=20
+standardize=False (production `_compute_symbol_tf` standardizes: True)
+n_iter=200 full_cov_min_obs=500 min_hold_bars=3 min_state_occupation=0.05
+pool_a_base=42 pool_b_base=1000 max_workers=16
+bars: agreement>=0.9 AND kappa>=0.8 (both required)
+================================================================================================
+loaded SPY/1d: n_obs=5027
+loaded IWM/1d: n_obs=5031
+loaded TLT/1d: n_obs=2613
+loaded GLD/1d: n_obs=5030
+loaded XLE/1d: n_obs=5031
+loaded EEM/1d: n_obs=5032
+loaded FXY/1d: n_obs=4872
+loaded SMH/1d: n_obs=3647
+loaded SPY/1h: n_obs=30912
+loaded IWM/1h: n_obs=36502
+loaded TLT/1h: n_obs=18358
+loaded GLD/1h: n_obs=36158
+loaded XLE/1h: n_obs=36019
+loaded EEM/1h: n_obs=30150
+loaded FXY/1h: n_obs=29108
+loaded SMH/1h: n_obs=25566
+
+32 (cell x K x cov_type) jobs queued
+
+[1/32] SMH/1h K=3 cov=full N=20 agree=0.9986 kappa=0.9976 fails=0+0 obs/param=376 (62s)
+[2/32] FXY/1h K=3 cov=full N=20 agree=0.9904 kappa=0.9813 fails=0+0 obs/param=428 (85s)
+[3/32] XLE/1h K=3 cov=full N=20 agree=0.9989 kappa=0.9980 fails=0+0 obs/param=530 (90s)
+[4/32] EEM/1d K=5 cov=full N=20 agree=0.9984 kappa=0.9977 fails=0+0 obs/param=41 (32s)
+[5/32] SPY/1h K=3 cov=full N=20 agree=0.9990 kappa=0.9982 fails=0+0 obs/param=455 (99s)
+[6/32] TLT/1h K=3 cov=full N=20 agree=0.9989 kappa=0.9976 fails=0+0 obs/param=270 (100s)
+[7/32] IWM/1d K=5 cov=full N=20 agree=0.0362 kappa=-0.3388 fails=1+0 obs/param=41 (23s)
+[8/32] GLD/1h K=3 cov=full N=20 agree=0.9988 kappa=0.9975 fails=0+0 obs/param=532 (111s)
+[9/32] XLE/1d K=5 cov=full N=20 agree=0.8954 kappa=0.8630 fails=0+0 obs/param=41 (25s)
+[10/32] EEM/1d K=3 cov=full N=20 agree=0.9994 kappa=0.9989 fails=0+0 obs/param=74 (9s)
+[11/32] SPY/1d K=5 cov=full N=20 agree=0.3831 kappa=0.1760 fails=0+1 obs/param=41 (24s)
+[12/32] SMH/1d K=5 cov=full N=20 agree=0.9986 kappa=0.9982 fails=1+0 obs/param=29 (16s)
+[13/32] IWM/1d K=3 cov=full N=20 agree=0.9998 kappa=0.9997 fails=0+0 obs/param=74 (10s)
+[14/32] XLE/1d K=3 cov=full N=20 agree=1.0000 kappa=1.0000 fails=0+0 obs/param=74 (9s)
+[15/32] SPY/1d K=3 cov=full N=20 agree=0.9851 kappa=0.9741 fails=0+0 obs/param=74 (8s)
+[16/32] GLD/1d K=5 cov=full N=20 agree=0.1461 kappa=-0.0955 fails=0+0 obs/param=41 (39s)
+[17/32] SMH/1d K=3 cov=full N=20 agree=0.9997 kappa=0.9995 fails=0+0 obs/param=54 (6s)
+[18/32] FXY/1d K=3 cov=full N=20 agree=0.8795 kappa=0.8024 fails=0+0 obs/param=72 (14s)
+[19/32] GLD/1d K=3 cov=full N=20 agree=0.7622 kappa=0.6253 fails=1+0 obs/param=74 (15s)
+[20/32] TLT/1d K=5 cov=full N=20 agree=0.0096 kappa=-0.2111 fails=0+0 obs/param=21 (11s)
+[21/32] TLT/1d K=3 cov=full N=20 agree=1.0000 kappa=1.0000 fails=0+0 obs/param=38 (8s)
+[22/32] FXY/1d K=5 cov=full N=20 agree=0.5458 kappa=0.4007 fails=2+2 obs/param=39 (42s)
+[23/32] IWM/1h K=3 cov=full N=20 agree=1.0000 kappa=1.0000 fails=0+0 obs/param=537 (148s)
+[24/32] EEM/1h K=3 cov=full N=20 agree=0.9977 kappa=0.9959 fails=0+0 obs/param=443 (171s)
+[25/32] TLT/1h K=5 cov=full N=20 agree=0.9989 kappa=0.9983 fails=0+1 obs/param=148 (181s)
+[26/32] SMH/1h K=5 cov=full N=20 agree=0.2413 kappa=0.0537 fails=0+0 obs/param=206 (205s)
+[27/32] FXY/1h K=5 cov=full N=20 agree=0.5310 kappa=0.3350 fails=0+1 obs/param=235 (254s)
+[28/32] SPY/1h K=5 cov=full N=20 agree=0.4551 kappa=0.2558 fails=0+0 obs/param=249 (281s)
+[29/32] GLD/1h K=5 cov=full N=20 agree=0.8906 kappa=0.8347 fails=0+1 obs/param=292 (291s)
+[30/32] XLE/1h K=5 cov=full N=20 agree=0.1434 kappa=-0.0957 fails=1+0 obs/param=290 (294s)
+[31/32] EEM/1h K=5 cov=full N=20 agree=0.2652 kappa=0.0327 fails=1+0 obs/param=243 (317s)
+[32/32] IWM/1h K=5 cov=full N=20 agree=0.9877 kappa=0.9829 fails=0+0 obs/param=294 (326s)
+
+all jobs done in 327s
+
+================================================================================================
+PER-CONFIG SUMMARY (min across cells + pass count; minimum is the honest signal)
+================================================================================================
+ K   cov   N  pass/cells  min_agree  min_kappa  worst_cell
+ 3  full   5    11/16        0.1285    -0.5093  EEM/1h
+ 3  full  10    13/16        0.2382     0.1327  TLT/1h
+ 3  full  20    14/16        0.7622     0.6253  GLD/1d
+ 5  full   5     2/16        0.0909    -0.1205  GLD/1d
+ 5  full  10     2/16        0.0272    -0.2616  SMH/1h
+ 5  full  20     4/16        0.0096    -0.3388  TLT/1d
+
+BEST CONFIG BY PASS COUNT: K=3 cov=full N=20 -> 14/16 cells identifiable (min_agreement=0.7622, worst=GLD/1d)
+
+================================================================================================
+PER-CELL MATRIX at N=20 (agreement / kappa; * = passes both bars)
+================================================================================================
+cell               K3/full         K5/full
+EEM/1d      0.999/ 0.999*  0.998/ 0.998*
+FXY/1d      0.880/ 0.802   0.546/ 0.401 
+GLD/1d      0.762/ 0.625   0.146/-0.095 
+IWM/1d      1.000/ 1.000*  0.036/-0.339 
+SMH/1d      1.000/ 1.000*  0.999/ 0.998*
+SPY/1d      0.985/ 0.974*  0.383/ 0.176 
+TLT/1d      1.000/ 1.000*  0.010/-0.211 
+XLE/1d      1.000/ 1.000*  0.895/ 0.863 
+EEM/1h      0.998/ 0.996*  0.265/ 0.033 
+FXY/1h      0.990/ 0.981*  0.531/ 0.335 
+GLD/1h      0.999/ 0.997*  0.891/ 0.835 
+IWM/1h      1.000/ 1.000*  0.988/ 0.983*
+SMH/1h      0.999/ 0.998*  0.241/ 0.054 
+SPY/1h      0.999/ 0.998*  0.455/ 0.256 
+TLT/1h      0.999/ 0.998*  0.999/ 0.998*
+XLE/1h      0.999/ 0.998*  0.143/-0.096 
+
+================================================================================================
+PER-SYMBOL BEST CONFIG at N=20 (does a UNIFORM K survive, or must K be per-symbol?)
+================================================================================================
+EEM/1d  : smallest identifiable = K=3 cov=full (agree=0.9994 kappa=0.9989 BIC=-91797)  also: K5/full
+FXY/1d  : NO CONFIG IDENTIFIABLE -> quarantine candidate
+GLD/1d  : NO CONFIG IDENTIFIABLE -> quarantine candidate
+IWM/1d  : smallest identifiable = K=3 cov=full (agree=0.9998 kappa=0.9997 BIC=-95354)
+SMH/1d  : smallest identifiable = K=3 cov=full (agree=0.9997 kappa=0.9995 BIC=-61862)  also: K5/full
+SPY/1d  : smallest identifiable = K=3 cov=full (agree=0.9851 kappa=0.9741 BIC=-101258)
+TLT/1d  : smallest identifiable = K=3 cov=full (agree=1.0000 kappa=1.0000 BIC=-53134)
+XLE/1d  : smallest identifiable = K=3 cov=full (agree=1.0000 kappa=1.0000 BIC=-89606)
+EEM/1h  : smallest identifiable = K=3 cov=full (agree=0.9977 kappa=0.9959 BIC=-676454)
+FXY/1h  : smallest identifiable = K=3 cov=full (agree=0.9904 kappa=0.9813 BIC=-724820)
+GLD/1h  : smallest identifiable = K=3 cov=full (agree=0.9988 kappa=0.9975 BIC=-867672)
+IWM/1h  : smallest identifiable = K=3 cov=full (agree=1.0000 kappa=1.0000 BIC=-855229)  also: K5/full
+SMH/1h  : smallest identifiable = K=3 cov=full (agree=0.9986 kappa=0.9976 BIC=-557297)
+SPY/1h  : smallest identifiable = K=3 cov=full (agree=0.9990 kappa=0.9982 BIC=-749946)
+TLT/1h  : smallest identifiable = K=3 cov=full (agree=0.9989 kappa=0.9976 BIC=-458035)  also: K5/full
+XLE/1h  : smallest identifiable = K=3 cov=full (agree=0.9989 kappa=0.9980 BIC=-805389)
+================================================================================================
+
+Results written to cache/hmm_identifiability_unscaled_ab.json
