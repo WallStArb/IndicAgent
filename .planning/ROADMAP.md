@@ -2677,14 +2677,14 @@ Plans:
 **Goal:** Wire `_walk_forward_hmm_labels()` (`services/regime_writer.py`, already implemented + TDD-tested via todo 248) into the live labeling path, replacing `_compute_symbol_tf`'s full-history HMM parameter fit — the one producer in the codebase that doesn't enforce "a fact computed at bar t may only use data <= t" (confirmed via todo 248's instability pilot: 24.9-56.8% label agreement between full-history and walk-forward labeling depending on symbol/tf). **This ships regardless of the Gate 4 ordinal-IC pilot's negative result (decision corrected 2026-08-04)** — it is a confirmed causal-law violation in an existing core mechanism, not a new/unproven signal subject to this project's "prove before promoting" discipline; the pilot measures the fix's downstream effects, it does not gate whether to do the fix.
 **Requirements:** (1) tf-calibrated `refit_every_bars`/`initial_warmup_bars` for all 4 tfs — 1h's values (1650/3300) came from todo 248's pilot; 15m/5m need the same "~1 trading year refit, ~2 year warmup" schedule scaled by bar density (x4 at 15m, x12 at 5m, per the broadened pilot table); 1d needs its own estimate (~252 bars/year), not yet done. (2) Wire `_walk_forward_hmm_labels()` into `_compute_symbol_tf`'s live path (APR-flagged rollout recommended, not a silent swap). (3) Full `feature_vectors.regime` recompute (`regime_writer.py --refit`) at every (symbol, tf) — blast radius matches an `HMM_RANDOM_STATE` change per CLAUDE.md's Key Decisions. (4) Downstream `ic_engine`/`feature_ic_scores` re-run, since regime is the stratification key those tables key off of. (5) Seed-stability check (`_hmm_seed_stability_check`, already built + unit-tested in todo 248) wired in and exercised at least once during the recompute, not left invoked-nowhere.
 **Depends on:** none technically (different subsystem than Phase 167/168's `ctf_momentum` work — regime labeling vs. cross-sectional spread ranking). **Sequenced after the CTF-leak/Phase 167 re-verification work by explicit user decision 2026-08-04**, to avoid two overlapping corpus-recompute-scale efforts running at once.
-**Plans:** 7 plans
+**Plans:** 4/7 plans executed
 
 Plans:
 
-- [ ] 171-01-PLAN.md — Per-segment convergence instrumentation on the walk-forward path plus a per-invocation `--walk-forward` CLI override and dispatch-branch coverage (REQ-2)
-- [ ] 171-02-PLAN.md — Capture REQ-1's already-shipped APR evidence and close todo 229's stale records (REQ-1)
-- [ ] 171-03-PLAN.md — Build the resumable per-(symbol, tf) regime NULL-out and provenance-verification tool (REQ-3)
-- [ ] 171-04-PLAN.md — Build the real-data seed-stability pilot and the out-of-band n_restarts comparison script (REQ-5)
+- [x] 171-01-PLAN.md — Per-segment convergence instrumentation on the walk-forward path plus a per-invocation `--walk-forward` CLI override and dispatch-branch coverage (REQ-2)
+- [x] 171-02-PLAN.md — Capture REQ-1's already-shipped APR evidence and close todo 229's stale records (REQ-1)
+- [x] 171-03-PLAN.md — Build the resumable per-(symbol, tf) regime NULL-out and provenance-verification tool (REQ-3)
+- [x] 171-04-PLAN.md — Build the real-data seed-stability pilot and the out-of-band n_restarts comparison script (REQ-5)
 - [ ] 171-05-PLAN.md — Run D-01's staged 8-symbol pilot and render the go/no-go verdict (REQ-3, REQ-5)
 - [ ] 171-06-PLAN.md — Full-corpus NULL-out, config flip, walk-forward relabel, and the downstream `ic_engine --refresh` re-run (REQ-3, REQ-4)
 - [ ] 171-07-PLAN.md — Run todo 167's equity falsifier gate against the fresh scores and reconcile the folded todos (REQ-4)
