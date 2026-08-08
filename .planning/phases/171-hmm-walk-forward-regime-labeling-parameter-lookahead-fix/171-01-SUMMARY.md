@@ -96,3 +96,12 @@ None - no external service configuration required.
 ---
 *Phase: 171-hmm-walk-forward-regime-labeling-parameter-lookahead-fix*
 *Completed: 2026-08-08*
+
+## Self-Check: PASSED
+
+- FOUND: services/regime_writer.py
+- FOUND: tests/unit/services/test_regime_writer.py
+- FOUND: .planning/phases/171-hmm-walk-forward-regime-labeling-parameter-lookahead-fix/171-01-SUMMARY.md
+- FOUND commit: 276c8c62 (Task 1)
+- FOUND commit: 6c19dafc (Task 2)
+- FOUND commit: 6d5707f4 (SUMMARY.md metadata commit)
