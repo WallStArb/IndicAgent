@@ -1675,6 +1675,28 @@ def main() -> None:
             "--refit signals intent to callers that this run re-labels an existing corpus."
         ),
     )
+    walk_forward_group = parser.add_mutually_exclusive_group()
+    walk_forward_group.add_argument(
+        "--walk-forward",
+        action="store_true",
+        dest="walk_forward",
+        help=(
+            "Force the walk-forward HMM path for this invocation only, overriding the "
+            "APR key alpha.hmm.walk_forward.enabled. Does NOT write to config_state -- "
+            "the override is in-memory for this run only."
+        ),
+    )
+    walk_forward_group.add_argument(
+        "--no-walk-forward",
+        action="store_false",
+        dest="walk_forward",
+        help=(
+            "Force the single-fit HMM path for this invocation only, overriding the "
+            "APR key alpha.hmm.walk_forward.enabled. Does NOT write to config_state -- "
+            "the override is in-memory for this run only."
+        ),
+    )
+    parser.set_defaults(walk_forward=None)
     args = parser.parse_args()
 
     # ------------------------------------------------------------------
@@ -1735,6 +1757,18 @@ def main() -> None:
                 # explicit deployment decision per the todo's own "genuine sequencing
                 # decision" framing, not something this migration's seed value forces.
                 walk_forward_enabled = bool(cfg.get_sync("alpha.hmm.walk_forward.enabled", False))
+                # --walk-forward / --no-walk-forward (CLI) overrides the APR value for
+                # THIS invocation only -- never writes config_state. Same "CLI overrides
+                # an existing APR value for one run" precedent as --workers above. This
+                # is deliberately NOT a new APR key: the underlying alpha.hmm.walk_forward.enabled
+                # key (migration 292) already satisfies the APR mandate's "operator-visible
+                # switches -> APR" requirement; a per-invocation scoped pilot override does not
+                # need its own APR entry.
+                if args.walk_forward is not None:
+                    walk_forward_enabled = args.walk_forward
+                    walk_forward_source = "cli"
+                else:
+                    walk_forward_source = "apr"
                 # Per-tf (refit_every_bars, initial_warmup_bars) -- see
                 # _WALK_FORWARD_DEFAULT_PARAMS' own docstring/comment above for the
                 # full per-tf provenance and certainty caveats.
@@ -1785,6 +1819,7 @@ def main() -> None:
                 churn_window=churn_window,
                 n_restarts=n_restarts,
                 walk_forward_enabled=walk_forward_enabled,
+                walk_forward_source=walk_forward_source,
             )
 
             worker_args = [

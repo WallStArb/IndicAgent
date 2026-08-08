@@ -1454,3 +1454,72 @@ def test_compute_symbol_tf_walk_forward_returns_none_on_insufficient_warmup():
     )
 
     assert result is None
+
+
+# ---------------------------------------------------------------------------
+# Tests: _run_symbol_worker dispatch branch (todo 248 / REQ-2)
+# ---------------------------------------------------------------------------
+
+
+def test_run_symbol_worker_dispatches_on_walk_forward_flag(monkeypatch):
+    """_run_symbol_worker's dispatch branch must call _compute_symbol_tf_walk_forward
+    when walk_forward_enabled=True and _compute_symbol_tf when False -- and, critically,
+    must NOT call the other function in either case. Asserting only the positive call
+    would still pass if the branch dispatched to walk-forward unconditionally; the
+    paired positive/negative assertion is what makes this test discriminating."""
+    calls = {"walk_forward": 0, "single_fit": 0}
+
+    def _wf_sentinel(**kwargs):
+        calls["walk_forward"] += 1
+        return ([], True, float("nan"))
+
+    def _sf_sentinel(**kwargs):
+        calls["single_fit"] += 1
+        return ([], True, float("nan"))
+
+    monkeypatch.setattr(regime_writer_module, "_compute_symbol_tf_walk_forward", _wf_sentinel)
+    monkeypatch.setattr(regime_writer_module, "_compute_symbol_tf", _sf_sentinel)
+    monkeypatch.setattr(regime_writer_module.psycopg, "connect", lambda *a, **kw: MagicMock())
+
+    # Exact positional order from _run_symbol_worker's docstring (lines 1499-1519):
+    # symbol, tfs, dsn, n_components, vol_window, momentum_window, vol_of_vol_window,
+    # n_iter, hmm_random_state, covariance_type, min_hold_bars, heldout_fraction,
+    # full_cov_min_obs, min_state_occupation, churn_window, min_obs_factor, n_restarts,
+    # walk_forward_enabled, walk_forward_params -- an out-of-order tuple silently
+    # misassigns rather than raising, so this order must match exactly.
+    base_args = (
+        "SPY",  # symbol
+        ["1h"],  # tfs
+        "postgresql://fake",  # dsn
+        3,  # n_components
+        20,  # vol_window
+        20,  # momentum_window
+        20,  # vol_of_vol_window
+        50,  # n_iter
+        42,  # hmm_random_state
+        "diag",  # covariance_type
+        3,  # min_hold_bars
+        0.2,  # heldout_fraction
+        0,  # full_cov_min_obs
+        0.0,  # min_state_occupation
+        10,  # churn_window
+        20,  # min_obs_factor
+        1,  # n_restarts
+    )
+    walk_forward_params = {"1h": (200, 300)}
+
+    calls["walk_forward"] = 0
+    calls["single_fit"] = 0
+    result_true = regime_writer_module._run_symbol_worker(base_args + (True, walk_forward_params))
+    assert calls["walk_forward"] == 1, "walk-forward sentinel must be called when flag is True"
+    assert calls["single_fit"] == 0, "single-fit sentinel must NOT be called when flag is True"
+    assert result_true["error"] is None
+    assert result_true["results"][0]["tf"] == "1h"
+
+    calls["walk_forward"] = 0
+    calls["single_fit"] = 0
+    result_false = regime_writer_module._run_symbol_worker(base_args + (False, walk_forward_params))
+    assert calls["walk_forward"] == 0, "walk-forward sentinel must NOT be called when flag is False"
+    assert calls["single_fit"] == 1, "single-fit sentinel must be called when flag is False"
+    assert result_false["error"] is None
+    assert result_false["results"][0]["tf"] == "1h"
