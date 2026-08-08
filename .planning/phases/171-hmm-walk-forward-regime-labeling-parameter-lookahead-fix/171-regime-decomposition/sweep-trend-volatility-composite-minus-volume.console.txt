@@ -1,0 +1,134 @@
+====================================================================================================
+HMM regime-AXIS decomposition identifiability sweep
+====================================================================================================
+  axis trend_volatility cols=(0, 1, 2, 3) K=[3, 4, 5] cov=['full']  [trending_down .. trending_up, cross-cut by volatility (composite minus volume)]
+n_values=[5, 10, 20] max_n=20  standardize=True (production parity)
+n_iter=200 full_cov_min_obs=500 min_hold_bars=3 min_state_occupation=0.05
+pool_a_base=42 pool_b_base=1000
+bars: agreement>=0.9 AND kappa>=0.8 (both required)
+====================================================================================================
+loaded SPY/1d: n_obs=5027
+loaded IWM/1d: n_obs=5031
+loaded TLT/1d: n_obs=2613
+loaded GLD/1d: n_obs=5030
+loaded XLE/1d: n_obs=5031
+loaded EEM/1d: n_obs=5032
+loaded FXY/1d: n_obs=4872
+loaded SMH/1d: n_obs=3647
+loaded SPY/1h: n_obs=30912
+loaded IWM/1h: n_obs=36502
+loaded TLT/1h: n_obs=18358
+loaded GLD/1h: n_obs=36158
+loaded XLE/1h: n_obs=36019
+loaded EEM/1h: n_obs=30150
+loaded FXY/1h: n_obs=29108
+loaded SMH/1h: n_obs=25566
+
+48 (cell x axis x K x cov_type) jobs queued
+
+[1/48] XLE/1h axis=trend_volatility K=3 cov=full agree=0.9996 kappa=0.9994 sep=0.97 sols=1 fails=0+0 (71s)
+[2/48] IWM/1h axis=trend_volatility K=3 cov=full agree=0.9999 kappa=0.9999 sep=1.02 sols=1 fails=0+0 (76s)
+[3/48] SPY/1h axis=trend_volatility K=3 cov=full agree=0.9995 kappa=0.9993 sep=1.11 sols=1 fails=0+0 (46s)
+[4/48] SPY/1h axis=trend_volatility K=4 cov=full agree=0.9998 kappa=0.9998 sep=0.85 sols=2 fails=0+0 (137s)
+[5/48] GLD/1h axis=trend_volatility K=3 cov=full agree=0.9997 kappa=0.9995 sep=1.30 sols=1 fails=0+0 (144s)
+[6/48] IWM/1h axis=trend_volatility K=4 cov=full agree=1.0000 kappa=1.0000 sep=0.74 sols=5 fails=0+0 (184s)
+[7/48] GLD/1h axis=trend_volatility K=4 cov=full agree=0.9995 kappa=0.9993 sep=1.03 sols=4 fails=0+0 (192s)
+[8/48] EEM/1h axis=trend_volatility K=4 cov=full agree=1.0000 kappa=1.0000 sep=0.82 sols=7 fails=0+0 (209s)
+[9/48] XLE/1h axis=trend_volatility K=4 cov=full agree=1.0000 kappa=1.0000 sep=0.72 sols=3 fails=0+0 (213s)
+[10/48] SMH/1h axis=trend_volatility K=5 cov=full agree=1.0000 kappa=1.0000 sep=0.85 sols=11 fails=0+0 (232s)
+[11/48] FXY/1h axis=trend_volatility K=3 cov=full agree=1.0000 kappa=1.0000 sep=1.29 sols=2 fails=0+0 (89s)
+[12/48] SMH/1h axis=trend_volatility K=3 cov=full agree=1.0000 kappa=0.9999 sep=1.19 sols=1 fails=0+0 (60s)
+[13/48] SMH/1h axis=trend_volatility K=4 cov=full agree=0.9977 kappa=0.9968 sep=0.99 sols=4 fails=0+0 (173s)
+[14/48] TLT/1h axis=trend_volatility K=3 cov=full agree=0.9997 kappa=0.9996 sep=1.13 sols=1 fails=0+0 (38s)
+[15/48] EEM/1d axis=trend_volatility K=5 cov=full agree=0.9986 kappa=0.9982 sep=0.69 sols=15 fails=0+0 (41s)
+[16/48] EEM/1h axis=trend_volatility K=3 cov=full agree=1.0000 kappa=1.0000 sep=1.19 sols=1 fails=0+0 (117s)
+[17/48] SPY/1h axis=trend_volatility K=5 cov=full agree=0.3222 kappa=0.1333 sep=0.74 sols=5 fails=0+0 (258s)
+[18/48] XLE/1d axis=trend_volatility K=5 cov=full agree=0.5703 kappa=0.4539 sep=0.82 sols=16 fails=0+0 (39s)
+[19/48] IWM/1d axis=trend_volatility K=4 cov=full agree=0.5782 kappa=0.4427 sep=1.47 sols=14 fails=0+0 (18s)
+[20/48] TLT/1h axis=trend_volatility K=5 cov=full agree=0.9971 kappa=0.9963 sep=0.81 sols=9 fails=0+0 (152s)
+[21/48] IWM/1d axis=trend_volatility K=5 cov=full agree=0.9799 kappa=0.9744 sep=1.06 sols=19 fails=0+0 (44s)
+[22/48] GLD/1d axis=trend_volatility K=5 cov=full agree=1.0000 kappa=1.0000 sep=0.88 sols=16 fails=0+0 (33s)
+[23/48] EEM/1d axis=trend_volatility K=4 cov=full agree=0.9624 kappa=0.9445 sep=0.83 sols=7 fails=0+0 (26s)
+[24/48] SPY/1d axis=trend_volatility K=5 cov=full agree=1.0000 kappa=1.0000 sep=1.13 sols=11 fails=0+0 (37s)
+[25/48] FXY/1h axis=trend_volatility K=4 cov=full agree=0.9998 kappa=0.9997 sep=0.98 sols=6 fails=0+0 (282s)
+[26/48] XLE/1d axis=trend_volatility K=4 cov=full agree=0.9992 kappa=0.9989 sep=0.72 sols=9 fails=0+0 (25s)
+[27/48] EEM/1d axis=trend_volatility K=3 cov=full agree=0.9994 kappa=0.9990 sep=0.74 sols=3 fails=0+0 (11s)
+[28/48] SPY/1d axis=trend_volatility K=4 cov=full agree=0.9930 kappa=0.9902 sep=0.75 sols=12 fails=0+0 (17s)
+[29/48] XLE/1d axis=trend_volatility K=3 cov=full agree=1.0000 kappa=1.0000 sep=0.92 sols=2 fails=0+0 (11s)
+[30/48] GLD/1d axis=trend_volatility K=4 cov=full agree=0.9716 kappa=0.9614 sep=1.15 sols=5 fails=0+0 (21s)
+[31/48] SPY/1d axis=trend_volatility K=3 cov=full agree=1.0000 kappa=1.0000 sep=0.91 sols=5 fails=0+0 (13s)
+[32/48] IWM/1d axis=trend_volatility K=3 cov=full agree=0.9976 kappa=0.9960 sep=1.06 sols=5 fails=0+0 (16s)
+[33/48] SMH/1d axis=trend_volatility K=5 cov=full agree=0.5791 kappa=0.4867 sep=1.33 sols=19 fails=0+0 (20s)
+[34/48] FXY/1d axis=trend_volatility K=5 cov=full agree=0.5125 kappa=0.3842 sep=1.59 sols=20 fails=0+0 (49s)
+[35/48] FXY/1d axis=trend_volatility K=3 cov=full agree=0.9996 kappa=0.9994 sep=1.29 sols=3 fails=0+0 (12s)
+[36/48] TLT/1d axis=trend_volatility K=3 cov=full agree=0.9801 kappa=0.9642 sep=1.33 sols=3 fails=0+0 (5s)
+[37/48] SMH/1d axis=trend_volatility K=4 cov=full agree=0.4505 kappa=0.3152 sep=1.31 sols=17 fails=0+0 (12s)
+[38/48] GLD/1d axis=trend_volatility K=3 cov=full agree=1.0000 kappa=1.0000 sep=1.04 sols=2 fails=0+0 (19s)
+[39/48] SMH/1d axis=trend_volatility K=3 cov=full agree=1.0000 kappa=1.0000 sep=1.49 sols=4 fails=0+0 (9s)
+[40/48] FXY/1d axis=trend_volatility K=4 cov=full agree=0.9540 kappa=0.9380 sep=1.02 sols=6 fails=0+0 (28s)
+[41/48] TLT/1d axis=trend_volatility K=4 cov=full agree=1.0000 kappa=1.0000 sep=0.78 sols=11 fails=0+0 (10s)
+[42/48] TLT/1h axis=trend_volatility K=4 cov=full agree=0.9696 kappa=0.9581 sep=0.88 sols=5 fails=0+0 (116s)
+[43/48] FXY/1h axis=trend_volatility K=5 cov=full agree=0.9987 kappa=0.9984 sep=0.93 sols=12 fails=0+0 (307s)
+[44/48] TLT/1d axis=trend_volatility K=5 cov=full agree=0.4661 kappa=0.2942 sep=0.71 sols=19 fails=0+0 (18s)
+[45/48] GLD/1h axis=trend_volatility K=5 cov=full agree=0.9994 kappa=0.9993 sep=0.85 sols=10 fails=0+0 (316s)
+[46/48] XLE/1h axis=trend_volatility K=5 cov=full agree=0.9996 kappa=0.9995 sep=0.54 sols=6 fails=0+0 (325s)
+[47/48] EEM/1h axis=trend_volatility K=5 cov=full agree=1.0000 kappa=1.0000 sep=0.87 sols=9 fails=0+0 (331s)
+[48/48] IWM/1h axis=trend_volatility K=5 cov=full agree=0.5697 kappa=0.4665 sep=0.87 sols=7 fails=0+0 (351s)
+
+all jobs done in 352s
+
+====================================================================================================
+PER-AXIS x CONFIG SUMMARY (min across cells + pass count; minimum is the honest signal)
+====================================================================================================
+axis         K   cov   N  pass/cells  min_agree  min_kappa  min_sep max_sols  worst_cell
+trend_volatility  3  full  20    16/16        0.9801     0.9642     0.74        5  TLT/1d
+trend_volatility  4  full  20    14/16        0.4505     0.3152     0.72       17  SMH/1d
+trend_volatility  5  full  20    10/16        0.3222     0.1333     0.54       20  SPY/1h
+
+====================================================================================================
+SMALLEST IDENTIFIABLE K PER AXIS at N=20 (all-N table is in the JSON)
+====================================================================================================
+trend_volatility: smallest all-cell-identifiable = K=3 cov=full (min_agree=0.9801 min_kappa=0.9642 min_sep=0.74)
+
+====================================================================================================
+PER-CELL MATRIX at N=20, per axis (agreement / kappa; * = clears both bars)
+====================================================================================================
+
+-- axis: trend_volatility  [trending_down .. trending_up, cross-cut by volatility (composite minus volume)]
+cell               K3/full         K4/full         K5/full
+EEM/1d      0.999/ 0.999*  0.962/ 0.944*  0.999/ 0.998*
+FXY/1d      1.000/ 0.999*  0.954/ 0.938*  0.513/ 0.384 
+GLD/1d      1.000/ 1.000*  0.972/ 0.961*  1.000/ 1.000*
+IWM/1d      0.998/ 0.996*  0.578/ 0.443   0.980/ 0.974*
+SMH/1d      1.000/ 1.000*  0.451/ 0.315   0.579/ 0.487 
+SPY/1d      1.000/ 1.000*  0.993/ 0.990*  1.000/ 1.000*
+TLT/1d      0.980/ 0.964*  1.000/ 1.000*  0.466/ 0.294 
+XLE/1d      1.000/ 1.000*  0.999/ 0.999*  0.570/ 0.454 
+EEM/1h      1.000/ 1.000*  1.000/ 1.000*  1.000/ 1.000*
+FXY/1h      1.000/ 1.000*  1.000/ 1.000*  0.999/ 0.998*
+GLD/1h      1.000/ 1.000*  0.999/ 0.999*  0.999/ 0.999*
+IWM/1h      1.000/ 1.000*  1.000/ 1.000*  0.570/ 0.466 
+SMH/1h      1.000/ 1.000*  0.998/ 0.997*  1.000/ 1.000*
+SPY/1h      1.000/ 0.999*  1.000/ 1.000*  0.322/ 0.133 
+TLT/1h      1.000/ 1.000*  0.970/ 0.958*  0.997/ 0.996*
+XLE/1h      1.000/ 0.999*  1.000/ 1.000*  1.000/ 0.999*
+
+====================================================================================================
+MECHANISM: state separation + solution multiplicity at N=20
+(separation = min pairwise Mahalanobis distance between fitted state means,
+ pooled-covariance units. solutions = distinct labelings among pool A's own fits.)
+====================================================================================================
+axis         K   cov  median_sep   min_sep  cells_with_multi_solutions  median_ll_spread
+trend_volatility  3  full        1.12      0.74                     9/16             0.001382
+trend_volatility  4  full        0.86      0.72                    16/16             0.015833
+trend_volatility  5  full        0.86      0.54                    16/16             0.037406
+
+====================================================================================================
+DEGENERACY GATE at N=20 (production `_check_occupation_gate`, live threshold)
+====================================================================================================
+trend_volatility K=3 full  degenerate= 0/16  min_occupation=0.062
+trend_volatility K=4 full  degenerate= 2/16  min_occupation=0.024  [EEM/1d(0.044), TLT/1d(0.024)]
+trend_volatility K=5 full  degenerate= 2/16  min_occupation=0.024  [EEM/1d(0.032), TLT/1d(0.024)]
+====================================================================================================
+
+Results written to cache/hmm_regime_axis_decomposition_identifiability_sweep.json

@@ -121,6 +121,14 @@ _AXIS_COLUMNS: dict[str, tuple[int, ...]] = {
     "trend": (0, 2),  # log_return, momentum
     "volatility": (1, 3),  # realized_vol, vol_of_vol
     "volume": (4,),  # rel_volume
+    # Follow-on question the isolated-axis results raised but didn't answer: volume never
+    # identifies on its own (no K clears both bars), yet the full 5-column composite DOES
+    # identify at K=3. Is volume neutral filler the composite fit tolerates, or is it an
+    # actively noisy dimension quietly costing the composite headroom (fewer reliably
+    # identifiable states than a volume-free model could support)? composite minus volume,
+    # swept at K=3/4/5, answers it directly: same pass count as composite at K=3 -> volume
+    # was neutral; passes at K=4 or K=5 where composite failed -> volume was a drag.
+    "trend_volatility": (0, 1, 2, 3),  # log_return, realized_vol, momentum, vol_of_vol
 }
 
 _AXIS_LABEL_GLOSS: dict[str, str] = {
@@ -128,6 +136,7 @@ _AXIS_LABEL_GLOSS: dict[str, str] = {
     "trend": "trending_down .. trending_up (log_return rank)",
     "volatility": "calmest .. most turbulent (realized_vol rank)",
     "volume": "lightest .. heaviest (rel_volume rank)",
+    "trend_volatility": "trending_down .. trending_up, cross-cut by volatility (composite minus volume)",
 }
 
 # Per-axis K grid. Volatility/volume are hypothesized to need only 2-3 states
@@ -140,6 +149,9 @@ _DEFAULT_AXIS_K_VALUES: dict[str, list[int]] = {
     "trend": [2, 3, 4, 5],
     "volatility": [2, 3, 4],
     "volume": [2, 3],
+    # Swept up through 5 (composite's original, non-identifiable ceiling) specifically to
+    # test whether dropping volume recovers headroom above composite's K=3 result.
+    "trend_volatility": [3, 4, 5],
 }
 
 # Per-axis covariance grid. `volume` is 1-DIMENSIONAL: a 1x1 "full" covariance IS a
@@ -151,6 +163,9 @@ _DEFAULT_AXIS_COV_TYPES: dict[str, list[str]] = {
     "trend": ["full", "diag"],
     "volatility": ["full", "diag"],
     "volume": ["full", "diag"],
+    # full only, matching composite/production's own choice -- diag was already shown not
+    # to help on any axis tested so far, no reason to re-litigate it here.
+    "trend_volatility": ["full"],
 }
 
 _DEFAULT_SYMBOLS = ["SPY", "IWM", "TLT", "GLD", "XLE", "EEM", "FXY", "SMH"]
