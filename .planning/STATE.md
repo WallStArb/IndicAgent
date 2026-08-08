@@ -112,9 +112,22 @@ backfilled and live in the corpus (see Phase Summary table).** Phase 151 alone r
 but not executed, still deliberately behind Phase 167: don't accelerate feature-expansion work
 that hasn't been shown to be the actual bottleneck.
 
-**Current focus (updated 2026-08-07):** Milestone v3.1's defining verdict stands: Phase 148 found
+**Current focus (updated 2026-08-08):** Milestone v3.1's defining verdict stands: Phase 148 found
 Gate 1 (signal proof) PASS but Gate 2 (execution proof) FAIL -- do not promote the per-symbol
-directional construction to live capital. Phase 167 (Cross-Sectional Trade Construction,
+directional construction to live capital. **New thread, 2026-08-08: user wants to refine this
+per-symbol construction using Phase 163-165's features (Phase 164 in particular measured as the
+best-performing feature vintage in the corpus, 72.2% FDR clear rate).** A rigor review before
+any gate work found 3 gating items, all filed as P1 todos: [276](../todos/pending/276-phase163-165-lookahead-causal-safety-audit.md)
+(Phase 163-165 have never been audited for the same lookahead-leak bug class that hit
+`ctf_momentum` and `regime_writer`'s HMM fit, twice already), [277](../todos/pending/277-alpha-score-concentration-cofiring-degeneracy-diagnosis.md)
+(Gate 2's ~22-concurrent/99.5%-same-direction co-firing pattern suggests `alpha_score` may be a
+disguised single-factor bet, not real per-symbol breadth -- diagnose before refining features
+that feed the same combination), [278](../todos/pending/278-oos-protocol-gate-relook-decision-phase163-165-features.md)
+(checked against `docs/plans/OOS-EVAL-PROTOCOL.md`'s own 3-condition re-look exception -- fails
+2 of 3 as scoped; a bare Gate 1/Gate 2 re-run would be an ungoverned second look at an
+already-3x-used OOS holdout). **Do not jump straight to a gate re-run** -- 276/277 are
+read-only/diagnostic-tier and can run in parallel now; 278 needs an explicit decision recorded
+before any authoritative gate consumes another look. Phase 167 (Cross-Sectional Trade Construction,
 `cross_sectional_relative_value`) was recorded 2026-07-27 as COMPLETE, both live Validation Gates
 PASSED, but that verdict did not survive re-measurement under the corrected `ctf_momentum` join --
 **re-verified at authoritative tier 2026-08-07, both gates now FAIL** (see the Strategic Plan
@@ -246,20 +259,33 @@ candidate Part 2 -- exists only to serve an overridden plan, see todo 179).
 backfill (todo 176). Its regime-wipe side effect (todo 205) and the resulting repair pipeline
 are ALSO fully closed as of 2026-07-30 -- not the pipeline currently running (see Tier -1).
 
-*Tier -1 -- HALTED 2026-08-02, supersedes every tier below until it clears:* the corpus
-pipeline relaunched 2026-07-30 from step 3 (`forward_return_writer`) reached `ic_engine`
-(step 5/8) run_complete at **2026-08-02 19:19:25 UTC** -- 81/81 symbols, 2,924,007
-`feature_ic_scores` rows, zero error-level log lines, FDR backfill already complete
-(`passes_fdr` non-NULL on every row), elapsed ~70.2h. Clean on its own terms. **But the
-wrapper script's next gate, `ops_canary_integrity_assert.py`, FATAL-halted the pipeline
-before steps 6-8 (`ic_shrinkage`/`ensemble_trainer`/`alpha_publisher`) ran.** Two findings
-from that gate, both filed: **todo 204 CLOSED** (positive control `canary_acausal_placebo`
-now clears correctly, 231/239 cells -- confirms the gate itself works and the prior failure
-was a stale-vintage artifact) and **new todo 230** (3 negative-control canaries falsely
-cleared the gate, 8/717 cell-tests ≈1.1% -- below this project's own documented ~5% naive-CI
-noise baseline, root cause not diagnosed: could be the gate needing a Binomial-tolerance
-check instead of zero-tolerance, or a real artifact -- do not guess-fix). **Steps 6-8 do not
-run until 230 is resolved or the gate is deliberately overridden (user's call).**
+*Tier -1 -- CORRECTED 2026-08-08 (was stale "HALTED"): this tier actually CLEARED same-day,
+2026-08-02.* the corpus pipeline relaunched 2026-07-30 from step 3 (`forward_return_writer`)
+reached `ic_engine` (step 5/8) run_complete at **2026-08-02 19:19:25 UTC** -- 81/81 symbols,
+2,924,007 `feature_ic_scores` rows, zero error-level log lines, FDR backfill already complete
+(`passes_fdr` non-NULL on every row), elapsed ~70.2h. Clean on its own terms. The wrapper
+script's next gate, `ops_canary_integrity_assert.py`, FATAL-halted before steps 6-8
+(`ic_shrinkage`/`ensemble_trainer`/`alpha_publisher`) ran. Two findings from that gate, both
+filed and both CLOSED: **todo 204** (positive control `canary_acausal_placebo` now clears
+correctly, 231/239 cells -- confirms the gate itself works and the prior failure was a
+stale-vintage artifact) and **todo 230** (3 negative-control canaries falsely cleared the gate,
+8/717 cell-tests ≈1.1%) -- **resolved properly the same day, not overridden.** Root-caused to
+two things: (1) the gate applied a Binomial tail-bound tolerance to per-symbol clears but was
+hard-zero-tolerance on POOLED clears specifically (confirmed deliberate per
+`methodology-change-ledger.md` E7, not an accidental gap); (2) traced the 8 cells anyway and
+found genuine regime-conditional signal concentrating BH-FDR's budgeted false-discovery rate
+into those exact cells (expected behavior of a correctly-functioning corpus-wide FDR
+procedure, not a corpus artifact) -- `breadth_vol.py`'s regime construction re-verified fully
+causal. Fix: extended the Binomial tolerance to POOLED with a stricter `pooled_tail_alpha`,
+documented as a dated E7 addendum. **Confirmed via `logs/corpus_pipeline/step_timings.jsonl`:
+steps 6-8 ran to completion same day** -- `ic_shrinkage` done 20:42:44 UTC (E1 gate PASSED),
+`ensemble_trainer` done 20:54:43 UTC (190 `ensemble_weights` rows/25 strata), `alpha_publisher`
+done 21:19:49 UTC (~30M `ensemble_alpha` rows, 8,855,505 `alpha_events` emitted). Corpus-write
+work has been safe to start again since 2026-08-04 (confirmed independently in
+[[project_corpus_pipeline_state]] memory) -- **this Tier -1 entry sat stale for 6 days citing a
+halt that had already cleared; if STATE.md's own "supersedes every tier below" framing is ever
+trusted again, re-verify against `step_timings.jsonl` directly first, don't take the prose at
+face value.**
 
 **Parallel to this run, 2026-08-02 (pure code/docs, no corpus dependency):** todo 216 (BLAS
 thread oversubscription across all 5 `ProcessPoolExecutor` batch services) CLOSED, migration
