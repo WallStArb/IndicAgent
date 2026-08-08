@@ -1,0 +1,525 @@
+====================================================================================================
+HMM regime-AXIS decomposition identifiability sweep
+====================================================================================================
+  axis composite   cols=(0, 1, 2, 3, 4) K=[3, 5] cov=['full']  [trending_down .. trending_up (production semantics)]
+  axis trend       cols=(0, 2) K=[2, 3, 4, 5] cov=['full', 'diag']  [trending_down .. trending_up (log_return rank)]
+  axis volatility  cols=(1, 3) K=[2, 3, 4] cov=['full', 'diag']  [calmest .. most turbulent (realized_vol rank)]
+  axis volume      cols=(4,) K=[2, 3] cov=['full', 'diag']  [lightest .. heaviest (rel_volume rank)]
+n_values=[5, 10, 20] max_n=20  standardize=True (production parity)
+n_iter=200 full_cov_min_obs=500 min_hold_bars=3 min_state_occupation=0.05
+pool_a_base=42 pool_b_base=1000
+bars: agreement>=0.9 AND kappa>=0.8 (both required)
+====================================================================================================
+loaded SPY/1d: n_obs=5027
+loaded IWM/1d: n_obs=5031
+loaded TLT/1d: n_obs=2613
+loaded GLD/1d: n_obs=5030
+loaded XLE/1d: n_obs=5031
+loaded EEM/1d: n_obs=5032
+loaded FXY/1d: n_obs=4872
+loaded SMH/1d: n_obs=3647
+loaded SPY/1h: n_obs=30912
+loaded IWM/1h: n_obs=36502
+loaded TLT/1h: n_obs=18358
+loaded GLD/1h: n_obs=36158
+loaded XLE/1h: n_obs=36019
+loaded EEM/1h: n_obs=30150
+loaded FXY/1h: n_obs=29108
+loaded SMH/1h: n_obs=25566
+
+320 (cell x axis x K x cov_type) jobs queued
+
+[1/320] SMH/1h axis=composite  K=3 cov=full agree=1.0000 kappa=0.9999 sep=1.19 sols=1 fails=0+0 (51s)
+[2/320] SPY/1h axis=composite  K=3 cov=full agree=1.0000 kappa=0.9999 sep=1.11 sols=1 fails=0+0 (85s)
+[3/320] XLE/1h axis=composite  K=3 cov=full agree=1.0000 kappa=1.0000 sep=1.01 sols=1 fails=0+0 (100s)
+[4/320] IWM/1h axis=composite  K=3 cov=full agree=0.9999 kappa=0.9998 sep=1.02 sols=1 fails=0+0 (112s)
+[5/320] FXY/1h axis=composite  K=3 cov=full agree=0.9997 kappa=0.9995 sep=1.30 sols=1 fails=0+0 (115s)
+[6/320] EEM/1h axis=composite  K=3 cov=full agree=0.9998 kappa=0.9997 sep=1.20 sols=2 fails=0+0 (126s)
+[7/320] GLD/1h axis=composite  K=3 cov=full agree=0.9947 kappa=0.9913 sep=1.33 sols=4 fails=0+0 (147s)
+[8/320] TLT/1h axis=composite  K=5 cov=full agree=0.9993 kappa=0.9991 sep=0.81 sols=8 fails=0+0 (181s)
+[9/320] IWM/1h axis=trend      K=4 cov=full agree=0.9967 kappa=0.9956 sep=1.94 sols=3 fails=0+0 (185s)
+[10/320] IWM/1h axis=trend      K=5 cov=full agree=0.9990 kappa=0.9986 sep=0.99 sols=2 fails=0+0 (308s)
+[11/320] SMH/1h axis=composite  K=5 cov=full agree=0.5357 kappa=0.4118 sep=0.92 sols=10 fails=0+0 (310s)
+[12/320] SPY/1h axis=trend      K=5 cov=full agree=0.9967 kappa=0.9957 sep=0.79 sols=2 fails=0+0 (224s)
+[13/320] IWM/1h axis=volatility K=4 cov=full agree=1.0000 kappa=1.0000 sep=0.71 sols=9 fails=0+0 (210s)
+[14/320] SPY/1h axis=composite  K=5 cov=full agree=0.0784 kappa=-0.1800 sep=1.27 sols=6 fails=0+0 (337s)
+[15/320] EEM/1h axis=composite  K=5 cov=full agree=0.1516 kappa=-0.0717 sep=0.87 sols=14 fails=0+0 (361s)
+[16/320] IWM/1h axis=composite  K=5 cov=full agree=0.9982 kappa=0.9977 sep=0.68 sols=5 fails=0+0 (366s)
+[17/320] TLT/1h axis=composite  K=3 cov=full agree=0.9985 kappa=0.9976 sep=1.12 sols=1 fails=0+0 (47s)
+[18/320] FXY/1h axis=trend      K=5 cov=full agree=0.3341 kappa=0.1021 sep=1.10 sols=5 fails=0+0 (233s)
+[19/320] XLE/1h axis=trend      K=5 cov=full agree=0.9981 kappa=0.9975 sep=0.98 sols=2 fails=0+0 (298s)
+[20/320] FXY/1h axis=composite  K=5 cov=full agree=0.9995 kappa=0.9993 sep=0.93 sols=8 fails=0+0 (396s)
+[21/320] XLE/1h axis=composite  K=5 cov=full agree=0.9999 kappa=0.9999 sep=0.56 sols=10 fails=0+0 (418s)
+[22/320] GLD/1h axis=composite  K=5 cov=full agree=0.1964 kappa=-0.0282 sep=0.85 sols=18 fails=0+0 (463s)
+[23/320] SPY/1h axis=trend      K=4 cov=full agree=0.9994 kappa=0.9992 sep=1.90 sols=2 fails=0+0 (141s)
+[24/320] GLD/1h axis=volatility K=4 cov=full agree=0.9993 kappa=0.9990 sep=0.88 sols=10 fails=0+0 (183s)
+[25/320] IWM/1h axis=volatility K=3 cov=full agree=1.0000 kappa=1.0000 sep=0.99 sols=5 fails=0+0 (77s)
+[26/320] IWM/1h axis=trend      K=3 cov=full agree=1.0000 kappa=1.0000 sep=2.26 sols=1 fails=0+0 (99s)
+[27/320] XLE/1h axis=trend      K=4 cov=full agree=0.9987 kappa=0.9982 sep=2.02 sols=3 fails=0+0 (192s)
+[28/320] GLD/1h axis=trend      K=4 cov=full agree=0.9949 kappa=0.9925 sep=0.13 sols=3 fails=0+0 (324s)
+[29/320] FXY/1h axis=trend      K=4 cov=full agree=1.0000 kappa=1.0000 sep=0.52 sols=5 fails=0+0 (148s)
+[30/320] GLD/1h axis=trend      K=5 cov=full agree=0.9998 kappa=0.9998 sep=0.71 sols=2 fails=0+0 (490s)
+[31/320] SPY/1h axis=volatility K=4 cov=full agree=0.9955 kappa=0.9937 sep=0.84 sols=10 fails=0+0 (188s)
+[32/320] GLD/1h axis=trend      K=3 cov=full agree=1.0000 kappa=1.0000 sep=0.99 sols=2 fails=0+0 (93s)
+[33/320] XLE/1h axis=trend      K=3 cov=full agree=0.9999 kappa=0.9998 sep=2.23 sols=1 fails=0+0 (88s)
+[34/320] XLE/1h axis=volatility K=4 cov=full agree=1.0000 kappa=1.0000 sep=0.66 sols=8 fails=0+0 (264s)
+[35/320] FXY/1h axis=volatility K=4 cov=full agree=0.9993 kappa=0.9991 sep=0.95 sols=6 fails=0+0 (194s)
+[36/320] EEM/1h axis=trend      K=5 cov=full agree=0.9802 kappa=0.9739 sep=0.53 sols=13 fails=0+0 (465s)
+[37/320] GLD/1h axis=volatility K=3 cov=full agree=0.9978 kappa=0.9964 sep=1.20 sols=6 fails=0+0 (100s)
+[38/320] EEM/1h axis=volatility K=4 cov=full agree=0.9999 kappa=0.9999 sep=0.86 sols=5 fails=0+0 (207s)
+[39/320] XLE/1h axis=volatility K=3 cov=full agree=0.9979 kappa=0.9967 sep=0.95 sols=4 fails=0+0 (87s)
+[40/320] SMH/1h axis=trend      K=5 cov=full agree=0.9981 kappa=0.9975 sep=0.96 sols=3 fails=0+0 (252s)
+[41/320] SMH/1h axis=volatility K=4 cov=full agree=0.9994 kappa=0.9992 sep=0.99 sols=7 fails=0+0 (100s)
+[42/320] EEM/1h axis=trend      K=3 cov=full agree=1.0000 kappa=1.0000 sep=1.03 sols=1 fails=0+0 (60s)
+[43/320] SPY/1h axis=volatility K=3 cov=full agree=0.9978 kappa=0.9965 sep=1.08 sols=4 fails=0+0 (88s)
+[44/320] IWM/1h axis=volatility K=2 cov=full agree=1.0000 kappa=1.0000 sep=1.93 sols=1 fails=0+0 (29s)
+[45/320] IWM/1h axis=trend      K=2 cov=full agree=0.9991 kappa=0.9981 sep=2.39 sols=1 fails=0+0 (39s)
+[46/320] SMH/1h axis=trend      K=4 cov=full agree=0.9999 kappa=0.9998 sep=1.96 sols=4 fails=0+0 (129s)
+[47/320] SMH/1h axis=trend      K=3 cov=full agree=0.9993 kappa=0.9989 sep=2.26 sols=1 fails=0+0 (48s)
+[48/320] GLD/1h axis=trend      K=2 cov=full agree=0.9999 kappa=0.9997 sep=2.58 sols=2 fails=0+0 (26s)
+[49/320] EEM/1h axis=volatility K=3 cov=full agree=1.0000 kappa=1.0000 sep=1.12 sols=4 fails=0+0 (71s)
+[50/320] SPY/1h axis=trend      K=3 cov=full agree=0.9998 kappa=0.9997 sep=2.13 sols=3 fails=0+0 (126s)
+[51/320] GLD/1h axis=volatility K=2 cov=full agree=0.9999 kappa=0.9998 sep=1.89 sols=1 fails=0+0 (24s)
+[52/320] FXY/1h axis=volatility K=3 cov=full agree=0.9995 kappa=0.9992 sep=1.23 sols=6 fails=0+0 (60s)
+[53/320] EEM/1h axis=trend      K=4 cov=full agree=1.0000 kappa=1.0000 sep=0.21 sols=2 fails=0+0 (272s)
+[54/320] FXY/1h axis=trend      K=3 cov=full agree=0.9999 kappa=0.9999 sep=1.29 sols=2 fails=0+0 (66s)
+[55/320] XLE/1h axis=volatility K=2 cov=full agree=0.9997 kappa=0.9992 sep=1.79 sols=1 fails=0+0 (33s)
+[56/320] XLE/1h axis=trend      K=2 cov=full agree=1.0000 kappa=1.0000 sep=2.46 sols=1 fails=0+0 (37s)
+[57/320] GLD/1d axis=composite  K=5 cov=full agree=0.2640 kappa=0.0796 sep=1.24 sols=16 fails=0+0 (31s)
+[58/320] SPY/1h axis=volatility K=2 cov=full agree=1.0000 kappa=1.0000 sep=1.83 sols=1 fails=0+0 (25s)
+[59/320] SPY/1d axis=composite  K=5 cov=full agree=0.5071 kappa=0.3698 sep=1.14 sols=14 fails=0+0 (31s)
+[60/320] XLE/1d axis=composite  K=5 cov=full agree=0.5679 kappa=0.4500 sep=0.72 sols=16 fails=0+0 (34s)
+[61/320] SMH/1h axis=volatility K=3 cov=full agree=0.9988 kappa=0.9982 sep=1.15 sols=5 fails=0+0 (81s)
+[62/320] IWM/1d axis=composite  K=5 cov=full agree=1.0000 kappa=1.0000 sep=1.08 sols=14 fails=0+0 (36s)
+[63/320] SPY/1h axis=trend      K=2 cov=full agree=0.9998 kappa=0.9996 sep=2.39 sols=1 fails=0+0 (29s)
+[64/320] EEM/1h axis=trend      K=2 cov=full agree=1.0000 kappa=0.9999 sep=2.54 sols=2 fails=0+0 (28s)
+[65/320] EEM/1d axis=composite  K=5 cov=full agree=1.0000 kappa=1.0000 sep=0.68 sols=16 fails=0+0 (45s)
+[66/320] EEM/1h axis=volatility K=2 cov=full agree=0.9999 kappa=0.9999 sep=1.98 sols=1 fails=0+0 (18s)
+[67/320] FXY/1d axis=composite  K=5 cov=full agree=0.9840 kappa=0.9796 sep=1.49 sols=18 fails=0+0 (36s)
+[68/320] FXY/1h axis=volatility K=2 cov=full agree=0.9995 kappa=0.9988 sep=2.01 sols=1 fails=0+0 (22s)
+[69/320] TLT/1h axis=trend      K=4 cov=full agree=0.4995 kappa=0.3319 sep=0.19 sols=2 fails=0+0 (103s)
+[70/320] SMH/1h axis=trend      K=2 cov=full agree=1.0000 kappa=0.9999 sep=2.46 sols=1 fails=0+0 (18s)
+[71/320] SMH/1h axis=volatility K=2 cov=full agree=1.0000 kappa=1.0000 sep=1.99 sols=1 fails=0+0 (16s)
+[72/320] FXY/1h axis=trend      K=2 cov=full agree=1.0000 kappa=1.0000 sep=2.51 sols=2 fails=0+0 (31s)
+[73/320] TLT/1h axis=trend      K=5 cov=full agree=0.9948 kappa=0.9931 sep=1.02 sols=9 fails=0+0 (151s)
+[74/320] TLT/1h axis=volatility K=4 cov=full agree=1.0000 kappa=1.0000 sep=0.84 sols=11 fails=0+0 (118s)
+[75/320] TLT/1h axis=volatility K=3 cov=full agree=0.9991 kappa=0.9986 sep=1.14 sols=5 fails=0+0 (44s)
+[76/320] TLT/1h axis=trend      K=3 cov=full agree=1.0000 kappa=1.0000 sep=2.35 sols=4 fails=0+0 (80s)
+[77/320] GLD/1h axis=volume     K=3 cov=full agree=0.2857 kappa=0.1473 sep=0.53 sols=8 fails=0+0 (87s)
+[78/320] SMH/1d axis=composite  K=5 cov=full agree=0.2972 kappa=0.1009 sep=1.33 sols=20 fails=0+0 (23s)
+[79/320] IWM/1h axis=trend      K=4 cov=diag agree=0.9994 kappa=0.9992 sep=1.97 sols=2 fails=0+0 (142s)
+[80/320] XLE/1h axis=volume     K=3 cov=full agree=0.9876 kappa=0.9729 sep=1.83 sols=9 fails=0+0 (164s)
+[81/320] IWM/1h axis=volume     K=3 cov=full agree=0.9999 kappa=0.9999 sep=0.49 sols=6 fails=0+0 (170s)
+[82/320] GLD/1h axis=volatility K=4 cov=diag agree=1.0000 kappa=1.0000 sep=0.95 sols=11 fails=0+0 (173s)
+[83/320] EEM/1h axis=volume     K=3 cov=full agree=0.9953 kappa=0.9905 sep=1.03 sols=8 fails=0+0 (99s)
+[84/320] SPY/1h axis=trend      K=5 cov=diag agree=0.9992 kappa=0.9989 sep=0.77 sols=3 fails=0+0 (215s)
+[85/320] IWM/1h axis=volatility K=4 cov=diag agree=1.0000 kappa=1.0000 sep=0.83 sols=7 fails=0+0 (199s)
+[86/320] XLE/1h axis=trend      K=4 cov=diag agree=0.9976 kappa=0.9967 sep=2.05 sols=2 fails=0+0 (190s)
+[87/320] GLD/1h axis=trend      K=4 cov=diag agree=0.9939 kappa=0.9910 sep=0.72 sols=2 fails=0+0 (205s)
+[88/320] SPY/1h axis=volume     K=3 cov=full agree=0.9983 kappa=0.9972 sep=0.64 sols=11 fails=0+0 (172s)
+[89/320] FXY/1h axis=trend      K=5 cov=diag agree=1.0000 kappa=1.0000 sep=0.95 sols=6 fails=0+0 (238s)
+[90/320] EEM/1d axis=composite  K=3 cov=full agree=0.9996 kappa=0.9994 sep=0.75 sols=2 fails=0+0 (18s)
+[91/320] IWM/1h axis=trend      K=5 cov=diag agree=0.9980 kappa=0.9973 sep=0.95 sols=3 fails=0+0 (294s)
+[92/320] XLE/1d axis=composite  K=3 cov=full agree=1.0000 kappa=1.0000 sep=0.92 sols=5 fails=0+0 (13s)
+[93/320] IWM/1d axis=composite  K=3 cov=full agree=0.9996 kappa=0.9993 sep=1.07 sols=3 fails=0+0 (17s)
+[94/320] XLE/1h axis=volatility K=4 cov=diag agree=0.9984 kappa=0.9977 sep=0.76 sols=5 fails=0+0 (241s)
+[95/320] GLD/1d axis=composite  K=3 cov=full agree=0.9996 kappa=0.9994 sep=1.04 sols=3 fails=0+0 (12s)
+[96/320] TLT/1h axis=volatility K=2 cov=full agree=1.0000 kappa=1.0000 sep=1.96 sols=1 fails=0+0 (9s)
+[97/320] FXY/1d axis=composite  K=3 cov=full agree=1.0000 kappa=1.0000 sep=1.30 sols=4 fails=0+0 (13s)
+[98/320] SPY/1d axis=composite  K=3 cov=full agree=1.0000 kappa=1.0000 sep=0.91 sols=5 fails=0+0 (16s)
+[99/320] TLT/1h axis=trend      K=2 cov=full agree=0.9997 kappa=0.9995 sep=2.46 sols=3 fails=0+0 (15s)
+[100/320] SPY/1h axis=trend      K=4 cov=diag agree=1.0000 kappa=1.0000 sep=1.92 sols=3 fails=0+0 (128s)
+[101/320] FXY/1h axis=volume     K=3 cov=full agree=0.9917 kappa=0.9872 sep=0.71 sols=8 fails=0+0 (141s)
+[102/320] XLE/1h axis=trend      K=5 cov=diag agree=0.9961 kappa=0.9948 sep=0.88 sols=4 fails=0+0 (312s)
+[103/320] EEM/1h axis=volatility K=4 cov=diag agree=0.9976 kappa=0.9967 sep=0.98 sols=5 fails=0+0 (122s)
+[104/320] GLD/1h axis=volume     K=2 cov=full agree=1.0000 kappa=1.0000 sep=0.06 sols=1 fails=0+0 (41s)
+[105/320] FXY/1h axis=trend      K=4 cov=diag agree=0.9999 kappa=0.9998 sep=0.47 sols=3 fails=0+0 (124s)
+[106/320] SMH/1h axis=trend      K=5 cov=diag agree=0.9994 kappa=0.9992 sep=0.95 sols=3 fails=0+0 (183s)
+[107/320] SPY/1h axis=volatility K=4 cov=diag agree=0.9955 kappa=0.9936 sep=0.93 sols=5 fails=0+0 (149s)
+[108/320] EEM/1h axis=trend      K=5 cov=diag agree=0.6219 kappa=0.4965 sep=0.27 sols=6 fails=0+0 (334s)
+[109/320] IWM/1h axis=trend      K=3 cov=diag agree=1.0000 kappa=1.0000 sep=2.22 sols=1 fails=0+0 (71s)
+[110/320] IWM/1h axis=volatility K=3 cov=diag agree=0.9999 kappa=0.9998 sep=1.18 sols=4 fails=0+0 (68s)
+[111/320] TLT/1d axis=composite  K=5 cov=full agree=0.8783 kappa=0.8398 sep=1.22 sols=19 fails=0+0 (20s)
+[112/320] SMH/1h axis=volume     K=3 cov=full agree=0.9910 kappa=0.9860 sep=1.21 sols=13 fails=0+0 (146s)
+[113/320] FXY/1h axis=volatility K=4 cov=diag agree=0.9987 kappa=0.9982 sep=1.10 sols=6 fails=0+0 (154s)
+[114/320] GLD/1h axis=volatility K=3 cov=diag agree=0.9999 kappa=0.9999 sep=1.36 sols=5 fails=0+0 (96s)
+[115/320] XLE/1h axis=trend      K=3 cov=diag agree=0.9999 kappa=0.9999 sep=2.17 sols=2 fails=0+0 (92s)
+[116/320] EEM/1h axis=trend      K=4 cov=diag agree=1.0000 kappa=1.0000 sep=0.27 sols=2 fails=0+0 (200s)
+[117/320] GLD/1h axis=trend      K=3 cov=diag agree=1.0000 kappa=1.0000 sep=0.81 sols=1 fails=0+0 (112s)
+[118/320] SPY/1h axis=volatility K=3 cov=diag agree=1.0000 kappa=1.0000 sep=1.24 sols=2 fails=0+0 (56s)
+[119/320] IWM/1h axis=volume     K=2 cov=full agree=1.0000 kappa=1.0000 sep=0.92 sols=6 fails=0+0 (135s)
+[120/320] XLE/1h axis=volatility K=3 cov=diag agree=0.9999 kappa=0.9999 sep=1.14 sols=4 fails=0+0 (92s)
+[121/320] XLE/1h axis=volume     K=2 cov=full agree=1.0000 kappa=1.0000 sep=0.00 sols=3 fails=0+0 (92s)
+[122/320] GLD/1h axis=trend      K=5 cov=diag agree=0.9940 kappa=0.9921 sep=0.25 sols=6 fails=0+0 (446s)
+[123/320] EEM/1h axis=trend      K=3 cov=diag agree=1.0000 kappa=1.0000 sep=0.94 sols=2 fails=0+0 (62s)
+[124/320] EEM/1h axis=volatility K=3 cov=diag agree=1.0000 kappa=1.0000 sep=1.33 sols=3 fails=0+0 (61s)
+[125/320] SMH/1d axis=composite  K=3 cov=full agree=0.9989 kappa=0.9983 sep=1.50 sols=3 fails=0+0 (12s)
+[126/320] EEM/1h axis=volume     K=2 cov=full agree=0.6729 kappa=0.3700 sep=1.61 sols=8 fails=0+0 (56s)
+[127/320] SPY/1h axis=volume     K=2 cov=full agree=1.0000 kappa=1.0000 sep=0.01 sols=8 fails=0+0 (88s)
+[128/320] FXY/1h axis=trend      K=3 cov=diag agree=1.0000 kappa=1.0000 sep=1.22 sols=2 fails=0+0 (58s)
+[129/320] SPY/1h axis=trend      K=3 cov=diag agree=1.0000 kappa=1.0000 sep=2.09 sols=1 fails=0+0 (118s)
+[130/320] SMH/1h axis=trend      K=4 cov=diag agree=0.9996 kappa=0.9995 sep=2.03 sols=7 fails=0+0 (124s)
+[131/320] EEM/1d axis=trend      K=5 cov=full agree=0.9948 kappa=0.9934 sep=1.91 sols=5 fails=0+0 (36s)
+[132/320] FXY/1h axis=volatility K=3 cov=diag agree=1.0000 kappa=1.0000 sep=1.41 sols=5 fails=0+0 (71s)
+[133/320] IWM/1d axis=trend      K=5 cov=full agree=0.9944 kappa=0.9928 sep=1.96 sols=10 fails=0+0 (44s)
+[134/320] SMH/1h axis=volume     K=2 cov=full agree=0.9968 kappa=0.9935 sep=1.58 sols=5 fails=0+0 (48s)
+[135/320] XLE/1d axis=trend      K=5 cov=full agree=0.9946 kappa=0.9932 sep=1.94 sols=6 fails=0+0 (47s)
+[136/320] GLD/1d axis=trend      K=5 cov=full agree=0.9930 kappa=0.9911 sep=2.04 sols=4 fails=0+0 (45s)
+[137/320] SMH/1h axis=volatility K=4 cov=diag agree=0.9986 kappa=0.9981 sep=1.04 sols=8 fails=0+0 (144s)
+[138/320] SMH/1h axis=volatility K=3 cov=diag agree=0.9991 kappa=0.9986 sep=1.28 sols=5 fails=0+0 (60s)
+[139/320] SPY/1d axis=trend      K=5 cov=full agree=0.9990 kappa=0.9987 sep=1.95 sols=9 fails=0+0 (48s)
+[140/320] IWM/1h axis=trend      K=2 cov=diag agree=0.9999 kappa=0.9997 sep=2.38 sols=1 fails=0+0 (25s)
+[141/320] IWM/1h axis=volatility K=2 cov=diag agree=1.0000 kappa=1.0000 sep=2.46 sols=1 fails=0+0 (23s)
+[142/320] GLD/1h axis=trend      K=2 cov=diag agree=0.9998 kappa=0.9996 sep=2.60 sols=2 fails=0+0 (23s)
+[143/320] FXY/1d axis=trend      K=5 cov=full agree=0.9971 kappa=0.9963 sep=1.88 sols=4 fails=0+0 (42s)
+[144/320] SMH/1h axis=trend      K=3 cov=diag agree=0.9999 kappa=0.9999 sep=2.18 sols=1 fails=0+0 (79s)
+[145/320] SPY/1h axis=trend      K=2 cov=diag agree=0.9996 kappa=0.9993 sep=2.38 sols=1 fails=0+0 (19s)
+[146/320] GLD/1h axis=volatility K=2 cov=diag agree=1.0000 kappa=0.9999 sep=2.33 sols=1 fails=0+0 (28s)
+[147/320] TLT/1h axis=volume     K=3 cov=full agree=0.9770 kappa=0.9330 sep=1.45 sols=16 fails=0+0 (97s)
+[148/320] XLE/1h axis=volatility K=2 cov=diag agree=1.0000 kappa=1.0000 sep=2.32 sols=1 fails=0+0 (22s)
+[149/320] SPY/1h axis=volatility K=2 cov=diag agree=1.0000 kappa=1.0000 sep=2.35 sols=1 fails=0+0 (20s)
+[150/320] FXY/1h axis=volume     K=2 cov=full agree=1.0000 kappa=1.0000 sep=0.01 sols=7 fails=0+0 (110s)
+[151/320] XLE/1h axis=trend      K=2 cov=diag agree=0.9998 kappa=0.9996 sep=2.46 sols=1 fails=0+0 (30s)
+[152/320] EEM/1d axis=volatility K=4 cov=full agree=1.0000 kappa=1.0000 sep=0.52 sols=7 fails=0+0 (20s)
+[153/320] IWM/1d axis=volatility K=4 cov=full agree=0.9998 kappa=0.9997 sep=0.83 sols=10 fails=0+0 (16s)
+[154/320] EEM/1d axis=trend      K=4 cov=full agree=1.0000 kappa=1.0000 sep=2.14 sols=7 fails=0+0 (25s)
+[155/320] TLT/1d axis=composite  K=3 cov=full agree=0.9927 kappa=0.9870 sep=1.32 sols=5 fails=0+0 (7s)
+[156/320] XLE/1d axis=volatility K=4 cov=full agree=0.9903 kappa=0.9860 sep=0.62 sols=10 fails=0+0 (14s)
+[157/320] IWM/1d axis=trend      K=4 cov=full agree=0.9968 kappa=0.9957 sep=2.08 sols=3 fails=0+0 (27s)
+[158/320] SPY/1d axis=volatility K=4 cov=full agree=0.9994 kappa=0.9992 sep=0.58 sols=6 fails=0+0 (15s)
+[159/320] TLT/1h axis=trend      K=5 cov=diag agree=0.9948 kappa=0.9931 sep=0.97 sols=6 fails=0+0 (158s)
+[160/320] SPY/1d axis=trend      K=4 cov=full agree=1.0000 kappa=1.0000 sep=2.02 sols=2 fails=0+0 (21s)
+[161/320] GLD/1d axis=trend      K=4 cov=full agree=0.9970 kappa=0.9960 sep=2.01 sols=2 fails=0+0 (23s)
+[162/320] XLE/1d axis=trend      K=4 cov=full agree=0.9966 kappa=0.9954 sep=2.11 sols=2 fails=0+0 (24s)
+[163/320] TLT/1h axis=trend      K=4 cov=diag agree=0.9991 kappa=0.9987 sep=0.19 sols=3 fails=0+0 (79s)
+[164/320] EEM/1h axis=trend      K=2 cov=diag agree=0.9999 kappa=0.9997 sep=2.52 sols=2 fails=0+0 (22s)
+[165/320] EEM/1h axis=volatility K=2 cov=diag agree=1.0000 kappa=1.0000 sep=2.48 sols=1 fails=0+0 (22s)
+[166/320] FXY/1h axis=trend      K=2 cov=diag agree=1.0000 kappa=1.0000 sep=2.47 sols=2 fails=0+0 (18s)
+[167/320] FXY/1d axis=volatility K=4 cov=full agree=0.9680 kappa=0.9568 sep=0.94 sols=14 fails=0+0 (19s)
+[168/320] GLD/1d axis=volatility K=4 cov=full agree=1.0000 kappa=1.0000 sep=0.87 sols=9 fails=0+0 (29s)
+[169/320] FXY/1d axis=trend      K=4 cov=full agree=0.9951 kappa=0.9933 sep=1.78 sols=1 fails=0+0 (26s)
+[170/320] FXY/1h axis=volatility K=2 cov=diag agree=0.9999 kappa=0.9999 sep=2.36 sols=1 fails=0+0 (26s)
+[171/320] EEM/1d axis=volatility K=3 cov=full agree=0.9998 kappa=0.9997 sep=0.71 sols=4 fails=0+0 (10s)
+[172/320] IWM/1d axis=trend      K=3 cov=full agree=0.9996 kappa=0.9994 sep=2.34 sols=1 fails=0+0 (14s)
+[173/320] IWM/1d axis=volatility K=3 cov=full agree=0.9998 kappa=0.9997 sep=0.83 sols=5 fails=0+0 (10s)
+[174/320] SMH/1h axis=trend      K=2 cov=diag agree=0.9998 kappa=0.9996 sep=2.45 sols=1 fails=0+0 (21s)
+[175/320] EEM/1d axis=trend      K=3 cov=full agree=0.9998 kappa=0.9997 sep=1.93 sols=2 fails=0+0 (16s)
+[176/320] TLT/1h axis=volatility K=4 cov=diag agree=0.9989 kappa=0.9985 sep=1.03 sols=7 fails=0+0 (89s)
+[177/320] SMH/1h axis=volatility K=2 cov=diag agree=0.9999 kappa=0.9998 sep=2.36 sols=1 fails=0+0 (21s)
+[178/320] XLE/1d axis=volatility K=3 cov=full agree=1.0000 kappa=1.0000 sep=0.83 sols=3 fails=0+0 (8s)
+[179/320] XLE/1d axis=trend      K=3 cov=full agree=0.9976 kappa=0.9964 sep=2.16 sols=1 fails=0+0 (10s)
+[180/320] SMH/1d axis=trend      K=5 cov=full agree=0.9830 kappa=0.9784 sep=1.91 sols=6 fails=0+0 (27s)
+[181/320] SPY/1d axis=volatility K=3 cov=full agree=0.9998 kappa=0.9997 sep=0.90 sols=6 fails=0+0 (8s)
+[182/320] GLD/1d axis=volatility K=3 cov=full agree=1.0000 kappa=1.0000 sep=1.03 sols=3 fails=0+0 (11s)
+[183/320] TLT/1h axis=volume     K=2 cov=full agree=0.9846 kappa=0.9649 sep=1.37 sols=4 fails=0+0 (39s)
+[184/320] GLD/1d axis=trend      K=3 cov=full agree=0.9930 kappa=0.9894 sep=2.11 sols=2 fails=0+0 (13s)
+[185/320] TLT/1h axis=trend      K=3 cov=diag agree=0.9998 kappa=0.9997 sep=1.28 sols=2 fails=0+0 (44s)
+[186/320] TLT/1h axis=volatility K=3 cov=diag agree=0.9979 kappa=0.9968 sep=1.27 sols=5 fails=0+0 (43s)
+[187/320] SPY/1d axis=trend      K=3 cov=full agree=0.9968 kappa=0.9952 sep=2.42 sols=1 fails=0+0 (13s)
+[188/320] FXY/1d axis=volatility K=3 cov=full agree=0.9977 kappa=0.9965 sep=1.27 sols=8 fails=0+0 (10s)
+[189/320] FXY/1d axis=trend      K=3 cov=full agree=1.0000 kappa=1.0000 sep=2.11 sols=1 fails=0+0 (12s)
+[190/320] SMH/1d axis=volatility K=4 cov=full agree=1.0000 kappa=1.0000 sep=1.29 sols=14 fails=0+0 (11s)
+[191/320] SMH/1d axis=trend      K=4 cov=full agree=0.9989 kappa=0.9985 sep=1.95 sols=4 fails=0+0 (15s)
+[192/320] SMH/1d axis=volatility K=3 cov=full agree=1.0000 kappa=1.0000 sep=1.47 sols=3 fails=0+0 (6s)
+[193/320] TLT/1h axis=volatility K=2 cov=diag agree=1.0000 kappa=1.0000 sep=2.36 sols=1 fails=0+0 (9s)
+[194/320] SMH/1d axis=trend      K=3 cov=full agree=0.9986 kappa=0.9979 sep=2.23 sols=1 fails=0+0 (8s)
+[195/320] TLT/1h axis=trend      K=2 cov=diag agree=0.9999 kappa=0.9999 sep=2.46 sols=2 fails=0+0 (15s)
+[196/320] TLT/1d axis=volatility K=4 cov=full agree=0.9904 kappa=0.9860 sep=0.73 sols=11 fails=0+0 (6s)
+[197/320] EEM/1d axis=trend      K=2 cov=full agree=0.9984 kappa=0.9968 sep=2.42 sols=1 fails=0+0 (5s)
+[198/320] EEM/1d axis=volatility K=2 cov=full agree=1.0000 kappa=1.0000 sep=2.05 sols=1 fails=0+0 (4s)
+[199/320] IWM/1d axis=trend      K=2 cov=full agree=1.0000 kappa=1.0000 sep=2.43 sols=1 fails=0+0 (4s)
+[200/320] TLT/1d axis=trend      K=4 cov=full agree=0.9958 kappa=0.9943 sep=2.28 sols=7 fails=0+0 (14s)
+[201/320] IWM/1d axis=volatility K=2 cov=full agree=0.9988 kappa=0.9964 sep=2.23 sols=1 fails=0+0 (5s)
+[202/320] XLE/1d axis=volatility K=2 cov=full agree=1.0000 kappa=1.0000 sep=1.86 sols=1 fails=0+0 (3s)
+[203/320] XLE/1d axis=trend      K=2 cov=full agree=0.9998 kappa=0.9996 sep=2.44 sols=1 fails=0+0 (5s)
+[204/320] GLD/1d axis=trend      K=2 cov=full agree=1.0000 kappa=1.0000 sep=2.47 sols=1 fails=0+0 (5s)
+[205/320] SPY/1d axis=trend      K=2 cov=full agree=0.9990 kappa=0.9979 sep=2.42 sols=1 fails=0+0 (4s)
+[206/320] GLD/1d axis=volatility K=2 cov=full agree=1.0000 kappa=1.0000 sep=1.97 sols=1 fails=0+0 (5s)
+[207/320] TLT/1d axis=trend      K=5 cov=full agree=0.9908 kappa=0.9883 sep=1.98 sols=11 fails=0+0 (28s)
+[208/320] SPY/1d axis=volatility K=2 cov=full agree=1.0000 kappa=1.0000 sep=1.93 sols=1 fails=0+0 (4s)
+[209/320] FXY/1d axis=trend      K=2 cov=full agree=0.9996 kappa=0.9992 sep=2.36 sols=1 fails=0+0 (3s)
+[210/320] FXY/1d axis=volatility K=2 cov=full agree=1.0000 kappa=1.0000 sep=2.27 sols=2 fails=0+0 (3s)
+[211/320] GLD/1h axis=volume     K=3 cov=diag agree=0.2857 kappa=0.1473 sep=0.53 sols=8 fails=0+0 (80s)
+[212/320] GLD/1h axis=volume     K=2 cov=diag agree=1.0000 kappa=1.0000 sep=0.06 sols=1 fails=0+0 (47s)
+[213/320] EEM/1d axis=trend      K=5 cov=diag agree=0.9986 kappa=0.9982 sep=1.88 sols=7 fails=0+0 (34s)
+[214/320] SMH/1h axis=volume     K=2 cov=diag agree=0.9968 kappa=0.9935 sep=1.58 sols=5 fails=0+0 (49s)
+[215/320] IWM/1d axis=trend      K=5 cov=diag agree=1.0000 kappa=1.0000 sep=2.11 sols=4 fails=0+0 (35s)
+[216/320] XLE/1d axis=trend      K=5 cov=diag agree=0.9980 kappa=0.9975 sep=1.93 sols=4 fails=0+0 (39s)
+[217/320] EEM/1h axis=volume     K=2 cov=diag agree=0.6729 kappa=0.3700 sep=1.61 sols=8 fails=0+0 (67s)
+[218/320] TLT/1d axis=trend      K=3 cov=full agree=0.9996 kappa=0.9994 sep=2.19 sols=2 fails=0+0 (7s)
+[219/320] XLE/1h axis=volume     K=2 cov=diag agree=1.0000 kappa=1.0000 sep=0.00 sols=3 fails=0+0 (93s)
+[220/320] TLT/1d axis=volatility K=3 cov=full agree=1.0000 kappa=1.0000 sep=1.25 sols=4 fails=0+0 (3s)
+[221/320] SPY/1h axis=volume     K=2 cov=diag agree=1.0000 kappa=1.0000 sep=0.01 sols=8 fails=0+0 (88s)
+[222/320] GLD/1d axis=trend      K=5 cov=diag agree=0.9972 kappa=0.9964 sep=2.08 sols=9 fails=0+0 (38s)
+[223/320] IWM/1d axis=volume     K=3 cov=full agree=0.9944 kappa=0.9880 sep=1.48 sols=5 fails=0+0 (14s)
+[224/320] XLE/1h axis=volume     K=3 cov=diag agree=0.9876 kappa=0.9729 sep=1.83 sols=9 fails=0+0 (142s)
+[225/320] SPY/1h axis=volume     K=3 cov=diag agree=0.9983 kappa=0.9972 sep=0.64 sols=11 fails=0+0 (138s)
+[226/320] XLE/1d axis=volume     K=3 cov=full agree=0.9940 kappa=0.9882 sep=1.47 sols=4 fails=0+0 (13s)
+[227/320] EEM/1h axis=volume     K=3 cov=diag agree=0.9953 kappa=0.9905 sep=1.03 sols=8 fails=0+0 (121s)
+[228/320] IWM/1h axis=volume     K=3 cov=diag agree=0.9999 kappa=0.9999 sep=0.49 sols=6 fails=0+0 (149s)
+[229/320] SMH/1d axis=volatility K=2 cov=full agree=1.0000 kappa=1.0000 sep=2.03 sols=1 fails=0+0 (2s)
+[230/320] SMH/1d axis=trend      K=2 cov=full agree=0.9997 kappa=0.9995 sep=2.33 sols=1 fails=0+0 (3s)
+[231/320] EEM/1d axis=volume     K=3 cov=full agree=0.9992 kappa=0.9984 sep=1.41 sols=9 fails=0+0 (17s)
+[232/320] FXY/1h axis=volume     K=2 cov=diag agree=1.0000 kappa=1.0000 sep=0.01 sols=7 fails=0+0 (85s)
+[233/320] SPY/1d axis=trend      K=5 cov=diag agree=0.9952 kappa=0.9938 sep=1.93 sols=6 fails=0+0 (34s)
+[234/320] GLD/1d axis=volume     K=3 cov=full agree=0.9924 kappa=0.9823 sep=1.36 sols=10 fails=0+0 (18s)
+[235/320] SPY/1d axis=volume     K=3 cov=full agree=0.9970 kappa=0.9943 sep=1.44 sols=4 fails=0+0 (15s)
+[236/320] TLT/1h axis=volume     K=3 cov=diag agree=0.9770 kappa=0.9330 sep=1.45 sols=16 fails=0+0 (91s)
+[237/320] FXY/1d axis=trend      K=5 cov=diag agree=1.0000 kappa=1.0000 sep=1.86 sols=3 fails=0+0 (38s)
+[238/320] IWM/1h axis=volume     K=2 cov=diag agree=1.0000 kappa=1.0000 sep=0.92 sols=6 fails=0+0 (120s)
+[239/320] XLE/1d axis=volatility K=4 cov=diag agree=1.0000 kappa=1.0000 sep=0.78 sols=4 fails=0+0 (15s)
+[240/320] GLD/1d axis=volatility K=4 cov=diag agree=0.9956 kappa=0.9940 sep=0.68 sols=12 fails=0+0 (15s)
+[241/320] EEM/1d axis=trend      K=4 cov=diag agree=0.9986 kappa=0.9981 sep=2.13 sols=5 fails=0+0 (19s)
+[242/320] IWM/1d axis=volatility K=4 cov=diag agree=0.9940 kappa=0.9918 sep=0.84 sols=7 fails=0+0 (17s)
+[243/320] EEM/1d axis=volatility K=4 cov=diag agree=0.9984 kappa=0.9976 sep=0.95 sols=6 fails=0+0 (19s)
+[244/320] GLD/1d axis=trend      K=4 cov=diag agree=0.9801 kappa=0.9730 sep=2.02 sols=3 fails=0+0 (18s)
+[245/320] TLT/1d axis=trend      K=2 cov=full agree=0.9973 kappa=0.9946 sep=2.57 sols=2 fails=0+0 (3s)
+[246/320] TLT/1d axis=volatility K=2 cov=full agree=1.0000 kappa=1.0000 sep=1.75 sols=1 fails=0+0 (2s)
+[247/320] SMH/1h axis=volume     K=3 cov=diag agree=0.9910 kappa=0.9860 sep=1.21 sols=13 fails=0+0 (132s)
+[248/320] IWM/1d axis=trend      K=4 cov=diag agree=0.9978 kappa=0.9970 sep=2.11 sols=1 fails=0+0 (22s)
+[249/320] SPY/1d axis=trend      K=4 cov=diag agree=0.9984 kappa=0.9979 sep=2.02 sols=1 fails=0+0 (17s)
+[250/320] FXY/1d axis=volume     K=3 cov=full agree=0.9842 kappa=0.9704 sep=1.28 sols=9 fails=0+0 (25s)
+[251/320] XLE/1d axis=trend      K=4 cov=diag agree=0.9966 kappa=0.9954 sep=2.09 sols=1 fails=0+0 (24s)
+[252/320] EEM/1d axis=volume     K=2 cov=full agree=0.9974 kappa=0.9927 sep=1.53 sols=3 fails=0+0 (5s)
+[253/320] SPY/1d axis=volatility K=4 cov=diag agree=0.9990 kappa=0.9986 sep=0.69 sols=8 fails=0+0 (20s)
+[254/320] IWM/1d axis=volatility K=3 cov=diag agree=0.9998 kappa=0.9997 sep=1.06 sols=3 fails=0+0 (5s)
+[255/320] FXY/1h axis=volume     K=3 cov=diag agree=0.9917 kappa=0.9872 sep=0.71 sols=8 fails=0+0 (140s)
+[256/320] EEM/1d axis=volatility K=3 cov=diag agree=1.0000 kappa=1.0000 sep=0.85 sols=3 fails=0+0 (8s)
+[257/320] IWM/1d axis=volume     K=2 cov=full agree=1.0000 kappa=1.0000 sep=1.66 sols=3 fails=0+0 (6s)
+[258/320] XLE/1d axis=volatility K=3 cov=diag agree=0.9996 kappa=0.9993 sep=1.14 sols=3 fails=0+0 (6s)
+[259/320] FXY/1d axis=volatility K=4 cov=diag agree=1.0000 kappa=1.0000 sep=1.11 sols=11 fails=0+0 (19s)
+[260/320] SMH/1d axis=volume     K=3 cov=full agree=0.9967 kappa=0.9936 sep=1.33 sols=5 fails=0+0 (13s)
+[261/320] XLE/1d axis=trend      K=3 cov=diag agree=0.9960 kappa=0.9940 sep=2.18 sols=1 fails=0+0 (8s)
+[262/320] XLE/1d axis=volume     K=2 cov=full agree=1.0000 kappa=1.0000 sep=1.67 sols=3 fails=0+0 (7s)
+[263/320] SPY/1d axis=volatility K=3 cov=diag agree=1.0000 kappa=1.0000 sep=1.18 sols=6 fails=0+0 (4s)
+[264/320] IWM/1d axis=trend      K=3 cov=diag agree=1.0000 kappa=1.0000 sep=2.30 sols=1 fails=0+0 (12s)
+[265/320] GLD/1d axis=volume     K=2 cov=full agree=0.9976 kappa=0.9940 sep=1.51 sols=2 fails=0+0 (6s)
+[266/320] GLD/1d axis=volatility K=3 cov=diag agree=0.9992 kappa=0.9987 sep=1.31 sols=4 fails=0+0 (7s)
+[267/320] EEM/1d axis=trend      K=3 cov=diag agree=0.9986 kappa=0.9979 sep=1.90 sols=1 fails=0+0 (15s)
+[268/320] FXY/1d axis=trend      K=4 cov=diag agree=0.9990 kappa=0.9986 sep=1.81 sols=2 fails=0+0 (26s)
+[269/320] GLD/1d axis=trend      K=3 cov=diag agree=1.0000 kappa=1.0000 sep=2.07 sols=3 fails=0+0 (9s)
+[270/320] SPY/1d axis=volume     K=2 cov=full agree=0.9938 kappa=0.9792 sep=1.79 sols=3 fails=0+0 (7s)
+[271/320] SPY/1d axis=trend      K=3 cov=diag agree=1.0000 kappa=1.0000 sep=2.39 sols=1 fails=0+0 (10s)
+[272/320] FXY/1d axis=volatility K=3 cov=diag agree=0.9908 kappa=0.9856 sep=1.27 sols=9 fails=0+0 (9s)
+[273/320] FXY/1d axis=volume     K=2 cov=full agree=0.9729 kappa=0.9173 sep=1.28 sols=2 fails=0+0 (8s)
+[274/320] SMH/1d axis=trend      K=3 cov=diag agree=0.9986 kappa=0.9979 sep=2.24 sols=1 fails=0+0 (6s)
+[275/320] SMH/1d axis=volatility K=3 cov=diag agree=1.0000 kappa=1.0000 sep=1.60 sols=3 fails=0+0 (6s)
+[276/320] FXY/1d axis=trend      K=3 cov=diag agree=1.0000 kappa=1.0000 sep=2.11 sols=1 fails=0+0 (11s)
+[277/320] TLT/1d axis=volatility K=4 cov=diag agree=0.9013 kappa=0.8554 sep=0.72 sols=7 fails=0+0 (5s)
+[278/320] EEM/1d axis=trend      K=2 cov=diag agree=0.9976 kappa=0.9952 sep=2.42 sols=1 fails=0+0 (4s)
+[279/320] SMH/1d axis=volume     K=2 cov=full agree=0.9981 kappa=0.9954 sep=1.40 sols=2 fails=0+0 (6s)
+[280/320] IWM/1d axis=volatility K=2 cov=diag agree=1.0000 kappa=1.0000 sep=2.84 sols=1 fails=0+0 (2s)
+[281/320] EEM/1d axis=volatility K=2 cov=diag agree=1.0000 kappa=1.0000 sep=2.49 sols=1 fails=0+0 (3s)
+[282/320] SMH/1d axis=volatility K=4 cov=diag agree=0.7974 kappa=0.7059 sep=1.07 sols=16 fails=0+0 (9s)
+[283/320] XLE/1d axis=trend      K=2 cov=diag agree=1.0000 kappa=1.0000 sep=2.44 sols=1 fails=0+0 (3s)
+[284/320] TLT/1d axis=volume     K=3 cov=full agree=0.9594 kappa=0.9204 sep=1.41 sols=10 fails=0+0 (9s)
+[285/320] SMH/1d axis=trend      K=4 cov=diag agree=0.9899 kappa=0.9862 sep=1.93 sols=3 fails=0+0 (11s)
+[286/320] XLE/1d axis=volatility K=2 cov=diag agree=1.0000 kappa=1.0000 sep=2.50 sols=1 fails=0+0 (4s)
+[287/320] SMH/1d axis=trend      K=5 cov=diag agree=0.9890 kappa=0.9862 sep=1.78 sols=5 fails=0+0 (26s)
+[288/320] IWM/1d axis=trend      K=2 cov=diag agree=0.9996 kappa=0.9992 sep=2.43 sols=1 fails=0+0 (5s)
+[289/320] GLD/1d axis=volatility K=2 cov=diag agree=1.0000 kappa=1.0000 sep=2.38 sols=1 fails=0+0 (3s)
+[290/320] SPY/1d axis=volatility K=2 cov=diag agree=1.0000 kappa=1.0000 sep=2.58 sols=1 fails=0+0 (3s)
+[291/320] FXY/1d axis=trend      K=2 cov=diag agree=1.0000 kappa=1.0000 sep=2.36 sols=1 fails=0+0 (3s)
+[292/320] FXY/1d axis=volatility K=2 cov=diag agree=1.0000 kappa=1.0000 sep=2.54 sols=1 fails=0+0 (3s)
+[293/320] SPY/1d axis=trend      K=2 cov=diag agree=0.9998 kappa=0.9996 sep=2.43 sols=1 fails=0+0 (4s)
+[294/320] TLT/1d axis=volatility K=3 cov=diag agree=1.0000 kappa=1.0000 sep=1.61 sols=4 fails=0+0 (3s)
+[295/320] TLT/1d axis=volume     K=2 cov=full agree=0.9939 kappa=0.9796 sep=1.61 sols=2 fails=0+0 (3s)
+[296/320] GLD/1d axis=trend      K=2 cov=diag agree=0.9996 kappa=0.9992 sep=2.47 sols=1 fails=0+0 (5s)
+[297/320] SMH/1d axis=trend      K=2 cov=diag agree=1.0000 kappa=1.0000 sep=2.32 sols=1 fails=0+0 (2s)
+[298/320] TLT/1h axis=volume     K=2 cov=diag agree=0.9846 kappa=0.9649 sep=1.37 sols=4 fails=0+0 (36s)
+[299/320] SMH/1d axis=volatility K=2 cov=diag agree=1.0000 kappa=1.0000 sep=2.40 sols=1 fails=0+0 (3s)
+[300/320] TLT/1d axis=trend      K=2 cov=diag agree=0.9996 kappa=0.9992 sep=2.54 sols=1 fails=0+0 (2s)
+[301/320] TLT/1d axis=volatility K=2 cov=diag agree=1.0000 kappa=1.0000 sep=1.96 sols=1 fails=0+0 (2s)
+[302/320] TLT/1d axis=trend      K=5 cov=diag agree=0.9897 kappa=0.9866 sep=2.22 sols=8 fails=0+0 (15s)
+[303/320] TLT/1d axis=trend      K=4 cov=diag agree=0.9946 kappa=0.9927 sep=2.26 sols=7 fails=0+0 (15s)
+[304/320] IWM/1d axis=volume     K=2 cov=diag agree=1.0000 kappa=1.0000 sep=1.66 sols=3 fails=0+0 (4s)
+[305/320] TLT/1d axis=trend      K=3 cov=diag agree=0.9958 kappa=0.9937 sep=2.23 sols=2 fails=0+0 (8s)
+[306/320] XLE/1d axis=volume     K=2 cov=diag agree=1.0000 kappa=1.0000 sep=1.67 sols=3 fails=0+0 (4s)
+[307/320] EEM/1d axis=volume     K=2 cov=diag agree=0.9974 kappa=0.9927 sep=1.53 sols=3 fails=0+0 (6s)
+[308/320] SPY/1d axis=volume     K=2 cov=diag agree=0.9938 kappa=0.9792 sep=1.79 sols=3 fails=0+0 (4s)
+[309/320] TLT/1d axis=volume     K=2 cov=diag agree=0.9939 kappa=0.9796 sep=1.61 sols=2 fails=0+0 (3s)
+[310/320] SPY/1d axis=volume     K=3 cov=diag agree=0.9970 kappa=0.9943 sep=1.44 sols=4 fails=0+0 (10s)
+[311/320] SMH/1d axis=volume     K=2 cov=diag agree=0.9981 kappa=0.9954 sep=1.40 sols=2 fails=0+0 (5s)
+[312/320] GLD/1d axis=volume     K=2 cov=diag agree=0.9976 kappa=0.9940 sep=1.51 sols=2 fails=0+0 (7s)
+[313/320] XLE/1d axis=volume     K=3 cov=diag agree=0.9940 kappa=0.9882 sep=1.47 sols=4 fails=0+0 (11s)
+[314/320] FXY/1d axis=volume     K=2 cov=diag agree=0.9729 kappa=0.9173 sep=1.28 sols=2 fails=0+0 (7s)
+[315/320] EEM/1d axis=volume     K=3 cov=diag agree=0.9992 kappa=0.9984 sep=1.41 sols=9 fails=0+0 (12s)
+[316/320] TLT/1d axis=volume     K=3 cov=diag agree=0.9594 kappa=0.9204 sep=1.41 sols=10 fails=0+0 (7s)
+[317/320] SMH/1d axis=volume     K=3 cov=diag agree=0.9967 kappa=0.9936 sep=1.33 sols=5 fails=0+0 (12s)
+[318/320] IWM/1d axis=volume     K=3 cov=diag agree=0.9944 kappa=0.9880 sep=1.48 sols=5 fails=0+0 (13s)
+[319/320] GLD/1d axis=volume     K=3 cov=diag agree=0.9924 kappa=0.9823 sep=1.36 sols=10 fails=0+0 (16s)
+[320/320] FXY/1d axis=volume     K=3 cov=diag agree=0.9842 kappa=0.9704 sep=1.28 sols=9 fails=0+0 (16s)
+
+all jobs done in 1402s
+
+====================================================================================================
+PER-AXIS x CONFIG SUMMARY (min across cells + pass count; minimum is the honest signal)
+====================================================================================================
+axis         K   cov   N  pass/cells  min_agree  min_kappa  min_sep max_sols  worst_cell
+composite    3  full  20    16/16        0.9927     0.9870     0.75        5  TLT/1d
+composite    5  full  20     7/16        0.0784    -0.1800     0.56       20  SPY/1h
+trend        2  full  20    16/16        0.9973     0.9946     2.33        3  TLT/1d
+trend        2  diag  20    16/16        0.9976     0.9952     2.32        2  EEM/1d
+trend        3  full  20    16/16        0.9930     0.9894     0.99        4  GLD/1d
+trend        3  diag  20    16/16        0.9958     0.9937     0.81        3  TLT/1d
+trend        4  full  20    15/16        0.4995     0.3319     0.13        7  TLT/1h
+trend        4  diag  20    16/16        0.9801     0.9730     0.19        7  GLD/1d
+trend        5  full  20    15/16        0.3341     0.1021     0.53       13  FXY/1h
+trend        5  diag  20    15/16        0.6219     0.4965     0.25        9  EEM/1h
+volatility   2  full  20    16/16        0.9988     0.9964     1.75        2  IWM/1d
+volatility   2  diag  20    16/16        0.9999     0.9998     1.96        1  SMH/1h
+volatility   3  full  20    16/16        0.9977     0.9964     0.71        8  FXY/1d
+volatility   3  diag  20    16/16        0.9908     0.9856     0.85        9  FXY/1d
+volatility   4  full  20    16/16        0.9680     0.9568     0.52       14  FXY/1d
+volatility   4  diag  20    15/16        0.7974     0.7059     0.68       16  SMH/1d
+volume       2  full  20    15/16        0.6729     0.3700     0.00        8  EEM/1h
+volume       2  diag  20    15/16        0.6729     0.3700     0.00        8  EEM/1h
+volume       3  full  20    15/16        0.2857     0.1473     0.49       16  GLD/1h
+volume       3  diag  20    15/16        0.2857     0.1473     0.49       16  GLD/1h
+
+====================================================================================================
+SMALLEST IDENTIFIABLE K PER AXIS at N=20 (all-N table is in the JSON)
+====================================================================================================
+composite  : smallest all-cell-identifiable = K=3 cov=full (min_agree=0.9927 min_kappa=0.9870 min_sep=0.75)
+trend      : smallest all-cell-identifiable = K=2 cov=diag (min_agree=0.9976 min_kappa=0.9952 min_sep=2.32)  also: K2/full, K3/diag, K3/full, K4/diag
+volatility : smallest all-cell-identifiable = K=2 cov=diag (min_agree=0.9999 min_kappa=0.9998 min_sep=1.96)  also: K2/full, K3/full, K3/diag, K4/full
+volume     : NO CONFIG CLEARS ALL CELLS -- best is K=2/full at 15/16 (min_agree=0.6729, worst=EEM/1h)
+
+====================================================================================================
+PER-CELL MATRIX at N=20, per axis (agreement / kappa; * = clears both bars)
+====================================================================================================
+
+-- axis: composite  [trending_down .. trending_up (production semantics)]
+cell               K3/full         K5/full
+EEM/1d      1.000/ 0.999*  1.000/ 1.000*
+FXY/1d      1.000/ 1.000*  0.984/ 0.980*
+GLD/1d      1.000/ 0.999*  0.264/ 0.080 
+IWM/1d      1.000/ 0.999*  1.000/ 1.000*
+SMH/1d      0.999/ 0.998*  0.297/ 0.101 
+SPY/1d      1.000/ 1.000*  0.507/ 0.370 
+TLT/1d      0.993/ 0.987*  0.878/ 0.840 
+XLE/1d      1.000/ 1.000*  0.568/ 0.450 
+EEM/1h      1.000/ 1.000*  0.152/-0.072 
+FXY/1h      1.000/ 1.000*  0.999/ 0.999*
+GLD/1h      0.995/ 0.991*  0.196/-0.028 
+IWM/1h      1.000/ 1.000*  0.998/ 0.998*
+SMH/1h      1.000/ 1.000*  0.536/ 0.412 
+SPY/1h      1.000/ 1.000*  0.078/-0.180 
+TLT/1h      0.998/ 0.998*  0.999/ 0.999*
+XLE/1h      1.000/ 1.000*  1.000/ 1.000*
+
+-- axis: trend  [trending_down .. trending_up (log_return rank)]
+cell               K2/full         K2/diag         K3/full         K3/diag         K4/full         K4/diag         K5/full         K5/diag
+EEM/1d      0.998/ 0.997*  0.998/ 0.995*  1.000/ 1.000*  0.999/ 0.998*  1.000/ 1.000*  0.999/ 0.998*  0.995/ 0.993*  0.999/ 0.998*
+FXY/1d      1.000/ 0.999*  1.000/ 1.000*  1.000/ 1.000*  1.000/ 1.000*  0.995/ 0.993*  0.999/ 0.999*  0.997/ 0.996*  1.000/ 1.000*
+GLD/1d      1.000/ 1.000*  1.000/ 0.999*  0.993/ 0.989*  1.000/ 1.000*  0.997/ 0.996*  0.980/ 0.973*  0.993/ 0.991*  0.997/ 0.996*
+IWM/1d      1.000/ 1.000*  1.000/ 0.999*  1.000/ 0.999*  1.000/ 1.000*  0.997/ 0.996*  0.998/ 0.997*  0.994/ 0.993*  1.000/ 1.000*
+SMH/1d      1.000/ 0.999*  1.000/ 1.000*  0.999/ 0.998*  0.999/ 0.998*  0.999/ 0.999*  0.990/ 0.986*  0.983/ 0.978*  0.989/ 0.986*
+SPY/1d      0.999/ 0.998*  1.000/ 1.000*  0.997/ 0.995*  1.000/ 1.000*  1.000/ 1.000*  0.998/ 0.998*  0.999/ 0.999*  0.995/ 0.994*
+TLT/1d      0.997/ 0.995*  1.000/ 0.999*  1.000/ 0.999*  0.996/ 0.994*  0.996/ 0.994*  0.995/ 0.993*  0.991/ 0.988*  0.990/ 0.987*
+XLE/1d      1.000/ 1.000*  1.000/ 1.000*  0.998/ 0.996*  0.996/ 0.994*  0.997/ 0.995*  0.997/ 0.995*  0.995/ 0.993*  0.998/ 0.997*
+EEM/1h      1.000/ 1.000*  1.000/ 1.000*  1.000/ 1.000*  1.000/ 1.000*  1.000/ 1.000*  1.000/ 1.000*  0.980/ 0.974*  0.622/ 0.496 
+FXY/1h      1.000/ 1.000*  1.000/ 1.000*  1.000/ 1.000*  1.000/ 1.000*  1.000/ 1.000*  1.000/ 1.000*  0.334/ 0.102   1.000/ 1.000*
+GLD/1h      1.000/ 1.000*  1.000/ 1.000*  1.000/ 1.000*  1.000/ 1.000*  0.995/ 0.992*  0.994/ 0.991*  1.000/ 1.000*  0.994/ 0.992*
+IWM/1h      0.999/ 0.998*  1.000/ 1.000*  1.000/ 1.000*  1.000/ 1.000*  0.997/ 0.996*  0.999/ 0.999*  0.999/ 0.999*  0.998/ 0.997*
+SMH/1h      1.000/ 1.000*  1.000/ 1.000*  0.999/ 0.999*  1.000/ 1.000*  1.000/ 1.000*  1.000/ 0.999*  0.998/ 0.998*  0.999/ 0.999*
+SPY/1h      1.000/ 1.000*  1.000/ 0.999*  1.000/ 1.000*  1.000/ 1.000*  0.999/ 0.999*  1.000/ 1.000*  0.997/ 0.996*  0.999/ 0.999*
+TLT/1h      1.000/ 0.999*  1.000/ 1.000*  1.000/ 1.000*  1.000/ 1.000*  0.499/ 0.332   0.999/ 0.999*  0.995/ 0.993*  0.995/ 0.993*
+XLE/1h      1.000/ 1.000*  1.000/ 1.000*  1.000/ 1.000*  1.000/ 1.000*  0.999/ 0.998*  0.998/ 0.997*  0.998/ 0.998*  0.996/ 0.995*
+
+-- axis: volatility  [calmest .. most turbulent (realized_vol rank)]
+cell               K2/full         K2/diag         K3/full         K3/diag         K4/full         K4/diag
+EEM/1d      1.000/ 1.000*  1.000/ 1.000*  1.000/ 1.000*  1.000/ 1.000*  1.000/ 1.000*  0.998/ 0.998*
+FXY/1d      1.000/ 1.000*  1.000/ 1.000*  0.998/ 0.997*  0.991/ 0.986*  0.968/ 0.957*  1.000/ 1.000*
+GLD/1d      1.000/ 1.000*  1.000/ 1.000*  1.000/ 1.000*  0.999/ 0.999*  1.000/ 1.000*  0.996/ 0.994*
+IWM/1d      0.999/ 0.996*  1.000/ 1.000*  1.000/ 1.000*  1.000/ 1.000*  1.000/ 1.000*  0.994/ 0.992*
+SMH/1d      1.000/ 1.000*  1.000/ 1.000*  1.000/ 1.000*  1.000/ 1.000*  1.000/ 1.000*  0.797/ 0.706 
+SPY/1d      1.000/ 1.000*  1.000/ 1.000*  1.000/ 1.000*  1.000/ 1.000*  0.999/ 0.999*  0.999/ 0.999*
+TLT/1d      1.000/ 1.000*  1.000/ 1.000*  1.000/ 1.000*  1.000/ 1.000*  0.990/ 0.986*  0.901/ 0.855*
+XLE/1d      1.000/ 1.000*  1.000/ 1.000*  1.000/ 1.000*  1.000/ 0.999*  0.990/ 0.986*  1.000/ 1.000*
+EEM/1h      1.000/ 1.000*  1.000/ 1.000*  1.000/ 1.000*  1.000/ 1.000*  1.000/ 1.000*  0.998/ 0.997*
+FXY/1h      0.999/ 0.999*  1.000/ 1.000*  1.000/ 0.999*  1.000/ 1.000*  0.999/ 0.999*  0.999/ 0.998*
+GLD/1h      1.000/ 1.000*  1.000/ 1.000*  0.998/ 0.996*  1.000/ 1.000*  0.999/ 0.999*  1.000/ 1.000*
+IWM/1h      1.000/ 1.000*  1.000/ 1.000*  1.000/ 1.000*  1.000/ 1.000*  1.000/ 1.000*  1.000/ 1.000*
+SMH/1h      1.000/ 1.000*  1.000/ 1.000*  0.999/ 0.998*  0.999/ 0.999*  0.999/ 0.999*  0.999/ 0.998*
+SPY/1h      1.000/ 1.000*  1.000/ 1.000*  0.998/ 0.997*  1.000/ 1.000*  0.995/ 0.994*  0.995/ 0.994*
+TLT/1h      1.000/ 1.000*  1.000/ 1.000*  0.999/ 0.999*  0.998/ 0.997*  1.000/ 1.000*  0.999/ 0.998*
+XLE/1h      1.000/ 0.999*  1.000/ 1.000*  0.998/ 0.997*  1.000/ 1.000*  1.000/ 1.000*  0.998/ 0.998*
+
+-- axis: volume  [lightest .. heaviest (rel_volume rank)]
+cell               K2/full         K2/diag         K3/full         K3/diag
+EEM/1d      0.997/ 0.993*  0.997/ 0.993*  0.999/ 0.998*  0.999/ 0.998*
+FXY/1d      0.973/ 0.917*  0.973/ 0.917*  0.984/ 0.970*  0.984/ 0.970*
+GLD/1d      0.998/ 0.994*  0.998/ 0.994*  0.992/ 0.982*  0.992/ 0.982*
+IWM/1d      1.000/ 1.000*  1.000/ 1.000*  0.994/ 0.988*  0.994/ 0.988*
+SMH/1d      0.998/ 0.995*  0.998/ 0.995*  0.997/ 0.994*  0.997/ 0.994*
+SPY/1d      0.994/ 0.979*  0.994/ 0.979*  0.997/ 0.994*  0.997/ 0.994*
+TLT/1d      0.994/ 0.980*  0.994/ 0.980*  0.959/ 0.920*  0.959/ 0.920*
+XLE/1d      1.000/ 1.000*  1.000/ 1.000*  0.994/ 0.988*  0.994/ 0.988*
+EEM/1h      0.673/ 0.370   0.673/ 0.370   0.995/ 0.991*  0.995/ 0.991*
+FXY/1h      1.000/ 1.000*  1.000/ 1.000*  0.992/ 0.987*  0.992/ 0.987*
+GLD/1h      1.000/ 1.000*  1.000/ 1.000*  0.286/ 0.147   0.286/ 0.147 
+IWM/1h      1.000/ 1.000*  1.000/ 1.000*  1.000/ 1.000*  1.000/ 1.000*
+SMH/1h      0.997/ 0.993*  0.997/ 0.993*  0.991/ 0.986*  0.991/ 0.986*
+SPY/1h      1.000/ 1.000*  1.000/ 1.000*  0.998/ 0.997*  0.998/ 0.997*
+TLT/1h      0.985/ 0.965*  0.985/ 0.965*  0.977/ 0.933*  0.977/ 0.933*
+XLE/1h      1.000/ 1.000*  1.000/ 1.000*  0.988/ 0.973*  0.988/ 0.973*
+
+====================================================================================================
+MECHANISM: state separation + solution multiplicity at N=20
+(separation = min pairwise Mahalanobis distance between fitted state means,
+ pooled-covariance units. solutions = distinct labelings among pool A's own fits.)
+====================================================================================================
+axis         K   cov  median_sep   min_sep  cells_with_multi_solutions  median_ll_spread
+composite    3  full        1.12      0.75                    10/16             0.001921
+composite    5  full        0.93      0.56                    16/16             0.015219
+trend        2  full        2.45      2.33                     5/16             0.000000
+trend        2  diag        2.45      2.32                     4/16             0.000000
+trend        3  full        2.17      0.99                     7/16             0.000415
+trend        3  diag        2.14      0.81                     6/16             0.000097
+trend        4  full        1.95      0.13                    15/16             0.022135
+trend        4  diag        1.99      0.19                    13/16             0.019054
+trend        5  full        1.49      0.53                    16/16             0.045190
+trend        5  diag        1.38      0.25                    16/16             0.035578
+volatility   2  full        1.97      1.75                     1/16             0.000000
+volatility   2  diag        2.39      1.96                     0/16             0.000000
+volatility   3  full        1.10      0.71                    16/16             0.408138
+volatility   3  diag        1.27      0.85                    16/16             0.435075
+volatility   4  full        0.84      0.52                    16/16             0.356777
+volatility   4  diag        0.94      0.68                    16/16             0.360961
+volume       2  full        1.46      0.00                    15/16             0.039161
+volume       2  diag        1.46      0.00                    15/16             0.039161
+volume       3  full        1.34      0.49                    16/16             0.038014
+volume       3  diag        1.34      0.49                    16/16             0.038014
+
+====================================================================================================
+DEGENERACY GATE at N=20 (production `_check_occupation_gate`, live threshold)
+====================================================================================================
+composite   K=3 full  degenerate= 0/16  min_occupation=0.064
+composite   K=5 full  degenerate= 2/16  min_occupation=0.025  [EEM/1d(0.034), TLT/1d(0.025)]
+trend       K=2 full  degenerate= 0/16  min_occupation=0.408
+trend       K=2 diag  degenerate= 0/16  min_occupation=0.413
+trend       K=3 full  degenerate= 3/16  min_occupation=0.011  [GLD/1h(0.029), EEM/1h(0.032), FXY/1h(0.011)]
+trend       K=3 diag  degenerate= 4/16  min_occupation=0.012  [GLD/1h(0.030), EEM/1h(0.033), FXY/1h(0.012), TLT/1h(0.016)]
+trend       K=4 full  degenerate= 4/16  min_occupation=0.009  [GLD/1h(0.015), FXY/1h(0.009), EEM/1h(0.021), TLT/1h(0.012)]
+trend       K=4 diag  degenerate= 4/16  min_occupation=0.010  [GLD/1h(0.020), FXY/1h(0.010), EEM/1h(0.024), TLT/1h(0.011)]
+trend       K=5 full  degenerate= 8/16  min_occupation=0.010  [IWM/1h(0.015), SPY/1h(0.017), FXY/1h(0.010), XLE/1h(0.019), GLD/1h(0.013), EEM/1h(0.018), SMH/1h(0.016), TLT/1h(0.010)]
+trend       K=5 diag  degenerate= 8/16  min_occupation=0.010  [SPY/1h(0.017), FXY/1h(0.010), IWM/1h(0.015), XLE/1h(0.018), SMH/1h(0.014), EEM/1h(0.023), GLD/1h(0.015), TLT/1h(0.010)]
+volatility  K=2 full  degenerate= 0/16  min_occupation=0.214
+volatility  K=2 diag  degenerate= 0/16  min_occupation=0.204
+volatility  K=3 full  degenerate= 0/16  min_occupation=0.068
+volatility  K=3 diag  degenerate= 1/16  min_occupation=0.038  [TLT/1d(0.038)]
+volatility  K=4 full  degenerate= 1/16  min_occupation=0.034  [TLT/1d(0.034)]
+volatility  K=4 diag  degenerate= 2/16  min_occupation=0.025  [EEM/1d(0.037), TLT/1d(0.025)]
+volume      K=2 full  degenerate= 1/16  min_occupation=0.001  [IWM/1h(0.001)]
+volume      K=2 diag  degenerate= 1/16  min_occupation=0.001  [IWM/1h(0.001)]
+volume      K=3 full  degenerate= 4/16  min_occupation=0.000  [XLE/1h(0.000), IWM/1h(0.004), EEM/1h(0.032), FXY/1d(0.045)]
+volume      K=3 diag  degenerate= 4/16  min_occupation=0.000  [XLE/1h(0.000), EEM/1h(0.032), IWM/1h(0.004), FXY/1d(0.045)]
+
+====================================================================================================
+1D VOLUME-AXIS full-vs-diag EQUIVALENCE CHECK
+====================================================================================================
+identical on all cells/K
+====================================================================================================
+
+Results written to .planning/phases/171-hmm-walk-forward-regime-labeling-parameter-lookahead-fix/171-regime-decomposition/sweep-axis-decomposition.json
