@@ -1,0 +1,610 @@
+======================================================================================================================
+NULL-ARM VALIDATION of the production regime axes Phase 172 would ship
+======================================================================================================================
+  axis composite         cols=(0, 1, 2, 3, 4) K=[3] cov=full ordering_column=log_return
+  axis trend             cols=(0, 2) K=[2, 3] cov=full ordering_column=log_return
+  axis volatility        cols=(1, 3) K=[2, 3] cov=full ordering_column=realized_vol
+  axis trend_volatility  cols=(0, 1, 2, 3) K=[3] cov=full ordering_column=log_return
+symbols=17 tf=['1d', '1h']  probe_windows=[20, 60, 120, 250]
+production window=20 (vol_window=20)
+probe replicates=5  margin floor=0.1
+n_values=[5, 10, 20] max_n=20  standardize=True (production parity)
+n_iter=200 full_cov_min_obs=500 min_hold_bars=3 min_state_occupation=0.05
+pool_a_base=42 pool_b_base=1000
+bars: agreement>=0.9 AND kappa>=0.8 (both required)
+======================================================================================================================
+loaded SPY/1d: n_returns=5046
+loaded IWM/1d: n_returns=5050
+loaded TLT/1d: n_returns=2632
+loaded GLD/1d: n_returns=5049
+loaded XLE/1d: n_returns=5050
+loaded EEM/1d: n_returns=5051
+loaded FXY/1d: n_returns=4891
+loaded SMH/1d: n_returns=3666
+loaded AAPL/1d: n_returns=5123
+loaded MSFT/1d: n_returns=5025
+loaded GOOGL/1d: n_returns=5025
+loaded AMZN/1d: n_returns=5025
+loaded JPM/1d: n_returns=5113
+loaded QQQ/1d: n_returns=5052
+loaded DIA/1d: n_returns=5049
+loaded XLF/1d: n_returns=5050
+loaded XLK/1d: n_returns=5050
+loaded SPY/1h: n_returns=30931
+loaded IWM/1h: n_returns=36521
+loaded TLT/1h: n_returns=18377
+loaded GLD/1h: n_returns=36177
+loaded XLE/1h: n_returns=36038
+loaded EEM/1h: n_returns=30169
+loaded FXY/1h: n_returns=29127
+loaded SMH/1h: n_returns=25585
+loaded AAPL/1h: n_returns=35741
+loaded MSFT/1h: n_returns=36815
+loaded GOOGL/1h: n_returns=36825
+loaded AMZN/1h: n_returns=36816
+loaded JPM/1h: n_returns=35677
+loaded QQQ/1h: n_returns=36042
+loaded DIA/1h: n_returns=30860
+loaded XLF/1h: n_returns=36043
+loaded XLK/1h: n_returns=36024
+
+136 probe jobs, 408 sweep jobs queued
+
+probe done in 4s
+
+======================================================================================================================
+BLOCK RELIABILITY, PER PRODUCTION OBSERVATION COLUMN
+corr of the column's block-level estimate across ADJACENT DISJOINT blocks. real minus
+null is the bar -- an absolute value is not, because vol_of_vol and rel_volume are
+two-window statistics whose inner estimator straddles the block boundary and so carry
+an overlap-induced positive null. sign p = exact two-sided binomial on #(real>null).
+======================================================================================================================
+column            W   tf  cells  med_real  med_null   margin  min_real  max_null  real>null     sign_p   pairs
+log_return       20   1d     17     0.009    -0.003    0.025    -0.066     0.035      11/17   3.32e-01     251
+log_return       20   1h     17    -0.052    -0.004   -0.049    -0.138     0.013       1/17   2.75e-04    1800
+log_return       60   1d     17    -0.016    -0.001   -0.009    -0.078     0.074       8/17   1.00e+00      83
+log_return       60   1h     17    -0.002     0.002   -0.003    -0.075     0.025       8/17   1.00e+00     599
+log_return      120   1d     17    -0.002    -0.036    0.036    -0.321     0.075      10/17   6.29e-01      41
+log_return      120   1h     17    -0.013    -0.002   -0.010    -0.145     0.064       7/17   6.29e-01     299
+log_return      250   1d     16    -0.122    -0.057   -0.052    -0.317     0.030       7/16   8.04e-01      19
+log_return      250   1h     17    -0.062     0.002   -0.066    -0.128     0.059       3/17   1.27e-02     143
+realized_vol     20   1d     17     0.607    -0.014    0.621     0.373     0.039      17/17   1.53e-05     251
+realized_vol     20   1h     17     0.706     0.002    0.703     0.389     0.027      17/17   1.53e-05    1800
+realized_vol     60   1d     17     0.498    -0.044    0.550     0.333     0.044      17/17   1.53e-05      83
+realized_vol     60   1h     17     0.708    -0.003    0.687     0.463     0.032      17/17   1.53e-05     599
+realized_vol    120   1d     17     0.423    -0.032    0.499     0.323     0.015      17/17   1.53e-05      41
+realized_vol    120   1h     17     0.674    -0.004    0.686     0.454     0.050      17/17   1.53e-05     299
+realized_vol    250   1d     16     0.185    -0.015    0.245     0.043     0.123      15/16   5.19e-04      19
+realized_vol    250   1h     17     0.562    -0.017    0.573     0.416     0.099      17/17   1.53e-05     143
+momentum         20   1d     17     0.002     0.001   -0.007    -0.080     0.039       8/17   1.00e+00     251
+momentum         20   1h     17    -0.029    -0.003   -0.023    -0.062     0.007       4/17   4.90e-02    1800
+momentum         60   1d     17    -0.041    -0.010   -0.037    -0.149     0.082       6/17   3.32e-01      83
+momentum         60   1h     17    -0.001    -0.000    0.003    -0.073     0.026       9/17   1.00e+00     599
+momentum        120   1d     17    -0.001    -0.041    0.049    -0.245     0.080      12/17   1.43e-01      41
+momentum        120   1h     17    -0.036     0.003   -0.018    -0.094     0.059       5/17   1.43e-01     299
+momentum        250   1d     16    -0.157    -0.056   -0.102    -0.420     0.030       4/16   7.68e-02      19
+momentum        250   1h     17    -0.041     0.004   -0.046    -0.117     0.067       4/17   4.90e-02     143
+vol_of_vol       20   1d     17     0.471     0.386    0.087     0.298     0.442      14/17   1.27e-02     250
+vol_of_vol       20   1h     17     0.483     0.414    0.081     0.389     0.462      17/17   1.53e-05    1799
+vol_of_vol       60   1d     17     0.184     0.070    0.156    -0.020     0.126      16/17   2.75e-04      82
+vol_of_vol       60   1h     17     0.406     0.111    0.295     0.104     0.138      16/17   2.75e-04     598
+vol_of_vol      120   1d     17     0.132    -0.001    0.159     0.010     0.187      16/17   2.75e-04      40
+vol_of_vol      120   1h     17     0.435     0.048    0.385     0.004     0.077      16/17   2.75e-04     298
+vol_of_vol      250   1d     16    -0.009    -0.008    0.003    -0.300     0.201       8/16   1.00e+00      18
+vol_of_vol      250   1h     17     0.311     0.001    0.292     0.048     0.097      17/17   1.53e-05     142
+rel_volume       20   1d     17    -0.276    -0.485    0.205    -0.377    -0.464      17/17   1.53e-05     250
+rel_volume       20   1h     17    -0.298    -0.501    0.195    -0.439    -0.485      17/17   1.53e-05    1799
+rel_volume       60   1d     17    -0.299    -0.505    0.191    -0.496    -0.403      17/17   1.53e-05      82
+rel_volume       60   1h     17    -0.407    -0.500    0.095    -0.473    -0.484      17/17   1.53e-05     598
+rel_volume      120   1d     17    -0.366    -0.481    0.108    -0.537    -0.387      13/17   4.90e-02      40
+rel_volume      120   1h     17    -0.431    -0.500    0.058    -0.522    -0.459      16/17   2.75e-04     298
+rel_volume      250   1d     16    -0.187    -0.478    0.267    -0.578    -0.338      14/16   4.18e-03      18
+rel_volume      250   1h     17    -0.426    -0.501    0.066    -0.527    -0.413      15/17   2.35e-03     142
+
+======================================================================================================================
+BLOCK RELIABILITY BY REGIME GROUP at W=20 (group from
+ic_engine._build_symbol_regime_class -- the same routing any group-specific K would
+have to be expressed through)
+======================================================================================================================
+column           tf          UNROUTED        commodity           equity               fx            rates
+log_return       1d       -0.06/+0.02      -0.01/-0.03      +0.05/-0.00      +0.06/+0.00      -0.02/-0.04
+log_return       1h       -0.05/-0.00      -0.01/-0.00      -0.07/-0.00      -0.06/-0.03      -0.14/-0.02
+realized_vol     1d       +0.54/-0.02      +0.59/+0.00      +0.63/-0.02      +0.53/+0.00      +0.37/+0.04
+realized_vol     1h       +0.50/+0.00      +0.53/+0.02      +0.73/-0.01      +0.39/+0.00      +0.63/+0.01
+momentum         1d       -0.02/+0.03      +0.07/-0.02      +0.00/+0.01      +0.05/-0.01      -0.04/-0.04
+momentum         1h       -0.03/-0.00      -0.00/+0.00      -0.04/-0.00      -0.01/-0.03      -0.04/-0.01
+vol_of_vol       1d       +0.39/+0.39      +0.47/+0.37      +0.47/+0.40      +0.40/+0.31      +0.40/+0.37
+vol_of_vol       1h       +0.48/+0.44      +0.47/+0.40      +0.54/+0.41      +0.47/+0.39      +0.39/+0.39
+rel_volume       1d       -0.28/-0.48      -0.25/-0.49      -0.27/-0.48      -0.28/-0.51      -0.32/-0.50
+rel_volume       1h       -0.28/-0.50      -0.39/-0.50      -0.30/-0.50      -0.44/-0.50      -0.37/-0.50
+(cell = median_real / median_null across that group's symbols)
+
+======================================================================================================================
+PER-AXIS VERDICT at W=20 (production parity), pooled over timeframes
+A column carries real structure only when ALL THREE hold:
+  persists  median(real) > 0.1 -- a regime must survive the block
+            boundary at all; a negative coefficient is an alternating artifact, not a
+            state that persists
+  beats null median(real - null) > 0.1 -- clears its OWN permutation
+            control, which is what the two-window columns' overlap inflates
+  consistent  exact two-sided sign test on #(real > null) rejects at p < 0.05
+The ORDERING column is called out separately: it is what `_build_label_map` ranks
+states by, so it is what the emitted labels MEAN.
+======================================================================================================================
+
+-- axis: composite  columns=(0, 1, 2, 3, 4)
+   column         role       med_real  med_null   margin     sign_p  persists  beats null   real?
+   log_return     ORDERING     -0.023    -0.004   -0.024   1.21e-01        NO          NO      NO
+   realized_vol                 0.621     0.001    0.633   1.16e-10       yes         yes     yes
+   momentum                    -0.016    -0.002   -0.014   1.21e-01        NO          NO      NO
+   vol_of_vol                   0.475     0.399    0.086   7.66e-07       yes          NO      NO
+   rel_volume                  -0.295    -0.499    0.203   1.16e-10        NO         yes      NO
+   => PARTIAL: 1/5 columns real (realized_vol); ordering column (log_return) DOES NOT carry real structure
+
+-- axis: trend  columns=(0, 2)
+   column         role       med_real  med_null   margin     sign_p  persists  beats null   real?
+   log_return     ORDERING     -0.023    -0.004   -0.024   1.21e-01        NO          NO      NO
+   momentum                    -0.016    -0.002   -0.014   1.21e-01        NO          NO      NO
+   => NOT VALIDATED: 0/2 columns real (none); ordering column (log_return) DOES NOT carry real structure
+
+-- axis: volatility  columns=(1, 3)
+   column         role       med_real  med_null   margin     sign_p  persists  beats null   real?
+   realized_vol   ORDERING      0.621     0.001    0.633   1.16e-10       yes         yes     yes
+   vol_of_vol                   0.475     0.399    0.086   7.66e-07       yes          NO      NO
+   => VALIDATED: 1/2 columns real (realized_vol); ordering column (realized_vol) carries real structure
+
+-- axis: trend_volatility  columns=(0, 1, 2, 3)
+   column         role       med_real  med_null   margin     sign_p  persists  beats null   real?
+   log_return     ORDERING     -0.023    -0.004   -0.024   1.21e-01        NO          NO      NO
+   realized_vol                 0.621     0.001    0.633   1.16e-10       yes         yes     yes
+   momentum                    -0.016    -0.002   -0.014   1.21e-01        NO          NO      NO
+   vol_of_vol                   0.475     0.399    0.086   7.66e-07       yes          NO      NO
+   => PARTIAL: 1/4 columns real (realized_vol); ordering column (log_return) DOES NOT carry real structure
+
+[1/408] GOOGL/1h axis=composite         K=3 arm=real agree=0.9998 kappa=0.9996 sep=0.77 occ=0.156 (97s)
+[2/408] GOOGL/1h axis=composite         K=3 arm=null agree=0.9998 kappa=0.9996 sep=0.72 occ=0.116 (97s)
+[3/408] XLF/1h axis=composite         K=3 arm=real agree=1.0000 kappa=1.0000 sep=0.92 occ=0.149 (99s)
+[4/408] IWM/1h axis=composite         K=3 arm=real agree=0.9999 kappa=0.9998 sep=1.02 occ=0.162 (102s)
+[5/408] AAPL/1h axis=composite         K=3 arm=real agree=0.9998 kappa=0.9997 sep=1.14 occ=0.167 (104s)
+[6/408] MSFT/1h axis=composite         K=3 arm=real agree=0.9995 kappa=0.9992 sep=0.99 occ=0.137 (111s)
+[7/408] XLK/1h axis=composite         K=3 arm=real agree=1.0000 kappa=1.0000 sep=1.17 occ=0.176 (123s)
+[8/408] AMZN/1h axis=composite         K=3 arm=real agree=1.0000 kappa=1.0000 sep=0.85 occ=0.141 (125s)
+[9/408] XLE/1h axis=composite         K=3 arm=real agree=1.0000 kappa=1.0000 sep=1.01 occ=0.138 (129s)
+[10/408] IWM/1h axis=composite         K=3 arm=null agree=0.9999 kappa=0.9998 sep=1.00 occ=0.178 (136s)
+[11/408] AAPL/1h axis=composite         K=3 arm=null agree=0.9997 kappa=0.9995 sep=1.04 occ=0.159 (142s)
+[12/408] AMZN/1h axis=composite         K=3 arm=null agree=0.9992 kappa=0.9987 sep=0.77 occ=0.130 (146s)
+[13/408] XLK/1h axis=composite         K=3 arm=null agree=1.0000 kappa=1.0000 sep=1.06 occ=0.211 (159s)
+[14/408] GLD/1h axis=composite         K=3 arm=real agree=0.9947 kappa=0.9913 sep=1.33 occ=0.141 (160s)
+[15/408] XLE/1h axis=composite         K=3 arm=null agree=0.9997 kappa=0.9995 sep=0.95 occ=0.175 (161s)
+[16/408] XLF/1h axis=composite         K=3 arm=null agree=0.9985 kappa=0.9977 sep=1.03 occ=0.196 (162s)
+[17/408] QQQ/1h axis=composite         K=3 arm=real agree=0.9985 kappa=0.9976 sep=1.17 occ=0.176 (165s)
+[18/408] GLD/1h axis=composite         K=3 arm=null agree=0.9989 kappa=0.9982 sep=1.37 occ=0.145 (173s)
+[19/408] SPY/1h axis=composite         K=3 arm=real agree=1.0000 kappa=0.9999 sep=1.11 occ=0.168 (84s)
+[20/408] DIA/1h axis=composite         K=3 arm=real agree=0.9998 kappa=0.9997 sep=1.12 occ=0.167 (88s)
+[21/408] JPM/1h axis=composite         K=3 arm=real agree=0.9995 kappa=0.9992 sep=0.90 occ=0.156 (103s)
+[22/408] QQQ/1h axis=composite         K=3 arm=null agree=0.9998 kappa=0.9997 sep=1.03 occ=0.220 (206s)
+[23/408] GOOGL/1h axis=trend_volatility  K=3 arm=real agree=0.9999 kappa=0.9999 sep=0.77 occ=0.157 (82s)
+[24/408] SPY/1h axis=composite         K=3 arm=null agree=0.9995 kappa=0.9993 sep=1.21 occ=0.174 (129s)
+[25/408] MSFT/1h axis=trend_volatility  K=3 arm=real agree=1.0000 kappa=1.0000 sep=0.99 occ=0.138 (76s)
+[26/408] JPM/1h axis=composite         K=3 arm=null agree=0.9990 kappa=0.9983 sep=1.05 occ=0.175 (138s)
+[27/408] GOOGL/1h axis=trend_volatility  K=3 arm=null agree=0.9999 kappa=0.9999 sep=0.72 occ=0.117 (105s)
+[28/408] MSFT/1h axis=composite         K=3 arm=null agree=1.0000 kappa=1.0000 sep=0.87 occ=0.135 (249s)
+[29/408] AMZN/1h axis=trend_volatility  K=3 arm=null agree=0.9998 kappa=0.9997 sep=0.77 occ=0.131 (116s)
+[30/408] EEM/1h axis=composite         K=3 arm=null agree=0.9985 kappa=0.9976 sep=1.16 occ=0.189 (142s)
+[31/408] IWM/1h axis=trend_volatility  K=3 arm=real agree=0.9999 kappa=0.9999 sep=1.02 occ=0.162 (107s)
+[32/408] XLF/1h axis=trend_volatility  K=3 arm=real agree=0.9999 kappa=0.9999 sep=0.91 occ=0.151 (75s)
+[33/408] IWM/1h axis=trend_volatility  K=3 arm=null agree=1.0000 kappa=1.0000 sep=1.00 occ=0.178 (117s)
+[34/408] DIA/1h axis=composite         K=3 arm=null agree=0.9999 kappa=0.9998 sep=1.21 occ=0.137 (169s)
+[35/408] EEM/1h axis=composite         K=3 arm=real agree=0.9998 kappa=0.9997 sep=1.20 occ=0.152 (169s)
+[36/408] AMZN/1h axis=trend_volatility  K=3 arm=real agree=0.9975 kappa=0.9959 sep=0.85 occ=0.143 (159s)
+[37/408] MSFT/1h axis=trend_volatility  K=3 arm=null agree=1.0000 kappa=1.0000 sep=0.86 occ=0.138 (144s)
+[38/408] QQQ/1h axis=trend_volatility  K=3 arm=real agree=0.9999 kappa=0.9999 sep=1.17 occ=0.176 (120s)
+[39/408] FXY/1h axis=composite         K=3 arm=null agree=0.9990 kappa=0.9984 sep=1.26 occ=0.157 (166s)
+[40/408] GLD/1h axis=trend_volatility  K=3 arm=null agree=0.9983 kappa=0.9973 sep=1.36 occ=0.150 (147s)
+[41/408] GLD/1h axis=trend_volatility  K=3 arm=real agree=0.9997 kappa=0.9995 sep=1.30 occ=0.158 (157s)
+[42/408] FXY/1h axis=composite         K=3 arm=real agree=0.9997 kappa=0.9995 sep=1.30 occ=0.176 (175s)
+[43/408] XLF/1h axis=trend_volatility  K=3 arm=null agree=0.9998 kappa=0.9997 sep=1.02 occ=0.201 (141s)
+[44/408] XLE/1h axis=trend_volatility  K=3 arm=real agree=0.9996 kappa=0.9994 sep=0.97 occ=0.149 (112s)
+[45/408] JPM/1h axis=trend_volatility  K=3 arm=real agree=0.9992 kappa=0.9987 sep=0.90 occ=0.156 (87s)
+[46/408] XLK/1h axis=trend_volatility  K=3 arm=real agree=0.9992 kappa=0.9987 sep=1.14 occ=0.186 (116s)
+[47/408] SMH/1h axis=composite         K=3 arm=real agree=1.0000 kappa=0.9999 sep=1.19 occ=0.261 (86s)
+[48/408] XLE/1h axis=trend_volatility  K=3 arm=null agree=0.9995 kappa=0.9992 sep=0.94 occ=0.177 (136s)
+[49/408] SPY/1h axis=trend_volatility  K=3 arm=real agree=0.9995 kappa=0.9993 sep=1.11 occ=0.170 (81s)
+[50/408] AAPL/1h axis=trend_volatility  K=3 arm=real agree=0.9992 kappa=0.9987 sep=1.13 occ=0.169 (117s)
+[51/408] DIA/1h axis=trend_volatility  K=3 arm=real agree=0.9997 kappa=0.9996 sep=1.12 occ=0.168 (82s)
+[52/408] QQQ/1h axis=trend_volatility  K=3 arm=null agree=0.9998 kappa=0.9997 sep=1.03 occ=0.220 (162s)
+[53/408] SMH/1h axis=composite         K=3 arm=null agree=0.9998 kappa=0.9996 sep=1.31 occ=0.167 (112s)
+[54/408] AAPL/1h axis=trend_volatility  K=3 arm=null agree=0.9991 kappa=0.9985 sep=1.04 occ=0.162 (137s)
+[55/408] XLK/1h axis=trend_volatility  K=3 arm=null agree=0.9998 kappa=0.9997 sep=1.06 occ=0.211 (159s)
+[56/408] TLT/1h axis=composite         K=3 arm=real agree=0.9985 kappa=0.9976 sep=1.12 occ=0.215 (54s)
+[57/408] JPM/1h axis=trend_volatility  K=3 arm=null agree=0.9978 kappa=0.9965 sep=1.02 occ=0.184 (144s)
+[58/408] SMH/1h axis=trend_volatility  K=3 arm=real agree=1.0000 kappa=0.9999 sep=1.19 occ=0.260 (76s)
+[59/408] DIA/1h axis=trend_volatility  K=3 arm=null agree=1.0000 kappa=0.9999 sep=1.21 occ=0.143 (97s)
+[60/408] SPY/1h axis=trend_volatility  K=3 arm=null agree=0.9994 kappa=0.9990 sep=1.15 occ=0.193 (137s)
+[61/408] EEM/1h axis=trend_volatility  K=3 arm=null agree=1.0000 kappa=0.9999 sep=1.11 occ=0.206 (104s)
+[62/408] SMH/1h axis=trend_volatility  K=3 arm=null agree=1.0000 kappa=1.0000 sep=1.31 occ=0.169 (98s)
+[63/408] FXY/1h axis=trend_volatility  K=3 arm=real agree=1.0000 kappa=1.0000 sep=1.29 occ=0.180 (111s)
+[64/408] GOOGL/1h axis=volatility        K=3 arm=real agree=0.9996 kappa=0.9994 sep=0.75 occ=0.150 (84s)
+[65/408] FXY/1h axis=trend_volatility  K=3 arm=null agree=1.0000 kappa=1.0000 sep=1.24 occ=0.163 (122s)
+[66/408] AMZN/1h axis=volatility        K=3 arm=real agree=0.9999 kappa=0.9998 sep=0.80 occ=0.140 (81s)
+[67/408] GOOGL/1h axis=trend             K=3 arm=real agree=1.0000 kappa=1.0000 sep=2.15 occ=0.305 (108s)
+[68/408] TLT/1h axis=trend_volatility  K=3 arm=real agree=0.9997 kappa=0.9996 sep=1.13 occ=0.214 (47s)
+[69/408] EEM/1h axis=trend_volatility  K=3 arm=real agree=1.0000 kappa=1.0000 sep=1.19 occ=0.158 (144s)
+[70/408] GOOGL/1h axis=volatility        K=3 arm=null agree=0.9997 kappa=0.9995 sep=0.69 occ=0.122 (111s)
+[71/408] GOOGL/1h axis=trend             K=3 arm=null agree=0.6778 kappa=0.5116 sep=2.18 occ=0.319 (120s)
+[72/408] TLT/1h axis=composite         K=3 arm=null agree=0.9974 kappa=0.9960 sep=1.12 occ=0.227 (135s)
+[73/408] MSFT/1h axis=volatility        K=3 arm=real agree=0.9997 kappa=0.9995 sep=0.96 occ=0.138 (86s)
+[74/408] MSFT/1h axis=trend             K=3 arm=real agree=0.9999 kappa=0.9998 sep=2.19 occ=0.310 (90s)
+[75/408] AMZN/1h axis=trend             K=3 arm=real agree=0.9967 kappa=0.9951 sep=2.06 occ=0.288 (115s)
+[76/408] AMZN/1h axis=volatility        K=3 arm=null agree=1.0000 kappa=1.0000 sep=0.74 occ=0.135 (116s)
+[77/408] MSFT/1h axis=volatility        K=3 arm=null agree=0.9989 kappa=0.9981 sep=0.82 occ=0.146 (107s)
+[78/408] AMZN/1h axis=trend             K=3 arm=null agree=0.9988 kappa=0.9982 sep=2.22 occ=0.317 (144s)
+[79/408] TLT/1h axis=trend_volatility  K=3 arm=null agree=0.9989 kappa=0.9982 sep=1.13 occ=0.225 (104s)
+[80/408] IWM/1h axis=volatility        K=3 arm=real agree=1.0000 kappa=1.0000 sep=0.99 occ=0.162 (104s)
+[81/408] MSFT/1h axis=trend             K=3 arm=null agree=0.9995 kappa=0.9992 sep=2.27 occ=0.325 (154s)
+[82/408] IWM/1h axis=trend             K=3 arm=null agree=0.9998 kappa=0.9997 sep=2.22 occ=0.318 (123s)
+[83/408] IWM/1h axis=volatility        K=3 arm=null agree=0.9977 kappa=0.9964 sep=0.93 occ=0.193 (124s)
+[84/408] IWM/1h axis=trend             K=3 arm=real agree=1.0000 kappa=1.0000 sep=2.26 occ=0.299 (137s)
+[85/408] XLF/1h axis=volatility        K=3 arm=real agree=0.9989 kappa=0.9982 sep=0.85 occ=0.160 (95s)
+[86/408] GLD/1h axis=trend             K=3 arm=real agree=1.0000 kappa=1.0000 sep=0.99 occ=0.029 (124s)
+[87/408] QQQ/1h axis=volatility        K=3 arm=real agree=1.0000 kappa=1.0000 sep=1.09 occ=0.191 (101s)
+[88/408] GLD/1h axis=volatility        K=3 arm=null agree=1.0000 kappa=1.0000 sep=1.26 occ=0.181 (126s)
+[89/408] XLF/1h axis=volatility        K=3 arm=null agree=1.0000 kappa=1.0000 sep=0.97 occ=0.212 (117s)
+[90/408] GLD/1h axis=trend             K=3 arm=null agree=0.9998 kappa=0.9996 sep=1.09 occ=0.004 (139s)
+[91/408] GLD/1h axis=volatility        K=3 arm=real agree=0.9978 kappa=0.9964 sep=1.20 occ=0.176 (142s)
+[92/408] QQQ/1h axis=trend             K=3 arm=real agree=0.9993 kappa=0.9990 sep=2.32 occ=0.276 (123s)
+[93/408] XLF/1h axis=trend             K=3 arm=null agree=0.9990 kappa=0.9981 sep=1.38 occ=0.003 (133s)
+[94/408] XLE/1h axis=trend             K=3 arm=real agree=0.9999 kappa=0.9998 sep=2.23 occ=0.300 (100s)
+[95/408] QQQ/1h axis=volatility        K=3 arm=null agree=0.9988 kappa=0.9981 sep=1.01 occ=0.218 (118s)
+[96/408] XLE/1h axis=volatility        K=3 arm=real agree=0.9979 kappa=0.9967 sep=0.95 occ=0.150 (104s)
+[97/408] XLF/1h axis=trend             K=3 arm=real agree=1.0000 kappa=1.0000 sep=1.78 occ=0.258 (159s)
+[98/408] QQQ/1h axis=trend             K=3 arm=null agree=0.9999 kappa=0.9999 sep=2.25 occ=0.315 (144s)
+[99/408] XLE/1h axis=trend             K=3 arm=null agree=1.0000 kappa=1.0000 sep=2.18 occ=0.326 (118s)
+[100/408] XLE/1h axis=volatility        K=3 arm=null agree=0.9994 kappa=0.9990 sep=0.91 occ=0.181 (122s)
+[101/408] AAPL/1h axis=volatility        K=3 arm=real agree=0.9988 kappa=0.9980 sep=1.06 occ=0.178 (90s)
+[102/408] XLK/1h axis=volatility        K=3 arm=real agree=0.9994 kappa=0.9991 sep=1.11 occ=0.188 (109s)
+[103/408] AAPL/1h axis=volatility        K=3 arm=null agree=0.9998 kappa=0.9997 sep=0.99 occ=0.169 (89s)
+[104/408] XLK/1h axis=trend             K=3 arm=real agree=0.9996 kappa=0.9994 sep=2.22 occ=0.292 (122s)
+[105/408] AAPL/1h axis=trend             K=3 arm=real agree=0.9983 kappa=0.9975 sep=2.30 occ=0.304 (109s)
+[106/408] JPM/1h axis=trend             K=3 arm=real agree=1.0000 kappa=1.0000 sep=1.75 occ=0.251 (90s)
+[107/408] XLK/1h axis=volatility        K=3 arm=null agree=0.9997 kappa=0.9996 sep=1.02 occ=0.215 (121s)
+[108/408] JPM/1h axis=volatility        K=3 arm=real agree=0.9999 kappa=0.9999 sep=0.85 occ=0.162 (95s)
+[109/408] SPY/1h axis=volatility        K=3 arm=real agree=0.9978 kappa=0.9965 sep=1.08 occ=0.178 (84s)
+[110/408] JPM/1h axis=trend             K=3 arm=null agree=0.9999 kappa=0.9999 sep=1.28 occ=0.001 (102s)
+[111/408] DIA/1h axis=trend             K=3 arm=real agree=0.9977 kappa=0.9965 sep=2.10 occ=0.314 (87s)
+[112/408] SPY/1h axis=trend             K=3 arm=null agree=1.0000 kappa=0.9999 sep=1.29 occ=0.003 (91s)
+[113/408] JPM/1h axis=volatility        K=3 arm=null agree=0.9997 kappa=0.9996 sep=0.93 occ=0.206 (113s)
+[114/408] DIA/1h axis=volatility        K=3 arm=real agree=0.9994 kappa=0.9991 sep=1.07 occ=0.175 (89s)
+[115/408] XLK/1h axis=trend             K=3 arm=null agree=0.9999 kappa=0.9998 sep=2.33 occ=0.322 (156s)
+[116/408] SPY/1h axis=trend             K=3 arm=real agree=0.9998 kappa=0.9997 sep=2.13 occ=0.318 (117s)
+[117/408] AAPL/1h axis=trend             K=3 arm=null agree=1.0000 kappa=1.0000 sep=2.28 occ=0.331 (149s)
+[118/408] EEM/1h axis=trend             K=3 arm=real agree=1.0000 kappa=1.0000 sep=1.03 occ=0.032 (77s)
+[119/408] DIA/1h axis=trend             K=3 arm=null agree=0.9991 kappa=0.9981 sep=1.29 occ=0.002 (97s)
+[120/408] FXY/1h axis=trend             K=3 arm=real agree=0.9999 kappa=0.9999 sep=1.29 occ=0.011 (63s)
+[121/408] GOOGL/1h axis=volatility        K=2 arm=real agree=1.0000 kappa=1.0000 sep=1.91 occ=0.241 (30s)
+[122/408] GOOGL/1h axis=trend             K=2 arm=real agree=1.0000 kappa=1.0000 sep=2.57 occ=0.464 (34s)
+[123/408] GOOGL/1h axis=volatility        K=2 arm=null agree=1.0000 kappa=1.0000 sep=1.90 occ=0.216 (27s)
+[124/408] SPY/1h axis=volatility        K=3 arm=null agree=0.9985 kappa=0.9977 sep=1.04 occ=0.210 (129s)
+[125/408] SMH/1h axis=trend             K=3 arm=real agree=0.9993 kappa=0.9989 sep=2.26 occ=0.291 (57s)
+[126/408] DIA/1h axis=volatility        K=3 arm=null agree=1.0000 kappa=1.0000 sep=1.13 occ=0.162 (102s)
+[127/408] FXY/1h axis=volatility        K=3 arm=real agree=0.9995 kappa=0.9992 sep=1.23 occ=0.196 (75s)
+[128/408] GOOGL/1h axis=trend             K=2 arm=null agree=1.0000 kappa=1.0000 sep=2.44 occ=0.467 (39s)
+[129/408] EEM/1h axis=volatility        K=3 arm=real agree=1.0000 kappa=1.0000 sep=1.12 occ=0.181 (93s)
+[130/408] FXY/1h axis=trend             K=3 arm=null agree=0.9993 kappa=0.9986 sep=1.35 occ=0.005 (79s)
+[131/408] AMZN/1h axis=volatility        K=2 arm=real agree=1.0000 kappa=1.0000 sep=2.09 occ=0.229 (31s)
+[132/408] AMZN/1h axis=trend             K=2 arm=real agree=0.9998 kappa=0.9997 sep=2.49 occ=0.492 (36s)
+[133/408] AMZN/1h axis=volatility        K=2 arm=null agree=1.0000 kappa=1.0000 sep=1.93 occ=0.237 (30s)
+[134/408] SMH/1h axis=volatility        K=3 arm=real agree=0.9988 kappa=0.9982 sep=1.15 occ=0.268 (74s)
+[135/408] EEM/1h axis=volatility        K=3 arm=null agree=0.9994 kappa=0.9991 sep=1.05 occ=0.222 (97s)
+[136/408] AMZN/1h axis=trend             K=2 arm=null agree=1.0000 kappa=1.0000 sep=2.48 occ=0.474 (37s)
+[137/408] SMH/1h axis=volatility        K=3 arm=null agree=0.9994 kappa=0.9991 sep=1.32 occ=0.165 (69s)
+[138/408] IWM/1h axis=volatility        K=2 arm=null agree=0.9998 kappa=0.9996 sep=1.93 occ=0.317 (24s)
+[139/408] EEM/1h axis=trend             K=3 arm=null agree=0.9991 kappa=0.9982 sep=1.33 occ=0.005 (109s)
+[140/408] MSFT/1h axis=volatility        K=2 arm=null agree=1.0000 kappa=1.0000 sep=1.87 occ=0.268 (32s)
+[141/408] MSFT/1h axis=trend             K=2 arm=real agree=0.9999 kappa=0.9998 sep=2.44 occ=0.464 (41s)
+[142/408] MSFT/1h axis=volatility        K=2 arm=real agree=1.0000 kappa=1.0000 sep=1.88 occ=0.270 (40s)
+[143/408] IWM/1h axis=volatility        K=2 arm=real agree=1.0000 kappa=1.0000 sep=1.93 occ=0.299 (32s)
+[144/408] GLD/1h axis=trend             K=2 arm=real agree=0.9999 kappa=0.9997 sep=2.58 occ=0.497 (33s)
+[145/408] IWM/1h axis=trend             K=2 arm=real agree=0.9991 kappa=0.9981 sep=2.39 occ=0.495 (39s)
+[146/408] GLD/1h axis=volatility        K=2 arm=real agree=0.9999 kappa=0.9998 sep=1.89 occ=0.374 (30s)
+[147/408] MSFT/1h axis=trend             K=2 arm=null agree=1.0000 kappa=1.0000 sep=2.55 occ=0.484 (42s)
+[148/408] IWM/1h axis=trend             K=2 arm=null agree=1.0000 kappa=0.9999 sep=2.42 occ=0.497 (40s)
+[149/408] XLF/1h axis=volatility        K=2 arm=real agree=1.0000 kappa=1.0000 sep=1.95 occ=0.282 (25s)
+[150/408] GLD/1h axis=trend             K=2 arm=null agree=0.9999 kappa=0.9998 sep=2.54 occ=0.491 (35s)
+[151/408] GLD/1h axis=volatility        K=2 arm=null agree=1.0000 kappa=1.0000 sep=1.89 occ=0.385 (35s)
+[152/408] XLF/1h axis=trend             K=2 arm=real agree=1.0000 kappa=1.0000 sep=2.18 occ=0.458 (35s)
+[153/408] XLF/1h axis=volatility        K=2 arm=null agree=1.0000 kappa=1.0000 sep=2.09 occ=0.306 (31s)
+[154/408] XLF/1h axis=trend             K=2 arm=null agree=0.9999 kappa=0.9998 sep=2.55 occ=0.485 (35s)
+[155/408] SMH/1h axis=trend             K=3 arm=null agree=0.9995 kappa=0.9992 sep=2.35 occ=0.321 (98s)
+[156/408] FXY/1h axis=volatility        K=3 arm=null agree=0.9989 kappa=0.9983 sep=1.16 occ=0.198 (119s)
+[157/408] QQQ/1h axis=volatility        K=2 arm=real agree=1.0000 kappa=1.0000 sep=1.88 occ=0.350 (29s)
+[158/408] QQQ/1h axis=volatility        K=2 arm=null agree=0.9998 kappa=0.9994 sep=2.02 occ=0.326 (29s)
+[159/408] QQQ/1h axis=trend             K=2 arm=real agree=0.9997 kappa=0.9993 sep=2.39 occ=0.488 (33s)
+[160/408] QQQ/1h axis=trend             K=2 arm=null agree=1.0000 kappa=0.9999 sep=2.55 occ=0.485 (37s)
+[161/408] XLK/1h axis=trend             K=2 arm=real agree=1.0000 kappa=1.0000 sep=2.39 occ=0.498 (28s)
+[162/408] XLE/1h axis=volatility        K=2 arm=real agree=0.9997 kappa=0.9992 sep=1.79 occ=0.296 (33s)
+[163/408] XLE/1h axis=trend             K=2 arm=real agree=1.0000 kappa=1.0000 sep=2.46 occ=0.472 (35s)
+[164/408] XLE/1h axis=volatility        K=2 arm=null agree=0.9998 kappa=0.9996 sep=1.84 occ=0.322 (32s)
+[165/408] XLK/1h axis=volatility        K=2 arm=real agree=0.9997 kappa=0.9993 sep=1.90 occ=0.354 (32s)
+[166/408] XLE/1h axis=trend             K=2 arm=null agree=0.9999 kappa=0.9997 sep=2.48 occ=0.477 (38s)
+[167/408] XLK/1h axis=volatility        K=2 arm=null agree=0.9997 kappa=0.9993 sep=1.96 occ=0.344 (29s)
+[168/408] AAPL/1h axis=volatility        K=2 arm=real agree=0.9999 kappa=0.9999 sep=1.98 occ=0.313 (27s)
+[169/408] AAPL/1h axis=trend             K=2 arm=real agree=1.0000 kappa=0.9999 sep=2.52 occ=0.478 (32s)
+[170/408] XLK/1h axis=trend             K=2 arm=null agree=0.9998 kappa=0.9997 sep=2.58 occ=0.451 (39s)
+[171/408] AAPL/1h axis=volatility        K=2 arm=null agree=0.9999 kappa=0.9998 sep=1.90 occ=0.302 (29s)
+[172/408] JPM/1h axis=volatility        K=2 arm=null agree=1.0000 kappa=1.0000 sep=2.03 occ=0.334 (25s)
+[173/408] AAPL/1h axis=trend             K=2 arm=null agree=1.0000 kappa=1.0000 sep=2.54 occ=0.497 (34s)
+[174/408] SPY/1h axis=trend             K=2 arm=real agree=0.9998 kappa=0.9996 sep=2.39 occ=0.459 (27s)
+[175/408] JPM/1h axis=volatility        K=2 arm=real agree=1.0000 kappa=1.0000 sep=1.95 occ=0.286 (30s)
+[176/408] SPY/1h axis=trend             K=2 arm=null agree=0.9997 kappa=0.9994 sep=2.56 occ=0.500 (26s)
+[177/408] JPM/1h axis=trend             K=2 arm=real agree=0.9999 kappa=0.9998 sep=2.22 occ=0.458 (35s)
+[178/408] SPY/1h axis=volatility        K=2 arm=real agree=1.0000 kappa=1.0000 sep=1.83 occ=0.347 (28s)
+[179/408] SPY/1h axis=volatility        K=2 arm=null agree=1.0000 kappa=0.9999 sep=2.08 occ=0.345 (23s)
+[180/408] JPM/1h axis=trend             K=2 arm=null agree=1.0000 kappa=1.0000 sep=2.54 occ=0.483 (36s)
+[181/408] DIA/1h axis=trend             K=2 arm=real agree=0.9998 kappa=0.9997 sep=2.41 occ=0.465 (28s)
+[182/408] EEM/1h axis=trend             K=2 arm=real agree=1.0000 kappa=0.9999 sep=2.54 occ=0.492 (23s)
+[183/408] EEM/1h axis=volatility        K=2 arm=real agree=0.9999 kappa=0.9999 sep=1.98 occ=0.335 (23s)
+[184/408] DIA/1h axis=volatility        K=2 arm=real agree=0.9996 kappa=0.9991 sep=1.82 occ=0.350 (29s)
+[185/408] DIA/1h axis=volatility        K=2 arm=null agree=1.0000 kappa=0.9999 sep=1.90 occ=0.340 (25s)
+[186/408] DIA/1h axis=trend             K=2 arm=null agree=0.9999 kappa=0.9997 sep=2.61 occ=0.498 (30s)
+[187/408] EEM/1h axis=trend             K=2 arm=null agree=0.9998 kappa=0.9996 sep=2.53 occ=0.493 (25s)
+[188/408] FXY/1h axis=volatility        K=2 arm=real agree=0.9995 kappa=0.9988 sep=2.01 occ=0.338 (23s)
+[189/408] EEM/1h axis=volatility        K=2 arm=null agree=0.9998 kappa=0.9996 sep=2.10 occ=0.332 (26s)
+[190/408] FXY/1h axis=trend             K=2 arm=real agree=1.0000 kappa=1.0000 sep=2.51 occ=0.484 (27s)
+[191/408] FXY/1h axis=volatility        K=2 arm=null agree=0.9999 kappa=0.9997 sep=2.04 occ=0.339 (26s)
+[192/408] FXY/1h axis=trend             K=2 arm=null agree=0.9998 kappa=0.9922 sep=0.12 occ=0.014 (26s)
+[193/408] SMH/1h axis=volatility        K=2 arm=real agree=1.0000 kappa=1.0000 sep=1.99 occ=0.406 (22s)
+[194/408] AAPL/1d axis=composite         K=3 arm=null agree=1.0000 kappa=1.0000 sep=1.16 occ=0.242 (16s)
+[195/408] SMH/1h axis=trend             K=2 arm=real agree=1.0000 kappa=0.9999 sep=2.46 occ=0.498 (23s)
+[196/408] QQQ/1d axis=composite         K=3 arm=real agree=0.9996 kappa=0.9994 sep=0.82 occ=0.232 (15s)
+[197/408] JPM/1d axis=composite         K=3 arm=real agree=0.9998 kappa=0.9997 sep=0.71 occ=0.168 (18s)
+[198/408] JPM/1d axis=composite         K=3 arm=null agree=0.9996 kappa=0.9994 sep=1.39 occ=0.182 (19s)
+[199/408] AAPL/1d axis=composite         K=3 arm=real agree=1.0000 kappa=1.0000 sep=1.30 occ=0.144 (21s)
+[200/408] IWM/1d axis=composite         K=3 arm=null agree=1.0000 kappa=1.0000 sep=1.16 occ=0.241 (12s)
+[201/408] IWM/1d axis=composite         K=3 arm=real agree=0.9996 kappa=0.9993 sep=1.07 occ=0.130 (14s)
+[202/408] SMH/1h axis=trend             K=2 arm=null agree=0.9989 kappa=0.9979 sep=2.57 occ=0.474 (28s)
+[203/408] EEM/1d axis=composite         K=3 arm=real agree=0.9996 kappa=0.9994 sep=0.75 occ=0.166 (19s)
+[204/408] EEM/1d axis=composite         K=3 arm=null agree=0.9994 kappa=0.9991 sep=0.92 occ=0.225 (16s)
+[205/408] QQQ/1d axis=composite         K=3 arm=null agree=1.0000 kappa=1.0000 sep=1.14 occ=0.225 (22s)
+[206/408] XLE/1d axis=composite         K=3 arm=real agree=1.0000 kappa=1.0000 sep=0.92 occ=0.138 (14s)
+[207/408] XLK/1d axis=composite         K=3 arm=null agree=0.9982 kappa=0.9972 sep=0.94 occ=0.195 (14s)
+[208/408] XLE/1d axis=composite         K=3 arm=null agree=1.0000 kappa=1.0000 sep=1.03 occ=0.213 (17s)
+[209/408] TLT/1h axis=volatility        K=3 arm=real agree=0.9991 kappa=0.9986 sep=1.14 occ=0.209 (41s)
+[210/408] DIA/1d axis=composite         K=3 arm=real agree=0.9994 kappa=0.9990 sep=0.82 occ=0.120 (13s)
+[211/408] XLK/1d axis=composite         K=3 arm=real agree=1.0000 kappa=1.0000 sep=0.75 occ=0.224 (16s)
+[212/408] XLF/1d axis=composite         K=3 arm=null agree=0.9998 kappa=0.9997 sep=1.28 occ=0.261 (19s)
+[213/408] SPY/1d axis=composite         K=3 arm=real agree=1.0000 kappa=1.0000 sep=0.91 occ=0.130 (13s)
+[214/408] SMH/1h axis=volatility        K=2 arm=null agree=0.9978 kappa=0.9954 sep=1.85 occ=0.388 (39s)
+[215/408] DIA/1d axis=composite         K=3 arm=null agree=1.0000 kappa=1.0000 sep=0.80 occ=0.232 (17s)
+[216/408] AMZN/1d axis=composite         K=3 arm=null agree=0.9998 kappa=0.9997 sep=1.15 occ=0.255 (13s)
+[217/408] GLD/1d axis=composite         K=3 arm=real agree=0.9996 kappa=0.9994 sep=1.04 occ=0.203 (17s)
+[218/408] SPY/1d axis=composite         K=3 arm=null agree=0.9992 kappa=0.9988 sep=1.10 occ=0.198 (17s)
+[219/408] GLD/1d axis=composite         K=3 arm=null agree=0.9996 kappa=0.9994 sep=1.09 occ=0.198 (18s)
+[220/408] AMZN/1d axis=composite         K=3 arm=real agree=0.9996 kappa=0.9994 sep=1.47 occ=0.165 (18s)
+[221/408] XLF/1d axis=composite         K=3 arm=real agree=0.9889 kappa=0.9821 sep=0.78 occ=0.162 (25s)
+[222/408] TLT/1h axis=trend             K=2 arm=real agree=0.9997 kappa=0.9995 sep=2.46 occ=0.497 (12s)
+[223/408] GOOGL/1d axis=composite         K=3 arm=null agree=0.9990 kappa=0.9984 sep=1.01 occ=0.146 (17s)
+[224/408] TLT/1h axis=volatility        K=2 arm=real agree=1.0000 kappa=1.0000 sep=1.96 occ=0.363 (13s)
+[225/408] GOOGL/1d axis=composite         K=3 arm=real agree=1.0000 kappa=1.0000 sep=1.31 occ=0.178 (22s)
+[226/408] TLT/1h axis=trend             K=2 arm=null agree=0.9991 kappa=0.9981 sep=2.58 occ=0.497 (15s)
+[227/408] MSFT/1d axis=composite         K=3 arm=null agree=0.9992 kappa=0.9987 sep=1.53 occ=0.161 (18s)
+[228/408] TLT/1h axis=volatility        K=3 arm=null agree=0.9990 kappa=0.9984 sep=1.12 occ=0.220 (58s)
+[229/408] TLT/1h axis=volatility        K=2 arm=null agree=1.0000 kappa=1.0000 sep=2.10 occ=0.338 (15s)
+[230/408] QQQ/1d axis=trend_volatility  K=3 arm=real agree=1.0000 kappa=1.0000 sep=0.81 occ=0.224 (11s)
+[231/408] FXY/1d axis=composite         K=3 arm=real agree=1.0000 kappa=1.0000 sep=1.30 occ=0.249 (16s)
+[232/408] FXY/1d axis=composite         K=3 arm=null agree=0.9988 kappa=0.9981 sep=1.48 occ=0.263 (15s)
+[233/408] MSFT/1d axis=composite         K=3 arm=real agree=1.0000 kappa=1.0000 sep=1.18 occ=0.168 (22s)
+[234/408] AAPL/1d axis=trend_volatility  K=3 arm=null agree=1.0000 kappa=1.0000 sep=1.16 occ=0.243 (16s)
+[235/408] AAPL/1d axis=trend_volatility  K=3 arm=real agree=0.9998 kappa=0.9997 sep=1.28 occ=0.147 (16s)
+[236/408] JPM/1d axis=trend_volatility  K=3 arm=real agree=1.0000 kappa=1.0000 sep=0.72 occ=0.165 (16s)
+[237/408] QQQ/1d axis=trend_volatility  K=3 arm=null agree=1.0000 kappa=1.0000 sep=1.15 occ=0.224 (14s)
+[238/408] EEM/1d axis=trend_volatility  K=3 arm=real agree=0.9994 kappa=0.9990 sep=0.74 occ=0.167 (17s)
+[239/408] IWM/1d axis=trend_volatility  K=3 arm=real agree=0.9976 kappa=0.9960 sep=1.06 occ=0.130 (14s)
+[240/408] IWM/1d axis=trend_volatility  K=3 arm=null agree=1.0000 kappa=1.0000 sep=1.16 occ=0.241 (13s)
+[241/408] EEM/1d axis=trend_volatility  K=3 arm=null agree=0.9986 kappa=0.9979 sep=0.91 occ=0.227 (16s)
+[242/408] XLE/1d axis=trend_volatility  K=3 arm=real agree=1.0000 kappa=1.0000 sep=0.92 occ=0.136 (12s)
+[243/408] JPM/1d axis=trend_volatility  K=3 arm=null agree=0.9994 kappa=0.9991 sep=1.37 occ=0.189 (20s)
+[244/408] XLE/1d axis=trend_volatility  K=3 arm=null agree=1.0000 kappa=1.0000 sep=1.03 occ=0.212 (12s)
+[245/408] TLT/1h axis=trend             K=3 arm=null agree=0.9962 kappa=0.9943 sep=2.38 occ=0.295 (70s)
+[246/408] XLK/1d axis=trend_volatility  K=3 arm=real agree=0.9992 kappa=0.9988 sep=0.74 occ=0.223 (11s)
+[247/408] XLF/1d axis=trend_volatility  K=3 arm=real agree=1.0000 kappa=1.0000 sep=0.79 occ=0.157 (15s)
+[248/408] DIA/1d axis=trend_volatility  K=3 arm=null agree=0.9996 kappa=0.9994 sep=0.80 occ=0.232 (11s)
+[249/408] DIA/1d axis=trend_volatility  K=3 arm=real agree=0.9998 kappa=0.9997 sep=0.82 occ=0.121 (14s)
+[250/408] SPY/1d axis=trend_volatility  K=3 arm=real agree=1.0000 kappa=1.0000 sep=0.91 occ=0.129 (12s)
+[251/408] XLK/1d axis=trend_volatility  K=3 arm=null agree=0.9998 kappa=0.9997 sep=0.94 occ=0.194 (15s)
+[252/408] TLT/1h axis=trend             K=3 arm=real agree=1.0000 kappa=1.0000 sep=2.35 occ=0.313 (79s)
+[253/408] GLD/1d axis=trend_volatility  K=3 arm=null agree=0.9992 kappa=0.9988 sep=1.10 occ=0.196 (16s)
+[254/408] XLF/1d axis=trend_volatility  K=3 arm=null agree=0.9996 kappa=0.9994 sep=1.30 occ=0.259 (19s)
+[255/408] SMH/1d axis=trend_volatility  K=3 arm=null agree=1.0000 kappa=1.0000 sep=1.31 occ=0.196 (7s)
+[256/408] AMZN/1d axis=trend_volatility  K=3 arm=real agree=1.0000 kappa=1.0000 sep=1.50 occ=0.170 (16s)
+[257/408] GOOGL/1d axis=trend_volatility  K=3 arm=null agree=0.9998 kappa=0.9997 sep=1.00 occ=0.148 (13s)
+[258/408] TLT/1d axis=composite         K=3 arm=real agree=0.9927 kappa=0.9870 sep=1.32 occ=0.064 (6s)
+[259/408] SMH/1d axis=composite         K=3 arm=null agree=1.0000 kappa=1.0000 sep=1.31 occ=0.197 (10s)
+[260/408] AMZN/1d axis=trend_volatility  K=3 arm=null agree=0.9998 kappa=0.9997 sep=1.15 occ=0.254 (14s)
+[261/408] TLT/1d axis=trend_volatility  K=3 arm=real agree=0.9801 kappa=0.9642 sep=1.33 occ=0.062 (6s)
+[262/408] SPY/1d axis=trend_volatility  K=3 arm=null agree=0.1959 kappa=-0.2673 sep=1.10 occ=0.199 (18s)
+[263/408] FXY/1d axis=trend_volatility  K=3 arm=null agree=0.9994 kappa=0.9991 sep=1.49 occ=0.262 (13s)
+[264/408] GLD/1d axis=trend_volatility  K=3 arm=real agree=1.0000 kappa=1.0000 sep=1.04 occ=0.204 (20s)
+[265/408] MSFT/1d axis=trend_volatility  K=3 arm=null agree=0.9948 kappa=0.9917 sep=1.47 occ=0.166 (15s)
+[266/408] FXY/1d axis=trend_volatility  K=3 arm=real agree=0.9996 kappa=0.9994 sep=1.29 occ=0.248 (16s)
+[267/408] SMH/1d axis=composite         K=3 arm=real agree=0.9989 kappa=0.9983 sep=1.50 occ=0.174 (15s)
+[268/408] SMH/1d axis=trend_volatility  K=3 arm=real agree=1.0000 kappa=1.0000 sep=1.49 occ=0.183 (13s)
+[269/408] TLT/1d axis=composite         K=3 arm=null agree=0.3517 kappa=0.1204 sep=1.39 occ=0.136 (11s)
+[270/408] AAPL/1d axis=volatility        K=3 arm=real agree=0.9998 kappa=0.9997 sep=1.05 occ=0.189 (8s)
+[271/408] TLT/1d axis=trend_volatility  K=3 arm=null agree=1.0000 kappa=1.0000 sep=1.39 occ=0.135 (9s)
+[272/408] JPM/1d axis=volatility        K=3 arm=null agree=0.2293 kappa=-0.1666 sep=2.49 occ=0.198 (6s)
+[273/408] MSFT/1d axis=trend_volatility  K=3 arm=real agree=0.9998 kappa=0.9997 sep=1.17 occ=0.170 (19s)
+[274/408] JPM/1d axis=volatility        K=3 arm=real agree=0.9992 kappa=0.9987 sep=0.68 occ=0.167 (7s)
+[275/408] GOOGL/1d axis=trend_volatility  K=3 arm=real agree=1.0000 kappa=1.0000 sep=1.29 occ=0.179 (21s)
+[276/408] QQQ/1d axis=volatility        K=3 arm=real agree=0.9992 kappa=0.9987 sep=0.93 occ=0.172 (10s)
+[277/408] JPM/1d axis=trend             K=3 arm=real agree=0.9984 kappa=0.9976 sep=1.97 occ=0.287 (11s)
+[278/408] QQQ/1d axis=trend             K=3 arm=null agree=0.9972 kappa=0.9957 sep=2.25 occ=0.257 (10s)
+[279/408] AAPL/1d axis=trend             K=3 arm=real agree=1.0000 kappa=1.0000 sep=2.21 occ=0.274 (14s)
+[280/408] AAPL/1d axis=trend             K=3 arm=null agree=0.9955 kappa=0.9932 sep=2.25 occ=0.293 (13s)
+[281/408] QQQ/1d axis=volatility        K=3 arm=null agree=0.9978 kappa=0.9966 sep=1.02 occ=0.221 (11s)
+[282/408] AAPL/1d axis=volatility        K=3 arm=null agree=0.9998 kappa=0.9997 sep=1.29 occ=0.211 (15s)
+[283/408] EEM/1d axis=volatility        K=3 arm=real agree=0.9998 kappa=0.9997 sep=0.71 occ=0.157 (10s)
+[284/408] IWM/1d axis=volatility        K=3 arm=real agree=0.9998 kappa=0.9997 sep=0.83 occ=0.163 (9s)
+[285/408] EEM/1d axis=volatility        K=3 arm=null agree=0.9998 kappa=0.9997 sep=0.90 occ=0.221 (10s)
+[286/408] JPM/1d axis=trend             K=3 arm=null agree=0.9998 kappa=0.9997 sep=2.20 occ=0.312 (15s)
+[287/408] QQQ/1d axis=trend             K=3 arm=real agree=1.0000 kappa=1.0000 sep=2.29 occ=0.288 (15s)
+[288/408] XLE/1d axis=volatility        K=3 arm=real agree=1.0000 kappa=1.0000 sep=0.83 occ=0.132 (11s)
+[289/408] IWM/1d axis=volatility        K=3 arm=null agree=0.9994 kappa=0.9991 sep=1.18 occ=0.230 (13s)
+[290/408] IWM/1d axis=trend             K=3 arm=null agree=0.9996 kappa=0.9994 sep=2.32 occ=0.260 (14s)
+[291/408] XLE/1d axis=volatility        K=3 arm=null agree=0.9998 kappa=0.9997 sep=0.98 occ=0.208 (10s)
+[292/408] XLF/1d axis=volatility        K=3 arm=null agree=0.9998 kappa=0.9997 sep=2.59 occ=0.179 (9s)
+[293/408] EEM/1d axis=trend             K=3 arm=null agree=1.0000 kappa=1.0000 sep=1.95 occ=0.316 (17s)
+[294/408] XLE/1d axis=trend             K=3 arm=real agree=0.9976 kappa=0.9964 sep=2.16 occ=0.274 (15s)
+[295/408] EEM/1d axis=trend             K=3 arm=real agree=0.9998 kappa=0.9997 sep=1.93 occ=0.233 (19s)
+[296/408] DIA/1d axis=volatility        K=3 arm=real agree=0.9998 kappa=0.9997 sep=0.79 occ=0.128 (7s)
+[297/408] IWM/1d axis=trend             K=3 arm=real agree=0.9996 kappa=0.9994 sep=2.34 occ=0.248 (16s)
+[298/408] XLF/1d axis=volatility        K=3 arm=real agree=1.0000 kappa=1.0000 sep=0.72 occ=0.178 (11s)
+[299/408] XLK/1d axis=volatility        K=3 arm=null agree=1.0000 kappa=1.0000 sep=1.00 occ=0.174 (10s)
+[300/408] XLE/1d axis=trend             K=3 arm=null agree=0.9964 kappa=0.9946 sep=2.25 occ=0.309 (18s)
+[301/408] XLK/1d axis=trend             K=3 arm=real agree=0.9970 kappa=0.9955 sep=2.33 occ=0.287 (13s)
+[302/408] XLF/1d axis=trend             K=3 arm=real agree=0.9956 kappa=0.9933 sep=2.00 occ=0.265 (15s)
+[303/408] DIA/1d axis=trend             K=3 arm=real agree=1.0000 kappa=1.0000 sep=2.50 occ=0.257 (11s)
+[304/408] XLF/1d axis=trend             K=3 arm=null agree=0.4613 kappa=0.2097 sep=2.23 occ=0.310 (15s)
+[305/408] XLK/1d axis=trend             K=3 arm=null agree=0.9988 kappa=0.9982 sep=2.28 occ=0.240 (15s)
+[306/408] XLK/1d axis=volatility        K=3 arm=real agree=1.0000 kappa=1.0000 sep=0.69 occ=0.240 (15s)
+[307/408] DIA/1d axis=volatility        K=3 arm=null agree=1.0000 kappa=1.0000 sep=0.79 occ=0.230 (12s)
+[308/408] GLD/1d axis=volatility        K=3 arm=real agree=1.0000 kappa=1.0000 sep=1.03 occ=0.199 (10s)
+[309/408] SPY/1d axis=volatility        K=3 arm=real agree=0.9998 kappa=0.9997 sep=0.90 occ=0.128 (9s)
+[310/408] DIA/1d axis=trend             K=3 arm=null agree=0.9998 kappa=0.9997 sep=2.40 occ=0.298 (17s)
+[311/408] GLD/1d axis=volatility        K=3 arm=null agree=0.9984 kappa=0.9975 sep=1.09 occ=0.195 (12s)
+[312/408] SPY/1d axis=volatility        K=3 arm=null agree=1.0000 kappa=1.0000 sep=1.07 occ=0.204 (13s)
+[313/408] GOOGL/1d axis=volatility        K=3 arm=real agree=0.9992 kappa=0.9988 sep=0.82 occ=0.252 (9s)
+[314/408] SPY/1d axis=trend             K=3 arm=real agree=0.9968 kappa=0.9952 sep=2.42 occ=0.285 (14s)
+[315/408] AMZN/1d axis=volatility        K=3 arm=real agree=0.9998 kappa=0.9997 sep=1.39 occ=0.188 (13s)
+[316/408] GLD/1d axis=trend             K=3 arm=real agree=0.9930 kappa=0.9894 sep=2.11 occ=0.248 (16s)
+[317/408] GLD/1d axis=trend             K=3 arm=null agree=0.9972 kappa=0.9958 sep=2.31 occ=0.280 (15s)
+[318/408] AMZN/1d axis=volatility        K=3 arm=null agree=1.0000 kappa=1.0000 sep=1.15 occ=0.243 (11s)
+[319/408] SPY/1d axis=trend             K=3 arm=null agree=0.9980 kappa=0.9970 sep=2.24 occ=0.300 (15s)
+[320/408] AMZN/1d axis=trend             K=3 arm=real agree=0.9996 kappa=0.9994 sep=2.23 occ=0.288 (17s)
+[321/408] GOOGL/1d axis=volatility        K=3 arm=null agree=0.9992 kappa=0.9987 sep=1.00 occ=0.141 (13s)
+[322/408] AAPL/1d axis=volatility        K=2 arm=real agree=0.9998 kappa=0.9995 sep=1.92 occ=0.315 (4s)
+[323/408] AAPL/1d axis=trend             K=2 arm=real agree=0.9998 kappa=0.9996 sep=2.61 occ=0.497 (5s)
+[324/408] GOOGL/1d axis=trend             K=3 arm=real agree=1.0000 kappa=1.0000 sep=2.23 occ=0.276 (16s)
+[325/408] MSFT/1d axis=volatility        K=3 arm=null agree=1.0000 kappa=1.0000 sep=1.37 occ=0.165 (12s)
+[326/408] SMH/1d axis=volatility        K=3 arm=null agree=1.0000 kappa=1.0000 sep=1.26 occ=0.196 (7s)
+[327/408] AAPL/1d axis=volatility        K=2 arm=null agree=0.9996 kappa=0.9991 sep=2.18 occ=0.357 (5s)
+[328/408] SMH/1d axis=volatility        K=3 arm=real agree=1.0000 kappa=1.0000 sep=1.47 occ=0.171 (9s)
+[329/408] FXY/1d axis=volatility        K=3 arm=real agree=0.9977 kappa=0.9965 sep=1.27 occ=0.260 (12s)
+[330/408] JPM/1d axis=volatility        K=2 arm=real agree=1.0000 kappa=1.0000 sep=1.78 occ=0.310 (5s)
+[331/408] AAPL/1d axis=trend             K=2 arm=null agree=1.0000 kappa=1.0000 sep=2.42 occ=0.466 (8s)
+[332/408] GOOGL/1d axis=trend             K=3 arm=null agree=0.9994 kappa=0.9991 sep=2.04 occ=0.264 (19s)
+[333/408] JPM/1d axis=trend             K=2 arm=real agree=0.9986 kappa=0.9972 sep=2.25 occ=0.478 (5s)
+[334/408] FXY/1d axis=trend             K=3 arm=real agree=1.0000 kappa=1.0000 sep=2.11 occ=0.281 (14s)
+[335/408] FXY/1d axis=volatility        K=3 arm=null agree=0.9992 kappa=0.9987 sep=1.51 occ=0.251 (11s)
+[336/408] SMH/1d axis=trend             K=3 arm=real agree=0.9986 kappa=0.9979 sep=2.23 occ=0.294 (10s)
+[337/408] MSFT/1d axis=trend             K=3 arm=null agree=1.0000 kappa=1.0000 sep=2.42 occ=0.297 (16s)
+[338/408] JPM/1d axis=trend             K=2 arm=null agree=1.0000 kappa=1.0000 sep=2.53 occ=0.474 (6s)
+[339/408] JPM/1d axis=volatility        K=2 arm=null agree=0.9996 kappa=0.9992 sep=2.15 occ=0.399 (5s)
+[340/408] QQQ/1d axis=volatility        K=2 arm=real agree=1.0000 kappa=1.0000 sep=2.07 occ=0.294 (4s)
+[341/408] MSFT/1d axis=volatility        K=3 arm=real agree=1.0000 kappa=1.0000 sep=1.00 occ=0.218 (18s)
+[342/408] EEM/1d axis=volatility        K=2 arm=real agree=1.0000 kappa=1.0000 sep=2.05 occ=0.242 (3s)
+[343/408] QQQ/1d axis=volatility        K=2 arm=null agree=1.0000 kappa=1.0000 sep=2.40 occ=0.279 (4s)
+[344/408] EEM/1d axis=volatility        K=2 arm=null agree=1.0000 kappa=1.0000 sep=2.04 occ=0.331 (4s)
+[345/408] FXY/1d axis=trend             K=3 arm=null agree=0.9936 kappa=0.9904 sep=2.24 occ=0.269 (16s)
+[346/408] QQQ/1d axis=trend             K=2 arm=null agree=0.9998 kappa=0.9996 sep=2.47 occ=0.368 (6s)
+[347/408] IWM/1d axis=volatility        K=2 arm=null agree=0.9996 kappa=0.9991 sep=2.34 occ=0.323 (4s)
+[348/408] XLE/1d axis=volatility        K=2 arm=real agree=1.0000 kappa=1.0000 sep=1.86 occ=0.250 (4s)
+[349/408] EEM/1d axis=trend             K=2 arm=real agree=0.9984 kappa=0.9968 sep=2.42 occ=0.459 (6s)
+[350/408] XLE/1d axis=volatility        K=2 arm=null agree=1.0000 kappa=1.0000 sep=2.41 occ=0.289 (4s)
+[351/408] XLE/1d axis=trend             K=2 arm=real agree=0.9998 kappa=0.9996 sep=2.44 occ=0.474 (5s)
+[352/408] IWM/1d axis=trend             K=2 arm=real agree=1.0000 kappa=1.0000 sep=2.43 occ=0.436 (6s)
+[353/408] QQQ/1d axis=trend             K=2 arm=real agree=0.9988 kappa=0.9975 sep=2.38 occ=0.411 (8s)
+[354/408] IWM/1d axis=volatility        K=2 arm=real agree=0.9988 kappa=0.9964 sep=2.23 occ=0.214 (6s)
+[355/408] EEM/1d axis=trend             K=2 arm=null agree=1.0000 kappa=1.0000 sep=2.35 occ=0.445 (6s)
+[356/408] XLF/1d axis=trend             K=2 arm=real agree=0.9990 kappa=0.9980 sep=2.21 occ=0.478 (4s)
+[357/408] MSFT/1d axis=trend             K=3 arm=real agree=0.9860 kappa=0.9789 sep=2.26 occ=0.280 (23s)
+[358/408] IWM/1d axis=trend             K=2 arm=null agree=1.0000 kappa=1.0000 sep=2.54 occ=0.418 (7s)
+[359/408] SMH/1d axis=trend             K=3 arm=null agree=0.9997 kappa=0.9996 sep=2.38 occ=0.248 (17s)
+[360/408] XLF/1d axis=volatility        K=2 arm=real agree=1.0000 kappa=1.0000 sep=1.99 occ=0.285 (5s)
+[361/408] XLF/1d axis=volatility        K=2 arm=null agree=1.0000 kappa=1.0000 sep=2.31 occ=0.406 (4s)
+[362/408] XLK/1d axis=volatility        K=2 arm=real agree=1.0000 kappa=1.0000 sep=1.79 occ=0.320 (3s)
+[363/408] XLE/1d axis=trend             K=2 arm=null agree=0.9996 kappa=0.9992 sep=2.49 occ=0.470 (6s)
+[364/408] XLF/1d axis=trend             K=2 arm=null agree=0.9996 kappa=0.9992 sep=2.48 occ=0.491 (5s)
+[365/408] XLK/1d axis=volatility        K=2 arm=null agree=1.0000 kappa=1.0000 sep=2.06 occ=0.277 (3s)
+[366/408] DIA/1d axis=volatility        K=2 arm=real agree=1.0000 kappa=1.0000 sep=1.84 occ=0.223 (3s)
+[367/408] DIA/1d axis=volatility        K=2 arm=null agree=1.0000 kappa=1.0000 sep=2.25 occ=0.284 (4s)
+[368/408] GLD/1d axis=volatility        K=2 arm=real agree=1.0000 kappa=1.0000 sep=1.97 occ=0.356 (4s)
+[369/408] SPY/1d axis=volatility        K=2 arm=real agree=1.0000 kappa=1.0000 sep=1.93 occ=0.242 (4s)
+[370/408] DIA/1d axis=trend             K=2 arm=real agree=0.9996 kappa=0.9992 sep=2.31 occ=0.392 (6s)
+[371/408] XLK/1d axis=trend             K=2 arm=real agree=0.9958 kappa=0.9917 sep=2.38 occ=0.494 (7s)
+[372/408] GLD/1d axis=volatility        K=2 arm=null agree=1.0000 kappa=1.0000 sep=1.96 occ=0.341 (5s)
+[373/408] DIA/1d axis=trend             K=2 arm=null agree=0.9990 kappa=0.9980 sep=2.48 occ=0.444 (6s)
+[374/408] AMZN/1d axis=volatility        K=2 arm=null agree=0.9996 kappa=0.9991 sep=2.25 occ=0.319 (4s)
+[375/408] GLD/1d axis=trend             K=2 arm=real agree=1.0000 kappa=1.0000 sep=2.47 occ=0.418 (6s)
+[376/408] GLD/1d axis=trend             K=2 arm=null agree=0.9992 kappa=0.9984 sep=2.43 occ=0.469 (6s)
+[377/408] AMZN/1d axis=volatility        K=2 arm=real agree=0.9998 kappa=0.9996 sep=1.86 occ=0.426 (5s)
+[378/408] AMZN/1d axis=trend             K=2 arm=real agree=0.9994 kappa=0.9988 sep=2.58 occ=0.406 (5s)
+[379/408] SPY/1d axis=trend             K=2 arm=real agree=0.9990 kappa=0.9979 sep=2.42 occ=0.408 (6s)
+[380/408] AMZN/1d axis=trend             K=2 arm=null agree=0.9982 kappa=0.9964 sep=2.49 occ=0.486 (5s)
+[381/408] GOOGL/1d axis=volatility        K=2 arm=null agree=0.9992 kappa=0.9981 sep=1.95 occ=0.303 (4s)
+[382/408] GOOGL/1d axis=trend             K=2 arm=real agree=1.0000 kappa=1.0000 sep=2.58 occ=0.485 (5s)
+[383/408] XLK/1d axis=trend             K=2 arm=null agree=1.0000 kappa=1.0000 sep=2.28 occ=0.452 (9s)
+[384/408] SPY/1d axis=trend             K=2 arm=null agree=0.9992 kappa=0.9984 sep=2.48 occ=0.469 (7s)
+[385/408] SPY/1d axis=volatility        K=2 arm=null agree=0.9986 kappa=0.9968 sep=2.11 occ=0.329 (7s)
+[386/408] GOOGL/1d axis=trend             K=2 arm=null agree=0.9998 kappa=0.9996 sep=2.62 occ=0.436 (6s)
+[387/408] GOOGL/1d axis=volatility        K=2 arm=real agree=0.9972 kappa=0.9941 sep=1.75 occ=0.388 (7s)
+[388/408] FXY/1d axis=volatility        K=2 arm=real agree=1.0000 kappa=1.0000 sep=2.27 occ=0.395 (4s)
+[389/408] MSFT/1d axis=volatility        K=2 arm=null agree=1.0000 kappa=1.0000 sep=1.99 occ=0.368 (4s)
+[390/408] MSFT/1d axis=trend             K=2 arm=real agree=0.9998 kappa=0.9996 sep=2.45 occ=0.471 (5s)
+[391/408] SMH/1d axis=volatility        K=2 arm=null agree=1.0000 kappa=1.0000 sep=2.43 occ=0.266 (2s)
+[392/408] SMH/1d axis=trend             K=2 arm=real agree=0.9997 kappa=0.9995 sep=2.33 occ=0.485 (3s)
+[393/408] MSFT/1d axis=volatility        K=2 arm=real agree=1.0000 kappa=1.0000 sep=1.87 occ=0.366 (5s)
+[394/408] SMH/1d axis=volatility        K=2 arm=real agree=1.0000 kappa=1.0000 sep=2.03 occ=0.358 (3s)
+[395/408] TLT/1d axis=volatility        K=2 arm=real agree=1.0000 kappa=1.0000 sep=1.75 occ=0.245 (2s)
+[396/408] TLT/1d axis=volatility        K=3 arm=real agree=1.0000 kappa=1.0000 sep=1.25 occ=0.068 (4s)
+[397/408] FXY/1d axis=volatility        K=2 arm=null agree=0.9988 kappa=0.9975 sep=2.25 occ=0.422 (5s)
+[398/408] FXY/1d axis=trend             K=2 arm=real agree=0.9996 kappa=0.9992 sep=2.36 occ=0.460 (5s)
+[399/408] AMZN/1d axis=trend             K=3 arm=null agree=0.9345 kappa=0.8990 sep=2.12 occ=0.236 (37s)
+[400/408] TLT/1d axis=volatility        K=3 arm=null agree=0.9954 kappa=0.9924 sep=1.26 occ=0.154 (4s)
+[401/408] MSFT/1d axis=trend             K=2 arm=null agree=1.0000 kappa=1.0000 sep=2.49 occ=0.466 (6s)
+[402/408] TLT/1d axis=volatility        K=2 arm=null agree=0.9147 kappa=0.7994 sep=2.01 occ=0.344 (2s)
+[403/408] TLT/1d axis=trend             K=2 arm=real agree=0.9973 kappa=0.9946 sep=2.57 occ=0.444 (4s)
+[404/408] TLT/1d axis=trend             K=3 arm=null agree=1.0000 kappa=1.0000 sep=2.30 occ=0.285 (6s)
+[405/408] FXY/1d axis=trend             K=2 arm=null agree=0.9975 kappa=0.9951 sep=2.45 occ=0.486 (7s)
+[406/408] TLT/1d axis=trend             K=3 arm=real agree=0.9996 kappa=0.9994 sep=2.19 occ=0.326 (6s)
+[407/408] TLT/1d axis=trend             K=2 arm=null agree=0.9950 kappa=0.9900 sep=2.42 occ=0.478 (3s)
+[408/408] SMH/1d axis=trend             K=2 arm=null agree=0.9997 kappa=0.9994 sep=2.43 occ=0.435 (6s)
+
+sweep done in 1001s
+total 1005s
+
+======================================================================================================================
+IDENTIFIABILITY BATTERY: REAL ARM vs NULL ARM
+The null arm is production's own `_build_obs_matrix` rebuilt from an IID-permuted
+return/volume series -- no regime exists in it by construction. A null arm that
+passes as often as the real arm proves the battery is not evidence for the axis.
+======================================================================================================================
+axis               K  real pass  NULL pass  real min_agree  NULL min_agree  real degen  NULL degen  real med_sep  NULL med_sep  informative
+composite          3      34/34      33/34          0.9889          0.3517        0/34        0/34          1.09          1.11          yes
+trend              2      34/34      34/34          0.9958          0.9950        0/34        1/34          2.43          2.49           NO
+trend              3      34/34      32/34          0.9860          0.4613        3/34        7/34          2.20          2.24          yes
+volatility         2      34/34      33/34          0.9972          0.9147        0/34        0/34          1.92          2.04          yes
+volatility         3      34/34      33/34          0.9977          0.2293        0/34        0/34          1.00          1.04          yes
+trend_volatility   3      34/34      33/34          0.9801          0.1959        0/34        0/34          1.08          1.11          yes
+
+======================================================================================================================
+OCCUPATION-GATE DEGENERACY BY REGIME GROUP (real arm) -- does the widened trend
+check's equity vs fx/commodity/rates/intl split hold up, and does the null arm show
+the same pattern (which would make it a property of the fit, not of the data)?
+======================================================================================================================
+axis               K   arm        UNROUTED      commodity         equity             fx          rates
+composite          3  real            0/10            0/2           0/18            0/2            0/2
+composite          3  null            0/10            0/2           0/18            0/2            1/2
+trend              2  real            0/10            0/2           0/18            0/2            0/2
+trend              2  null            0/10            0/2           0/18            1/2            0/2
+trend              3  real            0/10            1/2           1/18            1/2            0/2
+trend              3  null            2/10            1/2           5/18            1/2            0/2
+volatility         2  real            0/10            0/2           0/18            0/2            0/2
+volatility         2  null            0/10            0/2           0/18            0/2            1/2
+volatility         3  real            0/10            0/2           0/18            0/2            0/2
+volatility         3  null            1/10            0/2           0/18            0/2            0/2
+trend_volatility   3  real            0/10            0/2           0/18            0/2            0/2
+trend_volatility   3  null            0/10            0/2           1/18            0/2            0/2
+(cell = failing-or-degenerate cells / total cells in that group)
+
+Results written to .planning/phases/171-hmm-walk-forward-regime-labeling-parameter-lookahead-fix/171-null-arm-validation/null-arm-validation.json
