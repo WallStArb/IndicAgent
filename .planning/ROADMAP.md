@@ -2689,6 +2689,35 @@ Plans:
 - [ ] 171-06-PLAN.md — Full-corpus NULL-out, config flip, walk-forward relabel, and the downstream `ic_engine --refresh` re-run (REQ-3, REQ-4)
 - [ ] 171-07-PLAN.md — Run todo 167's equity falsifier gate against the fresh scores and reconcile the folded todos (REQ-4)
 
+### Phase 172: HMM Regime — Volatility-Only Redesign
+
+**Goal:** Replace the 5-column composite regime label (log_return, realized_vol, momentum,
+vol_of_vol, rel_volume) with a standalone `regime_volatility` built from `realized_vol` +
+`vol_of_vol` only (GaussianHMM, K=2 or K=3, new honest label vocabulary e.g.
+calm/elevated/turbulent — not a renamed trend vocabulary). Reuse the already-built,
+already-tested walk-forward fitting fix (`_walk_forward_hmm_full`/`_seed_prior_from_label`/
+`_hmm_seed_stability_check` in `regime_writer.py`) unchanged in its causal-correctness logic,
+pointed at the 2-column volatility slice instead of the 5-column composite. Drop trend
+(log_return/momentum) and volume as regime dimensions entirely — dead on direct null-arm
+evidence per `171-FINAL-VERDICT.md`, not deferred.
+
+Rough shape: (1) APR migration retiring the 5-column composite, defining the 2-column volatility
+observation and new label vocabulary (plus a controlled-vocabulary entry per CLAUDE.md Glossary
+discipline); (2) wire the walk-forward fit against the new 2-column slice; (3) run the null-arm
+(scrambled-data) reliability check at wider scope (15m/5m timeframes, larger symbol sample)
+before touching the corpus — the one gate this investigation says not to skip; (4) full-corpus
+relabel; (5) downstream re-verification (`ic_engine` regime strata, any prior analysis citing
+`feature_vectors.regime` as a conditioning variable). Full rationale:
+`.planning/phases/171-hmm-walk-forward-regime-labeling-parameter-lookahead-fix/171-FINAL-VERDICT.md`
+sections 5 and 7.
+
+**Requirements**: TBD
+**Depends on:** Phase 171
+**Plans:** 0 plans
+
+Plans:
+- [ ] TBD (run /gsd-plan-phase 172 to break down)
+
 ---
 
 **Correction (2026-07-12, same day as the note above was first written):** this section previously said Phases 152/153 should be **prioritized now**, ahead of the intelligence-layer work. That was wrong and contradicted the milestone bullet above's own existing, correct caution ("Do not let either jump ahead of Phase 142B/143 or 148, which carry present-tense value the backlog matrix rates higher"). Monitoring decay of alpha that hasn't been proven to exist yet is monitoring a null: Phase 148's OOS gates (EIC-04 + FRAME-04) have not passed on corrected data — **FRAME-04 currently fails 16/17 cells** on the pre-143.1-fix baseline, so there is no proven capturable edge for 152/153 to watch decay in yet. **Corrected sequencing:** finish 143.1 (091→097→094→E1-vs-E2 re-run→096→088) → re-run EIC-04/FRAME-04 honestly on corrected data → only then decide between (a) building 152/153's decay/health monitoring or (b) expanding discovery (Phase 151/PrecedentEngine) based on what that gate actually says. Phase 157's kill-switch design above still correctly notes its dependency on Phase 153 eventually existing — that dependency is real, it's just not a reason to build 153 before Phase 148 resolves.

@@ -3,7 +3,7 @@ gsd_state_version: 1.0
 milestone: v3.1
 milestone_name: AlphaEngine Validation + Alpha Scoring
 status: blocked
-stopped_at: Phase 171 investigation complete -- volatility-only redesign validated, corpus rollout (171-06/07) withdrawn, Phase 172 not yet planned
+stopped_at: Phase 171 investigation complete -- volatility-only redesign validated, corpus rollout (171-06/07) withdrawn, Phase 172 scoped (not yet planned)
 last_updated: "2026-08-08T22:45:00.000Z"
 progress:
   total_phases: 12
@@ -403,8 +403,13 @@ ON CONFLICT (symbol, tf) DO UPDATE SET fetch_complete = true;
   intermediate findings docs in the phase dir). **Plans 171-06/07 (the composite-label corpus
   rollout) are WITHDRAWN** -- see their own banners. The walk-forward fitting procedure itself is
   not invalidated and should be reused against the validated 2-column volatility-only observation
-  vector. **Phase 172, scoped around this volatility-only redesign, is the next step -- not yet
-  planned.** Do not resume 171-06/07 as written; do not cite the composite/trend design as current.
+  vector. Do not resume 171-06/07 as written; do not cite the composite/trend design as current.
+
+- Phase 172 (HMM Regime -- Volatility-Only Redesign): added 2026-08-08, out of Phase 171's
+  verdict. Replaces `regime` (5-column composite, trend-flavored labels) with `regime_volatility`
+  (2-column: `realized_vol` + `vol_of_vol`, K=2/K=3, honest label vocabulary). Reuses the
+  already-built walk-forward fitting fix unchanged, pointed at the smaller observation vector.
+  Depends on Phase 171 (complete). Not yet planned -- run `/gsd-plan-phase 172` next.
 
 - Phase 169 (Symbol State Query Layer): added 2026-07-31. Scoped through extensive same-session
   design work (rejected a predictive composite score, an independent Opus review that corrected
