@@ -664,6 +664,8 @@ def _walk_forward_hmm_full(
     min_hold_bars: int,
     full_cov_min_obs: int,
     min_state_occupation: float,
+    symbol: str | None = None,
+    tf: str | None = None,
 ) -> list[dict[str, Any]]:
     """Production-parity walk-forward decode (todo 248): per-segment version of
     `_walk_forward_hmm_labels` that additionally returns the per-bar alpha vectors,
@@ -687,6 +689,12 @@ def _walk_forward_hmm_full(
     single full-series fit (doubled n_iter, one retry) -- omitting it here would make
     every genuinely-recoverable segment more likely to trip the degenerate gate below
     purely from under-iterating, not from an actual bad fit.
+
+    `symbol`/`tf` are log-correlation context ONLY -- never used in compute. They are
+    threaded through purely so each segment's `regime_writer.walk_forward_hmm_convergence_iters`
+    log record (todo 226) is attributable to a (symbol, tf) cell, matching the single-fit
+    path's `regime_writer.hmm_convergence_iters` log shape. Defaults to None so existing
+    keyword-arg call sites that omit them keep passing unchanged.
 
     Returns one dict per refit segment (NOT one dict per bar), each:
         {
@@ -753,6 +761,19 @@ def _walk_forward_hmm_full(
                 model = retry_model
                 converged = True
 
+        seg_end = min(boundary + refit_every_bars, n)
+        _logger.info(
+            "regime_writer.walk_forward_hmm_convergence_iters",
+            symbol=symbol,
+            tf=tf,
+            iters_used=int(model.monitor_.iter),
+            n_iter_cap=int(model.monitor_.n_iter),
+            converged=converged,
+            seg_start=boundary,
+            seg_end=seg_end,
+            train_end=boundary,
+        )
+
         label_map = _build_label_map(model.means_)
 
         stationary_prior = _stationary_distribution(model.transmat_)
@@ -761,7 +782,6 @@ def _walk_forward_hmm_full(
         else:
             pi0 = _seed_prior_from_label(label_map, prior_label, n_components, stationary_prior)
 
-        seg_end = min(boundary + refit_every_bars, n)
         seg_scaled = scaler.transform(obs_matrix[boundary:seg_end])
         log_emit = _compute_log_emit(seg_scaled, model.means_, model.covars_, eff_cov_type)
         log_A = np.log(np.maximum(model.transmat_, 1e-300))
@@ -886,6 +906,8 @@ def _compute_symbol_tf_walk_forward(
             min_hold_bars,
             full_cov_min_obs,
             min_state_occupation,
+            symbol=symbol,
+            tf=tf,
         )
     except ValueError:
         # Same "insufficient history" condition _walk_forward_hmm_full raises for
@@ -1653,6 +1675,28 @@ def main() -> None:
             "--refit signals intent to callers that this run re-labels an existing corpus."
         ),
     )
+    walk_forward_group = parser.add_mutually_exclusive_group()
+    walk_forward_group.add_argument(
+        "--walk-forward",
+        action="store_true",
+        dest="walk_forward",
+        help=(
+            "Force the walk-forward HMM path for this invocation only, overriding the "
+            "APR key alpha.hmm.walk_forward.enabled. Does NOT write to config_state -- "
+            "the override is in-memory for this run only."
+        ),
+    )
+    walk_forward_group.add_argument(
+        "--no-walk-forward",
+        action="store_false",
+        dest="walk_forward",
+        help=(
+            "Force the single-fit HMM path for this invocation only, overriding the "
+            "APR key alpha.hmm.walk_forward.enabled. Does NOT write to config_state -- "
+            "the override is in-memory for this run only."
+        ),
+    )
+    parser.set_defaults(walk_forward=None)
     args = parser.parse_args()
 
     # ------------------------------------------------------------------
@@ -1713,6 +1757,18 @@ def main() -> None:
                 # explicit deployment decision per the todo's own "genuine sequencing
                 # decision" framing, not something this migration's seed value forces.
                 walk_forward_enabled = bool(cfg.get_sync("alpha.hmm.walk_forward.enabled", False))
+                # --walk-forward / --no-walk-forward (CLI) overrides the APR value for
+                # THIS invocation only -- never writes config_state. Same "CLI overrides
+                # an existing APR value for one run" precedent as --workers above. This
+                # is deliberately NOT a new APR key: the underlying alpha.hmm.walk_forward.enabled
+                # key (migration 292) already satisfies the APR mandate's "operator-visible
+                # switches -> APR" requirement; a per-invocation scoped pilot override does not
+                # need its own APR entry.
+                if args.walk_forward is not None:
+                    walk_forward_enabled = args.walk_forward
+                    walk_forward_source = "cli"
+                else:
+                    walk_forward_source = "apr"
                 # Per-tf (refit_every_bars, initial_warmup_bars) -- see
                 # _WALK_FORWARD_DEFAULT_PARAMS' own docstring/comment above for the
                 # full per-tf provenance and certainty caveats.
@@ -1763,6 +1819,7 @@ def main() -> None:
                 churn_window=churn_window,
                 n_restarts=n_restarts,
                 walk_forward_enabled=walk_forward_enabled,
+                walk_forward_source=walk_forward_source,
             )
 
             worker_args = [

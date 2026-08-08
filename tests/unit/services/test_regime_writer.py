@@ -1198,6 +1198,55 @@ def test_walk_forward_hmm_full_flags_degenerate_short_final_segment():
     )
 
 
+def test_walk_forward_hmm_full_logs_convergence_iters_per_segment():
+    """_walk_forward_hmm_full must log one regime_writer.walk_forward_hmm_convergence_iters
+    event PER REFIT SEGMENT (not one per cell) -- todo 226's cap-headroom analysis only
+    covers the walk-forward path if this instrumentation exists there too. The event name
+    is deliberately distinct from the single-fit path's regime_writer.hmm_convergence_iters
+    so downstream analysis can tell which code path produced a given record."""
+    from structlog.testing import capture_logs
+
+    from services.regime_writer import _walk_forward_hmm_full
+
+    n = 900
+    closes = _make_ranging_closes(n)
+    volumes = _make_volumes(n)
+    timestamps = _make_timestamps(n)
+    obs, _ = _build_obs_matrix(
+        timestamps, closes, volumes, vol_window=20, momentum_window=20, vol_of_vol_window=20
+    )
+
+    with capture_logs() as cap_logs:
+        segments = _walk_forward_hmm_full(
+            obs,
+            n_components=3,
+            covariance_type="diag",
+            n_iter=50,
+            hmm_random_state=_HMM_RANDOM_STATE,
+            refit_every_bars=200,
+            initial_warmup_bars=300,
+            min_hold_bars=3,
+            full_cov_min_obs=0,
+            min_state_occupation=0.0,
+            symbol="SPY",
+            tf="1h",
+        )
+
+    assert len(segments) >= 3, "test needs multiple segments to be meaningful"
+
+    events = [
+        e for e in cap_logs if e["event"] == "regime_writer.walk_forward_hmm_convergence_iters"
+    ]
+    assert len(events) == len(segments)
+    for event in events:
+        assert event["symbol"] == "SPY"
+        assert event["tf"] == "1h"
+        assert isinstance(event["iters_used"], int)
+        assert isinstance(event["n_iter_cap"], int)
+        assert isinstance(event["seg_start"], int)
+        assert isinstance(event["seg_end"], int)
+
+
 def test_compute_symbol_tf_walk_forward_returns_tuple_structure():
     """Same (update_rows, converged, heldout_ll) contract as _compute_symbol_tf, so
     _run_symbol_worker's caller can branch on which function ran without caring."""
@@ -1405,3 +1454,72 @@ def test_compute_symbol_tf_walk_forward_returns_none_on_insufficient_warmup():
     )
 
     assert result is None
+
+
+# ---------------------------------------------------------------------------
+# Tests: _run_symbol_worker dispatch branch (todo 248 / REQ-2)
+# ---------------------------------------------------------------------------
+
+
+def test_run_symbol_worker_dispatches_on_walk_forward_flag(monkeypatch):
+    """_run_symbol_worker's dispatch branch must call _compute_symbol_tf_walk_forward
+    when walk_forward_enabled=True and _compute_symbol_tf when False -- and, critically,
+    must NOT call the other function in either case. Asserting only the positive call
+    would still pass if the branch dispatched to walk-forward unconditionally; the
+    paired positive/negative assertion is what makes this test discriminating."""
+    calls = {"walk_forward": 0, "single_fit": 0}
+
+    def _wf_sentinel(**kwargs):
+        calls["walk_forward"] += 1
+        return ([], True, float("nan"))
+
+    def _sf_sentinel(**kwargs):
+        calls["single_fit"] += 1
+        return ([], True, float("nan"))
+
+    monkeypatch.setattr(regime_writer_module, "_compute_symbol_tf_walk_forward", _wf_sentinel)
+    monkeypatch.setattr(regime_writer_module, "_compute_symbol_tf", _sf_sentinel)
+    monkeypatch.setattr(regime_writer_module.psycopg, "connect", lambda *a, **kw: MagicMock())
+
+    # Exact positional order from _run_symbol_worker's docstring (lines 1499-1519):
+    # symbol, tfs, dsn, n_components, vol_window, momentum_window, vol_of_vol_window,
+    # n_iter, hmm_random_state, covariance_type, min_hold_bars, heldout_fraction,
+    # full_cov_min_obs, min_state_occupation, churn_window, min_obs_factor, n_restarts,
+    # walk_forward_enabled, walk_forward_params -- an out-of-order tuple silently
+    # misassigns rather than raising, so this order must match exactly.
+    base_args = (
+        "SPY",  # symbol
+        ["1h"],  # tfs
+        "postgresql://fake",  # dsn
+        3,  # n_components
+        20,  # vol_window
+        20,  # momentum_window
+        20,  # vol_of_vol_window
+        50,  # n_iter
+        42,  # hmm_random_state
+        "diag",  # covariance_type
+        3,  # min_hold_bars
+        0.2,  # heldout_fraction
+        0,  # full_cov_min_obs
+        0.0,  # min_state_occupation
+        10,  # churn_window
+        20,  # min_obs_factor
+        1,  # n_restarts
+    )
+    walk_forward_params = {"1h": (200, 300)}
+
+    calls["walk_forward"] = 0
+    calls["single_fit"] = 0
+    result_true = regime_writer_module._run_symbol_worker(base_args + (True, walk_forward_params))
+    assert calls["walk_forward"] == 1, "walk-forward sentinel must be called when flag is True"
+    assert calls["single_fit"] == 0, "single-fit sentinel must NOT be called when flag is True"
+    assert result_true["error"] is None
+    assert result_true["results"][0]["tf"] == "1h"
+
+    calls["walk_forward"] = 0
+    calls["single_fit"] = 0
+    result_false = regime_writer_module._run_symbol_worker(base_args + (False, walk_forward_params))
+    assert calls["walk_forward"] == 0, "walk-forward sentinel must NOT be called when flag is False"
+    assert calls["single_fit"] == 1, "single-fit sentinel must be called when flag is False"
+    assert result_false["error"] is None
+    assert result_false["results"][0]["tf"] == "1h"
