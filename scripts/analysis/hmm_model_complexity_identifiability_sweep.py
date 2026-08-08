@@ -60,24 +60,19 @@ from __future__ import annotations
 
 import argparse
 import json
-import os
 import sys
 import time
-from concurrent.futures import ProcessPoolExecutor, as_completed
+from concurrent.futures import as_completed
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent.parent))
-
-# BLAS threading inside a ProcessPoolExecutor worker oversubscribes the box (24 cores x
-# N workers x BLAS threads) and makes wall-clock WORSE. Pinned before numpy is imported.
-for _var in ("OMP_NUM_THREADS", "OPENBLAS_NUM_THREADS", "MKL_NUM_THREADS", "NUMEXPR_NUM_THREADS"):
-    os.environ.setdefault(_var, "1")
 
 import numpy as np  # noqa: E402
 import psycopg  # noqa: E402
 from hmmlearn.hmm import GaussianHMM  # noqa: E402
 from sklearn.preprocessing import StandardScaler  # noqa: E402
 
+from services._batch_utils import make_worker_pool as _make_worker_pool  # noqa: E402
 from services.regime_writer import (  # noqa: E402
     _alpha_pass_jit,
     _build_label_map,
@@ -88,6 +83,12 @@ from services.regime_writer import (  # noqa: E402
     _stationary_distribution,
 )
 from src.config.settings import Settings  # noqa: E402
+
+# todo 216: BLAS thread cap, see make_worker_pool()/limit_blas_threads() -- a bare pool
+# construction silently reintroduces the OpenBLAS oversubscription bug (24 cores x
+# N workers x default BLAS threads); this is the project-wide fix, applied per-worker
+# via the pool's initializer rather than a module-level env-var guess.
+_BLAS_THREADS_PER_WORKER = 1
 
 # ---------------------------------------------------------------------------
 # Sweep scope -- same 16 cells as hmm_restart_convergence_pilot.py, for direct
@@ -452,7 +453,7 @@ def main() -> None:
 
     results: list[dict] = []
     t_start = time.monotonic()
-    with ProcessPoolExecutor(max_workers=args.max_workers) as pool:
+    with _make_worker_pool(args.max_workers, _BLAS_THREADS_PER_WORKER) as pool:
         futures = {pool.submit(_run_config_cell, job): job for job in jobs}
         for done, future in enumerate(as_completed(futures), start=1):
             result = future.result()
