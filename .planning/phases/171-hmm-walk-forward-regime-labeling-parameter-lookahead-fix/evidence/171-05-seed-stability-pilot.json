@@ -1,0 +1,868 @@
+{
+  "gate_threshold": 0.25,
+  "seeds": [
+    42,
+    43,
+    44
+  ],
+  "global_min": {
+    "min_pairwise_agreement": 0.0,
+    "symbol": "SPY",
+    "tf": "1d",
+    "boundary_name": "first"
+  },
+  "cells": [
+    {
+      "symbol": "SPY",
+      "tf": "1d",
+      "skipped": false,
+      "n_obs": 5027,
+      "n_segments": 18,
+      "boundaries": [
+        {
+          "boundary_name": "first",
+          "boundary": 504,
+          "numerical_failure": true,
+          "error": "ValueError: 'covars' must be symmetric, positive-definite",
+          "min_pairwise_agreement": 0.0
+        },
+        {
+          "boundary_name": "middle",
+          "boundary": 2772,
+          "numerical_failure": true,
+          "error": "ValueError: 'covars' must be symmetric, positive-definite",
+          "min_pairwise_agreement": 0.0
+        },
+        {
+          "boundary_name": "last",
+          "boundary": 4788,
+          "ll_spread": 178.75763267243747,
+          "log_likelihoods": {
+            "42": 49258.63250307446,
+            "43": 49082.1824888894,
+            "44": 49079.874870402025
+          },
+          "pairwise_label_agreement": {
+            "42_43": 0.015037593984962405,
+            "42_44": 0.015873015873015872,
+            "43_44": 0.9935254803675856
+          },
+          "min_pairwise_agreement": 0.015037593984962405
+        }
+      ],
+      "cell_min_pairwise_agreement": 0.0,
+      "verdict": "FAIL",
+      "elapsed_seconds": 5.103308116958942
+    },
+    {
+      "symbol": "IWM",
+      "tf": "1d",
+      "skipped": false,
+      "n_obs": 5031,
+      "n_segments": 18,
+      "boundaries": [
+        {
+          "boundary_name": "first",
+          "boundary": 504,
+          "ll_spread": 41.979462043007516,
+          "log_likelihoods": {
+            "42": 4534.06519644064,
+            "43": 4564.646562383127,
+            "44": 4576.044658483647
+          },
+          "pairwise_label_agreement": {
+            "42_43": 0.22023809523809523,
+            "42_44": 0.6507936507936508,
+            "43_44": 0.25793650793650796
+          },
+          "min_pairwise_agreement": 0.22023809523809523
+        },
+        {
+          "boundary_name": "middle",
+          "boundary": 2772,
+          "numerical_failure": true,
+          "error": "ValueError: 'covars' must be symmetric, positive-definite",
+          "min_pairwise_agreement": 0.0
+        },
+        {
+          "boundary_name": "last",
+          "boundary": 4788,
+          "ll_spread": 659.0793617749878,
+          "log_likelihoods": {
+            "42": 46139.20446195641,
+            "43": 45480.12510018142,
+            "44": 45510.27227344711
+          },
+          "pairwise_label_agreement": {
+            "42_43": 0.46950710108604843,
+            "42_44": 0.7639933166248956,
+            "43_44": 0.5497076023391813
+          },
+          "min_pairwise_agreement": 0.46950710108604843
+        }
+      ],
+      "cell_min_pairwise_agreement": 0.0,
+      "verdict": "FAIL",
+      "elapsed_seconds": 5.129125241015572
+    },
+    {
+      "symbol": "TLT",
+      "tf": "1d",
+      "skipped": false,
+      "n_obs": 2613,
+      "n_segments": 9,
+      "boundaries": [
+        {
+          "boundary_name": "first",
+          "boundary": 504,
+          "numerical_failure": true,
+          "error": "ValueError: 'covars' must be symmetric, positive-definite",
+          "min_pairwise_agreement": 0.0
+        },
+        {
+          "boundary_name": "middle",
+          "boundary": 1512,
+          "ll_spread": 260.9222236836613,
+          "log_likelihoods": {
+            "42": 15663.098034467335,
+            "43": 15402.175810783674,
+            "44": 15537.605149294492
+          },
+          "pairwise_label_agreement": {
+            "42_43": 0.003968253968253968,
+            "42_44": 0.31812169312169314,
+            "43_44": 0.30357142857142855
+          },
+          "min_pairwise_agreement": 0.003968253968253968
+        },
+        {
+          "boundary_name": "last",
+          "boundary": 2520,
+          "ll_spread": 343.69883692977965,
+          "log_likelihoods": {
+            "42": 25816.64967830641,
+            "43": 25913.873465520035,
+            "44": 26160.34851523619
+          },
+          "pairwise_label_agreement": {
+            "42_43": 0.010317460317460317,
+            "42_44": 0.020634920634920634,
+            "43_44": 0.7912698412698412
+          },
+          "min_pairwise_agreement": 0.010317460317460317
+        }
+      ],
+      "cell_min_pairwise_agreement": 0.0,
+      "verdict": "FAIL",
+      "elapsed_seconds": 3.617419531045016
+    },
+    {
+      "symbol": "GLD",
+      "tf": "1d",
+      "skipped": false,
+      "n_obs": 5030,
+      "n_segments": 18,
+      "boundaries": [
+        {
+          "boundary_name": "first",
+          "boundary": 504,
+          "ll_spread": 287.7250333705797,
+          "log_likelihoods": {
+            "42": 4186.931538922682,
+            "43": 4474.656572293262,
+            "44": 4426.436711975094
+          },
+          "pairwise_label_agreement": {
+            "42_43": 0.2698412698412698,
+            "42_44": 0.47619047619047616,
+            "43_44": 0.43253968253968256
+          },
+          "min_pairwise_agreement": 0.2698412698412698
+        },
+        {
+          "boundary_name": "middle",
+          "boundary": 2772,
+          "ll_spread": 870.0465040343624,
+          "log_likelihoods": {
+            "42": 25079.241153331273,
+            "43": 25866.97277044534,
+            "44": 25949.287657365636
+          },
+          "pairwise_label_agreement": {
+            "42_43": 0.5667388167388168,
+            "42_44": 0.06926406926406926,
+            "43_44": 0.33405483405483405
+          },
+          "min_pairwise_agreement": 0.06926406926406926
+        },
+        {
+          "boundary_name": "last",
+          "boundary": 4788,
+          "ll_spread": 631.4950859211676,
+          "log_likelihoods": {
+            "42": 47468.335146962934,
+            "43": 47037.683864917584,
+            "44": 47669.17895083875
+          },
+          "pairwise_label_agreement": {
+            "42_43": 0.2571010860484545,
+            "42_44": 0.018379281537176273,
+            "43_44": 0.007518796992481203
+          },
+          "min_pairwise_agreement": 0.007518796992481203
+        }
+      ],
+      "cell_min_pairwise_agreement": 0.007518796992481203,
+      "verdict": "FAIL",
+      "elapsed_seconds": 34.02215441700537
+    },
+    {
+      "symbol": "XLE",
+      "tf": "1d",
+      "skipped": false,
+      "n_obs": 5031,
+      "n_segments": 18,
+      "boundaries": [
+        {
+          "boundary_name": "first",
+          "boundary": 504,
+          "numerical_failure": true,
+          "error": "ValueError: 'covars' must be symmetric, positive-definite",
+          "min_pairwise_agreement": 0.0
+        },
+        {
+          "boundary_name": "middle",
+          "boundary": 2772,
+          "ll_spread": 676.0860959205565,
+          "log_likelihoods": {
+            "42": 25143.69239614032,
+            "43": 25182.431096933855,
+            "44": 24506.3450010133
+          },
+          "pairwise_label_agreement": {
+            "42_43": 0.20634920634920634,
+            "42_44": 0.004329004329004329,
+            "43_44": 0.11471861471861472
+          },
+          "min_pairwise_agreement": 0.004329004329004329
+        },
+        {
+          "boundary_name": "last",
+          "boundary": 4788,
+          "ll_spread": 358.44685195635975,
+          "log_likelihoods": {
+            "42": 43920.33822670819,
+            "43": 43766.86364646083,
+            "44": 43561.89137475183
+          },
+          "pairwise_label_agreement": {
+            "42_43": 0.697577276524645,
+            "42_44": 0.2581453634085213,
+            "43_44": 0.3592314118629908
+          },
+          "min_pairwise_agreement": 0.2581453634085213
+        }
+      ],
+      "cell_min_pairwise_agreement": 0.0,
+      "verdict": "FAIL",
+      "elapsed_seconds": 23.758595769002568
+    },
+    {
+      "symbol": "EEM",
+      "tf": "1d",
+      "skipped": false,
+      "n_obs": 5032,
+      "n_segments": 18,
+      "boundaries": [
+        {
+          "boundary_name": "first",
+          "boundary": 504,
+          "ll_spread": 322.10125049230055,
+          "log_likelihoods": {
+            "42": 3788.987928155491,
+            "43": 4111.089178647791,
+            "44": 3981.7508545989267
+          },
+          "pairwise_label_agreement": {
+            "42_43": 0.13293650793650794,
+            "42_44": 0.5853174603174603,
+            "43_44": 0.30357142857142855
+          },
+          "min_pairwise_agreement": 0.13293650793650794
+        },
+        {
+          "boundary_name": "middle",
+          "boundary": 2772,
+          "ll_spread": 930.9966292761601,
+          "log_likelihoods": {
+            "42": 24031.968049754054,
+            "43": 24169.608844106286,
+            "44": 24962.964679030214
+          },
+          "pairwise_label_agreement": {
+            "42_43": 0.7781385281385281,
+            "42_44": 0.3318903318903319,
+            "43_44": 0.4062049062049062
+          },
+          "min_pairwise_agreement": 0.3318903318903319
+        },
+        {
+          "boundary_name": "last",
+          "boundary": 4788,
+          "ll_spread": 991.8907642123086,
+          "log_likelihoods": {
+            "42": 43853.39068350671,
+            "43": 44629.96594743703,
+            "44": 44845.28144771902
+          },
+          "pairwise_label_agreement": {
+            "42_43": 0.48579782790309106,
+            "42_44": 0.23934837092731828,
+            "43_44": 0.20238095238095238
+          },
+          "min_pairwise_agreement": 0.20238095238095238
+        }
+      ],
+      "cell_min_pairwise_agreement": 0.13293650793650794,
+      "verdict": "FAIL",
+      "elapsed_seconds": 31.796191069995984
+    },
+    {
+      "symbol": "FXY",
+      "tf": "1d",
+      "skipped": false,
+      "n_obs": 4872,
+      "n_segments": 18,
+      "boundaries": [
+        {
+          "boundary_name": "first",
+          "boundary": 504,
+          "ll_spread": 214.0113312142439,
+          "log_likelihoods": {
+            "42": 4496.745185639536,
+            "43": 4571.78959842227,
+            "44": 4710.75651685378
+          },
+          "pairwise_label_agreement": {
+            "42_43": 0.23809523809523808,
+            "42_44": 0.14285714285714285,
+            "43_44": 0.003968253968253968
+          },
+          "min_pairwise_agreement": 0.003968253968253968
+        },
+        {
+          "boundary_name": "middle",
+          "boundary": 2772,
+          "numerical_failure": true,
+          "error": "ValueError: 'covars' must be symmetric, positive-definite",
+          "min_pairwise_agreement": 0.0
+        },
+        {
+          "boundary_name": "last",
+          "boundary": 4788,
+          "ll_spread": 1865.294489072061,
+          "log_likelihoods": {
+            "42": 50049.03465958985,
+            "43": 48183.74017051779,
+            "44": 50004.705322009024
+          },
+          "pairwise_label_agreement": {
+            "42_43": 0.35192147034252297,
+            "42_44": 0.011904761904761904,
+            "43_44": 0.057226399331662486
+          },
+          "min_pairwise_agreement": 0.011904761904761904
+        }
+      ],
+      "cell_min_pairwise_agreement": 0.0,
+      "verdict": "FAIL",
+      "elapsed_seconds": 34.695257726009004
+    },
+    {
+      "symbol": "SMH",
+      "tf": "1d",
+      "skipped": false,
+      "n_obs": 3647,
+      "n_segments": 13,
+      "boundaries": [
+        {
+          "boundary_name": "first",
+          "boundary": 504,
+          "ll_spread": 160.90936940489155,
+          "log_likelihoods": {
+            "42": 4267.957964167692,
+            "43": 4417.779369742351,
+            "44": 4428.867333572583
+          },
+          "pairwise_label_agreement": {
+            "42_43": 0.09325396825396826,
+            "42_44": 0.021825396825396824,
+            "43_44": 0.35119047619047616
+          },
+          "min_pairwise_agreement": 0.021825396825396824
+        },
+        {
+          "boundary_name": "middle",
+          "boundary": 2016,
+          "numerical_failure": true,
+          "error": "ValueError: 'covars' must be symmetric, positive-definite",
+          "min_pairwise_agreement": 0.0
+        },
+        {
+          "boundary_name": "last",
+          "boundary": 3528,
+          "ll_spread": 350.4019407144551,
+          "log_likelihoods": {
+            "42": 30534.122504928924,
+            "43": 30674.840408953445,
+            "44": 30884.52444564338
+          },
+          "pairwise_label_agreement": {
+            "42_43": 0.9620181405895691,
+            "42_44": 0.3449546485260771,
+            "43_44": 0.33701814058956914
+          },
+          "min_pairwise_agreement": 0.33701814058956914
+        }
+      ],
+      "cell_min_pairwise_agreement": 0.0,
+      "verdict": "FAIL",
+      "elapsed_seconds": 20.742095535970293
+    },
+    {
+      "symbol": "SPY",
+      "tf": "1h",
+      "skipped": false,
+      "n_obs": 30912,
+      "n_segments": 17,
+      "boundaries": [
+        {
+          "boundary_name": "first",
+          "boundary": 3300,
+          "ll_spread": 632.4369671585519,
+          "log_likelihoods": {
+            "42": 37577.99405721476,
+            "43": 36984.61992079575,
+            "44": 36945.55709005621
+          },
+          "pairwise_label_agreement": {
+            "42_43": 0.5581818181818182,
+            "42_44": 0.028484848484848484,
+            "43_44": 0.0012121212121212121
+          },
+          "min_pairwise_agreement": 0.0012121212121212121
+        },
+        {
+          "boundary_name": "middle",
+          "boundary": 16500,
+          "ll_spread": 2098.7990195548336,
+          "log_likelihoods": {
+            "42": 195177.6434508114,
+            "43": 196964.58423710134,
+            "44": 194865.7852175465
+          },
+          "pairwise_label_agreement": {
+            "42_43": 0.5448484848484848,
+            "42_44": 0.5861212121212122,
+            "43_44": 0.6087878787878788
+          },
+          "min_pairwise_agreement": 0.5448484848484848
+        },
+        {
+          "boundary_name": "last",
+          "boundary": 29700,
+          "ll_spread": 3845.578586587915,
+          "log_likelihoods": {
+            "42": 356793.82238949987,
+            "43": 360639.4009760878,
+            "44": 356804.41317109525
+          },
+          "pairwise_label_agreement": {
+            "42_43": 0.6673737373737374,
+            "42_44": 0.9916498316498317,
+            "43_44": 0.6675420875420875
+          },
+          "min_pairwise_agreement": 0.6673737373737374
+        }
+      ],
+      "cell_min_pairwise_agreement": 0.0012121212121212121,
+      "verdict": "FAIL",
+      "elapsed_seconds": 64.79010036197724
+    },
+    {
+      "symbol": "IWM",
+      "tf": "1h",
+      "skipped": false,
+      "n_obs": 36502,
+      "n_segments": 21,
+      "boundaries": [
+        {
+          "boundary_name": "first",
+          "boundary": 3300,
+          "ll_spread": 417.1448371154038,
+          "log_likelihoods": {
+            "42": 36301.00907761873,
+            "43": 36186.3432935488,
+            "44": 36603.488130664206
+          },
+          "pairwise_label_agreement": {
+            "42_43": 0.013939393939393939,
+            "42_44": 0.7272727272727273,
+            "43_44": 0.0006060606060606061
+          },
+          "min_pairwise_agreement": 0.0006060606060606061
+        },
+        {
+          "boundary_name": "middle",
+          "boundary": 19800,
+          "ll_spread": 2660.1171051016136,
+          "log_likelihoods": {
+            "42": 227515.10317276086,
+            "43": 230175.22027786248,
+            "44": 229492.85450226173
+          },
+          "pairwise_label_agreement": {
+            "42_43": 0.3180808080808081,
+            "42_44": 0.26141414141414143,
+            "43_44": 0.009191919191919192
+          },
+          "min_pairwise_agreement": 0.009191919191919192
+        },
+        {
+          "boundary_name": "last",
+          "boundary": 36300,
+          "ll_spread": 706.1785491692135,
+          "log_likelihoods": {
+            "42": 431162.4837755137,
+            "43": 431690.335821491,
+            "44": 430984.1572723218
+          },
+          "pairwise_label_agreement": {
+            "42_43": 0.9712947658402203,
+            "42_44": 0.9612947658402203,
+            "43_44": 0.9835537190082645
+          },
+          "min_pairwise_agreement": 0.9612947658402203
+        }
+      ],
+      "cell_min_pairwise_agreement": 0.0006060606060606061,
+      "verdict": "FAIL",
+      "elapsed_seconds": 93.21042418497382
+    },
+    {
+      "symbol": "TLT",
+      "tf": "1h",
+      "skipped": false,
+      "n_obs": 18358,
+      "n_segments": 10,
+      "boundaries": [
+        {
+          "boundary_name": "first",
+          "boundary": 3300,
+          "numerical_failure": true,
+          "error": "ValueError: 'covars' must be symmetric, positive-definite",
+          "min_pairwise_agreement": 0.0
+        },
+        {
+          "boundary_name": "middle",
+          "boundary": 11550,
+          "ll_spread": 2712.4865601472266,
+          "log_likelihoods": {
+            "42": 140599.11781113502,
+            "43": 143311.60437128224,
+            "44": 142860.9925020347
+          },
+          "pairwise_label_agreement": {
+            "42_43": 0.66008658008658,
+            "42_44": 0.6983549783549784,
+            "43_44": 0.6548051948051948
+          },
+          "min_pairwise_agreement": 0.6548051948051948
+        },
+        {
+          "boundary_name": "last",
+          "boundary": 18150,
+          "numerical_failure": true,
+          "error": "ValueError: 'covars' must be symmetric, positive-definite",
+          "min_pairwise_agreement": 0.0
+        }
+      ],
+      "cell_min_pairwise_agreement": 0.0,
+      "verdict": "FAIL",
+      "elapsed_seconds": 47.314289114961866
+    },
+    {
+      "symbol": "GLD",
+      "tf": "1h",
+      "skipped": false,
+      "n_obs": 36158,
+      "n_segments": 20,
+      "boundaries": [
+        {
+          "boundary_name": "first",
+          "boundary": 3300,
+          "ll_spread": 22.46034714459529,
+          "log_likelihoods": {
+            "42": 34776.72847423162,
+            "43": 34799.188821376214,
+            "44": 34788.35679132463
+          },
+          "pairwise_label_agreement": {
+            "42_43": 0.050606060606060606,
+            "42_44": 0.25515151515151513,
+            "43_44": 0.5178787878787878
+          },
+          "min_pairwise_agreement": 0.050606060606060606
+        },
+        {
+          "boundary_name": "middle",
+          "boundary": 19800,
+          "numerical_failure": true,
+          "error": "ValueError: 'covars' must be symmetric, positive-definite",
+          "min_pairwise_agreement": 0.0
+        },
+        {
+          "boundary_name": "last",
+          "boundary": 34650,
+          "ll_spread": 2772.5450963134062,
+          "log_likelihoods": {
+            "42": 420723.9109126488,
+            "43": 423496.4560089622,
+            "44": 423466.67554846057
+          },
+          "pairwise_label_agreement": {
+            "42_43": 0.44481962481962484,
+            "42_44": 0.3793939393939394,
+            "43_44": 0.3003174603174603
+          },
+          "min_pairwise_agreement": 0.3003174603174603
+        }
+      ],
+      "cell_min_pairwise_agreement": 0.0,
+      "verdict": "FAIL",
+      "elapsed_seconds": 88.51159018999897
+    },
+    {
+      "symbol": "XLE",
+      "tf": "1h",
+      "skipped": false,
+      "n_obs": 36019,
+      "n_segments": 20,
+      "boundaries": [
+        {
+          "boundary_name": "first",
+          "boundary": 3300,
+          "ll_spread": 576.8897786953603,
+          "log_likelihoods": {
+            "42": 34940.35488855421,
+            "43": 35517.24466724957,
+            "44": 35224.57489021645
+          },
+          "pairwise_label_agreement": {
+            "42_43": 0.5503030303030303,
+            "42_44": 0.0021212121212121214,
+            "43_44": 0.1390909090909091
+          },
+          "min_pairwise_agreement": 0.0021212121212121214
+        },
+        {
+          "boundary_name": "middle",
+          "boundary": 19800,
+          "ll_spread": 2710.5343797359383,
+          "log_likelihoods": {
+            "42": 219330.50126659547,
+            "43": 222041.0356463314,
+            "44": 221176.92259534352
+          },
+          "pairwise_label_agreement": {
+            "42_43": 0.15474747474747474,
+            "42_44": 0.5462121212121213,
+            "43_44": 0.05904040404040404
+          },
+          "min_pairwise_agreement": 0.05904040404040404
+        },
+        {
+          "boundary_name": "last",
+          "boundary": 34650,
+          "ll_spread": 2958.609410890902,
+          "log_likelihoods": {
+            "42": 389176.885772667,
+            "43": 389216.18137730844,
+            "44": 392135.4951835579
+          },
+          "pairwise_label_agreement": {
+            "42_43": 0.977922077922078,
+            "42_44": 0.09884559884559885,
+            "43_44": 0.09454545454545454
+          },
+          "min_pairwise_agreement": 0.09454545454545454
+        }
+      ],
+      "cell_min_pairwise_agreement": 0.0021212121212121214,
+      "verdict": "FAIL",
+      "elapsed_seconds": 80.66172929405002
+    },
+    {
+      "symbol": "EEM",
+      "tf": "1h",
+      "skipped": false,
+      "n_obs": 30150,
+      "n_segments": 17,
+      "boundaries": [
+        {
+          "boundary_name": "first",
+          "boundary": 3300,
+          "ll_spread": 288.2899356128328,
+          "log_likelihoods": {
+            "42": 32990.12908537619,
+            "43": 33255.41452069954,
+            "44": 33278.41902098902
+          },
+          "pairwise_label_agreement": {
+            "42_43": 0.010303030303030303,
+            "42_44": 0.56,
+            "43_44": 0.009393939393939394
+          },
+          "min_pairwise_agreement": 0.009393939393939394
+        },
+        {
+          "boundary_name": "middle",
+          "boundary": 16500,
+          "ll_spread": 3291.011783082591,
+          "log_likelihoods": {
+            "42": 176401.45917069685,
+            "43": 179692.47095377944,
+            "44": 176733.75195386927
+          },
+          "pairwise_label_agreement": {
+            "42_43": 0.2707272727272727,
+            "42_44": 0.35145454545454546,
+            "43_44": 0.20218181818181818
+          },
+          "min_pairwise_agreement": 0.20218181818181818
+        },
+        {
+          "boundary_name": "last",
+          "boundary": 29700,
+          "ll_spread": 3453.2853739652783,
+          "log_likelihoods": {
+            "42": 337445.9480535317,
+            "43": 340147.736616052,
+            "44": 340899.233427497
+          },
+          "pairwise_label_agreement": {
+            "42_43": 0.06555555555555556,
+            "42_44": 0.353973063973064,
+            "43_44": 0.18801346801346802
+          },
+          "min_pairwise_agreement": 0.06555555555555556
+        }
+      ],
+      "cell_min_pairwise_agreement": 0.009393939393939394,
+      "verdict": "FAIL",
+      "elapsed_seconds": 92.85323991900077
+    },
+    {
+      "symbol": "FXY",
+      "tf": "1h",
+      "skipped": false,
+      "n_obs": 29108,
+      "n_segments": 16,
+      "boundaries": [
+        {
+          "boundary_name": "first",
+          "boundary": 3300,
+          "ll_spread": 481.6679424561662,
+          "log_likelihoods": {
+            "42": 37233.12375788188,
+            "43": 36751.45581542571,
+            "44": 37226.81885796011
+          },
+          "pairwise_label_agreement": {
+            "42_43": 0.09515151515151515,
+            "42_44": 0.9563636363636364,
+            "43_44": 0.08303030303030302
+          },
+          "min_pairwise_agreement": 0.08303030303030302
+        },
+        {
+          "boundary_name": "middle",
+          "boundary": 16500,
+          "numerical_failure": true,
+          "error": "ValueError: 'covars' must be symmetric, positive-definite",
+          "min_pairwise_agreement": 0.0
+        },
+        {
+          "boundary_name": "last",
+          "boundary": 28050,
+          "ll_spread": 5000.899985057127,
+          "log_likelihoods": {
+            "42": 347578.9223597506,
+            "43": 352579.82234480773,
+            "44": 352147.9851866283
+          },
+          "pairwise_label_agreement": {
+            "42_43": 0.3484135472370766,
+            "42_44": 0.34192513368983957,
+            "43_44": 0.5348306595365419
+          },
+          "min_pairwise_agreement": 0.34192513368983957
+        }
+      ],
+      "cell_min_pairwise_agreement": 0.0,
+      "verdict": "FAIL",
+      "elapsed_seconds": 65.24116033501923
+    },
+    {
+      "symbol": "SMH",
+      "tf": "1h",
+      "skipped": false,
+      "n_obs": 25566,
+      "n_segments": 14,
+      "boundaries": [
+        {
+          "boundary_name": "first",
+          "boundary": 3300,
+          "ll_spread": 411.54934215251706,
+          "log_likelihoods": {
+            "42": 35297.37683888783,
+            "43": 35708.92618104035,
+            "44": 35527.32174300383
+          },
+          "pairwise_label_agreement": {
+            "42_43": 0.23787878787878788,
+            "42_44": 0.12090909090909091,
+            "43_44": 0.6545454545454545
+          },
+          "min_pairwise_agreement": 0.12090909090909091
+        },
+        {
+          "boundary_name": "middle",
+          "boundary": 14850,
+          "numerical_failure": true,
+          "error": "ValueError: 'covars' must be symmetric, positive-definite",
+          "min_pairwise_agreement": 0.0
+        },
+        {
+          "boundary_name": "last",
+          "boundary": 24750,
+          "ll_spread": 1653.3875286087277,
+          "log_likelihoods": {
+            "42": 276809.1056224768,
+            "43": 276100.8260631437,
+            "44": 275155.71809386805
+          },
+          "pairwise_label_agreement": {
+            "42_43": 0.2949090909090909,
+            "42_44": 0.2973737373737374,
+            "43_44": 0.4591919191919192
+          },
+          "min_pairwise_agreement": 0.2949090909090909
+        }
+      ],
+      "cell_min_pairwise_agreement": 0.0,
+      "verdict": "FAIL",
+      "elapsed_seconds": 84.21322972403141
+    }
+  ]
+}
