@@ -1,7 +1,7 @@
 # Instrument Tag Auditor
 
 **Version:** 1.4
-**Status:** draft
+**Status:** design history — Phase 146 (TAG-01) shipped complete 2026-07-17. For the current live architecture (schema, TagCalibrator's 3-pass engine, consumers, known gaps), see the canonical doc `docs/foundation/instrument-tag-registry.md`. This doc remains the record of the design reasoning (Simons-critique review rounds, F1-F9 findings) behind what shipped.
 **Priority:** high
 **Registered as ROADMAP Phase 146** (Empirical Instrument Tag Calibrator) — fully specced (TAG-01/02/03,
 3 plans), **Depends on: Nothing upstream of Phase 141** — unblocked, ready to plan now regardless

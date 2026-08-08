@@ -1,6 +1,6 @@
 # CLAUDE.md
 
-Version: 5.54.4
+Version: 5.54.8
 <!-- Bump the patch version on every substantive edit to this file (convention, not enforced). -->
 
 **Project nature:** Passion/learning project — not a production system. Architectural decisions prioritize correctness, rigor, and institutional-grade thinking. Renaissance Capital / Jim Simons principles are the north star. When giving advice, apply the same rigor you would to a system built to last — do not hedge around operational risk that doesn't apply.
@@ -108,6 +108,18 @@ All tunable numeric values live in `config_state` under `<domain>.<concept>.<par
 **Migrate-as-you-go:** Any numeric threshold, weight, period, or count encountered in `src/` or `services/` that is not APR-backed MUST be migrated in the same session. Module-level constants and inline magic numbers are architecture violations. Pattern for module-level utilities: `_config_service: Any | None = None` + `set_config_service()` + `get_sync()` wrapper, registered in `FeatureVectorPipeline._prewarm_threshold_config()` (`services/feature_vector_pipeline.py`). Pattern for plugin dataclasses: `_config_service: Any = field(default=None, compare=False, repr=False)`, read via `cfg.get_sync(key, fallback) if cfg else fallback`.
 
 **Dashboard:** `/config/parameters` — view/edit all parameters, full change history per key.
+
+## Instrument Tag Registry (ITR)
+
+Every claim about what an instrument is or how it behaves (asset class, sector, factor sensitivity, macro-driver exposure) lives in `tag_vocabulary`/`instrument_tags`, not as a hardcoded symbol list — the classification-claim analog of APR's numeric-parameter registry. A tag is a falsifiable hypothesis, not a category: `sensitivity`/`factor_regime`/`macro_driver` tags are empirically measured (OLS beta vs. a `factor_series` proxy, HAC p-value, run-level BH-FDR) by `TagCalibrator` (`services/tag_calibrator.py`, oneshot, no systemd timer); `exposure`/`cycle_position` and most `signal_role` tags are permanent human/definitional seed priors, never measured. Human-sourced rows (`instrument_tags.source = 'human'`) are never auto-expired or overwritten by the calibrator — a failing measurement against one only annotates a contradiction. Empirical rows expire only after `alpha.tag_calibrator.expiry_consecutive_fails` consecutive failing runs (hysteresis), never on a single miss. Full spec: `docs/foundation/instrument-tag-registry.md`.
+
+## Controlled Vocabulary Registry (CVR)
+
+Symbolic taxonomies (valid codes per namespace — `regime_hmm`, `timeframe`, `asset_class`, etc.) live in `controlled_vocabulary`/`vocabulary_group`/`vocabulary_group_member`, read via `VocabularyService` (`src/config/vocabulary_service.py`, cached at init like `ConfigService`, zero hot-path DB calls). CVR rows are definitional (a code either exists or doesn't), never confidence-weighted — deliberately kept a separate system from ITR (D-02): a fixed symbolic definition and a falsifiable classification claim are different kinds of rows, never merged into one table. `VocabularyDriftAuditor` (`src/config/vocabulary_drift.py`, chained into `ops_corpus_pipeline_run.sh`, not a systemd timer) flags any live source column emitting a code the registry never registered. Full spec: `docs/foundation/controlled-vocabulary-registry.md`.
+
+## Unified Concept Registry (UCR)
+
+Evidence-gated lifecycle governance for research artifacts (features, ensemble strategies) — `concept_registry`/`concept_gate`/`concept_transition_log`/`concept_annotation`/`concept_parent`, governs recipes not their outputs (a feature definition is governed here; its computed values in `feature_vectors` are not). Four-state lifecycle `candidate → shadow_only → active → deprecated`; the ONLY code path that flips `status` is `ConceptRegistryService` (`src/intelligence/concept_registry_service.py`) — no LLM, no proposer override, ever (Invariant 1). `domain='ensemble_strategy'` is live (async `record_comparison_outcome()`, called by `ops_ensemble_weight_compare.py`); `domain='feature'` migration is **actively in progress under ROADMAP Phase 170** — `feature_registry` (the system being retired) still exists and is still authoritative, the final `DROP TABLE` has not happened. Check `.planning/STATE.md` before citing `feature`-domain status. Full spec: `docs/foundation/unified-concept-registry.md`.
 
 ## Plugin System (v2.x, archived 2026-07-02)
 

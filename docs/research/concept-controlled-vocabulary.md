@@ -3,7 +3,7 @@
 **Created:** 2026-06-18
 **Refreshed:** 2026-07-01
 **Last Updated:** 2026-07-06 (Fable 5 design review pass - staging order inverted, divergence check redesigned, schema shape confirmed)
-**Status:** Idea / Design — unscheduled (Phase 135 deferred indefinitely; original prerequisite now satisfied, ready to build whenever prioritized)
+**Status:** design history — Phase 161 shipped complete 2026-07-18. For the current live architecture (schema, `VocabularyService`, drift auditor, live namespaces), see the canonical doc `docs/foundation/controlled-vocabulary-registry.md`. This doc remains the record of the design reasoning (staging-order revision, enforcement-design review) behind what shipped.
 **Type:** Architecture pattern + design, Type 3 (static taxonomy) in the [Concept Governance Registries](concept-governance-registries.md) framework
 
 **Review pass (2026-07-06, Fable 5)** - full design review against live schema (psql), CLAUDE.md

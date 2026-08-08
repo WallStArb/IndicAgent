@@ -39,6 +39,9 @@ WHY+WHAT: principles, naming rules, AI working rules. These change rarely.
 | `design-principles.md` | Foundational architectural design principles and DAG invariants |
 | `canonical-truth-registry.md` | Canonical writer registry — one source of truth per durable fact |
 | `adaptive-parameter-registry.md` | APR full specification — all tunable numeric values |
+| `instrument-tag-registry.md` | ITR full specification — instrument classification/exposure tags, TagCalibrator |
+| `controlled-vocabulary-registry.md` | CVR full specification — symbolic taxonomies, VocabularyService, drift auditor |
+| `unified-concept-registry.md` | UCR full specification — evidence-gated recipe lifecycle, 9 invariants, ConceptRegistryService (feature-domain migration in progress, see Phase 170) |
 | `model-selection-principle.md` | Occam's Razor applied to model selection |
 | `ship-or-sink-rules.md` | AI coding tool discipline — Ship or Sink rules |
 
