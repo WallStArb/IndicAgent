@@ -1,12 +1,40 @@
 ---
-status: pending
+status: closed
 priority: P1
 filed: 2026-08-02
+fixed: 2026-08-05
+closed: 2026-08-08
 source: final whole-branch review of the todo-226-step-1 instrumentation branch
   (docs/superpowers/plans/2026-08-02-regime-writer-convergence-iteration-logging.md)
   -- reviewer flagged that the new log's `converged` field would always read `true`,
   which led to checking hmmlearn's actual `converged` semantics directly
 ---
+
+## Closing note (2026-08-08, Phase 171 plan 02)
+
+**File correction, not new work: the fix has been live since 2026-08-05 (commit
+`ba8a74ef`), but this file was never moved out of `pending/` and `PRIORITIES.md` still
+described the implementation as deliberately deferred. Both stale; corrected here.**
+
+The fix landed in commit `ba8a74ef` (2026-08-05): replaced hmmlearn 0.3.3's always-True
+`monitor_.converged` with `model.monitor_.iter < model.monitor_.n_iter`, the exact
+(not approximate) convergence signal this file's own design-decision section proved out.
+Confirmed live in both paths as of this closing:
+- `_compute_symbol_tf` (the current live single-fit path) — `regime_writer.py:1210`
+  (`candidate_converged`) and `:1226` (retry model).
+- `_walk_forward_hmm_full` (the todo 248 walk-forward path this phase, 171, wires in) —
+  `regime_writer.py:743` (`converged`) and `:752` (retry model).
+
+The blast-radius verification this fix's own commit message deferred to "the next
+scheduled corpus rebuild" is Phase 171's own full-corpus refit (plan 171-06), whose
+per-segment `iters_used` records (instrumented in plan 171-01) supply the full-scale
+evidence this file's "Recommended sequencing" section called for — not re-triggered here,
+just pointed at its actual home.
+
+This file's second-order-consequence #1 (todo 108's multi-seed convergence-vs-likelihood
+tiebreak being silently revived) is confirmed live as a direct consequence of the same
+commit — see `completed/108-...md` if/when that todo is itself closed, or
+`pending/108-hmm-multi-seed-restart-best-likelihood.md` for its current status.
 
 ## Status update 2026-08-05
 
