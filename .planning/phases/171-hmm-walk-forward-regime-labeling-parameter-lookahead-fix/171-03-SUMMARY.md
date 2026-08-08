@@ -103,3 +103,5 @@ None - no external service configuration required. This script requires DB conne
 ---
 *Phase: 171-hmm-walk-forward-regime-labeling-parameter-lookahead-fix*
 *Completed: 2026-08-08*
+
+## Self-Check: PASSED
