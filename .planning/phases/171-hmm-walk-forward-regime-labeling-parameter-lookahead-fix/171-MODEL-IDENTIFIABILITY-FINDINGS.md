@@ -1,5 +1,11 @@
 # Phase 171 follow-on: HMM regime-label model-identifiability investigation
 
+> **SUPERSEDED — read `171-FINAL-VERDICT.md` first.** This document's K=3 composite conclusion
+> was later shown (by `171-NULL-ARM-VALIDATION-FINDINGS.md`) to rest on a test that cannot tell
+> real regime structure from noise. The K=5→K=3 identifiability finding itself still holds; the
+> recommendation to ship the composite is withdrawn. Kept for the reasoning trail, not as current
+> guidance.
+
 **Status:** investigation complete, decisive. **Author:** Claude Opus 5 (investigative session, 2026-08-08).
 **Scope note:** this is NEW work that exceeds Phase 171's original mandate. It is deliberately
 kept out of `evidence/` (which belongs to the already-executed 171-05 plan) and lives in

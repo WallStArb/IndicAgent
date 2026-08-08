@@ -1,5 +1,10 @@
 # Phase 171 follow-on: four candidate single-security regime axes, tested for standalone identifiability
 
+> **Context, not superseded — read `171-FINAL-VERDICT.md` for the full picture.** This document's
+> per-axis verdicts (persistence/tail rejected, systematic/volume_price deferred as features)
+> stand; it's the document that discovered the null-arm methodology gap in the first place. The
+> final verdict doc folds this in alongside the composite/trend/volatility results it motivated.
+
 **Status:** investigation complete, decisive. **Verdict: 2 rejected outright, 2 rebuilt as features rather than regimes. Nothing is added to Phase 172 as a `regime_*` HMM column.**
 **Author:** Claude Opus 5 (investigative session, 2026-08-08).
 **Companion documents:** `171-MODEL-IDENTIFIABILITY-FINDINGS.md` (why production's composite

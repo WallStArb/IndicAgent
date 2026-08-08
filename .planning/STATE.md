@@ -3,8 +3,8 @@ gsd_state_version: 1.0
 milestone: v3.1
 milestone_name: AlphaEngine Validation + Alpha Scoring
 status: blocked
-stopped_at: Phase 171 context gathered
-last_updated: "2026-08-08T06:16:08.935Z"
+stopped_at: Phase 171 investigation complete -- volatility-only redesign validated, corpus rollout (171-06/07) withdrawn, Phase 172 not yet planned
+last_updated: "2026-08-08T22:45:00.000Z"
 progress:
   total_phases: 12
   completed_phases: 9
@@ -389,14 +389,22 @@ ON CONFLICT (symbol, tf) DO UPDATE SET fetch_complete = true;
 ## Roadmap Evolution
 
 - Phase 171 (HMM Walk-Forward Regime Labeling, Parameter-Lookahead Fix): added 2026-08-04, out of
-  todo 248. Wires the already-implemented + TDD-tested `_walk_forward_hmm_labels()` into
-  `regime_writer.py`'s live path, replacing the full-history HMM parameter fit. Ships regardless
-  of the Gate 4 ordinal-IC pilot's negative result -- confirmed causal-law violation in an
-  existing core mechanism, not a new/unproven signal gated on "prove before promoting." Not yet
-  planned (0 plans) -- remaining requirements (tf-calibrated refit windows for 15m/5m/1d, live
-  wiring, full regime + downstream `ic_engine` recompute) are in the phase entry and todo 248.
-  **Sequenced after the CTF-leak/Phase 167 re-verification work by explicit user decision**, to
-  avoid two overlapping corpus-recompute-scale efforts.
+  todo 248. **Waves 1-2 (plans 01-05) executed 2026-08-08** -- walk-forward fitting procedure
+  wired with observability, APR reconciled, corpus NULL-out/provenance tooling built, and the
+  staged pilot returned NO-GO on seed-stability at production's K=5. **Root-cause investigation
+  (same day, exceeds original mandate) found the instability predates this phase** (production's
+  current full-history fit is equally unstable) **and traced it to model non-identifiability, not
+  the walk-forward candidate.** A K-reduction sweep, an axis-decomposition test, four new
+  candidate regime axes, and a null-arm (scrambled-data) control together established: only
+  `realized_vol`/`vol_of_vol` carry real, validated regime structure in the observation vector.
+  Trend/direction does not -- production's live `regime` label has been a volatility partition
+  wearing trend-direction names since before this investigation, not a defect this phase
+  introduced. **Verdict and full arc:** `171-FINAL-VERDICT.md` (authoritative; supersedes 4
+  intermediate findings docs in the phase dir). **Plans 171-06/07 (the composite-label corpus
+  rollout) are WITHDRAWN** -- see their own banners. The walk-forward fitting procedure itself is
+  not invalidated and should be reused against the validated 2-column volatility-only observation
+  vector. **Phase 172, scoped around this volatility-only redesign, is the next step -- not yet
+  planned.** Do not resume 171-06/07 as written; do not cite the composite/trend design as current.
 
 - Phase 169 (Symbol State Query Layer): added 2026-07-31. Scoped through extensive same-session
   design work (rejected a predictive composite score, an independent Opus review that corrected

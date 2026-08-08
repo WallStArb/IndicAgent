@@ -1,5 +1,10 @@
 # Phase 171 follow-on: does decomposing the HMM regime into trend/volatility/volume axes resolve identifiability?
 
+> **SUPERSEDED — read `171-FINAL-VERDICT.md` first.** This document's per-axis identifiability
+> readings (trend clean at K=2-3, volatility clean at K=2-3) were later shown to be measuring
+> fit-reproducibility, not real structure. Volatility survived independent null-arm validation;
+> trend did not. Kept for the reasoning trail, not as current guidance.
+
 **Status:** investigation complete, decisive. **Verdict: hypothesis FALSIFIED.**
 **Author:** Claude Opus 5 (investigative session, 2026-08-08).
 **Companion document:** `171-MODEL-IDENTIFIABILITY-FINDINGS.md` — read that first; this

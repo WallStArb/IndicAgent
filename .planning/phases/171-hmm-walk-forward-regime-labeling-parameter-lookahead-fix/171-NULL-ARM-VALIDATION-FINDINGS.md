@@ -1,5 +1,9 @@
 # Phase 171 follow-on: null-arm validation of the production regime axes Phase 172 would ship
 
+> **This is the decisive document — `171-FINAL-VERDICT.md` is the short-form summary of this
+> result plus the full investigation arc; read that first for the compressed version, come here
+> for the full per-axis detail and raw evidence.**
+
 **Status:** investigation complete, decisive. **Verdict: 1 of 4 axes validated. `volatility` is
 real. `trend` is not. `composite` and `trend_volatility` are volatility partitions wearing trend
 labels. Phase 172 proceeds, with 172-01/172-02 revised and one new plan inserted ahead of the
