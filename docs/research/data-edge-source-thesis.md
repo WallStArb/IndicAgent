@@ -189,6 +189,41 @@ momentum and this mechanism is not what produces it -- the control group is the 
 **Cost:** cheap -- existing 5m/15m OHLCV, plus a one-time hand-built symbol -> has-levered-sleeve
 mapping (a static list, not a data feed). **Untested.**
 
+**Statistic pinned 2026-08-07, before running (closing the "positively related" / "materially
+stronger" prose gap above into an exact, non-post-hoc test):** tf=5m (finer than 15m for
+isolating the true final into-the-close bar without changing the mechanism). Per (symbol,
+RTH session day), using `pandas_market_calendars` for the real session close (half-days
+included, same mechanism `bar_normalizer.py` already uses -- no new session-boundary logic):
+`prior_return = ln(close[second-to-last bar] / open[first RTH bar])` (the day's move up to but
+excluding the final bar, so the test isn't trivially self-referential) and
+`last_bar_return = ln(close[last bar] / open[last bar])`. Per-observation statistic:
+`co_movement = prior_return * last_bar_return` (positive when the last bar continues the day's
+sign). Fed straight into `gate_math.frame_gate_passes` unmodified (`pnl_r_values=co_movement`
+observations, `cluster_ids=session day`) -- one call per group, symbols pooled within a group so
+the day-cluster correctly absorbs cross-sectional correlation on the same day, exactly how this
+project's other cross-sectional cells already cluster. Levered group: XLF, XLE, SMH, XBI, GDX,
+TLT, IWM, QQQ, SPY. Control group: SCHD, SDOG, USMV, QUAL, MUB, PFF, DBA. **Verdict rule (binary,
+no post-hoc magnitude judgment call): levered group must pass (`ci_lower > 0`) AND control group
+must NOT pass -- any other outcome (both pass, neither passes, or control passes while levered
+doesn't) falsifies the mechanism.** BH-FDR is not applied on top of this -- only 2 groups are
+pre-specified (not a multi-cell sweep), so a correction has no material effect here; noted so the
+omission reads as a decision, not a shortcut.
+
+**Result (`scripts/analysis/retail_immediacy_provision_levered_sleeve_pilot.py`, run 2026-08-07,
+tf=5m, full available history, 5,434 NYSE trading days in range): DEAD.** Both groups PASS the
+day-clustered bootstrap gate (`ci_lower > 0`): LEVERED n_obs=41,747/n_days=5,069,
+`ci_lower=0.0000014`; CONTROL n_obs=26,129/n_days=4,919, `ci_lower=0.00000001`. Per the
+pre-registered binary rule, the control group passing falsifies the mechanism outright --
+the co-movement between a session's prior return and its own final-bar return is present in
+*both* groups, not concentrated in the levered-sleeve names. This is exactly the "present but
+uniform across both groups" outcome pre-specified as a kill: ordinary intraday momentum, not a
+levered-issuer close-rebalance flow. **Not load-bearing for the verdict, but worth recording
+since it's suggestive of a real, smaller, distinct effect worth a future thesis:** the levered
+group's point estimate is ~140x the control group's, which a looser (non-pre-registered) reading
+might call "materially stronger" -- the whole reason the binary rule was pinned in writing before
+running was to not let that framing substitute for the actual pre-specified test. Both groups
+using the analytic CLT bound (n_days > `bootstrap_max_n=5000` for LEVERED) rather than BCa.
+
 **Suggestive, explicitly not a test of the above:** cross_sectional_relative_value's Gate 2 static leg-membership
 vector (`docs/research/trade-construction-layer.md`) puts EWT/BIL/EWY/EEM/CIBR at the most-long
 end and BTAL/KWEB/FXY/FXI/INDA at the most-short end -- none of them SPY or QQQ. That is
@@ -419,6 +454,52 @@ from options open interest and skew -- needs an options-chain data source this p
 have and should not buy on spec. **The cheap screen is a gate on the expensive data, not a
 substitute for it:** a negative screen closes the thesis, a positive screen is the only thing
 that would justify paying for chains.
+
+**Statistic pinned 2026-08-08, before running (same discipline as retail_immediacy_provision's
+addendum above -- closes the "must differ" prose gap into an exact, non-post-hoc test).**
+Mean-reversion proxy: `-1 * lag-1 autocorrelation of that session's 5m RTH bar returns` (sign
+flipped so a larger positive value means MORE mean-reverting/dampened, consistent with "dealers
+net long gamma dampen moves"; requires >=30 RTH 5m bars that session to be included). Monthly
+expiry = 3rd Friday of each month (standard equity/index options expiry; if that Friday is a
+market holiday, no adjustment is made and the event is skipped -- rare enough not to justify
+extra logic). PRE window = the 2 NYSE trading sessions immediately before expiry Friday plus
+expiry Friday itself (3 sessions). POST window = the 3 NYSE trading sessions immediately
+following expiry Friday. Per (symbol, expiry-month) observation:
+`delta = mean(proxy, POST sessions) - mean(proxy, PRE sessions)` -- positive means mean-reversion
+strength faded after the OI reset, consistent with the mechanism (dealers were dampening moves
+pre-expiry under large gamma exposure, less so once that OI expired). Fed into
+`gate_math.frame_gate_passes` (`pnl_r_values=delta` observations, `cluster_ids=expiry_month` --
+the natural clustering unit here, since multiple symbols share the same expiry event and a real
+systemic effect would correlate across them that month) -- one call per group, symbols pooled
+within a group. Heavily-optioned group: SPY, QQQ, IWM, TLT, GLD, SMH. Negligibly-optioned
+control group: SDOG, SPHB, CIBR, IPO, QUAL. **Verdict rule (binary, no post-hoc magnitude
+judgment call, identical structure to retail_immediacy_provision's): heavily-optioned group must
+pass (`ci_lower > 0`) AND negligibly-optioned group must NOT pass.** BH-FDR not applied on top,
+same reasoning as before -- 2 pre-specified groups, not a multi-cell sweep.
+
+**First attempt (2026-08-08) had a real window-specification flaw, correction below --
+DEAD verdict retracted, not trusted.** PRE originally included expiry Friday itself
+(T-2, T-1, T_expiry). This is wrong for the dominant mechanism: SPY/QQQ/IWM's OWN options are
+PM-settled, but the far larger, more liquid options market on the same underlyings is SPX/NDX/
+RUT index options, which are AM-settled -- cash-settled off a Special Opening Quotation from
+component stocks' opening prints on expiry Friday morning, not the close. Dealers hedge that
+exposure via SPY/QQQ/ES/NQ, so a large share of real gamma-unwind flow resolves AT FRIDAY'S
+OPEN, not spread across the session. Lumping all of expiry Friday into PRE mislabels a
+transition day (post-unwind by mid-morning) as pre-unwind, which can wash out a real effect
+rather than correctly find its absence.
+
+**Corrected statistic:** expiry Friday is excluded from both buckets entirely -- PRE = the 3
+NYSE sessions before expiry week's Friday (Mon-Wed of expiry week), POST = the 3 NYSE sessions
+after (the following Mon-Wed). Same proxy, same day-clustered-by-expiry-month bootstrap gate,
+same binary verdict rule, unchanged otherwise.
+
+**Result (corrected, run 2026-08-08): still DEAD.** HEAVY n_obs=1,234/n_expiry_months=236,
+`ci_lower=-0.00490`; CONTROL n_obs=567/n_expiry_months=158, `ci_lower=-0.00728`. Removing the
+ambiguous transition day moved the heavy group's `ci_lower` from -0.0133 to -0.0049 (closer to
+zero, consistent with the original window diluting rather than fabricating a null) but it still
+doesn't clear zero. This time the DEAD verdict is trusted -- the window-specification flaw that
+motivated the correction is fixed, and the corrected result confirms the original one rather
+than overturning it.
 
 ### Signal-Extraction Questions
 
@@ -708,10 +789,12 @@ finding, and all three should travel with the headline number.**
    cheap to fix.
    [Todo 239](../../.planning/todos/pending/239-nonlinear-interaction-combiner-embargo-passed-in-pooled-panel-rows-not-bars.md).
 3. **"80/80 symbols pass" is not 80 independent confirmations.** This doc's own "Breadth Is the
-   Binding Constraint" section puts effective breadth at ~8-15 across these 80 correlated ETFs.
-   The same arithmetic applies to the per-symbol test family: 80 highly-correlated per-symbol
-   ICs measured on a shared, largely common return process carry closer to ~10 independent tests
-   worth of evidence, so unanimity is roughly what a single strong common effect would produce
+   Binding Constraint" section measures effective breadth at ~4.5 for this 80-ETF-only
+   population (participation-ratio method, 2026-08-07 -- see that section for the full
+   measurement). The same arithmetic applies to the per-symbol test family: 80 highly-correlated
+   per-symbol ICs measured on a shared, largely common return process carry closer to ~4-5
+   independent tests worth of evidence, so unanimity is roughly what a single strong common
+   effect would produce
    and is weaker corroboration than the raw count suggests. BH-FDR remains valid here (it holds
    under positive dependence), so the *significance* claims stand -- what is overstated is the
    intuitive reading of 80/80 as breadth of replication. The cross-sectional-neutral
@@ -801,7 +884,8 @@ regime, volume regime) were considered and dropped -- too close to an already-fa
 to justify a new T-number without first checking whether the falsification generalizes.
 
 This universe's binding constraint (see "Breadth Is the Binding Constraint" below) matters here:
-effective breadth ~8-15 across 80 correlated ETFs. That rules out some classic stat-arb
+effective breadth measured ~4.5-8.4 (80-ETF-only vs. full post-expansion universe, 2026-08-07).
+That rules out some classic stat-arb
 approaches at face value (true cointegration wants economically related PAIRS, not a broad
 basket) but doesn't rule out others (factor decomposition works fine on a small, correlated
 universe -- that's exactly the regime PCA is built for).
@@ -836,8 +920,9 @@ raw per-symbol IC and the existing pooled/cross-sectional IC already in `feature
 if residualizing beats those, that is real evidence a K-factor decomposition adds something the
 current pooled measurement misses; it no longer needs to clear a construction that doesn't exist
 anymore. **Not ready to execute regardless of the bar fix: the K-selection question is real,
-unresolved methodology debt, not an execution detail.** With effective breadth ~8-15, a PCA over
-80 highly-correlated ETFs may only have 3-5 meaningful factors before hitting noise -- K must be
+unresolved methodology debt, not an execution detail.** With effective breadth measured ~4.5-8.4
+(2026-08-07), a PCA over 80 highly-correlated ETFs may only have 3-5 meaningful factors before
+hitting noise -- K must be
 chosen via a pre-registered, principled method (parallel to HMM's K=5 BIC study) *before* any IC
 test runs, or reporting whichever K "looks best" post-hoc is the same p-hacking shape
 `adaptive_combiner_weights`' halflife-grid discipline below exists to prevent. Resolve K-selection
@@ -942,9 +1027,33 @@ Recorded so the framing is a decision rather than an oversight.
 ## Breadth Is the Binding Constraint (added 2026-07-01, Simons-lens review)
 
 Whatever thesis survives, the arithmetic above it is fixed: IR ≈ IC × √(effective breadth).
-This universe has effective breadth ~8-15 (80 correlated ETFs live as of 2026-08-03; the
-completed ETF Universe Expansion barely moved it -- more sector funds are more of the same
-bets). At IC ≈ 0.03 and breadth 10, there is almost
+
+**Measured, not assumed, 2026-08-07** (`scripts/analysis/effective_breadth_diagnostic.py` --
+the "~8-15" figure below was never actually computed in this codebase before this date;
+treat it as retired). Participation-ratio effective breadth on the daily log-return
+correlation matrix (N_eff = (sum lambda)^2 / sum(lambda^2) over the correlation matrix's
+eigenvalues -- counts independent bets, not raw instrument count):
+
+| Population | N (raw) | Window | avg pairwise corr | effective breadth |
+|---|---|---|---|---|
+| OLD universe alone (pre-2026-08-05 expansion) | 80 | 349 days | 0.357 | **4.5** |
+| FULL universe (post-expansion) | 229 | 349 days (same) | 0.257 | **8.4** |
+| 2yr window, longer-history subset | 139 | 486 days | 0.273 | 7.3 |
+
+The 2026-08-05/06 universe expansion (111->231 active instruments, built against an explicit
+distinctness/factor-loading test) nearly **doubled** measured effective breadth (4.5 -> 8.4) --
+unlike the earlier ETF-only expansion referenced below, which the same Simons-lens review
+correctly flagged as not moving the needle. Real progress, empirically confirmed for the first
+time. But raw count (~230, approaching ~300) is roughly 27x the effective breadth (~8.4) --
+229/231 active instruments are still `asset_class='equity'`; there is no rates/FX/commodity
+depth yet to add genuinely uncorrelated return streams, and equities share market beta/sector
+co-movement no matter how carefully names are picked. Getting to hundreds of *effective*
+independent bets via raw equity-count growth alone hits diminishing returns; the more
+promising lever is a construction that strips the common factor and harvests the idiosyncratic
+residual (`statistical_factor_residual`, `cross_sectional_relative_value`-style constructions)
+rather than raw universe size.
+
+At IC ≈ 0.03 and breadth ~8 (measured), there is almost
 nothing to harvest; at breadth 300, the *same IC* is a business. Medallion's expansion to
 higher frequency and thousands of instruments was this arithmetic, not bigger edges. The
 concrete long-term move this pipeline is well-positioned for: liquid single-name equities

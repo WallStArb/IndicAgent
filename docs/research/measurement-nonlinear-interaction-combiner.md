@@ -147,7 +147,10 @@ canary-leakage near-miss, item below).
 ## Overfitting risk — the load-bearing caveat
 
 `docs/research/data-edge-source-thesis.md`'s "Breadth Is the Binding Constraint" section
-measured this universe's effective breadth at ~8-15 (58 correlated ETFs). A tree model with
+originally assumed this universe's effective breadth at ~8-15 (58 correlated ETFs); actually
+measured 2026-08-07 at ~4.5 (80-ETF-only) to ~8.4 (full post-expansion universe) via
+`scripts/analysis/effective_breadth_diagnostic.py` -- same order of magnitude, real number now.
+A tree model with
 access to 150 features over a modest-breadth, autocorrelated-bar universe is exactly the
 overfitting setup this project's principles explicitly warn against ("resist overfitting,"
 "earn promotion through proof p<0.05, sufficient N"). Controls, non-negotiable before any

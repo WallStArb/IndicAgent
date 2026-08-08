@@ -17,7 +17,9 @@ A genuinely different grouping than `regime_conditional_persistence` (discrete r
 `cross_sectional_relative_value` (broad cross-sectional rank): specific, economically-linked pairs tested for a
 stable cointegrating relationship whose short-run deviations mean-revert — the classical
 Engle-Granger/Johansen stat-arb structure. This universe's binding constraint (effective breadth
-~8-15 across 80 correlated ETFs) rules out a blind correlation scan but doesn't rule out
+measured ~4.5-8.4, not the earlier assumed ~8-15 -- see `data-edge-source-thesis.md`'s Breadth
+section, `scripts/analysis/effective_breadth_diagnostic.py`, 2026-08-07) rules out a blind
+correlation scan but doesn't rule out
 *economically motivated* pairs — that's exactly the distinction this design enforces.
 
 ## Named pairs only — no correlation scan

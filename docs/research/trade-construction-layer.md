@@ -115,7 +115,9 @@ in the roadmap tests rows 2-4.
 ## Why Cross-Sectional Long-Short Is the Natural Fit for This Universe
 
 - **58 correlated ETFs is a relative-value universe, not 58 independent directional bets**
-  (effective breadth ~8-15; see feature-scoring-beyond-ic §4). Ranking within a correlated
+  (effective breadth measured ~4.5-8.4, 2026-08-07, not the earlier assumed ~8-15 -- see
+  `data-edge-source-thesis.md`'s Breadth section; see also feature-scoring-beyond-ic §4).
+  Ranking within a correlated
   set is exactly what a cross-sectional portfolio monetizes and a directional book wastes.
 - **Beta cancellation is free risk reduction.** Long the top decile of the ranking, short the
   bottom, dollar-neutral: the market factor nets out, so the P&L stream is the *spread* -- driven by the forecast, not by whether SPY went up. The Sharpe of a hedged spread on weak

@@ -219,7 +219,9 @@ the gate idea dies and the stamp remains as cheap provenance.
 **The question:** today every (symbol, tf) emits against an absolute bar in isolation. A
 Renaissance-shaped alternative asks "is this symbol's score extreme *relative to the universe
 right now*" - and the Trade Construction Layer's own analysis argues the 80-ETF universe is a
-relative-value universe (effective breadth ~8-15), where ranking is what monetizes.
+relative-value universe (effective breadth measured ~4.5-8.4, 2026-08-07 -- see
+`data-edge-source-thesis.md`'s Breadth section, not the earlier assumed ~8-15), where ranking
+is what monetizes.
 
 **Mechanism:** a composable gate, not a replacement: at each (bar_ts, tf), rank `alpha_score`
 across all symbols scored at that bar (within validated `regime_scope`); the gate passes only

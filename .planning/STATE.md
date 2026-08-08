@@ -115,19 +115,20 @@ that hasn't been shown to be the actual bottleneck.
 **Current focus (updated 2026-08-08):** Milestone v3.1's defining verdict stands: Phase 148 found
 Gate 1 (signal proof) PASS but Gate 2 (execution proof) FAIL -- do not promote the per-symbol
 directional construction to live capital. **New thread, 2026-08-08: user wants to refine this
-per-symbol construction using Phase 163-165's features (Phase 164 in particular measured as the
-best-performing feature vintage in the corpus, 72.2% FDR clear rate).** A rigor review before
-any gate work found 3 gating items, all filed as P1 todos: [276](../todos/pending/276-phase163-165-lookahead-causal-safety-audit.md)
-(Phase 163-165 have never been audited for the same lookahead-leak bug class that hit
-`ctf_momentum` and `regime_writer`'s HMM fit, twice already), [277](../todos/pending/277-alpha-score-concentration-cofiring-degeneracy-diagnosis.md)
-(Gate 2's ~22-concurrent/99.5%-same-direction co-firing pattern suggests `alpha_score` may be a
-disguised single-factor bet, not real per-symbol breadth -- diagnose before refining features
-that feed the same combination), [278](../todos/pending/278-oos-protocol-gate-relook-decision-phase163-165-features.md)
-(checked against `docs/plans/OOS-EVAL-PROTOCOL.md`'s own 3-condition re-look exception -- fails
-2 of 3 as scoped; a bare Gate 1/Gate 2 re-run would be an ungoverned second look at an
-already-3x-used OOS holdout). **Do not jump straight to a gate re-run** -- 276/277 are
-read-only/diagnostic-tier and can run in parallel now; 278 needs an explicit decision recorded
-before any authoritative gate consumes another look. Phase 167 (Cross-Sectional Trade Construction,
+per-symbol construction using Phase 163-165's features -- all 3 gating items now resolved,
+same day.** [276](../todos/completed/276-phase163-165-lookahead-causal-safety-audit.md):
+lookahead/causal-safety audit CLEAN -- Phase 163-165's batch computations consistently,
+deliberately pre-slice causal windows, unlike `ctf_momentum`'s batch join. [277](../todos/completed/277-alpha-score-concentration-cofiring-degeneracy-diagnosis.md):
+`alpha_score` is substantially a disguised common cross-sectional factor, not real per-symbol
+breadth -- 100% same-direction at 15m/1h/1d (worse than todo 179's 99.5%), but the demeaned
+residual carries the real (small) predictive signal where the raw score has ~zero. [278](../todos/completed/278-oos-protocol-gate-relook-decision-phase163-165-features.md):
+decision recorded in `docs/plans/OOS-EVAL-PROTOCOL.md` -- Phase 148's original verdict stands
+unrevisited (refining raw `alpha_score` would have been an ungoverned re-look), but a
+residual-stripping construction is materially different and earns its own new `gate_id`,
+**conditional on first clearing a properly-powered diagnostic-tier test** (day-clustered
+bootstrap/shuffled-null/BH-FDR at 15m -- the only tf with OOS `forward_returns` coverage), not a
+straight jump to an authoritative gate. That diagnostic-tier test is the next real action if
+this plan proceeds -- not yet filed as its own todo. Phase 167 (Cross-Sectional Trade Construction,
 `cross_sectional_relative_value`) was recorded 2026-07-27 as COMPLETE, both live Validation Gates
 PASSED, but that verdict did not survive re-measurement under the corrected `ctf_momentum` join --
 **re-verified at authoritative tier 2026-08-07, both gates now FAIL** (see the Strategic Plan

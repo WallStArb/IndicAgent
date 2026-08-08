@@ -35,10 +35,16 @@ cells to individually pass BH-FDR with a per-tf minimum cell count):
 | `ctf_regime_align` | 1 qualifying cell per tf (15m/1d/1h) -- fails `min_cells` (2-3) in every stratum, excluded before rate is even evaluated |
 | `ctf_vwap_align` | 0/2, 0/2, 2/7 by tf -- max 28.6%, fails on rate |
 
-None currently clear admission. If the corpus pipeline resumes past todo 230 and steps 6-8
-(`ic_shrinkage`/`ensemble_trainer`/`alpha_publisher`) run today, none of the three CTF columns
-would enter `alpha_ensemble_ic`. `max(computed_at)` across `feature_ic_scores` is 2026-07-30
-21:08:59 UTC -- nothing has recomputed since, so this is the live, current state.
+None currently clear admission. `max(computed_at)` across `feature_ic_scores` was 2026-07-30
+21:08:59 UTC at filing time -- nothing had recomputed since, so that was the live state then.
+
+**Update, 2026-08-07 (re-verified live, post-todo-230-resolution, post-CTF-join-fix)**: todo 230
+resolved 2026-08-02 (steps 6-8 have run regularly since); the CTF join-fix recompute (option 3
+below) landed 2026-08-05/07. Re-checked all three columns against the fresh, corrected-join
+`feature_ic_scores` (3,640 cells each at 15m, up from 138 total across all tfs at filing time --
+much larger post-universe-expansion cell count): `ctf_momentum` 0/3640 (0.0%), `ctf_regime_align`
+4/3640 (0.1%), `ctf_vwap_align` 8/3640 (0.2%). **Still doesn't clear admission -- the risk this
+todo names is confirmed still real and dormant, not resolved by the recompute landing.**
 
 ## Why it's still a real gap
 
@@ -69,17 +75,18 @@ required step in the recompute plan now, not an assumption to rely on separately
    features pending a known data-integrity issue -- more invasive, adds a mechanism this
    codebase doesn't currently have (no existing "quarantine list" concept).
 3. Just land the join-fix recompute (see
-   `docs/plans/2026-08-05-ctf-join-fix-scoped-recompute-and-gate1-reverify.md`) before todo 230
-   resolves and steps 6-8 ever run against these columns -- makes the question moot rather than
-   building a workaround for values known to be wrong.
+   `docs/plans/2026-08-05-ctf-join-fix-scoped-recompute-and-gate1-reverify.md`) -- makes the
+   question moot rather than building a workaround for values known to be wrong.
 
-Recommend (3) as the primary path since the recompute plan already exists and is scoped; (1) as
-a cheap interim belt-and-suspenders if todo 230 resolves before the recompute lands, given
-option 1 costs nothing but a registry UPDATE.
+**Update, 2026-08-07: option 3 landed** (recompute executed 2026-08-05/07) but did NOT make
+the question moot as hoped -- the columns still fail to clear admission on the corrected data
+(see update above), so the underlying architectural gap (no explicit exclusion mechanism tied
+to the known leak, just accidental exclusion via merits) is still real and still open. Options
+1/2 remain undecided; this todo stays open on that basis, not on option 3 being incomplete.
 
 ## Cross-refs
 
 - [todo 243](../pending/243-ctf-momentum-batch-join-lookahead-bias.md) -- the underlying leak this todo is about not silently propagating
-- [todo 230](open, referenced in STATE.md Tier -1) -- the FATAL halt currently blocking steps 6-8 from running at all
-- `docs/plans/2026-08-05-ctf-join-fix-scoped-recompute-and-gate1-reverify.md` -- the scoped recompute plan that makes this moot once executed
-- `.planning/phases/170-concept-registry-feature-domain-migration-feature-registry-r/170-05-SUMMARY.md` -- Plan 05 BLOCKED on the same empty `alpha_ensemble_ic` precondition
+- todo 230 -- **CLOSED 2026-08-02** (was: the FATAL halt blocking steps 6-8; resolved same-day via a Binomial-tolerance fix, not a silent override -- see `project_single_security_alpha_refinement_gating_2026_08_08` memory for detail if ever needed)
+- `docs/plans/2026-08-05-ctf-join-fix-scoped-recompute-and-gate1-reverify.md` -- the scoped recompute plan; executed, did not close this todo (see update above)
+- `.planning/phases/170-concept-registry-feature-domain-migration-feature-registry-r/170-05-SUMMARY.md` -- Plan 05 BLOCKED on the same empty `alpha_ensemble_ic` precondition (re-check if still relevant -- not verified in this pass)

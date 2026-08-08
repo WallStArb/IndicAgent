@@ -161,6 +161,104 @@ mechanism — the existing verdict stands, full stop, regardless of whether the 
 believed to change the answer. This escape hatch is intentionally narrow; do not extend its use
 by analogy without updating this section first.
 
+**New-construction decision (added 2026-08-08, todo 278)**: a proposal to refine Phase 148's
+per-symbol `alpha_score` construction with Phase 163-165's features was checked against the
+3-condition test above and fails 2 of 3 — it is "add more features, try again," not a corrected
+instrument, and does not earn a re-look under `gate1_signal`/its Gate 2. **Decision: the
+original Phase 148 verdict (`gate1_signal` PASS, Gate 2 FAIL, `gate_look_log.jsonl`) stands
+permanently as the historical record for that construction — it is not being re-tested.**
+
+Separately, a same-session diagnostic (todo 277) found `alpha_score`'s directional signal is
+substantially a disguised common cross-sectional factor (100% same-direction at 15m/1h/1d), with
+what little real predictive signal exists concentrated in the residual after removing that
+common component per bar, not in the raw score. **A construction that explicitly strips the
+common component and trades the residual is a materially different construction from raw
+`alpha_score`** — same category of difference as `cross_sectional_relative_value` (Phase 167)
+was from the original per-symbol directional construction (Phase 148) — not a tweak to the same
+one. It is therefore eligible for its own first look under a new `gate_id`, on its own merits,
+independent of the corrected-input mechanism above.
+
+**That eligibility is not permission to jump to an authoritative gate.** The self-check this
+decision has to survive: would "this is a new construction" be argued if todo 277's residual
+finding had come back null instead of small-positive? The reasoning stands on its own (a common-
+factor-stripping construction is a principled, independently-motivated technique, not invented
+because Gate 2 failed) — but trusting that self-assessment alone is exactly the failure mode this
+protocol exists to prevent. Enforcing it mechanically instead: **before any authoritative Gate
+1/Gate 2 run under a new `gate_id`, the residual construction must first clear a properly-powered
+diagnostic-tier test** — day-clustered bootstrap CI, shuffled-ranking null, BH-FDR, the same
+discipline every other measurement in this project uses (todo 277's own number, `ic_residual
+=0.00453` at 15m, is a raw Pearson correlation with none of that — informative, not sufficient).
+This mirrors exactly how `cross_sectional_relative_value` itself was validated: diagnostic script
+first, productionized service second, gate third — not diagnostic straight to gate. Only a
+construction that clears the diagnostic tier on its own terms earns the one authoritative look.
+
+Note also: this magnitude (`0.0045`) is smaller than several measurements that have already died
+this project (`ctf_vwap_align`'s rejected 0.27bps, todo 030's 0.26-0.84bps range) — treat it as a
+lead worth a properly-powered look, not a result. Expect it can die at the diagnostic tier the
+same way 4 of 4 discovery-track candidates did this week.
+
+**Diagnostic-tier results, 2026-08-08 (`scripts/analysis/alpha_score_*_diagnostic_15m.py`,
+tf=15m, OOS window, both read-only):**
+
+- **First attempt tested the wrong question.** `alpha_score_residual_diagnostic_15m.py`
+  computed a per-bar cross-sectional Spearman rank IC (residual vs. raw) — RAW and RESIDUAL
+  came back mathematically identical (`mean_ic=0.01202` both), because Spearman rank
+  correlation is invariant to subtracting a per-bar constant from every value being ranked.
+  The test that actually ran was a **cross-sectional decile-spread question** (does ranking
+  symbols by `alpha_score` at a bar predict RELATIVE performance across symbols) — the same
+  shape as `cross_sectional_relative_value` (a portfolio/relative-value construction), not
+  single-security alpha. That result (pooled `ci_lower=0.00363`, `null_p=0.0000`, clears
+  its own bar) is real but answers a different question than what this whole gating thread
+  was scoped to refine — kept on record as a separate, genuinely interesting lead for a
+  possible future `cross_sectional_relative_value`-style construction using `alpha_score` as
+  the ranking feature, NOT as evidence for the single-security refinement plan.
+- **Corrected: `alpha_score_single_security_diagnostic_15m.py`** tests the actual question —
+  does `alpha_score` predict THAT symbol's own future return, independent of other symbols
+  (per-symbol circular block bootstrap, `ic_math.py`'s production machinery, same mechanism
+  `ic_engine.py` itself uses). **Result: essentially no single-security signal currently
+  exists at 15m in this OOS window.** Only 1/80 symbols (XHB) individually clear
+  `ci_lower > 0`. Three symbols (CIBR, SCHD, SDOG) show a **statistically significant
+  negative** relationship — `alpha_score` is actively anti-predictive for those names, not
+  merely uninformative. Pooled raw correlation is -0.00129, consistent with todo 277's
+  earlier number. Confirmed via `ensemble_weights` that the current `alpha_score` already
+  incorporates at least 2 Phase 164 features (`bsl_dist_atr`, `sweep_strength`) — this is not
+  a stale pre-163-165 measurement.
+- **Reconciles with, and helps explain, Gate 2's concentration failure**: if there is almost
+  no real single-security differentiation to begin with, the ~100% same-direction co-firing
+  todo 277 found is very unlikely to be genuine per-symbol conviction — more likely the
+  combination mechanism reproducing shared common-factor noise as if it were high-confidence
+  signal across the board.
+- **Caveat, stated plainly**: this pooled-per-symbol cut is coarser than Gate 1's original
+  measurement (symbol x regime x tf cells, 640 total, 21.875% qualifying) — pooling across
+  all regimes per symbol could dilute a genuinely regime-conditional signal. But 3
+  *significantly negative* per-symbol ICs is a stronger, more specific finding than dilution
+  alone would produce, and is not explained away by that caveat.
+
+**Implication for the single-security refinement plan**: the plan as originally scoped
+(refine `alpha_score` by adding more raw features) is on weak footing — there is very little
+current single-security signal to refine. This looks like a more foundational problem with
+the combination/scoring mechanism than a feature-shortage problem, consistent with todo 277's
+finding that the mechanism produces near-total common-factor co-firing regardless of which
+features feed it.
+
+**Data-completeness caveat, checked 2026-08-08, revised same day (todo 279)**: of the 80
+symbols in the single-security population, 3 (FXA 52.5%, IPO 77.9%, SDOG 82.8% of max row
+count) have lower 15m bar counts than their peers. A second pass checking the full 21-symbol
+batch these three were added in found a smooth gradient correlated with real instrument
+liquidity (currency ETFs and small/niche names low, large heavily-traded ETFs 99.5-100%) —
+more consistent with genuine thin trading than an incomplete backfill (a fetch defect would
+more plausibly show a sharp cutoff, not a liquidity-correlated gradient). **Revised
+conclusion: SDOG's significantly-negative result is NOT undermined by this** — excluding real
+non-trading windows is correct, not an artifact, and its bootstrap CI already accounts for the
+resulting smaller N. CIBR and SCHD (full row counts) were never in question. `backfill_status`
+does have a real, separate bookkeeping bug (`rows_written` exceeds `theoretical_max`), tracked
+in todo 279 (downgraded P1->P2) but unrelated to this diagnostic's validity.
+
+**Not resolved by this decision, explicitly out of scope**: whether the `2025-12-24` OOS boundary
+itself is due for a fresh cut given how many constructions have now drawn against it (Phase 148
+x2, Phase 166 x2, Phase 167/`ctf_momentum` x3). A bigger call affecting every future gate, not
+bundled into this one.
+
 ## Failure rule
 
 If an OOS gate fails, diagnose using the EIC-05 structure (data starvation
