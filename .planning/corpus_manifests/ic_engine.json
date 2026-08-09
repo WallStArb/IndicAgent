@@ -1,14 +1,84 @@
 {
   "step_name": "ic_engine",
   "step_version": "1.0",
-  "timestamp": "2026-08-06T20:24:25.750335+00:00",
-  "status": "failed",
-  "inputs": {},
-  "outputs": {},
-  "errors": [
-    "IC Engine startup gate FAILED: market_regimes empty for regime_group=fx tf=15m. Run services/cross_sectional_regime_model.py first."
-  ],
-  "warnings": [
-    "No outputs recorded"
-  ]
+  "timestamp": "2026-08-09T20:07:21.516437+00:00",
+  "status": "success",
+  "inputs": {
+    "training_window_end": "2025-12-24 05:15:00+00:00",
+    "tfs": [
+      "1d"
+    ],
+    "symbols": [
+      "XLF"
+    ],
+    "cross_sectional_only": false
+  },
+  "outputs": {
+    "feature_ic_scores": {
+      "table": "feature_ic_scores",
+      "rows_total": 1091788,
+      "rows_by_tf": {
+        "15m": 1062880,
+        "1d": 28908
+      },
+      "rows_by_regime": {
+        "_pooled": 99280,
+        "flat_tight": 15184,
+        "flat_wide": 15184,
+        "high_bear": 62780,
+        "high_bull": 58400,
+        "high_neutral": 58400,
+        "inverted_tight": 15184,
+        "inverted_wide": 15184,
+        "low_bear": 58400,
+        "low_bull": 62780,
+        "low_neutral": 62780,
+        "mid_bear": 58400,
+        "mid_bull": 58400,
+        "mid_neutral": 62780,
+        "ranging": 67744,
+        "steep_tight": 15184,
+        "steep_wide": 15184,
+        "strong_dollar_risk_on": 7008,
+        "transition_down": 67744,
+        "transition_up": 67744,
+        "trending_down": 67744,
+        "trending_up": 67744,
+        "turbulent": 876,
+        "up_primary_contango": 2336,
+        "up_primary_neutral": 2336,
+        "weak_dollar_risk_on": 7008
+      },
+      "columns_written": [
+        "feature_name",
+        "vector_domain",
+        "symbol",
+        "tf",
+        "regime",
+        "lookahead_bars",
+        "training_window_end",
+        "is_pooled",
+        "n_independent",
+        "reliable",
+        "ic_value",
+        "ic_sign",
+        "p_value",
+        "ic_ci_lower",
+        "ic_ci_upper",
+        "passes_ci_gate",
+        "bh_adjusted_p",
+        "passes_fdr",
+        "wf_fold_count",
+        "wf_pass_count",
+        "wf_ic_sharpe",
+        "passes_walkforward",
+        "ic_sharpe",
+        "ic_sharpe_n_windows",
+        "regime_label_source",
+        "cumulative_e_value"
+      ]
+    }
+  },
+  "errors": [],
+  "warnings": []
 }

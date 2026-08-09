@@ -1,0 +1,48 @@
+{
+  "generated_at": "2026-08-09T20:12:00Z",
+  "run_type": "smoke_test",
+  "elapsed_s": {
+    "primary_run_spy_qqq_iwm_gld": 352.55,
+    "supplementary_run_xlf": 157.97,
+    "total": 510.52
+  },
+  "scope": {
+    "symbols": ["SPY", "QQQ", "IWM", "GLD", "XLF"],
+    "tf": ["1d"],
+    "training_window_end": "2025-12-24T05:15:00+00:00",
+    "workers": 8,
+    "asset_class": {
+      "SPY": "equity",
+      "QQQ": "equity",
+      "IWM": "equity",
+      "GLD": "equity",
+      "XLF": "equity"
+    },
+    "note": "All 80 symbols in this Phase A ETF corpus carry instruments.contract_details->>'asset_class' = 'equity' -- confirmed by direct query (single-value GROUP BY over all 80 symbols returned exactly one row). The plan's 3-distinct-asset-class target cannot be met from this corpus at any timeframe; this is a corpus-composition fact, not a scope-selection shortfall. Diversity was instead sought across sub-sector/instrument-type within the equity tag (broad index SPY/IWM, sector QQQ/XLF, commodity-backed GLD).",
+    "symbol_selection_rationale": {
+      "SPY": "Required by the plan. Broad-market equity ETF, 252 labeled 1d rows per evidence/172-05-relabel-coverage.json, verdict=labeled.",
+      "QQQ": "Second broad-market/tech-sector ETF, 756 labeled 1d rows, verdict=labeled, one of the four largest labeled-row-count 1d cells in the corpus.",
+      "IWM": "Small-cap broad-market ETF (distinct factor exposure from SPY/QQQ), 504 labeled 1d rows, verdict=labeled.",
+      "GLD": "Commodity-backed (gold) ETF -- the closest available proxy to a non-equity asset class in this corpus, since GLD's return drivers are structurally different from a cap-weighted equity index despite sharing the DB's 'equity' asset_class tag. 756 labeled 1d rows, verdict=labeled.",
+      "XLF": "Added as a fifth, supplementary symbol after SPY/QQQ/IWM/GLD's real per-symbol clustering (all three volatility regimes attempted, see logs/172-07-ic-refresh-scoped.log lines with event=ic_engine.clustering) produced zero committed symbol_hmm-scope feature_ic_scores rows for any of the four -- every one of their per-regime raw row counts (SPY calm=177/elevated=18/turbulent=57; QQQ calm=135/elevated=128/turbulent=365; IWM calm=178/elevated=110/turbulent=216; GLD calm=400/elevated=176/turbulent=49, all measured within the training_window_end cutoff) falls under the ~500-row floor implied by alpha.ic.min_reliable_n=100 combined with alpha.ic.subsample_min_stride=5 (n_independent = raw_rows / stride must clear 100, so raw_rows must exceed ~500). XLF is the highest-labeled-row-count 1d cell in the full 172-05 relabel-coverage evidence (1008 labeled rows) and its turbulent bucket (527 raw rows within window) was the only bucket across all 44 labeled 1d cells confirmed to clear this floor. Added specifically to produce a real, directly-observed symbol_hmm-scope proof point for the plan's core Purpose (see Task 1 diagnosis in 172-07-SUMMARY.md); not part of the original 4-symbol selection."
+    }
+  },
+  "rows_before": 1062880,
+  "rows_after": 1091788,
+  "distinct_regimes": [
+    "_pooled",
+    "high_bear",
+    "low_bull",
+    "low_neutral",
+    "mid_neutral",
+    "turbulent",
+    "up_primary_contango",
+    "up_primary_neutral"
+  ],
+  "regime_scope_breakdown": {
+    "cross_sectional": 16352,
+    "pooled": 5840,
+    "symbol_hmm": 876
+  },
+  "pooled_sentinel_rows": 5840
+}
