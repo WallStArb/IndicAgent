@@ -1678,9 +1678,11 @@ def _assert_prerequisites(
     # gate's subject -- a corpus where `regime` is fully populated and
     # `regime_volatility` is all-NULL must fail loud, not pass on the retired column.
     with conn.cursor() as cur:
-        cur.execute("SELECT count(*) FROM feature_vectors WHERE regime_volatility IS NOT NULL")
-        n_regime_volatility = cur.fetchone()[0]
-    if n_regime_volatility == 0:
+        cur.execute(
+            "SELECT EXISTS(SELECT 1 FROM feature_vectors WHERE regime_volatility IS NOT NULL)"
+        )
+        has_regime_volatility = cur.fetchone()[0]
+    if not has_regime_volatility:
         raise RuntimeError(
             "IC Engine startup gate FAILED: feature_vectors.regime_volatility is all-NULL. "
             "Run services/regime_writer.py --regime-column regime_volatility first."

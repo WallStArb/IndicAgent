@@ -194,15 +194,6 @@ def _build_labeled_count_and_min_ts_sql(label_column: str) -> str:
     )
 
 
-# Module-level constants for the default (regime) family -- preserved so this generalization
-# produces byte-identical SQL to before it, for both external callers of this module and the
-# characterization test that pins the legacy family's generated SQL unchanged.
-_SET_NULL_CLAUSE_SQL = _build_set_null_clause_sql(REGIME_WRITER_OWNED_COLUMN_NAMES)
-_NULL_OUT_SQL = _build_null_out_sql(REGIME_WRITER_OWNED_COLUMN_NAMES)
-_ANY_OWNED_NONNULL_SQL = _build_any_owned_nonnull_sql(REGIME_WRITER_OWNED_COLUMN_NAMES)
-_PRE_NULL_LABELED_SQL = _build_pre_null_labeled_sql("regime")
-_LABELED_COUNT_AND_MIN_TS_SQL = _build_labeled_count_and_min_ts_sql("regime")
-
 _ROWS_BEFORE_TS_SQL = (
     "SELECT count(*) FROM feature_vectors WHERE symbol = %s AND tf = %s AND bar_ts < %s"
 )

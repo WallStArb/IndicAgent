@@ -134,21 +134,17 @@ _LABEL_RANGING = "ranging"
 _LABEL_TRANSITION_UP = "transition_up"
 _LABEL_TRANSITION_DOWN = "transition_down"
 
-# Labels that count as "bullish" for hmm_prob_trending_up aggregation.
-_BULLISH_LABELS = frozenset([_LABEL_TRENDING_UP, _LABEL_TRANSITION_UP])
-# Labels that count as "bearish" for hmm_prob_trending_down aggregation.
-_BEARISH_LABELS = frozenset([_LABEL_TRENDING_DOWN, _LABEL_TRANSITION_DOWN])
-
-# Volatility-only regime label set (Phase 172) — these three strings must match the
+# Volatility-only regime label set (Phase 172) - these three strings must match the
 # `controlled_vocabulary` codes seeded for the `regime_volatility` namespace (migration
-# TBD, see 172-02-PLAN.md). No other values written to feature_vectors.regime_volatility.
+# 307_regime_volatility_schema_apr_cvr.sql). No other values written to
+# feature_vectors.regime_volatility.
 _LABEL_CALM = "calm"
 _LABEL_ELEVATED = "elevated"
 _LABEL_TURBULENT = "turbulent"
 
 # Vocabulary mappings keyed on rank slots, threaded through `_build_label_map` /
 # `_state_groups_by_vocab`. `_TREND_VOCAB` preserves the exact existing trend-label
-# assignment; `_VOLATILITY_VOCAB` deliberately has no "low_mid"/"high_mid" slot —
+# assignment; `_VOLATILITY_VOCAB` deliberately has no "low_mid"/"high_mid" slot -
 # 171-FINAL-VERDICT.md section 5 validates only K=2 and K=3 for this axis, where
 # `_build_label_map`'s `n_components >= 4` branch never fires, so a transition concept
 # would be a slot with no meaning.
@@ -1782,6 +1778,28 @@ def _compute_symbol_tf(
     return update_rows, converged, heldout_ll
 
 
+def _regime_family_col_types(owned_columns: tuple[str, ...]) -> dict[str, str]:
+    """Derive `_bulk_update_by_key`'s `col_types` from an owned-column tuple.
+
+    Both regime column families share one shape: element 0 is the text label
+    column, every remaining element is a `double precision` probability/stat
+    column, plus the fixed `(symbol, tf, bar_ts)` key columns. Deriving this
+    instead of hand-typing it in each writer keeps col_types from drifting out
+    of sync with REGIME_WRITER_OWNED_COLUMN_NAMES /
+    REGIME_VOLATILITY_WRITER_OWNED_COLUMN_NAMES the same way set_cols already
+    does -- a column added to one and not the other used to be a silent
+    KeyError risk in `_bulk_update_by_key`.
+    """
+    label_col, *stat_cols = owned_columns
+    return {
+        label_col: "text",
+        **{c: "double precision" for c in stat_cols},
+        "symbol": "text",
+        "tf": "text",
+        "bar_ts": "timestamptz",
+    }
+
+
 def _write_regime_results(
     conn: Any,
     symbol: str,
@@ -1816,19 +1834,7 @@ def _write_regime_results(
                 # feature_vector_persistence.py excludes from --refresh's
                 # DO UPDATE SET -- both now derive from the same source of truth.
                 set_cols=list(REGIME_WRITER_OWNED_COLUMN_NAMES),
-                col_types={
-                    "regime": "text",
-                    "hmm_prob_trending_up": "double precision",
-                    "hmm_prob_ranging": "double precision",
-                    "hmm_prob_trending_down": "double precision",
-                    "hmm_regime_prob": "double precision",
-                    "hmm_entropy": "double precision",
-                    "hmm_duration": "double precision",
-                    "hmm_churn": "double precision",
-                    "symbol": "text",
-                    "tf": "text",
-                    "bar_ts": "timestamptz",
-                },
+                col_types=_regime_family_col_types(REGIME_WRITER_OWNED_COLUMN_NAMES),
                 rows=update_rows,
             )
             conn.commit()
@@ -1901,19 +1907,7 @@ def _write_regime_volatility_results(
                 # ownership list can never drift from the one that module excludes from
                 # --refresh's DO UPDATE SET; both derive from the same source of truth.
                 set_cols=list(REGIME_VOLATILITY_WRITER_OWNED_COLUMN_NAMES),
-                col_types={
-                    "regime_volatility": "text",
-                    "hmm_vol_prob_calm": "double precision",
-                    "hmm_vol_prob_elevated": "double precision",
-                    "hmm_vol_prob_turbulent": "double precision",
-                    "hmm_vol_regime_prob": "double precision",
-                    "hmm_vol_entropy": "double precision",
-                    "hmm_vol_duration": "double precision",
-                    "hmm_vol_churn": "double precision",
-                    "symbol": "text",
-                    "tf": "text",
-                    "bar_ts": "timestamptz",
-                },
+                col_types=_regime_family_col_types(REGIME_VOLATILITY_WRITER_OWNED_COLUMN_NAMES),
                 rows=update_rows,
             )
             conn.commit()

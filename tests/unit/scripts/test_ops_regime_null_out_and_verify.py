@@ -17,7 +17,6 @@ import pytest
 from scripts.ops.corpus.ops_regime_null_out_and_verify import (
     _COLUMN_FAMILIES,
     _DEFAULT_COLUMN_FAMILY_OBJ,
-    _NULL_OUT_SQL,
     _STATUS_FAILED,
     _STATUS_VERIFIED_NULL,
     _WALK_FORWARD_DEFAULT_PARAMS,
@@ -103,15 +102,10 @@ def _update_calls(conn: _ScriptedConn) -> list[tuple[str, tuple | None]]:
 
 class TestNullOutSetClause:
     def test_set_clause_contains_all_8_owned_columns_and_no_others(self):
+        null_out_sql = _build_null_out_sql(REGIME_WRITER_OWNED_COLUMN_NAMES)
         for name in REGIME_WRITER_OWNED_COLUMN_NAMES:
-            assert f"{name} = NULL" in _NULL_OUT_SQL
-        assert _NULL_OUT_SQL.count(" = NULL") == len(REGIME_WRITER_OWNED_COLUMN_NAMES)
-
-    def test_regime_family_builder_output_is_byte_identical_to_module_constant(self):
-        # Pins the no-behavior-change claim for the legacy family: the builder function,
-        # given the same owned-column tuple the old module-level constant was built from,
-        # must reproduce that exact string -- not merely "look similar".
-        assert _build_null_out_sql(REGIME_WRITER_OWNED_COLUMN_NAMES) == _NULL_OUT_SQL
+            assert f"{name} = NULL" in null_out_sql
+        assert null_out_sql.count(" = NULL") == len(REGIME_WRITER_OWNED_COLUMN_NAMES)
 
     def test_regime_family_is_the_default_column_family(self):
         assert _DEFAULT_COLUMN_FAMILY_OBJ.name == "regime"

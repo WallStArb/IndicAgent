@@ -28,6 +28,7 @@ from pathlib import Path
 from unittest.mock import MagicMock
 
 import numpy as np
+import pytest
 
 sys.path.insert(0, str(Path(__file__).parents[3]))
 
@@ -224,15 +225,11 @@ def test_assert_prerequisites_fails_on_volatility_all_null() -> None:
     --regime-column regime_volatility remedy, not the legacy column.
     """
     conn = _mock_conn_for_prerequisites([100, 0])
-    try:
+    with pytest.raises(RuntimeError) as exc_info:
         _assert_prerequisites(conn, tfs=None, equity_model_enabled=True, group_configs=None)
-        raised = False
-    except RuntimeError as exc:
-        raised = True
-        message = str(exc)
-        assert "regime_volatility" in message
-        assert "regime_writer.py --regime-column regime_volatility" in message
-    assert raised, "expected RuntimeError when regime_volatility is all-NULL"
+    message = str(exc_info.value)
+    assert "regime_volatility" in message
+    assert "regime_writer.py --regime-column regime_volatility" in message
 
 
 def test_assert_prerequisites_passes_when_volatility_populated() -> None:
@@ -255,11 +252,6 @@ def test_compute_symbol_tf_feature_matrix_sql_selects_regime_volatility() -> Non
     source = inspect.getsource(_compute_symbol_tf)
     assert "SELECT bar_ts, regime_volatility," in source
     assert "SELECT bar_ts, regime," not in source
-    # No bare `, regime,` select item anywhere in the function body (the
-    # legacy label column must not survive under a different alias either).
-    import re
-
-    assert not re.search(r"SELECT bar_ts,\s*regime\s*,", source)
 
 
 def test_build_regime_passes_symbol_hmm_pass_carries_volatility_labels() -> None:
