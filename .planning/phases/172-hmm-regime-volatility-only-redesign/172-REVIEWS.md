@@ -1,6 +1,6 @@
 ---
 phase: 172
-reviewers: [codex]
+reviewers: [codex, antigravity]
 reviewed_at: 2026-08-09T09:38:08Z
 plans_reviewed:
   - 172-01-PLAN.md
@@ -14,9 +14,10 @@ plans_reviewed:
 
 # Cross-AI Plan Review — Phase 172
 
-Note: `review.default_reviewers` is configured to `["codex"]`, so this run used Codex only.
-Antigravity and Ollama were detected as available but not invoked (not in the configured
-reviewer set); Claude was skipped for independence (this session runs inside Claude Code CLI).
+First pass used Codex only (`review.default_reviewers` was `["codex"]` at the time). A
+follow-up pass added Antigravity via explicit `--agy`/`--antigravity` flag; `review.default_reviewers`
+has since been updated to `["codex", "antigravity"]` so future no-flag runs cover both. Claude
+was skipped for independence (this session runs inside Claude Code CLI).
 
 ## Codex Review
 
@@ -60,26 +61,77 @@ The plans are well designed, but the phase combines schema migration, model-path
 
 ---
 
+## Antigravity Review
+
+### 1. Summary
+The Phase 172 implementation plan is a highly disciplined, scientifically-gated, and well-structured design to migrate the per-symbol HMM regime labeling from a 5-column composite model to a standalone 2-column volatility-only model (`regime_volatility`). The plans are logically partitioned across 5 waves of execution, starting with a crucial wider-scope empirical validation (null-arm scrambled-data block-reliability check) before any database mutations are executed. By maintaining the legacy `regime` column and trend vocabulary side-by-side with the new `regime_volatility` column, the design ensures a phased, backward-compatible cutover that minimizes risk to in-flight real-time pipelines. Downstream integrations (the IC Engine and the Ensemble Trainer) are handled carefully, ensuring that the new column family is properly excluded from the ensemble training matrix and validated step-by-step.
+
+### 2. Strengths
+- **Empirical Scientific Gating:** Gating the entire phase's database mutation and corpus relabel (Plan 172-05) on a wider-scope null-arm block-reliability control (Plan 172-01) at 5m/15m timeframes ensures that the model is only shipped if it demonstrates real predictive structure over noise.
+- **Corpus-Scale Data Integrity Guards:** Preventing silent corruption by immediately updating `feature_vector_persistence.py` (preventing `--refresh` from NULLing out new columns) and `ensemble_trainer.py` (excluding new volatility columns from the training feature matrix via `_META_COLS`) in the same wave as the DDL migration prevents windows of vulnerability.
+- **Non-Destructive Phased Cutover:** Allowing the legacy `regime` column and its associated trend vocabulary to coexist alongside the new `regime_volatility` column protects backward compatibility and prevents disruption to the live execution pipelines.
+- **Operational Churn & Error Handling:** The walk-forward compute paths explicitly map and log skipped or degenerate segments with volatility-specific names (e.g., `regime_writer.volatility_walk_forward_insufficient_warmup`), making it easy to monitor failure rates.
+- **Staged Incremental Relabeling:** The corpus relabeling (Plan 172-05) is divided into 3 controlled stages (single cell SPY 1d → validated symbol sample → full corpus) rather than a single massive query, bounding the lock time and operational blast radius on the TimescaleDB hypertable.
+
+### 3. Concerns
+- **LOW — Zero-padding warmup artifact in `vol_of_vol`.** In `_build_obs_matrix_volatility` (Plan 172-03), the warmup start index is `valid_start = max(vol_window, vol_of_vol_window) - 1`. But `vol_of_vol` is a rolling std of `realized_vol`, which is itself zero-padded for its first `vol_window - 1` bars. So the first `vol_window - 1` bars of the emitted `vol_of_vol` column still have zero-padded values inside their own rolling window, i.e. lookback distortion baked into "valid" output. The mathematically clean start index for a nested rolling operation is `vol_window + vol_of_vol_window - 2`, not `max(vol_window, vol_of_vol_window) - 1`. This exact pattern already exists in the legacy `_build_obs_matrix` and 172-03 explicitly mirrors it, so it is not a new bug introduced by this phase, but the plan doesn't call it out anywhere and it is worth a one-line code comment or an actual fix.
+- **LOW — Fragility of positional tuple unpacking.** Plan 172-04 appends `regime_column` as a 20th positional element to the `_run_symbol_worker` args tuple. Long positional tuples to multiprocessing workers are fragile and prone to silent index mismatches under future edits.
+- **LOW — Compute overhead on high-frequency data.** The null-arm validation sweep (172-01) fits HMMs across ~30 symbols × 4 timeframes × multiple windows × K values, including 5m/15m at ~20,000 bars/symbol. This could run for hours; worth sizing/timeboxing explicitly rather than discovering it live.
+
+### 4. Suggestions
+- Refactor `_run_symbol_worker`'s positional argument tuple into a dataclass/dict so future parameter additions can't silently shift positions.
+- Either compute the volatility warmup start as `vol_window + vol_of_vol_window - 2`, or add an explicit code comment in `_build_obs_matrix_volatility` documenting that the zero-padded-prefix artifact is a deliberately preserved legacy behavior, not an oversight.
+- Monitor disk usage during Stage 2/3 of the 172-05 relabel: cell-by-cell UPDATEs against compressed TimescaleDB chunks force on-the-fly decompression, which can spike temp disk space before recompression policies run.
+
+### 5. Risk Assessment
+**LOW.** The transition is a parallel schema addition, not a destructive overwrite of the legacy `regime` column, so production systems can't break from this alone. The null-arm gate enforces mathematical validity before any database write, the relabel is staged to bound blast radius on the hypertable, and the downstream IC engine / ensemble trainer dependencies are audited and pinned with tests.
+
+---
+
 ## Consensus Summary
 
-Only one reviewer (Codex) was invoked this run, so there is no cross-model agreement to
-synthesize. Treat the findings below as single-source until a second reviewer is added.
+### Agreed strengths
+- Both reviewers rate the wave sequencing highly: null-arm gate before any mutation, schema +
+  ownership-exclusion landing in the same wave as the DDL, staged (not single-shot) corpus
+  relabel, and downstream consumers audited rather than assumed unaffected.
+- Both call out the phased, non-destructive cutover (legacy `regime` untouched, new
+  `regime_volatility` added alongside) as the design's strongest safety property.
 
-### Notable findings (single-reviewer)
-- 172-01's symbol-sampling procedure lacks a deterministic tie-break rule (HIGH) — two runs
+### Divergent views
+- **Overall risk rating disagrees sharply: Codex says HIGH, Antigravity says LOW.** Codex's HIGH
+  comes from treating the *number of chained, individually-risky steps* (schema → refactor →
+  corpus relabel → downstream cutover → doc rewrite) as the risk surface, regardless of how well
+  each step is guarded. Antigravity's LOW comes from evaluating each step's *blast-radius
+  containment* (parallel-add not destructive-overwrite, gated, staged, tested) and concluding the
+  guardrails neutralize the chain risk. Read this as two different risk models rather than a
+  factual disagreement — worth deciding explicitly which lens governs the actual go/no-go call
+  before executing wave 3 (172-05, the corpus relabel).
+- Codex's top concerns are almost entirely about *process/operational* risk (deterministic
+  sampling, vintage-mixing query discipline, relabel/cutover stop conditions). Antigravity's
+  concerns are almost entirely *numerical/implementation* risk (a real nested-rolling-window
+  warmup artifact in `_build_obs_matrix_volatility`, positional-tuple fragility). The two reviews
+  are complementary rather than overlapping — neither reviewer flagged what the other one caught.
+
+### New finding worth acting on
+Antigravity's `vol_of_vol` warmup-index finding is real and specific: `valid_start = max(vol_window,
+vol_of_vol_window) - 1` (used identically in the legacy `_build_obs_matrix` and copied verbatim
+into 172-03's `_build_obs_matrix_volatility`) leaves zero-padded `realized_vol` values inside the
+first `vol_window - 1` bars of the emitted `vol_of_vol` column. This is a pre-existing artifact in
+the legacy composite path, not something 172-03 introduces, but the plan gives it no acknowledgment.
+Cheap to fix (`valid_start = vol_window + vol_of_vol_window - 2`) or cheap to document; worth a
+decision before 172-03 executes rather than after.
+
+### Notable findings (from Codex, unresolved single-reviewer items)
+- 172-01's symbol-sampling procedure lacks a deterministic tie-break rule — two runs
   of the "stratified 25-30 symbol" query could pick different symbols.
 - Vintage separation between the retired trend vocabulary and the new volatility vocabulary
   in `feature_ic_scores.regime_scope='symbol_hmm'` rests on the two label sets being disjoint
-  strings rather than a first-class column (HIGH) — matches a decision 172-06/172-RESEARCH.md
+  strings rather than a first-class column — matches a decision 172-06/172-RESEARCH.md
   already made deliberately (no new `regime_scope` value), so this is a known and accepted
-  tradeoff, not an oversight, but Codex is right that downstream queries need to get this right
-  every time.
+  tradeoff, not an oversight, but downstream queries need to get this right every time.
 - No explicit operational stop/resume contract between 172-05 (corpus relabel) and 172-06
-  (ic_engine cutover) beyond the coverage JSON succeeding (HIGH) — worth a one-line operational
+  (ic_engine cutover) beyond the coverage JSON succeeding — worth a one-line operational
   rule before executing wave 4.
-
-### Divergent views
-N/A — single reviewer.
 
 To incorporate feedback into planning:
   /gsd-plan-phase 172 --reviews
