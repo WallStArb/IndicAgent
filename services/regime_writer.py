@@ -76,6 +76,7 @@ from services._batch_utils import make_worker_pool as _make_worker_pool
 from src.config.settings import Settings
 from src.core.service_utils import setup_service_logging
 from src.intelligence.features.feature_vector_persistence import (
+    REGIME_VOLATILITY_WRITER_OWNED_COLUMN_NAMES,
     REGIME_WRITER_OWNED_COLUMN_NAMES,
 )
 from src.intelligence.hmm_jit import alpha_pass_jit as _alpha_pass_jit
@@ -1168,6 +1169,166 @@ def _compute_symbol_tf_walk_forward(
     return update_rows, all_written_converged, float("nan")
 
 
+def _compute_symbol_tf_volatility_walk_forward(
+    conn: Any,
+    symbol: str,
+    tf: str,
+    n_components: int,
+    vol_window: int,
+    vol_of_vol_window: int,
+    n_iter: int,
+    hmm_random_state: int,
+    refit_every_bars: int,
+    initial_warmup_bars: int,
+    covariance_type: str = "full",
+    min_hold_bars: int = 3,
+    full_cov_min_obs: int = 500,
+    min_state_occupation: float = 0.05,
+    churn_window: int = 10,
+    min_obs_factor: int = _MIN_OBS_FACTOR_DEFAULT,
+) -> tuple[list[tuple], bool, float] | None:
+    """Volatility-only counterpart of `_compute_symbol_tf_walk_forward` (Phase 172):
+    same (update_rows, converged, heldout_ll) | None contract, so `_run_symbol_worker`'s
+    caller only needs to branch on which compute function to call, not how to use the
+    result. Close mirror of `_compute_symbol_tf_walk_forward`'s structure -- fetch, fit,
+    accumulate -- pointed at `_fetch_obs_matrix_volatility` / `_VOLATILITY_VOCAB` instead
+    of the trend path's fetch and default vocab.
+
+    No `momentum_window` parameter: the volatility observation matrix has no momentum
+    column (`_build_obs_matrix_volatility` is 2-column, not 5). No `n_restarts`
+    parameter: multi-seed restarts belong to the single-fit path, which this function
+    does not have -- the volatility axis is walk-forward-only by design (no legacy
+    corpus to preserve compatibility with, unlike `regime`). No `heldout_fraction`
+    parameter either, for the same reason `heldout_ll` below is always NaN: walk-forward
+    has no single unified model whose held-out score is well-defined across segment
+    boundaries.
+
+    Bars before `initial_warmup_bars`, and bars belonging to a degenerate or
+    non-converged segment, are absent from `update_rows` -- identical skip semantics to
+    `_compute_symbol_tf_walk_forward`; see that function's docstring for the full
+    reasoning (skip-at-segment-granularity, duration/prev_label reset at gaps, `regime
+    IS NULL`'s existing tracked-not-error convention).
+    """
+    fetched = _fetch_obs_matrix_volatility(
+        conn,
+        symbol,
+        tf,
+        n_components,
+        vol_window,
+        vol_of_vol_window,
+        min_obs_factor,
+    )
+    if fetched is None:
+        return None
+    obs_matrix, valid_ts = fetched
+
+    try:
+        segment_results = _walk_forward_hmm_full(
+            obs_matrix,
+            n_components,
+            covariance_type,
+            n_iter,
+            hmm_random_state,
+            refit_every_bars,
+            initial_warmup_bars,
+            min_hold_bars,
+            full_cov_min_obs,
+            min_state_occupation,
+            symbol=symbol,
+            tf=tf,
+            vocab=_VOLATILITY_VOCAB,
+        )
+    except ValueError:
+        # Same "insufficient history" condition _walk_forward_hmm_full raises for --
+        # min_obs_factor's gate above already ensures n_components * min_obs_factor
+        # rows exist, but initial_warmup_bars is a stricter, independent floor.
+        # Distinct event name from the trend path's equivalent so a log query can
+        # separate the two column families' skip rates during the cutover window.
+        _logger.warning(
+            "regime_writer.volatility_walk_forward_insufficient_warmup",
+            symbol=symbol,
+            tf=tf,
+            n_obs=len(valid_ts),
+            initial_warmup_bars=initial_warmup_bars,
+        )
+        return None
+
+    # Churn is a property of the LABEL SEQUENCE, computed once on the concatenation
+    # of every WRITTEN (non-degenerate) segment's labels, in bar order -- same
+    # _compute_hmm_churn helper the trend path uses.
+    all_written_labels: list[str] = []
+    for seg in segment_results:
+        if not seg["is_degenerate"]:
+            all_written_labels.extend(seg["labels"])
+    churn_values = _compute_hmm_churn(all_written_labels, churn_window)
+
+    update_rows: list[tuple] = []
+    any_written = False
+    all_written_converged = True
+    duration = 0
+    prev_label: str | None = None
+    churn_cursor = 0
+    for seg in segment_results:
+        if seg["is_degenerate"]:
+            _logger.warning(
+                "regime_writer.volatility_walk_forward_segment_skipped",
+                symbol=symbol,
+                tf=tf,
+                seg_start=seg["seg_start"],
+                seg_end=seg["seg_end"],
+                **seg["gate_info"],
+            )
+            # Duration continuity cannot be trusted across a skipped gap.
+            duration = 0
+            prev_label = None
+            continue
+
+        any_written = True
+        all_written_converged = all_written_converged and seg["converged"]
+        seg_ts = valid_ts[seg["seg_start"] : seg["seg_end"]]
+
+        for i, label in enumerate(seg["labels"]):
+            if label == prev_label:
+                duration += 1
+            else:
+                duration = 1
+                prev_label = label
+            # Row order matches REGIME_VOLATILITY_WRITER_OWNED_COLUMN_NAMES followed
+            # by the key columns. p_down is probability mass on the LOW state group,
+            # which under _VOLATILITY_VOCAB is "calm"; p_up is the HIGH group, which
+            # is "turbulent"; p_ranging is the MID group, "elevated". This reorder
+            # relative to the trend path's tuple (which writes p_up first) is the
+            # single easiest thing here to get silently wrong -- the ordering test
+            # in this plan's test suite exists to catch it.
+            update_rows.append(
+                (
+                    label,
+                    seg["p_down"][i],
+                    seg["p_ranging"][i],
+                    seg["p_up"][i],
+                    seg["prob_val"][i],
+                    seg["entropy_val"][i],
+                    float(duration),
+                    float(churn_values[churn_cursor]),
+                    symbol,
+                    tf,
+                    seg_ts[i],
+                )
+            )
+            churn_cursor += 1
+
+    if not any_written:
+        _logger.warning(
+            "regime_writer.volatility_walk_forward_all_segments_degenerate",
+            symbol=symbol,
+            tf=tf,
+            n_segments=len(segment_results),
+        )
+        return None
+
+    return update_rows, all_written_converged, float("nan")
+
+
 def _hmm_seed_stability_check(
     obs_matrix: np.ndarray,
     n_components: int,
@@ -1688,6 +1849,95 @@ def _write_regime_results(
                 null_remaining=remaining,
                 converged=converged,
                 heldout_ll_per_obs=round(heldout_ll, 4) if math.isfinite(heldout_ll) else None,
+            )
+            return n_updated
+
+        except Exception as error:
+            from opentelemetry.trace import StatusCode
+
+            span.set_status(StatusCode.ERROR, str(error))
+            span.record_exception(error)
+            raise
+
+
+def _write_regime_volatility_results(
+    conn: Any,
+    symbol: str,
+    tf: str,
+    update_rows: list[tuple],
+    converged: bool,
+    tracer: Any,
+) -> int:
+    """Write regime_volatility labels for one (symbol, tf) cell to feature_vectors
+    (Phase 172). Volatility-family counterpart of `_write_regime_results` -- same shape
+    (bulk UPDATE via a temp-table JOIN, then a paired NOT NULL / NULL count query, then a
+    log record), pointed at the 8-column `regime_volatility` family instead of the legacy
+    `regime` family. No `heldout_ll` parameter/field -- the volatility path is
+    walk-forward-only and that value is always NaN there (see
+    `_compute_symbol_tf_volatility_walk_forward`'s docstring).
+
+    Runs in the main process — single serial write connection, no concurrency.
+    Returns n_updated.
+    """
+    with tracer.start_as_current_span(
+        "regime_writer.write_volatility_symbol_tf",
+        attributes={"symbol": symbol, "tf": tf},
+    ) as span:
+        try:
+            _bulk_update_by_key(
+                conn,
+                table="feature_vectors",
+                temp_table="_regime_volatility_writer_staging",
+                key_cols=["symbol", "tf", "bar_ts"],
+                # Ordered tuple, not a set -- see _write_regime_results' equivalent
+                # comment. Imported from feature_vector_persistence.py (Ring 1) so this
+                # ownership list can never drift from the one that module excludes from
+                # --refresh's DO UPDATE SET; both derive from the same source of truth.
+                set_cols=list(REGIME_VOLATILITY_WRITER_OWNED_COLUMN_NAMES),
+                col_types={
+                    "regime_volatility": "text",
+                    "hmm_vol_prob_calm": "double precision",
+                    "hmm_vol_prob_elevated": "double precision",
+                    "hmm_vol_prob_turbulent": "double precision",
+                    "hmm_vol_regime_prob": "double precision",
+                    "hmm_vol_entropy": "double precision",
+                    "hmm_vol_duration": "double precision",
+                    "hmm_vol_churn": "double precision",
+                    "symbol": "text",
+                    "tf": "text",
+                    "bar_ts": "timestamptz",
+                },
+                rows=update_rows,
+            )
+            conn.commit()
+            # Single query returns both counts in one round trip.
+            with conn.cursor() as cur:
+                cur.execute(
+                    "SELECT "
+                    "  count(*) FILTER (WHERE regime_volatility IS NOT NULL), "
+                    "  count(*) FILTER (WHERE regime_volatility IS NULL) "
+                    "FROM feature_vectors WHERE symbol = %s AND tf = %s",
+                    (symbol, tf),
+                )
+                n_updated, remaining = cur.fetchone()
+                n_updated = int(n_updated)
+                remaining = int(remaining)
+
+            # Extra "regime_column" attribute makes this a distinct time series from
+            # _write_regime_results' two-attribute series -- the existing series keeps
+            # its identity and the two families are never conflated in the same gauge.
+            REGIME_WRITER_NULL_REGIME_REMAINING.set(
+                remaining, {"symbol": symbol, "tf": tf, "regime_column": "regime_volatility"}
+            )
+            span.set_attribute("n_updated", n_updated)
+            span.set_attribute("null_remaining", remaining)
+            _logger.info(
+                "regime_writer.volatility_symbol_tf_done",
+                symbol=symbol,
+                tf=tf,
+                n_updated=n_updated,
+                null_remaining=remaining,
+                converged=converged,
             )
             return n_updated
 

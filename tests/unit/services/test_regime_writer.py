@@ -2069,6 +2069,297 @@ def test_fetch_obs_matrix_volatility_issues_single_query_no_volume():
 
 
 # ---------------------------------------------------------------------------
+# Tests: _compute_symbol_tf_volatility_walk_forward + _write_regime_volatility_results
+# (Phase 172, plan 172-04, Task 2)
+# ---------------------------------------------------------------------------
+
+
+def test_compute_symbol_tf_volatility_walk_forward_returns_tuple_structure():
+    """Same (update_rows, converged, heldout_ll) contract as the trend walk-forward
+    compute function; heldout_ll is always NaN for the volatility axis too."""
+    import math
+
+    from services.regime_writer import _compute_symbol_tf_volatility_walk_forward
+    from src.intelligence.features.feature_vector_persistence import (
+        REGIME_VOLATILITY_WRITER_OWNED_COLUMN_NAMES,
+    )
+
+    n = 900
+    closes = _make_vol_switching_closes(n)
+    timestamps = _make_timestamps(n)
+    conn = _make_mock_conn_volatility(closes, timestamps)
+
+    result = _compute_symbol_tf_volatility_walk_forward(
+        conn=conn,
+        symbol="SPY",
+        tf="1h",
+        n_components=3,
+        vol_window=20,
+        vol_of_vol_window=20,
+        n_iter=50,
+        hmm_random_state=42,
+        refit_every_bars=200,
+        initial_warmup_bars=300,
+        covariance_type="diag",
+        full_cov_min_obs=0,
+        min_state_occupation=0.0,
+    )
+
+    assert result is not None
+    update_rows, converged, heldout_ll = result
+    assert isinstance(update_rows, list)
+    assert len(update_rows) > 0
+    assert len(update_rows[0]) == len(REGIME_VOLATILITY_WRITER_OWNED_COLUMN_NAMES) + 3
+    assert len(update_rows[0]) == 11
+    assert isinstance(converged, bool)
+    assert math.isnan(heldout_ll), (
+        "heldout_ll must be NaN -- no single unified model has a well-defined "
+        "held-out score across walk-forward segment boundaries."
+    )
+
+
+def test_compute_symbol_tf_volatility_walk_forward_turbulent_prob_higher_in_high_vol_half():
+    """hmm_vol_prob_turbulent (row index 3) must be higher, on average, over bars in
+    the high-volatility half of a _make_vol_switching_closes series than over the
+    low-volatility half. This must fail if the p_down/p_up positions in the row tuple
+    are swapped -- verified by temporarily swapping, confirming red, then restoring."""
+    from services.regime_writer import _compute_symbol_tf_volatility_walk_forward
+
+    n = 1200
+    closes = _make_vol_switching_closes(n)
+    timestamps = _make_timestamps(n)
+    conn = _make_mock_conn_volatility(closes, timestamps)
+
+    result = _compute_symbol_tf_volatility_walk_forward(
+        conn=conn,
+        symbol="SPY",
+        tf="1h",
+        n_components=3,
+        vol_window=20,
+        vol_of_vol_window=20,
+        n_iter=50,
+        hmm_random_state=42,
+        refit_every_bars=300,
+        initial_warmup_bars=300,
+        covariance_type="diag",
+        full_cov_min_obs=0,
+        min_state_occupation=0.0,
+    )
+
+    assert result is not None
+    update_rows, _converged, _heldout_ll = result
+
+    # _make_vol_switching_closes' switch point is at raw-close index n // 2; bar_ts
+    # (row index 10) is monotonically increasing with that same raw index, so bucketing
+    # by timestamp relative to the switch point's timestamp is equivalent.
+    switch_ts = timestamps[n // 2]
+    low_vol_turbulent = [row[3] for row in update_rows if row[10] < switch_ts]
+    high_vol_turbulent = [row[3] for row in update_rows if row[10] >= switch_ts]
+
+    assert len(low_vol_turbulent) > 0
+    assert len(high_vol_turbulent) > 0
+    assert sum(high_vol_turbulent) / len(high_vol_turbulent) > sum(low_vol_turbulent) / len(
+        low_vol_turbulent
+    )
+
+
+def test_compute_symbol_tf_volatility_walk_forward_k2_elevated_prob_is_zero():
+    """At n_components=2, hmm_vol_prob_elevated (row index 2) must be 0.0 for every
+    row -- no state carries the 'elevated' label when there is no mid slot."""
+    from services.regime_writer import _compute_symbol_tf_volatility_walk_forward
+
+    n = 900
+    closes = _make_vol_switching_closes(n)
+    timestamps = _make_timestamps(n)
+    conn = _make_mock_conn_volatility(closes, timestamps)
+
+    result = _compute_symbol_tf_volatility_walk_forward(
+        conn=conn,
+        symbol="SPY",
+        tf="1h",
+        n_components=2,
+        vol_window=20,
+        vol_of_vol_window=20,
+        n_iter=50,
+        hmm_random_state=42,
+        refit_every_bars=200,
+        initial_warmup_bars=300,
+        covariance_type="diag",
+        full_cov_min_obs=0,
+        min_state_occupation=0.0,
+    )
+
+    assert result is not None
+    update_rows, _converged, _heldout_ll = result
+    assert len(update_rows) > 0
+    for row in update_rows:
+        assert len(row) == 11
+        assert row[2] == 0.0
+
+
+def test_compute_symbol_tf_volatility_walk_forward_returns_none_on_none_fetch(monkeypatch):
+    """None must propagate when _fetch_obs_matrix_volatility returns None."""
+    from services.regime_writer import _compute_symbol_tf_volatility_walk_forward
+
+    monkeypatch.setattr(regime_writer_module, "_fetch_obs_matrix_volatility", lambda *a, **kw: None)
+
+    result = _compute_symbol_tf_volatility_walk_forward(
+        conn=MagicMock(),
+        symbol="SPY",
+        tf="1h",
+        n_components=3,
+        vol_window=20,
+        vol_of_vol_window=20,
+        n_iter=50,
+        hmm_random_state=42,
+        refit_every_bars=200,
+        initial_warmup_bars=300,
+        covariance_type="diag",
+        full_cov_min_obs=0,
+        min_state_occupation=0.0,
+    )
+
+    assert result is None
+
+
+def test_compute_symbol_tf_volatility_walk_forward_returns_none_on_insufficient_warmup():
+    """ValueError from _walk_forward_hmm_full (insufficient warmup) must be caught and
+    turned into None, not propagated to the ProcessPoolExecutor worker."""
+    from services.regime_writer import _compute_symbol_tf_volatility_walk_forward
+
+    n = 500
+    closes = _make_vol_switching_closes(n)
+    timestamps = _make_timestamps(n)
+    conn = _make_mock_conn_volatility(closes, timestamps)
+
+    result = _compute_symbol_tf_volatility_walk_forward(
+        conn=conn,
+        symbol="SPY",
+        tf="1h",
+        n_components=3,
+        vol_window=20,
+        vol_of_vol_window=20,
+        n_iter=50,
+        hmm_random_state=42,
+        refit_every_bars=200,
+        initial_warmup_bars=10_000,  # far more than the available valid rows
+        covariance_type="diag",
+        full_cov_min_obs=0,
+        min_state_occupation=0.0,
+    )
+
+    assert result is None
+
+
+def test_compute_symbol_tf_volatility_walk_forward_returns_none_when_all_segments_degenerate():
+    """If every segment is degenerate, returns None rather than an empty-but-truthy list."""
+    from services.regime_writer import _compute_symbol_tf_volatility_walk_forward
+
+    n = 900
+    closes = _make_vol_switching_closes(n)
+    timestamps = _make_timestamps(n)
+    conn = _make_mock_conn_volatility(closes, timestamps)
+
+    result = _compute_symbol_tf_volatility_walk_forward(
+        conn=conn,
+        symbol="SPY",
+        tf="1h",
+        n_components=3,
+        vol_window=20,
+        vol_of_vol_window=20,
+        n_iter=50,
+        hmm_random_state=42,
+        refit_every_bars=200,
+        initial_warmup_bars=300,
+        covariance_type="diag",
+        full_cov_min_obs=0,
+        min_state_occupation=0.99,  # impossibly strict -- every segment degenerate
+    )
+
+    assert result is None
+
+
+def test_write_regime_volatility_results_uses_owned_columns_and_staging_table(monkeypatch):
+    """_write_regime_volatility_results must call _bulk_update_by_key with
+    set_cols=list(REGIME_VOLATILITY_WRITER_OWNED_COLUMN_NAMES) and
+    temp_table='_regime_volatility_writer_staging' -- never the legacy family's
+    ownership tuple or staging table."""
+    from services.regime_writer import _write_regime_volatility_results
+    from src.intelligence.features.feature_vector_persistence import (
+        REGIME_VOLATILITY_WRITER_OWNED_COLUMN_NAMES,
+    )
+
+    captured = {}
+
+    def _fake_bulk_update_by_key(conn, *, table, temp_table, key_cols, set_cols, col_types, rows):
+        captured["table"] = table
+        captured["temp_table"] = temp_table
+        captured["key_cols"] = key_cols
+        captured["set_cols"] = set_cols
+        captured["col_types"] = col_types
+        captured["rows"] = rows
+
+    monkeypatch.setattr(regime_writer_module, "_bulk_update_by_key", _fake_bulk_update_by_key)
+
+    cursor_mock = MagicMock()
+    cursor_mock.__enter__ = lambda s: s
+    cursor_mock.__exit__ = MagicMock(return_value=False)
+    cursor_mock.fetchone.return_value = (5, 0)
+    conn = MagicMock()
+    conn.cursor.return_value = cursor_mock
+
+    n_updated = _write_regime_volatility_results(
+        conn=conn,
+        symbol="SPY",
+        tf="1h",
+        update_rows=[
+            ("calm", 0.9, 0.05, 0.05, 0.9, 0.1, 1.0, 0.0, "SPY", "1h", "2020-01-01T00:00:00Z")
+        ],
+        converged=True,
+        tracer=regime_writer_module._NoopTracer(),
+    )
+
+    assert captured["table"] == "feature_vectors"
+    assert captured["temp_table"] == "_regime_volatility_writer_staging"
+    assert captured["set_cols"] == list(REGIME_VOLATILITY_WRITER_OWNED_COLUMN_NAMES)
+    assert captured["key_cols"] == ["symbol", "tf", "bar_ts"]
+    assert n_updated == 5
+
+
+def test_write_regime_volatility_results_queries_regime_volatility_column(monkeypatch):
+    """The post-write count query must filter on regime_volatility, not the legacy
+    regime column."""
+    from services.regime_writer import _write_regime_volatility_results
+
+    cursor_mock = MagicMock()
+    cursor_mock.__enter__ = lambda s: s
+    cursor_mock.__exit__ = MagicMock(return_value=False)
+    cursor_mock.fetchone.return_value = (3, 1)
+    conn = MagicMock()
+    conn.cursor.return_value = cursor_mock
+
+    monkeypatch.setattr(regime_writer_module, "_bulk_update_by_key", lambda *a, **kw: None)
+
+    _write_regime_volatility_results(
+        conn=conn,
+        symbol="SPY",
+        tf="1h",
+        update_rows=[
+            ("calm", 0.9, 0.05, 0.05, 0.9, 0.1, 1.0, 0.0, "SPY", "1h", "2020-01-01T00:00:00Z")
+        ],
+        converged=True,
+        tracer=regime_writer_module._NoopTracer(),
+    )
+
+    # The count query is the SECOND cur.execute call -- the first is inside
+    # _bulk_update_by_key, which is stubbed out above, so only the count query
+    # actually reaches this mock cursor.
+    executed_sql = cursor_mock.execute.call_args[0][0]
+    assert "regime_volatility IS NOT NULL" in executed_sql
+    assert "regime_volatility IS NULL" in executed_sql
+
+
+# ---------------------------------------------------------------------------
 # Tests: _run_symbol_worker dispatch branch (todo 248 / REQ-2)
 # ---------------------------------------------------------------------------
 
