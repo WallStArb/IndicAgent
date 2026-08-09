@@ -2716,14 +2716,14 @@ functions), REQ-3 (wider-scope null-arm GO/NO-GO gate), REQ-4 (single-cell volat
 write path), REQ-5 (full-corpus relabel), REQ-6 (ic_engine regime-source cutover), REQ-7
 (downstream re-verification and glossary)
 **Depends on:** Phase 171
-**Plans:** 7 plans in 5 waves
+**Plans:** 3/7 plans executed
 
 Plans:
 **Wave 1**
 
-- [ ] 172-01-PLAN.md - null-arm block-reliability control at 15m/5m and wider symbol scope; renders the GO/NO-GO verdict and names the shipped K and window values (wave 1)
-- [ ] 172-02-PLAN.md - migration 307: 8 regime_volatility columns, 4 alpha.hmm_volatility.* APR keys, regime_volatility CVR namespace, plus the upsert and training-matrix exclusions (wave 1)
-- [ ] 172-03-PLAN.md - vocabulary-parametrized _build_label_map/_state_groups_by_vocab and the dedicated 2-column observation-matrix builder (wave 1)
+- [x] 172-01-PLAN.md - null-arm block-reliability control at 15m/5m and wider symbol scope; renders the GO/NO-GO verdict and names the shipped K and window values (wave 1)
+- [x] 172-02-PLAN.md - migration 307: 8 regime_volatility columns, 4 alpha.hmm_volatility.* APR keys, regime_volatility CVR namespace, plus the upsert and training-matrix exclusions (wave 1)
+- [x] 172-03-PLAN.md - vocabulary-parametrized _build_label_map/_state_groups_by_vocab and the dedicated 2-column observation-matrix builder (wave 1)
 
 **Wave 2** *(blocked on Wave 1 completion)*
 
