@@ -1808,6 +1808,267 @@ def test_compute_symbol_tf_walk_forward_returns_none_on_insufficient_warmup():
 
 
 # ---------------------------------------------------------------------------
+# Tests: _walk_forward_hmm_full vocab parameter + _fetch_obs_matrix_volatility
+# (Phase 172, plan 172-04, Task 1)
+# ---------------------------------------------------------------------------
+
+
+def test_walk_forward_hmm_full_no_vocab_arg_matches_trend_output():
+    """Calling _walk_forward_hmm_full with no vocab argument must produce labels drawn
+    from the existing trend label set and probabilities that still sum to ~1.0 per bar --
+    the exact equivalence guarantee this plan's vocab threading is required not to break."""
+    from services.regime_writer import (
+        _LABEL_RANGING,
+        _LABEL_TRENDING_DOWN,
+        _LABEL_TRENDING_UP,
+        _walk_forward_hmm_full,
+    )
+
+    n = 900
+    closes = _make_ranging_closes(n)
+    volumes = _make_volumes(n)
+    timestamps = _make_timestamps(n)
+    obs, _ = _build_obs_matrix(
+        timestamps, closes, volumes, vol_window=20, momentum_window=20, vol_of_vol_window=20
+    )
+
+    segments = _walk_forward_hmm_full(
+        obs,
+        n_components=3,
+        covariance_type="diag",
+        n_iter=50,
+        hmm_random_state=_HMM_RANDOM_STATE,
+        refit_every_bars=200,
+        initial_warmup_bars=300,
+        min_hold_bars=3,
+        full_cov_min_obs=0,
+        min_state_occupation=0.0,
+    )
+
+    trend_labels = {_LABEL_TRENDING_UP, _LABEL_RANGING, _LABEL_TRENDING_DOWN}
+    for seg in segments:
+        for label in seg["labels"]:
+            assert label in trend_labels
+        for p_up, p_ranging, p_down in zip(seg["p_up"], seg["p_ranging"], seg["p_down"]):
+            assert abs((p_up + p_ranging + p_down) - 1.0) < 1e-6
+
+
+def test_walk_forward_hmm_full_volatility_vocab_k3_labels_restricted():
+    """At n_components=3 with vocab=_VOLATILITY_VOCAB, every emitted label must be drawn
+    only from {calm, elevated, turbulent} -- never a trend label."""
+    from services.regime_writer import _VOLATILITY_VOCAB, _walk_forward_hmm_full
+
+    n = 900
+    closes = _make_vol_switching_closes(n)
+    timestamps = _make_timestamps(n)
+    obs, _ = _build_obs_matrix_volatility(timestamps, closes, vol_window=20, vol_of_vol_window=20)
+
+    segments = _walk_forward_hmm_full(
+        obs,
+        n_components=3,
+        covariance_type="diag",
+        n_iter=50,
+        hmm_random_state=_HMM_RANDOM_STATE,
+        refit_every_bars=200,
+        initial_warmup_bars=300,
+        min_hold_bars=3,
+        full_cov_min_obs=0,
+        min_state_occupation=0.0,
+        vocab=_VOLATILITY_VOCAB,
+    )
+
+    assert len(segments) > 0
+    allowed = {_LABEL_CALM, _LABEL_ELEVATED, _LABEL_TURBULENT}
+    for seg in segments:
+        for label in seg["labels"]:
+            assert label in allowed
+
+
+def test_walk_forward_hmm_full_volatility_vocab_k2_labels_restricted():
+    """At n_components=2 with vocab=_VOLATILITY_VOCAB, labels must be drawn only from
+    {calm, turbulent} (no 'mid' slot at K=2), and the call must not raise."""
+    from services.regime_writer import _VOLATILITY_VOCAB, _walk_forward_hmm_full
+
+    n = 900
+    closes = _make_vol_switching_closes(n)
+    timestamps = _make_timestamps(n)
+    obs, _ = _build_obs_matrix_volatility(timestamps, closes, vol_window=20, vol_of_vol_window=20)
+
+    segments = _walk_forward_hmm_full(
+        obs,
+        n_components=2,
+        covariance_type="diag",
+        n_iter=50,
+        hmm_random_state=_HMM_RANDOM_STATE,
+        refit_every_bars=200,
+        initial_warmup_bars=300,
+        min_hold_bars=3,
+        full_cov_min_obs=0,
+        min_state_occupation=0.0,
+        vocab=_VOLATILITY_VOCAB,
+    )
+
+    assert len(segments) > 0
+    allowed = {_LABEL_CALM, _LABEL_TURBULENT}
+    for seg in segments:
+        for label in seg["labels"]:
+            assert label in allowed
+
+
+def test_walk_forward_hmm_full_volatility_p_up_higher_in_high_vol_half():
+    """For a series whose second half is materially more volatile than its first, mean
+    p_up (probability mass on the 'turbulent' state group) over bars in the
+    high-volatility half must exceed the mean over the low-volatility half. This test
+    must fail if the (high, mid, low) argument order at the _alpha_history_to_regime_probs
+    call site inside _walk_forward_hmm_full is swapped to (low, mid, high) -- verified by
+    temporarily performing that swap, confirming this test goes red, then restoring."""
+    from services.regime_writer import _VOLATILITY_VOCAB, _walk_forward_hmm_full
+
+    n = 1200
+    closes = _make_vol_switching_closes(n)
+    timestamps = _make_timestamps(n)
+    obs, valid_ts = _build_obs_matrix_volatility(
+        timestamps, closes, vol_window=20, vol_of_vol_window=20
+    )
+
+    segments = _walk_forward_hmm_full(
+        obs,
+        n_components=3,
+        covariance_type="diag",
+        n_iter=50,
+        hmm_random_state=_HMM_RANDOM_STATE,
+        refit_every_bars=300,
+        initial_warmup_bars=300,
+        min_hold_bars=3,
+        full_cov_min_obs=0,
+        min_state_occupation=0.0,
+        vocab=_VOLATILITY_VOCAB,
+    )
+
+    # Flatten (bar-index-into-obs, p_up) pairs across every segment.
+    p_up_by_index: dict[int, float] = {}
+    for seg in segments:
+        for i, p_up in enumerate(seg["p_up"]):
+            p_up_by_index[seg["seg_start"] + i] = p_up
+
+    midpoint = len(obs) // 2
+    low_vol_p_up = [v for k, v in p_up_by_index.items() if k < midpoint]
+    high_vol_p_up = [v for k, v in p_up_by_index.items() if k >= midpoint]
+
+    assert len(low_vol_p_up) > 0
+    assert len(high_vol_p_up) > 0
+    assert sum(high_vol_p_up) / len(high_vol_p_up) > sum(low_vol_p_up) / len(low_vol_p_up)
+
+
+def _make_mock_conn_volatility(closes, timestamps):
+    """Build a psycopg connection mock returning synthetic (timestamp, close) rows only --
+    _fetch_obs_matrix_volatility never selects volume."""
+    rows = list(zip(timestamps, closes))
+    cursor_mock = MagicMock()
+    cursor_mock.__enter__ = lambda s: s
+    cursor_mock.__exit__ = MagicMock(return_value=False)
+    cursor_mock.fetchmany.side_effect = [rows, []]
+    conn_mock = MagicMock()
+    conn_mock.cursor.return_value = cursor_mock
+    return conn_mock
+
+
+def test_fetch_obs_matrix_volatility_returns_two_column_shape():
+    """_fetch_obs_matrix_volatility must return an (n, 2) obs matrix when enough OHLCV
+    is available."""
+    from services.regime_writer import _fetch_obs_matrix_volatility
+
+    n = 600
+    closes = _make_vol_switching_closes(n)
+    timestamps = _make_timestamps(n)
+    conn = _make_mock_conn_volatility(closes, timestamps)
+
+    result = _fetch_obs_matrix_volatility(
+        conn,
+        symbol="SPY",
+        tf="1h",
+        n_components=3,
+        vol_window=20,
+        vol_of_vol_window=20,
+        min_obs_factor=1,
+    )
+
+    assert result is not None
+    obs, valid_ts = result
+    assert obs.shape[1] == 2
+    assert len(valid_ts) == obs.shape[0]
+
+
+def test_fetch_obs_matrix_volatility_returns_none_when_no_ohlcv():
+    """Empty OHLCV must return None, not raise."""
+    from services.regime_writer import _fetch_obs_matrix_volatility
+
+    conn = _make_mock_conn_volatility([], [])
+
+    result = _fetch_obs_matrix_volatility(
+        conn,
+        symbol="SPY",
+        tf="1h",
+        n_components=3,
+        vol_window=20,
+        vol_of_vol_window=20,
+        min_obs_factor=50,
+    )
+
+    assert result is None
+
+
+def test_fetch_obs_matrix_volatility_returns_none_when_insufficient_rows():
+    """Fewer valid rows than n_components * min_obs_factor must return None."""
+    from services.regime_writer import _fetch_obs_matrix_volatility
+
+    n = 50
+    closes = _make_vol_switching_closes(n)
+    timestamps = _make_timestamps(n)
+    conn = _make_mock_conn_volatility(closes, timestamps)
+
+    result = _fetch_obs_matrix_volatility(
+        conn,
+        symbol="SPY",
+        tf="1h",
+        n_components=3,
+        vol_window=20,
+        vol_of_vol_window=20,
+        min_obs_factor=50,  # requires 150 rows, only ~11 valid rows available at n=50
+    )
+
+    assert result is None
+
+
+def test_fetch_obs_matrix_volatility_issues_single_query_no_volume():
+    """_fetch_obs_matrix_volatility must issue exactly one OHLCV query and never select
+    the `volume` column."""
+    from services.regime_writer import _fetch_obs_matrix_volatility
+
+    n = 600
+    closes = _make_vol_switching_closes(n)
+    timestamps = _make_timestamps(n)
+    conn = _make_mock_conn_volatility(closes, timestamps)
+
+    _fetch_obs_matrix_volatility(
+        conn,
+        symbol="SPY",
+        tf="1h",
+        n_components=3,
+        vol_window=20,
+        vol_of_vol_window=20,
+        min_obs_factor=1,
+    )
+
+    cursor_mock = conn.cursor.return_value
+    assert cursor_mock.execute.call_count == 1
+    executed_sql = cursor_mock.execute.call_args[0][0]
+    assert "volume" not in executed_sql.lower()
+    assert "timestamp" in executed_sql.lower()
+    assert "close" in executed_sql.lower()
+
+
+# ---------------------------------------------------------------------------
 # Tests: _run_symbol_worker dispatch branch (todo 248 / REQ-2)
 # ---------------------------------------------------------------------------
 

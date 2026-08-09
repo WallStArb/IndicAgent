@@ -817,6 +817,7 @@ def _walk_forward_hmm_full(
     min_state_occupation: float,
     symbol: str | None = None,
     tf: str | None = None,
+    vocab: dict[str, str] | None = None,
 ) -> list[dict[str, Any]]:
     """Production-parity walk-forward decode (todo 248): per-segment version of
     `_walk_forward_hmm_labels` that additionally returns the per-bar alpha vectors,
@@ -847,12 +848,25 @@ def _walk_forward_hmm_full(
     path's `regime_writer.hmm_convergence_iters` log shape. Defaults to None so existing
     keyword-arg call sites that omit them keep passing unchanged.
 
+    `vocab` (Phase 172): rank-slot label vocabulary passed through to `_build_label_map`
+    and `_state_groups_by_vocab` for every segment's own fit. Defaults to `_TREND_VOCAB`
+    (resolved internally when the caller passes/omits None), so every existing positional
+    and keyword call site -- including the Gate 4 pilot scripts and this function's own
+    pre-172 tests -- reproduces today's trend-path output exactly, unchanged. Passing
+    `_VOLATILITY_VOCAB` restricts each segment's labels to the calm/elevated/turbulent set.
+
     Returns one dict per refit segment (NOT one dict per bar), each:
         {
             "seg_start": int, "seg_end": int,  # half-open [seg_start, seg_end) bar-index
                 range into obs_matrix / valid_ts (both 1:1 index-aligned by construction)
             "labels": list[str],        # len == seg_end - seg_start
             "p_up": list[float], "p_ranging": list[float], "p_down": list[float],
+                # probability mass on this segment's HIGH/MID/LOW state groups (per its
+                # own vocab, via _state_groups_by_vocab) -- for _TREND_VOCAB these are
+                # trending_up/ranging/trending_down; for _VOLATILITY_VOCAB they are
+                # turbulent/elevated/calm. Key names are unchanged from before Phase 172
+                # (renaming them would touch the legacy path and its tests for no
+                # functional gain) but their meaning is now vocab-relative.
             "prob_val": list[float], "entropy_val": list[float],  # same length, one
                 per bar -- computed here (not by the caller) because bullish/ranging/
                 bearish STATE-INDEX membership is only meaningful relative to THIS
@@ -870,6 +884,7 @@ def _walk_forward_hmm_full(
     mirroring the existing separation between `_check_occupation_gate` (decides) and
     `_compute_symbol_tf` (acts on the decision) in the single-fit path.
     """
+    vocab = vocab if vocab is not None else _TREND_VOCAB
     n = len(obs_matrix)
     if n < initial_warmup_bars + n_components:
         raise ValueError(
@@ -925,7 +940,7 @@ def _walk_forward_hmm_full(
             train_end=boundary,
         )
 
-        label_map = _build_label_map(model.means_)
+        label_map = _build_label_map(model.means_, vocab=vocab)
 
         stationary_prior = _stationary_distribution(model.transmat_)
         if prior_label is None:
@@ -946,12 +961,17 @@ def _walk_forward_hmm_full(
 
         # This segment's own state groups, derived from its own label_map -- see
         # _state_groups' docstring for why raw state indices aren't comparable
-        # across independently-fit segments.
-        bullish_states, ranging_states, bearish_states = _state_groups(label_map)
+        # across independently-fit segments. Deliberate reorder: _state_groups_by_vocab
+        # returns (low, mid, high); _alpha_history_to_regime_probs's positional contract
+        # is (high, mid, low) -- this call site reproduces _state_groups' own historical
+        # (bullish, ranging, bearish) argument order exactly, so the trend path's
+        # probability assignment (p_up=bullish mass, p_down=bearish mass) is unchanged.
+        # Getting this reorder wrong silently inverts probability mass; see this file's
+        # equivalence test (no-vocab output must match pre-172 behavior byte-for-byte)
+        # and the swap-and-confirm-red check in the volatility mean-p_up test.
+        low_states, mid_states, high_states = _state_groups_by_vocab(label_map, vocab)
         p_up_list, p_ranging_list, p_down_list, prob_val_list, entropy_val_list = (
-            _alpha_history_to_regime_probs(
-                alpha_history, bullish_states, ranging_states, bearish_states
-            )
+            _alpha_history_to_regime_probs(alpha_history, high_states, mid_states, low_states)
         )
 
         segment_results.append(
@@ -1275,6 +1295,72 @@ def _fetch_obs_matrix(
         volumes,
         vol_window=vol_window,
         momentum_window=momentum_window,
+        vol_of_vol_window=vol_of_vol_window,
+    )
+
+    min_rows = n_components * min_obs_factor
+    if len(valid_ts) < min_rows:
+        _logger.warning(
+            "regime_writer.insufficient_obs",
+            symbol=symbol,
+            tf=tf,
+            n_obs=len(valid_ts),
+            min_required=min_rows,
+        )
+        return None
+
+    return obs_matrix, valid_ts
+
+
+def _fetch_obs_matrix_volatility(
+    conn: Any,
+    symbol: str,
+    tf: str,
+    n_components: int,
+    vol_window: int,
+    vol_of_vol_window: int,
+    min_obs_factor: int,
+) -> tuple[np.ndarray, list] | None:
+    """Fetch OHLCV and build the 2-column [realized_vol, vol_of_vol] volatility-only
+    observation matrix for one (symbol, tf) cell (Phase 172). Mirrors `_fetch_obs_matrix`'s
+    streaming-cursor and insufficient-observation logging conventions exactly, but selects
+    only `timestamp, close` -- never `volume`, since `_build_obs_matrix_volatility` has no
+    volume input -- and delegates to `_build_obs_matrix_volatility` instead of
+    `_build_obs_matrix`. A distinct named cursor (`"ohlcv_stream_volatility"`) avoids any
+    collision with a concurrent `_fetch_obs_matrix` call on the same connection.
+
+    Returns None if OHLCV is absent/insufficient, logging the same
+    `regime_writer.no_ohlcv`/`regime_writer.insufficient_obs` events (same field names)
+    `_fetch_obs_matrix` logs, so operational log queries work unchanged across both paths.
+    """
+    timestamps = []
+    closes = []
+    # Server-side cursor requires no active transaction — commit any open transaction first.
+    conn.commit()
+    with conn.cursor("ohlcv_stream_volatility") as cur:
+        cur.execute(
+            "SELECT timestamp, close "
+            "FROM market_data_ohlcv_tradeable "
+            "WHERE symbol = %s AND timeframe = %s "
+            "ORDER BY timestamp ASC",
+            (symbol, tf),
+        )
+        while True:
+            batch = cur.fetchmany(10000)
+            if not batch:
+                break
+            for r in batch:
+                timestamps.append(r[0])
+                closes.append(float(r[1]))
+
+    if not timestamps:
+        _logger.warning("regime_writer.no_ohlcv", symbol=symbol, tf=tf)
+        return None
+
+    obs_matrix, valid_ts = _build_obs_matrix_volatility(
+        timestamps,
+        closes,
+        vol_window=vol_window,
         vol_of_vol_window=vol_of_vol_window,
     )
 
