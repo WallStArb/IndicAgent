@@ -27,12 +27,20 @@ from unittest.mock import MagicMock
 
 import services.regime_writer as regime_writer_module
 from services.regime_writer import (
+    _LABEL_CALM,
+    _LABEL_ELEVATED,
     _LABEL_RANGING,
     _LABEL_TRENDING_DOWN,
     _LABEL_TRENDING_UP,
+    _LABEL_TURBULENT,
+    _TREND_VOCAB,
+    _VOLATILITY_VOCAB,
     _build_label_map,
     _build_obs_matrix,
+    _build_obs_matrix_volatility,
     _compute_symbol_tf,
+    _state_groups,
+    _state_groups_by_vocab,
 )
 from tests.unit._hmm_decode_helpers import decode as _decode
 
@@ -85,6 +93,25 @@ def _make_volumes(n: int, seed: int = 7) -> list[float]:
     """Generate n synthetic daily volumes with log-normal distribution."""
     rng = np.random.default_rng(seed)
     return list(rng.lognormal(mean=14.0, sigma=0.5, size=n))
+
+
+def _make_vol_switching_closes(n: int = 600, seed: int = 3) -> list[float]:
+    """Generate n close prices whose second half has materially higher return
+    variance than its first half -- exercises the calm-versus-turbulent boundary
+    for the volatility observation matrix. `_make_trending_up_closes` and
+    `_make_ranging_closes` do not exercise this boundary and are not a substitute.
+    """
+    rng = np.random.default_rng(seed)
+    half = n // 2
+    calm_returns = rng.normal(0.0, 0.002, half - 1)
+    turbulent_returns = rng.normal(0.0, 0.02, n - half)
+    closes = [100.0]
+    for r in calm_returns:
+        closes.append(closes[-1] * np.exp(r))
+    for r in turbulent_returns:
+        closes.append(closes[-1] * np.exp(r))
+    assert len(closes) == n
+    return closes
 
 
 def _fit_simple_hmm(obs_matrix: np.ndarray, n_components: int = 3) -> GaussianHMM:
@@ -180,6 +207,153 @@ def test_build_obs_matrix_timestamp_alignment():
     )
 
     assert len(valid_ts) == obs.shape[0]
+
+
+# ---------------------------------------------------------------------------
+# Tests: _build_obs_matrix_volatility
+# ---------------------------------------------------------------------------
+
+
+def test_build_obs_matrix_volatility_shape():
+    """obs.shape == (len(closes) - 1 - (vol_window + vol_of_vol_window - 2), 2) and
+    len(valid_ts) == obs.shape[0]. This is a strictly later start index than
+    _build_obs_matrix's max(windows) - 1."""
+    n = 600
+    vol_window = 20
+    vol_of_vol_window = 60
+    closes = _make_vol_switching_closes(n)
+    timestamps = _make_timestamps(n)
+
+    obs, valid_ts = _build_obs_matrix_volatility(timestamps, closes, vol_window, vol_of_vol_window)
+
+    expected_rows = n - 1 - (vol_window + vol_of_vol_window - 2)
+    assert obs.shape == (expected_rows, 2), f"Expected ({expected_rows}, 2), got {obs.shape}"
+    assert len(valid_ts) == obs.shape[0]
+
+    # The corrected start index must differ from the legacy max(windows) - 1 shape.
+    legacy_expected_rows = n - 1 - (max(vol_window, vol_of_vol_window) - 1)
+    assert obs.shape[0] != legacy_expected_rows
+
+
+def test_build_obs_matrix_volatility_no_nan_or_inf():
+    """obs must contain no NaN and no infinity for a normal price series."""
+    n = 600
+    closes = _make_vol_switching_closes(n)
+    timestamps = _make_timestamps(n)
+
+    obs, _ = _build_obs_matrix_volatility(timestamps, closes, vol_window=20, vol_of_vol_window=60)
+
+    assert not np.any(np.isnan(obs)), "obs contains NaN"
+    assert not np.any(np.isinf(obs)), "obs contains Inf"
+
+
+def test_build_obs_matrix_volatility_column_values_match_rolling_std():
+    """Column 0 of obs equals the rolling std of log returns over vol_window, sliced
+    from valid_start; column 1 equals the rolling std of that realized-vol series over
+    vol_of_vol_window, sliced identically."""
+    n = 600
+    vol_window = 20
+    vol_of_vol_window = 60
+    closes = _make_vol_switching_closes(n)
+    timestamps = _make_timestamps(n)
+
+    obs, valid_ts = _build_obs_matrix_volatility(timestamps, closes, vol_window, vol_of_vol_window)
+
+    closes_arr = np.array(closes, dtype=float)
+    log_returns = np.log(closes_arr[1:] / np.maximum(closes_arr[:-1], 1e-12))
+    realized_vol = regime_writer_module._rolling(log_returns, vol_window, np.std)
+    vol_of_vol = regime_writer_module._rolling(realized_vol, vol_of_vol_window, np.std)
+    valid_start = vol_window + vol_of_vol_window - 2
+
+    np.testing.assert_allclose(obs[:, 0], realized_vol[valid_start:])
+    np.testing.assert_allclose(obs[:, 1], vol_of_vol[valid_start:])
+    assert len(valid_ts) == obs.shape[0]
+
+
+def test_build_obs_matrix_volatility_valid_ts_shift():
+    """valid_ts[0] equals timestamps[valid_start + 1], matching _build_obs_matrix's
+    one-bar shift for the log-return differencing."""
+    n = 600
+    vol_window = 20
+    vol_of_vol_window = 60
+    closes = _make_vol_switching_closes(n)
+    timestamps = _make_timestamps(n)
+
+    obs, valid_ts = _build_obs_matrix_volatility(timestamps, closes, vol_window, vol_of_vol_window)
+
+    valid_start = vol_window + vol_of_vol_window - 2
+    assert valid_ts[0] == timestamps[valid_start + 1]
+
+
+def test_build_obs_matrix_volatility_warmup_purity_no_zero_padded_input():
+    """No emitted vol_of_vol value is computed over a window that includes a
+    zero-padded realized_vol entry: obs[0, 1] equals np.std(realized_vol[19:79]), a
+    slice containing no zero-padded entry. This test must go red if valid_start is
+    reverted to max(vol_window, vol_of_vol_window) - 1 (verified manually by
+    temporarily reverting, confirming red, then restoring)."""
+    n = 600
+    vol_window = 20
+    vol_of_vol_window = 60
+    closes = _make_vol_switching_closes(n)
+    timestamps = _make_timestamps(n)
+
+    obs, _ = _build_obs_matrix_volatility(timestamps, closes, vol_window, vol_of_vol_window)
+
+    closes_arr = np.array(closes, dtype=float)
+    log_returns = np.log(closes_arr[1:] / np.maximum(closes_arr[:-1], 1e-12))
+    realized_vol = regime_writer_module._rolling(log_returns, vol_window, np.std)
+
+    # The window [19:79] is exactly the first vol_of_vol_window=60 realized_vol
+    # entries whose own indices are all >= vol_window - 1 = 19 -- none is part of
+    # _rolling's zero-padded prefix (indices 0..18).
+    expected = np.std(realized_vol[19:79])
+    assert np.isclose(obs[0, 1], expected)
+
+
+def test_build_obs_matrix_volatility_calm_to_turbulent_ordering():
+    """Given a series whose second half is materially more volatile than its first,
+    the mean of column 0 over the second half exceeds the mean over the first half, so
+    an ascending sort of fitted means[:, 0] orders states calm to turbulent. Fails if
+    the two stacked columns are swapped (verified manually by temporarily swapping and
+    confirming a red test, then restoring)."""
+    n = 600
+    closes = _make_vol_switching_closes(n)
+    timestamps = _make_timestamps(n)
+
+    obs, _ = _build_obs_matrix_volatility(timestamps, closes, vol_window=20, vol_of_vol_window=60)
+
+    half = obs.shape[0] // 2
+    first_half_mean = obs[:half, 0].mean()
+    second_half_mean = obs[half:, 0].mean()
+    assert (
+        second_half_mean > first_half_mean
+    ), "Second (turbulent) half's mean realized_vol must exceed first (calm) half's"
+
+
+def test_build_obs_matrix_volatility_insufficient_data():
+    """Insufficient input returns np.empty((0, 2)) and [] rather than raising. The
+    threshold is len(log_returns) < vol_window + vol_of_vol_window - 1."""
+    n = 50
+    closes = [100.0] * n
+    timestamps = _make_timestamps(n)
+
+    obs, valid_ts = _build_obs_matrix_volatility(
+        timestamps, closes, vol_window=20, vol_of_vol_window=60
+    )
+
+    assert obs.shape == (0, 2)
+    assert valid_ts == []
+
+
+def test_build_obs_matrix_volatility_no_volumes_param():
+    """_build_obs_matrix_volatility never reads volumes and never computes
+    momentum or rel_volume -- verified structurally by asserting the function does
+    not accept a `volumes` keyword argument."""
+    import inspect
+
+    sig = inspect.signature(_build_obs_matrix_volatility)
+    assert "volumes" not in sig.parameters
+    assert set(sig.parameters.keys()) == {"timestamps", "closes", "vol_window", "vol_of_vol_window"}
 
 
 # ---------------------------------------------------------------------------
@@ -435,6 +609,183 @@ def test_build_label_map_exactly_one_trending_up():
     down_count = sum(1 for v in label_map.values() if v == _LABEL_TRENDING_DOWN)
     assert up_count == 1
     assert down_count == 1
+
+
+def test_build_label_map_no_vocab_arg_matches_trend_vocab_k2():
+    """_build_label_map with no vocab argument is byte-identical to explicit _TREND_VOCAB at K=2."""
+    means = np.array([[-0.5], [0.5]])
+    assert _build_label_map(means) == _build_label_map(means, vocab=_TREND_VOCAB)
+    assert sorted(_build_label_map(means).values()) == sorted(
+        [_LABEL_TRENDING_DOWN, _LABEL_TRENDING_UP]
+    )
+
+
+def test_build_label_map_no_vocab_arg_matches_trend_vocab_k3():
+    """_build_label_map with no vocab argument is byte-identical to explicit _TREND_VOCAB at K=3."""
+    means = np.array([[-0.9], [0.0], [0.9]])
+    assert _build_label_map(means) == _build_label_map(means, vocab=_TREND_VOCAB)
+    assert sorted(_build_label_map(means).values()) == sorted(
+        [_LABEL_TRENDING_DOWN, _LABEL_RANGING, _LABEL_TRENDING_UP]
+    )
+
+
+def test_build_label_map_no_vocab_arg_matches_trend_vocab_k4():
+    """_build_label_map with no vocab argument is byte-identical to explicit _TREND_VOCAB at K=4."""
+    means = np.array([[-0.9], [-0.3], [0.3], [0.9]])
+    assert _build_label_map(means) == _build_label_map(means, vocab=_TREND_VOCAB)
+
+
+def test_build_label_map_no_vocab_arg_matches_trend_vocab_k5():
+    """_build_label_map with no vocab argument matches unchanged K=5 trend label set."""
+    means = np.array([[-0.9], [-0.4], [0.0], [0.4], [0.9]])
+    assert _build_label_map(means) == _build_label_map(means, vocab=_TREND_VOCAB)
+    assert sorted(_build_label_map(means).values()) == sorted(
+        [
+            "ranging",
+            "trending_down",
+            "trending_up",
+            "transition_down",
+            "transition_up",
+        ]
+    )
+
+
+def test_build_label_map_no_vocab_arg_matches_trend_vocab_k6():
+    """_build_label_map with no vocab argument is byte-identical to explicit _TREND_VOCAB at K=6.
+
+    K=6 fixture built directly as a means array (not fit) so rank ordering is
+    deterministic. K>5: extremes get low/high, next-inward get low_mid/high_mid, all
+    remaining middle states get mid (ranging) -- matches the K=5 assignment shape with
+    one extra middle (ranging) state.
+    """
+    means = np.array([[-1.0], [-0.5], [-0.1], [0.1], [0.5], [1.0]])
+    assert _build_label_map(means) == _build_label_map(means, vocab=_TREND_VOCAB)
+    result = _build_label_map(means)
+    assert result[0] == _LABEL_TRENDING_DOWN
+    assert result[5] == _LABEL_TRENDING_UP
+    assert result[1] == "transition_down"
+    assert result[4] == "transition_up"
+    assert result[2] == _LABEL_RANGING
+    assert result[3] == _LABEL_RANGING
+
+
+def test_build_label_map_volatility_vocab_k3():
+    """_build_label_map(means, vocab=_VOLATILITY_VOCAB) at K=3 returns exactly one
+    calm (lowest means[:, 0]), one turbulent (highest), and one elevated."""
+    means = np.array([[0.1], [0.5], [0.9]])
+    label_map = _build_label_map(means, vocab=_VOLATILITY_VOCAB)
+    values = sorted(label_map.values())
+    assert values == sorted([_LABEL_CALM, _LABEL_ELEVATED, _LABEL_TURBULENT])
+    calm_state = [k for k, v in label_map.items() if v == _LABEL_CALM][0]
+    turbulent_state = [k for k, v in label_map.items() if v == _LABEL_TURBULENT][0]
+    assert means[calm_state, 0] == means[:, 0].min()
+    assert means[turbulent_state, 0] == means[:, 0].max()
+
+
+def test_build_label_map_volatility_vocab_k2():
+    """_build_label_map(means, vocab=_VOLATILITY_VOCAB) at K=2 returns exactly
+    {calm, turbulent} and raises no KeyError; no elevated is emitted."""
+    means = np.array([[0.1], [0.9]])
+    label_map = _build_label_map(means, vocab=_VOLATILITY_VOCAB)
+    assert sorted(label_map.values()) == sorted([_LABEL_CALM, _LABEL_TURBULENT])
+    assert _LABEL_ELEVATED not in label_map.values()
+
+
+def test_build_label_map_volatility_vocab_k4_raises_value_error():
+    """_build_label_map(means, vocab=_VOLATILITY_VOCAB) at K=4 raises a ValueError
+    naming the missing transition slots, rather than a bare KeyError, because the
+    volatility vocabulary has no transition concept."""
+    means = np.array([[0.1], [0.3], [0.6], [0.9]])
+    with pytest.raises(ValueError) as exc_info:
+        _build_label_map(means, vocab=_VOLATILITY_VOCAB)
+    message = str(exc_info.value)
+    assert "low_mid" in message or "high_mid" in message
+
+
+# ---------------------------------------------------------------------------
+# Tests: _state_groups_by_vocab / _state_groups
+# ---------------------------------------------------------------------------
+
+
+def test_state_groups_by_vocab_trend_k5():
+    """_state_groups_by_vocab returns (low, mid, high) state-index lists, correct
+    for the trend vocab at K=5."""
+    means = np.array([[-0.9], [-0.4], [0.0], [0.4], [0.9]])
+    label_map = _build_label_map(means, vocab=_TREND_VOCAB)
+    low_states, mid_states, high_states = _state_groups_by_vocab(label_map, _TREND_VOCAB)
+
+    assert set(low_states) == {
+        k for k, v in label_map.items() if v in (_LABEL_TRENDING_DOWN, "transition_down")
+    }
+    assert set(high_states) == {
+        k for k, v in label_map.items() if v in (_LABEL_TRENDING_UP, "transition_up")
+    }
+    assert set(mid_states) == {k for k, v in label_map.items() if v == _LABEL_RANGING}
+
+
+def test_state_groups_by_vocab_volatility_k3():
+    """_state_groups_by_vocab returns (low, mid, high) state-index lists, correct
+    for the volatility vocab at K=3 (no low_mid/high_mid slots)."""
+    means = np.array([[0.1], [0.5], [0.9]])
+    label_map = _build_label_map(means, vocab=_VOLATILITY_VOCAB)
+    low_states, mid_states, high_states = _state_groups_by_vocab(label_map, _VOLATILITY_VOCAB)
+
+    assert set(low_states) == {k for k, v in label_map.items() if v == _LABEL_CALM}
+    assert set(high_states) == {k for k, v in label_map.items() if v == _LABEL_TURBULENT}
+    assert set(mid_states) == {k for k, v in label_map.items() if v == _LABEL_ELEVATED}
+
+
+def test_state_groups_by_vocab_volatility_k2():
+    """_state_groups_by_vocab at K=2 volatility vocab has no mid_states."""
+    means = np.array([[0.1], [0.9]])
+    label_map = _build_label_map(means, vocab=_VOLATILITY_VOCAB)
+    low_states, mid_states, high_states = _state_groups_by_vocab(label_map, _VOLATILITY_VOCAB)
+
+    assert mid_states == []
+    assert len(low_states) == 1
+    assert len(high_states) == 1
+
+
+def test_state_groups_still_returns_bullish_ranging_bearish_order():
+    """_state_groups(label_map) still returns (bullish_states, ranging_states,
+    bearish_states) in that exact order, unchanged for every existing caller."""
+    means = np.array([[-0.9], [-0.4], [0.0], [0.4], [0.9]])
+    label_map = _build_label_map(means)
+    bullish_states, ranging_states, bearish_states = _state_groups(label_map)
+
+    assert set(bullish_states) == {
+        k for k, v in label_map.items() if v in (_LABEL_TRENDING_UP, "transition_up")
+    }
+    assert set(bearish_states) == {
+        k for k, v in label_map.items() if v in (_LABEL_TRENDING_DOWN, "transition_down")
+    }
+    assert set(ranging_states) == {k for k, v in label_map.items() if v == _LABEL_RANGING}
+
+
+def test_alpha_history_to_regime_probs_positional_call_unchanged():
+    """_alpha_history_to_regime_probs returns identical values before and after the
+    parameter rename when called positionally (all existing callers pass positionally)."""
+    from services.regime_writer import _alpha_history_to_regime_probs
+
+    alpha_history = np.array(
+        [
+            [0.7, 0.2, 0.1],
+            [0.1, 0.1, 0.8],
+            [0.3, 0.4, 0.3],
+        ]
+    )
+    high_states = [0]
+    mid_states = [1]
+    low_states = [2]
+
+    p_high, p_mid, p_low, prob_val, entropy_val = _alpha_history_to_regime_probs(
+        alpha_history, high_states, mid_states, low_states
+    )
+
+    assert p_high == pytest.approx([0.7, 0.1, 0.3])
+    assert p_mid == pytest.approx([0.2, 0.1, 0.4])
+    assert p_low == pytest.approx([0.1, 0.8, 0.3])
+    assert prob_val == pytest.approx([0.7, 0.8, 0.4])
 
 
 # ---------------------------------------------------------------------------

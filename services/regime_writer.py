@@ -138,6 +138,32 @@ _BULLISH_LABELS = frozenset([_LABEL_TRENDING_UP, _LABEL_TRANSITION_UP])
 # Labels that count as "bearish" for hmm_prob_trending_down aggregation.
 _BEARISH_LABELS = frozenset([_LABEL_TRENDING_DOWN, _LABEL_TRANSITION_DOWN])
 
+# Volatility-only regime label set (Phase 172) — these three strings must match the
+# `controlled_vocabulary` codes seeded for the `regime_volatility` namespace (migration
+# TBD, see 172-02-PLAN.md). No other values written to feature_vectors.regime_volatility.
+_LABEL_CALM = "calm"
+_LABEL_ELEVATED = "elevated"
+_LABEL_TURBULENT = "turbulent"
+
+# Vocabulary mappings keyed on rank slots, threaded through `_build_label_map` /
+# `_state_groups_by_vocab`. `_TREND_VOCAB` preserves the exact existing trend-label
+# assignment; `_VOLATILITY_VOCAB` deliberately has no "low_mid"/"high_mid" slot —
+# 171-FINAL-VERDICT.md section 5 validates only K=2 and K=3 for this axis, where
+# `_build_label_map`'s `n_components >= 4` branch never fires, so a transition concept
+# would be a slot with no meaning.
+_TREND_VOCAB: dict[str, str] = {
+    "low": _LABEL_TRENDING_DOWN,
+    "high": _LABEL_TRENDING_UP,
+    "low_mid": _LABEL_TRANSITION_DOWN,
+    "high_mid": _LABEL_TRANSITION_UP,
+    "mid": _LABEL_RANGING,
+}
+_VOLATILITY_VOCAB: dict[str, str] = {
+    "low": _LABEL_CALM,
+    "high": _LABEL_TURBULENT,
+    "mid": _LABEL_ELEVATED,
+}
+
 
 @contextlib.contextmanager
 def _noop_span(name, **attrs):
@@ -227,6 +253,78 @@ def _build_obs_matrix(
     return obs, valid_ts
 
 
+def _build_obs_matrix_volatility(
+    timestamps: list,
+    closes: list[float],
+    vol_window: int,
+    vol_of_vol_window: int,
+) -> tuple[np.ndarray, list]:
+    """Build (n_valid, 2) observation matrix from close prices only: [realized_vol,
+    vol_of_vol]. Phase 172's volatility-only regime axis -- the only axis that cleared
+    the null-arm block-reliability control per 171-FINAL-VERDICT.md. Trend
+    (log_return/momentum) and volume (rel_volume) columns are deliberately absent
+    (dead on direct null-arm evidence), not pending.
+
+    Observation dimensions:
+      [0] realized_vol = rolling std of log_returns over vol_window bars.
+                         Column 0 because `_build_label_map` ranks states by
+                         means[:, 0] -- putting vol_of_vol first would give the
+                         emitted labels a different meaning (calm/elevated/turbulent
+                         must order by vol level, not by vol-of-vol).
+      [1] vol_of_vol   = rolling std of realized_vol over vol_of_vol_window bars.
+
+    Built directly from `closes`/`_rolling` rather than by slicing columns [1, 3] out
+    of `_build_obs_matrix`'s 5-column result -- this skips the wasted
+    momentum/rel_volume/log_return compute (rel_volume alone requires a separate
+    rolling-mean-of-log-volume pass) and makes column-index confusion between the two
+    matrices' different semantics impossible. `volumes` is never read.
+
+    valid_start = vol_window + vol_of_vol_window - 2. This DIVERGES from
+    `_build_obs_matrix`'s `max(windows) - 1`: that expression is correct for three
+    columns computed by a single rolling pass over log_returns, but vol_of_vol is a
+    rolling std of realized_vol, which `_rolling` itself zero-pads for its first
+    vol_window - 1 entries. Under `max(windows) - 1`, the first vol_window - 1 emitted
+    vol_of_vol values would be computed over windows that still contain those zeros --
+    warmup artifacts presented as valid observations. `vol_window + vol_of_vol_window -
+    2` is the first index at which the entire vol_of_vol lookback window lies inside
+    real data, so no emitted vol_of_vol value is ever computed over a zero-padded
+    realized_vol entry. At the seeded windows of 20/60 this discards 19 additional bars
+    per cell out of a series of at least 20000 -- immaterial cost, no fabricated-input
+    rows. `_build_obs_matrix` itself is NOT changed to match -- its 26.8M existing
+    rows were produced under its current behavior, and editing it would silently
+    change the meaning of a column this phase deliberately leaves untouched (filed as
+    pending todo 286). Plan 172-01's null-arm gate measures the volatility axis
+    through the composite matrix's columns 1 and 3 and therefore under the legacy
+    start index; the 19-bar difference is not material to a block-reliability
+    statistic computed over tens of thousands of bars, noted here rather than left for
+    a future reader to notice the mismatch.
+
+    Returns (obs_matrix, valid_timestamps). Insufficient input (fewer than
+    vol_window + vol_of_vol_window - 1 log returns) returns
+    (np.empty((0, 2)), []) rather than raising.
+    """
+    closes_arr = np.array(closes, dtype=float)
+
+    log_returns = np.log(closes_arr[1:] / np.maximum(closes_arr[:-1], 1e-12))
+    ts_shifted = timestamps[1:]
+
+    if len(log_returns) < vol_window + vol_of_vol_window - 1:
+        return np.empty((0, 2), dtype=float), []
+
+    realized_vol = _rolling(log_returns, vol_window, np.std)
+    vol_of_vol = _rolling(realized_vol, vol_of_vol_window, np.std)
+
+    valid_start = vol_window + vol_of_vol_window - 2
+    obs = np.column_stack(
+        [
+            realized_vol[valid_start:],
+            vol_of_vol[valid_start:],
+        ]
+    )
+    valid_ts = ts_shifted[valid_start:]
+    return obs, valid_ts
+
+
 def _stationary_distribution(A: np.ndarray) -> np.ndarray:
     """Stationary distribution of transition matrix A (left eigenvector for eigenvalue 1).
 
@@ -304,27 +402,60 @@ def _compute_log_emit(
     return _log_emit_diag(obs, means, covars_diag)
 
 
+def _state_groups_by_vocab(
+    label_map: dict[int, str], vocab: dict[str, str]
+) -> tuple[list[int], list[int], list[int]]:
+    """This model's low/mid/high STATE-INDEX sets, derived from its own label_map and
+    the vocabulary that produced it. Meaningful only relative to THIS specific fit --
+    state 2 in one independently-fit model has no relationship to state 2 in another
+    (raw indices are not comparable across fits; see `_seed_prior_from_label`'s
+    docstring).
+
+    `low_states` collects state indices whose label is `vocab["low"]` or
+    `vocab.get("low_mid")`; `high_states` collects `vocab["high"]` or
+    `vocab.get("high_mid")`; `mid_states` collects `vocab["mid"]`.
+
+    Returns (low_states, mid_states, high_states).
+    """
+    low_labels = {vocab["low"]}
+    if "low_mid" in vocab:
+        low_labels.add(vocab["low_mid"])
+    high_labels = {vocab["high"]}
+    if "high_mid" in vocab:
+        high_labels.add(vocab["high_mid"])
+    mid_label = vocab["mid"]
+
+    low_states = [k for k, v in label_map.items() if v in low_labels]
+    mid_states = [k for k, v in label_map.items() if v == mid_label]
+    high_states = [k for k, v in label_map.items() if v in high_labels]
+    return low_states, mid_states, high_states
+
+
 def _state_groups(label_map: dict[int, str]) -> tuple[list[int], list[int], list[int]]:
     """This model's bullish/ranging/bearish STATE-INDEX sets, derived from its own
     label_map. Meaningful only relative to THIS specific fit -- state 2 in one
     independently-fit model has no relationship to state 2 in another (raw indices
     are not comparable across fits; see `_seed_prior_from_label`'s docstring).
 
+    Thin wrapper over `_state_groups_by_vocab(label_map, _TREND_VOCAB)`, reordering
+    the (low, mid, high) result to (high, mid, low) to preserve this function's
+    documented (bullish_states, ranging_states, bearish_states) return contract
+    exactly -- both existing callers pass positionally and a reorder here would
+    silently invert probability mass.
+
     Returns (bullish_states, ranging_states, bearish_states).
     """
-    bullish_states = [k for k, v in label_map.items() if v in _BULLISH_LABELS]
-    ranging_states = [k for k, v in label_map.items() if v == _LABEL_RANGING]
-    bearish_states = [k for k, v in label_map.items() if v in _BEARISH_LABELS]
-    return bullish_states, ranging_states, bearish_states
+    low_states, mid_states, high_states = _state_groups_by_vocab(label_map, _TREND_VOCAB)
+    return high_states, mid_states, low_states
 
 
 def _alpha_history_to_regime_probs(
     alpha_history: np.ndarray,
-    bullish_states: list[int],
-    ranging_states: list[int],
-    bearish_states: list[int],
+    high_states: list[int],
+    mid_states: list[int],
+    low_states: list[int],
 ) -> tuple[list[float], list[float], list[float], list[float], list[float]]:
-    """Vectorized per-bar (p_up, p_ranging, p_down, prob_val, entropy_val) from a
+    """Vectorized per-bar (p_high, p_mid, p_low, prob_val, entropy_val) from a
     segment's alpha vectors -- shared by `_compute_symbol_tf` and
     `_walk_forward_hmm_full`, both of which previously computed this identically
     via a per-bar Python loop (`sum(alpha[s] for s in states)` + per-bar np.max/
@@ -332,30 +463,27 @@ def _alpha_history_to_regime_probs(
     row-by-row is both less code and meaningfully cheaper at corpus scale (tens of
     thousands of bars per segment).
 
+    Parameter names are vocab-agnostic (`high_states`/`mid_states`/`low_states`, not
+    `bullish_states`/`ranging_states`/`bearish_states`) so this function carries no
+    trend-semantic vocabulary -- it is shared by both the trend and volatility label
+    paths. Existing callers pass all three positionally (verified via
+    `grep -n '_alpha_history_to_regime_probs' services/regime_writer.py`; none uses
+    keyword arguments), so this rename requires zero call-site edits.
+
     alpha_history: shape (n, K), one row per bar.
     Returns 5 lists, each length n, index-aligned to alpha_history's rows.
     """
-    p_up = (
-        alpha_history[:, bullish_states].sum(axis=1)
-        if bullish_states
-        else np.zeros(len(alpha_history))
+    p_high = (
+        alpha_history[:, high_states].sum(axis=1) if high_states else np.zeros(len(alpha_history))
     )
-    p_ranging = (
-        alpha_history[:, ranging_states].sum(axis=1)
-        if ranging_states
-        else np.zeros(len(alpha_history))
-    )
-    p_down = (
-        alpha_history[:, bearish_states].sum(axis=1)
-        if bearish_states
-        else np.zeros(len(alpha_history))
-    )
+    p_mid = alpha_history[:, mid_states].sum(axis=1) if mid_states else np.zeros(len(alpha_history))
+    p_low = alpha_history[:, low_states].sum(axis=1) if low_states else np.zeros(len(alpha_history))
     prob_val = alpha_history.max(axis=1)
     entropy_val = -np.sum(alpha_history * np.log(np.maximum(alpha_history, 1e-300)), axis=1)
     return (
-        p_up.tolist(),
-        p_ranging.tolist(),
-        p_down.tolist(),
+        p_high.tolist(),
+        p_mid.tolist(),
+        p_low.tolist(),
         prob_val.tolist(),
         entropy_val.tolist(),
     )
@@ -494,49 +622,72 @@ def _compute_hmm_churn(labels: list | np.ndarray, churn_window: int) -> np.ndarr
     return churn
 
 
-def _build_label_map(means: np.ndarray) -> dict[int, str]:
-    """Map integer HMM states to canonical regime text labels.
+def _build_label_map(means: np.ndarray, vocab: dict[str, str] | None = None) -> dict[int, str]:
+    """Map integer HMM states to canonical regime text labels, drawn from `vocab`.
 
-    Sorted deterministically by fitted emission mean[:, 0] (log-return dimension).
-    Assignment by rank:
+    Sorted deterministically by fitted emission mean[:, 0] -- the ordering dimension is
+    column 0 of whatever observation matrix produced `means`, which is `log_return` for
+    the trend matrix (`_build_obs_matrix`) and `realized_vol` for the volatility matrix
+    (`_build_obs_matrix_volatility`). Assignment by rank:
 
-      K=2: order[0]->trending_down, order[1]->trending_up
-      K=3: order[0]->trending_down, order[2]->trending_up, order[1]->ranging
-      K=4: order[0]->trending_down, order[3]->trending_up,
-           order[1]->ranging, order[2]->transition
-      K=5: order[0]->trending_down, order[4]->trending_up,
-           order[1]->transition_down, order[3]->transition_up, order[2]->ranging
-      K>5: extremes get trending_down/up, next-inward get transition_down/up,
-           all remaining middle states get ranging.
+      K=2: order[0]->vocab["low"], order[1]->vocab["high"]
+      K=3: order[0]->vocab["low"], order[2]->vocab["high"], order[1]->vocab["mid"]
+      K=4: order[0]->vocab["low"], order[3]->vocab["high"],
+           order[1]->vocab["mid"], order[2]->vocab["mid"] (via the "low_mid"/"high_mid"
+           branch below when present in vocab)
+      K=5: order[0]->vocab["low"], order[4]->vocab["high"],
+           order[1]->vocab["low_mid"], order[3]->vocab["high_mid"], order[2]->vocab["mid"]
+      K>5: extremes get vocab["low"]/vocab["high"], next-inward get
+           vocab["low_mid"]/vocab["high_mid"], all remaining middle states get
+           vocab["mid"].
 
-    This produces semantically stable labels regardless of which integer
-    hmmlearn assigns to which state.
+    This produces semantically stable labels regardless of which integer hmmlearn
+    assigns to which state.
 
     Args:
-        means: Shape (K, n_features) -- emission means from fitted HMM.
-                Column 0 is the log-return dimension used for sorting.
+        means: Shape (K, n_features) -- emission means from fitted HMM. Column 0 is
+            the ordering dimension used for sorting.
+        vocab: rank-slot -> label string mapping (`_TREND_VOCAB` or
+            `_VOLATILITY_VOCAB`). Defaults to `_TREND_VOCAB`, so the four existing
+            trend-path call sites (`_walk_forward_hmm_labels`, `_walk_forward_hmm_full`,
+            `_hmm_seed_stability_check`, and the single-fit path inside
+            `_compute_symbol_tf`) need zero edits and remain byte-identical to today's
+            behavior.
 
     Returns:
         dict mapping integer state index -> canonical text label.
+
+    Raises:
+        ValueError: if `n_components >= 4` and `vocab` has no "low_mid"/"high_mid"
+            slot -- `_VOLATILITY_VOCAB` deliberately has no transition concept and only
+            supports K=2/K=3 (171-FINAL-VERDICT.md section 5).
     """
+    vocab = vocab if vocab is not None else _TREND_VOCAB
     n_components = means.shape[0]
-    means_ret = means[:, 0]  # log-return dimension
-    order = np.argsort(means_ret)  # ascending: [most_neg, ..., most_pos]
+    means_ret = means[:, 0]  # ordering dimension
+    order = np.argsort(means_ret)  # ascending: [lowest, ..., highest]
     label_map: dict[int, str] = {}
 
-    # Extremes are always trending_down / trending_up
-    label_map[int(order[0])] = _LABEL_TRENDING_DOWN
-    label_map[int(order[-1])] = _LABEL_TRENDING_UP
+    # Extremes are always the low/high labels.
+    label_map[int(order[0])] = vocab["low"]
+    label_map[int(order[-1])] = vocab["high"]
 
     if n_components >= 4:
+        if "low_mid" not in vocab or "high_mid" not in vocab:
+            missing = [k for k in ("low_mid", "high_mid") if k not in vocab]
+            raise ValueError(
+                f"_build_label_map: n_components={n_components} requires a vocabulary "
+                f"with 'low_mid'/'high_mid' slots, but vocab is missing {missing}. This "
+                "vocabulary supports only K=2 and K=3."
+            )
         # Second from each extreme are transition states
-        label_map[int(order[1])] = _LABEL_TRANSITION_DOWN
-        label_map[int(order[-2])] = _LABEL_TRANSITION_UP
+        label_map[int(order[1])] = vocab["low_mid"]
+        label_map[int(order[-2])] = vocab["high_mid"]
 
-    # All remaining middle states are ranging
+    # All remaining middle states get the mid label.
     for i in range(n_components):
         if i not in label_map:
-            label_map[i] = _LABEL_RANGING
+            label_map[i] = vocab["mid"]
 
     return label_map
 
