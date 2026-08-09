@@ -228,6 +228,17 @@ def _resolve_regime_scope(is_pooled: bool, cross_sectional: bool) -> str:
     Scope reflects the label SOURCE (regime_label_source / mr_dict presence at compute
     time), never the label string itself -- see migration 192 rationale. Fixed schema
     enum values, not APR-backed (statistical concept definitions, not tunable params).
+
+    Phase 172 plan 06: 'symbol_hmm' now denotes the volatility-vocabulary
+    (calm/elevated/turbulent, feature_vectors.regime_volatility) per-symbol
+    GaussianHMM, not the retired 5-label trend vocabulary. Rows written under this
+    same scope value before Phase 172 carry the retired trend vocabulary
+    (trending_down/transition_down/ranging/transition_up/trending_up,
+    feature_vectors.regime) -- the two vintages are distinguishable by their regime
+    label string alone, because the two vocabularies never intersect (see
+    172-IC-ENGINE-CUTOVER.md's vintage-separation audit). No new scope value was
+    added for the volatility vintage; the label SOURCE (a per-symbol GaussianHMM)
+    is unchanged, only the observation columns and vocabulary it was fit on.
     """
     if is_pooled:
         return "pooled"
@@ -842,9 +853,9 @@ _COMPUTATIONAL_CONFIG_FIELDS: frozenset[str] = frozenset(
         # a scale changes which feature_ic_scores rows get written, same class of
         # change as the lookahead bar-count values themselves.
         "active_scales",
-        # Changes which regime label SOURCE (market_regimes vs feature_vectors.regime)
-        # feeds every non-pooled row's regime/regime_scope columns -- see
-        # _compute_symbol_tf's mr_dict docstring.
+        # Changes which regime label SOURCE (market_regimes vs
+        # feature_vectors.regime_volatility) feeds every non-pooled row's
+        # regime/regime_scope columns -- see _compute_symbol_tf's mr_dict docstring.
         "equity_model_enabled",
         "min_obs_daily",  # daily-cadence context-features reliability gate
         "hac_max_lag",  # Newey-West HAC lag -- moves ic_sharpe_hac
@@ -2531,8 +2542,10 @@ def _compute_symbol_tf(
 
     mr_dict: optional dict {ts -> regime_label} from market_regimes for this TF.
     When provided (equity_model_enabled=True), regime labels come from market_regimes
-    instead of feature_vectors.regime, enabling cross-symbol IC stratification.
-    When None (equity_model_enabled=False), falls back to feature_vectors.regime.
+    instead of feature_vectors.regime_volatility, enabling cross-symbol IC
+    stratification. When None (equity_model_enabled=False), falls back to
+    feature_vectors.regime_volatility (Phase 172 plan 06; was feature_vectors.regime
+    before this cutover).
 
     cluster_regime_conditioned: Phase 151 Plan 02 global switch (run-level
     ICEngineConfig field, not per-group like dual_write_symbol_hmm). When True
@@ -2573,9 +2586,13 @@ def _compute_symbol_tf(
             # ------------------------------------------------------------------
             # Load feature matrix
             # ------------------------------------------------------------------
+            # Phase 172 plan 06: per-symbol regime label source repointed to
+            # feature_vectors.regime_volatility (calm/elevated/turbulent). The legacy
+            # feature_vectors.regime column is deliberately not read here anymore --
+            # see 172-IC-ENGINE-CUTOVER.md for the audit of what does and does not change.
             feature_cols = ", ".join(f'"{f}"' for f in _FEATURE_NAMES)
             fv_sql = f"""
-                SELECT bar_ts, regime, {feature_cols}
+                SELECT bar_ts, regime_volatility, {feature_cols}
                 FROM feature_vectors
                 WHERE symbol = %s AND tf = %s AND bar_ts <= %s
                 ORDER BY bar_ts
@@ -2675,7 +2692,8 @@ def _compute_symbol_tf(
                     complete_mat[i, j] = bool(row[1 + n_scales + j])
             del fr_ts  # returns_mat/complete_mat are sufficient; dict no longer needed
 
-        # Regime source: market_regimes (cross-sectional) or feature_vectors.regime (per-symbol).
+        # Regime source: market_regimes (cross-sectional) or feature_vectors.regime_volatility
+        # (per-symbol, calm/elevated/turbulent -- Phase 172 plan 06 repoint).
         # When mr_dict is provided, map each aligned bar_ts to its cross-sectional regime.
         # Bars without a market_regimes entry get None (excluded from regime-stratified IC).
         # cross_sectional feeds _resolve_regime_scope for every non-pooled row this
@@ -2686,7 +2704,8 @@ def _compute_symbol_tf(
             regime_aligned_market = np.array([mr_dict.get(ts) for ts in bar_ts_aligned])
             distinct_regimes = [r for r in set(regime_aligned_market) if r is not None]
         else:
-            # equity_model_enabled=False: fallback to feature_vectors.regime (per-symbol)
+            # equity_model_enabled=False: fallback to feature_vectors.regime_volatility
+            # (per-symbol, calm/elevated/turbulent). Phase 172 plan 06 repoint.
             regime_aligned_market = regime_aligned
             distinct_regimes = [r for r in set(regime_aligned) if r is not None]
 
