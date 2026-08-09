@@ -20,6 +20,14 @@ Alpha must be demonstrated empirically before any ensemble weight is assigned. I
 
 (Shipped and verified in production)
 
+**v3.1 Phase 172 — HMM Regime Volatility-Only Redesign (2026-08-09):**
+- ✓ REQ-1/REQ-2: `feature_vectors.regime_volatility` 8-column family (migration 307), `alpha.hmm_volatility.*` APR keys (reconciled to measured values by migration 308), `regime_volatility` CVR namespace (calm/elevated/turbulent) — `_build_label_map`/`_state_groups_by_vocab` generalized to a vocab parameter, trend path byte-identical — v3.1
+- ✓ REQ-3: wider-scope null-arm control (15m/5m, 30-symbol corpus-derived sample) returned `VERDICT: GO` — `realized_vol` clears the block-reliability gate; shipped config `n_components=3, vol_window=250, vol_of_vol_window=250` — v3.1
+- ✓ REQ-4/REQ-5: single-cell volatility compute+write path wired end to end, then relabeled corpus-wide (9,439,731 rows, 80 symbols, calm/elevated/turbulent only); legacy `regime` column byte-for-byte unchanged (26,791,341 non-NULL before and after) — v3.1
+- ✓ REQ-6: `services/ic_engine.py`'s startup gate and per-symbol stratification source repointed from `feature_vectors.regime` to `regime_volatility`; `alpha.regime.groups`/`dual_write_symbol_hmm`/pooled sentinel confirmed unaffected by written audit — v3.1
+- ✓ REQ-7: scoped `ic_engine.py --refresh` proved the cutover end to end (876 real `feature_ic_scores` rows, XLF/1d/turbulent); `docs/foundation/glossary.md`'s `regime` entry rewritten to stand alone — v3.1
+- ✓ Post-completion code review found and fixed a real bug (WR-01): `hmm_churn`/`hmm_vol_churn` fabricated a label-change event across skipped walk-forward segment gaps; fixed in both the trend and volatility paths with a regression test. `hmm_vol_churn`'s already-relabeled corpus values predate the fix (todo 292, non-blocking — `regime_volatility` itself unaffected) — v3.1
+
 **v3.15 Phase 146 — Empirical Instrument Tag Calibrator (2026-07-17):**
 - ✓ TAG-01: `TagCalibrator` (`services/tag_calibrator.py`) — generic 3-pass measurement engine (measure → run-level BH-FDR → keep/expire/discover with hysteresis) replaces manually-asserted tags with measured OLS factor betas; live dry-run confirmed 11/12 measurable tags now carry real `source='empirical'` rows — v3.15
 - ✓ TAG-03: measurement-contract schema (migration 238: `factor_series`/`measurement_type`/`loading_threshold`/`half_life_days`) makes `tag_vocabulary` self-describing; `definitional` tags (owner-annotated) never entered the calibration loop — v3.15
@@ -374,4 +382,4 @@ This document evolves at phase transitions and milestone boundaries.
 4. Update Context with current state
 
 ---
-*Last updated: 2026-07-23 (Phase 166 complete: Frame/Execution Recalibration — Phase 148's direct follow-on after its Gate 2 execution-proof failure. Diagnosed the stop/target scalar gap, built and scored a scalar and a structural candidate against gate166 (the same frozen five criteria as Gate 2); both baseline and scalar FAIL, structural halted pending Phase 163. Neither promoted; current global scalars remain live default. Part 2 (SMC/swing/fib/anchored-VWAP structural sources) deferred to todo 175, gated on Phases 163-165.)*
+*Last updated: 2026-08-09 (Phase 172 complete: HMM Regime Volatility-Only Redesign — replaced the 5-column composite regime label with a standalone `regime_volatility` built from realized_vol + vol_of_vol only, null-arm-validated at 15m/5m, relabeled corpus-wide, and cut `ic_engine.py`'s stratification over to it. See Validated Requirements above for full detail.)*
