@@ -2719,12 +2719,26 @@ write path), REQ-5 (full-corpus relabel), REQ-6 (ic_engine regime-source cutover
 **Plans:** 7 plans in 5 waves
 
 Plans:
+**Wave 1**
+
 - [ ] 172-01-PLAN.md - null-arm block-reliability control at 15m/5m and wider symbol scope; renders the GO/NO-GO verdict and names the shipped K and window values (wave 1)
 - [ ] 172-02-PLAN.md - migration 307: 8 regime_volatility columns, 4 alpha.hmm_volatility.* APR keys, regime_volatility CVR namespace, plus the upsert and training-matrix exclusions (wave 1)
 - [ ] 172-03-PLAN.md - vocabulary-parametrized _build_label_map/_state_groups_by_vocab and the dedicated 2-column observation-matrix builder (wave 1)
+
+**Wave 2** *(blocked on Wave 1 completion)*
+
 - [ ] 172-04-PLAN.md - walk-forward volatility compute and write path plus the --regime-column dispatch in regime_writer.py (wave 2)
+
+**Wave 3** *(blocked on Wave 2 completion)*
+
 - [ ] 172-05-PLAN.md - APR reconciliation against the measured verdict, column-family-parametrized NULL-out tooling, and the staged full-corpus relabel (wave 3)
+
+**Wave 4** *(blocked on Wave 3 completion)*
+
 - [ ] 172-06-PLAN.md - ic_engine startup gate and per-symbol regime source repointed to regime_volatility, with an audit of the regime-group routing left untouched (wave 4)
+
+**Wave 5** *(blocked on Wave 4 completion)*
+
 - [ ] 172-07-PLAN.md - scoped ic_engine --refresh evidence run, ensemble_trainer stratum-source regression test, and the glossary regime entry rewrite (wave 5)
 
 ---
