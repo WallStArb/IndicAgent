@@ -27,12 +27,19 @@ from unittest.mock import MagicMock
 
 import services.regime_writer as regime_writer_module
 from services.regime_writer import (
+    _LABEL_CALM,
+    _LABEL_ELEVATED,
     _LABEL_RANGING,
     _LABEL_TRENDING_DOWN,
     _LABEL_TRENDING_UP,
+    _LABEL_TURBULENT,
+    _TREND_VOCAB,
+    _VOLATILITY_VOCAB,
     _build_label_map,
     _build_obs_matrix,
     _compute_symbol_tf,
+    _state_groups,
+    _state_groups_by_vocab,
 )
 from tests.unit._hmm_decode_helpers import decode as _decode
 
@@ -435,6 +442,183 @@ def test_build_label_map_exactly_one_trending_up():
     down_count = sum(1 for v in label_map.values() if v == _LABEL_TRENDING_DOWN)
     assert up_count == 1
     assert down_count == 1
+
+
+def test_build_label_map_no_vocab_arg_matches_trend_vocab_k2():
+    """_build_label_map with no vocab argument is byte-identical to explicit _TREND_VOCAB at K=2."""
+    means = np.array([[-0.5], [0.5]])
+    assert _build_label_map(means) == _build_label_map(means, vocab=_TREND_VOCAB)
+    assert sorted(_build_label_map(means).values()) == sorted(
+        [_LABEL_TRENDING_DOWN, _LABEL_TRENDING_UP]
+    )
+
+
+def test_build_label_map_no_vocab_arg_matches_trend_vocab_k3():
+    """_build_label_map with no vocab argument is byte-identical to explicit _TREND_VOCAB at K=3."""
+    means = np.array([[-0.9], [0.0], [0.9]])
+    assert _build_label_map(means) == _build_label_map(means, vocab=_TREND_VOCAB)
+    assert sorted(_build_label_map(means).values()) == sorted(
+        [_LABEL_TRENDING_DOWN, _LABEL_RANGING, _LABEL_TRENDING_UP]
+    )
+
+
+def test_build_label_map_no_vocab_arg_matches_trend_vocab_k4():
+    """_build_label_map with no vocab argument is byte-identical to explicit _TREND_VOCAB at K=4."""
+    means = np.array([[-0.9], [-0.3], [0.3], [0.9]])
+    assert _build_label_map(means) == _build_label_map(means, vocab=_TREND_VOCAB)
+
+
+def test_build_label_map_no_vocab_arg_matches_trend_vocab_k5():
+    """_build_label_map with no vocab argument matches unchanged K=5 trend label set."""
+    means = np.array([[-0.9], [-0.4], [0.0], [0.4], [0.9]])
+    assert _build_label_map(means) == _build_label_map(means, vocab=_TREND_VOCAB)
+    assert sorted(_build_label_map(means).values()) == sorted(
+        [
+            "ranging",
+            "trending_down",
+            "trending_up",
+            "transition_down",
+            "transition_up",
+        ]
+    )
+
+
+def test_build_label_map_no_vocab_arg_matches_trend_vocab_k6():
+    """_build_label_map with no vocab argument is byte-identical to explicit _TREND_VOCAB at K=6.
+
+    K=6 fixture built directly as a means array (not fit) so rank ordering is
+    deterministic. K>5: extremes get low/high, next-inward get low_mid/high_mid, all
+    remaining middle states get mid (ranging) -- matches the K=5 assignment shape with
+    one extra middle (ranging) state.
+    """
+    means = np.array([[-1.0], [-0.5], [-0.1], [0.1], [0.5], [1.0]])
+    assert _build_label_map(means) == _build_label_map(means, vocab=_TREND_VOCAB)
+    result = _build_label_map(means)
+    assert result[0] == _LABEL_TRENDING_DOWN
+    assert result[5] == _LABEL_TRENDING_UP
+    assert result[1] == "transition_down"
+    assert result[4] == "transition_up"
+    assert result[2] == _LABEL_RANGING
+    assert result[3] == _LABEL_RANGING
+
+
+def test_build_label_map_volatility_vocab_k3():
+    """_build_label_map(means, vocab=_VOLATILITY_VOCAB) at K=3 returns exactly one
+    calm (lowest means[:, 0]), one turbulent (highest), and one elevated."""
+    means = np.array([[0.1], [0.5], [0.9]])
+    label_map = _build_label_map(means, vocab=_VOLATILITY_VOCAB)
+    values = sorted(label_map.values())
+    assert values == sorted([_LABEL_CALM, _LABEL_ELEVATED, _LABEL_TURBULENT])
+    calm_state = [k for k, v in label_map.items() if v == _LABEL_CALM][0]
+    turbulent_state = [k for k, v in label_map.items() if v == _LABEL_TURBULENT][0]
+    assert means[calm_state, 0] == means[:, 0].min()
+    assert means[turbulent_state, 0] == means[:, 0].max()
+
+
+def test_build_label_map_volatility_vocab_k2():
+    """_build_label_map(means, vocab=_VOLATILITY_VOCAB) at K=2 returns exactly
+    {calm, turbulent} and raises no KeyError; no elevated is emitted."""
+    means = np.array([[0.1], [0.9]])
+    label_map = _build_label_map(means, vocab=_VOLATILITY_VOCAB)
+    assert sorted(label_map.values()) == sorted([_LABEL_CALM, _LABEL_TURBULENT])
+    assert _LABEL_ELEVATED not in label_map.values()
+
+
+def test_build_label_map_volatility_vocab_k4_raises_value_error():
+    """_build_label_map(means, vocab=_VOLATILITY_VOCAB) at K=4 raises a ValueError
+    naming the missing transition slots, rather than a bare KeyError, because the
+    volatility vocabulary has no transition concept."""
+    means = np.array([[0.1], [0.3], [0.6], [0.9]])
+    with pytest.raises(ValueError) as exc_info:
+        _build_label_map(means, vocab=_VOLATILITY_VOCAB)
+    message = str(exc_info.value)
+    assert "low_mid" in message or "high_mid" in message
+
+
+# ---------------------------------------------------------------------------
+# Tests: _state_groups_by_vocab / _state_groups
+# ---------------------------------------------------------------------------
+
+
+def test_state_groups_by_vocab_trend_k5():
+    """_state_groups_by_vocab returns (low, mid, high) state-index lists, correct
+    for the trend vocab at K=5."""
+    means = np.array([[-0.9], [-0.4], [0.0], [0.4], [0.9]])
+    label_map = _build_label_map(means, vocab=_TREND_VOCAB)
+    low_states, mid_states, high_states = _state_groups_by_vocab(label_map, _TREND_VOCAB)
+
+    assert set(low_states) == {
+        k for k, v in label_map.items() if v in (_LABEL_TRENDING_DOWN, "transition_down")
+    }
+    assert set(high_states) == {
+        k for k, v in label_map.items() if v in (_LABEL_TRENDING_UP, "transition_up")
+    }
+    assert set(mid_states) == {k for k, v in label_map.items() if v == _LABEL_RANGING}
+
+
+def test_state_groups_by_vocab_volatility_k3():
+    """_state_groups_by_vocab returns (low, mid, high) state-index lists, correct
+    for the volatility vocab at K=3 (no low_mid/high_mid slots)."""
+    means = np.array([[0.1], [0.5], [0.9]])
+    label_map = _build_label_map(means, vocab=_VOLATILITY_VOCAB)
+    low_states, mid_states, high_states = _state_groups_by_vocab(label_map, _VOLATILITY_VOCAB)
+
+    assert set(low_states) == {k for k, v in label_map.items() if v == _LABEL_CALM}
+    assert set(high_states) == {k for k, v in label_map.items() if v == _LABEL_TURBULENT}
+    assert set(mid_states) == {k for k, v in label_map.items() if v == _LABEL_ELEVATED}
+
+
+def test_state_groups_by_vocab_volatility_k2():
+    """_state_groups_by_vocab at K=2 volatility vocab has no mid_states."""
+    means = np.array([[0.1], [0.9]])
+    label_map = _build_label_map(means, vocab=_VOLATILITY_VOCAB)
+    low_states, mid_states, high_states = _state_groups_by_vocab(label_map, _VOLATILITY_VOCAB)
+
+    assert mid_states == []
+    assert len(low_states) == 1
+    assert len(high_states) == 1
+
+
+def test_state_groups_still_returns_bullish_ranging_bearish_order():
+    """_state_groups(label_map) still returns (bullish_states, ranging_states,
+    bearish_states) in that exact order, unchanged for every existing caller."""
+    means = np.array([[-0.9], [-0.4], [0.0], [0.4], [0.9]])
+    label_map = _build_label_map(means)
+    bullish_states, ranging_states, bearish_states = _state_groups(label_map)
+
+    assert set(bullish_states) == {
+        k for k, v in label_map.items() if v in (_LABEL_TRENDING_UP, "transition_up")
+    }
+    assert set(bearish_states) == {
+        k for k, v in label_map.items() if v in (_LABEL_TRENDING_DOWN, "transition_down")
+    }
+    assert set(ranging_states) == {k for k, v in label_map.items() if v == _LABEL_RANGING}
+
+
+def test_alpha_history_to_regime_probs_positional_call_unchanged():
+    """_alpha_history_to_regime_probs returns identical values before and after the
+    parameter rename when called positionally (all existing callers pass positionally)."""
+    from services.regime_writer import _alpha_history_to_regime_probs
+
+    alpha_history = np.array(
+        [
+            [0.7, 0.2, 0.1],
+            [0.1, 0.1, 0.8],
+            [0.3, 0.4, 0.3],
+        ]
+    )
+    high_states = [0]
+    mid_states = [1]
+    low_states = [2]
+
+    p_high, p_mid, p_low, prob_val, entropy_val = _alpha_history_to_regime_probs(
+        alpha_history, high_states, mid_states, low_states
+    )
+
+    assert p_high == pytest.approx([0.7, 0.1, 0.3])
+    assert p_mid == pytest.approx([0.2, 0.1, 0.4])
+    assert p_low == pytest.approx([0.1, 0.8, 0.3])
+    assert prob_val == pytest.approx([0.7, 0.8, 0.4])
 
 
 # ---------------------------------------------------------------------------
