@@ -12,9 +12,30 @@ distinct from the existing split-out `tests/unit/test_ic_engine_*.py` files
 (clustering/idempotency/parallelism/stride/vectorized/compute_split), which
 cover services/ic_engine.py's existing runtime behavior. This file is scoped
 specifically to the Renaissance primitive inventory added by this phase.
+
+Also carries new `_assert_prerequisites` coverage (Phase 172 plan 06, Task 1)
+-- this function had no prior test coverage in this file or any of the
+split-out `test_ic_engine_*.py` files. And new `_compute_symbol_tf`
+feature-matrix SQL + `_build_regime_passes` coverage (Phase 172 plan 06,
+Task 2).
 """
 
 from __future__ import annotations
+
+import inspect
+import sys
+from pathlib import Path
+from unittest.mock import MagicMock
+
+import numpy as np
+
+sys.path.insert(0, str(Path(__file__).parents[3]))
+
+from services.ic_engine import (  # noqa: E402
+    _assert_prerequisites,
+    _build_regime_passes,
+    _compute_symbol_tf,
+)
 
 # Canonical 91 Renaissance primitive feature names (mirrors
 # tests/unit/test_feature_factory.py::RENAISSANCE_PRIMITIVE_FIELDS and
@@ -174,3 +195,101 @@ def test_renaissance_primitive_evaluation() -> None:
 
     # No duplicate names (each primitive must evaluate to exactly one query).
     assert len(set(RENAISSANCE_PRIMITIVE_NAMES)) == len(RENAISSANCE_PRIMITIVE_NAMES)
+
+
+def _mock_conn_for_prerequisites(counts: list[int]) -> MagicMock:
+    """Build a mock connection whose cursor().fetchone() yields `counts` in order.
+
+    `_assert_prerequisites` opens a fresh `with conn.cursor() as cur:` block per
+    gate query, so the mock cursor's context-manager protocol must return itself
+    on __enter__, and fetchone() must advance through `counts` one call at a time
+    (feature_vectors count, then the regime/regime_volatility count, then
+    forward_returns count -- in that fixed order).
+    """
+    cur = MagicMock()
+    cur.fetchone.side_effect = [(c,) for c in counts]
+    cur.__enter__ = MagicMock(return_value=cur)
+    cur.__exit__ = MagicMock(return_value=False)
+    conn = MagicMock()
+    conn.cursor.return_value = cur
+    return conn
+
+
+def test_assert_prerequisites_fails_on_volatility_all_null() -> None:
+    """Gate raises RuntimeError naming regime_volatility when that column is all-NULL.
+
+    feature_vectors count is non-zero (gate 1 passes); the second gate's count
+    (now regime_volatility, not legacy regime) is zero -- must raise, and the
+    message must name feature_vectors.regime_volatility and the
+    --regime-column regime_volatility remedy, not the legacy column.
+    """
+    conn = _mock_conn_for_prerequisites([100, 0])
+    try:
+        _assert_prerequisites(conn, tfs=None, equity_model_enabled=True, group_configs=None)
+        raised = False
+    except RuntimeError as exc:
+        raised = True
+        message = str(exc)
+        assert "regime_volatility" in message
+        assert "regime_writer.py --regime-column regime_volatility" in message
+    assert raised, "expected RuntimeError when regime_volatility is all-NULL"
+
+
+def test_assert_prerequisites_passes_when_volatility_populated() -> None:
+    """Gate passes (no raise before the forward_returns check) when the second
+    gate's count (regime_volatility, post-cutover) is non-zero."""
+    conn = _mock_conn_for_prerequisites([100, 50, 200])
+    _assert_prerequisites(conn, tfs=None, equity_model_enabled=True, group_configs=None)
+
+
+def test_compute_symbol_tf_feature_matrix_sql_selects_regime_volatility() -> None:
+    """The per-symbol feature-matrix fv_sql select list must read
+    regime_volatility, not the legacy feature_vectors.regime column.
+
+    Source-inspection test (mirrors Task 1's _assert_prerequisites gate check)
+    rather than standing up the full compute path -- fv_sql is built inline
+    inside _compute_symbol_tf from a live DB connection, and the plan
+    explicitly prefers testing the SQL string over a live-DB integration test
+    here.
+    """
+    source = inspect.getsource(_compute_symbol_tf)
+    assert "SELECT bar_ts, regime_volatility," in source
+    assert "SELECT bar_ts, regime," not in source
+    # No bare `, regime,` select item anywhere in the function body (the
+    # legacy label column must not survive under a different alias either).
+    import re
+
+    assert not re.search(r"SELECT bar_ts,\s*regime\s*,", source)
+
+
+def test_build_regime_passes_symbol_hmm_pass_carries_volatility_labels() -> None:
+    """_build_regime_passes' symbol_hmm pass type is unchanged (Task 2 leaves
+    _resolve_regime_scope's return values alone) but the label array it wraps
+    is regime_aligned -- which Task 2 repoints to carry
+    calm/elevated/turbulent volatility labels once _compute_symbol_tf's fetch
+    is repointed. This test drives the pure helper directly with a
+    volatility-label array and asserts the pass type and distinct labels.
+    """
+    regime_aligned_market = np.array(["breadth_vol_high", "breadth_vol_low", "breadth_vol_high"])
+    distinct_regimes = ["breadth_vol_high", "breadth_vol_low"]
+    regime_aligned = np.array(["calm", "elevated", "turbulent"])
+
+    passes = _build_regime_passes(
+        regime_aligned_market,
+        distinct_regimes,
+        regime_aligned,
+        cross_sectional=True,
+        dual_write_symbol_hmm=True,
+        cluster_regime_conditioned=False,
+        primary_resolved_scope="cross_sectional",
+    )
+
+    assert len(passes) == 2
+    primary_label_array, primary_labels, primary_scope = passes[0]
+    assert primary_scope == "cross_sectional"
+    assert set(primary_labels) == set(distinct_regimes)
+
+    symbol_hmm_label_array, symbol_hmm_labels, symbol_hmm_scope = passes[1]
+    assert symbol_hmm_scope == "symbol_hmm"
+    assert set(symbol_hmm_labels) == {"calm", "elevated", "turbulent"}
+    assert list(symbol_hmm_label_array) == list(regime_aligned)
