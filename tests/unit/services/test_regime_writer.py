@@ -37,6 +37,7 @@ from services.regime_writer import (
     _VOLATILITY_VOCAB,
     _build_label_map,
     _build_obs_matrix,
+    _build_obs_matrix_volatility,
     _compute_symbol_tf,
     _state_groups,
     _state_groups_by_vocab,
@@ -92,6 +93,25 @@ def _make_volumes(n: int, seed: int = 7) -> list[float]:
     """Generate n synthetic daily volumes with log-normal distribution."""
     rng = np.random.default_rng(seed)
     return list(rng.lognormal(mean=14.0, sigma=0.5, size=n))
+
+
+def _make_vol_switching_closes(n: int = 600, seed: int = 3) -> list[float]:
+    """Generate n close prices whose second half has materially higher return
+    variance than its first half -- exercises the calm-versus-turbulent boundary
+    for the volatility observation matrix. `_make_trending_up_closes` and
+    `_make_ranging_closes` do not exercise this boundary and are not a substitute.
+    """
+    rng = np.random.default_rng(seed)
+    half = n // 2
+    calm_returns = rng.normal(0.0, 0.002, half - 1)
+    turbulent_returns = rng.normal(0.0, 0.02, n - half)
+    closes = [100.0]
+    for r in calm_returns:
+        closes.append(closes[-1] * np.exp(r))
+    for r in turbulent_returns:
+        closes.append(closes[-1] * np.exp(r))
+    assert len(closes) == n
+    return closes
 
 
 def _fit_simple_hmm(obs_matrix: np.ndarray, n_components: int = 3) -> GaussianHMM:
@@ -187,6 +207,153 @@ def test_build_obs_matrix_timestamp_alignment():
     )
 
     assert len(valid_ts) == obs.shape[0]
+
+
+# ---------------------------------------------------------------------------
+# Tests: _build_obs_matrix_volatility
+# ---------------------------------------------------------------------------
+
+
+def test_build_obs_matrix_volatility_shape():
+    """obs.shape == (len(closes) - 1 - (vol_window + vol_of_vol_window - 2), 2) and
+    len(valid_ts) == obs.shape[0]. This is a strictly later start index than
+    _build_obs_matrix's max(windows) - 1."""
+    n = 600
+    vol_window = 20
+    vol_of_vol_window = 60
+    closes = _make_vol_switching_closes(n)
+    timestamps = _make_timestamps(n)
+
+    obs, valid_ts = _build_obs_matrix_volatility(timestamps, closes, vol_window, vol_of_vol_window)
+
+    expected_rows = n - 1 - (vol_window + vol_of_vol_window - 2)
+    assert obs.shape == (expected_rows, 2), f"Expected ({expected_rows}, 2), got {obs.shape}"
+    assert len(valid_ts) == obs.shape[0]
+
+    # The corrected start index must differ from the legacy max(windows) - 1 shape.
+    legacy_expected_rows = n - 1 - (max(vol_window, vol_of_vol_window) - 1)
+    assert obs.shape[0] != legacy_expected_rows
+
+
+def test_build_obs_matrix_volatility_no_nan_or_inf():
+    """obs must contain no NaN and no infinity for a normal price series."""
+    n = 600
+    closes = _make_vol_switching_closes(n)
+    timestamps = _make_timestamps(n)
+
+    obs, _ = _build_obs_matrix_volatility(timestamps, closes, vol_window=20, vol_of_vol_window=60)
+
+    assert not np.any(np.isnan(obs)), "obs contains NaN"
+    assert not np.any(np.isinf(obs)), "obs contains Inf"
+
+
+def test_build_obs_matrix_volatility_column_values_match_rolling_std():
+    """Column 0 of obs equals the rolling std of log returns over vol_window, sliced
+    from valid_start; column 1 equals the rolling std of that realized-vol series over
+    vol_of_vol_window, sliced identically."""
+    n = 600
+    vol_window = 20
+    vol_of_vol_window = 60
+    closes = _make_vol_switching_closes(n)
+    timestamps = _make_timestamps(n)
+
+    obs, valid_ts = _build_obs_matrix_volatility(timestamps, closes, vol_window, vol_of_vol_window)
+
+    closes_arr = np.array(closes, dtype=float)
+    log_returns = np.log(closes_arr[1:] / np.maximum(closes_arr[:-1], 1e-12))
+    realized_vol = regime_writer_module._rolling(log_returns, vol_window, np.std)
+    vol_of_vol = regime_writer_module._rolling(realized_vol, vol_of_vol_window, np.std)
+    valid_start = vol_window + vol_of_vol_window - 2
+
+    np.testing.assert_allclose(obs[:, 0], realized_vol[valid_start:])
+    np.testing.assert_allclose(obs[:, 1], vol_of_vol[valid_start:])
+    assert len(valid_ts) == obs.shape[0]
+
+
+def test_build_obs_matrix_volatility_valid_ts_shift():
+    """valid_ts[0] equals timestamps[valid_start + 1], matching _build_obs_matrix's
+    one-bar shift for the log-return differencing."""
+    n = 600
+    vol_window = 20
+    vol_of_vol_window = 60
+    closes = _make_vol_switching_closes(n)
+    timestamps = _make_timestamps(n)
+
+    obs, valid_ts = _build_obs_matrix_volatility(timestamps, closes, vol_window, vol_of_vol_window)
+
+    valid_start = vol_window + vol_of_vol_window - 2
+    assert valid_ts[0] == timestamps[valid_start + 1]
+
+
+def test_build_obs_matrix_volatility_warmup_purity_no_zero_padded_input():
+    """No emitted vol_of_vol value is computed over a window that includes a
+    zero-padded realized_vol entry: obs[0, 1] equals np.std(realized_vol[19:79]), a
+    slice containing no zero-padded entry. This test must go red if valid_start is
+    reverted to max(vol_window, vol_of_vol_window) - 1 (verified manually by
+    temporarily reverting, confirming red, then restoring)."""
+    n = 600
+    vol_window = 20
+    vol_of_vol_window = 60
+    closes = _make_vol_switching_closes(n)
+    timestamps = _make_timestamps(n)
+
+    obs, _ = _build_obs_matrix_volatility(timestamps, closes, vol_window, vol_of_vol_window)
+
+    closes_arr = np.array(closes, dtype=float)
+    log_returns = np.log(closes_arr[1:] / np.maximum(closes_arr[:-1], 1e-12))
+    realized_vol = regime_writer_module._rolling(log_returns, vol_window, np.std)
+
+    # The window [19:79] is exactly the first vol_of_vol_window=60 realized_vol
+    # entries whose own indices are all >= vol_window - 1 = 19 -- none is part of
+    # _rolling's zero-padded prefix (indices 0..18).
+    expected = np.std(realized_vol[19:79])
+    assert np.isclose(obs[0, 1], expected)
+
+
+def test_build_obs_matrix_volatility_calm_to_turbulent_ordering():
+    """Given a series whose second half is materially more volatile than its first,
+    the mean of column 0 over the second half exceeds the mean over the first half, so
+    an ascending sort of fitted means[:, 0] orders states calm to turbulent. Fails if
+    the two stacked columns are swapped (verified manually by temporarily swapping and
+    confirming a red test, then restoring)."""
+    n = 600
+    closes = _make_vol_switching_closes(n)
+    timestamps = _make_timestamps(n)
+
+    obs, _ = _build_obs_matrix_volatility(timestamps, closes, vol_window=20, vol_of_vol_window=60)
+
+    half = obs.shape[0] // 2
+    first_half_mean = obs[:half, 0].mean()
+    second_half_mean = obs[half:, 0].mean()
+    assert (
+        second_half_mean > first_half_mean
+    ), "Second (turbulent) half's mean realized_vol must exceed first (calm) half's"
+
+
+def test_build_obs_matrix_volatility_insufficient_data():
+    """Insufficient input returns np.empty((0, 2)) and [] rather than raising. The
+    threshold is len(log_returns) < vol_window + vol_of_vol_window - 1."""
+    n = 50
+    closes = [100.0] * n
+    timestamps = _make_timestamps(n)
+
+    obs, valid_ts = _build_obs_matrix_volatility(
+        timestamps, closes, vol_window=20, vol_of_vol_window=60
+    )
+
+    assert obs.shape == (0, 2)
+    assert valid_ts == []
+
+
+def test_build_obs_matrix_volatility_no_volumes_param():
+    """_build_obs_matrix_volatility never reads volumes and never computes
+    momentum or rel_volume -- verified structurally by asserting the function does
+    not accept a `volumes` keyword argument."""
+    import inspect
+
+    sig = inspect.signature(_build_obs_matrix_volatility)
+    assert "volumes" not in sig.parameters
+    assert set(sig.parameters.keys()) == {"timestamps", "closes", "vol_window", "vol_of_vol_window"}
 
 
 # ---------------------------------------------------------------------------

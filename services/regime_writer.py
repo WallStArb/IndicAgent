@@ -253,6 +253,78 @@ def _build_obs_matrix(
     return obs, valid_ts
 
 
+def _build_obs_matrix_volatility(
+    timestamps: list,
+    closes: list[float],
+    vol_window: int,
+    vol_of_vol_window: int,
+) -> tuple[np.ndarray, list]:
+    """Build (n_valid, 2) observation matrix from close prices only: [realized_vol,
+    vol_of_vol]. Phase 172's volatility-only regime axis -- the only axis that cleared
+    the null-arm block-reliability control per 171-FINAL-VERDICT.md. Trend
+    (log_return/momentum) and volume (rel_volume) columns are deliberately absent
+    (dead on direct null-arm evidence), not pending.
+
+    Observation dimensions:
+      [0] realized_vol = rolling std of log_returns over vol_window bars.
+                         Column 0 because `_build_label_map` ranks states by
+                         means[:, 0] -- putting vol_of_vol first would give the
+                         emitted labels a different meaning (calm/elevated/turbulent
+                         must order by vol level, not by vol-of-vol).
+      [1] vol_of_vol   = rolling std of realized_vol over vol_of_vol_window bars.
+
+    Built directly from `closes`/`_rolling` rather than by slicing columns [1, 3] out
+    of `_build_obs_matrix`'s 5-column result -- this skips the wasted
+    momentum/rel_volume/log_return compute (rel_volume alone requires a separate
+    rolling-mean-of-log-volume pass) and makes column-index confusion between the two
+    matrices' different semantics impossible. `volumes` is never read.
+
+    valid_start = vol_window + vol_of_vol_window - 2. This DIVERGES from
+    `_build_obs_matrix`'s `max(windows) - 1`: that expression is correct for three
+    columns computed by a single rolling pass over log_returns, but vol_of_vol is a
+    rolling std of realized_vol, which `_rolling` itself zero-pads for its first
+    vol_window - 1 entries. Under `max(windows) - 1`, the first vol_window - 1 emitted
+    vol_of_vol values would be computed over windows that still contain those zeros --
+    warmup artifacts presented as valid observations. `vol_window + vol_of_vol_window -
+    2` is the first index at which the entire vol_of_vol lookback window lies inside
+    real data, so no emitted vol_of_vol value is ever computed over a zero-padded
+    realized_vol entry. At the seeded windows of 20/60 this discards 19 additional bars
+    per cell out of a series of at least 20000 -- immaterial cost, no fabricated-input
+    rows. `_build_obs_matrix` itself is NOT changed to match -- its 26.8M existing
+    rows were produced under its current behavior, and editing it would silently
+    change the meaning of a column this phase deliberately leaves untouched (filed as
+    pending todo 286). Plan 172-01's null-arm gate measures the volatility axis
+    through the composite matrix's columns 1 and 3 and therefore under the legacy
+    start index; the 19-bar difference is not material to a block-reliability
+    statistic computed over tens of thousands of bars, noted here rather than left for
+    a future reader to notice the mismatch.
+
+    Returns (obs_matrix, valid_timestamps). Insufficient input (fewer than
+    vol_window + vol_of_vol_window - 1 log returns) returns
+    (np.empty((0, 2)), []) rather than raising.
+    """
+    closes_arr = np.array(closes, dtype=float)
+
+    log_returns = np.log(closes_arr[1:] / np.maximum(closes_arr[:-1], 1e-12))
+    ts_shifted = timestamps[1:]
+
+    if len(log_returns) < vol_window + vol_of_vol_window - 1:
+        return np.empty((0, 2), dtype=float), []
+
+    realized_vol = _rolling(log_returns, vol_window, np.std)
+    vol_of_vol = _rolling(realized_vol, vol_of_vol_window, np.std)
+
+    valid_start = vol_window + vol_of_vol_window - 2
+    obs = np.column_stack(
+        [
+            realized_vol[valid_start:],
+            vol_of_vol[valid_start:],
+        ]
+    )
+    valid_ts = ts_shifted[valid_start:]
+    return obs, valid_ts
+
+
 def _stationary_distribution(A: np.ndarray) -> np.ndarray:
     """Stationary distribution of transition matrix A (left eigenvector for eigenvalue 1).
 
