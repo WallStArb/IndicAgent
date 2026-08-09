@@ -58,3 +58,9 @@ never been audited.
 
 Related: todo 272 (instrument-tag peer-group coverage auditor) covers adjacent ground and
 these two may want to merge.
+
+**2026-08-08 addendum:** todo 283 ran this exact check (step 1 above) scoped to the 151 symbols
+added in the 2026-08-05/06 universe expansion and found **115/151 (76%) unrouted** — the same
+failure mode at roughly 20x this todo's 5/17 sample. Merge scope with 283 before fixing either;
+283 also flags this todo's PRIORITIES.md placement (filed P3 there despite this file's own P2
+frontmatter) and suggests P1 given the new scale evidence.
