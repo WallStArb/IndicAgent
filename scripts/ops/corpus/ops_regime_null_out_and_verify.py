@@ -324,7 +324,6 @@ def _run_null_out(
 ) -> int:
     manifest = _load_manifest(manifest_path)
     n_failed = 0
-    n_dry_run_updates = 0
 
     if not dry_run:
         _log_compression_state(conn)
@@ -368,7 +367,7 @@ def _run_null_out(
     if dry_run:
         print(  # noqa: T201
             f"\nDRY-RUN SUMMARY: {len(symbols) * len(tfs)} cell(s) planned, "
-            f"{n_dry_run_updates} UPDATE statement(s) issued."
+            "0 UPDATE statement(s) issued."
         )
 
     _logger.info(

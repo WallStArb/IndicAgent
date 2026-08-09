@@ -1099,18 +1099,27 @@ def _compute_symbol_tf_walk_forward(
         )
         return None
 
-    # Churn is a property of the LABEL SEQUENCE, not the fitting mechanism, so it is
-    # computed once on the concatenation of every WRITTEN (non-degenerate) segment's
-    # labels, in bar order -- same _compute_hmm_churn helper the single-fit path
-    # uses, just fed a sequence that may have gaps at skipped-segment boundaries.
-    # Those gaps are exactly where duration/prev_label also reset below, so churn's
-    # own "first bar after a gap has no real predecessor" edge case lines up with
-    # the same discontinuity duration already treats specially.
-    all_written_labels: list[str] = []
-    for seg in segment_results:
-        if not seg["is_degenerate"]:
-            all_written_labels.extend(seg["labels"])
-    churn_values = _compute_hmm_churn(all_written_labels, churn_window)
+    # Churn is a property of the LABEL SEQUENCE, not the fitting mechanism -- same
+    # _compute_hmm_churn helper the single-fit path uses. Computed PER WRITTEN
+    # (non-degenerate) segment, then concatenated, rather than once over the
+    # concatenation of segments' labels: a skipped/degenerate segment can span a
+    # large, temporally-distant gap (walk-forward refit/warmup windows run into
+    # the thousands of bars), so treating the last label before a gap and the
+    # first label after it as adjacent would fabricate a "label change" event at
+    # a boundary where no transition was actually observed. Per-segment
+    # computation gives each post-gap segment's first bar the same "no real
+    # predecessor" treatment _compute_hmm_churn already gives the sequence's own
+    # first bar -- mirroring duration/prev_label's reset below, which this
+    # concatenate-then-compute approach did not actually implement despite an
+    # earlier comment here claiming it did (found in Phase 172 code review, WR-01).
+    written_segment_labels = [seg["labels"] for seg in segment_results if not seg["is_degenerate"]]
+    churn_values = (
+        np.concatenate(
+            [_compute_hmm_churn(labels, churn_window) for labels in written_segment_labels]
+        )
+        if written_segment_labels
+        else np.zeros(0, dtype=float)
+    )
 
     update_rows: list[tuple] = []
     any_written = False
@@ -1256,14 +1265,20 @@ def _compute_symbol_tf_volatility_walk_forward(
         )
         return None
 
-    # Churn is a property of the LABEL SEQUENCE, computed once on the concatenation
-    # of every WRITTEN (non-degenerate) segment's labels, in bar order -- same
-    # _compute_hmm_churn helper the trend path uses.
-    all_written_labels: list[str] = []
-    for seg in segment_results:
-        if not seg["is_degenerate"]:
-            all_written_labels.extend(seg["labels"])
-    churn_values = _compute_hmm_churn(all_written_labels, churn_window)
+    # Churn is a property of the LABEL SEQUENCE -- same _compute_hmm_churn helper
+    # the trend path uses, computed PER WRITTEN (non-degenerate) segment then
+    # concatenated (not once over the concatenation of segments' labels -- see
+    # _compute_symbol_tf_walk_forward's equivalent comment / Phase 172 code
+    # review WR-01 for why treating a cross-gap label pair as adjacent fabricates
+    # a spurious label-change event).
+    written_segment_labels = [seg["labels"] for seg in segment_results if not seg["is_degenerate"]]
+    churn_values = (
+        np.concatenate(
+            [_compute_hmm_churn(labels, churn_window) for labels in written_segment_labels]
+        )
+        if written_segment_labels
+        else np.zeros(0, dtype=float)
+    )
 
     update_rows: list[tuple] = []
     any_written = False
@@ -1339,6 +1354,7 @@ def _hmm_seed_stability_check(
     n_iter: int,
     seeds: list[int],
     full_cov_min_obs: int,
+    vocab: dict[str, str] | None = None,
 ) -> dict:
     """Todo 026's bundled ask: fit `n_components`-state GaussianHMM once per seed in `seeds`
     on the SAME obs_matrix, compare log-likelihood and semantic-label agreement across seeds.
@@ -1351,6 +1367,12 @@ def _hmm_seed_stability_check(
     Labels (not raw state indices) are compared pairwise, since raw indices are not
     comparable across independently-fit models -- `_build_label_map` normalizes each seed's
     own fit onto the same fixed vocabulary first.
+
+    `vocab` defaults to None, which `_build_label_map` resolves to `_TREND_VOCAB` (existing
+    behavior, unchanged). Pass `_VOLATILITY_VOCAB` to run this same diagnostic against a
+    volatility-axis obs_matrix (Phase 172 code review WR-02) -- without this, a future caller
+    pointing this diagnostic at a volatility fit would get labels silently drawn from the
+    wrong vocabulary.
 
     Returns:
         {
@@ -1376,7 +1398,7 @@ def _hmm_seed_stability_check(
         model.fit(obs_matrix)
         log_likelihoods[seed] = float(model.score(obs_matrix))
 
-        label_map = _build_label_map(model.means_)
+        label_map = _build_label_map(model.means_, vocab=vocab)
         pi0 = _stationary_distribution(model.transmat_)
         log_emit = _compute_log_emit(obs_matrix, model.means_, model.covars_, eff_cov_type)
         log_A = np.log(np.maximum(model.transmat_, 1e-300))

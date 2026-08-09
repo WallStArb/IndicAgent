@@ -1742,6 +1742,80 @@ def test_compute_symbol_tf_walk_forward_duration_resets_after_skipped_segment():
     assert durations_by_ts[third_segment_first_ts] == 1.0
 
 
+def test_compute_symbol_tf_walk_forward_churn_does_not_fabricate_change_across_skipped_gap():
+    """Churn must not fabricate a label-change event across a skipped-segment gap
+    (Phase 172 code review WR-01). Segment 1 ends in 'trending_up', segment 2 is
+    forced degenerate (skipped, unwritten), segment 3 begins in 'trending_down' --
+    a real label difference across the gap that the OLD concatenate-then-compute
+    approach would have recorded as a spurious label-change at segment 3's first
+    bar (since _compute_hmm_churn saw segment 1's last label and segment 3's first
+    label as direct neighbors). The fix computes churn per written segment, so
+    segment 3's first bar has no predecessor by construction and must be exactly 0.0,
+    regardless of what segment 1 ended with."""
+    from unittest.mock import patch
+
+    import services.regime_writer as regime_writer_module
+    from services.regime_writer import _compute_symbol_tf_walk_forward
+
+    n = 900
+    closes = _make_ranging_closes(n)
+    volumes = _make_volumes(n)
+    timestamps = _make_timestamps(n)
+    conn = _make_mock_conn(closes, volumes, timestamps)
+
+    def _seg(seg_start, seg_end, label, is_degenerate, gate_info=None):
+        width = seg_end - seg_start
+        return {
+            "seg_start": seg_start,
+            "seg_end": seg_end,
+            "labels": [label] * width,
+            "p_up": [0.5] * width,
+            "p_ranging": [0.3] * width,
+            "p_down": [0.2] * width,
+            "prob_val": [0.5] * width,
+            "entropy_val": [0.5] * width,
+            "converged": True,
+            "is_degenerate": is_degenerate,
+            "gate_info": gate_info or {},
+        }
+
+    fake_segments = [
+        _seg(0, 3, "trending_up", is_degenerate=False),
+        _seg(3, 6, "ranging", is_degenerate=True, gate_info={"reason": "forced_for_test"}),
+        _seg(6, 9, "trending_down", is_degenerate=False),
+    ]
+
+    with patch.object(regime_writer_module, "_walk_forward_hmm_full", return_value=fake_segments):
+        result = _compute_symbol_tf_walk_forward(
+            conn=conn,
+            symbol="SPY",
+            tf="1h",
+            n_components=3,
+            vol_window=20,
+            n_iter=50,
+            hmm_random_state=42,
+            momentum_window=20,
+            vol_of_vol_window=20,
+            refit_every_bars=200,
+            initial_warmup_bars=0,
+            covariance_type="diag",
+            full_cov_min_obs=0,
+            min_state_occupation=0.0,
+        )
+
+    assert result is not None
+    update_rows, _converged, _heldout_ll = result
+    # update_rows column order: (label, p_up, p_ranging, p_down, prob_val,
+    # entropy_val, duration, hmm_churn, symbol, tf, ts) -- churn is index 7.
+    # Row 0 is segment 1's first bar (index 0 of update_rows); row 3 is segment
+    # 3's first written bar (segment 2 contributed nothing).
+    assert update_rows[0][7] == 0.0, "first bar of the whole sequence has no predecessor"
+    assert update_rows[3][7] == 0.0, (
+        "first bar after a skipped segment must show zero churn (no real "
+        "predecessor), not a fabricated change from the pre-gap segment's last label"
+    )
+
+
 def test_compute_symbol_tf_walk_forward_returns_none_when_all_segments_degenerate():
     """If every segment is degenerate, the function returns None (same skip marker
     as every other 'nothing trustworthy to write' case in this file), not an
