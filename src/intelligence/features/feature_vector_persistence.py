@@ -517,9 +517,30 @@ REGIME_WRITER_OWNED_COLUMN_NAMES: tuple[str, ...] = (
 #   already, so exclusion vs inclusion here is a no-op in practice. Left excluded for
 #   symmetry with regime; if this field ever becomes genuinely computed/contested,
 #   revisit.
-_EXTERNALLY_OWNED_COLUMN_NAMES = frozenset(REGIME_WRITER_OWNED_COLUMN_NAMES) | {
-    "regime_label_source"
-}
+# Single source of truth for regime_writer.py's regime_volatility column ownership (Ring 1,
+# this module, same rule as REGIME_WRITER_OWNED_COLUMN_NAMES above: services/regime_writer.py,
+# Ring 2, imports FROM here, never the reverse). This family is written by the volatility
+# labeling path (Phase 172) via one bulk UPDATE keyed on (symbol, tf, bar_ts) -- the same
+# atomic-bulk-update shape as the existing regime family, just a separate column set with no
+# shared writer. Omitting it from the exclusion set below would let a --refresh recompute NULL
+# the whole family corpus-wide, exactly the same failure REGIME_WRITER_OWNED_COLUMN_NAMES'
+# comment block documents for `regime` on 2026-07-30.
+REGIME_VOLATILITY_WRITER_OWNED_COLUMN_NAMES: tuple[str, ...] = (
+    "regime_volatility",
+    "hmm_vol_prob_calm",
+    "hmm_vol_prob_elevated",
+    "hmm_vol_prob_turbulent",
+    "hmm_vol_regime_prob",
+    "hmm_vol_entropy",
+    "hmm_vol_duration",
+    "hmm_vol_churn",
+)
+
+_EXTERNALLY_OWNED_COLUMN_NAMES = (
+    frozenset(REGIME_WRITER_OWNED_COLUMN_NAMES)
+    | frozenset(REGIME_VOLATILITY_WRITER_OWNED_COLUMN_NAMES)
+    | {"regime_label_source"}
+)
 _UPDATE_SET_SQL = ",\n    ".join(
     f"{name} = EXCLUDED.{name}"
     for name in _ALL_COLUMN_NAMES

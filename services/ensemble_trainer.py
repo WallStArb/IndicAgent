@@ -72,6 +72,9 @@ from src.intelligence.ensemble import (
     mean_variance_weights,
     select_features_per_stratum,
 )
+from src.intelligence.features.feature_vector_persistence import (
+    REGIME_VOLATILITY_WRITER_OWNED_COLUMN_NAMES,
+)
 from src.intelligence.schemas import FeatureVector
 from src.observability.corpus_manifest import CorpusManifest
 from src.observability.metrics import (
@@ -447,6 +450,14 @@ async def _get_feature_columns(conn: asyncpg.Connection) -> list[str]:
             "hmm_regime_prob",
             "hmm_entropy",
             "hmm_duration",
+            # regime_volatility family (Phase 172): same reasoning as the 3
+            # hmm_regime_prob/hmm_entropy/hmm_duration columns above -- the
+            # volatility walk-forward labeling path writes nothing for warmup
+            # prefix bars or degenerate segments, so a NULL here is not "no
+            # signal" and must not reach the 0.0 imputation below. Imported
+            # from feature_vector_persistence rather than re-typed so this
+            # list and the Ring 1 ownership tuple cannot drift apart.
+            *REGIME_VOLATILITY_WRITER_OWNED_COLUMN_NAMES,
         }
     )
     rows = await conn.fetch("""
