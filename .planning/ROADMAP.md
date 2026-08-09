@@ -2716,7 +2716,7 @@ functions), REQ-3 (wider-scope null-arm GO/NO-GO gate), REQ-4 (single-cell volat
 write path), REQ-5 (full-corpus relabel), REQ-6 (ic_engine regime-source cutover), REQ-7
 (downstream re-verification and glossary)
 **Depends on:** Phase 171
-**Plans:** 3/7 plans executed
+**Plans:** 4/7 plans executed
 
 Plans:
 **Wave 1**
@@ -2727,7 +2727,7 @@ Plans:
 
 **Wave 2** *(blocked on Wave 1 completion)*
 
-- [ ] 172-04-PLAN.md - walk-forward volatility compute and write path plus the --regime-column dispatch in regime_writer.py (wave 2)
+- [x] 172-04-PLAN.md - walk-forward volatility compute and write path plus the --regime-column dispatch in regime_writer.py (wave 2)
 
 **Wave 3** *(blocked on Wave 2 completion)*
 
