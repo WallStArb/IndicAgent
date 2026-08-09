@@ -2384,12 +2384,12 @@ def test_run_symbol_worker_dispatches_on_walk_forward_flag(monkeypatch):
     monkeypatch.setattr(regime_writer_module, "_compute_symbol_tf", _sf_sentinel)
     monkeypatch.setattr(regime_writer_module.psycopg, "connect", lambda *a, **kw: MagicMock())
 
-    # Exact positional order from _run_symbol_worker's docstring (lines 1499-1519):
-    # symbol, tfs, dsn, n_components, vol_window, momentum_window, vol_of_vol_window,
-    # n_iter, hmm_random_state, covariance_type, min_hold_bars, heldout_fraction,
+    # Exact positional order from _run_symbol_worker's docstring: symbol, tfs, dsn,
+    # n_components, vol_window, momentum_window, vol_of_vol_window, n_iter,
+    # hmm_random_state, covariance_type, min_hold_bars, heldout_fraction,
     # full_cov_min_obs, min_state_occupation, churn_window, min_obs_factor, n_restarts,
-    # walk_forward_enabled, walk_forward_params -- an out-of-order tuple silently
-    # misassigns rather than raising, so this order must match exactly.
+    # walk_forward_enabled, walk_forward_params, regime_column -- an out-of-order
+    # tuple silently misassigns rather than raising, so this order must match exactly.
     base_args = (
         "SPY",  # symbol
         ["1h"],  # tfs
@@ -2413,7 +2413,9 @@ def test_run_symbol_worker_dispatches_on_walk_forward_flag(monkeypatch):
 
     calls["walk_forward"] = 0
     calls["single_fit"] = 0
-    result_true = regime_writer_module._run_symbol_worker(base_args + (True, walk_forward_params))
+    result_true = regime_writer_module._run_symbol_worker(
+        base_args + (True, walk_forward_params, "regime")
+    )
     assert calls["walk_forward"] == 1, "walk-forward sentinel must be called when flag is True"
     assert calls["single_fit"] == 0, "single-fit sentinel must NOT be called when flag is True"
     assert result_true["error"] is None
@@ -2421,8 +2423,223 @@ def test_run_symbol_worker_dispatches_on_walk_forward_flag(monkeypatch):
 
     calls["walk_forward"] = 0
     calls["single_fit"] = 0
-    result_false = regime_writer_module._run_symbol_worker(base_args + (False, walk_forward_params))
+    result_false = regime_writer_module._run_symbol_worker(
+        base_args + (False, walk_forward_params, "regime")
+    )
     assert calls["walk_forward"] == 0, "walk-forward sentinel must NOT be called when flag is False"
     assert calls["single_fit"] == 1, "single-fit sentinel must be called when flag is False"
     assert result_false["error"] is None
     assert result_false["results"][0]["tf"] == "1h"
+
+
+# ---------------------------------------------------------------------------
+# Tests: --regime-column dispatch, discovery, args-tuple arity pin
+# (Phase 172, plan 172-04, Task 3)
+# ---------------------------------------------------------------------------
+
+
+def _make_mock_conn_for_discover(rows):
+    """Build a mock connection whose cursor().fetchall() returns `rows` and whose
+    .execute() call is captured for SQL-text assertions."""
+    cursor_mock = MagicMock()
+    cursor_mock.__enter__ = lambda s: s
+    cursor_mock.__exit__ = MagicMock(return_value=False)
+    cursor_mock.fetchall.return_value = rows
+    conn_mock = MagicMock()
+    conn_mock.cursor.return_value = cursor_mock
+    return conn_mock, cursor_mock
+
+
+def test_discover_symbols_default_label_column_is_regime():
+    """Default call (no label_column) must reproduce today's behavior exactly:
+    queries `regime IS NULL`, defaults to label_column='regime'."""
+    import inspect
+
+    from services.regime_writer import _discover_symbols
+
+    p = inspect.signature(_discover_symbols).parameters
+    assert "label_column" in p
+    assert p["label_column"].default == "regime"
+
+    conn, cursor_mock = _make_mock_conn_for_discover([("SPY",), ("TLT",)])
+    symbols = _discover_symbols(conn)
+
+    assert symbols == ["SPY", "TLT"]
+    executed_sql = cursor_mock.execute.call_args[0][0]
+    assert "regime IS NULL" in executed_sql
+
+
+def test_discover_symbols_volatility_label_column_queries_regime_volatility():
+    """label_column='regime_volatility' must issue SQL containing
+    'regime_volatility IS NULL' and NOT 'regime IS NULL' -- querying the legacy
+    column for a volatility run would silently skip every symbol whose `regime`
+    column happens to already be fully populated."""
+    from services.regime_writer import _discover_symbols
+
+    conn, cursor_mock = _make_mock_conn_for_discover([("SPY",)])
+    symbols = _discover_symbols(conn, label_column="regime_volatility")
+
+    assert symbols == ["SPY"]
+    executed_sql = cursor_mock.execute.call_args[0][0]
+    assert "regime_volatility IS NULL" in executed_sql
+    assert "regime IS NULL" not in executed_sql
+
+
+def test_discover_symbols_rejects_unknown_label_column():
+    """An unrecognized label_column must raise ValueError before any query is built --
+    defense-in-depth even though this parameter is internally sourced."""
+    from services.regime_writer import _discover_symbols
+
+    conn, _cursor_mock = _make_mock_conn_for_discover([])
+
+    with pytest.raises(ValueError):
+        _discover_symbols(conn, label_column="bogus")
+
+
+def test_run_symbol_worker_dispatches_to_volatility_compute(monkeypatch):
+    """regime_column='regime_volatility' must call
+    _compute_symbol_tf_volatility_walk_forward and call NEITHER _compute_symbol_tf NOR
+    _compute_symbol_tf_walk_forward -- regardless of walk_forward_enabled's value,
+    since the volatility axis is walk-forward-only unconditionally."""
+    calls = {"volatility": 0, "walk_forward": 0, "single_fit": 0}
+
+    def _vol_sentinel(**kwargs):
+        calls["volatility"] += 1
+        return ([], True, float("nan"))
+
+    def _wf_sentinel(**kwargs):
+        calls["walk_forward"] += 1
+        return ([], True, float("nan"))
+
+    def _sf_sentinel(**kwargs):
+        calls["single_fit"] += 1
+        return ([], True, float("nan"))
+
+    monkeypatch.setattr(
+        regime_writer_module, "_compute_symbol_tf_volatility_walk_forward", _vol_sentinel
+    )
+    monkeypatch.setattr(regime_writer_module, "_compute_symbol_tf_walk_forward", _wf_sentinel)
+    monkeypatch.setattr(regime_writer_module, "_compute_symbol_tf", _sf_sentinel)
+    monkeypatch.setattr(regime_writer_module.psycopg, "connect", lambda *a, **kw: MagicMock())
+
+    base_args = (
+        "SPY",
+        ["1h"],
+        "postgresql://fake",
+        3,
+        20,
+        20,
+        20,
+        50,
+        42,
+        "diag",
+        3,
+        0.2,
+        0,
+        0.0,
+        10,
+        20,
+        1,
+    )
+    walk_forward_params = {"1h": (200, 300)}
+
+    # walk_forward_enabled=False here deliberately -- if the volatility branch were
+    # gated behind walk_forward_enabled instead of checked first, this would wrongly
+    # dispatch to the single-fit path.
+    result = regime_writer_module._run_symbol_worker(
+        base_args + (False, walk_forward_params, "regime_volatility")
+    )
+
+    assert calls["volatility"] == 1
+    assert calls["walk_forward"] == 0
+    assert calls["single_fit"] == 0
+    assert result["error"] is None
+    assert result["results"][0]["tf"] == "1h"
+
+
+def test_run_symbol_worker_args_tuple_arity_and_regime_column_position(monkeypatch):
+    """The worker args tuple must be exactly 20 elements with regime_column at
+    index 19 -- pinned so a future insertion elsewhere in the tuple fails the suite
+    instead of silently mis-binding parameters across the ProcessPoolExecutor
+    boundary. Truncating to 19 elements must raise ValueError, not silently drop
+    regime_column and default to something."""
+    monkeypatch.setattr(regime_writer_module.psycopg, "connect", lambda *a, **kw: MagicMock())
+    monkeypatch.setattr(
+        regime_writer_module,
+        "_compute_symbol_tf_volatility_walk_forward",
+        lambda **kw: ([], True, float("nan")),
+    )
+    monkeypatch.setattr(
+        regime_writer_module,
+        "_compute_symbol_tf_walk_forward",
+        lambda **kw: ([], True, float("nan")),
+    )
+    monkeypatch.setattr(
+        regime_writer_module, "_compute_symbol_tf", lambda **kw: ([], True, float("nan"))
+    )
+
+    base_args = (
+        "SPY",
+        ["1h"],
+        "postgresql://fake",
+        3,
+        20,
+        20,
+        20,
+        50,
+        42,
+        "diag",
+        3,
+        0.2,
+        0,
+        0.0,
+        10,
+        20,
+        1,
+    )
+    walk_forward_params = {"1h": (200, 300)}
+
+    args_volatility = base_args + (False, walk_forward_params, "regime_volatility")
+    args_regime = base_args + (False, walk_forward_params, "regime")
+
+    assert len(args_volatility) == 20
+    assert args_volatility[19] == "regime_volatility"
+    assert len(args_regime) == 20
+    assert args_regime[19] == "regime"
+
+    # Both full-length tuples must actually run without error.
+    result_vol = regime_writer_module._run_symbol_worker(args_volatility)
+    assert result_vol["error"] is None
+    result_regime = regime_writer_module._run_symbol_worker(args_regime)
+    assert result_regime["error"] is None
+
+    with pytest.raises(ValueError):
+        regime_writer_module._run_symbol_worker(args_volatility[:19])
+
+
+def test_main_regime_volatility_no_walk_forward_exits_nonzero():
+    """--regime-column regime_volatility --no-walk-forward must exit non-zero with a
+    message naming 'walk-forward' -- the volatility axis is walk-forward-only by
+    design, since the column has no legacy corpus to preserve compatibility with."""
+    import subprocess
+    import sys
+
+    result = subprocess.run(
+        [
+            sys.executable,
+            "services/regime_writer.py",
+            "--regime-column",
+            "regime_volatility",
+            "--no-walk-forward",
+            "--symbols",
+            "SPY",
+            "--tf",
+            "1d",
+        ],
+        capture_output=True,
+        text=True,
+        cwd=str(_project_root),
+    )
+
+    assert result.returncode != 0
+    assert "walk-forward" in (result.stderr + result.stdout).lower()
