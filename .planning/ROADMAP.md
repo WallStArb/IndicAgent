@@ -2716,7 +2716,7 @@ functions), REQ-3 (wider-scope null-arm GO/NO-GO gate), REQ-4 (single-cell volat
 write path), REQ-5 (full-corpus relabel), REQ-6 (ic_engine regime-source cutover), REQ-7
 (downstream re-verification and glossary)
 **Depends on:** Phase 171
-**Plans:** 6/7 plans executed
+**Plans:** 7/7 plans complete
 
 Plans:
 **Wave 1**
@@ -2739,7 +2739,7 @@ Plans:
 
 **Wave 5** *(blocked on Wave 4 completion)*
 
-- [ ] 172-07-PLAN.md - scoped ic_engine --refresh evidence run, ensemble_trainer stratum-source regression test, and the glossary regime entry rewrite (wave 5)
+- [x] 172-07-PLAN.md - scoped ic_engine --refresh evidence run, ensemble_trainer stratum-source regression test, and the glossary regime entry rewrite (wave 5)
 
 ---
 
