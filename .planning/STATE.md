@@ -416,7 +416,19 @@ ON CONFLICT (symbol, tf) DO UPDATE SET fetch_complete = true;
   `VERDICT: GO`; 172-06 `ic_engine.py` cutover, wave 4; 172-07 downstream re-verification +
   glossary rewrite, wave 5). Ships `regime_volatility` alongside the legacy `regime` column
   (phased cutover, not a swap) -- verified by gsd-plan-checker, 7/7 REQ IDs covered 1:1, no
-  file-ownership races. Ready to execute -- run `/gsd-execute-phase 172` next.
+  file-ownership races. **Cross-AI reviewed 2026-08-09 (Codex + Antigravity, `172-REVIEWS.md`);
+  8 findings triaged, 6 incorporated as surgical plan edits, waves/dependencies/file lists
+  unchanged.** Substantive changes: 172-03's volatility observation matrix now starts at
+  `vol_window + vol_of_vol_window - 2` instead of the composite builder's `max(windows) - 1`,
+  eliminating a nested-rolling warmup artifact that left zero-padded `realized_vol` inside the
+  first emitted `vol_of_vol` values (the legacy `_build_obs_matrix` keeps its behavior, filed as
+  todo 286); 172-01 gained a fully deterministic six-step symbol-selection rule with a
+  run-it-twice reproducibility check; 172-06 gained an explicit wave 3 to wave 4 precondition
+  (zero failed cells plus a re-run PASS provenance banner) and a mechanical `VINTAGE DISJOINT`
+  set-intersection check replacing an eyeballed grouped-count table; 172-04 gained an args-tuple
+  arity and position pin; 172-07's scoped refresh widened to four cells across multiple asset
+  classes and is now labeled a smoke test with full-scope verification tracked as todo 285.
+  Ready to execute -- run `/gsd-execute-phase 172` next.
 
 - Phase 169 (Symbol State Query Layer): added 2026-07-31. Scoped through extensive same-session
   design work (rejected a predictive composite score, an independent Opus review that corrected
