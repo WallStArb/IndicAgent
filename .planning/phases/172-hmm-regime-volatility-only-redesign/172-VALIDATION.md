@@ -1,9 +1,9 @@
 ---
 phase: 172
 slug: hmm-regime-volatility-only-redesign
-status: draft
-nyquist_compliant: false
-wave_0_complete: false
+status: approved
+nyquist_compliant: true
+wave_0_complete: true
 created: 2026-08-08
 ---
 
@@ -74,11 +74,12 @@ Filled in by the planner once tasks exist — mapped from the Phase Requirements
 
 ## Validation Sign-Off
 
-- [ ] All tasks have `<automated>` verify or Wave 0 dependencies
-- [ ] Sampling continuity: no 3 consecutive tasks without automated verify
-- [ ] Wave 0 covers all MISSING references
-- [ ] No watch-mode flags
-- [ ] Feedback latency acceptable (seconds, not minutes, for the automated path)
-- [ ] `nyquist_compliant: true` set in frontmatter
+- [x] All tasks have `<automated>` verify or Wave 0 dependencies — confirmed by gsd-plan-checker
+  across all 19 tasks in the 7 finalized plans (172-01 through 172-07)
+- [x] Sampling continuity: no 3 consecutive tasks without automated verify
+- [x] Wave 0 covers all MISSING references — no MISSING references found
+- [x] No watch-mode flags
+- [x] Feedback latency acceptable (seconds, not minutes, for the automated path)
+- [x] `nyquist_compliant: true` set in frontmatter
 
-**Approval:** pending
+**Approval:** approved 2026-08-08 (gsd-plan-checker VERIFICATION PASSED, 7/7 plans, 7/7 REQ IDs covered 1:1)

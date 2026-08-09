@@ -3,7 +3,7 @@ gsd_state_version: 1.0
 milestone: v3.1
 milestone_name: AlphaEngine Validation + Alpha Scoring
 status: blocked
-stopped_at: Phase 171 investigation complete -- volatility-only redesign validated, corpus rollout (171-06/07) withdrawn, Phase 172 scoped (not yet planned)
+stopped_at: Phase 172 planned (7 plans, 5 waves) -- ready to execute via /gsd-execute-phase 172
 last_updated: "2026-08-08T22:45:00.000Z"
 progress:
   total_phases: 12
@@ -409,7 +409,14 @@ ON CONFLICT (symbol, tf) DO UPDATE SET fetch_complete = true;
   verdict. Replaces `regime` (5-column composite, trend-flavored labels) with `regime_volatility`
   (2-column: `realized_vol` + `vol_of_vol`, K=2/K=3, honest label vocabulary). Reuses the
   already-built walk-forward fitting fix unchanged, pointed at the smaller observation vector.
-  Depends on Phase 171 (complete). Not yet planned -- run `/gsd-plan-phase 172` next.
+  Depends on Phase 171 (complete). **Planned 2026-08-08/09: 7 plans across 5 waves**
+  (172-01 wider-scope null-arm GO/NO-GO gate, 172-02 schema/APR/CVR foundation, 172-03
+  vocabulary-parametrized pure functions -- all wave 1, no deps; 172-04 compute+write path,
+  wave 2; 172-05 gated full-corpus relabel, wave 3, hard-stops unless 172-01 emits a literal
+  `VERDICT: GO`; 172-06 `ic_engine.py` cutover, wave 4; 172-07 downstream re-verification +
+  glossary rewrite, wave 5). Ships `regime_volatility` alongside the legacy `regime` column
+  (phased cutover, not a swap) -- verified by gsd-plan-checker, 7/7 REQ IDs covered 1:1, no
+  file-ownership races. Ready to execute -- run `/gsd-execute-phase 172` next.
 
 - Phase 169 (Symbol State Query Layer): added 2026-07-31. Scoped through extensive same-session
   design work (rejected a predictive composite score, an independent Opus review that corrected
