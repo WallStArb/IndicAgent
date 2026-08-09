@@ -23,11 +23,20 @@ Three modes, one checked-in command:
                                genuinely unlabeled (no stale pre-fix value survived) and write a
                                machine-readable provenance report.
 
+Phase 172 plan 05 generalizes all three modes to a `--column-family` argument
+(`regime` | `regime_volatility`), so the same tool covers both the legacy trend-flavored
+`regime` column family and the new volatility-only `regime_volatility` family without a second,
+less-tested tool. `--column-family` defaults to `regime`; every command that omits the flag
+produces byte-identical SQL and behavior to before this generalization. The two families never
+share a manifest or provenance-report path -- a volatility run's `verified_null` manifest entries
+must never be able to mask a legacy cell that was never touched, and vice versa.
+
 Safety, matching this project's write-path discipline (CLAUDE.md's worker-pool rule, DAG
 Invariant 3): a single serial psycopg connection in the main process, never a worker pool. Never
 runs against an implicit all-symbols scope -- `--symbols` is required, because
 `_discover_symbols()` in regime_writer.py deliberately skips already-labeled symbols, which is
-exactly the population this script exists to touch.
+exactly the population this script exists to touch. This applies identically to both column
+families.
 
 Usage:
     python scripts/ops/corpus/ops_regime_null_out_and_verify.py --symbols SPY QQQ --tf 1h 1d
@@ -36,6 +45,8 @@ Usage:
         --mode verify-post-null
     python scripts/ops/corpus/ops_regime_null_out_and_verify.py --symbols SPY --tf 1d \
         --mode verify-post-relabel
+    python scripts/ops/corpus/ops_regime_null_out_and_verify.py --symbols SPY --tf 1d \
+        --column-family regime_volatility --mode verify-post-relabel
 """
 
 from __future__ import annotations
@@ -44,6 +55,7 @@ import argparse
 import json
 import sys
 import time
+from dataclasses import dataclass
 from datetime import datetime
 from pathlib import Path
 from typing import Any
@@ -57,6 +69,7 @@ from services.regime_writer import _WALK_FORWARD_DEFAULT_PARAMS
 from src.config.settings import Settings
 from src.core.service_utils import setup_service_logging
 from src.intelligence.features.feature_vector_persistence import (
+    REGIME_VOLATILITY_WRITER_OWNED_COLUMN_NAMES,
     REGIME_WRITER_OWNED_COLUMN_NAMES,
 )
 from src.observability.metrics import JOB_COMPLETED_TOTAL, flush_and_shutdown_metrics
@@ -80,28 +93,115 @@ _STATUS_IN_PROGRESS = "in_progress"
 _STATUS_VERIFIED_NULL = "verified_null"
 _STATUS_FAILED = "failed"
 
-# Built from the imported ownership tuple -- never hand-typed, per this project's own
-# already-documented column-list-drift incident (feature_vector_persistence.py's docstring).
-_SET_NULL_CLAUSE_SQL = ",\n    ".join(f"{c} = NULL" for c in REGIME_WRITER_OWNED_COLUMN_NAMES)
-_NULL_OUT_SQL = (
-    f"UPDATE feature_vectors SET\n    {_SET_NULL_CLAUSE_SQL}\nWHERE symbol = %s AND tf = %s"
-)
 
-_ANY_OWNED_NONNULL_SQL = (
-    "SELECT count(*) FROM feature_vectors WHERE symbol = %s AND tf = %s AND ("
-    + " OR ".join(f"{c} IS NOT NULL" for c in REGIME_WRITER_OWNED_COLUMN_NAMES)
-    + ")"
-)
+# ---------------------------------------------------------------------------
+# Column-family registry -- Phase 172 plan 05
+# ---------------------------------------------------------------------------
+#
+# Both families' owned-column tuples are imported from feature_vector_persistence.py, never
+# hand-typed here, per this project's own already-documented column-list-drift incident (see
+# that module's docstring). A separate manifest path and provenance-report path per family is
+# the point, not an implementation detail: a shared manifest would let a volatility run's
+# verified_null entries mask a legacy cell that was never touched, and the reverse.
 
-_PRE_NULL_LABELED_SQL = (
-    "SELECT count(*) FROM feature_vectors WHERE symbol = %s AND tf = %s AND regime IS NOT NULL"
-)
 
-_LABELED_COUNT_AND_MIN_TS_SQL = (
-    "SELECT count(*) FILTER (WHERE regime IS NOT NULL), "
-    "min(bar_ts) FILTER (WHERE regime IS NOT NULL) "
-    "FROM feature_vectors WHERE symbol = %s AND tf = %s"
-)
+@dataclass(frozen=True)
+class _ColumnFamily:
+    name: str
+    owned_columns: tuple[str, ...]
+    label_column: str
+    default_manifest_path: str
+    default_provenance_report_path: Path
+
+
+_FAMILY_REGIME = "regime"
+_FAMILY_REGIME_VOLATILITY = "regime_volatility"
+_DEFAULT_COLUMN_FAMILY = _FAMILY_REGIME
+
+_COLUMN_FAMILIES: dict[str, _ColumnFamily] = {
+    _FAMILY_REGIME: _ColumnFamily(
+        name=_FAMILY_REGIME,
+        owned_columns=REGIME_WRITER_OWNED_COLUMN_NAMES,
+        label_column="regime",
+        default_manifest_path=_DEFAULT_MANIFEST_PATH,
+        default_provenance_report_path=_PROVENANCE_REPORT_PATH,
+    ),
+    _FAMILY_REGIME_VOLATILITY: _ColumnFamily(
+        name=_FAMILY_REGIME_VOLATILITY,
+        owned_columns=REGIME_VOLATILITY_WRITER_OWNED_COLUMN_NAMES,
+        label_column="regime_volatility",
+        default_manifest_path="cache/regime_volatility_null_out_manifest.json",
+        default_provenance_report_path=Path(
+            "cache/regime_volatility_relabel_provenance_report.json"
+        ),
+    ),
+}
+
+_DEFAULT_COLUMN_FAMILY_OBJ = _COLUMN_FAMILIES[_DEFAULT_COLUMN_FAMILY]
+
+_VALID_LABEL_COLUMNS = frozenset(family.label_column for family in _COLUMN_FAMILIES.values())
+
+
+def _validate_label_column(label_column: str) -> None:
+    """Defense-in-depth: re-validate against the family mapping right before SQL
+    interpolation, even though this script's only caller path (main(), via an
+    argparse choices=-constrained flag) can never pass an untrusted value. Same
+    pattern as regime_writer.py's _discover_symbols(label_column=) (plan 172-04)."""
+    if label_column not in _VALID_LABEL_COLUMNS:
+        raise ValueError(
+            f"invalid label column {label_column!r}; must be one of {sorted(_VALID_LABEL_COLUMNS)}"
+        )
+
+
+# ---------------------------------------------------------------------------
+# SQL builders -- pure functions of the owned-column tuple / label column, never a hand-typed
+# column list. Column-agnostic queries (_ROWS_BEFORE_TS_SQL, _CONFIG_VALUE_SQL,
+# _CHUNK_COMPRESSION_SQL) stay module-level constants, unchanged by this generalization.
+# ---------------------------------------------------------------------------
+
+
+def _build_set_null_clause_sql(owned_columns: tuple[str, ...]) -> str:
+    return ",\n    ".join(f"{c} = NULL" for c in owned_columns)
+
+
+def _build_null_out_sql(owned_columns: tuple[str, ...]) -> str:
+    set_clause = _build_set_null_clause_sql(owned_columns)
+    return f"UPDATE feature_vectors SET\n    {set_clause}\nWHERE symbol = %s AND tf = %s"
+
+
+def _build_any_owned_nonnull_sql(owned_columns: tuple[str, ...]) -> str:
+    return (
+        "SELECT count(*) FROM feature_vectors WHERE symbol = %s AND tf = %s AND ("
+        + " OR ".join(f"{c} IS NOT NULL" for c in owned_columns)
+        + ")"
+    )
+
+
+def _build_pre_null_labeled_sql(label_column: str) -> str:
+    _validate_label_column(label_column)
+    return (
+        f"SELECT count(*) FROM feature_vectors WHERE symbol = %s AND tf = %s "
+        f"AND {label_column} IS NOT NULL"
+    )
+
+
+def _build_labeled_count_and_min_ts_sql(label_column: str) -> str:
+    _validate_label_column(label_column)
+    return (
+        f"SELECT count(*) FILTER (WHERE {label_column} IS NOT NULL), "
+        f"min(bar_ts) FILTER (WHERE {label_column} IS NOT NULL) "
+        "FROM feature_vectors WHERE symbol = %s AND tf = %s"
+    )
+
+
+# Module-level constants for the default (regime) family -- preserved so this generalization
+# produces byte-identical SQL to before it, for both external callers of this module and the
+# characterization test that pins the legacy family's generated SQL unchanged.
+_SET_NULL_CLAUSE_SQL = _build_set_null_clause_sql(REGIME_WRITER_OWNED_COLUMN_NAMES)
+_NULL_OUT_SQL = _build_null_out_sql(REGIME_WRITER_OWNED_COLUMN_NAMES)
+_ANY_OWNED_NONNULL_SQL = _build_any_owned_nonnull_sql(REGIME_WRITER_OWNED_COLUMN_NAMES)
+_PRE_NULL_LABELED_SQL = _build_pre_null_labeled_sql("regime")
+_LABELED_COUNT_AND_MIN_TS_SQL = _build_labeled_count_and_min_ts_sql("regime")
 
 _ROWS_BEFORE_TS_SQL = (
     "SELECT count(*) FROM feature_vectors WHERE symbol = %s AND tf = %s AND bar_ts < %s"
@@ -155,38 +255,49 @@ def _log_compression_state(conn: Any) -> None:
     )
 
 
-def _pre_null_labeled_count(conn: Any, symbol: str, tf: str) -> int:
+def _pre_null_labeled_count(
+    conn: Any, symbol: str, tf: str, family: _ColumnFamily = _DEFAULT_COLUMN_FAMILY_OBJ
+) -> int:
+    sql = _build_pre_null_labeled_sql(family.label_column)
     with conn.cursor() as cur:
-        cur.execute(_PRE_NULL_LABELED_SQL, (symbol, tf))
+        cur.execute(sql, (symbol, tf))
         (count,) = cur.fetchone()
     return int(count)
 
 
-def _issue_null_out_update(conn: Any, symbol: str, tf: str) -> int:
+def _issue_null_out_update(
+    conn: Any, symbol: str, tf: str, family: _ColumnFamily = _DEFAULT_COLUMN_FAMILY_OBJ
+) -> int:
+    sql = _build_null_out_sql(family.owned_columns)
     with conn.cursor() as cur:
-        cur.execute(_NULL_OUT_SQL, (symbol, tf))
+        cur.execute(sql, (symbol, tf))
         rows_affected = cur.rowcount
     return int(rows_affected)
 
 
-def _count_any_owned_nonnull(conn: Any, symbol: str, tf: str) -> int:
+def _count_any_owned_nonnull(
+    conn: Any, symbol: str, tf: str, family: _ColumnFamily = _DEFAULT_COLUMN_FAMILY_OBJ
+) -> int:
+    sql = _build_any_owned_nonnull_sql(family.owned_columns)
     with conn.cursor() as cur:
-        cur.execute(_ANY_OWNED_NONNULL_SQL, (symbol, tf))
+        cur.execute(sql, (symbol, tf))
         (count,) = cur.fetchone()
     return int(count)
 
 
-def _null_out_cell(conn: Any, symbol: str, tf: str) -> dict[str, Any]:
-    """NULL out one (symbol, tf) cell's 8 owned columns and prove the post-condition.
+def _null_out_cell(
+    conn: Any, symbol: str, tf: str, family: _ColumnFamily = _DEFAULT_COLUMN_FAMILY_OBJ
+) -> dict[str, Any]:
+    """NULL out one (symbol, tf) cell's owned columns for `family` and prove the post-condition.
 
     Order: pre-count -> UPDATE -> commit -> verify SELECT. A non-zero post-condition count
     marks the cell failed but does NOT raise -- one bad cell must not strand the rest of scope.
     """
     t0 = time.monotonic()
-    pre_null_labeled = _pre_null_labeled_count(conn, symbol, tf)
-    rows_affected = _issue_null_out_update(conn, symbol, tf)
+    pre_null_labeled = _pre_null_labeled_count(conn, symbol, tf, family)
+    rows_affected = _issue_null_out_update(conn, symbol, tf, family)
     conn.commit()
-    remaining_nonnull = _count_any_owned_nonnull(conn, symbol, tf)
+    remaining_nonnull = _count_any_owned_nonnull(conn, symbol, tf, family)
     elapsed_s = round(time.monotonic() - t0, 3)
 
     verified = remaining_nonnull == 0
@@ -203,6 +314,7 @@ def _null_out_cell(conn: Any, symbol: str, tf: str) -> dict[str, Any]:
         "regime_null_out.cell_done" if verified else "regime_null_out.cell_failed_postcondition",
         symbol=symbol,
         tf=tf,
+        column_family=family.name,
         rows_affected=rows_affected,
         pre_null_labeled=pre_null_labeled,
         elapsed_s=elapsed_s,
@@ -217,6 +329,7 @@ def _run_null_out(
     tfs: list[str],
     manifest_path: Path,
     dry_run: bool,
+    family: _ColumnFamily = _DEFAULT_COLUMN_FAMILY_OBJ,
 ) -> int:
     manifest = _load_manifest(manifest_path)
     n_failed = 0
@@ -236,15 +349,17 @@ def _run_null_out(
                 continue
 
             if dry_run:
-                would_null = _pre_null_labeled_count(conn, symbol, tf)
+                would_null = _pre_null_labeled_count(conn, symbol, tf, family)
                 print(  # noqa: T201
                     f"[DRY-RUN] {symbol}/{tf}: would NULL {would_null} labeled row(s) "
-                    "across the 8 regime-writer-owned columns; 0 UPDATE statements issued"
+                    f"across the {len(family.owned_columns)} {family.name}-owned columns; "
+                    "0 UPDATE statements issued"
                 )
                 _logger.info(
                     "regime_null_out.dry_run_plan",
                     symbol=symbol,
                     tf=tf,
+                    column_family=family.name,
                     would_null_rows=would_null,
                 )
                 continue
@@ -252,7 +367,7 @@ def _run_null_out(
             manifest[key] = {"status": _STATUS_IN_PROGRESS}
             _flush_manifest(manifest_path, manifest)
 
-            entry = _null_out_cell(conn, symbol, tf)
+            entry = _null_out_cell(conn, symbol, tf, family)
             manifest[key] = entry
             _flush_manifest(manifest_path, manifest)
 
@@ -268,6 +383,7 @@ def _run_null_out(
     _logger.info(
         "regime_null_out.run_complete",
         mode=_MODE_NULL_OUT,
+        column_family=family.name,
         n_cells=len(symbols) * len(tfs),
         n_failed=n_failed,
         dry_run=dry_run,
@@ -275,11 +391,16 @@ def _run_null_out(
     return n_failed
 
 
-def _run_verify_post_null(conn: Any, symbols: list[str], tfs: list[str]) -> int:
+def _run_verify_post_null(
+    conn: Any,
+    symbols: list[str],
+    tfs: list[str],
+    family: _ColumnFamily = _DEFAULT_COLUMN_FAMILY_OBJ,
+) -> int:
     n_failed = 0
     for symbol in symbols:
         for tf in tfs:
-            remaining_nonnull = _count_any_owned_nonnull(conn, symbol, tf)
+            remaining_nonnull = _count_any_owned_nonnull(conn, symbol, tf, family)
             passed = remaining_nonnull == 0
             if not passed:
                 n_failed += 1
@@ -287,12 +408,14 @@ def _run_verify_post_null(conn: Any, symbols: list[str], tfs: list[str]) -> int:
                 "regime_null_out.verify_post_null_cell",
                 symbol=symbol,
                 tf=tf,
+                column_family=family.name,
                 remaining_nonnull=remaining_nonnull,
                 passed=passed,
             )
     _logger.info(
         "regime_null_out.run_complete",
         mode=_MODE_VERIFY_POST_NULL,
+        column_family=family.name,
         n_cells=len(symbols) * len(tfs),
         n_failed=n_failed,
     )
@@ -303,7 +426,10 @@ def _load_initial_warmup_bars(conn: Any, tf: str) -> int:
     """Read alpha.hmm.walk_forward.initial_warmup_bars.<tf> straight from config_state --
     this is a read-only ops script, so a plain SELECT is sufficient and avoids pulling the
     async ConfigService into a synchronous script. Falls back to the module default, logging
-    loudly, only when the key is genuinely missing."""
+    loudly, only when the key is genuinely missing. Shared unchanged across both column
+    families -- both reuse the same per-tf walk-forward schedule keys (172-05's interfaces
+    section), since the warmup-prefix floor is a property of the timeframe, not of which
+    observation columns are fitted."""
     key = f"alpha.hmm.walk_forward.initial_warmup_bars.{tf}"
     with conn.cursor() as cur:
         cur.execute(_CONFIG_VALUE_SQL, (key,))
@@ -320,9 +446,12 @@ def _load_initial_warmup_bars(conn: Any, tf: str) -> int:
     return int(row[0])
 
 
-def _labeled_count_and_min_ts(conn: Any, symbol: str, tf: str) -> tuple[int, datetime | None]:
+def _labeled_count_and_min_ts(
+    conn: Any, symbol: str, tf: str, family: _ColumnFamily = _DEFAULT_COLUMN_FAMILY_OBJ
+) -> tuple[int, datetime | None]:
+    sql = _build_labeled_count_and_min_ts_sql(family.label_column)
     with conn.cursor() as cur:
-        cur.execute(_LABELED_COUNT_AND_MIN_TS_SQL, (symbol, tf))
+        cur.execute(sql, (symbol, tf))
         labeled_rows, first_labeled_bar_ts = cur.fetchone()
     return int(labeled_rows), first_labeled_bar_ts
 
@@ -334,19 +463,31 @@ def _rows_before_ts(conn: Any, symbol: str, tf: str, ts: datetime) -> int:
     return int(count)
 
 
-def _run_verify_post_relabel(conn: Any, symbols: list[str], tfs: list[str]) -> int:
+def _run_verify_post_relabel(
+    conn: Any,
+    symbols: list[str],
+    tfs: list[str],
+    family: _ColumnFamily = _DEFAULT_COLUMN_FAMILY_OBJ,
+    provenance_report_path: Path | None = None,
+) -> int:
     """Prove, per cell, that the warmup prefix (however many bars precede the first labeled
     bar) is at least that tf's initial_warmup_bars -- a smaller count means either the
-    NULL-out did not cover the cell or a stale full-history-fit value survived in the
-    prefix. Pure SQL against (symbol, tf, bar_ts); needs no obs-matrix rebuild, so it cannot
-    drift from the labeling code's own feature-window logic."""
+    NULL-out did not cover the cell or a stale prior-method value survived in the prefix. Pure
+    SQL against (symbol, tf, bar_ts); needs no obs-matrix rebuild, so it cannot drift from the
+    labeling code's own feature-window logic. Works identically for either column family --
+    only the label column filtered on and the report's destination path change."""
+    report_path = (
+        provenance_report_path
+        if provenance_report_path is not None
+        else family.default_provenance_report_path
+    )
     n_failed = 0
     records: list[dict[str, Any]] = []
 
     for symbol in symbols:
         for tf in tfs:
             initial_warmup_bars = _load_initial_warmup_bars(conn, tf)
-            labeled_rows, first_labeled_bar_ts = _labeled_count_and_min_ts(conn, symbol, tf)
+            labeled_rows, first_labeled_bar_ts = _labeled_count_and_min_ts(conn, symbol, tf, family)
 
             if labeled_rows == 0:
                 records.append(
@@ -360,7 +501,12 @@ def _run_verify_post_relabel(conn: Any, symbols: list[str], tfs: list[str]) -> i
                         "verdict": "no_labels",
                     }
                 )
-                _logger.info("regime_null_out.verify_post_relabel_no_labels", symbol=symbol, tf=tf)
+                _logger.info(
+                    "regime_null_out.verify_post_relabel_no_labels",
+                    symbol=symbol,
+                    tf=tf,
+                    column_family=family.name,
+                )
                 continue
 
             rows_before_first_label = _rows_before_ts(conn, symbol, tf, first_labeled_bar_ts)
@@ -387,18 +533,20 @@ def _run_verify_post_relabel(conn: Any, symbols: list[str], tfs: list[str]) -> i
                 "regime_null_out.verify_post_relabel_cell",
                 symbol=symbol,
                 tf=tf,
+                column_family=family.name,
                 labeled_rows=labeled_rows,
                 rows_before_first_label=rows_before_first_label,
                 initial_warmup_bars=initial_warmup_bars,
                 verdict=verdict,
             )
 
-    _write_provenance_report(records, _PROVENANCE_REPORT_PATH)
-    _print_provenance_banner(records, n_failed)
+    _write_provenance_report(records, report_path)
+    _print_provenance_banner(records, n_failed, family.name)
 
     _logger.info(
         "regime_null_out.run_complete",
         mode=_MODE_VERIFY_POST_RELABEL,
+        column_family=family.name,
         n_cells=len(symbols) * len(tfs),
         n_failed=n_failed,
     )
@@ -412,13 +560,21 @@ def _write_provenance_report(records: list[dict[str, Any]], path: Path) -> None:
     tmp.rename(path)
 
 
-def _print_provenance_banner(records: list[dict[str, Any]], n_failed: int) -> None:
+def _print_provenance_banner(
+    records: list[dict[str, Any]], n_failed: int, family_name: str = _DEFAULT_COLUMN_FAMILY
+) -> None:
+    # "REQ-3 PROVENANCE:" prefix kept byte-identical (not renamed) so any existing grep for
+    # that string keeps matching; the family name is appended to the same line so the output
+    # stays unambiguous about which column family was checked.
     print("=" * 80)  # noqa: T201
     if n_failed == 0:
-        print("REQ-3 PROVENANCE: PASS")  # noqa: T201
+        print(f"REQ-3 PROVENANCE: PASS (column_family={family_name})")  # noqa: T201
     else:
         failing = [f"{r['symbol']}/{r['tf']}" for r in records if r["verdict"] == "fail"]
-        print(f"REQ-3 PROVENANCE: FAIL -- failing cells: {', '.join(failing)}")  # noqa: T201
+        print(  # noqa: T201
+            f"REQ-3 PROVENANCE: FAIL (column_family={family_name}) -- "
+            f"failing cells: {', '.join(failing)}"
+        )
     print("=" * 80)  # noqa: T201
 
 
@@ -434,7 +590,7 @@ def _parse_args(argv: list[str] | None = None) -> argparse.Namespace:
             "Explicit symbol scope -- REQUIRED, no all-symbols default. "
             "regime_writer.py's _discover_symbols() skips fully-labeled symbols, which is "
             "exactly the set this script must be able to touch, so it must never be used to "
-            "derive this script's scope."
+            "derive this script's scope. Applies identically to both column families."
         ),
     )
     parser.add_argument(
@@ -445,9 +601,23 @@ def _parse_args(argv: list[str] | None = None) -> argparse.Namespace:
         help=f"Timeframes to scope to. Default: {' '.join(_DEFAULT_TFS)}.",
     )
     parser.add_argument(
+        "--column-family",
+        choices=list(_COLUMN_FAMILIES.keys()),
+        default=_DEFAULT_COLUMN_FAMILY,
+        help=(
+            f"Regime column family to operate on. Default: {_DEFAULT_COLUMN_FAMILY}. "
+            f"{_FAMILY_REGIME_VOLATILITY} covers the 8 columns in "
+            "REGIME_VOLATILITY_WRITER_OWNED_COLUMN_NAMES."
+        ),
+    )
+    parser.add_argument(
         "--manifest",
-        default=_DEFAULT_MANIFEST_PATH,
-        help=f"Resumability manifest path. Default: {_DEFAULT_MANIFEST_PATH}.",
+        default=None,
+        help=(
+            "Resumability manifest path. Default: the selected column family's own default "
+            f"path ({_DEFAULT_MANIFEST_PATH} for {_FAMILY_REGIME}, a separate path for "
+            f"{_FAMILY_REGIME_VOLATILITY}) -- the two families never share a manifest."
+        ),
     )
     parser.add_argument(
         "--dry-run",
@@ -482,15 +652,23 @@ def main() -> None:
     settings = Settings()
     conn = _connect(settings)
 
+    family = _COLUMN_FAMILIES[args.column_family]
+    _validate_label_column(family.label_column)
+
     status = "success"
     n_failed = 0
     try:
         if args.mode == _MODE_NULL_OUT:
-            n_failed = _run_null_out(conn, args.symbols, args.tf, Path(args.manifest), args.dry_run)
+            manifest_path = (
+                Path(args.manifest) if args.manifest else Path(family.default_manifest_path)
+            )
+            n_failed = _run_null_out(
+                conn, args.symbols, args.tf, manifest_path, args.dry_run, family
+            )
         elif args.mode == _MODE_VERIFY_POST_NULL:
-            n_failed = _run_verify_post_null(conn, args.symbols, args.tf)
+            n_failed = _run_verify_post_null(conn, args.symbols, args.tf, family)
         elif args.mode == _MODE_VERIFY_POST_RELABEL:
-            n_failed = _run_verify_post_relabel(conn, args.symbols, args.tf)
+            n_failed = _run_verify_post_relabel(conn, args.symbols, args.tf, family)
     except Exception as error:
         status = "failure"
         _logger.error("regime_null_out.fatal_error", error=str(error))
