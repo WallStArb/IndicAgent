@@ -1,0 +1,4654 @@
+{
+  "apr_config": {
+    "alpha.hmm.walk_forward.initial_warmup_bars.15m": "13200",
+    "alpha.hmm.walk_forward.initial_warmup_bars.1d": "504",
+    "alpha.hmm.walk_forward.initial_warmup_bars.1h": "3300",
+    "alpha.hmm.walk_forward.initial_warmup_bars.5m": "39600",
+    "alpha.hmm.walk_forward.refit_every_bars.15m": "6600",
+    "alpha.hmm.walk_forward.refit_every_bars.1d": "252",
+    "alpha.hmm.walk_forward.refit_every_bars.1h": "1650",
+    "alpha.hmm.walk_forward.refit_every_bars.5m": "19800",
+    "alpha.hmm_volatility.covariance_type": "full",
+    "alpha.hmm_volatility.n_components": "3",
+    "alpha.hmm_volatility.vol_of_vol_window": "250",
+    "alpha.hmm_volatility.vol_window": "250"
+  },
+  "cells": [
+    {
+      "distinct_labels": [
+        "calm",
+        "elevated",
+        "turbulent"
+      ],
+      "first_labeled_bar_ts": "2008-09-26 14:00:00+00",
+      "initial_warmup_bars": 39600,
+      "labeled_rows": 59399,
+      "rows_before_first_label": 39843,
+      "symbol": "AGG",
+      "tf": "5m",
+      "total_rows": 388168,
+      "verdict": "labeled"
+    },
+    {
+      "distinct_labels": [
+        "calm",
+        "elevated",
+        "turbulent"
+      ],
+      "first_labeled_bar_ts": "2010-10-11 14:00:00+00",
+      "initial_warmup_bars": 13200,
+      "labeled_rows": 26400,
+      "rows_before_first_label": 26642,
+      "symbol": "AGG",
+      "tf": "15m",
+      "total_rows": 129501,
+      "verdict": "labeled"
+    },
+    {
+      "distinct_labels": [
+        "calm",
+        "elevated",
+        "turbulent"
+      ],
+      "first_labeled_bar_ts": "2013-07-24 17:00:00+00",
+      "initial_warmup_bars": 3300,
+      "labeled_rows": 4714,
+      "rows_before_first_label": 10139,
+      "symbol": "AGG",
+      "tf": "1h",
+      "total_rows": 29703,
+      "verdict": "labeled"
+    },
+    {
+      "distinct_labels": [],
+      "first_labeled_bar_ts": null,
+      "initial_warmup_bars": 504,
+      "labeled_rows": 0,
+      "rows_before_first_label": null,
+      "skip_reason": "all segments degenerate_occupation or insufficient warmup history",
+      "symbol": "AGG",
+      "tf": "1d",
+      "total_rows": 4767,
+      "verdict": "skipped"
+    },
+    {
+      "distinct_labels": [
+        "calm",
+        "elevated",
+        "turbulent"
+      ],
+      "first_labeled_bar_ts": "2017-10-09 16:55:00+00",
+      "initial_warmup_bars": 39600,
+      "labeled_rows": 79200,
+      "rows_before_first_label": 138765,
+      "symbol": "AMLP",
+      "tf": "5m",
+      "total_rows": 310485,
+      "verdict": "labeled"
+    },
+    {
+      "distinct_labels": [
+        "calm",
+        "elevated",
+        "turbulent"
+      ],
+      "first_labeled_bar_ts": "2013-10-01 17:00:00+00",
+      "initial_warmup_bars": 13200,
+      "labeled_rows": 33000,
+      "rows_before_first_label": 19978,
+      "symbol": "AMLP",
+      "tf": "15m",
+      "total_rows": 103450,
+      "verdict": "labeled"
+    },
+    {
+      "distinct_labels": [
+        "calm",
+        "elevated",
+        "turbulent"
+      ],
+      "first_labeled_bar_ts": "2014-03-10 14:00:00+00",
+      "initial_warmup_bars": 3300,
+      "labeled_rows": 3300,
+      "rows_before_first_label": 5100,
+      "symbol": "AMLP",
+      "tf": "1h",
+      "total_rows": 23732,
+      "verdict": "labeled"
+    },
+    {
+      "distinct_labels": [],
+      "first_labeled_bar_ts": null,
+      "initial_warmup_bars": 504,
+      "labeled_rows": 0,
+      "rows_before_first_label": null,
+      "skip_reason": "all segments degenerate_occupation or insufficient warmup history",
+      "symbol": "AMLP",
+      "tf": "1d",
+      "total_rows": 3751,
+      "verdict": "skipped"
+    },
+    {
+      "distinct_labels": [
+        "calm",
+        "elevated",
+        "turbulent"
+      ],
+      "first_labeled_bar_ts": "2019-06-11 13:45:00+00",
+      "initial_warmup_bars": 39600,
+      "labeled_rows": 99000,
+      "rows_before_first_label": 39847,
+      "symbol": "ARKK",
+      "tf": "5m",
+      "total_rows": 178684,
+      "verdict": "labeled"
+    },
+    {
+      "distinct_labels": [
+        "calm",
+        "elevated",
+        "turbulent"
+      ],
+      "first_labeled_bar_ts": "2021-03-01 20:15:00+00",
+      "initial_warmup_bars": 13200,
+      "labeled_rows": 19800,
+      "rows_before_first_label": 26647,
+      "symbol": "ARKK",
+      "tf": "15m",
+      "total_rows": 61837,
+      "verdict": "labeled"
+    },
+    {
+      "distinct_labels": [
+        "calm",
+        "elevated",
+        "turbulent"
+      ],
+      "first_labeled_bar_ts": "2024-06-13 19:00:00+00",
+      "initial_warmup_bars": 3300,
+      "labeled_rows": 1650,
+      "rows_before_first_label": 11797,
+      "symbol": "ARKK",
+      "tf": "1h",
+      "total_rows": 14980,
+      "verdict": "labeled"
+    },
+    {
+      "distinct_labels": [],
+      "first_labeled_bar_ts": null,
+      "initial_warmup_bars": 504,
+      "labeled_rows": 0,
+      "rows_before_first_label": null,
+      "skip_reason": "all segments degenerate_occupation or insufficient warmup history",
+      "symbol": "ARKK",
+      "tf": "1d",
+      "total_rows": 2689,
+      "verdict": "skipped"
+    },
+    {
+      "distinct_labels": [
+        "calm",
+        "elevated",
+        "turbulent"
+      ],
+      "first_labeled_bar_ts": "2023-12-19 18:40:00+00",
+      "initial_warmup_bars": 39600,
+      "labeled_rows": 50589,
+      "rows_before_first_label": 277444,
+      "symbol": "BIL",
+      "tf": "5m",
+      "total_rows": 328033,
+      "verdict": "labeled"
+    },
+    {
+      "distinct_labels": [],
+      "first_labeled_bar_ts": null,
+      "initial_warmup_bars": 13200,
+      "labeled_rows": 0,
+      "rows_before_first_label": null,
+      "skip_reason": "all segments degenerate_occupation or insufficient warmup history",
+      "symbol": "BIL",
+      "tf": "15m",
+      "total_rows": 121330,
+      "verdict": "skipped"
+    },
+    {
+      "distinct_labels": [],
+      "first_labeled_bar_ts": null,
+      "initial_warmup_bars": 3300,
+      "labeled_rows": 0,
+      "rows_before_first_label": null,
+      "skip_reason": "all segments degenerate_occupation or insufficient warmup history",
+      "symbol": "BIL",
+      "tf": "1h",
+      "total_rows": 28496,
+      "verdict": "skipped"
+    },
+    {
+      "distinct_labels": [],
+      "first_labeled_bar_ts": null,
+      "initial_warmup_bars": 504,
+      "labeled_rows": 0,
+      "rows_before_first_label": null,
+      "skip_reason": "all segments degenerate_occupation or insufficient warmup history",
+      "symbol": "BIL",
+      "tf": "1d",
+      "total_rows": 4569,
+      "verdict": "skipped"
+    },
+    {
+      "distinct_labels": [
+        "calm",
+        "elevated",
+        "turbulent"
+      ],
+      "first_labeled_bar_ts": "2023-07-12 18:20:00+00",
+      "initial_warmup_bars": 39600,
+      "labeled_rows": 39600,
+      "rows_before_first_label": 59647,
+      "symbol": "BTAL",
+      "tf": "5m",
+      "total_rows": 109758,
+      "verdict": "labeled"
+    },
+    {
+      "distinct_labels": [
+        "calm",
+        "elevated",
+        "turbulent"
+      ],
+      "first_labeled_bar_ts": "2023-10-26 15:15:00+00",
+      "initial_warmup_bars": 13200,
+      "labeled_rows": 10904,
+      "rows_before_first_label": 33247,
+      "symbol": "BTAL",
+      "tf": "15m",
+      "total_rows": 50751,
+      "verdict": "labeled"
+    },
+    {
+      "distinct_labels": [
+        "calm",
+        "elevated",
+        "turbulent"
+      ],
+      "first_labeled_bar_ts": "2019-12-26 16:00:00+00",
+      "initial_warmup_bars": 3300,
+      "labeled_rows": 4950,
+      "rows_before_first_label": 5197,
+      "symbol": "BTAL",
+      "tf": "1h",
+      "total_rows": 15042,
+      "verdict": "labeled"
+    },
+    {
+      "distinct_labels": [],
+      "first_labeled_bar_ts": null,
+      "initial_warmup_bars": 504,
+      "labeled_rows": 0,
+      "rows_before_first_label": null,
+      "skip_reason": "all segments degenerate_occupation or insufficient warmup history",
+      "symbol": "BTAL",
+      "tf": "1d",
+      "total_rows": 3146,
+      "verdict": "skipped"
+    },
+    {
+      "distinct_labels": [
+        "calm",
+        "elevated",
+        "turbulent"
+      ],
+      "first_labeled_bar_ts": "2021-10-27 17:30:00+00",
+      "initial_warmup_bars": 39600,
+      "labeled_rows": 59400,
+      "rows_before_first_label": 99247,
+      "symbol": "CIBR",
+      "tf": "5m",
+      "total_rows": 191675,
+      "verdict": "labeled"
+    },
+    {
+      "distinct_labels": [
+        "calm",
+        "elevated",
+        "turbulent"
+      ],
+      "first_labeled_bar_ts": "2017-12-12 19:45:00+00",
+      "initial_warmup_bars": 13200,
+      "labeled_rows": 39600,
+      "rows_before_first_label": 13447,
+      "symbol": "CIBR",
+      "tf": "15m",
+      "total_rows": 69465,
+      "verdict": "labeled"
+    },
+    {
+      "distinct_labels": [
+        "calm",
+        "elevated",
+        "turbulent"
+      ],
+      "first_labeled_bar_ts": "2021-05-05 19:00:00+00",
+      "initial_warmup_bars": 3300,
+      "labeled_rows": 3300,
+      "rows_before_first_label": 8497,
+      "symbol": "CIBR",
+      "tf": "1h",
+      "total_rows": 16360,
+      "verdict": "labeled"
+    },
+    {
+      "distinct_labels": [],
+      "first_labeled_bar_ts": null,
+      "initial_warmup_bars": 504,
+      "labeled_rows": 0,
+      "rows_before_first_label": null,
+      "skip_reason": "all segments degenerate_occupation or insufficient warmup history",
+      "symbol": "CIBR",
+      "tf": "1d",
+      "total_rows": 2528,
+      "verdict": "skipped"
+    },
+    {
+      "distinct_labels": [],
+      "first_labeled_bar_ts": null,
+      "initial_warmup_bars": 39600,
+      "labeled_rows": 0,
+      "rows_before_first_label": null,
+      "skip_reason": "all segments degenerate_occupation or insufficient warmup history",
+      "symbol": "CWB",
+      "tf": "5m",
+      "total_rows": 313005,
+      "verdict": "skipped"
+    },
+    {
+      "distinct_labels": [
+        "calm",
+        "elevated",
+        "turbulent"
+      ],
+      "first_labeled_bar_ts": "2024-10-23 16:00:00+00",
+      "initial_warmup_bars": 13200,
+      "labeled_rows": 6600,
+      "rows_before_first_label": 99247,
+      "symbol": "CWB",
+      "tf": "15m",
+      "total_rows": 110615,
+      "verdict": "labeled"
+    },
+    {
+      "distinct_labels": [
+        "calm",
+        "elevated",
+        "turbulent"
+      ],
+      "first_labeled_bar_ts": "2021-09-14 17:00:00+00",
+      "initial_warmup_bars": 3300,
+      "labeled_rows": 3300,
+      "rows_before_first_label": 18397,
+      "symbol": "CWB",
+      "tf": "1h",
+      "total_rows": 25716,
+      "verdict": "labeled"
+    },
+    {
+      "distinct_labels": [
+        "calm",
+        "elevated",
+        "turbulent"
+      ],
+      "first_labeled_bar_ts": "2013-04-12 00:00:00+00",
+      "initial_warmup_bars": 504,
+      "labeled_rows": 252,
+      "rows_before_first_label": 751,
+      "symbol": "CWB",
+      "tf": "1d",
+      "total_rows": 4093,
+      "verdict": "labeled"
+    },
+    {
+      "distinct_labels": [],
+      "first_labeled_bar_ts": null,
+      "initial_warmup_bars": 39600,
+      "labeled_rows": 0,
+      "rows_before_first_label": null,
+      "skip_reason": "all segments degenerate_occupation or insufficient warmup history",
+      "symbol": "DBA",
+      "tf": "5m",
+      "total_rows": 367208,
+      "verdict": "skipped"
+    },
+    {
+      "distinct_labels": [
+        "calm",
+        "elevated",
+        "turbulent"
+      ],
+      "first_labeled_bar_ts": "2010-02-25 19:00:00+00",
+      "initial_warmup_bars": 13200,
+      "labeled_rows": 27538,
+      "rows_before_first_label": 20033,
+      "symbol": "DBA",
+      "tf": "15m",
+      "total_rows": 126771,
+      "verdict": "labeled"
+    },
+    {
+      "distinct_labels": [],
+      "first_labeled_bar_ts": null,
+      "initial_warmup_bars": 3300,
+      "labeled_rows": 0,
+      "rows_before_first_label": null,
+      "skip_reason": "all segments degenerate_occupation or insufficient warmup history",
+      "symbol": "DBA",
+      "tf": "1h",
+      "total_rows": 29128,
+      "verdict": "skipped"
+    },
+    {
+      "distinct_labels": [
+        "calm",
+        "elevated",
+        "turbulent"
+      ],
+      "first_labeled_bar_ts": "2020-01-10 00:00:00+00",
+      "initial_warmup_bars": 504,
+      "labeled_rows": 252,
+      "rows_before_first_label": 3019,
+      "symbol": "DBA",
+      "tf": "1d",
+      "total_rows": 4663,
+      "verdict": "labeled"
+    },
+    {
+      "distinct_labels": [
+        "calm",
+        "elevated",
+        "turbulent"
+      ],
+      "first_labeled_bar_ts": "2018-10-30 16:55:00+00",
+      "initial_warmup_bars": 39600,
+      "labeled_rows": 60326,
+      "rows_before_first_label": 158646,
+      "symbol": "DBB",
+      "tf": "5m",
+      "total_rows": 258572,
+      "verdict": "labeled"
+    },
+    {
+      "distinct_labels": [
+        "calm",
+        "elevated",
+        "turbulent"
+      ],
+      "first_labeled_bar_ts": "2011-07-15 19:45:00+00",
+      "initial_warmup_bars": 13200,
+      "labeled_rows": 41131,
+      "rows_before_first_label": 26646,
+      "symbol": "DBB",
+      "tf": "15m",
+      "total_rows": 113977,
+      "verdict": "labeled"
+    },
+    {
+      "distinct_labels": [
+        "calm",
+        "elevated",
+        "turbulent"
+      ],
+      "first_labeled_bar_ts": "2011-10-12 18:00:00+00",
+      "initial_warmup_bars": 3300,
+      "labeled_rows": 5607,
+      "rows_before_first_label": 6842,
+      "symbol": "DBB",
+      "tf": "1h",
+      "total_rows": 28949,
+      "verdict": "labeled"
+    },
+    {
+      "distinct_labels": [],
+      "first_labeled_bar_ts": null,
+      "initial_warmup_bars": 504,
+      "labeled_rows": 0,
+      "rows_before_first_label": null,
+      "skip_reason": "all segments degenerate_occupation or insufficient warmup history",
+      "symbol": "DBB",
+      "tf": "1d",
+      "total_rows": 4663,
+      "verdict": "skipped"
+    },
+    {
+      "distinct_labels": [
+        "calm",
+        "elevated",
+        "turbulent"
+      ],
+      "first_labeled_bar_ts": "2010-09-10 19:15:00+00",
+      "initial_warmup_bars": 39600,
+      "labeled_rows": 90890,
+      "rows_before_first_label": 79429,
+      "symbol": "DBC",
+      "tf": "5m",
+      "total_rows": 388119,
+      "verdict": "labeled"
+    },
+    {
+      "distinct_labels": [
+        "calm",
+        "elevated",
+        "turbulent"
+      ],
+      "first_labeled_bar_ts": "2009-08-26 14:15:00+00",
+      "initial_warmup_bars": 13200,
+      "labeled_rows": 50783,
+      "rows_before_first_label": 20034,
+      "symbol": "DBC",
+      "tf": "15m",
+      "total_rows": 130217,
+      "verdict": "labeled"
+    },
+    {
+      "distinct_labels": [
+        "calm",
+        "elevated",
+        "turbulent"
+      ],
+      "first_labeled_bar_ts": "2016-09-26 15:00:00+00",
+      "initial_warmup_bars": 3300,
+      "labeled_rows": 6535,
+      "rows_before_first_label": 15087,
+      "symbol": "DBC",
+      "tf": "1h",
+      "total_rows": 29872,
+      "verdict": "labeled"
+    },
+    {
+      "distinct_labels": [
+        "calm",
+        "elevated",
+        "turbulent"
+      ],
+      "first_labeled_bar_ts": "2010-07-13 00:00:00+00",
+      "initial_warmup_bars": 504,
+      "labeled_rows": 252,
+      "rows_before_first_label": 751,
+      "symbol": "DBC",
+      "tf": "1d",
+      "total_rows": 4785,
+      "verdict": "labeled"
+    },
+    {
+      "distinct_labels": [
+        "calm",
+        "elevated",
+        "turbulent"
+      ],
+      "first_labeled_bar_ts": "2010-06-28 18:35:00+00",
+      "initial_warmup_bars": 39600,
+      "labeled_rows": 138600,
+      "rows_before_first_label": 77306,
+      "symbol": "DIA",
+      "tf": "5m",
+      "total_rows": 391512,
+      "verdict": "labeled"
+    },
+    {
+      "distinct_labels": [
+        "calm",
+        "elevated",
+        "turbulent"
+      ],
+      "first_labeled_bar_ts": "2009-07-14 19:00:00+00",
+      "initial_warmup_bars": 13200,
+      "labeled_rows": 43408,
+      "rows_before_first_label": 19375,
+      "symbol": "DIA",
+      "tf": "15m",
+      "total_rows": 128783,
+      "verdict": "labeled"
+    },
+    {
+      "distinct_labels": [
+        "calm",
+        "elevated",
+        "turbulent"
+      ],
+      "first_labeled_bar_ts": "2016-04-05 17:00:00+00",
+      "initial_warmup_bars": 3300,
+      "labeled_rows": 4950,
+      "rows_before_first_label": 14419,
+      "symbol": "DIA",
+      "tf": "1h",
+      "total_rows": 29931,
+      "verdict": "labeled"
+    },
+    {
+      "distinct_labels": [
+        "calm",
+        "elevated",
+        "turbulent"
+      ],
+      "first_labeled_bar_ts": "2010-06-23 00:00:00+00",
+      "initial_warmup_bars": 504,
+      "labeled_rows": 252,
+      "rows_before_first_label": 751,
+      "symbol": "DIA",
+      "tf": "1d",
+      "total_rows": 4798,
+      "verdict": "labeled"
+    },
+    {
+      "distinct_labels": [
+        "calm",
+        "elevated",
+        "turbulent"
+      ],
+      "first_labeled_bar_ts": "2019-01-15 18:10:00+00",
+      "initial_warmup_bars": 39600,
+      "labeled_rows": 59400,
+      "rows_before_first_label": 99246,
+      "symbol": "EDV",
+      "tf": "5m",
+      "total_rows": 236477,
+      "verdict": "labeled"
+    },
+    {
+      "distinct_labels": [
+        "calm",
+        "elevated",
+        "turbulent"
+      ],
+      "first_labeled_bar_ts": "2014-08-13 17:30:00+00",
+      "initial_warmup_bars": 13200,
+      "labeled_rows": 26400,
+      "rows_before_first_label": 26646,
+      "symbol": "EDV",
+      "tf": "15m",
+      "total_rows": 101415,
+      "verdict": "labeled"
+    },
+    {
+      "distinct_labels": [
+        "calm",
+        "elevated",
+        "turbulent"
+      ],
+      "first_labeled_bar_ts": "2020-01-06 19:00:00+00",
+      "initial_warmup_bars": 3300,
+      "labeled_rows": 6600,
+      "rows_before_first_label": 16745,
+      "symbol": "EDV",
+      "tf": "1h",
+      "total_rows": 26612,
+      "verdict": "labeled"
+    },
+    {
+      "distinct_labels": [
+        "calm",
+        "elevated",
+        "turbulent"
+      ],
+      "first_labeled_bar_ts": "2020-01-23 00:00:00+00",
+      "initial_warmup_bars": 504,
+      "labeled_rows": 252,
+      "rows_before_first_label": 2767,
+      "symbol": "EDV",
+      "tf": "1d",
+      "total_rows": 4403,
+      "verdict": "labeled"
+    },
+    {
+      "distinct_labels": [
+        "calm",
+        "elevated",
+        "turbulent"
+      ],
+      "first_labeled_bar_ts": "2010-08-04 17:10:00+00",
+      "initial_warmup_bars": 39600,
+      "labeled_rows": 153801,
+      "rows_before_first_label": 79383,
+      "symbol": "EEM",
+      "tf": "5m",
+      "total_rows": 391584,
+      "verdict": "labeled"
+    },
+    {
+      "distinct_labels": [
+        "calm",
+        "elevated",
+        "turbulent"
+      ],
+      "first_labeled_bar_ts": "2014-09-10 14:45:00+00",
+      "initial_warmup_bars": 13200,
+      "labeled_rows": 50955,
+      "rows_before_first_label": 53010,
+      "symbol": "EEM",
+      "tf": "15m",
+      "total_rows": 130365,
+      "verdict": "labeled"
+    },
+    {
+      "distinct_labels": [
+        "calm",
+        "elevated",
+        "turbulent"
+      ],
+      "first_labeled_bar_ts": "2024-05-23 15:00:00+00",
+      "initial_warmup_bars": 3300,
+      "labeled_rows": 1650,
+      "rows_before_first_label": 26631,
+      "symbol": "EEM",
+      "tf": "1h",
+      "total_rows": 29902,
+      "verdict": "labeled"
+    },
+    {
+      "distinct_labels": [],
+      "first_labeled_bar_ts": null,
+      "initial_warmup_bars": 504,
+      "labeled_rows": 0,
+      "rows_before_first_label": null,
+      "skip_reason": "all segments degenerate_occupation or insufficient warmup history",
+      "symbol": "EEM",
+      "tf": "1d",
+      "total_rows": 4800,
+      "verdict": "skipped"
+    },
+    {
+      "distinct_labels": [
+        "calm",
+        "elevated",
+        "turbulent"
+      ],
+      "first_labeled_bar_ts": "2010-08-04 19:35:00+00",
+      "initial_warmup_bars": 39600,
+      "labeled_rows": 173572,
+      "rows_before_first_label": 79416,
+      "symbol": "EFA",
+      "tf": "5m",
+      "total_rows": 391588,
+      "verdict": "labeled"
+    },
+    {
+      "distinct_labels": [
+        "calm",
+        "elevated",
+        "turbulent"
+      ],
+      "first_labeled_bar_ts": "2017-09-22 14:45:00+00",
+      "initial_warmup_bars": 13200,
+      "labeled_rows": 37737,
+      "rows_before_first_label": 72827,
+      "symbol": "EFA",
+      "tf": "15m",
+      "total_rows": 130364,
+      "verdict": "labeled"
+    },
+    {
+      "distinct_labels": [
+        "calm",
+        "elevated",
+        "turbulent"
+      ],
+      "first_labeled_bar_ts": "2011-03-24 18:00:00+00",
+      "initial_warmup_bars": 3300,
+      "labeled_rows": 6565,
+      "rows_before_first_label": 6836,
+      "symbol": "EFA",
+      "tf": "1h",
+      "total_rows": 29901,
+      "verdict": "labeled"
+    },
+    {
+      "distinct_labels": [
+        "calm",
+        "elevated",
+        "turbulent"
+      ],
+      "first_labeled_bar_ts": "2010-06-22 00:00:00+00",
+      "initial_warmup_bars": 504,
+      "labeled_rows": 252,
+      "rows_before_first_label": 751,
+      "symbol": "EFA",
+      "tf": "1d",
+      "total_rows": 4799,
+      "verdict": "labeled"
+    },
+    {
+      "distinct_labels": [
+        "calm",
+        "elevated",
+        "turbulent"
+      ],
+      "first_labeled_bar_ts": "2013-04-29 18:55:00+00",
+      "initial_warmup_bars": 39600,
+      "labeled_rows": 79200,
+      "rows_before_first_label": 79446,
+      "symbol": "EMB",
+      "tf": "5m",
+      "total_rows": 337704,
+      "verdict": "labeled"
+    },
+    {
+      "distinct_labels": [
+        "calm",
+        "elevated",
+        "turbulent"
+      ],
+      "first_labeled_bar_ts": "2019-11-19 17:30:00+00",
+      "initial_warmup_bars": 13200,
+      "labeled_rows": 13200,
+      "rows_before_first_label": 72846,
+      "symbol": "EMB",
+      "tf": "15m",
+      "total_rows": 116319,
+      "verdict": "labeled"
+    },
+    {
+      "distinct_labels": [
+        "calm",
+        "elevated",
+        "turbulent"
+      ],
+      "first_labeled_bar_ts": "2021-09-07 19:00:00+00",
+      "initial_warmup_bars": 3300,
+      "labeled_rows": 3300,
+      "rows_before_first_label": 20044,
+      "symbol": "EMB",
+      "tf": "1h",
+      "total_rows": 27391,
+      "verdict": "labeled"
+    },
+    {
+      "distinct_labels": [],
+      "first_labeled_bar_ts": null,
+      "initial_warmup_bars": 504,
+      "labeled_rows": 0,
+      "rows_before_first_label": null,
+      "skip_reason": "all segments degenerate_occupation or insufficient warmup history",
+      "symbol": "EMB",
+      "tf": "1d",
+      "total_rows": 4425,
+      "verdict": "skipped"
+    },
+    {
+      "distinct_labels": [
+        "calm",
+        "elevated",
+        "turbulent"
+      ],
+      "first_labeled_bar_ts": "2010-08-31 18:15:00+00",
+      "initial_warmup_bars": 39600,
+      "labeled_rows": 99000,
+      "rows_before_first_label": 79305,
+      "symbol": "EWG",
+      "tf": "5m",
+      "total_rows": 389632,
+      "verdict": "labeled"
+    },
+    {
+      "distinct_labels": [
+        "calm",
+        "elevated",
+        "turbulent"
+      ],
+      "first_labeled_bar_ts": "2010-08-19 15:15:00+00",
+      "initial_warmup_bars": 13200,
+      "labeled_rows": 31188,
+      "rows_before_first_label": 26519,
+      "symbol": "EWG",
+      "tf": "15m",
+      "total_rows": 130307,
+      "verdict": "labeled"
+    },
+    {
+      "distinct_labels": [
+        "calm",
+        "elevated",
+        "turbulent"
+      ],
+      "first_labeled_bar_ts": "2019-12-09 16:00:00+00",
+      "initial_warmup_bars": 3300,
+      "labeled_rows": 3300,
+      "rows_before_first_label": 19920,
+      "symbol": "EWG",
+      "tf": "1h",
+      "total_rows": 29896,
+      "verdict": "labeled"
+    },
+    {
+      "distinct_labels": [
+        "calm",
+        "elevated",
+        "turbulent"
+      ],
+      "first_labeled_bar_ts": "2010-07-07 00:00:00+00",
+      "initial_warmup_bars": 504,
+      "labeled_rows": 252,
+      "rows_before_first_label": 751,
+      "symbol": "EWG",
+      "tf": "1d",
+      "total_rows": 4790,
+      "verdict": "labeled"
+    },
+    {
+      "distinct_labels": [
+        "calm",
+        "elevated",
+        "turbulent"
+      ],
+      "first_labeled_bar_ts": "2012-08-20 16:30:00+00",
+      "initial_warmup_bars": 39600,
+      "labeled_rows": 133466,
+      "rows_before_first_label": 119015,
+      "symbol": "EWJ",
+      "tf": "5m",
+      "total_rows": 391081,
+      "verdict": "labeled"
+    },
+    {
+      "distinct_labels": [
+        "calm",
+        "elevated",
+        "turbulent"
+      ],
+      "first_labeled_bar_ts": "2008-08-22 14:00:00+00",
+      "initial_warmup_bars": 13200,
+      "labeled_rows": 65998,
+      "rows_before_first_label": 13432,
+      "symbol": "EWJ",
+      "tf": "15m",
+      "total_rows": 130197,
+      "verdict": "labeled"
+    },
+    {
+      "distinct_labels": [
+        "calm",
+        "elevated",
+        "turbulent"
+      ],
+      "first_labeled_bar_ts": "2010-03-02 16:00:00+00",
+      "initial_warmup_bars": 3300,
+      "labeled_rows": 11550,
+      "rows_before_first_label": 5185,
+      "symbol": "EWJ",
+      "tf": "1h",
+      "total_rows": 29864,
+      "verdict": "labeled"
+    },
+    {
+      "distinct_labels": [
+        "calm",
+        "elevated",
+        "turbulent"
+      ],
+      "first_labeled_bar_ts": "2010-06-29 00:00:00+00",
+      "initial_warmup_bars": 504,
+      "labeled_rows": 252,
+      "rows_before_first_label": 751,
+      "symbol": "EWJ",
+      "tf": "1d",
+      "total_rows": 4794,
+      "verdict": "labeled"
+    },
+    {
+      "distinct_labels": [
+        "calm",
+        "elevated",
+        "turbulent"
+      ],
+      "first_labeled_bar_ts": "2011-08-15 19:30:00+00",
+      "initial_warmup_bars": 39600,
+      "labeled_rows": 99000,
+      "rows_before_first_label": 99023,
+      "symbol": "EWT",
+      "tf": "5m",
+      "total_rows": 390910,
+      "verdict": "labeled"
+    },
+    {
+      "distinct_labels": [
+        "calm",
+        "elevated",
+        "turbulent"
+      ],
+      "first_labeled_bar_ts": "2019-10-04 18:00:00+00",
+      "initial_warmup_bars": 13200,
+      "labeled_rows": 37698,
+      "rows_before_first_label": 85891,
+      "symbol": "EWT",
+      "tf": "15m",
+      "total_rows": 130189,
+      "verdict": "labeled"
+    },
+    {
+      "distinct_labels": [
+        "calm",
+        "elevated",
+        "turbulent"
+      ],
+      "first_labeled_bar_ts": "2015-07-22 14:00:00+00",
+      "initial_warmup_bars": 3300,
+      "labeled_rows": 9900,
+      "rows_before_first_label": 13295,
+      "symbol": "EWT",
+      "tf": "1h",
+      "total_rows": 29866,
+      "verdict": "labeled"
+    },
+    {
+      "distinct_labels": [
+        "calm",
+        "elevated",
+        "turbulent"
+      ],
+      "first_labeled_bar_ts": "2010-06-29 00:00:00+00",
+      "initial_warmup_bars": 504,
+      "labeled_rows": 504,
+      "rows_before_first_label": 751,
+      "symbol": "EWT",
+      "tf": "1d",
+      "total_rows": 4794,
+      "verdict": "labeled"
+    },
+    {
+      "distinct_labels": [
+        "calm",
+        "elevated",
+        "turbulent"
+      ],
+      "first_labeled_bar_ts": "2010-08-18 14:00:00+00",
+      "initial_warmup_bars": 39600,
+      "labeled_rows": 178200,
+      "rows_before_first_label": 79433,
+      "symbol": "EWY",
+      "tf": "5m",
+      "total_rows": 390867,
+      "verdict": "labeled"
+    },
+    {
+      "distinct_labels": [
+        "calm",
+        "elevated",
+        "turbulent"
+      ],
+      "first_labeled_bar_ts": "2011-09-02 16:00:00+00",
+      "initial_warmup_bars": 13200,
+      "labeled_rows": 46200,
+      "rows_before_first_label": 33235,
+      "symbol": "EWY",
+      "tf": "15m",
+      "total_rows": 130197,
+      "verdict": "labeled"
+    },
+    {
+      "distinct_labels": [
+        "calm",
+        "elevated",
+        "turbulent"
+      ],
+      "first_labeled_bar_ts": "2020-01-15 19:00:00+00",
+      "initial_warmup_bars": 3300,
+      "labeled_rows": 4876,
+      "rows_before_first_label": 20038,
+      "symbol": "EWY",
+      "tf": "1h",
+      "total_rows": 29864,
+      "verdict": "labeled"
+    },
+    {
+      "distinct_labels": [
+        "calm",
+        "elevated",
+        "turbulent"
+      ],
+      "first_labeled_bar_ts": "2010-06-29 00:00:00+00",
+      "initial_warmup_bars": 504,
+      "labeled_rows": 504,
+      "rows_before_first_label": 751,
+      "symbol": "EWY",
+      "tf": "1d",
+      "total_rows": 4794,
+      "verdict": "labeled"
+    },
+    {
+      "distinct_labels": [
+        "calm",
+        "elevated",
+        "turbulent"
+      ],
+      "first_labeled_bar_ts": "2009-08-10 16:30:00+00",
+      "initial_warmup_bars": 39600,
+      "labeled_rows": 158381,
+      "rows_before_first_label": 59587,
+      "symbol": "EWZ",
+      "tf": "5m",
+      "total_rows": 391064,
+      "verdict": "labeled"
+    },
+    {
+      "distinct_labels": [
+        "calm",
+        "elevated",
+        "turbulent"
+      ],
+      "first_labeled_bar_ts": "2010-08-31 14:15:00+00",
+      "initial_warmup_bars": 13200,
+      "labeled_rows": 63987,
+      "rows_before_first_label": 26605,
+      "symbol": "EWZ",
+      "tf": "15m",
+      "total_rows": 130192,
+      "verdict": "labeled"
+    },
+    {
+      "distinct_labels": [
+        "calm",
+        "elevated",
+        "turbulent"
+      ],
+      "first_labeled_bar_ts": "2014-07-21 14:00:00+00",
+      "initial_warmup_bars": 3300,
+      "labeled_rows": 6600,
+      "rows_before_first_label": 11781,
+      "symbol": "EWZ",
+      "tf": "1h",
+      "total_rows": 29864,
+      "verdict": "labeled"
+    },
+    {
+      "distinct_labels": [],
+      "first_labeled_bar_ts": null,
+      "initial_warmup_bars": 504,
+      "labeled_rows": 0,
+      "rows_before_first_label": null,
+      "skip_reason": "all segments degenerate_occupation or insufficient warmup history",
+      "symbol": "EWZ",
+      "tf": "1d",
+      "total_rows": 4786,
+      "verdict": "skipped"
+    },
+    {
+      "distinct_labels": [
+        "calm",
+        "elevated",
+        "turbulent"
+      ],
+      "first_labeled_bar_ts": "2012-07-11 16:50:00+00",
+      "initial_warmup_bars": 39600,
+      "labeled_rows": 118800,
+      "rows_before_first_label": 99239,
+      "symbol": "EZU",
+      "tf": "5m",
+      "total_rows": 372426,
+      "verdict": "labeled"
+    },
+    {
+      "distinct_labels": [
+        "calm",
+        "elevated",
+        "turbulent"
+      ],
+      "first_labeled_bar_ts": "2009-09-17 19:00:00+00",
+      "initial_warmup_bars": 13200,
+      "labeled_rows": 46199,
+      "rows_before_first_label": 20040,
+      "symbol": "EZU",
+      "tf": "15m",
+      "total_rows": 129519,
+      "verdict": "labeled"
+    },
+    {
+      "distinct_labels": [
+        "calm",
+        "elevated",
+        "turbulent"
+      ],
+      "first_labeled_bar_ts": "2020-01-09 19:00:00+00",
+      "initial_warmup_bars": 3300,
+      "labeled_rows": 3300,
+      "rows_before_first_label": 20039,
+      "symbol": "EZU",
+      "tf": "1h",
+      "total_rows": 29889,
+      "verdict": "labeled"
+    },
+    {
+      "distinct_labels": [],
+      "first_labeled_bar_ts": null,
+      "initial_warmup_bars": 504,
+      "labeled_rows": 0,
+      "rows_before_first_label": null,
+      "skip_reason": "all segments degenerate_occupation or insufficient warmup history",
+      "symbol": "EZU",
+      "tf": "1d",
+      "total_rows": 4790,
+      "verdict": "skipped"
+    },
+    {
+      "distinct_labels": [
+        "calm",
+        "elevated",
+        "turbulent"
+      ],
+      "first_labeled_bar_ts": "2009-10-01 18:10:00+00",
+      "initial_warmup_bars": 39600,
+      "labeled_rows": 79199,
+      "rows_before_first_label": 39844,
+      "symbol": "FXA",
+      "tf": "5m",
+      "total_rows": 184461,
+      "verdict": "labeled"
+    },
+    {
+      "distinct_labels": [
+        "calm",
+        "elevated",
+        "turbulent"
+      ],
+      "first_labeled_bar_ts": "2010-04-07 18:00:00+00",
+      "initial_warmup_bars": 13200,
+      "labeled_rows": 46200,
+      "rows_before_first_label": 20044,
+      "symbol": "FXA",
+      "tf": "15m",
+      "total_rows": 89342,
+      "verdict": "labeled"
+    },
+    {
+      "distinct_labels": [
+        "calm",
+        "elevated",
+        "turbulent"
+      ],
+      "first_labeled_bar_ts": "2010-05-14 17:00:00+00",
+      "initial_warmup_bars": 3300,
+      "labeled_rows": 7232,
+      "rows_before_first_label": 5191,
+      "symbol": "FXA",
+      "tf": "1h",
+      "total_rows": 27273,
+      "verdict": "labeled"
+    },
+    {
+      "distinct_labels": [
+        "calm",
+        "elevated",
+        "turbulent"
+      ],
+      "first_labeled_bar_ts": "2010-07-09 00:00:00+00",
+      "initial_warmup_bars": 504,
+      "labeled_rows": 504,
+      "rows_before_first_label": 751,
+      "symbol": "FXA",
+      "tf": "1d",
+      "total_rows": 4787,
+      "verdict": "labeled"
+    },
+    {
+      "distinct_labels": [
+        "calm",
+        "elevated",
+        "turbulent"
+      ],
+      "first_labeled_bar_ts": "2024-11-27 14:40:00+00",
+      "initial_warmup_bars": 39600,
+      "labeled_rows": 19800,
+      "rows_before_first_label": 297229,
+      "symbol": "FXE",
+      "tf": "5m",
+      "total_rows": 322461,
+      "verdict": "labeled"
+    },
+    {
+      "distinct_labels": [],
+      "first_labeled_bar_ts": null,
+      "initial_warmup_bars": 13200,
+      "labeled_rows": 0,
+      "rows_before_first_label": null,
+      "skip_reason": "all segments degenerate_occupation or insufficient warmup history",
+      "symbol": "FXE",
+      "tf": "15m",
+      "total_rows": 124310,
+      "verdict": "skipped"
+    },
+    {
+      "distinct_labels": [
+        "calm",
+        "elevated",
+        "turbulent"
+      ],
+      "first_labeled_bar_ts": "2012-05-01 15:00:00+00",
+      "initial_warmup_bars": 3300,
+      "labeled_rows": 9900,
+      "rows_before_first_label": 8487,
+      "symbol": "FXE",
+      "tf": "1h",
+      "total_rows": 29817,
+      "verdict": "labeled"
+    },
+    {
+      "distinct_labels": [],
+      "first_labeled_bar_ts": null,
+      "initial_warmup_bars": 504,
+      "labeled_rows": 0,
+      "rows_before_first_label": null,
+      "skip_reason": "all segments degenerate_occupation or insufficient warmup history",
+      "symbol": "FXE",
+      "tf": "1d",
+      "total_rows": 4790,
+      "verdict": "skipped"
+    },
+    {
+      "distinct_labels": [
+        "calm",
+        "elevated",
+        "turbulent"
+      ],
+      "first_labeled_bar_ts": "2011-07-22 16:50:00+00",
+      "initial_warmup_bars": 39600,
+      "labeled_rows": 55609,
+      "rows_before_first_label": 98093,
+      "symbol": "FXI",
+      "tf": "5m",
+      "total_rows": 391302,
+      "verdict": "labeled"
+    },
+    {
+      "distinct_labels": [
+        "calm",
+        "elevated",
+        "turbulent"
+      ],
+      "first_labeled_bar_ts": "2014-08-22 18:30:00+00",
+      "initial_warmup_bars": 13200,
+      "labeled_rows": 59400,
+      "rows_before_first_label": 52637,
+      "symbol": "FXI",
+      "tf": "15m",
+      "total_rows": 130289,
+      "verdict": "labeled"
+    },
+    {
+      "distinct_labels": [
+        "calm",
+        "elevated",
+        "turbulent"
+      ],
+      "first_labeled_bar_ts": "2015-05-19 16:00:00+00",
+      "initial_warmup_bars": 3300,
+      "labeled_rows": 6600,
+      "rows_before_first_label": 13054,
+      "symbol": "FXI",
+      "tf": "1h",
+      "total_rows": 29887,
+      "verdict": "labeled"
+    },
+    {
+      "distinct_labels": [],
+      "first_labeled_bar_ts": null,
+      "initial_warmup_bars": 504,
+      "labeled_rows": 0,
+      "rows_before_first_label": null,
+      "skip_reason": "all segments degenerate_occupation or insufficient warmup history",
+      "symbol": "FXI",
+      "tf": "1d",
+      "total_rows": 4788,
+      "verdict": "skipped"
+    },
+    {
+      "distinct_labels": [
+        "calm",
+        "elevated",
+        "turbulent"
+      ],
+      "first_labeled_bar_ts": "2010-07-15 17:10:00+00",
+      "initial_warmup_bars": 39600,
+      "labeled_rows": 118800,
+      "rows_before_first_label": 59643,
+      "symbol": "FXY",
+      "tf": "5m",
+      "total_rows": 276206,
+      "verdict": "labeled"
+    },
+    {
+      "distinct_labels": [
+        "calm",
+        "elevated",
+        "turbulent"
+      ],
+      "first_labeled_bar_ts": "2010-04-08 19:15:00+00",
+      "initial_warmup_bars": 13200,
+      "labeled_rows": 19800,
+      "rows_before_first_label": 20044,
+      "symbol": "FXY",
+      "tf": "15m",
+      "total_rows": 116275,
+      "verdict": "labeled"
+    },
+    {
+      "distinct_labels": [
+        "calm",
+        "elevated",
+        "turbulent"
+      ],
+      "first_labeled_bar_ts": "2022-11-17 15:00:00+00",
+      "initial_warmup_bars": 3300,
+      "labeled_rows": 3300,
+      "rows_before_first_label": 23342,
+      "symbol": "FXY",
+      "tf": "1h",
+      "total_rows": 28871,
+      "verdict": "labeled"
+    },
+    {
+      "distinct_labels": [],
+      "first_labeled_bar_ts": null,
+      "initial_warmup_bars": 504,
+      "labeled_rows": 0,
+      "rows_before_first_label": null,
+      "skip_reason": "all segments degenerate_occupation or insufficient warmup history",
+      "symbol": "FXY",
+      "tf": "1d",
+      "total_rows": 4640,
+      "verdict": "skipped"
+    },
+    {
+      "distinct_labels": [
+        "calm",
+        "elevated",
+        "turbulent"
+      ],
+      "first_labeled_bar_ts": "2010-07-06 18:10:00+00",
+      "initial_warmup_bars": 39600,
+      "labeled_rows": 99000,
+      "rows_before_first_label": 79017,
+      "symbol": "GDX",
+      "tf": "5m",
+      "total_rows": 392844,
+      "verdict": "labeled"
+    },
+    {
+      "distinct_labels": [
+        "calm",
+        "elevated",
+        "turbulent"
+      ],
+      "first_labeled_bar_ts": "2014-08-19 15:45:00+00",
+      "initial_warmup_bars": 13200,
+      "labeled_rows": 44741,
+      "rows_before_first_label": 52850,
+      "symbol": "GDX",
+      "tf": "15m",
+      "total_rows": 130591,
+      "verdict": "labeled"
+    },
+    {
+      "distinct_labels": [
+        "calm",
+        "elevated",
+        "turbulent"
+      ],
+      "first_labeled_bar_ts": "2019-09-20 19:00:00+00",
+      "initial_warmup_bars": 3300,
+      "labeled_rows": 1650,
+      "rows_before_first_label": 23166,
+      "symbol": "GDX",
+      "tf": "1h",
+      "total_rows": 35164,
+      "verdict": "labeled"
+    },
+    {
+      "distinct_labels": [
+        "calm",
+        "elevated",
+        "turbulent"
+      ],
+      "first_labeled_bar_ts": "2010-06-22 00:00:00+00",
+      "initial_warmup_bars": 504,
+      "labeled_rows": 504,
+      "rows_before_first_label": 751,
+      "symbol": "GDX",
+      "tf": "1d",
+      "total_rows": 4800,
+      "verdict": "labeled"
+    },
+    {
+      "distinct_labels": [
+        "calm",
+        "elevated",
+        "turbulent"
+      ],
+      "first_labeled_bar_ts": "2019-07-16 19:25:00+00",
+      "initial_warmup_bars": 39600,
+      "labeled_rows": 39600,
+      "rows_before_first_label": 255877,
+      "symbol": "GLD",
+      "tf": "5m",
+      "total_rows": 393194,
+      "verdict": "labeled"
+    },
+    {
+      "distinct_labels": [
+        "calm",
+        "elevated",
+        "turbulent"
+      ],
+      "first_labeled_bar_ts": "2010-07-09 14:45:00+00",
+      "initial_warmup_bars": 13200,
+      "labeled_rows": 46200,
+      "rows_before_first_label": 25992,
+      "symbol": "GLD",
+      "tf": "15m",
+      "total_rows": 130539,
+      "verdict": "labeled"
+    },
+    {
+      "distinct_labels": [
+        "calm",
+        "elevated",
+        "turbulent"
+      ],
+      "first_labeled_bar_ts": "2009-12-29 15:00:00+00",
+      "initial_warmup_bars": 3300,
+      "labeled_rows": 6600,
+      "rows_before_first_label": 6420,
+      "symbol": "GLD",
+      "tf": "1h",
+      "total_rows": 35499,
+      "verdict": "labeled"
+    },
+    {
+      "distinct_labels": [
+        "calm",
+        "elevated",
+        "turbulent"
+      ],
+      "first_labeled_bar_ts": "2014-06-26 00:00:00+00",
+      "initial_warmup_bars": 504,
+      "labeled_rows": 756,
+      "rows_before_first_label": 1759,
+      "symbol": "GLD",
+      "tf": "1d",
+      "total_rows": 4798,
+      "verdict": "labeled"
+    },
+    {
+      "distinct_labels": [
+        "calm",
+        "elevated",
+        "turbulent"
+      ],
+      "first_labeled_bar_ts": "2011-01-03 19:15:00+00",
+      "initial_warmup_bars": 39600,
+      "labeled_rows": 46632,
+      "rows_before_first_label": 59644,
+      "symbol": "HYG",
+      "tf": "5m",
+      "total_rows": 363676,
+      "verdict": "labeled"
+    },
+    {
+      "distinct_labels": [
+        "calm",
+        "elevated",
+        "turbulent"
+      ],
+      "first_labeled_bar_ts": "2012-08-24 19:15:00+00",
+      "initial_warmup_bars": 13200,
+      "labeled_rows": 46200,
+      "rows_before_first_label": 33244,
+      "symbol": "HYG",
+      "tf": "15m",
+      "total_rows": 123821,
+      "verdict": "labeled"
+    },
+    {
+      "distinct_labels": [
+        "calm",
+        "elevated",
+        "turbulent"
+      ],
+      "first_labeled_bar_ts": "2019-10-18 18:00:00+00",
+      "initial_warmup_bars": 3300,
+      "labeled_rows": 3300,
+      "rows_before_first_label": 21690,
+      "symbol": "HYG",
+      "tf": "1h",
+      "total_rows": 33549,
+      "verdict": "labeled"
+    },
+    {
+      "distinct_labels": [],
+      "first_labeled_bar_ts": null,
+      "initial_warmup_bars": 504,
+      "labeled_rows": 0,
+      "rows_before_first_label": null,
+      "skip_reason": "all segments degenerate_occupation or insufficient warmup history",
+      "symbol": "HYG",
+      "tf": "1d",
+      "total_rows": 4603,
+      "verdict": "skipped"
+    },
+    {
+      "distinct_labels": [
+        "calm",
+        "elevated",
+        "turbulent"
+      ],
+      "first_labeled_bar_ts": "2013-11-13 19:35:00+00",
+      "initial_warmup_bars": 39600,
+      "labeled_rows": 129165,
+      "rows_before_first_label": 99127,
+      "symbol": "IBB",
+      "tf": "5m",
+      "total_rows": 347092,
+      "verdict": "labeled"
+    },
+    {
+      "distinct_labels": [
+        "calm",
+        "elevated",
+        "turbulent"
+      ],
+      "first_labeled_bar_ts": "2011-10-26 18:00:00+00",
+      "initial_warmup_bars": 13200,
+      "labeled_rows": 72600,
+      "rows_before_first_label": 19965,
+      "symbol": "IBB",
+      "tf": "15m",
+      "total_rows": 115946,
+      "verdict": "labeled"
+    },
+    {
+      "distinct_labels": [
+        "calm",
+        "elevated",
+        "turbulent"
+      ],
+      "first_labeled_bar_ts": "2017-06-02 17:00:00+00",
+      "initial_warmup_bars": 3300,
+      "labeled_rows": 6600,
+      "rows_before_first_label": 15037,
+      "symbol": "IBB",
+      "tf": "1h",
+      "total_rows": 31072,
+      "verdict": "labeled"
+    },
+    {
+      "distinct_labels": [],
+      "first_labeled_bar_ts": null,
+      "initial_warmup_bars": 504,
+      "labeled_rows": 0,
+      "rows_before_first_label": null,
+      "skip_reason": "all segments degenerate_occupation or insufficient warmup history",
+      "symbol": "IBB",
+      "tf": "1d",
+      "total_rows": 4234,
+      "verdict": "skipped"
+    },
+    {
+      "distinct_labels": [
+        "calm",
+        "elevated",
+        "turbulent"
+      ],
+      "first_labeled_bar_ts": "2026-02-03 20:05:00+00",
+      "initial_warmup_bars": 39600,
+      "labeled_rows": 9370,
+      "rows_before_first_label": 39847,
+      "symbol": "IBIT",
+      "tf": "5m",
+      "total_rows": 49217,
+      "verdict": "labeled"
+    },
+    {
+      "distinct_labels": [],
+      "first_labeled_bar_ts": null,
+      "initial_warmup_bars": 13200,
+      "labeled_rows": 0,
+      "rows_before_first_label": null,
+      "skip_reason": "all segments degenerate_occupation or insufficient warmup history",
+      "symbol": "IBIT",
+      "tf": "15m",
+      "total_rows": 16237,
+      "verdict": "skipped"
+    },
+    {
+      "distinct_labels": [],
+      "first_labeled_bar_ts": null,
+      "initial_warmup_bars": 3300,
+      "labeled_rows": 0,
+      "rows_before_first_label": null,
+      "skip_reason": "all segments degenerate_occupation or insufficient warmup history",
+      "symbol": "IBIT",
+      "tf": "1h",
+      "total_rows": 3581,
+      "verdict": "skipped"
+    },
+    {
+      "distinct_labels": [],
+      "first_labeled_bar_ts": null,
+      "initial_warmup_bars": 504,
+      "labeled_rows": 0,
+      "rows_before_first_label": null,
+      "skip_reason": "all segments degenerate_occupation or insufficient warmup history",
+      "symbol": "IBIT",
+      "tf": "1d",
+      "total_rows": 383,
+      "verdict": "skipped"
+    },
+    {
+      "distinct_labels": [
+        "calm",
+        "elevated",
+        "turbulent"
+      ],
+      "first_labeled_bar_ts": "2020-08-26 16:30:00+00",
+      "initial_warmup_bars": 39600,
+      "labeled_rows": 39600,
+      "rows_before_first_label": 59647,
+      "symbol": "IEF",
+      "tf": "5m",
+      "total_rows": 175086,
+      "verdict": "labeled"
+    },
+    {
+      "distinct_labels": [
+        "calm",
+        "elevated",
+        "turbulent"
+      ],
+      "first_labeled_bar_ts": "2019-09-11 14:45:00+00",
+      "initial_warmup_bars": 13200,
+      "labeled_rows": 31554,
+      "rows_before_first_label": 13447,
+      "symbol": "IEF",
+      "tf": "15m",
+      "total_rows": 58201,
+      "verdict": "labeled"
+    },
+    {
+      "distinct_labels": [
+        "calm",
+        "elevated",
+        "turbulent"
+      ],
+      "first_labeled_bar_ts": "2019-10-02 19:00:00+00",
+      "initial_warmup_bars": 3300,
+      "labeled_rows": 3300,
+      "rows_before_first_label": 3547,
+      "symbol": "IEF",
+      "tf": "1h",
+      "total_rows": 15488,
+      "verdict": "labeled"
+    },
+    {
+      "distinct_labels": [
+        "calm",
+        "elevated",
+        "turbulent"
+      ],
+      "first_labeled_bar_ts": "2021-07-29 00:00:00+00",
+      "initial_warmup_bars": 504,
+      "labeled_rows": 252,
+      "rows_before_first_label": 751,
+      "symbol": "IEF",
+      "tf": "1d",
+      "total_rows": 2003,
+      "verdict": "labeled"
+    },
+    {
+      "distinct_labels": [],
+      "first_labeled_bar_ts": null,
+      "initial_warmup_bars": 39600,
+      "labeled_rows": 0,
+      "rows_before_first_label": null,
+      "skip_reason": "all segments degenerate_occupation or insufficient warmup history",
+      "symbol": "IGV",
+      "tf": "5m",
+      "total_rows": 327499,
+      "verdict": "skipped"
+    },
+    {
+      "distinct_labels": [
+        "calm",
+        "elevated",
+        "turbulent"
+      ],
+      "first_labeled_bar_ts": "2011-12-27 18:30:00+00",
+      "initial_warmup_bars": 13200,
+      "labeled_rows": 65639,
+      "rows_before_first_label": 33041,
+      "symbol": "IGV",
+      "tf": "15m",
+      "total_rows": 125080,
+      "verdict": "labeled"
+    },
+    {
+      "distinct_labels": [
+        "calm",
+        "elevated",
+        "turbulent"
+      ],
+      "first_labeled_bar_ts": "2010-12-28 16:00:00+00",
+      "initial_warmup_bars": 3300,
+      "labeled_rows": 13200,
+      "rows_before_first_label": 8268,
+      "symbol": "IGV",
+      "tf": "1h",
+      "total_rows": 35567,
+      "verdict": "labeled"
+    },
+    {
+      "distinct_labels": [
+        "calm",
+        "elevated",
+        "turbulent"
+      ],
+      "first_labeled_bar_ts": "2010-06-21 00:00:00+00",
+      "initial_warmup_bars": 504,
+      "labeled_rows": 504,
+      "rows_before_first_label": 751,
+      "symbol": "IGV",
+      "tf": "1d",
+      "total_rows": 4801,
+      "verdict": "labeled"
+    },
+    {
+      "distinct_labels": [
+        "calm",
+        "elevated",
+        "turbulent"
+      ],
+      "first_labeled_bar_ts": "2017-02-07 15:05:00+00",
+      "initial_warmup_bars": 39600,
+      "labeled_rows": 39600,
+      "rows_before_first_label": 59647,
+      "symbol": "INDA",
+      "tf": "5m",
+      "total_rows": 244541,
+      "verdict": "labeled"
+    },
+    {
+      "distinct_labels": [
+        "calm",
+        "elevated",
+        "turbulent"
+      ],
+      "first_labeled_bar_ts": "2018-01-03 18:00:00+00",
+      "initial_warmup_bars": 13200,
+      "labeled_rows": 42520,
+      "rows_before_first_label": 26647,
+      "symbol": "INDA",
+      "tf": "15m",
+      "total_rows": 82367,
+      "verdict": "labeled"
+    },
+    {
+      "distinct_labels": [
+        "calm",
+        "elevated",
+        "turbulent"
+      ],
+      "first_labeled_bar_ts": "2020-09-02 14:00:00+00",
+      "initial_warmup_bars": 3300,
+      "labeled_rows": 7029,
+      "rows_before_first_label": 11797,
+      "symbol": "INDA",
+      "tf": "1h",
+      "total_rows": 22126,
+      "verdict": "labeled"
+    },
+    {
+      "distinct_labels": [],
+      "first_labeled_bar_ts": null,
+      "initial_warmup_bars": 504,
+      "labeled_rows": 0,
+      "rows_before_first_label": null,
+      "skip_reason": "all segments degenerate_occupation or insufficient warmup history",
+      "symbol": "INDA",
+      "tf": "1d",
+      "total_rows": 2957,
+      "verdict": "skipped"
+    },
+    {
+      "distinct_labels": [],
+      "first_labeled_bar_ts": null,
+      "initial_warmup_bars": 39600,
+      "labeled_rows": 0,
+      "rows_before_first_label": null,
+      "skip_reason": "all segments degenerate_occupation or insufficient warmup history",
+      "symbol": "IPO",
+      "tf": "5m",
+      "total_rows": 101082,
+      "verdict": "skipped"
+    },
+    {
+      "distinct_labels": [],
+      "first_labeled_bar_ts": null,
+      "initial_warmup_bars": 13200,
+      "labeled_rows": 0,
+      "rows_before_first_label": null,
+      "skip_reason": "all segments degenerate_occupation or insufficient warmup history",
+      "symbol": "IPO",
+      "tf": "15m",
+      "total_rows": 51508,
+      "verdict": "skipped"
+    },
+    {
+      "distinct_labels": [
+        "calm",
+        "elevated",
+        "turbulent"
+      ],
+      "first_labeled_bar_ts": "2019-03-19 17:00:00+00",
+      "initial_warmup_bars": 3300,
+      "labeled_rows": 6600,
+      "rows_before_first_label": 5197,
+      "symbol": "IPO",
+      "tf": "1h",
+      "total_rows": 16124,
+      "verdict": "labeled"
+    },
+    {
+      "distinct_labels": [
+        "calm",
+        "elevated",
+        "turbulent"
+      ],
+      "first_labeled_bar_ts": "2021-10-22 00:00:00+00",
+      "initial_warmup_bars": 504,
+      "labeled_rows": 252,
+      "rows_before_first_label": 1759,
+      "symbol": "IPO",
+      "tf": "1d",
+      "total_rows": 2953,
+      "verdict": "labeled"
+    },
+    {
+      "distinct_labels": [
+        "calm",
+        "elevated",
+        "turbulent"
+      ],
+      "first_labeled_bar_ts": "2010-01-29 20:40:00+00",
+      "initial_warmup_bars": 39600,
+      "labeled_rows": 19800,
+      "rows_before_first_label": 39845,
+      "symbol": "ITA",
+      "tf": "5m",
+      "total_rows": 291396,
+      "verdict": "labeled"
+    },
+    {
+      "distinct_labels": [
+        "calm",
+        "elevated",
+        "turbulent"
+      ],
+      "first_labeled_bar_ts": "2011-05-02 19:15:00+00",
+      "initial_warmup_bars": 13200,
+      "labeled_rows": 39600,
+      "rows_before_first_label": 26645,
+      "symbol": "ITA",
+      "tf": "15m",
+      "total_rows": 116741,
+      "verdict": "labeled"
+    },
+    {
+      "distinct_labels": [
+        "calm",
+        "elevated",
+        "turbulent"
+      ],
+      "first_labeled_bar_ts": "2008-07-22 17:00:00+00",
+      "initial_warmup_bars": 3300,
+      "labeled_rows": 12868,
+      "rows_before_first_label": 3542,
+      "symbol": "ITA",
+      "tf": "1h",
+      "total_rows": 34560,
+      "verdict": "labeled"
+    },
+    {
+      "distinct_labels": [
+        "calm",
+        "elevated",
+        "turbulent"
+      ],
+      "first_labeled_bar_ts": "2010-06-22 00:00:00+00",
+      "initial_warmup_bars": 504,
+      "labeled_rows": 504,
+      "rows_before_first_label": 751,
+      "symbol": "ITA",
+      "tf": "1d",
+      "total_rows": 4800,
+      "verdict": "labeled"
+    },
+    {
+      "distinct_labels": [
+        "calm",
+        "elevated",
+        "turbulent"
+      ],
+      "first_labeled_bar_ts": "2015-06-19 15:25:00+00",
+      "initial_warmup_bars": 39600,
+      "labeled_rows": 79200,
+      "rows_before_first_label": 176369,
+      "symbol": "IWM",
+      "tf": "5m",
+      "total_rows": 393279,
+      "verdict": "labeled"
+    },
+    {
+      "distinct_labels": [
+        "calm",
+        "elevated",
+        "turbulent"
+      ],
+      "first_labeled_bar_ts": "2014-07-23 16:00:00+00",
+      "initial_warmup_bars": 13200,
+      "labeled_rows": 65034,
+      "rows_before_first_label": 52368,
+      "symbol": "IWM",
+      "tf": "15m",
+      "total_rows": 130602,
+      "verdict": "labeled"
+    },
+    {
+      "distinct_labels": [
+        "calm",
+        "elevated",
+        "turbulent"
+      ],
+      "first_labeled_bar_ts": "2008-12-04 14:30:00+00",
+      "initial_warmup_bars": 3300,
+      "labeled_rows": 4595,
+      "rows_before_first_label": 4618,
+      "symbol": "IWM",
+      "tf": "1h",
+      "total_rows": 35562,
+      "verdict": "labeled"
+    },
+    {
+      "distinct_labels": [
+        "calm",
+        "elevated",
+        "turbulent"
+      ],
+      "first_labeled_bar_ts": "2010-06-23 00:00:00+00",
+      "initial_warmup_bars": 504,
+      "labeled_rows": 504,
+      "rows_before_first_label": 751,
+      "symbol": "IWM",
+      "tf": "1d",
+      "total_rows": 4799,
+      "verdict": "labeled"
+    },
+    {
+      "distinct_labels": [
+        "calm",
+        "elevated",
+        "turbulent"
+      ],
+      "first_labeled_bar_ts": "2011-10-06 18:35:00+00",
+      "initial_warmup_bars": 39600,
+      "labeled_rows": 138600,
+      "rows_before_first_label": 99132,
+      "symbol": "IYT",
+      "tf": "5m",
+      "total_rows": 373534,
+      "verdict": "labeled"
+    },
+    {
+      "distinct_labels": [
+        "calm",
+        "elevated",
+        "turbulent"
+      ],
+      "first_labeled_bar_ts": "2009-08-25 19:45:00+00",
+      "initial_warmup_bars": 13200,
+      "labeled_rows": 63669,
+      "rows_before_first_label": 19952,
+      "symbol": "IYT",
+      "tf": "15m",
+      "total_rows": 129821,
+      "verdict": "labeled"
+    },
+    {
+      "distinct_labels": [
+        "calm",
+        "elevated",
+        "turbulent"
+      ],
+      "first_labeled_bar_ts": "2009-01-08 19:00:00+00",
+      "initial_warmup_bars": 3300,
+      "labeled_rows": 8225,
+      "rows_before_first_label": 3474,
+      "symbol": "IYT",
+      "tf": "1h",
+      "total_rows": 29865,
+      "verdict": "labeled"
+    },
+    {
+      "distinct_labels": [
+        "calm",
+        "elevated",
+        "turbulent"
+      ],
+      "first_labeled_bar_ts": "2014-07-15 00:00:00+00",
+      "initial_warmup_bars": 504,
+      "labeled_rows": 252,
+      "rows_before_first_label": 1759,
+      "symbol": "IYT",
+      "tf": "1d",
+      "total_rows": 4786,
+      "verdict": "labeled"
+    },
+    {
+      "distinct_labels": [
+        "calm",
+        "elevated",
+        "turbulent"
+      ],
+      "first_labeled_bar_ts": "2011-03-22 19:00:00+00",
+      "initial_warmup_bars": 39600,
+      "labeled_rows": 59400,
+      "rows_before_first_label": 79440,
+      "symbol": "KRE",
+      "tf": "5m",
+      "total_rows": 379216,
+      "verdict": "labeled"
+    },
+    {
+      "distinct_labels": [
+        "calm",
+        "elevated",
+        "turbulent"
+      ],
+      "first_labeled_bar_ts": "2013-01-04 18:45:00+00",
+      "initial_warmup_bars": 13200,
+      "labeled_rows": 35492,
+      "rows_before_first_label": 39839,
+      "symbol": "KRE",
+      "tf": "15m",
+      "total_rows": 128131,
+      "verdict": "labeled"
+    },
+    {
+      "distinct_labels": [
+        "calm",
+        "elevated",
+        "turbulent"
+      ],
+      "first_labeled_bar_ts": "2015-04-29 14:00:00+00",
+      "initial_warmup_bars": 3300,
+      "labeled_rows": 6525,
+      "rows_before_first_label": 15088,
+      "symbol": "KRE",
+      "tf": "1h",
+      "total_rows": 34813,
+      "verdict": "labeled"
+    },
+    {
+      "distinct_labels": [],
+      "first_labeled_bar_ts": null,
+      "initial_warmup_bars": 504,
+      "labeled_rows": 0,
+      "rows_before_first_label": null,
+      "skip_reason": "all segments degenerate_occupation or insufficient warmup history",
+      "symbol": "KRE",
+      "tf": "1d",
+      "total_rows": 4800,
+      "verdict": "skipped"
+    },
+    {
+      "distinct_labels": [
+        "calm",
+        "elevated",
+        "turbulent"
+      ],
+      "first_labeled_bar_ts": "2019-03-28 19:40:00+00",
+      "initial_warmup_bars": 39600,
+      "labeled_rows": 44101,
+      "rows_before_first_label": 79447,
+      "symbol": "KWEB",
+      "tf": "5m",
+      "total_rows": 222548,
+      "verdict": "labeled"
+    },
+    {
+      "distinct_labels": [
+        "calm",
+        "elevated",
+        "turbulent"
+      ],
+      "first_labeled_bar_ts": "2019-06-14 18:45:00+00",
+      "initial_warmup_bars": 13200,
+      "labeled_rows": 13200,
+      "rows_before_first_label": 33247,
+      "symbol": "KWEB",
+      "tf": "15m",
+      "total_rows": 79556,
+      "verdict": "labeled"
+    },
+    {
+      "distinct_labels": [],
+      "first_labeled_bar_ts": null,
+      "initial_warmup_bars": 3300,
+      "labeled_rows": 0,
+      "rows_before_first_label": null,
+      "skip_reason": "all segments degenerate_occupation or insufficient warmup history",
+      "symbol": "KWEB",
+      "tf": "1h",
+      "total_rows": 22104,
+      "verdict": "skipped"
+    },
+    {
+      "distinct_labels": [
+        "calm",
+        "elevated",
+        "turbulent"
+      ],
+      "first_labeled_bar_ts": "2022-08-08 00:00:00+00",
+      "initial_warmup_bars": 504,
+      "labeled_rows": 252,
+      "rows_before_first_label": 2011,
+      "symbol": "KWEB",
+      "tf": "1d",
+      "total_rows": 3005,
+      "verdict": "labeled"
+    },
+    {
+      "distinct_labels": [
+        "calm",
+        "elevated",
+        "turbulent"
+      ],
+      "first_labeled_bar_ts": "2008-10-24 14:55:00+00",
+      "initial_warmup_bars": 39600,
+      "labeled_rows": 118671,
+      "rows_before_first_label": 39600,
+      "symbol": "LQD",
+      "tf": "5m",
+      "total_rows": 386440,
+      "verdict": "labeled"
+    },
+    {
+      "distinct_labels": [
+        "calm",
+        "elevated",
+        "turbulent"
+      ],
+      "first_labeled_bar_ts": "2009-09-09 17:45:00+00",
+      "initial_warmup_bars": 13200,
+      "labeled_rows": 26399,
+      "rows_before_first_label": 19781,
+      "symbol": "LQD",
+      "tf": "15m",
+      "total_rows": 129725,
+      "verdict": "labeled"
+    },
+    {
+      "distinct_labels": [
+        "calm",
+        "elevated",
+        "turbulent"
+      ],
+      "first_labeled_bar_ts": "2010-03-03 18:00:00+00",
+      "initial_warmup_bars": 3300,
+      "labeled_rows": 10625,
+      "rows_before_first_label": 6545,
+      "symbol": "LQD",
+      "tf": "1h",
+      "total_rows": 35320,
+      "verdict": "labeled"
+    },
+    {
+      "distinct_labels": [],
+      "first_labeled_bar_ts": null,
+      "initial_warmup_bars": 504,
+      "labeled_rows": 0,
+      "rows_before_first_label": null,
+      "skip_reason": "all segments degenerate_occupation or insufficient warmup history",
+      "symbol": "LQD",
+      "tf": "1d",
+      "total_rows": 4768,
+      "verdict": "skipped"
+    },
+    {
+      "distinct_labels": [
+        "calm",
+        "elevated",
+        "turbulent"
+      ],
+      "first_labeled_bar_ts": "2018-02-22 18:10:00+00",
+      "initial_warmup_bars": 39600,
+      "labeled_rows": 105099,
+      "rows_before_first_label": 39847,
+      "symbol": "MCHI",
+      "tf": "5m",
+      "total_rows": 204346,
+      "verdict": "labeled"
+    },
+    {
+      "distinct_labels": [
+        "calm",
+        "elevated",
+        "turbulent"
+      ],
+      "first_labeled_bar_ts": "2021-03-25 17:00:00+00",
+      "initial_warmup_bars": 13200,
+      "labeled_rows": 33000,
+      "rows_before_first_label": 33247,
+      "symbol": "MCHI",
+      "tf": "15m",
+      "total_rows": 67978,
+      "verdict": "labeled"
+    },
+    {
+      "distinct_labels": [],
+      "first_labeled_bar_ts": null,
+      "initial_warmup_bars": 3300,
+      "labeled_rows": 0,
+      "rows_before_first_label": null,
+      "skip_reason": "all segments degenerate_occupation or insufficient warmup history",
+      "symbol": "MCHI",
+      "tf": "1h",
+      "total_rows": 15509,
+      "verdict": "skipped"
+    },
+    {
+      "distinct_labels": [],
+      "first_labeled_bar_ts": null,
+      "initial_warmup_bars": 504,
+      "labeled_rows": 0,
+      "rows_before_first_label": null,
+      "skip_reason": "all segments degenerate_occupation or insufficient warmup history",
+      "symbol": "MCHI",
+      "tf": "1d",
+      "total_rows": 2382,
+      "verdict": "skipped"
+    },
+    {
+      "distinct_labels": [
+        "calm",
+        "elevated",
+        "turbulent"
+      ],
+      "first_labeled_bar_ts": "2022-03-01 20:00:00+00",
+      "initial_warmup_bars": 39600,
+      "labeled_rows": 39600,
+      "rows_before_first_label": 138847,
+      "symbol": "MTUM",
+      "tf": "5m",
+      "total_rows": 224588,
+      "verdict": "labeled"
+    },
+    {
+      "distinct_labels": [
+        "calm",
+        "elevated",
+        "turbulent"
+      ],
+      "first_labeled_bar_ts": "2020-05-27 15:45:00+00",
+      "initial_warmup_bars": 13200,
+      "labeled_rows": 19800,
+      "rows_before_first_label": 39847,
+      "symbol": "MTUM",
+      "tf": "15m",
+      "total_rows": 79990,
+      "verdict": "labeled"
+    },
+    {
+      "distinct_labels": [
+        "calm",
+        "elevated",
+        "turbulent"
+      ],
+      "first_labeled_bar_ts": "2015-10-08 14:00:00+00",
+      "initial_warmup_bars": 3300,
+      "labeled_rows": 4950,
+      "rows_before_first_label": 3547,
+      "symbol": "MTUM",
+      "tf": "1h",
+      "total_rows": 22481,
+      "verdict": "labeled"
+    },
+    {
+      "distinct_labels": [],
+      "first_labeled_bar_ts": null,
+      "initial_warmup_bars": 504,
+      "labeled_rows": 0,
+      "rows_before_first_label": null,
+      "skip_reason": "all segments degenerate_occupation or insufficient warmup history",
+      "symbol": "MTUM",
+      "tf": "1d",
+      "total_rows": 3083,
+      "verdict": "skipped"
+    },
+    {
+      "distinct_labels": [
+        "calm",
+        "elevated",
+        "turbulent"
+      ],
+      "first_labeled_bar_ts": "2020-02-20 15:10:00+00",
+      "initial_warmup_bars": 39600,
+      "labeled_rows": 66263,
+      "rows_before_first_label": 218046,
+      "symbol": "MUB",
+      "tf": "5m",
+      "total_rows": 343709,
+      "verdict": "labeled"
+    },
+    {
+      "distinct_labels": [
+        "calm",
+        "elevated",
+        "turbulent"
+      ],
+      "first_labeled_bar_ts": "2020-02-07 17:45:00+00",
+      "initial_warmup_bars": 13200,
+      "labeled_rows": 13200,
+      "rows_before_first_label": 79446,
+      "symbol": "MUB",
+      "tf": "15m",
+      "total_rows": 121536,
+      "verdict": "labeled"
+    },
+    {
+      "distinct_labels": [
+        "calm",
+        "elevated",
+        "turbulent"
+      ],
+      "first_labeled_bar_ts": "2013-08-12 18:00:00+00",
+      "initial_warmup_bars": 3300,
+      "labeled_rows": 4950,
+      "rows_before_first_label": 10142,
+      "symbol": "MUB",
+      "tf": "1h",
+      "total_rows": 32865,
+      "verdict": "labeled"
+    },
+    {
+      "distinct_labels": [
+        "calm",
+        "elevated",
+        "turbulent"
+      ],
+      "first_labeled_bar_ts": "2019-09-06 00:00:00+00",
+      "initial_warmup_bars": 504,
+      "labeled_rows": 252,
+      "rows_before_first_label": 2767,
+      "symbol": "MUB",
+      "tf": "1d",
+      "total_rows": 4498,
+      "verdict": "labeled"
+    },
+    {
+      "distinct_labels": [
+        "calm",
+        "elevated",
+        "turbulent"
+      ],
+      "first_labeled_bar_ts": "2017-01-26 15:45:00+00",
+      "initial_warmup_bars": 39600,
+      "labeled_rows": 79200,
+      "rows_before_first_label": 99247,
+      "symbol": "OIH",
+      "tf": "5m",
+      "total_rows": 284184,
+      "verdict": "labeled"
+    },
+    {
+      "distinct_labels": [
+        "calm",
+        "elevated",
+        "turbulent"
+      ],
+      "first_labeled_bar_ts": "2023-03-15 14:00:00+00",
+      "initial_warmup_bars": 13200,
+      "labeled_rows": 6600,
+      "rows_before_first_label": 72847,
+      "symbol": "OIH",
+      "tf": "15m",
+      "total_rows": 94717,
+      "verdict": "labeled"
+    },
+    {
+      "distinct_labels": [
+        "calm",
+        "elevated",
+        "turbulent"
+      ],
+      "first_labeled_bar_ts": "2021-09-01 14:00:00+00",
+      "initial_warmup_bars": 3300,
+      "labeled_rows": 4950,
+      "rows_before_first_label": 16747,
+      "symbol": "OIH",
+      "tf": "1h",
+      "total_rows": 25325,
+      "verdict": "labeled"
+    },
+    {
+      "distinct_labels": [
+        "calm",
+        "elevated",
+        "turbulent"
+      ],
+      "first_labeled_bar_ts": "2022-12-21 00:00:00+00",
+      "initial_warmup_bars": 504,
+      "labeled_rows": 395,
+      "rows_before_first_label": 2515,
+      "symbol": "OIH",
+      "tf": "1d",
+      "total_rows": 3414,
+      "verdict": "labeled"
+    },
+    {
+      "distinct_labels": [
+        "calm",
+        "elevated",
+        "turbulent"
+      ],
+      "first_labeled_bar_ts": "2021-08-31 13:55:00+00",
+      "initial_warmup_bars": 39600,
+      "labeled_rows": 39600,
+      "rows_before_first_label": 79447,
+      "symbol": "PFF",
+      "tf": "5m",
+      "total_rows": 175099,
+      "verdict": "labeled"
+    },
+    {
+      "distinct_labels": [
+        "calm",
+        "elevated",
+        "turbulent"
+      ],
+      "first_labeled_bar_ts": "2019-09-11 14:45:00+00",
+      "initial_warmup_bars": 13200,
+      "labeled_rows": 26400,
+      "rows_before_first_label": 13447,
+      "symbol": "PFF",
+      "tf": "15m",
+      "total_rows": 58200,
+      "verdict": "labeled"
+    },
+    {
+      "distinct_labels": [
+        "calm",
+        "elevated",
+        "turbulent"
+      ],
+      "first_labeled_bar_ts": "2021-08-19 13:30:00+00",
+      "initial_warmup_bars": 3300,
+      "labeled_rows": 4950,
+      "rows_before_first_label": 6847,
+      "symbol": "PFF",
+      "tf": "1h",
+      "total_rows": 15489,
+      "verdict": "labeled"
+    },
+    {
+      "distinct_labels": [],
+      "first_labeled_bar_ts": null,
+      "initial_warmup_bars": 504,
+      "labeled_rows": 0,
+      "rows_before_first_label": null,
+      "skip_reason": "all segments degenerate_occupation or insufficient warmup history",
+      "symbol": "PFF",
+      "tf": "1d",
+      "total_rows": 2003,
+      "verdict": "skipped"
+    },
+    {
+      "distinct_labels": [
+        "calm",
+        "elevated",
+        "turbulent"
+      ],
+      "first_labeled_bar_ts": "2019-08-29 18:35:00+00",
+      "initial_warmup_bars": 39600,
+      "labeled_rows": 56099,
+      "rows_before_first_label": 118962,
+      "symbol": "PPLT",
+      "tf": "5m",
+      "total_rows": 234461,
+      "verdict": "labeled"
+    },
+    {
+      "distinct_labels": [
+        "calm",
+        "elevated",
+        "turbulent"
+      ],
+      "first_labeled_bar_ts": "2014-07-23 16:15:00+00",
+      "initial_warmup_bars": 13200,
+      "labeled_rows": 33000,
+      "rows_before_first_label": 26611,
+      "symbol": "PPLT",
+      "tf": "15m",
+      "total_rows": 100028,
+      "verdict": "labeled"
+    },
+    {
+      "distinct_labels": [
+        "calm",
+        "elevated",
+        "turbulent"
+      ],
+      "first_labeled_bar_ts": "2013-08-14 16:00:00+00",
+      "initial_warmup_bars": 3300,
+      "labeled_rows": 3300,
+      "rows_before_first_label": 5197,
+      "symbol": "PPLT",
+      "tf": "1h",
+      "total_rows": 24635,
+      "verdict": "labeled"
+    },
+    {
+      "distinct_labels": [],
+      "first_labeled_bar_ts": null,
+      "initial_warmup_bars": 504,
+      "labeled_rows": 0,
+      "rows_before_first_label": null,
+      "skip_reason": "all segments degenerate_occupation or insufficient warmup history",
+      "symbol": "PPLT",
+      "tf": "1d",
+      "total_rows": 3909,
+      "verdict": "skipped"
+    },
+    {
+      "distinct_labels": [
+        "calm",
+        "elevated",
+        "turbulent"
+      ],
+      "first_labeled_bar_ts": "2012-06-26 14:35:00+00",
+      "initial_warmup_bars": 39600,
+      "labeled_rows": 116575,
+      "rows_before_first_label": 118509,
+      "symbol": "QQQ",
+      "tf": "5m",
+      "total_rows": 393484,
+      "verdict": "labeled"
+    },
+    {
+      "distinct_labels": [
+        "calm",
+        "elevated",
+        "turbulent"
+      ],
+      "first_labeled_bar_ts": "2011-08-01 16:15:00+00",
+      "initial_warmup_bars": 13200,
+      "labeled_rows": 59400,
+      "rows_before_first_label": 33062,
+      "symbol": "QQQ",
+      "tf": "15m",
+      "total_rows": 130636,
+      "verdict": "labeled"
+    },
+    {
+      "distinct_labels": [
+        "calm",
+        "elevated",
+        "turbulent"
+      ],
+      "first_labeled_bar_ts": "2013-10-28 19:00:00+00",
+      "initial_warmup_bars": 3300,
+      "labeled_rows": 9144,
+      "rows_before_first_label": 13278,
+      "symbol": "QQQ",
+      "tf": "1h",
+      "total_rows": 35622,
+      "verdict": "labeled"
+    },
+    {
+      "distinct_labels": [
+        "calm",
+        "elevated",
+        "turbulent"
+      ],
+      "first_labeled_bar_ts": "2016-06-22 00:00:00+00",
+      "initial_warmup_bars": 504,
+      "labeled_rows": 756,
+      "rows_before_first_label": 2263,
+      "symbol": "QQQ",
+      "tf": "1d",
+      "total_rows": 4801,
+      "verdict": "labeled"
+    },
+    {
+      "distinct_labels": [],
+      "first_labeled_bar_ts": null,
+      "initial_warmup_bars": 39600,
+      "labeled_rows": 0,
+      "rows_before_first_label": null,
+      "skip_reason": "all segments degenerate_occupation or insufficient warmup history",
+      "symbol": "QUAL",
+      "tf": "5m",
+      "total_rows": 220549,
+      "verdict": "skipped"
+    },
+    {
+      "distinct_labels": [],
+      "first_labeled_bar_ts": null,
+      "initial_warmup_bars": 13200,
+      "labeled_rows": 0,
+      "rows_before_first_label": null,
+      "skip_reason": "all segments degenerate_occupation or insufficient warmup history",
+      "symbol": "QUAL",
+      "tf": "15m",
+      "total_rows": 79903,
+      "verdict": "skipped"
+    },
+    {
+      "distinct_labels": [
+        "calm",
+        "elevated",
+        "turbulent"
+      ],
+      "first_labeled_bar_ts": "2017-09-15 18:00:00+00",
+      "initial_warmup_bars": 3300,
+      "labeled_rows": 3976,
+      "rows_before_first_label": 6847,
+      "symbol": "QUAL",
+      "tf": "1h",
+      "total_rows": 22373,
+      "verdict": "labeled"
+    },
+    {
+      "distinct_labels": [
+        "calm",
+        "elevated",
+        "turbulent"
+      ],
+      "first_labeled_bar_ts": "2017-07-13 00:00:00+00",
+      "initial_warmup_bars": 504,
+      "labeled_rows": 504,
+      "rows_before_first_label": 751,
+      "symbol": "QUAL",
+      "tf": "1d",
+      "total_rows": 3021,
+      "verdict": "labeled"
+    },
+    {
+      "distinct_labels": [
+        "calm",
+        "elevated",
+        "turbulent"
+      ],
+      "first_labeled_bar_ts": "2019-10-18 18:25:00+00",
+      "initial_warmup_bars": 39600,
+      "labeled_rows": 59400,
+      "rows_before_first_label": 257641,
+      "symbol": "RSP",
+      "tf": "5m",
+      "total_rows": 389727,
+      "verdict": "labeled"
+    },
+    {
+      "distinct_labels": [
+        "calm",
+        "elevated",
+        "turbulent"
+      ],
+      "first_labeled_bar_ts": "2010-08-12 16:45:00+00",
+      "initial_warmup_bars": 13200,
+      "labeled_rows": 39600,
+      "rows_before_first_label": 26642,
+      "symbol": "RSP",
+      "tf": "15m",
+      "total_rows": 130556,
+      "verdict": "labeled"
+    },
+    {
+      "distinct_labels": [
+        "calm",
+        "elevated",
+        "turbulent"
+      ],
+      "first_labeled_bar_ts": "2020-07-23 19:00:00+00",
+      "initial_warmup_bars": 3300,
+      "labeled_rows": 3300,
+      "rows_before_first_label": 24988,
+      "symbol": "RSP",
+      "tf": "1h",
+      "total_rows": 35515,
+      "verdict": "labeled"
+    },
+    {
+      "distinct_labels": [
+        "calm",
+        "elevated",
+        "turbulent"
+      ],
+      "first_labeled_bar_ts": "2010-06-23 00:00:00+00",
+      "initial_warmup_bars": 504,
+      "labeled_rows": 252,
+      "rows_before_first_label": 751,
+      "symbol": "RSP",
+      "tf": "1d",
+      "total_rows": 4798,
+      "verdict": "labeled"
+    },
+    {
+      "distinct_labels": [
+        "calm",
+        "elevated",
+        "turbulent"
+      ],
+      "first_labeled_bar_ts": "2017-03-14 19:45:00+00",
+      "initial_warmup_bars": 39600,
+      "labeled_rows": 99000,
+      "rows_before_first_label": 99247,
+      "symbol": "SCHD",
+      "tf": "5m",
+      "total_rows": 282122,
+      "verdict": "labeled"
+    },
+    {
+      "distinct_labels": [
+        "calm",
+        "elevated",
+        "turbulent"
+      ],
+      "first_labeled_bar_ts": "2021-01-08 19:45:00+00",
+      "initial_warmup_bars": 13200,
+      "labeled_rows": 26400,
+      "rows_before_first_label": 59647,
+      "symbol": "SCHD",
+      "tf": "15m",
+      "total_rows": 95723,
+      "verdict": "labeled"
+    },
+    {
+      "distinct_labels": [
+        "calm",
+        "elevated",
+        "turbulent"
+      ],
+      "first_labeled_bar_ts": "2015-11-09 17:00:00+00",
+      "initial_warmup_bars": 3300,
+      "labeled_rows": 8250,
+      "rows_before_first_label": 6847,
+      "symbol": "SCHD",
+      "tf": "1h",
+      "total_rows": 25625,
+      "verdict": "labeled"
+    },
+    {
+      "distinct_labels": [
+        "calm",
+        "elevated",
+        "turbulent"
+      ],
+      "first_labeled_bar_ts": "2020-10-20 00:00:00+00",
+      "initial_warmup_bars": 504,
+      "labeled_rows": 252,
+      "rows_before_first_label": 2011,
+      "symbol": "SCHD",
+      "tf": "1d",
+      "total_rows": 3457,
+      "verdict": "labeled"
+    },
+    {
+      "distinct_labels": [
+        "calm",
+        "elevated",
+        "turbulent"
+      ],
+      "first_labeled_bar_ts": "2019-10-23 19:55:00+00",
+      "initial_warmup_bars": 39600,
+      "labeled_rows": 39600,
+      "rows_before_first_label": 119047,
+      "symbol": "SDOG",
+      "tf": "5m",
+      "total_rows": 202141,
+      "verdict": "labeled"
+    },
+    {
+      "distinct_labels": [],
+      "first_labeled_bar_ts": null,
+      "initial_warmup_bars": 13200,
+      "labeled_rows": 0,
+      "rows_before_first_label": null,
+      "skip_reason": "all segments degenerate_occupation or insufficient warmup history",
+      "symbol": "SDOG",
+      "tf": "15m",
+      "total_rows": 85790,
+      "verdict": "skipped"
+    },
+    {
+      "distinct_labels": [
+        "calm",
+        "elevated",
+        "turbulent"
+      ],
+      "first_labeled_bar_ts": "2019-06-07 14:00:00+00",
+      "initial_warmup_bars": 3300,
+      "labeled_rows": 4950,
+      "rows_before_first_label": 10147,
+      "symbol": "SDOG",
+      "tf": "1h",
+      "total_rows": 20875,
+      "verdict": "labeled"
+    },
+    {
+      "distinct_labels": [
+        "calm",
+        "elevated",
+        "turbulent"
+      ],
+      "first_labeled_bar_ts": "2020-06-29 00:00:00+00",
+      "initial_warmup_bars": 504,
+      "labeled_rows": 252,
+      "rows_before_first_label": 1759,
+      "symbol": "SDOG",
+      "tf": "1d",
+      "total_rows": 3286,
+      "verdict": "labeled"
+    },
+    {
+      "distinct_labels": [],
+      "first_labeled_bar_ts": null,
+      "initial_warmup_bars": 39600,
+      "labeled_rows": 0,
+      "rows_before_first_label": null,
+      "skip_reason": "all segments degenerate_occupation or insufficient warmup history",
+      "symbol": "SHY",
+      "tf": "5m",
+      "total_rows": 175054,
+      "verdict": "skipped"
+    },
+    {
+      "distinct_labels": [
+        "calm",
+        "elevated",
+        "turbulent"
+      ],
+      "first_labeled_bar_ts": "2020-09-14 19:45:00+00",
+      "initial_warmup_bars": 13200,
+      "labeled_rows": 18354,
+      "rows_before_first_label": 20047,
+      "symbol": "SHY",
+      "tf": "15m",
+      "total_rows": 58201,
+      "verdict": "labeled"
+    },
+    {
+      "distinct_labels": [
+        "calm",
+        "elevated",
+        "turbulent"
+      ],
+      "first_labeled_bar_ts": "2021-08-19 13:30:00+00",
+      "initial_warmup_bars": 3300,
+      "labeled_rows": 2042,
+      "rows_before_first_label": 6847,
+      "symbol": "SHY",
+      "tf": "1h",
+      "total_rows": 15489,
+      "verdict": "labeled"
+    },
+    {
+      "distinct_labels": [],
+      "first_labeled_bar_ts": null,
+      "initial_warmup_bars": 504,
+      "labeled_rows": 0,
+      "rows_before_first_label": null,
+      "skip_reason": "all segments degenerate_occupation or insufficient warmup history",
+      "symbol": "SHY",
+      "tf": "1d",
+      "total_rows": 2003,
+      "verdict": "skipped"
+    },
+    {
+      "distinct_labels": [
+        "calm",
+        "elevated",
+        "turbulent"
+      ],
+      "first_labeled_bar_ts": "2008-07-01 16:35:00+00",
+      "initial_warmup_bars": 39600,
+      "labeled_rows": 158025,
+      "rows_before_first_label": 39767,
+      "symbol": "SLV",
+      "tf": "5m",
+      "total_rows": 392879,
+      "verdict": "labeled"
+    },
+    {
+      "distinct_labels": [
+        "calm",
+        "elevated",
+        "turbulent"
+      ],
+      "first_labeled_bar_ts": "2012-08-06 15:00:00+00",
+      "initial_warmup_bars": 13200,
+      "labeled_rows": 26400,
+      "rows_before_first_label": 39637,
+      "symbol": "SLV",
+      "tf": "15m",
+      "total_rows": 130595,
+      "verdict": "labeled"
+    },
+    {
+      "distinct_labels": [
+        "calm",
+        "elevated",
+        "turbulent"
+      ],
+      "first_labeled_bar_ts": "2016-10-26 18:00:00+00",
+      "initial_warmup_bars": 3300,
+      "labeled_rows": 3300,
+      "rows_before_first_label": 18199,
+      "symbol": "SLV",
+      "tf": "1h",
+      "total_rows": 35280,
+      "verdict": "labeled"
+    },
+    {
+      "distinct_labels": [],
+      "first_labeled_bar_ts": null,
+      "initial_warmup_bars": 504,
+      "labeled_rows": 0,
+      "rows_before_first_label": null,
+      "skip_reason": "all segments degenerate_occupation or insufficient warmup history",
+      "symbol": "SLV",
+      "tf": "1d",
+      "total_rows": 4798,
+      "verdict": "skipped"
+    },
+    {
+      "distinct_labels": [
+        "calm",
+        "elevated",
+        "turbulent"
+      ],
+      "first_labeled_bar_ts": "2019-02-07 19:30:00+00",
+      "initial_warmup_bars": 39600,
+      "labeled_rows": 19800,
+      "rows_before_first_label": 138847,
+      "symbol": "SMH",
+      "tf": "5m",
+      "total_rows": 284644,
+      "verdict": "labeled"
+    },
+    {
+      "distinct_labels": [
+        "calm",
+        "elevated",
+        "turbulent"
+      ],
+      "first_labeled_bar_ts": "2015-02-05 20:15:00+00",
+      "initial_warmup_bars": 13200,
+      "labeled_rows": 13200,
+      "rows_before_first_label": 20047,
+      "symbol": "SMH",
+      "tf": "15m",
+      "total_rows": 94757,
+      "verdict": "labeled"
+    },
+    {
+      "distinct_labels": [
+        "calm",
+        "elevated",
+        "turbulent"
+      ],
+      "first_labeled_bar_ts": "2021-08-30 19:00:00+00",
+      "initial_warmup_bars": 3300,
+      "labeled_rows": 3300,
+      "rows_before_first_label": 16747,
+      "symbol": "SMH",
+      "tf": "1h",
+      "total_rows": 25334,
+      "verdict": "labeled"
+    },
+    {
+      "distinct_labels": [
+        "calm",
+        "elevated",
+        "turbulent"
+      ],
+      "first_labeled_bar_ts": "2020-12-18 00:00:00+00",
+      "initial_warmup_bars": 504,
+      "labeled_rows": 252,
+      "rows_before_first_label": 2011,
+      "symbol": "SMH",
+      "tf": "1d",
+      "total_rows": 3415,
+      "verdict": "labeled"
+    },
+    {
+      "distinct_labels": [
+        "calm",
+        "elevated",
+        "turbulent"
+      ],
+      "first_labeled_bar_ts": "2015-10-01 19:20:00+00",
+      "initial_warmup_bars": 39600,
+      "labeled_rows": 158400,
+      "rows_before_first_label": 39847,
+      "symbol": "SPHB",
+      "tf": "5m",
+      "total_rows": 211939,
+      "verdict": "labeled"
+    },
+    {
+      "distinct_labels": [
+        "calm",
+        "elevated",
+        "turbulent"
+      ],
+      "first_labeled_bar_ts": "2018-01-16 20:30:00+00",
+      "initial_warmup_bars": 13200,
+      "labeled_rows": 26400,
+      "rows_before_first_label": 33247,
+      "symbol": "SPHB",
+      "tf": "15m",
+      "total_rows": 86979,
+      "verdict": "labeled"
+    },
+    {
+      "distinct_labels": [
+        "calm",
+        "elevated",
+        "turbulent"
+      ],
+      "first_labeled_bar_ts": "2015-04-16 14:00:00+00",
+      "initial_warmup_bars": 3300,
+      "labeled_rows": 6600,
+      "rows_before_first_label": 5197,
+      "symbol": "SPHB",
+      "tf": "1h",
+      "total_rows": 22091,
+      "verdict": "labeled"
+    },
+    {
+      "distinct_labels": [
+        "calm",
+        "elevated",
+        "turbulent"
+      ],
+      "first_labeled_bar_ts": "2019-05-20 00:00:00+00",
+      "initial_warmup_bars": 504,
+      "labeled_rows": 504,
+      "rows_before_first_label": 1759,
+      "symbol": "SPHB",
+      "tf": "1d",
+      "total_rows": 3566,
+      "verdict": "labeled"
+    },
+    {
+      "distinct_labels": [
+        "calm",
+        "elevated",
+        "turbulent"
+      ],
+      "first_labeled_bar_ts": "2009-06-22 15:25:00+00",
+      "initial_warmup_bars": 39600,
+      "labeled_rows": 138340,
+      "rows_before_first_label": 57476,
+      "symbol": "SPY",
+      "tf": "5m",
+      "total_rows": 391594,
+      "verdict": "labeled"
+    },
+    {
+      "distinct_labels": [
+        "calm",
+        "elevated",
+        "turbulent"
+      ],
+      "first_labeled_bar_ts": "2012-07-16 17:30:00+00",
+      "initial_warmup_bars": 13200,
+      "labeled_rows": 51736,
+      "rows_before_first_label": 39036,
+      "symbol": "SPY",
+      "tf": "15m",
+      "total_rows": 130372,
+      "verdict": "labeled"
+    },
+    {
+      "distinct_labels": [
+        "calm",
+        "elevated",
+        "turbulent"
+      ],
+      "first_labeled_bar_ts": "2018-05-25 19:00:00+00",
+      "initial_warmup_bars": 3300,
+      "labeled_rows": 6600,
+      "rows_before_first_label": 17658,
+      "symbol": "SPY",
+      "tf": "1h",
+      "total_rows": 29941,
+      "verdict": "labeled"
+    },
+    {
+      "distinct_labels": [
+        "calm",
+        "elevated",
+        "turbulent"
+      ],
+      "first_labeled_bar_ts": "2010-06-25 00:00:00+00",
+      "initial_warmup_bars": 504,
+      "labeled_rows": 252,
+      "rows_before_first_label": 751,
+      "symbol": "SPY",
+      "tf": "1d",
+      "total_rows": 4795,
+      "verdict": "labeled"
+    },
+    {
+      "distinct_labels": [
+        "calm",
+        "elevated",
+        "turbulent"
+      ],
+      "first_labeled_bar_ts": "2011-07-28 15:40:00+00",
+      "initial_warmup_bars": 39600,
+      "labeled_rows": 99000,
+      "rows_before_first_label": 99235,
+      "symbol": "TIP",
+      "tf": "5m",
+      "total_rows": 392017,
+      "verdict": "labeled"
+    },
+    {
+      "distinct_labels": [
+        "calm",
+        "elevated",
+        "turbulent"
+      ],
+      "first_labeled_bar_ts": "2011-08-12 18:15:00+00",
+      "initial_warmup_bars": 13200,
+      "labeled_rows": 51144,
+      "rows_before_first_label": 33238,
+      "symbol": "TIP",
+      "tf": "15m",
+      "total_rows": 130582,
+      "verdict": "labeled"
+    },
+    {
+      "distinct_labels": [
+        "calm",
+        "elevated",
+        "turbulent"
+      ],
+      "first_labeled_bar_ts": "2011-02-28 14:30:00+00",
+      "initial_warmup_bars": 3300,
+      "labeled_rows": 6600,
+      "rows_before_first_label": 8486,
+      "symbol": "TIP",
+      "tf": "1h",
+      "total_rows": 35518,
+      "verdict": "labeled"
+    },
+    {
+      "distinct_labels": [],
+      "first_labeled_bar_ts": null,
+      "initial_warmup_bars": 504,
+      "labeled_rows": 0,
+      "rows_before_first_label": null,
+      "skip_reason": "all segments degenerate_occupation or insufficient warmup history",
+      "symbol": "TIP",
+      "tf": "1d",
+      "total_rows": 4797,
+      "verdict": "skipped"
+    },
+    {
+      "distinct_labels": [
+        "calm",
+        "elevated",
+        "turbulent"
+      ],
+      "first_labeled_bar_ts": "2018-02-20 20:10:00+00",
+      "initial_warmup_bars": 39600,
+      "labeled_rows": 125035,
+      "rows_before_first_label": 39847,
+      "symbol": "TLT",
+      "tf": "5m",
+      "total_rows": 204482,
+      "verdict": "labeled"
+    },
+    {
+      "distinct_labels": [
+        "calm",
+        "elevated",
+        "turbulent"
+      ],
+      "first_labeled_bar_ts": "2024-04-08 15:15:00+00",
+      "initial_warmup_bars": 13200,
+      "labeled_rows": 6600,
+      "rows_before_first_label": 53047,
+      "symbol": "TLT",
+      "tf": "15m",
+      "total_rows": 67995,
+      "verdict": "labeled"
+    },
+    {
+      "distinct_labels": [],
+      "first_labeled_bar_ts": null,
+      "initial_warmup_bars": 3300,
+      "labeled_rows": 0,
+      "rows_before_first_label": null,
+      "skip_reason": "all segments degenerate_occupation or insufficient warmup history",
+      "symbol": "TLT",
+      "tf": "1h",
+      "total_rows": 18126,
+      "verdict": "skipped"
+    },
+    {
+      "distinct_labels": [],
+      "first_labeled_bar_ts": null,
+      "initial_warmup_bars": 504,
+      "labeled_rows": 0,
+      "rows_before_first_label": null,
+      "skip_reason": "all segments degenerate_occupation or insufficient warmup history",
+      "symbol": "TLT",
+      "tf": "1d",
+      "total_rows": 2381,
+      "verdict": "skipped"
+    },
+    {
+      "distinct_labels": [
+        "calm",
+        "elevated",
+        "turbulent"
+      ],
+      "first_labeled_bar_ts": "2021-10-28 19:05:00+00",
+      "initial_warmup_bars": 39600,
+      "labeled_rows": 19800,
+      "rows_before_first_label": 178447,
+      "symbol": "USMV",
+      "tf": "5m",
+      "total_rows": 270839,
+      "verdict": "labeled"
+    },
+    {
+      "distinct_labels": [
+        "calm",
+        "elevated",
+        "turbulent"
+      ],
+      "first_labeled_bar_ts": "2015-06-10 15:45:00+00",
+      "initial_warmup_bars": 13200,
+      "labeled_rows": 6600,
+      "rows_before_first_label": 20047,
+      "symbol": "USMV",
+      "tf": "15m",
+      "total_rows": 92535,
+      "verdict": "labeled"
+    },
+    {
+      "distinct_labels": [
+        "calm",
+        "elevated",
+        "turbulent"
+      ],
+      "first_labeled_bar_ts": "2019-11-12 19:00:00+00",
+      "initial_warmup_bars": 3300,
+      "labeled_rows": 1650,
+      "rows_before_first_label": 13447,
+      "symbol": "USMV",
+      "tf": "1h",
+      "total_rows": 25187,
+      "verdict": "labeled"
+    },
+    {
+      "distinct_labels": [
+        "calm",
+        "elevated",
+        "turbulent"
+      ],
+      "first_labeled_bar_ts": "2020-10-29 00:00:00+00",
+      "initial_warmup_bars": 504,
+      "labeled_rows": 252,
+      "rows_before_first_label": 2011,
+      "symbol": "USMV",
+      "tf": "1d",
+      "total_rows": 3450,
+      "verdict": "labeled"
+    },
+    {
+      "distinct_labels": [
+        "calm",
+        "elevated",
+        "turbulent"
+      ],
+      "first_labeled_bar_ts": "2019-05-10 13:30:00+00",
+      "initial_warmup_bars": 39600,
+      "labeled_rows": 39600,
+      "rows_before_first_label": 218034,
+      "symbol": "UUP",
+      "tf": "5m",
+      "total_rows": 351754,
+      "verdict": "labeled"
+    },
+    {
+      "distinct_labels": [
+        "calm",
+        "elevated",
+        "turbulent"
+      ],
+      "first_labeled_bar_ts": "2010-09-20 16:00:00+00",
+      "initial_warmup_bars": 13200,
+      "labeled_rows": 33000,
+      "rows_before_first_label": 20039,
+      "symbol": "UUP",
+      "tf": "15m",
+      "total_rows": 122998,
+      "verdict": "labeled"
+    },
+    {
+      "distinct_labels": [
+        "calm",
+        "elevated",
+        "turbulent"
+      ],
+      "first_labeled_bar_ts": "2010-12-17 19:00:00+00",
+      "initial_warmup_bars": 3300,
+      "labeled_rows": 6961,
+      "rows_before_first_label": 5188,
+      "symbol": "UUP",
+      "tf": "1h",
+      "total_rows": 28649,
+      "verdict": "labeled"
+    },
+    {
+      "distinct_labels": [],
+      "first_labeled_bar_ts": null,
+      "initial_warmup_bars": 504,
+      "labeled_rows": 0,
+      "rows_before_first_label": null,
+      "skip_reason": "all segments degenerate_occupation or insufficient warmup history",
+      "symbol": "UUP",
+      "tf": "1d",
+      "total_rows": 4632,
+      "verdict": "skipped"
+    },
+    {
+      "distinct_labels": [
+        "calm",
+        "elevated",
+        "turbulent"
+      ],
+      "first_labeled_bar_ts": "2012-09-12 13:30:00+00",
+      "initial_warmup_bars": 39600,
+      "labeled_rows": 79200,
+      "rows_before_first_label": 118780,
+      "symbol": "VNQ",
+      "tf": "5m",
+      "total_rows": 389639,
+      "verdict": "labeled"
+    },
+    {
+      "distinct_labels": [
+        "calm",
+        "elevated",
+        "turbulent"
+      ],
+      "first_labeled_bar_ts": "2018-09-11 15:15:00+00",
+      "initial_warmup_bars": 13200,
+      "labeled_rows": 33000,
+      "rows_before_first_label": 79291,
+      "symbol": "VNQ",
+      "tf": "15m",
+      "total_rows": 130533,
+      "verdict": "labeled"
+    },
+    {
+      "distinct_labels": [
+        "calm",
+        "elevated",
+        "turbulent"
+      ],
+      "first_labeled_bar_ts": "2022-04-26 18:00:00+00",
+      "initial_warmup_bars": 3300,
+      "labeled_rows": 4950,
+      "rows_before_first_label": 28108,
+      "symbol": "VNQ",
+      "tf": "1h",
+      "total_rows": 35544,
+      "verdict": "labeled"
+    },
+    {
+      "distinct_labels": [],
+      "first_labeled_bar_ts": null,
+      "initial_warmup_bars": 504,
+      "labeled_rows": 0,
+      "rows_before_first_label": null,
+      "skip_reason": "all segments degenerate_occupation or insufficient warmup history",
+      "symbol": "VNQ",
+      "tf": "1d",
+      "total_rows": 4798,
+      "verdict": "skipped"
+    },
+    {
+      "distinct_labels": [],
+      "first_labeled_bar_ts": null,
+      "initial_warmup_bars": 39600,
+      "labeled_rows": 0,
+      "rows_before_first_label": null,
+      "skip_reason": "all segments degenerate_occupation or insufficient warmup history",
+      "symbol": "VTV",
+      "tf": "5m",
+      "total_rows": 385589,
+      "verdict": "skipped"
+    },
+    {
+      "distinct_labels": [
+        "calm",
+        "elevated",
+        "turbulent"
+      ],
+      "first_labeled_bar_ts": "2010-09-02 16:00:00+00",
+      "initial_warmup_bars": 13200,
+      "labeled_rows": 46200,
+      "rows_before_first_label": 26639,
+      "symbol": "VTV",
+      "tf": "15m",
+      "total_rows": 130167,
+      "verdict": "labeled"
+    },
+    {
+      "distinct_labels": [
+        "calm",
+        "elevated",
+        "turbulent"
+      ],
+      "first_labeled_bar_ts": "2020-01-08 18:00:00+00",
+      "initial_warmup_bars": 3300,
+      "labeled_rows": 4907,
+      "rows_before_first_label": 20038,
+      "symbol": "VTV",
+      "tf": "1h",
+      "total_rows": 29895,
+      "verdict": "labeled"
+    },
+    {
+      "distinct_labels": [],
+      "first_labeled_bar_ts": null,
+      "initial_warmup_bars": 504,
+      "labeled_rows": 0,
+      "rows_before_first_label": null,
+      "skip_reason": "all segments degenerate_occupation or insufficient warmup history",
+      "symbol": "VTV",
+      "tf": "1d",
+      "total_rows": 4798,
+      "verdict": "skipped"
+    },
+    {
+      "distinct_labels": [
+        "calm",
+        "elevated",
+        "turbulent"
+      ],
+      "first_labeled_bar_ts": "2008-10-21 14:35:00+00",
+      "initial_warmup_bars": 39600,
+      "labeled_rows": 39597,
+      "rows_before_first_label": 39842,
+      "symbol": "VUG",
+      "tf": "5m",
+      "total_rows": 386543,
+      "verdict": "labeled"
+    },
+    {
+      "distinct_labels": [
+        "calm",
+        "elevated",
+        "turbulent"
+      ],
+      "first_labeled_bar_ts": "2014-09-12 19:15:00+00",
+      "initial_warmup_bars": 13200,
+      "labeled_rows": 39600,
+      "rows_before_first_label": 53039,
+      "symbol": "VUG",
+      "tf": "15m",
+      "total_rows": 130325,
+      "verdict": "labeled"
+    },
+    {
+      "distinct_labels": [
+        "calm",
+        "elevated",
+        "turbulent"
+      ],
+      "first_labeled_bar_ts": "2011-02-24 18:00:00+00",
+      "initial_warmup_bars": 3300,
+      "labeled_rows": 9900,
+      "rows_before_first_label": 8488,
+      "symbol": "VUG",
+      "tf": "1h",
+      "total_rows": 35530,
+      "verdict": "labeled"
+    },
+    {
+      "distinct_labels": [
+        "calm",
+        "elevated",
+        "turbulent"
+      ],
+      "first_labeled_bar_ts": "2018-06-26 00:00:00+00",
+      "initial_warmup_bars": 504,
+      "labeled_rows": 504,
+      "rows_before_first_label": 2767,
+      "symbol": "VUG",
+      "tf": "1d",
+      "total_rows": 4799,
+      "verdict": "labeled"
+    },
+    {
+      "distinct_labels": [],
+      "first_labeled_bar_ts": null,
+      "initial_warmup_bars": 39600,
+      "labeled_rows": 0,
+      "rows_before_first_label": null,
+      "skip_reason": "all segments degenerate_occupation or insufficient warmup history",
+      "symbol": "VWO",
+      "tf": "5m",
+      "total_rows": 390466,
+      "verdict": "skipped"
+    },
+    {
+      "distinct_labels": [
+        "calm",
+        "elevated",
+        "turbulent"
+      ],
+      "first_labeled_bar_ts": "2012-08-22 15:30:00+00",
+      "initial_warmup_bars": 13200,
+      "labeled_rows": 33000,
+      "rows_before_first_label": 39677,
+      "symbol": "VWO",
+      "tf": "15m",
+      "total_rows": 130322,
+      "verdict": "labeled"
+    },
+    {
+      "distinct_labels": [
+        "calm",
+        "elevated",
+        "turbulent"
+      ],
+      "first_labeled_bar_ts": "2019-11-27 16:00:00+00",
+      "initial_warmup_bars": 3300,
+      "labeled_rows": 3300,
+      "rows_before_first_label": 19881,
+      "symbol": "VWO",
+      "tf": "1h",
+      "total_rows": 29896,
+      "verdict": "labeled"
+    },
+    {
+      "distinct_labels": [
+        "calm",
+        "elevated",
+        "turbulent"
+      ],
+      "first_labeled_bar_ts": "2010-07-08 00:00:00+00",
+      "initial_warmup_bars": 504,
+      "labeled_rows": 252,
+      "rows_before_first_label": 751,
+      "symbol": "VWO",
+      "tf": "1d",
+      "total_rows": 4789,
+      "verdict": "labeled"
+    },
+    {
+      "distinct_labels": [
+        "calm",
+        "elevated",
+        "turbulent"
+      ],
+      "first_labeled_bar_ts": "2025-01-02 19:20:00+00",
+      "initial_warmup_bars": 39600,
+      "labeled_rows": 19800,
+      "rows_before_first_label": 317046,
+      "symbol": "VYM",
+      "tf": "5m",
+      "total_rows": 347455,
+      "verdict": "labeled"
+    },
+    {
+      "distinct_labels": [
+        "calm",
+        "elevated",
+        "turbulent"
+      ],
+      "first_labeled_bar_ts": "2014-11-20 20:00:00+00",
+      "initial_warmup_bars": 13200,
+      "labeled_rows": 19800,
+      "rows_before_first_label": 46445,
+      "symbol": "VYM",
+      "tf": "15m",
+      "total_rows": 122458,
+      "verdict": "labeled"
+    },
+    {
+      "distinct_labels": [
+        "calm",
+        "elevated",
+        "turbulent"
+      ],
+      "first_labeled_bar_ts": "2018-04-27 18:00:00+00",
+      "initial_warmup_bars": 3300,
+      "labeled_rows": 3300,
+      "rows_before_first_label": 16742,
+      "symbol": "VYM",
+      "tf": "1h",
+      "total_rows": 29142,
+      "verdict": "labeled"
+    },
+    {
+      "distinct_labels": [
+        "calm",
+        "elevated",
+        "turbulent"
+      ],
+      "first_labeled_bar_ts": "2022-11-17 00:00:00+00",
+      "initial_warmup_bars": 504,
+      "labeled_rows": 252,
+      "rows_before_first_label": 3775,
+      "symbol": "VYM",
+      "tf": "1d",
+      "total_rows": 4699,
+      "verdict": "labeled"
+    },
+    {
+      "distinct_labels": [
+        "calm",
+        "elevated",
+        "turbulent"
+      ],
+      "first_labeled_bar_ts": "2009-10-16 19:15:00+00",
+      "initial_warmup_bars": 39600,
+      "labeled_rows": 160257,
+      "rows_before_first_label": 39717,
+      "symbol": "XBI",
+      "tf": "5m",
+      "total_rows": 358374,
+      "verdict": "labeled"
+    },
+    {
+      "distinct_labels": [
+        "calm",
+        "elevated",
+        "turbulent"
+      ],
+      "first_labeled_bar_ts": "2012-04-10 17:45:00+00",
+      "initial_warmup_bars": 13200,
+      "labeled_rows": 53431,
+      "rows_before_first_label": 33150,
+      "symbol": "XBI",
+      "tf": "15m",
+      "total_rows": 126181,
+      "verdict": "labeled"
+    },
+    {
+      "distinct_labels": [
+        "calm",
+        "elevated",
+        "turbulent"
+      ],
+      "first_labeled_bar_ts": "2010-05-04 15:00:00+00",
+      "initial_warmup_bars": 3300,
+      "labeled_rows": 9900,
+      "rows_before_first_label": 6746,
+      "symbol": "XBI",
+      "tf": "1h",
+      "total_rows": 35222,
+      "verdict": "labeled"
+    },
+    {
+      "distinct_labels": [
+        "calm",
+        "elevated",
+        "turbulent"
+      ],
+      "first_labeled_bar_ts": "2012-06-21 00:00:00+00",
+      "initial_warmup_bars": 504,
+      "labeled_rows": 504,
+      "rows_before_first_label": 1255,
+      "symbol": "XBI",
+      "tf": "1d",
+      "total_rows": 4799,
+      "verdict": "labeled"
+    },
+    {
+      "distinct_labels": [
+        "calm",
+        "elevated",
+        "turbulent"
+      ],
+      "first_labeled_bar_ts": "2011-08-05 13:30:00+00",
+      "initial_warmup_bars": 39600,
+      "labeled_rows": 59400,
+      "rows_before_first_label": 98978,
+      "symbol": "XHB",
+      "tf": "5m",
+      "total_rows": 391438,
+      "verdict": "labeled"
+    },
+    {
+      "distinct_labels": [
+        "calm",
+        "elevated",
+        "turbulent"
+      ],
+      "first_labeled_bar_ts": "2020-09-22 17:00:00+00",
+      "initial_warmup_bars": 13200,
+      "labeled_rows": 31409,
+      "rows_before_first_label": 92491,
+      "symbol": "XHB",
+      "tf": "15m",
+      "total_rows": 130500,
+      "verdict": "labeled"
+    },
+    {
+      "distinct_labels": [
+        "calm",
+        "elevated",
+        "turbulent"
+      ],
+      "first_labeled_bar_ts": "2011-01-13 20:00:00+00",
+      "initial_warmup_bars": 3300,
+      "labeled_rows": 8250,
+      "rows_before_first_label": 8339,
+      "symbol": "XHB",
+      "tf": "1h",
+      "total_rows": 35575,
+      "verdict": "labeled"
+    },
+    {
+      "distinct_labels": [
+        "calm",
+        "elevated",
+        "turbulent"
+      ],
+      "first_labeled_bar_ts": "2010-06-23 00:00:00+00",
+      "initial_warmup_bars": 504,
+      "labeled_rows": 756,
+      "rows_before_first_label": 751,
+      "symbol": "XHB",
+      "tf": "1d",
+      "total_rows": 4799,
+      "verdict": "labeled"
+    },
+    {
+      "distinct_labels": [
+        "calm",
+        "elevated",
+        "turbulent"
+      ],
+      "first_labeled_bar_ts": "2019-08-12 14:30:00+00",
+      "initial_warmup_bars": 39600,
+      "labeled_rows": 56697,
+      "rows_before_first_label": 257333,
+      "symbol": "XLB",
+      "tf": "5m",
+      "total_rows": 393230,
+      "verdict": "labeled"
+    },
+    {
+      "distinct_labels": [
+        "calm",
+        "elevated",
+        "turbulent"
+      ],
+      "first_labeled_bar_ts": "2014-08-20 15:30:00+00",
+      "initial_warmup_bars": 13200,
+      "labeled_rows": 57917,
+      "rows_before_first_label": 52881,
+      "symbol": "XLB",
+      "tf": "15m",
+      "total_rows": 130598,
+      "verdict": "labeled"
+    },
+    {
+      "distinct_labels": [
+        "calm",
+        "elevated",
+        "turbulent"
+      ],
+      "first_labeled_bar_ts": "2015-09-18 17:00:00+00",
+      "initial_warmup_bars": 3300,
+      "labeled_rows": 4950,
+      "rows_before_first_label": 16533,
+      "symbol": "XLB",
+      "tf": "1h",
+      "total_rows": 35562,
+      "verdict": "labeled"
+    },
+    {
+      "distinct_labels": [],
+      "first_labeled_bar_ts": null,
+      "initial_warmup_bars": 504,
+      "labeled_rows": 0,
+      "rows_before_first_label": null,
+      "skip_reason": "all segments degenerate_occupation or insufficient warmup history",
+      "symbol": "XLB",
+      "tf": "1d",
+      "total_rows": 4799,
+      "verdict": "skipped"
+    },
+    {
+      "distinct_labels": [
+        "calm",
+        "elevated",
+        "turbulent"
+      ],
+      "first_labeled_bar_ts": "2021-07-22 13:40:00+00",
+      "initial_warmup_bars": 39600,
+      "labeled_rows": 78039,
+      "rows_before_first_label": 59647,
+      "symbol": "XLC",
+      "tf": "5m",
+      "total_rows": 157486,
+      "verdict": "labeled"
+    },
+    {
+      "distinct_labels": [
+        "calm",
+        "elevated",
+        "turbulent"
+      ],
+      "first_labeled_bar_ts": "2022-08-04 17:15:00+00",
+      "initial_warmup_bars": 13200,
+      "labeled_rows": 13200,
+      "rows_before_first_label": 26647,
+      "symbol": "XLC",
+      "tf": "15m",
+      "total_rows": 52471,
+      "verdict": "labeled"
+    },
+    {
+      "distinct_labels": [
+        "calm",
+        "elevated",
+        "turbulent"
+      ],
+      "first_labeled_bar_ts": "2021-07-28 13:30:00+00",
+      "initial_warmup_bars": 3300,
+      "labeled_rows": 4950,
+      "rows_before_first_label": 5197,
+      "symbol": "XLC",
+      "tf": "1h",
+      "total_rows": 13951,
+      "verdict": "labeled"
+    },
+    {
+      "distinct_labels": [],
+      "first_labeled_bar_ts": null,
+      "initial_warmup_bars": 504,
+      "labeled_rows": 0,
+      "rows_before_first_label": null,
+      "skip_reason": "all segments degenerate_occupation or insufficient warmup history",
+      "symbol": "XLC",
+      "tf": "1d",
+      "total_rows": 1783,
+      "verdict": "skipped"
+    },
+    {
+      "distinct_labels": [
+        "calm",
+        "elevated",
+        "turbulent"
+      ],
+      "first_labeled_bar_ts": "2009-06-19 18:00:00+00",
+      "initial_warmup_bars": 39600,
+      "labeled_rows": 118792,
+      "rows_before_first_label": 59109,
+      "symbol": "XLE",
+      "tf": "5m",
+      "total_rows": 393282,
+      "verdict": "labeled"
+    },
+    {
+      "distinct_labels": [
+        "calm",
+        "elevated",
+        "turbulent"
+      ],
+      "first_labeled_bar_ts": "2009-07-28 16:45:00+00",
+      "initial_warmup_bars": 13200,
+      "labeled_rows": 52796,
+      "rows_before_first_label": 19871,
+      "symbol": "XLE",
+      "tf": "15m",
+      "total_rows": 130601,
+      "verdict": "labeled"
+    },
+    {
+      "distinct_labels": [
+        "calm",
+        "elevated",
+        "turbulent"
+      ],
+      "first_labeled_bar_ts": "2011-01-04 15:00:00+00",
+      "initial_warmup_bars": 3300,
+      "labeled_rows": 9900,
+      "rows_before_first_label": 8273,
+      "symbol": "XLE",
+      "tf": "1h",
+      "total_rows": 35563,
+      "verdict": "labeled"
+    },
+    {
+      "distinct_labels": [
+        "calm",
+        "elevated",
+        "turbulent"
+      ],
+      "first_labeled_bar_ts": "2010-06-23 00:00:00+00",
+      "initial_warmup_bars": 504,
+      "labeled_rows": 252,
+      "rows_before_first_label": 751,
+      "symbol": "XLE",
+      "tf": "1d",
+      "total_rows": 4799,
+      "verdict": "labeled"
+    },
+    {
+      "distinct_labels": [
+        "calm",
+        "elevated",
+        "turbulent"
+      ],
+      "first_labeled_bar_ts": "2024-08-27 18:50:00+00",
+      "initial_warmup_bars": 39600,
+      "labeled_rows": 19800,
+      "rows_before_first_label": 356063,
+      "symbol": "XLF",
+      "tf": "5m",
+      "total_rows": 393258,
+      "verdict": "labeled"
+    },
+    {
+      "distinct_labels": [
+        "calm",
+        "elevated",
+        "turbulent"
+      ],
+      "first_labeled_bar_ts": "2011-08-02 18:15:00+00",
+      "initial_warmup_bars": 13200,
+      "labeled_rows": 46200,
+      "rows_before_first_label": 33046,
+      "symbol": "XLF",
+      "tf": "15m",
+      "total_rows": 130598,
+      "verdict": "labeled"
+    },
+    {
+      "distinct_labels": [
+        "calm",
+        "elevated",
+        "turbulent"
+      ],
+      "first_labeled_bar_ts": "2016-08-23 19:00:00+00",
+      "initial_warmup_bars": 3300,
+      "labeled_rows": 4950,
+      "rows_before_first_label": 18168,
+      "symbol": "XLF",
+      "tf": "1h",
+      "total_rows": 35563,
+      "verdict": "labeled"
+    },
+    {
+      "distinct_labels": [
+        "calm",
+        "elevated",
+        "turbulent"
+      ],
+      "first_labeled_bar_ts": "2010-06-23 00:00:00+00",
+      "initial_warmup_bars": 504,
+      "labeled_rows": 1008,
+      "rows_before_first_label": 751,
+      "symbol": "XLF",
+      "tf": "1d",
+      "total_rows": 4799,
+      "verdict": "labeled"
+    },
+    {
+      "distinct_labels": [
+        "calm",
+        "elevated",
+        "turbulent"
+      ],
+      "first_labeled_bar_ts": "2009-06-26 18:20:00+00",
+      "initial_warmup_bars": 39600,
+      "labeled_rows": 79199,
+      "rows_before_first_label": 59377,
+      "symbol": "XLI",
+      "tf": "5m",
+      "total_rows": 393156,
+      "verdict": "labeled"
+    },
+    {
+      "distinct_labels": [
+        "calm",
+        "elevated",
+        "turbulent"
+      ],
+      "first_labeled_bar_ts": "2014-08-20 19:30:00+00",
+      "initial_warmup_bars": 13200,
+      "labeled_rows": 39600,
+      "rows_before_first_label": 52896,
+      "symbol": "XLI",
+      "tf": "15m",
+      "total_rows": 130597,
+      "verdict": "labeled"
+    },
+    {
+      "distinct_labels": [
+        "calm",
+        "elevated",
+        "turbulent"
+      ],
+      "first_labeled_bar_ts": "2018-07-17 16:00:00+00",
+      "initial_warmup_bars": 3300,
+      "labeled_rows": 3300,
+      "rows_before_first_label": 21490,
+      "symbol": "XLI",
+      "tf": "1h",
+      "total_rows": 35561,
+      "verdict": "labeled"
+    },
+    {
+      "distinct_labels": [],
+      "first_labeled_bar_ts": null,
+      "initial_warmup_bars": 504,
+      "labeled_rows": 0,
+      "rows_before_first_label": null,
+      "skip_reason": "all segments degenerate_occupation or insufficient warmup history",
+      "symbol": "XLI",
+      "tf": "1d",
+      "total_rows": 4799,
+      "verdict": "skipped"
+    },
+    {
+      "distinct_labels": [
+        "calm",
+        "elevated",
+        "turbulent"
+      ],
+      "first_labeled_bar_ts": "2010-06-30 13:50:00+00",
+      "initial_warmup_bars": 39600,
+      "labeled_rows": 135915,
+      "rows_before_first_label": 79139,
+      "symbol": "XLK",
+      "tf": "5m",
+      "total_rows": 393254,
+      "verdict": "labeled"
+    },
+    {
+      "distinct_labels": [
+        "calm",
+        "elevated",
+        "turbulent"
+      ],
+      "first_labeled_bar_ts": "2011-08-04 16:45:00+00",
+      "initial_warmup_bars": 13200,
+      "labeled_rows": 59400,
+      "rows_before_first_label": 33092,
+      "symbol": "XLK",
+      "tf": "15m",
+      "total_rows": 130598,
+      "verdict": "labeled"
+    },
+    {
+      "distinct_labels": [
+        "calm",
+        "elevated",
+        "turbulent"
+      ],
+      "first_labeled_bar_ts": "2015-09-21 13:30:00+00",
+      "initial_warmup_bars": 3300,
+      "labeled_rows": 8250,
+      "rows_before_first_label": 16536,
+      "symbol": "XLK",
+      "tf": "1h",
+      "total_rows": 35562,
+      "verdict": "labeled"
+    },
+    {
+      "distinct_labels": [
+        "calm",
+        "elevated",
+        "turbulent"
+      ],
+      "first_labeled_bar_ts": "2019-06-27 00:00:00+00",
+      "initial_warmup_bars": 504,
+      "labeled_rows": 252,
+      "rows_before_first_label": 3019,
+      "symbol": "XLK",
+      "tf": "1d",
+      "total_rows": 4799,
+      "verdict": "labeled"
+    },
+    {
+      "distinct_labels": [
+        "calm",
+        "elevated",
+        "turbulent"
+      ],
+      "first_labeled_bar_ts": "2012-07-13 16:00:00+00",
+      "initial_warmup_bars": 39600,
+      "labeled_rows": 76105,
+      "rows_before_first_label": 119036,
+      "symbol": "XLP",
+      "tf": "5m",
+      "total_rows": 393141,
+      "verdict": "labeled"
+    },
+    {
+      "distinct_labels": [
+        "calm",
+        "elevated",
+        "turbulent"
+      ],
+      "first_labeled_bar_ts": "2008-08-01 16:30:00+00",
+      "initial_warmup_bars": 13200,
+      "labeled_rows": 59398,
+      "rows_before_first_label": 13442,
+      "symbol": "XLP",
+      "tf": "15m",
+      "total_rows": 130590,
+      "verdict": "labeled"
+    },
+    {
+      "distinct_labels": [
+        "calm",
+        "elevated",
+        "turbulent"
+      ],
+      "first_labeled_bar_ts": "2010-03-18 19:00:00+00",
+      "initial_warmup_bars": 3300,
+      "labeled_rows": 13200,
+      "rows_before_first_label": 6836,
+      "symbol": "XLP",
+      "tf": "1h",
+      "total_rows": 35532,
+      "verdict": "labeled"
+    },
+    {
+      "distinct_labels": [
+        "calm",
+        "elevated",
+        "turbulent"
+      ],
+      "first_labeled_bar_ts": "2011-06-22 00:00:00+00",
+      "initial_warmup_bars": 504,
+      "labeled_rows": 504,
+      "rows_before_first_label": 1003,
+      "symbol": "XLP",
+      "tf": "1d",
+      "total_rows": 4799,
+      "verdict": "labeled"
+    },
+    {
+      "distinct_labels": [
+        "calm",
+        "elevated",
+        "turbulent"
+      ],
+      "first_labeled_bar_ts": "2018-08-10 17:45:00+00",
+      "initial_warmup_bars": 39600,
+      "labeled_rows": 118800,
+      "rows_before_first_label": 39847,
+      "symbol": "XLRE",
+      "tf": "5m",
+      "total_rows": 195172,
+      "verdict": "labeled"
+    },
+    {
+      "distinct_labels": [
+        "calm",
+        "elevated",
+        "turbulent"
+      ],
+      "first_labeled_bar_ts": "2019-07-16 19:15:00+00",
+      "initial_warmup_bars": 13200,
+      "labeled_rows": 39600,
+      "rows_before_first_label": 20047,
+      "symbol": "XLRE",
+      "tf": "15m",
+      "total_rows": 65823,
+      "verdict": "labeled"
+    },
+    {
+      "distinct_labels": [],
+      "first_labeled_bar_ts": null,
+      "initial_warmup_bars": 3300,
+      "labeled_rows": 0,
+      "rows_before_first_label": null,
+      "skip_reason": "all segments degenerate_occupation or insufficient warmup history",
+      "symbol": "XLRE",
+      "tf": "1h",
+      "total_rows": 18019,
+      "verdict": "skipped"
+    },
+    {
+      "distinct_labels": [
+        "calm",
+        "elevated",
+        "turbulent"
+      ],
+      "first_labeled_bar_ts": "2019-10-14 00:00:00+00",
+      "initial_warmup_bars": 504,
+      "labeled_rows": 252,
+      "rows_before_first_label": 751,
+      "symbol": "XLRE",
+      "tf": "1d",
+      "total_rows": 2454,
+      "verdict": "labeled"
+    },
+    {
+      "distinct_labels": [
+        "calm",
+        "elevated",
+        "turbulent"
+      ],
+      "first_labeled_bar_ts": "2009-08-03 17:25:00+00",
+      "initial_warmup_bars": 39600,
+      "labeled_rows": 158399,
+      "rows_before_first_label": 59638,
+      "symbol": "XLU",
+      "tf": "5m",
+      "total_rows": 391500,
+      "verdict": "labeled"
+    },
+    {
+      "distinct_labels": [
+        "calm",
+        "elevated",
+        "turbulent"
+      ],
+      "first_labeled_bar_ts": "2013-09-09 14:00:00+00",
+      "initial_warmup_bars": 13200,
+      "labeled_rows": 52800,
+      "rows_before_first_label": 46440,
+      "symbol": "XLU",
+      "tf": "15m",
+      "total_rows": 130341,
+      "verdict": "labeled"
+    },
+    {
+      "distinct_labels": [
+        "calm",
+        "elevated",
+        "turbulent"
+      ],
+      "first_labeled_bar_ts": "2011-03-28 14:00:00+00",
+      "initial_warmup_bars": 3300,
+      "labeled_rows": 8250,
+      "rows_before_first_label": 6839,
+      "symbol": "XLU",
+      "tf": "1h",
+      "total_rows": 29896,
+      "verdict": "labeled"
+    },
+    {
+      "distinct_labels": [],
+      "first_labeled_bar_ts": null,
+      "initial_warmup_bars": 504,
+      "labeled_rows": 0,
+      "rows_before_first_label": null,
+      "skip_reason": "all segments degenerate_occupation or insufficient warmup history",
+      "symbol": "XLU",
+      "tf": "1d",
+      "total_rows": 4797,
+      "verdict": "skipped"
+    },
+    {
+      "distinct_labels": [
+        "calm",
+        "elevated",
+        "turbulent"
+      ],
+      "first_labeled_bar_ts": "2008-07-30 15:50:00+00",
+      "initial_warmup_bars": 39600,
+      "labeled_rows": 232800,
+      "rows_before_first_label": 39828,
+      "symbol": "XLV",
+      "tf": "5m",
+      "total_rows": 391428,
+      "verdict": "labeled"
+    },
+    {
+      "distinct_labels": [
+        "calm",
+        "elevated",
+        "turbulent"
+      ],
+      "first_labeled_bar_ts": "2009-08-12 15:30:00+00",
+      "initial_warmup_bars": 13200,
+      "labeled_rows": 64249,
+      "rows_before_first_label": 19895,
+      "symbol": "XLV",
+      "tf": "15m",
+      "total_rows": 130344,
+      "verdict": "labeled"
+    },
+    {
+      "distinct_labels": [
+        "calm",
+        "elevated",
+        "turbulent"
+      ],
+      "first_labeled_bar_ts": "2008-12-19 18:00:00+00",
+      "initial_warmup_bars": 3300,
+      "labeled_rows": 6556,
+      "rows_before_first_label": 3438,
+      "symbol": "XLV",
+      "tf": "1h",
+      "total_rows": 29899,
+      "verdict": "labeled"
+    },
+    {
+      "distinct_labels": [
+        "calm",
+        "elevated",
+        "turbulent"
+      ],
+      "first_labeled_bar_ts": "2010-06-24 00:00:00+00",
+      "initial_warmup_bars": 504,
+      "labeled_rows": 252,
+      "rows_before_first_label": 751,
+      "symbol": "XLV",
+      "tf": "1d",
+      "total_rows": 4797,
+      "verdict": "labeled"
+    },
+    {
+      "distinct_labels": [
+        "calm",
+        "elevated",
+        "turbulent"
+      ],
+      "first_labeled_bar_ts": "2009-07-01 16:05:00+00",
+      "initial_warmup_bars": 39600,
+      "labeled_rows": 118798,
+      "rows_before_first_label": 59403,
+      "symbol": "XLY",
+      "tf": "5m",
+      "total_rows": 392975,
+      "verdict": "labeled"
+    },
+    {
+      "distinct_labels": [
+        "calm",
+        "elevated",
+        "turbulent"
+      ],
+      "first_labeled_bar_ts": "2011-08-04 18:15:00+00",
+      "initial_warmup_bars": 13200,
+      "labeled_rows": 33000,
+      "rows_before_first_label": 33094,
+      "symbol": "XLY",
+      "tf": "15m",
+      "total_rows": 130594,
+      "verdict": "labeled"
+    },
+    {
+      "distinct_labels": [
+        "calm",
+        "elevated",
+        "turbulent"
+      ],
+      "first_labeled_bar_ts": "2014-10-14 16:00:00+00",
+      "initial_warmup_bars": 3300,
+      "labeled_rows": 10762,
+      "rows_before_first_label": 14894,
+      "symbol": "XLY",
+      "tf": "1h",
+      "total_rows": 35556,
+      "verdict": "labeled"
+    },
+    {
+      "distinct_labels": [
+        "calm",
+        "elevated",
+        "turbulent"
+      ],
+      "first_labeled_bar_ts": "2010-06-24 00:00:00+00",
+      "initial_warmup_bars": 504,
+      "labeled_rows": 252,
+      "rows_before_first_label": 751,
+      "symbol": "XLY",
+      "tf": "1d",
+      "total_rows": 4797,
+      "verdict": "labeled"
+    },
+    {
+      "distinct_labels": [
+        "calm",
+        "elevated",
+        "turbulent"
+      ],
+      "first_labeled_bar_ts": "2009-07-20 15:40:00+00",
+      "initial_warmup_bars": 39600,
+      "labeled_rows": 138599,
+      "rows_before_first_label": 39845,
+      "symbol": "XOP",
+      "tf": "5m",
+      "total_rows": 372464,
+      "verdict": "labeled"
+    },
+    {
+      "distinct_labels": [
+        "calm",
+        "elevated",
+        "turbulent"
+      ],
+      "first_labeled_bar_ts": "2011-03-08 20:00:00+00",
+      "initial_warmup_bars": 13200,
+      "labeled_rows": 33000,
+      "rows_before_first_label": 26643,
+      "symbol": "XOP",
+      "tf": "15m",
+      "total_rows": 126844,
+      "verdict": "labeled"
+    },
+    {
+      "distinct_labels": [
+        "calm",
+        "elevated",
+        "turbulent"
+      ],
+      "first_labeled_bar_ts": "2015-05-18 17:00:00+00",
+      "initial_warmup_bars": 3300,
+      "labeled_rows": 4950,
+      "rows_before_first_label": 15089,
+      "symbol": "XOP",
+      "tf": "1h",
+      "total_rows": 34720,
+      "verdict": "labeled"
+    },
+    {
+      "distinct_labels": [
+        "calm",
+        "elevated",
+        "turbulent"
+      ],
+      "first_labeled_bar_ts": "2010-06-24 00:00:00+00",
+      "initial_warmup_bars": 504,
+      "labeled_rows": 504,
+      "rows_before_first_label": 751,
+      "symbol": "XOP",
+      "tf": "1d",
+      "total_rows": 4796,
+      "verdict": "labeled"
+    },
+    {
+      "distinct_labels": [],
+      "first_labeled_bar_ts": null,
+      "initial_warmup_bars": 39600,
+      "labeled_rows": 0,
+      "rows_before_first_label": null,
+      "skip_reason": "all segments degenerate_occupation or insufficient warmup history",
+      "symbol": "XRT",
+      "tf": "5m",
+      "total_rows": 380702,
+      "verdict": "skipped"
+    },
+    {
+      "distinct_labels": [
+        "calm",
+        "elevated",
+        "turbulent"
+      ],
+      "first_labeled_bar_ts": "2010-11-17 20:45:00+00",
+      "initial_warmup_bars": 13200,
+      "labeled_rows": 39600,
+      "rows_before_first_label": 26495,
+      "symbol": "XRT",
+      "tf": "15m",
+      "total_rows": 128631,
+      "verdict": "labeled"
+    },
+    {
+      "distinct_labels": [
+        "calm",
+        "elevated",
+        "turbulent"
+      ],
+      "first_labeled_bar_ts": "2019-11-27 17:00:00+00",
+      "initial_warmup_bars": 3300,
+      "labeled_rows": 4950,
+      "rows_before_first_label": 23194,
+      "symbol": "XRT",
+      "tf": "1h",
+      "total_rows": 34859,
+      "verdict": "labeled"
+    },
+    {
+      "distinct_labels": [],
+      "first_labeled_bar_ts": null,
+      "initial_warmup_bars": 504,
+      "labeled_rows": 0,
+      "rows_before_first_label": null,
+      "skip_reason": "all segments degenerate_occupation or insufficient warmup history",
+      "symbol": "XRT",
+      "tf": "1d",
+      "total_rows": 4793,
+      "verdict": "skipped"
+    }
+  ],
+  "distinct_labels": [
+    "calm",
+    "elevated",
+    "turbulent"
+  ],
+  "generated_at": "2026-08-09T16:58:00Z",
+  "legacy_regime_nonnull_after": 26791341,
+  "legacy_regime_nonnull_before": 26791341,
+  "total_rows": 36854099,
+  "volatility_labeled_rows": 9439731
+}

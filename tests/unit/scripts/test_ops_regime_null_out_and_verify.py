@@ -15,11 +15,16 @@ from datetime import UTC, datetime
 import pytest
 
 from scripts.ops.corpus.ops_regime_null_out_and_verify import (
+    _COLUMN_FAMILIES,
+    _DEFAULT_COLUMN_FAMILY_OBJ,
     _NULL_OUT_SQL,
     _STATUS_FAILED,
     _STATUS_VERIFIED_NULL,
     _WALK_FORWARD_DEFAULT_PARAMS,
+    REGIME_VOLATILITY_WRITER_OWNED_COLUMN_NAMES,
     REGIME_WRITER_OWNED_COLUMN_NAMES,
+    _build_any_owned_nonnull_sql,
+    _build_null_out_sql,
     _load_initial_warmup_bars,
     _manifest_key,
     _parse_args,
@@ -27,6 +32,8 @@ from scripts.ops.corpus.ops_regime_null_out_and_verify import (
     _run_verify_post_null,
     _run_verify_post_relabel,
 )
+
+_REGIME_VOLATILITY_FAMILY = _COLUMN_FAMILIES["regime_volatility"]
 
 _MODULE = "scripts.ops.corpus.ops_regime_null_out_and_verify"
 
@@ -100,6 +107,42 @@ class TestNullOutSetClause:
             assert f"{name} = NULL" in _NULL_OUT_SQL
         assert _NULL_OUT_SQL.count(" = NULL") == len(REGIME_WRITER_OWNED_COLUMN_NAMES)
 
+    def test_regime_family_builder_output_is_byte_identical_to_module_constant(self):
+        # Pins the no-behavior-change claim for the legacy family: the builder function,
+        # given the same owned-column tuple the old module-level constant was built from,
+        # must reproduce that exact string -- not merely "look similar".
+        assert _build_null_out_sql(REGIME_WRITER_OWNED_COLUMN_NAMES) == _NULL_OUT_SQL
+
+    def test_regime_family_is_the_default_column_family(self):
+        assert _DEFAULT_COLUMN_FAMILY_OBJ.name == "regime"
+        assert _DEFAULT_COLUMN_FAMILY_OBJ.owned_columns == REGIME_WRITER_OWNED_COLUMN_NAMES
+        assert _DEFAULT_COLUMN_FAMILY_OBJ.label_column == "regime"
+
+
+class TestColumnFamilyRegistry:
+    def test_regime_volatility_family_covers_exactly_its_own_8_columns(self):
+        sql = _build_null_out_sql(REGIME_VOLATILITY_WRITER_OWNED_COLUMN_NAMES)
+        for name in REGIME_VOLATILITY_WRITER_OWNED_COLUMN_NAMES:
+            assert f"{name} = NULL" in sql
+        for name in REGIME_WRITER_OWNED_COLUMN_NAMES:
+            assert f"{name} = NULL" not in sql
+        assert sql.count(" = NULL") == len(REGIME_VOLATILITY_WRITER_OWNED_COLUMN_NAMES)
+
+    def test_any_owned_nonnull_sql_filters_on_the_right_family_only(self):
+        sql = _build_any_owned_nonnull_sql(REGIME_VOLATILITY_WRITER_OWNED_COLUMN_NAMES)
+        assert "regime_volatility IS NOT NULL" in sql
+        assert "regime IS NOT NULL" not in sql.replace("regime_volatility IS NOT NULL", "")
+
+    def test_two_families_default_manifest_paths_differ(self):
+        regime_path = _COLUMN_FAMILIES["regime"].default_manifest_path
+        vol_path = _COLUMN_FAMILIES["regime_volatility"].default_manifest_path
+        assert regime_path != vol_path
+
+    def test_two_families_default_provenance_report_paths_differ(self):
+        regime_path = _COLUMN_FAMILIES["regime"].default_provenance_report_path
+        vol_path = _COLUMN_FAMILIES["regime_volatility"].default_provenance_report_path
+        assert regime_path != vol_path
+
 
 class TestNullOutPerCellUpdates:
     def test_n_symbols_x_m_tfs_issue_exactly_nxm_updates_no_batched_scope(self, tmp_path):
@@ -132,6 +175,44 @@ class TestNullOutRequiresSymbols:
         with pytest.raises(SystemExit) as excinfo:
             _parse_args(["--tf", "1h"])
         assert excinfo.value.code != 0
+
+    def test_missing_symbols_exits_nonzero_for_regime_volatility_family(self):
+        # --symbols required=True must hold for both families, not just the default.
+        with pytest.raises(SystemExit) as excinfo:
+            _parse_args(["--tf", "1d", "--column-family", "regime_volatility"])
+        assert excinfo.value.code != 0
+
+
+class TestColumnFamilyArg:
+    def test_default_column_family_is_regime(self):
+        args = _parse_args(["--symbols", "SPY", "--tf", "1d"])
+        assert args.column_family == "regime"
+
+    def test_column_family_accepts_regime_volatility(self):
+        args = _parse_args(
+            ["--symbols", "SPY", "--tf", "1d", "--column-family", "regime_volatility"]
+        )
+        assert args.column_family == "regime_volatility"
+
+    def test_invalid_column_family_exits_nonzero(self):
+        with pytest.raises(SystemExit) as excinfo:
+            _parse_args(["--symbols", "SPY", "--tf", "1d", "--column-family", "bogus"])
+        assert excinfo.value.code != 0
+
+
+class TestNullOutRegimeVolatilityFamily:
+    def test_dry_run_reports_regime_volatility_owned_columns_not_regime(self, tmp_path, capsys):
+        conn = _ScriptedConn([{"fetchone": (7,)}])
+        manifest_path = tmp_path / "manifest.json"
+
+        n_failed = _run_null_out(
+            conn, ["SPY"], ["1d"], manifest_path, dry_run=True, family=_REGIME_VOLATILITY_FAMILY
+        )
+
+        assert n_failed == 0
+        out = capsys.readouterr().out
+        assert "regime_volatility-owned columns" in out
+        assert str(len(REGIME_VOLATILITY_WRITER_OWNED_COLUMN_NAMES)) in out
 
 
 class TestNullOutDryRun:
@@ -220,10 +301,7 @@ class TestVerifyPostNull:
 
 
 class TestVerifyPostRelabel:
-    def test_passes_when_rows_before_first_label_meets_warmup_floor(
-        self, tmp_path, monkeypatch, capsys
-    ):
-        monkeypatch.setattr(f"{_MODULE}._PROVENANCE_REPORT_PATH", tmp_path / "report.json")
+    def test_passes_when_rows_before_first_label_meets_warmup_floor(self, tmp_path, capsys):
         first_ts = datetime(2020, 1, 1, tzinfo=UTC)
         conn = _ScriptedConn(
             [
@@ -233,17 +311,19 @@ class TestVerifyPostRelabel:
             ]
         )
 
-        n_failed = _run_verify_post_relabel(conn, ["SPY"], ["1h"])
+        n_failed = _run_verify_post_relabel(
+            conn, ["SPY"], ["1h"], provenance_report_path=tmp_path / "report.json"
+        )
 
         assert n_failed == 0
         assert _update_calls(conn) == []
         out = capsys.readouterr().out
         assert "REQ-3 PROVENANCE: PASS" in out
+        assert "column_family=regime" in out
         report = json.loads((tmp_path / "report.json").read_text())
         assert report[0]["verdict"] == "pass"
 
-    def test_fails_when_rows_before_first_label_is_one_short(self, tmp_path, monkeypatch):
-        monkeypatch.setattr(f"{_MODULE}._PROVENANCE_REPORT_PATH", tmp_path / "report.json")
+    def test_fails_when_rows_before_first_label_is_one_short(self, tmp_path):
         first_ts = datetime(2020, 1, 1, tzinfo=UTC)
         conn = _ScriptedConn(
             [
@@ -253,14 +333,15 @@ class TestVerifyPostRelabel:
             ]
         )
 
-        n_failed = _run_verify_post_relabel(conn, ["SPY"], ["1h"])
+        n_failed = _run_verify_post_relabel(
+            conn, ["SPY"], ["1h"], provenance_report_path=tmp_path / "report.json"
+        )
 
         assert n_failed == 1
         report = json.loads((tmp_path / "report.json").read_text())
         assert report[0]["verdict"] == "fail"
 
-    def test_zero_labeled_rows_yields_no_labels_and_does_not_fail(self, tmp_path, monkeypatch):
-        monkeypatch.setattr(f"{_MODULE}._PROVENANCE_REPORT_PATH", tmp_path / "report.json")
+    def test_zero_labeled_rows_yields_no_labels_and_does_not_fail(self, tmp_path):
         conn = _ScriptedConn(
             [
                 {"fetchone": (100,)},
@@ -268,18 +349,49 @@ class TestVerifyPostRelabel:
             ]
         )
 
-        n_failed = _run_verify_post_relabel(conn, ["SPY"], ["1h"])
+        n_failed = _run_verify_post_relabel(
+            conn, ["SPY"], ["1h"], provenance_report_path=tmp_path / "report.json"
+        )
 
         assert n_failed == 0
         assert len(conn.calls) == 2  # no third (rows-before) query issued
         report = json.loads((tmp_path / "report.json").read_text())
         assert report[0]["verdict"] == "no_labels"
 
-    def test_issues_zero_update_calls(self, tmp_path, monkeypatch):
-        monkeypatch.setattr(f"{_MODULE}._PROVENANCE_REPORT_PATH", tmp_path / "report.json")
+    def test_issues_zero_update_calls(self, tmp_path):
         conn = _ScriptedConn([{"fetchone": (100,)}, {"fetchone": (0, None)}])
-        _run_verify_post_relabel(conn, ["SPY"], ["1h"])
+        _run_verify_post_relabel(
+            conn, ["SPY"], ["1h"], provenance_report_path=tmp_path / "report.json"
+        )
         assert _update_calls(conn) == []
+
+    def test_regime_volatility_family_filters_on_regime_volatility_column_and_own_report_path(
+        self, tmp_path, capsys
+    ):
+        first_ts = datetime(2020, 1, 1, tzinfo=UTC)
+        conn = _ScriptedConn(
+            [
+                {"fetchone": (100,)},
+                {"fetchone": (500, first_ts)},
+                {"fetchone": (150,)},
+            ]
+        )
+        report_path = tmp_path / "vol_report.json"
+
+        n_failed = _run_verify_post_relabel(
+            conn,
+            ["SPY"],
+            ["1h"],
+            family=_REGIME_VOLATILITY_FAMILY,
+            provenance_report_path=report_path,
+        )
+
+        assert n_failed == 0
+        out = capsys.readouterr().out
+        assert "column_family=regime_volatility" in out
+        assert report_path.exists()
+        labeled_count_call = conn.calls[1]
+        assert "regime_volatility IS NOT NULL" in labeled_count_call[0]
 
 
 class TestLoadInitialWarmupBars:
