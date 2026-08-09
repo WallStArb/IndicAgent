@@ -2716,7 +2716,7 @@ functions), REQ-3 (wider-scope null-arm GO/NO-GO gate), REQ-4 (single-cell volat
 write path), REQ-5 (full-corpus relabel), REQ-6 (ic_engine regime-source cutover), REQ-7
 (downstream re-verification and glossary)
 **Depends on:** Phase 171
-**Plans:** 5/7 plans executed
+**Plans:** 6/7 plans executed
 
 Plans:
 **Wave 1**
@@ -2735,7 +2735,7 @@ Plans:
 
 **Wave 4** *(blocked on Wave 3 completion)*
 
-- [ ] 172-06-PLAN.md - ic_engine startup gate and per-symbol regime source repointed to regime_volatility, with an audit of the regime-group routing left untouched (wave 4)
+- [x] 172-06-PLAN.md - ic_engine startup gate and per-symbol regime source repointed to regime_volatility, with an audit of the regime-group routing left untouched (wave 4)
 
 **Wave 5** *(blocked on Wave 4 completion)*
 
