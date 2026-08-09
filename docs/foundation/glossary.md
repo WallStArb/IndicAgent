@@ -74,24 +74,27 @@ A time-stamped, scored trade hypothesis with a defined entry, direction, and exi
 
 ### `regime`
 
-A discrete conditioning-state label that partitions bars into groups expected to behave differently downstream (IC stratification, ensemble weights, precedent retrieval). Produced by Stage 1 (Stratification) of the AlphaEngine internal layers — see that entry. Two coexisting mechanisms fill this contract today, each with its own sanctioned vocabulary (see `MEMORY.md` "Dual Regime System"):
+A discrete conditioning-state label that partitions bars into groups expected to behave differently downstream (IC stratification, ensemble weights, precedent retrieval). Produced by Stage 1 (Stratification) of the AlphaEngine internal layers, see that entry. Two coexisting mechanisms fill this contract today, each with its own sanctioned vocabulary (see `MEMORY.md` "Dual Regime System"):
 
-- **Idiosyncratic regime** (aka **symbol regime**) — per-symbol `GaussianHMM` state (5 labels: `trending_down`, `transition_down`, `ranging`, `transition_up`, `trending_up`), fit per (symbol, timeframe) from log-return/vol-of-vol/relative-volume observations. Stored in `feature_vectors.regime`. "Idiosyncratic" is the standard factor-model term for a security-specific, non-market-wide component — parallels how `sensitivity`/`factor_regime` also operate at security scope.
-- **Systematic regime** (aka **market regime**) — cross-sectional VIX×breadth state (9 labels: `{low/mid/high}_{bull/neutral/bear}`), one label per timeframe shared across the whole universe. Stored in `market_regimes`. "Systematic" is the standard factor-model term for the common, market-wide component every instrument shares exposure to.
+- **Idiosyncratic regime** (aka **symbol regime**), per-symbol `GaussianHMM` state fit per (symbol, timeframe) from a 2-dimensional observation vector: realized volatility and volatility-of-volatility only. K (2 or 3 states) is configured by `alpha.hmm_volatility.n_components`; the live default is K=3 with labels `calm`, `elevated`, `turbulent`, ordered by realized volatility ascending. Fit walk-forward on an expanding window, so no parameter used to label a bar is ever estimated from data later than that bar. Stored in `feature_vectors.regime_volatility`. "Idiosyncratic" is the standard factor-model term for a security-specific, non-market-wide component, parallel to how `sensitivity`/`factor_regime` also operate at security scope.
 
-**Not:** a synonym for "market condition" in general prose. Also not the HMM itself — `regime` is the Stage 1 *contract*; GaussianHMM (idiosyncratic) and the VIX×breadth model (systematic) are today's *mechanisms* filling it. (Not to be confused with the outer `Layer 1`/Prediction of the three-layer AlphaEngine/Portfolio/Execution architecture — different numbering, different scope.)
+  This design replaced an earlier 5-label composite (`trending_down`/`transition_down`/`ranging`/`transition_up`/`trending_up`, built from log-return, vol-of-vol, and relative-volume observations and stored in `feature_vectors.regime`) after a scrambled-data null-arm control found that only the volatility dimensions carried structure distinguishable from a `GaussianHMM`'s own tendency to split any sufficiently smooth series into artificial states: a real-vs-null margin of roughly +0.6 for realized volatility, versus a margin statistically indistinguishable from zero for the trend/log-return dimension at every window and timeframe tested. Trend and relative-volume were removed from the observation vector rather than deferred, because the null-arm result showed no signal to defer, not merely instability. The retired 5-label vocabulary had been naming directions the model was never actually separating on: the label-ranking column was the log-return dimension, and log-return carried no validated signal, so the composite regime had functioned as a volatility partition wearing trend-direction names since before this was discovered. `feature_vectors.regime` still exists and still carries that retired trend vocabulary during the phased cutover; it is no longer the stratification source for new measurement.
+
+- **Systematic regime** (aka **market regime**), cross-sectional VIX×breadth state (9 labels: `{low/mid/high}_{bull/neutral/bear}`), one label per timeframe shared across the whole universe. Stored in `market_regimes`. "Systematic" is the standard factor-model term for the common, market-wide component every instrument shares exposure to.
+
+**Not:** a synonym for "market condition" in general prose. Also not the HMM itself: `regime` is the Stage 1 *contract*; GaussianHMM (idiosyncratic) and the VIX×breadth model (systematic) are today's *mechanisms* filling it. (Not to be confused with the outer `Layer 1`/Prediction of the three-layer AlphaEngine/Portfolio/Execution architecture, different numbering, different scope.)
 
 **Banned:** market condition, market state, market environment
 **Status:** active
 
 **Disambiguation:**
-- `regime` (unqualified) — either regime system; qualify with `idiosyncratic`/`systematic` (or the informal `symbol`/`market`) when the distinction matters
-- `idiosyncratic regime` / `symbol regime` — per-symbol HMM state (interchangeable synonyms)
-- `systematic regime` / `market regime` — cross-sectional VIX×breadth state (interchangeable synonyms)
-- `factor_regime` — a tag category describing conditional instrument performance: `risk_on`, `risk_off`, `defensive`, `growth`, `value`, `momentum`
-- `volatility_regime` — a sub-classification of regime by realized vol level
+- `regime` (unqualified), either regime system; qualify with `idiosyncratic`/`systematic` (or the informal `symbol`/`market`) when the distinction matters
+- `idiosyncratic regime` / `symbol regime`, per-symbol HMM state (interchangeable synonyms); today this means the volatility-only `calm`/`elevated`/`turbulent` labels above, not the retired trend composite
+- `systematic regime` / `market regime`, cross-sectional VIX×breadth state (interchangeable synonyms)
+- `factor_regime`, a tag category describing conditional instrument performance: `risk_on`, `risk_off`, `defensive`, `growth`, `value`, `momentum`
+- `volatility_regime`, not a separate concept from the idiosyncratic regime above; this term should not be used to describe a second sub-classification. Use `idiosyncratic regime` (or the code name `regime_volatility`) instead.
 
-**Code surface:** `feature_vectors.regime` (idiosyncratic/symbol, `regime_writer.py`), `market_regimes` (systematic/market, `equity_regime_model.py`), `factor_regime` category in `tag_vocabulary`.
+**Code surface:** `feature_vectors.regime_volatility` (idiosyncratic/symbol, `regime_writer.py --regime-column regime_volatility`), `feature_vectors.regime` (retired trend vocabulary, phased cutover, no longer the stratification source), `market_regimes` (systematic/market, `cross_sectional_regime_model.py`), `factor_regime` category in `tag_vocabulary`.
 
 ---
 
@@ -101,7 +104,7 @@ A classification LABEL ON A SECURITY (which peer group it belongs to), not a reg
 
 Contrast with `regime_label` — the actual STATE (e.g. `steep_tight`), one row per (`regime_group`, `tf`, `ts`), computed once for the whole peer group and joined onto every member's feature vector at query time (never materialized into `feature_vectors`).
 
-Contrast with `feature_vectors.regime` — the per-symbol **idiosyncratic regime** (HMM trend label, see `regime` entry above), self-computed from that symbol's own price history, independent of `regime_group` entirely. `regime_group` instead names the peer set that feeds one **systematic regime** signal (also see `regime` entry above) — it answers "who counts as this market" so a group's cross-sectional composite (breadth×vol for equity, curve×credit for rates) can be computed at all.
+Contrast with `feature_vectors.regime_volatility` — the per-symbol **idiosyncratic regime** (HMM volatility label, see `regime` entry above), self-computed from that symbol's own price history, independent of `regime_group` entirely. `regime_group` instead names the peer set that feeds one **systematic regime** signal (also see `regime` entry above) — it answers "who counts as this market" so a group's cross-sectional composite (breadth×vol for equity, curve×credit for rates) can be computed at all.
 
 Single-membership by design (`AmbiguousRegimeGroupError` — a symbol matching more than one enabled group fails loud) — scoped to defining the peer-set denominator for computing one group's aggregate signal. Does not attempt to capture instruments with genuine multi-group sensitivity (e.g. convertible bond ETFs, `PFF`-style preferreds, REIT-adjacent yield plays sensitive to both `equity` and `rates`) — that is a separate, deliberately deferred job (multi-label join driven by `instrument_tags.sensitivity`-category weights, todo 040/041), not this one.
 
@@ -129,7 +132,7 @@ The layer in the quant stack that detects market states and enables downstream p
 **Banned:** (none)
 **Status:** active
 
-**Code surface:** `regime_writer.py` (per-symbol HMM), `equity_regime_model.py` (cross-sectional), future `StratificationDimension` providers.
+**Code surface:** `regime_writer.py` (per-symbol HMM), `cross_sectional_regime_model.py` (cross-sectional), future `StratificationDimension` providers.
 
 ---
 
@@ -1318,8 +1321,8 @@ stratification dimension. The predictive measurement layer is run stratified by 
 combination.
 
 **Current implementations:**
-- Per-symbol HMM (`regime_writer.py`) → `feature_vectors.regime` (5 labels)
-- Cross-sectional equity model (`equity_regime_model.py`) → `market_regimes` (9 labels)
+- Per-symbol HMM (`regime_writer.py`) → `feature_vectors.regime_volatility` (3 labels: `calm`/`elevated`/`turbulent`, see `regime` entry). `feature_vectors.regime` (5 labels) still exists during the phased cutover but carries the retired trend vocabulary.
+- Cross-sectional model (`cross_sectional_regime_model.py`) → `market_regimes` (9 labels)
 
 **Not:** a synonym for `regime` (the label output). The regime classifier is the
 process; `regime` is the result.
