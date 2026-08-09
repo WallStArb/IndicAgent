@@ -6,7 +6,7 @@ silent taxonomy drift. This module makes that loud instead of silent (D-09; "nev
 data that could contain signal" applies just as much to a code the registry doesn't know
 about yet as to a row).
 
-Pure comparison logic (`unregistered_codes`, `unregistered_groups`, `extract_regime_hmm_codes`,
+Pure comparison logic (`unregistered_codes`, `unregistered_groups`, `extract_regime_codes`,
 `classify_namespace_drift`) is fully unit-testable with no DB. All DB I/O is confined to
 `run_drift_audit` (the async runner) and the thin oneshot CLI entrypoint at the bottom of
 this file.
@@ -73,12 +73,19 @@ def unregistered_groups(
     return set(observed_groups) - set(registered_groups)
 
 
-def extract_regime_hmm_codes(raw_codes: Iterable[str | None]) -> list[str]:
-    """Drop the empty-string placeholder ('') from a list of raw regime_hmm codes
-    (Finding 3: '' is a placeholder for "no regime yet assigned", never a 6th code).
+def extract_regime_codes(raw_codes: Iterable[str | None]) -> list[str]:
+    """Drop the empty-string placeholder ('') from a list of raw regime codes
+    (Finding 3: '' is a placeholder for "no regime yet assigned", never a real code).
 
-    Defense-in-depth alongside the SQL-level `regime <> ''` filter -- kept as a pure,
-    independently testable step rather than relying solely on the query.
+    Column-agnostic -- applies identically to `regime_hmm` (feature_vectors.regime)
+    and `regime_volatility` (feature_vectors.regime_volatility, Phase 172): both
+    columns use the same '' sentinel for "not yet labeled." Defense-in-depth
+    alongside each namespace's SQL-level `<> ''` filter -- kept as a pure,
+    independently testable step rather than relying solely on the query. Renamed
+    from `extract_regime_hmm_codes` (Phase 172 plan 02) -- referenced only inside
+    this module and its own test file at rename time (verified via
+    `grep -rn extract_regime_hmm_codes src/ services/ scripts/ tests/`), so this is
+    an outright rename, not an aliased extension.
     """
     return [code for code in raw_codes if code]
 
@@ -146,9 +153,19 @@ def classify_namespace_drift(
 # ---------------------------------------------------------------------------
 
 _WINDOWED_NAMESPACE_QUERIES: dict[str, str] = {
+    # regime_hmm and regime_volatility are both audited on purpose during Phase
+    # 172's cutover window (172-RESEARCH.md Open Question 1: phased cutover, legacy
+    # `regime` stays readable and audited through at least one full corpus cycle
+    # after `regime_volatility` ships). What would justify removing the regime_hmm
+    # entry later: the legacy `regime` column no longer being written or read by
+    # any live path.
     "regime_hmm": (
         "SELECT DISTINCT regime FROM feature_vectors "
         "WHERE bar_ts > now() - ($1 || ' days')::interval AND regime <> ''"
+    ),
+    "regime_volatility": (
+        "SELECT DISTINCT regime_volatility FROM feature_vectors "
+        "WHERE bar_ts > now() - ($1 || ' days')::interval AND regime_volatility <> ''"
     ),
     "regime_cross_sectional_equity": (
         "SELECT DISTINCT regime_label FROM market_regimes "
@@ -252,8 +269,8 @@ async def run_drift_audit(pool: asyncpg.Pool, vocab: VocabularyService, window_d
         for namespace, sql, params in namespace_queries:
             rows = await conn.fetch(sql, *params)
             observed = [row[0] for row in rows if row[0] is not None]
-            if namespace == "regime_hmm":
-                observed = extract_regime_hmm_codes(observed)
+            if namespace in ("regime_hmm", "regime_volatility"):
+                observed = extract_regime_codes(observed)
             drift_count += await _evaluate_and_persist(
                 conn, namespace, observed, vocab.codes(namespace)
             )
