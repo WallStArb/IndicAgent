@@ -3,8 +3,9 @@ gsd_state_version: 1.0
 milestone: v3.1
 milestone_name: AlphaEngine Validation + Alpha Scoring
 status: blocked
-stopped_at: Phase 172 planned (7 plans, 5 waves) -- ready to execute via /gsd-execute-phase 172
-last_updated: "2026-08-08T22:45:00.000Z"
+stopped_at: Phase 172 planned (7 plans, 5 waves), cross-AI reviewed and replanned -- ready to
+  execute via /gsd-execute-phase 172
+last_updated: "2026-08-09T10:04:00.000Z"
 progress:
   total_phases: 12
   completed_phases: 9
@@ -455,8 +456,10 @@ described in the Phase Summary table above; this section is for phases with no t
 
 ## Session
 
-**Last GSD-phase-level session:** 2026-07-31T12:00:00.000Z. **Stopped at:** Phase 171 context gathered
-5 plans in 4 waves, plan-checker passed, reviewed by Codex + Agy/Antigravity, 9 findings
-incorporated. Ready to execute: `/gsd:execute-phase 168`. (Phase 165's own execution detail --
-wave-by-wave commits, mutation-verification catches -- is fully resolved and git-log-recoverable;
-trimmed here 2026-08-03. See the Phase Summary table above for what it shipped.)
+**Last GSD-phase-level session:** 2026-08-09T10:04:00.000Z. **Stopped at:** Phase 172 planned
+(7 plans, 5 waves), cross-AI reviewed (Codex + Antigravity, `172-REVIEWS.md`), and replanned
+incorporating 8 review findings (6 accepted as surgical plan edits, 2 confirmed already-handled --
+see commit `21cf0d6f`). Plan-checker re-verified after the revision: PASSED with 3 non-blocking
+warnings. Ready to execute: `/gsd:execute-phase 172`. (Prior session content describing Phase
+168/171 context-gathering was stale since 2026-07-31 and has been superseded by everything the
+Phase Summary table and Strategic Plan section above already record; trimmed here 2026-08-09.)
