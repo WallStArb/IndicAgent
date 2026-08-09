@@ -12,9 +12,21 @@ distinct from the existing split-out `tests/unit/test_ic_engine_*.py` files
 (clustering/idempotency/parallelism/stride/vectorized/compute_split), which
 cover services/ic_engine.py's existing runtime behavior. This file is scoped
 specifically to the Renaissance primitive inventory added by this phase.
+
+Also carries new `_assert_prerequisites` coverage (Phase 172 plan 06, Task 1)
+-- this function had no prior test coverage in this file or any of the
+split-out `test_ic_engine_*.py` files.
 """
 
 from __future__ import annotations
+
+import sys
+from pathlib import Path
+from unittest.mock import MagicMock
+
+sys.path.insert(0, str(Path(__file__).parents[3]))
+
+from services.ic_engine import _assert_prerequisites  # noqa: E402
 
 # Canonical 91 Renaissance primitive feature names (mirrors
 # tests/unit/test_feature_factory.py::RENAISSANCE_PRIMITIVE_FIELDS and
@@ -174,3 +186,48 @@ def test_renaissance_primitive_evaluation() -> None:
 
     # No duplicate names (each primitive must evaluate to exactly one query).
     assert len(set(RENAISSANCE_PRIMITIVE_NAMES)) == len(RENAISSANCE_PRIMITIVE_NAMES)
+
+
+def _mock_conn_for_prerequisites(counts: list[int]) -> MagicMock:
+    """Build a mock connection whose cursor().fetchone() yields `counts` in order.
+
+    `_assert_prerequisites` opens a fresh `with conn.cursor() as cur:` block per
+    gate query, so the mock cursor's context-manager protocol must return itself
+    on __enter__, and fetchone() must advance through `counts` one call at a time
+    (feature_vectors count, then the regime/regime_volatility count, then
+    forward_returns count -- in that fixed order).
+    """
+    cur = MagicMock()
+    cur.fetchone.side_effect = [(c,) for c in counts]
+    cur.__enter__ = MagicMock(return_value=cur)
+    cur.__exit__ = MagicMock(return_value=False)
+    conn = MagicMock()
+    conn.cursor.return_value = cur
+    return conn
+
+
+def test_assert_prerequisites_fails_on_volatility_all_null() -> None:
+    """Gate raises RuntimeError naming regime_volatility when that column is all-NULL.
+
+    feature_vectors count is non-zero (gate 1 passes); the second gate's count
+    (now regime_volatility, not legacy regime) is zero -- must raise, and the
+    message must name feature_vectors.regime_volatility and the
+    --regime-column regime_volatility remedy, not the legacy column.
+    """
+    conn = _mock_conn_for_prerequisites([100, 0])
+    try:
+        _assert_prerequisites(conn, tfs=None, equity_model_enabled=True, group_configs=None)
+        raised = False
+    except RuntimeError as exc:
+        raised = True
+        message = str(exc)
+        assert "regime_volatility" in message
+        assert "regime_writer.py --regime-column regime_volatility" in message
+    assert raised, "expected RuntimeError when regime_volatility is all-NULL"
+
+
+def test_assert_prerequisites_passes_when_volatility_populated() -> None:
+    """Gate passes (no raise before the forward_returns check) when the second
+    gate's count (regime_volatility, post-cutover) is non-zero."""
+    conn = _mock_conn_for_prerequisites([100, 50, 200])
+    _assert_prerequisites(conn, tfs=None, equity_model_enabled=True, group_configs=None)

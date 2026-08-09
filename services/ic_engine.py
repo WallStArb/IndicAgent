@@ -1660,13 +1660,19 @@ def _assert_prerequisites(
             "Run services/backfill_feature_factory.py first."
         )
 
+    # Phase 172 plan 06: gate on regime_volatility, not the legacy regime column.
+    # The legacy `regime` column is still present and readable during the phased
+    # cutover (feature_ic_scores vintage separation depends on it staying byte-for-byte
+    # unchanged, see 172-IC-ENGINE-CUTOVER.md), but it is deliberately no longer this
+    # gate's subject -- a corpus where `regime` is fully populated and
+    # `regime_volatility` is all-NULL must fail loud, not pass on the retired column.
     with conn.cursor() as cur:
-        cur.execute("SELECT count(*) FROM feature_vectors WHERE regime IS NOT NULL")
-        n_regime = cur.fetchone()[0]
-    if n_regime == 0:
+        cur.execute("SELECT count(*) FROM feature_vectors WHERE regime_volatility IS NOT NULL")
+        n_regime_volatility = cur.fetchone()[0]
+    if n_regime_volatility == 0:
         raise RuntimeError(
-            "IC Engine startup gate FAILED: feature_vectors.regime is all-NULL. "
-            "Run services/regime_writer.py first."
+            "IC Engine startup gate FAILED: feature_vectors.regime_volatility is all-NULL. "
+            "Run services/regime_writer.py --regime-column regime_volatility first."
         )
 
     with conn.cursor() as cur:
