@@ -11,7 +11,7 @@ forward_return_writer.py -- a correctness risk (a future copy silently drifting 
 the real unique index), not just a style complaint.
 
 Two variants, mirroring the sync/async split already established elsewhere in this
-codebase (e.g. FeatureRegistryService.record_transition_sync vs. its async sibling):
+codebase (e.g. ConceptRegistryService.record_transition_sync vs. its async sibling):
 callers on a plain psycopg connection (ic_engine.py, forward_return_writer.py -- both
 sync, argparse-style batch scripts) use emit_integrity_fact_sync(); callers on an
 asyncpg connection (vocabulary_drift.py) use emit_integrity_fact_async().

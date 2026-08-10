@@ -197,8 +197,9 @@ class TestFeatureVectorCanaryFields:
         assert "canary_acausal_placebo" in field_names
 
     def test_field_count_increased_by_five(self) -> None:
-        """FeatureRegistryService._REGISTRY_ROW_COUNT auto-derives from this
-        count -- the row-count alignment gate depends on it staying accurate."""
+        """ic_engine.py's alignment gate compares concept_registry(domain='feature')
+        row count against this count directly -- the gate depends on it staying
+        accurate."""
         total = len(dataclasses.fields(FeatureVector))
         # 150 fields prior to this plan (61 baseline + 89 Renaissance
         # primitives after the migration-211 redundant-field removal), +5
