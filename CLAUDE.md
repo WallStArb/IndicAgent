@@ -1,6 +1,6 @@
 # CLAUDE.md
 
-Version: 5.54.8
+Version: 5.55.0
 <!-- Bump the patch version on every substantive edit to this file (convention, not enforced). -->
 
 **Project nature:** Passion/learning project — not a production system. Architectural decisions prioritize correctness, rigor, and institutional-grade thinking. Renaissance Capital / Jim Simons principles are the north star. When giving advice, apply the same rigor you would to a system built to last — do not hedge around operational risk that doesn't apply.
@@ -119,7 +119,7 @@ Symbolic taxonomies (valid codes per namespace — `regime_hmm`, `timeframe`, `a
 
 ## Unified Concept Registry (UCR)
 
-Evidence-gated lifecycle governance for research artifacts (features, ensemble strategies) — `concept_registry`/`concept_gate`/`concept_transition_log`/`concept_annotation`/`concept_parent`, governs recipes not their outputs (a feature definition is governed here; its computed values in `feature_vectors` are not). Four-state lifecycle `candidate → shadow_only → active → deprecated`; the ONLY code path that flips `status` is `ConceptRegistryService` (`src/intelligence/concept_registry_service.py`) — no LLM, no proposer override, ever (Invariant 1). `domain='ensemble_strategy'` is live (async `record_comparison_outcome()`, called by `ops_ensemble_weight_compare.py`); `domain='feature'` migration is **actively in progress under ROADMAP Phase 170** — `feature_registry` (the system being retired) still exists and is still authoritative, the final `DROP TABLE` has not happened. Check `.planning/STATE.md` before citing `feature`-domain status. Full spec: `docs/foundation/unified-concept-registry.md`.
+Evidence-gated lifecycle governance for research artifacts (features, ensemble strategies) — `concept_registry`/`concept_gate`/`concept_transition_log`/`concept_annotation`/`concept_parent`, governs recipes not their outputs (a feature definition is governed here; its computed values in `feature_vectors` are not). Four-state lifecycle `candidate → shadow_only → active → deprecated`; the ONLY code path that flips `status` is `ConceptRegistryService` (`src/intelligence/concept_registry_service.py`) — no LLM, no proposer override, ever (Invariant 1). Both domains are live: `domain='ensemble_strategy'` (async `record_comparison_outcome()`, called by `ops_ensemble_weight_compare.py`) and `domain='feature'` (294 rows; sole writer via `ic_engine.py`'s post-run lifecycle hook using the sync `record_transition_sync()` path). **Phase 170 complete 2026-08-10** (migration 311): `feature_registry`/`feature_transition_log` were `DROP`ped, `FeatureRegistryService` deleted — `concept_registry` is the sole feature-lifecycle system now, no parallel table remains. Full spec: `docs/foundation/unified-concept-registry.md`.
 
 ## Plugin System (v2.x, archived 2026-07-02)
 
