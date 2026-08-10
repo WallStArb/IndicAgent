@@ -1,8 +1,8 @@
 # Naming Conventions
 
-**Version:** 1.0
+**Version:** 1.1
 **Status:** current
-**Last Updated:** 2026-06-22
+**Last Updated:** 2026-08-10 (added REST API Routes; moved/expanded Functions and Constants into their own sections matching new canonical Surfaces 7-8; renumbered Operational Files 6→9)
 
 Quick-lookup reference for naming on every surface. All claims derive from the canonical spec.
 <!-- src: docs/foundation/naming-system.md -->
@@ -72,9 +72,6 @@ For the full spec — governing tests, taxonomy governance, ring architecture, a
 | Ring 1 domain | `src/intelligence/<module>/<concept>.py` | `src/intelligence/context.py` |
 | Ring 0 infrastructure | `src/core/<module>/<concept>.py` | `src/core/ai/evaluator.py` |
 | Plugin (I1–I5) | `src/intelligence/features/i<N>_<tier_name>/<concept>.py` | `src/intelligence/features/i1_indicators/rsi.py` |
-| Functions | `snake_case` | `compute_next()`, `get_active_contracts()` |
-| Constants | `UPPER_SNAKE_CASE` | `TIER_I1`, `SIGNAL_SCHEMA_VERSION` |
-| Private attributes | `_snake_case` | `_regime_cache`, `_plugin_states` |
 
 The `_agent` file suffix is retired alongside `Agent` class names.
 
@@ -110,6 +107,58 @@ Always constructed via `src/core/stream_keys.py` — never inline f-strings.
 | Timeframe column | Always `tf` | `tf` |
 | All other columns | Full `snake_case` noun phrase | `exit_reason`, `pnl_r`, `failure_probability` |
 | Index | `idx_<table>_<cols>` | `idx_signal_ledger_symbol_ts` |
+
+---
+
+## REST API Routes
+
+<!-- src: docs/foundation/naming-system.md §4 Surface 6 -->
+
+| Element | Pattern | Example |
+|---------|---------|---------|
+| Collection path | Plural noun, no verb | `/instruments`, `/signals` |
+| Instance path | `/<collection>/{<snake_case_id>}` | `/instruments/{symbol}` |
+| Multi-word path segment | `kebab-case` | `/market-data/{symbol}`, `/signals/edge-series` |
+| Router file | `src/api/routes/<resource_plural>.py`, one `APIRouter()` per file | `signals.py` |
+| Handler function | `<crud_verb>_<resource>`: `list_`/`get_`/`create_`/`update_`/`delete_` | `list_instruments`, `get_instrument` |
+| Query parameter | `snake_case`; `alias=` only for external-spec or reserved-word collisions | `alias="lastEventId"`, `alias="from"` |
+| Request/response model | `<Concept>Request` / `<Concept>Response` | `NarrativeResponse` |
+
+HTTP method IS the verb (`GET`/`POST`/`PUT`/`DELETE`) — never repeat it in the path. Every router
+mounts under `/api` except `health.router`, which mounts bare at `/health`.
+
+---
+
+## Functions and Methods
+
+<!-- src: docs/foundation/naming-system.md §4 Surface 7 -->
+
+| Role | Prefix | Example |
+|------|--------|---------|
+| Boolean predicate | `is_`, `has_`, `should_` | `is_connected`, `should_skip_plugin` |
+| Factory | `make_` or `create_` (both in use, no preference between them) | `make_signal_id`, `create_pool` |
+| Simple accessor | `get_` | `get_active_contracts` |
+| Computed/derived value | `compute_` or `calculate_` | `compute_quality_weight` |
+| Module-private helper | `_` + full descriptive `snake_case` | `_build_obs_matrix` |
+| Test function | `test_<unit>_<expected_behavior>` | `test_compute_next_returns_macd_when_warmed_up` |
+
+Single/double-letter function names are prohibited (`_f`, `_s`, `_i` are violations, not a
+pattern) — same abbreviation floor as everywhere else in the spec.
+
+---
+
+## Module-Level Constants
+
+<!-- src: docs/foundation/naming-system.md §4 Surface 8 -->
+
+| Visibility | Pattern | Example |
+|-----------|---------|---------|
+| Public (imported elsewhere) | `UPPER_SNAKE_CASE` | `REGIME_WRITER_OWNED_COLUMN_NAMES` |
+| Private (module-internal) | `_UPPER_SNAKE_CASE` | `_JOB`, `_DEFAULT_TFS` |
+
+A hardcoded numeric constant here is presumptively an APR violation (see CLAUDE.md §APR) before
+it's a naming question — this section only governs the identifier once the constant is confirmed
+to legitimately live outside APR.
 
 ---
 
@@ -223,7 +272,7 @@ Given concept `signal_tracker`:
 
 ---
 
-## Operational Files (Surface 6)
+## Operational Files (Surface 9)
 
 <!-- src: docs/foundation/naming-system.md §11 -->
 

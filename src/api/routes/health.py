@@ -43,10 +43,10 @@ async def database_health(db_manager=Depends(get_db_manager)):
             "database": "connected",
             "timestamp": datetime.now(UTC).isoformat(),
         }
-    except Exception as e:
+    except Exception as error:
         API_HEALTH.set(0, {"service": "indicagent-api"})
-        logger.error("Database health check failed", error=str(e))
-        raise HTTPException(status_code=503, detail=f"Database unhealthy: {str(e)}") from e
+        logger.error("Database health check failed", error=str(error))
+        raise HTTPException(status_code=503, detail=f"Database unhealthy: {str(error)}") from error
 
 
 @router.get("/full")
@@ -63,8 +63,8 @@ async def full_health_check(db_manager=Depends(get_db_manager)):
         async with db_manager.get_connection() as conn:
             await conn.fetchval("SELECT 1")
         health_status["components"]["database"] = "healthy"
-    except Exception as e:
-        health_status["components"]["database"] = f"unhealthy: {str(e)}"
+    except Exception as error:
+        health_status["components"]["database"] = f"unhealthy: {str(error)}"
 
     all_healthy = all(status == "healthy" for status in health_status["components"].values())
     health_status["status"] = "healthy" if all_healthy else "degraded"

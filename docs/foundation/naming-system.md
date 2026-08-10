@@ -1,8 +1,8 @@
 # Naming System
 
 **Status:** current
-**Last Updated:** 2026-07-01 (§7 split into Generic vs Domain-Specific gradient scales; added Curve shape, Term structure shape, Credit spread state)
-**Extended discussion:** `docs/reference/renaissance-naming-philosophy.md` (detailed examples and reasoning for governing tests)
+**Last Updated:** 2026-08-10 (§4 added Surfaces 6-8 — REST API Routes, Functions and Methods, Module-Level Constants, derived from live codebase convention + REST/PEP 8 standards; Operational Files renumbered Surface 6→9; §7 added Volatility state domain-specific scale — `calm`/`elevated`/`turbulent` for `feature_vectors.regime_volatility`, Phase 172)
+**Extended discussion:** `docs/reference/renaissance-naming-philosophy.md` (worked reasoning for the governing tests and model-evolution protocol only — not a second source of current naming fact; git history is the record of the 2026-05/06 vocabulary rename phase)
 
 ---
 
@@ -233,7 +233,7 @@ taxonomy:
 
 ---
 
-## 4. The Five Surfaces
+## 4. The Eight Surfaces
 
 One concept name mechanically derives all surface names. No judgment calls, no lookup tables.
 
@@ -327,6 +327,86 @@ Given concept `signal_tracker`:
 | Metric prefix | `signal_tracker_` |
 | Structlog `daemon_id` value | `signal_tracker` |
 | Variable name | `signal_tracker` |
+
+### Surface 6 — REST API Routes (Ring 3)
+
+FastAPI routers in `src/api/routes/`. Endpoint naming follows REST resource conventions
+(Microsoft REST API Guidelines / Google API Design Guide) — the path names a resource, the HTTP
+method supplies the verb. This is the same discipline as §1's Whiteboard Test one layer up: a
+path is a claim about what resource it addresses, not about the operation performed on it.
+
+| Element | Pattern | Example |
+|---------|---------|---------|
+| Collection resource path | Plural noun, no verb | `/instruments`, `/signals` |
+| Instance resource path | `/<collection>/{<snake_case_id>}` | `/instruments/{symbol}`, `/signals/{signal_id}` |
+| Multi-word path segment | `kebab-case` | `/market-data/{symbol}`, `/signals/edge-series` |
+| Router file | `src/api/routes/<resource_plural_snake_case>.py`, one `APIRouter()` per file | `signals.py`, `instruments.py` |
+| Route handler function | `<crud_verb>_<resource>`: `list_`, `get_`, `create_`, `update_`, `delete_` | `list_instruments`, `get_instrument`, `create_instrument` |
+| Query parameter | `snake_case`; `alias=` permitted only for an external-spec-mandated name or a Python-reserved-keyword collision, never as a stylistic choice | `symbol`, `timeframe`; `alias="lastEventId"` (SSE/EventSource spec), `alias="from"` (reserved word) |
+| Request/response model | `<Concept>Request` / `<Concept>Response` — mirrors Surface 1's `<Concept>Result` (internal computation output), with `Response` reserved for the wire/API boundary and `Result` for internal computation | `NarrativeResponse` |
+
+**HTTP method → action mapping (no exceptions):** `GET` reads, `POST` creates, `PUT` replaces,
+`DELETE` removes. A verb never appears in the path itself — `/instruments`, never
+`/getInstruments` or `/instruments/create`.
+
+**Prefix rule:** every router mounts under `/api` (`app.include_router(<router>, prefix="/api",
+...)`) with exactly one exception — `health.router` mounts bare at `/health`. Health/liveness
+checks are an infrastructure surface polled directly by load balancers and orchestrators, not a
+domain resource (see CLAUDE.md: "API health router prefix is `/health` not `/api/health`" — this
+section is that rule's canonical home; CLAUDE.md's line is a pointer, not a second source of
+truth).
+
+**Current conformance note (2026-08-10):** 1 of 29 route handlers uses a typed `response_model=`
+(`NarrativeResponse`); the rest return raw `dict`. The table above is the target convention for
+new and touched routes, not a claim about universal current state — it is not a mandate to
+retrofit every existing route in one pass.
+
+### Surface 7 — Functions and Methods
+
+PEP 8 / Google Python Style Guide baseline (`snake_case`, verb or verb phrase), sharpened with
+this codebase's already-consistent role-prefix vocabulary — the same "name states the role"
+discipline as §1's governing tests, applied one level below the class.
+
+| Role | Prefix | Example |
+|------|--------|---------|
+| Boolean predicate | `is_`, `has_`, `should_` | `is_connected`, `has_alpha`, `should_skip_plugin` |
+| Factory / constructor function | `make_` or `create_` — both in live use (`make_worker_pool`, `create_pool`), no repo-wide preference established between them; do not invent a third prefix | `make_signal_id`, `create_pool` |
+| Simple accessor (no meaningful computation) | `get_` | `get_active_contracts`, `get_tracer` |
+| Derived / computed value (real computation, may be expensive) | `compute_` or `calculate_` | `compute_quality_weight`, `_compute_ic_rolling_metrics` |
+| Module-private helper (not part of the module's public API) | leading `_` + full descriptive `snake_case` | `_build_obs_matrix`, `_check_occupation_gate` |
+| Public function (importable by other modules) | `snake_case`, no leading underscore | `get_active_contracts`, `format_iso_ts` |
+| Test function | `test_<unit_under_test>_<expected_behavior>` — full descriptive phrase, never abbreviated | `test_label_map_assigns_trending_up_to_highest_mean` |
+
+**The `get_`/`compute_` distinction matters and is enforced by the Survival Test:** a `get_`
+function's cost and behavior must survive any internal reimplementation unnoticed by the caller —
+the same contract as a plain attribute access. A `compute_`/`calculate_` function is allowed to be
+expensive, and its name is a signal to the caller not to invoke it in a hot loop. Renaming a
+function from `get_` to `compute_` (or back) is a real API contract change, not a style fix.
+
+**Abbreviation floor:** single- or double-letter function names are prohibited outside the
+mathematical-variable exception already granted in Surface 5 — a private float/str/int coercion
+helper is named `_to_float`/`_to_str`/`_to_int`, never `_f`/`_s`/`_i`. (`src/api/routes/signals.py`
+currently violates this — `_f`, `_s`, `_i`, `_ts` — tracked as a cleanup item, not fixed by this
+doc pass.)
+
+### Surface 8 — Module-Level Constants
+
+PEP 8 baseline (`UPPER_SNAKE_CASE`), split by visibility exactly as Surface 7 splits functions —
+the same public/private distinction, not a separate rule.
+
+| Visibility | Pattern | Example |
+|-----------|---------|---------|
+| Public (imported by other modules) | `UPPER_SNAKE_CASE`, no leading underscore | `REGIME_WRITER_OWNED_COLUMN_NAMES`, `FEATURE_VECTOR_UPSERT_SQL` |
+| Private (module-internal only) | `_UPPER_SNAKE_CASE`, leading underscore | `_JOB`, `_DEFAULT_TFS`, `_MIN_OBS_FACTOR_DEFAULT` |
+| Enum members | `UPPER_SNAKE_CASE` (Surface 5, unchanged) | `REGIME_TRENDING`, `PENDING` |
+
+**A hardcoded numeric constant on this surface is presumptively an APR violation, not a naming
+question.** CLAUDE.md's Adaptive Parameter Registry mandate governs *whether* a threshold,
+weight, period, count, or seed may exist as a Python constant at all — this surface only governs
+the identifier *if* the constant legitimately belongs here: structural values APR itself exempts
+(label strings, job/service identifiers, frozensets of column names, DAG topology, and
+statistical-definition numbers under naming-system.md §7's `momentum_z_5` rule). Do not cite this
+section to justify a constant that APR migration should have absorbed instead.
 
 ---
 
@@ -431,6 +511,7 @@ A quantity being tiered may use its own field-standard vocabulary instead of a g
 | Credit spread state | `tight`, `wide` | Credit spread tiers (e.g. HYG-LQD z-score) | Standard credit terminology ("spreads tightening/widening") |
 | Currency strength | `strong`, `weak` | Dollar/currency direction tiers (e.g. UUP z-score) | Standard FX/macro terminology ("strong dollar", "weak dollar") |
 | Risk sentiment | `risk_on`, `risk_off` | Cross-asset carry/sentiment tiers | Universal trading-desk terminology; broader than any single asset class |
+| Volatility state | `calm`, `elevated`, `turbulent` | Idiosyncratic (per-symbol) HMM volatility tiers (`feature_vectors.regime_volatility`, Phase 172) | Standard vol-desk terminology ("calm markets," "elevated vol," "turbulent conditions"); the field already has established language for this exact tiering rather than a generic magnitude label |
 
 A quantity that is structurally a magnitude tier (a continuous score threshold-bucketed) but has **no established field-specific naming convention** must use the generic Magnitude/Intensity scale (`low`/`mid`/`high`), not an invented term. Domain-specific status is earned by the term already being standard usage in the field — it is not granted because a name "sounds more precise" for the case at hand. When evaluating a candidate domain-specific term, check composition first: if the value already decomposes into an existing generic scale (e.g. direction × `primary`/`secondary` rank), use the composition — do not invent a new word to say what existing approved terms already say together.
 
@@ -560,7 +641,7 @@ These do not change as part of any rename or refactor:
 
 ---
 
-## 11. Operational Files — Surface 6
+## 11. Operational Files — Surface 9
 
 These are the non-code file categories that appear at the project root and in supporting directories. Each has a single canonical location and a deletion rule.
 
