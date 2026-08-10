@@ -1,7 +1,9 @@
 -- Feature Decay Diagnostics (LIFECYCLE-06, Phase 143 Plan 03)
 --
 -- Ad-hoc, ready-to-run SQL for inspecting the feature lifecycle routing system built
--- in Phase 143 (feature_registry status routing + ic_engine's post-run lifecycle hook).
+-- in Phase 143 (concept_registry(domain='feature') status routing + ic_engine's
+-- post-run lifecycle hook). Repointed from feature_registry/feature_transition_log
+-- to the concept tables 2026-08-10 (Phase 170, migration 311 DROPped both).
 -- No dashboard is wired to these queries -- deferred until the routed system has
 -- operated for >= 30 days (enough history to make a Superset panel meaningful rather
 -- than an empty chart). Run any block manually via psql:
@@ -11,21 +13,23 @@
 -- Or copy individual queries into an interactive psql session.
 
 -- ---------------------------------------------------------------------------
--- (a) Recent transitions -- last 50 feature_transition_log rows, most recent first,
---     grouped visually by trigger_reason so automated (ic_promotion/ic_demotion) and
---     operator (operator_override/parent_cascade) transitions are easy to tell apart.
+-- (a) Recent transitions -- last 50 concept_transition_log rows for domain='feature',
+--     most recent first, grouped visually by trigger_reason so automated
+--     (promotion/demotion_performance) and operator (operator_override/parent_cascade)
+--     transitions are easy to tell apart.
 -- ---------------------------------------------------------------------------
 
 SELECT
-    feature_name,
+    name AS feature_name,
     from_status,
     to_status,
     trigger_reason,
-    ic_value,
-    ic_sharpe,
-    ic_n,
+    ci_lower AS ic_value,
+    gate_metric AS ic_sharpe,
+    gate_n AS ic_n,
     triggered_at
-FROM feature_transition_log
+FROM concept_transition_log
+WHERE domain = 'feature'
 ORDER BY triggered_at DESC
 LIMIT 50;
 
@@ -38,24 +42,25 @@ LIMIT 50;
 -- ---------------------------------------------------------------------------
 
 SELECT
-    fr.feature_name,
-    fr.consecutive_shadow_passes,
+    cr.name AS feature_name,
+    cg.consecutive_shadow_passes,
     (SELECT config_value::int FROM config_state WHERE config_key = 'alpha.decay.recovery_min_passes') AS recovery_min_passes,
     GREATEST(
         0,
         (SELECT config_value::int FROM config_state WHERE config_key = 'alpha.decay.recovery_min_passes')
-        - fr.consecutive_shadow_passes
+        - cg.consecutive_shadow_passes
     ) AS pending_passes,
-    fr.observations_since_demotion,
+    cg.observations_since_demotion,
     (SELECT config_value::bigint FROM config_state WHERE config_key = 'alpha.decay.recovery_min_observations') AS recovery_min_observations,
     GREATEST(
         0,
         (SELECT config_value::bigint FROM config_state WHERE config_key = 'alpha.decay.recovery_min_observations')
-        - fr.observations_since_demotion
+        - cg.observations_since_demotion
     ) AS pending_observations
-FROM feature_registry fr
-WHERE fr.status = 'shadow_only'
-ORDER BY fr.observations_since_demotion DESC;
+FROM concept_registry cr
+JOIN concept_gate cg ON cg.concept_id = cr.concept_id
+WHERE cr.domain = 'feature' AND cr.status = 'shadow_only'
+ORDER BY cg.observations_since_demotion DESC;
 
 -- ---------------------------------------------------------------------------
 -- (c) integrity_monitor regime-shift-hold events over time -- runs where the hook

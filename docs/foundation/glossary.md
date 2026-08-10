@@ -333,12 +333,12 @@ A quantity directly computable from market data with no derivation from other pr
 
 A tier-0 atomic feature computed as a deterministic, stateless, O(1) function of the bar timestamp alone - no OHLCV input, no cross-bar state, no external event data. Cyclical calendar primitives ship as `_sin`/`_cos` pairs (the pair spans every phase of the cycle's first harmonic, so no turning point is assumed); linear ones as `[0, 1]` fractions with the `_position` suffix. The atomic calendar set encodes coordinates on natural calendar cycles (day, week, month, quarter, year, session); it never encodes event conjunctions or fitted boundaries - those are tier-1 interaction features with a stated hypothesis. Full doctrine: `docs/research/signal-temporal-atomic-primitives.md`.
 
-**Not:** the tag-system sense of `primitive` above (known naming collision, unresolved - see that entry); not any feature merely correlated with time; not `above_wk_vwap` (price-dependent and stateful, grouped `calendar` in `feature_registry` for legacy reasons only, see todo 116).
+**Not:** the tag-system sense of `primitive` above (known naming collision, unresolved - see that entry); not any feature merely correlated with time; not `above_wk_vwap` (price-dependent and stateful, grouped `calendar` in `concept_registry` for legacy reasons only, see todo 116).
 
 **Banned:** temporal coordinate primitive, temporal primitive, time feature, seasonality feature
 **Status:** active
 
-**Code surface:** `feature_registry` rows with `tier='0_atomic'` and `group_name='calendar'`; calendar helpers in `src/intelligence/feature_factory.py`.
+**Code surface:** `concept_registry` rows with `metadata->>'tier' = '0_atomic'` and `group_name = 'calendar'` (domain='feature'; `feature_registry`, the table this used to live in, was retired by migration 311, Phase 170); calendar helpers in `src/intelligence/feature_factory.py`.
 
 ---
 

@@ -183,6 +183,40 @@ concept_registry, so the migration is now a plain fold-in.
   traceable through one shared fingerprint, not two independently-invented versioning schemes.
   Sequence 252 before or alongside this migration, not after.
 
+## Closure (2026-08-10, Phase 170 complete)
+
+**Status: DONE.** Per-item disposition:
+- Scope 1 (migration): DONE. Migration 284 seeded 249 rows/gates/lineage + replayed
+  `feature_transition_log`; migration 310 backfilled provenance for 43 more (Phase 151's
+  direct-seed features); migration 311 DROPped both source tables. Full replay chosen
+  over genesis-seed-with-pointer as required.
+- Scope 2 (port record_transition_sync): DONE, Plan 04 (`ConceptRegistryService` sync
+  psycopg path).
+- Scope 3 (repoint consumers): DONE, Plans 06/07 (`ic_engine` lifecycle hook,
+  `ensemble_trainer` alignment gate, `docs/analysis/feature-decay-queries.sql`).
+- Scope 4 (retire, literal DROP): DONE, migration 311 + Task 1's code deletion
+  (`feature_registry_service.py` + its test module).
+- L-8 (multi-parent lineage join table): DONE, migration 283, `concept_parent`.
+- L-9 (cascade-deprecation trigger): DONE, migration 283, `fn_cascade_concept_parent_deprecation`.
+- L-10 (control/canary columns): DONE, migration 283, `concept_registry.is_control`/`control_expectation`.
+- H-1 (F3 evidence-mass floor viability): MEASURED, Plan 05 (self-blocked on `alpha_ensemble_ic`
+  at the time; not a blocker for the `feature`-domain scope, which uses `record_transition_sync`
+  not `record_comparison_outcome`).
+- L-2/L-3/L-4 (CAS gate-cache, non-zero exit, operator-arg validation): DONE, Plan 02.
+- L-5 (shadow-recovery counter columns): DONE, migration 283.
+- L-6 (fail-closed FDR enforcement inside the service): DONE, Plan 02.
+- **L-7: CONTRACT RECORDED, NOT IMPLEMENTED.** Todo 252 (fingerprint-tuple reuse for
+  `concept_transition_log` provenance) remains explicitly out of this migration's scope;
+  its eventual fix must reuse `code_content_key`/`apr_snapshot_key`/`upstream_watermark`.
+
+**Deviation from this todo's own written plan:** the live `registry_dual_write_verified`
+evidence bar for the DROP (Plan 08) was found to be structurally unreachable under the
+OOS-pin discipline (every in-sample `ic_engine` run's `training_window_end` clamps to the
+same already-evaluated window), not merely unmet. Retired on the static parity check
+(`ops_concept_feature_migration_verify.py`, VERDICT: PASS) plus explicit user
+authorization instead. Full rationale: migration 311's header comment and
+`docs/research/concept-unified-registry.md`'s 2026-08-10 revision-history entry.
+
 ## References
 
 - docs/research/concept-unified-registry.md (Invariants 8/9; the
