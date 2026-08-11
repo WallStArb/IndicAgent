@@ -4,6 +4,7 @@
 **Informal aliases:** "Concept Registry," "the concept tables" (colloquial — acceptable in casual conversation, not in architecture docs or code comments)
 **Status:** current for architecture/mechanics — MVP live since 2026-07-13 (`ensemble_strategy` domain). **The `feature` domain migration (Phase 170) is actively in progress as of this writing; do not cite specific row counts or `feature`-domain completeness from this doc — check `.planning/STATE.md` and ROADMAP.md's Phase 170 section for current status.**
 **Phase introduced:** 160 (MVP, four tables), extended Phase 170 (feature-domain schema gaps: `concept_parent`, cascade trigger, cycle guard, control/group columns, shadow-recovery counters)
+**Last Updated:** 2026-08-08
 
 ---
 

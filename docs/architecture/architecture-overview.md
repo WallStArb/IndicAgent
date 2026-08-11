@@ -1,7 +1,7 @@
 # IndicAgent Architecture Overview
 
 **Version:** 2.8
-**Status:** current
+**Status:** draft — downgraded 2026-08-11, staleness-quarantined per `docs/foundation/documentation-system.md` §6. Predates Phase 170 (`concept_registry` replacing `feature_registry`), Phase 171/172 (`regime_volatility` redesign), and the broader v3.1 milestone. Re-verify against current code before trusting any claim here.
 **Last Updated:** 2026-05-28
 **Tags:** architecture, overview, intelligence-pipeline, microservices, event-driven, plugin-system
 

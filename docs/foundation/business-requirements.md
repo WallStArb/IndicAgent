@@ -2,6 +2,7 @@
 
 **Version:** 1.0.0
 **Status:** current
+**Last Updated:** 2026-07-10
 **Milestone:** standing (not tied to a phase)
 **Purpose:** the top-down, business/quant-concept view of the whole system — what it is, why it
 exists, what each part promises to deliver, how it can grow, and what's genuinely undecided.
