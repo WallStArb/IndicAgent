@@ -6,8 +6,9 @@
 
 **Project nature:** `<one line: what this project is, and what standard of rigor it holds itself to and why>`. Renaissance Capital / Jim Simons principles are the north star. When giving advice, apply the same rigor you would to a system built to last.
 
-**Principles:** `<one-line distillation of your core principles>`. Full doc: [renaissance-rigor-playbook/principles.md](renaissance-rigor-playbook/principles.md).
-**Design mindset:** Think as a council of senior engineers at a Renaissance-grade shop. Data integrity is paramount. Ruthlessly eliminate complexity. Silent wrong answers are worse than loud crashes. Deterministic DAG topology — every node does one thing, data flows one direction, no cycles. Separation of concerns: compute ≠ persistence ≠ transport. Async-first. Before committing to a design: (1) survives 10x volume? (2) what fails silently or introduces hidden bias? (3) does the DAG still hold? (4) what manual step does this eliminate?
+**Principles:** `<one-line distillation of your core principles>`. Full doc: [renaissance-rigor-playbook/principles.md](renaissance-rigor-playbook/principles.md) · what you fight against: [renaissance-rigor-playbook/product-laws.md](renaissance-rigor-playbook/product-laws.md).
+**Design mindset:** Think as a council of senior engineers at a Renaissance-grade shop. Data integrity is paramount. Ruthlessly eliminate complexity. Silent wrong answers are worse than loud crashes. Deterministic DAG topology — every node does one thing, data flows one direction, no cycles. Separation of concerns: compute ≠ persistence ≠ transport. Async-first. Before committing to a design: (1) survives 10x volume? (2) what fails silently or introduces hidden bias? (3) does the DAG still hold? (4) what manual step does this eliminate? Full architectural + coding-standard doc: [renaissance-rigor-playbook/design-principles.md](renaissance-rigor-playbook/design-principles.md).
+**Working with AI agents at speed:** verification discipline, autonomy, scope boundaries, fix-vs-defer, capture habits — lessons that don't fit in architecture docs but matter just as much at a fast cadence. Full doc: [renaissance-rigor-playbook/fast-cadence-collaboration.md](renaissance-rigor-playbook/fast-cadence-collaboration.md).
 **5-Step mandate (Musk):** Make requirements less dumb → delete → simplify → accelerate → automate. Run in order. Don't optimize what should be deleted. Don't accelerate in the wrong direction. Don't automate what isn't proven. Full doc: [renaissance-rigor-playbook/musk-5-step-process.md](renaissance-rigor-playbook/musk-5-step-process.md).
 **Naming:** Concept name (`snake_case`) derives all layer names — see [renaissance-rigor-playbook/naming-system.md](renaissance-rigor-playbook/naming-system.md) for the full ring architecture, taxonomy, and surface-derivation method. `<fill in your project's actual ring directory names and one worked example once established>`.
 **Glossary:** Every domain term has exactly one definition. Check before naming new concepts; glossary wins over existing code on collision. `<link your project's real docs/foundation/glossary.md here — it is NOT part of this portable set, since it's 100% project vocabulary>`.
@@ -53,6 +54,8 @@ Full rules: [renaissance-rigor-playbook/ship-or-sink-rules.md](renaissance-rigor
 
 `<list your load-bearing tables and their primary time/id columns here — this is the section most likely to save an agent from picking the wrong column name>`.
 
+**Performance investigations:** before touching a batch job that mutates many rows against a large/partitioned table and runs far slower than expected, follow [renaissance-rigor-playbook/performance-investigation-sop.md](renaissance-rigor-playbook/performance-investigation-sop.md) — measure before theorizing, never trust a read-only test for a write-path question.
+
 ## Adaptive Parameter Registry (APR)
 
 All tunable numeric values live in a config table under `<domain>.<concept>.<param>` — accessed via a `ConfigService.get(key, default=X)`. Hard-coded numeric thresholds, weights, periods, or counts anywhere in application code are an architecture violation unless structural or a genuine mathematical constant. Full spec: [renaissance-rigor-playbook/adaptive-parameter-registry.md](renaissance-rigor-playbook/adaptive-parameter-registry.md).
@@ -73,7 +76,7 @@ When a simpler model achieves statistically similar performance to a complex one
 
 ## DAG Invariants
 
-Non-negotiable. Any violation is wrong regardless of whether it works locally. `<fill in your project's real invariants — the shape below is illustrative>`:
+Non-negotiable. Any violation is wrong regardless of whether it works locally. `<fill in your project's real invariants — the shape below is illustrative>`. See [renaissance-rigor-playbook/canonical-truth-registry.md](renaissance-rigor-playbook/canonical-truth-registry.md) for the single-writer-per-fact registry pattern that enforces invariant 1 at the documentation level:
 
 1. **`<Component>` is the sole writer to `<table/topic>`**
 2. **Compute stages run in-process** — persistence goes through a dedicated writer, never inline in the compute daemon.
