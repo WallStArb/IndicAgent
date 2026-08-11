@@ -87,7 +87,7 @@ def _get_settings() -> Settings:
     return Settings()
 
 
-def _ts(row: Any, primary: str, fallback: str = "timestamp") -> str | None:
+def _to_timestamp(row: Any, primary: str, fallback: str = "timestamp") -> str | None:
     """Serialize a nullable timestamptz row field with a fallback column."""
     v = row[primary] if row[primary] is not None else row[fallback]
     return v.isoformat() if v is not None else None
@@ -181,15 +181,15 @@ def _build_signal_row(row: Any, include_features: bool) -> dict[str, Any]:
     return signal
 
 
-def _f(v: Any) -> float | None:
+def _to_float(v: Any) -> float | None:
     return float(v) if v is not None else None
 
 
-def _s(v: Any) -> str | None:
+def _to_str(v: Any) -> str | None:
     return str(v) if v is not None else None
 
 
-def _i(v: Any) -> int | None:
+def _to_int(v: Any) -> int | None:
     return int(v) if v is not None else None
 
 
@@ -246,8 +246,8 @@ async def get_active_signals(
         t1 = float(targets[0]) if len(targets) > 0 else None
         t2 = float(targets[1]) if len(targets) > 1 else None
         t3 = float(targets[2]) if len(targets) > 2 else None
-        entry = _f(row["entry_price"])
-        stop = _f(row["stop_loss"])
+        entry = _to_float(row["entry_price"])
+        stop = _to_float(row["stop_loss"])
         rr = (
             round(abs(t1 - entry) / abs(entry - stop), 2)
             if (t1 is not None and entry and stop and entry != stop)
@@ -265,34 +265,34 @@ async def get_active_signals(
                 "confidence": None,
                 "status": row["status"],
                 "was_selected": row["was_selected"],
-                "cis_score": _f(row["cis_score"]),
+                "cis_score": _to_float(row["cis_score"]),
                 "profit_target": t1,
                 "profit_target_2": t2,
                 "profit_target_3": t3,
                 "risk_reward_ratio": rr,
-                "stop_type": _s(row["stop_basis"]),
+                "stop_type": _to_str(row["stop_basis"]),
                 "regime_context": None,
                 "market_price_at_signal": None,
                 "ask_at_signal": None,
                 "bid_at_signal": None,
-                "entry_zone_low": _f(row["entry_zone_low"]),
-                "entry_zone_high": _f(row["entry_zone_high"]),
+                "entry_zone_low": _to_float(row["entry_zone_low"]),
+                "entry_zone_high": _to_float(row["entry_zone_high"]),
                 "zone_valid_at_signal": None,
-                "signal_computed_at": _ts(row, "signal_computed_at"),
+                "signal_computed_at": _to_timestamp(row, "signal_computed_at"),
                 "bar_close_ts": (
                     row["bar_close_ts"].isoformat() if row["bar_close_ts"] is not None else None
                 ),
                 "timestamp": (
                     row["timestamp"].isoformat() if row["timestamp"] is not None else None
                 ),
-                "setup_win_rate": _f(row["setup_win_rate"]),
-                "setup_avg_pnl_r": _f(row["setup_avg_pnl_r"]),
-                "ttl_bars": _i(row["ttl_bars"]),
-                "hmm_regime_at_fire": _i(row["hmm_regime_at_fire"]),
+                "setup_win_rate": _to_float(row["setup_win_rate"]),
+                "setup_avg_pnl_r": _to_float(row["setup_avg_pnl_r"]),
+                "ttl_bars": _to_int(row["ttl_bars"]),
+                "hmm_regime_at_fire": _to_int(row["hmm_regime_at_fire"]),
                 "signal_tier": _compute_signal_tier(
                     row["was_selected"],
                     None,
-                    _f(row["cis_score"]),
+                    _to_float(row["cis_score"]),
                     min_confidence=cfg["ui.signals.min_confidence"],
                     min_cis_score=cfg["ui.signals.min_cis_score"],
                 ),
@@ -380,8 +380,8 @@ async def get_recent_signals(
     for row in rows:
         targets = _parse_jsonb(row["targets"], default=[])
         t1 = float(targets[0]) if targets else None
-        entry = _f(row["entry_price"])
-        stop = _f(row["stop_loss"])
+        entry = _to_float(row["entry_price"])
+        stop = _to_float(row["stop_loss"])
         direction = row["direction"]
         r_ratio = None
         if t1 is not None and entry is not None and stop is not None and entry != stop:
@@ -395,29 +395,29 @@ async def get_recent_signals(
                 "direction": direction,
                 "entry_price": entry,
                 "stop_loss": stop,
-                "confidence": _f(row["confidence"]),
+                "confidence": _to_float(row["confidence"]),
                 "was_selected": row["was_selected"],
-                "cis_score": _f(row["cis_score"]),
+                "cis_score": _to_float(row["cis_score"]),
                 "status": row["status"],
-                "pnl_r": _f(row["pnl_r"]),
-                "computed_at": _ts(row, "signal_computed_at"),
+                "pnl_r": _to_float(row["pnl_r"]),
+                "computed_at": _to_timestamp(row, "signal_computed_at"),
                 "timeframe": row["timeframe"],
                 "symbol": row["symbol"],
-                "setup_win_rate": _f(row["setup_win_rate"]),
-                "setup_avg_pnl_r": _f(row["setup_avg_pnl_r"]),
+                "setup_win_rate": _to_float(row["setup_win_rate"]),
+                "setup_avg_pnl_r": _to_float(row["setup_avg_pnl_r"]),
                 "signal_tier": _compute_signal_tier(
                     row["was_selected"],
-                    _f(row["confidence"]),
-                    _f(row["cis_score"]),
+                    _to_float(row["confidence"]),
+                    _to_float(row["cis_score"]),
                     min_confidence=min_confidence,
                     min_cis_score=min_cis_score,
                 ),
-                "hmm_regime_at_fire": _i(row["hmm_regime_at_fire"]),
-                "exit_reason": _s(row["exit_reason"]),
-                "ttl_bars": _i(row["ttl_bars"]),
+                "hmm_regime_at_fire": _to_int(row["hmm_regime_at_fire"]),
+                "exit_reason": _to_str(row["exit_reason"]),
+                "ttl_bars": _to_int(row["ttl_bars"]),
                 "targets": targets,
                 "r_ratio": r_ratio,
-                "entry_type": _s(row["entry_type"]),
+                "entry_type": _to_str(row["entry_type"]),
             }
         )
 
@@ -562,19 +562,19 @@ async def get_signals_stats(
     """
     outcome_rows = await db_manager.fetch(outcomes_query)
     recent_outcomes = [
-        {"outcome": r["exit_reason"], "pnl_r": _f(r["actual_pnl_r"])} for r in outcome_rows
+        {"outcome": r["exit_reason"], "pnl_r": _to_float(r["actual_pnl_r"])} for r in outcome_rows
     ]
 
     signals_today = int(row["signals_today"] or 0)
     signals_prev = int(row["signals_prev_session"] or 0)
     hero_count = int(row["hero_count_today"] or 0)
     selected_count = int(row["selected_count_today"] or 0)
-    avg_conf_today = _f(row["avg_confidence_today"])
-    avg_conf_7d = _f(row["avg_confidence_7d"])
-    latency_p50 = _f(row["latency_p50"])
-    latency_p95 = _f(row["latency_p95"])
-    alpha_7d = _f(row["avg_pnl_r_7d"])
-    alpha_30d = _f(row["avg_pnl_r_30d"])
+    avg_conf_today = _to_float(row["avg_confidence_today"])
+    avg_conf_7d = _to_float(row["avg_confidence_7d"])
+    latency_p50 = _to_float(row["latency_p50"])
+    latency_p95 = _to_float(row["latency_p95"])
+    alpha_7d = _to_float(row["avg_pnl_r_7d"])
+    alpha_30d = _to_float(row["avg_pnl_r_30d"])
 
     hero_rate = round(hero_count / selected_count, 4) if selected_count > 0 else 0.0
 
@@ -651,10 +651,10 @@ async def get_signals_heatmap(
         "cells": [
             {
                 "setup_plugin": row["setup_plugin"],
-                "regime": _i(row["regime"]),
+                "regime": _to_int(row["regime"]),
                 "n": int(row["n"]),
-                "avg_r": _f(row["avg_r"]),
-                "win_rate": _f(row["win_rate"]),
+                "avg_r": _to_float(row["avg_r"]),
+                "win_rate": _to_float(row["win_rate"]),
             }
             for row in rows
         ]
@@ -691,8 +691,8 @@ async def get_signals_edge_series(
             {
                 "day": str(row["day"]),
                 "n": int(row["n"]),
-                "avg_r": _f(row["avg_r"]),
-                "win_rate": _f(row["win_rate"]),
+                "avg_r": _to_float(row["avg_r"]),
+                "win_rate": _to_float(row["win_rate"]),
             }
             for row in rows
         ]
@@ -729,7 +729,7 @@ async def get_signals_intraday_heatmap(
                 "hour": row["hour"],
                 "dow": row["dow"],
                 "n": int(row["n"]),
-                "avg_r": _f(row["avg_r"]),
+                "avg_r": _to_float(row["avg_r"]),
             }
             for row in rows
         ]
@@ -800,13 +800,13 @@ async def get_signals_attribution(
                 {
                     "name": str(row["group_key"]),
                     "n": int(row["n"] or 0),
-                    "win_rate": _f(row["win_rate"]),
-                    "avg_pnl_r": _f(row["avg_pnl_r"]),
-                    "sharpe_proxy": _f(row["sharpe_proxy"]),
-                    "p_value": _f(row["p_value"]),
+                    "win_rate": _to_float(row["win_rate"]),
+                    "avg_pnl_r": _to_float(row["avg_pnl_r"]),
+                    "sharpe_proxy": _to_float(row["sharpe_proxy"]),
+                    "p_value": _to_float(row["p_value"]),
                     "n_outliers": int(row["n_outliers"] or 0),
-                    "never_activated_pct": _f(row["never_activated_pct"]),
-                    "ic_score": _f(row["ic_score"]),
+                    "never_activated_pct": _to_float(row["never_activated_pct"]),
+                    "ic_score": _to_float(row["ic_score"]),
                     "ic_significant": (
                         bool(row["ic_significant"]) if row["ic_significant"] is not None else None
                     ),
@@ -957,32 +957,32 @@ async def get_signal_detail(
         "tf": row["tf"],
         "setup_plugin": row["setup_plugin"],
         "direction": row["direction"],
-        "entry_price": _f(row["entry_price"]),
-        "stop_loss": _f(row["stop_loss"]),
+        "entry_price": _to_float(row["entry_price"]),
+        "stop_loss": _to_float(row["stop_loss"]),
         "targets": _parse_jsonb(row["targets"], default=[]),
-        "confidence": _f(row["confidence"]),
+        "confidence": _to_float(row["confidence"]),
         "was_selected": row["was_selected"],
-        "cis_score": _f(row["cis_score"]),
+        "cis_score": _to_float(row["cis_score"]),
         "status": row["status"],
-        "exit_reason": _s(row["exit_reason"]),
-        "pnl_r": _f(row["pnl_r"]),
-        "exit_price": _f(row["exit_price"]),
-        "counterfactual_pnl_r": _f(row["counterfactual_pnl_r"]),
-        "signal_computed_at": _ts(row, "signal_computed_at"),
-        "entry_zone_low": _f(row["entry_zone_low"]),
-        "entry_zone_high": _f(row["entry_zone_high"]),
+        "exit_reason": _to_str(row["exit_reason"]),
+        "pnl_r": _to_float(row["pnl_r"]),
+        "exit_price": _to_float(row["exit_price"]),
+        "counterfactual_pnl_r": _to_float(row["counterfactual_pnl_r"]),
+        "signal_computed_at": _to_timestamp(row, "signal_computed_at"),
+        "entry_zone_low": _to_float(row["entry_zone_low"]),
+        "entry_zone_high": _to_float(row["entry_zone_high"]),
         "zone_valid_at_signal": None,
-        "stop_basis": _s(row["stop_basis"]),
-        "hmm_regime_at_fire": _i(row["hmm_regime_at_fire"]),
+        "stop_basis": _to_str(row["stop_basis"]),
+        "hmm_regime_at_fire": _to_int(row["hmm_regime_at_fire"]),
         "activated_at": row["activated_at"].isoformat() if row["activated_at"] else None,
-        "ttl_bars": _i(row["ttl_bars"]),
+        "ttl_bars": _to_int(row["ttl_bars"]),
         "exit_at": row["exit_at"].isoformat() if row["exit_at"] else None,
-        "entry_type": _s(row["entry_type"]),
-        "r_multiple": _f(row["r_multiple"]),
+        "entry_type": _to_str(row["entry_type"]),
+        "r_multiple": _to_float(row["r_multiple"]),
         "signal_tier": _compute_signal_tier(
             row["was_selected"],
-            _f(row["confidence"]),
-            _f(row["cis_score"]),
+            _to_float(row["confidence"]),
+            _to_float(row["cis_score"]),
             min_confidence=cfg["ui.signals.min_confidence"],
             min_cis_score=cfg["ui.signals.min_cis_score"],
         ),

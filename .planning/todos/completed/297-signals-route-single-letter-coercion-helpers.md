@@ -2,7 +2,12 @@
 
 **Filed:** 2026-08-10
 **Source:** naming-system.md §4 Surface 7 authoring pass (REST API Routes / Functions / Constants gap-fill)
-**Status:** pending, not blocking
+**Status:** RESOLVED 2026-08-11 -- renamed `_f`/`_s`/`_i`/`_ts` to `_to_float`/`_to_str`/`_to_int`/
+`_to_timestamp` (word-boundary sed, all ~60 call sites), verified zero dangling old-name
+references repo-wide, `/simplify` 4-agent pass clean (nothing to fix), `/code-review` found no
+correctness issues. Full `tests/unit/` suite green. Altitude agent's repo-wide grep during this
+pass found a same-shape violation outside scope -- filed as
+[299](299-reset-pipeline-data-ts-single-letter-helper.md).
 
 ## What
 
