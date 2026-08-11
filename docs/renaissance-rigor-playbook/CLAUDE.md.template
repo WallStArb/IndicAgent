@@ -1,0 +1,104 @@
+# CLAUDE.md
+
+**Version:** 0.1.0 (fill in and bump as this file evolves)
+**Template status:** replace every `<bracketed>` placeholder before using this as your real CLAUDE.md.
+**Source:** genericized from IndicAgent's `CLAUDE.md`, itself the product of ~a year of accumulated naming/documentation/governance rigor. This template is the condensed index; the full mechanism for each piece lives in `docs/renaissance-rigor-playbook/`.
+
+**Project nature:** `<one line: what this project is, and what standard of rigor it holds itself to and why>`. Renaissance Capital / Jim Simons principles are the north star. When giving advice, apply the same rigor you would to a system built to last.
+
+**Principles:** `<one-line distillation of your core principles>`. Full doc: [renaissance-rigor-playbook/principles.md](renaissance-rigor-playbook/principles.md).
+**Design mindset:** Think as a council of senior engineers at a Renaissance-grade shop. Data integrity is paramount. Ruthlessly eliminate complexity. Silent wrong answers are worse than loud crashes. Deterministic DAG topology — every node does one thing, data flows one direction, no cycles. Separation of concerns: compute ≠ persistence ≠ transport. Async-first. Before committing to a design: (1) survives 10x volume? (2) what fails silently or introduces hidden bias? (3) does the DAG still hold? (4) what manual step does this eliminate?
+**5-Step mandate (Musk):** Make requirements less dumb → delete → simplify → accelerate → automate. Run in order. Don't optimize what should be deleted. Don't accelerate in the wrong direction. Don't automate what isn't proven. Full doc: [renaissance-rigor-playbook/musk-5-step-process.md](renaissance-rigor-playbook/musk-5-step-process.md).
+**Naming:** Concept name (`snake_case`) derives all layer names — see [renaissance-rigor-playbook/naming-system.md](renaissance-rigor-playbook/naming-system.md) for the full ring architecture, taxonomy, and surface-derivation method. `<fill in your project's actual ring directory names and one worked example once established>`.
+**Glossary:** Every domain term has exactly one definition. Check before naming new concepts; glossary wins over existing code on collision. `<link your project's real docs/foundation/glossary.md here — it is NOT part of this portable set, since it's 100% project vocabulary>`.
+**Doc locations:** `docs/foundation/` canonical home for portable/slow-decay docs. `docs/` root is index only. Full system: [renaissance-rigor-playbook/documentation-system.md](renaissance-rigor-playbook/documentation-system.md).
+**Gotchas:** `docs/reference/gotchas.md` — rare pitfalls moved out of per-turn context. (Start this file empty; populate it only with real incidents, never speculative ones.)
+**Planning system:** `<if you use a phased planning workflow — GSD or your own — describe it here in one line and link the state file>`.
+
+## Done-Coding SOP
+
+```
+1. /simplify (or your equivalent)   # clean up changed code
+2. /review (or your equivalent)     # peer code review
+3. <your test command> -q           # must be green
+4. commit on feature branch
+5. git checkout main && git merge --ff-only <branch>
+6. git branch -d <branch> && git worktree prune
+7. git push origin main
+```
+
+Full rules: [renaissance-rigor-playbook/ship-or-sink-rules.md](renaissance-rigor-playbook/ship-or-sink-rules.md).
+
+**If any orchestrated/automated execution workflow exists, verify it actually calls step 1-2 — don't assume.** (The source project learned this the hard way: three phases landed on `main` with the simplify step silently skipped because the automated workflow never called it; the manual SOP text alone wasn't load-bearing.)
+
+**Commands:** `<your test command>` · `<your lint command>` · `<your format command>` · `docs/reference/cheatsheet.md` for full reference.
+
+## Architecture
+
+**Layers:** `<describe your system's major layers/generations here, and which are live vs. archived — be explicit about what's real today vs. target-state, the way the source project explicitly flags its AI-swarm stack as "dormant, not confirmed running">`.
+**Pipeline:** `<one-line data-flow diagram: source → compute → persistence → downstream consumer>`.
+**Service DAG:** `<canonical registry file, if you have a service topology to track>`. Live state: `<your process-manager list command>`.
+
+## Core Runtime Files
+
+`<list your project's load-bearing infrastructure files here — the ones an agent needs to know about before touching anything, e.g. central config loader, stream-key constructor, provider integration file>`.
+
+## Data Flow
+
+```
+<your hot/warm/cold path diagram, if applicable>
+```
+
+### Database Tables
+
+`<list your load-bearing tables and their primary time/id columns here — this is the section most likely to save an agent from picking the wrong column name>`.
+
+## Adaptive Parameter Registry (APR)
+
+All tunable numeric values live in a config table under `<domain>.<concept>.<param>` — accessed via a `ConfigService.get(key, default=X)`. Hard-coded numeric thresholds, weights, periods, or counts anywhere in application code are an architecture violation unless structural or a genuine mathematical constant. Full spec: [renaissance-rigor-playbook/adaptive-parameter-registry.md](renaissance-rigor-playbook/adaptive-parameter-registry.md).
+
+**Parameter lifecycle:** seed → user/operator preference → ml_learned → user_override. Every write recorded in a history table with `changed_by` and `reason`.
+
+## Controlled Vocabulary Registry (CVR)
+
+Symbolic taxonomies (valid codes per namespace) live in a `controlled_vocabulary` table, read via a cached `VocabularyService`. Deliberately kept a separate system from any falsifiable-classification registry — a fixed symbolic definition and a falsifiable classification claim are different kinds of rows. Full spec: [renaissance-rigor-playbook/controlled-vocabulary-registry.md](renaissance-rigor-playbook/controlled-vocabulary-registry.md).
+
+## Unified Concept Registry (UCR)
+
+Evidence-gated lifecycle governance for research artifacts (features, strategies, or whatever your domain's "recipe-shaped candidates" are) — governs recipes, not their outputs. Four-state lifecycle `candidate → shadow_only → active → deprecated`; the ONLY code path that flips status is the deterministic evaluation engine — no LLM, no proposer override, ever. Full spec: [renaissance-rigor-playbook/unified-concept-registry.md](renaissance-rigor-playbook/unified-concept-registry.md).
+
+## Model Selection Principle
+
+When a simpler model achieves statistically similar performance to a complex one, the complex model is unjustified and must be rejected. Full doc: [renaissance-rigor-playbook/model-selection-principle.md](renaissance-rigor-playbook/model-selection-principle.md).
+
+## DAG Invariants
+
+Non-negotiable. Any violation is wrong regardless of whether it works locally. `<fill in your project's real invariants — the shape below is illustrative>`:
+
+1. **`<Component>` is the sole writer to `<table/topic>`**
+2. **Compute stages run in-process** — persistence goes through a dedicated writer, never inline in the compute daemon.
+3. **All topic/key strings via a single central module** — no hardcoded topic strings.
+4. **No component calls another component directly** — topics/queues are the only coupling.
+5. **All timestamps UTC.**
+6. **Scaling via `<your process manager>` + a queue-depth/lag metric** — no premature orchestration platform.
+
+## Key Rules
+
+`<this is where the source project accumulates hard-won gotchas as terse one-liners — framework footguns, wrong-kwarg traps, ordering bugs. Start this section empty. Add an entry only after a real incident, in the same PR that fixes it. A pre-populated "best practices" list invented before any incident has happened is exactly the kind of unearned abstraction the 5-step mandate warns against.>`
+
+## Renaissance-Grade Standards
+
+Clean as you go. No debris accumulation. No shortcuts that become permanent. Full standards: [renaissance-rigor-playbook/renaissance-grade-standards.md](renaissance-rigor-playbook/renaissance-grade-standards.md).
+
+## Infrastructure
+
+`<your server/deployment specifics — this section is inherently non-portable, keep it project-specific>`.
+
+---
+
+## How to Use This Template
+
+1. Fill in every `<bracketed>` placeholder with real project content. Delete a section entirely if your project has no equivalent (e.g. no APR if you have no tunable numeric parameters yet) rather than leaving a placeholder-only section live.
+2. Copy `docs/renaissance-rigor-playbook/` into your new project's `docs/` directory unchanged, alongside this file (renamed to `CLAUDE.md`, in your repo root).
+3. As real content accumulates (a real glossary, a real gotchas file, real DAG invariants), grow this file the way the source project's CLAUDE.md grew — a line here that indexes into a full doc, never the full doc's content inlined into this file. Keep CLAUDE.md as a dense index; let `docs/foundation/` carry the depth.
+4. Version this file (`**Version:**` header) and bump it on structural changes, mirroring the source project's own convention.

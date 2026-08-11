@@ -3,7 +3,7 @@
 **Canonical name:** Controlled Vocabulary Registry (CVR)
 **Informal alias:** "vocab system" (colloquial — acceptable in casual conversation, not in architecture docs or code comments)
 **Status:** current — Phase 161 shipped complete 2026-07-18
-**Last Updated:** 2026-08-08
+**Last Updated:** 2026-08-11
 **Phase introduced:** 161
 
 ---
@@ -64,11 +64,12 @@ Three tables (Phase 161), one read-side service, one drift auditor. No dashboard
 | `namespace`, `group_name`, `code` | TEXT NOT NULL | Composite PK |
 | FK | `(namespace, code)` → `controlled_vocabulary`, `(namespace, group_name)` → `vocabulary_group` | Referential integrity — a membership row can never reference a code or group that doesn't exist |
 
-### Live namespaces (6, per D-01/D-03/D-04/D-04b)
+### Live namespaces (7, per D-01/D-03/D-04/D-04b)
 
 | Namespace | Live codes | Source column it governs |
 |-----------|-----------|----------------------------|
 | `regime_hmm` | 5 | `feature_vectors.regime` |
+| `regime_volatility` | 3 | `feature_vectors.regime_volatility` (`calm`/`elevated`/`turbulent`, K=3, migration 307, Phase 172) |
 | `regime_cross_sectional_equity` | 9 | `market_regimes.regime_label` (`regime_group='equity'`) |
 | `regime_cross_sectional_rates` | 6 | `market_regimes.regime_label` (`regime_group='rates'`) |
 | `timeframe` | 5 | `market_data_ohlcv_tradeable.timeframe` |
