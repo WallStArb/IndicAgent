@@ -119,8 +119,73 @@ is per-symbol-varying even though one factor is broadcast, so these do NOT need 
 `CONTEXT_FEATURES`'s current count of 3 -- any fix keyed only off that frozenset undercounts by
 20. Remaining scope item is cosmetic, not blocking: cross-check the 23 against
 `feature_registry`/`concept_registry` row-by-row to confirm none were missed by a Phase 151+
-addition not covered by this class-definition read. The two candidate fixes in "## What needs to
-happen" are ready to size against this list -- that design decision is still yours to make.
+addition not covered by this class-definition read.
+
+## Design decision (2026-08-11) -- resolves the "not mine to make unilaterally" note above
+
+Both candidate fixes converge on the same underlying statistical answer (a time-series-only
+correlation for broadcast features), so the real choice is architectural: one shared test
+primitive with a data-driven branch (fix 1's framing), vs. two parallel measurement systems
+(fix 2). Rejecting fix 2 outright -- this codebase already paid for a parallel-system mistake
+once (`feature_registry`/`concept_registry`, retired Phase 170, migration 311) and the DAG
+principle against duplicate systems exists precisely to prevent a repeat. Decision: **one
+significance-test primitive (`_subsample_and_rank`), branch only at sample construction.**
+
+**New finding while grounding this against live code (supersedes the "not yet scoped" status):**
+
+1. The 3 `CONTEXT_FEATURES` (`vix_z`/`yield_slope_z`/`flight_quality`) do NOT go through the
+   pooled cross-sectional path this todo describes -- `_compute_symbol_tf` (ic_engine.py:2790-
+   2870) runs them through a bespoke per-symbol daily-cadence query instead
+   (`WHERE fv.symbol = %(symbol)s`), so the n_symbols pseudo-replication bug does not apply to
+   them. They have a *different* latent problem instead: 231 separate per-symbol significance
+   tests run against what is structurally the same time series (the feature value is identical
+   across symbols by definition), each entering BH-FDR independently via its own
+   `cf_cluster_id` -- correlated multiple testing, not pseudo-replication. Not previously
+   flagged; needs the same fix, folded into the unified path (item 4 below).
+2. The other 20 broadcast features (calendar/session + 5 cross-asset) get zero special
+   handling -- `_FEATURE_NAMES` (`[f.name for f in dataclasses.fields(FeatureVector)]`) includes
+   them undifferentiated, and they flow into `_compute_cross_sectional_tf`/
+   `_compute_one_cross_sectional_cell`, whose own docstring states the flawed assumption
+   verbatim: *"each (bar_ts, symbol) pair is an independent observation."* This is the todo's
+   bug, confirmed at the exact call site, for exactly these 20.
+3. `concept_annotation` is NOT a valid home for the broadcast classification -- migration 225's
+   own table comment is explicit: "no gate decision may read annotation content." Use
+   `concept_registry.metadata` (JSONB, domain='feature', column already exists, no migration
+   needed) instead -- a definitional property read directly by code, structurally different from
+   an explanatory annotation.
+4. `_compute_one_cross_sectional_cell` is fully vectorized across all 292 features in one
+   `_subsample_and_rank` call per scale -- the trailing per-feature loop only unpacks results,
+   it is not a compute loop. A broadcast feature needs a different row count (one per `bar_ts`,
+   not one per `(bar_ts, symbol)`), which cannot share that matrix with per-symbol columns. Fix
+   requires splitting `X_nd`'s feature columns into broadcast/per-symbol groups and running
+   `_subsample_and_rank` twice per cell, merging results back by `feat_idx` -- same primitive,
+   two constructions, not two test implementations.
+5. `bar_ts` is fetched in `_compute_cross_sectional_tf`'s `chunk_sql` (`r[0]`) but explicitly
+   dropped during accumulation (`X_acc.append_chunk` starts at `r[i+1]`) -- never reaches
+   `_compute_one_cross_sectional_cell`. Collapsing broadcast rows to one-per-`bar_ts` requires
+   threading `bar_ts` through the chunked fetch loop, `Float32ChunkAccumulator`, and the cell-
+   compute signature. Confirmed each chunk is already bar_ts-contiguous (chunks are built from
+   `ts_chunk`, a list of distinct bar_ts values, and each chunk's query pulls all symbols for
+   that set), so the groupby-collapse itself is mechanically clean once `bar_ts` is retained --
+   but this touches a function with a documented OOM history (float32 conversion exists
+   specifically because this cell OOM'd at 20GB+ RSS, 2026-07-08 incident) and needs care.
+
+**Blast radius:** `services/ic_engine.py` -- `_compute_cross_sectional_tf` (thread bar_ts
+through fetch), `_compute_one_cross_sectional_cell` (column split, dual pass, merge), delete
+`CONTEXT_FEATURES` frozenset, delete `_compute_symbol_tf`'s per-symbol daily-cadence block
+(lines ~2790-2870, folded into the unified path). New: a lightweight variance-based broadcast
+detector (cross-sectional variance ~= 0 per feature -- far simpler than `TagCalibrator`'s
+OLS/HAC machinery) writing `concept_registry.metadata` for domain='feature' rows. One new APR
+key: `alpha.ic.broadcast_variance_threshold`. Test sweep: `grep -r CONTEXT_FEATURES tests/`.
+No migration required (metadata column reuse).
+
+**Not a same-session patch.** Detector + registry write (~1-2 hrs) is cheap; the matrix-split
+rewrite of `_compute_one_cross_sectional_cell` (~half day, the risky part given the OOM
+history) is not. Any feature among the 23 currently showing `passes_fdr=true` in
+`feature_ic_scores` must be treated as unproven until re-measured under the corrected test --
+this changes a production significance gate, corpus-wide, not just this todo's own scope.
+Given the blast radius, plan this as a proper phase (`/gsd-plan-phase`) rather than an inline
+edit.
 
 ## References
 
