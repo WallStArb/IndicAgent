@@ -218,6 +218,11 @@ def _e_value_pilot_active(tf: str) -> bool:
 # (same daily value duplicated ~78 times for 5m TF).
 # DISTINCT ON (DATE(bar_ts)) picks the earliest intraday bar of each day as the IC observation.
 # Phase 141 CORPUS-01 audit must scope its intraday-autocorrelation check to exclude these features.
+# KNOWN GAP (todo 270): this frozenset undercounts the true broadcast-feature population by 20
+# (23 confirmed broadcast: these 3 + 15 calendar/session fields + 5 cross-asset fields). Do not
+# extend this list as a stopgap for the significance-test fix -- todo 270's design decision is a
+# single shared test primitive with an empirically-detected, concept_registry-backed broadcast
+# classification, not a hand-maintained frozenset (this one is the cautionary example why).
 CONTEXT_FEATURES: frozenset[str] = frozenset(["flight_quality", "vix_z", "yield_slope_z"])
 
 
@@ -3416,6 +3421,11 @@ def _compute_cross_sectional_tf(
     symbol_regime_class) pooled into a single observation set. Computes Spearman
     IC across all peer symbols simultaneously -- each (bar_ts, symbol) pair is an
     independent observation.
+
+    KNOWN GAP (todo 270): this independence assumption is false for the 23 broadcast
+    (symbol-invariant) features -- see CONTEXT_FEATURES below and todo 270's design
+    decision before adding a feature to any broadcast-detection list here; the fix is
+    a matrix-column split in _compute_one_cross_sectional_cell, not a per-feature branch.
 
     symbol_list is THE contamination fix (Phase 144 D-01): before this, every
     symbol in the corpus (fi_* bonds, GLD/SLV/VNQ, IBIT) was pooled into every

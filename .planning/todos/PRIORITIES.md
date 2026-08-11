@@ -171,8 +171,6 @@ for the full closing note.
 | Todo | Gap |
 |---|---|
 | [270](pending/270-broadcast-feature-significance-overstates-effective-n.md) | New 2026-08-05, closing 3 stale P0 rows (252/203/253 were all already in `completed/`, PRIORITIES.md just never caught up). Split out of 203's own closure note: `vix_z`/`yield_slope_z`/`flight_quality` and every session/calendar feature are symbol-invariant (broadcast) at a given `bar_ts`, so a per-symbol significance test on the pooled cross-sectional sample overstates effective N by ~n_symbols. No significance claim on any broadcast feature can be trusted at face value under the current test -- real methodology design needed, not yet scoped when 203 flagged it. |
-| [298](pending/298-backfill-connection-drop-silent-failure-and-completeness-audit.md) | New 2026-08-11, follow-up from todo 296. The historical backfill's DB-reconnect path recovers from a mid-fetch connection drop (root cause: TimescaleDB checkpoint I/O contention, 251s stall vs. <1s baseline) but logs nothing at ERROR level -- 6/24 symbols (25%, a consistent rate) silently shipped incomplete in the client-44 run, caught only because a human was tailing the log by eye. No automated post-run completeness audit exists despite the `n_tf=5` query already being used manually multiple times this project. Silent wrong answer, not just a retry annoyance. |
-
 ## P1 — High value, quick, fully unblocked
 
 | Todo | Why now |
@@ -245,6 +243,7 @@ for the full closing note.
 
 | Todo | What |
 |---|---|
+| [298](pending/298-backfill-connection-drop-silent-failure-and-completeness-audit.md) | New 2026-08-11, follow-up from todo 296. **Downgraded P0→P3 same session**: original filing claimed the backfill's connection-drop path was a silent failure — wrong, re-reading the code confirmed it already prints exact symbol/tf errors, exits nonzero, and emits `job_completed_total{status="partial"}`. Root-cause half (checkpoint I/O contention) already fixed live this session (`max_wal_size` 1GB→4GB via `ALTER SYSTEM`+reload). What's left is tooling polish: `backfill_retry_loop.sh` doesn't generalize to arbitrary `--client-id`/`--symbols` (hardcoded for the original 80-symbol universe), and no automated end-of-run completeness summary beyond the exit code (the `n_tf=5` SQL exists, just isn't wired in). |
 | [056](pending/056-phase146-147-v2x-retirement-stale.md) | ROADMAP Phase 147/148 text rewritten 2026-07-19 (operator call resolved: archive not delete, decouple from proof gates). Remaining scope: the actual decommission-in-fact execution (git mv v2.x code to archive/, disable dead systemd units, rename-not-drop the frozen v2.x tables) — real multi-file operation, do with a clean git state. |
 | [225](pending/225-multi-vector-systematic-regime-join-hybrid-sensitivity-symbols.md) | Downgraded P2→P3 2026-08-01 per its own pilot finding: read-only pilot on 5 hybrid symbols (`OIH`/`XLE`/`XOP`/`AMLP`/`GDX`) came back negative — the one BH-FDR survivor (`GDX momentum_z_fast`) failed cross-timeframe replication, flat null. Real information, not wasted effort; don't build the Fix steps until a better-motivated candidate surfaces or the universe scales. Full methodology in the todo file's "Pilot result" section. |
 | [115](pending/115-days-to-month-end-exact-redundancy.md) | `days_to_month_end` is an exact affine complement of `month_position` (Pearson correlation -1) — perfectly collinear, remove one. |
@@ -259,7 +258,7 @@ for the full closing note.
 | [275](pending/275-v3-north-star-precedentengine-mechanics-predate-d4-rescope.md) | New 2026-08-06, found while doing the AnalogEngine→PrecedentEngine naming correction during a Phase 145 discuss-phase session. `docs/foundation/v3-north-star.md`'s PrecedentEngine mechanics (Score Object, independent-annotator framing, `signal_events` target) predate the D4 rescope that corrected exactly this framing elsewhere (glossary, `intel-precedent-engine.md`). Naming fixed inline + flagged; the mechanics reconciliation itself is real design work, not done here. No live consumer reads this doc's mechanics section today. |
 | [281](pending/281-systematic-dominance-and-volume-price-confirmation-as-feature-primitives.md) | New 2026-08-08, out of Phase 171's candidate-regime-axes test. Two real, null-arm-validated signals (idiosyncratic-vs-market co-movement, volume-price confirmation) should ship as plain `feature_vectors` columns, not HMM regime labels — identifiability for both is too narrow/fragile to trust as a discrete regime. |
 | [284](pending/284-gsd-review-agy-stdin-invocation-broken.md) | New 2026-08-09, found running `/gsd-review 172 --agy`. `~/.claude/get-shit-done/workflows/review.md`'s documented `agy -p -` (stdin) invocation for Antigravity silently produces an empty/garbage review against the installed `agy` CLI — `-p -` doesn't read stdin, and the failure looks like a real chat response so the skill's existing empty-output check doesn't catch it. GSD tooling, not IndicAgent code. |
-| [299](pending/299-reset-pipeline-data-ts-single-letter-helper.md) | New 2026-08-11, found by `/simplify`'s altitude agent on todo 297's fix (a repo-wide grep run to confirm 297's scope was correctly bounded). `scripts/infrastructure/backfill/infrastructure_reset_pipeline_data.py`'s `_ts()` timestamp formatter is the same shape of violation, just outside `src/api/` so not caught by naming-system.md's original authoring pass. Same fix shape as 297. |
+| [299](pending/299-reset-pipeline-data-ts-single-letter-helper.md) | New 2026-08-11, found by two `/simplify` altitude-agent passes on todo 297's fix (repo-wide greps to confirm 297's scope was correctly bounded). Two same-shape `_ts()` violations outside `src/api/`, not caught by naming-system.md's original authoring pass: `infrastructure_reset_pipeline_data.py:286` and `tests/unit/intelligence/test_smc_amd_cycle.py:168`. Same fix shape as 297. |
 
 ---
 
@@ -274,9 +273,8 @@ above -- 026 itself stays in `deferred/` as the historical audit record.)
 Hypothesis 1 confirmed, deliberately not fixed -- see `completed/218-...md`. No longer a
 candidate; closed.)
 
-(Todo 297 resolved 2026-08-11 -- `_f`/`_s`/`_i`/`_ts` renamed to `_to_float`/`_to_str`/`_to_int`/
-`_to_timestamp` in `src/api/routes/signals.py`, `/simplify` + `/code-review` clean, full unit
-suite green -- see `completed/297-...md`. No longer a candidate; closed. Surfaced
+(Todo 297 resolved 2026-08-11 -- signals.py's single-letter coercion helpers renamed, see
+`completed/297-...md`. No longer a candidate; closed. Surfaced
 [299](pending/299-reset-pipeline-data-ts-single-letter-helper.md), a same-shape violation
 outside the original scope.)
 

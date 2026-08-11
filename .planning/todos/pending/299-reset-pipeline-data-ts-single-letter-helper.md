@@ -1,4 +1,4 @@
-# 299 - `scripts/infrastructure/backfill/infrastructure_reset_pipeline_data.py` has the same single-letter helper violation as todo 297
+# 299 - Two more single-letter `_ts()` helper violations outside todo 297's scope
 
 **Filed:** 2026-08-11
 **Source:** `/simplify` altitude-agent pass on todo 297 (signals.py `_f`/`_s`/`_i`/`_ts` rename) --
@@ -9,18 +9,20 @@ unrelated hit outside `src/api/`.
 ## What
 
 `scripts/infrastructure/backfill/infrastructure_reset_pipeline_data.py:286` defines
-`def _ts() -> str:` (a timestamp formatter) -- same shape as the `_f`/`_s`/`_i`/`_ts`
-violations todo 297 just fixed in `src/api/routes/signals.py`. `docs/foundation/naming-system.md`
-§4 Surface 7 prohibits single/double-letter function names outside the Surface 5
-mathematical-variable exception; this wasn't caught by naming-system.md's original authoring
-pass because that pass scoped its known-violations list to `src/api/routes/signals.py` only,
-not a full repo sweep.
+`def _ts() -> str:` (a timestamp formatter). `docs/foundation/naming-system.md` §4 Surface 7
+prohibits single/double-letter function names outside the Surface 5 mathematical-variable
+exception; this wasn't caught by naming-system.md's original authoring pass because that pass
+scoped its known-violations list to `src/api/routes/signals.py` only, not a full repo sweep.
+
+A second instance of the same pattern surfaced during a later altitude-review pass (2026-08-11,
+`/simplify` on todo 297's completion): `tests/unit/intelligence/test_smc_amd_cycle.py:168`
+defines `def _ts(day: date, hour: int) -> datetime:`. Test-only helper, no production-code
+impact, but same shape -- worth including in this todo's scope rather than filing separately.
 
 ## Fix
 
-Rename `_ts` to something descriptive (`_format_timestamp` or similar) in
-`infrastructure_reset_pipeline_data.py`; update call sites in the same file. Same shape as
-297's fix -- low risk, single-file, mechanical.
+Rename both `_ts` helpers to something descriptive (`_format_timestamp`/`_to_datetime` or
+similar) and update call sites in each file. Low risk, mechanical, two files.
 
 ## References
 
