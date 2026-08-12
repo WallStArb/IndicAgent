@@ -243,7 +243,12 @@ class TestFetchAndStoreBars:
         rows = fetch_bars(mock_conn, "ESH6", "1m")
         assert len(rows) == 1 and rows[0]["symbol"] == "ESH6" and "timestamp" in rows[0]
 
-    def test_store_bars_calls_executemany(self):
+    def test_store_bars_issues_one_batched_insert(self):
+        # store_bars() batches into a single multi-row VALUES INSERT per
+        # _STORE_BATCH_SIZE-row chunk instead of executemany()'s one-statement-
+        # per-row template -- measured ~2x faster against live psycopg3
+        # (2026-08-11, see the constant's own comment). One row stays well under
+        # the batch size, so this should be exactly one cur.execute() call.
         from scripts.infrastructure.backfill.infrastructure_run_historical_pipeline import (
             store_bars,
         )
@@ -260,9 +265,275 @@ class TestFetchAndStoreBars:
                 "volume": 1000,
             }
         ]
-        store_bars(mock_conn, bars, symbol="ESH6", timeframe="5m")
-        mock_cur.executemany.assert_called_once()
+        n = store_bars(mock_conn, bars, symbol="ESH6", timeframe="5m")
+        assert n == 1
+        mock_cur.execute.assert_called_once()
+        sql, params = mock_cur.execute.call_args[0]
+        assert "INSERT INTO market_data_ohlcv" in sql
+        assert "ON CONFLICT (timestamp, symbol, timeframe) DO NOTHING" in sql
+        assert params == [
+            _ts_bf(9, 30),
+            "ESH6",
+            "5m",
+            100.0,
+            101.0,
+            99.0,
+            100.5,
+            1000,
+            "historical_backfill",
+        ]
         mock_conn.commit.assert_called_once()
+
+    def test_store_bars_chunks_across_batch_size(self):
+        # A row count spanning multiple _STORE_BATCH_SIZE chunks must issue one
+        # execute() per chunk, not one giant statement or one row-by-row loop.
+        from scripts.infrastructure.backfill.infrastructure_run_historical_pipeline import (
+            _STORE_BATCH_SIZE,
+            store_bars,
+        )
+
+        mock_conn = MagicMock()
+        mock_cur = mock_conn.cursor.return_value.__enter__.return_value
+        n_rows = _STORE_BATCH_SIZE + 5
+        bars = [
+            {
+                "timestamp": _ts_bf(9, 30),
+                "open": 100.0,
+                "high": 101.0,
+                "low": 99.0,
+                "close": 100.5,
+                "volume": 1000,
+            }
+            for _ in range(n_rows)
+        ]
+        n = store_bars(mock_conn, bars, symbol="ESH6", timeframe="5m")
+        assert n == n_rows
+        assert mock_cur.execute.call_count == 2
+
+
+class TestClusterGapRanges:
+    """cluster_gap_ranges() -- found 2026-08-11 via AA (Alcoa Corporation, which
+    only trades from 2016-10-18 -- IBKR has nothing before that under this
+    contract). Naive min/max bounding across all detect_gaps() ranges turned a
+    permanent pre-listing void + a 1-day incremental catch-up into one 20-year
+    re-request every single run, even though the middle was already fully
+    populated. ON CONFLICT DO NOTHING kept it correct, just wasteful of real,
+    rate-limited IBKR request budget.
+    """
+
+    def test_single_gap_returns_one_window(self):
+        from scripts.infrastructure.backfill.infrastructure_run_historical_pipeline import (
+            cluster_gap_ranges,
+        )
+
+        gaps = [(datetime(2026, 1, 1, tzinfo=UTC), datetime(2026, 1, 5, tzinfo=UTC))]
+        assert cluster_gap_ranges(gaps) == gaps
+
+    def test_nearby_gaps_still_coalesce(self):
+        # Two gaps a few days apart stay one request -- same behavior as before
+        # this fix, avoiding N tiny IBKR requests for genuinely scattered gaps.
+        from scripts.infrastructure.backfill.infrastructure_run_historical_pipeline import (
+            cluster_gap_ranges,
+        )
+
+        gaps = [
+            (datetime(2026, 1, 1, tzinfo=UTC), datetime(2026, 1, 2, tzinfo=UTC)),
+            (datetime(2026, 1, 10, tzinfo=UTC), datetime(2026, 1, 11, tzinfo=UTC)),
+        ]
+        windows = cluster_gap_ranges(gaps, max_gap_days=90)
+        assert windows == [(datetime(2026, 1, 1, tzinfo=UTC), datetime(2026, 1, 11, tzinfo=UTC))]
+
+    def test_distant_permanent_gap_and_recent_gap_split_into_two_windows(self):
+        # The actual AA shape: a ~10-year pre-listing void far from a 1-day
+        # catch-up near "now" must NOT collapse into one request re-covering
+        # the already-complete decade in between.
+        from scripts.infrastructure.backfill.infrastructure_run_historical_pipeline import (
+            cluster_gap_ranges,
+        )
+
+        prelisting_void = (
+            datetime(2006, 8, 15, tzinfo=UTC),
+            datetime(2016, 10, 17, tzinfo=UTC),
+        )
+        recent_catchup = (
+            datetime(2026, 8, 10, tzinfo=UTC),
+            datetime(2026, 8, 11, tzinfo=UTC),
+        )
+        windows = cluster_gap_ranges([prelisting_void, recent_catchup], max_gap_days=90)
+        assert windows == [prelisting_void, recent_catchup]
+
+    def test_empty_gaps_returns_empty(self):
+        from scripts.infrastructure.backfill.infrastructure_run_historical_pipeline import (
+            cluster_gap_ranges,
+        )
+
+        assert cluster_gap_ranges([]) == []
+
+    def test_default_reads_module_global_at_call_time_not_def_time(self):
+        # A plain `max_gap_days: int = _GAP_CLUSTER_MAX_DAYS` default would bind 90
+        # at import time and never see a later _load_gap_cluster_max_days_config()
+        # APR overlay. The real default must re-read the module global on every call.
+        import scripts.infrastructure.backfill.infrastructure_run_historical_pipeline as pipeline
+
+        gaps = [
+            (datetime(2026, 1, 1, tzinfo=UTC), datetime(2026, 1, 2, tzinfo=UTC)),
+            (datetime(2026, 2, 1, tzinfo=UTC), datetime(2026, 2, 2, tzinfo=UTC)),
+        ]
+        original = pipeline._GAP_CLUSTER_MAX_DAYS
+        try:
+            pipeline._GAP_CLUSTER_MAX_DAYS = 5
+            # ~31 days apart -- stays split under the lowered threshold.
+            assert pipeline.cluster_gap_ranges(gaps) == gaps
+            pipeline._GAP_CLUSTER_MAX_DAYS = 90
+            # Same gaps, raised threshold -- now coalesce into one window.
+            assert pipeline.cluster_gap_ranges(gaps) == [(gaps[0][0], gaps[1][1])]
+        finally:
+            pipeline._GAP_CLUSTER_MAX_DAYS = original
+
+
+class TestLoadOhlcvInsertBatchSizeConfig:
+    """infra.backfill.ohlcv_insert_batch_size (migration 313) overlays
+    _STORE_BATCH_SIZE, mirroring the _load_ibkr_* loader pattern. A non-positive
+    value must be rejected rather than applied: 0 makes store_bars()'s chunk loop
+    raise (range() step must not be zero), and a negative value makes it silently
+    write nothing while still reporting the row count as stored.
+    """
+
+    def _restore_default(self):
+        import scripts.infrastructure.backfill.infrastructure_run_historical_pipeline as pipeline
+
+        pipeline._STORE_BATCH_SIZE = 1000
+
+    def test_overlays_positive_value(self):
+        import scripts.infrastructure.backfill.infrastructure_run_historical_pipeline as pipeline
+        from scripts.infrastructure.backfill.infrastructure_run_historical_pipeline import (
+            _load_ohlcv_insert_batch_size_config,
+        )
+
+        try:
+            mock_conn = MagicMock()
+            mock_cursor = MagicMock()
+            mock_conn.cursor.return_value.__enter__.return_value = mock_cursor
+            mock_cursor.fetchone.return_value = ("500",)
+            with patch(
+                "scripts.infrastructure.backfill.infrastructure_run_historical_pipeline.connect_db",
+                return_value=mock_conn,
+            ):
+                _load_ohlcv_insert_batch_size_config(MagicMock())
+            assert pipeline._STORE_BATCH_SIZE == 500
+        finally:
+            self._restore_default()
+
+    def test_rejects_zero_and_keeps_default(self):
+        import scripts.infrastructure.backfill.infrastructure_run_historical_pipeline as pipeline
+        from scripts.infrastructure.backfill.infrastructure_run_historical_pipeline import (
+            _load_ohlcv_insert_batch_size_config,
+        )
+
+        try:
+            mock_conn = MagicMock()
+            mock_cursor = MagicMock()
+            mock_conn.cursor.return_value.__enter__.return_value = mock_cursor
+            mock_cursor.fetchone.return_value = ("0",)
+            with patch(
+                "scripts.infrastructure.backfill.infrastructure_run_historical_pipeline.connect_db",
+                return_value=mock_conn,
+            ):
+                _load_ohlcv_insert_batch_size_config(MagicMock())
+            assert pipeline._STORE_BATCH_SIZE == 1000
+        finally:
+            self._restore_default()
+
+    def test_rejects_negative_and_keeps_default(self):
+        import scripts.infrastructure.backfill.infrastructure_run_historical_pipeline as pipeline
+        from scripts.infrastructure.backfill.infrastructure_run_historical_pipeline import (
+            _load_ohlcv_insert_batch_size_config,
+        )
+
+        try:
+            mock_conn = MagicMock()
+            mock_cursor = MagicMock()
+            mock_conn.cursor.return_value.__enter__.return_value = mock_cursor
+            mock_cursor.fetchone.return_value = ("-10",)
+            with patch(
+                "scripts.infrastructure.backfill.infrastructure_run_historical_pipeline.connect_db",
+                return_value=mock_conn,
+            ):
+                _load_ohlcv_insert_batch_size_config(MagicMock())
+            assert pipeline._STORE_BATCH_SIZE == 1000
+        finally:
+            self._restore_default()
+
+    def test_missing_key_keeps_default(self):
+        import scripts.infrastructure.backfill.infrastructure_run_historical_pipeline as pipeline
+        from scripts.infrastructure.backfill.infrastructure_run_historical_pipeline import (
+            _load_ohlcv_insert_batch_size_config,
+        )
+
+        try:
+            mock_conn = MagicMock()
+            mock_cursor = MagicMock()
+            mock_conn.cursor.return_value.__enter__.return_value = mock_cursor
+            mock_cursor.fetchone.return_value = None
+            with patch(
+                "scripts.infrastructure.backfill.infrastructure_run_historical_pipeline.connect_db",
+                return_value=mock_conn,
+            ):
+                _load_ohlcv_insert_batch_size_config(MagicMock())
+            assert pipeline._STORE_BATCH_SIZE == 1000
+        finally:
+            self._restore_default()
+
+
+class TestLoadGapClusterMaxDaysConfig:
+    """infra.backfill.gap_cluster_max_days (migration 313) overlays
+    _GAP_CLUSTER_MAX_DAYS, mirroring the _load_ibkr_* loader pattern.
+    """
+
+    def _restore_default(self):
+        import scripts.infrastructure.backfill.infrastructure_run_historical_pipeline as pipeline
+
+        pipeline._GAP_CLUSTER_MAX_DAYS = 90
+
+    def test_overlays_value_when_present(self):
+        import scripts.infrastructure.backfill.infrastructure_run_historical_pipeline as pipeline
+        from scripts.infrastructure.backfill.infrastructure_run_historical_pipeline import (
+            _load_gap_cluster_max_days_config,
+        )
+
+        try:
+            mock_conn = MagicMock()
+            mock_cursor = MagicMock()
+            mock_conn.cursor.return_value.__enter__.return_value = mock_cursor
+            mock_cursor.fetchone.return_value = ("30",)
+            with patch(
+                "scripts.infrastructure.backfill.infrastructure_run_historical_pipeline.connect_db",
+                return_value=mock_conn,
+            ):
+                _load_gap_cluster_max_days_config(MagicMock())
+            assert pipeline._GAP_CLUSTER_MAX_DAYS == 30
+        finally:
+            self._restore_default()
+
+    def test_missing_key_keeps_default(self):
+        import scripts.infrastructure.backfill.infrastructure_run_historical_pipeline as pipeline
+        from scripts.infrastructure.backfill.infrastructure_run_historical_pipeline import (
+            _load_gap_cluster_max_days_config,
+        )
+
+        try:
+            mock_conn = MagicMock()
+            mock_cursor = MagicMock()
+            mock_conn.cursor.return_value.__enter__.return_value = mock_cursor
+            mock_cursor.fetchone.return_value = None
+            with patch(
+                "scripts.infrastructure.backfill.infrastructure_run_historical_pipeline.connect_db",
+                return_value=mock_conn,
+            ):
+                _load_gap_cluster_max_days_config(MagicMock())
+            assert pipeline._GAP_CLUSTER_MAX_DAYS == 90
+        finally:
+            self._restore_default()
 
 
 class TestLoadIbkrRetryConfig:

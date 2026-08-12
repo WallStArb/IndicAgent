@@ -39,7 +39,8 @@ Five Signal-Extraction candidates added 2026-08-03 (`cointegrated_pairs_residual
 `dealer_hedging_flow`) -- none tested. horizon_risk_premium remains untested and is the only
 thesis here whose falsification criterion still lacks a pre-registered numeric bar.
 **Milestone:** standing -- not tied to a phase
-**Last Updated:** 2026-08-07
+**Last Updated:** 2026-08-11 -- `statistical_factor_residual`'s K-selection resolved (see its
+own paragraph below), Stage 1 only, Stage 2/3 not yet run.
 **Tags:** edge, thesis, counterparty, renaissance, falsifiable, first-principles
 
 **Reorganized 2026-08-03** -- this doc always implicitly mixed two different kinds of claim
@@ -919,14 +920,16 @@ doc's header), not the proven champion it was when that bar was written.** The b
 raw per-symbol IC and the existing pooled/cross-sectional IC already in `feature_ic_scores` --
 if residualizing beats those, that is real evidence a K-factor decomposition adds something the
 current pooled measurement misses; it no longer needs to clear a construction that doesn't exist
-anymore. **Not ready to execute regardless of the bar fix: the K-selection question is real,
-unresolved methodology debt, not an execution detail.** With effective breadth measured ~4.5-8.4
-(2026-08-07), a PCA over 80 highly-correlated ETFs may only have 3-5 meaningful factors before
-hitting noise -- K must be
-chosen via a pre-registered, principled method (parallel to HMM's K=5 BIC study) *before* any IC
-test runs, or reporting whichever K "looks best" post-hoc is the same p-hacking shape
-`adaptive_combiner_weights`' halflife-grid discipline below exists to prevent. Resolve K-selection
-first; do not start the IC comparison until that's written down.
+anymore. **K-selection RESOLVED 2026-08-11, full pre-registered design + Stage 1 result:
+`docs/research/measurement-statistical-factor-residual.md`.** Marchenko-Pastur threshold and
+Parallel Analysis (permutation-based) agree exactly: K=10 over the full 231-symbol active
+universe (K=5 over the pre-expansion 80-symbol universe, same window -- a useful cross-check,
+not this doc's target). Neither method ever touched an IC target, so K was not picked to
+flatter a later result. **Not yet executed: Stage 2** (causal PCA factor fit with K=10 fixed,
+idiosyncratic residual construction) and **Stage 3** (the actual falsification bar -- does
+`ctf_momentum`/`nonlinear_interaction_combiner` on the residual beat raw per-symbol IC and
+existing `feature_ic_scores`). Those are separate, later steps per the pre-registration
+discipline -- do not run them in the same session K was first observed.
 
 **Cross-Asset Lead-Lag (counterparty: participants who don't
 cross-reference correlated instruments in real time).** Existing broadcast features (`vix_z`,

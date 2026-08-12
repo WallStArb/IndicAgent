@@ -721,12 +721,60 @@ WHERE symbol LIKE %s AND timeframe = %s AND timestamp >= %s
 ORDER BY timestamp ASC
 """
 
-_STORE_SQL = """
-INSERT INTO market_data_ohlcv
-    (timestamp, symbol, timeframe, open, high, low, close, volume, source)
-VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s)
-ON CONFLICT (timestamp, symbol, timeframe) DO NOTHING
-"""
+# Measured 2026-08-11 against live psycopg3 (not EXPLAIN, which re-plans every call
+# and overstates the gap): a single multi-row VALUES INSERT per 1000-row batch runs
+# ~2x faster than the same rows via executemany()'s one-tuple-per-statement template
+# (0.0265ms/row vs 0.0515ms/row, 20k-row live benchmark). This is a different approach
+# than forward_return_writer.py's chunked executemany() (which relies on psycopg 3.1+
+# batching executemany() internally -- see ic_engine.py's comment on that same
+# tradeoff) -- the live benchmark here shows executemany()'s internal batching still
+# leaves real per-statement overhead that a genuine multi-row VALUES statement avoids,
+# at least for this bulk-insert shape. Not yet reconciled with those other call sites
+# or promoted to a shared helper -- see todo 301.
+_STORE_BATCH_SIZE = 1000
+_STORE_ROW_PLACEHOLDERS = "(" + ",".join(["%s"] * 9) + ")"
+_STORE_VALUES_SQL = (
+    "INSERT INTO market_data_ohlcv "
+    "(timestamp, symbol, timeframe, open, high, low, close, volume, source) VALUES "
+    "{values} ON CONFLICT (timestamp, symbol, timeframe) DO NOTHING"
+)
+
+
+def _load_ohlcv_insert_batch_size_config(settings: Settings) -> None:
+    """Overlay infra.backfill.ohlcv_insert_batch_size (migration 313) onto
+    _STORE_BATCH_SIZE in place, same pattern as the _load_ibkr_* loaders above --
+    store_bars() reads this module constant fresh on every call. Falls back to the
+    hardcoded default (1000) if the APR key isn't present, isn't a positive int, or
+    the DB is unreachable. A non-positive value must never reach store_bars(): 0
+    makes range(0, len(params), 0) raise on every insert, and a negative value makes
+    the chunk loop yield zero iterations, so store_bars() would silently write
+    nothing while still returning len(params) -- callers would log "N bars stored"
+    and mark the tf fetched (fetched_tfs.add(tf)) for data that was never persisted.
+    """
+    global _STORE_BATCH_SIZE
+    try:
+        conn = connect_db(settings)
+        try:
+            with conn.cursor() as cur:
+                cur.execute(
+                    "SELECT config_value FROM config_state "
+                    "WHERE config_key = 'infra.backfill.ohlcv_insert_batch_size'"
+                )
+                row = cur.fetchone()
+        finally:
+            conn.close()
+        if row is not None:
+            value = int(row[0])
+            if value < 1:
+                print(
+                    f"  (APR ohlcv_insert_batch_size={value} is not positive, "
+                    "using hardcoded default 1000)"
+                )
+            else:
+                _STORE_BATCH_SIZE = value
+    except Exception as error:
+        print(f"  (APR ohlcv_insert_batch_size lookup failed, using hardcoded default: {error})")
+
 
 _TF_MINUTES: dict[str, int] = {"1m": 1, "5m": 5, "15m": 15, "1h": 60, "4h": 240, "1d": 1440}
 
@@ -778,6 +826,72 @@ def detect_gaps(
             run_start = run_end = ts
     ranges.append((run_start, run_end))
     return ranges
+
+
+# [2026-08-11] A symbol with a genuine listing-history boundary (recent IPO,
+# spin-off, relisting -- e.g. AA/Alcoa Corporation only trades from 2016-10-18,
+# nothing before exists at IBKR under this contract) produces one permanent,
+# never-fillable gap range at the start of the requested window, alongside
+# unrelated small gaps elsewhere (e.g. a 1-day incremental catch-up near "now").
+# Naive min/max bounding across ALL gap ranges collapses these into one giant
+# request spanning the already-fully-populated middle -- every backfill re-run
+# then re-requests the entire history from IBKR even though only a sliver near
+# the front or back is actually missing. ON CONFLICT DO NOTHING keeps this
+# correct, just wasteful of real, rate-limited IBKR request budget on every run.
+# Cluster gap ranges by proximity instead: ranges separated by more than this
+# many days of already-present data get their own IBKR request rather than
+# forcing a single request to re-cover the gap between them.
+_GAP_CLUSTER_MAX_DAYS = 90
+
+
+def _load_gap_cluster_max_days_config(settings: Settings) -> None:
+    """Overlay infra.backfill.gap_cluster_max_days (migration 313) onto
+    _GAP_CLUSTER_MAX_DAYS in place, same pattern as the _load_ibkr_* loaders above.
+    Falls back to the hardcoded default (90) if the APR key isn't present or the DB
+    is unreachable.
+    """
+    global _GAP_CLUSTER_MAX_DAYS
+    try:
+        conn = connect_db(settings)
+        try:
+            with conn.cursor() as cur:
+                cur.execute(
+                    "SELECT config_value FROM config_state "
+                    "WHERE config_key = 'infra.backfill.gap_cluster_max_days'"
+                )
+                row = cur.fetchone()
+        finally:
+            conn.close()
+        if row is not None:
+            _GAP_CLUSTER_MAX_DAYS = int(row[0])
+    except Exception as error:
+        print(f"  (APR gap_cluster_max_days lookup failed, using hardcoded default: {error})")
+
+
+def cluster_gap_ranges(
+    gaps: list[tuple[datetime, datetime]], max_gap_days: int | None = None
+) -> list[tuple[datetime, datetime]]:
+    """Merge nearby gap ranges into fetch windows, keeping distant ones separate.
+
+    `gaps` must be sorted ascending (detect_gaps already returns them that way).
+    Returns one (start, end) fetch-window tuple per cluster.
+
+    max_gap_days defaults to the CURRENT _GAP_CLUSTER_MAX_DAYS module global, read
+    at call time rather than bound as a def-time default -- a plain `= _GAP_CLUSTER_
+    MAX_DAYS` default would freeze the value at import time and silently ignore any
+    later _load_gap_cluster_max_days_config() APR overlay for every caller that
+    doesn't pass max_gap_days explicitly.
+    """
+    if not gaps:
+        return []
+    max_gap = timedelta(days=max_gap_days if max_gap_days is not None else _GAP_CLUSTER_MAX_DAYS)
+    clusters: list[list[tuple[datetime, datetime]]] = [[gaps[0]]]
+    for g in gaps[1:]:
+        if g[0] - clusters[-1][-1][1] <= max_gap:
+            clusters[-1].append(g)
+        else:
+            clusters.append([g])
+    return [(cluster[0][0], cluster[-1][1]) for cluster in clusters]
 
 
 def connect_db(settings: Settings) -> Any:
@@ -912,7 +1026,11 @@ def store_bars(
         for b in bars
     ]
     with conn.cursor() as cur:
-        cur.executemany(_STORE_SQL, params)
+        for i in range(0, len(params), _STORE_BATCH_SIZE):
+            chunk = params[i : i + _STORE_BATCH_SIZE]
+            sql = _STORE_VALUES_SQL.format(values=",".join([_STORE_ROW_PLACEHOLDERS] * len(chunk)))
+            flat_params = [value for row in chunk for value in row]
+            cur.execute(sql, flat_params)
     conn.commit()
     return len(params)
 
@@ -1071,6 +1189,8 @@ def main() -> None:
     _load_ibkr_hist_timeout_config(settings)
     _load_ibkr_retry_config(settings)
     _load_ibkr_rate_limit_config(settings)
+    _load_ohlcv_insert_batch_size_config(settings)
+    _load_gap_cluster_max_days_config(settings)
 
     print("Historical Backfill Pipeline")
     print(f"  Contracts : {[c.symbol for c in contracts]}")
@@ -1195,15 +1315,18 @@ def main() -> None:
                             fetched_tfs.add(tf)
                             continue
 
-                        # Bound the fetch to the actual missing span instead of the
-                        # full configured window — a symbol with 10y already loaded
-                        # that needs 20y should only request the missing 10y, not
-                        # re-request data IBKR has already given us.
-                        gap_start = min(g[0] for g in gaps)
-                        gap_end = max(g[1] for g in gaps)
+                        # Cluster nearby gap ranges into fetch windows instead of one
+                        # min/max-bounded request for the whole run — a permanent
+                        # pre-listing void (recent IPO/spin-off/relisting) sitting next
+                        # to an unrelated small gap elsewhere must not force a single
+                        # request re-covering the already-complete data between them.
+                        # See cluster_gap_ranges()'s docstring/comment for the AA case
+                        # that surfaced this. Genuinely nearby gaps (the common case)
+                        # still coalesce into one request, same as before.
+                        windows = cluster_gap_ranges(gaps, max_gap_days=_GAP_CLUSTER_MAX_DAYS)
                         print(
-                            f"  {instrument.symbol}/{tf}: {len(gaps)} gaps detected, "
-                            f"fetching {gap_start.date()} to {gap_end.date()}..."
+                            f"  {instrument.symbol}/{tf}: {len(gaps)} gaps detected across "
+                            f"{len(windows)} window(s)..."
                         )
 
                         # Skip continuous contracts for short windows (no rolls needed)
@@ -1213,13 +1336,6 @@ def main() -> None:
                             and (instrument.asset_class == AssetClass.FUTURES)
                         )
 
-                        # Fetch the gap-bounded window in one call; the provider chunks
-                        # at _MAX_CHUNK_DAYS[tf] (364d for 4h/1h/1d) with 10s between
-                        # chunks. Per-gap (rather than per-run) fetching sent N×IBKR
-                        # requests + N×2s sleep for trivially small windows — absurdly
-                        # slow on initial backfill — so gaps within one run are still
-                        # coalesced into a single request. ON CONFLICT DO NOTHING makes
-                        # this idempotent regardless.
                         # [rca_analysis 2026-07-05, F1/F2] Persist each chunk's real
                         # bars as soon as they arrive, in addition to the full-window
                         # normalize_bars()+store_bars() pass below. Without this, DB
@@ -1259,53 +1375,73 @@ def main() -> None:
                                 db_conn = connect_db(settings)
                             store_bars(db_conn, chunk_dicts, _symbol, _tf)
 
-                        try:
-                            ohlcv_bars = await provider.fetch_historical_bars(
-                                symbol=instrument.symbol,
-                                timeframe=tf,
-                                start=gap_start,
-                                end=gap_end,
-                                continuous=use_cont,
-                                on_chunk=_persist_chunk,
-                            )
-                            bar_dicts = [
-                                {
-                                    "timestamp": b.timestamp,
-                                    "open": b.open,
-                                    "high": b.high,
-                                    "low": b.low,
-                                    "close": b.close,
-                                    "volume": b.volume,
-                                    "source": b.source,
-                                }
-                                for b in ohlcv_bars
-                            ]
-                            canonical = normalize_bars(
-                                bar_dicts,
-                                symbol=instrument.symbol,
-                                timeframe=tf,
-                                start=gap_start,
-                                end=gap_end,
-                            )
+                        # Fetch each cluster's window separately — the provider still
+                        # chunks each one at _MAX_CHUNK_DAYS[tf] internally with 10s
+                        # between chunks. ON CONFLICT DO NOTHING makes every window
+                        # idempotent regardless of cluster boundaries.
+                        #
+                        # tf_window_failed tracks whether ANY window for this tf raised.
+                        # Before gap-range clustering there was always exactly one window
+                        # per (symbol, tf), so a single fetched_tfs.add(tf) on success was
+                        # correct. Now multiple windows can exist per tf, and one window's
+                        # success must not mask another window's failure -- if any window
+                        # errors, the tf still has a real unfilled gap and must stay (or
+                        # become) a candidate for the FX/crypto 1m-derivation fallback below.
+                        tf_window_failed = False
+                        for gap_start, gap_end in windows:
                             try:
-                                db_conn.cursor().execute("SELECT 1")
-                            except Exception:
+                                ohlcv_bars = await provider.fetch_historical_bars(
+                                    symbol=instrument.symbol,
+                                    timeframe=tf,
+                                    start=gap_start,
+                                    end=gap_end,
+                                    continuous=use_cont,
+                                    on_chunk=_persist_chunk,
+                                )
+                                bar_dicts = [
+                                    {
+                                        "timestamp": b.timestamp,
+                                        "open": b.open,
+                                        "high": b.high,
+                                        "low": b.low,
+                                        "close": b.close,
+                                        "volume": b.volume,
+                                        "source": b.source,
+                                    }
+                                    for b in ohlcv_bars
+                                ]
+                                canonical = normalize_bars(
+                                    bar_dicts,
+                                    symbol=instrument.symbol,
+                                    timeframe=tf,
+                                    start=gap_start,
+                                    end=gap_end,
+                                )
                                 try:
-                                    db_conn.close()
+                                    db_conn.cursor().execute("SELECT 1")
                                 except Exception:
-                                    pass
-                                db_conn = connect_db(settings)
-                            n = store_bars(db_conn, canonical, instrument.symbol, tf)
-                            total_bars += n
-                            if n > 0:
-                                fetched_tfs.add(tf)
-                            print(
-                                f"  {instrument.symbol}/{tf}: stored {n} bars "
-                                f"({len(gaps)} gaps filled)"
-                            )
-                        except Exception as e:
-                            fetch_errors += 1
-                            print(f"  {instrument.symbol}/{tf}: fetch error — {e}")
+                                    try:
+                                        db_conn.close()
+                                    except Exception:
+                                        pass
+                                    db_conn = connect_db(settings)
+                                n = store_bars(db_conn, canonical, instrument.symbol, tf)
+                                total_bars += n
+                                if n > 0:
+                                    fetched_tfs.add(tf)
+                                print(
+                                    f"  {instrument.symbol}/{tf}: stored {n} bars "
+                                    f"(window {gap_start.date()} to {gap_end.date()})"
+                                )
+                            except Exception as e:
+                                fetch_errors += 1
+                                tf_window_failed = True
+                                print(
+                                    f"  {instrument.symbol}/{tf} "
+                                    f"[{gap_start.date()}-{gap_end.date()}]: fetch error — {e}"
+                                )
+                        if tf_window_failed:
+                            fetched_tfs.discard(tf)
 
                     # FX and crypto: fetch deeper 1m window and derive any TFs
                     # that IBKR didn't return bars for in the named fetch above.
@@ -1392,9 +1528,23 @@ def main() -> None:
             await provider.disconnect()
         return total_bars, fetch_errors, skipped_symbols
 
+    def _finish(status: str, message: str, exit_code: int | None) -> None:
+        print(message)
+        JOB_COMPLETED_TOTAL.add(1, {"job": "historical-backfill", "status": status})
+        db_conn.close()
+        flush_and_shutdown_metrics()
+        if exit_code is not None:
+            sys.exit(exit_code)
+
     total_bars, fetch_errors, skipped_symbols = asyncio.run(_run_fetch_stage())
     if total_bars == -1:
-        db_conn.close()
+        # IBKR connect failed before any fetch was attempted. A bare `return` here
+        # exits 0 (main() is called plainly, not via sys.exit(main())) -- the nightly
+        # wrapper and backfill_retry_loop.sh both read that as success even though
+        # zero bars were fetched. Found 2026-08-10: the nightly timer fired at
+        # 02:00 UTC, still inside the ~4-4.5hr post-restart IBKR outage window, and
+        # got logged as "nightly_backfill.success".
+        _finish("failed", "Backfill FAILED — could not connect to IBKR. See error above.", 1)
         return
 
     n_requested = len(contracts)
@@ -1411,19 +1561,15 @@ def main() -> None:
     # correctly treat this as incomplete and try again, instead of declaring victory
     # over silent holes.
     if fetch_errors > 0:
-        print(
+        _finish(
+            "partial",
             f"Backfill FINISHED WITH {fetch_errors} FETCH ERROR(S) — "
-            "not declaring complete. See error lines above."
+            "not declaring complete. See error lines above.",
+            1,
         )
-        JOB_COMPLETED_TOTAL.add(1, {"job": "historical-backfill", "status": "partial"})
-        db_conn.close()
-        flush_and_shutdown_metrics()
-        sys.exit(1)
+        return
 
-    JOB_COMPLETED_TOTAL.add(1, {"job": "historical-backfill", "status": "success"})
-    db_conn.close()
-    flush_and_shutdown_metrics()
-    print("\nBackfill complete.")
+    _finish("success", "\nBackfill complete.", None)
 
 
 if __name__ == "__main__":

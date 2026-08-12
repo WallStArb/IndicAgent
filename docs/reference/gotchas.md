@@ -57,6 +57,8 @@ See `docs/operations/operations-database.md` for query/schema gotchas. `instrume
 
 ContFuture (`continuous=True`) hangs on multi-year requests — use named contracts with `--days 364` or `scripts/infrastructure/backfill/infrastructure_fetch_htf_bars.py` which chunks automatically.
 
+**`detect_gaps()` reports large false-positive gap counts (hundreds of ranges) on 1h/15m/5m/1m for a symbol's earliest history — not real missing data.** `generate_session_slots()` expects a full extended-hours session (pre-market + RTH + after-hours) from day one, but real extended-hours IBKR coverage for a symbol's early years (2005-2006 for the oldest names) — or the first few days of any timeframe's retention window (e.g. 1m's 90-day window) — ramps up gradually rather than being complete immediately. Confirmed directly (2026-08-11, universe-expansion gap audit): every flagged (symbol, tf) pair's actual missing timestamps cluster entirely within roughly the first year of that pair's own data window, never scattered through the middle or recent history. Distinct from, but same root shape as, the already-documented `1d` slot-timestamp misalignment (see the 300-series todo). Before treating a `detect_gaps()` count as a real problem, check whether every gap range falls near that (symbol, tf) pair's own `min(timestamp)` — if so it's benign ramp-up, not a crash/connection-drop artifact.
+
 ## Lifecycle Replay
 
 `lifecycle_replay.py` may hit PostgreSQL's 32,767 query argument limit on large (symbol, timeframe) pairs. Re-run picks up where it left off (skips resolved signals).

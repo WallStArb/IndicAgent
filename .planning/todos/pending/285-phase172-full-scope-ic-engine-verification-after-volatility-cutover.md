@@ -2,7 +2,11 @@
 
 **Filed:** 2026-08-09
 **Source:** Phase 172 cross-AI plan review (Codex, MEDIUM) incorporated into `172-07-PLAN.md`
-**Status:** pending, blocked on Phase 172 completing
+**Status:** UNBLOCKED as of 2026-08-11 -- Phase 172 (volatility-only HMM redesign) is confirmed
+EXECUTED and COMPLETE as of 2026-08-09 (`regime_volatility` column live via migration 307, see
+[[project_hmm_regime_volatility_only_redesign_2026_08_08]] memory). The full-scope verification
+this todo describes was never started -- Phase 172's own smoke test (172-07, four symbols at
+1d) is the only validation that has run.
 
 ## What
 

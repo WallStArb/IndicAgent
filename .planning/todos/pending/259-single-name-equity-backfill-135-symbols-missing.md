@@ -1,7 +1,16 @@
 # 259: Single-name equity backfill queue -- 135 symbols missing
 
 **Filed:** 2026-08-05
-**Status:** pending -- holding until client-id 41 run finishes (user decision 2026-08-05)
+**Status:** pending, actively converging. **Updated 2026-08-11**: this queue is the same set
+client-43 (launched 2026-08-06, finished 2026-08-09: 106/151 done) and its retry chain
+(client-44/46/47/48, see [[project_universe_expansion_and_ibkr_recalibration_2026_08_06]]
+memory) have been backfilling since. Live check against this exact symbol list: **115/135
+(85%) now have full 5-timeframe coverage, 20 remaining.** client-48 (PID varies by session,
+check `ps aux | grep infrastructure_run_historical_pipeline`) is running the current retry
+pass. The "holding until client-id 41" framing below is stale -- client IDs moved to 43+ long
+ago; don't relaunch a duplicate backfill without checking `ps` first (concurrent historical-data
+sessions collide on IBKR's shared pacing budget, see `feedback_multiple_concurrent_backfills`
+memory).
 
 ## What happened
 
