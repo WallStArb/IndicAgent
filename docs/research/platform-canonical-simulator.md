@@ -167,7 +167,7 @@ returns.
   Cross-Sectional Rank IC addendum's per-leg cost need
 - `docs/research/intel-13-analog-engine.md` — serialization law rule 2; analog point-in-time fully owned there
 - `docs/research/trade-construction-layer.md` — shadow portfolio routed through the frames variant
-- `docs/plans/2026-06-25-v30-alpha-lifecycle-schema.md` — two-instrument principle
+- `docs/plans/archive/2026-06-25-v30-alpha-lifecycle-schema.md` — two-instrument principle
 - `.planning/todos/pending/030-cost-hurdle-apr-calibration.md` — closed, Phase 141.1; the
   calibrated inputs the cost kernel will consume
 - `src/observability/corpus_manifest.py` — provenance identity

@@ -4,7 +4,7 @@
 condition stated in "Ship condition" below.
 **Informed by:** `docs/research/stratification-instrument-tag-calibrator.md` (primary design doc,
 "Regime conditioning (Phase 2)" section, F6.3, F7, Sequencing) and
-`.planning/phases/146-empirical-instrument-tag-calibrator-planned/146-CONTEXT.md` (D-01 through
+`.planning/phases/146-empirical-instrument-tag-calibrator/146-CONTEXT.md` (D-01 through
 D-12, this phase's Wave 0-1 decisions) and `146-RESEARCH.md` (live schema/APR-key verification,
 2026-07-17).
 

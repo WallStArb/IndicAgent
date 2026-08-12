@@ -138,7 +138,7 @@ and this will eventually become a phase. It is a commitment to act — just not 
 - **Risk** — Danger level. Affects review rigor and rollback planning.
 - **Gate** — Dependencies. What must complete first.
 
-**Numbering:** Sequential (`018-topic.md`). Don't renumber when todos complete — move to `done/`.
+**Numbering:** Sequential (`018-topic.md`). Don't renumber when todos complete — move to `completed/`.
 
 **When to create a todo:** When an idea has a clear problem statement and solution scope,
 and you intend to execute it within the next 1-3 milestones.
@@ -160,9 +160,23 @@ it is planned for a specific milestone and will be executed.
 2. It gets a phase number and added to the relevant milestone in ROADMAP.md
 3. `/gsd-plan-phase` creates the `phases/phase-NNN/` directory with PLAN.md files
 4. Execution produces SUMMARY.md per plan and VERIFICATION.md for the phase
-5. Todo moves from `pending/` to `done/`
+5. Todo moves from `pending/` to `completed/`
 
 **STATE.md** tracks the current active phase and overall milestone progress.
+
+**Archiving rule (added 2026-08-11, after the gap it closes let 8 completed phase dirs and 6
+completed `docs/plans/` docs drift unarchived for weeks):**
+- **Phase directories** (`.planning/phases/NNN-slug/`) are created with a `-planned` suffix
+  while unstarted. The moment ROADMAP.md marks the phase ✅ COMPLETE, rename the directory to
+  drop the `-planned` suffix in the same session — `git mv`, then fix any internal
+  self-references (frontmatter `phase:` fields, `@`-includes, "create X when done" pointers)
+  that cite the old path. Do not defer this to a later cleanup pass; it accumulates silently
+  because nothing else forces it.
+- **`docs/plans/` root files** move to `docs/plans/archive/` once the plan's own stated
+  verdict/decision is final and the phase(s) it fed are ROADMAP.md-complete. A plan doc with
+  unresolved checkboxes, an explicit "not yet implemented" status line, or no stated verdict at
+  all stays at root even if it's old — age alone is not a completion signal. `git mv`, then fix
+  any cross-references to the old (non-archive) path the same way as phase directories above.
 
 ---
 

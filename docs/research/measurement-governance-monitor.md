@@ -601,7 +601,7 @@ Recommended build order, correcting the original three-phase split:
 - `.planning/ROADMAP.md` Phase 143 (Feature Vector Lifecycle + Alpha Decay Infrastructure),
   the phase the then-separate 149B was merged into (executed 2026-07-03); source of the
   regime-shift guard, the new-evidence recovery floor, LIFECYCLE-00, and IC staleness alerting
-- `.planning/phases/143-feature-lifecycle-routing-merged-with-phase-149b-planned/` —
+- `.planning/phases/143-feature-lifecycle-routing-merged-with-phase-149b/` —
   `143-02-PLAN.md` / `143-03-PLAN.md` (the locked, reviewed lifecycle build) and
   `143-REVIEWS.md` (Codex review + independent Fable code-verified pass, findings N1-N8).
   *(Added 2026-07-06, Fable 5: these are now AUTHORITATIVE over this doc's lifecycle prose

@@ -5,7 +5,7 @@ filed: 2026-07-22
 promoted: 2026-07-23 — formalized as ROADMAP Phase 166 (Frame/Execution Recalibration),
   not yet planned (`/gsd-discuss-phase 166` next). This file's scope note stays the source
   record; do not duplicate its content into the phase doc, reference it.
-source: Phase 148-05's promotion decision record (docs/plans/2026-07-22-phase148-promotion-decision.md)
+source: Phase 148-05's promotion decision record (docs/plans/archive/2026-07-22-phase148-promotion-decision.md)
   explicitly deferred this diagnosis as out of scope for Phase 148 itself; ROADMAP.md's own
   Phase 148 design (~line 1378, written when the phase was planned) pre-registered the playbook
   for this exact outcome but no unit of work exists yet to run it.
@@ -73,7 +73,7 @@ regime-window sufficiency -- not a quick single-session fix.
 
 ## References
 
-- `docs/plans/2026-07-22-phase148-promotion-decision.md` -- full Gate 2 verdict, evidence, and
+- `docs/plans/archive/2026-07-22-phase148-promotion-decision.md` -- full Gate 2 verdict, evidence, and
   the explicit "diagnosing why is out of scope for this phase" deferral
 - `.planning/ROADMAP.md` (~line 1378) -- the pre-registered "frame problem, recalibrate against
   IC decay curve" playbook this todo exists to execute

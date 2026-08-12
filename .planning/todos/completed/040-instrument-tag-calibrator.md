@@ -46,7 +46,7 @@ autocorrelation, vol-of-vol, skewness; and a `beta_stability` meta-primitive con
 decay/expiry) is the falsification engine: derive weight from measured beta magnitude, decay
 it based on `beta_stability`, and stop treating tags as permanent human beliefs.
 
-## Timing against the ETF universe expansion (`docs/plans/2026-06-27-etf-universe-expansion.md`)
+## Timing against the ETF universe expansion (`docs/plans/archive/2026-06-27-etf-universe-expansion.md`)
 
 That plan (migration 188, 58 → 79 symbols) has 4 tasks: Task 0 registers + human-tags the 21
 new instruments; Task 1 backfills their historical OHLCV; Task 2 runs them through the corpus

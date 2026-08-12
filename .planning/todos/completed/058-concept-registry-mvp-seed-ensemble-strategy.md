@@ -15,7 +15,7 @@ standalone P1 item in `PRIORITIES.md`). This file's content below is frozen hist
 the original 2026-07-04 scope decisions and their F1-F8 rationale, preserved exactly for the 14
 existing citations across the codebase that reference it by number. Not maintained going forward.
 For current scope, read 112. For step-by-step execution, read
-`docs/plans/2026-07-13-concept-registry-mvp-implementation-plan.md` — that document, not this
+`docs/plans/archive/2026-07-13-concept-registry-mvp-implementation-plan.md` — that document, not this
 one, is the actual task-by-task spec. No `concept_*` tables have been built; "completed" here
 means this todo's own tracking lifecycle, not the underlying work.
 
@@ -27,7 +27,7 @@ consumers (`.planning/research/2026-07-04-concept-registry-cluster-fable-review.
 ## Status as of 2026-07-13: plan written, execution deliberately deferred; stays a todo, not a ROADMAP phase
 
 A full task-by-task implementation plan was written and saved at
-`docs/plans/2026-07-13-concept-registry-mvp-implementation-plan.md` (migrations 231/232 still
+`docs/plans/archive/2026-07-13-concept-registry-mvp-implementation-plan.md` (migrations 231/232 still
 free as of this writing). A worktree was briefly opened to execute it, then redirected to todo
 084 instead (ensemble ablation protocol, since shipped and closed) on the reasoning that the P0
 measurement-integrity work (096/091/094, the corpus re-run) is the actual highest-leverage use of

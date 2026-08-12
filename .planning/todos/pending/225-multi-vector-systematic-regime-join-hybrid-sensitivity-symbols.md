@@ -179,7 +179,7 @@ production writes. Re-derivable from this section's methodology description if n
 - `.planning/todos/completed/040-instrument-tag-calibrator.md` -- confirms
   `instrument_tags.weight` is now calibrated (Phase 146, closed 2026-07-17), the gradient
   input this measurement needs
-- `docs/plans/2026-07-01-cross-sectional-regime-model.md` -- original design doc's "Scope
+- `docs/plans/archive/2026-07-01-cross-sectional-regime-model.md` -- original design doc's "Scope
   note," source of the originally-considered (and now superseded) discrete multi-membership
   framing
 - `docs/foundation/glossary.md` lines 79-111 -- idiosyncratic/symbol regime vs

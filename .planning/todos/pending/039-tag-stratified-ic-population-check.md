@@ -1,7 +1,7 @@
 # Population-count check before adding tag-stratified cross-sectional IC
 
 **Found:** 2026-07-01, during design review of the cross-sectional regime model plan
-(`docs/plans/2026-07-01-cross-sectional-regime-model.md`).
+(`docs/plans/archive/2026-07-01-cross-sectional-regime-model.md`).
 
 ## Context
 

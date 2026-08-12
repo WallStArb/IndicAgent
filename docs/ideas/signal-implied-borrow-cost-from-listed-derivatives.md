@@ -133,7 +133,7 @@ needed if the secondary ITM-put cross-check is built.
 ## References
 
 - `src/providers/ibkr.py` — sole home for any new options provider logic (Ring rule)
-- `.planning/phases/146-empirical-instrument-tag-calibrator-planned/` — closest existing
+- `.planning/phases/146-empirical-instrument-tag-calibrator/` — closest existing
   analog for a market-derived, statistically-gated, expiring per-symbol measurement
   (`TagCalibrator`, `instrument_tags.loading`/`p_value`/`valid_from`/`valid_to`)
 - `docs/research/stratification-dimension-unification.md` — candidate-dimension contract to

@@ -146,13 +146,13 @@ demonstrably wins over the scalar baseline.
 ### Origin and prior verdict
 - `.planning/todos/completed/174-gate2-execution-failure-frame-recalibration-investigation.md`
   — this phase's full origin, scope note, and promotion record
-- `docs/plans/2026-07-22-phase148-promotion-decision.md` — Gate 1 PASS / Gate 2 FAIL verdict,
+- `docs/plans/archive/2026-07-22-phase148-promotion-decision.md` — Gate 1 PASS / Gate 2 FAIL verdict,
   full SHADOW-REVIEW criteria table, c4 reproducibility investigation, regime-stratified
   companion table (§"Regime-stratified companion")
 - `docs/plans/SHADOW-REVIEW.md` — the frozen five criteria Gate 2 evaluated against (a new gate
   for this phase's proposal should state explicitly whether it reuses these criteria or defines
   new ones — a planning decision, not locked here)
-- `.planning/phases/148-alpha-scoring-system-planned/148-CONTEXT.md` — D-01 through D-08,
+- `.planning/phases/148-alpha-scoring-system/148-CONTEXT.md` — D-01 through D-08,
   including the explicit deferral of this exact diagnosis to a future phase
 - `.planning/ROADMAP.md` (~line 1378, Phase 148 section) — the pre-registered "frame problem,
   recalibrate against IC decay curve" playbook this phase executes

@@ -56,7 +56,7 @@ specific P&L outcome was achieved.
 | 24 | structural mode calls resolve_structural_zone, falls back to ATR geometry on tier="atr" | VERIFIED | `_resolve_structural_geometry` present; unit-tested; live-confirmed in 166-06 that with Phase 163 still NULL, every row degrades to scalar-seed fallback (documented, not hidden) |
 | 25 | Selected stop/target snapshotted onto alpha_frames row at scan time (no live join) | VERIFIED | `_process_partition` resolves geometry per row and inserts the resolved values into the same `_INSERT_SQL` used before; no second write path (grep confirms single batch-flush write) |
 | 26 | Missing per-cell keys logged once per partition, never per row | VERIFIED | `missing_stop_keys`/`missing_target_keys` accumulator sets, warned once after the per-row loop (mirrors pre-existing `missing_hold_keys` pattern) |
-| 27 | Verdict doc + consolidated Part 2 todo + extension-point citation + closed superseded todo 163 | VERIFIED | `docs/plans/2026-07-23-phase166-frame-recalibration-verdict.md` exists (all 3 arms, population deltas, explicit Part 2 deferral sentence, clear recommendation); `todos/pending/175-*.md` exists; `todos/completed/163-*.md` exists (moved from `deferred/`, which no longer contains it) |
+| 27 | Verdict doc + consolidated Part 2 todo + extension-point citation + closed superseded todo 163 | VERIFIED | `docs/plans/archive/2026-07-23-phase166-frame-recalibration-verdict.md` exists (all 3 arms, population deltas, explicit Part 2 deferral sentence, clear recommendation); `todos/pending/175-*.md` exists; `todos/completed/163-*.md` exists (moved from `deferred/`, which no longer contains it) |
 
 **Score:** 27/27 truths verified
 
@@ -82,7 +82,7 @@ specific P&L outcome was achieved.
 | `src/intelligence/trading/structural_confluence.py` | Structural candidate Part 1 | VERIFIED | 402 lines, 11 unit tests, zero archived imports |
 | `scripts/analysis/gate166_frame_recalibration_eval.py` | Fresh validation gate | VERIFIED | 646 lines, 13 unit tests, live-run confirmed (2 real gate_evaluations rows) |
 | `services/alpha_frame_writer.py` (geometry_source dispatch) | Wiring for both candidates | VERIFIED | Dispatch present, 22 new unit tests, live-run confirmed |
-| `docs/plans/2026-07-23-phase166-frame-recalibration-verdict.md` | Empirical verdict | VERIFIED | Exists, matches live DB evidence exactly (cross-checked numerically) |
+| `docs/plans/archive/2026-07-23-phase166-frame-recalibration-verdict.md` | Empirical verdict | VERIFIED | Exists, matches live DB evidence exactly (cross-checked numerically) |
 | `.planning/todos/pending/175-*.md` | Part 2 deferral | VERIFIED | Exists, names all 3 dependencies (Phase 164, 165, anchored-VWAP) |
 
 ### Key Link Verification

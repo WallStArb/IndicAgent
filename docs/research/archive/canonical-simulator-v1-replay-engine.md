@@ -91,7 +91,7 @@ simulator is what makes "proven" meaningful: one arbiter, every claim through it
 ## References
 
 - ROADMAP.md Phase 142B (first client), Phase 152 (deferred beneficiary)
-- `docs/plans/2026-06-25-v30-alpha-lifecycle-schema.md` — two-instrument principle this engine
+- `docs/plans/archive/2026-06-25-v30-alpha-lifecycle-schema.md` — two-instrument principle this engine
   physically enforces (one replay, two measurements)
 - `.planning/todos/pending/030-cost-hurdle-apr-calibration.md` — cost model inputs
 - `src/observability/corpus_manifest.py` — provenance identity

@@ -1033,7 +1033,7 @@ writes gated by existing `ConfigService._validate_key_domain()` checks.
   `248_alpha_scoring_gate_tables.sql`, `141_phase132_trade_framer_apr.sql`,
   `126_phase125_param_store.sql`, `128_phase126_apr_seeds.sql` — schema/APR provenance
 - `docs/plans/SHADOW-REVIEW.md`, `docs/plans/OOS-EVAL-PROTOCOL.md`,
-  `docs/plans/2026-07-22-phase148-promotion-decision.md` — frozen gate criteria, holdout
+  `docs/plans/archive/2026-07-22-phase148-promotion-decision.md` — frozen gate criteria, holdout
   discipline, Gate 1/Gate 2 evidence
 - `.planning/todos/pending/088-hold-max-bars-censoring-not-tracked.md`,
   `096-frame-hold-horizon-vs-feature-lookahead-mismatch.md`,
@@ -1066,7 +1066,7 @@ writes gated by existing `ConfigService._validate_key_domain()` checks.
 - Pitfalls: HIGH — every pitfall traces to either a live-verified data gap or a documented,
   already-occurred incident (todo 088/172/162, Phase 148's c4 investigation)
 - Data availability (D-05): HIGH — confirmed via direct live DB query, cross-checked against
-  `docs/plans/2026-07-22-phase148-promotion-decision.md`'s own regime-stratified table
+  `docs/plans/archive/2026-07-22-phase148-promotion-decision.md`'s own regime-stratified table
 - Open Questions 2/3/4: genuinely open design decisions, not confidence gaps — flagged for
   `/gsd-discuss-phase` or the plan step, not resolved unilaterally by this research
 

@@ -118,9 +118,9 @@ Item 1 (the broader path-dependent-statistics sweep) remains open, unscoped.
 
 ## References
 
-- `.planning/phases/148-alpha-scoring-system-planned/148-05-PLAN.md` -- the plan this was
+- `.planning/phases/148-alpha-scoring-system/148-05-PLAN.md` -- the plan this was
   discovered during
-- `docs/plans/2026-07-22-phase148-promotion-decision.md` -- documents this finding and its
+- `docs/plans/archive/2026-07-22-phase148-promotion-decision.md` -- documents this finding and its
   resolution in the Gate 2 section
 - `scripts/analysis/score03_gate2_execution_eval.py` commits `7e3c8913` (superseded
   frame_id-tie-break attempt), `51a05f10` (correct per-bar_ts aggregation fix),

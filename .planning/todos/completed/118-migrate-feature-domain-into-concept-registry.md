@@ -222,6 +222,6 @@ authorization instead. Full rationale: migration 311's header comment and
 - docs/research/concept-unified-registry.md (Invariants 8/9; the
   FeatureRegistryService CAS critique is already implemented in
   ConceptRegistryService - reuse it)
-- docs/plans/2026-07-13-concept-registry-mvp-implementation-plan.md (todo 058)
+- docs/plans/archive/2026-07-13-concept-registry-mvp-implementation-plan.md (todo 058)
 - docs/research/intel-14-integrity-monitor.md OQ3 (resolved as described above)
 - src/intelligence/feature_registry_service.py, services/ic_engine.py

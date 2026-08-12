@@ -159,7 +159,7 @@ strengthen the case for locking the mechanism now:
 
 **Yes - `/gsd-discuss-phase` can start now.** The build trigger's required operator decision is
 this document. Verified: migration 189 unapplied (`\d market_regimes` still shows
-`asset_class`), the implementation plan (`docs/plans/2026-07-01-cross-sectional-regime-model.md`)
+`asset_class`), the implementation plan (`docs/plans/archive/2026-07-01-cross-sectional-regime-model.md`)
 is complete and current, and todo 041 gates commodity/fx group *enablement* only - those groups
 ship `enabled: false`, so 041 batches into the same v3.15 re-run without blocking the phase.
 

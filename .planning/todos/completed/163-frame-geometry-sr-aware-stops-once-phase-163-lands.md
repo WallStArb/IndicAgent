@@ -73,7 +73,7 @@ untested hypothesis, and it stays open (via the resume path above), not closed b
   narrow fix this is explicitly NOT trying to redo
 - `.planning/phases/163-vp-sr-structural-primitives/163-CONTEXT.md` — Phase 163's own scope
   (closes todo 153, `sr_support_dist`/`sr_resist_dist` real computation)
-- `docs/plans/2026-07-23-phase166-frame-recalibration-verdict.md` — Phase 166's verdict doc,
+- `docs/plans/archive/2026-07-23-phase166-frame-recalibration-verdict.md` — Phase 166's verdict doc,
   "Arm 3: Structural Candidate" section — the halt this todo's resolution cross-references, and
   the exact resume path for scoring the structural arm once Phase 163 executes
 - `src/intelligence/trading/structural_confluence.py` — the confluence-resolution mechanism

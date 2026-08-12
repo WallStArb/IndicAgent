@@ -88,7 +88,7 @@ already done. This todo is "widen the spec table," not "redesign the mechanism."
   Structural Candidate: Full Investigation"), the full reasoning for the two-part split
 - `.planning/phases/166-frame-execution-recalibration/166-CONTEXT.md` D-06 -- the phase-level
   decision this todo implements
-- `docs/plans/2026-07-23-phase166-frame-recalibration-verdict.md` -- Phase 166's verdict doc,
+- `docs/plans/archive/2026-07-23-phase166-frame-recalibration-verdict.md` -- Phase 166's verdict doc,
   which states the toolkit was evaluated and deliberately deferred here (not silently dropped)
 - `src/intelligence/trading/zone_engine.py` -- the archived v2.x module this phase's Part 1
   ported from; its own 14-entry spec table names the exact v2.x feature keys (all currently

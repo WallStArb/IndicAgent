@@ -34,7 +34,7 @@ This means, despite being fully built out:
   "REGIME GRANULARITY ISSUE") can never populate `pooled_ci_lower` and is a
   permanent no-op (`scripts/ops/alpha/ops_ensemble_ic_diagnosis.py:152-181`).
 
-Full finding: `.planning/phases/142A-ensemble-ic-measurement-planned/142A-REVIEW.md` (WR-02).
+Full finding: `.planning/phases/142A-ensemble-ic-measurement/142A-REVIEW.md` (WR-02).
 
 ## Why it matters
 

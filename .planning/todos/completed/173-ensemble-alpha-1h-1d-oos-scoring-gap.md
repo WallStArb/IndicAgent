@@ -32,7 +32,7 @@ irreversible gate (D-04), this cannot be re-run to include 1h/1d now that the ga
 The recorded `gate1_signal` PASS verdict is accurate for what it actually measured (640
 5m/15m cells, 21.875% qualifying against a 2% floor), but is **not** a full 4-timeframe signal
 proof -- disclosed explicitly in
-`docs/plans/2026-07-22-phase148-promotion-decision.md` rather than silently presented as
+`docs/plans/archive/2026-07-22-phase148-promotion-decision.md` rather than silently presented as
 covering the whole configured universe.
 
 ## Fix
@@ -65,7 +65,7 @@ recurring cadence (large, a genuine unbuilt piece per todo 089) or whether this 
 
 ## References
 
-- `docs/plans/2026-07-22-phase148-promotion-decision.md` -- Gate 1 section discloses this
+- `docs/plans/archive/2026-07-22-phase148-promotion-decision.md` -- Gate 1 section discloses this
   limitation on the recorded PASS verdict
 - `.planning/gate_look_log.jsonl` -- Gate 1's pre-run snapshot (`apr_values_used.weight_version:
   "run_2025122405150000"`)

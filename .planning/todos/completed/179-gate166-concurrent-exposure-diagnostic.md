@@ -32,7 +32,7 @@ Phase 166 scored two candidates through `gate166_frame_recalibration_eval.py` ag
 frozen `143.1-08-champion` OOS population (28,100-33,892 closed primary frames, 2025-12-24
 onward). Both failed decisively on c4 (max drawdown ratio): baseline `9.60` and scalar (retuned
 stop/target) `26.18`, both vs. a `0.25` ceiling -- see `gate_evaluations` rows
-`gate166_baseline`/`gate166_scalar` and `docs/plans/2026-07-23-phase166-frame-recalibration-verdict.md`.
+`gate166_baseline`/`gate166_scalar` and `docs/plans/archive/2026-07-23-phase166-frame-recalibration-verdict.md`.
 
 **c4 is computed by summing `counterfactual_pnl_r` (a full 1R-equivalent risk contribution)
 across every frame sharing the same `bar_ts`** (`_aggregate_pnl_by_bar_ts`, correct and
