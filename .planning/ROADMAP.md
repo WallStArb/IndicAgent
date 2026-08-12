@@ -682,7 +682,7 @@ Cross-cutting constraints: none (each plan touches a disjoint file set except th
 
 ### Phase 142A: Ensemble IC Measurement ✅ COMPLETE 2026-07-02
 
-**Schema design:** `docs/plans/2026-06-25-v30-alpha-lifecycle-schema.md` — `alpha_ensemble_ic` table + `alpha.ensemble_ic.*` APR keys. Migration must land before this phase begins.
+**Schema design:** `docs/plans/archive/2026-06-25-v30-alpha-lifecycle-schema.md` — `alpha_ensemble_ic` table + `alpha.ensemble_ic.*` APR keys. Migration must land before this phase begins.
 
 **Goal:** Prove the ensemble OUTPUT has IC before testing any execution rules. Measure `IC(alpha_score, forward_return_*)` per (symbol, tf, regime, lookahead) using the same BH-FDR + bootstrap CI + walk-forward machinery as feature IC. No stops, no targets, no frame assumptions — pure signal measurement. The IC decay curve across lookaheads calibrates `hold_max_bars` APR keys empirically. This is the primary OOS gate for Phase 148.
 
@@ -750,7 +750,7 @@ future drift): **EIC-04 PASS, 54/1425 = 3.79% qualifying cells.**
 
 ### Phase 142B: Frame Simulation + Counterfactual Tracking ✅ COMPLETE (2026-07-10)
 
-**Schema design:** `docs/plans/2026-06-25-v30-alpha-lifecycle-schema.md` — `alpha_frames` table + `alpha.frame.*` APR keys + `corpus_run_id`/`weight_epoch` provenance columns (canonical-simulator binding rule). No fill-calibrated cost model (`alpha.cost.*`) — real fill data (slippage, commission) does not exist until v4.0 execution. The externally-calibrated `alpha.quant.cost_hurdle.*` keys (todo 030, closed in 141.1) do exist now and are applied as a net-of-cost reporting column per the note below — not a gate change, and not the v4.0 fill-based model.
+**Schema design:** `docs/plans/archive/2026-06-25-v30-alpha-lifecycle-schema.md` — `alpha_frames` table + `alpha.frame.*` APR keys + `corpus_run_id`/`weight_epoch` provenance columns (canonical-simulator binding rule). No fill-calibrated cost model (`alpha.cost.*`) — real fill data (slippage, commission) does not exist until v4.0 execution. The externally-calibrated `alpha.quant.cost_hurdle.*` keys (todo 030, closed in 141.1) do exist now and are applied as a net-of-cost reporting column per the note below — not a gate change, and not the v4.0 fill-based model.
 
 **Goal:** Prove that a reasonable execution rule (stop/target/hold) can capture the signal IC proven in Phase 142A as positive counterfactual P&L. This is a binary question: does any sensible frame work? Calibration of which frame variant is optimal is a refinement question that belongs after this validation passes, not during it. This is the secondary OOS gate for Phase 148.
 
@@ -849,7 +849,7 @@ jump ahead of Phase 144/148.
 
 **Design:**
 
-- Full task-by-task implementation plan already written: `docs/plans/2026-07-13-concept-registry-mvp-implementation-plan.md`.
+- Full task-by-task implementation plan already written: `docs/plans/archive/2026-07-13-concept-registry-mvp-implementation-plan.md`.
 - Seed `ic_proportional` as the `active` incumbent, E1 (shrunk-IC)/E2 (mean-variance) as
   evaluated-mechanism `candidate` rows, E3/E4 as thesis-only `candidate` rows.
 
@@ -863,7 +863,7 @@ jump ahead of Phase 144/148.
   `.planning/todos/pending/112-concept-registry.md`, `docs/research/intelligence-lifecycle-backlog-matrix.md`
   (MEDIUM tier — Effort M, Risk Low, Reward Low-now/Med-long-run).
 
-**Plans:** 4 plans in 3 waves (planned 2026-07-14 from `docs/plans/2026-07-13-concept-registry-mvp-implementation-plan.md`):
+**Plans:** 4 plans in 3 waves (planned 2026-07-14 from `docs/plans/archive/2026-07-13-concept-registry-mvp-implementation-plan.md`):
 
 - [x] 160-01-PLAN.md — migrations 233 (schema + APR gate keys) + 234 (seed domain='ensemble_strategy') [wave 1] ✅ COMPLETE
 - [x] 160-02-PLAN.md — ConceptRegistryService pure decision core + transactional CAS apply [wave 1] ✅ COMPLETE
@@ -1276,13 +1276,13 @@ properly fixed in the frozen `c4_max_dd` (max drawdown) statistic — same-`bar_
 statistic non-deterministic; fixed by aggregating per-`bar_ts` before the cumulative walk
 (economically correct, not just an arbitrary tie-break). The verdict was unaffected under every
 method tested — full detail, evidence tables, and both gates' exact numbers in
-`docs/plans/2026-07-22-phase148-promotion-decision.md`.
+`docs/plans/archive/2026-07-22-phase148-promotion-decision.md`.
 
 **Two non-blocking follow-up todos filed:** [172](../.planning/todos/pending/172-path-dependent-frame-statistics-order-sensitivity-sweep.md)
 (broader sweep for other order-sensitive statistics), [173](../.planning/todos/pending/173-ensemble-alpha-1h-1d-oos-scoring-gap.md)
 (`ensemble_alpha` 1h/1d OOS coverage gap).
 
-**Schema design:** `docs/plans/2026-06-25-v30-alpha-lifecycle-schema.md` — `alpha_strategy_scores` table + `alpha.scoring.*` APR keys. Full two-gate promotion logic in "Phase Sequencing" section.
+**Schema design:** `docs/plans/archive/2026-06-25-v30-alpha-lifecycle-schema.md` — `alpha_strategy_scores` table + `alpha.scoring.*` APR keys. Full two-gate promotion logic in "Phase Sequencing" section.
 
 **Rewritten 2026-07-19 per todo 056 / reconciliation doc F3 + Open Q2:** v2.x is dead in fact
 (`intelligence-pipeline.service` failed since the D-09 cutover, `signal_events`/`trade_frames`
@@ -1404,12 +1404,12 @@ reasoning and falsifiers: `docs/research/fable-2026-07-07-phase144-conditioning-
 
 ### Phase 144: Cross-Sectional Regime Model (`regime_group`) ✅ COMPLETE (2026-07-22)
 
-**Goal:** Replace `market_regimes.asset_class` with `regime_group` — a named peer group with a pluggable regime signal (breadth_vol for equity, curve_credit for rates, commodity/fx signal modules ship disabled). Migration 229 (plan doc's literal "189" is stale). Full design: `docs/plans/2026-07-01-cross-sectional-regime-model.md`.
+**Goal:** Replace `market_regimes.asset_class` with `regime_group` — a named peer group with a pluggable regime signal (breadth_vol for equity, curve_credit for rates, commodity/fx signal modules ship disabled). Migration 229 (plan doc's literal "189" is stale). Full design: `docs/plans/archive/2026-07-01-cross-sectional-regime-model.md`.
 
 **Status per 2026-07-01 architecture review** (`docs/research/fable-2026-07-01-v3-architecture-review.md` §4): confirmed live today, not a future risk — corpus symbols (all `fi_*` bonds + GLD/SLV/VNQ, plus IBIT) are excluded from equity breadth by `equity_regime_model.py`'s own filter yet get equity regime labels in IC stratification and ensemble scoring. This phase fixes the `fi_*` bonds via the rates group. Decisions made (first-principles, not re-opened for user input):
 
 - **Unrouted-until-group-enabled symbols (GLD/SLV/VNQ, IBIT):** exclude from regime-stratified IC with loud startup logging of unrouted symbols, NOT the plan's original silent default-to-equity (fixed in the plan doc's `_build_symbol_regime_class` — omits unmatched symbols, raises `AmbiguousRegimeGroupError` on multi-match, never defaults to `"equity"`). Pooled IC still covers them; no data lost. "Silent wrong answers are worse than loud crashes."
-- **Crypto lumped into the `fx` group (2026-07-07 decision):** IBIT's `tag_filter` match is `fx` (`docs/plans/2026-07-01-cross-sectional-regime-model.md` fx group now matches `["fx_*", "crypto"]`), not a standalone `crypto` group — N=1 crypto instrument doesn't support its own regime signal module, and both are macro-liquidity-driven, single-symbol-per-exposure assets. **Update 2026-08-06: `fx` is now enabled (migration 280) — IBIT is live-routed, no longer unrouted.** Revisit the grouping if the crypto sleeve grows past N=1 (6 crypto-tagged symbols as of 2026-08-07, only 2 with backfilled data — see todo 224's closure).
+- **Crypto lumped into the `fx` group (2026-07-07 decision):** IBIT's `tag_filter` match is `fx` (`docs/plans/archive/2026-07-01-cross-sectional-regime-model.md` fx group now matches `["fx_*", "crypto"]`), not a standalone `crypto` group — N=1 crypto instrument doesn't support its own regime signal module, and both are macro-liquidity-driven, single-symbol-per-exposure assets. **Update 2026-08-06: `fx` is now enabled (migration 280) — IBIT is live-routed, no longer unrouted.** Revisit the grouping if the crypto sleeve grows past N=1 (6 crypto-tagged symbols as of 2026-08-07, only 2 with backfilled data — see todo 224's closure).
 - ~~**Commodity/fx group enablement is blocked** on todo 041 (tag exposure-vs-sensitivity taxonomy audit) — OIH/XLE/XOP carry both `eq_*` and `commodity_energy_*` tags and will raise `AmbiguousRegimeGroupError` the moment `commodity_energy` is enabled.~~ **Resolved 2026-08-07 (todo 224, migration 306), without a standalone todo 041 audit ever being filed or run.** `fx` enabled 2026-08-06; `commodity_energy`/`commodity_metals`/`commodity_agri` unified into one `commodity` group (27 members) and enabled. The `OIH`/`XLE`/`XOP`/`AMLP`/`GDX` collision was resolved via a new, explicit, tested `exclude_symbols` field on `_build_symbol_regime_class` (they keep routing to `equity` for Job 2, unchanged from before) rather than a formal taxonomy audit — Phase 146's tag calibrator (`instrument_tags.weight`/`loading`/`source`, closed 2026-07-17) already supplies the categorical-vs-sensitivity distinction "todo 041" was meant to formalize. Full detail: `.planning/todos/completed/224-commodity-fx-regime-group-reenablement-decision-todo-041.md`.
 - Job-1 peer-set purity (OIH/XLE staying in equity breadth despite commodity sensitivity tags) is NOT a blocker — defensible by convention (equity sector funds), revisit only if Phase 146 tag calibration shows material contamination. Confirmed still the case 2026-08-07: these symbols remain full `equity`-breadth peers by design (todo 224's `exclude_symbols` only scopes Job 2's single-label routing).
 

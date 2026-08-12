@@ -122,7 +122,7 @@ the universal fix before Step 2 distinguishes these two hypotheses per-symbol.
 
 **Step 2 — Root cause analysis (1 hour). Partially run 2026-07-02, on SPY only (TLT excluded
 from this specific comparison — its cross-sectional label is itself contaminated, see
-`docs/plans/2026-07-01-cross-sectional-regime-model.md` and the 2026-07-01 architecture review
+`docs/plans/archive/2026-07-01-cross-sectional-regime-model.md` and the 2026-07-01 architecture review
 §4 — comparing TLT's per-symbol HMM against a cross-sectional label that was never computed
 with TLT's own regime in mind is not a fair test):**
 Compare IC separation across: (a) current labels (full-history fit) — done, see Step 1 table;
