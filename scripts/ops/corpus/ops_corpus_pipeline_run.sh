@@ -325,6 +325,21 @@ run_step 2 "regime_writer" \
     "$PYTHON" services/regime_writer.py \
     "${SPACE_SYMBOLS[@]}"
 
+# Step 2 (volatility) — Regime Writer, regime_volatility family (Phase 172).
+# One regime_writer.py invocation writes exactly one column family (--regime-column
+# defaults to "regime"; "regime_volatility" is a second, separate pass) -- this
+# script previously only ran the legacy-family pass, which left
+# feature_vectors.regime_volatility all-NULL going into step 5. ic_engine.py's
+# startup gate hard-fails on that ("IC Engine startup gate FAILED:
+# feature_vectors.regime_volatility is all-NULL") -- found 2026-08-12 reading the
+# gate before launching a full-corpus run, previously undocumented (see todo 285).
+# Reuses step number 2 (not a new numbered step) so --from-step semantics and
+# existing operator muscle memory for resuming at a specific step are unaffected.
+run_step 2 "regime_writer_volatility" \
+    "$PYTHON" services/regime_writer.py \
+    --regime-column regime_volatility \
+    "${SPACE_SYMBOLS[@]}"
+
 # Corpus consistency gate — abort if symbols have divergent regime label sets
 check_regime_consistency
 
