@@ -7,6 +7,33 @@ source: throughput brainstorm following todo 215 -- todo 215 already falsified b
   algorithmic lever on the same hot path
 ---
 
+## Status update 2026-08-12 -- deploy decision made, flag flipped
+
+Flipped `alpha.ic.bootstrap_early_stop.enabled` true (config_state version 2), ahead of
+the post-231-symbol-expansion full corpus recompute launched this session (still on
+step 1/8 at flip time). Triggered by a user-requested throughput investigation into why
+the corpus pipeline takes ~70 hours -- `logs/corpus_pipeline/step_timings.jsonl` confirmed
+`ic_engine` (step 5) alone is 98% of that (252,641s), and this is the one built-but-unused
+lever directly targeting the confirmed hot loop (todo 215's `rankdata`-in-`_resample_ic`
+finding).
+
+**Validated first, not flipped blind** -- isolated benchmark (no DB writes, no
+ProcessPoolExecutor, zero contention with the live pipeline) calling the actual
+`services/ic_engine.py::_subsample_and_rank` against real SPY/QQQ 1d price-derived
+features/returns (`market_data_ohlcv`, not synthetic data): **1.52x (SPY) / 2.13x (QQQ)
+speedup, 0/80 significance-gate flips** (`ci_lower>0 or ci_upper<0` check, the actual
+property `ensemble_trainer`/`alpha_publisher` consume), max CI diff ~0.002 -- bounded
+right at the configured `tol`, as designed.
+
+**Scope caveat, honestly stated:** 2 symbols, 1 timeframe (1d), 40 hand-built features
+(not the full ~244 production feature set), and a rough forward-return construction (not
+routed through the real `forward_return_writer.py`). Real statistical structure (actual
+price series), not a full-universe guarantee. The live corpus recompute currently running
+is the actual full-scale confirmation this todo's original close condition called for --
+**do not close this todo until that run completes and step 5's wall-clock time / a
+significance-gate diff check against the pre-flip corpus (if one exists) confirms no
+regression at full scale.**
+
 ## Status update 2026-08-05
 
 **Step 1 (design decision) RESOLVED**: grepped every downstream consumer of
