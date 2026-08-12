@@ -12,7 +12,7 @@
 
 - No behavior change to `frame_gate_passes` or `evaluate_frame_gate` — moved verbatim, not rewritten.
 - `services/counterfactual_tracker.py` and `services/cross_sectional_spread_tracker.py`'s existing test suites (`tests/unit/test_counterfactual_tracker.py`, `tests/unit/test_counterfactual_tracker_exit_priority.py`, `tests/unit/test_cross_sectional_spread_tracker.py`) must pass unmodified — zero edits to those test files anywhere in this plan.
-- No live wiring: this plan does not touch `alpha_publisher.py`, `ensemble_trainer.py`, or any construction. Per `docs/plans/2026-08-04-stratum-expectancy-gate-design.md`'s explicit non-goal.
+- No live wiring: this plan does not touch `alpha_publisher.py`, `ensemble_trainer.py`, or any construction. Per `docs/plans/archive/2026-08-04-stratum-expectancy-gate-design.md`'s explicit non-goal.
 - No persisted verdict table, no row-assembly helpers — out of scope per the design doc.
 - Ring rules: `gate_math.py` lives in Ring 1 (`src/intelligence/statistics/`) since `regime`/`direction` are domain vocabulary (fails Ring 0's portability test), matching `ic_math.py`'s own placement. `services/` (Ring 2) importing from `src/intelligence/` (Ring 1) is explicitly permitted per `docs/foundation/naming-system.md` §2.
 
@@ -539,7 +539,7 @@ def evaluate_stratum_expectancy_gate(
     entirely to `evaluate_frame_gate` with `group_key=lambda r: (r["regime"],
     r["direction"])` -- no bootstrap logic is reimplemented here, matching
     `evaluate_spread_gate`'s own precedent in `cross_sectional_spread_tracker.py`
-    (design decision: docs/plans/2026-08-04-stratum-expectancy-gate-design.md).
+    (design decision: docs/plans/archive/2026-08-04-stratum-expectancy-gate-design.md).
 
     Answers the question todo 179 (.planning/todos/completed/179-gate166-concurrent-
     exposure-diagnostic.md) had to answer by hand: does a given regime x direction

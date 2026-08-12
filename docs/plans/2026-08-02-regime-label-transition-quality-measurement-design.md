@@ -90,7 +90,7 @@ headline statistic in this spec's first draft. It deserves its own todo. This sp
 not fix it - it works around it with the joinable restriction - but it must not be
 silently inherited by the next reader.
 
-**Sibling diagnostic, different consumer:** `docs/plans/2026-07-15-regime-boundary-churn-diagnostic-design.md`
+**Sibling diagnostic, different consumer:** `docs/plans/archive/2026-07-15-regime-boundary-churn-diagnostic-design.md`
 (todo 080/L5-1) investigates the same hard-threshold `_bucket()`/`_assign_labels()`
 mechanics from a different angle - whether hard-argmax regime *scoring* in
 `ensemble_trainer.py` churns `alpha_score` at boundary crossings, not whether regime

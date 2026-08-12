@@ -35,7 +35,7 @@ psycopg2 in `cross_sectional_regime_model.py`), pytest (`tests/unit/`, `tests/in
   migration numbered above the cutoff — migration 236 (Task 1) will be picked up automatically,
   no conftest changes needed.
 - Never log per-row inside a loop over the full corpus — not applicable here (no new loops added).
-- Design reference: `docs/plans/2026-07-16-market-data-ohlcv-active-bars-boundary-design.md` —
+- Design reference: `docs/plans/archive/2026-07-16-market-data-ohlcv-active-bars-boundary-design.md` —
   read it for full rationale; this plan implements its Decisions 1-3 exactly, don't re-derive them.
 
 ---
@@ -63,7 +63,7 @@ psycopg2 in `cross_sectional_regime_model.py`), pytest (`tests/unit/`, `tests/in
 -- (2026-07-16) that 99.998% of "real" ibkr_named/volume=0 rows are perfectly flat OHLC,
 -- informationally identical to synthetic_fill. volume > 0 excludes both classes with a
 -- single NOT NULL integer comparison -- no source-column dependency, no NULL handling
--- needed. See docs/plans/2026-07-16-market-data-ohlcv-active-bars-boundary-design.md for
+-- needed. See docs/plans/archive/2026-07-16-market-data-ohlcv-active-bars-boundary-design.md for
 -- the full audit and the predicate-choice rationale (Decision 1).
 --
 -- This is a plain (non-materialized) view: Postgres inlines it into the query plan, so
@@ -436,7 +436,7 @@ frontmatter), then move it with `git mv .planning/todos/pending/035-market-ohlcv
 
 ## Resolution (2026-07-16)
 
-Closed via `docs/plans/2026-07-16-market-data-ohlcv-active-bars-boundary-design.md` +
+Closed via `docs/plans/archive/2026-07-16-market-data-ohlcv-active-bars-boundary-design.md` +
 `docs/plans/2026-07-16-market-data-ohlcv-tradeable-boundary-plan.md`. Built the single-boundary
 view this todo asked for (`market_data_ohlcv_tradeable`, migration 236), fixed the 3 live
 call sites that had zero filtering (`cross_sectional_regime_model.py`, `counterfactual_tracker.py`
@@ -457,7 +457,7 @@ todo 124 — not fixed here.
 status: pending
 priority: P3
 filed: 2026-07-16
-source: split from todo 035's full-tree audit (docs/plans/2026-07-16-market-data-ohlcv-active-bars-boundary-design.md)
+source: split from todo 035's full-tree audit (docs/plans/archive/2026-07-16-market-data-ohlcv-active-bars-boundary-design.md)
 ---
 
 # 124 — `market_data_ohlcv_tradeable` view: Tier-2 file audit
@@ -483,7 +483,7 @@ completeness checks may intentionally count against the full grid), migrate to
 
 ## References
 
-- `docs/plans/2026-07-16-market-data-ohlcv-active-bars-boundary-design.md` — full audit,
+- `docs/plans/archive/2026-07-16-market-data-ohlcv-active-bars-boundary-design.md` — full audit,
   per-file classification as of 2026-07-16
 - `tests/unit/test_market_data_ohlcv_boundary.py` — the allow-list to shrink as files are
   reviewed

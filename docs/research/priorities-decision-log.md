@@ -24,7 +24,7 @@ planning doc.** It goes stale within hours and is a recurring source of drift. S
 ## The locked sequencing chain — rationale
 
 **Decision (2026-07-10, project owner confirmed; reaffirmed 2026-07-11 twice; full detail:
-`docs/plans/2026-07-11-ic-quality-and-sign-symmetry-strategy.md`):** todos 093 → 091 → 097 → 094
+`docs/plans/archive/2026-07-11-ic-quality-and-sign-symmetry-strategy.md`):** todos 093 → 091 → 097 → 094
 → [E1-vs-E2 A/B re-run] → 096 → 088 must run in this order, not in parallel or reordered by tier.
 
 **Why:** 091, 097, and 094 all read or directly affect `ic_ci_lower`/`ic_ci_upper`, and 094

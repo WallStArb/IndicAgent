@@ -112,7 +112,7 @@ corrected transition-flicker rate is 52.1% on equity/5m, 95.7% on rates/5m, not 
 reported). Cross-linked to a sibling todo (080/L5-1, ensemble-scoring boundary churn — different
 consumer, not a duplicate; 005 should resolve first since its fix would reduce the flicker 080's
 never-yet-run diagnostic would otherwise read as artifact) and to
-`docs/plans/2026-07-15-regime-boundary-churn-diagnostic-design.md` (that todo's own prerequisite
+`docs/plans/archive/2026-07-15-regime-boundary-churn-diagnostic-design.md` (that todo's own prerequisite
 doc, which found `regime_prob_vector` is raw signal values, not a posterior — a premise 080's own
 text still asserted uncorrected until this pass caught it). Not yet an implementation plan; next
 step if pursued is planning the diagnostic script itself.

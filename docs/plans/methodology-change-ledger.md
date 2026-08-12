@@ -582,7 +582,7 @@ computed over this contaminated input.
 (`WHERE volume > 0`, migration 236) instead of the raw table. No other files' filtering changed
 — `regime_writer.py`/`forward_return_writer.py`/`backfill_feature_factory.py` already used
 `volume > 0` inline and were confirmed correct by the same audit (see
-`docs/plans/2026-07-16-market-data-ohlcv-active-bars-boundary-design.md`), not touched.
+`docs/plans/archive/2026-07-16-market-data-ohlcv-active-bars-boundary-design.md`), not touched.
 `services/bar_auditor.py` and `scripts/debug/analysis/debug_batch_agent_memory.py` also read the
 raw table via JOIN, found by the same regex-widening pass, but are correctly left unfiltered
 (gap-detection auditor that needs the full calendar grid; dead v2.x code respectively) — allow-listed,

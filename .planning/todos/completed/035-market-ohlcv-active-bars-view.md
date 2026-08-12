@@ -46,7 +46,7 @@ this is a maintainability follow-up, not a bug.
 
 ## Resolution (2026-07-16)
 
-Closed via `docs/plans/2026-07-16-market-data-ohlcv-active-bars-boundary-design.md` +
+Closed via `docs/plans/archive/2026-07-16-market-data-ohlcv-active-bars-boundary-design.md` +
 `docs/plans/2026-07-16-market-data-ohlcv-tradeable-boundary-plan.md`. Built the single-boundary
 view this todo asked for (`market_data_ohlcv_tradeable`, migration 236), fixed the 3 live
 call sites that had zero filtering (`cross_sectional_regime_model.py`, `counterfactual_tracker.py`

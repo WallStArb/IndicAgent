@@ -31,7 +31,7 @@ verdict computation — unit-testable without a DB) and a thin async fetch/orche
 - Decision gate (both required per `tf`): boundary-adjacent timestamps ≥5% of all
   timestamps; median boundary-crossing effect size ≥1.5× the clean (same-regime-only)
   noise floor.
-- Spec: `docs/plans/2026-07-15-regime-boundary-churn-diagnostic-design.md`.
+- Spec: `docs/plans/archive/2026-07-15-regime-boundary-churn-diagnostic-design.md`.
 
 ---
 
@@ -92,7 +92,7 @@ Expected: FAIL with `ModuleNotFoundError: No module named 'scripts.analysis.regi
 Read-only. Measures whether hard-argmax cross-sectional regime-label boundary crossings
 are a materially destructive source of alpha_score discontinuity, per a pre-committed
 decision gate, BEFORE any soft-blending scoring mechanism is designed. See
-docs/plans/2026-07-15-regime-boundary-churn-diagnostic-design.md for full rationale.
+docs/plans/archive/2026-07-15-regime-boundary-churn-diagnostic-design.md for full rationale.
 
 Decision gate, per (regime_group, tf) -- both required:
   1. Boundary-adjacent timestamps are >= BOUNDARY_ADJACENT_FRACTION_GATE of all timestamps.

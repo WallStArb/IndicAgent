@@ -42,7 +42,7 @@ assumption that both are the same underlying issue — **that was wrong and has 
 This todo is a locked, project-owner-confirmed step in its own right: `.planning/todos/PRIORITIES.md`'s
 explicit sequencing decision ("Do not reorder without re-confirming with the project owner")
 and multiple frozen phase artifacts (`.planning/phases/143.1-.../143.1-CONTEXT.md`,
-`143.1-RESEARCH.md`, `docs/plans/2026-07-11-ic-quality-and-sign-symmetry-strategy.md`) all treat
+`143.1-RESEARCH.md`, `docs/plans/archive/2026-07-11-ic-quality-and-sign-symmetry-strategy.md`) all treat
 096 and 088 as **distinct, separately sequenced** items — 096 runs read-only/in-parallel, 088
 runs deliberately **last**, specifically because "calibrating against a possibly-mismatched
 horizon (096)... would produce a well-tuned wrong number" (143.1-CONTEXT.md). Merging them would

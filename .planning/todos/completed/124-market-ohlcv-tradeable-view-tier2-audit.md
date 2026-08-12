@@ -3,7 +3,7 @@ status: done
 priority: P1
 filed: 2026-07-16
 closed: 2026-07-31
-source: split from todo 035's full-tree audit (docs/plans/2026-07-16-market-data-ohlcv-active-bars-boundary-design.md)
+source: split from todo 035's full-tree audit (docs/plans/archive/2026-07-16-market-data-ohlcv-active-bars-boundary-design.md)
 reclassified: 2026-07-20 -- P3->P1, "style/DRY only" claim below is now WRONG for
   backfill_feature_factory.py; see "2026-07-20 correction" section
 ---
@@ -152,7 +152,7 @@ migration used the same raw-table read and reproduced the same corruption).
 
 ## References
 
-- `docs/plans/2026-07-16-market-data-ohlcv-active-bars-boundary-design.md` — full audit,
+- `docs/plans/archive/2026-07-16-market-data-ohlcv-active-bars-boundary-design.md` — full audit,
   per-file classification as of 2026-07-16
 - `tests/unit/test_market_data_ohlcv_boundary.py` — the allow-list to shrink as files are
   reviewed

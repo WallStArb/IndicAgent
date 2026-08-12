@@ -610,7 +610,7 @@ Plans:
 ### Phase 141: Corpus Quality Gate + IC Validation + HMM JIT ✅ COMPLETE 2026-06-29
 
 **Plan:** `docs/plans/2026-06-28-validity-fixes-and-phase-141.md` (Tasks 1-10) — **doc not found** (checked 2026-07-12; Phase 141 is complete, so this is historical drift only)
-**Obstacle map:** `docs/plans/2026-06-28-renaissance-obstacle-map.md`
+**Obstacle map:** `docs/plans/archive/2026-06-28-renaissance-obstacle-map.md`
 
 **Goal:** Fix two validity threats in the corpus, rerun affected pipeline steps, validate IC on the clean corpus, and ship HMM Numba JIT (40x speedup needed before primitives expansion).
 
@@ -1091,7 +1091,7 @@ fable-2026-07-07-renaissance-layer-refinements.md` §12: "the v3.15 batched reru
 landing window for everything measurement-shaped... running them piecemeal burns rerun cycles").
 Full design worked out via a completed `superpowers:brainstorming` session (2026-07-11) and an
 independent Fable architectural review verified against the live DB — see
-`docs/plans/2026-07-11-ic-quality-and-sign-symmetry-strategy.md` for the sequencing rationale
+`docs/plans/archive/2026-07-11-ic-quality-and-sign-symmetry-strategy.md` for the sequencing rationale
 this phase implements.
 
 **Component A — Fisher-z CI bootstrap fix (todo 091, P0).** The analytic Fisher-z CI used by
@@ -1369,7 +1369,7 @@ bug that excludes all contrarian features from ensemble eligibility, both of whi
 affect the `ic_ci_lower`/`ic_ci_upper` values any regime-separation analysis here would read.
 This is a *separate, earlier* `ic_engine` re-run from the one described immediately below for
 Phase 144's own batch — not the same pass. See Phase 143.1's entry and
-`docs/plans/2026-07-11-ic-quality-and-sign-symmetry-strategy.md` for detail.
+`docs/plans/archive/2026-07-11-ic-quality-and-sign-symmetry-strategy.md` for detail.
 
 **Batched into one `ic_engine` re-run** (topdown D5): Phase 144 (`regime_group`) + todo 026 P3
 (empirical vix/breadth threshold calibration — P2b/P2c already shipped 2026-07-06 via Phase 143

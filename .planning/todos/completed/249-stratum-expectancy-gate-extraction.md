@@ -42,8 +42,8 @@ real consumer needs it.
 
 ## Design + plan
 
-- Design doc: `docs/plans/2026-08-04-stratum-expectancy-gate-design.md`
-- Implementation plan: `docs/plans/2026-08-04-stratum-expectancy-gate-plan.md` (4 tasks:
+- Design doc: `docs/plans/archive/2026-08-04-stratum-expectancy-gate-design.md`
+- Implementation plan: `docs/plans/archive/2026-08-04-stratum-expectancy-gate-plan.md` (4 tasks:
   extraction + equivalence test, repoint `counterfactual_tracker.py`, repoint
   `cross_sectional_spread_tracker.py`, add `evaluate_stratum_expectancy_gate` + tests)
 
