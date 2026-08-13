@@ -8,7 +8,13 @@ plan." Full reasoning trail lives in that conversation; this file is the durable
 distillation.
 **Status:** pending, not urgent. **Stage 1 (mechanism build + validation) run 2026-08-12,
 PASSED** — see Result section below. Explicitly **not a build task overall** — full Stage 2/3
-falsification still gated on a data-availability check below.
+falsification still gated on a data-availability check below. **Update 2026-08-13: the corpus
+pipeline run this was gated on FAILED at step 2** (768GB disk-full incident, migration 312
+missing VACUUM — see `project_disk_full_incident_2026_08_13` memory). `regime` and
+`regime_volatility` are both still 0-populated across all 69.9M `feature_vectors` rows as of this
+writing (not "not yet reached," actually failed and not recovered). **No Stage 2/3 work has
+happened — this candidate regime has never been built past Stage 1.** Do not assume the gate
+below has cleared without re-querying.
 
 **Pre-registered design doc written 2026-08-12** (this todo's own Step 1 requirement, satisfied
 retroactively): `docs/research/measurement-per-symbol-trend-regime.md` — full Stage 2/3 design,

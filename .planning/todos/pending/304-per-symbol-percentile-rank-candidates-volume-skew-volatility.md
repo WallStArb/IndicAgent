@@ -9,7 +9,11 @@ different mechanism family — Hurst/autocorrelation, not percentile-rank). Keep
 don't merge into one todo, they have different reuse plans.
 **Status:** pending. Mechanism build + mechanism validation can run now (no corpus dependency —
 see Stage 1 below); the full IC substitution test is gated on the corpus pipeline currently
-running in a separate session finishing.
+running in a separate session finishing. **Update 2026-08-13: that corpus pipeline run FAILED at
+step 2** (768GB disk-full incident — see `project_disk_full_incident_2026_08_13` memory).
+`regime_volatility` is still 0-populated across all 69.9M `feature_vectors` rows. **Stage 2/3
+never ran — this candidate has never been built past Stage 1.** Re-query before assuming the
+gate cleared.
 
 **Pre-registered design doc written 2026-08-12**: `docs/research/measurement-per-symbol-percentile-rank-candidates.md`
 — full Stage 2/3 design including the mandatory null-arm control (shared harness design with
