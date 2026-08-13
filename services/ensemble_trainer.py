@@ -74,6 +74,7 @@ from src.intelligence.ensemble import (
 )
 from src.intelligence.features.feature_vector_persistence import (
     REGIME_VOLATILITY_WRITER_OWNED_COLUMN_NAMES,
+    REGIME_WRITER_OWNED_COLUMN_NAMES,
 )
 from src.intelligence.schemas import FeatureVector
 from src.observability.corpus_manifest import CorpusManifest
@@ -437,21 +438,23 @@ async def _get_feature_columns(conn: asyncpg.Connection) -> list[str]:
             "feature_factory_version",
             "feature_vector_id",
             "pipeline_version",
-            "regime",
             "regime_label_source",
             "created_at",
             # regime_writer.py's UPDATE ... WHERE regime IS NULL pass is the
-            # sole writer of these 3 (todo 207, 2026-07-30); coverage is
-            # inherently partial, so an unlabeled row's NULL here is not
-            # "no signal" the way it is for a genuine feature -- without this
-            # exclusion it gets silently imputed to 0.0 below (outside the
-            # real support of a dominant-state probability), a fabricated
-            # value training would otherwise never detect.
-            "hmm_regime_prob",
-            "hmm_entropy",
-            "hmm_duration",
-            # regime_volatility family (Phase 172): same reasoning as the 3
-            # hmm_regime_prob/hmm_entropy/hmm_duration columns above -- the
+            # sole writer of this whole family (todo 207, 2026-07-30; all 8
+            # members, todo 287, 2026-08-12 -- previously only 4 of 8 were
+            # excluded here, silently imputing NULL hmm_prob_trending_up/
+            # hmm_prob_ranging/hmm_prob_trending_down/hmm_churn to a
+            # fabricated 0.0 for the same partially-labeled rows the other 4
+            # were already protected on). Coverage is inherently partial, so
+            # an unlabeled row's NULL here is not "no signal" the way it is
+            # for a genuine feature. Imported from feature_vector_persistence
+            # (single source of truth, same rule as the sibling family below)
+            # rather than re-typed so this list and the Ring 1 ownership
+            # tuple cannot drift apart again.
+            *REGIME_WRITER_OWNED_COLUMN_NAMES,
+            # regime_volatility family (Phase 172): same reasoning as the
+            # legacy regime family above -- the
             # volatility walk-forward labeling path writes nothing for warmup
             # prefix bars or degenerate segments, so a NULL here is not "no
             # signal" and must not reach the 0.0 imputation below. Imported

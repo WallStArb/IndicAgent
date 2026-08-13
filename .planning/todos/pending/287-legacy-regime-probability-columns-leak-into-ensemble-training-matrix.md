@@ -3,7 +3,13 @@
 **Filed:** 2026-08-09
 **Source:** Phase 172 plan 02, Task 2 (discovered while adding the parallel
 `regime_volatility` exclusion, out of that task's own scope)
-**Status:** pending, not blocking
+**Status:** **Fix landed 2026-08-12** (uncommitted as of writing) — see "Fix" section below for
+what changed. **Impact assessment (sizing the correction, re-running `ensemble_trainer`) still
+open** — do not close this todo until that's done. **Update 2026-08-13:** the corpus pipeline run
+this was banking on to reach step 7 automatically FAILED at step 2 (disk-full incident, see
+`project_disk_full_incident_2026_08_13` memory) — `ensemble_trainer` never ran. This fix still
+needs its own explicit `ensemble_trainer` re-run once the pipeline is recovered; don't assume it
+happened.
 
 ## The bug
 
@@ -42,6 +48,22 @@ column family's plan should silently bundle a fix for. Filed here instead, per p
 instruction not to change legacy behavior in-plan.
 
 ## Fix
+
+**Landed 2026-08-12, shape changed from the original proposal below (equivalent result, more
+robust to future drift):** instead of hand-typing the 4 missing names, replaced the existing
+hand-typed 4-name subset (`regime`/`hmm_regime_prob`/`hmm_entropy`/`hmm_duration`) with
+`*REGIME_WRITER_OWNED_COLUMN_NAMES` (imported from `feature_vector_persistence.py`) — the same
+single-source-of-truth pattern already used two lines below for the sibling
+`REGIME_VOLATILITY_WRITER_OWNED_COLUMN_NAMES` family. This closes the exact class of bug this
+todo describes permanently: the exclusion list and the Ring 1 ownership tuple can no longer
+drift apart, because there is only one list now. Added regression test
+`test_legacy_regime_family_fully_excluded_from_feature_matrix` in
+`tests/unit/test_ensemble_trainer_meta_cols.py` (the pre-existing test file only stubbed the 4
+already-protected columns, so it could not have caught this leak) — asserts the full 8-column
+family via the same shared constant. 4/4 tests in that file pass; full `tests/unit/` suite green
+(`tail -60` confirmed no failures); ruff/black clean.
+
+Original proposal (superseded by the above, kept for the record):
 
 Add the 4 missing names to `services/ensemble_trainer.py::_get_feature_columns`'s `_META_COLS`:
 
