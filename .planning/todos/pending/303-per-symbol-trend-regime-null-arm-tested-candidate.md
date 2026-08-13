@@ -126,6 +126,21 @@ checks:
 `regime_volatility`) and Stage 3 (falsification bar + mandatory null-arm control) remain gated
 on the concurrent corpus pipeline finishing.
 
+## Progress (2026-08-13)
+
+**Stage 2 script built, not yet run.** `scripts/analysis/per_symbol_regime_candidates_stage2_orthogonality.py`
+— written while `regime_writer`'s recovery re-run (todo 306) was mid-flight, so it's ready to
+execute the moment `regime_volatility` lands rather than losing more idle time afterward. Shared
+with todo 304 per both design docs' "write once, share" instruction — one script measures
+Pearson correlation + normalized mutual information for all 5 candidates (`hurst_rank`,
+`autocorr_rank` here; `volatility_pct`/`skew_tail`/`volume_pct` from todo 304) against
+`feature_vectors.regime_volatility` in one pass. Smoke-tested against live OHLCV (candidate
+computation reproduces Stage 1's exact distribution numbers, mean~0.5/std~0.29) and a synthetic
+regime-label fixture (orthogonality math confirmed correct); the real run against actual
+`regime_volatility` data has not happened — script has a hard data-readiness gate (refuses to run
+while a `regime_writer` process is alive, or if `regime_volatility` is still 0-populated) so it
+cannot be run prematurely. Still no output, no numbers, no APR default set — nothing to cite yet.
+
 ## Where
 
 - `docs/research/stratification-dimension-unification.md` — existing candidate table, Gate 0
@@ -134,6 +149,8 @@ on the concurrent corpus pipeline finishing.
   design doc
 - `services/regime_writer.py` — the per-symbol HMM host, future production home if Step 3 is
   ever reached
+- `scripts/analysis/per_symbol_regime_candidates_stage2_orthogonality.py` — Stage 2 script,
+  built and ready, not yet run (see Progress above)
 - Standing null-arm rule: project memory `project_hmm_regime_volatility_only_redesign_2026_08_08`
   ("any future HMM regime candidate must clear a null-arm control before its numbers are
   trusted") — this todo extends that rule to non-HMM trend mechanisms too, same lesson

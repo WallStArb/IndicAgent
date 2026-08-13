@@ -46,6 +46,32 @@ and every other regime-stratified measurement in this project are blocked on thi
    populated, then unblock todos 303/304 (Stage 2/3) and `statistical_factor_residual` (Stage 3)
    -- all three are waiting on exactly this.
 
+## Progress (2026-08-13, post-reboot)
+
+- Step 1 (services): reboot itself reset the systemd restart burst limit --
+  `indicagent-feature-vector-pipeline`/`-writer` came back `active (running)` on their own, no
+  manual `reset-failed` needed.
+- Step 2 (OHLCV stall root cause): diagnosed. `indicagent-ibkr-provider.service` is `disabled`
+  and has **never been active** (`ActiveEnterTimestamp` empty) -- this project's live 1m
+  ingestion path is the `indicagent-nightly-backfill.timer` (05:00 UTC), not a continuously
+  running IBKR streaming daemon. `ib-gateway` container logs show it stuck in a **Second Factor
+  Authentication retry loop** since the reboot (login attempt -> 2FA prompt times out after
+  ~5-15min -> re-login -> repeat), and the two most recent nightly-backfill runs
+  (2026-08-12, 2026-08-13) both logged `nightly_backfill.skipped_concurrent_run` and produced
+  near-zero rows -- consistent with the gateway never completing 2FA on either day. **Needs the
+  user's phone (IB Key push approval) -- not fixable from the CLI.** Not yet resolved as of this
+  writing.
+- Step 3 (regime_writer re-run): launched 2026-08-13 18:50 UTC, both passes chained (`regime`
+  first, then `regime_volatility`), via `nohup ... & disown` so it survives terminal/session
+  boundaries -- same invocation as `ops_corpus_pipeline_run.sh` step 2 (no `--symbols`, defaults
+  to full corpus). Confirmed alive and converging cleanly (12 workers, walk-forward HMM) 15s
+  after launch. Postgres confirmed out of recovery mode and disk at 720G free before launch.
+  Expected runtime ~9.66h (regular) + ~5.3min (volatility), matching the pre-crash run's timing.
+  Log: `logs/regime_writer.log`; wrapper exit codes: `logs/regime_writer_relaunch.log`.
+- Step 4 (resume vs. restart `ops_corpus_pipeline_run.sh`): not yet decided -- pending step 3
+  finishing and a fresh look at whether step 1's 2026-08-12 `feature_factory --compute-only`
+  output is still valid.
+
 ## Where
 
 - `systemctl status indicagent-feature-vector-pipeline indicagent-feature-vector-writer`

@@ -111,9 +111,24 @@ any candidate has predictive value. Stage 2 (orthogonality vs. `regime_volatilit
 (substitution test / simplification test) remain gated on the concurrent corpus pipeline
 finishing (`feature_vectors.regime_volatility` still 0-populated as of this run).
 
+## Progress (2026-08-13)
+
+**Stage 2 script built, not yet run.** `scripts/analysis/per_symbol_regime_candidates_stage2_orthogonality.py`
+— shared with todo 303 per both design docs' "write once, share" instruction, written while
+`regime_writer`'s recovery re-run (todo 306) was mid-flight so it's ready to execute the moment
+`regime_volatility` lands. Covers all 5 candidates (`volatility_pct`/`skew_tail`/`volume_pct`
+here; `hurst_rank`/`autocorr_rank` from todo 303) in one pass — Pearson correlation + normalized
+mutual information against `feature_vectors.regime_volatility`. Smoke-tested against live OHLCV
+(candidate computation reproduces Stage 1's exact distribution numbers) and a synthetic
+regime-label fixture (orthogonality math confirmed correct). Has a hard data-readiness gate
+(refuses to run while `regime_writer` is alive or `regime_volatility` is 0-populated) — has not
+been run for real yet, no numbers exist.
+
 ## Where
 
 - `docs/research/stratification-dimension-unification.md` — candidate table, reconciliation
   pass item 16 (2026-08-12)
 - `src/intelligence/regime_signals/causal_rank.py`, `breadth_vol.py` — reusable mechanism
 - `scripts/analysis/` — where the Stage 1 pilot script belongs (see companion `statistical_factor_residual_k_selection_pilot.py` for the naming/structure convention)
+- `scripts/analysis/per_symbol_regime_candidates_stage2_orthogonality.py` — Stage 2 script,
+  built and ready, not yet run (see Progress above)
