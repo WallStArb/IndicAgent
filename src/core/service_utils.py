@@ -226,22 +226,6 @@ def should_skip_plugin(
     return False
 
 
-def normalize_session_type(value: str | None, default: str = "rth") -> str:
-    """Return a canonical session_type string, handling legacy enum repr format.
-
-    Old code serialised SessionType enums via str(), producing "SessionType.RTH"
-    instead of "rth". This function normalises both formats so services reading
-    from DB or Kafka are not affected by that legacy data.
-    """
-    st = value or default
-    if st.startswith("SessionType."):
-        name = st.split(".", 1)[1].upper()
-        from src.core.schemas.bar_message import SessionType  # local import avoids circular
-
-        st = SessionType.__members__.get(name, SessionType(default)).value
-    return st
-
-
 def parse_iso_ts(ts: str | bytes | datetime | None) -> datetime | None:
     """Parse ISO-8601 timestamp to UTC-aware datetime for asyncpg timestamptz columns.
 

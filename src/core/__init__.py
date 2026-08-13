@@ -10,6 +10,6 @@ All components are production-ready and focused.
 """
 
 from .database_manager import DatabaseManager
-from .models import DataSource, Timeframe
+from .models import Timeframe
 
-__all__ = ["Timeframe", "DataSource", "DatabaseManager"]
+__all__ = ["Timeframe", "DatabaseManager"]

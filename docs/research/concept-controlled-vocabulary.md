@@ -187,7 +187,7 @@ turned out to have no live column at all.)*
 | `signal_outcome` | `signal_outcome_type` (PG ENUM) | archived (SLA, 2026-07-02) | `wins`, `losses`, `timeouts` |
 | `entry_type` | `entry_type_type` (PG ENUM) | archived; plausibly revived by Phase 142B frame simulation | (none yet) |
 | `signal_status` | `signal_status_type` (PG ENUM) | archived (SLA, 2026-07-02) | `pending`/`active` (live), `expired`/`regime_suppressed` (terminal) |
-| `session_type` | none live - only archived v2.x tables (`intelligence_features`, `ml_signal_training`) carry it | archived | (do not seed; `normalize_session_type()` in `service_utils.py` is the only live vocabulary holder) |
+| `session_type` | none live - only archived v2.x tables (`intelligence_features`, `ml_signal_training`) carry it | archived | (do not seed; the legacy-enum-repr normalizer this row used to cite was deleted 2026-08-13 — zero callers, the bug it defended against didn't occur on any live write path) |
 
 **Out** — internal infrastructure codes users never see: `CircuitState`, `DataSource`, `TransitionType`.
 

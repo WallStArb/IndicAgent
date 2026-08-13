@@ -89,16 +89,6 @@ def topic_contract_updates(env_name: str) -> str:
     return f"{env_prefix(env_name)}market.events.contract_update"
 
 
-def topic_contracts_updated(env_name: str) -> str:
-    """Kafka topic for contract hot-reload events broadcast by roll-batch.
-
-    Published by roll_batch.py after a successful front-month promotion.
-    Daemons that cache get_active_contracts() at startup subscribe here to
-    self-heal on futures rolls without a manual service restart.
-    """
-    return f"{env_prefix(env_name)}contracts.updated"
-
-
 def topic_intelligence(env_name: str) -> str:
     """Kafka topic for I3–I6 intelligence pipeline output (IntelligenceEvent)."""
     return f"{env_prefix(env_name)}intelligence"

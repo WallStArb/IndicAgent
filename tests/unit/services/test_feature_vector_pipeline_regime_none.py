@@ -1,8 +1,9 @@
 """Regression test: the live path must never assign feature_vectors.regime itself.
 
 _process_bar_compute previously derived a heuristic regime label ("ranging"/
-"trending_up", never "trending_down") from cache.hmm_regime_prob/hmm_entropy --
-FeatureCache's fixed-params K=3 forward-filter HMM, a different model from
+"trending_up", never "trending_down") from FeatureCache's fixed-params K=3
+forward-filter HMM (cache.hmm_regime_prob/hmm_entropy, deleted outright
+2026-08-13 -- had been inert since the fix below), a different model from
 regime_writer.py's fitted, BIC-selected K=5 HMM. regime_writer.py's discovery
 (`SELECT DISTINCT symbol FROM feature_vectors WHERE regime IS NULL`) is
 symbol-level and restart-safe: once a row's regime is non-NULL, it is never
@@ -46,9 +47,11 @@ def _bar(ts: datetime, *, high: float, low: float, close: float, volume: int = 1
 @pytest.mark.unit
 @pytest.mark.asyncio
 async def test_process_bar_compute_never_assigns_regime():
-    """Live-path _process_bar_compute must publish regime=None regardless of
-    cache.hmm_regime_prob/hmm_entropy -- even when those values are high-confidence
-    enough that the old heuristic would have assigned a non-NULL label."""
+    """Live-path _process_bar_compute must publish regime=None -- regime_writer.py
+    is the sole writer. The heuristic this guards against (cache.hmm_regime_prob/
+    hmm_entropy driving a non-NULL label) is gone at the source now: those
+    FeatureCache fields were deleted outright 2026-08-13, so there is no cache
+    value left that could revive the old behavior."""
     agent = make_agent()
     agent._kafka_producer = AsyncMock()
     agent._bars_processed = MagicMock()
@@ -62,12 +65,6 @@ async def test_process_bar_compute_never_assigns_regime():
     agent._bar_history.append(bar1)
     agent._bar_history.append(bar2)
 
-    cache = agent._get_cache("SPY", "1m")
-    # Force the values that would have driven the old heuristic to its most
-    # confident non-NULL branch (hmm_prob >= 0.6, entropy < 0.5 -> "ranging").
-    cache.hmm_regime_prob = 0.95
-    cache.hmm_entropy = 0.1
-
     await agent._process_bar_compute(bar2, t0=0.0, gap=False)
     # publish() runs on a fire-and-forget asyncio.create_task() -- let it complete.
     if agent._background_tasks:
@@ -79,7 +76,5 @@ async def test_process_bar_compute_never_assigns_regime():
 
     assert record_dict["regime"] is None, (
         "Live path must never assign a regime label -- regime_writer.py is the "
-        f"sole writer. Got regime={record_dict['regime']!r} despite high-confidence "
-        "cache.hmm_regime_prob/hmm_entropy that would have triggered the old "
-        "removed heuristic."
+        f"sole writer. Got regime={record_dict['regime']!r}."
     )

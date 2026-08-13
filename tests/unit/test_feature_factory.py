@@ -409,57 +409,35 @@ class TestCalendarPrimitives:
 
 
 class TestRegimePrimitives:
-    def test_hmm_regime_prob_never_leaks_cache_value(self) -> None:
-        """FeatureVector.hmm_regime_prob must always be None from FeatureFactory,
-        regardless of what FeatureCache's inline K=3 forward-filter HMM computed.
+    def test_hmm_fields_always_none(self) -> None:
+        """FeatureVector.hmm_regime_prob/hmm_entropy/hmm_duration must always be
+        None from FeatureFactory -- regime_writer.py's fitted, BIC-selected K=5
+        HMM is the sole writer of these 3 columns (todo 205/207, 2026-07-30).
 
-        regime_writer.py's fitted, BIC-selected K=5 HMM is the sole writer of
-        this column (todo 205/207, 2026-07-30) -- FeatureCache's K=3 model was
-        never validated and, before this fix, its value silently leaked into
-        the same column name regime_writer owns, corrupting a live ML feature
-        with mixed-provenance rows (confirmed: 11% same-model-invariant
-        violation on SPY/1d). This test replaces
-        test_hmm_regime_prob_from_cache, which asserted the leak itself as
-        correct behavior.
+        FeatureCache used to carry its own inline K=3 forward-filter HMM whose
+        value silently leaked into these same column names, corrupting a live
+        ML feature with mixed-provenance rows (confirmed: 11% same-model-
+        invariant violation on SPY/1d). That cache-leak risk no longer exists
+        at all -- the 4 backing FeatureCache fields (hmm_regime_prob,
+        hmm_entropy, hmm_duration, _hmm_regime_label) were deleted outright
+        2026-08-13 (dead-code cleanup) after being inert since the 2026-07-30
+        fix. This test now just confirms FeatureFactory always emits None,
+        with no cache value left to leak from.
         """
         bars = _make_bars(60)
         config = _make_config()
         cache = _make_cache()
-        cache.hmm_regime_prob = 0.77  # even a confident K=3 value must not leak
         fv = FeatureFactory.compute(bars, "SPY", "1m", cache, config)
         assert fv.hmm_regime_prob is None
-
-    def test_hmm_entropy_never_leaks_cache_value(self) -> None:
-        """FeatureVector.hmm_entropy must always be None -- see
-        test_hmm_regime_prob_never_leaks_cache_value for full rationale.
-        Replaces test_hmm_entropy_from_cache."""
-        bars = _make_bars(60)
-        config = _make_config()
-        cache = _make_cache()
-        cache.hmm_entropy = 0.33
-        fv = FeatureFactory.compute(bars, "SPY", "1m", cache, config)
         assert fv.hmm_entropy is None
-
-    def test_hmm_duration_never_leaks_cache_value(self) -> None:
-        """FeatureVector.hmm_duration must always be None -- see
-        test_hmm_regime_prob_never_leaks_cache_value for full rationale.
-        No prior test covered hmm_duration specifically; added for parity."""
-        bars = _make_bars(60)
-        config = _make_config()
-        cache = _make_cache()
-        cache.hmm_duration = 12.0
-        fv = FeatureFactory.compute(bars, "SPY", "1m", cache, config)
         assert fv.hmm_duration is None
 
-    def test_hmm_fields_never_leak_cache_value_on_cold_start(self) -> None:
+    def test_hmm_fields_always_none_on_cold_start(self) -> None:
         """compute()'s cold-start path (<2 bars, _cold_start_vector) is a
-        separate code path from the main body above -- must not leak either.
+        separate code path from the main body above -- must also emit None.
         """
         config = _make_config()
         cache = _make_cache()
-        cache.hmm_regime_prob = 0.91
-        cache.hmm_entropy = 0.05
-        cache.hmm_duration = 30.0
         fv = FeatureFactory.compute([_make_bars(1)[0]], "SPY", "1m", cache, config)
         assert fv.hmm_regime_prob is None
         assert fv.hmm_entropy is None
@@ -616,20 +594,17 @@ class TestAcausalCanaryExclusionCheck:
         """FeatureCache.refresh_regime updates its still-live regime fields
         (hurst/shannon/garch_ratio/hma_slope_z/adx) in cache.
 
-        hmm_regime_prob/hmm_entropy/hmm_duration are deliberately excluded
-        from this assertion -- removed from refresh_regime() 2026-07-30
-        (todo 207) as dead compute (zero live consumer once FeatureFactory
-        stopped echoing them into FeatureVector; regime_writer.py's fitted
-        K=5 HMM is the sole writer of those 3 columns). They now stay
-        permanently at their dataclass defaults; see refresh_regime()'s
-        comment for the full removal rationale.
+        hmm_regime_prob/hmm_entropy/hmm_duration are not covered here -- removed
+        from refresh_regime() 2026-07-30 (todo 207) as dead compute (zero live
+        consumer once FeatureFactory stopped echoing them into FeatureVector;
+        regime_writer.py's fitted K=5 HMM is the sole writer of those 3
+        columns), then deleted outright from FeatureCache 2026-08-13.
         """
         bars = _make_bars(100)
         config = _make_config()
         cache = FeatureCache()
         # Initially default values
         assert cache.hurst == 0.5
-        assert cache.hmm_regime_prob == 0.0
         cache.refresh_regime(bars, config)
         # hurst/shannon/garch_ratio/hma_slope_z/adx should be set (finite)
         assert math.isfinite(cache.hurst)
@@ -637,9 +612,6 @@ class TestAcausalCanaryExclusionCheck:
         assert math.isfinite(cache.garch_ratio)
         assert math.isfinite(cache.hma_slope_z)
         assert math.isfinite(cache.adx)
-        # hmm_regime_prob must NOT be touched by refresh_regime() anymore --
-        # stays at its dataclass default.
-        assert cache.hmm_regime_prob == 0.0
         # bars_since_regime_refresh should be reset to 0
         assert cache.bars_since_regime_refresh == 0
 

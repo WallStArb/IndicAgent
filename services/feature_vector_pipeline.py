@@ -1560,8 +1560,8 @@ class FeatureVectorPipeline(BaseDaemon):
             self._pipeline_errors.add(1)
             return
 
-        # Advance per-bar cache state (above_wk_vwap, hmm_duration) after compute(),
-        # mirroring compute_batch()'s per-bar cache.advance_bar() call (todo 158).
+        # Advance per-bar cache state (above_wk_vwap) after compute(), mirroring
+        # compute_batch()'s per-bar cache.advance_bar() call (todo 158).
         cache.advance_bar(bar.ts, bar.high, bar.low, bar.close, float(bar.volume))
 
         # regime is always None here -- regime_writer.py is the sole writer of

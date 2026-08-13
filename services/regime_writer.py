@@ -2229,6 +2229,19 @@ def _run_symbol_worker(args: tuple) -> dict:
 # ---------------------------------------------------------------------------
 
 
+def _determine_run_status(total_updated: int, failures: list[str]) -> str:
+    """Classify a completed run as success or failure.
+
+    A run that attempted writes and failed every one of them (total_updated == 0
+    with at least one failure) is a hard failure, not a completion -- confirmed
+    2026-08-13 when a disk-full/Postgres-crash window caused every symbol/tf
+    write to fail while the run still logged as regime_writer.run_complete.
+    """
+    if failures and total_updated == 0:
+        return "failure"
+    return "success"
+
+
 def main() -> None:
     """Run regime labeler across all (symbol, tf) cells."""
     parser = argparse.ArgumentParser(description="Populate feature_vectors.regime via causal HMM")
@@ -2584,11 +2597,19 @@ def main() -> None:
             )
 
             if failures:
-                _logger.warning(
-                    "regime_writer.partial_failure",
-                    failed_cells=failures,
-                    note="Some cells failed; overall run still marked success if >0 cells completed",
-                )
+                status = _determine_run_status(total_updated, failures)
+                if status == "failure":
+                    _logger.error(
+                        "regime_writer.total_failure",
+                        failed_cells=failures,
+                        note="Zero rows written despite attempted work; treating as hard failure",
+                    )
+                else:
+                    _logger.warning(
+                        "regime_writer.partial_failure",
+                        failed_cells=failures,
+                        note="Some cells failed; overall run still marked success since some cells completed",
+                    )
 
     except Exception as error:
         status = "failure"

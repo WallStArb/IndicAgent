@@ -6,8 +6,6 @@ at startup, or simply prior bars appended earlier in the process). above_wk_vwap
 from its dataclass default instead of reflecting the true week-to-date volume-weighted
 price, silently wrong for up to ~7 days per restart (until the next ISO week boundary).
 
-hmm_duration is deliberately NOT warmed the same way -- see the rationale in
-services/feature_vector_pipeline.py's _get_cache() docstring, the source of truth.
 """
 
 from datetime import UTC, datetime
@@ -63,27 +61,6 @@ def test_get_cache_warms_above_wk_vwap_from_seeded_history():
         "above_wk_vwap must reflect the seeded bar1/bar2 history immediately on cache "
         "creation, not the dataclass default (todo 159) -- got the cold-cache value, "
         "meaning warm-up did not run"
-    )
-
-
-def test_get_cache_does_not_warm_hmm_duration():
-    """hmm_duration must stay cold (0.0) -- see _get_cache()'s docstring for why."""
-    agent = make_agent()
-
-    ts1 = datetime(2026, 3, 23, 14, 30, 0, tzinfo=UTC)
-    ts2 = datetime(2026, 3, 23, 14, 31, 0, tzinfo=UTC)
-    bar1 = _bar(ts1, high=100.0, low=98.0, close=99.0)
-    bar2 = _bar(ts2, high=101.0, low=99.0, close=100.0)
-
-    agent._bar_history.append(bar1)
-    agent._bar_history.append(bar2)
-
-    cache = agent._get_cache("SPY", "1m")
-
-    assert cache.hmm_duration == 0.0, (
-        "hmm_duration must NOT be warmed from buffered history -- replaying its "
-        "unconditional increment would fabricate a duration instead of a real "
-        "bars-since-last-regime-change count"
     )
 
 

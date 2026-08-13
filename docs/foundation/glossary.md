@@ -121,7 +121,7 @@ The layer in the quant stack that detects market states and enables downstream p
 
 **Industry-standard term:** `market state classification` — use that term for external communications, papers, and cross-system discussions. `conditioning layer` is used internally when emphasizing the statistical function (conditional prediction).
 
-**Not:** synonymous with "HMM" — HMM is one implementation method for regime detection, not the layer itself. Other methods include percentile-rank bucketing, deterministic rules (session_position), threshold-based classifiers, change-point detection, and ML classifiers. See `StratificationDimension` protocol (`docs/research/intel-multi-regime-layer.md`) for the contract that all regime detection providers implement.
+**Not:** synonymous with "HMM" — HMM is one implementation method for regime detection, not the layer itself. Other methods include percentile-rank bucketing, deterministic rules (session_position), threshold-based classifiers, change-point detection, and ML classifiers. See `StratificationDimension` protocol (`docs/research/stratification-dimension-unification.md`) for the contract that all regime detection providers implement.
 
 **See also:** `market state classification` (industry-standard equivalent)
 
@@ -148,7 +148,7 @@ Industry-standard term for the layer that detects and classifies market conditio
 
 **Industry standard:** Quant systems universally stratify by market state — high/low vol, trending/mean-reverting, risk-on/risk-off. The classifier mechanism varies (HMM, threshold rules, ML, change-point detection) but the function is standard: context-aware prediction.
 
-**See also:** `conditioning layer` (internal project name), `regime classifier`, `StratificationDimension` protocol (`docs/research/intel-multi-regime-layer.md`)
+**See also:** `conditioning layer` (internal project name), `regime classifier`, `StratificationDimension` protocol (`docs/research/stratification-dimension-unification.md`)
 
 **Status:** active (multiple implementations)
 **Banned:** "market detector," "state detector" (use `market state classification` or `regime detection`)
@@ -434,7 +434,7 @@ An external, authoritative, single-parent classification hierarchy for securitie
 **Not:** a `tag` or `vocabulary` entry — those are internally hypothesized and falsifiable; classification scheme membership is externally authoritative and not falsifiable by this system. Not a `taxonomy` — a taxonomy (below) is IndicAgent's own soft, weighted sub-classification; a classification scheme is a strict external one.
 
 **Banned:** (none)
-**Status:** design (`docs/research/platform-09-security-classification-hierarchy.md`; unscheduled, gated on individual-equities onboarding)
+**Status:** design (`docs/research/stratification-security-classification-hierarchy.md`; unscheduled, gated on individual-equities onboarding)
 
 **Code surface (planned):** `classification_scheme`, `classification_node`, `instrument_classification` tables.
 
@@ -447,7 +447,7 @@ A hierarchical subtree of `tag_vocabulary`, formed via the self-referencing `par
 **Not:** the flat tag `vocabulary` itself (which has no parent/child structure) or a `classification scheme` (external, strict, single-parent, non-falsifiable).
 
 **Banned:** (none)
-**Status:** design (`docs/research/platform-09-security-classification-hierarchy.md`; unscheduled, gated on a concrete custom-classification research question)
+**Status:** design (`docs/research/stratification-security-classification-hierarchy.md`; unscheduled, gated on a concrete custom-classification research question)
 
 **Code surface (planned):** `tag_vocabulary.parent_tag`.
 
@@ -710,8 +710,11 @@ contract it fills. Not `Layer 1`/`Layer 2`/`Layer 3` (the outer Prediction/Portf
 architecture) — unrelated numbering scheme, see `AlphaEngine`.
 **Banned:** "measurement layer," "I1-I4" as a stage name (I1-I4 names the legacy plugin-tier
 sub-structure *within* Stage 0's mechanism, not the stage itself)
-**Status:** active (mechanism live); sub-tier taxonomy (`docs/research/feature-registry.md`'s
-`0_atomic`/`1_interaction`/`2_theory`) proposed, not built
+**Status:** active (mechanism live); sub-tier taxonomy (`docs/research/archive/feature-registry.md`'s
+`0_atomic`/`1_interaction`/`2_theory`) was proposed against the `feature_registry` table, which
+Phase 170 (migration 311, 2026-08-10) dropped outright — `concept_registry` is the sole
+feature-lifecycle system now. The sub-tier taxonomy proposal itself was never re-targeted at
+`concept_registry` and should be treated as stale, not just relocated
 **Canonical doc:** `docs/intelligence/intelligence-layer-architecture.md`
 
 ---
@@ -1410,5 +1413,5 @@ Portfolio layer (Layer 2) decides whether and how much to trade.
 - `docs/signals/signals-confidence-patterns.md` — ECL definition and boundary invariant
 - `docs/signals/signal-trade-separation-ADR.md` — 3-table architecture decision record (Phase 127+)
 - `tag_vocabulary` table — the live controlled vocabulary for instrument tags
-- `docs/research/platform-09-security-classification-hierarchy.md` — `classification scheme` vs. `taxonomy` design (GICS vs. custom sub-classification), unscheduled
-- `docs/research/intel-multi-regime-layer.md` — StratificationDimension protocol for unified conditioning layer
+- `docs/research/stratification-security-classification-hierarchy.md` — `classification scheme` vs. `taxonomy` design (GICS vs. custom sub-classification), unscheduled
+- `docs/research/stratification-dimension-unification.md` — StratificationDimension protocol for unified conditioning layer

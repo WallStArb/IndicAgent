@@ -42,8 +42,6 @@ class FeatureCache:
     """
 
     # Regime-level (refreshed every N bars via refresh_regime())
-    hmm_regime_prob: float = 0.0
-    hmm_entropy: float = 0.0
     hurst: float = 0.5
     shannon: float = 1.0
     garch_ratio: float = 1.0
@@ -105,8 +103,7 @@ class FeatureCache:
     ctf_vwap_align: float = 0.0
     ctf_regime_align: float = 0.0
 
-    # HMM duration and weekly VWAP (updated by caller per bar)
-    hmm_duration: float = 0.0  # bars in current HMM discrete regime state
+    # Weekly VWAP (updated by caller per bar)
     above_wk_vwap: float = 0.0  # 1.0 if close > weekly VWAP, else 0.0
 
     # Session-level VP (reset at session open by caller)
@@ -127,9 +124,6 @@ class FeatureCache:
     # Internal rolling history for regime features (HMA, ADX z-score)
     _hma_slope_history: deque = field(default_factory=lambda: deque(maxlen=500), repr=False)
     _adx_raw_history: deque = field(default_factory=lambda: deque(maxlen=500), repr=False)
-
-    # Internal state for hmm_duration tracking
-    _hmm_regime_label: int = field(default=-1, repr=False)
 
     # Internal accumulators for weekly VWAP
     _wk_tp_vol_sum: float = field(default=0.0, repr=False)
@@ -266,14 +260,10 @@ class FeatureCache:
         # forward-algorithm pass over the entire close series -- its lower-level
         # helper _hmm_forward_step is kept, still used by
         # backfill_feature_factory.py's unrelated ctf_regime_align computation).
-        # self.hmm_regime_prob/hmm_entropy remain declared on FeatureCache at
-        # their dataclass defaults, permanently inert. self.hmm_duration and
-        # self._hmm_regime_label are ALSO now inert, but not "at their default"
-        # in the same sense -- advance_bar() no longer increments hmm_duration
-        # (its only reset, on regime-state change, lived here and was removed
-        # the same day) and _hmm_regime_label is simply never written again.
-        # All 4 kept declared (not deleted) to bound this change's blast radius
-        # to the compute engine; safe to delete outright in a future pass.
+        # The 4 now-inert fields (hmm_regime_prob, hmm_entropy, hmm_duration,
+        # _hmm_regime_label) were deleted outright from FeatureCache 2026-08-13
+        # (dead-code cleanup) -- this comment stays as the historical record of
+        # why the compute was removed in the first place.
 
         # --- HMA slope z-score ---
         hma_val = _hma(closes, config.hma_period)

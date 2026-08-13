@@ -269,8 +269,8 @@ File location encodes both ring and intelligence tier. File name encodes the con
 | Object type | Pattern | Example |
 |------------|---------|---------|
 | Ring 2 daemon | `services/<concept>.py` | `services/signal_tracker.py` |
-| Ring 1 AI evaluator | `src/intelligence/ai/<group>/<concept>.py` | `src/intelligence/ai/alpha/skeptic.py` |
-| Ring 1 domain | `src/intelligence/<module>/<concept>.py` | `src/intelligence/context.py` |
+| Ring 1 AI evaluator | `src/intelligence/ai/<group>/<concept>.py` | `src/intelligence/ai/alpha/skeptic_agent.py` |
+| Ring 1 domain | `src/intelligence/<module>/<concept>.py` | `src/intelligence/ai/context.py` |
 | Ring 0 infrastructure | `src/core/<module>/<concept>.py` | `src/core/ai/evaluator.py` |
 | Plugin (I1–I5) | `src/intelligence/features/i<N>_<tier_name>/<concept>.py` | `src/intelligence/features/i1_indicators/rsi.py` |
 
@@ -569,9 +569,9 @@ src/monitoring/            CUSUM, KS drift — statistical monitors
 
 | Object | Correct location | Reason |
 |--------|-----------------|--------|
-| `AIContext` | `src/intelligence/context.py` | Trading intelligence state — fails portability test |
-| `SignalContext` (rename target) | `src/intelligence/context.py` | Same |
-| `AIContextCache` | `src/intelligence/context.py` | Domain cache tied to intelligence tiers |
+| `AIContext` | `src/intelligence/ai/context.py` | Trading intelligence state — fails portability test |
+| `SignalContext` (rename target) | `src/intelligence/ai/context.py` | Same |
+| `AIContextCache` | `src/intelligence/ai/context.py` | Domain cache tied to intelligence tiers |
 
 ### Boundary Enforcement
 

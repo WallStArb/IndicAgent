@@ -414,19 +414,6 @@ def test_wk_vwap_resets_on_new_week():
 
 
 # ---------------------------------------------------------------------------
-# hmm_duration increments
-# ---------------------------------------------------------------------------
-
-
-def test_hmm_duration_increments():
-    cache = FeatureCache()
-    assert cache.hmm_duration == 0.0
-    cache.hmm_duration += 1.0
-    cache.hmm_duration += 1.0
-    assert cache.hmm_duration == 2.0
-
-
-# ---------------------------------------------------------------------------
 # FEATURE_VECTOR_DOMAIN completeness
 # ---------------------------------------------------------------------------
 

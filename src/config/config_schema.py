@@ -39,15 +39,6 @@ class ConfigChange(BaseModel):
     reason: str | None = None
 
 
-class ConfigState(BaseModel):
-    """Mirrors config_state DB table - current live value for a config key."""
-
-    config_key: str
-    config_value: str
-    version: int
-    updated_at: datetime
-
-
 class ConfigValidationError(Exception):
     """Raised when a config value fails validation or the key is not allowed."""
 
