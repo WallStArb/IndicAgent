@@ -1,6 +1,6 @@
 # CLAUDE.md
 
-Version: 5.55.0
+Version: 5.55.1
 <!-- Bump the patch version on every substantive edit to this file (convention, not enforced). -->
 
 **Project nature:** Passion/learning project — not a production system. Architectural decisions prioritize correctness, rigor, and institutional-grade thinking. Renaissance Capital / Jim Simons principles are the north star. When giving advice, apply the same rigor you would to a system built to last — do not hedge around operational risk that doesn't apply.
@@ -13,6 +13,7 @@ Version: 5.55.0
 **Doc locations:** `docs/foundation/` canonical home. `docs/` root is index only. `docs/research/` docs can go filename-stable (edited in place, no longer re-dated on rewrite) — check for a stale `YYYY-MM-DD-<name>.md` fork of an undated doc before citing or editing either.
 **Gotchas:** `docs/reference/gotchas.md` — rare pitfalls moved out of per-turn context.
 **Performance investigations:** Before touching a batch job that mutates millions of rows against a TimescaleDB hypertable and runs far slower than expected, follow `docs/foundation/performance-investigation-sop.md` — measure (`pg_stat_activity.wait_event`, `iostat -x 1`, `EXPLAIN ANALYZE`) before theorizing, never trust a read-only test for a write-path question, and check chunk count/compression status as first-class suspects. Two independent incidents (todos 149, 161) hit the same shape of bug two weeks apart; don't make it three.
+**Compressed-hypertable column type changes:** Any migration doing decompress→`ALTER COLUMN TYPE`→recompress on a compressed hypertable MUST end with a bare `VACUUM <table>;` after the recompress step — `compress_chunk()` does not synchronously reclaim the decompressed heap pages `decompress_chunk()` populated earlier, and TimescaleDB's internal chunk tables are not reliably picked up by autovacuum. Full pattern + copy-paste template: `docs/foundation/timescaledb-compressed-column-migration.md`. Migrations 201 and 312 both omitted this step; 312 turned it into a 768GB disk-full incident (2026-08-13) before being fixed retroactively. Don't make it three.
 **Planning system:** `.planning/PLANNING-SYSTEM.md` — how IDEAS.md → docs/ideas/ → docs/plans/ → todos/pending/ → ROADMAP.md → phases/ flow into each other. Current phase/progress: `.planning/STATE.md`. Todo prioritization (single source of truth for `pending/`): `.planning/todos/PRIORITIES.md` — drifts out of sync silently (new todos filed without a PRIORITIES.md entry); diff `ls todos/pending/` against it periodically.
 
 ## Done-Coding SOP
@@ -54,7 +55,7 @@ any work NOT driven through `/gsd-execute-phase`, still invoke `/simplify` manua
 - **Historical backfill:** `scripts/infrastructure/backfill/infrastructure_run_historical_pipeline.py` (default `--client-id 40`; provider uses 35; IDs must stay ≤ `_MAX_CLIENT_ID=50` in `ibkr.py`).
 - `src/core/stream_keys.py` — all stream/topic key construction
 - `src/core/database_manager.py` — PostgreSQL/TimescaleDB with connection pooling
-- `src/core/service_utils.py` — `setup_service_logging()`, `min_bars_for_tf()`, `normalize_session_type()`, `format_iso_ts()`, `parse_iso_ts()`
+- `src/core/service_utils.py` — `setup_service_logging()`, `min_bars_for_tf()`, `format_iso_ts()`, `parse_iso_ts()`
 - `src/core/ai/` — AI agent infrastructure (`BaseAIWorker`, `Evaluator`, `AgentOutput`, `WorkerContext`, `IAIAgent`). `SignalContext` in `src/intelligence/ai/context.py`. `BaseGroupCoordinator` in `src/intelligence/ai/group_coordinator.py`.
 - `src/intelligence/schemas.py` — canonical typed bus schemas
 - `src/config/settings.py` — `Settings`, `get_active_contracts()`, `Instrument` definitions

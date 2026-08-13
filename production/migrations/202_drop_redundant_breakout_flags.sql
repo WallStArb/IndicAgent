@@ -94,3 +94,16 @@ BEGIN
     PERFORM compress_chunk(c.chunk);
   END LOOP;
 END $$;
+
+-- MANDATORY, not optional: compress_chunk() moves rows into the compressed
+-- columnar store but does not synchronously reclaim the decompressed heap
+-- pages decompress_chunk() populated above -- that reclamation only happens
+-- when something VACUUMs the chunk, and these internal chunk tables are not
+-- guaranteed to get picked up promptly by autovacuum. Retroactively added
+-- 2026-08-13: this migration already ran in production without this step
+-- (found during a /simplify pass after migrations 201/312 turned the same
+-- omission into a 768GB disk-full incident) -- added here so this file can no
+-- longer be copy-pasted as an unsafe template. See
+-- docs/foundation/timescaledb-compressed-column-migration.md. Cannot run
+-- inside a transaction block, so this must stay a bare top-level statement.
+VACUUM feature_vectors;

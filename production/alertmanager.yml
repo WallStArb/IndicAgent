@@ -7,5 +7,16 @@ route:
 
 receivers:
   - name: "default"
-    # No notification config yet -- alerts visible in Prometheus/Alertmanager UI
-    # Telegram/Discord webhook routing added when notification channels configured
+    # PLACEHOLDER -- replace bot_token/chat_id with real values, then this
+    # receiver goes live on the next `docker compose up -d` for alertmanager.
+    # Confirmed 2026-08-13: DiskSpaceCritical fired correctly in Prometheus
+    # 2h17m before a disk-full crash and never reached a human because this
+    # receiver had no notification config at all -- config existed, routing
+    # existed, nothing was wired to the last mile. Get a bot_token from
+    # @BotFather and a chat_id by messaging the bot then checking
+    # https://api.telegram.org/bot<token>/getUpdates.
+    telegram_configs:
+      - bot_token: "PLACEHOLDER_BOT_TOKEN"
+        chat_id: 0 # PLACEHOLDER_CHAT_ID (integer, not string)
+        parse_mode: "" # plain text; avoids Markdown escaping issues in alert text
+        message: '{{ template "telegram.default.message" . }}'

@@ -27,7 +27,7 @@ services:
       "-c", "wal_buffers=8192",
       "-c", "log_min_duration_statement=1000",
       "-c", "shared_buffers=3GB",
-      "-c", "work_mem=8MB"
+      "-c", "work_mem=64MB"
     ]
     environment:
       - POSTGRES_USER=postgres
