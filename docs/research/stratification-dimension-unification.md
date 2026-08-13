@@ -5,9 +5,11 @@
 doc's own contract, formalization) unblocked 2026-07-22, **not yet started**
 **Priority:** high (blocks PrecedentEngine's retrieval correctness; names a real glossary gap)
 **Milestone:** v3.15 "Conditioning & Identity Foundation" - formalized in ROADMAP.md 2026-07-03 as Phases 144, 145 (no longer "Phases TBD"; see 2026-07-06 re-verification below)
-**Last Updated:** 2026-08-06 (naming correction — AnalogEngine → PrecedentEngine throughout, see
-item 12 below; previously 2026-08-01 reconciliation pass — Phase 144 completion, D-05 verdict,
-Phase 145 unblocked status, fx enablement, todo 135/167/224/225/111 cross-links; previously 2026-07-06)
+**Last Updated:** 2026-08-12 (Phase 171/172 fallout + three new per-symbol candidates queued —
+see Reconciliation pass below; previously 2026-08-06 naming correction — AnalogEngine →
+PrecedentEngine throughout, see item 12 below; previously 2026-08-01 reconciliation pass —
+Phase 144 completion, D-05 verdict, Phase 145 unblocked status, fx enablement, todo
+135/167/224/225/111 cross-links; previously 2026-07-06)
 **Tags:** regime, stratification, conditioning, governance, hmm, concept-registry, precedent-engine
 **Source:** `.planning/research/2026-07-02-v3-topdown-architecture.md` §1.3, §2.4, §3 (D5, D8), §7 (Q4) — Author: Fable 5
 **Informed by:** Fable 5 - consolidation audit corrections, recommendations in § Open Questions, and design revisions marked *(Fable's revision)* inline (2026-07-02)
@@ -211,6 +213,70 @@ in this doc had drifted since 2026-07-06 without a doc update):**
     — that's the substance a "todo 041 audit" would have formalized, and it was never gated on
     anything further; the router carve-out is a pragmatic per-symbol exception on top of it, not
     a substitute taxonomy. Full detail: `.planning/todos/completed/224-commodity-fx-regime-group-reenablement-decision-todo-041.md`.
+
+**Reconciliation pass (2026-08-12) — Phase 171/172 fallout on the incumbent, plus three new
+per-symbol candidates queued:**
+
+14. **The "Live (incumbent providers)" table below is stale — `hmm_price_vol` no longer means
+    what it says.** Phase 171/172 (2026-08-08/09, after this doc's last update) found via a
+    null-arm (scrambled-data) control that the incumbent per-symbol HMM's K=5 `regime` labels,
+    despite being named trending_up/ranging/trending_down, empirically separate on volatility,
+    not trend. The labels were wrong, not just imprecise. Fix shipped: `feature_vectors.regime_volatility`
+    (K=3, calm/elevated/turbulent), same HMM host (`regime_writer.py`), refit on volatility-only
+    observations (`realized_vol`, `vol_of_vol`) with an honest label. `ic_engine.py` now hard-gates
+    on `regime_volatility` at startup (`sys.exit` if all-NULL) — this is the live incumbent as of
+    2026-08-12, not `hmm_price_vol`/legacy `regime`. The legacy column is still written, not read.
+    **Standing rule this incident established, extends to every future candidate in this doc's
+    table, not just HMM ones:** no separation number gets trusted unless it clears a null-arm
+    control run against scrambled data, pre-registered before the real run.
+15. **Gate 0's rejection of Hurst exponent / autocorrelation-sign (§ "Explicitly rejected") needs
+    re-examination, not repetition.** That rejection's reasoning was structural redundancy against
+    the incumbent HMM's `momentum` observation dimension — i.e., the HMM was assumed to already
+    capture trend, so a separate trend axis would double-count it. Item 14 above establishes that
+    assumption was false: the incumbent never actually separated on trend. The redundancy premise
+    that killed these two candidates no longer holds as stated. Filed as
+    [todo 303](../../.planning/todos/pending/303-per-symbol-trend-regime-null-arm-tested-candidate.md)
+    — a pre-registered, null-arm-gated re-test, not a build task yet.
+16. **Three more per-symbol candidates from this table, not yet tested, queued together as**
+    [todo 304](../../.planning/todos/pending/304-per-symbol-percentile-rank-candidates-volume-skew-volatility.md):
+    - `volume_pct` and `skew_tail` — both already in the Percentile-rank candidates table below,
+      gated only on a mechanical orthogonality study against `regime_volatility`, not new design.
+    - `volatility_pct` — re-examined this session as a genuinely interesting *simplification*
+      test, not just a new axis: now that `regime_volatility` (an HMM) measures volatility, does
+      a plain percentile rank of realized vol (no HMM at all) separate IC just as well? If so,
+      that's real evidence the HMM's added complexity isn't earning its keep for this specific
+      measure — directly on point for this doc's own stated bias ("simple, robust features beat
+      complex ones... percentile-rank first").
+    All three share the exact same mechanism template as the existing `vix_pct` cross-sectional
+    signal (confirmed by reading `breadth_vol.py`'s live code this session, not assumed): a
+    rolling z-score of the raw measure, then `causal_rank.py::causal_expanding_rank` applied to
+    that z-score — never a raw z-score or a whole-series `pandas.rank()` used directly for
+    bucketing (the latter is the exact look-ahead bug Phase 141's P0-T2 fix removed).
+17. **`E3` (per-symbol factor style) confirmed still under-specced** — named in the HMM-engine
+    candidates table below with only "same territory as `factor_regime`" as its description; no
+    actual design exists distinguishing a per-symbol factor-style classification from the
+    already-cross-sectional `factor_regime` candidate. Not queued as a todo yet — needs a real
+    design pass before it's actionable, unlike volume_pct/skew_tail/volatility_pct.
+18. **Corporate event vector (idiosyncratic, single-security, discrete) confirmed to be a
+    genuinely different category from everything else in this doc**, not a stratification
+    dimension at all in the `Protocol`'s sense. Every candidate in this doc's tables is a
+    continuous, rankable, always-has-a-value measure (volatility level, correlation, factor
+    spread). An earnings date isn't rankable that way — it's a proximity flag (days-to/since,
+    categorical), the same *shape* of primitive as the already-live `session_position` (deterministic,
+    wall-clock-driven, zero lookahead), just keyed to a company-specific calendar instead of
+    market hours. Not yet scoped as its own todo — needs an earnings-calendar data source
+    (SEC EDGAR or vendor) not currently ingested, a real acquisition step before any design work.
+19. **Todos 303/304's own pre-registered design docs written 2026-08-12, done while the
+    corpus pipeline that gates their Stage 2/3 was in flight** (the same "write the null-arm
+    control before running anything" discipline item 14 established as standing):
+    `docs/research/measurement-per-symbol-trend-regime.md` and
+    `docs/research/measurement-per-symbol-percentile-rank-candidates.md`. Both formalize the
+    Stage 1 results already summarized in items 15/16 above and specify a shared null-arm
+    harness (per-symbol IID time-permutation mirroring
+    `hmm_candidate_regime_axes_identifiability_sweep.py`'s existing null-arm pattern, 200
+    replicates, null p<0.05) that neither candidate may skip before a Stage 3 number is trusted.
+    Read those docs directly for the falsification protocol rather than re-deriving it from this
+    table.
 
 ---
 
@@ -546,7 +612,7 @@ insufficient) becomes every candidate's default mechanism, not just E1/E2's. Thr
 | `factor_regime` | Which factor (momentum/value/quality/low-vol) is driving cross-sectional returns, via MTUM/QUAL/VTV/USMV rolling return spreads | Explicit economic mechanism rather than a learned latent state; a momentum feature's IC flips sign between momentum-rewarding and mean-reversion regimes in a way HMM state boundaries (learned from price dynamics, not factor rotation) don't capture | No new data pipeline — all 4 proxy ETFs already active; percentile-rank bucketing of the spread, not unsupervised |
 | `volume_pct` | Expanding percentile rank of `rel_volume` | Plausibly captures participation/liquidity distinct from volatility's dispersion-of-outcomes | **Gated on orthogonality study** — volume and volatility spikes are well-documented to co-move; must clear the correlation check before admission, not approved alongside `volatility_pct` by default |
 | `skew_tail` | Rolling return skewness percentile | High-vol-positive-skew (lottery-like) vs. high-vol-negative-skew (crash risk) are different prediction problems at the same vol percentile | **Gated on orthogonality study** — skew clusters with vol in the tails, exactly where this dimension would matter most |
-| `session_position` | Deterministic wall-clock session bucket (open/midday/close), via existing `normalize_session_type()` | Zero look-ahead risk by construction, near-certainly orthogonal to price/volume-derived dimensions, zero incremental compute | Deprioritized 2026-07-01 — cheap and safe is not the same as valuable; no case made for session effects mattering at this system's swing (not HFT) cadence. Only intraday TFs benefit |
+| `session_position` | Deterministic wall-clock session bucket (open/midday/close) | Zero look-ahead risk by construction, near-certainly orthogonal to price/volume-derived dimensions, zero incremental compute | Deprioritized 2026-07-01 — cheap and safe is not the same as valuable; no case made for session effects mattering at this system's swing (not HFT) cadence. Only intraday TFs benefit. The `normalize_session_type()` helper this row cited was deleted 2026-08-13 (zero callers) — if this dimension is ever built, it needs a fresh implementation, not a revival |
 | `term_structure` | Percentile rank of futures curve slope (contango/backwardation) for commodity/rates `regime_group`s; yield-curve slope proxy for `rates` specifically | Carry cost and roll yield flip sign across curve regimes; factor relationships in `fi_*` bonds and commodity futures are documented to differ by curve shape. Also the natural proxy for monetary-policy stance (hiking/cutting/pausing) — folded in here rather than added as a separate rate-cycle axis, per gate 0's redundancy logic (curve slope and policy stance are the same underlying dynamic, not two independent ones) | Per `regime_group`, not universe-wide — computable from existing IBKR futures feeds for commodity/rates symbols already active; needs its own APR percentile thresholds; orthogonality vs. `volatility_pct`/`dispersion` not yet studied, no exemption asserted. **Not the same candidate as VX term structure** (`docs/research/catalog.md`'s intel-08 entry) — that's equity vol term structure specifically, needs two simultaneously-tracked VX contract months compared against each other, not a single rolling front-month series. Verified 2026-08-01: `instruments` has `VIX`/`VX` rows but zero `market_data_ohlcv` bars and zero `contract_metadata` roll history for either — no data, no roll infra, and the single-front-month shape both rows use structurally cannot produce a curve even once data exists. Real blocker, larger than a data-collection flip; see Reconciliation pass above. This row is the commodity/rates curve, already computable from active symbols with real data |
 
 *(added 2026-07-18)* `term_structure` folded in from a session comparing this candidate list
