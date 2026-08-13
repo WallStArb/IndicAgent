@@ -1,8 +1,8 @@
 # IndicAgent Intelligence Platform Documentation
 
-**Version:** 2.8
+**Version:** 2.9
 **Status:** current
-**Last Updated:** 2026-05-29
+**Last Updated:** 2026-08-13
 
 ---
 
@@ -49,10 +49,13 @@ WHY+WHAT: principles, naming rules, AI working rules. These change rarely.
 ### `intelligence/` — gold standard — I1-I8 domain
 
 The reference implementation of the recipe-card format. Four files, four angles.
+**Content status:** the I1-I7 plugin system these files document is ARCHIVED — no live consumer
+as of 2026-07-02 (see root `CLAUDE.md`'s Architecture section). Format is still the gold
+standard; the domain content itself is historical, not currently-running behavior.
 
 | File | Description |
 |------|-------------|
-| `intelligence-foundation.md` | I1-I8 definitions, data flow philosophy, tier contracts (v2.x) |
+| `intelligence-foundation.md` | I1-I8 definitions, data flow philosophy, tier contracts (v2.x, ARCHIVED) |
 | `intelligence-alphaengine.md` | IC-weighted factor model — vocabulary, methodology, and why the plugin approach was replaced (v3.0) |
 | `intelligence-plugins.md` | Plugin protocol, how to add a plugin, 132-plugin inventory |
 | `intelligence-ai.md` | Swarm agents, LLM chain, shadow governance |
@@ -68,10 +71,13 @@ The reference implementation of the recipe-card format. Four files, four angles.
 
 ### `signals/` — new (Phase 3) — Signal domain
 
+**Content status:** the Signal Ledger Architecture (SLA) these files document is ARCHIVED — no
+live consumer as of 2026-07-02 (see root `CLAUDE.md`'s Data Flow section).
+
 | File | Description |
 |------|-------------|
 | `signals-foundation.md` | Signal schema, entry types, status strings, schema versioning (pre-SLA; partially stale) |
-| `signals-schema.md` | SLA table DDL — signal_events, trade_frames, trade_executions, signal_ledger_full view |
+| `signals-schema.md` | SLA table DDL — signal_events, trade_frames, trade_executions, signal_ledger view (v2.x, ARCHIVED) |
 | `signals-ecl.md` | ECL system reference — vector fields, ML training patterns, boundary verification |
 | `signals-lifecycle.md` | I7 signal creation, zone activation, MAE/MFE, outcome classification |
 | `signals-operations.md` | Signal monitoring, shadow governance, graduation pipeline |

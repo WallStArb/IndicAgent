@@ -4,7 +4,7 @@ milestone: v3.1
 milestone_name: AlphaEngine Validation + Alpha Scoring
 status: milestone_complete
 stopped_at: Milestone complete (Phase 172 was final phase)
-last_updated: 2026-08-09T21:14:22.390Z
+last_updated: 2026-08-13T15:45:00.000Z
 progress:
   total_phases: 12
   completed_phases: 9
@@ -87,10 +87,60 @@ fit. Confirmed by direct grep 2026-08-04, not assumed. Phase 171 (wire it in) ex
 as a stub with 0 plans, explicitly sequenced behind this Strategic Plan's step 3 to avoid two
 overlapping corpus-recompute-scale efforts running at once.
 
-**Phase 170 (feature_registry -> Concept Registry migration) is running in a separate, concurrent
-session as of 2026-08-04 -- do not touch `feature_registry`/`concept_registry` files, migrations,
-or ROADMAP.md's Phase 170 section from this thread of work.** Independent subsystem, no expected
-file overlap with the Strategic Plan above.
+**(Phase 170 concurrent-session note retired 2026-08-12 -- completed 2026-08-10, migration 311,
+`feature_registry` DROPped. No longer a live boundary.)**
+
+**Discovery track update (2026-08-07/08 through 2026-08-12):** all 4 cheap, no-dependency
+Signal-Extraction candidates ran and came back DEAD (`jump_diffusion_decomposition`,
+`cointegrated_pairs_residual`, plus 2 Trade Construction theses -- see
+`project_discovery_track_pilot_results_2026_08_07` memory). Surfaced to the user as a real
+decision point per that memory's own instruction (not ground through mechanically); user picked
+**`statistical_factor_residual`**, whose own blocker was real unresolved methodology debt
+(K-selection needed a pre-registered method, not a guess). Progress since:
+
+- **Stage 1 (K-selection), 2026-08-11**: Marchenko-Pastur + Parallel Analysis agree exactly,
+  K=10 over the full 231-symbol universe (349-day common window, bounded by newest additions).
+- **Stage 2 (causal walk-forward factor fit), 2026-08-12**: re-measured K=9 for the actual
+  long-history universe the fit needed (96 symbols, 2000-day window -- K=10 didn't apply there,
+  different universe/window, caught before reuse). Walk-forward PCA mirroring
+  `regime_writer.py`'s existing HMM walk-forward pattern, 84 refit segments, causality PASS,
+  51.1% mean variance removed (plausible, not extreme). Full detail:
+  `docs/research/measurement-statistical-factor-residual.md`,
+  `project_statistical_factor_residual_k_selection_2026_08_11` memory.
+- **Stage 3 (IC falsification vs. `ctf_momentum`) NOT started** -- needs `feature_vectors`/
+  `feature_ic_scores` populated, gated on the corpus pipeline described below.
+
+**Two more per-symbol regime candidates opened same window, same discipline, both Stage-1-only
+so far:** todo 303 (per-symbol trend -- Hurst/autocorrelation-sign, re-testing a Gate 0
+rejection whose redundancy premise Phase 171/172 disproved) and todo 304 (`volume_pct`/
+`skew_tail`/`volatility_pct`, percentile-rank, no HMM). Both passed mechanism validation
+(causality + non-degenerate distribution) 2026-08-12, both blocked on the same corpus pipeline
+for Stage 2/3. **All three open research threads (`statistical_factor_residual`, 303, 304) are
+now genuinely blocked on the same external dependency, not on more design work** -- don't open
+a fourth thread; wait for the corpus run, then advance whichever is cheapest to finish first.
+
+**UPDATE 2026-08-13: that corpus pipeline run did NOT complete -- disk-full incident, ~768GB,
+root-caused to migration 312 (`feature_vectors_float32_drift_fix.sql`) missing its mandatory
+post-recompress `VACUUM` (see `docs/foundation/timescaledb-compressed-column-migration.md`).
+Postgres crashed into recovery ~05:32-05:37 EDT while step 2's `regime_writer` runs (regular:
+9.66h; volatility: 5.3min) were finishing -- both runs completed their compute and then wrote
+`total_updated: 0` for every symbol because the DB was mid-recovery. **As of this writing,
+`feature_vectors.regime` and `.regime_volatility` are NULL across all 69.9M rows** -- the
+`regime_volatility` population this note previously said the run would deliver did NOT happen.
+`indicagent-feature-vector-pipeline`/`-writer` systemd services crashed (SEGV / SIGKILL) and are
+in `failed` state, exhausted their restart burst. Live OHLCV ingestion also stalled around
+2026-08-11 evening (`market_data_ohlcv` 1m rows: ~328k/day Aug 10-11, 7,933 Aug 12, 11 Aug 13) --
+root cause not yet investigated, likely related. The script's own step-2 consistency gate then
+hard-failed ("No regime labels found") and `ops_corpus_pipeline_run.sh` exited; steps 3-8 never
+ran. Disk itself is healthy again (manual `VACUUM feature_vectors` reclaimed 768GB->57GB); the
+retroactive fix (`VACUUM feature_vectors;` appended to migrations 201 and 312, plus the new
+migration-pattern doc) is written but **uncommitted** in the working tree. Machine is being
+rebooted 2026-08-13 (unrelated terminal disconnect surfaced this investigation). **Before
+resuming any of the three blocked research threads above: (1) restart the two failed systemd
+services, (2) diagnose+fix the OHLCV ingestion stall, (3) re-run `regime_writer` for both
+columns, (4) decide whether to re-run the corpus pipeline from step 2 or from scratch, (5) commit
+or discard the migration 201/312 VACUUM fix.** Full incident detail:
+`project_disk_full_incident_2026_08_13` memory.
 
 ---
 
@@ -463,10 +513,18 @@ described in the Phase Summary table above; this section is for phases with no t
 
 ## Session
 
-**Last GSD-phase-level session:** 2026-08-09T10:04:00.000Z. **Stopped at:** Phase 172 planned
-(7 plans, 5 waves), cross-AI reviewed (Codex + Antigravity, `172-REVIEWS.md`), and replanned
-incorporating 8 review findings (6 accepted as surgical plan edits, 2 confirmed already-handled --
-see commit `21cf0d6f`). Plan-checker re-verified after the revision: PASSED with 3 non-blocking
-warnings. Ready to execute: `/gsd:execute-phase 172`. (Prior session content describing Phase
-168/171 context-gathering was stale since 2026-07-31 and has been superseded by everything the
-Phase Summary table and Strategic Plan section above already record; trimmed here 2026-08-09.)
+**Corrected 2026-08-13 -- the entry below was stale since 2026-08-09** (it pointed at
+`/gsd:execute-phase 172` as the next step; Phase 172 has been COMPLETE since 2026-08-09, see the
+Phase Summary table above). GSD-phase-level work has been idle since then -- all activity since
+has been discovery-track research (Strategic Plan section above) and ops/incident work, neither
+of which flows through the phase-execution loop this section tracks. **Current real state: see
+the Strategic Plan section at the top of this file (authoritative, kept live) for what's actually
+in flight** -- as of this writing, the 2026-08-12 corpus pipeline run that three research threads
+are blocked on FAILED (2026-08-13 disk-full incident, `project_disk_full_incident_2026_08_13`
+memory); recovery is the immediate next step before any of that research can resume.
+
+(Prior session content describing Phase 168/171 context-gathering was stale since 2026-07-31 and
+was superseded by the Phase Summary table and Strategic Plan section; trimmed 2026-08-09. The
+2026-08-09 entry replacing it is itself what's being corrected now -- STATE.md's own "Session"
+section has a recurring pattern of going stale the moment GSD-phase work pauses; check the
+Strategic Plan section first, always.)
