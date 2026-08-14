@@ -55,8 +55,14 @@ _SAMPLE_SYMBOLS = ["SPY", "AAPL", "XOM", "JPM", "TLT"]
 
 
 def _regime_writer_still_running() -> bool:
+    # Bare substring, not "services/regime_writer.py" -- the documented recovery invocation
+    # (todo 306, `.venv/bin/python -m services.regime_writer ...`) runs as a dotted module,
+    # whose cmdline never contains a literal "/"+".py" and silently missed the old pattern
+    # (confirmed 2026-08-14: pgrep -f "services/regime_writer.py" found zero matches against
+    # a live, actually-running `-m services.regime_writer` process -- this guard was dead code
+    # from day one for that invocation style, the only one this project's runbook uses).
     result = subprocess.run(
-        ["pgrep", "-f", "services/regime_writer.py"],
+        ["pgrep", "-f", "regime_writer"],
         capture_output=True,
         text=True,
         check=False,
@@ -67,7 +73,7 @@ def _regime_writer_still_running() -> bool:
 def _check_data_ready(conn) -> None:
     if _regime_writer_still_running():
         print(
-            "FATAL: a regime_writer.py process is currently running -- refusing to read "
+            "FATAL: a regime_writer process is currently running -- refusing to read "
             "feature_vectors.regime_volatility while it may still be writing (partial, "
             "in-flight cross-symbol state). Wait for it to finish and re-run.",
             file=sys.stderr,
