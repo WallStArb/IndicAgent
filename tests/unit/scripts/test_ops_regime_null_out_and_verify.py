@@ -60,6 +60,9 @@ class _ScriptedCursor:
     def fetchone(self):
         return self._response.get("fetchone")
 
+    def fetchall(self):
+        return self._response.get("fetchall", [])
+
     @property
     def rowcount(self) -> int:
         return self._response.get("rowcount", 0)
@@ -149,14 +152,23 @@ class TestNullOutPerCellUpdates:
         # First/last two responses are compressed_hypertable_write_session's entry chunk-
         # list fetch, exit chunk-list fetch, and VACUUM (empty chunk lists -> no actual
         # decompress/compress calls, just the two list queries + the bare VACUUM).
-        responses = [{"rowcount": 0}]  # write-session entry: decompress-all (0 chunks)
+        responses = [
+            {"fetchall": []},  # write-session entry: APR config load (no rows -> defaults)
+            {"fetchone": ("30min",)},  # write-session entry: SHOW statement_timeout
+            {},  # write-session entry: SET statement_timeout override
+            {"rowcount": 0},  # write-session entry: decompress-all (0 chunks)
+        ]
         for _ in range(4):
             responses += [
                 {"fetchone": (5,)},  # pre_null_labeled
                 {"rowcount": 5},  # UPDATE rowcount
                 {"fetchone": (0,)},  # post-condition: zero remaining
             ]
-        responses += [{"rowcount": 0}, {}]  # write-session exit: compress-all, then VACUUM
+        responses += [
+            {"rowcount": 0},  # write-session exit: compress-all
+            {},  # write-session exit: VACUUM
+            {},  # write-session exit: SET statement_timeout restored
+        ]
         conn = _ScriptedConn(responses)
         manifest_path = tmp_path / "manifest.json"
 
@@ -245,24 +257,29 @@ class TestNullOutManifestResumability:
                 }
             )
         )
-        # Only QQQ/1h should actually run: write-session entry, then pre-count, update,
-        # verify, then write-session exit (chunk-list fetch + VACUUM).
+        # Only QQQ/1h should actually run: write-session entry (APR load, statement_timeout
+        # capture/override, decompress-all), then pre-count, update, verify, then
+        # write-session exit (compress-all, VACUUM, statement_timeout restore).
         conn = _ScriptedConn(
             [
+                {"fetchall": []},  # write-session entry: APR config load
+                {"fetchone": ("30min",)},  # write-session entry: SHOW statement_timeout
+                {},  # write-session entry: SET statement_timeout override
                 {"rowcount": 0},  # write-session entry: decompress-all
                 {"fetchone": (3,)},
                 {"rowcount": 3},
                 {"fetchone": (0,)},
                 {"rowcount": 0},  # write-session exit: compress-all
                 {},  # write-session exit: VACUUM
+                {},  # write-session exit: SET statement_timeout restored
             ]
         )
 
         n_failed = _run_null_out(conn, ["SPY", "QQQ"], ["1h"], manifest_path, dry_run=False)
 
         assert n_failed == 0
-        assert len(conn.calls) == 6
-        for sql, params in conn.calls[1:4]:
+        assert len(conn.calls) == 10
+        for sql, params in conn.calls[4:7]:
             assert params == ("QQQ", "1h")
 
     def test_all_cells_already_verified_skips_the_write_session_entirely(self, tmp_path):
@@ -297,6 +314,9 @@ class TestNullOutFailedCellContinues:
         # Cell 2 (QQQ/1h): post-condition passes.
         conn = _ScriptedConn(
             [
+                {"fetchall": []},  # write-session entry: APR config load
+                {"fetchone": ("30min",)},  # write-session entry: SHOW statement_timeout
+                {},  # write-session entry: SET statement_timeout override
                 {"rowcount": 0},  # write-session entry: decompress-all
                 {"fetchone": (5,)},
                 {"rowcount": 5},
@@ -306,6 +326,7 @@ class TestNullOutFailedCellContinues:
                 {"fetchone": (0,)},  # PASS
                 {"rowcount": 0},  # write-session exit: compress-all
                 {},  # write-session exit: VACUUM
+                {},  # write-session exit: SET statement_timeout restored
             ]
         )
 

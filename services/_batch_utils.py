@@ -284,9 +284,24 @@ def compressed_hypertable_write_session(conn: Any, hypertable: str):
     conn: caller-owned, open psycopg connection (autocommit False is fine -- this function
     manages its own commits and only toggles autocommit for the final VACUUM). Never closed
     here -- same ownership contract as bulk_update_by_key.
+
+    Overrides statement_timeout for the duration of the session (infra.compressed_
+    hypertable_write_session.statement_timeout_ms APR key, default 4h) and restores the
+    connection's prior value on exit. Confirmed necessary live 2026-08-14: the role/
+    database default (30min, tuned for interactive/API queries) killed regime_writer.py's
+    very first decompress_chunk() call outright with zero rows written, and repeating that
+    failure compounds -- every killed attempt leaves dead-tuple bloat that recruits more
+    autovacuum workers onto the same chunks, slowing the next attempt's decompress further.
     """
     _validate_compressed_hypertable(hypertable)
+    cfg = load_config_service_sync(conn)
+    timeout_ms = int(
+        cfg.get_sync("infra.compressed_hypertable_write_session.statement_timeout_ms", 14_400_000)
+    )
     with conn.cursor() as cur:
+        cur.execute("SHOW statement_timeout")
+        (prior_timeout,) = cur.fetchone()
+        cur.execute("SELECT set_config('statement_timeout', %s, false)", (str(timeout_ms),))
         cur.execute(_DECOMPRESS_ALL_COMPRESSED_CHUNKS_SQL, (hypertable,))
         n_decompressed = cur.rowcount
     conn.commit()
@@ -325,6 +340,10 @@ def compressed_hypertable_write_session(conn: Any, hypertable: str):
                 cur.execute(f"VACUUM {hypertable}")
         finally:
             conn.autocommit = prior_autocommit
+
+        with conn.cursor() as cur:
+            cur.execute("SELECT set_config('statement_timeout', %s, false)", (prior_timeout,))
+        conn.commit()
 
         _log_write_session_exited(hypertable, n_recompressed)
 
@@ -463,8 +482,19 @@ async def async_compressed_hypertable_write_session(conn: Any, hypertable: str):
     Must NOT be called from inside an open `conn.transaction()` block: the final VACUUM
     cannot run inside a transaction, and asyncpg has no equivalent of psycopg's autocommit
     toggle to escape one mid-connection.
+
+    Overrides statement_timeout for the duration of the session (same APR key and same
+    live-incident rationale as the sync sibling above -- see its docstring) and restores
+    the connection's prior value on exit.
     """
     _validate_compressed_hypertable(hypertable)
+    apr = await load_apr_dict_async(conn, ["infra.compressed_hypertable_write_session.%"])
+    timeout_ms = int(
+        cfg(apr, "infra.compressed_hypertable_write_session.statement_timeout_ms", 14_400_000)
+    )
+    prior_timeout = await conn.fetchval("SHOW statement_timeout")
+    await conn.execute("SELECT set_config('statement_timeout', $1, false)", str(timeout_ms))
+
     # asyncpg's execute() returns the command tag ("SELECT <n>") for a plain SELECT --
     # confirmed live 2026-08-14 -- so the affected-row count comes for free from the same
     # call that runs the statement, same shape as ops_stale_k3_hmm_fields_cleanup.py's own
@@ -485,6 +515,8 @@ async def async_compressed_hypertable_write_session(conn: Any, hypertable: str):
         # hypertable validated against _KNOWN_COMPRESSED_HYPERTABLES above -- never
         # attacker-controlled, and VACUUM's target can't be a bind parameter.
         await conn.execute(f"VACUUM {hypertable}")
+
+        await conn.execute("SELECT set_config('statement_timeout', $1, false)", prior_timeout)
 
         _log_write_session_exited(hypertable, n_recompressed)
 

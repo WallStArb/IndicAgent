@@ -335,6 +335,10 @@ def _mock_sync_conn(n_decompressed: int = 0, n_recompressed: int = 0) -> MagicMo
     conn = MagicMock()
     conn.autocommit = False
     cur = conn.cursor.return_value.__enter__.return_value
+    # SHOW statement_timeout's result, read via cur.fetchone() -- the statement_timeout
+    # override this session applies and restores (see compressed_hypertable_write_session's
+    # docstring). Value is arbitrary; only its round-trip (captured, restored) is tested.
+    cur.fetchone.return_value = ("30min",)
 
     def _execute(sql: str, params: tuple | None = None) -> None:
         if sql.startswith("SELECT decompress_chunk"):
@@ -360,15 +364,17 @@ class TestCompressedHypertableWriteSession:
     def test_decompress_and_compress_are_single_collapsed_statements_not_per_chunk(self) -> None:
         """Regression: the original design listed chunks then issued one execute() per
         chunk (N round trips). The fix collapses each phase into one server-side statement
-        -- exactly 3 execute() calls total for the whole session (decompress-all,
-        compress-all, VACUUM), regardless of how many chunks are actually affected."""
+        -- exactly 7 execute() calls total for the whole session regardless of how many
+        chunks are actually affected: the APR config load (1), SHOW + SET statement_timeout
+        at entry (2), decompress-all, compress-all, VACUUM (3), and SET statement_timeout
+        restored at exit (1)."""
         conn = _mock_sync_conn(n_decompressed=40, n_recompressed=40)
         cur = conn.cursor.return_value.__enter__.return_value
 
         with compressed_hypertable_write_session(conn, "feature_vectors"):
             pass
 
-        assert cur.execute.call_count == 3
+        assert cur.execute.call_count == 7
 
     def test_recompresses_and_vacuums_on_clean_exit(self) -> None:
         conn = _mock_sync_conn(n_decompressed=1, n_recompressed=2)
@@ -582,6 +588,10 @@ def _mock_async_conn(n_decompressed: int = 0, n_recompressed: int = 0) -> MagicM
         return "VACUUM"
 
     conn.execute = AsyncMock(side_effect=_execute)
+    # load_apr_dict_async's conn.fetch (no APR rows configured -- callers fall back to
+    # each key's default) and the statement_timeout capture/restore's conn.fetchval.
+    conn.fetch = AsyncMock(return_value=[])
+    conn.fetchval = AsyncMock(return_value="30min")
     return conn
 
 
@@ -591,8 +601,10 @@ class TestAsyncCompressedHypertableWriteSession:
         conn = _mock_async_conn(n_decompressed=1)
 
         async with async_compressed_hypertable_write_session(conn, "feature_ic_scores"):
-            conn.execute.assert_called_once()
-            assert conn.execute.call_args.args[0].startswith("SELECT decompress_chunk")
+            calls_at_entry = [c.args[0] for c in conn.execute.call_args_list]
+            assert any(sql.startswith("SELECT decompress_chunk") for sql in calls_at_entry)
+            assert not any(sql.startswith("SELECT compress_chunk") for sql in calls_at_entry)
+            assert not any(sql.startswith("VACUUM") for sql in calls_at_entry)
 
     @pytest.mark.asyncio
     async def test_recompresses_and_vacuums_on_clean_exit(self) -> None:
@@ -602,8 +614,12 @@ class TestAsyncCompressedHypertableWriteSession:
             pass
 
         sqls = [c.args[0] for c in conn.execute.call_args_list]
-        assert sqls[1].startswith("SELECT compress_chunk")
-        assert sqls[2] == "VACUUM feature_ic_scores"
+        decompress_idx = next(i for i, s in enumerate(sqls) if s.startswith("SELECT decompress"))
+        compress_idx = next(i for i, s in enumerate(sqls) if s.startswith("SELECT compress"))
+        vacuum_idx = next(i for i, s in enumerate(sqls) if s.startswith("VACUUM"))
+
+        assert decompress_idx < compress_idx < vacuum_idx
+        assert sqls[vacuum_idx] == "VACUUM feature_ic_scores"
 
     @pytest.mark.asyncio
     async def test_recompresses_and_vacuums_even_when_body_raises(self) -> None:
@@ -614,8 +630,8 @@ class TestAsyncCompressedHypertableWriteSession:
                 raise RuntimeError("boom")
 
         sqls = [c.args[0] for c in conn.execute.call_args_list]
-        assert sqls[1].startswith("SELECT compress_chunk")
-        assert sqls[2] == "VACUUM feature_ic_scores"
+        assert any(s.startswith("SELECT compress_chunk") for s in sqls)
+        assert any(s == "VACUUM feature_ic_scores" for s in sqls)
 
     @pytest.mark.asyncio
     async def test_rejects_unknown_hypertable_before_touching_connection(self) -> None:
