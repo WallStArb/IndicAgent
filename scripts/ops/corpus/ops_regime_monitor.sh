@@ -18,8 +18,14 @@ if [[ -z "${SUDO_PASS:-}" ]]; then
 fi
 PYSPY=/home/bg/.local/bin/py-spy
 
-main_pid() { pgrep -f "regime_writer.py --refit" | head -1; }
-worker_pids() { pgrep -f "regime_writer.py --refit" | tail -n +2; }
+# Bare "regime_writer" substring, not "regime_writer.py" -- the documented recovery
+# invocation (todo 306, `.venv/bin/python -m services.regime_writer ...`) runs as a
+# dotted module, whose cmdline never contains a literal "/"+".py" and silently missed
+# the old pattern (same bug class fixed 2026-08-14 in
+# scripts/analysis/per_symbol_regime_candidates_stage2_orthogonality.py's in-flight-write
+# guard -- confirmed there via a live process that this exact old pattern failed to match).
+main_pid() { pgrep -f "regime_writer.*--refit" | head -1; }
+worker_pids() { pgrep -f "regime_writer.*--refit" | tail -n +2; }
 
 # --- is the process alive at all? ---
 MPID="$(main_pid)"

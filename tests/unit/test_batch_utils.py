@@ -335,13 +335,18 @@ def _mock_sync_conn(n_decompressed: int = 0, n_recompressed: int = 0) -> MagicMo
     conn = MagicMock()
     conn.autocommit = False
     cur = conn.cursor.return_value.__enter__.return_value
-    # SHOW statement_timeout's result, read via cur.fetchone() -- the statement_timeout
-    # override this session applies and restores (see compressed_hypertable_write_session's
-    # docstring). Value is arbitrary; only its round-trip (captured, restored) is tested.
-    cur.fetchone.return_value = ("30min",)
 
     def _execute(sql: str, params: tuple | None = None) -> None:
-        if sql.startswith("SELECT decompress_chunk"):
+        if sql.startswith("SELECT config_value FROM config_state"):
+            # No row seeded -- the session falls back to its own default. Content-
+            # dispatched (not a shared cur.fetchone.return_value) because this call and
+            # "SHOW statement_timeout" below both read via fetchone() and must return
+            # different shapes.
+            cur.fetchone.return_value = None
+        elif sql == "SHOW statement_timeout":
+            # Value is arbitrary; only its round-trip (captured, restored) is tested.
+            cur.fetchone.return_value = ("30min",)
+        elif sql.startswith("SELECT decompress_chunk"):
             cur.rowcount = n_decompressed
         elif sql.startswith("SELECT compress_chunk"):
             cur.rowcount = n_recompressed

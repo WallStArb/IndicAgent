@@ -45,6 +45,13 @@ jobs:
       # Report-only: [tool.mypy] in pyproject.toml is real config but 795
       # pre-existing errors as of 2026-08-14 make this unsafe to block on
       # without a baseline/suppression mechanism first — see todo 311.
+      - name: Cache mypy
+        uses: actions/cache@v4
+        with:
+          path: .mypy_cache
+          key: ${{ runner.os }}-mypy-${{ hashFiles('pyproject.toml', 'requirements.txt') }}
+          restore-keys: ${{ runner.os }}-mypy-
+
       - name: Mypy (report-only)
         run: mypy src/ --ignore-missing-imports
         continue-on-error: true

@@ -173,6 +173,11 @@ _active_write_session_hypertable: ContextVar[str | None] = ContextVar(
     "_active_write_session_hypertable", default=None
 )
 
+# Shared by both compressed_hypertable_write_session (sync) and its async sibling --
+# one key, one fallback, defined once.
+_STATEMENT_TIMEOUT_APR_KEY = "infra.compressed_hypertable_write_session.statement_timeout_ms"
+_DEFAULT_STATEMENT_TIMEOUT_MS = 14_400_000  # 4h -- see migration 314 for provenance
+
 _DECOMPRESS_ALL_COMPRESSED_CHUNKS_SQL = (
     # %%I (not %I): psycopg's client-side placeholder scanner treats any single '%' in the
     # query text as a potential bind placeholder and rejects '%I' as an unrecognized one
@@ -294,11 +299,19 @@ def compressed_hypertable_write_session(conn: Any, hypertable: str):
     autovacuum workers onto the same chunks, slowing the next attempt's decompress further.
     """
     _validate_compressed_hypertable(hypertable)
-    cfg = load_config_service_sync(conn)
-    timeout_ms = int(
-        cfg.get_sync("infra.compressed_hypertable_write_session.statement_timeout_ms", 14_400_000)
-    )
     with conn.cursor() as cur:
+        # Scoped single-key lookup, not load_config_service_sync(conn) -- that helper
+        # pulls the whole config_state/config_schema JOIN (793 rows as of 2026-08-14)
+        # just to read one key, and the caller (e.g. regime_writer.py) has almost always
+        # already loaded the full APR table once for its own run moments earlier. Mirrors
+        # the async sibling's scoped `load_apr_dict_async(conn, ["infra....%"])` load.
+        cur.execute(
+            "SELECT config_value FROM config_state WHERE config_key = %s",
+            (_STATEMENT_TIMEOUT_APR_KEY,),
+        )
+        row = cur.fetchone()
+        timeout_ms = int(row[0]) if row else _DEFAULT_STATEMENT_TIMEOUT_MS
+
         cur.execute("SHOW statement_timeout")
         (prior_timeout,) = cur.fetchone()
         cur.execute("SELECT set_config('statement_timeout', %s, false)", (str(timeout_ms),))
@@ -489,9 +502,7 @@ async def async_compressed_hypertable_write_session(conn: Any, hypertable: str):
     """
     _validate_compressed_hypertable(hypertable)
     apr = await load_apr_dict_async(conn, ["infra.compressed_hypertable_write_session.%"])
-    timeout_ms = int(
-        cfg(apr, "infra.compressed_hypertable_write_session.statement_timeout_ms", 14_400_000)
-    )
+    timeout_ms = int(cfg(apr, _STATEMENT_TIMEOUT_APR_KEY, _DEFAULT_STATEMENT_TIMEOUT_MS))
     prior_timeout = await conn.fetchval("SHOW statement_timeout")
     await conn.execute("SELECT set_config('statement_timeout', $1, false)", str(timeout_ms))
 

@@ -60,9 +60,6 @@ class _ScriptedCursor:
     def fetchone(self):
         return self._response.get("fetchone")
 
-    def fetchall(self):
-        return self._response.get("fetchall", [])
-
     @property
     def rowcount(self) -> int:
         return self._response.get("rowcount", 0)
@@ -101,6 +98,25 @@ class _ScriptedConn:
 
 def _update_calls(conn: _ScriptedConn) -> list[tuple[str, tuple | None]]:
     return [c for c in conn.calls if "UPDATE feature_vectors" in c[0]]
+
+
+# compressed_hypertable_write_session's fixed call sequence (services/_batch_utils.py) --
+# every test that runs a real (non-empty) write session prepends/appends these, so the
+# session's own internals only need updating in one place if its call shape changes again
+# (as it did 2026-08-14, twice in the same session: the statement_timeout override was
+# added, then the config lookup it added was rescoped from a full-table load to a single
+# key). See compressed_hypertable_write_session's docstring for what each call is.
+_WRITE_SESSION_ENTRY_RESPONSES: list[dict] = [
+    {"fetchone": None},  # scoped statement_timeout key lookup (no row -> default)
+    {"fetchone": ("30min",)},  # SHOW statement_timeout
+    {},  # SET statement_timeout override
+    {"rowcount": 0},  # decompress-all (0 chunks)
+]
+_WRITE_SESSION_EXIT_RESPONSES: list[dict] = [
+    {"rowcount": 0},  # compress-all
+    {},  # VACUUM
+    {},  # SET statement_timeout restored
+]
 
 
 # ---------------------------------------------------------------------------
@@ -149,26 +165,16 @@ class TestColumnFamilyRegistry:
 class TestNullOutPerCellUpdates:
     def test_n_symbols_x_m_tfs_issue_exactly_nxm_updates_no_batched_scope(self, tmp_path):
         # 2 symbols x 2 tfs = 4 cells, each a clean pass: pre-count, update, verify.
-        # First/last two responses are compressed_hypertable_write_session's entry chunk-
-        # list fetch, exit chunk-list fetch, and VACUUM (empty chunk lists -> no actual
-        # decompress/compress calls, just the two list queries + the bare VACUUM).
-        responses = [
-            {"fetchall": []},  # write-session entry: APR config load (no rows -> defaults)
-            {"fetchone": ("30min",)},  # write-session entry: SHOW statement_timeout
-            {},  # write-session entry: SET statement_timeout override
-            {"rowcount": 0},  # write-session entry: decompress-all (0 chunks)
-        ]
+        # Wrapped in compressed_hypertable_write_session's fixed entry/exit sequence
+        # (empty chunk lists -> no actual decompress/compress work, just the bracket).
+        responses = list(_WRITE_SESSION_ENTRY_RESPONSES)
         for _ in range(4):
             responses += [
                 {"fetchone": (5,)},  # pre_null_labeled
                 {"rowcount": 5},  # UPDATE rowcount
                 {"fetchone": (0,)},  # post-condition: zero remaining
             ]
-        responses += [
-            {"rowcount": 0},  # write-session exit: compress-all
-            {},  # write-session exit: VACUUM
-            {},  # write-session exit: SET statement_timeout restored
-        ]
+        responses += _WRITE_SESSION_EXIT_RESPONSES
         conn = _ScriptedConn(responses)
         manifest_path = tmp_path / "manifest.json"
 
@@ -257,21 +263,15 @@ class TestNullOutManifestResumability:
                 }
             )
         )
-        # Only QQQ/1h should actually run: write-session entry (APR load, statement_timeout
-        # capture/override, decompress-all), then pre-count, update, verify, then
-        # write-session exit (compress-all, VACUUM, statement_timeout restore).
+        # Only QQQ/1h should actually run: write-session entry, then pre-count, update,
+        # verify, then write-session exit.
         conn = _ScriptedConn(
             [
-                {"fetchall": []},  # write-session entry: APR config load
-                {"fetchone": ("30min",)},  # write-session entry: SHOW statement_timeout
-                {},  # write-session entry: SET statement_timeout override
-                {"rowcount": 0},  # write-session entry: decompress-all
+                *_WRITE_SESSION_ENTRY_RESPONSES,
                 {"fetchone": (3,)},
                 {"rowcount": 3},
                 {"fetchone": (0,)},
-                {"rowcount": 0},  # write-session exit: compress-all
-                {},  # write-session exit: VACUUM
-                {},  # write-session exit: SET statement_timeout restored
+                *_WRITE_SESSION_EXIT_RESPONSES,
             ]
         )
 
@@ -314,19 +314,14 @@ class TestNullOutFailedCellContinues:
         # Cell 2 (QQQ/1h): post-condition passes.
         conn = _ScriptedConn(
             [
-                {"fetchall": []},  # write-session entry: APR config load
-                {"fetchone": ("30min",)},  # write-session entry: SHOW statement_timeout
-                {},  # write-session entry: SET statement_timeout override
-                {"rowcount": 0},  # write-session entry: decompress-all
+                *_WRITE_SESSION_ENTRY_RESPONSES,
                 {"fetchone": (5,)},
                 {"rowcount": 5},
                 {"fetchone": (3,)},  # FAIL
                 {"fetchone": (2,)},
                 {"rowcount": 2},
                 {"fetchone": (0,)},  # PASS
-                {"rowcount": 0},  # write-session exit: compress-all
-                {},  # write-session exit: VACUUM
-                {},  # write-session exit: SET statement_timeout restored
+                *_WRITE_SESSION_EXIT_RESPONSES,
             ]
         )
 

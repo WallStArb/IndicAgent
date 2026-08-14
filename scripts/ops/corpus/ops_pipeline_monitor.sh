@@ -8,7 +8,12 @@ cd /home/bg/dev/indicagent
 MAIN_LOG=logs/corpus_pipeline_run.log
 SUDO_PASS="${SUDO_PASS:?set via environment (see ~/.claude memory user_sudo_password.md) — do not hardcode here}"
 PYSPY=/home/bg/.local/bin/py-spy
-SERVICE_PATTERN='services/(backfill_feature_factory|regime_writer|forward_return_writer|ic_engine|ensemble_trainer|alpha_publisher)\.py'
+# [./] (not a literal "/"+".py") -- matches both the direct-script invocation
+# (services/regime_writer.py) and the dotted-module form (-m services.regime_writer,
+# todo 306's documented recovery invocation) that the old literal-path pattern silently
+# missed. Same bug class fixed 2026-08-14 in ops_regime_monitor.sh and
+# per_symbol_regime_candidates_stage2_orthogonality.py's in-flight-write guard.
+SERVICE_PATTERN='services[./](backfill_feature_factory|regime_writer|forward_return_writer|ic_engine|ensemble_trainer|alpha_publisher)'
 
 pg() { PGPASSWORD=postgres psql -U postgres -h localhost -d indicagent -tAc "$1" 2>/dev/null; }
 
