@@ -4,7 +4,7 @@ milestone: v3.1
 milestone_name: AlphaEngine Validation + Alpha Scoring
 status: milestone_complete
 stopped_at: Milestone complete (Phase 172 was final phase)
-last_updated: 2026-08-13T15:45:00.000Z
+last_updated: 2026-08-14T01:45:00.000Z
 progress:
   total_phases: 12
   completed_phases: 9
@@ -513,15 +513,30 @@ described in the Phase Summary table above; this section is for phases with no t
 
 ## Session
 
-**Corrected 2026-08-13 -- the entry below was stale since 2026-08-09** (it pointed at
-`/gsd:execute-phase 172` as the next step; Phase 172 has been COMPLETE since 2026-08-09, see the
-Phase Summary table above). GSD-phase-level work has been idle since then -- all activity since
-has been discovery-track research (Strategic Plan section above) and ops/incident work, neither
-of which flows through the phase-execution loop this section tracks. **Current real state: see
-the Strategic Plan section at the top of this file (authoritative, kept live) for what's actually
-in flight** -- as of this writing, the 2026-08-12 corpus pipeline run that three research threads
-are blocked on FAILED (2026-08-13 disk-full incident, `project_disk_full_incident_2026_08_13`
-memory); recovery is the immediate next step before any of that research can resume.
+**Corrected 2026-08-14 -- the entry below was stale since 2026-08-13** (it stopped at "disk-full
+incident, recovery is the immediate next step" and didn't reflect what happened next). Real
+sequence: the disk-full fix (migrations 201/202/312 VACUUM retrofit, todo 305's CI check) landed
+2026-08-13. Todo 306's own recovery Step 3 (relaunching `regime_writer`) then hit a **second,
+distinct bug**: compressed TimescaleDB chunks have no usable per-row index at all, so any UPDATE
+against `feature_vectors` forces a full decompressing scan regardless of predicate selectivity
+(~1000x cost, proven via `EXPLAIN`, not inferred) -- the relaunch ran ~9.5h, converged its HMM
+compute cleanly, and wrote zero rows. **Fixed and pushed to `main` 2026-08-14** (commit
+`faaeeb855`): `compressed_hypertable_write_session` (`services/_batch_utils.py`) brackets a
+batch's writes in one decompress/write/recompress+VACUUM session; wired into `regime_writer.py`
+and every other writer against `feature_vectors`/`feature_ic_scores` in the tree except
+`ic_engine.py` (deliberately deferred, todo 307, its own focused pass). Todo 308 filed for a
+related, smaller gap (hardcoded compressed-hypertable allow-list, not live-cached). Full detail:
+`project_disk_full_incident_2026_08_13` memory.
+
+**Current real state: see the Strategic Plan section at the top of this file (authoritative, kept
+live) for what's actually in flight.** `feature_vectors.regime`/`.regime_volatility` are still
+NULL across all 69.9M rows -- **`regime_writer` has NOT been relaunched again as of this
+writing.** The prior relaunch's ~9.5h produced nothing durable, so the next run is a fresh full
+run, not a resume. That relaunch is the immediate next step before any of the three blocked
+research threads (`statistical_factor_residual`, todos 303/304) can resume. GSD-phase-level work
+has been idle since Phase 172 (2026-08-09) -- all activity since has been discovery-track
+research and ops/incident work, neither of which flows through the phase-execution loop this
+section tracks.
 
 (Prior session content describing Phase 168/171 context-gathering was stale since 2026-07-31 and
 was superseded by the Phase Summary table and Strategic Plan section; trimmed 2026-08-09. The
