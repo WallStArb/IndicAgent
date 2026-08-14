@@ -55,6 +55,7 @@ sys.path.insert(0, str(Path(__file__).parent.parent.parent.parent))
 import asyncpg
 import structlog
 
+from services._batch_utils import async_compressed_hypertable_write_session as _write_session
 from src.config.settings import Settings
 from src.core.service_utils import setup_service_logging
 from src.observability.metrics import JOB_COMPLETED_TOTAL, flush_and_shutdown_metrics
@@ -119,26 +120,32 @@ def _render_report(rows: list[asyncpg.Record]) -> str:
 async def _apply(pool: asyncpg.Pool, rows: list[asyncpg.Record]) -> int:
     total_nulled = 0
     async with pool.acquire() as conn:
-        for r in rows:
-            symbol, tf, n_stale = r["symbol"], r["tf"], r["n_stale"]
-            async with conn.transaction():
-                result = await conn.execute(_CLEANUP_UPDATE_SQL, symbol, tf)
-                n_updated = int(result.split()[-1])
-                await conn.execute(
-                    _AUDIT_INSERT_SQL,
-                    _MONITOR_TYPE,
-                    f"{symbol}:{tf}",
-                    _METRIC_NAME,
-                    float(n_updated),
+        # feature_vectors is a compressed hypertable -- bracket the whole per-(symbol, tf)
+        # UPDATE loop in one decompress/write/recompress+VACUUM session instead of letting
+        # TimescaleDB decompress-and-recompress per pair (proven 2026-08-14, see
+        # compressed_hypertable_write_session's docstring). Entered here, outside any
+        # conn.transaction() block, per that function's own contract.
+        async with _write_session(conn, "feature_vectors"):
+            for r in rows:
+                symbol, tf, n_stale = r["symbol"], r["tf"], r["n_stale"]
+                async with conn.transaction():
+                    result = await conn.execute(_CLEANUP_UPDATE_SQL, symbol, tf)
+                    n_updated = int(result.split()[-1])
+                    await conn.execute(
+                        _AUDIT_INSERT_SQL,
+                        _MONITOR_TYPE,
+                        f"{symbol}:{tf}",
+                        _METRIC_NAME,
+                        float(n_updated),
+                    )
+                _logger.info(
+                    "stale_k3_hmm_fields_cleanup.pair_cleaned",
+                    symbol=symbol,
+                    tf=tf,
+                    n_expected=n_stale,
+                    n_updated=n_updated,
                 )
-            _logger.info(
-                "stale_k3_hmm_fields_cleanup.pair_cleaned",
-                symbol=symbol,
-                tf=tf,
-                n_expected=n_stale,
-                n_updated=n_updated,
-            )
-            total_nulled += n_updated
+                total_nulled += n_updated
     return total_nulled
 
 

@@ -62,6 +62,7 @@ sys.path.insert(0, str(project_root))
 
 from services._batch_utils import LOOKAHEAD_FALLBACKS_BY_TF, bulk_update_by_key, connect_db_from_url
 from services._batch_utils import cfg as _cfg
+from services._batch_utils import compressed_hypertable_write_session as _write_session
 from services._batch_utils import load_apr_dict_async as _load_apr_dict
 from src.config.config_service import ConfigService
 from src.config.settings import Settings
@@ -474,16 +475,22 @@ async def main() -> int:
 
         updates = compute_shrinkage_updates(ic_rows, feature_to_group, k)
         if updates:
-            bulk_update_by_key(
-                sync_conn,
-                table="feature_ic_scores",
-                temp_table="tmp_ic_shrinkage_update",
-                key_cols=list(_PK_COLS),
-                set_cols=list(_SET_COLS),
-                col_types=_COL_TYPES,
-                rows=updates,
-            )
-            sync_conn.commit()
+            # feature_ic_scores is a compressed hypertable -- a single UPDATE against a
+            # compressed chunk forces a full seq-scan/decompress regardless of row count
+            # (proven 2026-08-14, see compressed_hypertable_write_session's docstring), so
+            # even this one bulk_update_by_key call needs the bracket, not just regime_
+            # writer.py's ~1,000-call loop.
+            with _write_session(sync_conn, "feature_ic_scores"):
+                bulk_update_by_key(
+                    sync_conn,
+                    table="feature_ic_scores",
+                    temp_table="tmp_ic_shrinkage_update",
+                    key_cols=list(_PK_COLS),
+                    set_cols=list(_SET_COLS),
+                    col_types=_COL_TYPES,
+                    rows=updates,
+                )
+                sync_conn.commit()
 
         print("## E1 IC Shrinkage — Compute Pass\n")
         print(f"Reliable cells read: {len(ic_rows)}")

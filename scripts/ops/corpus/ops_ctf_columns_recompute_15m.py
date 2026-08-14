@@ -62,6 +62,7 @@ sys.path.insert(0, str(Path(__file__).parent.parent.parent.parent))
 import structlog
 
 from services._batch_utils import bulk_update_by_key, load_config_service_sync
+from services._batch_utils import compressed_hypertable_write_session_or_noop as _write_session
 from services.backfill_feature_factory import (
     _build_ctf_series,
     _build_feature_factory_config,
@@ -233,11 +234,16 @@ def main() -> None:
             total_changed = 0
             total_written = 0
             start = time.monotonic()
-            for symbol in symbols:
-                stats = _recompute_symbol(conn, symbol, config, args.apply)
-                total_examined += stats["rows_examined"]
-                total_changed += stats["rows_changed"]
-                total_written += stats["rows_written"]
+            # Only enter the compressed-hypertable write session on --apply -- a dry-run
+            # writes nothing to feature_vectors, so decompressing/recompressing it would be
+            # pure side-effecting overhead a "DEFAULT IS DRY-RUN (zero DB writes)" tool must
+            # not perform.
+            with _write_session(conn, "feature_vectors", apply=args.apply):
+                for symbol in symbols:
+                    stats = _recompute_symbol(conn, symbol, config, args.apply)
+                    total_examined += stats["rows_examined"]
+                    total_changed += stats["rows_changed"]
+                    total_written += stats["rows_written"]
             elapsed = time.monotonic() - start
 
             _logger.info(

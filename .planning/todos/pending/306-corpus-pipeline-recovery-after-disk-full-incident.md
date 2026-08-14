@@ -72,6 +72,47 @@ and every other regime-stratified measurement in this project are blocked on thi
   finishing and a fresh look at whether step 1's 2026-08-12 `feature_factory --compute-only`
   output is still valid.
 
+## Progress (2026-08-14): Step 3's relaunch hit a second, distinct bug -- root-caused and fixed
+
+Step 3's relaunch (above) ran for ~9.5h, converged its HMM compute cleanly the whole time, and
+wrote **zero rows** -- `feature_vectors.regime` was still 0/69,897,732 populated when checked.
+Root cause, confirmed via `EXPLAIN` (not inferred): `feature_vectors` is a compressed
+TimescaleDB hypertable with no usable per-row index on compressed chunks at all -- any
+row-level `UPDATE` against it, regardless of predicate selectivity, forces a full `Seq Scan`
+per touched chunk (~1000x the cost of the same query against a decompressed chunk, confirmed
+via a controlled single-symbol/4,875-row reproduction). `regime_writer.py`'s ~1,000 sequential
+per-symbol/tf `UPDATE` calls each hit this, blew the statement timeout on a fixed 30-minute
+cadence (585 logged `write_failed` events), and left dead-tuple bloat behind every attempt --
+same physical failure mode as this todo's original disk-full incident, this time triggered by
+a batch write job instead of a migration. Killed the stuck run (both the client process and a
+stray server-side backend that outlived it) once confirmed nothing was being written.
+
+**Fixed this session:** `compressed_hypertable_write_session` / `async_compressed_hypertable_
+write_session` (`services/_batch_utils.py`) brackets a batch's writes in one decompress-all ->
+write-all (cheap, index-backed) -> recompress-all + bare `VACUUM` session instead of letting
+TimescaleDB decompress-and-recompress per call. Wired into `regime_writer.py` and every other
+raw/`bulk_update_by_key` writer against `feature_vectors`/`feature_ic_scores` found in the
+tree, except `services/ic_engine.py` (deliberately deferred, see todo 307). New CI guard
+(`tests/unit/test_compressed_hypertable_write_boundary.py`) catches future raw UPDATEs against
+either table that bypass this. Full unit test coverage, `.venv/bin/pytest tests/unit/ -q` green.
+
+**Step 3 needs to be relaunched** now that the write path is actually fixed -- the prior
+relaunch's ~9.5h of HMM compute produced nothing durable, so this is a fresh full run, not a
+resume.
+
+**Hardening pass same session, post-`/simplify`:** 4 parallel review agents (reuse/
+simplification/efficiency/altitude) found and fixed real issues in the first-pass fix above --
+collapsed N-per-chunk round trips into one server-side statement per phase, added a
+`contextvar` guard so `bulk_update_by_key` now raises immediately if a caller forgets to open
+a session for a known compressed hypertable (was previously only caught by the CI grep, which
+can't see through `bulk_update_by_key`'s own f-string SQL), and a `..._or_noop` helper
+collapsing three independently-hand-rolled `nullcontext()` ternaries into one. Also caught and
+fixed a real bug the mock-only unit tests never could have caught: `format('%I.%I', ...)`
+inside a psycopg query string collides with psycopg's own client-side placeholder scanner
+(`%I` isn't a valid placeholder) and raises `ProgrammingError` at execute time -- found by
+actually running the collapsed query against the live DB (not just EXPLAIN), fixed via `%%I`
+escaping, re-verified live. Full detail in `services/_batch_utils.py`'s docstrings.
+
 ## Where
 
 - `systemctl status indicagent-feature-vector-pipeline indicagent-feature-vector-writer`

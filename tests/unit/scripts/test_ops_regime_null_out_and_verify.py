@@ -69,7 +69,9 @@ class _ScriptedConn:
     def __init__(self, responses: list[dict] | None = None) -> None:
         self.calls: list[tuple[str, tuple | None]] = []
         self.commits = 0
+        self.rollbacks = 0
         self.closed = False
+        self.autocommit = False
         self._responses = list(responses or [])
         self._idx = 0
 
@@ -78,6 +80,9 @@ class _ScriptedConn:
 
     def commit(self) -> None:
         self.commits += 1
+
+    def rollback(self) -> None:
+        self.rollbacks += 1
 
     def close(self) -> None:
         self.closed = True
@@ -141,14 +146,17 @@ class TestColumnFamilyRegistry:
 class TestNullOutPerCellUpdates:
     def test_n_symbols_x_m_tfs_issue_exactly_nxm_updates_no_batched_scope(self, tmp_path):
         # 2 symbols x 2 tfs = 4 cells, each a clean pass: pre-count, update, verify.
-        # First response is the once-per-run chunk-compression-state log.
-        responses = [{"fetchone": (80, 83)}]
+        # First/last two responses are compressed_hypertable_write_session's entry chunk-
+        # list fetch, exit chunk-list fetch, and VACUUM (empty chunk lists -> no actual
+        # decompress/compress calls, just the two list queries + the bare VACUUM).
+        responses = [{"rowcount": 0}]  # write-session entry: decompress-all (0 chunks)
         for _ in range(4):
             responses += [
                 {"fetchone": (5,)},  # pre_null_labeled
                 {"rowcount": 5},  # UPDATE rowcount
                 {"fetchone": (0,)},  # post-condition: zero remaining
             ]
+        responses += [{"rowcount": 0}, {}]  # write-session exit: compress-all, then VACUUM
         conn = _ScriptedConn(responses)
         manifest_path = tmp_path / "manifest.json"
 
@@ -237,22 +245,49 @@ class TestNullOutManifestResumability:
                 }
             )
         )
-        # Only QQQ/1h should actually run: compression-state log, then pre-count, update, verify.
+        # Only QQQ/1h should actually run: write-session entry, then pre-count, update,
+        # verify, then write-session exit (chunk-list fetch + VACUUM).
         conn = _ScriptedConn(
             [
-                {"fetchone": (80, 83)},
+                {"rowcount": 0},  # write-session entry: decompress-all
                 {"fetchone": (3,)},
                 {"rowcount": 3},
                 {"fetchone": (0,)},
+                {"rowcount": 0},  # write-session exit: compress-all
+                {},  # write-session exit: VACUUM
             ]
         )
 
         n_failed = _run_null_out(conn, ["SPY", "QQQ"], ["1h"], manifest_path, dry_run=False)
 
         assert n_failed == 0
-        assert len(conn.calls) == 4
-        for sql, params in conn.calls[1:]:
+        assert len(conn.calls) == 6
+        for sql, params in conn.calls[1:4]:
             assert params == ("QQQ", "1h")
+
+    def test_all_cells_already_verified_skips_the_write_session_entirely(self, tmp_path):
+        """Efficiency fix (2026-08-14): when the whole requested scope is already a
+        verified-null resume no-op, _run_null_out must not pay for a decompress/
+        recompress+VACUUM session it will issue zero UPDATEs inside -- asserted by an empty
+        scripted-response list: any unscripted call would return {} and silently succeed
+        with wrong values, so a real session entry (which reads cur.rowcount) would show up
+        as a spurious call rather than fail outright. len(conn.calls) == 0 is the real
+        assertion."""
+        manifest_path = tmp_path / "manifest.json"
+        manifest_path.write_text(
+            json.dumps(
+                {
+                    _manifest_key("SPY", "1h"): {"status": _STATUS_VERIFIED_NULL},
+                    _manifest_key("QQQ", "1h"): {"status": _STATUS_VERIFIED_NULL},
+                }
+            )
+        )
+        conn = _ScriptedConn([])
+
+        n_failed = _run_null_out(conn, ["SPY", "QQQ"], ["1h"], manifest_path, dry_run=False)
+
+        assert n_failed == 0
+        assert len(conn.calls) == 0
 
 
 class TestNullOutFailedCellContinues:
@@ -262,13 +297,15 @@ class TestNullOutFailedCellContinues:
         # Cell 2 (QQQ/1h): post-condition passes.
         conn = _ScriptedConn(
             [
-                {"fetchone": (80, 83)},  # once-per-run compression-state log
+                {"rowcount": 0},  # write-session entry: decompress-all
                 {"fetchone": (5,)},
                 {"rowcount": 5},
                 {"fetchone": (3,)},  # FAIL
                 {"fetchone": (2,)},
                 {"rowcount": 2},
                 {"fetchone": (0,)},  # PASS
+                {"rowcount": 0},  # write-session exit: compress-all
+                {},  # write-session exit: VACUUM
             ]
         )
 

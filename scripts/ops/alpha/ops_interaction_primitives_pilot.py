@@ -49,6 +49,7 @@ import asyncpg
 import numpy as np
 
 from services._batch_utils import LOOKAHEAD_FALLBACKS_BY_TF
+from services._batch_utils import async_compressed_hypertable_write_session as _write_session
 from services._batch_utils import bars_to_scale_map as _bars_to_scale_map
 from services._batch_utils import cfg as _cfg
 from src.config.settings import Settings
@@ -558,28 +559,35 @@ async def main() -> int:
                     r["passes_partial_fdr"] = bool(rej)
                     r["partial_ic_p_corrected"] = float(p_corr)
 
-            async with conn.transaction():
-                await conn.executemany(
-                    "UPDATE feature_ic_scores SET partial_ic = $1, partial_ic_p_value = $2, "
-                    "partial_ic_n = $3, passes_partial_fdr = $4 "
-                    "WHERE feature_name = $5 AND tf = $6 AND lookahead_bars = $7 "
-                    "AND training_window_end = $8 AND symbol = 'POOLED' "
-                    "AND is_pooled = true AND regime = $9",
-                    [
-                        (
-                            r["partial_ic"],
-                            r["partial_ic_p_value"],
-                            r["partial_ic_n"],
-                            r.get("passes_partial_fdr"),
-                            r["feature_name"],
-                            r["tf"],
-                            r["lookahead_bars"],
-                            r["training_window_end"],
-                            r["regime"],
-                        )
-                        for r in results
-                    ],
-                )
+            if results:
+                # feature_ic_scores is a compressed hypertable -- bracket this batch write
+                # in a decompress/write/recompress+VACUUM session instead of letting
+                # TimescaleDB decompress-and-recompress inline (proven 2026-08-14, see
+                # compressed_hypertable_write_session's docstring). Combined with
+                # conn.transaction() rather than nested, per that function's own contract
+                # (entered outside any open transaction block).
+                async with _write_session(conn, "feature_ic_scores"), conn.transaction():
+                    await conn.executemany(
+                        "UPDATE feature_ic_scores SET partial_ic = $1, "
+                        "partial_ic_p_value = $2, partial_ic_n = $3, passes_partial_fdr = $4 "
+                        "WHERE feature_name = $5 AND tf = $6 AND lookahead_bars = $7 "
+                        "AND training_window_end = $8 AND symbol = 'POOLED' "
+                        "AND is_pooled = true AND regime = $9",
+                        [
+                            (
+                                r["partial_ic"],
+                                r["partial_ic_p_value"],
+                                r["partial_ic_n"],
+                                r.get("passes_partial_fdr"),
+                                r["feature_name"],
+                                r["tf"],
+                                r["lookahead_bars"],
+                                r["training_window_end"],
+                                r["regime"],
+                            )
+                            for r in results
+                        ],
+                    )
 
         n_measured = len(results)
         n_valid = len(valid)

@@ -71,6 +71,7 @@ project_root = Path(__file__).parent.parent
 sys.path.insert(0, str(project_root))
 
 from services._batch_utils import bulk_update_by_key as _bulk_update_by_key
+from services._batch_utils import compressed_hypertable_write_session as _write_session
 from services._batch_utils import load_config_service_sync as _load_config_service_shared
 from services._batch_utils import make_worker_pool as _make_worker_pool
 from src.config.settings import Settings
@@ -2518,7 +2519,10 @@ def main() -> None:
                 options="-c idle_in_transaction_session_timeout=0",
             )
             try:
-                with _make_worker_pool(n_workers, blas_threads_per_worker) as pool:
+                with (
+                    _write_session(write_conn, "feature_vectors"),
+                    _make_worker_pool(n_workers, blas_threads_per_worker) as pool,
+                ):
                     for result in pool.map(_run_symbol_worker, worker_args, chunksize=1):
                         symbol = result["symbol"]
                         if result["error"]:

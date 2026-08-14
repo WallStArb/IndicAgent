@@ -65,6 +65,7 @@ sys.path.insert(0, str(Path(__file__).parent.parent.parent.parent))
 import psycopg
 import structlog
 
+from services._batch_utils import compressed_hypertable_write_session_or_noop as _write_session
 from services.regime_writer import _WALK_FORWARD_DEFAULT_PARAMS
 from src.config.settings import Settings
 from src.core.service_utils import setup_service_logging
@@ -200,14 +201,20 @@ _ROWS_BEFORE_TS_SQL = (
 
 _CONFIG_VALUE_SQL = "SELECT config_value FROM config_state WHERE config_key = %s"
 
-_CHUNK_COMPRESSION_SQL = (
-    "SELECT count(*) FILTER (WHERE is_compressed), count(*) "
-    "FROM timescaledb_information.chunks WHERE hypertable_name = %s"
-)
-
 
 def _manifest_key(symbol: str, tf: str) -> str:
     return f"{symbol}:{tf}"
+
+
+def _is_verified_null(manifest: dict[str, dict[str, Any]], symbol: str, tf: str) -> bool:
+    """Single source of truth for "is this cell already a verified-null resume no-op" --
+    `_run_null_out` needs the answer twice (once per-cell to decide whether to skip-and-
+    log, once upfront across the whole scope to decide whether to open a write session at
+    all); a prior version of this function spelled the same predicate two different ways,
+    so a future change to what "verified" means (e.g. adding a TTL) only had one of the two
+    call sites updated."""
+    existing = manifest.get(_manifest_key(symbol, tf))
+    return bool(existing and existing.get("status") == _STATUS_VERIFIED_NULL)
 
 
 def _load_manifest(path: Path) -> dict[str, dict[str, Any]]:
@@ -229,21 +236,6 @@ def _flush_manifest(path: Path, manifest: dict[str, dict[str, Any]]) -> None:
     tmp = path.with_suffix(".tmp")
     tmp.write_text(json.dumps(manifest, indent=2, sort_keys=True))
     tmp.rename(path)
-
-
-def _log_compression_state(conn: Any) -> None:
-    """Log chunk compression state once before the first UPDATE, per
-    performance-investigation-sop.md -- a bulk UPDATE against compressed chunks decompresses
-    and recompresses, so elapsed time should be interpreted afterward, not theorized about."""
-    with conn.cursor() as cur:
-        cur.execute(_CHUNK_COMPRESSION_SQL, ("feature_vectors",))
-        n_compressed, n_total = cur.fetchone()
-    _logger.info(
-        "regime_null_out.chunk_compression_state",
-        hypertable="feature_vectors",
-        n_compressed=n_compressed,
-        n_total=n_total,
-    )
 
 
 def _pre_null_labeled_count(
@@ -325,44 +317,59 @@ def _run_null_out(
     manifest = _load_manifest(manifest_path)
     n_failed = 0
 
-    if not dry_run:
-        _log_compression_state(conn)
-    else:
+    if dry_run:
         print("DRY-RUN MODE -- zero UPDATE statements will be issued.")  # noqa: T201
 
-    for symbol in symbols:
-        for tf in tfs:
-            key = _manifest_key(symbol, tf)
-            existing = manifest.get(key)
-            if existing and existing.get("status") == _STATUS_VERIFIED_NULL:
-                _logger.info("regime_null_out.cell_skipped_already_verified", symbol=symbol, tf=tf)
-                continue
+    # Cheap upfront pass so a run whose entire requested scope is already a verified-null
+    # resume no-op doesn't pay for a session at all -- the loop below re-checks the same
+    # predicate per cell regardless (needed there for its own skip-logging), this is purely
+    # to decide whether to bracket the loop in the real session or a no-op.
+    any_pending = any(
+        not _is_verified_null(manifest, symbol, tf) for symbol in symbols for tf in tfs
+    )
 
-            if dry_run:
-                would_null = _pre_null_labeled_count(conn, symbol, tf, family)
-                print(  # noqa: T201
-                    f"[DRY-RUN] {symbol}/{tf}: would NULL {would_null} labeled row(s) "
-                    f"across the {len(family.owned_columns)} {family.name}-owned columns; "
-                    "0 UPDATE statements issued"
-                )
-                _logger.info(
-                    "regime_null_out.dry_run_plan",
-                    symbol=symbol,
-                    tf=tf,
-                    column_family=family.name,
-                    would_null_rows=would_null,
-                )
-                continue
+    # feature_vectors is a compressed hypertable -- bracket the whole per-cell UPDATE loop
+    # in one decompress/write/recompress+VACUUM session instead of letting TimescaleDB
+    # decompress-and-recompress per cell (proven 2026-08-14, see compressed_hypertable_
+    # write_session's docstring; superseded the old log-only _log_compression_state() call
+    # this replaced -- knowing the state was never the fix). Skipped on a dry-run or when
+    # every requested cell already resumes as verified-null -- either way zero UPDATEs will
+    # be issued, so decompressing the table would be pure overhead.
+    with _write_session(conn, "feature_vectors", apply=not dry_run and any_pending):
+        for symbol in symbols:
+            for tf in tfs:
+                key = _manifest_key(symbol, tf)
+                if _is_verified_null(manifest, symbol, tf):
+                    _logger.info(
+                        "regime_null_out.cell_skipped_already_verified", symbol=symbol, tf=tf
+                    )
+                    continue
 
-            manifest[key] = {"status": _STATUS_IN_PROGRESS}
-            _flush_manifest(manifest_path, manifest)
+                if dry_run:
+                    would_null = _pre_null_labeled_count(conn, symbol, tf, family)
+                    print(  # noqa: T201
+                        f"[DRY-RUN] {symbol}/{tf}: would NULL {would_null} labeled row(s) "
+                        f"across the {len(family.owned_columns)} {family.name}-owned "
+                        "columns; 0 UPDATE statements issued"
+                    )
+                    _logger.info(
+                        "regime_null_out.dry_run_plan",
+                        symbol=symbol,
+                        tf=tf,
+                        column_family=family.name,
+                        would_null_rows=would_null,
+                    )
+                    continue
 
-            entry = _null_out_cell(conn, symbol, tf, family)
-            manifest[key] = entry
-            _flush_manifest(manifest_path, manifest)
+                manifest[key] = {"status": _STATUS_IN_PROGRESS}
+                _flush_manifest(manifest_path, manifest)
 
-            if entry["status"] == _STATUS_FAILED:
-                n_failed += 1
+                entry = _null_out_cell(conn, symbol, tf, family)
+                manifest[key] = entry
+                _flush_manifest(manifest_path, manifest)
+
+                if entry["status"] == _STATUS_FAILED:
+                    n_failed += 1
 
     if dry_run:
         print(  # noqa: T201

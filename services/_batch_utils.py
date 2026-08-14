@@ -8,7 +8,8 @@ import io
 import json
 from collections.abc import Callable
 from concurrent.futures import ProcessPoolExecutor
-from contextlib import contextmanager
+from contextlib import asynccontextmanager, contextmanager, nullcontext
+from contextvars import ContextVar
 from typing import Any
 
 import numpy as np
@@ -95,7 +96,22 @@ def bulk_update_by_key(
     rows: each tuple ordered as (*set_cols, *key_cols) — matches the parameter order
     psycopg executemany() callers already use for `SET ... WHERE key = %s` statements.
     conn: caller commits; this function does not call conn.commit().
+
+    Raises RuntimeError if `table` is a known compressed hypertable
+    (_KNOWN_COMPRESSED_HYPERTABLES, below) and no `compressed_hypertable_write_session` is
+    currently active for it -- turns "caller forgot to wrap this write in a session" from a
+    silent ~1000x-slower forced full-chunk scan (the 2026-08-14 incident: a full night's
+    regime_writer.py run converged its HMM compute cleanly and wrote zero rows) into an
+    immediate, loud failure at the first UPDATE attempt instead of a multi-hour hang only
+    an EXPLAIN would have revealed.
     """
+    if table in _KNOWN_COMPRESSED_HYPERTABLES and _active_write_session_hypertable.get() != table:
+        raise RuntimeError(
+            f"bulk_update_by_key: {table!r} is a compressed hypertable -- wrap this call in "
+            f"compressed_hypertable_write_session(conn, {table!r}) (or the async sibling) "
+            "first. See that function's docstring for why a bare UPDATE against a compressed "
+            "chunk is ~1000x more expensive than it looks (2026-08-14 incident)."
+        )
     all_cols = set_cols + key_cols
     col_defs = ", ".join(f"{c} {col_types[c]}" for c in all_cols)
     with conn.cursor() as cur:
@@ -117,6 +133,212 @@ def bulk_update_by_key(
         cur.execute(
             f"UPDATE {table} AS t SET {set_clause} FROM {temp_table} AS v WHERE {key_clause}"
         )
+
+
+# ---------------------------------------------------------------------------
+# Compressed-hypertable write session (psycopg-based batch services)
+# ---------------------------------------------------------------------------
+#
+# Every table a batch job bulk-UPDATEs by key here is a compressed TimescaleDB hypertable
+# (todo 306 follow-up, 2026-08-14). Deliberately a static set, not a live `timescaledb_
+# information.hypertables WHERE compression_enabled` query: bulk_update_by_key's guard
+# (below) checks this on every single write call and must not add a DB round trip to that
+# hot path.
+#
+# The two drift directions are NOT equally safe (2026-08-14 altitude review correction --
+# an earlier version of this comment claimed they were). A table left in this set after it
+# stops being compressed is harmless: compressed_hypertable_write_session's own per-entry
+# chunk query just finds zero chunks and no-ops. A table that's missing -- becomes
+# compressed later, or is used via bulk_update_by_key for the first time while already
+# compressed, before anyone adds it here -- is NOT caught by anything: bulk_update_by_key's
+# guard is gated on membership in this exact set, so a missing entry means the guard simply
+# never fires and the write proceeds unwrapped, silently reintroducing the ~1000x-slower
+# forced-seq-scan bug this whole mechanism exists to prevent. Todo 308 tracks replacing this
+# with a process-lifetime-cached live query (same cache-at-init shape as ConfigService/
+# VocabularyService, so the hot-path objection above still holds) -- deliberately not done
+# in the same sweep that added this set, for the same reason services/ic_engine.py's write
+# paths were deferred to todo 307: a shared mutable cache with real sync/async and
+# cross-test-isolation implications deserves its own focused pass, not a bolt-on in the
+# final stretch of an already-large diff.
+_KNOWN_COMPRESSED_HYPERTABLES = frozenset({"feature_vectors", "feature_ic_scores"})
+
+# Set for the duration of an active compressed_hypertable_write_session /
+# async_compressed_hypertable_write_session (value = the hypertable name), so
+# bulk_update_by_key can tell "no session running" apart from "session running for a
+# different table" apart from "session running for this exact table." Per-task/coroutine
+# isolated by asyncio (a concurrent task without its own session correctly sees None, not
+# another task's value) and correct in the sync/single-threaded batch-script case this
+# guard actually protects (bulk_update_by_key is psycopg/sync-only).
+_active_write_session_hypertable: ContextVar[str | None] = ContextVar(
+    "_active_write_session_hypertable", default=None
+)
+
+_DECOMPRESS_ALL_COMPRESSED_CHUNKS_SQL = (
+    # %%I (not %I): psycopg's client-side placeholder scanner treats any single '%' in the
+    # query text as a potential bind placeholder and rejects '%I' as an unrecognized one
+    # (only %s/%b/%t are valid) -- confirmed live 2026-08-14, this exact query raised
+    # psycopg.ProgrammingError before the doubling was added. format()'s own %I/%L
+    # directives need escaping to %%I/%%L to survive psycopg's parameter substitution
+    # before ever reaching the server. asyncpg has no equivalent client-side scanning (its
+    # $1-style placeholders don't collide with '%'), so the asyncpg sibling constants below
+    # use a single %I, unescaped -- confirmed live, not assumed.
+    "SELECT decompress_chunk(format('%%I.%%I', chunk_schema, chunk_name)::regclass, "
+    "if_compressed => true) FROM timescaledb_information.chunks "
+    "WHERE hypertable_name = %s AND is_compressed"
+)
+_COMPRESS_ALL_DECOMPRESSED_CHUNKS_SQL = (
+    "SELECT compress_chunk(format('%%I.%%I', chunk_schema, chunk_name)::regclass, "
+    "if_not_compressed => true) FROM timescaledb_information.chunks "
+    "WHERE hypertable_name = %s AND NOT is_compressed"
+)
+
+
+def _validate_compressed_hypertable(hypertable: str) -> None:
+    """Defense-in-depth: re-validate against the known-hypertable allow-list right before
+    SQL interpolation (VACUUM's target can't be a bind parameter), even though every caller
+    path sources `hypertable` from a hardcoded literal, never user input. Same pattern as
+    regime_writer.py's `_validate_label_column` / `ops_regime_null_out_and_verify.py`'s
+    `_validate_label_column`."""
+    if hypertable not in _KNOWN_COMPRESSED_HYPERTABLES:
+        raise ValueError(
+            f"compressed_hypertable_write_session: {hypertable!r} is not a known compressed "
+            f"hypertable ({sorted(_KNOWN_COMPRESSED_HYPERTABLES)}). Add it to "
+            "_KNOWN_COMPRESSED_HYPERTABLES if this is a genuine new compressed write target."
+        )
+
+
+def _log_write_session_entering(hypertable: str, n_chunks: int) -> None:
+    _logger.warning(
+        "compressed_hypertable_write_session.entering",
+        hypertable=hypertable,
+        chunks_to_decompress=n_chunks,
+    )
+
+
+def _log_write_session_exited(hypertable: str, n_chunks: int) -> None:
+    _logger.info(
+        "compressed_hypertable_write_session.exited",
+        hypertable=hypertable,
+        chunks_recompressed=n_chunks,
+    )
+
+
+@contextmanager
+def compressed_hypertable_write_session(conn: Any, hypertable: str):
+    """Brackets a batch of row-level UPDATEs against a compressed TimescaleDB hypertable.
+
+    Proven necessary 2026-08-14: a compressed TimescaleDB chunk has no usable per-row index
+    at all. Confirmed via EXPLAIN: a 4,875-row single-symbol UPDATE against feature_vectors
+    forced a Seq Scan of the full chunk (cost ~1.2M) instead of an Index Scan on the PK
+    (cost ~1,200 on the same chunk decompressed) -- roughly 1000x, independent of how
+    selective the UPDATE's WHERE/JOIN predicate is. `bulk_update_by_key` and any hand-rolled
+    UPDATE against a compressed hypertable both hit this identically -- the cost comes from
+    TimescaleDB's chunk-level compression storage, not from the query shape.
+
+    A batch job issuing more than a handful of row-level UPDATEs (e.g. regime_writer.py's
+    ~1,000 sequential per-symbol/tf writes) must bracket the whole batch in this session
+    instead of letting TimescaleDB decompress-and-recompress per call -- that per-call
+    pattern is what turned a 12-hour compression policy cycle into a disk-fill incident
+    (2026-08-13/14): every call decompresses, nothing waits for the next call before
+    autovacuum/compression can catch up, so dead-tuple bloat compounds across calls faster
+    than it's reclaimed. Every write in that incident also failed outright (statement
+    timeout) -- this isn't only a disk-space fix, the writes literally cannot complete
+    against a compressed hypertable at this call volume.
+
+    Decompresses every currently-compressed chunk of `hypertable` on entry (one server-side
+    statement -- `decompress_chunk()` invoked per matching chunk row inside a single SELECT,
+    not a per-chunk round trip), then yields, then -- in a `finally`, so this always runs
+    even if the caller's write loop raises -- recompresses every chunk left decompressed
+    (same single-statement shape) and issues a bare top-level `VACUUM` (autocommit; VACUUM
+    cannot run inside a transaction block, see docs/foundation/timescaledb-compressed-
+    column-migration.md step 4). `decompress_chunk(if_compressed=True)` /
+    `compress_chunk(if_not_compressed=True)` are idempotent -- a session resumed after a
+    prior run was killed mid-way finds those chunks already decompressed and safely no-ops
+    them instead of erroring or double-working. That resumed run still recompresses +
+    VACUUMs everything at its own exit, so the table converges back to fully-compressed
+    state as long as one session eventually runs to completion.
+
+    Scoped to the whole hypertable, not the caller's actual write footprint -- matches the
+    canonical decompress-all/recompress-all reference pattern in the migration doc above,
+    and TimescaleDB compression is a chunk-granularity operation regardless (there is no
+    row-scoped decompress). A caller writing a narrow slice (e.g. one training_window_end)
+    pays decompress/recompress work on chunks it didn't need to touch; not optimized here
+    without measured evidence it matters for those lower-frequency callers.
+
+    Does NOT protect against the process dying without running Python `finally` blocks at
+    all (SIGKILL, OOM, power loss) -- that leaves the table decompressed with elevated disk
+    usage until the next session that runs to completion. Logs chunk-compression counts on
+    entry/exit at WARNING/INFO so this state is visible in `logs/` immediately instead of
+    requiring a live investigation to notice, which is what the 2026-08-13/14 incident cost.
+
+    Sets `_active_write_session_hypertable` for the duration so `bulk_update_by_key` can
+    detect a caller that forgot to open a session at all (see that function's docstring) --
+    does NOT protect against a *different*, un-bracketed writer (e.g. ic_engine.py, see
+    todo 307) touching the same hypertable concurrently: this session's exit recompresses
+    "every chunk currently decompressed," not only the ones it personally decompressed, so
+    a concurrent unbracketed writer's chunk could be recompressed out from under it mid-
+    write. Safe today because every known caller runs sequentially (`ops_corpus_pipeline_
+    run.sh`'s step ordering) -- if that ever stops being true, this session needs a real
+    advisory lock, not just a contextvar.
+
+    conn: caller-owned, open psycopg connection (autocommit False is fine -- this function
+    manages its own commits and only toggles autocommit for the final VACUUM). Never closed
+    here -- same ownership contract as bulk_update_by_key.
+    """
+    _validate_compressed_hypertable(hypertable)
+    with conn.cursor() as cur:
+        cur.execute(_DECOMPRESS_ALL_COMPRESSED_CHUNKS_SQL, (hypertable,))
+        n_decompressed = cur.rowcount
+    conn.commit()
+    _log_write_session_entering(hypertable, n_decompressed)
+
+    token = _active_write_session_hypertable.set(hypertable)
+    try:
+        yield
+    finally:
+        _active_write_session_hypertable.reset(token)
+
+        # If the caller's write raised a real DB-level error (a statement timeout, a
+        # constraint violation -- exactly the failure mode this whole mechanism exists to
+        # protect against), the connection is left in Postgres's aborted-transaction state
+        # and the very next statement raises InFailedSqlTransaction regardless of what it
+        # is. Without this rollback, that masks the caller's real error and skips both
+        # recompress and VACUUM entirely (2026-08-14 code review finding -- regime_writer.py
+        # happens to already roll back per-cell internally so it never hit this, but the
+        # other three psycopg call sites had no such guard). Safe unconditionally, including
+        # on the success path: rollback() on a connection with no pending transaction (e.g.
+        # right after the caller's own conn.commit()) is a no-op, never discards durably
+        # committed work.
+        conn.rollback()
+
+        with conn.cursor() as cur:
+            cur.execute(_COMPRESS_ALL_DECOMPRESSED_CHUNKS_SQL, (hypertable,))
+            n_recompressed = cur.rowcount
+        conn.commit()
+
+        prior_autocommit = conn.autocommit
+        conn.autocommit = True
+        try:
+            with conn.cursor() as cur:
+                # hypertable validated against _KNOWN_COMPRESSED_HYPERTABLES above -- never
+                # attacker-controlled, and VACUUM's target can't be a bind parameter.
+                cur.execute(f"VACUUM {hypertable}")
+        finally:
+            conn.autocommit = prior_autocommit
+
+        _log_write_session_exited(hypertable, n_recompressed)
+
+
+def compressed_hypertable_write_session_or_noop(conn: Any, hypertable: str, *, apply: bool):
+    """`compressed_hypertable_write_session(conn, hypertable)` when `apply` is true,
+    `contextlib.nullcontext()` otherwise -- the shared shape every dry-run-by-default /
+    resume-aware caller needs (a dry-run or an all-cells-already-done resume issues zero
+    UPDATEs, so decompressing/recompressing the table would be pure side-effecting overhead
+    a "zero DB writes" contract must not perform). One caller-supplied boolean instead of
+    each script hand-rolling its own `_write_session(...) if cond else nullcontext()`
+    ternary (two independent copies of this exact conditional existed before this helper).
+    """
+    return compressed_hypertable_write_session(conn, hypertable) if apply else nullcontext()
 
 
 def limit_blas_threads(n_threads: int) -> None:
@@ -208,6 +430,69 @@ async def load_apr_dict_async(conn: Any, extra_like_patterns: list[str] | None =
         patterns,
     )
     return {r["config_key"]: r["config_value"] for r in rows}
+
+
+_DECOMPRESS_ALL_COMPRESSED_CHUNKS_ASYNCPG_SQL = (
+    "SELECT decompress_chunk(format('%I.%I', chunk_schema, chunk_name)::regclass, "
+    "if_compressed => true) FROM timescaledb_information.chunks "
+    "WHERE hypertable_name = $1 AND is_compressed"
+)
+_COMPRESS_ALL_DECOMPRESSED_CHUNKS_ASYNCPG_SQL = (
+    "SELECT compress_chunk(format('%I.%I', chunk_schema, chunk_name)::regclass, "
+    "if_not_compressed => true) FROM timescaledb_information.chunks "
+    "WHERE hypertable_name = $1 AND NOT is_compressed"
+)
+
+
+@asynccontextmanager
+async def async_compressed_hypertable_write_session(conn: Any, hypertable: str):
+    """asyncpg sibling of `compressed_hypertable_write_session` (sync/psycopg, above) --
+    same contract, same rationale, same concurrency caveat (see that function's docstring
+    for the full incident writeup, the whole-hypertable-not-write-footprint scoping
+    decision, and why a *different* unbracketed writer touching the same hypertable
+    concurrently isn't safe), ported for asyncpg-based batch services (e.g. ops_stale_k3_
+    hmm_fields_cleanup.py) rather than forcing them onto a second DB driver just for this
+    session. Sets `_active_write_session_hypertable` too, for symmetry -- `bulk_update_by_
+    key` is psycopg/sync-only today so nothing currently reads it from this path, but a
+    future asyncpg-based bulk-update helper can rely on the same guard without this session
+    needing a second change.
+
+    conn: an acquired asyncpg connection (e.g. `async with pool.acquire() as conn`), not a
+    pool -- decompress/recompress and every write in between must share one session so the
+    chunk-compression state this function manages stays consistent for the whole bracket.
+    Must NOT be called from inside an open `conn.transaction()` block: the final VACUUM
+    cannot run inside a transaction, and asyncpg has no equivalent of psycopg's autocommit
+    toggle to escape one mid-connection.
+    """
+    _validate_compressed_hypertable(hypertable)
+    # asyncpg's execute() returns the command tag ("SELECT <n>") for a plain SELECT --
+    # confirmed live 2026-08-14 -- so the affected-row count comes for free from the same
+    # call that runs the statement, same shape as ops_stale_k3_hmm_fields_cleanup.py's own
+    # `int(result.split()[-1])` idiom and the sync sibling's cur.rowcount. No count(*)
+    # subquery wrapper needed (an earlier version of this function used one).
+    result = await conn.execute(_DECOMPRESS_ALL_COMPRESSED_CHUNKS_ASYNCPG_SQL, hypertable)
+    n_decompressed = int(result.split()[-1])
+    _log_write_session_entering(hypertable, n_decompressed)
+
+    token = _active_write_session_hypertable.set(hypertable)
+    try:
+        yield
+    finally:
+        _active_write_session_hypertable.reset(token)
+
+        result = await conn.execute(_COMPRESS_ALL_DECOMPRESSED_CHUNKS_ASYNCPG_SQL, hypertable)
+        n_recompressed = int(result.split()[-1])
+        # hypertable validated against _KNOWN_COMPRESSED_HYPERTABLES above -- never
+        # attacker-controlled, and VACUUM's target can't be a bind parameter.
+        await conn.execute(f"VACUUM {hypertable}")
+
+        _log_write_session_exited(hypertable, n_recompressed)
+
+
+def async_compressed_hypertable_write_session_or_noop(conn: Any, hypertable: str, *, apply: bool):
+    """Async sibling of `compressed_hypertable_write_session_or_noop` -- see that
+    function's docstring."""
+    return async_compressed_hypertable_write_session(conn, hypertable) if apply else nullcontext()
 
 
 def cfg(cfg_dict: dict[str, Any], key: str, default: Any) -> Any:
