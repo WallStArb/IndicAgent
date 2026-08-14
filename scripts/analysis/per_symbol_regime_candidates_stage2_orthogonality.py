@@ -266,8 +266,10 @@ def main() -> None:
     print(
         "\nStage 2 (orthogonality) only -- no threshold decision made here. Once these "
         "numbers are reviewed and alpha.regime_stratification.max_correlation is set, "
-        "proceed to Stage 3 (substitution/falsification test), which additionally needs "
-        "feature_ic_scores from ic_engine (step 5) -- not yet available."
+        "proceed to Stage 3 (substitution/falsification test, "
+        "per_symbol_regime_candidates_stage3_falsification.py) -- corrected 2026-08-14: "
+        "does NOT need ic_engine/feature_ic_scores after all, just forward_returns + "
+        "momentum_z_fast/momentum_z_mid (both already-populated pipeline stages)."
     )
 
 
