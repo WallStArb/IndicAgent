@@ -1805,18 +1805,28 @@ def _regime_family_col_types(owned_columns: tuple[str, ...]) -> dict[str, str]:
     """Derive `_bulk_update_by_key`'s `col_types` from an owned-column tuple.
 
     Both regime column families share one shape: element 0 is the text label
-    column, every remaining element is a `double precision` probability/stat
+    column, every remaining element is a `real` probability/stat
     column, plus the fixed `(symbol, tf, bar_ts)` key columns. Deriving this
     instead of hand-typing it in each writer keeps col_types from drifting out
     of sync with REGIME_WRITER_OWNED_COLUMN_NAMES /
     REGIME_VOLATILITY_WRITER_OWNED_COLUMN_NAMES the same way set_cols already
     does -- a column added to one and not the other used to be a silent
     KeyError risk in `_bulk_update_by_key`.
+
+    Corrected 2026-08-14 (todo 312): these columns were `double precision` when this
+    function was first written but migrations 201/312 narrowed them all to `real` --
+    that drift went undetected because col_types was, until the same fix, only used for
+    the temp table's DDL (psycopg's implicit double->real cast at the final UPDATE
+    masked the mismatch, right up until a genuinely out-of-range value -- an HMM
+    posterior probability underflowing float4's representable range -- finally made it
+    visible as a write failure). Now also the source of truth for bulk_update_by_key's
+    float-range clamp, so this string must track the live schema exactly, not just be
+    "close enough" for DDL purposes.
     """
     label_col, *stat_cols = owned_columns
     return {
         label_col: "text",
-        **{c: "double precision" for c in stat_cols},
+        **{c: "real" for c in stat_cols},
         "symbol": "text",
         "tf": "text",
         "bar_ts": "timestamptz",

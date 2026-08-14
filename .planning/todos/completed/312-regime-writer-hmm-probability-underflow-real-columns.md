@@ -51,3 +51,23 @@ needs the same clamp before its own pass runs.
   `201_feature_vectors_float32.sql` -- the type narrowing that introduced the range gap
 - `logs/regime_writer.log` -- 195 `write_failed` events as of 2026-08-14, `grep underflow` to
   find current affected-symbol count (will grow as the run continues)
+
+## Resolution (2026-08-14)
+
+Root cause traced one level deeper than the initial write-up: `_regime_family_col_types`
+declared these columns `double precision` in `bulk_update_by_key`'s `col_types` dict, stale
+against the real schema since migrations 201/312 -- undetected because `col_types` was only
+used for the temp table's DDL until this fix. Fixed:
+1. `_regime_family_col_types` now declares `real` (matching the live schema).
+2. `services/_batch_utils.py` gained `_clamp_to_real_range()` (IEEE754 float32 bounds via
+   `np.finfo`, confirmed empirically against live Postgres) and wired it into
+   `bulk_update_by_key` itself, keyed off `col_types[col] == "real"` -- a systemic guard
+   protecting every current and future caller, not a regime_writer-only patch.
+3. Found and fixed the same stale-`col_types` drift in `ops_ctf_columns_recompute_15m.py`
+   (confirmed exposed by migration 312 too, even though not yet triggered).
+4. `ops_ic_shrinkage.py` (the 4th `bulk_update_by_key` caller) audited and confirmed clean.
+5. Broader audit of non-`bulk_update_by_key` writers split out as todo 313 (not blocking).
+
+13 new unit tests (`TestClampToRealRange`, `TestBulkUpdateByKeyRealClamping`), full
+`tests/unit/` suite green. Not yet re-verified against a live `regime_writer` run (the
+in-flight run predates this fix); the *next* full relabel is the real verification.

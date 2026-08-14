@@ -22,8 +22,11 @@ if str(_project_root) not in sys.path:
 from services._batch_utils import (
     _COMPRESS_ALL_DECOMPRESSED_CHUNKS_ASYNCPG_SQL,
     _DECOMPRESS_ALL_COMPRESSED_CHUNKS_ASYNCPG_SQL,
+    _REAL_MAX_MAGNITUDE,
+    _REAL_MIN_MAGNITUDE,
     Float32ChunkAccumulator,
     _active_write_session_hypertable,
+    _clamp_to_real_range,
     _validate_compressed_hypertable,
     async_compressed_hypertable_write_session,
     async_compressed_hypertable_write_session_or_noop,
@@ -576,6 +579,92 @@ class TestBulkUpdateByKeyCompressedHypertableGuard:
             col_types={"id": "int", "value": "text"},
             rows=[(1, "x")],
         )  # must not raise
+
+
+class TestClampToRealRange:
+    """todo 312: an HMM posterior probability underflowing float4's representable range
+    made Postgres reject the write outright rather than round it -- these are the pure
+    boundary-condition tests for the clamp that fixes it."""
+
+    def test_underflowing_positive_value_clamps_to_zero(self) -> None:
+        assert _clamp_to_real_range(1e-50) == 0.0
+
+    def test_underflowing_negative_value_clamps_to_zero(self) -> None:
+        assert _clamp_to_real_range(-1e-50) == 0.0
+
+    def test_smallest_representable_subnormal_passes_through_unchanged(self) -> None:
+        assert _clamp_to_real_range(_REAL_MIN_MAGNITUDE) == _REAL_MIN_MAGNITUDE
+
+    def test_overflowing_positive_value_clamps_to_real_max(self) -> None:
+        assert _clamp_to_real_range(1e50) == _REAL_MAX_MAGNITUDE
+
+    def test_overflowing_negative_value_clamps_to_negative_real_max(self) -> None:
+        assert _clamp_to_real_range(-1e50) == -_REAL_MAX_MAGNITUDE
+
+    def test_ordinary_probability_passes_through_unchanged(self) -> None:
+        assert _clamp_to_real_range(0.5) == 0.5
+
+    def test_exact_zero_passes_through_unchanged(self) -> None:
+        assert _clamp_to_real_range(0.0) == 0.0
+
+    def test_none_passes_through_unchanged(self) -> None:
+        assert _clamp_to_real_range(None) is None
+
+    def test_nan_passes_through_unchanged(self) -> None:
+        result = _clamp_to_real_range(float("nan"))
+        assert result != result  # NaN != NaN is the only valid NaN check
+
+    def test_infinity_passes_through_unchanged(self) -> None:
+        assert _clamp_to_real_range(float("inf")) == float("inf")
+
+    def test_non_float_value_passes_through_unchanged(self) -> None:
+        assert _clamp_to_real_range("trending_up") == "trending_up"
+        assert _clamp_to_real_range(5) == 5
+
+
+class TestBulkUpdateByKeyRealClamping:
+    def _written_csv(self, conn: MagicMock) -> str:
+        cur = conn.cursor.return_value.__enter__.return_value
+        copy_ctx = cur.copy.return_value.__enter__.return_value
+        return "".join(c.args[0] for c in copy_ctx.write.call_args_list)
+
+    def test_underflowing_value_in_a_real_column_is_clamped_before_copy(self) -> None:
+        conn = MagicMock()
+        cur = conn.cursor.return_value.__enter__.return_value
+        cur.copy.return_value.__enter__.return_value = MagicMock()
+        bulk_update_by_key(
+            conn,
+            table="some_table",
+            temp_table="_t",
+            key_cols=["symbol"],
+            set_cols=["hmm_entropy"],
+            col_types={"symbol": "text", "hmm_entropy": "real"},
+            rows=[(1e-50, "SPY")],
+        )
+        csv_text = self._written_csv(conn)
+        assert "1e-50" not in csv_text
+        assert csv_text.startswith("0.0") or csv_text.startswith("0,")
+
+    def test_double_precision_column_is_never_clamped_regression(self) -> None:
+        """Regression: before this fix, col_types said 'double precision' for columns
+        migrations 201/312 had already narrowed to 'real' in the live schema, so this
+        clamp silently never fired for them. A genuinely double-precision column must
+        still pass an underflowing-for-float4 value through untouched -- double
+        precision can represent it fine."""
+        conn = MagicMock()
+        cur = conn.cursor.return_value.__enter__.return_value
+        cur.copy.return_value.__enter__.return_value = MagicMock()
+        bulk_update_by_key(
+            conn,
+            table="some_table",
+            temp_table="_t",
+            key_cols=["symbol"],
+            set_cols=["some_double_col"],
+            col_types={"symbol": "text", "some_double_col": "double precision"},
+            rows=[(1e-50, "SPY")],
+        )
+        csv_text = self._written_csv(conn)
+        assert "1e-50" in csv_text
 
 
 def _mock_async_conn(n_decompressed: int = 0, n_recompressed: int = 0) -> MagicMock:

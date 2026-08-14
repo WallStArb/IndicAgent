@@ -157,10 +157,15 @@ def _recompute_symbol(conn: Any, symbol: str, config: Any, apply: bool) -> dict[
             temp_table="_ctf_columns_recompute_staging",
             key_cols=["symbol", "tf", "bar_ts"],
             set_cols=["ctf_momentum", "ctf_vwap_align", "ctf_regime_align"],
+            # "real", not "double precision" -- migration 312 narrowed all three columns
+            # (found stale 2026-08-14 auditing every bulk_update_by_key caller against
+            # migration 312's column list while fixing todo 312's HMM-probability
+            # underflow; col_types is now also the source of truth for
+            # bulk_update_by_key's float-range clamp, not just this temp table's DDL).
             col_types={
-                "ctf_momentum": "double precision",
-                "ctf_vwap_align": "double precision",
-                "ctf_regime_align": "double precision",
+                "ctf_momentum": "real",
+                "ctf_vwap_align": "real",
+                "ctf_regime_align": "real",
                 "symbol": "text",
                 "tf": "text",
                 "bar_ts": "timestamptz",

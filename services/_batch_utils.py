@@ -6,6 +6,7 @@ from __future__ import annotations
 import csv
 import io
 import json
+import math
 from collections.abc import Callable
 from concurrent.futures import ProcessPoolExecutor
 from contextlib import asynccontextmanager, contextmanager, nullcontext
@@ -76,6 +77,47 @@ def load_config_service_sync(conn: Any) -> ConfigService:
     return cfg
 
 
+# Postgres `real` (IEEE 754 float4) representable range, sourced from numpy's own
+# constants rather than hand-typed literals -- confirmed live 2026-08-14 (`SELECT
+# 1e-45::real` parses, `1e-46::real` raises "value out of range: underflow"; `SELECT
+# 1e50::real` raises "out of range" the other tail) that Postgres's own boundary matches
+# IEEE754 float32 exactly, including the subnormal range down to smallest_subnormal --
+# not just the "normal" range (tiny).
+_REAL_MIN_MAGNITUDE = float(np.finfo(np.float32).smallest_subnormal)
+_REAL_MAX_MAGNITUDE = float(np.finfo(np.float32).max)
+
+
+def _clamp_to_real_range(value: Any) -> Any:
+    """Clamp a Python float (typically computed in float64) to what Postgres's `real`
+    column type can actually store, before it reaches a bulk_update_by_key COPY/UPDATE
+    targeting one.
+
+    Root-caused live 2026-08-14 (todo 312): regime_writer.py's HMM posterior
+    probabilities occasionally produce a residual state probability (or entropy value)
+    smaller in magnitude than float4 can represent at all -- e.g. 1e-50 for a highly
+    confident state assignment. Postgres rejects such a value outright ("value out of
+    range: underflow") rather than rounding it to zero, even though every consumer of
+    these columns already truncates to float32 precision on read (migration 201/312's
+    own rationale) -- so a near-zero residual is scientifically indistinguishable from
+    exactly 0.0 at any precision that survives the round trip anyway. Clamping the
+    underflow tail to 0.0 is the mathematically correct value at this precision, not an
+    approximation being papered over. The overflow tail is symmetric defensive coverage
+    (no currently known caller writes an out-of-range-large value into a `real` column,
+    but the failure mode is identical and costs nothing to guard against here too).
+
+    NaN/Infinity are valid IEEE754 float4 values Postgres accepts natively -- left
+    untouched, not this function's concern. `None` (SQL NULL) passes through unchanged.
+    """
+    if value is None or not isinstance(value, float) or not math.isfinite(value):
+        return value
+    magnitude = abs(value)
+    if magnitude == 0.0 or _REAL_MIN_MAGNITUDE <= magnitude <= _REAL_MAX_MAGNITUDE:
+        return value
+    if magnitude < _REAL_MIN_MAGNITUDE:
+        return 0.0
+    return math.copysign(_REAL_MAX_MAGNITUDE, value)
+
+
 def bulk_update_by_key(
     conn: Any,
     *,
@@ -104,6 +146,16 @@ def bulk_update_by_key(
     regime_writer.py run converged its HMM compute cleanly and wrote zero rows) into an
     immediate, loud failure at the first UPDATE attempt instead of a multi-hour hang only
     an EXPLAIN would have revealed.
+
+    col_types: also the single source of truth for which columns get float-range-clamped
+    (todo 312, 2026-08-14) -- any column declared "real" here has _clamp_to_real_range()
+    applied to its value before it reaches the COPY buffer, protecting every current and
+    future caller from Postgres's underflow/overflow rejection uniformly, in the shared
+    write primitive, rather than requiring each caller to remember its own clamp. This
+    makes col_types load-bearing for correctness, not just the temp table's DDL -- keep it
+    in sync with the target table's actual column types (a caller that still declares
+    "double precision" for a column migrated to "real" gets neither Postgres's DDL-level
+    type check nor this clamp).
     """
     if table in _KNOWN_COMPRESSED_HYPERTABLES and _active_write_session_hypertable.get() != table:
         raise RuntimeError(
@@ -114,6 +166,8 @@ def bulk_update_by_key(
         )
     all_cols = set_cols + key_cols
     col_defs = ", ".join(f"{c} {col_types[c]}" for c in all_cols)
+    real_positions = frozenset(i for i, c in enumerate(all_cols) if col_types[c] == "real")
+
     with conn.cursor() as cur:
         cur.execute(f"CREATE TEMP TABLE IF NOT EXISTS {temp_table} ({col_defs})")
         cur.execute(f"TRUNCATE {temp_table}")
@@ -121,6 +175,10 @@ def bulk_update_by_key(
         buf = io.StringIO()
         writer = csv.writer(buf)
         for row in rows:
+            if real_positions:
+                row = tuple(
+                    _clamp_to_real_range(v) if i in real_positions else v for i, v in enumerate(row)
+                )
             writer.writerow("" if v is None else v for v in row)
         buf.seek(0)
         with cur.copy(
