@@ -30,6 +30,7 @@ ignore = [
 "examples/*.py" = ["E402"]
 "tests/**/*.py" = ["E501", "E402"]  # test fixtures exceed 100 chars; mid-file imports common
 "tools/**/*.py" = ["E501", "E402", "F821", "F404"]
+"tools/vulture_whitelist.py" = ["E501", "E402", "F821", "F404", "B018"]  # vulture --make-whitelist output: bare names, not real code
 "tests/integration/**/*.py" = ["F821"]  # references to deleted topics in legacy e2e tests
 "tests/integration/*.py" = ["E402"]
 "tests/unit/indicators/test_incremental_manager.py" = ["E402"]
@@ -41,6 +42,16 @@ ignore = [
 
 [tool.ruff.lint.isort]
 known-first-party = ["src", "production", "services"]
+
+[tool.vulture]
+# Dead-code detection. Baseline backlog (1136 pre-existing findings as of 2026-08-14,
+# mostly dataclass/Pydantic fields vulture can't distinguish from real dead code, plus
+# genuine unused-code debt) is frozen in tools/vulture_whitelist.py — same "grandfather
+# existing, block new" pattern as [tool.ruff]'s E501 baseline above. Triage backlog: todo 309.
+paths = ["src", "services", "scripts", "tools/vulture_whitelist.py"]
+exclude = ["src/intelligence/archive/*"]  # intentionally-retained dead v2.x code, not a gap
+min_confidence = 60
+sort_by_size = true
 
 [tool.mypy]
 python_version = "3.14"

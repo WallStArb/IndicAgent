@@ -233,13 +233,7 @@ class SignalContextCache:
             try:
                 return cls.model_validate(data)
             except Exception:
-                return (
-                    cls.model_validate(data, context={"extra": "ignore"})
-                    if False
-                    else cls.model_validate(
-                        {k: v for k, v in data.items() if k in cls.model_fields}
-                    )
-                )
+                return cls.model_validate({k: v for k, v in data.items() if k in cls.model_fields})
 
         # Build typed proxy — DB-seeded paths only access event.iN attributes
         proxy = types.SimpleNamespace(

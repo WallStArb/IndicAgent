@@ -113,7 +113,8 @@ sudo systemctl start indicagent-intelligence-pipeline indicagent-feature-writer 
 .venv/bin/pytest tests/integration/ -v # Integration (requires live Redpanda + PostgreSQL)
 .venv/bin/ruff check . --fix           # Linting
 .venv/bin/black .                      # Formatting
-.venv/bin/mypy src/ --ignore-missing-imports
+.venv/bin/vulture                      # Dead code (config + whitelist in pyproject.toml/tools/vulture_whitelist.py)
+.venv/bin/mypy src/ --ignore-missing-imports   # Report-only in CI (todo 311); real errors, not yet gated
 cd dashboard && npm run dev            # Frontend dev server
 ```
 

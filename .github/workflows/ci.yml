@@ -31,7 +31,7 @@ jobs:
           cache: pip
 
       - name: Install lint tools
-        run: pip install "ruff>=0.15.0" "black>=26.1.0"
+        run: pip install "ruff>=0.15.0" "black>=26.1.0" "vulture>=2.11" "mypy>=1.14.0"
 
       - name: Ruff
         run: ruff check .
@@ -39,10 +39,26 @@ jobs:
       - name: Black
         run: black --check .
 
+      - name: Vulture (dead code)
+        run: vulture
+
+      # Report-only: [tool.mypy] in pyproject.toml is real config but 795
+      # pre-existing errors as of 2026-08-14 make this unsafe to block on
+      # without a baseline/suppression mechanism first — see todo 311.
+      - name: Mypy (report-only)
+        run: mypy src/ --ignore-missing-imports
+        continue-on-error: true
+
+      - name: Duplicate test names
+        run: python tools/check_duplicate_tests.py
+
   # ---------------------------------------------------------------------------
   # Plugin Invariants — Renaissance-grade structural guards.
-  # Mirrors the 3 bash checks in .git/hooks/pre-commit so --no-verify can't
-  # bypass them. No pip install needed — pure grep/find, runs in ~2s.
+  # Mirrors 4 of the 9 bash checks in tools/pre-commit.hook (the local git hook
+  # is opt-in and --no-verify bypasses it entirely — this job is the only one
+  # that actually gates every PR/push). Glossary + counterfactual-ledger checks
+  # (hook checks 8/9) are not mirrored here yet — same gap, tracked as todo 310.
+  # No pip install needed — pure grep/find, runs in ~2s.
   # ---------------------------------------------------------------------------
   plugin-guards:
     name: Plugin Invariants
@@ -114,6 +130,24 @@ jobs:
             exit 1
           fi
           echo "OK: all I7 plugins declare regime_type"
+
+      # Guard 4: Ring 0 boundary — src/core/ and src/observability/ (portable
+      # infrastructure, CLAUDE.md's Ring rule) must never import domain code
+      # (src/intelligence/, src/providers/, src/self_healing/, services/).
+      # Mirrors tools/pre-commit.hook's check_ring0_boundary exactly.
+      - name: Ring 0 boundary
+        run: |
+          violations=$(grep -rn \
+            "from src\.intelligence\|from src\.providers\|from src\.self_healing\|from services" \
+            src/core/ src/observability/ --include="*.py" 2>/dev/null \
+            | grep -v "^\s*#" | grep -v "ring0-ok" || true)
+          if [ -n "$violations" ]; then
+            echo "FAIL: Ring 0 boundary violation — src/core/ or src/observability/ imports domain layer"
+            echo "$violations"
+            echo "Remediation: move the file to Ring 1 (src/intelligence/) or add a ring0-ok comment for lazy imports"
+            exit 1
+          fi
+          echo "OK: Ring 0 boundary clean"
 
   # ---------------------------------------------------------------------------
   # Unit Tests — 3454 tests, CI-clean (no live infra required).
