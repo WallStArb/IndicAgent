@@ -49,7 +49,7 @@ known-first-party = ["src", "production", "services"]
 # genuine unused-code debt) is frozen in tools/vulture_whitelist.py — same "grandfather
 # existing, block new" pattern as [tool.ruff]'s E501 baseline above. Triage backlog: todo 309.
 paths = ["src", "services", "scripts", "tools/vulture_whitelist.py"]
-exclude = ["src/intelligence/archive/*"]  # intentionally-retained dead v2.x code, not a gap
+exclude = ["*/src/intelligence/archive/*"]  # intentionally-retained dead v2.x code, not a gap
 min_confidence = 60
 sort_by_size = true
 

@@ -152,7 +152,6 @@ class BaseDaemon(abc.ABC, ConfigConsumerMixin):
         self.max_idle_seconds = max_idle_seconds
         self._stop_event: asyncio.Event = asyncio.Event()
         self._last_message_ts: float | None = None
-        self._last_processed_at: datetime | None = None
         # Cache OTel attribute dicts to avoid rebuilding on every message.
         self._last_msg_ts_attrs = {"agent_id": name}
         self._consumer_lag_attrs = {"agent_id": name}
@@ -399,23 +398,16 @@ class BaseDaemon(abc.ABC, ConfigConsumerMixin):
         while not self._stop_event.is_set():
             await asyncio.sleep(60)
 
-    @property
-    def last_processed_at(self) -> datetime | None:
-        """Wall-clock UTC datetime of last successfully processed message."""
-        return self._last_processed_at
-
     def _record_message_consumed(self) -> None:
         """Call once per successfully consumed Kafka message.
 
-        Updates the monotonic stall clock, wall-clock UTC timestamp, and the
-        Prometheus liveness gauge. Required for _stall_watchdog() and
-        _watchdog_notify() liveness gating to work. Agents that never call this
-        behave as before (no stall detection).
+        Updates the monotonic stall clock and the OTel liveness gauge
+        (`agent_last_message_timestamp_seconds`). Required for _stall_watchdog()
+        and _watchdog_notify() liveness gating to work. Agents that never call
+        this behave as before (no stall detection).
         """
         # monotonic for stall detection (immune to clock skew)
         self._last_message_ts = time.monotonic()
-        # wall-clock for external observability (last_processed_at property)
-        self._last_processed_at = datetime.now(UTC)
         AGENT_LAST_MESSAGE_TIMESTAMP_SECONDS.set(time.time(), self._last_msg_ts_attrs)
 
     async def _stall_watchdog(self) -> None:
