@@ -713,6 +713,19 @@ def test_compute_resume_skips_complete_pairs() -> None:
                 },
             },
         ),
+        # todo 316: checkpoint only trusted when feature_vectors actually holds the
+        # rows (at or above coverage_threshold of rows_written) -- this test's
+        # scenario is the correctly-synced case, unlike
+        # test_compute_resume_recomputes_when_status_complete_but_no_fv_rows.
+        patch(
+            "services.backfill_feature_factory._load_fv_row_counts",
+            return_value={
+                ("SPY", "5m"): 1000,
+                ("SPY", "15m"): 800,
+                ("SPY", "1h"): 200,
+                ("SPY", "1d"): 50,
+            },
+        ),
         patch("services.backfill_feature_factory._compute_symbol_tf") as mock_compute,
     ):
         mock_cfg_load.return_value = MagicMock()
@@ -730,6 +743,198 @@ def test_compute_resume_skips_complete_pairs() -> None:
     # All 4 TFs returned in coverage
     assert ("SPY", "5m") in coverage
     assert ("SPY", "1d") in coverage
+
+
+def test_compute_resume_recomputes_when_status_complete_but_no_fv_rows() -> None:
+    """todo 316: a (symbol, tf) marked status='complete' in backfill_status but with
+    ZERO rows actually present in feature_vectors must NOT be skipped -- the checkpoint
+    desynced from reality (confirmed live: 80 active ETF symbols, computed successfully
+    per backfill_status in 2026-07, completely absent from feature_vectors as of
+    2026-08-14 with no error ever raised). Recompute, don't trust a stale flag blindly."""
+    settings = MagicMock()
+    settings.database_url = "postgresql://fake"
+    mock_conn = MagicMock()
+
+    mock_instrument = MagicMock()
+    mock_instrument.symbol = "SPY"
+    mock_instrument.asset_class = "equity"
+
+    with (
+        patch(
+            "services.backfill_feature_factory.get_active_contracts",
+            return_value=[mock_instrument],
+        ),
+        patch("services.backfill_feature_factory._load_config_service") as mock_cfg_load,
+        patch("services.backfill_feature_factory._build_feature_factory_config") as mock_cfg_build,
+        patch(
+            "services.backfill_feature_factory._load_status_map",
+            return_value={
+                ("SPY", tf): {
+                    "status": "complete",
+                    "fetch_complete": True,
+                    "rows_written": 1000,
+                    "theoretical_max": 1200,
+                }
+                for tf in _TARGET_TIMEFRAMES_DEFAULT
+            },
+        ),
+        # feature_vectors has ZERO rows for SPY on any tf -- the desync
+        patch(
+            "services.backfill_feature_factory._load_fv_row_counts",
+            return_value={},
+        ),
+        patch("services.backfill_feature_factory._make_worker_pool") as mock_pool_cls,
+    ):
+        mock_cfg_load.return_value = MagicMock()
+        mock_cfg_build.return_value = _make_config()
+        mock_pool = MagicMock()
+        mock_pool.map.return_value = [
+            {
+                "symbol": "SPY",
+                "error": None,
+                "results": [
+                    {"tf": tf, "rows_written": 1000, "theoretical_max": 1200, "pct": 0.83}
+                    for tf in _TARGET_TIMEFRAMES_DEFAULT
+                ],
+            }
+        ]
+        mock_pool_cls.return_value.__enter__.return_value = mock_pool
+
+        run_compute_stage(
+            settings=settings,
+            symbols=None,
+            db_conn=mock_conn,
+        )
+
+        # The stale 'complete' flag must NOT short-circuit compute when feature_vectors
+        # actually holds nothing for this pair -- a pool must still be spawned.
+        mock_pool.map.assert_called_once()
+
+
+def test_compute_resume_recomputes_on_partial_row_loss() -> None:
+    """Code review finding (todo 316, same session): a pure existence check missed
+    PARTIAL data loss -- a pair that lost most but not all of its rows still read as
+    'present' and got skipped forever, reproducing the exact silent-gap failure mode
+    this fix exists to close, just below 100% instead of at 0%. A count well under
+    coverage_threshold (default 0.80) of rows_written must also trigger recompute."""
+    settings = MagicMock()
+    settings.database_url = "postgresql://fake"
+    mock_conn = MagicMock()
+
+    mock_instrument = MagicMock()
+    mock_instrument.symbol = "SPY"
+    mock_instrument.asset_class = "equity"
+
+    with (
+        patch(
+            "services.backfill_feature_factory.get_active_contracts",
+            return_value=[mock_instrument],
+        ),
+        patch("services.backfill_feature_factory._load_config_service") as mock_cfg_load,
+        patch("services.backfill_feature_factory._build_feature_factory_config") as mock_cfg_build,
+        patch(
+            "services.backfill_feature_factory._load_status_map",
+            return_value={
+                ("SPY", tf): {
+                    "status": "complete",
+                    "fetch_complete": True,
+                    "rows_written": 1000,
+                    "theoretical_max": 1200,
+                }
+                for tf in _TARGET_TIMEFRAMES_DEFAULT
+            },
+        ),
+        # feature_vectors holds only 50/1000 rows for SPY on every tf -- well under
+        # the 80% default coverage_threshold, i.e. a real partial-loss desync.
+        patch(
+            "services.backfill_feature_factory._load_fv_row_counts",
+            return_value={("SPY", tf): 50 for tf in _TARGET_TIMEFRAMES_DEFAULT},
+        ),
+        patch("services.backfill_feature_factory._make_worker_pool") as mock_pool_cls,
+    ):
+        mock_cfg_load.return_value = MagicMock()
+        mock_cfg_build.return_value = _make_config()
+        mock_pool = MagicMock()
+        mock_pool.map.return_value = [
+            {
+                "symbol": "SPY",
+                "error": None,
+                "results": [
+                    {"tf": tf, "rows_written": 1000, "theoretical_max": 1200, "pct": 0.83}
+                    for tf in _TARGET_TIMEFRAMES_DEFAULT
+                ],
+            }
+        ]
+        mock_pool_cls.return_value.__enter__.return_value = mock_pool
+
+        run_compute_stage(
+            settings=settings,
+            symbols=None,
+            db_conn=mock_conn,
+        )
+
+        mock_pool.map.assert_called_once()
+
+
+def test_refresh_skips_fv_row_count_check_entirely() -> None:
+    """Code review finding (todo 316, same session): under refresh=True the skip
+    branch is already unconditionally bypassed, so computing the desync check's
+    result is pure waste (a real query against a 70M-row hypertable) plus misleading
+    'desynced' warnings for what's actually just an operator-requested recompute.
+    _load_fv_row_counts must not even be called when refresh=True."""
+    settings = MagicMock()
+    settings.database_url = "postgresql://fake"
+    mock_conn = MagicMock()
+
+    mock_instrument = MagicMock()
+    mock_instrument.symbol = "SPY"
+    mock_instrument.asset_class = "equity"
+
+    with (
+        patch(
+            "services.backfill_feature_factory.get_active_contracts",
+            return_value=[mock_instrument],
+        ),
+        patch("services.backfill_feature_factory._load_config_service") as mock_cfg_load,
+        patch("services.backfill_feature_factory._build_feature_factory_config") as mock_cfg_build,
+        patch(
+            "services.backfill_feature_factory._load_status_map",
+            return_value={
+                ("SPY", tf): {
+                    "status": "complete",
+                    "fetch_complete": True,
+                    "rows_written": 1000,
+                    "theoretical_max": 1200,
+                }
+                for tf in _TARGET_TIMEFRAMES_DEFAULT
+            },
+        ),
+        patch("services.backfill_feature_factory._load_fv_row_counts") as mock_fv_counts,
+        patch("services.backfill_feature_factory._make_worker_pool") as mock_pool_cls,
+    ):
+        mock_cfg_load.return_value = MagicMock()
+        mock_cfg_build.return_value = _make_config()
+        mock_pool = MagicMock()
+        mock_pool.map.return_value = [
+            {
+                "symbol": "SPY",
+                "error": None,
+                "results": [
+                    {"tf": tf, "rows_written": 1000, "theoretical_max": 1200, "pct": 0.83}
+                    for tf in _TARGET_TIMEFRAMES_DEFAULT
+                ],
+            }
+        ]
+        mock_pool_cls.return_value.__enter__.return_value = mock_pool
+
+        run_compute_stage(
+            settings=settings,
+            symbols=None,
+            db_conn=mock_conn,
+            refresh=True,
+        )
+
+        mock_fv_counts.assert_not_called()
 
 
 def test_refresh_reprocesses_complete_pairs() -> None:

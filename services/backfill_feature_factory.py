@@ -245,6 +245,24 @@ FROM backfill_status
 WHERE symbol = ANY(%s) AND tf = ANY(%s)
 """
 
+# todo 316: backfill_status.status='complete' is a side-table checkpoint with no
+# transactional or FK coupling to feature_vectors itself -- it can silently desync
+# from reality (confirmed live: 80 active symbols, computed successfully per
+# backfill_status in 2026-07, completely absent from feature_vectors as of
+# 2026-08-14, with zero errors/warnings anywhere in between). This query lets
+# run_compute_stage verify the checkpoint against the table it's actually a proxy
+# for, once per run (not per-pair), before trusting a 'complete' status to skip.
+# Counts, not just DISTINCT presence (code review finding, same session): a pair
+# that lost MOST but not all of its rows would still read as "present" under a
+# pure existence check, reproducing the exact silent-partial-gap failure mode
+# this fix exists to close, just below 100% instead of at 0%.
+_SELECT_FV_ROW_COUNTS_SQL = """
+SELECT symbol, tf, count(*)
+FROM feature_vectors
+WHERE symbol = ANY(%s) AND tf = ANY(%s)
+GROUP BY symbol, tf
+"""
+
 # Canonical INSERT/UPSERT SQL imported from shared persistence module.
 # Do not inline SQL here — feature_vector_persistence.py is the single source of truth.
 # DO NOTHING (default): idempotent gap-fill, never touches an existing row.
@@ -771,6 +789,22 @@ def _load_status_map(conn: Any, symbols: list[str], tfs: list[str]) -> dict[tupl
     return result
 
 
+def _load_fv_row_counts(
+    conn: Any, symbols: list[str], tfs: list[str]
+) -> dict[tuple[str, str], int]:
+    """Load actual feature_vectors row counts per (symbol, tf) pair.
+
+    todo 316: the ground truth run_compute_stage's checkpoint must be verified
+    against — backfill_status.status='complete' alone is not sufficient proof.
+    A missing key means zero rows (total loss); a present key below
+    coverage_threshold * rows_written means partial loss — both are desyncs.
+    """
+    with conn.cursor() as cur:
+        cur.execute(_SELECT_FV_ROW_COUNTS_SQL, (symbols, tfs))
+        rows = cur.fetchall()
+    return {(sym, tf): count for sym, tf, count in rows}
+
+
 # ---------------------------------------------------------------------------
 # Stage 1: IBKR Fetch
 # ---------------------------------------------------------------------------
@@ -998,6 +1032,31 @@ def run_compute_stage(
     etf_contracts = _filter_etf_contracts(contracts, symbols)
     all_symbols = [c.symbol for c in etf_contracts]
     status_map = _load_status_map(db_conn, all_symbols, target_timeframes)
+    # todo 316: backfill_status.status='complete' is not sufficient proof compute
+    # actually happened and landed — verify against feature_vectors itself before
+    # trusting the checkpoint enough to skip. See _load_fv_row_counts's docstring.
+    # Scoped to only the symbols/tfs actually marked 'complete' -- count data for
+    # a not-yet-complete pair is never consulted below, so fetching it would be pure
+    # waste against a 70M-row hypertable (measured ~7s/1.3GB for the full-universe
+    # query; smaller in partial-backfill scenarios where most pairs aren't complete).
+    # Skipped entirely under refresh=True (code review finding, same session): the
+    # skip branch below is already unconditionally False when refresh=True, so the
+    # desync check's result is never consulted -- computing it would pay the same
+    # query cost for nothing and log misleading "desynced" warnings that look like
+    # the real data-integrity alarm this check exists to raise, for what's actually
+    # just an operator-requested recompute.
+    complete_pairs = (
+        [] if refresh else [k for k, v in status_map.items() if v.get("status") == "complete"]
+    )
+    fv_row_counts = (
+        _load_fv_row_counts(
+            db_conn,
+            sorted({sym for sym, _tf in complete_pairs}),
+            sorted({tf for _sym, tf in complete_pairs}),
+        )
+        if complete_pairs
+        else {}
+    )
     coverage: dict[tuple[str, str], dict] = {}
     dsn = settings.database_url
 
@@ -1012,8 +1071,32 @@ def run_compute_stage(
         for tf in target_timeframes:
             key = (symbol, tf)
             existing = status_map.get(key, {})
-            if existing.get("status") == "complete" and not refresh:
-                rows_written = existing.get("rows_written", 0) or 0
+            is_complete = existing.get("status") == "complete"
+            rows_written = existing.get("rows_written", 0) or 0
+            actual_fv_rows = fv_row_counts.get(key, 0)
+            # todo 316 + code review finding, same session: a pure existence check
+            # (any row present) missed partial data loss -- a pair that lost most but
+            # not all of its rows still read as "present" and got skipped forever,
+            # reproducing the exact silent-gap failure mode this fix exists to close,
+            # just below 100% instead of at 0%. Reuse the same coverage_threshold gate
+            # already applied to freshly-computed pairs (D-06) for consistency.
+            checkpoint_desynced = (
+                is_complete
+                and rows_written > 0
+                and actual_fv_rows < coverage_threshold * rows_written
+            )
+            if checkpoint_desynced:
+                _logger.warning(
+                    "compute_checkpoint_desynced",
+                    symbol=symbol,
+                    tf=tf,
+                    rows_written=rows_written,
+                    actual_fv_rows=actual_fv_rows,
+                    reason="backfill_status.status='complete' but feature_vectors holds "
+                    f"only {actual_fv_rows}/{rows_written} rows for this pair -- "
+                    "recomputing instead of trusting the stale checkpoint (todo 316)",
+                )
+            if is_complete and not refresh and not checkpoint_desynced:
                 theoretical = existing.get("theoretical_max", 0) or 0
                 pct = rows_written / theoretical if theoretical > 0 else 0.0
                 coverage[key] = {
