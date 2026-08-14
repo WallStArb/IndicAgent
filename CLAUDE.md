@@ -1,6 +1,6 @@
 # CLAUDE.md
 
-Version: 5.55.1
+Version: 5.55.2
 <!-- Bump the patch version on every substantive edit to this file (convention, not enforced). -->
 
 **Project nature:** Passion/learning project — not a production system. Architectural decisions prioritize correctness, rigor, and institutional-grade thinking. Renaissance Capital / Jim Simons principles are the north star. When giving advice, apply the same rigor you would to a system built to last — do not hedge around operational risk that doesn't apply.
@@ -165,6 +165,7 @@ Non-negotiable. Any violation is wrong regardless of whether it works locally.
 - **Metrics**: `src/observability/metrics.py` (direct OTel SDK — `prometheus_client` fully removed). Counters → `.add(1, attrs)`, histograms → `.record(val, attrs)`, up-down gauges → `.add(delta, attrs)`, point gauges → `.set(value, attrs)`. Never import `prometheus_client`.
 - **Spans**: `observed_span(name, attributes={...})` from `src/observability/spans.py` — auto-records ERROR on raise. Use `ATTR_*` constants from same module.
 - **`BaseWriter._parse_payload` return contract**: `None` → DLQ whole payload. `[]` → all-invalid (no DLQ). Only return `None` for truly unparseable payloads.
+- **`bulk_update_by_key`'s `col_types` is load-bearing for correctness, not just DDL**: any column declared `"real"` gets float32-range-clamped before write (`services/_batch_utils.py::_clamp_to_real_range`) — a caller whose `col_types` still says `"double precision"` for a column a migration later narrowed to `real` silently loses that protection and can hit a Postgres "value out of range" write failure (todo 312). Keep `col_types` in sync with the live schema, always.
 - **Exception variable name is `error`** — `except X as error:`, not `exc`.
 - **File/class renames require test sweep:** `grep -r "OldName" tests/` — test imports break at pytest collection, not lint.
 - **`git add` with multiple pathspecs aborts entirely if ANY path doesn't match** (e.g. staging the pre-rename side of an already-`pending/`→`completed/`-moved todo file) — none of the valid paths get staged either, not just the bad one. Stage an already-renamed path alone (`git add -- <new_path>`; git auto-detects the rename) before batching it with others.
