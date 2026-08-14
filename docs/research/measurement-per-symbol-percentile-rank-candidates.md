@@ -132,9 +132,17 @@ later call, not bundled into this candidate's falsification.
   almost exactly. ~10% of observations in each tail bucket (`<0.1`, `>0.9`) for all 15, as
   expected of a correctly-functioning causal rank.
 
-**Stage 2 and Stage 3 (including the null-arm control specified above) not started** — both
-gated on the concurrent corpus pipeline (`ops_corpus_pipeline_run.sh`) reaching, respectively,
-`regime_writer` (step 2) and `ic_engine` (step 5).
+**Stage 2 and Stage 3 code both built 2026-08-14, neither run yet** — both gated on
+`regime_writer`'s `regime_volatility` pass finishing (in progress as of this writing).
+`per_symbol_regime_candidates_stage2_orthogonality.py` (shared with todo 303) and
+`per_symbol_regime_candidates_stage3_falsification.py` (also shared with todo 303, 16 unit
+tests on synthetic data, all green). **Correction to this doc's own Stage 3 spec above**: the
+`N > 20,000 bars` pass criterion is a full-corpus/intraday-scale threshold, unreachable at a
+5-symbol/1d probe (tops out in the low hundreds per cell) — Stage 3 runs at 5m/15m instead
+(never 1m), where real bar counts clear the gate. Does NOT need `ic_engine`/`feature_ic_scores`
+after all — only `forward_returns` and `feature_vectors.momentum_z_fast`/`momentum_z_mid`
+(already-populated pipeline stages), both read directly rather than through `ic_engine`'s
+corpus-wide machinery. See the script's own docstring for the full corrected design.
 
 ## References
 
