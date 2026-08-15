@@ -2,9 +2,9 @@
 
 **Canonical name:** Unified Concept Registry (UCR)
 **Informal aliases:** "Concept Registry," "the concept tables" (colloquial — acceptable in casual conversation, not in architecture docs or code comments)
-**Status:** current for architecture/mechanics — MVP live since 2026-07-13 (`ensemble_strategy` domain). **The `feature` domain migration (Phase 170) is actively in progress as of this writing; do not cite specific row counts or `feature`-domain completeness from this doc — check `.planning/STATE.md` and ROADMAP.md's Phase 170 section for current status.**
+**Status:** current for architecture/mechanics — MVP live since 2026-07-13 (`ensemble_strategy` domain). The `feature` domain migration (Phase 170) is **COMPLETE** (2026-08-10, migration 311): `feature_registry`/`feature_transition_log` were DROPped and `FeatureRegistryService` deleted — `concept_registry` is the sole feature-lifecycle system, no parallel table remains. Both domains live: `concept_registry` holds 300 `feature`-domain rows (298 `FeatureVector` fields + 2 orphan tombstones from migration 284) and 5 `ensemble_strategy` rows, verified 2026-08-15 — re-verify row counts before citing them further out, this count moves as new features are added (most recently todo 320, migration 316).
 **Phase introduced:** 160 (MVP, four tables), extended Phase 170 (feature-domain schema gaps: `concept_parent`, cascade trigger, cycle guard, control/group columns, shadow-recovery counters)
-**Last Updated:** 2026-08-08
+**Last Updated:** 2026-08-15
 
 ---
 
@@ -149,7 +149,7 @@ Used by `ic_engine.py` and `ensemble_trainer.py`, both psycopg-based with no run
 | Domain | Status | Gate metric | Min observation floor |
 |--------|--------|--------------|------------------------|
 | `ensemble_strategy` | **Live** — MVP seeded 2026-07-13, 5 concepts | Ensemble IC (`ic_ci_lower`, walk-forward stable) | 1,000 bars (per-TF fold) |
-| `feature` | **Migration in progress (Phase 170)** — do not cite counts from this doc | IC Sharpe + FDR, walk-forward | 20,000 bars |
+| `feature` | **Live** — Phase 170 migration complete 2026-08-10 (migration 311), 300 rows as of 2026-08-15 | IC Sharpe + FDR, walk-forward | 20,000 bars |
 | `feature_interaction`, `hmm_variant`, `ic_method`, `regime_model`, `confluence` | Anticipated, not in the `domain` CHECK yet | — | — |
 | `alpha_pattern` | **Retired**, not anticipated | — | Its scope was fully absorbed by `feature_interaction` (dense deterministic transforms), `confluence` (sparse conditional predictors), and `feature`-grain retrieval columns — nothing left for it to govern |
 
@@ -169,9 +169,9 @@ A domain is added to the live `domain` CHECK only once it has real candidates �
 
 ---
 
-## Current Migration Status (check before citing)
+## Migration History
 
-The `feature` domain is mid-migration under **ROADMAP Phase 170**, a separately tracked, actively-in-progress body of work as of 2026-08. `feature_registry`/`feature_transition_log` (the pre-existing, separate sibling system this migration retires) still exist and are still the shadow-compared source of truth — the final `DROP TABLE` has **not** happened. Do not treat this doc's Domains table or schema description as evidence that the `feature` domain is fully cut over; check `.planning/STATE.md` and ROADMAP.md's Phase 170 section for the live blocker list before making any claim about `feature`-domain row counts, completeness, or which table is authoritative today.
+The `feature` domain migrated from the pre-existing, separate `feature_registry`/`feature_transition_log` sibling system under **ROADMAP Phase 170**, complete 2026-08-10 (migration 311): both predecessor tables were DROPped (no rename-and-archive — an explicit 2026-08-04 user override of this project's usual retirement default, since `feature_registry` is governance/bookkeeping metadata, not something gating live capital) and `FeatureRegistryService` deleted as dead code. `concept_registry` has been the sole feature-lifecycle system, with no parallel table, since that date. Full migration record: `.planning/todos/completed/118-migrate-feature-domain-into-concept-registry.md`, `production/migrations/283/284/310/311_*.sql`.
 
 ---
 
@@ -180,4 +180,4 @@ The `feature` domain is mid-migration under **ROADMAP Phase 170**, a separately 
 - `docs/foundation/adaptive-parameter-registry.md`, `instrument-tag-registry.md`, `controlled-vocabulary-registry.md` — sibling registries this doc's structure mirrors.
 - `docs/research/concept-unified-registry.md` — full design doc: complete Domains/Domain-Vetting sections, the ten-table reference architecture (not built), revision history, "What Jim Simons Would Demand" safeguards.
 - `docs/research/concept-governance-registries.md` — Type 1/2/3 umbrella index across all four registries.
-- `.planning/todos/pending/118-migrate-feature-domain-into-concept-registry.md` — Phase 170's full scope and remaining blockers.
+- `.planning/todos/completed/118-migrate-feature-domain-into-concept-registry.md` — Phase 170's full scope, now closed.
