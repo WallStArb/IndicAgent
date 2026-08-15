@@ -7,16 +7,21 @@ route:
 
 receivers:
   - name: "default"
-    # PLACEHOLDER -- replace bot_token/chat_id with real values, then this
-    # receiver goes live on the next `docker compose up -d` for alertmanager.
-    # Confirmed 2026-08-13: DiskSpaceCritical fired correctly in Prometheus
-    # 2h17m before a disk-full crash and never reached a human because this
-    # receiver had no notification config at all -- config existed, routing
-    # existed, nothing was wired to the last mile. Get a bot_token from
-    # @BotFather and a chat_id by messaging the bot then checking
-    # https://api.telegram.org/bot<token>/getUpdates.
-    telegram_configs:
-      - bot_token: "PLACEHOLDER_BOT_TOKEN"
-        chat_id: 0 # PLACEHOLDER_CHAT_ID (integer, not string)
-        parse_mode: "" # plain text; avoids Markdown escaping issues in alert text
-        message: '{{ template "telegram.default.message" . }}'
+    # No-op receiver as of 2026-08-15 -- alerts route here and are dropped,
+    # not delivered. Confirmed 2026-08-13: DiskSpaceCritical fired correctly
+    # in Prometheus 2h17m before a disk-full crash and never reached a human
+    # because the telegram receiver below was configured with chat_id: 0
+    # (Alertmanager's zero-value-means-unset sentinel), which fails config
+    # validation and crash-loops Alertmanager on every startup -- so not only
+    # did the alert not deliver, the whole delivery pipe was down. Stubbed to
+    # this no-op so the container stops crash-looping while real credentials
+    # are pending. TO GO LIVE: get a bot_token from @BotFather, message the
+    # bot, get chat_id from https://api.telegram.org/bot<token>/getUpdates,
+    # then uncomment/restore the telegram_configs block below with those
+    # values and restart.
+    #
+    # telegram_configs:
+    #   - bot_token: "<real bot token>"
+    #     chat_id: <real chat id, integer>
+    #     parse_mode: "" # plain text; avoids Markdown escaping issues in alert text
+    #     message: '{{ template "telegram.default.message" . }}'
