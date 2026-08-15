@@ -8,16 +8,32 @@ owns. Prompted [[D-07]] in `docs/foundation/controlled-vocabulary-registry.md` (
 
 ## Confirmed
 
-### `asset_class` — live drift bug, not just scatter
+### `asset_class` — three-way scatter, not just two, resolved 2026-08-15
 - CVR `asset_class` namespace has 3 codes (`equity`, `futures`, `fx` — verified directly against
-  `controlled_vocabulary` table).
-- `src/api/routes/instruments.py` hardcodes `Literal["equity", "futures", "fx", "crypto"]` in two
-  places (lines ~35, ~53) — a fourth value, `"crypto"`, that exists nowhere in the registry or in
-  `get_active_contracts()`. This is served by the live `indicagent-api.service`.
+  `controlled_vocabulary` table; migration 233 deliberately seeded exactly these 3, matching what
+  `instruments.contract_details->>'asset_class'` actually emits).
+- `src/api/routes/instruments.py`'s `InstrumentUpsert`/`InstrumentUpdate` write-path models
+  (lines ~35, ~53) hardcode `Literal["equity", "futures", "fx", "crypto"]` — a 4th value.
+- **A third independent source also exists**: `AssetClass(StrEnum)` in `src/core/models.py` (Ring
+  0) has **5** values — `equity`, `futures`, `fx`, `crypto`, `option`. `src/providers/ibkr.py:946`
+  has a live contract-qualification branch for `AssetClass.CRYPTO`; `AssetClass.OPTION` is
+  declared but referenced nowhere else in the repo.
+- **Resolved by checking the DB, not assumption**: asked the user whether `crypto` is real; they
+  pointed at crypto-exposed names in the universe (MARA, MSTR, IBIT, COIN). Checked
+  `instruments.contract_details->>'asset_class'` for all four — **all classified `equity`**
+  (correct — they trade as regular shares/ETF units, not native crypto contracts), and
+  `count(*) WHERE asset_class = 'crypto'` across all of `instruments` is **0**. The premise behind
+  "crypto is live" doesn't hold; those are crypto-*themed* equities, not `asset_class='crypto'`
+  rows. `ibkr.py`'s `AssetClass.CRYPTO` branch is real but currently dead code (nothing calls it
+  with a crypto contract today).
+- **Verdict:** CVR's 3 codes are correct and complete for what's actually live. The API's
+  `Literal` is the odd one out — drop `"crypto"` from both `InstrumentUpsert`/`InstrumentUpdate`.
+  Leave `AssetClass.CRYPTO`/`AssetClass.OPTION` in the Ring 0 enum alone (harmless forward
+  capability; `ibkr.py` already depends on `CRYPTO` existing as a symbol even though unused).
 - Fix: source the Literal (or a runtime validator) from `VocabularyService.codes("asset_class")`
-  instead of a hand-typed tuple; drop `"crypto"` unless a real crypto instrument is intended to be
-  onboarded (check with the user — this looks like copy-paste from a generic template, not an
-  intentional roadmap item).
+  instead of a hand-typed tuple, so this can't silently re-drift the next time CVR's registry
+  changes. **The moment a real crypto instrument is onboarded, add it to CVR via migration first**
+  — that's what makes it appear in this API automatically, not another hand-edit of the Literal.
 
 ### `timeframe` — 9 independently-hardcoded tuples, one same-name collision
 `timeframe` is a live CVR namespace (5 codes) with `VocabularyService` and an API route already

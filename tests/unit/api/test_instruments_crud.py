@@ -27,17 +27,31 @@ test_app.include_router(instruments_router, prefix="/api")
 def _make_mock_db(
     query_rows: list | None = None,
     command_status: str = "UPDATE 1",
+    asset_class_valid: bool = True,
 ):
     """Build a mock db_manager that captures SQL calls.
 
     Args:
-        query_rows: Rows returned by execute_query (default: [{"symbol": "AAPL"}]).
+        query_rows: Rows returned by execute_query for non-CVR lookups, e.g. the
+            "does this symbol exist" check (default: [{"symbol": "AAPL"}]).
         command_status: Status string returned by execute_command (default: "UPDATE 1").
+        asset_class_valid: Controls the response to the `controlled_vocabulary`
+            asset_class lookup specifically (todo 326) -- True returns a matching
+            row (code is registered), False returns no rows (code is not
+            registered, triggers a 422). Distinguished from query_rows by
+            inspecting the SQL text, since both lookups go through the same
+            execute_query method.
     """
     if query_rows is None:
         query_rows = [{"symbol": "AAPL"}]
+
+    async def _execute_query(sql, *args):
+        if "controlled_vocabulary" in sql:
+            return [{"code": args[-1]}] if asset_class_valid else []
+        return query_rows
+
     mock_db = MagicMock()
-    mock_db.execute_query = AsyncMock(return_value=query_rows)
+    mock_db.execute_query = AsyncMock(side_effect=_execute_query)
     mock_db.execute_command = AsyncMock(return_value=command_status)
     return mock_db
 
@@ -85,8 +99,12 @@ class TestPostInstrument:
 
     @pytest.mark.unit
     def test_post_instrument_invalid_asset_class_rejected(self):
-        """POST with unknown asset_class returns 422 (Pydantic validation error)."""
-        mock_db = _make_mock_db()
+        """POST with an unregistered asset_class returns 422.
+
+        Checked against the CVR `asset_class` namespace at request time (todo 326),
+        not a static Pydantic Literal -- so the mock DB is the thing saying "no".
+        """
+        mock_db = _make_mock_db(asset_class_valid=False)
         client = _make_client(mock_db)
 
         response = client.post(
@@ -100,7 +118,35 @@ class TestPostInstrument:
         )
 
         assert response.status_code == 422
-        # DB should never have been called
+        # DB write should never have been called
+        mock_db.execute_command.assert_not_called()
+
+    @pytest.mark.unit
+    def test_post_instrument_crypto_asset_class_rejected(self):
+        """POST with asset_class="crypto" returns 422 -- todo 326 regression test.
+
+        CVR's `asset_class` namespace has exactly 3 live codes (equity/futures/fx;
+        migration 233). Before this fix, `InstrumentUpsert.asset_class` was a static
+        Pydantic `Literal` that included "crypto" -- a value that exists nowhere in
+        the registry or `get_active_contracts()` (verified 2026-08-15: zero
+        instruments have asset_class='crypto'; crypto-exposed names like MARA/MSTR/
+        IBIT/COIN are all correctly classified 'equity'). The endpoint should defer
+        to the registry, not a hand-typed copy that already drifted from it.
+        """
+        mock_db = _make_mock_db(asset_class_valid=False)
+        client = _make_client(mock_db)
+
+        response = client.post(
+            "/api/instruments",
+            json={
+                "symbol": "MSTR",
+                "base": "MSTR",
+                "asset_class": "crypto",
+                "exchange": "NASDAQ",
+            },
+        )
+
+        assert response.status_code == 422
         mock_db.execute_command.assert_not_called()
 
     @pytest.mark.unit
@@ -174,6 +220,28 @@ class TestPutInstrument:
         response = client.put(
             "/api/instruments/AAPL",
             json={"tick_size": "bad"},
+        )
+
+        assert response.status_code == 422
+        mock_db.execute_command.assert_not_called()
+
+    @pytest.mark.unit
+    def test_put_instrument_crypto_asset_class_rejected(self):
+        """PUT with asset_class="crypto" on an existing symbol returns 422.
+
+        Todo 326 regression test -- same CVR-registry check as the POST path,
+        exercised on the update path (asset_class is optional there, so the check
+        must only fire when the field is actually present in the payload).
+        """
+        mock_db = _make_mock_db(
+            query_rows=[{"symbol": "AAPL"}],
+            asset_class_valid=False,
+        )
+        client = _make_client(mock_db)
+
+        response = client.put(
+            "/api/instruments/AAPL",
+            json={"asset_class": "crypto"},
         )
 
         assert response.status_code == 422

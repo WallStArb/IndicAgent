@@ -7,7 +7,7 @@ without a code deploy. Writes trigger pg_notify via DB trigger (091-01),
 which propagates changes to the running pipeline within 1 second.
 """
 
-from typing import Any, Literal
+from typing import Any
 
 import structlog
 from fastapi import APIRouter, Depends, HTTPException
@@ -21,6 +21,30 @@ logger = structlog.get_logger(__name__)
 router = APIRouter()
 
 
+async def _validate_asset_class(db_manager: DatabaseManager, asset_class: str) -> None:
+    """Raise 422 if `asset_class` isn't a registered CVR code.
+
+    Source of truth is the `controlled_vocabulary` `asset_class` namespace (CVR;
+    migration 233), not a hardcoded Literal -- a Literal here previously drifted
+    from the registry (`crypto` was accepted by this endpoint despite never being
+    a registered code -- zero live instruments use it; todo 326). Queried directly
+    via `db_manager` rather than the cached `VocabularyService`, matching the
+    established pattern in `src/api/routes/vocabulary.py` (the API layer already
+    has a per-request DB handle; `VocabularyService` is for embedded daemons).
+    """
+    rows = await db_manager.execute_query(
+        "SELECT code FROM controlled_vocabulary "
+        "WHERE namespace = 'asset_class' AND code = $1 AND NOT is_deprecated",
+        asset_class,
+    )
+    if not rows:
+        raise HTTPException(
+            status_code=422,
+            detail=f"Unregistered asset_class: {asset_class!r} "
+            "(not a live code in the CVR asset_class namespace)",
+        )
+
+
 # ---------------------------------------------------------------------------
 # Request models
 # ---------------------------------------------------------------------------
@@ -32,7 +56,7 @@ class InstrumentUpsert(BaseModel):
     symbol: str
     base: str
     name: str = ""
-    asset_class: Literal["equity", "futures", "fx", "crypto"]
+    asset_class: str
     exchange: str = ""
     sector: str = ""
     tick_size: float = 0.0
@@ -50,7 +74,7 @@ class InstrumentUpdate(BaseModel):
     """
 
     name: str | None = None
-    asset_class: Literal["equity", "futures", "fx", "crypto"] | None = None
+    asset_class: str | None = None
     exchange: str | None = None
     sector: str | None = None
     tick_size: float | None = None
@@ -117,6 +141,7 @@ async def create_instrument(
     are idempotent (last write wins). The DB trigger fires pg_notify automatically
     on INSERT or UPDATE - no explicit notify call is needed here.
     """
+    await _validate_asset_class(db_manager, payload.asset_class)
     symbol = payload.symbol.upper()
     contract_details = payload.model_dump(exclude={"symbol", "base"})
     # Include symbol and base inside contract_details for completeness
@@ -160,6 +185,9 @@ async def update_instrument(
     )
     if not rows:
         raise HTTPException(status_code=404, detail=f"Instrument '{symbol}' not found")
+
+    if payload.asset_class is not None:
+        await _validate_asset_class(db_manager, payload.asset_class)
 
     # Handle is_active toggle separately (it's a top-level column, not inside JSONB)
     if payload.is_active is not None:
