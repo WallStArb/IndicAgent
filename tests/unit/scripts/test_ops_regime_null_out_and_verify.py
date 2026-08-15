@@ -60,6 +60,13 @@ class _ScriptedCursor:
     def fetchone(self):
         return self._response.get("fetchone")
 
+    def fetchall(self):
+        # todo 318: compressed_hypertable_write_session's combined statement_timeout +
+        # idle_session_timeout APR lookup reads via fetchall(), not fetchone() -- default
+        # empty (no APR rows scripted) so the session falls back to its own defaults,
+        # same shape as _mock_sync_conn in tests/unit/test_batch_utils.py.
+        return self._response.get("fetchall", [])
+
     @property
     def rowcount(self) -> int:
         return self._response.get("rowcount", 0)
@@ -105,17 +112,21 @@ def _update_calls(conn: _ScriptedConn) -> list[tuple[str, tuple | None]]:
 # session's own internals only need updating in one place if its call shape changes again
 # (as it did 2026-08-14, twice in the same session: the statement_timeout override was
 # added, then the config lookup it added was rescoped from a full-table load to a single
-# key). See compressed_hypertable_write_session's docstring for what each call is.
+# key; and again 2026-08-15, todo 318: idle_session_timeout/idle_in_transaction_session_
+# timeout overrides added, then the whole 3-GUC set (statement_timeout included) collapsed
+# from 3 separate SHOW/SET pairs into one combined current_setting()/set_config() round
+# trip per direction -- see _SESSION_GUC_OVERRIDES and compressed_hypertable_write_
+# session's docstring for what each call is).
 _WRITE_SESSION_ENTRY_RESPONSES: list[dict] = [
-    {"fetchone": None},  # scoped statement_timeout key lookup (no row -> default)
-    {"fetchone": ("30min",)},  # SHOW statement_timeout
-    {},  # SET statement_timeout override
+    {"fetchall": []},  # combined _SESSION_GUC_OVERRIDES APR key lookup (no rows -> defaults)
+    {"fetchone": ("30min", "1h", "1h")},  # combined current_setting() read, all 3 GUCs
+    {},  # combined set_config() override, all 3 GUCs
     {"rowcount": 0},  # decompress-all (0 chunks)
 ]
 _WRITE_SESSION_EXIT_RESPONSES: list[dict] = [
     {"rowcount": 0},  # compress-all
     {},  # VACUUM
-    {},  # SET statement_timeout restored
+    {},  # combined set_config() restore, all 3 GUCs
 ]
 
 
@@ -185,7 +196,17 @@ class TestNullOutPerCellUpdates:
         assert len(updates) == 4
         seen_pairs = {params for _, params in updates}
         assert seen_pairs == {("SPY", "1h"), ("SPY", "1d"), ("QQQ", "1h"), ("QQQ", "1d")}
-        for sql, _ in conn.calls:
+        # Scoped to _run_null_out's OWN per-cell queries, excluding the write-session
+        # bracket's calls (known count from the same fixture used to build `responses`
+        # above) -- compressed_hypertable_write_session's own APR config lookup legitimately
+        # uses `= ANY(%s)` to fetch 2 keys in one round trip (unrelated to per-cell
+        # symbol/tf batching, already covered by test_batch_utils.py), which is not the
+        # "no batched scope" invariant this test actually verifies.
+        cell_calls = conn.calls[
+            len(_WRITE_SESSION_ENTRY_RESPONSES) : len(conn.calls)
+            - len(_WRITE_SESSION_EXIT_RESPONSES)
+        ]
+        for sql, _ in cell_calls:
             assert "IN (" not in sql
             assert "= ANY(" not in sql
 
@@ -278,8 +299,16 @@ class TestNullOutManifestResumability:
         n_failed = _run_null_out(conn, ["SPY", "QQQ"], ["1h"], manifest_path, dry_run=False)
 
         assert n_failed == 0
-        assert len(conn.calls) == 10
-        for sql, params in conn.calls[4:7]:
+        assert len(conn.calls) == len(_WRITE_SESSION_ENTRY_RESPONSES) + 3 + len(
+            _WRITE_SESSION_EXIT_RESPONSES
+        )
+        # The 3 cell-level calls (pre-count, update, verify) sit between the write-session
+        # entry and exit brackets -- sliced by the same centralized fixture lengths used to
+        # build `conn`'s scripted responses above, not a hardcoded index.
+        cell_calls = conn.calls[
+            len(_WRITE_SESSION_ENTRY_RESPONSES) : len(_WRITE_SESSION_ENTRY_RESPONSES) + 3
+        ]
+        for sql, params in cell_calls:
             assert params == ("QQQ", "1h")
 
     def test_all_cells_already_verified_skips_the_write_session_entirely(self, tmp_path):

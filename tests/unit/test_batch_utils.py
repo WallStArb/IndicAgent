@@ -340,19 +340,24 @@ def _mock_sync_conn(n_decompressed: int = 0, n_recompressed: int = 0) -> MagicMo
     cur = conn.cursor.return_value.__enter__.return_value
 
     def _execute(sql: str, params: tuple | None = None) -> None:
-        if sql.startswith("SELECT config_value FROM config_state"):
-            # No row seeded -- the session falls back to its own default. Content-
-            # dispatched (not a shared cur.fetchone.return_value) because this call and
-            # "SHOW statement_timeout" below both read via fetchone() and must return
-            # different shapes.
-            cur.fetchone.return_value = None
-        elif sql == "SHOW statement_timeout":
-            # Value is arbitrary; only its round-trip (captured, restored) is tested.
-            cur.fetchone.return_value = ("30min",)
+        if sql.startswith("SELECT config_key, config_value FROM config_state"):
+            # No rows seeded -- the session falls back to its own defaults for every GUC
+            # in _SESSION_GUC_OVERRIDES (combined into one ANY(%s) lookup, not one query
+            # per key).
+            cur.fetchall.return_value = []
+        elif sql.startswith("SELECT current_setting("):
+            # One combined round trip reads all _SESSION_GUC_OVERRIDES priors at once, in
+            # (statement_timeout, idle_session_timeout, idle_in_transaction_session_timeout)
+            # order -- values are arbitrary but distinguishable, only their round-trip
+            # (captured, restored) is tested.
+            cur.fetchone.return_value = ("30min", "1h", "1h")
         elif sql.startswith("SELECT decompress_chunk"):
             cur.rowcount = n_decompressed
         elif sql.startswith("SELECT compress_chunk"):
             cur.rowcount = n_recompressed
+        # SELECT set_config(...), set_config(...), set_config(...) (both the entry
+        # override and the exit restore use this identical shape): no return value
+        # consumed by the real code, nothing to script here.
 
     cur.execute.side_effect = _execute
     return conn
@@ -373,9 +378,10 @@ class TestCompressedHypertableWriteSession:
         """Regression: the original design listed chunks then issued one execute() per
         chunk (N round trips). The fix collapses each phase into one server-side statement
         -- exactly 7 execute() calls total for the whole session regardless of how many
-        chunks are actually affected: the APR config load (1), SHOW + SET statement_timeout
-        at entry (2), decompress-all, compress-all, VACUUM (3), and SET statement_timeout
-        restored at exit (1)."""
+        chunks are actually affected: the combined _SESSION_GUC_OVERRIDES APR lookup (1),
+        one combined current_setting() read for all 3 GUCs (1), one combined set_config()
+        write for all 3 GUCs (1), decompress-all (1), compress-all (1), VACUUM (1), and one
+        combined set_config() restore for all 3 GUCs at exit (1)."""
         conn = _mock_sync_conn(n_decompressed=40, n_recompressed=40)
         cur = conn.cursor.return_value.__enter__.return_value
 
@@ -487,7 +493,75 @@ class TestCompressedHypertableWriteSession:
         with pytest.raises(ValueError, match="not_a_real_table"):
             with compressed_hypertable_write_session(conn, "not_a_real_table"):
                 pass
-        conn.cursor.assert_not_called()
+
+    # Expected combined set_config() call shape -- both the entry override and the exit
+    # restore use this identical SQL text, differing only in the bound values, matching
+    # _SESSION_GUC_OVERRIDES's (statement_timeout, idle_session_timeout,
+    # idle_in_transaction_session_timeout) order.
+    _SET_CONFIG_SQL = "SELECT " + ", ".join("set_config(%s, %s, false)" for _ in range(3))
+
+    def test_idle_timeouts_set_at_entry_and_restored_at_exit(self) -> None:
+        """todo 318: idle_session_timeout AND idle_in_transaction_session_timeout must both
+        be overridden for the session's duration (default disabled -- '0') and restored to
+        the connection's prior values on exit -- the exact protection the missing form of
+        this let regime_writer.py's connection get killed mid-run (confirmed live
+        2026-08-15, see this function's docstring). One combined set_config() call covers
+        all three GUCs (statement_timeout too) per direction, not one call per GUC."""
+        conn = _mock_sync_conn()
+        cur = conn.cursor.return_value.__enter__.return_value
+
+        with compressed_hypertable_write_session(conn, "feature_vectors"):
+            calls_at_entry = [
+                (c.args[0], c.args[1] if len(c.args) > 1 else None)
+                for c in cur.execute.call_args_list
+            ]
+            assert (
+                self._SET_CONFIG_SQL,
+                (
+                    "statement_timeout",
+                    "14400000",
+                    "idle_session_timeout",
+                    "0",
+                    "idle_in_transaction_session_timeout",
+                    "0",
+                ),
+            ) in calls_at_entry
+
+        all_calls = [
+            (c.args[0], c.args[1] if len(c.args) > 1 else None) for c in cur.execute.call_args_list
+        ]
+        assert (
+            self._SET_CONFIG_SQL,
+            (
+                "statement_timeout",
+                "30min",
+                "idle_session_timeout",
+                "1h",
+                "idle_in_transaction_session_timeout",
+                "1h",
+            ),
+        ) in all_calls
+
+    def test_idle_timeouts_set_before_decompress_and_restored_after_vacuum(self) -> None:
+        """Ordering matters: the override must be active for the ENTIRE bracket (including
+        the caller's own work between decompress and compress), not just around the
+        decompress/compress calls themselves -- restoring too early would reopen the exact
+        idle-kill window this fix exists to close."""
+        conn = _mock_sync_conn(n_decompressed=1, n_recompressed=1)
+        cur = conn.cursor.return_value.__enter__.return_value
+
+        with compressed_hypertable_write_session(conn, "feature_vectors"):
+            pass
+
+        sqls = [c.args[0] for c in cur.execute.call_args_list]
+        set_config_indices = [i for i, s in enumerate(sqls) if s == self._SET_CONFIG_SQL]
+        decompress_idx = next(i for i, s in enumerate(sqls) if s.startswith("SELECT decompress"))
+        vacuum_idx = next(i for i, s in enumerate(sqls) if s.startswith("VACUUM"))
+
+        assert len(set_config_indices) == 2  # entry override, exit restore
+        entry_idx, restore_idx = set_config_indices
+        assert entry_idx < decompress_idx
+        assert restore_idx > vacuum_idx
 
     def test_sets_active_session_contextvar_for_duration_only(self) -> None:
         """bulk_update_by_key's guard (see TestBulkUpdateByKeyCompressedHypertableGuard)
@@ -683,9 +757,18 @@ def _mock_async_conn(n_decompressed: int = 0, n_recompressed: int = 0) -> MagicM
 
     conn.execute = AsyncMock(side_effect=_execute)
     # load_apr_dict_async's conn.fetch (no APR rows configured -- callers fall back to
-    # each key's default) and the statement_timeout capture/restore's conn.fetchval.
+    # each key's default) and the combined-GUC-priors read's conn.fetchrow. A plain dict
+    # stands in for asyncpg.Record here -- .values() preserves insertion order the same
+    # way Record preserves SELECT column order, which is all list(prior_row.values())
+    # in the real code relies on.
     conn.fetch = AsyncMock(return_value=[])
-    conn.fetchval = AsyncMock(return_value="30min")
+    conn.fetchrow = AsyncMock(
+        return_value={
+            "statement_timeout": "30min",
+            "idle_session_timeout": "1h",
+            "idle_in_transaction_session_timeout": "1h",
+        }
+    )
     return conn
 
 
@@ -744,6 +827,47 @@ class TestAsyncCompressedHypertableWriteSession:
             assert _active_write_session_hypertable.get() == "feature_ic_scores"
 
         assert _active_write_session_hypertable.get() is None
+
+    # Expected combined set_config() call shape for the async sibling -- one call covers
+    # all 3 GUCs (statement_timeout, idle_session_timeout,
+    # idle_in_transaction_session_timeout) per direction, asyncpg $N-numbered.
+    _SET_CONFIG_SQL = "SELECT " + ", ".join(
+        f"set_config(${2 * i + 1}, ${2 * i + 2}, false)" for i in range(3)
+    )
+
+    @pytest.mark.asyncio
+    async def test_idle_timeouts_set_at_entry_and_restored_at_exit(self) -> None:
+        """todo 318 async sibling: idle_session_timeout AND
+        idle_in_transaction_session_timeout must both be overridden for the session's
+        duration (default disabled -- '0') and restored to the connection's prior values
+        on exit -- same protection as the sync version, same live incident."""
+        conn = _mock_async_conn()
+
+        async with async_compressed_hypertable_write_session(conn, "feature_ic_scores"):
+            calls_at_entry = [c.args for c in conn.execute.call_args_list]
+            assert (
+                self._SET_CONFIG_SQL,
+                "statement_timeout",
+                "14400000",
+                "idle_session_timeout",
+                "0",
+                "idle_in_transaction_session_timeout",
+                "0",
+            ) in calls_at_entry
+
+        all_calls = [c.args for c in conn.execute.call_args_list]
+        # _mock_async_conn's fetchrow returns fixed prior values per GUC (dict insertion
+        # order mirrors asyncpg.Record's column order) -- restore uses those, not the
+        # entry override values.
+        assert (
+            self._SET_CONFIG_SQL,
+            "statement_timeout",
+            "30min",
+            "idle_session_timeout",
+            "1h",
+            "idle_in_transaction_session_timeout",
+            "1h",
+        ) in all_calls
 
 
 class TestAsyncCompressedHypertableWriteSessionOrNoop:

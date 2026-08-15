@@ -236,6 +236,51 @@ _active_write_session_hypertable: ContextVar[str | None] = ContextVar(
 _STATEMENT_TIMEOUT_APR_KEY = "infra.compressed_hypertable_write_session.statement_timeout_ms"
 _DEFAULT_STATEMENT_TIMEOUT_MS = 14_400_000  # 4h -- see migration 314 for provenance
 
+# todo 318: idle_session_timeout is a DIFFERENT GUC from statement_timeout -- it bounds
+# how long this connection may sit completely idle between statements, not how long any
+# single statement may run. Confirmed live 2026-08-15: regime_writer.py's session
+# connection decompressed cleanly, then sat idle for ~55min while its ProcessPoolExecutor
+# workers computed HMM fits (real, necessary work happening in separate processes -- this
+# connection genuinely had nothing to do), and was killed by the role/database default
+# idle_session_timeout (1h) -- stranding feature_vectors fully decompressed across all 85
+# chunks, same failure shape as the missing-statement-timeout incident (migration 314)
+# this file already protects against, just triggered by idle time instead of a single
+# long-running statement. Default is disabled (0) -- there is no safe non-zero cap for a
+# gap this function cannot bound (worker/caller compute time is not this function's
+# concern).
+#
+# Also applied to idle_in_transaction_session_timeout (same APR key, same value) as
+# defense-in-depth, NOT because the live incident hit it -- it didn't (this session's own
+# conn.commit() right before yield means there is no open transaction during the idle gap
+# unless the caller opens one itself, unconfirmed live). regime_writer.py and
+# forward_return_writer.py already disable this specific GUC at connect time
+# (`options="-c idle_in_transaction_session_timeout=0"`), making this override redundant
+# for them specifically -- kept anyway because compressed_hypertable_write_session is
+# shared infrastructure serving callers that don't all follow that convention (e.g. a bare
+# `psycopg.connect()`, todo 316's own one-off remediation script). See also
+# src/intelligence/pipeline/cache_manager.py's independent `SET idle_session_timeout = 0`
+# for the same underlying GUC-vs-legitimately-idle-connection problem in a different
+# connection-ownership shape (owns its connection for life, no restore needed).
+_IDLE_SESSION_TIMEOUT_APR_KEY = "infra.compressed_hypertable_write_session.idle_session_timeout_ms"
+_DEFAULT_IDLE_SESSION_TIMEOUT_MS = 0  # 0 = disabled -- see migration 315 for provenance
+
+# GUCs compressed_hypertable_write_session/async_compressed_hypertable_write_session
+# override for their duration and restore to the connection's prior value on exit --
+# (guc_name, apr_key, default_ms). A data-driven list, not copy-pasted SHOW/SET/restore
+# per GUC: adding a future GUC override (e.g. if `lock_timeout` bites the same way one
+# day) is a one-line addition here, not a repeat of this file's own SHOW/SET/restore shape
+# a third time. idle_session_timeout and idle_in_transaction_session_timeout share one
+# APR key (same value applied to both, see the idle-timeout comment above).
+_SESSION_GUC_OVERRIDES: tuple[tuple[str, str, int], ...] = (
+    ("statement_timeout", _STATEMENT_TIMEOUT_APR_KEY, _DEFAULT_STATEMENT_TIMEOUT_MS),
+    ("idle_session_timeout", _IDLE_SESSION_TIMEOUT_APR_KEY, _DEFAULT_IDLE_SESSION_TIMEOUT_MS),
+    (
+        "idle_in_transaction_session_timeout",
+        _IDLE_SESSION_TIMEOUT_APR_KEY,
+        _DEFAULT_IDLE_SESSION_TIMEOUT_MS,
+    ),
+)
+
 _DECOMPRESS_ALL_COMPRESSED_CHUNKS_SQL = (
     # %%I (not %I): psycopg's client-side placeholder scanner treats any single '%' in the
     # query text as a potential bind placeholder and rejects '%I' as an unrecognized one
@@ -348,31 +393,65 @@ def compressed_hypertable_write_session(conn: Any, hypertable: str):
     manages its own commits and only toggles autocommit for the final VACUUM). Never closed
     here -- same ownership contract as bulk_update_by_key.
 
-    Overrides statement_timeout for the duration of the session (infra.compressed_
-    hypertable_write_session.statement_timeout_ms APR key, default 4h) and restores the
-    connection's prior value on exit. Confirmed necessary live 2026-08-14: the role/
-    database default (30min, tuned for interactive/API queries) killed regime_writer.py's
-    very first decompress_chunk() call outright with zero rows written, and repeating that
-    failure compounds -- every killed attempt leaves dead-tuple bloat that recruits more
-    autovacuum workers onto the same chunks, slowing the next attempt's decompress further.
+    Overrides the GUCs in _SESSION_GUC_OVERRIDES (statement_timeout, idle_session_timeout,
+    idle_in_transaction_session_timeout) for the duration of the session, in one combined
+    round trip per direction, and restores the connection's prior values on exit.
+
+    statement_timeout (infra.compressed_hypertable_write_session.statement_timeout_ms APR
+    key, default 4h) bounds how long any single statement this function itself issues may
+    run. Confirmed necessary live 2026-08-14: the role/database default (30min, tuned for
+    interactive/API queries) killed regime_writer.py's very first decompress_chunk() call
+    outright with zero rows written, and repeating that failure compounds -- every killed
+    attempt leaves dead-tuple bloat that recruits more autovacuum workers onto the same
+    chunks, slowing the next attempt's decompress further.
+
+    idle_session_timeout (infra.compressed_hypertable_write_session.idle_session_timeout_ms
+    APR key, default disabled) is a DIFFERENT failure mode: this connection can legitimately
+    sit completely idle for a long time between statements (e.g. while a caller's
+    ProcessPoolExecutor workers compute HMM fits in separate processes), and the role/
+    database default idle_session_timeout has nothing to do with any single statement's
+    runtime. Confirmed necessary live 2026-08-15: regime_writer.py's session decompressed
+    cleanly, sat idle ~55min waiting on worker compute, and was killed by the role/database
+    default (1h) -- stranding the table fully decompressed across all 85 chunks (todo 318).
+
+    idle_in_transaction_session_timeout (same APR key/value as idle_session_timeout) is
+    defense-in-depth, not itself observed live -- see _SESSION_GUC_OVERRIDES's comment for
+    why it's still covered.
     """
     _validate_compressed_hypertable(hypertable)
+    guc_names = [name for name, _, _ in _SESSION_GUC_OVERRIDES]
     with conn.cursor() as cur:
-        # Scoped single-key lookup, not load_config_service_sync(conn) -- that helper
-        # pulls the whole config_state/config_schema JOIN (793 rows as of 2026-08-14)
-        # just to read one key, and the caller (e.g. regime_writer.py) has almost always
+        # Scoped lookup, not load_config_service_sync(conn) -- that helper pulls the whole
+        # config_state/config_schema JOIN (793 rows as of 2026-08-14) just to read a
+        # handful of keys, and the caller (e.g. regime_writer.py) has almost always
         # already loaded the full APR table once for its own run moments earlier. Mirrors
         # the async sibling's scoped `load_apr_dict_async(conn, ["infra....%"])` load.
+        apr_keys = list({apr_key for _, apr_key, _ in _SESSION_GUC_OVERRIDES})
         cur.execute(
-            "SELECT config_value FROM config_state WHERE config_key = %s",
-            (_STATEMENT_TIMEOUT_APR_KEY,),
+            "SELECT config_key, config_value FROM config_state WHERE config_key = ANY(%s)",
+            (apr_keys,),
         )
-        row = cur.fetchone()
-        timeout_ms = int(row[0]) if row else _DEFAULT_STATEMENT_TIMEOUT_MS
+        apr_rows = dict(cur.fetchall())
+        override_values = [
+            str(int(apr_rows.get(apr_key, default)))
+            for _, apr_key, default in _SESSION_GUC_OVERRIDES
+        ]
 
-        cur.execute("SHOW statement_timeout")
-        (prior_timeout,) = cur.fetchone()
-        cur.execute("SELECT set_config('statement_timeout', %s, false)", (str(timeout_ms),))
+        # One combined round trip per direction instead of one SHOW/SET pair per GUC --
+        # current_setting()/set_config() are ordinary scalar functions, so N of them can be
+        # selected/called in a single statement (confirmed live 2026-08-15). Verified below
+        # that this genuinely returns/applies all N in the row's positional order, not just
+        # the last one.
+        cur.execute(
+            "SELECT " + ", ".join("current_setting(%s)" for _ in guc_names),
+            tuple(guc_names),
+        )
+        prior_values = list(cur.fetchone())
+        cur.execute(
+            "SELECT " + ", ".join("set_config(%s, %s, false)" for _ in guc_names),
+            tuple(x for name, val in zip(guc_names, override_values) for x in (name, val)),
+        )
+
         cur.execute(_DECOMPRESS_ALL_COMPRESSED_CHUNKS_SQL, (hypertable,))
         n_decompressed = cur.rowcount
     conn.commit()
@@ -413,7 +492,10 @@ def compressed_hypertable_write_session(conn: Any, hypertable: str):
             conn.autocommit = prior_autocommit
 
         with conn.cursor() as cur:
-            cur.execute("SELECT set_config('statement_timeout', %s, false)", (prior_timeout,))
+            cur.execute(
+                "SELECT " + ", ".join("set_config(%s, %s, false)" for _ in guc_names),
+                tuple(x for name, val in zip(guc_names, prior_values) for x in (name, val)),
+            )
         conn.commit()
 
         _log_write_session_exited(hypertable, n_recompressed)
@@ -554,15 +636,34 @@ async def async_compressed_hypertable_write_session(conn: Any, hypertable: str):
     cannot run inside a transaction, and asyncpg has no equivalent of psycopg's autocommit
     toggle to escape one mid-connection.
 
-    Overrides statement_timeout for the duration of the session (same APR key and same
-    live-incident rationale as the sync sibling above -- see its docstring) and restores
-    the connection's prior value on exit.
+    Overrides the GUCs in _SESSION_GUC_OVERRIDES (same list, same APR keys, same
+    live-incident rationale as the sync sibling above -- see its docstring) for the
+    duration of the session, in one combined round trip per direction, and restores the
+    connection's prior values on exit.
     """
     _validate_compressed_hypertable(hypertable)
+    guc_names = [name for name, _, _ in _SESSION_GUC_OVERRIDES]
     apr = await load_apr_dict_async(conn, ["infra.compressed_hypertable_write_session.%"])
-    timeout_ms = int(cfg(apr, _STATEMENT_TIMEOUT_APR_KEY, _DEFAULT_STATEMENT_TIMEOUT_MS))
-    prior_timeout = await conn.fetchval("SHOW statement_timeout")
-    await conn.execute("SELECT set_config('statement_timeout', $1, false)", str(timeout_ms))
+    override_values = [
+        str(int(cfg(apr, apr_key, default))) for _, apr_key, default in _SESSION_GUC_OVERRIDES
+    ]
+
+    # One combined round trip per direction instead of one SHOW/SET pair per GUC (same
+    # rationale as the sync sibling). set_config_sql is reused for both the entry override
+    # and the exit restore -- same placeholder shape, different values each time.
+    set_config_sql = "SELECT " + ", ".join(
+        f"set_config(${2 * i + 1}, ${2 * i + 2}, false)" for i in range(len(guc_names))
+    )
+
+    prior_row = await conn.fetchrow(
+        "SELECT " + ", ".join(f"current_setting(${i + 1})" for i in range(len(guc_names))),
+        *guc_names,
+    )
+    prior_values = list(prior_row.values())
+    await conn.execute(
+        set_config_sql,
+        *(x for name, val in zip(guc_names, override_values) for x in (name, val)),
+    )
 
     # asyncpg's execute() returns the command tag ("SELECT <n>") for a plain SELECT --
     # confirmed live 2026-08-14 -- so the affected-row count comes for free from the same
@@ -585,7 +686,10 @@ async def async_compressed_hypertable_write_session(conn: Any, hypertable: str):
         # attacker-controlled, and VACUUM's target can't be a bind parameter.
         await conn.execute(f"VACUUM {hypertable}")
 
-        await conn.execute("SELECT set_config('statement_timeout', $1, false)", prior_timeout)
+        await conn.execute(
+            set_config_sql,
+            *(x for name, val in zip(guc_names, prior_values) for x in (name, val)),
+        )
 
         _log_write_session_exited(hypertable, n_recompressed)
 

@@ -4,7 +4,7 @@
 **Source:** Found live running [[todo 316]]'s data remediation (recompute for the 80 missing ETF
 symbols) immediately after `regime_writer`'s run finished.
 
-## Bug 1: `compressed_hypertable_write_session`'s bracketing connection can be killed by an idle-session timeout before its `finally` runs
+## Bug 1: `compressed_hypertable_write_session`'s bracketing connection can be killed by an idle-session timeout before its `finally` runs -- FIXED 2026-08-15
 
 The one-off remediation driver held the write-session's connection (`session_conn`) open around
 *external* work -- `run_compute_stage()`'s actual writes happened on a completely separate
@@ -22,19 +22,19 @@ unaffected by `session_conn`'s death (confirmed: all 80 symbols' rows landed cor
 because the `finally` block itself is what's supposed to be the last line of defense, and it can be
 taken out by the exact kind of idle timeout a long external compute span invites.
 
-**Fix shape:** `compressed_hypertable_write_session` assumes its own connection stays alive for the
-whole `yield` duration (true for every existing caller, e.g. `regime_writer.py`, which queries on
-that same connection throughout). Either (a) document this as a hard contract (the session's own
-connection must be used for at least periodic activity, or the caller is responsible for keepalives)
-and treat what happened as caller misuse, not a bug in the helper -- or (b) make the helper robust
-to this by sending a periodic no-op keepalive query on its own connection while the caller's `yield`
-is open (harder, requires the context manager to run concurrently with the caller's work, which the
-current `yield`-based design doesn't support without a background thread). Recommend (a) as the
-minimal fix: add an explicit docstring warning + a defensive `finally`-block reconnect-and-retry (if
-`session_conn` is dead, open a fresh connection scoped to the same hypertable and finish the
-recompress+VACUUM on that one, rather than letting the whole cleanup silently fail) -- protects
-future callers who make the same mistake without requiring every caller to get connection lifecycle
-perfectly right.
+**Fixed 2026-08-15, migration 315 + `services/_batch_utils.py`:** neither of the two options
+originally proposed here (document as caller-contract, or a keepalive thread) was actually needed --
+the real fix is deeper: `idle_session_timeout`/`idle_in_transaction_session_timeout` are now disabled
+(APR key `infra.compressed_hypertable_write_session.idle_session_timeout_ms`, default 0) for the
+session's entire duration on the SAME connection the `finally` block later uses, via a data-driven
+`_SESSION_GUC_OVERRIDES` list shared with the pre-existing `statement_timeout` override
+(consolidated into one combined `current_setting()`/`set_config()` round trip per direction, not
+three separate SHOW/SET pairs). This eliminates the root cause outright -- the connection can now
+legitimately sit idle for the whole external-compute span, of any duration, without Postgres ever
+killing it for that reason, so there's no dead connection for the `finally` block to fail against in
+the first place. No reconnect-retry logic needed. Verified live against the production DB (not just
+mocked unit tests) before landing. Full detail: `services/_batch_utils.py`'s
+`compressed_hypertable_write_session` docstring, migration 315's own comments.
 
 ## Bug 2: `backfill_feature_factory.py`'s `ProcessPoolExecutor` workers write directly and concurrently, unprotected
 
@@ -68,15 +68,19 @@ refactor -- worker functions currently call `_compute_symbol_tf` -> `_batch_inse
 
 ## Status
 
-pending, P1 -- Bug 1 is a real gap in shared, reused infrastructure (protects the next caller with
-a similar "wrap external work" usage pattern); Bug 2 is a confirmed violation of an existing,
-explicitly-named CLAUDE.md invariant that's been live and unaddressed since before this session.
-Neither blocks [[todo 316]] (already completed, data verified correct) but both should be fixed
-before the next routine `backfill_feature_factory.py --compute-only` run at scale (multiple workers,
-long compute span) rather than relying on manual one-off mitigation again.
+**Bug 1: FIXED, 2026-08-15** (migration 315 + `services/_batch_utils.py`, see above). Verified live
+against the production DB, full unit suite green, `/code-review`-clean.
+
+**Bug 2: still pending, P1** -- `backfill_feature_factory.py`'s `ProcessPoolExecutor` workers still
+write directly and concurrently, unprotected, confirmed unrelated to and untouched by Bug 1's fix.
+Remains a confirmed violation of an existing, explicitly-named CLAUDE.md invariant, live and
+unaddressed since before this session. Doesn't block [[todo 316]] (already completed, data verified
+correct) but should be fixed before the next routine `backfill_feature_factory.py --compute-only` run
+at scale (multiple workers, long compute span) rather than relying on manual one-off mitigation
+again. This todo file stays open, scoped to Bug 2 only -- Bug 1's resolution is complete and needs no
+further tracking here beyond this note.
 
 ## Where
 
-- `services/_batch_utils.py` -- `compressed_hypertable_write_session` (Bug 1)
 - `services/backfill_feature_factory.py` -- `_run_compute_worker`, `_compute_symbol_tf`,
-  `run_compute_stage` (Bug 2)
+  `run_compute_stage` (Bug 2, the only remaining open item)
