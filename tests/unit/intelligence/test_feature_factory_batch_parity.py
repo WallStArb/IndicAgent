@@ -130,6 +130,10 @@ def _make_cfg() -> FeatureFactoryConfig:
         price_vol_corr_fast=10,
         price_vol_corr_slow=30,
         momentum_velocity_window=20,
+        rsi_velocity_window=20,
+        ofi_velocity_window=20,
+        cvd_velocity_window=20,
+        volume_velocity_window=20,
         vwap_velocity_window=20,
         extreme_move_sigma_threshold=2.0,
         vol_spike_threshold=2.0,
@@ -392,6 +396,81 @@ def test_rsi_slow_parity(ohlcv, cfg, streaming):
 
     batch = _rsi_series_full(ohlcv["closes"], cfg.rsi_slow_period)
     _assert_parity(batch, streaming, "rsi_slow")
+
+
+# ---------------------------------------------------------------------------
+# Velocity Primitives Extension (todo 320) -- same _vol_velocity_z_series_full
+# construction as the pre-existing momentum_z_velocity_fast/mid/slow,
+# vwap_dev_sigma_velocity, vol_velocity_z fields (which have no dedicated
+# parity test of their own, see todo 321-adjacent code-review finding), but
+# unlike those, the 6 fields added here get one -- verifying compute()'s
+# single-bar/truncated-history path matches compute_batch()'s full-history
+# vectorized path exactly, not just that each field's already-parity-tested
+# source series does.
+# ---------------------------------------------------------------------------
+
+
+def test_rsi_velocity_fast_parity(ohlcv, cfg, streaming):
+    from src.intelligence.feature_factory import _rsi_series_full, _vol_velocity_z_series_full
+
+    rsi_fast_arr = _rsi_series_full(ohlcv["closes"], cfg.rsi_fast_period)
+    batch = _vol_velocity_z_series_full(rsi_fast_arr, cfg.rsi_velocity_window)
+    _assert_parity(batch, streaming, "rsi_velocity_fast")
+
+
+def test_rsi_velocity_mid_parity(ohlcv, cfg, streaming):
+    from src.intelligence.feature_factory import _rsi_series_full, _vol_velocity_z_series_full
+
+    rsi_mid_arr = _rsi_series_full(ohlcv["closes"], cfg.rsi_mid_period)
+    batch = _vol_velocity_z_series_full(rsi_mid_arr, cfg.rsi_velocity_window)
+    _assert_parity(batch, streaming, "rsi_velocity_mid")
+
+
+def test_rsi_velocity_slow_parity(ohlcv, cfg, streaming):
+    from src.intelligence.feature_factory import _rsi_series_full, _vol_velocity_z_series_full
+
+    rsi_slow_arr = _rsi_series_full(ohlcv["closes"], cfg.rsi_slow_period)
+    batch = _vol_velocity_z_series_full(rsi_slow_arr, cfg.rsi_velocity_window)
+    _assert_parity(batch, streaming, "rsi_velocity_slow")
+
+
+def test_ofi_z_velocity_parity(ohlcv, cfg, streaming):
+    from src.intelligence.feature_factory import _ofi_z_series_full, _vol_velocity_z_series_full
+
+    ofi_z_arr = _ofi_z_series_full(
+        ohlcv["closes"], ohlcv["highs"], ohlcv["lows"], ohlcv["volumes"], cfg.ofi_zscore_window
+    )
+    batch = _vol_velocity_z_series_full(ofi_z_arr, cfg.ofi_velocity_window)
+    _assert_parity(batch, streaming, "ofi_z_velocity")
+
+
+def test_cvd_slope_z_velocity_parity(ohlcv, cfg, streaming):
+    from src.intelligence.feature_factory import (
+        _cvd_slope_z_series_full,
+        _vol_velocity_z_series_full,
+    )
+
+    cvd_slope_z_arr = _cvd_slope_z_series_full(
+        ohlcv["closes"],
+        ohlcv["highs"],
+        ohlcv["lows"],
+        ohlcv["volumes"],
+        cfg.cvd_slope_bars,
+        cfg.ofi_zscore_window,
+    )
+    batch = _vol_velocity_z_series_full(cvd_slope_z_arr, cfg.cvd_velocity_window)
+    _assert_parity(batch, streaming, "cvd_slope_z_velocity")
+
+
+def test_volume_z_velocity_parity(ohlcv, cfg, streaming):
+    from src.intelligence.feature_factory import (
+        _vol_velocity_z_series_full,
+        _volume_z_series_full,
+    )
+
+    volume_z_arr = _volume_z_series_full(ohlcv["volumes"], cfg.volume_zscore_window)
+    batch = _vol_velocity_z_series_full(volume_z_arr, cfg.volume_velocity_window)
+    _assert_parity(batch, streaming, "volume_z_velocity")
 
 
 def test_rsi_fast_transition_boundary(ohlcv, cfg):
@@ -679,6 +758,12 @@ def test_build_feature_vector_guards_nan():
         momentum_z_velocity_mid=0.0,
         momentum_z_velocity_slow=0.0,
         vwap_dev_sigma_velocity=0.0,
+        rsi_velocity_fast=0.0,
+        rsi_velocity_mid=0.0,
+        rsi_velocity_slow=0.0,
+        ofi_z_velocity=0.0,
+        cvd_slope_z_velocity=0.0,
+        volume_z_velocity=0.0,
         bars_since_high_fast=0.0,
         bars_since_high_slow=0.0,
         bars_since_low_fast=0.0,
@@ -878,6 +963,12 @@ def test_build_feature_vector_none_passthrough():
         momentum_z_velocity_mid=0.0,
         momentum_z_velocity_slow=0.0,
         vwap_dev_sigma_velocity=0.0,
+        rsi_velocity_fast=0.0,
+        rsi_velocity_mid=0.0,
+        rsi_velocity_slow=0.0,
+        ofi_z_velocity=0.0,
+        cvd_slope_z_velocity=0.0,
+        volume_z_velocity=0.0,
         bars_since_high_fast=0.0,
         bars_since_high_slow=0.0,
         bars_since_low_fast=0.0,

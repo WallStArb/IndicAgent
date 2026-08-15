@@ -1202,9 +1202,9 @@ SignalMetricsEvent = Annotated[
 
 @dataclasses.dataclass(frozen=True)
 class FeatureVector:
-    """292 orthogonal feature primitives computed per bar by FeatureFactory.
+    """298 orthogonal feature primitives computed per bar by FeatureFactory.
     See the "Groups and field order are binding" breakdown below (ends in
-    "Total: 292") for full group-by-group provenance -- that breakdown is
+    "Total: 298") for full group-by-group provenance -- that breakdown is
     the maintained source of truth; keep it (not this line) in sync when
     fields are added.
 
@@ -1246,6 +1246,7 @@ class FeatureVector:
         _guard_counted (observable tripwire, not a silent nan_to_num collapse)
       Calendar (17: 11 original + 6 Phase 151 Plan 01 Task 1): NY/London session, overlap, power hour, opening range, weekly VWAP, dow sin/cos, month position, quarter position, days to month end, quarter cycle sin/cos, TDOM sin/cos, minute-of-hour sin/cos
       Velocity Primitives (4, Phase 151 Plan 01 Task 2): momentum_z_velocity_fast/mid/slow, vwap_dev_sigma_velocity -- first-difference-then-re-z-scored construction of an already-computed z-score series (same shape as vol_velocity_z)
+      Velocity Primitives Extension (6, todo 320): rsi_velocity_fast/mid/slow, ofi_z_velocity, cvd_slope_z_velocity, volume_z_velocity -- same construction as the 4 fields above, applied to the RSI/OFI/CVD/volume families
       Recency / Statistical Atomics (11, Phase 151 Plan 03, todo 180): bars_since_high/low_fast/slow,
         bars_since_52w_high/low, bars_since_extreme_move_fast/slow, bars_since_vol_spike_fast/slow
         (all BOUNDED rolling-window statistics in [0, window-1], never expanding), abs_ret_autocorr_1
@@ -1280,11 +1281,12 @@ class FeatureVector:
         All ATR-distance/bounded/count/ordinal placeholders (None until Plans 02-04
         wire real compute logic); never a raw price level (D-16).
       Cross-sectional (3, nullable): momentum/volume/volatility rank z-scores
-      Total: 292 (243 required [164 + 41 Swing/Fib/Trend/Session Structure +
-      6 Calendar Cycle/TDOM/Minute + 4 Velocity Primitives + 11 Recency/
-      Statistical Atomics + 5 Cross-asset Spread/Beta (non-nullable) + 2
-      Calendar Event Flags (non-nullable) + 10 Theory-Motivated Interactions
-      (non-nullable), Phase 151 Plans 01 + 03 + 04 + 05 + 06]
+      Total: 298 (249 required [164 + 41 Swing/Fib/Trend/Session Structure +
+      6 Calendar Cycle/TDOM/Minute + 4 Velocity Primitives + 6 Velocity
+      Primitives Extension (todo 320) + 11 Recency/Statistical Atomics + 5
+      Cross-asset Spread/Beta (non-nullable) + 2 Calendar Event Flags
+      (non-nullable) + 10 Theory-Motivated Interactions (non-nullable),
+      Phase 151 Plans 01 + 03 + 04 + 05 + 06 + todo 320]
       + 49 optional [3 cross-sectional + 5 canary + 36 SMC + 2 Cross-asset
       factor betas (Phase 151 Plan 04, nullable for the factor proxy's own
       self-regression) + 3 Cross-TF divergences (Phase 151 Plan 05, nullable
@@ -1409,6 +1411,26 @@ class FeatureVector:
     vwap_dev_sigma_velocity: (
         float  # zscore(diff(vwap_dev_sigma)) (APR: feature.vwap_velocity.window)
     )
+    # Velocity Primitives Extension (6, todo 320, 2026-08-15). Same
+    # first-difference-then-re-z-scored construction as the 4 fields above
+    # (reuses _vol_velocity_z_series_full byte-identically), applied to 3
+    # oscillator/flow families the original Phase 151 Plan 01 sweep didn't
+    # reach: RSI (3 gradients, one shared window) and the two single-field
+    # order-flow z-scores OFI/CVD-slope. volume_z_velocity closes the gap
+    # vol_acceleration left (a crude 1-bar V_t/V_{t-1} ratio, not a proper
+    # z-scored velocity like every other _velocity field). adx_velocity was
+    # considered and dropped from this batch: adx has no precomputed
+    # full-history array (it's sourced from cache.adx, a stateful
+    # incremental indicator external to _precompute_series) -- reusing this
+    # helper on it would require a new _adx_series_full() vectorized
+    # implementation first, a separate task, not a clean application of the
+    # existing pattern.
+    rsi_velocity_fast: float  # zscore(diff(rsi_fast)) (APR: feature.rsi_velocity.window)
+    rsi_velocity_mid: float  # zscore(diff(rsi_mid)) (APR: feature.rsi_velocity.window)
+    rsi_velocity_slow: float  # zscore(diff(rsi_slow)) (APR: feature.rsi_velocity.window)
+    ofi_z_velocity: float  # zscore(diff(ofi_z)) (APR: feature.ofi_velocity.window)
+    cvd_slope_z_velocity: float  # zscore(diff(cvd_slope_z)) (APR: feature.cvd_velocity.window)
+    volume_z_velocity: float  # zscore(diff(volume_z)) (APR: feature.volume_velocity.window)
     # Recency / Statistical Atomics (11, Phase 151 Plan 03, todo 180). The
     # event-recency axis: bars_since_* are BOUNDED rolling-window statistics
     # in [0, window-1] (never an expanding lookback -- see class-level

@@ -129,6 +129,17 @@ at the end of the column list. All 10 values are real computed floats from
 day one on both live and batch paths (non-nullable; every parent is always
 computed, defaulting to 0.0 at cold start, so the product is always defined).
 
+2026-08-15: extended to 307 columns (migration 316, todo 320). 6 new Velocity
+Primitives Extension fields -- rsi_velocity_fast/mid/slow, ofi_z_velocity,
+cvd_slope_z_velocity, volume_z_velocity, the same first-difference-then-
+re-z-scored construction as the existing 4 Phase 151 Plan 01 velocity fields
+(reuses _vol_velocity_z_series_full byte-identically) -- added to
+FeatureVector as ONE contiguous block immediately after the Plan 01 velocity
+block. Same derive-by-name discipline as every prior extension via a new
+_VELOCITY_EXTENSION_FIELD_NAMES slice, appended at the end of the column
+list. All 6 values are real computed floats from day one (no None
+placeholders).
+
 Ring 1: imports FeatureVector from src.intelligence.schemas.
 Do not import from Ring 2 (services/) or Ring 3 (api/, production/).
 """
@@ -295,6 +306,20 @@ _PHASE151_THEORY_INTERACTION_FIELD_NAMES: tuple[str, ...] = _ALL_FEATURE_VECTOR_
     + 1
 ]
 
+# The 6 new Velocity Primitives Extension fields (migration 316, todo 320)
+# are an eleventh contiguous, same-order slice -- rsi_velocity_fast/mid/slow,
+# ofi_z_velocity, cvd_slope_z_velocity, volume_z_velocity, declared as ONE
+# contiguous run in schemas.py immediately after the Plan 01 velocity block
+# (momentum_z_velocity_fast/mid/slow, vwap_dev_sigma_velocity). Same
+# derive-don't-hand-type discipline as the ten slices above; appended at the
+# end of the column list below.
+_VELOCITY_EXTENSION_FIELD_NAMES: tuple[str, ...] = _ALL_FEATURE_VECTOR_FIELD_NAMES[
+    _ALL_FEATURE_VECTOR_FIELD_NAMES.index(
+        "rsi_velocity_fast"
+    ) : _ALL_FEATURE_VECTOR_FIELD_NAMES.index("volume_z_velocity")
+    + 1
+]
+
 
 def _compute_bar_close_ts(bar_ts: datetime, tf: str) -> datetime:
     """Compute bar close timestamp from bar open timestamp and timeframe.
@@ -329,7 +354,7 @@ def validate_feature_vector(vector: FeatureVector) -> list[str]:
 
 # ── Canonical INSERT/UPSERT SQL ───────────────────────────────────────────────
 
-# 301 columns (as of 2026-08-05): $1 content-key, $2-$8 structural, $9-$62
+# 307 columns (as of 2026-08-15): $1 content-key, $2-$8 structural, $9-$62
 # original feature floats, $63-$70 migration-159 additions, $71-$159
 # migration-206 Renaissance primitives (2026-07-08 fix, then reduced from 91
 # to 89 primitives 2026-07-09), $160-$164 migration-223 canary/control
@@ -342,8 +367,9 @@ def validate_feature_vector(vector: FeatureVector) -> list[str]:
 # $280-$286 migration-289 cross-asset spread/beta atomics fields (Phase 151
 # Plan 04), $287-$291 migration-290 Named Interaction Primitives fields
 # (Phase 151 Plan 05), $292-$301 migration-291 Theory-Motivated Interaction
-# fields (Phase 151 Plan 06, see module docstring).
-# Column order is binding — matches migration 159/206/223/255/266/267/293/288/289/290/291 column definition order.
+# fields (Phase 151 Plan 06), $302-$307 migration-316 Velocity Primitives
+# Extension fields (todo 320, see module docstring).
+# Column order is binding — matches migration 159/206/223/255/266/267/293/288/289/290/291/316 column definition order.
 _STRUCTURAL_PREFIX_COLUMN_NAMES: tuple[str, ...] = (
     "feature_vector_id",
     "symbol",
@@ -432,6 +458,7 @@ _ALL_COLUMN_NAMES: tuple[str, ...] = (
     + _PHASE151_CROSS_ASSET_FIELD_NAMES
     + _PHASE151_INTERACTION_NAMED_FIELD_NAMES
     + _PHASE151_THEORY_INTERACTION_FIELD_NAMES
+    + _VELOCITY_EXTENSION_FIELD_NAMES
 )
 _TOTAL_COLUMNS = len(_ALL_COLUMN_NAMES)
 
@@ -614,7 +641,7 @@ def feature_vector_to_insert_params(
     regime_label_source: str,
     vector: FeatureVector,
 ) -> tuple:
-    """Serialize a FeatureVector to the canonical 301-element INSERT tuple.
+    """Serialize a FeatureVector to the canonical 307-element INSERT tuple.
 
     Column order matches FEATURE_VECTOR_INSERT_SQL exactly:
       $1:        feature_vector_id (content-key UUID)
@@ -656,6 +683,9 @@ def feature_vector_to_insert_params(
                  Phase 151 Plan 06) in dataclasses.fields(FeatureVector)
                  order — all real computed floats from day one on both live
                  and batch paths
+      $302-$307: 6 Velocity Primitives Extension fields (migration 316, todo
+                 320) in dataclasses.fields(FeatureVector) order — all real
+                 computed floats from day one
 
     Args:
         symbol: Instrument symbol (e.g. 'SPY').
@@ -672,7 +702,7 @@ def feature_vector_to_insert_params(
         vector: Fully-populated FeatureVector from FeatureFactory.compute().
 
     Returns:
-        301-element tuple for use with asyncpg or psycopg executemany().
+        307-element tuple for use with asyncpg or psycopg executemany().
         Compatible with both drivers — asyncpg and psycopg handle uuid.UUID
         and datetime natively.
 
@@ -830,4 +860,9 @@ def feature_vector_to_insert_params(
         # the Named Interaction Primitives fields (module docstring). All
         # real computed floats from day one on both live and batch paths.
         *(getattr(vector, name) for name in _PHASE151_THEORY_INTERACTION_FIELD_NAMES),
+        # Velocity Primitives Extension fields (migration 316, todo 320) --
+        # same derive-by-name discipline, appended immediately after the
+        # Theory-Motivated Interaction fields (module docstring). All real
+        # computed floats from day one.
+        *(getattr(vector, name) for name in _VELOCITY_EXTENSION_FIELD_NAMES),
     )

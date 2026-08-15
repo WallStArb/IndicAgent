@@ -136,6 +136,10 @@ def _make_cfg(**overrides) -> FeatureFactoryConfig:
         price_vol_corr_fast=10,
         price_vol_corr_slow=30,
         momentum_velocity_window=20,
+        rsi_velocity_window=20,
+        ofi_velocity_window=20,
+        cvd_velocity_window=20,
+        volume_velocity_window=20,
         vwap_velocity_window=20,
         extreme_move_sigma_threshold=2.0,
         vol_spike_threshold=2.0,
@@ -431,9 +435,10 @@ def test_feature_vector_domain_complete():
     (Phase 151 Plan 03) = 270, + 7 cross-asset spread/beta atomics
     (Phase 151 Plan 04) = 277, + 5 Named Interaction Primitives (3 cross-TF
     divergences + 2 calendar event flags, Phase 151 Plan 05) = 282, + 10
-    Theory-Motivated Interactions (Phase 151 Plan 06) = 292."""
+    Theory-Motivated Interactions (Phase 151 Plan 06) = 292, + 6 Velocity
+    Primitives Extension fields (todo 320) = 298."""
     fv_fields = {f.name for f in dataclasses.fields(FeatureVector)}
-    assert len(FEATURE_VECTOR_DOMAIN) == 292
+    assert len(FEATURE_VECTOR_DOMAIN) == 298
     assert set(FEATURE_VECTOR_DOMAIN.keys()) == fv_fields
 
 

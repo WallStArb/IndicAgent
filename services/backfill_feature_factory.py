@@ -560,6 +560,10 @@ def _build_feature_factory_config(cfg: ConfigService) -> FeatureFactoryConfig:
         price_vol_corr_slow=int(cfg.get_sync("feature.price_vol_corr.slow", 30)),
         momentum_velocity_window=int(cfg.get_sync("feature.momentum_velocity.window", 14)),
         vwap_velocity_window=int(cfg.get_sync("feature.vwap_velocity.window", 14)),
+        rsi_velocity_window=int(cfg.get_sync("feature.rsi_velocity.window", 14)),
+        ofi_velocity_window=int(cfg.get_sync("feature.ofi_velocity.window", 14)),
+        cvd_velocity_window=int(cfg.get_sync("feature.cvd_velocity.window", 14)),
+        volume_velocity_window=int(cfg.get_sync("feature.volume_velocity.window", 14)),
         extreme_move_sigma_threshold=float(
             cfg.get_sync("feature.bars_since_extreme_move.sigma_threshold", 2.0)
         ),

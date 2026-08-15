@@ -140,6 +140,10 @@ def _make_config(**overrides) -> FeatureFactoryConfig:
         price_vol_corr_fast=10,
         price_vol_corr_slow=30,
         momentum_velocity_window=20,
+        rsi_velocity_window=20,
+        ofi_velocity_window=20,
+        cvd_velocity_window=20,
+        volume_velocity_window=20,
         vwap_velocity_window=20,
         extreme_move_sigma_threshold=2.0,
         vol_spike_threshold=2.0,
@@ -214,8 +218,10 @@ class TestFeatureVectorCanaryFields:
         # (Phase 151 Plan 04, added after this test was written) = 277, +5
         # Named Interaction Primitives (Phase 151 Plan 05, added after this
         # test was written) = 282, +10 Theory-Motivated Interactions
-        # (Phase 151 Plan 06, added after this test was written) = 292.
-        assert total == 150 + 5 + 17 + 36 + 41 + 6 + 4 + 11 + 7 + 5 + 10
+        # (Phase 151 Plan 06, added after this test was written) = 292, +6
+        # Velocity Primitives Extension fields (todo 320, added after this
+        # test was written) = 298.
+        assert total == 150 + 5 + 17 + 36 + 41 + 6 + 4 + 11 + 7 + 5 + 10 + 6
 
 
 # ---------------------------------------------------------------------------
@@ -519,8 +525,9 @@ class TestFeatureFactoryIntegration:
         # (Phase 151 Plan 03) = 270, +7 cross-asset spread/beta atomics
         # (Phase 151 Plan 04) = 277, +5 Named Interaction Primitives
         # (Phase 151 Plan 05) = 282, +10 Theory-Motivated Interactions
-        # (Phase 151 Plan 06) = 292.
-        assert len(dataclasses.fields(fv)) == 292
+        # (Phase 151 Plan 06) = 292, +6 Velocity Primitives Extension fields
+        # (todo 320) = 298.
+        assert len(dataclasses.fields(fv)) == 298
 
 
 # ---------------------------------------------------------------------------

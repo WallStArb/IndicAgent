@@ -161,6 +161,10 @@ def _make_config(**overrides: int) -> FeatureFactoryConfig:
         price_vol_corr_fast=10,
         price_vol_corr_slow=30,
         momentum_velocity_window=20,
+        rsi_velocity_window=20,
+        ofi_velocity_window=20,
+        cvd_velocity_window=20,
+        volume_velocity_window=20,
         vwap_velocity_window=20,
         extreme_move_sigma_threshold=2.0,
         vol_spike_threshold=2.0,
@@ -748,10 +752,14 @@ class TestComputePurity:
         structural VP/SR fields (Phase 163 Plan 01, migration 255) = 172,
         + 36 SMC institutional-footprint fields (Phase 164 Plan 01,
         migration 266) = 208, + 41 swing/fib/trend/session structure fields
-        (Phase 165 Plan 01, migration 267) = 249 (final total). See
-        142.5-05-SUMMARY.md / 142.5-03-SUMMARY.md / 142.5-04-SUMMARY.md
-        Deviations for the actual dependency-DAG-valid merge order vs. the
-        phase outline's originally assumed counts.
+        (Phase 165 Plan 01, migration 267) = 249, + 6 calendar cycle/TDOM/
+        minute + 4 velocity primitives + 11 recency/statistical atomics + 7
+        cross-asset spread/beta atomics + 5 Named Interaction Primitives +
+        10 Theory-Motivated Interactions (Phase 151 Plans 01/03/04/05/06)
+        = 292, + 6 Velocity Primitives Extension fields (todo 320) = 298
+        (final total). See 142.5-05-SUMMARY.md / 142.5-03-SUMMARY.md /
+        142.5-04-SUMMARY.md Deviations for the actual dependency-DAG-valid
+        merge order vs. the phase outline's originally assumed counts.
         """
         import dataclasses
 
@@ -760,7 +768,7 @@ class TestComputePurity:
         cache = FeatureCache()
         fv = FeatureFactory.compute(bars, "SPY", "1m", cache, config)
         fields = dataclasses.fields(fv)
-        assert len(fields) == 292, f"Expected 292 fields, got {len(fields)}"
+        assert len(fields) == 298, f"Expected 298 fields, got {len(fields)}"
         for f in fields:
             val = getattr(fv, f.name)
             # Optional cross-sectional fields (momentum_rank_z, volume_rank_z,

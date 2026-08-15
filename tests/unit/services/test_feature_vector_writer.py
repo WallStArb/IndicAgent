@@ -93,6 +93,12 @@ def _make_valid_feature_vector():
         momentum_z_velocity_mid=0.0,
         momentum_z_velocity_slow=0.0,
         vwap_dev_sigma_velocity=0.0,
+        rsi_velocity_fast=0.0,
+        rsi_velocity_mid=0.0,
+        rsi_velocity_slow=0.0,
+        ofi_z_velocity=0.0,
+        cvd_slope_z_velocity=0.0,
+        volume_z_velocity=0.0,
         bars_since_high_fast=0.0,
         bars_since_high_slow=0.0,
         bars_since_low_fast=0.0,
@@ -337,7 +343,7 @@ def test_record_to_insert_params_returns_159_tuple():
     params = _record_to_insert_params(record)
 
     assert isinstance(params, tuple)
-    assert len(params) == 301, f"Expected 301, got {len(params)}"
+    assert len(params) == 307, f"Expected 307, got {len(params)}"
 
 
 def test_record_to_insert_params_feature_vector_id_is_uuid():
@@ -460,7 +466,7 @@ def test_parse_payload_valid_record_returns_159_param_tuple():
     assert not invalid
     assert len(valid) == 1
     assert isinstance(valid[0], tuple)
-    assert len(valid[0]) == 301, f"Expected 301-element tuple, got {len(valid[0])}"
+    assert len(valid[0]) == 307, f"Expected 307-element tuple, got {len(valid[0])}"
 
 
 def test_parse_payload_malformed_returns_empty_valid_invalid_payload():
@@ -622,7 +628,7 @@ def test_insert_sql_has_159_placeholders():
     from services.feature_vector_writer import _INSERT_FEATURE_VECTOR_SQL
 
     placeholders = re.findall(r"\$\d+", _INSERT_FEATURE_VECTOR_SQL)
-    assert len(placeholders) == 301, f"Expected 301 placeholders, got {len(placeholders)}"
+    assert len(placeholders) == 307, f"Expected 307 placeholders, got {len(placeholders)}"
 
 
 def test_insert_sql_includes_feature_vector_id_column():

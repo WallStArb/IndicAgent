@@ -1,0 +1,38 @@
+# 322 - CLAUDE.md's UCR Invariant 1 wording doesn't acknowledge the established migration genesis-seed pattern
+
+**Filed:** 2026-08-15
+**Source:** `/review` (code-review skill) during todo 320's (Velocity Primitives Extension)
+cleanup pass.
+
+## What
+
+CLAUDE.md's Unified Concept Registry section states: *"the ONLY code path that flips `status` is
+`ConceptRegistryService` (`src/intelligence/concept_registry_service.py`) — no LLM, no proposer
+override, ever (Invariant 1)."*
+
+Migration 316 (todo 320) seeds 6 new `concept_registry` rows with `status='active'` directly via
+raw SQL INSERT, bypassing `ConceptRegistryService` entirely. This is not a new deviation --
+verified against migrations 288, 289, 290, 291 (all four insert `status` sourced from
+`feature_registry.status`, which was itself hardcoded `'active'` at INSERT time before migration
+311 dropped that table). Every tier-`0_atomic` feature primitive this codebase has ever added has
+been genesis-seeded as `'active'` via a raw migration, never through `ConceptRegistryService`.
+
+## Why this is a doc problem, not a code problem
+
+The established, repeated (5 migrations now) pattern makes sense on its own terms: a migration
+adding a new atomic primitive to `FeatureVector` is schema-definition-time DDL, not a runtime
+lifecycle transition (candidate promoted to active based on evidence, or demoted based on decay) --
+that's what `ConceptRegistryService` actually governs, per its own domain (`ensemble_strategy`'s
+`record_comparison_outcome()`, `feature` domain's `ic_engine.py` post-run hook). Invariant 1's
+current wording doesn't distinguish "genesis seed a new concept row at schema-add time" from
+"flip an existing concept's lifecycle status based on evidence" -- it reads as covering both, but
+5 migrations' worth of practice treats only the latter as governed.
+
+## Fix
+
+Tighten Invariant 1's wording in CLAUDE.md to explicitly carve out migration-time genesis seeding
+(a new `concept_registry` row's initial `status` at INSERT, set directly by the migration that
+adds the corresponding `FeatureVector` field) from the "ONLY `ConceptRegistryService` flips
+status" rule (which governs subsequent lifecycle transitions on an existing row). Purely a
+documentation-precision fix -- no code or migration behavior change; the practice is already
+consistent across 5 migrations, only the stated invariant lags it.

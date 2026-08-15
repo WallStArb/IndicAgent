@@ -840,6 +840,11 @@ class FeatureVectorPipeline(BaseDaemon):
         # --- migration 293: Phase 151 Plan 01 Task 2 velocity primitives ---
         ("feature.momentum_velocity.window", 14),
         ("feature.vwap_velocity.window", 14),
+        # --- migration 316: todo 320 Velocity Primitives Extension ---
+        ("feature.rsi_velocity.window", 14),
+        ("feature.ofi_velocity.window", 14),
+        ("feature.cvd_velocity.window", 14),
+        ("feature.volume_velocity.window", 14),
         # --- migration 288: Phase 151 Plan 03 recency/statistical atomics ---
         ("feature.bars_since_extreme_move.sigma_threshold", 2.0),
         ("feature.bars_since_vol_spike.threshold", 2.0),
@@ -1080,6 +1085,10 @@ class FeatureVectorPipeline(BaseDaemon):
             price_vol_corr_slow=_int("feature.price_vol_corr.slow", 30),
             momentum_velocity_window=_int("feature.momentum_velocity.window", 14),
             vwap_velocity_window=_int("feature.vwap_velocity.window", 14),
+            rsi_velocity_window=_int("feature.rsi_velocity.window", 14),
+            ofi_velocity_window=_int("feature.ofi_velocity.window", 14),
+            cvd_velocity_window=_int("feature.cvd_velocity.window", 14),
+            volume_velocity_window=_int("feature.volume_velocity.window", 14),
             extreme_move_sigma_threshold=_float(
                 "feature.bars_since_extreme_move.sigma_threshold", 2.0
             ),

@@ -1,4 +1,4 @@
-"""FeatureFactory — pure-function library for computing all 292 FeatureVector primitives.
+"""FeatureFactory — pure-function library for computing all 298 FeatureVector primitives.
 
 STATELESS CONTRACT (D-08): FeatureFactory has no __init__ and stores no config.
 The FeatureFactoryConfig frozen dataclass is built ONCE by the caller
@@ -202,6 +202,13 @@ FEATURE_VECTOR_DOMAIN: dict[str, str] = {
     "momentum_z_velocity_mid": "quant",
     "momentum_z_velocity_slow": "quant",
     "vwap_dev_sigma_velocity": "quant",
+    # Velocity Primitives Extension (todo 320)
+    "rsi_velocity_fast": "quant",
+    "rsi_velocity_mid": "quant",
+    "rsi_velocity_slow": "quant",
+    "ofi_z_velocity": "quant",
+    "cvd_slope_z_velocity": "quant",
+    "volume_z_velocity": "quant",
     # Recency / Statistical Atomics (Phase 151 Plan 03, todo 180)
     "bars_since_high_fast": "quant",
     "bars_since_high_slow": "quant",
@@ -506,6 +513,10 @@ class FeatureFactoryConfig:
         price_vol_corr_slow: APR feature.price_vol_corr.slow
         momentum_velocity_window: APR feature.momentum_velocity.window
         vwap_velocity_window: APR feature.vwap_velocity.window
+        rsi_velocity_window: APR feature.rsi_velocity.window
+        ofi_velocity_window: APR feature.ofi_velocity.window
+        cvd_velocity_window: APR feature.cvd_velocity.window
+        volume_velocity_window: APR feature.volume_velocity.window
         extreme_move_sigma_threshold: APR feature.bars_since_extreme_move.sigma_threshold
         vol_spike_threshold: APR feature.bars_since_vol_spike.threshold
         tip_tlt_zscore_window: APR feature.tip_tlt.zscore_window
@@ -693,6 +704,16 @@ class FeatureFactoryConfig:
     # semantically distinct families.
     momentum_velocity_window: int  # feature.momentum_velocity.window
     vwap_velocity_window: int  # feature.vwap_velocity.window
+    # Velocity Primitives Extension (todo 320). Same per-family separate-key
+    # rule as the block immediately above -- rsi_velocity_window is shared
+    # across all 3 RSI gradients (matching momentum_velocity_window's own
+    # one-key-for-3-gradients precedent), ofi/cvd/volume each get their own
+    # key since they're semantically distinct families. Non-defaulted,
+    # matching momentum_velocity_window/vwap_velocity_window's own precedent.
+    rsi_velocity_window: int  # feature.rsi_velocity.window
+    ofi_velocity_window: int  # feature.ofi_velocity.window
+    cvd_velocity_window: int  # feature.cvd_velocity.window
+    volume_velocity_window: int  # feature.volume_velocity.window
     # Recency / Statistical Atomics (Phase 151 Plan 03, todo 180). The 2 event
     # thresholds behind bars_since_extreme_move_*/bars_since_vol_spike_*.
     # Non-defaulted (matching momentum_velocity_window/vwap_velocity_window's
@@ -3456,6 +3477,13 @@ class _PrecomputedSeries:
     momentum_z_velocity_mid: np.ndarray
     momentum_z_velocity_slow: np.ndarray
     vwap_dev_sigma_velocity: np.ndarray
+    # Velocity Primitives Extension (todo 320)
+    rsi_velocity_fast: np.ndarray
+    rsi_velocity_mid: np.ndarray
+    rsi_velocity_slow: np.ndarray
+    ofi_z_velocity: np.ndarray
+    cvd_slope_z_velocity: np.ndarray
+    volume_z_velocity: np.ndarray
     # Recency / Statistical Atomics (Phase 151 Plan 03, todo 180)
     bars_since_high_fast: np.ndarray
     bars_since_high_slow: np.ndarray
@@ -3508,6 +3536,18 @@ def _precompute_series(
     )
     vwap_dev_sigma_arr = _vwap_dev_sigma_series_full(opens, highs, lows, closes, volumes)
 
+    # Captured as locals (todo 320) so the Velocity Primitives Extension
+    # calls below can reuse them without recomputation -- same reuse
+    # discipline as momentum_z_*_arr/vwap_dev_sigma_arr above.
+    rsi_fast_arr = _rsi_series_full(closes, config.rsi_fast_period)
+    rsi_mid_arr = _rsi_series_full(closes, config.rsi_mid_period)
+    rsi_slow_arr = _rsi_series_full(closes, config.rsi_slow_period)
+    ofi_z_arr = _ofi_z_series_full(closes, highs, lows, volumes, config.ofi_zscore_window)
+    cvd_slope_z_arr = _cvd_slope_z_series_full(
+        closes, highs, lows, volumes, config.cvd_slope_bars, config.ofi_zscore_window
+    )
+    volume_z_arr = _volume_z_series_full(volumes, config.volume_zscore_window)
+
     # Captured as a local (Phase 151 Plan 03) so the vol-spike event
     # indicators below can reuse it without recomputation -- same reuse
     # discipline as momentum_z_*_arr/vwap_dev_sigma_arr above.
@@ -3537,19 +3577,17 @@ def _precompute_series(
         atr_z=atr_z,
         gap_z=_gap_z_series_full(opens, closes, atr_raw, atr_valid, config.momentum_zscore_window),
         rel_volume=rel_volume_arr,
-        ofi_z=_ofi_z_series_full(closes, highs, lows, volumes, config.ofi_zscore_window),
-        cvd_slope_z=_cvd_slope_z_series_full(
-            closes, highs, lows, volumes, config.cvd_slope_bars, config.ofi_zscore_window
-        ),
-        volume_z=_volume_z_series_full(volumes, config.volume_zscore_window),
+        ofi_z=ofi_z_arr,
+        cvd_slope_z=cvd_slope_z_arr,
+        volume_z=volume_z_arr,
         momentum_z_fast=momentum_z_fast_arr,
         momentum_z_mid=momentum_z_mid_arr,
         momentum_z_slow=momentum_z_slow_arr,
         momentum_reversal_z=_momentum_reversal_z_series_full(closes, config.momentum_zscore_window),
         vwap_dev_sigma=vwap_dev_sigma_arr,
-        rsi_fast=_rsi_series_full(closes, config.rsi_fast_period),
-        rsi_mid=_rsi_series_full(closes, config.rsi_mid_period),
-        rsi_slow=_rsi_series_full(closes, config.rsi_slow_period),
+        rsi_fast=rsi_fast_arr,
+        rsi_mid=rsi_mid_arr,
+        rsi_slow=rsi_slow_arr,
         amihud_illiq_z=_amihud_illiq_z_series_full(closes, volumes, config.amihud_zscore_window),
         high_52w_dist=_high_52w_dist_series_full(closes, config.high_52w_window),
         ret_skew_z=_ret_skew_z_series_full(
@@ -3664,6 +3702,14 @@ def _precompute_series(
         vwap_dev_sigma_velocity=_vol_velocity_z_series_full(
             vwap_dev_sigma_arr, config.vwap_velocity_window
         ),
+        rsi_velocity_fast=_vol_velocity_z_series_full(rsi_fast_arr, config.rsi_velocity_window),
+        rsi_velocity_mid=_vol_velocity_z_series_full(rsi_mid_arr, config.rsi_velocity_window),
+        rsi_velocity_slow=_vol_velocity_z_series_full(rsi_slow_arr, config.rsi_velocity_window),
+        ofi_z_velocity=_vol_velocity_z_series_full(ofi_z_arr, config.ofi_velocity_window),
+        cvd_slope_z_velocity=_vol_velocity_z_series_full(
+            cvd_slope_z_arr, config.cvd_velocity_window
+        ),
+        volume_z_velocity=_vol_velocity_z_series_full(volume_z_arr, config.volume_velocity_window),
         bars_since_high_fast=_bars_since_rolling_extreme_series_full(
             highs, config.dist_window_fast, "max"
         ),
@@ -6168,6 +6214,12 @@ def _build_feature_vector(
     momentum_z_velocity_mid: float,
     momentum_z_velocity_slow: float,
     vwap_dev_sigma_velocity: float,
+    rsi_velocity_fast: float,
+    rsi_velocity_mid: float,
+    rsi_velocity_slow: float,
+    ofi_z_velocity: float,
+    cvd_slope_z_velocity: float,
+    volume_z_velocity: float,
     bars_since_high_fast: float,
     bars_since_high_slow: float,
     bars_since_low_fast: float,
@@ -6472,6 +6524,12 @@ def _build_feature_vector(
         momentum_z_velocity_mid=_guard(momentum_z_velocity_mid, 0.0),
         momentum_z_velocity_slow=_guard(momentum_z_velocity_slow, 0.0),
         vwap_dev_sigma_velocity=_guard(vwap_dev_sigma_velocity, 0.0),
+        rsi_velocity_fast=_guard(rsi_velocity_fast, 0.0),
+        rsi_velocity_mid=_guard(rsi_velocity_mid, 0.0),
+        rsi_velocity_slow=_guard(rsi_velocity_slow, 0.0),
+        ofi_z_velocity=_guard(ofi_z_velocity, 0.0),
+        cvd_slope_z_velocity=_guard(cvd_slope_z_velocity, 0.0),
+        volume_z_velocity=_guard(volume_z_velocity, 0.0),
         bars_since_high_fast=_guard(bars_since_high_fast, 0.0),
         bars_since_high_slow=_guard(bars_since_high_slow, 0.0),
         bars_since_low_fast=_guard(bars_since_low_fast, 0.0),
@@ -6687,7 +6745,7 @@ class FeatureFactory:
         cache: FeatureCache,
         config: FeatureFactoryConfig,
     ) -> FeatureVector:
-        """Compute all 292 FeatureVector primitives from bars + cache + config.
+        """Compute all 298 FeatureVector primitives from bars + cache + config.
 
         PURE FUNCTION: no IO, no ConfigService.get(), no DB reads, no Kafka.
         All tunable numerics come from the config argument (SC-9).
@@ -6705,7 +6763,7 @@ class FeatureFactory:
 
         Returns
         -------
-        FeatureVector with all 292 fields populated -- most set to finite
+        FeatureVector with all 298 fields populated -- most set to finite
         floats, but 85 are `float | None` by design (41 Phase 165 Swing/Fib
         + 44 optional cross-sectional/canary/SMC placeholders); see the
         FeatureVector class docstring for the full breakdown.
@@ -7117,6 +7175,15 @@ class FeatureFactory:
             momentum_z_velocity_mid=_series_last(s.momentum_z_velocity_mid, 0.0),
             momentum_z_velocity_slow=_series_last(s.momentum_z_velocity_slow, 0.0),
             vwap_dev_sigma_velocity=_series_last(s.vwap_dev_sigma_velocity, 0.0),
+            # Velocity Primitives Extension (todo 320) — read from the
+            # precomputed series built once above, same pattern as
+            # momentum_z_velocity_fast/vol_velocity_z.
+            rsi_velocity_fast=_series_last(s.rsi_velocity_fast, 0.0),
+            rsi_velocity_mid=_series_last(s.rsi_velocity_mid, 0.0),
+            rsi_velocity_slow=_series_last(s.rsi_velocity_slow, 0.0),
+            ofi_z_velocity=_series_last(s.ofi_z_velocity, 0.0),
+            cvd_slope_z_velocity=_series_last(s.cvd_slope_z_velocity, 0.0),
+            volume_z_velocity=_series_last(s.volume_z_velocity, 0.0),
             # Recency / Statistical Atomics (Phase 151 Plan 03, todo 180) —
             # read from the precomputed series built once above. Fallback is
             # the saturating value float(window-1) for each field's own
@@ -7862,6 +7929,25 @@ class FeatureFactory:
             vwap_dev_sigma_velocity_val = (
                 float(s.vwap_dev_sigma_velocity[i]) if i < len(s.vwap_dev_sigma_velocity) else 0.0
             )
+            # Velocity Primitives Extension (todo 320) — same
+            # precomputed-series indexing pattern as vol_velocity_z/
+            # momentum_z_velocity_fast above.
+            rsi_velocity_fast_val = (
+                float(s.rsi_velocity_fast[i]) if i < len(s.rsi_velocity_fast) else 0.0
+            )
+            rsi_velocity_mid_val = (
+                float(s.rsi_velocity_mid[i]) if i < len(s.rsi_velocity_mid) else 0.0
+            )
+            rsi_velocity_slow_val = (
+                float(s.rsi_velocity_slow[i]) if i < len(s.rsi_velocity_slow) else 0.0
+            )
+            ofi_z_velocity_val = float(s.ofi_z_velocity[i]) if i < len(s.ofi_z_velocity) else 0.0
+            cvd_slope_z_velocity_val = (
+                float(s.cvd_slope_z_velocity[i]) if i < len(s.cvd_slope_z_velocity) else 0.0
+            )
+            volume_z_velocity_val = (
+                float(s.volume_z_velocity[i]) if i < len(s.volume_z_velocity) else 0.0
+            )
 
             # Recency / Statistical Atomics (Phase 151 Plan 03, todo 180) —
             # same precomputed-series indexing pattern as the velocity
@@ -8116,6 +8202,12 @@ class FeatureFactory:
                 momentum_z_velocity_mid=momentum_z_velocity_mid_val,
                 momentum_z_velocity_slow=momentum_z_velocity_slow_val,
                 vwap_dev_sigma_velocity=vwap_dev_sigma_velocity_val,
+                rsi_velocity_fast=rsi_velocity_fast_val,
+                rsi_velocity_mid=rsi_velocity_mid_val,
+                rsi_velocity_slow=rsi_velocity_slow_val,
+                ofi_z_velocity=ofi_z_velocity_val,
+                cvd_slope_z_velocity=cvd_slope_z_velocity_val,
+                volume_z_velocity=volume_z_velocity_val,
                 bars_since_high_fast=bars_since_high_fast_val,
                 bars_since_high_slow=bars_since_high_slow_val,
                 bars_since_low_fast=bars_since_low_fast_val,
@@ -8379,6 +8471,15 @@ def _cold_start_vector(
         momentum_z_velocity_mid=0.0,
         momentum_z_velocity_slow=0.0,
         vwap_dev_sigma_velocity=0.0,
+        # Velocity Primitives Extension (todo 320): a velocity is undefined
+        # with fewer than 2 bars; 0.0 is the correct neutral, matching the
+        # Phase 151 velocity fields' own cold-start default immediately above.
+        rsi_velocity_fast=0.0,
+        rsi_velocity_mid=0.0,
+        rsi_velocity_slow=0.0,
+        ofi_z_velocity=0.0,
+        cvd_slope_z_velocity=0.0,
+        volume_z_velocity=0.0,
         # Phase 151 Plan 03: _cold_start_vector has no config parameter
         # (called only when len(bars) < 2, same constraint documented at
         # Phase 151 Plan 01's cold-start deviation above), so the true
