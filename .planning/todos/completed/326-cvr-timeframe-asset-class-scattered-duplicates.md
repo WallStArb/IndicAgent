@@ -1,4 +1,4 @@
-# 326 - `timeframe`/`asset_class` CVR namespaces already exist but nothing reads them — live scatter and one confirmed drift bug
+# 326 - `asset_class` CVR namespace already exists but nothing read it — live drift bug (CLOSED, timeframe half split to 327)
 
 **Filed:** 2026-08-15
 **Source:** Found while re-checking todo 324's CVR-fit question after user pushback ("CVR really
@@ -59,10 +59,24 @@ sites at it, deleting the duplicates. Where a call site intentionally needs a *s
 `vocabulary_group_member` pattern already used for `regime_hmm`) rather than a fresh hardcoded
 tuple, so the subset relationship is registry-visible too.
 
+## Status (2026-08-15)
+
+**`asset_class` fix: DONE, committed `66ee8b055`.** `src/api/routes/instruments.py` now validates
+against the CVR `controlled_vocabulary` registry at request time instead of a hardcoded `Literal`;
+two new regression tests prove `"crypto"` is rejected on both POST and PUT. Full `tests/unit/`
+suite green.
+
+**`timeframe` consolidation: split out to [[327]].** It's a materially harder problem than
+`asset_class` was — most of the 9 call sites are Ring 0 sync modules with no existing DB pool or
+async-init hook to read `VocabularyService` from (unlike `instruments.py`, which already had a
+per-request DB handle to reuse), plus a same-name-different-value collision and a whole duplicated
+module (`utils.py`/`utils/core.py`) that both need resolving before any constant inside them is
+safe to touch. Matches this codebase's own precedent for not bolting a registry-read into a hot
+path in the same sweep that found the gap (`_batch_utils.py`'s todo-308 comment, `ic_engine.py`'s
+todo 307) — deserves its own focused pass.
+
 ## Scope note
 
-This is a mechanical consolidation + one real correctness fix (`asset_class`/`crypto`), not new
-governance design — [[324]] is the separate, smaller task of extending CVR's *coverage* (adding
-the not-yet-governed `gradient_scale` namespace under the new D-07 criterion this todo's grep
-justified). Do 326 first if sequencing matters — it's a pure win with a real live bug in it and no
-open design questions; 324 needs the `has_live_source` auditor change designed first.
+[[324]] (adding the not-yet-governed `gradient_scale` namespace under the new D-07 criterion this
+todo's grep justified) is separate work, needs the `has_live_source` auditor change designed
+first.
