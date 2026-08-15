@@ -78,12 +78,18 @@ this AFTER `regime_writer`'s current run (`regime` + `regime_volatility` passes)
 
 ## Status
 
-pending, **P0** -- confirmed correctness bug per CLAUDE.md's "Causal bugs get fixed regardless of
-measured benefit" rule; the 80 missing symbols include the most liquid, most important instruments
-in the entire universe (SPY/QQQ/DIA/IWM/GLD/TLT/sector SPDRs) and every downstream consumer
-(`regime_writer`, `ic_engine`, `ensemble_trainer`, `alpha_publisher`) has been silently operating on
-a corpus missing them for at least 2 weeks. Code fix landed; data remediation queued behind the
-live `regime_writer` run.
+**COMPLETE 2026-08-15.** Code fix landed and pushed (commit `688c04e22`). Data remediation run
+2026-08-14/15 immediately after `regime_writer`'s run finished: `SELECT count(*) FROM instruments i
+WHERE i.is_active AND NOT EXISTS (SELECT 1 FROM feature_vectors fv WHERE fv.symbol = i.symbol)`
+confirmed **0** -- all 231 active instruments now present, not just the job exiting 0 (this bug's
+whole signature was a job reporting success while writing nothing, so this check was the actual
+bar, not a formality). Ran via a one-off driver script wrapping `run_compute_stage()` in
+`compressed_hypertable_write_session` (`--workers 1`, conservative pending [[todo 318]]) --
+surfaced a real bug in the write-session helper itself (idle-session timeout killed the bracketing
+connection since no query ran on it during the whole compute span), recovered by hand (manual
+recompress of the 3 chunks left decompressed + `VACUUM feature_vectors`), see [[todo 318]] for the
+proper fix. Job 1065 re-enabled after. Step 5 below (re-run `regime_writer` for the 80 newly
+landed symbols) is its own follow-up, not done as part of this todo.
 
 ## What to do
 

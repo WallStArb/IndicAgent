@@ -170,7 +170,9 @@ for the full closing note.
 
 | Todo | What |
 |---|---|
-| [316](pending/316-80-etf-symbols-silently-missing-from-feature-vectors-checkpoint-desync.md) | New 2026-08-14, found when the user asked "isn't the corpus like 250 symbols?" — 80 active instruments (SPY, QQQ, DIA, IWM, GLD, TLT, all sector SPDRs, ~all major factor/international/commodity/bond ETFs) have ZERO `feature_vectors` rows despite full OHLCV history and a `backfill_status` checkpoint claiming compute completed in 2026-07. Root cause: `backfill_feature_factory.py`'s compute-stage checkpoint trusted `backfill_status.status='complete'` with no verification against `feature_vectors` itself — a silent, undetected-for-2+-weeks desync. Code fix landed (TDD, full suite green): checkpoint now cross-checks actual row presence before skipping. Data remediation (re-running compute for the 80 symbols) deliberately queued behind the live `regime_writer` run to avoid a second compressed-hypertable write-session collision ([[todo 314]]'s exact failure shape).
+| [318](pending/318-write-session-idle-timeout-and-backfill-feature-factory-concurrent-writes.md) | New 2026-08-15, found running todo 316's data remediation. Two real gaps: (1) `compressed_hypertable_write_session`'s bracketing connection can be killed by Postgres's idle-session timeout if the caller's actual writes happen on a different connection (as `backfill_feature_factory.py`'s `ProcessPoolExecutor` workers do) — the session's own recompress+VACUUM cleanup then silently fails to run (recovered by hand this session, not a data-loss bug, but a real gap in shared infra). (2) `backfill_feature_factory.py`'s workers write directly and concurrently from their own connections — the exact pattern CLAUDE.md's own invariant names this file as needing to fix but doesn't. Neither blocks 316 (already complete, verified); both should land before the next routine `--compute-only` run at scale.
+
+316's own row moved to `completed/` — data remediation finished 2026-08-15, all 231 active instruments confirmed present in `feature_vectors`.
 
 | Todo | Gap |
 |---|---|
