@@ -113,9 +113,81 @@ inside a psycopg query string collides with psycopg's own client-side placeholde
 actually running the collapsed query against the live DB (not just EXPLAIN), fixed via `%%I`
 escaping, re-verified live. Full detail in `services/_batch_utils.py`'s docstrings.
 
+## Progress (2026-08-15): a 6th, undocumented regime_writer attempt crashed on the pre-fix code; relaunched clean
+
+Found via a routine "what's next" check, not proactively tracked -- this todo's own file had gone
+stale since 2026-08-14 and didn't reflect what actually happened next.
+
+**Confirmed via live DB query (not the stale file):** `feature_vectors` has grown to 106,268,964
+rows (live ingestion healthy, `max(bar_ts)` = 2026-08-13 19:55 UTC). `regime`/`regime_volatility`
+sat at ~19.5%/20.3% populated (20.67M / 21.6M rows) -- meaningful progress from whatever combination
+of the "5th relaunch" and later attempts actually landed, but nowhere near complete.
+**`forward_returns` is far worse: `max(bar_ts)` = 2026-07-28, 16+ days stale** -- older than the
+disk-full incident itself. This is the real current bottleneck: `forward_return_writer` (pipeline
+step 3) hasn't run since before this incident even started, blocking `ic_engine`, `ensemble_trainer`,
+and any IC measurement on newly-added features (including todo 320's 6 fields from earlier today).
+
+**Root-caused a 6th regime_writer crash from this morning, found via log inspection (not
+previously logged in this file):**
+- A `regime_writer` run started ~11:57 UTC 2026-08-15 (launcher/invoker not identified -- no
+  wrapper log, no matching bash history entry; possibly a stray manual relaunch from an earlier
+  session today, or a `nohup`'d process from the tail end of 2026-08-14's activity).
+- **13:22:04 UTC**: Postgres `FATAL: terminating connection due to idle-session timeout` (confirmed
+  via `docker logs timescaledb`, server-side, not inferred) -- exactly todo 318 Bug 1's signature.
+- 13:29:25-13:30:37 UTC: cascading `regime_writer.write_failed` / "connection is closed" errors as
+  the process kept trying to write on the now-dead connection (`logs/regime_writer.log`).
+- 13:30:43 UTC: `regime_writer.fatal_error`, "connection is lost" -- process died. A cluster of
+  server-side `FATAL: connection to client lost` at 13:32-13:33 UTC (orphaned worker connections
+  finally timing out) closes out the incident.
+- **This run was on pre-fix code.** Todo 318 Bug 1's fix (commit `f89363b70`, migration 315)
+  landed at **14:29:48 UTC -- about an hour after the crash**, not before it. Nobody relaunched
+  `regime_writer` between the crash and this check (over 2 hours later) -- the process was just
+  dead and silent the whole time, exactly the failure mode todo 315's fd-rotation finding warned
+  would eventually matter ("risks silently losing crash-traceback output... exactly when that
+  output matters most" -- in this case the structured JSON error survived fine since it goes
+  through `setup_service_logging`'s own handler, not the vulnerable `fd1`/`fd2` path, but the
+  *silence* itself -- nobody watching -- was the actual cost).
+- **Explains the `compress_chunk` job that blocked this session's earlier migration 316 apply**:
+  the crashed session left several `feature_vectors` chunks decompressed mid-write (crashed before
+  its own recompress step could run); TimescaleDB's Columnstore/compression policy (job 1065,
+  confirmed `scheduled=true` and enabled -- todo 314's mitigation pause was already lifted) picked
+  them up and spent 14:47-15:59 UTC recompressing everything, which is exactly the window migration
+  316's `ALTER TABLE` sat queued on a lock. Table is now fully compressed again (85/85 chunks,
+  verified) -- no lingering damage, just a longer-than-expected wait, now explained rather than a
+  mystery.
+
+**Verified safe to relaunch, then did:** disk 691G free / 22% used, load average 0.18-0.58 on 24
+cores (idle), Postgres healthy (no recovery flags), job 1065 not currently running, todo 318 Bug 1's
+fix confirmed live (`infra.compressed_hypertable_write_session.idle_session_timeout_ms = 0` present
+in `config_state`). `regime_writer.py` only fills `WHERE regime IS NULL` (confirmed via
+`feature_vector_persistence.py`'s `REGIME_WRITER_OWNED_COLUMN_NAMES` comment), so a relaunch is a
+safe incremental resume, not a wasted from-scratch recompute.
+
+**Launched 2026-08-15 12:49 EDT (16:49 UTC)**: `nohup bash scripts/ops/corpus/ops_corpus_pipeline_run.sh
+--from-step 2 > logs/corpus_pipeline_orchestrator_20260815_124916.log 2>&1 & disown` -- runs the
+full remaining chain: regime_writer (`regime` family) -> regime_writer (`regime_volatility` family)
+-> consistency gate -> **forward_return_writer** (the actually-stale step) -> equity_regime_model
+-> ic_engine -> ic_shrinkage -> ensemble_trainer -> alpha_publisher. `--from-step 2` skips step 1
+(`feature_factory --compute-only`) deliberately -- live ingestion already keeps `feature_vectors`
+current, no backfill gap to re-run there. Confirmed alive: orchestrator PID 2186110, `regime_writer.py`
+PID 2186137 at 172% CPU (multiprocessing engaged) 5s after launch. A Monitor watchdog is armed
+against the orchestrator's own log for step banners / `FAILED` / tracebacks, so a repeat crash
+surfaces immediately instead of sitting silent for hours like this morning's did.
+
+**Expected timing** (from the pre-crash 5th relaunch's own measured cost): regime_writer ~9.66h +
+~5.3min for the two families combined. `forward_return_writer` and the remaining 5 steps' cost is
+not yet measured against the current 106M-row corpus size -- expect this to be a many-hour, likely
+overnight run end to end.
+
+**Next, once this completes:** verify `regime`/`regime_volatility` reach full (or expected-plateau,
+if some symbols are structurally excluded) coverage, confirm `forward_returns.bar_ts` catches up to
+current, then unblock todos 303/304 (Stage 2/3) and `statistical_factor_residual` (Stage 3) -- all
+three are still waiting on exactly this, unchanged from the original filing.
+
 ## Where
 
 - `systemctl status indicagent-feature-vector-pipeline indicagent-feature-vector-writer`
 - `scripts/ops/corpus/ops_corpus_pipeline_run.sh`
-- `services/regime_writer.py`
+- `services/regime_writer.py`, `services/forward_return_writer.py`
+- `logs/corpus_pipeline_orchestrator_20260815_124916.log` -- this run's top-level log
 - Full incident detail: `project_disk_full_incident_2026_08_13` memory
