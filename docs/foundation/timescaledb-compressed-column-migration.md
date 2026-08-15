@@ -27,8 +27,11 @@ are the confirmed post-mortem figures, not estimates.
 and 307 all drifted feature columns back to `double precision` after 201's original fix — the
 project's own history shows this convention gets reused every few months as new feature waves
 land and someone eventually re-applies the float32 convention. The next one of these migrations
-will copy from 201 or 312 as a template, the same way 312 copied from 201. This doc exists so
-the VACUUM step comes with the copy instead of getting silently dropped a third time.
+should still copy from 201 or 312 as a template, but **the missing-VACUUM omission itself is
+now enforced by CI** (todo 305, `tests/unit/test_compressed_hypertable_migration_vacuum_check.py`):
+any migration in `production/migrations/*.sql` that calls both `decompress_chunk(` and
+`compress_chunk(` without a bare `VACUUM <table>;` statement fails the build immediately, so a
+fourth silent drop is structurally blocked rather than depending on copy-paste discipline alone.
 
 ## The correct pattern
 

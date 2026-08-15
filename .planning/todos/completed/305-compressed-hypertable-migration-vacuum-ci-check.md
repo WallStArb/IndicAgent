@@ -45,3 +45,33 @@ shape before assuming only these three exist).
 - `production/migrations/*.sql` -- full sweep needed, not just the 3 known instances
 - `docs/foundation/timescaledb-compressed-column-migration.md` -- update once the CI check lands
   to say "enforced by CI" instead of "copy from 201/312 as a template"
+
+## Closed 2026-08-15
+
+`tests/unit/test_compressed_hypertable_migration_vacuum_check.py` -- scans every
+`production/migrations/*.sql` for an uncommented `decompress_chunk(` + `compress_chunk(` round
+trip and requires a matching bare `VACUUM <table>;` per table, table-scoped (extracts
+`hypertable_name = '<name>'` literals only from the same `DO $$ ... $$;` block as the
+decompress/compress call, per todo 305's own spec -- a migration round-tripping two hypertables
+and VACUUMing only one still fails; an unrelated diagnostic query mentioning another table
+elsewhere in a compliant migration does not false-positive). Falls back to "some bare VACUUM
+exists anywhere" if a future migration uses a chunk-selection idiom this repo hasn't seen yet
+(no `hypertable_name` literal tied to the call), rather than passing silently with no check.
+
+Full sweep done: 10 migrations mention `decompress_chunk` at all (005, 146, 201, 202, 242, 255,
+266, 267, 312, 314). Only 201/202/312 do the real round trip and all three already carry a
+matching VACUUM -- zero live violations. The other 7 are either a real decompress with no
+matching `compress_chunk` in the same file (005 -- compression left to a later policy pass, not
+a synchronous recompress, so no bloat risk from that file) or the pattern discussed only in a
+comment, never executed (146, 242, 255, 266, 267, 314).
+
+No allow-list, unlike the `test_market_data_ohlcv_boundary.py` model this was built from --
+caught in `/simplify`: that guard's allow-list serves ~13 genuinely legitimate exceptions; this
+invariant has none (CLAUDE.md states the VACUUM step as mandatory, full stop), so the escape
+hatch was pure unused scaffolding. Direct `assert not violations` instead.
+
+`docs/foundation/timescaledb-compressed-column-migration.md` updated to say "enforced by CI"
+per this todo's own instruction. Verified with 5 constructed adversarial cases (real migrations
+pass; no-VACUUM caught; wrong-table-VACUUM caught; unrelated-table-mention does NOT
+false-positive; different-chunk-selection-idiom still caught via fallback), not just the
+positive case. Full `tests/unit/` suite green.
