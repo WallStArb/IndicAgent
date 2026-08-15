@@ -309,6 +309,10 @@ candidate; closed.)
 [299](pending/299-reset-pipeline-data-ts-single-letter-helper.md), a same-shape violation
 outside the original scope.)
 
+(Todo 319 resolved 2026-08-15, same session it was filed -- Loki's Grafana datasource uid
+renamed from auto-generated hex to `loki` via delete+reprovision, matching `uid: prometheus`/
+`uid: tempo`. See `completed/319-...md`. No longer a candidate; closed.)
+
 (Todo 080 stays out of the tier tables on purpose -- it's a deliberate redirect stub, not live
 work: content moved 2026-08-07 to `docs/research/measurement-adaptive-combiner-weights.md`,
 the file kept in `pending/` only as a pointer. Confirmed 2026-08-11 during a drift audit that

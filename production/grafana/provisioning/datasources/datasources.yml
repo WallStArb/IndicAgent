@@ -10,6 +10,26 @@ datasources:
     isDefault: true
     editable: false
 
+  - name: Loki
+    type: loki
+    uid: &loki_uid loki
+    access: proxy
+    url: http://loki:3100
+    isDefault: false
+    editable: true
+    jsonData:
+      # Log -> trace correlation: trace_id/span_id are already present as Loki
+      # labels on any log line emitted inside an active OTel span (OTel's
+      # LoggingHandler captures current span context on emit; Loki's OTLP
+      # ingestion auto-promotes trace_id/span_id -- see log_bridge.py).
+      # matcherType: label reads the label directly, no regex over the log body.
+      derivedFields:
+        - datasourceUid: tempo
+          matcherType: label
+          matcherRegex: trace_id
+          name: TraceID
+          url: "$${__value.raw}"
+
   - name: Tempo
     type: tempo
     uid: tempo
@@ -21,3 +41,16 @@ datasources:
       httpMethod: GET
       serviceMap:
         datasourceUid: prometheus
+      # Trace -> log correlation (reverse direction of Loki's derivedFields
+      # above). service.name resource attribute maps to Loki's service_name
+      # label; filterByTraceID works because trace_id is already a Loki label
+      # on OTLP-ingested log lines.
+      tracesToLogsV2:
+        datasourceUid: *loki_uid
+        spanStartTimeShift: "-1m"
+        spanEndTimeShift: "1m"
+        filterByTraceID: true
+        filterBySpanID: false
+        tags:
+          - key: service.name
+            value: service_name
