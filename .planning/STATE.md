@@ -142,6 +142,22 @@ columns, (4) decide whether to re-run the corpus pipeline from step 2 or from sc
 or discard the migration 201/312 VACUUM fix.** Full incident detail:
 `project_disk_full_incident_2026_08_13` memory.
 
+**UPDATE 2026-08-15: disk-full incident fully closed 2026-08-14 21:34 UTC** (all 6 chained bugs
+fixed, `regime`/`regime_volatility` both populated ~30% coverage each expected, todo 316's
+80-ETF-symbol gap also remediated). A 6th, undocumented `regime_writer` crash then happened
+2026-08-15 ~13:22-13:30 UTC (hit the todo 318 Bug 1 `idle_session_timeout` kill on pre-fix code --
+the fix landed ~1h after the crash, not before) and sat dead/silent for 2+ hours before being
+found and root-caused. Relaunched clean 12:49 EDT 2026-08-15 (`ops_corpus_pipeline_run.sh
+--from-step 2`, all prerequisites verified: disk/load/Postgres health, fix confirmed live,
+`regime_writer`'s incremental `WHERE regime IS NULL` resume semantics), a Monitor watchdog armed
+so a repeat crash surfaces immediately. **As of this writing, still running (step 2/8,
+`regime_writer`'s `regime` family pass, ~1.5h in of an expected ~9h45min for both regime
+families)** -- check `ps aux | grep regime_writer` and `SELECT count(regime), count(regime_volatility)
+FROM feature_vectors` before citing completion. This run also finally advances
+`forward_return_writer` (step 3), which had gone 16+ days stale (`max(bar_ts)` 2026-07-28) --
+that gap, not the regime columns, is what's actually blocking the three research threads above
+now. Full detail: `project_disk_full_incident_2026_08_13` memory, todo 306.
+
 ---
 
 ## Project Reference
@@ -513,33 +529,11 @@ described in the Phase Summary table above; this section is for phases with no t
 
 ## Session
 
-**Corrected 2026-08-14 -- the entry below was stale since 2026-08-13** (it stopped at "disk-full
-incident, recovery is the immediate next step" and didn't reflect what happened next). Real
-sequence: the disk-full fix (migrations 201/202/312 VACUUM retrofit, todo 305's CI check) landed
-2026-08-13. Todo 306's own recovery Step 3 (relaunching `regime_writer`) then hit a **second,
-distinct bug**: compressed TimescaleDB chunks have no usable per-row index at all, so any UPDATE
-against `feature_vectors` forces a full decompressing scan regardless of predicate selectivity
-(~1000x cost, proven via `EXPLAIN`, not inferred) -- the relaunch ran ~9.5h, converged its HMM
-compute cleanly, and wrote zero rows. **Fixed and pushed to `main` 2026-08-14** (commit
-`faaeeb855`): `compressed_hypertable_write_session` (`services/_batch_utils.py`) brackets a
-batch's writes in one decompress/write/recompress+VACUUM session; wired into `regime_writer.py`
-and every other writer against `feature_vectors`/`feature_ic_scores` in the tree except
-`ic_engine.py` (deliberately deferred, todo 307, its own focused pass). Todo 308 filed for a
-related, smaller gap (hardcoded compressed-hypertable allow-list, not live-cached). Full detail:
-`project_disk_full_incident_2026_08_13` memory.
-
-**Current real state: see the Strategic Plan section at the top of this file (authoritative, kept
-live) for what's actually in flight.** `feature_vectors.regime`/`.regime_volatility` are still
-NULL across all 69.9M rows -- **`regime_writer` has NOT been relaunched again as of this
-writing.** The prior relaunch's ~9.5h produced nothing durable, so the next run is a fresh full
-run, not a resume. That relaunch is the immediate next step before any of the three blocked
-research threads (`statistical_factor_residual`, todos 303/304) can resume. GSD-phase-level work
-has been idle since Phase 172 (2026-08-09) -- all activity since has been discovery-track
-research and ops/incident work, neither of which flows through the phase-execution loop this
-section tracks.
-
-(Prior session content describing Phase 168/171 context-gathering was stale since 2026-07-31 and
-was superseded by the Phase Summary table and Strategic Plan section; trimmed 2026-08-09. The
-2026-08-09 entry replacing it is itself what's being corrected now -- STATE.md's own "Session"
-section has a recurring pattern of going stale the moment GSD-phase work pauses; check the
-Strategic Plan section first, always.)
+**This section has a recurring pattern of going stale the moment GSD-phase-level work pauses**
+(confirmed 3 times: 2026-07-31, 2026-08-09, 2026-08-14) -- narrative left here gets superseded by
+the Strategic Plan section and rots undetected. **Check the Strategic Plan section at the top of
+this file first, always** -- it is the one kept live. GSD-phase-level work has been idle since
+Phase 172 (2026-08-09); activity since then has been discovery-track research and ops/incident
+work, which doesn't flow through the phase-execution loop this section exists to track. Resolved
+incident narrative belongs in `project_disk_full_incident_2026_08_13` (memory) or git log, not
+here.
