@@ -68,3 +68,40 @@ Real production paths touch several live services (`feature_vector_pipeline`,
 not sufficient; a live-daemon restart + smoke check is warranted for at least
 `feature_vector_pipeline.service` given `feature_pipeline_executor.py`'s `_STANDARD_TFS` is in
 its hot path today.
+
+## Investigation complete, plan written (2026-08-15)
+
+Full liveness check done before planning (per this codebase's own precedent against
+consolidation-by-assumption). Real scope is **5 live call sites, not the original 9**:
+
+**Live — in the plan:**
+- `services/feature_vector_pipeline.py::_STANDARD_TFS` (confirmed running daemon)
+- `services/bar_writer.py::_BAR_TFS` (registered DAG node, currently dormant pending ingestion
+  resume, not archived)
+- `src/intelligence/services/hmm_trainer.py::_DEFAULT_TARGET_TFS` (legit oneshot agent)
+- `src/intelligence/services/feature_validation_analyzer.py::_TIMEFRAMES` (legit oneshot agent)
+- `services/signal_auditor.py::_COVERAGE_TFS` (registered DAG node)
+
+**Confirmed dead, split to [[328]] instead:**
+- `src/intelligence/pipeline/feature_pipeline_executor.py` — the whole file, not just its
+  `_STANDARD_TFS`. Misidentified as live in this todo's original filing (name resembles the
+  genuinely-live `feature_vector_pipeline.py`); it's actually v2.x archived (Phase 089 DAG
+  decomposition), zero live instantiation anywhere.
+- `src/core/bar_history.py::_STANDARD_TFS`, `src/core/service_utils.py::CROSS_ASSET_VALID_TFS` —
+  both unused anywhere in the repo.
+- `src/intelligence/utils.py` — the whole bare file is unreachable (Python's import resolver
+  picks the `utils/` package over it).
+- `src/intelligence/utils/core.py::INTRADAY_ONLY_TFS`/`guard_intraday_only` — the live package
+  copy, but its only callers are archived-path I7 plugins.
+
+**Also found and fixed as a prerequisite**: CVR's own `timeframe` registry was missing `4h`
+despite live data for it since 2023 — migration 317 in the plan.
+
+**Design decision**: `feature_validation_analyzer.py`/`signal_auditor.py` keep their deliberate
+4-timeframe subset (no documented rationale found for excluding `1d`/`4h` — not safe to assume
+either way) rather than being forced onto the full CVR set; they gain a startup assertion instead
+that the subset stays valid against the registry. The other 3 read the full dynamic set.
+
+**Plan**: `docs/superpowers/plans/2026-08-15-timeframe-vocabulary-cvr-consolidation.md` — 8 tasks,
+TDD throughout. Task 3 (`feature_vector_pipeline.py`) touches a currently-running daemon; the plan
+explicitly defers the restart decision rather than assuming it, same posture as todo 261.
