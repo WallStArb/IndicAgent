@@ -23,6 +23,7 @@ from unittest.mock import AsyncMock, MagicMock, patch
 import pandas as pd
 import pytest
 
+from src.core import timeframe_vocabulary
 from src.intelligence.services.feature_validation_analyzer import (
     FeatureValidationAnalyzer,
 )
@@ -424,3 +425,47 @@ def test_individual_slice_failure_does_not_crash_run():
     ), f"plugin_b should have failed but appears in results: {results}"
     # Exactly 2 successful results (plugin_a, plugin_c) — each with 1 tf × 1 regime
     assert len(results) == 2, f"Expected 2 results, got {len(results)}: {results}"
+
+
+# ---------------------------------------------------------------------------
+# Test 7: _setup() prewarms VocabularyService and asserts _TIMEFRAMES subset
+# ---------------------------------------------------------------------------
+
+
+class _FakeVocabularyService:
+    """Stands in for VocabularyService -- records initialize() and reports a
+    CVR-registered timeframe set that is a strict superset of _TIMEFRAMES, so a
+    passing assertion proves _setup() actually consulted CVR rather than skipping
+    the check via the no-VocabularyService-registered no-op path."""
+
+    def __init__(self, database_url, pool=None):
+        self.database_url = database_url
+        self.pool = pool
+        self.initialized = False
+
+    async def initialize(self) -> None:
+        self.initialized = True
+
+    def active_codes(self, namespace: str) -> list[str]:
+        assert namespace == "timeframe"
+        return ["1m", "5m", "15m", "1h", "4h", "1d"]
+
+
+def test_setup_asserts_timeframes_subset_of_cvr():
+    """_setup() prewarms VocabularyService and validates _TIMEFRAMES is a subset of
+    CVR's registered timeframe codes -- catches drift without changing behavior."""
+    timeframe_vocabulary.reset_vocabulary_service_for_test()
+
+    pool, _conn = _make_pool_with_conn()
+    agent = _make_agent(pool)
+
+    with (
+        patch(f"{_AGENT_MODULE}.create_db_pool", new=AsyncMock(return_value=pool)),
+        patch(f"{_AGENT_MODULE}.VocabularyService", _FakeVocabularyService),
+    ):
+        _run(agent._setup())
+
+    assert timeframe_vocabulary._vocab_service is not None
+    assert timeframe_vocabulary._vocab_service.initialized is True
+
+    timeframe_vocabulary.reset_vocabulary_service_for_test()
