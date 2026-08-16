@@ -73,88 +73,31 @@ jobs:
     steps:
       - uses: actions/checkout@v4.2.2
 
-      # Guard 1: plugin classes must end with an approved suffix.
-      # Scope: plugin dirs only (plugins/, features/, trading/).
-      # Infrastructure dirs (pipeline/, metrics/, services/, ai/, swarm/) excluded by scope.
+      # Guards 1-4 all delegate to tools/check_plugin_invariants.sh -- the
+      # single source of truth shared with tools/pre-commit.hook's local,
+      # staged-files-only version of the same 4 checks. Root cause this
+      # eliminates: the two used to be hand-maintained, independently-copied
+      # bash regexes that drifted apart (CI's allowlist was missing 'Record'
+      # and 16 other suffixes the hook already accepted) and broke every push
+      # to main from 2026-08-12 through 2026-08-16. File *selection* strategy
+      # legitimately differs (CI does a full-repo scan for thoroughness; the
+      # hook scopes to staged files for speed) -- everything that decides
+      # WHAT COUNTS AS COMPLIANT lives in the shared script exactly once.
       - name: Plugin class naming
         run: |
-          violations=$(grep -rn '^class [A-Z]' \
-            src/intelligence/plugins/ \
-            src/intelligence/features/ \
-            src/intelligence/trading/ \
-            --include="*.py" \
-            --exclude=schemas.py \
-            --exclude=alpha_multiplier.py \
-            --exclude=dag.py \
-            --exclude=position_sizer.py | \
-            grep -vE 'class.*(Plugin|Mixin|Agent|Test|Data|Protocol|Enum|Error|Exception|Config|Result|State|Score|Frame|Entry|Event|Spec|Type|Info|Registry|Manager|Builder|Handler|Tracker|Scorer|Aggregat|Transition|Monitor|Stage|Runner|Client|Service|Target|Profile|Weight|Provider|Chain|Candidate|Record)\b' \
-            || true)
-          if [ -n "$violations" ]; then
-            echo "FAIL: plugin class naming violations (rename to end with 'Plugin'):"
-            echo "$violations"
-            exit 1
-          fi
-          echo "OK: all plugin classes follow naming convention"
+          find src/intelligence/ -name "*.py" | tools/check_plugin_invariants.sh class-naming
 
-      # Guard 2: all files in src/intelligence/ must use snake_case.py naming.
       - name: Plugin file naming
         run: |
-          violations=$(find src/intelligence/ -name "*.py" \
-            ! -name "__init__.py" \
-            ! -name "conftest.py" \
-            ! -name "TEMPLATE_agent.py" \
-            ! -name "TEMPLATE.py" | \
-            while read -r f; do
-              filename=$(basename "$f")
-              echo "$filename" | grep -qE '^[a-z][a-z0-9_]*\.py$' || echo "  $f"
-            done || true)
-          if [ -n "$violations" ]; then
-            echo "FAIL: plugin file naming violations (rename to snake_case.py):"
-            echo "$violations"
-            exit 1
-          fi
-          echo "OK: all plugin files use snake_case naming"
+          find src/intelligence/ -name "*.py" | tools/check_plugin_invariants.sh file-naming
 
-      # Guard 3: every I7 trading plugin must declare regime_type.
-      # Missing this causes the regime gate to silently misfire in production.
       - name: I7 regime_type declaration
         run: |
-          infra="signal_ledger.py lifecycle_tracker.py trade_framer.py signal_aggregator.py cis_scorer.py weight_updater.py confidence_calibrator.py __init__.py"
-          violations=""
-          for f in src/intelligence/trading/*.py; do
-            filename=$(basename "$f")
-            is_infra=false
-            for i in $infra; do [ "$filename" = "$i" ] && is_infra=true && break; done
-            $is_infra && continue
-            if grep -q '^class.*Plugin' "$f" 2>/dev/null; then
-              grep -qE 'regime_type[[:space:]]*[:=]' "$f" || violations="$violations\n  $f"
-            fi
-          done
-          if [ -n "$violations" ]; then
-            echo "FAIL: I7 plugins missing regime_type declaration:"
-            printf "$violations\n"
-            echo "Fix: add 'regime_type: ClassVar[str] = \"trend\" | \"mean_reversion\" | \"any\"'"
-            exit 1
-          fi
-          echo "OK: all I7 plugins declare regime_type"
+          find src/intelligence/trading/ -name "*.py" | tools/check_plugin_invariants.sh regime-type
 
-      # Guard 4: Ring 0 boundary — src/core/ and src/observability/ (portable
-      # infrastructure, CLAUDE.md's Ring rule) must never import domain code
-      # (src/intelligence/, src/providers/, src/self_healing/, services/).
-      # Mirrors tools/pre-commit.hook's check_ring0_boundary exactly.
       - name: Ring 0 boundary
         run: |
-          violations=$(grep -rn \
-            "from src\.intelligence\|from src\.providers\|from src\.self_healing\|from services" \
-            src/core/ src/observability/ --include="*.py" 2>/dev/null \
-            | grep -v "^\s*#" | grep -v "ring0-ok" || true)
-          if [ -n "$violations" ]; then
-            echo "FAIL: Ring 0 boundary violation — src/core/ or src/observability/ imports domain layer"
-            echo "$violations"
-            echo "Remediation: move the file to Ring 1 (src/intelligence/) or add a ring0-ok comment for lazy imports"
-            exit 1
-          fi
-          echo "OK: Ring 0 boundary clean"
+          tools/check_plugin_invariants.sh ring0-boundary
 
   # ---------------------------------------------------------------------------
   # Unit Tests — 3454 tests, CI-clean (no live infra required).

@@ -39,44 +39,20 @@ FAILURES=0
 check_plugin_class_naming() {
     echo "[1/9] Plugin class naming check..."
 
-    # Find intelligence layer Python files in this commit
-    # Exclude: schemas.py (canonical bus schemas — not plugin classes)
-    # Exclude: swarm/ (IAlphaContributor classes use Agent/Contributor/Wrapper conventions)
-    # Exclude: ai/ (BaseAIAgent subclasses use Agent suffix, not Plugin)
-    # Exclude: statistics/ (pure math utilities like ic_math.py — not plugin classes)
-    PYTHON_FILES=$(git diff --cached --name-only --diff-filter=ACM | \
-        grep -E '^src/intelligence/.*\.py$' | \
-        grep -vE '(schemas|alpha_multiplier)\.py$' | \
-        grep -vE '^src/intelligence/swarm/' | \
-        grep -vE '^src/intelligence/ai/' | \
-        grep -vE '^src/intelligence/statistics/' | \
-        grep -vE '^src/intelligence/services/' || true)
+    PYTHON_FILES=$(git diff --cached --name-only --diff-filter=ACM | grep -E '^src/intelligence/.*\.py$' || true)
 
     if [ -z "$PYTHON_FILES" ]; then
         echo "  OK No intelligence layer files changed"
         return 0
     fi
 
-    # Find class declarations not ending with 'Plugin' (ignore Tests, Data, Protocol, Enum classes)
-    VIOLATIONS=""
-    for file in $PYTHON_FILES; do
-        if [ -f "${REPO_ROOT}/${file}" ]; then
-            FILE_VIOLATIONS=$(grep -n '^class [A-Z]' "${REPO_ROOT}/${file}" 2>/dev/null | \
-                grep -vE 'class.*((Plugin|Agent|Test|Data|Protocol|Enum|Error|Exception|Config|Result|State|Score|Frame|Entry|Event|Spec|Type|Info|Registry|Manager|Builder|Handler|Tracker|Scorer|Aggregat|Transition|Monitor|Stage|Runner|Client|Service|Target|Profile|Weight|Provider|Chain|Candidate|Queue|Executor|Processor|Task|Snapshot|Shape|Mixin|Trainer|Analyzer|Validator|Auditor|Writer|Publisher|Report|Factory|Cache|Record|Vector|Decision))\b' || true)
-            if [ -n "$FILE_VIOLATIONS" ]; then
-                VIOLATIONS="${VIOLATIONS}  ${file}:"$'\n'"$(echo "$FILE_VIOLATIONS" | sed 's/^/    /')"$'\n'
-            fi
-        fi
-    done
-
-    if [ -n "$VIOLATIONS" ]; then
-        echo "  FAILED: Plugin classes must end with 'Plugin' suffix"
-        echo "$VIOLATIONS"
-        echo "  Remediation: Rename class to end with 'Plugin' (e.g., 'MACDPlugin')"
+    OUTPUT=$(echo "$PYTHON_FILES" | "${REPO_ROOT}/tools/check_plugin_invariants.sh" class-naming)
+    STATUS=$?
+    echo "$OUTPUT" | sed 's/^OK:/  OK/; s/^FAIL:/  FAILED:/'
+    if [ $STATUS -ne 0 ]; then
+        echo "  Remediation: rename class to an approved suffix (e.g., 'MACDPlugin', 'FeatureVectorRecord')"
         return 1
     fi
-
-    echo "  OK All plugin classes follow naming convention"
     return 0
 }
 
@@ -89,25 +65,20 @@ check_plugin_class_naming() {
 check_plugin_file_naming() {
     echo "[2/9] Plugin file naming check..."
 
-    VIOLATIONS=$(git diff --cached --name-only --diff-filter=ACM | \
-        grep -E '^src/intelligence/.*\.py$' | \
-        grep -vE '^src/intelligence/(ai|swarm)/' | \
-        while read -r filepath; do
-            filename=$(basename "$filepath")
-            # Allow: snake_case.py, __init__.py, test_*.py, conftest.py
-            if echo "$filename" | grep -qvE '^([a-z][a-z0-9_]*|__init__|conftest)\.py$'; then
-                echo "  $filepath"
-            fi
-        done || true)
+    PYTHON_FILES=$(git diff --cached --name-only --diff-filter=ACM | grep -E '^src/intelligence/.*\.py$' || true)
 
-    if [ -n "$VIOLATIONS" ]; then
-        echo "  FAILED: Plugin files must use snake_case.py naming"
-        echo "$VIOLATIONS"
-        echo "  Remediation: Rename file to snake_case.py (e.g., 'bollinger_bands.py')"
-        return 1
+    if [ -z "$PYTHON_FILES" ]; then
+        echo "  OK No intelligence layer files changed"
+        return 0
     fi
 
-    echo "  OK All plugin files follow naming convention"
+    OUTPUT=$(echo "$PYTHON_FILES" | "${REPO_ROOT}/tools/check_plugin_invariants.sh" file-naming)
+    STATUS=$?
+    echo "$OUTPUT" | sed 's/^OK:/  OK/; s/^FAIL:/  FAILED:/'
+    if [ $STATUS -ne 0 ]; then
+        echo "  Remediation: rename file to snake_case.py (e.g., 'bollinger_bands.py')"
+        return 1
+    fi
     return 0
 }
 
@@ -122,39 +93,20 @@ check_plugin_file_naming() {
 check_regime_type_declaration() {
     echo "[3/9] I7 regime_type check..."
 
-    # Find I7 plugin files in this commit (exclude infrastructure files)
-    I7_FILES=$(git diff --cached --name-only --diff-filter=ACM | \
-        grep -E '^src/intelligence/trading/[a-z][a-z0-9_]*\.py$' | \
-        grep -vE '(signal_ledger|lifecycle_tracker|trade_framer|signal_aggregator|cis_scorer|weight_updater|confidence_calibrator|__init__)\.py$' || true)
+    I7_FILES=$(git diff --cached --name-only --diff-filter=ACM | grep -E '^src/intelligence/trading/.*\.py$' || true)
 
     if [ -z "$I7_FILES" ]; then
         echo "  OK No I7 trading plugins changed"
         return 0
     fi
 
-    FAILURES_LOCAL=0
-    for file in $I7_FILES; do
-        if [ -f "${REPO_ROOT}/${file}" ]; then
-            # Check if the file defines a Plugin class (skip non-plugin files)
-            if ! grep -q '^class.*Plugin' "${REPO_ROOT}/${file}" 2>/dev/null; then
-                continue  # Not a plugin file, skip
-            fi
-
-            # Check for regime_type declaration (ClassVar or plain class attribute)
-            if ! grep -qE 'regime_type\s*[:=]' "${REPO_ROOT}/${file}"; then
-                echo "  FAILED: I7 plugin missing regime_type declaration"
-                echo "    File: ${file}"
-                echo "    Remediation: Add 'regime_type: ClassVar[str] = \"trend\" | \"mean_reversion\" | \"any\"'"
-                FAILURES_LOCAL=$((FAILURES_LOCAL + 1))
-            fi
-        fi
-    done
-
-    if [ $FAILURES_LOCAL -gt 0 ]; then
+    OUTPUT=$(echo "$I7_FILES" | "${REPO_ROOT}/tools/check_plugin_invariants.sh" regime-type)
+    STATUS=$?
+    echo "$OUTPUT" | sed 's/^OK:/  OK/; s/^FAIL:/  FAILED:/'
+    if [ $STATUS -ne 0 ]; then
+        echo "  Remediation: add 'regime_type: ClassVar[str] = \"trend\" | \"mean_reversion\" | \"any\"'"
         return 1
     fi
-
-    echo "  OK All I7 plugins declare regime_type"
     return 0
 }
 
@@ -326,19 +278,12 @@ check_duplicate_tests() {
 check_ring0_boundary() {
     echo "[7/9] Ring 0 boundary check..."
 
-    RING0_VIOLATIONS=$(grep -rn \
-      "from src\.intelligence\|from src\.providers\|from src\.self_healing\|from services" \
-      "${REPO_ROOT}/src/core/" "${REPO_ROOT}/src/observability/" --include="*.py" 2>/dev/null \
-      | grep -v "^\s*#" | grep -v "ring0-ok" || true)
-
-    if [ -n "$RING0_VIOLATIONS" ]; then
-        echo "  FAILED: Ring 0 boundary violation --- src/core/ or src/observability/ imports domain layer"
-        echo "$RING0_VIOLATIONS"
-        echo "  Remediation: Move the file to Ring 1 (src/intelligence/) or add ring0-ok comment for lazy imports"
+    OUTPUT=$("${REPO_ROOT}/tools/check_plugin_invariants.sh" ring0-boundary)
+    STATUS=$?
+    echo "$OUTPUT" | sed 's/^OK:/  OK/; s/^FAIL:/  FAILED:/'
+    if [ $STATUS -ne 0 ]; then
         return 1
     fi
-
-    echo "  OK Ring 0 boundary clean"
     return 0
 }
 
