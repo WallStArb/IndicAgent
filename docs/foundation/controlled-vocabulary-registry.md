@@ -136,17 +136,17 @@ There is also a standalone **`regime_group` guard** (not a `controlled_vocabular
 
 A namespace earns its place in CVR when **either** path holds.
 
-**D-06 — external consumer path.** All three:
+**D-06 - external consumer path.** All three:
 
-1. **Membership is mutable** — the code set can change without a code deployment.
-2. **External consumers need enumeration without importing Python** — e.g. a dashboard dropdown, an API caller.
-3. **Metadata enrichment has real, concrete consumers** — labels/descriptions/groups are actually read somewhere, not speculative.
+1. **Membership is mutable** - the code set can change without a code deployment.
+2. **External consumers need enumeration without importing Python** - e.g. a dashboard dropdown, an API caller.
+3. **Metadata enrichment has real, concrete consumers** - labels/descriptions/groups are actually read somewhere, not speculative.
 
-**D-07 — scattered-duplicate path (added 2026-08-15, todo 324/326).** A fixed code set independently hardcoded in **2 or more files** qualifies on its own, even with zero external (non-Python) consumers and even with zero metadata enrichment need. Per-namespace marginal cost is already near-zero (one migration row + `VocabularyService`'s existing cache — no new infrastructure), so "duplicated in ≥2 files" is cheap enough to be a sufficient condition by itself, not just a nice-to-have alongside D-06. This closes a real gap D-06 alone missed: self-drift *among Python-only consumers*, not just live-column vs. registry drift. Confirmed non-speculative on namespaces CVR already owns:
-   - `timeframe` (5 live codes, `VocabularyService` + API route already built) has **9 independently-hardcoded tuples** across the repo, two of them named identically (`_STANDARD_TFS` in `src/core/bar_history.py`, 4 values, vs. `src/intelligence/pipeline/feature_pipeline_executor.py`, 6 values — same name, different truth, in two live modules) — nobody reads the registry.
-   - `asset_class` (3 live codes: `equity`/`futures`/`fx`) is hardcoded as `Literal["equity", "futures", "fx", "crypto"]` in `src/api/routes/instruments.py` (two call sites, served by the live `indicagent-api.service`) — a fourth value that exists nowhere in the registry or `get_active_contracts()`. The API type has already drifted from the source of truth it's supposed to mirror.
+**D-07 - scattered-duplicate path (added 2026-08-15, todo 324/326).** A fixed code set independently hardcoded in **2 or more files** qualifies on its own, even with zero external (non-Python) consumers and even with zero metadata enrichment need. Per-namespace marginal cost is already near-zero (one migration row + `VocabularyService`'s existing cache - no new infrastructure), so "duplicated in ≥2 files" is cheap enough to be a sufficient condition by itself, not just a nice-to-have alongside D-06. This closes a real gap D-06 alone missed: self-drift *among Python-only consumers*, not just live-column vs. registry drift. Confirmed non-speculative on namespaces CVR already owns:
+ - `timeframe` (5 live codes, `VocabularyService` + API route already built) has **9 independently-hardcoded tuples** across the repo, two of them named identically (`_STANDARD_TFS` in `src/core/bar_history.py`, 4 values, vs. `src/intelligence/pipeline/feature_pipeline_executor.py`, 6 values - same name, different truth, in two live modules) - nobody reads the registry.
+ - `asset_class` (3 live codes: `equity`/`futures`/`fx`) is hardcoded as `Literal["equity", "futures", "fx", "crypto"]` in `src/api/routes/instruments.py` (two call sites, served by the live `indicagent-api.service`) - a fourth value that exists nowhere in the registry or `get_active_contracts()`. The API type has already drifted from the source of truth it's supposed to mirror.
 
-**Still not worth it** for a fixed set that appears in exactly one file and no consumer enumerates externally — a private internal `Literal["a", "b"]` used once doesn't need a CVR namespace just because it's a set of strings. The bar is duplication or external enumeration, not "it's a list."
+**Still not worth it** for a fixed set that appears in exactly one file and no consumer enumerates externally - a private internal `Literal["a", "b"]` used once doesn't need a CVR namespace just because it's a set of strings. The bar is duplication or external enumeration, not "it's a list."
 
 ---
 
