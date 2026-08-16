@@ -1,4 +1,4 @@
-# 327 - Consolidate 9 independently-hardcoded `timeframe` tuples into CVR - split out of todo 326
+# 327 - Consolidate 9 independently-hardcoded `timeframe` tuples into CVR - split out of todo 326 (CLOSED)
 
 **Filed:** 2026-08-15
 **Source:** Split out of [[326]] after finishing that todo's `asset_class` half (committed
@@ -105,3 +105,43 @@ that the subset stays valid against the registry. The other 3 read the full dyna
 **Plan**: `docs/superpowers/plans/2026-08-15-timeframe-vocabulary-cvr-consolidation.md` - 8 tasks,
 TDD throughout. Task 3 (`feature_vector_pipeline.py`) touches a currently-running daemon; the plan
 explicitly defers the restart decision rather than assuming it, same posture as todo 261.
+
+## Executed and closed (2026-08-15/16)
+
+All 7 code tasks landed via `superpowers:subagent-driven-development`, each with a fresh
+implementer + independent task review (both controller and reviewer re-verified test results and
+read live source directly rather than trusting self-reports):
+
+- Migration 317: registered `4h` in CVR's `timeframe` namespace (5 codes -> 6).
+- `src/core/timeframe_vocabulary.py`: new Ring 0 module (`set_vocabulary_service()`,
+  `standard_timeframes()`, `assert_known_subset()`), mirrors the `ConfigService` consumer pattern.
+- `services/feature_vector_pipeline.py`: `self._timeframes` now sourced from CVR via a new
+  `_prewarm_timeframe_vocabulary()` method called from `_setup()` (moved out of `__init__`, which
+  must stay synchronous).
+- `services/bar_writer.py`: same treatment for `_bars_written_attrs`.
+- `src/intelligence/services/hmm_trainer.py` + `services/hmm_training_agent.py`: `target_tfs`
+  constructor default restructured from a hardcoded tuple (evaluated at import time) to a `None`
+  sentinel resolved from CVR inside `__init__`; also fixed a stale docstring found in passing (said
+  4 default tfs, the actual hardcoded default was 6).
+- `src/intelligence/services/feature_validation_analyzer.py` + `services/signal_auditor.py`: kept
+  their deliberate timeframe subsets unchanged, added a startup `assert_known_subset()` drift
+  guard instead of forcing the full CVR set (no evidence either subset's `1d`/`4h` exclusion was
+  accidental vs. intentional).
+
+Two structural deviations from the plan's assumed test shapes (Tasks 3 and 4) were found and
+adjudicated correctly: the plan assumed `tests/unit/services/test_feature_vector_pipeline.py` and
+a reusable `_setup()`-stubbing fixture in `test_bar_writer.py`, neither of which exist -- both test
+areas are already split into per-concern files with an established convention of testing narrow
+extracted methods directly rather than a full `_setup()` integration test (confirmed independently
+by both the implementer and the task reviewer, not just asserted). Task 6's reviewer flagged a real
+gap (no negative-case test proving `assert_known_subset` actually raises); Task 7 closed it with an
+explicit negative-case test, and Task 2's own test suite was independently confirmed to already
+cover the raising branch for Task 6's case too.
+
+**Deliberately not done**: `indicagent-feature-vector-pipeline.service` (the one currently-running
+daemon this plan's Task 3 touches) was not restarted -- per the plan's own Task 8 step 2, this is a
+separate operational decision requiring explicit go-ahead, not something to bundle into a code
+merge. `bar_writer`/`signal_auditor`/`hmm_training_agent`/`feature_validation_agent` carry no such
+restart risk (currently inactive/oneshot).
+
+Todo 328 (confirmed dead code found during this investigation) remains open, separate scope.
