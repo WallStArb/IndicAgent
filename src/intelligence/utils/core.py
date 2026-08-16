@@ -164,4 +164,9 @@ def safe_corr(x: np.ndarray, y: np.ndarray) -> float:
     denom = float(np.sqrt(np.dot(xm, xm) * np.dot(ym, ym)))
     if denom < 1e-10:
         return 0.0
-    return float(np.dot(xm, ym) / denom)
+    # float64 rounding on near-perfectly-(anti)correlated input can push the
+    # raw ratio a few ULPs past +/-1.0 (confirmed live: 1.0000000000000002
+    # from a synthetic perfectly-correlated fixture) -- clamp to the
+    # mathematically-guaranteed Pearson range so no downstream consumer
+    # (e.g. sqrt(1 - corr**2)) can silently NaN on an out-of-bounds input.
+    return float(np.clip(np.dot(xm, ym) / denom, -1.0, 1.0))
