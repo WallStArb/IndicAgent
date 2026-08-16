@@ -87,7 +87,7 @@ jobs:
             --exclude=alpha_multiplier.py \
             --exclude=dag.py \
             --exclude=position_sizer.py | \
-            grep -vE 'class.*(Plugin|Mixin|Agent|Test|Data|Protocol|Enum|Error|Exception|Config|Result|State|Score|Frame|Entry|Event|Spec|Type|Info|Registry|Manager|Builder|Handler|Tracker|Scorer|Aggregat|Transition|Monitor|Stage|Runner|Client|Service|Target|Profile|Weight|Provider|Chain|Candidate)\b' \
+            grep -vE 'class.*(Plugin|Mixin|Agent|Test|Data|Protocol|Enum|Error|Exception|Config|Result|State|Score|Frame|Entry|Event|Spec|Type|Info|Registry|Manager|Builder|Handler|Tracker|Scorer|Aggregat|Transition|Monitor|Stage|Runner|Client|Service|Target|Profile|Weight|Provider|Chain|Candidate|Record)\b' \
             || true)
           if [ -n "$violations" ]; then
             echo "FAIL: plugin class naming violations (rename to end with 'Plugin'):"
