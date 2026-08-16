@@ -341,3 +341,33 @@ def test_hmm_trainer_reads_apr_config(tmp_path: Path) -> None:
 
     assert "1m" in written, "1m should have been written when APR config is injected"
     mock_cfg.get.assert_any_call("feature.hmm.n_iter", 50)
+
+
+# ---------------------------------------------------------------------------
+# Test 8: target_tfs default resolves from CVR (todo 327)
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.unit
+def test_target_tfs_defaults_from_cvr_when_none_passed() -> None:
+    """target_tfs=None resolves via timeframe_vocabulary.standard_timeframes()."""
+    from src.core import timeframe_vocabulary
+
+    class _FakeVocab:
+        def active_codes(self, namespace):
+            return ["1m", "5m", "1h"]
+
+    timeframe_vocabulary.set_vocabulary_service(_FakeVocab())
+    try:
+        trainer = HMMTrainer(db_manager=MagicMock(), settings=MagicMock(), target_tfs=None)
+        assert trainer._target_tfs == ("1m", "5m", "1h")
+    finally:
+        timeframe_vocabulary.reset_vocabulary_service_for_test()
+
+
+@pytest.mark.unit
+def test_target_tfs_explicit_value_still_honored() -> None:
+    """An explicitly-passed target_tfs is never overridden by CVR -- explicit beats
+    default, same as any other constructor default-argument contract."""
+    trainer = HMMTrainer(db_manager=MagicMock(), settings=MagicMock(), target_tfs=("1d",))
+    assert trainer._target_tfs == ("1d",)

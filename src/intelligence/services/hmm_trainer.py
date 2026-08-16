@@ -45,12 +45,10 @@ import numpy as np
 import structlog
 
 from src.config.settings import Settings
+from src.core import timeframe_vocabulary
 from src.core.service_utils import setup_service_logging
 
 logger = structlog.get_logger(__name__)
-
-# Target timeframes for training (order: high-frequency to low-frequency)
-_DEFAULT_TARGET_TFS: tuple[str, ...] = ("1m", "5m", "15m", "1h", "4h", "1d")
 
 # Lookback days per TF — controls query window
 _LOOKBACK_DAYS_BY_TF: dict[str, int] = {
@@ -87,7 +85,8 @@ class HMMTrainer:
     Args:
         db_manager: DatabaseManager instance with a connection pool.
         settings: Application settings.
-        target_tfs: Tuple of timeframe strings to train. Defaults to (1m, 5m, 15m, 1h).
+        target_tfs: Tuple of timeframe strings to train. Defaults to CVR's registered
+            `timeframe` codes if not provided.
         lookback_days: Override lookback per TF. Uses _LOOKBACK_DAYS_BY_TF if not provided.
     """
 
@@ -95,12 +94,14 @@ class HMMTrainer:
         self,
         db_manager: Any,
         settings: Settings,
-        target_tfs: tuple[str, ...] = _DEFAULT_TARGET_TFS,
+        target_tfs: tuple[str, ...] | None = None,
         lookback_days: dict[str, int] | None = None,
     ) -> None:
         setup_service_logging("logs/hmm_trainer.log")
         self._db = db_manager
         self._settings = settings
+        if target_tfs is None:
+            target_tfs = timeframe_vocabulary.standard_timeframes()
         self._target_tfs = target_tfs
         self._lookback_days = lookback_days or dict(_LOOKBACK_DAYS_BY_TF)
         self._config_service: Any | None = None
