@@ -29,6 +29,8 @@ import asyncpg
 from opentelemetry import metrics as _otel_metrics
 from pydantic import ValidationError
 
+from src.config.vocabulary_service import VocabularyService
+from src.core import timeframe_vocabulary
 from src.core.agent.base_writer import BaseWriter
 from src.core.bar_normalizer import SOURCE_UNKNOWN
 from src.core.database_manager import create_pool as create_db_pool
@@ -53,9 +55,6 @@ INSERT INTO market_data_ohlcv (
 VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
 ON CONFLICT (timestamp, symbol, timeframe) DO NOTHING
 """
-
-# All TF labels we pre-cache labeled Counter children for
-_BAR_TFS: tuple[str, ...] = ("1m", "5m", "15m", "1h", "4h", "1d")
 
 # Module-level OTel instruments — single meter, no prometheus_client
 _bw_meter = _otel_metrics.get_meter("indicagent")
@@ -118,9 +117,11 @@ class BarWriter(BaseWriter):
         self._batch_latency_attrs = {"agent": self.name}
         self._write_errors_attrs = {"agent": self.name}
         self._consumer_lag_attrs = {"agent": self.name}
-        self._bars_written_attrs: dict[str, dict] = {
-            tf: {"agent": self.name, "tf": tf} for tf in _BAR_TFS
-        }
+        # Populated from CVR's `timeframe` namespace in
+        # _prewarm_timeframe_vocabulary() (todo 327) -- __init__ stays synchronous,
+        # so this is a placeholder until _setup() runs.
+        self._bars_written_attrs: dict[str, dict] = {}
+        self._vocabulary_service: VocabularyService | None = None  # initialised in _setup()
         self._contract_cache_size_attrs = {"agent": self.name}
         self._contract_cache_reloads_attrs = {"agent": self.name}
 
@@ -200,6 +201,12 @@ class BarWriter(BaseWriter):
     async def _setup(self) -> None:
         """Connect asyncpg pool and Kafka consumer."""
         self._db_pool = await create_db_pool(self.settings.database_url)
+
+        # VocabularyService: shared pool, registers timeframe_vocabulary so
+        # _bars_written_attrs reads CVR's `timeframe` namespace instead of a
+        # hardcoded tuple (todo 327).
+        await self._prewarm_timeframe_vocabulary()
+
         # AUDIT-LOW-4: Retry contract cache load — transient DB failure at startup
         # must not leave cache empty (would cause days_to_expiry=0 for all symbols).
         _cache_attempts = 3
@@ -238,6 +245,18 @@ class BarWriter(BaseWriter):
             topics_consumed=self.topics_consumed,
             contracts_cached=len(self._contract_cache),
         )
+
+    async def _prewarm_timeframe_vocabulary(self) -> None:
+        """Register a VocabularyService with timeframe_vocabulary and build
+        _bars_written_attrs from CVR's `timeframe` namespace instead of a hardcoded
+        tuple (todo 327). Shares self._db_pool -- same pattern as
+        FeatureVectorPipeline._prewarm_timeframe_vocabulary()."""
+        self._vocabulary_service = VocabularyService(self.settings.database_url, pool=self._db_pool)
+        await self._vocabulary_service.initialize()
+        timeframe_vocabulary.set_vocabulary_service(self._vocabulary_service)
+        self._bars_written_attrs = {
+            tf: {"agent": self.name, "tf": tf} for tf in timeframe_vocabulary.standard_timeframes()
+        }
 
     async def _run(self) -> None:
         """Main loop: consume bars, buffer, flush on batch size or interval."""
