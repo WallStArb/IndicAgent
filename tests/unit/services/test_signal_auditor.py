@@ -23,6 +23,7 @@ from services.signal_auditor import (
     _COVERAGE_TFS,
     SignalAuditor,
 )
+from src.core import timeframe_vocabulary
 from src.core.stream_keys import topic_signal_audit
 
 
@@ -197,3 +198,96 @@ def test_topics_produced(agent):
 def test_topics_consumed_is_empty(agent):
     """topics_consumed is empty — AuditorAgent pulls from DB, not Kafka."""
     assert agent.topics_consumed == []
+
+
+# ---------------------------------------------------------------------------
+# _setup() prewarms VocabularyService and asserts _COVERAGE_TFS subset (todo 327)
+# ---------------------------------------------------------------------------
+
+
+class _FakeVocabularyService:
+    """Stands in for VocabularyService -- records initialize() and reports a
+    CVR-registered timeframe set that is a strict superset of _COVERAGE_TFS, so a
+    passing assertion proves _setup() actually consulted CVR rather than skipping
+    the check via the no-VocabularyService-registered no-op path."""
+
+    def __init__(self, database_url, pool=None):
+        self.database_url = database_url
+        self.pool = pool
+        self.initialized = False
+
+    async def initialize(self) -> None:
+        self.initialized = True
+
+    def active_codes(self, namespace: str) -> list[str]:
+        assert namespace == "timeframe"
+        return ["1m", "5m", "15m", "1h", "4h", "1d"]
+
+
+class _FakeVocabularyServiceMissingTf:
+    """Reports a CVR set that omits "1h", one of _COVERAGE_TFS's members -- proves
+    _setup() actually raises via assert_known_subset on a real drift case, not just
+    on the always-passing path."""
+
+    def __init__(self, database_url, pool=None):
+        self.database_url = database_url
+        self.pool = pool
+
+    async def initialize(self) -> None:
+        pass
+
+    def active_codes(self, namespace: str) -> list[str]:
+        assert namespace == "timeframe"
+        return ["1m", "5m", "15m", "4h", "1d"]
+
+
+def _make_setup_agent():
+    """Build SignalAuditor via __new__ (bypasses __init__) with just enough
+    attributes for _setup() -- matches this file's `agent` fixture pattern."""
+    a = SignalAuditor.__new__(SignalAuditor)
+    a.name = "signal_auditor_agent"
+    a.logger = MagicMock()
+    a.settings = MagicMock(
+        database_url="postgresql://test", kafka_bootstrap_servers="localhost:9092"
+    )
+    a._config_cache = {}
+    return a
+
+
+@pytest.mark.asyncio
+async def test_setup_asserts_coverage_tfs_subset_of_cvr():
+    """_setup() prewarms VocabularyService and validates _COVERAGE_TFS is a subset of
+    CVR's registered timeframe codes -- catches drift without changing behavior."""
+    timeframe_vocabulary.reset_vocabulary_service_for_test()
+    agent = _make_setup_agent()
+
+    with (
+        patch("services.signal_auditor.create_db_pool", new=AsyncMock(return_value=MagicMock())),
+        patch("services.signal_auditor.KafkaProducerClient", return_value=AsyncMock()),
+        patch("services.signal_auditor.VocabularyService", _FakeVocabularyService),
+    ):
+        await agent._setup()
+
+    assert timeframe_vocabulary._vocab_service is not None
+    assert timeframe_vocabulary._vocab_service.initialized is True
+
+    timeframe_vocabulary.reset_vocabulary_service_for_test()
+
+
+@pytest.mark.asyncio
+async def test_setup_raises_when_coverage_tfs_not_subset_of_cvr():
+    """_setup() raises ValueError when _COVERAGE_TFS references a timeframe CVR does
+    not have registered -- proves assert_known_subset actually gates startup rather
+    than being wired in but never exercised on the failing path."""
+    timeframe_vocabulary.reset_vocabulary_service_for_test()
+    agent = _make_setup_agent()
+
+    with (
+        patch("services.signal_auditor.create_db_pool", new=AsyncMock(return_value=MagicMock())),
+        patch("services.signal_auditor.KafkaProducerClient", return_value=AsyncMock()),
+        patch("services.signal_auditor.VocabularyService", _FakeVocabularyServiceMissingTf),
+    ):
+        with pytest.raises(ValueError):
+            await agent._setup()
+
+    timeframe_vocabulary.reset_vocabulary_service_for_test()
