@@ -16,7 +16,10 @@ from __future__ import annotations
 
 from typing import Any
 
+import asyncpg
 import structlog
+
+from src.config.vocabulary_service import VocabularyService
 
 logger = structlog.get_logger(__name__)
 
@@ -47,6 +50,22 @@ def reset_vocabulary_service_for_test() -> None:
     """Test-only: clear the registered service so tests don't leak state."""
     global _vocab_service
     _vocab_service = None
+
+
+async def prewarm(database_url: str, pool: asyncpg.Pool | None) -> VocabularyService:
+    """Create, initialize, and register a `VocabularyService` for this process.
+
+    Collapses the construct/initialize/register triplet every daemon that reads
+    this module used to repeat inline (5 call sites, byte-for-byte identical
+    apart from the pool argument -- todo 327 /simplify pass) into one call. Pass
+    the daemon's already-open pool (e.g. `self._db.pool`) so `VocabularyService`
+    reuses it instead of opening a second one. Returns the instance so a caller
+    that also wants to hold it as an attribute still can.
+    """
+    vocab = VocabularyService(database_url, pool=pool)
+    await vocab.initialize()
+    set_vocabulary_service(vocab)
+    return vocab
 
 
 def standard_timeframes(default: tuple[str, ...] = _DEFAULT_TIMEFRAMES) -> tuple[str, ...]:

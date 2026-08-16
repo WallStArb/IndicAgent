@@ -959,11 +959,10 @@ class FeatureVectorPipeline(BaseDaemon):
     async def _prewarm_timeframe_vocabulary(self) -> None:
         """Register a VocabularyService with timeframe_vocabulary and load
         self._timeframes from CVR's `timeframe` namespace instead of a hardcoded
-        tuple (todo 327). Shares self._db's pool -- same pattern as
-        self._config_service above."""
-        self._vocabulary_service = VocabularyService(self.settings.database_url, pool=self._db.pool)
-        await self._vocabulary_service.initialize()
-        timeframe_vocabulary.set_vocabulary_service(self._vocabulary_service)
+        tuple (todo 327)."""
+        self._vocabulary_service = await timeframe_vocabulary.prewarm(
+            self.settings.database_url, self._db.pool
+        )
         self._timeframes = list(timeframe_vocabulary.standard_timeframes())
 
     async def _prewarm_threshold_config(self) -> None:

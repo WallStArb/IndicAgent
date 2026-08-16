@@ -17,26 +17,8 @@ import pytest
 
 import services.feature_vector_pipeline as fvp_module
 from src.core import timeframe_vocabulary
+from tests.unit._vocabulary_fakes import FakeVocabularyService
 from tests.unit.pipeline.pipeline_helpers import make_agent
-
-
-class _FakeVocabularyService:
-    """Stands in for VocabularyService — records initialize() and reports a
-    CVR-registered set that deliberately differs from the old hardcoded
-    _STANDARD_TFS tuple, so a passing assertion proves the value came from here,
-    not from a stale fallback."""
-
-    def __init__(self, database_url, pool=None):
-        self.database_url = database_url
-        self.pool = pool
-        self.initialized = False
-
-    async def initialize(self) -> None:
-        self.initialized = True
-
-    def active_codes(self, namespace: str) -> list[str]:
-        assert namespace == "timeframe"
-        return ["1m", "5m", "15m", "30m", "1h", "4h", "1d"]
 
 
 @pytest.fixture(autouse=True)
@@ -51,7 +33,15 @@ async def test_setup_prewarms_timeframe_vocabulary(monkeypatch):
     """_prewarm_timeframe_vocabulary() registers a VocabularyService with
     timeframe_vocabulary so self._timeframes reflects CVR's registered set,
     not the hardcoded default."""
-    monkeypatch.setattr(fvp_module, "VocabularyService", _FakeVocabularyService)
+    # Deliberately differs from the old hardcoded _STANDARD_TFS tuple (adds
+    # "30m"), so a passing assertion proves the value came from the registry, not
+    # a stale fallback. Patched on timeframe_vocabulary -- prewarm() constructs
+    # VocabularyService there now, not in feature_vector_pipeline's own module.
+    monkeypatch.setattr(
+        timeframe_vocabulary,
+        "VocabularyService",
+        FakeVocabularyService(["1m", "5m", "15m", "30m", "1h", "4h", "1d"]),
+    )
     agent = make_agent()
 
     assert timeframe_vocabulary._vocab_service is None

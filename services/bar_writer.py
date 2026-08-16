@@ -249,11 +249,10 @@ class BarWriter(BaseWriter):
     async def _prewarm_timeframe_vocabulary(self) -> None:
         """Register a VocabularyService with timeframe_vocabulary and build
         _bars_written_attrs from CVR's `timeframe` namespace instead of a hardcoded
-        tuple (todo 327). Shares self._db_pool -- same pattern as
-        FeatureVectorPipeline._prewarm_timeframe_vocabulary()."""
-        self._vocabulary_service = VocabularyService(self.settings.database_url, pool=self._db_pool)
-        await self._vocabulary_service.initialize()
-        timeframe_vocabulary.set_vocabulary_service(self._vocabulary_service)
+        tuple (todo 327)."""
+        self._vocabulary_service = await timeframe_vocabulary.prewarm(
+            self.settings.database_url, self._db_pool
+        )
         self._bars_written_attrs = {
             tf: {"agent": self.name, "tf": tf} for tf in timeframe_vocabulary.standard_timeframes()
         }

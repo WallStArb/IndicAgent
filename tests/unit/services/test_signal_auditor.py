@@ -25,6 +25,7 @@ from services.signal_auditor import (
 )
 from src.core import timeframe_vocabulary
 from src.core.stream_keys import topic_signal_audit
+from tests.unit._vocabulary_fakes import FakeVocabularyService
 
 
 @pytest.fixture()
@@ -205,42 +206,6 @@ def test_topics_consumed_is_empty(agent):
 # ---------------------------------------------------------------------------
 
 
-class _FakeVocabularyService:
-    """Stands in for VocabularyService -- records initialize() and reports a
-    CVR-registered timeframe set that is a strict superset of _COVERAGE_TFS, so a
-    passing assertion proves _setup() actually consulted CVR rather than skipping
-    the check via the no-VocabularyService-registered no-op path."""
-
-    def __init__(self, database_url, pool=None):
-        self.database_url = database_url
-        self.pool = pool
-        self.initialized = False
-
-    async def initialize(self) -> None:
-        self.initialized = True
-
-    def active_codes(self, namespace: str) -> list[str]:
-        assert namespace == "timeframe"
-        return ["1m", "5m", "15m", "1h", "4h", "1d"]
-
-
-class _FakeVocabularyServiceMissingTf:
-    """Reports a CVR set that omits "1h", one of _COVERAGE_TFS's members -- proves
-    _setup() actually raises via assert_known_subset on a real drift case, not just
-    on the always-passing path."""
-
-    def __init__(self, database_url, pool=None):
-        self.database_url = database_url
-        self.pool = pool
-
-    async def initialize(self) -> None:
-        pass
-
-    def active_codes(self, namespace: str) -> list[str]:
-        assert namespace == "timeframe"
-        return ["1m", "5m", "15m", "4h", "1d"]
-
-
 def _make_setup_agent():
     """Build SignalAuditor via __new__ (bypasses __init__) with just enough
     attributes for _setup() -- matches this file's `agent` fixture pattern."""
@@ -264,7 +229,10 @@ async def test_setup_asserts_coverage_tfs_subset_of_cvr():
     with (
         patch("services.signal_auditor.create_db_pool", new=AsyncMock(return_value=MagicMock())),
         patch("services.signal_auditor.KafkaProducerClient", return_value=AsyncMock()),
-        patch("services.signal_auditor.VocabularyService", _FakeVocabularyService),
+        patch(
+            "src.core.timeframe_vocabulary.VocabularyService",
+            FakeVocabularyService(["1m", "5m", "15m", "1h", "4h", "1d"]),
+        ),
     ):
         await agent._setup()
 
@@ -285,7 +253,12 @@ async def test_setup_raises_when_coverage_tfs_not_subset_of_cvr():
     with (
         patch("services.signal_auditor.create_db_pool", new=AsyncMock(return_value=MagicMock())),
         patch("services.signal_auditor.KafkaProducerClient", return_value=AsyncMock()),
-        patch("services.signal_auditor.VocabularyService", _FakeVocabularyServiceMissingTf),
+        patch(
+            "src.core.timeframe_vocabulary.VocabularyService",
+            # Omits "1h", one of _COVERAGE_TFS's members -- proves _setup()
+            # actually raises via assert_known_subset on a real drift case.
+            FakeVocabularyService(["1m", "5m", "15m", "4h", "1d"]),
+        ),
     ):
         with pytest.raises(ValueError):
             await agent._setup()

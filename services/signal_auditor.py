@@ -24,7 +24,6 @@ import asyncpg
 from opentelemetry import metrics as _otel_metrics
 
 from src.config.settings import get_active_contracts
-from src.config.vocabulary_service import VocabularyService
 from src.core import timeframe_vocabulary
 from src.core.agent.base import BaseDaemon
 from src.core.database_manager import create_pool as create_db_pool
@@ -134,9 +133,7 @@ class SignalAuditor(BaseDaemon):
         # CVR prewarm: _COVERAGE_TFS is a deliberate literal subset (excludes 1d),
         # so this only asserts it stays a subset of what CVR has registered --
         # catches drift without widening the audited timeframe set (todo 327).
-        vocab = VocabularyService(self.settings.database_url, pool=self._db_pool)
-        await vocab.initialize()
-        timeframe_vocabulary.set_vocabulary_service(vocab)
+        await timeframe_vocabulary.prewarm(self.settings.database_url, self._db_pool)
         timeframe_vocabulary.assert_known_subset(
             _COVERAGE_TFS, context="SignalAuditor._COVERAGE_TFS"
         )

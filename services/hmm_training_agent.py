@@ -14,7 +14,6 @@ import sys
 import _path_bootstrap  # noqa: F401 — project root on sys.path
 
 from src.config.settings import Settings
-from src.config.vocabulary_service import VocabularyService
 from src.core import timeframe_vocabulary
 from src.core.database_manager import DatabaseManager
 from src.core.service_utils import setup_service_logging
@@ -34,9 +33,7 @@ def main() -> None:
         db_manager = DatabaseManager(settings.database_url)
         await db_manager.initialize()
         try:
-            vocab = VocabularyService(settings.database_url, pool=db_manager.pool)
-            await vocab.initialize()
-            timeframe_vocabulary.set_vocabulary_service(vocab)
+            await timeframe_vocabulary.prewarm(settings.database_url, db_manager.pool)
             agent = HMMTrainer(db_manager=db_manager, settings=settings)
             await agent.start()
         finally:

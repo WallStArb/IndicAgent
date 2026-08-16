@@ -27,6 +27,7 @@ from src.core import timeframe_vocabulary
 from src.intelligence.services.feature_validation_analyzer import (
     FeatureValidationAnalyzer,
 )
+from tests.unit._vocabulary_fakes import FakeVocabularyService
 from tools.validate_i6_backtest import ValidationResults
 
 # ---------------------------------------------------------------------------
@@ -432,25 +433,6 @@ def test_individual_slice_failure_does_not_crash_run():
 # ---------------------------------------------------------------------------
 
 
-class _FakeVocabularyService:
-    """Stands in for VocabularyService -- records initialize() and reports a
-    CVR-registered timeframe set that is a strict superset of _TIMEFRAMES, so a
-    passing assertion proves _setup() actually consulted CVR rather than skipping
-    the check via the no-VocabularyService-registered no-op path."""
-
-    def __init__(self, database_url, pool=None):
-        self.database_url = database_url
-        self.pool = pool
-        self.initialized = False
-
-    async def initialize(self) -> None:
-        self.initialized = True
-
-    def active_codes(self, namespace: str) -> list[str]:
-        assert namespace == "timeframe"
-        return ["1m", "5m", "15m", "1h", "4h", "1d"]
-
-
 def test_setup_asserts_timeframes_subset_of_cvr():
     """_setup() prewarms VocabularyService and validates _TIMEFRAMES is a subset of
     CVR's registered timeframe codes -- catches drift without changing behavior."""
@@ -461,7 +443,10 @@ def test_setup_asserts_timeframes_subset_of_cvr():
 
     with (
         patch(f"{_AGENT_MODULE}.create_db_pool", new=AsyncMock(return_value=pool)),
-        patch(f"{_AGENT_MODULE}.VocabularyService", _FakeVocabularyService),
+        patch(
+            "src.core.timeframe_vocabulary.VocabularyService",
+            FakeVocabularyService(["1m", "5m", "15m", "1h", "4h", "1d"]),
+        ),
     ):
         _run(agent._setup())
 
