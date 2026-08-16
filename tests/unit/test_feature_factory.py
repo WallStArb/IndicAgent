@@ -35,6 +35,11 @@ from src.intelligence.feature_factory import (
 )
 from src.intelligence.schemas import FeatureVector
 
+# Derived, not hardcoded -- a literal dev-machine path here means these tests
+# can never pass on a CI runner (checkout lands at a different absolute path).
+# Same convention as test_market_data_ohlcv_boundary.py et al.
+_REPO_ROOT = Path(__file__).parent.parent.parent
+
 # ---------------------------------------------------------------------------
 # todo 086: structurally excludes the one deliberate, documented acausal
 # reference (_canary_acausal_placebo(), a positive-control canary -- see
@@ -276,7 +281,7 @@ class TestBarLevelPrimitives:
             ["grep", "-n", "tick_buffer", "src/intelligence/feature_factory.py"],
             capture_output=True,
             text=True,
-            cwd="/home/bg/dev/indicagent",
+            cwd=str(_REPO_ROOT),
         )
         assert (
             result.returncode != 0 or result.stdout.strip() == ""
@@ -349,7 +354,7 @@ class TestBarLevelPrimitives:
             ["grep", "-n", "self._config", "src/intelligence/feature_factory.py"],
             capture_output=True,
             text=True,
-            cwd="/home/bg/dev/indicagent",
+            cwd=str(_REPO_ROOT),
         )
         assert (
             result.returncode != 0 or result.stdout.strip() == ""
@@ -523,7 +528,7 @@ class TestRegimePrimitives:
         scanning, not carved out by line number, so this stays correct as
         the file grows around it.
         """
-        factory_path = Path("/home/bg/dev/indicagent/src/intelligence/feature_factory.py")
+        factory_path = _REPO_ROOT / "src" / "intelligence" / "feature_factory.py"
         source = factory_path.read_text()
 
         source_without_canary, n_stripped = _source_without_acausal_canary(source)
@@ -815,7 +820,7 @@ class TestComputePurity:
             ["grep", "-nE", "^(async def|    await )", "src/intelligence/feature_factory.py"],
             capture_output=True,
             text=True,
-            cwd="/home/bg/dev/indicagent",
+            cwd=str(_REPO_ROOT),
         )
         assert (
             result.returncode != 0 or result.stdout.strip() == ""
@@ -834,7 +839,7 @@ class TestComputePurity:
             ],
             capture_output=True,
             text=True,
-            cwd="/home/bg/dev/indicagent",
+            cwd=str(_REPO_ROOT),
         )
         # Allow zero matches
         lines = [
