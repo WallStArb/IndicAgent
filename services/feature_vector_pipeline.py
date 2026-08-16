@@ -29,6 +29,8 @@ from src.config.settings import (
     get_settings,
     invalidate_active_contracts_cache,
 )
+from src.config.vocabulary_service import VocabularyService
+from src.core import timeframe_vocabulary
 from src.core.agent.base import BaseDaemon
 from src.core.bar_history import BarHistory
 from src.core.database_manager import DatabaseManager
@@ -98,7 +100,6 @@ from src.observability.spans import ATTR_SYMBOL, ATTR_TF, observed_span
 # Module-level constants
 # ---------------------------------------------------------------------------
 
-_STANDARD_TFS: tuple[str, ...] = ("1m", "5m", "15m", "1h", "4h", "1d")
 _OUTPUT_QUEUE_MAXSIZE = 500
 _MAX_QUEUE_DEPTH = 500
 _PIPELINE_VERSION = "3.0.0"
@@ -176,7 +177,10 @@ class FeatureVectorPipeline(BaseDaemon):
                 "and ensure TODO: migrate_instruments.py (not found - may be deprecated) has been run."
             )
         self._symbols = [c.symbol for c in self._contracts]
-        self._timeframes = list(_STANDARD_TFS)
+        # Populated from CVR's `timeframe` namespace in _prewarm_timeframe_vocabulary()
+        # (todo 327) -- __init__ stays synchronous, so this is a placeholder until
+        # _setup() runs.
+        self._timeframes: list[str] = []
         self._instrument_map: dict[str, Any] = {c.symbol: c for c in self._contracts}
 
         self._bar_history = BarHistory(maxlen=200)
@@ -201,6 +205,7 @@ class FeatureVectorPipeline(BaseDaemon):
         self._cross_asset_built_on: date | None = None
 
         self._config_service: ConfigService | None = None  # initialised in _setup()
+        self._vocabulary_service: VocabularyService | None = None  # initialised in _setup()
         self._feature_factory_config: FeatureFactoryConfig | None = None
         # Inverse of ctf_higher_tf_map, built in _prewarm_threshold_config() once that
         # APR value is available (todo 242) -- see the derivation site for details.
@@ -455,6 +460,11 @@ class FeatureVectorPipeline(BaseDaemon):
         # ConfigService: shared pool, prewarm feature.* and threshold.* keys.
         self._config_service = ConfigService(self.settings.database_url, pool=self._db.pool)
         await self._prewarm_threshold_config()
+
+        # VocabularyService: shared pool, registers timeframe_vocabulary so
+        # self._timeframes reads CVR's `timeframe` namespace instead of a hardcoded
+        # tuple (todo 327).
+        await self._prewarm_timeframe_vocabulary()
 
         # Cross-asset daily series (Plan 151-09 Task 2) -- needs both self._db (just
         # initialised above) and self._feature_factory_config (needs the z-score
@@ -945,6 +955,16 @@ class FeatureVectorPipeline(BaseDaemon):
             {"5m": "1h", "15m": "1h", "1h": "1d", "1d": "1d"},
         ),
     )
+
+    async def _prewarm_timeframe_vocabulary(self) -> None:
+        """Register a VocabularyService with timeframe_vocabulary and load
+        self._timeframes from CVR's `timeframe` namespace instead of a hardcoded
+        tuple (todo 327). Shares self._db's pool -- same pattern as
+        self._config_service above."""
+        self._vocabulary_service = VocabularyService(self.settings.database_url, pool=self._db.pool)
+        await self._vocabulary_service.initialize()
+        timeframe_vocabulary.set_vocabulary_service(self._vocabulary_service)
+        self._timeframes = list(timeframe_vocabulary.standard_timeframes())
 
     async def _prewarm_threshold_config(self) -> None:
         """Prewarm config cache and build FeatureFactoryConfig from feature.* keys."""
