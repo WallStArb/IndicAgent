@@ -3,14 +3,14 @@
 **Canonical name:** Controlled Vocabulary Registry (CVR)
 **Informal alias:** "vocab system" (colloquial — acceptable in casual conversation, not in architecture docs or code comments)
 **Status:** current — Phase 161 shipped complete 2026-07-18
-**Last Updated:** 2026-08-15
+**Last Updated:** 2026-08-16
 **Phase introduced:** 161
 
 ---
 
 ## What It Is
 
-The **Controlled Vocabulary Registry (CVR)** is the system-wide home for symbolic taxonomies — the set of valid codes a namespace can take, plus their human-readable labels and optional groupings. It is "the APR for symbolic codes": rather than a hardcoded label dict scattered across every consumer that needs to know `regime_hmm` has exactly `{trending_up, trending_down, ranging, high_vol, low_vol}` or that `timeframe` means `{1m, 5m, 15m, 1h, 1d}`, one migration-governed registry holds the authoritative set, and consumers read from it instead of re-declaring it.
+The **Controlled Vocabulary Registry (CVR)** is the system-wide home for symbolic taxonomies — the set of valid codes a namespace can take, plus their human-readable labels and optional groupings. It is "the APR for symbolic codes": rather than a hardcoded label dict scattered across every consumer that needs to know `regime_hmm` has exactly `{trending_up, trending_down, ranging, high_vol, low_vol}` or that `timeframe` means `{1m, 5m, 15m, 1h, 4h, 1d}`, one migration-governed registry holds the authoritative set, and consumers read from it instead of re-declaring it.
 
 CVR rows are **definitional, not falsifiable**. A code either exists in a namespace or it does not — no confidence, weight, or evidence attached. This is the key structural distinction from the [Instrument Tag Registry](instrument-tag-registry.md): a tag is a hypothesis about an instrument that can be measured, contradicted, and expired; a controlled-vocabulary code is a fixed symbolic definition, changed only by migration. `regime_hmm/trending_up` existing as a valid code is not something TagCalibrator-style measurement re-checks each week — it's the fixed name of a state a different system (HMM) assigns.
 
@@ -72,7 +72,7 @@ Three tables (Phase 161), one read-side service, one drift auditor. No dashboard
 | `regime_volatility` | 3 | `feature_vectors.regime_volatility` (`calm`/`elevated`/`turbulent`, K=3, migration 307, Phase 172) |
 | `regime_cross_sectional_equity` | 9 | `market_regimes.regime_label` (`regime_group='equity'`) |
 | `regime_cross_sectional_rates` | 6 | `market_regimes.regime_label` (`regime_group='rates'`) |
-| `timeframe` | 5 | `market_data_ohlcv_tradeable.timeframe` |
+| `timeframe` | 6 | `market_data_ohlcv_tradeable.timeframe` |
 | `asset_class` | 3 | `instruments.contract_details->>'asset_class'` |
 | `tier` | — | `concept_registry.metadata->>'tier'` (`domain='feature'`) |
 
@@ -88,7 +88,7 @@ Archived-SLA namespaces (`signal_outcome`, `entry_type`, `signal_status`, `sessi
 vocab = VocabularyService(db_dsn, pool=pool)
 await vocab.initialize()          # one-time prewarm
 
-vocab.codes("timeframe")          # ['1m', '5m', '15m', '1h', '1d']
+vocab.codes("timeframe")          # ['1m', '5m', '15m', '1h', '4h', '1d']
 vocab.active_codes("timeframe")   # same, minus is_deprecated=true rows
 vocab.label("regime_hmm", "trending_up")   # falls back to the code itself if unknown
 vocab.group_codes("regime_hmm", "trending")  # frozenset() if unknown group
@@ -98,6 +98,8 @@ vocab.known_namespaces()          # frozenset of every namespace with >=1 cached
 No lazy miss-then-fetch fallback — the corpus is small (~100 rows total) and the design mandates zero hot-path DB calls, so a cache miss is answered from memory (fallback to the raw code/group name), never a DB round-trip.
 
 The three vocabulary tables are **written only at migration time** — `VocabularyService` is a pure read-side projection, never a writer.
+
+**Sync-context accessor:** `src/core/timeframe_vocabulary.py` wraps `VocabularyService` for Ring 0 daemons that need to read the `timeframe` namespace synchronously after their async setup phase has already prewarmed it (`set_vocabulary_service()` registers the instance once at startup; `standard_timeframes()`/`assert_known_subset()` read it synchronously everywhere else in that process) - the pattern to copy for any future namespace that needs the same sync-read shape, rather than re-inventing it (todo 327).
 
 ---
 
@@ -143,7 +145,7 @@ A namespace earns its place in CVR when **either** path holds.
 3. **Metadata enrichment has real, concrete consumers** - labels/descriptions/groups are actually read somewhere, not speculative.
 
 **D-07 - scattered-duplicate path (added 2026-08-15, todo 324/326).** A fixed code set independently hardcoded in **2 or more files** qualifies on its own, even with zero external (non-Python) consumers and even with zero metadata enrichment need. Per-namespace marginal cost is already near-zero (one migration row + `VocabularyService`'s existing cache - no new infrastructure), so "duplicated in ≥2 files" is cheap enough to be a sufficient condition by itself, not just a nice-to-have alongside D-06. This closes a real gap D-06 alone missed: self-drift *among Python-only consumers*, not just live-column vs. registry drift. Confirmed non-speculative on namespaces CVR already owns:
- - `timeframe` (5 live codes, `VocabularyService` + API route already built) has **9 independently-hardcoded tuples** across the repo, two of them named identically (`_STANDARD_TFS` in `src/core/bar_history.py`, 4 values, vs. `src/intelligence/pipeline/feature_pipeline_executor.py`, 6 values - same name, different truth, in two live modules) - nobody reads the registry.
+ - `timeframe` (6 live codes as of migration 317, `VocabularyService` + API route already built) was filed with 9 independently-hardcoded tuples across the repo; a full liveness check (todo 327) found the real scope was 5 live call sites, not 9 - the other 4, including `src/intelligence/pipeline/feature_pipeline_executor.py`'s `_STANDARD_TFS`, turned out to be dead v2.x code with zero live instantiation, not a second live module colliding with `src/core/bar_history.py`'s identically-named constant as originally assumed. **Resolved 2026-08-16**: the 5 live call sites now read `src/core/timeframe_vocabulary.py`'s CVR-backed accessor (either the full dynamic set, or a deliberate subset guarded by `assert_known_subset()` against registry drift); the dead call sites were split to todo 328 rather than bundled into this fix. See `.planning/todos/completed/327-timeframe-vocabulary-consolidation-into-cvr.md` for the full investigation and execution record.
  - `asset_class` (3 live codes: `equity`/`futures`/`fx`) is hardcoded as `Literal["equity", "futures", "fx", "crypto"]` in `src/api/routes/instruments.py` (two call sites, served by the live `indicagent-api.service`) - a fourth value that exists nowhere in the registry or `get_active_contracts()`. The API type has already drifted from the source of truth it's supposed to mirror.
 
 **Still not worth it** for a fixed set that appears in exactly one file and no consumer enumerates externally - a private internal `Literal["a", "b"]` used once doesn't need a CVR namespace just because it's a set of strings. The bar is duplication or external enumeration, not "it's a list."

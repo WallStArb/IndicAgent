@@ -83,3 +83,42 @@ def test_assert_subset_skips_when_unregistered():
     # Must not raise even though "bogus" isn't a real timeframe -- there's no registry
     # to check against yet.
     timeframe_vocabulary.assert_known_subset(("bogus",), context="test")
+
+
+@pytest.mark.unit
+def test_standard_timeframes_warns_on_empty_but_registered():
+    """A registered service with zero codes for the namespace is a real gap (unseeded
+    DB, migration never replayed, a namespace-name typo) distinct from "never
+    registered" -- must log a warning even though it still falls back."""
+    from structlog.testing import capture_logs
+
+    class _EmptyVocab:
+        def active_codes(self, namespace):
+            return []
+
+    timeframe_vocabulary.set_vocabulary_service(_EmptyVocab())
+    with capture_logs() as cap_logs:
+        result = timeframe_vocabulary.standard_timeframes(default=("1m",))
+    assert result == ("1m",)
+    events = [e["event"] for e in cap_logs]
+    assert "timeframe_vocabulary.empty_registry_fallback" in events, f"Expected warning in {events}"
+    warning_entry = next(
+        e for e in cap_logs if e["event"] == "timeframe_vocabulary.empty_registry_fallback"
+    )
+    assert warning_entry["log_level"] == "warning"
+    assert warning_entry["default"] == ("1m",)
+
+
+@pytest.mark.unit
+def test_standard_timeframes_does_not_warn_when_unregistered():
+    """No VocabularyService registered at all is the documented, intentional fallback
+    for scripts/tests running outside daemon startup -- must stay silent."""
+    from structlog.testing import capture_logs
+
+    with capture_logs() as cap_logs:
+        result = timeframe_vocabulary.standard_timeframes(default=("1m", "5m"))
+    assert result == ("1m", "5m")
+    events = [e["event"] for e in cap_logs]
+    assert (
+        "timeframe_vocabulary.empty_registry_fallback" not in events
+    ), f"Unexpected warning in {events}"

@@ -16,6 +16,10 @@ from __future__ import annotations
 
 from typing import Any
 
+import structlog
+
+logger = structlog.get_logger(__name__)
+
 _vocab_service: Any | None = None
 
 # Literal copy of CVR's registered `timeframe` codes as of migration 317 (todo 327).
@@ -48,15 +52,24 @@ def reset_vocabulary_service_for_test() -> None:
 def standard_timeframes(default: tuple[str, ...] = _DEFAULT_TIMEFRAMES) -> tuple[str, ...]:
     """All registered, non-deprecated `timeframe` codes, in CVR sort_order.
 
-    Falls back to `default` if no `VocabularyService` has been registered yet, or if
-    the registered service has zero codes for the namespace (never silently returns
-    an empty tuple - every known caller loops over this and an empty result would be
-    a silent no-op, worse than a stale-but-nonempty fallback).
+    Falls back to `default` if no `VocabularyService` has been registered yet (silent -
+    documented, intentional fallback for a script/test running outside daemon startup),
+    or if the registered service has zero codes for the namespace (logged - a genuine
+    gap: an unseeded DB, a migration never replayed, or a namespace-name typo, not a
+    normal operating condition). Never silently returns an empty tuple - every known
+    caller loops over this and an empty result would be a silent no-op, worse than a
+    stale-but-nonempty fallback.
     """
     if _vocab_service is None:
         return default
     codes = _vocab_service.active_codes("timeframe")
-    return tuple(codes) if codes else default
+    if not codes:
+        logger.warning(
+            "timeframe_vocabulary.empty_registry_fallback",
+            default=default,
+        )
+        return default
+    return tuple(codes)
 
 
 def assert_known_subset(timeframes: tuple[str, ...], *, context: str) -> None:
