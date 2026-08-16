@@ -17,8 +17,10 @@ from scripts.analysis.per_symbol_regime_candidates_stage3_falsification import (
     _build_panel,
     _ic_sharpe,
     _joint_cell_uplifts,
+    _null_arm_seed,
     _window_ic_series,
 )
+from src.core.rng import hash_key_to_int
 
 
 class TestWindowIcSeries:
@@ -142,6 +144,35 @@ class TestBestCellUplift:
 
     def test_none_when_cell_list_empty(self):
         assert _best_cell_uplift([]) == (None, None)
+
+
+class TestNullArmSeed:
+    """_null_arm_seed is a thin wrapper: compose "candidate|xbar|tf" and delegate to
+    the shared src/core/rng.py::hash_key_to_int. That helper's own determinism and
+    cross-process-stability guarantees (MD5-based, immune to PYTHONHASHSEED
+    randomization of builtin hash()) are already exhaustively tested in
+    tests/unit/core/test_rng.py -- not re-proven here. This class tests only what's
+    actually local to this file: the key-composition format."""
+
+    def test_matches_hash_key_to_int_on_the_pipe_joined_key(self):
+        assert _null_arm_seed("hurst_rank", "momentum_z_fast", "5m") == hash_key_to_int(
+            "hurst_rank|momentum_z_fast|5m"
+        )
+
+    def test_distinct_inputs_give_distinct_seeds(self):
+        seeds = {
+            _null_arm_seed("hurst_rank", "momentum_z_fast", "5m"),
+            _null_arm_seed("hurst_rank", "momentum_z_fast", "15m"),  # tf differs
+            _null_arm_seed("hurst_rank", "momentum_z_mid", "5m"),  # xbar differs
+            _null_arm_seed("autocorr_rank", "momentum_z_fast", "5m"),  # candidate differs
+        }
+        assert len(seeds) == 4
+
+    def test_returns_a_valid_default_rng_seed(self):
+        seed = _null_arm_seed("hurst_rank", "momentum_z_fast", "5m")
+        assert isinstance(seed, int)
+        assert seed >= 0
+        np.random.default_rng(seed)  # must not raise
 
 
 class TestBuildPanelPermutation:

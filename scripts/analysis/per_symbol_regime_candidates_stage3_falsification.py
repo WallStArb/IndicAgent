@@ -78,6 +78,7 @@ from scripts.analysis.per_symbol_regime_candidates_stage2_orthogonality import (
 )
 from services.backfill_feature_factory import _connect_db  # noqa: E402
 from src.config.settings import Settings  # noqa: E402
+from src.core.rng import hash_key_to_int  # noqa: E402
 from src.intelligence.statistics.ic_math import apply_bh_fdr  # noqa: E402
 
 _SAMPLE_SYMBOLS = ["SPY", "AAPL", "XOM", "JPM", "TLT"]
@@ -275,6 +276,18 @@ def _joint_cell_uplifts(
     return results
 
 
+def _null_arm_seed(candidate_name: str, xbar_col: str, tf: str) -> int:
+    """Deterministic per-(candidate, xbar, tf) seed for the null-arm RNG, via the
+    shared src/core/rng.py::hash_key_to_int -- NOT builtin hash(), which Python
+    randomizes per-process by default (PYTHONHASHSEED unset) and would make null_p
+    non-reproducible across reruns, silently breaking this control's own
+    pre-registered guarantee ("no separation number gets cited as real evidence unless
+    it clears this control"). Same discipline as HMM_RANDOM_STATE=42 elsewhere in this
+    codebase: any seed affecting algorithm output must be pinned deterministically.
+    """
+    return hash_key_to_int(f"{candidate_name}|{xbar_col}|{tf}")
+
+
 def _best_cell_uplift(cells: list[dict]) -> tuple[float, dict] | tuple[None, None]:
     """The test statistic: max uplift_pct among cells clearing the N-gate. Matches the
     pass criterion's own phrasing -- "IC Sharpe increases by more than 10% in AT LEAST
@@ -397,7 +410,7 @@ def main() -> None:
                 # Null arm -- only run for cells that already cleared the threshold;
                 # running it for every fail would be pure wasted compute (200x cost)
                 # for a result that fails regardless of the null p-value.
-                rng = np.random.default_rng(hash((candidate_name, xbar_col, tf)) % (2**32))
+                rng = np.random.default_rng(_null_arm_seed(candidate_name, xbar_col, tf))
                 beat_count = 0
                 for _ in range(_N_NULL_REPLICATES):
                     null_panel = _build_panel(
