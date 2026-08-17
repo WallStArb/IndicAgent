@@ -251,6 +251,41 @@ def test_forward_return_sql_suspect_flag_references_materialized_return():
     assert sql.index("FROM returns") > sql.index("return_fast_suspect")
 
 
+def test_forward_return_sql_computes_has_gap_before_entry():
+    """todo 334: has_gap_before_entry (migration 156) was permanently false for every
+    row since the table existed -- forward_return_writer.py never set it. Computed
+    here off the same window pass as open_entry (entry_ts = LEAD(timestamp,1)), not
+    a new join or a dependency on BarAuditor's market_data_gaps (confirmed empty,
+    service inactive/disabled -- reusing it would trade one silent-always-false bug
+    for another). Floor (gap_multiplier) + ceiling (gap_max_seconds) must both be
+    present -- a floor alone would flag every normal overnight/weekend close, the
+    exact mistake todo 208 already made once for complete_{scale}."""
+    sql = _build_forward_return_sql(_LOOKAHEADS)
+    assert "LEAD(m.timestamp, 1) OVER w AS entry_ts" in sql
+    assert "AS has_gap_before_entry" in sql
+    assert "%(gap_multiplier)s" in sql
+    assert "%(gap_max_seconds)s" in sql
+    assert "%(tf_seconds)s" in sql
+    # Floor and ceiling must bound the same (entry_ts - bar_ts) gap from both sides.
+    assert "> %(gap_multiplier)s * %(tf_seconds)s" in sql
+    assert "< %(gap_max_seconds)s" in sql
+    # has_gap_before_entry is computed once, inside the `returns` CTE (entry_ts is
+    # a sibling alias in `windowed`, not visible within windowed's own SELECT list
+    # -- same constraint the suspect-flag test above documents), then passed
+    # through the outer SELECT as a plain column -- two occurrences, the first
+    # (the CASE-like computation) inside the returns CTE, the second (the plain
+    # passthrough) in the outer SELECT list.
+    assert sql.count("AS has_gap_before_entry") == 1
+    assert sql.index("returns AS (") < sql.index("AS has_gap_before_entry")
+    assert sql.rindex("has_gap_before_entry,") > sql.index("AS has_gap_before_entry")
+
+
+def test_insert_sql_includes_has_gap_before_entry():
+    sql = _build_insert_sql(("fast", "mid", "slow", "extended"))
+    assert "has_gap_before_entry" in sql
+    assert "%(has_gap_before_entry)s" in sql
+
+
 def test_insert_sql_includes_suspect_columns_and_params():
     sql = _build_insert_sql(("fast", "mid", "slow", "extended"))
     for scale in _LOOKAHEADS:

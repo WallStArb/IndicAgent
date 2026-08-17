@@ -54,7 +54,7 @@ from services._batch_utils import LOOKAHEAD_FALLBACKS_BY_TF as _SCALE_FALLBACKS_
 from services._batch_utils import load_config_service_sync as _load_config_service
 from src.config.settings import Settings
 from src.core.integrity_monitor import emit_integrity_fact_sync
-from src.core.service_utils import parse_training_window_end, setup_service_logging
+from src.core.service_utils import parse_training_window_end, setup_service_logging, tf_to_seconds
 from src.intelligence.statistics.ic_math import scale_max_abs_return
 from src.observability.corpus_manifest import CorpusManifest
 from src.observability.metrics import (
@@ -233,8 +233,12 @@ def _build_forward_return_sql(lookaheads: dict[str, int]) -> str:
         f"LEAD(m.open, {n + 1}) OVER w AS open_{scale}" for scale, n in lookaheads.items()
     ]
     lead_cols = ",\n        ".join(lead_col_list)
-    # open_entry = LEAD(open, 1) is always needed for the entry price (T+1 open)
-    lead_t1 = "LEAD(m.open, 1) OVER w AS open_entry"
+    # open_entry = LEAD(open, 1) is always needed for the entry price (T+1 open).
+    # entry_ts = LEAD(timestamp, 1) is the entry bar's own timestamp -- reused below
+    # to compute has_gap_before_entry (todo 334) via the same window pass, no second
+    # table scan. LAG/LEAD ignore the window's ROWS BETWEEN frame (frame only bounds
+    # aggregate window functions), so this safely reuses window w.
+    lead_t1 = "LEAD(m.open, 1) OVER w AS open_entry, LEAD(m.timestamp, 1) OVER w AS entry_ts"
 
     return_col_list = [
         f"CASE WHEN open_entry > 0 AND open_{scale} > 0 "
@@ -289,7 +293,20 @@ returns AS (
         tf,
         pipeline_version,
         {return_cols},
-        {complete_cols}
+        {complete_cols},
+        -- has_gap_before_entry (todo 334): entry_ts is a sibling alias computed in
+        -- windowed, not visible within windowed's own SELECT list -- same reason
+        -- suspect_cols below is deferred to the outer layer -- so this reads it
+        -- back from the already-materialized windowed row instead. Floor
+        -- (gap_multiplier) guards against 1-bar noise; ceiling (gap_max_seconds)
+        -- excludes normal overnight/weekend closures (todo 208's lesson, applied
+        -- here: don't flag known-accepted calendar structure as anomalous).
+        -- gap_max_seconds default is equity/ETF-RTH-calibrated only -- see
+        -- migration 318.
+        (entry_ts IS NOT NULL
+            AND EXTRACT(EPOCH FROM (entry_ts - bar_ts)) > %(gap_multiplier)s * %(tf_seconds)s
+            AND EXTRACT(EPOCH FROM (entry_ts - bar_ts)) < %(gap_max_seconds)s
+        ) AS has_gap_before_entry
     FROM windowed
     WHERE bar_ts > %(hwm)s
 )
@@ -300,6 +317,7 @@ SELECT
     pipeline_version,
     {return_names},
     {complete_names},
+    has_gap_before_entry,
     {suspect_cols}
 FROM returns
 ORDER BY bar_ts
@@ -320,12 +338,14 @@ INSERT INTO forward_returns (
     forward_return_id, symbol, tf, bar_ts, pipeline_version, return_type,
     {return_cols},
     {complete_cols},
+    has_gap_before_entry,
     {suspect_cols}
 )
 VALUES (
     %(forward_return_id)s, %(symbol)s, %(tf)s, %(bar_ts)s, %(pipeline_version)s, %(return_type)s,
     {return_vals},
     {complete_vals},
+    %(has_gap_before_entry)s,
     {suspect_vals}
 )
 ON CONFLICT (symbol, tf, bar_ts) DO NOTHING
@@ -474,6 +494,8 @@ def _label_symbol_tf(
     max_abs_return_by_scale: dict[str, float],
     forward_return_sql: str,
     insert_sql: str,
+    gap_multiplier: float,
+    gap_max_seconds: int,
     batch_size: int = _INSERT_BATCH_SIZE_DEFAULT,
 ) -> tuple[int, int]:
     """Compute and insert forward returns for one (symbol, tf) cell.
@@ -511,6 +533,9 @@ def _label_symbol_tf(
             "tf": tf,
             "training_window_end": training_window_end,
             "hwm": hwm,
+            "gap_multiplier": gap_multiplier,
+            "gap_max_seconds": gap_max_seconds,
+            "tf_seconds": tf_to_seconds(tf),
             **{
                 f"max_abs_return_{scale}": ceiling
                 for scale, ceiling in max_abs_return_by_scale.items()
@@ -725,6 +750,12 @@ def main() -> None:
                     cfg.get_sync("alpha.ic.insert_batch_size", _INSERT_BATCH_SIZE_DEFAULT)
                 )
 
+                # has_gap_before_entry thresholds (todo 334, migration 318) -- global,
+                # not per-tf (tf's own interval is derived separately via
+                # tf_to_seconds() inside _label_symbol_tf).
+                gap_multiplier = float(cfg.get_sync("alpha.forward_returns.gap_multiplier", 3))
+                gap_max_seconds = int(cfg.get_sync("alpha.forward_returns.gap_max_seconds", 14400))
+
                 # Load lookahead periods from APR, per tf (alpha.ic.lookahead.{tf}.{scale})
                 # -- todo 146: a single global grid was measuring a different real-world
                 # horizon per tf under the same scale name (60 bars is ~3 months at 1d,
@@ -808,6 +839,8 @@ def main() -> None:
                                 max_abs_return_by_scale=max_abs_return_by_tf_scale[tf],
                                 forward_return_sql=forward_return_sql_by_tf[tf],
                                 insert_sql=insert_sql,
+                                gap_multiplier=gap_multiplier,
+                                gap_max_seconds=gap_max_seconds,
                                 batch_size=batch_size,
                             )
                             total_inserted += n
