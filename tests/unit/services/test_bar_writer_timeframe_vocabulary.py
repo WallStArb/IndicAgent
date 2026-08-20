@@ -1,5 +1,5 @@
 """Regression tests for todo 327 — BarWriter._bars_written_attrs is built from CVR's
-`timeframe` namespace via src.core.timeframe_vocabulary, not the hardcoded module-level
+`timeframe` namespace via src.core.vocabulary_access, not the hardcoded module-level
 _BAR_TFS tuple that used to be read eagerly in __init__.
 
 __init__ must stay synchronous (no VocabularyService dependency), so
@@ -19,7 +19,7 @@ from unittest.mock import MagicMock
 import pytest
 
 import services.bar_writer as bar_writer_module
-from src.core import timeframe_vocabulary
+from src.core import vocabulary_access
 from tests.unit._vocabulary_fakes import FakeVocabularyService
 
 
@@ -41,9 +41,9 @@ def _make_bare_agent():
 
 @pytest.fixture(autouse=True)
 def _reset_vocab():
-    timeframe_vocabulary.reset_vocabulary_service_for_test()
+    vocabulary_access.reset_vocabulary_service_for_test()
     yield
-    timeframe_vocabulary.reset_vocabulary_service_for_test()
+    vocabulary_access.reset_vocabulary_service_for_test()
 
 
 @pytest.mark.unit
@@ -59,24 +59,24 @@ def test_init_does_not_require_vocabulary_service():
 @pytest.mark.unit
 async def test_prewarm_timeframe_vocabulary_builds_bars_written_attrs(monkeypatch):
     """_prewarm_timeframe_vocabulary() registers a VocabularyService with
-    timeframe_vocabulary and rebuilds _bars_written_attrs from CVR's registered
+    vocabulary_access and rebuilds _bars_written_attrs from CVR's registered
     codes, not the removed hardcoded tuple."""
     # Deliberately differs from the old hardcoded _BAR_TFS tuple (adds "30m"), so
     # a passing assertion proves the value came from the registry, not a stale
-    # fallback. Patched on timeframe_vocabulary -- prewarm() constructs
+    # fallback. Patched on vocabulary_access -- prewarm() constructs
     # VocabularyService there now, not in bar_writer's own module.
     monkeypatch.setattr(
-        timeframe_vocabulary,
+        vocabulary_access,
         "VocabularyService",
         FakeVocabularyService(["1m", "5m", "15m", "30m", "1h", "4h", "1d"]),
     )
     agent = _make_bare_agent()
 
-    assert timeframe_vocabulary._vocab_service is None
+    assert vocabulary_access._vocab_service is None
 
     await agent._prewarm_timeframe_vocabulary()
 
-    assert timeframe_vocabulary._vocab_service is agent._vocabulary_service
+    assert vocabulary_access._vocab_service is agent._vocabulary_service
     assert agent._vocabulary_service.initialized is True
     assert set(agent._bars_written_attrs.keys()) == {
         "1m",
@@ -92,6 +92,6 @@ async def test_prewarm_timeframe_vocabulary_builds_bars_written_attrs(monkeypatc
 
 @pytest.mark.unit
 def test_bar_tfs_module_constant_removed():
-    """_BAR_TFS must no longer exist at module level -- timeframe_vocabulary is the
+    """_BAR_TFS must no longer exist at module level -- vocabulary_access is the
     sole source of the standard timeframe set now (todo 327)."""
     assert not hasattr(bar_writer_module, "_BAR_TFS")

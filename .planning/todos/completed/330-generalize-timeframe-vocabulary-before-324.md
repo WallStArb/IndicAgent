@@ -1,5 +1,24 @@
 # 330 - Generalize `src/core/timeframe_vocabulary.py` to a namespace-parameterized module before todo 324 lands
 
+## Closed 2026-08-20
+
+Executed exactly as scoped. `src/core/timeframe_vocabulary.py` → `src/core/vocabulary_access.py`
+(`git mv`); `standard_timeframes()`/`assert_known_subset()` generalized behind a new
+`codes(namespace, default)` primitive, `assert_known_subset(namespace, values, *, context)` gained
+the `namespace` parameter. `standard_timeframes(default=...)` kept as a 3-line wrapper
+(`return codes("timeframe", default)`) exactly as the fix specified, so all 6 real call sites
+(`bar_writer.py`, `hmm_training_agent.py`, `feature_vector_pipeline.py`, `signal_auditor.py`,
+`feature_validation_analyzer.py`, `hmm_trainer.py` — one more than the todo's "5 known", `hmm_training_agent.py`
+wasn't counted at filing time) needed only an import-path change; the two `assert_known_subset`
+call sites (`signal_auditor.py`, `feature_validation_analyzer.py`) additionally got `"timeframe"`
+threaded in as the new first positional argument. `tests/unit/core/test_timeframe_vocabulary.py`
+renamed to `test_vocabulary_access.py` and rewritten against the generalized API, including a new
+test proving `codes()`/`assert_known_subset()` work against an arbitrary namespace (not hardcoded
+to `"timeframe"`) — the actual property todo 324 will depend on. `tools/vulture_whitelist.py`'s
+two path/line-number references updated to match. Full `tests/unit/` suite green (no regressions).
+Todo 324, when it lands, can now call `codes("gradient_scale", ...)`/`assert_known_subset("gradient_scale", ...)`
+directly against this module — no new module, no second `_vocab_service` global.
+
 **Filed:** 2026-08-16
 **Source:** Final whole-branch review of todo 327 (subagent-driven-development, opus reviewer),
 Important finding #5.

@@ -991,6 +991,6 @@ WarmupProvider  # unused class (src/persistence/logic/warmup_provider.py:46)
 KSDriftMonitor  # unused class (src/monitoring/ks_drift_monitor.py:106)
 _.process  # unused method (src/intelligence/pipeline/signal_processor.py:284)
 PluginValidator  # unused class (src/intelligence/plugin_validator.py:105)
-reset_vocabulary_service_for_test  # unused function (src/core/timeframe_vocabulary.py:42) - test-only helper, real caller is tests/unit/core/test_timeframe_vocabulary.py, invisible to vulture's src/services/scripts-only scan paths (todo 327 final review)
-_._vocabulary_service  # unused attribute (services/bar_writer.py:124) - written by _prewarm_timeframe_vocabulary(), read only in tests (asserted directly) after the /simplify pass folded its .initialize() call into timeframe_vocabulary.prewarm(), removing the only production-code read
+reset_vocabulary_service_for_test  # unused function (src/core/vocabulary_access.py:56) - test-only helper, real caller is tests/unit/core/test_vocabulary_access.py, invisible to vulture's src/services/scripts-only scan paths (todo 327 final review, renamed todo 330)
+_._vocabulary_service  # unused attribute (services/bar_writer.py:124) - written by _prewarm_timeframe_vocabulary(), read only in tests (asserted directly) after the /simplify pass folded its .initialize() call into vocabulary_access.prewarm(), removing the only production-code read
 _._vocabulary_service  # unused attribute (services/feature_vector_pipeline.py:208) - same as above

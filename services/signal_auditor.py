@@ -24,7 +24,7 @@ import asyncpg
 from opentelemetry import metrics as _otel_metrics
 
 from src.config.settings import get_active_contracts
-from src.core import timeframe_vocabulary
+from src.core import vocabulary_access
 from src.core.agent.base import BaseDaemon
 from src.core.database_manager import create_pool as create_db_pool
 from src.core.kafka_utils import KafkaProducerClient
@@ -133,9 +133,9 @@ class SignalAuditor(BaseDaemon):
         # CVR prewarm: _COVERAGE_TFS is a deliberate literal subset (excludes 1d),
         # so this only asserts it stays a subset of what CVR has registered --
         # catches drift without widening the audited timeframe set (todo 327).
-        await timeframe_vocabulary.prewarm(self.settings.database_url, self._db_pool)
-        timeframe_vocabulary.assert_known_subset(
-            _COVERAGE_TFS, context="SignalAuditor._COVERAGE_TFS"
+        await vocabulary_access.prewarm(self.settings.database_url, self._db_pool)
+        vocabulary_access.assert_known_subset(
+            "timeframe", _COVERAGE_TFS, context="SignalAuditor._COVERAGE_TFS"
         )
 
         self.logger.info(

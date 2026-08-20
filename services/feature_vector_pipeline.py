@@ -30,7 +30,7 @@ from src.config.settings import (
     invalidate_active_contracts_cache,
 )
 from src.config.vocabulary_service import VocabularyService
-from src.core import timeframe_vocabulary
+from src.core import vocabulary_access
 from src.core.agent.base import BaseDaemon
 from src.core.bar_history import BarHistory
 from src.core.database_manager import DatabaseManager
@@ -461,7 +461,7 @@ class FeatureVectorPipeline(BaseDaemon):
         self._config_service = ConfigService(self.settings.database_url, pool=self._db.pool)
         await self._prewarm_threshold_config()
 
-        # VocabularyService: shared pool, registers timeframe_vocabulary so
+        # VocabularyService: shared pool, registers vocabulary_access so
         # self._timeframes reads CVR's `timeframe` namespace instead of a hardcoded
         # tuple (todo 327).
         await self._prewarm_timeframe_vocabulary()
@@ -957,13 +957,13 @@ class FeatureVectorPipeline(BaseDaemon):
     )
 
     async def _prewarm_timeframe_vocabulary(self) -> None:
-        """Register a VocabularyService with timeframe_vocabulary and load
+        """Register a VocabularyService with vocabulary_access and load
         self._timeframes from CVR's `timeframe` namespace instead of a hardcoded
         tuple (todo 327)."""
-        self._vocabulary_service = await timeframe_vocabulary.prewarm(
+        self._vocabulary_service = await vocabulary_access.prewarm(
             self.settings.database_url, self._db.pool
         )
-        self._timeframes = list(timeframe_vocabulary.standard_timeframes())
+        self._timeframes = list(vocabulary_access.standard_timeframes())
 
     async def _prewarm_threshold_config(self) -> None:
         """Prewarm config cache and build FeatureFactoryConfig from feature.* keys."""

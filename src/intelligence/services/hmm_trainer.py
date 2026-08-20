@@ -45,7 +45,7 @@ import numpy as np
 import structlog
 
 from src.config.settings import Settings
-from src.core import timeframe_vocabulary
+from src.core import vocabulary_access
 from src.core.service_utils import setup_service_logging
 
 logger = structlog.get_logger(__name__)
@@ -101,7 +101,7 @@ class HMMTrainer:
         self._db = db_manager
         self._settings = settings
         if target_tfs is None:
-            target_tfs = timeframe_vocabulary.standard_timeframes()
+            target_tfs = vocabulary_access.standard_timeframes()
         self._target_tfs = target_tfs
         self._lookback_days = lookback_days or dict(_LOOKBACK_DAYS_BY_TF)
         self._config_service: Any | None = None

@@ -2,12 +2,12 @@
 
 `FakeVocabularyService` was independently copy-pasted, byte-for-byte identical
 apart from its `active_codes()` return value, across 4 test files exercising
-`timeframe_vocabulary.prewarm()` call sites (bar_writer, feature_vector_pipeline,
+`vocabulary_access.prewarm()` call sites (bar_writer, feature_vector_pipeline,
 signal_auditor, feature_validation_analyzer -- todo 327). Extracted here during
 the /simplify pass that followed todo 327's merge.
 
-Patch target: `src.core.timeframe_vocabulary.VocabularyService` -- every real
-call site now goes through `timeframe_vocabulary.prewarm()`, which constructs
+Patch target: `src.core.vocabulary_access.VocabularyService` -- every real
+call site now goes through `vocabulary_access.prewarm()`, which constructs
 `VocabularyService` inside that module, not inside the daemon's own module.
 """
 

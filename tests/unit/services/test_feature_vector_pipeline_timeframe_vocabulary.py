@@ -1,5 +1,5 @@
 """Regression test for todo 327 — self._timeframes reads CVR's `timeframe`
-namespace via src.core.timeframe_vocabulary, not the hardcoded module-level
+namespace via src.core.vocabulary_access, not the hardcoded module-level
 _STANDARD_TFS tuple that used to be assigned in __init__.
 
 No existing test in this test-file family exercises FeatureVectorPipeline._setup()
@@ -16,45 +16,45 @@ from __future__ import annotations
 import pytest
 
 import services.feature_vector_pipeline as fvp_module
-from src.core import timeframe_vocabulary
+from src.core import vocabulary_access
 from tests.unit._vocabulary_fakes import FakeVocabularyService
 from tests.unit.pipeline.pipeline_helpers import make_agent
 
 
 @pytest.fixture(autouse=True)
 def _reset_vocab():
-    timeframe_vocabulary.reset_vocabulary_service_for_test()
+    vocabulary_access.reset_vocabulary_service_for_test()
     yield
-    timeframe_vocabulary.reset_vocabulary_service_for_test()
+    vocabulary_access.reset_vocabulary_service_for_test()
 
 
 @pytest.mark.unit
 async def test_setup_prewarms_timeframe_vocabulary(monkeypatch):
     """_prewarm_timeframe_vocabulary() registers a VocabularyService with
-    timeframe_vocabulary so self._timeframes reflects CVR's registered set,
+    vocabulary_access so self._timeframes reflects CVR's registered set,
     not the hardcoded default."""
     # Deliberately differs from the old hardcoded _STANDARD_TFS tuple (adds
     # "30m"), so a passing assertion proves the value came from the registry, not
-    # a stale fallback. Patched on timeframe_vocabulary -- prewarm() constructs
+    # a stale fallback. Patched on vocabulary_access -- prewarm() constructs
     # VocabularyService there now, not in feature_vector_pipeline's own module.
     monkeypatch.setattr(
-        timeframe_vocabulary,
+        vocabulary_access,
         "VocabularyService",
         FakeVocabularyService(["1m", "5m", "15m", "30m", "1h", "4h", "1d"]),
     )
     agent = make_agent()
 
-    assert timeframe_vocabulary._vocab_service is None
+    assert vocabulary_access._vocab_service is None
 
     await agent._prewarm_timeframe_vocabulary()
 
-    assert timeframe_vocabulary._vocab_service is agent._vocabulary_service
+    assert vocabulary_access._vocab_service is agent._vocabulary_service
     assert agent._vocabulary_service.initialized is True
     assert agent._timeframes == ["1m", "5m", "15m", "30m", "1h", "4h", "1d"]
 
 
 @pytest.mark.unit
 def test_standard_tfs_module_constant_removed():
-    """_STANDARD_TFS must no longer exist at module level — timeframe_vocabulary
+    """_STANDARD_TFS must no longer exist at module level — vocabulary_access
     is the sole source of the standard timeframe set now (todo 327)."""
     assert not hasattr(fvp_module, "_STANDARD_TFS")

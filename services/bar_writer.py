@@ -30,7 +30,7 @@ from opentelemetry import metrics as _otel_metrics
 from pydantic import ValidationError
 
 from src.config.vocabulary_service import VocabularyService
-from src.core import timeframe_vocabulary
+from src.core import vocabulary_access
 from src.core.agent.base_writer import BaseWriter
 from src.core.bar_normalizer import SOURCE_UNKNOWN
 from src.core.database_manager import create_pool as create_db_pool
@@ -202,7 +202,7 @@ class BarWriter(BaseWriter):
         """Connect asyncpg pool and Kafka consumer."""
         self._db_pool = await create_db_pool(self.settings.database_url)
 
-        # VocabularyService: shared pool, registers timeframe_vocabulary so
+        # VocabularyService: shared pool, registers vocabulary_access so
         # _bars_written_attrs reads CVR's `timeframe` namespace instead of a
         # hardcoded tuple (todo 327).
         await self._prewarm_timeframe_vocabulary()
@@ -247,14 +247,14 @@ class BarWriter(BaseWriter):
         )
 
     async def _prewarm_timeframe_vocabulary(self) -> None:
-        """Register a VocabularyService with timeframe_vocabulary and build
+        """Register a VocabularyService with vocabulary_access and build
         _bars_written_attrs from CVR's `timeframe` namespace instead of a hardcoded
         tuple (todo 327)."""
-        self._vocabulary_service = await timeframe_vocabulary.prewarm(
+        self._vocabulary_service = await vocabulary_access.prewarm(
             self.settings.database_url, self._db_pool
         )
         self._bars_written_attrs = {
-            tf: {"agent": self.name, "tf": tf} for tf in timeframe_vocabulary.standard_timeframes()
+            tf: {"agent": self.name, "tf": tf} for tf in vocabulary_access.standard_timeframes()
         }
 
     async def _run(self) -> None:

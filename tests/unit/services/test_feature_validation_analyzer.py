@@ -23,7 +23,7 @@ from unittest.mock import AsyncMock, MagicMock, patch
 import pandas as pd
 import pytest
 
-from src.core import timeframe_vocabulary
+from src.core import vocabulary_access
 from src.intelligence.services.feature_validation_analyzer import (
     FeatureValidationAnalyzer,
 )
@@ -436,7 +436,7 @@ def test_individual_slice_failure_does_not_crash_run():
 def test_setup_asserts_timeframes_subset_of_cvr():
     """_setup() prewarms VocabularyService and validates _TIMEFRAMES is a subset of
     CVR's registered timeframe codes -- catches drift without changing behavior."""
-    timeframe_vocabulary.reset_vocabulary_service_for_test()
+    vocabulary_access.reset_vocabulary_service_for_test()
 
     pool, _conn = _make_pool_with_conn()
     agent = _make_agent(pool)
@@ -444,13 +444,13 @@ def test_setup_asserts_timeframes_subset_of_cvr():
     with (
         patch(f"{_AGENT_MODULE}.create_db_pool", new=AsyncMock(return_value=pool)),
         patch(
-            "src.core.timeframe_vocabulary.VocabularyService",
+            "src.core.vocabulary_access.VocabularyService",
             FakeVocabularyService(["1m", "5m", "15m", "1h", "4h", "1d"]),
         ),
     ):
         _run(agent._setup())
 
-    assert timeframe_vocabulary._vocab_service is not None
-    assert timeframe_vocabulary._vocab_service.initialized is True
+    assert vocabulary_access._vocab_service is not None
+    assert vocabulary_access._vocab_service.initialized is True
 
-    timeframe_vocabulary.reset_vocabulary_service_for_test()
+    vocabulary_access.reset_vocabulary_service_for_test()

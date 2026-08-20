@@ -32,7 +32,7 @@ import pandas as pd
 import structlog
 
 from src.config.settings import Settings
-from src.core import timeframe_vocabulary
+from src.core import vocabulary_access
 from src.core.database_manager import create_pool as create_db_pool
 from src.core.service_utils import setup_service_logging
 from src.observability.metrics import FEATURE_VALIDATION_DECISIONS_TOTAL
@@ -87,9 +87,9 @@ class FeatureValidationAnalyzer:
         # reason found to expand it to the full CVR set), so this only asserts it
         # stays a subset of what CVR has registered -- catches drift without
         # widening validation scope (todo 327).
-        await timeframe_vocabulary.prewarm(self._settings.database_url, self._pool)
-        timeframe_vocabulary.assert_known_subset(
-            tuple(_TIMEFRAMES), context="FeatureValidationAnalyzer._TIMEFRAMES"
+        await vocabulary_access.prewarm(self._settings.database_url, self._pool)
+        vocabulary_access.assert_known_subset(
+            "timeframe", tuple(_TIMEFRAMES), context="FeatureValidationAnalyzer._TIMEFRAMES"
         )
 
         logger.info("feature_validation.setup_complete")

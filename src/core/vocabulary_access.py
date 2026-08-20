@@ -1,4 +1,4 @@
-"""Timeframe vocabulary - cached read-side accessor over CVR's `timeframe` namespace.
+"""Vocabulary access - cached read-side accessor over CVR namespaces.
 
 Ring 0 (`src/core/`). Mirrors the module-level `ConfigService` consumer pattern
 documented in CLAUDE.md's "Migrate-as-you-go" section (`_config_service: Any | None
@@ -10,6 +10,13 @@ zero further DB calls (docs/foundation/controlled-vocabulary-registry.md), so th
 wrapper adds no additional caching of its own, just a well-known Ring 0 access point
 so callers don't need a `VocabularyService` instance threaded through every
 constructor (todo 327).
+
+Originally `timeframe_vocabulary.py`, scoped to CVR's `timeframe` namespace only.
+Generalized to any CVR namespace (todo 330) so a second consumer (todo 324's
+`gradient_scale` namespace) doesn't need its own copy of this same registration/
+fallback/logging shape - one registered `VocabularyService` per process, read via
+`codes(namespace, ...)`. `standard_timeframes()` is kept as a thin convenience
+wrapper so `timeframe`'s existing call sites need no change beyond the import path.
 """
 
 from __future__ import annotations
@@ -68,8 +75,8 @@ async def prewarm(database_url: str, pool: asyncpg.Pool | None) -> VocabularySer
     return vocab
 
 
-def standard_timeframes(default: tuple[str, ...] = _DEFAULT_TIMEFRAMES) -> tuple[str, ...]:
-    """All registered, non-deprecated `timeframe` codes, in CVR sort_order.
+def codes(namespace: str, default: tuple[str, ...]) -> tuple[str, ...]:
+    """All registered, non-deprecated codes for `namespace`, in CVR sort_order.
 
     Falls back to `default` if no `VocabularyService` has been registered yet (silent -
     documented, intentional fallback for a script/test running outside daemon startup),
@@ -81,34 +88,44 @@ def standard_timeframes(default: tuple[str, ...] = _DEFAULT_TIMEFRAMES) -> tuple
     """
     if _vocab_service is None:
         return default
-    codes = _vocab_service.active_codes("timeframe")
-    if not codes:
+    result = _vocab_service.active_codes(namespace)
+    if not result:
         logger.warning(
-            "timeframe_vocabulary.empty_registry_fallback",
+            "vocabulary_access.empty_registry_fallback",
+            namespace=namespace,
             default=default,
         )
         return default
-    return tuple(codes)
+    return tuple(result)
 
 
-def assert_known_subset(timeframes: tuple[str, ...], *, context: str) -> None:
-    """Raise if any of `timeframes` isn't a registered CVR `timeframe` code.
+def standard_timeframes(default: tuple[str, ...] = _DEFAULT_TIMEFRAMES) -> tuple[str, ...]:
+    """All registered, non-deprecated `timeframe` codes, in CVR sort_order.
 
-    For call sites that deliberately use a subset of all registered timeframes (e.g.
+    Thin convenience wrapper over `codes("timeframe", default)` - kept so
+    `timeframe`'s existing call sites don't need to spell out the namespace.
+    """
+    return codes("timeframe", default)
+
+
+def assert_known_subset(namespace: str, values: tuple[str, ...], *, context: str) -> None:
+    """Raise if any of `values` isn't a registered CVR code for `namespace`.
+
+    For call sites that deliberately use a subset of all registered codes (e.g.
     `signal_auditor.py`'s coverage check intentionally excludes `1d`) rather than the
     full dynamic set - keeps the subset as an explicit literal (preserving whatever
     intentional scoping it encodes) while still closing the actual drift risk D-07
-    exists to prevent: a hardcoded subset silently referencing a timeframe that no
-    longer exists (or never did). A no-op if no `VocabularyService` is registered -
-    matches `standard_timeframes()`'s same fallback-permissive contract for scripts/
-    tests running outside daemon startup.
+    exists to prevent: a hardcoded subset silently referencing a code that no longer
+    exists (or never did). A no-op if no `VocabularyService` is registered - matches
+    `codes()`'s same fallback-permissive contract for scripts/tests running outside
+    daemon startup.
     """
     if _vocab_service is None:
         return
-    known = set(_vocab_service.active_codes("timeframe"))
-    unknown = [tf for tf in timeframes if tf not in known]
+    known = set(_vocab_service.active_codes(namespace))
+    unknown = [v for v in values if v not in known]
     if unknown:
         raise ValueError(
-            f"{context}: timeframe(s) {unknown} not registered in CVR's `timeframe` "
-            f"namespace (known: {sorted(known)})"
+            f"{context}: {namespace} value(s) {unknown} not registered in CVR's "
+            f"`{namespace}` namespace (known: {sorted(known)})"
         )
