@@ -81,6 +81,44 @@ either.
 4. Add regression coverage: a test that starts a compression-policy-bearing hypertable's write
    session and asserts the policy job is paused for the duration and restored after.
 
+## Fix landed 2026-08-20 (P0-backlog loop iteration)
+
+All 4 scope items done, plus a real gap the fix's own code review found:
+
+1. **Pause/restore built into both `compressed_hypertable_write_session` (sync) and
+   `async_compressed_hypertable_write_session`** -- `alter_job(job_id, scheduled =>
+   false)` at entry, restored to each job's own prior value at exit, via a shared
+   `_restore_compression_jobs_sync`/`_async` helper (not duplicated inline).
+2. **Checked**: `ic_engine.py`'s `feature_ic_scores` writes still don't go through the
+   write-session wrapper at all (confirmed, todo 307 unchanged) -- not this todo's fix to
+   make, already tracked separately.
+3. **Audited live**: both known compressed hypertables have an active compression policy
+   -- `feature_vectors` (job 1065) and `feature_ic_scores` (job 1071, not previously
+   flagged in this todo). The fix is keyed off `hypertable_name`, not hardcoded to
+   `feature_vectors`, so it already covers `feature_ic_scores` too, automatically, once
+   todo 307 wraps `ic_engine.py`'s writes in a session.
+4. **Regression coverage added**: pause-is-called / restore-uses-prior-value (not
+   unconditional true) / already-paused-stays-paused / no-jobs-is-a-no-op, for both sync
+   and async.
+
+**Code review (2026-08-20) caught a real bug in the first pass**: the pause happened
+before the `try/finally` that does the restore, so any entry-phase failure (GUC override
+or the decompress itself -- both documented as having actually killed this exact call
+live before, statement-timeout 2026-08-14 / idle-session 2026-08-15) left the job
+permanently stuck at `scheduled=false` with no compensating mechanism, unlike
+`decompress_chunk`'s own idempotent self-healing. Fixed: entry phase now wrapped in its
+own `try/except BaseException` that restores before re-raising. New regression tests
+(`test_entry_phase_failure_restores_paused_job_before_raising`, sync + async) prove this.
+
+**Second review finding, also fixed**: `services/compression_auditor.py`'s drift query
+had no `scheduled` filter -- it force-runs `CALL run_job()` on any hypertable whose
+chunks are overdue past the grace period, regardless of whether the job was intentionally
+paused. Without a filter, the auditor's next 6h cycle could re-trigger the exact deadlock
+this whole fix exists to prevent, if a write session ran long enough to cross the grace
+window. Fixed with a one-line `AND j.scheduled` addition to `_DRIFT_QUERY`.
+
+Full `tests/unit/` suite green throughout (same 2 pre-existing unrelated skips).
+
 ## Where
 
 - `services/_batch_utils.py` -- `compressed_hypertable_write_session` /

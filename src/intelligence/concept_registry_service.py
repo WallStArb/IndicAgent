@@ -305,7 +305,8 @@ _GATE_PROMOTE_UPDATE_SQL = """
 _LOAD_CONCEPTS_SYNC_SQL = """
     SELECT r.name, r.status, r.group_name, r.is_control, r.control_expectation,
            g.min_gate_metric, g.min_gate_n, g.fdr_required, g.fdr_alpha,
-           g.consecutive_shadow_passes, g.observations_since_demotion
+           g.consecutive_shadow_passes, g.observations_since_demotion,
+           g.consecutive_active_fails, g.min_demotion_consecutive
     FROM concept_registry r
     JOIN concept_gate g USING (concept_id)
     WHERE r.domain = %s
@@ -354,6 +355,31 @@ _ADVANCE_SHADOW_COUNTERS_SYNC_SQL = """
             ELSE 0
         END,
         observations_since_demotion = g.observations_since_demotion + %s
+    FROM concept_registry r
+    WHERE g.concept_id = r.concept_id AND r.domain = %s AND r.name = %s
+"""
+
+# Todo 323: demotion-side sibling of _ADVANCE_SHADOW_COUNTERS_SYNC_SQL above -- same
+# CASE-increment-or-reset shape, mirrored onto the active-concept fail-streak instead of
+# the shadow-concept recovery streak.
+_ADVANCE_ACTIVE_COUNTERS_SYNC_SQL = """
+    UPDATE concept_gate g
+    SET consecutive_active_fails = CASE
+            WHEN %s THEN 0
+            ELSE g.consecutive_active_fails + 1
+        END
+    FROM concept_registry r
+    WHERE g.concept_id = r.concept_id AND r.domain = %s AND r.name = %s
+"""
+
+# Todo 323: reset consecutive_active_fails on any transition INTO active, symmetric with
+# _RESET_SHADOW_COUNTERS_SYNC_SQL's reset on transition into shadow_only -- a freshly
+# (re)promoted concept must not inherit a stale fail-streak from before its last
+# demotion, mirroring the "re-earn the full evidence bar" discipline that reset already
+# enforces on the recovery side.
+_RESET_ACTIVE_COUNTERS_SYNC_SQL = """
+    UPDATE concept_gate g
+    SET consecutive_active_fails = 0
     FROM concept_registry r
     WHERE g.concept_id = r.concept_id AND r.domain = %s AND r.name = %s
 """
@@ -693,6 +719,11 @@ class ConceptRegistryService:
         after a single passing run on its second shadow period instead of
         re-earning the full evidence bar.
 
+        Fail-streak reset (todo 323): symmetrically, whenever to_status == 'active',
+        consecutive_active_fails resets to 0 -- a freshly (re)promoted concept must not
+        inherit a stale demotion fail-streak from before its last decay, same
+        re-earn-the-evidence-bar discipline as the shadow-side reset above.
+
         On a successful commit, mutates self._concepts[name] so a subsequent
         is_promotion_eligible read within the same process sees fresh state
         immediately, never stale data.
@@ -712,6 +743,7 @@ class ConceptRegistryService:
             )
 
         reset_counters = to_status == "shadow_only"
+        reset_active_counters = to_status == "active"
 
         try:
             with conn.transaction():
@@ -736,6 +768,8 @@ class ConceptRegistryService:
 
                     if reset_counters:
                         cur.execute(_RESET_SHADOW_COUNTERS_SYNC_SQL, (domain, name))
+                    if reset_active_counters:
+                        cur.execute(_RESET_ACTIVE_COUNTERS_SYNC_SQL, (domain, name))
 
                     cur.execute(
                         _TRANSITION_LOG_INSERT_SYNC_SQL,
@@ -781,6 +815,8 @@ class ConceptRegistryService:
             if reset_counters:
                 concept["consecutive_shadow_passes"] = 0
                 concept["observations_since_demotion"] = 0
+            if reset_active_counters:
+                concept["consecutive_active_fails"] = 0
         _logger.info(
             "concept_registry.transition_recorded_sync",
             domain=domain,
@@ -802,10 +838,10 @@ class ConceptRegistryService:
     ) -> None:
         """Advance a shadow_only concept's recovery counters after a corpus run.
 
-        The ONLY counter mutation path outside record_transition_sync's reset --
-        there is no fail-counter for active concepts; demotion is decided by the
-        caller's per-run materiality check, not by any registry counter (mirrors
-        FeatureRegistryService.advance_shadow_counters_sync exactly).
+        Mirrors FeatureRegistryService.advance_shadow_counters_sync exactly. Todo 323:
+        previously the only counter mutation path -- an active concept's demotion used
+        to be decided by a single run's materiality check with no fail-counter at all.
+        advance_active_counters_sync below is now the demotion-side sibling.
 
         One conn.transaction() block: increments consecutive_shadow_passes if
         passed else resets it to 0, and always adds new_observations to
@@ -840,6 +876,44 @@ class ConceptRegistryService:
             new_observations=new_observations,
         )
 
+    def advance_active_counters_sync(
+        self,
+        conn: Any,
+        *,
+        domain: str,
+        name: str,
+        passed: bool,
+    ) -> None:
+        """Todo 323: advance an active concept's demotion fail-streak after a corpus run.
+
+        Demotion-side sibling of advance_shadow_counters_sync above -- same shape,
+        mirrored onto consecutive_active_fails instead of consecutive_shadow_passes.
+        `passed` means "this run's cross-sectional materiality check did NOT trigger
+        demotion" (demote_fraction < demotion_fraction_floor) -- the caller (ic_engine.py)
+        must call this for EVERY active concept evaluated this run, not just failing
+        ones, so a recovering concept's streak actually resets to 0 rather than sitting
+        stale. Call is_demotion_eligible() after this to decide whether to actually call
+        record_transition_sync(..., to_status="shadow_only").
+
+        Not a bare `with conn:` -- see record_transition_sync's docstring for why.
+        """
+        with conn.transaction():
+            with conn.cursor() as cur:
+                cur.execute(_ADVANCE_ACTIVE_COUNTERS_SYNC_SQL, (passed, domain, name))
+
+        concept = self._concepts.get(name)
+        if concept is not None:
+            if passed:
+                concept["consecutive_active_fails"] = 0
+            else:
+                concept["consecutive_active_fails"] = concept.get("consecutive_active_fails", 0) + 1
+        _logger.info(
+            "concept_registry.active_counters_advanced_sync",
+            domain=domain,
+            name=name,
+            passed=passed,
+        )
+
     def is_promotion_eligible(
         self,
         name: str,
@@ -862,6 +936,28 @@ class ConceptRegistryService:
         passes = concept.get("consecutive_shadow_passes", 0)
         observations = concept.get("observations_since_demotion", 0)
         return passes >= recovery_min_passes and observations >= recovery_min_observations
+
+    def is_demotion_eligible(self, name: str, min_demotion_consecutive: int) -> bool:
+        """Todo 323: evidence-only active -> shadow_only demotion predicate, the
+        demotion-side sibling of is_promotion_eligible above.
+
+        True iff consecutive_active_fails >= min_demotion_consecutive, read from the
+        in-memory cache. min_demotion_consecutive is caller-supplied -- the caller
+        resolves the per-concept concept_gate.min_demotion_consecutive override (read via
+        get_all_concepts(), NULL means unset) against its own APR-sourced domain default
+        BEFORE calling this, same "non-NULL column overrides an APR default" convention
+        record_comparison_outcome's default_min_promotion_consecutive parameter already
+        uses on the async path -- never hard-coded here.
+
+        Returns False for an unknown name (fail-closed: an unrecognized concept is never
+        eligible for demotion via this predicate, though in practice a demotion caller
+        only ever calls this for a concept it already loaded from the same domain).
+        """
+        concept = self._concepts.get(name)
+        if concept is None:
+            return False
+        fails = concept.get("consecutive_active_fails", 0)
+        return fails >= min_demotion_consecutive
 
     def get_all_concepts(self) -> list[dict[str, Any]]:
         """Return ALL loaded concepts regardless of status.

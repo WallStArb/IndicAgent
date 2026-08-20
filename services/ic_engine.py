@@ -530,6 +530,7 @@ class ICEngineConfig:
     guard_history_window: int = 20
     decay_recovery_min_observations: int = 2000
     decay_recovery_min_passes: int = 2
+    demotion_min_consecutive: int = 2
     meta_fdr_min_fraction: float = 0.50
     ic_staleness_alert_days: int = 5
     # Fable N4: pins the standing-weight JOIN to the APR champion weight_version --
@@ -763,6 +764,7 @@ class ICEngineConfig:
                 cfg.get_sync("alpha.decay.recovery_min_observations", 2000)
             ),
             decay_recovery_min_passes=int(cfg.get_sync("alpha.decay.recovery_min_passes", 2)),
+            demotion_min_consecutive=int(cfg.get_sync("alpha.decay.demotion_min_consecutive", 2)),
             meta_fdr_min_fraction=float(cfg.get_sync("alpha.ensemble.meta_fdr_min_fraction", 0.50)),
             # New key (migration 219).
             ic_staleness_alert_days=int(cfg.get_sync("alpha.ic.staleness_alert_days", 5)),
@@ -932,6 +934,7 @@ _OPERATIONAL_CONFIG_FIELDS: frozenset[str] = frozenset(
         "guard_history_window",  # lifecycle hook only (regime-shift guard rail)
         "decay_recovery_min_observations",  # lifecycle hook only
         "decay_recovery_min_passes",  # lifecycle hook only
+        "demotion_min_consecutive",  # lifecycle hook only (todo 323 demotion hysteresis)
         "meta_fdr_min_fraction",  # lifecycle hook only (demotion floor)
         "ic_staleness_alert_days",  # observability/alerting threshold only
         "ensemble_weight_version",  # pins lifecycle hook's standing-weight JOIN only
@@ -4327,11 +4330,14 @@ def _apply_feature_transitions(
 
     # concept_svc is the sole feature-lifecycle status source (Phase 170 Plan 08 --
     # the parity precondition against feature_registry that used to live here was
-    # removed along with the registry itself; there is only one registry now).
-    concept_status_by_feature = {c["name"]: c["status"] for c in concept_svc.get_all_concepts()}
+    # removed along with the registry itself; there is only one registry now). Full
+    # concept dict, not just status (todo 323) -- min_demotion_consecutive's per-concept
+    # override lives on this same row.
+    concepts_by_feature = {c["name"]: c for c in concept_svc.get_all_concepts()}
 
     for feature_name, cells in cells_by_feature.items():
-        status = concept_status_by_feature.get(feature_name)
+        concept = concepts_by_feature.get(feature_name)
+        status = concept["status"] if concept else None
 
         if status == "active":
             active_feature_cells = [c for c in cells if c["feature_status_at_eval"] == "active"]
@@ -4339,7 +4345,29 @@ def _apply_feature_transitions(
                 continue
             material_fail_cells = [c for c in active_feature_cells if c["_material_fail"]]
             demote_fraction = len(material_fail_cells) / len(active_feature_cells)
-            if demote_fraction >= demotion_fraction_floor:
+            run_passed = demote_fraction < demotion_fraction_floor
+
+            # Todo 323: advance the fail-streak for EVERY active concept evaluated this
+            # run, not just ones about to be demoted -- a concept recovering from a
+            # prior bad run must have its streak actually reset to 0, or hysteresis
+            # never lets go once a concept gets close to the floor.
+            concept_svc.advance_active_counters_sync(
+                write_conn, domain="feature", name=feature_name, passed=run_passed
+            )
+
+            if not run_passed:
+                # Non-NULL concept_gate.min_demotion_consecutive overrides the APR
+                # default -- same convention record_comparison_outcome's
+                # default_min_promotion_consecutive parameter already uses.
+                min_demotion_consecutive = (
+                    concept.get("min_demotion_consecutive")
+                    if concept.get("min_demotion_consecutive") is not None
+                    else config.demotion_min_consecutive
+                )
+                if not concept_svc.is_demotion_eligible(feature_name, min_demotion_consecutive):
+                    # Fails again, but hasn't repeated enough times yet -- not demoted
+                    # this run (todo 323's whole point: one bad run is not proof).
+                    continue
                 # Representative aggregates for the ic_* audit fields (worst cell by
                 # ic_ci_lower, its own ic_sharpe_hac, summed n_independent).
                 #

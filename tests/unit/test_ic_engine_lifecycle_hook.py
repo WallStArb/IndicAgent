@@ -220,10 +220,18 @@ class _FakeConceptRegistryService:
         self._concepts = concepts
         self.transition_calls: list[tuple] = []
         self.advance_calls: list[tuple] = []
+        self.active_advance_calls: list[tuple] = []
         self.transition_return_value = True
 
     def get_all_concepts(self):
-        return [{"name": k, "status": v["status"]} for k, v in self._concepts.items()]
+        return [
+            {
+                "name": k,
+                "status": v["status"],
+                "min_demotion_consecutive": v.get("min_demotion_consecutive"),
+            }
+            for k, v in self._concepts.items()
+        ]
 
     def get_concept(self, name):
         concept = self._concepts.get(name)
@@ -276,6 +284,33 @@ class _FakeConceptRegistryService:
 
     def is_promotion_eligible(self, name, recovery_min_observations, recovery_min_passes):
         return self._concepts.get(name, {}).get("eligible", False)
+
+    def advance_active_counters_sync(self, conn, *, domain, name, passed):
+        """Todo 323 fake: tracks consecutive_active_fails the same shape the real
+        ConceptRegistryService does, so a test can exercise real multi-run hysteresis
+        by calling _apply_feature_transitions more than once against the same fake
+        instance."""
+        self.active_advance_calls.append((domain, name, passed))
+        concept = self._concepts.setdefault(name, {})
+        concept["consecutive_active_fails"] = (
+            0 if passed else concept.get("consecutive_active_fails", 0) + 1
+        )
+        conn.commit()
+
+    def is_demotion_eligible(self, name, min_demotion_consecutive):
+        """Defaults to True (not gated) unless a test explicitly opts a concept into
+        real hysteresis tracking via `hysteresis_tracked=True` in its fixture --
+        existing demotion tests exercise the cell-aggregation/audit-value write logic
+        downstream of eligibility, not the hysteresis mechanism itself, which gets its
+        own dedicated tests (TestDemotionHysteresis) against this same fake's tracked
+        consecutive_active_fails counter (set by advance_active_counters_sync above)
+        when a test wants that. Not gated on mere presence of consecutive_active_fails
+        in the dict -- advance_active_counters_sync always sets it before this is
+        called, so that alone can't distinguish "opted into tracking" from "not"."""
+        concept = self._concepts.get(name, {})
+        if concept.get("hysteresis_tracked"):
+            return concept.get("consecutive_active_fails", 0) >= min_demotion_consecutive
+        return concept.get("demotion_eligible", True)
 
 
 def _make_concept_registry(features: dict[str, dict]) -> _FakeConceptRegistryService:
@@ -453,6 +488,105 @@ def test_demotion_boundary_below_threshold_not_demoted(tmp_path):
     _run_lifecycle_hook(conn, concept, config, _T1, _make_manifest(tmp_path))
 
     assert concept.transition_calls == []
+
+
+def _material_fail_cells(n_failing: int, n_total: int = 10) -> list[dict]:
+    return [
+        _cell(
+            "featA",
+            "5m",
+            f"regime_{i}",
+            ic_ci_lower=-0.02 if i < n_failing else 0.03,
+            passes_fdr=i >= n_failing,
+            n_independent=1000,
+            status="active",
+        )
+        for i in range(n_total)
+    ]
+
+
+_EW_10 = [
+    {
+        "tf": "5m",
+        "regime": f"regime_{i}",
+        "feature_name": "featA",
+        "weight_version": "v1",
+        "weight": 0.5,
+    }
+    for i in range(10)
+]
+
+
+class TestDemotionHysteresis:
+    """Todo 323: one failing run must not demote an active concept -- demotion only
+    fires once consecutive_active_fails crosses min_demotion_consecutive. Uses the
+    fake's `hysteresis_tracked` opt-in (see _FakeConceptRegistryService.is_demotion_
+    eligible) to exercise the real counter semantics, unlike the plain demotion tests
+    above which default to already-eligible."""
+
+    def test_single_failing_run_advances_streak_but_does_not_demote(self, tmp_path):
+        config = _make_config(meta_fdr_min_fraction=0.50)
+        conn = _FakeLifecycleConn(_material_fail_cells(6), ensemble_weight_rows=_EW_10)
+        concept = _make_concept_registry(
+            {
+                "featA": {
+                    "status": "active",
+                    "hysteresis_tracked": True,
+                    "min_demotion_consecutive": 2,
+                }
+            }
+        )
+
+        _run_lifecycle_hook(conn, concept, config, _T1, _make_manifest(tmp_path))
+
+        assert concept.transition_calls == []
+        assert concept.active_advance_calls == [("feature", "featA", False)]
+        assert concept._concepts["featA"]["consecutive_active_fails"] == 1
+
+    def test_second_consecutive_failing_run_demotes(self, tmp_path):
+        config = _make_config(meta_fdr_min_fraction=0.50)
+        concept = _make_concept_registry(
+            {
+                "featA": {
+                    "status": "active",
+                    "hysteresis_tracked": True,
+                    "min_demotion_consecutive": 2,
+                }
+            }
+        )
+        conn1 = _FakeLifecycleConn(_material_fail_cells(6), ensemble_weight_rows=_EW_10)
+        _run_lifecycle_hook(conn1, concept, config, _T1, _make_manifest(tmp_path))
+        assert concept.transition_calls == []  # first fail: streak=1, not yet eligible
+
+        conn2 = _FakeLifecycleConn(_material_fail_cells(6), ensemble_weight_rows=_EW_10)
+        _run_lifecycle_hook(conn2, concept, config, _T1, _make_manifest(tmp_path))
+
+        assert len(concept.transition_calls) == 1
+        assert concept.transition_calls[0][3] == "shadow_only"
+
+    def test_intervening_passing_run_resets_streak(self, tmp_path):
+        config = _make_config(meta_fdr_min_fraction=0.50)
+        concept = _make_concept_registry(
+            {
+                "featA": {
+                    "status": "active",
+                    "hysteresis_tracked": True,
+                    "min_demotion_consecutive": 2,
+                }
+            }
+        )
+        fail_conn = _FakeLifecycleConn(_material_fail_cells(6), ensemble_weight_rows=_EW_10)
+        _run_lifecycle_hook(fail_conn, concept, config, _T1, _make_manifest(tmp_path))
+        assert concept._concepts["featA"]["consecutive_active_fails"] == 1
+
+        pass_conn = _FakeLifecycleConn(_material_fail_cells(0), ensemble_weight_rows=_EW_10)
+        _run_lifecycle_hook(pass_conn, concept, config, _T1, _make_manifest(tmp_path))
+        assert concept._concepts["featA"]["consecutive_active_fails"] == 0
+
+        # A third run failing again starts back at streak=1, not 2 -- must not demote.
+        fail_conn2 = _FakeLifecycleConn(_material_fail_cells(6), ensemble_weight_rows=_EW_10)
+        _run_lifecycle_hook(fail_conn2, concept, config, _T1, _make_manifest(tmp_path))
+        assert concept.transition_calls == []
 
 
 def test_demotion_boundary_at_threshold_demoted(tmp_path):

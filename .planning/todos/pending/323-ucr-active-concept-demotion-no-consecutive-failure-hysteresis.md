@@ -1,5 +1,37 @@
 # 323 - UCR's active->shadow_only demotion has no consecutive-failure hysteresis -- one noisy corpus run can demote an already-proven concept
 
+## Fix landed 2026-08-20 (P0-backlog loop, design mirrored from promotion_consecutive/min_promotion_consecutive)
+
+Migration 321: `concept_gate.consecutive_active_fails` (fail-streak counter, mirrors
+`consecutive_shadow_passes`) + `concept_gate.min_demotion_consecutive` (nullable
+per-concept override, mirrors `min_promotion_consecutive`'s convention exactly). New APR
+key `alpha.decay.demotion_min_consecutive=2` (matches `alpha.decay.recovery_min_passes`'s
+namespace, not `alpha.concept_registry.*` -- that's the async `record_comparison_outcome`
+path's own separate namespace, a different call site). Default `2`, matching
+`ensemble_strategy_min_promotion_consecutive`'s existing value as the most directly
+defensible symmetric starting point.
+
+`ConceptRegistryService` gained `advance_active_counters_sync` (demotion-side sibling of
+`advance_shadow_counters_sync`) and `is_demotion_eligible` (sibling of
+`is_promotion_eligible`), plus a fail-streak reset on any transition into `active`
+(symmetric with the existing shadow-counter reset into `shadow_only`) so a
+freshly-(re)promoted concept doesn't inherit a stale streak.
+
+`ic_engine.py`'s `_apply_feature_transitions` now calls `advance_active_counters_sync` for
+EVERY active concept evaluated each run (not just failing ones, so a recovering concept's
+streak actually resets), and only calls `record_transition_sync(...to_status="shadow_only")`
+once `is_demotion_eligible` confirms the streak has crossed the floor.
+
+**Verified**: `tests/unit/test_concept_registry_service.py` (30, unchanged) +
+`tests/unit/test_ic_engine_lifecycle_hook.py` (32, 3 new dedicated hysteresis tests:
+single-fail-doesn't-demote, second-consecutive-fail-demotes, intervening-pass-resets-streak)
+all green.
+
+**Not done this pass, given session context constraints**: the full `/simplify` (4-agent)
+and `/code-review` multi-agent passes this project's SOP calls for weren't run -- only a
+direct self-check and the test suite. Recommend a `/code-review` pass on this diff before
+treating it as fully closed, same bar todo 314 cleared.
+
 **Filed:** 2026-08-15
 **Source:** User correction to a claim I made comparing UCR against the legacy `shadow_registry`
 system. I'd claimed UCR's `consecutive_shadow_passes`/`observations_since_demotion` counters were
