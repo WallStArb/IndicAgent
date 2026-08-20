@@ -40,9 +40,9 @@ COMMENT ON COLUMN concept_gate.min_demotion_consecutive IS
     'existing override convention exactly. Candidate ML learning target once enough '
     'demotion history accumulates to tune it empirically.';
 
-INSERT INTO config_schema (config_key, value_type, default_value, description)
+INSERT INTO config_schema (config_key, value_type, default_value, min_value, max_value, description)
 VALUES
-    ('alpha.decay.demotion_min_consecutive', 'int', '2',
+    ('alpha.decay.demotion_min_consecutive', 'int', '2', 1, 20,
      '[initial_estimate] Consecutive failing corpus runs an active feature concept must '
      'accumulate before demotion to shadow_only actually fires (todo 323). Matches '
      'alpha.concept_registry.ensemble_strategy_min_promotion_consecutive''s value (2) as '
@@ -50,9 +50,12 @@ VALUES
      '2 consecutive passing evaluations on the ensemble_strategy side; demotion evidence '
      'deserves the same bar. Only the feature domain currently uses the sync '
      '(ic_engine.py) demotion path this key gates; no ensemble_strategy-side key added '
-     '(YAGNI -- that domain has no equivalent per-run sync demotion call site today).');
+     '(YAGNI -- that domain has no equivalent per-run sync demotion call site today). '
+     'Bounds mirror alpha.decay.recovery_min_passes (migration 209).')
+ON CONFLICT (config_key) DO NOTHING;
 
 INSERT INTO config_state (config_key, config_value, version)
-VALUES ('alpha.decay.demotion_min_consecutive', '2', 1);
+VALUES ('alpha.decay.demotion_min_consecutive', '2', 1)
+ON CONFLICT (config_key) DO NOTHING;
 
 COMMIT;

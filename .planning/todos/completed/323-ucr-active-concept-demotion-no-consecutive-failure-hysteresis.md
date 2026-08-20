@@ -27,10 +27,39 @@ once `is_demotion_eligible` confirms the streak has crossed the floor.
 single-fail-doesn't-demote, second-consecutive-fail-demotes, intervening-pass-resets-streak)
 all green.
 
-**Not done this pass, given session context constraints**: the full `/simplify` (4-agent)
-and `/code-review` multi-agent passes this project's SOP calls for weren't run -- only a
-direct self-check and the test suite. Recommend a `/code-review` pass on this diff before
-treating it as fully closed, same bar todo 314 cleared.
+## `/code-review high` pass, 2026-08-20 (`d7d2a6951`) -- 5 findings, 2 fixed same session
+
+1. **Fixed.** Migration 321's new `alpha.decay.demotion_min_consecutive` APR key was missing
+   `min_value`/`max_value` bounds present on its own stated analog (migration 209's
+   `alpha.decay.recovery_min_passes`, bounded 1-20) -- without a bound, setting the key to 0
+   via ConfigService would silently reproduce the exact bug this todo fixes (demotion firing
+   on the first bad run again). Added `1, 20` bounds, matching 209.
+2. **Fixed.** Same migration's two `INSERT`s were missing `ON CONFLICT (config_key) DO NOTHING`,
+   present on migration 209 and the majority of recent migrations (315/316/318) -- a re-run
+   after a partial failure would raise a PK violation instead of no-op'ing. Added.
+   Migration 321 had not yet been applied to the live DB at review time, so both fixes were
+   edited directly into the migration file and then applied clean (`psql -f`, confirmed via
+   `config_schema`/`information_schema.columns` query).
+3. **Not fixed, filed as [337](../pending/337-concept-gate-counter-advance-no-cas-lock-and-per-run-write-volume.md).**
+   `advance_active_counters_sync`'s UPDATE has no `AND status = %s` optimistic lock (unlike
+   `record_transition_sync`'s CAS UPDATE) -- but this mirrors a pre-existing gap in
+   `advance_shadow_counters_sync` faithfully, per this fix's own explicit design intent. Fixing
+   only the new active-side path would be an inconsistent half-fix; needs its own pass touching
+   both.
+4. **Not fixed, filed as 337.** `advance_active_counters_sync` now runs once per **active**
+   concept every corpus run (previously only `shadow_only` concepts incurred this write), each
+   its own single-row UPDATE+commit+log line -- real overhead in the direction CLAUDE.md's
+   batched-write guidance targets, but small in absolute terms (~200 sequential commits inside
+   a multi-hour+ corpus run) and not urgent.
+5. **Not fixed, judged working-as-intended.** `advance_active_counters_sync`/`is_demotion_eligible`
+   are near-verbatim mirrors of `advance_shadow_counters_sync`/`is_promotion_eligible` -- this
+   was the explicit, stated design choice ("mirrors the existing... pattern exactly rather than
+   inventing a new pattern"), consistent with CLAUDE.md's preference for mirroring existing
+   patterns over new abstractions. Not extracted into a shared helper absent a third consumer.
+
+Full `tests/unit/` suite re-run clean after the migration edit (no Python changed).
+
+**Closed 2026-08-20.**
 
 **Filed:** 2026-08-15
 **Source:** User correction to a claim I made comparing UCR against the legacy `shadow_registry`
