@@ -9,6 +9,17 @@ system is still down as of this filing -- nothing has been restarted or re-run y
 **Status:** pending, P0 -- three research threads (todos 303/304, `statistical_factor_residual`)
 and every other regime-stratified measurement in this project are blocked on this.
 
+**Update 2026-08-20 (re-verified live, not assumed):** substantially resolved by other means
+-- `feature_vectors.regime` is 31,204,768/106,268,964 populated and `.regime_volatility` is
+31,004,453/106,268,964 populated (not 0 as originally filed), and `indicagent-feature-vector-
+pipeline`/`indicagent-feature-vector-writer` are both `active (running)` (10h+ uptime at
+check time), not `failed`. The 5-step recovery plan below appears to have already happened
+through the 2026-08-15+ corpus pipeline relaunches tracked in
+`project_disk_full_incident_2026_08_13` memory, not through this todo directly. Recommend
+closing this row and moving it to `completed/` once the current in-flight corpus run + the
+queued todo-335 recompute (see that todo's "Recompute status" section) finish and confirm
+no residual gap -- don't close blind on a partial re-check.
+
 ## Current confirmed state (re-checked 2026-08-13, do not assume it's changed without re-querying)
 
 - `feature_vectors.regime` and `.regime_volatility` are both **0 populated rows out of 69.9M**

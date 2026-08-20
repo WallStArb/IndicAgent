@@ -45,6 +45,23 @@ from under a still-running write session.
 `compressed_hypertable_write_session` against a hypertable with an active compression policy,
 not scoped to `regime_writer` alone.
 
+**Update 2026-08-20 (re-verified live):** the real fix (pause/resume compression policy
+inside the write session) still has NOT landed -- confirmed via `git log --since=2026-08-14
+-- services/_batch_utils.py`, only unrelated commit `f89363b70` (todo 318's idle-timeout fix)
+since filing, and a direct read of the current file shows no `alter_job`/pause logic anywhere
+near `_KNOWN_COMPRESSED_HYPERTABLES`/`compressed_hypertable_write_session`. Job 1065 is back
+to `scheduled=true` (`next_start=2026-08-21 06:45:21+00`) -- someone already did the manual
+"re-enable once the current run completes" step this todo's mitigation called for, separately
+from the real fix. **Confirmed NOT an acute risk to the currently-queued todo-335 recompute**:
+`market_regimes` (what `cross_sectional_regime_model.py`, step 4, writes) is not in
+`_KNOWN_COMPRESSED_HYPERTABLES` (only `feature_vectors`/`feature_ic_scores` are), and
+`ic_engine.py`'s writes to `feature_ic_scores` don't go through
+`compressed_hypertable_write_session` yet at all (separate gap, todo 307) -- so this specific
+collision mechanism can't fire on that recompute's write paths. Still a real, live risk for
+`regime_writer.py`/`feature_vector_writer`'s ordinary ongoing operation, both confirmed
+`active (running)` right now, whenever job 1065's daily compression fires concurrently with
+either.
+
 ## Scope
 
 1. Real fix belongs in `compressed_hypertable_write_session`/
