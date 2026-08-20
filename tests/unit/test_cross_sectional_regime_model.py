@@ -13,11 +13,13 @@ import pytest
 sys.path.insert(0, str(Path(__file__).parents[2]))
 
 from services.cross_sectional_regime_model import (
+    _assert_ascending_tiers,
     _assign_labels,
     _bucket,
     _parse_group_configs,
     _resolve_group_symbols,
 )
+from src.intelligence.regime_signals import REGISTRY
 
 _TS = datetime.datetime(2024, 1, 15, tzinfo=datetime.UTC)
 
@@ -193,12 +195,106 @@ class TestBucket:
         result = _bucket(vals, tiers)
         assert result[0] == "high"
 
+    def test_bucket_itself_rejects_malformed_tiers_without_main(self):
+        # Code review (2026-08-20): scripts/analysis/regime_boundary_churn_check.py
+        # imports and calls _bucket() directly, bypassing main()'s explicit
+        # _assert_ascending_tiers calls entirely -- so validation has to live inside
+        # _bucket() itself to protect that caller too, not just main()'s. This proves
+        # it does: no main(), no _assert_ascending_tiers call, just _bucket() alone.
+        descending = [("up_primary", 0.75), ("up_secondary", 0.0), ("down_secondary", -0.75)]
+        with pytest.raises(ValueError, match="STRICTLY ascending"):
+            _bucket(np.array([0.1]), descending)
+
     def test_exactly_at_upper_bound_goes_to_next_tier(self):
         tiers = [("low", 0.33), ("mid", 0.67), ("high", float("inf"))]
         vals = np.array([0.33])
         result = _bucket(vals, tiers)
         # 0.33 is NOT < 0.33, so it falls to "mid"
         assert result[0] == "mid"
+
+
+class TestAssertAscendingTiers:
+    """todo 335: this guard is the only thing standing between a REGISTRY module's
+    build_tiers() and a silent label-collapse bug like commodity/fx's -- it must
+    itself be proven to fire on the exact shape of input that caused that bug."""
+
+    def test_ascending_tiers_does_not_raise(self):
+        _assert_ascending_tiers(
+            [("low", 0.33), ("mid", 0.67), ("high", float("inf"))], "equity", "tiers1"
+        )
+
+    def test_descending_tiers_raises(self):
+        # Exact shape of commodity_momentum_ts's pre-fix tiers1.
+        with pytest.raises(ValueError, match="not STRICTLY ascending-sorted"):
+            _assert_ascending_tiers(
+                [("up_primary", 0.75), ("up_secondary", 0.0), ("down_secondary", -0.75)],
+                "commodity",
+                "tiers1",
+            )
+
+    def test_single_entry_tiers_raises(self):
+        # Code review (2026-08-20): originally this asserted single-entry tiers did
+        # NOT raise, on the theory that this guard only catches ORDER bugs, not fx's
+        # pre-fix single-entry tiers2 (a reachability bug). That left a real hole --
+        # fx's ORIGINAL bug shape would have passed the guard meant to prevent it.
+        # The guard now requires len(tiers) >= 2 explicitly.
+        with pytest.raises(ValueError, match="only 1 tuple"):
+            _assert_ascending_tiers([("risk_on", 0.0)], "fx", "tiers2")
+
+    def test_duplicate_bound_raises(self):
+        # Code review (2026-08-20): non-decreasing (`bounds == sorted(bounds)`) is not
+        # sufficient -- a tied bound (e.g. primary_threshold=0.0 collapsing
+        # down_secondary/up_secondary to the same upper_bound) is non-decreasing but
+        # still reproduces the exact overwrite-collapse bug this guard exists to catch.
+        with pytest.raises(ValueError, match="STRICTLY ascending"):
+            _assert_ascending_tiers(
+                [
+                    ("down_primary", -0.75),
+                    ("down_secondary", 0.0),
+                    ("up_secondary", 0.0),
+                    ("up_primary", float("inf")),
+                ],
+                "commodity",
+                "tiers1",
+            )
+
+
+class TestRegistryTierContract:
+    """REGISTRY completeness is explicitly independent of enablement
+    (regime_signals/__init__.py's own docstring: commodity_momentum_ts and
+    fx_dollar_carry are registered regardless of their group's `enabled` value in
+    alpha.regime.groups). Today (verified live 2026-08-20) all four groups happen to
+    be enabled=true, so main()'s runtime guard does cover them right now -- but
+    coverage that depends on a live APR config toggle, which can change independently
+    of any code change, is fragile insurance. This test iterates every REGISTRY entry
+    directly, so a malformed build_tiers() fails at test/CI time regardless of
+    whatever alpha.regime.groups says today -- including for a future 5th module or
+    a group that gets disabled later."""
+
+    # Values must match each key's real config_schema.default_value (verified live
+    # 2026-08-20), not an arbitrary placeholder -- a degenerate value here (e.g. 0.0)
+    # can itself collapse an otherwise-correct build_tiers() into a malformed shape
+    # (see test_duplicate_bound_raises above) and would make this contract test pass
+    # vacuously on production-representative code. Keep these in sync with
+    # config_schema when a default changes.
+    _REPRESENTATIVE_PARAMS: dict[str, dict[str, float]] = {
+        "breadth_vol": {},
+        "curve_credit": {},
+        "commodity_momentum_ts": {"primary_threshold": 0.75},
+        "fx_dollar_carry": {"dollar_strong_threshold": 0.5, "carry_risk_on_threshold": 0.0},
+    }
+
+    def test_representative_params_cover_every_registered_module(self):
+        assert set(self._REPRESENTATIVE_PARAMS) == set(REGISTRY), (
+            "REGISTRY gained/lost a module -- add representative params for it above "
+            "so this contract test covers it too."
+        )
+
+    def test_every_registered_module_build_tiers_is_ascending(self):
+        for name, module in REGISTRY.items():
+            tiers1, tiers2 = module.build_tiers(self._REPRESENTATIVE_PARAMS[name])
+            _assert_ascending_tiers(tiers1, name, "tiers1")
+            _assert_ascending_tiers(tiers2, name, "tiers2")
 
 
 class TestAssignLabels:

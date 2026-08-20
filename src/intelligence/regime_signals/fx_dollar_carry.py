@@ -71,11 +71,15 @@ def build_tiers(
 ) -> tuple[list[tuple[str, float]], list[tuple[str, float]]]:
     """Tier 1: dollar strength. Tier 2: carry environment.
 
+    Both lists MUST be ascending by upper_bound (_bucket()'s contract, enforced by
+    cross_sectional_regime_model._assert_ascending_tiers -- see that function's
+    docstring for what breaks if this list isn't ascending, todo 335).
+
     See module docstring — this vocabulary is deliberately non-overlapping with the
     equity, rates, and commodity tier vocabularies.
     """
     dollar_thresh = float(params["dollar_strong_threshold"])
     carry_thresh = float(params["carry_risk_on_threshold"])
-    tiers1 = [("strong_dollar", dollar_thresh), ("weak_dollar", -dollar_thresh)]
-    tiers2 = [("risk_on", carry_thresh)]
+    tiers1 = [("weak_dollar", dollar_thresh), ("strong_dollar", float("inf"))]
+    tiers2 = [("risk_off", carry_thresh), ("risk_on", float("inf"))]
     return tiers1, tiers2

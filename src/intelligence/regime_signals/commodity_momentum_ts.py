@@ -100,14 +100,28 @@ def build_tiers(
 ) -> tuple[list[tuple[str, float]], list[tuple[str, float]]]:
     """Return threshold lists for _assign_labels.
 
-    Tier 1 (momentum): up_primary | up_secondary | down_secondary | down_primary
-    Tier 2 (ts_proxy): contango | neutral | backwardation
+    Tier 1 (momentum): down_primary | down_secondary | up_secondary | up_primary
+    Tier 2 (ts_proxy): backwardation | neutral | contango
+
+    Both lists MUST be ascending by upper_bound (_bucket()'s contract, enforced by
+    cross_sectional_regime_model._assert_ascending_tiers -- see that function's
+    docstring for what breaks if this list isn't ascending, todo 335).
 
     See module docstring — this vocabulary is deliberately non-overlapping with the
     equity (low/mid/high x bear/neutral/bull) and rates (steep/flat/inverted x wide/tight)
     tier vocabularies.
     """
     primary = float(params["primary_threshold"])
-    tiers1 = [("up_primary", primary), ("up_secondary", 0.0), ("down_secondary", -primary)]
-    tiers2 = [("contango", 0.25), ("neutral", -0.25)]
+    ts_proxy_threshold = float(params.get("ts_proxy_threshold", 0.25))
+    tiers1 = [
+        ("down_primary", -primary),
+        ("down_secondary", 0.0),
+        ("up_secondary", primary),
+        ("up_primary", float("inf")),
+    ]
+    tiers2 = [
+        ("backwardation", -ts_proxy_threshold),
+        ("neutral", ts_proxy_threshold),
+        ("contango", float("inf")),
+    ]
     return tiers1, tiers2

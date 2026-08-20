@@ -5,10 +5,12 @@ from __future__ import annotations
 import sys
 from pathlib import Path
 
+import numpy as np
 import pandas as pd
 
 sys.path.insert(0, str(Path(__file__).parents[2]))
 
+from services.cross_sectional_regime_model import _assert_ascending_tiers, _bucket
 from src.intelligence.regime_signals.fx_dollar_carry import (
     PROB_KEYS,
     REFERENCE_SYMBOLS,
@@ -74,7 +76,33 @@ class TestBuildTiers:
             {"dollar_strong_threshold": 0.5, "carry_risk_on_threshold": 0.0}
         )
         assert len(tiers1) >= 2
-        assert len(tiers2) >= 1
+        # NOTE: pre-fix tiers2 was a single-entry list ([("risk_on", thresh)]) that
+        # made "risk_off" permanently unreachable (todo 335) -- `>= 1` would pass on
+        # that broken shape too. Requiring >= 2 here is itself a regression guard;
+        # the real reachability check is test_all_carry_labels_reachable below.
+        assert len(tiers2) >= 2
+
+    def test_tiers_ascending_by_upper_bound(self):
+        """Neither the old `len(...) >= N` assertions nor _bucket()'s own tests
+        (which feed it hand-constructed correct tiers) could catch this class of
+        bug (see todo 335 / _assert_ascending_tiers' own docstring)."""
+        tiers1, tiers2 = build_tiers(
+            {"dollar_strong_threshold": 0.5, "carry_risk_on_threshold": 0.0}
+        )
+        _assert_ascending_tiers(tiers1, "fx_dollar_carry", "tiers1")
+        _assert_ascending_tiers(tiers2, "fx_dollar_carry", "tiers2")
+
+    def test_all_dollar_strength_labels_reachable(self):
+        tiers1, _ = build_tiers({"dollar_strong_threshold": 0.5, "carry_risk_on_threshold": 0.0})
+        vals = np.array([-1.0, 1.0])
+        result = _bucket(vals, tiers1)
+        assert set(result) == {"weak_dollar", "strong_dollar"}
+
+    def test_all_carry_labels_reachable(self):
+        _, tiers2 = build_tiers({"dollar_strong_threshold": 0.5, "carry_risk_on_threshold": 0.0})
+        vals = np.array([-1.0, 1.0])
+        result = _bucket(vals, tiers2)
+        assert set(result) == {"risk_off", "risk_on"}
 
 
 class TestProbKeys:

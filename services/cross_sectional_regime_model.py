@@ -193,11 +193,53 @@ def _resolve_group_symbols(
     return sorted(matched)
 
 
-def _bucket(vals: np.ndarray, tiers: list[tuple[str, float]]) -> np.ndarray:
+def _assert_ascending_tiers(
+    tiers: list[tuple[str, float]], group_name: str = "<unknown>", tier_label: str = "<unknown>"
+) -> None:
+    """Crash-loud guard (todo 335, hardened in code review): _bucket() silently
+    mis-labels a malformed tiers list instead of raising -- confirmed live in
+    commodity_momentum_ts and fx_dollar_carry, where a descending list caused the
+    last-applied (widest) where() clause to overwrite every narrower bucket,
+    collapsing half of both modules' label vocabularies to permanently-unreachable
+    dead states. Requires STRICTLY ascending bounds (ties are also rejected -- a
+    repeated bound reproduces the same overwrite-collapse bug even though the list
+    is technically non-decreasing) and at least 2 tuples (a single-entry list is
+    the exact shape of fx_dollar_carry's original tiers2 bug: every _bucket() call
+    falls through to the sole catch-all tuple, and every other label is
+    permanently unreachable without _bucket() ever raising).
+    """
+    if len(tiers) < 2:
+        raise ValueError(
+            f"{group_name}.{tier_label} has only {len(tiers)} tuple(s): {tiers} -- "
+            f"_bucket() needs at least one real threshold plus a catch-all; a single-entry "
+            f"list makes every OTHER label permanently unreachable without raising (todo 335)."
+        )
+    bounds = [upper for _, upper in tiers[:-1]]
+    if bounds != sorted(set(bounds)):
+        raise ValueError(
+            f"{group_name}.{tier_label} is not STRICTLY ascending-sorted by upper_bound: "
+            f"{tiers} -- _bucket() requires strictly ascending order with no ties (last "
+            f"tuple's bound is ignored, only its name is used as the catch-all default); a "
+            f"descending or tied list silently collapses buckets instead of raising (todo 335)."
+        )
+
+
+def _bucket(
+    vals: np.ndarray,
+    tiers: list[tuple[str, float]],
+    *,
+    group_name: str = "<unknown>",
+    tier_label: str = "<unknown>",
+) -> np.ndarray:
     """Assign tier names by threshold. tiers sorted ascending by upper_bound; last = inf.
 
     A value is assigned to the first tier whose upper_bound STRICTLY exceeds the value.
+    Validates tiers on every call (code review, todo 335) rather than relying on callers
+    to remember _assert_ascending_tiers -- scripts/analysis/regime_boundary_churn_check.py
+    calls this directly without going through main()'s explicit guard, so the contract has
+    to live here to cover every caller, not just main()'s.
     """
+    _assert_ascending_tiers(tiers, group_name, tier_label)
     result = np.full(len(vals), tiers[-1][0], dtype=object)
     for name, upper in reversed(tiers[:-1]):
         result = np.where(vals < upper, name, result)
@@ -231,8 +273,8 @@ def _assign_labels(
     rows, silently corrupting ensemble eligibility queries. Not schema-enforced —
     verify manually when adding a new group's signal module.
     """
-    labels1 = _bucket(sig1_arr, tiers1)
-    labels2 = _bucket(sig2_arr, tiers2)
+    labels1 = _bucket(sig1_arr, tiers1, group_name=group_name, tier_label="tiers1")
+    labels2 = _bucket(sig2_arr, tiers2, group_name=group_name, tier_label="tiers2")
     return [
         (
             group_name,
@@ -414,6 +456,8 @@ def main() -> None:
             params = {row[0][prefix_len:]: row[1] for row in raw_params}
 
             tiers1, tiers2 = signal_mod.build_tiers(params)
+            _assert_ascending_tiers(tiers1, group_name, "tiers1")
+            _assert_ascending_tiers(tiers2, group_name, "tiers2")
 
             total_written = 0
             for tf in args.tf:

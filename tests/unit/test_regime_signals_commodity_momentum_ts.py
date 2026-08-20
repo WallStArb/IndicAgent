@@ -10,6 +10,7 @@ import pandas as pd
 
 sys.path.insert(0, str(Path(__file__).parents[2]))
 
+from services.cross_sectional_regime_model import _assert_ascending_tiers, _bucket
 from src.intelligence.regime_signals.commodity_momentum_ts import PROB_KEYS, build_tiers, compute
 
 _UTC = pd.Timestamp("2020-01-01", tz="UTC")
@@ -90,6 +91,26 @@ class TestBuildTiers:
         tiers1, tiers2 = build_tiers({"primary_threshold": 0.75})
         assert len(tiers1) >= 2
         assert len(tiers2) >= 2
+
+    def test_tiers_ascending_by_upper_bound(self):
+        """Regression check the old `len(tiers1) >= 2` assertion could never catch --
+        it passes on descending input too (see todo 335 / _assert_ascending_tiers'
+        own docstring for the bug this guards against)."""
+        tiers1, tiers2 = build_tiers({"primary_threshold": 0.75})
+        _assert_ascending_tiers(tiers1, "commodity_momentum_ts", "tiers1")
+        _assert_ascending_tiers(tiers2, "commodity_momentum_ts", "tiers2")
+
+    def test_all_four_momentum_labels_reachable(self):
+        tiers1, _ = build_tiers({"primary_threshold": 0.75})
+        vals = np.array([-1.0, -0.1, 0.1, 1.0])
+        result = _bucket(vals, tiers1)
+        assert set(result) == {"down_primary", "down_secondary", "up_secondary", "up_primary"}
+
+    def test_all_three_ts_proxy_labels_reachable(self):
+        _, tiers2 = build_tiers({"primary_threshold": 0.75})
+        vals = np.array([-1.0, 0.0, 1.0])
+        result = _bucket(vals, tiers2)
+        assert set(result) == {"backwardation", "neutral", "contango"}
 
 
 class TestProbKeys:
