@@ -22,6 +22,7 @@ if str(_project_root) not in sys.path:
 from services._batch_utils import (
     _COMPRESS_ALL_DECOMPRESSED_CHUNKS_ASYNCPG_SQL,
     _DECOMPRESS_ALL_COMPRESSED_CHUNKS_ASYNCPG_SQL,
+    _FIND_COMPRESSION_JOBS_ASYNCPG_SQL,
     _REAL_MAX_MAGNITUDE,
     _REAL_MIN_MAGNITUDE,
     Float32ChunkAccumulator,
@@ -328,19 +329,28 @@ class TestValidateCompressedHypertable:
             _validate_compressed_hypertable("market_data_ohlcv")
 
 
-def _mock_sync_conn(n_decompressed: int = 0, n_recompressed: int = 0) -> MagicMock:
+def _mock_sync_conn(
+    n_decompressed: int = 0,
+    n_recompressed: int = 0,
+    compression_jobs: list[tuple[int, bool]] | None = None,
+) -> MagicMock:
     """A psycopg-shaped connection mock: `cursor()` returns the same cursor mock on every
     call (so all cur.execute() calls across the session land in one call_args_list).
     `cur.rowcount` is scripted by which collapsed statement was just executed (decompress-
     all vs. compress-all) -- matching how compressed_hypertable_write_session actually
     reads the affected-row count (a single server-side statement per phase, not a
-    list-then-loop), not an assumption about it."""
+    list-then-loop), not an assumption about it. `compression_jobs` seeds the
+    (job_id, scheduled) rows returned for the hypertable's compression-policy lookup --
+    defaults to none found (todo 314's pause/resume logic is then a no-op, matching every
+    pre-existing test that doesn't care about it)."""
     conn = MagicMock()
     conn.autocommit = False
     cur = conn.cursor.return_value.__enter__.return_value
 
     def _execute(sql: str, params: tuple | None = None) -> None:
-        if sql.startswith("SELECT config_key, config_value FROM config_state"):
+        if sql.startswith("SELECT job_id, scheduled FROM timescaledb_information.jobs"):
+            cur.fetchall.return_value = compression_jobs or []
+        elif sql.startswith("SELECT config_key, config_value FROM config_state"):
             # No rows seeded -- the session falls back to its own defaults for every GUC
             # in _SESSION_GUC_OVERRIDES (combined into one ANY(%s) lookup, not one query
             # per key).
@@ -377,18 +387,20 @@ class TestCompressedHypertableWriteSession:
     def test_decompress_and_compress_are_single_collapsed_statements_not_per_chunk(self) -> None:
         """Regression: the original design listed chunks then issued one execute() per
         chunk (N round trips). The fix collapses each phase into one server-side statement
-        -- exactly 7 execute() calls total for the whole session regardless of how many
-        chunks are actually affected: the combined _SESSION_GUC_OVERRIDES APR lookup (1),
-        one combined current_setting() read for all 3 GUCs (1), one combined set_config()
-        write for all 3 GUCs (1), decompress-all (1), compress-all (1), VACUUM (1), and one
-        combined set_config() restore for all 3 GUCs at exit (1)."""
+        -- exactly 8 execute() calls total for the whole session regardless of how many
+        chunks are actually affected: the compression-policy-jobs lookup (1, todo 314 --
+        zero jobs found here, so no pause/restore alter_job() calls follow), the combined
+        _SESSION_GUC_OVERRIDES APR lookup (1), one combined current_setting() read for all
+        3 GUCs (1), one combined set_config() write for all 3 GUCs (1), decompress-all (1),
+        compress-all (1), VACUUM (1), and one combined set_config() restore for all 3 GUCs
+        at exit (1)."""
         conn = _mock_sync_conn(n_decompressed=40, n_recompressed=40)
         cur = conn.cursor.return_value.__enter__.return_value
 
         with compressed_hypertable_write_session(conn, "feature_vectors"):
             pass
 
-        assert cur.execute.call_count == 7
+        assert cur.execute.call_count == 8
 
     def test_recompresses_and_vacuums_on_clean_exit(self) -> None:
         conn = _mock_sync_conn(n_decompressed=1, n_recompressed=2)
@@ -493,6 +505,76 @@ class TestCompressedHypertableWriteSession:
         with pytest.raises(ValueError, match="not_a_real_table"):
             with compressed_hypertable_write_session(conn, "not_a_real_table"):
                 pass
+
+    def test_compression_policy_job_paused_for_duration_and_restored_after(self) -> None:
+        """todo 314: a live compression-policy job racing this session's own decompress/
+        recompress deadlocked in production (Columnstore Policy [1065] vs. regime_writer.py,
+        2026-08-14). The job must be paused (alter_job(scheduled => false)) before this
+        session touches any chunk, and restored to its PRIOR scheduled value (not
+        unconditionally re-enabled -- a job an operator had already paused for other
+        reasons must stay paused) once this session is done."""
+        conn = _mock_sync_conn(compression_jobs=[(1065, True)])
+        cur = conn.cursor.return_value.__enter__.return_value
+
+        with compressed_hypertable_write_session(conn, "feature_vectors"):
+            calls_at_entry = [c.args for c in cur.execute.call_args_list]
+            assert ("SELECT alter_job(%s, scheduled => false)", (1065,)) in calls_at_entry
+            assert not any(a[0] == "SELECT alter_job(%s, scheduled => %s)" for a in calls_at_entry)
+
+        all_calls = [c.args for c in cur.execute.call_args_list]
+        assert ("SELECT alter_job(%s, scheduled => %s)", (1065, True)) in all_calls
+
+    def test_compression_policy_job_already_paused_stays_paused(self) -> None:
+        """The restore step must write back the job's actual prior `scheduled` value, not
+        assume it was always true -- an operator-paused job (scheduled=False before this
+        session ever started) must not get silently re-enabled on exit."""
+        conn = _mock_sync_conn(compression_jobs=[(1065, False)])
+        cur = conn.cursor.return_value.__enter__.return_value
+
+        with compressed_hypertable_write_session(conn, "feature_vectors"):
+            pass
+
+        all_calls = [c.args for c in cur.execute.call_args_list]
+        assert ("SELECT alter_job(%s, scheduled => %s)", (1065, False)) in all_calls
+
+    def test_entry_phase_failure_restores_paused_job_before_raising(self) -> None:
+        """Code review finding (2026-08-20): the job is paused at the very start of the
+        entry phase -- if the decompress that follows it fails (statement-timeout kill
+        2026-08-14, idle-session kill 2026-08-15 are both documented as having actually
+        happened at exactly this call), the exception used to propagate straight out of
+        the function, before `try: yield` was ever reached, so the normal exit `finally`
+        never ran and the job stayed at scheduled=false forever. Must now be restored by
+        the entry-phase except-clause instead."""
+        conn = _mock_sync_conn(compression_jobs=[(1065, True)])
+        cur = conn.cursor.return_value.__enter__.return_value
+        original_execute = cur.execute.side_effect
+
+        def _fail_on_decompress(sql: str, params: tuple | None = None) -> None:
+            if sql.startswith("SELECT decompress_chunk"):
+                raise RuntimeError("statement timeout")
+            original_execute(sql, params)
+
+        cur.execute.side_effect = _fail_on_decompress
+
+        with pytest.raises(RuntimeError, match="statement timeout"):
+            with compressed_hypertable_write_session(conn, "feature_vectors"):
+                pytest.fail("body must never run -- entry phase failed first")
+
+        all_calls = [c.args for c in cur.execute.call_args_list]
+        assert ("SELECT alter_job(%s, scheduled => %s)", (1065, True)) in all_calls
+        conn.rollback.assert_called_once()
+
+    def test_no_compression_policy_job_is_a_safe_no_op(self) -> None:
+        """A hypertable with no compression policy at all (or one already covered by the
+        default empty-list mock) must not error -- the lookup finds zero jobs, pause/
+        restore loops do nothing."""
+        conn = _mock_sync_conn()
+        cur = conn.cursor.return_value.__enter__.return_value
+
+        with compressed_hypertable_write_session(conn, "feature_vectors"):
+            pass
+
+        assert not any("alter_job" in str(c.args[0]) for c in cur.execute.call_args_list)
 
     # Expected combined set_config() call shape -- both the entry override and the exit
     # restore use this identical SQL text, differing only in the bound values, matching
@@ -741,11 +823,16 @@ class TestBulkUpdateByKeyRealClamping:
         assert "1e-50" in csv_text
 
 
-def _mock_async_conn(n_decompressed: int = 0, n_recompressed: int = 0) -> MagicMock:
+def _mock_async_conn(
+    n_decompressed: int = 0,
+    n_recompressed: int = 0,
+    compression_jobs: list[dict[str, object]] | None = None,
+) -> MagicMock:
     """asyncpg-shaped connection mock. `execute()` returns the command tag string asyncpg
     itself returns for a plain SELECT ("SELECT <n>") -- confirmed live 2026-08-14 -- since
     async_compressed_hypertable_write_session parses the affected-row count from that tag
-    rather than a separate count(*) query."""
+    rather than a separate count(*) query. `compression_jobs` seeds the rows returned for
+    the hypertable's compression-policy lookup (todo 314) -- defaults to none found."""
     conn = MagicMock()
 
     async def _execute(sql: str, *args: object) -> str:
@@ -756,12 +843,17 @@ def _mock_async_conn(n_decompressed: int = 0, n_recompressed: int = 0) -> MagicM
         return "VACUUM"
 
     conn.execute = AsyncMock(side_effect=_execute)
-    # load_apr_dict_async's conn.fetch (no APR rows configured -- callers fall back to
-    # each key's default) and the combined-GUC-priors read's conn.fetchrow. A plain dict
-    # stands in for asyncpg.Record here -- .values() preserves insertion order the same
-    # way Record preserves SELECT column order, which is all list(prior_row.values())
-    # in the real code relies on.
-    conn.fetch = AsyncMock(return_value=[])
+
+    async def _fetch(sql: str, *args: object) -> list[dict[str, object]]:
+        if sql.startswith(_FIND_COMPRESSION_JOBS_ASYNCPG_SQL):
+            return compression_jobs or []
+        return []  # load_apr_dict_async's config lookup -- no APR rows configured.
+
+    conn.fetch = AsyncMock(side_effect=_fetch)
+    # The combined-GUC-priors read's conn.fetchrow. A plain dict stands in for
+    # asyncpg.Record here -- .values() preserves insertion order the same way Record
+    # preserves SELECT column order, which is all list(prior_row.values()) in the real
+    # code relies on.
     conn.fetchrow = AsyncMock(
         return_value={
             "statement_timeout": "30min",
@@ -819,6 +911,30 @@ class TestAsyncCompressedHypertableWriteSession:
         conn.execute.assert_not_called()
 
     @pytest.mark.asyncio
+    async def test_compression_policy_job_paused_for_duration_and_restored_after(self) -> None:
+        """Async sibling of the sync test with the same name -- see its docstring for the
+        todo 314 incident rationale."""
+        conn = _mock_async_conn(compression_jobs=[{"job_id": 1065, "scheduled": True}])
+
+        async with async_compressed_hypertable_write_session(conn, "feature_ic_scores"):
+            calls_at_entry = [c.args for c in conn.execute.call_args_list]
+            assert ("SELECT alter_job($1, scheduled => false)", 1065) in calls_at_entry
+            assert not any(a[0] == "SELECT alter_job($1, scheduled => $2)" for a in calls_at_entry)
+
+        all_calls = [c.args for c in conn.execute.call_args_list]
+        assert ("SELECT alter_job($1, scheduled => $2)", 1065, True) in all_calls
+
+    @pytest.mark.asyncio
+    async def test_compression_policy_job_already_paused_stays_paused(self) -> None:
+        conn = _mock_async_conn(compression_jobs=[{"job_id": 1065, "scheduled": False}])
+
+        async with async_compressed_hypertable_write_session(conn, "feature_ic_scores"):
+            pass
+
+        all_calls = [c.args for c in conn.execute.call_args_list]
+        assert ("SELECT alter_job($1, scheduled => $2)", 1065, False) in all_calls
+
+    @pytest.mark.asyncio
     async def test_sets_active_session_contextvar_for_duration_only(self) -> None:
         conn = _mock_async_conn()
         assert _active_write_session_hypertable.get() is None
@@ -868,6 +984,26 @@ class TestAsyncCompressedHypertableWriteSession:
             "idle_in_transaction_session_timeout",
             "1h",
         ) in all_calls
+
+    @pytest.mark.asyncio
+    async def test_entry_phase_failure_restores_paused_job_before_raising(self) -> None:
+        """Async sibling of the sync test with the same name -- see its docstring."""
+        conn = _mock_async_conn(compression_jobs=[{"job_id": 1065, "scheduled": True}])
+        original_execute_side_effect = conn.execute.side_effect
+
+        async def _fail_on_decompress(sql: str, *args: object) -> str:
+            if sql.startswith(_DECOMPRESS_ALL_COMPRESSED_CHUNKS_ASYNCPG_SQL):
+                raise RuntimeError("statement timeout")
+            return await original_execute_side_effect(sql, *args)
+
+        conn.execute = AsyncMock(side_effect=_fail_on_decompress)
+
+        with pytest.raises(RuntimeError, match="statement timeout"):
+            async with async_compressed_hypertable_write_session(conn, "feature_ic_scores"):
+                pytest.fail("body must never run -- entry phase failed first")
+
+        all_calls = [c.args for c in conn.execute.call_args_list]
+        assert ("SELECT alter_job($1, scheduled => $2)", 1065, True) in all_calls
 
 
 class TestAsyncCompressedHypertableWriteSessionOrNoop:

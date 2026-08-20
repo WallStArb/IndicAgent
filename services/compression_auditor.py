@@ -73,6 +73,13 @@ SELECT
 FROM timescaledb_information.jobs j
 JOIN timescaledb_information.chunks c ON c.hypertable_name = j.hypertable_name
 WHERE j.proc_name = 'policy_compression'
+  -- todo 314 (code review finding, 2026-08-20): a job intentionally paused by
+  -- compressed_hypertable_write_session (or by an operator, for any other reason) must
+  -- never be force-run here -- CALL run_job() ignores `scheduled` entirely, so without
+  -- this filter this auditor would re-trigger the exact deadlock (Columnstore Policy
+  -- [1065] vs. regime_writer.py, 2026-08-14) that pause mechanism exists to prevent, on
+  -- its very next 6h cycle if a write session runs long enough to cross the grace period.
+  AND j.scheduled
 GROUP BY j.job_id, j.hypertable_name, j.config
 HAVING count(*) FILTER (
     WHERE NOT c.is_compressed

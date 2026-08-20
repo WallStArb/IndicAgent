@@ -118,6 +118,7 @@ def _update_calls(conn: _ScriptedConn) -> list[tuple[str, tuple | None]]:
 # trip per direction -- see _SESSION_GUC_OVERRIDES and compressed_hypertable_write_
 # session's docstring for what each call is).
 _WRITE_SESSION_ENTRY_RESPONSES: list[dict] = [
+    {"fetchall": []},  # compression-policy-jobs lookup (todo 314; no rows -> none found)
     {"fetchall": []},  # combined _SESSION_GUC_OVERRIDES APR key lookup (no rows -> defaults)
     {"fetchone": ("30min", "1h", "1h")},  # combined current_setting() read, all 3 GUCs
     {},  # combined set_config() override, all 3 GUCs

@@ -281,6 +281,11 @@ _SESSION_GUC_OVERRIDES: tuple[tuple[str, str, int], ...] = (
     ),
 )
 
+_FIND_COMPRESSION_JOBS_SQL = (
+    "SELECT job_id, scheduled FROM timescaledb_information.jobs "
+    "WHERE hypertable_name = %s AND proc_name = 'policy_compression'"
+)
+
 _DECOMPRESS_ALL_COMPRESSED_CHUNKS_SQL = (
     # %%I (not %I): psycopg's client-side placeholder scanner treats any single '%' in the
     # query text as a potential bind placeholder and rejects '%I' as an unrecognized one
@@ -328,6 +333,30 @@ def _log_write_session_exited(hypertable: str, n_chunks: int) -> None:
         "compressed_hypertable_write_session.exited",
         hypertable=hypertable,
         chunks_recompressed=n_chunks,
+    )
+
+
+def _restore_compression_jobs_sync(
+    conn: Any, hypertable: str, compression_jobs: list[tuple[int, bool]]
+) -> None:
+    """Restore each paused compression-policy job to its own prior `scheduled` value.
+
+    Called from two places (code review, todo 314): the normal exit `finally` block, AND
+    an entry-phase exception handler -- a job paused right before a decompress that then
+    fails (statement timeout, idle-session kill -- both documented as having happened live
+    against this exact call) must not stay paused forever with no compensating mechanism,
+    unlike decompress_chunk's own idempotent self-healing.
+    """
+    if not compression_jobs:
+        return
+    with conn.cursor() as cur:
+        for job_id, prior_scheduled in compression_jobs:
+            cur.execute("SELECT alter_job(%s, scheduled => %s)", (job_id, prior_scheduled))
+    conn.commit()
+    _logger.info(
+        "compressed_hypertable_write_session.compression_jobs_restored",
+        hypertable=hypertable,
+        job_ids=[job_id for job_id, _ in compression_jobs],
     )
 
 
@@ -417,44 +446,87 @@ def compressed_hypertable_write_session(conn: Any, hypertable: str):
     idle_in_transaction_session_timeout (same APR key/value as idle_session_timeout) is
     defense-in-depth, not itself observed live -- see _SESSION_GUC_OVERRIDES's comment for
     why it's still covered.
+
+    Pauses `hypertable`'s own TimescaleDB compression policy job(s) (`alter_job(job_id,
+    scheduled => false)`) for the session's duration and restores each job's prior
+    `scheduled` value on exit (todo 314). Proven necessary 2026-08-14: `Columnstore Policy
+    [1065]` (feature_vectors' compression job) ran concurrently with a regime_writer.py
+    write session and deadlocked -- the job held `AccessExclusiveLock` compressing a chunk
+    this session's decompress had already opened with `RowExclusiveLock`, each waiting on
+    the other. `alter_job(scheduled => false)` only stops FUTURE scheduled runs from being
+    picked up; it does not cancel a run already in progress -- if the policy job is already
+    executing at the moment this session starts, this does not retroactively stop it (same
+    residual race the manual "pause job 1065, kill the wedged backend" 2026-08-14 mitigation
+    had to handle by hand). No known caller has hit that narrower race live; documented so
+    it isn't mistaken for full protection.
     """
     _validate_compressed_hypertable(hypertable)
     guc_names = [name for name, _, _ in _SESSION_GUC_OVERRIDES]
-    with conn.cursor() as cur:
-        # Scoped lookup, not load_config_service_sync(conn) -- that helper pulls the whole
-        # config_state/config_schema JOIN (793 rows as of 2026-08-14) just to read a
-        # handful of keys, and the caller (e.g. regime_writer.py) has almost always
-        # already loaded the full APR table once for its own run moments earlier. Mirrors
-        # the async sibling's scoped `load_apr_dict_async(conn, ["infra....%"])` load.
-        apr_keys = list({apr_key for _, apr_key, _ in _SESSION_GUC_OVERRIDES})
-        cur.execute(
-            "SELECT config_key, config_value FROM config_state WHERE config_key = ANY(%s)",
-            (apr_keys,),
-        )
-        apr_rows = dict(cur.fetchall())
-        override_values = [
-            str(int(apr_rows.get(apr_key, default)))
-            for _, apr_key, default in _SESSION_GUC_OVERRIDES
-        ]
+    compression_jobs: list[tuple[int, bool]] = []
+    try:
+        with conn.cursor() as cur:
+            # Pause hypertable's own compression-policy job(s) first, in the same combined
+            # entry round trip as the GUC overrides below (todo 314 -- keeps the "one round
+            # trip per direction" shape this function already uses for GUCs, not a second
+            # separate commit()).
+            cur.execute(_FIND_COMPRESSION_JOBS_SQL, (hypertable,))
+            compression_jobs = cur.fetchall()
+            for job_id, _ in compression_jobs:
+                cur.execute("SELECT alter_job(%s, scheduled => false)", (job_id,))
 
-        # One combined round trip per direction instead of one SHOW/SET pair per GUC --
-        # current_setting()/set_config() are ordinary scalar functions, so N of them can be
-        # selected/called in a single statement (confirmed live 2026-08-15). Verified below
-        # that this genuinely returns/applies all N in the row's positional order, not just
-        # the last one.
-        cur.execute(
-            "SELECT " + ", ".join("current_setting(%s)" for _ in guc_names),
-            tuple(guc_names),
-        )
-        prior_values = list(cur.fetchone())
-        cur.execute(
-            "SELECT " + ", ".join("set_config(%s, %s, false)" for _ in guc_names),
-            tuple(x for name, val in zip(guc_names, override_values) for x in (name, val)),
-        )
+            # Scoped lookup, not load_config_service_sync(conn) -- that helper pulls the
+            # whole config_state/config_schema JOIN (793 rows as of 2026-08-14) just to
+            # read a handful of keys, and the caller (e.g. regime_writer.py) has almost
+            # always already loaded the full APR table once for its own run moments
+            # earlier. Mirrors the async sibling's scoped
+            # `load_apr_dict_async(conn, ["infra....%"])` load.
+            apr_keys = list({apr_key for _, apr_key, _ in _SESSION_GUC_OVERRIDES})
+            cur.execute(
+                "SELECT config_key, config_value FROM config_state WHERE config_key = ANY(%s)",
+                (apr_keys,),
+            )
+            apr_rows = dict(cur.fetchall())
+            override_values = [
+                str(int(apr_rows.get(apr_key, default)))
+                for _, apr_key, default in _SESSION_GUC_OVERRIDES
+            ]
 
-        cur.execute(_DECOMPRESS_ALL_COMPRESSED_CHUNKS_SQL, (hypertable,))
-        n_decompressed = cur.rowcount
-    conn.commit()
+            # One combined round trip per direction instead of one SHOW/SET pair per GUC
+            # -- current_setting()/set_config() are ordinary scalar functions, so N of
+            # them can be selected/called in a single statement (confirmed live
+            # 2026-08-15). Verified below that this genuinely returns/applies all N in
+            # the row's positional order, not just the last one.
+            cur.execute(
+                "SELECT " + ", ".join("current_setting(%s)" for _ in guc_names),
+                tuple(guc_names),
+            )
+            prior_values = list(cur.fetchone())
+            cur.execute(
+                "SELECT " + ", ".join("set_config(%s, %s, false)" for _ in guc_names),
+                tuple(x for name, val in zip(guc_names, override_values) for x in (name, val)),
+            )
+
+            cur.execute(_DECOMPRESS_ALL_COMPRESSED_CHUNKS_SQL, (hypertable,))
+            n_decompressed = cur.rowcount
+        conn.commit()
+    except BaseException:
+        # Code review, todo 314: a compression job paused above, followed by ANY failure
+        # in this same entry phase (the GUC override or the decompress itself -- both
+        # documented as having actually failed live: statement-timeout kill 2026-08-14,
+        # idle-session kill 2026-08-15) must not leave that job stuck at scheduled=false
+        # forever. Unlike decompress_chunk's own idempotent self-healing, there is no
+        # other mechanism that would ever notice or fix a job stranded paused here -- the
+        # normal exit `finally` below is never reached because this exception propagates
+        # out of the function before `try: yield` runs.
+        conn.rollback()
+        _restore_compression_jobs_sync(conn, hypertable, compression_jobs)
+        raise
+    if compression_jobs:
+        _logger.info(
+            "compressed_hypertable_write_session.compression_jobs_paused",
+            hypertable=hypertable,
+            job_ids=[job_id for job_id, _ in compression_jobs],
+        )
     _log_write_session_entering(hypertable, n_decompressed)
 
     token = _active_write_session_hypertable.set(hypertable)
@@ -497,6 +569,8 @@ def compressed_hypertable_write_session(conn: Any, hypertable: str):
                 tuple(x for name, val in zip(guc_names, prior_values) for x in (name, val)),
             )
         conn.commit()
+
+        _restore_compression_jobs_sync(conn, hypertable, compression_jobs)
 
         _log_write_session_exited(hypertable, n_recompressed)
 
@@ -604,6 +678,11 @@ async def load_apr_dict_async(conn: Any, extra_like_patterns: list[str] | None =
     return {r["config_key"]: r["config_value"] for r in rows}
 
 
+_FIND_COMPRESSION_JOBS_ASYNCPG_SQL = (
+    "SELECT job_id, scheduled FROM timescaledb_information.jobs "
+    "WHERE hypertable_name = $1 AND proc_name = 'policy_compression'"
+)
+
 _DECOMPRESS_ALL_COMPRESSED_CHUNKS_ASYNCPG_SQL = (
     "SELECT decompress_chunk(format('%I.%I', chunk_schema, chunk_name)::regclass, "
     "if_compressed => true) FROM timescaledb_information.chunks "
@@ -614,6 +693,21 @@ _COMPRESS_ALL_DECOMPRESSED_CHUNKS_ASYNCPG_SQL = (
     "if_not_compressed => true) FROM timescaledb_information.chunks "
     "WHERE hypertable_name = $1 AND NOT is_compressed"
 )
+
+
+async def _restore_compression_jobs_async(
+    conn: Any, hypertable: str, compression_jobs: list[tuple[int, bool]]
+) -> None:
+    """Async sibling of `_restore_compression_jobs_sync` -- see its docstring."""
+    if not compression_jobs:
+        return
+    for job_id, prior_scheduled in compression_jobs:
+        await conn.execute("SELECT alter_job($1, scheduled => $2)", job_id, prior_scheduled)
+    _logger.info(
+        "compressed_hypertable_write_session.compression_jobs_restored",
+        hypertable=hypertable,
+        job_ids=[job_id for job_id, _ in compression_jobs],
+    )
 
 
 @asynccontextmanager
@@ -640,38 +734,66 @@ async def async_compressed_hypertable_write_session(conn: Any, hypertable: str):
     live-incident rationale as the sync sibling above -- see its docstring) for the
     duration of the session, in one combined round trip per direction, and restores the
     connection's prior values on exit.
+
+    Pauses/restores `hypertable`'s own TimescaleDB compression policy job(s), same
+    mechanism and same residual-race caveat as the sync sibling (todo 314) -- see that
+    function's docstring for the full incident rationale.
     """
     _validate_compressed_hypertable(hypertable)
     guc_names = [name for name, _, _ in _SESSION_GUC_OVERRIDES]
-    apr = await load_apr_dict_async(conn, ["infra.compressed_hypertable_write_session.%"])
-    override_values = [
-        str(int(cfg(apr, apr_key, default))) for _, apr_key, default in _SESSION_GUC_OVERRIDES
+
+    compression_jobs = [
+        (r["job_id"], r["scheduled"])
+        for r in await conn.fetch(_FIND_COMPRESSION_JOBS_ASYNCPG_SQL, hypertable)
     ]
+    for job_id, _ in compression_jobs:
+        await conn.execute("SELECT alter_job($1, scheduled => false)", job_id)
 
-    # One combined round trip per direction instead of one SHOW/SET pair per GUC (same
-    # rationale as the sync sibling). set_config_sql is reused for both the entry override
-    # and the exit restore -- same placeholder shape, different values each time.
-    set_config_sql = "SELECT " + ", ".join(
-        f"set_config(${2 * i + 1}, ${2 * i + 2}, false)" for i in range(len(guc_names))
-    )
+    try:
+        apr = await load_apr_dict_async(conn, ["infra.compressed_hypertable_write_session.%"])
+        override_values = [
+            str(int(cfg(apr, apr_key, default))) for _, apr_key, default in _SESSION_GUC_OVERRIDES
+        ]
 
-    prior_row = await conn.fetchrow(
-        "SELECT " + ", ".join(f"current_setting(${i + 1})" for i in range(len(guc_names))),
-        *guc_names,
-    )
-    prior_values = list(prior_row.values())
-    await conn.execute(
-        set_config_sql,
-        *(x for name, val in zip(guc_names, override_values) for x in (name, val)),
-    )
+        # One combined round trip per direction instead of one SHOW/SET pair per GUC
+        # (same rationale as the sync sibling). set_config_sql is reused for both the
+        # entry override and the exit restore -- same placeholder shape, different
+        # values each time.
+        set_config_sql = "SELECT " + ", ".join(
+            f"set_config(${2 * i + 1}, ${2 * i + 2}, false)" for i in range(len(guc_names))
+        )
 
-    # asyncpg's execute() returns the command tag ("SELECT <n>") for a plain SELECT --
-    # confirmed live 2026-08-14 -- so the affected-row count comes for free from the same
-    # call that runs the statement, same shape as ops_stale_k3_hmm_fields_cleanup.py's own
-    # `int(result.split()[-1])` idiom and the sync sibling's cur.rowcount. No count(*)
-    # subquery wrapper needed (an earlier version of this function used one).
-    result = await conn.execute(_DECOMPRESS_ALL_COMPRESSED_CHUNKS_ASYNCPG_SQL, hypertable)
-    n_decompressed = int(result.split()[-1])
+        prior_row = await conn.fetchrow(
+            "SELECT " + ", ".join(f"current_setting(${i + 1})" for i in range(len(guc_names))),
+            *guc_names,
+        )
+        prior_values = list(prior_row.values())
+        await conn.execute(
+            set_config_sql,
+            *(x for name, val in zip(guc_names, override_values) for x in (name, val)),
+        )
+
+        # asyncpg's execute() returns the command tag ("SELECT <n>") for a plain SELECT
+        # -- confirmed live 2026-08-14 -- so the affected-row count comes for free from
+        # the same call that runs the statement, same shape as ops_stale_k3_hmm_fields_
+        # cleanup.py's own `int(result.split()[-1])` idiom and the sync sibling's
+        # cur.rowcount. No count(*) subquery wrapper needed (an earlier version of this
+        # function used one).
+        result = await conn.execute(_DECOMPRESS_ALL_COMPRESSED_CHUNKS_ASYNCPG_SQL, hypertable)
+        n_decompressed = int(result.split()[-1])
+    except BaseException:
+        # Code review, todo 314: same entry-phase exception-safety gap as the sync
+        # sibling -- see its docstring/comment for the full rationale. A job paused
+        # above must not be stranded at scheduled=false if the GUC override or
+        # decompress that follows fails.
+        await _restore_compression_jobs_async(conn, hypertable, compression_jobs)
+        raise
+    if compression_jobs:
+        _logger.info(
+            "compressed_hypertable_write_session.compression_jobs_paused",
+            hypertable=hypertable,
+            job_ids=[job_id for job_id, _ in compression_jobs],
+        )
     _log_write_session_entering(hypertable, n_decompressed)
 
     token = _active_write_session_hypertable.set(hypertable)
@@ -690,6 +812,8 @@ async def async_compressed_hypertable_write_session(conn: Any, hypertable: str):
             set_config_sql,
             *(x for name, val in zip(guc_names, prior_values) for x in (name, val)),
         )
+
+        await _restore_compression_jobs_async(conn, hypertable, compression_jobs)
 
         _log_write_session_exited(hypertable, n_recompressed)
 
