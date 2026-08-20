@@ -59,18 +59,19 @@ def test_codes_falls_back_on_empty_registry():
 
 
 @pytest.mark.unit
-def test_standard_timeframes_returns_default_when_unregistered():
-    """standard_timeframes() is a thin wrapper over codes("timeframe", ...)."""
+def test_standard_timeframes_delegates_to_codes(monkeypatch):
+    """standard_timeframes() is a thin wrapper over codes("timeframe", ...) -- the
+    fallback/registered-read behavior itself is already covered generically by the
+    codes() tests above; this only proves the delegation is wired correctly."""
+    calls = []
+    monkeypatch.setattr(
+        vocabulary_access,
+        "codes",
+        lambda namespace, default: calls.append((namespace, default)) or default,
+    )
     result = vocabulary_access.standard_timeframes(default=("1m", "5m"))
+    assert calls == [("timeframe", ("1m", "5m"))]
     assert result == ("1m", "5m")
-
-
-@pytest.mark.unit
-def test_standard_timeframes_reads_registered_service():
-    """Once a VocabularyService is registered, reads its active_codes("timeframe")."""
-    vocabulary_access.set_vocabulary_service(_FakeVocab())
-    result = vocabulary_access.standard_timeframes()
-    assert result == ("1m", "5m", "15m", "1h", "4h", "1d")
 
 
 @pytest.mark.unit
