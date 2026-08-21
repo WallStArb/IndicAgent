@@ -608,14 +608,35 @@ def test_feature_status_refresh_is_wrapped_in_compressed_hypertable_write_sessio
     cur.execute() against a possibly-compressed chunk. Source-inspection regression
     test, not a behavioral one -- this call site is inlined in main(), too large and
     dependency-heavy (args parsing, worker pool, live DB connections) to unit-test in
-    isolation without a scope-expanding extraction main() doesn't otherwise need."""
-    source = inspect.getsource(main)
-    write_session_idx = source.index("_write_session(conn,")
-    refresh_sql_idx = source.index("_FEATURE_STATUS_REFRESH_SQL,")
-    assert write_session_idx < refresh_sql_idx, (
-        "_FEATURE_STATUS_REFRESH_SQL's UPDATE must be issued inside a "
-        "_write_session(conn, ...) block, not before one opens"
-    )
+    isolation without a scope-expanding extraction main() doesn't otherwise need.
+
+    Indentation-scoped, not a bare substring-index-ordering check (code review finding
+    on the first version of this test): `source.index(a) < source.index(b)` only proves
+    `a` appears earlier in the file, not that `b` is actually nested inside `a`'s `with`
+    block -- a future refactor could move the UPDATE back out to the same or a shallower
+    indentation level (still textually after the `with` line) and this would keep
+    passing green while the real protection regressed. This walks forward from the
+    `with _write_session(...)` line and fails if indentation ever returns to (or below)
+    that line's level before `_FEATURE_STATUS_REFRESH_SQL` is reached -- that dedent is
+    what "left the block" means in Python, regardless of exact formatting."""
+    lines = inspect.getsource(main).splitlines()
+    with_line_idx = next(i for i, line in enumerate(lines) if "_write_session(conn," in line)
+    with_indent = len(lines[with_line_idx]) - len(lines[with_line_idx].lstrip())
+
+    for line in lines[with_line_idx + 1 :]:
+        stripped = line.strip()
+        if not stripped:
+            continue
+        indent = len(line) - len(line.lstrip())
+        if indent <= with_indent:
+            raise AssertionError(
+                "_write_session(conn, ...) block closed (dedent to/below its own "
+                "indentation) before _FEATURE_STATUS_REFRESH_SQL was found inside it"
+            )
+        if "_FEATURE_STATUS_REFRESH_SQL," in stripped:
+            return
+
+    raise AssertionError("_FEATURE_STATUS_REFRESH_SQL, not found anywhere after the write session")
 
 
 # ---------------------------------------------------------------------------

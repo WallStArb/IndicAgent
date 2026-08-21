@@ -410,10 +410,13 @@ def compressed_hypertable_write_session(conn: Any, hypertable: str):
 
     Sets `_active_write_session_hypertable` for the duration so `bulk_update_by_key` can
     detect a caller that forgot to open a session at all (see that function's docstring) --
-    does NOT protect against a *different*, un-bracketed writer (e.g. ic_engine.py, see
-    todo 307) touching the same hypertable concurrently: this session's exit recompresses
-    "every chunk currently decompressed," not only the ones it personally decompressed, so
-    a concurrent unbracketed writer's chunk could be recompressed out from under it mid-
+    does NOT protect against a *different*, un-bracketed writer touching the same
+    hypertable concurrently (ic_engine.py's two feature_ic_scores UPDATE call sites were
+    exactly this gap until todo 307 wrapped them 2026-08-20 -- every known writer against
+    both `_KNOWN_COMPRESSED_HYPERTABLES` tables is now bracketed, but a future new raw
+    UPDATE against either table would reopen it): this session's exit recompresses "every
+    chunk currently decompressed," not only the ones it personally decompressed, so a
+    concurrent unbracketed writer's chunk could be recompressed out from under it mid-
     write. Safe today because every known caller runs sequentially (`ops_corpus_pipeline_
     run.sh`'s step ordering) -- if that ever stops being true, this session needs a real
     advisory lock, not just a contextvar.
