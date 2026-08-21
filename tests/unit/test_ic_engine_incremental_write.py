@@ -19,11 +19,16 @@ whatever rows are currently pending (passes_fdr IS NULL) rather than by in-memor
 bookkeeping from a single process invocation. This is safe to rerun after a crash
 regardless of which run wrote the pending rows.
 
-No DB, no Kafka. Scripted fake connection/cursor for _backfill_bh_fdr's SQL
-interaction (todo 307: the write half now runs inside
-compressed_hypertable_write_session, so the fake must play back that session's fixed
-call sequence too -- see tests/unit/_compressed_hypertable_write_session_fakes.py);
-signature/docstring/source inspection for the rest.
+No DB, no Kafka. Scripted fake connection/cursor for _backfill_bh_fdr's SELECT half
+(todo 307: the write half now runs inside compressed_hypertable_write_session AND
+delegates to bulk_update_by_key -- altitude review finding, matches
+scripts/ops/alpha/ops_ic_shrinkage.py's own bulk_update_by_key call against this same
+table/key shape rather than a hand-rolled executemany() UPDATE). bulk_update_by_key
+itself is monkeypatched out here (its own COPY/temp-table/JOIN-UPDATE mechanics are
+covered by tests/unit/test_batch_utils.py; this file's job is only to prove
+_backfill_bh_fdr calls it with the right table/keys/rows) -- see
+tests/unit/_compressed_hypertable_write_session_fakes.py for the write-session's own
+fixed call sequence. Signature/docstring/source inspection for the rest.
 """
 
 from __future__ import annotations
@@ -47,10 +52,6 @@ from tests.unit._compressed_hypertable_write_session_fakes import (
 _TWE = datetime(2026, 7, 17, tzinfo=UTC)
 
 
-def _update_calls(conn: ScriptedConn) -> list[tuple[str, tuple | None]]:
-    return [c for c in conn.calls if "UPDATE feature_ic_scores" in c[0]]
-
-
 def test_backfill_bh_fdr_queries_only_pending_rows():
     """The SELECT must scope to this training_window_end and passes_fdr IS NULL --
     non-representative rows (already locked to passes_fdr=False at compute time)
@@ -64,19 +65,19 @@ def test_backfill_bh_fdr_queries_only_pending_rows():
     sql, params = conn.calls[0]
     assert "passes_fdr IS NULL" in sql
     assert "training_window_end" in sql
-    # Nothing pending -> no UPDATE attempted, no wasted round trip, no write
+    # Nothing pending -> no write attempted, no wasted round trip, no write
     # session opened at all.
-    assert _update_calls(conn) == []
     assert conn.commits == 0
 
 
-def test_backfill_bh_fdr_applies_one_corpus_wide_multipletests_call():
+def test_backfill_bh_fdr_applies_one_corpus_wide_multipletests_call(monkeypatch):
     """10 low-p, 190 null-p representative rows (mirrors
     test_ensemble_ic_bh_fdr's synthetic split) -- exactly 10 must pass BH-FDR,
-    and the UPDATE payload must carry those precise pass/fail labels. The write
-    runs inside compressed_hypertable_write_session (todo 307) -- responses list
-    is [pending-rows SELECT] + [write-session entry] + [the UPDATE itself] +
-    [write-session exit]."""
+    and the bulk_update_by_key payload must carry those precise pass/fail labels.
+    The write runs inside compressed_hypertable_write_session (todo 307) --
+    responses list is [pending-rows SELECT] + [write-session entry] +
+    [write-session exit]; bulk_update_by_key itself is monkeypatched out (it never
+    touches conn in this test), so no response slot is needed for it."""
     import numpy as np
 
     rng = np.random.default_rng(11)
@@ -87,9 +88,19 @@ def test_backfill_bh_fdr_applies_one_corpus_wide_multipletests_call():
     conn = ScriptedConn(
         responses=[{"fetchall": pending_rows}]
         + WRITE_SESSION_ENTRY_RESPONSES
-        + [{}]  # the executemany() UPDATE itself -- no result read afterward
         + WRITE_SESSION_EXIT_RESPONSES
     )
+
+    captured: dict = {}
+
+    def _fake_bulk_update_by_key(conn, *, table, temp_table, key_cols, set_cols, col_types, rows):
+        captured["table"] = table
+        captured["key_cols"] = key_cols
+        captured["set_cols"] = set_cols
+        captured["col_types"] = col_types
+        captured["rows"] = rows
+
+    monkeypatch.setattr(ic_module, "bulk_update_by_key", _fake_bulk_update_by_key)
 
     updates = ic_module._backfill_bh_fdr(conn, _TWE, fdr_alpha=0.05)
 
@@ -100,24 +111,46 @@ def test_backfill_bh_fdr_applies_one_corpus_wide_multipletests_call():
     assert not any(u["passes_fdr"] for u in updates[10:])
     assert conn.commits > 0
 
-    # Exactly one batched executemany() call carrying every pending row (ported
-    # from psycopg2.extras.execute_values' single UPDATE-FROM-VALUES statement
-    # to a plain per-row UPDATE via executemany() -- psycopg has no direct
-    # equivalent of execute_values' inlined multi-row VALUES-list trick).
-    assert len(conn.executemany_calls) == 1
-    sql, argslist = conn.executemany_calls[0]
-    assert "UPDATE feature_ic_scores" in sql
-    assert "SET bh_adjusted_p = %s, passes_fdr = %s" in sql
-    assert len(argslist) == 200
+    assert captured["table"] == "feature_ic_scores"
+    assert captured["key_cols"] == [
+        "feature_name",
+        "symbol",
+        "tf",
+        "regime",
+        "lookahead_bars",
+        "training_window_end",
+    ]
+    assert captured["set_cols"] == ["bh_adjusted_p", "passes_fdr"]
+    # rows ordered (*set_cols, *key_cols), matching bulk_update_by_key's own contract.
+    assert len(captured["rows"]) == 200
+    first_row = captured["rows"][0]
+    assert first_row[0] == updates[0]["bh_adjusted_p"]
+    assert first_row[1] == updates[0]["passes_fdr"]
+    assert first_row[2:] == (
+        updates[0]["feature_name"],
+        updates[0]["symbol"],
+        updates[0]["tf"],
+        updates[0]["regime"],
+        updates[0]["lookahead_bars"],
+        _TWE,
+    )
 
 
-def test_backfill_bh_fdr_update_rows_key_on_primary_key_columns():
-    """The per-row UPDATE's WHERE clause must carry the exact feature_ic_scores
-    primary key column set (feature_name, symbol, tf, regime, lookahead_bars,
-    training_window_end) so it can't silently mismatch a row."""
-    source = inspect.getsource(ic_module._backfill_bh_fdr)
-    for col in ("feature_name", "symbol", "tf", "regime", "lookahead_bars", "training_window_end"):
-        assert f"{col} = %s" in source, f"UPDATE WHERE clause must match on {col} = %s"
+def test_backfill_bh_fdr_key_cols_match_feature_ic_scores_primary_key():
+    """_BH_FDR_KEY_COLS must carry the exact feature_ic_scores primary key column
+    set (feature_name, symbol, tf, regime, lookahead_bars, training_window_end) so
+    bulk_update_by_key's JOIN-UPDATE can't silently mismatch a row."""
+    assert ic_module._BH_FDR_KEY_COLS == [
+        "feature_name",
+        "symbol",
+        "tf",
+        "regime",
+        "lookahead_bars",
+        "training_window_end",
+    ]
+    assert set(ic_module._BH_FDR_COL_TYPES) == set(ic_module._BH_FDR_KEY_COLS) | set(
+        ic_module._BH_FDR_SET_COLS
+    )
 
 
 # ---------------------------------------------------------------------------

@@ -55,6 +55,39 @@ CI guard test itself. Not deployed -- `ic_engine.py` is currently mid-corpus-run
 PID confirmed via `ps`); this code change lands on `main` but does not touch or restart that
 process. The next `ic_engine.py` invocation picks up the fix.
 
+## `/simplify` pass, 2026-08-20 -- altitude finding applied, one real bug fixed in the test itself
+
+Reuse/efficiency passes on the same diff found nothing. Simplification found two real issues
+(applied): the earlier `test_feature_status_refresh_is_wrapped_in_compressed_hypertable_write_
+session` compared `source.index()` positions, which only proves ordering, not real nesting --
+replaced with an AST-based check (walks the `with _write_session(...)` node's own subtree for a
+`Name` reference to `_FEATURE_STATUS_REFRESH_SQL`), immune to comments and multi-line wrapping in
+a way even my prior indentation-walk fix (from the `/code-review` pass) wasn't. Manually verified
+both directions (a broken/unnested case correctly fails, the real code correctly passes) since
+this exact test had already been flagged twice for weak verification. A second finding (duplicate
+`_update_calls` test helper across two files) turned out moot -- the altitude fix below already
+eliminated the only other copy.
+
+**Altitude finding, applied**: `_backfill_bh_fdr`'s `bh_adjusted_p`/`passes_fdr` UPDATE was a
+hand-rolled `executemany()` -- exactly the 6-key/2-set-column shape `bulk_update_by_key` exists
+for, and `scripts/ops/alpha/ops_ic_shrinkage.py` already has a near-identical `_PK_COLS`/
+`_COL_TYPES` call against this same table. Migrated: added `_BH_FDR_KEY_COLS`/`_BH_FDR_SET_COLS`/
+`_BH_FDR_COL_TYPES` constants (mirroring `ops_ic_shrinkage.py`'s naming), replaced the raw SQL
+executemany with `bulk_update_by_key(...)`. This is strictly better than the CI-guard-based
+protection the original fix relied on: `bulk_update_by_key` structurally refuses to run against a
+compressed hypertable with no active session (`RuntimeError`, not just a grep-detectable pattern),
+so forgetting the wrap becomes impossible rather than merely CI-catchable. As a side effect, this
+call site's SQL is now built dynamically and no longer matches the CI guard's regex at all --
+updated `test_compressed_hypertable_write_boundary.py`'s allow-list entry to reflect only 1 raw
+call site remains (`_FEATURE_STATUS_REFRESH_SQL`), not 2.
+
+Test for `_backfill_bh_fdr`'s write half rewritten: `bulk_update_by_key` is monkeypatched out
+(its own COPY/temp-table/JOIN-UPDATE mechanics are already covered by `test_batch_utils.py`) and
+the test asserts on what it was called with (`table`/`key_cols`/`set_cols`/`rows`) instead of
+inspecting raw SQL text that no longer exists in `ic_engine.py`'s source. New
+`test_backfill_bh_fdr_key_cols_match_feature_ic_scores_primary_key` replaces the old source-grep
+PK-column test. Full `tests/unit/` suite green throughout.
+
 **Filed:** 2026-08-14
 **Source:** Same investigation as todo 306's "Step 3 hit a second bug" update -- see
 `project_disk_full_incident_2026_08_13` memory and `services/_batch_utils.py`'s

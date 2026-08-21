@@ -89,6 +89,7 @@ sys.path.insert(0, str(project_root))
 from services._batch_utils import (
     ACTIVE_SCALES_FALLBACKS_BY_TF,
     Float32ChunkAccumulator,
+    bulk_update_by_key,
     canonicalize_active_scales,
     connect_db_from_url,
     get_list_config,
@@ -3992,6 +3993,30 @@ def _upsert_cell_fingerprints(settings: Settings, fp_rows: list[dict]) -> None:
         conn.commit()
 
 
+# feature_ic_scores' primary key (todo 307) -- same 6-column shape
+# scripts/ops/alpha/ops_ic_shrinkage.py's _PK_COLS/_COL_TYPES already use for its own
+# bulk_update_by_key call against this table.
+_BH_FDR_KEY_COLS: list[str] = [
+    "feature_name",
+    "symbol",
+    "tf",
+    "regime",
+    "lookahead_bars",
+    "training_window_end",
+]
+_BH_FDR_SET_COLS: list[str] = ["bh_adjusted_p", "passes_fdr"]
+_BH_FDR_COL_TYPES: dict[str, str] = {
+    "bh_adjusted_p": "double precision",
+    "passes_fdr": "boolean",
+    "feature_name": "text",
+    "symbol": "text",
+    "tf": "text",
+    "regime": "text",
+    "lookahead_bars": "integer",
+    "training_window_end": "timestamptz",
+}
+
+
 def _backfill_bh_fdr(
     conn: Any,
     training_window_end: Any,
@@ -4057,36 +4082,33 @@ def _backfill_bh_fdr(
     # run), the same forced-full-decompress-scan exposure every other writer against
     # this table was already fixed for (todo 307). Only the write below needs the
     # bracket -- the SELECT above reads fine against compressed chunks, no decompress
-    # required for that.
+    # required for that. bulk_update_by_key (not a hand-rolled executemany() UPDATE)
+    # is the established primitive for exactly this shape -- keyed on the same 6-column
+    # PK ops_ic_shrinkage.py's own bulk_update_by_key call against this table already
+    # uses -- and it structurally refuses to run against a compressed hypertable with
+    # no active session, rather than relying only on the CI grep guard.
     with _write_session(conn, "feature_ic_scores"):
-        with conn.cursor() as cur:
-            # Ported from psycopg2.extras.execute_values' single UPDATE-FROM-(VALUES)
-            # statement to a plain per-row UPDATE via executemany() -- psycopg has no
-            # direct equivalent of execute_values' inlined multi-row VALUES-list trick.
-            # executemany() batches internally in psycopg 3.1+ ("Performance of
-            # Cursor.executemany() has been improved using batch mode internally" per
-            # psycopg's own changelog), so this isn't a naive N-roundtrip regression.
-            cur.executemany(
-                """
-                UPDATE feature_ic_scores
-                SET bh_adjusted_p = %s, passes_fdr = %s
-                WHERE feature_name = %s AND symbol = %s AND tf = %s AND regime = %s
-                    AND lookahead_bars = %s AND training_window_end = %s
-                """,
-                [
-                    (
-                        u["bh_adjusted_p"],
-                        u["passes_fdr"],
-                        u["feature_name"],
-                        u["symbol"],
-                        u["tf"],
-                        u["regime"],
-                        u["lookahead_bars"],
-                        training_window_end,
-                    )
-                    for u in updates
-                ],
-            )
+        bulk_update_by_key(
+            conn,
+            table="feature_ic_scores",
+            temp_table="tmp_ic_engine_bh_fdr_backfill",
+            key_cols=_BH_FDR_KEY_COLS,
+            set_cols=_BH_FDR_SET_COLS,
+            col_types=_BH_FDR_COL_TYPES,
+            rows=[
+                (
+                    u["bh_adjusted_p"],
+                    u["passes_fdr"],
+                    u["feature_name"],
+                    u["symbol"],
+                    u["tf"],
+                    u["regime"],
+                    u["lookahead_bars"],
+                    training_window_end,
+                )
+                for u in updates
+            ],
+        )
         conn.commit()
     return updates
 

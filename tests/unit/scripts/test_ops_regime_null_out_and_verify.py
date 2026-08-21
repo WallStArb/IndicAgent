@@ -48,9 +48,10 @@ _MODULE = "scripts.ops.corpus.ops_regime_null_out_and_verify"
 
 # ---------------------------------------------------------------------------
 # Scripted fake connection -- replays responses in call order. _ScriptedConn/
-# _ScriptedCursor/_WRITE_SESSION_*_RESPONSES imported above (todo 307: extracted to
+# _WRITE_SESSION_*_RESPONSES imported above (todo 307: extracted to
 # tests/unit/_compressed_hypertable_write_session_fakes.py once a second caller needed
-# this exact fake).
+# this exact fake). _ScriptedCursor itself is never referenced directly here -- only
+# via _ScriptedConn.cursor() -- so it isn't imported.
 # ---------------------------------------------------------------------------
 
 

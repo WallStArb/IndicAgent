@@ -15,6 +15,7 @@ DB-free dict construction for the watermark-inequality proof.
 
 from __future__ import annotations
 
+import ast
 import dataclasses
 import inspect
 import sys
@@ -610,33 +611,29 @@ def test_feature_status_refresh_is_wrapped_in_compressed_hypertable_write_sessio
     dependency-heavy (args parsing, worker pool, live DB connections) to unit-test in
     isolation without a scope-expanding extraction main() doesn't otherwise need.
 
-    Indentation-scoped, not a bare substring-index-ordering check (code review finding
-    on the first version of this test): `source.index(a) < source.index(b)` only proves
-    `a` appears earlier in the file, not that `b` is actually nested inside `a`'s `with`
-    block -- a future refactor could move the UPDATE back out to the same or a shallower
-    indentation level (still textually after the `with` line) and this would keep
-    passing green while the real protection regressed. This walks forward from the
-    `with _write_session(...)` line and fails if indentation ever returns to (or below)
-    that line's level before `_FEATURE_STATUS_REFRESH_SQL` is reached -- that dedent is
-    what "left the block" means in Python, regardless of exact formatting."""
-    lines = inspect.getsource(main).splitlines()
-    with_line_idx = next(i for i, line in enumerate(lines) if "_write_session(conn," in line)
-    with_indent = len(lines[with_line_idx]) - len(lines[with_line_idx].lstrip())
-
-    for line in lines[with_line_idx + 1 :]:
-        stripped = line.strip()
-        if not stripped:
-            continue
-        indent = len(line) - len(line.lstrip())
-        if indent <= with_indent:
-            raise AssertionError(
-                "_write_session(conn, ...) block closed (dedent to/below its own "
-                "indentation) before _FEATURE_STATUS_REFRESH_SQL was found inside it"
-            )
-        if "_FEATURE_STATUS_REFRESH_SQL," in stripped:
-            return
-
-    raise AssertionError("_FEATURE_STATUS_REFRESH_SQL, not found anywhere after the write session")
+    AST-based, not a text/indentation-based check (code review + /simplify findings on
+    earlier versions of this test): a substring-index-ordering check only proves the
+    `with` line appears earlier in the file, not real nesting; a hand-rolled indentation
+    walk is closer but still fooled by a comment containing the target text, or breaks
+    outright if the `with` call ever wraps across multiple lines. Walking the real AST
+    is immune to both -- it finds the `with _write_session(...)` node and checks whether
+    a `Name` node for `_FEATURE_STATUS_REFRESH_SQL` exists anywhere within that node's
+    own subtree, which is exactly what "nested inside the block" means structurally."""
+    tree = ast.parse(inspect.getsource(main))
+    with_node = next(
+        node
+        for node in ast.walk(tree)
+        if isinstance(node, ast.With)
+        and any(
+            isinstance(item.context_expr, ast.Call)
+            and getattr(item.context_expr.func, "id", None) == "_write_session"
+            for item in node.items
+        )
+    )
+    assert any(
+        isinstance(node, ast.Name) and node.id == "_FEATURE_STATUS_REFRESH_SQL"
+        for node in ast.walk(with_node)
+    ), "_FEATURE_STATUS_REFRESH_SQL must be referenced inside the _write_session(...) block"
 
 
 # ---------------------------------------------------------------------------
