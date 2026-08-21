@@ -827,6 +827,37 @@ class ConceptRegistryService:
         )
         return True
 
+    @staticmethod
+    def _execute_counter_advance_cas_sync(
+        conn: Any,
+        sql: str,
+        params: tuple,
+        *,
+        domain: str,
+        name: str,
+        expected_status: str,
+        noop_event: str,
+    ) -> bool:
+        """Shared CAS-execute step for advance_shadow_counters_sync/
+        advance_active_counters_sync below (todo 337 /simplify pass -- both methods'
+        rowcount-check-then-no-op shape was identical, only the log event differed).
+
+        Runs `sql` in its own conn.transaction(), then checks rowcount: 0 rows means
+        the concept's live status no longer matches expected_status (a concurrent
+        writer moved it since the caller's in-memory read), logged as `noop_event` and
+        returned as False. The caller is responsible for the in-memory cache mutation
+        and success log on True -- those differ per counter (shadow vs active), unlike
+        this CAS-execute step itself.
+        """
+        with conn.transaction():
+            with conn.cursor() as cur:
+                cur.execute(sql, params)
+                advanced = cur.rowcount > 0
+
+        if not advanced:
+            _logger.info(noop_event, domain=domain, name=name, expected_status=expected_status)
+        return advanced
+
     def advance_shadow_counters_sync(
         self,
         conn: Any,
@@ -860,21 +891,16 @@ class ConceptRegistryService:
         is no longer in. Returns True if the counters were actually advanced, False on
         the no-op.
         """
-        with conn.transaction():
-            with conn.cursor() as cur:
-                cur.execute(
-                    _ADVANCE_SHADOW_COUNTERS_SYNC_SQL,
-                    (passed, new_observations, domain, name, expected_status),
-                )
-                advanced = cur.rowcount > 0
-
+        advanced = self._execute_counter_advance_cas_sync(
+            conn,
+            _ADVANCE_SHADOW_COUNTERS_SYNC_SQL,
+            (passed, new_observations, domain, name, expected_status),
+            domain=domain,
+            name=name,
+            expected_status=expected_status,
+            noop_event="concept_registry.shadow_counters_advance_noop_sync",
+        )
         if not advanced:
-            _logger.info(
-                "concept_registry.shadow_counters_advance_noop_sync",
-                domain=domain,
-                name=name,
-                expected_status=expected_status,
-            )
             return False
 
         concept = self._concepts.get(name)
@@ -923,20 +949,16 @@ class ConceptRegistryService:
         advance_shadow_counters_sync's docstring for the full rationale. Returns True
         if the counters were actually advanced, False on the no-op.
         """
-        with conn.transaction():
-            with conn.cursor() as cur:
-                cur.execute(
-                    _ADVANCE_ACTIVE_COUNTERS_SYNC_SQL, (passed, domain, name, expected_status)
-                )
-                advanced = cur.rowcount > 0
-
+        advanced = self._execute_counter_advance_cas_sync(
+            conn,
+            _ADVANCE_ACTIVE_COUNTERS_SYNC_SQL,
+            (passed, domain, name, expected_status),
+            domain=domain,
+            name=name,
+            expected_status=expected_status,
+            noop_event="concept_registry.active_counters_advance_noop_sync",
+        )
         if not advanced:
-            _logger.info(
-                "concept_registry.active_counters_advance_noop_sync",
-                domain=domain,
-                name=name,
-                expected_status=expected_status,
-            )
             return False
 
         concept = self._concepts.get(name)

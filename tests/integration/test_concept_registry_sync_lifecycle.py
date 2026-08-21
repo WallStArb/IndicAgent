@@ -143,6 +143,18 @@ class _Db:
         assert row is not None, f"no concept_gate row for {name!r}"
         return row[0], row[1]
 
+    def fetch_active_fails(self, name: str) -> int:
+        with self.conn.cursor() as cur:
+            cur.execute(
+                "SELECT g.consecutive_active_fails "
+                "FROM concept_gate g JOIN concept_registry r USING (concept_id) "
+                "WHERE r.domain = %s AND r.name = %s",
+                (_DOMAIN, name),
+            )
+            row = cur.fetchone()
+        assert row is not None, f"no concept_gate row for {name!r}"
+        return row[0]
+
     def transition_log_rows(self, name: str) -> list[tuple]:
         with self.conn.cursor() as cur:
             cur.execute(
@@ -449,39 +461,18 @@ def test_advance_active_counters_increments_on_fail_and_resets_on_pass(db: _Db) 
     service.advance_active_counters_sync(
         db.conn, domain=_DOMAIN, name=name, passed=False, expected_status="active"
     )
-    with db.conn.cursor() as cur:
-        cur.execute(
-            "SELECT g.consecutive_active_fails FROM concept_gate g "
-            "JOIN concept_registry r USING (concept_id) "
-            "WHERE r.domain = %s AND r.name = %s",
-            (_DOMAIN, name),
-        )
-        assert cur.fetchone()[0] == 1
+    assert db.fetch_active_fails(name) == 1
 
     service.advance_active_counters_sync(
         db.conn, domain=_DOMAIN, name=name, passed=False, expected_status="active"
     )
-    with db.conn.cursor() as cur:
-        cur.execute(
-            "SELECT g.consecutive_active_fails FROM concept_gate g "
-            "JOIN concept_registry r USING (concept_id) "
-            "WHERE r.domain = %s AND r.name = %s",
-            (_DOMAIN, name),
-        )
-        assert cur.fetchone()[0] == 2
+    assert db.fetch_active_fails(name) == 2
 
     # A passing run resets the fail streak to 0.
     service.advance_active_counters_sync(
         db.conn, domain=_DOMAIN, name=name, passed=True, expected_status="active"
     )
-    with db.conn.cursor() as cur:
-        cur.execute(
-            "SELECT g.consecutive_active_fails FROM concept_gate g "
-            "JOIN concept_registry r USING (concept_id) "
-            "WHERE r.domain = %s AND r.name = %s",
-            (_DOMAIN, name),
-        )
-        assert cur.fetchone()[0] == 0
+    assert db.fetch_active_fails(name) == 0
 
 
 def test_advance_active_counters_stale_status_is_noop(db: _Db) -> None:
@@ -500,14 +491,7 @@ def test_advance_active_counters_stale_status_is_noop(db: _Db) -> None:
     )
 
     assert result is False
-    with db.conn.cursor() as cur:
-        cur.execute(
-            "SELECT g.consecutive_active_fails FROM concept_gate g "
-            "JOIN concept_registry r USING (concept_id) "
-            "WHERE r.domain = %s AND r.name = %s",
-            (_DOMAIN, name),
-        )
-        assert cur.fetchone()[0] == 0
+    assert db.fetch_active_fails(name) == 0
 
 
 # ---------------------------------------------------------------------------
