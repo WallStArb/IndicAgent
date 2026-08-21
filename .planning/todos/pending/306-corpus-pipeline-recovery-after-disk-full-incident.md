@@ -195,6 +195,22 @@ if some symbols are structurally excluded) coverage, confirm `forward_returns.ba
 current, then unblock todos 303/304 (Stage 2/3) and `statistical_factor_residual` (Stage 3) -- all
 three are still waiting on exactly this, unchanged from the original filing.
 
+## Progress (2026-08-21, re-verified live, not still-blocking but not closeable yet)
+
+- `regime`/`regime_volatility` populated counts are essentially unchanged from the 2026-08-20
+  check (31,204,768 / 31,004,453 of 106,268,964) -- consistent with the corpus pipeline being
+  further along its chain (`ic_engine.py` at step 5/8, confirmed via `ps`, PID 1887176, running
+  since 2026-08-19) rather than stalled on the regime steps again.
+- **Live IBKR ingestion is still down**: `max(timestamp)` for `market_data_ohlcv` at `timeframe='1m'`
+  is 2026-08-15 -- 6 days stale as of this check, unchanged in kind from the gap this todo has
+  tracked since the incident. Root cause still not diagnosed as a separate item from the
+  disk-full recovery itself.
+- Todo 335's recompute is still queued behind the in-flight corpus run (file still in `pending/`,
+  not `completed/`).
+- **Still correctly not closed**: both of this row's own stated close conditions (corpus run
+  finishing, todo 335's recompute landing) remain outstanding. Re-check again once `ic_engine.py`'s
+  current run (`ps aux | grep ic_engine`) exits.
+
 ## Where
 
 - `systemctl status indicagent-feature-vector-pipeline indicagent-feature-vector-writer`
