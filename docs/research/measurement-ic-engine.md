@@ -86,9 +86,11 @@ the facts under it, because Phase 142B.1 completed 2026-07-04 between this doc's
    2026-08-01; was cited as :82, before that :75 — moves every pass, treat as approximate).
 7. **Open Question 6 is answered by shipped code:** the prior grain went live as leave-one-out
    `(group_name, regime, tf)` per D-06 (`ops_ic_shrinkage.py:compute_shrinkage_updates`),
-   symbol- and lookahead-agnostic; features without a `feature_registry.group_name` are
-   skipped. The fallback-grain question stays open only for the case where the out-of-fold
-   gate fails. **Open Question 7 (winner's-curse at ensemble grain) is now live-relevant, not
+   symbol- and lookahead-agnostic; features without a `concept_registry.group_name` are
+   skipped (corrected 2026-08-21 -- `feature_registry` was DROPped by migration 311,
+   Phase 170, 2026-08-10; `ops_ic_shrinkage.py` reads `concept_registry.group_name`
+   directly, confirmed live). The fallback-grain question stays open only for the case
+   where the out-of-fold gate fails. **Open Question 7 (winner's-curse at ensemble grain) is now live-relevant, not
    hypothetical:** the champion-selection machinery (`ops_ensemble_weight_compare.py`) exists
    and the A/B judgment is the next pending act; nothing in it shrinks the winning variant's
    measured IC. Raise it before, not after, the judgment is run.
@@ -409,7 +411,12 @@ Genuinely open: measurement-methodology research this doc's scope touches but ca
    `(group_name, regime, tf)` per D-06, symbol- and lookahead-agnostic
    (`ops_ic_shrinkage.py:compute_shrinkage_updates`); features lacking a
    `feature_registry.group_name` are skipped, not shrunk. The fallback-grain question stays
-   open only for the failure branch.)*
+   open only for the failure branch.)* **Corrected 2026-08-21:** `feature_registry` was
+   DROPped by migration 311 (Phase 170, 2026-08-10), after this 2026-07-06 note was
+   written; the live column is `concept_registry.group_name` (confirmed against
+   `ops_ic_shrinkage.py` directly). The 2026-07-06 note stands as the historical record of
+   what was true when Fable 5 wrote it -- this correction is for anyone reading this doc as
+   the live tracking doc it still is per its own Status line.
 7. **Does winner's-curse correction apply at ensemble grain too?** 142B.1 selects a champion
    per (tf, regime) stratum among E1-E4 variants; selection among variants is itself a search,
    so the winning variant's measured IC in `alpha_ensemble_ic` is upward-biased by the same

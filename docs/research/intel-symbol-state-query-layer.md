@@ -21,6 +21,17 @@ External processes (and dashboards) need a quick way to query "what's the curren
 
 ## What Exists (verified live, corrected 2026-07-31 after independent review)
 
+**Flagged stale 2026-08-21, not re-verified as part of this pass:** this section's
+`feature_registry.*` references (group taxonomy, `is_control`) are now wrong as written --
+`feature_registry` was DROPped by migration 311 (Phase 170, 2026-08-10); the live
+successor is `concept_registry` (`group_name`/`is_control` both ported, see migration 283).
+Not fixed inline here because the *numbers* in this section (36.8M `feature_vectors` rows,
+80 symbols, the specific per-group counts) are equally stale -- the corpus has since grown
+to 231 symbols and ~106M rows (see `.planning/STATE.md`'s Strategic Plan section) -- and
+partially correcting just the table name while leaving every count wrong would look like a
+full refresh when it isn't one. **Before this design doc is picked up for planning, this
+whole section needs a fresh live-verification pass, not a piecemeal string fix.**
+
 - **`market_regimes`** — cross-sectional regime state, keyed on `(regime_group, tf, ts)` where `regime_group ∈ {equity, rates}`. **No per-symbol dimension** — this table answers "what regime is the equity/rates complex in," not "what regime is AAPL in."
 - **Per-symbol HMM regime lives in `feature_vectors.regime`** instead — K=5, migration 176. **NULL on ~27% of rows** (29% at 5m); any consumer-facing read needs an explicit `regime_available: false` rather than silently omitting the field.
 - **`feature_vectors`** — the Feature Factory's output. **263 columns**, 249 of which are registry-tracked features. 36.8M rows, 80 symbols × 4 tfs, already point-in-time correct, per-feature z-scored.
@@ -65,7 +76,7 @@ A read-only query API over what's already measured and already persisted. The pr
 
 1. **Regime state** — cross-sectional regime from `market_regimes` (resolved by the symbol's asset class → `regime_group`), plus per-symbol HMM regime from `feature_vectors.regime` with explicit `regime_available: false` on NULL.
 2. **Per-stratum gradient (primary, default output)** — see "Gradient Encoding" below. One number for magnitude-type strata, two for directional-type strata. Fully numeric, no text, no expertise required to consume.
-3. **Raw feature reads (optional, secondary tier)** — current `feature_vectors` values for a symbol/tf, filtered to `is_control = false AND status = 'active'`, organized by `feature_registry.group_name`. Available for a consumer who wants to see what's behind a gradient, not the default response.
+3. **Raw feature reads (optional, secondary tier)** — current `feature_vectors` values for a symbol/tf, filtered to `is_control = false AND status = 'active'`, organized by `concept_registry.group_name` (corrected 2026-08-21 -- `feature_registry` was DROPped by migration 311; `is_control`/`status`/`group_name` all ported to `concept_registry`, migration 283). Available for a consumer who wants to see what's behind a gradient, not the default response.
 4. **No cross-stratum composite.** Each consumer combines strata for their own decision; a single "comprehensive" number is rejected on coherence grounds (see above), not deferred pending validation.
 
 ### Gradient Encoding (locked, 2026-07-31)
@@ -108,7 +119,7 @@ Must not share a name, table, or API surface with `alpha_events`/`alpha_ensemble
 ### APR Keys Required
 
 - `infra.symbol_state.lookback_days` — the time-bound default for raw-read queries
-- `feature.symbol_state.group_map` (JSON) — if groupings ever diverge from `feature_registry.group_name`
+- `feature.symbol_state.group_map` (JSON) — if groupings ever diverge from `concept_registry.group_name` (corrected 2026-08-21, see note above)
 - `feature.symbol_state.percentile_window_days` — the trailing-history window the gradient's percentile ranking is computed against
 - `feature.symbol_state.summary_statistic` — mean vs. median for the pre-percentile magnitude/direction aggregation, if this ever needs to be configurable rather than fixed
 
@@ -138,7 +149,7 @@ Must not share a name, table, or API surface with `alpha_events`/`alpha_ensemble
 The compute logic is generic, parameterized by two things per stratum: which features belong to it, and its `kind` (`magnitude` / `directional` / `state`). It is not hardcoded per-stratum, which makes most future extension a config change, not new code:
 
 - **Adding a new stratum** (e.g. volume/demand) means defining its feature membership and classifying its `kind` — a `magnitude`-type addition reuses the existing percentile-vs-history gradient formula unchanged; a `directional`-type addition reuses the existing `direction`/`conviction` pair unchanged. Zero new compute logic in either case.
-- **Regrouping features, or diverging from `feature_registry.group_name`'s taxonomy**, is a config/APR change (`feature.symbol_state.group_map`, with a `taxonomy_version` bump) in the common case, not a schema migration — this is exactly why groupings were deliberately decoupled from `group_name`'s fixed DB check-constraint earlier in this doc. A migration is only needed if a genuinely new category must be added to `feature_registry.group_name` itself (a separate, rarer case, since that constraint is a fixed enum).
+- **Regrouping features, or diverging from `concept_registry.group_name`'s taxonomy**, is a config/APR change (`feature.symbol_state.group_map`, with a `taxonomy_version` bump) in the common case, not a schema migration — this is exactly why groupings were deliberately decoupled from `group_name`'s value set earlier in this doc. **Corrected 2026-08-21:** the "fixed DB check-constraint" premise this paragraph was written against is stale in a substantive way, not just a table-name swap — `feature_registry.group_name` (dropped, migration 311) *was* an 11-value CHECK constraint, but `concept_registry.group_name` (migration 283) is deliberately UNCONSTRAINED TEXT, policed by the controlled-vocabulary system (`vocabulary_drift.py`, Phase 161) instead of a table CHECK. A new category no longer needs a migration at all under the live schema, even in the "rarer case" this paragraph describes -- worth re-deriving whether this changes the `taxonomy_version`/`group_map` design's own reasoning before this doc is planned.
 - **The response contract's `taxonomy_version`/`kind` fields exist specifically to make this evolution safe** — a consumer reads `kind` to know how to interpret a stratum rather than assuming, and a `taxonomy_version` bump signals when membership or methodology changed, rather than a field silently meaning something different under an unchanged name.
 - **What is *not* free:** a fundamentally new `kind` beyond magnitude/directional/state (nothing has come up requiring one yet) would need real new compute logic, not just config — extendibility applies to adding more strata of the existing kinds, not to inventing new kinds of summary.
 
