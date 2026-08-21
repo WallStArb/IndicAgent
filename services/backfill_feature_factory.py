@@ -973,6 +973,40 @@ async def run_fetch_stage(
 # ---------------------------------------------------------------------------
 
 
+def _pct(rows_written: int, theoretical_max: int) -> float:
+    """rows_written / theoretical_max, or 0.0 when theoretical_max isn't positive.
+
+    Shared by both the checkpoint-skip path and the fresh-compute path in
+    run_compute_stage (/simplify pass, todo 318/300 session) -- same formula was
+    computed identically in two places with no shared helper.
+    """
+    return rows_written / theoretical_max if theoretical_max > 0 else 0.0
+
+
+def _record_cell_failure(
+    db_conn: Any,
+    coverage: dict[tuple[str, str], dict],
+    symbol: str,
+    tf: str,
+    error_str: str,
+) -> None:
+    """Mark one (symbol, tf) cell failed in backfill_status and zero its coverage entry.
+
+    Shared by run_compute_stage's two failure paths (worker-reported compute error,
+    main-process write error) -- both previously repeated the identical mark-failed
+    try/except/rollback block and zero-coverage dict literal (/simplify pass, todo
+    318/300 session). Defensive by design, like the worker-side guard this replaces
+    (todo 318 code review): recording the failure must not itself crash the run.
+    """
+    coverage[(symbol, tf)] = {"rows_written": 0, "theoretical_max": 0, "pct": 0.0}
+    try:
+        with db_conn.cursor() as cur:
+            cur.execute(_MARK_COMPUTE_FAILED_SQL, (error_str, symbol, tf))
+        db_conn.commit()
+    except Exception:
+        db_conn.rollback()
+
+
 def run_compute_stage(
     settings: Settings,
     symbols: list[str] | None,
@@ -1103,7 +1137,7 @@ def run_compute_stage(
                 )
             if is_complete and not refresh and not checkpoint_desynced:
                 theoretical = existing.get("theoretical_max", 0) or 0
-                pct = rows_written / theoretical if theoretical > 0 else 0.0
+                pct = _pct(rows_written, theoretical)
                 coverage[key] = {
                     "rows_written": rows_written,
                     "theoretical_max": theoretical,
@@ -1178,30 +1212,28 @@ def run_compute_stage(
                 theoretical = cell["theoretical_max"]
 
                 if cell.get("error"):
-                    coverage[key] = {"rows_written": 0, "theoretical_max": 0, "pct": 0.0}
                     _logger.error(
                         "compute_cell_failed",
                         symbol=symbol,
                         tf=tf,
                         error=cell["error"],
                     )
-                    # Defensive, like the worker-side guard this replaces (todo 318 code
-                    # review): recording the failure must not itself crash the run.
-                    try:
-                        with db_conn.cursor() as cur:
-                            cur.execute(_MARK_COMPUTE_FAILED_SQL, (cell["error"], symbol, tf))
-                        db_conn.commit()
-                    except Exception:
-                        db_conn.rollback()
+                    _record_cell_failure(db_conn, coverage, symbol, tf, cell["error"])
                     continue
 
                 rows = cell["rows"]
                 rows_written = len(rows)
-                pct = rows_written / theoretical if theoretical > 0 else 0.0
+                pct = _pct(rows_written, theoretical)
 
                 # Per-cell isolation, mirroring regime_writer.py's write loop (code
                 # review, todo 318): one bad write must not abort the whole pool span
                 # and discard every other pending symbol's already-computed rows.
+                # _batch_insert no longer commits internally (/simplify pass, todo
+                # 318/300 session) -- every chunk plus the mark-complete SQL below
+                # now lands in the single db_conn.commit() call, so a failure partway
+                # through a multi-chunk cell rolls back everything already sent for
+                # that cell instead of leaving earlier chunks durably committed while
+                # this except branch marks the whole cell failed/rows_written=0.
                 try:
                     for i in range(0, len(rows), insert_batch_size):
                         _batch_insert(db_conn, rows[i : i + insert_batch_size], refresh=refresh)
@@ -1219,13 +1251,7 @@ def run_compute_stage(
                         tf=tf,
                         error=str(error),
                     )
-                    try:
-                        with db_conn.cursor() as cur:
-                            cur.execute(_MARK_COMPUTE_FAILED_SQL, (str(error), symbol, tf))
-                        db_conn.commit()
-                    except Exception:
-                        db_conn.rollback()
-                    coverage[key] = {"rows_written": 0, "theoretical_max": 0, "pct": 0.0}
+                    _record_cell_failure(db_conn, coverage, symbol, tf, str(error))
                     continue
 
                 coverage[key] = {
@@ -1538,13 +1564,23 @@ def _batch_insert(conn: Any, rows: list[tuple], refresh: bool = False) -> None:
 
     refresh=True selects the DO UPDATE variant (todo 176 recompute mode) so
     existing rows are actually overwritten instead of silently skipped.
+
+    Deliberately does NOT commit (/simplify pass, todo 318/300 session): this
+    function's sole caller (run_compute_stage) chunks one cell's rows across
+    multiple calls and must commit them together with that cell's
+    _MARK_COMPUTE_COMPLETE_SQL as one atomic unit -- a commit here, once
+    harmless under this function's original worker-owned autocommit=True
+    connection, became load-bearing-wrong once reused unmodified for the
+    main-process autocommit=False write path: a failure after chunk 1 of N
+    would leave chunk 1's rows durably committed while the caller's except
+    branch still marked the whole cell 'failed'/rows_written=0, silently
+    desyncing backfill_status from feature_vectors' real state.
     """
     if not rows:
         return
     sql = _UPSERT_FEATURE_VECTORS_SQL if refresh else _INSERT_FEATURE_VECTORS_SQL
     with conn.cursor() as cur:
         cur.executemany(sql, rows)
-    conn.commit()
 
 
 def _log_coverage_report(coverage: dict[tuple[str, str], dict], coverage_threshold: float) -> None:

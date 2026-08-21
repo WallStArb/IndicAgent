@@ -472,6 +472,25 @@ def _make_zero_vector() -> FeatureVector:
     )
 
 
+def _mock_worker_result(
+    symbol: str, tfs: tuple[str, ...] = _TARGET_TIMEFRAMES_DEFAULT, theoretical_max: int = 1200
+) -> dict:
+    """Build one _run_compute_worker-shaped pool.map() result for `symbol` across `tfs`.
+
+    Shared by the run_compute_stage tests below (/simplify pass, todo 318/300 session)
+    -- this exact literal was repeated identically across 4 tests; any future change to
+    the worker-result shape (already happened once this session, the rows_written/pct ->
+    rows-only change) previously had to be hand-applied to all 4 copies.
+    """
+    return {
+        "symbol": symbol,
+        "error": None,
+        "results": [
+            {"tf": tf, "rows": [(f"row-{tf}",)], "theoretical_max": theoretical_max} for tf in tfs
+        ],
+    }
+
+
 # ---------------------------------------------------------------------------
 # Test 1: Default client-id is 40
 # ---------------------------------------------------------------------------
@@ -800,20 +819,7 @@ def test_compute_resume_recomputes_when_status_complete_but_no_fv_rows() -> None
         mock_cfg_load.return_value = MagicMock()
         mock_cfg_build.return_value = _make_config()
         mock_pool = MagicMock()
-        mock_pool.map.return_value = [
-            {
-                "symbol": "SPY",
-                "error": None,
-                "results": [
-                    {
-                        "tf": tf,
-                        "rows": [(f"row-{tf}",)],
-                        "theoretical_max": 1200,
-                    }
-                    for tf in _TARGET_TIMEFRAMES_DEFAULT
-                ],
-            }
-        ]
+        mock_pool.map.return_value = [_mock_worker_result("SPY")]
         mock_pool_cls.return_value.__enter__.return_value = mock_pool
 
         run_compute_stage(
@@ -872,20 +878,7 @@ def test_compute_resume_recomputes_on_partial_row_loss() -> None:
         mock_cfg_load.return_value = MagicMock()
         mock_cfg_build.return_value = _make_config()
         mock_pool = MagicMock()
-        mock_pool.map.return_value = [
-            {
-                "symbol": "SPY",
-                "error": None,
-                "results": [
-                    {
-                        "tf": tf,
-                        "rows": [(f"row-{tf}",)],
-                        "theoretical_max": 1200,
-                    }
-                    for tf in _TARGET_TIMEFRAMES_DEFAULT
-                ],
-            }
-        ]
+        mock_pool.map.return_value = [_mock_worker_result("SPY")]
         mock_pool_cls.return_value.__enter__.return_value = mock_pool
 
         run_compute_stage(
@@ -937,20 +930,7 @@ def test_refresh_skips_fv_row_count_check_entirely() -> None:
         mock_cfg_load.return_value = MagicMock()
         mock_cfg_build.return_value = _make_config()
         mock_pool = MagicMock()
-        mock_pool.map.return_value = [
-            {
-                "symbol": "SPY",
-                "error": None,
-                "results": [
-                    {
-                        "tf": tf,
-                        "rows": [(f"row-{tf}",)],
-                        "theoretical_max": 1200,
-                    }
-                    for tf in _TARGET_TIMEFRAMES_DEFAULT
-                ],
-            }
-        ]
+        mock_pool.map.return_value = [_mock_worker_result("SPY")]
         mock_pool_cls.return_value.__enter__.return_value = mock_pool
 
         run_compute_stage(
@@ -999,20 +979,7 @@ def test_refresh_reprocesses_complete_pairs() -> None:
         mock_cfg_load.return_value = MagicMock()
         mock_cfg_build.return_value = _make_config()
         mock_pool = MagicMock()
-        mock_pool.map.return_value = [
-            {
-                "symbol": "SPY",
-                "error": None,
-                "results": [
-                    {
-                        "tf": tf,
-                        "rows": [(f"row-{tf}",)],
-                        "theoretical_max": 1200,
-                    }
-                    for tf in _TARGET_TIMEFRAMES_DEFAULT
-                ],
-            }
-        ]
+        mock_pool.map.return_value = [_mock_worker_result("SPY")]
         mock_pool_cls.return_value.__enter__.return_value = mock_pool
 
         run_compute_stage(
