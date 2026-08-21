@@ -3,13 +3,19 @@
 **Filed:** 2026-08-09
 **Source:** Phase 172 plan 02, Task 2 (discovered while adding the parallel
 `regime_volatility` exclusion, out of that task's own scope)
-**Status:** **Fix landed 2026-08-12** (uncommitted as of writing) — see "Fix" section below for
-what changed. **Impact assessment (sizing the correction, re-running `ensemble_trainer`) still
-open** — do not close this todo until that's done. **Update 2026-08-13:** the corpus pipeline run
-this was banking on to reach step 7 automatically FAILED at step 2 (disk-full incident, see
-`project_disk_full_incident_2026_08_13` memory) — `ensemble_trainer` never ran. This fix still
-needs its own explicit `ensemble_trainer` re-run once the pipeline is recovered; don't assume it
-happened.
+**Status:** **Fix landed 2026-08-12, committed 2026-08-13** (`9469b0a50`, confirmed via `git log`
+2026-08-21 — this line previously said "uncommitted as of writing", stale) — see "Fix" section
+below for what changed. **Impact assessment (sizing the correction, re-running `ensemble_trainer`)
+still open** — do not close this todo until that's done. **Update 2026-08-13:** the corpus
+pipeline run this was banking on to reach step 7 automatically FAILED at step 2 (disk-full
+incident, see `project_disk_full_incident_2026_08_13` memory) — `ensemble_trainer` never ran.
+This fix still needs its own explicit `ensemble_trainer` re-run once the pipeline is recovered;
+don't assume it happened. **Update 2026-08-21: the corpus pipeline run currently in-flight
+(`ops_corpus_pipeline_run.sh --from-step 5`, launched 2026-08-19) will reach step 7
+(`ensemble_trainer`) once its `ic_engine`/step 5 finishes** — check `ensemble_weights`'s row
+timestamps against this fix's landing commit once that step runs, rather than assuming a
+separate dedicated re-run is still needed. Same run [285](285-phase172-full-scope-ic-engine-verification-after-volatility-cutover.md)/[335](335-regime-signal-bucket-tier-order-inversion-commodity-fx.md)/[306](306-corpus-pipeline-recovery-after-disk-full-incident.md)
+are also gated on — check all four once it exits.
 
 ## The bug
 

@@ -18,7 +18,11 @@ through the 2026-08-15+ corpus pipeline relaunches tracked in
 `project_disk_full_incident_2026_08_13` memory, not through this todo directly. Recommend
 closing this row and moving it to `completed/` once the current in-flight corpus run + the
 queued todo-335 recompute (see that todo's "Recompute status" section) finish and confirm
-no residual gap -- don't close blind on a partial re-check.
+no residual gap -- don't close blind on a partial re-check. **Same run also gates
+[285](285-phase172-full-scope-ic-engine-verification-after-volatility-cutover.md) (the exact
+full-scope `ic_engine` verification 285 needs) and [287](287-legacy-regime-probability-columns-leak-into-ensemble-training-matrix.md)
+(needs step 7 `ensemble_trainer` to actually re-run) — check all four once it exits, don't
+close just this one in isolation.**
 
 ## Current confirmed state (re-checked 2026-08-13, do not assume it's changed without re-querying)
 

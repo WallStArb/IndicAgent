@@ -134,7 +134,15 @@ time, PID 3892989), polls `kill -0` on wrapper PID 1887017 every 5 min instead o
 and gates the `--from-step 4` launch on `alpha_ensemble_ic` having fresh rows (DB-visible
 success signal) instead of a log banner — avoids the same rotation trap. If PID 3892989 is
 also gone when this is next checked, don't relaunch blindly a third time; check whether the
-underlying run (1887017) already finished and just recompute manually instead.
+underlying run (1887017) already finished and just recompute manually instead. **Confirmed
+still alive 2026-08-21 (later same day), PID 3892989 watching PID 1887017, which is still on
+step 5 (`ic_engine`, cross-sectional stratification sub-phase, 5m timeframe as of this check).**
+
+**This todo doesn't close on its own** — [306](306-corpus-pipeline-recovery-after-disk-full-incident.md),
+[285](285-phase172-full-scope-ic-engine-verification-after-volatility-cutover.md), and
+[287](287-legacy-regime-probability-columns-leak-into-ensemble-training-matrix.md) all bottom
+out on the same `--from-step 4` recompute this watcher will launch; check all four once it
+completes rather than closing this one in isolation.
 
 ## References
 

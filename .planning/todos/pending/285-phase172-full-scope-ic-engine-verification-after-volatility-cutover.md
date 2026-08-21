@@ -8,6 +8,18 @@ EXECUTED and COMPLETE as of 2026-08-09 (`regime_volatility` column live via migr
 this todo describes was never started -- Phase 172's own smoke test (172-07, four symbols at
 1d) is the only validation that has run.
 
+**Update 2026-08-21: Step 1 (the full unscoped `ic_engine.py` pass) is in-flight right now** --
+`ops_corpus_pipeline_run.sh --from-step 5` launched 2026-08-19, `ic_engine.py
+--training-window-end 2025-12-24 05:15:00+00`, still running as of this writing (cross-sectional
+stratification sub-phase). **Do not launch a second full pass to satisfy this todo** -- when this
+one completes, run Steps 2-5 below against its output instead. Same run this todo's siblings
+[335](335-regime-signal-bucket-tier-order-inversion-commodity-fx.md)/[306](306-corpus-pipeline-recovery-after-disk-full-incident.md)/[287](287-legacy-regime-probability-columns-leak-into-ensemble-training-matrix.md)
+are also gated on -- check those too once it finishes. Caution per 335: this run was launched with
+`--from-step 5` (skips step 4), so it's consuming pre-fix mislabeled commodity/fx `market_regimes`
+rows; 335's own watcher queues a `--from-step 4` recompute after this run exits, and Steps 2-5
+below should run against *that* recompute's output, not this run's, for cells in the `commodity`/
+`fx` regime groups specifically.
+
 ## What
 
 Phase 172 repoints `ic_engine.py`'s per-symbol regime stratification from `feature_vectors.regime`
