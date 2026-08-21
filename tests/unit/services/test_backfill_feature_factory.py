@@ -795,6 +795,7 @@ def test_compute_resume_recomputes_when_status_complete_but_no_fv_rows() -> None
             return_value={},
         ),
         patch("services.backfill_feature_factory._make_worker_pool") as mock_pool_cls,
+        patch("services.backfill_feature_factory._write_session"),
     ):
         mock_cfg_load.return_value = MagicMock()
         mock_cfg_build.return_value = _make_config()
@@ -804,7 +805,11 @@ def test_compute_resume_recomputes_when_status_complete_but_no_fv_rows() -> None
                 "symbol": "SPY",
                 "error": None,
                 "results": [
-                    {"tf": tf, "rows_written": 1000, "theoretical_max": 1200, "pct": 0.83}
+                    {
+                        "tf": tf,
+                        "rows": [(f"row-{tf}",)],
+                        "theoretical_max": 1200,
+                    }
                     for tf in _TARGET_TIMEFRAMES_DEFAULT
                 ],
             }
@@ -862,6 +867,7 @@ def test_compute_resume_recomputes_on_partial_row_loss() -> None:
             return_value={("SPY", tf): 50 for tf in _TARGET_TIMEFRAMES_DEFAULT},
         ),
         patch("services.backfill_feature_factory._make_worker_pool") as mock_pool_cls,
+        patch("services.backfill_feature_factory._write_session"),
     ):
         mock_cfg_load.return_value = MagicMock()
         mock_cfg_build.return_value = _make_config()
@@ -871,7 +877,11 @@ def test_compute_resume_recomputes_on_partial_row_loss() -> None:
                 "symbol": "SPY",
                 "error": None,
                 "results": [
-                    {"tf": tf, "rows_written": 1000, "theoretical_max": 1200, "pct": 0.83}
+                    {
+                        "tf": tf,
+                        "rows": [(f"row-{tf}",)],
+                        "theoretical_max": 1200,
+                    }
                     for tf in _TARGET_TIMEFRAMES_DEFAULT
                 ],
             }
@@ -922,6 +932,7 @@ def test_refresh_skips_fv_row_count_check_entirely() -> None:
         ),
         patch("services.backfill_feature_factory._load_fv_row_counts") as mock_fv_counts,
         patch("services.backfill_feature_factory._make_worker_pool") as mock_pool_cls,
+        patch("services.backfill_feature_factory._write_session"),
     ):
         mock_cfg_load.return_value = MagicMock()
         mock_cfg_build.return_value = _make_config()
@@ -931,7 +942,11 @@ def test_refresh_skips_fv_row_count_check_entirely() -> None:
                 "symbol": "SPY",
                 "error": None,
                 "results": [
-                    {"tf": tf, "rows_written": 1000, "theoretical_max": 1200, "pct": 0.83}
+                    {
+                        "tf": tf,
+                        "rows": [(f"row-{tf}",)],
+                        "theoretical_max": 1200,
+                    }
                     for tf in _TARGET_TIMEFRAMES_DEFAULT
                 ],
             }
@@ -979,6 +994,7 @@ def test_refresh_reprocesses_complete_pairs() -> None:
             },
         ),
         patch("services.backfill_feature_factory._make_worker_pool") as mock_pool_cls,
+        patch("services.backfill_feature_factory._write_session"),
     ):
         mock_cfg_load.return_value = MagicMock()
         mock_cfg_build.return_value = _make_config()
@@ -988,7 +1004,11 @@ def test_refresh_reprocesses_complete_pairs() -> None:
                 "symbol": "SPY",
                 "error": None,
                 "results": [
-                    {"tf": tf, "rows_written": 1000, "theoretical_max": 1200, "pct": 0.83}
+                    {
+                        "tf": tf,
+                        "rows": [(f"row-{tf}",)],
+                        "theoretical_max": 1200,
+                    }
                     for tf in _TARGET_TIMEFRAMES_DEFAULT
                 ],
             }
@@ -1019,9 +1039,95 @@ def test_refresh_reprocesses_complete_pairs() -> None:
             _spy_1d_bars,
             _tlt_1d_bars,
             refresh,
-            _insert_batch_size,
         ) = worker_args[0]
         assert refresh is True
+
+
+def test_compute_cell_write_failure_does_not_abort_remaining_cells() -> None:
+    """Code review finding (todo 318 Bug 2, /simplify pass): the main process now
+    does every worker's write serially in one pool.map loop -- a write failure for
+    one (symbol, tf) cell must not abort the whole run and discard every other
+    pending symbol's already-computed rows, mirroring regime_writer.py's per-cell
+    isolation. Verified by making _batch_insert raise for AAPL's cell only; MSFT's
+    cell (returned in the same pool.map iterable) must still get written and
+    recorded in coverage."""
+    settings = MagicMock()
+    settings.database_url = "postgresql://fake"
+    mock_conn = MagicMock()
+
+    mock_instruments = []
+    for sym in ("AAPL", "MSFT"):
+        inst = MagicMock()
+        inst.symbol = sym
+        inst.asset_class = "equity"
+        mock_instruments.append(inst)
+
+    with (
+        patch(
+            "services.backfill_feature_factory.get_active_contracts",
+            return_value=mock_instruments,
+        ),
+        patch("services.backfill_feature_factory._load_config_service") as mock_cfg_load,
+        patch("services.backfill_feature_factory._build_feature_factory_config") as mock_cfg_build,
+        patch(
+            "services.backfill_feature_factory._load_status_map",
+            return_value={
+                (sym, tf): {
+                    "status": "complete",
+                    "fetch_complete": True,
+                    "rows_written": 1000,
+                    "theoretical_max": 1200,
+                }
+                for sym in ("AAPL", "MSFT")
+                for tf in _TARGET_TIMEFRAMES_DEFAULT
+            },
+        ),
+        # Empty feature_vectors -- todo 316's checkpoint-desync check forces both
+        # symbols into pending_symbols despite status='complete' above.
+        patch("services.backfill_feature_factory._load_fv_row_counts", return_value={}),
+        patch("services.backfill_feature_factory._make_worker_pool") as mock_pool_cls,
+        patch("services.backfill_feature_factory._write_session"),
+        patch("services.backfill_feature_factory._batch_insert") as mock_batch_insert,
+    ):
+        mock_cfg_load.return_value = MagicMock()
+        mock_cfg_build.return_value = _make_config()
+
+        def _raise_for_aapl(conn, rows, refresh=False):
+            if rows and rows[0][0] == "AAPL-row":
+                raise RuntimeError("simulated write failure")
+
+        mock_batch_insert.side_effect = _raise_for_aapl
+
+        mock_pool = MagicMock()
+        mock_pool.map.return_value = [
+            {
+                "symbol": "AAPL",
+                "error": None,
+                "results": [
+                    {"tf": "5m", "rows": [("AAPL-row",)], "theoretical_max": 1200},
+                ],
+            },
+            {
+                "symbol": "MSFT",
+                "error": None,
+                "results": [
+                    {"tf": "5m", "rows": [("MSFT-row",)], "theoretical_max": 1200},
+                ],
+            },
+        ]
+        mock_pool_cls.return_value.__enter__.return_value = mock_pool
+
+        # Must not raise -- that's the whole point of the fix.
+        coverage, _ = run_compute_stage(
+            settings=settings,
+            symbols=None,
+            db_conn=mock_conn,
+        )
+
+    # MSFT's cell was written despite AAPL's failing earlier in the same loop.
+    assert coverage[("MSFT", "5m")]["rows_written"] == 1
+    # AAPL's failed cell is recorded as zero, not silently dropped or left absent.
+    assert coverage[("AAPL", "5m")]["rows_written"] == 0
 
 
 def test_batch_insert_default_uses_insert_sql() -> None:

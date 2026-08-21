@@ -44,6 +44,7 @@ project_root = Path(__file__).parent.parent
 sys.path.insert(0, str(project_root))
 
 
+from services._batch_utils import compressed_hypertable_write_session as _write_session
 from services._batch_utils import get_dict_config as _get_dict_config
 from services._batch_utils import get_list_config as _get_list_config
 from services._batch_utils import load_config_service_sync as _load_config_service
@@ -1124,9 +1125,6 @@ def run_compute_stage(
     if not pending_symbols:
         return coverage, coverage_threshold
 
-    # Close main connection before spawning workers — connections are not picklable
-    db_conn.close()
-
     worker_args = [
         (
             symbol,
@@ -1139,7 +1137,6 @@ def run_compute_stage(
             spy_bars,
             tlt_bars,
             refresh,
-            insert_batch_size,
         )
         for symbol in pending_symbols
     ]
@@ -1150,7 +1147,23 @@ def run_compute_stage(
         n_workers=n_workers,
     )
 
-    with _make_worker_pool(n_workers, blas_threads_per_worker) as pool:
+    # Workers are compute-only (CLAUDE.md invariant, todo 318 Bug 2): each returns
+    # computed rows + status metadata, never writes to feature_vectors/backfill_status
+    # itself. All writes happen here, serially, on this single main-process connection,
+    # which stays open (not closed pre-spawn like before) for the whole pool span and is
+    # only closed after every result is written -- protected against idle-session-timeout
+    # by compressed_hypertable_write_session the same way Bug 1's fix protects the
+    # one-off remediation driver. Flipped to autocommit=False for this span (it was True
+    # for the cheap pre-spawn status-map reads/marks above) to match every other
+    # compressed_hypertable_write_session caller's contract (regime_writer.py, ic_engine.py
+    # both connect via connect_db_from_url's autocommit=False) -- the session's own
+    # entry-phase rollback-on-failure has nothing to roll back otherwise (code review,
+    # todo 318).
+    db_conn.autocommit = False
+    with (
+        _write_session(db_conn, "feature_vectors"),
+        _make_worker_pool(n_workers, blas_threads_per_worker) as pool,
+    ):
         for result in pool.map(_run_compute_worker, worker_args, chunksize=1):
             symbol = result["symbol"]
             if result["error"]:
@@ -1162,26 +1175,72 @@ def run_compute_stage(
             for cell in result["results"]:
                 tf = cell["tf"]
                 key = (symbol, tf)
-                coverage[key] = {
-                    "rows_written": cell["rows_written"],
-                    "theoretical_max": cell["theoretical_max"],
-                    "pct": cell["pct"],
-                }
+                theoretical = cell["theoretical_max"]
+
                 if cell.get("error"):
+                    coverage[key] = {"rows_written": 0, "theoretical_max": 0, "pct": 0.0}
                     _logger.error(
                         "compute_cell_failed",
                         symbol=symbol,
                         tf=tf,
                         error=cell["error"],
                     )
-                elif cell["pct"] < coverage_threshold:
+                    # Defensive, like the worker-side guard this replaces (todo 318 code
+                    # review): recording the failure must not itself crash the run.
+                    try:
+                        with db_conn.cursor() as cur:
+                            cur.execute(_MARK_COMPUTE_FAILED_SQL, (cell["error"], symbol, tf))
+                        db_conn.commit()
+                    except Exception:
+                        db_conn.rollback()
+                    continue
+
+                rows = cell["rows"]
+                rows_written = len(rows)
+                pct = rows_written / theoretical if theoretical > 0 else 0.0
+
+                # Per-cell isolation, mirroring regime_writer.py's write loop (code
+                # review, todo 318): one bad write must not abort the whole pool span
+                # and discard every other pending symbol's already-computed rows.
+                try:
+                    for i in range(0, len(rows), insert_batch_size):
+                        _batch_insert(db_conn, rows[i : i + insert_batch_size], refresh=refresh)
+                    with db_conn.cursor() as cur:
+                        cur.execute(
+                            _MARK_COMPUTE_COMPLETE_SQL,
+                            (rows_written, theoretical, symbol, tf),
+                        )
+                    db_conn.commit()
+                except Exception as error:
+                    db_conn.rollback()
+                    _logger.error(
+                        "compute_cell_write_failed",
+                        symbol=symbol,
+                        tf=tf,
+                        error=str(error),
+                    )
+                    try:
+                        with db_conn.cursor() as cur:
+                            cur.execute(_MARK_COMPUTE_FAILED_SQL, (str(error), symbol, tf))
+                        db_conn.commit()
+                    except Exception:
+                        db_conn.rollback()
+                    coverage[key] = {"rows_written": 0, "theoretical_max": 0, "pct": 0.0}
+                    continue
+
+                coverage[key] = {
+                    "rows_written": rows_written,
+                    "theoretical_max": theoretical,
+                    "pct": pct,
+                }
+                if pct < coverage_threshold:
                     _logger.warning(
                         "coverage_below_threshold",
                         symbol=symbol,
                         tf=tf,
-                        rows_written=cell["rows_written"],
-                        theoretical_max=cell["theoretical_max"],
-                        pct=round(cell["pct"], 4),
+                        rows_written=rows_written,
+                        theoretical_max=theoretical,
+                        pct=round(pct, 4),
                         threshold=coverage_threshold,
                     )
                 else:
@@ -1189,25 +1248,28 @@ def run_compute_stage(
                         "compute_complete",
                         symbol=symbol,
                         tf=tf,
-                        rows_written=cell["rows_written"],
-                        theoretical_max=cell["theoretical_max"],
-                        pct=round(cell["pct"], 4),
+                        rows_written=rows_written,
+                        theoretical_max=theoretical,
+                        pct=round(pct, 4),
                     )
 
+    db_conn.close()
     return coverage, coverage_threshold
 
 
 def _run_compute_worker(args: tuple) -> dict:
     """Worker function for ProcessPoolExecutor — runs in subprocess.
 
-    Opens its own psycopg connection (connections are not picklable and
-    must not be shared across processes). No OTel tracer — workers log only;
-    main process aggregates results and emits metrics.
+    Opens its own psycopg connection for OHLCV/cross-asset reads only
+    (connections are not picklable and must not be shared across processes).
+    Compute-only (CLAUDE.md invariant, todo 318 Bug 2 fix) -- never writes to
+    feature_vectors or backfill_status itself; returns computed rows and status
+    metadata for the main process to write serially. No OTel tracer — workers
+    log only; main process aggregates results and emits metrics.
 
     Args:
         args: (symbol, tfs, dsn, config, pipeline_version, warm_up_bars,
-               cross_asset_by_date, spy_1d_bars, tlt_1d_bars, refresh,
-               insert_batch_size)
+               cross_asset_by_date, spy_1d_bars, tlt_1d_bars, refresh)
                Packed as a tuple for ProcessPoolExecutor.map compatibility.
                spy_1d_bars/tlt_1d_bars are the SAME arrays run_compute_stage
                already fetched once (to build cross_asset_by_date) -- passed
@@ -1215,8 +1277,9 @@ def _run_compute_worker(args: tuple) -> dict:
                151's post-execution /simplify pass, 2026-08-05).
 
     Returns:
-        dict with keys: symbol, results (list of {tf, rows_written, theoretical_max,
-        pct, error?}), error (str|None)
+        dict with keys: symbol, results (list of {tf, rows, theoretical_max, error?}
+        -- rows_written/pct are derived by the main process, not carried here),
+        error (str|None)
     """
     (
         symbol,
@@ -1229,7 +1292,6 @@ def _run_compute_worker(args: tuple) -> dict:
         spy_1d_bars,
         tlt_1d_bars,
         refresh,
-        insert_batch_size,
     ) = args
 
     # Initialize logging in subprocess (each process needs its own handler)
@@ -1242,8 +1304,8 @@ def _run_compute_worker(args: tuple) -> dict:
 
     try:
         conn = psycopg.connect(dsn)
-        # autocommit=True prevents InFailedSqlTransaction from poisoning later TFs
-        # on per-cell exceptions; no conn.rollback() needed.
+        # Read-only connection -- no writes issued against it, so autocommit's
+        # usual InFailedSqlTransaction concern doesn't apply here.
         conn.autocommit = True
         # No register_uuid() equivalent needed -- psycopg adapts uuid.UUID natively.
 
@@ -1260,7 +1322,7 @@ def _run_compute_worker(args: tuple) -> dict:
 
         for tf in tfs:
             try:
-                rows_written = _compute_symbol_tf(
+                rows = _compute_symbol_tf(
                     conn=conn,
                     symbol=symbol,
                     tf=tf,
@@ -1271,25 +1333,21 @@ def _run_compute_worker(args: tuple) -> dict:
                     beta_by_date=beta_by_date,
                     symbol_1d_bars=symbol_1d_bars,
                     refresh=refresh,
-                    insert_batch_size=insert_batch_size,
                 )
 
                 depth_years = _DEPTH_YEARS[tf]
                 theoretical = _theoretical_max(tf, depth_years, warm_up_bars)
-                pct = rows_written / theoretical if theoretical > 0 else 0.0
 
-                with conn.cursor() as cur:
-                    cur.execute(
-                        _MARK_COMPUTE_COMPLETE_SQL,
-                        (rows_written, theoretical, symbol, tf),
-                    )
-
+                # rows_written/pct are derivable (len(rows), rows_written/theoretical_max)
+                # and deliberately NOT computed here -- the main process (the only
+                # consumer) computes them once from `rows`/`theoretical_max` instead of
+                # carrying two more fields across the pickling boundary that must always
+                # stay in lock-step with `rows` (simplify pass, todo 318).
                 results.append(
                     {
                         "tf": tf,
-                        "rows_written": rows_written,
+                        "rows": rows,
                         "theoretical_max": theoretical,
-                        "pct": pct,
                     }
                 )
 
@@ -1301,17 +1359,11 @@ def _run_compute_worker(args: tuple) -> dict:
                     tf=tf,
                     error=error_str,
                 )
-                try:
-                    with conn.cursor() as cur:
-                        cur.execute(_MARK_COMPUTE_FAILED_SQL, (error_str, symbol, tf))
-                except Exception:
-                    pass
                 results.append(
                     {
                         "tf": tf,
-                        "rows_written": 0,
+                        "rows": [],
                         "theoretical_max": 0,
-                        "pct": 0.0,
                         "error": error_str,
                     }
                 )
@@ -1340,8 +1392,7 @@ def _compute_symbol_tf(
     beta_by_date: dict,
     symbol_1d_bars: list[dict],
     refresh: bool = False,
-    insert_batch_size: int = _INSERT_BATCH_SIZE_DEFAULT,
-) -> int:
+) -> list[tuple]:
     """Compute FeatureVectors for one (symbol, tf) pair.
 
     Post-injects four groups of corrected values into every FeatureVector:
@@ -1368,7 +1419,10 @@ def _compute_symbol_tf(
          htf_last_log_ret (extended alongside CTF above); ret_div_1m_5m reads a
          separate O(n+m) causal merge-walk series (ltf_ret_by_ts, tf=="5m" only).
 
-    Returns total rows inserted into feature_vectors.
+    Returns the computed row tuples ready for feature_vectors insertion --
+    compute-only (CLAUDE.md invariant, todo 318 Bug 2): the caller (a
+    ProcessPoolExecutor worker) never writes them; the main process does,
+    serially, via _batch_insert.
     """
     # Build CTF series for this symbol (O(n) single pass over HTF bars)
     htf_tf = config.ctf_higher_tf_map.get(tf)
@@ -1410,7 +1464,7 @@ def _compute_symbol_tf(
             bars=total_bars,
             warm_up_bars=warm_up_bars,
         )
-        return 0
+        return []
 
     _logger.info("compute_bars_loaded", symbol=symbol, tf=tf, total_bars=total_bars)
 
@@ -1444,8 +1498,7 @@ def _compute_symbol_tf(
         ret_div_1h_1d_non_none=_n_ret_div_1h_1d,
     )
 
-    insert_batch: list[tuple] = []
-    total_inserted = 0
+    rows: list[tuple] = []
     skipped_non_trading = 0
 
     # Market calendar for trading day filtering (Renaissance: filter at source)
@@ -1465,35 +1518,19 @@ def _compute_symbol_tf(
             regime=None,
             fv=fv,
         )
-        insert_batch.append(row)
-
-        if len(insert_batch) >= insert_batch_size:
-            _batch_insert(conn, insert_batch, refresh=refresh)
-            total_inserted += len(insert_batch)
-            insert_batch = []
-            _logger.debug(
-                "compute_progress",
-                symbol=symbol,
-                tf=tf,
-                inserted=total_inserted,
-                total_bars=total_bars,
-            )
-
-    if insert_batch:
-        _batch_insert(conn, insert_batch, refresh=refresh)
-        total_inserted += len(insert_batch)
+        rows.append(row)
 
     _logger.info(
         "compute_complete",
         symbol=symbol,
         tf=tf,
         total_bars=total_bars,
-        inserted=total_inserted,
+        computed=len(rows),
         skipped_non_trading=skipped_non_trading,
         skip_pct=round(skipped_non_trading / total_bars * 100, 2) if total_bars > 0 else 0,
     )
 
-    return total_inserted
+    return rows
 
 
 def _batch_insert(conn: Any, rows: list[tuple], refresh: bool = False) -> None:
@@ -1610,7 +1647,10 @@ def main() -> None:
     run_compute = not args.fetch_only
 
     # Load n_workers from CLI arg or APR. Use a short-lived query on the main
-    # connection before workers spawn; run_compute_stage closes db_conn itself.
+    # connection before workers spawn; run_compute_stage closes db_conn itself once
+    # every worker result has been written (todo 318 Bug 2 -- db_conn now stays open,
+    # not closed pre-spawn, for the whole pool span so it doubles as the single
+    # serial write connection).
     n_workers: int = 1
     if args.workers is not None:
         n_workers = args.workers
@@ -1645,8 +1685,9 @@ def main() -> None:
 
         if run_compute:
             _logger.info("stage2_start")
-            # run_compute_stage closes db_conn before spawning workers.
-            # Do not close db_conn in finally when compute ran.
+            # run_compute_stage closes db_conn itself, after writing every worker's
+            # result (not before spawning workers -- see todo 318 Bug 2). Do not close
+            # db_conn in finally when compute ran.
             coverage, coverage_threshold = run_compute_stage(
                 settings=settings,
                 symbols=symbols,

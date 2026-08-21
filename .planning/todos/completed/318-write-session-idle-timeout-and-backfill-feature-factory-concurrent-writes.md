@@ -71,14 +71,25 @@ refactor -- worker functions currently call `_compute_symbol_tf` -> `_batch_inse
 **Bug 1: FIXED, 2026-08-15** (migration 315 + `services/_batch_utils.py`, see above). Verified live
 against the production DB, full unit suite green, `/code-review`-clean.
 
-**Bug 2: still pending, P1** -- `backfill_feature_factory.py`'s `ProcessPoolExecutor` workers still
-write directly and concurrently, unprotected, confirmed unrelated to and untouched by Bug 1's fix.
-Remains a confirmed violation of an existing, explicitly-named CLAUDE.md invariant, live and
-unaddressed since before this session. Doesn't block [[todo 316]] (already completed, data verified
-correct) but should be fixed before the next routine `backfill_feature_factory.py --compute-only` run
-at scale (multiple workers, long compute span) rather than relying on manual one-off mitigation
-again. This todo file stays open, scoped to Bug 2 only -- Bug 1's resolution is complete and needs no
-further tracking here beyond this note.
+**Bug 2: FIXED, 2026-08-21.** Workers (`_run_compute_worker`/`_compute_symbol_tf`) are now
+compute-only per the CLAUDE.md invariant -- they return computed rows + status metadata, never
+write to `feature_vectors`/`backfill_status` themselves. All writes moved to the main process,
+serially, on the single connection already open in `run_compute_stage`, wrapped in
+`compressed_hypertable_write_session` for the whole pool span (closing the second gap this todo
+named too -- writes are now protected against the compressed-chunk full-scan cost, not just the
+concurrency risk). A `/simplify` pass (4 parallel agents) plus `/code-review medium` both surfaced
+real follow-up findings, applied same session: per-cell write-failure isolation mirroring
+`regime_writer.py`'s rollback-on-failure (one bad write no longer aborts the whole run), an
+autocommit-contract fix (`db_conn` now flips to `autocommit=False` for the write span, matching
+every other `compressed_hypertable_write_session` caller), two redundant derived fields
+(`rows_written`/`pct`) dropped from the worker→main payload, and stale connection-lifecycle
+comments corrected. One convergent finding (efficiency + altitude `/simplify` agents,
+`/code-review`'s sole finding) was judged real but out of scope for this fix -- worker rows are now
+held fully in memory per symbol before crossing the IPC boundary instead of streaming in
+`insert_batch_size` chunks; filed as [339](339-backfill-feature-factory-worker-rows-unbounded-memory-across-ipc.md)
+rather than expanding this diff's blast radius further. New regression test added
+(`test_compute_cell_write_failure_does_not_abort_remaining_cells`). Full `tests/unit/` suite green,
+ruff/black clean.
 
 ## Where
 
