@@ -5,49 +5,53 @@ found_during: phase-151-plan-02
 found_date: 2026-08-05
 ---
 
-# feature_registry / concept_registry row-count skew blocks ic_engine.py in worktrees not yet merged with Phase 170
+# concept_registry row-count skew blocks ic_engine.py in worktrees not synced with a concurrent schema-changing session
+
+**Corrected 2026-08-21 (this session's backlog audit):** the title and Item 1 below originally
+named `feature_registry` as one of two gates. Phase 170 (COMPLETE 2026-08-10, migration 311)
+`DROP`ped that table entirely and deleted `src/intelligence/feature_registry_service.py` --
+that half of this todo's premise no longer exists in any form, struck below rather than left to
+mislead a future reader. The `concept_registry(domain='feature')` drift check (Item 2, now the
+only surviving gate) is still live in `services/ic_engine.py` today (confirmed via grep,
+`ic_engine.py:5049`) and the underlying mechanism (concurrent GSD sessions sharing one physical
+DB) is unchanged, so the todo itself stays open under the general form below, not closed.
 
 ## What
 
-`services/ic_engine.py`'s `main()` has two independent startup gates that both crash-loud on a
-row-count mismatch between the live DB and the worktree's checked-out code:
+`services/ic_engine.py`'s `main()` has a startup gate that crash-loudly enforces a row-count
+match between the live DB and the worktree's checked-out code:
 
-1. `src/intelligence/feature_registry_service.py`'s `load_sync()`: `feature_registry` table row
-   count must equal `len(dataclasses.fields(FeatureVector))` (currently 249 in code checked out
-   as of 2026-08-05, but live DB has 259 rows).
-2. `services/ic_engine.py`'s own `concept_registry(domain='feature')` drift check: registry names
-   must exactly match `FeatureVector` dataclass field names (live DB has 261 concept_registry
-   rows vs 249 dataclass fields).
-
-Confirmed live 2026-08-05 during Phase 151-02 Task 3's empirical verification: any
-`ic_engine.py` per-symbol run (regardless of `--symbols` scope) fails immediately with
-`RuntimeError: feature_registry row count mismatch: expected 249, got 259` (or the
-concept_registry drift variant), before any compute begins.
+`services/ic_engine.py`'s own `concept_registry(domain='feature')` drift check: registry names
+must exactly match `FeatureVector` dataclass field names. Confirmed live 2026-08-05 during Phase
+151-02 Task 3's empirical verification (against the now-dead sibling `feature_registry` gate,
+same failure shape): any `ic_engine.py` per-symbol run (regardless of `--symbols` scope) fails
+immediately with a row-count mismatch error before any compute begins if the checked-out
+`FeatureVector` dataclass hasn't merged a sibling session's schema-changing migration.
 
 ## Root cause
 
-Phase 170 (feature_registry -> Concept Registry migration) is running in a separate, concurrent
-GSD session as of 2026-08-04 and has landed live DB migrations against the SHARED production
-database (all GSD worktrees point at the same physical DB, not per-worktree isolated) that add
-rows to `feature_registry`/`concept_registry`. Any worktree whose checked-out `FeatureVector`
-dataclass hasn't yet merged Phase 170's corresponding field additions will permanently fail this
-gate until that worktree's branch merges with Phase 170's changes -- confirmed non-transient by
-monitoring the row count over several minutes with zero movement.
+Any concurrent GSD session that lands a live DB migration against `concept_registry` (all GSD
+worktrees point at the same physical DB, not per-worktree isolated) will desync any other
+worktree whose checked-out `FeatureVector` dataclass hasn't yet merged the corresponding field
+additions -- that worktree permanently fails this gate until its branch merges with the
+schema-changing session's changes. Confirmed non-transient by monitoring the row count over
+several minutes with zero movement (original 2026-08-05 finding, against Phase 170 specifically;
+the mechanism generalizes to any future concurrent schema-changing session).
 
 ## Impact
 
 Blocks ALL per-symbol `ic_engine.py` runs (any `--symbols` scope) from any worktree/branch not
-yet synced with Phase 170, for the duration of Phase 170's work. `--cross-sectional-only` was not
-tested but likely hits the same gate (both checks run unconditionally early in `main()`, before
-`--cross-sectional-only`'s branch).
+synced with a concurrent schema-changing session, for the duration of that session's work.
+`--cross-sectional-only` was not tested but likely hits the same gate (the check runs
+unconditionally early in `main()`, before `--cross-sectional-only`'s branch).
 
 ## Recommended fix
 
 Not a code bug -- this is an expected consequence of concurrent GSD sessions sharing one
 database. Options, in order of preference:
-1. Sequence corpus-wide `ic_engine.py` runs behind Phase 170's merge to `main` (already the
-   project's stated policy per STATE.md: "Phase 170 ... running in a separate, concurrent session
-   ... do not touch feature_registry/concept_registry files").
+1. Sequence corpus-wide `ic_engine.py` runs behind any in-flight schema-changing session's merge
+   to `main` (the project's established policy, first stated for Phase 170: "do not touch
+   feature_registry/concept_registry files [from another worktree] until it merges").
 2. If concurrent GSD phase execution against per-symbol ic_engine.py becomes routine, consider a
    per-worktree logical-DB or schema-namespace isolation strategy (larger architectural change,
    out of scope for a single todo).
