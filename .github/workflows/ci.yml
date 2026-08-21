@@ -31,7 +31,7 @@ jobs:
           cache: pip
 
       - name: Install lint tools
-        run: pip install "ruff>=0.15.0" "black>=26.1.0" "vulture>=2.11" "mypy>=1.14.0"
+        run: pip install "ruff>=0.15.0" "black>=26.1.0" "vulture>=2.11" "mypy>=1.19.0" "mypy-baseline>=0.7.4"
 
       - name: Ruff
         run: ruff check .
@@ -42,9 +42,6 @@ jobs:
       - name: Vulture (dead code)
         run: vulture
 
-      # Report-only: [tool.mypy] in pyproject.toml is real config but 795
-      # pre-existing errors as of 2026-08-14 make this unsafe to block on
-      # without a baseline/suppression mechanism first — see todo 311.
       - name: Cache mypy
         uses: actions/cache@v4
         with:
@@ -52,9 +49,26 @@ jobs:
           key: ${{ runner.os }}-mypy-${{ hashFiles('pyproject.toml', 'requirements.txt') }}
           restore-keys: ${{ runner.os }}-mypy-
 
-      - name: Mypy (report-only)
-        run: mypy src/ --ignore-missing-imports
-        continue-on-error: true
+      # Blocking (todo 311): [tool.mypy] in pyproject.toml was real config, run
+      # nowhere, for months. 803 pre-existing errors as of 2026-08-21 made a
+      # bare gate unsafe (would fail every PR regardless of its own diff,
+      # training people to ignore CI red) -- mypy-baseline grandfathers
+      # .mypy-baseline.txt's existing errors and blocks only genuinely NEW
+      # ones, same "grandfather existing, block new" shape as vulture's
+      # tools/vulture_whitelist.py. Regenerate the baseline (mypy-baseline
+      # sync) as pre-existing errors get cleaned up -- it should only shrink
+      # over time, never grow (a growing baseline means new errors are being
+      # silently absorbed into it instead of fixed).
+      - name: Mypy
+        run: |
+          # pipefail off deliberately: mypy's own exit code is nonzero for the
+          # 803 pre-existing (baselined) errors alone -- with the default
+          # pipefail shell, that would fail this step regardless of what
+          # mypy-baseline reports, defeating the whole point of the baseline.
+          # mypy-baseline filter's own exit code (0 = no new violations, 1 =
+          # new violations found) is what must gate here.
+          set +o pipefail
+          mypy src/ --ignore-missing-imports | mypy-baseline filter
 
       - name: Duplicate test names
         run: python tools/check_duplicate_tests.py

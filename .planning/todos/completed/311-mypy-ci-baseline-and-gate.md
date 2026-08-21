@@ -1,5 +1,32 @@
 # 311 - Build a mypy error baseline, then flip CI from report-only to blocking
 
+## Fixed 2026-08-21
+
+Took the recommended option 1 (`mypy-baseline` package). `.mypy-baseline.txt` generated via
+`mypy src/ --ignore-missing-imports | mypy-baseline sync --sort-baseline` (803 errors, 1212
+baseline lines across 158 files -- error count matches the todo's own 2026-08-14 figure closely,
+minor drift expected over a week of intervening commits). CI's "Mypy" step now pipes through
+`mypy-baseline filter`, `continue-on-error` removed -- a genuinely new type error now fails the
+build; every pre-existing one stays silently grandfathered.
+
+**Real bug caught before landing**: piping `mypy | mypy-baseline filter` under GitHub Actions'
+default `bash -eo pipefail` shell would have failed the step on `mypy`'s own nonzero exit code
+(803 pre-existing errors) regardless of what `mypy-baseline filter` reported -- defeating the
+entire baseline mechanism, every run would fail unconditionally. Caught by testing the exact
+pipeline locally with `pipefail` explicitly enabled before wiring it into CI. Fixed with
+`set +o pipefail` immediately before the piped command, so the step's exit code is `mypy-baseline
+filter`'s (0 = no new violations), not `mypy`'s.
+
+**Verified**: (1) fresh sync against current `main` produces `new: 0` when immediately re-filtered
+against itself; (2) a deliberately introduced new type error (`x: int = "not an int"` appended to
+a scratch file, never committed) is correctly caught -- `filter` reports `new: 1`, exits 1, prints
+"Your changes introduced new violations"; both checks re-run with `pipefail` on to match CI's
+actual shell semantics. Also bumped CI's mypy install pin from the stale `>=1.14.0` to match
+`requirements.txt`'s `>=1.19.0` (pre-existing drift between the two, unrelated to this fix but
+directly adjacent -- a mismatched mypy version between local baselining and CI's install could
+itself desync the baseline). `docs/reference/cheatsheet.md` updated with both the gated check and
+the resync command. Full `tests/unit/`/ruff/black all green (no Python production code touched).
+
 **Filed:** 2026-08-14
 **Source:** Same audit pass that surfaced the vulture and Ring 0 boundary gaps. `[tool.mypy]` in
 `pyproject.toml` is real, reasonably-scoped config (`disallow_untyped_defs = false` — pragmatic,

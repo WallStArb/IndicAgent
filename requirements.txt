@@ -91,6 +91,7 @@ instructor>=1.0.0,<2.0.0
 # Development & Testing
 black>=26.1.0
 mypy>=1.19.0
+mypy-baseline>=0.7.4  # todo 311: grandfathers pre-existing errors, CI blocks only new ones
 # pandas-ta is test-only (indicator correctness reference oracle). Install separately:
 #   uv pip install pandas-ta --no-deps
 # It pins numba==0.61.2 which conflicts with numpy>=2.4; --no-deps bypasses this.

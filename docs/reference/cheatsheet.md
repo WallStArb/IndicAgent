@@ -114,7 +114,8 @@ sudo systemctl start indicagent-intelligence-pipeline indicagent-feature-writer 
 .venv/bin/ruff check . --fix           # Linting
 .venv/bin/black .                      # Formatting
 .venv/bin/vulture                      # Dead code (config + whitelist in pyproject.toml/tools/vulture_whitelist.py)
-.venv/bin/mypy src/ --ignore-missing-imports   # Report-only in CI (todo 311); real errors, not yet gated
+.venv/bin/mypy src/ --ignore-missing-imports | .venv/bin/mypy-baseline filter  # Gated in CI (todo 311); blocks only NEW errors, .mypy-baseline.txt grandfathers the rest
+.venv/bin/mypy src/ --ignore-missing-imports 2>&1 | .venv/bin/mypy-baseline sync --sort-baseline  # Regenerate the baseline after cleaning up pre-existing errors
 cd dashboard && npm run dev            # Frontend dev server
 ```
 

@@ -1,0 +1,1212 @@
+src/api/main.py:0: error: "None" has no attribute "execute_query"
+src/api/main.py:0: error: "None" has no attribute "get_connection"
+src/api/main.py:0: error: "None" has no attribute "initialize"  [attr-defined]
+src/api/main.py:0: error: "None" has no attribute "run"  [attr-defined]
+src/api/main.py:0: error: "None" has no attribute "upsert_instruments"
+src/api/main.py:0: error: Incompatible types in assignment (expression has
+src/api/main.py:0: error: Incompatible types in assignment (expression has
+src/api/main.py:0: error: Name "health" already defined (by an import)
+src/api/routes/ai_stats.py:0: error: Item "None" of "Any | None" has no
+src/api/routes/ai_stats.py:0: error: Item "None" of "Any | None" has no
+src/api/routes/health.py:0: error: Cannot determine type of "dlq_items"
+src/api/routes/health.py:0: error: Cannot determine type of "dlq_items"
+src/api/routes/health.py:0: error: Cannot determine type of "hb_items"
+src/api/routes/health.py:0: error: Cannot determine type of "hb_items"
+src/api/routes/health.py:0: error: Cannot determine type of "lag_items"
+src/api/routes/health.py:0: error: Cannot determine type of "lag_items"
+src/api/routes/health.py:0: error: Cannot determine type of "replay_items"
+src/api/routes/health.py:0: error: Cannot determine type of "replay_items"
+src/api/routes/health.py:0: error: Generator has incompatible item type
+src/api/routes/health.py:0: error: Returning Any from function declared to
+src/api/routes/narrative.py:0: error: Item "None" of "Any | None" has no
+src/api/routes/signals.py:0: error: "Settings" has no attribute "contracts"
+src/api/routes/signals.py:0: error: Value of type "Any | None" is not
+src/api/routes/signals.py:0: error: Value of type "Any | None" is not
+src/api/routes/signals.py:0: error: Value of type "Any | None" is not
+src/api/routes/signals.py:0: error: Value of type "Any | None" is not
+src/api/routes/signals.py:0: error: Value of type "Any | None" is not
+src/api/routes/signals.py:0: error: Value of type "Any | None" is not
+src/api/routes/signals.py:0: error: Value of type "Any | None" is not
+src/api/routes/signals.py:0: error: Value of type "Any | None" is not
+src/api/routes/signals.py:0: error: Value of type "Any | None" is not
+src/api/routes/signals.py:0: error: Value of type "Any | None" is not
+src/api/routes/sse.py:0: error: "object" has no attribute "messages"
+src/api/routes/sse.py:0: note: Error code "attr-defined" not covered by "type: ignore[union-attr]" comment
+src/api/routes/vocabulary.py:0: error: Cannot determine type of "code_result"
+src/api/routes/vocabulary.py:0: error: Cannot determine type of "code_result"
+src/api/routes/vocabulary.py:0: error: Cannot determine type of "code_result"
+src/api/routes/vocabulary.py:0: error: Cannot determine type of "group_result"
+src/api/routes/vocabulary.py:0: error: Cannot determine type of "group_result"
+src/api/routes/vocabulary.py:0: error: Cannot determine type of "group_result"
+src/config/outbox_publisher.py:0: error: Item "None" of
+src/core/agent/base.py:0: error: "type[BaseDaemon]" has no attribute
+src/core/ai/base_agent.py:0: error: Argument "llm_chain" to "WorkerContext"
+src/core/ai/base_agent.py:0: error: Item "None" of "LLMProviderChain | None"
+src/core/ai/base_agent.py:0: error: Item "None" of "LLMProviderChain | None"
+src/core/ai/base_agent.py:0: error: Item "None" of "LLMProviderChain | None"
+src/core/ai/llm_adapter.py:0: error: Incompatible types in assignment
+src/core/database_manager.py:0: error: Returning Any from function declared
+src/core/database_manager.py:0: error: Returning Any from function declared to
+src/core/kafka_utils.py:0: error: Argument "headers" to "produce" of
+src/core/kafka_utils.py:0: error: Argument "on_delivery" to "produce" of
+src/core/llm/chain.py:0: error: Argument 1 to "get" of "dict" has incompatible
+src/core/llm/litellm_backend.py:0: error: Argument "messages" to
+src/core/llm/litellm_backend.py:0: error: Incompatible types in "await"
+src/core/llm/litellm_backend.py:0: error: Returning Any from function
+src/core/market_calendar.py:0: error: Returning Any from function declared to
+src/core/ml/registry.py:0: error: Returning Any from function declared to
+src/core/plugin_circuit_breaker.py:0: error: Incompatible default for
+src/core/plugin_circuit_breaker.py:0: error: Incompatible default for
+src/core/plugin_circuit_breaker.py:0: note: PEP 484 prohibits implicit Optional. Accordingly, mypy has changed its default to no_implicit_optional=True
+src/core/plugin_circuit_breaker.py:0: note: PEP 484 prohibits implicit Optional. Accordingly, mypy has changed its default to no_implicit_optional=True
+src/core/plugin_circuit_breaker.py:0: note: Use https://github.com/hauntsaninja/no_implicit_optional to automatically upgrade your codebase
+src/core/plugin_circuit_breaker.py:0: note: Use https://github.com/hauntsaninja/no_implicit_optional to automatically upgrade your codebase
+src/core/retry_utils.py:0: error: Returning Any from function declared to
+src/core/schemas/bar_message.py:0: error: Parameter 1 of Literal[...] is
+src/core/state_serializer.py:0: error: Argument 1 to
+src/core/state_serializer.py:0: error: Returning Any from function declared to
+src/core/state_serializer.py:0: error: Returning Any from function declared to
+src/intelligence/ai/alpha/correlation_agent.py:0: error: "BaseModel" has no
+src/intelligence/ai/alpha/correlation_agent.py:0: error: "BaseModel" has no
+src/intelligence/ai/alpha/correlation_agent.py:0: error: "BaseModel" has no
+src/intelligence/ai/alpha/correlation_agent.py:0: error: "BaseModel" has no
+src/intelligence/ai/alpha/counterfactual_agent.py:0: error: "BaseModel" has
+src/intelligence/ai/alpha/counterfactual_agent.py:0: error: "BaseModel" has
+src/intelligence/ai/alpha/counterfactual_agent.py:0: error: "BaseModel" has
+src/intelligence/ai/alpha/counterfactual_agent.py:0: error: "BaseModel" has
+src/intelligence/ai/alpha/counterfactual_agent.py:0: error: "BaseModel" has
+src/intelligence/ai/alpha/ml_scorer_agent.py:0: error: Incompatible types in
+src/intelligence/ai/alpha/ml_scorer_agent.py:0: note: Error code "assignment" not covered by "type: ignore[attr-defined]" comment
+src/intelligence/ai/alpha/regime_coherence_agent.py:0: error: "BaseModel" has
+src/intelligence/ai/alpha/regime_coherence_agent.py:0: error: "BaseModel" has
+src/intelligence/ai/alpha/regime_coherence_agent.py:0: error: "BaseModel" has
+src/intelligence/ai/alpha/regime_coherence_agent.py:0: error: "BaseModel" has
+src/intelligence/ai/alpha/skeptic_agent.py:0: error: "BaseModel" has no
+src/intelligence/ai/alpha/skeptic_agent.py:0: error: "BaseModel" has no
+src/intelligence/ai/alpha/skeptic_agent.py:0: error: "BaseModel" has no
+src/intelligence/ai/alpha/skeptic_agent.py:0: error: "BaseModel" has no
+src/intelligence/ai/alpha/skeptic_agent.py:0: error: "I4Context" has no
+src/intelligence/ai/group_coordinator.py:0: error: Item "None" of
+src/intelligence/ai/narrative/narrative_agent.py:0: error: Item "None" of
+src/intelligence/archive/confluence/confluence_alignment.py:0: error: Argument
+src/intelligence/archive/confluence/confluence_alignment.py:0: error: Argument
+src/intelligence/archive/confluence/confluence_alignment.py:0: note: Left operand is of type "Any | None"
+src/intelligence/archive/confluence/confluence_alignment.py:0: note: Left operand is of type "Any | None"
+src/intelligence/archive/confluence/confluence_alignment.py:0: note: Left operand is of type "Any | None"
+src/intelligence/archive/confluence/confluence_alignment.py:0: note: Left operand is of type "Any | None"
+src/intelligence/archive/confluence/confluence_alignment.py:0: note: Left operand is of type "Any | None"
+src/intelligence/archive/confluence/confluence_smc.py:0: error: Argument 1 to
+src/intelligence/archive/confluence/confluence_weights.py:0: error: Argument 1
+src/intelligence/archive/confluence/confluence_weights.py:0: note: Left operand is of type "Any | None"
+src/intelligence/archive/confluence/confluence_weights.py:0: note: Left operand is of type "Any | None"
+src/intelligence/archive/confluence/cross_timeframe.py:0: error: Incompatible
+src/intelligence/archive/i5_patterns/bollinger_squeeze.py:0: error: Returning
+src/intelligence/archive/i5_patterns/confluence.py:0: error: Argument 1 to
+src/intelligence/archive/i5_patterns/confluence.py:0: error: Incompatible
+src/intelligence/archive/i5_patterns/confluence.py:0: error: Unsupported
+src/intelligence/archive/i5_patterns/confluence.py:0: error: Unsupported
+src/intelligence/archive/i5_patterns/confluence.py:0: error: Unsupported
+src/intelligence/archive/i5_patterns/confluence.py:0: error: Unsupported
+src/intelligence/archive/i5_patterns/confluence.py:0: error: Unsupported
+src/intelligence/archive/i5_patterns/confluence.py:0: error: Unsupported
+src/intelligence/archive/i5_patterns/confluence.py:0: error: Unsupported
+src/intelligence/archive/i5_patterns/confluence.py:0: error: Unsupported
+src/intelligence/archive/i5_patterns/confluence.py:0: error: Unsupported
+src/intelligence/archive/i5_patterns/confluence.py:0: note: Left operand is of type "Any | None"
+src/intelligence/archive/i5_patterns/confluence.py:0: note: Left operand is of type "Any | None"
+src/intelligence/archive/i5_patterns/confluence.py:0: note: Left operand is of type "Any | None"
+src/intelligence/archive/i5_patterns/confluence.py:0: note: Left operand is of type "Any | None"
+src/intelligence/archive/i5_patterns/confluence.py:0: note: Left operand is of type "Any | None"
+src/intelligence/archive/i5_patterns/confluence.py:0: note: Left operand is of type "Any | None"
+src/intelligence/archive/i5_patterns/confluence.py:0: note: Left operand is of type "Any | None"
+src/intelligence/archive/i5_patterns/confluence.py:0: note: Left operand is of type "Any | None"
+src/intelligence/archive/i5_patterns/head_shoulders.py:0: error: Incompatible
+src/intelligence/archive/i5_patterns/macd_divergence.py:0: error: Returning
+src/intelligence/archive/i5_patterns/measured_move.py:0: error: Argument 1 to
+src/intelligence/archive/i5_patterns/measured_move.py:0: error: Argument 1 to
+src/intelligence/archive/i5_patterns/measured_move.py:0: error: Argument 1 to
+src/intelligence/archive/i5_patterns/measured_move.py:0: error: Argument 1 to
+src/intelligence/archive/i5_patterns/mtf_volatility.py:0: error: Argument 1 to
+src/intelligence/archive/i5_patterns/mtf_volatility.py:0: error: Argument 1 to
+src/intelligence/archive/i5_patterns/mtf_volatility.py:0: error: Argument 1 to
+src/intelligence/archive/i5_patterns/rsi_divergence.py:0: error: Incompatible
+src/intelligence/archive/i5_patterns/trend_confluence.py:0: error: Argument 1
+src/intelligence/archive/i5_patterns/trend_confluence.py:0: error: Unsupported
+src/intelligence/archive/i5_patterns/trend_confluence.py:0: error: Unsupported
+src/intelligence/archive/i5_patterns/trend_confluence.py:0: error: Unsupported
+src/intelligence/archive/i5_patterns/trend_confluence.py:0: error: Unsupported
+src/intelligence/archive/i5_patterns/trend_confluence.py:0: error: Unsupported
+src/intelligence/archive/i5_patterns/trend_confluence.py:0: note: Both left and right operands are unions
+src/intelligence/archive/i5_patterns/trend_confluence.py:0: note: Left operand is of type "Any | None"
+src/intelligence/archive/i5_patterns/trend_confluence.py:0: note: Left operand is of type "Any | None"
+src/intelligence/archive/i5_patterns/trend_confluence.py:0: note: Left operand is of type "Any | None"
+src/intelligence/archive/i5_patterns/trend_confluence.py:0: note: Left operand is of type "Any | None"
+src/intelligence/archive/i5_patterns/triangle_wedge.py:0: error: Incompatible
+src/intelligence/archive/smc_context/bocpd_changepoint.py:0: error: Returning
+src/intelligence/archive/smc_context/bos_choch.py:0: error: Incompatible types
+src/intelligence/archive/smc_context/bos_choch.py:0: error: Unsupported
+src/intelligence/archive/smc_context/bos_choch.py:0: error: Unsupported
+src/intelligence/archive/smc_context/bos_choch.py:0: note: Right operand is of type "float | None"
+src/intelligence/archive/smc_context/bos_choch.py:0: note: Right operand is of type "float | None"
+src/intelligence/archive/smc_context/breaker_blocks.py:0: error: Argument 1 to
+src/intelligence/archive/smc_context/breaker_blocks.py:0: error: Argument 1 to
+src/intelligence/archive/smc_context/breaker_blocks.py:0: error: Argument 1 to
+src/intelligence/archive/smc_context/fair_value_gap.py:0: error: Incompatible
+src/intelligence/archive/smc_context/fair_value_gap.py:0: error: Incompatible
+src/intelligence/archive/smc_context/fair_value_gap.py:0: error: Incompatible
+src/intelligence/archive/smc_context/hmm_regime.py:0: error: Returning Any
+src/intelligence/archive/smc_context/hmm_regime.py:0: error: Returning Any
+src/intelligence/archive/smc_context/hmm_regime.py:0: error: Returning Any
+src/intelligence/archive/smc_context/hmm_regime.py:0: error: Returning Any
+src/intelligence/archive/smc_context/liquidity_pools.py:0: error: Incompatible
+src/intelligence/archive/smc_context/mitigation_blocks.py:0: error: Argument 1
+src/intelligence/archive/smc_context/mitigation_blocks.py:0: error: Argument 1
+src/intelligence/archive/smc_context/order_blocks.py:0: error: Incompatible
+src/intelligence/archive/smc_context/premium_discount.py:0: error: Argument 1
+src/intelligence/archive/smc_context/premium_discount.py:0: error: Argument 1
+src/intelligence/archive/trading_i7/anchored_vwap_reversion.py:0: note: Both left and right operands are unions
+src/intelligence/archive/trading_i7/gap_analysis_setup.py:0: error: Value of
+src/intelligence/archive/trading_i7/prev_day_level_test.py:0: error: Argument
+src/intelligence/archive/trading_i7/prev_day_level_test.py:0: error: Argument
+src/intelligence/archive/trading_i7/prev_day_level_test.py:0: error: Argument
+src/intelligence/archive/trading_i7/squeeze_expansion.py:0: error: Value of
+src/intelligence/composites/adx_events.py:0: error: Argument 3 to
+src/intelligence/composites/adx_events.py:0: error: Unsupported left operand
+src/intelligence/composites/adx_events.py:0: note: Both left and right operands are unions
+src/intelligence/composites/derivative_oscillator.py:0: error: Cannot
+src/intelligence/composites/derivative_oscillator.py:0: error: Cannot override
+src/intelligence/composites/derivative_oscillator.py:0: error: Cannot override
+src/intelligence/composites/derivative_oscillator.py:0: error: Cannot override
+src/intelligence/composites/derivative_oscillator.py:0: error: Cannot override
+src/intelligence/composites/derivative_oscillator.py:0: error: Cannot override
+src/intelligence/composites/derivative_oscillator.py:0: error: Cannot override
+src/intelligence/composites/derivative_oscillator.py:0: error: Incompatible
+src/intelligence/composites/derivative_oscillator.py:0: error: Incompatible
+src/intelligence/composites/derivative_oscillator.py:0: error: Incompatible
+src/intelligence/composites/derivative_oscillator.py:0: error: Signature of
+src/intelligence/composites/derivative_oscillator.py:0: error: Unsupported
+src/intelligence/composites/derivative_oscillator.py:0: error: Unsupported
+src/intelligence/composites/derivative_oscillator.py:0: note: Right operand is of type "Any | None"
+src/intelligence/composites/derivative_oscillator.py:0: note: Right operand is of type "Any | None"
+src/intelligence/composites/derivative_oscillator.py:0: note: Subclass:
+src/intelligence/composites/derivative_oscillator.py:0: note: Superclass:
+src/intelligence/composites/derivative_oscillator.py:0: note: def compute_full(self, frames: dict[str, Any]) -> dict[str, Any]
+src/intelligence/composites/derivative_oscillator.py:0: note: def compute_full(self, frames: dict[str, Any], *, state: dict[Any, Any] | None = ...) -> dict[str, Any]
+src/intelligence/composites/donchian_position.py:0: error: Cannot instantiate
+src/intelligence/composites/donchian_position.py:0: error: Cannot override
+src/intelligence/composites/donchian_position.py:0: error: Cannot override
+src/intelligence/composites/donchian_position.py:0: error: Cannot override
+src/intelligence/composites/donchian_position.py:0: error: Cannot override
+src/intelligence/composites/donchian_position.py:0: error: Cannot override
+src/intelligence/composites/donchian_position.py:0: error: Cannot override
+src/intelligence/composites/donchian_position.py:0: error: Incompatible types
+src/intelligence/composites/donchian_position.py:0: error: Incompatible types
+src/intelligence/composites/donchian_position.py:0: error: Incompatible types
+src/intelligence/composites/donchian_position.py:0: error: Signature of
+src/intelligence/composites/donchian_position.py:0: note: Subclass:
+src/intelligence/composites/donchian_position.py:0: note: Superclass:
+src/intelligence/composites/donchian_position.py:0: note: def compute_full(self, frames: dict[str, Any]) -> dict[str, Any]
+src/intelligence/composites/donchian_position.py:0: note: def compute_full(self, frames: dict[str, Any], *, state: dict[Any, Any] | None = ...) -> dict[str, Any]
+src/intelligence/composites/exhaustion_score.py:0: error: Unsupported operand
+src/intelligence/composites/exhaustion_score.py:0: error: Unsupported operand
+src/intelligence/composites/exhaustion_score.py:0: error: Unsupported operand
+src/intelligence/composites/exhaustion_score.py:0: error: Unsupported operand
+src/intelligence/composites/exhaustion_score.py:0: error: Unsupported operand
+src/intelligence/composites/exhaustion_score.py:0: error: Unsupported operand
+src/intelligence/composites/exhaustion_score.py:0: note: Left operand is of type "Any | None"
+src/intelligence/composites/exhaustion_score.py:0: note: Left operand is of type "Any | None"
+src/intelligence/composites/exhaustion_score.py:0: note: Left operand is of type "Any | None"
+src/intelligence/composites/exhaustion_score.py:0: note: Left operand is of type "Any | None"
+src/intelligence/composites/exhaustion_score.py:0: note: Left operand is of type "Any | None"
+src/intelligence/composites/exhaustion_score.py:0: note: Left operand is of type "Any | None"
+src/intelligence/composites/ma_composites.py:0: error: Argument 1 to "float"
+src/intelligence/composites/ma_composites.py:0: error: Incompatible types in
+src/intelligence/composites/ma_composites.py:0: error: Unsupported left
+src/intelligence/composites/ma_composites.py:0: error: Unsupported left
+src/intelligence/composites/ma_composites.py:0: error: Unsupported left
+src/intelligence/composites/ma_composites.py:0: error: Unsupported left
+src/intelligence/composites/ma_composites.py:0: error: Unsupported left
+src/intelligence/composites/ma_composites.py:0: error: Unsupported left
+src/intelligence/composites/ma_composites.py:0: error: Unsupported left
+src/intelligence/composites/ma_composites.py:0: error: Unsupported left
+src/intelligence/composites/ma_composites.py:0: error: Unsupported operand
+src/intelligence/composites/ma_composites.py:0: error: Unsupported operand
+src/intelligence/composites/ma_composites.py:0: error: Unsupported operand
+src/intelligence/composites/ma_composites.py:0: error: Unsupported operand
+src/intelligence/composites/ma_composites.py:0: error: Unsupported operand
+src/intelligence/composites/ma_composites.py:0: error: Unsupported operand
+src/intelligence/composites/ma_composites.py:0: note: Both left and right operands are unions
+src/intelligence/composites/ma_composites.py:0: note: Both left and right operands are unions
+src/intelligence/composites/ma_composites.py:0: note: Both left and right operands are unions
+src/intelligence/composites/ma_composites.py:0: note: Both left and right operands are unions
+src/intelligence/composites/ma_composites.py:0: note: Both left and right operands are unions
+src/intelligence/composites/ma_composites.py:0: note: Both left and right operands are unions
+src/intelligence/composites/ma_composites.py:0: note: Left operand is of type "Any | None"
+src/intelligence/composites/ma_composites.py:0: note: Left operand is of type "Any | None"
+src/intelligence/composites/ma_composites.py:0: note: Left operand is of type "Any | None"
+src/intelligence/composites/momentum_accel.py:0: error: Unsupported left
+src/intelligence/composites/momentum_accel.py:0: error: Unsupported left
+src/intelligence/composites/momentum_accel.py:0: error: Unsupported left
+src/intelligence/composites/momentum_accel.py:0: error: Unsupported left
+src/intelligence/composites/momentum_accel.py:0: error: Unsupported left
+src/intelligence/composites/momentum_accel.py:0: error: Unsupported operand
+src/intelligence/composites/momentum_accel.py:0: note: Both left and right operands are unions
+src/intelligence/composites/momentum_accel.py:0: note: Both left and right operands are unions
+src/intelligence/composites/momentum_accel.py:0: note: Both left and right operands are unions
+src/intelligence/composites/momentum_accel.py:0: note: Both left and right operands are unions
+src/intelligence/composites/momentum_accel.py:0: note: Both left and right operands are unions
+src/intelligence/composites/momentum_accel.py:0: note: Both left and right operands are unions
+src/intelligence/composites/obv_momentum.py:0: error: Cannot instantiate
+src/intelligence/composites/obv_momentum.py:0: error: Cannot override class
+src/intelligence/composites/obv_momentum.py:0: error: Cannot override class
+src/intelligence/composites/obv_momentum.py:0: error: Cannot override class
+src/intelligence/composites/obv_momentum.py:0: error: Cannot override class
+src/intelligence/composites/obv_momentum.py:0: error: Cannot override class
+src/intelligence/composites/obv_momentum.py:0: error: Cannot override class
+src/intelligence/composites/obv_momentum.py:0: error: Incompatible types in
+src/intelligence/composites/obv_momentum.py:0: error: Incompatible types in
+src/intelligence/composites/obv_momentum.py:0: error: Incompatible types in
+src/intelligence/composites/obv_momentum.py:0: error: Signature of
+src/intelligence/composites/obv_momentum.py:0: note: Subclass:
+src/intelligence/composites/obv_momentum.py:0: note: Superclass:
+src/intelligence/composites/obv_momentum.py:0: note: def compute_full(self, frames: dict[str, Any]) -> dict[str, Any]
+src/intelligence/composites/obv_momentum.py:0: note: def compute_full(self, frames: dict[str, Any], *, state: dict[Any, Any] | None = ...) -> dict[str, Any]
+src/intelligence/composites/rsi_events.py:0: error: Unsupported left operand
+src/intelligence/composites/rsi_events.py:0: error: Unsupported left operand
+src/intelligence/composites/rsi_events.py:0: error: Unsupported operand types
+src/intelligence/composites/rsi_events.py:0: error: Unsupported operand types
+src/intelligence/composites/rsi_events.py:0: error: Unsupported operand types
+src/intelligence/composites/rsi_events.py:0: error: Unsupported operand types
+src/intelligence/composites/rsi_events.py:0: note: Both left and right operands are unions
+src/intelligence/composites/rsi_events.py:0: note: Both left and right operands are unions
+src/intelligence/composites/rsi_events.py:0: note: Left operand is of type "Any | None"
+src/intelligence/composites/rsi_events.py:0: note: Left operand is of type "Any | None"
+src/intelligence/composites/rsi_events.py:0: note: Left operand is of type "Any | None"
+src/intelligence/composites/stochastic_events.py:0: error: Unsupported operand
+src/intelligence/composites/stochastic_events.py:0: error: Unsupported operand
+src/intelligence/composites/stochastic_events.py:0: note: Left operand is of type "Any | None"
+src/intelligence/composites/stochastic_events.py:0: note: Left operand is of type "Any | None"
+src/intelligence/composites/volume_events.py:0: error: Argument 1 to "float"
+src/intelligence/composites/volume_events.py:0: error: Argument 1 to "float"
+src/intelligence/composites/volume_events.py:0: error: Argument 1 to "float"
+src/intelligence/composites/volume_events.py:0: error: Argument 1 to "float"
+src/intelligence/composites/volume_events.py:0: error: Unsupported left
+src/intelligence/composites/volume_events.py:0: error: Unsupported left
+src/intelligence/composites/volume_events.py:0: error: Unsupported left
+src/intelligence/composites/volume_events.py:0: error: Unsupported left
+src/intelligence/composites/volume_events.py:0: error: Unsupported left
+src/intelligence/composites/volume_events.py:0: error: Unsupported operand
+src/intelligence/composites/volume_events.py:0: error: Unsupported operand
+src/intelligence/composites/volume_events.py:0: error: Unsupported operand
+src/intelligence/composites/volume_events.py:0: error: Unsupported operand
+src/intelligence/composites/volume_events.py:0: error: Unsupported operand
+src/intelligence/composites/volume_events.py:0: error: Unsupported operand
+src/intelligence/composites/volume_events.py:0: error: Unsupported operand
+src/intelligence/composites/volume_events.py:0: error: Unsupported operand
+src/intelligence/composites/volume_events.py:0: error: Unsupported operand
+src/intelligence/composites/volume_events.py:0: error: Unsupported operand
+src/intelligence/composites/volume_events.py:0: error: Unsupported operand
+src/intelligence/composites/volume_events.py:0: note: Both left and right operands are unions
+src/intelligence/composites/volume_events.py:0: note: Both left and right operands are unions
+src/intelligence/composites/volume_events.py:0: note: Both left and right operands are unions
+src/intelligence/composites/volume_events.py:0: note: Both left and right operands are unions
+src/intelligence/composites/volume_events.py:0: note: Both left and right operands are unions
+src/intelligence/composites/volume_events.py:0: note: Both left and right operands are unions
+src/intelligence/composites/volume_events.py:0: note: Left operand is of type "Any | None"
+src/intelligence/composites/volume_events.py:0: note: Left operand is of type "Any | None"
+src/intelligence/composites/volume_events.py:0: note: Left operand is of type "Any | None"
+src/intelligence/composites/volume_events.py:0: note: Left operand is of type "Any | None"
+src/intelligence/concept_registry_service.py:0: error: Argument 1 to "float"
+src/intelligence/concept_registry_service.py:0: error: Returning Any from
+src/intelligence/concept_registry_service.py:0: error: Returning Any from
+src/intelligence/concept_registry_service.py:0: error: Returning Any from
+src/intelligence/confluence/confluence_alignment.py:0: error: Argument 1 to
+src/intelligence/confluence/confluence_alignment.py:0: error: Argument 1 to
+src/intelligence/confluence/confluence_alignment.py:0: error: Argument 1 to
+src/intelligence/confluence/confluence_alignment.py:0: error: Argument 1 to
+src/intelligence/confluence/confluence_alignment.py:0: error: Argument 1 to
+src/intelligence/confluence/confluence_alignment.py:0: error: Argument 1 to
+src/intelligence/confluence/confluence_alignment.py:0: error: Argument 1 to
+src/intelligence/confluence/confluence_alignment.py:0: error: Unsupported
+src/intelligence/confluence/confluence_alignment.py:0: error: Unsupported
+src/intelligence/confluence/confluence_alignment.py:0: error: Unsupported
+src/intelligence/confluence/confluence_alignment.py:0: error: Unsupported
+src/intelligence/confluence/confluence_alignment.py:0: error: Unsupported
+src/intelligence/confluence/confluence_alignment.py:0: note: Left operand is of type "Any | None"
+src/intelligence/confluence/confluence_alignment.py:0: note: Left operand is of type "Any | None"
+src/intelligence/confluence/confluence_alignment.py:0: note: Left operand is of type "Any | None"
+src/intelligence/confluence/confluence_alignment.py:0: note: Left operand is of type "Any | None"
+src/intelligence/confluence/confluence_alignment.py:0: note: Left operand is of type "Any | None"
+src/intelligence/confluence/confluence_smc.py:0: error: Argument 1 to "_sign"
+src/intelligence/confluence/confluence_weights.py:0: error: Argument 1 to
+src/intelligence/confluence/confluence_weights.py:0: error: Unsupported
+src/intelligence/confluence/confluence_weights.py:0: error: Unsupported
+src/intelligence/confluence/confluence_weights.py:0: note: Left operand is of type "Any | None"
+src/intelligence/confluence/confluence_weights.py:0: note: Left operand is of type "Any | None"
+src/intelligence/confluence/cross_timeframe.py:0: error: Incompatible types in
+src/intelligence/context/anchored_vwap.py:0: error: Incompatible types in
+src/intelligence/context/garch_volatility.py:0: error: Incompatible types in
+src/intelligence/context/momentum_context.py:0: error: Incompatible types in
+src/intelligence/context/momentum_context.py:0: error: Unsupported left
+src/intelligence/context/momentum_context.py:0: error: Unsupported left
+src/intelligence/context/momentum_context.py:0: error: Unsupported operand
+src/intelligence/context/momentum_context.py:0: error: Unsupported operand
+src/intelligence/context/momentum_context.py:0: error: Unsupported operand
+src/intelligence/context/momentum_context.py:0: note: Both left and right operands are unions
+src/intelligence/context/momentum_context.py:0: note: Left operand is of type "Any | None"
+src/intelligence/context/momentum_context.py:0: note: Left operand is of type "Any | None"
+src/intelligence/context/momentum_context.py:0: note: Left operand is of type "Any | None"
+src/intelligence/context/session_context.py:0: error: Returning Any from
+src/intelligence/context/sr_consensus.py:0: note: By default the bodies of untyped functions are not checked, consider using --check-untyped-defs  [annotation-unchecked]
+src/intelligence/context/trend_regime.py:0: error: Incompatible types in
+src/intelligence/context/volatility_regime.py:0: error: Incompatible types in
+src/intelligence/context/volume_profile.py:0: error: Unsupported operand
+src/intelligence/context/volume_profile.py:0: error: Unsupported operand
+src/intelligence/context/volume_profile.py:0: error: Unsupported operand
+src/intelligence/context/volume_profile.py:0: error: Unsupported operand
+src/intelligence/context/volume_profile.py:0: note: Right operand is of type "float | None"
+src/intelligence/context/volume_profile.py:0: note: Right operand is of type "float | None"
+src/intelligence/context/volume_profile.py:0: note: Right operand is of type "float | None"
+src/intelligence/context/volume_profile.py:0: note: Right operand is of type "float | None"
+src/intelligence/cross_asset_features.py:0: error: Incompatible types in
+src/intelligence/feature_factory.py:0: error: Argument
+src/intelligence/feature_factory.py:0: error: Argument
+src/intelligence/feature_factory.py:0: error: Argument
+src/intelligence/feature_factory.py:0: error: Argument
+src/intelligence/feature_factory.py:0: error: Argument
+src/intelligence/feature_factory.py:0: error: Argument
+src/intelligence/feature_factory.py:0: error: Argument
+src/intelligence/feature_factory.py:0: error: Argument
+src/intelligence/feature_factory.py:0: error: Argument
+src/intelligence/feature_factory.py:0: error: Argument
+src/intelligence/feature_factory.py:0: error: Argument
+src/intelligence/feature_factory.py:0: error: Argument
+src/intelligence/feature_factory.py:0: error: Argument
+src/intelligence/feature_factory.py:0: error: Argument
+src/intelligence/feature_factory.py:0: error: Argument
+src/intelligence/feature_factory.py:0: error: Argument
+src/intelligence/feature_factory.py:0: error: Argument
+src/intelligence/feature_factory.py:0: error: Argument
+src/intelligence/feature_factory.py:0: error: Argument
+src/intelligence/feature_factory.py:0: error: Argument
+src/intelligence/feature_factory.py:0: error: Argument
+src/intelligence/feature_factory.py:0: error: Argument
+src/intelligence/feature_factory.py:0: error: Argument
+src/intelligence/feature_factory.py:0: error: Argument
+src/intelligence/feature_factory.py:0: error: Argument
+src/intelligence/feature_factory.py:0: error: Argument
+src/intelligence/feature_factory.py:0: error: Argument "abs_ret_autocorr_1"
+src/intelligence/feature_factory.py:0: error: Argument "adx" to
+src/intelligence/feature_factory.py:0: error: Argument "amihud_illiq_z" to
+src/intelligence/feature_factory.py:0: error: Argument "aroon_fast" to
+src/intelligence/feature_factory.py:0: error: Argument "aroon_slow" to
+src/intelligence/feature_factory.py:0: error: Argument "atr_z" to
+src/intelligence/feature_factory.py:0: error: Argument "bar_close_pos" to
+src/intelligence/feature_factory.py:0: error: Argument "bars_since_52w_high"
+src/intelligence/feature_factory.py:0: error: Argument "bars_since_52w_low"
+src/intelligence/feature_factory.py:0: error: Argument "bars_since_low_fast"
+src/intelligence/feature_factory.py:0: error: Argument "bars_since_low_slow"
+src/intelligence/feature_factory.py:0: error: Argument "bb_pct_b_fast" to
+src/intelligence/feature_factory.py:0: error: Argument "bb_pct_b_slow" to
+src/intelligence/feature_factory.py:0: error: Argument "body_ratio" to
+src/intelligence/feature_factory.py:0: error: Argument "canary_constant" to
+src/intelligence/feature_factory.py:0: error: Argument "cci_fast" to
+src/intelligence/feature_factory.py:0: error: Argument "cci_mid" to
+src/intelligence/feature_factory.py:0: error: Argument "cci_slow" to
+src/intelligence/feature_factory.py:0: error: Argument "cmf" to
+src/intelligence/feature_factory.py:0: error: Argument "ctf_momentum" to
+src/intelligence/feature_factory.py:0: error: Argument "ctf_regime_align" to
+src/intelligence/feature_factory.py:0: error: Argument "ctf_vwap_align" to
+src/intelligence/feature_factory.py:0: error: Argument "cvd_slope_z" to
+src/intelligence/feature_factory.py:0: error: Argument "days_to_month_end"
+src/intelligence/feature_factory.py:0: error: Argument "dist_from_high_fast"
+src/intelligence/feature_factory.py:0: error: Argument "dist_from_high_slow"
+src/intelligence/feature_factory.py:0: error: Argument "dist_from_low_fast"
+src/intelligence/feature_factory.py:0: error: Argument "dist_from_low_slow"
+src/intelligence/feature_factory.py:0: error: Argument "dollar_vol_z" to
+src/intelligence/feature_factory.py:0: error: Argument "flight_quality" to
+src/intelligence/feature_factory.py:0: error: Argument "gap_z" to
+src/intelligence/feature_factory.py:0: error: Argument "garch_ratio" to
+src/intelligence/feature_factory.py:0: error: Argument "garman_klass_vol_z"
+src/intelligence/feature_factory.py:0: error: Argument "high_52w_dist" to
+src/intelligence/feature_factory.py:0: error: Argument "high_low_corr" to
+src/intelligence/feature_factory.py:0: error: Argument "hma_slope_z" to
+src/intelligence/feature_factory.py:0: error: Argument "hurst" to
+src/intelligence/feature_factory.py:0: error: Argument "hv_ratio" to
+src/intelligence/feature_factory.py:0: error: Argument "hv_z_fast" to
+src/intelligence/feature_factory.py:0: error: Argument "hv_z_slow" to
+src/intelligence/feature_factory.py:0: error: Argument "hyg_lqd_ret_z" to
+src/intelligence/feature_factory.py:0: error: Argument "informed_flow" to
+src/intelligence/feature_factory.py:0: error: Argument "intraday_ret" to
+src/intelligence/feature_factory.py:0: error: Argument "lower_wick_ratio" to
+src/intelligence/feature_factory.py:0: error: Argument "mfi_fast" to
+src/intelligence/feature_factory.py:0: error: Argument "mfi_slow" to
+src/intelligence/feature_factory.py:0: error: Argument "minute_of_hour_cos"
+src/intelligence/feature_factory.py:0: error: Argument "minute_of_hour_sin"
+src/intelligence/feature_factory.py:0: error: Argument "momentum_reversal_z"
+src/intelligence/feature_factory.py:0: error: Argument "momentum_z_fast" to
+src/intelligence/feature_factory.py:0: error: Argument "momentum_z_mid" to
+src/intelligence/feature_factory.py:0: error: Argument "momentum_z_slow" to
+src/intelligence/feature_factory.py:0: error: Argument "obv_z" to
+src/intelligence/feature_factory.py:0: error: Argument "ofi_div" to
+src/intelligence/feature_factory.py:0: error: Argument "ofi_z" to
+src/intelligence/feature_factory.py:0: error: Argument "ofi_z_velocity" to
+src/intelligence/feature_factory.py:0: error: Argument "open_ret" to
+src/intelligence/feature_factory.py:0: error: Argument "open_vs_intraday" to
+src/intelligence/feature_factory.py:0: error: Argument "opex_flag" to
+src/intelligence/feature_factory.py:0: error: Argument "overnight_gap" to
+src/intelligence/feature_factory.py:0: error: Argument "overnight_gap_z" to
+src/intelligence/feature_factory.py:0: error: Argument "parkinson_vol_z" to
+src/intelligence/feature_factory.py:0: error: Argument "price_vol_corr_fast"
+src/intelligence/feature_factory.py:0: error: Argument "price_vol_corr_slow"
+src/intelligence/feature_factory.py:0: error: Argument "quad_witching_flag"
+src/intelligence/feature_factory.py:0: error: Argument "quarter_cycle_cos"
+src/intelligence/feature_factory.py:0: error: Argument "quarter_cycle_sin"
+src/intelligence/feature_factory.py:0: error: Argument "quarter_position" to
+src/intelligence/feature_factory.py:0: error: Argument "range_efficiency" to
+src/intelligence/feature_factory.py:0: error: Argument "range_pct_fast" to
+src/intelligence/feature_factory.py:0: error: Argument "range_pct_slow" to
+src/intelligence/feature_factory.py:0: error: Argument "range_position" to
+src/intelligence/feature_factory.py:0: error: Argument "range_to_close" to
+src/intelligence/feature_factory.py:0: error: Argument "range_vol_product"
+src/intelligence/feature_factory.py:0: error: Argument "range_vs_atr" to
+src/intelligence/feature_factory.py:0: error: Argument "rel_volume" to
+src/intelligence/feature_factory.py:0: error: Argument "ret_acf1_z" to
+src/intelligence/feature_factory.py:0: error: Argument "ret_autocorr_1" to
+src/intelligence/feature_factory.py:0: error: Argument "ret_autocorr_5" to
+src/intelligence/feature_factory.py:0: error: Argument "ret_kurtosis_z_fast"
+src/intelligence/feature_factory.py:0: error: Argument "ret_kurtosis_z_slow"
+src/intelligence/feature_factory.py:0: error: Argument "ret_lag_1" to
+src/intelligence/feature_factory.py:0: error: Argument "ret_lag_2" to
+src/intelligence/feature_factory.py:0: error: Argument "ret_lag_3" to
+src/intelligence/feature_factory.py:0: error: Argument "ret_lag_fast" to
+src/intelligence/feature_factory.py:0: error: Argument "ret_lag_mid" to
+src/intelligence/feature_factory.py:0: error: Argument "ret_lag_slow" to
+src/intelligence/feature_factory.py:0: error: Argument "ret_skew_z" to
+src/intelligence/feature_factory.py:0: error: Argument "ret_vol_ratio_fast"
+src/intelligence/feature_factory.py:0: error: Argument "rsi_fast" to
+src/intelligence/feature_factory.py:0: error: Argument "rsi_mid" to
+src/intelligence/feature_factory.py:0: error: Argument "rsi_slow" to
+src/intelligence/feature_factory.py:0: error: Argument "rsi_velocity_fast"
+src/intelligence/feature_factory.py:0: error: Argument "rsi_velocity_mid" to
+src/intelligence/feature_factory.py:0: error: Argument "rsi_velocity_slow"
+src/intelligence/feature_factory.py:0: error: Argument "sb_corr_fast" to
+src/intelligence/feature_factory.py:0: error: Argument "sb_corr_slow" to
+src/intelligence/feature_factory.py:0: error: Argument "sb_corr_z" to
+src/intelligence/feature_factory.py:0: error: Argument "shannon" to
+src/intelligence/feature_factory.py:0: error: Argument "stoch_k_fast" to
+src/intelligence/feature_factory.py:0: error: Argument "stoch_k_slow" to
+src/intelligence/feature_factory.py:0: error: Argument "streak_z" to
+src/intelligence/feature_factory.py:0: error: Argument "tdom_cos" to
+src/intelligence/feature_factory.py:0: error: Argument "tdom_sin" to
+src/intelligence/feature_factory.py:0: error: Argument "tip_tlt_ret_z" to
+src/intelligence/feature_factory.py:0: error: Argument "true_range_pct" to
+src/intelligence/feature_factory.py:0: error: Argument "up_vol_body_diff" to
+src/intelligence/feature_factory.py:0: error: Argument "up_vol_ratio_fast"
+src/intelligence/feature_factory.py:0: error: Argument "up_vol_ratio_slow"
+src/intelligence/feature_factory.py:0: error: Argument "updown_ratio_fast"
+src/intelligence/feature_factory.py:0: error: Argument "updown_ratio_slow"
+src/intelligence/feature_factory.py:0: error: Argument "upper_wick_ratio" to
+src/intelligence/feature_factory.py:0: error: Argument "variance_ratio_fast"
+src/intelligence/feature_factory.py:0: error: Argument "variance_ratio_slow"
+src/intelligence/feature_factory.py:0: error: Argument "vix_z" to
+src/intelligence/feature_factory.py:0: error: Argument "vol_acceleration" to
+src/intelligence/feature_factory.py:0: error: Argument "vol_asymmetry_z" to
+src/intelligence/feature_factory.py:0: error: Argument "vol_body_product" to
+src/intelligence/feature_factory.py:0: error: Argument "vol_of_vol" to
+src/intelligence/feature_factory.py:0: error: Argument "vol_percentile" to
+src/intelligence/feature_factory.py:0: error: Argument "vol_persistence" to
+src/intelligence/feature_factory.py:0: error: Argument "vol_range_ratio" to
+src/intelligence/feature_factory.py:0: error: Argument "vol_ratio" to
+src/intelligence/feature_factory.py:0: error: Argument "vol_skew_product" to
+src/intelligence/feature_factory.py:0: error: Argument "vol_std_z" to
+src/intelligence/feature_factory.py:0: error: Argument "vol_trend_ratio" to
+src/intelligence/feature_factory.py:0: error: Argument "vol_velocity_z" to
+src/intelligence/feature_factory.py:0: error: Argument "volume_z" to
+src/intelligence/feature_factory.py:0: error: Argument "volume_z_velocity"
+src/intelligence/feature_factory.py:0: error: Argument "vwap_dev_sigma" to
+src/intelligence/feature_factory.py:0: error: Argument "yang_zhang_vol_z" to
+src/intelligence/feature_factory.py:0: error: Argument "yield_slope_z" to
+src/intelligence/feature_factory.py:0: error: Argument 2 to
+src/intelligence/feature_factory.py:0: error: Argument 2 to
+src/intelligence/feature_factory.py:0: error: Returning Any from function
+src/intelligence/feature_factory.py:0: error: Unsupported operand types for
+src/intelligence/feature_factory.py:0: error: Unsupported operand types for
+src/intelligence/feature_factory.py:0: error: Unsupported operand types for
+src/intelligence/feature_factory.py:0: error: Value expression in dictionary
+src/intelligence/feature_factory.py:0: note: "dict" is invariant -- see https://mypy.readthedocs.io/en/stable/common_issues.html#variance
+src/intelligence/feature_factory.py:0: note: "dict" is invariant -- see https://mypy.readthedocs.io/en/stable/common_issues.html#variance
+src/intelligence/feature_factory.py:0: note: Consider using "Mapping" instead, which is covariant in the value type
+src/intelligence/feature_factory.py:0: note: Consider using "Mapping" instead, which is covariant in the value type
+src/intelligence/feature_factory.py:0: note: Right operand is of type "float | None"
+src/intelligence/feature_factory.py:0: note: Right operand is of type "float | None"
+src/intelligence/feature_factory.py:0: note: Right operand is of type "float | None"
+src/intelligence/features/i1_indicators/adx.py:0: error: Argument 1 to "max"
+src/intelligence/features/i1_indicators/adx.py:0: error: Argument 1 to "max"
+src/intelligence/features/i1_indicators/adx.py:0: error: Incompatible types in
+src/intelligence/features/i1_indicators/adx.py:0: error: Item "None" of
+src/intelligence/features/i1_indicators/adx.py:0: error: Item "None" of
+src/intelligence/features/i1_indicators/adx.py:0: error: Item "None" of
+src/intelligence/features/i1_indicators/aroon.py:0: error: Incompatible types
+src/intelligence/features/i1_indicators/atr.py:0: error: Argument 1 to "min"
+src/intelligence/features/i1_indicators/atr.py:0: error: Argument 1 to "min"
+src/intelligence/features/i1_indicators/atr.py:0: error: Incompatible types in
+src/intelligence/features/i1_indicators/atr.py:0: error: Item "None" of
+src/intelligence/features/i1_indicators/atr.py:0: error: Item "None" of
+src/intelligence/features/i1_indicators/atr.py:0: error: Item "None" of
+src/intelligence/features/i1_indicators/bollinger.py:0: error: Incompatible
+src/intelligence/features/i1_indicators/bollinger.py:0: error: Item "None" of
+src/intelligence/features/i1_indicators/bollinger.py:0: error: Item "None" of
+src/intelligence/features/i1_indicators/bollinger.py:0: error: Item "None" of
+src/intelligence/features/i1_indicators/cci.py:0: error: Incompatible types in
+src/intelligence/features/i1_indicators/chandelier.py:0: error: Incompatible
+src/intelligence/features/i1_indicators/cmf.py:0: error: Incompatible types in
+src/intelligence/features/i1_indicators/donchian.py:0: error: Incompatible
+src/intelligence/features/i1_indicators/keltner.py:0: error: Incompatible
+src/intelligence/features/i1_indicators/macd.py:0: error: Incompatible types
+src/intelligence/features/i1_indicators/macd.py:0: error: Item "None" of
+src/intelligence/features/i1_indicators/macd.py:0: error: Item "None" of
+src/intelligence/features/i1_indicators/macd.py:0: error: Item "None" of
+src/intelligence/features/i1_indicators/mfi.py:0: error: Item "None" of
+src/intelligence/features/i1_indicators/mfi.py:0: error: Item "None" of
+src/intelligence/features/i1_indicators/mfi.py:0: error: Item "None" of
+src/intelligence/features/i1_indicators/obv.py:0: error: Incompatible types in
+src/intelligence/features/i1_indicators/roc_ppo.py:0: error: Incompatible
+src/intelligence/features/i1_indicators/rsi.py:0: error: Argument 1 to "min"
+src/intelligence/features/i1_indicators/rsi.py:0: error: Incompatible types in
+src/intelligence/features/i1_indicators/rsi.py:0: error: Item "None" of
+src/intelligence/features/i1_indicators/rsi.py:0: error: Item "None" of
+src/intelligence/features/i1_indicators/rsi.py:0: error: Item "None" of
+src/intelligence/features/i1_indicators/stochastic.py:0: error: Item "None"
+src/intelligence/features/i1_indicators/stochastic.py:0: error: Item "None"
+src/intelligence/features/i1_indicators/stochastic.py:0: error: Item "None" of
+src/intelligence/features/i1_indicators/supertrend.py:0: error: Incompatible
+src/intelligence/features/i1_indicators/vwap.py:0: error: Incompatible types
+src/intelligence/features/i1_indicators/williams_r.py:0: error: Item "None"
+src/intelligence/features/i1_indicators/williams_r.py:0: error: Item "None" of
+src/intelligence/features/i1_indicators/williams_r.py:0: error: Item "None" of
+src/intelligence/features/i3_structure/macd_events.py:0: error: Argument 1 to
+src/intelligence/features/i3_structure/macd_events.py:0: error: Argument 3 to
+src/intelligence/features/i3_structure/macd_events.py:0: error: Unsupported
+src/intelligence/features/i3_structure/macd_events.py:0: error: Unsupported
+src/intelligence/features/i3_structure/macd_events.py:0: error: Unsupported
+src/intelligence/features/i3_structure/macd_events.py:0: error: Unsupported
+src/intelligence/features/i3_structure/macd_events.py:0: error: Unsupported
+src/intelligence/features/i3_structure/macd_events.py:0: error: Unsupported
+src/intelligence/features/i3_structure/macd_events.py:0: error: Unsupported
+src/intelligence/features/i3_structure/macd_events.py:0: note: Both left and right operands are unions
+src/intelligence/features/i3_structure/macd_events.py:0: note: Both left and right operands are unions
+src/intelligence/features/i3_structure/macd_events.py:0: note: Both left and right operands are unions
+src/intelligence/features/i3_structure/macd_events.py:0: note: Left operand is of type "Any | None"
+src/intelligence/features/i3_structure/macd_events.py:0: note: Left operand is of type "Any | None"
+src/intelligence/features/i3_structure/macd_events.py:0: note: Left operand is of type "Any | None"
+src/intelligence/features/smc_context/bocpd_changepoint.py:0: error: Returning
+src/intelligence/features/smc_context/bos_choch.py:0: error: Incompatible
+src/intelligence/features/smc_context/bos_choch.py:0: error: Unsupported
+src/intelligence/features/smc_context/bos_choch.py:0: error: Unsupported
+src/intelligence/features/smc_context/bos_choch.py:0: note: Right operand is of type "float | None"
+src/intelligence/features/smc_context/bos_choch.py:0: note: Right operand is of type "float | None"
+src/intelligence/features/smc_context/breaker_blocks.py:0: error: Argument 1
+src/intelligence/features/smc_context/breaker_blocks.py:0: error: Argument 1
+src/intelligence/features/smc_context/breaker_blocks.py:0: error: Argument 1
+src/intelligence/features/smc_context/fair_value_gap.py:0: error: Incompatible
+src/intelligence/features/smc_context/fair_value_gap.py:0: error: Incompatible
+src/intelligence/features/smc_context/fair_value_gap.py:0: error: Incompatible
+src/intelligence/features/smc_context/hmm_regime.py:0: error: Returning Any
+src/intelligence/features/smc_context/hmm_regime.py:0: error: Returning Any
+src/intelligence/features/smc_context/hmm_regime.py:0: error: Returning Any
+src/intelligence/features/smc_context/hmm_regime.py:0: error: Returning Any
+src/intelligence/features/smc_context/mitigation_blocks.py:0: error: Argument
+src/intelligence/features/smc_context/mitigation_blocks.py:0: error: Argument
+src/intelligence/features/smc_context/order_blocks.py:0: error: Incompatible
+src/intelligence/features/smc_context/premium_discount.py:0: error: Argument 1
+src/intelligence/features/smc_context/premium_discount.py:0: error: Argument 1
+src/intelligence/pipeline/executor.py:0: error: "BaseException" object is not
+src/intelligence/pipeline/executor.py:0: error: Argument 1 to
+src/intelligence/pipeline/executor.py:0: error: Argument 1 to
+src/intelligence/pipeline/executor.py:0: error: Argument 1 to
+src/intelligence/pipeline/executor.py:0: error: Incompatible types in
+src/intelligence/pipeline/executor.py:0: error: Incompatible types in
+src/intelligence/pipeline/executor.py:0: error: Incompatible types in
+src/intelligence/pipeline/executor.py:0: error: Incompatible types in
+src/intelligence/pipeline/executor.py:0: error: Returning Any from function
+src/intelligence/pipeline/feature_pipeline_executor.py:0: error: Item "None"
+src/intelligence/pipeline/output_queue.py:0: error: List item 0 has
+src/intelligence/pipeline/regime_gate.py:0: error: Unsupported operand types
+src/intelligence/pipeline/regime_gate.py:0: note: Left operand is of type "Any | None"
+src/intelligence/plugin_validator.py:0: error: Need type annotation for
+src/intelligence/register_plugins.py:0: error: "object" has no attribute
+src/intelligence/register_plugins.py:0: error: "type" has no attribute
+src/intelligence/register_plugins.py:0: error: Argument 1 to
+src/intelligence/register_plugins.py:0: error: Argument 1 to
+src/intelligence/register_plugins.py:0: error: Argument 1 to
+src/intelligence/register_plugins.py:0: error: Argument 1 to
+src/intelligence/register_plugins.py:0: error: Argument 1 to
+src/intelligence/register_plugins.py:0: error: Argument 1 to
+src/intelligence/register_plugins.py:0: error: Argument 1 to
+src/intelligence/register_plugins.py:0: error: Argument 1 to
+src/intelligence/register_plugins.py:0: error: Argument 1 to
+src/intelligence/register_plugins.py:0: error: Argument 1 to
+src/intelligence/register_plugins.py:0: error: Argument 1 to
+src/intelligence/register_plugins.py:0: error: Argument 1 to
+src/intelligence/register_plugins.py:0: error: Argument 1 to
+src/intelligence/register_plugins.py:0: error: Argument 1 to
+src/intelligence/register_plugins.py:0: error: Argument 1 to
+src/intelligence/register_plugins.py:0: error: Argument 1 to
+src/intelligence/register_plugins.py:0: error: Argument 1 to
+src/intelligence/register_plugins.py:0: error: Argument 1 to
+src/intelligence/register_plugins.py:0: error: Argument 1 to
+src/intelligence/register_plugins.py:0: error: Argument 1 to
+src/intelligence/register_plugins.py:0: error: Argument 1 to
+src/intelligence/register_plugins.py:0: error: Argument 1 to
+src/intelligence/register_plugins.py:0: error: Argument 1 to
+src/intelligence/register_plugins.py:0: error: Argument 1 to
+src/intelligence/register_plugins.py:0: error: Argument 1 to
+src/intelligence/register_plugins.py:0: error: Argument 1 to
+src/intelligence/register_plugins.py:0: error: Argument 1 to
+src/intelligence/register_plugins.py:0: error: Argument 1 to
+src/intelligence/register_plugins.py:0: error: Argument 1 to
+src/intelligence/register_plugins.py:0: error: Argument 1 to
+src/intelligence/register_plugins.py:0: error: Argument 1 to
+src/intelligence/register_plugins.py:0: error: Argument 1 to
+src/intelligence/register_plugins.py:0: error: Argument 1 to
+src/intelligence/register_plugins.py:0: error: Argument 1 to
+src/intelligence/register_plugins.py:0: error: Argument 1 to
+src/intelligence/register_plugins.py:0: error: Argument 1 to
+src/intelligence/register_plugins.py:0: error: Argument 1 to
+src/intelligence/register_plugins.py:0: error: Argument 1 to
+src/intelligence/register_plugins.py:0: error: Argument 1 to
+src/intelligence/register_plugins.py:0: error: Argument 1 to
+src/intelligence/register_plugins.py:0: error: Argument 1 to
+src/intelligence/register_plugins.py:0: error: Argument 1 to
+src/intelligence/register_plugins.py:0: error: Argument 1 to
+src/intelligence/register_plugins.py:0: error: Argument 1 to
+src/intelligence/register_plugins.py:0: error: Argument 1 to
+src/intelligence/register_plugins.py:0: error: Argument 1 to
+src/intelligence/register_plugins.py:0: error: Argument 1 to
+src/intelligence/register_plugins.py:0: error: Argument 1 to
+src/intelligence/register_plugins.py:0: error: Argument 1 to
+src/intelligence/register_plugins.py:0: error: Argument 1 to
+src/intelligence/register_plugins.py:0: error: Argument 1 to
+src/intelligence/register_plugins.py:0: error: Argument 1 to
+src/intelligence/register_plugins.py:0: error: Argument 1 to
+src/intelligence/register_plugins.py:0: error: Argument 1 to
+src/intelligence/register_plugins.py:0: error: Argument 1 to
+src/intelligence/register_plugins.py:0: error: Argument 1 to
+src/intelligence/register_plugins.py:0: error: Argument 1 to
+src/intelligence/register_plugins.py:0: error: Argument 1 to
+src/intelligence/register_plugins.py:0: error: Argument 1 to
+src/intelligence/register_plugins.py:0: error: Argument 1 to
+src/intelligence/register_plugins.py:0: error: Argument 1 to
+src/intelligence/register_plugins.py:0: error: Argument 1 to
+src/intelligence/register_plugins.py:0: error: Argument 1 to
+src/intelligence/register_plugins.py:0: error: Argument 1 to
+src/intelligence/register_plugins.py:0: error: Argument 1 to
+src/intelligence/register_plugins.py:0: error: Argument 1 to
+src/intelligence/register_plugins.py:0: error: Argument 1 to
+src/intelligence/register_plugins.py:0: error: Argument 1 to
+src/intelligence/register_plugins.py:0: error: Argument 1 to
+src/intelligence/register_plugins.py:0: error: Argument 1 to
+src/intelligence/register_plugins.py:0: error: Argument 1 to
+src/intelligence/register_plugins.py:0: error: Argument 1 to
+src/intelligence/register_plugins.py:0: error: Argument 1 to
+src/intelligence/register_plugins.py:0: error: Argument 1 to
+src/intelligence/register_plugins.py:0: error: Argument 1 to
+src/intelligence/register_plugins.py:0: error: Argument 1 to
+src/intelligence/register_plugins.py:0: error: Argument 1 to
+src/intelligence/register_plugins.py:0: error: Argument 1 to
+src/intelligence/register_plugins.py:0: error: Argument 1 to
+src/intelligence/register_plugins.py:0: error: Argument 1 to
+src/intelligence/register_plugins.py:0: error: Argument 1 to
+src/intelligence/register_plugins.py:0: error: Argument 1 to
+src/intelligence/register_plugins.py:0: error: Argument 1 to
+src/intelligence/register_plugins.py:0: error: Argument 1 to
+src/intelligence/register_plugins.py:0: error: Argument 1 to
+src/intelligence/register_plugins.py:0: error: Argument 1 to
+src/intelligence/register_plugins.py:0: error: Argument 1 to
+src/intelligence/register_plugins.py:0: error: Argument 1 to
+src/intelligence/register_plugins.py:0: error: Argument 1 to
+src/intelligence/register_plugins.py:0: error: Argument 1 to
+src/intelligence/register_plugins.py:0: error: Argument 1 to
+src/intelligence/register_plugins.py:0: error: Argument 1 to
+src/intelligence/register_plugins.py:0: error: Argument 1 to
+src/intelligence/register_plugins.py:0: error: Argument 1 to
+src/intelligence/register_plugins.py:0: error: Argument 1 to
+src/intelligence/register_plugins.py:0: error: Argument 1 to
+src/intelligence/register_plugins.py:0: error: Argument 1 to
+src/intelligence/register_plugins.py:0: error: Argument 1 to
+src/intelligence/register_plugins.py:0: error: Argument 1 to
+src/intelligence/register_plugins.py:0: error: Argument 1 to
+src/intelligence/register_plugins.py:0: error: Argument 1 to
+src/intelligence/register_plugins.py:0: error: Argument 1 to
+src/intelligence/register_plugins.py:0: error: Argument 1 to
+src/intelligence/register_plugins.py:0: error: Argument 1 to
+src/intelligence/register_plugins.py:0: error: Argument 1 to
+src/intelligence/register_plugins.py:0: error: Argument 1 to
+src/intelligence/register_plugins.py:0: error: Argument 1 to
+src/intelligence/register_plugins.py:0: error: Argument 1 to
+src/intelligence/register_plugins.py:0: error: Argument 1 to
+src/intelligence/register_plugins.py:0: error: Argument 1 to
+src/intelligence/register_plugins.py:0: error: Argument 1 to
+src/intelligence/register_plugins.py:0: error: Argument 1 to
+src/intelligence/register_plugins.py:0: error: Argument 1 to
+src/intelligence/register_plugins.py:0: error: Argument 1 to
+src/intelligence/register_plugins.py:0: error: Argument 1 to
+src/intelligence/register_plugins.py:0: error: Argument 1 to
+src/intelligence/register_plugins.py:0: error: Argument 1 to
+src/intelligence/register_plugins.py:0: error: Argument 1 to
+src/intelligence/register_plugins.py:0: error: Argument 1 to
+src/intelligence/register_plugins.py:0: error: Argument 1 to
+src/intelligence/register_plugins.py:0: error: Argument 1 to
+src/intelligence/register_plugins.py:0: error: Argument 1 to
+src/intelligence/register_plugins.py:0: error: Argument 1 to
+src/intelligence/register_plugins.py:0: error: Argument 1 to
+src/intelligence/register_plugins.py:0: error: Argument 1 to
+src/intelligence/register_plugins.py:0: error: Argument 1 to
+src/intelligence/register_plugins.py:0: error: Argument 1 to
+src/intelligence/register_plugins.py:0: error: Argument 1 to
+src/intelligence/register_plugins.py:0: error: Argument 1 to
+src/intelligence/register_plugins.py:0: error: Argument 1 to
+src/intelligence/register_plugins.py:0: error: Argument 1 to
+src/intelligence/register_plugins.py:0: note: "ACOscillatorPlugin" is missing following "IndicatorPlugin" protocol member:
+src/intelligence/register_plugins.py:0: note: "ADXPlugin" is missing following "IndicatorPlugin" protocol member:
+src/intelligence/register_plugins.py:0: note: "ATRPlugin" is missing following "IndicatorPlugin" protocol member:
+src/intelligence/register_plugins.py:0: note: "AroonPlugin" is missing following "IndicatorPlugin" protocol member:
+src/intelligence/register_plugins.py:0: note: "BOCPDChangePointPlugin" is missing following "PatternPlugin" protocol members:
+src/intelligence/register_plugins.py:0: note: "BollingerPlugin" is missing following "IndicatorPlugin" protocol member:
+src/intelligence/register_plugins.py:0: note: "BollingerSqueezePlugin" is missing following "PatternPlugin" protocol members:
+src/intelligence/register_plugins.py:0: note: "CCIPlugin" is missing following "IndicatorPlugin" protocol member:
+src/intelligence/register_plugins.py:0: note: "CMFPlugin" is missing following "IndicatorPlugin" protocol member:
+src/intelligence/register_plugins.py:0: note: "CVDPlugin" is missing following "IndicatorPlugin" protocol member:
+src/intelligence/register_plugins.py:0: note: "ChandelierPlugin" is missing following "IndicatorPlugin" protocol member:
+src/intelligence/register_plugins.py:0: note: "DonchianChannelsPlugin" is missing following "IndicatorPlugin" protocol member:
+src/intelligence/register_plugins.py:0: note: "GARCHVolatilityPlugin" is missing following "PatternPlugin" protocol members:
+src/intelligence/register_plugins.py:0: note: "HMAPlugin" is missing following "IndicatorPlugin" protocol member:
+src/intelligence/register_plugins.py:0: note: "HMMRegimePlugin" is missing following "PatternPlugin" protocol members:
+src/intelligence/register_plugins.py:0: note: "HMMRegimePlugin" is missing following "PatternPlugin" protocol members:
+src/intelligence/register_plugins.py:0: note: "HMMRegimePlugin" is missing following "PatternPlugin" protocol members:
+src/intelligence/register_plugins.py:0: note: "HMMRegimePlugin" is missing following "PatternPlugin" protocol members:
+src/intelligence/register_plugins.py:0: note: "HistoricalVolatilityPlugin" is missing following "IndicatorPlugin" protocol member:
+src/intelligence/register_plugins.py:0: note: "KalmanTrendPlugin" is missing following "PatternPlugin" protocol members:
+src/intelligence/register_plugins.py:0: note: "KeltnerChannelsPlugin" is missing following "IndicatorPlugin" protocol member:
+src/intelligence/register_plugins.py:0: note: "MACDPlugin" is missing following "IndicatorPlugin" protocol member:
+src/intelligence/register_plugins.py:0: note: "MACompositePlugin" is missing following "IndicatorPlugin" protocol member:
+src/intelligence/register_plugins.py:0: note: "MFIPlugin" is missing following "IndicatorPlugin" protocol member:
+src/intelligence/register_plugins.py:0: note: "MarketProfilePlugin" is missing following "PatternPlugin" protocol members:
+src/intelligence/register_plugins.py:0: note: "MovingAveragesPlugin" is missing following "IndicatorPlugin" protocol member:
+src/intelligence/register_plugins.py:0: note: "OBVPlugin" is missing following "IndicatorPlugin" protocol member:
+src/intelligence/register_plugins.py:0: note: "OFIPlugin" is missing following "IndicatorPlugin" protocol member:
+src/intelligence/register_plugins.py:0: note: "PSARPlugin" is missing following "IndicatorPlugin" protocol member:
+src/intelligence/register_plugins.py:0: note: "ROCPPOPlugin" is missing following "IndicatorPlugin" protocol member:
+src/intelligence/register_plugins.py:0: note: "RSIPlugin" is missing following "IndicatorPlugin" protocol member:
+src/intelligence/register_plugins.py:0: note: "SessionLevelsPlugin" is missing following "PatternPlugin" protocol members:
+src/intelligence/register_plugins.py:0: note: "StochRSIPlugin" is missing following "IndicatorPlugin" protocol member:
+src/intelligence/register_plugins.py:0: note: "StochasticPlugin" is missing following "IndicatorPlugin" protocol member:
+src/intelligence/register_plugins.py:0: note: "SupertrendPlugin" is missing following "IndicatorPlugin" protocol member:
+src/intelligence/register_plugins.py:0: note: "VWAPPlugin" is missing following "IndicatorPlugin" protocol member:
+src/intelligence/register_plugins.py:0: note: "VolumeZscorePlugin" is missing following "IndicatorPlugin" protocol member:
+src/intelligence/register_plugins.py:0: note: "WilliamsRPlugin" is missing following "IndicatorPlugin" protocol member:
+src/intelligence/register_plugins.py:0: note: <1 more conflict(s) not shown>
+src/intelligence/register_plugins.py:0: note: <1 more conflict(s) not shown>
+src/intelligence/register_plugins.py:0: note: <1 more conflict(s) not shown>
+src/intelligence/register_plugins.py:0: note: <1 more conflict(s) not shown>
+src/intelligence/register_plugins.py:0: note: <1 more conflict(s) not shown>
+src/intelligence/register_plugins.py:0: note: <1 more conflict(s) not shown>
+src/intelligence/register_plugins.py:0: note: <1 more conflict(s) not shown>
+src/intelligence/register_plugins.py:0: note: <1 more conflict(s) not shown>
+src/intelligence/register_plugins.py:0: note: <1 more conflict(s) not shown>
+src/intelligence/register_plugins.py:0: note: <1 more conflict(s) not shown>
+src/intelligence/register_plugins.py:0: note: <1 more conflict(s) not shown>
+src/intelligence/register_plugins.py:0: note: <1 more conflict(s) not shown>
+src/intelligence/register_plugins.py:0: note: <1 more conflict(s) not shown>
+src/intelligence/register_plugins.py:0: note: <2 more conflict(s) not shown>
+src/intelligence/register_plugins.py:0: note: <2 more conflict(s) not shown>
+src/intelligence/register_plugins.py:0: note: <2 more conflict(s) not shown>
+src/intelligence/register_plugins.py:0: note: <4 more conflict(s) not shown>
+src/intelligence/register_plugins.py:0: note: <4 more conflict(s) not shown>
+src/intelligence/register_plugins.py:0: note: <4 more conflict(s) not shown>
+src/intelligence/register_plugins.py:0: note: <4 more conflict(s) not shown>
+src/intelligence/register_plugins.py:0: note: <4 more conflict(s) not shown>
+src/intelligence/register_plugins.py:0: note: <4 more conflict(s) not shown>
+src/intelligence/register_plugins.py:0: note: <4 more conflict(s) not shown>
+src/intelligence/register_plugins.py:0: note: <4 more conflict(s) not shown>
+src/intelligence/register_plugins.py:0: note: <4 more conflict(s) not shown>
+src/intelligence/register_plugins.py:0: note: <4 more conflict(s) not shown>
+src/intelligence/register_plugins.py:0: note: <4 more conflict(s) not shown>
+src/intelligence/register_plugins.py:0: note: <4 more conflict(s) not shown>
+src/intelligence/register_plugins.py:0: note: <4 more conflict(s) not shown>
+src/intelligence/register_plugins.py:0: note: <4 more conflict(s) not shown>
+src/intelligence/register_plugins.py:0: note: <4 more conflict(s) not shown>
+src/intelligence/register_plugins.py:0: note: <4 more conflict(s) not shown>
+src/intelligence/register_plugins.py:0: note: <4 more conflict(s) not shown>
+src/intelligence/register_plugins.py:0: note: <4 more conflict(s) not shown>
+src/intelligence/register_plugins.py:0: note: <4 more conflict(s) not shown>
+src/intelligence/register_plugins.py:0: note: <4 more conflict(s) not shown>
+src/intelligence/register_plugins.py:0: note: <4 more conflict(s) not shown>
+src/intelligence/register_plugins.py:0: note: <4 more conflict(s) not shown>
+src/intelligence/register_plugins.py:0: note: <4 more conflict(s) not shown>
+src/intelligence/register_plugins.py:0: note: <4 more conflict(s) not shown>
+src/intelligence/register_plugins.py:0: note: <4 more conflict(s) not shown>
+src/intelligence/register_plugins.py:0: note: <4 more conflict(s) not shown>
+src/intelligence/register_plugins.py:0: note: <4 more conflict(s) not shown>
+src/intelligence/register_plugins.py:0: note: <4 more conflict(s) not shown>
+src/intelligence/register_plugins.py:0: note: <6 more conflict(s) not shown>
+src/intelligence/register_plugins.py:0: note: <6 more conflict(s) not shown>
+src/intelligence/register_plugins.py:0: note: <6 more conflict(s) not shown>
+src/intelligence/register_plugins.py:0: note: <6 more conflict(s) not shown>
+src/intelligence/register_plugins.py:0: note: <6 more conflict(s) not shown>
+src/intelligence/register_plugins.py:0: note: <6 more conflict(s) not shown>
+src/intelligence/register_plugins.py:0: note: <6 more conflict(s) not shown>
+src/intelligence/register_plugins.py:0: note: <6 more conflict(s) not shown>
+src/intelligence/register_plugins.py:0: note: <6 more conflict(s) not shown>
+src/intelligence/register_plugins.py:0: note: <6 more conflict(s) not shown>
+src/intelligence/register_plugins.py:0: note: Error code "attr-defined" not covered by "type: ignore[union-attr]" comment
+src/intelligence/register_plugins.py:0: note: Expected:
+src/intelligence/register_plugins.py:0: note: Expected:
+src/intelligence/register_plugins.py:0: note: Expected:
+src/intelligence/register_plugins.py:0: note: Expected:
+src/intelligence/register_plugins.py:0: note: Following member(s) of "ACOscillatorPlugin" have conflicts:
+src/intelligence/register_plugins.py:0: note: Following member(s) of "ADXPlugin" have conflicts:
+src/intelligence/register_plugins.py:0: note: Following member(s) of "ATRPlugin" have conflicts:
+src/intelligence/register_plugins.py:0: note: Following member(s) of "AroonPlugin" have conflicts:
+src/intelligence/register_plugins.py:0: note: Following member(s) of "BOCPDChangePointPlugin" have conflicts:
+src/intelligence/register_plugins.py:0: note: Following member(s) of "BollingerPlugin" have conflicts:
+src/intelligence/register_plugins.py:0: note: Following member(s) of "BollingerSqueezePlugin" have conflicts:
+src/intelligence/register_plugins.py:0: note: Following member(s) of "CCIPlugin" have conflicts:
+src/intelligence/register_plugins.py:0: note: Following member(s) of "CMFPlugin" have conflicts:
+src/intelligence/register_plugins.py:0: note: Following member(s) of "CVDPlugin" have conflicts:
+src/intelligence/register_plugins.py:0: note: Following member(s) of "ChandelierPlugin" have conflicts:
+src/intelligence/register_plugins.py:0: note: Following member(s) of "DonchianChannelsPlugin" have conflicts:
+src/intelligence/register_plugins.py:0: note: Following member(s) of "GARCHVolatilityPlugin" have conflicts:
+src/intelligence/register_plugins.py:0: note: Following member(s) of "HMAPlugin" have conflicts:
+src/intelligence/register_plugins.py:0: note: Following member(s) of "HMMRegimePlugin" have conflicts:
+src/intelligence/register_plugins.py:0: note: Following member(s) of "HMMRegimePlugin" have conflicts:
+src/intelligence/register_plugins.py:0: note: Following member(s) of "HMMRegimePlugin" have conflicts:
+src/intelligence/register_plugins.py:0: note: Following member(s) of "HMMRegimePlugin" have conflicts:
+src/intelligence/register_plugins.py:0: note: Following member(s) of "HistoricalVolatilityPlugin" have conflicts:
+src/intelligence/register_plugins.py:0: note: Following member(s) of "KalmanTrendPlugin" have conflicts:
+src/intelligence/register_plugins.py:0: note: Following member(s) of "KeltnerChannelsPlugin" have conflicts:
+src/intelligence/register_plugins.py:0: note: Following member(s) of "MACDPlugin" have conflicts:
+src/intelligence/register_plugins.py:0: note: Following member(s) of "MACompositePlugin" have conflicts:
+src/intelligence/register_plugins.py:0: note: Following member(s) of "MFIPlugin" have conflicts:
+src/intelligence/register_plugins.py:0: note: Following member(s) of "MarketProfilePlugin" have conflicts:
+src/intelligence/register_plugins.py:0: note: Following member(s) of "MovingAveragesPlugin" have conflicts:
+src/intelligence/register_plugins.py:0: note: Following member(s) of "OBVPlugin" have conflicts:
+src/intelligence/register_plugins.py:0: note: Following member(s) of "OFIPlugin" have conflicts:
+src/intelligence/register_plugins.py:0: note: Following member(s) of "PSARPlugin" have conflicts:
+src/intelligence/register_plugins.py:0: note: Following member(s) of "ROCPPOPlugin" have conflicts:
+src/intelligence/register_plugins.py:0: note: Following member(s) of "RSIPlugin" have conflicts:
+src/intelligence/register_plugins.py:0: note: Following member(s) of "SessionLevelsPlugin" have conflicts:
+src/intelligence/register_plugins.py:0: note: Following member(s) of "StochRSIPlugin" have conflicts:
+src/intelligence/register_plugins.py:0: note: Following member(s) of "StochasticPlugin" have conflicts:
+src/intelligence/register_plugins.py:0: note: Following member(s) of "SupertrendPlugin" have conflicts:
+src/intelligence/register_plugins.py:0: note: Following member(s) of "VWAPPlugin" have conflicts:
+src/intelligence/register_plugins.py:0: note: Following member(s) of "VolumeZscorePlugin" have conflicts:
+src/intelligence/register_plugins.py:0: note: Following member(s) of "WilliamsRPlugin" have conflicts:
+src/intelligence/register_plugins.py:0: note: Got:
+src/intelligence/register_plugins.py:0: note: Got:
+src/intelligence/register_plugins.py:0: note: Got:
+src/intelligence/register_plugins.py:0: note: Got:
+src/intelligence/register_plugins.py:0: note: Protocol member IndicatorPlugin.capability_tags expected class variable, got instance variable
+src/intelligence/register_plugins.py:0: note: Protocol member IndicatorPlugin.capability_tags expected class variable, got instance variable
+src/intelligence/register_plugins.py:0: note: Protocol member IndicatorPlugin.capability_tags expected class variable, got instance variable
+src/intelligence/register_plugins.py:0: note: Protocol member IndicatorPlugin.capability_tags expected class variable, got instance variable
+src/intelligence/register_plugins.py:0: note: Protocol member IndicatorPlugin.capability_tags expected class variable, got instance variable
+src/intelligence/register_plugins.py:0: note: Protocol member IndicatorPlugin.capability_tags expected class variable, got instance variable
+src/intelligence/register_plugins.py:0: note: Protocol member IndicatorPlugin.capability_tags expected class variable, got instance variable
+src/intelligence/register_plugins.py:0: note: Protocol member IndicatorPlugin.capability_tags expected class variable, got instance variable
+src/intelligence/register_plugins.py:0: note: Protocol member IndicatorPlugin.capability_tags expected class variable, got instance variable
+src/intelligence/register_plugins.py:0: note: Protocol member IndicatorPlugin.capability_tags expected class variable, got instance variable
+src/intelligence/register_plugins.py:0: note: Protocol member IndicatorPlugin.capability_tags expected class variable, got instance variable
+src/intelligence/register_plugins.py:0: note: Protocol member IndicatorPlugin.capability_tags expected class variable, got instance variable
+src/intelligence/register_plugins.py:0: note: Protocol member IndicatorPlugin.capability_tags expected class variable, got instance variable
+src/intelligence/register_plugins.py:0: note: Protocol member IndicatorPlugin.capability_tags expected class variable, got instance variable
+src/intelligence/register_plugins.py:0: note: Protocol member IndicatorPlugin.capability_tags expected class variable, got instance variable
+src/intelligence/register_plugins.py:0: note: Protocol member IndicatorPlugin.capability_tags expected class variable, got instance variable
+src/intelligence/register_plugins.py:0: note: Protocol member IndicatorPlugin.capability_tags expected class variable, got instance variable
+src/intelligence/register_plugins.py:0: note: Protocol member IndicatorPlugin.capability_tags expected class variable, got instance variable
+src/intelligence/register_plugins.py:0: note: Protocol member IndicatorPlugin.capability_tags expected class variable, got instance variable
+src/intelligence/register_plugins.py:0: note: Protocol member IndicatorPlugin.capability_tags expected class variable, got instance variable
+src/intelligence/register_plugins.py:0: note: Protocol member IndicatorPlugin.capability_tags expected class variable, got instance variable
+src/intelligence/register_plugins.py:0: note: Protocol member IndicatorPlugin.capability_tags expected class variable, got instance variable
+src/intelligence/register_plugins.py:0: note: Protocol member IndicatorPlugin.capability_tags expected class variable, got instance variable
+src/intelligence/register_plugins.py:0: note: Protocol member IndicatorPlugin.capability_tags expected class variable, got instance variable
+src/intelligence/register_plugins.py:0: note: Protocol member IndicatorPlugin.capability_tags expected class variable, got instance variable
+src/intelligence/register_plugins.py:0: note: Protocol member IndicatorPlugin.capability_tags expected class variable, got instance variable
+src/intelligence/register_plugins.py:0: note: Protocol member IndicatorPlugin.capability_tags expected class variable, got instance variable
+src/intelligence/register_plugins.py:0: note: Protocol member IndicatorPlugin.capability_tags expected class variable, got instance variable
+src/intelligence/register_plugins.py:0: note: Protocol member IndicatorPlugin.inputs expected class variable, got instance variable
+src/intelligence/register_plugins.py:0: note: Protocol member IndicatorPlugin.inputs expected class variable, got instance variable
+src/intelligence/register_plugins.py:0: note: Protocol member IndicatorPlugin.inputs expected class variable, got instance variable
+src/intelligence/register_plugins.py:0: note: Protocol member IndicatorPlugin.inputs expected class variable, got instance variable
+src/intelligence/register_plugins.py:0: note: Protocol member IndicatorPlugin.inputs expected class variable, got instance variable
+src/intelligence/register_plugins.py:0: note: Protocol member IndicatorPlugin.inputs expected class variable, got instance variable
+src/intelligence/register_plugins.py:0: note: Protocol member IndicatorPlugin.inputs expected class variable, got instance variable
+src/intelligence/register_plugins.py:0: note: Protocol member IndicatorPlugin.inputs expected class variable, got instance variable
+src/intelligence/register_plugins.py:0: note: Protocol member IndicatorPlugin.inputs expected class variable, got instance variable
+src/intelligence/register_plugins.py:0: note: Protocol member IndicatorPlugin.inputs expected class variable, got instance variable
+src/intelligence/register_plugins.py:0: note: Protocol member IndicatorPlugin.inputs expected class variable, got instance variable
+src/intelligence/register_plugins.py:0: note: Protocol member IndicatorPlugin.inputs expected class variable, got instance variable
+src/intelligence/register_plugins.py:0: note: Protocol member IndicatorPlugin.inputs expected class variable, got instance variable
+src/intelligence/register_plugins.py:0: note: Protocol member IndicatorPlugin.inputs expected class variable, got instance variable
+src/intelligence/register_plugins.py:0: note: Protocol member IndicatorPlugin.inputs expected class variable, got instance variable
+src/intelligence/register_plugins.py:0: note: Protocol member IndicatorPlugin.inputs expected class variable, got instance variable
+src/intelligence/register_plugins.py:0: note: Protocol member IndicatorPlugin.inputs expected class variable, got instance variable
+src/intelligence/register_plugins.py:0: note: Protocol member IndicatorPlugin.inputs expected class variable, got instance variable
+src/intelligence/register_plugins.py:0: note: Protocol member IndicatorPlugin.inputs expected class variable, got instance variable
+src/intelligence/register_plugins.py:0: note: Protocol member IndicatorPlugin.inputs expected class variable, got instance variable
+src/intelligence/register_plugins.py:0: note: Protocol member IndicatorPlugin.inputs expected class variable, got instance variable
+src/intelligence/register_plugins.py:0: note: Protocol member IndicatorPlugin.inputs expected class variable, got instance variable
+src/intelligence/register_plugins.py:0: note: Protocol member IndicatorPlugin.inputs expected class variable, got instance variable
+src/intelligence/register_plugins.py:0: note: Protocol member IndicatorPlugin.inputs expected class variable, got instance variable
+src/intelligence/register_plugins.py:0: note: Protocol member IndicatorPlugin.inputs expected class variable, got instance variable
+src/intelligence/register_plugins.py:0: note: Protocol member IndicatorPlugin.inputs expected class variable, got instance variable
+src/intelligence/register_plugins.py:0: note: Protocol member IndicatorPlugin.inputs expected class variable, got instance variable
+src/intelligence/register_plugins.py:0: note: Protocol member IndicatorPlugin.inputs expected class variable, got instance variable
+src/intelligence/register_plugins.py:0: note: Protocol member PatternPlugin._state_migration_complete expected class variable, got instance variable
+src/intelligence/register_plugins.py:0: note: Protocol member PatternPlugin._state_migration_complete expected class variable, got instance variable
+src/intelligence/register_plugins.py:0: note: Protocol member PatternPlugin._state_migration_complete expected class variable, got instance variable
+src/intelligence/register_plugins.py:0: note: Protocol member PatternPlugin._state_migration_complete expected class variable, got instance variable
+src/intelligence/register_plugins.py:0: note: Protocol member PatternPlugin._state_migration_complete expected class variable, got instance variable
+src/intelligence/register_plugins.py:0: note: Protocol member PatternPlugin._state_migration_complete expected class variable, got instance variable
+src/intelligence/register_plugins.py:0: note: Protocol member PatternPlugin._state_migration_complete expected class variable, got instance variable
+src/intelligence/register_plugins.py:0: note: Protocol member PatternPlugin._state_migration_complete expected class variable, got instance variable
+src/intelligence/register_plugins.py:0: note: Protocol member PatternPlugin._state_migration_complete expected class variable, got instance variable
+src/intelligence/register_plugins.py:0: note: Protocol member PatternPlugin._state_migration_complete expected class variable, got instance variable
+src/intelligence/register_plugins.py:0: note: Protocol member PatternPlugin.capability_tags expected class variable, got instance variable
+src/intelligence/register_plugins.py:0: note: Protocol member PatternPlugin.capability_tags expected class variable, got instance variable
+src/intelligence/register_plugins.py:0: note: Protocol member PatternPlugin.capability_tags expected class variable, got instance variable
+src/intelligence/register_plugins.py:0: note: Protocol member PatternPlugin.capability_tags expected class variable, got instance variable
+src/intelligence/register_plugins.py:0: note: Protocol member PatternPlugin.capability_tags expected class variable, got instance variable
+src/intelligence/register_plugins.py:0: note: Protocol member PatternPlugin.capability_tags expected class variable, got instance variable
+src/intelligence/register_plugins.py:0: note: Protocol member PatternPlugin.capability_tags expected class variable, got instance variable
+src/intelligence/register_plugins.py:0: note: Protocol member PatternPlugin.capability_tags expected class variable, got instance variable
+src/intelligence/register_plugins.py:0: note: Protocol member PatternPlugin.capability_tags expected class variable, got instance variable
+src/intelligence/register_plugins.py:0: note: Protocol member PatternPlugin.capability_tags expected class variable, got instance variable
+src/intelligence/register_plugins.py:0: note: capability_tags: expected "set[str]", got "frozenset[Any]"
+src/intelligence/register_plugins.py:0: note: capability_tags: expected "set[str]", got "frozenset[str]"
+src/intelligence/register_plugins.py:0: note: capability_tags: expected "set[str]", got "frozenset[str]"
+src/intelligence/register_plugins.py:0: note: capability_tags: expected "set[str]", got "frozenset[str]"
+src/intelligence/register_plugins.py:0: note: capability_tags: expected "set[str]", got "frozenset[str]"
+src/intelligence/register_plugins.py:0: note: capability_tags: expected "set[str]", got "frozenset[str]"
+src/intelligence/register_plugins.py:0: note: capability_tags: expected "set[str]", got "frozenset[str]"
+src/intelligence/register_plugins.py:0: note: capability_tags: expected "set[str]", got "frozenset[str]"
+src/intelligence/register_plugins.py:0: note: capability_tags: expected "set[str]", got "frozenset[str]"
+src/intelligence/register_plugins.py:0: note: capability_tags: expected "set[str]", got "frozenset[str]"
+src/intelligence/register_plugins.py:0: note: capability_tags: expected "set[str]", got "frozenset[str]"
+src/intelligence/register_plugins.py:0: note: capability_tags: expected "set[str]", got "frozenset[str]"
+src/intelligence/register_plugins.py:0: note: capability_tags: expected "set[str]", got "frozenset[str]"
+src/intelligence/register_plugins.py:0: note: capability_tags: expected "set[str]", got "frozenset[str]"
+src/intelligence/register_plugins.py:0: note: capability_tags: expected "set[str]", got "frozenset[str]"
+src/intelligence/register_plugins.py:0: note: capability_tags: expected "set[str]", got "frozenset[str]"
+src/intelligence/register_plugins.py:0: note: capability_tags: expected "set[str]", got "frozenset[str]"
+src/intelligence/register_plugins.py:0: note: capability_tags: expected "set[str]", got "frozenset[str]"
+src/intelligence/register_plugins.py:0: note: capability_tags: expected "set[str]", got "frozenset[str]"
+src/intelligence/register_plugins.py:0: note: capability_tags: expected "set[str]", got "frozenset[str]"
+src/intelligence/register_plugins.py:0: note: capability_tags: expected "set[str]", got "frozenset[str]"
+src/intelligence/register_plugins.py:0: note: capability_tags: expected "set[str]", got "frozenset[str]"
+src/intelligence/register_plugins.py:0: note: capability_tags: expected "set[str]", got "frozenset[str]"
+src/intelligence/register_plugins.py:0: note: capability_tags: expected "set[str]", got "frozenset[str]"
+src/intelligence/register_plugins.py:0: note: capability_tags: expected "set[str]", got "frozenset[str]"
+src/intelligence/register_plugins.py:0: note: capability_tags: expected "set[str]", got "frozenset[str]"
+src/intelligence/register_plugins.py:0: note: capability_tags: expected "set[str]", got "frozenset[str]"
+src/intelligence/register_plugins.py:0: note: capability_tags: expected "set[str]", got "frozenset[str]"
+src/intelligence/register_plugins.py:0: note: capability_tags: expected "set[str]", got "frozenset[str]"
+src/intelligence/register_plugins.py:0: note: capability_tags: expected "set[str]", got "frozenset[str]"
+src/intelligence/register_plugins.py:0: note: capability_tags: expected "set[str]", got "frozenset[str]"
+src/intelligence/register_plugins.py:0: note: capability_tags: expected "set[str]", got "frozenset[str]"
+src/intelligence/register_plugins.py:0: note: capability_tags: expected "set[str]", got "frozenset[str]"
+src/intelligence/register_plugins.py:0: note: capability_tags: expected "set[str]", got "frozenset[str]"
+src/intelligence/register_plugins.py:0: note: capability_tags: expected "set[str]", got "frozenset[str]"
+src/intelligence/register_plugins.py:0: note: capability_tags: expected "set[str]", got "frozenset[str]"
+src/intelligence/register_plugins.py:0: note: capability_tags: expected "set[str]", got "frozenset[str]"
+src/intelligence/register_plugins.py:0: note: capability_tags: expected "set[str]", got "frozenset[str]"
+src/intelligence/register_plugins.py:0: note: def compute_full(self, frames: dict[str, Any]) -> dict[str, Any]
+src/intelligence/register_plugins.py:0: note: def compute_full(self, frames: dict[str, Any]) -> dict[str, Any]
+src/intelligence/register_plugins.py:0: note: def compute_full(self, frames: dict[str, Any]) -> dict[str, Any]
+src/intelligence/register_plugins.py:0: note: def compute_full(self, frames: dict[str, Any]) -> dict[str, Any]
+src/intelligence/register_plugins.py:0: note: def compute_full(self, frames: dict[str, Any], *, state: dict[Any, Any] | None = ...) -> dict[str, Any]
+src/intelligence/register_plugins.py:0: note: def compute_full(self, frames: dict[str, Any], *, state: dict[Any, Any] | None = ...) -> dict[str, Any]
+src/intelligence/register_plugins.py:0: note: def compute_full(self, frames: dict[str, Any], *, state: dict[Any, Any] | None = ...) -> dict[str, Any]
+src/intelligence/register_plugins.py:0: note: def compute_full(self, frames: dict[str, Any], *, state: dict[Any, Any] | None = ...) -> dict[str, Any]
+src/intelligence/register_plugins.py:0: note: inputs: expected "list[InputSpec]", got "tuple[Any, ...]"
+src/intelligence/register_plugins.py:0: note: inputs: expected "list[InputSpec]", got "tuple[InputSpec, ...]"
+src/intelligence/register_plugins.py:0: note: inputs: expected "list[InputSpec]", got "tuple[InputSpec, ...]"
+src/intelligence/register_plugins.py:0: note: inputs: expected "list[InputSpec]", got "tuple[InputSpec, ...]"
+src/intelligence/register_plugins.py:0: note: inputs: expected "list[InputSpec]", got "tuple[InputSpec, ...]"
+src/intelligence/register_plugins.py:0: note: inputs: expected "list[InputSpec]", got "tuple[InputSpec, ...]"
+src/intelligence/register_plugins.py:0: note: inputs: expected "list[InputSpec]", got "tuple[InputSpec, ...]"
+src/intelligence/register_plugins.py:0: note: inputs: expected "list[InputSpec]", got "tuple[InputSpec, ...]"
+src/intelligence/register_plugins.py:0: note: inputs: expected "list[InputSpec]", got "tuple[InputSpec, ...]"
+src/intelligence/register_plugins.py:0: note: inputs: expected "list[InputSpec]", got "tuple[InputSpec, ...]"
+src/intelligence/register_plugins.py:0: note: inputs: expected "list[InputSpec]", got "tuple[InputSpec, ...]"
+src/intelligence/register_plugins.py:0: note: inputs: expected "list[InputSpec]", got "tuple[InputSpec, ...]"
+src/intelligence/register_plugins.py:0: note: outputs: expected "set[str]", got "frozenset[str]"
+src/intelligence/register_plugins.py:0: note: outputs: expected "set[str]", got "frozenset[str]"
+src/intelligence/register_plugins.py:0: note: outputs: expected "set[str]", got "frozenset[str]"
+src/intelligence/register_plugins.py:0: note: outputs: expected "set[str]", got "frozenset[str]"
+src/intelligence/register_plugins.py:0: note: outputs: expected "set[str]", got "frozenset[str]"
+src/intelligence/register_plugins.py:0: note: outputs: expected "set[str]", got "frozenset[str]"
+src/intelligence/register_plugins.py:0: note: outputs: expected "set[str]", got "frozenset[str]"
+src/intelligence/register_plugins.py:0: note: outputs: expected "set[str]", got "frozenset[str]"
+src/intelligence/register_plugins.py:0: note: outputs: expected "set[str]", got "frozenset[str]"
+src/intelligence/register_plugins.py:0: note: outputs: expected "set[str]", got "frozenset[str]"
+src/intelligence/register_plugins.py:0: note: outputs: expected "set[str]", got "frozenset[str]"
+src/intelligence/register_plugins.py:0: note: outputs: expected "set[str]", got "frozenset[str]"
+src/intelligence/register_plugins.py:0: note: outputs: expected "set[str]", got "frozenset[str]"
+src/intelligence/register_plugins.py:0: note: outputs: expected "set[str]", got "frozenset[str]"
+src/intelligence/register_plugins.py:0: note: outputs: expected "set[str]", got "frozenset[str]"
+src/intelligence/register_plugins.py:0: note: outputs: expected "set[str]", got "frozenset[str]"
+src/intelligence/register_plugins.py:0: note: outputs: expected "set[str]", got "frozenset[str]"
+src/intelligence/register_plugins.py:0: note: outputs: expected "set[str]", got "frozenset[str]"
+src/intelligence/register_plugins.py:0: note: outputs: expected "set[str]", got "frozenset[str]"
+src/intelligence/register_plugins.py:0: note: outputs: expected "set[str]", got "frozenset[str]"
+src/intelligence/register_plugins.py:0: note: outputs: expected "set[str]", got "frozenset[str]"
+src/intelligence/register_plugins.py:0: note: outputs: expected "set[str]", got "frozenset[str]"
+src/intelligence/register_plugins.py:0: note: regime_type, valid_asset_classes
+src/intelligence/register_plugins.py:0: note: regime_type, valid_asset_classes
+src/intelligence/register_plugins.py:0: note: regime_type, valid_asset_classes
+src/intelligence/register_plugins.py:0: note: regime_type, valid_asset_classes
+src/intelligence/register_plugins.py:0: note: regime_type, valid_asset_classes
+src/intelligence/register_plugins.py:0: note: regime_type, valid_asset_classes
+src/intelligence/register_plugins.py:0: note: regime_type, valid_asset_classes
+src/intelligence/register_plugins.py:0: note: regime_type, valid_asset_classes
+src/intelligence/register_plugins.py:0: note: regime_type, valid_asset_classes
+src/intelligence/register_plugins.py:0: note: regime_type, valid_asset_classes
+src/intelligence/register_plugins.py:0: note: valid_asset_classes
+src/intelligence/register_plugins.py:0: note: valid_asset_classes
+src/intelligence/register_plugins.py:0: note: valid_asset_classes
+src/intelligence/register_plugins.py:0: note: valid_asset_classes
+src/intelligence/register_plugins.py:0: note: valid_asset_classes
+src/intelligence/register_plugins.py:0: note: valid_asset_classes
+src/intelligence/register_plugins.py:0: note: valid_asset_classes
+src/intelligence/register_plugins.py:0: note: valid_asset_classes
+src/intelligence/register_plugins.py:0: note: valid_asset_classes
+src/intelligence/register_plugins.py:0: note: valid_asset_classes
+src/intelligence/register_plugins.py:0: note: valid_asset_classes
+src/intelligence/register_plugins.py:0: note: valid_asset_classes
+src/intelligence/register_plugins.py:0: note: valid_asset_classes
+src/intelligence/register_plugins.py:0: note: valid_asset_classes
+src/intelligence/register_plugins.py:0: note: valid_asset_classes
+src/intelligence/register_plugins.py:0: note: valid_asset_classes
+src/intelligence/register_plugins.py:0: note: valid_asset_classes
+src/intelligence/register_plugins.py:0: note: valid_asset_classes
+src/intelligence/register_plugins.py:0: note: valid_asset_classes
+src/intelligence/register_plugins.py:0: note: valid_asset_classes
+src/intelligence/register_plugins.py:0: note: valid_asset_classes
+src/intelligence/register_plugins.py:0: note: valid_asset_classes
+src/intelligence/register_plugins.py:0: note: valid_asset_classes
+src/intelligence/register_plugins.py:0: note: valid_asset_classes
+src/intelligence/register_plugins.py:0: note: valid_asset_classes
+src/intelligence/register_plugins.py:0: note: valid_asset_classes
+src/intelligence/register_plugins.py:0: note: valid_asset_classes
+src/intelligence/register_plugins.py:0: note: valid_asset_classes
+src/intelligence/services/feature_validation_analyzer.py:0: error: Item
+src/intelligence/services/feature_validation_analyzer.py:0: error: Item
+src/intelligence/services/feature_validation_analyzer.py:0: error: Item
+src/intelligence/services/hmm_trainer.py:0: error: Returning Any from
+src/intelligence/services/ml_trainer.py:0: error: Argument 2 to
+src/intelligence/services/ml_trainer.py:0: error: Item "None" of
+src/intelligence/services/ml_trainer.py:0: error: Item "None" of "Any | None"
+src/intelligence/statistics/factor_math.py:0: error: Returning Any from
+src/intelligence/statistics/gate_math.py:0: error: Incompatible types in
+src/intelligence/statistics/ic_math.py:0: error: Returning Any from function
+src/intelligence/statistics/ic_math.py:0: error: Returning Any from function
+src/intelligence/statistics/ic_math.py:0: error: Returning Any from function
+src/intelligence/trading/aggregator.py:0: error: Argument "perf_weights" to
+src/intelligence/trading/aggregator.py:0: error: Returning Any from function
+src/intelligence/trading/anchored_vwap_reversion.py:0: error: Argument 1 to
+src/intelligence/trading/anchored_vwap_reversion.py:0: error: Unsupported
+src/intelligence/trading/anchored_vwap_reversion.py:0: note: Both left and right operands are unions
+src/intelligence/trading/cis_scorer.py:0: error: Returning Any from function
+src/intelligence/trading/gap_analysis_setup.py:0: error: Value of type
+src/intelligence/trading/plugin_utils.py:0: error: Returning Any from function
+src/intelligence/trading/prev_day_level_test.py:0: error: Argument 1 to
+src/intelligence/trading/prev_day_level_test.py:0: error: Argument 1 to
+src/intelligence/trading/prev_day_level_test.py:0: error: Argument 1 to
+src/intelligence/trading/second_leg_continuation.py:0: error: Argument 1 to
+src/intelligence/trading/second_leg_continuation.py:0: error: Argument 1 to
+src/intelligence/trading/squeeze_expansion.py:0: error: Value of type
+src/intelligence/trading/volume_profile_utils.py:0: error: Returning Any from
+src/intelligence/trading/volume_profile_utils.py:0: error: Returning Any from
+src/intelligence/trading/volume_profile_utils.py:0: error: Returning Any from
+src/intelligence/utils/common.py:0: error: Returning Any from function
+src/intelligence/utils/core.py:0: error: Returning Any from function declared
+src/intelligence/utils/core.py:0: error: Returning Any from function declared
+src/intelligence/utils/core.py:0: error: Returning Any from function declared
+src/intelligence/weight_updater.py:0: error: Returning Any from function
+src/intelligence/weight_updater.py:0: error: Returning Any from function
+src/observability/corpus_manifest.py:0: error: Returning Any from function
+src/observability/corpus_manifest_verifier.py:0: error: Argument 1 has
+src/observability/corpus_manifest_verifier.py:0: error: Argument 1 has
+src/observability/corpus_manifest_verifier.py:0: error: Argument 1 has
+src/observability/corpus_manifest_verifier.py:0: error: Argument 1 has
+src/observability/corpus_manifest_verifier.py:0: error: Argument 1 has
+src/observability/log_bridge.py:0: error: Item "None" of "str | None" has no
+src/observability/otel.py:0: error: Argument 3 to "_validate_export" has
+src/observability/otel.py:0: error: Item "None" of "str | None" has no
+src/persistence/repository/feature_snapshot_repository.py:0: error: Returning
+src/persistence/repository/feature_snapshot_repository.py:0: error: Returning
+src/persistence/repository/signal_events_repository.py:0: error: Item "None"
+src/persistence/repository/signal_events_repository.py:0: error: Returning
+src/persistence/repository/signal_events_repository.py:0: error: Returning
+src/persistence/repository/signal_events_repository.py:0: error: Returning
+src/persistence/repository/signal_events_repository.py:0: error: Returning
+src/providers/base_provider_agent.py:0: error: Item
+src/providers/base_provider_agent.py:0: error: Item "None" of
+src/providers/base_provider_agent.py:0: error: Item "None" of
+src/providers/base_provider_agent.py:0: error: Item "None" of
+src/providers/base_provider_agent.py:0: error: Item "None" of
+src/providers/base_provider_agent.py:0: error: Item "None" of
+src/providers/base_provider_agent.py:0: error: Item "None" of
+src/providers/base_provider_agent.py:0: error: Item "None" of
+src/providers/base_provider_agent.py:0: error: Item "None" of
+src/providers/base_provider_agent.py:0: error: Item "None" of
+src/providers/base_provider_agent.py:0: error: Item "None" of
+src/providers/base_provider_agent.py:0: error: Item "None" of
+src/providers/base_provider_agent.py:0: note: Maybe you forgot to use "await"?
+src/providers/ibkr.py:0: error: Argument 1 to "cancelMktData" of "IB" has
+src/providers/ibkr.py:0: error: Argument 1 to "reqHistoricalDataAsync" of
+src/providers/ibkr.py:0: error: Argument 1 to "reqMktData" of "IB" has
+src/providers/ibkr.py:0: error: Argument 1 to "reqMktData" of "IB" has
+src/providers/ibkr.py:0: error: Argument 1 to "reqRealTimeBars" of "IB" has
+src/providers/ibkr.py:0: error: Incompatible types in assignment (expression
+src/providers/ibkr.py:0: error: Incompatible types in assignment (expression
+src/providers/ibkr.py:0: error: Incompatible types in assignment (expression
+src/providers/ibkr.py:0: error: Incompatible types in assignment (expression
+src/providers/ibkr.py:0: error: Incompatible types in assignment (expression
+src/providers/ibkr.py:0: error: Item "None" of "Contract | None" has no
+src/providers/ibkr.py:0: error: Item "None" of "Contract | None" has no
+src/providers/ibkr.py:0: error: Item "None" of "Contract | None" has no
+src/providers/ibkr.py:0: error: Item "None" of "Contract | None" has no
+src/providers/ibkr.py:0: error: Item "None" of "Contract | None" has no
+src/providers/ibkr.py:0: error: Item "None" of "Contract | None" has no
+src/providers/ibkr.py:0: error: Item "None" of "Contract | None" has no
+src/providers/ibkr.py:0: error: Item "None" of "IB | None" has no attribute
+src/providers/ibkr.py:0: error: Item "None" of "IB | None" has no attribute
+src/providers/ibkr.py:0: error: Item "None" of "IB | None" has no attribute
+src/providers/ibkr.py:0: error: Item "None" of "IB | None" has no attribute
+src/providers/ibkr.py:0: error: Item "None" of "IB | None" has no attribute
+src/providers/ibkr.py:0: error: Name "ib_bars" already defined on line 0
+src/providers/ibkr.py:0: error: Unexpected keyword argument
+src/providers/ibkr.py:0: error: Unexpected keyword argument "symbol" for
+src/providers/ibkr.py:0: note: "warning" defined in "logging"
+src/validation/audit_reporter.py:0: note: By default the bodies of untyped functions are not checked, consider using --check-untyped-defs  [annotation-unchecked]
+src/validation/audit_reporter.py:0: note: By default the bodies of untyped functions are not checked, consider using --check-untyped-defs  [annotation-unchecked]
+src/validation/audit_reporter.py:0: note: By default the bodies of untyped functions are not checked, consider using --check-untyped-defs  [annotation-unchecked]
+src/validation/cross_tier_validation.py:0: error: Need type annotation for
+src/validation/reference_implementations.py:0: error: Argument 1 to "ema" has
+src/validation/reference_implementations.py:0: error: Argument 1 to "ema" has
+src/validation/reference_implementations.py:0: error: Incompatible types in
+src/validation/reference_implementations.py:0: error: Incompatible types in
+src/validation/reference_implementations.py:0: error: Incompatible types in
+src/validation/reference_implementations.py:0: error: Incompatible types in
+src/validation/reference_implementations.py:0: error: Incompatible types in
+src/validation/reference_implementations.py:0: error: Incompatible types in
+src/validation/reference_implementations.py:0: error: Incompatible types in
+src/validation/reference_implementations.py:0: error: Incompatible types in
+src/validation/reference_implementations.py:0: error: Incompatible types in
+src/validation/reference_implementations.py:0: error: Incompatible types in
+src/validation/reference_implementations.py:0: error: Returning Any from
+src/validation/reference_implementations.py:0: error: Unsupported operand
+src/validation/reference_implementations.py:0: error: Unsupported operand
