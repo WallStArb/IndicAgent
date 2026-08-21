@@ -2741,6 +2741,25 @@ Plans:
 
 - [x] 172-07-PLAN.md - scoped ic_engine --refresh evidence run, ensemble_trainer stratum-source regression test, and the glossary regime entry rewrite (wave 5)
 
+### Phase 173: Broadcast Feature Significance Correction
+
+**Goal:** Fix `ic_engine.py`'s pooled cross-sectional significance test overstating effective N
+for symbol-invariant (broadcast) features (`vix_z`/`yield_slope_z`/`flight_quality`, 15
+calendar/session fields, 5 cross-asset fields — todo 270). Exclude these ~23 features from the
+per-symbol pooled cross-sectional cell (`_compute_one_cross_sectional_cell`); build a new,
+separate, lightweight broadcast significance cell that reuses the shared `_subsample_and_rank`
+kernel against a market-aggregate forward-return outcome variable, without touching the
+per-symbol chunked accumulator's OOM-sensitive machinery.
+**Requirements**: TBD (define via `/gsd-discuss-phase 173`) — see todo 270's file for full scope
+history and the 2026-08-21 architecture reconsideration.
+**Depends on:** None — independent of the in-flight corpus pipeline run and of Phase 172's
+volatility-regime work; sequenced after it here only because it's the next open slot in the
+roadmap.
+**Plans:** 0 plans
+
+Plans:
+- [ ] TBD (run /gsd-plan-phase 173 to break down)
+
 ---
 
 **Correction (2026-07-12, same day as the note above was first written):** this section previously said Phases 152/153 should be **prioritized now**, ahead of the intelligence-layer work. That was wrong and contradicted the milestone bullet above's own existing, correct caution ("Do not let either jump ahead of Phase 142B/143 or 148, which carry present-tense value the backlog matrix rates higher"). Monitoring decay of alpha that hasn't been proven to exist yet is monitoring a null: Phase 148's OOS gates (EIC-04 + FRAME-04) have not passed on corrected data — **FRAME-04 currently fails 16/17 cells** on the pre-143.1-fix baseline, so there is no proven capturable edge for 152/153 to watch decay in yet. **Corrected sequencing:** finish 143.1 (091→097→094→E1-vs-E2 re-run→096→088) → re-run EIC-04/FRAME-04 honestly on corrected data → only then decide between (a) building 152/153's decay/health monitoring or (b) expanding discovery (Phase 151/PrecedentEngine) based on what that gate actually says. Phase 157's kill-switch design above still correctly notes its dependency on Phase 153 eventually existing — that dependency is real, it's just not a reason to build 153 before Phase 148 resolves.

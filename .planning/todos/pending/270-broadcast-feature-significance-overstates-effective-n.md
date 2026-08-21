@@ -187,6 +187,43 @@ this changes a production significance gate, corpus-wide, not just this todo's o
 Given the blast radius, plan this as a proper phase (`/gsd-plan-phase`) rather than an inline
 edit.
 
+## Architecture reconsideration (2026-08-21) -- revises the 2026-08-11 decision
+
+Re-examined under Renaissance-council rigor before kicking off phase planning. The 2026-08-11
+decision ("one shared primitive, branch at sample construction") was right about WHAT to share
+but wrong about WHERE: it forces broadcast-feature rows to be constructed inside the same
+per-symbol cell (`_compute_one_cross_sectional_cell`), threading `bar_ts` through
+`_compute_cross_sectional_tf`'s chunked accumulator -- the one with the 2026-07-08 OOM
+incident -- purely so both column groups can share one matrix before being split back apart.
+That's not reuse, it's coupling two different statistical computations at the wrong depth for
+no benefit, and it's the exact "special case bolted onto shared infra" pattern this project's
+own altitude-check discipline exists to catch.
+
+**The deeper, previously unaddressed gap: no outcome variable was ever defined for a broadcast
+feature's test.** A per-symbol feature's IC against that symbol's own forward return is
+well-posed. A broadcast feature (`vix_z`, session flags, calendar cycles) carries zero
+per-symbol information -- testing it against 231 individual symbols' returns isn't just
+pseudo-replicated, it's the wrong outcome variable. What a broadcast feature can actually
+explain is a market-level return: a cross-sectional aggregate (equal-weighted or cap-weighted
+mean/median forward return across the active universe at that `bar_ts`). This aggregate-return
+series does not exist anywhere in the codebase today.
+
+**Revised recommendation:** do NOT merge broadcast into the per-symbol cell. Give it its own
+small, separate cell (`_compute_one_broadcast_cell`) that reuses `_subsample_and_rank` as the
+shared statistical kernel (confirmed fully row/column-agnostic -- it only needs `[n_sub,
+n_features]` + a matching `returns_scale` vector, doesn't care what a "row" represents) but
+builds a dramatically smaller input matrix: one row per `bar_ts` (feature values read from any
+single representative symbol, since they're identical everywhere) against a new
+market-aggregate-return column. This never touches the OOM-prone accumulator or needs `bar_ts`
+threaded through the chunked fetch, and correctly frames broadcast features as the
+market-timing signals they are rather than forcing them through per-symbol machinery built for
+a different statistical object.
+
+**Still an open call, not resolved unilaterally:** the aggregate-return definition itself
+(equal-weighted vs. cap-weighted; full 231-symbol universe vs. the same regime-group subset
+`ic_engine.py` already stratifies on). Routing to `/gsd-discuss-phase` to settle this before any
+implementation, per user direction 2026-08-21.
+
 ## References
 
 - `services/ic_engine.py`: `CONTEXT_FEATURES` (the 3 confirmed-broadcast macro features),
