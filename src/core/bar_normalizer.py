@@ -5,6 +5,8 @@ from zoneinfo import ZoneInfo
 
 import pandas_market_calendars as mcal
 
+from src.core.market_calendar import get_market_calendar
+
 # ---------------------------------------------------------------------------
 # Constants
 # ---------------------------------------------------------------------------
@@ -197,34 +199,35 @@ def _slots_nyse(start: datetime, end: datetime, interval: timedelta) -> list[dat
 def _slots_nyse_daily(start: datetime, end: datetime) -> list[datetime]:
     """One midnight-UTC slot per NYSE trading day -- matches market_data_ohlcv's `1d`
     storage convention (todo 300), unlike `_slots_nyse`'s session-open-anchored intraday
-    slots. Holidays/weekends excluded via the same NYSE calendar `_slots_nyse` uses;
-    half-days need no special handling here since a `1d` bar is one row regardless of
-    an early close.
-    """
-    global _NYSE_CAL
-    if _NYSE_CAL is None:
-        _NYSE_CAL = mcal.get_calendar("NYSE")
+    slots.
 
-    # UTC dates, not ET-converted (unlike _slots_nyse): a slot IS a UTC date here, and
-    # converting a UTC midnight `end` to ET first would roll it back to the previous
-    # calendar day (ET is behind UTC), silently truncating the schedule query one day
-    # short of what `end`'s own UTC date actually asks for. The final `start <= slot <=
-    # end` filter below still bounds the output precisely regardless of how wide this
-    # query range is.
+    Reuses the shared `MarketCalendar` singleton (`src/core/market_calendar.py`) instead
+    of re-querying `pandas_market_calendars`' `schedule()` directly (/simplify pass, todo
+    300 code review): `MarketCalendar.is_trading_day()` already provides exactly this
+    "is this UTC date a NYSE trading day" check, backed by a per-date dict pre-built once
+    per process -- an O(1) lookup here versus re-deriving a 20-year schedule DataFrame on
+    every call (measured ~38ms/call, ~4.9s aggregate across a 129-symbol backfill run).
+    It's also already the mechanism `backfill_feature_factory.py` uses for the identical
+    midnight-UTC-1d-NYSE case, so this keeps one canonical definition of "NYSE trading
+    day" instead of two independently-derived ones that could silently disagree.
+
+    No windowing helper needed here (unlike `_slots_nyse`/`_slots_futures`, which reuse
+    `_slots_from_windows` for session-open/close stepping) -- a `1d` slot is one
+    date-anchored point, not an interval-stepped window, so a direct per-date
+    iteration + bounds check is the natural fit, not a workaround.
+    """
+    calendar = get_market_calendar()
     start_date = start.astimezone(UTC).date()
     end_date = end.astimezone(UTC).date()
-    schedule = _NYSE_CAL.schedule(
-        start_date=start_date.isoformat(),
-        end_date=end_date.isoformat(),
-        tz="America/New_York",
-    )
 
     slots: list[datetime] = []
-    for _, row in schedule.iterrows():
-        day_et = row["market_open"].date()
-        slot = datetime(day_et.year, day_et.month, day_et.day, 0, 0, tzinfo=UTC)
-        if start <= slot <= end:
-            slots.append(slot)
+    day = start_date
+    while day <= end_date:
+        if calendar.is_trading_day("NYSE", day):
+            slot = datetime(day.year, day.month, day.day, 0, 0, tzinfo=UTC)
+            if start <= slot <= end:
+                slots.append(slot)
+        day += timedelta(days=1)
     return slots
 
 
