@@ -7,6 +7,21 @@ source: found alongside todo 168 (7 symbols with zero non-null per-symbol HMM re
   check that let the gap go undetected for years in the first place.
 ---
 
+## CLOSED 2026-08-21
+
+Deployed the last remaining step: copied `production/systemd/indicagent-regime-coverage-
+auditor.{service,timer}` to `/etc/systemd/system/`, `daemon-reload`, `systemctl enable --now
+indicagent-regime-coverage-auditor.timer`. Confirmed active (`systemctl list-timers`, next fire
+2026-08-22 06:00 UTC) and ran the service manually once as a smoke test rather than trusting
+"already tested" from prior sessions blindly. It exited nonzero on that run -- confirmed via
+`services/regime_coverage_auditor.py`'s own exit-code logic (`exit_code = 1` on `gap_found`) that
+this is by-design gap-detection behavior, not a service malfunction. It immediately found a real
+live gap on its first production run: `BIL`/`ETHA`/`IBIT` have 100% NULL `feature_vectors.regime`
+-- same failure shape as todo 168, different symbols. Split out as
+[341](341-bil-etha-ibit-zero-regime-labels.md) rather than investigating further here (this
+todo's own scope was the missing monitor, not the specific data gap it would find -- exactly
+todo 168's precedent). The monitor has now earned its keep a second time.
+
 # No monitor checks that every corpus symbol has ANY per-symbol HMM regime coverage
 
 ## What's wrong
