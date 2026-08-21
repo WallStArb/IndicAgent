@@ -559,7 +559,12 @@ def test_cache_mutation_visible_to_is_promotion_eligible(db: _Db) -> None:
     # Advance past both floors without reloading -- the in-process cache mutation
     # must be visible to an immediately-following is_promotion_eligible read.
     service.advance_shadow_counters_sync(
-        db.conn, domain=_DOMAIN, name=name, passed=True, new_observations=300
+        db.conn,
+        domain=_DOMAIN,
+        name=name,
+        passed=True,
+        new_observations=300,
+        expected_status="shadow_only",
     )
 
     assert (

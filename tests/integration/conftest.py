@@ -67,6 +67,7 @@ _FIXTURES_DIR = Path(__file__).resolve().parent / "fixtures"
 _BASELINE_SCHEMA_SQL = _FIXTURES_DIR / "schema_baseline_2026-07-18.sql"
 _BASELINE_HYPERTABLES_SQL = _FIXTURES_DIR / "schema_baseline_2026-07-18_hypertables.sql"
 _SEED_INSTRUMENTS_SQL = _FIXTURES_DIR / "seed_instruments_2026-07-18.sql"
+_SEED_TAG_VOCABULARY_SQL = _FIXTURES_DIR / "seed_tag_vocabulary_2026-07-18.sql"
 
 # Highest migration number folded into the baseline snapshot above. Only migrations
 # numbered above this need to be replayed on top - everything <= this is already
@@ -148,6 +149,17 @@ def _apply_baseline() -> None:
     # from a real production snapshot rather than leaving tests/integration/test_instrument_
     # registry.py passing against fabricated data or failing against none.
     _run_psql_file(_SEED_INSTRUMENTS_SQL)
+    # Same reasoning, same fix shape, todo 293: tag_vocabulary (~75 rows) is seeded by
+    # migrations 220/221/229/230, all <= _BASELINE_MIGRATION_CUTOFF -- baked into live
+    # production but NOT into this schema-only baseline dump, so the table came out of
+    # _apply_baseline() empty until this seed. Every post-baseline migration that inserts
+    # into tag_vocabulary itself (287/296/299) already carries ON CONFLICT (tag) DO
+    # NOTHING, so seeding the full current snapshot here (rather than a hand-curated
+    # pre-cutoff subset) is safe -- those migrations' own inserts simply no-op on replay.
+    # Without this, any post-baseline migration referencing a pre-cutoff tag (e.g. 287's
+    # `mid_cycle`) fails the whole session-scoped rebuild fixture with an
+    # instrument_tags_tag_fkey violation before a single integration test can run.
+    _run_psql_file(_SEED_TAG_VOCABULARY_SQL)
 
 
 def _replay_post_baseline_migrations() -> None:

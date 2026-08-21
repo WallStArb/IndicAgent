@@ -87,12 +87,13 @@ half-fix of the same pattern).
   `test_advance_active_counters_increments_on_fail_and_resets_on_pass` (genuinely new coverage --
   the active-side counter had ZERO real-DB test coverage before this, only the fully-faked
   lifecycle-hook tests), and `test_advance_active_counters_stale_status_is_noop`, modeled directly
-  on the existing `test_cas_stale_from_status_is_noop` pattern. **Not executed this session** --
-  the whole `tests/integration/` suite's session-scoped DB-rebuild fixture currently fails during
-  setup on a pre-existing, already-tracked bug (todo 293, filed 2026-08-10: migration 287's
-  `mid_cycle` tag used before `tag_vocabulary` seeds it), confirmed unrelated to this change and
-  present identically on `main` before this fix. These tests are correctly modeled on proven
-  sibling patterns but should be spot-checked once 293 is fixed.
+  on the existing `test_cas_stale_from_status_is_noop` pattern. **Update 2026-08-20: now confirmed
+  passing.** Todo 293 (the pre-existing `tests/integration/` DB-rebuild-fixture blocker these tests
+  hit) was fixed same session -- re-running surfaced one real gap this fix's own scope missed: a
+  4th `advance_shadow_counters_sync` call site in this same file (`test_cache_mutation_visible_to_
+  is_promotion_eligible`) was never updated for the new `expected_status` kwarg, invisible until the
+  suite could actually run. Fixed. Full `tests/integration/` suite (18 tests in this file, entire
+  suite beyond it) green.
 
 Full `tests/unit/` suite green (391+ tests, no regressions). Ruff/black clean.
 
