@@ -1,3 +1,12 @@
+## CLOSED 2026-08-21
+
+Re-verified live: all 6 named symbols (PGR, AA, UNP, AVGO, HD, T) now have full 4-real-timeframe
+(5m/15m/1h/1d) `feature_vectors` coverage -- 273K-564K rows each, confirmed via direct query, not
+`backfill_status`'s own claim. The client-48 retry run (todo 259) covered these gaps as part of
+its broader pass; no separate follow-up run was needed. Closing alongside todo 259. `1m` staying
+incomplete for these (and all 231 symbols universe-wide) is expected -- `1m` was never a real
+target timeframe for Feature Factory compute.
+
 # 296 - client-44 backfill: connection-drop gaps need a follow-up pass
 
 **Filed:** 2026-08-10

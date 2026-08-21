@@ -1,3 +1,25 @@
+## CLOSED 2026-08-21
+
+Re-verified live, not assumed: `ps aux | grep infrastructure_run_historical_pipeline` shows no
+client-48 (or any client-id) backfill process running -- the retry chain finished sometime after
+the 2026-08-11 check. Direct DB query (not `backfill_status`'s own claim, per this project's own
+todo-316 lesson about checkpoint/data desync) confirms full completeness: across the ENTIRE
+231-symbol universe, only 12 `backfill_status` rows (of ~924 symbol/tf pairs at the 4 real target
+timeframes 5m/15m/1h/1d) are not `status='complete'` -- BIL (all 4 tfs, pre-existing, unrelated
+to this expansion, already investigated under todo 218), ENPH/GLD/NAD/SHY/STIP/VRP (single-tf
+each). 11 of those 12 already hold full `feature_vectors` row counts despite the stale `'failed'`
+status (same desync class as todo 316/317, not a real gap) -- confirmed via direct
+`feature_vectors` count query, not inferred. Only ONE real residual gap found: `IHF/5m` has zero
+`feature_vectors` rows (`expected a positive input, got 0.0` compute error, distinct from the
+other 11's `underflow` errors) -- split out as
+[340](../pending/340-ihf-5m-feature-compute-zero-row-positive-input-error.md), narrow enough not
+to hold this backfill closure open. `feature_vectors` counts for todo 296's specific 6 symbols
+(AA/AVGO/HD/PGR/T/UNP) independently confirmed: all 4 real tfs present, 273K-564K rows each.
+
+`1m` staying `status='pending'` for all 231 symbols universe-wide is expected, not a gap --
+`_get_target_timeframes()`'s default (`["5m","15m","1h","1d"]`) never includes `1m`, so compute
+is never run for it; this was true before this backfill and stays true after.
+
 # 259: Single-name equity backfill queue -- 135 symbols missing
 
 **Filed:** 2026-08-05
