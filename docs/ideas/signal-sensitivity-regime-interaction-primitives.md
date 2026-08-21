@@ -40,6 +40,21 @@ instrument is to rates*, with a p-value (`rate_sensitive.loading`, continuous, p
 Nothing multiplies them together. That product is the interaction primitive this doc proposes
 — and it costs zero new measurement infrastructure, because both inputs already exist.
 
+**A third pipeline, found via a parallel SSFI session citing indicagent's own code back at
+it:** `feature_vectors.equity_beta_z`/`rate_beta_z` (migration 289, Phase 151,
+`tier=0_atomic`) — rolling-OLS beta vs. `SPY`/`TLT`, z-scored, computed per-bar, live in
+production — measures functionally the same quantity as ITR's `sensitivity.equity_beta`
+(`factor_series='SPY'`) and `sensitivity.rate_sensitive` (`factor_series='TLT'`) tags this
+doc already flagged as unconsumed. Same two proxies, same underlying concept (a symbol's
+beta to the broad-equity and rates factors), two live indicagent pipelines, neither aware of
+the other — a second instance of exactly the pattern this doc's headline finding describes,
+this time entirely within indicagent's own codebase rather than between indicagent and
+`market_regimes`. Worth reconciling which of `equity_beta_z`/`rate_beta_z` (continuous,
+per-bar, unvalidated by a significance test) vs. `sensitivity.equity_beta`/`rate_sensitive`
+(periodic, `TagCalibrator`-measured, p-value/FDR-gated) is the one to actually use in the
+interaction primitive proposed below — not both, and not a third independent measurement.
+Not resolved in this pass; flagged for whoever picks this up next.
+
 ---
 
 ## Applying the 5-step mandate
@@ -110,6 +125,58 @@ unproven mechanism is out of order.
 - **Not** urgent relative to the project's actual current blockers (`forward_returns`
   staleness gating other in-flight candidates, todo 335's downstream recompute). This is
   backlog-track work.
+
+---
+
+## The universal concept: sensitivity loadings need the same shrinkage IC already gets
+
+**Added 2026-08-20, prompted by comparing notes with a parallel SSFI session** working an
+independently-arrived-at version of the same underlying problem (SSFI's
+`signal-event-catalog-and-impact-system.md` §7: per-security sensitivity to a sparse event
+class, with peer-class pooling proposed as a fallback when an individual security's own
+event history is too thin to trust alone).
+
+**The general shape, stated once:** any per-entity point estimate computed from that
+entity's own limited history should be shrunk toward a leave-one-out peer-group prior,
+weighted by effective sample size — and the shrinkage's benefit must be empirically proven
+(an out-of-fold test showing shrunk error is strictly less than raw error), never assumed
+just because it's theoretically sound. indicagent already has a live, production-gated
+reference implementation of exactly this: `shrink_ic()` / `leave_one_out_group_prior()`
+(`src/intelligence/ensemble/shrinkage.py`, consumed by `ops_ic_shrinkage.py`, corpus
+pipeline step 6). Read closely, `shrink_ic(ic_raw, n_eff, ic_prior, k)` has zero IC-specific
+logic — `w = n_eff / (n_eff + k)` blending a raw estimate with a leave-one-out peer-group
+mean is fully generic empirical-Bayes shrinkage, misleadingly scoped by name/location to one
+consumer. The out-of-fold gate it clears (D-05: shrunk error strictly less than mean raw
+error, re-derived fresh per training window, not reused from the full-corpus fit) is the
+part worth taking seriously — it's the difference between "this should help" and "this was
+shown to help."
+
+**Direct gap in this doc's own proposal:** §4's first test uses `rate_sensitive.loading`
+raw, gated only by `TagCalibrator`'s flat p-value/FDR pass — no peer-pooling for a
+low-`sample_n` symbol. `instrument_tags.sample_n` is already sitting there as the exact
+`n_eff` this mechanism wants, and the natural peer group is other symbols sharing the same
+`exposure` tag (or `tag_category`). Before wiring `rate_sensitive_curve_product` into
+production, the loading itself should go through the same shrink-and-validate discipline the
+IC side of this codebase already requires — not because it's theoretically nicer, but
+because this project doesn't get to skip the gate it already built for the identical
+statistical shape just because the consumer is different.
+
+**Architectural note, not yet actioned:** `shrink_ic`/`leave_one_out_group_prior` currently
+live under `src/intelligence/ensemble/` (Ring 1, IC-scoped) despite carrying zero domain
+vocabulary — pure statistics, Ring-0-shaped by the project's own naming rules. Promoting them
+to something like `src/core/statistics/shrinkage.py` (generic `shrink_estimate`/
+`leave_one_out_prior` names) before a second consumer (ITR loadings here, or any future one)
+imports from an `ensemble`-named module is worth doing deliberately rather than accreting a
+second copy or an awkward cross-Ring import. Not done in this pass — this doc stays a survey,
+not an implementation.
+
+**For SSFI:** the flat N-threshold fallback proposed in §7 (use class average below an
+n-threshold, individual estimate above it) works, but creates a step-function discontinuity
+at the threshold that continuous empirical-Bayes shrinkage avoids — and indicagent's version
+is already built, already proven via a real out-of-fold gate, not just theoretically argued
+for. Worth relaying back: reuse the `w = n_eff/(n_eff+k)` / leave-one-out-prior construction
+(even reimplemented in SSFI's own stack) rather than the simpler threshold rule, given the
+harder version is already sitting there proven.
 
 ---
 

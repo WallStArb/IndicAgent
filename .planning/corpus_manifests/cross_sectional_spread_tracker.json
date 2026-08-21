@@ -1,26 +1,24 @@
 {
   "step_name": "cross_sectional_spread_tracker",
   "step_version": "1.0",
-  "timestamp": "2026-08-07T11:55:22.025547+00:00",
-  "status": "partial",
+  "timestamp": "2026-08-21T00:20:27.802493+00:00",
+  "status": "success",
   "inputs": {
     "mode": "backfill",
     "watermark": null,
     "prior_leg_seed_bar_ts": null,
-    "n_panel_rows": 8823070,
-    "n_bars_processed": 130625,
-    "n_bars_skipped_degenerate": 11,
-    "turnover_mean": 0.09122881870319172,
-    "turnover_median": 0.0625
+    "n_panel_rows": 48,
+    "n_bars_processed": 4,
+    "n_bars_skipped_degenerate": 0,
+    "turnover_mean": 0.6666666666666666,
+    "turnover_median": 0.5
   },
   "outputs": {
     "construction_spreads": {
       "table": "construction_spreads",
-      "rows_total": 130625
+      "rows_total": 4
     }
   },
   "errors": [],
-  "warnings": [
-    "11 bar(s) skipped: too few symbols to form two disjoint decile legs"
-  ]
+  "warnings": []
 }

@@ -1,8 +1,8 @@
 # Gotchas & Rare Pitfalls
 
-**Version:** 2.13
+**Version:** 2.14
 **Status:** current
-**Last Updated:** 2026-08-03
+**Last Updated:** 2026-08-20
 
 Real issues that burned once — reference when touching the relevant area. Add here when you get burned.
 
@@ -58,6 +58,17 @@ See `docs/operations/operations-database.md` for query/schema gotchas. `instrume
 ContFuture (`continuous=True`) hangs on multi-year requests — use named contracts with `--days 364` or `scripts/infrastructure/backfill/infrastructure_fetch_htf_bars.py` which chunks automatically.
 
 **`detect_gaps()` reports large false-positive gap counts (hundreds of ranges) on 1h/15m/5m/1m for a symbol's earliest history — not real missing data.** `generate_session_slots()` expects a full extended-hours session (pre-market + RTH + after-hours) from day one, but real extended-hours IBKR coverage for a symbol's early years (2005-2006 for the oldest names) — or the first few days of any timeframe's retention window (e.g. 1m's 90-day window) — ramps up gradually rather than being complete immediately. Confirmed directly (2026-08-11, universe-expansion gap audit): every flagged (symbol, tf) pair's actual missing timestamps cluster entirely within roughly the first year of that pair's own data window, never scattered through the middle or recent history. Distinct from, but same root shape as, the already-documented `1d` slot-timestamp misalignment (see the 300-series todo). Before treating a `detect_gaps()` count as a real problem, check whether every gap range falls near that (symbol, tf) pair's own `min(timestamp)` — if so it's benign ramp-up, not a crash/connection-drop artifact.
+
+## Corpus Pipeline
+
+**`ops_corpus_pipeline_run.sh --from-step N` silently skips every step below N** —
+a resumed run doesn't re-execute earlier writer steps, so it keeps consuming
+whatever those steps last wrote, however stale. Concretely: `--from-step 5` skips
+step 4 (`cross_sectional_regime_model.py`, sole writer of `market_regimes`) — a
+same-session code fix to that step has zero effect on an already-running
+`--from-step 5+` invocation. Grep the run's own log for `[skipped` markers before
+assuming a live/resumed run reflects a recent upstream fix — don't infer it from
+the `--from-step` value alone.
 
 ## Lifecycle Replay
 

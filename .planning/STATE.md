@@ -4,7 +4,7 @@ milestone: v3.1
 milestone_name: AlphaEngine Validation + Alpha Scoring
 status: milestone_complete
 stopped_at: Milestone complete (Phase 172 was final phase)
-last_updated: 2026-08-14T01:45:00.000Z
+last_updated: 2026-08-20T14:52:00.000Z
 progress:
   total_phases: 12
   completed_phases: 9
@@ -157,6 +157,17 @@ FROM feature_vectors` before citing completion. This run also finally advances
 `forward_return_writer` (step 3), which had gone 16+ days stale (`max(bar_ts)` 2026-07-28) --
 that gap, not the regime columns, is what's actually blocking the three research threads above
 now. Full detail: `project_disk_full_incident_2026_08_13` memory, todo 306.
+
+**UPDATE 2026-08-21: corpus rerun's `ic_engine.py` step (5/8) is nearly done -- 223/231 symbols
+as of 10:12:54 UTC (up from 127/231 at 2026-08-20 14:52 UTC), still running (same PID 1887176 +
+8-worker `ProcessPoolExecutor` pool, `--training-window-end 2025-12-24`, alive since Aug19, no
+errors in the log). `feature_ic_scores` now has 5.89M rows across 224 distinct symbols. At the
+recent ~15-25min/symbol pace, the remaining 8 symbols should finish within a few hours. Three
+steps remain after this (`ic_shrinkage → ensemble_trainer → alpha_publisher`); `alpha_ensemble_ic`
+still 0 rows, confirming none of the three research threads gated on this run
+(`statistical_factor_residual`, todos 303/304) can proceed yet. Not a systemd unit -- check
+`ps aux | grep ic_engine.py` and `logs/ic_engine.log`'s `ic_engine.symbol_computed` progress
+field before citing current state.
 
 ---
 

@@ -3,6 +3,8 @@ status: pending
 priority: P0
 filed: 2026-08-19
 source: investigating why commodity/5m/up_primary_contango was large enough to breach alpha.ic.max_cell_rows (migration 259, then 319)
+fix_landed: 2026-08-20, commits db98ac0a3 (code fix + migrations 319/320) and 36f2554f3 (unrelated docs)
+recompute_status: queued, not yet run -- see "Recompute status" section below
 ---
 
 # `_bucket()`'s ascending-sort contract is violated by 2 of 4 regime_signals modules — commodity and fx tier1/tier2 labels are wrong, confirmed live in market_regimes
@@ -86,6 +88,37 @@ specifically for these two groups — equity and rates are unaffected.
 5. Add a startup-time or CI assertion that every `REGISTRY` module's `build_tiers()` output is
    ascending-sorted, so a 3rd module can't silently repeat this (the code has no automated check
    today — this was only caught by hand-tracing `_bucket()` against real data).
+
+## Recompute status (2026-08-20)
+
+Steps 1-2 (tier fix + docstring reconcile) and step 5 (guard, hardened past a code
+review — moved into `_bucket()` itself, not just `main()`'s two call sites) are
+DONE — commit `db98ac0a3`. Steps 3-4 (regime history + downstream IC/ensemble
+recompute) had NOT run as of the fix landing, and could not run immediately: a
+different corpus pipeline invocation (`bash ops_corpus_pipeline_run.sh --from-step
+5`, PID 1887017, log `logs/corpus_pipeline_resume_regimefix_20260819.log`) was
+already in flight, on step 5/8 (`ic_engine`) since 2026-08-19 — that run was
+launched with `--from-step 5`, which **skips step 4** (`cross_sectional_regime_model.py`,
+the writer of `market_regimes`), so it is consuming pre-fix, still-mislabeled
+`commodity`/`fx` rows and will not self-correct. Interrupting a run with ~3 days
+of sunk CPU time wasn't warranted just to fold the fix in sooner, so it was left
+to finish.
+
+**Queued instead of run immediately.** A detached watcher (`nohup`+`disown`, PID
+2737924, log `logs/todo335_recompute_watcher.log`) polls for PID 1887017's exit,
+checks `logs/corpus_pipeline_resume_regimefix_20260819.log`'s tail for the
+`Pipeline complete` banner, and — only on confirmed success — launches
+`bash scripts/ops/corpus/ops_corpus_pipeline_run.sh --from-step 4` (also detached),
+logging to `logs/corpus_pipeline_todo335_recompute_<timestamp>.log`. This is
+exactly steps 3-4 above: `--from-step 4` regenerates `market_regimes` for all
+four groups (equity/rates redundantly, harmlessly, since `cross_sectional_regime_model.py`
+has no per-group scoping flag) and then re-runs `ic_engine`/`ic_shrinkage`/
+`ensemble_trainer`/`alpha_publisher` for the full symbol universe against the
+corrected labels. If the in-flight run instead fails, the watcher does NOT
+auto-launch the recompute and logs the failure tail for manual review instead.
+
+Check `logs/todo335_recompute_watcher.log` and `ps aux | grep ops_corpus_pipeline_run`
+for current status if picking this up in a new session.
 
 ## References
 
