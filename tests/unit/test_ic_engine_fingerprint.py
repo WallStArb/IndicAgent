@@ -47,6 +47,7 @@ from services.ic_engine import (
     _fingerprint_is_valid,
     _partition_symbol_cells,
     _symbol_expected_cells,
+    main,
 )
 
 # ---------------------------------------------------------------------------
@@ -599,6 +600,22 @@ def test_feature_status_refresh_sql_is_idempotent_via_is_distinct_from():
     on already-current rows must not touch them, keeping this cheap even when
     called on a large already-fresh symbol set."""
     assert "IS DISTINCT FROM" in _FEATURE_STATUS_REFRESH_SQL.upper()
+
+
+def test_feature_status_refresh_is_wrapped_in_compressed_hypertable_write_session():
+    """Todo 307: feature_ic_scores is a compressed hypertable -- this UPDATE must run
+    inside compressed_hypertable_write_session (aliased _write_session), not as a bare
+    cur.execute() against a possibly-compressed chunk. Source-inspection regression
+    test, not a behavioral one -- this call site is inlined in main(), too large and
+    dependency-heavy (args parsing, worker pool, live DB connections) to unit-test in
+    isolation without a scope-expanding extraction main() doesn't otherwise need."""
+    source = inspect.getsource(main)
+    write_session_idx = source.index("_write_session(conn,")
+    refresh_sql_idx = source.index("_FEATURE_STATUS_REFRESH_SQL,")
+    assert write_session_idx < refresh_sql_idx, (
+        "_FEATURE_STATUS_REFRESH_SQL's UPDATE must be issued inside a "
+        "_write_session(conn, ...) block, not before one opens"
+    )
 
 
 # ---------------------------------------------------------------------------

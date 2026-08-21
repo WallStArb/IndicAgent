@@ -59,16 +59,16 @@ _ALLOW_LIST: dict[str, str] = {
         "2026-08-14 (todo 306 follow-up)."
     ),
     "services/ic_engine.py": (
-        "TEMPORARY: two real, un-migrated raw UPDATE feature_ic_scores call sites "
-        "(_FEATURE_STATUS_REFRESH_SQL and the bh_adjusted_p/passes_fdr executemany() pass) "
-        "-- genuinely exposed to the same forced-full-scan cost as every other entry here, "
-        "deliberately NOT touched in the 2026-08-14 sweep that added this guard: "
-        "ic_engine.py is this codebase's largest, most heavily-relied-upon, already-audited "
-        "write path (ops_ic_shrinkage.py's own docstring already calls this out: 'keeps "
-        "ic_engine.py's large, already-audited write path untouched'), and bracketing its "
-        "two write paths deserves a focused follow-up session with its own testing, not a "
-        "rushed edit folded into an unrelated sweep. Tracked as its own todo -- remove this "
-        "entry once that lands."
+        "PERMANENT: two raw UPDATE feature_ic_scores call sites (_FEATURE_STATUS_REFRESH_SQL "
+        "and the bh_adjusted_p/passes_fdr executemany() pass), both genuinely exposed to the "
+        "same forced-full-scan cost as every other entry here -- deliberately deferred out of "
+        "the 2026-08-14 sweep that added this guard (ic_engine.py is this codebase's largest, "
+        "most heavily-relied-upon, already-audited write path, deserving its own focused "
+        "session), fixed 2026-08-20 (todo 307): both wrapped in "
+        "compressed_hypertable_write_session, same pattern as the three entries above. Stays "
+        "on the allow-list, not removed -- wrapping the write in a session doesn't remove the "
+        "literal 'UPDATE feature_ic_scores' text this guard's regex matches, same as the three "
+        "already-wrapped PERMANENT entries above."
     ),
     "src/intelligence/features/feature_vector_persistence.py": (
         "PERMANENT: comment only (documents regime_writer.py's write behavior for the "

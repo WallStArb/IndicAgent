@@ -31,6 +31,15 @@ from scripts.ops.corpus.ops_regime_null_out_and_verify import (
     _run_verify_post_null,
     _run_verify_post_relabel,
 )
+from tests.unit._compressed_hypertable_write_session_fakes import (
+    WRITE_SESSION_ENTRY_RESPONSES as _WRITE_SESSION_ENTRY_RESPONSES,
+)
+from tests.unit._compressed_hypertable_write_session_fakes import (
+    WRITE_SESSION_EXIT_RESPONSES as _WRITE_SESSION_EXIT_RESPONSES,
+)
+from tests.unit._compressed_hypertable_write_session_fakes import (
+    ScriptedConn as _ScriptedConn,
+)
 
 _REGIME_VOLATILITY_FAMILY = _COLUMN_FAMILIES["regime_volatility"]
 
@@ -38,97 +47,15 @@ _MODULE = "scripts.ops.corpus.ops_regime_null_out_and_verify"
 
 
 # ---------------------------------------------------------------------------
-# Scripted fake connection -- replays responses in call order
+# Scripted fake connection -- replays responses in call order. _ScriptedConn/
+# _ScriptedCursor/_WRITE_SESSION_*_RESPONSES imported above (todo 307: extracted to
+# tests/unit/_compressed_hypertable_write_session_fakes.py once a second caller needed
+# this exact fake).
 # ---------------------------------------------------------------------------
-
-
-class _ScriptedCursor:
-    def __init__(self, conn: _ScriptedConn) -> None:
-        self._conn = conn
-        self._response: dict = {}
-
-    def __enter__(self) -> _ScriptedCursor:
-        return self
-
-    def __exit__(self, exc_type, exc, tb) -> bool:
-        return False
-
-    def execute(self, sql: str, params: tuple | None = None) -> None:
-        self._conn.calls.append((sql, params))
-        self._response = self._conn.pop_response()
-
-    def fetchone(self):
-        return self._response.get("fetchone")
-
-    def fetchall(self):
-        # todo 318: compressed_hypertable_write_session's combined statement_timeout +
-        # idle_session_timeout APR lookup reads via fetchall(), not fetchone() -- default
-        # empty (no APR rows scripted) so the session falls back to its own defaults,
-        # same shape as _mock_sync_conn in tests/unit/test_batch_utils.py.
-        return self._response.get("fetchall", [])
-
-    @property
-    def rowcount(self) -> int:
-        return self._response.get("rowcount", 0)
-
-
-class _ScriptedConn:
-    def __init__(self, responses: list[dict] | None = None) -> None:
-        self.calls: list[tuple[str, tuple | None]] = []
-        self.commits = 0
-        self.rollbacks = 0
-        self.closed = False
-        self.autocommit = False
-        self._responses = list(responses or [])
-        self._idx = 0
-
-    def cursor(self) -> _ScriptedCursor:
-        return _ScriptedCursor(self)
-
-    def commit(self) -> None:
-        self.commits += 1
-
-    def rollback(self) -> None:
-        self.rollbacks += 1
-
-    def close(self) -> None:
-        self.closed = True
-
-    def pop_response(self) -> dict:
-        if self._idx < len(self._responses):
-            resp = self._responses[self._idx]
-        else:
-            resp = {}
-        self._idx += 1
-        return resp
 
 
 def _update_calls(conn: _ScriptedConn) -> list[tuple[str, tuple | None]]:
     return [c for c in conn.calls if "UPDATE feature_vectors" in c[0]]
-
-
-# compressed_hypertable_write_session's fixed call sequence (services/_batch_utils.py) --
-# every test that runs a real (non-empty) write session prepends/appends these, so the
-# session's own internals only need updating in one place if its call shape changes again
-# (as it did 2026-08-14, twice in the same session: the statement_timeout override was
-# added, then the config lookup it added was rescoped from a full-table load to a single
-# key; and again 2026-08-15, todo 318: idle_session_timeout/idle_in_transaction_session_
-# timeout overrides added, then the whole 3-GUC set (statement_timeout included) collapsed
-# from 3 separate SHOW/SET pairs into one combined current_setting()/set_config() round
-# trip per direction -- see _SESSION_GUC_OVERRIDES and compressed_hypertable_write_
-# session's docstring for what each call is).
-_WRITE_SESSION_ENTRY_RESPONSES: list[dict] = [
-    {"fetchall": []},  # compression-policy-jobs lookup (todo 314; no rows -> none found)
-    {"fetchall": []},  # combined _SESSION_GUC_OVERRIDES APR key lookup (no rows -> defaults)
-    {"fetchone": ("30min", "1h", "1h")},  # combined current_setting() read, all 3 GUCs
-    {},  # combined set_config() override, all 3 GUCs
-    {"rowcount": 0},  # decompress-all (0 chunks)
-]
-_WRITE_SESSION_EXIT_RESPONSES: list[dict] = [
-    {"rowcount": 0},  # compress-all
-    {},  # VACUUM
-    {},  # combined set_config() restore, all 3 GUCs
-]
 
 
 # ---------------------------------------------------------------------------

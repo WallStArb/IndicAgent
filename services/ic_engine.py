@@ -98,6 +98,7 @@ from services._batch_utils import (
     make_worker_pool,
     short_lived_conn,
 )
+from services._batch_utils import compressed_hypertable_write_session as _write_session
 from services._batch_utils import load_config_service_sync as _load_config_service
 from src.config.settings import Settings
 from src.core.agent.base_batch import BaseBatch
@@ -4051,35 +4052,42 @@ def _backfill_bh_fdr(
         for i, row in enumerate(pending)
     ]
 
-    with conn.cursor() as cur:
-        # Ported from psycopg2.extras.execute_values' single UPDATE-FROM-(VALUES)
-        # statement to a plain per-row UPDATE via executemany() -- psycopg has no
-        # direct equivalent of execute_values' inlined multi-row VALUES-list trick.
-        # executemany() batches internally in psycopg 3.1+ ("Performance of
-        # Cursor.executemany() has been improved using batch mode internally" per
-        # psycopg's own changelog), so this isn't a naive N-roundtrip regression.
-        cur.executemany(
-            """
-            UPDATE feature_ic_scores
-            SET bh_adjusted_p = %s, passes_fdr = %s
-            WHERE feature_name = %s AND symbol = %s AND tf = %s AND regime = %s
-                AND lookahead_bars = %s AND training_window_end = %s
-            """,
-            [
-                (
-                    u["bh_adjusted_p"],
-                    u["passes_fdr"],
-                    u["feature_name"],
-                    u["symbol"],
-                    u["tf"],
-                    u["regime"],
-                    u["lookahead_bars"],
-                    training_window_end,
-                )
-                for u in updates
-            ],
-        )
-    conn.commit()
+    # feature_ic_scores is a compressed hypertable -- this UPDATE is corpus-wide
+    # within training_window_end (every pending cluster-representative row for the
+    # run), the same forced-full-decompress-scan exposure every other writer against
+    # this table was already fixed for (todo 307). Only the write below needs the
+    # bracket -- the SELECT above reads fine against compressed chunks, no decompress
+    # required for that.
+    with _write_session(conn, "feature_ic_scores"):
+        with conn.cursor() as cur:
+            # Ported from psycopg2.extras.execute_values' single UPDATE-FROM-(VALUES)
+            # statement to a plain per-row UPDATE via executemany() -- psycopg has no
+            # direct equivalent of execute_values' inlined multi-row VALUES-list trick.
+            # executemany() batches internally in psycopg 3.1+ ("Performance of
+            # Cursor.executemany() has been improved using batch mode internally" per
+            # psycopg's own changelog), so this isn't a naive N-roundtrip regression.
+            cur.executemany(
+                """
+                UPDATE feature_ic_scores
+                SET bh_adjusted_p = %s, passes_fdr = %s
+                WHERE feature_name = %s AND symbol = %s AND tf = %s AND regime = %s
+                    AND lookahead_bars = %s AND training_window_end = %s
+                """,
+                [
+                    (
+                        u["bh_adjusted_p"],
+                        u["passes_fdr"],
+                        u["feature_name"],
+                        u["symbol"],
+                        u["tf"],
+                        u["regime"],
+                        u["lookahead_bars"],
+                        training_window_end,
+                    )
+                    for u in updates
+                ],
+            )
+        conn.commit()
     return updates
 
 
@@ -5372,29 +5380,37 @@ def main() -> None:
             if status_only_stale_cs_cells:
                 refresh_symbols.append(_CROSS_SECTIONAL_SYMBOL)
             if refresh_symbols:
-                with conn.cursor() as cur:
-                    cur.execute(
-                        _FEATURE_STATUS_REFRESH_SQL,
-                        {"symbols": refresh_symbols, "training_window_end": training_window_end},
-                    )
-                    n_status_rows_refreshed = cur.rowcount
-                fp_refresh_rows = [
-                    _fp_row(symbol, tf, pass_type, training_window_end, fp)
-                    for symbol in symbols_status_only_stale
-                    for (tf, pass_type), fp in current_fp_cache[symbol].items()
-                ] + [
-                    _fp_row(
-                        cell["cs_symbol_key"],
-                        cell["tf"],
-                        "cross_sectional",
-                        training_window_end,
-                        cell["current_fp"],
-                    )
-                    for cell in status_only_stale_cs_cells
-                ]
-                with conn.cursor() as cur:
-                    cur.executemany(_FINGERPRINT_UPSERT_SQL, fp_refresh_rows)
-                conn.commit()
+                # feature_ic_scores is a compressed hypertable -- this UPDATE can hit
+                # already-compressed chunks from older training_window_end values, the
+                # same forced-full-decompress-scan exposure every other writer against
+                # this table was already fixed for (todo 307).
+                with _write_session(conn, "feature_ic_scores"):
+                    with conn.cursor() as cur:
+                        cur.execute(
+                            _FEATURE_STATUS_REFRESH_SQL,
+                            {
+                                "symbols": refresh_symbols,
+                                "training_window_end": training_window_end,
+                            },
+                        )
+                        n_status_rows_refreshed = cur.rowcount
+                    fp_refresh_rows = [
+                        _fp_row(symbol, tf, pass_type, training_window_end, fp)
+                        for symbol in symbols_status_only_stale
+                        for (tf, pass_type), fp in current_fp_cache[symbol].items()
+                    ] + [
+                        _fp_row(
+                            cell["cs_symbol_key"],
+                            cell["tf"],
+                            "cross_sectional",
+                            training_window_end,
+                            cell["current_fp"],
+                        )
+                        for cell in status_only_stale_cs_cells
+                    ]
+                    with conn.cursor() as cur:
+                        cur.executemany(_FINGERPRINT_UPSERT_SQL, fp_refresh_rows)
+                    conn.commit()
                 _logger.info(
                     "ic_engine.feature_status_refresh",
                     n_symbols_status_only_stale=len(symbols_status_only_stale),

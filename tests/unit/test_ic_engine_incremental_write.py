@@ -19,8 +19,11 @@ whatever rows are currently pending (passes_fdr IS NULL) rather than by in-memor
 bookkeeping from a single process invocation. This is safe to rerun after a crash
 regardless of which run wrote the pending rows.
 
-No DB, no Kafka. Fake cursor/connection doubles for _backfill_bh_fdr's SQL
-interaction; signature/docstring/source inspection for the rest.
+No DB, no Kafka. Scripted fake connection/cursor for _backfill_bh_fdr's SQL
+interaction (todo 307: the write half now runs inside
+compressed_hypertable_write_session, so the fake must play back that session's fixed
+call sequence too -- see tests/unit/_compressed_hypertable_write_session_fakes.py);
+signature/docstring/source inspection for the rest.
 """
 
 from __future__ import annotations
@@ -35,78 +38,45 @@ if str(_project_root) not in sys.path:
     sys.path.insert(0, str(_project_root))
 
 import services.ic_engine as ic_module
-
-# ---------------------------------------------------------------------------
-# Fakes for _backfill_bh_fdr
-# ---------------------------------------------------------------------------
-
-
-class _FakeBackfillCursor:
-    def __init__(self, conn: _FakeBackfillConn):
-        self.conn = conn
-        self._rows: list[tuple] = []
-
-    def __enter__(self):
-        return self
-
-    def __exit__(self, *exc_info):
-        return False
-
-    def execute(self, sql: str, params: tuple | None = None) -> None:
-        self.conn.executed_sql.append(sql)
-        self.conn.executed_params.append(params)
-        if "passes_fdr IS NULL" in sql:
-            self._rows = list(self.conn.pending_rows)
-        else:
-            self._rows = []
-
-    def executemany(self, sql: str, argslist) -> None:
-        self.conn.executemany_calls.append((sql, list(argslist)))
-
-    def fetchall(self):
-        return self._rows
-
-
-class _FakeBackfillConn:
-    """Simulates enough of a psycopg connection for _backfill_bh_fdr."""
-
-    def __init__(self, pending_rows: list[tuple]):
-        self.pending_rows = pending_rows
-        self.executed_sql: list[str] = []
-        self.executed_params: list[tuple | None] = []
-        self.executemany_calls: list[tuple[str, list]] = []
-        self.committed = False
-
-    def cursor(self):
-        return _FakeBackfillCursor(self)
-
-    def commit(self):
-        self.committed = True
-
+from tests.unit._compressed_hypertable_write_session_fakes import (
+    WRITE_SESSION_ENTRY_RESPONSES,
+    WRITE_SESSION_EXIT_RESPONSES,
+    ScriptedConn,
+)
 
 _TWE = datetime(2026, 7, 17, tzinfo=UTC)
+
+
+def _update_calls(conn: ScriptedConn) -> list[tuple[str, tuple | None]]:
+    return [c for c in conn.calls if "UPDATE feature_ic_scores" in c[0]]
 
 
 def test_backfill_bh_fdr_queries_only_pending_rows():
     """The SELECT must scope to this training_window_end and passes_fdr IS NULL --
     non-representative rows (already locked to passes_fdr=False at compute time)
-    must never be re-touched."""
-    conn = _FakeBackfillConn(pending_rows=[])
+    must never be re-touched. Nothing pending -> returns before the write session
+    ever opens, so only the initial SELECT's response is scripted."""
+    conn = ScriptedConn(responses=[{"fetchall": []}])
 
     updates = ic_module._backfill_bh_fdr(conn, _TWE, fdr_alpha=0.05)
 
     assert updates == []
-    assert any("passes_fdr IS NULL" in sql for sql in conn.executed_sql)
-    assert any("training_window_end" in sql for sql in conn.executed_sql)
-    # Nothing pending -> no UPDATE attempted, no wasted round trip.
-    assert conn.executemany_calls == []
-    assert conn.committed is False
+    sql, params = conn.calls[0]
+    assert "passes_fdr IS NULL" in sql
+    assert "training_window_end" in sql
+    # Nothing pending -> no UPDATE attempted, no wasted round trip, no write
+    # session opened at all.
+    assert _update_calls(conn) == []
+    assert conn.commits == 0
 
 
 def test_backfill_bh_fdr_applies_one_corpus_wide_multipletests_call():
     """10 low-p, 190 null-p representative rows (mirrors
     test_ensemble_ic_bh_fdr's synthetic split) -- exactly 10 must pass BH-FDR,
-    and the UPDATE payload must carry those precise pass/fail labels."""
+    and the UPDATE payload must carry those precise pass/fail labels. The write
+    runs inside compressed_hypertable_write_session (todo 307) -- responses list
+    is [pending-rows SELECT] + [write-session entry] + [the UPDATE itself] +
+    [write-session exit]."""
     import numpy as np
 
     rng = np.random.default_rng(11)
@@ -114,7 +84,12 @@ def test_backfill_bh_fdr_applies_one_corpus_wide_multipletests_call():
     high_p = np.full(190, 0.5)
     pvals = np.concatenate([low_p, high_p]).tolist()
     pending_rows = [(f"feat_{i}", "SPY", "5m", "_pooled", 1, pvals[i]) for i in range(len(pvals))]
-    conn = _FakeBackfillConn(pending_rows)
+    conn = ScriptedConn(
+        responses=[{"fetchall": pending_rows}]
+        + WRITE_SESSION_ENTRY_RESPONSES
+        + [{}]  # the executemany() UPDATE itself -- no result read afterward
+        + WRITE_SESSION_EXIT_RESPONSES
+    )
 
     updates = ic_module._backfill_bh_fdr(conn, _TWE, fdr_alpha=0.05)
 
@@ -123,7 +98,7 @@ def test_backfill_bh_fdr_applies_one_corpus_wide_multipletests_call():
     assert n_passing == 10
     assert all(u["passes_fdr"] for u in updates[:10])
     assert not any(u["passes_fdr"] for u in updates[10:])
-    assert conn.committed is True
+    assert conn.commits > 0
 
     # Exactly one batched executemany() call carrying every pending row (ported
     # from psycopg2.extras.execute_values' single UPDATE-FROM-VALUES statement
