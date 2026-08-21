@@ -1,7 +1,8 @@
 ---
-status: pending
+status: closed
 priority: P3
 filed: 2026-08-03
+closed: 2026-08-21
 source: code-reviewer subagent review of todo 241's live-path fix, finding #6
 ---
 
@@ -50,3 +51,26 @@ documented negative result and no live consumer -- CLAUDE.md's "don't accelerate
   `ctf_momentum`, same bug class
 - [todo 189](../completed/189-ctf-momentum-1d-self-referential-htf-not-cross-timeframe.md) --
   records both features as rejected, closing note
+
+## Resolution (2026-08-21): re-verified, decision confirmed unchanged, closed
+
+Re-ran the grep this todo's own claim depends on before trusting it, per this project's
+"verify then delete, don't flag" discipline -- 6+ weeks had passed since filing, long
+enough for the ensemble-eligibility or concept-registry landscape to have shifted.
+
+`grep -rn "ctf_vwap_align\|ctf_regime_align" src/ services/ scripts/` (excluding tests):
+every hit is either (a) plumbing -- `feature_factory.py`/`feature_cache.py`/`schemas.py`/
+`feature_vector_persistence.py`/`backfill_feature_factory.py`, the dataclass/column
+definition and pass-through, no decision logic -- or (b) a diagnostic/analysis script
+(`nonlinear_interaction_combiner_ctf_leak_diagnostic_{5m,15m,1h}.py`,
+`ops_ctf_columns_recompute_15m.py`) that explicitly *excludes* both columns from its
+training matrix, the opposite of treating them as a live signal. **Zero references in
+`services/ensemble_trainer.py` or `src/intelligence/concept_registry_service.py`** --
+confirmed directly, not inferred. No live consumer exists today, same as 2026-08-03.
+
+Decision stands: not worth wiring live computation speculatively for two features with a
+documented negative result (todo 189) and no live consumer. Closing as a confirmed
+no-action decision, not deferred work -- if either feature is ever resurrected for a new
+construction, the fix shape this file already describes (extend
+`_update_ctf_cache_from_htf_bar`, reuse `_build_ctf_series`'s existing logic) is still the
+right one to reach for.
