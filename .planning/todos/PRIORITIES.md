@@ -263,6 +263,16 @@ Full `tests/unit/` green (6 new tests), ruff/black clean. Full evidence + one do
 behavior-shape trade-off (silent fallback replaces hard-crash on a broken group) in
 `completed/329-...md`.
 
+**328 CLOSED 2026-08-21, row removed.** Executed all 4 confirmed-dead deletions
+(re-verified live first), plus found and handled 2 scope gaps the original filing
+missed (a dangling `__init__.py` re-export that would've broken the package import, a
+second test file directly reading the deleted module's source). Deleting the dead file
+cascaded into 12 new vulture findings in sibling files -- real evidence the broader
+`src/intelligence/pipeline/` package has more dead code than this todo scoped to find,
+whitelisted with a note pointing at todo 223 (the actual audit for that question)
+rather than re-litigated here. Full `tests/unit/` green, vulture exit 0. Full evidence
+in `completed/328-...md`.
+
 **315 CLOSED 2026-08-21, row removed.** Trigger identified:
 `setup_service_logging()`'s `RotatingFileHandler(maxBytes=10MB)` is a size-based rotation
 completely independent of the daily `logrotate.timer` -- the ~7-15min cadence was just
@@ -402,7 +412,6 @@ change. Full detail in `completed/322-...md`.
 | [299](pending/299-reset-pipeline-data-ts-single-letter-helper.md) | New 2026-08-11, found by two `/simplify` altitude-agent passes on todo 297's fix (repo-wide greps to confirm 297's scope was correctly bounded). Two same-shape `_ts()` violations outside `src/api/`, not caught by naming-system.md's original authoring pass: `infrastructure_reset_pipeline_data.py:286` and `tests/unit/intelligence/test_smc_amd_cycle.py:168`. Same fix shape as 297. |
 | [321](pending/321-feature-factory-config-test-fixture-consolidation.md) | New 2026-08-15, found by `/simplify`'s altitude review of todo 320 (Velocity Primitives Extension). No shared `FeatureFactoryConfig` test builder exists — 15+ files hand-type the full ~95-kwarg literal independently, so every new config field (this is at least the 6th time) requires the same mechanical edit replayed across all of them. Fails loudly (missing-kwarg `TypeError`) if forgotten, not silently — not urgent, but worth doing before the next field-adding phase. |
 | [324](pending/324-gradient-vocabulary-naming-check-unenforced.md) | New 2026-08-15, found via user Q&A tracing fast/mid/slow naming against APR/ITR/CVR/UCR. naming-system.md §7's gradient-scale-vocabulary table (widely used across Feature Factory primitives) has zero CI/pre-commit enforcement - only Check 3 (Ring 0 boundary) of the doc's own 5 proposed checks is actually wired into `ci.yml`. **Revised twice 2026-08-15**: settled on a CVR `gradient_scale` namespace under the new D-07 admission criterion (todo 326's grep found concrete self-drift among Python-only CVR consumers, justifying the criterion) rather than a standalone module. Needs `VocabularyDriftAuditor`'s `has_live_source` distinction designed first. **330 (its sequencing blocker) CLOSED 2026-08-20** (row corrected 2026-08-21 -- was still linking `pending/330-...`, a broken path since 330 moved to `completed/`) -- `src/core/timeframe_vocabulary.py` → `src/core/vocabulary_access.py`, `codes(namespace, default)` primitive live. The sync-context read module this todo would have duplicated already exists; unblocked, no longer waiting on 330. |
-| [328](pending/328-timeframe-dead-code-found-during-327-investigation.md) | **Missing from this file entirely until 2026-08-21** (this session's drift audit). New 2026-08-15, split out of todo 327's timeframe-CVR consolidation work -- 4 of the 9 originally-listed `timeframe`-tuple call sites turned out to be dead code, not live scatter needing consolidation: a whole orphaned v2.x file (`feature_pipeline_executor.py`, misidentified as live due to a name collision with the genuinely-live `feature_vector_pipeline.py`), two zero-importer module constants (`bar_history.py::_STANDARD_TFS`, `service_utils.py::CROSS_ASSET_VALID_TFS`), and a shadowed-by-package bare file (`src/intelligence/utils.py`, unreachable since Python's `PathFinder` resolves the same-named `utils/` package first). Standard dead-code removal, zero runtime impact, batch with a future `/simplify` pass rather than a dedicated session. |
 
 ---
 

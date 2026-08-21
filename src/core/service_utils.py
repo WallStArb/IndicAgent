@@ -78,9 +78,6 @@ def tf_to_seconds(tf: str) -> int:
 # For all higher TFs ts is the period start; close = ts + duration.
 TF_DURATIONS: dict[str, int] = {"5m": 300, "15m": 900, "1h": 3600, "4h": 14400, "1d": 86400}
 
-# Timeframes published by cross_asset_service — shared by all pipeline services
-CROSS_ASSET_VALID_TFS: frozenset[str] = frozenset({"1m", "5m", "15m", "1h"})
-
 # Per-TF signal TTL (bars). Lifecycle evaluation window per timeframe.
 # 1m=20 min, 5m=60 min, 15m=2 hr, 1h=6 hr.
 # Single source of truth — imported by signal_generator_service and lifecycle_replay.

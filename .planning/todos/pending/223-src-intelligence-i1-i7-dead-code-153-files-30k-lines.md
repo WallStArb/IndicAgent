@@ -158,3 +158,15 @@ action needed unless the ingestion-resume/v2.x-revival call above changes.
 **Confirmed NOT in scope** (checked same pass, live v3.0 tables, left alone):
 `debug_analyze_feature_ic.py` (`feature_ic_scores`), `debug_bic_k_selection.py`
 (`feature_vectors`), `debug_memory_recall_benchmark.py` (no DB table references).
+
+**New lead, 2026-08-21 (from closing todo 328):** deleting
+`src/intelligence/pipeline/feature_pipeline_executor.py` (confirmed dead, zero live
+instantiation) exposed 12 new `vulture` findings in its sibling files
+(`signal_processor.py`, `state_manager.py`, `executor.py`) -- functions/methods only
+reachable through call chains running through the now-deleted file, invisible to
+static analysis until that entry point was gone. Whitelisted rather than deleted
+(todo 328 wasn't scoped to chase this), but it's a concrete, already-found starting
+point for this todo's own dead-code sweep of `src/intelligence/pipeline/` specifically
+-- worth checking those 12 names first rather than starting the package's audit from
+scratch. See `tools/vulture_whitelist.py`'s entries citing "todo 328"/"todo 223" and
+`completed/328-...md` for the full list.

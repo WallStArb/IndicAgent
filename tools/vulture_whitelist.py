@@ -123,7 +123,6 @@ compute_budget_ms  # unused variable (src/core/schemas/intelligence_journal.py:1
 provenance  # unused variable (src/core/schemas/intelligence_journal.py:24)
 abs_diff  # unused variable (src/core/schemas/parity.py:32)
 PLUGIN_METRICS_SAMPLE_RATE  # unused variable (src/core/service_utils.py:34)
-CROSS_ASSET_VALID_TFS  # unused variable (src/core/service_utils.py:80)
 model_config  # unused variable (src/intelligence/ai/context.py:61)
 model_config  # unused variable (src/intelligence/ai/context.py:109)
 trigger  # unused variable (src/intelligence/ai/context.py:115)
@@ -986,3 +985,15 @@ PluginValidator  # unused class (src/intelligence/plugin_validator.py:105)
 reset_vocabulary_service_for_test  # unused function (src/core/vocabulary_access.py:56) - test-only helper, real caller is tests/unit/core/test_vocabulary_access.py, invisible to vulture's src/services/scripts-only scan paths (todo 327 final review, renamed todo 330)
 _._vocabulary_service  # unused attribute (services/bar_writer.py:124) - written by _prewarm_timeframe_vocabulary(), read only in tests (asserted directly) after the /simplify pass folded its .initialize() call into vocabulary_access.prewarm(), removing the only production-code read
 _._vocabulary_service  # unused attribute (services/feature_vector_pipeline.py:208) - same as above
+_vix_symbol  # unused attribute (services/feature_vector_pipeline.py:240) - newly exposed by todo 328's deletion of src/intelligence/pipeline/feature_pipeline_executor.py; a real cascading-dead-code question for the broader I1-I7 audit (todo 223), not re-triaged here
+cross_asset_data  # unused variable (src/intelligence/pipeline/signal_processor.py:171) - same as above
+macro_data  # unused variable (src/intelligence/pipeline/signal_processor.py:172) - same as above
+htf_intel  # unused variable (src/intelligence/pipeline/signal_processor.py:173) - same as above
+insert_batch  # unused method (src/persistence/repository/feature_repository.py:104) - same as above
+get_all_states_for  # unused method (src/intelligence/pipeline/state_manager.py:103) - same as above
+get_lock  # unused method (src/intelligence/pipeline/state_manager.py:111) - same as above
+update_batch  # unused method (src/intelligence/pipeline/state_manager.py:138) - same as above
+to_dataframe  # unused method (src/core/bar_history.py:64) - same as above
+compute_vix_context  # unused function (src/intelligence/context/vix_context.py:19) - same as above
+run_tiers  # unused method (src/intelligence/pipeline/executor.py:640) - same as above
+run_i1  # unused method (src/intelligence/pipeline/executor.py:408) - same as above

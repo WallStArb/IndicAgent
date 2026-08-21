@@ -24,8 +24,6 @@ import pandas as pd
 
 from src.core.schemas.bar_message import BarMessage
 
-_STANDARD_TFS = ("1m", "5m", "15m", "1h")
-
 
 class BarHistory:
     """Per-(symbol, tf) deque store for completed bars.

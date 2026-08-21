@@ -9,10 +9,6 @@ from __future__ import annotations
 from src.intelligence.pipeline.cache_manager import CacheManager
 from src.intelligence.pipeline.calibrator import apply_calibration
 from src.intelligence.pipeline.executor import PluginExecutor
-from src.intelligence.pipeline.feature_pipeline_executor import (
-    FeaturePipelineExecutor,
-    FeaturePipelineResult,
-)
 from src.intelligence.pipeline.output_queue import OutputQueue
 from src.intelligence.pipeline.per_key_worker_manager import PerKeyWorkerManager
 from src.intelligence.pipeline.quality_gate import apply_quality_gate
@@ -34,8 +30,6 @@ __all__ = [
     "select_winner",
     "CacheManager",
     "CacheSnapshot",
-    "FeaturePipelineExecutor",
-    "FeaturePipelineResult",
     "OutputQueue",
     "PerKeyWorkerManager",
     "PluginExecutor",
