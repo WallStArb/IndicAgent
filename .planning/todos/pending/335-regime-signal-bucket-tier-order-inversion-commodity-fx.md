@@ -120,6 +120,22 @@ auto-launch the recompute and logs the failure tail for manual review instead.
 Check `logs/todo335_recompute_watcher.log` and `ps aux | grep ops_corpus_pipeline_run`
 for current status if picking this up in a new session.
 
+**Update 2026-08-21: original watcher (PID 2737924) found dead.** Confirmed via `ps` (not
+present) and its log (0 bytes, mtime 2026-08-20 12:43 — never wrote a single line). `disown`
+alone apparently didn't survive whatever ended that terminal/session; the exact cause wasn't
+investigated further, not worth the time against a one-line fix. Also found
+`logs/corpus_pipeline_resume_regimefix_20260819.log` (the file the dead watcher's design was
+going to tail for the `Pipeline complete` banner) itself truncated to 0 bytes with a recent
+mtime — same unexpected-log-rotation shape as todo 315's `regime_writer.log` finding, would
+have broken the banner-detection approach even if the watcher had survived.
+
+Relaunched: `scripts/ops/corpus/watch_todo335_recompute.sh` (new file, `setsid`-detached this
+time, PID 3892989), polls `kill -0` on wrapper PID 1887017 every 5 min instead of a log tail,
+and gates the `--from-step 4` launch on `alpha_ensemble_ic` having fresh rows (DB-visible
+success signal) instead of a log banner — avoids the same rotation trap. If PID 3892989 is
+also gone when this is next checked, don't relaunch blindly a third time; check whether the
+underlying run (1887017) already finished and just recompute manually instead.
+
 ## References
 
 - `services/cross_sectional_regime_model.py:196-244` — `_bucket()`, `_assign_labels()`

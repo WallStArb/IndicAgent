@@ -158,16 +158,36 @@ FROM feature_vectors` before citing completion. This run also finally advances
 that gap, not the regime columns, is what's actually blocking the three research threads above
 now. Full detail: `project_disk_full_incident_2026_08_13` memory, todo 306.
 
-**UPDATE 2026-08-21: corpus rerun's `ic_engine.py` step (5/8) is nearly done -- 223/231 symbols
-as of 10:12:54 UTC (up from 127/231 at 2026-08-20 14:52 UTC), still running (same PID 1887176 +
-8-worker `ProcessPoolExecutor` pool, `--training-window-end 2025-12-24`, alive since Aug19, no
-errors in the log). `feature_ic_scores` now has 5.89M rows across 224 distinct symbols. At the
-recent ~15-25min/symbol pace, the remaining 8 symbols should finish within a few hours. Three
-steps remain after this (`ic_shrinkage → ensemble_trainer → alpha_publisher`); `alpha_ensemble_ic`
-still 0 rows, confirming none of the three research threads gated on this run
-(`statistical_factor_residual`, todos 303/304) can proceed yet. Not a systemd unit -- check
-`ps aux | grep ic_engine.py` and `logs/ic_engine.log`'s `ic_engine.symbol_computed` progress
-field before citing current state.
+**UPDATE 2026-08-21 12:21 UTC: per-symbol pass of `ic_engine.py` (step 5/8) finished -- 231/231
+symbols, last one (`XOP`) completed 11:52:15 UTC.** Same run since Aug19 (PID 1887176 + 8-worker
+pool, `--training-window-end 2025-12-24`); `step_timings.jsonl` shows a *prior* step-5 attempt
+FAILED 2026-08-19T10:13:37Z after a 74h run (started 08-16) -- this is a from-`--from-step 5`
+relaunch the same day, now succeeding past where the prior one died. `feature_ic_scores`: 6.24M
+rows, 232 distinct symbol values (231 real + `POOLED`, 89,352 rows). Engine has now moved into
+the cross-sectional/regime-group stratification sub-phase (`ic_engine.cross_sectional_computed`
+log events, equity regime_group, iterating tf x regime cells -- 12 done as of 12:21 UTC, no known
+total cell count to project an ETA from). `ensemble_weights` (190 rows) and `alpha_events`
+(8.86M rows) still reflect the OLD 2026-08-02 run, not this one -- `alpha_ensemble_ic` is still 0
+rows, confirming steps 6-8 (`ic_shrinkage → ensemble_trainer → alpha_publisher`) haven't run yet
+and none of the three gated research threads (`statistical_factor_residual`, todos 303/304) can
+proceed yet. Not a systemd unit -- check `ps aux | grep ic_engine.py` and `logs/ic_engine.log`
+(`ic_engine.symbol_computed` / `ic_engine.cross_sectional_computed`) before citing current state.
+
+**UPDATE 2026-08-21 15:30 UTC, found during a `.planning/todos/PRIORITIES.md` drift audit: this
+run's commodity/fx cross-sectional cells are known-mislabeled and will need a second pass.**
+Todo 335 (filed 2026-08-19, self-tagged P0, never actually added to PRIORITIES.md until this
+audit caught it) found two of four `regime_signals` modules (`commodity_momentum_ts`,
+`fx_dollar_carry`) violate `_bucket()`'s required-ascending-sort contract, producing backwards
+tier labels live in `market_regimes`. Fix landed 2026-08-20 (`db98ac0a3`), but this run was
+launched with `--from-step 5`, which skips step 4 (`cross_sectional_regime_model.py`, the
+`market_regimes` writer) -- it is consuming the pre-fix mislabeled commodity/fx rows and will
+not self-correct. A detached watcher queued 2026-08-20 to auto-chain a `--from-step 4` recompute
+once this run finishes was found dead (process gone, log never written) and has been relaunched
+more robustly (`scripts/ops/corpus/watch_todo335_recompute.sh`, PID 3892989, polls process
+liveness + `alpha_ensemble_ic` freshness rather than a log-tail banner). **Equity-only readings
+from this run are unaffected and usable once it completes; do not treat commodity/fx
+cross-sectional results as final until the watcher's `--from-step 4` recompute also finishes.**
+Full detail: `.planning/todos/pending/335-regime-signal-bucket-tier-order-inversion-commodity-fx.md`.
 
 ---
 
