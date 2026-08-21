@@ -4352,7 +4352,11 @@ def _apply_feature_transitions(
             # prior bad run must have its streak actually reset to 0, or hysteresis
             # never lets go once a concept gets close to the floor.
             concept_svc.advance_active_counters_sync(
-                write_conn, domain="feature", name=feature_name, passed=run_passed
+                write_conn,
+                domain="feature",
+                name=feature_name,
+                passed=run_passed,
+                expected_status=status,
             )
 
             if not run_passed:
@@ -4416,6 +4420,7 @@ def _apply_feature_transitions(
                 name=feature_name,
                 passed=passed,
                 new_observations=new_observations,
+                expected_status=status,
             )
             if concept_svc.is_promotion_eligible(
                 feature_name,

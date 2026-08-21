@@ -385,7 +385,12 @@ def test_advance_shadow_counters_increments_on_pass_and_resets_on_fail(db: _Db) 
     service = ConceptRegistryService()
 
     service.advance_shadow_counters_sync(
-        db.conn, domain=_DOMAIN, name=name, passed=True, new_observations=300
+        db.conn,
+        domain=_DOMAIN,
+        name=name,
+        passed=True,
+        new_observations=300,
+        expected_status="shadow_only",
     )
     passes, observations = db.fetch_gate_row(name)
     assert passes == 2
@@ -394,11 +399,115 @@ def test_advance_shadow_counters_increments_on_pass_and_resets_on_fail(db: _Db) 
     # A failing run zeroes the pass streak but STILL adds observations (asymmetric,
     # deliberate in the ported original).
     service.advance_shadow_counters_sync(
-        db.conn, domain=_DOMAIN, name=name, passed=False, new_observations=300
+        db.conn,
+        domain=_DOMAIN,
+        name=name,
+        passed=False,
+        new_observations=300,
+        expected_status="shadow_only",
     )
     passes, observations = db.fetch_gate_row(name)
     assert passes == 0
     assert observations == 1100
+
+
+def test_advance_shadow_counters_stale_status_is_noop(db: _Db) -> None:
+    """Todo 337: the concept is actually 'active' (already promoted by a concurrent
+    writer since the caller's in-memory read) -- advancing shadow counters against a
+    stale expected_status='shadow_only' must not touch the row."""
+    name = db.make_concept(
+        status="active",
+        consecutive_shadow_passes=1,
+        observations_since_demotion=500,
+    )
+    service = ConceptRegistryService()
+
+    result = service.advance_shadow_counters_sync(
+        db.conn,
+        domain=_DOMAIN,
+        name=name,
+        passed=True,
+        new_observations=300,
+        expected_status="shadow_only",  # stale -- real status is 'active'
+    )
+
+    assert result is False
+    passes, observations = db.fetch_gate_row(name)
+    assert passes == 1
+    assert observations == 500
+
+
+# ---------------------------------------------------------------------------
+# advance_active_counters_sync
+# ---------------------------------------------------------------------------
+
+
+def test_advance_active_counters_increments_on_fail_and_resets_on_pass(db: _Db) -> None:
+    name = db.make_concept(status="active")
+    service = ConceptRegistryService()
+
+    service.advance_active_counters_sync(
+        db.conn, domain=_DOMAIN, name=name, passed=False, expected_status="active"
+    )
+    with db.conn.cursor() as cur:
+        cur.execute(
+            "SELECT g.consecutive_active_fails FROM concept_gate g "
+            "JOIN concept_registry r USING (concept_id) "
+            "WHERE r.domain = %s AND r.name = %s",
+            (_DOMAIN, name),
+        )
+        assert cur.fetchone()[0] == 1
+
+    service.advance_active_counters_sync(
+        db.conn, domain=_DOMAIN, name=name, passed=False, expected_status="active"
+    )
+    with db.conn.cursor() as cur:
+        cur.execute(
+            "SELECT g.consecutive_active_fails FROM concept_gate g "
+            "JOIN concept_registry r USING (concept_id) "
+            "WHERE r.domain = %s AND r.name = %s",
+            (_DOMAIN, name),
+        )
+        assert cur.fetchone()[0] == 2
+
+    # A passing run resets the fail streak to 0.
+    service.advance_active_counters_sync(
+        db.conn, domain=_DOMAIN, name=name, passed=True, expected_status="active"
+    )
+    with db.conn.cursor() as cur:
+        cur.execute(
+            "SELECT g.consecutive_active_fails FROM concept_gate g "
+            "JOIN concept_registry r USING (concept_id) "
+            "WHERE r.domain = %s AND r.name = %s",
+            (_DOMAIN, name),
+        )
+        assert cur.fetchone()[0] == 0
+
+
+def test_advance_active_counters_stale_status_is_noop(db: _Db) -> None:
+    """Todo 337: the concept is actually 'shadow_only' (already demoted by a
+    concurrent writer since the caller's in-memory read) -- advancing active counters
+    against a stale expected_status='active' must not touch the row."""
+    name = db.make_concept(status="shadow_only")
+    service = ConceptRegistryService()
+
+    result = service.advance_active_counters_sync(
+        db.conn,
+        domain=_DOMAIN,
+        name=name,
+        passed=False,
+        expected_status="active",  # stale -- real status is 'shadow_only'
+    )
+
+    assert result is False
+    with db.conn.cursor() as cur:
+        cur.execute(
+            "SELECT g.consecutive_active_fails FROM concept_gate g "
+            "JOIN concept_registry r USING (concept_id) "
+            "WHERE r.domain = %s AND r.name = %s",
+            (_DOMAIN, name),
+        )
+        assert cur.fetchone()[0] == 0
 
 
 # ---------------------------------------------------------------------------

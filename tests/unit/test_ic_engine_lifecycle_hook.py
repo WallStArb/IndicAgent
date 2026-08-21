@@ -278,19 +278,21 @@ class _FakeConceptRegistryService:
         conn.commit()
         return self.transition_return_value
 
-    def advance_shadow_counters_sync(self, conn, *, domain, name, passed, new_observations):
-        self.advance_calls.append((domain, name, passed, new_observations))
+    def advance_shadow_counters_sync(
+        self, conn, *, domain, name, passed, new_observations, expected_status
+    ):
+        self.advance_calls.append((domain, name, passed, new_observations, expected_status))
         conn.commit()
 
     def is_promotion_eligible(self, name, recovery_min_observations, recovery_min_passes):
         return self._concepts.get(name, {}).get("eligible", False)
 
-    def advance_active_counters_sync(self, conn, *, domain, name, passed):
+    def advance_active_counters_sync(self, conn, *, domain, name, passed, expected_status):
         """Todo 323 fake: tracks consecutive_active_fails the same shape the real
         ConceptRegistryService does, so a test can exercise real multi-run hysteresis
         by calling _apply_feature_transitions more than once against the same fake
         instance."""
-        self.active_advance_calls.append((domain, name, passed))
+        self.active_advance_calls.append((domain, name, passed, expected_status))
         concept = self._concepts.setdefault(name, {})
         concept["consecutive_active_fails"] = (
             0 if passed else concept.get("consecutive_active_fails", 0) + 1
@@ -540,7 +542,7 @@ class TestDemotionHysteresis:
         _run_lifecycle_hook(conn, concept, config, _T1, _make_manifest(tmp_path))
 
         assert concept.transition_calls == []
-        assert concept.active_advance_calls == [("feature", "featA", False)]
+        assert concept.active_advance_calls == [("feature", "featA", False, "active")]
         assert concept._concepts["featA"]["consecutive_active_fails"] == 1
 
     def test_second_consecutive_failing_run_demotes(self, tmp_path):
@@ -679,7 +681,7 @@ def test_promotion_when_eligible_zero_ensemble_weights_writes(tmp_path):
     call = concept.transition_calls[0]
     assert call[1:5] == ("featB", "shadow_only", "active", "promotion")
     # advance_shadow_counters_sync: passed = FDR-pass fraction test; new_observations = sum n_independent
-    assert concept.advance_calls == [("feature", "featB", True, 4000)]
+    assert concept.advance_calls == [("feature", "featB", True, 4000, "shadow_only")]
     assert not any(
         "INSERT INTO ensemble_weights" in sql or "UPDATE ensemble_weights" in sql
         for sql in conn.executed_sql
@@ -707,7 +709,7 @@ def test_no_promotion_when_ineligible(tmp_path):
 
     assert concept.transition_calls == []
     # Counters still advanced even when not (yet) eligible.
-    assert concept.advance_calls == [("feature", "featB", True, 4000)]
+    assert concept.advance_calls == [("feature", "featB", True, 4000, "shadow_only")]
 
 
 # ---------------------------------------------------------------------------
@@ -1110,7 +1112,7 @@ def test_lookahead_pinning_uses_only_mid_lookahead_rows(tmp_path):
     _run_lifecycle_hook(conn, concept, config, _T1, _make_manifest(tmp_path))
 
     assert concept.advance_calls == [
-        ("feature", "featB", True, 4000)
+        ("feature", "featB", True, 4000, "shadow_only")
     ]  # 4 real 5m-mid cells * 1000; the mis-tf'd 15m/lookahead=5 row (n=9999) must be excluded
 
 

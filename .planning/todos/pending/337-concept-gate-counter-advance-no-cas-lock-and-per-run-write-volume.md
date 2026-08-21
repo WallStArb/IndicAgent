@@ -59,8 +59,52 @@ calling `advance_active_counters_sync` inline per feature, then issue one batche
 `is_demotion_eligible`'s per-concept checks already read from the in-memory cache rather than the
 DB. Not urgent — no measured latency impact reported, corpus-run wall clock is dominated elsewhere.
 
+## Finding 3 fixed 2026-08-20
+
+Added `AND r.status = %s` to both `_ADVANCE_SHADOW_COUNTERS_SYNC_SQL` and
+`_ADVANCE_ACTIVE_COUNTERS_SYNC_SQL`, mirroring `record_transition_sync`'s own CAS UPDATE exactly.
+Both `advance_shadow_counters_sync`/`advance_active_counters_sync` gained a required
+`expected_status: str` kwarg, check `cur.rowcount` after the UPDATE, and treat 0 rows as a safe
+no-op: logged (`concept_registry.{shadow,active}_counters_advance_noop_sync`), in-memory cache left
+untouched (previously it would still mutate the cache even when the DB row didn't match), method
+returns `False` instead of `None`. `ic_engine.py`'s two call sites now pass `expected_status=status`
+explicitly (the same loop variable already governing which branch fired), not a default value.
+
+Fixed both sides together as the todo's own fix note specified (fixing only the new active-side
+path while leaving `advance_shadow_counters_sync` unlocked would have been an inconsistent
+half-fix of the same pattern).
+
+**Tests added:**
+- `tests/unit/test_concept_registry_service.py::test_sync_counter_advance_sqls_have_optimistic_lock`
+  — SQL-constant regression test, mirrors the existing `test_cas_promote_sql_has_optimistic_lock`
+  pattern. Also added `test_sync_transition_sql_has_optimistic_lock` for `_CAS_TRANSITION_SYNC_SQL`
+  itself, which had no such regression test despite already having the lock.
+- `tests/unit/test_ic_engine_lifecycle_hook.py` — `_FakeConceptRegistryService`'s two methods
+  updated to accept `expected_status`; 4 existing call-tuple assertions updated for the new arity.
+  Full 32-test file green.
+- `tests/integration/test_concept_registry_sync_lifecycle.py` — new
+  `test_advance_shadow_counters_stale_status_is_noop`,
+  `test_advance_active_counters_increments_on_fail_and_resets_on_pass` (genuinely new coverage --
+  the active-side counter had ZERO real-DB test coverage before this, only the fully-faked
+  lifecycle-hook tests), and `test_advance_active_counters_stale_status_is_noop`, modeled directly
+  on the existing `test_cas_stale_from_status_is_noop` pattern. **Not executed this session** --
+  the whole `tests/integration/` suite's session-scoped DB-rebuild fixture currently fails during
+  setup on a pre-existing, already-tracked bug (todo 293, filed 2026-08-10: migration 287's
+  `mid_cycle` tag used before `tag_vocabulary` seeds it), confirmed unrelated to this change and
+  present identically on `main` before this fix. These tests are correctly modeled on proven
+  sibling patterns but should be spot-checked once 293 is fixed.
+
+Full `tests/unit/` suite green (391+ tests, no regressions). Ruff/black clean.
+
+## Finding 4 - still open, deliberately deferred
+
+Not pursued this pass -- the todo's own text already flagged this as "not urgent... no measured
+latency impact reported, corpus-run wall clock is dominated elsewhere." Batching would need its
+own design pass (collecting `(feature_name, passed)` pairs across the loop, one bulk UPDATE via
+`bulk_update_by_key` or a `CASE...WHEN` VALUES-list), a larger and separately-reviewable change from
+the CAS-lock fix above. Left open in this file.
+
 ## Priority
 
-Not filed against PRIORITIES.md yet — low urgency, no correctness impact observed live, both
-findings are pre-existing-pattern-adjacent rather than novel regressions. Triage into P2/P3 at next
-PRIORITIES.md pass.
+Finding 3 (fixed): was P1, now closed. Finding 4 (open): P2/P3 -- no correctness impact, deliberately
+deferred, pick up opportunistically.

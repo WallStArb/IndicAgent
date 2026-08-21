@@ -310,7 +310,10 @@ def test_fdr_guard_runs_after_evidence_floor():
 # ---------------------------------------------------------------------------
 
 from src.intelligence.concept_registry_service import (
+    _ADVANCE_ACTIVE_COUNTERS_SYNC_SQL,
+    _ADVANCE_SHADOW_COUNTERS_SYNC_SQL,
     _CAS_PROMOTE_SQL,
+    _CAS_TRANSITION_SYNC_SQL,
     _GATE_CACHE_UPDATE_SQL,
     _GATE_PROMOTE_UPDATE_SQL,
     _LOAD_CONCEPT_SQL,
@@ -389,6 +392,26 @@ def test_cas_promote_sql_has_optimistic_lock():
     stale evaluator can never log a transition whose from_status never matched."""
     assert "AND status = " in _CAS_PROMOTE_SQL
     assert "UPDATE concept_registry" in _CAS_PROMOTE_SQL
+
+
+def test_sync_transition_sql_has_optimistic_lock():
+    """Same invariant as test_cas_promote_sql_has_optimistic_lock, sync path's
+    record_transition_sync (ic_engine.py's feature-domain caller)."""
+    assert "AND status = " in _CAS_TRANSITION_SYNC_SQL
+    assert "UPDATE concept_registry" in _CAS_TRANSITION_SYNC_SQL
+
+
+def test_sync_counter_advance_sqls_have_optimistic_lock():
+    """Todo 337: advance_shadow_counters_sync/advance_active_counters_sync mutate
+    concept_gate off a status the caller already read in-memory, same staleness
+    exposure record_transition_sync's own CAS guards against -- both UPDATEs must
+    carry a status check on concept_registry (joined via r) so a concurrent status
+    flip (a second in-flight corpus run, an operator override) makes the counter
+    advance a safe no-op instead of corrupting a streak for a status the concept
+    is no longer in."""
+    for sql in (_ADVANCE_SHADOW_COUNTERS_SYNC_SQL, _ADVANCE_ACTIVE_COUNTERS_SYNC_SQL):
+        assert "AND r.status = " in sql
+        assert "UPDATE concept_gate" in sql
 
 
 def test_transition_insert_sql_carries_corpus_build_ref():

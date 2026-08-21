@@ -356,7 +356,7 @@ _ADVANCE_SHADOW_COUNTERS_SYNC_SQL = """
         END,
         observations_since_demotion = g.observations_since_demotion + %s
     FROM concept_registry r
-    WHERE g.concept_id = r.concept_id AND r.domain = %s AND r.name = %s
+    WHERE g.concept_id = r.concept_id AND r.domain = %s AND r.name = %s AND r.status = %s
 """
 
 # Todo 323: demotion-side sibling of _ADVANCE_SHADOW_COUNTERS_SYNC_SQL above -- same
@@ -369,7 +369,7 @@ _ADVANCE_ACTIVE_COUNTERS_SYNC_SQL = """
             ELSE g.consecutive_active_fails + 1
         END
     FROM concept_registry r
-    WHERE g.concept_id = r.concept_id AND r.domain = %s AND r.name = %s
+    WHERE g.concept_id = r.concept_id AND r.domain = %s AND r.name = %s AND r.status = %s
 """
 
 # Todo 323: reset consecutive_active_fails on any transition INTO active, symmetric with
@@ -835,7 +835,8 @@ class ConceptRegistryService:
         name: str,
         passed: bool,
         new_observations: int,
-    ) -> None:
+        expected_status: str,
+    ) -> bool:
         """Advance a shadow_only concept's recovery counters after a corpus run.
 
         Mirrors FeatureRegistryService.advance_shadow_counters_sync exactly. Todo 323:
@@ -849,13 +850,32 @@ class ConceptRegistryService:
         commit. Not a bare `with conn:` -- see record_transition_sync's docstring
         for why (psycopg closes the connection on that exit; this caller-owned
         connection is reused across many concepts per run).
+
+        Optimistic-locked against expected_status (todo 337), mirroring
+        record_transition_sync's CAS UPDATE: if the concept's live status no longer
+        matches expected_status (e.g. a concurrent record_transition_sync already
+        flipped it since the caller's in-memory status read), the UPDATE matches zero
+        rows and is a safe no-op -- logged, not raised, and the in-memory cache is left
+        untouched rather than corrupted with a streak update for a status the concept
+        is no longer in. Returns True if the counters were actually advanced, False on
+        the no-op.
         """
         with conn.transaction():
             with conn.cursor() as cur:
                 cur.execute(
                     _ADVANCE_SHADOW_COUNTERS_SYNC_SQL,
-                    (passed, new_observations, domain, name),
+                    (passed, new_observations, domain, name, expected_status),
                 )
+                advanced = cur.rowcount > 0
+
+        if not advanced:
+            _logger.info(
+                "concept_registry.shadow_counters_advance_noop_sync",
+                domain=domain,
+                name=name,
+                expected_status=expected_status,
+            )
+            return False
 
         concept = self._concepts.get(name)
         if concept is not None:
@@ -875,6 +895,7 @@ class ConceptRegistryService:
             passed=passed,
             new_observations=new_observations,
         )
+        return True
 
     def advance_active_counters_sync(
         self,
@@ -883,7 +904,8 @@ class ConceptRegistryService:
         domain: str,
         name: str,
         passed: bool,
-    ) -> None:
+        expected_status: str,
+    ) -> bool:
         """Todo 323: advance an active concept's demotion fail-streak after a corpus run.
 
         Demotion-side sibling of advance_shadow_counters_sync above -- same shape,
@@ -896,10 +918,26 @@ class ConceptRegistryService:
         record_transition_sync(..., to_status="shadow_only").
 
         Not a bare `with conn:` -- see record_transition_sync's docstring for why.
+
+        Optimistic-locked against expected_status (todo 337) -- see
+        advance_shadow_counters_sync's docstring for the full rationale. Returns True
+        if the counters were actually advanced, False on the no-op.
         """
         with conn.transaction():
             with conn.cursor() as cur:
-                cur.execute(_ADVANCE_ACTIVE_COUNTERS_SYNC_SQL, (passed, domain, name))
+                cur.execute(
+                    _ADVANCE_ACTIVE_COUNTERS_SYNC_SQL, (passed, domain, name, expected_status)
+                )
+                advanced = cur.rowcount > 0
+
+        if not advanced:
+            _logger.info(
+                "concept_registry.active_counters_advance_noop_sync",
+                domain=domain,
+                name=name,
+                expected_status=expected_status,
+            )
+            return False
 
         concept = self._concepts.get(name)
         if concept is not None:
@@ -913,6 +951,7 @@ class ConceptRegistryService:
             name=name,
             passed=passed,
         )
+        return True
 
     def is_promotion_eligible(
         self,
