@@ -8,9 +8,11 @@ from __future__ import annotations
 
 import logging
 import re as _re
+import sys
 from datetime import UTC, datetime, timedelta
 from logging.handlers import RotatingFileHandler
 from pathlib import Path
+from types import TracebackType
 from typing import Any
 
 import structlog
@@ -280,12 +282,48 @@ def parse_training_window_end(raw: str) -> datetime:
 _configured_log_file: str | None = None
 
 
+def _log_uncaught_exception(
+    exc_type: type[BaseException],
+    exc_value: BaseException,
+    exc_tb: TracebackType | None,
+) -> None:
+    """`sys.excepthook` replacement installed by `setup_service_logging` (todo 315).
+
+    Python's default excepthook writes an uncaught exception's traceback straight to
+    `sys.stderr`, bypassing this module's `RotatingFileHandler` entirely -- if a shell
+    wrapper's own `>> logfile 2>&1` redirection (opened once at process start) is the
+    only thing capturing stderr, that traceback is lost the moment the app's own
+    rotation (`maxBytes=10MB`, hit organically by log volume on a busy run -- confirmed
+    root cause of `regime_writer.log`'s undocumented ~7-15min rotation cadence, todo 315)
+    renames the file out from under that stale shell-level fd. Routing through the
+    already-configured logger instead lands the traceback in whichever generation is
+    currently named `log_file` -- the file handler reopens by path on every rotation,
+    the shell redirect does not. Still calls the original hook afterward (preserves the
+    stderr print for a live terminal), so this only adds a durable second copy, not a
+    behavior change for anyone watching the process interactively.
+    """
+    if issubclass(exc_type, KeyboardInterrupt):
+        # Ctrl-C is operator-initiated, not a real crash -- don't log it as one.
+        _ORIGINAL_EXCEPTHOOK(exc_type, exc_value, exc_tb)
+        return
+    logging.getLogger("uncaught_exception").critical(
+        "Uncaught exception", exc_info=(exc_type, exc_value, exc_tb)
+    )
+    _ORIGINAL_EXCEPTHOOK(exc_type, exc_value, exc_tb)
+
+
+_ORIGINAL_EXCEPTHOOK = sys.excepthook
+
+
 def setup_service_logging(log_file: str, level: str = "INFO", backup_count: int = 3) -> None:
     """Configure structlog and stdlib logging for a service.
 
     Creates the log directory if it does not exist, attaches a
     10 MB rotating file handler, and applies the standard structlog
-    processor chain used by all IndicAgent services.
+    processor chain used by all IndicAgent services. Also installs a
+    `sys.excepthook` that routes uncaught exceptions through this same rotation-safe
+    handler (todo 315) -- the one gap a `RotatingFileHandler` alone doesn't close,
+    since Python's default crash-traceback path bypasses the logging system.
 
     Should be called once during service ``__init__``, before the first
     log statement.
@@ -322,4 +360,6 @@ def setup_service_logging(log_file: str, level: str = "INFO", backup_count: int 
         level=getattr(logging, level),
         handlers=[file_handler],
         format="%(message)s",
+        force=True,
     )
+    sys.excepthook = _log_uncaught_exception
