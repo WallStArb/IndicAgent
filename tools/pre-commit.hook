@@ -369,51 +369,13 @@ check_counterfactual_ledger() {
         grep -E '\.sql$' | \
         grep -E '(migrations?)/' || true)
 
-    if [ -z "$SQL_FILES" ]; then
-        echo "  OK No migration files changed"
-        return 0
-    fi
-
-    # Existing, already-legitimate ledger-shaped tables — not new drift.
-    ALLOWLIST='^(alpha_events|alpha_frames|signal_ledger|signal_events|trade_frames|trade_executions|llm_calls|config_history|concept_transition_log)$'
-
-    FAILURES_LOCAL=0
-    for file in $SQL_FILES; do
-        [ -f "${REPO_ROOT}/${file}" ] || continue
-
-        # Extract table names from CREATE TABLE statements (with or without IF NOT EXISTS)
-        TABLES=$(grep -ioE 'CREATE TABLE( IF NOT EXISTS)? [a-zA-Z_][a-zA-Z0-9_]*' "${REPO_ROOT}/${file}" | \
-            awk '{print $NF}')
-
-        for table in $TABLES; do
-            table_lc=$(echo "$table" | tr '[:upper:]' '[:lower:]')
-
-            if echo "$table_lc" | grep -qE "$ALLOWLIST"; then
-                continue
-            fi
-
-            if echo "$table_lc" | grep -qE '(_events|_frames|_claims|_occurrences|_outcomes|_ledger)$'; then
-                if grep -qE '^\s*--\s*LEDGER-EXCEPTION:' "${REPO_ROOT}/${file}"; then
-                    continue
-                fi
-                echo "  FAILED: new table '${table}' looks like a parallel claim/event ledger"
-                echo "    File: ${file}"
-                echo "    Rule: docs/research/canonical-simulator.md — counterfactual claims are"
-                echo "      alpha_frames rows; new shapes are frame_variants, not new tables."
-                echo "    Remediation: extend alpha_frames with a frame_variant instead, or if"
-                echo "      this table is genuinely a different concept, add a comment:"
-                echo "      -- LEDGER-EXCEPTION: <why this is not a frame_variant>"
-                FAILURES_LOCAL=$((FAILURES_LOCAL + 1))
-            fi
-        done
-    done
-
-    if [ $FAILURES_LOCAL -gt 0 ]; then
-        return 1
-    fi
-
-    echo "  OK No unjustified parallel ledger tables"
-    return 0
+    # Delegates to the shared script (todo 310) -- single source of truth with
+    # .github/workflows/ci.yml's mirror of this same check, same shape as
+    # check_plugin_invariants.sh's existing hook/CI split.
+    OUTPUT=$(echo "$SQL_FILES" | "${REPO_ROOT}/tools/check_counterfactual_ledger.sh")
+    STATUS=$?
+    echo "$OUTPUT" | sed 's/^/  /'
+    return $STATUS
 }
 
 # -----------------------------------------------------------------------------

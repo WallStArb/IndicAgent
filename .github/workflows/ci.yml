@@ -64,7 +64,8 @@ jobs:
   # Mirrors 4 of the 9 bash checks in tools/pre-commit.hook (the local git hook
   # is opt-in and --no-verify bypasses it entirely — this job is the only one
   # that actually gates every PR/push). Glossary + counterfactual-ledger checks
-  # (hook checks 8/9) are not mirrored here yet — same gap, tracked as todo 310.
+  # Checks 8/9 (glossary, counterfactual-ledger) mirrored 2026-08-21 (todo 310) --
+  # both need a PR-diff base rather than a full-repo scan, unlike guards 1-4.
   # No pip install needed — pure grep/find, runs in ~2s.
   # ---------------------------------------------------------------------------
   plugin-guards:
@@ -72,6 +73,11 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4.2.2
+        with:
+          # Full history, not the default shallow (depth-1) clone -- guards 8/9
+          # below diff against the PR base / previous push commit, which a
+          # shallow clone doesn't have available to diff against.
+          fetch-depth: 0
 
       # Guards 1-4 all delegate to tools/check_plugin_invariants.sh -- the
       # single source of truth shared with tools/pre-commit.hook's local,
@@ -98,6 +104,51 @@ jobs:
       - name: Ring 0 boundary
         run: |
           tools/check_plugin_invariants.sh ring0-boundary
+
+      # Guards 8-9 need "what changed in this PR/push", not a full-repo scan --
+      # a single shared base commit, computed once, so both steps diff against
+      # the same point. pull_request: the PR's base SHA. push: the commit
+      # before this push (github.event.before) -- 40 zeros on a ref's first-
+      # ever push, which git cat-file correctly rejects, falling back to the
+      # empty tree so the diff is still well-defined (treats every file in the
+      # initial push as "changed", the conservative/safe direction).
+      - name: Determine diff base
+        id: base
+        run: |
+          if [ "${{ github.event_name }}" = "pull_request" ]; then
+            BASE="${{ github.event.pull_request.base.sha }}"
+          else
+            BASE="${{ github.event.before }}"
+          fi
+          if [ -z "$BASE" ] || ! git cat-file -e "$BASE" 2>/dev/null; then
+            BASE=$(git hash-object -t tree /dev/null)
+          fi
+          echo "sha=$BASE" >> "$GITHUB_OUTPUT"
+
+      # tools/check_glossary.py is already the single source of truth the hook
+      # calls too -- no extraction needed, just the same script with a
+      # PR-diff-computed file list instead of the hook's staged-files list.
+      - name: Glossary enforcement
+        run: |
+          FILES=$(git diff --name-only --diff-filter=ACM "${{ steps.base.outputs.sha }}" HEAD -- '*.py' '*.md' \
+            | grep -vE '^docs/(ideas|plans)/archive/' || true)
+          if [ -z "$FILES" ]; then
+            echo "OK: no Python or Markdown files changed"
+            exit 0
+          fi
+          python3 tools/check_glossary.py $FILES
+
+      # Delegates to tools/check_counterfactual_ledger.sh -- extracted from
+      # pre-commit.hook's own inline bash (todo 310) into a shared script,
+      # same hook/CI split as guards 1-4 above, so this check doesn't become a
+      # second independently-copied regex the two call sites can drift apart
+      # on (the exact failure mode check_plugin_invariants.sh's docstring
+      # documents already happening once for guards 1-4).
+      - name: Counterfactual-ledger enforcement
+        run: |
+          FILES=$(git diff --name-only --diff-filter=ACM "${{ steps.base.outputs.sha }}" HEAD -- '*.sql' \
+            | grep -E '(migrations?)/' || true)
+          echo "$FILES" | tools/check_counterfactual_ledger.sh
 
   # ---------------------------------------------------------------------------
   # Unit Tests — 3454 tests, CI-clean (no live infra required).

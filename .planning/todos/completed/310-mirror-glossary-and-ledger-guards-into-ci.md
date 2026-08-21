@@ -1,5 +1,40 @@
 # 310 - Mirror glossary + counterfactual-ledger pre-commit checks into CI
 
+## Fixed 2026-08-21
+
+Both mirrored into the `plugin-guards` job in `.github/workflows/ci.yml`, gating every PR/push
+(no `continue-on-error`) same as guards 1-4.
+
+**Diff base**: added a shared "Determine diff base" step (`pull_request`: `github.event.pull_
+request.base.sha`; `push`: `github.event.before`, falling back to the canonical empty-tree SHA
+when neither resolves to a real commit -- e.g. a ref's first-ever push, where `before` is 40
+zeros). Required flipping the job's checkout from the default shallow clone to `fetch-depth: 0`
+-- a shallow clone doesn't have the base commit available to diff against, confirmed by testing
+both the empty-tree fallback and a real diff against `HEAD~1` locally before wiring.
+
+**Glossary (#8)**: no extraction needed -- `tools/check_glossary.py` was already the hook's own
+single source of truth; CI just computes the diff-scoped file list (`.py`/`.md`, excluding
+`docs/{ideas,plans}/archive/`, matching the hook's own exclusion) and passes it to the same
+script.
+
+**Counterfactual-ledger (#9)**: this one WAS duplicated logic (inline bash in the hook, no
+standalone script) -- extracted into `tools/check_counterfactual_ledger.sh`, same hook/CI split
+pattern `check_plugin_invariants.sh` already established for guards 1-4 (stdin-fed file list,
+single source of truth for what counts as a violation). `pre-commit.hook`'s own function now
+delegates to the new script instead of carrying its own copy of the CREATE-TABLE/allowlist/
+LEDGER-EXCEPTION logic -- avoids the exact "two independently-copied regexes drift apart"
+failure mode `check_plugin_invariants.sh`'s own docstring documents already happening once for
+guards 1-4 (30+ consecutive red CI runs, 2026-08-12 through 2026-08-16).
+
+**Verified**: extracted script tested against 4 cases directly (allowlisted table passes,
+ledger-suffixed table fails, `LEDGER-EXCEPTION` escape hatch works, no SQL files is a clean
+no-op) plus one live end-to-end run staging a real bad-shaped migration file in this repo and
+confirming the refactored hook function catches it (then unstaged/cleaned up, no test artifact
+committed). Diff-base logic verified against both the real previous commit (`HEAD~1`, correctly
+found the actual changed files from the prior commit) and the empty-tree fallback path. YAML
+syntax validated (`python3 -c "import yaml; yaml.safe_load(...)"`). Full `tests/unit/` suite
+green (unaffected -- no Python production code touched, only shell/YAML tooling).
+
 **Filed:** 2026-08-14
 **Source:** Same audit that surfaced the Ring 0 boundary CI gap (fixed directly this session, see
 `.github/workflows/ci.yml`'s "Ring 0 boundary" step). `tools/pre-commit.hook` runs 9 checks; before
