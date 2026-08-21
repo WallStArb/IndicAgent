@@ -254,7 +254,6 @@ separation test), not hygiene.
 |---|---|
 | [281](pending/281-systematic-dominance-and-volume-price-confirmation-as-feature-primitives.md) | New 2026-08-08, out of Phase 171's candidate-regime-axes test. Two real, null-arm-validated signals (idiosyncratic-vs-market co-movement, volume-price confirmation) should ship as plain `feature_vectors` columns, not HMM regime labels — identifiability for both is too narrow/fragile to trust as a discrete regime. |
 | [340](pending/340-ihf-5m-feature-compute-zero-row-positive-input-error.md) | New 2026-08-21, split out of todos 259/296's closure. `IHF`/`5m` has zero `feature_vectors` rows -- `"expected a positive input, got 0.0"` compute error, likely a `log()`/division call in `FeatureFactory.compute_batch` hitting a genuine zero (volume or price) on a specific bar for this thinly-traded sector ETF. Single symbol/tf, bounded blast radius, not investigated further yet. |
-| [346](pending/346-mypy-baseline-version-drift-false-positive-new-violations.md) | New 2026-08-21, found verifying todo 329's fix didn't introduce new mypy violations. Running CI's exact Mypy step locally reports ~70 false-positive "new" violations against files with zero relation to any recent change (e.g. `src/api/main.py`) -- strongly indicated to be mypy-version drift (`requirements.txt` pins a loose `mypy>=1.19.0` floor; locally installed is 2.3.0) between whatever version generated `.mypy-baseline.txt` and what's actually running. If confirmed, this gate is currently failing on every PR regardless of content -- exactly what todo 311 built the baseline mechanism to prevent. Not yet confirmed whether CI itself reproduces this (its `pip install` may resolve a different version than local). |
 
 **329 CLOSED 2026-08-21, row removed.** Migration 322 adds the `timeframe`/
 `intraday_plus_hourly` CVR group; `vocabulary_access.group_codes()` (new) repoints both
@@ -262,6 +261,13 @@ separation test), not hygiene.
 Full `tests/unit/` green (6 new tests), ruff/black clean. Full evidence + one documented
 behavior-shape trade-off (silent fallback replaces hard-crash on a broken group) in
 `completed/329-...md`.
+
+**346 CLOSED 2026-08-21, row removed -- hypothesis was WRONG, gate not broken.**
+The exact CI command (`mypy src/ --ignore-missing-imports | mypy-baseline filter`)
+against the real, already-committed baseline shows `new: 0`. The original "72 new"
+finding came from checking a single file instead of the whole tree -- mypy's own
+`note:` context differs by invocation scope, not baseline staleness. Full
+corrected finding in `completed/346-...md`.
 
 **328 CLOSED 2026-08-21, row removed.** Executed all 4 confirmed-dead deletions
 (re-verified live first), plus found and handled 2 scope gaps the original filing

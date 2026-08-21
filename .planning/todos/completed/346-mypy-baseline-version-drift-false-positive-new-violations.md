@@ -1,7 +1,8 @@
 ---
-status: pending
+status: closed
 priority: P2
 filed: 2026-08-21
+closed: 2026-08-21
 source: verifying todo 329's fix didn't introduce new mypy violations -- ran the exact
   CI command (`mypy src/ --ignore-missing-imports | mypy-baseline filter`) locally
 ---
@@ -69,3 +70,50 @@ Investigation: small (confirm the version-drift hypothesis, check CI's actual
 resolved mypy version). Fix: small if (a), medium if (b) (needs `mypy-baseline
 sync` re-run + review of what shrinks/grows in the regenerated baseline before
 committing it, per todo 311's own "should only shrink over time" invariant).
+
+## Closed 2026-08-21: hypothesis was WRONG -- gate is not broken
+
+Ran all 3 of the "not yet checked" scope items. The version-drift hypothesis this
+todo was filed on did not survive the actual check -- worth recording clearly
+since the filing itself asserted it as "strongly indicated."
+
+1. **CI's resolved mypy version confirmed**: `2.3.1` (even newer than the local
+   `2.3.0` this todo cited) -- checked via `gh run view --log-failed` on the most
+   recent CI run.
+2. **That CI run's actual failure was `vulture`, not mypy** -- the job never
+   reached the Mypy step at all (steps run sequentially in the same job; vulture
+   failing halted it first). This was an old, already-superseded commit (nothing
+   from this session has been pushed to `origin` yet, confirmed via
+   `git fetch origin main` showing it far behind local `main`) -- not evidence
+   either way for the mypy question.
+3. **`mypy-baseline sync` against the current `.mypy-baseline.txt`... except it
+   wrote to a *different*, undotted `mypy-baseline.txt` at repo root** (the
+   tool's own default output path, not the real `.mypy-baseline.txt` --
+   `--baseline-path` controls this explicitly, not just CWD-relative to the
+   dotted convention). First diff attempt compared the untouched real file
+   against itself (0 lines changed) and looked like confirmation of "no drift" --
+   that comparison was against the wrong file, caught and corrected, not left
+   uncorrected. Deleted the stray file (untracked, never should have existed).
+
+**The real, correct test**: ran the *exact* CI command
+(`mypy src/ --ignore-missing-imports | mypy-baseline filter`) against the real,
+already-committed `.mypy-baseline.txt` -- **`new: 0`, exit code 0. The gate is
+genuinely clean, not broken.**
+
+**Root cause of this todo's original "72 new" finding, now correctly
+identified**: that test ran `mypy src/api/main.py` (a single file), not
+`mypy src/` (the full tree) -- mypy's own `note:` annotations and cross-file
+context differ meaningfully between a single-file check and a full-tree check
+of the same code, even with identical mypy/baseline versions, because mypy's
+error/note text for a given line can depend on what else got type-checked in
+the same run. Comparing a single-file run's output against a baseline generated
+from a full-tree run will show spurious "new" violations regardless of any
+version drift -- that mismatch, not `.mypy-baseline.txt` staleness, is what
+produced the original finding. **Lesson for future verification passes**:
+`mypy-baseline filter` must be checked against the same invocation shape
+(`mypy src/ --ignore-missing-imports`, the whole tree) the baseline was
+generated with -- a scoped single-file check for "did my change break
+anything" is not equivalent and will produce false positives.
+
+No fix needed -- CI's mypy gate was never actually broken. Closing with the
+corrected finding recorded, not silently dropping a wrong hypothesis.
