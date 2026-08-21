@@ -1,3 +1,25 @@
+## CLOSED 2026-08-21
+
+Fixed as scoped: `generate_session_slots()` now special-cases `timeframe == "1d"` for
+`session_id == "nyse"`, delegating to a new `_slots_nyse_daily()` that emits one
+midnight-UTC slot per NYSE trading day (matching `market_data_ohlcv`'s actual `1d` storage
+convention) instead of falling through to `_slots_nyse`'s session-open-anchored intraday
+stepping. Scoped to `nyse` only -- confirmed live (2026-08-21) that zero futures/fx `1d` rows
+exist in the DB, so `futures_24_5`/`fx_24_5`/`crypto_24_7` are left on the existing path,
+unverified against any real stored convention for those session types (would need its own
+investigation if/when those ever get `1d` data).
+
+Caught a real edge case while writing tests: computing the calendar query's date bounds via
+`start.astimezone(ET).date()`/`end.astimezone(ET).date()` (matching `_slots_nyse`'s existing
+pattern) silently rolls a UTC-midnight `end` back to the previous ET calendar day (ET is behind
+UTC), truncating the schedule query one day short. Fixed by querying the calendar in UTC dates
+directly instead (a `1d` slot IS a UTC date, no reason to route through ET here) -- the final
+`start <= slot <= end` filter still bounds the output precisely regardless of query width.
+
+5 new regression tests (`TestNyse1d` in `tests/unit/core/test_bar_normalizer.py`), including the
+exact 2016-10-18/19 reproduction from this todo's own filing. Full `tests/unit/` green,
+ruff/black clean, `/code-review medium` run.
+
 # 300 - `detect_gaps()`'s 1d expected-slot timestamp never matches stored 1d bars
 
 **Filed:** 2026-08-11

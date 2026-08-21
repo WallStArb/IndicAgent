@@ -98,6 +98,49 @@ class TestNyse:
         assert slots == []
 
 
+class TestNyse1d:
+    """todo 300: 1d bars are stored midnight-UTC-anchored (one row per trading day), not
+    session-open-anchored like every intraday timeframe -- generate_session_slots must
+    special-case timeframe='1d' for session_id='nyse' to match that storage convention.
+    """
+
+    def test_trading_days_return_midnight_utc_slots(self):
+        # 2026-03-10/11 are consecutive Tue/Wed trading days
+        start = ts("2026-03-10 00:00:00")
+        end = ts("2026-03-11 00:00:00")
+        slots = generate_session_slots("nyse", "SMART", "1d", start, end)
+        assert slots == [ts("2026-03-10 00:00:00"), ts("2026-03-11 00:00:00")]
+
+    def test_matches_market_data_ohlcv_storage_convention(self):
+        # The exact reproduction from todo 300's filing: 2016-10-18/19 expected slots
+        # must equal market_data_ohlcv's actual stored 00:00:00 UTC timestamps, not
+        # _slots_nyse's 04:00 ET (08:00 UTC) session-open anchor.
+        start = ts("2016-10-18 00:00:00")
+        end = ts("2016-10-19 00:00:00")
+        slots = generate_session_slots("nyse", "SMART", "1d", start, end)
+        assert slots == [ts("2016-10-18 00:00:00"), ts("2016-10-19 00:00:00")]
+
+    def test_market_holiday_excluded(self):
+        # 2026-01-19 is MLK Day — NYSE closed, no 1d slot expected
+        start = ts("2026-01-19 00:00:00")
+        end = ts("2026-01-19 00:00:00")
+        slots = generate_session_slots("nyse", "SMART", "1d", start, end)
+        assert slots == []
+
+    def test_weekend_excluded(self):
+        start = ts("2026-03-14 00:00:00")  # Saturday
+        end = ts("2026-03-15 00:00:00")  # Sunday
+        slots = generate_session_slots("nyse", "SMART", "1d", start, end)
+        assert slots == []
+
+    def test_half_day_still_yields_one_slot(self):
+        # 2026-11-27 is the day after Thanksgiving — NYSE half-day, still one 1d bar
+        start = ts("2026-11-27 00:00:00")
+        end = ts("2026-11-27 00:00:00")
+        slots = generate_session_slots("nyse", "SMART", "1d", start, end)
+        assert slots == [ts("2026-11-27 00:00:00")]
+
+
 class TestFutures24_5:
     def test_cme_weekday_session_filled(self):
         # Tuesday 2026-03-10 02:00 UTC — CME Globex open

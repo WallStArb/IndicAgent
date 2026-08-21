@@ -67,6 +67,19 @@ def generate_session_slots(
     end: datetime,
 ) -> list[datetime]:
     """Return every expected bar timestamp within [start, end] for this session."""
+    if timeframe == "1d" and session_id == "nyse":
+        # 1d bars are stored midnight-UTC-anchored, one row per trading day
+        # (market_data_ohlcv's storage convention) -- NOT session-open-anchored like
+        # every intraday timeframe below. Without this, detect_gaps()'s exact-timestamp
+        # comparison against _slots_nyse's 04:00 ET-anchored slots never matches actual
+        # storage, so 1d has reported 100% missing for every symbol since this comparison
+        # was written (todo 300). Scoped to session_id == "nyse" only -- it's the only
+        # session_id any 1d data has ever been fetched under (confirmed live, 2026-08-21:
+        # zero futures/fx 1d rows exist in market_data_ohlcv), so futures_24_5/fx_24_5/
+        # crypto_24_7 fall through to the existing window-stepping path below, unverified
+        # against any real stored 1d convention for those session types.
+        return _slots_nyse_daily(start, end)
+
     interval = timedelta(minutes=_TF_MINUTES[timeframe])
 
     if session_id == "crypto_24_7":
@@ -179,6 +192,40 @@ def _slots_nyse(start: datetime, end: datetime, interval: timedelta) -> list[dat
         trading_windows.append((day_open, day_close))
 
     return _slots_from_windows(trading_windows, start, end, interval)
+
+
+def _slots_nyse_daily(start: datetime, end: datetime) -> list[datetime]:
+    """One midnight-UTC slot per NYSE trading day -- matches market_data_ohlcv's `1d`
+    storage convention (todo 300), unlike `_slots_nyse`'s session-open-anchored intraday
+    slots. Holidays/weekends excluded via the same NYSE calendar `_slots_nyse` uses;
+    half-days need no special handling here since a `1d` bar is one row regardless of
+    an early close.
+    """
+    global _NYSE_CAL
+    if _NYSE_CAL is None:
+        _NYSE_CAL = mcal.get_calendar("NYSE")
+
+    # UTC dates, not ET-converted (unlike _slots_nyse): a slot IS a UTC date here, and
+    # converting a UTC midnight `end` to ET first would roll it back to the previous
+    # calendar day (ET is behind UTC), silently truncating the schedule query one day
+    # short of what `end`'s own UTC date actually asks for. The final `start <= slot <=
+    # end` filter below still bounds the output precisely regardless of how wide this
+    # query range is.
+    start_date = start.astimezone(UTC).date()
+    end_date = end.astimezone(UTC).date()
+    schedule = _NYSE_CAL.schedule(
+        start_date=start_date.isoformat(),
+        end_date=end_date.isoformat(),
+        tz="America/New_York",
+    )
+
+    slots: list[datetime] = []
+    for _, row in schedule.iterrows():
+        day_et = row["market_open"].date()
+        slot = datetime(day_et.year, day_et.month, day_et.day, 0, 0, tzinfo=UTC)
+        if start <= slot <= end:
+            slots.append(slot)
+    return slots
 
 
 def _slots_futures(
