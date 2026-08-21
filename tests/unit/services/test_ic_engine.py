@@ -3,9 +3,12 @@
 Skeleton only -- verifies query STRUCTURE for evaluating each of the 91 new
 Renaissance primitives against feature_ic_scores. Does NOT run the IC engine
 and does NOT touch a live DB. The actual IC Sharpe > 0 AND p < 0.05 evaluation
-happens later via a corpus run + `scripts/analysis/ops_primitive_discovery_report.py`
-(Task 4) once Plans 01-05.5 implement the primitives and Plan 06 seeds
-feature_registry + runs migration 206.
+happens via a corpus run + the `feature_edge_by_regime`/`feature_edge_by_symbol`
+views (migration 297) once Plans 01-05.5 implement the primitives and Plan 06
+seeds feature_registry + runs migration 206. (The originally-planned Task 4
+report generator, `scripts/analysis/ops_primitive_discovery_report.py`, was
+deleted 2026-08-21, todo 251 -- migration 297's views supersede it, never
+implemented beyond a skeleton.)
 
 Note: this lives at tests/unit/services/test_ic_engine.py -- a new location
 distinct from the existing split-out `tests/unit/test_ic_engine_*.py` files
@@ -157,8 +160,9 @@ def _build_primitive_ic_query(feature_name: str) -> tuple[str, tuple[str]]:
     Structure only -- mirrors the SELECT shape services/ic_engine.py itself uses
     when reading back feature_ic_scores (see its idempotency / manifest-output
     queries), stratified by (tf, regime) and exposing the pass/fail gate columns
-    (ic_sharpe, p_value, passes_ci_gate, passes_fdr) that
-    ops_primitive_discovery_report.py (Task 4) ranks and gates on.
+    (ic_sharpe, p_value, passes_ci_gate, passes_fdr) that the
+    `feature_edge_by_regime`/`feature_edge_by_symbol` views (migration 297)
+    rank and gate on.
     """
     query = """
         SELECT feature_name, symbol, tf, regime, lookahead_bars, is_pooled,

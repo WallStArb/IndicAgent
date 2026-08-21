@@ -77,3 +77,15 @@ confirmed via `git log -- scripts/analysis/ops_primitive_discovery_report.py`, n
 Re-open this decision (finish the report generator on top of the new views, or delete the
 skeleton outright as superseded scaffolding, per this todo's original framing) once Phase 170
 merges to `main`.
+
+## CLOSED 2026-08-21
+
+Phase 170 merged 2026-08-10 (migration 311). Decision: delete, not finish. The skeleton was
+`raise NotImplementedError` in both its would-be query and report-writing functions -- zero real
+logic to preserve -- and `feature_edge_by_regime`/`feature_edge_by_symbol` already provide
+directly-queryable reporting, making a separate markdown-report generator redundant complexity,
+not a missing capability. Confirmed no live caller before deleting (`grep -rn
+ops_primitive_discovery_report`): only self-references (own docstring/help text), a
+`tools/vulture_whitelist.py` dead-code allowlist (8 entries, cleaned up alongside), and a
+comment-only mention in `tests/unit/services/test_ic_engine.py` (no import, updated to cite the
+views instead). Full `tests/unit/` green, vulture/ruff/black clean.
