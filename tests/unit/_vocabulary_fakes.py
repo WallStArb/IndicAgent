@@ -18,11 +18,6 @@ class FakeVocabularyService:
     """Stands in for VocabularyService -- records initialize() and reports
     whatever `codes` the caller supplies for the "timeframe" namespace.
 
-    Pass a set that's a strict superset of the caller's own subset to prove a
-    passing assertion actually consulted CVR (not the no-VocabularyService-
-    registered no-op path); pass a set that omits one of the caller's codes to
-    prove `assert_known_subset` genuinely raises on a real drift case.
-
     `groups`, if given, is `{group_name: [codes]}` for the "timeframe" namespace --
     backs `group_codes()` calls (todo 329's `intraday_plus_hourly` group).
     """

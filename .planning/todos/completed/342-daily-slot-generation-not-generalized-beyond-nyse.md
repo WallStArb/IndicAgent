@@ -54,3 +54,53 @@ reproduction available) -- worth deciding which before implementing.
   (the NYSE-only precedent to generalize from), `_slots_futures`/`_slots_fx`/`_slots_always_open`
   (the session types still on the buggy interval-stepped path for `1d`)
 - Sibling fix: `completed/300-detect-gaps-1d-slot-timestamp-misaligned-with-storage.md`
+
+## Closed 2026-08-21
+
+Generalized as scoped, with the test-strategy question the todo itself flagged
+("no live `1d` data of any kind to test against") resolved by testing purely
+against the calendar/weekday-rule logic, not storage reproduction -- explicit,
+documented choice, not an oversight.
+
+**Implementation:**
+
+1. `_daily_slots(start, end, is_trading_date)` -- new shared helper (same
+   rationale as `_slots_from_windows` sharing the interval-stepped session
+   types): factors the day-iteration/midnight-anchoring/bounds-clipping shape
+   that `_slots_nyse_daily` had alone, parameterized by a per-date predicate.
+2. `_slots_nyse_daily` refactored onto the shared helper (behavior unchanged,
+   confirmed by its own existing tests staying green unmodified).
+3. `_slots_futures_daily(exchange, start, end)` -- new. Scoped to exchanges
+   `MarketCalendar` already covers (CME/CBOT/COMEX/NYMEX, all mapped to the
+   CME_Equity PMC calendar). **CFE (VIX futures) deliberately excluded** --
+   `MarketCalendar` has no registered calendar for it, so this raises `ValueError`
+   rather than silently returning an empty slot list (which would reproduce
+   todo 300's exact silent-100%-missing failure for a new exchange). Added
+   `MarketCalendar.supports_exchange()` (new public method) so this guard checks
+   the real registry instead of hand-maintaining a duplicate exchange list that
+   could drift from `MarketCalendar._EXCHANGE_TO_PMC`.
+4. `_slots_fx_daily`/`_slots_crypto_daily` -- new, much lower risk (no calendar
+   dependency): FX reuses `_slots_fx`'s existing Mon-Fri weekday rule, crypto is
+   always-True (never closes).
+5. `generate_session_slots()`'s `1d` dispatch widened from `and session_id ==
+   "nyse"` to a full branch covering all four session types.
+
+**Not done, deliberately out of scope:** no direct unit tests for
+`MarketCalendar.supports_exchange()` itself -- `MarketCalendar` has no dedicated
+test file at all (tested only indirectly through `bar_normalizer.py` today), and
+creating one for a single new method is a bigger scope decision than this todo
+warranted. The new method is exercised end-to-end (not mocked) by the CFE test
+below, plus implicitly by every passing CME/CBOT test (which wouldn't pass if
+`supports_exchange` returned the wrong answer for a mapped exchange).
+
+**Tests:** `TestFutures1d`/`TestFx1d`/`TestCrypto1d` added to
+`test_bar_normalizer.py`, mirroring `TestNyse1d`'s existing pattern (trading-day
+slots, weekend exclusion) plus a CFE-raises test proving the exclusion guard
+actually fires. 12 new tests, full `tests/unit/` suite green (60 total in this
+file). Ruff/black clean.
+
+**Side effect, same session:** working this todo's `vulture` check surfaced
+`assert_known_subset()` (`src/core/vocabulary_access.py`) as newly dead code --
+a leftover from todo 329's earlier fix the same day, removed its only callers.
+Cleaned up as a tail of that fix, not this one; noted in todo 329's own closing
+section, not restated here.

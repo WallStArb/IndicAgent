@@ -1,6 +1,7 @@
 from __future__ import annotations
 
-from datetime import UTC, datetime, timedelta
+from collections.abc import Callable
+from datetime import UTC, date, datetime, timedelta
 from zoneinfo import ZoneInfo
 
 import pandas_market_calendars as mcal
@@ -69,18 +70,24 @@ def generate_session_slots(
     end: datetime,
 ) -> list[datetime]:
     """Return every expected bar timestamp within [start, end] for this session."""
-    if timeframe == "1d" and session_id == "nyse":
+    if timeframe == "1d":
         # 1d bars are stored midnight-UTC-anchored, one row per trading day
         # (market_data_ohlcv's storage convention) -- NOT session-open-anchored like
         # every intraday timeframe below. Without this, detect_gaps()'s exact-timestamp
-        # comparison against _slots_nyse's 04:00 ET-anchored slots never matches actual
-        # storage, so 1d has reported 100% missing for every symbol since this comparison
-        # was written (todo 300). Scoped to session_id == "nyse" only -- it's the only
-        # session_id any 1d data has ever been fetched under (confirmed live, 2026-08-21:
-        # zero futures/fx 1d rows exist in market_data_ohlcv), so futures_24_5/fx_24_5/
-        # crypto_24_7 fall through to the existing window-stepping path below, unverified
-        # against any real stored 1d convention for those session types.
-        return _slots_nyse_daily(start, end)
+        # comparison against the interval-stepped slots below never matches actual
+        # storage, so 1d reported 100% missing for every NYSE symbol until todo 300 fixed
+        # it; todo 342 generalized the same fix to every session type (still no live
+        # futures/fx/crypto 1d data anywhere to verify this against as of 2026-08-21 --
+        # scoped against calendar/weekday-rule logic alone, not storage reproduction).
+        if session_id == "nyse":
+            return _slots_nyse_daily(start, end)
+        if session_id == "futures_24_5":
+            return _slots_futures_daily(exchange, start, end)
+        if session_id == "fx_24_5":
+            return _slots_fx_daily(start, end)
+        if session_id == "crypto_24_7":
+            return _slots_crypto_daily(start, end)
+        raise ValueError(f"Unknown session_id: {session_id!r}")
 
     interval = timedelta(minutes=_TF_MINUTES[timeframe])
 
@@ -196,10 +203,39 @@ def _slots_nyse(start: datetime, end: datetime, interval: timedelta) -> list[dat
     return _slots_from_windows(trading_windows, start, end, interval)
 
 
+def _daily_slots(
+    start: datetime, end: datetime, is_trading_date: Callable[[date], bool]
+) -> list[datetime]:
+    """One midnight-UTC slot per UTC date in [start, end] where `is_trading_date` holds --
+    matches market_data_ohlcv's `1d` storage convention (todo 300), unlike every intraday
+    timeframe's session-open-anchored slots.
+
+    Shared by every `_slots_*_daily` variant (todo 342 generalizes todo 300's NYSE-only
+    `_slots_nyse_daily` to futures/fx/crypto) so the day-iteration/midnight-anchoring/
+    bounds-clipping shape is a structural invariant rather than four independent copies --
+    same rationale as `_slots_from_windows` sharing the interval-stepped session types.
+    `is_trading_date` is the only thing that varies per session type: a `MarketCalendar`
+    lookup for `nyse`/`futures_24_5`, a plain weekday rule for `fx_24_5`, always-True for
+    `crypto_24_7`.
+
+    No windowing helper needed here (unlike `_slots_from_windows`) -- a `1d` slot is one
+    date-anchored point, not an interval-stepped window, so a direct per-date iteration +
+    bounds check is the natural fit, not a workaround.
+    """
+    slots: list[datetime] = []
+    day = start.astimezone(UTC).date()
+    end_date = end.astimezone(UTC).date()
+    while day <= end_date:
+        if is_trading_date(day):
+            slot = datetime(day.year, day.month, day.day, 0, 0, tzinfo=UTC)
+            if start <= slot <= end:
+                slots.append(slot)
+        day += timedelta(days=1)
+    return slots
+
+
 def _slots_nyse_daily(start: datetime, end: datetime) -> list[datetime]:
-    """One midnight-UTC slot per NYSE trading day -- matches market_data_ohlcv's `1d`
-    storage convention (todo 300), unlike `_slots_nyse`'s session-open-anchored intraday
-    slots.
+    """One midnight-UTC slot per NYSE trading day (todo 300).
 
     Reuses the shared `MarketCalendar` singleton (`src/core/market_calendar.py`) instead
     of re-querying `pandas_market_calendars`' `schedule()` directly (/simplify pass, todo
@@ -210,25 +246,49 @@ def _slots_nyse_daily(start: datetime, end: datetime) -> list[datetime]:
     It's also already the mechanism `backfill_feature_factory.py` uses for the identical
     midnight-UTC-1d-NYSE case, so this keeps one canonical definition of "NYSE trading
     day" instead of two independently-derived ones that could silently disagree.
-
-    No windowing helper needed here (unlike `_slots_nyse`/`_slots_futures`, which reuse
-    `_slots_from_windows` for session-open/close stepping) -- a `1d` slot is one
-    date-anchored point, not an interval-stepped window, so a direct per-date
-    iteration + bounds check is the natural fit, not a workaround.
     """
     calendar = get_market_calendar()
-    start_date = start.astimezone(UTC).date()
-    end_date = end.astimezone(UTC).date()
+    return _daily_slots(start, end, lambda day: calendar.is_trading_day("NYSE", day))
 
-    slots: list[datetime] = []
-    day = start_date
-    while day <= end_date:
-        if calendar.is_trading_day("NYSE", day):
-            slot = datetime(day.year, day.month, day.day, 0, 0, tzinfo=UTC)
-            if start <= slot <= end:
-                slots.append(slot)
-        day += timedelta(days=1)
-    return slots
+
+def _slots_futures_daily(exchange: str, start: datetime, end: datetime) -> list[datetime]:
+    """One midnight-UTC slot per futures trading day for `exchange` (todo 342).
+
+    Scoped to exchanges `MarketCalendar` already covers (CME/CBOT/COMEX/NYMEX, all mapped
+    to the CME_Equity PMC calendar) -- raises rather than silently returning an empty
+    slot list for an exchange it has no calendar for (CFE/VIX futures is not yet
+    registered there), matching this project's "silent wrong answers are worse than loud
+    crashes" principle: `MarketCalendar.is_trading_day()` would otherwise treat every
+    date as non-trading for an unmapped exchange, and `detect_gaps()` would silently
+    report 100% missing -- reproducing todo 300's exact failure shape for a new exchange.
+    No live futures `1d` data exists anywhere to verify this against as of 2026-08-21;
+    scoped against the calendar logic alone, not storage reproduction.
+    """
+    calendar = get_market_calendar()
+    if not calendar.supports_exchange(exchange):
+        raise ValueError(
+            f"generate_session_slots: 1d slots for futures_24_5/{exchange!r} are not "
+            "supported yet -- MarketCalendar has no registered calendar for this "
+            "exchange (see todo 342)"
+        )
+    return _daily_slots(start, end, lambda day: calendar.is_trading_day(exchange, day))
+
+
+def _slots_fx_daily(start: datetime, end: datetime) -> list[datetime]:
+    """One midnight-UTC slot per FX trading date (todo 342).
+
+    Same Mon-Fri weekday rule as `_slots_fx`'s intraday slots, collapsed to one slot per
+    qualifying date instead of interval-stepping through each day -- same intentional
+    simplification `_slots_fx` already documents (no PMC calendar for FX; actual FX opens
+    Sun ~22:00 UTC and closes Fri ~22:00 UTC, a day-of-week rule slightly under/over-fills
+    the Sunday/Friday edges).
+    """
+    return _daily_slots(start, end, lambda day: day.weekday() < 5)  # Mon=0 .. Fri=4
+
+
+def _slots_crypto_daily(start: datetime, end: datetime) -> list[datetime]:
+    """One midnight-UTC slot per calendar date -- crypto never closes (todo 342)."""
+    return _daily_slots(start, end, lambda _day: True)
 
 
 def _slots_futures(

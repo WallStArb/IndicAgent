@@ -109,6 +109,18 @@ class MarketCalendar:
             return False
         return date_obj.isoformat() in sessions
 
+    def supports_exchange(self, exchange: str) -> bool:
+        """Return True if this exchange has a registered calendar.
+
+        Used by callers that must fail loudly on an unsupported exchange (todo 342's
+        futures `1d` slot generation) rather than silently treating every date as a
+        non-trading day, which `is_trading_day`'s own missing-exchange fallback would
+        otherwise produce — a "silent wrong answer," not a loud crash, for an exchange
+        this calendar was never taught (e.g. CFE/VIX futures, not yet in
+        `_EXCHANGE_TO_PMC`).
+        """
+        return exchange in self._daily_sessions
+
     def is_trading_bar(self, exchange: str, bar_ts: pd.Timestamp, tf: str) -> bool:
         """
         Unified validity check for any timeframe bar.

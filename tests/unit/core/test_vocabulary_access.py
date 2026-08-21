@@ -83,43 +83,6 @@ def test_standard_timeframes_delegates_to_codes(monkeypatch):
 
 
 @pytest.mark.unit
-def test_assert_subset_passes_for_registered_subset():
-    """assert_known_subset() is a no-op when every value is registered."""
-    vocabulary_access.set_vocabulary_service(_FakeVocab())
-    # Must not raise.
-    vocabulary_access.assert_known_subset("timeframe", ("1m", "5m", "15m", "1h"), context="test")
-
-
-@pytest.mark.unit
-def test_assert_subset_raises_for_unregistered_code():
-    """assert_known_subset() raises loud if a caller's hardcoded subset references a
-    value CVR doesn't know about for that namespace -- the actual drift D-07 exists
-    to catch."""
-    vocabulary_access.set_vocabulary_service(_FakeVocab())
-    with pytest.raises(ValueError, match="30m"):
-        vocabulary_access.assert_known_subset("timeframe", ("1m", "30m"), context="test")
-
-
-@pytest.mark.unit
-def test_assert_subset_checks_the_given_namespace_not_timeframe():
-    """assert_known_subset() checks against whatever namespace it's called with --
-    a value valid in one namespace but absent from another still raises."""
-    vocabulary_access.set_vocabulary_service(_FakeVocab(codes=("fast", "mid", "slow")))
-    with pytest.raises(ValueError, match="gradient_scale"):
-        vocabulary_access.assert_known_subset("gradient_scale", ("fast", "1m"), context="test")
-
-
-@pytest.mark.unit
-def test_assert_subset_skips_when_unregistered():
-    """No VocabularyService registered (e.g. a script run without daemon startup) ->
-    assert_known_subset() is a no-op, not a crash -- matches codes()'s same
-    fallback-permissive contract."""
-    # Must not raise even though "bogus" isn't a real timeframe -- there's no registry
-    # to check against yet.
-    vocabulary_access.assert_known_subset("timeframe", ("bogus",), context="test")
-
-
-@pytest.mark.unit
 def test_codes_warns_on_empty_but_registered():
     """A registered service with zero codes for the namespace is a real gap (unseeded
     DB, migration never replayed, a namespace-name typo) distinct from "never

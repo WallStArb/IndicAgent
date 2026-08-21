@@ -95,3 +95,13 @@ gap -- CI's mypy-baseline gate appears to be failing on every PR regardless of
 content due to a mypy-version drift between whatever generated
 `.mypy-baseline.txt` and the locally-installed 2.3.0. See
 [346](346-mypy-baseline-version-drift-false-positive-new-violations.md).
+
+**Follow-up, 2026-08-21 (same day, working todo 342 next):** `vulture`'s full
+CI-equivalent run surfaced `assert_known_subset()` as genuinely dead code --
+this fix removed its only two callers and nothing else in `src/`/`services/`/
+`scripts/` ever called it (confirmed by direct grep). Removed the function,
+its 4 dedicated unit tests, and the now-stale references to it in
+`group_codes()`'s own docstring and `FakeVocabularyService`'s docstring.
+`vulture`'s full run is back to only its one pre-existing, unrelated finding
+(`feature_repository.py`'s `insert_batch`). Full `tests/unit/` suite still
+green.

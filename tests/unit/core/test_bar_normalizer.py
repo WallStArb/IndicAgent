@@ -173,6 +173,84 @@ class TestFutures24_5:
             )
 
 
+class TestFutures1d:
+    """todo 342: generalizes todo 300's NYSE-only 1d fix to futures_24_5 -- scoped to
+    exchanges MarketCalendar already covers (CME/CBOT/COMEX/NYMEX); CFE deliberately
+    excluded (raises) since it has no registered calendar yet.
+    """
+
+    def test_cme_trading_days_return_midnight_utc_slots(self):
+        # 2026-03-10/11 are consecutive Tue/Wed CME Globex trading days
+        start = ts("2026-03-10 00:00:00")
+        end = ts("2026-03-11 00:00:00")
+        slots = generate_session_slots("futures_24_5", "CME", "1d", start, end)
+        assert slots == [ts("2026-03-10 00:00:00"), ts("2026-03-11 00:00:00")]
+
+    def test_cbot_trading_days_return_midnight_utc_slots(self):
+        start = ts("2026-03-10 00:00:00")
+        end = ts("2026-03-10 00:00:00")
+        slots = generate_session_slots("futures_24_5", "CBOT", "1d", start, end)
+        assert slots == [ts("2026-03-10 00:00:00")]
+
+    def test_weekend_excluded(self):
+        start = ts("2026-03-14 00:00:00")  # Saturday
+        end = ts("2026-03-15 00:00:00")  # Sunday
+        slots = generate_session_slots("futures_24_5", "CME", "1d", start, end)
+        assert slots == []
+
+    def test_cfe_unsupported_exchange_raises(self):
+        # CFE (VIX futures) is not in MarketCalendar's registered exchanges yet --
+        # must raise loudly, not silently return an empty (wrong-looking-fine) list.
+        with pytest.raises(ValueError, match="CFE"):
+            generate_session_slots(
+                "futures_24_5", "CFE", "1d", ts("2026-03-10 00:00:00"), ts("2026-03-10 00:00:00")
+            )
+
+
+class TestFx1d:
+    """todo 342: generalizes todo 300's NYSE-only 1d fix to fx_24_5."""
+
+    def test_weekday_returns_midnight_utc_slot(self):
+        # Monday 2026-03-09 — FX trading date
+        start = ts("2026-03-09 00:00:00")
+        end = ts("2026-03-09 00:00:00")
+        slots = generate_session_slots("fx_24_5", "IDEALPRO", "1d", start, end)
+        assert slots == [ts("2026-03-09 00:00:00")]
+
+    def test_saturday_excluded(self):
+        start = ts("2026-03-14 00:00:00")  # Saturday
+        end = ts("2026-03-14 00:00:00")
+        slots = generate_session_slots("fx_24_5", "IDEALPRO", "1d", start, end)
+        assert slots == []
+
+    def test_sunday_excluded(self):
+        start = ts("2026-03-15 00:00:00")  # Sunday
+        end = ts("2026-03-15 00:00:00")
+        slots = generate_session_slots("fx_24_5", "IDEALPRO", "1d", start, end)
+        assert slots == []
+
+
+class TestCrypto1d:
+    """todo 342: generalizes todo 300's NYSE-only 1d fix to crypto_24_7."""
+
+    def test_every_date_returns_midnight_utc_slot(self):
+        start = ts("2026-03-10 00:00:00")
+        end = ts("2026-03-12 00:00:00")
+        slots = generate_session_slots("crypto_24_7", "PAXOS", "1d", start, end)
+        assert slots == [
+            ts("2026-03-10 00:00:00"),
+            ts("2026-03-11 00:00:00"),
+            ts("2026-03-12 00:00:00"),
+        ]
+
+    def test_weekend_included(self):
+        # Saturday/Sunday — crypto trades every day, unlike fx_24_5/futures_24_5
+        start = ts("2026-03-14 00:00:00")  # Saturday
+        end = ts("2026-03-15 00:00:00")  # Sunday
+        slots = generate_session_slots("crypto_24_7", "PAXOS", "1d", start, end)
+        assert slots == [ts("2026-03-14 00:00:00"), ts("2026-03-15 00:00:00")]
+
+
 def make_bar(timestamp: str, close: float, source: str = "historical_backfill") -> dict:
     t = datetime.fromisoformat(timestamp).replace(tzinfo=UTC)
     return {

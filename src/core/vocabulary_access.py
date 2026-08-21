@@ -113,9 +113,10 @@ def group_codes(namespace: str, group_name: str, default: tuple[str, ...]) -> tu
 
     Companion to `codes()` for the D-07 case where a call site's fixed subset is itself a
     real, named grouping (e.g. `timeframe`'s `intraday_plus_hourly`) rather than the full
-    dynamic set - closes the same-shape-different-file drift risk `assert_known_subset()`
-    alone leaves open (todo 329), by making the subset queryable from CVR instead of two
-    independent literals kept in sync by hand. `vocabulary_group_member` carries no
+    dynamic set (todo 329) - makes the subset queryable from CVR instead of two independent
+    literals kept in sync by hand, replacing the earlier `assert_known_subset()` guard
+    (removed once this became its only two callers' actual mechanism, not just a drift
+    check on top of one). `vocabulary_group_member` carries no
     per-member ordering of its own (membership is a plain join table - group order comes
     from `vocabulary_group.sort_order`, not per-code), so this filters the namespace's own
     sort_order-ordered `codes()` list down to the group's membership, rather than sorting
@@ -136,26 +137,3 @@ def group_codes(namespace: str, group_name: str, default: tuple[str, ...]) -> tu
         )
         return default
     return tuple(code for code in codes(namespace, default) if code in members)
-
-
-def assert_known_subset(namespace: str, values: tuple[str, ...], *, context: str) -> None:
-    """Raise if any of `values` isn't a registered CVR code for `namespace`.
-
-    For call sites that deliberately use a subset of all registered codes (e.g.
-    `signal_auditor.py`'s coverage check intentionally excludes `1d`) rather than the
-    full dynamic set - keeps the subset as an explicit literal (preserving whatever
-    intentional scoping it encodes) while still closing the actual drift risk D-07
-    exists to prevent: a hardcoded subset silently referencing a code that no longer
-    exists (or never did). A no-op if no `VocabularyService` is registered - matches
-    `codes()`'s same fallback-permissive contract for scripts/tests running outside
-    daemon startup.
-    """
-    if _vocab_service is None:
-        return
-    known = set(_vocab_service.active_codes(namespace))
-    unknown = [v for v in values if v not in known]
-    if unknown:
-        raise ValueError(
-            f"{context}: {namespace} value(s) {unknown} not registered in CVR's "
-            f"`{namespace}` namespace (known: {sorted(known)})"
-        )
