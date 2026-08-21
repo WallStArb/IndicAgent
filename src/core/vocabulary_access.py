@@ -108,6 +108,36 @@ def standard_timeframes(default: tuple[str, ...] = _DEFAULT_TIMEFRAMES) -> tuple
     return codes("timeframe", default)
 
 
+def group_codes(namespace: str, group_name: str, default: tuple[str, ...]) -> tuple[str, ...]:
+    """Member codes of `(namespace, group_name)`, in the namespace's CVR sort_order.
+
+    Companion to `codes()` for the D-07 case where a call site's fixed subset is itself a
+    real, named grouping (e.g. `timeframe`'s `intraday_plus_hourly`) rather than the full
+    dynamic set - closes the same-shape-different-file drift risk `assert_known_subset()`
+    alone leaves open (todo 329), by making the subset queryable from CVR instead of two
+    independent literals kept in sync by hand. `vocabulary_group_member` carries no
+    per-member ordering of its own (membership is a plain join table - group order comes
+    from `vocabulary_group.sort_order`, not per-code), so this filters the namespace's own
+    sort_order-ordered `codes()` list down to the group's membership, rather than sorting
+    alphabetically (which would produce a visibly wrong-looking "1h, 15m, 1m, 5m" for
+    `timeframe`). Falls back to `default` if no `VocabularyService` is registered yet or the
+    group has zero members (same fallback-permissive contract as `codes()`, including the
+    empty-result warning log).
+    """
+    if _vocab_service is None:
+        return default
+    members = _vocab_service.group_codes(namespace, group_name)
+    if not members:
+        logger.warning(
+            "vocabulary_access.empty_group_fallback",
+            namespace=namespace,
+            group_name=group_name,
+            default=default,
+        )
+        return default
+    return tuple(code for code in codes(namespace, default) if code in members)
+
+
 def assert_known_subset(namespace: str, values: tuple[str, ...], *, context: str) -> None:
     """Raise if any of `values` isn't a registered CVR code for `namespace`.
 

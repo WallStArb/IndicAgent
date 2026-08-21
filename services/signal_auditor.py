@@ -95,6 +95,10 @@ class SignalAuditor(BaseDaemon):
         self._audit_lookback_hours: int = 1
         # APR-backed audit cycle interval — loaded in _setup() from config_service.
         self._audit_interval_seconds: int = _AUDIT_INTERVAL_DEFAULT
+        # CVR-backed coverage timeframes — resolved in _setup() from the timeframe/
+        # intraday_plus_hourly vocabulary_group (migration 322, todo 329); this literal
+        # is only the pre-registry fallback.
+        self._coverage_tfs: tuple[str, ...] = _COVERAGE_TFS
 
         self._agent_attrs = {"agent": self.name}
 
@@ -130,12 +134,14 @@ class SignalAuditor(BaseDaemon):
         )
         await self._kafka_producer.start()
 
-        # CVR prewarm: _COVERAGE_TFS is a deliberate literal subset (excludes 1d),
-        # so this only asserts it stays a subset of what CVR has registered --
-        # catches drift without widening the audited timeframe set (todo 327).
+        # CVR prewarm: resolve the coverage timeframes from the registry-native
+        # timeframe/intraday_plus_hourly group instead of trusting the module-level
+        # literal alone (todo 329) -- makes the subset relationship queryable and
+        # closes the drift risk of this literal silently diverging from
+        # feature_validation_analyzer.py's byte-identical _TIMEFRAMES.
         await vocabulary_access.prewarm(self.settings.database_url, self._db_pool)
-        vocabulary_access.assert_known_subset(
-            "timeframe", _COVERAGE_TFS, context="SignalAuditor._COVERAGE_TFS"
+        self._coverage_tfs = vocabulary_access.group_codes(
+            "timeframe", "intraday_plus_hourly", default=_COVERAGE_TFS
         )
 
         self.logger.info(
@@ -214,7 +220,7 @@ class SignalAuditor(BaseDaemon):
     async def _check_coverage(self, instruments: list) -> list[dict]:
         """Check signal coverage for the last completed trading session.
 
-        For each active symbol × _COVERAGE_TFS:
+        For each active symbol × self._coverage_tfs:
         - Find the last completed session window via session_window_for_date(yesterday)
         - Count signal_events rows in that window (ts column, tf column)
         - Set signal_coverage_pct gauge (1.0 covered, 0.0 gap)
@@ -240,7 +246,7 @@ class SignalAuditor(BaseDaemon):
 
                 session_start, session_end = window
 
-                for tf in _COVERAGE_TFS:
+                for tf in self._coverage_tfs:
                     count = await conn.fetchval(
                         """
                         SELECT COUNT(*)
@@ -297,7 +303,7 @@ class SignalAuditor(BaseDaemon):
         """
         assert self._db_pool is not None
         async with self._db_pool.acquire() as conn:
-            for tf in _COVERAGE_TFS:
+            for tf in self._coverage_tfs:
                 row = await conn.fetchrow(
                     """
                     SELECT

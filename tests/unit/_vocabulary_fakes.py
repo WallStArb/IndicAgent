@@ -22,10 +22,14 @@ class FakeVocabularyService:
     passing assertion actually consulted CVR (not the no-VocabularyService-
     registered no-op path); pass a set that omits one of the caller's codes to
     prove `assert_known_subset` genuinely raises on a real drift case.
+
+    `groups`, if given, is `{group_name: [codes]}` for the "timeframe" namespace --
+    backs `group_codes()` calls (todo 329's `intraday_plus_hourly` group).
     """
 
-    def __init__(self, codes: list[str]) -> None:
+    def __init__(self, codes: list[str], groups: dict[str, list[str]] | None = None) -> None:
         self._codes = codes
+        self._groups = groups or {}
         self.initialized = False
 
     def __call__(self, database_url, pool=None) -> FakeVocabularyService:
@@ -43,3 +47,7 @@ class FakeVocabularyService:
     def active_codes(self, namespace: str) -> list[str]:
         assert namespace == "timeframe"
         return self._codes
+
+    def group_codes(self, namespace: str, group_name: str) -> frozenset[str]:
+        assert namespace == "timeframe"
+        return frozenset(self._groups.get(group_name, []))

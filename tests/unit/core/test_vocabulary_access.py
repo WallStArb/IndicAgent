@@ -8,11 +8,16 @@ from src.core import vocabulary_access
 class _FakeVocab:
     """Reports a fixed CVR-registered set per namespace, `timeframe` by default."""
 
-    def __init__(self, codes=("1m", "5m", "15m", "1h", "4h", "1d")):
+    def __init__(self, codes=("1m", "5m", "15m", "1h", "4h", "1d"), groups=None):
         self._codes = codes
+        # {(namespace, group_name): frozenset(member_codes)}
+        self._groups = groups or {}
 
     def active_codes(self, namespace):
         return list(self._codes)
+
+    def group_codes(self, namespace, group_name):
+        return self._groups.get((namespace, group_name), frozenset())
 
 
 class _EmptyVocab:
@@ -22,6 +27,9 @@ class _EmptyVocab:
 
     def active_codes(self, namespace):
         return []
+
+    def group_codes(self, namespace, group_name):
+        return frozenset()
 
 
 @pytest.fixture(autouse=True)
@@ -145,3 +153,87 @@ def test_codes_does_not_warn_when_unregistered():
     assert (
         "vocabulary_access.empty_registry_fallback" not in events
     ), f"Unexpected warning in {events}"
+
+
+# ---------------------------------------------------------------------------
+# group_codes() (todo 329)
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.unit
+def test_group_codes_returns_default_when_unregistered():
+    """No VocabularyService registered yet -> falls back to the literal default."""
+    result = vocabulary_access.group_codes("timeframe", "intraday_plus_hourly", default=("1m",))
+    assert result == ("1m",)
+
+
+@pytest.mark.unit
+def test_group_codes_reads_registered_service():
+    """Once a VocabularyService is registered, reads its group_codes(namespace,
+    group_name) membership."""
+    vocabulary_access.set_vocabulary_service(
+        _FakeVocab(
+            codes=("1m", "5m", "15m", "1h", "4h", "1d"),
+            groups={("timeframe", "intraday_plus_hourly"): frozenset({"1m", "5m", "15m", "1h"})},
+        )
+    )
+    result = vocabulary_access.group_codes("timeframe", "intraday_plus_hourly", default=())
+    assert result == ("1m", "5m", "15m", "1h")
+
+
+@pytest.mark.unit
+def test_group_codes_orders_by_namespace_sort_order_not_alphabetically():
+    """Member codes come back filtered from codes()'s own CVR sort_order, not sorted
+    alphabetically -- alphabetical would produce the visibly wrong "1h, 15m, 1m, 5m"
+    for timeframe instead of the chronological "1m, 5m, 15m, 1h"."""
+    vocabulary_access.set_vocabulary_service(
+        _FakeVocab(
+            codes=("1m", "5m", "15m", "1h", "4h", "1d"),
+            groups={("timeframe", "intraday_plus_hourly"): frozenset({"1h", "15m", "1m", "5m"})},
+        )
+    )
+    result = vocabulary_access.group_codes("timeframe", "intraday_plus_hourly", default=())
+    assert result == ("1m", "5m", "15m", "1h")
+
+
+@pytest.mark.unit
+def test_group_codes_falls_back_on_empty_group():
+    """A registered service with zero members for the group still falls back -- same
+    contract as codes() falling back on an empty namespace."""
+    vocabulary_access.set_vocabulary_service(_FakeVocab())
+    result = vocabulary_access.group_codes("timeframe", "no_such_group", default=("1m",))
+    assert result == ("1m",)
+
+
+@pytest.mark.unit
+def test_group_codes_warns_on_empty_but_registered():
+    """A registered service with a real-but-empty group is a genuine gap (migration
+    never replayed, group-name typo) distinct from "never registered" -- must log a
+    warning even though it still falls back."""
+    from structlog.testing import capture_logs
+
+    vocabulary_access.set_vocabulary_service(_FakeVocab())
+    with capture_logs() as cap_logs:
+        result = vocabulary_access.group_codes("timeframe", "no_such_group", default=("1m",))
+    assert result == ("1m",)
+    events = [e["event"] for e in cap_logs]
+    assert "vocabulary_access.empty_group_fallback" in events, f"Expected warning in {events}"
+    warning_entry = next(
+        e for e in cap_logs if e["event"] == "vocabulary_access.empty_group_fallback"
+    )
+    assert warning_entry["log_level"] == "warning"
+    assert warning_entry["namespace"] == "timeframe"
+    assert warning_entry["group_name"] == "no_such_group"
+    assert warning_entry["default"] == ("1m",)
+
+
+@pytest.mark.unit
+def test_group_codes_does_not_warn_when_unregistered():
+    """No VocabularyService registered at all -> stays silent, same as codes()."""
+    from structlog.testing import capture_logs
+
+    with capture_logs() as cap_logs:
+        result = vocabulary_access.group_codes("timeframe", "intraday_plus_hourly", default=("1m",))
+    assert result == ("1m",)
+    events = [e["event"] for e in cap_logs]
+    assert "vocabulary_access.empty_group_fallback" not in events, f"Unexpected warning in {events}"

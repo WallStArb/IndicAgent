@@ -25,6 +25,7 @@ import pytest
 
 from src.core import vocabulary_access
 from src.intelligence.services.feature_validation_analyzer import (
+    _TIMEFRAMES,
     FeatureValidationAnalyzer,
 )
 from tests.unit._vocabulary_fakes import FakeVocabularyService
@@ -429,13 +430,15 @@ def test_individual_slice_failure_does_not_crash_run():
 
 
 # ---------------------------------------------------------------------------
-# Test 7: _setup() prewarms VocabularyService and asserts _TIMEFRAMES subset
+# Test 7: _setup() prewarms VocabularyService and resolves self._timeframes from
+# the timeframe/intraday_plus_hourly CVR group (todo 327, generalized todo 329)
 # ---------------------------------------------------------------------------
 
 
-def test_setup_asserts_timeframes_subset_of_cvr():
-    """_setup() prewarms VocabularyService and validates _TIMEFRAMES is a subset of
-    CVR's registered timeframe codes -- catches drift without changing behavior."""
+def test_setup_resolves_timeframes_from_cvr_group():
+    """_setup() prewarms VocabularyService and resolves self._timeframes from the
+    timeframe/intraday_plus_hourly vocabulary_group (migration 322) -- proves the
+    registry, not just the module-level literal, actually drives the live value."""
     vocabulary_access.reset_vocabulary_service_for_test()
 
     pool, _conn = _make_pool_with_conn()
@@ -445,12 +448,42 @@ def test_setup_asserts_timeframes_subset_of_cvr():
         patch(f"{_AGENT_MODULE}.create_db_pool", new=AsyncMock(return_value=pool)),
         patch(
             "src.core.vocabulary_access.VocabularyService",
-            FakeVocabularyService(["1m", "5m", "15m", "1h", "4h", "1d"]),
+            FakeVocabularyService(
+                ["1m", "5m", "15m", "1h", "4h", "1d"],
+                groups={"intraday_plus_hourly": ["1m", "5m", "15m", "1h"]},
+            ),
         ),
     ):
         _run(agent._setup())
 
     assert vocabulary_access._vocab_service is not None
     assert vocabulary_access._vocab_service.initialized is True
+    assert agent._timeframes == ["1m", "5m", "15m", "1h"]
+
+    vocabulary_access.reset_vocabulary_service_for_test()
+
+
+def test_setup_falls_back_to_literal_when_cvr_group_unregistered():
+    """_setup() falls back to the module-level _TIMEFRAMES literal (not a crash) if
+    CVR has no intraday_plus_hourly group registered yet (e.g. migration 322 hasn't
+    run) -- matches group_codes()'s documented fallback-permissive contract."""
+    vocabulary_access.reset_vocabulary_service_for_test()
+
+    pool, _conn = _make_pool_with_conn()
+    agent = _make_agent(pool)
+
+    with (
+        patch(f"{_AGENT_MODULE}.create_db_pool", new=AsyncMock(return_value=pool)),
+        patch(
+            "src.core.vocabulary_access.VocabularyService",
+            # No `groups` kwarg -- intraday_plus_hourly resolves empty.
+            FakeVocabularyService(["1m", "5m", "15m", "1h", "4h", "1d"]),
+        ),
+    ):
+        _run(agent._setup())
+
+    assert agent._timeframes == list(_TIMEFRAMES)
+
+    vocabulary_access.reset_vocabulary_service_for_test()
 
     vocabulary_access.reset_vocabulary_service_for_test()

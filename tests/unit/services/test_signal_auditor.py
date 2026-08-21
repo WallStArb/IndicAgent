@@ -51,6 +51,7 @@ def agent():
     a._cis_stddev.labels.return_value = MagicMock()
     # APR-backed config (defaults from migration 142)
     a._audit_lookback_hours = 1
+    a._coverage_tfs = _COVERAGE_TFS
     return a
 
 
@@ -202,7 +203,8 @@ def test_topics_consumed_is_empty(agent):
 
 
 # ---------------------------------------------------------------------------
-# _setup() prewarms VocabularyService and asserts _COVERAGE_TFS subset (todo 327)
+# _setup() prewarms VocabularyService and resolves self._coverage_tfs from the
+# timeframe/intraday_plus_hourly CVR group (todo 327, generalized todo 329)
 # ---------------------------------------------------------------------------
 
 
@@ -216,13 +218,15 @@ def _make_setup_agent():
         database_url="postgresql://test", kafka_bootstrap_servers="localhost:9092"
     )
     a._config_cache = {}
+    a._coverage_tfs = _COVERAGE_TFS
     return a
 
 
 @pytest.mark.asyncio
-async def test_setup_asserts_coverage_tfs_subset_of_cvr():
-    """_setup() prewarms VocabularyService and validates _COVERAGE_TFS is a subset of
-    CVR's registered timeframe codes -- catches drift without changing behavior."""
+async def test_setup_resolves_coverage_tfs_from_cvr_group():
+    """_setup() prewarms VocabularyService and resolves self._coverage_tfs from the
+    timeframe/intraday_plus_hourly vocabulary_group (migration 322) -- proves the
+    registry, not just the module-level literal, actually drives the live value."""
     vocabulary_access.reset_vocabulary_service_for_test()
     agent = _make_setup_agent()
 
@@ -231,22 +235,27 @@ async def test_setup_asserts_coverage_tfs_subset_of_cvr():
         patch("services.signal_auditor.KafkaProducerClient", return_value=AsyncMock()),
         patch(
             "src.core.vocabulary_access.VocabularyService",
-            FakeVocabularyService(["1m", "5m", "15m", "1h", "4h", "1d"]),
+            FakeVocabularyService(
+                ["1m", "5m", "15m", "1h", "4h", "1d"],
+                groups={"intraday_plus_hourly": ["1m", "5m", "15m", "1h"]},
+            ),
         ),
     ):
         await agent._setup()
 
     assert vocabulary_access._vocab_service is not None
     assert vocabulary_access._vocab_service.initialized is True
+    assert agent._coverage_tfs == ("1m", "5m", "15m", "1h")
 
     vocabulary_access.reset_vocabulary_service_for_test()
 
 
 @pytest.mark.asyncio
-async def test_setup_raises_when_coverage_tfs_not_subset_of_cvr():
-    """_setup() raises ValueError when _COVERAGE_TFS references a timeframe CVR does
-    not have registered -- proves assert_known_subset actually gates startup rather
-    than being wired in but never exercised on the failing path."""
+async def test_setup_falls_back_to_literal_when_cvr_group_unregistered():
+    """_setup() falls back to the module-level _COVERAGE_TFS literal (not a crash) if
+    CVR has no intraday_plus_hourly group registered yet (e.g. migration 322 hasn't
+    run) -- matches group_codes()'s documented fallback-permissive contract, same as
+    every other vocabulary_access reader."""
     vocabulary_access.reset_vocabulary_service_for_test()
     agent = _make_setup_agent()
 
@@ -255,12 +264,12 @@ async def test_setup_raises_when_coverage_tfs_not_subset_of_cvr():
         patch("services.signal_auditor.KafkaProducerClient", return_value=AsyncMock()),
         patch(
             "src.core.vocabulary_access.VocabularyService",
-            # Omits "1h", one of _COVERAGE_TFS's members -- proves _setup()
-            # actually raises via assert_known_subset on a real drift case.
-            FakeVocabularyService(["1m", "5m", "15m", "4h", "1d"]),
+            # No `groups` kwarg -- intraday_plus_hourly resolves empty.
+            FakeVocabularyService(["1m", "5m", "15m", "1h", "4h", "1d"]),
         ),
     ):
-        with pytest.raises(ValueError):
-            await agent._setup()
+        await agent._setup()
+
+    assert agent._coverage_tfs == _COVERAGE_TFS
 
     vocabulary_access.reset_vocabulary_service_for_test()

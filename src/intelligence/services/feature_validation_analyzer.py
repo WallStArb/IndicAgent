@@ -75,6 +75,10 @@ class FeatureValidationAnalyzer:
     def __init__(self, settings: Settings) -> None:
         self._settings = settings
         self._pool: asyncpg.Pool | None = None
+        # CVR-backed validation timeframes — resolved in _setup() from the timeframe/
+        # intraday_plus_hourly vocabulary_group (migration 322, todo 329); this literal
+        # is only the pre-registry fallback.
+        self._timeframes: list[str] = list(_TIMEFRAMES)
 
     # ------------------------------------------------------------------
     # Lifecycle
@@ -83,13 +87,16 @@ class FeatureValidationAnalyzer:
     async def _setup(self) -> None:
         self._pool = await create_db_pool(self._settings.database_url)
 
-        # CVR prewarm: _TIMEFRAMES is a deliberate literal subset (no documented
-        # reason found to expand it to the full CVR set), so this only asserts it
-        # stays a subset of what CVR has registered -- catches drift without
-        # widening validation scope (todo 327).
+        # CVR prewarm: resolve the validation timeframes from the registry-native
+        # timeframe/intraday_plus_hourly group instead of trusting the module-level
+        # literal alone (todo 329) -- makes the subset relationship queryable and
+        # closes the drift risk of this literal silently diverging from
+        # signal_auditor.py's byte-identical _COVERAGE_TFS.
         await vocabulary_access.prewarm(self._settings.database_url, self._pool)
-        vocabulary_access.assert_known_subset(
-            "timeframe", tuple(_TIMEFRAMES), context="FeatureValidationAnalyzer._TIMEFRAMES"
+        self._timeframes = list(
+            vocabulary_access.group_codes(
+                "timeframe", "intraday_plus_hourly", default=tuple(_TIMEFRAMES)
+            )
         )
 
         logger.info("feature_validation.setup_complete")
@@ -147,7 +154,7 @@ class FeatureValidationAnalyzer:
     async def _validate_all_slices(self, plugin_name: str) -> list[dict[str, Any]]:
         """Validate all (tf, regime_type) slices for one plugin."""
         decisions: list[dict[str, Any]] = []
-        for timeframe in _TIMEFRAMES:
+        for timeframe in self._timeframes:
             for regime_type in _REGIME_TYPES:
                 try:
                     decision = await self._validate_slice(
