@@ -983,28 +983,36 @@ def _pct(rows_written: int, theoretical_max: int) -> float:
     return rows_written / theoretical_max if theoretical_max > 0 else 0.0
 
 
-def _record_cell_failure(
-    db_conn: Any,
-    coverage: dict[tuple[str, str], dict],
-    symbol: str,
-    tf: str,
-    error_str: str,
-) -> None:
-    """Mark one (symbol, tf) cell failed in backfill_status and zero its coverage entry.
+def _mark_cell_failed(db_conn: Any, symbol: str, tf: str, error_str: str) -> None:
+    """Record one (symbol, tf) cell as failed in backfill_status.
 
     Shared by run_compute_stage's two failure paths (worker-reported compute error,
     main-process write error) -- both previously repeated the identical mark-failed
-    try/except/rollback block and zero-coverage dict literal (/simplify pass, todo
-    318/300 session). Defensive by design, like the worker-side guard this replaces
-    (todo 318 code review): recording the failure must not itself crash the run.
+    try/except/rollback block (/simplify pass, todo 318/300 session). A pure DB
+    side-effect only -- deliberately does NOT touch the caller's coverage dict (split
+    out of an earlier version that fused the two, /simplify altitude-angle finding,
+    same session: mutating a caller-owned dict by reference inside a "write to the
+    DB" helper is a hidden side effect a reader has to open the function to discover).
+
+    Defensive by design, like the worker-side guard this replaces (todo 318 code
+    review): recording the failure must not itself crash the run. Logs (rather than
+    silently swallowing, as the pre-extraction code did in both call sites) if even
+    this best-effort recording fails -- a rare double-failure, but one that previously
+    left backfill_status silently stuck at 'in_progress' with zero signal anywhere.
     """
-    coverage[(symbol, tf)] = {"rows_written": 0, "theoretical_max": 0, "pct": 0.0}
     try:
         with db_conn.cursor() as cur:
             cur.execute(_MARK_COMPUTE_FAILED_SQL, (error_str, symbol, tf))
         db_conn.commit()
-    except Exception:
+    except Exception as mark_failed_error:
         db_conn.rollback()
+        _logger.error(
+            "mark_cell_failed_itself_failed",
+            symbol=symbol,
+            tf=tf,
+            original_error=error_str,
+            mark_failed_error=str(mark_failed_error),
+        )
 
 
 def run_compute_stage(
@@ -1218,7 +1226,8 @@ def run_compute_stage(
                         tf=tf,
                         error=cell["error"],
                     )
-                    _record_cell_failure(db_conn, coverage, symbol, tf, cell["error"])
+                    coverage[key] = {"rows_written": 0, "theoretical_max": 0, "pct": 0.0}
+                    _mark_cell_failed(db_conn, symbol, tf, cell["error"])
                     continue
 
                 rows = cell["rows"]
@@ -1250,8 +1259,17 @@ def run_compute_stage(
                         symbol=symbol,
                         tf=tf,
                         error=str(error),
+                        # rows_written here is the cell's full row count, not how many
+                        # were actually durably written -- the whole point of this
+                        # rollback is that NONE of them are (/simplify efficiency-angle
+                        # finding, todo 318/300 session): a late-chunk failure discards
+                        # every already-transmitted row in this cell, not just the
+                        # failing chunk, so surfacing that magnitude here is what makes
+                        # the cost of this atomicity trade-off observable to operators.
+                        rows_discarded=rows_written,
                     )
-                    _record_cell_failure(db_conn, coverage, symbol, tf, str(error))
+                    coverage[key] = {"rows_written": 0, "theoretical_max": 0, "pct": 0.0}
+                    _mark_cell_failed(db_conn, symbol, tf, str(error))
                     continue
 
                 coverage[key] = {
@@ -1575,6 +1593,14 @@ def _batch_insert(conn: Any, rows: list[tuple], refresh: bool = False) -> None:
     would leave chunk 1's rows durably committed while the caller's except
     branch still marked the whole cell 'failed'/rows_written=0, silently
     desyncing backfill_status from feature_vectors' real state.
+
+    CONTRACT FOR ANY FUTURE SECOND CALLER: this function's caller owns the
+    commit/rollback boundary, always. Do not add a `conn.commit()` here to
+    "fix" what looks like a missing commit in isolation -- that would silently
+    reopen the exact desync bug described above. If a new caller needs
+    autocommit-style per-call durability, give it that at the call site (e.g.
+    `conn.commit()` immediately after its own call), never inside this shared
+    function. Pinned by test_batch_insert_does_not_commit.
     """
     if not rows:
         return

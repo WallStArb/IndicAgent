@@ -37,8 +37,19 @@ mark-failed) as callables/callbacks. Would need dedicated test coverage for both
 before landing (this is a hot write path for both the corpus's regime relabeling and its feature
 backfill).
 
+**Update 2026-08-21 (follow-up `/simplify` meta-pass):** confirmed the scope is actually wider --
+`regime_writer.py` itself has TWO independent inline copies of this shape
+(`services/regime_writer.py:2221` worker-cell-failure, `:2595` main-process-write-failure), never
+sharing a helper even within that one file. `backfill_feature_factory.py`'s new
+`_mark_cell_failed()` (extracted same session) is now the *third* independent implementation of
+"mark failed, swallow rollback errors" in the codebase, all three sharing zero code. Same fix
+shape and same reason not to touch it mid-session applies -- if anything this raises the case for
+fixing it, not the urgency to rush it now.
+
 ## Where
 
-- `services/backfill_feature_factory.py` -- `run_compute_stage()`'s aggregation loop
-- `services/regime_writer.py` -- `main()`'s aggregation loop (lines ~2545-2596)
+- `services/backfill_feature_factory.py` -- `run_compute_stage()`'s aggregation loop,
+  `_mark_cell_failed()`
+- `services/regime_writer.py` -- `main()`'s aggregation loop, both inline copies (lines ~2221,
+  ~2595)
 - `services/_batch_utils.py` -- natural home for the shared helper

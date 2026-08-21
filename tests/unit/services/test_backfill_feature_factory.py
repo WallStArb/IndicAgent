@@ -29,6 +29,8 @@ from services.backfill_feature_factory import (
     _BARS_PER_DAY,
     _DEFAULT_CLIENT_ID,
     _INSERT_FEATURE_VECTORS_SQL,
+    _MARK_COMPUTE_COMPLETE_SQL,
+    _MARK_COMPUTE_FAILED_SQL,
     _TARGET_TIMEFRAMES_DEFAULT,
     _TRADING_DAYS_PER_YEAR,
     _UPSERT_FEATURE_VECTORS_SQL,
@@ -472,21 +474,25 @@ def _make_zero_vector() -> FeatureVector:
     )
 
 
-def _mock_worker_result(
-    symbol: str, tfs: tuple[str, ...] = _TARGET_TIMEFRAMES_DEFAULT, theoretical_max: int = 1200
-) -> dict:
-    """Build one _run_compute_worker-shaped pool.map() result for `symbol` across `tfs`.
+def _mock_worker_result(symbol: str) -> dict:
+    """Build one _run_compute_worker-shaped pool.map() result for `symbol` across the
+    default target timeframes.
 
     Shared by the run_compute_stage tests below (/simplify pass, todo 318/300 session)
     -- this exact literal was repeated identically across 4 tests; any future change to
     the worker-result shape (already happened once this session, the rows_written/pct ->
     rows-only change) previously had to be hand-applied to all 4 copies.
+
+    No tfs/theoretical_max params: an earlier version of this helper had both, but no
+    caller ever passed either (/simplify altitude-angle finding, same session) -- YAGNI,
+    re-add if a real test ever needs a different set.
     """
     return {
         "symbol": symbol,
         "error": None,
         "results": [
-            {"tf": tf, "rows": [(f"row-{tf}",)], "theoretical_max": theoretical_max} for tf in tfs
+            {"tf": tf, "rows": [(f"row-{tf}",)], "theoretical_max": 1200}
+            for tf in _TARGET_TIMEFRAMES_DEFAULT
         ],
     }
 
@@ -1095,6 +1101,109 @@ def test_compute_cell_write_failure_does_not_abort_remaining_cells() -> None:
     assert coverage[("MSFT", "5m")]["rows_written"] == 1
     # AAPL's failed cell is recorded as zero, not silently dropped or left absent.
     assert coverage[("AAPL", "5m")]["rows_written"] == 0
+
+
+def test_compute_cell_mid_chunk_failure_does_not_leave_partial_commit() -> None:
+    """/simplify altitude-angle finding, todo 318/300 session: every existing test
+    before this one only ever exercised a single-chunk cell (one row -> one
+    _batch_insert call), because int(MagicMock()) defaults to 1 for the mocked
+    insert_batch_size AND every mocked cell only ever had 1 row -- so
+    range(0, 1, N) never iterated more than once regardless of N. This test gives
+    one cell 3 rows so the chunk loop genuinely iterates 3 times (insert_batch_size
+    defaults to 1 via the same MagicMock behavior), and fails on the SECOND chunk --
+    the exact scenario _batch_insert's dropped internal commit() exists to fix.
+    Must not commit anything for this cell: _MARK_COMPUTE_COMPLETE_SQL must never
+    run, only _MARK_COMPUTE_FAILED_SQL, and the cell's coverage must read zero --
+    not a partial count reflecting the one chunk that succeeded before the failure."""
+    settings = MagicMock()
+    settings.database_url = "postgresql://fake"
+    mock_conn = MagicMock()
+
+    mock_instrument = MagicMock()
+    mock_instrument.symbol = "TSLA"
+    mock_instrument.asset_class = "equity"
+
+    with (
+        patch(
+            "services.backfill_feature_factory.get_active_contracts",
+            return_value=[mock_instrument],
+        ),
+        patch("services.backfill_feature_factory._load_config_service") as mock_cfg_load,
+        patch("services.backfill_feature_factory._build_feature_factory_config") as mock_cfg_build,
+        patch(
+            "services.backfill_feature_factory._load_status_map",
+            return_value={
+                ("TSLA", "5m"): {
+                    "status": "complete",
+                    "fetch_complete": True,
+                    "rows_written": 1000,
+                    "theoretical_max": 1200,
+                }
+            },
+        ),
+        patch("services.backfill_feature_factory._load_fv_row_counts", return_value={}),
+        patch("services.backfill_feature_factory._make_worker_pool") as mock_pool_cls,
+        patch("services.backfill_feature_factory._write_session"),
+        patch("services.backfill_feature_factory._batch_insert") as mock_batch_insert,
+    ):
+        mock_cfg_load.return_value = MagicMock()
+        mock_cfg_build.return_value = _make_config()
+
+        # Chunk 1 succeeds, chunk 2 raises -- chunk 3 is never reached.
+        call_count = {"n": 0}
+
+        def _raise_on_second_chunk(conn, rows, refresh=False):
+            call_count["n"] += 1
+            if call_count["n"] == 2:
+                raise RuntimeError("simulated mid-chunk failure")
+
+        mock_batch_insert.side_effect = _raise_on_second_chunk
+
+        mock_pool = MagicMock()
+        mock_pool.map.return_value = [
+            {
+                "symbol": "TSLA",
+                "error": None,
+                "results": [
+                    {
+                        "tf": "5m",
+                        "rows": [("TSLA-row-1",), ("TSLA-row-2",), ("TSLA-row-3",)],
+                        "theoretical_max": 1200,
+                    },
+                ],
+            },
+        ]
+        mock_pool_cls.return_value.__enter__.return_value = mock_pool
+
+        coverage, _ = run_compute_stage(
+            settings=settings,
+            symbols=None,
+            db_conn=mock_conn,
+        )
+
+    # The chunk loop actually iterated more than once -- confirms this test
+    # exercises the multi-chunk path, not a trivially-single-iteration one.
+    assert call_count["n"] >= 2
+
+    # Whole cell recorded as failed -- not a partial count from the one chunk
+    # that succeeded before the second chunk raised.
+    assert coverage[("TSLA", "5m")]["rows_written"] == 0
+
+    # The success-path SQL must never have run for this cell.
+    executed_sql = [c.args[0] for c in mock_conn.cursor().__enter__().execute.call_args_list]
+    assert _MARK_COMPUTE_COMPLETE_SQL not in executed_sql
+    assert _MARK_COMPUTE_FAILED_SQL in executed_sql
+
+
+def test_batch_insert_does_not_commit() -> None:
+    """/simplify altitude-angle finding, todo 318/300 session: pins the "does not
+    commit" contract _batch_insert's docstring documents but no test previously
+    verified -- a future change that reintroduces conn.commit() here would silently
+    reopen the mid-chunk-failure partial-commit bug this function's docstring exists
+    to prevent, with nothing in the suite catching it."""
+    mock_conn = MagicMock()
+    _batch_insert(mock_conn, [("row",)], refresh=False)
+    mock_conn.commit.assert_not_called()
 
 
 def test_batch_insert_default_uses_insert_sql() -> None:
