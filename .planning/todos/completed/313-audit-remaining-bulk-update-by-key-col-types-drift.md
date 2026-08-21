@@ -39,3 +39,37 @@ every writer that touches those columns.
 - `grep -rn "bulk_update_by_key(" --include="*.py" .` -- the 4 known call sites (2 already
   fixed, 2 already confirmed clean); this todo is about finding call sites NOT using
   `bulk_update_by_key` at all
+
+## Closed 2026-08-21: CLEAN, no follow-up fix needed
+
+Cross-referenced migration 312's full 303-column list against every `feature_vectors`
+writer outside the 4 known `bulk_update_by_key` call sites.
+
+**`bulk_update_by_key` call sites confirmed unchanged since 2026-08-14 (4 total):**
+`regime_writer.py` (2 sites, already fixed) and `ops_ctf_columns_recompute_15m.py`
+(already fixed) both touch `feature_vectors`; `ic_engine.py`/`ops_ic_shrinkage.py` both
+write `feature_ic_scores`, untouched by migration 312, already confirmed clean, not
+re-checked. No new call sites added.
+
+**Every non-`bulk_update_by_key` `feature_vectors` writer found is structurally immune to
+this specific bug class, not just currently correct:**
+- `backfill_feature_factory.py`'s `_batch_insert` and
+  `feature_vector_persistence.py`'s tuple-builder INSERT path -- direct parameterized
+  `executemany` INSERT/UPSERT, no temp table involved at all. The silent-drift mechanism
+  this bug class depends on (a stale `col_types` dict producing a mismatched temp-table
+  DDL that silently absorbs an out-of-range value, which only fails later at an implicit
+  CAST) structurally cannot occur without a temp table -- Postgres enforces the real
+  `real`-typed column immediately on a direct INSERT; an out-of-range value fails loudly
+  at insert time. (`feature_vector_persistence.py` separately guards `math.isfinite()`
+  pre-write -- a different, already-loud failure mode, not this one.)
+- `ops_stale_k3_hmm_fields_cleanup.py`, `ops_regime_null_out_and_verify.py` -- both
+  NULL-only `UPDATE`s (`col = NULL` for every owned column). No value written, no range
+  concern possible.
+- Every other batch writer checked (`ensemble_trainer.py`, `cross_sectional_spread_tracker.py`,
+  `alpha_frame_writer.py`, `forward_return_writer.py`, `feature_vector_writer.py`,
+  `ops_interaction_primitives_pilot.py`) writes to its own table
+  (`ensemble_alpha`/`construction_spreads`/`alpha_frames`/`forward_returns`/
+  `feature_ic_scores`), never `feature_vectors` -- out of migration 312's scope entirely.
+
+No fix needed -- the systemic `col_types`-based clamp in `bulk_update_by_key` already
+covers every writer capable of hitting this bug class; nothing was found outside it.
