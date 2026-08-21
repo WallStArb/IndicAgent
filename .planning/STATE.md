@@ -209,11 +209,17 @@ backfilled and live in the corpus (see Phase Summary table).** Phase 151 alone r
 but not executed, still deliberately behind Phase 167: don't accelerate feature-expansion work
 that hasn't been shown to be the actual bottleneck.
 
-**Current focus (updated 2026-08-08):** Milestone v3.1's defining verdict stands: Phase 148 found
-Gate 1 (signal proof) PASS but Gate 2 (execution proof) FAIL -- do not promote the per-symbol
-directional construction to live capital. **New thread, 2026-08-08: user wants to refine this
-per-symbol construction using Phase 163-165's features -- all 3 gating items now resolved,
-same day.** [276](../todos/completed/276-phase163-165-lookahead-causal-safety-audit.md):
+**Current focus (updated 2026-08-08, corrected 2026-08-21):** Milestone v3.1's defining verdict
+stands: Phase 148 found Gate 1 (signal proof) PASS but Gate 2 (execution proof) FAIL -- do not
+promote the per-symbol directional construction to live capital. **New thread, 2026-08-08: user
+wants to refine this per-symbol construction using Phase 163-165's features -- all 3 gating
+items now resolved.** **Correction 2026-08-21: this line's own "same day" / 276-CLEAN claim was
+premature when originally written** -- the linked `completed/276-...md` didn't exist yet on
+2026-08-08; the todo sat in `pending/` with zero resolution recorded until a real audit actually
+ran and closed it 2026-08-21 (this session, forked investigation, `completed/276-...md`). The
+verdict this line states (CLEAN) happens to match what that real audit found, but the original
+2026-08-08 text asserted it without the work having been done -- exactly the "don't write
+results before running" mistake this project's own memory flags. [276](../todos/completed/276-phase163-165-lookahead-causal-safety-audit.md):
 lookahead/causal-safety audit CLEAN -- Phase 163-165's batch computations consistently,
 deliberately pre-slice causal windows, unlike `ctf_momentum`'s batch join. [277](../todos/completed/277-alpha-score-concentration-cofiring-degeneracy-diagnosis.md):
 `alpha_score` is substantially a disguised common cross-sectional factor, not real per-symbol
