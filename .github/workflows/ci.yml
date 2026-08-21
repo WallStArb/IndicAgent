@@ -75,12 +75,12 @@ jobs:
 
   # ---------------------------------------------------------------------------
   # Plugin Invariants — Renaissance-grade structural guards.
-  # Mirrors 4 of the 9 bash checks in tools/pre-commit.hook (the local git hook
-  # is opt-in and --no-verify bypasses it entirely — this job is the only one
-  # that actually gates every PR/push). Glossary + counterfactual-ledger checks
-  # Checks 8/9 (glossary, counterfactual-ledger) mirrored 2026-08-21 (todo 310) --
-  # both need a PR-diff base rather than a full-repo scan, unlike guards 1-4.
-  # No pip install needed — pure grep/find, runs in ~2s.
+  # Mirrors all 9 bash checks in tools/pre-commit.hook (the local git hook is
+  # opt-in, and --no-verify bypasses it entirely, so this job is the only one
+  # that actually gates every PR/push). Checks 8/9 (glossary, counterfactual-
+  # ledger) were the last two mirrored, 2026-08-21 (todo 310); they need a
+  # PR-diff base rather than a full-repo scan, unlike guards 1-4.
+  # No pip install needed, pure grep/find, runs in ~2s.
   # ---------------------------------------------------------------------------
   plugin-guards:
     name: Plugin Invariants
@@ -125,7 +125,13 @@ jobs:
       # before this push (github.event.before) -- 40 zeros on a ref's first-
       # ever push, which git cat-file correctly rejects, falling back to the
       # empty tree so the diff is still well-defined (treats every file in the
-      # initial push as "changed", the conservative/safe direction).
+      # initial push as "changed", the conservative/safe direction). Both
+      # steps below diff with three-dot syntax (base...HEAD, not base HEAD) --
+      # code review finding: two-dot diffs against the PR base branch's
+      # current tip, which can have advanced past the PR's own fork point
+      # while the PR sat open, pulling in unrelated main-branch drift as if
+      # it were part of the PR's own diff. Three-dot diffs against the
+      # merge-base instead, matching "what did this PR actually change."
       - name: Determine diff base
         id: base
         run: |
@@ -144,7 +150,7 @@ jobs:
       # PR-diff-computed file list instead of the hook's staged-files list.
       - name: Glossary enforcement
         run: |
-          FILES=$(git diff --name-only --diff-filter=ACM "${{ steps.base.outputs.sha }}" HEAD -- '*.py' '*.md' \
+          FILES=$(git diff --name-only --diff-filter=ACM "${{ steps.base.outputs.sha }}...HEAD" -- '*.py' '*.md' \
             | grep -vE '^docs/(ideas|plans)/archive/' || true)
           if [ -z "$FILES" ]; then
             echo "OK: no Python or Markdown files changed"
@@ -160,7 +166,7 @@ jobs:
       # documents already happening once for guards 1-4).
       - name: Counterfactual-ledger enforcement
         run: |
-          FILES=$(git diff --name-only --diff-filter=ACM "${{ steps.base.outputs.sha }}" HEAD -- '*.sql' \
+          FILES=$(git diff --name-only --diff-filter=ACM "${{ steps.base.outputs.sha }}...HEAD" -- '*.sql' \
             | grep -E '(migrations?)/' || true)
           echo "$FILES" | tools/check_counterfactual_ledger.sh
 
