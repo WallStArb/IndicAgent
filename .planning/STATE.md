@@ -4,7 +4,7 @@ milestone: v3.1
 milestone_name: AlphaEngine Validation + Alpha Scoring
 status: milestone_complete
 stopped_at: Milestone complete (Phase 172 was final phase)
-last_updated: 2026-08-20T14:52:00.000Z
+last_updated: 2026-08-22T01:31:00.000Z
 progress:
   total_phases: 12
   completed_phases: 9
@@ -188,6 +188,31 @@ liveness + `alpha_ensemble_ic` freshness rather than a log-tail banner). **Equit
 from this run are unaffected and usable once it completes; do not treat commodity/fx
 cross-sectional results as final until the watcher's `--from-step 4` recompute also finishes.**
 Full detail: `.planning/todos/pending/335-regime-signal-bucket-tier-order-inversion-commodity-fx.md`.
+
+**UPDATE 2026-08-22 01:31 UTC: run still healthy, no errors, progressing through the largest
+cross-sectional cells now.** Same PID 1887176, still alive since Aug19. 31/N equity
+`(tf, regime)` cells done (up from 12 at the 12:21 UTC check) -- finished 1h and 15m entirely,
+now partway through 5m (the largest tf by row count: `low_bull` alone has 539,061 timestamps /
+108 chunks, in progress since 23:39 UTC, ~2h into this one cell as of this check -- 5m cells are
+running 40min-2h+ each depending on size, consistent with the pattern, not a stall). The
+todo-335 watcher (PID 3892989) is still alive, still correctly waiting on PID 1887017 to exit
+before launching its `--from-step 4` recompute. Zero error-level log lines throughout. Still no
+total-cell-count to project a firm ETA from, but the trend (1h/15m done, working through 5m)
+suggests this is in its final stratification stretch before moving to steps 6-8.
+
+**Session note, same window:** a large backlog-cleanup pass ran across several hours (9+ todos
+closed with real evidence, not just checkbox-closing -- see `.planning/todos/PRIORITIES.md`'s
+own 2026-08-21 closure notes for the full list). Two things worth flagging for continuity: (1)
+`main` was found genuinely broken for several minutes (`ModuleNotFoundError` on
+`import src.intelligence.pipeline`, traced to an earlier autonomous iteration's incomplete
+dead-code deletion getting cut off by context compression before its dependent `__init__.py`
+fix landed) -- caught and fixed same session (`8046f1e32`), confirmed working now, live corpus
+run was never affected (doesn't import that module tree). (2) A self-filed hypothesis
+(todo 346, "mypy-baseline is broken by version drift") was investigated further and found
+**wrong** -- the gate is genuinely clean; the original test compared a single-file mypy check
+against a whole-tree baseline, which produces spurious mismatches by design, not from any real
+drift. Closed with the correction on record. All 17 commits from this window pushed to
+`origin/main` (`466676e61`), confirmed clean fast-forward.
 
 ---
 

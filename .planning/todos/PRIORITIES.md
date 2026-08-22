@@ -483,3 +483,17 @@ as the sharpest open item -- it's actively corrupting the regime labels a multi-
 corpus job is producing right now, not a latent gap.** No other stale entries found; P1/P2/P3
 tier placements otherwise left as previously judged (re-tiering is deliberately not
 auto-applied by this pass, per this file's own "judgment call for you" rule).
+
+**Extended backlog pass, 2026-08-21/22 (same overall session as the P0-clearing pass above):**
+9 more todos closed with real evidence (276, 244, 329, 322, 342, 294, 313, 336, 315, 328, 346 --
+each has its own closure note inline above at the tier it was in), pending count 105→96. Two
+non-todo findings surfaced and fixed along the way, not filed as todos since they were
+same-session catches: (1) `main` was genuinely broken for several minutes
+(`ModuleNotFoundError` on `import src.intelligence.pipeline`) when an earlier autonomous
+iteration's dead-code deletion (todo 328) got cut off by context compression before its
+dependent `__init__.py` fix landed -- caught and fixed same session (`8046f1e32`). (2) Todo 346
+itself, self-filed mid-session suspecting a broken mypy-baseline gate, was re-investigated and
+found wrong -- the gate is clean, closed with the correction on record. **Drift audit re-run**:
+`ls pending/` vs. every `[N](pending/...)` link -- only 080/270 unlinked, both already
+documented as deliberate exclusions (redirect stub, phase-promotion note respectively), no new
+gaps. All 17 commits from this window pushed to `origin/main` (`466676e61`), clean fast-forward.
