@@ -15,12 +15,12 @@ Logic ported from services/equity_regime_model.py -- no DB calls here (DB-free p
 functions per the compute != persistence SoC rule).
 
 CORRECTNESS INVARIANT (RESEARCH.md Pitfall 1 / Pattern 4): every signal ranked here MUST use
-a causal bisect-based expanding rank, never a whole-series percentile rank (pandas'
-`Series.rank` with `pct` True) -- that ranks every point against future values too,
-reintroducing the exact look-ahead bias Phase 141's P0-T2 fix removed from
-equity_regime_model.py. Rank logic lives in causal_rank.py (shared with curve_credit.py,
-todo 092 2026-07-24), guarded by tests/unit/test_regime_signals_causal_rank.py's
-causal-property test.
+a causal expanding rank, never a whole-series percentile rank (pandas' `Series.rank` with
+`pct` True) -- that ranks every point against future values too, reintroducing the exact
+look-ahead bias Phase 141's P0-T2 fix removed from equity_regime_model.py. Rank logic lives
+in causal_rank.py (shared with curve_credit.py, todo 092 2026-07-24; Fenwick-tree
+implementation since 2026-08-21, same causal contract), guarded by
+tests/unit/test_regime_signals_causal_rank.py's causal-property test.
 
 CALIBRATION (todo 092, 2026-07-24): breadth_frac (raw fraction of symbols above their MA)
 used to be bucketed directly against a fixed alpha.equity_regime.breadth_bear/breadth_bull
