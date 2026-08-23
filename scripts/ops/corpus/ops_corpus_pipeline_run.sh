@@ -386,10 +386,24 @@ run_step 7 "ensemble_trainer" \
     "$PYTHON" services/ensemble_trainer.py \
     --weight-version "$WEIGHT_EPOCH"
 
-# Step 8 — Alpha Publisher (ensemble_alpha → alpha_events + Kafka)
+# Step 8 — Alpha Publisher (ensemble_alpha → alpha_events, DB only)
+#
+# --skip-kafka: a corpus/backfill run re-scores historical-vintage bars, not live ones --
+# publishing that onto the live alpha.events Kafka topic would flood downstream
+# consumers with backfill data alongside real-time events, indistinguishable from each
+# other on the topic. This flag has existed since Phase 141.1 explicitly documented as
+# "corpus batch mode — DB only, O(chunk) memory" but was never wired in here across this
+# call site's entire git history -- confirmed the omission was live and unaddressed
+# since a 2026-07-02 audit doc first raised the open question ("should --skip-kafka
+# become the only mode until [a Kafka consumer] exists?"). Consequence, 2026-08-22: the
+# unbounded !skip_kafka accumulation path (now fixed independently, see
+# AlphaPublisher._flush_chunk) OOM-killed this step at 24.6GB RSS once ensemble_alpha
+# grew past ~30M rows -- this flag addresses the architectural question those two
+# findings share, not just the memory bug.
 run_step 8 "alpha_publisher" \
     "$PYTHON" services/alpha_publisher.py \
-    --weight-version "$WEIGHT_EPOCH"
+    --weight-version "$WEIGHT_EPOCH" \
+    --skip-kafka
 
 # Vocabulary Drift Audit (Phase 161, Controlled Vocabulary System) — observability-only
 # (D-09): writes a loud integrity_monitor row (monitor_type='vocabulary_drift') + OTel

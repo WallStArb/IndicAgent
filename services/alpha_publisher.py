@@ -69,7 +69,6 @@ class AlphaPublisher(BaseBatch):
     job_name = "alpha-publisher"
     compute_version = "1.0.0"
     ensemble_version = "v1.0.0"
-    _CHUNK_SIZE = 50_000
 
     def __init__(
         self,
@@ -144,6 +143,7 @@ class AlphaPublisher(BaseBatch):
             # todo 011: one-way live-promotion switch. True until an operator flips it
             # at Phase 144 after the shadow record passes all promotion-gate criteria.
             is_shadow = _cfg(cfg, "alpha.publisher.is_shadow", True)
+            chunk_size = int(_cfg(cfg, "infra.alpha_publisher.chunk_size", 50_000))
 
             self.logger.info(
                 "alpha_publisher.config_loaded",
@@ -153,6 +153,7 @@ class AlphaPublisher(BaseBatch):
                 topic=topic,
                 skip_kafka=self.skip_kafka,
                 is_shadow=is_shadow,
+                chunk_size=chunk_size,
             )
             manifest.set_inputs(
                 ensemble_version=self.ensemble_version,
@@ -221,159 +222,149 @@ class AlphaPublisher(BaseBatch):
             rows_by_tf: dict[str, int] = {}
             now = datetime.now(UTC)
 
-            # skip_kafka: accumulate DB tuples, flush every _CHUNK_SIZE rows (O(chunk) memory)
-            # !skip_kafka: accumulate event dicts for Kafka publish after cursor loop
-            _chunk: list[tuple] = []
-            pending_events: list[dict] = []
+            # Both paths (skip_kafka True/False) accumulate one dict per emitted event and
+            # flush every chunk_size rows via _flush_chunk -- O(chunk) memory regardless of
+            # total emit_count. Before 2026-08-22 this was two independently-duplicated
+            # blocks; only the skip_kafka path chunked, the Kafka-publish path accumulated
+            # unbounded for the whole run and OOM-killed a corpus run at 24.6GB RSS once
+            # ensemble_alpha grew past ~30M rows (88.7M in the run that crashed).
+            _chunk: list[dict] = []
 
-            async with conn.transaction():
-                # --- Full replace, scoped to this weight_version ---
-                # ensemble_alpha is a full-batch rescan/rewrite per ensemble_trainer run
-                # (not incremental), so this cursor below always processes the CURRENT
-                # complete snapshot for weight_version. ON CONFLICT DO NOTHING alone
-                # cannot remove rows for bars that no longer qualify (e.g. a stratum a
-                # newer ensemble_trainer run stopped writing because a gate tightened) --
-                # it only adds or no-ops, never deletes. Delete lives inside this same
-                # transaction as the insert loop below so a mid-run failure rolls back
-                # the delete too -- atomic replace, never a partially-empty table visible
-                # to readers. Found 2026-07-08: 2346 stale 1h/high_bear alpha_events rows
-                # survived a re-run because of exactly this gap.
-                deleted = await conn.execute(
-                    "DELETE FROM alpha_events WHERE weight_version = $1", weight_version
+            # Kafka producer must be live BEFORE the cursor loop so events publish
+            # chunk-by-chunk during iteration, not only after accumulating everything.
+            if not self.skip_kafka:
+                self._producer = KafkaProducerClient(
+                    bootstrap_servers=settings.kafka_bootstrap_servers
                 )
-                self.logger.info(
-                    "alpha_publisher.prior_weight_version_cleared",
-                    weight_version=weight_version,
-                    deleted=deleted,
-                )
+                try:
+                    await self._producer.start()
+                except Exception as error:
+                    self.logger.error("alpha_publisher.kafka_start_failed", error=str(error))
+                    raise
 
-                async for row in conn.cursor(
-                    """
-                    WITH g AS (
+            try:
+                async with conn.transaction():
+                    # --- Full replace, scoped to this weight_version ---
+                    # ensemble_alpha is a full-batch rescan/rewrite per ensemble_trainer run
+                    # (not incremental), so this cursor below always processes the CURRENT
+                    # complete snapshot for weight_version. ON CONFLICT DO NOTHING alone
+                    # cannot remove rows for bars that no longer qualify (e.g. a stratum a
+                    # newer ensemble_trainer run stopped writing because a gate tightened) --
+                    # it only adds or no-ops, never deletes. Delete lives inside this same
+                    # transaction as the insert loop below so a mid-run failure rolls back
+                    # the delete too -- atomic replace, never a partially-empty table visible
+                    # to readers. Found 2026-07-08: 2346 stale 1h/high_bear alpha_events rows
+                    # survived a re-run because of exactly this gap.
+                    # NOTE (todo 351): _flush_chunk's per-chunk INSERTs run on a separate
+                    # pooled connection (wconn) than this DELETE's transaction (conn) --
+                    # they commit independently and earlier, weakening the atomicity this
+                    # comment claims. Not yet confirmed live-impacting; see that todo.
+                    deleted = await conn.execute(
+                        "DELETE FROM alpha_events WHERE weight_version = $1", weight_version
+                    )
+                    self.logger.info(
+                        "alpha_publisher.prior_weight_version_cleared",
+                        weight_version=weight_version,
+                        deleted=deleted,
+                    )
+
+                    async for row in conn.cursor(
+                        """
+                        WITH g AS (
+                            SELECT symbol, tf, bar_ts, weight_version,
+                                   alpha_score, alpha_ci_lower, alpha_ci_upper,
+                                   effective_n, n_features_active, regime,
+                                   CASE tf
+                                       WHEN '5m'  THEN $3::double precision
+                                       WHEN '15m' THEN $4::double precision
+                                       WHEN '1h'  THEN $5::double precision
+                                       WHEN '1d'  THEN $6::double precision
+                                       ELSE $7::double precision
+                                   END AS threshold_val,
+                                   CASE tf
+                                       WHEN '5m'  THEN $8::double precision
+                                       WHEN '15m' THEN $9::double precision
+                                       WHEN '1h'  THEN $10::double precision
+                                       WHEN '1d'  THEN $11::double precision
+                                       ELSE $12::double precision
+                                   END AS hurdle_val
+                            FROM ensemble_alpha
+                            WHERE weight_version = $1
+                        )
                         SELECT symbol, tf, bar_ts, weight_version,
                                alpha_score, alpha_ci_lower, alpha_ci_upper,
-                               effective_n, n_features_active, regime,
-                               CASE tf
-                                   WHEN '5m'  THEN $3::double precision
-                                   WHEN '15m' THEN $4::double precision
-                                   WHEN '1h'  THEN $5::double precision
-                                   WHEN '1d'  THEN $6::double precision
-                                   ELSE $7::double precision
-                               END AS threshold_val,
-                               CASE tf
-                                   WHEN '5m'  THEN $8::double precision
-                                   WHEN '15m' THEN $9::double precision
-                                   WHEN '1h'  THEN $10::double precision
-                                   WHEN '1d'  THEN $11::double precision
-                                   ELSE $12::double precision
-                               END AS hurdle_val
-                        FROM ensemble_alpha
-                        WHERE weight_version = $1
-                    )
-                    SELECT symbol, tf, bar_ts, weight_version,
-                           alpha_score, alpha_ci_lower, alpha_ci_upper,
-                           effective_n, n_features_active, regime
-                    FROM g
-                    WHERE effective_n >= $2::double precision
-                      AND ABS(alpha_score) > threshold_val
-                      AND (
-                            (alpha_score > 0 AND alpha_ci_lower > hurdle_val)
-                         OR (alpha_score < 0 AND alpha_ci_upper < -hurdle_val)
-                          )
-                    ORDER BY symbol, tf, bar_ts
-                    """,
-                    weight_version,
-                    effective_n_gate,
-                    tf_thresholds["5m"],
-                    tf_thresholds["15m"],
-                    tf_thresholds["1h"],
-                    tf_thresholds["1d"],
-                    fallback_threshold,
-                    tf_cost_hurdles["5m"],
-                    tf_cost_hurdles["15m"],
-                    tf_cost_hurdles["1h"],
-                    tf_cost_hurdles["1d"],
-                    0.0,
-                    prefetch=10000,
-                ):
-                    total_bars += 1
-                    symbol = row["symbol"]
-                    tf = row["tf"]
-                    bar_ts = row["bar_ts"]
-                    alpha_score = float(row["alpha_score"])
-                    alpha_ci_lower = float(row["alpha_ci_lower"])
-                    alpha_ci_upper = float(row["alpha_ci_upper"])
-                    eff_n = float(row["effective_n"])
-                    n_features_active = int(row["n_features_active"])
-                    regime = row["regime"] or "_pooled"
-                    threshold = tf_thresholds.get(tf, fallback_threshold)
-                    cost_hurdle = tf_cost_hurdles.get(tf, 0.0)
+                               effective_n, n_features_active, regime
+                        FROM g
+                        WHERE effective_n >= $2::double precision
+                          AND ABS(alpha_score) > threshold_val
+                          AND (
+                                (alpha_score > 0 AND alpha_ci_lower > hurdle_val)
+                             OR (alpha_score < 0 AND alpha_ci_upper < -hurdle_val)
+                              )
+                        ORDER BY symbol, tf, bar_ts
+                        """,
+                        weight_version,
+                        effective_n_gate,
+                        tf_thresholds["5m"],
+                        tf_thresholds["15m"],
+                        tf_thresholds["1h"],
+                        tf_thresholds["1d"],
+                        fallback_threshold,
+                        tf_cost_hurdles["5m"],
+                        tf_cost_hurdles["15m"],
+                        tf_cost_hurdles["1h"],
+                        tf_cost_hurdles["1d"],
+                        0.0,
+                        prefetch=10000,
+                    ):
+                        total_bars += 1
+                        symbol = row["symbol"]
+                        tf = row["tf"]
+                        bar_ts = row["bar_ts"]
+                        alpha_score = float(row["alpha_score"])
+                        alpha_ci_lower = float(row["alpha_ci_lower"])
+                        alpha_ci_upper = float(row["alpha_ci_upper"])
+                        eff_n = float(row["effective_n"])
+                        n_features_active = int(row["n_features_active"])
+                        regime = row["regime"] or "_pooled"
+                        threshold = tf_thresholds.get(tf, fallback_threshold)
+                        cost_hurdle = tf_cost_hurdles.get(tf, 0.0)
 
-                    ALPHA_PUBLISHER_BARS_SCORED_TOTAL.add(1, {"symbol": symbol, "tf": tf})
+                        ALPHA_PUBLISHER_BARS_SCORED_TOTAL.add(1, {"symbol": symbol, "tf": tf})
 
-                    cached_weights = weights_cache.get((tf, regime), [])
-                    top_features: dict[str, float] = {
-                        r["feature_name"]: r["weight"] for r in cached_weights[:top_features_count]
-                    }
-                    if not top_features:
-                        self.logger.warning(
-                            "alpha_publisher.top_features_empty",
-                            symbol=symbol,
-                            tf=tf,
-                            regime=regime,
-                            reason="no_weights_in_cache_for_stratum",
+                        cached_weights = weights_cache.get((tf, regime), [])
+                        top_features: dict[str, float] = {
+                            r["feature_name"]: r["weight"]
+                            for r in cached_weights[:top_features_count]
+                        }
+                        if not top_features:
+                            self.logger.warning(
+                                "alpha_publisher.top_features_empty",
+                                symbol=symbol,
+                                tf=tf,
+                                regime=regime,
+                                reason="no_weights_in_cache_for_stratum",
+                            )
+                            reject_count += 1
+                            continue
+
+                        direction = "long" if alpha_score > 0 else "short"
+                        bar_ts_ns = str(int(bar_ts.timestamp() * 1e9))
+                        # weight_version in the event_id: a new weight epoch must produce a
+                        # distinct event_id, else ON CONFLICT (event_id, bar_ts) DO NOTHING
+                        # silently swallows every new-epoch row (bottom-up audit / cross-AI
+                        # review — the emission-path twin of the DO NOTHING trap Plan 04
+                        # fixes in the trainer).
+                        event_id = BaseBatch.content_key(symbol, tf, bar_ts_ns, self.ensemble_version, weight_version)  # fmt: skip
+
+                        rows_by_tf[tf] = rows_by_tf.get(tf, 0) + 1
+                        ALPHA_PUBLISHER_EMISSIONS_TOTAL.add(
+                            1,
+                            {"symbol": symbol, "tf": tf, "direction": direction, "regime": regime},
                         )
-                        reject_count += 1
-                        continue
+                        emit_count += 1
 
-                    direction = "long" if alpha_score > 0 else "short"
-                    bar_ts_ns = str(int(bar_ts.timestamp() * 1e9))
-                    # weight_version in the event_id: a new weight epoch must produce a
-                    # distinct event_id, else ON CONFLICT (event_id, bar_ts) DO NOTHING
-                    # silently swallows every new-epoch row (bottom-up audit / cross-AI
-                    # review — the emission-path twin of the DO NOTHING trap Plan 04
-                    # fixes in the trainer).
-                    event_id = BaseBatch.content_key(symbol, tf, bar_ts_ns, self.ensemble_version, weight_version)  # fmt: skip
-
-                    rows_by_tf[tf] = rows_by_tf.get(tf, 0) + 1
-                    ALPHA_PUBLISHER_EMISSIONS_TOTAL.add(
-                        1, {"symbol": symbol, "tf": tf, "direction": direction, "regime": regime}
-                    )
-                    emit_count += 1
-
-                    if self.skip_kafka:
                         _chunk.append(
-                            (
-                                event_id,
-                                symbol,
-                                tf,
-                                bar_ts,
-                                self.ensemble_version,
-                                weight_version,
-                                regime,
-                                alpha_score,
-                                alpha_ci_lower,
-                                alpha_ci_upper,
-                                eff_n,
-                                n_features_active,
-                                threshold,
-                                direction,
-                                top_features,
-                                now,
-                                cost_hurdle,
-                                is_shadow,
-                            )
-                        )
-                        if len(_chunk) >= self._CHUNK_SIZE:
-                            async with pool.acquire() as wconn:
-                                await wconn.executemany(self._INSERT_SQL, _chunk)
-                            _chunk.clear()
-                            self.logger.info(
-                                "alpha_publisher.chunk_flushed",
-                                emit_count=emit_count,
-                            )
-                    else:
-                        pending_events.append(
                             {
                                 "event_id": event_id,
                                 "symbol": symbol,
@@ -390,76 +381,23 @@ class AlphaPublisher(BaseBatch):
                                 "direction": direction,
                                 "top_features": top_features,
                                 "cost_hurdle": cost_hurdle,
-                                "is_shadow": is_shadow,
                             }
                         )
+                        if len(_chunk) >= chunk_size:
+                            await self._flush_chunk(pool, _chunk, now, is_shadow, topic)
+                            self.logger.info(
+                                "alpha_publisher.chunk_flushed",
+                                emit_count=emit_count,
+                            )
+                            _chunk.clear()
 
-        # --- Flush remaining chunk (skip_kafka path) ---
-        if self.skip_kafka:
-            if _chunk:
-                async with pool.acquire() as wconn:
-                    await wconn.executemany(self._INSERT_SQL, _chunk)
-                _chunk.clear()
-
-        # --- Non-skip-kafka: bulk insert + Kafka publish ---
-        if not self.skip_kafka:
-            self._producer = KafkaProducerClient(bootstrap_servers=settings.kafka_bootstrap_servers)
-            try:
-                await self._producer.start()
-            except Exception as error:
-                self.logger.error("alpha_publisher.kafka_start_failed", error=str(error))
-                raise
-            try:
-                if pending_events:
-                    async with pool.acquire() as wconn:
-                        await wconn.executemany(
-                            self._INSERT_SQL,
-                            [
-                                (
-                                    e["event_id"],
-                                    e["symbol"],
-                                    e["tf"],
-                                    e["bar_ts"],
-                                    self.ensemble_version,
-                                    e["weight_version"],
-                                    e["regime"],
-                                    e["alpha_score"],
-                                    e["alpha_ci_lower"],
-                                    e["alpha_ci_upper"],
-                                    e["eff_n"],
-                                    e["n_features_active"],
-                                    e["threshold"],
-                                    e["direction"],
-                                    e["top_features"],
-                                    now,
-                                    e["cost_hurdle"],
-                                    e["is_shadow"],
-                                )
-                                for e in pending_events
-                            ],
-                        )
-                for e in pending_events:
-                    payload = {
-                        "event_id": e["event_id"],
-                        "symbol": e["symbol"],
-                        "tf": e["tf"],
-                        "bar_ts": format_iso_ts(e["bar_ts"]),
-                        "ensemble_version": self.ensemble_version,
-                        "weight_version": e["weight_version"],
-                        "alpha_score": e["alpha_score"],
-                        "alpha_ci_lower": e["alpha_ci_lower"],
-                        "alpha_ci_upper": e["alpha_ci_upper"],
-                        "effective_n": e["eff_n"],
-                        "regime": e["regime"],
-                        "n_features_active": e["n_features_active"],
-                        "top_features": e["top_features"],
-                        "direction": e["direction"],
-                        "emitted_at": format_iso_ts(now),
-                        "is_shadow": e["is_shadow"],
-                    }
-                    await self._producer.publish(topic, msg=payload)
+                # --- Flush the trailing partial chunk (same helper both paths use) ---
+                if _chunk:
+                    await self._flush_chunk(pool, _chunk, now, is_shadow, topic)
+                    _chunk.clear()
             finally:
-                await self._producer.stop()
+                if not self.skip_kafka:
+                    await self._producer.stop()
 
         self.logger.info(
             "alpha_publisher.complete",
@@ -477,6 +415,88 @@ class AlphaPublisher(BaseBatch):
         manifest.mark_success()
         manifest_path = manifest.write()
         self.logger.info("alpha_publisher.manifest_written", path=str(manifest_path))
+
+    async def _flush_chunk(
+        self,
+        pool: asyncpg.Pool,
+        chunk: list[dict],
+        now: datetime,
+        is_shadow: bool,
+        topic: str,
+    ) -> None:
+        """Write one chunk's alpha_events rows to the DB and, unless skip_kafka, publish
+        each to Kafka -- called every chunk_size events during the emission loop AND once
+        more for the trailing partial chunk, so memory stays O(chunk) regardless of total
+        emit_count. Both skip_kafka=True/False share this one flush path instead of the
+        two independently-duplicated accumulate-then-flush blocks the 2026-08-22 OOM
+        incident found (the skip_kafka path's own chunking was already correct; the
+        Kafka-publish path wasn't chunked at all, accumulating unbounded for the whole
+        run and OOM-killing a corpus run at 24.6GB RSS once ensemble_alpha grew past
+        ~30M rows).
+        """
+        async with pool.acquire() as wconn:
+            await wconn.executemany(
+                self._INSERT_SQL,
+                [
+                    (
+                        e["event_id"],
+                        e["symbol"],
+                        e["tf"],
+                        e["bar_ts"],
+                        self.ensemble_version,
+                        e["weight_version"],
+                        e["regime"],
+                        e["alpha_score"],
+                        e["alpha_ci_lower"],
+                        e["alpha_ci_upper"],
+                        e["eff_n"],
+                        e["n_features_active"],
+                        e["threshold"],
+                        e["direction"],
+                        e["top_features"],
+                        now,
+                        e["cost_hurdle"],
+                        is_shadow,
+                    )
+                    for e in chunk
+                ],
+            )
+        if not self.skip_kafka:
+            # Concurrent, not sequential: _flush_chunk runs INSIDE the open DB
+            # transaction (called from the cursor loop inside `async with
+            # conn.transaction():`), so a sequential `for e in chunk: await
+            # self._producer.publish(...)` would hold that transaction (and its
+            # DELETE + server-side cursor snapshot) open for chunk_size sequential
+            # broker round trips instead of ~1 concurrent one. asyncio.gather runs
+            # every publish() call for this chunk concurrently -- each already awaits
+            # its own delivery future independently, so gathering them bounds wall
+            # time to the slowest single round trip rather than their sum.
+            await asyncio.gather(
+                *(
+                    self._producer.publish(
+                        topic,
+                        msg={
+                            "event_id": e["event_id"],
+                            "symbol": e["symbol"],
+                            "tf": e["tf"],
+                            "bar_ts": format_iso_ts(e["bar_ts"]),
+                            "ensemble_version": self.ensemble_version,
+                            "weight_version": e["weight_version"],
+                            "alpha_score": e["alpha_score"],
+                            "alpha_ci_lower": e["alpha_ci_lower"],
+                            "alpha_ci_upper": e["alpha_ci_upper"],
+                            "effective_n": e["eff_n"],
+                            "regime": e["regime"],
+                            "n_features_active": e["n_features_active"],
+                            "top_features": e["top_features"],
+                            "direction": e["direction"],
+                            "emitted_at": format_iso_ts(now),
+                            "is_shadow": is_shadow,
+                        },
+                    )
+                    for e in chunk
+                )
+            )
 
 
 # ---------------------------------------------------------------------------

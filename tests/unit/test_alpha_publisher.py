@@ -186,33 +186,33 @@ def _build_weights_cache_rows(
     return rows
 
 
-async def _run_emitter_with_single_row(
-    alpha_row: MagicMock,
+async def _run_emitter_with_rows(
+    alpha_rows: list[MagicMock],
     weight_rows: list | None = None,
     n_alpha_total: int = 1,
     effective_n_gate: str = "3.0",
     weight_version: str = "v1",
     top_features_count: str = "10",
     threshold_5m: str = "1.5",
-    cursor_yields_row: bool = True,
     is_shadow: str | None = None,
+    chunk_size: str = "50000",
 ) -> tuple[AsyncMock, AsyncMock]:
-    """Helper: run AlphaPublisher.execute() with one alpha row and return (mock_producer, mock_conn).
+    """Helper: run AlphaPublisher.execute() with N alpha rows (0 or more) and return
+    (mock_producer, mock_conn). The general form _run_emitter_with_single_row wraps.
 
-    cursor_yields_row=False simulates SQL filtering the row out (all gates are SQL-level).
     is_shadow=None omits the key entirely, exercising the APR-absent default path.
+    chunk_size overrides infra.alpha_publisher.chunk_size for tests exercising
+    _flush_chunk's chunking behavior at N rows without needing thousands of mock rows.
     """
     emitter = _make_emitter()
 
-    cfg_rows = [MagicMock() for _ in _DEFAULT_CFG.items()]
-    for i, (k, v) in enumerate(_DEFAULT_CFG.items()):
-        cfg_rows[i].__getitem__ = lambda self, key, _k=k, _v=v: _k if key == "config_key" else _v
     # Override specific values
     full_cfg = dict(_DEFAULT_CFG)
     full_cfg["alpha.ensemble.effective_n_gate"] = effective_n_gate
     full_cfg["alpha.ensemble.weight_version"] = weight_version
     full_cfg["alpha.ensemble.top_features_count"] = top_features_count
     full_cfg["alpha.quant.threshold.5m"] = threshold_5m
+    full_cfg["infra.alpha_publisher.chunk_size"] = chunk_size
     if is_shadow is not None:
         full_cfg["alpha.publisher.is_shadow"] = is_shadow
 
@@ -226,12 +226,11 @@ async def _run_emitter_with_single_row(
         weight_rows = _build_weights_cache_rows()
 
     # conn.cursor() is an async generator; SQL gates are mocked by controlling what it yields.
-    captured_alpha_row = alpha_row
-    _emit = cursor_yields_row
+    captured_rows = alpha_rows
 
     async def _mock_cursor(*args, **kwargs):
-        if _emit:
-            yield captured_alpha_row
+        for row in captured_rows:
+            yield row
 
     mock_transaction = MagicMock()
     mock_transaction.__aenter__ = AsyncMock(return_value=None)
@@ -278,6 +277,33 @@ async def _run_emitter_with_single_row(
         await emitter.execute(mock_pool)
 
     return mock_producer, mock_conn
+
+
+async def _run_emitter_with_single_row(
+    alpha_row: MagicMock,
+    weight_rows: list | None = None,
+    n_alpha_total: int = 1,
+    effective_n_gate: str = "3.0",
+    weight_version: str = "v1",
+    top_features_count: str = "10",
+    threshold_5m: str = "1.5",
+    cursor_yields_row: bool = True,
+    is_shadow: str | None = None,
+) -> tuple[AsyncMock, AsyncMock]:
+    """Helper: run AlphaPublisher.execute() with one alpha row and return (mock_producer, mock_conn).
+
+    cursor_yields_row=False simulates SQL filtering the row out (all gates are SQL-level).
+    """
+    return await _run_emitter_with_rows(
+        [alpha_row] if cursor_yields_row else [],
+        weight_rows=weight_rows,
+        n_alpha_total=n_alpha_total,
+        effective_n_gate=effective_n_gate,
+        weight_version=weight_version,
+        top_features_count=top_features_count,
+        threshold_5m=threshold_5m,
+        is_shadow=is_shadow,
+    )
 
 
 class TestEmissionGate:
@@ -550,3 +576,111 @@ class TestWeightVersionFullReplace:
     def test_deletes_alpha_events_scoped_to_weight_version(self) -> None:
         source = self._source()
         assert "DELETE FROM alpha_events" in source
+
+
+class TestKafkaPathChunking:
+    """OOM incident, 2026-08-22: the Kafka-publish path (skip_kafka=False, the corpus
+    pipeline's default) accumulated every emitted event as a dict in one unbounded list
+    for the ENTIRE run, flushing DB insert + Kafka publish only once at the very end.
+    Confirmed via dmesg to have OOM-killed a corpus run at 24.6GB RSS once ensemble_alpha
+    grew past ~30M rows (88.7M in the run that crashed). The skip_kafka=True path already
+    had the right shape (flush every chunk_size rows); this fix brings the Kafka path to
+    the same O(chunk) discipline instead of O(total emit_count).
+
+    These tests assert the chunked-flush BEHAVIOR (multiple executemany/publish calls
+    happening incrementally during iteration, not one giant call at the very end) as a
+    proxy for bounded memory -- the same thing TestWeightVersionFullReplace above proves
+    about DELETE scoping via behavior, not by measuring RSS directly.
+    """
+
+    async def _make_multi_row_harness(
+        self, n_rows: int, chunk_size: str
+    ) -> tuple[AsyncMock, AsyncMock, list[MagicMock]]:
+        """Thin wrapper over the shared _run_emitter_with_rows helper: builds n_rows
+        alpha rows and returns (mock_producer, mock_conn, rows) so callers can inspect
+        call history and event count together.
+        """
+        rows = [
+            _make_alpha_row(
+                symbol=f"SYM{i}",
+                alpha_score=2.0,
+                alpha_ci_lower=0.5,
+                alpha_ci_upper=3.5,
+                effective_n=4.0,
+            )
+            for i in range(n_rows)
+        ]
+        mock_producer, mock_conn = await _run_emitter_with_rows(
+            rows, n_alpha_total=n_rows, threshold_5m="1.0", chunk_size=chunk_size
+        )
+        return mock_producer, mock_conn, rows
+
+    @pytest.mark.asyncio
+    async def test_kafka_path_flushes_db_inserts_in_chunks_not_one_call_at_the_end(self) -> None:
+        """5 rows at chunk_size=2 must flush in [2, 2, 1] -- 3 executemany calls, not 1
+        giant call holding all 5 events until the run finishes."""
+        mock_producer, mock_conn, _ = await self._make_multi_row_harness(n_rows=5, chunk_size="2")
+        assert mock_conn.executemany.await_count == 3, (
+            f"expected 3 chunked executemany calls (ceil(5/2)), got "
+            f"{mock_conn.executemany.await_count} -- the Kafka path must not "
+            "accumulate every event before its first DB write"
+        )
+
+    @pytest.mark.asyncio
+    async def test_kafka_path_publishes_every_event_across_chunks(self) -> None:
+        """Chunking must not drop or duplicate events -- every emitted row still gets
+        published exactly once, just spread across chunk flushes instead of one pass
+        over an unbounded list at the end."""
+        mock_producer, _, rows = await self._make_multi_row_harness(n_rows=5, chunk_size="2")
+        assert mock_producer.publish.await_count == len(rows)
+
+    @pytest.mark.asyncio
+    async def test_chunk_size_is_apr_backed_not_a_hardcoded_constant(self) -> None:
+        """infra.alpha_publisher.chunk_size must be read from APR, not a hardcoded
+        class constant -- migrate-as-you-go (CLAUDE.md): any batch-size constant
+        touched while fixing adjacent code must move to APR in the same session.
+        chunk_size=1 forces one executemany call per row; 4 rows -> 4 calls proves
+        the small APR-supplied value was actually honored, not the 50_000 default.
+        """
+        _, mock_conn, _ = await self._make_multi_row_harness(n_rows=4, chunk_size="1")
+        assert mock_conn.executemany.await_count == 4
+
+
+class TestKafkaPublishConcurrencyWithinChunk:
+    """/code-review finding, 2026-08-23 (same session as TestKafkaPathChunking above):
+    unifying the two accumulate-then-flush paths onto _flush_chunk correctly fixed the
+    O(chunk) memory bug, but introduced a real efficiency regression -- the Kafka
+    publish loop now runs INSIDE the open DB transaction (async with conn.transaction():
+    wraps the whole cursor loop, and _flush_chunk is called from inside it once per
+    chunk). Before this session's fix, Kafka publishing ran exactly once, entirely
+    AFTER the transaction had already closed. KafkaProducerClient.publish() awaits each
+    message's delivery future individually (acks='all', a real broker round trip) --
+    sequential per-message awaits inside an open transaction means the DELETE this
+    transaction holds, and the server-side cursor snapshot, stay open for however long
+    ALL of a chunk's Kafka publishing takes, not just the DB write. At chunk_size=50,000
+    (the APR default) this could hold the transaction open far longer than the DB work
+    alone would need.
+
+    Fix: publish a chunk's events concurrently (asyncio.gather over publish() calls)
+    instead of one at a time -- the same production skip_kafka=False systemd path
+    (production/systemd/indicagent-alpha-publisher.service invokes without
+    --skip-kafka, so this is not a dormant code path) benefits from bounding wall time
+    to roughly one round trip's worth of concurrent waiting, not chunk_size sequential
+    round trips, without needing to touch KafkaProducerClient itself or restructure the
+    transaction boundary (a bigger, riskier change deferred to todo 351 alongside the
+    connection-mismatch question).
+
+    Behavioral call-count assertions can't distinguish "10 sequential awaits" from "10
+    gathered awaits" against an AsyncMock (both produce 10 calls, order-independent) --
+    this is a source-inspection test, matching this file's own established convention
+    for structural invariants (see TestWeightVersionFullReplace._source() above).
+    """
+
+    def test_flush_chunk_publishes_kafka_events_concurrently_not_sequentially(self) -> None:
+        source = inspect.getsource(alpha_publisher_module.AlphaPublisher._flush_chunk)
+        assert "asyncio.gather" in source, (
+            "_flush_chunk's Kafka publish step must use asyncio.gather to publish a "
+            "chunk's events concurrently -- a sequential 'for e in chunk: await "
+            "self._producer.publish(...)' loop holds the open DB transaction for "
+            "chunk_size sequential broker round trips instead of ~1 concurrent one"
+        )
