@@ -177,7 +177,9 @@ for chunk_start in range(0, len(regime_timestamps), cs_chunk_ts):
             ret_chunk[i, j] = val if val is not None else np.nan
             cmp_chunk[i, j] = bool(row[1 + n_features + n_scales + j])
 ```
-To satisfy D-05, a plan task needs a fourth accumulator (a plain list of `bar_ts` arrays per chunk, concatenated once via `np.concatenate` — same shape idiom as `ret_chunks`/`cmp_chunks`, NOT routed through `Float32ChunkAccumulator` since `bar_ts` is a timestamp, not a float32-safe numeric). This new array is parallel-indexed to `X_raw`/`returns_mat`/`complete_mat` (same row order, since it's built from the same `batch` iteration) — a plan task can then `np.unique(bar_ts_arr, return_index=True)` (or a pandas groupby) to collapse to one representative row per distinct `bar_ts` for the broadcast feature-value matrix, and use `bar_ts_arr` to group `returns_mat` rows for the equal-weighted-mean aggregate return (D-04).
+To satisfy D-05, a plan task needs a fourth accumulator (a plain list of `bar_ts` arrays per chunk, concatenated once via `np.concatenate` — same shape idiom as `ret_chunks`/`cmp_chunks`, NOT routed through `Float32ChunkAccumulator` since `bar_ts` is a timestamp, not a float32-safe numeric). This new array is parallel-indexed to `X_raw`/`returns_mat`/`complete_mat` (same row order, since it's built from the same `batch` iteration) — a plan task can then collapse to one representative row per distinct `bar_ts` for the broadcast feature-value matrix, and use `bar_ts_arr` to group `returns_mat` rows for the equal-weighted-mean aggregate return (D-04).
+
+> **Superseded detail (2026-08-24).** This paragraph originally suggested `np.unique(bar_ts_arr, return_index=True)` or a pandas groupby for that collapse. `173-04-PLAN.md` Task 1 step 2 **forbids both**, along with `np.sort`/`np.argsort`, and prescribes a single forward boundary scan instead (adjacent-inequality bool of length `N-1`, then `np.flatnonzero(...) + 1` for `group_starts`, then `reduceat` keyed on that array). Reason: `np.unique` on an object/datetime array sorts internally and allocates additional full-length temporaries — the exact memory profile of the 2026-07-08 OOM incident that this function's float32 conversion exists to avoid. The boundary scan is valid because `chunk_sql` carries `ORDER BY fv.bar_ts`, which this same section confirms; the plan adds a crash-loud contiguity assertion on the group representatives so the ordering premise cannot fail silently. The forbidden primitives are enforced in CI by `test_broadcast_cell_grouping_uses_no_sort_or_unique`.
 
 ### Pattern 3: `concept_registry.metadata` read (join pattern for D-08)
 
@@ -318,22 +320,63 @@ Not applicable in the usual "library version drift" sense — this is a closed, 
 
 **If this table is empty:** N/A — see above.
 
-## Open Questions
+## Open Questions (RESOLVED)
 
-1. **How does the new broadcast cell participate in the `ic_cell_fingerprints` incremental-skip mechanism?**
+All three were closed during planning (2026-08-24) and are recorded as locked planner decisions
+in the plan set. Each question below carries an inline resolution naming the plan that decided it
+and the plan/task that implements it. Note that OQ1's resolution REJECTS this section's original
+recommendation, on live evidence gathered after this research was written — the recommendation
+text is left intact rather than rewritten, so the reversal is auditable.
+
+1. **How does the new broadcast cell participate in the `ic_cell_fingerprints` incremental-skip mechanism?** **(RESOLVED)**
    - What we know: The existing per-symbol and per-symbol-cross-sectional cells are gated by `pass_type IN ('pooled', 'symbol_hmm', 'cross_sectional')`, keyed `(symbol, tf, pass_type, training_window_end)`. `_compute_cross_sectional_tf`'s single call site (line 5658) already does the fingerprint-check/archive/delete/recompute/UPSERT dance for `pass_type='cross_sectional'`.
    - What's unclear: Whether the new broadcast cell gets its own `pass_type` (e.g. `'cross_sectional_broadcast'`) with an independent fingerprint row, or is folded into the existing `'cross_sectional'` fingerprint (meaning any change to broadcast-cell code forces the per-symbol cross-sectional cell to also recompute, and vice versa — likely wasteful given multi-hour cell compute times).
    - Recommendation: Plan a new `pass_type` value. This needs its own explicit plan task (schema/enum update if `pass_type` is constrained anywhere, e.g. a CHECK constraint — verify before assuming free-text) and its own `_fp_row(...)` call alongside line 5676's existing one. Flag as a design decision for the planner to make explicitly (not silently assumed), since CONTEXT.md's Claude's Discretion section doesn't mention it either.
+   - **RESOLVED (2026-08-24), recommendation REJECTED — decided in `173-03-PLAN.md`'s
+     `<planner_findings>`, load-bearing again in `173-04-PLAN.md`'s.** The broadcast cell folds
+     into the EXISTING `pass_type='cross_sectional'` fingerprint row. No new `pass_type`, no
+     CHECK-constraint migration. Three pieces of live evidence overturned the recommendation:
+     (a) the broadcast cell shares `_compute_cross_sectional_tf`'s single chunked fetch, so it
+     cannot be skipped or recomputed independently without duplicating a multi-hour fetch;
+     (b) `_checkpoint_content_key()` hashes AST-normalized source at MODULE-SET level, not
+     function level, so a separate fingerprint row could never diverge from the `cross_sectional`
+     one — it would be pure overhead plus this section's own Pitfall 2 collision risk;
+     (c) `_ARCHIVE_BEFORE_DELETE_CROSS_SECTIONAL_SQL` and
+     `_FINGERPRINT_INVALIDATE_DELETE_CROSS_SECTIONAL_SQL` already scope by
+     `symbol='POOLED' AND regime_scope='cross_sectional' AND regime AND training_window_end`,
+     which broadcast rows match exactly, so recompute sweeps them with zero SQL change.
+     The gap this exposed — `_watermark_concept_registry` not hashing `metadata` — is closed by
+     `173-03-PLAN.md` Task 3's new `broadcast_hash` watermark component.
 
-2. **Does the 23-feature list's literal enumeration match its stated count of 23?**
+2. **Does the 23-feature list's literal enumeration match its stated count of 23?** **(RESOLVED)**
    - What we know: See Assumptions Log A1 — the literal names in D-02 appear to total more than 23 depending on how sin/cos pairs are counted.
    - What's unclear: Whether this is a benign counting-convention difference or an actual list error (e.g., a feature name accidentally included/excluded).
    - Recommendation: First plan task should be a live `concept_registry`/`_FEATURE_NAMES` cross-check script run (this research's live query pattern, extended to all names in D-02) producing an authoritative, exactly-enumerated column list before any code touches `_compute_one_cross_sectional_cell`'s matrix-splitting logic.
+   - **RESOLVED (2026-08-24) — benign counting convention, confirmed by the live cross-check in
+     `173-01-PLAN.md`'s `<planner_findings>` 1-3, and closed for good by `173-01-PLAN.md` Task 3's
+     live detector run.** The "23" counts sin/cos pairs as one logical field; all 32 literally
+     enumerated names exist in `_FEATURE_NAMES` (298 fields). Not a list error. The enumeration is
+     treated as a FLOOR, not the authority: `173-01-PLAN.md` Task 3 runs the empirical detector
+     across all four timeframes and persists the result to `concept_registry.metadata->>'broadcast'`,
+     which `173-03-PLAN.md` Task 1 then reads from the database. No plan hardcodes a feature list.
+     The run is expected to ADD five true broadcast features D-02's list predates (`month_sin`,
+     `month_cos`, `opex_flag`, `quad_witching_flag`, `session_time_pos`) and to EXCLUDE two false
+     positives (`sweep_detected`, `manip_strength`) that the new temporal-variance guard catches.
 
-3. **Cluster-ID scheme for the new broadcast rows' BH-FDR participation.**
+3. **Cluster-ID scheme for the new broadcast rows' BH-FDR participation.** **(RESOLVED)**
    - What we know: D-07 requires broadcast rows to enter the SAME BH-FDR family via `cf_cluster_id`, and two existing conventions are available for reuse (`_cluster_features` correlation-based clustering, or the deleted block's `10000 + idx` singleton-ID convention).
    - What's unclear: CONTEXT.md doesn't specify which. Given the broadcast matrix is small (~23-32 columns, one row per `bar_ts`), running `_cluster_features` on it is cheap and gives genuine correlation-aware clustering (e.g. `dow_sin`/`dow_cos` might cluster together) rather than treating every broadcast feature as its own singleton cluster (which the deleted block did, but that block never actually ran BH-FDR at all — `bh_adjusted_p`/`passes_fdr` were hardcoded `None` at lines 3005-3006, a detail worth noting: the OLD per-symbol daily-cadence path never even participated in real FDR correction, so its removal doesn't regress an existing FDR guarantee for these 3 features — it only fixes a DIFFERENT bug, the correlated-multiple-testing one todo 270 names).
    - Recommendation: Reuse `_cluster_features` on the broadcast matrix — matches the per-symbol pooled cell's own approach (D-09's "natural fit, not a special case" framing extends naturally to this too), and is a genuine correctness improvement over the deleted block's never-actually-FDR-corrected behavior.
+   - **RESOLVED (2026-08-24), recommendation ACCEPTED with one mandatory addition — decided in
+     `173-03-PLAN.md`'s `<planner_findings>`, implemented in `173-04-PLAN.md` Task 1 step 7 and
+     wired in Task 2.** Run `_cluster_features` on the broadcast matrix as recommended, THEN add
+     `_BROADCAST_CLUSTER_ID_OFFSET = 10000`. The offset is not cosmetic: `_cluster_features`
+     returns fcluster IDs starting at 1, and `_compute_cross_sectional_tf`'s trailing BH-FDR loop
+     groups by `(regime, lookahead_bars, cluster_id)` across ALL rows, so without an offset a
+     broadcast feature would silently merge into a per-symbol cluster's representative selection
+     and lose its own FDR entry. The 10000 space is free precisely because `173-02-PLAN.md`
+     deleted its only prior user; `feature_ic_scores.cluster_id` is `smallint`, so ~40 broadcast
+     features against a 32767 ceiling leaves wide margin.
 
 ## Environment Availability
 
