@@ -2750,15 +2750,19 @@ per-symbol pooled cross-sectional cell (`_compute_one_cross_sectional_cell`); bu
 separate, lightweight broadcast significance cell that reuses the shared `_subsample_and_rank`
 kernel against a market-aggregate forward-return outcome variable, without touching the
 per-symbol chunked accumulator's OOM-sensitive machinery.
-**Requirements**: TBD (define via `/gsd-discuss-phase 173`) — see todo 270's file for full scope
-history and the 2026-08-21 architecture reconsideration.
+**Requirements**: D-01 through D-10 in `173-CONTEXT.md` (this phase predates the numbered
+requirement-ID convention; decision IDs are the authoritative requirement references) — see todo
+270's file for full scope history and the 2026-08-21 architecture reconsideration.
 **Depends on:** None — independent of the in-flight corpus pipeline run and of Phase 172's
 volatility-regime work; sequenced after it here only because it's the next open slot in the
 roadmap.
-**Plans:** 0 plans
+**Plans:** 4 plans (3 waves)
 
 Plans:
-- [ ] TBD (run /gsd-plan-phase 173 to break down)
+- [ ] 173-01-PLAN.md — Broadcast classification: APR key, empirical detector with temporal-variance guard, persist to `concept_registry.metadata` (wave 1)
+- [ ] 173-02-PLAN.md — Delete `_compute_symbol_tf`'s bespoke `CONTEXT_FEATURES` daily-cadence path (wave 1)
+- [ ] 173-03-PLAN.md — Exclude broadcast columns from the pooled cross-sectional cell, thread `bar_ts`, broadcast-sensitive fingerprint watermark (wave 2)
+- [ ] 173-04-PLAN.md — `_compute_one_broadcast_cell`, BH-FDR wiring, live smoke run (wave 3)
 
 ---
 
