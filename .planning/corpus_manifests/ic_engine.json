@@ -1,7 +1,7 @@
 {
   "step_name": "ic_engine",
   "step_version": "1.0",
-  "timestamp": "2026-08-19T13:24:57.847864+00:00",
+  "timestamp": "2026-08-23T17:06:22.196082+00:00",
   "status": "success",
   "inputs": {
     "training_window_end": "2025-12-24 05:15:00+00:00",
@@ -244,7 +244,7 @@
       "XTL",
       "XTN"
     ],
-    "cross_sectional_only": false
+    "cross_sectional_only": true
   },
   "outputs": {
     "feature_ic_scores": {
