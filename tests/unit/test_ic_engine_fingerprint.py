@@ -541,6 +541,141 @@ def test_computational_key_unchanged_by_registry_key_rename():
     assert _fingerprint_computational_key(fp_old_key) == _fingerprint_computational_key(fp_new_key)
 
 
+# ---------------------------------------------------------------------------
+# Phase 173 Plan 03 Task 3 (D-08, todo 270): broadcast_hash -- unlike
+# status_hash, a broadcast-flag flip DOES change what gets computed
+# (_compute_one_cross_sectional_cell's column split, Plan 04's broadcast
+# cell), so it must move computational validity to "invalid", never
+# "status_only_stale". Without this, a reclassification would leave every
+# fingerprint valid and every cell permanently skipped, silently serving
+# results computed under the OLD column split.
+# ---------------------------------------------------------------------------
+
+
+def test_fingerprint_computational_key_keeps_broadcast_hash():
+    """broadcast_hash is the one exception to 'the whole concept_registry
+    entry is dropped' -- status_hash still drops, broadcast_hash survives."""
+    fp = {
+        "code_content_key": "code123",
+        "apr_snapshot_key": "apr456",
+        "upstream_watermark": {
+            "forward_returns": {"count": 10},
+            "concept_registry": {"status_hash": "hash_now", "broadcast_hash": "bcast_now"},
+        },
+    }
+    key = _fingerprint_computational_key(fp)
+    assert key["upstream_watermark"]["concept_registry"] == {"broadcast_hash": "bcast_now"}
+    assert key["upstream_watermark"]["forward_returns"] == {"count": 10}
+
+
+def test_computationally_invalid_when_only_broadcast_hash_differs():
+    current = {
+        "code_content_key": "code123",
+        "apr_snapshot_key": "apr456",
+        "upstream_watermark": {
+            "forward_returns": {"count": 10},
+            "concept_registry": {"status_hash": "hash_now", "broadcast_hash": "bcast_now"},
+        },
+    }
+    stored = dict(
+        current,
+        upstream_watermark=dict(
+            current["upstream_watermark"],
+            concept_registry={"status_hash": "hash_now", "broadcast_hash": "bcast_before"},
+        ),
+    )
+    assert _fingerprint_is_computationally_valid(stored, current) is False
+
+
+def test_computationally_valid_when_only_status_hash_differs_broadcast_hash_matches():
+    """Sibling proof: with broadcast_hash present and matching, a status_hash-
+    only difference must still be computationally valid -- broadcast_hash's
+    addition must not accidentally widen what status_hash alone used to gate."""
+    current = {
+        "code_content_key": "code123",
+        "apr_snapshot_key": "apr456",
+        "upstream_watermark": {
+            "forward_returns": {"count": 10},
+            "concept_registry": {"status_hash": "hash_now", "broadcast_hash": "bcast_now"},
+        },
+    }
+    stored = dict(
+        current,
+        upstream_watermark=dict(
+            current["upstream_watermark"],
+            concept_registry={"status_hash": "hash_before", "broadcast_hash": "bcast_now"},
+        ),
+    )
+    assert _fingerprint_is_computationally_valid(stored, current) is True
+
+
+def test_classify_fingerprint_invalid_on_broadcast_hash_mismatch_alone():
+    """The behavior this whole task exists for: a broadcast_hash-only
+    difference must classify as 'invalid' (full recompute), never 'valid' and
+    never 'status_only_stale' (which would only touch feature_status_at_eval,
+    silently leaving stale IC values computed under the old column split)."""
+    current = {
+        "code_content_key": "code123",
+        "apr_snapshot_key": "apr456",
+        "upstream_watermark": {
+            "forward_returns": {"count": 10},
+            "concept_registry": {"status_hash": "hash_now", "broadcast_hash": "bcast_now"},
+        },
+    }
+    stored = dict(
+        current,
+        upstream_watermark=dict(
+            current["upstream_watermark"],
+            concept_registry={"status_hash": "hash_now", "broadcast_hash": "bcast_before"},
+        ),
+    )
+    result = _classify_fingerprint(stored, current, force_refresh=False)
+    assert result == "invalid"
+
+
+def test_watermark_dict_has_exactly_status_hash_and_broadcast_hash_keys():
+    """_watermark_concept_registry's returned dict must carry exactly
+    {'status_hash', 'broadcast_hash'} -- no more, no fewer. Verified against a
+    fake cursor fixture (no live DB), matching this file's existing style for
+    DB-shaped functions."""
+
+    class _FakeCursor:
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *exc):
+            return False
+
+        def execute(self, *_args, **_kwargs):
+            return None
+
+        def fetchone(self):
+            return ("fake_status_hash", "fake_broadcast_hash")
+
+    class _FakeConn:
+        def cursor(self):
+            return _FakeCursor()
+
+    import services.ic_engine as ic_module
+
+    result = ic_module._watermark_concept_registry(_FakeConn())
+    assert set(result.keys()) == {"status_hash", "broadcast_hash"}
+    assert result["status_hash"] == "fake_status_hash"
+    assert result["broadcast_hash"] == "fake_broadcast_hash"
+
+
+def test_watermark_concept_registry_query_preserves_status_hash_input_string():
+    """Phase 170's byte-identical-hash invariant: status_hash's md5 input
+    string must remain EXACTLY `cr.name || '=' || cr.status ORDER BY cr.name`
+    -- broadcast_hash must be added as a second column, never folded into or
+    altering the first."""
+    import services.ic_engine as ic_module
+
+    source = inspect.getsource(ic_module._watermark_concept_registry)
+    assert "cr.name || '=' || cr.status, '' ORDER BY cr.name" in source
+    assert "cr.name || '=' || COALESCE(cr.metadata->>'broadcast', '')" in source
+
+
 def test_computationally_invalid_on_code_content_key_mismatch():
     stored = dict(_STATUS_MATCH_CURRENT, code_content_key="different")
     assert _fingerprint_is_computationally_valid(stored, _STATUS_MATCH_CURRENT) is False

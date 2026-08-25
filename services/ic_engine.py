@@ -1013,16 +1013,45 @@ def _watermark_concept_registry(conn: Any) -> dict[str, Any]:
     gate below raise on every single run. The INNER JOIN naturally excludes them,
     matching ConceptRegistryService's own semantics exactly (verified live,
     2026-08-04: both hashes equal 4fadbe90ab6050fa12e7f25196f32b28 with this join).
+
+    Phase 173 Plan 03 (D-08, todo 270): also returns `broadcast_hash`, a second
+    md5(string_agg(...)) over the SAME gate-joined domain='feature' population,
+    hashing `cr.name || '=' || COALESCE(cr.metadata->>'broadcast', '')`. Unlike
+    Task 1's broadcast-set READ (which deliberately uses no COALESCE -- NULL
+    correctly means "not selected" there), this is a HASH INPUT that must be a
+    stable string for every row including unflagged ones, so COALESCE to '' is
+    required here and is not in tension with Task 1's rule.
+
+    broadcast_hash exists because _compute_one_cross_sectional_cell's column
+    split (which features are excluded from the per-symbol pooled cell) AND
+    (after Plan 04) which features the broadcast cell measures both depend on
+    this same metadata flag -- a reclassification must force a full recompute.
+    Without this, status_hash alone is blind to a broadcast-flag flip (the flag
+    lives in metadata, which status_hash's input string never sees), so every
+    cell fingerprint would stay valid and every cell would be permanently
+    skipped, silently serving results computed under the OLD column split --
+    research's Pitfall 1 arriving through the metadata door instead of the
+    status door.
+
+    Computed as a separate aggregate in the SAME round trip (one cursor, one
+    query returning two columns) -- not folded into status_hash's own input
+    string. status_hash's byte-identical-hash acceptance criterion (Phase 170,
+    verified live: 4fadbe90ab6050fa12e7f25196f32b28) must survive this change
+    unaltered; adding a second column is additive and safe, changing the first
+    column's input string is not.
     """
     with conn.cursor() as cur:
         cur.execute(
             "SELECT md5(COALESCE(string_agg("
-            "cr.name || '=' || cr.status, '' ORDER BY cr.name), '')) "
+            "cr.name || '=' || cr.status, '' ORDER BY cr.name), '')), "
+            "md5(COALESCE(string_agg("
+            "cr.name || '=' || COALESCE(cr.metadata->>'broadcast', ''), '' "
+            "ORDER BY cr.name), '')) "
             "FROM concept_registry cr JOIN concept_gate cg USING (concept_id) "
             "WHERE cr.domain = 'feature'"
         )
-        (status_hash,) = cur.fetchone()
-    return {"status_hash": status_hash}
+        status_hash, broadcast_hash = cur.fetchone()
+    return {"status_hash": status_hash, "broadcast_hash": broadcast_hash}
 
 
 def _watermark_forward_returns_feature_vectors(
@@ -1286,14 +1315,34 @@ def _fingerprint_computational_key(fp: dict[str, Any]) -> dict[str, Any]:
     BOTH names via _LEGACY_REGISTRY_WATERMARK_KEYS -- see that constant's
     docstring for why a single-name filter would spuriously invalidate every
     cell on the first post-cutover run.
+
+    Phase 173 Plan 03 (D-08, todo 270): broadcast_hash is the one exception to
+    "the whole concept_registry entry is dropped" -- unlike status_hash, a
+    broadcast-flag flip DOES change what gets computed
+    (_compute_one_cross_sectional_cell's column split, and Plan 04's future
+    broadcast cell), so it must participate in the computational key. When the
+    legacy-named entry is a dict carrying "broadcast_hash", this function keeps
+    ONLY that key (still dropping status_hash) instead of dropping the whole
+    entry. A pre-Plan-03 stored fingerprint has no broadcast_hash key at all,
+    so it naturally compares unequal to any freshly-computed current
+    fingerprint under this rule -- the intended one-time corpus-wide
+    invalidation this plan's Task 3 requires (see _watermark_concept_registry's
+    docstring for why: without this, a reclassification would leave every
+    fingerprint valid and every cell permanently skipped, silently serving
+    results computed under the OLD column split).
     """
     watermark = fp.get("upstream_watermark") or {}
+    filtered_watermark: dict[str, Any] = {}
+    for k, v in watermark.items():
+        if k in _LEGACY_REGISTRY_WATERMARK_KEYS:
+            if isinstance(v, dict) and "broadcast_hash" in v:
+                filtered_watermark[k] = {"broadcast_hash": v["broadcast_hash"]}
+            continue
+        filtered_watermark[k] = v
     return {
         "code_content_key": fp.get("code_content_key"),
         "apr_snapshot_key": fp.get("apr_snapshot_key"),
-        "upstream_watermark": {
-            k: v for k, v in watermark.items() if k not in _LEGACY_REGISTRY_WATERMARK_KEYS
-        },
+        "upstream_watermark": filtered_watermark,
     }
 
 
@@ -2923,6 +2972,7 @@ def _compute_one_cross_sectional_cell(
     feature_status_map: dict[str, str] | None,
     run_ts: datetime,
     prior_e_values: dict[tuple[str, int], float],
+    broadcast_mask: np.ndarray | None = None,
 ) -> tuple[list[dict], int]:
     """Compute clustering + per-scale IC/CI/walk-forward/Sharpe for ONE cross-sectional cell.
 
@@ -2943,6 +2993,21 @@ def _compute_one_cross_sectional_cell(
     rng is a shared, stateful np.random.Generator -- calling this function consumes draws
     from it by design (matches _compute_one_regime_cell's per-worker RNG-scope contract).
 
+    broadcast_mask (Phase 173 Plan 03, D-01/todo 270): a boolean array over
+    _FEATURE_NAMES, True where the feature is symbol-invariant (read from
+    concept_registry's broadcast metadata flag by main(), once per invocation).
+    A symbol-invariant feature's
+    (bar_ts, symbol) pairs are one independent draw per bar_ts, not n_symbols --
+    treating each symbol's copy of the same value as an independent observation
+    overstates effective N and understates the true p-value. Masked columns are
+    excluded from X_nd (so they can never become a per-symbol cluster
+    representative) and their row-emission is skipped entirely -- this cell
+    emits NO row for a broadcast feature, at any scale, for any regime label.
+    They are measured separately, in their own cell (Plan 04), against an
+    equal-weighted market-aggregate return. None (the default) is treated as
+    an all-False mask -- this function's output is then row-for-row identical
+    to its pre-Plan-03 output (backward-compatibility guarantee).
+
     Returns (result_rows, n_skipped_features) for this cell only. Does NOT populate
     pvals_flat/pval_result_idxs or run cluster-representative selection -- that stays in
     the caller (_compute_cross_sectional_tf), same division of responsibility as
@@ -2956,6 +3021,9 @@ def _compute_one_cross_sectional_cell(
     n_features = len(_FEATURE_NAMES)
     scales = config.active_scales_for(tf)
 
+    if broadcast_mask is None:
+        broadcast_mask = np.zeros(n_features, dtype=bool)
+
     n_raw = len(X_raw)
 
     _check_cell_size(n_raw, config, f"Cross-sectional cell tf={tf} regime={regime_label}")
@@ -2968,14 +3036,20 @@ def _compute_one_cross_sectional_cell(
     feature_stds = np.std(X_raw, axis=0, dtype=np.float64)
     degenerate_mask = feature_stds < 1e-8
     non_degenerate_mask = ~degenerate_mask
-    X_nd = X_raw[:, non_degenerate_mask]
+    # Broadcast columns are NOT skipped/degenerate features -- they are measured
+    # elsewhere (Plan 04's separate broadcast cell). A distinct local
+    # (cluster_input_mask), not a mutation of non_degenerate_mask/degenerate_mask,
+    # keeps n_skipped's accounting from conflating "degenerate" with "excluded
+    # because symbol-invariant" -- the two conditions mean different things.
+    cluster_input_mask = non_degenerate_mask & ~broadcast_mask
+    X_nd = X_raw[:, cluster_input_mask]
 
     n_skipped = int(degenerate_mask.sum())
     if X_nd.shape[1] == 0:
         return [], n_skipped
 
     cluster_ids_nd = _cluster_features(X_nd, cluster_max_corr)
-    cluster_id_full = expand_int(cluster_ids_nd, non_degenerate_mask, n_features)
+    cluster_id_full = expand_int(cluster_ids_nd, cluster_input_mask, n_features)
 
     all_results: list[dict] = []
 
@@ -3046,12 +3120,12 @@ def _compute_one_cross_sectional_cell(
         )
         Y_scale = returns_scale[valid_mask]
 
-        ic_full = _expand(ic_vector_nd, non_degenerate_mask, n_features)
-        p_full = _expand(p_vector_nd, non_degenerate_mask, n_features)
+        ic_full = _expand(ic_vector_nd, cluster_input_mask, n_features)
+        p_full = _expand(p_vector_nd, cluster_input_mask, n_features)
 
-        ci_lower_full = _expand(ci_lower_nd, non_degenerate_mask, n_features)
-        ci_upper_full = _expand(ci_upper_nd, non_degenerate_mask, n_features)
-        passes_ci_full = np.where(non_degenerate_mask, ci_lower_full > 0.0, False)
+        ci_lower_full = _expand(ci_lower_nd, cluster_input_mask, n_features)
+        ci_upper_full = _expand(ci_upper_nd, cluster_input_mask, n_features)
+        passes_ci_full = np.where(cluster_input_mask, ci_lower_full > 0.0, False)
 
         wf_fold_count = len(fold_ics_list)
         if wf_fold_count > 0:
@@ -3064,8 +3138,8 @@ def _compute_one_cross_sectional_cell(
 
         wf_pass_full = np.zeros(n_features, dtype=int)
         passes_wf_full = np.zeros(n_features, dtype=bool)
-        wf_pass_full[non_degenerate_mask] = wf_pass_count_nd
-        passes_wf_full[non_degenerate_mask] = passes_wf_nd
+        wf_pass_full[cluster_input_mask] = wf_pass_count_nd
+        passes_wf_full[cluster_input_mask] = passes_wf_nd
 
         ic_sharpe_arr, ic_sharpe_hac_arr, ic_sortino_arr, ic_win_rate_arr, n_sharpe_windows = (
             _compute_ic_rolling_metrics(
@@ -3074,7 +3148,7 @@ def _compute_one_cross_sectional_cell(
                 scale_idx,
                 complete_sub[:, scale_idx],
                 config,
-                non_degenerate_mask,
+                cluster_input_mask,
                 n_features,
                 scale_stride,
             )
@@ -3085,10 +3159,20 @@ def _compute_one_cross_sectional_cell(
         # Y_scale already assembled above for the bootstrap CI.
         sign_hit_rate_nd = sign_hit_rate(X_raw_scale, Y_scale)
         magnitude_ic_nd = magnitude_conditional_ic(X_raw_scale, Y_scale, _MAGNITUDE_IC_PERCENTILE)
-        sign_hit_rate_full = _expand(sign_hit_rate_nd, non_degenerate_mask, n_features)
-        magnitude_ic_full = _expand(magnitude_ic_nd, non_degenerate_mask, n_features)
+        sign_hit_rate_full = _expand(sign_hit_rate_nd, cluster_input_mask, n_features)
+        magnitude_ic_full = _expand(magnitude_ic_nd, cluster_input_mask, n_features)
 
         for feat_idx, feat_name in enumerate(_FEATURE_NAMES):
+            # Phase 173 Plan 03 (D-01): broadcast features are excluded entirely --
+            # no row, not even a NaN row, is emitted for them by this cell. This is
+            # the load-bearing half of the split: emitting even a NaN-valued row
+            # here would collide with Plan 04's broadcast-cell row on the partial
+            # unique index feature_ic_scores_cross_sectional_uq (feature_name,
+            # symbol, tf, regime, lookahead_bars, training_window_end) WHERE
+            # is_pooled AND symbol='POOLED'. Degenerate (non-broadcast) features
+            # keep emitting their NaN rows exactly as before this change.
+            if broadcast_mask[feat_idx]:
+                continue
             # 162-03: no per-feature already-present skip -- the whole-cell
             # fingerprint gate in main() is the sole skip decision.
             ic_val = ic_full[feat_idx]
@@ -3167,6 +3251,7 @@ def _compute_cross_sectional_tf(
     run_ts: datetime,
     rng: np.random.Generator,
     feature_status_map: dict[str, str] | None = None,
+    broadcast_features: frozenset[str] = frozenset(),
 ) -> tuple[list[dict], dict[str, Any]]:
     """Compute cross-sectional IC for one (regime_group, tf, regime_label) cell.
 
@@ -3179,13 +3264,21 @@ def _compute_cross_sectional_tf(
     Broadcast-feature significance correction (Phase 173, todo 270): this independence
     assumption is false for symbol-invariant (broadcast) features -- the same value
     repeated across every symbol in a cell is not 231 independent observations of the
-    underlying signal, it is one observation duplicated 231 times. Broadcast features
-    are excluded from this cell's matrix and measured separately, in their own cell,
-    against an equal-weighted market-aggregate return; classification is read from
-    `concept_registry.metadata->>'broadcast'`, not a hand-maintained frozenset -- see
-    todo 270's design rationale for why a hardcoded list (this module's now-deleted
-    bespoke daily-cadence frozenset was the cautionary example) does not scale to the
-    full broadcast population.
+    underlying signal, it is one observation duplicated 231 times. `broadcast_features`
+    (read once per ic_engine invocation by main(), from concept_registry's broadcast
+    metadata flag, never a hand-maintained frozenset -- see todo 270's design
+    rationale for why a hardcoded list, this module's now-deleted bespoke
+    daily-cadence frozenset, was the cautionary example) is converted
+    here into a positional `broadcast_mask` over `_FEATURE_NAMES` and passed to
+    `_compute_one_cross_sectional_cell`, which excludes those columns from this
+    cell's matrix entirely -- no row is emitted for a broadcast feature by this cell.
+    They are measured separately, in their own cell (Plan 04), against an
+    equal-weighted market-aggregate return.
+
+    Plan 03 also threads `bar_ts` (fetched by `chunk_sql` at column index 0, row-
+    aligned with X_raw/returns_mat/complete_mat after the chunked fetch completes)
+    for Plan 04's future broadcast cell to consume; this function does not itself
+    use it for anything beyond the alignment guard.
 
     symbol_list is THE contamination fix (Phase 144 D-01): before this, every
     symbol in the corpus (fi_* bonds, GLD/SLV/VNQ, IBIT) was pooled into every
@@ -3231,6 +3324,12 @@ def _compute_cross_sectional_tf(
     # them as separate params, matching _compute_one_regime_cell's convention.
     n_features = len(_FEATURE_NAMES)
     scales = config.active_scales_for(tf)
+
+    # Phase 173 Plan 03: convert the name-based broadcast set into a positional
+    # mask once per cell, matching _FEATURE_NAMES' fixed column order -- cheaper
+    # than a per-row membership test inside _compute_one_cross_sectional_cell's
+    # hot loop.
+    broadcast_mask = np.array([name in broadcast_features for name in _FEATURE_NAMES])
 
     cs_chunk_ts: int = config.cs_chunk_ts
 
@@ -3354,6 +3453,15 @@ def _compute_cross_sectional_tf(
         X_acc = Float32ChunkAccumulator()
         ret_chunks: list[np.ndarray] = []
         cmp_chunks: list[np.ndarray] = []
+        # Phase 173 Plan 03 (D-05): bar_ts, row-aligned with X_raw/returns_mat/
+        # complete_mat, for Plan 04's future broadcast cell to consume (equality
+        # comparison between adjacent elements + set-membership on group
+        # representatives -- both exact under dtype=object). Deliberately a
+        # plain list, never routed through Float32ChunkAccumulator: that class
+        # is float32-only, and a datetime is not float32-safe data. dtype=object
+        # (not datetime64[ns]) because a datetime64 cast of a timezone-aware
+        # psycopg datetime loses tz and can shift values.
+        bar_ts_chunks: list[np.ndarray] = []
 
         _logger.info(
             "ic_engine.cross_sectional_chunk_pass",
@@ -3394,6 +3502,7 @@ def _compute_cross_sectional_tf(
                     cmp_chunk[i, j] = bool(row[1 + n_features + n_scales + j])
             ret_chunks.append(ret_chunk)
             cmp_chunks.append(cmp_chunk)
+            bar_ts_chunks.append(np.array([r[0] for r in batch], dtype=object))
 
     X_raw = X_acc.finalize()
     if X_raw is None:
@@ -3408,6 +3517,21 @@ def _compute_cross_sectional_tf(
     del ret_chunks
     complete_mat = np.vstack(cmp_chunks)
     del cmp_chunks
+    # Phase 173 Plan 03 (D-05): concatenate once, after the X_raw early-return
+    # guard so the no-data path is unchanged. Crash-loud alignment guard --
+    # per CLAUDE.md ("silent wrong answers are worse than loud crashes"), a
+    # misalignment here would silently mis-associate every broadcast feature
+    # value with the wrong timestamp in Plan 04, producing a plausible-looking
+    # but wrong IC.
+    bar_ts_arr = np.concatenate(bar_ts_chunks)
+    del bar_ts_chunks
+    if len(bar_ts_arr) != len(X_raw):
+        raise RuntimeError(
+            f"bar_ts/X_raw row-count mismatch for cross-sectional cell tf={tf} "
+            f"regime={regime_label}: len(bar_ts_arr)={len(bar_ts_arr)} != "
+            f"len(X_raw)={len(X_raw)}. This must never happen -- bar_ts and "
+            "X_raw are built from the same chunked-fetch rows in the same order."
+        )
     n_raw = len(X_raw)
 
     # 162-01 Task 3: clustering + per-scale IC/CI/walk-forward/Sharpe compute
@@ -3429,6 +3553,7 @@ def _compute_cross_sectional_tf(
         feature_status_map=feature_status_map,
         run_ts=run_ts,
         prior_e_values=prior_e_values,
+        broadcast_mask=broadcast_mask,
     )
     pvals_flat: list[float] = []
     pval_result_idxs: list[int] = []
@@ -4812,6 +4937,64 @@ def main() -> None:
             }
 
             # ----------------------------------------------------------
+            # Broadcast feature set (Phase 173 Plan 03, D-01/D-05/D-08, todo 270):
+            # read once per invocation, database-sourced -- never a hand-maintained
+            # frozenset (that was this module's now-deleted CONTEXT_FEATURES
+            # anti-pattern, Plan 02). JOIN concept_gate (not domain='feature' alone)
+            # to exclude migration 284's 2 gate-less tombstone rows, matching
+            # _watermark_concept_registry/ConceptRegistryService._LOAD_CONCEPTS_SYNC_SQL
+            # semantics exactly.
+            #
+            # Deliberately NO cr.status filter and NO COALESCE (locked decision,
+            # 173-03-PLAN.md <planner_findings> "Read/write population alignment"):
+            # a feature flagged broadcast=true stays excluded from the per-symbol
+            # cell even after status moves active -> deprecated (it is still a
+            # symbol-invariant column in feature_vectors); an unflagged row (no
+            # 'broadcast' metadata key at all -- the 5 candidate rows and 2
+            # gate-less tombstones Plan 01 never writes) reads NULL = 'true' ->
+            # not true -> simply not selected -> stays in the per-symbol cell,
+            # exactly today's behavior. No third "unknown" state to handle.
+            with conn.cursor() as broadcast_cur:
+                broadcast_cur.execute(
+                    "SELECT cr.name FROM concept_registry cr "
+                    "JOIN concept_gate cg USING (concept_id) "
+                    "WHERE cr.domain = 'feature' AND cr.metadata->>'broadcast' = 'true'"
+                )
+                _broadcast_names_raw = {r[0] for r in broadcast_cur.fetchall()}
+            conn.commit()
+            # T-173-01 mitigation: intersect against _FEATURE_NAMES unconditionally,
+            # before storage, before threading anywhere -- these names flow toward
+            # code that builds SQL column lists by f-string interpolation
+            # (_compute_cross_sectional_tf's chunk_sql), and the existing safety
+            # property of that pattern (every interpolated name originates from
+            # FeatureVector's dataclass fields) must be preserved by construction,
+            # never by trust in a database-sourced value.
+            _dropped_broadcast_names = _broadcast_names_raw - set(_FEATURE_NAMES)
+            if _dropped_broadcast_names:
+                _logger.warning(
+                    "ic_engine.broadcast_names_dropped_not_in_feature_names",
+                    dropped=sorted(_dropped_broadcast_names),
+                    note="concept_registry has drifted from FeatureVector in a way "
+                    "the alignment gate above did not catch",
+                )
+            broadcast_features: frozenset[str] = frozenset(
+                _broadcast_names_raw & set(_FEATURE_NAMES)
+            )
+            if broadcast_features:
+                _logger.info(
+                    "ic_engine.broadcast_features_resolved",
+                    n_broadcast=len(broadcast_features),
+                )
+            else:
+                _logger.warning(
+                    "ic_engine.broadcast_features_empty",
+                    note="broadcast correction is inert -- no feature carries "
+                    "concept_registry's broadcast=true metadata flag; run Plan "
+                    "173-01's detector (scripts/ops/alpha/ops_broadcast_feature_audit.py "
+                    "--persist) to populate it",
+                )
+
+            # ----------------------------------------------------------
             # Run constants (locked at start)
             # ----------------------------------------------------------
             run_ts = datetime.now(UTC)
@@ -5422,6 +5605,7 @@ def main() -> None:
                         run_ts=run_ts,
                         rng=cs_rng,
                         feature_status_map=feature_status_map,
+                        broadcast_features=broadcast_features,
                     )
                     total_committed += _write_cs_cell_results(settings, cs_rows)
                     total_skipped += cs_stats.get("n_skipped", 0)

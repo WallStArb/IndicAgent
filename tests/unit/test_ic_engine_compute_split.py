@@ -24,7 +24,9 @@ if str(_project_root) not in sys.path:
     sys.path.insert(0, str(_project_root))
 
 from services.ic_engine import (
+    _FEATURE_NAMES,
     CellTooLargeError,
+    ICEngineConfig,
     _blocked_bootstrap_ci,
     _compute_cross_sectional_tf,
     _compute_one_cross_sectional_cell,
@@ -235,6 +237,67 @@ def test_compute_cross_sectional_tf_closes_connection_before_clustering():
     assert call_indent <= with_indent, (
         "_compute_one_cross_sectional_cell( must be dedented outside the "
         "short_lived_conn(dsn) with-block, not nested inside it"
+    )
+
+
+def test_cross_sectional_fetch_does_not_route_bar_ts_through_float32_accumulator():
+    """Phase 173 Plan 03 (D-05): bar_ts_chunks must be a plain list, appended to
+    directly -- never passed to X_acc.append_chunk (Float32ChunkAccumulator is
+    float32-only; a datetime is not float32-safe data). Source-introspection,
+    same justification as this file's other structural tests: the function
+    requires a live database to exercise behaviorally.
+    """
+    source = inspect.getsource(_compute_cross_sectional_tf)
+
+    assert "bar_ts_chunks: list[np.ndarray] = []" in source, (
+        "bar_ts_chunks must be declared as a plain list, mirroring "
+        "ret_chunks/cmp_chunks's own un-accumulator-ed pattern"
+    )
+    assert "bar_ts_chunks.append(np.array([r[0] for r in batch], dtype=object))" in source, (
+        "bar_ts_chunks must be appended to directly from the batch's bar_ts "
+        "column (row[0]), one array per chunk"
+    )
+    assert "np.concatenate(bar_ts_chunks)" in source, (
+        "bar_ts_chunks must be concatenated once via np.concatenate, matching "
+        "the np.vstack(ret_chunks)/np.vstack(cmp_chunks) idiom"
+    )
+
+    # X_acc.append_chunk must never be called on bar_ts_chunks/a bar_ts value --
+    # the only append_chunk call in this function must be the pre-existing
+    # feature-matrix one.
+    append_chunk_calls = [line for line in source.splitlines() if "X_acc.append_chunk(" in line]
+    assert len(append_chunk_calls) == 1, (
+        f"expected exactly one X_acc.append_chunk( call (the feature matrix), "
+        f"found {len(append_chunk_calls)}: {append_chunk_calls}"
+    )
+    assert "bar_ts" not in append_chunk_calls[0], (
+        "X_acc.append_chunk( must never be called with bar_ts -- "
+        "Float32ChunkAccumulator must not be extended to carry a timestamp"
+    )
+
+
+def test_cross_sectional_fetch_asserts_bar_ts_row_alignment():
+    """Phase 173 Plan 03 (D-05, T-173-07): a crash-loud RuntimeError guard must
+    compare len(bar_ts_arr) to len(X_raw) after concatenation -- per CLAUDE.md
+    ('silent wrong answers are worse than loud crashes'), a misalignment here
+    would silently mis-associate a broadcast feature value with the wrong
+    timestamp in Plan 04, producing a plausible-looking but wrong IC.
+    """
+    source = inspect.getsource(_compute_cross_sectional_tf)
+
+    assert "bar_ts_arr = np.concatenate(bar_ts_chunks)" in source
+    guard_idx = source.index("if len(bar_ts_arr) != len(X_raw):")
+    raise_idx = source.index("raise RuntimeError(", guard_idx)
+    assert raise_idx - guard_idx < 200, (
+        "the RuntimeError raise must immediately follow the length-mismatch "
+        "guard, not be a coincidental later occurrence"
+    )
+    # The guard must be placed AFTER the X_raw early-return (X_raw is None) --
+    # the no-data path must stay unchanged.
+    early_return_idx = source.index("if X_raw is None:")
+    assert early_return_idx < guard_idx, (
+        "the bar_ts alignment guard must come after the X_raw is None "
+        "early-return, not before it"
     )
 
 
@@ -704,6 +767,206 @@ def test_cell_too_large_error_raised_by_both_cell_functions():
             run_ts=None,
             prior_e_values={},
         )
+
+
+# ---------------------------------------------------------------------------
+# Phase 173 Plan 03 (D-01/D-05/D-08, todo 270): broadcast-aware column split.
+# Full round-trip tests against _compute_one_cross_sectional_cell -- synthetic
+# in-memory arrays shaped exactly like the real cell (n_features = len(
+# _FEATURE_NAMES), matching the row-emission loop's `enumerate(_FEATURE_NAMES)`
+# -- a smaller synthetic feature count, as used by the CellTooLargeError test
+# above, only exercises the early-return gate, never reaches row emission).
+# ---------------------------------------------------------------------------
+
+
+def _broadcast_test_config(**overrides) -> ICEngineConfig:
+    """Small-bootstrap ICEngineConfig for full round-trip cross-sectional cell
+    tests -- single active scale (fast) and bootstrap_resamples cut from the
+    production default (2000) to 20 for unit-test speed. tf='1d' avoids the
+    e-value pilot (_E_VALUE_PILOT_TFS = {'5m'} only), keeping cumulative_e_value
+    uniformly None and out of scope for these tests."""
+    import dataclasses as _dc
+
+    base_config = ICEngineConfig(
+        min_observations=500,
+        fdr_alpha=0.05,
+        walk_forward_folds=0,
+        sharpe_window_size=2000,
+        sharpe_min_windows=10,
+        subsample_min_stride=1,
+        min_reliable_n=2,
+        cluster_max_corr=0.70,
+        lookahead_fast={"5m": 1, "15m": 1, "1h": 1, "1d": 1},
+        lookahead_mid={"5m": 6, "15m": 2, "1h": 2, "1d": 2},
+        lookahead_slow={"5m": 12, "15m": 5, "1h": 20, "1d": 5},
+        lookahead_extended={"5m": 39, "15m": 10, "1h": 60, "1d": 10},
+        active_scales={
+            "5m": ("fast",),
+            "15m": ("fast",),
+            "1h": ("fast",),
+            "1d": ("fast",),
+        },
+        equity_model_enabled=True,
+        hac_max_lag=3,
+        cs_chunk_ts=5000,
+        symbol_fetch_chunk_rows=5000,
+        n_workers=1,
+        blas_threads_per_worker=1,
+        bootstrap_resamples=20,
+    )
+    if overrides:
+        base_config = _dc.replace(base_config, **overrides)
+    return base_config
+
+
+def _broadcast_test_inputs(
+    n_rows: int = 40, seed: int = 11
+) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
+    """Synthetic X_raw/returns_mat/complete_mat shaped like one real chunked-
+    fetch result: n_features columns (matching _FEATURE_NAMES exactly), one
+    active scale."""
+    n_features = len(_FEATURE_NAMES)
+    rng_data = np.random.default_rng(seed)
+    X_raw = rng_data.normal(size=(n_rows, n_features)).astype(np.float32)
+    returns_mat = rng_data.normal(size=(n_rows, 1))
+    complete_mat = np.ones((n_rows, 1), dtype=bool)
+    return X_raw, returns_mat, complete_mat
+
+
+def _call_cell(X_raw, returns_mat, complete_mat, *, broadcast_mask=None, seed=99):
+    config = _broadcast_test_config()
+    return _compute_one_cross_sectional_cell(
+        "calm",
+        X_raw=X_raw,
+        returns_mat=returns_mat,
+        complete_mat=complete_mat,
+        config=config,
+        tf="1d",
+        rng=np.random.default_rng(seed),
+        training_window_end=None,
+        feature_status_map=None,
+        run_ts=None,
+        prior_e_values={},
+        broadcast_mask=broadcast_mask,
+    )
+
+
+def test_compute_one_cross_sectional_cell_none_and_all_false_broadcast_mask_match():
+    """Backward-compatibility guarantee (Task 1 <behavior>): broadcast_mask=None
+    (the default, every pre-Plan-03 call site) must produce row-for-row identical
+    output to an explicit all-False mask -- this change is a pure no-op when no
+    feature carries the broadcast flag."""
+    n_features = len(_FEATURE_NAMES)
+    X_raw, returns_mat, complete_mat = _broadcast_test_inputs()
+
+    rows_none, skipped_none = _call_cell(X_raw, returns_mat, complete_mat, broadcast_mask=None)
+    rows_false, skipped_false = _call_cell(
+        X_raw, returns_mat, complete_mat, broadcast_mask=np.zeros(n_features, dtype=bool)
+    )
+
+    assert skipped_none == skipped_false
+    assert rows_none == rows_false
+    assert len(rows_none) == n_features  # every feature non-degenerate, none masked
+
+
+def test_compute_one_cross_sectional_cell_excludes_broadcast_feature_names_from_output():
+    """Zero emitted rows carry a feature_name that is masked broadcast -- at the
+    one active scale this config uses, and by extension at any scale (the mask
+    is applied identically inside the per-scale loop for every scale)."""
+    n_features = len(_FEATURE_NAMES)
+    X_raw, returns_mat, complete_mat = _broadcast_test_inputs()
+    broadcast_idx = [0, 5, 10]
+    broadcast_mask = np.zeros(n_features, dtype=bool)
+    broadcast_mask[broadcast_idx] = True
+    broadcast_names = {_FEATURE_NAMES[i] for i in broadcast_idx}
+
+    rows, _ = _call_cell(X_raw, returns_mat, complete_mat, broadcast_mask=broadcast_mask)
+
+    emitted_names = {r["feature_name"] for r in rows}
+    assert emitted_names.isdisjoint(broadcast_names)
+
+
+def test_compute_one_cross_sectional_cell_row_count_equals_scales_times_non_broadcast_features():
+    """Row count equals len(scales) * (n_features - broadcast_count), not
+    len(scales) * n_features -- this config uses exactly one active scale."""
+    n_features = len(_FEATURE_NAMES)
+    X_raw, returns_mat, complete_mat = _broadcast_test_inputs()
+    broadcast_idx = [0, 5, 10]
+    broadcast_mask = np.zeros(n_features, dtype=bool)
+    broadcast_mask[broadcast_idx] = True
+
+    rows, _ = _call_cell(X_raw, returns_mat, complete_mat, broadcast_mask=broadcast_mask)
+
+    n_scales = 1  # _broadcast_test_config's active_scales["1d"] == ("fast",)
+    assert len(rows) == n_scales * (n_features - len(broadcast_idx))
+
+
+def test_compute_one_cross_sectional_cell_degenerate_non_broadcast_feature_still_emits_nan_row():
+    """A degenerate (zero-variance) feature that is NOT masked broadcast must
+    still emit its NaN row exactly as before this change -- the two exclusion
+    conditions (degenerate vs. symbol-invariant) must not get conflated."""
+    n_features = len(_FEATURE_NAMES)
+    X_raw, returns_mat, complete_mat = _broadcast_test_inputs()
+    degenerate_idx = 7
+    X_raw = X_raw.copy()
+    X_raw[:, degenerate_idx] = 1.0  # constant -> degenerate
+
+    broadcast_idx = [0, 5, 10]  # deliberately excludes degenerate_idx
+    broadcast_mask = np.zeros(n_features, dtype=bool)
+    broadcast_mask[broadcast_idx] = True
+
+    rows, n_skipped = _call_cell(X_raw, returns_mat, complete_mat, broadcast_mask=broadcast_mask)
+
+    degenerate_name = _FEATURE_NAMES[degenerate_idx]
+    degenerate_rows = [r for r in rows if r["feature_name"] == degenerate_name]
+    assert len(degenerate_rows) == 1
+    assert degenerate_rows[0]["ic_value"] is None  # NaN -> None via _nan_to_none
+    assert n_skipped == 1  # the degenerate feature, not the 3 broadcast features
+    assert len(rows) == n_features - len(broadcast_idx)  # degenerate row still counted
+
+
+def test_broadcast_read_query_has_no_status_filter():
+    """T-173-15 mitigation, locked decision (173-03-PLAN.md <planner_findings>
+    'Read/write population alignment'): the broadcast-set read predicate must
+    carry no cr.status filter and no COALESCE. A status filter would silently
+    re-admit a deprecated broadcast feature into the per-symbol cell; NULL =
+    'true' is not true, so an unflagged row (no COALESCE needed) is simply not
+    selected -- degrading to today's behavior for the 5 candidate rows and 2
+    gate-less tombstones Plan 01 never writes."""
+    import services.ic_engine as ic_module
+
+    source = inspect.getsource(ic_module.main)
+    start_idx = source.index("SELECT cr.name FROM concept_registry cr")
+    end_idx = source.index(")", start_idx)
+    query_block = source[start_idx:end_idx]
+
+    assert "cr.status" not in query_block, (
+        "broadcast-set read query must not filter on cr.status -- an unflagged-"
+        "for-status row must still stay excluded from the per-symbol cell"
+    )
+    assert "COALESCE" not in query_block, (
+        "broadcast-set read query must not COALESCE the metadata read -- "
+        "NULL = 'true' correctly evaluates to not-selected for an unflagged row"
+    )
+
+
+def test_broadcast_feature_read_intersects_feature_names():
+    """T-173-01 mitigation: the source between the broadcast SELECT and the
+    frozenset assignment must reference _FEATURE_NAMES -- a database-sourced
+    feature name must be intersected against the code-defined column set before
+    it is stored anywhere, never trusted directly (these names flow toward
+    _compute_cross_sectional_tf's f-string SQL column-list construction)."""
+    import services.ic_engine as ic_module
+
+    source = inspect.getsource(ic_module.main)
+    select_idx = source.index("SELECT cr.name FROM concept_registry cr")
+    frozenset_idx = source.index("broadcast_features: frozenset[str] = frozenset(")
+    window = source[select_idx:frozenset_idx]
+
+    assert "_FEATURE_NAMES" in window, (
+        "the broadcast-name read must be intersected against _FEATURE_NAMES "
+        "before being stored in broadcast_features -- T-173-01's mitigation"
+    )
 
 
 def test_run_ic_worker_return_keys():
