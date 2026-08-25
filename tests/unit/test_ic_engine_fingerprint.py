@@ -77,7 +77,6 @@ def _make_config(**overrides) -> ICEngineConfig:
             "1d": ("fast", "mid", "slow", "extended"),
         },
         equity_model_enabled=True,
-        min_obs_daily=1000,
         hac_max_lag=3,
         cs_chunk_ts=5000,
         symbol_fetch_chunk_rows=5000,
