@@ -3,13 +3,13 @@ gsd_state_version: 1.0
 milestone: v3.1
 milestone_name: AlphaEngine Validation + Alpha Scoring
 status: milestone_complete
-last_updated: "2026-08-22T01:39:48.448Z"
+last_updated: "2026-08-25T16:00:50.376Z"
 progress:
-  total_phases: 14
+  total_phases: 12
   completed_phases: 9
   total_plans: 45
   completed_plans: 44
-  percent: 64
+  percent: 75
 ---
 
 # Project State
@@ -71,7 +71,7 @@ authoritative source, not duplicated here.** A tiered-priority snapshot pasted i
 went stale every single time it was tried (confirmed repeatedly through 2026-08-08) — don't
 recreate that pattern. Idea-level scoring: `docs/research/intelligence-lifecycle-backlog-matrix.md`.
 
-**Current focus:** Milestone v3.1's defining verdict stands: Phase 148 found Gate 1 (signal
+**Current focus:** Phase 173 — broadcast-feature-significance-correction-fix-pooled-cross-s
 proof) PASS but Gate 2 (execution proof) FAIL — do not promote the per-symbol directional
 construction to live capital. A refinement plan using Phase 163-165's features has its 3 gating
 items resolved: [276](../todos/completed/276-phase163-165-lookahead-causal-safety-audit.md)
