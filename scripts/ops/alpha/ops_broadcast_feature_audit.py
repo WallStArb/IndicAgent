@@ -66,12 +66,19 @@ receive a `broadcast` key at all -- Plan 03's read (`metadata->>'broadcast' =
 never silently become a broadcast row.
 
 CAVEATS:
-- A 'broadcast' classification relies on a recent-window sample (default 20 most
-  recent bar_ts, override with --n-timestamps) to detect structure. A truly
-  per-symbol feature might appear broadcast if its rare, event-driven signal didn't
-  fire in this narrow window -- this is exactly the case the temporal-variance guard
-  above is designed to catch and reclassify 'inconclusive'. A larger --n-timestamps
-  gives rare-event features a fairer chance to fire and produce real evidence.
+- A 'broadcast' classification relies on a sample of `--n-timestamps` bar_ts values
+  (default 20) STRATIFIED evenly across the feature's full history (`_stratified_sample`),
+  not just the most recent N. This is deliberate, found live during Phase 173 Task 3:
+  a recency-only sample is fragile whenever the most recent stretch of history is
+  itself degenerate -- this corpus's active universe is 100% equities (useRTH=True
+  fetch) and intraday ingestion has been stalled since 2026-08-13, so the most-recent
+  window alone would show zero temporal variance for in_ny_session/in_london_kz (both
+  genuinely bar_ts-only functions) even though real off-RTH evidence exists earlier in
+  history. A truly per-symbol feature might still appear broadcast if its rare,
+  event-driven signal never fired anywhere in the stratified sample -- this is exactly
+  the case the temporal-variance guard above is designed to catch and reclassify
+  'inconclusive'. A larger --n-timestamps gives rare-event features a fairer chance to
+  fire and produce real evidence.
 - Features with fewer than `min_symbols` finite values total across the sampled
   bar_ts's (e.g. never implemented and always NULL, or legitimately sparse) are
   listed separately under "Insufficient data" and are never classified at all --
@@ -150,13 +157,12 @@ _D02_ENUMERATED_BROADCAST_FEATURES = frozenset(
     }
 )
 
-_SAMPLE_TIMESTAMPS_SQL = """
+_CANDIDATE_TIMESTAMPS_SQL = """
     SELECT bar_ts FROM feature_vectors
     WHERE tf = $1
     GROUP BY bar_ts
     HAVING count(DISTINCT symbol) >= $2
-    ORDER BY bar_ts DESC
-    LIMIT $3
+    ORDER BY bar_ts
 """
 # concept_gate is INNER JOINed (not a bare domain='feature' filter) to exclude
 # migration 284's 2 gate-less tombstone concept_registry rows -- matching
@@ -238,6 +244,30 @@ def _count_finite_values_total(values_by_bar_ts: dict[Any, np.ndarray]) -> int:
         finite = values[np.isfinite(values)]
         total += len(finite)
     return total
+
+
+def _stratified_sample(all_bar_ts: list[Any], n: int) -> list[Any]:
+    """Pick up to `n` bar_ts values evenly spaced across the FULL sorted history,
+    not just the most recent n.
+
+    Found live during Phase 173 Task 3 (todo 270, 2026-08-25): a recency-only
+    sample is fragile whenever the most recent stretch of history is itself
+    degenerate. Confirmed live: this corpus's active universe is 100% equities
+    (useRTH=True fetch), and intraday ingestion has been stalled since
+    2026-08-13, so the most-recent-200-timestamps window contains ONLY
+    regular-trading-hours bars -- in_ny_session/in_london_kz read as constant
+    (zero temporal evidence) in that window despite being genuinely bar_ts-only
+    functions (verified via src/intelligence/feature_factory.py -- same
+    zero-symbol-parameter signature as in_overlap/power_hour, which DO classify
+    correctly). Real off-RTH evidence exists earlier in history (e.g.
+    in_ny_session=0 rows with 220+ symbols as recently as 2026-03-06) -- a
+    stratified sample surfaces it; a recency-only sample cannot.
+    """
+    if len(all_bar_ts) <= n or n <= 0:
+        return all_bar_ts
+    step = len(all_bar_ts) / n
+    indices = sorted({min(int(i * step), len(all_bar_ts) - 1) for i in range(n)})
+    return [all_bar_ts[i] for i in indices]
 
 
 def _consensus_verdict(tf_verdicts: list[str]) -> tuple[bool, str]:
@@ -347,10 +377,9 @@ async def main() -> int:
         verdicts_by_feature: dict[str, list[str]] = {f: [] for f in active_features}
 
         for tf in tfs:
-            ts_rows = await pool.fetch(
-                _SAMPLE_TIMESTAMPS_SQL, tf, args.min_symbols, args.n_timestamps
-            )
-            bar_ts_list = [r["bar_ts"] for r in ts_rows]
+            candidate_rows = await pool.fetch(_CANDIDATE_TIMESTAMPS_SQL, tf, args.min_symbols)
+            all_bar_ts = [r["bar_ts"] for r in candidate_rows]
+            bar_ts_list = _stratified_sample(all_bar_ts, args.n_timestamps)
             if not bar_ts_list:
                 print(f"## tf={tf}: no bar_ts with >= {args.min_symbols} symbols -- skipped\n")
                 continue
