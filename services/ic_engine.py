@@ -3670,17 +3670,31 @@ def _compute_cross_sectional_tf(
     (read once per ic_engine invocation by main(), from concept_registry's broadcast
     metadata flag, never a hand-maintained frozenset -- see todo 270's design
     rationale for why a hardcoded list, this module's now-deleted bespoke
-    daily-cadence frozenset, was the cautionary example) is converted
-    here into a positional `broadcast_mask` over `_FEATURE_NAMES` and passed to
-    `_compute_one_cross_sectional_cell`, which excludes those columns from this
-    cell's matrix entirely -- no row is emitted for a broadcast feature by this cell.
-    They are measured separately, in their own cell (Plan 04), against an
-    equal-weighted market-aggregate return.
+    daily-cadence frozenset, was the cautionary example) is converted here into a
+    positional `broadcast_mask` over `_FEATURE_NAMES`, TWO cells then run against
+    the same fetched arrays:
 
-    Plan 03 also threads `bar_ts` (fetched by `chunk_sql` at column index 0, row-
-    aligned with X_raw/returns_mat/complete_mat after the chunked fetch completes)
-    for Plan 04's future broadcast cell to consume; this function does not itself
-    use it for anything beyond the alignment guard.
+    1. `_compute_one_cross_sectional_cell` excludes broadcast columns from its
+       matrix entirely -- it emits NO row for a broadcast feature, at any scale.
+    2. `_compute_one_broadcast_cell` (Plan 04) measures ONLY those broadcast
+       columns, correctly: it collapses this cell's rows to one per distinct
+       `bar_ts` (a sort-free forward boundary scan over `bar_ts_arr`, threaded by
+       Plan 03 for exactly this purpose -- no longer used for the alignment guard
+       alone) and correlates each broadcast feature's one-per-bar_ts value against
+       the peer group's equal-weighted (arithmetic mean) forward return. A `bar_ts`
+       group contributes an aggregate return for a scale ONLY when every row in
+       that group is complete AND finite at that scale (strict all-peers-complete
+       rule) -- an equal-weighted index whose membership silently drifts bar to
+       bar would not be a consistent outcome variable.
+
+    Both cells' rows are combined into `all_results` and enter ONE combined
+    cluster-representative-selection / corpus-level BH-FDR pass below (D-07) --
+    no separate FDR family, no new table. A broadcast row's `cluster_id` is
+    offset by `_BROADCAST_CLUSTER_ID_OFFSET` (10000) so it can never collide with
+    a per-symbol cluster_id in the same (regime, lookahead_bars) representative-
+    selection group -- without the offset, a broadcast feature could silently
+    merge into a per-symbol cluster's representative selection and lose its own
+    FDR entry.
 
     symbol_list is THE contamination fix (Phase 144 D-01): before this, every
     symbol in the corpus (fi_* bonds, GLD/SLV/VNQ, IBIT) was pooled into every
@@ -3957,6 +3971,33 @@ def _compute_cross_sectional_tf(
         prior_e_values=prior_e_values,
         broadcast_mask=broadcast_mask,
     )
+
+    # Phase 173 Plan 04 (D-01..D-07, todo 270): the broadcast cell, called AFTER
+    # the fetch `with` block above has already closed (connection-scoping
+    # invariant test_compute_cross_sectional_tf_closes_connection_before_clustering
+    # pins -- the reason the 143.1-07 corpus re-run crashed twice) and BEFORE the
+    # cluster_groups loop below, so broadcast rows enter the SAME corpus-level
+    # BH-FDR family per D-07 -- no separate FDR pass, no new table. Shares the
+    # same `rng` instance (not a fresh one) -- the cross-sectional pass's
+    # documented reuse-not-reseed convention: one deterministic generator shared
+    # and advanced across every cell in this loop.
+    broadcast_results, broadcast_skipped = _compute_one_broadcast_cell(
+        regime_label,
+        bar_ts_arr=bar_ts_arr,
+        X_raw=X_raw,
+        returns_mat=returns_mat,
+        complete_mat=complete_mat,
+        broadcast_mask=broadcast_mask,
+        config=config,
+        tf=tf,
+        rng=rng,
+        training_window_end=training_window_end,
+        feature_status_map=feature_status_map,
+        run_ts=run_ts,
+    )
+    all_results.extend(broadcast_results)
+    n_skipped += broadcast_skipped
+
     pvals_flat: list[float] = []
     pval_result_idxs: list[int] = []
 

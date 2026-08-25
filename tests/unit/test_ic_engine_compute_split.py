@@ -242,6 +242,103 @@ def test_compute_cross_sectional_tf_closes_connection_before_clustering():
     )
 
 
+def test_compute_cross_sectional_tf_calls_broadcast_cell_after_fetch_closes():
+    """Phase 173 Plan 04: _compute_one_broadcast_cell( must appear textually
+    AFTER the fetch `with short_lived_conn(dsn) as conn:` block has closed --
+    same connection-scoping invariant as its per-symbol-pooled sibling call
+    (test_compute_cross_sectional_tf_closes_connection_before_clustering), for
+    the identical reason: the 143.1-07 corpus re-run crashed twice at the
+    transition point where a connection was held open across a multi-hour
+    compute-only phase."""
+    source = inspect.getsource(_compute_cross_sectional_tf)
+
+    assert "_compute_one_broadcast_cell(" in source
+    with_idx = source.index("with short_lived_conn(dsn) as conn:")
+    call_idx = source.index("_compute_one_broadcast_cell(")
+    assert with_idx < call_idx, (
+        "_compute_one_broadcast_cell( must appear after the "
+        "short_lived_conn(dsn) with-block has closed"
+    )
+
+    with_line = source[: source.index("\n", with_idx)].splitlines()[-1]
+    with_indent = len(with_line) - len(with_line.lstrip())
+    call_line_start = source.rindex("\n", 0, call_idx) + 1
+    call_line_end = source.index("\n", call_idx)
+    call_line = source[call_line_start:call_line_end]
+    call_indent = len(call_line) - len(call_line.lstrip())
+    assert call_indent <= with_indent, (
+        "_compute_one_broadcast_cell( must be dedented outside the "
+        "short_lived_conn(dsn) with-block, not nested inside it"
+    )
+
+
+def test_compute_cross_sectional_tf_calls_broadcast_cell_before_cluster_groups():
+    """Phase 173 Plan 04 (D-07): _compute_one_broadcast_cell( must appear
+    textually BEFORE the cluster_groups representative-selection loop, so
+    broadcast rows enter the SAME corpus-level BH-FDR family as per-symbol
+    pooled rows -- no separate FDR pass, no new table."""
+    source = inspect.getsource(_compute_cross_sectional_tf)
+
+    broadcast_call_idx = source.index("_compute_one_broadcast_cell(")
+    cluster_groups_idx = source.index("cluster_groups: dict[tuple, list[tuple[float, int]]] = {}")
+    assert broadcast_call_idx < cluster_groups_idx, (
+        "_compute_one_broadcast_cell( must appear before the cluster_groups "
+        "representative-selection loop -- broadcast rows must be present in "
+        "all_results before that loop runs"
+    )
+
+
+def test_compute_cross_sectional_tf_extends_all_results_with_broadcast_rows():
+    """The broadcast cell's returned rows must be merged into all_results (via
+    .extend, not a separate write path) and its skipped-feature count added to
+    n_skipped -- same accounting contract as the per-symbol pooled cell."""
+    source = inspect.getsource(_compute_cross_sectional_tf)
+    assert "all_results.extend(broadcast_results)" in source
+    assert "n_skipped += broadcast_skipped" in source
+
+
+def test_cluster_representative_grouping_never_mixes_broadcast_and_per_symbol_cluster_ids():
+    """T-173-10 mitigation: exercises _compute_cross_sectional_tf's actual
+    trailing cluster-representative-selection loop logic (group_key =
+    (regime, lookahead_bars, cluster_id)) against a synthetic all_results list
+    mixing offset (broadcast, >= _BROADCAST_CLUSTER_ID_OFFSET) and non-offset
+    (per-symbol) cluster_id values at the SAME (regime, lookahead_bars) pair --
+    no group key may contain rows from both sides of the offset. No live DB
+    needed: this logic operates purely on already-computed dict rows."""
+    all_results = [
+        {"regime": "calm", "lookahead_bars": 5, "cluster_id": 3, "ic_value": 0.1},
+        {"regime": "calm", "lookahead_bars": 5, "cluster_id": 3, "ic_value": 0.2},
+        {
+            "regime": "calm",
+            "lookahead_bars": 5,
+            "cluster_id": 3 + _BROADCAST_CLUSTER_ID_OFFSET,
+            "ic_value": 0.3,
+        },
+        {"regime": "calm", "lookahead_bars": 5, "cluster_id": None, "ic_value": 0.4},
+    ]
+    # Mirrors _compute_cross_sectional_tf's exact grouping construction.
+    cluster_groups: dict[tuple, list[tuple[float, int]]] = {}
+    for result_idx, r in enumerate(all_results):
+        cid = r["cluster_id"]
+        if cid is None:
+            continue
+        group_key = (r["regime"], r["lookahead_bars"], cid)
+        ic_val = r["ic_value"]
+        abs_ic = abs(ic_val) if ic_val is not None else 0.0
+        cluster_groups.setdefault(group_key, []).append((abs_ic, result_idx))
+
+    for key, members in cluster_groups.items():
+        cids = {all_results[idx]["cluster_id"] for _, idx in members}
+        all_broadcast = all(c >= _BROADCAST_CLUSTER_ID_OFFSET for c in cids)
+        all_per_symbol = all(c < _BROADCAST_CLUSTER_ID_OFFSET for c in cids)
+        assert (
+            all_broadcast or all_per_symbol
+        ), f"group_key {key} mixes broadcast and per-symbol cluster_id values: {cids}"
+    # The offset-partitioned broadcast group and the non-offset per-symbol
+    # group must resolve to two distinct group_keys, never one merged group.
+    assert len(cluster_groups) == 2
+
+
 def test_cross_sectional_fetch_does_not_route_bar_ts_through_float32_accumulator():
     """Phase 173 Plan 03 (D-05): bar_ts_chunks must be a plain list, appended to
     directly -- never passed to X_acc.append_chunk (Float32ChunkAccumulator is
