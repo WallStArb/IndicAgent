@@ -1293,6 +1293,7 @@ def train_and_predict_oos_residual_form(
     *,
     interaction_constraints: list[list[int]] | None = None,
     gain_concentration_max_share: float = 0.15,
+    colsample_bytree: float = 0.8,
 ) -> tuple[pd.DataFrame, list[N1FoldGainAudit]]:
     """N1's fold loop: fit the linear ensemble `L` on the fold's training slice (identical to
     `train_and_predict_oos`'s linear arm), fit a residual tree `T` on `y_train - L(X_train)` (NOT
@@ -1315,7 +1316,13 @@ def train_and_predict_oos_residual_form(
     Same hyperparameters as `train_and_predict_oos`'s tree (N1-a, "current hyperparameters
     unchanged") -- `interaction_constraints` is the only parameter that differs between N1-a
     (`None`) and N1-b (`build_group_interaction_constraints`'s output), passed straight through
-    to `lgb.LGBMRegressor`.
+    to `lgb.LGBMRegressor`. `colsample_bytree` defaults to N1-a/N1-b's own `0.8` (byte-identical
+    behavior unless a caller overrides it) -- N1-a-capped (pre-registered 2026-08-25, added after
+    N1-a/N1-b both came back G1-void at 1d) passes `0.10` here: LightGBM redraws a random column
+    subset per boosting round natively, so lowering this bounds any single feature's expected
+    total gain share to roughly its own per-tree inclusion probability, the same "bounded
+    exposure by construction" property proposal A2(ii)'s hand-rolled K-way bagging described,
+    via one existing parameter instead of new orchestration code.
 
     Returns the OOS frame (with `linear_score`, `tree_score` [[the residual prediction itself,
     NOT yet standardized -- see composite_score]], `composite_score` [[the actual S]], and the
@@ -1357,7 +1364,7 @@ def train_and_predict_oos_residual_form(
             reg_alpha=1.0,
             reg_lambda=1.0,
             subsample=0.8,
-            colsample_bytree=0.8,
+            colsample_bytree=colsample_bytree,
             random_state=bootstrap_seed,
             verbosity=-1,
             importance_type="gain",
@@ -1505,6 +1512,7 @@ async def run_n1_check(
     force_include_cols: frozenset[str] = frozenset(),
     run_shuffled_null: bool = True,
     gain_concentration_max_share: float = 0.15,
+    colsample_bytree: float = 0.8,
 ) -> dict[str, object]:
     """One N1 arm at one timeframe, end to end: fetch -> rank-normalize (fixed test property) ->
     residual-form walk-forward (`train_and_predict_oos_residual_form`) -> cross-sectional-neutral
@@ -1553,6 +1561,7 @@ async def run_n1_check(
         bootstrap_seed,
         interaction_constraints=interaction_constraints,
         gain_concentration_max_share=gain_concentration_max_share,
+        colsample_bytree=colsample_bytree,
     )
 
     stats = _cross_sectional_neutral_paired_diff_with_pvalue(
@@ -1598,6 +1607,7 @@ async def run_n1_check(
             bootstrap_seed,
             interaction_constraints=interaction_constraints,
             gain_concentration_max_share=gain_concentration_max_share,
+            colsample_bytree=colsample_bytree,
         )
         g2_result = _cross_sectional_neutral_paired_diff_with_pvalue(
             oos_null,

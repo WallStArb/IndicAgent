@@ -642,3 +642,65 @@ class TestTrainAndPredictOosResidualForm:
             interaction_constraints=[[0, 1, 2], [3, 4, 5]],
         )
         assert np.all(np.isfinite(oos["composite_score"]))
+
+    def test_default_colsample_bytree_matches_prior_locked_behavior(self) -> None:
+        """N1-a/N1-b's pre-registered spec is `colsample_bytree=0.8` -- the default MUST stay
+        0.8 so neither arm's already-run (2026-08-25) result is silently invalidated by a
+        future change to this function's default."""
+        import inspect
+
+        sig = inspect.signature(train_and_predict_oos_residual_form)
+        assert sig.parameters["colsample_bytree"].default == 0.8
+
+    def test_lower_colsample_bytree_reduces_single_fold_gain_concentration(self) -> None:
+        """N1-a-capped's whole premise (pre-registered 2026-08-25): a lower colsample_bytree
+        bounds a dominant feature's total gain share. Construct a panel where one feature is
+        overwhelmingly the strongest predictor of the residual and confirm the capped run's
+        max gain share is measurably lower than the uncapped run's on identical data."""
+        rng = np.random.default_rng(50)
+        n_bars, n_features = 150, 40
+        symbols = [f"SYM{i}" for i in range(10)]
+        rows_symbol, rows_bar_ts, rows_X, rows_y = [], [], [], []
+        for bar in range(n_bars):
+            for sym in symbols:
+                x = rng.normal(size=n_features)
+                rows_X.append(x)
+                # Feature 0 overwhelmingly dominates -- every other feature is pure noise.
+                rows_y.append(3.0 * x[0] + rng.normal(scale=0.05))
+                rows_symbol.append(sym)
+                rows_bar_ts.append(bar)
+        X = np.array(rows_X, dtype=np.float32)
+        y = np.array(rows_y, dtype=np.float64)
+        meta = pd.DataFrame(
+            {
+                "symbol": rows_symbol,
+                "bar_ts": pd.to_datetime(rows_bar_ts, unit="D", utc=True),
+            }
+        )
+
+        _oos_uncapped, uncapped_audits = train_and_predict_oos_residual_form(
+            X,
+            y,
+            meta,
+            target_col="return_fast_demeaned",
+            n_folds=2,
+            embargo_bars=5,
+            min_reliable_n=10,
+            bootstrap_seed=42,
+            colsample_bytree=0.8,
+        )
+        _oos_capped, capped_audits = train_and_predict_oos_residual_form(
+            X,
+            y,
+            meta,
+            target_col="return_fast_demeaned",
+            n_folds=2,
+            embargo_bars=5,
+            min_reliable_n=10,
+            bootstrap_seed=42,
+            colsample_bytree=0.10,
+        )
+
+        uncapped_max = max(a.max_gain_share for a in uncapped_audits)
+        capped_max = max(a.max_gain_share for a in capped_audits)
+        assert capped_max < uncapped_max

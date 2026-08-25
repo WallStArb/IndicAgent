@@ -71,7 +71,14 @@ _CANARY_COLS = frozenset(
 async def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--tf", required=True, choices=sorted(_TF_CONFIG))
-    parser.add_argument("--arm", required=True, choices=["a", "b"])
+    parser.add_argument(
+        "--arm",
+        required=True,
+        choices=["a", "b", "a-capped"],
+        help="a/b: original N1-a/N1-b (colsample_bytree=0.8, unchanged). a-capped: N1-a-capped "
+        "(pre-registered 2026-08-25 after N1-a/N1-b both came back G1-void at 1d) -- identical "
+        "to N1-a except colsample_bytree=0.10.",
+    )
     parser.add_argument(
         "--no-g2",
         action="store_true",
@@ -98,6 +105,7 @@ async def main() -> None:
         print(f"Loaded group_name for {len(interaction_group_map)} features.")
 
     force_include = _CANARY_COLS if args.g3_canary_check else frozenset()
+    colsample_bytree = 0.10 if args.arm == "a-capped" else 0.8
 
     result = await run_n1_check(
         args.tf,
@@ -112,6 +120,7 @@ async def main() -> None:
         interaction_constraints_group_map=interaction_group_map,
         force_include_cols=force_include,
         run_shuffled_null=not args.no_g2,
+        colsample_bytree=colsample_bytree,
     )
 
     out_dir = Path("docs/analysis")

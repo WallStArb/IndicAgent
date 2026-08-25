@@ -642,13 +642,76 @@ after-the-fact adjustment this guardrail structure exists to prevent.
 hypothesis (does non-linear structure exist beyond capped linear combination) -- G1-void means
 untested, not falsified. It DOES resolve the earlier "is an unconstrained tree the right
 instrument at all" open question this doc itself raised: empirically, no, not without a
-per-feature exposure cap analogous to the linear arm's. **Recommended next step, not yet
-pre-registered or run:** proposal (a) from "Alternative methodologies" above ("Constrain the tree
-the way the linear arm is already constrained") is now the load-bearing candidate design, not one
-option among several -- a genuinely new pre-registration (own falsification bar, own guardrails,
-G4-compliant), not a silent patch to N1. `data-edge-source-thesis.md`'s Scorecard updated to
-reflect this -- `nonlinear_interaction_combiner` is no longer "the most promising open thread"
-without qualification.
+per-feature exposure cap analogous to the linear arm's.
+
+### Test N1-a-capped (pre-registered 2026-08-25, before any run): bounded exposure via native LightGBM column subsampling
+
+**Why not proposal A2(ii) as originally written.** A2(ii) proposed hand-rolled random-subspace
+bagging -- K separate models, each trained on a disjoint 1/K column subset, predictions averaged.
+Reconsidered under this project's own "ruthlessly eliminate unnecessary complexity, prioritize
+component reuse" discipline: LightGBM's existing `colsample_bytree` parameter (already present in
+N1-a/N1-b's hyperparameters, currently `0.8`) already redraws a random column subset **per
+boosting round** within a single `LGBMRegressor.fit()` call -- mechanically the same "bound any
+one column's structural influence by construction" property A2(ii) describes, via one existing,
+well-tested native parameter instead of a new hand-rolled fold loop, K-way averaging step, and
+cross-model gain-aggregation logic. A2(iii) (custom per-feature gain penalty objective) remains
+correctly rejected by the doc's own text. This is a genuinely different, smaller-surface design
+than A2(ii)'s original framing, recorded as such rather than silently claimed as "the same
+proposal, just implemented differently."
+
+**Hypothesis, arm, and falsification bar -- new pre-registration, NOT a modification of N1-a's
+own locked spec (G4).** Identical to N1-a in every respect (hyperparameters, timeframes, folds,
+guardrails, floor, sign-consistency and BH-FDR criteria) except `colsample_bytree=0.10` (down
+from `0.8`) on the residual tree only -- the linear arm `L` is untouched, still fit on all
+features. At ~30 of 303 columns available per boosting round (vs. all 303), a feature that fully
+monopolizes every tree it appears in has an expected total-gain-share ceiling around its own
+per-tree inclusion probability (~10%), assuming roughly comparable gain contribution across
+boosting rounds -- comfortable margin under G1's existing 15% cap without being so aggressive
+(e.g. single-digit percent) that the tree can no longer find genuine multi-feature interaction
+structure, which is the actual object of this test. **New arm label: N1-a-capped** -- kept
+distinct from N1-a/N1-b in every result file, BH-FDR family, and verdict; N1-a/N1-b's own
+G1-void result (above) is not overwritten, retracted, or merged into this arm's family.
+**Falsification criterion: identical to N1's original 5 criteria** (ci_lower>0, point_diff>=0.005,
+same sign >=2/3 tfs, BH-FDR alpha=0.05 across its own family, guardrails clean) -- no new floor,
+no relaxed bar, only the estimator changed.
+
+**Sequencing:** smoke-test at 1d first (same discipline as N1-a/N1-b) -- confirm G1 actually
+clears before committing to 15m/1h's larger cost. If G1 still breaches even at
+`colsample_bytree=0.10`, that is itself informative (the dominant feature's signal is strong
+enough to monopolize even a 30-column random subset most of the time it's drawn) and the next
+step would be a lower value, not abandoning the approach after one try.
+
+**N1-a-capped result, 1d, 2026-08-25: the fix works, substantially, but not completely.**
+`colsample_bytree=0.10` implemented as a one-parameter addition to the existing
+`train_and_predict_oos_residual_form` (defaults to N1-a/N1-b's original `0.8`, verified by a
+regression test so neither arm's already-recorded result can be silently invalidated by a future
+default change; mechanism separately validated on synthetic data with a deliberately dominant
+feature before spending live-DB compute). Real-data result:
+
+| Fold | Uncapped (N1-a) | Capped (N1-a-capped) |
+|---|---|---|
+| 0 | 0.404 (`poc_dist_atr`) | **0.072** (`f27`) |
+| 1 | 0.343 (`poc_dist_atr`) | **0.059** (`f27`) |
+| 2 | 0.453 (`ctf_momentum`) | 0.153 (`f44`) -- still breaches |
+| 3 | 0.543 (`rsi_fast`) | 0.159 (`f44`) -- still breaches |
+| 4 | 0.375 (`ctf_momentum`) | **0.112** (`f43`) |
+
+Breach count dropped from 5/5 folds to 2/5, and the 3 cleared folds fell to 6-11% -- well under
+the 15% cap, a 4-6x reduction. The 2 remaining breaches are marginal (15.3%, 15.9%) and both
+driven by the same feature (`f44`) -- confirms the mechanism works as designed, not fully
+sufficient at this value on this tf. Point estimate remained negative and non-significant
+regardless of G1 (`point_diff=-0.0011, ci_lower=-0.0080, p=0.760`) -- consistent with 1d's
+historically weakest position in this whole thesis (the original parallel-form test's smallest
+surviving residual was also at 1d), not evidence the capping approach is wrong.
+
+**Decision: did not iterate colsample_bytree lower on 1d.** 1d's point estimate shows no hint of
+economically material signal even before G1, and 1d has never been this thesis's strongest
+timeframe. Continuing to tune purely for 1d's guardrail cleanliness would optimize the wrong
+thing. Instead, testing 1h next (`colsample_bytree=0.10`, unchanged) -- the timeframe with the
+strongest prior parallel-form evidence (`0.0106` uplift, `ci_lower=0.0064`) -- is more
+informative: it answers whether the fix produces a clean, trustworthy read where a real signal
+was already suspected, not just where the residual happens to be flat. Results below once that
+run completes.
 
 ## Sequencing
 
