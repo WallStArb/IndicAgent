@@ -187,6 +187,16 @@ _DEFAULT_TFS: list[str] = ["1d", "1h", "15m", "5m"]
 # feature_ic_scores.symbol is NOT NULL, so we use a string sentinel.
 _CROSS_SECTIONAL_SYMBOL = "POOLED"
 
+# Phase 173 Plan 04 (D-07, todo 270): schema ID-space partition constant, not a
+# tunable -- APR-exempt, same class as a column-name literal (CLAUDE.md APR-exempt
+# list). Broadcast rows' cluster_id = _cluster_features()'s own 1-based fcluster
+# label + this offset, so a broadcast feature's cluster can never collide with a
+# per-symbol cluster_id in the same (regime, lookahead_bars) BH-FDR representative-
+# selection group. Reclaims the ID space Phase 173 Plan 02's deletion freed (its
+# only prior user). feature_ic_scores.cluster_id is smallint (max 32767); ~40
+# broadcast features leaves wide margin below that ceiling.
+_BROADCAST_CLUSTER_ID_OFFSET = 10000
+
 # Magnitude-conditional IC percentile threshold (Component B, todo 090): defines
 # "large |prediction|" as the top quartile by |X| per feature. [conventional]
 # statistical concept definition (a quartile cutoff), not a tunable APR weight --
@@ -637,6 +647,17 @@ class ICEngineConfig:
     # justifies otherwise. Defaulted for the same reason as every other post-143
     # field.
     refresh_min_new_fraction: float = 0.0
+    # Phase 173 Plan 04 (D-07, todo 270, migration 324): shared by BOTH the offline
+    # broadcast classifier (scripts/ops/alpha/ops_broadcast_feature_audit.py, which
+    # CLASSIFIES a feature's cross-symbol max-minus-min spread as within-tolerance)
+    # and _compute_one_broadcast_cell's compute-time invariance ASSERTION (which
+    # re-checks the same predicate still holds before collapsing a feature's
+    # per-symbol rows to one representative per bar_ts). ONE key -- do not add a
+    # second, differently-named threshold; see 173-04-PLAN.md planner_findings.
+    # Defaulted for the same reason as every other post-143 field: pre-existing
+    # direct ICEngineConfig(...) construction sites must not break on this
+    # dataclass's field-count growth.
+    broadcast_variance_threshold: float = 1e-9
 
     def lookaheads_for(self, tf: str) -> dict[str, int]:
         """Gradient-scale lookahead mapping for ONE timeframe (todo 146: bar counts
@@ -809,6 +830,11 @@ class ICEngineConfig:
             # unused until a drift study justifies a nonzero value -- see the
             # dataclass field's own comment above.
             refresh_min_new_fraction=float(cfg.get_sync("alpha.ic.refresh_min_new_fraction", 0.0)),
+            # Phase 173 Plan 04 (todo 270, migration 324). Same key the offline
+            # broadcast classifier reads -- see the dataclass field's own comment.
+            broadcast_variance_threshold=float(
+                cfg.get_sync("alpha.ic.broadcast_variance_threshold", 1e-9)
+            ),
         )
 
 
@@ -889,6 +915,11 @@ _COMPUTATIONAL_CONFIG_FIELDS: frozenset[str] = frozenset(
         # Costs at most one extra safe recompute today (value never changes from the
         # migration 252 seed), never a silent-stale read once carry-forward ships.
         "refresh_min_new_fraction",
+        # Gates a RuntimeError crash guard in _compute_one_broadcast_cell (Phase 173
+        # Plan 04, todo 270) -- affects computed output (whether the run crashes
+        # before writing a broadcast row at all), so COMPUTATIONAL despite being a
+        # guard threshold rather than a statistic-shaping parameter.
+        "broadcast_variance_threshold",
     }
 )
 
@@ -3233,6 +3264,377 @@ def _compute_one_cross_sectional_cell(
                     "sign_hit_rate": _nan_to_none(sign_hit_rate_full[feat_idx]),
                     "magnitude_conditional_ic": _nan_to_none(magnitude_ic_full[feat_idx]),
                     "cumulative_e_value": cumulative_e_value,
+                }
+            )
+
+    return all_results, n_skipped
+
+
+def _compute_one_broadcast_cell(
+    regime_label: str,
+    *,
+    bar_ts_arr: np.ndarray,
+    X_raw: np.ndarray,
+    returns_mat: np.ndarray,
+    complete_mat: np.ndarray,
+    broadcast_mask: np.ndarray | None,
+    config: ICEngineConfig,
+    tf: str,
+    rng: np.random.Generator,
+    training_window_end: Any,
+    feature_status_map: dict[str, str] | None,
+    run_ts: datetime,
+) -> tuple[list[dict], int]:
+    """Compute the regime-conditional broadcast significance test for ONE
+    (regime_group, tf, regime_label) cell (Phase 173 Plan 04, D-01 through D-07,
+    todo 270).
+
+    Statistical claim: a symbol-invariant (broadcast) feature's value is repeated
+    identically across every peer symbol at a given bar_ts -- it is one
+    independent draw per bar_ts, not n_symbols draws. Treating each symbol's copy
+    as an independent observation (the pre-Phase-173 bug) inflates effective N by
+    the peer-group size and understates the true p-value. The correct observation
+    unit is therefore the distinct bar_ts, and the correct outcome variable is
+    NOT any single symbol's forward return but the cell's peer group's
+    equal-weighted (arithmetic mean) forward return -- an equal-weighted
+    market-aggregate, one value per bar_ts, built from the same returns_mat the
+    per-symbol path already fetched (Plan 03). This function measures the
+    correlation between a broadcast feature's one-per-bar_ts value and that
+    aggregate return, reusing `_subsample_and_rank` -- the shared rank -> IC ->
+    circular block bootstrap CI -> walk-forward kernel -- completely UNMODIFIED.
+
+    Grouping bar_ts -> distinct-timestamp groups is a single forward boundary
+    scan (np.flatnonzero on adjacent inequality + reduceat aggregation), never a
+    sort and never numpy's unique/sort/argsort helpers or a pandas group-by, by
+    deliberate memory-safety choice: bar_ts_arr is already sorted/contiguous by construction
+    (chunk_sql's ORDER BY fv.bar_ts), so a sort-based grouping would needlessly
+    reproduce the exact allocation profile behind the 2026-07-08 OOM incident
+    this file's float32 conversion elsewhere exists to avoid. This function
+    never touches the chunked-fetch accumulator class the fetch phase uses --
+    it operates entirely on already-fetched, already-in-memory arrays and
+    performs NO database access.
+
+    Args mirror _compute_one_cross_sectional_cell's sibling contract, with two
+    additions this cell needs and its sibling does not: bar_ts_arr (Plan 03's
+    row-aligned timestamp array, sorted/contiguous) and broadcast_mask reused
+    positionally (True = this column is measured HERE, never in the per-symbol
+    cell, which already excludes these same columns -- see Plan 03).
+
+    A `bar_ts` group contributes an aggregate return for a scale ONLY if every
+    row in that group has complete_mat AND isfinite for that scale (strict
+    all-peers-complete rule, D-04's own gap resolved by this plan): an
+    equal-weighted index whose membership silently drifts bar to bar is not a
+    consistent outcome variable. This drops bars -- expected, not a bug; the
+    per-scale drop fraction is logged so a pathological rate is visible rather
+    than presenting as a mysterious min_reliable_n skip.
+
+    The e-value pilot (Component C, todo 079) does NOT extend here:
+    cumulative_e_value is always None for every broadcast row, regardless of tf --
+    silently extending an anytime-valid pilot scoped to one cell type to a
+    brand-new cell type would compound evidence across two different measurement
+    definitions.
+
+    Emits rows with symbol='POOLED', is_pooled=True, regime=regime_label,
+    regime_scope='cross_sectional' (folds into the EXISTING pass_type=
+    'cross_sectional' fingerprint row -- no new pass_type, no new regime_scope,
+    no schema migration). cluster_id is `_cluster_features`'s own fcluster label
+    plus `_BROADCAST_CLUSTER_ID_OFFSET`, so a broadcast feature's cluster can
+    never collide with a per-symbol cluster_id in the same (regime,
+    lookahead_bars) BH-FDR representative-selection group.
+
+    Returns (result_rows, n_skipped_features), same contract as its sibling.
+    Does NOT populate pvals_flat/pval_result_idxs or run cluster-representative
+    selection -- that stays in the caller (_compute_cross_sectional_tf), which
+    runs it once over the COMBINED per-symbol + broadcast result set.
+    """
+    if broadcast_mask is None or not broadcast_mask.any():
+        return [], 0
+
+    broadcast_positions = np.where(broadcast_mask)[0]
+    n_broadcast = len(broadcast_positions)
+    n_raw = len(bar_ts_arr)
+
+    # -----------------------------------------------------------------------
+    # Step 2: derive group boundaries via a single forward boundary scan.
+    # bar_ts_arr is already sorted ascending and bar_ts-contiguous (chunk_sql's
+    # ORDER BY fv.bar_ts + ordered ts_chunk slices), so group starts are exactly
+    # the positions where the value changes. numpy's unique/sort/argsort
+    # helpers and a pandas group-by are FORBIDDEN here -- each sorts and/or allocates additional
+    # full-length temporaries over the largest cell, precisely the 2026-07-08
+    # OOM profile this function's collapsed-matrix design exists to avoid.
+    # -----------------------------------------------------------------------
+    adjacent_diff = bar_ts_arr[1:] != bar_ts_arr[:-1]
+    change_positions = np.flatnonzero(adjacent_diff) + 1
+    group_starts = np.empty(len(change_positions) + 1, dtype=np.intp)
+    group_starts[0] = 0
+    group_starts[1:] = change_positions
+    n_groups = len(group_starts)
+
+    # Crash-loud contiguity assertion (T-173-16): a repeated group representative
+    # means one bar_ts appeared in two non-adjacent runs -- the ORDER BY invariant
+    # this whole design rests on has broken upstream. O(n_groups), not O(N):
+    # never materializes a full-length distinct-value structure.
+    group_representatives = bar_ts_arr[group_starts]
+    if len(set(group_representatives)) < len(group_starts):
+        raise RuntimeError(
+            f"bar_ts contiguity invariant violated for broadcast cell tf={tf} "
+            f"regime={regime_label}: a bar_ts value appears in two non-adjacent "
+            "runs of the chunked fetch. chunk_sql's ORDER BY fv.bar_ts guarantees "
+            "contiguous grouping -- this must never happen. Refusing to proceed: "
+            "continuing would silently double-count a timestamp as two "
+            "independent draws."
+        )
+
+    # -----------------------------------------------------------------------
+    # Step 3: materialize the broadcast submatrix ONCE -- the single bounded
+    # intermediate this function allocates (~n_broadcast/298 of X_raw's
+    # footprint). Never X_raw[group_starts][:, broadcast_mask] -- that gathers
+    # all feature columns first for no benefit.
+    # -----------------------------------------------------------------------
+    X_bc = X_raw[:, broadcast_mask]
+    X_collapsed = X_bc[group_starts]
+
+    # -----------------------------------------------------------------------
+    # Step 4: cross-symbol-invariance assertion (T-173-09 mitigation). NaN-safe
+    # fmax/fmin (never maximum/minimum) so a data gap (all-NaN group for a
+    # column) does not trip the guard -- only a REAL cross-symbol disagreement
+    # does. Compute-time guard against a mis-persisted concept_registry.metadata
+    # flag: collapsing a genuinely idiosyncratic feature to one representative
+    # row would silently discard every other symbol's value and produce a
+    # plausible-but-wrong IC. Crash-loud per CLAUDE.md.
+    # -----------------------------------------------------------------------
+    group_max = np.fmax.reduceat(X_bc, group_starts, axis=0)
+    group_min = np.fmin.reduceat(X_bc, group_starts, axis=0)
+    spread = group_max - group_min
+    violation_mask = spread > config.broadcast_variance_threshold  # NaN spread -> False
+    if np.any(violation_mask):
+        viol_group_idx, viol_col_idx = np.argwhere(violation_mask)[0]
+        bad_feat_name = _FEATURE_NAMES[broadcast_positions[viol_col_idx]]
+        bad_bar_ts = bar_ts_arr[group_starts[viol_group_idx]]
+        raise RuntimeError(
+            f"Broadcast invariance violated: feature={bad_feat_name!r} at "
+            f"bar_ts={bad_bar_ts!r} (tf={tf}, regime={regime_label}) has "
+            f"cross-symbol spread {float(spread[viol_group_idx, viol_col_idx])!r} "
+            f"exceeding config.broadcast_variance_threshold="
+            f"{config.broadcast_variance_threshold!r}. This feature was "
+            "classified symbol-invariant (broadcast) by the offline classifier "
+            "but is not actually invariant in this cell's live data -- refusing "
+            "to silently collapse it to one representative row per bar_ts."
+        )
+    del X_bc
+
+    # -----------------------------------------------------------------------
+    # Step 5: aggregate return matrix + strict all-peers-complete gate, via
+    # reduceat on group_starts -- no sort, no fancy-index gather over the
+    # full-length arrays.
+    # -----------------------------------------------------------------------
+    lookaheads = config.lookaheads_for(tf)
+    scales = config.active_scales_for(tf)
+    n_scales = len(scales)
+
+    group_ends = np.append(group_starts[1:], n_raw)
+    group_sizes = (group_ends - group_starts).astype(np.float64)
+
+    aggregate_returns = np.full((n_groups, n_scales), np.nan)
+    aggregate_complete = np.zeros((n_groups, n_scales), dtype=bool)
+
+    for scale_idx, scale_name in enumerate(scales):
+        finite_and_complete = complete_mat[:, scale_idx] & np.isfinite(returns_mat[:, scale_idx])
+        group_all_present = np.logical_and.reduceat(finite_and_complete, group_starts)
+        sum_returns = np.add.reduceat(returns_mat[:, scale_idx], group_starts)
+        mean_returns = sum_returns / group_sizes
+        aggregate_complete[:, scale_idx] = group_all_present
+        aggregate_returns[:, scale_idx] = np.where(group_all_present, mean_returns, np.nan)
+
+        frac_dropped = 1.0 - (float(group_all_present.sum()) / n_groups if n_groups else 0.0)
+        _logger.info(
+            "ic_engine.broadcast_incomplete_cross_section",
+            tf=tf,
+            regime=regime_label,
+            scale=scale_name,
+            n_groups=n_groups,
+            frac_dropped=frac_dropped,
+        )
+
+    # -----------------------------------------------------------------------
+    # Step 6: degenerate-column detection on the collapsed matrix -- identical
+    # in shape to the sibling's. A broadcast feature constant across the whole
+    # cell (e.g. a session flag inside a regime slice that never covers that
+    # session) is excluded from clustering while still emitting its NaN row,
+    # exactly as the sibling handles degenerate (non-broadcast) features.
+    # -----------------------------------------------------------------------
+    feature_stds = np.std(X_collapsed, axis=0, dtype=np.float64)
+    degenerate_mask = feature_stds < 1e-8
+    non_degenerate_mask = ~degenerate_mask
+    n_skipped = int(degenerate_mask.sum())
+
+    X_nd_bc = X_collapsed[:, non_degenerate_mask]
+    if X_nd_bc.shape[1] == 0:
+        return [], n_skipped
+
+    # -----------------------------------------------------------------------
+    # Step 7: cluster the non-degenerate collapsed matrix, then offset every
+    # non-None cluster ID so it can never collide with a per-symbol cluster_id
+    # in the same (regime, lookahead_bars) BH-FDR representative-selection
+    # group (T-173-10 mitigation).
+    # -----------------------------------------------------------------------
+    cluster_ids_nd = _cluster_features(X_nd_bc, config.cluster_max_corr)
+    cluster_id_bc_raw = expand_int(cluster_ids_nd, non_degenerate_mask, n_broadcast)
+    cluster_id_bc = [
+        None if c is None else c + _BROADCAST_CLUSTER_ID_OFFSET for c in cluster_id_bc_raw
+    ]
+
+    subsample_min_stride = config.subsample_min_stride
+    min_reliable_n = config.min_reliable_n
+    walk_forward_folds = config.walk_forward_folds
+
+    all_results: list[dict] = []
+
+    # -----------------------------------------------------------------------
+    # Step 8: per-scale loop, mirroring the sibling's shape exactly -- basic-
+    # slice subsampling (never fancy indexing, per the sibling's 2026-07-19 OOM
+    # fix comment), min_reliable_n gates on both n_independent and n_valid, the
+    # unmodified _subsample_and_rank kernel, then the same rolling-metrics/
+    # decomposition calls the sibling makes.
+    # -----------------------------------------------------------------------
+    for scale_idx, scale_name in enumerate(scales):
+        lookahead_bars = lookaheads[scale_name]
+        embargo_bars = lookahead_bars
+        scale_stride = max(subsample_min_stride, lookahead_bars)
+
+        X_sub = X_collapsed[0:n_groups:scale_stride]
+        X_sub_nd = X_nd_bc[0:n_groups:scale_stride]
+        returns_sub = aggregate_returns[0:n_groups:scale_stride]
+        complete_sub = aggregate_complete[0:n_groups:scale_stride]
+        n_independent = len(X_sub)
+
+        if n_independent < min_reliable_n:
+            n_skipped += n_broadcast
+            continue
+
+        scale_complete = complete_sub[:, scale_idx]
+        returns_scale = returns_sub[:, scale_idx]
+        valid_mask = scale_complete & np.isfinite(returns_scale)
+        n_valid = int(valid_mask.sum())
+
+        if n_valid < min_reliable_n:
+            n_skipped += n_broadcast
+            continue
+
+        (
+            X_raw_scale,
+            ranks_X_scale,
+            ranks_Y,
+            ic_vector_nd,
+            p_vector_nd,
+            ci_lower_nd,
+            ci_upper_nd,
+            fold_ics_list,
+        ) = _subsample_and_rank(
+            X_sub_nd,
+            valid_mask,
+            returns_scale,
+            walk_forward_folds=walk_forward_folds,
+            embargo_bars=embargo_bars,
+            min_reliable_n=min_reliable_n,
+            bootstrap_block_size=config.bootstrap_block_size[tf],
+            bootstrap_resamples=config.bootstrap_resamples,
+            rng=rng,
+            max_workers=config.cross_sectional_bootstrap_threads[tf],
+            feature_block_columns=config.feature_block_columns,
+            bootstrap_early_stop_enabled=config.bootstrap_early_stop_enabled,
+            bootstrap_early_stop_check_interval=config.bootstrap_early_stop_check_interval,
+            bootstrap_early_stop_tol=config.bootstrap_early_stop_tol,
+            bootstrap_early_stop_min_resamples=config.bootstrap_early_stop_min_resamples,
+            bootstrap_early_stop_stable_checks=config.bootstrap_early_stop_stable_checks,
+        )
+        Y_scale = returns_scale[valid_mask]
+
+        ic_full = _expand(ic_vector_nd, non_degenerate_mask, n_broadcast)
+        p_full = _expand(p_vector_nd, non_degenerate_mask, n_broadcast)
+        ci_lower_full = _expand(ci_lower_nd, non_degenerate_mask, n_broadcast)
+        ci_upper_full = _expand(ci_upper_nd, non_degenerate_mask, n_broadcast)
+        passes_ci_full = np.where(non_degenerate_mask, ci_lower_full > 0.0, False)
+
+        wf_fold_count = len(fold_ics_list)
+        if wf_fold_count > 0:
+            fold_ic_arr = np.array(fold_ics_list)
+            wf_pass_count_nd = _sign_consistent_wf_pass_count(fold_ic_arr, ic_vector_nd)
+            passes_wf_nd = wf_pass_count_nd == walk_forward_folds
+        else:
+            wf_pass_count_nd = np.zeros(len(ic_vector_nd), dtype=int)
+            passes_wf_nd = np.zeros(len(ic_vector_nd), dtype=bool)
+
+        wf_pass_full = np.zeros(n_broadcast, dtype=int)
+        passes_wf_full = np.zeros(n_broadcast, dtype=bool)
+        wf_pass_full[non_degenerate_mask] = wf_pass_count_nd
+        passes_wf_full[non_degenerate_mask] = passes_wf_nd
+
+        ic_sharpe_arr, ic_sharpe_hac_arr, ic_sortino_arr, ic_win_rate_arr, n_sharpe_windows = (
+            _compute_ic_rolling_metrics(
+                X_sub,
+                returns_sub,
+                scale_idx,
+                complete_sub[:, scale_idx],
+                config,
+                non_degenerate_mask,
+                n_broadcast,
+                scale_stride,
+            )
+        )
+
+        sign_hit_rate_nd = sign_hit_rate(X_raw_scale, Y_scale)
+        magnitude_ic_nd = magnitude_conditional_ic(X_raw_scale, Y_scale, _MAGNITUDE_IC_PERCENTILE)
+        sign_hit_rate_full = _expand(sign_hit_rate_nd, non_degenerate_mask, n_broadcast)
+        magnitude_ic_full = _expand(magnitude_ic_nd, non_degenerate_mask, n_broadcast)
+
+        # Step 9: emit one row per broadcast feature at this scale.
+        for bc_idx in range(n_broadcast):
+            feat_name = _FEATURE_NAMES[broadcast_positions[bc_idx]]
+            ic_val = ic_full[bc_idx]
+            p_val = p_full[bc_idx]
+            ic_sign_val = None if np.isnan(ic_val) else (1 if ic_val > 0 else -1)
+
+            all_results.append(
+                {
+                    "feature_name": feat_name,
+                    "vector_domain": _VECTOR_DOMAIN,
+                    "symbol": _CROSS_SECTIONAL_SYMBOL,
+                    "tf": tf,
+                    "regime": regime_label,
+                    "lookahead_bars": lookahead_bars,
+                    "training_window_end": training_window_end,
+                    "is_pooled": True,
+                    "n_independent": int(n_valid),
+                    "reliable": bool(n_valid >= min_reliable_n),
+                    "ic_value": _nan_to_none(ic_val),
+                    "ic_sign": ic_sign_val,
+                    "p_value": _nan_to_none(p_val),
+                    "ic_ci_lower": _nan_to_none(ci_lower_full[bc_idx]),
+                    "ic_ci_upper": _nan_to_none(ci_upper_full[bc_idx]),
+                    "passes_ci_gate": bool(passes_ci_full[bc_idx]),
+                    "bh_adjusted_p": None,
+                    "passes_fdr": None,
+                    "wf_fold_count": wf_fold_count,
+                    "wf_pass_count": int(wf_pass_full[bc_idx]),
+                    "passes_walkforward": bool(passes_wf_full[bc_idx]),
+                    "ic_sharpe": _nan_to_none(ic_sharpe_arr[bc_idx]),
+                    "ic_sharpe_hac": _nan_to_none(ic_sharpe_hac_arr[bc_idx]),
+                    "ic_sharpe_n_windows": int(n_sharpe_windows),
+                    "ic_sortino": _nan_to_none(ic_sortino_arr[bc_idx]),
+                    "ic_win_rate": _nan_to_none(ic_win_rate_arr[bc_idx]),
+                    "regime_label_source": "market_regimes",
+                    "computed_at": run_ts,
+                    "cluster_id": cluster_id_bc[bc_idx],
+                    "feature_status_at_eval": (
+                        feature_status_map.get(feat_name, "unknown")
+                        if feature_status_map is not None
+                        else "unknown"
+                    ),
+                    "regime_scope": "cross_sectional",
+                    "sign_hit_rate": _nan_to_none(sign_hit_rate_full[bc_idx]),
+                    "magnitude_conditional_ic": _nan_to_none(magnitude_ic_full[bc_idx]),
+                    "cumulative_e_value": None,
                 }
             )
 
