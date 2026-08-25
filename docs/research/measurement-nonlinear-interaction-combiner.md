@@ -745,7 +745,60 @@ be a lower value, not abandoning the approach after one try"), re-running at
 `colsample_bytree=0.05` targeting `gap_z`'s remaining fold-1 breach specifically, before treating
 this as the final 1h word. Given how consequential this timeframe is (strongest prior evidence,
 now the largest and most significant negative), a fully clean guardrail read matters more here
-than it did on 1d. Result below once that run completes.
+than it did on 1d.
+
+**N1-a-capped @ 1h, colsample_bytree=0.05: fold 1 still breaches (`gap_z` again), AND the point
+estimate is not stable to the capping level -- stopped the ladder here rather than keep tuning.**
+
+| Metric | colsample=0.10 | colsample=0.05 |
+|---|---|---|
+| Fold 1 gain share (`gap_z`) | 0.248 (breach) | 0.210 (breach, reduced but not cleared) |
+| Other 4 folds | 9-11% | 7-15%, one new near-miss (`f91` at 0.146) |
+| `point_diff` | -0.0059 | **-0.0012** |
+| `ci_lower` / `ci_upper` | -0.0082 / -0.0037 | **-0.0035 / +0.0009** (crosses zero) |
+| `p` | 0.0000 | **0.2600** |
+| Peak RSS | 22.82GB | 24.05GB |
+
+Two things changed at once, both material: (1) `gap_z` still dominates fold 1 even at a 5%
+column-subsample rate -- a single feature strong enough that even drawing it in ~1/20 of
+boosting rounds is enough to let it accumulate outsized total gain, a genuinely stubborn
+single-fold effect, not something a global `colsample_bytree` alone appears able to fully
+suppress. (2) The headline result **collapsed** -- the overwhelmingly significant negative
+composite-vs-linear gap at 0.10 is gone at 0.05, both economically (5x smaller point estimate)
+and statistically (CI now spans zero, p jumped from 0.0000 to 0.26).
+
+**Decision: stopped tuning colsample_bytree further, rather than continue toward a value that
+might fully clear fold 1.** Two independent reasons, both first-principles: (1) the point
+estimate materially moving between two adjacent capping choices is itself the important finding
+-- it means N1-a-capped's 1h verdict is NOT robust to a reasonable, defensible choice of exposure
+bound, so neither the 0.10 result ("significantly worse") nor the 0.05 result ("no effect") can
+be reported as *the* answer without the other. Treating whichever number happened to come out of
+the next iteration as final, after already seeing two different verdicts, is exactly the
+"keep adjusting a knob until the guardrail clears" pattern G4's no-post-hoc-adjustment discipline
+exists to prevent -- even though here the knob is a variance-reduction parameter, not an arm
+choice, the epistemic risk is the same shape. (2) Peak RSS crept up 22.82GB -> 24.05GB on the
+lower value, within a few GB of this module's documented 2026-07-08 OOM ceiling on a 29GB host --
+continuing to push the parameter in the direction that increases per-tree stochastic variance
+(and, empirically here, memory) without a principled stopping rule is its own risk.
+
+**What this session's N1 work actually establishes, honestly:**
+1. The original unconstrained tree (N1-a/N1-b) is confirmed the wrong instrument for this
+   corpus -- G1-void on every fold at 1d, both arms, cross-arm-identical failure mode.
+2. `colsample_bytree` substantially improves gain concentration (4-6x reduction observed) but
+   does not fully solve it for at least one feature (`gap_z`) at either tf tested, and the
+   *substantive* composite-vs-linear result it produces is capping-level-dependent, not stable.
+3. **No confident PASS, FAIL, or "worse than linear" claim can be made for 1h from this
+   session's runs.** The two point estimates disagree on both magnitude and significance. This is
+   different from, and more informative than, a single clean null -- it says the estimator itself
+   is still not well-specified enough to trust a single number from, regardless of which number.
+4. Recommended next step, NOT run this session: a feature-specific guard (e.g. capping `gap_z`
+   specifically, or `monotone_constraints`/a hard per-feature max-gain-share enforcement during
+   training rather than post-hoc audit-and-void) is a different, more targeted design than a
+   global column-subsample rate -- worth its own pre-registration rather than a third
+   `colsample_bytree` value chosen ad hoc.
+
+`data-edge-source-thesis.md`'s Scorecard updated to reflect "not robust / inconclusive," not
+"significantly worse" -- the 0.10 number alone would have overstated confidence.
 
 ## Sequencing
 

@@ -61,18 +61,21 @@ worse than no scorecard.
 | Regime-Conditional Persistence | **DEAD**, confirmed 2026-07-27 on live corrected labels | 0/270 cells show real non-circular positive expectancy, full sweep + replication |
 | Cointegrated Pairs Residual | **DEAD**, confirmed 2026-08-07 | 0/6 economically-linked pairs cointegrate in-sample (Engle-Granger p 0.21-0.74) |
 | Jump/Diffusion Decomposition | **DEAD** (SPY pilot, not promoted wider) | Partial IC's CI crosses zero pooled and in every regime |
-| Nonlinear Interaction Combiner | Small, real, replicated residual survives on the ORIGINAL parallel-form test; but the pre-registered N1 follow-up is **G1-VOID at 1d, both arms** -- untested, not confirmed or falsified | Parallel-form uplift significant at every tf (5m/15m/1h/1d), magnitude 15-70x smaller than first measured. N1 (residual-form, recommended-first): both arms breach the 15% gain-concentration guardrail on every fold at 1d (cross-arm-confirmed real, not a bug) -- confirms the design doc's own pre-run critique that an unconstrained tree has no per-feature exposure cap. 15m/1h not run given this. See `measurement-nonlinear-interaction-combiner.md`'s 2026-08-25 N1 result. |
+| Nonlinear Interaction Combiner | Small, real, replicated residual survives on the ORIGINAL parallel-form test; N1 follow-up (bounded-exposure fix applied) gives an **unstable, capping-level-dependent result at 1h -- no confident PASS/FAIL/worse-than-linear claim can be made yet** | Parallel-form uplift significant at every tf (5m/15m/1h/1d), magnitude 15-70x smaller than first measured. N1-a/N1-b (unconstrained): G1-void every fold, both arms, at 1d. N1-a-capped (`colsample_bytree` fix): reduces gain concentration 4-6x but doesn't fully clear one feature (`gap_z`) at either tf tested; at 1h the composite-vs-linear point estimate swung from "significantly worse than linear" (`colsample=0.10`, p=0.0000) to "no effect" (`colsample=0.05`, p=0.26) on one parameter step -- the instability itself is the finding, not either individual number. Stopped tuning rather than keep adjusting toward a number. See `measurement-nonlinear-interaction-combiner.md`'s 2026-08-25 N1 result. |
 | Statistical Factor Residual | Stage 1 (K-selection) done, K=10; **Stage 2/3 not run** | Marchenko-Pastur + Parallel Analysis agree exactly; falsification bar (does residualizing beat raw IC) not yet tested |
 | Cross-Asset Lead-Lag | Untested, queued behind a cheaper sibling | Waits on `stale_reference_price_adjustment` running first (same mechanism class, cheaper) |
 | Adaptive Combiner Weights | **Data-blocked** | Only 1 `feature_ic_scores_history` snapshot exists -- mathematically degenerate for fitting a halflife |
 
 **One-line current priority (updated 2026-08-25):** `statistical_factor_residual` Stage 2/3 is
-now the single best-supported next step (pre-built, just needs to run) -- `nonlinear_interaction_combiner`'s
-N1 test ran at 1d and came back G1-void in both arms (real gain-concentration guardrail breach,
-not a bug), which downgrades it from "ready to run" to "needs a new, properly-capped
-pre-registration first" (`measurement-nonlinear-interaction-combiner.md`'s 2026-08-25 update).
-N2 is untouched by this finding and still ready to run. No Trade Construction is currently
-provable-clean -- do not start Phase 168 or 156-159 without a new one independently proven first.
+the single best-supported next step (pre-built, just needs to run). `nonlinear_interaction_combiner`'s
+N1 test ran at both 1d and 1h: N1-a/N1-b (unconstrained) G1-void every fold; N1-a-capped
+(bounded-exposure fix) substantially improves but doesn't fully clear the guardrail, and its 1h
+composite-vs-linear result flips between "significantly worse than linear" and "no effect"
+depending on the exact capping value -- genuinely inconclusive, not merely unresolved, and not
+worth further ad hoc parameter tuning (a targeted per-feature guard needs its own
+pre-registration first). N2 is untouched by this finding and still ready to run. No Trade
+Construction is currently provable-clean -- do not start Phase 168 or 156-159 without a new one
+independently proven first.
 
 ---
 
