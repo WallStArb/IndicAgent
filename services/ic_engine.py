@@ -3328,6 +3328,23 @@ def _compute_one_broadcast_cell(
     per-scale drop fraction is logged so a pathological rate is visible rather
     than presenting as a mysterious min_reliable_n skip.
 
+    Known tradeoff, surfaced independently by two cross-AI reviewers of this
+    plan's diff (Task 4): strict all-peers-complete is a SELECTION rule on
+    WHICH bar_ts values enter the sample, and incompleteness is not
+    necessarily random -- if data gaps correlate with regime (e.g. a
+    volatility spike or a trading halt causing more peer symbols to miss a
+    print simultaneously), the surviving sample could be non-representative
+    of exactly the periods a broadcast feature like vix_z is meant to predict.
+    This was a considered choice, not an oversight (see the paragraph above
+    and 173-04-PLAN.md's <planner_findings> "Partial-cross-section handling"):
+    a coverage-threshold alternative (accept a group if >= X% of peers report,
+    not 100%) introduces a new tunable with no principled default, whereas
+    strict all-peers-complete is parameter-free and deterministic. The
+    pre-committed empirical check is the per-scale frac_dropped rate logged
+    below -- if a live run shows a pathological rate (>50%), the mitigation is
+    a new coverage-fraction APR key proposed via a filed todo, NOT a silent
+    loosening of this rule in place.
+
     The e-value pilot (Component C, todo 079) does NOT extend here:
     cumulative_e_value is always None for every broadcast row, regardless of tf --
     silently extending an anytime-valid pilot scoped to one cell type to a
@@ -3347,7 +3364,7 @@ def _compute_one_broadcast_cell(
     selection -- that stays in the caller (_compute_cross_sectional_tf), which
     runs it once over the COMBINED per-symbol + broadcast result set.
     """
-    if broadcast_mask is None or not broadcast_mask.any():
+    if broadcast_mask is None or not broadcast_mask.any() or len(bar_ts_arr) == 0:
         return [], 0
 
     broadcast_positions = np.where(broadcast_mask)[0]

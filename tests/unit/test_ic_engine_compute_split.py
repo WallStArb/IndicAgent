@@ -1264,6 +1264,30 @@ def test_broadcast_cell_none_mask_returns_empty():
     assert n_skipped == 0
 
 
+def test_broadcast_cell_empty_bar_ts_arr_returns_empty_without_raising():
+    """Codex review finding (Task 4): a genuinely empty bar_ts_arr must early-
+    return ([], 0), not raise an uncontrolled IndexError from indexing
+    group_starts=[0] into a zero-length array. Currently unreachable via the
+    single call site (_compute_cross_sectional_tf already returns early on
+    X_raw is None before ever calling this function), but this function is
+    tested as an independent unit with its own contract -- a defensive guard
+    here costs nothing and matches the crash-loud-but-controlled philosophy
+    the rest of this function follows."""
+    n_features = len(_FEATURE_NAMES)
+    empty_bar_ts = np.array([], dtype=object)
+    empty_X = np.zeros((0, n_features), dtype=np.float32)
+    empty_returns = np.zeros((0, 1))
+    empty_complete = np.zeros((0, 1), dtype=bool)
+    broadcast_mask = np.zeros(n_features, dtype=bool)
+    broadcast_mask[0] = True
+
+    rows, n_skipped = _call_broadcast_cell(
+        empty_bar_ts, empty_X, empty_returns, empty_complete, broadcast_mask
+    )
+    assert rows == []
+    assert n_skipped == 0
+
+
 def test_broadcast_cell_collapses_to_one_row_per_distinct_bar_ts():
     """<behavior>/acceptance: given a bar_ts array with G distinct values over N
     rows, the collapsed feature matrix has exactly G rows -- observed via
