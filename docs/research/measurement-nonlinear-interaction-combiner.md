@@ -1,17 +1,24 @@
 # Non-Linear Interaction Combiner — Idea (Edge Source Thesis nonlinear_interaction_combiner)
 
 **Status:** Un-archived 2026-08-03 (same day it was archived) — this thread is active again, not
-historical. `docs/research/data-edge-source-thesis.md` §nonlinear_interaction_combiner remains
-the live reference for empirical results/numbers (canary-leakage check, 1h/1d/15m/5m replication
-history). What changed since archival: todo 243/245 found the tree's headline 1h uplift was
-90.6% driven by a CTF batch-join lookahead leak, not genuine non-linear structure (small real
-residual survives, ~15x smaller than published). That finding, plus the tree's demonstrated
-lack of a per-feature contribution cap (unlike the linear ensemble's 20% cap), is now an open
-question against this doc's own design: whether an unconstrained gradient-boosted tree is the
-right model for interaction discovery here at all, versus a regime-conditional linear approach
-using the same per-feature-cap discipline. Path-forward verdict pending the in-flight 15m/5m
-CTF-leak diagnostics (todo 245) -- do not treat this doc's original "Proposed test" section below
-as still the recommended design until that's resolved.
+historical, and is currently the most promising open Signal-Extraction thread on
+`docs/research/data-edge-source-thesis.md` (see that doc's Scorecard). What changed since
+archival: todo 243/245 found the tree's headline 1h uplift was 90.6% driven by a CTF batch-join
+lookahead leak, not genuine non-linear structure (small real residual survives, ~15x smaller
+than published). That finding, plus the tree's demonstrated lack of a per-feature contribution
+cap (unlike the linear ensemble's 20% cap), is an open question against this doc's own design:
+whether an unconstrained gradient-boosted tree is the right model for interaction discovery here
+at all, versus a regime-conditional linear approach using the same per-feature-cap discipline.
+Do not treat this doc's original "Proposed test" section below as the recommended design — the
+"Pre-registered test designs" section (N1/N2) below supersedes it.
+
+**Corrected 2026-08-24: N1/N2 are READY TO RUN, not blocked — all 3 shared preconditions are now
+met.** This status block previously said the path-forward verdict was "pending the in-flight
+15m/5m CTF-leak diagnostics (todo 245)" — todo 245 closed 2026-08-04 with 1h/15m/5m all measured
+(see the main doc's Scorecard/§nonlinear_interaction_combiner), which was precondition 2's exact
+blocker. Precondition 1 (todo 243's join fix) and precondition 3 (todo 240's linear-ensemble
+baseline) are also both already landed. **Neither N1 nor N2 has actually been run** — this is
+the next concrete step on this thread, not still-blocked design work.
 **Author:** Claude (Sonnet 5), interactive session, 2026-07-25 — not a Fable dispatch. Originally
 written as a design proposal, nothing tested yet; that's no longer true, see "What was actually
 built and measured" below (added 2026-08-03).

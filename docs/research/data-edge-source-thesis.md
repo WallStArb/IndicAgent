@@ -3,88 +3,74 @@
 **Version:** 2.2
 **Status:** draft -- standing document; every claim here is falsifiable and must be revisited
 as evidence lands
-**Priority:** high -- **cross_sectional_relative_value's Phase 167 verdict is now CONFIRMED FAIL at
-authoritative tier, 2026-08-07** (both live Validation Gates were recorded as PASSED 2026-07-27,
-but the sole ranking feature, `ctf_momentum`, was confirmed 2026-08-04 to carry real lookahead in
-its batch join -- todo 243. The authoritative re-verification ran under the corrected join with
-`null_shuffles` raised to 1000 for the run-once look: Gate 1 FAILS (`ci_lower` negative at both
-scales, `null_p` 0.649/0.986 -- the real ranking did *worse* than most random rankings), Gate 2
-FAILS (no residual survives at 95% CI after removing the static-tilt benchmark). This is a
-retraction, not an open question -- see cross_sectional_relative_value's own note below and
-`docs/research/trade-construction-layer.md` for full detail. **Phase 168 and Phase 156-159 are
-formally blocked, not "unverified" -- do not start either without a new, independently-proven
-construction first.** Fork resolution: back to the discovery track (five Signal-Extraction
-candidates below), not construction.);
-**nonlinear_interaction_combiner's original "SUBSTANTIAL at 1h and 15m" verdict is SUPERSEDED --
-confirmed overwhelmingly leak-driven at every tf tested** (todo 245, CLOSED 2026-08-04: 1h
-collapsed 90.6%, 15m 79.1%, 5m 43.8% once the same leaked `ctf_momentum`-family columns were
-excluded from the training matrix; a small, real, statistically significant residual survives at
-every tf -- see nonlinear_interaction_combiner's own section below for the corrected numbers, not
-"SUBSTANTIAL"). Two pre-registration gaps in nonlinear_interaction_combiner's own evidence found
-and fixed the same investigation
-([todo 240](../../.planning/todos/pending/240-nonlinear-interaction-combiner-baseline-is-single-feature-not-the-linear-ensemble.md),
+**Priority:** high -- no Trade Construction is currently proven; the discovery track
+(Signal-Extraction candidates) is the active priority. **See the Scorecard below for current
+verdicts on every thesis** -- this paragraph covers only the two reversals consequential enough
+to need standalone explanation.
+
+`cross_sectional_relative_value` (the one construction believed to pass, 2026-07-27) was
+retracted 2026-08-07: its sole ranking feature `ctf_momentum` was confirmed to carry real
+lookahead in its batch HTF join (todo 243). Re-verified under the corrected join at
+authoritative tier: Gate 1 fails (`ci_lower` negative both scales -- the real ranking did *worse*
+than most random shuffles), Gate 2 fails (no residual survives after removing the static-tilt
+benchmark). Full detail: `docs/research/trade-construction-layer.md`. Fork resolution: back to
+discovery, not construction -- **Phase 168 and Phase 156-159 stay blocked** until a new
+construction is independently proven.
+
+`nonlinear_interaction_combiner`'s original "SUBSTANTIAL at 1h/15m" verdict is superseded: the
+same `ctf_momentum`-family leak explained 43.8-90.6% of the measured uplift (todo 245, closed
+2026-08-04). A small, real, statistically significant residual survives at every tf once
+excluded -- see its own section for the corrected numbers. Two pre-registration gaps found and
+fixed the same investigation ([todo 240](../../.planning/todos/pending/240-nonlinear-interaction-combiner-baseline-is-single-feature-not-the-linear-ensemble.md),
 [todo 239](../../.planning/todos/pending/239-nonlinear-interaction-combiner-embargo-passed-in-pooled-panel-rows-not-bars.md)).
-Next step pre-registered, not yet run: does cross_sectional_relative_value's construction improve ranked by nonlinear_interaction_combiner's tree score instead of
-`ctf_momentum` ([todo 238](../../.planning/todos/pending/238-nonlinear-interaction-combiner-ranked-cross-sectional-relative-value-pre-registration.md))
--- **the gate this was waiting on has now resolved, and not the way todo 238's own premise
-assumed.** cross_sectional_relative_value's re-verification (above) FAILED, not passed -- the *construction* is
-confirmed dead, not just its ranking feature. Whether swapping the ranking feature inside an
-already-dead construction is still worth testing is an open call, not automatically yes or no;
-re-scope todo 238 explicitly before resuming it rather than assuming its original framing still
-holds.
-Five Signal-Extraction candidates added 2026-08-03 (`cointegrated_pairs_residual`,
-`statistical_factor_residual`, `cross_asset_lead_lag`, `adaptive_combiner_weights`,
-`jump_diffusion_decomposition`) and three Trade Constructions the same day
-(`stale_reference_price_adjustment`, `overnight_futures_information_transfer`,
-`dealer_hedging_flow`) -- none tested. horizon_risk_premium remains untested and is the only
-thesis here whose falsification criterion still lacks a pre-registered numeric bar.
+The natural next step -- rank `cross_sectional_relative_value` by the tree's score instead of
+the dead `ctf_momentum` (todo 238) -- is blocked on the *construction* being dead, not just its
+ranking feature; re-scope before resuming rather than assuming the original framing still holds.
+
 **Milestone:** standing -- not tied to a phase
-**Last Updated:** 2026-08-11 -- `statistical_factor_residual`'s K-selection resolved (see its
-own paragraph below), Stage 1 only, Stage 2/3 not yet run.
+**Last Updated:** 2026-08-24 -- added the Scorecard section and compressed this header (see the
+git history for this file if the original dated "Reorganized/Reviewed/Updated" announcement
+chain is ever needed; every substantive finding it recorded is preserved in the Scorecard and
+each thesis's own section below, none of it was dropped).
 **Tags:** edge, thesis, counterparty, renaissance, falsifiable, first-principles
 
-**Reorganized 2026-08-03** -- this doc always implicitly mixed two different kinds of claim
-(see "What is deliberately NOT on this list" below, which already named "type #1" vs "type #2"
-theses without ever visually separating them). Split into two groups: **Trade Constructions**
-(retail_immediacy_provision, cross_sectional_relative_value, horizon_risk_premium, plus
-stale_reference_price_adjustment / overnight_futures_information_transfer / dealer_hedging_flow
-added later the same day -- each proposes a specific trade with a named counterparty) and **Signal-Extraction
-Questions** (regime_conditional_persistence, nonlinear_interaction_combiner, and five new candidates
--- `cointegrated_pairs_residual`, `statistical_factor_residual`, `cross_asset_lead_lag`,
-`adaptive_combiner_weights`, `jump_diffusion_decomposition` -- each asks whether processing the
-*same* feature corpus differently reveals predictive power the current linear/pooled approach
-misses). A positive Signal-Extraction result isn't a strategy on its own -- it feeds into a Trade
-Construction (e.g., ranking by a non-linear combined score instead of a raw feature). Thesis names
-were renamed from the original T1-T10 ticket numbers to descriptive concept names 2026-08-03; only
-the grouping, headings, and labels moved, the content is unchanged. The five new candidates
-(cointegrated pairs, statistical factor residual, lead-lag structure, continuously-adaptive
-combiner weights, jump/diffusion decomposition) were proposed and written up in full the same
-session, not yet tested. cointegrated_pairs_residual/adaptive_combiner_weights/jump_diffusion_decomposition name explicit stochastic-process constructs (Ornstein-
-Uhlenbeck half-life, Kalman state-space, jump-diffusion decomposition) -- the closest this doc
-gets to continuous-time stochastic calculus; none of it applies further than this (no SDEs, no
-options-style path-dependent payoffs anywhere in scope).
+---
 
-**Reviewed 2026-07-25** -- re-read in full against todo 179's 2026-07-24 finding (an exhaustive
-234-cell regime × symbol_hmm × lookahead-scale sweep for any absolute-direction, regime-
-conditional edge in the current champion population). This doc's own regime_conditional_persistence falsification
-criterion, written 2026-07-01 before that sweep existed, predicted exactly the test that
-killed it -- see regime_conditional_persistence below. Still the correct standing doc; nothing here is stale, it's now
-partially *resolved*. Added candidate thesis nonlinear_interaction_combiner (non-linear interaction structure) below,
-prompted by the same finding: the one interaction axis the system already models explicitly
-(regime × feature) just failed exhaustively, which raises the question of whether the *linear*
-combiner is blind to interaction structure the 150 features already contain, independent of
-whether more features (Phase 164/165) get added.
+## Scorecard (added 2026-08-24 -- read this first, drop into a section below only to verify a claim)
 
-**Updated 2026-07-26** -- ran both cheap falsification scripts item 5 (below) recommended
-before committing to Phase 164/165. cross_sectional_relative_value passed decisively; nonlinear_interaction_combiner came back with a suspiciously
-large uplift that needs one more check before it's trustworthy. See cross_sectional_relative_value/nonlinear_interaction_combiner sections below for
-full results. cross_sectional_relative_value's falsification script was archived once Phase 167 productionized it into
-`services/cross_sectional_spread_tracker.py`; nonlinear_interaction_combiner's script is `scripts/analysis/nonlinear_interaction_combiner_lightgbm_check.py`.
-**Also caught and flagged a methodology gap in regime_conditional_persistence** (below), since resolved: its original
-falsification ran under cross-sectional regime labels that were themselves found miscalibrated
-(todo 092). Re-run 2026-07-27 against the genuinely corrected, live production labels
-(`market_regimes.regime_label`, post-recompute) -- confirmed dead, not provisional. See regime_conditional_persistence
-section below.
+Every thesis on this doc, current verdict only. Numbers and falsification criteria live in each
+thesis's own section; this table exists so the current state is graspable without reading 1100
+lines. Update this table in the same edit that changes a verdict below -- a stale scorecard is
+worse than no scorecard.
+
+**Trade Constructions** (propose a specific trade, name the counterparty):
+
+| Thesis | Verdict | Key evidence |
+|---|---|---|
+| Cross-Sectional Relative Value | **RETRACTED** (was PASSED 2026-07-26, productionized, then FAIL confirmed authoritative 2026-08-07) | Sole ranking feature `ctf_momentum` had real lookahead in its batch join (todo 243); both gates fail under the corrected join |
+| Dealer Hedging Flow | **DEAD** (confirmed 2026-08-08) | Heavy-options group and negligible-options control both fail to clear CI around expiry |
+| Retail Immediacy Provision (levered-sleeve mechanism) | **DEAD** (2026-08-07) | Both levered and control groups pass uniformly -- ordinary intraday momentum, not the proposed flow |
+| Stale Reference Price Adjustment | Untested | Cheap, pre-registered, explicitly unfavorable prior stated up front |
+| Overnight Futures Information Transfer | **Data-blocked**, not work-blocked | 18 futures + 4 FX contracts all inactive, zero rows in `market_data_ohlcv` |
+| Horizon Risk Premium | Untested | No factor regression has ever been run against this system's returns |
+
+**Signal-Extraction Questions** (same feature corpus, different grouping/combination/temporal structure):
+
+| Thesis | Verdict | Key evidence |
+|---|---|---|
+| Regime-Conditional Persistence | **DEAD**, confirmed 2026-07-27 on live corrected labels | 0/270 cells show real non-circular positive expectancy, full sweep + replication |
+| Cointegrated Pairs Residual | **DEAD**, confirmed 2026-08-07 | 0/6 economically-linked pairs cointegrate in-sample (Engle-Granger p 0.21-0.74) |
+| Jump/Diffusion Decomposition | **DEAD** (SPY pilot, not promoted wider) | Partial IC's CI crosses zero pooled and in every regime |
+| **Nonlinear Interaction Combiner** | **Small, real, replicated residual survives** -- the most promising open thread on this doc | Leak-corrected tree-vs-linear-ensemble uplift significant at every tf (5m/15m/1h/1d); magnitude 15-70x smaller than first measured, but real |
+| Statistical Factor Residual | Stage 1 (K-selection) done, K=10; **Stage 2/3 not run** | Marchenko-Pastur + Parallel Analysis agree exactly; falsification bar (does residualizing beat raw IC) not yet tested |
+| Cross-Asset Lead-Lag | Untested, queued behind a cheaper sibling | Waits on `stale_reference_price_adjustment` running first (same mechanism class, cheaper) |
+| Adaptive Combiner Weights | **Data-blocked** | Only 1 `feature_ic_scores_history` snapshot exists -- mathematically degenerate for fitting a halflife |
+
+**One-line current priority:** `statistical_factor_residual` Stage 2/3 is the cheapest real
+answer available (pre-built, just needs to run). `nonlinear_interaction_combiner`'s two
+pre-registered alternate designs (N1/N2, `measurement-nonlinear-interaction-combiner.md`) are
+the next-most-promising open thread. No Trade Construction is currently provable-clean -- do not
+start Phase 168 or 156-159 without a new one independently proven first.
 
 ---
 
