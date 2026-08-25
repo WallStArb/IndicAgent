@@ -24,11 +24,13 @@ if str(_project_root) not in sys.path:
     sys.path.insert(0, str(_project_root))
 
 from services.ic_engine import (
+    _BROADCAST_CLUSTER_ID_OFFSET,
     _FEATURE_NAMES,
     CellTooLargeError,
     ICEngineConfig,
     _blocked_bootstrap_ci,
     _compute_cross_sectional_tf,
+    _compute_one_broadcast_cell,
     _compute_one_cross_sectional_cell,
     _compute_one_regime_cell,
     _compute_symbol_tf,
@@ -240,6 +242,103 @@ def test_compute_cross_sectional_tf_closes_connection_before_clustering():
     )
 
 
+def test_compute_cross_sectional_tf_calls_broadcast_cell_after_fetch_closes():
+    """Phase 173 Plan 04: _compute_one_broadcast_cell( must appear textually
+    AFTER the fetch `with short_lived_conn(dsn) as conn:` block has closed --
+    same connection-scoping invariant as its per-symbol-pooled sibling call
+    (test_compute_cross_sectional_tf_closes_connection_before_clustering), for
+    the identical reason: the 143.1-07 corpus re-run crashed twice at the
+    transition point where a connection was held open across a multi-hour
+    compute-only phase."""
+    source = inspect.getsource(_compute_cross_sectional_tf)
+
+    assert "_compute_one_broadcast_cell(" in source
+    with_idx = source.index("with short_lived_conn(dsn) as conn:")
+    call_idx = source.index("_compute_one_broadcast_cell(")
+    assert with_idx < call_idx, (
+        "_compute_one_broadcast_cell( must appear after the "
+        "short_lived_conn(dsn) with-block has closed"
+    )
+
+    with_line = source[: source.index("\n", with_idx)].splitlines()[-1]
+    with_indent = len(with_line) - len(with_line.lstrip())
+    call_line_start = source.rindex("\n", 0, call_idx) + 1
+    call_line_end = source.index("\n", call_idx)
+    call_line = source[call_line_start:call_line_end]
+    call_indent = len(call_line) - len(call_line.lstrip())
+    assert call_indent <= with_indent, (
+        "_compute_one_broadcast_cell( must be dedented outside the "
+        "short_lived_conn(dsn) with-block, not nested inside it"
+    )
+
+
+def test_compute_cross_sectional_tf_calls_broadcast_cell_before_cluster_groups():
+    """Phase 173 Plan 04 (D-07): _compute_one_broadcast_cell( must appear
+    textually BEFORE the cluster_groups representative-selection loop, so
+    broadcast rows enter the SAME corpus-level BH-FDR family as per-symbol
+    pooled rows -- no separate FDR pass, no new table."""
+    source = inspect.getsource(_compute_cross_sectional_tf)
+
+    broadcast_call_idx = source.index("_compute_one_broadcast_cell(")
+    cluster_groups_idx = source.index("cluster_groups: dict[tuple, list[tuple[float, int]]] = {}")
+    assert broadcast_call_idx < cluster_groups_idx, (
+        "_compute_one_broadcast_cell( must appear before the cluster_groups "
+        "representative-selection loop -- broadcast rows must be present in "
+        "all_results before that loop runs"
+    )
+
+
+def test_compute_cross_sectional_tf_extends_all_results_with_broadcast_rows():
+    """The broadcast cell's returned rows must be merged into all_results (via
+    .extend, not a separate write path) and its skipped-feature count added to
+    n_skipped -- same accounting contract as the per-symbol pooled cell."""
+    source = inspect.getsource(_compute_cross_sectional_tf)
+    assert "all_results.extend(broadcast_results)" in source
+    assert "n_skipped += broadcast_skipped" in source
+
+
+def test_cluster_representative_grouping_never_mixes_broadcast_and_per_symbol_cluster_ids():
+    """T-173-10 mitigation: exercises _compute_cross_sectional_tf's actual
+    trailing cluster-representative-selection loop logic (group_key =
+    (regime, lookahead_bars, cluster_id)) against a synthetic all_results list
+    mixing offset (broadcast, >= _BROADCAST_CLUSTER_ID_OFFSET) and non-offset
+    (per-symbol) cluster_id values at the SAME (regime, lookahead_bars) pair --
+    no group key may contain rows from both sides of the offset. No live DB
+    needed: this logic operates purely on already-computed dict rows."""
+    all_results = [
+        {"regime": "calm", "lookahead_bars": 5, "cluster_id": 3, "ic_value": 0.1},
+        {"regime": "calm", "lookahead_bars": 5, "cluster_id": 3, "ic_value": 0.2},
+        {
+            "regime": "calm",
+            "lookahead_bars": 5,
+            "cluster_id": 3 + _BROADCAST_CLUSTER_ID_OFFSET,
+            "ic_value": 0.3,
+        },
+        {"regime": "calm", "lookahead_bars": 5, "cluster_id": None, "ic_value": 0.4},
+    ]
+    # Mirrors _compute_cross_sectional_tf's exact grouping construction.
+    cluster_groups: dict[tuple, list[tuple[float, int]]] = {}
+    for result_idx, r in enumerate(all_results):
+        cid = r["cluster_id"]
+        if cid is None:
+            continue
+        group_key = (r["regime"], r["lookahead_bars"], cid)
+        ic_val = r["ic_value"]
+        abs_ic = abs(ic_val) if ic_val is not None else 0.0
+        cluster_groups.setdefault(group_key, []).append((abs_ic, result_idx))
+
+    for key, members in cluster_groups.items():
+        cids = {all_results[idx]["cluster_id"] for _, idx in members}
+        all_broadcast = all(c >= _BROADCAST_CLUSTER_ID_OFFSET for c in cids)
+        all_per_symbol = all(c < _BROADCAST_CLUSTER_ID_OFFSET for c in cids)
+        assert (
+            all_broadcast or all_per_symbol
+        ), f"group_key {key} mixes broadcast and per-symbol cluster_id values: {cids}"
+    # The offset-partitioned broadcast group and the non-offset per-symbol
+    # group must resolve to two distinct group_keys, never one merged group.
+    assert len(cluster_groups) == 2
+
+
 def test_cross_sectional_fetch_does_not_route_bar_ts_through_float32_accumulator():
     """Phase 173 Plan 03 (D-05): bar_ts_chunks must be a plain list, appended to
     directly -- never passed to X_acc.append_chunk (Float32ChunkAccumulator is
@@ -337,13 +436,14 @@ def test_subsample_and_rank_fold_rankdata_output_is_float32_not_float64():
 
 
 def test_both_cell_functions_call_subsample_and_rank():
-    """Both _compute_one_regime_cell (per-symbol) and
-    _compute_one_cross_sectional_cell (cross-sectional) must delegate their
-    rank/IC/CI/fold compute to the shared, feature-blocked _subsample_and_rank
-    helper (162-01 Task 3, todos 139/140) -- a hand-pasted rank fix in one
-    sibling can no longer diverge from the other."""
+    """_compute_one_regime_cell (per-symbol), _compute_one_cross_sectional_cell
+    (per-symbol pooled cross-sectional), and _compute_one_broadcast_cell (Phase
+    173 Plan 04) must all delegate their rank/IC/CI/fold compute to the shared,
+    feature-blocked _subsample_and_rank helper (162-01 Task 3, todos 139/140) --
+    a hand-pasted rank fix in one sibling can no longer diverge from the others."""
     regime_source = inspect.getsource(_compute_one_regime_cell)
     cross_sectional_source = inspect.getsource(_compute_one_cross_sectional_cell)
+    broadcast_source = inspect.getsource(_compute_one_broadcast_cell)
 
     assert (
         "_subsample_and_rank(" in regime_source
@@ -351,6 +451,25 @@ def test_both_cell_functions_call_subsample_and_rank():
     assert (
         "_subsample_and_rank(" in cross_sectional_source
     ), "_compute_one_cross_sectional_cell must call _subsample_and_rank"
+    assert (
+        "_subsample_and_rank(" in broadcast_source
+    ), "_compute_one_broadcast_cell must call _subsample_and_rank"
+
+
+def test_subsample_and_rank_source_unchanged_by_broadcast_cell_plan():
+    """Source-hash pin (Task 1 acceptance criteria): _subsample_and_rank's body
+    must be byte-for-byte unchanged by Phase 173 Plan 04 -- the plan reuses the
+    kernel unmodified, never edits it. Hash captured from the pre-Plan-04 source
+    (identical to Plan 03's committed state, since Plan 04 makes zero edits to
+    this function)."""
+    import hashlib
+
+    source = inspect.getsource(_subsample_and_rank)
+    digest = hashlib.sha256(source.encode()).hexdigest()
+    assert digest == "490777dba07fb9b2a224c139617f07b6c3ccacc36701e926c88694fbb5b20e2d", (
+        "_subsample_and_rank's source changed -- Phase 173 Plan 04 must reuse "
+        "this kernel byte-for-byte unmodified"
+    )
 
 
 def test_cross_sectional_per_scale_subsample_uses_slice_not_fancy_index():
@@ -967,6 +1086,340 @@ def test_broadcast_feature_read_intersects_feature_names():
         "the broadcast-name read must be intersected against _FEATURE_NAMES "
         "before being stored in broadcast_features -- T-173-01's mitigation"
     )
+
+
+# ---------------------------------------------------------------------------
+# Phase 173 Plan 04 (D-01..D-07, todo 270): _compute_one_broadcast_cell --
+# the correctly-specified broadcast significance test. Synthetic in-memory
+# fixtures shaped like one real chunked-fetch result: n_features columns
+# (matching _FEATURE_NAMES exactly, same convention as Plan 03's tests above),
+# G distinct bar_ts groups x S "symbol" rows per group.
+# ---------------------------------------------------------------------------
+
+from datetime import UTC, datetime, timedelta  # noqa: E402
+
+
+def _broadcast_cell_config(**overrides) -> ICEngineConfig:
+    """Small-bootstrap ICEngineConfig for _compute_one_broadcast_cell tests --
+    single active scale (fast, lookahead=1) so subsample stride=1 and no group
+    is dropped by subsampling; min_reliable_n low enough for small synthetic
+    fixtures; tf='1d' (out of the e-value pilot's scope regardless, per
+    <planner_findings> -- cumulative_e_value is always None for broadcast rows)."""
+    import dataclasses as _dc
+
+    base_config = ICEngineConfig(
+        min_observations=500,
+        fdr_alpha=0.05,
+        walk_forward_folds=0,
+        sharpe_window_size=2000,
+        sharpe_min_windows=10,
+        subsample_min_stride=1,
+        min_reliable_n=2,
+        cluster_max_corr=0.70,
+        lookahead_fast={"5m": 1, "15m": 1, "1h": 1, "1d": 1},
+        lookahead_mid={"5m": 6, "15m": 2, "1h": 2, "1d": 2},
+        lookahead_slow={"5m": 12, "15m": 5, "1h": 20, "1d": 5},
+        lookahead_extended={"5m": 39, "15m": 10, "1h": 60, "1d": 10},
+        active_scales={
+            "5m": ("fast",),
+            "15m": ("fast",),
+            "1h": ("fast",),
+            "1d": ("fast",),
+        },
+        equity_model_enabled=True,
+        hac_max_lag=3,
+        cs_chunk_ts=5000,
+        symbol_fetch_chunk_rows=5000,
+        n_workers=1,
+        blas_threads_per_worker=1,
+        bootstrap_resamples=20,
+    )
+    if overrides:
+        base_config = _dc.replace(base_config, **overrides)
+    return base_config
+
+
+def _broadcast_bar_ts(n_groups: int, symbols_per_group: int) -> np.ndarray:
+    start = datetime(2024, 1, 1, tzinfo=UTC)
+    ts_list = []
+    for g in range(n_groups):
+        ts = start + timedelta(minutes=5 * g)
+        ts_list.extend([ts] * symbols_per_group)
+    return np.array(ts_list, dtype=object)
+
+
+def _broadcast_cell_inputs(
+    n_groups: int = 6,
+    symbols_per_group: int = 3,
+    broadcast_idx: tuple[int, ...] = (0, 5, 10),
+    seed: int = 17,
+):
+    """Synthetic X_raw/returns_mat/complete_mat/bar_ts_arr/broadcast_mask, with
+    broadcast_idx columns held IDENTICAL within every group (satisfies the
+    cross-symbol-invariance guard by construction)."""
+    n_features = len(_FEATURE_NAMES)
+    n_rows = n_groups * symbols_per_group
+    rng = np.random.default_rng(seed)
+    X_raw = rng.normal(size=(n_rows, n_features)).astype(np.float32)
+
+    if broadcast_idx:
+        group_vals = rng.normal(size=(n_groups, len(broadcast_idx))).astype(np.float32)
+        for g in range(n_groups):
+            sl = slice(g * symbols_per_group, (g + 1) * symbols_per_group)
+            X_raw[sl, list(broadcast_idx)] = group_vals[g]
+
+    bar_ts_arr = _broadcast_bar_ts(n_groups, symbols_per_group)
+    broadcast_mask = np.zeros(n_features, dtype=bool)
+    if broadcast_idx:
+        broadcast_mask[list(broadcast_idx)] = True
+
+    returns_mat = rng.normal(size=(n_rows, 1))
+    complete_mat = np.ones((n_rows, 1), dtype=bool)
+
+    return bar_ts_arr, X_raw, returns_mat, complete_mat, broadcast_mask
+
+
+def _call_broadcast_cell(
+    bar_ts_arr, X_raw, returns_mat, complete_mat, broadcast_mask, *, config=None, seed=101
+):
+    if config is None:
+        config = _broadcast_cell_config()
+    return _compute_one_broadcast_cell(
+        "calm",
+        bar_ts_arr=bar_ts_arr,
+        X_raw=X_raw,
+        returns_mat=returns_mat,
+        complete_mat=complete_mat,
+        broadcast_mask=broadcast_mask,
+        config=config,
+        tf="1d",
+        rng=np.random.default_rng(seed),
+        training_window_end=None,
+        feature_status_map=None,
+        run_ts=None,
+    )
+
+
+def test_broadcast_cell_grouping_uses_no_sort_or_unique():
+    """Acceptance criteria: the grouping code path (the executable body, not
+    the docstring's own prose explaining the constraint) must contain none of
+    np.unique, np.sort, np.argsort, or a pandas groupby -- each sorts and/or
+    allocates additional full-length temporaries over the largest cell, exactly
+    the 2026-07-08 OOM profile the boundary-scan design exists to avoid."""
+    fn = _compute_one_broadcast_cell
+    full_source = inspect.getsource(fn)
+    docstring = fn.__doc__ or ""
+    # Strip the docstring (which legitimately names the forbidden APIs in
+    # prose, to document the constraint) so this checks executable code only.
+    body_source = full_source.replace(docstring, "", 1)
+    for forbidden in ("np.unique", "np.sort(", ".sort(", "np.argsort", "groupby", ".sort_values("):
+        assert forbidden not in body_source, (
+            f"_compute_one_broadcast_cell's executable body must not use "
+            f"{forbidden!r} in its grouping code path (sort-free boundary-scan "
+            "design, T-173-12)"
+        )
+
+
+def test_broadcast_cell_invariance_guard_uses_nan_safe_reductions():
+    """Acceptance criteria: the invariance guard must use np.fmax.reduceat/
+    np.fmin.reduceat (NaN-ignoring), never np.maximum.reduceat/
+    np.minimum.reduceat (NaN-propagating) -- a data gap must not be
+    misclassified as an invariance violation."""
+    source = inspect.getsource(_compute_one_broadcast_cell)
+    assert "np.fmax.reduceat" in source
+    assert "np.fmin.reduceat" in source
+    assert "np.maximum.reduceat" not in source
+    assert "np.minimum.reduceat" not in source
+
+
+def test_broadcast_cell_empty_mask_returns_empty_without_calling_subsample_and_rank(monkeypatch):
+    """<behavior>: given an empty broadcast mask, the function returns an empty
+    row list and does not call _subsample_and_rank."""
+    import services.ic_engine as ic_module
+
+    bar_ts_arr, X_raw, returns_mat, complete_mat, broadcast_mask = _broadcast_cell_inputs(
+        n_groups=4, symbols_per_group=3, broadcast_idx=()
+    )
+
+    def _spy(*args, **kwargs):
+        raise AssertionError("_subsample_and_rank must not be called for an empty broadcast mask")
+
+    monkeypatch.setattr(ic_module, "_subsample_and_rank", _spy)
+
+    rows, n_skipped = _call_broadcast_cell(
+        bar_ts_arr, X_raw, returns_mat, complete_mat, broadcast_mask
+    )
+    assert rows == []
+    assert n_skipped == 0
+
+
+def test_broadcast_cell_none_mask_returns_empty():
+    """<behavior>: broadcast_mask=None is treated identically to an all-False
+    mask -- early-return, no compute attempted."""
+    bar_ts_arr, X_raw, returns_mat, complete_mat, _ = _broadcast_cell_inputs(
+        n_groups=4, symbols_per_group=3
+    )
+    rows, n_skipped = _call_broadcast_cell(bar_ts_arr, X_raw, returns_mat, complete_mat, None)
+    assert rows == []
+    assert n_skipped == 0
+
+
+def test_broadcast_cell_empty_bar_ts_arr_returns_empty_without_raising():
+    """Codex review finding (Task 4): a genuinely empty bar_ts_arr must early-
+    return ([], 0), not raise an uncontrolled IndexError from indexing
+    group_starts=[0] into a zero-length array. Currently unreachable via the
+    single call site (_compute_cross_sectional_tf already returns early on
+    X_raw is None before ever calling this function), but this function is
+    tested as an independent unit with its own contract -- a defensive guard
+    here costs nothing and matches the crash-loud-but-controlled philosophy
+    the rest of this function follows."""
+    n_features = len(_FEATURE_NAMES)
+    empty_bar_ts = np.array([], dtype=object)
+    empty_X = np.zeros((0, n_features), dtype=np.float32)
+    empty_returns = np.zeros((0, 1))
+    empty_complete = np.zeros((0, 1), dtype=bool)
+    broadcast_mask = np.zeros(n_features, dtype=bool)
+    broadcast_mask[0] = True
+
+    rows, n_skipped = _call_broadcast_cell(
+        empty_bar_ts, empty_X, empty_returns, empty_complete, broadcast_mask
+    )
+    assert rows == []
+    assert n_skipped == 0
+
+
+def test_broadcast_cell_collapses_to_one_row_per_distinct_bar_ts():
+    """<behavior>/acceptance: given a bar_ts array with G distinct values over N
+    rows, the collapsed feature matrix has exactly G rows -- observed via
+    n_independent (usable-group count) on emitted rows, since stride=1 and
+    every group is complete means no group is dropped by subsampling or the
+    completeness gate."""
+    n_groups, symbols_per_group = 7, 4
+    bar_ts_arr, X_raw, returns_mat, complete_mat, broadcast_mask = _broadcast_cell_inputs(
+        n_groups=n_groups, symbols_per_group=symbols_per_group
+    )
+
+    rows, _ = _call_broadcast_cell(bar_ts_arr, X_raw, returns_mat, complete_mat, broadcast_mask)
+
+    assert len(rows) > 0
+    for r in rows:
+        assert r["n_independent"] == n_groups
+
+
+def test_broadcast_cell_every_row_has_pooled_broadcast_identity():
+    """<behavior>: every emitted row has symbol=='POOLED', is_pooled is True,
+    regime==regime_label, regime_scope=='cross_sectional', cumulative_e_value
+    is None. Every emitted row's cluster_id is at least 10000."""
+    n_groups, symbols_per_group = 6, 3
+    bar_ts_arr, X_raw, returns_mat, complete_mat, broadcast_mask = _broadcast_cell_inputs(
+        n_groups=n_groups, symbols_per_group=symbols_per_group
+    )
+
+    rows, _ = _call_broadcast_cell(bar_ts_arr, X_raw, returns_mat, complete_mat, broadcast_mask)
+
+    assert len(rows) > 0
+    for r in rows:
+        assert r["symbol"] == "POOLED"
+        assert r["is_pooled"] is True
+        assert r["regime"] == "calm"
+        assert r["regime_scope"] == "cross_sectional"
+        assert r["cumulative_e_value"] is None
+        assert r["cluster_id"] is not None
+        assert r["cluster_id"] >= _BROADCAST_CLUSTER_ID_OFFSET
+
+
+def test_broadcast_cell_aggregate_return_matches_hand_computed_mean():
+    """<behavior>/acceptance: the aggregate return for group g at scale j equals
+    the arithmetic mean of that group's rows' returns_mat[:, j], for a fixture
+    with 3 symbols and 4 timestamps. A broadcast feature and a hand-computed
+    per-group mean return are both constructed as strictly increasing in group
+    index g, so a perfect Spearman correlation (IC == 1.0 exactly) is only
+    reachable if the aggregate the function actually used equals the true
+    per-group mean -- any other aggregation of these known inputs breaks the
+    monotonic 1:1 mapping."""
+    n_groups, symbols_per_group = 4, 3
+    n_features = len(_FEATURE_NAMES)
+    broadcast_col = 3
+
+    bar_ts_arr = _broadcast_bar_ts(n_groups, symbols_per_group)
+    X_raw = np.zeros((n_groups * symbols_per_group, n_features), dtype=np.float32)
+    returns_mat = np.zeros((n_groups * symbols_per_group, 1))
+    for g in range(n_groups):
+        sl = slice(g * symbols_per_group, (g + 1) * symbols_per_group)
+        X_raw[sl, broadcast_col] = float(g)
+        returns_mat[sl, 0] = [float(g + s) for s in range(symbols_per_group)]
+    complete_mat = np.ones((n_groups * symbols_per_group, 1), dtype=bool)
+
+    broadcast_mask = np.zeros(n_features, dtype=bool)
+    broadcast_mask[broadcast_col] = True
+
+    config = _broadcast_cell_config(min_reliable_n=2)
+    rows, _ = _call_broadcast_cell(
+        bar_ts_arr, X_raw, returns_mat, complete_mat, broadcast_mask, config=config
+    )
+
+    assert len(rows) == 1
+    assert rows[0]["ic_value"] == pytest.approx(1.0)
+    assert rows[0]["n_independent"] == n_groups
+
+
+def test_broadcast_cell_raises_on_within_group_variance_violation():
+    """<behavior>/acceptance: raises rather than returning results when a
+    masked column's within-bar_ts spread exceeds
+    config.broadcast_variance_threshold (T-173-09)."""
+    bar_ts_arr, X_raw, returns_mat, complete_mat, broadcast_mask = _broadcast_cell_inputs(
+        n_groups=4, symbols_per_group=3, broadcast_idx=(2,)
+    )
+    # Break invariance: group 0 occupies rows [0, 1, 2] -- disagree row 1 by far
+    # more than any plausible float32 rounding tolerance.
+    X_raw[1, 2] += 5.0
+
+    with pytest.raises(RuntimeError, match="[Bb]roadcast invariance violated"):
+        _call_broadcast_cell(bar_ts_arr, X_raw, returns_mat, complete_mat, broadcast_mask)
+
+
+def test_broadcast_cell_raises_on_non_contiguous_bar_ts():
+    """<behavior>/acceptance/T-173-16: raises rather than proceeding when a
+    bar_ts value appears in two non-adjacent runs -- the ORDER BY invariant
+    this whole design rests on has broken."""
+    bar_ts_arr, X_raw, returns_mat, complete_mat, broadcast_mask = _broadcast_cell_inputs(
+        n_groups=3, symbols_per_group=2, broadcast_idx=(1,)
+    )
+    bar_ts_arr = bar_ts_arr.copy()
+    bar_ts_arr[-1] = bar_ts_arr[0]  # non-adjacent repeat of the first group's ts
+
+    with pytest.raises(RuntimeError, match="contiguity invariant violated"):
+        _call_broadcast_cell(bar_ts_arr, X_raw, returns_mat, complete_mat, broadcast_mask)
+
+
+def test_broadcast_cell_all_nan_group_column_does_not_trip_invariance_guard():
+    """<behavior>: a broadcast column that is NaN for every symbol in a group
+    does NOT raise -- an all-NaN group is a data gap, not an invariance
+    violation."""
+    n_groups, symbols_per_group = 4, 3
+    bar_ts_arr, X_raw, returns_mat, complete_mat, broadcast_mask = _broadcast_cell_inputs(
+        n_groups=n_groups, symbols_per_group=symbols_per_group, broadcast_idx=(4,)
+    )
+    sl = slice(symbols_per_group, 2 * symbols_per_group)  # group 1's entire span
+    X_raw[sl, 4] = np.nan
+
+    rows, _ = _call_broadcast_cell(bar_ts_arr, X_raw, returns_mat, complete_mat, broadcast_mask)
+    assert isinstance(rows, list)  # did not raise
+
+
+def test_broadcast_cell_below_min_reliable_n_emits_zero_rows():
+    """<behavior>/D-06: given fewer than min_reliable_n usable groups for a
+    scale, the function emits no rows for that scale."""
+    bar_ts_arr, X_raw, returns_mat, complete_mat, broadcast_mask = _broadcast_cell_inputs(
+        n_groups=1, symbols_per_group=3, broadcast_idx=(6,)
+    )
+    config = _broadcast_cell_config(min_reliable_n=2)  # 1 distinct bar_ts < 2
+
+    rows, n_skipped = _call_broadcast_cell(
+        bar_ts_arr, X_raw, returns_mat, complete_mat, broadcast_mask, config=config
+    )
+    assert rows == []
+    assert n_skipped >= 1
 
 
 def test_run_ic_worker_return_keys():
