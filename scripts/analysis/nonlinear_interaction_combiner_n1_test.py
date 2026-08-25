@@ -92,6 +92,15 @@ async def main() -> None:
         "pre-registered design, run this ONCE (not per arm/tf) -- a leak that shows up here "
         "rides along regardless of which arm/tf it's checked on.",
     )
+    parser.add_argument(
+        "--colsample-bytree",
+        type=float,
+        default=None,
+        help="Override N1-a-capped's default 0.10. Only meaningful with --arm a-capped. Exists "
+        "for the pre-registered 'if G1 still breaches even at 0.10, the next step is a lower "
+        "value' contingency (measurement-nonlinear-interaction-combiner.md) -- NOT a general "
+        "escape hatch for re-tuning after seeing a result on other criteria (G4).",
+    )
     args = parser.parse_args()
 
     settings = Settings()
@@ -105,7 +114,10 @@ async def main() -> None:
         print(f"Loaded group_name for {len(interaction_group_map)} features.")
 
     force_include = _CANARY_COLS if args.g3_canary_check else frozenset()
-    colsample_bytree = 0.10 if args.arm == "a-capped" else 0.8
+    if args.colsample_bytree is not None:
+        colsample_bytree = args.colsample_bytree
+    else:
+        colsample_bytree = 0.10 if args.arm == "a-capped" else 0.8
 
     result = await run_n1_check(
         args.tf,
@@ -126,6 +138,11 @@ async def main() -> None:
     out_dir = Path("docs/analysis")
     out_dir.mkdir(parents=True, exist_ok=True)
     suffix = "_g3canary" if args.g3_canary_check else ""
+    # A non-default colsample_bytree override gets its own filename -- never silently overwrite
+    # the arm's canonical result file with a different-parameter run.
+    default_colsample = 0.10 if args.arm == "a-capped" else 0.8
+    if colsample_bytree != default_colsample:
+        suffix += f"_cs{colsample_bytree:.2f}".replace(".", "")
     out_path = out_dir / f"n1_{args.tf}_{args.arm}{suffix}.json"
 
     # N1FoldGainAudit dataclasses aren't JSON-serializable directly.

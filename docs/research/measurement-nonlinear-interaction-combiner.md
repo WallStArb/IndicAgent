@@ -710,8 +710,42 @@ timeframe. Continuing to tune purely for 1d's guardrail cleanliness would optimi
 thing. Instead, testing 1h next (`colsample_bytree=0.10`, unchanged) -- the timeframe with the
 strongest prior parallel-form evidence (`0.0106` uplift, `ci_lower=0.0064`) -- is more
 informative: it answers whether the fix produces a clean, trustworthy read where a real signal
-was already suspected, not just where the residual happens to be flat. Results below once that
-run completes.
+was already suspected, not just where the residual happens to be flat.
+
+**N1-a-capped result, 1h, 2026-08-25: near-clean guardrail (4/5 folds), and the composite is
+significantly WORSE than the linear ensemble alone.** `colsample_bytree=0.10`:
+
+| Fold | max gain share | feature |
+|---|---|---|
+| 0 | 0.101 | `f4` (`gap_z`) |
+| 1 | **0.248 -- breaches** | `f4` (`gap_z`) |
+| 2 | 0.094 | `f54` (`momentum_reversal_z`) |
+| 3 | 0.099 | `f5` (`informed_flow`) |
+| 4 | 0.108 | `f31` (`dow_cos`) |
+
+`gap_z` -- the single broadest, cleanest per-symbol feature this project has ever measured (71
+symbols, unanimous sign, see `data-edge-source-thesis.md`'s Scorecard) -- unsurprisingly
+dominates gain share when it appears; only 1/5 folds breaches (24.8%), the other 4 sit at 9-11%,
+comfortably under the 15% cap. Peak RSS 22.82GB (5.19M/6.6M-row largest fold) -- within this
+module's documented OOM-avoidance envelope but the highest peak observed in this session, worth
+tracking if colsample_bytree is lowered further.
+
+**Cross-sectional-neutral IC(composite) - IC(linear): `point_diff=-0.0059, ci_lower=-0.0082,
+ci_upper=-0.0037, p=0.0000`** -- entirely negative CI, far from zero, overwhelmingly significant.
+Per `paired_bootstrap_ic_difference`'s own outcome semantics (`b_significantly_better`, i.e. the
+linear ensemble alone significantly beats the composite): **at 1h, once the tree's exposure is
+properly bounded, adding the residual tree to the linear ensemble makes the combined score
+significantly WORSE, not better.** This is a genuine result in the opposite direction from N1's
+hypothesis, at the single timeframe this thesis's evidence was strongest -- a much stronger
+statement than "no uplift found."
+
+**Not yet a fully clean run (1/5 folds still breaches G1) -- per the pre-registration's own
+explicitly anticipated contingency** ("if G1 still breaches even at 0.10... the next step would
+be a lower value, not abandoning the approach after one try"), re-running at
+`colsample_bytree=0.05` targeting `gap_z`'s remaining fold-1 breach specifically, before treating
+this as the final 1h word. Given how consequential this timeframe is (strongest prior evidence,
+now the largest and most significant negative), a fully clean guardrail read matters more here
+than it did on 1d. Result below once that run completes.
 
 ## Sequencing
 
