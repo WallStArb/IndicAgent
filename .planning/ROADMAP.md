@@ -2756,13 +2756,13 @@ requirement-ID convention; decision IDs are the authoritative requirement refere
 **Depends on:** None — independent of the in-flight corpus pipeline run and of Phase 172's
 volatility-regime work; sequenced after it here only because it's the next open slot in the
 roadmap.
-**Plans:** 3/4 plans executed
+**Plans:** 4/4 plans complete
 
 Plans:
 - [x] 173-01-PLAN.md — Broadcast classification: APR key, empirical detector with temporal-variance guard, persist to `concept_registry.metadata` (wave 1)
 - [x] 173-02-PLAN.md — Delete `_compute_symbol_tf`'s bespoke `CONTEXT_FEATURES` daily-cadence path (wave 1)
 - [x] 173-03-PLAN.md — Exclude broadcast columns from the pooled cross-sectional cell, thread `bar_ts`, broadcast-sensitive fingerprint watermark (wave 2)
-- [ ] 173-04-PLAN.md — `_compute_one_broadcast_cell`, BH-FDR wiring, live smoke run (wave 3)
+- [x] 173-04-PLAN.md — `_compute_one_broadcast_cell`, BH-FDR wiring, live smoke run (wave 3)
 
 ---
 
