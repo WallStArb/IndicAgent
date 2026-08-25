@@ -240,6 +240,67 @@ def test_compute_cross_sectional_tf_closes_connection_before_clustering():
     )
 
 
+def test_cross_sectional_fetch_does_not_route_bar_ts_through_float32_accumulator():
+    """Phase 173 Plan 03 (D-05): bar_ts_chunks must be a plain list, appended to
+    directly -- never passed to X_acc.append_chunk (Float32ChunkAccumulator is
+    float32-only; a datetime is not float32-safe data). Source-introspection,
+    same justification as this file's other structural tests: the function
+    requires a live database to exercise behaviorally.
+    """
+    source = inspect.getsource(_compute_cross_sectional_tf)
+
+    assert "bar_ts_chunks: list[np.ndarray] = []" in source, (
+        "bar_ts_chunks must be declared as a plain list, mirroring "
+        "ret_chunks/cmp_chunks's own un-accumulator-ed pattern"
+    )
+    assert "bar_ts_chunks.append(np.array([r[0] for r in batch], dtype=object))" in source, (
+        "bar_ts_chunks must be appended to directly from the batch's bar_ts "
+        "column (row[0]), one array per chunk"
+    )
+    assert "np.concatenate(bar_ts_chunks)" in source, (
+        "bar_ts_chunks must be concatenated once via np.concatenate, matching "
+        "the np.vstack(ret_chunks)/np.vstack(cmp_chunks) idiom"
+    )
+
+    # X_acc.append_chunk must never be called on bar_ts_chunks/a bar_ts value --
+    # the only append_chunk call in this function must be the pre-existing
+    # feature-matrix one.
+    append_chunk_calls = [line for line in source.splitlines() if "X_acc.append_chunk(" in line]
+    assert len(append_chunk_calls) == 1, (
+        f"expected exactly one X_acc.append_chunk( call (the feature matrix), "
+        f"found {len(append_chunk_calls)}: {append_chunk_calls}"
+    )
+    assert "bar_ts" not in append_chunk_calls[0], (
+        "X_acc.append_chunk( must never be called with bar_ts -- "
+        "Float32ChunkAccumulator must not be extended to carry a timestamp"
+    )
+
+
+def test_cross_sectional_fetch_asserts_bar_ts_row_alignment():
+    """Phase 173 Plan 03 (D-05, T-173-07): a crash-loud RuntimeError guard must
+    compare len(bar_ts_arr) to len(X_raw) after concatenation -- per CLAUDE.md
+    ('silent wrong answers are worse than loud crashes'), a misalignment here
+    would silently mis-associate a broadcast feature value with the wrong
+    timestamp in Plan 04, producing a plausible-looking but wrong IC.
+    """
+    source = inspect.getsource(_compute_cross_sectional_tf)
+
+    assert "bar_ts_arr = np.concatenate(bar_ts_chunks)" in source
+    guard_idx = source.index("if len(bar_ts_arr) != len(X_raw):")
+    raise_idx = source.index("raise RuntimeError(", guard_idx)
+    assert raise_idx - guard_idx < 200, (
+        "the RuntimeError raise must immediately follow the length-mismatch "
+        "guard, not be a coincidental later occurrence"
+    )
+    # The guard must be placed AFTER the X_raw early-return (X_raw is None) --
+    # the no-data path must stay unchanged.
+    early_return_idx = source.index("if X_raw is None:")
+    assert early_return_idx < guard_idx, (
+        "the bar_ts alignment guard must come after the X_raw is None "
+        "early-return, not before it"
+    )
+
+
 def test_subsample_and_rank_rankdata_output_is_float32_not_float64():
     """ranks_X_scale (the block-ranked feature matrix) must cast rankdata()'s
     output to float32 (2026-07-19 OOM fix -- rankdata() always returns float64

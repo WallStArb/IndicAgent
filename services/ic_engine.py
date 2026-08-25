@@ -3404,6 +3404,15 @@ def _compute_cross_sectional_tf(
         X_acc = Float32ChunkAccumulator()
         ret_chunks: list[np.ndarray] = []
         cmp_chunks: list[np.ndarray] = []
+        # Phase 173 Plan 03 (D-05): bar_ts, row-aligned with X_raw/returns_mat/
+        # complete_mat, for Plan 04's future broadcast cell to consume (equality
+        # comparison between adjacent elements + set-membership on group
+        # representatives -- both exact under dtype=object). Deliberately a
+        # plain list, never routed through Float32ChunkAccumulator: that class
+        # is float32-only, and a datetime is not float32-safe data. dtype=object
+        # (not datetime64[ns]) because a datetime64 cast of a timezone-aware
+        # psycopg datetime loses tz and can shift values.
+        bar_ts_chunks: list[np.ndarray] = []
 
         _logger.info(
             "ic_engine.cross_sectional_chunk_pass",
@@ -3444,6 +3453,7 @@ def _compute_cross_sectional_tf(
                     cmp_chunk[i, j] = bool(row[1 + n_features + n_scales + j])
             ret_chunks.append(ret_chunk)
             cmp_chunks.append(cmp_chunk)
+            bar_ts_chunks.append(np.array([r[0] for r in batch], dtype=object))
 
     X_raw = X_acc.finalize()
     if X_raw is None:
@@ -3458,6 +3468,21 @@ def _compute_cross_sectional_tf(
     del ret_chunks
     complete_mat = np.vstack(cmp_chunks)
     del cmp_chunks
+    # Phase 173 Plan 03 (D-05): concatenate once, after the X_raw early-return
+    # guard so the no-data path is unchanged. Crash-loud alignment guard --
+    # per CLAUDE.md ("silent wrong answers are worse than loud crashes"), a
+    # misalignment here would silently mis-associate every broadcast feature
+    # value with the wrong timestamp in Plan 04, producing a plausible-looking
+    # but wrong IC.
+    bar_ts_arr = np.concatenate(bar_ts_chunks)
+    del bar_ts_chunks
+    if len(bar_ts_arr) != len(X_raw):
+        raise RuntimeError(
+            f"bar_ts/X_raw row-count mismatch for cross-sectional cell tf={tf} "
+            f"regime={regime_label}: len(bar_ts_arr)={len(bar_ts_arr)} != "
+            f"len(X_raw)={len(X_raw)}. This must never happen -- bar_ts and "
+            "X_raw are built from the same chunked-fetch rows in the same order."
+        )
     n_raw = len(X_raw)
 
     # 162-01 Task 3: clustering + per-scale IC/CI/walk-forward/Sharpe compute
