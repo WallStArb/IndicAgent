@@ -1013,16 +1013,45 @@ def _watermark_concept_registry(conn: Any) -> dict[str, Any]:
     gate below raise on every single run. The INNER JOIN naturally excludes them,
     matching ConceptRegistryService's own semantics exactly (verified live,
     2026-08-04: both hashes equal 4fadbe90ab6050fa12e7f25196f32b28 with this join).
+
+    Phase 173 Plan 03 (D-08, todo 270): also returns `broadcast_hash`, a second
+    md5(string_agg(...)) over the SAME gate-joined domain='feature' population,
+    hashing `cr.name || '=' || COALESCE(cr.metadata->>'broadcast', '')`. Unlike
+    Task 1's broadcast-set READ (which deliberately uses no COALESCE -- NULL
+    correctly means "not selected" there), this is a HASH INPUT that must be a
+    stable string for every row including unflagged ones, so COALESCE to '' is
+    required here and is not in tension with Task 1's rule.
+
+    broadcast_hash exists because _compute_one_cross_sectional_cell's column
+    split (which features are excluded from the per-symbol pooled cell) AND
+    (after Plan 04) which features the broadcast cell measures both depend on
+    this same metadata flag -- a reclassification must force a full recompute.
+    Without this, status_hash alone is blind to a broadcast-flag flip (the flag
+    lives in metadata, which status_hash's input string never sees), so every
+    cell fingerprint would stay valid and every cell would be permanently
+    skipped, silently serving results computed under the OLD column split --
+    research's Pitfall 1 arriving through the metadata door instead of the
+    status door.
+
+    Computed as a separate aggregate in the SAME round trip (one cursor, one
+    query returning two columns) -- not folded into status_hash's own input
+    string. status_hash's byte-identical-hash acceptance criterion (Phase 170,
+    verified live: 4fadbe90ab6050fa12e7f25196f32b28) must survive this change
+    unaltered; adding a second column is additive and safe, changing the first
+    column's input string is not.
     """
     with conn.cursor() as cur:
         cur.execute(
             "SELECT md5(COALESCE(string_agg("
-            "cr.name || '=' || cr.status, '' ORDER BY cr.name), '')) "
+            "cr.name || '=' || cr.status, '' ORDER BY cr.name), '')), "
+            "md5(COALESCE(string_agg("
+            "cr.name || '=' || COALESCE(cr.metadata->>'broadcast', ''), '' "
+            "ORDER BY cr.name), '')) "
             "FROM concept_registry cr JOIN concept_gate cg USING (concept_id) "
             "WHERE cr.domain = 'feature'"
         )
-        (status_hash,) = cur.fetchone()
-    return {"status_hash": status_hash}
+        status_hash, broadcast_hash = cur.fetchone()
+    return {"status_hash": status_hash, "broadcast_hash": broadcast_hash}
 
 
 def _watermark_forward_returns_feature_vectors(
@@ -1286,14 +1315,34 @@ def _fingerprint_computational_key(fp: dict[str, Any]) -> dict[str, Any]:
     BOTH names via _LEGACY_REGISTRY_WATERMARK_KEYS -- see that constant's
     docstring for why a single-name filter would spuriously invalidate every
     cell on the first post-cutover run.
+
+    Phase 173 Plan 03 (D-08, todo 270): broadcast_hash is the one exception to
+    "the whole concept_registry entry is dropped" -- unlike status_hash, a
+    broadcast-flag flip DOES change what gets computed
+    (_compute_one_cross_sectional_cell's column split, and Plan 04's future
+    broadcast cell), so it must participate in the computational key. When the
+    legacy-named entry is a dict carrying "broadcast_hash", this function keeps
+    ONLY that key (still dropping status_hash) instead of dropping the whole
+    entry. A pre-Plan-03 stored fingerprint has no broadcast_hash key at all,
+    so it naturally compares unequal to any freshly-computed current
+    fingerprint under this rule -- the intended one-time corpus-wide
+    invalidation this plan's Task 3 requires (see _watermark_concept_registry's
+    docstring for why: without this, a reclassification would leave every
+    fingerprint valid and every cell permanently skipped, silently serving
+    results computed under the OLD column split).
     """
     watermark = fp.get("upstream_watermark") or {}
+    filtered_watermark: dict[str, Any] = {}
+    for k, v in watermark.items():
+        if k in _LEGACY_REGISTRY_WATERMARK_KEYS:
+            if isinstance(v, dict) and "broadcast_hash" in v:
+                filtered_watermark[k] = {"broadcast_hash": v["broadcast_hash"]}
+            continue
+        filtered_watermark[k] = v
     return {
         "code_content_key": fp.get("code_content_key"),
         "apr_snapshot_key": fp.get("apr_snapshot_key"),
-        "upstream_watermark": {
-            k: v for k, v in watermark.items() if k not in _LEGACY_REGISTRY_WATERMARK_KEYS
-        },
+        "upstream_watermark": filtered_watermark,
     }
 
 
