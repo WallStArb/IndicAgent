@@ -93,6 +93,34 @@ def test_compute_symbol_tf_has_no_db_write_code():
     ), "_compute_symbol_tf should not contain executemany (DB writes moved to _write_ic_results)"
 
 
+def test_compute_symbol_tf_has_no_context_features_daily_path():
+    """_compute_symbol_tf must not reintroduce the deleted daily-cadence path (D-01).
+
+    Phase 173 Plan 02 deleted the bespoke CONTEXT_FEATURES daily-cadence
+    significance block: 231 redundant per-symbol significance tests of the
+    literal same macro time series, each entering BH-FDR independently -- a
+    hand-maintained broadcast-feature frozenset that todo 270's own comment
+    named as "the cautionary example why" a hardcoded list doesn't scale. CI
+    enforcement here is the only thing standing between a future edit and
+    quietly reintroducing that exact failure mode.
+    """
+    source = inspect.getsource(_compute_symbol_tf)
+
+    assert "CONTEXT_FEATURES" not in source, (
+        "_compute_symbol_tf must not reference CONTEXT_FEATURES -- the daily-cadence "
+        "significance path was deleted in Phase 173 (D-01); broadcast features are now "
+        "measured in a separate broadcast cell, not a hand-maintained frozenset here"
+    )
+    assert "context_features" not in source, (
+        "_compute_symbol_tf must not query the context_features table -- that path was "
+        "deleted in Phase 173 (D-01)"
+    )
+    assert "min_obs_daily" not in source, (
+        "_compute_symbol_tf must not reference min_obs_daily -- that config field was "
+        "removed along with the daily-cadence path it exclusively gated (Phase 173 D-01)"
+    )
+
+
 def test_write_ic_results_exists():
     """_write_ic_results function must exist for serial writes."""
     import services.ic_engine as ic_module
@@ -629,7 +657,6 @@ def test_cell_too_large_error_raised_by_both_cell_functions():
             "1d": ("fast", "mid", "slow", "extended"),
         },
         equity_model_enabled=True,
-        min_obs_daily=1000,
         hac_max_lag=3,
         cs_chunk_ts=5000,
         symbol_fetch_chunk_rows=5000,

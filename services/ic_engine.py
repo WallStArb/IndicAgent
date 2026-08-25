@@ -121,7 +121,6 @@ from src.intelligence.statistics.ic_math import (
     _vectorized_ic,
     apply_bh_fdr,
     build_walk_forward_folds,
-    circular_block_bootstrap_ic_serial,
     evaluate_guard_fraction,
     expand_int,
     magnitude_conditional_ic,
@@ -212,20 +211,6 @@ def _e_value_pilot_active(tf: str) -> bool:
     column stays NULL/untouched, exactly as the pilot's scope requires.
     """
     return tf in _E_VALUE_PILOT_TFS
-
-
-# vix_z, flight_quality, yield_slope_z are daily-cadence features stored in context_features.
-# IC computation uses one observation per calendar day, not one per bar.
-# Measuring IC from feature_vectors would inflate IC via artificial autocorrelation
-# (same daily value duplicated ~78 times for 5m TF).
-# DISTINCT ON (DATE(bar_ts)) picks the earliest intraday bar of each day as the IC observation.
-# Phase 141 CORPUS-01 audit must scope its intraday-autocorrelation check to exclude these features.
-# KNOWN GAP (todo 270): this frozenset undercounts the true broadcast-feature population by 20
-# (23 confirmed broadcast: these 3 + 15 calendar/session fields + 5 cross-asset fields). Do not
-# extend this list as a stopgap for the significance-test fix -- todo 270's design decision is a
-# single shared test primitive with an empirically-detected, concept_registry-backed broadcast
-# classification, not a hand-maintained frozenset (this one is the cautionary example why).
-CONTEXT_FEATURES: frozenset[str] = frozenset(["flight_quality", "vix_z", "yield_slope_z"])
 
 
 def _resolve_regime_scope(is_pooled: bool, cross_sectional: bool) -> str:
@@ -504,7 +489,6 @@ class ICEngineConfig:
     lookahead_extended: dict[str, int]
     active_scales: dict[str, tuple[str, ...]]
     equity_model_enabled: bool
-    min_obs_daily: int
     hac_max_lag: int
     cs_chunk_ts: int
     symbol_fetch_chunk_rows: int
@@ -734,8 +718,6 @@ class ICEngineConfig:
                 cfg.get_sync("alpha.regime.equity_model_enabled", "true")
             ).lower()
             == "true",
-            # Daily-cadence features use a separate min_obs gate calibrated for daily frequency.
-            min_obs_daily=int(cfg.get_sync("alpha.ic.min_obs_daily_features", 1000)),
             # Newey-West HAC max lag for IC Sharpe autocorrelation correction (migration 177).
             # K=0 disables HAC (ic_sharpe_hac == ic_sharpe).
             hac_max_lag=int(cfg.get_sync("alpha.ic.hac_max_lag", 3)),
@@ -865,7 +847,6 @@ _COMPUTATIONAL_CONFIG_FIELDS: frozenset[str] = frozenset(
         # feature_vectors.regime_volatility) feeds every non-pooled row's
         # regime/regime_scope columns -- see _compute_symbol_tf's mr_dict docstring.
         "equity_model_enabled",
-        "min_obs_daily",  # daily-cadence context-features reliability gate
         "hac_max_lag",  # Newey-West HAC lag -- moves ic_sharpe_hac
         "bootstrap_resamples",  # circular block bootstrap CI resample count
         # RNG seed for the circular block bootstrap -- APR-mandate "Seeds that affect
@@ -2799,238 +2780,6 @@ def _compute_symbol_tf(
                 _merge_skip_reasons(skip_reasons, pass_skip_reasons)
 
         # ------------------------------------------------------------------
-        # Context features: daily-cadence features in context_features table.
-        # vix_z, flight_quality, yield_slope_z are daily-cadence features stored in context_features.
-        # IC computation uses one observation per calendar day, not one per bar.
-        # Measuring IC from feature_vectors would inflate IC via artificial autocorrelation
-        # (same daily value duplicated ~78 times for 5m TF).
-        # DISTINCT ON (DATE(bar_ts)) picks the earliest intraday bar of each day as the IC observation.
-        #
-        # Daily-cadence features use min_obs_daily_features gate (APR: alpha.ic.min_obs_daily_features);
-        # standard 20K intraday gate does not apply — calibrated for different observation frequency.
-        # ------------------------------------------------------------------
-        min_obs_daily = config.min_obs_daily
-        n_scales = len(scales)
-
-        # Fresh short-lived connection for the context-features loop below --
-        # opened here (not carried over from the fetch phase above) so it was
-        # never idle across the clustering/bootstrap loop that just ran.
-        with short_lived_conn(dsn) as conn:
-
-            return_cols_cf = ", ".join(f"fr.return_{s}" for s in scales)
-            complete_cols_cf = ", ".join(f"fr.complete_{s}" for s in scales)
-            cf_sql_tmpl = f"""
-                SELECT DISTINCT ON (DATE(fv.bar_ts))
-                    DATE(fv.bar_ts)    AS obs_date,
-                    cf.value           AS feature_value,
-                    {return_cols_cf},
-                    {complete_cols_cf}
-                FROM feature_vectors fv
-                INNER JOIN context_features cf
-                    ON DATE(fv.bar_ts) = cf.feature_date
-                    AND cf.feature_name = %(feature_name)s
-                    AND cf.symbol = ''
-                INNER JOIN forward_returns fr
-                    ON fv.symbol = fr.symbol AND fv.tf = fr.tf AND fv.bar_ts = fr.bar_ts
-                    AND fr.return_type = 'executable_open_to_open'
-                WHERE fv.symbol = %(symbol)s
-                  AND fv.tf = %(tf)s
-                  AND fv.bar_ts <= %(training_window_end)s
-                ORDER BY DATE(fv.bar_ts), fv.bar_ts ASC
-            """
-
-            for cf_idx, cf_name in enumerate(sorted(CONTEXT_FEATURES)):  # deterministic order
-                with conn.cursor() as cur:
-                    cur.execute(
-                        cf_sql_tmpl,
-                        {
-                            "feature_name": cf_name,
-                            "symbol": symbol,
-                            "tf": tf,
-                            "training_window_end": training_window_end,
-                        },
-                    )
-                    cf_rows = cur.fetchall()
-
-                n_cf_days = len(cf_rows)
-                # Daily-cadence features use min_obs_daily_features gate (APR: alpha.ic.min_obs_daily_features);
-                # standard 20K intraday gate does not apply — calibrated for different observation frequency.
-                if n_cf_days < min_obs_daily:
-                    skip_reasons["insufficient_daily_n"] = (
-                        skip_reasons.get("insufficient_daily_n", 0) + n_scales
-                    )
-                    continue
-
-                cf_vals = np.array([r[1] for r in cf_rows], dtype=float)
-                cf_returns_mat = np.array(
-                    [
-                        [r[2 + j] if r[2 + j] is not None else np.nan for j in range(n_scales)]
-                        for r in cf_rows
-                    ],
-                    dtype=float,
-                )
-                cf_complete_mat = np.array(
-                    [[bool(r[2 + n_scales + j]) for j in range(n_scales)] for r in cf_rows],
-                    dtype=bool,
-                )
-
-                # Assign unique cluster ID for BH-FDR participation — each context feature is
-                # its own cluster. Start at 10000 to avoid collision with per-symbol clustering
-                # (scipy fcluster returns integers starting from 1; max ~61 for 61 features).
-                cf_cluster_id = 10000 + cf_idx
-
-                for scale_idx, scale in enumerate(scales):
-                    lookahead_bars = lookaheads[scale]
-
-                    # 162-03: no per-feature already-present skip -- the whole-cell
-                    # fingerprint gate in main() is the sole skip decision.
-                    scale_complete = cf_complete_mat[:, scale_idx]
-                    returns_scale = cf_returns_mat[:, scale_idx]
-                    valid_mask = scale_complete & np.isfinite(returns_scale) & np.isfinite(cf_vals)
-                    n_valid = int(valid_mask.sum())
-
-                    if n_valid < min_obs_daily:
-                        skip_reasons["insufficient_daily_n"] = (
-                            skip_reasons.get("insufficient_daily_n", 0) + 1
-                        )
-                        continue
-
-                    x_daily = cf_vals[valid_mask].reshape(-1, 1)  # [n_valid, 1] for vectorized IC
-                    y_daily = returns_scale[valid_mask]
-
-                    ranks_x_daily = rankdata(x_daily, axis=0)
-                    ranks_y_daily = rankdata(y_daily)
-
-                    ic_vec = _vectorized_ic(ranks_x_daily, ranks_y_daily)
-                    ic_val = _nan_to_none(float(ic_vec[0]))
-                    p_val = float(_p_values_from_ic(ic_vec, n_valid)[0])
-
-                    # Circular block bootstrap CI (Component A, todo 091). x_daily/y_daily
-                    # are already RAW (unranked) -- the bootstrap re-ranks internally per
-                    # iteration, so pass them directly rather than the pre-ranked arrays
-                    # used for the point estimate above.
-                    # Per-symbol path -- always serial (todo 131); see
-                    # circular_block_bootstrap_ic_serial's docstring for why this has no
-                    # max_workers knob to accidentally raise, and why todo 215's
-                    # per-symbol threading fix (a different function, _blocked_
-                    # bootstrap_ic) deliberately did not extend to this call site.
-                    ci_lower_arr, ci_upper_arr = circular_block_bootstrap_ic_serial(
-                        x_daily,
-                        y_daily,
-                        config.bootstrap_block_size[tf],
-                        config.bootstrap_resamples,
-                        rng,
-                    )
-                    ci_lower = float(ci_lower_arr[0])
-                    ci_upper = float(ci_upper_arr[0])
-                    passes_ci = ci_lower > 0.0
-
-                    # Walk-forward with scale-specific embargo (P3 fix: was cf_embargo_bars=max lookahead).
-                    # Fixed-origin expanding window: train_end grows monotonically, test windows in order.
-                    # Sign-consistent fold-pass criterion (Component E, todo 094): a fold "passes" when
-                    # its IC sign matches the feature's own full-sample sign, not when the raw fold IC
-                    # happens to be positive -- equivalence-preserving for ic_val > 0 (full_sign=+1 is a
-                    # no-op) and the fix that lets a persistently-negative daily context feature walk-
-                    # forward-confirm. Scalar mirror of _sign_consistent_wf_pass_count's array logic
-                    # (no ic_sign_nd array exists in this scalar-per-feature loop).
-                    full_sign = 1.0 if (ic_val is not None and ic_val > 0) else -1.0
-                    cf_embargo_bars = lookahead_bars
-                    wf_fold_count = 0
-                    wf_pass_count = 0
-                    passes_wf = False
-                    folds_counted = 0
-                    folds_passed = 0
-                    if n_valid >= walk_forward_folds * 2 + cf_embargo_bars:
-                        for test_start, test_end in build_walk_forward_folds(
-                            n_valid, walk_forward_folds, cf_embargo_bars, min_reliable_n
-                        ):
-                            fold_len = test_end - test_start
-                            if fold_len < 2:
-                                continue
-                            rx_fold = rankdata(x_daily[test_start:test_end], axis=0)
-                            ry_fold = rankdata(y_daily[test_start:test_end])
-                            fold_ic = float(_vectorized_ic(rx_fold, ry_fold)[0])
-                            folds_counted += 1
-                            if fold_ic * full_sign > 0:
-                                folds_passed += 1
-                    wf_fold_count = folds_counted
-                    wf_pass_count = folds_passed
-                    passes_wf = folds_counted > 0 and folds_passed == folds_counted
-
-                    # IC Sharpe — daily-data behavior changed under todo 096's fix.
-                    # Previously NaN: sharpe_window_size (raw bars, APR default 2000) was
-                    # calibrated for intraday bars, so n // (2000 // stride) < sharpe_min_windows
-                    # for ~1000-2995 daily observations. Now that window size is a fixed
-                    # SUBSAMPLED-bar target (alpha.ic.sharpe_window_size_subsampled, default
-                    # 100) rather than derived from a raw-bar constant, daily data with
-                    # >= sharpe_min_windows * 100 observations clears the gate and produces a
-                    # real (not NaN) daily ic_sharpe. This is intentional -- the old NaN was an
-                    # artifact of the raw-bar/stride formula, not a genuine data-insufficiency
-                    # signal for daily cadence.
-                    ic_sharpe_val = None
-                    ic_sharpe_hac_val = None
-                    ic_sortino_val = None
-                    ic_win_rate_val = None
-                    ic_sharpe_n_windows = 0
-
-                    # IC decomposition: sign_hit_rate + magnitude-conditional IC (Component
-                    # B, todo 090). Single-feature scalar path -- x_daily/y_daily are the
-                    # same RAW (unranked) arrays already assembled for the bootstrap CI
-                    # above, n_features=1 so no _expand needed.
-                    sign_hit_rate_val = _nan_to_none(float(sign_hit_rate(x_daily, y_daily)[0]))
-                    magnitude_ic_val = _nan_to_none(
-                        float(
-                            magnitude_conditional_ic(x_daily, y_daily, _MAGNITUDE_IC_PERCENTILE)[0]
-                        )
-                    )
-
-                    all_results.append(
-                        {
-                            "feature_name": cf_name,
-                            "vector_domain": _VECTOR_DOMAIN,
-                            "symbol": symbol,
-                            "tf": tf,
-                            "regime": _POOLED_REGIME_SENTINEL,
-                            "lookahead_bars": lookahead_bars,
-                            "training_window_end": training_window_end,
-                            "is_pooled": True,
-                            "n_independent": n_valid,
-                            "reliable": bool(n_valid >= min_reliable_n),
-                            "ic_value": ic_val,
-                            "ic_sign": (None if ic_val is None else (1 if ic_val > 0 else -1)),
-                            "p_value": p_val,
-                            "ic_ci_lower": ci_lower,
-                            "ic_ci_upper": ci_upper,
-                            "passes_ci_gate": passes_ci,
-                            "bh_adjusted_p": None,
-                            "passes_fdr": None,
-                            "wf_fold_count": wf_fold_count,
-                            "wf_pass_count": wf_pass_count,
-                            "passes_walkforward": passes_wf,
-                            "ic_sharpe": ic_sharpe_val,
-                            "ic_sharpe_hac": ic_sharpe_hac_val,
-                            "ic_sharpe_n_windows": ic_sharpe_n_windows,
-                            "ic_sortino": ic_sortino_val,
-                            "ic_win_rate": ic_win_rate_val,
-                            "regime_label_source": "context_features",
-                            "computed_at": run_ts,
-                            "cluster_id": cf_cluster_id,
-                            "feature_status_at_eval": (
-                                feature_status_map.get(cf_name, "unknown")
-                                if feature_status_map is not None
-                                else "unknown"
-                            ),
-                            "regime_scope": "pooled",
-                            "sign_hit_rate": sign_hit_rate_val,
-                            "magnitude_conditional_ic": magnitude_ic_val,
-                            # e-value pilot (Component C, todo 079) is scoped to
-                            # _compute_cross_sectional_tf's tf=5m POOLED cells only --
-                            # this daily-context-feature path never computes it.
-                            "cumulative_e_value": None,
-                        }
-                    )
-
-        # ------------------------------------------------------------------
         # BH-FDR correction -- representative-only per (regime, lookahead, cluster)
         #
         # Within each (regime_label, lookahead_bars, cluster_id) group only the
@@ -3427,10 +3176,16 @@ def _compute_cross_sectional_tf(
     IC across all peer symbols simultaneously -- each (bar_ts, symbol) pair is an
     independent observation.
 
-    KNOWN GAP (todo 270): this independence assumption is false for the 23 broadcast
-    (symbol-invariant) features -- see CONTEXT_FEATURES below and todo 270's design
-    decision before adding a feature to any broadcast-detection list here; the fix is
-    a matrix-column split in _compute_one_cross_sectional_cell, not a per-feature branch.
+    Broadcast-feature significance correction (Phase 173, todo 270): this independence
+    assumption is false for symbol-invariant (broadcast) features -- the same value
+    repeated across every symbol in a cell is not 231 independent observations of the
+    underlying signal, it is one observation duplicated 231 times. Broadcast features
+    are excluded from this cell's matrix and measured separately, in their own cell,
+    against an equal-weighted market-aggregate return; classification is read from
+    `concept_registry.metadata->>'broadcast'`, not a hand-maintained frozenset -- see
+    todo 270's design rationale for why a hardcoded list (this module's now-deleted
+    bespoke daily-cadence frozenset was the cautionary example) does not scale to the
+    full broadcast population.
 
     symbol_list is THE contamination fix (Phase 144 D-01): before this, every
     symbol in the corpus (fi_* bonds, GLD/SLV/VNQ, IBIT) was pooled into every
