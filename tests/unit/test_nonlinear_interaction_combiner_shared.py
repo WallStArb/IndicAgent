@@ -19,13 +19,19 @@ if str(_project_root) not in sys.path:
 
 from scripts.analysis._nonlinear_interaction_combiner_shared import (
     EXCLUDE_COLS,
+    N1FoldGainAudit,
+    _cross_sectional_neutral_paired_diff_with_pvalue,
     _pooled_panel_folds,
     _select_feature_columns,
     bootstrap_ic_stats,
+    build_group_interaction_constraints,
     fit_linear_ensemble_weights,
     paired_bootstrap_ic_difference,
+    rank_normalize_within_bar_ts_inplace,
     score_linear_ensemble,
+    shuffle_target_within_bar_ts,
     train_and_predict_oos,
+    train_and_predict_oos_residual_form,
 )
 
 
@@ -401,3 +407,238 @@ class TestTrainAndPredictOosIntegration:
             # At least 3 distinct bars must exist strictly before this fold's first test bar
             # that are NOT part of test (i.e. the embargo gap is bar-sized, not row-sized).
             assert first_test_bar_idx >= 3
+
+
+class TestRankNormalizeWithinBarTs:
+    def _panel(self, rng: np.random.Generator, n_bars: int, n_symbols: int, n_features: int):
+        rows_X, rows_g = [], []
+        for bar in range(n_bars):
+            for _ in range(n_symbols):
+                rows_X.append(rng.normal(size=n_features))
+                rows_g.append(bar)
+        return np.array(rows_X, dtype=np.float32), np.array(rows_g, dtype=np.int64)
+
+    def test_every_group_maps_to_percentile_ranks_in_zero_one(self) -> None:
+        rng = np.random.default_rng(10)
+        X, g = self._panel(rng, n_bars=20, n_symbols=15, n_features=4)
+        rank_normalize_within_bar_ts_inplace(X, g)
+        assert np.nanmax(X) <= 1.0
+        assert np.nanmin(X) > 0.0
+
+    def test_within_group_ordering_is_preserved(self) -> None:
+        """Rank-normalizing must not change the relative order of values within one bar_ts
+        group -- only rescale them onto (0, 1]."""
+        rng = np.random.default_rng(11)
+        X, g = self._panel(rng, n_bars=5, n_symbols=20, n_features=1)
+        raw_order = np.argsort(X[g == 2, 0])
+        rank_normalize_within_bar_ts_inplace(X, g)
+        ranked_order = np.argsort(X[g == 2, 0])
+        assert np.array_equal(raw_order, ranked_order)
+
+    def test_nan_stays_nan_and_does_not_shift_other_ranks(self) -> None:
+        rng = np.random.default_rng(12)
+        X, g = self._panel(rng, n_bars=1, n_symbols=10, n_features=1)
+        X[3, 0] = np.nan
+        rank_normalize_within_bar_ts_inplace(X, g)
+        assert np.isnan(X[3, 0])
+        assert np.isfinite(X[~np.isin(np.arange(10), [3]), 0]).all()
+
+    def test_common_market_factor_column_flattens_to_uninformative(self) -> None:
+        """A feature that is IDENTICAL across every symbol at a given bar_ts (a pure
+        common-factor/broadcast column) rank-normalizes to a constant within every group --
+        exactly the guard this test property exists for (N1's own design rationale)."""
+        rng = np.random.default_rng(13)
+        n_bars, n_symbols = 10, 8
+        X = np.empty((n_bars * n_symbols, 1), dtype=np.float32)
+        g = np.empty(n_bars * n_symbols, dtype=np.int64)
+        idx = 0
+        for bar in range(n_bars):
+            broadcast_value = rng.normal()
+            for _ in range(n_symbols):
+                X[idx, 0] = broadcast_value
+                g[idx] = bar
+                idx += 1
+        rank_normalize_within_bar_ts_inplace(X, g)
+        for bar in range(n_bars):
+            group_vals = X[g == bar, 0]
+            assert np.allclose(group_vals, group_vals[0])
+
+
+class TestShuffleTargetWithinBarTs:
+    def test_deterministic_given_same_seed(self) -> None:
+        rng = np.random.default_rng(20)
+        y = rng.normal(size=500)
+        g = np.repeat(np.arange(50), 10)
+        r1 = shuffle_target_within_bar_ts(y, g, seed=1)
+        r2 = shuffle_target_within_bar_ts(y, g, seed=1)
+        assert np.array_equal(r1, r2)
+
+    def test_preserves_each_group_own_multiset_of_values(self) -> None:
+        """Shuffling within a group must be a permutation of that group's own values, not a
+        draw from the whole panel -- the marginal distribution per bar_ts is preserved."""
+        rng = np.random.default_rng(21)
+        y = rng.normal(size=300)
+        g = np.repeat(np.arange(30), 10)
+        shuffled = shuffle_target_within_bar_ts(y, g, seed=2)
+        for group in np.unique(g):
+            assert np.array_equal(np.sort(y[g == group]), np.sort(shuffled[g == group]))
+
+    def test_actually_changes_the_symbol_to_value_pairing(self) -> None:
+        rng = np.random.default_rng(22)
+        y = rng.normal(size=1000)
+        g = np.repeat(np.arange(100), 10)
+        shuffled = shuffle_target_within_bar_ts(y, g, seed=3)
+        assert not np.array_equal(y, shuffled)
+
+
+class TestBuildGroupInteractionConstraints:
+    def test_groups_features_by_their_registry_group_name(self) -> None:
+        feature_cols = ["momentum_z_fast", "momentum_z_slow", "vol_std_z", "atr_z"]
+        group_map = {
+            "momentum_z_fast": "momentum",
+            "momentum_z_slow": "momentum",
+            "vol_std_z": "quant",
+            "atr_z": "quant",
+        }
+        constraints = build_group_interaction_constraints(feature_cols, group_map)
+        # Two groups, each containing exactly the two indices sharing that group_name.
+        assert sorted(len(c) for c in constraints) == [2, 2]
+        momentum_group = next(c for c in constraints if 0 in c)
+        assert sorted(momentum_group) == [0, 1]
+
+    def test_features_with_no_registry_row_each_get_their_own_singleton_group(self) -> None:
+        feature_cols = ["known_a", "unknown_b", "unknown_c"]
+        group_map = {"known_a": "structural"}
+        constraints = build_group_interaction_constraints(feature_cols, group_map)
+        # known_a's group (size 1) plus two singleton "ungrouped" groups for b and c.
+        assert len(constraints) == 3
+        assert sorted(len(c) for c in constraints) == [1, 1, 1]
+
+    def test_covers_every_feature_column_exactly_once(self) -> None:
+        feature_cols = [f"f{i}" for i in range(20)]
+        group_map = {f"f{i}": f"g{i % 3}" for i in range(20)}
+        constraints = build_group_interaction_constraints(feature_cols, group_map)
+        all_indices = sorted(idx for group in constraints for idx in group)
+        assert all_indices == list(range(20))
+
+
+class TestCrossSectionalNeutralPairedDiffWithPvalue:
+    def _synthetic_oos(self, rng: np.random.Generator, n_bars: int, n_symbols: int):
+        rows = []
+        for bar in range(n_bars):
+            for sym in range(n_symbols):
+                actual = rng.normal()
+                rows.append(
+                    {
+                        "bar_ts": pd.Timestamp(bar, unit="D", tz="UTC"),
+                        "symbol": f"S{sym}",
+                        "return_fast_demeaned": actual,
+                        "composite_score": actual + rng.normal(scale=0.2),
+                        "linear_score": rng.normal(),
+                    }
+                )
+        return pd.DataFrame(rows)
+
+    def test_deterministic_given_same_seed(self) -> None:
+        rng = np.random.default_rng(30)
+        oos = self._synthetic_oos(rng, n_bars=100, n_symbols=15)
+        r1 = _cross_sectional_neutral_paired_diff_with_pvalue(
+            oos, "composite_score", "linear_score", "return_fast_demeaned", 2, 200, seed=1
+        )
+        r2 = _cross_sectional_neutral_paired_diff_with_pvalue(
+            oos, "composite_score", "linear_score", "return_fast_demeaned", 2, 200, seed=1
+        )
+        assert r1 == r2
+
+    def test_p_value_small_when_composite_clearly_better(self) -> None:
+        rng = np.random.default_rng(31)
+        oos = self._synthetic_oos(rng, n_bars=150, n_symbols=20)
+        result = _cross_sectional_neutral_paired_diff_with_pvalue(
+            oos, "composite_score", "linear_score", "return_fast_demeaned", 2, 300, seed=2
+        )
+        assert result["point_diff"] > 0
+        assert result["ci_lower"] > 0
+        assert result["p_value"] < 0.05
+
+    def test_p_value_large_when_scores_identical(self) -> None:
+        rng = np.random.default_rng(32)
+        oos = self._synthetic_oos(rng, n_bars=100, n_symbols=15)
+        oos["linear_score"] = oos["composite_score"]
+        result = _cross_sectional_neutral_paired_diff_with_pvalue(
+            oos, "composite_score", "linear_score", "return_fast_demeaned", 2, 300, seed=3
+        )
+        assert result["point_diff"] == pytest.approx(0.0, abs=1e-9)
+        assert result["p_value"] == pytest.approx(1.0)
+
+
+class TestTrainAndPredictOosResidualForm:
+    """Synthetic end-to-end proof of N1's residual-form pipeline: composite score exists,
+    finite, and the fixed-coefficient S = z(L) + z(T) composite is actually different from the
+    linear score alone (proof the tree's residual contribution is really being added, not
+    silently dropped)."""
+
+    def _synthetic_panel(self, rng: np.random.Generator, n_bars: int, n_features: int):
+        symbols = [f"SYM{i}" for i in range(10)]
+        rows_symbol, rows_bar_ts, rows_X, rows_y = [], [], [], []
+        for bar in range(n_bars):
+            for sym in symbols:
+                x = rng.normal(size=n_features)
+                rows_X.append(x)
+                # A genuine (if mild) non-linear interaction: sign(x0)*x1 term the linear
+                # arm alone cannot express, so the residual tree has something real to find.
+                rows_y.append(x[0] + 0.5 * np.sign(x[0]) * x[1] + rng.normal(scale=0.1))
+                rows_symbol.append(sym)
+                rows_bar_ts.append(bar)
+        X = np.array(rows_X, dtype=np.float32)
+        y = np.array(rows_y, dtype=np.float64)
+        meta = pd.DataFrame(
+            {
+                "symbol": rows_symbol,
+                "bar_ts": pd.to_datetime(rows_bar_ts, unit="D", utc=True),
+            }
+        )
+        return X, y, meta
+
+    def test_runs_end_to_end_and_produces_composite_score(self) -> None:
+        rng = np.random.default_rng(40)
+        X, y, meta = self._synthetic_panel(rng, n_bars=300, n_features=6)
+
+        oos, gain_audits = train_and_predict_oos_residual_form(
+            X,
+            y,
+            meta,
+            target_col="return_fast_demeaned",
+            n_folds=3,
+            embargo_bars=5,
+            min_reliable_n=10,
+            bootstrap_seed=42,
+        )
+
+        assert "composite_score" in oos.columns
+        assert "linear_score" in oos.columns
+        assert "tree_score" in oos.columns
+        assert np.all(np.isfinite(oos["composite_score"]))
+        assert len(gain_audits) > 0
+        assert all(isinstance(a, N1FoldGainAudit) for a in gain_audits)
+        # Composite must actually differ from linear alone -- proof the residual tree term is
+        # contributing something, not silently zeroed out by the standardization.
+        assert not np.allclose(oos["composite_score"], oos["linear_score"])
+
+    def test_interaction_constraints_accepted_without_error(self) -> None:
+        """N1-b's arm: interaction_constraints partitions features into 2 groups and the
+        pipeline must still run to completion (LightGBM accepts the constraint format)."""
+        rng = np.random.default_rng(41)
+        X, y, meta = self._synthetic_panel(rng, n_bars=200, n_features=6)
+
+        oos, _gain_audits = train_and_predict_oos_residual_form(
+            X,
+            y,
+            meta,
+            target_col="return_fast_demeaned",
+            n_folds=2,
+            embargo_bars=5,
+            min_reliable_n=10,
+            bootstrap_seed=42,
+            interaction_constraints=[[0, 1, 2], [3, 4, 5]],
+        )
+        assert np.all(np.isfinite(oos["composite_score"]))

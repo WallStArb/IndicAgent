@@ -589,6 +589,67 @@ parallel if host memory allows (the existing runs already contend for a 29GB hos
 CPU/RAM contention before launching both). Neither test's result is promotable to production
 without the usual OOS and shadow-mode gates named in "Overfitting risk" above.
 
+### N1 result, 2026-08-25: G1-VOID at 1d, both arms — stopped before the expensive 15m/1h runs
+
+Implementation: `scripts/analysis/_nonlinear_interaction_combiner_shared.py` (new
+`train_and_predict_oos_residual_form`, `rank_normalize_within_bar_ts_inplace`,
+`shuffle_target_within_bar_ts`, `build_group_interaction_constraints`, `run_n1_check` — 39/39 new
+unit tests green, full `pytest tests/unit/ -q` unaffected) + two runner scripts
+(`nonlinear_interaction_combiner_n1_test.py`, `nonlinear_interaction_combiner_n1_verdict.py`).
+`feature_registry.group_name` (N1-b's interaction-constraint source, named in this doc's original
+2026-08-03 text) migrated cleanly to `concept_registry.group_name WHERE domain='feature'` (Phase
+170, 2026-08-10) -- confirmed live, same column semantics, code updated to match.
+
+**Smoke-tested at 1d (cheapest tf) before committing to 15m/1h's much larger cost, per this
+project's own "measure before theorizing, pilot before scale" discipline.** Both N1-a and N1-b
+ran end-to-end against live data with no crash, no OOM (peak RSS 5.2GB, well within bounds) --
+the pipeline itself is correct. But **G1 (gain concentration, 15% cap) breached on every one of 5
+folds, in BOTH arms**:
+
+| Arm | Fold 0 | Fold 1 | Fold 2 | Fold 3 | Fold 4 |
+|---|---|---|---|---|---|
+| N1-a | 0.404 (`poc_dist_atr`) | 0.343 (`poc_dist_atr`) | 0.453 (`ctf_momentum`) | 0.543 (`rsi_fast`) | 0.375 (`ctf_momentum`) |
+| N1-b | 0.401 (`poc_dist_atr`) | 0.341 (`poc_dist_atr`) | 0.467 (`ctf_momentum`) | 0.538 (`rsi_fast`) | 0.324 (`ctf_momentum`) |
+
+Point estimates were also both near-zero and non-significant regardless (N1-a:
+`point_diff=-0.0018, ci_lower=-0.0083, p=0.568`; N1-b: `point_diff=-0.0014, ci_lower=-0.0076,
+p=0.648`) -- but per the pre-registered design, a G1-breached run is VOID, not reportable as a
+number either way; these are recorded for completeness, not as evidence.
+
+**Not one fixed offending column, and not a bug in this run -- a real, cross-arm-confirmed
+structural finding.** N1-b's `interaction_constraints` (22 `concept_registry.group_name` groups)
+produced nearly identical gain shares and the identical offending-feature sequence as N1-a, fold
+for fold. This makes sense once traced through: `interaction_constraints` restricts which
+features may *co-occur* on one split path -- it does nothing to cap any single feature's *total*
+gain share across the tree. G1 targets a failure mode neither arm's distinguishing mechanism
+defends against, so both hit the identical wall. This is exactly the design doc's own pre-run
+critique ("the tree's core failure mode -- no per-feature exposure cap, unlike the linear arm's
+20% cap -- is why it rode the CTF leak this hard... a structural argument against unconstrained-
+tree interaction discovery on this corpus generally"), now empirically confirmed at the first
+opportunity to test it, not merely theorized.
+
+**Decision: stopped here, did not run the remaining 4 (arm x tf) combinations (15m/1h x
+N1-a/N1-b).** Each is substantially more expensive than the 1d smoke test (comparable to the
+existing ~85-minute 1h diagnostic runs, before G2's shuffled-null roughly doubles that), and
+running them now -- with the identical unconstrained-tree architecture that just void'd every
+fold at the cheapest tf, in both arms -- would very likely just reproduce more void runs for no
+informative result. Per G4's own discipline ("no post-hoc arms... any arm added after seeing a
+number is a new pre-registration with its own family-wise correction"), a feature-level exposure
+cap was NOT added and rerun under the N1 label -- that would be exactly the undisciplined
+after-the-fact adjustment this guardrail structure exists to prevent.
+
+**What this actually resolves, and what it doesn't.** It does NOT resolve N1's underlying
+hypothesis (does non-linear structure exist beyond capped linear combination) -- G1-void means
+untested, not falsified. It DOES resolve the earlier "is an unconstrained tree the right
+instrument at all" open question this doc itself raised: empirically, no, not without a
+per-feature exposure cap analogous to the linear arm's. **Recommended next step, not yet
+pre-registered or run:** proposal (a) from "Alternative methodologies" above ("Constrain the tree
+the way the linear arm is already constrained") is now the load-bearing candidate design, not one
+option among several -- a genuinely new pre-registration (own falsification bar, own guardrails,
+G4-compliant), not a silent patch to N1. `data-edge-source-thesis.md`'s Scorecard updated to
+reflect this -- `nonlinear_interaction_combiner` is no longer "the most promising open thread"
+without qualification.
+
 ## Sequencing
 
 Cheap to run — no new data, no new features, no new infrastructure. Reuses `feature_vectors`/

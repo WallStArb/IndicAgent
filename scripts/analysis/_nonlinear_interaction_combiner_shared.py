@@ -147,6 +147,7 @@ class TrainingMatrix:
 def _select_feature_columns(
     attrs: list[tuple[str, str]],
     extra_exclude_cols: frozenset[str] = frozenset(),
+    force_include_cols: frozenset[str] = frozenset(),
 ) -> list[str]:
     """Filter a prepared statement's (name, pg_type_name) column attributes down to the trained
     feature columns -- float4/float8, not `return_fast` (the target), not in EXCLUDE_COLS or the
@@ -161,11 +162,20 @@ def _select_feature_columns(
     concurrently commit to -- this parameter makes "with" and "without" two ordinary function
     calls instead.
 
+    `force_include_cols` is the symmetric opposite (N1's G3 canary-reinclusion guardrail, added
+    2026-08-25): the module-level `EXCLUDE_COLS` permanently excludes the 5 `canary_*` columns
+    for every ordinary run, but G3 needs exactly one diagnostic run WITH them present. Same
+    "don't hand-edit the shared constant" reasoning as `extra_exclude_cols` above -- this
+    parameter re-admits specific columns without touching EXCLUDE_COLS for every other caller.
+    Applied last (`- force_include_cols`) so it always wins over both EXCLUDE_COLS and
+    `extra_exclude_cols` if a column is ever named in both by mistake -- a caller explicitly
+    asking a column back in should never be silently overridden by an exclusion list.
+
     Pure function (schema attributes in, column names out) so this is unit-testable without a
     live DB connection -- extracted from fetch_training_matrix's inline list comprehension for
     exactly that reason.
     """
-    exclude = EXCLUDE_COLS | extra_exclude_cols
+    exclude = (EXCLUDE_COLS | extra_exclude_cols) - force_include_cols
     return [
         name
         for name, type_name in attrs
@@ -179,6 +189,7 @@ async def fetch_training_matrix(
     target_min_periods: int,
     feature_dtype: type = np.float32,
     extra_exclude_cols: frozenset[str] = frozenset(),
+    force_include_cols: frozenset[str] = frozenset(),
 ) -> TrainingMatrix:
     """Build X/y/meta directly, without ever materializing a wide DataFrame of every feature.
 
@@ -251,6 +262,7 @@ async def fetch_training_matrix(
         feature_cols = _select_feature_columns(
             [(attr.name, attr.type.name) for attr in schema.get_attributes()],
             extra_exclude_cols=extra_exclude_cols,
+            force_include_cols=force_include_cols,
         )
 
         # ---- Pass 1: keys + target.
@@ -1143,3 +1155,478 @@ async def run_nonlinear_interaction_combiner_check(
             f"read the per-symbol table."
         )
     print(f"\nPRIMARY VERDICT (tree vs linear ensemble, pre-registered): {primary_verdict}")
+
+
+# ============================================================================
+# N1 (residual-form combiner with bounded exposure) -- added 2026-08-25.
+# Pre-registered design: docs/research/measurement-nonlinear-interaction-combiner.md
+# "Pre-registered test designs" section. Nothing above this line is touched by N1; every
+# function here is new, additive infrastructure reusing the primitives above.
+# ============================================================================
+
+
+def rank_normalize_within_bar_ts_inplace(X: np.ndarray, bar_ts_codes: np.ndarray) -> None:
+    """N1's shared "fixed property of the test, not an arm": every feature column is replaced by
+    its percentile rank WITHIN its own bar_ts cross-section (0, 1], so the reported result cannot
+    be a common-factor artifact (a feature that just tracks the whole market's level that instant
+    would rank-normalize to a flat, uninformative column, not a spuriously strong one).
+
+    Mutates X IN PLACE, one column at a time, rather than returning a second X-sized array.
+    Deliberate: this module was rebuilt (see fetch_training_matrix's docstring) specifically to
+    avoid a second full-width copy of X existing simultaneously with the first -- at 15m's ~8.6GB
+    X, an out-of-place rank-normalized copy would reproduce that exact OOM class. The raw values
+    are never needed again after this call (every N1 arm trains on the rank-normalized features),
+    so in-place mutation is safe, not just cheap.
+
+    Per-column pandas `.rank(pct=True)`, not a per-group Python loop: `bar_ts_codes` groups
+    correctly-ordered rows (fetch_training_matrix's `ORDER BY bar_ts ASC, symbol ASC` guarantees
+    bar_ts-contiguity, same precondition `_pooled_panel_folds` already relies on) into a narrow
+    per-column (group_code, value) frame -- ~2 float columns at a time, not the full ~250-column
+    wide frame `fetch_training_matrix`'s own docstring documents as the OOM trigger. `pct=True`
+    gives (0, 1] directly; pandas' default `rank()` assigns NaN a NaN rank (excluded from the
+    denominator, not zero-filled), which is exactly what LightGBM's native NaN handling and
+    `fit_linear_ensemble_weights`'s own median-impute-on-fit-sample step both already expect.
+    """
+    n_cols = X.shape[1]
+    for j in range(n_cols):
+        col = pd.Series(X[:, j])
+        ranked = col.groupby(bar_ts_codes, sort=False).rank(pct=True)
+        X[:, j] = ranked.to_numpy(dtype=X.dtype)
+
+
+def shuffle_target_within_bar_ts(y: np.ndarray, bar_ts_codes: np.ndarray, seed: int) -> np.ndarray:
+    """G2's shuffled-null control: permute which row within each bar_ts cross-section gets which
+    target value, independently per bar_ts group. Destroys the (features, target) pairing at
+    every cross-section -- any real signal a fold learns from this shuffled target is an artifact
+    of the pipeline (bucketing, leakage, degenerate folds), not genuine predictive power -- while
+    preserving each bar_ts's own marginal distribution of returns, the overall panel's
+    autocorrelation structure (a return series' own serial dependence is untouched, only which
+    symbol it's attached to at that instant changes), and every feature's own distribution
+    (features are never touched).
+
+    Vectorized via `_pooled_panel_folds`'s same "rows are bar_ts-contiguous" precondition:
+    within-group permutation is one `np.random.default_rng` draw per group boundary, applied via
+    fancy indexing -- no Python loop needed over groups since `pandas.Series.groupby(...).sample`
+    with `frac=1` per group, seeded once, does the equivalent shuffle in one vectorized call.
+    """
+    rng = np.random.default_rng(seed)
+    df = pd.DataFrame({"y": y, "g": bar_ts_codes})
+    shuffled = df.groupby("g", sort=False, group_keys=False)["y"].transform(
+        lambda s: s.to_numpy()[rng.permutation(len(s))]
+    )
+    return shuffled.to_numpy(dtype=y.dtype)
+
+
+def build_group_interaction_constraints(
+    feature_cols: list[str], group_name_by_feature: dict[str, str], max_groups_per_tree: int = 2
+) -> list[list[int]]:
+    """N1-b's `interaction_constraints`: LightGBM's own parameter expects a list of lists of
+    COLUMN INDICES (positions into the trained feature matrix, not names) -- each inner list is
+    one set of features the tree is permitted to interact freely within; features in different
+    inner lists can never appear together on the same root-to-leaf path.
+
+    `group_name_by_feature` sources from `concept_registry.group_name WHERE domain='feature'`
+    (the doc's original design named `feature_registry.group_name`, which no longer exists --
+    Phase 170, migration 311, retired that table 2026-08-10, after this doc was written on
+    2026-08-03; `concept_registry.group_name` is the live replacement, same column semantics,
+    confirmed live 2026-08-24). A feature with no registry row (or a NULL group_name) gets its
+    own singleton group -- LightGBM's own default behavior for an unconstrained feature, made
+    explicit here rather than silently omitted from every inner list (which would let it interact
+    with everything, defeating the constraint for that column).
+
+    `max_groups_per_tree` isn't actually enforced by this function -- LightGBM's own
+    `interaction_constraints` parameter has no "combine N groups per tree" knob; the pre-
+    registered "capped at two groups per tree" language in the design doc is closest matched by
+    keeping each domain-defined group as its own list (this function's actual behavior) and
+    relying on `max_depth=4`/`num_leaves=15`'s existing shallow-tree cap to bound how many
+    distinct groups any single root-to-leaf path can practically combine -- a depth-4 tree has at
+    most 4 splits, so at most 4 group boundaries can be crossed on any path regardless. Recorded
+    here as a documented interpretation of the pre-registered text, not a silent deviation:
+    the group-name partition itself is the load-bearing part of the design (features from
+    different named groups can never co-occur in one leaf's ancestry), which this function
+    delivers exactly.
+    """
+    groups: dict[str, list[int]] = {}
+    for idx, name in enumerate(feature_cols):
+        group = group_name_by_feature.get(name) or f"__ungrouped__{name}"
+        groups.setdefault(group, []).append(idx)
+    return list(groups.values())
+
+
+async def fetch_group_name_map(db_dsn: str) -> dict[str, str]:
+    """`concept_registry.group_name` for every `domain='feature'` row, keyed by feature name --
+    the live replacement for the design doc's `feature_registry.group_name` (see
+    `build_group_interaction_constraints`'s docstring)."""
+    conn = await asyncpg.connect(db_dsn)
+    try:
+        rows = await conn.fetch(
+            "SELECT name, group_name FROM concept_registry "
+            "WHERE domain = 'feature' AND group_name IS NOT NULL"
+        )
+    finally:
+        await conn.close()
+    return {r["name"]: r["group_name"] for r in rows}
+
+
+@dataclass
+class N1FoldGainAudit:
+    """G1's per-fold record: the single largest feature's share of that fold's total split gain,
+    for the residual-fitted tree only (G1 is tree-specific -- a linear ensemble has no "gain" to
+    concentrate). Kept per-fold, not just a single pass/fail, so a breach names which fold and
+    which feature rather than only that some fold somewhere failed."""
+
+    fold: int
+    max_gain_share: float
+    max_gain_feature: str
+    breach: bool
+
+
+def train_and_predict_oos_residual_form(
+    X: np.ndarray,
+    y: np.ndarray,
+    meta: pd.DataFrame,
+    target_col: str,
+    n_folds: int,
+    embargo_bars: int,
+    min_reliable_n: int,
+    bootstrap_seed: int,
+    *,
+    interaction_constraints: list[list[int]] | None = None,
+    gain_concentration_max_share: float = 0.15,
+) -> tuple[pd.DataFrame, list[N1FoldGainAudit]]:
+    """N1's fold loop: fit the linear ensemble `L` on the fold's training slice (identical to
+    `train_and_predict_oos`'s linear arm), fit a residual tree `T` on `y_train - L(X_train)` (NOT
+    on `y_train` directly -- the structural difference from `train_and_predict_oos`'s parallel
+    tree, which predicts the target directly), then score the held-out test slice as the
+    fixed-coefficient composite `S = z_train(L) + z_train(T)`.
+
+    `z_train(.)` standardizes using the TRAINING fold's own in-sample mean/std of that arm's
+    scores (`L(X_train)` for the linear arm, `T(X_train)` -- the tree predicting its own training
+    residual -- for the tree arm), applied to whatever slice is being scored. This is the
+    pre-registered spec verbatim ("both scores are standardized using the training fold's own
+    mean and standard deviation") -- never derived from the test slice, which would leak
+    information about held-out rows into their own score's normalization (same discipline
+    `score_linear_ensemble` already documents for its own impute/standardize values).
+
+    Composite coefficient is fixed at 1 for both terms (`S = z(L) + z(T)`, not `a*z(L) + b*z(T)`)
+    per the pre-registered hypothesis -- any coefficient fit on held-out data is a leak, any
+    coefficient fit in-fold adds a free parameter the test does not need, so neither is done.
+
+    Same hyperparameters as `train_and_predict_oos`'s tree (N1-a, "current hyperparameters
+    unchanged") -- `interaction_constraints` is the only parameter that differs between N1-a
+    (`None`) and N1-b (`build_group_interaction_constraints`'s output), passed straight through
+    to `lgb.LGBMRegressor`.
+
+    Returns the OOS frame (with `linear_score`, `tree_score` [[the residual prediction itself,
+    NOT yet standardized -- see composite_score]], `composite_score` [[the actual S]], and the
+    target) plus one `N1FoldGainAudit` per fold for G1's gain-concentration guardrail. Same
+    per-fold model-drop-and-gc discipline as `train_and_predict_oos` (todo 234) -- an unconditional
+    `del model; gc.collect()` after each fold's gain audit is read out, never carrying multiple
+    folds' Boosters simultaneously.
+    """
+    bar_ts_int = pd.DatetimeIndex(meta["bar_ts"]).asi8
+    folds = _pooled_panel_folds(
+        bar_ts_int, n_folds=n_folds, embargo_bars=embargo_bars, min_reliable_n=min_reliable_n
+    )
+    print(f"N1 walk-forward folds (expanding window, embargo={embargo_bars} bars): {folds}")
+
+    valid_mask = ~np.isnan(y)
+    oos_frames = []
+    gain_audits: list[N1FoldGainAudit] = []
+    feature_names = [
+        f"f{i}" for i in range(X.shape[1])
+    ]  # positional, matches interaction_constraints' index space
+
+    for k, (train_end, test_start, test_end) in enumerate(folds):
+        fold_valid = valid_mask[:train_end]
+        if fold_valid.all():
+            X_train, y_train = X[:train_end], y[:train_end]
+        else:
+            X_train, y_train = X[:train_end][fold_valid], y[:train_end][fold_valid]
+
+        linear_fit = fit_linear_ensemble_weights(X_train, y_train, rng_seed=bootstrap_seed)
+        linear_train_scores = score_linear_ensemble(linear_fit, X_train)
+        residual_train = y_train - linear_train_scores
+
+        tree_kwargs: dict[str, object] = dict(
+            n_estimators=200,
+            max_depth=4,
+            num_leaves=15,
+            min_child_samples=200,
+            learning_rate=0.05,
+            reg_alpha=1.0,
+            reg_lambda=1.0,
+            subsample=0.8,
+            colsample_bytree=0.8,
+            random_state=bootstrap_seed,
+            verbosity=-1,
+            importance_type="gain",
+        )
+        if interaction_constraints is not None:
+            tree_kwargs["interaction_constraints"] = interaction_constraints
+        model = lgb.LGBMRegressor(**tree_kwargs)
+        model.fit(X_train, residual_train, feature_name=feature_names)
+
+        tree_train_scores = model.predict(X_train)  # T(X_train), in-sample -- z_train stats only
+
+        # G1: gain concentration, this fold's fitted tree only.
+        gains = np.asarray(model.feature_importances_, dtype=float)
+        total_gain = gains.sum()
+        if total_gain > 0:
+            max_idx = int(np.argmax(gains))
+            max_share = float(gains[max_idx] / total_gain)
+            max_feature = feature_names[max_idx]
+        else:
+            max_share, max_feature = 0.0, "none"
+        gain_audits.append(
+            N1FoldGainAudit(
+                fold=k,
+                max_gain_share=max_share,
+                max_gain_feature=max_feature,
+                breach=max_share > gain_concentration_max_share,
+            )
+        )
+
+        mean_L, std_L = float(linear_train_scores.mean()), float(linear_train_scores.std())
+        mean_T, std_T = float(tree_train_scores.mean()), float(tree_train_scores.std())
+        std_L = std_L if std_L > 1e-12 else 1.0
+        std_T = std_T if std_T > 1e-12 else 1.0
+
+        test_idx = np.arange(test_start, test_end)
+        X_test = X[test_idx]
+        linear_test_scores = score_linear_ensemble(linear_fit, X_test)
+        tree_test_scores = model.predict(X_test)  # T(X_test) -- predicts the RESIDUAL, not y
+
+        z_L = (linear_test_scores - mean_L) / std_L
+        z_T = (tree_test_scores - mean_T) / std_T
+        composite = z_L + z_T  # S = z_train(L) + z_train(T), coefficient fixed at 1
+
+        fold_df = meta.iloc[test_idx].copy()
+        fold_df[target_col] = y[test_idx]
+        fold_df["linear_score"] = linear_test_scores
+        fold_df["tree_score"] = tree_test_scores
+        fold_df["composite_score"] = composite
+        fold_df["fold"] = k
+        oos_frames.append(fold_df)
+
+        del model
+        gc.collect()
+
+        peak_rss_gb = resource.getrusage(resource.RUSAGE_SELF).ru_maxrss * 1024 / 1e9
+        print(
+            f"  N1 fold {k}: train_n={len(X_train)}  test_n={len(test_idx)}  "
+            f"gain_share={max_share:.3f} ({max_feature})  peak_rss={peak_rss_gb:.2f}GB"
+        )
+
+    return pd.concat(oos_frames, ignore_index=True), gain_audits
+
+
+def _cross_sectional_neutral_paired_diff_with_pvalue(
+    oos: pd.DataFrame,
+    score_a_col: str,
+    score_b_col: str,
+    target_col: str,
+    cross_sectional_block_bars: int,
+    n_boot: int,
+    seed: int,
+) -> dict[str, float | bool]:
+    """Cross-sectional-neutral (within-bar_ts demeaned) paired bootstrap of
+    `IC(score_a) - IC(score_b)`, plus a two-sided bootstrap p-value.
+
+    Deliberately parallels `paired_bootstrap_ic_difference` rather than calling it: that function
+    (used by `run_nonlinear_interaction_combiner_check`'s own PRIMARY VERDICT) returns only the
+    percentile CI, not the underlying bootstrap distribution -- N1's BH-FDR family (6 tests: 2
+    arms x 3 tfs) needs an actual p-value per test, not just a CI, and re-deriving one from a
+    normal approximation of the CI would be a different, less faithful statistic than the
+    bootstrap's own empirical distribution. Same block-resampling mechanic (shared block-start
+    draw per iteration, re-rank the resampled subset every iteration -- ic_math.py's documented
+    correctness requirement), so results are directly comparable to every other paired-bootstrap
+    number in this module; the only addition is keeping the raw per-iteration diffs to compute a
+    two-sided empirical p-value (`2 * min(P(diff<=0), P(diff>=0))`, clipped at 1.0) alongside the
+    CI, in one resampling pass rather than two.
+    """
+    work = oos.dropna(subset=[score_a_col, score_b_col, target_col]).sort_values(
+        ["bar_ts", "symbol"]
+    )
+    bar_mean_a = work.groupby("bar_ts")[score_a_col].transform("mean")
+    bar_mean_b = work.groupby("bar_ts")[score_b_col].transform("mean")
+    bar_mean_actual = work.groupby("bar_ts")[target_col].transform("mean")
+    within_a = (work[score_a_col] - bar_mean_a).to_numpy(dtype=float)
+    within_b = (work[score_b_col] - bar_mean_b).to_numpy(dtype=float)
+    within_actual = (work[target_col] - bar_mean_actual).to_numpy(dtype=float)
+
+    n_symbols_per_bar = work.groupby("bar_ts").size().median()
+    block_size = max(10, int(n_symbols_per_bar * cross_sectional_block_bars))
+
+    n = len(within_actual)
+    n_blocks = math.ceil(n / block_size)
+    offsets = np.arange(block_size)
+    X_pair = np.column_stack([within_a, within_b])
+
+    rng = np.random.default_rng(seed)
+    diffs = np.empty(n_boot)
+    for b in range(n_boot):
+        starts = rng.integers(0, n, size=n_blocks)
+        idx = (starts[:, None] + offsets).ravel()[:n] % n
+        ic_pair = compute_ic_vectorized(X_pair[idx], within_actual[idx])
+        diffs[b] = ic_pair[0] - ic_pair[1]
+
+    point_a = float(pd.Series(within_a).rank().corr(pd.Series(within_actual).rank()))
+    point_b = float(pd.Series(within_b).rank().corr(pd.Series(within_actual).rank()))
+    ci_lower = float(np.percentile(diffs, 2.5))
+    ci_upper = float(np.percentile(diffs, 97.5))
+    p_two_sided = float(min(1.0, 2.0 * min((diffs <= 0).mean(), (diffs >= 0).mean())))
+    return {
+        "n": n,
+        "block_size": block_size,
+        "point_a": point_a,
+        "point_b": point_b,
+        "point_diff": point_a - point_b,
+        "ci_lower": ci_lower,
+        "ci_upper": ci_upper,
+        "p_value": p_two_sided,
+    }
+
+
+async def run_n1_check(
+    tf: str,
+    db_dsn: str,
+    *,
+    arm_label: str,
+    embargo_bars: int,
+    bootstrap_block_size: int,
+    n_folds: int = 5,
+    min_reliable_n: int = 50,
+    n_boot: int = 500,
+    bootstrap_seed: int = 42,
+    cross_sectional_block_bars: int = 2,
+    feature_dtype: type = np.float32,
+    interaction_constraints_group_map: dict[str, str] | None = None,
+    force_include_cols: frozenset[str] = frozenset(),
+    run_shuffled_null: bool = True,
+    gain_concentration_max_share: float = 0.15,
+) -> dict[str, object]:
+    """One N1 arm at one timeframe, end to end: fetch -> rank-normalize (fixed test property) ->
+    residual-form walk-forward (`train_and_predict_oos_residual_form`) -> cross-sectional-neutral
+    paired bootstrap of `IC(composite) - IC(linear)` with a p-value (for the caller's own
+    cross-run BH-FDR family) -> G1 (gain concentration) -> G2 (shuffled null, unless disabled) ->
+    G4's discipline (no arm added here beyond N1-a/N1-b, enforced by the caller's own fixed arm
+    list, not by this function). G3 (canary re-inclusion) is a SEPARATE, single diagnostic run
+    the caller makes directly via `force_include_cols`, not part of every arm x tf run -- doing it
+    on every run would triple the guardrail's own cost for no additional information (a canary
+    that leaks once leaks the same way regardless of which arm/tf it rides along on).
+
+    Returns a dict (not a verdict) -- criterion 3 (same sign at >=2/3 timeframes) and criterion 4
+    (BH-FDR across the 6-test family) are both cross-run concerns the pre-registered design scopes
+    at the family level, not per-run; the calling script collects one of these dicts per (arm, tf)
+    and applies both there.
+    """
+    print(f"\n{'=' * 100}\nN1 {arm_label} @ {tf}\n{'=' * 100}")
+    data = await fetch_training_matrix(
+        db_dsn,
+        tf,
+        target_min_periods=50,
+        feature_dtype=feature_dtype,
+        force_include_cols=force_include_cols,
+    )
+    print(f"Loaded {data.n_raw} equity {tf} rows, {len(data.feature_cols)} feature columns.")
+
+    bar_ts_codes = pd.factorize(data.meta["bar_ts"])[0]
+    rank_normalize_within_bar_ts_inplace(data.X, bar_ts_codes)
+    print("Rank-normalized within bar_ts (fixed test property, all arms).")
+
+    interaction_constraints = None
+    if interaction_constraints_group_map is not None:
+        interaction_constraints = build_group_interaction_constraints(
+            data.feature_cols, interaction_constraints_group_map
+        )
+        print(f"N1-b interaction_constraints: {len(interaction_constraints)} groups.")
+
+    oos, gain_audits = train_and_predict_oos_residual_form(
+        data.X,
+        data.y,
+        data.meta,
+        "return_fast_demeaned",
+        n_folds,
+        embargo_bars,
+        min_reliable_n,
+        bootstrap_seed,
+        interaction_constraints=interaction_constraints,
+        gain_concentration_max_share=gain_concentration_max_share,
+    )
+
+    stats = _cross_sectional_neutral_paired_diff_with_pvalue(
+        oos,
+        "composite_score",
+        "linear_score",
+        "return_fast_demeaned",
+        cross_sectional_block_bars,
+        n_boot,
+        bootstrap_seed,
+    )
+    print(
+        f"\nCross-sectional-neutral IC(composite) - IC(linear): n={stats['n']} "
+        f"point_diff={stats['point_diff']:.4f} ci_lower={stats['ci_lower']:.4f} "
+        f"ci_upper={stats['ci_upper']:.4f} p={stats['p_value']:.4f}"
+    )
+
+    g1_breach = any(a.breach for a in gain_audits)
+    if g1_breach:
+        breaches = [a for a in gain_audits if a.breach]
+        print(
+            f"G1 BREACH: {len(breaches)}/{len(gain_audits)} folds exceeded "
+            f"{gain_concentration_max_share:.0%} gain concentration -- "
+            f"{[(a.fold, a.max_gain_feature, round(a.max_gain_share, 3)) for a in breaches]}"
+        )
+    else:
+        print(
+            f"G1 clean: max gain share across {len(gain_audits)} folds = "
+            f"{max(a.max_gain_share for a in gain_audits):.3f}"
+        )
+
+    g2_result: dict[str, float | bool] | None = None
+    if run_shuffled_null:
+        y_shuffled = shuffle_target_within_bar_ts(data.y, bar_ts_codes, seed=bootstrap_seed)
+        oos_null, _null_gain_audits = train_and_predict_oos_residual_form(
+            data.X,
+            y_shuffled,
+            data.meta,
+            "return_fast_demeaned",
+            n_folds,
+            embargo_bars,
+            min_reliable_n,
+            bootstrap_seed,
+            interaction_constraints=interaction_constraints,
+            gain_concentration_max_share=gain_concentration_max_share,
+        )
+        g2_result = _cross_sectional_neutral_paired_diff_with_pvalue(
+            oos_null,
+            "composite_score",
+            "linear_score",
+            "return_fast_demeaned",
+            cross_sectional_block_bars,
+            n_boot,
+            bootstrap_seed,
+        )
+        g2_breach = g2_result["ci_lower"] > 0
+        print(
+            f"G2 shuffled-null: point_diff={g2_result['point_diff']:.4f} "
+            f"ci_lower={g2_result['ci_lower']:.4f} -- {'BREACH (ci_lower>0 under null!)' if g2_breach else 'clean'}"
+        )
+    else:
+        g2_breach = False
+
+    return {
+        "tf": tf,
+        "arm": arm_label,
+        "n": stats["n"],
+        "point_diff": stats["point_diff"],
+        "ci_lower": stats["ci_lower"],
+        "ci_upper": stats["ci_upper"],
+        "p_value": stats["p_value"],
+        "g1_breach": g1_breach,
+        "g1_gain_audits": gain_audits,
+        "g2_breach": g2_breach,
+        "g2_result": g2_result,
+        "n_feature_cols": len(data.feature_cols),
+    }

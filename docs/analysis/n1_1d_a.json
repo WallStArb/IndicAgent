@@ -1,0 +1,45 @@
+{
+  "tf": "1d",
+  "arm": "N1-a",
+  "n": 793210,
+  "point_diff": -0.0018139552699684737,
+  "ci_lower": -0.008314906783453788,
+  "ci_upper": 0.004238100601456988,
+  "p_value": 0.568,
+  "g1_breach": true,
+  "g1_gain_audits": [
+    {
+      "fold": 0,
+      "max_gain_share": 0.40440857725860474,
+      "max_gain_feature": "f14",
+      "breach": true
+    },
+    {
+      "fold": 1,
+      "max_gain_share": 0.3427276195268252,
+      "max_gain_feature": "f14",
+      "breach": true
+    },
+    {
+      "fold": 2,
+      "max_gain_share": 0.4533979423229464,
+      "max_gain_feature": "f43",
+      "breach": true
+    },
+    {
+      "fold": 3,
+      "max_gain_share": 0.5425588013074162,
+      "max_gain_feature": "f33",
+      "breach": true
+    },
+    {
+      "fold": 4,
+      "max_gain_share": 0.37545798581895545,
+      "max_gain_feature": "f43",
+      "breach": true
+    }
+  ],
+  "g2_breach": false,
+  "g2_result": null,
+  "n_feature_cols": 303
+}
