@@ -34,6 +34,7 @@ from services.ic_engine import (
     _compute_one_broadcast_cell,
     _compute_one_cross_sectional_cell,
     _compute_one_regime_cell,
+    _compute_one_symbol_broadcast_cell,
     _compute_symbol_tf,
     _subsample_and_rank,
 )
@@ -49,6 +50,8 @@ def test_compute_symbol_tf_return_keys():
     # snapshot this function used to receive.
     # Phase 151 Plan 02: cluster_regime_conditioned added, threaded through the
     # identical path dual_write_symbol_hmm already takes (migration 286).
+    # Todo 354: broadcast_features added, threaded through the identical path
+    # _compute_cross_sectional_tf's own param of the same name already takes.
     expected_params = [
         "dsn",
         "symbol",
@@ -62,6 +65,7 @@ def test_compute_symbol_tf_return_keys():
         "mr_dict",
         "dual_write_symbol_hmm",
         "cluster_regime_conditioned",
+        "broadcast_features",
     ]
     assert params == expected_params, f"Expected params {expected_params}, got {params}"
 
@@ -1460,6 +1464,575 @@ def test_broadcast_cell_below_min_reliable_n_emits_zero_rows():
     )
     assert rows == []
     assert n_skipped >= 1
+
+
+# ---------------------------------------------------------------------------
+# Todo 354: _compute_one_regime_cell's new broadcast_mask param (exclusion) +
+# _compute_one_symbol_broadcast_cell (the day-decimated broadcast significance
+# test for the per-symbol path -- temporal, not cross-sectional, pseudo-
+# replication). Synthetic in-memory fixtures shaped like one real
+# _compute_symbol_tf fetch: n_features columns (matching _FEATURE_NAMES
+# exactly), D distinct calendar days x B bars per day.
+# ---------------------------------------------------------------------------
+
+
+def _symbol_broadcast_bar_ts(
+    n_days: int, bars_per_day: int, minutes_per_bar: int = 5
+) -> np.ndarray:
+    """Ascending, day-contiguous bar_ts -- B bars per day, D days, matching the
+    real fetch's ORDER BY bar_ts ascending guarantee."""
+    start = datetime(2024, 1, 1, tzinfo=UTC)
+    ts_list = []
+    for d in range(n_days):
+        day_start = start + timedelta(days=d)
+        for b in range(bars_per_day):
+            ts_list.append(day_start + timedelta(minutes=minutes_per_bar * b))
+    return np.array(ts_list, dtype=object)
+
+
+def _symbol_broadcast_cell_inputs(
+    n_days: int = 6,
+    bars_per_day: int = 4,
+    broadcast_idx: tuple[int, ...] = (0, 5, 10),
+    seed: int = 23,
+):
+    """Synthetic X_aligned/returns_mat/complete_mat/bar_ts_aligned/mask/
+    broadcast_mask, with broadcast_idx columns held IDENTICAL across every bar
+    of a given day (satisfies the within-day-invariance guard by construction)
+    -- the per-symbol analog of _broadcast_cell_inputs' cross-symbol version."""
+    n_features = len(_FEATURE_NAMES)
+    n_rows = n_days * bars_per_day
+    rng = np.random.default_rng(seed)
+    X_aligned = rng.normal(size=(n_rows, n_features)).astype(np.float32)
+
+    if broadcast_idx:
+        day_vals = rng.normal(size=(n_days, len(broadcast_idx))).astype(np.float32)
+        for d in range(n_days):
+            sl = slice(d * bars_per_day, (d + 1) * bars_per_day)
+            X_aligned[sl, list(broadcast_idx)] = day_vals[d]
+
+    bar_ts_aligned = _symbol_broadcast_bar_ts(n_days, bars_per_day)
+    broadcast_mask = np.zeros(n_features, dtype=bool)
+    if broadcast_idx:
+        broadcast_mask[list(broadcast_idx)] = True
+
+    returns_mat = rng.normal(size=(n_rows, 1))
+    complete_mat = np.ones((n_rows, 1), dtype=bool)
+    mask = np.ones(n_rows, dtype=bool)
+
+    return bar_ts_aligned, X_aligned, returns_mat, complete_mat, mask, broadcast_mask
+
+
+def _call_symbol_broadcast_cell(
+    bar_ts_aligned,
+    X_aligned,
+    returns_mat,
+    complete_mat,
+    mask,
+    broadcast_mask,
+    *,
+    config=None,
+    seed=101,
+    symbol="TEST",
+    tf="1d",
+    is_pooled=True,
+    resolved_regime_scope="forward_filter",
+):
+    if config is None:
+        config = _broadcast_test_config()
+    return _compute_one_symbol_broadcast_cell(
+        "calm",
+        is_pooled,
+        mask,
+        resolved_regime_scope,
+        X_aligned=X_aligned,
+        returns_mat=returns_mat,
+        complete_mat=complete_mat,
+        bar_ts_aligned=bar_ts_aligned,
+        broadcast_mask=broadcast_mask,
+        config=config,
+        symbol=symbol,
+        tf=tf,
+        rng=np.random.default_rng(seed),
+        training_window_end=None,
+        feature_status_map=None,
+        run_ts=None,
+    )
+
+
+def test_symbol_broadcast_cell_grouping_uses_no_sort_or_unique():
+    """Same discipline as the cross-sectional sibling's identical test: the
+    grouping code path must contain none of np.unique, np.sort, np.argsort, or
+    a pandas groupby -- day-boundary detection is a forward boundary scan, not
+    a sort."""
+    fn = _compute_one_symbol_broadcast_cell
+    full_source = inspect.getsource(fn)
+    docstring = fn.__doc__ or ""
+    body_source = full_source.replace(docstring, "", 1)
+    for forbidden in ("np.unique", "np.sort(", ".sort(", "np.argsort", "groupby", ".sort_values("):
+        assert forbidden not in body_source, (
+            f"_compute_one_symbol_broadcast_cell's executable body must not use "
+            f"{forbidden!r} in its grouping code path"
+        )
+
+
+def test_symbol_broadcast_cell_invariance_guard_uses_nan_safe_reductions():
+    """Same discipline as the cross-sectional sibling: np.fmax.reduceat/
+    np.fmin.reduceat (NaN-ignoring), never np.maximum.reduceat/
+    np.minimum.reduceat (NaN-propagating)."""
+    source = inspect.getsource(_compute_one_symbol_broadcast_cell)
+    assert "np.fmax.reduceat" in source
+    assert "np.fmin.reduceat" in source
+    assert "np.maximum.reduceat" not in source
+    assert "np.minimum.reduceat" not in source
+
+
+def test_symbol_broadcast_cell_empty_mask_returns_empty_without_calling_subsample_and_rank(
+    monkeypatch,
+):
+    """<behavior>: given an empty broadcast mask, the function returns an empty
+    row list and does not call _subsample_and_rank."""
+    import services.ic_engine as ic_module
+
+    bar_ts_aligned, X_aligned, returns_mat, complete_mat, mask, broadcast_mask = (
+        _symbol_broadcast_cell_inputs(n_days=4, bars_per_day=3, broadcast_idx=())
+    )
+
+    def _spy(*args, **kwargs):
+        raise AssertionError("_subsample_and_rank must not be called for an empty broadcast mask")
+
+    monkeypatch.setattr(ic_module, "_subsample_and_rank", _spy)
+
+    rows, n_skipped = _call_symbol_broadcast_cell(
+        bar_ts_aligned, X_aligned, returns_mat, complete_mat, mask, broadcast_mask
+    )
+    assert rows == []
+    assert n_skipped == 0
+
+
+def test_symbol_broadcast_cell_none_mask_returns_empty():
+    """<behavior>: broadcast_mask=None is treated identically to an all-False
+    mask -- early-return, no compute attempted."""
+    bar_ts_aligned, X_aligned, returns_mat, complete_mat, mask, _ = _symbol_broadcast_cell_inputs(
+        n_days=4, bars_per_day=3
+    )
+    rows, n_skipped = _call_symbol_broadcast_cell(
+        bar_ts_aligned, X_aligned, returns_mat, complete_mat, mask, None
+    )
+    assert rows == []
+    assert n_skipped == 0
+
+
+def test_symbol_broadcast_cell_collapses_to_one_row_per_calendar_day():
+    """<behavior>/acceptance: at tf='1d' (day_stride always 1 -- 1d is not in
+    config.broadcast_max_bars_per_day, so broadcast_max_bars_per_day_for
+    returns the large sentinel), n_independent equals the distinct-day count
+    exactly, not the raw bar count -- proves the day-collapse itself, isolated
+    from the day_stride mechanism tested separately below."""
+    n_days, bars_per_day = 7, 4
+    bar_ts_aligned, X_aligned, returns_mat, complete_mat, mask, broadcast_mask = (
+        _symbol_broadcast_cell_inputs(n_days=n_days, bars_per_day=bars_per_day)
+    )
+
+    rows, _ = _call_symbol_broadcast_cell(
+        bar_ts_aligned, X_aligned, returns_mat, complete_mat, mask, broadcast_mask, tf="1d"
+    )
+
+    assert len(rows) > 0
+    for r in rows:
+        assert r["n_independent"] == n_days
+
+
+def test_symbol_broadcast_cell_day_stride_reduces_observations_for_long_lookahead_scale():
+    """<behavior>/acceptance, the core new-logic test (todo 354's own finding):
+    at tf='1h', the 'slow' scale's lookahead_bars=20 exceeds
+    broadcast_max_bars_per_day['1h']=7 (real production APR values, migration
+    325) -- day-decimation alone is NOT enough embargo separation, so
+    day_stride = ceil(20/7) = 3 must reduce n_independent below the raw
+    distinct-day count, to exactly ceil(n_days/3). Directly proves the ceiling-
+    division day_stride formula, not just that SOME reduction happens."""
+    n_days, bars_per_day = 30, 5
+    bar_ts_aligned, X_aligned, returns_mat, complete_mat, mask, broadcast_mask = (
+        _symbol_broadcast_cell_inputs(n_days=n_days, bars_per_day=bars_per_day)
+    )
+    config = _broadcast_test_config(
+        active_scales={
+            "5m": ("fast",),
+            "15m": ("fast",),
+            "1h": ("slow",),
+            "1d": ("fast",),
+        },
+        min_reliable_n=2,
+    )
+    assert config.lookaheads_for("1h")["slow"] == 20
+    assert config.broadcast_max_bars_per_day_for("1h") == 7
+    expected_day_stride = 3  # ceil(20/7)
+    expected_n_independent = -(-n_days // expected_day_stride)  # ceil(n_days/3)
+
+    rows, _ = _call_symbol_broadcast_cell(
+        bar_ts_aligned,
+        X_aligned,
+        returns_mat,
+        complete_mat,
+        mask,
+        broadcast_mask,
+        config=config,
+        tf="1h",
+    )
+
+    assert len(rows) > 0
+    for r in rows:
+        assert r["n_independent"] == expected_n_independent
+        assert r["n_independent"] < n_days  # the regression this test guards against
+
+
+def test_symbol_broadcast_cell_day_stride_is_noop_for_short_lookahead_scale():
+    """<behavior>: at tf='5m', every configured lookahead_bars (max 39,
+    extended) is smaller than broadcast_max_bars_per_day['5m']=78 -- day_stride
+    must be exactly 1 (a no-op beyond the day-collapse itself), matching the
+    project's own analysis that day-decimation alone suffices at 5m/15m."""
+    n_days, bars_per_day = 10, 6
+    bar_ts_aligned, X_aligned, returns_mat, complete_mat, mask, broadcast_mask = (
+        _symbol_broadcast_cell_inputs(n_days=n_days, bars_per_day=bars_per_day)
+    )
+    config = _broadcast_test_config(
+        active_scales={
+            "5m": ("extended",),
+            "15m": ("fast",),
+            "1h": ("fast",),
+            "1d": ("fast",),
+        },
+        min_reliable_n=2,
+    )
+    assert config.lookaheads_for("5m")["extended"] == 39
+    assert config.broadcast_max_bars_per_day_for("5m") == 78
+
+    rows, _ = _call_symbol_broadcast_cell(
+        bar_ts_aligned,
+        X_aligned,
+        returns_mat,
+        complete_mat,
+        mask,
+        broadcast_mask,
+        config=config,
+        tf="5m",
+    )
+
+    assert len(rows) > 0
+    for r in rows:
+        assert r["n_independent"] == n_days
+
+
+def test_symbol_broadcast_cell_embargo_and_bootstrap_block_size_are_day_units(monkeypatch):
+    """<behavior>/acceptance -- independent-review finding, caught before shipping:
+    _subsample_and_rank must be called with embargo_bars=1 and
+    bootstrap_block_size=max(1, config.bootstrap_block_size[tf] //
+    max_bars_per_day), NOT the raw lookahead_bars/config.bootstrap_block_size[tf]
+    the sibling per-bar cells use directly. Both of those sibling values are
+    calibrated in RAW BAR units; X_sub_nd here is already day-strided (each row
+    ~day_stride trading days apart), so passing them unconverted would either
+    over-embargo by ~day_stride x (silently starving walk-forward folds on
+    smaller real cells) or size bootstrap blocks at ~day_stride x too many
+    trading days each (few, huge blocks -> understated standard errors ->
+    falsely narrow/significant CIs -- reintroducing overstated significance
+    through a different mechanism than the bug this fix exists to close)."""
+    import services.ic_engine as ic_module
+
+    bar_ts_aligned, X_aligned, returns_mat, complete_mat, mask, broadcast_mask = (
+        _symbol_broadcast_cell_inputs(n_days=30, bars_per_day=5)
+    )
+    config = _broadcast_test_config(
+        active_scales={
+            "5m": ("fast",),
+            "15m": ("fast",),
+            "1h": ("slow",),
+            "1d": ("fast",),
+        },
+        min_reliable_n=2,
+        bootstrap_block_size={"5m": 78, "15m": 26, "1h": 10, "1d": 10},
+    )
+    assert config.lookaheads_for("1h")["slow"] == 20
+    assert config.broadcast_max_bars_per_day_for("1h") == 7
+    expected_embargo = 1
+    expected_block_size = max(1, 10 // 7)  # config.bootstrap_block_size["1h"] // max_bars_per_day
+
+    captured_kwargs = {}
+    real_subsample_and_rank = ic_module._subsample_and_rank
+
+    def _spy(*args, **kwargs):
+        captured_kwargs.update(kwargs)
+        return real_subsample_and_rank(*args, **kwargs)
+
+    monkeypatch.setattr(ic_module, "_subsample_and_rank", _spy)
+
+    rows, _ = _call_symbol_broadcast_cell(
+        bar_ts_aligned,
+        X_aligned,
+        returns_mat,
+        complete_mat,
+        mask,
+        broadcast_mask,
+        config=config,
+        tf="1h",
+    )
+
+    assert len(rows) > 0  # sanity: the scale actually ran (not skipped)
+    assert captured_kwargs["embargo_bars"] == expected_embargo, (
+        f"embargo_bars must be {expected_embargo} (row-index units of the "
+        f"day-strided array), not raw lookahead_bars=20 -- got "
+        f"{captured_kwargs['embargo_bars']}"
+    )
+    assert captured_kwargs["bootstrap_block_size"] == expected_block_size, (
+        f"bootstrap_block_size must be {expected_block_size} (converted to day "
+        f"units), not the raw per-tf config value 10 -- got "
+        f"{captured_kwargs['bootstrap_block_size']}"
+    )
+
+
+def test_symbol_broadcast_cell_every_row_has_real_symbol_identity():
+    """<behavior>: every emitted row has symbol==<the real symbol> (NOT
+    'POOLED' -- unlike the cross-sectional sibling, this is a per-symbol cell),
+    is_pooled/regime/regime_scope matching the params passed in,
+    regime_label_source=='forward_filter' (matches _compute_one_regime_cell's
+    per-symbol rows, not the cross-sectional sibling's 'market_regimes'),
+    cumulative_e_value is None, cluster_id is at least
+    _BROADCAST_CLUSTER_ID_OFFSET."""
+    bar_ts_aligned, X_aligned, returns_mat, complete_mat, mask, broadcast_mask = (
+        _symbol_broadcast_cell_inputs(n_days=6, bars_per_day=3)
+    )
+
+    rows, _ = _call_symbol_broadcast_cell(
+        bar_ts_aligned,
+        X_aligned,
+        returns_mat,
+        complete_mat,
+        mask,
+        broadcast_mask,
+        symbol="AAPL",
+        tf="1d",
+        is_pooled=False,
+        resolved_regime_scope="symbol_hmm",
+    )
+
+    assert len(rows) > 0
+    for r in rows:
+        assert r["symbol"] == "AAPL"
+        assert r["is_pooled"] is False
+        assert r["regime"] == "calm"
+        assert r["regime_scope"] == "symbol_hmm"
+        assert r["regime_label_source"] == "forward_filter"
+        assert r["cumulative_e_value"] is None
+        assert r["cluster_id"] is not None
+        assert r["cluster_id"] >= _BROADCAST_CLUSTER_ID_OFFSET
+
+
+def test_symbol_broadcast_cell_raises_on_within_day_variance_violation():
+    """<behavior>/acceptance: raises rather than returning results when a
+    masked column's within-day spread exceeds config.broadcast_variance_threshold
+    -- the per-symbol analog of the cross-sectional sibling's cross-symbol
+    guard."""
+    bar_ts_aligned, X_aligned, returns_mat, complete_mat, mask, broadcast_mask = (
+        _symbol_broadcast_cell_inputs(n_days=4, bars_per_day=3, broadcast_idx=(2,))
+    )
+    # Break invariance: day 0 occupies rows [0, 1, 2] -- disagree row 1 by far
+    # more than any plausible float32 rounding tolerance.
+    X_aligned[1, 2] += 5.0
+
+    with pytest.raises(RuntimeError, match="[Ww]ithin-day broadcast invariance violated"):
+        _call_symbol_broadcast_cell(
+            bar_ts_aligned, X_aligned, returns_mat, complete_mat, mask, broadcast_mask
+        )
+
+
+def test_symbol_broadcast_cell_all_nan_day_column_does_not_trip_invariance_guard():
+    """<behavior>: a broadcast column that is NaN for every bar in a day does
+    NOT raise -- an all-NaN day is a data gap, not an invariance violation."""
+    n_days, bars_per_day = 4, 3
+    bar_ts_aligned, X_aligned, returns_mat, complete_mat, mask, broadcast_mask = (
+        _symbol_broadcast_cell_inputs(n_days=n_days, bars_per_day=bars_per_day, broadcast_idx=(4,))
+    )
+    sl = slice(bars_per_day, 2 * bars_per_day)  # day 1's entire span
+    X_aligned[sl, 4] = np.nan
+
+    rows, _ = _call_symbol_broadcast_cell(
+        bar_ts_aligned, X_aligned, returns_mat, complete_mat, mask, broadcast_mask
+    )
+    assert isinstance(rows, list)  # did not raise
+
+
+def test_symbol_broadcast_cell_below_min_reliable_n_emits_zero_rows():
+    """<behavior>: given fewer than min_reliable_n usable days for a scale, the
+    function emits no rows for that scale."""
+    bar_ts_aligned, X_aligned, returns_mat, complete_mat, mask, broadcast_mask = (
+        _symbol_broadcast_cell_inputs(n_days=1, bars_per_day=3, broadcast_idx=(6,))
+    )
+    config = _broadcast_test_config(min_reliable_n=2)  # 1 distinct day < 2
+
+    rows, n_skipped = _call_symbol_broadcast_cell(
+        bar_ts_aligned, X_aligned, returns_mat, complete_mat, mask, broadcast_mask, config=config
+    )
+    assert rows == []
+    assert n_skipped >= 1
+
+
+def test_symbol_broadcast_cell_zero_regime_rows_returns_empty():
+    """<behavior>: an all-False mask (this regime pass matched zero rows for
+    this symbol/tf) returns empty without indexing into a zero-length array."""
+    bar_ts_aligned, X_aligned, returns_mat, complete_mat, mask, broadcast_mask = (
+        _symbol_broadcast_cell_inputs(n_days=4, bars_per_day=3)
+    )
+    mask = np.zeros(len(mask), dtype=bool)
+
+    rows, n_skipped = _call_symbol_broadcast_cell(
+        bar_ts_aligned, X_aligned, returns_mat, complete_mat, mask, broadcast_mask
+    )
+    assert rows == []
+    assert n_skipped == len(np.where(broadcast_mask)[0])
+
+
+def _regime_cell_config(**overrides) -> ICEngineConfig:
+    """Mirrors _broadcast_test_config's shape for _compute_one_regime_cell
+    round-trip tests -- same small-bootstrap defaults."""
+    return _broadcast_test_config(**overrides)
+
+
+def _regime_cell_inputs(n_rows: int = 40, seed: int = 31):
+    n_features = len(_FEATURE_NAMES)
+    rng = np.random.default_rng(seed)
+    X_aligned = rng.normal(size=(n_rows, n_features)).astype(np.float32)
+    returns_mat = rng.normal(size=(n_rows, 1))
+    complete_mat = np.ones((n_rows, 1), dtype=bool)
+    return X_aligned, returns_mat, complete_mat
+
+
+def _call_regime_cell(X_aligned, returns_mat, complete_mat, *, broadcast_mask=None, seed=201):
+    config = _broadcast_test_config()
+    return _compute_one_regime_cell(
+        "calm",
+        True,
+        np.ones(len(X_aligned), dtype=bool),
+        "forward_filter",
+        X_aligned=X_aligned,
+        returns_mat=returns_mat,
+        complete_mat=complete_mat,
+        config=config,
+        symbol="TEST",
+        tf="1d",
+        rng=np.random.default_rng(seed),
+        training_window_end=None,
+        feature_status_map=None,
+        run_ts=None,
+        broadcast_mask=broadcast_mask,
+    )
+
+
+def test_compute_one_regime_cell_broadcast_mask_none_matches_all_false_mask():
+    """<behavior>/backward-compatibility guarantee (todo 354): every
+    pre-existing call site omits broadcast_mask entirely -- broadcast_mask=None
+    (the default) must produce results BIT-IDENTICAL to an explicit
+    all-False mask, since both mean "no feature is excluded." This is the
+    contract that makes adding this param to a hot, widely-called function
+    safe: zero behavior change for any caller that doesn't pass it."""
+    X_aligned, returns_mat, complete_mat = _regime_cell_inputs()
+    n_features = len(_FEATURE_NAMES)
+
+    rows_none, n_skipped_none, _ = _call_regime_cell(
+        X_aligned, returns_mat, complete_mat, broadcast_mask=None
+    )
+    rows_zeros, n_skipped_zeros, _ = _call_regime_cell(
+        X_aligned, returns_mat, complete_mat, broadcast_mask=np.zeros(n_features, dtype=bool)
+    )
+
+    assert n_skipped_none == n_skipped_zeros
+    assert len(rows_none) == len(rows_zeros)
+    for r_none, r_zeros in zip(rows_none, rows_zeros, strict=True):
+        assert r_none["feature_name"] == r_zeros["feature_name"]
+        assert r_none["ic_value"] == r_zeros["ic_value"]
+        assert r_none["cluster_id"] == r_zeros["cluster_id"]
+
+
+def test_compute_one_regime_cell_excludes_broadcast_features_from_emission():
+    """<behavior>/acceptance (todo 354): when broadcast_mask marks a feature,
+    _compute_one_regime_cell emits NO row (not even a NaN row) for that
+    feature -- the load-bearing half of the split, same reasoning as the
+    cross-sectional sibling's identical exclusion (Phase 173)."""
+    X_aligned, returns_mat, complete_mat = _regime_cell_inputs()
+    n_features = len(_FEATURE_NAMES)
+    broadcast_mask = np.zeros(n_features, dtype=bool)
+    broadcast_idx = [3, 17, 42]
+    broadcast_mask[broadcast_idx] = True
+    broadcast_names = {_FEATURE_NAMES[i] for i in broadcast_idx}
+
+    rows, _, _ = _call_regime_cell(
+        X_aligned, returns_mat, complete_mat, broadcast_mask=broadcast_mask
+    )
+
+    emitted_names = {r["feature_name"] for r in rows}
+    assert emitted_names.isdisjoint(broadcast_names), (
+        f"Broadcast features {broadcast_names & emitted_names} must never appear "
+        "in _compute_one_regime_cell's output once excluded via broadcast_mask"
+    )
+    assert len(rows) > 0  # sanity: non-broadcast features still emitted
+
+
+def test_compute_symbol_tf_broadcast_mask_intersects_temporal_verified_set():
+    """<behavior>/acceptance (todo 354, caught by a live DB smoke check that
+    found concept_registry's broadcast=true flag covers ~38 features, most of
+    them genuinely intraday-varying calendar/session/structural columns --
+    hour_of_day_cos among them, empirically confirmed 78 distinct values across
+    one real trading day). _compute_symbol_tf's broadcast_mask MUST intersect
+    broadcast_features with _TEMPORAL_BROADCAST_FEATURE_NAMES, not use
+    broadcast_features directly (unlike _compute_cross_sectional_tf's
+    identically-shaped line, which correctly uses the full set for its own,
+    different, cross-symbol purpose) -- including a genuinely time-varying
+    feature would either silently drop real signal from
+    _compute_one_regime_cell or crash _compute_one_symbol_broadcast_cell's
+    within-day invariance guard on real data. This is a source-inspection
+    guard (not a full _compute_symbol_tf call, which needs a live DB) --
+    fails fast if a future edit reverts to the unfiltered set."""
+    source = inspect.getsource(_compute_symbol_tf)
+    assert "_TEMPORAL_BROADCAST_FEATURE_NAMES" in source, (
+        "_compute_symbol_tf must intersect broadcast_features with "
+        "_TEMPORAL_BROADCAST_FEATURE_NAMES, not use the raw frozenset directly"
+    )
+    # The broadcast_mask line itself must reference both names -- not just
+    # somewhere else in the docstring/comments.
+    mask_line_start = source.index("broadcast_mask = np.array(")
+    mask_line_end = source.index(")\n\n", mask_line_start)
+    mask_construction = source[mask_line_start:mask_line_end]
+    assert "broadcast_features" in mask_construction
+    assert "_TEMPORAL_BROADCAST_FEATURE_NAMES" in mask_construction
+    # Independent-review finding, caught before shipping: 1d has no
+    # duplication to correct (one 1d bar already equals one trading day) --
+    # the mask construction must gate on tf membership in
+    # config.broadcast_max_bars_per_day (only the 3 affected intraday tfs),
+    # not apply unconditionally. Routing 1d through the day-decimated path
+    # would be both unnecessary and wrong for its own slow/extended scales
+    # (broadcast_max_bars_per_day_for("1d")'s large sentinel forces
+    # day_stride=1 regardless of lookahead_bars, which provides zero real
+    # separation at 1d granularity for a scale whose lookahead_bars > 1).
+    assert "tf in config.broadcast_max_bars_per_day" in mask_construction
+
+
+def test_temporal_broadcast_feature_names_is_narrow_and_explicit():
+    """<behavior>: _TEMPORAL_BROADCAST_FEATURE_NAMES must be a small, explicit,
+    verified set -- never accidentally widened to alias the full
+    concept_registry broadcast=true set (~38 features as of 2026-08), which
+    would reintroduce the exact bug this test's sibling above guards against.
+    Not a claim about which 3 names specifically (that's a data/product
+    decision, re-verify against live feature_vectors data before ever
+    changing), just a structural sanity bound."""
+    import services.ic_engine as ic_module
+
+    names = ic_module._TEMPORAL_BROADCAST_FEATURE_NAMES
+    assert isinstance(names, frozenset)
+    assert 1 <= len(names) <= 10, (
+        f"_TEMPORAL_BROADCAST_FEATURE_NAMES has {len(names)} entries -- if this "
+        "was deliberately widened, it must be backed by a real empirical "
+        "within-day-variance check per new name (see the constant's own "
+        "comment), not just copied from concept_registry's broadcast=true set"
+    )
+    assert names.issubset(set(_FEATURE_NAMES))
 
 
 def test_run_ic_worker_return_keys():

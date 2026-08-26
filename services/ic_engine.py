@@ -63,6 +63,7 @@ import json
 import math
 import sys
 import time
+import warnings
 from collections import defaultdict
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from contextlib import contextmanager
@@ -658,6 +659,23 @@ class ICEngineConfig:
     # direct ICEngineConfig(...) construction sites must not break on this
     # dataclass's field-count growth.
     broadcast_variance_threshold: float = 1e-9
+    # Todo 354, migration 325: max observed bars per NYSE trading day per intraday
+    # tf, used by _compute_one_symbol_broadcast_cell's day_stride derivation
+    # (max(1, ceil(lookahead_bars / this[tf]))) so a broadcast feature's
+    # day-decimated forward-return window cannot overlap a later kept
+    # observation's window for a scale whose lookahead spans more than one
+    # trading day (1h's slow/extended scales: lookahead_bars=20/60 vs ~6.5-7
+    # bars/day). 1d omitted -- one bar already equals one day, nothing to
+    # correct. Defaulted for the same reason as every other post-143 field.
+    broadcast_max_bars_per_day: dict[str, int] = dataclasses.field(
+        default_factory=lambda: {"5m": 78, "15m": 26, "1h": 7}
+    )
+
+    def broadcast_max_bars_per_day_for(self, tf: str) -> int:
+        """Max observed bars/trading-day for tf, or a large sentinel for tfs this
+        fix doesn't apply to (1d/4h) -- a large sentinel makes day_stride=1 for
+        any tf not in the dict, i.e. a no-op, rather than a KeyError."""
+        return self.broadcast_max_bars_per_day.get(tf, 1_000_000)
 
     def lookaheads_for(self, tf: str) -> dict[str, int]:
         """Gradient-scale lookahead mapping for ONE timeframe (todo 146: bar counts
@@ -835,6 +853,12 @@ class ICEngineConfig:
             broadcast_variance_threshold=float(
                 cfg.get_sync("alpha.ic.broadcast_variance_threshold", 1e-9)
             ),
+            # Todo 354, migration 325. Per-tf dict, mirrors the active_scales
+            # loading shape above -- only the 3 affected intraday tfs have keys.
+            broadcast_max_bars_per_day={
+                tf: int(cfg.get_sync(f"alpha.ic.broadcast_max_bars_per_day.{tf}", fb))
+                for tf, fb in {"5m": 78, "15m": 26, "1h": 7}.items()
+            },
         )
 
 
@@ -920,6 +944,10 @@ _COMPUTATIONAL_CONFIG_FIELDS: frozenset[str] = frozenset(
         # before writing a broadcast row at all), so COMPUTATIONAL despite being a
         # guard threshold rather than a statistic-shaping parameter.
         "broadcast_variance_threshold",
+        # Todo 354, migration 325: directly changes day_stride, which changes which
+        # rows are subsampled -- moves computed IC values for broadcast features in
+        # the per-symbol path, same class as subsample_min_stride.
+        "broadcast_max_bars_per_day",
     }
 )
 
@@ -2195,6 +2223,7 @@ def _compute_one_regime_cell(
     training_window_end: Any,
     feature_status_map: dict[str, str] | None,
     run_ts: datetime,
+    broadcast_mask: np.ndarray | None = None,
 ) -> tuple[list[dict], int, dict[str, int]]:
     """Compute clustering + per-scale IC/CI/walk-forward/Sharpe for ONE regime cell.
 
@@ -2227,6 +2256,16 @@ def _compute_one_regime_cell(
     (across every pass) have been accumulated into all_results, and needs no
     changes for this to work correctly regardless of how many passes contributed
     rows.
+
+    broadcast_mask (todo 354, mirrors _compute_one_cross_sectional_cell's Phase
+    173 param exactly): a boolean array over _FEATURE_NAMES, True = this column
+    is measured ONLY by the sibling day-decimated pass
+    (_compute_one_symbol_broadcast_cell), never here -- these features suffer
+    from temporal pseudo-replication (the same daily macro value duplicated
+    across every intraday bar) when measured through this function's ordinary
+    per-bar path. None (the default, every pre-existing caller) is equivalent to
+    an all-False mask -- zero behavior change for any caller that doesn't pass
+    it.
     """
     lookaheads = config.lookaheads_for(tf)
     subsample_min_stride = config.subsample_min_stride
@@ -2234,6 +2273,9 @@ def _compute_one_regime_cell(
     walk_forward_folds = config.walk_forward_folds
     cluster_max_corr = config.cluster_max_corr
     n_features = len(_FEATURE_NAMES)
+
+    if broadcast_mask is None:
+        broadcast_mask = np.zeros(n_features, dtype=bool)
 
     result_rows: list[dict] = []
     skip_reasons: dict[str, int] = {}
@@ -2265,8 +2307,16 @@ def _compute_one_regime_cell(
         )
         n_skipped += n_degenerate
 
-    # Non-degenerate slice of full regime matrix — shared across scales.
-    X_regime_nd = X_regime[:, non_degenerate_mask]
+    # Broadcast columns are NOT skipped/degenerate features -- they are measured
+    # elsewhere (_compute_one_symbol_broadcast_cell, todo 354). A distinct local
+    # (cluster_input_mask), not a mutation of non_degenerate_mask/degenerate_mask,
+    # keeps n_skipped's accounting from conflating "degenerate" with "excluded
+    # because temporally duplicated" -- same reasoning as the cross-sectional
+    # sibling's identical split (Phase 173).
+    cluster_input_mask = non_degenerate_mask & ~broadcast_mask
+
+    # Non-degenerate, non-broadcast slice of full regime matrix — shared across scales.
+    X_regime_nd = X_regime[:, cluster_input_mask]
     if X_regime_nd.shape[1] == 0:
         # Was `continue` (skip to next regime_label) in the pre-extraction
         # for-loop over regime_passes; this cell has no "next regime" to fall
@@ -2283,8 +2333,8 @@ def _compute_one_regime_cell(
     # features whose direct pairwise correlation is below cluster_max_corr.
     # ------------------------------------------------------------------
     cluster_ids_nd = _cluster_features(X_regime_nd, cluster_max_corr)
-    # Expand to full feature space: None for degenerate, cluster_id for non-degenerate
-    cluster_id_full = expand_int(cluster_ids_nd, non_degenerate_mask, n_features)
+    # Expand to full feature space: None for degenerate/broadcast, cluster_id otherwise
+    cluster_id_full = expand_int(cluster_ids_nd, cluster_input_mask, n_features)
 
     _logger.info(
         "ic_engine.clustering",
@@ -2374,13 +2424,13 @@ def _compute_one_regime_cell(
         )
         Y_scale = returns_scale[valid_mask]
 
-        # Expand back to full feature space (NaN for degenerate)
-        ic_full = _expand(ic_vector_nd, non_degenerate_mask, n_features)
-        p_full = _expand(p_vector_nd, non_degenerate_mask, n_features)
+        # Expand back to full feature space (NaN for degenerate/broadcast)
+        ic_full = _expand(ic_vector_nd, cluster_input_mask, n_features)
+        p_full = _expand(p_vector_nd, cluster_input_mask, n_features)
 
-        ci_lower_full = _expand(ci_lower_nd, non_degenerate_mask, n_features)
-        ci_upper_full = _expand(ci_upper_nd, non_degenerate_mask, n_features)
-        passes_ci_full = np.where(non_degenerate_mask, ci_lower_full > 0.0, False)
+        ci_lower_full = _expand(ci_lower_nd, cluster_input_mask, n_features)
+        ci_upper_full = _expand(ci_upper_nd, cluster_input_mask, n_features)
+        passes_ci_full = np.where(cluster_input_mask, ci_lower_full > 0.0, False)
 
         wf_fold_count = len(fold_ics_list)
         if wf_fold_count > 0:
@@ -2393,8 +2443,8 @@ def _compute_one_regime_cell(
 
         wf_pass_full = np.zeros(n_features, dtype=int)
         passes_wf_full = np.zeros(n_features, dtype=bool)
-        wf_pass_full[non_degenerate_mask] = wf_pass_count_nd
-        passes_wf_full[non_degenerate_mask] = passes_wf_nd
+        wf_pass_full[cluster_input_mask] = wf_pass_count_nd
+        passes_wf_full[cluster_input_mask] = passes_wf_nd
 
         # -------------------------------------------------------
         # IC Sharpe / Sortino / win rate (rolling windows)
@@ -2406,12 +2456,12 @@ def _compute_one_regime_cell(
             ic_win_rate_arr,
             n_sharpe_windows,
         ) = _compute_ic_rolling_metrics(
-            X_sub_scale,  # full feature matrix; _compute_ic_rolling_metrics applies non_degenerate_mask internally
+            X_sub_scale,  # full feature matrix; _compute_ic_rolling_metrics applies cluster_input_mask internally
             returns_sub,
             scale_idx,
             complete_sub[:, scale_idx],
             config,
-            non_degenerate_mask,
+            cluster_input_mask,
             n_features,
             scale_stride,  # per-scale stride for raw→subsampled window conversion
         )
@@ -2424,14 +2474,24 @@ def _compute_one_regime_cell(
         # -------------------------------------------------------
         sign_hit_rate_nd = sign_hit_rate(X_raw_scale, Y_scale)
         magnitude_ic_nd = magnitude_conditional_ic(X_raw_scale, Y_scale, _MAGNITUDE_IC_PERCENTILE)
-        sign_hit_rate_full = _expand(sign_hit_rate_nd, non_degenerate_mask, n_features)
-        magnitude_ic_full = _expand(magnitude_ic_nd, non_degenerate_mask, n_features)
+        sign_hit_rate_full = _expand(sign_hit_rate_nd, cluster_input_mask, n_features)
+        magnitude_ic_full = _expand(magnitude_ic_nd, cluster_input_mask, n_features)
 
         # -------------------------------------------------------
         # Collect results -- BH-FDR is applied after all regimes/scales
         # using representative-only selection per cluster.
         # -------------------------------------------------------
         for feat_idx, feat_name in enumerate(_FEATURE_NAMES):
+            # Todo 354: broadcast features are excluded entirely from this cell --
+            # no row, not even a NaN row, is emitted for them here. This is the
+            # load-bearing half of the split: emitting even a NaN-valued row here
+            # would collide with _compute_one_symbol_broadcast_cell's row on the
+            # feature_ic_scores unique index (feature_name, symbol, tf, regime,
+            # lookahead_bars, training_window_end). Degenerate (non-broadcast)
+            # features keep emitting their NaN rows exactly as before this change --
+            # same distinction the cross-sectional sibling makes (Phase 173).
+            if broadcast_mask[feat_idx]:
+                continue
             # 162-03: the whole-cell fingerprint gate in main() is now the SOLE skip
             # decision (before this function is ever called) -- no per-feature
             # already-present skip here. A dispatched cell recomputes every feature
@@ -2486,6 +2546,400 @@ def _compute_one_regime_cell(
             )
 
     return result_rows, n_skipped, skip_reasons
+
+
+# Todo 354: features verified (empirically, not assumed) to be constant across
+# every intraday bar of a trading day for a given symbol -- the actual scope
+# of the temporal-pseudo-replication bug this fix corrects. Deliberately NOT
+# the same set as concept_registry's broadcast=true flag (Phase 173's
+# `broadcast_features`, ~38 features as of 2026-08): that flag means "constant
+# across SYMBOLS at a given bar_ts" (cross-sectional invariance), a DIFFERENT
+# property that most of its members do not share with day-constancy. Verified
+# live against real feature_vectors data (AAPL/5m, 2024-06-03, 78 bars) before
+# writing this set: vix_z/yield_slope_z/flight_quality each had exactly 1
+# distinct value across the whole day (as expected -- daily-cadence macro
+# values). By contrast hour_of_day_cos, also broadcast=true, had 78 distinct
+# values on the same day (genuinely intraday-varying, as its name implies) --
+# including it here would either wrongly exclude real signal from
+# _compute_one_regime_cell's ordinary measurement or crash
+# _compute_one_symbol_broadcast_cell's within-day invariance guard outright.
+# Several other broadcast=true features (dow_sin, amd_phase, in_ny_session
+# among them) also measured day-constant in that same spot-check, but for
+# reasons unrelated to this bug (dow_sin is a pure calendar-date function;
+# in_ny_session/amd_phase were constant only because feature_vectors already
+# excludes non-trading-hours bars for this sample) -- a single spot-check does
+# not establish they are day-constant IN GENERAL across the full corpus, and
+# accidentally excluding real per-bar signal from measurement would be a
+# regression, not a fix. Widening this set to the rest of concept_registry's
+# broadcast=true features needs its own empirical classifier (mirroring
+# scripts/ops/alpha/ops_broadcast_feature_audit.py's approach, but measuring
+# within-day variance instead of cross-symbol variance), not a hand-expanded
+# hardcoded list -- filed as a follow-up todo, deliberately not built here.
+_TEMPORAL_BROADCAST_FEATURE_NAMES: frozenset[str] = frozenset(
+    {"vix_z", "yield_slope_z", "flight_quality"}
+)
+
+
+def _compute_one_symbol_broadcast_cell(
+    regime_label: str,
+    is_pooled: bool,
+    mask: np.ndarray,
+    resolved_regime_scope: str,
+    *,
+    X_aligned: np.ndarray,
+    returns_mat: np.ndarray,
+    complete_mat: np.ndarray,
+    bar_ts_aligned: np.ndarray,
+    broadcast_mask: np.ndarray | None,
+    config: ICEngineConfig,
+    symbol: str,
+    tf: str,
+    rng: np.random.Generator,
+    training_window_end: Any,
+    feature_status_map: dict[str, str] | None,
+    run_ts: datetime,
+) -> tuple[list[dict], int]:
+    """Compute the day-decimated broadcast significance test for ONE (symbol, tf,
+    regime_label) cell (todo 354).
+
+    Statistical claim: a broadcast feature's value (vix_z/yield_slope_z/
+    flight_quality) is constant across every intraday bar of a trading day for a
+    given symbol -- it is one independent draw per DAY, not one per bar.
+    _compute_one_regime_cell's ordinary per-bar path (the pre-354 behavior)
+    treats each duplicated bar as an independent observation, inflating N by
+    ~78x at 5m, ~26x at 15m, ~6.5x at 1h (1d is unaffected -- one bar already
+    equals one day). The correct observation unit is the distinct calendar day;
+    this function collapses to the FIRST bar of each day (mirrors the deleted
+    daily-cadence CONTEXT_FEATURES path's `DISTINCT ON (DATE(bar_ts))` semantics
+    under an ascending ORDER BY) and correlates that bar's OWN feature value and
+    OWN forward return -- no cross-row aggregation needed, unlike the
+    cross-sectional broadcast cell's equal-weighted-return collapse, because
+    there is no peer-symbol dimension here: this is one symbol's own time
+    series, so the day-representative bar's own return already is a valid,
+    single, non-duplicated observation for that day. Reuses `_subsample_and_rank`
+    completely UNMODIFIED, same as the cross-sectional sibling.
+
+    Day-decimation alone gives adequate embargo separation for every scale at
+    5m/15m (every configured lookahead_bars there is smaller than that tf's own
+    max bars/trading-day), but NOT for 1h's slow/extended scales (lookahead_bars
+    20/60 vs ~6.5-7 bars/day) -- two day-representative observations only 1 day
+    apart would still have heavily overlapping forward-return windows for those
+    two scales. Per-scale `day_stride = ceil(lookahead_bars /
+    config.broadcast_max_bars_per_day_for(tf))` (migration 325) generalizes the
+    existing `scale_stride = max(subsample_min_stride, lookahead_bars)`
+    mechanism to day granularity: day_stride=1 (a no-op beyond the day-collapse
+    itself) whenever a scale's lookahead fits within one trading day,
+    >1 whenever it doesn't.
+
+    Grouping bar_ts -> distinct-day groups is a single forward boundary scan
+    (np.flatnonzero on adjacent day-inequality + reduceat-free direct indexing),
+    never a sort, matching _compute_one_broadcast_cell's memory-safety
+    discipline -- bar_ts_aligned[mask] is already sorted ascending (fetch's
+    ORDER BY bar_ts, and boolean-mask indexing on a sorted 1D array preserves
+    relative order), so day-boundary positions are exactly where the calendar
+    day changes.
+
+    A within-day invariance assertion (crash-loud, per CLAUDE.md "silent wrong
+    answers are worse than loud crashes") guards the same premise the
+    cross-sectional sibling's cross-symbol assertion guards: if a feature
+    classified broadcast is not actually constant across a day's bars in this
+    cell's live data, collapsing to the first bar would silently discard real
+    intraday variation and produce a plausible-but-wrong IC. Reuses
+    config.broadcast_variance_threshold -- the same shared epsilon the offline
+    classifier and the cross-sectional sibling's assertion already use (ONE key,
+    not a second one -- migration 324's own rationale applies identically here).
+
+    Emits rows with symbol=<the real symbol> (NOT 'POOLED' -- this is a
+    per-symbol cell, unlike the cross-sectional broadcast cell), is_pooled/
+    regime/regime_scope matching whatever pass this call belongs to (same
+    contract as its _compute_one_regime_cell sibling call in the same pass),
+    regime_label_source='forward_filter' (matches _compute_one_regime_cell's
+    per-symbol rows, not the cross-sectional sibling's 'market_regimes').
+    cluster_id is offset by _BROADCAST_CLUSTER_ID_OFFSET, same collision-avoidance
+    reasoning as the cross-sectional sibling.
+
+    Returns (result_rows, n_skipped_features), same contract as
+    _compute_one_regime_cell (minus skip_reasons -- this cell only ever skips for
+    "insufficient_n"-shaped reasons already implicit in n_skipped, no separate
+    breakdown dict needed for a ~38-feature-wide cell).
+    """
+    if broadcast_mask is None or not broadcast_mask.any():
+        return [], 0
+
+    broadcast_positions = np.where(broadcast_mask)[0]
+    n_broadcast = len(broadcast_positions)
+
+    X_regime = X_aligned[mask]
+    returns_regime = returns_mat[mask]
+    complete_regime = complete_mat[mask]
+    bar_ts_regime = bar_ts_aligned[mask]
+    n_regime_raw = X_regime.shape[0]
+
+    if n_regime_raw == 0:
+        return [], n_broadcast
+
+    # -----------------------------------------------------------------------
+    # Day-boundary forward scan -- calendar-day floor via datetime64[D] cast.
+    # numpy warns "no explicit representation of timezones available for
+    # np.datetime64" because the cast drops tzinfo -- verified empirically
+    # (not just assumed) that this is safe for this codebase: psycopg returns
+    # every bar_ts as tz-aware with utcoffset()==timedelta(0) (DAG invariant 6:
+    # all timestamps UTC), so dropping tzinfo cannot shift the wall-clock
+    # numbers the day-floor is computed from. Confirmed against real
+    # feature_vectors.bar_ts rows that datetime64[D] and Python's own
+    # tz-aware .date() produce bit-identical day boundaries. Suppressed
+    # explicitly (not left as ambient noise) because it's an informational
+    # warning about a pattern this file has proven safe, not a live bug
+    # signal. bar_ts_regime is sorted ascending (see docstring), so group
+    # starts are exactly the positions where the floored day value changes.
+    # -----------------------------------------------------------------------
+    with warnings.catch_warnings():
+        warnings.filterwarnings(
+            "ignore", message="no explicit representation of timezones", category=UserWarning
+        )
+        day_arr = bar_ts_regime.astype("datetime64[D]")
+    adjacent_diff = day_arr[1:] != day_arr[:-1]
+    change_positions = np.flatnonzero(adjacent_diff) + 1
+    group_starts = np.empty(len(change_positions) + 1, dtype=np.intp)
+    group_starts[0] = 0
+    group_starts[1:] = change_positions
+    n_groups = len(group_starts)
+
+    # -----------------------------------------------------------------------
+    # Within-day invariance assertion (T-173-09-shaped mitigation, todo 354).
+    # NaN-safe fmax/fmin so a data gap does not trip the guard -- only a REAL
+    # within-day disagreement does.
+    # -----------------------------------------------------------------------
+    X_bc = X_regime[:, broadcast_mask]
+    group_max = np.fmax.reduceat(X_bc, group_starts, axis=0)
+    group_min = np.fmin.reduceat(X_bc, group_starts, axis=0)
+    spread = group_max - group_min
+    violation_mask = spread > config.broadcast_variance_threshold
+    if np.any(violation_mask):
+        viol_group_idx, viol_col_idx = np.argwhere(violation_mask)[0]
+        bad_feat_name = _FEATURE_NAMES[broadcast_positions[viol_col_idx]]
+        bad_day = day_arr[group_starts[viol_group_idx]]
+        raise RuntimeError(
+            f"Within-day broadcast invariance violated: feature={bad_feat_name!r} "
+            f"on day={bad_day!r} (symbol={symbol}, tf={tf}, regime={regime_label}) "
+            f"has intraday spread {float(spread[viol_group_idx, viol_col_idx])!r} "
+            f"exceeding config.broadcast_variance_threshold="
+            f"{config.broadcast_variance_threshold!r}. This feature was classified "
+            "symbol-invariant (broadcast) by the offline classifier but is not "
+            "actually constant across this day's bars in this cell's live data -- "
+            "refusing to silently collapse it to the day's first bar."
+        )
+
+    X_collapsed = X_bc[group_starts]
+    returns_collapsed = returns_regime[group_starts]
+    complete_collapsed = complete_regime[group_starts]
+    del X_bc
+
+    # -----------------------------------------------------------------------
+    # Degenerate-column detection + clustering on the collapsed matrix, offset
+    # cluster_id so it can never collide with a per-symbol cluster_id in the
+    # same (regime, lookahead_bars) BH-FDR representative-selection group.
+    # -----------------------------------------------------------------------
+    feature_stds = np.std(X_collapsed, axis=0, dtype=np.float64)
+    degenerate_mask = feature_stds < 1e-8
+    non_degenerate_mask = ~degenerate_mask
+    n_skipped = int(degenerate_mask.sum())
+
+    X_nd_bc = X_collapsed[:, non_degenerate_mask]
+    if X_nd_bc.shape[1] == 0:
+        return [], n_skipped
+
+    cluster_ids_nd = _cluster_features(X_nd_bc, config.cluster_max_corr)
+    cluster_id_bc_raw = expand_int(cluster_ids_nd, non_degenerate_mask, n_broadcast)
+    cluster_id_bc = [
+        None if c is None else c + _BROADCAST_CLUSTER_ID_OFFSET for c in cluster_id_bc_raw
+    ]
+
+    lookaheads = config.lookaheads_for(tf)
+    scales = config.active_scales_for(tf)
+    max_bars_per_day = config.broadcast_max_bars_per_day_for(tf)
+    subsample_min_stride = config.subsample_min_stride
+    min_reliable_n = config.min_reliable_n
+    walk_forward_folds = config.walk_forward_folds
+
+    all_results: list[dict] = []
+
+    for scale_idx, scale_name in enumerate(scales):
+        lookahead_bars = lookaheads[scale_name]
+        # Todo 354: day-granularity generalization of scale_stride -- ceiling
+        # division so a lookahead that only PARTIALLY exceeds one trading day
+        # (e.g. 20 bars vs 7 bars/day at 1h) still gets a full extra day of
+        # separation rather than rounding down to an insufficient stride.
+        day_stride = (lookahead_bars + max_bars_per_day - 1) // max_bars_per_day
+        day_stride = max(1, day_stride)
+
+        # embargo_bars/bootstrap_block_size below are ROW-INDEX units of
+        # X_sub_nd (this scale's day-strided array), NOT raw bar counts --
+        # caught in independent review before shipping. Passing lookahead_bars/
+        # config.bootstrap_block_size[tf] directly (the sibling per-bar cells'
+        # own convention) would be wrong here because each row of X_sub_nd is
+        # already ~day_stride trading days apart, not 1 raw bar: doing so would
+        # over-embargo by a factor of ~day_stride (silently starving
+        # walk-forward folds on smaller real cells) and would size bootstrap
+        # blocks at ~day_stride x too many trading days each (few, huge blocks
+        # -> bootstrap resamples nearly identical to the original series ->
+        # understated standard errors -> falsely narrow/significant CIs) --
+        # exactly the kind of overstated-significance bug this whole fix exists
+        # to eliminate, just reintroduced through a different mechanism.
+        #
+        # embargo_bars=1: day_stride's own ceiling-division construction
+        # already guarantees day_stride * max_bars_per_day >= lookahead_bars,
+        # i.e. any two ADJACENT rows of X_sub_nd already have non-overlapping
+        # forward-return windows with zero extra embargo needed -- 1 row is a
+        # minimal, non-zero safety margin against the ceiling-rounding's own
+        # slack, not an arbitrary constant.
+        embargo_bars = 1
+        # bootstrap_block_size: convert the existing raw-bar-calibrated
+        # per-tf value into an equivalent day-count by dividing by
+        # max_bars_per_day (same conversion shape as day_stride itself).
+        # [initial_estimate], like day_stride's own bars-per-day seed --
+        # directionally correct (same order of magnitude as the original
+        # value's real-world time span) but not independently re-tuned via a
+        # dedicated autocorrelation study; max(1, ...) guards against a
+        # zero/degenerate block size for a small max_bars_per_day/large
+        # bootstrap_block_size ratio.
+        day_bootstrap_block_size = max(1, config.bootstrap_block_size[tf] // max_bars_per_day)
+
+        X_sub = X_collapsed[0:n_groups:day_stride]
+        X_sub_nd = X_nd_bc[0:n_groups:day_stride]
+        returns_sub = returns_collapsed[0:n_groups:day_stride]
+        complete_sub = complete_collapsed[0:n_groups:day_stride]
+        n_independent = len(X_sub)
+
+        if n_independent < min_reliable_n:
+            n_skipped += n_broadcast
+            continue
+
+        scale_complete = complete_sub[:, scale_idx]
+        returns_scale = returns_sub[:, scale_idx]
+        valid_mask = scale_complete & np.isfinite(returns_scale)
+        n_valid = int(valid_mask.sum())
+
+        if n_valid < min_reliable_n:
+            n_skipped += n_broadcast
+            continue
+
+        (
+            X_raw_scale,
+            ranks_X_scale,
+            ranks_Y,
+            ic_vector_nd,
+            p_vector_nd,
+            ci_lower_nd,
+            ci_upper_nd,
+            fold_ics_list,
+        ) = _subsample_and_rank(
+            X_sub_nd,
+            valid_mask,
+            returns_scale,
+            walk_forward_folds=walk_forward_folds,
+            embargo_bars=embargo_bars,
+            min_reliable_n=min_reliable_n,
+            bootstrap_block_size=day_bootstrap_block_size,
+            bootstrap_resamples=config.bootstrap_resamples,
+            rng=rng,
+            max_workers=config.per_symbol_bootstrap_threads[tf],
+            feature_block_columns=config.feature_block_columns,
+            bootstrap_early_stop_enabled=config.bootstrap_early_stop_enabled,
+            bootstrap_early_stop_check_interval=config.bootstrap_early_stop_check_interval,
+            bootstrap_early_stop_tol=config.bootstrap_early_stop_tol,
+            bootstrap_early_stop_min_resamples=config.bootstrap_early_stop_min_resamples,
+            bootstrap_early_stop_stable_checks=config.bootstrap_early_stop_stable_checks,
+        )
+        Y_scale = returns_scale[valid_mask]
+
+        ic_full = _expand(ic_vector_nd, non_degenerate_mask, n_broadcast)
+        p_full = _expand(p_vector_nd, non_degenerate_mask, n_broadcast)
+        ci_lower_full = _expand(ci_lower_nd, non_degenerate_mask, n_broadcast)
+        ci_upper_full = _expand(ci_upper_nd, non_degenerate_mask, n_broadcast)
+        passes_ci_full = np.where(non_degenerate_mask, ci_lower_full > 0.0, False)
+
+        wf_fold_count = len(fold_ics_list)
+        if wf_fold_count > 0:
+            fold_ic_arr = np.array(fold_ics_list)
+            wf_pass_count_nd = _sign_consistent_wf_pass_count(fold_ic_arr, ic_vector_nd)
+            passes_wf_nd = wf_pass_count_nd == walk_forward_folds
+        else:
+            wf_pass_count_nd = np.zeros(len(ic_vector_nd), dtype=int)
+            passes_wf_nd = np.zeros(len(ic_vector_nd), dtype=bool)
+
+        wf_pass_full = np.zeros(n_broadcast, dtype=int)
+        passes_wf_full = np.zeros(n_broadcast, dtype=bool)
+        wf_pass_full[non_degenerate_mask] = wf_pass_count_nd
+        passes_wf_full[non_degenerate_mask] = passes_wf_nd
+
+        ic_sharpe_arr, ic_sharpe_hac_arr, ic_sortino_arr, ic_win_rate_arr, n_sharpe_windows = (
+            _compute_ic_rolling_metrics(
+                X_sub,
+                returns_sub,
+                scale_idx,
+                complete_sub[:, scale_idx],
+                config,
+                non_degenerate_mask,
+                n_broadcast,
+                day_stride,
+            )
+        )
+
+        sign_hit_rate_nd = sign_hit_rate(X_raw_scale, Y_scale)
+        magnitude_ic_nd = magnitude_conditional_ic(X_raw_scale, Y_scale, _MAGNITUDE_IC_PERCENTILE)
+        sign_hit_rate_full = _expand(sign_hit_rate_nd, non_degenerate_mask, n_broadcast)
+        magnitude_ic_full = _expand(magnitude_ic_nd, non_degenerate_mask, n_broadcast)
+
+        for bc_idx in range(n_broadcast):
+            feat_name = _FEATURE_NAMES[broadcast_positions[bc_idx]]
+            ic_val = ic_full[bc_idx]
+            p_val = p_full[bc_idx]
+
+            all_results.append(
+                {
+                    "feature_name": feat_name,
+                    "vector_domain": _VECTOR_DOMAIN,
+                    "symbol": symbol,
+                    "tf": tf,
+                    "regime": regime_label,
+                    "lookahead_bars": lookahead_bars,
+                    "training_window_end": training_window_end,
+                    "is_pooled": is_pooled,
+                    "n_independent": int(n_valid),
+                    "reliable": bool(n_valid >= min_reliable_n),
+                    "ic_value": _nan_to_none(ic_val),
+                    "ic_sign": (None if np.isnan(ic_val) else (1 if ic_val > 0 else -1)),
+                    "p_value": _nan_to_none(p_val),
+                    "ic_ci_lower": _nan_to_none(ci_lower_full[bc_idx]),
+                    "ic_ci_upper": _nan_to_none(ci_upper_full[bc_idx]),
+                    "passes_ci_gate": bool(passes_ci_full[bc_idx]),
+                    "bh_adjusted_p": None,
+                    "passes_fdr": None,
+                    "wf_fold_count": wf_fold_count,
+                    "wf_pass_count": int(wf_pass_full[bc_idx]),
+                    "passes_walkforward": bool(passes_wf_full[bc_idx]),
+                    "ic_sharpe": _nan_to_none(ic_sharpe_arr[bc_idx]),
+                    "ic_sharpe_hac": _nan_to_none(ic_sharpe_hac_arr[bc_idx]),
+                    "ic_sharpe_n_windows": int(n_sharpe_windows),
+                    "ic_sortino": _nan_to_none(ic_sortino_arr[bc_idx]),
+                    "ic_win_rate": _nan_to_none(ic_win_rate_arr[bc_idx]),
+                    "regime_label_source": "forward_filter",
+                    "computed_at": run_ts,
+                    "cluster_id": cluster_id_bc[bc_idx],
+                    "feature_status_at_eval": (
+                        feature_status_map.get(feat_name, "unknown")
+                        if feature_status_map is not None
+                        else "unknown"
+                    ),
+                    "regime_scope": resolved_regime_scope,
+                    "sign_hit_rate": _nan_to_none(sign_hit_rate_full[bc_idx]),
+                    "magnitude_conditional_ic": _nan_to_none(magnitude_ic_full[bc_idx]),
+                    "cumulative_e_value": None,
+                }
+            )
+
+    return all_results, n_skipped
 
 
 def _merge_skip_reasons(total: dict[str, int], addition: dict[str, int]) -> None:
@@ -2584,8 +3038,18 @@ def _compute_symbol_tf(
     mr_dict: dict | None = None,
     dual_write_symbol_hmm: bool = False,
     cluster_regime_conditioned: bool = False,
+    broadcast_features: frozenset[str] = frozenset(),
 ) -> tuple[list[dict], list[dict], dict[str, Any]]:
     """Compute IC for all (regime, lookahead) cells for one (symbol, tf).
+
+    broadcast_features (todo 354, same sourcing as _compute_cross_sectional_tf's
+    identically-named param -- read once per ic_engine invocation by main() from
+    concept_registry's broadcast metadata flag): converted here into a positional
+    broadcast_mask over _FEATURE_NAMES, excluded from every _compute_one_regime_cell
+    call's ordinary per-bar measurement (temporal pseudo-replication -- the same
+    daily macro value duplicated across every intraday bar would silently overstate
+    N there) and instead measured once per regime pass by the day-decimated sibling
+    _compute_one_symbol_broadcast_cell.
 
     rng: worker-safe circular block bootstrap RNG (Component A, todo 091), derived
     deterministically per-symbol via _derive_worker_rng_seed() and shared/advanced
@@ -2642,6 +3106,45 @@ def _compute_symbol_tf(
     cluster_max_corr = config.cluster_max_corr
     n_features = len(_FEATURE_NAMES)
     scales = config.active_scales_for(tf)
+    # Todo 354: intersect with _TEMPORAL_BROADCAST_FEATURE_NAMES, NOT the raw
+    # broadcast_features frozenset directly (unlike _compute_cross_sectional_tf's
+    # identically-shaped line below, which correctly uses the full set for its
+    # own, different, cross-symbol-invariance purpose). concept_registry's
+    # broadcast=true flag means "constant across symbols," a different property
+    # from "constant across time within a day" -- most of its ~38 members
+    # (calendar/session encodings, amd_phase, cross-asset ratios) are NOT
+    # day-constant and would either wrongly exclude real per-bar signal from
+    # _compute_one_regime_cell or crash _compute_one_symbol_broadcast_cell's
+    # within-day invariance guard if included here unfiltered. The intersection
+    # (not _TEMPORAL_BROADCAST_FEATURE_NAMES alone) is a deliberate fail-safe:
+    # if concept_registry ever unflags one of these 3 as broadcast=true, this
+    # fix also stops applying to it, falling back to the pre-354 (buggy but not
+    # crashing) per-bar measurement rather than operating outside its verified
+    # scope. See _TEMPORAL_BROADCAST_FEATURE_NAMES's own comment for the full
+    # empirical rationale.
+    #
+    # `tf in config.broadcast_max_bars_per_day` (caught in independent review):
+    # 1d has no duplication to correct at all -- one 1d bar already equals one
+    # trading day, so _TEMPORAL_BROADCAST_FEATURE_NAMES's features are already
+    # measured correctly, once per day, by the ordinary per-bar path there.
+    # Routing 1d through _compute_one_symbol_broadcast_cell anyway would be
+    # unnecessary AND actively wrong for its own slow/extended scales:
+    # broadcast_max_bars_per_day_for("1d") returns the large sentinel (no key
+    # for 1d, by design), forcing day_stride=1 regardless of lookahead_bars --
+    # correct for the 3 intraday tfs this fix targets (where 1 day always
+    # exceeds every configured lookahead), but wrong at 1d, where a "1 day"
+    # step is only 1 raw bar and provides no separation at all for a scale
+    # whose lookahead_bars > 1. Gating on tf membership in this dict (not a
+    # hardcoded tf != "1d" check) means the same safety holds automatically
+    # for any future tf this fix hasn't been extended to.
+    broadcast_mask = np.array(
+        [
+            name in broadcast_features and name in _TEMPORAL_BROADCAST_FEATURE_NAMES
+            for name in _FEATURE_NAMES
+        ]
+        if tf in config.broadcast_max_bars_per_day
+        else [False] * n_features
+    )
 
     with _observed_span("ic_engine.compute_symbol_tf", tracer, symbol=symbol, tf=tf):
         # Short-lived fetch connection -- opened here, closed as soon as the
@@ -2793,10 +3296,11 @@ def _compute_symbol_tf(
         n_skipped = 0
         skip_reasons: dict[str, int] = {}
 
+        pooled_mask = np.ones(len(aligned_idx), dtype=bool)
         pooled_rows, pooled_skipped, pooled_skip_reasons = _compute_one_regime_cell(
             _POOLED_REGIME_SENTINEL,
             True,
-            np.ones(len(aligned_idx), dtype=bool),
+            pooled_mask,
             _resolve_regime_scope(True, cross_sectional),
             X_aligned=X_aligned,
             returns_mat=returns_mat,
@@ -2808,10 +3312,36 @@ def _compute_symbol_tf(
             training_window_end=training_window_end,
             feature_status_map=feature_status_map,
             run_ts=run_ts,
+            broadcast_mask=broadcast_mask,
         )
         all_results.extend(pooled_rows)
         n_skipped += pooled_skipped
         _merge_skip_reasons(skip_reasons, pooled_skip_reasons)
+
+        # Todo 354: day-decimated broadcast pass, same (regime_label, is_pooled,
+        # mask, resolved_regime_scope) contract as the ordinary cell call directly
+        # above -- one call per pass, mirroring how _compute_cross_sectional_tf
+        # calls its own broadcast sibling once per regime_label.
+        pooled_bc_rows, pooled_bc_skipped = _compute_one_symbol_broadcast_cell(
+            _POOLED_REGIME_SENTINEL,
+            True,
+            pooled_mask,
+            _resolve_regime_scope(True, cross_sectional),
+            X_aligned=X_aligned,
+            returns_mat=returns_mat,
+            complete_mat=complete_mat,
+            bar_ts_aligned=bar_ts_aligned,
+            broadcast_mask=broadcast_mask,
+            config=config,
+            symbol=symbol,
+            tf=tf,
+            rng=rng,
+            training_window_end=training_window_end,
+            feature_status_map=feature_status_map,
+            run_ts=run_ts,
+        )
+        all_results.extend(pooled_bc_rows)
+        n_skipped += pooled_bc_skipped
 
         # Primary pass (today's exact existing behavior) + optional symbol_hmm pass
         # (restore per-symbol-HMM-regime-stratified measurement for regime-group-routed
@@ -2839,10 +3369,11 @@ def _compute_symbol_tf(
 
         for label_array, labels_this_pass, resolved_scope in regime_passes:
             for regime_label in labels_this_pass:
+                pass_mask = label_array == regime_label
                 pass_rows, pass_skipped, pass_skip_reasons = _compute_one_regime_cell(
                     regime_label,
                     False,
-                    label_array == regime_label,
+                    pass_mask,
                     resolved_scope,
                     X_aligned=X_aligned,
                     returns_mat=returns_mat,
@@ -2854,10 +3385,33 @@ def _compute_symbol_tf(
                     training_window_end=training_window_end,
                     feature_status_map=feature_status_map,
                     run_ts=run_ts,
+                    broadcast_mask=broadcast_mask,
                 )
                 all_results.extend(pass_rows)
                 n_skipped += pass_skipped
                 _merge_skip_reasons(skip_reasons, pass_skip_reasons)
+
+                # Todo 354: day-decimated broadcast pass, same contract as above.
+                pass_bc_rows, pass_bc_skipped = _compute_one_symbol_broadcast_cell(
+                    regime_label,
+                    False,
+                    pass_mask,
+                    resolved_scope,
+                    X_aligned=X_aligned,
+                    returns_mat=returns_mat,
+                    complete_mat=complete_mat,
+                    bar_ts_aligned=bar_ts_aligned,
+                    broadcast_mask=broadcast_mask,
+                    config=config,
+                    symbol=symbol,
+                    tf=tf,
+                    rng=rng,
+                    training_window_end=training_window_end,
+                    feature_status_map=feature_status_map,
+                    run_ts=run_ts,
+                )
+                all_results.extend(pass_bc_rows)
+                n_skipped += pass_bc_skipped
 
         # ------------------------------------------------------------------
         # BH-FDR correction -- representative-only per (regime, lookahead, cluster)
@@ -4493,7 +5047,11 @@ def _run_ic_worker(args: tuple) -> dict:
     Args:
         args: (symbol, tfs, dsn, training_window_end, config, run_ts,
                feature_status_map, mr_dict_by_tf, dual_write_symbol_hmm,
-               cluster_regime_conditioned) --
+               cluster_regime_conditioned, broadcast_features) --
+               broadcast_features (todo 354) -- same frozenset[str] main() resolves
+               once for the cross-sectional pass, threaded through unchanged (a
+               frozenset[str] is trivially picklable across the ProcessPoolExecutor
+               boundary, same as feature_status_map).
                mr_dict_by_tf is already scoped to THIS symbol's own regime_group
                (Phase 144 Plan 05: mr_dicts_by_group.get(symbol_regime_class.get(
                symbol)) in main()), never another group's labels.
@@ -4533,6 +5091,7 @@ def _run_ic_worker(args: tuple) -> dict:
         mr_dict_by_tf,
         dual_write_symbol_hmm,
         cluster_regime_conditioned,
+        broadcast_features,
     ) = args
 
     from src.core.service_utils import setup_service_logging
@@ -4580,6 +5139,7 @@ def _run_ic_worker(args: tuple) -> dict:
                     mr_dict=mr_dict_by_tf.get(tf) if mr_dict_by_tf else None,
                     dual_write_symbol_hmm=dual_write_symbol_hmm,
                     cluster_regime_conditioned=cluster_regime_conditioned,
+                    broadcast_features=broadcast_features,
                 )
                 # Adjust pval_result_idxs to point into this worker's global all_results list.
                 offset = len(all_results)
@@ -5897,6 +6457,9 @@ def main() -> None:
                             # the enabled_groups=False case, so no extra guard is needed
                             # here.
                             config.cluster_regime_conditioned,
+                            # Todo 354: same broadcast_features frozenset resolved above
+                            # for the cross-sectional pass, threaded through unchanged.
+                            broadcast_features,
                         )
                     )
 
