@@ -245,6 +245,15 @@ status lives in the P2 table only.
 
 ## P2 — Real value, not urgent
 
+**2026-08-26 drift catch:** [353](pending/353-earnings-season-calendar-primitive-candidate.md)
+(earnings-season calendar primitive, real proxy evidence, p=1.2e-17), [356](pending/356-cross-sectional-fetch-chunk-query-pathologically-slow-largest-cell.md)
+(pre-existing slow-fetch perf on the corpus's largest cells, found during Phase 173's smoke
+test), [357](pending/357-phase173-triple-duplicated-per-scale-cell-block.md) (3-way duplicated
+per-scale block in `ic_engine.py`), [358](pending/358-phase173-broadcast-cell-bar-ts-array-efficiency.md)
+(`bar_ts_arr` as `dtype=object` + a redundant pass, same OOM-history function) were all filed
+but missing from this file — added now. [359](pending/359-phase173-altitude-design-notes.md)
+(3 architecture notes, already reviewed/accepted, no action needed) filed P3, see below.
+
 **2026-08-21 backlog audit:** [281](pending/281-systematic-dominance-and-volume-price-confirmation-as-feature-primitives.md)
 re-tiered P3→P2 -- misfiled under P3 with no documented reason (unlike 280/225, which both carry
 an explicit re-tier rationale), against its own P2 frontmatter. Content is real, scoped
@@ -375,6 +384,11 @@ reproduction. New shared `_daily_slots()` helper, new `MarketCalendar.supports_e
 | [256](pending/256-ctf-columns-no-explicit-ensemble-exclusion-pending-join-fix-recompute.md) | New 2026-08-05. `ctf_momentum`/`ctf_vwap_align`/`ctf_regime_align` (todo 243's leaked join, unfixed in the live corpus) have no explicit ensemble-eligibility exclusion — currently kept out of `alpha_ensemble_ic` by `ensemble_trainer.py`'s meta-FDR gate on their own (weak/sparse) merits, not by design. **Re-verified live 2026-08-07 against the post-join-fix, post-todo-230-resolution corpus (0.0/0.1/0.2% pass rates across 3,640 cells each) — still doesn't clear admission, risk confirmed still dormant, not resolved.** Fragile — any future `ic_engine` run could flip that by accident. `todo 230` resolved 2026-08-02 (steps 6-8 run regularly now), that's no longer a reason for low urgency — should close before/alongside any future recompute regardless. |
 
 ## P3 — Hygiene, docs, process (opportunistic)
+
+**2026-08-26:** [359](pending/359-phase173-altitude-design-notes.md) added — 3 Phase 173
+architecture notes (cluster_id offset partition, fingerprint watermark special-case, hardcoded
+validation list), all already reviewed/accepted by codex+agy during Phase 173's own mandatory
+review, recorded for future consideration only.
 
 **336 CLOSED 2026-08-21, row removed.** Ran the specified cross-chunk aggregation + code
 cross-check against all 5 flagged indexes (live DB, read-only, safe alongside the running
