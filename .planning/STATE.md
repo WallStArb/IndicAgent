@@ -71,8 +71,19 @@ authoritative source, not duplicated here.** A tiered-priority snapshot pasted i
 went stale every single time it was tried (confirmed repeatedly through 2026-08-08) — don't
 recreate that pattern. Idea-level scoring: `docs/research/intelligence-lifecycle-backlog-matrix.md`.
 
-**Current focus:** Phase 173 — broadcast-feature-significance-correction-fix-pooled-cross-s
-proof) PASS but Gate 2 (execution proof) FAIL — do not promote the per-symbol directional
+**Current focus (2026-08-26): Phase 173 (broadcast-feature-significance-correction) SHIPPED
+COMPLETE** — 4 plans/3 waves executed, merged, live-smoke-tested, independently re-reviewed
+(codex+agy, no blocking findings), `/simplify` pass done. Full detail:
+`project_phase173_broadcast_significance_complete` memory. **Not yet done: the full corpus
+recompute Phase 173's own fingerprint change requires** — until that runs, `hyg_lqd_ret_z`/
+`tip_tlt_ret_z`/all 38 broadcast features still carry pre-fix numbers. Separately this session:
+the `ic_engine --cross-sectional-only` run completed 2026-08-25 (144,232 rows, covers the
+corrected commodity/fx labels from todo 335); N1 (`nonlinear_interaction_combiner`'s
+residual-form test) ran and came back genuinely inconclusive (result flips sign of significance
+between adjacent parameter choices at 1h) — don't cite as pass or fail either way, see
+`project_n1_nonlinear_combiner_and_feature_phase_audit_2026_08_25` memory.
+
+**Phase 148's Gate 1 (signal proof) PASS but Gate 2 (execution proof) FAIL** — do not promote the per-symbol directional
 construction to live capital. A refinement plan using Phase 163-165's features has its 3 gating
 items resolved: [276](../todos/completed/276-phase163-165-lookahead-causal-safety-audit.md)
 lookahead/causal-safety audit CLEAN; [277](../todos/completed/277-alpha-score-concentration-cofiring-degeneracy-diagnosis.md)
