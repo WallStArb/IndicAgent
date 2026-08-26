@@ -3864,6 +3864,20 @@ def _compute_cross_sectional_tf(
         # symbol = ANY(%(symbol_list)s): THE contamination fix (Phase 144 D-01) -- without
         # this filter every symbol in the corpus (not just this regime_group's peers) was
         # pooled into this cell, since ts_chunk alone doesn't scope by symbol.
+        # Todo 356: fv.bar_ts BETWEEN ts_min AND ts_max is redundant with the ANY()
+        # predicate below (every value in ts_chunk already falls in [ts_min, ts_max])
+        # but is NOT redundant for the query plan against a compressed hypertable.
+        # Measured via EXPLAIN (ANALYZE, BUFFERS) against the real largest cell
+        # (equity/5m/low_bull): without BETWEEN, TimescaleDB's compressed-chunk
+        # segment exclusion expands bar_ts = ANY(<5000 values>) into a literal
+        # per-segment OR-chain of _ts_meta_min/_ts_meta_max range checks, re-evaluated
+        # for every compressed batch considered -- O(batches x len(ts_chunk)) planning
+        # cost. Adding BETWEEN lets the planner do cheap range-based segment exclusion
+        # first (a single min/max comparison per batch), leaving ANY() as a residual
+        # post-decompression filter: 10.2s -> 0.3s execution time on an isolated,
+        # single-variable EXPLAIN ANALYZE test, ~32x. ts_chunk is a contiguous slice of
+        # regime_timestamps' own `ORDER BY ts` result, so ts_chunk[0]/ts_chunk[-1] are
+        # already its min/max -- no extra computation needed to get the bound.
         chunk_sql = f"""
             SELECT fv.bar_ts, {feature_cols}, {return_cols}, {complete_cols}
             FROM feature_vectors fv
@@ -3873,6 +3887,7 @@ def _compute_cross_sectional_tf(
                 AND fr.bar_ts = fv.bar_ts
                 AND fr.return_type = 'executable_open_to_open'
             WHERE fv.tf = %(tf)s
+              AND fv.bar_ts BETWEEN %(ts_min)s AND %(ts_max)s
               AND fv.bar_ts = ANY(%(ts_chunk)s)
               AND fv.symbol = ANY(%(symbol_list)s)
             ORDER BY fv.bar_ts
@@ -3910,7 +3925,13 @@ def _compute_cross_sectional_tf(
             with conn.cursor() as chunk_cur:
                 chunk_cur.execute(
                     chunk_sql,
-                    {"tf": tf, "ts_chunk": ts_chunk, "symbol_list": symbol_list},
+                    {
+                        "tf": tf,
+                        "ts_chunk": ts_chunk,
+                        "ts_min": ts_chunk[0],
+                        "ts_max": ts_chunk[-1],
+                        "symbol_list": symbol_list,
+                    },
                 )
                 batch = chunk_cur.fetchall()
             conn.commit()

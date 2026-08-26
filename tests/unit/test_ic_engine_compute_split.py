@@ -243,6 +243,83 @@ def test_compute_cross_sectional_tf_closes_connection_before_clustering():
     )
 
 
+def test_compute_cross_sectional_tf_chunk_sql_has_between_bound():
+    """Todo 356: chunk_sql's bar_ts = ANY(%(ts_chunk)s) predicate alone forces
+    TimescaleDB's compressed-chunk segment exclusion to expand into a per-segment
+    OR-chain of _ts_meta_min/_ts_meta_max range checks, re-evaluated per batch --
+    measured via EXPLAIN (ANALYZE, BUFFERS) against the real largest cell
+    (equity/5m/low_bull, 298 feature columns): 10.2s execution time. Adding a
+    redundant `BETWEEN ts_min AND ts_max` bound lets the planner do cheap
+    range-based segment exclusion first, leaving ANY() as a residual filter:
+    0.3s on the same isolated, single-variable test, ~32x. ts_chunk is always a
+    contiguous slice of regime_timestamps' own `ORDER BY ts` result, so
+    ts_chunk[0]/ts_chunk[-1] are already correct min/max bounds -- no extra
+    computation needed. Structural regression guard: fails if a future edit
+    drops the BETWEEN bound or stops threading ts_min/ts_max into the params.
+    """
+    source = inspect.getsource(_compute_cross_sectional_tf)
+
+    assert "fv.bar_ts BETWEEN %(ts_min)s AND %(ts_max)s" in source, (
+        "chunk_sql must keep the BETWEEN bound (todo 356) -- dropping it "
+        "reintroduces the measured ~32x compressed-chunk segment-exclusion "
+        "regression on large cross-sectional cells"
+    )
+    assert '"ts_min": ts_chunk[0]' in source and '"ts_max": ts_chunk[-1]' in source, (
+        "chunk_cur.execute's params dict must pass ts_min=ts_chunk[0]/"
+        "ts_max=ts_chunk[-1] (ts_chunk is always a contiguous ORDER BY ts slice, "
+        "so its first/last elements are already the correct bounds)"
+    )
+    between_idx = source.index("fv.bar_ts BETWEEN %(ts_min)s AND %(ts_max)s")
+    any_idx = source.index("fv.bar_ts = ANY(%(ts_chunk)s)")
+    assert between_idx < any_idx, (
+        "BETWEEN must appear before the ANY() predicate in chunk_sql so the "
+        "planner considers the cheap range bound first"
+    )
+
+
+def test_cross_sectional_chunk_slicing_preserves_min_max_at_endpoints():
+    """Todo 356, independent of the source-inspection test above: proves the
+    actual invariant the BETWEEN fix depends on -- that `ts_chunk[0]`/
+    `ts_chunk[-1]` really are the min/max of every chunk `_compute_cross_sectional_tf`
+    ever produces, not just for the one slice this session happened to measure
+    against. Reproduces the exact slicing shape from source
+    (`regime_timestamps[chunk_start : chunk_start + cs_chunk_ts]` over a
+    `SELECT ts ... ORDER BY ts` result) against synthetic ascending timestamp
+    sequences, including sizes that don't divide evenly by the chunk size and a
+    duplicate-timestamp case (market_regimes has no DISTINCT/uniqueness
+    guarantee on ts for a given regime_group/tf/regime_label triple). A future
+    change to the slicing logic (e.g. an unsorted intermediate step) that broke
+    this invariant would silently reintroduce wrong query results, which the
+    source-inspection test above cannot detect.
+    """
+    base = datetime(2020, 1, 1, tzinfo=UTC)
+
+    for n_total, cs_chunk_ts in [
+        (0, 5000),
+        (1, 5000),
+        (4999, 5000),
+        (5000, 5000),
+        (12345, 5000),
+        (7, 3),
+    ]:
+        regime_timestamps = [base + timedelta(minutes=5 * i) for i in range(n_total)]
+        for chunk_start in range(0, len(regime_timestamps), cs_chunk_ts):
+            ts_chunk = regime_timestamps[chunk_start : chunk_start + cs_chunk_ts]
+            assert ts_chunk[0] == min(ts_chunk), (
+                f"n_total={n_total} cs_chunk_ts={cs_chunk_ts} chunk_start={chunk_start}: "
+                "ts_chunk[0] must equal min(ts_chunk)"
+            )
+            assert ts_chunk[-1] == max(ts_chunk), (
+                f"n_total={n_total} cs_chunk_ts={cs_chunk_ts} chunk_start={chunk_start}: "
+                "ts_chunk[-1] must equal max(ts_chunk)"
+            )
+
+    # Duplicate-timestamp case: market_regimes ts is not guaranteed unique.
+    with_dupes = [base, base, base + timedelta(minutes=5), base + timedelta(minutes=5)]
+    assert with_dupes[0] == min(with_dupes)
+    assert with_dupes[-1] == max(with_dupes)
+
+
 def test_compute_cross_sectional_tf_calls_broadcast_cell_after_fetch_closes():
     """Phase 173 Plan 04: _compute_one_broadcast_cell( must appear textually
     AFTER the fetch `with short_lived_conn(dsn) as conn:` block has closed --

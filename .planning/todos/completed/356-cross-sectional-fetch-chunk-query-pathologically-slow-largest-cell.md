@@ -1,7 +1,8 @@
 ---
-status: pending
+status: closed
 priority: P2
 filed: 2026-08-25
+closed: 2026-08-26
 source: Phase 173 Plan 04 Task 3 -- surfaced during the live smoke run's largest-cell
   (equity/5m/low_bull) OOM-regression check
 ---
@@ -86,3 +87,50 @@ Out of scope for Phase 173 (D-05 explicitly locks the fetch phase's shape; Plan 
 unmodified). File for future prioritization -- likely relevant before/during the next full
 corpus pipeline run, since Phase 173's fingerprint invalidation forces exactly this cell (and
 every other cross-sectional cell) to recompute on that run regardless.
+
+## Root cause found + fixed, 2026-08-26
+
+Followed this file's own "what needs to happen" section exactly: `EXPLAIN (ANALYZE, BUFFERS)`
+against `chunk_sql`'s real query shape (all 298 `FeatureVector` columns, not a narrowed subset --
+confirmed via `dataclasses.fields`, not the stale "152 features" comment elsewhere in the file)
+using a real 5000-timestamp chunk and the real 63-symbol equity peer list. Confirmed step 3's
+open question directly: chunk exclusion for `bar_ts = ANY(<5000 values>)` against the compressed
+hypertable (both `feature_vectors`/`forward_returns` are 84-85/85 chunks compressed,
+segmentby=(symbol,tf), orderby=bar_ts) does NOT chunk-exclude cleanly -- the plan text shows it
+expanding into a literal per-compressed-batch `OR`-chain of `_ts_meta_min_1`/`_ts_meta_max_1`
+range checks, one clause per array element, re-evaluated per batch considered. That's
+`O(batches x len(ts_chunk))` cost, exactly the "ANY(array) does not always chunk-exclude as
+cleanly as BETWEEN" concern flagged in item 3 above.
+
+**Fix:** added a redundant `fv.bar_ts BETWEEN %(ts_min)s AND %(ts_max)s` predicate ahead of the
+existing `ANY()` clause, using `ts_chunk[0]`/`ts_chunk[-1]` (`ts_chunk` is always a contiguous
+slice of `regime_timestamps`' own `ORDER BY ts` result, so its first/last elements are already
+the correct bounds -- no extra computation). This lets the planner do cheap range-based segment
+exclusion first, leaving `ANY()` as a cheap residual filter after decompression.
+
+**Measured, isolated, single-variable (SOP step 3), on real production data:**
+- 5.5-month-span chunk: 10,218ms -> 315ms execution time (~32x).
+- 10-month-span chunk with genuine matching rows: 1,504ms -> 522ms (~2.9x).
+- Verified every one of the real cell's 108 chunks spans 19-250 days (none spans years), so the
+  fix generalizes across the whole cell, not just the slice measured -- checked directly via a
+  `market_regimes` min/max-per-chunk query before trusting the result.
+- **Correctness verified, not assumed:** row count + order-sensitive `md5` checksum identical
+  between old and new query shape on real matching data (238,121 rows, same checksum both ways).
+
+**Code:** `services/ic_engine.py`'s `_compute_cross_sectional_tf`. **Tests:**
+`tests/unit/test_ic_engine_compute_split.py::test_compute_cross_sectional_tf_chunk_sql_has_between_bound`
+(source-inspection regression guard) +
+`test_cross_sectional_chunk_slicing_preserves_min_max_at_endpoints` (proves the
+`ts_chunk[0]`/`ts_chunk[-1]`-are-min/max invariant the fix depends on, independent of the SQL
+text, against synthetic sequences including non-divisible chunk sizes and duplicate timestamps --
+added after independent Codex review flagged the source-inspection test alone as insufficient for
+a runtime-value regression). Full `tests/unit/` suite green, ruff/black clean.
+
+**Scope not covered by this fix** (out of scope, not forgotten): items 2/3's other two
+sub-questions (`work_mem` sufficiency for the join's sort/hash requirements at
+`cs_chunk_ts=5000`, and whether other large 5m cells beyond `equity/5m/low_bull` are dominated by
+the same pathology or a different one) were not independently re-measured after this fix --
+plausible the BETWEEN fix alone resolves most of the reported 95+-minute-and-not-finished
+behavior (it directly targets the mechanism confirmed responsible), but that has not been
+verified end-to-end against a full corpus run yet. Worth watching during the next full
+`ops_corpus_pipeline_run.sh` run rather than assuming closed.

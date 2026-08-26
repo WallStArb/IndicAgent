@@ -246,13 +246,31 @@ status lives in the P2 table only.
 ## P2 — Real value, not urgent
 
 **2026-08-26 drift catch:** [353](pending/353-earnings-season-calendar-primitive-candidate.md)
-(earnings-season calendar primitive, real proxy evidence, p=1.2e-17), [356](pending/356-cross-sectional-fetch-chunk-query-pathologically-slow-largest-cell.md)
-(pre-existing slow-fetch perf on the corpus's largest cells, found during Phase 173's smoke
-test), [357](pending/357-phase173-triple-duplicated-per-scale-cell-block.md) (3-way duplicated
+(earnings-season calendar primitive, real proxy evidence, p=1.2e-17), 356 (cross-sectional
+fetch chunk query pathologically slow on the largest cell, found during Phase 173's smoke test
+-- CLOSED 2026-08-26, see below), [357](pending/357-phase173-triple-duplicated-per-scale-cell-block.md) (3-way duplicated
 per-scale block in `ic_engine.py`), [358](pending/358-phase173-broadcast-cell-bar-ts-array-efficiency.md)
 (`bar_ts_arr` as `dtype=object` + a redundant pass, same OOM-history function) were all filed
 but missing from this file — added now. [359](pending/359-phase173-altitude-design-notes.md)
 (3 architecture notes, already reviewed/accepted, no action needed) filed P3, see below.
+
+**356 CLOSED 2026-08-26, row removed.** Root-caused via `EXPLAIN (ANALYZE, BUFFERS)` against
+the real query shape (298 columns, not the stale "152 features" comment elsewhere in the file):
+`bar_ts = ANY(<5000 values>)` against the compressed hypertable expands chunk exclusion into a
+literal per-batch `OR`-chain of `_ts_meta_min`/`_ts_meta_max` checks, `O(batches x
+len(ts_chunk))`. Fix: redundant `BETWEEN ts_min AND ts_max` bound ahead of the existing `ANY()`,
+using `ts_chunk[0]`/`ts_chunk[-1]` (already correct since `ts_chunk` is a contiguous slice of an
+`ORDER BY ts` result). Measured, isolated, single-variable on real data: 10.2s->0.3s (~32x) and
+1.5s->0.5s (~2.9x) on two different real chunks; correctness verified via matching row-count +
+order-sensitive checksum on real data (238,121 rows, identical both ways), not assumed. Verified
+the fix generalizes across the whole cell (all 108 real chunks span 19-250 days, none spans
+years) before trusting it. Independent Codex review found no blocking issues; one valid point
+(source-inspection test alone doesn't prove the ts_min/ts_max invariant) addressed by adding a
+second test proving the slicing invariant directly against synthetic sequences. Full `tests/unit/`
+green, ruff/black clean. Full evidence in `completed/356-...md`. **Not independently re-verified:**
+whether this alone resolves the reported 95+-minute-and-not-finished full-cell behavior, or
+whether other large 5m cells hit the same pathology -- watch during the next full corpus run
+rather than assuming fully closed.
 
 **2026-08-21 backlog audit:** [281](pending/281-systematic-dominance-and-volume-price-confirmation-as-feature-primitives.md)
 re-tiered P3→P2 -- misfiled under P3 with no documented reason (unlike 280/225, which both carry
@@ -265,7 +283,6 @@ separation test), not hygiene.
 | [281](pending/281-systematic-dominance-and-volume-price-confirmation-as-feature-primitives.md) | New 2026-08-08, out of Phase 171's candidate-regime-axes test. Two real, null-arm-validated signals (idiosyncratic-vs-market co-movement, volume-price confirmation) should ship as plain `feature_vectors` columns, not HMM regime labels — identifiability for both is too narrow/fragile to trust as a discrete regime. |
 | [340](pending/340-ihf-5m-feature-compute-zero-row-positive-input-error.md) | New 2026-08-21, split out of todos 259/296's closure. `IHF`/`5m` has zero `feature_vectors` rows -- `"expected a positive input, got 0.0"` compute error, likely a `log()`/division call in `FeatureFactory.compute_batch` hitting a genuine zero (volume or price) on a specific bar for this thinly-traded sector ETF. Single symbol/tf, bounded blast radius, not investigated further yet. |
 | [355](pending/355-context-features-writer-orphaned-after-phase-173.md) | New 2026-08-25, filed alongside 354 during Phase 173 Plan 02. `infrastructure_context_features_writer.py` still writes daily `flight_quality`/`yield_slope_z`/`vix_z` rows into `context_features`, but `ic_engine.py` (the table's only documented consumer) lost its last query against it in this same plan -- an unowned writer with no downstream reader. Nothing lost (`feature_vectors` carries equivalent per-bar values); decision needed is retire-writer-and-drop-table vs repoint-at-a-real-consumer, deliberately not made by Phase 173. |
-| [356](pending/356-cross-sectional-fetch-chunk-query-pathologically-slow-largest-cell.md) | New 2026-08-25, filed during Phase 173 Plan 04 Task 3's live smoke run. `_compute_cross_sectional_tf`'s chunked fetch query (unchanged by Phase 173) took over 95 minutes and still had not finished on the corpus's largest cross-sectional cell (equity/5m/low_bull, 3.1M joined rows) -- per-chunk cost highly variable (2.5s to 100s+), postgres backend confirmed 100% CPU-bound (not lock/idle-wait) throughout. Pre-existing performance characteristic, not a Phase 173 regression; worth an `EXPLAIN ANALYZE`/chunk-exclusion investigation before/during the next full corpus run, which Phase 173's own fingerprint invalidation already forces regardless. |
 | [353](pending/353-earnings-season-calendar-primitive-candidate.md) | New 2026-08-23. No `is_earnings_season` primitive exists in `feature_factory.py`. Cheap SQL-only proxy test (calendar-derived flag, no new feature built) against `forward_returns.return_fast` at 1d shows a real, broad effect: pooled mean return 4.3x higher in-season (p=1.2e-17, n=923,353), 81% of symbols (186/230) individually higher in-season, confirmed equity-specific. Validated candidate, not yet built as a real feature -- window definition corrected mid-session to days 14-42 post-quarter-end (not 0-42, which the proxy test used). |
 | [357](pending/357-phase173-triple-duplicated-per-scale-cell-block.md) | New 2026-08-26, `/simplify`'s reuse+simplification review of Phase 173's diff (2 independent agents). `_compute_one_broadcast_cell` (`services/ic_engine.py` ~3273-3658) is a third near-identical copy of the ~140-line per-scale block (`_subsample_and_rank` → IC/CI/walk-forward → rolling metrics → row emission) already duplicated twice by `_compute_one_cross_sectional_cell`/`_compute_one_regime_cell`. Pre-existing duplication pattern, not a new problem -- extraction deferred because it would touch two already-shipped production functions on the significance-gate hot path, one with documented 2026-07-08 OOM history. |
 | [358](pending/358-phase173-broadcast-cell-bar-ts-array-efficiency.md) | New 2026-08-26, `/simplify`'s efficiency review of Phase 173's diff. Same OOM-history function family: `bar_ts_arr` is built as `dtype=object` (Python `datetime` per element) instead of `datetime64[ns]`, costing ~500-600MB extra at the largest real cell (~9.4M rows) and forcing the core boundary-scan comparison into per-element Python instead of a vectorized kernel; plus a third redundant pass over `batch` solely to extract `bar_ts` that could be folded into an existing loop. Not fixed inline -- needs verifying the `datetime64[ns]` cast is safe against actual upstream row values first. |
