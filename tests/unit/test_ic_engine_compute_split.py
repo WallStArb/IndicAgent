@@ -14,6 +14,7 @@ from __future__ import annotations
 
 import inspect
 import sys
+from datetime import UTC, datetime, timedelta
 from pathlib import Path
 
 import numpy as np
@@ -1096,47 +1097,9 @@ def test_broadcast_feature_read_intersects_feature_names():
 # G distinct bar_ts groups x S "symbol" rows per group.
 # ---------------------------------------------------------------------------
 
-from datetime import UTC, datetime, timedelta  # noqa: E402
-
-
-def _broadcast_cell_config(**overrides) -> ICEngineConfig:
-    """Small-bootstrap ICEngineConfig for _compute_one_broadcast_cell tests --
-    single active scale (fast, lookahead=1) so subsample stride=1 and no group
-    is dropped by subsampling; min_reliable_n low enough for small synthetic
-    fixtures; tf='1d' (out of the e-value pilot's scope regardless, per
-    <planner_findings> -- cumulative_e_value is always None for broadcast rows)."""
-    import dataclasses as _dc
-
-    base_config = ICEngineConfig(
-        min_observations=500,
-        fdr_alpha=0.05,
-        walk_forward_folds=0,
-        sharpe_window_size=2000,
-        sharpe_min_windows=10,
-        subsample_min_stride=1,
-        min_reliable_n=2,
-        cluster_max_corr=0.70,
-        lookahead_fast={"5m": 1, "15m": 1, "1h": 1, "1d": 1},
-        lookahead_mid={"5m": 6, "15m": 2, "1h": 2, "1d": 2},
-        lookahead_slow={"5m": 12, "15m": 5, "1h": 20, "1d": 5},
-        lookahead_extended={"5m": 39, "15m": 10, "1h": 60, "1d": 10},
-        active_scales={
-            "5m": ("fast",),
-            "15m": ("fast",),
-            "1h": ("fast",),
-            "1d": ("fast",),
-        },
-        equity_model_enabled=True,
-        hac_max_lag=3,
-        cs_chunk_ts=5000,
-        symbol_fetch_chunk_rows=5000,
-        n_workers=1,
-        blas_threads_per_worker=1,
-        bootstrap_resamples=20,
-    )
-    if overrides:
-        base_config = _dc.replace(base_config, **overrides)
-    return base_config
+# _broadcast_cell_config was a byte-identical duplicate of _broadcast_test_config
+# above (same job: small-bootstrap ICEngineConfig for broadcast-path tests) --
+# consolidated during /simplify, 2026-08-26. Callers below use the original name.
 
 
 def _broadcast_bar_ts(n_groups: int, symbols_per_group: int) -> np.ndarray:
@@ -1183,7 +1146,7 @@ def _call_broadcast_cell(
     bar_ts_arr, X_raw, returns_mat, complete_mat, broadcast_mask, *, config=None, seed=101
 ):
     if config is None:
-        config = _broadcast_cell_config()
+        config = _broadcast_test_config()
     return _compute_one_broadcast_cell(
         "calm",
         bar_ts_arr=bar_ts_arr,
@@ -1353,7 +1316,7 @@ def test_broadcast_cell_aggregate_return_matches_hand_computed_mean():
     broadcast_mask = np.zeros(n_features, dtype=bool)
     broadcast_mask[broadcast_col] = True
 
-    config = _broadcast_cell_config(min_reliable_n=2)
+    config = _broadcast_test_config(min_reliable_n=2)
     rows, _ = _call_broadcast_cell(
         bar_ts_arr, X_raw, returns_mat, complete_mat, broadcast_mask, config=config
     )
@@ -1413,7 +1376,7 @@ def test_broadcast_cell_below_min_reliable_n_emits_zero_rows():
     bar_ts_arr, X_raw, returns_mat, complete_mat, broadcast_mask = _broadcast_cell_inputs(
         n_groups=1, symbols_per_group=3, broadcast_idx=(6,)
     )
-    config = _broadcast_cell_config(min_reliable_n=2)  # 1 distinct bar_ts < 2
+    config = _broadcast_test_config(min_reliable_n=2)  # 1 distinct bar_ts < 2
 
     rows, n_skipped = _call_broadcast_cell(
         bar_ts_arr, X_raw, returns_mat, complete_mat, broadcast_mask, config=config
