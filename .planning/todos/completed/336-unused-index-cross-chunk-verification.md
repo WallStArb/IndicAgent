@@ -99,3 +99,31 @@ left untouched while the run is live) and this project's "operator sign-off befo
 deploying a live infra change" precedent (todo 169's closing note). Recommend the
 ~973MB of confidently-dead index space be dropped in a follow-up session once the
 current corpus run finishes, as its own small, reviewed change.
+
+## Follow-up execution, 2026-08-27 -- mixed outcome, re-verification changed the picture
+
+No corpus run was active (confirmed via `pg_stat_activity`/`ps aux` before touching anything),
+so this was the follow-up window this closure recommended. **Re-ran the same 3-step
+verification before executing anything** (6 days had passed since the original audit) --
+found the picture had genuinely changed, not just confirmed stale:
+
+- **`idx_market_data_ohlcv_base` (119MB, 258 chunks): STILL 0 scans corpus-wide, code-reference
+  check re-confirmed clean** (no SQL `base=` predicate anywhere, `roll-batch` timer still
+  `disabled`/`inactive`). **Dropped** -- `DROP INDEX CONCURRENTLY` failed
+  (`does not support dropping multiple objects`, a TimescaleDB hypertable-partitioned-index
+  constraint, not an error condition), fell back to a plain `DROP INDEX` after confirming zero
+  active writers via `pg_stat_activity` -- catalog-only op, completed in 0.2s, no lock
+  contention. 119MB reclaimed, confirmed removed from `pg_indexes`.
+- **`feature_ic_scores_history_cell_idx` and `feature_ic_scores_history_archived_at_idx`: NO
+  LONGER DEAD, NOT DROPPED.** Re-aggregated `idx_scan` showed 597 and 1 real scans
+  respectively (both were 0 at the 2026-08-21 audit) -- something started reading
+  `feature_ic_scores_history` in the intervening 6 days. Correctly caught by re-verifying
+  before acting rather than trusting the 6-day-old finding; dropping either now would have
+  been a live regression on an index actually in use. The original ~973MB estimate for this
+  todo included these two (~854MB combined) -- only the ~119MB `idx_market_data_ohlcv_base`
+  portion was actually safe to execute.
+
+**Lesson for future audits of this shape:** index-usage stats (`idx_scan`) are point-in-time
+and can flip in either direction within days on a system with evolving ops/diagnostic query
+traffic -- always re-verify immediately before a drop, never execute against a multi-day-old
+finding even when the finding itself was rigorously verified at the time.
