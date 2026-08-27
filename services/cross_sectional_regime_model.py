@@ -224,6 +224,63 @@ def _assert_ascending_tiers(
         )
 
 
+def _assert_ascending_timestamps(ts_arr: list, group_name: str, tf: str) -> None:
+    """Crash-loud guard (todo 005/335-shaped): _smooth_labels' hysteresis logic assumes
+    ts_arr is strictly causally ordered -- a min-hold-bars smoother computed over an
+    out-of-order or duplicate-timestamp sequence would confirm transitions against the
+    wrong neighbors, silently producing a plausible-looking but wrong label sequence.
+    Never assume sortedness from an upstream signal_mod.compute() call (todo 335's own
+    lesson: two of four regime_signals modules violated a similar ascending-order
+    contract undetected until this project started asserting it explicitly). Cheap
+    (O(n), no allocation) relative to the smoothing pass itself.
+    """
+    if len(ts_arr) < 2:
+        return
+    for i in range(1, len(ts_arr)):
+        if ts_arr[i] <= ts_arr[i - 1]:
+            raise ValueError(
+                f"cross_sectional_regime_model: ts_arr not strictly ascending for "
+                f"group={group_name!r} tf={tf!r} at index {i} ({ts_arr[i - 1]!r} -> "
+                f"{ts_arr[i]!r}) -- _smooth_labels requires causal time order; a "
+                f"signal_mod.compute() implementation likely returned an unsorted or "
+                f"duplicate-timestamp index."
+            )
+
+
+def _smooth_labels(raw_labels: np.ndarray, min_hold: int) -> np.ndarray:
+    """Minimum holding-period smoother for string tier labels (todo 005).
+
+    Requires min_hold consecutive bars of the same new label before confirming a
+    transition -- causal, no look-ahead. Ports regime_writer.py's _smooth_states
+    (the per-symbol HMM path's existing, tested pattern) to string/object-dtype
+    label arrays instead of integer HMM state indices; the confirmation logic is
+    otherwise identical.
+
+    Fixes a real measurement-integrity gap (todo 005): _bucket() alone does pure
+    per-bar threshold bucketing with zero hysteresis -- a value oscillating around
+    a tier boundary flips regime_label on literally the next bar with nothing
+    smoothing it, contaminating which stratum's IC a boundary-adjacent bar
+    contributes to in every regime-stratified measurement downstream. Unlike
+    regime_writer.py's HMM path (which already has this protection via
+    _smooth_states), market_regimes -- the label source ic_engine.py actually
+    stratifies on when equity_model_enabled=true -- had none until this fix.
+    """
+    if min_hold <= 1:
+        return raw_labels.copy()
+    n = len(raw_labels)
+    smoothed = raw_labels.copy()
+    current = raw_labels[0]
+    for t in range(1, n):
+        if t < min_hold:
+            smoothed[t] = current
+            continue
+        window = raw_labels[t - min_hold + 1 : t + 1]
+        if np.all(window == raw_labels[t]):
+            current = raw_labels[t]
+        smoothed[t] = current
+    return smoothed
+
+
 def _bucket(
     vals: np.ndarray,
     tiers: list[tuple[str, float]],
@@ -255,6 +312,7 @@ def _assign_labels(
     tiers1: list[tuple[str, float]],
     tiers2: list[tuple[str, float]],
     prob_keys: tuple[str, str],
+    min_hold_bars: int = 1,
 ) -> list[tuple]:
     """Vectorized label assignment. No DB, no pandas.
 
@@ -272,9 +330,28 @@ def _assign_labels(
     would collide under the same regime_label string in downstream feature_ic_scores
     rows, silently corrupting ensemble eligibility queries. Not schema-enforced —
     verify manually when adding a new group's signal module.
+
+    min_hold_bars (todo 005, default 1 = no-op, preserving every pre-existing direct
+    caller's exact behavior including scripts/analysis/regime_boundary_churn_check.py's
+    single-value _bucket() calls which never go through this function anyway): applies
+    _smooth_labels independently to each tier dimension (labels1, labels2) BEFORE
+    combining into the final "{tier1}_{tier2}" string -- the two signals can transition
+    at unrelated times with different noise characteristics, so smoothing them jointly
+    post-combination would conflate two independent hysteresis decisions into one.
+    regime_prob_vector still reports the RAW (unsmoothed) sig1_arr/sig2_arr values at
+    each bar regardless of min_hold_bars -- it is a continuous diagnostic of the
+    underlying signal, not a restatement of the (possibly-smoothed) discrete label.
+    ts_arr must be strictly ascending (_assert_ascending_timestamps) whenever
+    min_hold_bars > 1 -- the smoother's causal-confirmation logic depends on true
+    temporal order, which no upstream signal_mod.compute() call is trusted to
+    guarantee without an explicit check (todo 335's own lesson).
     """
+    if min_hold_bars > 1:
+        _assert_ascending_timestamps(ts_arr, group_name, tf)
     labels1 = _bucket(sig1_arr, tiers1, group_name=group_name, tier_label="tiers1")
     labels2 = _bucket(sig2_arr, tiers2, group_name=group_name, tier_label="tiers2")
+    labels1 = _smooth_labels(labels1, min_hold_bars)
+    labels2 = _smooth_labels(labels2, min_hold_bars)
     return [
         (
             group_name,
@@ -407,6 +484,16 @@ def main() -> None:
         raw_groups = cfg.get_sync("alpha.regime.groups", _DEFAULT_GROUPS_JSON)
         group_configs = _parse_group_configs(raw_groups)
 
+        # Todo 005, migration 326: causal min-hold-bars hysteresis on the raw
+        # per-bar threshold-bucketed labels -- one run-level value, loaded once
+        # (mirrors regime_writer.py's own min_hold_bars being a single value per
+        # HMM fit rather than per-cell). [initial_estimate]=3, same provenance
+        # discipline and same default value as regime_writer.py's own min_hold_bars,
+        # not independently calibrated for this signal family -- see the migration's
+        # own description for why reusing that precedent rather than a fresh study is
+        # the right call here.
+        min_hold_bars = int(cfg.get_sync("alpha.regime.cross_sectional.min_hold_bars", 3))
+
         if not group_configs:
             _logger.error("cross_sectional_regime_model.no_enabled_groups")
             status = "failure"
@@ -517,6 +604,7 @@ def main() -> None:
                     tiers1=tiers1,
                     tiers2=tiers2,
                     prob_keys=signal_mod.PROB_KEYS,
+                    min_hold_bars=min_hold_bars,
                 )
 
                 # Log per (group, tf) — never per row (CLAUDE.md hot-path logging rule).
