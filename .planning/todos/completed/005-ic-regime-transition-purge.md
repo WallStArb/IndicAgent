@@ -1,4 +1,5 @@
 ---
+**Status:** CLOSED 2026-08-27
 **Created:** 2026-06-28
 **Area:** intelligence
 **Type:** improvement
@@ -140,3 +141,42 @@ bar count). Acceptable given the IC purity improvement.
 - Re-run IC pipeline after change to measure effect
 
 Should apply to both per-symbol and cross-sectional IC computation paths.
+
+## Fixed, 2026-08-27
+
+Fixed at the source (option 2 of the two approaches this file's own 2026-07-19 note
+weighed), not via a downstream purge mask in `ic_engine.py`: `services/
+cross_sectional_regime_model.py`'s `_assign_labels` now applies a causal min-hold-bars
+hysteresis smoother (`_smooth_labels`, ports `regime_writer.py`'s existing
+`_smooth_states` pattern to string tier labels) to each tier dimension independently
+before combining into `regime_label`. New APR key
+`alpha.regime.cross_sectional.min_hold_bars=3` (migration 326), same value/provenance
+as `regime_writer.py`'s own `feature.hmm.min_hold_bars`.
+
+**Verified via a real write through the production entry point** (`--tf 1h`, all 4
+enabled regime groups), not just synthetic unit tests -- before/after bar-to-bar
+label-churn measurement against the live DB:
+
+| Group | Raw (pre-fix) churn | Post-fix churn |
+|---|---|---|
+| equity | 5.6% | 5.4% |
+| rates | 18.3% | 7.0% |
+| fx | 63.7% | 7.4% |
+| commodity | 84.0% | 6.0% |
+
+**This surfaced a materially more severe finding than the original filing's framing:**
+commodity and fx regime labels were flipping on the majority of consecutive bars
+before this fix -- not "occasional boundary noise" but near-random label assignment,
+contaminating essentially every commodity/fx regime-stratified IC measurement in the
+corpus's history. Post-fix, all four groups converge to a tight, sane 5.4%-7.4% band
+with no group-specific tuning needed. No label vocabulary collapsed to
+degenerate/unreachable states for any group (full vocabulary confirmed present
+post-fix for all 4 groups).
+
+17 new unit tests (`tests/unit/test_cross_sectional_regime_model.py`), hand-traced
+against the implementation before running, all passing. Full `tests/unit/` suite
+green. Blast radius: same class as an `HMM_RANDOM_STATE` change -- requires a
+`market_regimes` relabel (`cross_sectional_regime_model.py`, step 4) + full
+`ic_engine` recompute (step 5) to take effect corpus-wide; deliberately fixed
+*before* launching the pending post-Phase-173 corpus recompute rather than after, to
+avoid a second multi-day recompute cycle in the same week.
