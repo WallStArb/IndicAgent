@@ -450,7 +450,7 @@ Skipped — this phase has no new external dependencies; all required tooling (P
 - `tests/unit/test_ic_engine_compute_split.py` (grepped for test names/structure, 696 lines total).
 - `tests/unit/test_ic_engine_fingerprint.py` (grepped for test names/structure, 1,032 lines total).
 - `.planning/phases/173-.../173-CONTEXT.md` (full read) — authoritative locked-decision source (D-01 through D-10).
-- `.planning/todos/pending/270-broadcast-feature-significance-overstates-effective-n.md` (full read) — problem history, 2026-08-05/07/11/21 investigation timeline.
+- `.planning/todos/completed/270-broadcast-feature-significance-overstates-effective-n.md` (full read) — problem history, 2026-08-05/07/11/21 investigation timeline.
 - `.planning/STATE.md`, `.planning/config.json` (read for project status/nyquist_validation flag).
 - `CLAUDE.md` (project root) — read for APR/DAG-invariant/testing conventions.
 

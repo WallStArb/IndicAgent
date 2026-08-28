@@ -3,7 +3,7 @@ gsd_state_version: 1.0
 milestone: v3.1
 milestone_name: AlphaEngine Validation + Alpha Scoring
 status: milestone_complete
-last_updated: "2026-08-25T16:00:50.376Z"
+last_updated: "2026-08-28T23:45:00.000Z"
 progress:
   total_phases: 12
   completed_phases: 9
@@ -71,16 +71,21 @@ authoritative source, not duplicated here.** A tiered-priority snapshot pasted i
 went stale every single time it was tried (confirmed repeatedly through 2026-08-08) — don't
 recreate that pattern. Idea-level scoring: `docs/research/intelligence-lifecycle-backlog-matrix.md`.
 
-**Current focus (2026-08-26): Phase 173 (broadcast-feature-significance-correction) SHIPPED
-COMPLETE** — 4 plans/3 waves executed, merged, live-smoke-tested, independently re-reviewed
+**Current focus: Phase 173 (broadcast-feature-significance-correction) SHIPPED COMPLETE
+(2026-08-26)** — 4 plans/3 waves executed, merged, live-smoke-tested, independently re-reviewed
 (codex+agy, no blocking findings), `/simplify` pass done. Full detail:
-`project_phase173_broadcast_significance_complete` memory. **Not yet done: the full corpus
-recompute Phase 173's own fingerprint change requires** — until that runs, `hyg_lqd_ret_z`/
-`tip_tlt_ret_z`/all 38 broadcast features still carry pre-fix numbers. Separately this session:
-the `ic_engine --cross-sectional-only` run completed 2026-08-25 (144,232 rows, covers the
-corrected commodity/fx labels from todo 335); N1 (`nonlinear_interaction_combiner`'s
-residual-form test) ran and came back genuinely inconclusive (result flips sign of significance
-between adjacent parameter choices at 1h) — don't cite as pass or fail either way, see
+`project_phase173_broadcast_significance_complete` memory. **The full corpus recompute Phase
+173's own fingerprint change requires is IN FLIGHT since 2026-08-27 11:29 UTC**
+(`ops_corpus_pipeline_run.sh --from-step 4`, launched after the todo 354/356/005 fixes landed,
+so running fully-corrected code; ETA ~Aug 30-31) — until it completes, `hyg_lqd_ret_z`/
+`tip_tlt_ret_z`/all 38 broadcast features still carry pre-fix numbers. Live progress:
+[Corpus pipeline state](project_corpus_pipeline_state.md), not duplicated here. When the run
+exits, close the 227/285/287/292/306/335 exit-cluster together (listed in that memory).
+Separately that session: the `ic_engine --cross-sectional-only` run completed 2026-08-25
+(144,232 rows, covers the corrected commodity/fx labels from todo 335); N1
+(`nonlinear_interaction_combiner`'s residual-form test) ran and came back genuinely
+inconclusive (result flips sign of significance between adjacent parameter choices at 1h) —
+don't cite as pass or fail either way, see
 `project_n1_nonlinear_combiner_and_feature_phase_audit_2026_08_25` memory.
 
 **Phase 148's Gate 1 (signal proof) PASS but Gate 2 (execution proof) FAIL** — do not promote the per-symbol directional

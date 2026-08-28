@@ -116,7 +116,7 @@ columns from its input matrix. Not a re-litigation of regime-group/regime-label 
 **Downstream agents MUST read these before planning or implementing.**
 
 ### Problem scope and history
-- `.planning/todos/pending/270-broadcast-feature-significance-overstates-effective-n.md` — full
+- `.planning/todos/completed/270-broadcast-feature-significance-overstates-effective-n.md` — full
   scope history, the confirmed 23-feature broadcast population enumeration and how each was
   verified, the 2026-08-11 original decision, and the 2026-08-21 architecture reconsideration
   this phase's CONTEXT.md is built from. Read in full — this CONTEXT.md summarizes it but does
