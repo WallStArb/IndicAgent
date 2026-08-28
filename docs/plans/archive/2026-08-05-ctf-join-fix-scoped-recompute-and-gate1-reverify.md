@@ -1,8 +1,15 @@
 # Scoped `ctf_momentum` recompute + authoritative Gate 1 re-verification
 
-Status: proposed, not executed — recompute step needs explicit user go-ahead (real corpus
-mutation). Written 2026-08-05 so the next session can execute immediately instead of
-re-deriving scope.
+Status: **EXECUTED and FINAL — closed 2026-08-07** (this line updated 2026-08-28 at archive
+time; it previously said "proposed, not executed"). The scoped recompute and authoritative
+Gate 1 re-verification ran against real production data: both Validation Gates FAIL —
+`cross_sectional_relative_value` does not survive re-measurement under the corrected
+`ctf_momentum` join (Gate 1 `ci_lower` doesn't clear zero at either scale, `null_p` 0.65-0.99;
+Gate 2 no residual survives at 95% CI vs. the static-tilt benchmark, OOS window 3,803 bars /
+147 day-clusters). This retracted Phase 167's original "both gates PASSED" verdict and resolved
+the fork to discovery-not-construction. Full verdicts: `.planning/STATE.md` Strategic Plan
+section; `logs/construction_verdicts/gate1_latest.json` / `gate2_latest.json`. Originally
+written 2026-08-05 so the next session could execute immediately instead of re-deriving scope.
 
 ## What this answers
 
