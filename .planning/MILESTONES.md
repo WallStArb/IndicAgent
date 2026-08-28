@@ -1,5 +1,24 @@
 # Milestones
 
+## v3.0 Intelligence Vectors — AlphaEngine (Shipped: 2026-06-24)
+
+**Phases completed:** 4 phases (137, 138, 139, 140); Phase 140 correctness follow-on completed 2026-06-25
+**Plans completed:** 23 plans (7 + 9 + 3 + 4)
+**Timeline:** 2026-06-20 → 2026-06-24 (4 days); Phase 140 one day later
+
+**Key accomplishments:**
+
+1. **Feature Factory** (Phase 137) — 54-feature typed `feature_vectors` hypertable replaces `intelligence_features` as the v3.0 training corpus; I5/I6/I7 archived intact; backfill oneshot with checkpoint/resume; `BaseBatch` Ring 0 base class
+2. **IC Engine + forward returns** (Phase 138) — vectorized Spearman IC per (feature, symbol, tf, regime, lookahead) with circular-block-bootstrap 95% CI, BH-FDR correction, 20K independent-observation gate, 3-fold walk-forward validation (60-bar embargo); causal HMM regime labeling via forward-filter alpha-pass; forward returns via `LEAD()` with `TRAINING_WINDOW_END` OOS holdout gate; full 58-symbol corpus run executed 2026-06-24
+3. **Ensemble + alpha emission** (Phase 139) — Ledoit-Wolf covariance shrinkage with cluster deflation, per-feature 20% weight cap, `effective_N` diversification metric; `AlphaEmitter` shadow-mode Kafka emission to `alpha_events`; direction-aware CI gate
+4. **Correctness follow-on** (Phase 140) — stride-per-scale bug fix, migration 171, feature collinearity clustering, BH-FDR meta-level gate in ensemble trainer
+
+**Key decisions (load-bearing):** `HMM_RANDOM_STATE=42` (changing it invalidates all `feature_ic_scores`); pooled IC (`is_pooled=true`) is diagnostic-only; IC Sharpe gate is `n_raw_bars >= 20,000`; gradient column naming (`return_fast/mid/slow/extended`) tunable via APR not migration.
+
+**Archive:** `.planning/milestones/v3.0-ROADMAP.md`
+
+---
+
 ## v2.10 Data Architecture Evolution (Shipped: 2026-06-20)
 
 **Phases completed:** 12 phases (123, 124, 125, 126, 127, 128, 129, 130, 131, 132, 134, 136); Phase 133 CANCELLED
