@@ -25,7 +25,7 @@ the static-tilt benchmark. This retracts Phase 167's original "COMPLETE, both ga
 verdict and `nonlinear_interaction_combiner`'s original "substantial edge" claim — the small
 residual `nonlinear_interaction_combiner` still shows is a separate, already-tracked thread
 (`docs/research/measurement-nonlinear-interaction-combiner.md`), not resurrected by this result.
-Full numbers/investigation: `project_ctf_momentum_leak_and_nonlinear_combiner_status` memory.
+Full numbers: `logs/construction_verdicts/gate1_latest.json` / `gate2_latest.json`.
 
 **Fork resolution (decided in advance, not re-litigated): back to discovery, not construction.**
 Phase 168 (cost-hurdle spread refinement) and Phase 156-159 (execution/sizing) stay blocked —
