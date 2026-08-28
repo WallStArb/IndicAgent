@@ -2,7 +2,7 @@
 
 **Filed:** 2026-08-09
 **Source:** Phase 172 plan 172-05 (corpus-wide `regime_volatility` relabel) execution
-**Status:** pending, not blocking
+**Status:** CLOSED 2026-08-28, both halves resolved by other work (see Closure section)
 
 ## The situation
 
@@ -38,3 +38,23 @@ compression policy exists to reverse this automatically. Decide and execute:
   a third time
 - `.planning/phases/172-hmm-regime-volatility-only-redesign/172-05-SUMMARY.md` — full incident
   writeup with `EXPLAIN` costs and timings
+
+## Closure (2026-08-28)
+
+Closed on live verification, both option-branches of the "decide and execute" mooted:
+
+1. **State restored, not by manual recompress:** `feature_vectors` is back to **85/85 chunks
+   compressed** (verified live 2026-08-28 via `timescaledb_information.chunks`). The compression
+   policy this file said didn't exist is present and scheduled -- todo 306's 2026-08-15 check
+   first caught policy job 1065 recompressing everything after a crashed session left chunks
+   decompressed mid-write, and the table has stayed compressed since.
+2. **Systemic half addressed:** todo 306's `compressed_hypertable_write_session` /
+   `async_compressed_hypertable_write_session` (`services/_batch_utils.py`) brackets a batch's
+   writes as decompress-all -> write-all -> recompress-all + bare `VACUUM`, wired into every
+   raw/`bulk_update_by_key` writer against `feature_vectors`/`feature_ic_scores`, with a CI
+   guard (`tests/unit/test_compressed_hypertable_write_boundary.py`) against future bypasses.
+   Future batch-UPDATE relabels no longer hit the compressed-chunk write wall this incident
+   exemplified (the todos 149/161/288 failure shape).
+
+"Confirm decompressed is acceptable going forward" is therefore moot as a standalone decision:
+the policy auto-restores compression, and the write path no longer fights it.

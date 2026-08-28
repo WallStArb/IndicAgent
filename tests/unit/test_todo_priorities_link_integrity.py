@@ -45,12 +45,6 @@ _UNLINKED_ALLOW_LIST: dict[str, str] = {
         "docs/research/measurement-adaptive-combiner-weights.md, file kept in "
         "pending/ only as a pointer."
     ),
-    "270-broadcast-feature-significance-overstates-effective-n.md": (
-        "Promoted out of the P0 backlog into Phase 173 (ROADMAP.md) 2026-08-21, "
-        "per PRIORITIES.md's own stated scope ('Phases... are a separate "
-        "execution track and do not appear here'). File kept in pending/ as the "
-        "historical scope record, not re-linked."
-    ),
 }
 
 # {filename: reason} -- PRIORITIES.md links deliberately pointing at a filename

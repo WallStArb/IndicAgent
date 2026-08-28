@@ -1,7 +1,8 @@
 ---
-status: pending
+status: closed
 priority: P0
 filed: 2026-08-05
+closed: 2026-08-28
 source: closing out a stale PRIORITIES.md entry for todo 203 (already closed 2026-08-05, but
   the broadcast-feature significance gap it surfaced was never filed as its own todo)
 ---
@@ -233,3 +234,26 @@ implementation, per user direction 2026-08-21.
   the canary-seed fix that surfaced this gap while verifying per-symbol pseudo-replication was
   fixed for the canary specifically; this todo generalizes the same concern to every broadcast
   feature, not just the canary.
+
+## Closure (2026-08-28)
+
+Closed: the fix this todo scoped shipped as **Phase 173 (Broadcast Feature Significance
+Correction)**, 2026-08-25/26. Planned via `/gsd-plan-phase` after two independent review rounds
+(native GSD plan-checker + Codex), executed in 3 waves, live-smoke-tested against production
+(70 non-degenerate broadcast rows in `feature_ic_scores`, median `n_independent` 377 vs the
+same cell's per-symbol pooled median 11,637 = 3.2%, proving the one-draw-per-`bar_ts` collapse
+does real work), independently re-reviewed post-implementation (codex+agy, no blocking
+findings), `/simplify` pass done. Two live bugs found and fixed during execution beyond the
+plan (recency-only detector sampling; the `status_only_stale` fingerprint misclassification).
+The design landed as this file's 2026-08-21 "revised recommendation": a dedicated
+`_compute_one_broadcast_cell` reusing `_subsample_and_rank` against an equal-weighted
+peer-aggregate return, wired through `feature_ic_scores`/BH-FDR via a `cluster_id` offset
+partition. The empirically-detected broadcast population (38 features, persisted to
+`concept_registry.metadata->>'broadcast'`) supersedes this file's hand-enumerated 23.
+
+**Caveat carried forward, not open work:** the `broadcast_hash` fingerprint change invalidates
+every cross-sectional cell corpus-wide, so corrected numbers land corpus-wide only when the
+in-flight `--from-step 4` recompute (launched 2026-08-27, running fully-fixed code) completes.
+Until then no broadcast-feature significance claim outside the `equity/1h/low_bear` smoke cell
+is Phase-173-corrected -- tracked live in `.planning/STATE.md` and the corpus-pipeline memory,
+not here. If that run surfaces a Phase-173 defect at full scale, reopen this todo.
