@@ -61,10 +61,11 @@ this as its own phase via `/gsd-discuss-phase`. Full detail: `.planning/todos/pe
 248-hmm-full-history-fit-regime-label-instability-gate4-pilot.md`,
 `docs/analysis/hmm-parameter-lookahead-pilot-spy-1h.md`.
 
-**Corpus pipeline (`ic_engine.py`, step 5/8) — see [Corpus pipeline state](project_corpus_
-pipeline_state.md) for live status; that memory is the single source of truth for run
-progress/row counts, not duplicated here.** All three discovery-track threads above are blocked
-on this finishing.
+**Corpus pipeline: the post-Phase-173 recompute (all 8 steps) COMPLETE as of 2026-08-31 —
+see [Corpus pipeline state](project_corpus_pipeline_state.md) for full detail, not
+duplicated here.** All three discovery-track threads above were blocked on this recompute
+finishing; re-verify each one's specific prerequisite directly before assuming unblocked
+rather than inferring it from the pipeline's completion alone.
 
 **Priority ordering for the rest of the backlog: `.planning/todos/PRIORITIES.md` is the sole
 authoritative source, not duplicated here.** A tiered-priority snapshot pasted into this file
@@ -72,15 +73,17 @@ went stale every single time it was tried (confirmed repeatedly through 2026-08-
 recreate that pattern. Idea-level scoring: `docs/research/intelligence-lifecycle-backlog-matrix.md`.
 
 **Current focus: Phase 173 (broadcast-feature-significance-correction) SHIPPED COMPLETE
-(2026-08-26)** — 4 plans/3 waves executed, merged, live-smoke-tested, independently re-reviewed
-(codex+agy, no blocking findings), `/simplify` pass done. Full detail:
-`project_phase173_broadcast_significance_complete` memory. **The full corpus recompute Phase
-173's own fingerprint change requires is IN FLIGHT since 2026-08-27 11:29 UTC**
-(`ops_corpus_pipeline_run.sh --from-step 4`, launched after the todo 354/356/005 fixes landed,
-so running fully-corrected code; ETA ~Aug 30-31) — until it completes, `hyg_lqd_ret_z`/
-`tip_tlt_ret_z`/all 38 broadcast features still carry pre-fix numbers. Live progress:
-[Corpus pipeline state](project_corpus_pipeline_state.md), not duplicated here. When the run
-exits, close the 227/285/287/292/306/335 exit-cluster together (listed in that memory).
+(2026-08-26), full corpus recompute COMPLETE (2026-08-31 12:16 UTC).** 4 plans/3 waves
+executed, merged, live-smoke-tested, independently re-reviewed (codex+agy, no blocking
+findings), `/simplify` pass done. The full corpus recompute Phase 173's own fingerprint
+change required (`ops_corpus_pipeline_run.sh --from-step 4`, launched 2026-08-27) ran all 8
+steps end to end — `alpha_events` now carries Phase-173-corrected numbers for all 38
+broadcast features, including `hyg_lqd_ret_z`/`tip_tlt_ret_z`. A real self-deadlock bug in
+`alpha_publisher.py` (todo 351) was found and fixed along the way. Full detail:
+`project_phase173_broadcast_significance_complete` and `project_corpus_pipeline_state`
+memories. Exit-cluster todos 227/285/287/335/351/306 all individually verified and closed
+2026-08-31; 292 was NOT touched by this recompute (started at step 4, not `regime_writer`)
+and remains open.
 Separately that session: the `ic_engine --cross-sectional-only` run completed 2026-08-25
 (144,232 rows, covers the corrected commodity/fx labels from todo 335); N1
 (`nonlinear_interaction_combiner`'s residual-form test) ran and came back genuinely

@@ -215,8 +215,11 @@ on-demand rather than getting a registered timer:
    service the outlier.
 2. CLAUDE.md's "prove edge before production infra" -- a construction that has not yet
    cleared its own Validation Gates does not earn scheduled infrastructure.
-3. All indicagent systemd timers are confirmed disabled as of 2026-07-02 (CLAUDE.md) -- a
-   registered timer would create a false impression of a cadence that does not actually run.
+3. `indicagent-roll-batch.timer` (the nearest cadence precedent) is confirmed disabled as of
+   2026-08-31 (CLAUDE.md) -- though not all indicagent timers are dormant project-wide
+   (`nightly-backfill`/`regime-coverage-auditor` both run daily), a registered timer for a
+   construction that hasn't cleared its gates would still create a false impression of a
+   cadence it hasn't earned.
 4. The `--backfill` pass populates the full 2006-2026 history in one shot, handing the gates
    the OOS day-cluster population immediately rather than waiting on calendar time.
 

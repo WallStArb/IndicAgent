@@ -1,6 +1,6 @@
 # CLAUDE.md
 
-Version: 5.55.3
+Version: 5.55.4
 <!-- Bump the patch version on every substantive edit to this file (convention, not enforced). -->
 
 **Project nature:** Passion/learning project — not a production system. Architectural decisions prioritize correctness, rigor, and institutional-grade thinking. Renaissance Capital / Jim Simons principles are the north star. When giving advice, apply the same rigor you would to a system built to last — do not hedge around operational risk that doesn't apply.
@@ -193,7 +193,7 @@ Every `BaseDaemon` subclass auto-inherits 5 mandatory OTel signals (D-26, non-ne
 - **IBKR Gateway:** Docker (`ib-gateway` container), bound to `127.0.0.1:7497`. All ib_async in `src/providers/ibkr.py` only. VIX=`"VX"`, client IDs 35+.
 - **Redpanda**: Kafka-compatible. Topics: dots, via `stream_keys.py`. Retention: minimal (transport, not storage).
 - **Contracts**: always `get_active_contracts()` — never hardcode. Restart daemons on futures expiry.
-- **Roll flow:** `roll-batch` (`scripts/ops/roll/ops_roll_batch.py`) — promotes front-month in `contract_metadata`, broadcasts via Kafka. Documented as nightly 8pm, but **all systemd timers are confirmed disabled as of 2026-07-02** — verify with `systemctl list-timers | grep indicagent` before assuming this runs on schedule.
+- **Roll flow:** `roll-batch` (`scripts/ops/roll/ops_roll_batch.py`) — promotes front-month in `contract_metadata`, broadcasts via Kafka. Documented as nightly 8pm, but **`indicagent-roll-batch.timer` itself is confirmed disabled** (re-checked 2026-08-31) — verify with `systemctl list-timers | grep indicagent` before assuming this runs on schedule. Not all timers are disabled project-wide as of that date, though: `indicagent-nightly-backfill.timer` (daily 01:00 EDT) and `indicagent-regime-coverage-auditor.timer` (daily 02:00 EDT) are both `enabled` and firing on schedule — check per-unit, don't assume the whole fleet is dormant.
 - **Docker**: `cd production && docker compose up -d` after `docker-compose.yml` changes. All services have `logging: max-size/max-file` caps — do not remove them (TimescaleDB grew a 29GB log without them).
 - **Ollama:** Docker (`ollama/ollama:rocm`). `docker exec ollama ollama <cmd>`. Kill `alpha_swarm` + `narrative_compute` before swapping models.
 
