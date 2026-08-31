@@ -255,10 +255,20 @@ class AlphaPublisher(BaseBatch):
                     # the delete too -- atomic replace, never a partially-empty table visible
                     # to readers. Found 2026-07-08: 2346 stale 1h/high_bear alpha_events rows
                     # survived a re-run because of exactly this gap.
-                    # NOTE (todo 351): _flush_chunk's per-chunk INSERTs run on a separate
-                    # pooled connection (wconn) than this DELETE's transaction (conn) --
-                    # they commit independently and earlier, weakening the atomicity this
-                    # comment claims. Not yet confirmed live-impacting; see that todo.
+                    # todo 351, confirmed live 2026-08-30: _flush_chunk previously ran its
+                    # per-chunk INSERTs on a SEPARATE pooled connection (wconn) from this
+                    # DELETE's transaction (conn). Because event_id encodes weight_version,
+                    # a re-run's INSERTs target the exact PK rows this DELETE just removed
+                    # (but not yet committed) -- Postgres must block the INSERT on wconn
+                    # until conn's transaction resolves (XactLockTableWait), but conn can't
+                    # commit until the awaited _flush_chunk call on wconn returns. Self
+                    # lock-wait cycle within one process, broken only by the server's 30min
+                    # statement_timeout (confirmed: the 2026-08-30 failure logged exactly
+                    # 1905.67s elapsed on _flush_chunk's first call, zero new rows written).
+                    # Fix: _flush_chunk now takes `conn` itself, not a second pool.acquire()
+                    # -- both DELETE and every chunk INSERT run on the same connection/
+                    # transaction, so there is no cross-connection PK collision to wait on,
+                    # and the atomicity the comment above already claimed is now real.
                     deleted = await conn.execute(
                         "DELETE FROM alpha_events WHERE weight_version = $1", weight_version
                     )
@@ -384,7 +394,7 @@ class AlphaPublisher(BaseBatch):
                             }
                         )
                         if len(_chunk) >= chunk_size:
-                            await self._flush_chunk(pool, _chunk, now, is_shadow, topic)
+                            await self._flush_chunk(conn, _chunk, now, is_shadow, topic)
                             self.logger.info(
                                 "alpha_publisher.chunk_flushed",
                                 emit_count=emit_count,
@@ -393,7 +403,7 @@ class AlphaPublisher(BaseBatch):
 
                 # --- Flush the trailing partial chunk (same helper both paths use) ---
                 if _chunk:
-                    await self._flush_chunk(pool, _chunk, now, is_shadow, topic)
+                    await self._flush_chunk(conn, _chunk, now, is_shadow, topic)
                     _chunk.clear()
             finally:
                 if not self.skip_kafka:
@@ -418,7 +428,7 @@ class AlphaPublisher(BaseBatch):
 
     async def _flush_chunk(
         self,
-        pool: asyncpg.Pool,
+        conn: asyncpg.Connection,
         chunk: list[dict],
         now: datetime,
         is_shadow: bool,
@@ -433,34 +443,39 @@ class AlphaPublisher(BaseBatch):
         Kafka-publish path wasn't chunked at all, accumulating unbounded for the whole
         run and OOM-killing a corpus run at 24.6GB RSS once ensemble_alpha grew past
         ~30M rows).
+
+        Takes the SAME connection the caller's DELETE + cursor are using (todo 351) --
+        a separately pool.acquire()'d connection here would race the still-open DELETE
+        transaction for the identical PK rows (event_id encodes weight_version, so a
+        re-run's inserts target exactly what the DELETE just removed) and self-deadlock
+        until statement_timeout fires.
         """
-        async with pool.acquire() as wconn:
-            await wconn.executemany(
-                self._INSERT_SQL,
-                [
-                    (
-                        e["event_id"],
-                        e["symbol"],
-                        e["tf"],
-                        e["bar_ts"],
-                        self.ensemble_version,
-                        e["weight_version"],
-                        e["regime"],
-                        e["alpha_score"],
-                        e["alpha_ci_lower"],
-                        e["alpha_ci_upper"],
-                        e["eff_n"],
-                        e["n_features_active"],
-                        e["threshold"],
-                        e["direction"],
-                        e["top_features"],
-                        now,
-                        e["cost_hurdle"],
-                        is_shadow,
-                    )
-                    for e in chunk
-                ],
-            )
+        await conn.executemany(
+            self._INSERT_SQL,
+            [
+                (
+                    e["event_id"],
+                    e["symbol"],
+                    e["tf"],
+                    e["bar_ts"],
+                    self.ensemble_version,
+                    e["weight_version"],
+                    e["regime"],
+                    e["alpha_score"],
+                    e["alpha_ci_lower"],
+                    e["alpha_ci_upper"],
+                    e["eff_n"],
+                    e["n_features_active"],
+                    e["threshold"],
+                    e["direction"],
+                    e["top_features"],
+                    now,
+                    e["cost_hurdle"],
+                    is_shadow,
+                )
+                for e in chunk
+            ],
+        )
         if not self.skip_kafka:
             # Concurrent, not sequential: _flush_chunk runs INSIDE the open DB
             # transaction (called from the cursor loop inside `async with
