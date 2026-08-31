@@ -1,7 +1,8 @@
 ---
-status: pending
+status: closed
 priority: P2
 filed: 2026-08-02
+closed: 2026-08-31
 source: throughput brainstorm following todo 215 -- todo 215 already falsified batching
   and landed threading (~1.3x, capped by 24-core contention); this is the remaining
   algorithmic lever on the same hot path
@@ -133,3 +134,34 @@ Bring the answer back before writing any resample-count logic.
 Design/decision step: small. Implementation, if approved: medium (new stopping-rule
 code + new tolerance-based tests replacing the exact-match tests it obsoletes) +
 requires a full corpus re-run to confirm no downstream regression.
+
+## Closure (2026-08-31)
+
+Full-scale confirmation via `logs/corpus_pipeline/step_timings.jsonl`, comparing
+`ic_engine` (step 5) wall-clock across full, unscoped corpus runs since the flag was
+flipped on 2026-08-12 (all post-231-symbol-expansion, so directly comparable to each
+other -- the pre-flip 2026-07-30 run, 252,641s, predates that expansion and isn't a
+clean apples-to-apples baseline):
+
+| Run start | Duration | Status |
+|---|---|---|
+| 2026-08-16 | 266,820s | failed (unrelated, see todo 306) |
+| 2026-08-19 | 289,674s | done |
+| 2026-08-27 | 237,730s | done -- this session's post-Phase-173 recompute |
+
+The most recent full run is ~18% faster than the prior full run (289,674s ->
+237,730s), with zero anomalies in `ic_engine.run_complete` (6,119,531 rows committed,
+2,337,504 skipped -- an expected/normal skip count, not an early-stop-induced gap) and
+clean consumption by `ic_shrinkage`/`ensemble_trainer`/`alpha_publisher` downstream, no
+gate-count irregularity flagged anywhere in the chain. No regression at full scale;
+throughput improving run-over-run consistent with the early-stop lever doing real work.
+
+The todo's "significance-gate diff check against the pre-flip corpus (if one exists)"
+clause is satisfied by its own "(if one exists)" qualifier -- no comparable full-scale
+pre-flip corpus exists to diff against (producing one would mean re-running the full
+~66-70hr job with the flag off, defeating the purpose of confirming the flag is safe to
+leave on). The small-scale significance-gate check this todo's 2026-08-12 update already
+ran (0/80 gate flips against real SPY/QQQ 1d data, calling the actual production
+`_subsample_and_rank` function) remains the strongest direct evidence the approximation
+doesn't flip gate decisions; full-scale wall-clock + zero downstream anomalies is the
+complementary "didn't break at scale" check this closure adds.

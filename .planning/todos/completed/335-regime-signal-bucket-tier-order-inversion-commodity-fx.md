@@ -1,10 +1,11 @@
 ---
-status: pending
+status: closed
 priority: P0
 filed: 2026-08-19
+closed: 2026-08-31
 source: investigating why commodity/5m/up_primary_contango was large enough to breach alpha.ic.max_cell_rows (migration 259, then 319)
 fix_landed: 2026-08-20, commits db98ac0a3 (code fix + migrations 319/320) and 36f2554f3 (unrelated docs)
-recompute_status: queued, not yet run -- see "Recompute status" section below
+recompute_status: complete 2026-08-31 -- see "Closure" section below
 ---
 
 # `_bucket()`'s ascending-sort contract is violated by 2 of 4 regime_signals modules — commodity and fx tier1/tier2 labels are wrong, confirmed live in market_regimes
@@ -151,3 +152,31 @@ completes rather than closing this one in isolation.
 - `src/intelligence/regime_signals/fx_dollar_carry.py:69-80`
 - `production/migrations/319_ic_max_cell_rows_recalibration_universe_growth.sql` — the symptom
   this bug produced (oversized cell), fixed tactically there but root cause is here
+
+## Closure (2026-08-31)
+
+Steps 3-4's recompute (`--from-step 4` full chain: `cross_sectional_regime_model` ->
+`ic_engine` -> `ic_shrinkage` -> `ensemble_trainer` -> `alpha_publisher`) launched
+2026-08-27 11:29 UTC, completed 2026-08-31 12:16 UTC (`ic_engine` alone ran 66.1hr;
+`alpha_publisher`'s own final step needed a separate bug fix along the way, see todo
+351). Verified live against the corrected corpus:
+
+**`market_regimes`, `commodity` group -- all 4 tiers now populated** (previously only
+`up_primary_*`/`down_secondary_*` ever appeared): `down_primary_*` 9,248 rows,
+`down_secondary_*` 277,263, `up_secondary_*` 271,047, `up_primary_*` 6,560 across
+contango/backwardation/neutral sub-labels. `up_secondary` and `down_primary` -- the two
+states the bug made mathematically unreachable -- are both live.
+
+**`market_regimes`, `fx` group -- both risk states now populated** (previously only
+`*_risk_on` ever appeared): `strong_dollar_risk_off` 11,648 / `strong_dollar_risk_on`
+8,099 / `weak_dollar_risk_off` 253,976 / `weak_dollar_risk_on` 225,662. `risk_off` --
+the unreachable state -- is live for both dollar-strength tiers.
+
+**Propagated all the way through `feature_ic_scores`**, not just `market_regimes`:
+queried `regime` values where `regime_label_source='forward_filter'` (the per-symbol
+path) and confirmed the same full commodity 12-label / fx 4-label vocabularies are
+present in the IC-measurement layer, not just the upstream regime table.
+
+Every `feature_ic_scores`/`ensemble_weights`/`ensemble_alpha` row now reflects the
+corrected commodity/fx labels -- the "measuring predictive power conditional on a
+mislabeled regime" corruption this todo described is resolved corpus-wide.

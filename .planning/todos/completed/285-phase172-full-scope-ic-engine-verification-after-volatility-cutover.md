@@ -1,3 +1,8 @@
+---
+status: closed
+closed: 2026-08-31
+---
+
 # 285 - Full-scope ic_engine verification after the Phase 172 volatility cutover
 
 **Filed:** 2026-08-09
@@ -67,3 +72,38 @@ Once Phase 172 is complete and no other corpus-scale job is running:
 - `.planning/phases/172-hmm-regime-volatility-only-redesign/172-07-PLAN.md` Task 1
 - `.planning/phases/172-hmm-regime-volatility-only-redesign/172-REVIEWS.md` (Codex, MEDIUM)
 - `.planning/phases/172-hmm-regime-volatility-only-redesign/evidence/172-05-relabel-coverage.json`
+
+## Closure (2026-08-31)
+
+All 5 steps verified live against the post-Phase-173 full-corpus recompute (completed
+2026-08-31 12:16 UTC, `ic_engine` alone 66.1hr, no `--symbols`/`--tf` scoping):
+
+1. **Full pass, done.** The completed run's manifest lists all 231 symbols, all 4 tfs,
+   `training_window_end=2025-12-24 05:15:00+00`.
+2. **No retired trend labels anywhere in `feature_ic_scores.regime`** — `trending_up`,
+   `trending_down`, `ranging`, `transition_up`, `transition_down` return 0 rows,
+   unscoped (the `regime_scope` column referenced in this todo's original text no
+   longer exists in the live schema; checked the whole table, a strictly stronger
+   check).
+3. **Every per-symbol volatility-HMM label is a registered `regime_volatility` code**:
+   the only 3 labels present on the per-symbol (`regime_label_source='forward_filter'`)
+   path that aren't cross-sectional group labels are `calm`/`elevated`/`turbulent` —
+   exactly `controlled_vocabulary`'s registered `regime_volatility` namespace, no drift.
+4. **Per-cell coverage vs. `172-05-relabel-coverage.json`**: of the 262 (symbol, tf)
+   cells the evidence file recorded as `verdict: 'labeled'`, 217 have >=1
+   `feature_ic_scores` row under `calm`/`elevated`/`turbulent` today. 45 don't — 43 are
+   `1d`, matching the already-documented structural floor (`feature_ic_scores` needs
+   ~60K bars for `ic_sharpe_hac` reliability, which `1d` bars structurally can't clear,
+   per this project's existing gotcha). The other 2 are `IBIT/5m` (10,306 labeled rows,
+   short-history symbol, same bar-floor explanation) and **`BIL/5m`** (0 labeled rows
+   despite 165,500 total rows — not a bar-floor case, genuinely unexplained; filed as
+   new todo 362, low priority, doesn't block this closure since it's a narrow
+   single-symbol gap, not a systemic verification failure).
+5. **VINTAGE DISJOINT re-run against the grown table**: both the CVR-level check
+   (`regime_volatility` vs `regime_hmm` code intersection) and the live-table check
+   (any `feature_ic_scores.regime` value registered under both namespaces
+   simultaneously) return `none` — still PASS at full post-recompute scale. Note the
+   original doc's live-table check filtered on `regime_scope = 'symbol_hmm'`, a column
+   that no longer exists; re-ran unscoped across the whole table instead (strictly
+   stronger, since it also covers any other scope that might have picked up a retired
+   label).

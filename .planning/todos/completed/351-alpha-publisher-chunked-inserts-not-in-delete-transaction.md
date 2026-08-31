@@ -1,7 +1,8 @@
 ---
-status: pending
+status: closed
 priority: P3
 filed: 2026-08-23
+closed: 2026-08-31
 source: found while fixing the 2026-08-22 alpha_publisher OOM incident (unbounded
   Kafka-path accumulation) -- a separate, deeper question surfaced but deliberately
   not fixed in that same pass
@@ -72,3 +73,29 @@ cost the current design was avoiding; or (b) accept the two-connection design bu
 claiming atomicity in the comment, and rely on `ON CONFLICT (event_id, bar_ts) DO
 NOTHING` plus a monotonic cutoff to make partial-replace states self-healing on the next
 run instead.
+
+## Closure (2026-08-31)
+
+This "not yet confirmed live-impacting" risk turned out to be exactly what caused the
+2026-08-23 AND 2026-08-30 `alpha_publisher` production failures (same signature both
+times: `QueryCanceledError: canceling statement due to statement timeout` inside
+`_flush_chunk`'s first `executemany`). Root-caused precisely as this todo's "Whether
+this is actually a live problem" section anticipated it could: `event_id` encodes
+`weight_version`, so a rerun's INSERTs target the exact PK rows the DELETE just
+(uncommittedly) removed -- Postgres blocks the INSERT on `wconn` until `conn`'s
+transaction resolves (`XactLockTableWait`), but `conn` can't resolve until the awaited
+`_flush_chunk` call on `wconn` returns. Self lock-wait cycle within one process, broken
+only by the server's 30min `statement_timeout` (confirmed via `SHOW statement_timeout`;
+matches the 2026-08-30 failure's 1905.67s elapsed almost exactly). Zero new rows ever
+landed on either failed run -- `alpha_events` was serving stale 2026-08-23-vintage data
+for a full week until this was fixed.
+
+**Fix landed: option (a).** `_flush_chunk` now takes `conn` directly instead of
+`pool.acquire()`-ing a second connection (`services/alpha_publisher.py`). The
+pool-contention concern option (a) flagged turned out to be moot -- holding one
+connection through the full emission loop is exactly what the DELETE's own
+`async with conn.transaction():` block already required; no separate connection was
+ever needed for correctness, only removed. Verified live: rerun against the same
+70.5M-row corpus completed cleanly in 78.5min with steady ~50K-row chunk flushes
+every ~3s, no hang, `alpha_events` now holds `weight_version='run_2025122405150000'`
+rows with `emitted_at` matching the fresh run, not the stale 2026-08-23 timestamp.

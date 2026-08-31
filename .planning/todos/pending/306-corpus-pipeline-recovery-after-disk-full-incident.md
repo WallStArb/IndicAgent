@@ -222,3 +222,34 @@ three are still waiting on exactly this, unchanged from the original filing.
 - `services/regime_writer.py`, `services/forward_return_writer.py`
 - `logs/corpus_pipeline_orchestrator_20260815_124916.log` -- this run's top-level log
 - Full incident detail: `project_disk_full_incident_2026_08_13` memory
+
+## Re-scoped 2026-08-31 -- corpus-recovery side resolved, live-ingestion side still genuinely broken
+
+Verified live, not assumed:
+
+**Resolved, closing this part:**
+- `feature_vectors.regime`/`.regime_volatility` population: 31,204,768 / 31,004,453 of
+  106,268,964 -- unchanged from the 2026-08-21 check, which is expected (this recompute
+  started at step 4, not step 1-2, so `regime_writer` wasn't re-run) and not itself a
+  problem -- these are the same real numbers, not stale placeholders.
+- `forward_returns.bar_ts` max = 2025-12-24, matching `training_window_end` exactly.
+  Re-read `forward_return_writer.py`: it's gated by `TRAINING_WINDOW_END` with an
+  explicit OOS-holdout enforcement (`alpha.validation.oos_start` -- "TRAINING_WINDOW_END
+  must never cross" the holdout boundary). This is NOT the "16+ days stale, hasn't run"
+  gap this todo originally flagged (that was pre-holdout-enforcement, against a
+  different, higher watermark of 2026-07-28) -- it's the corpus correctly capped at its
+  designed OOS boundary by policy, verified against the actual code gate, not assumed.
+- Todo 335's `--from-step 4` recompute (this todo's stated close condition) landed and
+  completed 2026-08-31 -- see that todo's closure.
+- Todos 285/287 (this todo's stated co-dependents) both independently verified and
+  closed 2026-08-31 -- see their own closure notes.
+
+**Still genuinely open, NOT closing this todo -- re-scoped to just this:**
+- **Live IBKR 1m ingestion has not advanced since 2026-08-15** (`market_data_ohlcv`,
+  `timeframe='1m'`, `max(timestamp) = 2026-08-15`) -- **16 days stale as of this check
+  (2026-08-31)**, same root cause diagnosed 2026-08-13 (`ib-gateway` container stuck in
+  a 2FA retry loop) and never actually fixed, only diagnosed. This needs the user's
+  phone (IB Key push approval) -- not fixable from the CLI. This is the one part of the
+  original 5-step recovery plan that never got done; everything else in this todo's
+  scope is now resolved through other means (the corpus pipeline relaunches) as the
+  2026-08-20 update already noted.

@@ -1,3 +1,8 @@
+---
+status: closed
+closed: 2026-08-31
+---
+
 # 287 - Legacy `regime` family's probability/churn columns leak into `ensemble_trainer`'s training matrix
 
 **Filed:** 2026-08-09
@@ -102,3 +107,24 @@ trend-probability/churn values for those rows. Before shipping the fix:
 - `.planning/phases/172-hmm-regime-volatility-only-redesign/172-02-PLAN.md` Task 2
 - `src/intelligence/features/feature_vector_persistence.py::REGIME_WRITER_OWNED_COLUMN_NAMES`
 - `services/ensemble_trainer.py::_get_feature_columns`, `_META_COLS`
+
+## Closure (2026-08-31)
+
+`ensemble_trainer` re-ran under the fix commit (`9469b0a50`, landed 2026-08-13) as part of
+the post-Phase-173 corpus recompute: `ensemble_weights.computed_at` for
+`weight_version='run_2025122405150000'` spans 2026-08-30 06:26:48-07:35:27, well after the
+fix landed. Verified live, not assumed:
+
+- **Zero leaked columns in the trained matrix**: `SELECT feature_name, count(*) FROM
+  ensemble_weights WHERE feature_name IN ('hmm_prob_trending_up', 'hmm_prob_ranging',
+  'hmm_prob_trending_down', 'hmm_churn', 'regime', 'hmm_regime_prob', 'hmm_entropy',
+  'hmm_duration')` returns 0 rows -- the full 8-column `REGIME_WRITER_OWNED_COLUMN_NAMES`
+  family is confirmed excluded from production training output, not just the unit test.
+- **Impact assessment, sized**: `SELECT count(*) FILTER (WHERE hmm_prob_trending_up IS
+  NULL), count(*) FILTER (WHERE hmm_churn IS NULL) FROM feature_vectors WHERE regime IS
+  NOT NULL` returns 0/0 of 31,204,768 rows -- the NULL-imputation failure mode this todo
+  described can no longer occur at all now that the columns are excluded outright,
+  regardless of `regime_writer`'s partial-coverage population count.
+
+Both of this todo's stated close conditions (re-run `ensemble_trainer`, size the
+correction) are done.
