@@ -251,7 +251,12 @@ multi-day recompute cycle. Full evidence in `completed/005-...md`.
 fx group shows both risk states (`risk_off` now populated for both dollar-strength tiers),
 confirmed propagated through to `feature_ic_scores`. See todo file's closure section.
 
-| [306](pending/306-corpus-pipeline-recovery-after-disk-full-incident.md) | **Re-scoped 2026-08-31 -- corpus-recovery side resolved, live-ingestion side still genuinely broken.** Regime population, `forward_returns` OOS-capping, and co-dependents 285/287/335 all verified resolved -- see todo file. **Still open**: live IBKR 1m ingestion has NOT advanced since 2026-08-15 -- 16 days stale as of this check, same 2FA-loop root cause diagnosed 2026-08-13, never actually fixed, needs the user's phone (IB Key push approval), not fixable from the CLI. |
+**306 CLOSED 2026-08-31, row removed.** Corpus-recovery side resolved earlier this session
+(regime population, `forward_returns` OOS-capping, co-dependents 285/287/335 all verified).
+Live IBKR ingestion also now resolved -- the 2026-08-13 "stuck in 2FA loop" diagnosis was
+wrong; real cause was `libgtk-3-0` missing from the `ib-gateway` image, fixed live and
+verified connected. Durability follow-up filed as todo 363 (fix survives `docker restart`
+but not a container recreation). See todo file's closure section.
 
 ## P1 — High value, quick, fully unblocked
 
@@ -492,6 +497,7 @@ directly instead of acquiring a second pooled connection. Verified live: rerun a
 | [359](pending/359-phase173-altitude-design-notes.md) | New 2026-08-26, `/simplify`'s altitude review of Phase 173's diff. Three design-depth notes, all already reviewed and accepted by both codex and agy during Phase 173's own mandatory Wave-3 review -- not bugs, not urgent, recorded for future consideration only: (1) `_BROADCAST_CLUSTER_ID_OFFSET = 10000` is a numeric-range partition bolted onto the BH-FDR grouping key rather than a real `cell_kind` field; (2) `_fingerprint_computational_key` special-cases the literal `"broadcast_hash"` string instead of classifying watermark sub-keys generically at the point produced; (3) `_D02_ENUMERATED_BROADCAST_FEATURES` (32-name validation floor) lives in an ops script, not a test, so it will drift silently with no CI signal. |
 | [361](pending/361-rename-ensemble-layer-to-alpha-combiner.md) | New 2026-08-30, user naming-taste call. Rename `ensemble_trainer`/`EnsembleICEngine`/`ensemble_weights`/`alpha_ensemble_ic`/`alpha.ensemble.*` to an `alpha_combiner` family -- "ensemble" is an ML borrowing, "alpha combination" fits this project's Renaissance/Simons framing better. Real rename (code + DB migration + CLAUDE.md + docs), not urgent. **Update 2026-08-31: the "land before ensemble_trainer's next run" window has closed** -- that run (step 7 of the post-Phase-173 recompute) completed 2026-08-30 under the old name, before this todo was actioned. No longer time-sensitive to a specific run; do whenever, migration will just rename in place over live data as originally scoped. |
 | [362](pending/362-bil-5m-zero-regime-volatility-labels.md) | New 2026-08-31, found during todo 285's closure verification. `BIL/5m` has zero `regime_volatility` (calm/elevated/turbulent) labels in `feature_ic_scores` despite 165,500 rows in `feature_vectors` -- not explained by the usual bar-floor limitation (unlike the other 44 cells in the same diff, all `1d` or short-history). Hypothesis: BIL's near-flat T-Bill price series may be structurally unsuited to volatility-HMM fitting. Not yet root-caused. Low priority, single-symbol/single-tf scope. |
+| [363](pending/363-ib-gateway-libgtk3-fix-not-durable-across-recreation.md) | New 2026-08-31, found fixing todo 306's live-ingestion gap. `libgtk-3-0` was missing entirely from `ghcr.io/gnzsnz/ib-gateway:stable`'s image -- the real root cause of the 16-day ingestion outage, fixed live via `apt-get install` inside the running container. Survives `docker restart` but NOT a container recreation (`--force-recreate`, image re-pull since `:stable` is a rolling tag) -- needs a small wrapper Dockerfile baking the package in, or this exact bug returns silently. |
 
 **244 CLOSED 2026-08-21 -- re-verified, decision confirmed unchanged, row removed.**
 `ctf_vwap_align`/`ctf_regime_align` still have zero live consumers (`ensemble_trainer.py`/

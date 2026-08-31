@@ -1,3 +1,8 @@
+---
+status: closed
+closed: 2026-08-31
+---
+
 # 306 - Recover corpus pipeline + live ingestion after the 2026-08-13 disk-full incident
 
 **Filed:** 2026-08-13
@@ -244,12 +249,15 @@ Verified live, not assumed:
 - Todos 285/287 (this todo's stated co-dependents) both independently verified and
   closed 2026-08-31 -- see their own closure notes.
 
-**Still genuinely open, NOT closing this todo -- re-scoped to just this:**
-- **Live IBKR 1m ingestion has not advanced since 2026-08-15** (`market_data_ohlcv`,
-  `timeframe='1m'`, `max(timestamp) = 2026-08-15`) -- **16 days stale as of this check
-  (2026-08-31)**, same root cause diagnosed 2026-08-13 (`ib-gateway` container stuck in
-  a 2FA retry loop) and never actually fixed, only diagnosed. This needs the user's
-  phone (IB Key push approval) -- not fixable from the CLI. This is the one part of the
-  original 5-step recovery plan that never got done; everything else in this todo's
-  scope is now resolved through other means (the corpus pipeline relaunches) as the
-  2026-08-20 update already noted.
+**Live IBKR ingestion -- RESOLVED 2026-08-31, closing this todo fully.** The 2026-08-13
+diagnosis ("stuck in a 2FA retry loop, needs the user's phone") turned out to be wrong --
+re-investigated live with actual log evidence: the container had zero login/auth attempts
+in its log at all (not an active retry cycle), and a restart proved auth itself works fine
+(full 2FA completed in ~19s, no manual approval even needed). The real blocker was
+`libgtk-3-0` missing entirely from the `ib-gateway` container image, silently failing
+JavaFX/glass init right after a *successful* auth, with no restart-triggering error IBC's
+own recovery logic watches for. Fixed live (`apt-get install libgtk-3-0` + restart),
+verified via X11 screenshot showing "API Server: connected" / "Market Data Farm: ON:
+usfarm", and confirmed `127.0.0.1:7497` externally reachable again. Full writeup:
+`project_ibkr_live_ingestion_stalled_2fa` memory. **Fix is not yet durable across a
+container recreation** -- filed as todo 363, separate and not blocking this closure.
