@@ -245,6 +245,7 @@ multi-day recompute cycle. Full evidence in `completed/005-...md`.
 
 | Todo | Gap |
 |---|---|
+| [366](pending/366-live-ingestion-consumer-services-never-restarted-after-gateway-fix.md) | New 2026-09-01, found starting `statistical_factor_residual` Stage 3. Todo 306/363's `ib-gateway` libgtk3 fix only restored the gateway's own API port -- the 5 consumer services that actually read from it and write bars (`indicagent-ibkr-provider`/`provider-merger`/`bar-writer`/`bar-aggregator`/`bar-auditor`) were never restarted and are still `disabled`/dead today. `market_data_ohlcv` 1m `max(timestamp)` frozen at 2026-08-12 for AAPL/SPY; 1d row count per day cratered from 231 symbols to 10 from 2026-08-14 onward, and even that 10-symbol nightly-backfill path is currently failing with IBKR pacing errors. Corrects the "RESOLVED 2026-08-31" framing in `project_ibkr_live_ingestion_stalled_2fa` memory and 306's closure note above -- ingestion has been silently down the whole time since, not resolved. Every day this stays down is unrecoverable real-time data loss for ~211/231 symbols. |
 **335 CLOSED 2026-08-31, row removed.** Steps 3-4's recompute (`--from-step 4`) landed
 2026-08-31 12:16 UTC. Verified live: `market_regimes` commodity group now shows all 4 tiers
 (`up_secondary`/`down_primary` -- the two states the bug made unreachable -- both populated),
