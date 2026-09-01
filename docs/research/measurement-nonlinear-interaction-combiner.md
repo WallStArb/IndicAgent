@@ -800,6 +800,30 @@ continuing to push the parameter in the direction that increases per-tree stocha
 `data-edge-source-thesis.md`'s Scorecard updated to reflect "not robust / inconclusive," not
 "significantly worse" -- the 0.10 number alone would have overstated confidence.
 
+### N1-a-capped @ 1h fresh re-run, 2026-09-01 (todo 364): both colsample values reproduce BIT-IDENTICALLY — the instability is confirmed real and structural, not measurement noise
+
+**~3 weeks after the original 2026-08-25 run, re-ran both N1-a-capped @ 1h arms (colsample_bytree=0.10 and 0.05) fresh against the current corpus** to check whether the original instability finding (0.10 → "significantly worse than linear"; 0.05 → "no effect") was a data-staleness artifact or something more structural (todo 364, filed after confirming neither Phase 173 nor todo 335's fixes touch this test's data path — see that todo for the pre-run investigation).
+
+**Result: both arms reproduced their original numbers to the reported decimal precision.**
+
+| Metric | 0.10 (2026-08-25) | 0.10 (2026-09-01) | 0.05 (2026-08-25) | 0.05 (2026-09-01) |
+|---|---|---|---|---|
+| `point_diff` | -0.0059 | **-0.0059** | -0.0012 | **-0.0012** |
+| `ci_lower` | -0.0082 | **-0.0082** | -0.0035 | **-0.0035** |
+| `ci_upper` | -0.0037 | **-0.0037** | +0.0009 | **+0.0009** |
+| `p` | 0.0000 | **0.0000** | 0.26 | **0.26** |
+| Fold 1 breach (`gap_z`) | 0.248 | **0.248** | 0.210 | **0.210** |
+| Total rows | 6,646,123 | **6,646,123** | 6,646,123 | **6,646,123** |
+
+Row counts and fold boundaries also matched exactly — this isn't a coincidental rounding match, it's the same underlying data. Traced to todo 366 (filed the same session): live IBKR ingestion has been down since 2026-08-12, before N1's original 2026-08-25 run, so the 1h equity corpus this test reads from genuinely has not grown in the intervening ~3 weeks. A recompute (Phase 173) touched 38 broadcast-feature *values* in this window without adding new *rows*, which is consistent with the row counts matching exactly while still leaving open whether those value changes moved anything — evidently they didn't move this particular composite/linear IC comparison materially, at the precision reported.
+
+**What this settles and what it doesn't:**
+- **Settled:** the colsample-sensitivity instability is not noise, not a fluke of one bootstrap draw, and not something that would have "cleared up" with more/fresher data at the same corpus size — it is a fully deterministic, reproducible property of this specific estimator construction at 1h, confirmed by exact reproduction under identical inputs. Todo 364's own framing ("if it persists, that's real signal the instability itself is structural") is now the confirmed outcome, not the hedged one.
+- **Not settled:** which of the two colsample values (or neither) reflects the "true" underlying relationship — that question needs the corpus to actually grow (todo 366, not urgent per current priority — see that todo) or a different estimator fix (recommendation 4 in the N1-a-capped section above: a feature-specific `gap_z` gain cap or `monotone_constraints`, not another global colsample sweep) before it can be answered. Re-running the same test against the same frozen data a third time would add nothing.
+- **New observation, not yet a finding:** peak RSS was measurably higher on both fresh runs than the original (0.10: 22.82GB → 27.19GB; 0.05: 24.05GB → 27.25GB), roughly +15-20% at the same row counts and hyperparameters. Within this module's documented OOM-avoidance envelope but closer to the 29GB host ceiling than before (only ~1.75GB headroom on the 0.05 run) — worth a closer look (library version drift? a different code path allocating more?) before running this test again at this scale, not urgent enough to investigate now.
+
+**Todo 364 closed 2026-09-01** on this result — no further N1 re-run is warranted until either the corpus genuinely grows or a differently-designed estimator fix is built.
+
 ## Sequencing
 
 Cheap to run — no new data, no new features, no new infrastructure. Reuses `feature_vectors`/

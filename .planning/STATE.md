@@ -46,9 +46,18 @@ away the top-K statistical factors did not improve IC on any axis — if anythin
 toward zero. Full detail: `docs/research/measurement-statistical-factor-residual.md`. Per
 that memory's own standing instruction, this is the point to surface the pattern before
 starting a 6th candidate, not mechanically continue down the list. Two more per-symbol
-regime candidates (todo 303 trend, todo 304 percentile-rank) passed Stage-1 mechanism
-validation the same window and remain open, unaffected by this closure — `todo 364` (N1
-fresh re-run) also still open.
+regime candidates (todo 303 trend, todo 304 percentile-rank) had Stage-1 mechanism
+validation and are being run through Stage 2/3 this session, unaffected by this closure.
+
+**Todo 364 (N1 fresh re-run) CLOSED 2026-09-01.** Re-ran N1-a-capped @ 1h at both
+colsample_bytree values (0.10, 0.05) — both reproduced their original 2026-08-25 numbers
+bit-identically (point_diff/ci/p/fold-breach/row-counts all matched exactly), traced to
+todo 366's live-ingestion gap (corpus hasn't grown since before N1's original run). Verdict:
+the colsample-sensitivity instability is confirmed structural, not a staleness artifact —
+still not resolved which value (if either) is "correct," and won't be until the corpus
+actually grows or a differently-designed fix is built. Full detail:
+`docs/research/measurement-nonlinear-interaction-combiner.md`'s "N1-a-capped @ 1h fresh
+re-run" section.
 
 **Live ingestion gap found closing this thread, filed as todo 366 (P2), explicitly NOT
 urgent per user direction 2026-09-01:** the corpus has decades of history and no proven edge

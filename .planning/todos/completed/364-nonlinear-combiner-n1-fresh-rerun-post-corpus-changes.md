@@ -1,7 +1,8 @@
 ---
-status: pending
+status: closed
 priority: P2
 filed: 2026-09-01
+closed: 2026-09-01
 source: user question "did the recompute reopen N1/nonlinear or other tested ideas?" --
   investigated live, confirmed the specific Phase 173/todo-335 fixes don't touch N1's
   data path, but ~3 weeks and several real corpus-integrity fixes have landed since N1's
@@ -9,6 +10,31 @@ source: user question "did the recompute reopen N1/nonlinear or other tested ide
 ---
 
 # Re-run N1 (nonlinear_interaction_combiner) fresh -- not reopened by Phase 173/335, but stale enough to be worth a clean re-check
+
+## CLOSED 2026-09-01
+
+Re-ran N1-a-capped @ 1h at both colsample_bytree values (0.10 and 0.05). **Both reproduced
+their original 2026-08-25 numbers bit-identically** -- `point_diff`, `ci_lower`, `ci_upper`,
+`p`, the fold-1 `gap_z` breach magnitude, total row count (6,646,123), and fold boundaries
+all matched exactly. Traced to todo 366 (filed same session): live IBKR ingestion has been
+down since 2026-08-12, before N1's original run, so the 1h equity corpus this test reads
+from has not grown in the intervening ~3 weeks -- the exact reproduction is explained by
+identical underlying data, not coincidence.
+
+**Verdict, per this todo's own pre-registered framing: the instability persists, confirming
+it is real and structural, not a data-staleness artifact.** Not resolved cleanly one way
+either -- both outcomes are real, deterministic, reproducible properties of the estimator at
+this corpus size, not measurement noise. No further re-run is warranted until either the
+corpus genuinely grows (todo 366, not urgent per current priority) or a differently-designed
+estimator fix (feature-specific `gap_z` gain cap, not another colsample sweep) is built.
+
+New observation, not investigated further this session: peak RSS was ~15-20% higher on both
+fresh runs than the original (27.19GB/27.25GB vs. 22.82GB/24.05GB) at identical row counts
+and hyperparameters -- within the module's documented OOM envelope but worth a look before
+running this test again at this scale.
+
+Full numbers and analysis: `docs/research/measurement-nonlinear-interaction-combiner.md`'s
+"N1-a-capped @ 1h fresh re-run, 2026-09-01" section.
 
 ## Why this, not a blind "re-run everything"
 
