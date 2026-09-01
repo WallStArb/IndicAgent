@@ -46,8 +46,16 @@ away the top-K statistical factors did not improve IC on any axis — if anythin
 toward zero. Full detail: `docs/research/measurement-statistical-factor-residual.md`. Per
 that memory's own standing instruction, this is the point to surface the pattern before
 starting a 6th candidate, not mechanically continue down the list. Two more per-symbol
-regime candidates (todo 303 trend, todo 304 percentile-rank) had Stage-1 mechanism
-validation and are being run through Stage 2/3 this session, unaffected by this closure.
+regime candidates (todo 303 trend, todo 304 percentile-rank) also CLOSED DEAD 2026-09-01:
+Stage 3 (falsification + null-arm, 20-test pooled BH-FDR family across both todos' 5
+candidates × 2 xbar columns × 2 timeframes) found none of `hurst_rank`/`autocorr_rank`/
+`volatility_pct`/`skew_tail`/`volume_pct` sharpens IC beyond `regime_volatility` at 5m or
+15m — one cell cleared the raw null-arm bar but failed BH-FDR correction, exactly the
+multiple-comparisons false positive the design exists to catch. Full detail:
+`docs/research/measurement-per-symbol-trend-regime.md` and
+`docs/research/measurement-per-symbol-percentile-rank-candidates.md`. **This closes all
+three items from this session's discovery-track sequencing** — every candidate queued
+coming into this session is now resolved (DEAD or, for N1, confirmed-structural-inconclusive).
 
 **Todo 364 (N1 fresh re-run) CLOSED 2026-09-01.** Re-ran N1-a-capped @ 1h at both
 colsample_bytree values (0.10, 0.05) — both reproduced their original 2026-08-25 numbers

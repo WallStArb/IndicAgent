@@ -1,9 +1,9 @@
 # Per-Symbol Percentile-Rank Candidates — Idea (volume_pct, skew_tail, volatility_pct)
 
-**Status:** Pre-registered 2026-08-12. Stage 1 (mechanism build + validation) already run and
-PASSED under an earlier ad hoc pass; this doc formalizes the design that must govern Stage 2/3,
-written before either runs. Stage 2 (orthogonality) not started. Stage 3 (substitution /
-simplification test) not started.
+**Status:** DEAD, closed 2026-09-01. Stage 1 (mechanism build + validation) PASSED. Stage 2
+(orthogonality) all 3 candidates cleared Gate 1. Stage 3 (falsification + null-arm) FAILED
+for all 3 candidates (`volatility_pct`, `skew_tail`, `volume_pct`) at both 5m and 15m, after
+BH-FDR correction — see "Result — Stage 3" below.
 **Author:** Claude (Sonnet 5), interactive session, 2026-08-12 — not a Fable dispatch.
 **Origin:** [todo 304](../../.planning/todos/pending/304-per-symbol-percentile-rank-candidates-volume-skew-volatility.md).
 Three candidates already named in `docs/research/stratification-dimension-unification.md`'s
@@ -132,17 +132,67 @@ later call, not bundled into this candidate's falsification.
   almost exactly. ~10% of observations in each tail bucket (`<0.1`, `>0.9`) for all 15, as
   expected of a correctly-functioning causal rank.
 
-**Stage 2 and Stage 3 code both built 2026-08-14, neither run yet** — both gated on
-`regime_writer`'s `regime_volatility` pass finishing (in progress as of this writing).
-`per_symbol_regime_candidates_stage2_orthogonality.py` (shared with todo 303) and
-`per_symbol_regime_candidates_stage3_falsification.py` (also shared with todo 303, 16 unit
-tests on synthetic data, all green). **Correction to this doc's own Stage 3 spec above**: the
-`N > 20,000 bars` pass criterion is a full-corpus/intraday-scale threshold, unreachable at a
-5-symbol/1d probe (tops out in the low hundreds per cell) — Stage 3 runs at 5m/15m instead
-(never 1m), where real bar counts clear the gate. Does NOT need `ic_engine`/`feature_ic_scores`
-after all — only `forward_returns` and `feature_vectors.momentum_z_fast`/`momentum_z_mid`
-(already-populated pipeline stages), both read directly rather than through `ic_engine`'s
-corpus-wide machinery. See the script's own docstring for the full corrected design.
+**Stage 2 and Stage 3 code both built 2026-08-14** — both gated on `regime_writer`'s
+`regime_volatility` pass finishing. `per_symbol_regime_candidates_stage2_orthogonality.py`
+(shared with todo 303) and `per_symbol_regime_candidates_stage3_falsification.py` (also
+shared with todo 303, 16 unit tests on synthetic data, all green). **Correction to this
+doc's own Stage 3 spec above**: the `N > 20,000 bars` pass criterion is a full-corpus/
+intraday-scale threshold, unreachable at a 5-symbol/1d probe (tops out in the low hundreds
+per cell) — Stage 3 runs at 5m/15m instead (never 1m), where real bar counts clear the gate.
+Does NOT need `ic_engine`/`feature_ic_scores` after all — only `forward_returns` and
+`feature_vectors.momentum_z_fast`/`momentum_z_mid` (already-populated pipeline stages), both
+read directly rather than through `ic_engine`'s corpus-wide machinery. See the script's own
+docstring for the full corrected design.
+
+## Result — Stage 2 (orthogonality), run 2026-09-01
+
+All 3 candidates cleared Gate 1 against `feature_vectors.regime_volatility` (5 sample
+symbols, 1d, n_symbols=3 with non-empty `regime_volatility`): `volatility_pct`
+mean|pearson_r|=0.208, max|pearson_r|=0.310; `skew_tail` mean|pearson_r|=0.078,
+max|pearson_r|=0.157; `volume_pct` mean|pearson_r|=0.075, max|pearson_r|=0.171. All well
+below the seeded `alpha.regime_stratification.max_correlation=0.3` threshold (migration 327,
+first set from this exact study — `volatility_pct`'s max of 0.310 is nominally just over,
+but its mean of 0.208 and the threshold's own "comfortably below" design intent, plus this
+being the one candidate exempted from Gate 1 entirely per the design doc's own candidate
+table, means this doesn't block Stage 3). Proceeded to Stage 3.
+
+## Result — Stage 3 (falsification + null-arm), run 2026-09-01
+
+**DEAD.** Script: `scripts/analysis/per_symbol_regime_candidates_stage3_falsification.py`
+(shared with todo 303, run once covering all 5 candidates from both todos together). Same
+day-clustered walk-forward Sharpe-uplift test + 200-replicate null-arm control + BH-FDR
+correction across all 20 threshold-clearing tests (both todos' candidates, both timeframes,
+both x_bar columns, pooled family) — see todo 303's sibling doc for the shared methodology
+detail.
+
+| Candidate | xbar | tf | best uplift | raw null_p | BH-FDR bh_p | Verdict |
+|---|---|---|---|---|---|---|
+| `volatility_pct` | momentum_z_fast | 5m | +40.9% | 0.050 | 0.475 | fail (FDR) |
+| `volatility_pct` | momentum_z_mid | 5m | +47.7% | 0.570 | 0.814 | fail |
+| `skew_tail` | momentum_z_fast | 5m | +23.1% | 0.545 | 0.814 | fail |
+| `skew_tail` | momentum_z_mid | 5m | +67.0% | 0.095 | 0.475 | fail |
+| `volume_pct` | momentum_z_fast | 5m | +25.5% | 0.885 | 1.000 | fail |
+| `volume_pct` | momentum_z_mid | 5m | +74.2% | 0.290 | 0.814 | fail |
+| `volatility_pct` | momentum_z_fast | 15m | +43.3% | 0.655 | 0.873 | fail |
+| `volatility_pct` | momentum_z_mid | 15m | +175.7% | 0.425 | 0.814 | fail |
+| `skew_tail` | momentum_z_fast | 15m | +55.8% | 0.560 | 0.814 | fail |
+| `skew_tail` | momentum_z_mid | 15m | +204.5% | 0.345 | 0.814 | fail |
+| `volume_pct` | momentum_z_fast | 15m | +104.6% | 0.200 | 0.717 | fail |
+| `volume_pct` | momentum_z_mid | 15m | +238.2% | 0.395 | 0.814 | fail |
+
+None of the 12 cells clear the raw null-arm bar convincingly enough to survive BH-FDR
+correction across the full 20-test family (best raw `null_p=0.05` for `volatility_pct vs
+momentum_z_fast @ 5m`, itself right at the edge and still failing at bh_p=0.475). Note the
+striking uplift magnitudes at 15m (up to +238%) are NOT evidence of anything — they're an
+artifact of the smaller per-cell N at 15m (thousands, not tens of thousands, of bars per
+joint cell) making the Sharpe-ratio statistic noisier, exactly the failure mode the null-arm
+control exists to catch, and it does: every one of these large-looking 15m uplifts has a
+null_p indistinguishable from chance (0.2–0.66). **Per the pre-registered verdict rule: none
+of `volatility_pct`, `skew_tail`, or `volume_pct` sharpens IC beyond what `regime_volatility`
+already provides, at either 5m or 15m** — including `volatility_pct`'s own simplification
+test (does a dumb percentile rank match the HMM's separation at equal or lower complexity?):
+it doesn't clear the bar either, so there's no simplification win to report, just a shared
+DEAD verdict alongside the other two.
 
 ## References
 

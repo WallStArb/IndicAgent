@@ -1,5 +1,18 @@
 # 303 - Per-symbol trend regime candidate — cheap, null-arm-tested probe (not a build yet)
 
+## CLOSED 2026-09-01 — DEAD
+
+Stage 2 (orthogonality) both candidates cleared Gate 1. Stage 3 (falsification + null-arm,
+run against 5m/15m, `momentum_z_fast`/`momentum_z_mid` vs. `regime_volatility`-stratified
+terciles, BH-FDR across the full 20-test pooled family shared with todo 304): neither
+`hurst_rank` nor `autocorr_rank` sharpens IC beyond what `regime_volatility` already
+provides, at either timeframe. `hurst_rank vs momentum_z_fast @ 5m` was the only cell to
+clear the raw null-arm bar (null_p=0.03) but did not survive BH-FDR correction (bh_p=0.475)
+— exactly the multiple-comparisons false positive the null-arm+FDR design exists to catch.
+The Gate 0 redundancy rejection this todo set out to re-examine is reaffirmed on fresh
+evidence, not overturned. Full numbers: `docs/research/measurement-per-symbol-trend-regime.md`'s
+"Result — Stage 3" section.
+
 **Filed:** 2026-08-12
 **Source:** Interactive session, user question chain: "what other regimes should we look at /
 a real trend?" -> "do we need a replacement regime?" -> "so are you suggesting scrapping the

@@ -1,5 +1,20 @@
 # 304 - Per-symbol percentile-rank candidates: volume_pct, skew_tail, volatility_pct
 
+## CLOSED 2026-09-01 — DEAD
+
+Stage 2 (orthogonality) all 3 candidates cleared Gate 1. Stage 3 (falsification + null-arm,
+run against 5m/15m, `momentum_z_fast`/`momentum_z_mid` vs. `regime_volatility`-stratified
+terciles, BH-FDR across the full 20-test pooled family shared with todo 303): none of
+`volatility_pct`, `skew_tail`, or `volume_pct` sharpens IC beyond what `regime_volatility`
+already provides, at either timeframe — no cell survived BH-FDR correction (best raw
+`null_p=0.05`, still bh_p=0.475). The striking-looking 15m uplifts (up to +238%) are a
+small-N artifact, not signal — every one has a null_p indistinguishable from chance
+(0.2–0.66), exactly what the null-arm control exists to catch. `volatility_pct`'s own
+simplification test (does a dumb percentile rank match the HMM at equal/lower complexity?)
+also doesn't clear the bar — no simplification win either. Full numbers:
+`docs/research/measurement-per-symbol-percentile-rank-candidates.md`'s "Result — Stage 3"
+section.
+
 **Filed:** 2026-08-12
 **Source:** Interactive session, follow-on from todo 303 (trend regime). Same conversation
 surfaced three more security-level candidates already named in
