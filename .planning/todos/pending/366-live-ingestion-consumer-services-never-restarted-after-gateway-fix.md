@@ -1,10 +1,17 @@
 ---
 status: pending
-priority: P0
+priority: P2
 filed: 2026-09-01
 source: starting statistical_factor_residual Stage 3 -- universe fetch returned 0/231
   symbols with complete daily history, traced to a live corpus data gap
 ---
+
+**User direction, 2026-09-01: filed P2, not P0.** Decades of historical data already
+available, no proven edge yet to protect, so live-ingestion freshness doesn't gate research
+value -- a few weeks of missing recent bars doesn't materially change any discovery-track
+result. A backfill to bring OHLCV current is optional/later, not blocking. Stage 3 itself was
+unblocked by excluding the resulting gap dates from the analysis window, not by fixing this
+todo -- see `docs/research/measurement-statistical-factor-residual.md`.
 
 # Live ingestion consumer chain never restarted after todo 306/363's gateway fix -- 211/231 symbols have zero new bars since 2026-08-12, ongoing today
 

@@ -36,16 +36,30 @@ has collapsed 44-91% once a leak was corrected, with a small real residual survi
 consistent with Renaissance's own actual history. The win condition is a confirmed small edge
 with a clean gate record, not a big trade.
 
-**Discovery track, current status:** 4 cheap Signal-Extraction candidates (`jump_diffusion_
-decomposition`, `cointegrated_pairs_residual`, 2 Trade Construction theses) came back DEAD —
-`project_discovery_track_pilot_results_2026_08_07` memory. User picked **`statistical_factor_
-residual`** next. Stage 1 (K-selection, Marchenko-Pastur + Parallel Analysis, K=10 full universe)
-and Stage 2 (causal walk-forward factor fit, K=9 for the long-history subset, 51.1% mean variance
-removed, causality PASS) are both done — `docs/research/measurement-statistical-factor-residual.md`.
-Stage 3 (IC falsification vs. `ctf_momentum`) is blocked on the corpus pipeline below. Two more
-per-symbol regime candidates (todo 303 trend, todo 304 percentile-rank) passed Stage-1 mechanism
-validation the same window and are blocked on the same dependency — all three genuinely blocked
-on the same external thing, not more design work; don't open a fourth thread until this clears.
+**Discovery track: 5/5 candidates run to a definitive verdict now DEAD, closed 2026-09-01.**
+4 cheap Signal-Extraction candidates (`jump_diffusion_decomposition`, `cointegrated_pairs_
+residual`, 2 Trade Construction theses) came back DEAD earlier —
+`project_discovery_track_pilot_results_2026_08_07` memory. **`statistical_factor_residual`**
+(the harder, K-selection-gated candidate picked next) also now DEAD: Stage 3 (IC
+falsification vs. `ctf_momentum`, 3 measurement axes, run 2026-09-01) found residualizing
+away the top-K statistical factors did not improve IC on any axis — if anything pulled it
+toward zero. Full detail: `docs/research/measurement-statistical-factor-residual.md`. Per
+that memory's own standing instruction, this is the point to surface the pattern before
+starting a 6th candidate, not mechanically continue down the list. Two more per-symbol
+regime candidates (todo 303 trend, todo 304 percentile-rank) passed Stage-1 mechanism
+validation the same window and remain open, unaffected by this closure — `todo 364` (N1
+fresh re-run) also still open.
+
+**Live ingestion gap found closing this thread, filed as todo 366 (P2), explicitly NOT
+urgent per user direction 2026-09-01:** the corpus has decades of history and no proven edge
+yet to protect, so live-ingestion freshness doesn't gate research value — corrects the
+"RESOLVED 2026-08-31" framing in `project_ibkr_live_ingestion_stalled_2fa` memory (the
+gateway libgtk3 fix was real, but the 5 consumer services that write bars were never
+restarted; most of the universe has had zero new bars since 2026-08-12). A backfill to
+bring OHLCV current is optional/later, not blocking. Todo 366 itself was routed around, not
+fixed, for Stage 3: `_fetch_universe`'s "zero tolerance for any gap date" rule was tripping
+on the resulting gap dates, fixed by excluding those specific dates (not interpolating) —
+see the research doc's Stage 3 section for the corrected universe/K.
 
 **HMM per-symbol lookahead bug (todo 248): fix built + TDD-tested, NOT deployed.**
 `regime_writer.py`'s `_compute_symbol_tf` fits `GaussianHMM` parameters once on the entire
@@ -117,10 +131,13 @@ not yet filed as its own todo.
 `regime_conditional_persistence` is CONFIRMED DEAD (270 cells tested, zero pass on corrected
 labels). `nonlinear_interaction_combiner` has a small real residual surviving the CTF-leak
 correction at all three affected tfs (collapse 90.6%/79.1%/43.8% at 1h/15m/5m, residual growing
-finer as tf gets finer) — full numbers in the CTF memory cited above. Five Signal-Extraction
-candidates remain untested beyond `statistical_factor_residual` (`cointegrated_pairs_residual`,
-`cross_asset_lead_lag`, `adaptive_combiner_weights`, `jump_diffusion_decomposition`) — full
-theses: `docs/research/data-edge-source-thesis.md`. Phase 144/143.1/162/163/164/165/167 are all
+finer as tf gets finer) — full numbers in the CTF memory cited above. This line previously
+(stale, corrected 2026-09-01) listed `cointegrated_pairs_residual`/`jump_diffusion_
+decomposition`/`statistical_factor_residual` as "remaining untested" — all 3 are now DEAD (see
+discovery-track paragraph above). The two genuinely still-untested Signal-Extraction
+candidates are `cross_asset_lead_lag` (waits on `stale_reference_price_adjustment` running
+first) and `adaptive_combiner_weights` (gated on a data-availability trigger) — full theses:
+`docs/research/data-edge-source-thesis.md`. Phase 144/143.1/162/163/164/165/167 are all
 COMPLETE — see Phase Summary table below.
 
 **Execution plan:** `docs/plans/archive/2026-06-30-alphaengine-v1-execution-plan.md`

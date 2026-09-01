@@ -1,7 +1,8 @@
 # Statistical Factor Residual — Idea (Edge Source Thesis statistical_factor_residual)
 
-**Status:** Pre-registered 2026-08-11. Stage 1 (K-selection) about to run under this design,
-before any IC comparison. Stage 2 (IC falsification) not started.
+**Status:** DEAD, closed 2026-09-01. All 3 stages complete (K-selection, causal factor fit,
+IC falsification) — residualizing away the top-K statistical factors did not improve
+`ctf_momentum`'s IC on any of 3 measurement axes; see Stage 3 result below.
 **Author:** Claude (Sonnet 5), interactive session, 2026-08-11 — not a Fable dispatch.
 **Origin:** Post-mortem of Phase 167's retraction (`ctf_momentum`'s batch-join lookahead leak,
 todo 243). Part of the fork-resolution discovery track: back to Signal-Extraction candidates,
@@ -206,6 +207,53 @@ gap Stage 1's cross-check already flagged, now concretely identified rather than
 **Stage 3 (IC falsification) not started.** Needs `feature_vectors`/`ctf_momentum`, gated on
 the concurrent corpus pipeline (`ops_corpus_pipeline_run.sh`) finishing — genuinely separate,
 later step, deliberately not run in the same pass per the pre-registration discipline.
+
+## Result — Stage 3 (IC falsification), run 2026-09-01
+
+**DEAD. Script: `scripts/analysis/statistical_factor_residual_stage3_ic_falsification.py`.**
+Design locked in the script's own docstring before running (comparison bar, three
+measurement axes, warmup-asymmetry handling — see that file). Full rigor run: APR default
+`n_boot=2000`, `block_size=10`, universe re-fetched fresh this session.
+
+**Universe fetch changed before Stage 3 could even run**, and is its own finding: the
+trailing 2000-day window now contains 16 corpus-wide gap dates (12 from a live-ingestion
+outage discovered and filed as todo 366 this session — the consumer chain behind todo
+306/363's `ib-gateway` fix was never restarted, most of the universe has had zero new bars
+since 2026-08-12; 4 older isolated gaps 2026-06-23/24, 2026-07-29/30), which under the
+original zero-tolerance-for-any-gap `_fetch_universe` silently zeroed the "complete
+history" universe to 0/231 symbols. Fixed by excluding those specific gap DATES (not
+interpolating any value) before the per-symbol completeness check — net effect grew the
+usable universe from Stage 2's original 96 symbols to **148**, not a narrowing. K
+re-measured per this doc's own "never carry K across a scope change" rule (MP and PA
+agree exactly again): **K=11** for N=148, T=1984 (was K=9 for the old 96-symbol universe).
+Stage 2 re-run clean on the corrected universe: 83 refit segments, causality PASS
+(`0.00e+00`), 55.9% mean variance removed (vs. the original run's 51.1% — consistent,
+not a red flag). User direction: live-ingestion freshness itself is explicitly not
+urgent (decades of history already available, no proven edge yet to protect) — todo 366
+stays filed but does not block this or any other research thread.
+
+**Falsification result, all three measurement axes, raw vs. residual ctf_momentum
+(Wilder RSI, tf=1d, `return_mid`/lookahead=5, on identical (symbol, date) pairs):**
+
+| Axis | raw IC | raw CI | residual IC | residual CI |
+|---|---|---|---|---|
+| Pooled (n=231,472) | -0.0170 | [-0.0223, -0.0121] excludes zero | -0.0007 | [-0.0060, 0.0047] crosses zero |
+| Cross-sectional (same-day rank, n=231,472) | -0.0018 | [-0.0067, 0.0032] crosses zero | -0.0006 | [-0.0051, 0.0037] crosses zero |
+| Per-symbol (148 symbols, BH-FDR) | median -0.0294, 8/148 pass | — | median -0.0039, 8/148 pass | — |
+
+Residualizing did not help — if anything it pulled the momentum signal's IC *toward*
+zero on every axis (pooled |IC| dropped from 0.0170 to 0.0007; per-symbol median from
+-0.0294 to -0.0039), the opposite of the thesis's prediction. The 8/148 per-symbol
+BH-FDR passes are identical in count for both raw and residual — consistent with the
+~5% FDR-alpha base rate expected under the null for both, not evidence of a residual
+edge. Per the pre-registered verdict rule: **`statistical_factor_residual` is dead.**
+
+This closes the discovery-track thread `statistical_factor_residual` opened as. Per
+`project_discovery_track_pilot_results_2026_08_07` memory's framing, this makes 5/5
+discovery-track candidates run to a definitive verdict DEAD (`jump_diffusion_decomposition`,
+`cointegrated_pairs_residual`, `retail_immediacy_provision`'s levered-sleeve sharpening,
+`dealer_hedging_flow`'s expiry-calendar screen, now `statistical_factor_residual`) — surface
+this before starting a 6th, per that memory's own standing instruction.
 
 ## References
 

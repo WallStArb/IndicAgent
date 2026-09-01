@@ -245,7 +245,6 @@ multi-day recompute cycle. Full evidence in `completed/005-...md`.
 
 | Todo | Gap |
 |---|---|
-| [366](pending/366-live-ingestion-consumer-services-never-restarted-after-gateway-fix.md) | New 2026-09-01, found starting `statistical_factor_residual` Stage 3. Todo 306/363's `ib-gateway` libgtk3 fix only restored the gateway's own API port -- the 5 consumer services that actually read from it and write bars (`indicagent-ibkr-provider`/`provider-merger`/`bar-writer`/`bar-aggregator`/`bar-auditor`) were never restarted and are still `disabled`/dead today. `market_data_ohlcv` 1m `max(timestamp)` frozen at 2026-08-12 for AAPL/SPY; 1d row count per day cratered from 231 symbols to 10 from 2026-08-14 onward, and even that 10-symbol nightly-backfill path is currently failing with IBKR pacing errors. Corrects the "RESOLVED 2026-08-31" framing in `project_ibkr_live_ingestion_stalled_2fa` memory and 306's closure note above -- ingestion has been silently down the whole time since, not resolved. Every day this stays down is unrecoverable real-time data loss for ~211/231 symbols. |
 **335 CLOSED 2026-08-31, row removed.** Steps 3-4's recompute (`--from-step 4`) landed
 2026-08-31 12:16 UTC. Verified live: `market_regimes` commodity group now shows all 4 tiers
 (`up_secondary`/`down_primary` -- the two states the bug made unreachable -- both populated),
@@ -303,6 +302,15 @@ file's closure section.
 | [280](pending/280-single-name-equity-symbols-unrouted-from-regime-groups.md) | New 2026-08-08, found during Phase 171's HMM regime investigation. `single_name_equity`-tagged symbols (AAPL/MSFT/GOOGL/AMZN/JPM tested here, likely many more in the 231-instrument universe) match no enabled `alpha.regime.groups` tag_filter, so every single-name equity is silently excluded from regime-stratified `feature_ic_scores`. **Re-tiered P3→P1, 2026-08-08**: was misfiled under P3 despite the file's own P2 frontmatter; todo 283 found the same gap at ~20x this sample's scale, confirming this is a live measurement-integrity issue, not hygiene. Merge scope with 283. |
 
 ## P2 — Real value, not urgent
+
+**366 (live ingestion consumer chain never restarted after the todo 306/363 gateway fix)**
+-- new 2026-09-01, found starting `statistical_factor_residual` Stage 3; `market_data_ohlcv`
+1m frozen at 2026-08-12 for most of the universe, real gap, corrects the "RESOLVED" framing
+in `project_ibkr_live_ingestion_stalled_2fa` memory. **Filed P2, not P0** -- user direction
+2026-09-01: decades of history already available, no proven edge yet to protect, so
+live-ingestion freshness doesn't gate research value. A backfill to bring OHLCV current is
+optional/later; fixing the consumer-restart durably (and todo 363's Dockerfile fix) can wait
+until it actually matters. See [366](pending/366-live-ingestion-consumer-services-never-restarted-after-gateway-fix.md).
 
 **2026-08-26 drift catch:** [353](pending/353-earnings-season-calendar-primitive-candidate.md)
 (earnings-season calendar primitive, real proxy evidence, p=1.2e-17), 356 (cross-sectional

@@ -33,14 +33,14 @@ Design decisions locked before running:
 
 4. Three measurement axes, matching the design doc's "raw per-symbol IC and existing
    pooled/cross-sectional IC" bar exactly:
-   - per-symbol: time-series Spearman IC within each of the 96 symbols
+   - per-symbol: time-series Spearman IC within each symbol in the universe
    - pooled: all (symbol, day) pairs pooled into one vector, correlated directly
      (matches feature_ic_scores' is_pooled=true, regime_scope='pooled')
    - cross_sectional: same-day rank of momentum vs. same-day rank of forward return,
      pooled across days (matches regime_scope='cross_sectional')
    Day-clustered circular block bootstrap CI (ic_math._circular_block_bootstrap_ic,
    block_size=10 from APR alpha.ic.bootstrap_block_size.1d) on every cell. BH-FDR
-   (ic_math.apply_bh_fdr) applied within the 96-symbol per-symbol family only -- pooled
+   (ic_math.apply_bh_fdr) applied within the per-symbol family only -- pooled
    and cross_sectional are single cells each, not part of that family, same convention
    feature_ic_scores itself uses (separate regime_scope rows, not FDR-corrected against
    each other).
