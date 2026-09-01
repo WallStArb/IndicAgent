@@ -49,6 +49,7 @@ _VOL_WINDOW = 20
 _SKEW_WINDOW = 20
 _VOLUME_MA_WINDOW = 20
 _NMI_BINS = 3  # match regime_volatility's own K=3 cardinality for a fair MI comparison
+_CANDIDATE_NAMES = ["hurst_rank", "autocorr_rank", "volatility_pct", "skew_tail", "volume_pct"]
 
 # Same mechanism check sample as both Stage 1 pilots -- not a corpus-wide measurement.
 _SAMPLE_SYMBOLS = ["SPY", "AAPL", "XOM", "JPM", "TLT"]
@@ -153,15 +154,41 @@ def _rank_of_zscore(raw: pd.Series) -> pd.Series:
     return causal_expanding_rank(z)
 
 
-def _single_window_hurst(window: np.ndarray) -> float:
-    n = len(window)
-    mean = window.mean()
-    deviations = np.cumsum(window - mean)
-    r = deviations.max() - deviations.min()
-    s = window.std()
-    if s < 1e-12 or r < 1e-12:
-        return np.nan
-    return float(np.log(r / s) / np.log(n))
+def _rolling_hurst(series: pd.Series, window: int) -> pd.Series:
+    """Rescaled-range (R/S) Hurst estimate per fixed-size rolling window: within each
+    window, `r` = range of the cumulative sum of demeaned values, `s` = the window's own
+    std, `hurst = log(r/s) / log(window)`; NaN if `s` or `r` is below 1e-12 (degenerate
+    window).
+
+    Vectorized via `sliding_window_view` -- replaces what was originally a per-window
+    Python callback (`.rolling(window).apply(<callback>, raw=True)`), the same
+    anti-pattern `_rolling_autocorr` above already documented fixing (34.0s -> 0.029s at
+    392K rows). This function's own naive predecessor was never fixed at the same time;
+    caught live 2026-09-01 when Stage 3's null-arm loop (200 replicates x every symbol,
+    recomputing this every time) ran for 4h48m without producing a single line of
+    output -- py-spy confirmed it was genuinely computing (not deadlocked), stuck inside
+    that exact rolling().apply() call. Benchmarked fix: 3.75s -> 0.17s at n=390K,
+    window=60 (~22x), max abs diff 0.0 against the original Python-callback result
+    (verified bit-for-bit, not approximate, leading-NaN-from-.diff() case included).
+
+    `sliding_window_view` avoids materializing (n, window) as a copy for the view itself
+    (memory-mapped, no data duplication) -- only `cumsum`'s output needs real allocation
+    (~190MB at n=390K/window=60), same order of magnitude as loading the raw series.
+    NaN convention matches `min_periods=window`: the first window-1 positions are NaN.
+    """
+    arr = series.to_numpy()
+    n = len(arr)
+    if n < window:
+        return pd.Series(np.full(n, np.nan), index=series.index)
+    view = np.lib.stride_tricks.sliding_window_view(arr, window)
+    mean = view.mean(axis=1)
+    cumsum = np.cumsum(view - mean[:, None], axis=1)
+    r = cumsum.max(axis=1) - cumsum.min(axis=1)
+    s = view.std(axis=1)
+    with np.errstate(divide="ignore", invalid="ignore"):
+        hurst = np.log(r / s) / np.log(window)
+    hurst = np.where((s < 1e-12) | (r < 1e-12), np.nan, hurst)
+    return pd.Series(np.concatenate([np.full(window - 1, np.nan), hurst]), index=series.index)
 
 
 def _rolling_autocorr(series: pd.Series, window: int, lag: int) -> pd.Series:
@@ -199,26 +226,39 @@ def _rolling_autocorr(series: pd.Series, window: int, lag: int) -> pd.Series:
     )
 
 
-def _compute_candidates(df: pd.DataFrame) -> dict[str, pd.Series]:
+def _compute_one_candidate(df: pd.DataFrame, candidate_name: str) -> pd.Series:
+    """Compute exactly one of the 5 candidates -- the fast path Stage 3's null-arm loop
+    uses (200 replicates x 5 symbols, but each candidate's null test only ever needs its
+    own column). `_compute_candidates` below computes all 5 unconditionally, which is the
+    right shape for Stage 2 (report all 5 once per symbol) but a ~5x waste inside Stage
+    3's hot loop -- `causal_expanding_rank`'s O(n log n) Fenwick-tree pass (~0.42s/395K
+    rows) dominates once `_rolling_hurst` was vectorized (see that function's docstring),
+    so skipping 4 unneeded calls to it is the actual saving, not a marginal one. Caught
+    live 2026-09-01 alongside the Hurst fix -- same investigation, same root cause class
+    (recomputing more than a caller needs inside a loop that runs hundreds of times).
+    """
     close, volume = df["close"], df["volume"]
     log_ret = np.log(close).diff()
 
-    hurst_raw = log_ret.rolling(window=_HURST_WINDOW, min_periods=_HURST_WINDOW).apply(
-        _single_window_hurst, raw=True
-    )
-    autocorr_raw = _rolling_autocorr(log_ret, window=_AUTOCORR_WINDOW, lag=_AUTOCORR_LAG)
-    realized_vol = log_ret.rolling(window=_VOL_WINDOW, min_periods=_VOL_WINDOW).std()
-    skew = log_ret.rolling(window=_SKEW_WINDOW, min_periods=_SKEW_WINDOW).skew()
-    vol_ma = volume.rolling(window=_VOLUME_MA_WINDOW, min_periods=_VOLUME_MA_WINDOW).mean()
-    rel_volume = volume / vol_ma.where(vol_ma > 0)
+    if candidate_name == "hurst_rank":
+        raw = _rolling_hurst(log_ret, window=_HURST_WINDOW)
+    elif candidate_name == "autocorr_rank":
+        raw = _rolling_autocorr(log_ret, window=_AUTOCORR_WINDOW, lag=_AUTOCORR_LAG)
+    elif candidate_name == "volatility_pct":
+        raw = log_ret.rolling(window=_VOL_WINDOW, min_periods=_VOL_WINDOW).std()
+    elif candidate_name == "skew_tail":
+        raw = log_ret.rolling(window=_SKEW_WINDOW, min_periods=_SKEW_WINDOW).skew()
+    elif candidate_name == "volume_pct":
+        vol_ma = volume.rolling(window=_VOLUME_MA_WINDOW, min_periods=_VOLUME_MA_WINDOW).mean()
+        raw = volume / vol_ma.where(vol_ma > 0)
+    else:
+        raise ValueError(f"Unknown candidate_name: {candidate_name!r}")
 
-    return {
-        "hurst_rank": _rank_of_zscore(hurst_raw),
-        "autocorr_rank": _rank_of_zscore(autocorr_raw),
-        "volatility_pct": _rank_of_zscore(realized_vol),
-        "skew_tail": _rank_of_zscore(skew),
-        "volume_pct": _rank_of_zscore(rel_volume),
-    }
+    return _rank_of_zscore(raw)
+
+
+def _compute_candidates(df: pd.DataFrame) -> dict[str, pd.Series]:
+    return {name: _compute_one_candidate(df, name) for name in _CANDIDATE_NAMES}
 
 
 def _orthogonality(

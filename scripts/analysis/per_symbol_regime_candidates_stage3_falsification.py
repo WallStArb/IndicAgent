@@ -73,7 +73,8 @@ import pandas as pd  # noqa: E402
 from scipy.stats import spearmanr  # noqa: E402
 
 from scripts.analysis.per_symbol_regime_candidates_stage2_orthogonality import (  # noqa: E402
-    _compute_candidates,
+    _CANDIDATE_NAMES,
+    _compute_one_candidate,
     _fetch_ordinal_map,
 )
 from services.backfill_feature_factory import _connect_db  # noqa: E402
@@ -84,7 +85,6 @@ from src.intelligence.statistics.ic_math import apply_bh_fdr  # noqa: E402
 _SAMPLE_SYMBOLS = ["SPY", "AAPL", "XOM", "JPM", "TLT"]
 _TFS = ["5m", "15m"]  # never 1m -- this corpus doesn't use 1m for anything
 _X_BAR_COLUMNS = ["momentum_z_fast", "momentum_z_mid"]
-_CANDIDATE_NAMES = ["hurst_rank", "autocorr_rank", "volatility_pct", "skew_tail", "volume_pct"]
 
 _N_TERCILES = 3
 _SHARPE_WINDOW_SIZE = 500  # probe-scale; see module docstring
@@ -323,14 +323,18 @@ def _build_panel(
             order = permute_rng.permutation(len(df))
             permuted = df.copy()
             # Permute close (and volume, kept paired) -- candidates are computed from
-            # these two columns only (see _compute_candidates). bar_ts index is NOT
+            # these two columns only (see _compute_one_candidate). bar_ts index is NOT
             # permuted, so the resulting candidate series re-joins against
             # regime_vol/xbar/return_fast at their original positions.
             permuted[["close", "volume"]] = df[["close", "volume"]].to_numpy()[order]
             df = permuted
 
-        candidates = _compute_candidates(df)
-        candidate_series = candidates[candidate_name]
+        # _compute_one_candidate, not _compute_candidates -- this loop runs up to 200x
+        # per (candidate, xbar, tf) combination that clears the uplift threshold, and
+        # only candidate_name's own column is ever used; computing all 5 here was a ~5x
+        # waste dominated by causal_expanding_rank's O(n log n) pass, caught live
+        # 2026-09-01 (see _compute_one_candidate's docstring).
+        candidate_series = _compute_one_candidate(df, candidate_name)
 
         joined = (
             pd.DataFrame({candidate_name: candidate_series})
@@ -347,13 +351,21 @@ def main() -> None:
     _check_data_ready(conn)
     ordinal_map = _fetch_ordinal_map(conn)
 
-    fdr_p_values: list[float] = []
-    fdr_index: list[tuple[str, str, str]] = []
-    summary_rows: list[dict] = []
-
+    # Fetch ALL data for ALL timeframes up front, then close the connection before any
+    # compute starts. Caught live 2026-09-01: the original shape (fetch tf N's data,
+    # then run tf N's null-arm loop -- 200 replicates x 5 candidates x 5m's ~390K-row
+    # symbols, over an hour of pure-CPU work -- before ever touching the DB connection
+    # again for tf N+1's fetch) held one psycopg connection idle across that entire
+    # compute stretch, well past the DB's 1h idle_session_timeout -- confirmed via
+    # `SHOW idle_session_timeout` (1h) and the exact traceback
+    # (psycopg.errors.IdleSessionTimeout) landing right at the first query of the 15m
+    # loop iteration, after the 5m timeframe's ~1h45m of null-arm compute. Fetching
+    # everything first (data volume here is small -- 5 symbols x 2 tfs of OHLCV/
+    # regime_volatility/xbar, not a full-corpus pull) and closing the connection before
+    # any CPU-heavy loop starts makes the connection's lifetime minutes, not hours,
+    # eliminating the whole bug class rather than adding a reconnect-and-retry patch.
+    data_by_tf: dict[str, tuple[dict, dict, dict]] = {}
     for tf in _TFS:
-        print(f"\n{'=' * 78}\nTimeframe: {tf}\n{'=' * 78}")
-
         ohlcv_by_symbol: dict[str, pd.DataFrame] = {}
         regime_vol_by_symbol: dict[str, pd.Series] = {}
         xbar_by_symbol: dict[str, pd.DataFrame] = {}
@@ -367,7 +379,18 @@ def main() -> None:
             ohlcv_by_symbol[symbol] = df
             regime_vol_by_symbol[symbol] = regime_vol
             xbar_by_symbol[symbol] = xbar[["momentum_z_fast", "momentum_z_mid", "return_fast"]]
+        data_by_tf[tf] = (ohlcv_by_symbol, regime_vol_by_symbol, xbar_by_symbol)
 
+    conn.close()
+
+    fdr_p_values: list[float] = []
+    fdr_index: list[tuple[str, str, str]] = []
+    summary_rows: list[dict] = []
+
+    for tf in _TFS:
+        print(f"\n{'=' * 78}\nTimeframe: {tf}\n{'=' * 78}")
+
+        ohlcv_by_symbol, regime_vol_by_symbol, xbar_by_symbol = data_by_tf[tf]
         if len(ohlcv_by_symbol) < 2:
             print(f"  Insufficient symbols with data at {tf} -- skipping this timeframe.")
             continue
@@ -445,8 +468,6 @@ def main() -> None:
                         "verdict": verdict,
                     }
                 )
-
-    conn.close()
 
     print(
         f"\n{'=' * 78}\nStage 3 summary (BH-FDR corrected across all threshold-clearing tests)\n{'=' * 78}"
