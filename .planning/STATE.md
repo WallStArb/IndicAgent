@@ -91,6 +91,17 @@ inconclusive (result flips sign of significance between adjacent parameter choic
 don't cite as pass or fail either way, see
 `project_n1_nonlinear_combiner_and_feature_phase_audit_2026_08_25` memory.
 
+**Checked 2026-09-01: neither the Phase 173 recompute nor todo 335's fix reopens any
+previously DEAD/inconclusive discovery-track verdict.** Verified in code, not assumed: the 4
+DEAD discovery pilots and T2 (`regime_conditional_persistence`) have zero dependency on any
+broadcast column or `regime_group`; Phase 167's construction trains on `ctf_momentum` alone
+(already re-verified post-fix); N1 trains on ~248 columns including the broadcast set but
+never touches `ic_engine.py`'s significance test (the only thing Phase 173 changed) and is
+equity-only (todo-335-irrelevant). N1's own "inconclusive" verdict is still worth a fresh
+re-run given ~3 weeks of real corpus churn since it ran — filed as todo 364, not a blanket
+re-run-everything pass. Phase 151's Waves 6-7 (interaction IC sweep, paused behind this same
+corpus pipeline) are also now unblocked — see ROADMAP.md's Phase 151 entry.
+
 **Phase 148's Gate 1 (signal proof) PASS but Gate 2 (execution proof) FAIL** — do not promote the per-symbol directional
 construction to live capital. A refinement plan using Phase 163-165's features has its 3 gating
 items resolved: [276](../todos/completed/276-phase163-165-lookahead-causal-safety-audit.md)
