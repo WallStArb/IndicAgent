@@ -142,5 +142,70 @@ Pre-registered NOW, before any number exists:
 
 ## Results
 
-(Appended as workstreams complete; every number lands here with its script and date,
-per the verdict-registry rule.)
+### 0a — Library dimensionality, run 2026-09-02
+
+Script: `scripts/analysis/feature_library_dimensionality.py` (interpretation bands
+pre-registered in its docstring before running). **The library's predictive content is
+CONCENTRATED; the range/vol long-horizon family is genuinely NEW breadth.**
+
+- **IC-profile (predictive) effective rank: MP-K=7** of 244 measurable features
+  (participation ratio 17.3). The ~250-feature library contains about SEVEN independent
+  predictive signals — most features are the same few signals in different clothes.
+  Within-family correlation confirms it: the momentum family's 27 features correlate
+  +0.435 with each other (roughly 1-2 real signals), while the range/vol family's 69
+  members sit at +0.037 (noise floor at T=84 symbols is ~0.11, so "no detectable shared
+  structure").
+- **Range/vol vs momentum: mean cross-family IC-profile correlation -0.003 → INDEPENDENT**
+  (pre-registered bar: < 0.3, APR `alpha.regime_stratification.max_correlation`). The
+  5-10d range/vol signal mass is not the momentum signal in different clothes; it is
+  additional independent breadth.
+- **Value-space (informational) rank: MP-K=48** of 244 columns (80,762 sampled 1d rows,
+  T=80,762; participation ratio 28.0). The library spans ~48 orthogonal information
+  directions but only ~7 carry independent predictive content — massive informational
+  redundancy, concentrated predictive value.
+- **Breadth math, per-period framing (see caveat):** IC-profile rank 7 × universe breadth
+  4.5-8.4 = 32-59 simultaneous bets. At measured per-cell ICs (0.03-0.055), the
+  per-period IR ceiling is 0.17-0.38.
+- **Caveat for 0c, flagged not hidden:** the fundamental law's breadth is INDEPENDENT
+  BETTS PER YEAR, which includes periods/year — at a 5-day horizon there are ~50
+  rebalances/year, so annualized breadth is (universe × signals × effective periods),
+  with "effective" discounted by signal autocorrelation at that horizon. The per-period
+  numbers above therefore UNDERSTATE annualized IR; the honest placement (workstream 0c)
+  must use measured signal autocorrelation at each horizon band to convert to effective
+  annual bets. Both the cost side (lower turnover) and the breadth side (fewer periods)
+  of slower horizons are now first-class in the hurdle evaluation.
+
+Coverage caveat, stated: per-symbol IC profiles exist for the 85 routed symbols only
+(todos 280/283); workstream 1's coverage fix will widen this measure.
+
+### 0b — Personal hurdle function, run 2026-09-02
+
+Script: `scripts/analysis/personal_cost_hurdle.py` (assumptions pre-registered in the
+program doc and the script's docstring before running).
+
+**Corwin-Schultz FAILED validation and is declared unusable** — pre-registered rule
+applied. 20 live top-of-book quotes pulled through `IBKRProvider` (client 48): median
+live spread **1.4 bps**; median CS/live ratio 15.7x, far outside the pre-registered
+[0.5, 3.0] band. The estimator measures volatility, not bounce, on this tiny-spread
+universe. Live levels are the anchor; sensitivity band 0.7 / 1.4 / 2.8 bps.
+
+**Turnover, measured from actual cross-sectional ranks** (not assumed):
+`range_to_close` 0.160-0.170 per rebalance at H=1-10 (nearly horizon-independent);
+`ctf_momentum` 0.081 (H=1) rising to 0.230 (H=10).
+
+**The hurdle table's headline: at H=5-10, the WORST-CASE personal IC_min is ~0.003-0.004**
+(2.8bp spread × lib_rank 3 × low universe breadth), and the mid-band IC_min is ~0.001-0.002.
+Even at H=1 the range family's worst-case hurdle is ~0.028.
+
+**Placement against measurement (informal 0c preview):** the range/vol family's measured
+avg ICs at H=5-10 are 0.03-0.055 — roughly an order of magnitude above the worst-case
+personal hurdle. **The cost hurdle is not the binding constraint at personal scale.**
+The institutional-calibrated Gate 2 that killed Phase 148 was measuring the wrong trader:
+at 1.4bp spreads, negligible impact, and 0.7bp commissions, slow low-IC signals clear
+costs easily.
+
+What remains unresolved (and is now the program's critical path): (1) the annualized
+breadth/IR question — 0a's per-period IR ceiling understates annualized IR by ignoring
+periods/year, and 0c must compute the autocorrelation-adjusted annual number before any
+verdict; (2) whether a real construction on the range/vol family survives falsification
+(decision rule 2).
