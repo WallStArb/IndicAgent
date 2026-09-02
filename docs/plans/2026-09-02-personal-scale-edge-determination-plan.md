@@ -1,6 +1,9 @@
 # Personal-Scale Edge Determination — Program Plan (pre-registered)
 
 **Status:** Active program. Pre-registered 2026-09-02 before any workstream number exists.
+**Current position (2026-09-02):** 0a/0b/0c run; pre-registration 1 (`range_pct_fast_xs_ls_h5`)
+DEAD; remaining queue = workstream 2 (the 15m residual diagnostic) and the todo 368 successor
+decision; 0c's named placements partially outstanding (todo 367, re-scoped).
 **Author:** Claude (Sonnet 5), interactive session, 2026-09-02.
 **Origin:** User directive 2026-09-02: "it feels like we have been drifting aimlessly for
 weeks, we need to figure out how to push past this hump." Council review (same session)
@@ -106,10 +109,9 @@ recompute is **deferred to the decision gate** so it runs once, for whichever br
 ### 2 — The 15m residual diagnostic (the one ready falsification)
 
 The residual-stripping construction's pre-registered diagnostic-tier test
-(day-clustered bootstrap / shuffled-null / BH-FDR at 15m), designed by todo 278 — a
-completed 2026-08-08 decision todo whose resolution makes this diagnostic a prerequisite
-before any new gate_id run. The diagnostic is work its resolution mandates, not an open
-todo itself (verified 2026-09-02 against `completed/` and `PRIORITIES.md`).
+(day-clustered bootstrap / shuffled-null / BH-FDR at 15m), a prerequisite before any new
+gate_id run per todo 278's resolution (a completed 2026-08-08 decision todo; this
+diagnostic is the work that resolution mandates, not an open todo itself).
 Runs unchanged and in parallel. No post-hoc parameter moves (the N1 lesson).
 
 ### 3 — Decision gate (the anti-drift mechanism)
@@ -207,11 +209,10 @@ The institutional-calibrated Gate 2 that killed Phase 148 was measuring the wron
 at 1.4bp spreads, negligible impact, and 0.7bp commissions, slow low-IC signals clear
 costs easily.
 
-What remains unresolved (and is now the program's critical path): (1) the annualized
-breadth/IR question — 0a's per-period IR ceiling understates annualized IR by ignoring
-periods/year, and 0c must compute the autocorrelation-adjusted annual number before any
-verdict; (2) whether a real construction on the range/vol family survives falsification
-(decision rule 2).
+Both items formerly listed here as the critical path are closed: (1) the annualized
+breadth/IR question is consumed by 0c's bet accounting (periods/year and the
+autocorrelation discount are in the screen); (2) decision rule 2's construction
+(`range_pct_fast` XS-LS @ H=5) ran and returned DEAD.
 
 ### 0c — Paper screen, run 2026-09-02
 
@@ -249,6 +250,13 @@ assumption bands.
 `range_pct_fast` cross-sectional LS at H=5** (sign inherited from the pre-registered
 screen; the falsification run is the fresh test). Per the program's approval discipline,
 the pre-registration is written and reviewed before that run executes.
+
+**Scope against todo 367 (0c's todo): partially executed.** This screen placed item 1 of
+367's five (the 5-10d range/vol mass). Outstanding: Phase 148's Gate-1-passing
+construction (not a library cell; place from its existing numbers), `gap_z` (record the
+explicit verdict for its placed cell), the `alpha_score` demeaned residual (superseded
+by workstream 2's stronger diagnostic), the N1 residual (blocked on structural
+instability). Tracked in todo 367's re-scope.
 
 ### Pre-registration 1 run — DEAD, 2026-09-02
 

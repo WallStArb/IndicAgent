@@ -22,6 +22,13 @@ and its shape, is an open decision the user owns.
 - Any successor needs its own pre-registration that answers why the leader failed:
   market-beta loading plus personal-scale costs on a 0.45-churn quintile construction.
 - No re-running or re-parameterizing the DEAD construction (N1 lesson).
+- If pursued: pre-registration 1's script never received cross-AI review (AGY backend
+  down, Codex out of quota until 2026-09-13; synthetic controls were the validation). A
+  successor script reusing its harness gets reviewed before its run, and the pre-reg-1
+  script gets a retro review before its verdict numbers are cited as decision input.
+  Relevant input to this decision: todo 367's Phase 148 placement (0b's ruler says the
+  institutional Gate 2 measured the wrong trader; if Phase 148's construction clears
+  the personal hurdle, deprioritizing this branch costs less).
 
 ## Verification note
 
