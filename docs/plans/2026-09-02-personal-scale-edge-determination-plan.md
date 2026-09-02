@@ -209,3 +209,40 @@ breadth/IR question — 0a's per-period IR ceiling understates annualized IR by 
 periods/year, and 0c must compute the autocorrelation-adjusted annual number before any
 verdict; (2) whether a real construction on the range/vol family survives falsification
 (decision rule 2).
+
+### 0c — Paper screen, run 2026-09-02
+
+Script: `scripts/analysis/personal_edge_paper_screen.py`. **Design per user direction:
+the library is a flat, theory-free panel of primitives — no family grouping, no thesis
+layer. The shortlist is every FDR-passing pooled cell the corpus's own measurements
+already produced.** Standalone accounting (per the user's correction that edge does not
+require orthogonality; correlation only limits combination credit, a separate later
+question): bets = universe breadth × periods/year × autocorrelation discount (1.0/0.5),
+spread band anchored on the measured 1.4bp live level, verdict = worst case across ALL
+assumption bands.
+
+- One implementation bug caught and fixed before recording anything: the first run passed
+  the band multipliers as spread fractions, producing absurd IC_min values (~10); the
+  corrected run is what is recorded here.
+- **Result: 208 FDR-passing (feature, H) cells at 1d; all 208 clear the worst-case
+  standalone personal hurdle; 87 with per-symbol support ≥ 10 symbols.** Margins 1.25x to
+  29x. The deliberate look-ahead canary tops the raw margin list (validating the screen's
+  mechanics; excluded from candidacy). H=5-10 dominates high margins; H=1-2 clusters near
+  1.3x — the turnover-drag story in one table.
+- **Selection rule (pre-registered): margin AND cross-symbol sign consistency.** The sign
+  check eliminates several high-margin names (`range_vs_atr`, `efficiency_ratio_slow`,
+  `realized_var_ratio_fast`: ~50/50 per-symbol sign splits — their pooled numbers are
+  regime-mix artifacts).
+- **Selected: `range_pct_fast` @ H=5.** 210/60 positive per-symbol cells (78% sign
+  consistency), per-symbol avg IC +0.057, 27/85 symbols with their own CI>0, robust 30-cell
+  pooled measurement (avg pooled IC 0.027), worst-case hurdle margin ~1.8x at the broadest
+  measurement. A pure bar-range primitive, theory-free per the program's stance.
+- Stated caveat, not hidden: these measured ICs come from `feature_ic_scores` at a single
+  training window (2025-12-24). The screen SHORTLISTS; it does not verdict. Decision rule
+  2's construction gets a fresh falsification (day-clustered bootstrap, shuffled-null,
+  BH-FDR) before anything is claimed.
+
+**Decision rule 2 fires: exactly ONE construction will be designed and pre-registered —
+`range_pct_fast` cross-sectional LS at H=5** (sign inherited from the pre-registered
+screen; the falsification run is the fresh test). Per the program's approval discipline,
+the pre-registration is written and reviewed before that run executes.
