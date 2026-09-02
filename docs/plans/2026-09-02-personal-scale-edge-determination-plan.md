@@ -255,6 +255,24 @@ Written 2026-09-02, after 0c, before any construction statistic was computed. Ev
 researcher degree of freedom is locked here; the falsification script's docstring restates
 this section verbatim-by-reference before its first run.
 
+**Amendment 1 (2026-09-02, pre-run).** Amended after the AGY adversarial review (archived
+at `.planning/research/2026-09-02-agy-review-range-pct-fast-prereg.md`); no IS or OOS
+statistic of this construction existed at amendment time. Original text: commit 9507829b9.
+Adopted: the OOS tripwire now evaluates all 5 stride phases on net returns; eligibility no
+longer conditions on return completion (LEFT JOIN, missing returns settle at 0);
+beta-tilt neutralization added as a PASS criterion (intercept net of costs); bootstrap
+block=2 rebalances with a percentile CI; stability upgraded to net > 0 in 3/3 subperiods
+at anchor cost; log returns converted to simple before leg means; the $0.35/order minimum
+commission modeled at $100k account equity; anchor locked to the first date with >= 20
+eligible names, with all 5 stride offsets reported as ungated robustness; short-leg
+borrow band {0.25, 0.5, 1.0} bp per rebalance added; permutation null raised to N=1000;
+the OOS gate look appends `.planning/gate_look_log.jsonl` (D-04) alongside
+`gate_evaluations`. Not adopted: AGY's R²-cap form of Gate 2, because the
+intercept-net-of-costs criterion is strictly stronger here (it tests profitability net of
+market beta directly instead of capping exposure share); oos_start stays 2025-12-24
+(resolved above). Footnote: 0b's 0.17 turnover prior is mean |Δ rank|, a different metric
+from quintile-membership churn; this run measures the churn itself and reports it.
+
 ### Construction spec
 
 - **Signal:** `range_pct_fast` as persisted in `feature_vectors` (tf=1d, the single live
@@ -266,16 +284,26 @@ this section verbatim-by-reference before its first run.
 - **Portfolio:** quintile buckets by cross-sectional rank each rebalance day (ties broken
   by symbol name, deterministic); equal-weight within each leg; spread = mean(long leg) −
   mean(short leg); dollar-neutral by construction.
-- **Cadence:** non-overlapping, every 5th trading day anchored at the first eligible
-  rebalance date in the sample. Hold exactly 5 trading days.
-- **Return (Invariant 1):** `forward_returns.return_mid` — APR `alpha.ic.lookahead.mid=5`
-  — `return_type='executable_open_to_open'`, `complete_mid=true` only. IS reads persisted
-  rows; the OOS gate look computes the same quantity ON THE FLY from
-  `market_data_ohlcv_tradeable` opens via the canonical `forward_log_return()` (todo
-  253's sanctioned pattern — the normal pipeline never persists past `oos_start`, by
-  design, and nothing in this program populates it).
-- **Eligibility per rebalance day:** non-null signal AND complete eligible return;
-  ≥ 20 eligible symbols or the day is skipped and counted in the report.
+- **Cadence:** non-overlapping, every 5th trading day. Anchor = the first eligible date
+  whose cross-section is >= 20 symbols, locked with no search. Hold exactly 5 trading
+  days. All 5 stride offsets (anchor + 0..4 positions in the eligible-date calendar) are
+  evaluated; offset 0 is primary, offsets 1-4 are reported as ungated robustness against
+  calendar-phase luck.
+- **Return (Invariant 1):** `forward_returns.return_mid` (APR
+  `alpha.ic.lookahead.mid=5`, `return_type='executable_open_to_open'`), read via LEFT
+  JOIN with no `complete_mid` filter: eligibility must not condition on return
+  completion at T. A name whose return is missing settles at 0 in the leg means (halt,
+  delisting, or a hold straddling the persisted-returns endpoint; 693 panel rows, all at
+  the 2025-12 tail, verified pre-run). Log returns convert to simple (`e^r − 1`) before
+  any averaging or cost arithmetic; per-rebalance LS return = mean(long simple) −
+  mean(short simple). IS reads persisted rows; the OOS gate look computes the same
+  quantity ON THE FLY from `market_data_ohlcv_tradeable` opens via the canonical
+  `forward_log_return()` (todo 253's sanctioned pattern — the normal pipeline never
+  persists past `oos_start`, by design, and nothing in this program populates it).
+- **Eligibility per rebalance day:** a non-null signal row at T (row presence is the
+  tradability proxy: the feature requires a tradeable bar). ≥ 20 eligible symbols or the
+  date is skipped and counted in the report; a skipped date is omitted from the sample
+  (no zero-fill) and the stride continues on the global eligible-date calendar.
 - **Universe:** all 231 equity-ETF symbols present in `feature_vectors` at 1d (verified
   single asset class 2026-09-02). No regime routing filter — the verdict must cover the
   full active universe. Survivorship properties are the corpus's own, not this test's.
@@ -288,8 +316,9 @@ this section verbatim-by-reference before its first run.
   shuffled-null, 0c's FDR-controlled screen lineage, and worst-case cost bands.
 - **OOS (the one-shot gate look, ONLY if IS passes):** 2025-12-24 → 2026-08-12 (holdout,
   untouched by every selection measurement — structurally, via the clamp). ~32
-  rebalances. Recorded to `gate_evaluations` under
-  `gate1_range_pct_fast_xs_ls_h5`, never re-run. **No holdout statistic of any kind —
+  rebalances per stride phase; all 5 phases evaluated. Recorded to `gate_evaluations`
+  under `gate1_range_pct_fast_xs_ls_h5` and appended to
+  `.planning/gate_look_log.jsonl` (D-04), never re-run. **No holdout statistic of any kind —
   including the interim diagnostic scorer — is computed between this pre-registration and
   that look.**
 - **oos_start does not move** (resolved 2026-09-02, user question): the 12/24 anchor is a
@@ -299,47 +328,72 @@ this section verbatim-by-reference before its first run.
   to ~5.3 months, and renegotiate a boundary with 7 consumed looks against it
   (`gate_evaluations`: Phase 148/166/167 gates).
 
-### Costs (0b's model, verbatim)
+### Costs (0b's model, amended: the retail minimum binds)
 
-One-way cost = spread/2 + commission frac (0.0035/share, min 0.35). Spread band
-{0.7, 1.4, 2.8} bp around 0b's measured 1.4 bp live anchor. Turnover = actual quintile-
-membership churn measured in the run (0b prior 0.17; the measured value is reported).
-Net per-rebalance LS return = gross − 2 × turnover × one_way_cost.
+One-way cost = spread/2 + commission frac. Spread band {0.7, 1.4, 2.8} bp around 0b's
+measured 1.4 bp live anchor. Commission frac per rebalance = max(0.0035/share at the $50
+assumed price, $0.35 order minimum / per-name notional) at $100k account equity, $50k
+per leg; the minimum binds at quintile breadth (~3.2 bp/side at k=46, vs 0.7 bp for an
+institutional clip). Turnover = actual one-way quintile-membership churn measured in the
+run (0.5 × Σ |Δ w|; the entry rebalance pays 1.0; terminal liquidation is not charged;
+0b's 0.17 prior is mean |Δ rank|, context only). Short-leg borrow: {0.25, 0.5, 1.0} bp
+per rebalance on short-leg notional. Net per-rebalance LS return = gross − 2 × turnover
+× one_way_cost − borrow. Equity held flat at $100k (no compounding). The PASS rule spans
+all 9 spread × borrow combinations; anchor cost (stability and robustness tables) =
+1.4 bp spread + 0.5 bp borrow.
 
 ### Statistical protocol
 
-Primary estimator: mean per-rebalance LS return (gross and net at each band level),
-full IS sample, with circular block bootstrap 95% CI — block_size=10 (APR
-`alpha.ic.bootstrap_block_size.1d`), B=2000, seed `hash_key_to_int` on the construction
-name (codebase RNG convention, never builtin `hash()`).
+Primary estimator: the beta-neutralized mean per-rebalance LS return. Neutralization:
+OLS of the per-rebalance gross LS series on the equal-weight universe mean over the same
+eligible cross-section and window (the market-factor proxy; `range_pct_fast` is a
+vol/beta proxy, and long-high-range/short-low-range carries positive market beta in a
+bull sample, the exact Phase 148 failure mode). Beta is estimated once on the full IS
+sample; the neutralized series is gross_t − beta × ewm_t, whose mean is the regression
+intercept. Reported alongside, never gated: beta, regression R², unneutralized gross and
+net means. The OOS gate look applies the IS-estimated beta with no re-estimation.
+
+CI: circular block bootstrap on the rebalance series, block_size=2 rebalances (10
+trading days; the daily-calibrated block=10 would span 50 days on this non-overlapping
+series), B=2000, percentile interval at 95%, seed `hash_key_to_int` on the construction
+name (codebase RNG convention, never builtin `hash()`). Applied to the neutralized net
+series at each of the 9 cost combinations.
 
 Null: within-rebalance-date cross-sectional permutation of the signal (breaks the
 signal→return link, preserves return distribution and cross-sectional dependence),
-N=200 replicates (established `_N_NULL_REPLICATES` convention), same seed policy.
-Empirical p on the gross mean.
+N=1000 replicates, one-sided empirical p = (1 + #{null mean ≥ observed}) / (N + 1),
+same seed policy, evaluated on the gross mean.
 
 **PASS rule — all three, else the construction is DEAD:**
-1. Net mean LS return, bootstrap CI lower bound > 0 at ALL three spread levels
-   (worst case across bands, per 0c's convention).
+1. Neutralized-net mean, bootstrap CI lower bound > 0 at ALL 9 spread × borrow
+   combinations (worst case across bands, per 0c's convention).
 2. Shuffled-null p < 0.05 (gross).
-3. Stability: positive gross LS mean in ≥ 2 of 3 equal subperiods (rebalance-index
-   thirds).
+3. Stability: neutralized-net mean > 0 in 3/3 equal subperiods (rebalance-index thirds)
+   at anchor cost.
 
 Reported, never gated: per-symbol Spearman IC family with BH-FDR
 (`ic_math.apply_bh_fdr`, alpha=0.05) as attribution (0c's 27/85 was the routed subset;
-this is the fresh full-universe count); per-subperiod CIs; skipped-day count.
+this is the fresh full-universe count; rank IC is invariant to the log→simple change);
+per-subperiod means; skipped-day count; the 5-offset robustness table.
 
-**Pre-registered OOS interpretation rule (decided now, before any OOS number exists):**
-the gate look is a consistency check, not a standalone significance test — 32 rebalances
-cannot power one (expected t ≈ 0.8 even at annual Sharpe 1). OOS is consistent if the
-OOS mean per-rebalance return has the same sign as IS AND is ≥ 0.5× the IS mean
-(`alpha.validation.oos_significant_drop_fraction`, the pre-committed drop tolerance).
-No post-hoc reinterpretation of a disappointing or encouraging OOS number.
+**Pre-registered OOS interpretation rule (amended; tripwire, not a significance test):**
+the gate look evaluates ALL 5 stride phases in the OOS window (~160 rebalance
+evaluations). Returns are net at anchor cost, beta-neutralized with the IS beta. OOS is
+CONSISTENT iff (i) the pooled all-phase OOS net mean has the same sign as the IS
+neutralized-net mean AND is ≥ 0.5× it (`alpha.validation.oos_significant_drop_fraction`,
+the pre-committed drop tolerance), and (ii) at least 4 of 5 phase-level net means are
+positive. AGY's calibration: a single 32-rebalance phase passes the pre-amendment rule
+~40% of the time under a zero-edge null; pooling phases plus the phase-level sign
+requirement is materially more conservative. Consistency is a promotion tripwire, not
+evidence of edge; inconsistency blocks promotion. No post-hoc reinterpretation of a
+disappointing or encouraging OOS number.
 
 ### Fixed quantities
 
-quintiles=5 · min cross-section=20 · stride=5 trading days · block=10 · B=2000 ·
-N_null=200 · alpha=0.05 · subperiods=3 · spread band {0.7, 1.4, 2.8} bp · seeds via
+quintiles=5 · min cross-section=20 · stride=5 trading days · anchor=first date with
+≥ 20 eligible · block=2 rebalances · B=2000 · N_null=1000 · alpha=0.05 · subperiods=3
+(net, 3/3) · spread band {0.7, 1.4, 2.8} bp · borrow band {0.25, 0.5, 1.0} bp/rebalance ·
+equity $100k · commission = max(0.7 bp, $0.35 / per-name notional) per side · seeds via
 `hash_key_to_int("range_pct_fast_xs_ls_h5…")`.
 
 ### Execution & verdict
