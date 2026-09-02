@@ -103,10 +103,13 @@ Route all active symbols into regime groups: seed `instrument_tags` for the ~115
 single-name equities stop being invisible to regime-stratified IC. The `ic_engine`
 recompute is **deferred to the decision gate** so it runs once, for whichever branch wins.
 
-### 2 — Todo 278's 15m diagnostic (the one ready falsification)
+### 2 — The 15m residual diagnostic (the one ready falsification)
 
 The residual-stripping construction's pre-registered diagnostic-tier test
-(day-clustered bootstrap / shuffled-null / BH-FDR at 15m), per todo 278's closed design.
+(day-clustered bootstrap / shuffled-null / BH-FDR at 15m), designed by todo 278 — a
+completed 2026-08-08 decision todo whose resolution makes this diagnostic a prerequisite
+before any new gate_id run. The diagnostic is work its resolution mandates, not an open
+todo itself (verified 2026-09-02 against `completed/` and `PRIORITIES.md`).
 Runs unchanged and in parallel. No post-hoc parameter moves (the N1 lesson).
 
 ### 3 — Decision gate (the anti-drift mechanism)
@@ -275,8 +278,8 @@ settled-at-zero returns, 931 rebalances (offset 0), 0 skipped.
 Per the pre-registration's DEAD branch: no successor is auto-promoted. Any successor
 needs its own pre-registration and must address why the sign-consistency-selected leader
 failed: market-beta loading plus personal-scale costs on a 0.45-churn quintile
-construction. The program's remaining queued falsification is workstream 2 (todo 278's
-15m diagnostic, unchanged).
+construction. The program's remaining queued falsification is workstream 2 (the 15m
+residual diagnostic from todo 278's closed design, unchanged).
 
 ---
 

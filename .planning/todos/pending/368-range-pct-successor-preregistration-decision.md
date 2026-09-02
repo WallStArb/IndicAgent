@@ -30,6 +30,13 @@ doc's workstream 2 claims), verify 278's actual status: `PRIORITIES.md` records
 277/278 as verified in `completed/`, conflicting with the program doc's "runs unchanged
 and in parallel" framing written the same day. One of the two is stale.
 
+**Resolved 2026-09-02: neither is stale.** Todo 278 is a decision todo, filed and
+resolved 2026-08-08 — its resolution makes a properly-powered 15m residual diagnostic
+(day-clustered bootstrap CI, shuffled-ranking null, BH-FDR) a prerequisite before any
+new gate_id run. The diagnostic was never itself a todo; the program doc's workstream 2
+is that diagnostic, correctly described in its body ("per todo 278's closed design") and
+loosely attributed in its title, now reworded. The diagnostic remains live queue work.
+
 ## Success criteria
 
 A user decision recorded in the program doc (pursue/deprioritize), and if pursued, a

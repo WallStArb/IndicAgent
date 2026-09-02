@@ -3,7 +3,7 @@ gsd_state_version: 1.0
 milestone: v3.1
 milestone_name: AlphaEngine Validation + Alpha Scoring
 status: milestone_complete
-last_updated: "2026-08-28T23:44:19.471Z"
+last_updated: "2026-09-02T20:10:12.646Z"
 progress:
   total_phases: 14
   completed_phases: 9
