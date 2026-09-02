@@ -247,6 +247,37 @@ assumption bands.
 screen; the falsification run is the fresh test). Per the program's approval discipline,
 the pre-registration is written and reviewed before that run executes.
 
+### Pre-registration 1 run — DEAD, 2026-09-02
+
+Script: `scripts/analysis/range_pct_fast_xs_ls_h5_falsification.py` (amended design,
+commit 0c9a344dd), read-only, run once. Panel 920,411 rows / 231 symbols, 690
+settled-at-zero returns, 931 rebalances (offset 0), 0 skipped.
+
+- **The cross-sectional association is real:** shuffled-null p = 0.0010 (N=1000); gross
+  LS mean +22.5 bp/rebalance, CI [+9.2, +35.1] bp.
+- **It is a beta tilt, not a market-neutral edge:** OLS on the EW-universe mean gives
+  beta +1.14, R² = 0.75 — exactly the Phase 148 failure mode the amendment's
+  neutralization criterion targets. The neutralized intercept is +4.9 bp/rebalance and
+  is net-negative at ALL 9 spread × borrow combos once personal costs apply (measured
+  one-way turnover 0.45/rebalance, 2.6× 0b's 0.17 rank-churn prior — AGY finding 9
+  vindicated; commissions 2.8-3.2 bp/side at $100k quintile breadth). Cheapest-corner
+  net CI [−7.9, +5.8] bp.
+- **Stability fails:** net-at-anchor negative in 2/3 subperiods (only 2019-2025
+  positive).
+- **Offsets 1-4 agree:** all five neutralized-net means negative at anchor cost (betas
+  1.08-1.20).
+- **Attribution (reported, ungated):** 52/231 symbols pass per-symbol BH-FDR, 47 with
+  CI lower bound > 0 (BNTX, SDOG, SCHD at the top) — per-name signal mass exists; the
+  XS-LS construction is what fails.
+- **Verdict registered** as the first `concept_registry` `domain='construction'` row
+  (migration 320): `range_pct_fast_xs_ls_h5`, status deprecated.
+
+Per the pre-registration's DEAD branch: no successor is auto-promoted. Any successor
+needs its own pre-registration and must address why the sign-consistency-selected leader
+failed: market-beta loading plus personal-scale costs on a 0.45-churn quintile
+construction. The program's remaining queued falsification is workstream 2 (todo 278's
+15m diagnostic, unchanged).
+
 ---
 
 ## Pre-registration 1 — `range_pct_fast` XS-LS @ H=5 (decision rule 2)
