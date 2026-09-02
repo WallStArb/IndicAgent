@@ -57,6 +57,19 @@ multiple-comparisons false positive the design exists to catch. Full detail:
 three items from this session's discovery-track sequencing** — every candidate queued
 coming into this session is now resolved (DEAD or, for N1, confirmed-structural-inconclusive).
 
+**ACTIVE PROGRAM (2026-09-02): personal-scale edge determination —
+`docs/plans/2026-09-02-personal-scale-edge-determination-plan.md`.** User-approved after
+council review; replaces candidate-hunting as the research priority. Shape: (0a) feature-
+library dimensionality, (0b) pre-registered personal hurdle function with horizon as a
+first-class axis, (0c/todo 367) paper placement of already-measured signal mass, (1)
+coverage fix (todos 280+283), (2) todo 278's ready diagnostic, (3) a pre-registered
+decision gate with an explicit kill criterion ("corpus at breadth ~8 cannot carry the
+endgame" → universe expansion becomes primary). Driving observation: measured signal mass
+at 1d roughly doubles from 1d to 5-10d horizons (62→162 FDR cells) and lives in the
+range/vol family, while turnover there is 5-10x lower — the hurdle is easiest exactly
+where mass peaks. Gate structure unchanged (null-arm/BH-FDR/pre-registration); the
+ruler's constants are recalibrated personal-scale, pre-registered before use.
+
 **Todo 364 (N1 fresh re-run) CLOSED 2026-09-01.** Re-ran N1-a-capped @ 1h at both
 colsample_bytree values (0.10, 0.05) — both reproduced their original 2026-08-25 numbers
 bit-identically (point_diff/ci/p/fold-breach/row-counts all matched exactly), traced to
