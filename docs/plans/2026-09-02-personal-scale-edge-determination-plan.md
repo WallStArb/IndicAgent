@@ -246,3 +246,121 @@ assumption bands.
 `range_pct_fast` cross-sectional LS at H=5** (sign inherited from the pre-registered
 screen; the falsification run is the fresh test). Per the program's approval discipline,
 the pre-registration is written and reviewed before that run executes.
+
+---
+
+## Pre-registration 1 — `range_pct_fast` XS-LS @ H=5 (decision rule 2)
+
+Written 2026-09-02, after 0c, before any construction statistic was computed. Every
+researcher degree of freedom is locked here; the falsification script's docstring restates
+this section verbatim-by-reference before its first run.
+
+### Construction spec
+
+- **Signal:** `range_pct_fast` as persisted in `feature_vectors` (tf=1d, the single live
+  `pipeline_version`): (rolling 20-bar high − rolling 20-bar low) / close, window from APR
+  `feature.breakout.range_window_fast=20`. No re-computation, no winsorizing, no
+  transforms — the stored column is the signal.
+- **Sign (inherited from 0c, locked):** LONG the top quintile (high recent range), SHORT
+  the bottom quintile. 0c measured +0.057 avg per-symbol IC, 78% sign consistency.
+- **Portfolio:** quintile buckets by cross-sectional rank each rebalance day (ties broken
+  by symbol name, deterministic); equal-weight within each leg; spread = mean(long leg) −
+  mean(short leg); dollar-neutral by construction.
+- **Cadence:** non-overlapping, every 5th trading day anchored at the first eligible
+  rebalance date in the sample. Hold exactly 5 trading days.
+- **Return (Invariant 1):** `forward_returns.return_mid` — APR `alpha.ic.lookahead.mid=5`
+  — `return_type='executable_open_to_open'`, `complete_mid=true` only. IS reads persisted
+  rows; the OOS gate look computes the same quantity ON THE FLY from
+  `market_data_ohlcv_tradeable` opens via the canonical `forward_log_return()` (todo
+  253's sanctioned pattern — the normal pipeline never persists past `oos_start`, by
+  design, and nothing in this program populates it).
+- **Eligibility per rebalance day:** non-null signal AND complete eligible return;
+  ≥ 20 eligible symbols or the day is skipped and counted in the report.
+- **Universe:** all 231 equity-ETF symbols present in `feature_vectors` at 1d (verified
+  single asset class 2026-09-02). No regime routing filter — the verdict must cover the
+  full active universe. Survivorship properties are the corpus's own, not this test's.
+
+### Sample windows (fixed)
+
+- **IS (this falsification):** 2007-03-23 → 2025-12-24 (`alpha.validation.oos_start`;
+  also the persisted forward_returns endpoint). ~950 rebalances. Selection consumed this
+  window; this run is the acknowledged selection-biased test. Its defenses: the
+  shuffled-null, 0c's FDR-controlled screen lineage, and worst-case cost bands.
+- **OOS (the one-shot gate look, ONLY if IS passes):** 2025-12-24 → 2026-08-12 (holdout,
+  untouched by every selection measurement — structurally, via the clamp). ~32
+  rebalances. Recorded to `gate_evaluations` under
+  `gate1_range_pct_fast_xs_ls_h5`, never re-run. **No holdout statistic of any kind —
+  including the interim diagnostic scorer — is computed between this pre-registration and
+  that look.**
+- **oos_start does not move** (resolved 2026-09-02, user question): the 12/24 anchor is a
+  calendar-convention artifact of Phase 141 (~6 months back from its choosing date) —
+  data-content-blind, which is what a holdout boundary must be. Re-anchoring would
+  convert virgin holdout into training data for ~2% IS sample gain, shrink OOS from ~7.5
+  to ~5.3 months, and renegotiate a boundary with 7 consumed looks against it
+  (`gate_evaluations`: Phase 148/166/167 gates).
+
+### Costs (0b's model, verbatim)
+
+One-way cost = spread/2 + commission frac (0.0035/share, min 0.35). Spread band
+{0.7, 1.4, 2.8} bp around 0b's measured 1.4 bp live anchor. Turnover = actual quintile-
+membership churn measured in the run (0b prior 0.17; the measured value is reported).
+Net per-rebalance LS return = gross − 2 × turnover × one_way_cost.
+
+### Statistical protocol
+
+Primary estimator: mean per-rebalance LS return (gross and net at each band level),
+full IS sample, with circular block bootstrap 95% CI — block_size=10 (APR
+`alpha.ic.bootstrap_block_size.1d`), B=2000, seed `hash_key_to_int` on the construction
+name (codebase RNG convention, never builtin `hash()`).
+
+Null: within-rebalance-date cross-sectional permutation of the signal (breaks the
+signal→return link, preserves return distribution and cross-sectional dependence),
+N=200 replicates (established `_N_NULL_REPLICATES` convention), same seed policy.
+Empirical p on the gross mean.
+
+**PASS rule — all three, else the construction is DEAD:**
+1. Net mean LS return, bootstrap CI lower bound > 0 at ALL three spread levels
+   (worst case across bands, per 0c's convention).
+2. Shuffled-null p < 0.05 (gross).
+3. Stability: positive gross LS mean in ≥ 2 of 3 equal subperiods (rebalance-index
+   thirds).
+
+Reported, never gated: per-symbol Spearman IC family with BH-FDR
+(`ic_math.apply_bh_fdr`, alpha=0.05) as attribution (0c's 27/85 was the routed subset;
+this is the fresh full-universe count); per-subperiod CIs; skipped-day count.
+
+**Pre-registered OOS interpretation rule (decided now, before any OOS number exists):**
+the gate look is a consistency check, not a standalone significance test — 32 rebalances
+cannot power one (expected t ≈ 0.8 even at annual Sharpe 1). OOS is consistent if the
+OOS mean per-rebalance return has the same sign as IS AND is ≥ 0.5× the IS mean
+(`alpha.validation.oos_significant_drop_fraction`, the pre-committed drop tolerance).
+No post-hoc reinterpretation of a disappointing or encouraging OOS number.
+
+### Fixed quantities
+
+quintiles=5 · min cross-section=20 · stride=5 trading days · block=10 · B=2000 ·
+N_null=200 · alpha=0.05 · subperiods=3 · spread band {0.7, 1.4, 2.8} bp · seeds via
+`hash_key_to_int("range_pct_fast_xs_ls_h5…")`.
+
+### Execution & verdict
+
+Script: `scripts/analysis/range_pct_fast_xs_ls_h5_falsification.py`, read-only, design
+locked in its docstring before running. Harness note (todo 365): this script reuses
+`src/intelligence/statistics/ic_math.py` primitives as-is; extraction happens on next
+touch elsewhere, never here mid-falsification.
+
+Verdict (PASS→ADVANCED / FAIL→DEAD) lands in `concept_registry` as the first
+`domain='construction'` row (name `range_pct_fast_xs_ls_h5`, verdict, numbers, script,
+date) via a post-run registration step — the falsification script itself writes nothing.
+
+ADVANCED → decision rule 1: the formal gate re-run (one-shot OOS look above) gets its
+own execution phase, scoped via `/gsd-discuss-phase`; it extends the Phase 167
+`cross_sectional_spread_tracker` gate pattern to `return_mid` with on-the-fly returns.
+
+DEAD → no successor is auto-promoted. 0c's other 86 cells were not pre-registered as a
+fallback queue; any successor needs its own pre-registration and must address why the
+sign-consistency-selected leader failed.
+
+**Invalidations:** any fixed quantity moved after an IS number is seen; a second IS run
+with tweaked parameters presented as the verdict (the N1 lesson); any holdout statistic
+computed before the gate look.
