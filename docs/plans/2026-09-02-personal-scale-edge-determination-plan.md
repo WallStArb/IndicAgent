@@ -695,3 +695,103 @@ qualifying floor=10% · window = full persisted 15m IS panel (`bar_ts < 2025-12-
 return = `return_mid` / `executable_open_to_open` / `complete_mid=true` on measurement
 rows only · demeaning = per-bar mean over all present `alpha_events` symbols · seeds
 via `hash_key_to_int("alpha_score_residual_single_security_15m…")`.
+
+### Pre-registration 2 run — 2026-09-03: FAIL
+
+Script: `scripts/analysis/alpha_score_residual_single_security_15m.py` (design locked
+by the pre-registration + Amendment 1 above; committed `dc4288d0f` before the run;
+plumbing smoke-tested with a `LIMIT`-patched harness before the full run). Panel:
+14,750,919 measurement rows, 231/231 symbols in family (all clear 100 rows), 3,469
+trading dates, IS `bar_ts < 2025-12-24`. Raw output: `/tmp/prereg2_run.txt` at run
+time; numbers below are the full record.
+
+Gated arm — residual (per-bar cross-sectionally demeaned `alpha_score`):
+
+| quantity | value | condition | result |
+|---|---|---|---|
+| family stat (mean per-symbol Spearman IC) | **0.00277** | ≥ 0.0027 | PASS by 0.00007 |
+| date-block bootstrap CI (block=5 dates, B=2000) | [0.00080, 0.00466] | ci_lower > 0 | PASS |
+| panel-synchronous date-shift null p (N=1000) | 0.0020 | < 0.05 | PASS |
+| symbols qualifying BY-FDR positive | **0/231 (0.0%)** | ≥ 10% | **FAIL** |
+
+**VERDICT: FAIL.** Conditions 1-3 pass — the family-level residual signal is
+statistically real and sits exactly at the 0b best-case floor — but condition 4 fails
+flatly: not one of 231 symbols clears its own date-shift null at BY-FDR (BH also
+0/231; 30/231 have ci_lower>0, the script-2 shape that Gateway scoring treats as
+qualifying — none of those 30 survive their nulls; 0/231 significantly negative).
+The signal is a uniformly dilute common effect, not concentrated per-name alpha. For
+context: 52/231 passed per-symbol BH in pre-registration 1's raw construction; the
+demeaned residual carries none of that concentration.
+
+Reported, ungated:
+
+- **RAW arm** (same machinery, undemeaned score): family stat 0.01054, CI
+  [0.00607, 0.01505], null p 0.0010 — ~3.8x the residual. Most of `alpha_score`'s
+  single-security predictivity is the common (market-direction) component the
+  demeaning removes — the same component that carries Phase 148's negative-gross
+  frame P&L and todo 277's 100% sign-co-firing.
+- **277-comparability sidecars** (full IS window): pooled global-rank Spearman
+  0.00288, pooled Pearson 0.00174 (277's +0.00453 was the OOS window).
+- **Regimes**: low_neutral 0.00398 [0.00179, 0.00619] p=0.006 (BH-corrected 0.036,
+  the only regime passing); high_bear 0.00340 p=0.035 and mid_bear 0.00320 p=0.041
+  raw but 0.0819 BH-corrected (near-miss); low_bull/high_neutral/high_bull null.
+  The one BH-passing regime's point estimate is still below the 0b worst-case floor
+  (0.0164).
+- **Temporal thirds**: 0.00281 / 0.00172 / 0.00301 across 2006-2013 / 2013-2019 /
+  2019-2025 — positive in all thirds, no decay trend, no single-era artifact.
+
+Consequences recorded:
+
+1. **No new gate_id for a residual-stripping construction.** Todo 278's prerequisite
+   is answered: the mandated diagnostic FAILS. The residual thread is DEAD at the
+   diagnostic tier — not because the family signal is absent (it is present, p=0.002,
+   stable across 19 years) but because it fails both concentration (0/231) and
+   economic magnitude (0.00277 vs the 0.0164 worst-case floor; a uniformly dilute
+   effect cannot be concentrated by symbol selection, and the only BH-passing regime
+   is still 4x short).
+2. Registered in `concept_registry` domain='construction'
+   (`alpha_score_residual_single_security_15m`, status deprecated, verdict FAIL) via
+   migration 330.
+3. Todo 368's decision input is now complete — see its recommendation section below.
+
+### Post-run script review (AGY, 2026-09-03) — verdict robust
+
+The pre-registered DESIGN was AGY-reviewed before the run (Amendment 1); the script
+as run was reviewed after (`.planning/research/2026-09-03-agy-review-prereg2-script.md`).
+Findings and adjudication:
+
+- **F1 (accepted, sidecar-only):** the RAW arm's null p tested the raw observed
+  statistic against RESIDUAL-shifted nulls (`sync_shift_null_p` lacked
+  `score_override`). The recorded `raw p=0.0010` is mis-specified as a p-value —
+  the raw point estimate and CI are unaffected. Raw arm is reported-only and never
+  gated; verdict unaffected. Fixed in the script post-run.
+- **F4 (accepted, reproducibility):** random index generation ran concurrently
+  across worker threads (numpy Generators are not thread-safe), so resample-based
+  numbers are valid draws but not bit-reproducible from the seeds. The knife-edge
+  condition-3 margin (0.00277 vs 0.0027) sits on the deterministic point estimate,
+  not a resample — unaffected. Fixed (serial-then-compute, the production
+  `ic_math` convention).
+- **F2 (accepted, conservative direction):** a family-level draw k that is a
+  multiple of a symbol's date count gives that symbol an identity shift in that
+  replicate, injecting its true IC into the null. This widens the null and pushes
+  p UP — conditions 1-2 passed despite this handicap; per-symbol nulls (condition
+  4) draw k ∈ [1, m) directly and never identity-shift. Left as designed.
+- **F5.2 (accepted, conservative direction):** ragged per-date bar counts let a
+  small fraction of null pairs land on the same date at different intra-day
+  offsets (5-bar lookahead overlap) — again widens the null. F5.1 rejected: the
+  family statistic is separable per symbol, so cross-symbol date alignment within
+  a replicate is irrelevant, and `k mod each symbol's own date count` is the
+  verbatim pre-registered construction.
+- **F3 (accepted as a guard, did not fire):** a NaN observed IC would have yielded
+  null_p≈0.001. No symbol produced a NaN IC (all 231 have real-variance scores and
+  returns over ≥100 rows), so BY-FDR inputs were clean. Guard added.
+- **F6 (rejected):** per-symbol CIs hardcode block=26/B=2000 — these are the
+  pre-registration's LOCKED quantities; APR read in `main()` is a cross-check only
+  (matched at run time).
+
+**Verdict robustness:** the FAIL comes from condition 4 at 0/231 against a floor of
+24 symbols, with the next-strongest per-symbol evidence (30/231 ci_lower>0, script-2
+shape) still under the floor even if every one had survived its null. Every accepted
+finding either touches an ungated sidecar or pushes the gated statistics in the
+conservative (anti-pass) direction. No finding, and no re-run under the fixes, can
+flip FAIL to PASS; conditions 1-2 could only strengthen.
