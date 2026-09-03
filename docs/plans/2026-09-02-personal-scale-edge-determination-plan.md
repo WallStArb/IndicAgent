@@ -3,7 +3,8 @@
 **Status:** Active program. Pre-registered 2026-09-02 before any workstream number exists.
 **Current position (2026-09-02):** 0a/0b/0c run; pre-registration 1 (`range_pct_fast_xs_ls_h5`)
 DEAD; remaining queue = workstream 2 (the 15m residual diagnostic) and the todo 368 successor
-decision; 0c's named placements partially outstanding (todo 367, re-scoped).
+decision; 0c complete (todo 367 closed 2026-09-02: Phase 148's construction KILLED ON
+PAPER, gap_z recorded, screen spread-anchor 10x bug found and fixed, no verdict flipped).
 **Author:** Claude (Sonnet 5), interactive session, 2026-09-02.
 **Origin:** User directive 2026-09-02: "it feels like we have been drifting aimlessly for
 weeks, we need to figure out how to push past this hump." Council review (same session)
@@ -323,7 +324,7 @@ settled-at-zero returns, 931 rebalances (offset 0), 0 skipped.
   CI lower bound > 0 (BNTX, SDOG, SCHD at the top) — per-name signal mass exists; the
   XS-LS construction is what fails.
 - **Verdict registered** as the first `concept_registry` `domain='construction'` row
-  (migration 320): `range_pct_fast_xs_ls_h5`, status deprecated.
+  (migration 329, renamed from 320 after a number collision with the commodity regime APR migration): `range_pct_fast_xs_ls_h5`, status deprecated.
 
 Per the pre-registration's DEAD branch: no successor is auto-promoted. Any successor
 needs its own pre-registration and must address why the sign-consistency-selected leader

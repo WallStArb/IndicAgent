@@ -2,7 +2,7 @@
 -- Genesis for the personal-scale edge determination program's verdict registry
 -- (docs/plans/2026-09-02-personal-scale-edge-determination-plan.md, Governance):
 -- construction falsification verdicts get domain='construction' rows at verdict
--- time. First row: range_pct_fast_xs_ls_h5, DEAD 2026-09-02.
+-- time. First row: range_pct_fast_xs_ls_h5, DEAD 2026-09-02. (Renumbered 320 -> 329 on 2026-09-02: 320 collided with the pre-existing commodity regime APR migration; content unchanged, already applied to the live DB.)
 -- Not a compressed hypertable; no VACUUM step applies.
 
 ALTER TABLE concept_registry DROP CONSTRAINT concept_registry_domain_check;
