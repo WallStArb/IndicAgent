@@ -61,5 +61,5 @@ correctness risk.
 ## References
 
 - `src/intelligence/features/cross_asset_series.py` -- the mechanism that superseded this
-- `.planning/phases/151-feature-primitives-expansion-theory-motivated-interaction-la/151-09-SUMMARY.md` -- Plan 09's own "deliberately NOT extended" framing
+- `.planning/milestones/v3.1-phases/151-feature-primitives-expansion-theory-motivated-interaction-la/151-09-SUMMARY.md` -- Plan 09's own "deliberately NOT extended" framing
 - `.planning/todos/completed/222-cross-asset-state-reuses-full-featurecache.md` -- CrossAssetState's original design intent

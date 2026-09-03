@@ -34,7 +34,7 @@ an unexamined one (rolling VP)?**
   window is just the last ~480 daily bars (~2 years) -- a long-run value anchor, not a
   session concept at all.
 
-D-18 itself (`.planning/phases/163-vp-sr-structural-primitives/163-CONTEXT.md:218-256`) argued
+D-18 itself (`.planning/milestones/v3.1-phases/163-vp-sr-structural-primitives/163-CONTEXT.md:218-256`) argued
 `poc_session_rolling_divergence_atr` has "genuine standalone economic meaning" as "session
 dislocation from the multi-day value anchor... an open-drive/trend-day vs. balance-day signal
 (first-order auction-market-theory concept)". That argument doesn't stop applying at 1d --
@@ -90,7 +90,7 @@ Step 2 shows the feature is worth building at all.
 
 - `.planning/todos/completed/176-feature-vectors-historical-backfill-new-structural-columns.md`
   -- the backfill-vs-design question this todo is distinct from
-- `.planning/phases/163-vp-sr-structural-primitives/163-CONTEXT.md` D-16/D-17/D-18 -- the design
+- `.planning/milestones/v3.1-phases/163-vp-sr-structural-primitives/163-CONTEXT.md` D-16/D-17/D-18 -- the design
   history this todo traces; D-18 specifically (rolling-track field additions, no tf-scoping
   discussion anywhere in it)
 - `src/intelligence/feature_factory.py:6188-6199` (`compute()`), `:6694-6705`

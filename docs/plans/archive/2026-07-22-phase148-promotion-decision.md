@@ -259,8 +259,8 @@ above), not to fix a failing frame.
 
 - `gate_evaluations` table: `gate_id IN ('gate1_signal', 'gate2_execution')`
 - `.planning/gate_look_log.jsonl` -- both gates' pre-run integrity snapshots
-- `.planning/phases/148-alpha-scoring-system/148-CONTEXT.md` -- D-01 through D-08
-- `.planning/phases/143.1-measurement-and-eligibility-integrity-fisher-z-ci-bootstrap-/143.1-08-SHADOW-VALIDATION.md`
+- `.planning/milestones/v3.1-phases/148-alpha-scoring-system/148-CONTEXT.md` -- D-01 through D-08
+- `.planning/milestones/v3.1-phases/143.1-measurement-and-eligibility-integrity-fisher-z-ci-bootstrap-/143.1-08-SHADOW-VALIDATION.md`
   sections 6-7 -- the champion's original pooled/regime-stratified measurement, cited per D-06
 - `docs/plans/SHADOW-REVIEW.md` -- the frozen five criteria
 - `docs/plans/OOS-EVAL-PROTOCOL.md` -- run-once cadence, data-starvation-is-diagnostic rule

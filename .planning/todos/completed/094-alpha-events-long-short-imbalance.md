@@ -237,4 +237,4 @@ sign-symmetric/short-inclusive universe itself is decisively rejected regardless
 weighting method would be applied within it, so there is no live weighting-method question left
 to adjudicate on this universe.
 
-Full detail: `.planning/phases/143.1-measurement-and-eligibility-integrity-fisher-z-ci-bootstrap-/143.1-08-SHADOW-VALIDATION.md`.
+Full detail: `.planning/milestones/v3.1-phases/143.1-measurement-and-eligibility-integrity-fisher-z-ci-bootstrap-/143.1-08-SHADOW-VALIDATION.md`.

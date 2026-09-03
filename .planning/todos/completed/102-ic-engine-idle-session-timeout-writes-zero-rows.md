@@ -225,9 +225,9 @@ not duplicated here further.
 ## References
 
 - `logs/ic_engine.log`, `docker logs timescaledb`
-- `.planning/phases/143.1-measurement-and-eligibility-integrity-fisher-z-ci-bootstrap-/143.1-01-PLAN.md`
+- `.planning/milestones/v3.1-phases/143.1-measurement-and-eligibility-integrity-fisher-z-ci-bootstrap-/143.1-01-PLAN.md`
   (the bootstrap CI change that raised per-cell compute cost)
-- `.planning/phases/143.1-measurement-and-eligibility-integrity-fisher-z-ci-bootstrap-/143.1-07-CORPUS-RERUN.md`
+- `.planning/milestones/v3.1-phases/143.1-measurement-and-eligibility-integrity-fisher-z-ci-bootstrap-/143.1-07-CORPUS-RERUN.md`
   (the plan this run is executing; its E6 runtime-budget estimate needs correcting per above)
-- `.planning/phases/144-cross-sectional-regime-model-regime-group/144-06-SUMMARY.md`
+- `.planning/milestones/v3.1-phases/144-cross-sectional-regime-model-regime-group/144-06-SUMMARY.md`
   (D-05 gate, `BLOCKED-ON-143.1-07`)

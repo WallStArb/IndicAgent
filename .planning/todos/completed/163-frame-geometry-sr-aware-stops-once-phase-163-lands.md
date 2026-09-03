@@ -71,7 +71,7 @@ untested hypothesis, and it stays open (via the resume path above), not closed b
 - `services/alpha_frame_writer.py:64` (`compute_frame_geometry`, "the sole target path" comment)
 - `.planning/todos/completed/162-atr-stop-distance-no-price-floor-extreme-r-multiples.md` — the
   narrow fix this is explicitly NOT trying to redo
-- `.planning/phases/163-vp-sr-structural-primitives/163-CONTEXT.md` — Phase 163's own scope
+- `.planning/milestones/v3.1-phases/163-vp-sr-structural-primitives/163-CONTEXT.md` — Phase 163's own scope
   (closes todo 153, `sr_support_dist`/`sr_resist_dist` real computation)
 - `docs/plans/archive/2026-07-23-phase166-frame-recalibration-verdict.md` — Phase 166's verdict doc,
   "Arm 3: Structural Candidate" section — the halt this todo's resolution cross-references, and

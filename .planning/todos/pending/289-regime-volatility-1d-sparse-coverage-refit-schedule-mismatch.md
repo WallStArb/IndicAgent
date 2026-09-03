@@ -27,7 +27,7 @@ parameter and could affect trend-vintage labeling too.
 ## Where
 
 - `alpha.hmm.walk_forward.refit_every_bars.1d` — `config_state`/`config_schema` APR key
-- `.planning/phases/172-hmm-regime-volatility-only-redesign/172-05-SUMMARY.md` — measured skip
+- `.planning/milestones/v3.1-phases/172-hmm-regime-volatility-only-redesign/172-05-SUMMARY.md` — measured skip
   rates and root cause
-- `.planning/phases/172-hmm-regime-volatility-only-redesign/evidence/172-05-relabel-coverage.json`
+- `.planning/milestones/v3.1-phases/172-hmm-regime-volatility-only-redesign/evidence/172-05-relabel-coverage.json`
   — per-cell coverage data

@@ -35,7 +35,7 @@ from a scalar to a per-tf APR dict, seeded `5m=6, 15m=1h=1d=1`. The `.15m`/`.1h`
 `config_schema` descriptions all state: *"These cells finish in minutes serially; threading
 only adds dispatch overhead."* Per that same todo's own closing note, this was **never
 validated by an actual timing comparison** — it's tracked as open item 3 in
-`.planning/phases/162-ic-engine-corpus-pipeline-throughput-incremental-recompute-t/162-HUMAN-UAT.md`,
+`.planning/milestones/v3.1-phases/162-ic-engine-corpus-pipeline-throughput-incremental-recompute-t/162-HUMAN-UAT.md`,
 still `status: partial`, still `result: [pending]`.
 
 Live evidence from today's todo 092 recompute run (`ic_engine.py`, PID 1633901) shows the
@@ -91,7 +91,7 @@ benchmark run.
 - `.planning/todos/completed/133-cross-sectional-bootstrap-threads-not-per-tf.md` — the
   original per-tf conversion; this todo is its unfinished verification step, now with a
   concrete failure to point at
-- `.planning/phases/162-ic-engine-corpus-pipeline-throughput-incremental-recompute-t/162-HUMAN-UAT.md`
+- `.planning/milestones/v3.1-phases/162-ic-engine-corpus-pipeline-throughput-incremental-recompute-t/162-HUMAN-UAT.md`
   item 3 — the same open gap, tracked at the phase level
 - `production/migrations/239_ic_engine_cross_sectional_bootstrap_threads.sql` — original
   6-thread 5m-only benchmark this todo's fix repeats for 15m

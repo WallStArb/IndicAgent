@@ -81,6 +81,6 @@ regime-window sufficiency -- not a quick single-session fix.
 - [172](172-path-dependent-frame-statistics-order-sensitivity-sweep.md) -- adjacent
   reproducibility bug found during Gate 2, may be relevant to frame construction review
 - [173](173-ensemble-alpha-1h-1d-oos-scoring-gap.md) -- adjacent coverage gap, Gate 1 side
-- `.planning/phases/143.1-measurement-and-eligibility-integrity-fisher-z-ci-bootstrap-/143.1-08-SHADOW-VALIDATION.md`
+- `.planning/milestones/v3.1-phases/143.1-measurement-and-eligibility-integrity-fisher-z-ci-bootstrap-/143.1-08-SHADOW-VALIDATION.md`
   sections 6-7 -- champion's original regime-conditional-edge finding (todo 165), same pattern
   observed here

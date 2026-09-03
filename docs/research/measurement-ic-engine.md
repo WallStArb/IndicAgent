@@ -472,6 +472,6 @@ Genuinely open: measurement-methodology research this doc's scope touches but ca
 - `docs/plans/archive/2026-06-29-feature-scoring-beyond-ic.md` + `.planning/todos/pending/191-feature-scoring-beyond-ic.md`
   - layers 0a/0b/0c; 0b scheduled inside 142B.1 (CONTEXT.md D-04/D-05/D-07) *(Fable 5 review,
   2026-07-06: 0b shipped — see gaps table)*, 0a/0c unscheduled
-- `.planning/phases/142B.1-*/142B.1-CONTEXT.md` - E1 shrinkage scope and hard acceptance gate;
+- `.planning/milestones/v3.1-phases/142B.1-*/142B.1-CONTEXT.md` - E1 shrinkage scope and hard acceptance gate;
   `ops_ensemble_ic_gate.py`/`ops_ensemble_ic_diagnosis.py` - the actual `alpha_ensemble_ic`
   consumers today (EIC-04/EIC-05)

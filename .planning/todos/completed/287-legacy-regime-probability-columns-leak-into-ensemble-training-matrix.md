@@ -104,7 +104,7 @@ trend-probability/churn values for those rows. Before shipping the fix:
 
 ## References
 
-- `.planning/phases/172-hmm-regime-volatility-only-redesign/172-02-PLAN.md` Task 2
+- `.planning/milestones/v3.1-phases/172-hmm-regime-volatility-only-redesign/172-02-PLAN.md` Task 2
 - `src/intelligence/features/feature_vector_persistence.py::REGIME_WRITER_OWNED_COLUMN_NAMES`
 - `services/ensemble_trainer.py::_get_feature_columns`, `_META_COLS`
 

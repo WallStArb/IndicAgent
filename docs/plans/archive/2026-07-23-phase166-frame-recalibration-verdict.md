@@ -249,7 +249,7 @@ is complete for the two arms that could be scored this session.
 
 - `gate_evaluations` table: `gate_id IN ('gate166_baseline', 'gate166_scalar')`
 - `.planning/gate_look_log.jsonl` -- both gates' pre-run integrity snapshots
-- `.planning/phases/166-frame-execution-recalibration/166-01-SUMMARY.md` through `166-05-SUMMARY.md`
+- `.planning/milestones/v3.1-phases/166-frame-execution-recalibration/166-01-SUMMARY.md` through `166-05-SUMMARY.md`
   -- migration/diagnosis, scalar calibration, structural module, validation gate, and writer
   wiring plans this verdict depends on
 - `docs/plans/archive/2026-07-22-phase148-promotion-decision.md` -- the Gate 2 FAIL verdict this phase

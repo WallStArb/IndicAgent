@@ -310,5 +310,5 @@ cite a selection-biased number"), delete (no variant-grain shrinkage layer), sim
 - `docs/plans/OOS-EVAL-PROTOCOL.md` - holdout definition; EnsembleICEngine as authoritative OOS
   scorer
 - `docs/plans/methodology-change-ledger.md` - the sequential-ladder control (§5.3)
-- `.planning/phases/142B.1-ensemble-weighting-methodology-replace-ensemble-trainer-py-s/142B.1-CONTEXT.md`
+- `.planning/milestones/v3.1-phases/142B.1-ensemble-weighting-methodology-replace-ensemble-trainer-py-s/142B.1-CONTEXT.md`
   D-10/D-11/D-12 (comparison design), E3 deferral lock (relevant to 4.2's rejection)

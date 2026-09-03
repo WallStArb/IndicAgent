@@ -21,7 +21,7 @@ Fixed per the recommended plan below, with one scope adjustment:
    `signals-ecl.md`, `signals-foundation.md`, `operations-database.md`) — their `src:` provenance
    comments pointed at `db/migrations/NNN_*.sql` for files that actually live in
    `production/migrations/NNN_*.sql` under the same number. `docs/plans/archive/*.md` and the
-   `.planning/phases/142.5-*` plan files were left untouched — they're historical records
+   `.planning/milestones/v3.1-phases/142.5-*` plan files were left untouched — they're historical records
    describing a past mistake and its fix accurately, not a live wrong convention.
 2. **`db/migrations/` resolved, not just deleted** — verified before deleting (per this project's
    "verify then delete, don't flag" convention): `001_baseline.sql` was confirmed abandoned/never

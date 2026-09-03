@@ -89,4 +89,4 @@ to the known leak, just accidental exclusion via merits) is still real and still
 - [todo 243](../pending/243-ctf-momentum-batch-join-lookahead-bias.md) -- the underlying leak this todo is about not silently propagating
 - todo 230 -- **CLOSED 2026-08-02** (was: the FATAL halt blocking steps 6-8; resolved same-day via a Binomial-tolerance fix, not a silent override -- see `project_single_security_alpha_refinement_gating_2026_08_08` memory for detail if ever needed)
 - `docs/plans/2026-08-05-ctf-join-fix-scoped-recompute-and-gate1-reverify.md` -- the scoped recompute plan; executed, did not close this todo (see update above)
-- `.planning/phases/170-concept-registry-feature-domain-migration-feature-registry-r/170-05-SUMMARY.md` -- Plan 05 BLOCKED on the same empty `alpha_ensemble_ic` precondition (re-check if still relevant -- not verified in this pass)
+- `.planning/milestones/v3.1-phases/170-concept-registry-feature-domain-migration-feature-registry-r/170-05-SUMMARY.md` -- Plan 05 BLOCKED on the same empty `alpha_ensemble_ic` precondition (re-check if still relevant -- not verified in this pass)

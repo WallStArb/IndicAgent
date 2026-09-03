@@ -32,7 +32,7 @@ file's original number:
 
 Grepped the repo for bare-number/path cross-references to each renamed slug before renaming and
 fixed the live ones found: `.planning/todos/PRIORITIES.md`, `docs/research/measurement-ic-engine.md`
-(1 path link + 2 prose "todo 029" mentions), 3 `.planning/phases/142B.1-*` `@`-import paths, and
+(1 path link + 2 prose "todo 029" mentions), 3 `.planning/milestones/v3.1-phases/142B.1-*` `@`-import paths, and
 2 cross-references between other todo files (`completed/130`↔`completed/193` mutual references,
 now `completed/194`↔`completed/193`... `130`→`192`). Deliberately did NOT sweep every historical
 `.planning/phases/*` doc beyond the live `@`-import paths -- those are point-in-time snapshots

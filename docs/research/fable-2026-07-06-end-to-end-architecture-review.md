@@ -172,7 +172,7 @@ Nothing new found beyond todo 056 and reconciliation F3 - re-verified still unap
 - `systemctl list-units --all` 2026-07-06 (feature-vector-pipeline/ctx-writer/lineage-writer active; one loaded/failed); `ps aux` (backfill retry loop + `--client-id 40 --fetch-only` running)
 - Code: `services/ensemble_trainer.py` (:4, :317, :430-431, :469, :540, ~:744), `services/ic_engine.py:84` + `services/ensemble_ic_engine.py:82` (shared kernel imports), `scripts/ops/corpus/ops_cost_hurdle_calibration.py` (unconditional Step-1 writes when live)
 - `.planning/ROADMAP.md` (milestone lines 28-32; Phase 142A verdict log; Phase 143 incl. 2026-07-06 correction; Phase 146/147; v3.15 batch text); `.planning/STATE.md`; `.planning/PROJECT.md` (Core Value, 2026-07-05)
-- `.planning/phases/143-.../143-{01..03}-PLAN.md`, `143-RESEARCH.md`, `143-REVIEWS.md` (codex findings + independent verification), `141.1-.../141.1-VERIFICATION.md` (Truth 6)
+- `.planning/milestones/v3.1-phases/143-.../143-{01..03}-PLAN.md`, `143-RESEARCH.md`, `143-REVIEWS.md` (codex findings + independent verification), `141.1-.../141.1-VERIFICATION.md` (Truth 6)
 - `/home/bg/.claude/plans/should-we-back-fill-nested-peacock.md` (remediation plan, items 6-9)
 - `docs/research/`: `roadmap-scope-map.md` (2026-07-05 re-rank), `2026-07-01-intelligence-lifecycle-backlog-matrix.md`, `idea-catalog.md`, `intel-13`/`intel-14`/`intel-15`, `concept-governance-registries.md` (post-07-04 sync verified)
 - `docs/foundation/`: `principles.md` (one-model-one-book), `canonical-truth-registry.md` (staleness evidence), `ship-or-sink-rules.md`, `musk-5-step-process.md`

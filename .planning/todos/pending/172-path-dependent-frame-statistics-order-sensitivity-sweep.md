@@ -118,7 +118,7 @@ Item 1 (the broader path-dependent-statistics sweep) remains open, unscoped.
 
 ## References
 
-- `.planning/phases/148-alpha-scoring-system/148-05-PLAN.md` -- the plan this was
+- `.planning/milestones/v3.1-phases/148-alpha-scoring-system/148-05-PLAN.md` -- the plan this was
   discovered during
 - `docs/plans/archive/2026-07-22-phase148-promotion-decision.md` -- documents this finding and its
   resolution in the Gate 2 section
@@ -128,5 +128,5 @@ Item 1 (the broader path-dependent-statistics sweep) remains open, unscoped.
 - `services/counterfactual_tracker.py` -- `frame_gate_passes` (line ~172),
   `evaluate_frame_gate` (line ~906) -- the shared functions with the cluster-mean
   array-order-sensitivity symptom described above
-- `.planning/phases/143.1-measurement-and-eligibility-integrity-fisher-z-ci-bootstrap-/143.1-08-SHADOW-VALIDATION.md`
+- `.planning/milestones/v3.1-phases/143.1-measurement-and-eligibility-integrity-fisher-z-ci-bootstrap-/143.1-08-SHADOW-VALIDATION.md`
   section 7 -- the frozen baseline whose `c4_max_dd` number this todo traces as non-reproducible

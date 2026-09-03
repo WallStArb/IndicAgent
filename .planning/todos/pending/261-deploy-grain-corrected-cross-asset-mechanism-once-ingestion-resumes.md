@@ -43,7 +43,7 @@ Two independent reasons, either alone sufficient to defer:
 
 ## What to do when ingestion resumes (or an operator wants to verify sooner)
 
-Run Plan 151-09's Task 3 exactly as written (`.planning/phases/151-feature-primitives-
+Run Plan 151-09's Task 3 exactly as written (`.planning/milestones/v3.1-phases/151-feature-primitives-
 expansion-theory-motivated-interaction-la/151-09-PLAN.md`'s Task 3 section), adapted for the
 new mechanism:
 
@@ -64,8 +64,8 @@ new mechanism:
 
 ## References
 
-- `.planning/phases/151-feature-primitives-expansion-theory-motivated-interaction-la/151-09-SUMMARY.md` -- full grain-mismatch finding, evidence trail, and design rationale
-- `.planning/phases/151-feature-primitives-expansion-theory-motivated-interaction-la/151-09-PLAN.md` -- Task 3's original restart/verify procedure (still the right shape, just re-run against the new mechanism)
+- `.planning/milestones/v3.1-phases/151-feature-primitives-expansion-theory-motivated-interaction-la/151-09-SUMMARY.md` -- full grain-mismatch finding, evidence trail, and design rationale
+- `.planning/milestones/v3.1-phases/151-feature-primitives-expansion-theory-motivated-interaction-la/151-09-PLAN.md` -- Task 3's original restart/verify procedure (still the right shape, just re-run against the new mechanism)
 - `services/feature_vector_pipeline.py` -- `_load_cross_asset_series`/`_cross_asset_record_for_date`/`_refresh_cross_asset_series`
 - `src/intelligence/features/cross_asset_series.py` -- `build_cross_asset_series` (the shared builder both paths now call)
 - `project_ingestion_intentionally_paused` (memory) -- why ingestion is off and not an outage to root-cause

@@ -88,4 +88,4 @@ The "don't build a new service" principle survives intact: this adds zero DAG no
 
 ---
 
-*Informed by: `.planning/phases/161-controlled-vocabulary-system/161-RESEARCH.md` and `161-CONTEXT.md` (the two open questions under review), `docs/research/concept-controlled-vocabulary.md` (drift-audit contract), `docs/research/stratification-dimension-unification.md` (Label Identity Invariant, lines 198-210).*
+*Informed by: `.planning/milestones/v3.1-phases/161-controlled-vocabulary-system/161-RESEARCH.md` and `161-CONTEXT.md` (the two open questions under review), `docs/research/concept-controlled-vocabulary.md` (drift-audit contract), `docs/research/stratification-dimension-unification.md` (Label Identity Invariant, lines 198-210).*

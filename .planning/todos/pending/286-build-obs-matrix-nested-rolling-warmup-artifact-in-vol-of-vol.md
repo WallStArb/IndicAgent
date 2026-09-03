@@ -61,6 +61,6 @@ not rediscover it or "restore parity" from the volatility builder in the wrong d
 
 ## References
 
-- `.planning/phases/172-hmm-regime-volatility-only-redesign/172-REVIEWS.md` (Antigravity, concern 1)
-- `.planning/phases/172-hmm-regime-volatility-only-redesign/172-03-PLAN.md` Task 2
+- `.planning/milestones/v3.1-phases/172-hmm-regime-volatility-only-redesign/172-REVIEWS.md` (Antigravity, concern 1)
+- `.planning/milestones/v3.1-phases/172-hmm-regime-volatility-only-redesign/172-03-PLAN.md` Task 2
 - `services/regime_writer.py::_rolling`, `::_build_obs_matrix`

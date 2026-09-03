@@ -60,7 +60,7 @@ representative regime mix instead of one incidental window.
 ## References
 
 - `alpha.validation.oos_start` APR key -- the single-window split point
-- `.planning/phases/143.1-measurement-and-eligibility-integrity-fisher-z-ci-bootstrap-/143.1-08-SHADOW-VALIDATION.md`
+- `.planning/milestones/v3.1-phases/143.1-measurement-and-eligibility-integrity-fisher-z-ci-bootstrap-/143.1-08-SHADOW-VALIDATION.md`
   -- the HOLD verdict this investigation followed up on
 - `services/counterfactual_tracker.py`'s `evaluate_frame_gate` -- day-clustered bootstrap CI
   precedent to reuse, not reinvent

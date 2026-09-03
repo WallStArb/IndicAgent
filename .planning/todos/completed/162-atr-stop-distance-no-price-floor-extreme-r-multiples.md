@@ -122,5 +122,5 @@ data-integrity hygiene on the existing ATR-only path, not a redesign of it.
   doesn't catch this case)
 - `services/counterfactual_tracker.py:441-455` (the try/except around `compute_frame_geometry`,
   `degenerate_atr_skip_count`)
-- `.planning/phases/143.1-measurement-and-eligibility-integrity-fisher-z-ci-bootstrap-/143.1-08-SHADOW-VALIDATION.md`
+- `.planning/milestones/v3.1-phases/143.1-measurement-and-eligibility-integrity-fisher-z-ci-bootstrap-/143.1-08-SHADOW-VALIDATION.md`
   Section 6 — where this was found

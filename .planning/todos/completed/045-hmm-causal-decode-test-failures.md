@@ -53,7 +53,7 @@ these files that none were touched by 142A-01's commits — pre-existing on `mai
 at `8cd562f6`, not caused by any recent phase.
 
 Full breakdown logged in
-`.planning/phases/142A-ensemble-ic-measurement/deferred-items.md`.
+`.planning/milestones/v3.1-phases/142A-ensemble-ic-measurement/deferred-items.md`.
 
 **Affected files (original 33; see narrowing note above for current scope):**
 - `tests/unit/scripts/test_fetch_htf_bars.py` (3 failures)

@@ -48,7 +48,7 @@ distinct from all three named above: `CrossAssetState` (`src/intelligence/featur
 `_warm_cross_asset_state()`/`_get_cross_asset_state()` (`services/feature_vector_pipeline.py`),
 wired directly into `_process_bar_compute()` (`cache.vix_z = cross_state.vix_z`, etc.) -- computed
 incrementally from real bar history via `CrossAssetState.update_cross_asset()`, never through
-Kafka. See `.planning/phases/151-feature-primitives-expansion-theory-motivated-interaction-la/151-04-SUMMARY.md`'s
+Kafka. See `.planning/milestones/v3.1-phases/151-feature-primitives-expansion-theory-motivated-interaction-la/151-04-SUMMARY.md`'s
 Task 4 for the full measurement (the historical zero-value window is capped at 2026-06-23 ->
 2026-07-07 because live IBKR ingestion halted 2026-07-27, three days after the plan's original
 2026-07-24 review -- not "growing every trading day" as originally assumed; no post-fix live rows
@@ -90,5 +90,5 @@ unilaterally.
 - `services/feature_vector_pipeline.py` (`_cross_asset_state_for_bar` et al. -- the actual live fix, todo 221/222)
 - todo 158 (`above_wk_vwap` permanently frozen at 0.0 in the live path) -- same bug class
 - todo 159 (`FeatureCache` not warmed from seeded history) -- adjacent live-path warm-up precedent
-- `.planning/phases/151-feature-primitives-expansion-theory-motivated-interaction-la/151-09-PLAN.md` -- owns the (now partially stale) functional-fix scope, needs re-validation before execution
-- `.planning/phases/151-feature-primitives-expansion-theory-motivated-interaction-la/151-04-SUMMARY.md` -- Task 4's full contamination measurement and disposition record
+- `.planning/milestones/v3.1-phases/151-feature-primitives-expansion-theory-motivated-interaction-la/151-09-PLAN.md` -- owns the (now partially stale) functional-fix scope, needs re-validation before execution
+- `.planning/milestones/v3.1-phases/151-feature-primitives-expansion-theory-motivated-interaction-la/151-04-SUMMARY.md` -- Task 4's full contamination measurement and disposition record

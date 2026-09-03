@@ -47,5 +47,5 @@ diagnostics) before concluding this is expected-and-fine vs. a real gap.
 ## References
 
 - `.planning/todos/completed/285-phase172-full-scope-ic-engine-verification-after-volatility-cutover.md` -- closure section, where this was found
-- `.planning/phases/172-hmm-regime-volatility-only-redesign/evidence/172-05-relabel-coverage.json`
+- `.planning/milestones/v3.1-phases/172-hmm-regime-volatility-only-redesign/evidence/172-05-relabel-coverage.json`
 - `services/regime_writer.py` -- `_compute_symbol_tf_volatility_walk_forward`

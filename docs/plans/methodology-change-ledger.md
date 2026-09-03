@@ -674,7 +674,7 @@ below.
 
 **What changed?** The full pre-committed promote/hold decision rule for Component E's
 sign-symmetric eligibility flag is recorded in
-`.planning/phases/143.1-measurement-and-eligibility-integrity-fisher-z-ci-bootstrap-/143.1-08-SHADOW-VALIDATION.md`
+`.planning/milestones/v3.1-phases/143.1-measurement-and-eligibility-integrity-fisher-z-ci-bootstrap-/143.1-08-SHADOW-VALIDATION.md`
 Section 3 (SHADOW-REVIEW.md's frozen 5 criteria, applied per `weight_epoch`, plus two
 Component-E-specific additions: non-regression vs. the champion, and a short-side-sanity
 check on the newly-eligible population) — reproduced there in full rather than duplicated

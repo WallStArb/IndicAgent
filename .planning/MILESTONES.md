@@ -1,5 +1,25 @@
 # Milestones
 
+## v3.1 AlphaEngine Validation + Alpha Scoring (Shipped: 2026-09-02)
+
+**Phases:** 24 complete (140.5, 141, 141.1, 142A, 142B, 142B.1, 142.5, 143, 143.1, 144, 146, 148, 160, 161, 162, 163, 164, 165, 166, 167, 170, 171, 172, 173); 145/168/169 planned but never executed (blocked/superseded at close); 151 Waves 6-7 paused. Timeline: 2026-06-26 → 2026-08-26.
+**Verdict the milestone exists to deliver:** no construction earned promotion to live capital — Phase 148 Gate 1 PASS / Gate 2 FAIL; Phase 167's original PASS retracted after the CTF-leak correction; 5/5 discovery-track candidates DEAD. The corpus, measurement discipline, and governance systems it built are the asset.
+
+**Key accomplishments:**
+
+1. **Measurement integrity foundation** (141.1, 143.1, 162) — OOS holdout enforcement with gate-look audit trail, Fisher-z/bootstrap CIs, whole-cell fingerprint incremental recompute (equivalence-proven)
+2. **Ensemble + frame simulation** (142A, 142B, 142B.1) — `alpha_ensemble_ic`, `alpha_frames` + `CounterfactualTracker`, E1 shrunk-IC weighting champion over mean-variance
+3. **Feature Factory expansion** (142.5, 151, 163-165) — 89 Renaissance primitives, VP/SR structural, SMC footprint, swing/fib/trend/session; `FeatureVector` 249→292 fields
+4. **Governance registries** (160, 161, 170) — `concept_registry` (sole feature-lifecycle system after Phase 170 retired `feature_registry`), CVR + drift auditor, `TagCalibrator`
+5. **Regime system corrected** (144, 171, 172) — cross-sectional `regime_group` model; production HMM trend labels proven a volatility partition mislabeled; `regime_volatility` (K=3, walk-forward) replacement
+6. **Proof gates run honestly** (148, 166, 167, 173) — per-symbol OOS proof gates, frame recalibration, cross-sectional construction (retracted on re-verification), broadcast significance correction + full 8-step corpus recompute
+
+**Post-milestone state:** research continues under the pre-registered personal-scale edge determination program (`docs/plans/2026-09-02-personal-scale-edge-determination-plan.md`) on the research track, outside the phase system; its decision gate's winning branch earns the next phase.
+
+**Archive:** `.planning/milestones/v3.1-phases/` (all 26 phase directories)
+
+---
+
 ## v3.0 Intelligence Vectors — AlphaEngine (Shipped: 2026-06-24)
 
 **Phases completed:** 4 phases (137, 138, 139, 140); Phase 140 correctness follow-on completed 2026-06-25

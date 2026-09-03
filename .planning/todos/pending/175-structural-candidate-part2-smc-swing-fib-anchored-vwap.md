@@ -84,9 +84,9 @@ already done. This todo is "widen the spec table," not "redesign the mechanism."
 
 - `src/intelligence/trading/structural_confluence.py` -- the module this todo extends (its
   `# EXTENSION POINT` comment cites this todo's number)
-- `.planning/phases/166-frame-execution-recalibration/166-RESEARCH.md` -- Q1-Q4 ("Broadened
+- `.planning/milestones/v3.1-phases/166-frame-execution-recalibration/166-RESEARCH.md` -- Q1-Q4 ("Broadened
   Structural Candidate: Full Investigation"), the full reasoning for the two-part split
-- `.planning/phases/166-frame-execution-recalibration/166-CONTEXT.md` D-06 -- the phase-level
+- `.planning/milestones/v3.1-phases/166-frame-execution-recalibration/166-CONTEXT.md` D-06 -- the phase-level
   decision this todo implements
 - `docs/plans/archive/2026-07-23-phase166-frame-recalibration-verdict.md` -- Phase 166's verdict doc,
   which states the toolkit was evaluated and deliberately deferred here (not silently dropped)

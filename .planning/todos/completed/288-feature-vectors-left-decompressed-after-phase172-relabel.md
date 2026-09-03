@@ -36,7 +36,7 @@ compression policy exists to reverse this automatically. Decide and execute:
 
 - `docs/foundation/performance-investigation-sop.md` — the existing SOP this incident confirms,
   a third time
-- `.planning/phases/172-hmm-regime-volatility-only-redesign/172-05-SUMMARY.md` — full incident
+- `.planning/milestones/v3.1-phases/172-hmm-regime-volatility-only-redesign/172-05-SUMMARY.md` — full incident
   writeup with `EXPLAIN` costs and timings
 
 ## Closure (2026-08-28)

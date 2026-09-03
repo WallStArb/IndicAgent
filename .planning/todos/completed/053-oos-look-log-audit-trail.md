@@ -10,7 +10,7 @@
 
 # 044 — OOS Look-Log Audit Trail
 
-From Phase 141.1 code review (CR-02, `.planning/phases/141.1-measurement-and-decision-integrity-foundation-make-everythin/141.1-REVIEW.md`).
+From Phase 141.1 code review (CR-02, `.planning/milestones/v3.1-phases/141.1-measurement-and-decision-integrity-foundation-make-everythin/141.1-REVIEW.md`).
 
 `scripts/ops/corpus/ops_oos_holdout_eval.py` is an intentionally non-gating diagnostic
 scorer over the OOS holdout window (`docs/plans/OOS-EVAL-PROTOCOL.md`). The protocol doc
@@ -39,7 +39,7 @@ an APR parameter changed suspiciously close to an OOS look.
 
 - `docs/plans/OOS-EVAL-PROTOCOL.md` — the protocol this closes a gap in
 - `scripts/ops/corpus/ops_oos_holdout_eval.py` — the scorer to instrument
-- `.planning/phases/141.1-measurement-and-decision-integrity-foundation-make-everythin/141.1-REVIEW.md` — CR-02 for full reasoning
+- `.planning/milestones/v3.1-phases/141.1-measurement-and-decision-integrity-foundation-make-everythin/141.1-REVIEW.md` — CR-02 for full reasoning
 
 ## Disposition (2026-07-19)
 

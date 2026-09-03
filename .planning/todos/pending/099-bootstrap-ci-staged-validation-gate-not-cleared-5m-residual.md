@@ -93,5 +93,5 @@ pre-committed gate's outcome after seeing the result).
 
 - `docs/plans/methodology-change-ledger.md` E6 entry (pre-committed threshold + measured
   result)
-- `.planning/phases/143.1-measurement-and-eligibility-integrity-fisher-z-ci-bootstrap-/143.1-01-SUMMARY.md`
+- `.planning/milestones/v3.1-phases/143.1-measurement-and-eligibility-integrity-fisher-z-ci-bootstrap-/143.1-01-SUMMARY.md`
 - `scripts/ops/alpha/ops_ic_null_calibration.py --ci-method bootstrap`

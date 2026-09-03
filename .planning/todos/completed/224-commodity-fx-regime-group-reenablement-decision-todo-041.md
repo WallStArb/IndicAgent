@@ -139,7 +139,7 @@ commodity-enablement step guarded against by re-running the model in the same se
   -- new/updated coverage
 - `docs/research/roadmap-decision-log.md` -- "Why commodity/fx enablement is blocked" + "Why
   OIH/XLE staying in equity breadth ... isn't a blocker" decision notes (now historical)
-- `.planning/phases/146-empirical-instrument-tag-calibrator/146-CONTEXT.md` --
+- `.planning/milestones/v3.1-phases/146-empirical-instrument-tag-calibrator/146-CONTEXT.md` --
   confirms todo 041 was folded into the canonical design doc, not resolved as its own decision
 - `.planning/todos/pending/225-multi-vector-systematic-regime-join-hybrid-sensitivity-symbols.md`
   -- no longer blocking anything from this todo; still open as an independent, currently

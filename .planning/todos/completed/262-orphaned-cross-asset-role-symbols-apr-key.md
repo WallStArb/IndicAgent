@@ -59,4 +59,4 @@ not a drive-by deletion inside an unrelated plan).
 - `services/feature_vector_pipeline.py` -- `_prewarm_threshold_config()`'s removed role-symbols block (Plan 151-09 Task 2)
 - `services/backfill_feature_factory.py` -- batch path's own hardcoded `SPY`/`TLT`/`SHY` call site, never read this key
 - migration 279 -- original `feature.cross_asset.role_symbols` seed
-- `.planning/phases/151-feature-primitives-expansion-theory-motivated-interaction-la/151-09-SUMMARY.md`
+- `.planning/milestones/v3.1-phases/151-feature-primitives-expansion-theory-motivated-interaction-la/151-09-SUMMARY.md`

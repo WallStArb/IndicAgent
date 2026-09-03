@@ -198,7 +198,7 @@ deliberate exclusion, like 080's redirect-stub or 270's phase-promotion note), a
 Todo 270's row moved out of this table 2026-08-21 -- promoted to **Phase 173 (Broadcast Feature
 Significance Correction)** in ROADMAP.md, per this file's own stated scope ("Phases... are a
 separate execution track and do not appear here"). Context captured
-(`.planning/phases/173-.../173-CONTEXT.md`): all 23 broadcast features move together, a new
+(`.planning/milestones/v3.1-phases/173-.../173-CONTEXT.md`): all 23 broadcast features move together, a new
 lightweight cell reuses `_subsample_and_rank` per-`(regime_group, tf, regime_label)` against an
 equal-weighted aggregate return, same `feature_ic_scores` table/FDR family. Ready for
 `/gsd-plan-phase 173`. Todo 270's own file kept in `pending/` as the historical scope record --

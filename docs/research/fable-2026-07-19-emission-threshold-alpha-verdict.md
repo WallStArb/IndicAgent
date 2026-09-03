@@ -239,5 +239,5 @@ GROUP BY symbol, tf;
 - `docs/plans/OOS-EVAL-PROTOCOL.md` - the only path a calibrated threshold may take to OOS
 - `.planning/todos/completed/146-lookahead-grid-per-tf-recalibration.md`
 - `.planning/todos/pending/148-forward-return-corrupt-print-guard.md` - filed by this review
-- `.planning/phases/141.1-*/deferred-items.md` - record that cost-hurdle calibration was
+- `.planning/milestones/v3.1-phases/141.1-*/deferred-items.md` - record that cost-hurdle calibration was
   deferred and never built

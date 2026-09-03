@@ -46,5 +46,5 @@ plan (163-02-PLAN.md Task 1) — same missing-call-site class of bug, same fix l
 - `src/intelligence/feature_cache.py:142` (`update_wk_vwap()`)
 - `services/feature_vector_pipeline.py` (`_process_bar_compute` — missing call)
 - `src/intelligence/feature_factory.py:4248` (`compute_batch()` — the one path that gets this right)
-- `.planning/phases/163-vp-sr-structural-primitives/163-02-PLAN.md` (where this was discovered,
+- `.planning/milestones/v3.1-phases/163-vp-sr-structural-primitives/163-02-PLAN.md` (where this was discovered,
   and where the equivalent new `update_session_vp()` call site is being added correctly)

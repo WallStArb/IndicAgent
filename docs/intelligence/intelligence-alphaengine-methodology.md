@@ -541,7 +541,7 @@ The weighting mechanism above (shrinkage, then weight combination, then output v
 then governed promotion) replaced a working-but-structurally-weak v1 scheme. This section
 records what was wrong with the prior approach, what alternatives were considered for each
 piece, and why each choice was made — so a future reader does not have to reconstruct this
-from `.planning/phases/142B.1-*/142B.1-RESEARCH.md` (a transient phase artifact, not a
+from `.planning/milestones/v3.1-phases/142B.1-*/142B.1-RESEARCH.md` (a transient phase artifact, not a
 durable reference) or from code comments scattered across three files.
 
 ### What v1 Got Wrong

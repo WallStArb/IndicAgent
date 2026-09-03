@@ -550,7 +550,7 @@ Record the full output (verdict, per-cell coverage table for both champion and c
 
 - [ ] **Step 2: Append the result to the phase's shadow-validation record**
 
-Read `.planning/phases/143.1-measurement-and-eligibility-integrity-fisher-z-ci-bootstrap-/143.1-08-SHADOW-VALIDATION.md`,
+Read `.planning/milestones/v3.1-phases/143.1-measurement-and-eligibility-integrity-fisher-z-ci-bootstrap-/143.1-08-SHADOW-VALIDATION.md`,
 then append a new `## 7. Regime-stratified re-evaluation (todo 165)` section after its
 existing `## 6. Measured results` section, containing: the date, the actual verdict output
 from Step 1 (verbatim), and one sentence noting whether it changed from section 6's original
@@ -559,7 +559,7 @@ verdict and why (coverage-floor exclusions, if any cells were insufficient).
 - [ ] **Step 3: Commit**
 
 ```bash
-git add ".planning/phases/143.1-measurement-and-eligibility-integrity-fisher-z-ci-bootstrap-/143.1-08-SHADOW-VALIDATION.md"
+git add ".planning/milestones/v3.1-phases/143.1-measurement-and-eligibility-integrity-fisher-z-ci-bootstrap-/143.1-08-SHADOW-VALIDATION.md"
 git commit -m "docs(165): record regime-stratified re-evaluation of 143.1-08's promotion verdict"
 ```
 

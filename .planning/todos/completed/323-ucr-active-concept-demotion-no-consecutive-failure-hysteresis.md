@@ -78,7 +78,7 @@ wrong -- verified directly:
   **recovery** gate. Neither is read anywhere in the `active -> shadow_only`/`deprecated` demotion
   path.
 - This is a deliberate, explicit design decision dating to Phase 143 Plan 02
-  (`.planning/phases/143-.../143-02-PLAN.md:233`, done-criteria: "no invented demotion counter"),
+  (`.planning/milestones/v3.1-phases/143-.../143-02-PLAN.md:233`, done-criteria: "no invented demotion counter"),
   carried forward verbatim into Phase 170's UCR migration.
 
 ## What the actual demotion mechanism is (checked: `services/ic_engine.py:4333-4378`)

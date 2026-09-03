@@ -36,5 +36,5 @@ this has no live-data blast radius today -- same operational context as todos 26
 
 ## References
 
-- `.planning/phases/151-feature-primitives-expansion-theory-motivated-interaction-la/151-REVIEW.md` WR-04 -- full finding detail
+- `.planning/milestones/v3.1-phases/151-feature-primitives-expansion-theory-motivated-interaction-la/151-REVIEW.md` WR-04 -- full finding detail
 - `src/intelligence/feature_factory.py` -- `_guard_counted`/`_report_guard_counted_substitutions`/`_GUARD_COUNTED_SUBSTITUTIONS`

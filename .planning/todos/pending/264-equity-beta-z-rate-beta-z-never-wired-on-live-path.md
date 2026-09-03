@@ -73,6 +73,6 @@ Either:
 ## References
 
 - `src/intelligence/feature_cache.py:80-81` -- the dead deque fields
-- `.planning/phases/151-feature-primitives-expansion-theory-motivated-interaction-la/151-04-SUMMARY.md` -- original field addition
-- `.planning/phases/151-feature-primitives-expansion-theory-motivated-interaction-la/151-09-SUMMARY.md` -- the analogous fix for the other 5 fields, explicit scope boundary for these 2
+- `.planning/milestones/v3.1-phases/151-feature-primitives-expansion-theory-motivated-interaction-la/151-04-SUMMARY.md` -- original field addition
+- `.planning/milestones/v3.1-phases/151-feature-primitives-expansion-theory-motivated-interaction-la/151-09-SUMMARY.md` -- the analogous fix for the other 5 fields, explicit scope boundary for these 2
 - `.planning/todos/pending/261-deploy-grain-corrected-cross-asset-mechanism-once-ingestion-resumes.md` -- sibling deployment todo, does not cover this gap

@@ -55,7 +55,7 @@ Once Phase 172 is complete and no other corpus-scale job is running:
 3. Confirm every non-pooled `symbol_hmm`-scope row carries a code registered in
    `controlled_vocabulary` under namespace `regime_volatility`.
 4. Compare the per-cell count of `symbol_hmm`-scope strata against
-   `.planning/phases/172-hmm-regime-volatility-only-redesign/evidence/172-05-relabel-coverage.json`,
+   `.planning/milestones/v3.1-phases/172-hmm-regime-volatility-only-redesign/evidence/172-05-relabel-coverage.json`,
    and account for any cell the relabel recorded as `labeled` that produced no IC rows.
 5. Re-run the `VINTAGE DISJOINT` intersection check from `172-IC-ENGINE-CUTOVER.md` against the
    grown table.
@@ -69,9 +69,9 @@ Once Phase 172 is complete and no other corpus-scale job is running:
 
 ## References
 
-- `.planning/phases/172-hmm-regime-volatility-only-redesign/172-07-PLAN.md` Task 1
-- `.planning/phases/172-hmm-regime-volatility-only-redesign/172-REVIEWS.md` (Codex, MEDIUM)
-- `.planning/phases/172-hmm-regime-volatility-only-redesign/evidence/172-05-relabel-coverage.json`
+- `.planning/milestones/v3.1-phases/172-hmm-regime-volatility-only-redesign/172-07-PLAN.md` Task 1
+- `.planning/milestones/v3.1-phases/172-hmm-regime-volatility-only-redesign/172-REVIEWS.md` (Codex, MEDIUM)
+- `.planning/milestones/v3.1-phases/172-hmm-regime-volatility-only-redesign/evidence/172-05-relabel-coverage.json`
 
 ## Closure (2026-08-31)
 

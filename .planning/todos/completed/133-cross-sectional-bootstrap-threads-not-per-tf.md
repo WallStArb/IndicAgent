@@ -13,7 +13,7 @@ dict (migration 250: `5m=6, 15m=1h=1d=1`), exactly this todo's option (a). The o
 literally executed as this file's "Fix" section specified -- a live wall-clock A/B benchmark of
 `max_workers=1` vs `=6` on 15m/1h/1d before picking the value, rather than seeding it from the
 original migration's reasoning -- is tracked as an open human-verification item in
-`.planning/phases/162-ic-engine-corpus-pipeline-throughput-incremental-recompute-t/162-HUMAN-UAT.md`
+`.planning/milestones/v3.1-phases/162-ic-engine-corpus-pipeline-throughput-incremental-recompute-t/162-HUMAN-UAT.md`
 (item 3), not a separate pending todo.
 
 **Moved to deferred/ 2026-07-18 (priorities/matrix reconciliation pass):** registered as

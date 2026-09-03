@@ -46,4 +46,4 @@ Phase 161's Controlled Vocabulary discussion — previously only the first was d
 - **Concept Governance Registries (sibling umbrella):** `docs/research/concept-governance-registries.md`
 - **Formalization gate:** `stratification-dimension-unification.md`'s "Formalization revival note"
 - **Roadmap context:** v3.15 "Conditioning & Identity Foundation" (Phases 144, 145); Instrument Tag Calibrator is Phase 146 (unblocked, see table above). `.planning/ROADMAP.md`
-- **Controlled Vocabulary (sibling umbrella's Type 3b, second seam above):** `docs/research/concept-controlled-vocabulary.md` — Phase 161, context gathered 2026-07-16 at `.planning/phases/161-controlled-vocabulary-system/161-CONTEXT.md`
+- **Controlled Vocabulary (sibling umbrella's Type 3b, second seam above):** `docs/research/concept-controlled-vocabulary.md` — Phase 161, context gathered 2026-07-16 at `.planning/milestones/v3.1-phases/161-controlled-vocabulary-system/161-CONTEXT.md`

@@ -39,7 +39,7 @@ relabel — only `hmm_vol_churn` needs to change; `regime_volatility`/`hmm_vol_p
 
 - `services/regime_writer.py` — the fixed churn computation (both `_compute_symbol_tf_walk_forward`
   and `_compute_symbol_tf_volatility_walk_forward`)
-- `.planning/phases/172-hmm-regime-volatility-only-redesign/172-REVIEW.md` — WR-01's full
+- `.planning/milestones/v3.1-phases/172-hmm-regime-volatility-only-redesign/172-REVIEW.md` — WR-01's full
   writeup
-- `.planning/phases/172-hmm-regime-volatility-only-redesign/172-05-SUMMARY.md` — the relabel run
+- `.planning/milestones/v3.1-phases/172-hmm-regime-volatility-only-redesign/172-05-SUMMARY.md` — the relabel run
   this todo's blast radius traces back to

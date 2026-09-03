@@ -728,7 +728,7 @@ update `docs/foundation/glossary.md` to match — the glossary isn't immutable; 
 fails scrutiny should be corrected there, not preserved because it's already documented.
 
 **Resolved 2026-07-16** (see `docs/research/fable-2026-07-16-tag-calibrator-taxonomy-review.md`,
-findings T2/T4/T5/T7, and `.planning/phases/146-empirical-instrument-tag-calibrator/146-CONTEXT.md`):
+findings T2/T4/T5/T7, and `.planning/milestones/v3.1-phases/146-empirical-instrument-tag-calibrator/146-CONTEXT.md`):
 item 1 (`spread_leg`) is salvageable via a data migration + boundary test, not a new table (T5).
 Item 2 (`cycle_position`) closes via TAG-03's existing `measurement_type='definitional'`
 annotation rule — no further action. Item 3 (`macro_driver`/`sensitivity` redundancy) is real but
