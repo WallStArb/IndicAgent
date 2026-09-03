@@ -1,10 +1,11 @@
 # Personal-Scale Edge Determination — Program Plan (pre-registered)
 
 **Status:** Active program. Pre-registered 2026-09-02 before any workstream number exists.
-**Current position (2026-09-02):** 0a/0b/0c run; pre-registration 1 (`range_pct_fast_xs_ls_h5`)
-DEAD; remaining queue = workstream 2 (the 15m residual diagnostic) and the todo 368 successor
-decision; 0c complete (todo 367 closed 2026-09-02: Phase 148's construction KILLED ON
+**Current position (2026-09-03):** 0a/0b/0c run; pre-registration 1 (`range_pct_fast_xs_ls_h5`)
+DEAD; 0c complete (todo 367 closed 2026-09-02: Phase 148's construction KILLED ON
 PAPER, gap_z recorded, screen spread-anchor 10x bug found and fixed, no verdict flipped).
+Workstream 2 (the 15m residual diagnostic) pre-registered 2026-09-03 as Pre-registration 2
+below and queued to run; the todo 368 successor decision follows with its result in hand.
 **Author:** Claude (Sonnet 5), interactive session, 2026-09-02.
 **Origin:** User directive 2026-09-02: "it feels like we have been drifting aimlessly for
 weeks, we need to figure out how to push past this hump." Council review (same session)
@@ -503,3 +504,194 @@ sign-consistency-selected leader failed.
 **Invalidations:** any fixed quantity moved after an IS number is seen; a second IS run
 with tweaked parameters presented as the verdict (the N1 lesson); any holdout statistic
 computed before the gate look.
+
+---
+
+## Pre-registration 2 — `alpha_score` residual single-security diagnostic @ 15m (workstream 2)
+
+Written 2026-09-03, before any statistic of this test was computed. Mandate: todo 278's
+closed design (2026-08-08) — the residual-stripping construction must clear a
+properly-powered diagnostic-tier test (day-clustered bootstrap CI, shuffled null, BH-FDR
+at 15m) before any authoritative gate run under a new gate_id. Todo 277's motivating
+number (pooled Pearson 0.00453) is explicitly "informative but not sufficient" (todo 278
+resolution point 3).
+
+**What was already run 2026-08-08, and why this is not a re-run.**
+`alpha_score_residual_diagnostic_15m.py` tested the residual via per-bar cross-sectional
+rank IC — mathematically invariant to demeaning, so it measured the portfolio/
+relative-value question (result: real, pooled ci_lower 0.00363, null_p 0.0000; on record
+as a separate lead). `alpha_score_single_security_diagnostic_15m.py` tested the
+single-security question on the RAW score (1/80 symbols qualify). The mandated test —
+single-security, RESIDUAL, full machinery — has never run. This is it.
+
+**Window change from the 2026-08-08 design, recorded before running.** Those scripts ran
+on 15m `forward_returns` rows with `bar_ts >= 2025-12-24`; those rows no longer exist —
+the 2026-08-31 corpus recompute re-persisted `forward_returns` with the IS clamp
+(verified 2026-09-03: 15m max bar_ts = 2025-12-23, 24,502,912 IS rows, zero OOS-window
+rows). This test therefore runs on the full persisted IS panel, which is strictly better
+on three axes: (1) fresh relative to todo 277's selection, which was measured on the OOS
+window — testing there would double-dip the window the hypothesis was found on;
+(2) ~50x the observations (14,757,726 joined rows / 231 symbols / 83,903 bars vs ~304k);
+(3) zero further holdout contamination — the OOS window stays virgin for any future gate
+look under the new gate_id.
+
+### Construction under test
+
+- **Signal:** `residual_t(symbol) = alpha_events.alpha_score − per-bar cross-sectional
+  MEAN of alpha_score over symbols present at bar t` (mean, not median — todo 277's
+  convention). The RAW score is tested as the comparison arm, reported ungated.
+- **Question:** does `residual_t` predict THAT symbol's own forward return —
+  single-security, no cross-sectional ranking, no short leg.
+- **Panel build order (fixed):** (1) INNER JOIN `alpha_events` × `forward_returns`
+  (`return_type='executable_open_to_open'`, `return_mid`, `complete_mid=true`), tf=15m,
+  `bar_ts < 2025-12-24`; (2) drop rows on bars with < 5 symbols present (the 2026-08-08
+  residual script's constant — a residual needs a cross-section); (3) demean per bar over
+  present symbols; (4) per-symbol series retained for symbols with >= 100 rows (the
+  2026-08-08 single-security script's constant).
+
+### Statistical protocol
+
+- **Primary statistic (gated):** pooled Spearman IC across all (symbol, bar) pairs —
+  ranks over the whole panel. Reported alongside, never gated: pooled Pearson (direct
+  comparison to 277's 0.00453), the RAW arm's pooled Spearman, mean per-symbol IC.
+- **Day-clustered bootstrap CI (gated):** cluster = calendar date of bar_ts; resample
+  dates with replacement; recompute pooled Spearman on each resample, re-ranking the
+  resampled subset (the `_circular_block_bootstrap_ic` re-rank discipline); B=2000
+  (APR `alpha.ic.bootstrap_resamples`), percentile 95%.
+- **Shuffled null (gated):** within-symbol circular shift of the residual series against
+  its own return series (`ic_math._circular_shift_null`, todo 071 machinery — preserves
+  autocorrelation, not an iid strawman), one random nonzero offset per symbol per
+  replicate; N=1000; one-sided p = (1 + #{null >= observed}) / (N+1).
+- **Per-symbol family (reported, ungated):** per-symbol Spearman IC with
+  `_circular_block_bootstrap_ic` CI (block=26 = APR `alpha.ic.bootstrap_block_size.15m`,
+  one 15m trading day; B=2000) and per-symbol null p via 1000 circular shifts; BH-FDR
+  (alpha=0.05, APR `alpha.ic.fdr_alpha`) across the family; qualifying counts reported
+  both as FDR-rejects-with-positive-IC and as the 2026-08-08 script's ci_lower>0 fraction.
+- **Per-regime table (reported, ungated):** the primary statistic within each
+  `alpha_events.regime`, day-clustered CI + null, BH-FDR across regimes — answers the
+  2026-08-08 regime-dilution caveat without a 231×regime cell explosion.
+- **Subperiods (reported, ungated):** three equal temporal thirds of the panel, pooled
+  stat + CI — the stability shape, pre-registration 1's convention.
+
+### PASS rule — both, else the thread is DEAD (single-security form)
+
+1. RESIDUAL pooled Spearman day-clustered bootstrap ci_lower > 0.
+2. RESIDUAL pooled shuffled-null p < 0.05.
+
+PASS → the residual-stripping construction has cleared todo 278's prerequisite and is
+eligible for its own new gate_id (the gate design is its own scoping decision; the OOS
+boundary-reuse question flagged-not-resolved in 278 is answered there, not here). FAIL →
+the demeaned-residual single-security thread is dead on this corpus; verdict registered
+in `concept_registry` `domain='construction'`. No post-hoc parameter moves; a second run
+with tweaked settings presented as the verdict invalidates it (N1 lesson).
+
+### Fixed quantities
+
+min_symbols_per_bar=5 · min_bars_per_symbol=100 · B=2000 · N_null=1000 · N_shift=1000 ·
+block=26 · fdr_alpha=0.05 · window = full persisted 15m IS panel (`bar_ts < 2025-12-24`) ·
+return = `return_mid` / `executable_open_to_open` / `complete_mid=true` · demeaning =
+per-bar mean over present symbols · seeds via
+`hash_key_to_int("alpha_score_residual_single_security_15m…")`.
+
+### Execution
+
+Script: `scripts/analysis/alpha_score_residual_single_security_15m.py`, read-only, design
+locked in its docstring before running. APR values recorded at pre-registration time
+(block 26, B 2000, alpha 0.05); drift between this section and the run invalidates.
+Harness note (todo 365): reuses `ic_math` primitives as-is; no mid-falsification
+extraction. Verdict (PASS→gate-eligible / FAIL→DEAD) lands in `concept_registry`
+(`domain='construction'`, name `alpha_score_residual_single_security_15m`) via a
+post-run registration step — the script itself writes nothing.
+
+**Amendment 1 (2026-09-03, pre-run).** Adopted after an AGY adversarial review
+(archived at `.planning/research/2026-09-03-agy-review-prereg2-residual-15m.md`);
+no statistic of this test existed at amendment time. Original text: this section as
+written above, preserved in git history.
+
+Adopted — the review's two fatal findings first:
+
+1. **Primary statistic replaced (AGY F1, verified algebraically).** The pooled
+   global-rank Spearman is DEMOTED to reported-only. For the per-bar-demeaned
+   residual, Σᵢ r_{i,t} = 0 per bar, so the pooled panel covariance reduces exactly
+   to a weighted mean of per-bar CROSS-SECTIONAL covariances — zero time-series
+   content. It would have re-measured the 2026-08-08 portfolio result (mean per-bar
+   rank IC 0.012, already significant) and labeled it single-security alpha; a panel
+   with zero single-security signal passes it. NEW gated family statistic: the mean,
+   across the symbol family, of the WITHIN-symbol Spearman IC of (residual_t,
+   return_t) — time-series only, the actual question.
+2. **Null replaced (AGY F2).** Independent per-symbol shifts destroy the
+   contemporaneous cross-sectional alignment the observed statistic carries — a
+   strawman guaranteeing p≈1/(N+1). NEW null: panel-synchronous whole-DATE circular
+   shift — one common integer k per replicate; every symbol's date-grouped residual
+   series rolled by k mod (its own date count). Preserves within-date cross-sectional
+   structure, time-of-day alignment (AGY F5), and ragged-series integrity (F11);
+   breaks only the residual→own-return temporal alignment. N=1000.
+3. **Bootstrap hardened (AGY F8):** circular moving-block bootstrap over the trading
+   DATE calendar, block=5 consecutive dates, B=2000, dates resampled synchronously
+   for all symbols (a date block carries every symbol's rows in it); per-symbol
+   Spearman recomputed and re-ranked per replicate; family mean → percentile CI.
+   Single-date resampling would sever the overnight-spanning 5-bar return and
+   week-scale vol clustering.
+4. **Magnitude floor added (AGY F4):** at 14.76M rows, ci_lower>0 alone passes at
+   IC≈0.001 — economically dead at 15m cadence. PASS requires the family-statistic
+   POINT estimate ≥ **0.0027**, the 0b most-favorable IC_min at 15m mid (0.7bp
+   spread + 0.7bp commission, turnover 0.08, 2 bets, discount 1.0, σ=0.16 — computed
+   from `personal_cost_hurdle.py`'s locked constants, h=5 bars=0.1923d). The full
+   band (best 0.0027 … worst-case) is reported with margins; a pass between best and
+   worst bands is recorded as "statistically real, economically band-dependent —
+   successor pre-registration must measure actual turnover."
+5. **Qualifying-fraction gate added (AGY F6):** PASS requires ≥ **10%** of family
+   symbols to individually clear their per-symbol null (whole-date circular shifts,
+   N=1000) at BY-FDR α=0.05 with positive IC. BY (Benjamini-Yekutieli) gates because
+   the construction induces per-bar negative cross-sectional dependence in the signal
+   (AGY F7) — arbitrary-dependence control; BH reported alongside, ungated. Floor
+   grounding: Phase 148's Gate 1 earned eligibility at 21.9% qualifying; raw
+   alpha_score's 2026-08-08 result was 1/80=1.25%; 10% sits clearly above BY
+   false-discovery noise and below both precedent points. Count of significantly
+   NEGATIVE symbols reported, ungated.
+6. **Demeaning population made completion-blind (AGY run-1 F10):** the per-bar mean
+   and the symbol count are computed over ALL `alpha_events` symbols present at bar t
+   (no forward_returns join condition) — demeaning must not condition on future
+   return completion. The forward_returns join (complete_mid=true) applies only to
+   the measurement rows. min_symbols_per_bar raised 5 → **20** (AGY F12; measured
+   breadth: per-bar median 125-222 symbols in every year since 2006, p10 ≥ 54 — the
+   raise drops no meaningful mass).
+7. **Window framing corrected (AGY F3):** "fresh" is narrowed to fresh relative to
+   todo 277's residual-demeaning selection. alpha_score's feature library and
+   architecture were developed on this 2006-2025 panel (ensemble weights are
+   walk-forward within the corpus run, but library-level selection is in-sample) —
+   this is an IN-SAMPLE DIAGNOSTIC of signal existence, not OOS validation; the gate
+   look under any new gate_id remains the sole OOS arbiter. AGY's pseudo-OOS
+   2020-2025 split is rejected: it cuts power ~70% while remaining in-sample at the
+   architecture level — no new validity, real power loss.
+
+Not adopted: AGY's per-symbol-array pooled restructure of the BOOTSTRAP beyond item 3's
+form (the family statistic already localizes ranking to per-symbol series — 64k-row
+ranks per replicate, not 14.76M global re-ranks); master-grid NaN reindexing (the
+date-group roll preserves time-of-day and gap structure without it); robust/median
+demeaning (277's measured quantity is the mean-demeaned residual; the mandate's object
+stays). Implementation constraints adopted as-is (AGY F9/F10): server-side cursor
+streaming into preallocated arrays, SQL-side completion-blind demeaning via window
+functions, no Python dict-of-lists at panel scale.
+
+**Amended PASS rule — ALL FOUR, else the thread is DEAD (single-security form):**
+
+1. Family statistic (mean within-symbol residual Spearman IC) date-block bootstrap
+   ci_lower > 0.
+2. Family statistic panel-synchronous date-shift null p < 0.05.
+3. Family statistic point estimate ≥ 0.0027 (0b most-favorable 15m floor).
+4. ≥ 10% of family symbols individually clear per-symbol null at BY-FDR α=0.05,
+   positive direction.
+
+Reported, never gated: RAW-score arm (same four conditions' ingredients), pooled
+global-rank Spearman + pooled Pearson (277 comparability), per-regime family table
+(BH-FDR across regimes), three temporal thirds, per-symbol BY and BH tables, negative
+qualifier count, per-year breadth.
+
+**Amended fixed quantities:** min_symbols_per_bar=20 · min_bars_per_symbol=100 ·
+B=2000 · N_null=1000 (family) · N_shift=1000 (per-symbol) · date-block=5 ·
+block=26 (per-symbol CIs) · fdr_alpha=0.05 (BY gates, BH reports) · floor=0.0027 ·
+qualifying floor=10% · window = full persisted 15m IS panel (`bar_ts < 2025-12-24`) ·
+return = `return_mid` / `executable_open_to_open` / `complete_mid=true` on measurement
+rows only · demeaning = per-bar mean over all present `alpha_events` symbols · seeds
+via `hash_key_to_int("alpha_score_residual_single_security_15m…")`.
