@@ -4,8 +4,11 @@
 **Current position (2026-09-03):** 0a/0b/0c run; pre-registration 1 (`range_pct_fast_xs_ls_h5`)
 DEAD; 0c complete (todo 367 closed 2026-09-02: Phase 148's construction KILLED ON
 PAPER, gap_z recorded, screen spread-anchor 10x bug found and fixed, no verdict flipped).
-Workstream 2 (the 15m residual diagnostic) pre-registered 2026-09-03 as Pre-registration 2
-below and queued to run; the todo 368 successor decision follows with its result in hand.
+Workstream 2 COMPLETE 2026-09-03: Pre-registration 2 FAIL (family signal real but
+0/231 per-symbol concentration, at the 0b best-case floor; registered in
+`concept_registry` via migration 330). Todo 368 recommendation recorded below:
+deprioritize the successor branch (user decision pending). Remaining queue:
+coverage fix (workstream 1) → decision gate (workstream 3).
 **Author:** Claude (Sonnet 5), interactive session, 2026-09-02.
 **Origin:** User directive 2026-09-02: "it feels like we have been drifting aimlessly for
 weeks, we need to figure out how to push past this hump." Council review (same session)
@@ -795,3 +798,36 @@ shape) still under the floor even if every one had survived its null. Every acce
 finding either touches an ungated sidecar or pushes the gated statistics in the
 conservative (anti-pass) direction. No finding, and no re-run under the fixes, can
 flip FAIL to PASS; conditions 1-2 could only strengthen.
+
+## Todo 368 recommendation (2026-09-03, with the diagnostic result in hand)
+
+**Recommendation: deprioritize the successor branch. Do not design a successor
+construction for range_pct_fast or the residual framing.** The decision is the
+user's; this is the recorded recommendation both successors were waiting on.
+
+Three falsification fronts now converge on the same fact — once the market/common
+component is stripped, nothing personal-scale-tradeable remains in this
+construction space:
+
+1. **Pre-registration 1** (2026-09-02): the raw construction's signal IS the
+   market tilt (β +1.14, R² 0.75); neutralized intercept +4.9bp/rebalance is
+   net-negative at all 9 personal cost combos.
+2. **Phase 148 placement** (0c, 2026-09-02): the Gate-1-passing alpha_score
+   construction's unbiased per-cell IC fails even the most favorable 0b band;
+   Gate 2's gross OOS frame P&L is negative before any costs.
+3. **Pre-registration 2** (2026-09-03): the clean beta-neutral per-name framing —
+   exactly what a "beta-neutral per-name successor" would be — has a real,
+   19-year-stable family signal (p=0.002) but zero per-symbol concentration
+   (0/231 BY-FDR) and sits at the 0b best-case economic floor.
+
+Against todo 368's two successor shapes specifically: the 52/231 pre-reg-1
+survivors were survivors of a beta-tilted construction — selecting them is
+selecting for beta exposure, and today's 0/231 residual result (vs 52/231 raw)
+shows the concentration lived in the common component, not per-name alpha. The
+beta-neutral per-name framing IS pre-registration 2. Neither successor has a
+mechanism left to stand on.
+
+This does not fire the decision gate's kill criterion — that is the gate's to
+fire, at the gate, after the coverage workstream runs. It removes the successor
+branch from the queue so the gate evaluates the full record without it. Queue
+after this decision: coverage fix (workstream 1) → decision gate (workstream 3).

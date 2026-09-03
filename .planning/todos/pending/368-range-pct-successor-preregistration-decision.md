@@ -48,3 +48,16 @@ loosely attributed in its title, now reworded. The diagnostic remains live queue
 
 A user decision recorded in the program doc (pursue/deprioritize), and if pursued, a
 new pre-registration section under the program's approval discipline.
+
+## Recommendation (2026-09-03, diagnostic result in hand)
+
+**Deprioritize. Do not design a successor.** Recorded in the program doc's "Todo 368
+recommendation" section. The deciding input is Pre-registration 2 (same day): the
+beta-neutral per-name framing — exactly what a beta-neutral successor would be —
+has a real 19-year-stable family signal (p=0.002) but 0/231 per-symbol BY-FDR
+concentration and sits at the 0b best-case economic floor; and the 52/231
+pre-reg-1 survivors were survivors of a beta-tilted construction (concentration
+lives in the common component, shown by 0/231 residual vs 52/231 raw). Neither
+successor shape has a mechanism left. The user decision ratifies or overrides this;
+the queue proceeds with coverage → decision gate either way (a pursued successor
+would only add work in parallel, not change the gate's inputs).
