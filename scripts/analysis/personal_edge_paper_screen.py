@@ -46,8 +46,11 @@ from src.config.settings import Settings  # noqa: E402
 
 _UNIVERSE_BREADTH = (4.5, 8.4)
 _AUTOCORR_DISCOUNTS = (1.0, 0.5)
-_LIVE_SPREAD_ANCHOR = 0.0014  # 1.4 bps, measured 0b (20 live top-of-book quotes; CS estimator
-# failed validation and was declared unusable -- see program doc). Band = anchor x multipliers.
+_LIVE_SPREAD_ANCHOR = 0.00014  # 1.4 bps, measured 0b (20 live top-of-book quotes, median
+# 0.000138; CS estimator failed validation and was declared unusable -- see program doc).
+# Band = anchor x multipliers. (Fixed 2026-09-02: this was 0.0014, a 10x transcription of
+# the 0b anchor -- all 208 cell verdicts were conservative and stand; recorded margins were
+# understated by the one_way-cost ratio and are corrected in the program doc.)
 _MIN_SYMBOL_SUPPORT = 10  # a standalone candidate needs the edge on >= this many names
 _TURNOVER_FALLBACK = {1: 0.16, 2: 0.16, 5: 0.17, 10: 0.17}  # measured 0b values (range_to_close,
 # the near-horizon-independent profile); ctf_momentum's H10=0.23 is covered by the

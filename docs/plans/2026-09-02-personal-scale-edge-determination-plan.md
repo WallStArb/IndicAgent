@@ -228,19 +228,28 @@ assumption bands.
 - One implementation bug caught and fixed before recording anything: the first run passed
   the band multipliers as spread fractions, producing absurd IC_min values (~10); the
   corrected run is what is recorded here.
+- **Second bug, found and fixed 2026-09-02 (later the same day, during the Phase 148
+  placement): the screen's `_LIVE_SPREAD_ANCHOR` was 0.0014 (14 bps), a 10x transcription
+  of 0b's measured live median 0.000138 (1.4 bps; cache re-verified).** The bug was
+  conservative — every IC_min was computed with 4-7x too-large one-way costs — so no
+  verdict flips: the re-run reproduces 208/208 clears and the same 87 broad-support cells.
+  Recorded margins were understated by the same factor and are corrected below. 0b's own
+  hurdle table was unaffected (it used the live median directly).
 - **Result: 208 FDR-passing (feature, H) cells at 1d; all 208 clear the worst-case
-  standalone personal hurdle; 87 with per-symbol support ≥ 10 symbols.** Margins 1.25x to
-  29x. The deliberate look-ahead canary tops the raw margin list (validating the screen's
-  mechanics; excluded from candidacy). H=5-10 dominates high margins; H=1-2 clusters near
-  1.3x — the turnover-drag story in one table.
+  standalone personal hurdle; 87 with per-symbol support ≥ 10 symbols.** Corrected
+  margins 8.8x to 207x (previously recorded as 1.25x-29x on the bad anchor). The
+  deliberate look-ahead canary tops the raw margin list (validating the screen's
+  mechanics; excluded from candidacy). H=5-10 dominates high margins; H=1-2 clusters at
+  the low end (min 8.8x) — the turnover-drag story in one table, unchanged in shape.
 - **Selection rule (pre-registered): margin AND cross-symbol sign consistency.** The sign
   check eliminates several high-margin names (`range_vs_atr`, `efficiency_ratio_slow`,
   `realized_var_ratio_fast`: ~50/50 per-symbol sign splits — their pooled numbers are
   regime-mix artifacts).
 - **Selected: `range_pct_fast` @ H=5.** 210/60 positive per-symbol cells (78% sign
   consistency), per-symbol avg IC +0.057, 27/85 symbols with their own CI>0, robust 30-cell
-  pooled measurement (avg pooled IC 0.027), worst-case hurdle margin ~1.8x at the broadest
-  measurement. A pure bar-range primitive, theory-free per the program's stance.
+  pooled measurement (avg pooled IC 0.027), worst-case hurdle margin ~12.9x at the broadest
+  measurement on the corrected anchor (~42.9x on the screen's own H=5 cell avg 0.0906).
+  A pure bar-range primitive, theory-free per the program's stance.
 - Stated caveat, not hidden: these measured ICs come from `feature_ic_scores` at a single
   training window (2025-12-24). The screen SHORTLISTS; it does not verdict. Decision rule
   2's construction gets a fresh falsification (day-clustered bootstrap, shuffled-null,
@@ -251,12 +260,45 @@ assumption bands.
 screen; the falsification run is the fresh test). Per the program's approval discipline,
 the pre-registration is written and reviewed before that run executes.
 
-**Scope against todo 367 (0c's todo): partially executed.** This screen placed item 1 of
-367's five (the 5-10d range/vol mass). Outstanding: Phase 148's Gate-1-passing
-construction (not a library cell; place from its existing numbers), `gap_z` (record the
-explicit verdict for its placed cell), the `alpha_score` demeaned residual (superseded
-by workstream 2's stronger diagnostic), the N1 residual (blocked on structural
-instability). Tracked in todo 367's re-scope.
+**`gap_z` verdict line (todo 367 item, recorded 2026-09-02 from the corrected screen):**
+`gap_z` @ H=1 is among the 208 placed cells — avg IC 0.1039, worst-case margin 23.4x,
+per-symbol support 3 of 85 → **CLEARS (thin support)**. A single-cell, 3-symbol feature:
+real by the screen's ruler but not standalone construction material; it stays on the
+shortlist as combination input, not as a decision-rule-2 candidate.
+
+### Phase 148 placement — KILLED ON PAPER, 2026-09-02
+
+Script: `scripts/analysis/phase148_personal_hurdle_placement.py` (todo 367's substantive
+remainder; existing numbers only). Verdict registered in `concept_registry`
+(`domain='construction'`, `phase148_alpha_score_directional`, migration 328).
+
+Phase 148's Gate-1-passing per-symbol directional construction (`alpha_score`) fails the
+personal hurdle on **every** (tf, scale) cell under the screen's pre-registered
+worst-case band rule, and — decisive, band-independent — **Gate 2's realized OOS frame
+P&L was NEGATIVE gross of personal costs** (mean −0.1215 R, Sharpe 0.385, max-dd 9.60
+over 33,892 frames / 69 OOS days). A lower cost hurdle cannot rescue a construction
+whose gross mean return is negative: 0b's "wrong trader" insight creates room for slow
+low-IC constructions with POSITIVE gross edge — Phase 148's intraday construction is not
+one. Placement inputs, all measured: unbiased all-cell mean OOS rank-IC per cell
+0.000-0.050 (the 0.031-0.180 qualifying-cell means are selection-inflated — 140 cells
+chosen from 640 by BH-FDR, the exact trap the discipline exists to catch); sign
+co-firing 100.0% at 15m/1h/1d (todo 277) → ONE systematic directional bet per rebalance
+(bets band 1-2, measured 1); intraday horizons → 504-19,656 rebalances/yr; worst-case
+IC_min 0.024-1.64 per cell. Turnover is unmeasured for `alpha_score`; the band spans the
+program's two measured anchors (0.08 daily-feature to 0.45 quintile-construction), and
+the kill does not rest on it: 5 of 8 cells fail even the MOST favorable band, and the
+gross-negative Gate 2 fact is turnover-independent.
+
+Caveat recorded, not a reopening: the 15m mid/slow/extended and 5m extended cells clear
+the MOST favorable band by 4.7-11.7x — that mass is the demeaned-residual thread's, and
+workstream 2's 15m diagnostic (todo 278's design) is the properly-powered test of it.
+This verdict kills the RAW construction only.
+
+**Scope against todo 367 (0c's todo): fully executed as of this placement.** All five
+items resolved: (1) 5-10d range/vol mass — placed, decision rule 2 fired, pre-reg 1 DEAD;
+(2) `gap_z` — verdict line above; (3) `alpha_score` demeaned residual — superseded by
+workstream 2's stronger diagnostic; (4) N1 residual — blocked on structural instability
+(todo 364); (5) Phase 148's construction — KILLED ON PAPER above. Todo 367 closes.
 
 ### Pre-registration 1 run — DEAD, 2026-09-02
 

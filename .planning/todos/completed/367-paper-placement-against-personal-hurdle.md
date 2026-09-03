@@ -1,7 +1,8 @@
 ---
-status: pending
+status: completed
 priority: P1
 filed: 2026-09-02
+resolved: 2026-09-02
 source: personal-scale edge determination program, 2026-09-02 (user-approved plan after
   council review) -- workstream 0c
 ---
@@ -43,3 +44,30 @@ governance rule.
   (§ 0c results carries the scope-completion note)
 - todo 277, todo 278 -- residual threads
 - `docs/research/measurement-nonlinear-interaction-combiner.md` -- N1 residual numbers
+
+## Resolution (2026-09-02, same day)
+
+**All five scope items resolved; todo closed.**
+
+- **Phase 148's Gate-1-passing construction: KILLED ON PAPER.**
+  `scripts/analysis/phase148_personal_hurdle_placement.py` placed it against the 0b
+  hurdle from existing numbers: fails the worst-case band rule on every (tf, scale)
+  cell, 5 of 8 fail even the most favorable band, and — turnover-independent — Gate 2's
+  realized OOS frame P&L was negative GROSS of personal costs (mean -0.1215 R, Sharpe
+  0.385), so the lower personal hurdle has no positive gross edge to rescue. 0b's
+  "wrong trader" insight does not apply to this construction. Verdict registered:
+  `concept_registry` `phase148_alpha_score_directional`, migration 328. Caveat recorded:
+  15m mid/slow/extended clear the most favorable band 4.7-11.7x — that mass belongs to
+  the demeaned-residual thread (workstream 2's 15m diagnostic), which this verdict does
+  not touch.
+- **`gap_z`: verdict line recorded** in the program doc's 0c results — @ H=1, avg IC
+  0.1039, worst-case margin 23.4x, per-symbol support 3/85 → CLEARS (thin support);
+  shortlist combination input, not construction material.
+- **`alpha_score` demeaned residual:** superseded by workstream 2's stronger diagnostic
+  (as pre-noted in the re-scope).
+- **N1 residual:** blocked on structural instability (todo 364), unchanged.
+- **Second screen bug found and fixed during this work:** `personal_edge_paper_screen.py`'s
+  `_LIVE_SPREAD_ANCHOR` was 0.0014 (14bp), a 10x transcription of 0b's measured 0.000138
+  (1.4bp). Conservative direction — 208/208 verdicts and the 87 broad-support set
+  unchanged on re-run; recorded margins were understated and are corrected in the program
+  doc (8.8x-207x, was 1.25x-29x). 0b's own hurdle table unaffected.
