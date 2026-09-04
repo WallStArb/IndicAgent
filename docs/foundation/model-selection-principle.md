@@ -1,10 +1,12 @@
 # Model Selection Principle
 
-**Version:** 1.1
-**Status:** current
-**Last Updated:** 2026-06-16
+**Version:** 1.2
+**Status:** design
+**Last Updated:** 2026-09-04
 
 > *"Entities should not be multiplied beyond necessity."* — William of Ockham
+
+**Status note (2026-09-04):** The principle itself (prefer the simpler model absent a statistically significant performance gap) is sound and durable — downgraded from `current` to `design` because the "Application in IndicAgent" integration below (Shadow Registry Occam gate, Composite Fitness Function, genetic infrastructure) was never implemented. No `occam`/`Occam`-named code, config, or test exists anywhere in the current tree; the only trace is planning docs for a phase originally called "100-occam-razor" in an older phase-numbering scheme (see Implementation Reference). Treat this doc as design intent, not a description of running code.
 
 ---
 
@@ -37,14 +39,15 @@ Where:
 ## Application in IndicAgent
 
 ### Scope
-- **Primary:** ML agents (MLEvaluator, genetic agents, future AI models)
+- **Primary (dormant):** ML agents — `MLEvaluator` (`src/intelligence/ai/alpha/ml_scorer_agent.py`) exists in code but is part of the I8 AI stack, which has had zero commits since the v3.0 rebuild and whose services are `disabled`/`inactive` (see root `CLAUDE.md`'s Architecture note) — not confirmed-running
 - **Secondary:** Technical indicators (if parameterized models with trainable weights)
 - **Excluded:** Fixed-rule indicators (SMA, RSI) — complexity is static
+- **Never built:** genetic agents / genetic infrastructure — no such code exists anywhere in the tree; this remains an unimplemented design idea, not a scoped-in future item with a concrete plan
 
-### Integration Points
-1. **Shadow Registry** — Occam evaluation runs before promotion
-2. **Composite Fitness Function** — Complexity penalty is one fitness component
-3. **Genetic Infrastructure** — Prevents bloat, encourages parsimony
+### Integration Points (design intent — none of these three are wired into live code)
+1. **Shadow Registry** — Occam evaluation would run before promotion
+2. **Composite Fitness Function** — complexity penalty as one fitness component
+3. **Genetic Infrastructure** — bloat prevention, parsimony encouragement
 
 ### Failure Modes
 - **Overfitting:** Complex model memorizes training data, fails in production
@@ -93,5 +96,5 @@ Where:
 
 ## Implementation Reference
 
-Implemented in Phase 114. Execution plan: `.planning/phases/114-occam-razor/`.
-<!-- src: .planning/phases/114-occam-razor/114-CONTEXT.md -->
+Never implemented. Planning docs exist under an older phase-numbering scheme ("100-occam-razor" — see `git log --oneline --all -i --grep=occam`), but no source file, config key, or test with "occam" or "genetic" in its name exists anywhere in the current tree, and the `.planning/phases/` directory referenced by a prior version of this doc no longer exists (`.planning/` now uses `.planning/milestones/`). Current phase 114 in the live numbering is an unrelated ensemble-measurement todo (`.planning/todos/completed/114-ensemble-measurement-missing-functional-slot.md`). Treat "Phase 114" as dead numbering — if this principle is ever built, it needs a fresh phase.
+<!-- verified via repo-wide grep, 2026-09-04: zero matches for occam|genetic outside this doc and old planning history -->

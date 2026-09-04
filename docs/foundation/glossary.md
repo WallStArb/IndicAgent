@@ -2,7 +2,7 @@
 
 **Version:** 2.0
 **Status:** active
-**Last Updated:** 2026-08-10
+**Last Updated:** 2026-09-04
 
 ---
 
@@ -61,14 +61,14 @@ When both exist, the industry-standard term is the concept; the project-specific
 
 ### `signal`
 
-A time-stamped, scored trade hypothesis with a defined entry, direction, and exit logic. Produced by I7 plugins. Persisted to `signal_events` (detection layer) with one or more corresponding `trade_frames` rows (hypothesis layer). Has a lifecycle: `pending` → `active` → `expired` / `regime_suppressed`.
+A time-stamped, scored trade hypothesis with a defined entry, direction, and exit logic. **v2.x definition — the mechanism that produced it has no live consumer as of 2026-07-02** (see CLAUDE.md Architecture). Was produced by I7 plugins, persisted to `signal_events` (detection layer) with one or more corresponding `trade_frames` rows (hypothesis layer), with a lifecycle: `pending` → `active` → `expired` / `regime_suppressed`. `signal_events` is confirmed empty in production (verified 2026-09-04). The live v3.0 analog is an `alpha_events` row, produced by the `alpha emitter` functional slot — see that entry and the `Signal Ledger Architecture (SLA)` entry below.
 
 **Not:** a Kafka message, an OTel metric, or a statistical signal-to-noise ratio. When "signal" appears in those contexts, use the domain-specific term instead: `message`, `metric`, `edge`.
 
 **Banned:** (none)
-**Status:** active
+**Status:** archived (v2.x) — see `alpha_events` for the live v3.0 equivalent
 
-**Code surface:** `signal_events` table (Phase 128+), `SignalTracker`, `SignalWriter`. Legacy: `signal_ledger` monolith (read-only during v2.10 migration, dropped in Phase 130).
+**Code surface:** `signal_events` table (Phase 128+, archived, 0 rows in production), `SignalTracker`, `SignalWriter` — `indicagent-signal-tracker-compute.service` and `indicagent-signal-writer.service` both `inactive (dead)` (verified 2026-09-04). Legacy: `signal_ledger` monolith (read-only during v2.10 migration, dropped in Phase 130).
 
 ---
 
@@ -587,18 +587,25 @@ A stateless computation unit in the I5-I7 intelligence pipeline (v3.0+). Receive
 **v2.x note:** In v2.x, I1-I7 were all called plugins. In v3.0, I1-I4 were rewritten as pure measurement functions inside FeatureFactory. The term `plugin` now refers strictly to I5-I7 pattern and signal logic.
 
 **Banned:** (none)
-**Status:** active (v2.x I1-I7); v3.0 I5-I7 only
+**Status:** archived — the entire I1-I7 plugin system (v2.x and the I5-I7 remainder carried into
+v3.0) has no live consumer as of 2026-07-02; `indicagent-intelligence-pipeline.service` is
+`failed` with its `ExecStart` pointing at a deleted file. Root `CLAUDE.md` marks I5-I7 archived
+outright, not just dormant. See `src/intelligence/CLAUDE.md` top banner.
 
 ---
 
 ### `taxonomy`
 
-A hierarchical classification system with explicit parent/child relationships between categories. Use only when describing a genuine tree structure — a system where categories contain sub-categories with inherited properties.
+**See the canonical `taxonomy` entry under Instrument Vocabulary Terms above** — this was a
+duplicate definition of the same term, a direct violation of this glossary's own "exactly one
+definition" rule; consolidated here rather than left as a second, driftable copy.
 
-**Not:** a synonym for `vocabulary`. The tag system is a `vocabulary` — a flat controlled set of terms with measurement contracts. No tag inherits from another. If there is no hierarchy, use `vocabulary`.
-
-**Banned:** (none)
-**Status:** active
+Short form: a hierarchical classification system with explicit parent/child relationships
+between categories — use only when describing a genuine tree structure. Not a synonym for
+`vocabulary`: the tag system (`tag_vocabulary`) is flat today (no `parent_tag` column exists in
+the live schema, verified 2026-09-04); a taxonomy would be a self-referencing subtree of it, and
+is currently `design`/unscheduled — see the canonical entry for the full distinction from
+`classification scheme`.
 
 ---
 
@@ -611,7 +618,7 @@ ICC is strictly pattern-internal. ECL vectors (CTF score, HMM weight, zone frict
 **Not:** the CIS score (which aggregates across 6 evidence buckets from all tiers). ICC is computed at the plugin level, before CIS adjudication.
 
 **Banned:** "intrinsic composite," "intrinsic score," "plugin confidence" (all replaced by ICC)
-**Status:** active
+**Status:** archived — computed inside the I7 plugin tier, which has no live consumer as of 2026-07-02 (see CLAUDE.md Architecture note and the `plugin` entry above).
 
 **Code surface:** `raw_confidence` field on `signal_events`; `compose_confidence()` in `confidence_utils.py`; `factor_scores` JSONB; `docs/signals/signals-confidence-patterns.md`.
 
@@ -645,7 +652,11 @@ The design separates three concerns that the legacy `signal_ledger` monolith con
 **Not:** the legacy `signal_ledger` monolith (read-only during SLA migration, dropped Phase 130). `signal_ledger_v2` is a banned name — version-suffixed names violate the naming system.
 
 **Banned:** "3-table architecture," "v2.10 schema," "new signal schema," "signal_ledger_v2" (all replaced by SLA)
-**Status:** active (Phase 128+)
+**Status:** archived — this v2.x schema has no live consumer as of 2026-07-02 (see CLAUDE.md
+Architecture note). `signal_events` is confirmed empty in production (2026-09-04); the writer
+daemons (`indicagent-signal-writer.service`, `indicagent-signal-tracker-compute.service`) are
+`inactive (dead)`. Superseded by the v3.0 `alpha_frames`/`alpha_events` pipeline — see
+`counterfactual_pnl_r` and `CounterfactualTracker` entries below for the v2.x/v3.0 split.
 
 **Code surface:** `signal_events`, `trade_frames`, `trade_executions` tables; `signal_ledger` view (renamed from `signal_ledger_full` in Phase 130); `docs/foundation/glossary.md` detection/hypothesis/execution layer entries.
 
@@ -686,7 +697,12 @@ Runs entirely in the cold batch layer (weekly IC Engine, nightly Ensemble Builde
 
 **Plain role noun.** Services prefixed `alpha-`. APR namespace: `alpha.*`.
 
-**Status:** pre-implementation (v3.0 Phase A-C)
+**Status:** active — live (v3.0 Phases A-C shipped). `feature_vectors` (106M+ rows),
+`forward_returns` (103M+ rows), `feature_ic_scores` (1.9M+ rows), `ensemble_alpha` (88M+ rows),
+and `alpha_events` (70M+ rows) all confirmed populated 2026-09-04; `indicagent-feature-vector-pipeline`
+and `indicagent-feature-vector-writer` confirmed `active running` same date. IC Engine, Ensemble
+Builder, and Alpha Emitter run as batch jobs (no persistent systemd unit — see CLAUDE.md ML batch
+services note), not daemons.
 
 **Canonical doc:** `docs/plans/archive/2026-06-20-alphaengine-architecture.md`
 
@@ -831,7 +847,7 @@ The system of extrinsic confidence vectors that annotate an emitted signal as ob
 **Individual components:** referred to as **extrinsic confidence vectors** (not "modifiers," not "multipliers," not "gates").
 
 **Banned:** "CTF gate" (as a name for the pattern of suppressing signals on CTF absence), "zone friction gate," "extrinsic modifier," "extrinsic multiplier"
-**Status:** active
+**Status:** archived — annotates `signal_events`, the v2.x SLA detection table, which has no live consumer as of 2026-07-02 (see CLAUDE.md Architecture note and `Signal Ledger Architecture (SLA)` entry above).
 
 **Code surface:** `ctf_score`, `ctf_confirmed`, `zone_friction_score` fields in `signal_events`; `capture_signal_features()` in `confidence_utils.py`; `docs/signals/signals-confidence-patterns.md`.
 
@@ -862,7 +878,7 @@ The layer of the 3-table signal architecture that records the raw fact of a patt
 
 **Table:** `signal_events`
 **Banned:** "signal ledger" as the name for this concept (legacy monolith term).
-**Status:** active (Phase 128+)
+**Status:** archived — part of the v2.x SLA, no live consumer as of 2026-07-02; see `Signal Ledger Architecture (SLA)` entry above.
 
 ---
 
@@ -875,7 +891,7 @@ The layer of the 3-table signal architecture that represents trade specification
 **Not:** an execution record. A hypothesis can exist without ever being executed.
 
 **Table:** `trade_frames`
-**Status:** active (Phase 128+)
+**Status:** archived — part of the v2.x SLA, no live consumer as of 2026-07-02; see `Signal Ledger Architecture (SLA)` entry above. The v3.0 equivalent concept lives on `alpha_frames`.
 
 ---
 
@@ -886,7 +902,7 @@ The layer of the 3-table signal architecture that records live trade executions.
 The gap between `counterfactual_pnl_r` (hypothesis layer) and `actual_pnl_r` (execution layer) is execution quality — slippage, timing, and selection bias from the aggregator.
 
 **Table:** `trade_executions`
-**Status:** active (Phase 128+)
+**Status:** archived — part of the v2.x SLA, no live consumer as of 2026-07-02; see `Signal Ledger Architecture (SLA)` entry above.
 
 ---
 
@@ -1027,7 +1043,7 @@ v3.0 vectors (V1 built first; V2+ gated on V1 demonstrating IC > 0):
 **Not:** a synonym for "tier." I1-I4 are measurement layers within V1, not vectors themselves. Not a synonym for "signal" — a vector produces a score every bar; a signal is emitted only when the score crosses a threshold.
 
 **Banned:** "intelligence channel," "signal source," "alpha source" (use `intelligence vector`)
-**Status:** V1 design (v3.0 Phase A); V3+ gated
+**Status:** V1 active — live (FeatureFactory, Phase A shipped, `feature_vectors` 106M+ rows verified 2026-09-04); V3+ gated on V1 demonstrating IC > 0
 
 ---
 
@@ -1044,7 +1060,7 @@ Positive = composite features predict upward price movement. Negative = downward
 
 **Not:** synonymous with `raw_confidence` (v2.x ICC, plugin-internal unsigned magnitude). Not the same as `counterfactual_pnl_r` (realized outcome). Not a per-feature score — `alpha_score` is the ensemble output, not any individual feature's contribution.
 **Banned:** "plugin score," "direction score," "conviction score" (use `alpha_score`)
-**Status:** design (v3.0 Phase C); stored in `ensemble_alpha` table
+**Status:** active — live (v3.0 Phase C shipped); `ensemble_alpha` table holds 88M+ rows (verified 2026-09-04)
 
 ---
 
@@ -1058,7 +1074,7 @@ IC is regime-conditional: the same plugin may have IC = 0.07 in trending regimes
 
 **Not:** mutual information (a different information-theoretic measure — though a candidate for a future *additional* Stage 2 mechanism; see `docs/intelligence/intelligence-layer-architecture.md` Stage 2). Not `calibrated_confidence` (v2.x post-calibration output probability). Not the Edge Measurement stage itself — IC is today's mechanism for that stage's contract, not a synonym for it.
 **Banned:** "predictive power score," "signal quality score" (use `IC` or `information coefficient`)
-**Status:** design (v3.0 Phase B); stored in `feature_ic_scores` table
+**Status:** active — live (v3.0 Phase B shipped); `feature_ic_scores` table holds 1.9M+ rows (verified 2026-09-04), computed by `services/ic_engine.py`
 
 ---
 
@@ -1072,7 +1088,7 @@ The per-bar table that stores `alpha_raw` and `alpha_score` for every (symbol, t
 
 **Not:** a hand-crafted composite (weights come from IC Sharpe via Ledoit-Wolf, not human judgment). Not `raw_confidence` (v2.x plugin ICC). Not `alpha_events` — `ensemble_alpha` scores every bar; `alpha_events` only records threshold-crossing bars.
 **Banned:** "combined score," "aggregate signal," "signal composite" (use `ensemble alpha`)
-**Status:** design (v3.0 Phase C)
+**Status:** active — live (v3.0 Phase C shipped); 88M+ rows (verified 2026-09-04)
 
 ---
 
@@ -1087,7 +1103,7 @@ The feature universe is fully pre-specified before any IC is measured. Adding fe
 **Not:** shadow mode (shadow measures P&L after signal emission; IC discovery measures raw feature predictiveness before any emission threshold is applied). Not backtesting (IC is measured on a held-out walk-forward window, not the training window).
 
 **Banned:** "signal discovery," "edge discovery," "alpha discovery" (use `IC discovery`)
-**Status:** design (v3.0 Phase B); input: `feature_vectors` + `forward_returns`; output: `feature_ic_scores`
+**Status:** active — live (v3.0 Phase B shipped); input: `feature_vectors` (106M+ rows) + `forward_returns` (103M+ rows); output: `feature_ic_scores` (1.9M+ rows), all verified 2026-09-04
 
 ---
 
@@ -1160,7 +1176,7 @@ The FeatureVector is the atomic unit of v3.0. Everything downstream — IC measu
 **Not:** a plugin output (plugins receive FeatureVectors as input in I5-I7). Not a signal (signals are emitted when ensemble alpha crosses a threshold). Not a row in `intelligence_features` (v2.x JSONB table, superseded).
 
 **Canonical doc:** `docs/plans/archive/2026-06-20-alphaengine-architecture.md §FeatureVector Contract`
-**Status:** design (v3.0 Phase A)
+**Status:** active — live; `feature_vectors` holds 106M+ rows (verified 2026-09-04)
 
 ---
 
@@ -1173,7 +1189,7 @@ FeatureFactory is organized into cadence-matched tiers: bar-level (I1, I2, most 
 **Not:** a service. FeatureFactory has no systemd unit, no Kafka subscription, no independent lifecycle. It is a library called by `IntelligencePipeline`.
 
 **Code location:** `src/intelligence/feature_factory.py`
-**Status:** design (v3.0 Phase A)
+**Status:** active — live; runs inside `indicagent-feature-vector-pipeline.service` (confirmed `active running` 2026-09-04)
 
 ---
 
@@ -1184,9 +1200,9 @@ The table of executable forward returns computed from `market_data_ohlcv` via LE
 The return formula is executable: `ln(open[T+N+1] / open[T+1])` — entry at open of T+1 (first executable bar), exit at open of T+N+1. Not `close[T] to close[T+N]`, which includes the unexecutable observation price as the entry.
 
 **Table:** `forward_returns`
-**Populated by:** Outcome Labeler batch job (reads `market_data_ohlcv`)
+**Populated by:** `forward_return_writer.py`
 **Not:** a backtest. Labels are computed on actual historical prices, not simulated fills.
-**Status:** design (v3.0 Phase B)
+**Status:** active — live; 103M+ rows (verified 2026-09-04)
 
 ---
 
@@ -1201,7 +1217,7 @@ Ledoit-Wolf ensemble optimization uses the IC Sharpe time series (not raw IC) to
 **Annualized for cross-TF comparison:** `IC_Sharpe_annualized = IC_Sharpe_bar × sqrt(bars_per_year)`. The annualized form is for comparison only — ensemble weights use bar-unit IC Sharpe.
 
 **Not:** a backtest Sharpe ratio (which measures P&L consistency). IC Sharpe measures predictive consistency, one step upstream.
-**Status:** design (v3.0 Phase B); stored in `feature_ic_scores.ic_sharpe`
+**Status:** active — live; stored in `feature_ic_scores.ic_sharpe` (also `wf_ic_sharpe`, `ic_sharpe_hac`, `ic_sharpe_n_windows` on the same table, and carried through to `ensemble_weights.ic_sharpe` — schema verified 2026-09-04)
 
 ---
 
@@ -1228,7 +1244,7 @@ The table of emitted alpha signals in v3.0 — one row per (symbol, tf, bar_ts) 
 **Table:** `alpha_events`
 **Not:** `ensemble_alpha` (which scores every bar). `alpha_events` is the filtered subset where the score crossed the emission threshold.
 **Replaces:** `signal_events` in v3.0 (v2.x `signal_events` is archived, not migrated)
-**Status:** design (v3.0 Phase C)
+**Status:** active — live; sole writer `alpha_publisher.py` per CLAUDE.md; 70M+ rows (verified 2026-09-04)
 
 ---
 
@@ -1239,7 +1255,7 @@ A monotonically increasing integer that identifies a specific set of ensemble we
 `ensemble_alpha` records the `weight_version` used to score each bar, creating a full audit trail: any historical `alpha_score` can be reproduced by finding the corresponding weight set.
 
 **Not:** a schema version or pipeline version. `weight_version` tracks ensemble calibration; `pipeline_version` tracks feature computation.
-**Status:** design (v3.0 Phase C)
+**Status:** active — live; `ensemble_weights` holds 213 rows across weight versions (verified 2026-09-04)
 
 ---
 

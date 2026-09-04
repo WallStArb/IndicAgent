@@ -3,7 +3,7 @@
 **Canonical name:** Controlled Vocabulary Registry (CVR)
 **Informal alias:** "vocab system" (colloquial — acceptable in casual conversation, not in architecture docs or code comments)
 **Status:** current — Phase 161 shipped complete 2026-07-18
-**Last Updated:** 2026-08-16
+**Last Updated:** 2026-09-04
 **Phase introduced:** 161
 
 ---
@@ -74,7 +74,7 @@ Three tables (Phase 161), one read-side service, one drift auditor. No dashboard
 | `regime_cross_sectional_rates` | 6 | `market_regimes.regime_label` (`regime_group='rates'`) |
 | `timeframe` | 6 | `market_data_ohlcv_tradeable.timeframe` |
 | `asset_class` | 3 | `instruments.contract_details->>'asset_class'` |
-| `tier` | — | `concept_registry.metadata->>'tier'` (`domain='feature'`) |
+| `tier` | 3 | `concept_registry.metadata->>'tier'` (`domain='feature'`) |
 
 Archived-SLA namespaces (`signal_outcome`, `entry_type`, `signal_status`, `session_type`) were explicitly deferred at build time — not seeded, since the tables they'd govern are themselves archived (v2.x, no live consumer).
 
@@ -99,13 +99,13 @@ No lazy miss-then-fetch fallback — the corpus is small (~100 rows total) and t
 
 The three vocabulary tables are **written only at migration time** — `VocabularyService` is a pure read-side projection, never a writer.
 
-**Sync-context accessor:** `src/core/timeframe_vocabulary.py` wraps `VocabularyService` for Ring 0 daemons that need to read the `timeframe` namespace synchronously after their async setup phase has already prewarmed it (`set_vocabulary_service()` registers the instance once at startup; `standard_timeframes()`/`assert_known_subset()` read it synchronously everywhere else in that process) - the pattern to copy for any future namespace that needs the same sync-read shape, rather than re-inventing it (todo 327).
+**Sync-context accessor:** `src/core/vocabulary_access.py` (renamed from `timeframe_vocabulary.py` since todo 327 landed) wraps `VocabularyService` for Ring 0 daemons that need to read a namespace synchronously after their async setup phase has already prewarmed it — `set_vocabulary_service()` registers the instance once at startup; `standard_timeframes()`, the generic `codes(namespace, default)`, and `group_codes(namespace, group_name, default)` read it synchronously everywhere else in that process. `bar_writer.py` and `feature_vector_pipeline.py` are the live callers - the pattern to copy for any future namespace that needs the same sync-read shape, rather than re-inventing it (todo 327).
 
 ---
 
 ## `VocabularyDriftAuditor` — write-adjacent monitoring
 
-`src/config/vocabulary_drift.py` — a `BaseBatch` oneshot, **not on a systemd timer**; chained as a non-blocking step into `scripts/ops/corpus/ops_corpus_pipeline_run.sh` after `alpha_publisher` (line ~389).
+`src/config/vocabulary_drift.py` — a `BaseBatch` oneshot, **not on a systemd timer**; chained as a non-blocking step into `scripts/ops/corpus/ops_corpus_pipeline_run.sh` after `alpha_publisher` (line ~418).
 
 For each namespace, it queries the live source column for distinct observed codes over a recent window (`infra.vocabulary_drift.window_days`, APR-sourced, default 30) and diffs against `VocabularyService`'s registered set. Any observed code the registry doesn't know about is a **data-superset drift** — logged as an error, counted via the `vocabulary_drift_unregistered_total` OTel counter, and recorded as an `integrity_monitor` fact (`monitor_type='vocabulary_drift'`).
 
@@ -125,6 +125,31 @@ observed codes (live column, recent window)  −  registered codes (VocabularySe
 There is also a standalone **`regime_group` guard** (not a `controlled_vocabulary` namespace itself): it checks `market_regimes.regime_group` values against the hardcoded `{'equity', 'rates'}` set, to catch a future third cross-sectional regime group appearing before either `regime_cross_sectional_*` namespace was extended to cover it.
 
 **Observability-only, never a hard gate** — a detected drift never fails the pipeline run; only a genuine runtime error (DB unreachable, etc.) propagates as a real failure.
+
+---
+
+## Known Gaps
+
+- **`market_regimes.regime_group` has two live values with no CVR coverage, and the drift
+  guard is not currently catching it.** The registered set (`_REGISTERED_REGIME_GROUPS` in
+  `src/config/vocabulary_drift.py:49`) and this doc's namespace table both cover only
+  `equity`/`rates`, but `market_regimes` has carried real, substantial data under
+  `commodity` (565,171 rows, 2005-2026) and `fx` (499,385 rows, 2007-2026) the entire time
+  — confirmed live via direct query 2026-09-04, not a new drift. Neither has a
+  `regime_cross_sectional_commodity`/`regime_cross_sectional_fx` CVR namespace, matching
+  `cross_sectional_regime_model.py`'s own `commodity`/`fx` `tag_filter` groups (see ITR's
+  Consumers section). **The guard itself is not flagging this as designed**: its three most
+  recent recorded runs (`integrity_monitor`, `monitor_type='vocabulary_drift'`,
+  `subject='regime_group'` — 2026-07-18 ×2, 2026-08-02) all report `passed=true`,
+  `metric_value=0`, despite commodity/fx data existing in every one of those windows; and no
+  `vocabulary_drift_*.log` file exists under `logs/corpus_pipeline/` for the most recent full
+  pipeline run that reached `alpha_publisher` (2026-08-30), even though the step is chained
+  in right after it (`scripts/ops/corpus/ops_corpus_pipeline_run.sh:418`) — suggesting the
+  audit step may not be executing at all in recent runs, not merely mis-scoring. Flagged here
+  as a verified observation from this doc refresh; root cause (auditor not running vs.
+  silently failing vs. a stale/cached `integrity_monitor` read) needs separate investigation,
+  not resolved by this edit.
+  <!-- src: SELECT regime_group, count(*), min(ts), max(ts) FROM market_regimes GROUP BY regime_group; SELECT ... FROM integrity_monitor WHERE monitor_type='vocabulary_drift'; ls logs/corpus_pipeline/ (all 2026-09-04) -->
 
 ---
 

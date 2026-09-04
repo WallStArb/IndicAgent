@@ -2,7 +2,7 @@
 
 **Version:** 3.0
 **Status:** current
-**Last Updated:** 2026-06-28
+**Last Updated:** 2026-09-04
 
 ## North Star
 

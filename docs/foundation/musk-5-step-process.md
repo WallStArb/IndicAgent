@@ -1,8 +1,8 @@
 # Musk's 5-Step Design Process
 
-**Version:** 1.0
+**Version:** 1.1
 **Status:** current
-**Last Updated:** 2026-06-29
+**Last Updated:** 2026-09-04
 
 ## Overview
 
@@ -76,7 +76,7 @@ This step only applies to what remains after steps 1 and 2. Optimizing before de
 
 **IndicAgent Manifestation:**
 - Hot/cold path separation simplifies by giving each layer exactly one job — compute, persistence, and transport optimized independently without coupling
-- `_causal_decode` was vectorized (batch log_emit precomputed before alpha-pass loop) only after the HMM algorithm was validated as necessary
+- `_alpha_pass` (`services/regime_writer.py`, formerly `_causal_decode`) was vectorized — `_compute_log_emit` batch-precomputes log emissions before the alpha-pass loop — only after the HMM algorithm was validated as necessary
 - APR replaces magic numbers — but only in modules that survive the deletion check; migrating constants in code that should be deleted is Step 3 before Step 2
 - Simple > Clever (design-principles.md §12) — readability is the primary optimization target; algorithmic cleverness is secondary
 - Holistic thinking: reducing signal count while adding model complexity nets zero — the ensemble must be simplified together
@@ -114,10 +114,10 @@ Automation is the final force multiplier — it makes a validated, simplified pr
 **Brutal Truth:** Automating an unvalidated process doesn't eliminate the problem — it scales it and makes it invisible.
 
 **IndicAgent Manifestation:**
-- `corpus_pipeline_run.sh` was built after each of the 6 pipeline steps was manually verified to produce correct output — automation followed validation, not the reverse
+- `scripts/ops/corpus/ops_corpus_pipeline_run.sh` was built after each of the 6 pipeline steps was manually verified to produce correct output — automation followed validation, not the reverse
 - systemd services + Prometheus lag monitoring — automation layered on services that were proven correct in manual operation first
 - APR ML learning targets — parameter tuning is automated only after manual calibration proves the parameter matters and the range is sensible
-- `roll-batch` nightly automation — the roll process was manually executed and verified before being scheduled
+- `roll-batch` (`scripts/ops/roll/ops_roll_batch.py`) — the roll process was manually executed and verified before being scheduled as a nightly timer; the timer is currently disabled (verify with `systemctl list-timers` before assuming it fires), a reminder that automation status must be re-checked live, not assumed from this doc
 - `BaseWriter` DLQ — automated error isolation, but only because the error taxonomy was understood through manual debugging first
 
 ---

@@ -1,8 +1,8 @@
 # Performance & Throughput Investigation SOP
 
-**Version:** 1.0
+**Version:** 1.1
 **Status:** current
-**Last Updated:** 2026-07-21
+**Last Updated:** 2026-09-04
 
 ## Why this doc exists
 
@@ -102,6 +102,16 @@ story; ship one built on a measured, isolated delta.
 - **A correlated subquery (`EXISTS`, `IN`) driven from the large table instead of the small
   target set.** This silently degrades into a near-full-table scan; always drive from the
   smaller, known population.
+- **`bar_ts = ANY(<array>)` does not chunk-exclude on a compressed hypertable the way a
+  `BETWEEN` range does.** On a compressed, `segmentby`/`orderby`-indexed table, an `ANY(array)`
+  predicate can expand into a per-compressed-batch `OR`-chain of min/max range checks — one
+  clause per array element, re-evaluated per batch considered (`O(batches × len(array))`) —
+  instead of a single cheap range exclusion. Confirm via `EXPLAIN (ANALYZE, BUFFERS)`: look for
+  repeated `_ts_meta_min_1`/`_ts_meta_max_1` filter clauses in the plan. Fix: add a redundant
+  `col BETWEEN array[0] AND array[-1]` predicate ahead of the `ANY()` clause when the array is a
+  contiguous, sorted slice — this lets the planner do cheap range-based exclusion first, leaving
+  `ANY()` as a residual filter (todo 356, `feature_vectors`/`forward_returns`, ~32x on a
+  representative chunk).
 
 ### 5. Verify the fix live, end-to-end, with the real code path — not just a mocked unit test
 
@@ -115,9 +125,12 @@ mocked test, before restarting the actual backfill).
 ### 6. Capture the finding as a durable gotcha, not just a closed todo
 
 A closed todo is invisible to the next session that hits the same symptom. Add a one- or
-two-line entry to `docs/reference/gotchas.md` under the TimescaleDB section — see the entries
-this doc's writing added for todos 149 and 161 as the template. The goal is that the *third*
-occurrence of this pattern starts at step 4 of this SOP, not step 1.
+two-line entry to `docs/reference/gotchas.md` under the Database section (there is no separate
+"TimescaleDB" heading — TimescaleDB-specific entries live inline there) — see the entries this
+doc's writing added for todos 149, 161, and 356 as the template. The goal is that the *next*
+occurrence of this pattern starts at step 4 of this SOP, not step 1. Todo 356 is proof this
+works: it opened by citing this SOP directly, ran the exact "what needs to happen" checklist
+this doc prescribes, and closed the next day with a measured, isolated fix.
 
 ## Case studies
 
@@ -132,6 +145,18 @@ occurrence of this pattern starts at step 4 of this SOP, not step 1.
   strategy. `iostat`/`wait_event` ruled out I/O and locks; an isolating test found writing
   directly to the resolved chunk table ran 358x faster (29 → 10,423 rows/sec) than writing
   through the hypertable. Full trail: `.planning/todos/completed/161-counterfactual-tracker-update-throughput.md`.
+- **Todo 356** (2026-08-25/26): `_compute_cross_sectional_tf`'s chunked fetch (`services/ic_engine.py`)
+  against the corpus's largest cross-sectional cell (`equity/5m/low_bull`, 3.1M joined rows)
+  ran 95+ minutes and still hadn't finished. `pg_stat_activity.wait_event` was NULL throughout
+  and `pg_locks WHERE NOT granted` returned 0 rows — genuinely CPU-bound, not I/O or lock
+  contention. `EXPLAIN (ANALYZE, BUFFERS)` on the real chunk shape found the cause: the fetch's
+  `bar_ts = ANY(<5000-element array>)` predicate was not chunk-excluding on the compressed
+  `feature_vectors`/`forward_returns` hypertables (see step 4's `ANY(array)` suspect, added
+  after this incident). Fix: an isolated, measured `BETWEEN`-bound predicate ahead of the
+  `ANY()` clause — 10,218ms → 315ms (~32x) on one representative chunk, correctness verified via
+  matching row-count and order-sensitive checksum on real data. This todo followed this SOP's
+  method directly (opened citing it, closed the next day). Full trail:
+  `.planning/todos/completed/356-cross-sectional-fetch-chunk-query-pathologically-slow-largest-cell.md`.
 
 ## See Also
 

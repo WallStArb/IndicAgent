@@ -3,7 +3,7 @@
 **Canonical name:** Adaptive Parameter Registry (APR)
 **Informal alias:** param store (colloquial — acceptable in casual conversation, not in architecture docs or code comments)
 **Status:** current
-**Last Updated:** 2026-06-20
+**Last Updated:** 2026-09-04
 **Phase introduced:** 109 (infrastructure), extended Phase 121+ (plugin thresholds), Phase 125 (full migration)
 
 ---
@@ -37,8 +37,18 @@ ECL vectors like `threshold.global.min_ctf_score` and `threshold.global.min_regi
 
 ## Infrastructure
 
-Four tables, one service. All live. Zero new infrastructure required to use this system.
-<!-- src: production/migrations/109_config_foundation.sql -->
+Four tables. `ConfigService` (`src/config/config_service.py`) is embedded in-process by
+every consuming service — reads/writes against `config_state`/`config_history` work with
+zero standalone infrastructure. **The Kafka hot-reload propagation path is not currently
+live**, however: both `indicagent-config-service.service` (the standalone HTTP API,
+port 9001) and `indicagent-outbox-dispatcher.service` (`services/outbox_dispatcher_agent.py`,
+publishes `config_outbox` rows to `topic_config_updates`) are `disabled`/`inactive (dead)`
+(re-verified 2026-09-04). `config_outbox` has 111 rows stuck `status='pending'`, dated
+2026-07-03 through 2026-08-30, with no dispatcher journal activity in that window — a
+config write from one process updates its own in-memory cache immediately but never
+propagates to any other already-running process without a restart, contrary to the "no
+restart required" hot-reload design below.
+<!-- src: production/migrations/103_config_foundation.sql; systemctl status indicagent-config-service.service, indicagent-outbox-dispatcher.service; SELECT status, count(*) FROM config_outbox GROUP BY status (2026-09-04) -->
 
 ### Table Schemas
 
@@ -78,7 +88,7 @@ Four tables, one service. All live. Zero new infrastructure required to use this
 | `reason` | TEXT | ML writes include `n=`, `bootstrap_ci_lower=`, `p=`; user writes include rationale |
 | PK | `(timestamp, config_key, version)` | |
 
-**`config_outbox`** — transactional outbox for Kafka propagation; polled by `OutboxDispatcher`.
+**`config_outbox`** — transactional outbox for Kafka propagation; polled by ``OutboxPublisher` (`src/config/outbox_publisher.py`, run via `services/outbox_dispatcher_agent.py`)`.
 
 | Column | Type | Description |
 |--------|------|-------------|
@@ -87,7 +97,7 @@ Four tables, one service. All live. Zero new infrastructure required to use this
 | `config_value` | TEXT NOT NULL | |
 | `version` | INT NOT NULL | |
 | `changed_at` | TIMESTAMPTZ DEFAULT NOW() | |
-| `status` | TEXT DEFAULT `'pending'` | `'pending'` → `'dispatched'` after Kafka publish |
+| `status` | TEXT DEFAULT `'pending'` | `'pending'` → `'publishing'` (claimed) → `'published'` after Kafka publish; reverts to `'pending'` with backoff on failure |
 | `retry_count` | INT DEFAULT 0 | Incremented on transient failures |
 | `next_attempt_at` | TIMESTAMPTZ | Backoff deadline; `NULL` means ready immediately |
 | `created_at` | TIMESTAMPTZ DEFAULT NOW() | |
@@ -128,10 +138,10 @@ caller → ConfigService.set(key, value, changed_by=…, reason=…)
            │       └─ INSERT INTO config_outbox (key, value, version+1, status='pending')
            ├─ 4. commit — all three writes succeed or none do
            ├─ 5. invalidate in-memory cache for key
-           └─ OutboxDispatcher (background) → publish to topic_config_updates → Kafka
+           └─ `OutboxPublisher` (`src/config/outbox_publisher.py`, run via `services/outbox_dispatcher_agent.py`) (background) → publish to topic_config_updates → Kafka
 ```
 
-**Hot reload:** Services subscribed to `topic_config_updates` receive the update and call `config_service.invalidate(key)`. The next `get()` call re-fetches from `config_state` with the new value. No restart required.
+**Hot reload (designed behavior — not currently live, see Infrastructure above):** Services subscribed to `topic_config_updates` receive the update and call `config_service.invalidate(key)`. The next `get()` call re-fetches from `config_state` with the new value. No restart required — when the outbox dispatcher is running. As of 2026-09-04 it is not, so a write only takes effect immediately in the writing process's own cache; every other already-running process keeps serving its cached value until restarted.
 
 **Concurrency:** `SELECT FOR UPDATE` inside the transaction prevents two concurrent writers from creating a split-brain. The `version` column enables optimistic locking: pass `expected_version=N` to reject the write if another writer updated the key between your read and your write.
 

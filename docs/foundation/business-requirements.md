@@ -2,7 +2,7 @@
 
 **Version:** 1.0.0
 **Status:** current
-**Last Updated:** 2026-07-10
+**Last Updated:** 2026-09-04
 **Milestone:** standing (not tied to a phase)
 **Purpose:** the top-down, business/quant-concept view of the whole system — what it is, why it
 exists, what each part promises to deliver, how it can grow, and what's genuinely undecided.
@@ -23,9 +23,11 @@ built so far, not a scope limit on this doc.
 - `docs/research/roadmap-scope-map.md` — impact-ranked scan of what's weak/proposed per area,
   kept current; this doc explains *why the areas are shaped the way they are*, that one tracks
   *what's currently missing in each*
-- `docs/research/idea-catalog.md` — full navigation index across every idea doc
-- `.planning/research/2026-07-02-v3-topdown-architecture.md` and
-  `2026-07-02-v3-bottomup-audit.md` — the Fable-assisted analyses this doc synthesizes
+- `docs/research/fable-2026-07-02-v3-topdown-architecture.md` and
+  `docs/research/fable-2026-07-02-v3-bottomup-audit.md` — the Fable-assisted analyses this doc
+  synthesizes (moved from `.planning/research/` into `docs/research/` 2026-07-07 to survive GSD's
+  periodic `.planning/` cleanup cycles; both retain their original `fable-2026-07-02-` filename
+  prefix at the new location)
 
 ---
 
@@ -69,13 +71,13 @@ may eventually run several.
    should require touching an existing one.
 2. **Decision/Action modules** — take one instrument's intelligence output and decide whether
    and when to act on it: size, enter, exit. Scope is deliberately singular — one instrument at
-   a time. This is what `docs/research/vision-05-tradeagent.md` (execution vehicle) and part of
-   `vision-01-aegisagent.md` (risk overlay: sizing, drawdown limits) describe, and it's the same
+   a time. This is what `docs/research/archive/vision-05-tradeagent.md` (execution vehicle) and part of
+   `docs/research/archive/vision-01-aegisagent.md` (risk overlay: sizing, drawdown limits) describe, and it's the same
    thing already gated on ROADMAP as the v4.0 Execution Layer ("consumes `alpha_events`, never
    modifies signal weights").
 3. **Portfolio modules** — a genuinely different scope: many instruments considered together,
    where correlation, capital allocation, and risk budgeting produce a different right answer
-   than any single instrument's view would suggest in isolation. `docs/research/vision-03-primeagent.md`
+   than any single instrument's view would suggest in isolation. `docs/research/archive/vision-03-primeagent.md`
    (portfolio management) is the existing doc for this. Does not exist yet, and isn't a bigger
    version of a Decision module — it's a different consumer of the same upstream intelligence.
 
@@ -87,7 +89,7 @@ live-trading lens instead of the product lens: AegisAgent and TradeAgent map to 
 map to future Intelligence modules (§3) rather than to standalone products. **Known
 inconsistency, not resolved here — and one level deeper than it first looks:** whether V8
 Fundamental exists as its own vector is itself unsettled (§3, §7 item 1 — the glossary only
-canonically recognizes V1/V3/V5/V7). Layered on top of that, `signal-08` maps V7 Qualitative →
+canonically recognizes V1/V3/V5/V7). Layered on top of that, `v3-north-star.md` maps V7 Qualitative →
 QualAgent and V8 Fundamental → FundAgent as separate vectors, while `roadmap-scope-map.md`
 describes QualAgent itself as covering "fundamental/qualitative intelligence" (combined) and
 lists FundAgent as "scope unclear, titles only." Which vision doc owns which vector is unresolved
@@ -126,11 +128,11 @@ get this right independently.
 authoritative term source, per house rule "glossary wins on collision") formally recognizes only
 **V1 Quant, V3 Macro, V5 Flow, V7 Qual** as vectors, and is explicit that a vector is "not a
 synonym for tier" — I1-I4 are measurement tiers *within* V1, not vectors in their own right.
-`signal-08-intelligence-refactor.md`, dated the same day as the glossary's last update and marked
-**"Status: working draft — for discussion and refinement,"** proposes splitting V1's internal
-tiers into four additional standalone vectors (V2 Microstructure, V4 Calendar, V6
-Derivatives/Gamma, V8 Fundamental) — a draft that was never reconciled back into the glossary.
-The table below presents `signal-08`'s eight-vector version because it's the only place a full
+`docs/foundation/v3-north-star.md` (the doc `signal-08-intelligence-refactor.md` was folded into,
+2026-07-06 reorg) proposes splitting V1's internal tiers into four additional standalone vectors
+(V2 Microstructure, V4 Calendar, V6 Derivatives/Gamma, V8 Fundamental) — a proposal that has still
+never been reconciled back into the glossary, which as of this writing recognizes only V1/V3/V5/V7.
+The table below presents that eight-vector version because it's the only place a full
 cadence taxonomy exists, but **do not treat V2/V4/V6/V8 as canonical** until that reconciliation
 happens (§7):
 
@@ -147,12 +149,12 @@ happens (§7):
 
 **Bar-aligned vectors (V1-V4)** produce a score every bar and feed the emission decision
 directly. **Ambient vectors (V5-V8)** update at their own cadence — weekly, quarterly,
-event-driven — and, per `signal-08`, are meant to act as a *conviction modifier* on the
+event-driven — and, per `v3-north-star.md`, are meant to act as a *conviction modifier* on the
 bar-aligned decision (tilting the emission threshold up or down) rather than firing a signal
 directly, with a `valid_until` timestamp that decays an unrefreshed score to neutral rather than
 holding a stale value.
 
-**Open reconciliation (see §7):** `docs/research/alphaengine-alt-data-extension.md` proposes a
+**Open reconciliation (see §7):** `docs/research/data-alt-data-sources.md` proposes a
 *different* answer to the same cadence problem for its four candidate sources (Flows,
 Fundamentals, Qualitative, Kalshi prediction markets) — fill-forward the slow-cadence value into
 `feature_vectors` as an ordinary column, measured by IC exactly like any bar-aligned feature,
@@ -161,7 +163,7 @@ patterns — ambient conviction-modifier vs. fill-forward-into-IC-measurement �
 compatible, and nothing in the tree states which applies when. This is a real open question, not
 a documentation gap to smooth over.
 
-**Recommended build order, if new sources are ever pursued** (per `alt-data-extension.md`):
+**Recommended build order, if new sources are ever pursued** (per `data-alt-data-sources.md`):
 Flows first (same cadence as price, lowest infrastructure delta, likely measurable IC on
 rate-sensitive ETFs) → Kalshi as regime conditioning (stratifies existing price IC by macro
 event probability, doesn't need its own return-prediction proof) → Fundamentals (needs
@@ -179,7 +181,7 @@ answer it.
 
 | Tier | Business question it answers | Current approach | Real alternatives on the table |
 |---|---|---|---|
-| **Primitive Measurement** (Stage 0) | What can we measure about this instrument, right now, with no theory attached? | 89 Renaissance primitives (150 `FeatureVector` columns total, as of 2026-07-09) computing a fixed vector per bar | Not a mechanism-swap question (unlikely to need a different measurement paradigm) but a genuine scale question: Renaissance's own reference point is ~499 raw signals into Medallion's ensemble, vs. our 89 today. `renaissance-primitives-ohlcv.md` catalogs true stateless primitives not yet computed; a proposed atomic/interaction/theory sub-classification is designed but informal. The next tier up — second-order (pairwise) interaction primitives — had its evidence gate run 2026-07-10 (todo 037): 22.2% of a hand-picked cohort showed genuine incremental IC, confirming the atomics are NOT saturated. Phase 150 already commits to a curated ≤50-feature theory-motivated layer on the strength of that result, not the full combinatorial "Interaction Factory" generator (`docs/research/intel-feature-interaction-factory.md`), which Phase 150 separately rejected on BH-FDR power grounds at ~30K-candidate scale |
+| **Primitive Measurement** (Stage 0) | What can we measure about this instrument, right now, with no theory attached? | 298 `FeatureVector` columns computing a fixed vector per bar — grown from the 89-primitive/150-column count this row cited as of 2026-07-09 through Phases 142.5/151/163-165 and todo 320's Velocity Primitives Extension (`src/intelligence/schemas.py`'s `FeatureVector` docstring is the maintained group-by-group breakdown; do not re-derive this number by eye, read that docstring) <!-- src: src/intelligence/schemas.py:1204-1205 --> | Not a mechanism-swap question (unlikely to need a different measurement paradigm) but a genuine scale question: Renaissance's own reference point is ~499 raw signals into Medallion's ensemble — closer now than the original 89-vs-499 framing suggested, though the two counts aren't strictly comparable (Renaissance's 499 are raw signals pre-ensemble, this 298 mixes atomics with already-curated interaction terms). `docs/research/signal-renaissance-primitives-ohlcv.md` catalogs true stateless primitives not yet computed; a proposed atomic/interaction/theory sub-classification is designed but informal. The next tier up — second-order (pairwise) interaction primitives — had its evidence gate run 2026-07-10 (todo 037): 22.2% of a hand-picked cohort showed genuine incremental IC, confirming the atomics are NOT saturated. Phase 150 already commits to a curated ≤50-feature theory-motivated layer on the strength of that result, not the full combinatorial "Interaction Factory" generator (`docs/research/intel-feature-interaction-factory.md`), which Phase 150 separately rejected on BH-FDR power grounds at ~30K-candidate scale |
 | **Stratification** (Stage 1) | Which observations belong together, so we don't average across regimes as if they behaved the same? | Two coexisting systems: per-symbol HMM (5 states) and cross-sectional VIX×breadth (9 states) | Volume/skew/factor regimes, IOHMM, factor-augmented HMM — a formal `StratificationDimension` contract with a promotion gate (orthogonality + substitution test) is proposed but not built (`intel-12`) |
 | **Edge Measurement** (Stage 2) | Does this measurement actually predict forward returns, and how confident are we? | Spearman rank correlation (IC), bootstrap CI, IC Sharpe | Mutual information as a secondary, non-monotonic-aware measure — a real open question, not yet a scoped plan |
 | **Combination** (Stage 3) | Given many individually-scored measurements, which matter and how much? | IC-weighted linear combination, Ledoit-Wolf covariance shrinkage for redundancy | Already multi-mechanism by design today (`ic_proportional`, `v1_shrunk`, `mean_variance`, being A/B judged) — the model for how the other tiers should eventually work |
@@ -209,7 +211,7 @@ For a new intelligence module (§2.1) to plug into the tier stack (§4) without 
 existing one, three things have to hold:
 
 1. **The data source must resolve to the same shape** the tiers already consume — a numeric
-   value at time T with a causally-known forward return at T+N. Per `alt-data-extension.md`,
+   value at time T with a causally-known forward return at T+N. Per `data-alt-data-sources.md`,
    this is a genuine "IC methodology has one requirement" property — the measurement apparatus
    doesn't care where the number came from, only that alignment and look-ahead discipline are
    correct at ingestion.
@@ -266,16 +268,20 @@ Genuinely undecided calls that shape how much of the above ever gets built, in r
 order:
 
 1. **Does V2/V4/V6/V8 exist at all, canonically (§3)?** `glossary.md` recognizes only V1/V3/V5/V7
-   and calls a vector "not a synonym for tier"; `signal-08`'s eight-vector split is a same-day,
-   never-merged working draft. This sits upstream of nearly every other item below — the vision-
-   doc mapping in §2, the build order in this list, and the cadence-handling question all assume
-   an eight-vector world that may not be canonical. Resolve this first: either ratify `signal-08`
-   into the glossary, or fold V2/V4/V6/V8 back into their parent vectors as tiers.
+   and calls a vector "not a synonym for tier"; `v3-north-star.md` (the doc formerly named
+   `signal-08-intelligence-refactor.md`, promoted to `docs/foundation/` 2026-07-06) presents the
+   eight-vector split as settled fact, with no hedge in its own text — but that presentation has
+   still never been reconciled back into the glossary, so the contradiction between two
+   foundation-tier docs is real and open, not just a stale-draft artifact. This sits upstream of
+   nearly every other item below — the vision-doc mapping in §2, the build order in this list, and
+   the cadence-handling question all assume an eight-vector world that may not be canonical.
+   Resolve this first: either ratify `v3-north-star.md`'s eight-vector table into the glossary, or
+   fold V2/V4/V6/V8 back into their parent vectors as tiers in both docs.
 2. **Ambient-modifier vs. fill-forward-IC-measurement (§3).** Two source docs propose
    incompatible answers to how a slow-cadence source enters the system. Only reachable once #1
    is settled — if V2/V4/V6/V8 aren't real vectors, this question may only apply to V5/V7 (and a
    hypothetical V8-as-part-of-V7 or similar), not eight independent cases.
-3. **Which vision doc owns which future vector (§2).** `signal-08` and `roadmap-scope-map.md`
+3. **Which vision doc owns which future vector (§2).** `v3-north-star.md` and `roadmap-scope-map.md`
    disagree on whether QualAgent is Qualitative-only or Qualitative+Fundamental combined, and
    FundAgent's scope is described as "titles only" in one place. Also downstream of #1.
 4. **Is a Portfolio module in scope at all before Decision modules exist?** §2.3 is real but has
@@ -285,9 +291,9 @@ order:
 5. **Does cross-vector orthogonality need its own tier**, or is it adequately handled by the
    combination tier's existing covariance-shrinkage step once a second vector actually exists?
    Currently unmeasurable because only one vector exists — see §4's acknowledged gap.
-6. **Build order for V5-V8**, if pursued: `alt-data-extension.md`'s recommendation (Flows →
+6. **Build order for V5-V8**, if pursued: `data-alt-data-sources.md`'s recommendation (Flows →
    Kalshi-as-conditioning → Fundamentals → Qualitative) is the only sequencing proposal on
-   record and hasn't been cross-checked against `signal-08`'s ambient/bar-aligned split or
+   record and hasn't been cross-checked against `v3-north-star.md`'s ambient/bar-aligned split or
    against which of the parked vision docs are actually ready to inform a build.
 7. **Mutual information as a second edge-measurement statistic (§4)** — real question, no
    scoping done yet, would need a schema note (does `feature_ic_scores`/`predictor_ic_scores`
@@ -304,15 +310,15 @@ order:
 - Business/vision altitude (this doc) → tier mechanism detail: `intelligence-layer-architecture.md`
 - Tier mechanism detail → current concrete implementation: `intelligence-alphaengine.md`
 - What's weak/proposed per area, kept current: `docs/research/roadmap-scope-map.md`
-- Full idea-doc navigation index: `docs/research/idea-catalog.md`
+- Full idea-doc navigation index: `docs/research/catalog.md`
 - Clean-sheet structural proposal this doc draws on heavily:
-  `.planning/research/2026-07-02-v3-topdown-architecture.md`
+  `docs/research/fable-2026-07-02-v3-topdown-architecture.md`
 - What the running system actually does today, verified against code/DB:
-  `.planning/research/2026-07-02-v3-bottomup-audit.md`
-- New data source candidates in depth: `docs/research/alphaengine-alt-data-extension.md`
-- Full intelligence-vector taxonomy: `docs/research/signal-08-intelligence-refactor.md`
+  `docs/research/fable-2026-07-02-v3-bottomup-audit.md`
+- New data source candidates in depth: `docs/research/data-alt-data-sources.md`
+- Full intelligence-vector taxonomy: `docs/foundation/v3-north-star.md`
 - Exchange-aware bar filtering and the deliberate flat-bar design: `docs/data/data-provider.md`
-- Parked-but-relevant module concepts: `docs/research/vision-01-aegisagent.md` (risk overlay),
-  `vision-03-primeagent.md` (portfolio), `vision-05-tradeagent.md` (execution vehicle),
-  `vision-02-derivagent.md`, `vision-04-qualagent.md`, `vision-06-flowagent.md`,
-  `vision-07-fundagent.md`
+- Parked-but-relevant module concepts: `docs/research/archive/vision-01-aegisagent.md` (risk overlay),
+  `docs/research/archive/vision-03-primeagent.md` (portfolio), `docs/research/archive/vision-05-tradeagent.md` (execution vehicle),
+  `docs/research/archive/vision-02-derivagent.md`, `docs/research/archive/vision-04-qualagent.md`,
+  `docs/research/archive/vision-06-flowagent.md`, `docs/research/archive/vision-07-fundagent.md`

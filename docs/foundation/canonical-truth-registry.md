@@ -2,8 +2,16 @@
 
 **Version:** 3.0
 **Status:** current
-**Last Updated:** 2026-06-21
+**Last Updated:** 2026-09-04
 **Tags:** data-ownership, canonical-source, streams, persistence, writer-agents, kafka
+
+**Archival note:** Rows describing the I1-I7 plugin tier, the typed intelligence bus
+(`intelligence_features`, `FeatureWriter`), and the Signal Ledger Architecture (`signal_events`
+/ `trade_frames`/`trade_executions`/`signal_ledger`) describe the **v2.x pipeline — archived, no
+live consumer as of 2026-07-02** (see `CLAUDE.md` Architecture section). They are retained below
+for historical ownership record, not as live behavior. The v3.0 pipeline
+(`feature_vectors` → `forward_returns` → `feature_ic_scores` / `alpha_ensemble_ic` → `alpha_events`)
+is the live canonical set.
 
 This registry defines which stream/table owns each durable business fact. Any new table, stream, read model, or cache must either appear here or explicitly declare that it is a derived projection.
 
@@ -17,14 +25,14 @@ Core rule: **one canonical writer per durable fact**. Read models may duplicate 
 | Canonical 1m bars | `{env}.market.bars` | `market_data_ohlcv` | `BarWriter` | `ProviderMerger` selects the authoritative stream event; writer persists. |
 | Higher-timeframe bars | `{env}.market.bars.htf` | `market_data_ohlcv` | `BarWriter` | HTF bars are computed from canonical 1m bars. |
 | Roll events | `{env}.market.events.roll` | `contract_metadata` | `roll-batch` nightly timer (`scripts/ops/roll/ops_roll_batch.py`) | Calendar-based roll detection; promotes front-month contract; broadcasts Kafka update events. |
-| Full I1-I7 feature record | `{env}.intelligence.journal` | `intelligence_features` | `FeatureWriter` | Canonical per-bar feature persistence unit. |
-| Signal detection (SLA) | `{env}.intelligence.i7.signals` | `signal_events` | `SignalWriter` | Detection layer: one row per I7 plugin fire. Fields: `raw_confidence`, `factor_scores`, `context_features`, `ctf_score`, `ctf_confirmed`, `zone_friction_score`, `status`. |
-| Trade hypotheses (SLA) | `{env}.intelligence.i7.signals` | `trade_frames` | `SignalWriter` | Hypothesis layer: one row per `entry_type` per signal. Fields: `entry_type`, `entry_price`, `stop_price`, `target_price`, `counterfactual_pnl_r`, `was_selected`. ML trains on this. |
-| Trade executions (SLA) | execution event from `stream_keys.py` | `trade_executions` | `ExecutionWriter` | Execution layer: one row per live trade. Fields: `actual_pnl_r`, `actual_fill_price`, `exit_reason`. |
-| Signal lifecycle transitions | lifecycle transition topic from `stream_keys.py` | `signal_events.status` | `LifecycleWriter` | Tracker computes transitions; writer updates status on `signal_events`. Valid transitions: `pending` → `active`, `pending` → `regime_suppressed`, `active` → `expired`. |
-| SLA query surface | None | `signal_ledger_full` (view) | — | Join view across all three SLA tables. Canonical read surface for analytics, dashboard, and ML training queries. `signal_ledger` (legacy monolith) is read-only pending drop. |
-| Signal-affecting lineage | `topic_signal_lineage()` | `signal_lineage` | `LineageWriter` | Canonical audit trail for transforms and swarm `agent_prediction` events. |
-| Signal performance metrics | signal metrics topic from `stream_keys.py` | `signal_metrics` tables | `SignalMetricsWriter` | Metrics compute may read canonical outcomes; writer persists metrics. |
+| Full I1-I7 feature record *(v2.x, archived)* | `{env}.intelligence.journal` | `intelligence_features` | `FeatureWriter` | Canonical per-bar feature persistence unit. No live consumer as of 2026-07-02. |
+| Signal detection (SLA) *(v2.x, archived)* | `{env}.intelligence.i7.signals` | `signal_events` | `SignalWriter` | Detection layer: one row per I7 plugin fire. Fields: `raw_confidence`, `factor_scores`, `context_features`, `ctf_score`, `ctf_confirmed`, `zone_friction_score`, `status`. |
+| Trade hypotheses (SLA) *(v2.x, archived)* | `{env}.intelligence.i7.signals` | `trade_frames` | `SignalWriter` | Hypothesis layer: one row per `entry_type` per signal. Fields: `entry_type`, `entry_price`, `stop_price`, `target_price`, `counterfactual_pnl_r`, `was_selected`. |
+| Trade executions (SLA) *(v2.x, archived)* | execution event from `stream_keys.py` | `trade_executions` | `ExecutionWriter` | Execution layer: one row per live trade. Fields: `actual_pnl_r`, `actual_fill_price`, `exit_reason`. |
+| Signal lifecycle transitions *(v2.x, archived)* | lifecycle transition topic from `stream_keys.py` | `signal_events.status` | `LifecycleWriter` | Tracker computes transitions; writer updates status on `signal_events`. Valid transitions: `pending` → `active`, `pending` → `regime_suppressed`, `active` → `expired`. |
+| SLA query surface *(v2.x, archived)* | None | `signal_ledger` (view) | — | Join view across all three SLA tables (renamed from `signal_ledger_full` in Phase 130). Legacy monolith and `signal_outcomes` were dropped in Phase 130 — no separate read-only table remains. |
+| Signal-affecting lineage *(v2.x, archived)* | `topic_signal_lineage()` | `signal_lineage` | `LineageWriter` | Canonical audit trail for transforms and swarm `agent_prediction` events. |
+| Signal performance metrics *(v2.x, archived)* | signal metrics topic from `stream_keys.py` | `signal_metrics` tables | `SignalMetricsWriter` | Metrics compute may read canonical outcomes; writer persists metrics. |
 | Qualitative raw context | `{env}.ctx.*.raw` | `ctx_events` | `ContextWriter` | Raw qualitative facts are append-only. |
 | Qualitative context windows | `{env}.ctx.snapshot` | `ctx_snapshots` | `ContextWriter` | Source of truth for event-time validity. |
 | Quant-facing context cache | None | `intelligence_features.ctx` | `FeatureWriter` or optional bridge job | Denormalized projection only; not canonical truth. |
@@ -37,11 +45,16 @@ Core rule: **one canonical writer per durable fact**. Read models may duplicate 
 | v3.0 outcome labels (forward returns) | None (batch INSERT) | `forward_returns` | `ForwardReturnWriter` | Causal LEAD()-based log returns `ln(open[T+N+1]/open[T+1])` at 1/5/20/60 bar horizons. IC Engine reads; never writes. Immutable after insert — no updates. |
 | v3.0 IC scores (per feature×symbol×tf×regime×lookahead) | None (batch INSERT) | `feature_ic_scores` | `ICEngine` | Spearman IC + bootstrap CI + BH-FDR + walk-forward results. `AlphaDecayMonitor` (Phase 139) writes `is_decaying` flag only — ICEngine owns all other columns. |
 | v3.0 IC discovery report | None (file write) | `docs/analysis/ic-discovery-report-{date}.md` | `ICEngine` | Markdown report of features passing FDR + walk-forward gates by regime and TF. Written at end of each IC Engine run. Not a DB table — filesystem artifact. |
+| v3.0 ensemble IC scores (pooled + per-regime) | None (batch INSERT) | `alpha_ensemble_ic` | `EnsembleICEngine` (`services/ensemble_ic_engine.py`) | Oneshot batch: `ensemble_alpha` + `forward_returns` + `market_regimes` → `alpha_ensemble_ic`; aggregation rows use literal `symbol='POOLED'`, enforced by a `CHECK` constraint tying it to `is_pooled` (migration 190). `indicagent-ensemble-ic-engine` unit is inactive between runs — that is correct (oneshot). |
+| v3.0 ensemble alpha weights | None (batch, full replace) | `ensemble_alpha` | `EnsembleTrainer` (`services/ensemble_trainer.py`) | Sole writer; full-replace delete-then-insert per run, not incremental UPDATE. |
+| v3.0 published alpha events | `{env}.alpha.events` | `alpha_events` | `AlphaPublisher` (`services/alpha_publisher.py`) | Sole writer of `alpha_events`. Reads `ensemble_alpha`, enforces the effective-N gate, INSERTs qualifying rows (`ON CONFLICT (event_id, bar_ts) DO NOTHING`), and publishes the same payload to Kafka. This is the terminal node of the v3.0 pipeline — the only table/topic downstream trade-facing consumers should read. |
 
-<!-- src: signal_events table, trade_frames table, trade_executions table, signal_ledger_full view — verified 2026-06-16 -->
+<!-- src: signal_events table, trade_frames table, trade_executions table, signal_ledger view (renamed from signal_ledger_full, Phase 130) — verified 2026-09-04 -->
+<!-- src: alpha_ensemble_ic, ensemble_alpha, alpha_events tables; services/ensemble_ic_engine.py, services/ensemble_trainer.py, services/alpha_publisher.py — verified 2026-09-04 -->
 <!-- v3.0 rows added 2026-06-21: feature_vectors, regime labels, forward_returns, feature_ic_scores, IC discovery report -->
+<!-- v3.0 rows added 2026-09-04: alpha_ensemble_ic, ensemble_alpha, alpha_events (previously undocumented terminal pipeline nodes) -->
 
-## Signal Ledger Architecture (SLA) Note
+## Signal Ledger Architecture (SLA) Note *(v2.x — archived, no live consumer as of 2026-07-02)*
 
 The SLA replaced the legacy `signal_ledger` monolith beginning Phase 128. The three-table design separates concerns that the monolith conflated:
 
@@ -49,7 +62,7 @@ The SLA replaced the legacy `signal_ledger` monolith beginning Phase 128. The th
 - **`trade_frames`** — hypothesis layer: what trade was proposed? (ML training target via `counterfactual_pnl_r`)
 - **`trade_executions`** — execution layer: what was actually traded?
 
-**Query surface:** use `signal_ledger_full` (join view) for all reads spanning multiple layers. The legacy `signal_ledger` table is read-only; do not write to it. It will be dropped in a future phase once all consumers migrate to `signal_ledger_full`.
+**Query surface:** `signal_ledger` is the join view across all three SLA tables (renamed from `signal_ledger_full` in Phase 130). The original legacy monolith and `signal_outcomes` were dropped in Phase 130 — there is no separate deprecated table still pending removal.
 
 **See also:** `docs/foundation/glossary.md` — SLA, ECL, ICC entries.
 

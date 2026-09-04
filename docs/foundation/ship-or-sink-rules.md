@@ -2,7 +2,7 @@
 
 **Version:** 2.9
 **Status:** current
-**Last Updated:** 2026-06-16
+**Last Updated:** 2026-09-04
 
 Guidelines for working with AI coding agents without losing momentum, burning context, or shipping broken code.
 

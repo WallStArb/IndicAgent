@@ -1,10 +1,25 @@
 # v3.0 North Star — Intelligence Vectors Concept
 
-**Version:** 1.1
+**Version:** 1.3
 **Status:** Canonical for the North Star philosophy (blockquote below) — see 2026-08-06 note on
 the PrecedentEngine mechanics sections
-**Last Updated:** 2026-06-20 (naming pass 2026-08-06: AnalogEngine → PrecedentEngine throughout,
-see note below; content otherwise unchanged)
+**Last Updated:** 2026-09-04 (second accuracy pass, same day: verified live system state via
+`systemctl`, DB schema (`\d alpha_events`, `\d feature_vectors`, `\d+ signal_ledger`), and code
+(`grep` for named classes) rather than doc prose alone. Fixed two stale `IntelligencePipeline`
+references — that class is v2.x, archived (`indicagent-intelligence-pipeline.service` is
+`failed`); the live v3.0 in-process compute daemon is `FeatureVectorPipeline`
+(`services/feature_vector_pipeline.py`). Reconciled the `alpha_events` schema-concept field list
+against the built table (`score_decomposition`→`top_features`, `ts`→`bar_ts`,
+`timeframe`→`tf`; `ood_flagged` not yet present — PrecedentEngine unimplemented, consistent with
+the existing staleness note). Flagged that `signal_ledger`→`alpha_ledger` has not happened —
+`signal_ledger` is still a v2.x-shaped view over the archived `signal_events` table (0 rows); no
+`alpha_ledger` exists. Confirmed `alpha_events` (70.5M rows) and `feature_vectors` (106.3M rows)
+are both live and match this doc's DAG/schema claims, but both are stale as of today — max
+`bar_ts` 2026-08-11 and 2026-08-13 respectively — because live IBKR ingestion has been down since
+2026-08-12 (`indicagent-ibkr-provider.service` inactive; see todo 366). This doc makes no explicit
+"real-time now" claim so no text changed for that, but a reader should not assume same-day
+freshness from this doc alone. Prior pass's Invariant 1/5 and Related Docs fixes re-verified and
+confirmed correct.)
 **Tags:** intelligence-vectors, alphaengine, precedent-engine, ic, signal-layer, v3.0, renaissance
 
 **Location:** Moved to `docs/foundation/` as canonical v3.0 origin document (2026-07-06). This establishes the Renaissance-grade principle that governs all v3.0 architectural decisions.
@@ -59,8 +74,9 @@ R(T, N) = ln(close[T+N] / close[T])    -- WRONG
 
 **Enforcement:** `forward_returns` schema constrains `return_type = 'executable_open_to_open'`. Any row with a different return type is excluded from IC computation.
 
-**Status:** ✅ Specified in `docs/plans/2026-06-20-alphaengine-ic-spec.md` §V.1
-**Implementation:** ⚠️ NOT YET IMPLEMENTED — currently using theoretical returns
+**Status:** ✅ Specified in `docs/intelligence/intelligence-alphaengine-methodology.md` §Forward Returns
+**Implementation:** ✅ Implemented — `return_type = 'executable_open_to_open'` filter enforced in every forward-return query
+<!-- src: services/ic_engine.py:1138,3231,4442 -->
 
 ---
 
@@ -76,7 +92,7 @@ R(T, N) = ln(close[T+N] / close[T])    -- WRONG
 - Pass criteria: IC > 0 in >= 2 of 3 folds, IC Sharpe >= 0.4, consistent sign
 - Holdout is burned exactly once — re-using it after disappointing results is p-hacking
 
-**Status:** ✅ Specified in `docs/plans/2026-06-20-alphaengine-ic-spec.md` §IX.3
+**Status:** ✅ Specified in `docs/intelligence/intelligence-alphaengine-methodology.md` §Multiple Testing / Walk-Forward Validation
 **Implementation:** ✅ Implemented in `services/ic_engine.py`
 
 ---
@@ -94,7 +110,7 @@ Where IC_t is computed on non-overlapping windows of 2,000 independent observati
 Minimum: 10 IC observations (20,000 independent obs required)
 ```
 
-**Status:** ✅ Specified in `docs/plans/2026-06-20-alphaengine-ic-spec.md` §X
+**Status:** ✅ Specified in `docs/intelligence/intelligence-alphaengine-methodology.md` §IC Sharpe Computation
 **Implementation:** ✅ Implemented in `services/ic_engine.py`
 
 ---
@@ -107,7 +123,7 @@ Minimum: 10 IC observations (20,000 independent obs required)
 
 **Enforcement:** `feature_ic_scores` regime column is NOT NULL. Pooled rows use `is_pooled=true` + `regime='_pooled'` sentinel. The ensemble reads only regime-stratified rows.
 
-**Status:** ✅ Specified in `docs/plans/2026-06-20-alphaengine-ic-spec.md` §III.3
+**Status:** ✅ Specified in `docs/intelligence/intelligence-alphaengine-methodology.md`
 **Implementation:** ✅ Implemented
 
 ---
@@ -124,8 +140,9 @@ Minimum: 10 IC observations (20,000 independent obs required)
 - Recovery gate: requires 2,000 NEW independent observations (non-overlapping with decay window)
 - No partial restoration — full Ledoit-Wolf re-solve assigns correct weight
 
-**Status:** ✅ Specified in `docs/plans/2026-06-20-alphaengine-ic-spec.md` §XIII
-**Implementation:** ⚠️ Partially implemented — hysteresis verification needed
+**Status:** ✅ Specified in `docs/intelligence/intelligence-alphaengine-methodology.md`
+**Implementation:** ✅ Implemented — `decay_materiality_threshold` gate + `decay_recovery_min_observations`/`decay_recovery_min_passes` hysteresis
+<!-- src: services/ic_engine.py:515,528-529,5378-5379,5550 -->
 
 ---
 
@@ -137,7 +154,7 @@ Minimum: 10 IC observations (20,000 independent obs required)
 
 **Enforcement:** `feature_vectors.regime_label_source` is schema-constrained to `{'filtered', 'unknown'}`. Any row with `regime_label_source = 'viterbi_batch'` or `'smoothed'` is rejected. IC engine filters `WHERE regime_label_source = 'filtered'`.
 
-**Status:** ✅ Specified in `docs/plans/2026-06-20-alphaengine-ic-spec.md` §IV.1
+**Status:** ✅ Specified in `docs/intelligence/intelligence-alphaengine-methodology.md`
 **Implementation:** ✅ Enforced at schema level
 
 ---
@@ -154,7 +171,7 @@ For lookahead N, sample every Nth bar:
 observations = rows where (row_index % N) == 0
 ```
 
-**Status:** ✅ Specified in `docs/plans/2026-06-20-alphaengine-ic-spec.md` §VIII.2
+**Status:** ✅ Specified in `docs/intelligence/intelligence-alphaengine-methodology.md` §Non-Overlapping Sub-Sampling
 **Implementation:** ✅ Implemented in `services/ic_engine.py`
 
 ---
@@ -163,13 +180,15 @@ observations = rows where (row_index % N) == 0
 
 | Invariant | Spec | Implementation | Blocker |
 |-----------|------|-----------------|---------|
-| 1. Executable returns | ✅ | ⚠️ | `forward_returns` computation |
+| 1. Executable returns | ✅ | ✅ | None |
 | 2. Walk-forward gate | ✅ | ✅ | None |
 | 3. IC Sharpe weights | ✅ | ✅ | None |
 | 4. Regime-stratified | ✅ | ✅ | None |
-| 5. Automated decay | ✅ | ⚠️ | Hysteresis verification |
+| 5. Automated decay | ✅ | ✅ | None |
 | 6. Causal regimes | ✅ | ✅ | None |
 | 7. Non-overlapping windows | ✅ | ✅ | None |
+
+All seven invariants are implemented as of this pass — this table was last verified 2026-08-06 and had two stale ⚠️ rows (1 and 5) inherited from the original pre-implementation draft.
 
 ---
 
@@ -351,7 +370,9 @@ One producer per vector. Each is isolated: it reads its own data source and emit
 
 The critical invariant: **every plugin produces a score on every bar, whether or not it would have historically fired a signal.** If a plugin only computes its score when its hand-crafted conditions are partially met, IC measurement on that score is still subject to selection bias. Continuous scoring must be total — every bar, every plugin, unconditionally.
 
-V1-V4 producers run in-process in `IntelligencePipeline`, per bar close. V5-V8 producers are async Ring 2 daemons that publish to Kafka; scores are consumed and held in an in-memory cache — never read from DB per bar.
+V1-V4 producers run in-process in `FeatureVectorPipeline` (`services/feature_vector_pipeline.py`; the v2.x `IntelligencePipeline` this doc originally named is archived — `indicagent-intelligence-pipeline.service` is `failed`), per bar close. V5-V8 producers are async Ring 2 daemons that publish to Kafka; scores are consumed and held in an in-memory cache — never read from DB per bar.
+<!-- src: services/feature_vector_pipeline.py:151 -->
+<!-- src: systemctl status indicagent-feature-vector-pipeline.service (active/running), indicagent-intelligence-pipeline.service (failed), checked 2026-09-04 -->
 
 ### Layer 2 — Score Normalization
 
@@ -456,15 +477,16 @@ No signal. No plugin firing logic. No predefined theory about which feature comb
 
 `signal_events` → `alpha_events`. The record is no longer "a plugin decided conditions were met." It is "the ensemble had sufficient conviction at this bar, with these contributing scores and weights."
 
-`alpha_events` schema (concept):
-- `ts` — bar timestamp
-- `symbol`, `timeframe`
+`alpha_events` schema (concept, written when this doc was drafted; the table is now live — column names below reconciled against the built schema):
+- `bar_ts` (doc originally said `ts`) — bar timestamp
+- `symbol`, `tf` (doc originally said `timeframe`)
 - `alpha_score` — ensemble conviction `[-1, +1]`
 - `alpha_ci_lower` — bootstrap confidence interval lower bound
 - `regime` — HMM regime in effect at emission
 - `effective_n` — number of independent predictors that contributed
-- `score_decomposition` — JSONB: contributing feature scores, IC weights, ambient modifier values
-- `ood_flagged` — PrecedentEngine: no close historical analogs exist for this bar state
+- `top_features` (doc originally said `score_decomposition`) — JSONB: contributing feature scores, IC weights, ambient modifier values
+- `ood_flagged` — not present in the built schema; this is a PrecedentEngine annotation and PrecedentEngine is not implemented (see staleness note at top of this doc)
+<!-- src: PGPASSWORD=postgres psql -U postgres -h localhost -d indicagent -c "\d alpha_events", checked 2026-09-04 -->
 
 `trade_frames` and `trade_executions` remain. They capture what was done with the alpha emission — entry type, stop, target, counterfactual P&L, actual P&L. The emission is the opportunity; the frames are the hypothesis about how to act on it.
 
@@ -547,7 +569,8 @@ If there are no signals, there is no `signal_events`. What replaces it:
 
 **`trade_frames` and `trade_executions`** — unchanged in concept. They capture what was done with the alpha emission: how it was acted on, at what prices, with what outcome. The emission is the opportunity; the frames are the hypothesis about how to act.
 
-`signal_ledger` becomes `alpha_ledger` — the join view across alpha_events, trade_frames, trade_executions. Same three-table architecture, different first table.
+`signal_ledger` becomes `alpha_ledger` — the join view across alpha_events, trade_frames, trade_executions. Same three-table architecture, different first table. **Not yet done:** the live `signal_ledger` view is still joined against the v2.x `signal_events`/`trade_frames`/`trade_executions` schema (`signal_events` is archived, 0 rows); no `alpha_ledger` view exists yet.
+<!-- src: PGPASSWORD=postgres psql -U postgres -h localhost -d indicagent -c "\d+ signal_ledger" and "\dv" (no alpha_ledger), checked 2026-09-04 -->
 
 ---
 
@@ -575,7 +598,7 @@ Pure analysis on existing data. No pipeline changes. Measure Spearman IC per plu
 I7 plugins emit `alpha_score` alongside existing binary signal. Zero behavior change to emission. Schema additive.
 
 **Phase C — Ensemble Layer**
-IC-weighted ensemble aggregates plugin scores into a Quant Vector alpha. Replaces hand-crafted plugin confidence. Runs in-process in IntelligencePipeline after the signal tier.
+IC-weighted ensemble aggregates plugin scores into a Quant Vector alpha. Replaces hand-crafted plugin confidence. Runs in-process in `FeatureVectorPipeline` after the signal tier.
 
 **Phase D — Vector 2 (Microstructure)**
 Order flow, CVD, trade size distribution scored per bar. Orthogonal to technical signals by construction. IC measured independently.
@@ -589,10 +612,9 @@ Calendar vector first (trivially orthogonal, time-based only). Macro vector seco
 
 ## Related Docs
 
-- `docs/plans/2026-06-20-intelligence-vectors-architecture.md` — AlphaEngine technical design (Phases A-E detail)
-- `docs/plans/2026-06-20-v30-reference-architecture.md` — v3.0 reference: both systems, 10 Simons demands, full microservice DAG
-- `docs/research/analog-engine-01-substrate.md` — VIL substrate: embedding, retrieval, pgvector
-- `docs/research/analog-engine-02-ic-factory.md` — IC Factory: feature-level IC, Outcome Labeler, Analog Finder
-- `docs/research/analog-engine-03-scoring-engine.md` — Score Object: transformation from analog set to scored conviction
-- `docs/research/analog-engine-04-correlation.md` — Correlation Intelligence: effective-N measurement
+**Note (2026-09-04):** the five `docs/plans/`- and `docs/research/`-prefixed paths below were the live locations when this doc was written; all five have since moved or been deleted (see `git log --diff-filter=D -- docs/plans/2026-06-20-alphaengine-ic-spec.md`). Links corrected to current locations:
+
+- `docs/intelligence/intelligence-alphaengine-methodology.md` — AlphaEngine IC methodology (replaces the deleted `docs/plans/2026-06-20-alphaengine-ic-spec.md`; extracted 2026-06-30)
+- `docs/intelligence/intelligence-alphaengine.md` — AlphaEngine architecture (replaces `docs/plans/2026-06-20-intelligence-vectors-architecture.md` / `docs/plans/2026-06-20-v30-reference-architecture.md`, neither of which exists on disk any longer)
+- `docs/research/intel-precedent-engine.md` — PrecedentEngine current design (see staleness note at top of this doc; replaces the four archived `analog-engine-0*.md` docs now under `docs/research/archive/`)
 - `docs/foundation/glossary.md` — canonical term definitions (IC, ECL, AlphaEngine, PrecedentEngine, VIL)

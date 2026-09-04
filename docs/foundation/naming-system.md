@@ -1,7 +1,7 @@
 # Naming System
 
 **Status:** current
-**Last Updated:** 2026-08-10 (§4 added Surfaces 6-8 — REST API Routes, Functions and Methods, Module-Level Constants, derived from live codebase convention + REST/PEP 8 standards; Operational Files renumbered Surface 6→9; §7 added Volatility state domain-specific scale — `calm`/`elevated`/`turbulent` for `feature_vectors.regime_volatility`, Phase 172)
+**Last Updated:** 2026-09-04 (verification pass: §4 Domain Objects table — `AIContext`/`AIContextCache` rename to `SignalContext`/`SignalContextCache` confirmed complete in code, table updated; §4 Mechanical Derivation Table — `signal_tracker`'s topic/table/systemd-unit rows corrected against live code (no owned topic/table, unit is `indicagent-signal-tracker-compute.service`); §4 Surface 7 abbreviation-floor note — `signals.py` cleanup item confirmed resolved. Prior: 2026-08-10, §4 added Surfaces 6-8 — REST API Routes, Functions and Methods, Module-Level Constants, derived from live codebase convention + REST/PEP 8 standards; Operational Files renumbered Surface 6→9; §7 added Volatility state domain-specific scale — `calm`/`elevated`/`turbulent` for `feature_vectors.regime_volatility`, Phase 172)
 **Extended discussion:** `docs/reference/renaissance-naming-philosophy.md` (worked reasoning for the governing tests and model-evolution protocol only — not a second source of current naming fact; git history is the record of the 2026-05/06 vocabulary rename phase)
 
 ---
@@ -313,16 +313,22 @@ Table naming uses stable relation names, not strictly grammatical pluralization.
 
 ### The Mechanical Derivation Table
 
-Given concept `signal_tracker`:
+Given concept `signal_tracker`, the surfaces that are concept-owned (class, file, log, metric prefix,
+`daemon_id`, variable name) derive mechanically as shown. `signal_tracker` does not own a dedicated
+input topic or table — it consumes shared upstream topics and its output is persisted by a separate
+writer into the shared SLA schema, not a `<concept>s` table — so those two rows are marked N/A rather
+than showing an invented value; the general derivation pattern (topic string `<env>.<domain>.<concept>`
+via `topic_<concept>()`, table `<concept>s`) still applies to concepts that own their own topic/table
+(verified against `services/signal_tracker.py` and `services/lifecycle_writer.py`, 2026-09-04):
 
 | Surface | Result |
 |---------|--------|
 | Daemon class | `SignalTracker` |
 | File name | `services/signal_tracker.py` |
-| Systemd unit | `indicagent-signal-tracker.service` |
-| Topic function | `topic_signal_tracker()` |
-| Topic string | `prod.signals.tracker` |
-| DB table | `signal_trackers` |
+| Systemd unit | `indicagent-signal-tracker-compute.service` |
+| Topic function | N/A — consumes `topic_market_bars()`, `topic_market_bars_htf()`, `topic_intelligence_i7_signals()`; publishes `topic_lifecycle_transitions()`; DLQ `topic_signal_tracker_dlq()` |
+| Topic string | N/A (see above — no single owned topic) |
+| DB table | N/A — `LifecycleWriter` persists lifecycle transitions into the shared `signal_events`/`trade_frames`/`trade_executions` SLA schema, not a `signal_trackers` table |
 | Log file | `logs/signal_tracker.log` |
 | Metric prefix | `signal_tracker_` |
 | Structlog `daemon_id` value | `signal_tracker` |
@@ -385,9 +391,9 @@ function from `get_` to `compute_` (or back) is a real API contract change, not 
 
 **Abbreviation floor:** single- or double-letter function names are prohibited outside the
 mathematical-variable exception already granted in Surface 5 — a private float/str/int coercion
-helper is named `_to_float`/`_to_str`/`_to_int`, never `_f`/`_s`/`_i`. (`src/api/routes/signals.py`
-currently violates this — `_f`, `_s`, `_i`, `_ts` — tracked as a cleanup item, not fixed by this
-doc pass.)
+helper is named `_to_float`/`_to_str`/`_to_int`, never `_f`/`_s`/`_i`. `src/api/routes/signals.py`
+now conforms (`_to_float`, `_to_str`, `_to_int`, `_to_timestamp`, verified 2026-09-04) — the
+cleanup item this note previously tracked is resolved.
 
 ### Surface 8 — Module-Level Constants
 
@@ -517,7 +523,9 @@ A quantity that is structurally a magnitude tier (a continuous score threshold-b
 
 ### Rule
 
-Only terms from the tables above may appear as scale qualifiers in column names, APR keys, and variable names. Numbers in names are valid **only** when the number defines the statistical concept — `momentum_z_5` means "5-bar z-score"; changing it to 7 bars produces a different statistic, not a recalibrated version of the same one. When the number is a tunable calibration parameter, use a gradient term instead: `return_fast` column + `alpha.ic.lookahead.fast = 1` APR key. See CLAUDE.md §APR for the full pattern.
+Only terms from the tables above may appear as scale qualifiers in column names, APR keys, and variable names. Numbers in names are valid **only** when the number defines the statistical concept — `rsi_14` means "14-period RSI"; changing it to 9 or 21 produces a different statistic, not a recalibrated version of the same one <!-- src: src/intelligence/schemas.py rsi_14 field -->. When the number is a tunable calibration parameter, use a gradient term instead: `return_fast` column + `alpha.ic.lookahead.{tf}.fast` APR key <!-- src: services/forward_return_writer.py:765, production/migrations/269_per_tf_ic_lookahead_grid.sql --> (per-timeframe since migration 269 — no single shared `alpha.ic.lookahead.fast` grid exists across timeframes, todo 146). See CLAUDE.md §APR for the full pattern.
+
+**Historical note:** `momentum_z_5` was this section's original immutable-case example. It no longer exists — migration 155 renamed it to `momentum_z_fast` once the "5" was recognized as a tunable calibration window rather than a fixed statistical definition, and it is now backed by `feature.momentum.window_fast` in APR <!-- src: production/migrations/155_foundation_hardening.sql; src/intelligence/schemas.py momentum_z_fast field -->. This is the rule working as intended, not a counterexample to it — but it means `momentum_z_5` can no longer illustrate the immutable side of the contrast, hence the swap to `rsi_14` above.
 
 **Prohibited:** inventing terms outside these tables (`near`, `ultra`, `short`, `long`). `tight`/`wide` are permitted *only* within the Credit spread state domain-specific scale above — never as a generic magnitude qualifier elsewhere (use `low`/`high` for any non-credit magnitude tiering). If a new gradient term is genuinely needed — generic or domain-specific — update this table first; this section is the single source of truth.
 
@@ -569,9 +577,8 @@ src/monitoring/            CUSUM, KS drift — statistical monitors
 
 | Object | Correct location | Reason |
 |--------|-----------------|--------|
-| `AIContext` | `src/intelligence/ai/context.py` | Trading intelligence state — fails portability test |
-| `SignalContext` (rename target) | `src/intelligence/ai/context.py` | Same |
-| `AIContextCache` | `src/intelligence/ai/context.py` | Domain cache tied to intelligence tiers |
+| `SignalContext` | `src/intelligence/ai/context.py` | Trading intelligence state — fails portability test. Rename from `AIContext` is complete in code (verified 2026-09-04); one stale reference remains in `src/intelligence/ai/AUTHORING.md`. |
+| `SignalContextCache` | `src/intelligence/ai/context.py` | Domain cache tied to intelligence tiers. Renamed from `AIContextCache`. |
 
 ### Boundary Enforcement
 

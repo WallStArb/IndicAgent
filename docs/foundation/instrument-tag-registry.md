@@ -3,7 +3,7 @@
 **Canonical name:** Instrument Tag Registry (ITR)
 **Informal aliases:** tag system, tag vocabulary (colloquial — acceptable in casual conversation, not in architecture docs or code comments)
 **Status:** current — TagCalibrator (empirical measurement engine) live since 2026-07-17
-**Last Updated:** 2026-08-08
+**Last Updated:** 2026-09-04
 **Phase introduced:** 120 (schema + human seed), extended Phase 146 (empirical calibration)
 
 ---
@@ -102,7 +102,7 @@ Six categories, defined in `docs/foundation/glossary.md` §"Tag category taxonom
 | `signal_role` | How the instrument functions in the signal-generation system | Mostly definitional | `benchmark`, `regime_classifier`, `leading_indicator`, `spread_leg` |
 | `macro_driver` | Primary macroeconomic force driving returns | Empirical (beta vs. macro proxy) | `fed_policy`, `oil_price`, `china_demand`, `yen_carry` |
 
-**Banned aliases:** `credit_cycle` was merged into `credit_risk` (Phase 146, migration 237, 2026-07-17) — both tagged the identical underlying `credit_risk` factor loading on the same holders (`HYG`, `LQD`) at near-identical weights. Do not reintroduce it. Full rule: two tags must never share the same `factor_series` value (redundant measurements of the same quantity under different names).
+**Banned aliases:** `credit_cycle` was merged into `credit_risk` (Phase 146, migration 229, 2026-07-17) — both tagged the identical underlying `credit_risk` factor loading on the same holders (`HYG`, `LQD`) at near-identical weights. Do not reintroduce it. Full rule: two tags must never share the same `factor_series` value (redundant measurements of the same quantity under different names).
 
 ---
 

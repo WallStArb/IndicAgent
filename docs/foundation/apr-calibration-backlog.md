@@ -2,7 +2,7 @@
 
 **Version:** 1.0
 **Status:** current
-**Last Updated:** 2026-07-27
+**Last Updated:** 2026-09-04
 
 ## What this is
 
@@ -40,18 +40,30 @@ quick guess-swap.
 | `alpha.ic.cluster_max_corr` | 0.70 | BH-FDR feature clustering (`ic_engine.py`) | `[initial_estimate]`, "candidate ML learning target" — no data behind 0.70 specifically. |
 | `alpha.ic.hac_max_lag` | 3 | Newey-West HAC correction on IC Sharpe (`ic_engine.py`) | `[initial_estimate]`: "revise upward if IC series autocorrelation extends beyond lag 3" — this corpus's actual autocorrelation has never been checked. |
 | `alpha.ensemble.mv_condition_max` / `alpha.ic.partial_control_condition_max` | 1000 (both) | Ill-conditioning guard on mean-variance/partial-IC solves | Both `[initial_estimate]`; the second migration admits it copied the first ("matching the E2 mean-variance path's precedent") — a guess citing a guess. |
-| `alpha.feature_registry.min_ic_sharpe_default` | 0.5 | Global feature promotion/demotion floor | `[initial_estimate]`: "calibrate from Phase 141 IC distribution before setting final value" — never done. |
 | `alpha.tag_calibrator.*` (`min_sample_n`=60, `half_life_min/max`=30/365d, `expiry_consecutive_fails`=3, `discovery_oos_days`=63) | — | `services/tag_calibrator.py` — governs when an empirical instrument tag is trusted/expired | All `[initial_estimate]`, no measurement cited in any of the seeding migrations. |
-| `alpha.concept_registry.ensemble_strategy_min_observations` / `min_promotion_consecutive` | 1000 / 2 | Concept promotion gate | `[initial_estimate]` — the *shape* of the reasoning is documented (non-overlapping CIs are strict), the specific number isn't. |
+| `alpha.concept_registry.ensemble_strategy_min_observations` / `ensemble_strategy_min_promotion_consecutive` | 1000 / 2 | Concept promotion gate | `[initial_estimate]` — the *shape* of the reasoning is documented (non-overlapping CIs are strict), the specific number isn't. |
 | `alpha.ensemble_ic.min_obs_per_regime` / `wf_stability_ratio` / `stop_target_min_qualifying_symbols` | 3000 / 3.0 / 3 | Data-sufficiency and fold-stability diagnostics (`ensemble_ic_engine.py`) | All `[initial_estimate]`, no empirical basis cited. |
-| `feature.zone_engine.min_zone_width_atr.futures` | 1.5 | Zone-width entry gate (`trade_framer.py`/`sr_consensus.py`) | `[initial_estimate]` — migration admits "no live futures zone data; initial estimate retained." |
 | `alpha.validation.regime_gate_min_clusters` | 20 | Day-cluster coverage floor — the key that started this audit | `[initial_estimate]`: "no empirical calibration performed yet." Lower blast radius than the rest of this table — consumed only by `scripts/analysis/*.py` one-off eval scripts, not a live daemon. |
 | `threshold.signal_audit.verifiable_population_floor` / `partial_population_floor` | 0.90 / 0.50 | Signal audit verdict tiers | `[initial_estimate]`, no data cited — consuming pipeline (I1-I7 signal audit) is part of the archived v2.x tier, not confirmed live; lower priority to recalibrate for that reason. |
+| `alpha.decay.demotion_min_consecutive` | 2 | `active → shadow_only` demotion hysteresis for the `feature` domain's sync (`ic_engine.py`) lifecycle path (migration 321, todo 323) — gates `ConceptRegistryService.is_demotion_eligible()` | `[initial_estimate]`: migration's own text picks 2 "as the most directly defensible symmetric starting point" by matching `alpha.concept_registry.ensemble_strategy_min_promotion_consecutive`'s value — a borrowed number, not a measurement against this project's own demotion history. |
+
+**Retired since the last pass:** `alpha.feature_registry.min_ic_sharpe_default` (seeded in
+migration 169, the old `feature_registry` system) no longer exists in `config_schema` —
+Phase 170 (migration 311) dropped `feature_registry`/`feature_transition_log` and deleted
+`FeatureRegistryService`; `concept_registry` is the sole feature-lifecycle system now. Removed
+from this table rather than left as a dangling reference to a deleted key.
 
 ## Section 2 — Tagged conservatively but actually has real empirical backing
 
 Don't recalibrate these — the number is fine, only the tag undersells it.
 
+- **`feature.zone_engine.min_zone_width_atr.futures`** (1.5): moved here 2026-09-04 — this doc
+  previously listed it in Section 1 as `[initial_estimate]` with "no live futures zone data,"
+  but `config_schema.description` now reads `[rca_analysis] Phase 126 zone entry width gate for
+  futures instruments. Noise-band analysis." The recalibration happened directly via migration
+  (no `config_history` `rca_analysis` row — this is a schema-description edit, not a runtime
+  `ConfigService.set()` write), so it wouldn't show up in a `config_history` grep. Live consumer
+  confirmed: `src/intelligence/trading/trade_framer.py:164` (`_min_zone_width_atr`).
 - **`feature.zone_engine.min_zone_width_atr.fx`** (1.0): tagged `[initial_estimate]`, but the
   description cites a real measurement (forex zones' p50 ~1.41-1.43x ATR on EURUSD/USDCHF).
 - **`feature.hmm.n_components`** (5): **fixed 2026-07-27, migration 265.** Migration 172 ran a
@@ -83,7 +95,7 @@ convention (migration 103, Phase 109 era) and were never backfilled.
   is under the archived v2.x I1-I7 pipeline (no live daemon). Low priority — dead-path, not a
   live risk.
 - `roll.threshold_default` — no current code reference found; likely dead, unclear.
-- The 21 `alert.lag.*` consumer-lag ceilings — infra alerting thresholds, not statistical
+- The 23 `alert.lag.*` consumer-lag ceilings — infra alerting thresholds, not statistical
   gates; lower priority for this specific backlog.
 - `ui.signals.min_confidence` — carries an informal `[data-derived]` tag (not one of the four
   canonical provenance tags) describing 0.40 as an empirically-derived breakeven threshold,

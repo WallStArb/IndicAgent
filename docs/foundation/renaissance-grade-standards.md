@@ -1,8 +1,8 @@
 # Renaissance-Grade Standards
 
-**Version:** 1.0
+**Version:** 1.1
 **Status:** current
-**Last Updated:** 2026-06-28
+**Last Updated:** 2026-09-04
 
 ## Philosophy
 
@@ -143,17 +143,7 @@ rm -rf .pytest_cache .ruff_cache htmlcov .coverage
 ```
 
 ### Done-Coding SOP
-From `docs/foundation/ship-or-sink-rules.md` — execute in order before considering session complete:
-
-1. **Simplify** — run code-simplifier agent
-2. **Review** — run `/review` (peer code review)
-3. **Test** — `pytest tests/unit/ -q` must be green
-4. **Commit** — on feature branch, no AI attribution
-5. **Merge** — `git checkout main && git merge --ff-only <branch>`
-6. **Clean** — `git branch -d <branch> && git worktree prune` ← Renaissance-grade
-7. **Push** — `git push origin main`
-
-No branches left behind. No worktrees accumulating. Clean as you ship.
+Canonical steps and rationale: `docs/foundation/ship-or-sink-rules.md` (also mirrored at the top of root `CLAUDE.md`). The Renaissance-grade-specific piece of that SOP is step 6, **Clean** (`git branch -d <branch> && git worktree prune`) — no branches left behind, no worktrees accumulating.
 
 ---
 
@@ -262,8 +252,8 @@ __pycache__/
 .ruff_cache/
 .coverage
 htmlcov/
-*.log.1
-*.log.[0-9].gz
+*.log
+logs/
 ```
 
 ### Review Checklist

@@ -1,8 +1,8 @@
 # Documentation System
 
-**Version:** 3.0
+**Version:** 3.1
 **Status:** current
-**Last Updated:** 2026-06-28
+**Last Updated:** 2026-09-04
 
 ---
 
@@ -51,7 +51,7 @@ When a doc's described system changes, the doc's status drops to `draft` automat
 
 At Renaissance, bad data is removed from the training set. A doc that fails verification is immediately downgraded to `draft` and flagged. It is not left as `current` with an inline caveat. Inline accuracy warnings are noise annotations on noise — they do not fix the problem.
 
-The global caveat in `docs/README.md` applies to workspace folders only (`ideas/`, `plans/`, `specs/`). Inner-ring domain docs carry no such escape hatch.
+The global caveat in `docs/README.md` applies to workspace folders only (`ideas/`, `plans/`, `research/`). Inner-ring domain docs carry no such escape hatch.
 
 ### Shadow Mode for Documentation
 
@@ -77,8 +77,8 @@ docs/
   development/    Developer HOW — setup, testing, profiling
   reference/      Quick lookup — cheatsheets, gotchas, standards
   ideas/          Research workspace — living, speculative, not authoritative
+  research/       Architecture reviews, methodology decisions, priorities log — filename-stable, living
   plans/          Phase implementation plans — living workspace
-  specs/          Design contracts for in-flight phases
 ```
 
 ### Inner Ring — Authoritative, Verified
@@ -103,9 +103,11 @@ These folders predate the domain-first taxonomy. Content is stable but carries i
 
 ### Workspace Folders — Not Authoritative
 
-`ideas/`, `plans/`, `specs/`
+`ideas/`, `plans/`, `research/`
 
-These folders are thinking space. Forward-looking content is expected and permitted. No doc in these folders is trusted without verification. The accuracy warning in `docs/README.md` is aimed here.
+These folders are thinking space. Forward-looking content is expected and permitted. No doc in these folders is trusted without verification. The accuracy warning in `docs/README.md` is aimed here. `research/` carries one exception to normal decay handling: docs there are filename-stable — edited in place and no longer re-dated on rewrite — so check for a stale `YYYY-MM-DD-<name>.md` fork of an undated doc before citing or editing either (see root `CLAUDE.md`).
+
+A former `specs/` folder (design contracts for in-flight phases) has been removed from the tree — its content was migrated into `plans/` or deleted as stale. Do not recreate it without updating this section.
 
 ### The Portability Test for `foundation/`
 
@@ -189,11 +191,11 @@ The role suffix is not a closed list — choose the word that names what the doc
 Every factual claim in a `current` doc must be traceable. The citation format:
 
 ```markdown
-The writer batch flushes at 500ms or 1,000 records, whichever comes first.
-<!-- src: services/feature_writer.py:142 -->
+The feature vector writer flushes at a 5-second interval or 50 records, whichever comes first (APR-backed, `threshold.feature_writer.batch_size`).
+<!-- src: services/feature_vector_writer.py:299-301 -->
 ```
 
-For schema claims: `<!-- src: migrations/095_signal_ledger_split.sql -->`
+For schema claims: `<!-- src: production/migrations/099_signal_ledger_split.sql -->`
 For service state claims: verified by `systemctl list-units` at `Last Updated` date.
 
 Citations are in HTML comments — they do not appear in rendered output but are visible when editing. A doc with no citations is `draft` regardless of what the status header says.

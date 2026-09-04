@@ -2,9 +2,9 @@
 
 **Canonical name:** Unified Concept Registry (UCR)
 **Informal aliases:** "Concept Registry," "the concept tables" (colloquial — acceptable in casual conversation, not in architecture docs or code comments)
-**Status:** current for architecture/mechanics — MVP live since 2026-07-13 (`ensemble_strategy` domain). The `feature` domain migration (Phase 170) is **COMPLETE** (2026-08-10, migration 311): `feature_registry`/`feature_transition_log` were DROPped and `FeatureRegistryService` deleted — `concept_registry` is the sole feature-lifecycle system, no parallel table remains. Both domains live: `concept_registry` holds 300 `feature`-domain rows (298 `FeatureVector` fields + 2 orphan tombstones from migration 284) and 5 `ensemble_strategy` rows, verified 2026-08-15 — re-verify row counts before citing them further out, this count moves as new features are added (most recently todo 320, migration 316).
-**Phase introduced:** 160 (MVP, four tables), extended Phase 170 (feature-domain schema gaps: `concept_parent`, cascade trigger, cycle guard, control/group columns, shadow-recovery counters)
-**Last Updated:** 2026-08-15
+**Status:** current for architecture/mechanics — MVP live since 2026-07-13 (`ensemble_strategy` domain). The `feature` domain migration (Phase 170) is **COMPLETE** (2026-08-10, migration 311): `feature_registry`/`feature_transition_log` were DROPped and `FeatureRegistryService` deleted — `concept_registry` is the sole feature-lifecycle system, no parallel table remains. A third domain, `construction`, was added 2026-09-02 (migration 329) as the verdict registry for the personal-scale edge determination program (see Domains below). Three domains live: `concept_registry` holds 300 `feature`-domain rows, 5 `ensemble_strategy` rows, and 3 `construction` rows, verified 2026-09-04 — re-verify row counts before citing them further out, these counts move as new features/verdicts are added.
+**Phase introduced:** 160 (MVP, four tables), extended Phase 170 (feature-domain schema gaps: `concept_parent`, cascade trigger, cycle guard, control/group columns, shadow-recovery counters), extended 2026-09-02 (`construction` domain, migration 329)
+**Last Updated:** 2026-09-04
 
 ---
 
@@ -45,7 +45,7 @@ Five tables (MVP + Phase 170 additions), two DB-level triggers, one service (`Co
 | Column | Type | Description |
 |--------|------|--------------|
 | `concept_id` | UUID PRIMARY KEY | |
-| `domain` | TEXT NOT NULL, CHECK | `'feature'` or `'ensemble_strategy'` today — see Domains below |
+| `domain` | TEXT NOT NULL, CHECK | `'feature'`, `'ensemble_strategy'`, or `'construction'` today — see Domains below |
 | `name` | TEXT NOT NULL | Unique within `(domain, name)` |
 | `description` | TEXT NOT NULL | |
 | `status` | TEXT NOT NULL DEFAULT `'candidate'`, CHECK | `candidate` / `shadow_only` / `active` / `deprecated` |
@@ -149,7 +149,8 @@ Used by `ic_engine.py` and `ensemble_trainer.py`, both psycopg-based with no run
 | Domain | Status | Gate metric | Min observation floor |
 |--------|--------|--------------|------------------------|
 | `ensemble_strategy` | **Live** — MVP seeded 2026-07-13, 5 concepts | Ensemble IC (`ic_ci_lower`, walk-forward stable) | 1,000 bars (per-TF fold) |
-| `feature` | **Live** — Phase 170 migration complete 2026-08-10 (migration 311), 300 rows as of 2026-08-15 | IC Sharpe + FDR, walk-forward | 20,000 bars |
+| `feature` | **Live** — Phase 170 migration complete 2026-08-10 (migration 311), 300 rows as of 2026-09-04 | IC Sharpe + FDR, walk-forward | 20,000 bars |
+| `construction` | **Live** — added 2026-09-02 (migration 329), 3 rows, all `status='deprecated'` (all-DEAD-so-far, not a sign the domain doesn't work). Verdict registry for the personal-scale edge determination program (`docs/plans/2026-09-02-personal-scale-edge-determination-plan.md`, Governance) — a falsification-run verdict (e.g. `range_pct_fast_xs_ls_h5` DEAD 2026-09-02) writes a row with `metadata` carrying the full evidence bundle (p-values, betas, R², net-of-cost CIs). Confirmed: no `concept_gate` rows exist for this domain, and `ConceptRegistryService` has no `construction`-domain caller — all 3 rows arrived via direct migration `INSERT` as "a separate post-run step" after a falsification script runs (`scripts/analysis/range_pct_fast_xs_ls_h5_falsification.py`), not through the candidate→gate→promote machinery Invariants 1-9 describe. This domain is a verdict *record*, not a governed lifecycle — it doesn't exercise the gate/promotion mechanics at all, only the identity/status/metadata shape of `concept_registry` itself. | — |
 | `feature_interaction`, `hmm_variant`, `ic_method`, `regime_model`, `confluence` | Anticipated, not in the `domain` CHECK yet | — | — |
 | `alpha_pattern` | **Retired**, not anticipated | — | Its scope was fully absorbed by `feature_interaction` (dense deterministic transforms), `confluence` (sparse conditional predictors), and `feature`-grain retrieval columns — nothing left for it to govern |
 

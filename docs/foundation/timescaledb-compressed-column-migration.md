@@ -2,13 +2,15 @@
 
 **Version:** 1.0
 **Status:** current
-**Last Updated:** 2026-08-13
+**Last Updated:** 2026-09-04
 
 ## Why this doc exists
 
 Migration 312 (`feature_vectors` float64→float32 drift fix, 2026-08-12) ran the standard
 decompress→`ALTER COLUMN TYPE`→recompress sequence for changing a column type on a compressed
-hypertable, copied from migration 201 (2026-07-09, the original version of this same fix). Both
+hypertable, copied from migration 201 (2026-07-09, the original version of this same fix).
+Migration 202 (2026-07-09, `ALTER TABLE ... DROP COLUMN` on the same compressed hypertable)
+independently did the identical decompress→DDL→recompress round trip the same day. All three
 migrations assumed `compress_chunk()` would leave the chunk in its correct final size once it
 finished. It doesn't: `compress_chunk()` moves rows into the compressed columnar store but does
 not synchronously reclaim the decompressed heap pages `decompress_chunk()` populated earlier in
@@ -17,9 +19,9 @@ and TimescaleDB's internal chunk tables are not guaranteed to get picked up prom
 autovacuum (confirmed 2026-08-13: every chunk this pattern touched showed 0 live tuples and
 `last_vacuum`/`last_autovacuum` both `NULL` — never vacuumed, not even once).
 
-Neither migration included that step. The result: `feature_vectors` grew from a genuine ~57GB
-to 768GB on disk, root filesystem hit 100% full (8.1GB free on a 914GB disk), and Postgres
-PANIC-crashed twice from `ENOSPC` before anyone noticed. Full incident writeup: see the
+None of the three migrations included that step. The result: `feature_vectors` grew from a
+genuine ~57GB to 768GB on disk, root filesystem hit 100% full (8.1GB free on a 914GB disk), and
+Postgres PANIC-crashed twice from `ENOSPC` before anyone noticed. Full incident writeup: see the
 git history around 2026-08-13 disk-space investigation (todo/session notes) — the numbers above
 are the confirmed post-mortem figures, not estimates.
 
@@ -117,7 +119,22 @@ skipping cost analysis:
 
 ## Reference implementations
 
-`production/migrations/201_feature_vectors_float32.sql` and
-`production/migrations/312_feature_vectors_float32_drift_fix.sql` were both retroactively
-corrected 2026-08-13 to include step 4. Copy the pattern from either as a starting point for
-the next float-drift (or any other compressed-hypertable column type change) migration.
+`production/migrations/201_feature_vectors_float32.sql`,
+`production/migrations/202_drop_redundant_breakout_flags.sql`, and
+`production/migrations/312_feature_vectors_float32_drift_fix.sql` were all retroactively
+corrected 2026-08-13 to include step 4. Copy the pattern from any of the three as a starting
+point for the next float-drift (or any other compressed-hypertable column type change or
+`DROP COLUMN`) migration.
+
+<!-- src: tests/unit/test_compressed_hypertable_migration_vacuum_check.py -->
+CI enforcement (`tests/unit/test_compressed_hypertable_migration_vacuum_check.py`, todo 305)
+confirms these are the only three migrations that ever did the real round trip: it swept all
+migrations mentioning `decompress_chunk` and found 201/202/312 are the only ones that pair a
+`decompress_chunk(` with a `compress_chunk(` call on the same table and actually execute (not
+just describe the pattern in a comment). Migrations 216, 255, 266, 267, 288-293, and 307 that
+drifted feature columns back to `double precision` did so via plain
+`ADD COLUMN IF NOT EXISTS <col> DOUBLE PRECISION` on brand-new columns — never touching
+`decompress_chunk`/`compress_chunk` at all — so they carry no compressed-heap-page bloat risk
+and aren't in scope for this guard; they're a distinct, separate drift (new columns landing in
+the wrong type from birth, not an existing compressed column round-tripped incorrectly) that
+still needs its own float32-conversion cleanup migration eventually.

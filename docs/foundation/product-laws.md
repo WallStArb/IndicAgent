@@ -1,5 +1,9 @@
 # Product Laws
 
+**Version:** 1.1
+**Status:** current
+**Last Updated:** 2026-09-04
+
 ## Overview
 
 Six philosophical and economic principles that govern product reality. These complement our Renaissance principles — they describe what we fight **against**; Renaissance principles describe what we fight **for**.
@@ -34,7 +38,7 @@ Originally sourced from an infographic on modern tech product challenges, partic
 
 **IndicAgent Manifestation:**
 - "Earn promotion through proof (p<0.05, sufficient N)" — we track **outcome metrics** (pnl_r, mfe, mae), not **output metrics** (signals fired, features shipped)
-- `signal_ledger` captures full lifecycle outcomes, not just signal generation
+- `signal_ledger` (v2.x Signal Ledger Architecture) captures full lifecycle outcomes, not just signal generation — archived, no live consumer as of 2026-07-02; the outcome-over-output discipline itself carries forward into v3.0's `alpha_events`/IC-engine path
 - `setup_performance` tracks 30-day rolling stats, not point-in-time flashes
 - LLM audit trail (`llm_calls` table) measures agent quality, not call volume
 
@@ -50,10 +54,10 @@ Originally sourced from an infographic on modern tech product challenges, partic
 
 **IndicAgent Manifestation:**
 - "Resist overfitting" — simpler models that generalize beat complex models that memorize
-- Shadow governance with promotion/demotion based on `bootstrap_ci_lower(pnl_r) > 0.0`
+- Shadow governance with promotion/demotion based on `bootstrap_ci_lower(pnl_r) > 0.0` (v2.x I1-I7 plugin-tier mechanism — archived, no live consumer as of 2026-07-02; the principle carries forward, the mechanism doesn't currently run)
 - Every plugin starts in shadow mode; must earn promotion
 - "Data quality over model complexity" — we bias toward clean data over fancy algorithms
-- 138 plugins exist, but only a fraction are active at any time
+- 132 plugins existed at v2.x's final inventory, only a fraction ever active at once — the whole tier is now archived rather than pruned live
 
 ---
 
@@ -69,8 +73,8 @@ Originally sourced from an infographic on modern tech product challenges, partic
 - "Deterministic DAG topology" — every node does one thing, data flows one direction, no cycles
 - "Modular microservices" — each service owns exactly one responsibility
 - Separation of concerns: compute ≠ persistence ≠ transport
-- I1-I7 compute runs DB-ignorant; Writers manage persistence
-- `_DAG_ORDER` in `service_auditor.py` is the single source of truth for service dependencies
+- Compute stages run DB-ignorant; dedicated Writers manage persistence (the v2.x I1-I7 tier that originated this pattern is now archived — the pattern lives on in v3.0's `FeatureVectorPipeline` → `FeatureVectorWriter` split)
+- `_DAG_ORDER` in `services/service_auditor.py` is the single source of truth for service dependencies
 - All stream keys via `stream_keys.py` — no hardcoded topic strings
 
 ---
@@ -103,9 +107,9 @@ Originally sourced from an infographic on modern tech product challenges, partic
 **IndicAgent Manifestation:**
 - "Let the system run" — automation over manual labor, but the process must be sound first
 - "Automate manual tasks" — we identify and eliminate toil, but only after the underlying workflow is correct
-- AI agents (I8 narrative) are layered on top of a deterministic pipeline — they don't replace the DAG
-- `BaseAIWorker` protocol enforces structure on AI output — AI amplifies intelligence within guardrails
-- LLM audit trail — we measure AI quality, we don't assume it
+- AI agents (I8 narrative) are designed to layer on top of the deterministic pipeline without replacing the DAG — but I8 itself is dormant-pending-design (zero commits since the v3.0 rebuild started, `alpha-swarm`/`narrative-compute` services `disabled`/`inactive`), so this is design intent, not current running behavior
+- `BaseAIWorker` protocol enforces structure on AI output — real code, part of the same dormant I8 stack
+- LLM audit trail (`llm_calls` table, `services/llm_writer.py`) — we measure AI quality, we don't assume it
 
 ---
 

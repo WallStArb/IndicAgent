@@ -2,7 +2,7 @@
 
 **Canonical name:** Instrument Data Model
 **Status:** current
-**Last Updated:** 2026-08-08
+**Last Updated:** 2026-09-04
 
 ---
 
@@ -36,6 +36,8 @@ TLT" runs four separate lookups. See Known Gaps.
 ### `instruments` — core identity
 
 **231 active / 253 total rows** (`is_active` distinguishes tradeable-now from historical/rolled-off).
+<!-- src: \d instruments + SELECT count(*)/count(*) FILTER (WHERE is_active) FROM instruments — verified 2026-09-04 -->
+<!-- src: instruments.symbol PK, no top-level asset_class column — SELECT DISTINCT contract_details->>'asset_class' FROM instruments GROUP BY 1 returns fx(4)/futures(18)/equity(231) across all 253 rows — verified 2026-09-04 -->
 
 | Column | Type | Description |
 |--------|------|--------------|
@@ -126,8 +128,8 @@ itself in prose, not just numbers.
 ### `instrument_tags` + `tag_vocabulary` — falsifiable classification claims
 
 Full schema, lifecycle, and governance: **[Instrument Tag Registry](instrument-tag-registry.md)**
-— not duplicated here. Summary for this doc's purposes: 1,235 tag assignments across 74 vocabulary
-terms and 6 categories (`macro_driver` 383, `exposure` 309, `sensitivity` 284, `signal_role` 136,
+— not duplicated here. Summary for this doc's purposes: 1,244 tag assignments across 74 vocabulary
+terms and 6 categories (`macro_driver` 383, `exposure` 318, `sensitivity` 284, `signal_role` 136,
 `cycle_position` 83, `factor_regime` 40). A tag is a *falsifiable hypothesis*, not a static
 category — `sensitivity`/`factor_regime`/`macro_driver` tags are empirically measured (OLS beta,
 HAC p-value, BH-FDR) and can expire; `exposure`/`cycle_position`/most `signal_role` tags are
@@ -161,22 +163,23 @@ description="iShares 20+ Year Treasury Bond ETF"
 **3. Tags** (`instrument_tags`, via ITR):
 ```
 benchmark        weight=1.0   source=human      (signal_role — permanent prior)
-fed_policy       weight=1.0   source=human      (macro_driver — permanent prior)
 fi_treasury      weight=1.0   source=human      (exposure — permanent prior)
+fed_policy       weight=1.0   source=human      (macro_driver — permanent prior)
+spread_leg       weight=1.0   source=human      (signal_role — permanent prior)
 rate_sensitive   weight=1.0   source=human      (sensitivity — permanent prior)
+risk_off         weight=0.9   source=human      (cycle_position — permanent prior)
 recession        weight=0.9   source=human      (cycle_position — permanent prior)
+yield_curve      weight=0.93  source=empirical  loading=+0.935  p<0.001  passes_fdr=true
 credit_risk      weight=0.58  source=empirical  loading=-0.581  p<0.001  passes_fdr=true
 inflation        weight=0.57  source=empirical  loading=-0.572  p<0.001  passes_fdr=true
-oil_price        weight=0.28  source=empirical  loading=-0.275  p<0.001  passes_fdr=true
+yen_carry        weight=0.39  source=empirical  loading=+0.393  p<0.001  passes_fdr=true
 dollar_strength  weight=0.28  source=empirical  loading=-0.284  p<0.001  passes_fdr=true
+oil_price        weight=0.28  source=empirical  loading=-0.275  p<0.001  passes_fdr=true
 em_flows         weight=0.26  source=empirical  loading=+0.255  p<0.001  passes_fdr=true
 ```
-Five permanent human-seeded priors (what TLT structurally *is*) plus five independently
+Seven permanent human-seeded priors (what TLT structurally *is*) plus seven independently
 *measured* factor loadings TagCalibrator discovered — none of which were asserted by a human,
-all of which cleared FDR-corrected significance against a real return series. (TLT also carries
-`yield_curve` and `yen_carry` empirical tags not shown in the `instrument_tags` sample above but
-visible in the annotation trail below — the two views can drift slightly since annotations are
-append-only history and `instrument_tags` reflects current state.)
+all of which cleared FDR-corrected significance against a real return series.
 
 **4. Annotations** (`instrument_annotations`, 8 rows for TLT):
 ```
