@@ -1,17 +1,22 @@
 <!-- generated-by: gsd-doc-writer -->
 # Configuration Reference
 
-**Version:** 2.8
+**Version:** 2.9
 **Status:** current
-**Last Updated:** 2026-05-27
+**Last Updated:** 2026-09-04
 
-Settings, environment variables, and contract definitions for IndicAgent.
+Settings, environment variables, and contract definitions for IndicAgent. This covers
+`Settings` (deployment-time, env-var-backed, requires a process restart to change). For
+runtime-tunable numeric parameters (thresholds, weights, periods) that change without a
+deployment, see the Adaptive Parameter Registry — `docs/foundation/adaptive-parameter-registry.md`
+— which owns `config_state`/`config_history`/`ConfigService` and is a separate system from
+the `Settings` class documented here.
 
 ---
 
 ## Settings Class
 
-`src/config/settings.py` — `Settings` extends `pydantic_settings.BaseSettings`. All fields load from `.env` via environment variable aliases listed below.
+`src/config/settings.py` — `Settings` extends `pydantic_settings.BaseSettings`. All fields load from `.env` via environment variable aliases listed below. There is no `.env.example` in the repo — `.env` is the only source; the defaults below are the code fallback when a variable is unset.
 
 **Access pattern:** Call `get_settings()` or pass a `Settings` instance to helpers. Never instantiate `Settings()` directly in service code.
 
@@ -29,9 +34,9 @@ Settings, environment variables, and contract definitions for IndicAgent.
 | `DATABASE_URL` | `postgresql://postgres:postgres@localhost:5432/indicagent` | asyncpg/psycopg2 connection string |
 | `KAFKA_BOOTSTRAP_SERVERS` | `localhost:19092` | Redpanda bootstrap address |
 | `INTELLIGENCE_THREAD_POOL_WORKERS` | `0` (auto: cpu_count × 2) | Thread pool workers for intelligence pipeline |
-| `INTELLIGENCE_PIPELINE_SYMBOL_FILTER` | `[]` (all) | Comma-separated symbol filter for pipeline sharding |
+| `FEATURE_VECTOR_PIPELINE_SYMBOL_FILTER` | `[]` (all) | Comma-separated symbol filter for pipeline sharding |
 | `INTELLIGENCE_OUTPUT_DRAIN_BATCH_SIZE` | `20` | Max items drained per OutputQueue iteration |
-| `INTELLIGENCE_PIPELINE_QUEUE_MAXSIZE` | `100` | Per-key worker queue depth (back-pressure) |
+| `FEATURE_VECTOR_PIPELINE_QUEUE_MAXSIZE` | `100` | Per-key worker queue depth (back-pressure) |
 | `REPLAY_BATCH_SIZE` | `100` | Max signals per replay-auditor cycle |
 | `REPLAY_INTERVAL_SECONDS` | `300` | Seconds between replay-auditor cycles (5 min) |
 
@@ -52,7 +57,7 @@ Settings, environment variables, and contract definitions for IndicAgent.
 | Variable | Default | Description |
 |----------|---------|-------------|
 | `OLLAMA_ENABLED` | `true` | Set `false` to skip local Ollama and use OpenRouter as primary |
-| `OLLAMA_MODEL` | `gemma4:e4b` | Local Ollama model tag |
+| `OLLAMA_MODEL` | `gemma4:e4b` | Local Ollama model tag. The code default is not pulled locally — `.env` sets the effective model (`nemotron-3-nano:4b` as of 2026-09-04); a missing `.env` entry breaks all LLM calls |
 | `OLLAMA_BASE_URL` | `http://localhost:11434` | Ollama server URL |
 | `OLLAMA_NUM_CTX` | `16384` | Ollama context window (tokens) |
 | `LLM_TIMEOUT_SEC` | `60.0` | Timeout (seconds) for LLM provider API calls |
@@ -133,9 +138,10 @@ docker exec timescaledb psql -U postgres -d indicagent -c "SELECT ..."
 
 Active contracts are resolved at runtime from the database, not from static config. The canonical query is in `get_active_contracts()` in `src/config/settings.py`:
 
-- Futures: queries `contract_metadata WHERE is_front_month = true AND asset_class = 'futures'`
-- Non-futures: queries `instruments WHERE is_active = true AND asset_class != 'futures'`
-- Results cached for 60 seconds
+- Futures templates: queries `instruments WHERE contract_details->>'asset_class' = 'futures'` (JSONB filter — no top-level `asset_class` column on `instruments`, per CLAUDE.md's Instrument asset class filter gotcha) to inherit `point_value`/`tick_size`/`session_id`/etc.
+- Futures front-month rows: queries `contract_metadata WHERE is_front_month = true AND asset_class = 'futures'` — `contract_metadata.asset_class` IS a plain top-level column, unlike `instruments.contract_details->>'asset_class'`; don't conflate the two tables' schemas.
+- Non-futures (equities, FX, crypto): queries `instruments WHERE is_active = true AND contract_details->>'asset_class' != 'futures'`
+- Results merged and cached for 60 seconds; on DB error, returns the last valid cache (or `[]` cold)
 
 **Never hardcode contract symbols.** Always call `get_active_contracts(settings)` — daemons read contracts at startup; restart on futures expiry for the new front month.
 
@@ -145,3 +151,4 @@ Active contracts are resolved at runtime from the database, not from static conf
 
 - [Data Pipeline](../data/data-pipeline.md)
 - [Stream Keys](../../src/core/stream_keys.py) — all topic construction
+- [Adaptive Parameter Registry](../foundation/adaptive-parameter-registry.md) — runtime-tunable `config_state` parameters; not the same system as the `Settings` class above

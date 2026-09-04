@@ -1,9 +1,9 @@
 <!-- generated-by: gsd-doc-writer -->
 # Reference — API & Technical Specifications
 
-**Version:** 2.8
+**Version:** 2.9
 **Status:** current
-**Last Updated:** 2026-05-27
+**Last Updated:** 2026-09-04
 
 Technical reference for APIs, plugins, services, and schemas.
 
@@ -21,25 +21,24 @@ Real-time Server-Sent Events streams
 
 ## Plugin Reference
 
+**ARCHIVED (v2.x, no live consumer since 2026-07-02).** The I1-I7 plugin pipeline below is not the platform's live compute path — that's Feature Factory (`src/intelligence/feature_factory.py`, run by `indicagent-feature-vector-pipeline.service`). Kept for historical reference.
+
 **[Plugin Overview](plugins/overview.md)**
-Plugin protocol, registration, lifecycle
+Plugin protocol, registration, lifecycle, tier source-code locations — archived system, described accurately as of 2026-09-04
 
-**Plugin Directories:**
-- [I1: Technical Indicators](plugins/i1-indicators.md)
-- [I3: Market Structure](plugins/i3-structure.md)
-- [I4: Context Classification](plugins/i4-context.md)
-- [I5: Pattern Detection](plugins/i5-patterns.md)
-- [I6: Smart Money Concepts](plugins/i6-smart-money.md)
-- [I7: Trading Setups](plugins/i7-trading.md)
+**[Plugin Catalog](plugins/catalog.md)**
+Full tier catalog with counts and design rationale — archived system, historical reference
 
-**Total:** 132 plugins across I1-I7 (authoritative count: `TIER_I1`…`TIER_I7` in `src/intelligence/register_plugins.py`)
+Per-tier plugin directories (`i1-indicators.md`, `i3-structure.md`, `i4-context.md`, `i5-patterns.md`, `i6-smart-money.md`, `i7-trading.md`) referenced by earlier versions of this index **do not exist** in `docs/reference/plugins/` (verified via `ls`, 2026-09-04) — removed rather than left broken. Tier detail lives in `plugins/overview.md` and `plugins/catalog.md` instead; deeper archived-system detail is in `src/intelligence/CLAUDE.md`.
+
+**Total:** 133 registered plugins across I1-I7 + SMC (authoritative count: `len(TIER_I1)`…`len(TIER_I7)` in `src/intelligence/register_plugins.py`, verified 2026-09-04). This counts what's in the archived registry's source, not anything computing signals live today — see `plugins/overview.md` for why `register_plugins.py` itself has no live consumer.
 
 ---
 
 ## Service Reference
 
 **[Service Overview](services/overview.md)**
-Service architecture, coordination, health checks. Authoritative live state: `systemctl list-units --all | grep indicagent`
+Live v3.0 service DAG — provider/bar/compute/persistence/ML/alpha-pipeline tiers, cross-checked against `_DAG_ORDER` in `services/service_auditor.py` and `systemctl` live state, 2026-09-04. Authoritative live state: `systemctl list-units --all | grep indicagent`
 
 ---
 

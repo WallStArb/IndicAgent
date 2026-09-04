@@ -1,8 +1,8 @@
 # Naming Conventions
 
-**Version:** 1.1
+**Version:** 1.2
 **Status:** current
-**Last Updated:** 2026-08-10 (added REST API Routes; moved/expanded Functions and Constants into their own sections matching new canonical Surfaces 7-8; renumbered Operational Files 6→9)
+**Last Updated:** 2026-09-04 (cross-checked against naming-system.md's same-day refresh: fixed the Mechanical Derivation Table and Systemd Units example, which still showed a `signal_tracker`-owned topic/table/systemd-unit that never existed in code; fixed `BaseSwarmCoordinator` → `BaseGroupCoordinator` in What Does Not Change, the same stale name naming-system.md itself had already flagged and corrected; fixed two stale file-path examples; healed a table-structure break where the v3.0 AlphaEngine Components section had been inserted mid-table, splitting the Python Classes table in two; deduplicated a repeated table row; fixed a Gradient Scale Qualifiers contradiction with naming-system.md's `tight`/`wide` domain-specific-scale exception. Prior: 2026-08-10, added REST API Routes; moved/expanded Functions and Constants into their own sections matching new canonical Surfaces 7-8; renumbered Operational Files 6→9)
 
 Quick-lookup reference for naming on every surface. All claims derive from the canonical spec.
 <!-- src: docs/foundation/naming-system.md -->
@@ -18,28 +18,10 @@ For the full spec — governing tests, taxonomy governance, ring architecture, a
 | Object type | Pattern | Example |
 |------------|---------|---------|
 | Ring 2 daemon | `PascalCase(concept)` + category suffix | `SignalTracker`, `BarAggregator` |
-| Ring 2 daemon (plain role noun) | `PascalCase(concept)` — no suffix | `IntelligencePipeline`, `AlphaSwarm`, `NarrativeSwarm`, `AlphaEngine`, `ICEngine` |
+| Ring 2 daemon (plain role noun) | `PascalCase(concept)` — no suffix | `IntelligencePipeline`, `AlphaSwarm`, `NarrativeSwarm`, `AlphaEngine`, `PrecedentEngine`, `ICEngine` |
 | Ring 1 mathematical object | `PascalCase(concept)` + category suffix | `SkepticEvaluator`, `CorrelationAnalyzer`, `FeatureFactory`, `FeatureCache` |
-| Ring 0 infrastructure base | `Base` + `PascalCase(role)` | `BaseDaemon`, `BaseWriter`, `BaseBatch` |
 | Ring 0/1 abstract type | Category suffix alone | `Evaluator`, `Synthesizer` |
 | Ring 0 infrastructure base | `Base` + `PascalCase(role)` | `BaseDaemon`, `BaseWriter`, `BaseBatch` |
-
----
-
-## v3.0 AlphaEngine Components
-
-**Quick reference for v3.0 naming patterns:**
-
-| Component | Ring | Pattern | Location | Naming Rationale |
-|----------|------|---------|----------|-------------------|
-| `FeatureFactory` | 1 | `PascalCase(concept)` — no suffix | `src/intelligence/feature_factory.py` | Pure function library, no daemon loop |
-| `FeatureCache` | 1 | `PascalCase(concept)` | `src/intelligence/feature_cache.py` | State container, not autonomous |
-| `ICEngine` | 2 | `PascalCase(concept)` + `Engine` | `services/ic_engine.py` | Batch compute service, autonomous |
-| `AlphaEngine` | System | `PascalCase(concept)` + `Engine` | Architecture concept (not class) | The overall IC + ensemble system |
-| `BaseBatch` | 0 | `Base` + `PascalCase(role)` | `src/core/agent/base_batch.py` | Infrastructure base for batch services |
-| `AlphaEventEmitter` | 2 | `PascalCase(concept)` + `Emitter` | `services/alpha_event_emitter.py` | Future Phase C daemon |
-
-**v3.0 naming philosophy:** No "plugins" (v2.x term), no "signals" (v2.x term). Features are mathematical functions, services are autonomous daemons.
 | Behavioral mixin | `PascalCase(capability)` + `Mixin` | `IncrementalMixin`, `ConfigConsumerMixin` |
 | Enumeration | `PascalCase` singular noun — no suffix | `MarketRegime`, `SignalStatus` |
 | Component config | `PascalCase(concept)` + `Config` | `EvaluatorConfig`, `PipelineConfig` |
@@ -61,6 +43,23 @@ For the full spec — governing tests, taxonomy governance, ring architecture, a
 
 ---
 
+## v3.0 AlphaEngine Components
+
+**Quick reference for v3.0 naming patterns:**
+
+| Component | Ring | Pattern | Location | Naming Rationale |
+|----------|------|---------|----------|-------------------|
+| `FeatureFactory` | 1 | `PascalCase(concept)` — no suffix | `src/intelligence/feature_factory.py` | Pure function library, no daemon loop |
+| `FeatureCache` | 1 | `PascalCase(concept)` | `src/intelligence/feature_cache.py` | State container, not autonomous |
+| `ICEngine` | 2 | `PascalCase(concept)` + `Engine` | `services/ic_engine.py` | Batch compute service, autonomous |
+| `AlphaEngine` | 2 (plain role noun) | `PascalCase(concept)` | Architecture concept (not a class) | The overall IC + ensemble system, entirety of v3.0 Layer 1 (Prediction) |
+| `BaseBatch` | 0 | `Base` + `PascalCase(role)` | `src/core/agent/base_batch.py` | Infrastructure base for batch services |
+| `AlphaEventEmitter` | 2 | `PascalCase(concept)` + `Emitter` | `services/alpha_event_emitter.py` | Future Phase C daemon — not yet built |
+
+**v3.0 naming philosophy:** No "plugins" (v2.x term), no "signals" (v2.x term). Features are mathematical functions, services are autonomous daemons.
+
+---
+
 ## File Names
 
 <!-- src: docs/foundation/naming-system.md §4 Surface 2 -->
@@ -68,8 +67,8 @@ For the full spec — governing tests, taxonomy governance, ring architecture, a
 | Object type | Pattern | Example |
 |------------|---------|---------|
 | Ring 2 daemon | `services/<concept>.py` | `services/signal_tracker.py` |
-| Ring 1 AI evaluator | `src/intelligence/ai/<group>/<concept>.py` | `src/intelligence/ai/alpha/skeptic.py` |
-| Ring 1 domain | `src/intelligence/<module>/<concept>.py` | `src/intelligence/context.py` |
+| Ring 1 AI evaluator | `src/intelligence/ai/<group>/<concept>.py` | `src/intelligence/ai/alpha/skeptic_agent.py` |
+| Ring 1 domain | `src/intelligence/<module>/<concept>.py` | `src/intelligence/ai/context.py` |
 | Ring 0 infrastructure | `src/core/<module>/<concept>.py` | `src/core/ai/evaluator.py` |
 | Plugin (I1–I5) | `src/intelligence/features/i<N>_<tier_name>/<concept>.py` | `src/intelligence/features/i1_indicators/rsi.py` |
 
@@ -176,9 +175,11 @@ Only these terms may appear as scale qualifiers in column names, APR keys, and v
 | Magnitude / intensity | `low`, `mid`, `high` | threshold tiers, confidence bands |
 | Rank / quality | `primary`, `secondary` | signal tiers, confirmation layers |
 
-Numbers in names are valid **only** when the number defines the statistical concept (`momentum_z_5` = 5-bar z-score — changing it to 7 bars is a different statistic). For tunable calibration parameters, use a gradient term: `return_fast` column + `alpha.ic.lookahead.fast = 1` APR key.
+Numbers in names are valid **only** when the number defines the statistical concept (`rsi_14` = 14-period RSI — changing it to 9 or 21 is a different statistic, not a recalibrated version of the same one). For tunable calibration parameters, use a gradient term: `return_fast` column + `alpha.ic.lookahead.{tf}.fast` APR key.
 
-**Prohibited:** `near`, `ultra`, `short`, `long`, `tight`, `wide`, or any term not in this table. Adding a new term requires updating `docs/foundation/naming-system.md §7` first.
+A quantity may also use standard field-specific vocabulary instead of a generic scale when the terms are universally recognized, whiteboard-testable finance terminology (naming-system.md §7's domain-specific scales table) — e.g. `tight`/`wide` for credit spread state, `contango`/`neutral`/`backwardation` for term structure, `calm`/`elevated`/`turbulent` for idiosyncratic volatility state. See naming-system.md §7 for the full domain-specific table before using one of these.
+
+**Prohibited:** `near`, `ultra`, `short`, `long`, or any term not in the generic or domain-specific tables. `tight`/`wide` are permitted *only* within the credit spread state domain-specific scale — never as a generic magnitude qualifier elsewhere. Adding a new term requires updating `docs/foundation/naming-system.md §7` first.
 
 ---
 
@@ -190,7 +191,9 @@ Numbers in names are valid **only** when the number defines the statistical conc
 indicagent-<concept>.service
 ```
 
-`concept` is the daemon's `snake_case` concept name. Examples: `indicagent-signal-tracker.service`, `indicagent-intelligence-pipeline.service`
+`concept` is the daemon's `snake_case` concept name. Examples: `indicagent-bar-aggregator.service`, `indicagent-feature-vector-pipeline.service`
+
+Not every unit is a bare `<concept>` — e.g. `signal_tracker`'s live unit is `indicagent-signal-tracker-compute.service` (a `-compute` qualifier appended, not the pure pattern above). Check `production/systemd/` for the live name rather than assuming the mechanical derivation when precision matters.
 
 Unit names update alongside class/file renames — never independently.
 
@@ -255,16 +258,21 @@ Test functions: `test_<what>_<condition>` — e.g. `test_compute_next_returns_ma
 
 <!-- src: docs/foundation/naming-system.md §4 -->
 
-Given concept `signal_tracker`:
+Given concept `signal_tracker` — this is a worked *exception* case, not the clean mechanical
+example: `signal_tracker` doesn't own a dedicated input topic or output table, so those two rows
+are N/A rather than an invented value. See `docs/foundation/naming-system.md §4` for a full
+explanation of why, and for the general pattern (topic string `<env>.<domain>.<concept>` via
+`topic_<concept>()`, table `<concept>s`) that still applies to concepts that do own their own
+topic/table.
 
 | Surface | Result |
 |---------|--------|
 | Daemon class | `SignalTracker` |
 | File name | `services/signal_tracker.py` |
-| Systemd unit | `indicagent-signal-tracker.service` |
-| Topic function | `topic_signal_tracker()` |
-| Topic string | `prod.signals.tracker` |
-| DB table | `signal_trackers` |
+| Systemd unit | `indicagent-signal-tracker-compute.service` |
+| Topic function | N/A — consumes shared upstream topics; publishes `topic_lifecycle_transitions()` |
+| Topic string | N/A (no single owned topic) |
+| DB table | N/A — persisted into the shared SLA schema (`signal_events`/`trade_frames`/`trade_executions`) by `LifecycleWriter`, not a `signal_trackers` table |
 | Log file | `logs/signal_tracker.log` |
 | Metric prefix | `signal_tracker_` |
 | Structlog `daemon_id` value | `signal_tracker` |
@@ -295,5 +303,5 @@ Given concept `signal_tracker`:
 - DB column quant codes — `ts`, `tf`, `pnl_r`, `mae`, `mfe` stay
 - Plugin naming — `PascalCasePlugin` stays
 - Intelligence tier codes — `I1`–`I8` stay in code, docs, metrics, directory names
-- Ring 0 `Base*` prefix — `BaseDaemon`, `BaseWriter`, `BaseProvider`, `BaseAIWorker`, `BaseSwarmCoordinator`
+- Ring 0/1 `Base*` prefix — `BaseDaemon`, `BaseWriter`, `BaseProvider`, `BaseAIWorker`, `BaseGroupCoordinator`
 - `agent_id` metric label and structlog field — stays for operational compatibility

@@ -1,8 +1,8 @@
 # IndicAgent Command Cheatsheet
 
-**Version:** 2.9
+**Version:** 3.0
 **Status:** current
-**Last Updated:** 2026-07-27
+**Last Updated:** 2026-09-04
 
 ## Development Setup
 ```bash
@@ -14,8 +14,8 @@ pip install -r requirements.txt
 # Redpanda -- Docker only:
 cd production && docker compose up -d redpanda
 
-# Database schema
-for f in production/migrations/*.sql; do psql -U postgres -d indicagent -f "$f"; done
+# Database schema (plain `psql -U postgres` fails -- password required, see docs/reference/configuration.md)
+for f in production/migrations/*.sql; do PGPASSWORD=postgres psql -U postgres -h localhost -d indicagent -f "$f"; done
 ```
 
 ## System Operations
@@ -29,36 +29,26 @@ sudo systemctl restart indicagent-bar-aggregator
 sudo systemctl restart indicagent-intelligence-pipeline
 sudo systemctl restart indicagent-signal-writer
 sudo systemctl restart indicagent-signal-tracker-compute
-sudo systemctl restart indicagent-feature-writer
+sudo systemctl restart indicagent-feature-vector-writer   # v3.0 writer; indicagent-feature-writer.service does not exist
 sudo systemctl restart indicagent-llm-writer
-sudo systemctl restart indicagent-ai-narrative
+sudo systemctl restart indicagent-narrative-compute        # not indicagent-ai-narrative -- no such unit
 sudo systemctl restart indicagent-alpha-swarm
 sudo systemctl restart indicagent-cross-asset
 sudo systemctl restart indicagent-api
 
 journalctl -u indicagent-intelligence-pipeline -f    # live logs (print() only; structured logs in logs/<service>.log)
 
-# Health / metrics (ports 9113, 9115–9133)
-curl http://localhost:9113/metrics   # AI Narrative
-curl http://localhost:9115/metrics   # Signal Tracker
-curl http://localhost:9116/metrics   # Feature Writer
-curl http://localhost:9117/metrics   # LLM Writer
-curl http://localhost:9118/metrics   # Cross-Asset
-curl http://localhost:9119/metrics   # Signal Writer
-curl http://localhost:9120/metrics   # Bar Aggregator
-curl http://localhost:9121/metrics   # Bar Writer
-curl http://localhost:9122/metrics   # Roll Compute
-curl http://localhost:9123/metrics   # Bar Auditor
-curl http://localhost:9124/metrics   # Contract Metadata Writer
-curl http://localhost:9125/metrics   # Intelligence Pipeline
-curl http://localhost:9126/metrics   # Signal Metrics Compute
-curl http://localhost:9127/metrics   # Signal Metrics Writer
-curl http://localhost:9128/metrics   # Signal Auditor
-curl http://localhost:9129/metrics   # IBKR Provider
-curl http://localhost:9130/metrics   # Provider Merger
+# Health / metrics -- all agents emit via the OTel SDK (src/observability/metrics.py) to a
+# single OTel Collector, which exposes one Prometheus exporter for every service (per-service
+# metrics ports like the old 9113-9133 range no longer exist for most services):
+curl http://localhost:8889/metrics   # OTel Collector Prometheus exporter -- every service's metrics
+
+# A handful of services still expose their own dedicated METRICS_PORT (production/systemd/*.service):
+curl http://localhost:9005/metrics   # Config Service
+curl http://localhost:9006/metrics   # Outbox Dispatcher
+curl http://localhost:9007/metrics   # Self-Healing Agent
 curl http://localhost:9131/metrics   # Service Auditor
-curl http://localhost:9132/metrics   # Feature Snapshot Writer
-curl http://localhost:9133/metrics   # Parity Auditor
+curl http://localhost:9132/metrics   # Alerting Agent
 
 # Grafana & Prometheus (optional -- dashboards and alerts)
 cd production && docker compose up -d prometheus grafana
@@ -66,11 +56,12 @@ cd production && docker compose up -d prometheus grafana
 # Prometheus UI: http://localhost:9090  (query and targets)
 # Note: 3001 avoids conflict with IndicAgent dashboard (Next.js on 3000)
 
-# Direct invocation (debugging only)
+# Direct invocation (debugging only) -- the `_agent` file suffix is retired (naming-conventions.md);
+# indicagent-intelligence-pipeline.service's ExecStart itself points at a deleted v2.x file (see CLAUDE.md)
 .venv/bin/python services/ibkr_provider.py
-.venv/bin/python services/intelligence_pipeline_agent.py
-.venv/bin/python services/signal_writer_agent.py
-.venv/bin/python services/feature_writer_agent.py
+.venv/bin/python services/signal_writer.py
+.venv/bin/python services/feature_vector_pipeline.py
+.venv/bin/python services/feature_vector_writer.py
 .venv/bin/python -m uvicorn src.api.main:app --host 0.0.0.0 --port 8000
 ```
 
@@ -86,15 +77,15 @@ cd production && docker compose up -d prometheus grafana
 # Step 1 -- preview (no changes made)
 .venv/bin/python scripts/infrastructure/backfill/infrastructure_reset_pipeline_data.py --dry-run
 
-# Step 2 -- full reset (requires TWS connected at 192.168.1.157:7497; expect 30–60 min)
+# Step 2 -- full reset (requires IBKR Gateway reachable at localhost:7497; expect 30–60 min)
 .venv/bin/python scripts/infrastructure/backfill/infrastructure_reset_pipeline_data.py
 # → when prompted to STOP, run:
 sudo systemctl stop indicagent-intelligence-pipeline indicagent-signal-writer indicagent-signal-tracker-compute \
-  indicagent-feature-writer indicagent-ai-narrative
+  indicagent-feature-vector-writer indicagent-narrative-compute
 # → press Enter, let fetch + replay complete
 # → when prompted to START, run:
-sudo systemctl start indicagent-intelligence-pipeline indicagent-feature-writer \
-  indicagent-signal-writer indicagent-signal-tracker-compute indicagent-ai-narrative
+sudo systemctl start indicagent-intelligence-pipeline indicagent-feature-vector-writer \
+  indicagent-signal-writer indicagent-signal-tracker-compute indicagent-narrative-compute
 
 # Fast reset -- skip IBKR fetch, re-replay from existing market_data_ohlcv
 # (use after plugin/signal logic changes, no IBKR connection needed)
@@ -124,7 +115,7 @@ cd dashboard && npm run dev            # Frontend dev server
 INDICAGENT_ENV="development"
 DATABASE_URL="postgresql://postgres:postgres@localhost:5432/indicagent"
 KAFKA_BOOTSTRAP_SERVERS="localhost:19092"
-IBKR_HOST="192.168.1.157"
+IBKR_HOST="localhost"          # settings.py code default is 172.18.176.1 (Docker network gateway); .env sets localhost
 IBKR_PORT=7497
 ```
 
@@ -196,6 +187,6 @@ docker exec redpanda rpk group list
 docker exec redpanda rpk group describe <group-name> --topic <topic>
 docker exec redpanda rpk group reset-offset <group> --topic <topic> --to-earliest
 
-# Feature pipeline lag (from CLAUDE.md)
-docker exec redpanda rpk group describe feature_pipeline -t
+# Feature pipeline lag
+docker exec redpanda rpk group describe feature_vector_pipeline_group -t
 ```

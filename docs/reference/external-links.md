@@ -1,9 +1,9 @@
 <!-- generated-by: gsd-doc-writer -->
 # External Links & Resources
 
-**Version:** 2.8
+**Version:** 2.9
 **Status:** current
-**Last Updated:** 2026-05-27
+**Last Updated:** 2026-09-04 (spot-check pass: no relative/internal repo links in this file to verify — all entries are external URLs. Fixed 3 stale internal notes against live code: LiteLLM was still marked a "Phase 094 target" though `src/core/llm/litellm_backend.py` already replaced the per-provider Ollama/OpenRouter classes; the `arch` Python library row claimed "(used in I4)" though `arch` is absent from `requirements.txt` and GARCH is hand-implemented in `feature_factory.py`, and I4 no longer exists as a live tier (replaced by v3.0 Feature Factory per CLAUDE.md); the HMM row's "(used in I6)" tag was stale for the same I-tier-archived reason — HMM regime detection is live in v3.0's `regime_writer.py`/`hmm_trainer.py`. External URLs (TimescaleDB, FastAPI, ib_async, etc.) spot-checked for obvious staleness — none found; not fetched live, see report.)
 
 Curated reference links for libraries, APIs, trading theory, and research relevant to IndicAgent.
 Add new links here as you discover useful resources — keeps everything in one place.
@@ -48,7 +48,7 @@ Add new links here as you discover useful resources — keeps everything in one 
 | Ollama Docker Image | https://hub.docker.com/r/ollama/ollama | `ollama/ollama:rocm` used in production |
 | OpenRouter Docs | https://openrouter.ai/docs | Fallback multi-model API (when Ollama disabled) |
 | OpenRouter Models | https://openrouter.ai/models | Browse available models + context limits |
-| LiteLLM | https://github.com/BerriAI/litellm | Unified LLM interface (reference; Phase 094 target) |
+| LiteLLM | https://github.com/BerriAI/litellm | Unified LLM interface — live: `src/core/llm/litellm_backend.py` replaced the per-provider `OllamaProvider`/`OpenRouterProvider` classes (verified 2026-09-04, no longer just a Phase 094 target) |
 | Mixture of Agents (paper) | https://arxiv.org/abs/2406.04692 | Multi-agent synthesis patterns |
 | Qwen3 Model Card | https://huggingface.co/Qwen/Qwen3-8B | Thinking mode, /no_think, num_predict behavior |
 
@@ -148,9 +148,9 @@ Add new links here as you discover useful resources — keeps everything in one 
 | Resource | URL | Notes |
 |----------|-----|-------|
 | GARCH Model | https://www.investopedia.com/terms/g/garch.asp | Conditional heteroskedasticity, volatility clustering |
-| arch Python Library | https://arch.readthedocs.io/en/latest/ | GARCH(1,1) implementation (used in I4) |
+| arch Python Library | https://arch.readthedocs.io/en/latest/ | GARCH(1,1) formula reference — not a live dependency; `arch` is absent from `requirements.txt`, GARCH is hand-implemented directly in `src/intelligence/feature_factory.py` (`garch_ratio`), verified 2026-09-04 |
 | Kalman Filter Explained | https://www.kalmanfilter.net/default.aspx | State estimation, trend filtering |
-| HMM (Hidden Markov Models) | https://en.wikipedia.org/wiki/Hidden_Markov_model | Regime detection (used in I6) |
+| HMM (Hidden Markov Models) | https://en.wikipedia.org/wiki/Hidden_Markov_model | Regime detection — live in v3.0 (`services/regime_writer.py`, `src/intelligence/services/hmm_trainer.py`), not the archived I6 tier |
 | hmmlearn Library | https://hmmlearn.readthedocs.io/en/latest/ | GaussianHMM for regime detection |
 | BOCPD (Bayesian Changepoint) | https://arxiv.org/abs/0710.3742 | Online changepoint detection paper |
 | Regime-Adaptive Trading (QuantInsti) | https://blog.quantinsti.com/regime-adaptive-trading-python | HMM + Random Forest regime trading |

@@ -1,8 +1,8 @@
 # Gotchas & Rare Pitfalls
 
-**Version:** 2.14
+**Version:** 2.15
 **Status:** current
-**Last Updated:** 2026-08-20
+**Last Updated:** 2026-09-04 (coherence/dedup pass: renamed `## BaseWriterAgent` heading to `## BaseWriter` — matches the live class name, `Agent` is a retired mechanism-word suffix per naming-system.md; scoped `## I7 Plugin Feature Access` as `(v2.x, archived — no live consumer as of 2026-07-02)` to match CLAUDE.md's Architecture note, since the code it describes still exists in the tree but isn't running; cross-checked remaining sections against CLAUDE.md's Key Rules gotcha-shaped bullets — no contradictions found)
 
 Real issues that burned once — reference when touching the relevant area. Add here when you get burned.
 
@@ -25,6 +25,7 @@ Real issues that burned once — reference when touching the relevant area. Add 
 - **Hypertables don't support `CREATE INDEX CONCURRENTLY` or `ADD CONSTRAINT ... USING INDEX`** (confirmed on TimescaleDB 2.27.1): both error outright ("hypertables do not support concurrent index creation" / "...adding a constraint using an existing index"). A migration that drops an old unique constraint and expects to replace it with a concurrently-built index will fail the build step but the drop can still succeed if sequenced naively — always build-and-verify the replacement index first (`SELECT 1 FROM pg_indexes WHERE indexname = '...'` inside a `DO` block), then drop the old constraint, never the reverse. Converting a `UNIQUE` constraint to a declared `PRIMARY KEY` on a live hypertable therefore requires a full blocking index rebuild (no zero-downtime path exists) — usually not worth it since `NOT NULL` + `UNIQUE` is functionally equivalent to a PK for dedup/`ON CONFLICT` purposes.
 - **Compressed chunks make `UPDATE` cost nothing like a `SELECT`/`EXPLAIN` would predict** (todo 149, `market_data_ohlcv`, 248/250 chunks compressed): any mutating row in a compressed chunk forces decompress-then-modify, and a correlated `EXISTS`/`IN` subquery driven from the large source table (not the small known-target population) can silently balloon into a near-full-table scan. A read-only test is not evidence the write is cheap. Fix pattern: drive joins from the small target set, add a literal time-range bound when the target population is fixed, and `decompress_chunk()` the affected chunks first — neither alone was sufficient in practice.
 - **High chunk count makes per-row `UPDATE`/`DELETE` pay a per-execution chunk-routing tax, invisible to `EXPLAIN` on a single row** (todo 161, `alpha_frames`, 1034 chunks): measured 29 rows/sec writing through the hypertable vs. 10,423 rows/sec (358x) writing the identical rows directly to their resolved `_timescaledb_internal.<chunk>` table, on the same connection. `EXPLAIN ANALYZE` showed 0.86ms single-row execution — the ~34ms/row gap was TimescaleDB's runtime chunk-exclusion overhead, paid on every execution regardless of asyncpg prepared-statement reuse across a batch. Not disk I/O (confirm via `iostat -x 1`, should show near-0% util) or lock contention (confirm via `pg_stat_activity.wait_event` — empty means on-CPU, not waiting). Reusable fix pattern: `services/counterfactual_tracker.py`'s `_load_chunk_index`/`_route_chunk` (fetch `timescaledb_information.chunks`' ranges once per run, binary-search each row's target chunk, write directly to it). Full investigation method: `docs/foundation/performance-investigation-sop.md`.
+- **`bar_ts = ANY(<array>)` does not chunk-exclude cleanly on a compressed hypertable, unlike `BETWEEN`** (todo 356, `feature_vectors`/`forward_returns`, 84-85/85 chunks compressed): `_compute_cross_sectional_tf`'s chunked fetch (`services/ic_engine.py`) took 95+ minutes and hadn't finished on the corpus's largest cross-sectional cell; `EXPLAIN (ANALYZE, BUFFERS)` showed the `ANY(<5000-element array>)` predicate expanding into a per-compressed-batch `OR`-chain of `_ts_meta_min_1`/`_ts_meta_max_1` range checks — one clause per array element, re-evaluated per batch (`O(batches × len(array))`) — instead of a single range exclusion. Fix: add a redundant `col BETWEEN array[0] AND array[-1]` predicate ahead of the `ANY()` clause when the array is a contiguous sorted slice (true here — `ts_chunk` is always a slice of an `ORDER BY ts` result). Measured 10,218ms → 315ms (~32x) on a representative chunk; correctness verified via matching row-count + order-sensitive checksum on real data.
 
 - **A killed Python asyncpg client doesn't always close its server-side backend connection**: check `pg_stat_activity` for a backend still `active` with an old `xact_start` well after the owning process is confirmed dead (`ps -p <pid>` returns nothing) — don't assume the kill rolled back the transaction. `SELECT pg_terminate_backend(<pid>)` it directly.
 - **TimescaleDB runs in Docker (`timescaledb` container)**: `pg_stat_activity.client_addr` shows the docker bridge gateway (`172.19.0.1`), not a per-host-process identifier — correlate connections to a host PID via the backend PID / connection timing, never `client_addr`.
@@ -42,17 +43,17 @@ See `docs/operations/operations-database.md` for query/schema gotchas. `instrume
 
 - **`event` kwarg collision**: Never pass `event=<value>` as keyword — use `signal=`, `payload=`, `data=` instead.
 
-## BaseWriterAgent
+## BaseWriter
 
-- **`_parse_payload` return contract**: `None` triggers `_maybe_route_to_dlq` on the whole payload. For per-signal validation failures return `[]` (all-invalid) not `None`, to prevent double-DLQ. Reserve `None` for truly empty/unparseable payloads.
+- **`_parse_payload` return contract**: `None` triggers `_maybe_route_to_dlq` on the whole payload. For per-signal validation failures return `[]` (all-invalid) not `None`, to prevent double-DLQ. Reserve `None` for truly empty/unparseable payloads. (Matches CLAUDE.md's Key Rules statement of the same contract — this section is the extended note, not a second source of truth.)
 
 ## CircuitBreaker
 
 `src/observability/circuit_breaker.py`: `record_failure()` opens the breaker but `OPEN→HALF_OPEN` recovery only fires inside `call()`. For manual tracking outside `call()`, use `allow_request()` (time-based OPEN→HALF_OPEN check) and `record_success()` (resets failures, closes from HALF_OPEN).
 
-## I7 Plugin Feature Access
+## I7 Plugin Feature Access (v2.x, archived — no live consumer as of 2026-07-02)
 
-- **Tier sub-dicts in `plugin_input`**: All I7 plugins read features via `frames.get("i1")`, `frames.get("smc")`, etc. (tier-keyed sub-dicts). If `run_i7_complete()` (or any caller) only provides a flat `"features"` key, ALL plugins construct an empty features dict and return `no_signal()` on every bar. Zero signals, zero errors, completely silent. Any change to how `plugin_input` is constructed MUST verify tier sub-dicts are present.
+- **Tier sub-dicts in `plugin_input`**: All I7 plugins read features via `frames.get("i1")`, `frames.get("smc")`, etc. (tier-keyed sub-dicts). If `run_i7_complete()` (or any caller) only provides a flat `"features"` key, ALL plugins construct an empty features dict and return `no_signal()` on every bar. Zero signals, zero errors, completely silent. Any change to how `plugin_input` is constructed MUST verify tier sub-dicts are present. The code (`src/intelligence/pipeline/{signal_processor,executor}.py`) still exists in the tree, but per CLAUDE.md the I1-I7 plugin tier has no live consumer — this gotcha applies if that code path is ever touched or revived, not to current production behavior.
 
 ## Historical Backfill
 

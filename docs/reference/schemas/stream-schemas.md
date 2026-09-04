@@ -1,45 +1,96 @@
 <!-- generated-by: gsd-doc-writer -->
 # Intelligence Stream Schemas & Data Contracts
 
-**Version:** 3.1.0
-**Last Updated:** 2026-05-27
-**Status:** IntelligenceEvent (unified I1-I7 tiered JSONB) and intelligence.i7.signals operational. I8 narratives via narratives:*:* topics. Transport: Redpanda (Kafka-compatible) with dot-separated topic names.
+**Version:** 4.0
+**Last Updated:** 2026-09-04
+**Status:** current
 
-## Executive Summary
+This document defines IndicAgent's live Kafka/Redpanda data contracts, plus the archived v2.x schemas still present in code for historical traceability. Verified 2026-09-04 against `src/intelligence/schemas.py`, `src/core/stream_keys.py`, and the live TimescaleDB schema.
 
-This document defines the complete data contracts for IndicAgent's intelligence processing streams. Each schema supports specific intelligence tiers (I1-I8) and enables sophisticated market intelligence processing through standardized, versioned data structures.
-
-**Core Purpose:** Standardized data contracts that enable seamless intelligence processing from raw market data to AI-powered insights. I1-I5 schemas are in production use; I6-I8 are defined for future tiers.
-
-**Runtime stream names (code):** The app builds Kafka topic names in `src/core/stream_keys.py`. Topics use dot-separated names with optional env prefix: `market.bars`, `intelligence.journal`, `intelligence.i7.signals`, `narratives:SYMBOL:TF`.
+**v2.x/v3.0 split (read this before citing anything below as "live"):** Per root `CLAUDE.md`, the v2.x typed bus — `IntelligenceEvent` (tiered JSONB i1/i3/i4/i5/smc/i6), `SignalEvent`/I7 signals, and everything published to `intelligence.journal`/`intelligence.i7.signals` — is **archived, no live consumer as of 2026-07-02**. `intelligence-pipeline` and `feature-writer` services are `failed`/`inactive`; `intelligence_features` and `signal_events` are confirmed empty (0 rows, live-checked 2026-09-04). v3.0's live path is `FeatureVectorPipeline` (compute, in-process) → `FeatureVectorRecord` on `topic_feature_vectors` → `FeatureVectorWriter` → `feature_vectors` (106M+ rows) → `forward_return_writer`/`ic_engine`/`ensemble_trainer` → `AlphaPublisher` → `alpha.events` → `alpha_events` (70M+ rows, sole writer `AlphaPublisher`). If you are documenting or debugging something that touches Kafka today, it is almost certainly on the v3.0 path.
 
 ---
 
-## **Schema Architecture Principles**
+## Runtime stream names (code)
 
-### **Design Standards**
-- **Versioned Schemas:** All schemas include explicit versioning for backward compatibility
-- **Intelligence Tier Mapping:** Each schema aligns with specific I1-I8 intelligence processing tiers
-- **Stream Optimization:** JSON encoding for Redpanda (Kafka-compatible) topic distribution
-- **Database Integration:** JSONB storage format for flexible PostgreSQL/TimescaleDB persistence
-- **Field Conventions:** snake_case keys, UTC timestamps, numeric precision standards
+All topic names are built by `src/core/stream_keys.py` functions, never hardcoded — dot-separated, with an optional `INDICAGENT_ENV` prefix (`env_prefix(env_name)`, e.g. `dev.market.bars`). There are ~50 `topic_*` functions in that file; this doc covers the ones with active producers/consumers plus the archived ones referenced by name elsewhere in the codebase. Grep `src/core/stream_keys.py` directly for the full list, including DLQ topics (`topic_*_dlq`).
 
-### **Data Flow Architecture**
-```yaml
-# Stream naming pattern: env_prefix:data_type:symbol:timeframe
-prod:bar:ES:1m           # Foundation market data
-prod:features:ES:1m      # I1 Raw Features
-prod:composite:ES:5m     # I2-I7 Composite Intelligence
-prod:patterns:ES:15m     # I5-I7 Pattern Intelligence
-prod:regime:MARKET       # I4 Market Context
-prod:insight:ES:1h       # I8 AI Intelligence
+---
+
+## Live v3.0 Schemas
+
+### `FeatureVector` / `FeatureVectorRecord` — the ML training dataset
+
+Defined in `src/intelligence/schemas.py`. `FeatureVector` is a **frozen dataclass** (not Pydantic — pure-function output, no I/O, immutable after construction; D-08), 298 orthogonal feature primitives computed per bar by `FeatureFactory`, grouped into: momentum (7), volume/flow (8), volatility (2), session-level (21), regime-level (10), oscillators (6), cross-asset (10), named interaction primitives (5), theory-motivated interactions (10), calendar (17), velocity primitives (4+6), recency/statistical atomics (11), cross-timeframe (3), statistical/liquidity (4), bar anatomy ratios (8), lagged return series (6), open/close split (4), temporal coordinates (10), volume structure (12), breakout distance (12), return distribution (7), plus additional groups — see the field-group docstring on `FeatureVector` in `schemas.py` for the maintained, binding field order (ends "Total: 298"). Most fields are non-optional `float`; the Phase 165 Swing/Fib/Trend/Session Structure block (41 fields) is `float | None` by design — `None` means "not measured," never a fake placeholder value (D-01).
+
+`FeatureVectorRecord` is the Kafka wire envelope:
+```python
+class FeatureVectorRecord:
+    symbol: str
+    tf: str
+    bar_ts: datetime          # UTC bar open timestamp
+    pipeline_version: str     # e.g. "3.0.0"
+    feature_factory_version: str
+    regime: str | None        # HMM state label: "ranging" | "trending_up" | "trending_down"
+    regime_label_source: str  # always "filtered" (D-07: forward Viterbi only, no lookahead)
+    vector: FeatureVector
 ```
 
+**Topic:** `topic_feature_vectors(env)` → `{env}.intelligence.feature_vectors`. **Published by** `IntelligencePipeline`/`FeatureVectorPipeline` after `FeatureFactory.compute()`. **Consumed by** `FeatureVectorWriter` (batch INSERT to `feature_vectors` hypertable; consumer group `feature_vector_writer_group`). **Status: Operational, live.**
+
+### `alpha_events` — alpha emission events
+
+No dedicated Pydantic/dataclass schema — the Kafka payload mirrors the `alpha_events` DB row exactly (`services/alpha_publisher.py`'s `_INSERT_SQL` columns, live-verified against `\d alpha_events`):
+
+```python
+{
+    "event_id": str,
+    "symbol": str,
+    "tf": str,
+    "bar_ts": str,                # ISO-8601 UTC
+    "ensemble_version": str,
+    "weight_version": str,
+    "regime": str | None,
+    "alpha_score": float,
+    "alpha_ci_lower": float | None,
+    "alpha_ci_upper": float | None,
+    "effective_n": float | None,
+    "n_features_active": int | None,
+    "emission_threshold": float,
+    "direction": str,             # "long" | "short" (DB CHECK constraint)
+    "top_features": dict,         # JSONB — the only live JSONB payload field of note
+    "emitted_at": str,            # ISO-8601 UTC, DB default now()
+    "cost_hurdle": float,         # DB default 0.0
+    "is_shadow": bool,            # DB default true
+}
+```
+
+**Topic:** `topic_alpha_events(env)` → `{env}.alpha.events`. **Published by** `AlphaPublisher` (`services/alpha_publisher.py`) when the ensemble alpha score crosses the per-TF emission threshold (`alpha.quant.threshold.{tf}` APR key, e.g. 1.5/1.2/1.0/0.8 for 5m/15m/1h/1d) and the `effective_N` gate is met (`alpha.ensemble.effective_n_gate`). `AlphaPublisher` writes the DB row first (`INSERT ... ON CONFLICT (event_id, bar_ts) DO NOTHING`), then publishes the same shape to Kafka. **`alpha_publisher` is the sole writer of `alpha_events`** (DAG Invariant, root `CLAUDE.md`). **Status: Operational, live** (Kafka publish is best-effort alongside the authoritative DB write — the row lands in `alpha_events` regardless of whether the Kafka publish succeeds).
+
+### `narrative.v1` — I8 AI signal narrative
+
+```python
+{
+    "symbol": str,          # Trading symbol (e.g., "ESH6")
+    "timeframe": str,       # Timeframe (5m, 15m)
+    "timestamp": str,       # UTC ISO-8601 timestamp
+    "narrative": str,       # 2-3 sentence human-readable trade narrative
+    "action_bias": str,     # "bullish" | "bearish"
+    "confidence": str,      # Signal confidence as string float (e.g., "0.74")
+    "model": str,           # LLM model used
+    "latency_ms": str,      # Ollama call latency as string int
+}
+```
+
+**Topic:** `topic_narratives(env)` → `{env}.narratives`; group synthesis on `topic_narratives_group(env)` → `{env}.narratives.group`. **Published by** `AINarrativeService`/`NarrativeSynthesizer` only when `selected_signal is not None` and `direction != 0`. **Status: code is current, but the producer is dormant** — per root `CLAUDE.md`, `indicagent-narrative-compute` is `disabled`/`inactive` and `BaseAIWorker`/its swarm consumers have had zero commits since the v3.0 rebuild started 2026-06-20. This is I8's target-state schema, not confirmed-running — check `systemctl status indicagent-narrative-compute` before assuming it fires.
+
 ---
 
-## Current Implementation (IntelligenceEvent)
+## Archived v2.x Schemas (no live consumer since 2026-07-02)
 
-IndicAgent now uses a unified `IntelligenceEvent` schema defined in `src/intelligence/schemas.py` that carries all tier outputs in tiered JSONB sub-fields:
+These remain defined in `src/intelligence/schemas.py` and are wired into `sse.py`'s topic list (see [SSE Protocol](../api/sse-protocol.md)), but their producing service (`indicagent-intelligence-pipeline`) is `failed` with an `ExecStart` pointing at a deleted file, and their target tables (`intelligence_features`, `signal_events`) are confirmed at 0 rows. Kept here for historical/debugging traceability only — do not build new work against them.
+
+### `IntelligenceEvent`
 
 ```python
 class IntelligenceEvent(BaseModel):
@@ -47,18 +98,19 @@ class IntelligenceEvent(BaseModel):
     symbol: str
     tf: str
     bar: OHLCVBar
-    i1: dict[str, float]   # I1 Technical indicators (27 plugins)
-    i3: dict[str, Any]     # I3 Market structure (15 plugins)
-    i4: dict[str, float]   # I4 Context/regime (11 plugins)
-    i5: dict[str, Any]     # I5 Patterns (15 plugins)
-    smc: dict[str, Any]    # I6 SMC (13 plugins)
-    i6: dict[str, float]   # I6 Confluence scoring
-    bar_close_ts: Optional[datetime]
-    i1_computed_at: Optional[datetime]
+    i1: dict[str, float]   # I1 Technical indicators (29 plugins)
+    i3: dict[str, Any]     # I3 Market structure (9 plugins)
+    i4: dict[str, float]   # I4 Context/regime (13 plugins)
+    i5: dict[str, Any]     # I5 Patterns (16 plugins)
+    smc: dict[str, Any]    # Smart Money Concepts (16 plugins)
+    i6: dict[str, float]   # I6 Confluence scoring (7 plugins)
+    bar_close_ts: datetime | None
+    i1_computed_at: datetime | None
     computed_at: datetime
 ```
+**Topic:** `topic_intelligence_journal(env)` → `{env}.intelligence.journal` (as `BarIntelligenceRecord`, the atomic wire form). **Target table:** `intelligence_features` — 0 rows.
 
-### I7 Signal Schema
+### `SignalEvent` / `RankedSignal` (I7)
 
 ```python
 class SignalEvent(BaseModel):
@@ -79,443 +131,18 @@ class SignalEvent(BaseModel):
     is_winner: bool
     source: str
 ```
+**Topic:** `topic_intelligence_i7_signals(env)` → `{env}.intelligence.i7.signals`. **Consumed by** `SignalWriter` for `signal_ledger` persistence — but `signal_ledger` is a view over `signal_events`/`trade_frames`/`trade_executions`, all confirmed at 0 rows (see `docs/reference/db-maintenance.md`).
 
 ---
 
-## Legacy Schema Reference (Historical)
+## Not Implemented (schema defined, never wired to a live stream)
 
-The following schemas were defined in earlier versions but have been superseded by the unified IntelligenceEvent:
-
-```python
-{
-    "type": "bar.v1",
-    "schema_version": "1.0.0",
-    "symbol": str,                    # Trading symbol (e.g., "ES", "NQ", "RTY")
-    "timeframe": str,                 # Timeframe (1m, 5m, 15m, 1h, 4h, 1d)
-    "timestamp": str,                 # UTC ISO-8601 timestamp
-    "open": float,                    # Opening price
-    "high": float,                    # Highest price
-    "low": float,                     # Lowest price
-    "close": float,                   # Closing price
-    "volume": int,                    # Trading volume
-    "source": str,                    # Data source (e.g., "ibkr", "polygon")
-    "data_quality_score": float       # Quality assessment (0.0-1.0)
-}
-```
-
-**Example:**
-```json
-{
-    "type": "bar.v1",
-    "schema_version": "1.0.0",
-    "symbol": "ES",
-    "timeframe": "5m",
-    "timestamp": "2025-08-10T14:30:00Z",
-    "open": 4521.25,
-    "high": 4523.75,
-    "low": 4520.50,
-    "close": 4522.00,
-    "volume": 15420,
-    "source": "ibkr_live",
-    "data_quality_score": 0.98
-}
-```
+The following `*.v1` schemas (`composite.v1`, `pattern.v1`, `regime.v1`, `insight.v1`, `features.v1`, `bar.v1`) described in earlier revisions of this document as `env:type:SYMBOL:TIMEFRAME`-style colon-delimited streams do not correspond to any function in the live `src/core/stream_keys.py` (which builds dot-separated names, per DAG Invariant 4) and have no producer or consumer in the current codebase. They described an intended-but-never-built intermediate stream layer from an earlier design iteration. Treat any doc or code comment citing a colon-delimited stream pattern (`prod:bar:ES:1m`, `env:composite:SYMBOL:TIMEFRAME`, etc.) as stale — the actual topic-naming convention, live since the v2.x rebuild, is dot-separated via `stream_keys.py` only.
 
 ---
 
-## **Intelligence Processing Schemas**
+## Related Documentation
 
-### **`features.v1` - I1 Raw Features (Mathematical Indicators)**
-**Intelligence Tier:** I1 Raw Features
-**Schema Version:** `features/1.0`
-**Stream Pattern:** `env:features:SYMBOL:TIMEFRAME`
-
-```python
-{
-    "type": "features.v1",
-    "schema_version": "1.0.0",
-    "symbol": str,                    # Trading symbol
-    "timeframe": str,                 # Analysis timeframe
-    "timestamp": str,                 # UTC timestamp of bar
-    "features": {                     # Flat map of mathematical features
-        "sma_20": float,             # Simple Moving Average (20)
-        "ema_21": float,             # Exponential Moving Average (21)
-        "rsi_14": float,             # Relative Strength Index (14)
-        "macd": float,               # MACD Line
-        "macd_signal": float,        # MACD Signal Line
-        "macd_histogram": float,     # MACD Histogram
-        "bb_upper": float,           # Bollinger Band Upper
-        "bb_middle": float,          # Bollinger Band Middle (SMA 20)
-        "bb_lower": float,           # Bollinger Band Lower
-        "atr_14": float,             # Average True Range (14)
-        "stoch_k": float,            # Stochastic %K
-        "stoch_d": float,            # Stochastic %D
-        "volume_sma_20": float,      # Volume Simple Moving Average (20)
-        # Additional features as needed...
-    },
-    "source": str,                   # Processing source/plugin
-    "compute_plan_id": str,          # DAG execution identifier
-    "plugin_versions": dict,         # Plugin version tracking
-    "processing_latency_ms": float   # Processing performance metric
-}
-```
-
-**Example:**
-```json
-{
-    "type": "features.v1",
-    "schema_version": "1.0.0",
-    "symbol": "ES",
-    "timeframe": "5m",
-    "timestamp": "2025-08-10T14:30:00Z",
-    "features": {
-        "sma_20": 4518.75,
-        "ema_21": 4519.85,
-        "rsi_14": 67.3,
-        "macd": 2.15,
-        "macd_signal": 1.85,
-        "macd_histogram": 0.30,
-        "bb_upper": 4525.40,
-        "bb_middle": 4518.75,
-        "bb_lower": 4512.10,
-        "atr_14": 3.85,
-        "volume_sma_20": 12450.0
-    },
-    "source": "indicator_processor_v2.1.0",
-    "compute_plan_id": "dag_exec_12345",
-    "plugin_versions": {"rsi": "1.0.0", "macd": "1.1.0"},
-    "processing_latency_ms": 8.5
-}
-```
-
-### **`composite.v1` - I2-I7 Composite Intelligence**
-**Intelligence Tier:** I2 Composite Indicators through I7 Setup Intelligence
-**Schema Version:** `composite/1.0`
-**Stream Pattern:** `env:composite:SYMBOL:TIMEFRAME`
-
-```python
-{
-    "type": "composite.v1",
-    "schema_version": "1.0.0",
-    "symbol": str,                    # Trading symbol
-    "timeframe": str,                 # Analysis timeframe
-    "timestamp": str,                 # UTC timestamp
-    "intelligence_tier": str,         # I2, I3, I4, I5, I6, or I7
-    "composite_type": str,            # Type of composite intelligence
-    "values": dict,                   # Composite calculations
-    "confidence": float,              # Intelligence confidence (0.0-1.0)
-    "source_features": list,          # Source I1 features used
-    "rationale": str,                 # Human-readable explanation
-    "attributes": dict,               # Additional intelligence metadata
-    "source": str,                    # Plugin/processor identifier
-    "compute_plan_id": str           # DAG execution tracking
-}
-```
-
-**I2 Composite Example (MA Crossover):**
-```json
-{
-    "type": "composite.v1",
-    "schema_version": "1.0.0",
-    "symbol": "ES",
-    "timeframe": "15m",
-    "timestamp": "2025-08-10T14:30:00Z",
-    "intelligence_tier": "I2",
-    "composite_type": "ma_crossover_bullish",
-    "values": {
-        "fast_ma": 4519.85,
-        "slow_ma": 4515.20,
-        "crossover_strength": 0.73,
-        "distance_points": 4.65,
-        "duration_bars": 3
-    },
-    "confidence": 0.82,
-    "source_features": ["ema_21", "sma_50"],
-    "rationale": "EMA21 crossed above SMA50 with strong momentum",
-    "attributes": {
-        "crossover_angle": 15.6,
-        "volume_confirmation": true
-    },
-    "source": "composite_ma_crossover_v1.0.0",
-    "compute_plan_id": "dag_exec_12346"
-}
-```
-
----
-
-## **Advanced Intelligence Schemas**
-
-### **`pattern.v1` - I5-I7 Pattern Intelligence**
-**Intelligence Tier:** I5 Pattern Recognition, I6 Confluence, I7 Setup Validation
-**Schema Version:** `pattern/1.0`
-**Stream Pattern:** `env:patterns:SYMBOL:TIMEFRAME`
-
-```python
-{
-    "type": "pattern.v1",
-    "schema_version": "1.0.0",
-    "symbol": str,                    # Trading symbol
-    "timeframe": str,                 # Analysis timeframe
-    "timestamp": str,                 # Pattern detection timestamp
-    "intelligence_tier": str,         # I5, I6, or I7
-    "pattern_type": str,              # Pattern classification
-    "confidence": float,              # Pattern confidence (0.0-1.0)
-    "rationale": str,                 # Pattern explanation
-    "attributes": dict,               # Pattern-specific attributes
-    "confluence_factors": list,       # Supporting confluence elements
-    "risk_reward_ratio": float,       # Risk/reward assessment
-    "invalidation_level": float,      # Pattern invalidation price
-    "target_levels": list,            # Price targets
-    "source": str,                    # Detection plugin
-    "validation_status": str          # Pattern validation state
-}
-```
-
-**I5 Pattern Example (MACD Divergence):**
-```json
-{
-    "type": "pattern.v1",
-    "schema_version": "1.0.0",
-    "symbol": "ES",
-    "timeframe": "1h",
-    "timestamp": "2025-08-10T14:00:00Z",
-    "intelligence_tier": "I5",
-    "pattern_type": "macd_bullish_divergence",
-    "confidence": 0.87,
-    "rationale": "Price making lower lows while MACD making higher lows over 4-bar sequence",
-    "attributes": {
-        "divergence_strength": 0.76,
-        "lookback_bars": 15,
-        "price_swing_low_1": 4505.25,
-        "price_swing_low_2": 4503.75,
-        "macd_swing_low_1": -1.85,
-        "macd_swing_low_2": -1.22,
-        "confirmation_bar": true
-    },
-    "confluence_factors": ["rsi_oversold", "support_level_touch"],
-    "risk_reward_ratio": 2.4,
-    "invalidation_level": 4501.00,
-    "target_levels": [4515.00, 4525.00, 4535.00],
-    "source": "pattern_macd_divergence_v2.1.0",
-    "validation_status": "confirmed"
-}
-```
-
-### **`regime.v1` - I4 Market Context Intelligence**
-**Intelligence Tier:** I4 Context & Regime Detection
-**Schema Version:** `regime/1.0`
-**Stream Pattern:** `env:regime:SCOPE` (MARKET or SYMBOL:TIMEFRAME)
-
-```python
-{
-    "type": "regime.v1",
-    "schema_version": "1.0.0",
-    "scope": str,                     # "MARKET" or "ES:15m"
-    "timestamp": str,                 # Assessment timestamp
-    "intelligence_tier": "I4",
-    "trend_regime": str,              # "bullish", "bearish", "sideways"
-    "volatility_regime": str,         # "low", "normal", "high", "extreme"
-    "market_structure": str,          # "trending", "ranging", "breakout"
-    "confidence": float,              # Regime confidence (0.0-1.0)
-    "regime_strength": float,         # Strength of current regime (0.0-1.0)
-    "expected_duration": str,         # Expected regime duration
-    "rationale": str,                 # Regime assessment explanation
-    "supporting_indicators": list,    # Indicators supporting assessment
-    "regime_change_probability": float, # Probability of regime change
-    "source": str                     # Regime detection plugin
-}
-```
-
-**Example:**
-```json
-{
-    "type": "regime.v1",
-    "schema_version": "1.0.0",
-    "scope": "ES:15m",
-    "timestamp": "2025-08-10T14:30:00Z",
-    "intelligence_tier": "I4",
-    "trend_regime": "bullish",
-    "volatility_regime": "normal",
-    "market_structure": "trending",
-    "confidence": 0.79,
-    "regime_strength": 0.82,
-    "expected_duration": "2-4 hours",
-    "rationale": "Strong uptrend with consistent higher highs and higher lows, normal volatility expansion",
-    "supporting_indicators": ["ema_slope_positive", "atr_normalized", "volume_above_average"],
-    "regime_change_probability": 0.15,
-    "source": "regime_detector_v1.2.0"
-}
-```
-
-### **`insight.v1` - I8 AI Intelligence Synthesis**
-**Intelligence Tier:** I8 AI Insights & Human-Readable Intelligence
-**Schema Version:** `insight/1.0`
-**Stream Pattern:** `env:insight:SYMBOL:TIMEFRAME` or `env:insight:MARKET`
-
-```python
-{
-    "type": "insight.v1",
-    "schema_version": "1.0.0",
-    "symbol": str,                    # Trading symbol or "MARKET"
-    "timeframe": str,                 # Analysis timeframe or "MULTI"
-    "timestamp": str,                 # Insight generation timestamp
-    "intelligence_tier": "I8",
-    "insight_type": str,              # Type of AI insight
-    "summary": str,                   # Human-readable insight summary
-    "narrative": str,                 # Detailed market narrative
-    "key_factors": list,              # Primary intelligence factors
-    "confidence": float,              # AI confidence in insight
-    "evidence_sources": list,         # Source intelligence tiers/patterns
-    "market_context": dict,           # Current regime
-    "actionable_intelligence": dict,  # Specific actionable insights
-    "risk_assessment": dict,          # Risk evaluation
-    "model_metadata": {               # AI processing metadata
-        "model_id": str,
-        "cost_usd": float,
-        "latency_ms": int,
-        "evidence_hash": str,
-        "token_usage": dict
-    },
-    "source": str                     # AI intelligence agent
-}
-```
-
-**Example:**
-```json
-{
-    "type": "insight.v1",
-    "schema_version": "1.0.0",
-    "symbol": "ES",
-    "timeframe": "1h",
-    "timestamp": "2025-08-10T14:30:00Z",
-    "intelligence_tier": "I8",
-    "insight_type": "pattern_confluence_analysis",
-    "summary": "Strong bullish confluence detected with MACD divergence, regime support, and institutional accumulation patterns",
-    "narrative": "ES is exhibiting a compelling bullish setup with multiple confirming factors. The MACD bullish divergence identified at the 1-hour level shows strong momentum confirmation, while the current bullish regime provides structural support. Volume profile analysis indicates institutional accumulation near key support levels.",
-    "key_factors": [
-        "MACD bullish divergence (confidence: 0.87)",
-        "Bullish trend regime (confidence: 0.79)",
-        "Institutional accumulation pattern",
-        "Volume confirmation above average"
-    ],
-    "confidence": 0.84,
-    "evidence_sources": ["I5_macd_divergence", "I4_regime_bullish", "I6_confluence_analysis"],
-    "market_context": {
-        "overall_sentiment": "risk_on",
-        "volatility_environment": "normal",
-        "institutional_flow": "accumulation"
-    },
-    "actionable_intelligence": {
-        "primary_scenario": "Continuation of bullish momentum with targets at 4515, 4525",
-        "risk_management": "Invalidation below 4501 support level",
-        "confluence_score": 0.82,
-        "expected_duration": "4-8 hours"
-    },
-    "risk_assessment": {
-        "risk_reward_ratio": 2.4,
-        "probability_success": 0.76,
-        "max_adverse_excursion": 8.5
-    },
-    "model_metadata": {
-        "model_id": "gpt-4-0613",
-        "cost_usd": 0.0087,
-        "latency_ms": 1240,
-        "evidence_hash": "sha256:abc123def456",
-        "token_usage": {"input": 1850, "output": 420}
-    },
-    "source": "ai_confluence_agent_v1.0.0"
-}
-```
-
-### **`narrative.v1` - I8 AI Signal Narrative**
-**Intelligence Tier:** I8 AI Insights
-**Schema Version:** `narrative/1.0`
-**Stream Pattern:** `narratives:SYMBOL:TIMEFRAME`
-**Cache Key:** `narrative:SYMBOL:TIMEFRAME:latest` (hash, 90s TTL)
-
-```python
-{
-    "symbol": str,          # Trading symbol (e.g., "ESH6")
-    "timeframe": str,       # Timeframe (5m, 15m)
-    "timestamp": str,       # UTC ISO-8601 timestamp
-    "narrative": str,       # 2-3 sentence human-readable trade narrative
-    "action_bias": str,     # "bullish" | "bearish"
-    "confidence": str,      # Signal confidence as string float (e.g., "0.74")
-    "model": str,           # LLM model used (e.g., "qwen3:8b")
-    "latency_ms": str,      # Ollama call latency as string int
-}
-```
-
-**Example:**
-```json
-{
-    "symbol": "ESH6",
-    "timeframe": "5m",
-    "timestamp": "2026-02-19T14:05:00",
-    "narrative": "ES is establishing a trend-following long setup with price trading above aligned EMAs in a trending-up regime. Entry at 5892.25 offers a favorable risk/reward with stop at 5880.00 (1 ATR) and targets at 5905/5920/5935. RSI divergence and squeeze expansion provide additional confluence.",
-    "action_bias": "bullish",
-    "confidence": "0.74",
-    "model": "qwen3:8b",
-    "latency_ms": "1243"
-}
-```
-
-**Note:** Published by `AINarrativeService` only when `selected_signal is not None` and `direction != 0` — natural cost control limits calls to ~6/minute across 3 symbols × 2 timeframes.
-
----
-
-## **Schema Validation & Standards**
-
-### **Validation Rules**
-```python
-# Common validation patterns
-SYMBOL_PATTERN = r"^[A-Z]{2,6}$"                    # 2-6 uppercase letters
-TIMEFRAME_PATTERN = r"^(1m|5m|15m|30m|1h|4h|1d)$"   # Supported timeframes
-TIMESTAMP_PATTERN = r"^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}Z$"  # UTC ISO-8601
-
-# Numeric validation ranges
-CONFIDENCE_RANGE = (0.0, 1.0)                      # Confidence scores
-RSI_RANGE = (0.0, 100.0)                          # RSI values
-PRICE_PRECISION = 2                                # Price decimal places
-VOLUME_TYPE = int                                  # Volume as integer
-```
-
-### **Error Handling**
-- **Schema Validation:** All events validated against schema before processing
-- **Data Quality Scoring:** Automated quality assessment for all market data
-- **Graceful Degradation:** Invalid events logged but don't halt processing
-- **Version Compatibility:** Backward compatibility maintained across schema versions
-
----
-
-## **Implementation Status**
-
-### **Current Status**
-- **`bar.v1`** - Operational. The `source` field distinguishes: `tick_derived` (provisional bar published at :00 from live ticks), `authoritative` (correction published at :05 from reqHistoricalData), `ibkr_live` (legacy)
-- **`IntelligenceEvent`** - Operational. Published by `IntelligencePipeline` to `intelligence.journal` with full I1-I6 tiered JSONB
-- **`SignalEvent`** - Operational. Published by `IntelligencePipeline` to `intelligence.i7.signals` with all ranked I7 signals
-- **`narrative.v1`** - Operational. Published by `AINarrativeService` to `narratives:SYMBOL:TF`; cached to `narrative:SYMBOL:TF:latest` hash with 90s TTL
-
-### **Schema Gaps (Future Implementation)**
-- **`composite.v1`** - Schema defined; intelligence:SYMBOL:TF stream carries I3-I6 data in practice (not strict composite.v1 format)
-- **`regime.v1`** - Schema defined, not yet implemented as separate stream
-- **`pattern.v1`** - Schema defined, pattern data included in intelligence stream
-
-### **Not Yet Built**
-- **`insight.v1`** - Richer multi-factor AI schema; `narrative.v1` covers I8 for now
-- **Formal stream validation** - Schemas are informal contracts; no runtime schema enforcement yet
-
----
-
-## **Related Documentation**
-
-- [Intelligence Tiers (I1-I8)](../../concepts/intelligence-tiers.md) - Intelligence processing framework
-- [Plugin Registry & DAG Execution](../../architecture/plugin-registry-and-dag-execution.md) - Processing architecture
-- [Intelligence Processing Architecture](../../architecture/event-driven-indicator-system.md) - Service integration
-- [Architecture Overview](../../architecture/overview.md) - Complete system overview
-
----
-
-**Schema Philosophy:** *Standardized, versioned data contracts enable seamless intelligence processing from raw market data through sophisticated AI-powered insights, supporting unlimited intelligence capabilities through consistent, extensible schemas.*
-
-
+- [SSE Protocol](../api/sse-protocol.md) — how these topics reach the dashboard over Server-Sent Events
+- [DB Maintenance](../db-maintenance.md) — live row counts / archived-table status for the tables these topics feed
+- Root `CLAUDE.md` — Architecture section, v2.x/v3.0 pipeline diagrams, DAG Invariants
