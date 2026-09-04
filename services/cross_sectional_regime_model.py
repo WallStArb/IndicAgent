@@ -9,6 +9,11 @@ label, this dispatcher iterates every enabled group in APR key alpha.regime.grou
 Groups are defined in APR key alpha.regime.groups (JSON array). Each group:
   - name: string key written to market_regimes.regime_group
   - tag_filter: list of tag patterns (prefix match, * stripped) to resolve peer symbols
+  - signal_tag_filter: optional narrower filter for PEER (signal-input) resolution --
+    peers resolve from this when present, from tag_filter otherwise. Routing to
+    measurement (ic_engine._build_symbol_regime_class) always uses tag_filter, so a
+    group can measure a wider symbol set than feeds its regime signal, freezing the
+    signal input (and therefore every label it produces) against membership growth
   - signal_type: key in src/intelligence/regime_signals/REGISTRY
   - params_prefix: APR namespace for signal thresholds
   - enabled: bool
@@ -516,7 +521,13 @@ def main() -> None:
                     f"Available: {list(REGISTRY.keys())}"
                 )
 
-            peer_symbols = _resolve_group_symbols(tags_by_symbol, group["tag_filter"])
+            _signal_filter = group.get("signal_tag_filter") or group["tag_filter"]
+            _signal_exclude = set(group.get("signal_exclude_symbols", []))
+            peer_symbols = [
+                s
+                for s in _resolve_group_symbols(tags_by_symbol, _signal_filter)
+                if s not in _signal_exclude
+            ]
             if not peer_symbols:
                 _logger.warning(
                     "cross_sectional_regime_model.no_peer_symbols",

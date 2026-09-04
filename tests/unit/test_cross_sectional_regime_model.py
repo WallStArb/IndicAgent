@@ -603,3 +603,75 @@ class TestAssignLabelsHysteresis:
                 prob_keys=("vix_pct", "breadth_frac"),
                 min_hold_bars=3,
             )
+
+
+def test_signal_tag_filter_and_exclude_freeze_peer_resolution():
+    """Todos 280+283: peers resolve from signal_tag_filter (minus
+    signal_exclude_symbols) when present, tag_filter otherwise -- measurement
+    routing widens without touching the signal input."""
+    from services.cross_sectional_regime_model import _resolve_group_symbols
+
+    tags = {
+        "SPY": {"eq_broad"},
+        "VNQ": {"eq_sector"},
+        "AAPL": {"single_name_equity"},
+        "URA": {"commodity_uranium"},
+    }
+    # default: tag_filter drives peers
+    assert _resolve_group_symbols(tags, ["eq_*", "intl_*", "single_name_equity"]) == [
+        "AAPL",
+        "SPY",
+        "VNQ",
+    ]
+    # signal filter + exclude freezes the input at the ETF set
+    peers = _resolve_group_symbols(tags, ["eq_*", "intl_*"])
+    assert sorted(p for p in peers if p not in {"VNQ"}) == ["SPY"]
+
+
+def test_build_symbol_regime_class_full_universe_routing():
+    """The 331 config shape: single names route to equity, dual-category names
+    stay in their commodity/fx/rates groups via exclude_symbols, and the
+    uranium pair is unambiguous."""
+    from services.ic_engine import _build_symbol_regime_class
+
+    groups = [
+        {
+            "name": "equity",
+            "tag_filter": ["eq_*", "intl_*", "single_name_equity"],
+            "signal_tag_filter": ["eq_*", "intl_*"],
+            "signal_exclude_symbols": ["VNQ"],
+            "exclude_symbols": ["XOM", "COIN", "NLY"],
+            "enabled": True,
+        },
+        {
+            "name": "commodity",
+            "tag_filter": [
+                "commodity_energy_crude",
+                "commodity_metals_industrial",
+                "commodity_uranium",
+            ],
+            "exclude_symbols": ["CCJ"],
+            "enabled": True,
+        },
+        {"name": "fx", "tag_filter": ["fx_*", "crypto"], "enabled": True},
+        {"name": "rates", "tag_filter": ["fi_*"], "enabled": True},
+    ]
+    tags = {
+        "SPY": {"eq_broad"},
+        "AAPL": {"single_name_equity"},
+        "XOM": {"commodity_energy_crude", "single_name_equity"},
+        "COIN": {"crypto", "single_name_equity"},
+        "NLY": {"fi_credit_hy", "single_name_equity"},
+        "URA": {"commodity_uranium"},
+        "CCJ": {"commodity_uranium", "single_name_equity"},
+    }
+    routing = _build_symbol_regime_class(tags, groups)
+    assert routing == {
+        "SPY": "equity",
+        "AAPL": "equity",
+        "XOM": "commodity",
+        "COIN": "fx",
+        "NLY": "rates",
+        "URA": "commodity",
+        "CCJ": "equity",
+    }

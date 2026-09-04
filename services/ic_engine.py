@@ -5899,7 +5899,14 @@ def main() -> None:
             )
 
             with conn.cursor() as cur:
-                cur.execute("SELECT symbol, array_agg(tag) FROM instrument_tags GROUP BY symbol")
+                # active instruments LEFT JOINed to tags so tagless symbols are
+                # counted as unrouted instead of being invisible to the check
+                cur.execute(
+                    "SELECT i.symbol, array_remove(array_agg(t.tag), NULL::text) "
+                    "FROM instruments i "
+                    "LEFT JOIN instrument_tags t ON t.symbol = i.symbol "
+                    "WHERE i.is_active = true GROUP BY i.symbol"
+                )
                 tags_by_symbol: dict[str, set[str]] = {
                     row[0]: set(row[1]) for row in cur.fetchall()
                 }
@@ -5917,13 +5924,25 @@ def main() -> None:
                 },
             )
             if unrouted_symbols:
+                # todo 280 step 3: this warning fired on 120 symbols unnoticed for a
+                # month -- a log line is not doing its job. APR-gated hard ceiling;
+                # default 0 means ANY unrouted active instrument fails the run.
+                _max_unrouted = int(_cfg_svc.get_sync("infra.ic.max_unrouted_symbols", 0))
                 _logger.warning(
                     "ic_engine.unrouted_symbols",
                     n_unrouted=len(unrouted_symbols),
                     symbols=unrouted_symbols,
+                    max_allowed=_max_unrouted,
                     note="excluded from regime-stratified IC this run (no matching "
                     "enabled regime_group); pooled IC pass still covers them",
                 )
+                if len(unrouted_symbols) > _max_unrouted:
+                    raise RuntimeError(
+                        f"{len(unrouted_symbols)} unrouted active instruments exceeds "
+                        f"infra.ic.max_unrouted_symbols={_max_unrouted} -- fix "
+                        f"instrument_tags/tag_filter coverage before running "
+                        f"(todos 280+283)"
+                    )
 
             # ----------------------------------------------------------
             # Startup crash-loud gates (market_regimes gate included when enabled)
