@@ -831,3 +831,19 @@ This does not fire the decision gate's kill criterion — that is the gate's to
 fire, at the gate, after the coverage workstream runs. It removes the successor
 branch from the queue so the gate evaluates the full record without it. Queue
 after this decision: coverage fix (workstream 1) → decision gate (workstream 3).
+
+## Workstream 1 run — 2026-09-03: coverage fix COMPLETE
+
+Todos 280+283 closed (`dff6f38b7`, migration 331). All 231 active instruments
+now route to a regime group for measurement (equity 182 / commodity 21 /
+rates 17 / fx 11; zero unrouted, zero ambiguity) while every regime SIGNAL
+peer set is frozen byte-identically to pre-migration (verified against the
+pre-migration tag dump: equity 63/63, commodity 27/27, rates 17/17, fx
+11/11), so no existing regime label changed and existing IC numbers are not
+invalidated. Mechanism: new per-group `signal_tag_filter` /
+`signal_exclude_symbols` keys decouple measurement routing (tag_filter) from
+signal input; the unrouted-symbols warning is now a hard APR-gated failure
+(`infra.ic.max_unrouted_symbols`, default 0). Todo 368 closed DEPRIORITIZED
+same day (user directive ratified the queue proceeding). The ic_engine
+recompute — where the newly routed symbols enter measurement — runs now, as
+the decision gate's input.

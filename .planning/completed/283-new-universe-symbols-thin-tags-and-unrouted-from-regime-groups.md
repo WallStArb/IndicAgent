@@ -81,3 +81,12 @@ above routine hygiene.
    the backfill's own completion, not urgent today.
 4. Consider whether todo 280 (currently filed P3) should be re-tiered given this todo's scale
    finding -- flagged here, not changed unilaterally in 280's own file.
+
+## Closed 2026-09-03 (with 280)
+
+Same fix as 280 (migration 331 + `dff6f38b7`): full-universe routing. The 9
+newly tagged ETFs (BTAL/CWB/ICLN/IPO/IYT/SDOG/SPHB/VNQ/VYM, human seeds) both
+route to equity measurement and are excluded from equity's signal input via
+`signal_exclude_symbols` so the peer set stays at the pre-migration 63. Thin
+tags on other expansion symbols ride the same routing (single names via
+`single_name_equity`).

@@ -64,3 +64,17 @@ added in the 2026-08-05/06 universe expansion and found **115/151 (76%) unrouted
 failure mode at roughly 20x this todo's 5/17 sample. Merge scope with 283 before fixing either;
 283 also flags this todo's PRIORITIES.md placement (filed P3 there despite this file's own P2
 frontmatter) and suggests P1 given the new scale evidence.
+
+## Closed 2026-09-03 (with 283)
+
+Fixed by migration 331 + `dff6f38b7` (program workstream 1, coverage fix):
+all 231 active instruments now route to a regime group (equity 182 /
+commodity 21 / rates 17 / fx 11; zero unrouted, zero ambiguity) while every
+regime SIGNAL peer set is frozen byte-identically to pre-migration via new
+`signal_tag_filter` / `signal_exclude_symbols` keys, so no existing label
+changed. The unrouted warning is now a hard APR-gated failure
+(`infra.ic.max_unrouted_symbols`, default 0) — the warning-only path fired on
+120 symbols unnoticed for a month. ic_engine recompute deferred to the
+program decision gate by design (labels unchanged means existing IC numbers
+are not invalidated; recompute is where the newly routed symbols enter
+measurement).

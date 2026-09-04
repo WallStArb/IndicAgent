@@ -61,3 +61,12 @@ lives in the common component, shown by 0/231 residual vs 52/231 raw). Neither
 successor shape has a mechanism left. The user decision ratifies or overrides this;
 the queue proceeds with coverage → decision gate either way (a pursued successor
 would only add work in parallel, not change the gate's inputs).
+
+## Closed 2026-09-03 — DEPRIORITIZED
+
+User directive "keep going fix this mess like Jim Simons would demand"
+(2026-09-03) ratified proceeding with the program queue (coverage → decision
+gate), which is the deprioritize branch's consequence; no successor designed.
+Pre-registration 2 (same day, migration 330) supplied the deciding input:
+0/231 per-symbol BY-FDR concentration in the beta-neutral residual framing.
+See program doc "Todo 368 recommendation" for the full record.
