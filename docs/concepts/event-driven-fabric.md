@@ -1,17 +1,11 @@
 # Event-Driven Fabric
 
-**Version:** 1.0
-**Status:** stale (v2.x, see banner)
-**Last Updated:** 2026-05-30
+**Version:** 1.1
+**Status:** current
+**Last Updated:** 2026-09-04
 **Tags:** event-driven, messaging, decoupling, kafka
 
 > Agents communicate exclusively through named topics — no agent ever calls another directly.
-
-> **Staleness note (2026-08-01):** The event-driven-fabric principle itself still holds in
-> v3.0, but this doc's worked example (`intelligence_pipeline` → `topic_intelligence_features`
-> / `topic_intelligence_i7` → `feature_writer_service`/`signal_writer_service`) names the
-> ARCHIVED v2.x topology, with no live consumer as of 2026-07-02 per CLAUDE.md. Not yet
-> rewritten for v3.0 -- tracked for a future doc pass, not fixed here.
 
 ## The Problem It Solves
 
@@ -34,14 +28,16 @@ Key design decisions:
 - **The `KafkaProducerClient.publish()` kwarg is `msg=`** (not `value=`). Wrong kwarg silently fails at flush.
 
 ```
-Bar arrives → intelligence_pipeline → topic_intelligence_features
-                                    → topic_intelligence_i7
-                                    → topic_shadow_transitions
+Bar arrives → FeatureVectorPipeline (FeatureFactory.compute()) → topic_feature_vectors
 
-topic_intelligence_features → feature_writer_service → TimescaleDB
-topic_intelligence_i7       → signal_writer_service  → TimescaleDB (signal_events + trade_frames)
-topic_shadow_transitions    → swarm_ledger_writer    → TimescaleDB
+topic_feature_vectors → FeatureVectorWriter (consumer group feature_vector_writer_group)
+                       → TimescaleDB (feature_vectors hypertable)
+
+Ensemble alpha score crosses threshold → AlphaPublisher → topic_alpha_events
+                                                          → TimescaleDB (alpha_events)
 ```
+
+`FeatureVectorPipeline` never opens a write connection for its own computed output — it publishes to `topic_feature_vectors` and `FeatureVectorWriter` is the sole consumer that persists. Same pattern for `AlphaPublisher`/`topic_alpha_events` — `alpha_publisher` is the sole writer to `alpha_events`. This is DAG Invariant 3 (see `docs/concepts/dag-execution.md`) expressed as topic flow: a compute daemon publishes, a dedicated writer persists, never the other way around.
 
 ## Invariants
 

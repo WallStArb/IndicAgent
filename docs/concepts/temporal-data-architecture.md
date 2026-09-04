@@ -1,17 +1,18 @@
 # Temporal Data Architecture
 
-**Version:** 1.0
-**Status:** stale (v2.x, see banner)
-**Last Updated:** 2026-05-30
+**Version:** 2.0
+**Status:** current
+**Last Updated:** 2026-09-04
 **Tags:** time-series, immutability, timescaledb, data-retention
 
 > Every market event is a timestamped, immutable record — nothing is dropped, everything is queryable by time.
 
-> **Staleness note (2026-08-01):** This doc cites `intelligence_features` and
-> `signal_events`/`trade_frames`/`trade_executions`/`signal_ledger` as the primary durable
-> hypertables. Those v2.x tables have no live consumer as of 2026-07-02 per CLAUDE.md; the
-> live tables are `feature_vectors`, `alpha_frames`, and `alpha_events`. Not yet rewritten for
-> v3.0 -- tracked for a future doc pass, not fixed here.
+> **Rewritten for v3.0 (2026-09-04):** The prior version cited `intelligence_features` and
+> `signal_events`/`trade_frames`/`trade_executions`/`signal_ledger` (v2.x, no live consumer
+> since 2026-07-02) as the primary durable hypertables. The table list below now reflects the
+> live v3.0 pipeline (`feature_vectors` → `forward_returns` → `alpha_frames`/`alpha_events`).
+> The underlying principle — append-only, no retention policy, never UPDATE a row that recorded
+> something that happened — is unchanged.
 
 ## The Problem It Solves
 
@@ -28,20 +29,18 @@ Time-series data has a natural append-only structure — events happen, are reco
 
 ## How IndicAgent Applies It
 
-TimescaleDB (PostgreSQL extension) is used for all time-series tables. Three primary hypertables:
+TimescaleDB (PostgreSQL extension) is used for all time-series tables. Primary hypertables in the live v3.0 pipeline:
 
 | Table | Time column | Purpose |
 |-------|-------------|---------|
-| `market_data_ohlcv` | `timestamp` | Raw OHLCV bars |
-| `intelligence_features` | `ts` | Full feature vectors per bar (I1-I7 outputs) |
-| `signal_events` | `ts` | Detection layer: one row per I7 plugin fire, forever |
-| `trade_frames` | `signal_ts` | Hypothesis layer: one row per entry_type per signal, counterfactual_pnl_r ML training target, forever |
-| `trade_executions` | `exited_at` | Execution layer: one row per live trade, actual_pnl_r, forever |
-| `signal_ledger` | N/A | JOIN view (signal_events + trade_frames + trade_executions) — backward-compat query surface |
+| `market_data_ohlcv` | `timestamp` | Raw OHLCV bars — read via `market_data_ohlcv_tradeable` view (`volume > 0`) for compute/measurement; the raw table is a continuous calendar grid with synthetic-fill/flat-carry-forward placeholder rows |
+| `feature_vectors` | (bar timestamp) | Atomic Feature Factory output — one row per symbol/timeframe/bar, written by `FeatureVectorWriter` |
+| `forward_returns` | `bar_ts` | Forward-looking executable returns per symbol/tf/bar, written by `forward_return_writer`; `ic_engine` reads this exclusively (`return_type = 'executable_open_to_open'`) |
+| `feature_ic_scores` | (per IC-engine run) | Measured IC per feature × symbol × TF × regime × lookahead |
+| `alpha_frames` | `bar_ts` | Ensemble/trade-construction output rows, keyed by deterministic `frame_id` (`BaseBatch.content_key`) |
+| `alpha_events` | (event ts) | Sole governed emission point — written only by `alpha_publisher` |
 
-**The 3-table signal architecture is the training dataset foundation.** `signal_events` captures detection with ECL annotations (factor_scores, context_features). `trade_frames` captures all entry_type hypotheses with counterfactual_pnl_r (populated by CounterfactualTracker in v2.11). `trade_executions` captures live execution outcomes. Every I7 signal ever fired is preserved with full feature context. These tables have no retention policy and never will.
-
-**Volume Profile columns:** `poc_price`/`vah`/`val` = session VP (1m/5m); `poc_price_rolling`/`vah_rolling`/`val_rolling` = rolling VP (15m/1h). Different names for semantically different calculations — do not conflate.
+**`feature_vectors` is the training dataset foundation.** Every feature is computed and persisted for every bar, unconditionally — there is no upstream detection/suppression step that could introduce execution-selection bias into what gets measured (see `docs/concepts/signal-ledger-architecture.md` for why that matters and how v2.x solved the analogous problem). These tables have no retention policy and never will.
 
 **Connection pattern:** All DB access via `asyncpg` through `src/core/database_manager.py`. JSONB columns return `dict` directly — never call `json.loads()` on asyncpg results. Timestamps return `datetime` objects. Always `str()` UUID values before JSON serialization.
 
@@ -50,7 +49,7 @@ TimescaleDB (PostgreSQL extension) is used for all time-series tables. Three pri
 ## Invariants
 
 - No table that records a market event may have rows deleted or updated in place.
-- `intelligence_features`, `signal_events`, `trade_frames`, `trade_executions`, and `llm_calls` have no retention policies — ever.
+- `feature_vectors`, `forward_returns`, `feature_ic_scores`, `alpha_frames`, and `alpha_events` have no retention policies — verified against `timescaledb_information.jobs`. `llm_calls` is the exception: it carries a live 90-day `drop_after` retention policy (verified 2026-09-04) — it is an audit log for prompt A/B testing and back-filled outcomes, not a training corpus, so this table's exemption from the no-retention rule is intentional. Check `timescaledb_information.jobs` per table rather than assuming every hypertable is retention-exempt.
 - All timestamps stored as `timestamptz` (UTC). `datetime.now(UTC)` only — never `datetime.now()` or `datetime.utcnow()`.
 - DB queries use `PGPASSWORD=postgres psql -U postgres -h localhost -d indicagent`. Plain `psql -U postgres` fails (no socket auth).
 

@@ -1,61 +1,56 @@
 # Incremental Computation
 
-**Version:** 1.0
+**Version:** 2.0
 **Status:** current
-**Last Updated:** 2026-05-30
-**Tags:** stateful-plugins, incremental-updates, computational-efficiency, streaming
+**Last Updated:** 2026-09-04
+**Tags:** bounded-state, incremental-updates, computational-efficiency, streaming
 
-> Plugins maintain bounded internal state and update it O(1) per bar — no history reprocessed after warmup.
+> Per-bar compute must be bounded work, not O(full history) — either by capping the window that gets reprocessed, or by carrying genuinely incremental state across calls.
 
 ## The Problem It Solves
 
-132 plugins × full recomputation per bar = O(N×bars) work per tick. With 27 indicators, 55+ contracts, and 4 timeframes, that is ~5,940 full recomputations per bar. Each one reprocesses data that has not changed. A naive implementation recomputes RSI from the last 14 bars, ATR from the last 14 bars, MACD from the last 26 bars — redundant work that scales with history length and creates a processing backlog under live market conditions.
+298 features × full-history recomputation per bar, across dozens of contracts and multiple timeframes, is unbounded work per tick that grows with how much history has accumulated. A naive implementation reloads and reprocesses the entire bar history for every feature on every bar — redundant work that scales with corpus age and creates a processing backlog under live market conditions. The system needs per-bar cost to stay flat regardless of how many months of history exist upstream.
 
 ## The Principle
 
-Each plugin maintains bounded internal state (e.g., a fixed-length deque, or a few running floats). On each new bar, the plugin calls `compute_next(bar)` which updates state O(1) — add the new value, drop the oldest, update the running sum. The full history is never reprocessed after warmup.
+There are two legitimate ways to keep per-bar cost bounded, and a real system uses both:
 
-Examples:
-- **EMA:** state is one float (previous EMA). New EMA = α × new_close + (1 - α) × prev_ema.
-- **RSI:** state is two floats (smoothed gain, smoothed loss). Wilder's smoothing is a single division per bar.
-- **Bollinger:** state is three floats (count, mean, M2). Welford's online variance — no accumulated floating point error.
-- **Stochastic:** state is a fixed-length deque of closes. O(1) append, O(N) max over a small window (N=14-20).
+1. **Bounded-window recompute.** Cap the input to a fixed-size window (not the full history) and recompute over just that window each bar. Cost is O(window size), which is small and constant — it does not grow as history accumulates, even though it is not O(1) in the strict sense.
+2. **True incremental state.** Maintain a running summary (a few floats, a counter) and update it O(1) per bar without ever touching the window at all — e.g. an EMA's running value, or a duration counter that increments or resets.
 
-The warmup period (~50 bars for GARCH/Kalman/HMM to converge) is the only legitimate O(N) operation. After warmup, every bar is O(1) regardless of history length.
+Both satisfy the same invariant: per-bar cost must not scale with total history length. Which one applies depends on whether the calculation is genuinely re-derivable from a small window (most technical features) or requires carrying forward a value that a window recompute would have to reconstruct expensively (regime state, session counters).
 
 ## How IndicAgent Applies It
 
-`supports_incremental` flag per plugin distinguishes two execution paths:
+`FeatureFactory.compute()` (`src/intelligence/feature_factory.py`) is a stateless pure function — no `__init__`, no stored config, zero I/O, deterministic given its inputs (D-08 contract). It is called once per bar per (symbol, timeframe) with:
 
-- **Incremental plugins** (`supports_incremental = True`) — called with only the new bar. State is managed by the pipeline service, not the plugin. A state key `(plugin_name, symbol, timeframe)` isolates state across instruments.
-- **Window plugins** (`supports_incremental = False`) — receive a rolling window of bars on each call. Used for I3 (structure), I4 (regime), I5 (pattern): SwingDetector, GARCHVolatility, HMMRegime, pattern plugins. These require multi-bar windows for correctness. Window size is small enough that full recompute is acceptable, but they do not get the O(1) benefit.
+- `bars` — the bounded window for that (symbol, tf) from `BarHistory` (`src/core/bar_history.py`), a per-key deque capped at `maxlen` (default 200). Appending a new bar evicts the oldest automatically — the window never grows past its cap, so recompute cost is flat regardless of how much history exists in the database.
+- `cache: FeatureCache` — the small set of fields that genuinely need to persist across calls rather than being re-derived from the window each time: HMM regime (refreshed every `regime_cache_refresh_bars`, not every bar — cheaper than even O(1)-per-bar), cross-asset state (`vix_z`, `flight_quality`, `yield_slope_z`, populated by `update_cross_asset()`), and simple counters (`hmm_duration`, `above_wk_vwap`) incremented or reset by the caller each bar.
+- `config: FeatureFactoryConfig` — a frozen dataclass built once by the caller and passed explicitly on every call; never stored on the class.
 
-Fallback: if state is empty (first bar after restart or state evicted), `compute_next()` calls `compute_full()` to seed state. After seeding, subsequent bars use the incremental path.
+So most of the 298 features are bounded-window recompute (the window is the state boundary), and a handful of genuinely stateful fields live in `FeatureCache` as true incremental state. This is architecturally the old doc's "window plugin" strategy generalized to the whole feature set, with the old doc's "incremental plugin" pattern surviving only for the few fields where re-deriving from a window would be wasteful or impossible (e.g. a duration counter has no window-based reconstruction).
 
-**State checkpointing:** Plugin state is serialized to `cache/plugin_states.json` on a timer. On restart, state is restored so warmup periods do not replay from scratch. If the checkpoint is corrupt or missing, the plugin reinitializes (warmup replays).
-
-**Measured speedup: 141x faster than full recomputation across the I1 tier.**
+**Checkpointing:** `FeatureVectorPipeline` checkpoints `last_bar_offset` (the Kafka replay position) via `PluginStateManager`, not the window contents or `FeatureCache` fields themselves — on restart, `BarHistory` is repopulated from DB warmup/Kafka replay rather than deserialized from a state file. This differs from the old plugin-tier model, which serialized full per-plugin state to `cache/plugin_states.json`.
 
 ## Invariants
 
-- `compute_next()` may only read from internal state and the current bar — never from a full history lookup.
-- Warmup is the only legitimate O(N) operation. All post-warmup computation must be O(1) or O(small-constant).
-- State must be serializable to JSON for checkpointing.
-- The state write-back after `compute_next()` is load-bearing for plugins (like GARCH, HMM) that fully reassign `_state` internally rather than mutating it in place.
+- `FeatureFactory.compute()` must remain a pure function of `(bars, symbol, tf, cache, config)` — no I/O, no `ConfigService.get()` calls, no Kafka, no `async`/`await` inside it.
+- `BarHistory`'s per-key deque is capped (`maxlen`); nothing appends without eviction. Per-bar cost must never scale with total corpus history length.
+- Fields promoted into `FeatureCache` must be fields that cannot be cheaply re-derived from the bounded window alone — don't add a cache field for something a window recompute already gives you.
+- All tunable window sizes come from `FeatureFactoryConfig`, itself sourced from APR (`feature.*` namespace) — zero inline magic numbers in primitive bodies (SC-9).
 
 ## Recipe
 
-When designing an incremental computation system:
+When designing a bounded per-bar computation system:
 
-1. **Identify which computations are truly incremental vs. window-based.** EMA, RSI, OBV are incremental. Chart patterns, regime detection, and swing points need a window.
-2. **For incremental: define the minimal state representation.** Two floats for RSI, one float for EMA, a fixed deque for Stochastic. Resist storing more than you need.
-3. **Set warmup length to the convergence window of the slowest state variable.** GARCH needs ~50 bars; EMA needs ~3N bars. The warmup is the maximum across all state variables in the plugin.
-4. **Checkpoint state to local disk — not to a database.** Database round-trips on every bar negate the latency savings. Local file checkpoint on a timer is the right pattern.
-5. **Implement fallback.** `compute_next()` should detect empty state and call `compute_full()` automatically. Callers should not need to know which path executes.
-6. **Test incremental parity.** Verify that `compute_next()` over N bars produces the same result as `compute_full()` over those N bars. Divergence is a silent bug.
+1. **Default to bounded-window recompute.** It's simpler, stateless, and easy to test — most technical features fit this.
+2. **Reserve true incremental state for what a window genuinely can't reconstruct.** A duration counter or a regime label refreshed on its own cadence are legitimate; don't build incremental state machines for things a window recompute already handles correctly.
+3. **Size the window to the slowest feature's requirement**, and make sure the window cap is large enough that no feature silently truncates.
+4. **Checkpoint only what's expensive to rebuild** (stream offsets), and let bounded, cheap-to-rebuild state (bar windows) repopulate from source on restart rather than round-tripping it through a state file.
+5. **Test window-boundary correctness**, not incremental/full-recompute parity — since there's no separate incremental code path to diverge from the window path in this design.
 
 ## See Also
 
-- Implementation: `docs/intelligence/intelligence-plugins.md` — plugin protocol, `compute_full`/`compute_next` signatures, state management
-- Related concept: `docs/concepts/dag-execution.md` — how incremental plugins are ordered across tiers
+- Implementation: `docs/intelligence/intelligence-alphaengine.md` — `FeatureFactory`/`FeatureVectorPipeline` architecture
+- Related concept: `docs/concepts/dag-execution.md` — how feature computation is ordered
 - Related concept: `docs/concepts/hot-path-isolation.md` — why hot-path state must be local, not DB-backed

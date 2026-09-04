@@ -1,16 +1,22 @@
 # Plugin Composability
 
-**Version:** 1.0
-**Status:** stale (v2.x, see banner)
-**Last Updated:** 2026-05-30
-**Tags:** plugins, composability, extensibility, pipeline
+**Version:** 2.0
+**Status:** archived (implementation) — pattern superseded, not carried forward, see banner
+**Last Updated:** 2026-09-04
+**Tags:** plugins, composability, extensibility, pipeline, v2.x-archived
 
 > Intelligence is entirely composed of plugins — the pipeline shell is empty; adding intelligence means writing a plugin, not modifying core code.
 
-> **Staleness note (2026-08-01):** This doc describes the `IntelligencePipeline` plugin
-> protocol (`TIER_I1`..`TIER_I7` registration in `register_plugins.py`) as the live
-> extensibility mechanism. That v2.x plugin tier has no live consumer as of 2026-07-02 per
-> CLAUDE.md. Not yet rewritten for v3.0 -- tracked for a future doc pass, not fixed here.
+> **Rewritten for v3.0 (2026-09-04):** This doc described the `IntelligencePipeline` plugin
+> protocol (`TIER_I1`..`TIER_I7` self-registration in `register_plugins.py`) as the live
+> extensibility mechanism. That v2.x plugin tier has had no live consumer since 2026-07-02.
+> Unlike other archived v2.x concept docs in this library, the composability *pattern* itself
+> did not carry forward into v3.0 — it was deliberately rejected, not reimplemented. V3.0's own
+> framing (`docs/intelligence/intelligence-alphaengine.md`): "138 plugins produced roughly 15
+> genuinely independent views, because a human had already decided what 'confluence' meant
+> before any data was measured... the fix is not better plugins, it's a different epistemology."
+> The rest of this doc is kept as a design record of the pattern IndicAgent used to run and
+> rejected — see "What Replaced It in v3.0" below for what extensibility looks like today.
 
 ## The Problem It Solves
 
@@ -46,7 +52,7 @@ Plugins declare:
 
 **Startup validation:** `PluginValidator` checks all plugins at startup — output field names match schema, no DAG cycles, warmup requirements are valid. Fails fast; prevents silent bad-data propagation.
 
-## Invariants
+## Invariants (as they applied to the v2.x implementation — not enforced today)
 
 - No intelligence logic belongs in the pipeline shell — only in plugins.
 - Every plugin must be independently testable with synthetic inputs.
@@ -54,7 +60,20 @@ Plugins declare:
 - A plugin must never raise on bad input data — return `None` outputs instead.
 - `supports_incremental = True` is only valid if `compute_next()` produces identical results to `compute_full()` over the same bars (verifiable by test).
 
-## Recipe
+## What Replaced It in v3.0
+
+`register_plugins.py` and the `TIER_I1`..`TIER_I7` lists are gone with the rest of I5/I6/I7 — "no transitional shims, no parallel operation" (`docs/intelligence/intelligence-alphaengine.md`). What computes intelligence now is `FeatureFactory.compute()` (`src/intelligence/feature_factory.py`): a single stateless, pure function spanning roughly 8,600 lines that produces all ~298 `FeatureVector` fields from one call. There is no per-feature file, no self-registration list, no declared per-unit `inputs`/`outputs`, and no per-unit try/except shell — a handful of inline numeric guards (`_guard_counted`) substitute degenerate values, but nothing isolates one feature's bug from corrupting the whole `FeatureVector` row the way a plugin exception used to be caught and skipped.
+
+This is a deliberate trade, not an oversight, and it maps onto why the plugin pattern was rejected rather than reimplemented:
+
+- **Composability moved from software architecture to statistics.** The old model: a developer decides which named patterns (RSI divergence, BOS, confluence rules) exist and how they combine — that decision *is* the plugin file. The new model: the Feature Factory emits orthogonal, atomic measurements with no opinion about what matters; `ic_engine` and `ensemble_trainer` decide which features combine into an edge, weighted by measured IC. The composition step still exists — it just happens statistically, downstream, instead of architecturally, upstream, at plugin-registration time.
+- **Extensibility is a schema migration, not a registration.** Per `docs/intelligence/intelligence-alphaengine.md`: "Adding a feature = schema migration, not a registration." Concretely: write a pure function inside `feature_factory.py`, add the field to `FeatureVector` (`src/intelligence/schemas.py`), and insert its `concept_registry` row (Unified Concept Registry genesis exemption — see `docs/foundation/unified-concept-registry.md`). There is no plugin file to add or delete, and no DAG-cycle validator to satisfy, because there is no plugin DAG.
+- **Evidence gates promotion instead of a startup validator gating registration.** `PluginValidator`'s job — catch a broken unit before it reaches production — is now UCR's job: a new feature genesis-seeds as `candidate`/`active` at migration time, but only `ConceptRegistryService` can transition it later, gated by measured IC evidence, not by a schema check at process start.
+- **The DAG got shallower, not deeper.** The old shell built a dependency graph across up to seven tiers of plugins. The new pipeline is one flat compute call followed by a handful of table-boundary stages (`feature_vectors` → `forward_returns` → IC → ensemble → `alpha_events`) — see `docs/concepts/progressive-intelligence-extraction.md`. There is no plugin-level DAG left to be composable within.
+
+The net effect: IndicAgent still believes in decomposing a hard problem into independently-measurable units — that instinct didn't disappear. It just no longer expresses itself as a software plugin protocol. Read the Recipe below as a historical pattern IndicAgent tried and moved past for this specific problem (rule-based intelligence composition), not as current guidance for how to extend this codebase.
+
+## Recipe (general pattern — not what IndicAgent does today; see banner)
 
 When designing a plugin system for a new domain:
 
@@ -65,9 +84,14 @@ When designing a plugin system for a new domain:
 5. **Validate at startup.** Schema validation, cycle detection, and interface checks should fail the service at startup with a clear error, not produce wrong results at runtime.
 6. **Version plugin outputs.** When a plugin changes its output field names or semantics, downstream plugins that depend on those fields need to be updated. Schema versioning makes this visible.
 
+This recipe is still sound advice for a domain where the extensibility unit genuinely is a piece of hand-authored logic whose composition with other units is itself a design decision (rule engines, ETL transform chains, middleware stacks). It stopped being the right recipe for IndicAgent's feature layer once the composition decision moved from "which plugins does a developer wire together" to "which measured features does the data support" — see What Replaced It in v3.0 above.
+
 ## See Also
 
-- Implementation: `docs/intelligence/intelligence-plugins.md` — full plugin protocol, DAG structure, 132-plugin registry
-- Code: `src/intelligence/register_plugins.py` — canonical tier lists and registration
-- Related concept: `docs/concepts/dag-execution.md` — how plugin dependency declarations become execution order
-- Related concept: `docs/concepts/incremental-computation.md` — how `compute_next()` achieves O(1) per bar
+- Live equivalent: `docs/intelligence/intelligence-alphaengine.md` — "What Gets Cut" section; the direct statement that the plugin registry was replaced by a typed function library, not reimplemented
+- Live pipeline: `docs/architecture/architecture-v3-alphaengine-pipeline.md` — full v3.0 layer detail
+- Superseded implementation: `docs/architecture/architecture-v2-event-driven-pipeline.md` — the archived plugin-tier pipeline this doc describes
+- Governance for the new extensibility path: `docs/foundation/unified-concept-registry.md` — evidence-gated feature lifecycle replacing `PluginValidator`
+- Related concept: `docs/concepts/dag-execution.md` — how plugin dependency declarations became execution order (v2.x)
+- Related concept: `docs/concepts/incremental-computation.md` — how the bounded-window/incremental-state split survived independently of the plugin protocol
+- Related concept: `docs/concepts/progressive-intelligence-extraction.md` — the shallower v3.0 DAG that replaced the plugin-tier DAG

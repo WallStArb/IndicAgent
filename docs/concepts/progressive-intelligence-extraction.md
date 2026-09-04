@@ -1,60 +1,57 @@
 # Progressive Intelligence Extraction
 
-**Version:** 1.0
-**Status:** stale (v2.x, see banner)
-**Last Updated:** 2026-05-30
-**Tags:** intelligence-tiers, abstraction-layers, feature-extraction, signal-pipeline
+**Version:** 2.0
+**Status:** current
+**Last Updated:** 2026-09-04
+**Tags:** intelligence-tiers, abstraction-layers, feature-extraction, statistical-pipeline
 
-> Raw market data contains no signal — it must be transformed through sequential layers of increasing abstraction before patterns emerge.
+> Raw market data contains no signal — it must be transformed through sequential layers, each a prerequisite for the next, before an edge claim is possible.
 
-> **Staleness note (2026-08-01):** This doc describes the eight-tier I1-I8 `IntelligenceEvent`
-> pipeline as the live abstraction ladder. That v2.x tier system has no live consumer as of
-> 2026-07-02 per CLAUDE.md. Not yet rewritten for v3.0 -- tracked for a future doc pass, not
-> fixed here.
+> **Rewritten for v3.0 (2026-09-04):** The original version of this doc described the archived
+> v2.x eight-tier I1-I8 `IntelligenceEvent` pipeline (no live consumer since 2026-07-02). The
+> underlying principle — each layer is a hard prerequisite for the next, no skipping — still
+> holds; the concrete tiers below now describe the live AlphaEngine (v3.0) stack instead. See
+> `docs/architecture/architecture-v3-alphaengine-pipeline.md` for full layer detail and
+> `docs/architecture/architecture-v2-event-driven-pipeline.md` for the superseded version.
 
 ## The Problem It Solves
 
-Price and volume data are statistically noisy. A single OHLCV bar tells you almost nothing about whether to trade. The naive approach — "if RSI < 30, buy" — treats a single indicator as a decision. This produces a false positive rate that makes the rule unusable in production. The gap between "data" and "actionable intelligence" cannot be crossed in one step.
+Price and volume data are statistically noisy. A single OHLCV bar tells you almost nothing about whether to trade. The naive approach — "if RSI < 30, buy" — treats a single indicator as a decision, encoding a researcher's hypothesis about what matters before any data has weighed in. The gap between "data" and a defensible edge claim cannot be crossed in one step, and it cannot be crossed by asserting a rule either — it has to be crossed by measurement, one layer at a time.
 
 ## The Principle
 
-Each intelligence tier consumes the outputs of previous tiers and produces a richer abstraction. No tier can skip its predecessors because each layer's outputs are prerequisites for the next:
+Each layer consumes the outputs of previous layers and produces a step closer to an evaluable edge claim. No layer can skip its predecessors because each layer's outputs are prerequisites for the next:
 
-- Mathematical features (tier 1) are necessary inputs for composite events (tier 2)
-- Composite events are necessary inputs for market structure (tier 3)
-- Structure is necessary input for regime classification (tier 4)
-- Regime shapes what patterns are meaningful (tier 5)
-- Patterns feed confluence scoring (tier 6)
-- Confluence enables principled signal generation (tier 7)
-- Signals provide the context for AI narrative (tier 8)
+- Clean raw bars are the necessary input for feature computation — nothing above computes anything without this being correct first.
+- Atomic features are the necessary input for regime conditioning and IC measurement — nothing enters IC that didn't come through the Feature Factory first.
+- Regime state and per-feature IC are necessary inputs for combination — an ensemble can't weight what hasn't been measured, per-regime, first.
+- A combined, scored edge is the necessary input for trade construction — you can't size a position on a feature that hasn't cleared IC.
+- A constructed trade hypothesis is the necessary input for governance — nothing is promoted toward production capital without a scored, gated hypothesis behind it.
 
-The abstraction level increases at each tier. Tier 1 answers "what is RSI?" Tier 7 answers "is there a high-confidence trading setup now?" Tier 8 answers "what does this mean in market context?" These are genuinely different questions that require genuinely different computation.
+The question answered gets more concrete at each layer. Layer 1 answers "does this quantity move independently of the others?" Layer 3 answers "does this quantity actually predict forward returns, and in which regime?" Layer 6 answers "has this cleared the bar to be trusted with capital?" These are genuinely different questions that require genuinely different computation — and, critically, each later question is only askable once the earlier one has been answered by measurement, not assumption.
 
 ## How IndicAgent Applies It
 
-Eight tiers produce a typed `IntelligenceEvent` carrier that accumulates outputs across the pipeline:
+The live AlphaEngine (v3.0) pipeline is the current instance of this principle:
 
-| Tier | Name | What it produces |
-|------|------|-----------------|
-| I1 | Technical Indicators | Raw mathematical values: RSI, MACD, ATR, OBV, OFI, CVD |
-| I2 | Composite Events | Discrete event flags: crossovers, threshold crosses, bars-since counts |
-| I3 | Market Structure | Swing patterns, support/resistance levels, BOS/CHoCH detection |
-| I4 | Regime Classification | Volatility regime, trend regime, HMM state, GARCH forecast, BOCPD changepoints |
-| I5 | Pattern Detection | Chart patterns, RSI divergence, Bollinger squeeze, multi-TF volatility |
-| I6 | Confluence Synthesis | SMC zones (OB/FVG/BOS), cross-TF confluence, CIS bucket scores |
-| I7 | Trading Signals | Setup detection, signal scoring, CIS gating, shadow governance |
-| I8 | AI Narrative | LLM-powered market narrative, swarm overlay, eAI agents (v2.8) |
+| Layer | Name | What it produces |
+|-------|------|-------------------|
+| 0 | Data Foundation | Clean OHLCV bars (`market_data_ohlcv_tradeable`) — no gaps, no synthetic fill treated as real |
+| 1 | Feature Factory | Atomic, orthogonal `FeatureVector` rows (`compute_features()`) — a measured quantity, not a directional opinion |
+| 2 | Regime Layer | Per-symbol idiosyncratic HMM state + cross-sectional systematic regime, as stratification variables |
+| 3 | IC Measurement | `ic_engine` — per feature × symbol × TF × regime × lookahead, does this feature predict? |
+| 4 | Combination / Ensemble | `ic_shrinkage` → `ensemble_trainer` — IC-weighted (and tested nonlinear) combination into a scored edge |
+| 5 | Trade Construction | Turns a scored edge into a tradeable position hypothesis |
+| 6 | Governance | Concept Registry, APR, shadow/promotion gates — decides what's allowed to reach the next stage |
 
-The `IntelligenceEvent` (defined in `src/intelligence/schemas.py`) is the carrier — it accumulates outputs from each tier and is passed forward. Every I7 signal is emitted with the full I1-I7 feature context that produced it.
-
-**Execution:** All I1-I7 tiers run inside `IntelligencePipeline` as a unified in-process pipeline. This eliminates inter-service Kafka latency for the tight coupling between tiers. I8 (AI Narrative) runs as a separate service for latency isolation — it is non-blocking and does not gate signal generation.
+Unlike the v2.x tier system this replaces, there is no single typed carrier object accumulating state across all layers — each layer reads its input from a TimescaleDB table the previous layer wrote (`feature_vectors`, IC results, ensemble scores), which is itself the DAG-invariant boundary (Ring rule: compute stages publish, a dedicated writer persists). The prerequisite ordering is enforced by what each layer's query depends on existing, not by a shared carrier type.
 
 ## Invariants
 
-- Every I7 signal must have consumed I1-I6 outputs — no tier may bypass its prerequisites.
-- Every tier output is typed in `IntelligenceEvent` — no untyped dict passing between tiers.
-- I8 (AI Narrative) must never block or delay I7 signal publication. Narrative is commentary, not gating.
-- The canonical tier lists live in `src/intelligence/register_plugins.py` `TIER_I1`..`TIER_I7` — no tier membership defined elsewhere.
+- No layer may read a table that a later layer wrote — the DAG runs one direction (Layer 0 → 6), never backward.
+- A feature never skips IC to reach the ensemble — every feature in `ensemble_trainer`'s input has a measured, cited IC.
+- Regime is a stratification variable for IC, never a gate — see `docs/concepts/regime-awareness.md` for why conditioning beats gating.
+- Nothing reaches governance (Layer 6) without having cleared measurement at every layer below it — a plausible-sounding feature or trade construction idea is not evidence.
 
 ## Recipe
 
@@ -62,13 +59,13 @@ When designing a progressive extraction pipeline for any domain:
 
 1. **Map the abstraction ladder first.** What is the equivalent of "raw data," "events," "structure," "regime," "patterns," "signals" in your domain? Each level should answer a qualitatively different question.
 2. **Make prerequisites explicit.** If tier N uses tier N-1 outputs, enforce this in the DAG — do not rely on execution order being correct by convention.
-3. **Define a carrier type.** A typed object that accumulates tier outputs as it flows forward makes dependencies visible and prevents silent data gaps.
-4. **Separate blocking from non-blocking tiers.** Fast tiers (I1-I7) run synchronously; slow tiers (I8/LLM) run out-of-band. Never let a slow tier block a fast one.
-5. **Keep tier boundaries clean.** An I5 plugin should not need to read I6 outputs — if it does, the tier assignment is wrong. Cross-tier dependencies should flow in one direction only.
+3. **Make dependencies visible.** Either a typed carrier object that accumulates layer outputs as it flows forward, or a persisted table each later layer reads from — either makes the dependency explicit and prevents a later layer from silently running on stale or missing upstream state.
+4. **Separate blocking from non-blocking layers.** Fast, synchronous layers should never wait on a slow one (an LLM call, a batch job). Let the slow layer run out-of-band and treat its output as commentary or a later-arriving input, not a gate.
+5. **Keep layer boundaries clean.** A layer should not need to read ahead into a later layer's output — if it does, the layer assignment is wrong. Dependencies should flow in one direction only.
 
 ## See Also
 
-- Implementation: `docs/intelligence/intelligence-foundation.md` — full tier responsibilities, plugin counts
-- Typing: `src/intelligence/schemas.py` — `IntelligenceEvent` carrier definition
-- Plugin registration: `src/intelligence/register_plugins.py` — canonical `TIER_I1`..`TIER_I7` lists
-- Related concept: `docs/concepts/dag-execution.md` — how tier ordering is enforced via DAG
+- Implementation: `docs/architecture/architecture-v3-alphaengine-pipeline.md` — full layer-by-layer detail, what's built vs. measured vs. open
+- Superseded: `docs/architecture/architecture-v2-event-driven-pipeline.md` — the archived I1-I8 tier system this doc previously described
+- Related concept: `docs/concepts/dag-execution.md` — how layer ordering is enforced via DAG
+- Related concept: `docs/concepts/regime-awareness.md` — why regime is a stratification variable, not a gate, at Layer 2

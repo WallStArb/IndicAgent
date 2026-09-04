@@ -1,73 +1,72 @@
 # Regime Awareness
 
-**Version:** 1.0
-**Status:** stale (v2.x, see banner)
-**Last Updated:** 2026-05-30
-**Tags:** market-regime, non-stationarity, context-classification, adaptive-signals
+**Version:** 2.0
+**Status:** current
+**Last Updated:** 2026-09-04
+**Tags:** market-regime, non-stationarity, context-classification, conditioning-not-gating
 
-> Market behavior is non-stationary — rules that work in trending markets fail in ranging ones. Every signal must know what kind of market it is operating in.
+> Market behavior is non-stationary — a feature's predictive power in a trending market and a ranging one are different numbers, not the same number applied differently. Every measurement must know what kind of market it was taken in.
 
-> **Staleness note (2026-08-01):** This doc describes the I4 regime tier and the I7 regime gate
-> (`signal_metrics` table) — part of the ARCHIVED v2.x pipeline, with no live consumer as of
-> 2026-07-02 per CLAUDE.md. The dual regime system (per-symbol HMM vs cross-sectional
-> VIX×breadth) is the current live equivalent. Not yet rewritten for v3.0 -- tracked for a
-> future doc pass, not fixed here.
+> **Rewritten for v3.0 (2026-09-04):** The original version of this doc described the archived
+> I4 regime tier and I7 hard regime gate (v2.x, no live consumer since 2026-07-02) and
+> prescribed "gate, don't adjust" as the recipe. That recipe is now explicitly rejected —
+> v3.0's regime layer is a **conditioning** variable for IC measurement, not a gate. Gating
+> discards the ranging-regime data instead of measuring it. This is a deliberate reversal, not
+> a rename; see `docs/architecture/architecture-v3-alphaengine-pipeline.md` Layer 2 for the
+> full argument.
 
 ## The Problem It Solves
 
-A trend-following signal that works in a trending market will bleed out in a ranging one. A mean-reversion signal that profits from oscillation fails during momentum breakouts. A model trained globally — "this pattern historically predicts X" — ignores the most important conditioning variable: market regime. The same setup in a high-volatility breakout environment and in a low-volatility compression environment are different trades. Treating them identically produces a positive expectation trade on average that masks a negative-expectation trade in the wrong regime.
+A trend-following feature that predicts well in a trending market will show weak or negative IC in a ranging one. A model that measures IC globally — "this feature's average IC is 0.03" — buries the regime-conditional structure inside a single number, and worse, a hard gate that only trades the feature "when trending" throws away every ranging-regime observation and never lets you learn what actually happens to the feature there. The fix isn't a smarter threshold — it's treating regime as something IC is measured *against*, not something that decides whether IC gets measured at all.
 
 ## The Principle
 
-Classify regime continuously. Condition all signals on current regime. Never apply a rule learned in one regime to a different regime without explicit regime conditioning.
+Classify regime continuously, at more than one scope. Condition every IC estimate on regime state. Never discard an observation because its regime looks "wrong" for a feature.
 
 This requires:
-1. **Multiple independent regime dimensions** — volatility, trend, momentum, and hidden state are not the same thing and should not be collapsed into one label
-2. **Continuous classification** — regime does not change discretely; every bar gets a regime label
-3. **Signal gating** — signals that are invalid in the current regime are suppressed, not adjusted
-4. **Per-regime performance tracking** — weights and thresholds learned in one regime are stored separately from those learned in another
+1. **Independent regime scopes, not just dimensions** — a per-instrument state and a market-wide state answer genuinely different questions and must not be collapsed into one label
+2. **Causal classification only** — a regime label assigned to bar T must never be informed by information from bars after T; full-sequence decoding (Viterbi) is look-ahead bias, not a convenience
+3. **Conditioning, not gating** — every IC estimate is computed per regime state, so a feature's ranging-regime behavior is measured and kept, and the ensemble applies regime-appropriate weights at inference time rather than an on/off switch
+4. **A closed evidence bar for new regime candidates** — a proposed regime dimension must clear a null-arm (scrambled-data) control and demonstrate it sharpens IC beyond what the existing regime axis already captures before being added
 
 ## How IndicAgent Applies It
 
-The I4 tier produces five independent regime dimensions per bar:
+Two independent HMM systems, answering different questions, feeding IC as stratification variables — not signal gates:
 
-| Classifier | Output | Method |
-|------------|--------|--------|
-| `VolatilityRegime` | `low` / `normal` / `high` | ATR percentile rank over rolling window |
-| `TrendRegime` | `uptrend_strong` / `uptrend_weak` / `sideways` / `downtrend_*` | SMA-20/50 alignment + ADX strength |
-| `MomentumContext` | `accelerating` / `decelerating` / `neutral` | Composite of RSI, MACD, Stochastic, CCI |
-| `GARCHVolatility` | Volatility forecast + expected range | Parametric GARCH(1,1) model |
-| `HMMRegime` | Continuous hidden state probabilities | Hidden Markov Model (Baum-Welch) |
-| `BOCPDChangepoint` | Changepoint probability | Bayesian Online Changepoint Detection |
-| `KalmanTrend` | Kalman-filtered trend slope | Kalman filter state estimate |
+| System | Scope | Question answered | Method |
+|--------|-------|--------------------|--------|
+| Idiosyncratic regime (`regime_writer.py`) | Per `(symbol, timeframe)` | What state is *this instrument* in? | Gaussian HMM, K=5 states (`trending_up`/`transition_up`/`ranging`/`transition_down`/`trending_down`), K chosen via BIC study |
+| Systematic regime (`cross_sectional_regime_model.py`) | Cross-sectional, market-wide | What's the market-wide backdrop right now? | VIX and breadth-style signals across the peer group, independent of any single symbol's own price history |
 
-**I7 regime gate:** Every I7 setup plugin declares which regime configurations it is valid for. The pipeline checks current regime before executing the plugin — an invalid regime means the plugin is skipped for that bar, not fired and discarded. The gate is hard: `MeanReversion` requires `low` or `normal` volatility; it does not fire during `high` volatility compression regardless of other signals.
+A symbol can be in its own idiosyncratic uptrend while the systematic regime reads risk-off — both facts are kept, not collapsed into one number, because a broad selloff and an idiosyncratic single-name breakdown are different phenomena that may carry different forward-return implications.
 
-**Per-regime weights:** The `signal_metrics` table stores rolling 30-day Sharpe and win rate per (setup_plugin, timeframe, symbol, `regime_type`). Performance multipliers are loaded per current regime at startup and refreshed hourly. A setup with strong performance in trending markets does not benefit from that when the market is ranging.
+**Causal-correctness discipline:** `regime_writer` uses forward-filter (alpha-pass) decoding only, never `model.predict()` (Viterbi) — the schema enforces this structurally, since `feature_vectors.regime_label_source` only accepts `{'filtered', 'unknown'}`. This is a direct lesson from V2's `intelligence_features` table, whose Viterbi-decoded regime labels are a documented reason that table is not reused in V3.0.
 
-**CIS regime bucket:** The CIS scorer has a dedicated `regime` bucket (weight 0.15) that reads HMM state probabilities, BOCPD changepoint stability, and cross-TF regime agreement. Regime uncertainty reduces the CIS score.
+**IC stratification, not gating:** `ic_engine` measures IC per feature × symbol × timeframe × regime × lookahead. There is no plugin-level "valid regime" declaration and no hard suppression — a feature's IC in every regime state is measured and passed to the ensemble, which learns regime-appropriate weighting rather than having a human pre-decide which regimes a feature is "allowed" to fire in. `regime_volatility` is currently the active regime dimension the ensemble conditions on.
+
+**Evidence bar in practice:** per-symbol trend and percentile-rank regime candidates (a proposed third and fourth regime axis) were measured against this bar in 2026-09 and closed dead — neither sharpened IC beyond what `regime_volatility` already captures. A walk-forward HMM refit (closing the parameter-level lookahead where per-symbol HMM parameters are fit on the full training window before causal decoding) was built and unit-tested, but the Gate 4 measurement on live SPY/1h data did not show a clear prediction-quality improvement — it's parked behind an APR flag, not wired into production, and not re-litigated without new evidence.
 
 ## Invariants
 
-- Every I7 signal must declare which regimes it is valid in — the regime gate enforces this at pipeline execution time.
-- Performance weights are regime-conditioned — a global weight that ignores regime is not valid.
-- A signal cannot override a regime suppression gate — regime gates are not adjustable thresholds.
-- `regime_type` in `signal_metrics` and `signal_ledger` is a required column — no regime-unaware performance tracking.
+- Regime is a stratification variable for IC — never a hard gate that discards observations.
+- Regime decoding is causal only — no Viterbi, no full-sequence decode feeding a live label.
+- `feature_vectors.regime_label_source` accepts only `{'filtered', 'unknown'}` — no code path can write a look-ahead-biased label.
+- A new regime dimension must clear a null-arm (scrambled-data) control and beat the existing regime axis's IC contribution before being added — a regime candidate that doesn't sharpen IC beyond `regime_volatility` stays closed, not re-proposed under a different name.
+- Idiosyncratic and systematic regime are measured and kept separately — never collapsed into one label.
 
 ## Recipe
 
 When designing regime awareness for a new system:
 
-1. **Define regime dimensions orthogonally.** Volatility and trend are independent. Do not collapse them into one label — you lose information and create ambiguous regime categories.
-2. **Classify continuously.** Regime should be a probability or score, not a boolean flag. Discrete transitions lose the uncertainty information that matters most at regime boundaries.
-3. **Gate, don't adjust.** A signal that is invalid in the current regime should be suppressed entirely, not adjusted with a multiplier. Partial suppression is unprincipled and hard to backtest.
-4. **Track performance per regime separately.** A globally-good strategy may be regime-conditional. You cannot discover this without regime-stratified performance data.
-5. **Handle regime uncertainty explicitly.** At the boundary between two regimes, you are in neither. Design for regime uncertainty — do not force a definitive label on ambiguous periods.
-6. **Beware regime-overfitting.** More regime dimensions = more specificity = less data per regime cell = less statistical power. Start with 2-3 dimensions and add only when you have the sample size to support it.
+1. **Separate scope from dimension.** "What state is this instrument in" and "what's the market-wide backdrop" are different questions even before you get to volatility vs. trend vs. momentum — decide scope first.
+2. **Classify causally.** A regime label must only ever depend on information available at decode time. Full-sequence or globally-fit decoding is look-ahead bias, even when it looks like "just a smoother label."
+3. **Condition, don't gate.** Measure a feature's behavior in every regime state and let a downstream combiner weight accordingly. A hard gate that skips measurement in the "wrong" regime destroys the exact data you'd need to find out you were wrong about which regime the feature works in.
+4. **Require a null-arm control before adding a dimension.** More regime dimensions without evidence is overfitting with a market-structure narrative attached. A new axis must beat existing conditioning on a held-out measurement, against a scrambled-data control, before it's kept.
+5. **Track performance per regime cell, but expect thin cells.** More regime granularity means less data per cell and less statistical power — this is exactly why the evidence bar in (4) exists, not an argument against conditioning itself.
 
 ## See Also
 
-- Implementation: `docs/intelligence/intelligence-foundation.md` — I4 regime tier, HMM/BOCPD/Kalman detail
-- Performance weights: `docs/intelligence/intelligence-foundation.md` — Adaptive Weight Systems section
-- Code: `src/intelligence/features/i4_context/` — regime classifier plugins
-- Related concept: `docs/concepts/evidence-graded-signals.md` — how regime feeds the CIS regime bucket
+- Implementation: `docs/architecture/architecture-v3-alphaengine-pipeline.md` — Layer 2, full regime-layer detail and the gating-vs-conditioning argument
+- Superseded: `docs/architecture/architecture-v2-event-driven-pipeline.md` — the archived I4 tier / I7 hard gate this doc previously described
+- Related concept: `docs/concepts/progressive-intelligence-extraction.md` — regime's place in the layer stack
+- Related concept: `docs/concepts/evidence-graded-signals.md` — the evidence bar a regime candidate (or any feature) must clear

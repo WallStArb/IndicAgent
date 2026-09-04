@@ -1,16 +1,21 @@
 # Evidence-Graded Signals
 
-**Version:** 1.0
-**Status:** stale (v2.x, see banner)
-**Last Updated:** 2026-05-30
+**Version:** 2.0
+**Status:** current
+**Last Updated:** 2026-09-04
 **Tags:** signal-quality, confluence, multi-factor, evidence
 
 > A signal requires agreement from multiple independent evidence sources — no single indicator can produce a tradeable signal.
 
-> **Staleness note (2026-08-01):** This doc describes the Composite Intelligence Score (CIS)
-> gating I7 setup plugins — the ARCHIVED v2.x signal-quality system, with no live consumer as
-> of 2026-07-02 per CLAUDE.md. Not yet rewritten for v3.0 -- tracked for a future doc pass, not
-> fixed here.
+> **v2.x → v3.0 note:** The Composite Intelligence Score (CIS) described below gated I7 setup
+> plugins in the v2.x typed-bus pipeline. That pipeline has no live consumer since 2026-07-02;
+> `cis_scorer.py` and its callers (`aggregator.py`, `signal_processor.py`, `weight_updater.py`,
+> `confidence_calibrator.py`) still exist in the tree but are dormant code, not a running path.
+> The principle — require statistically independent evidence sources to agree, gated on both
+> magnitude and breadth, before a signal is trusted — carries forward unchanged into v3.0's
+> **ensemble alpha** mechanism (`services/ensemble_trainer.py` / `services/ensemble_ic_engine.py`),
+> described in "The v3.0 Successor" below. The CIS section is kept for its worked example of the
+> principle at plugin granularity; it does not describe live behavior.
 
 ## The Problem It Solves
 
@@ -31,7 +36,19 @@ The confirmation system must be:
 
 ## How IndicAgent Applies It
 
-The Composite Intelligence Score (CIS) aggregates 6 independent buckets into a directional score in [-1.0, +1.0]:
+### The v3.0 Successor (live)
+
+Instead of hand-designed indicator buckets voting on a single bar, v3.0 combines statistically-validated *features* (each independently measured for predictive power) into one ensemble alpha score:
+
+- **Evidence source = a feature's measured IC**, not a hand-picked technical indicator. Only cross-sectional, statistically significant (CI + BH-FDR), walk-forward-confirmed features feed the ensemble — significance alone isn't sufficient (it doesn't distinguish real signal from the tail of expected false discoveries BH-FDR budgets for); `passes_walkforward=true` requires the same effect to reproduce out-of-sample across independent time folds.
+- **Independence is enforced statistically, not by category design.** Ledoit-Wolf cluster deflation (`cluster_deflate_weights`) downweights correlated features after IC-based weight derivation — the direct v3.0 analog of CIS's "independence-gated buckets."
+- **Threshold-gated emission:** `alpha_publisher` only emits when the ensemble score crosses `alpha.quant.threshold.{tf}` (APR key) AND the effective-N gate (`alpha.ensemble.effective_n_gate`) is met — magnitude and evidence-mass are both required, same shape as CIS's `|score| > 0.35 AND agreeing_buckets >= 3`.
+- **Adaptive, version-tracked weights:** `ensemble_weights` carries one row per `(tf, regime, weight_version, feature_name)` — every `ensemble_alpha` score is traceable to the exact weight set that produced it, same traceability requirement CIS's `weights_version` enforced.
+- **Promotion is gated, not automatic:** which features are even eligible to enter the ensemble is governed by the Unified Concept Registry (`docs/foundation/unified-concept-registry.md`) — a feature must clear its `concept_gate` before it can contribute evidence at all. See `docs/concepts/adaptive-intelligence.md`.
+
+### The CIS Mechanism (historical, v2.x, kept as worked example)
+
+The Composite Intelligence Score (CIS) aggregated 6 independent buckets into a directional score in [-1.0, +1.0]:
 
 | Bucket | Weight | Evidence Source |
 |--------|--------|----------------|
@@ -42,21 +59,27 @@ The Composite Intelligence Score (CIS) aggregates 6 independent buckets into a d
 | Institutional | 0.25 | Order blocks, FVGs, supply/demand zone position |
 | Regime | 0.15 | HMM state probabilities, BOCPD changepoint stability, CTF regime agreement |
 
-**Gate:** A signal requires `|cis_score| > 0.35` AND 3+ buckets agreeing with the signal direction. A high-magnitude score from only 2 buckets fails the gate.
+**Gate:** A signal required `|cis_score| > 0.35` AND 3+ buckets agreeing with the signal direction. A high-magnitude score from only 2 buckets failed the gate.
 
-**Independence design:** Each bucket reads from a different analytical dimension — trend (statistical), momentum (oscillator consensus), structure (price geometry), pattern (visual formations), institutional (order flow), regime. Correlation between buckets is monitored; high inter-bucket correlation reduces the gate threshold benefit.
+**Independence design:** Each bucket read from a different analytical dimension — trend (statistical), momentum (oscillator consensus), structure (price geometry), pattern (visual formations), institutional (order flow), regime. Correlation between buckets was monitored; high inter-bucket correlation reduced the gate threshold benefit.
 
-**Adaptive weights:** Bootstrap weights (version 0) are manually tuned. The architecture supports learned weights from the `cis_weights` DB table — logistic regression over historical signal outcomes per bucket. Every `CISResult` carries `weights_version`; all signals in `signal_ledger` are traceable to the exact weight set that produced them.
+**Adaptive weights:** Bootstrap weights (version 0) were manually tuned. The architecture supported learned weights from the `cis_weights` DB table — logistic regression over historical signal outcomes per bucket. Every `CISResult` carried `weights_version`; all signals in `signal_ledger` were traceable to the exact weight set that produced them.
 
-**`active` signals:** Always derived as `[s for s in all_ranked if s.get("regime_eligible", True)]` — never from the raw `signals` list. The aggregator's `active` field reflects both CIS gating and regime suppression.
+**`active` signals:** Always derived as `[s for s in all_ranked if s.get("regime_eligible", True)]` — never from the raw `signals` list. The aggregator's `active` field reflected both CIS gating and regime suppression.
 
 ## Invariants
 
-- No signal may fire from a single indicator or bucket alone. CIS gate is `|score| > 0.35` AND `agreeing_buckets >= 3`.
-- CIS buckets must read from statistically independent evidence sources. Two buckets reading the same indicator family reduce the gate's statistical value.
-- The `active` list must derive from `all_ranked`, not from raw `signals`.
-- All signals in `signal_ledger` carry `bucket_scores` (JSONB) and `weights_version` (INTEGER) for full audit.
-- `calibrated_confidence` in Kafka signal payloads may be null — gate on `raw_signal.get("confidence")` or `raw_signal.get("pre_quality_confidence")`.
+**Live (v3.0 ensemble):**
+- No feature enters the ensemble without clearing IC significance (CI + BH-FDR), cluster-deflation, and walk-forward confirmation.
+- `alpha_publisher` is the sole writer to `alpha_events` — emission requires both the score threshold and the effective-N gate.
+- Every `ensemble_alpha` row is traceable to its `weight_version`.
+- IC measurement is executable-returns-only (`return_type = 'executable_open_to_open'`) — see `docs/foundation/adaptive-parameter-registry.md` and CLAUDE.md's Invariant 1.
+
+**Historical (v2.x CIS, no live consumer):**
+- No signal fired from a single indicator or bucket alone. CIS gate was `|score| > 0.35` AND `agreeing_buckets >= 3`.
+- CIS buckets read from statistically independent evidence sources.
+- All signals in `signal_ledger` carried `bucket_scores` (JSONB) and `weights_version` (INTEGER) for full audit.
+- `calibrated_confidence` in Kafka signal payloads could be null — gate on `raw_signal.get("confidence")` or `raw_signal.get("pre_quality_confidence")` (this specific gotcha is still live guidance per CLAUDE.md's Swarm raw signal confidence note, for whichever future consumer reads that payload shape again).
 
 ## Recipe
 
@@ -71,7 +94,9 @@ When designing a multi-source confirmation system:
 
 ## See Also
 
-- Implementation: `docs/intelligence/intelligence-foundation.md` — CIS architecture, 6-bucket detail, adaptive weights, calibration chain
-- Code: `src/intelligence/trading/cis_scorer.py`
-- Related concept: `docs/concepts/regime-awareness.md` — how I4 regime feeds the CIS regime bucket
-- Related concept: `docs/concepts/adaptive-intelligence.md` — how CIS weights are learned from outcomes
+- Live substrate: `services/ensemble_trainer.py`, `services/ensemble_ic_engine.py` — IC-weighted ensemble, BH-FDR, walk-forward gating
+- Live substrate: `docs/foundation/unified-concept-registry.md` — feature promotion gating that feeds the ensemble
+- Historical implementation: `docs/intelligence/intelligence-foundation.md` — CIS architecture, 6-bucket detail, adaptive weights, calibration chain
+- Historical code: `src/intelligence/trading/cis_scorer.py` (dormant, no live caller path)
+- Related concept: `docs/concepts/regime-awareness.md`
+- Related concept: `docs/concepts/adaptive-intelligence.md` — evidence-gated promotion lifecycle (UCR)

@@ -1,11 +1,19 @@
 # Swarm Intelligence
 
-**Version:** 1.0
-**Status:** current
-**Last Updated:** 2026-05-30
+**Version:** 1.1
+**Status:** design (dormant-pending-design, not confirmed running — see banner)
+**Last Updated:** 2026-09-04
 **Tags:** multi-agent, ensemble, specialist-agents, mixture-of-experts
 
 > No single AI agent makes a decision — specialist agents each assess one dimension, and their outputs are composed into a calibrated multiplier.
+
+> **Status note (2026-09-04):** This describes I8's target-state design, not currently-running
+> production behavior. `BaseAIWorker`/`alpha_swarm`/`narrative_swarm` have had zero commits
+> since the v3.0 rebuild started 2026-06-20, and both `indicagent-alpha-swarm` and
+> `indicagent-narrative-compute` are `disabled`/`inactive` per `systemctl status` — dormant, not
+> archived like the v2.x I1-I7 tiers. The design below is worth preserving as the intended
+> shape if this stack is revived; treat every "How IndicAgent Applies It" claim below as intent,
+> not observed behavior. Check `systemctl status` and `git log` before citing this as live.
 
 ## The Problem It Solves
 
@@ -38,7 +46,7 @@ adjusted_confidence = calibrated_confidence × swarm_multiplier
 
 **Shadow governance:** Every swarm agent starts in shadow mode. It produces analysis but the output does not affect signal scoring until the statistical gate is passed (`n >= 100` resolved signals AND `bootstrap_ci_lower(pnl_r) > 0.0`). Current policy: discount-only — agents may reduce confidence but cannot boost above 1.0 until sufficient outcome data proves positive edge.
 
-**Latency:** All LLM agents have `latency_budget_ms = 120,000` (120s). `ml_scorer_v1` is 50ms (local model). With gemma4 at the current quantization level, p50 LLM latency is ~47-52s — well within budget. Agents run non-blocking: swarm analysis is a confidence overlay, not a signal gate.
+**Latency:** All LLM agents have `latency_budget_ms = 120,000` (120s). `ml_scorer_v1` is 50ms (local model). The effective Ollama model is set by `OLLAMA_MODEL` in `.env` (`nemotron-3-nano:4b` as of this writing — the `settings.py` code default `gemma4:e4b` is not pulled locally, so a missing `.env` entry breaks all LLM calls); design-time latency figures should be re-measured against whatever model is actually configured before being cited. Agents run non-blocking: swarm analysis is a confidence overlay, not a signal gate.
 
 **Mandatory attribute:** Every `BaseAIWorker` subclass declares `prompt_version` from its `ACTIVE_VERSION` constant. Auto-injected into `llm_calls` for prompt A/B testing across the swarm.
 

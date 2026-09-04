@@ -1,21 +1,24 @@
 # Signal Ledger Architecture (SLA)
 
-**Version:** 1.0
-**Status:** stale (v2.x, see banner)
-**Last Updated:** 2026-06-16
+**Version:** 1.1
+**Status:** archived (implementation), principle live (see banner)
+**Last Updated:** 2026-09-04
 **Tags:** sla, signal-events, trade-frames, trade-executions, counterfactual, ml-training, survivorship-bias
 
 > Every signal fire, every trade hypothesis, every execution — three concerns, three tables, one unbiased training set.
 
 ---
 
-> **Staleness note (2026-08-01):** This doc describes the Signal Ledger Architecture
-> (`signal_events`/`trade_frames`/`trade_executions`/`signal_ledger`) as the live ML training
-> foundation. That v2.x SLA has no live consumer as of 2026-07-02 per CLAUDE.md;
-> `feature_vectors` is the current training corpus. Not yet rewritten for v3.0 -- tracked for a
-> future doc pass, not fixed here.
+> **Current status (2026-09-04):** The three-table schema below (`signal_events`/`trade_frames`/
+> `trade_executions`/`signal_ledger`) is the v2.x implementation of this principle and has had
+> no live consumer since 2026-07-02 — `feature_vectors` is the current training corpus, and
+> `forward_return_writer`/`ic_engine` are the current measurement path. This doc is kept as the
+> design record for *why* the three-way separation exists, because the anti-selection-bias
+> principle it embodies is still load-bearing in v3.0 — see "How the Principle Carries Into
+> v3.0" below for the live equivalent. Do not resurrect the three-table schema itself; the
+> problem it solved is now solved differently.
 
-## What the SLA Is
+## What the SLA Was
 
 The **Signal Ledger Architecture** is the three-table schema that captures the complete signal lifecycle: `signal_events` (detection) + `trade_frames` (hypothesis) + `trade_executions` (execution), with a join view (`signal_ledger`) as the canonical query surface (renamed from `signal_ledger_full` in Phase 130).
 
@@ -147,10 +150,22 @@ This immutability makes replay safe: a historical backfill can re-insert detecti
 
 ---
 
+## How the Principle Carries Into v3.0
+
+The SLA's core claim — *never let "was this acted on?" gate what gets measured, or the training set inherits the researcher's past decisions as bias* — did not go away with the three-table schema. V3.0 solves the same problem differently, and arguably more completely, by removing the discrete "did the pattern fire?" event from the measurement layer entirely:
+
+- **No fire/suppress decision gates measurement.** `ic_engine` computes IC against `forward_returns` (executable open-to-open returns, `ln(open[T+N+1] / open[T+1])`) for every feature value on every bar, unconditionally. There is no I7-style plugin deciding whether a bar is "worth" measuring — the SLA's Bias Layer 2 (execution selection bias) has no analog to reintroduce, because nothing before IC measurement filters the population.
+- **Regime conditions, it doesn't gate.** Where the old I7 regime gate silently dropped regime-ineligible signals from the training set (the exact selection-bias failure mode SLA's counterfactual column was built to fix), v3.0's regime layer stratifies IC per regime state instead — see `docs/concepts/regime-awareness.md`. Same anti-selection-bias instinct, applied one layer earlier so there's no suppressed population to reconstruct after the fact.
+- **`alpha_publisher` is the sole `alpha_events` writer** — the closest analog to `signal_ledger`'s role as the one governed emission point, but sitting downstream of governance (Concept Registry, APR, shadow/promotion gates) rather than upstream of it. The SLA's insight — separate "what was measured" from "what was acted on," and never let the second contaminate the first — is exactly why `alpha_events` is written to by exactly one component, at the end of the pipeline, after every earlier layer has already measured the full, unfiltered population.
+
+If a future v3.0 layer needs to record *why* an alpha was or wasn't promoted (the closest need to `trade_frames`/`trade_executions`), the SLA's rejected alternatives above are still the right starting menu to re-evaluate against — the constraints that ruled out a monolith, event-sourcing, or JSONB embedding haven't changed just because the schema itself is archived.
+
 ## See Also
 
-- `docs/signals/signals-schema.md` — complete DDL reference for all three tables and the join view
-- `docs/signals/signal-trade-separation-ADR.md` — formal ADR with implementation decision and migration plan
-- `docs/concepts/extrinsic-confidence-layer.md` — ECL; why the detection layer must be unfiltered
+- `docs/architecture/architecture-v3-alphaengine-pipeline.md` — live measurement/ensemble/governance pipeline this principle now lives in
+- `docs/concepts/regime-awareness.md` — how regime conditioning (not gating) closes the same selection-bias failure mode one layer earlier
+- `docs/signals/signals-schema.md` — complete DDL reference for the archived three-table schema and join view
+- `docs/signals/signal-trade-separation-ADR.md` — formal ADR with the original implementation decision and migration plan
+- `docs/concepts/extrinsic-confidence-layer.md` — ECL; why the detection layer must be unfiltered (v2.x)
 - `docs/foundation/glossary.md` — SLA, CFL, counterfactual pnl_r, survivorship bias canonical definitions
-- `docs/foundation/canonical-truth-registry.md` — canonical writer for each SLA table
+- `docs/foundation/canonical-truth-registry.md` — canonical writer for each SLA table (archived) and for `alpha_events` (live)

@@ -1,17 +1,11 @@
 # Hot-Path Isolation
 
-**Version:** 1.0
-**Status:** stale (v2.x, see banner)
-**Last Updated:** 2026-05-30
+**Version:** 1.1
+**Status:** current
+**Last Updated:** 2026-09-04
 **Tags:** latency, real-time, io-isolation, performance
 
 > Real-time compute is strictly isolated from storage and I/O — the hot path never blocks on a database or network call.
-
-> **Staleness note (2026-08-01):** The hot/warm/cold isolation principle still holds in v3.0,
-> but this doc's worked example (`IntelligencePipeline`, I1-I7 plugin DAG, `FeatureWriter`/
-> `SignalWriter`) names the ARCHIVED v2.x pipeline, with no live consumer as of 2026-07-02 per
-> CLAUDE.md — the live equivalent is `FeatureVectorPipeline`/`FeatureVectorWriter`. Not yet
-> rewritten for v3.0 -- tracked for a future doc pass, not fixed here.
 
 ## The Problem It Solves
 
@@ -30,21 +24,21 @@ The invariant: **no component on the hot path may call I/O.** Hot-path state is 
 ## How IndicAgent Applies It
 
 ```
-Hot:  IBKR TWS → Redpanda Streams → IntelligencePipeline   (sub-ms)
-Warm: Streams → I1-I7 plugin DAG → ranked signals + feature vectors    (<10ms)
-Cold: FeatureWriter + SignalWriter → TimescaleDB              (async batch)
+Hot:  IBKR TWS → Redpanda Streams → FeatureVectorPipeline (compute)   (sub-ms)
+Warm: Streams → feature computation → Kafka (sink)                    (<10ms)
+Cold: FeatureVectorWriter → feature_vectors (TimescaleDB)             (async batch)
 ```
 
-The intelligence pipeline (I1-I7) is fully DB-ignorant. It reads from in-memory plugin state (loaded at startup, updated per bar) and publishes results to Kafka topics. Dedicated Writers (`FeatureWriter`, `SignalWriter`, `LifecycleWriter`) consume those topics and handle persistence asynchronously.
+`FeatureVectorPipeline` computes feature vectors from in-memory state (bar history, loaded at startup and updated incrementally per bar) and publishes results to Kafka — Kafka is a sink here, not an inter-stage pipe (DAG Invariant #2). It is not fully DB-ignorant: it holds its own DB handle for reads (warmup history, `ConfigService`) and one-time schema bootstrap, but it never persists its own computed output — that always goes through the dedicated `FeatureVectorWriter` (a `BaseWriter` subclass), which consumes the Kafka topic and writes to `feature_vectors` asynchronously (DAG Invariant #3). Reads-for-warmup on the hot path and writes-of-output on the cold path are different things; only the latter is forbidden inline.
 
-Performance weights, CIS weights, and regime state are loaded at startup and refreshed on a timer (not per-bar). Plugin state is checkpointed to local disk — not to the database.
+Performance weights, config thresholds, and regime state are loaded at startup via `ConfigService`/`VocabularyService` and refreshed on a timer (not per-bar). Plugin/pipeline state is checkpointed to local disk via `PluginStateManager` — not to the database.
 
 ## Invariants
 
-- The real-time pipeline (`IntelligencePipeline`) must never import or call `database_manager`.
-- Plugin `compute()` and `compute_next()` methods must be pure functions of their input + internal state.
+- A compute daemon (e.g. `FeatureVectorPipeline`) may hold a DB handle for its own reads and startup bootstrap, but must never write its own computed output rows — that persistence goes through a dedicated `BaseWriter`/`BaseBatch` subclass (DAG Invariant #3).
+- Compute methods should be pure functions of their input + internal state wherever possible — no blocking I/O inline in the per-bar compute path.
 - Writers consume from topics — they never receive direct calls from compute agents.
-- A `TimescaleDB` outage must have zero impact on signal generation latency or throughput.
+- A `TimescaleDB` outage must have zero impact on signal generation latency or throughput; only the async writer's flush backs up.
 
 ## Recipe
 

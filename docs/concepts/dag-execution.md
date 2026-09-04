@@ -1,16 +1,21 @@
 # DAG Execution
 
-**Version:** 1.0
-**Status:** stale (v2.x, see banner)
-**Last Updated:** 2026-05-30
+**Version:** 1.1
+**Status:** current (Service DAG level); Plugin DAG level is historical, no v3.0 successor
+**Last Updated:** 2026-09-04
 **Tags:** dag, topological-sort, parallelism, plugin-dependencies
 
 > Plugin dependencies are declared, not scheduled — a topological sort derives execution order and reveals parallelism automatically.
 
-> **Staleness note (2026-08-01):** The Plugin DAG section (I1-I7, 132 plugins, one topological
-> sort per bar) describes the ARCHIVED v2.x `IntelligencePipeline`, with no live consumer as of
-> 2026-07-02 per CLAUDE.md; the Service DAG (`_DAG_ORDER` in `service_auditor.py`) section
-> still applies. Not yet rewritten for v3.0 -- tracked for a future doc pass, not fixed here.
+> **v2.x → v3.0 note:** The Plugin DAG level below (I1-I7, 132 plugins, one topological sort
+> per bar via Kahn's algorithm) describes the ARCHIVED v2.x `IntelligencePipeline`, with no live
+> consumer since 2026-07-02. It has **no v3.0 successor** — the v3.0 compute path
+> (`FeatureFactory.compute()` in `src/intelligence/feature_factory.py`, called from
+> `FeatureVectorPipeline`) is a single monolithic computation, not a declared-input/output DAG
+> with per-plugin cycle detection or wave-parallel execution. The per-bar topological-sort
+> mechanism described here is a historical design pattern, kept for its design rationale, not a
+> description of live behavior. The Service DAG level (`_DAG_ORDER` in `service_auditor.py`) is
+> unrelated to the plugin-tier mechanism and remains fully live — verified current below.
 
 ## The Problem It Solves
 
@@ -31,17 +36,17 @@ The "acyclic" constraint is the critical property: data always flows forward. Yo
 
 ## How IndicAgent Applies It
 
-Two levels of DAG execution operate simultaneously.
+One level of DAG execution is live today; a second, historical level illustrates the same principle applied at finer grain.
 
-**Plugin DAG (within a bar, I1-I7):** The dependency graph is computed once at startup from each plugin's declared `inputs`/`outputs`. Cycle detection runs at startup and fails fast. Parallel waves execute plugins with no inter-dependencies simultaneously. 132 plugins run per bar without any explicit ordering code.
+**Plugin DAG (historical, v2.x, no live successor):** The dependency graph was computed once at startup from each plugin's declared `inputs`/`outputs`. Cycle detection ran at startup and failed fast. Parallel waves executed plugins with no inter-dependencies simultaneously. 132 plugins ran per bar without any explicit ordering code:
 
 ```
 Raw OHLCV → I1 (no deps) → I2 (depends on I1) → I3 → I4 → I5 → I6 SMC → I6 Conf → I7
 ```
 
-**Service DAG (across services, L1-L10):** 25+ microservices connected via Kafka topics. `_DAG_ORDER` in `services/service_auditor.py` defines the canonical restart sequence — services earlier in the DAG restart before services that depend on them.
+This mechanism is kept here as the clearest illustration of the principle (fine-grained, per-node dependency declarations), even though nothing in the live system runs this way anymore. The v3.0 feature computation path (`FeatureFactory.compute()`) does not use a topological sort — features are computed in one pass, and the evidence-gated promotion of each feature is handled separately, by the Unified Concept Registry (see `docs/concepts/adaptive-intelligence.md`), not by a compute-order DAG.
 
-Both DAGs enforce the same invariant: data flows forward only. A plugin or service can never create a cycle.
+**Service DAG (live now):** Microservices connected via Kafka topics. `_DAG_ORDER` in `services/service_auditor.py` defines the canonical restart sequence — services earlier in the DAG restart before services that depend on them. This is the mechanism that still enforces "data flows forward only" at the level a plugin or service can never create a cycle.
 
 ## Invariants
 
@@ -64,15 +69,17 @@ When designing a DAG-executed system:
 
 ## The Seven Invariants in Practice
 
-The principle above describes the theory. In IndicAgent, it materialises as seven non-negotiable architectural invariants — the operational expression of the DAG mandate:
+The principle above describes the theory. In IndicAgent, it materialises as seven non-negotiable architectural invariants (verbatim from `CLAUDE.md`'s DAG Invariants section) — the operational expression of the DAG mandate:
 
 1. `ProviderMerger` is the sole writer to `market.bars`
-2. I1–I7 runs entirely in-process — Kafka is a sink, not an inter-stage pipe
-3. Hot-path services are DB-ignorant
+2. Compute stages run in-process — feature computation publishes to Kafka; Kafka is a sink, not an inter-stage pipe. Compute daemons (e.g. `FeatureVectorPipeline`) may hold a DB handle for their own reads (warmup history, ConfigService) and one-time schema bootstrap, but must never persist their own computed output rows.
+3. A compute daemon never writes its own computed output — that persistence goes through a dedicated `BaseWriter`/`BaseBatch` subclass (e.g. `FeatureVectorWriter`), never inline in the compute daemon. (`BaseTracker`/`BaseAuditor` no longer exist as base classes — auditors like `BarAuditor` extend `BaseDaemon` directly.)
 4. All topic keys via `stream_keys.py` — no hardcoded strings
 5. No agent calls another agent directly
 6. All timestamps UTC
 7. Scaling via systemd + Prometheus lag — no Kubernetes HPA
+
+Invariant 3 is a deliberate refinement from an earlier "hot-path services are DB-ignorant" framing: compute daemons ARE allowed a DB handle for reads and bootstrap; what they may never do is persist their own computed output. The distinction is read-vs-write, not DB-vs-no-DB.
 
 These invariants are the reason the system can be fully replayed from a Kafka offset, the reason a DB outage has zero impact on signal generation, and the reason a new data provider requires zero downstream changes.
 

@@ -1,8 +1,8 @@
 # Observability and Traceability
 
-**Version:** 1.0
+**Version:** 1.1
 **Status:** current
-**Last Updated:** 2026-05-30
+**Last Updated:** 2026-09-04
 **Tags:** observability, metrics, audit-trail, otel
 
 > Every decision the system makes is measurable, attributable, and auditable — from a raw bar to a fired signal to an LLM call to a position outcome.
@@ -23,7 +23,7 @@ These three are complementary. Metrics tell you something is wrong. Traces tell 
 
 ## How IndicAgent Applies It
 
-**Metrics** are emitted via OTel SDK (`src/observability/metrics.py`). Every `BaseAgent` subclass automatically emits five mandatory signals:
+**Metrics** are emitted via OTel SDK (`src/observability/metrics.py`). Every `BaseDaemon` subclass (`src/core/agent/base.py`) automatically emits five mandatory signals:
 
 | Signal | Type | Purpose |
 |--------|------|---------|
@@ -37,7 +37,7 @@ Scrape endpoint: `:8000/metrics`. Grafana at `:3001`.
 
 **Traces** use OTel spans via `observed_span()` from `src/observability/spans.py`. Auto-records ERROR status and exception on raise. `ATTR_*` constants from the same module — no raw strings.
 
-**Audit logs** — every LLM call is persisted to `llm_calls` table with full context: `call_id`, `agent_id`, `prompt_version`, `symbol`, `signal_id`, `regime`. Outcome is back-filled by `llm_writer_service` when the signal resolves. This enables prompt A/B testing, per-agent performance scoring, and full decision archaeology.
+**Audit logs** — every LLM call is persisted to `llm_calls` table with full context: `call_id`, `agent_id`, `prompt_version`, `symbol`, `signal_id`, `regime`. Outcome is back-filled by `LLMWriter` (`services/llm_writer.py`) when the signal resolves. This enables prompt A/B testing, per-agent performance scoring, and full decision archaeology.
 
 **D-27 SLO alerts** (Grafana):
 - `agent_last_message_timestamp_seconds` stale > 120s → page
@@ -48,9 +48,9 @@ Scrape endpoint: `:8000/metrics`. Grafana at `:3001`.
 
 ## Invariants
 
-- Every new `BaseAgent` subclass inherits the 5 mandatory OTel signals — no per-service instrumentation code needed.
-- `prometheus_client` must never be imported — OTel SDK only.
-- Counters: `.add(1, {"label": val})`. Histograms: `.record(val, {"label": val})`. Point gauges: `.set(value, {"label": val})`. Wrong call pattern silently fails.
+- Every new `BaseDaemon` subclass inherits the 5 mandatory OTel signals — no per-service instrumentation code needed. Four use label key `agent_id`; `agent_crash_total` uses `agent` instead (`_crash_attrs` in `src/core/agent/base.py`).
+- `prometheus_client` must never be imported — it was fully removed; OTel SDK only.
+- Counters: `.add(1, {"label": val})`. Histograms: `.record(val, {"label": val})`. Up-down gauges: `.add(delta, {"label": val})`. Point gauges: `.set(value, {"label": val})`. Wrong call pattern silently fails.
 - The `llm_calls` composite PK is `(call_id, called_at)` — ON CONFLICT must include both columns.
 - `prompt_version` class attribute is mandatory on every `BaseAIWorker` subclass — enables prompt A/B testing in `llm_calls`.
 

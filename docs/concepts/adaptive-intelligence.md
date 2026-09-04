@@ -1,16 +1,20 @@
 # Adaptive Intelligence
 
-**Version:** 1.0
-**Status:** stale (v2.x, see banner)
-**Last Updated:** 2026-05-30
-**Tags:** adaptive-weighting, statistical-validation, signal-quality, feedback-loops
+**Version:** 2.0
+**Status:** current
+**Last Updated:** 2026-09-04
+**Tags:** adaptive-weighting, statistical-validation, evidence-gated-lifecycle, feedback-loops
 
 > Every component that influences a decision must earn that influence through statistical proof, and must lose it when evidence degrades.
 
-> **Staleness note (2026-08-01):** This doc's shadow-governance fitness dataset
-> (`signal_events`+`trade_frames`+`trade_executions`, `shadow_registry_ensure()`) describes the
-> ARCHIVED v2.x adaptive-weighting system, with no live consumer as of 2026-07-02 per
-> CLAUDE.md. Not yet rewritten for v3.0 -- tracked for a future doc pass, not fixed here.
+> **v2.x → v3.0 note:** The original substrate for this principle — `signal_events` /
+> `trade_frames` / `trade_executions`, `shadow_registry_ensure()`, CIS weight learning — was the
+> I7 plugin-tier adaptive-weighting system. That whole stack is ARCHIVED, no live consumer since
+> 2026-07-02. The principle survived the rebuild; its live substrate today is the **Unified
+> Concept Registry** (UCR — `docs/foundation/unified-concept-registry.md`), which governs feature
+> and ensemble-strategy promotion in the v3.0 pipeline. The AI-agent tier of this principle
+> (level 3 below) has no live successor yet — I8 (`alpha_swarm`/`narrative_swarm`) is
+> dormant-pending-design, zero commits since 2026-06-20, both services disabled/inactive.
 
 ## The Problem It Solves
 
@@ -18,52 +22,59 @@ A system with fixed weights and hardcoded thresholds degrades as market regimes 
 
 ## The Principle
 
-Adaptation operates at three levels, each with its own feedback loop:
+Adaptation operates at two live levels today, plus one dormant level carried over from the v2.x design:
 
-1. **Individual signals** — each signal goes through a shadow period before affecting production scoring. Promotion requires statistical proof of positive edge. Demotion is automatic when edge disappears.
+1. **Features and ensemble strategies** — each concept (a `FeatureVector` field, or an ensemble weighting strategy) goes through a `candidate` → `shadow_only` stage before affecting production scoring. Promotion to `active` requires statistical proof of positive edge over the current baseline. Demotion to `deprecated` is automatic when edge disappears or a challenger wins repeatedly.
 
-2. **CIS weights** — the bucket weights that determine which evidence sources to trust are learned from signal outcomes, not manually set. They update as market behavior changes.
+2. **AI agents (dormant)** — the v2.x design called for `alpha_swarm`/`narrative_swarm` agents to start in shadow mode, observe and produce analysis with zero production impact until statistical gates passed, with mutation/recombination (v2.8 "eAI") extending this to agent parameter evolution. This tier has no live implementation as of this writing — I8 is target-state, not confirmed-running.
 
-3. **Agents** — AI agents (swarm, narrative) start in shadow mode. They observe and produce analysis, but their outputs have no production impact until statistical gates are passed. Mutation and recombination (v2.8) extend this to agent parameter evolution.
-
-The fitness dataset — `signal_events` + `trade_frames` + `trade_executions` — is the continuous learning signal for all three levels. It is never dropped.
+The fitness signal for level 1 — IC (information coefficient) measured against `forward_returns.return_type = 'executable_open_to_open'` — is the continuous learning signal. Nothing is measured on unexecutable (theoretical) returns.
 
 ## How IndicAgent Applies It
 
-**Shadow governance lifecycle:**
+**Concept lifecycle (Unified Concept Registry, live):**
 
 ```
-1. SHADOW MODE   — Observe live data, produce outputs, zero production impact
-2. EVALUATION    — Outcomes accumulate in signal_ledger
-3. GATE          — n >= 100 resolved signals AND bootstrap_ci_lower(pnl_r) > 0.0 at 95%
-4. PROMOTION     — Component gains production influence
-5. LIVE          — Continuous monitoring continues; gate re-evaluated each cycle
-6. DEMOTION      — EV[R] < -0.05 for 3 consecutive cycles → automatic disable
+1. CANDIDATE      — Concept exists in concept_registry, not yet measured against a baseline
+2. SHADOW_ONLY     — Measured, not yet winning consistently, or gate gap not yet met
+3. COMPARISON      — ops_ensemble_weight_compare.py (ensemble_strategy) or ic_engine.py's
+                      post-run lifecycle hook (feature) runs an A/B win-decision against the
+                      current baseline, deterministically -- no LLM in the path
+4. GATE            — min_promotion_consecutive wins in a row, AND min_new_observations of
+                      fresh evidence since the last eval, AND (if the concept requires it)
+                      BH-FDR multiplicity correction proven to have run and survived
+5. PROMOTION       — CAS (compare-and-swap) status flip candidate/shadow_only → active,
+                      logged to concept_transition_log with trigger_reason
+6. ACTIVE          — Continuous monitoring; re-evaluated each comparison round
+7. DEMOTION        — demotion_performance / demotion_decay / demotion_redundancy →
+                      deprecated (operator_override is the only human-triggered path to
+                      deprecated; automated paths never target it)
 ```
 
-**Auto-enrollment:** `shadow_registry_ensure()` at service startup enrolls every I7 plugin and AI agent. Uses ON CONFLICT DO NOTHING — custom gate parameters in DB are never overwritten.
+**The one code path rule (Invariant 1):** `ConceptRegistryService.record_comparison_outcome()` is the ONLY code path that flips an *existing* concept's `status`. No LLM, no proposer override, ever. The pure decision core (`decide_comparison_action()`) is unit-tested without a DB connection; the service wraps it in one transaction with a `FOR UPDATE` row lock and a compare-and-swap status write. Migration-time genesis seeding (a new `FeatureVector` field's `concept_registry` row landing pre-populated as `status='active'`) is the sole exception — that's schema-definition-time DDL, not a runtime lifecycle transition.
 
-**CIS weight learning:** When `version > 0` exists in `cis_weights` table, the scorer loads it at startup. Logistic regression over signal outcomes per bucket produces version N+1 weights. Every CISResult carries `weights_version` — full traceability from score to weight set.
-
-**Performance multipliers:** Rolling 30-day Sharpe and win rate per (setup_plugin, timeframe, symbol, regime). Sharpe-normalized rank produces `perf_multiplier` in [0.5, 1.5]. Gate: N < 30 → `perf_multiplier = 1.0` (neutral). No data = no advantage, not penalized.
-
-**eAI genome mutations (v2.8):** `BaseAIWorker` subclasses with a `genome` parameter dict. Reproductive operators (mutation, crossover, selection) are applied between evaluation cycles. Shadow governance handles statistical gating before any mutant agent affects production.
+**Gate parameters are APR-resolved**, not hardcoded — a per-concept `concept_gate` override when non-NULL, else the domain default under `alpha.concept_registry.<domain>_*`.
 
 **Key substrate (live now):**
-- `shadow_registry` table — auto-enrollment, state tracking
-- `signal_events` / `trade_frames` / `trade_executions` — fitness evaluation dataset (3-table schema)
-- `signal_ledger` — JOIN view for backward-compat queries
+- `concept_registry` / `concept_gate` / `concept_transition_log` / `concept_annotation` / `concept_parent` tables
+- `ConceptRegistryService` (`src/intelligence/concept_registry_service.py`) — sole status-flip authority
+- `ops_ensemble_weight_compare.py` — drives `domain='ensemble_strategy'` comparisons (async)
+- `ic_engine.py`'s post-run lifecycle hook — drives `domain='feature'` comparisons (sync, `record_transition_sync()`)
+- `bootstrap_ci_lower()` / IC confidence-interval gating — statistical gate in `src/core/stats_utils.py`
+
+**Key substrate (dormant, I8 — described for historical/design continuity only):**
+- `shadow_registry` table, `shadow_registry_ensure()` auto-enrollment
 - `LineageRecorder` — full ancestry per agent call
-- `bootstrap_ci_lower()` — statistical gate in `src/core/stats_utils.py`
 - `ShadowTransitionEvent` — promotion/demotion published to Kafka
+- eAI genome mutations: `BaseAIWorker` subclasses with a `genome` parameter dict; reproductive operators (mutation, crossover, selection) applied between evaluation cycles
 
 ## Invariants
 
-- Nothing goes to production without `n >= 100` resolved signals AND positive bootstrap CI at 95%.
-- Demotion is automatic — it cannot be overridden by configuration or manual DB edit.
-- The fitness dataset (`signal_events` / `trade_frames` / `trade_executions`) is never dropped — no retention policy, ever.
-- CIS weights must be version-tracked — `weights_version` column on every signal in `signal_events`.
-- `N < 30` in `signal_metrics` means neutral multiplier (1.0), not penalized (< 1.0). Insufficient data is not evidence of poor performance.
+- Nothing is promoted to `active` without clearing the concept's `concept_gate` (consecutive wins, minimum new evidence, and FDR proof where required).
+- Demotion reasons are a closed, DB-enforced vocabulary (`concept_transition_log.trigger_reason` CHECK constraint) — `promotion`, `demotion_performance`, `demotion_decay`, `demotion_redundancy`, `operator_override`, `parent_cascade`, `candidate_timeout`, `implementation_change`, `genesis_seed`. A typo'd reason raises a Python `ValueError` before it can hit the DB constraint mid-transaction.
+- `deprecated` is operator-only — no automated comparison outcome ever targets it.
+- IC measurement is executable-returns-only (`return_type = 'executable_open_to_open'`) — theoretical close-to-close returns overstate IC by capturing untradeable overnight gaps.
+- (Dormant, I8) `N < 30` in `signal_metrics` was designed to mean neutral multiplier (1.0), not penalized — insufficient data is not evidence of poor performance. No live consumer of this rule today.
 
 ## Recipe
 
@@ -78,9 +89,8 @@ When designing an adaptive system:
 
 ## See Also
 
-- Implementation: `docs/intelligence/intelligence-ai.md` — shadow governance lifecycle, auto-enrollment, eAI substrate table
-- Fitness dataset: `docs/intelligence/intelligence-foundation.md` — signal_ledger schema, CIS weight learning
-- Research vision: `docs/research/ai-03-evolvable-ai-agents.md` — full eAI design
-- v2.8 roadmap: `docs/research/eai-phase-recommendations.md` — genome mutations, fitness function, Phase 101-103
-- Related concept: `docs/concepts/evidence-graded-signals.md` — CIS weight adaptation
-- Related concept: `docs/concepts/swarm-intelligence.md` — agent shadow governance
+- Live substrate: `docs/foundation/unified-concept-registry.md` — full UCR spec, invariants, domain coverage
+- Research vision (dormant tier): `docs/research/ai-03-evolvable-ai-agents.md` — full eAI design
+- v2.8 roadmap (dormant tier): `docs/research/eai-phase-recommendations.md` — genome mutations, fitness function, Phase 101-103
+- Related concept: `docs/concepts/evidence-graded-signals.md` — evidence-gated promotion
+- Related concept: `docs/concepts/swarm-intelligence.md` — agent shadow governance (dormant)
