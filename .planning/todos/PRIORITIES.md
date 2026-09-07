@@ -312,6 +312,19 @@ live-ingestion freshness doesn't gate research value. A backfill to bring OHLCV 
 optional/later; fixing the consumer-restart durably (and todo 363's Dockerfile fix) can wait
 until it actually matters. See [366](pending/366-live-ingestion-consumer-services-never-restarted-after-gateway-fix.md).
 
+**371 (ic_engine cross-sectional cell-size guard is post-materialization — OOMs at universe
+scale)** -- new 2026-09-07, triage of the Workstream-1 recompute failure. `ic_engine` step 5
+of the `--from-step 5` recompute (bringing migration 331's 49 newly regime-routed equities
+into cross-sectional measurement) ran 76.7 h then was **kernel-OOM-killed** 2026-09-07 04:48
+UTC inside the `5m/high_bear` equity cross-sectional cell (~64M rows now vs ~47M pre-migration).
+`_check_cell_size`/`alpha.ic.max_cell_rows` is checked only after the whole cell is
+materialized, so it can't fire before the OOM. Immediate workaround applied (stopped
+`ib-gateway`+`ollama`, +96 GB swapfile, relaunched `--from-step 5` — fingerprinting skips the
+76 h already done, only 5m equity cross-sectional + steps 6-8 remain). Real fix needs a
+pre-flight row estimate + a pre-registered decision on what an oversized cross-sectional cell
+does (crash-loud vs subsample stride). Related: 356, 290. See
+[371](pending/371-ic-engine-cross-sectional-cell-size-guard-post-materialization-ooms-at-universe-scale.md).
+
 **2026-08-26 drift catch:** [353](pending/353-earnings-season-calendar-primitive-candidate.md)
 (earnings-season calendar primitive, real proxy evidence, p=1.2e-17), 356 (cross-sectional
 fetch chunk query pathologically slow on the largest cell, found during Phase 173's smoke test
