@@ -175,7 +175,7 @@ COMPLETE — see Phase Summary table below.
 | 139 | Ensemble + Alpha Emission | COMPLETE (3/3 plans, 2026-06-24; 14/14 verification truths) |
 | 140 | IC Engine Correctness | COMPLETE (4/4 plans, 2026-06-25) |
 
-## v3.1 Phase Summary (IN PROGRESS)
+## v3.1 Phase Summary (SHIPPED 2026-09-02)
 
 | Phase | Name | Status |
 |-------|------|--------|
