@@ -1,7 +1,12 @@
 # Extreme-Volume Divergence / Confirmed-Reversal — Pre-registration (DRAFT, not yet run)
 
-**Status:** Draft pre-registration. No script written, no statistic computed.
-**Author:** Claude (Sonnet 5), interactive session, 2026-09-06.
+**Status:** Draft pre-registration, H-A only. No script written, no statistic computed.
+**H-B dropped from scope 2026-09-08** (AGY review round 1 found its feature primitive,
+`swing_volume_confirmation`, measures the wrong leg — see "AGY review round 1" section below).
+Title/filename kept for continuity with existing links; read "Confirmed-Reversal" in the title
+as historical, not current scope.
+**Author:** Claude (Sonnet 5), interactive session, 2026-09-06. Amended 2026-09-08 (AGY review
+round 1 incorporated).
 **Origin:** User-directed hypothesis, trading-experience-derived: a bounce off a low with
 volume EXPANSION, or a new low on LIGHTER volume, are classic reversal-divergence tells;
 the mirror pattern applies at highs (heavy-volume pullback from a high vs. a new high on
@@ -22,93 +27,89 @@ because of any connection to the personal-scale program.
 
 ---
 
-## The two hypotheses, kept separate (no single conflated statistic)
-
-Both read the same underlying phenomenon — volume should confirm the direction of a move;
-when it doesn't, the move is suspect — but they are temporally distinct and are tested,
-reported, and (if either reaches Track 2) regime-encoded independently. Conflating them
-into one signed statistic would hide which mechanism, if either, actually carries signal.
+## The hypothesis (H-B removed 2026-09-08, see review section below)
 
 - **H-A, "divergence" (leading/contrarian):** a fresh N-bar extreme made on LIGHT volume
   warns of an impending reversal against the extreme — light volume on a new low warns of
   upside reversal; light volume on a new high warns of downside reversal.
-- **H-B, "confirmation" (coincident):** heavy volume on the leg moving AWAY from a recent
-  extreme confirms the reversal is real and already underway — a heavy-volume bounce off a
-  low is bullish-confirming; a heavy-volume pullback from a high is bearish-confirming.
+
+~~H-B, "confirmation" (coincident): heavy volume on the leg moving away from a recent extreme
+confirms the reversal is real and already underway.~~ Dropped — its planned feature primitive
+(`swing_volume_confirmation`) measures the prior completed leg, not the in-progress bounce, so
+it cannot be built from existing `feature_vectors` columns as specified. A correct version
+needs a new feature-factory column and its own pre-registration; not this document's scope.
 
 ## Construction spec — built entirely from existing `feature_vectors` columns
 
-No new `feature_factory.py` column, no new pipeline feature, no corpus recompute needed.
-Both constructions are read-only derivations over columns already persisted for the full
-corpus, so this can run as a standalone analysis script (same posture as
-`range_pct_fast_xs_ls_h5_falsification.py` / `alpha_score_residual_single_security_15m.py`)
-whenever compute is available — it does not depend on any other program's sequencing.
-(Practical note, not a design constraint: hold off running anything compute-heavy while
-the current `ic_engine` corpus recompute is still using 12 worker processes — resource
-contention, not a program-sequencing issue.)
+No new `feature_factory.py` column, no new pipeline feature, no corpus recompute needed. A
+read-only derivation over columns already persisted for the full corpus, so this can run as a
+standalone analysis script (same posture as `range_pct_fast_xs_ls_h5_falsification.py` /
+`alpha_score_residual_single_security_15m.py`) whenever compute is available — it does not
+depend on any other program's sequencing. (Practical note, not a design constraint: hold off
+running while the current `ic_engine` corpus recompute is active — resource contention, not a
+program-sequencing issue; see "Not yet done" below.)
 
 - **`extreme_proximity_t`**: +1 if `bars_since_low_fast_t == 0` (bar t is itself a fresh
   rolling low over the existing `dist_window_fast` window, APR-governed, no new tunable),
-  −1 if `bars_since_high_fast_t == 0`, else 0 (bar t is not at an extreme — excluded from
-  H-A's panel).
+  −1 if `bars_since_high_fast_t == 0`, else 0 if neither or if both simultaneously (outside
+  bar — excluded from the panel either way, see AGY-review section).
 - **H-A statistic, `extreme_volume_divergence_t`** (defined only where
   `extreme_proximity_t != 0`): `−extreme_proximity_t × volume_z_t`, using the persisted
-  `volume_z` column. Positive = light volume at a fresh low (bullish-reversal warning) or
-  the equivalent light-volume-at-a-high case (bearish-reversal warning) — the statistic's
-  sign convention is fixed here and not re-derived from the data. Forward return measured
-  from bar t (the extreme bar itself), same `return_type='executable_open_to_open'` /
-  `forward_returns` convention as every other construction in this codebase (Invariant 1).
-- **H-B statistic, `confirmed_reversal_t`**: reuses the existing `swing_volume_confirmation`
-  column (mean volume over the current swing leg ÷ window mean) directly — no new
-  computation — signed by the leg's direction (`struct_accel_bias`'s already-computed
-  high/low comparison, or the simpler `close_t − close_{leg start}` sign, to be fixed
-  before running, not decided ad hoc mid-script). Positive = up-leg with
-  `swing_volume_confirmation > 1` immediately following a low (bullish-confirming);
-  negative = down-leg with `swing_volume_confirmation > 1` immediately following a high
-  (bearish-confirming). Defined only on bars inside a leg that started at a fresh extreme
-  (same `bars_since_low_fast`/`bars_since_high_fast` gating as H-A, offset by the leg's
-  start).
-- **Wick corroboration (reported, not gated in either primary statistic):**
-  `lower_wick_ratio_t` at H-A/H-B low-side events, `upper_wick_ratio_t` at high-side
-  events — the "wick size/bar characteristic" half of the user's original framing, kept
-  out of the primary gated statistic to avoid a second undeclared researcher degree of
-  freedom (which wick threshold, what combination rule) that would need its own
-  justification. If either H-A or H-B passes, a wick-conditioned successor is the natural
-  next pre-registration, not a same-run addition.
+  `volume_z` column. A single internally-consistent directional predictor: positive at a
+  light-volume fresh low (value is genuinely positive there), negative at a light-volume
+  fresh high (value is genuinely negative there) — both cases correlate the same direction
+  with signed forward return, so pooling low-side and high-side events does not cancel (see
+  AGY-review section for the worked algebra). Forward return measured from bar t (the
+  extreme bar itself), same `return_type='executable_open_to_open'` / `forward_returns`
+  convention as every other construction in this codebase (Invariant 1).
+- **Wick corroboration (reported, not gated):** `lower_wick_ratio_t` at low-side events,
+  `upper_wick_ratio_t` at high-side events — the "wick size/bar characteristic" half of the
+  user's original framing, kept out of the primary gated statistic to avoid a second
+  undeclared researcher degree of freedom (which wick threshold, what combination rule) that
+  would need its own justification. If H-A passes, a wick-conditioned successor is the
+  natural next pre-registration, not a same-run addition.
 
 ## Track 1 — signal existence (continuous statistic)
 
 Single-security IC test, reusing this project's standard statistical machinery (not
-reinvented per construction):
+reinvented per construction). Locked quantities below per AGY review round 1
+(`tf=15m`, universe = all 231 active instruments, IS-only via `bar_ts < alpha.validation.
+oos_start`):
 
-- Primary statistic: within-symbol Spearman IC of the construction against
-  `forward_returns.return_fast` (1-bar) AND `return_mid` (this codebase's existing
-  APR-governed lookahead bands), reported per band — H-A and H-B fire on sparse,
-  irregularly-spaced events (only at/near extremes), so a fixed short lookahead is the
-  right first test.
-- Bootstrap: day-clustered / date-block, reusing `_circular_block_bootstrap_ic`.
-- Null: whole-date circular shift, reusing `_circular_shift_null` / the
-  panel-synchronous date-shift null pattern already hardened for a prior single-security
-  diagnostic on this codebase — same event-sparsity concern applies here (H-A/H-B are much
-  sparser than an every-bar signal, so the minimum-events-per-symbol floor needs its own
-  calibration, not a borrowed number).
-- FDR: BH across symbols (reported) and BY across symbols (gated), matching this
-  codebase's precedent for a construction with per-bar cross-sectional dependence.
-- Cross-sectional arm (reported, not primary): does ranking symbols by
-  `extreme_volume_divergence`/`confirmed_reversal` at the same bar carry a long-short
-  spread — secondary, since H-A/H-B are framed as single-security timing signals first.
+- Primary statistic: within-symbol Spearman IC of `extreme_volume_divergence` against
+  `forward_returns.return_fast` (1-bar, primary/gated) and `return_mid` (ungated robustness
+  check only, not a second chance to pass). Family statistic = equal-weighted mean across
+  qualifying symbols of within-symbol Spearman IC, matching
+  `alpha_score_residual_single_security_15m.py`'s convention.
+- Bootstrap: date-indexed panel resampler (port the `Panel` structure from
+  `alpha_score_residual_single_security_15m.py`), NOT a raw call to
+  `_circular_block_bootstrap_ic` on the filtered event rows — that function's row-index
+  block slicing has no date awareness and would silently span unrelated dates once the
+  panel is pre-filtered to sparse extreme-only bars.
+- Null: whole-date circular shift on the full dense panel (extremes at date D map to
+  non-extreme dates under the shift, which is the correct null), not a shift applied after
+  filtering to extreme rows only.
+- FDR: BH across symbols (reported) and BY across symbols (gated) via
+  `ic_math.py::_p_values_from_ic`'s asymptotic t-approximation — same per-symbol
+  significance machinery as every other BY-FDR gate in this codebase (e.g.
+  `feature_ic_scores.passes_fdr`), not an empirical permutation p-value.
+- Cross-sectional arm: dropped (see AGY-review section — same-bar ranking is degenerate at
+  this event density, not worth computing even as a reported secondary).
+- Missingness: panel requires `complete_fast = true` (`complete_mid = true` for the
+  secondary band).
 
-**PASS rule (Track 1, either H-A or H-B independently) — pure statistical existence, no
-economic/cost gate:**
+**PASS rule (Track 1, H-A) — pure statistical existence plus a minimum effect-size floor:**
 
 1. Bootstrap ci_lower > 0 (the effect is not noise).
 2. Date-shift null p < 0.05 (the effect is not an artifact of the null construction).
-3. Stability: same-sign point estimate in 3/3 equal temporal subperiods (not a one-era
-   artifact).
+3. Stability: **positive** point estimate in 3/3 equal calendar-date temporal subperiods
+   (not a one-era artifact; same-sign-but-negative does not qualify).
 4. Qualifying fraction of symbols individually significant at BY-FDR α=0.05, positive
-   direction — floor to be set from this codebase's established precedent range (10% has
-   been used before; adjust only if the sparse-event minimum-observations floor forces a
-   different number, and say so explicitly if it does).
+   direction, floor = 10% (matches this codebase's established precedent; no
+   minimum-events-per-symbol adjustment needed — see density calibration below).
+5. Effect-size floor: family-mean IC ≥ 0.003 (matches this codebase's established economic
+   floor convention, e.g. the residual pre-reg's 0.0027) — pure statistical significance
+   with no magnitude floor would let an economically inert IC of +0.0003 pass criteria 1-4.
 
 Reported, never gated: per-regime table, per-symbol BH table (less conservative
 comparison point), negative-qualifier count, raw (non-divergence-adjusted) arm for
@@ -116,68 +117,143 @@ comparison.
 
 ## Track 2 — regime candidate
 
-This project's standing rule applies without exception: **any regime candidate must clear
-a null-arm (scrambled-data) control before it is trusted**, and a closely adjacent
-volume-price statistic (rolling corr(|return|, rel_volume)) was already found to have HMM
-identifiability move in the OPPOSITE direction from signal quality as the window
-strengthened — the exact failure mode that got it rejected as a regime axis (todo 281).
-Track 2 tests for that failure mode explicitly rather than discovering it after the fact:
+Gated on Track 1 passing first — a construction with no continuous-signal content has no
+basis for a regime encoding. **Do not** build `regime_extreme_volume_divergence` as an HMM
+`regime_*` column under any circumstance; if reached, the discrete cut is deterministic
+quantile tiering via `build_tiers()`, never HMM (same reasoning as the closely related
+rejected candidate, todo 281: identifiability by construction, no EM — an
+identifiability-vs-signal curve is therefore not a meaningful check here, since
+`build_tiers()` identifiability is trivially 1.0; that check was testing a path — HMM —
+this design already forbids reaching, per AGY review round 1).
 
-1. **Identifiability-vs-signal curve:** fit the discretization (HMM or `build_tiers()`
-   deterministic quantile tiering — tried FIRST, since it carries no EM/seed/local-optima
-   identifiability question by construction) at 3+ event-density thresholds (how close to
-   the extreme counts as "at" it) and report both signal fraction (adjacent-disjoint-window
-   correlation, the same diagnostic used for the rejected volume-price candidate) and
-   identifiability side by side. If identifiability falls as signal strengthens across
-   these thresholds, Track 2 is DEAD on that shape alone, regardless of what Track 1
-   found — check this first, since it is cheaper to falsify than the null-arm control.
+Re-scoped checks, if H-A passes Track 1:
+
+1. **Regime-coverage handling:** H-A fires on 26-30% of bars (density calibration below) —
+   still a minority. Explicit design for the ~70-74% of bars with no active event (a
+   distinct "no signal" tier, not silently defaulted into an existing tier) is required
+   before this can be called a regime axis rather than an episodic trade trigger.
 2. **Null-arm control:** scrambled-data control (shuffle the volume series independent of
    price, or shuffle bar order within a matched-length synthetic series) — the discretized
    regime must not be recoverable from noise at the same rate as from real data.
-3. **IC separation across buckets:** does IC actually differ across the statistic's own
-   quantile buckets, not assumed from Track 1's continuous-signal result alone.
+3. **IC separation across buckets:** does IC actually differ, monotonically, across
+   `build_tiers()`'s own quantile buckets, not assumed from Track 1's continuous-signal
+   result alone.
 
-**Do not** build `regime_extreme_volume_divergence` or `regime_confirmed_reversal` as an
-HMM `regime_*` column under any circumstance — if Track 2's three checks all pass, the
-discrete cut is deterministic quantile tiering via `build_tiers()`, never HMM, per the
-already-adjudicated reasoning for the closely related rejected candidate (identifiability
-by construction, no EM). If Track 1 fails outright, Track 2 does not run — a construction
-with no continuous-signal content has no basis for a regime encoding either.
-
-## Fixed quantities (draft — to be locked before running)
+## Fixed quantities
 
 `dist_window_fast` per its current APR value (not re-derived) · lookahead = `return_fast`
-and `return_mid` (both reported) · B=2000 · N_null=1000 (this codebase's established
-defaults; adjust only with a stated reason) · BY/BH alpha=0.05 · seed via
-`hash_key_to_int("extreme_volume_divergence…")` / `hash_key_to_int("confirmed_reversal…")`.
+(gated) and `return_mid` (reported) · B=2000 (bootstrap replicates) · N_null=1000 (date-shift
+null replicates for the single overall existence test — the per-symbol BY-FDR gate uses
+`_p_values_from_ic`'s asymptotic t-approximation instead, not this empirical null, so no
+resolution-floor concern) · BY/BH alpha=0.05 · `IC_min=0.003` · seed via
+`hash_key_to_int("extreme_volume_divergence…")`.
 
-## Open items before this can run
+## AGY review round 1 (2026-09-08) — verdict: not ready, H-B needs redesign
 
-1. **AGY adversarial review** of this design, matching house practice for prior
-   pre-registrations in this codebase — requested 2026-09-08, in flight.
-2. **Minimum-events-per-symbol floor** — live calibration run 2026-09-08 against
-   `feature_vectors` (`bars_since_low_fast = 0 OR bars_since_high_fast = 0`, cheap SQL
-   aggregation, no bootstrap): extreme-bar fraction is **26-30% of all bars at every tf**
-   (5m: 21.6M/73.2M; 15m: 6.6M/25.3M; 1h: 1.77M/6.88M; 1d: 252K/956K; all 231 symbols
-   present at every tf). This corrects this doc's own framing above ("H-A/H-B fire on
-   sparse, irregularly-spaced events") — at `dist_window_fast=20` a fresh 20-bar extreme is
-   roughly 3x denser than the ~10% naive random-walk baseline (autocorrelated/trending
-   price action inflates fresh-extreme frequency), not sparse in absolute terms. Per-symbol
-   floor is a non-issue at this density: even at 1d, the sparsest tf, mean events/symbol is
-   ~1092 (252,310 / 231) — comfortably above any BY-FDR per-symbol floor this codebase has
-   used. No minimum-events gate needed; drop this as an open item.
-3. **Leg-direction sign convention** for H-B — **locked 2026-09-08: close-to-close
-   (`close_t − close_{leg start}`), not `struct_accel_bias`.** Rationale: `struct_accel_bias`
-   is a composite feature with its own untested-in-this-context assumptions; the simpler
-   sign is directly auditable against the stated economic hypothesis (an up-leg is up-leg
-   because price closed higher, full stop) and avoids importing a second construction's
-   assumptions into this one's PASS/FAIL result. Revisit only if AGY's review or Track 1
-   results suggest `struct_accel_bias` materially changes leg segmentation.
-4. **Event-density threshold(s)** for Track 2's identifiability curve — given finding (2)
-   above, thresholds should be framed as "how many bars since the extreme still counts as
-   at it" (e.g. 0, 1-2, 3-5 bars) rather than a sparsity cutoff — proposed 0 / ≤2 / ≤5,
-   still to be confirmed against AGY's review before Track 2 runs (Track 2 is gated on
-   Track 1 passing first regardless).
+Full raw review:
+`docs/plans/2026-09-06-extreme-volume-divergence-confirmed-reversal-prereg-agy-review-round1.md`.
+Two of its claims were checked against source and found overstated/wrong; one is a confirmed
+real bug that changes scope. Treat every other item in the raw review as plausible but not
+independently re-verified — it is a genuinely useful adversarial pass, not a rubber stamp.
+
+**Confirmed real (source-verified, changes scope): H-B's feature primitive is wrong.**
+`swing_volume_confirmation` (`src/intelligence/feature_factory.py:4653-4658`) computes mean
+volume over `[extremes[-2], extremes[-1]]` — the span between the two most recently
+*confirmed* swing extremes (confirmation requires `confirm_n` bars past the pivot). The
+still-forming bounce leg away from the latest extreme is NOT `extremes[-1]` yet (it isn't
+confirmed); `extremes[-1]` is the prior *completed* leg. So this column measures the sell-off
+*into* a low, not the bounce *off* it — the opposite of H-B's stated construction. **H-B as
+specified cannot be built from existing `feature_vectors` columns.** Options: (a) drop H-B
+from this pre-registration, keep only H-A (a standalone, still-interesting hypothesis); (b)
+add a genuinely new feature-factory column measuring the in-progress leg's volume (real code
+change, its own review, no longer a "read-only, no corpus recompute" analysis per this doc's
+original framing at L41). Decision: **(a) — drop H-B from this pre-registration.** Standalone
+H-A is still a complete, testable hypothesis; H-B's correct construction is a separate,
+larger-scope idea (new column + its own pre-registration), not a same-day fix. If H-A passes
+and there's appetite for the confirmation half later, file it as its own todo rather than
+re-inflating this doc's scope.
+
+**Overstated/incorrect on verification (kept only for the record, not actioned):**
+- H-A "self-contradictory sign formula, washes out to zero": wrong. `stat =
+  -extreme_proximity_t × volume_z_t` is a single internally-consistent directional predictor
+  — positive stat correlates with positive return at lows, negative stat with negative return
+  at highs, both cases pooling to the SAME correlation direction, not cancelling. The
+  original doc's prose ("positive = ... or the equivalent... case") was loosely worded (the
+  high-side value is literally negative, not positive) — a clarity fix below, not a math bug.
+- "BY-FDR mathematically impossible at N_null=1000": conflates two different statistics.
+  `N_null=1000` here is for the single overall date-shift existence test (Track 1's headline
+  bootstrap/null). This codebase's actual per-symbol significance gate feeding BY-FDR (used
+  everywhere else, e.g. `feature_ic_scores.passes_fdr`) is `ic_math.py::_p_values_from_ic`, an
+  asymptotic t-approximation with no discrete resolution floor — not an empirical permutation
+  p-value. The doc should say this explicitly (real, minor gap, fixed below); it is not the
+  blocking defect claimed.
+
+**Real, valid, now locked (from the raw review's list of unclosed degrees of freedom):**
+- **Timeframe:** locked to `15m` (matches this codebase's default single-security-diagnostic
+  tf, e.g. `alpha_score_residual_single_security_15m.py`; also the tf with the largest N for
+  a first pass — 6.6M extreme bars per the density calibration above).
+- **Universe:** the standard 231-symbol active-instrument universe, no filtering.
+- **IS/OOS clamp:** explicit `bar_ts < alpha.validation.oos_start` filter, matching every
+  other pre-registration in this codebase (Invariant on the virgin holdout).
+- **Outside-bar handling:** a bar that is simultaneously a fresh 20-bar high AND low
+  (`bars_since_low_fast == 0 AND bars_since_high_fast == 0`) sets `extreme_proximity_t = 0`
+  (excluded from H-A's panel) rather than defaulting to one side — prevents the low-side
+  tie-break bias the raw review flagged.
+- **Family IC aggregation:** equal-weighted mean across qualifying symbols of within-symbol
+  Spearman IC, matching `alpha_score_residual_single_security_15m.py`'s convention.
+- **Lookahead-band gating:** `return_fast` is the primary gated horizon (all 4 PASS criteria);
+  `return_mid` is reported as an ungated robustness check only, not a second independent
+  chance to pass — closes the "either/both/multiplied-false-positive-rate" gap.
+- **Temporal subperiods:** calendar-date thirds (matching this codebase's established
+  "3 equal temporal subperiods" convention elsewhere, e.g. the residual pre-reg), not
+  event-count thirds — accepting the resulting sample-size imbalance across subperiods as
+  reported context, not a gate.
+- **Criterion 3 sign:** tightened to require a *positive* point estimate in 3/3 subperiods
+  (not merely "same sign," which the raw review correctly noted would also pass 3/3 negative).
+- **Missingness:** panel requires `complete_fast = true` (`complete_mid = true` for the
+  secondary band) — same house convention as prior pre-registrations, explicit here to close
+  the gap the raw review flagged.
+- **Bootstrap harness:** `_circular_block_bootstrap_ic` operates on contiguous row-index
+  arrays with no date awareness — correct for a dense per-bar panel, wrong for a panel
+  pre-filtered to sparse extreme-only rows (a block would silently span unrelated dates
+  months apart). Track 1 must build a date-indexed panel resampler (porting the pattern from
+  `alpha_score_residual_single_security_15m.py`'s `Panel` structure) rather than reusing the
+  dense-panel bootstrap directly on the filtered event rows.
+- **Cross-sectional arm:** demoted from "secondary, reported" to **dropped**. At any given
+  bar, only a handful of the 231 symbols are at a fresh 20-bar extreme simultaneously — a
+  same-bar cross-sectional rank is degenerate (mostly zero/NaN) except on broad market-wide
+  extreme days, which would make the arm dominated by crash-day survivorship rather than a
+  general reversal-timing signal. Not worth computing even as a reported secondary.
+- **Effect-size floor:** added `IC_min = 0.003` (matching this codebase's established
+  economic-floor convention, e.g. the residual pre-reg's `IC >= 0.0027`) as a 5th PASS
+  criterion — pure statistical existence with no magnitude floor lets an economically inert
+  IC of +0.0003 pass criteria 1-4.
+- **Track 2 identifiability-curve scoping:** the original phrasing applied one "identifiability
+  curve" check across both the HMM and `build_tiers()` discretization paths. For
+  `build_tiers()` (deterministic quantile tiering, the path this doc already mandates if
+  Track 2 is ever reached — see below), identifiability is trivially 1.0 by construction; an
+  identifiability-vs-signal curve is only a meaningful check for the HMM path, which this doc
+  already forbids reaching. Track 2, if H-A ever gets there, is re-scoped to: (1) explicit
+  regime-coverage handling for the ~74-97% of bars with no active event (an episodic signal is
+  not automatically a 100%-coverage regime axis — this needs its own design, not assumed away);
+  (2) monotonic IC separation across `build_tiers()` quantile buckets; (3) a scrambled-volume
+  null control. HMM is not reachable in this design regardless, so an identifiability-vs-signal
+  curve is dropped as its own check, not "insufficient" — it was testing the wrong path.
+
+**AGY round 2:** recommended on the amended H-A-only design before writing Track 1's script,
+not strictly required — the remaining open surface is much smaller than round 1 found.
+
+## Density calibration (2026-09-08)
+
+Live SQL aggregation against `feature_vectors` (`bars_since_low_fast = 0 OR
+bars_since_high_fast = 0`, cheap aggregation, no bootstrap): extreme-bar fraction is **26-30%
+of all bars at every tf** (5m: 21.6M/73.2M; 15m: 6.6M/25.3M; 1h: 1.77M/6.88M; 1d: 252K/956K;
+all 231 symbols present at every tf). This corrects this doc's original framing ("fire on
+sparse, irregularly-spaced events") — at `dist_window_fast=20` a fresh 20-bar extreme is
+roughly 3x denser than the ~10% naive random-walk baseline (autocorrelated/trending price
+action inflates fresh-extreme frequency), not sparse in absolute terms. No
+minimum-events-per-symbol floor is needed: even at 1d, the sparsest tf, mean events/symbol is
+~1092 (252,310 / 231), comfortably above any BY-FDR per-symbol floor this codebase has used.
 
 **Not yet done:** no script written, no statistic computed. Track 1 execution deliberately
 held as of 2026-09-08 — the corpus `ic_engine` recompute is mid-run using ~20GB RSS + heavy
