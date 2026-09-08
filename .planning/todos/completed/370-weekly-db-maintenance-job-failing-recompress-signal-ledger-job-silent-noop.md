@@ -1,8 +1,8 @@
 ---
-status: pending
+status: completed
 priority: P1
 filed: 2026-09-04
-updated: 2026-09-04
+resolved: 2026-09-07
 source: docs/reference/ refresh pass, batch 3 (db-maintenance.md) — surfaced as a side finding, not a documentation issue itself
 ---
 
@@ -127,3 +127,14 @@ compression already covers what job 1021 was trying to do manually.
   procedures, live query, 2026-09-04.
 - `pg_class.relname`/`relkind` check confirming `signal_stats_daily`, `signal_features`,
   `signal_performance_segmented` don't exist and `signal_ledger` is `relkind='v'`.
+
+## Resolved 2026-09-07 — retired (option 1)
+
+Checked the option-2 precondition first: `timescaledb_information.jobs WHERE proc_name =
+'policy_compression'` shows 26 active compression policies already covering every live v3.0
+hypertable, including all five named in this todo's rewrite option (`feature_vectors`,
+`forward_returns`, `feature_ic_scores`, `alpha_frames`, `alpha_events`). Automatic compression
+already does what a rewritten job 1021 would have done manually, so option 2 (rewrite) is
+unnecessary. Re-confirmed live failure signature unchanged (1020: 1288/1288 failed; 1021:
+100/100 fake-success no-op). Retired both: `SELECT delete_job(1020); SELECT delete_job(1021);`
+— confirmed removed from `timescaledb_information.jobs`.

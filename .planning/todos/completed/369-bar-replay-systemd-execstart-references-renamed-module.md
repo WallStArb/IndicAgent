@@ -1,8 +1,8 @@
 ---
-status: pending
+status: completed
 priority: P1
 filed: 2026-09-04
-updated: 2026-09-04
+resolved: 2026-09-07
 source: docs/reference/ refresh pass, batch 4 (plugins/services/README) — surfaced as a side finding, not a documentation issue itself
 ---
 
@@ -51,3 +51,11 @@ file and its entrypoint are already correct.
 - `ls services/bar_replay_provider.py` → exists, has `if __name__ == "__main__":` block.
 - `systemctl is-enabled indicagent-bar-replay` → `disabled`; `is-active` → `inactive` (confirms
   latent, not an active incident).
+
+## Resolved 2026-09-07
+
+Fixed `ExecStart` in both `production/systemd/indicagent-bar-replay.service` (repo) and the
+live `/etc/systemd/system/indicagent-bar-replay.service` to `-m services.bar_replay_provider`,
+then `sudo systemctl daemon-reload`. Re-verified `is-enabled` → `disabled`, `is-active` →
+`inactive` (still latent, no state change, just no longer landmined for whenever it's next
+enabled).

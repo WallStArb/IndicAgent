@@ -165,6 +165,15 @@ full-corpus refit (plan 171-06), whose per-segment `iters_used` records (plan 17
 that evidence. See `completed/229-regime-writer-hmm-retry-logic-structurally-unreachable.md`
 for the full closing note.
 
+**Todos 369/370 CLOSED 2026-09-07 -- both mechanical/decision items resolved same day filed.**
+Moved to `completed/`, dropped from the P1 table. 369: fixed `ExecStart` in both the repo unit
+file and the live `/etc/systemd/system/indicagent-bar-replay.service`, `daemon-reload`'d,
+re-verified still `disabled`/`inactive` (latent fix, no behavior change). 370: checked the
+todo's own precondition first -- `timescaledb_information.jobs WHERE proc_name =
+'policy_compression'` already covers all 26 live v3.0 hypertables including every table job
+1021 would have manually recompressed -- so rewrite (option 2) was unnecessary; retired both
+jobs 1020/1021 via `delete_job()`. See both files' `## Resolved 2026-09-07` sections.
+
 ---
 
 ## P0 — Fix soon (integrity/correctness gaps already surfaced)
@@ -298,8 +307,6 @@ file's closure section.
 | [054](pending/054-shadow-alpha-events-monitoring.md) | Shadow alpha_events monitoring — prevents delayed detection of feature decay/threshold bugs |
 | [167](pending/167-equity-cross-sectional-vs-symbol-hmm-never-falsifier-tested.md) | **Plan changed 2026-07-29 — no longer a standalone equity-scoped relaunch,** folded into 176's queued sequence (market-data-gap catchup → 176's `--refresh` → one full-corpus `ic_engine` pass). **176's `--refresh` step confirmed run 2026-07-30**, but the sequence's final step (a full-corpus equity+rates `ic_engine` pass) status is unclear post-2026-08-02 (see preamble) — that pass is what would actually close this todo. |
 | [261](pending/261-deploy-grain-corrected-cross-asset-mechanism-once-ingestion-resumes.md) | New 2026-08-05, closing Phase 151 Plan 09. Code+tests complete and merged: replaced todo 221/222's per-timeframe `CrossAssetState` live mechanism (a confirmed grain mismatch — computed from THIS TIMEFRAME's own intraday bars, not the canonical daily-broadcast definition every IC/gate measurement was built against) with a daily-grain mechanism sharing the batch path's own `build_cross_asset_series()`. Deployment (live daemon restart + Task 3's verification) deliberately NOT done in that plan's execution — ingestion is still paused (`max(bar_ts)` 8 days stale, restarting proves nothing right now) and this is a full mechanism replacement an unattended session shouldn't push live without operator sign-off. |
-| [369](pending/369-bar-replay-systemd-execstart-references-renamed-module.md) | New 2026-09-04, side finding from a `docs/reference/` refresh pass. `indicagent-bar-replay.service`'s `ExecStart` calls a module (`services.bar_replay_provider_agent`) that doesn't exist — real file is `services/bar_replay_provider.py`, a stale `_agent` rename this project's earlier suffix-retirement sweep missed. Currently latent (`disabled`/`inactive`), one-line fix, fully unblocked. |
-| [370](pending/370-weekly-db-maintenance-job-failing-recompress-signal-ledger-job-silent-noop.md) | New 2026-09-04, side finding from the same pass. Two live scheduled TimescaleDB jobs are broken against the v3.0 schema: `weekly_db_maintenance` (job 1020) has failed all 1243 runs — first statement targets a materialized view that no longer exists; `recompress_signal_ledger` (job 1021) reports Success every run (96/96) but silently no-ops — `signal_ledger` is a view now, not a hypertable, so its chunk-selection query never matches. Neither threatens live data today; needs a retire-vs-rewrite decision, not a mechanical fix. |
 
 ## P2 — Real value, not urgent
 
