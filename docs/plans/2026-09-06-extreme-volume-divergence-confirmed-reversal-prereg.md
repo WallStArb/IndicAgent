@@ -154,12 +154,35 @@ defaults; adjust only with a stated reason) · BY/BH alpha=0.05 · seed via
 ## Open items before this can run
 
 1. **AGY adversarial review** of this design, matching house practice for prior
-   pre-registrations in this codebase — recommended before first run, not yet requested.
-2. **Minimum-events-per-symbol floor** for the sparse-event panel (H-A/H-B fire only at
-   extremes, unlike an every-bar signal) — needs its own calibration, flagged above, not
-   yet set.
-3. **Leg-direction sign convention** for H-B (`struct_accel_bias` vs. a simpler
-   close-to-close sign) — flagged above, not yet fixed.
-4. **Event-density threshold(s)** for Track 2's identifiability curve — not yet chosen.
+   pre-registrations in this codebase — requested 2026-09-08, in flight.
+2. **Minimum-events-per-symbol floor** — live calibration run 2026-09-08 against
+   `feature_vectors` (`bars_since_low_fast = 0 OR bars_since_high_fast = 0`, cheap SQL
+   aggregation, no bootstrap): extreme-bar fraction is **26-30% of all bars at every tf**
+   (5m: 21.6M/73.2M; 15m: 6.6M/25.3M; 1h: 1.77M/6.88M; 1d: 252K/956K; all 231 symbols
+   present at every tf). This corrects this doc's own framing above ("H-A/H-B fire on
+   sparse, irregularly-spaced events") — at `dist_window_fast=20` a fresh 20-bar extreme is
+   roughly 3x denser than the ~10% naive random-walk baseline (autocorrelated/trending
+   price action inflates fresh-extreme frequency), not sparse in absolute terms. Per-symbol
+   floor is a non-issue at this density: even at 1d, the sparsest tf, mean events/symbol is
+   ~1092 (252,310 / 231) — comfortably above any BY-FDR per-symbol floor this codebase has
+   used. No minimum-events gate needed; drop this as an open item.
+3. **Leg-direction sign convention** for H-B — **locked 2026-09-08: close-to-close
+   (`close_t − close_{leg start}`), not `struct_accel_bias`.** Rationale: `struct_accel_bias`
+   is a composite feature with its own untested-in-this-context assumptions; the simpler
+   sign is directly auditable against the stated economic hypothesis (an up-leg is up-leg
+   because price closed higher, full stop) and avoids importing a second construction's
+   assumptions into this one's PASS/FAIL result. Revisit only if AGY's review or Track 1
+   results suggest `struct_accel_bias` materially changes leg segmentation.
+4. **Event-density threshold(s)** for Track 2's identifiability curve — given finding (2)
+   above, thresholds should be framed as "how many bars since the extreme still counts as
+   at it" (e.g. 0, 1-2, 3-5 bars) rather than a sparsity cutoff — proposed 0 / ≤2 / ≤5,
+   still to be confirmed against AGY's review before Track 2 runs (Track 2 is gated on
+   Track 1 passing first regardless).
 
-No script has been written and no statistic has been computed for this pre-registration.
+**Not yet done:** no script written, no statistic computed. Track 1 execution deliberately
+held as of 2026-09-08 — the corpus `ic_engine` recompute is mid-run using ~20GB RSS + heavy
+CPU on a box that OOM'd once already this week (see
+`.planning/todos/pending/371-ic-engine-cross-sectional-cell-size-guard-post-materialization-ooms-at-universe-scale.md`);
+launching a second compute job now is exactly the contention this doc's own construction
+section already cautioned against. Write + run Track 1 once AGY's review lands and the
+recompute clears (or once there's confirmed headroom, whichever first).
