@@ -1,6 +1,6 @@
 # CLAUDE.md
 
-Version: 5.55.4
+Version: 5.55.5
 <!-- Bump the patch version on every substantive edit to this file (convention, not enforced). -->
 
 **Project nature:** Passion/learning project — not a production system. Architectural decisions prioritize correctness, rigor, and institutional-grade thinking. Renaissance Capital / Jim Simons principles are the north star. When giving advice, apply the same rigor you would to a system built to last — do not hedge around operational risk that doesn't apply.
@@ -11,6 +11,7 @@ Version: 5.55.4
 **Naming:** Concept name (`snake_case`) derives all layer names — `signal_tracker` → `SignalTracker`, `indicagent-signal-tracker.service`, `topic_signal_tracker()`, `signal_trackers` table. **Ring rule:** `src/core/`, `src/observability/` = Ring 0 portable infrastructure (no domain vocab, no imports from `services/`); `src/intelligence/` = Ring 1 domain; `services/` = Ring 2 daemons. Topics: dots only, via `stream_keys.py`. Full spec: `docs/foundation/naming-system.md`.
 **Glossary:** Every domain term has exactly one definition. Check before naming new concepts; glossary wins over existing code on collision. Full spec: `docs/foundation/glossary.md`.
 **Doc locations:** `docs/foundation/` canonical home. `docs/` root is index only. `docs/research/` docs can go filename-stable (edited in place, no longer re-dated on rewrite) — check for a stale `YYYY-MM-DD-<name>.md` fork of an undated doc before citing or editing either.
+**Before archiving anything in `docs/plans/`/`docs/research/`**: `grep -rl <filename>` first — this project's archive dirs (259 files combined) are actively maintained already; the obvious-looking-stale candidates are usually still cross-referenced by live docs, not orphaned.
 **Gotchas:** `docs/reference/gotchas.md` — rare pitfalls moved out of per-turn context.
 **Performance investigations:** Before touching a batch job that mutates millions of rows against a TimescaleDB hypertable and runs far slower than expected, follow `docs/foundation/performance-investigation-sop.md` — measure (`pg_stat_activity.wait_event`, `iostat -x 1`, `EXPLAIN ANALYZE`) before theorizing, never trust a read-only test for a write-path question, and check chunk count/compression status as first-class suspects. Two independent incidents (todos 149, 161) hit the same shape of bug two weeks apart; don't make it three.
 **Compressed-hypertable column type changes:** Any migration doing decompress→`ALTER COLUMN TYPE`→recompress on a compressed hypertable MUST end with a bare `VACUUM <table>;` after the recompress step — `compress_chunk()` does not synchronously reclaim the decompressed heap pages `decompress_chunk()` populated earlier, and TimescaleDB's internal chunk tables are not reliably picked up by autovacuum. Full pattern + copy-paste template: `docs/foundation/timescaledb-compressed-column-migration.md`. Migrations 201, 202, and 312 all omitted this step; 312 turned it into a 768GB disk-full incident (2026-08-13) before all three were fixed retroactively. **Now CI-enforced** (`tests/unit/test_compressed_hypertable_migration_vacuum_check.py`, todo 305): a new migration missing this step fails the build.
@@ -169,6 +170,7 @@ Non-negotiable. Any violation is wrong regardless of whether it works locally.
 - **Exception variable name is `error`** — `except X as error:`, not `exc`.
 - **File/class renames require test sweep:** `grep -r "OldName" tests/` — test imports break at pytest collection, not lint.
 - **`git add` with multiple pathspecs aborts entirely if ANY path doesn't match** (e.g. staging the pre-rename side of an already-`pending/`→`completed/`-moved todo file) — none of the valid paths get staged either, not just the bad one. Stage an already-renamed path alone (`git add -- <new_path>`; git auto-detects the rename) before batching it with others.
+- **A migration applied live via `psql -f` has no forcing function to get committed** — unlike code, its effect is already active in the DB even if the file never lands in git. Commit it in the same breath as applying it, not "later."
 - **`BaseWriter.__init__` requires `name: str`** (non-optional): when removing `name=` from any writer, also update `BaseWriter.__init__` to accept `name: str | None = None`.
 - **Oneshot `_agent.py` exceptions:** `services/feature_validation_agent.py`, `services/hmm_training_agent.py`, `services/ml_training_agent.py`, `services/ml_signal_training_agent.py` — `_agent` suffix intentionally preserved.
 - **API health router prefix is `/health`** not `/api/health`. Routes: `/health/system`, `/health/database`, etc.
@@ -178,6 +180,7 @@ Non-negotiable. Any violation is wrong regardless of whether it works locally.
 
 **Services**
 - **Logging**: `structlog` → `logs/<snake_case_class_name>.log` via `setup_service_logging("logs/<name>.log")`. NOT journald.
+- **Service logs rotate daily (~00:3x UTC)**: an empty/short current `.log` doesn't mean the process died — check `.log.1`/`.log.N.gz` for activity before today.
 - **`PERSISTENCE_BATCH_LATENCY` label key is `agent_id`** — not `agent=`.
 - **`feature_vector_pipeline` subscribes to:** `topic_market_bars` (1m) AND `topic_market_bars_htf` (HTF).
 - **Tests**: `tests/unit/`, `tests/integration/`. Unit tests must be CI-clean.
