@@ -5,7 +5,10 @@
 contradiction"; BY-FDR "mathematically impossible" at N_null=1000) were checked against source
 and found overstated/incorrect — see the main pre-reg doc's "AGY review round 1" section for
 the corrected read. The H-B (`swing_volume_confirmation`) semantics claim WAS verified against
-`src/intelligence/feature_factory.py` and confirmed real. Treat every other claim below as
+`src/intelligence/feature_factory.py` and confirmed real. **This review's implicit conclusion
+that H-B therefore needs a new pipeline feature was itself wrong** (the review never actually
+claimed this explicitly — that inference was mine, made and then corrected the same day; see
+the main doc's "AGY review round 1" section, second half). Treat every other claim below as
 plausible-not-yet-independently-verified.
 
 **Document under review:** [`docs/plans/2026-09-06-extreme-volume-divergence-confirmed-reversal-prereg.md`](file:///home/bg/dev/indicagent/docs/plans/2026-09-06-extreme-volume-divergence-confirmed-reversal-prereg.md)  

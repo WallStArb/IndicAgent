@@ -1,12 +1,14 @@
 # Extreme-Volume Divergence / Confirmed-Reversal — Pre-registration (DRAFT, not yet run)
 
-**Status:** Draft pre-registration, H-A only. No script written, no statistic computed.
-**H-B dropped from scope 2026-09-08** (AGY review round 1 found its feature primitive,
-`swing_volume_confirmation`, measures the wrong leg — see "AGY review round 1" section below).
-Title/filename kept for continuity with existing links; read "Confirmed-Reversal" in the title
-as historical, not current scope.
+**Status:** Draft pre-registration, H-A and H-B both in scope. No script written, no statistic
+computed. **H-B was briefly dropped 2026-09-08 (AGY review round 1), then reinstated the same
+day** after direct user pushback ("are we sure the reversal bar volume can't be determined?")
+prompted a second look — the reused column (`swing_volume_confirmation`) was genuinely wrong,
+but the underlying quantity IS computable from other already-persisted columns; see "AGY review
+round 1" section below for the full correction trail, including my own error in concluding a
+new pipeline feature was required.
 **Author:** Claude (Sonnet 5), interactive session, 2026-09-06. Amended 2026-09-08 (AGY review
-round 1 incorporated).
+round 1, then a same-day correction to that round's H-B disposition).
 **Origin:** User-directed hypothesis, trading-experience-derived: a bounce off a low with
 volume EXPANSION, or a new low on LIGHTER volume, are classic reversal-divergence tells;
 the mirror pattern applies at highs (heavy-volume pullback from a high vs. a new high on
@@ -27,24 +29,30 @@ because of any connection to the personal-scale program.
 
 ---
 
-## The hypothesis (H-B removed 2026-09-08, see review section below)
+## The two hypotheses, kept separate (no single conflated statistic)
+
+Both read the same underlying phenomenon — volume should confirm the direction of a move;
+when it doesn't, the move is suspect — but they are temporally distinct and are tested,
+reported, and (if either reaches Track 2) regime-encoded independently.
 
 - **H-A, "divergence" (leading/contrarian):** a fresh N-bar extreme made on LIGHT volume
   warns of an impending reversal against the extreme — light volume on a new low warns of
   upside reversal; light volume on a new high warns of downside reversal.
+- **H-B, "confirmation" (coincident):** heavy volume on the leg moving AWAY from a recent
+  extreme confirms the reversal is real and already underway — a heavy-volume bounce off a
+  low is bullish-confirming; a heavy-volume pullback from a high is bearish-confirming.
+  **Construction corrected 2026-09-08** (see review section): built from
+  `bars_since_low_fast`/`bars_since_high_fast` + `volume_z` (both already in
+  `feature_vectors`, already used by H-A) plus a join to `market_data_ohlcv_tradeable` for
+  `close` — not from `swing_volume_confirmation`, which measures the wrong leg.
 
-~~H-B, "confirmation" (coincident): heavy volume on the leg moving away from a recent extreme
-confirms the reversal is real and already underway.~~ Dropped — its planned feature primitive
-(`swing_volume_confirmation`) measures the prior completed leg, not the in-progress bounce, so
-it cannot be built from existing `feature_vectors` columns as specified. A correct version
-needs a new feature-factory column and its own pre-registration; not this document's scope.
+## Construction spec — built from existing `feature_vectors` columns (+ one raw-OHLCV join for H-B's sign)
 
-## Construction spec — built entirely from existing `feature_vectors` columns
-
-No new `feature_factory.py` column, no new pipeline feature, no corpus recompute needed. A
-read-only derivation over columns already persisted for the full corpus, so this can run as a
-standalone analysis script (same posture as `range_pct_fast_xs_ls_h5_falsification.py` /
-`alpha_score_residual_single_security_15m.py`) whenever compute is available — it does not
+No new `feature_factory.py` column, no corpus recompute needed for either statistic. H-A is a
+pure `feature_vectors` read; H-B additionally joins `market_data_ohlcv_tradeable` (by
+`symbol`/`timeframe`/`timestamp`) for raw `close`, needed only for the leg's directional sign
+— still a read-only analysis script (same posture as `range_pct_fast_xs_ls_h5_falsification.py`
+/ `alpha_score_residual_single_security_15m.py`) whenever compute is available; does not
 depend on any other program's sequencing. (Practical note, not a design constraint: hold off
 running while the current `ic_engine` corpus recompute is active — resource contention, not a
 program-sequencing issue; see "Not yet done" below.)
@@ -62,11 +70,27 @@ program-sequencing issue; see "Not yet done" below.)
   AGY-review section for the worked algebra). Forward return measured from bar t (the
   extreme bar itself), same `return_type='executable_open_to_open'` / `forward_returns`
   convention as every other construction in this codebase (Invariant 1).
-- **Wick corroboration (reported, not gated):** `lower_wick_ratio_t` at low-side events,
-  `upper_wick_ratio_t` at high-side events — the "wick size/bar characteristic" half of the
-  user's original framing, kept out of the primary gated statistic to avoid a second
+- **H-B statistic, `confirmed_reversal_t`** (corrected construction, 2026-09-08): let
+  `k_low_t = bars_since_low_fast_t`, `k_high_t = bars_since_high_fast_t` (both already
+  causal, both saturate at `dist_window_fast − 1 = 19`, so the leg span below is always
+  bounded). Reference leg = whichever extreme is more recent: if `k_low_t < k_high_t`, the
+  bar is `k_low_t` bars into an up-leg off a low; if `k_high_t < k_low_t`, `k_high_t` bars
+  into a down-leg off a high; if equal (tie, including the `k=0` outside-bar case), excluded
+  — same tie-break as `extreme_proximity_t` above, no separate rule to invent. Let `k` be
+  that reference distance and require `k >= 1` (there must be an actual leg, not just the
+  extreme bar itself — `k=0` is H-A's domain, not H-B's).
+  `confirmed_reversal_t = sign(close_t − close_{t−k}) × mean(volume_z_{t−k .. t})` — the
+  signed mean of the persisted `volume_z` column over the leg span, direction fixed by raw
+  `close_t − close_{t−k}` (the already-locked close-to-close convention, now with real data
+  to act on rather than a column that measured the wrong thing). Positive = up-leg off a low
+  with above-average volume (bullish-confirming) or down-leg off a high with above-average
+  volume, signed consistently with return (bearish-confirming, i.e. negative here) — same
+  pooling logic as H-A's sign convention, not re-derived per side.
+- **Wick corroboration (reported, not gated):** `lower_wick_ratio_t` at H-A/H-B low-side
+  events, `upper_wick_ratio_t` at high-side events — the "wick size/bar characteristic" half
+  of the user's original framing, kept out of the primary gated statistics to avoid a second
   undeclared researcher degree of freedom (which wick threshold, what combination rule) that
-  would need its own justification. If H-A passes, a wick-conditioned successor is the
+  would need its own justification. If either passes, a wick-conditioned successor is the
   natural next pre-registration, not a same-run addition.
 
 ## Track 1 — signal existence (continuous statistic)
@@ -76,11 +100,13 @@ reinvented per construction). Locked quantities below per AGY review round 1
 (`tf=15m`, universe = all 231 active instruments, IS-only via `bar_ts < alpha.validation.
 oos_start`):
 
-- Primary statistic: within-symbol Spearman IC of `extreme_volume_divergence` against
-  `forward_returns.return_fast` (1-bar, primary/gated) and `return_mid` (ungated robustness
-  check only, not a second chance to pass). Family statistic = equal-weighted mean across
-  qualifying symbols of within-symbol Spearman IC, matching
-  `alpha_score_residual_single_security_15m.py`'s convention.
+- Primary statistic: within-symbol Spearman IC of `extreme_volume_divergence` (H-A) and,
+  independently, `confirmed_reversal` (H-B) against `forward_returns.return_fast` (1-bar,
+  primary/gated) and `return_mid` (ungated robustness check only, not a second chance to
+  pass) — each hypothesis tested, reported, and gated on its own, never combined into one
+  statistic. Family statistic = equal-weighted mean across qualifying symbols of
+  within-symbol Spearman IC, matching `alpha_score_residual_single_security_15m.py`'s
+  convention.
 - Bootstrap: date-indexed panel resampler (port the `Panel` structure from
   `alpha_score_residual_single_security_15m.py`), NOT a raw call to
   `_circular_block_bootstrap_ic` on the filtered event rows — that function's row-index
@@ -98,7 +124,8 @@ oos_start`):
 - Missingness: panel requires `complete_fast = true` (`complete_mid = true` for the
   secondary band).
 
-**PASS rule (Track 1, H-A) — pure statistical existence plus a minimum effect-size floor:**
+**PASS rule (Track 1, H-A and H-B independently, either may pass without the other) — pure
+statistical existence plus a minimum effect-size floor:**
 
 1. Bootstrap ci_lower > 0 (the effect is not noise).
 2. Date-shift null p < 0.05 (the effect is not an artifact of the null construction).
@@ -117,19 +144,21 @@ comparison.
 
 ## Track 2 — regime candidate
 
-Gated on Track 1 passing first — a construction with no continuous-signal content has no
-basis for a regime encoding. **Do not** build `regime_extreme_volume_divergence` as an HMM
-`regime_*` column under any circumstance; if reached, the discrete cut is deterministic
+Gated on Track 1 passing first, per hypothesis — a construction with no continuous-signal
+content has no basis for a regime encoding. **Do not** build
+`regime_extreme_volume_divergence` or `regime_confirmed_reversal` as an HMM `regime_*`
+column under any circumstance; if either reaches Track 2, the discrete cut is deterministic
 quantile tiering via `build_tiers()`, never HMM (same reasoning as the closely related
 rejected candidate, todo 281: identifiability by construction, no EM — an
 identifiability-vs-signal curve is therefore not a meaningful check here, since
 `build_tiers()` identifiability is trivially 1.0; that check was testing a path — HMM —
 this design already forbids reaching, per AGY review round 1).
 
-Re-scoped checks, if H-A passes Track 1:
+Re-scoped checks, if either H-A or H-B passes Track 1:
 
 1. **Regime-coverage handling:** H-A fires on 26-30% of bars (density calibration below) —
-   still a minority. Explicit design for the ~70-74% of bars with no active event (a
+   still a minority; H-B fires on a subset of that (requires `k >= 1`, i.e. excludes the
+   extreme bar itself). Explicit design for the majority of bars with no active event (a
    distinct "no signal" tier, not silently defaulted into an existing tier) is required
    before this can be called a regime axis rather than an episodic trade trigger.
 2. **Null-arm control:** scrambled-data control (shuffle the volume series independent of
@@ -145,33 +174,42 @@ Re-scoped checks, if H-A passes Track 1:
 (gated) and `return_mid` (reported) · B=2000 (bootstrap replicates) · N_null=1000 (date-shift
 null replicates for the single overall existence test — the per-symbol BY-FDR gate uses
 `_p_values_from_ic`'s asymptotic t-approximation instead, not this empirical null, so no
-resolution-floor concern) · BY/BH alpha=0.05 · `IC_min=0.003` · seed via
-`hash_key_to_int("extreme_volume_divergence…")`.
+resolution-floor concern) · BY/BH alpha=0.05 · `IC_min=0.003` (both hypotheses) · seed via
+`hash_key_to_int("extreme_volume_divergence…")` / `hash_key_to_int("confirmed_reversal…")`.
 
-## AGY review round 1 (2026-09-08) — verdict: not ready, H-B needs redesign
+## AGY review round 1 (2026-09-08) — and a same-day correction to my own follow-through
 
 Full raw review:
 `docs/plans/2026-09-06-extreme-volume-divergence-confirmed-reversal-prereg-agy-review-round1.md`.
 Two of its claims were checked against source and found overstated/wrong; one is a confirmed
-real bug that changes scope. Treat every other item in the raw review as plausible but not
-independently re-verified — it is a genuinely useful adversarial pass, not a rubber stamp.
+real bug. Treat every other item in the raw review as plausible but not independently
+re-verified — it is a genuinely useful adversarial pass, not a rubber stamp.
 
-**Confirmed real (source-verified, changes scope): H-B's feature primitive is wrong.**
+**Confirmed real (source-verified): H-B's originally *proposed* feature primitive is wrong.**
 `swing_volume_confirmation` (`src/intelligence/feature_factory.py:4653-4658`) computes mean
 volume over `[extremes[-2], extremes[-1]]` — the span between the two most recently
 *confirmed* swing extremes (confirmation requires `confirm_n` bars past the pivot). The
 still-forming bounce leg away from the latest extreme is NOT `extremes[-1]` yet (it isn't
 confirmed); `extremes[-1]` is the prior *completed* leg. So this column measures the sell-off
-*into* a low, not the bounce *off* it — the opposite of H-B's stated construction. **H-B as
-specified cannot be built from existing `feature_vectors` columns.** Options: (a) drop H-B
-from this pre-registration, keep only H-A (a standalone, still-interesting hypothesis); (b)
-add a genuinely new feature-factory column measuring the in-progress leg's volume (real code
-change, its own review, no longer a "read-only, no corpus recompute" analysis per this doc's
-original framing at L41). Decision: **(a) — drop H-B from this pre-registration.** Standalone
-H-A is still a complete, testable hypothesis; H-B's correct construction is a separate,
-larger-scope idea (new column + its own pre-registration), not a same-day fix. If H-A passes
-and there's appetite for the confirmation half later, file it as its own todo rather than
-re-inflating this doc's scope.
+*into* a low, not the bounce *off* it — the opposite of H-B's stated construction.
+
+**My error, corrected same day after direct user pushback:** I initially concluded from this
+that "H-B as specified cannot be built from existing `feature_vectors` columns" and dropped it
+from this pre-registration entirely, reasoning that a correct version would need a genuinely
+new `feature_factory.py` column (real code change, out of this doc's read-only scope). That
+conclusion conflated two different claims: "the one column I proposed reusing measures the
+wrong thing" is true; "no existing data can measure this" is false. Checked properly:
+`bars_since_low_fast`/`bars_since_high_fast` (`feature_factory.py:2633`,
+`_bars_since_rolling_extreme_series_full`) are a simple, already-causal, already-persisted
+rolling-window "bars since the extreme" counter, saturating at `dist_window_fast − 1 = 19` —
+no dependency on `swing_volume_confirmation`'s confirmed-swing-detection logic at all, and
+already the exact columns H-A's own `extreme_proximity_t` gate uses. Combined with the
+already-persisted `volume_z` and one join to `market_data_ohlcv_tradeable` for raw `close`
+(confirmed to carry a `volume` and `close` column), H-B's actual economic quantity — volume on
+the leg away from a recent extreme — is fully computable, read-only, no new pipeline column,
+no corpus recompute. **H-B reinstated** with the corrected construction (see "The two
+hypotheses" and "Construction spec" sections above). Recorded here rather than silently
+edited away, matching this doc's own standard for tracking corrections, including my own.
 
 **Overstated/incorrect on verification (kept only for the record, not actioned):**
 - H-A "self-contradictory sign formula, washes out to zero": wrong. `stat =
@@ -233,15 +271,18 @@ re-inflating this doc's scope.
   `build_tiers()` (deterministic quantile tiering, the path this doc already mandates if
   Track 2 is ever reached — see below), identifiability is trivially 1.0 by construction; an
   identifiability-vs-signal curve is only a meaningful check for the HMM path, which this doc
-  already forbids reaching. Track 2, if H-A ever gets there, is re-scoped to: (1) explicit
+  already forbids reaching. Track 2, if either hypothesis ever gets there, is re-scoped to: (1) explicit
   regime-coverage handling for the ~74-97% of bars with no active event (an episodic signal is
   not automatically a 100%-coverage regime axis — this needs its own design, not assumed away);
   (2) monotonic IC separation across `build_tiers()` quantile buckets; (3) a scrambled-volume
   null control. HMM is not reachable in this design regardless, so an identifiability-vs-signal
   curve is dropped as its own check, not "insufficient" — it was testing the wrong path.
 
-**AGY round 2:** recommended on the amended H-A-only design before writing Track 1's script,
-not strictly required — the remaining open surface is much smaller than round 1 found.
+**AGY round 2:** recommended on the amended design (both hypotheses, H-B's corrected
+construction specifically) before writing Track 1's script — not yet requested. Given round 1
+caught a real construction bug and I separately over-corrected past it once already this same
+day, a round 2 pass is a stronger recommendation now than "not strictly required" — the H-B
+construction above has not been adversarially checked at all yet.
 
 ## Density calibration (2026-09-08)
 
