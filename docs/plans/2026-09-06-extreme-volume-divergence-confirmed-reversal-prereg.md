@@ -1,16 +1,19 @@
 # Extreme-Volume Divergence / Confirmed-Reversal — Pre-registration (DRAFT, not yet run)
 
-**Status:** H-A is a complete, ready-to-run design. **H-B is NOT ready** — its data-availability
-claim is confirmed correct, but its round-1-corrected statistic has multiple confirmed real
-flaws found by AGY review round 2 (2026-09-08) and independently re-derived, not yet fixed.
-No script written, no statistic computed for either hypothesis. Same-day history: H-B was
-dropped (round 1), reinstated with a new construction after direct user pushback, then that new
-construction was itself found flawed (round 2) — see "AGY review round 1" and "AGY review
-round 2" sections below for the full trail, including two of my own errors in a row, both
-recorded rather than quietly edited away.
+**Status:** Both H-A and H-B are complete, reviewed designs. **Neither has run** — no script
+written, no statistic computed. H-A cleared two review rounds with no open issues. H-B took
+three attempts: dropped (round 1, wrong column), reinstated with a flawed fix (round 2, five
+confirmed bugs), then redesigned from scratch independently by Fable and cleared a third
+review round (conditional pass, four amendments, three locked into the spec below, one — a
+gap in shared testing machinery reaching beyond this doc — filed separately as todo 372).
+**Execution is blocked for both hypotheses** on compute (the corpus `ic_engine` recompute) and,
+for H-B specifically, also on todo 372's null-shift gap. See "H-B redesign (2026-09-09)" below
+for the full trail, including three of my own errors across the process, all recorded rather
+than quietly edited away.
 **Author:** Claude (Sonnet 5), interactive session, 2026-09-06. Amended 2026-09-08 (AGY review
 round 1, a same-day correction to that round's H-B disposition, then AGY review round 2 on the
-corrected construction).
+corrected construction). Amended 2026-09-09 (H-B redesigned from scratch by Fable, independent
+subagent dispatch, then AGY review round 3 on the redesign).
 **Origin:** User-directed hypothesis, trading-experience-derived: a bounce off a low with
 volume EXPANSION, or a new low on LIGHTER volume, are classic reversal-divergence tells;
 the mirror pattern applies at highs (heavy-volume pullback from a high vs. a new high on
@@ -40,28 +43,30 @@ reported, and (if either reaches Track 2) regime-encoded independently.
 - **H-A, "divergence" (leading/contrarian):** a fresh N-bar extreme made on LIGHT volume
   warns of an impending reversal against the extreme — light volume on a new low warns of
   upside reversal; light volume on a new high warns of downside reversal.
-- **H-B, "confirmation" (coincident):** heavy volume on the leg moving AWAY from a recent
-  extreme confirms the reversal is real and already underway — a heavy-volume bounce off a
-  low is bullish-confirming; a heavy-volume pullback from a high is bearish-confirming.
-  **Data availability confirmed 2026-09-08, but the statistic below is known-flawed, NOT
-  ready to run** (see "AGY review round 2"). The originally-proposed column
-  (`swing_volume_confirmation`) measures the wrong leg (round 1); the round-1-corrected
-  construction built from `bars_since_low_fast`/`bars_since_high_fast` + `volume_z` has its
-  own confirmed bugs (round 2) — a density-fallacy in scoping, a reference-anchor that can
-  silently drift off a genuine extreme, re-introduced capitulation-volume contamination, and
-  a sign convention that inverts on wick candles. Needs a genuine redesign pass, not another
-  same-day patch.
+- **H-B, "confirmation" (coincident):** **scope note, locked 2026-09-09 per AGY round 3's
+  amendment 4** — this statistic measures volume expansion during a persistent pause following
+  an extreme (price has not printed a *new* extreme of either type for `K_CONFIRM` bars), not
+  price-directional confirmation; it does not require price to have actually moved away from
+  the extreme, only that no fresh opposing extreme has invalidated it. With that scope in mind:
+  elevated volume in the bars immediately following a confirmed, unbroken extreme suggests the
+  reversal is real and already underway — elevated volume following an unbroken low is
+  bullish-confirming; following an unbroken high, bearish-confirming. **Construction finalized
+  2026-09-09** after a full from-scratch redesign (see "H-B redesign (2026-09-09)" below) —
+  two prior attempts failed (round 1: wrong column; round 2: five confirmed bugs in a
+  leg-averaging construction). The current construction is a single-bar-anchored,
+  fixed-offset statistic with no averaging-window ambiguity, structurally immune to all five
+  round-2 bugs (independently verified, not just claimed).
 
-## Construction spec — built from existing `feature_vectors` columns (+ one raw-OHLCV join for H-B's sign)
+## Construction spec — built entirely from existing `feature_vectors` columns
 
-No new `feature_factory.py` column, no corpus recompute needed for either statistic. H-A is a
-pure `feature_vectors` read; H-B additionally joins `market_data_ohlcv_tradeable` (by
-`symbol`/`timeframe`/`timestamp`) for raw `close`, needed only for the leg's directional sign
-— still a read-only analysis script (same posture as `range_pct_fast_xs_ls_h5_falsification.py`
-/ `alpha_score_residual_single_security_15m.py`) whenever compute is available; does not
-depend on any other program's sequencing. (Practical note, not a design constraint: hold off
-running while the current `ic_engine` corpus recompute is active — resource contention, not a
-program-sequencing issue; see "Not yet done" below.)
+No new `feature_factory.py` column, no corpus recompute needed for either statistic — both
+are pure `feature_vectors` reads, no raw-OHLCV join for either one (H-B's finalized
+construction below needs no `close` value at all, unlike the two prior, now-superseded H-B
+attempts). Read-only analysis script (same posture as
+`range_pct_fast_xs_ls_h5_falsification.py` / `alpha_score_residual_single_security_15m.py`)
+whenever compute is available; does not depend on any other program's sequencing. (Practical
+note, not a design constraint: hold off running while the current `ic_engine` corpus recompute
+is active — resource contention, not a program-sequencing issue; see "Not yet done" below.)
 
 - **`extreme_proximity_t`**: +1 if `bars_since_low_fast_t == 0` (bar t is itself a fresh
   rolling low over the existing `dist_window_fast` window, APR-governed, no new tunable),
@@ -76,20 +81,79 @@ program-sequencing issue; see "Not yet done" below.)
   AGY-review section for the worked algebra). Forward return measured from bar t (the
   extreme bar itself), same `return_type='executable_open_to_open'` / `forward_returns`
   convention as every other construction in this codebase (Invariant 1).
-- **H-B statistic, `confirmed_reversal_t`** — **KNOWN FLAWED, not a usable spec, kept here
-  only to show what was tried; see "AGY review round 2" for the full finding and a proposed
-  (unverified) fix direction.** The round-1-corrected attempt was: `k = min(bars_since_low_
-  fast_t, bars_since_high_fast_t)`, require `k >= 1`, `confirmed_reversal_t = sign(close_t −
-  close_{t−k}) × mean(volume_z_{t−k .. t})`. Confirmed real problems: (1) `k >= 1` is the
-  *complement* of H-A's `k = 0`, not a sparse subset — this fires on ~70% of all bars, not an
-  episodic event; (2) `bars_since_low_fast`/`_high_fast` do not saturate (they track a
-  sliding-window argmin/argmax) — for legs longer than ~19 bars without a new extreme, the
-  reference bar silently re-anchors to an ordinary interior bar that was never itself a fresh
-  extreme, indistinguishable in the data from a genuine reversal leg; (3) `mean(volume_z_{t−k
-  .. t})` includes bar `t−k`, the extreme bar itself, re-introducing round 1's capitulation-
-  volume contamination in a new location; (4) `sign(close_t − close_{t−k})` can invert on a
-  wick candle (an extreme bar whose close sits far from its own high/low), flipping a
-  genuinely bullish heavy-volume bounce to a negative score.
+- **H-B statistic, `confirmed_reversal_i`** — **finalized construction, 2026-09-09** (design:
+  Fable, independent from-scratch redesign; review: AGY round 3, conditional pass, amendments
+  incorporated below). Per `(symbol, tf)`, ordered by `bar_ts`, index `i = 0 .. n-1`, forward
+  scan carried across the whole series (fetched with a trailing buffer before the IS-window
+  start per amendment 2 below, so anchor state is genuinely warmed up at the clamp boundary —
+  not reset there):
+
+  ```
+  low_ext[i]  = (bars_since_low_fast[i]  == 0)
+  high_ext[i] = (bars_since_high_fast[i] == 0)
+  tie[i]      = low_ext[i] AND high_ext[i]        # outside bar
+  clean_low[i]  = low_ext[i]  AND NOT tie[i]
+  clean_high[i] = high_ext[i] AND NOT tie[i]
+
+  anchor_idx, anchor_type = None, None            # forward-scan state, carried across i
+  for i in 0 .. n-1:
+      if clean_low[i]:
+          anchor_idx, anchor_type = i, 'low'
+      elif clean_high[i]:
+          anchor_idx, anchor_type = i, 'high'
+      elif tie[i]:
+          anchor_idx, anchor_type = None, None    # AMENDMENT 1 (round 3): a tie hard-resets
+                                                     # the anchor -- an outside bar prints a
+                                                     # new opposing extreme too, invalidating
+                                                     # any prior single-sided anchor. Does NOT
+                                                     # carry over (round 3 caught this leaking
+                                                     # invalid legs into E).
+      # else: anchor unchanged, carries over
+      anchor_idx_at[i], anchor_type_at[i] = anchor_idx, anchor_type
+
+  k[i] = i - anchor_idx_at[i]   # undefined while anchor_idx_at[i] is None
+  ```
+
+  **Only ever reads `bars_since_low_fast`/`bars_since_high_fast` as an `== 0` boolean flag** —
+  the one part of those columns round 2's review verified as causal and correct. Never
+  re-reads their non-zero runtime value, which is what made round 2's construction able to
+  silently re-anchor onto a non-extreme bar. `anchor_idx` is write-once per leg, assigned only
+  when the *current* bar's own flag is true — there is no code path by which it can reference
+  a bar that wasn't itself a genuine extreme when it happened (independently re-derived, not
+  just asserted — see "H-B redesign" below).
+
+  **Warmup guard (AMENDMENT, found empirically 2026-09-09):** exclude each symbol's first
+  `2 * dist_window_fast` bars from eligibility as an anchor-setting event — before a full
+  trailing window has accumulated, nearly every bar trivially registers `== 0`, seeding
+  spurious anchors. Confirmed live on SPY/15m: 13 of the first 20 bars would otherwise
+  register as fresh-low events.
+
+  **Event set and statistic**, for `K_CONFIRM` locked before running (primary `3`, robustness
+  `{1, 2, 5}` reported/ungated — see "Fixed quantities"), with `a = anchor_idx_at[i]`:
+
+  ```
+  E = { i : k[i] == K_CONFIRM  AND  anchor_type_at[i] is not None }
+
+  leg_volume[i] = mean(volume_z[a+1 .. a+K_CONFIRM])   # NEVER includes volume_z[a] itself
+  sign[i]       = +1 if anchor_type_at[i] == 'low' else -1
+  confirmed_reversal[i] = sign[i] * leg_volume[i]
+  ```
+
+  `E` is `confirmed_reversal`'s entire domain of definition — undefined everywhere else, not
+  zero- or NaN-filled into the panel. Empirically, on SPY/15m: `K_CONFIRM=3` fires on 6.9% of
+  bars (27.1% of H-A-eligible extremes survive unbroken that long); `K_CONFIRM=1/2/5` fire on
+  11.3%/8.5%/5.2% respectively. Genuinely sparse — nowhere near round 2's ~70% density bug.
+  No `close` value or `market_data_ohlcv_tradeable` join anywhere in this construction (sign
+  comes from which extreme type fired, never from a price delta) — simpler than either prior
+  attempt, not just more correct. **Scope trade-off, made explicit per AGY round 3's amendment
+  4**: because the sign never checks price, a bar can enter `E` with the "wrong" economic read
+  (e.g. a low-volume-supported breakdown consolidating just above a low, still reads as
+  bullish) — this is why the hypothesis description above states the narrower, honest scope
+  rather than a stronger "price confirmed" claim the statistic doesn't actually support.
+
+  Full design trail, all findings, and what's independently re-verified vs. merely asserted:
+  `docs/plans/2026-09-06-extreme-volume-divergence-h-b-redesign-fable.md` and its round 3
+  review `docs/plans/2026-09-06-extreme-volume-divergence-h-b-redesign-agy-review-round3.md`.
 - **Wick corroboration (reported, not gated):** `lower_wick_ratio_t` at H-A/H-B low-side
   events, `upper_wick_ratio_t` at high-side events — the "wick size/bar characteristic" half
   of the user's original framing, kept out of the primary gated statistics to avoid a second
@@ -99,18 +163,19 @@ program-sequencing issue; see "Not yet done" below.)
 
 ## Track 1 — signal existence (continuous statistic)
 
-**H-A only, as things stand** — H-B's statistic is known-flawed (see above), so Track 1 below
-describes the machinery generically but should be read as an H-A-only execution plan until
-H-B has a redesigned, reviewed construction. Single-security IC test, reusing this project's
-standard statistical machinery (not reinvented per construction). Locked quantities below per
-AGY review round 1 (`tf=15m`, universe = all 231 active instruments, IS-only via `bar_ts <
-alpha.validation.oos_start`):
+**Both hypotheses have complete, reviewed designs as of 2026-09-09 — see the top-of-doc
+Status line for what's actually blocking execution.** Single-security IC test, reusing this
+project's standard statistical machinery (not reinvented per construction). Locked quantities
+below per AGY review round 1 (`tf=15m`, universe = all 231 active instruments, IS-only via
+`bar_ts < alpha.validation.oos_start`, fetched with a trailing buffer per H-B's amendment 2 so
+its forward scan is warmed up at the clamp boundary):
 
-- Primary statistic: within-symbol Spearman IC of `extreme_volume_divergence` (H-A) against
+- Primary statistic: within-symbol Spearman IC of `extreme_volume_divergence` (H-A) and,
+  independently, `confirmed_reversal` (H-B, `K_CONFIRM=3` primary) against
   `forward_returns.return_fast` (1-bar, primary/gated) and `return_mid` (ungated robustness
-  check only, not a second chance to pass). H-B, once redesigned, is tested identically but
-  independently — never combined into one statistic with H-A. Family statistic =
-  equal-weighted mean across qualifying symbols of within-symbol Spearman IC, matching
+  check only, not a second chance to pass) — each hypothesis tested, reported, and gated on
+  its own, never combined into one statistic. Family statistic = equal-weighted mean across
+  qualifying symbols of within-symbol Spearman IC, matching
   `alpha_score_residual_single_security_15m.py`'s convention.
 - Bootstrap: date-indexed panel resampler (port the `Panel` structure from
   `alpha_score_residual_single_security_15m.py`), NOT a raw call to
@@ -119,15 +184,22 @@ alpha.validation.oos_start`):
   panel is pre-filtered to sparse extreme-only bars.
 - Null: whole-date circular shift on the full dense panel (extremes at date D map to
   non-extreme dates under the shift, which is the correct null), not a shift applied after
-  filtering to extreme rows only.
+  filtering to extreme rows only. **Blocked as specified for both hypotheses**: AGY round 3
+  found `Panel.sync_shift_null_p`'s per-symbol shift isn't actually calendar-synchronous when
+  active-date counts vary across symbols (verified against source, filed as todo 372) —
+  Track 1 execution needs that resolved first, not a same-day patch here.
 - FDR: BH across symbols (reported) and BY across symbols (gated) via
   `ic_math.py::_p_values_from_ic`'s asymptotic t-approximation — same per-symbol
   significance machinery as every other BY-FDR gate in this codebase (e.g.
   `feature_ic_scores.passes_fdr`), not an empirical permutation p-value.
-- Cross-sectional arm: dropped (see AGY-review section — same-bar ranking is degenerate at
-  this event density, not worth computing even as a reported secondary).
+- Cross-sectional arm: dropped for both hypotheses (see AGY-review sections — same-bar
+  ranking is degenerate at either hypothesis's event density, not worth computing even as a
+  reported secondary).
 - Missingness: panel requires `complete_fast = true` (`complete_mid = true` for the
   secondary band).
+- **Diurnal sub-panel (AGY round 3, todo 372):** `volume_z` has no session-boundary
+  detrending — report an ungated morning (9:45-11:30am) vs. afternoon (11:45am-3:45pm)
+  breakdown for both hypotheses, so a PASS isn't an artifact of the market-open volume smile.
 
 **PASS rule (Track 1, each hypothesis independently, either may pass without the other) — pure
 statistical existence plus a minimum effect-size floor:**
@@ -159,16 +231,13 @@ identifiability-vs-signal curve is therefore not a meaningful check here, since
 `build_tiers()` identifiability is trivially 1.0; that check was testing a path — HMM —
 this design already forbids reaching, per AGY review round 1).
 
-Re-scoped checks, if either H-A or a redesigned H-B passes Track 1:
+Re-scoped checks, if either H-A or H-B passes Track 1:
 
-1. **Regime-coverage handling:** H-A fires on 26-30% of bars (density calibration below) —
-   still a minority, giving a real "no active event" majority tier to design for. (H-B's
-   round-1-corrected `k >= 1` definition was NOT a subset of H-A as originally claimed here —
-   corrected in "AGY review round 2" below; whatever H-B's redesign settles on needs its own
-   density check, not an assumption borrowed from this line.) Explicit design for the
-   majority of bars with no active event (a distinct "no signal" tier, not silently defaulted
-   into an existing tier) is required before this can be called a regime axis rather than an
-   episodic trade trigger.
+1. **Regime-coverage handling:** H-A fires on 26-30% of bars, H-B (`K_CONFIRM=3`) on ~6.9%
+   (SPY/15m, empirical — see "H-B redesign" below) — both a real minority, giving an honest
+   "no active event" majority tier to design for. Explicit design for that majority (a
+   distinct "no signal" tier, not silently defaulted into an existing tier) is required
+   before either can be called a regime axis rather than an episodic trade trigger.
 2. **Null-arm control:** scrambled-data control (shuffle the volume series independent of
    price, or shuffle bar order within a matched-length synthetic series) — the discretized
    regime must not be recoverable from noise at the same rate as from real data.
@@ -178,9 +247,11 @@ Re-scoped checks, if either H-A or a redesigned H-B passes Track 1:
 
 ## Fixed quantities
 
-`dist_window_fast` per its current APR value (not re-derived) · lookahead = `return_fast`
-(gated) and `return_mid` (reported) · B=2000 (bootstrap replicates) · N_null=1000 (date-shift
-null replicates for the single overall existence test — the per-symbol BY-FDR gate uses
+`dist_window_fast` per its current APR value (not re-derived) · `K_CONFIRM=3` primary
+(gated) for H-B, `K_CONFIRM ∈ {1, 2, 5}` reported/ungated robustness · warmup exclusion =
+`2 * dist_window_fast` bars per symbol (H-B) · lookahead = `return_fast` (gated) and
+`return_mid` (reported) · B=2000 (bootstrap replicates) · N_null=1000 (date-shift null
+replicates for the single overall existence test — the per-symbol BY-FDR gate uses
 `_p_values_from_ic`'s asymptotic t-approximation instead, not this empirical null, so no
 resolution-floor concern) · BY/BH alpha=0.05 · `IC_min=0.003` (both hypotheses) · seed via
 `hash_key_to_int("extreme_volume_divergence…")` / `hash_key_to_int("confirmed_reversal…")`.
@@ -340,13 +411,55 @@ statistic vs. a 1-bar forward return) and the "this is just momentum, not revers
 confirmation" framing critique are reasonable but weren't algebraically checked the way the
 items above were — worth weighing in a redesign, not asserted as confirmed fact here.
 
-**Disposition:** H-B is neither dropped nor "fixed" — it sits in a known-flawed, needs-redesign
-state, recorded plainly rather than resolved by another same-day assertion. A redesign
-incorporating round 2's specific findings (lock to a single confirmation bar, e.g. `k=1` or
-`k=2`, rather than pooling the whole `k>=1` leg; exclude `t-k` from the volume average; sign
-by extreme-type identity, not close delta) is a reasonable starting direction but is itself
-unverified — it needs its own review pass before being written into this doc as the spec,
-not a third inline patch.
+**Disposition (superseded 2026-09-09):** at the time this section was written, H-B sat in a
+known-flawed, needs-redesign state. See "H-B redesign (2026-09-09)" immediately below for
+what happened next — a full from-scratch redesign, not a same-day patch on this construction.
+
+## H-B redesign (2026-09-09) — from-scratch, independent of the round-2 attempt
+
+Round 2 left H-B needing a genuine redesign, not a fourth inline patch on the same flawed
+structure. Per user direction, this was done properly: dispatched Fable (a separate model, via
+the Claude Code Agent tool, isolated worktree) to design H-B **completely blind** — given the
+economic hypothesis and both prior review rounds' findings, but deliberately NOT shown any
+candidate replacement, so its design would be a genuinely independent second opinion rather
+than a critique of one.
+
+**Fable's design**, full detail in `docs/plans/2026-09-06-extreme-volume-divergence-h-b-redesign-fable.md`:
+traced round 2's bugs to one root cause — reading `bars_since_low_fast`/`bars_since_high_fast`'s
+*runtime value* to infer both leg-length and extreme-type at once, when only their `== 0`
+boolean was ever verified causal and correct. Its fix: a forward-scan state machine that only
+ever reads the `== 0` flag, tracking a write-once "last confirmed extreme" anchor that cannot
+drift onto a non-extreme bar, with the event set locked to an exact fixed offset
+(`k == K_CONFIRM`) rather than an open-ended `k >= 1` range — this single change eliminates
+the density explosion, the anchor-drift bug, the capitulation contamination, and the serial
+correlation all at once, as a consequence of the same structural fix, not four separate
+patches.
+
+**Empirical verification, before trusting the design** (SPY/15m, 130,632 bars, live query):
+confirmed genuine sparsity (6.9% of bars at `K_CONFIRM=3`, vs. round 2's ~70%), a real
+27.1% leg-survival rate (not degenerate), negligible tie frequency (0.059%), and — a new
+finding neither AGY nor Fable anticipated — real warmup contamination (13 of the first 20
+bars in a symbol's history falsely register as fresh-extreme events before a full trailing
+window accumulates). Fixed by excluding each symbol's first `2 * dist_window_fast` bars.
+
+**AGY review round 3** (full review: `docs/plans/2026-09-06-extreme-volume-divergence-h-b-redesign-agy-review-round3.md`):
+conditional pass. Independently re-verified (not accepted on assertion) that the write-once
+anchor invariant genuinely eliminates round 2's drift bug, and that included legs' averaging
+windows are provably disjoint across legs — both confirmed by working through the logic
+directly, not trusting the review's proof. Four amendments required, three locked into this
+doc's construction spec above (tie hard-reset; a trailing SQL fetch buffer so the IS-window
+clamp doesn't falsely reset anchor state at the boundary; a reported diurnal sub-panel, since
+`volume_z` has no session-boundary detrending — verified against `feature_factory.py`, and
+found to affect H-A too, not just H-B). The fourth — `Panel.sync_shift_null_p`'s per-symbol
+date-shift not actually being calendar-synchronous when active-date counts vary across
+symbols — is shared testing machinery reaching beyond this document; independently verified
+against source and filed as todo 372 rather than patched inline, since it may also bear on
+the already-closed `alpha_score_residual_single_security_15m.py` result (not claimed to
+invalidate it — that needs its own check).
+
+**Net result:** H-B's construction is done and twice-reviewed. It cannot run yet — blocked on
+todo 372 (the null-shift gap) independent of compute headroom, same as H-A's own compute
+block is independent of this.
 
 ## Density calibration (2026-09-08)
 
@@ -360,13 +473,17 @@ action inflates fresh-extreme frequency), not sparse in absolute terms. No
 minimum-events-per-symbol floor is needed: even at 1d, the sparsest tf, mean events/symbol is
 ~1092 (252,310 / 231), comfortably above any BY-FDR per-symbol floor this codebase has used.
 
-**Not yet done:** no script written, no statistic computed for either hypothesis.
-**H-A: ready, blocked only on compute.** Its construction and PASS rule have cleared two
-review rounds with no open issues. Write + run once the corpus `ic_engine` recompute clears —
-it's mid-run using ~20GB RSS + heavy CPU on a box that OOM'd once already this week (see
-`.planning/todos/pending/371-ic-engine-cross-sectional-cell-size-guard-post-materialization-ooms-at-universe-scale.md`);
-launching a second compute job now is exactly the contention this doc's own construction
-section already cautioned against.
-**H-B: blocked on a real redesign, independent of compute.** Its construction has confirmed
-bugs (above); rewriting it correctly and getting that reviewed is the actual next step,
-not something compute headroom unblocks.
+**Not yet done:** no script written, no statistic computed for either hypothesis. Both
+constructions are finalized and reviewed (H-A: two rounds; H-B: three, including a full
+from-scratch redesign) — nothing left to design, only two independent blockers left to clear:
+- **Compute:** the corpus `ic_engine` recompute is running, using ~20GB RSS + heavy CPU on a
+  box that already OOM'd once this week (see
+  `.planning/todos/pending/371-ic-engine-cross-sectional-cell-size-guard-post-materialization-ooms-at-universe-scale.md`,
+  and as of 2026-09-08 18:11 UTC it also hit a clean `alpha.ic.max_cell_rows` failure on a
+  different cell, unresolved as of this writing) — launching a second compute job now is
+  exactly the contention this doc's own construction section cautioned against. Blocks both
+  hypotheses equally.
+- **The null-shift gap (todo 372):** `Panel.sync_shift_null_p` isn't actually
+  calendar-synchronous across symbols with varying active-date counts — blocks trusting
+  either hypothesis's Track 1 null test as specified, independent of compute. Needs its own
+  fix and review, not a same-day patch, given it's shared infrastructure.

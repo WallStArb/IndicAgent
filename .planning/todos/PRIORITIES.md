@@ -269,6 +269,8 @@ but not a container recreation). See todo file's closure section.
 
 ## P1 — High value, quick, fully unblocked
 
+| [372](pending/372-panel-sync-shift-null-not-actually-panel-synchronous-plus-volume-z-diurnal-bias.md) | New 2026-09-09, surfaced by AGY review round 3 of the H-B redesign, both findings independently re-verified against source before filing. Two issues reaching beyond H-B: (1) `Panel.sync_shift_null_p`'s "panel-synchronous" date-shift null (`scripts/analysis/alpha_score_residual_single_security_15m.py`) actually applies a per-symbol `k % m` shift where `m` is that symbol's own active-date count — when `m` varies across symbols (as it will for any sparse, per-symbol-varying event set), the null silently loses its cross-sectional-correlation protection. Shared, already-used machinery, not new to H-B; the already-closed `alpha_score_residual` FAIL verdict is likely not meaningfully affected (near-zero effect size, not a borderline call) but that needs checking, not assuming. (2) `volume_z` (`feature_factory.py`) has no diurnal/session-boundary detrending — systematically inflated in the first ~45-60min of each session, affecting both H-B and the already-reviewed H-A (which reads the same column). Fix for (1) needs its own design pass (shared infra); fix for (2) is a reported ungated sub-panel check on both hypotheses' Track 1 runs. |
+
 **2026-08-21 cleanup pass:** stripped 11 confirmed-CLOSED rows (330/326/327/312/307/259+296/
 293/277/278/169/251 -- all verified present in `completed/`, none in `pending/`), same
 discipline as the P0 table above. The stale 337-duplicate note (below) predates this pass.
