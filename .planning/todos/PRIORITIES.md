@@ -495,6 +495,8 @@ confirmation done 2026-08-31: post-flip full `ic_engine` runs trending faster ru
 
 ## P3 — Hygiene, docs, process (opportunistic)
 
+| [373](pending/373-docs-tree-152-broken-internal-links-not-file-count-clutter.md) | New 2026-09-09, from a user-requested "renaissance cleanup" audit. Checked the file-count-clutter premise and found it false (`docs/plans/archive`+`docs/research/archive` already hold 259 files, 64 commits touched `docs/` in the last 30 days, the highest-confidence "probably stale" batch — 15 `fable-2026-07-*.md` reviews — are all still actively cross-referenced, none orphaned). The real finding: 152 broken internal markdown links, three clusters (35 old `intel-NN-name.md` numbering-scheme refs; 46 concentrated in `docs/architecture`/`data`/`platform`/`intelligence`/`development`/`operations`/`reference`, possibly pre-v3.0 docs describing ARCHIVED subsystems; 71 untriaged). Not fixed — real work, its own pass. |
+
 **2026-08-26:** [359](pending/359-phase173-altitude-design-notes.md) added — 3 Phase 173
 architecture notes (cluster_id offset partition, fingerprint watermark special-case, hardcoded
 validation list), all already reviewed/accepted by codex+agy during Phase 173's own mandatory
