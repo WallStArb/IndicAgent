@@ -1,14 +1,16 @@
 # Extreme-Volume Divergence / Confirmed-Reversal — Pre-registration (DRAFT, not yet run)
 
-**Status:** Draft pre-registration, H-A and H-B both in scope. No script written, no statistic
-computed. **H-B was briefly dropped 2026-09-08 (AGY review round 1), then reinstated the same
-day** after direct user pushback ("are we sure the reversal bar volume can't be determined?")
-prompted a second look — the reused column (`swing_volume_confirmation`) was genuinely wrong,
-but the underlying quantity IS computable from other already-persisted columns; see "AGY review
-round 1" section below for the full correction trail, including my own error in concluding a
-new pipeline feature was required.
+**Status:** H-A is a complete, ready-to-run design. **H-B is NOT ready** — its data-availability
+claim is confirmed correct, but its round-1-corrected statistic has multiple confirmed real
+flaws found by AGY review round 2 (2026-09-08) and independently re-derived, not yet fixed.
+No script written, no statistic computed for either hypothesis. Same-day history: H-B was
+dropped (round 1), reinstated with a new construction after direct user pushback, then that new
+construction was itself found flawed (round 2) — see "AGY review round 1" and "AGY review
+round 2" sections below for the full trail, including two of my own errors in a row, both
+recorded rather than quietly edited away.
 **Author:** Claude (Sonnet 5), interactive session, 2026-09-06. Amended 2026-09-08 (AGY review
-round 1, then a same-day correction to that round's H-B disposition).
+round 1, a same-day correction to that round's H-B disposition, then AGY review round 2 on the
+corrected construction).
 **Origin:** User-directed hypothesis, trading-experience-derived: a bounce off a low with
 volume EXPANSION, or a new low on LIGHTER volume, are classic reversal-divergence tells;
 the mirror pattern applies at highs (heavy-volume pullback from a high vs. a new high on
@@ -41,10 +43,14 @@ reported, and (if either reaches Track 2) regime-encoded independently.
 - **H-B, "confirmation" (coincident):** heavy volume on the leg moving AWAY from a recent
   extreme confirms the reversal is real and already underway — a heavy-volume bounce off a
   low is bullish-confirming; a heavy-volume pullback from a high is bearish-confirming.
-  **Construction corrected 2026-09-08** (see review section): built from
-  `bars_since_low_fast`/`bars_since_high_fast` + `volume_z` (both already in
-  `feature_vectors`, already used by H-A) plus a join to `market_data_ohlcv_tradeable` for
-  `close` — not from `swing_volume_confirmation`, which measures the wrong leg.
+  **Data availability confirmed 2026-09-08, but the statistic below is known-flawed, NOT
+  ready to run** (see "AGY review round 2"). The originally-proposed column
+  (`swing_volume_confirmation`) measures the wrong leg (round 1); the round-1-corrected
+  construction built from `bars_since_low_fast`/`bars_since_high_fast` + `volume_z` has its
+  own confirmed bugs (round 2) — a density-fallacy in scoping, a reference-anchor that can
+  silently drift off a genuine extreme, re-introduced capitulation-volume contamination, and
+  a sign convention that inverts on wick candles. Needs a genuine redesign pass, not another
+  same-day patch.
 
 ## Construction spec — built from existing `feature_vectors` columns (+ one raw-OHLCV join for H-B's sign)
 
@@ -70,22 +76,20 @@ program-sequencing issue; see "Not yet done" below.)
   AGY-review section for the worked algebra). Forward return measured from bar t (the
   extreme bar itself), same `return_type='executable_open_to_open'` / `forward_returns`
   convention as every other construction in this codebase (Invariant 1).
-- **H-B statistic, `confirmed_reversal_t`** (corrected construction, 2026-09-08): let
-  `k_low_t = bars_since_low_fast_t`, `k_high_t = bars_since_high_fast_t` (both already
-  causal, both saturate at `dist_window_fast − 1 = 19`, so the leg span below is always
-  bounded). Reference leg = whichever extreme is more recent: if `k_low_t < k_high_t`, the
-  bar is `k_low_t` bars into an up-leg off a low; if `k_high_t < k_low_t`, `k_high_t` bars
-  into a down-leg off a high; if equal (tie, including the `k=0` outside-bar case), excluded
-  — same tie-break as `extreme_proximity_t` above, no separate rule to invent. Let `k` be
-  that reference distance and require `k >= 1` (there must be an actual leg, not just the
-  extreme bar itself — `k=0` is H-A's domain, not H-B's).
-  `confirmed_reversal_t = sign(close_t − close_{t−k}) × mean(volume_z_{t−k .. t})` — the
-  signed mean of the persisted `volume_z` column over the leg span, direction fixed by raw
-  `close_t − close_{t−k}` (the already-locked close-to-close convention, now with real data
-  to act on rather than a column that measured the wrong thing). Positive = up-leg off a low
-  with above-average volume (bullish-confirming) or down-leg off a high with above-average
-  volume, signed consistently with return (bearish-confirming, i.e. negative here) — same
-  pooling logic as H-A's sign convention, not re-derived per side.
+- **H-B statistic, `confirmed_reversal_t`** — **KNOWN FLAWED, not a usable spec, kept here
+  only to show what was tried; see "AGY review round 2" for the full finding and a proposed
+  (unverified) fix direction.** The round-1-corrected attempt was: `k = min(bars_since_low_
+  fast_t, bars_since_high_fast_t)`, require `k >= 1`, `confirmed_reversal_t = sign(close_t −
+  close_{t−k}) × mean(volume_z_{t−k .. t})`. Confirmed real problems: (1) `k >= 1` is the
+  *complement* of H-A's `k = 0`, not a sparse subset — this fires on ~70% of all bars, not an
+  episodic event; (2) `bars_since_low_fast`/`_high_fast` do not saturate (they track a
+  sliding-window argmin/argmax) — for legs longer than ~19 bars without a new extreme, the
+  reference bar silently re-anchors to an ordinary interior bar that was never itself a fresh
+  extreme, indistinguishable in the data from a genuine reversal leg; (3) `mean(volume_z_{t−k
+  .. t})` includes bar `t−k`, the extreme bar itself, re-introducing round 1's capitulation-
+  volume contamination in a new location; (4) `sign(close_t − close_{t−k})` can invert on a
+  wick candle (an extreme bar whose close sits far from its own high/low), flipping a
+  genuinely bullish heavy-volume bounce to a negative score.
 - **Wick corroboration (reported, not gated):** `lower_wick_ratio_t` at H-A/H-B low-side
   events, `upper_wick_ratio_t` at high-side events — the "wick size/bar characteristic" half
   of the user's original framing, kept out of the primary gated statistics to avoid a second
@@ -95,18 +99,19 @@ program-sequencing issue; see "Not yet done" below.)
 
 ## Track 1 — signal existence (continuous statistic)
 
-Single-security IC test, reusing this project's standard statistical machinery (not
-reinvented per construction). Locked quantities below per AGY review round 1
-(`tf=15m`, universe = all 231 active instruments, IS-only via `bar_ts < alpha.validation.
-oos_start`):
+**H-A only, as things stand** — H-B's statistic is known-flawed (see above), so Track 1 below
+describes the machinery generically but should be read as an H-A-only execution plan until
+H-B has a redesigned, reviewed construction. Single-security IC test, reusing this project's
+standard statistical machinery (not reinvented per construction). Locked quantities below per
+AGY review round 1 (`tf=15m`, universe = all 231 active instruments, IS-only via `bar_ts <
+alpha.validation.oos_start`):
 
-- Primary statistic: within-symbol Spearman IC of `extreme_volume_divergence` (H-A) and,
-  independently, `confirmed_reversal` (H-B) against `forward_returns.return_fast` (1-bar,
-  primary/gated) and `return_mid` (ungated robustness check only, not a second chance to
-  pass) — each hypothesis tested, reported, and gated on its own, never combined into one
-  statistic. Family statistic = equal-weighted mean across qualifying symbols of
-  within-symbol Spearman IC, matching `alpha_score_residual_single_security_15m.py`'s
-  convention.
+- Primary statistic: within-symbol Spearman IC of `extreme_volume_divergence` (H-A) against
+  `forward_returns.return_fast` (1-bar, primary/gated) and `return_mid` (ungated robustness
+  check only, not a second chance to pass). H-B, once redesigned, is tested identically but
+  independently — never combined into one statistic with H-A. Family statistic =
+  equal-weighted mean across qualifying symbols of within-symbol Spearman IC, matching
+  `alpha_score_residual_single_security_15m.py`'s convention.
 - Bootstrap: date-indexed panel resampler (port the `Panel` structure from
   `alpha_score_residual_single_security_15m.py`), NOT a raw call to
   `_circular_block_bootstrap_ic` on the filtered event rows — that function's row-index
@@ -124,7 +129,7 @@ oos_start`):
 - Missingness: panel requires `complete_fast = true` (`complete_mid = true` for the
   secondary band).
 
-**PASS rule (Track 1, H-A and H-B independently, either may pass without the other) — pure
+**PASS rule (Track 1, each hypothesis independently, either may pass without the other) — pure
 statistical existence plus a minimum effect-size floor:**
 
 1. Bootstrap ci_lower > 0 (the effect is not noise).
@@ -154,13 +159,16 @@ identifiability-vs-signal curve is therefore not a meaningful check here, since
 `build_tiers()` identifiability is trivially 1.0; that check was testing a path — HMM —
 this design already forbids reaching, per AGY review round 1).
 
-Re-scoped checks, if either H-A or H-B passes Track 1:
+Re-scoped checks, if either H-A or a redesigned H-B passes Track 1:
 
 1. **Regime-coverage handling:** H-A fires on 26-30% of bars (density calibration below) —
-   still a minority; H-B fires on a subset of that (requires `k >= 1`, i.e. excludes the
-   extreme bar itself). Explicit design for the majority of bars with no active event (a
-   distinct "no signal" tier, not silently defaulted into an existing tier) is required
-   before this can be called a regime axis rather than an episodic trade trigger.
+   still a minority, giving a real "no active event" majority tier to design for. (H-B's
+   round-1-corrected `k >= 1` definition was NOT a subset of H-A as originally claimed here —
+   corrected in "AGY review round 2" below; whatever H-B's redesign settles on needs its own
+   density check, not an assumption borrowed from this line.) Explicit design for the
+   majority of bars with no active event (a distinct "no signal" tier, not silently defaulted
+   into an existing tier) is required before this can be called a regime axis rather than an
+   episodic trade trigger.
 2. **Null-arm control:** scrambled-data control (shuffle the volume series independent of
    price, or shuffle bar order within a matched-length synthetic series) — the discretized
    regime must not be recoverable from noise at the same rate as from real data.
@@ -278,11 +286,67 @@ edited away, matching this doc's own standard for tracking corrections, includin
   null control. HMM is not reachable in this design regardless, so an identifiability-vs-signal
   curve is dropped as its own check, not "insufficient" — it was testing the wrong path.
 
-**AGY round 2:** recommended on the amended design (both hypotheses, H-B's corrected
-construction specifically) before writing Track 1's script — not yet requested. Given round 1
-caught a real construction bug and I separately over-corrected past it once already this same
-day, a round 2 pass is a stronger recommendation now than "not strictly required" — the H-B
-construction above has not been adversarially checked at all yet.
+## AGY review round 2 (2026-09-08) — H-B's round-1-corrected construction: confirmed flawed
+
+Full raw review:
+`docs/plans/2026-09-06-extreme-volume-divergence-confirmed-reversal-prereg-agy-review-round2.md`.
+Requested specifically on H-B's new construction after round 1's fix, given the pattern of
+this document already having one confirmed self-correction earlier the same day. Every
+substantive claim below was independently re-derived against the actual algorithm (not just
+accepted from AGY's assertion) before being recorded here.
+
+**Confirmed real, re-verified independently:**
+- **Causality: verified correct.** `_bars_since_rolling_extreme_series_full` reads only
+  `values[i]` at each step and never looks forward — the causality claim in the prior section
+  holds. Not a flaw; recorded here because round 2 checked it explicitly and it's the one
+  claim about this construction that survives intact.
+- **"Subset" claim was a pure logic error, mine.** `k >= 1` is the complement of `k = 0`, not
+  a subset — trivially true, no verification needed beyond reading the two sets. H-B as
+  specified fires on ~70% of bars (everything H-A's `k=0` gate excludes), not a sparse
+  episodic subset of H-A's 26-30%. This inverts the density picture the "Regime-coverage
+  handling" bullet above relied on.
+- **"Saturates" was the wrong word, and the substance matters, not just the word.**
+  Re-derived the monotonic-deque algorithm by hand: for a leg shorter than `window` (20)
+  bars, the reference index stays correctly anchored to the true extreme bar throughout —
+  this part of the design is sound. But once a leg runs 19+ bars without a new extreme, the
+  true anchor ages out of the trailing window (`dq[0] <= i - window` pops it), and the new
+  `dq[0]` can be a bar that was never itself a fresh extreme (`bars_since_low_fast == 0`
+  never true for it) — it only became "the window's current min" because the real extreme
+  aged out from under it. From that point on, `k` silently tracks a fabricated anchor,
+  indistinguishable in the data from a genuine reversal leg. This is a real design gap in
+  reusing a sliding-window column for "leg since a confirmed extreme" — not present in H-A,
+  which only ever reads the `k=0` case (always a genuine fresh extreme by definition).
+- **Capitulation-volume contamination, reintroduced.** `mean(volume_z_{t-k..t})` as written
+  includes `t-k` (the extreme bar) in its own range — the same conceptual bug round 1 found
+  in `swing_volume_confirmation`, now self-inflicted in the replacement formula. Confirmed by
+  rereading my own range notation; not in dispute.
+- **Sign-convention wick-inversion: real.** `sign(close_t - close_{t-k})` never references
+  which type of extreme (`k_low` vs `k_high`) is active — an extreme bar whose close sits far
+  from its own high/low (a hammer or shooting-star candle) can flip the sign of an otherwise
+  correctly-identified bullish or bearish leg. Signing by extreme-type identity directly
+  (`+1` if `k_low_t < k_high_t` else `-1`) avoids this and is closer to the original
+  intent anyway ("up-leg off a low is bullish" is about which extreme, not the exact
+  close-to-close delta).
+- **Serial correlation, a real consequence of the density finding.** Given H-B is dense
+  (~70% of bars) and adjacent bars within one leg share nearly the entire `[t-k, t]`
+  averaging window, treating each bar as an independent observation for the BY-FDR gate's
+  `df = n - 2` t-approximation would understate standard errors substantially. Any
+  redesign needs either a much sparser event definition (one observation per leg, not one
+  per bar) or an explicit autocorrelation adjustment — not the current per-bar panel as
+  specified.
+
+**Not independently re-verified, plausible:** the horizon-mismatch point (multi-bar leg
+statistic vs. a 1-bar forward return) and the "this is just momentum, not reversal
+confirmation" framing critique are reasonable but weren't algebraically checked the way the
+items above were — worth weighing in a redesign, not asserted as confirmed fact here.
+
+**Disposition:** H-B is neither dropped nor "fixed" — it sits in a known-flawed, needs-redesign
+state, recorded plainly rather than resolved by another same-day assertion. A redesign
+incorporating round 2's specific findings (lock to a single confirmation bar, e.g. `k=1` or
+`k=2`, rather than pooling the whole `k>=1` leg; exclude `t-k` from the volume average; sign
+by extreme-type identity, not close delta) is a reasonable starting direction but is itself
+unverified — it needs its own review pass before being written into this doc as the spec,
+not a third inline patch.
 
 ## Density calibration (2026-09-08)
 
@@ -296,10 +360,13 @@ action inflates fresh-extreme frequency), not sparse in absolute terms. No
 minimum-events-per-symbol floor is needed: even at 1d, the sparsest tf, mean events/symbol is
 ~1092 (252,310 / 231), comfortably above any BY-FDR per-symbol floor this codebase has used.
 
-**Not yet done:** no script written, no statistic computed. Track 1 execution deliberately
-held as of 2026-09-08 — the corpus `ic_engine` recompute is mid-run using ~20GB RSS + heavy
-CPU on a box that OOM'd once already this week (see
+**Not yet done:** no script written, no statistic computed for either hypothesis.
+**H-A: ready, blocked only on compute.** Its construction and PASS rule have cleared two
+review rounds with no open issues. Write + run once the corpus `ic_engine` recompute clears —
+it's mid-run using ~20GB RSS + heavy CPU on a box that OOM'd once already this week (see
 `.planning/todos/pending/371-ic-engine-cross-sectional-cell-size-guard-post-materialization-ooms-at-universe-scale.md`);
 launching a second compute job now is exactly the contention this doc's own construction
-section already cautioned against. Write + run Track 1 once AGY's review lands and the
-recompute clears (or once there's confirmed headroom, whichever first).
+section already cautioned against.
+**H-B: blocked on a real redesign, independent of compute.** Its construction has confirmed
+bugs (above); rewriting it correctly and getting that reviewed is the actual next step,
+not something compute headroom unblocks.
