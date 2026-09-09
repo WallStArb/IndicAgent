@@ -3,12 +3,31 @@ gsd_state_version: 1.0
 milestone: v3.1
 milestone_name: AlphaEngine Validation + Alpha Scoring
 status: milestone_complete
-last_updated: "2026-09-03T19:40:08.506Z"
+last_updated: "2026-09-09T13:35:00.000Z"
 ---
 
 # Project State
 
 ## Strategic Plan (read this first)
+
+**Update 2026-09-09, supersedes nothing below (additive status only):** the ACTIVE PROGRAM's
+decision-gate-blocking `ic_engine` recompute hit two separate failures since 2026-09-03 and is
+now running again — full detail in `project_corpus_pipeline_state` memory, not duplicated here.
+Summary: OOM on `equity/5m/high_bear` (2026-09-07, fixed with swap headroom, todo 371), then a
+clean `alpha.ic.max_cell_rows` failure on `equity/5m/mid_neutral` (2026-09-08, fixed via
+migration 332 — the ceiling was stale relative to migration 331's equity-universe growth,
+recalibrated from real evidence: this same run had already proven the box handles a 64M-row
+cell). Relaunched 2026-09-09; all equity `5m` cells now clear, ~88 smaller-universe cells
+(rates/commodity/fx) plus steps 6-8 remain before the decision gate can fire. Todos 369/370
+(unrelated small fixes) closed same window; todo 372 (a real gap in shared null-test machinery,
+`Panel.sync_shift_null_p` not actually calendar-synchronous across symbols with varying
+active-date counts) filed, not yet fixed — found via a separate, unrelated pre-registration
+(`docs/plans/2026-09-06-extreme-volume-divergence-confirmed-reversal-prereg.md`, H-A/H-B,
+explicitly NOT part of this program — see `project_extreme_volume_divergence_prereg_2026_09_09`
+memory for that track's own status). New: `docs/research/construction-verdict-ledger.md`
+consolidates every construction/hypothesis this project has run to a definitive verdict —
+check there before recommending a new candidate or re-deriving the project's track record from
+scattered memory.
 
 **Resolved 2026-08-07: Phase 167's cross-sectional construction (`cross_sectional_relative_value`)
 does NOT survive re-measurement under the corrected `ctf_momentum` join. Both Validation Gates

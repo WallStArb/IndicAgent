@@ -72,3 +72,19 @@ The swapfile + swappiness + stopped containers should be reverted once this run 
 real fix (option 1+2) is in. Related: todo 356 (same cell, query-plan slowness),
 todo 290 (`regime_volatility` obs-matrix ~9.5 GB transient across the worker pool — same
 "whole-cell memory not bounded by chunking" family).
+
+## Second occurrence, 2026-09-08 — reinforces this todo, doesn't resolve it
+
+The swap-headroom workaround above let `5m/high_bear` (the original OOM cell) complete
+cleanly, and the run proceeded through the remaining equity `5m` cells until
+`5m/mid_neutral` hit `alpha.ic.max_cell_rows` itself (10,165,584 rows vs. the 10M ceiling) —
+`CellTooLargeError`, a clean crash-loud failure this time, not an OOM. Root cause is the same
+underlying growth this todo already describes (migration 331's 49-symbol equity expansion),
+just a different cell crossing a different threshold. Fixed operationally via **migration
+332** (`alpha.ic.max_cell_rows` 10M → 15M, sized from the same real evidence: this run had
+already proven the box handles a 64M-row cell under current swap config, so 15M is nowhere
+near capacity) — this is a ceiling recalibration, same class as migration 259, **not a fix for
+this todo's actual finding** (the guard still fires only after whole-cell materialization; a
+future cell large enough to OOM before reaching even a generously-raised ceiling will hit the
+exact same failure mode this todo describes). Still open, still needs a real design decision
+(pre-flight estimate / subsample / disk-streaming / bigger box, per the options above).
