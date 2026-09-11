@@ -1,8 +1,12 @@
 # Strategic plans — features, ensemble, trade construction (2026-09-11)
 
 **Live status:** item #1 (bucketed `alpha_score_residual` retest) resolved same day —
-FAST-KILL. Current verdict tracked in `docs/research/construction-verdict-ledger.md`, not
-here — this doc is a frozen design/priority record as of 2026-09-11.
+FAST-KILL. Item #2 (regime-gated `bars_since_high_fast`) also resolved same day — CLOSED;
+the "regime-stratified IC" premise below decomposed into an artifact of averaging across
+4 incompatible regime taxonomies, dominated by a 52-day event-clustered commodity cell (not
+a real regime-conditional equity signal). Current verdicts tracked in
+`docs/research/construction-verdict-ledger.md`, not here — this doc is a frozen
+design/priority record as of 2026-09-11.
 
 **Author:** Fable, two independent dispatches by Claude (Sonnet 5), interactive session,
 2026-09-11.

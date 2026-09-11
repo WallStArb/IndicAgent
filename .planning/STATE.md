@@ -35,10 +35,19 @@ performed, or the apparent significance was a selection artifact). Four items qu
 cheap (1-4 day), fast-kill-gated refinements: (1) bucketed `alpha_score_residual` retest —
 **RESOLVED same day, FAST-KILL**: 8 sector buckets, 0/8 qualify, every raw bucket null_p
 >= 0.15; both per-symbol and bucketed forms of condition (d) now exhausted, construction
-closed. (2) regime-gated `bars_since_high_fast`/`bars_since_low_fast` — queued, not
-started. (3) same-sector single-equity pairs screen for `cointegrated_pairs_residual` —
-queued. (4) `cross_sectional_relative_value` construction-type reuse with a new ranking
-feature, gated on (2) producing a clean substitute — queued. Full detail and effort
+closed. (2) regime-gated `bars_since_high_fast`/`bars_since_low_fast` — **RESOLVED same
+day, CLOSED**: the cited "0.11 avg IC, 46-symbol support" premise
+(`scripts/analysis/personal_edge_paper_screen.py`) decomposes into 5 FDR-passing
+`feature_ic_scores` cells drawn from 4 structurally different `market_regimes.regime_group`
+taxonomies (equity/commodity/rates/fx) averaged together as if comparable. The standout cell
+(commodity `down_primary_backwardation`, IC=0.299) occurred on only 52 days across 16 years —
+a handful of macro-shock episodes, not independent bets; stripping it out, the only
+broad/robust cells (equity `mid_neutral`/`high_bear`, IC~0.04) sit barely above the
+already-failed unconditional pooled IC. No regime-gate construction survives this
+decomposition. (3) same-sector single-equity pairs screen for `cointegrated_pairs_residual`
+— queued, not started. (4) `cross_sectional_relative_value` construction-type reuse, gated
+on (2) or (3) producing a clean substitute — (2) failed to produce one; queued on (3). Full
+detail and effort
 estimates: `docs/research/2026-09-11-strategic-plans-features-ensemble-construction.md`;
 verdicts tracked live in `docs/research/construction-verdict-ledger.md`.
 
