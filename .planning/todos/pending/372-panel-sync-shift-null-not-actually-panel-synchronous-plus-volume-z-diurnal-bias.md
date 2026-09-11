@@ -9,6 +9,15 @@ source: AGY adversarial review round 3 of the H-B ("confirmed_reversal") redesig
 
 # Two findings from H-B review round 3 that reach beyond H-B: `Panel.sync_shift_null_p` isn't panel-synchronous when per-symbol active-date counts vary, and `volume_z` has no diurnal detrending
 
+## Status (2026-09-11)
+
+Finding 1 fixed in code: `_panel_synchronous_shift_indices` shifts on the shared
+`self.calendar` index rather than `k % m` per symbol. Regression tests
+(`tests/unit/test_alpha_score_residual_panel_sync_shift.py`, 3 tests) pass. Design by
+Fable; NOT yet independently adversarially reviewed (AGY/Codex both rate-limited the
+session the fix landed). Finding 2 (`volume_z` diurnal detrending) untouched. Stays
+`pending` until both land.
+
 ## Finding 1: `Panel.sync_shift_null_p`'s per-symbol block shift breaks the "panel-synchronous" property it's named for
 
 `scripts/analysis/alpha_score_residual_single_security_15m.py:199-230`, `sync_shift_null_p`:

@@ -16,10 +16,11 @@ Locked design (Amendment 1; every quantity fixed before any run):
   IC(residual, return_mid); family = symbols with >= 100 measurement rows
 - CI: circular moving-block bootstrap over trading DATES, block=5, synchronous
   across symbols (a date block carries every symbol's rows), B=2000
-- null: panel-synchronous whole-DATE circular shift, ONE common k per replicate
-  (k mod each symbol's own date count), N=1000; preserves within-date
-  cross-sectional structure and time-of-day alignment, breaks only the
-  residual -> own-return temporal alignment
+- null: panel-synchronous whole-DATE circular shift, ONE common k per replicate,
+  shifted on the SHARED panel calendar (see 2026-09-10 revision note below --
+  NOT "k mod each symbol's own date count", the bug this note replaces), N=1000;
+  preserves within-date cross-sectional structure and time-of-day alignment,
+  breaks only the residual -> own-return temporal alignment
 - demeaning population is COMPLETION-BLIND: per-bar mean and symbol count over
   ALL alpha_events symbols present at the bar (>= 20 required); the
   forward_returns join (executable_open_to_open, complete_mid) gates measurement
@@ -45,6 +46,27 @@ its resample-based numbers are valid draws but not bit-reproducible; (c) NaN
 observed -> null_p=1.0 guards. The recorded run's numbers (program doc,
 "Pre-registration 2 run") came from the pre-revision script; every gated verdict
 condition is robust to all three (see the program doc's post-run review note).
+
+Post-run revision (2026-09-10, todo 372): `sync_shift_null_p` computed its shift
+as `k % (that symbol's own active-date count)`, applying a DIFFERENT real
+calendar-date offset per symbol whenever active-date counts vary across
+symbols -- silently degrading the intended shared, panel-synchronous shift into
+independent per-symbol shifts (found by AGY round 3 review of the H-B redesign,
+`docs/plans/2026-09-06-extreme-volume-divergence-confirmed-reversal-prereg.md`).
+Fixed by extracting `_panel_synchronous_shift_indices`, which shifts on the
+SHARED `self.calendar` index (the same `cal_start`/`cal_len` structure
+`bootstrap_ci` already used correctly) and pairs a symbol's rows at a true
+calendar position with its own rows at the shifted position only when both
+positions have equal row counts for that symbol -- generalizes correctly to
+intraday timeframes (multiple rows per calendar date) without special-casing
+tf=1d. Design: Fable (independent, blind dispatch). Regression tests:
+`tests/unit/test_alpha_score_residual_panel_sync_shift.py`. This project's own
+already-closed `alpha_score_residual` verdict (workstream 2, FAIL, 2026-09-03)
+used the pre-fix method; per todo 372's own assessment, that panel's much lower
+active-date-count variance (dense daily series vs. H-A/H-B's sparse event
+panels) means the bug plausibly had limited effect there, but this has NOT
+been independently re-verified -- do not cite the pre-fix run as unaffected
+without actually re-checking it.
 """
 
 from __future__ import annotations
@@ -117,6 +139,47 @@ def _concat_ranges(src_starts: np.ndarray, counts: np.ndarray) -> np.ndarray:
         return np.empty(0, dtype=np.int64)
     offsets = np.cumsum(counts) - counts
     return np.repeat(src_starts, counts) + np.arange(tot) - np.repeat(offsets, counts)
+
+
+def _panel_synchronous_shift_indices(
+    cal_start_s: np.ndarray, cal_len_s: np.ndarray, n_cal: int, k: int
+) -> tuple[np.ndarray, np.ndarray]:
+    """For ONE symbol's per-calendar-position (cal_start, cal_len) rows (each
+    shape (n_cal,), indexed by position in the PANEL-SHARED calendar -- the
+    same arrays `bootstrap_ci` already reads correctly), return (ret_idx,
+    score_idx): absolute row indices such that ret_idx pairs this symbol's
+    rows at each TRUE calendar position with score_idx at that SAME
+    position shifted `k` calendar positions earlier (circular). k is the
+    SAME value for every symbol in a null replicate -- this is what makes
+    the shift panel-synchronous (todo 372: the replaced code computed
+    `k % (that symbol's own active-date count)`, which maps the same
+    nominal k to a DIFFERENT real calendar offset per symbol whenever
+    active-date counts vary, silently degrading the shared shift into
+    independent per-symbol shifts).
+
+    A calendar position is used only when the symbol has data at BOTH the
+    true and shifted position with the SAME row count there, giving an
+    unambiguous, count-preserving row-for-row pairing (rows within a
+    date-block are stored in bar_ts order on both sides, see
+    Panel.__init__). A position without a same-count match on the shifted
+    side contributes nothing -- never truncated or reordered to force a
+    fit. This generalizes cleanly to intraday timeframes where a symbol can
+    have multiple rows on one calendar date (cal_len > 1); at tf=1d, where
+    cal_len is always 0 or 1, the condition collapses to plain "both dates
+    present," no special-casing needed.
+    """
+    pos = np.arange(n_cal)
+    shifted = (pos - k) % n_cal
+    src_len = cal_len_s[shifted]
+    usable = (cal_len_s > 0) & (src_len > 0) & (cal_len_s == src_len)
+    if not usable.any():
+        return np.empty(0, dtype=np.int64), np.empty(0, dtype=np.int64)
+    true_starts = cal_start_s[usable]
+    true_counts = cal_len_s[usable]
+    src_starts = cal_start_s[shifted[usable]]
+    ret_idx = _concat_ranges(true_starts, true_counts)
+    score_idx = _concat_ranges(src_starts, true_counts)  # true_counts == src_counts here
+    return ret_idx, score_idx
 
 
 class Panel:
@@ -213,14 +276,12 @@ class Panel:
             k = int(ks[i])
             vals = []
             for s in self.family:
-                starts, counts, sl = self.sym_blocks[s]
-                m = len(starts)
-                perm = (np.arange(m) + k % m) % m
-                # genuine block permutation: output block j = source block perm[j],
-                # sourced blocks' OWN counts -> total length preserved, positions
-                # pair each residual with a return from a different date
-                idx = _concat_ranges(starts[perm], counts[perm])  # absolute indices
-                vals.append(_spearman(sc[idx], self.returns[sl]))
+                ret_idx, score_idx = _panel_synchronous_shift_indices(
+                    self.cal_start[s], self.cal_len[s], n_cal, k
+                )
+                if len(ret_idx) == 0:
+                    continue
+                vals.append(_spearman(sc[score_idx], self.returns[ret_idx]))
             vals = [v for v in vals if not np.isnan(v)]
             return float(np.mean(vals)) if vals else float("nan")
 
