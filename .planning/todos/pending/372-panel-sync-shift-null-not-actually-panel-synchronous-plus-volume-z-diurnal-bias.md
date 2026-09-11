@@ -12,11 +12,44 @@ source: AGY adversarial review round 3 of the H-B ("confirmed_reversal") redesig
 ## Status (2026-09-11)
 
 Finding 1 fixed in code: `_panel_synchronous_shift_indices` shifts on the shared
-`self.calendar` index rather than `k % m` per symbol. Regression tests
-(`tests/unit/test_alpha_score_residual_panel_sync_shift.py`, 3 tests) pass. Design by
-Fable; NOT yet independently adversarially reviewed (AGY/Codex both rate-limited the
-session the fix landed). Finding 2 (`volume_z` diurnal detrending) untouched. Stays
-`pending` until both land.
+`self.calendar` index rather than `k % m` per symbol. Design by Fable.
+
+**Independently adversarially reviewed 2026-09-11 (AGY; Codex hit its usage limit,
+retry after 2026-09-13).** Core shift/pairing arithmetic verdict: **CORRECT** (shared
+calendar-position shift, off-by-one-free, correctly excludes non-matching positions
+rather than misaligning data). Review also found two real gaps, both fixed same day
+and independently re-verified against source before accepting:
+
+1. **`sync_shift_null_p` denominator bug**: NaN replicates (no family symbol had a
+   usable shifted pairing at that `k`) were excluded from the `beat` numerator but NOT
+   from the denominator, which stayed fixed at `n_null + 1`. A heavily-degenerate panel
+   (e.g. built on sparse pre-filtered event rows instead of the full dense panel — the
+   exact construction mistake this project's own pre-registration already warns H-A/H-B
+   against) would silently produce an artificially LOW, spuriously-significant p instead
+   of failing loudly. **Fixed**: denominator now tracks realized (non-NaN) replicates;
+   raises `ValueError` if fewer than 50% of replicates are usable rather than reporting
+   an untrustworthy p. New regression test
+   (`test_sync_shift_null_p_raises_on_mostly_degenerate_panel`) hand-builds a
+   deliberately-degenerate Panel to force this path deterministically.
+2. **Regression-test weakness**: the original 3 tests used `sorted()`-multiset
+   comparison (passes against a zero-shift/identity or row-scrambled implementation)
+   and a single membership check (passes against an always-empty implementation) —
+   demonstrated empirically by AGY constructing two broken implementations that passed
+   all 3 original tests. **Fixed**: added exact row-for-row `(ret_idx[i], score_idx[i])`
+   pairing assertions, an explicit "zero usable positions" assertion, and a new
+   `cal_len > 1` (intraday, multiple bars per calendar date) case — the path AGY found
+   was untested by every original test. 5/5 tests pass
+   (`tests/unit/test_alpha_score_residual_panel_sync_shift.py`).
+
+Finding 1 is now **resolved and independently reviewed** — safe to cite as gate-worthy
+for H-A/H-B Track 1. Note the review's density-collapse warning (case 1 above) only
+bites if a future script builds `Panel` on pre-filtered sparse rows; the H-A/H-B
+pre-registration (`docs/plans/2026-09-06-extreme-volume-divergence-confirmed-reversal-
+prereg.md:206`) already specifies building on the full dense panel — Track 1's
+implementation must actually follow that, not just the fixed null's own correctness.
+Finding 2 (`volume_z` diurnal detrending) untouched. Stays `pending` until finding 2
+lands (already scoped as a reported, ungated sub-panel check per "What to do" below —
+not a blocker for Track 1, since it's ungated).
 
 ## Finding 1: `Panel.sync_shift_null_p`'s per-symbol block shift breaks the "panel-synchronous" property it's named for
 

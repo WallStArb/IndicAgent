@@ -7,9 +7,18 @@ rate whenever returns are correlated across symbols on the same date).
 
 Tests `_panel_synchronous_shift_indices`, the pure helper this fix extracts so the
 shift/pairing logic is directly testable without threading or RNG plumbing.
+
+Hardened 2026-09-11 after an independent adversarial review (AGY, gating the H-A/H-B
+Track 1 execution) found the original suite's assertions were weaker than they looked:
+`sorted()`-multiset comparisons pass against a zero-shift (identity-pairing) or
+row-scrambled implementation, and a single membership check passes against an
+implementation that always returns empty arrays. Added: exact row-for-row pairing
+assertions, a `cal_len > 1` (intraday, multiple rows per calendar date) case, and
+coverage for `sync_shift_null_p`'s degenerate-replicate denominator fix (same review).
 """
 
 import numpy as np
+import pytest
 
 from scripts.analysis.alpha_score_residual_single_security_15m import (
     Panel,
@@ -54,6 +63,17 @@ def test_shift_uses_same_calendar_offset_for_every_symbol():
     # value, always (pos - 1) % 6.
     expected_scores_a = [(p - k) % n_cal for p in range(n_cal)]
     assert sorted(scores[score_idx_a].tolist()) == sorted(expected_scores_a)
+
+    # Exact row-for-row pairing (not just "the right values appear somewhere"): for
+    # symbol A, ret_idx[i] is the row AT calendar position ret_pos, and its paired
+    # score must come from calendar position (ret_pos - k) % n_cal specifically -- a
+    # sorted-multiset check alone can't distinguish this from an implementation that
+    # returns the right values in the wrong pairing (e.g. a zero-shift/identity
+    # mapping, which for symbol A is just a permutation of the same 0..5 values and
+    # would also pass the multiset assertion above).
+    for ret_i, score_i in zip(ret_idx_a, score_idx_a):
+        ret_pos = ret_i  # symbol A: absolute row index == calendar position (see cal_start_a)
+        assert scores[score_i] == (ret_pos - k) % n_cal
 
     # Symbol B: only positions 0,1,2 are active (cal_len > 0). A position is
     # usable only when BOTH it and its shifted source position are active
@@ -121,6 +141,44 @@ def test_shift_offset_differs_from_buggy_per_symbol_modulus():
         "source position (6) being inactive for B -- this is the old "
         "per-symbol-modulus bug's signature, not the fixed shared-calendar shift"
     )
+    # Guard against a degenerate "always empty" implementation, which would also
+    # satisfy the membership check above for free. B has exactly one other active
+    # position (pos=3, B's 4th block) whose shifted source (pos=7) is inactive too --
+    # so B has ZERO usable positions under k=5 and the correct result is empty. Assert
+    # that directly instead of only the negative membership check.
+    assert len(ret_idx) == 0 and len(score_idx) == 0
+
+
+def test_shift_pairs_all_bars_within_multi_bar_calendar_positions():
+    """`cal_len > 1` (intraday: multiple rows per calendar date) must pair bar-for-bar
+    within a matched date, not just date-for-date -- this is the path AGY's review
+    flagged as untested by the original suite (every prior test used cal_len <= 1).
+
+    4-date calendar, one symbol, 3 bars/day (uniform). Scores are globally unique so
+    each returned pairing can be checked exactly.
+    """
+    n_cal = 4
+    bars_per_day = 3
+    k = 1
+    cal_start = np.arange(n_cal) * bars_per_day  # 0, 3, 6, 9
+    cal_len = np.full(n_cal, bars_per_day, dtype=np.int64)
+    # scores[row] encodes (calendar_position, intraday_slot) so pairing is checkable.
+    scores = np.array(
+        [d * 10 + slot for d in range(n_cal) for slot in range(bars_per_day)],
+        dtype=np.float64,
+    )
+
+    ret_idx, score_idx = _panel_synchronous_shift_indices(cal_start, cal_len, n_cal, k)
+
+    # All 4 positions usable (uniform cal_len=3 everywhere) -> 4 * 3 = 12 rows.
+    assert len(ret_idx) == n_cal * bars_per_day
+    for ret_i, score_i in zip(ret_idx, score_idx):
+        true_pos, slot = divmod(ret_i, bars_per_day)
+        src_pos = (true_pos - k) % n_cal
+        assert scores[score_i] == src_pos * 10 + slot, (
+            "intraday slot must be preserved within the date-shift (bar i of the true "
+            "date pairs with bar i of the shifted date), not flattened/reordered"
+        )
 
 
 def test_sync_shift_null_p_runs_via_real_panel_with_uneven_symbol_coverage():
@@ -155,3 +213,39 @@ def test_sync_shift_null_p_runs_via_real_panel_with_uneven_symbol_coverage():
     observed = panel.family_stat()
     p = panel.sync_shift_null_p(observed, rng, n_null=50)
     assert 0.0 <= p <= 1.0
+
+
+def test_sync_shift_null_p_raises_on_mostly_degenerate_panel():
+    """AGY review, 2026-09-11 (gating H-A/H-B Track 1): if a family symbol's active
+    calendar positions are sparse relative to the shared panel calendar (e.g. a `Panel`
+    accidentally built on pre-filtered event rows instead of the full dense panel --
+    the exact mistake the H-A/H-B pre-registration warns against), most null
+    replicates' shifted positions have no valid same-count pairing and return NaN. The
+    original code counted only non-NaN 'beats' but kept the denominator fixed at
+    n_null+1, so a heavily-degenerate panel silently produced an artificially LOW
+    (spuriously significant) p rather than failing loudly.
+
+    Hand-builds a minimal Panel (bypassing __init__, same technique the raw
+    `_panel_synchronous_shift_indices` tests above use for cal_start/cal_len) so
+    density can be controlled directly: one family symbol active at exactly ONE of
+    20 calendar positions. Since `ks = rng.integers(1, n_cal, ...)` never draws 0,
+    the shifted position can never equal the symbol's own single active position --
+    every replicate is guaranteed NaN, regardless of RNG draw.
+    """
+    rng = np.random.default_rng(1)
+    n_cal = 20
+    cal_start = np.zeros(n_cal, dtype=np.int64)
+    cal_len = np.zeros(n_cal, dtype=np.int64)
+    cal_start[5] = 0
+    cal_len[5] = 1  # active at exactly one calendar position, out of 20
+
+    panel = Panel.__new__(Panel)
+    panel.scores = np.array([0.5])
+    panel.returns = np.array([0.1])
+    panel.calendar = np.arange(n_cal)
+    panel.family = [0]
+    panel.cal_start = {0: cal_start}
+    panel.cal_len = {0: cal_len}
+
+    with pytest.raises(ValueError, match="degenerate"):
+        panel.sync_shift_null_p(observed=0.0, rng=rng, n_null=50)

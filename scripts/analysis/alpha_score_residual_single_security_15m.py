@@ -287,8 +287,28 @@ class Panel:
 
         with ThreadPoolExecutor(max_workers=_MAX_WORKERS) as pool:
             reps = list(pool.map(_one_rep, range(n_null)))
-        beat = sum(1 for r in reps if not np.isnan(r) and r >= observed)
-        return (1 + beat) / (n_null + 1)
+        # Denominator must track REALIZED (non-NaN) replicates, not n_null: a NaN
+        # replicate (no symbol had a usable shifted pairing at that k -- e.g.
+        # delistings/holiday gaps thinning the calendar) is a replicate that produced
+        # no evidence either way, not one that failed to beat `observed`. Counting NaNs
+        # in beat's numerator-implicit denominator silently deflates p toward 0 as
+        # degeneracy rises (todo 372 finding, AGY independent review 2026-09-11) -- a
+        # spurious pass, not a conservative one.
+        n_valid = beat = 0
+        for r in reps:
+            if np.isnan(r):
+                continue
+            n_valid += 1
+            if r >= observed:
+                beat += 1
+        if n_valid < 0.5 * n_null:
+            raise ValueError(
+                f"sync_shift_null_p: only {n_valid}/{n_null} null replicates produced "
+                "a usable statistic -- panel is too sparse/degenerate for this null to be "
+                "trustworthy. Fix the panel construction (e.g. build on the full dense "
+                "calendar, not pre-filtered event rows) rather than trusting this p-value."
+            )
+        return (1 + beat) / (n_valid + 1)
 
 
 def _per_symbol_table(panel: Panel) -> list[dict]:

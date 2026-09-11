@@ -26,6 +26,18 @@ unless they were themselves the thing under test.
 PASS / KILLED-ON-PAPER / structurally inconclusive). Don't relitigate a closed row here — if a
 successor construction is tried, it gets its own row with a pointer back.
 
+**Program-level multiplicity (meta-FDR):** each row below controls family-wise error *within
+its own pre-registered test* (BH/BY-FDR across that construction's own hypotheses).
+Nothing upstream of this ledger controls error across the growing number of *independent
+constructions* this program has tried — analogous to what `methodology-change-ledger.md`
+does for pipeline-machinery changes, but for hypothesis count instead. As of 2026-09-11,
+**13 constructions have been run to a definitive verdict** (count the rows below). Any future
+PASS must be discounted against this count before being treated as action-worthy — e.g. a
+construction's own within-test alpha (typically 0.05) should be read as `alpha / N_tested`
+(~0.004 at N=13) for the purpose of deciding whether to act on it, not taken at face value.
+Update N_tested when a new row is appended; re-derive by counting rows, don't hand-increment
+a stale number.
+
 ---
 
 ## Verdicted constructions, chronological
