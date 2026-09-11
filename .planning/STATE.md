@@ -45,9 +45,18 @@ a handful of macro-shock episodes, not independent bets; stripping it out, the o
 broad/robust cells (equity `mid_neutral`/`high_bear`, IC~0.04) sit barely above the
 already-failed unconditional pooled IC. No regime-gate construction survives this
 decomposition. (3) same-sector single-equity pairs screen for `cointegrated_pairs_residual`
-— queued, not started. (4) `cross_sectional_relative_value` construction-type reuse, gated
-on (2) or (3) producing a clean substitute — (2) failed to produce one; queued on (3). Full
-detail and effort
+— **RESOLVED same day, CLOSED**: `scripts/analysis/cointegrated_pairs_residual_same_sector_screen.py`
+tested 471 economically-motivated same-sector single-name pairs (ITR `single_name_equity`
+tag × sector, 20 sectors) via Engle-Granger + BY-FDR correction + OOS split-sample
+reconfirmation, reusing the original 6-pair pilot's exact methodology. **0/471 qualify** —
+0 even survive corrected Stage 1 alone. Far stronger than the original 0/6; per the
+pre-registered fast-kill rule, cointegration is genuinely rare in this corpus/era regardless
+of granularity — construction type closed for good. (4) `cross_sectional_relative_value`
+construction-type reuse was gated on (2) or (3) producing a clean substitute feature — both
+failed to produce one, so (4) has no current candidate and stays queued with no clear path
+forward (not itself run). **All three executed items of the graveyard-reconsideration queue
+(1/2/3) are now closed, all FAST-KILL/DEAD; only (4), which depends on a substitute neither
+(2) nor (3) supplied, remains open with no obvious next step.** Full detail and effort
 estimates: `docs/research/2026-09-11-strategic-plans-features-ensemble-construction.md`;
 verdicts tracked live in `docs/research/construction-verdict-ledger.md`.
 

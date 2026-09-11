@@ -33,7 +33,7 @@ successor construction is tried, it gets its own row with a pointer back.
 | Construction | Date | Verdict | Why |
 |---|---|---|---|
 | `jump_diffusion_decomposition` | 2026-08-07 | **DEAD** | Bipower-variation jump_ratio adds no partial IC beyond `garch_ratio`+`hurst`; CI crosses zero pooled and in all 5 regimes. `docs/research/measurement-jump-diffusion-decomposition.md`. |
-| `cointegrated_pairs_residual` | 2026-08-07 | **DEAD (as tested — 6 ETF pairs only)** | `docs/research/measurement-cointegrated-pairs-residual.md`. **Reconsidered 2026-09-11**: verdict stands for the tested instance (0/6 broad sector/asset-class ETF pairs cointegrate); the 182-equity universe was never screened at any scale — genuinely untried, not re-litigated. See `docs/research/2026-09-11-strategic-plans-features-ensemble-construction.md`. |
+| `cointegrated_pairs_residual` | 2026-08-07 | **DEAD — closed for good, both ETF and single-name forms exhausted** | `docs/research/measurement-cointegrated-pairs-residual.md`. Original: 0/6 broad sector/asset-class ETF pairs cointegrate (Stage 1). **Reconsidered 2026-09-11, same-sector single-equity screen run**: `scripts/analysis/cointegrated_pairs_residual_same_sector_screen.py` tested 471 economically-motivated same-sector single-name pairs (ITR `single_name_equity` tag × `instruments.contract_details->>'sector'`, 20 sectors, sub-sector granularity kept for tight linkage) — Stage 1 Engle-Granger (identical methodology/split-date to the original pilot, reused via import) with BY-FDR correction across all 471, then Stage 2 OOS split-sample reconfirmation for corrected survivors. **0/471 pairs qualify** (0 even survive corrected Stage 1 alone) — a far stronger, better-powered result than the original 0/6. Per the pre-registered fast-kill rule, this is decisive: cointegration is genuinely rare in this corpus/era regardless of granularity. Construction type closed for good — do not narrow further (e.g. sub-industry) or re-litigate. |
 | `retail_immediacy_provision` (levered-sleeve sharpening) | 2026-08-07 | **DEAD (falsified by its own pre-registered rule)** | Both the levered group AND the no-sleeve control group passed the bootstrap gate — the effect is ordinary intraday momentum present everywhere, not a levered-issuer close-rebalance flow. `docs/research/data-edge-source-thesis.md` (Retail Immediacy Provision section). |
 | `dealer_hedging_flow` (options-expiry calendar screen) | 2026-08-07/08 | **DEAD, confirmed across two window specs** | Heavily-optioned group failed its bootstrap gate under both the original and a corrected (expiry-Friday-excluded) window; re-run moved closer to zero, consistent with dilution, still didn't clear. `docs/research/data-edge-source-thesis.md` (Dealer Hedging Flow section). |
 | `statistical_factor_residual` (K-selection) | 2026-09-01 | **DEAD** | Residualizing didn't improve IC on any axis tested. Memory: `project_statistical_factor_residual_k_selection_2026_08_11.md`. |
@@ -76,10 +76,12 @@ successor construction is tried, it gets its own row with a pointer back.
   buckets) — closed same day. Item #2 (`bars_since_high_fast` regime-gate) also CLOSED same
   day, on stronger grounds than "unreproduced": the cited premise decomposed into an average
   across 4 incompatible regime taxonomies dominated by a 52-day event-clustered commodity
-  cell — see its own ledger row above. Items #3-4 remain queued:
-  `cointegrated_pairs_residual`'s 0/6 was ETF pairs only, never a same-sector single-equity
-  screen; `cross_sectional_relative_value`'s dead `ctf_momentum` ranking doesn't retire the
+  cell — see its own ledger row above. Item #3 (`cointegrated_pairs_residual` same-sector
+  screen) also CLOSED same day, decisively: 0/471 same-sector single-equity pairs qualify —
+  a far stronger result than the original 0/6, see its own ledger row above. Item #4 remains
+  queued: `cross_sectional_relative_value`'s dead `ctf_momentum` ranking doesn't retire the
   construction TYPE, whose production gate-evaluation infra
-  (`cross_sectional_spread_tracker.py`) has never been tried with a different feature. Each
-  has a specific refinement + fast-kill criteria, not open-ended re-litigation. Full detail:
+  (`cross_sectional_spread_tracker.py`) has never been tried with a different feature — but
+  neither item #2 nor #3 produced the clean substitute feature it was gated on, so item #4
+  has no current candidate and stays queued with no clear path forward. Full detail:
   `docs/research/2026-09-11-strategic-plans-features-ensemble-construction.md`.

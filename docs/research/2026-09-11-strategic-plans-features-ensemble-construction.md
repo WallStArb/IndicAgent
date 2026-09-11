@@ -1,11 +1,14 @@
 # Strategic plans — features, ensemble, trade construction (2026-09-11)
 
-**Live status:** item #1 (bucketed `alpha_score_residual` retest) resolved same day —
-FAST-KILL. Item #2 (regime-gated `bars_since_high_fast`) also resolved same day — CLOSED;
-the "regime-stratified IC" premise below decomposed into an artifact of averaging across
-4 incompatible regime taxonomies, dominated by a 52-day event-clustered commodity cell (not
-a real regime-conditional equity signal). Current verdicts tracked in
-`docs/research/construction-verdict-ledger.md`, not here — this doc is a frozen
+**Live status:** items #1-3 all resolved same day, all closed. #1 (bucketed
+`alpha_score_residual` retest) — FAST-KILL. #2 (regime-gated `bars_since_high_fast`) —
+CLOSED; the "regime-stratified IC" premise below decomposed into an artifact of averaging
+across 4 incompatible regime taxonomies, dominated by a 52-day event-clustered commodity
+cell. #3 (`cointegrated_pairs_residual` same-sector screen) — CLOSED; 0/471 same-sector
+single-equity pairs qualify, a far stronger negative than the original 0/6. #4 (reuse
+`cross_sectional_spread_tracker.py` with a new feature) has no path forward: it was gated
+on #2 or #3 producing a clean substitute feature, and neither did. Current verdicts tracked
+in `docs/research/construction-verdict-ledger.md`, not here — this doc is a frozen
 design/priority record as of 2026-09-11.
 
 **Author:** Fable, two independent dispatches by Claude (Sonnet 5), interactive session,
