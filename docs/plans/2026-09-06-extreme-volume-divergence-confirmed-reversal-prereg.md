@@ -6,10 +6,31 @@ three attempts: dropped (round 1, wrong column), reinstated with a flawed fix (r
 confirmed bugs), then redesigned from scratch independently by Fable and cleared a third
 review round (conditional pass, four amendments, three locked into the spec below, one — a
 gap in shared testing machinery reaching beyond this doc — filed separately as todo 372).
-**Execution is blocked for both hypotheses** on compute (the corpus `ic_engine` recompute) and,
-for H-B specifically, also on todo 372's null-shift gap. See "H-B redesign (2026-09-09)" below
-for the full trail, including three of my own errors across the process, all recorded rather
-than quietly edited away.
+See "H-B redesign (2026-09-09)" below for the full trail, including three of my own errors
+across the process, all recorded rather than quietly edited away.
+
+**Update 2026-09-10:** the compute blocker has cleared — the corpus `ic_engine` recompute
+this doc's own "Not yet done" section was waiting on completed clean 2026-09-10 (all 8
+pipeline steps, see `project_corpus_pipeline_state` memory). **todo 372's null-shift bug is
+now fixed in code** (`Panel.sync_shift_null_p`, `scripts/analysis/
+alpha_score_residual_single_security_15m.py`, design by Fable, regression tests in
+`tests/unit/test_alpha_score_residual_panel_sync_shift.py`) but has NOT yet had an
+independent adversarial review pass — both AGY and Codex hit quota/rate limits the same
+session the fix was designed, so only a self-verification (tracing the indexing logic and a
+hand-derived worked example) and Fable's own design-time reasoning back it so far. Get that
+review before trusting Track 1 execution's null test as gate-worthy. Separately, an informal
+(non-pre-registered) exploratory run of H-A's exact construction at tf=1d, run ad hoc this
+same session before this fix landed, found: (a) at the pre-registered 1-bar horizon, no
+detectable effect (mean IC -0.003, 54% sign consistency, 227 symbols); (b) at longer horizons
+(2/5/10-bar), a real-looking but SIGN-REVERSED effect (5-bar: -0.021, 73% raw consistency) —
+opposite H-A's predicted direction, better explained as capitulation/climax-volume
+(REVERSAL) rather than accumulation (light volume warns of reversal); (c) properly controlling
+for the common/day-level component via `partial_spearman_ic` (not the ad hoc demeaning first
+tried, which had a population-mismatch flaw) shrinks this to a much weaker idiosyncratic
+residual (~-0.007, 57-58% consistency) with no formal significance test run. None of this is
+a substitute for the actual pre-registered Track 1 run with the fixed null and full BY-FDR/
+bootstrap battery across all horizons (with a correction for horizon selection, per Fable's
+review) — treat it as informal, exploratory context for what to expect, not a result.
 **Author:** Claude (Sonnet 5), interactive session, 2026-09-06. Amended 2026-09-08 (AGY review
 round 1, a same-day correction to that round's H-B disposition, then AGY review round 2 on the
 corrected construction). Amended 2026-09-09 (H-B redesigned from scratch by Fable, independent

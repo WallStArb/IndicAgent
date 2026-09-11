@@ -1,7 +1,7 @@
 {
   "step_name": "alpha_publisher",
   "step_version": "1.0",
-  "timestamp": "2026-08-31T10:57:36.293208+00:00",
+  "timestamp": "2026-09-10T03:10:33.956798+00:00",
   "status": "success",
   "inputs": {
     "ensemble_version": "v1.0.0",
@@ -10,12 +10,12 @@
   "outputs": {
     "alpha_events": {
       "table": "alpha_events",
-      "rows_total": 70531825,
+      "rows_total": 68323631,
       "rows_by_tf": {
-        "15m": 15164497,
-        "1d": 472751,
-        "1h": 2748789,
-        "5m": 52145788
+        "15m": 22722193,
+        "1d": 720848,
+        "1h": 4083569,
+        "5m": 40797021
       }
     }
   },

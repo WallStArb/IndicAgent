@@ -3,12 +3,80 @@ gsd_state_version: 1.0
 milestone: v3.1
 milestone_name: AlphaEngine Validation + Alpha Scoring
 status: milestone_complete
-last_updated: "2026-09-09T13:35:00.000Z"
+last_updated: "2026-09-11T00:00:00.000Z"
 ---
 
 # Project State
 
 ## Strategic Plan (read this first)
+
+**Personal-scale decision gate: no formal verdict fired, leans rule 3.** The screen re-run
+against the completed corpus recompute shows 218/218 shortlisted 1d cells clear the hurdle,
+141 broad-support (essentially unchanged from the pre-recompute 208/87). The leading new
+candidate, `bars_since_high_fast` @ H=5, fails an unconditional full-history spread check
+(negative gross return despite positive regime-stratified IC — regime-conditional, not a
+clean candidate as tested). Its structurally-motivated successor (volume divergence at real
+pivot-clustered support/resistance levels via `_compute_sr_dist_atr`, Fable-reviewed, no
+look-ahead) is also flat (51-58% sign consistency). A separate exploratory thread (classic
+Wyckoff volume-divergence-at-extremes, tf=1d) found a real-looking but sign-REVERSED effect
+at longer horizons (5-day: 73% raw consistency) — better explained as capitulation/climax
+volume than accumulation — that shrinks to 57-58% consistency once controlled for the
+common/market-day component via `partial_spearman_ic`; no formal significance test run.
+Four failed/marginal 1d candidates now, on top of the six pre-existing graveyard
+constructions, informally leans rule 3 (universe-breadth-limited) but this has NOT been
+formally fired — treat as strongly suggestive, not decided. Full numbers: this session's
+transcript and `project_extreme_volume_divergence_prereg_2026_09_09` memory; no doc
+captures them beyond this summary.
+
+**Graveyard reconsideration plan (2026-09-11):** a Fable pass re-examined the 6
+DEAD/settled graveyard constructions for genuinely untried refinements.
+`range_pct_fast`/Phase 148 confirmed settled (natural refinement was already the test
+performed, or the apparent significance was a selection artifact). Four items queued as
+cheap (1-4 day), fast-kill-gated refinements: (1) bucketed `alpha_score_residual` retest —
+**RESOLVED same day, FAST-KILL**: 8 sector buckets, 0/8 qualify, every raw bucket null_p
+>= 0.15; both per-symbol and bucketed forms of condition (d) now exhausted, construction
+closed. (2) regime-gated `bars_since_high_fast`/`bars_since_low_fast` — queued, not
+started. (3) same-sector single-equity pairs screen for `cointegrated_pairs_residual` —
+queued. (4) `cross_sectional_relative_value` construction-type reuse with a new ranking
+feature, gated on (2) producing a clean substitute — queued. Full detail and effort
+estimates: `docs/research/2026-09-11-strategic-plans-features-ensemble-construction.md`;
+verdicts tracked live in `docs/research/construction-verdict-ledger.md`.
+
+**Todo 372 (`Panel.sync_shift_null_p` panel-synchronicity bug), two findings, status
+mixed:** finding 1 (per-symbol `k % m` shift silently desyncing the panel-wide null) is
+FIXED in code (`scripts/analysis/alpha_score_residual_single_security_15m.py`, design:
+Fable; TDD-verified via `tests/unit/test_alpha_score_residual_panel_sync_shift.py`, 3
+passing tests) but has NOT had independent adversarial review — AGY and Codex were both
+rate-limited the session the fix landed. Finding 2 (`volume_z` has no diurnal/
+session-boundary detrending, affecting both H-A and H-B) is untouched. Todo stays open
+pending both. Full detail: `.planning/todos/pending/372-panel-sync-shift-null-not-actually-panel-synchronous-plus-volume-z-diurnal-bias.md`.
+
+**Universe/infrastructure note, 2026-09-11:** confirmed live that the 22 registered but
+inactive futures/FX instruments (ES, NQ, CL, GC, VX, the Treasury/grain complex, 4 FX
+pairs) have ZERO rows in `market_data_ohlcv` and `feature_vectors` — never backfilled,
+despite existing as instrument metadata. Relevant to any multi-asset-class construction
+(e.g. TSMOM, proposed in the strategic-plans doc above) and to any future "expand the
+universe" discussion — the actual total instrument count is 253 (231 active equity-
+structured ETFs + 22 inactive, data-empty futures/FX), not the ~350 previously assumed.
+Server headroom for expansion: 24 cores, 29GB RAM + 150GB swap, 569GB disk free of 914GB —
+disk is not the constraint, but compute time already is at the current scale (full
+`ic_engine` recompute has run 66-77+ hours historically, needed emergency swap expansion
+once this week).
+
+**Update 2026-09-10, supersedes the 2026-09-09 note below on the recompute's status only
+(nothing else changes):** the Workstream-1 `ic_engine` recompute this note describes
+**COMPLETED cleanly, all 8 pipeline steps, 2026-09-10 04:30 UTC** (relaunched 2026-09-09
+13:15 UTC after the migration 332 fix, ~15h elapsed). Step 6 (`ic_shrinkage`) hard gate
+PASSED (34,877 cells, shrunk error 0.0458 < raw error 0.0486; `alpha.ensemble.ic_input`
+flipped to `ic_shrunk`). Step 8 (`alpha_publisher`) emitted 68,323,631 rows, 0 rejected —
+first clean run of this step since the todo-351 self-deadlock fix, no repeat. **The
+decision gate (rule-3 kill criterion, [[project-personal-scale-edge-program]]) is now
+unblocked and is the sole remaining step of the active program** — it has not been run
+yet. Full detail: `project_corpus_pipeline_state` memory. Orphaned monitoring process from
+the OOM-recovery work (PID 29213, a `pgrep -f`-based resource sampler that self-matched its
+own command line and never saw its exit condition) found still running 3 days later and
+killed 2026-09-10; harmless (just a stray `free`/`ps` loop) but a real bug pattern, see
+`feedback_corpus_orchestrator_and_orphan_trap` memory.
 
 **Update 2026-09-09, supersedes nothing below (additive status only):** the ACTIVE PROGRAM's
 decision-gate-blocking `ic_engine` recompute hit two separate failures since 2026-09-03 and is
