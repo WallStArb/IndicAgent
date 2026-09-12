@@ -10,23 +10,30 @@ last_updated: "2026-09-11T00:00:00.000Z"
 
 ## Strategic Plan (read this first)
 
-**Personal-scale decision gate: no formal verdict fired, leans rule 3.** The screen re-run
-against the completed corpus recompute shows 218/218 shortlisted 1d cells clear the hurdle,
-141 broad-support (essentially unchanged from the pre-recompute 208/87). The leading new
-candidate, `bars_since_high_fast` @ H=5, fails an unconditional full-history spread check
-(negative gross return despite positive regime-stratified IC — regime-conditional, not a
-clean candidate as tested). Its structurally-motivated successor (volume divergence at real
-pivot-clustered support/resistance levels via `_compute_sr_dist_atr`, Fable-reviewed, no
-look-ahead) is also flat (51-58% sign consistency). A separate exploratory thread (classic
-Wyckoff volume-divergence-at-extremes, tf=1d) found a real-looking but sign-REVERSED effect
-at longer horizons (5-day: 73% raw consistency) — better explained as capitulation/climax
-volume than accumulation — that shrinks to 57-58% consistency once controlled for the
-common/market-day component via `partial_spearman_ic`; no formal significance test run.
-Four failed/marginal 1d candidates now, on top of the six pre-existing graveyard
-constructions, informally leans rule 3 (universe-breadth-limited) but this has NOT been
-formally fired — treat as strongly suggestive, not decided. Full numbers: this session's
-transcript and `project_extreme_volume_divergence_prereg_2026_09_09` memory; no doc
-captures them beyond this summary.
+**Personal-scale decision gate: KILL CRITERION FORMALLY FIRED 2026-09-12 (rule 3).**
+Full evidentiary record and verdict text: `docs/plans/2026-09-02-personal-scale-edge-
+determination-plan.md`'s "3 — Decision gate" Results section (appended 2026-09-12).
+Summary: 14 constructions now run to a definitive verdict since this program's
+pre-registration discipline began, zero PASS — both of the program's own formal shots
+(decision rule 2's one-shot `range_pct_fast_xs_ls_h5`: DEAD, market-beta tilt; todo
+278's mandated `alpha_score_residual_single_security_15m` diagnostic: FAIL, real but
+0/231-concentrated) failed under full falsification machinery (shuffled null,
+bootstrap CI, BH-FDR, stability), and the 2026-09-11 graveyard reconsideration closed
+3 of its 4 remaining items decisively (the 4th has no candidate). Failures trace to
+construction/economic reality (beta tilts, dilute common-factor effects, negative
+gross P&L, regime-taxonomy-averaging artifacts), never to the cost hurdle, which 0b
+showed has an order-of-magnitude of headroom throughout. **Verdict: "this corpus, at
+breadth ~8 (0a's MP-K=7 IC-profile effective rank) and this TF stack (5m→1d), cannot
+carry the endgame." Universe expansion becomes primary, via its own scoping phase —
+not yet scoped.** A process-integrity gap surfaced while verifying the record before
+firing — `bars_since_high_fast_xs_ls_h5`'s DEAD verdict (the gate's closing
+candidate) rested partly on an uncommitted, unreproducible ad hoc analysis, unlike
+this program's other four construction verdicts; backfilled into `concept_registry`
+(migration 333) with the gap recorded honestly, remediation filed as todo 374 —
+doesn't reopen the gate, which stands on the fully rigorous record alone. Explicitly
+NOT closed by this verdict: N1 (structurally inconclusive, separate thread), todo 281
+(feature recommendation, not a construction), H-A/H-B (separate track, own
+pre-registration, unrun as of this gate — see its own status note below).
 
 **Graveyard reconsideration plan (2026-09-11):** a Fable pass re-examined the 6
 DEAD/settled graveyard constructions for genuinely untried refinements.

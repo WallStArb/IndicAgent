@@ -847,3 +847,141 @@ signal input; the unrouted-symbols warning is now a hard APR-gated failure
 same day (user directive ratified the queue proceeding). The ic_engine
 recompute — where the newly routed symbols enter measurement — runs now, as
 the decision gate's input.
+
+### 3 — Decision gate, fired 2026-09-12: KILL CRITERION (rule 3)
+
+**Precondition check.** Workstream 1's coverage fix and its dependent full corpus
+`ic_engine` recompute — the decision gate's own stated input — completed cleanly
+2026-09-10 04:30 UTC (all 8 pipeline steps; Step 6 shrinkage gate PASSED; Step 8
+`alpha_publisher` 68,323,631 rows, 0 rejected). 0c's paper screen was re-run against
+this recompute: 218/218 shortlisted 1d cells clear the personal hurdle (141
+broad-support), essentially unchanged in shape from the pre-recompute 208/87 —
+confirming the coverage fix did not change the qualitative picture, only the count.
+This gate evaluates the post-recompute record.
+
+**Evidence, walked against the pre-registered rule text above (rules 1-3).**
+
+*Rule 2's one-shot mandate* ("0c shows measured signal mass clears the hurdle but no
+construction exists → exactly ONE new construction is designed and pre-registered"):
+fired once, 2026-09-02, on the sign-consistency-selected leader of the 0c shortlist.
+**Pre-registration 1 (`range_pct_fast_xs_ls_h5`) ran to verdict: DEAD** — real
+association (shuffled-null p=0.0010) but a market-beta tilt (β=1.14, R²=0.75), net
+negative at all 9 personal-cost combinations once neutralized. Per the
+pre-registration's own DEAD-branch rule, no successor was auto-promoted; the
+2026-09-11 graveyard reconsideration independently confirmed no untried refinement of
+this specific idea survives (the neutralized-residual test *was* the natural
+refinement already performed).
+
+*Rule 1's other formal candidate* (todo 278's mandated diagnostic, a prerequisite
+independent of decision rule 2): **Pre-registration 2
+(`alpha_score_residual_single_security_15m`) ran to verdict: FAIL** — the family
+signal is real (p=0.002, stable across 19 years, point estimate exactly at the 0b
+best-case floor) but 0/231 symbols individually clear per-symbol BY-FDR — a uniformly
+dilute common effect, not concentrated per-name alpha (the raw, undemeaned arm was
+~3.8x stronger, confirming the predictivity is dominated by the common/market
+component the residualization strips — the same component responsible for Phase 148's
+negative gross P&L below). A 2026-09-11 bucketed retest (8 sector buckets, same
+BY-FDR discipline) fast-killed the same construction a second way: 0/8 buckets, every
+raw bucket null_p ≥ 0.15.
+
+*Phase 148's Gate-1-passing construction*, the program's other live candidate at
+entry: **killed on paper 2026-09-02** — fails the personal hurdle on every (tf,
+scale) cell under the worst-case band, and, decisive and band-independent, Gate 2's
+realized OOS frame P&L is negative *gross* of any personal costs (mean −0.1215R).
+0b's "wrong trader" insight (institutional Gate 2 was calibrated to a different
+trader) creates room for slow, low-IC, *positive-gross* constructions — Phase 148's
+intraday construction was never one. The 2026-09-11 reconsideration confirmed this
+is settled: the qualifying-cell means are selection-inflated (140 of 640 cells
+chosen by the same FDR procedure claiming significance) and 100% sign co-firing at
+15m/1h/1d means there was never independent per-cell breadth to refine.
+
+*Graveyard reconsideration* (2026-09-11, a Fable pass checking all 4
+non-final DEAD/settled constructions for genuinely untried refinements, so this gate
+is not fired on stale verdicts): item #1 (`alpha_score_residual` bucketed retest,
+above) FAST-KILLED. **Item #2 (`bars_since_high_fast_xs_ls_h5`) verdicted DEAD**:
+unconditional full-history spread check is net-negative (mean −0.0004/rebalance)
+despite a positive pooled regime-averaged IC (0.1118); the regime-gated refinement
+decomposes into 5 FDR-passing cells drawn from four *structurally different* regime
+taxonomies averaged as one, the standout cell resting on 52 event-clustered days
+across 16 years — stripping it out, the only broad/robust cells sit barely above the
+already-failed unconditional result. Its structurally-motivated successor (S/R-pivot
+volume divergence) is also flat (51-58% sign consistency). **Confidence caveat,
+recorded rather than smoothed over**: unlike this program's other four construction
+verdicts, this one's spread-check and successor numbers have no committed,
+pre-registered falsification script behind them — filed as
+[todo 374](../../.planning/todos/pending/374-bars-since-high-fast-verdict-lacks-committed-falsification-script.md)
+for remediation. It does not carry this gate on its own; it is corroborating, not
+load-bearing (see multiplicity note below). **Item #3
+(`cointegrated_pairs_residual` same-sector screen) verdicted CLOSED**: 0/471
+economically-motivated same-sector single-name pairs qualify (Engle-Granger +
+BY-FDR + OOS split-sample reconfirmation), 0 even surviving corrected Stage 1 alone
+— stronger than the original 0/6, closing the construction type for good, not just
+this instance. **Item #4 (`cross_sectional_relative_value` construction-type reuse)
+stays queued, no path forward**: gated on #2 or #3 producing a clean substitute
+feature; neither did.
+
+**Explicitly out of scope, not counted either way.** The H-A/H-B (extreme-volume
+divergence/confirmation) constructions are a *separate* track, pre-registered
+2026-09-06, explicitly not part of this program (own scope boundary, this doc's
+first section). As of this gate, neither has actually run (todo 372's
+panel-sync-shift fix, a shared-infrastructure prerequisite surfaced by that track's
+own review, was fixed and independently reviewed 2026-09-11/12, but the Track 1 runs
+themselves have not executed). An informal exploratory read from that track's own
+data (classic Wyckoff volume-divergence-at-extremes, tf=1d) found a real-looking but
+sign-reversed effect at longer horizons that shrinks to 57-58% consistency once
+common-factor-controlled, with **no formal significance test run** — this is neither
+a verdicted construction nor part of this program's evidence base, and is not used
+here in either direction.
+
+**Multiplicity, read honestly.** Per `docs/research/construction-verdict-ledger.md`'s
+own standing meta-FDR note: as of this gate, **14 constructions have been run to a
+definitive verdict** (13 recorded pre-gate, plus `bars_since_high_fast_xs_ls_h5`
+formally registered in `concept_registry` at gate time, migration 333) — **zero
+PASS**. Any future marginal finding should be read against `alpha / N_tested` ≈
+0.0036, not the nominal 0.05 — a bar nothing explored during this program, including
+the informal H-A/H-B-adjacent read above, comes remotely close to clearing even
+before correction.
+
+**Where the failures trace.** Not to the ruler: 0b showed the personal cost hurdle
+has an order-of-magnitude of headroom at every horizon measured (worst-case IC_min
+0.003-0.004 vs measured signal mass 0.03-0.055 at H=5-10) — the institutional Gate 2
+that killed Phase 148 was calibrated to a different, larger trader, and this
+program's whole premise was built on that being fixable. It was fixed, and nothing
+changed the outcome. Every failure instead traces to construction/economic reality:
+a market-beta tilt masquerading as edge (`range_pct_fast`), a real but uniformly
+dilute common-factor effect with zero per-name concentration
+(`alpha_score_residual`), a negative-gross-before-any-cost construction
+(Phase 148), a regime-taxonomy-averaging artifact resting on 52 event days
+(`bars_since_high_fast`), and a construction-type with no cointegration to exploit
+at any granularity tested (`cointegrated_pairs_residual`). The paper signal mass is
+real and was never the constraint (218 FDR-passing cells); nothing survives
+construction into a concentrated, market-neutral, cost-surviving, personal-tradeable
+form.
+
+**VERDICT: rule 3 fires.**
+
+> Nothing clears the correctly-calibrated hurdle → KILL CRITERION fires: "this
+> corpus, at breadth ~8 [0a's measured IC-profile effective rank, MP-K=7 of 244
+> features, participation ratio 17.3] and this TF stack [5m→1d, this program's
+> pre-registered scope boundary], cannot carry the endgame." Universe expansion
+> becomes primary via its own scoping phase. This is a final answer, not an
+> invitation to recalibrate again.
+
+**This program's construction-discovery phase is CLOSED.** Consequence, per the
+gate's own pre-registered text: universe expansion becomes the primary research
+direction, scoped as its own phase (`/gsd-discuss-phase`, not done in this entry —
+the gate fires the decision, it does not pre-scope the successor). The most
+concrete, already-inventoried starting point: 22 registered-but-data-empty
+futures/FX instruments (ES, NQ, CL, GC, VX, the Treasury/grain complex, 4 FX pairs;
+confirmed live 2026-09-11, zero rows in `market_data_ohlcv`/`feature_vectors`
+despite existing as instrument metadata) — one candidate shape among others the
+scoping conversation should weigh, not a pre-decided plan.
+
+**Explicitly NOT closed by this verdict** (separate threads, unaffected): N1
+(`nonlinear_interaction_combiner` residual form) remains structurally inconclusive,
+not a pass or fail either way — a distinct unresolved question, not construction
+space this gate covers. Todo 281 (systematic-dominance / volume-price-confirmation
+as plain `feature_vectors` columns) is a feature recommendation, not a construction
+verdict, and stays open as its own follow-up. H-A/H-B stays a live, separate track
+with its own pre-registration, unaffected by this gate closing the personal-scale
+program's construction search.
