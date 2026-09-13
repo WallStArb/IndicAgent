@@ -10,6 +10,38 @@ last_updated: "2026-09-11T00:00:00.000Z"
 
 ## Strategic Plan (read this first)
 
+**Cross-TF signal correlation screen, 2026-09-13 — real decorrelation found for
+momentum, but a wrong-feature-choice detour along the way.** Continuing the TF-stack
+scoping thread: Fable's recommended cheapest first test (before any fusion
+infrastructure gets built) was to check whether coarse-TF and fine-TF reads of the
+same signal decorrelate (worth a real pre-registration) or just re-express the same
+information at a different sampling rate (Phase 148's own already-measured 100% sign
+co-firing across 15m/1h/1d for `alpha_score` — the reference "dead" pattern).
+**First run used `ctf_momentum` and returned a suspicious EXACT 1.0000 correlation
+between 15m and 5m — investigated rather than reported, and it revealed a real
+architectural fact:** `ctf_momentum` ("Cross-TimeFrame momentum") is not TF-native at
+all — per `ctf_higher_tf_map` in `feature_factory.py` (`{"5m":"1h","15m":"1h","1h":"1d","1d":"1d"}`),
+it's a higher-timeframe value read down into lower-tf rows via a bisect lookup (5m and
+15m both read the literal same 1h value). **This means the codebase already has a
+working cross-TF broadcast mechanism at the feature-computation level** — corrects an
+earlier same-session claim (made to the user and to Fable) that zero cross-TF fusion
+exists anywhere in the architecture; that was only true at the `alpha_score`/
+`ensemble_trainer` level, not the feature level. Swapped in `momentum_z_fast`
+(verified TF-native, no ctf/htf dependency) and re-ran clean:
+**`momentum_z_fast` 1d-vs-15m correlation is -0.004, 1d-vs-5m is -0.031, sign agreement
+48-49% — essentially coin-flip, real decorrelation, NOT the Phase-148 re-expression
+pattern.** `range_pct_fast` (unaffected, always TF-native) shows moderate correlation
+(0.66-0.86) with sensible decay by TF distance. **Caveat, stated plainly, not
+smoothed over: decorrelation is necessary but not sufficient for fusion to add
+tradeable value — it only means the two reads aren't redundant, not that either one
+(or their combination) is predictive.** This clears Fable's stated first bar (worth a
+real pre-registration on the DIVERGENCE framing specifically, not a generic
+"combine timeframes" construction) — it does not clear the bar itself. Not yet
+pre-registered or built; per Fable's own guardrail, this competes for priority against
+universe expansion rather than preceding it by default — a resourcing call for the
+user, not decided here. `scripts/analysis/cross_tf_signal_correlation_screen.py`
+(script's own docstring documents the ctf_momentum detour and correction in full).
+
 **Data-integrity incident, 2026-09-13: 10x spread-cost bug in the kill criterion's
 foundational verdict, found by direct user challenge, verdict UNCHANGED after
 correction.** User directly disputed this session's cost assumptions ("execution costs
