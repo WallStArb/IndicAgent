@@ -60,6 +60,45 @@ a stale number.
 
 ## Supporting measurements (not standalone construction verdicts, but load-bearing context)
 
+- **TSMOM per-symbol (time-series/absolute momentum) screen — NEGATIVE, 2026-09-13.**
+  Council review of the fired decision gate found this construction TYPE (per-symbol,
+  no cross-sectional ranking — structurally distinct from every construction actually
+  falsified in this program) had been proposed
+  (`docs/research/2026-09-11-strategic-plans-features-ensemble-construction.md`) but
+  never executed. Ran the "near-free" screen that doc specified: per-symbol Spearman IC
+  of `ctf_momentum` vs. `forward_returns.return_mid` (H=5, IS window), circular-shift
+  null, BH-FDR per symbol family (`scripts/analysis/tsmom_per_symbol_ic_screen.py`).
+  **Mean IC negative across every split** — pooled -0.0261, single-name-only -0.0280,
+  ETF-only -0.0239; 0/231, 0/128, 0/103 qualify BY-FDR positive at any split. A screen,
+  not a falsification (per 0c's own convention — shortlists, doesn't verdict), but a
+  clean negative closes this thread: the one genuinely untried construction paradigm
+  flagged before the gate fired has now been tried and doesn't clear even the screening
+  bar. Does not itself get a ledger row (no construction was ever pre-registered off it
+  — nothing to verdict), recorded here so the gap doesn't get re-flagged as untested.
+- **`range_pct_fast_xs_ls_h5` beta-by-universe-composition diagnostic — real, unresolved
+  lead, 2026-09-13.** Same review found the pooled DEAD verdict's beta contamination
+  (β=1.14, R²=0.75) was never checked against the confound of pooling 128 single-name
+  equities with 103 mechanically-beta-dominated ETFs in one cross-sectional ranking.
+  `scripts/analysis/range_pct_fast_beta_by_universe_composition.py` (reuses the original
+  falsification's `_build_phase` unchanged, sanity-checked by exactly reproducing the
+  pooled β/R²): single-name-only subset shows materially reduced beta contamination
+  (β=0.91, R²=0.44 vs. ETF-only β=1.31, R²=0.82) and a neutralized intercept more than
+  double the pooled result (10.17bp vs. 4.87bp/rebalance). **Does not reopen the DEAD
+  verdict** — no cost drag, bootstrap CI, shuffled null, or stability check was computed;
+  descriptive only. Filed as
+  [todo 375](../../.planning/todos/pending/375-single-name-only-range-pct-fast-refalsification.md)
+  for a proper pre-registered follow-up — the single highest-leverage open lead this
+  review surfaced.
+- **Personal-cost-hurdle tautology check — RESOLVED, hurdle confirmed non-tautological,
+  2026-09-13.** Same review questioned whether 0c's 218/218 (100%) hurdle-clear rate
+  meant the hurdle was a rubber stamp rather than doing real discriminating work. Checked
+  live: across the full population of 554 BH-FDR-passing pooled 1d cells in
+  `feature_ic_scores` (not just the curated 218-cell shortlist), the minimum |IC| is
+  0.0228 — roughly 5-7x above the hurdle's worst-case floor (~0.003-0.004). Nothing in
+  this corpus's FDR-passing population sits anywhere near the hurdle boundary, so the
+  100% pass rate is a real gap between statistical detectability and the personal cost
+  floor, not a tautology artifact of feeding a pre-filtered population into an
+  always-true test. Closes this objection; don't re-raise it.
 - **Effective breadth ~8.4 vs. raw feature count ~230** (measured alongside the discovery-track
   pilots, 2026-08-07/08) — the corpus has far fewer genuinely independent bets than its column
   count suggests. Relevant whenever a new candidate's "how much room is left" question comes up.

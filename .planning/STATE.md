@@ -10,6 +10,27 @@ last_updated: "2026-09-11T00:00:00.000Z"
 
 ## Strategic Plan (read this first)
 
+**Council review of the fired gate, 2026-09-13 — verdict stands, one real lead surfaced,
+one gap closed for good.** A 4-seat adversarial review (data-integrity/statistician/
+economist/allocator) of the 2026-09-12 firing raised objections, then actually ran the
+checkable ones rather than leaving them as unresolved questions: (1) confirmed the
+0c hurdle is NOT a tautology — minimum |IC| across the full 554-cell FDR-passing
+population is 0.023, ~5-7x the hurdle floor, closed for good; (2) ran the "near-free"
+TSMOM per-symbol screen this program's own proposal doc flagged but never executed —
+**decisive negative**, mean IC negative across pooled/single-name/ETF splits, 0
+symbols qualify BY-FDR at any split (`docs/research/construction-verdict-ledger.md`
+supporting measurements) — closes the "did we try a structurally different
+construction type" gap; (3) found a real, verified, UNRESOLVED lead: `range_pct_fast`'s
+pooled DEAD verdict's beta contamination is disproportionately an ETF-subset property —
+single-name-only shows β=0.91/R²=0.44 vs. pooled β=1.14/R²=0.75, neutralized intercept
+more than double (10.17bp vs 4.87bp). Does not reopen the fired kill criterion (no
+cost/bootstrap/null computed), filed as
+[todo 375](todos/pending/375-single-name-only-range-pct-fast-refalsification.md), the
+single highest-leverage item in the queue. Survivorship bias (100% of the 231-symbol
+universe is `is_active=true`, zero delisted-name representation, verified live) stays
+genuinely unresolved — no new data gathered, no owner assigned beyond "flag before
+citing any IC number as a hard ceiling."
+
 **Personal-scale decision gate: KILL CRITERION FORMALLY FIRED 2026-09-12 (rule 3).**
 Full evidentiary record and verdict text: `docs/plans/2026-09-02-personal-scale-edge-
 determination-plan.md`'s "3 — Decision gate" Results section (appended 2026-09-12).
