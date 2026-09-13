@@ -10,6 +10,34 @@ last_updated: "2026-09-11T00:00:00.000Z"
 
 ## Strategic Plan (read this first)
 
+**Data-integrity incident, 2026-09-13: 10x spread-cost bug in the kill criterion's
+foundational verdict, found by direct user challenge, verdict UNCHANGED after
+correction.** User directly disputed this session's cost assumptions ("execution costs
+are near free... assume minimal costs") rather than accepting the hurdle framing at
+face value. Decomposing the cost model in response surfaced a real bug:
+`range_pct_fast_xs_ls_h5_falsification.py` — the script behind Pre-registration 1, one
+of the two formal pre-registered results the 2026-09-12 kill criterion rests on — had
+`_LIVE_SPREAD_ANCHOR = 0.0014` (14bp) instead of `0.00014` (1.4bp), a 10x transcription
+error. The exact same bug `personal_edge_paper_screen.py` had already caught and fixed
+in itself on 2026-09-02; the fix never propagated to this sibling script. Sat
+undetected 11 days — through an AGY adversarial design review, the 2026-09-11
+graveyard reconsideration (which cited this verdict as "confirmed settled" without
+re-deriving it), and two same-day reuses of this exact file's `_build_phase` earlier
+the same session it was finally caught. Fixed in source; the entire original
+falsification was re-run end to end at the corrected value. **Verdict unchanged: still
+DEAD** — all 9 cost combos still fail CI>0, stability still fails on the same
+qualitative shape — but every point estimate moved meaningfully more favorable
+(cheapest-corner mean: ≈−1bp → +1.85bp; subperiods: −9.7/−12.1/+8.7bp →
+−3.9/−6.4/+14.2bp). `concept_registry` migration 335;
+`docs/research/methodology-change-ledger.md` E12 (full incident record);
+`docs/research/construction-verdict-ledger.md`'s `range_pct_fast_xs_ls_h5` row. Checked
+all 5 scripts sharing this constant — only the one was affected, now consistent
+everywhere. **This does not reopen the fired kill criterion** — the correction made the
+evidence for DEAD slightly weaker in magnitude but not different in conclusion — but it
+is a real reminder that every number in this program's record should be treated as
+provisional until independently re-derived, not just cited from a prior session's
+summary, no matter how many reviews it already passed.
+
 **TF-stack economics for universe-expansion scoping, checked 2026-09-13 — holding
 period, not TF granularity, is the real constraint.** User question ("do we need to
 reduce TFs? is 5m/1m really useful?") prompted extending workstream 0b's personal cost

@@ -108,7 +108,12 @@ _N_BOOT = 2000
 _N_NULL = 1000
 _ALPHA = 0.05
 _N_SUBPERIODS = 3
-_LIVE_SPREAD_ANCHOR = 0.0014  # 0b's measured median live spread, 1.4 bps
+_LIVE_SPREAD_ANCHOR = 0.00014  # 0b's measured median live spread, 1.4 bps (FIXED
+# 2026-09-13: was 0.0014 = 14bp, a 10x transcription error -- the exact same bug
+# personal_edge_paper_screen.py caught and fixed in itself on 2026-09-02, which never
+# propagated to this script. 11 days undetected: past an AGY design review, the
+# graveyard reconsideration pass, and two same-day reuses of this file's _build_phase.
+# See docs/research/construction-verdict-ledger.md for the corrected verdict.
 _SPREAD_MULTIPLIERS = (0.5, 1.0, 2.0)  # band {0.7, 1.4, 2.8} bp around the anchor
 _BORROW_BAND = (0.25e-4, 0.5e-4, 1.0e-4)  # per rebalance, on short-leg notional
 _ANCHOR_BORROW = 0.5e-4

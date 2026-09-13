@@ -305,36 +305,68 @@ items resolved: (1) 5-10d range/vol mass — placed, decision rule 2 fired, pre-
 workstream 2's stronger diagnostic; (4) N1 residual — blocked on structural instability
 (todo 364); (5) Phase 148's construction — KILLED ON PAPER above. Todo 367 closes.
 
-### Pre-registration 1 run — DEAD, 2026-09-02
+### Pre-registration 1 run — DEAD, 2026-09-02 (numbers corrected 2026-09-13, verdict unchanged)
 
 Script: `scripts/analysis/range_pct_fast_xs_ls_h5_falsification.py` (amended design,
 commit 0c9a344dd), read-only, run once. Panel 920,411 rows / 231 symbols, 690
 settled-at-zero returns, 931 rebalances (offset 0), 0 skipped.
 
+**Correction, 2026-09-13:** the original run used `_LIVE_SPREAD_ANCHOR = 0.0014`
+(14bp) — a 10x transcription error; should have been `0.00014` (1.4bp), the exact same
+bug `personal_edge_paper_screen.py` caught and fixed in itself on 2026-09-02, which
+never propagated to this sibling script. Sat undetected 11 days — past an AGY
+adversarial design review, the 2026-09-11 graveyard reconsideration (which cited this
+verdict as "confirmed settled"), and two same-day reuses of this file's `_build_phase`
+earlier the same session it was finally caught. Found only because the user directly
+challenged this session's cost assumptions, prompting a decomposition of the cost
+model. Fixed in source; the entire original falsification was re-run end to end at the
+corrected anchor, same locked methodology. **Verdict unchanged: still DEAD.** Corrected
+figures below (superseding the numbers this section originally recorded); full
+before/after detail in `concept_registry` migration 335.
+
 - **The cross-sectional association is real:** shuffled-null p = 0.0010 (N=1000); gross
-  LS mean +22.5 bp/rebalance, CI [+9.2, +35.1] bp.
+  LS mean +22.5 bp/rebalance, CI [+9.2, +35.1] bp. (Unaffected by the spread
+  correction — gross return doesn't depend on the cost model.)
 - **It is a beta tilt, not a market-neutral edge:** OLS on the EW-universe mean gives
   beta +1.14, R² = 0.75 — exactly the Phase 148 failure mode the amendment's
-  neutralization criterion targets. The neutralized intercept is +4.9 bp/rebalance and
-  is net-negative at ALL 9 spread × borrow combos once personal costs apply (measured
-  one-way turnover 0.45/rebalance, 2.6× 0b's 0.17 rank-churn prior — AGY finding 9
-  vindicated; commissions 2.8-3.2 bp/side at $100k quintile breadth). Cheapest-corner
-  net CI [−7.9, +5.8] bp.
-- **Stability fails:** net-at-anchor negative in 2/3 subperiods (only 2019-2025
-  positive).
-- **Offsets 1-4 agree:** all five neutralized-net means negative at anchor cost (betas
-  1.08-1.20).
+  neutralization criterion targets. (Also unaffected by the correction.) The
+  neutralized intercept is +4.9 bp/rebalance; net-at-cost still fails to clear CI>0 at
+  ALL 9 spread × borrow combos even at the corrected, 10x-lower spread band (measured
+  one-way turnover 0.45/rebalance; commissions 2.8-3.2 bp/side at $100k quintile
+  breadth, unaffected). **Corrected cheapest-corner net CI [−5.0, +8.6] bp, mean
+  +1.85bp** (was incorrectly recorded as CI [−7.9, +5.8] bp, implied mean ≈ −1bp) — a
+  materially more favorable point estimate, but the CI is wide enough on sampling
+  noise alone that the lower bound stays negative regardless.
+- **Stability still fails**, same qualitative shape: net-at-anchor negative in
+  subperiods 1 and 2, positive only in subperiod 3 (2019-2025). **Corrected subperiod
+  nets: −3.9bp, −6.4bp, +14.2bp** (was incorrectly recorded as −9.7, −12.1, +8.7bp) —
+  every subperiod moved more favorable under the correction, but the multi-year
+  negative stretch through the middle of the sample is a property of the gross return
+  series itself, not a cost-model artifact, and doesn't flip.
+- **Offsets 1-4, corrected — do NOT all agree as originally recorded.** The original
+  text claimed "all five neutralized-net means negative at anchor cost"; this was
+  itself a downstream consequence of the same bug and was wrong. Corrected: offset 0
+  (primary, gated) +1.28bp, offset 1 +5.56bp, offset 2 −1.31bp, offset 3 +5.10bp,
+  offset 4 +0.14bp — **4 of 5 offsets are actually positive** at anchor cost. This is
+  explicitly ungated robustness, not a PASS criterion (only offset 0 is gated per the
+  locked design), and does not change the formal verdict — criterion (a)'s CI still
+  crosses zero on the primary offset and criterion (c)'s stability still fails — but
+  the underlying picture is less uniformly negative than originally described.
 - **Attribution (reported, ungated):** 52/231 symbols pass per-symbol BH-FDR, 47 with
   CI lower bound > 0 (BNTX, SDOG, SCHD at the top) — per-name signal mass exists; the
-  XS-LS construction is what fails.
+  XS-LS construction is what fails. (Unaffected by the correction.)
 - **Verdict registered** as the first `concept_registry` `domain='construction'` row
-  (migration 329, renamed from 320 after a number collision with the commodity regime APR migration): `range_pct_fast_xs_ls_h5`, status deprecated.
+  (migration 329, renamed from 320 after a number collision with the commodity regime APR migration): `range_pct_fast_xs_ls_h5`, status deprecated. Corrected 2026-09-13 via
+  migration 335, verdict unchanged.
 
 Per the pre-registration's DEAD branch: no successor is auto-promoted. Any successor
 needs its own pre-registration and must address why the sign-consistency-selected leader
 failed: market-beta loading plus personal-scale costs on a 0.45-churn quintile
 construction. The program's remaining queued falsification is workstream 2 (the 15m
-residual diagnostic from todo 278's closed design, unchanged).
+residual diagnostic from todo 278's closed design, unchanged). (A single-name-only
+successor, Pre-registration 3, was later designed and run 2026-09-13 — see that
+section; its own cost/spread constant was never affected by this bug, hardcoded
+independently rather than imported.)
 
 ---
 

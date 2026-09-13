@@ -703,3 +703,44 @@ requirement of Phase 147's actual live promotion gate, deferred (not dropped) to
 real trailing-vs-full-period split exists. This is a measurability-gap correction, not a
 threshold renegotiation after seeing a result — no training or scoring command had run
 when this was found.
+
+### E12 — 2026-09-13: 10x spread-constant transcription bug corrected in `range_pct_fast_xs_ls_h5_falsification.py`, foundational to the personal-scale program's kill criterion
+
+- **Observed first:** the pooled `range_pct_fast_xs_ls_h5` DEAD verdict (2026-09-02,
+  `concept_registry` migration 329) — one of the two formal pre-registered results the
+  program's decision gate (fired 2026-09-12) rests on. User directly challenged this
+  session's cost assumptions ("execution costs are near free... assume minimal costs"),
+  prompting a decomposition of the cost model rather than a defense or a cave.
+- **Changed:** found `_LIVE_SPREAD_ANCHOR = 0.0014` (14bp) in the falsification script —
+  should have been `0.00014` (1.4bp), matching 0b's actual measured live-quote median.
+  The exact same 10x transcription error `personal_edge_paper_screen.py` had already
+  caught and fixed in itself on 2026-09-02 (documented in that script's own comment),
+  but the fix never propagated to this sibling script. Sat undetected 11 days — through
+  an AGY adversarial review of the pre-registration's design, the 2026-09-11 graveyard
+  reconsideration pass (which cited this verdict as "confirmed settled" without
+  re-deriving it), and two same-day reuses of this exact file's `_build_phase` earlier
+  in the same session the bug was finally caught (neither reuse imported the buggy
+  constant, so neither was itself affected). Fixed in source (same commit); the entire
+  original falsification was re-run end to end at the corrected value, same locked
+  methodology, nothing else touched.
+- **Pre-registered?** Yes, unambiguously — this is not a methodology change in the
+  sense this ledger normally tracks. The correct value (0.00014, matching 0b's
+  independently measured live-quote anchor) WAS the pre-registered intent from the
+  start; the bug was a transcription error in implementing an already-locked decision,
+  not a new choice made after seeing a disappointing or favorable result. Recorded here
+  anyway because a fixed quantity central to a fired kill criterion moved after results
+  existed, and this ledger's whole purpose is making exactly that visible, regardless of
+  the reason it moved.
+- **Result:** verdict UNCHANGED — still DEAD. All 9 cost combos still fail CI>0
+  (corrected cheapest-corner CI [−5.0, +8.6]bp vs. originally-recorded [−7.9, +5.8]bp);
+  stability still fails on the same qualitative shape (corrected subperiods −3.9/−6.4/
+  +14.2bp vs. originally-recorded −9.7/−12.1/+8.7bp). Every point estimate moved
+  meaningfully more favorable under the correction; none crossed into PASS territory —
+  CI width from genuine sampling noise, not the cost-driven point estimate, is what
+  keeps criterion (a) failing. `concept_registry` migration 335;
+  `docs/research/construction-verdict-ledger.md`'s `range_pct_fast_xs_ls_h5` row.
+- **Process lesson, not just a number fix:** a sibling script caught and fixed this
+  exact bug class in itself the same day the buggy script was first run, and that fix
+  never got checked against nearby scripts sharing the same constant name/convention.
+  Worth a repo-wide grep for other `_LIVE_SPREAD_ANCHOR`-shaped hardcoded constants
+  that could carry the same drift the next time a source-of-truth value changes.
