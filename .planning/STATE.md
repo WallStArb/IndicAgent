@@ -10,6 +10,33 @@ last_updated: "2026-09-11T00:00:00.000Z"
 
 ## Strategic Plan (read this first)
 
+**TF-stack economics for universe-expansion scoping, checked 2026-09-13 — holding
+period, not TF granularity, is the real constraint.** User question ("do we need to
+reduce TFs? is 5m/1m really useful?") prompted extending workstream 0b's personal cost
+hurdle to the intraday tiers for the first time (it had been hardcoded `tf='1d'` since
+2026-09-02 — nobody had ever tested whether 5m/15m/1h signal survives THEIR OWN
+turnover costs, only whether they clear raw FDR significance, which all four tiers do
+comparably: 5m 2.05%, 15m 1.87%, 1d 1.75%, 1h 1.22%). Fable consulted first, recommended
+exactly this check before deciding anything either way.
+`scripts/analysis/personal_cost_hurdle_by_tf.py` (reuses 0b's live-validated 1.4bp
+spread anchor; generalizes turnover measurement and annualization from calendar days to
+tf-native bars; compares against the real measured avg IC at each tf's own
+`lookahead_bars` already used in `feature_ic_scores`, not assumed values). **Every tf
+shows the identical shape**: short holds fail catastrophically (5m @ 1 bar: IC_min
+25-63x the measured IC; 15m @ 1 bar: 5-13x; 1h @ 1 bar: mixed), and the hurdle collapses
+as horizon lengthens (5m @ 39 bars ≈ half day: clears with 1.2-3x margin; 15m @ 10 bars
+≈ 2.5hr: clears everywhere; 1h @ 20-60 bars ≈ 3-10 days: clears with 18-100x margin) —
+the exact same shape 0a/0c already found at 1d, just replicated at finer granularity.
+**Conclusion: TF granularity itself is not the uneconomical thing; ultra-short holding
+periods are, at any granularity.** 5m as a data/feature tier is not dead weight — a
+half-day-hold 5m-tier construction clears its own economics with real margin. Cutting
+5m outright (the naive reading of the cost-pressure argument) would be wrong; a sharper,
+cheaper move for universe-expansion scoping is to stop MEASURING (not computing) the
+short-horizon cells that structurally can never clear personal-scale costs at any tf
+(H=1 bar everywhere, H=6/12 at 5m) — real compute savings without losing anything of
+economic value. Not yet acted on; a scoping input for the universe-expansion phase, not
+itself a phase or a construction verdict.
+
 **Council review of the fired gate, 2026-09-13 — verdict stands, all three follow-up
 threads closed.** A 4-seat adversarial review of the 2026-09-12 firing raised
 objections, then actually resolved every checkable one rather than leaving them open:
