@@ -31,10 +31,10 @@ its own pre-registered test* (BH/BY-FDR across that construction's own hypothese
 Nothing upstream of this ledger controls error across the growing number of *independent
 constructions* this program has tried — analogous to what `methodology-change-ledger.md`
 does for pipeline-machinery changes, but for hypothesis count instead. As of 2026-09-11,
-**13 constructions have been run to a definitive verdict** (count the rows below). Any future
+**14 constructions have been run to a definitive verdict** (count the rows below). Any future
 PASS must be discounted against this count before being treated as action-worthy — e.g. a
 construction's own within-test alpha (typically 0.05) should be read as `alpha / N_tested`
-(~0.004 at N=13) for the purpose of deciding whether to act on it, not taken at face value.
+(~0.0036 at N=14) for the purpose of deciding whether to act on it, not taken at face value.
 Update N_tested when a new row is appended; re-derive by counting rows, don't hand-increment
 a stale number.
 
@@ -57,6 +57,7 @@ a stale number.
 | Phase 148 `alpha_score_directional` | 2026-09-02 | **Killed on paper** | Gate 1 passed (140/640 OOS cells) but fails the personal cost hurdle on every cell under the worst-case band, and — decisive, band-independent — Gate 2's realized OOS frame P&L is negative *gross* of any costs (mean -0.1215R). A lower cost hurdle can't rescue a negative gross edge. `concept_registry` (`phase148_alpha_score_directional`); todo 367. **Reconsidered 2026-09-11 — confirmed settled**: the 140-cell "pass" is selection-inflated (chosen from 640 by the same FDR procedure claiming significance; unbiased all-cell mean rank-IC is 0.000-0.050); 100% sign co-firing across cells means there was never independent breadth to refine. |
 | `bars_since_high_fast_xs_ls_h5` (cross-sectional long-short) | 2026-09-11 | **DEAD (unconditional net-negative; regime-gate refinement also fails on decomposition)** | Unconditional full-history spread check: negative gross return (mean -0.0004/rebalance) despite positive pooled regime-averaged IC of 0.1118; low beta (0.19/R²=0.085) rules out beta-contamination. The apparent "0.11 avg IC, 46-symbol support" (`scripts/analysis/personal_edge_paper_screen.py`, H=5) decomposes into 5 FDR-passing `feature_ic_scores` cells drawn from FOUR STRUCTURALLY DIFFERENT regime taxonomies (`market_regimes.regime_group`: equity trend×vol, commodity contango/backwardation, rates curve-shape, fx dollar risk) — not one coherent "hold in regime X" signal. The standout cell, commodity `down_primary_backwardation` (IC=0.299, p=2e-5, FDR-pass), occurred on only 52 total days across 16 years (2008-2024) — a handful of macro-shock episodes (2008 crash, 2014-15 oil collapse, 2020 COVID, 2022 bear), not 52 independent bets; passing a mechanical FDR/CI gate doesn't rescue episode-clustered thinness this severe. Stripping it out, the only broad/robust cells are two equity ones (`mid_neutral` IC=0.043, `high_bear` IC=0.040, n_independent 24k/24k) — barely above the already-failed unconditional pooled IC, not enough to plausibly flip the spread result. No untried regime-gate construction survives this decomposition; graveyard reconsideration item #2 closed on this basis, not merely unreproduced. Structurally-motivated successor (SR-level-support divergence via `_compute_sr_dist_atr`) also tested, also flat (51-58% sign consistency). `docs/research/2026-09-11-strategic-plans-features-ensemble-construction.md` (graveyard #4); `project_strategic_plans_2026_09_11` memory. |
 | `alpha_score_residual_single_security_15m` | 2026-09-03 | **FAIL, bucketed retest also FAIL — closed** | Family stat 0.00277 clears the effect-size floor and both bootstrap/null conditions pass, but 0/231 symbols individually qualify BY-FDR positive (floor 10%) — a uniformly dilute common effect, not concentrated per-name alpha. Raw (non-residualized) arm was ~3.8x stronger, confirming the predictivity is dominated by the common/market component the demeaning strips. `concept_registry` (`alpha_score_residual_single_security_15m`); workstream 2 of the personal-scale edge program. **Reconsidered 2026-09-11, bucketed retest run same day — FAST-KILL**: pre-registered 8-bucket sector split (`instruments.contract_details->>'sector'`, fixed mapping, 24 NULL-sector symbols ex-ante excluded) re-ran condition (d) as BY-FDR across 8 bucket-level null p-values instead of 231 per-symbol ones. 0/8 qualify — every raw bucket null_p was already >= 0.15 (range 0.15-0.80), well short of 0.05 before correction even applied. Per the pre-registered fast-kill rule (<=1 of ~8 clearing → abandon), this closes the construction: both per-symbol and bucketed forms of condition (d) have now failed. `scripts/analysis/alpha_score_residual_bucketed_retest_15m.py`. |
+| `range_pct_fast_xs_ls_h5_single_name_only` (successor, Pre-registration 3) | 2026-09-13 | **DEAD (stability criterion fails)** | Successor to the pooled `range_pct_fast_xs_ls_h5` verdict above, restricted to the 128-symbol single-name-equity subset after a diagnostic found the pooled verdict's beta contamination was disproportionately an ETF-subset property (single-name β=0.91/R²=0.44 vs. ETF-only β=1.31/R²=0.82). Full pre-registration written, AGY-reviewed before running (raised valid meta-FDR/cost-realism/null-validity/survivorship objections, recorded but not resolved — moot for this verdict) and specifically flagged that the stability criterion (net > 0 in 3/3 subperiods) fails. AGY's own specific subperiod numbers were independently verified and found WRONG, but the qualitative call held: true numbers +17.87bp / **-1.14bp** / +4.87bp (subperiod 2, 2013-10-02..2019-11-06, at anchor cost) — criterion (c) requires strict positivity in all three, fails on subperiod 2 alone. Per the pre-registration's own no-post-hoc-loosening clause, this is DEAD on criterion (c) without needing the full bootstrap CI/shuffled-null machinery (all three criteria are required; (c) already fails). The preliminary diagnostic's headline 10.17bp (primary-phase-only) masked this — excess return concentrated in the 2007-2013 crisis era, not uniform. `concept_registry` (`range_pct_fast_xs_ls_h5_single_name_only`, migration 334); `docs/plans/2026-09-02-personal-scale-edge-determination-plan.md` (Pre-registration 3); todo 375 (completed). |
 
 ## Supporting measurements (not standalone construction verdicts, but load-bearing context)
 
@@ -75,20 +76,13 @@ a stale number.
   flagged before the gate fired has now been tried and doesn't clear even the screening
   bar. Does not itself get a ledger row (no construction was ever pre-registered off it
   — nothing to verdict), recorded here so the gap doesn't get re-flagged as untested.
-- **`range_pct_fast_xs_ls_h5` beta-by-universe-composition diagnostic — real, unresolved
-  lead, 2026-09-13.** Same review found the pooled DEAD verdict's beta contamination
-  (β=1.14, R²=0.75) was never checked against the confound of pooling 128 single-name
-  equities with 103 mechanically-beta-dominated ETFs in one cross-sectional ranking.
-  `scripts/analysis/range_pct_fast_beta_by_universe_composition.py` (reuses the original
-  falsification's `_build_phase` unchanged, sanity-checked by exactly reproducing the
-  pooled β/R²): single-name-only subset shows materially reduced beta contamination
-  (β=0.91, R²=0.44 vs. ETF-only β=1.31, R²=0.82) and a neutralized intercept more than
-  double the pooled result (10.17bp vs. 4.87bp/rebalance). **Does not reopen the DEAD
-  verdict** — no cost drag, bootstrap CI, shuffled null, or stability check was computed;
-  descriptive only. Filed as
-  [todo 375](../../.planning/todos/pending/375-single-name-only-range-pct-fast-refalsification.md)
-  for a proper pre-registered follow-up — the single highest-leverage open lead this
-  review surfaced.
+- **`range_pct_fast_xs_ls_h5` beta-by-universe-composition diagnostic — led to a real
+  pre-registered successor test, now CLOSED DEAD, 2026-09-13.** The diagnostic itself
+  (single-name-only β=0.91/R²=0.44 vs. pooled β=1.14/R²=0.75, neutralized intercept
+  10.17bp vs. 4.87bp) was real but explicitly preliminary/non-load-bearing. Followed up
+  same day with a full pre-registration (Pre-registration 3) and AGY review — see the
+  `range_pct_fast_xs_ls_h5_single_name_only` row above for the verdict. Superseded; kept
+  here only as the provenance trail from diagnostic → pre-registration → verdict.
 - **Personal-cost-hurdle tautology check — RESOLVED, hurdle confirmed non-tautological,
   2026-09-13.** Same review questioned whether 0c's 218/218 (100%) hurdle-clear rate
   meant the hurdle was a rubber stamp rather than doing real discriminating work. Checked

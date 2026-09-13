@@ -985,3 +985,74 @@ as plain `feature_vectors` columns) is a feature recommendation, not a construct
 verdict, and stays open as its own follow-up. H-A/H-B stays a live, separate track
 with its own pre-registration, unaffected by this gate closing the personal-scale
 program's construction search.
+
+---
+
+## Pre-registration 3 — `range_pct_fast` XS-LS @ H=5, single-name-only universe (todo 375)
+
+Written 2026-09-13, after a council review of the fired decision gate found a real,
+unresolved lead (`range_pct_fast_beta_by_universe_composition.py`: single-name-only
+beta 0.91/R²=0.44 vs. pooled 1.14/0.75, neutralized intercept more than double the
+pooled result) and before any statistic of THIS construction (a genuine successor, not
+a re-run of Pre-registration 1) was computed. This does not reopen the fired gate —
+Pre-registration 1's DEAD verdict on the pooled universe stands unchanged; this is a new
+construction on a different, narrower universe.
+
+**Every fixed quantity is inherited verbatim from Pre-registration 1 except the universe
+restriction, locked here before running:**
+
+- **Universe.** Restricted to `instrument_tags.tag = 'single_name_equity'` (128 of the
+  231 active equity symbols, per live check 2026-09-12/13). This is the ONE substantive
+  change from Pre-registration 1. Rationale: ETFs are mechanically beta-dominated by
+  construction (basket instruments); single names carry more idiosyncratic variance.
+  The diagnostic that motivated this pre-registration found the pooled test's beta
+  contamination was disproportionately an ETF-subset property.
+- **Everything else unchanged from Pre-registration 1's locked spec:** signal
+  (`range_pct_fast`, no recomputation), sign (long top quintile, short bottom),
+  cadence (stride=5, 5 offsets, offset 0 primary), min cross-section (**20, NOT
+  lowered** — thinner legs on the smaller universe are a real cost of the construction,
+  not a parameter to relax to make it easier to pass), return
+  (`forward_returns.return_mid`, `executable_open_to_open`, LEFT JOIN, no
+  `complete_mid` filter, settled-at-zero), IS window (`bar_ts < alpha.validation.oos_start`,
+  same OOS holdout untouched), cost model (spread band {0.7, 1.4, 2.8}bp, borrow band
+  {0.25, 0.5, 1.0}bp, $100k equity, $0.35 commission minimum), statistical protocol
+  (circular block bootstrap block=2 rebalances B=2000, shuffled null N=1000 within-date
+  permutation, alpha=0.05, 3 subperiods), PASS rule (all three: neutralized-net CI
+  lower bound > 0 at all 9 cost combos; shuffled-null p<0.05 on gross; net>0 in 3/3
+  subperiods at anchor cost).
+
+**Design fork resolved, not left implicit.** Neutralization uses the OLS-fit
+equal-weight mean of the SAME (single-name-only) panel under test — matching
+Pre-registration 1's own definition verbatim ("the equal-weight universe mean over ALL
+eligible simple returns that date is the market-factor proxy," referring to the panel
+being tested, not some other reference universe). The alternative — neutralizing
+against the full 231-symbol pooled mean instead — was considered and rejected: it would
+conflate two different questions (does the signal beat this subset's own market factor,
+vs. does it beat a broader reference beta a trader doesn't actually hold in this
+construction) and was not how the original test was defined. Locked before running, not
+chosen after seeing which produces a larger residual.
+
+**Turnover and commission fraction are measured fresh on the smaller universe, not
+assumed from Pre-registration 1's pooled numbers.** `_build_phase`/`_commission_frac`/
+`_drag` are reused unchanged from `range_pct_fast_xs_ls_h5_falsification.py` and are
+already correctly parameterized on `phase.k` (leg size), which will reflect the
+single-name-only universe's own quintile split (k≈25 vs. pooled k≈46) automatically —
+no code change needed, but the resulting commission-minimum-binding behavior may differ
+materially and must be read fresh, not assumed to match the pooled run.
+
+**Construction name:** `range_pct_fast_xs_ls_h5_single_name_only` (distinct from
+Pre-registration 1's `range_pct_fast_xs_ls_h5` — a different universe is a different
+construction, gets its own `concept_registry` row regardless of verdict).
+
+**Execution:** `scripts/analysis/range_pct_fast_xs_ls_h5_single_name_falsification.py`,
+read-only, reusing `_build_phase`/`_commission_frac`/`_drag`/`_shuffled_null`/
+`_block_bootstrap_mean` from the original falsification script unchanged (imported, not
+copy-pasted) — only the panel query gains a universe filter. Design AGY-reviewed before
+running, per this program's standing practice (every prior pre-registration got an
+adversarial pass first). Verdict (PASS→ADVANCED / FAIL→DEAD) lands in `concept_registry`
+(`domain='construction'`) via a post-run registration step, same as every other
+verdict in this program.
+
+**Invalidations, same as Pre-registration 1:** any fixed quantity moved after an IS
+number is seen; a second run with tweaked parameters presented as the verdict; any
+holdout statistic computed before a PASS earns a one-shot gate look.

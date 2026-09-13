@@ -10,26 +10,27 @@ last_updated: "2026-09-11T00:00:00.000Z"
 
 ## Strategic Plan (read this first)
 
-**Council review of the fired gate, 2026-09-13 — verdict stands, one real lead surfaced,
-one gap closed for good.** A 4-seat adversarial review (data-integrity/statistician/
-economist/allocator) of the 2026-09-12 firing raised objections, then actually ran the
-checkable ones rather than leaving them as unresolved questions: (1) confirmed the
-0c hurdle is NOT a tautology — minimum |IC| across the full 554-cell FDR-passing
-population is 0.023, ~5-7x the hurdle floor, closed for good; (2) ran the "near-free"
-TSMOM per-symbol screen this program's own proposal doc flagged but never executed —
-**decisive negative**, mean IC negative across pooled/single-name/ETF splits, 0
-symbols qualify BY-FDR at any split (`docs/research/construction-verdict-ledger.md`
-supporting measurements) — closes the "did we try a structurally different
-construction type" gap; (3) found a real, verified, UNRESOLVED lead: `range_pct_fast`'s
-pooled DEAD verdict's beta contamination is disproportionately an ETF-subset property —
-single-name-only shows β=0.91/R²=0.44 vs. pooled β=1.14/R²=0.75, neutralized intercept
-more than double (10.17bp vs 4.87bp). Does not reopen the fired kill criterion (no
-cost/bootstrap/null computed), filed as
-[todo 375](todos/pending/375-single-name-only-range-pct-fast-refalsification.md), the
-single highest-leverage item in the queue. Survivorship bias (100% of the 231-symbol
-universe is `is_active=true`, zero delisted-name representation, verified live) stays
-genuinely unresolved — no new data gathered, no owner assigned beyond "flag before
-citing any IC number as a hard ceiling."
+**Council review of the fired gate, 2026-09-13 — verdict stands, all three follow-up
+threads closed.** A 4-seat adversarial review of the 2026-09-12 firing raised
+objections, then actually resolved every checkable one rather than leaving them open:
+(1) confirmed the 0c hurdle is NOT a tautology — minimum |IC| across the full 554-cell
+FDR-passing population is 0.023, ~5-7x the hurdle floor, closed for good; (2) ran the
+"near-free" TSMOM per-symbol screen this program's own proposal doc flagged but never
+executed — **decisive negative**, mean IC negative across pooled/single-name/ETF
+splits, 0 symbols qualify BY-FDR at any split — closes the "did we try a structurally
+different construction type" gap; (3) `range_pct_fast`'s single-name-only beta-
+contamination lead (β=0.91/R²=0.44 vs. pooled β=1.14/R²=0.75) was taken all the way to
+a proper AGY-reviewed pre-registration (Pre-registration 3) — **DEAD on the stability
+criterion**: subperiod 2 (2013-2019) net -1.14bp at anchor cost, verified directly
+against the locked formula (AGY's own specific numbers were wrong but its qualitative
+call — criterion fails — was right). Verdict `range_pct_fast_xs_ls_h5_single_name_only`,
+migration 334, todo 375 completed. **Three distinct construction paradigms (pooled
+cross-sectional, single-name-only cross-sectional, per-symbol time-series) have now all
+failed on this corpus** — the "universe expansion is primary" resourcing call stands on
+materially firmer ground than at the 2026-09-12 firing. Survivorship bias (100% of the
+231-symbol universe is `is_active=true`, zero delisted-name representation, verified
+live) stays genuinely unresolved — no new data gathered, no owner assigned beyond "flag
+before citing any IC number as a hard ceiling."
 
 **Personal-scale decision gate: KILL CRITERION FORMALLY FIRED 2026-09-12 (rule 3).**
 Full evidentiary record and verdict text: `docs/plans/2026-09-02-personal-scale-edge-
