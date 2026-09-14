@@ -3,7 +3,13 @@ gsd_state_version: 1.0
 milestone: v3.1
 milestone_name: AlphaEngine Validation + Alpha Scoring
 status: milestone_complete
-last_updated: "2026-09-13T00:00:00.000Z"
+last_updated: "2026-09-14T20:08:09.337Z"
+progress:
+  total_phases: 12
+  completed_phases: 0
+  total_plans: 0
+  completed_plans: 0
+  percent: 0
 ---
 
 # Project State
@@ -27,10 +33,12 @@ names) is the one genuinely unresolved integrity gap — no owner, flag it befor
 any IC number here as a hard ceiling.
 
 **Universe-expansion scoping inputs, gathered 2026-09-13, not yet acted on:**
+
 - **TF stack: keep all four tiers (5m/15m/1h/1d).** Holding period, not TF
   granularity, is what's economically dead — every tier clears its own turnover-
   adjusted hurdle given a long-enough hold (5m @ ~half day, 15m @ ~2.5hr, 1h @ 3-10
   days), while 1-bar holds fail at every tier. `scripts/analysis/personal_cost_hurdle_by_tf.py`.
+
 - **Cross-TF signal correlation: momentum decorrelates across TFs (1d-vs-15m/5m rho
   near zero, coin-flip sign agreement) — real, not Phase 148's 100%-co-firing
   redundancy pattern.** Necessary but not sufficient for a fusion construction to add
@@ -41,23 +49,76 @@ any IC number here as a hard ceiling.
   Next step if pursued: a real pre-registration on the DIVERGENCE framing specifically
   (betting when coarse/fine reads disagree) — competes for priority against universe
   expansion, doesn't precede it by default.
+
 - **22 registered futures/FX instruments (ES, NQ, CL, GC, VX, Treasury/grain complex,
   4 FX pairs) have ZERO rows in `market_data_ohlcv`/`feature_vectors`** — never
   backfilled despite existing as instrument metadata. Real instrument count is 253
   (231 active + 22 empty), not the ~350 previously assumed. Server headroom: 24
   cores, 29GB RAM + 150GB swap, 569GB disk free — compute time, not disk, is the
-  constraint (full `ic_engine` recompute runs 66-77+ hours).
+  constraint (full `ic_engine` recompute runs 66-77+ hours). **Not one uniform blocker
+  (corrected 2026-09-13, see [377](todos/pending/377-futures-backfill-needs-continuous-contract-construction-not-just-gateway.md)):**
+  the 4 FX pairs are spot (IDEALPRO, no roll/expiry) and blocked only on `ib-gateway`
+  being down; the 18 futures need a continuous-contract construction methodology
+  (back-adjustment choice, per-contract-month IBKR history depth, real-vs-proxy
+  forward-curve data) that doesn't exist yet — `ops_roll_batch.py` only handles live
+  forward rolls, not historical stitching. **Further narrowed same session: 14 of the
+  22 are redundant with ETFs already in the 231-symbol universe** (ES/NQ/RTY/YM vs.
+  SPY/QQQ/IWM/DIA; ZN/ZB/ZF/ZT vs. TLT/IEF/SHY; GC/SI vs. GLD/SLV; EURUSD/USDJPY vs.
+  FXE/FXY — all confirmed present) — **only CL/NG/HG/ZC/ZS/ZW/VX + GBPUSD/USDCHF (9
+  instruments) target exposures with no existing proxy.** Any future backfill should
+  target that 9, not all 22.
+
+- **Single-name equity IS the primary breadth-scaling lever (corrected 2026-09-13, same
+  session) — reasoned via the Fundamental Law of Active Management (IR ≈ IC × √breadth):**
+  measured IC is small and stable (~0.03-0.06) and effective breadth is only ~8.4, so breadth
+  is the dominant term. Only single-name equity expansion has the scale (potentially hundreds
+  to thousands of names) to move that number materially — ETF additions (10-20 symbols
+  filling exposure gaps) move the count from 231 to ~250, noise against a breadth problem
+  this severe. **`alpha_score_residual_single_security_15m`'s DEAD verdict (0/231, then 0/8
+  sector-bucketed) is NOT evidence against this** — the current 128 single-names are almost
+  entirely large/mega-cap (only 1 of 128 tagged `eq_small_cap`), the segment where market
+  efficiency is highest and idiosyncratic signal is hardest to find. It's evidence against
+  resampling more of the same large-cap population, not against real breadth-scale expansion
+  into a larger, less-efficient (further down-cap) slice of the market — an untested
+  population. **Real open cost question, not yet measured:** the "personal cost hurdle isn't
+  binding" finding (0b) was calibrated against the current liquid, large-cap-dominated
+  universe — going down-cap means wider spreads/slippage/borrow-availability questions that
+  haven't been tested and shouldn't be assumed still non-binding.
+
+- **ETF expansion stays useful for filling specific exposure blind spots, not as a breadth
+  strategy** — checked `instrument_tags`/`tag_vocabulary` (39 exposure tags across 231
+  symbols): commodities/international-equity/fixed-income/real-estate/crypto already
+  well-covered; confirmed gaps are EM currency exposure (zero symbols tagged `fx_em`),
+  standalone factor-equity ETFs (value/growth/small-cap each only 1-2 symbols, no momentum/
+  quality/low-vol factor ETF at all), and vol term structure (see futures gap above).
+
+- **Nautilus Trader (OSS, event-driven backtest/live-execution engine, Rust core + Python)
+  flagged 2026-09-13 as a forward-looking candidate for a future execution-layer phase** —
+  IndicAgent's pipeline currently stops at `alpha_events`/"killed on paper," with no order-
+  execution simulator anywhere in the DAG and no live-execution path sharing code with
+  backtest. Nautilus's backtest/live parity is philosophically aligned with this project's
+  existing causal-construction discipline. Not actionable now (no proven edge to execute
+  yet) — revisit once a construction actually passes gate, not before. Qlib and Vectorbt
+  (also raised same session) don't fit: Qlib overlaps almost entirely with the
+  already-built, already-correctness-proven feature-factory/IC-engine/ensemble pipeline;
+  Vectorbt's grid-sweep speed would duplicate existing custom bootstrap/FDR machinery
+  built for this project's exact methodology. Evaluate any future tool this way — gap-fit
+  against already-built work, not a build-vs-buy default in either direction.
 
 **Open items, not construction verdicts:**
+
 - **Todo 372** (`Panel.sync_shift_null_p` panel-synchronicity bug): finding 1 fixed in
   code, TDD-verified, still lacks independent adversarial review (AGY/Codex rate-
   limited when the fix landed). Finding 2 (`volume_z` diurnal detrending) untouched.
+
 - **Todo 248** (HMM per-symbol lookahead bug): walk-forward fix built + tested, not
   deployed. User directive: deploy regardless of its own Gate 4 result (confirmed
   causal-law violation, not a new/unproven signal) — pure deployment decision now,
   re-evaluate scoping via `/gsd-discuss-phase`.
+
 - **N1** (`nonlinear_interaction_combiner` residual form): structurally inconclusive,
   confirmed not a staleness artifact (todo 364). Don't cite as pass or fail.
+
 - **`cross_asset_lead_lag`** and **`adaptive_combiner_weights`**: the two remaining
   untested Signal-Extraction candidates from the pre-personal-scale-program backlog,
   gated on other work (`stale_reference_price_adjustment`, a data-availability
@@ -151,15 +212,18 @@ duplicated here. Currently open/not-yet-planned phases, compressed to current st
 - **Phase 168** (Cost-Hurdle-Adjusted Spread Construction): plans execution-ready but blocked indefinitely -- Phase 167 has no live construction left to refine. `docs/research/trade-construction-layer.md`.
 - **Phase 151** (Feature Primitives Expansion + Interaction Layer): waves 1-5 (7/9 plans) executed 2026-08-05, `FeatureVector` 249→292 fields. Waves 6-7 (corpus recompute + interaction IC sweep) intentionally paused, sequenced behind the corpus pipeline finishing rather than run twice.
 - **Phase 145** (StratificationDimension Formalization): unblocked but not planned, not currently prioritized.
-- **Universe expansion**: prescribed by the personal-scale program's kill criterion (2026-09-12), not yet scoped as a phase. See Strategic Plan section above for scoping inputs already gathered.
+- **Phase 174** (Universe Expansion — Single-Name Breadth Scaling + Targeted ETF Gap-Fill): added to roadmap 2026-09-13 (prescribed by the personal-scale program's kill criterion, 2026-09-12), not yet planned. See Strategic Plan section above for scoping inputs already gathered. Note: `gsd-sdk phase.add` initially returned a colliding number (162, already in use by a completed phase) — corrected to 174 by hand; see feedback queued this session.
 
 ## Session
+
+Last session: 2026-09-14
+Stopped at: Phase 174 context gathered
+Resume file: .planning/phases/174-universe-expansion-single-name-breadth-scaling-targeted-etf-/174-CONTEXT.md
 
 **This section has a recurring pattern of going stale the moment GSD-phase-level work pauses**
 (confirmed 3 times: 2026-07-31, 2026-08-09, 2026-08-14) -- narrative left here gets superseded by
 the Strategic Plan section and rots undetected. **Check the Strategic Plan section at the top of
-this file first, always** -- it is the one kept live. GSD-phase-level work has been idle since
-Phase 172 (2026-08-09); activity since then has been discovery-track research and ops/incident
-work, which doesn't flow through the phase-execution loop this section exists to track. Resolved
-incident narrative belongs in memory (e.g. `project_disk_full_incident_2026_08_13`) or git log,
-not here.
+this file first, always** -- it is the one kept live. GSD-phase-level work resumed 2026-09-14
+after idling since Phase 172 (2026-08-09) -- Phase 174 (Universe Expansion) now has context
+gathered, ready for `/gsd-plan-phase 174`. Resolved incident narrative belongs in memory (e.g.
+`project_disk_full_incident_2026_08_13`) or git log, not here.

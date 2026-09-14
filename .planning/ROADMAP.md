@@ -2766,6 +2766,20 @@ Plans:
 - [x] 173-03-PLAN.md — Exclude broadcast columns from the pooled cross-sectional cell, thread `bar_ts`, broadcast-sensitive fingerprint watermark (wave 2)
 - [x] 173-04-PLAN.md — `_compute_one_broadcast_cell`, BH-FDR wiring, live smoke run (wave 3)
 
+### Phase 174: Universe Expansion — Single-Name Breadth Scaling + Targeted ETF Gap-Fill
+
+**Goal:** [To be planned]
+**Requirements**: TBD
+**Depends on:** Personal-scale edge determination program closure (STATE.md, 2026-09-12/13),
+which prescribes universe expansion as primary. Should account for todo 376 (survivorship
+bias — active-only universe) when scoping sourcing methodology. Excludes futures entirely
+(see todo 377 — genuine gaps there are CL/NG/HG/ZC/ZS/ZW/VX/GBPUSD/USDCHF, but continuous-
+contract construction is unbuilt and out of scope for this phase).
+**Plans:** 0 plans
+
+Plans:
+- [ ] TBD (run /gsd-plan-phase 174 to break down)
+
 ---
 
 **Correction (2026-07-12, same day as the note above was first written):** this section previously said Phases 152/153 should be **prioritized now**, ahead of the intelligence-layer work. That was wrong and contradicted the milestone bullet above's own existing, correct caution ("Do not let either jump ahead of Phase 142B/143 or 148, which carry present-tense value the backlog matrix rates higher"). Monitoring decay of alpha that hasn't been proven to exist yet is monitoring a null: Phase 148's OOS gates (EIC-04 + FRAME-04) have not passed on corrected data — **FRAME-04 currently fails 16/17 cells** on the pre-143.1-fix baseline, so there is no proven capturable edge for 152/153 to watch decay in yet. **Corrected sequencing:** finish 143.1 (091→097→094→E1-vs-E2 re-run→096→088) → re-run EIC-04/FRAME-04 honestly on corrected data → only then decide between (a) building 152/153's decay/health monitoring or (b) expanding discovery (Phase 151/PrecedentEngine) based on what that gate actually says. Phase 157's kill-switch design above still correctly notes its dependency on Phase 153 eventually existing — that dependency is real, it's just not a reason to build 153 before Phase 148 resolves.
