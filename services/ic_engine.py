@@ -61,6 +61,8 @@ import dataclasses
 import hashlib
 import json
 import math
+import os
+import shutil
 import sys
 import time
 import warnings
@@ -197,6 +199,18 @@ _CROSS_SECTIONAL_SYMBOL = "POOLED"
 # only prior user). feature_ic_scores.cluster_id is smallint (max 32767); ~40
 # broadcast features leaves wide margin below that ceiling.
 _BROADCAST_CLUSTER_ID_OFFSET = 10000
+
+# Phase 174 Plan 05 (D-04a): disk-headroom multiplier for a disk-backed cross-sectional
+# cell's scratch allocation. NOT 1.0x -- TWO cell-sized scratch files coexist inside one
+# cell's compute: X_raw (allocated here, in _compute_cross_sectional_tf) and X_nd (Plan
+# 09's narrower non-degenerate/non-broadcast-column memmap, allocated from X_raw inside
+# _compute_one_cross_sectional_cell while X_raw is still open and being read). X_nd is
+# narrower than X_raw by construction (only surviving columns), so 2.0x is the worst
+# case; the extra 0.2x is a 10% margin for filesystem overhead and rounding, not a second
+# full-size file. Plan 09 lands in the next wave against this same code path -- do NOT
+# shrink this to 1.0x "because Plan 09 hasn't landed yet"; a check that is only correct
+# until the very next plan is a check that silently stops being correct.
+_DISK_BACKED_SCRATCH_HEADROOM_MULTIPLIER = 2.2
 
 # Magnitude-conditional IC percentile threshold (Component B, todo 090): defines
 # "large |prediction|" as the top quartile by |X| per feature. [conventional]
@@ -4358,73 +4372,282 @@ def _compute_cross_sectional_tf(
     # docstring). Session tuning for the large cross-sectional join (disable parallel
     # workers, raise work_mem) is per-connection, so it's applied fresh here rather
     # than once on a long-lived caller connection as before.
-    with short_lived_conn(dsn) as conn:
-        with conn.cursor() as tune_cur:
-            tune_cur.execute("SET max_parallel_workers_per_gather = 0")
-            tune_cur.execute("SET work_mem = '256MB'")
-        conn.commit()
+    # Plan 05 (D-04a/D-04c, todo 371): the `try:` below opens BEFORE the accumulator
+    # is constructed and closes only AFTER every consumer of the memmap-backed view
+    # has returned. `X_acc.finalize()` hands back a VIEW over the memmap (Plan 01's
+    # ownership contract), and `X_acc.close()` unlinks the scratch file -- any read
+    # of that view after close() raises `ValueError: mmap closed or invalid` on
+    # Linux, or is a platform-dependent invalid read elsewhere. Two invariants must
+    # hold for this `finally` to be a correct boundary:
+    # (1) `_compute_one_cross_sectional_cell` and `_compute_one_broadcast_cell` are
+    #     called SYNCHRONOUSLY inside this `try` -- never scheduled, deferred,
+    #     wrapped in a task, or handed to an executor. If a future change makes
+    #     either concurrent, this `finally` stops being a correct boundary.
+    # (2) Neither call's return value holds a reference into the mapping -- both
+    #     return per-feature IC rows (scalars aggregated over the cell), never an
+    #     array slice. If a future change adds a return field that IS an array
+    #     view, np.asarray(...).copy() it before the `finally` runs.
+    # Plan 05 (D-04a/D-04c, todo 371): the `try:` below opens BEFORE the accumulator
+    # is constructed and closes only AFTER every consumer of the memmap-backed view
+    # has returned. `X_acc.finalize()` hands back a VIEW over the memmap (Plan 01's
+    # ownership contract), and `X_acc.close()` unlinks the scratch file -- any read
+    # of that view after close() raises `ValueError: mmap closed or invalid` on
+    # Linux, or is a platform-dependent invalid read elsewhere. Two invariants must
+    # hold for this `finally` to be a correct boundary:
+    # (1) `_compute_one_cross_sectional_cell` and `_compute_one_broadcast_cell` are
+    #     called SYNCHRONOUSLY inside this `try` -- never scheduled, deferred,
+    #     wrapped in a task, or handed to an executor. If a future change makes
+    #     either concurrent, this `finally` stops being a correct boundary.
+    # (2) Neither call's return value holds a reference into the mapping -- both
+    #     return per-feature IC rows (scalars aggregated over the cell), never an
+    #     array slice. If a future change adds a return field that IS an array
+    #     view, np.asarray(...).copy() it before the `finally` runs.
+    X_acc: Float32ChunkAccumulator | None = None
+    try:
+        with short_lived_conn(dsn) as conn:
+            with conn.cursor() as tune_cur:
+                tune_cur.execute("SET max_parallel_workers_per_gather = 0")
+                tune_cur.execute("SET work_mem = '256MB'")
+            conn.commit()
 
-        # e-value pilot (Component C, todo 079): tf=5m POOLED cross-sectional cells ONLY
-        # (_e_value_pilot_active gate) -- fetch this cell's prior cumulative_e_value per
-        # (feature_name, lookahead_bars), one batched query per (tf, regime_label) call
-        # rather than per-feature, so evidence compounds across corpus reruns instead of
-        # resetting each build. DISTINCT ON picks the most recent PRIOR training_window_end
-        # (strictly before this run's) per cell -- a feature/lookahead pair with no prior
-        # row (first-ever look) is absent from the dict and defaults to the neutral prior
-        # of 1.0 at the per-feature lookup site below.
-        prior_e_values: dict[tuple[str, int], float] = {}
-        if _e_value_pilot_active(tf):
-            with conn.cursor() as e_val_cur:
-                e_val_cur.execute(
+            # e-value pilot (Component C, todo 079): tf=5m POOLED cross-sectional cells ONLY
+            # (_e_value_pilot_active gate) -- fetch this cell's prior cumulative_e_value per
+            # (feature_name, lookahead_bars), one batched query per (tf, regime_label) call
+            # rather than per-feature, so evidence compounds across corpus reruns instead of
+            # resetting each build. DISTINCT ON picks the most recent PRIOR training_window_end
+            # (strictly before this run's) per cell -- a feature/lookahead pair with no prior
+            # row (first-ever look) is absent from the dict and defaults to the neutral prior
+            # of 1.0 at the per-feature lookup site below.
+            prior_e_values: dict[tuple[str, int], float] = {}
+            if _e_value_pilot_active(tf):
+                with conn.cursor() as e_val_cur:
+                    e_val_cur.execute(
+                        """
+                        SELECT DISTINCT ON (feature_name, lookahead_bars)
+                            feature_name, lookahead_bars, cumulative_e_value
+                        FROM feature_ic_scores
+                        WHERE symbol = %(symbol)s AND tf = %(tf)s AND regime = %(regime_label)s
+                          AND is_pooled = true AND training_window_end < %(training_window_end)s
+                        ORDER BY feature_name, lookahead_bars, training_window_end DESC
+                        """,
+                        {
+                            "symbol": _CROSS_SECTIONAL_SYMBOL,
+                            "tf": tf,
+                            "regime_label": regime_label,
+                            "training_window_end": training_window_end,
+                        },
+                    )
+                    for _feat_name, _lookahead, _cumulative in e_val_cur.fetchall():
+                        if _cumulative is not None:
+                            prior_e_values[(_feat_name, _lookahead)] = float(_cumulative)
+                conn.commit()
+
+            feature_cols = ", ".join(f'"fv"."{f}"' for f in _FEATURE_NAMES)
+            return_cols = ", ".join(f'"fr".return_{s}' for s in scales)
+            complete_cols = ", ".join(f'"fr".complete_{s}' for s in scales)
+
+            # Step 1: Pre-fetch regime timestamps.
+            # market_regimes has one row per (tf, ts, regime_label) -- e.g. 120K rows for
+            # 5m/low_bull over the full training window.  This result set is small (120K
+            # datetime objects) and fast to fetch.
+            with conn.cursor() as ts_cur:
+                ts_cur.execute(
                     """
-                    SELECT DISTINCT ON (feature_name, lookahead_bars)
-                        feature_name, lookahead_bars, cumulative_e_value
-                    FROM feature_ic_scores
-                    WHERE symbol = %(symbol)s AND tf = %(tf)s AND regime = %(regime_label)s
-                      AND is_pooled = true AND training_window_end < %(training_window_end)s
-                    ORDER BY feature_name, lookahead_bars, training_window_end DESC
+                    SELECT ts FROM market_regimes
+                    WHERE regime_group = %(regime_group)s
+                      AND tf = %(tf)s
+                      AND regime_label = %(regime_label)s
+                      AND ts <= %(training_window_end)s
+                    ORDER BY ts
                     """,
                     {
-                        "symbol": _CROSS_SECTIONAL_SYMBOL,
+                        "regime_group": regime_group,
                         "tf": tf,
                         "regime_label": regime_label,
                         "training_window_end": training_window_end,
                     },
                 )
-                for _feat_name, _lookahead, _cumulative in e_val_cur.fetchall():
-                    if _cumulative is not None:
-                        prior_e_values[(_feat_name, _lookahead)] = float(_cumulative)
+                regime_timestamps = [r[0] for r in ts_cur.fetchall()]
             conn.commit()
 
-        feature_cols = ", ".join(f'"fv"."{f}"' for f in _FEATURE_NAMES)
-        return_cols = ", ".join(f'"fr".return_{s}' for s in scales)
-        complete_cols = ", ".join(f'"fr".complete_{s}' for s in scales)
+            if not regime_timestamps:
+                _logger.info(
+                    "ic_engine.cross_sectional_no_data",
+                    tf=tf,
+                    regime=regime_label,
+                )
+                return [], {"n_committed": 0, "n_skipped": 0}
 
-        # Step 1: Pre-fetch regime timestamps.
-        # market_regimes has one row per (tf, ts, regime_label) -- e.g. 120K rows for
-        # 5m/low_bull over the full training window.  This result set is small (120K
-        # datetime objects) and fast to fetch.
-        with conn.cursor() as ts_cur:
-            ts_cur.execute(
-                """
-                SELECT ts FROM market_regimes
-                WHERE regime_group = %(regime_group)s
-                  AND tf = %(tf)s
-                  AND regime_label = %(regime_label)s
-                  AND ts <= %(training_window_end)s
-                ORDER BY ts
-                """,
-                {
-                    "regime_group": regime_group,
-                    "tf": tf,
-                    "regime_label": regime_label,
-                    "training_window_end": training_window_end,
-                },
+            # Plan 05 (D-04a, todo 371) pre-flight estimate: a conservative UPPER bound on
+            # this cell's row count, computed from the two counts already in hand -- no
+            # extra fetch. Assumes full density (every symbol has a row at every regime
+            # timestamp), which overestimates for symbols with shorter backfill history;
+            # that is the safe direction per D-04's crash-loud-over-silent-degrade
+            # preference. Do NOT tighten this into an exact count -- an underestimate
+            # reintroduces exactly the OOM this fix removes. A false-positive
+            # CellTooLargeError at Russell-3000 scale is itself useful information -- it
+            # argues for holding sparse-history symbols at compute_eligible=false
+            # (Phase 174 D-07) rather than loosening the guard. This is the guard's third
+            # call site in this file (definition, per-symbol cell, post-materialization
+            # cross-sectional cell) -- reachable BEFORE any fetch, unlike that third one.
+            n_estimated = len(regime_timestamps) * len(symbol_list)
+            _check_cell_size(
+                n_estimated,
+                config,
+                f"Cross-sectional cell (pre-flight estimate) tf={tf} regime={regime_label}",
             )
-            regime_timestamps = [r[0] for r in ts_cur.fetchall()]
-        conn.commit()
 
-        if not regime_timestamps:
+            # Step 2: Query feature_vectors+forward_returns in timestamp chunks.
+            # Replaces a 3-way JOIN (feature_vectors × market_regimes × forward_returns) that
+            # caused the PostgreSQL backend to OOM for large regimes:
+            #   5m/low_bull: 120K regime timestamps × 58 symbols = 7M rows in one query.
+            # Chunked approach: cs_chunk_ts timestamps × 58 symbols ≈ 290K rows/query at
+            # default cs_chunk_ts=5000.  Fits comfortably in PostgreSQL working memory.
+            # feature_vectors.bar_ts is TF-bucket-aligned, so bar_ts = ANY(ts_chunk) is
+            # equivalent to time_bucket(interval, bar_ts) = ANY(ts_chunk) and uses the index.
+            # Rule 3 auto-fix: blocking PostgreSQL backend OOM on 3-way JOIN.
+            # symbol = ANY(%(symbol_list)s): THE contamination fix (Phase 144 D-01) -- without
+            # this filter every symbol in the corpus (not just this regime_group's peers) was
+            # pooled into this cell, since ts_chunk alone doesn't scope by symbol.
+            # Todo 356: fv.bar_ts BETWEEN ts_min AND ts_max is redundant with the ANY()
+            # predicate below (every value in ts_chunk already falls in [ts_min, ts_max])
+            # but is NOT redundant for the query plan against a compressed hypertable.
+            # Measured via EXPLAIN (ANALYZE, BUFFERS) against the real largest cell
+            # (equity/5m/low_bull): without BETWEEN, TimescaleDB's compressed-chunk
+            # segment exclusion expands bar_ts = ANY(<5000 values>) into a literal
+            # per-segment OR-chain of _ts_meta_min/_ts_meta_max range checks, re-evaluated
+            # for every compressed batch considered -- O(batches x len(ts_chunk)) planning
+            # cost. Adding BETWEEN lets the planner do cheap range-based segment exclusion
+            # first (a single min/max comparison per batch), leaving ANY() as a residual
+            # post-decompression filter: 10.2s -> 0.3s execution time on an isolated,
+            # single-variable EXPLAIN ANALYZE test, ~32x. ts_chunk is a contiguous slice of
+            # regime_timestamps' own `ORDER BY ts` result, so ts_chunk[0]/ts_chunk[-1] are
+            # already its min/max -- no extra computation needed to get the bound.
+            chunk_sql = f"""
+                SELECT fv.bar_ts, {feature_cols}, {return_cols}, {complete_cols}
+                FROM feature_vectors fv
+                INNER JOIN forward_returns fr
+                    ON fr.symbol = fv.symbol
+                    AND fr.tf = fv.tf
+                    AND fr.bar_ts = fv.bar_ts
+                    AND fr.return_type = 'executable_open_to_open'
+                WHERE fv.tf = %(tf)s
+                  AND fv.bar_ts BETWEEN %(ts_min)s AND %(ts_max)s
+                  AND fv.bar_ts = ANY(%(ts_chunk)s)
+                  AND fv.symbol = ANY(%(symbol_list)s)
+                ORDER BY fv.bar_ts
+            """
+
+            n_scales = len(scales)
+            # Float32ChunkAccumulator (todo 087) owns the buffer-to-array bookkeeping shared
+            # with _compute_symbol_tf's own OOM fix above; the ts_chunk re-execution mechanics
+            # and the ret/cmp matrices (different dtypes, NULL-substitution logic -- not the
+            # same shape as X) stay here.
+            #
+            # Plan 05 (D-04c, todo 371) mode selection: disk_backed_min_rows=0 means always
+            # disk-backed; otherwise disk-backed only once the pre-flight estimate reaches
+            # the threshold -- a small cell stays in-RAM (cheaper, no scratch-file overhead).
+            use_disk = (
+                config.disk_backed_min_rows == 0 or n_estimated >= config.disk_backed_min_rows
+            )
+            if use_disk:
+                # Disk-headroom pre-check (T-174-04, 2026-08-13 disk-full incident shape):
+                # fail before allocating, not during. 2.2x, not 1.0x -- TWO cell-sized
+                # scratch files coexist inside one cell's compute (this cell's X_raw and
+                # Plan 09's narrower X_nd, allocated from X_raw while it is still open and
+                # being read) -- see _DISK_BACKED_SCRATCH_HEADROOM_MULTIPLIER's own comment.
+                os.makedirs(config.memmap_scratch_dir, exist_ok=True)
+                required_bytes = int(
+                    _DISK_BACKED_SCRATCH_HEADROOM_MULTIPLIER * n_estimated * n_features * 4
+                )
+                free_bytes = shutil.disk_usage(config.memmap_scratch_dir).free
+                if free_bytes < required_bytes:
+                    raise RuntimeError(
+                        f"Insufficient scratch disk space for cross-sectional cell "
+                        f"tf={tf} regime={regime_label}: requires {required_bytes} bytes "
+                        f"({_DISK_BACKED_SCRATCH_HEADROOM_MULTIPLIER}x headroom for the "
+                        f"coexisting X_raw/X_nd scratch files) but only {free_bytes} bytes "
+                        f"are free on {config.memmap_scratch_dir}."
+                    )
+                X_acc = Float32ChunkAccumulator(
+                    disk_backed=True,
+                    estimated_rows=n_estimated,
+                    n_cols=n_features,
+                    scratch_dir=config.memmap_scratch_dir,
+                )
+            else:
+                X_acc = Float32ChunkAccumulator()
+
+            _logger.info(
+                "ic_engine.cross_sectional_accumulator_mode",
+                tf=tf,
+                regime=regime_label,
+                n_estimated=n_estimated,
+                disk_backed=use_disk,
+                scratch_dir=config.memmap_scratch_dir,
+            )
+
+            ret_chunks: list[np.ndarray] = []
+            cmp_chunks: list[np.ndarray] = []
+            # Phase 173 Plan 03 (D-05): bar_ts, row-aligned with X_raw/returns_mat/
+            # complete_mat, for Plan 04's future broadcast cell to consume (equality
+            # comparison between adjacent elements + set-membership on group
+            # representatives -- both exact under dtype=object). Deliberately a
+            # plain list, never routed through Float32ChunkAccumulator: that class
+            # is float32-only, and a datetime is not float32-safe data. dtype=object
+            # (not datetime64[ns]) because a datetime64 cast of a timezone-aware
+            # psycopg datetime loses tz and can shift values.
+            bar_ts_chunks: list[np.ndarray] = []
+
+            _logger.info(
+                "ic_engine.cross_sectional_chunk_pass",
+                tf=tf,
+                regime=regime_label,
+                n_regime_ts=len(regime_timestamps),
+                cs_chunk_ts=cs_chunk_ts,
+                n_chunks=(len(regime_timestamps) + cs_chunk_ts - 1) // cs_chunk_ts,
+            )
+
+            for chunk_start in range(0, len(regime_timestamps), cs_chunk_ts):
+                ts_chunk = regime_timestamps[chunk_start : chunk_start + cs_chunk_ts]
+                with conn.cursor() as chunk_cur:
+                    chunk_cur.execute(
+                        chunk_sql,
+                        {
+                            "tf": tf,
+                            "ts_chunk": ts_chunk,
+                            "ts_min": ts_chunk[0],
+                            "ts_max": ts_chunk[-1],
+                            "symbol_list": symbol_list,
+                        },
+                    )
+                    batch = chunk_cur.fetchall()
+                conn.commit()
+                if not batch:
+                    continue
+                n_batch = len(batch)
+                # float32, not float64: every downstream use of this array (_vectorized_ic,
+                # _compute_ic_rolling_metrics) ranks it via rankdata() and computes statistics
+                # on the resulting ranks/IC values, never on the raw floats directly -- rank
+                # order is preserved essentially perfectly at float32 precision for z-score/
+                # ratio-scale feature values. Halves the memory of X_raw, X_nd, and every
+                # per-scale subsample copy below -- the direct fix for the 2026-07-08 OOM
+                # incidents, where the largest cross-sectional cell (5m/low_bull, ~9.4M rows
+                # x 152 features after the 80-symbol ETF expansion) peaked at 20GB+ RSS.
+                X_acc.append_chunk([[r[i + 1] for i in range(n_features)] for r in batch])
+                ret_chunk = np.full((n_batch, n_scales), np.nan)
+                cmp_chunk = np.zeros((n_batch, n_scales), dtype=bool)
+                for i, row in enumerate(batch):
+                    for j in range(n_scales):
+                        val = row[1 + n_features + j]
+                        ret_chunk[i, j] = val if val is not None else np.nan
+                        cmp_chunk[i, j] = bool(row[1 + n_features + n_scales + j])
+                ret_chunks.append(ret_chunk)
+                cmp_chunks.append(cmp_chunk)
+                bar_ts_chunks.append(np.array([r[0] for r in batch], dtype=object))
+
+        X_raw = X_acc.finalize()
+        if X_raw is None:
             _logger.info(
                 "ic_engine.cross_sectional_no_data",
                 tf=tf,
@@ -4432,189 +4655,92 @@ def _compute_cross_sectional_tf(
             )
             return [], {"n_committed": 0, "n_skipped": 0}
 
-        # Step 2: Query feature_vectors+forward_returns in timestamp chunks.
-        # Replaces a 3-way JOIN (feature_vectors × market_regimes × forward_returns) that
-        # caused the PostgreSQL backend to OOM for large regimes:
-        #   5m/low_bull: 120K regime timestamps × 58 symbols = 7M rows in one query.
-        # Chunked approach: cs_chunk_ts timestamps × 58 symbols ≈ 290K rows/query at
-        # default cs_chunk_ts=5000.  Fits comfortably in PostgreSQL working memory.
-        # feature_vectors.bar_ts is TF-bucket-aligned, so bar_ts = ANY(ts_chunk) is
-        # equivalent to time_bucket(interval, bar_ts) = ANY(ts_chunk) and uses the index.
-        # Rule 3 auto-fix: blocking PostgreSQL backend OOM on 3-way JOIN.
-        # symbol = ANY(%(symbol_list)s): THE contamination fix (Phase 144 D-01) -- without
-        # this filter every symbol in the corpus (not just this regime_group's peers) was
-        # pooled into this cell, since ts_chunk alone doesn't scope by symbol.
-        # Todo 356: fv.bar_ts BETWEEN ts_min AND ts_max is redundant with the ANY()
-        # predicate below (every value in ts_chunk already falls in [ts_min, ts_max])
-        # but is NOT redundant for the query plan against a compressed hypertable.
-        # Measured via EXPLAIN (ANALYZE, BUFFERS) against the real largest cell
-        # (equity/5m/low_bull): without BETWEEN, TimescaleDB's compressed-chunk
-        # segment exclusion expands bar_ts = ANY(<5000 values>) into a literal
-        # per-segment OR-chain of _ts_meta_min/_ts_meta_max range checks, re-evaluated
-        # for every compressed batch considered -- O(batches x len(ts_chunk)) planning
-        # cost. Adding BETWEEN lets the planner do cheap range-based segment exclusion
-        # first (a single min/max comparison per batch), leaving ANY() as a residual
-        # post-decompression filter: 10.2s -> 0.3s execution time on an isolated,
-        # single-variable EXPLAIN ANALYZE test, ~32x. ts_chunk is a contiguous slice of
-        # regime_timestamps' own `ORDER BY ts` result, so ts_chunk[0]/ts_chunk[-1] are
-        # already its min/max -- no extra computation needed to get the bound.
-        chunk_sql = f"""
-            SELECT fv.bar_ts, {feature_cols}, {return_cols}, {complete_cols}
-            FROM feature_vectors fv
-            INNER JOIN forward_returns fr
-                ON fr.symbol = fv.symbol
-                AND fr.tf = fv.tf
-                AND fr.bar_ts = fv.bar_ts
-                AND fr.return_type = 'executable_open_to_open'
-            WHERE fv.tf = %(tf)s
-              AND fv.bar_ts BETWEEN %(ts_min)s AND %(ts_max)s
-              AND fv.bar_ts = ANY(%(ts_chunk)s)
-              AND fv.symbol = ANY(%(symbol_list)s)
-            ORDER BY fv.bar_ts
-        """
+        returns_mat = np.vstack(ret_chunks)
+        del ret_chunks
+        complete_mat = np.vstack(cmp_chunks)
+        del cmp_chunks
+        # Phase 173 Plan 03 (D-05): concatenate once, after the X_raw early-return
+        # guard so the no-data path is unchanged. Crash-loud alignment guard --
+        # per CLAUDE.md ("silent wrong answers are worse than loud crashes"), a
+        # misalignment here would silently mis-associate every broadcast feature
+        # value with the wrong timestamp in Plan 04, producing a plausible-looking
+        # but wrong IC.
+        bar_ts_arr = np.concatenate(bar_ts_chunks)
+        del bar_ts_chunks
+        if len(bar_ts_arr) != len(X_raw):
+            raise RuntimeError(
+                f"bar_ts/X_raw row-count mismatch for cross-sectional cell tf={tf} "
+                f"regime={regime_label}: len(bar_ts_arr)={len(bar_ts_arr)} != "
+                f"len(X_raw)={len(X_raw)}. This must never happen -- bar_ts and "
+                "X_raw are built from the same chunked-fetch rows in the same order."
+            )
+        n_raw = len(X_raw)
 
-        n_scales = len(scales)
-        # Float32ChunkAccumulator (todo 087) owns the buffer-to-array bookkeeping shared
-        # with _compute_symbol_tf's own OOM fix above; the ts_chunk re-execution mechanics
-        # and the ret/cmp matrices (different dtypes, NULL-substitution logic -- not the
-        # same shape as X) stay here.
-        X_acc = Float32ChunkAccumulator()
-        ret_chunks: list[np.ndarray] = []
-        cmp_chunks: list[np.ndarray] = []
-        # Phase 173 Plan 03 (D-05): bar_ts, row-aligned with X_raw/returns_mat/
-        # complete_mat, for Plan 04's future broadcast cell to consume (equality
-        # comparison between adjacent elements + set-membership on group
-        # representatives -- both exact under dtype=object). Deliberately a
-        # plain list, never routed through Float32ChunkAccumulator: that class
-        # is float32-only, and a datetime is not float32-safe data. dtype=object
-        # (not datetime64[ns]) because a datetime64 cast of a timezone-aware
-        # psycopg datetime loses tz and can shift values.
-        bar_ts_chunks: list[np.ndarray] = []
-
-        _logger.info(
-            "ic_engine.cross_sectional_chunk_pass",
+        # 162-01 Task 3: clustering + per-scale IC/CI/walk-forward/Sharpe compute
+        # extracted into _compute_one_cross_sectional_cell, mirroring
+        # _compute_one_regime_cell's shape on the per-symbol side. This function keeps
+        # only the fetch phase (above), the crash-loud row-count ceiling and per-scale
+        # compute (inside the extracted function), and cluster-representative
+        # selection for corpus-level BH-FDR (below) -- same division of
+        # responsibility as _compute_symbol_tf/_compute_one_regime_cell.
+        #
+        # Called SYNCHRONOUSLY inside this try (invariant (1) in the comment above the
+        # try) -- its return (all_results) holds only per-feature scalar rows, no
+        # reference into X_raw (invariant (2)).
+        all_results, n_skipped = _compute_one_cross_sectional_cell(
+            regime_label,
+            X_raw=X_raw,
+            returns_mat=returns_mat,
+            complete_mat=complete_mat,
+            config=config,
             tf=tf,
-            regime=regime_label,
-            n_regime_ts=len(regime_timestamps),
-            cs_chunk_ts=cs_chunk_ts,
-            n_chunks=(len(regime_timestamps) + cs_chunk_ts - 1) // cs_chunk_ts,
+            rng=rng,
+            training_window_end=training_window_end,
+            feature_status_map=feature_status_map,
+            run_ts=run_ts,
+            prior_e_values=prior_e_values,
+            broadcast_mask=broadcast_mask,
         )
 
-        for chunk_start in range(0, len(regime_timestamps), cs_chunk_ts):
-            ts_chunk = regime_timestamps[chunk_start : chunk_start + cs_chunk_ts]
-            with conn.cursor() as chunk_cur:
-                chunk_cur.execute(
-                    chunk_sql,
-                    {
-                        "tf": tf,
-                        "ts_chunk": ts_chunk,
-                        "ts_min": ts_chunk[0],
-                        "ts_max": ts_chunk[-1],
-                        "symbol_list": symbol_list,
-                    },
-                )
-                batch = chunk_cur.fetchall()
-            conn.commit()
-            if not batch:
-                continue
-            n_batch = len(batch)
-            # float32, not float64: every downstream use of this array (_vectorized_ic,
-            # _compute_ic_rolling_metrics) ranks it via rankdata() and computes statistics
-            # on the resulting ranks/IC values, never on the raw floats directly -- rank
-            # order is preserved essentially perfectly at float32 precision for z-score/
-            # ratio-scale feature values. Halves the memory of X_raw, X_nd, and every
-            # per-scale subsample copy below -- the direct fix for the 2026-07-08 OOM
-            # incidents, where the largest cross-sectional cell (5m/low_bull, ~9.4M rows
-            # x 152 features after the 80-symbol ETF expansion) peaked at 20GB+ RSS.
-            X_acc.append_chunk([[r[i + 1] for i in range(n_features)] for r in batch])
-            ret_chunk = np.full((n_batch, n_scales), np.nan)
-            cmp_chunk = np.zeros((n_batch, n_scales), dtype=bool)
-            for i, row in enumerate(batch):
-                for j in range(n_scales):
-                    val = row[1 + n_features + j]
-                    ret_chunk[i, j] = val if val is not None else np.nan
-                    cmp_chunk[i, j] = bool(row[1 + n_features + n_scales + j])
-            ret_chunks.append(ret_chunk)
-            cmp_chunks.append(cmp_chunk)
-            bar_ts_chunks.append(np.array([r[0] for r in batch], dtype=object))
-
-    X_raw = X_acc.finalize()
-    if X_raw is None:
-        _logger.info(
-            "ic_engine.cross_sectional_no_data",
+        # Phase 173 Plan 04 (D-01..D-07, todo 270): the broadcast cell, called AFTER
+        # the fetch `with` block above has already closed (connection-scoping
+        # invariant test_compute_cross_sectional_tf_closes_connection_before_clustering
+        # pins -- the reason the 143.1-07 corpus re-run crashed twice) and BEFORE the
+        # cluster_groups loop below, so broadcast rows enter the SAME corpus-level
+        # BH-FDR family per D-07 -- no separate FDR pass, no new table. Shares the
+        # same `rng` instance (not a fresh one) -- the cross-sectional pass's
+        # documented reuse-not-reseed convention: one deterministic generator shared
+        # and advanced across every cell in this loop.
+        #
+        # Also called SYNCHRONOUSLY inside this try, and also returns only scalar
+        # rows -- the last consumer of X_raw before the `finally` below runs.
+        broadcast_results, broadcast_skipped = _compute_one_broadcast_cell(
+            regime_label,
+            bar_ts_arr=bar_ts_arr,
+            X_raw=X_raw,
+            returns_mat=returns_mat,
+            complete_mat=complete_mat,
+            broadcast_mask=broadcast_mask,
+            config=config,
             tf=tf,
-            regime=regime_label,
+            rng=rng,
+            training_window_end=training_window_end,
+            feature_status_map=feature_status_map,
+            run_ts=run_ts,
         )
-        return [], {"n_committed": 0, "n_skipped": 0}
-
-    returns_mat = np.vstack(ret_chunks)
-    del ret_chunks
-    complete_mat = np.vstack(cmp_chunks)
-    del cmp_chunks
-    # Phase 173 Plan 03 (D-05): concatenate once, after the X_raw early-return
-    # guard so the no-data path is unchanged. Crash-loud alignment guard --
-    # per CLAUDE.md ("silent wrong answers are worse than loud crashes"), a
-    # misalignment here would silently mis-associate every broadcast feature
-    # value with the wrong timestamp in Plan 04, producing a plausible-looking
-    # but wrong IC.
-    bar_ts_arr = np.concatenate(bar_ts_chunks)
-    del bar_ts_chunks
-    if len(bar_ts_arr) != len(X_raw):
-        raise RuntimeError(
-            f"bar_ts/X_raw row-count mismatch for cross-sectional cell tf={tf} "
-            f"regime={regime_label}: len(bar_ts_arr)={len(bar_ts_arr)} != "
-            f"len(X_raw)={len(X_raw)}. This must never happen -- bar_ts and "
-            "X_raw are built from the same chunked-fetch rows in the same order."
-        )
-    n_raw = len(X_raw)
-
-    # 162-01 Task 3: clustering + per-scale IC/CI/walk-forward/Sharpe compute
-    # extracted into _compute_one_cross_sectional_cell, mirroring
-    # _compute_one_regime_cell's shape on the per-symbol side. This function keeps
-    # only the fetch phase (above), the crash-loud row-count ceiling and per-scale
-    # compute (inside the extracted function), and cluster-representative
-    # selection for corpus-level BH-FDR (below) -- same division of
-    # responsibility as _compute_symbol_tf/_compute_one_regime_cell.
-    all_results, n_skipped = _compute_one_cross_sectional_cell(
-        regime_label,
-        X_raw=X_raw,
-        returns_mat=returns_mat,
-        complete_mat=complete_mat,
-        config=config,
-        tf=tf,
-        rng=rng,
-        training_window_end=training_window_end,
-        feature_status_map=feature_status_map,
-        run_ts=run_ts,
-        prior_e_values=prior_e_values,
-        broadcast_mask=broadcast_mask,
-    )
-
-    # Phase 173 Plan 04 (D-01..D-07, todo 270): the broadcast cell, called AFTER
-    # the fetch `with` block above has already closed (connection-scoping
-    # invariant test_compute_cross_sectional_tf_closes_connection_before_clustering
-    # pins -- the reason the 143.1-07 corpus re-run crashed twice) and BEFORE the
-    # cluster_groups loop below, so broadcast rows enter the SAME corpus-level
-    # BH-FDR family per D-07 -- no separate FDR pass, no new table. Shares the
-    # same `rng` instance (not a fresh one) -- the cross-sectional pass's
-    # documented reuse-not-reseed convention: one deterministic generator shared
-    # and advanced across every cell in this loop.
-    broadcast_results, broadcast_skipped = _compute_one_broadcast_cell(
-        regime_label,
-        bar_ts_arr=bar_ts_arr,
-        X_raw=X_raw,
-        returns_mat=returns_mat,
-        complete_mat=complete_mat,
-        broadcast_mask=broadcast_mask,
-        config=config,
-        tf=tf,
-        rng=rng,
-        training_window_end=training_window_end,
-        feature_status_map=feature_status_map,
-        run_ts=run_ts,
-    )
-    all_results.extend(broadcast_results)
-    n_skipped += broadcast_skipped
+        all_results.extend(broadcast_results)
+        n_skipped += broadcast_skipped
+    finally:
+        # Closes the memmap and unlinks the scratch file -- a no-op in in-RAM mode
+        # (X_acc.close() is idempotent and does nothing when disk_backed=False) and
+        # a no-op if X_acc was never constructed (an exception before construction,
+        # e.g. during the regime-timestamp fetch or the pre-flight CellTooLargeError,
+        # leaves X_acc=None). Runs on every exit path from the try above, including
+        # the disk-headroom RuntimeError and the row-count-mismatch RuntimeError --
+        # across a multi-day, thousands-of-cells corpus run, a leaked scratch file
+        # per cell would fill the scratch filesystem.
+        if X_acc is not None:
+            X_acc.close()
 
     pvals_flat: list[float] = []
     pval_result_idxs: list[int] = []
