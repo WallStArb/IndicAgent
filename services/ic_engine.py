@@ -697,6 +697,13 @@ class ICEngineConfig:
     # memmap_scratch_dir, this selects only the storage mechanism for an identical
     # array -- it never changes the array's contents, so it stays OPERATIONAL.
     disk_backed_min_rows: int = 2_000_000
+    # Phase 174 Plan 09 (migration 340): rows processed per pass-block by
+    # _streaming_feature_correlation's blocked two-pass correlation accumulation.
+    # Pure throughput knob -- a different block size must produce the identical
+    # correlation matrix (pinned by test_ic_engine_streaming_correlation.py's
+    # block-size-invariance case), so it stays OPERATIONAL alongside
+    # feature_block_columns.
+    corr_row_block: int = 1_000_000
 
     def broadcast_max_bars_per_day_for(self, tf: str) -> int:
         """Max observed bars/trading-day for tf, or a large sentinel for tfs this
@@ -893,6 +900,8 @@ class ICEngineConfig:
             disk_backed_min_rows=int(
                 cfg.get_sync("infra.ic_engine.disk_backed_min_rows", 2_000_000)
             ),
+            # Phase 174 Plan 09 (migration 340).
+            corr_row_block=int(cfg.get_sync("infra.ic_engine.corr_row_block", 1_000_000)),
         )
 
 
@@ -998,6 +1007,10 @@ _OPERATIONAL_CONFIG_FIELDS: frozenset[str] = frozenset(
         # Phase 174 Plan 01/05: selects only the storage mechanism (disk memmap vs
         # in-RAM list) for an identical array -- never its contents.
         "disk_backed_min_rows",
+        # Phase 174 Plan 09 (migration 340): correlation pass-block size -- a
+        # different block size must produce the identical correlation matrix
+        # (test_ic_engine_streaming_correlation.py block-size-invariance case).
+        "corr_row_block",
         "symbol_fetch_chunk_rows",  # per-symbol fetch chunk size -- pure throughput knob
         "n_workers",  # ProcessPoolExecutor pool size -- pure throughput knob
         # Per-worker BLAS thread cap (todo 216) -- empirically verified OPERATIONAL, not
