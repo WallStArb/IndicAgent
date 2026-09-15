@@ -99,6 +99,59 @@ this TF stack, cannot carry the endgame."
   entries per dimension; default semantics for existing rows (today's `is_active=true` mapping
   to which of the three dimensions).
 
+### Down-cap sample: timeframe scope and pre-registered correlation gate (added mid-execution, 2026-09-15)
+
+**Provenance:** decided live during Wave 2 execution, after an empirical cross-sectional
+correlation-structure check on the existing 117 single-name equities (11 of the 128 dropped
+for <95% daily coverage), run against `market_regimes` (`equity`/`1d`) for regime conditioning.
+Not from `/gsd:discuss-phase` — recorded here so it is tracked and auditable rather than living
+only in conversation history. Full numbers: `docs/research/` entry to be written by the plan
+that implements D-10 (see below).
+
+- **D-09:** The down-cap stratified sample (D-02) is backfilled **1d bars only**, not the full
+  4-timeframe stack (5m/15m/1h/1d). This applies ONLY to the new down-cap cohort — the existing
+  128-name single-name book and Plan 07/10's EM-FX/vol-proxy ETF gap-fill (D-05/D-06) are
+  unaffected and keep full 4-TF treatment; those additions fill genuine exposure gaps and are
+  permanent corpus members, not part of the breadth hypothesis test.
+  Rationale: the empirical check found the existing 117-name book's average pairwise daily-return
+  correlation is 0.316 unconditional and 0.479 in the `high_bear` regime (the same regime that
+  OOM'd `ic_engine`, todo 371) — via the standard diversification-shrinkage formula
+  `n_eff = N / (1 + (N-1)·avg_corr)`, this caps effective breadth at ~3.1 (~2.1 in `high_bear`)
+  regardless of how many more similarly-correlated names are added, since `n_eff → 1/avg_corr`
+  as N grows. Backfilling the full 4-TF stack for a large down-cap sample before knowing whether
+  it actually decorrelates from this baseline risks paying the full IBKR-pacing/OOM-fix
+  engineering cost for a population that may deliver near-zero incremental effective breadth —
+  exactly the failure mode that already produced this project's 8.4-effective-breadth-vs-230-raw-
+  feature-count gap. 1d-only lets the hypothesis be tested at near-full-population scale for a
+  fraction of the backfill cost (1 IBKR request/symbol instead of 4; cross-sectional cell size
+  shrinks by orders of magnitude since a 1d cell has ~250 timestamps/year vs. tens of thousands
+  for 5m).
+- **D-10:** Before the full-scale down-cap draw (Plan 12), a **pre-registered pilot gate** runs:
+  draw a small pilot sample (~30-50 symbols) via Plan 08's sampler, onboard and backfill it 1d-
+  only, then re-run the same correlation-structure diagnostic against the existing book's
+  baseline. The full-scale draw proceeds **only if both thresholds clear, fixed here before any
+  pilot data exists (pre-registration — not adjustable after seeing the result):**
+  - Pilot's unconditional average pairwise daily-return correlation ≤ **0.10** (floors the
+    n_eff ceiling at ~10 vs. today's ~3.1 — a ~3x improvement in achievable independent bets,
+    economically meaningful against IC~0.03-0.06).
+  - Pilot's `high_bear`-conditioned average pairwise correlation ≤ **0.30** (no worse than
+    today's book's *blended-regime* unconditional average — some correlation increase under
+    systemic stress is structurally unavoidable for any equity portfolio, but it should not be
+    dramatically worse than today's baseline).
+  If either threshold fails, Plan 11 leaves `alpha.universe.target_sample_size` unset (crash-loud,
+  per D-01) and records an explicit pivot recommendation instead of silently proceeding to a
+  full-scale draw that the data doesn't support — this is the same "silent wrong answers are
+  worse than loud crashes" principle D-04 already applies to the OOM fix, applied here to the
+  hypothesis test itself.
+- **Schema mechanism (Claude's Discretion, resolved by planning):** `compute_eligible` (D-07,
+  Plan 02, already merged) keeps meaning exactly what it means today — all 4 timeframes complete
+  — for the existing book and any future full-stack additions. The down-cap 1d-only cohort gets
+  a new, purely additive `compute_eligible_1d` column (or equivalent) and a new
+  `get_active_contracts(dimension='compute_1d')` value, so a 1d-only symbol can never leak into
+  the default `dimension='compute'` call sites that 5m/15m/1h cross-sectional cells rely on.
+  This is a structural prevention, not a downstream filtering convention every call site must
+  remember to apply correctly.
+
 ### Folded Todos
 - **Todo 371** (ic_engine cross-sectional cell OOM at universe scale) — folded as D-04, a hard
   prerequisite for the phase's actual backfill.
