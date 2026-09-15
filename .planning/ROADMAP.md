@@ -2761,6 +2761,7 @@ roadmap.
 **Plans:** 4/4 plans complete
 
 Plans:
+
 - [x] 173-01-PLAN.md — Broadcast classification: APR key, empirical detector with temporal-variance guard, persist to `concept_registry.metadata` (wave 1)
 - [x] 173-02-PLAN.md — Delete `_compute_symbol_tf`'s bespoke `CONTEXT_FEATURES` daily-cadence path (wave 1)
 - [x] 173-03-PLAN.md — Exclude broadcast columns from the pooled cross-sectional cell, thread `bar_ts`, broadcast-sensitive fingerprint watermark (wave 2)
@@ -2786,17 +2787,31 @@ continuous-contract construction is unbuilt and out of scope for this phase).
 **Plans:** 12 plans, 5 waves
 
 Plans:
+**Wave 1**
+
 - [ ] 174-01-PLAN.md — Disk-backed `Float32ChunkAccumulator` mode + `infra.ic_engine.*` APR keys (wave 1)
 - [ ] 174-02-PLAN.md — `instruments` governance split: `compute_eligible` / `live_tradeable`, with a measured eligibility audit (wave 1)
 - [ ] 174-03-PLAN.md — `onboard_instrument()`: transactional, qualification-gated, metadata-mandatory onboarding path (wave 1)
 - [ ] 174-04-PLAN.md — IWV holdings fetch + defensive parser; delisted-constituent feasibility verdict (wave 1)
+
+**Wave 2** *(blocked on Wave 1 completion)*
+
 - [ ] 174-05-PLAN.md — ic_engine pre-flight cell-size estimate, disk-backed wiring, scratch cleanup (wave 2)
 - [ ] 174-06-PLAN.md — `get_active_contracts(dimension=)` with per-dimension caching and a default-equivalence regression (wave 2)
 - [ ] 174-07-PLAN.md — Factor / vol exposure tag taxonomy; EM-FX and vol-proxy ticker decision (wave 2)
 - [ ] 174-08-PLAN.md — Market-cap-stratified sampler with an APR-seeded, reproducible draw (wave 2)
+
+**Wave 3** *(blocked on Wave 2 completion)*
+
 - [ ] 174-09-PLAN.md — Streaming correlation + column-wise `X_nd`: eliminate the remaining whole-cell copies (wave 3)
 - [ ] 174-10-PLAN.md — ib-gateway restart; onboard and backfill the two gap-fill ETFs end-to-end (wave 3)
+
+**Wave 4** *(blocked on Wave 3 completion)*
+
 - [ ] 174-11-PLAN.md — Empirical memory-fix verification, swapfile removal, supported-scale determination (wave 4)
+
+**Wave 5** *(blocked on Wave 4 completion)*
+
 - [ ] 174-12-PLAN.md — Draw, onboard and backfill the sampled universe; backfill-gated promotion (wave 5)
 
 ---
