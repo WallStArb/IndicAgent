@@ -8,6 +8,7 @@ small type-inferring helper.
 
 from __future__ import annotations
 
+import os
 import sys
 from pathlib import Path
 from unittest.mock import AsyncMock, MagicMock, patch
@@ -317,6 +318,198 @@ class TestFloat32ChunkAccumulator:
         acc.append_chunk([[1.0, 2.0]])
         acc.finalize()
         assert acc._chunks == []
+
+    # -- Phase 174 D-04 / todo 371: disk-backed mode coverage -----------------
+    #
+    # Every test below uses pytest's tmp_path fixture as scratch_dir -- none may
+    # write into the real APR-configured production scratch directory
+    # (infra.ic_engine.memmap_scratch_dir, migration 336).
+
+    @staticmethod
+    def _ragged_batches() -> list[list[list[float]]]:
+        """3 ragged append_chunk batches (7, 3, 11 rows) of 5 float columns,
+        including negative values and a 0.0. 21 rows total."""
+        batches: list[list[list[float]]] = []
+        row_id = 0
+        for n_rows in (7, 3, 11):
+            batch = []
+            for _ in range(n_rows):
+                row_id += 1
+                batch.append(
+                    [
+                        float(row_id),
+                        -float(row_id),
+                        0.0,
+                        float(row_id) * 1.5,
+                        float(-row_id) * 0.25,
+                    ]
+                )
+            batches.append(batch)
+        return batches
+
+    def test_disk_backed_append_chunk_matches_in_ram_result(self, tmp_path) -> None:
+        batches = self._ragged_batches()
+
+        in_ram = Float32ChunkAccumulator()
+        for batch in batches:
+            in_ram.append_chunk(batch)
+        in_ram_result = in_ram.finalize()
+
+        disk_acc = Float32ChunkAccumulator(
+            disk_backed=True, estimated_rows=64, n_cols=5, scratch_dir=str(tmp_path)
+        )
+        try:
+            for batch in batches:
+                disk_acc.append_chunk(batch)
+            disk_result = disk_acc.finalize()
+
+            assert disk_result.shape == in_ram_result.shape
+            assert disk_result.dtype == in_ram_result.dtype
+            assert np.array_equal(disk_result, in_ram_result)
+        finally:
+            disk_acc.close()
+
+    def test_disk_backed_append_row_matches_in_ram_result(self, tmp_path) -> None:
+        rows = [row for batch in self._ragged_batches() for row in batch]
+
+        in_ram = Float32ChunkAccumulator(flush_at=2)
+        for row in rows:
+            in_ram.append_row(row)
+        in_ram_result = in_ram.finalize()
+
+        disk_acc = Float32ChunkAccumulator(
+            flush_at=2,
+            disk_backed=True,
+            estimated_rows=64,
+            n_cols=5,
+            scratch_dir=str(tmp_path),
+        )
+        try:
+            for row in rows:
+                disk_acc.append_row(row)
+            disk_result = disk_acc.finalize()
+
+            assert disk_result.shape == in_ram_result.shape
+            assert disk_result.dtype == in_ram_result.dtype
+            assert np.array_equal(disk_result, in_ram_result)
+        finally:
+            disk_acc.close()
+
+    def test_disk_backed_finalize_trims_over_estimated_rows(self, tmp_path) -> None:
+        acc = Float32ChunkAccumulator(
+            disk_backed=True, estimated_rows=1000, n_cols=5, scratch_dir=str(tmp_path)
+        )
+        try:
+            for batch in self._ragged_batches():
+                acc.append_chunk(batch)
+            result = acc.finalize()
+            assert result.shape == (21, 5)
+        finally:
+            acc.close()
+
+    def test_disk_backed_under_estimate_raises_value_error(self, tmp_path) -> None:
+        acc = Float32ChunkAccumulator(
+            disk_backed=True, estimated_rows=5, n_cols=5, scratch_dir=str(tmp_path)
+        )
+        try:
+            nine_rows = [[float(i)] * 5 for i in range(9)]
+            with pytest.raises(ValueError):
+                acc.append_chunk(nine_rows)
+        finally:
+            acc.close()
+
+    def test_disk_backed_missing_params_raises_value_error(self) -> None:
+        with pytest.raises(ValueError):
+            Float32ChunkAccumulator(disk_backed=True)
+
+    def test_disk_backed_empty_accumulation_returns_none_and_cleans_up(self, tmp_path) -> None:
+        acc = Float32ChunkAccumulator(
+            disk_backed=True, estimated_rows=10, n_cols=5, scratch_dir=str(tmp_path)
+        )
+        result = acc.finalize()
+        assert result is None
+        assert list(tmp_path.glob("*.memmap")) == []
+
+    def test_disk_backed_close_removes_scratch_file(self, tmp_path) -> None:
+        acc = Float32ChunkAccumulator(
+            disk_backed=True, estimated_rows=10, n_cols=5, scratch_dir=str(tmp_path)
+        )
+        acc.append_chunk([[1.0, 2.0, 3.0, 4.0, 5.0]])
+        acc.finalize()
+        acc.close()
+        assert list(tmp_path.glob("*.memmap")) == []
+
+    def test_disk_backed_context_manager_removes_scratch_file(self, tmp_path) -> None:
+        with Float32ChunkAccumulator(
+            disk_backed=True, estimated_rows=10, n_cols=5, scratch_dir=str(tmp_path)
+        ) as acc:
+            acc.append_chunk([[1.0, 2.0, 3.0, 4.0, 5.0]])
+            acc.finalize()
+        assert list(tmp_path.glob("*.memmap")) == []
+
+    def test_disk_backed_scratch_file_exists_while_live(self, tmp_path) -> None:
+        acc = Float32ChunkAccumulator(
+            disk_backed=True, estimated_rows=10, n_cols=5, scratch_dir=str(tmp_path)
+        )
+        try:
+            acc.append_chunk([[1.0, 2.0, 3.0, 4.0, 5.0]])
+            assert len(list(tmp_path.glob("*.memmap"))) == 1
+        finally:
+            acc.close()
+
+    def test_disk_backed_close_does_not_leak_file_descriptors(self, tmp_path) -> None:
+        """Regression test for the NamedTemporaryFile handle leak (T-174-39): a
+        version of close() that closes only the mmap and never the tmpfile handle
+        leaks one fd per accumulator -- a delta near 50 across this loop."""
+        pid = os.getpid()
+        fd_dir = f"/proc/{pid}/fd"
+        baseline = len(os.listdir(fd_dir))
+
+        for _ in range(50):
+            acc = Float32ChunkAccumulator(
+                disk_backed=True, estimated_rows=10, n_cols=5, scratch_dir=str(tmp_path)
+            )
+            acc.append_chunk([[1.0, 2.0, 3.0, 4.0, 5.0]])
+            acc.finalize()
+            acc.close()
+
+        after = len(os.listdir(fd_dir))
+        assert after - baseline <= 2
+
+    def test_disk_backed_ownership_contract(self, tmp_path) -> None:
+        acc = Float32ChunkAccumulator(
+            disk_backed=True, estimated_rows=10, n_cols=5, scratch_dir=str(tmp_path)
+        )
+        acc.append_chunk([[1.0, 2.0, 3.0, 4.0, 5.0], [6.0, 7.0, 8.0, 9.0, 10.0]])
+        result = acc.finalize()
+
+        # Readable BEFORE close() -- a real read through the mapping, not just a
+        # shape/dtype check that could pass against a stale/unmapped handle.
+        np.testing.assert_array_equal(
+            result, [[1.0, 2.0, 3.0, 4.0, 5.0], [6.0, 7.0, 8.0, 9.0, 10.0]]
+        )
+        assert float(result.sum()) == pytest.approx(55.0)
+
+        acc.close()
+        # Second close() is the documented post-close state: a no-op, does not raise.
+        acc.close()
+        assert list(tmp_path.glob("*.memmap")) == []
+
+    def test_disk_backed_creates_missing_scratch_dir(self, tmp_path) -> None:
+        missing_dir = tmp_path / "does" / "not" / "exist"
+        assert not missing_dir.exists()
+
+        acc = Float32ChunkAccumulator(
+            disk_backed=True, estimated_rows=10, n_cols=5, scratch_dir=str(missing_dir)
+        )
+        try:
+            acc.append_chunk([[1.0, 2.0, 3.0, 4.0, 5.0]])
+            result = acc.finalize()
+            np.testing.assert_array_equal(result, [[1.0, 2.0, 3.0, 4.0, 5.0]])
+        finally:
+            acc.close()
+
+        assert missing_dir.exists()
 
 
 class TestValidateCompressedHypertable:
