@@ -2775,7 +2775,7 @@ memory fix that scale requires, the 3-way instrument-governance split that keeps
 hundreds-of-names universe from silently becoming live-tradeable, and the onboarding path that
 cannot write an instrument half-way — plus closing the two confirmed ETF exposure gaps (EM
 currency, volatility) and making the already-owned factor ETFs individually identifiable.
-**Requirements**: D-01 through D-08 (CONTEXT.md decisions; `phase_req_ids` was null — this phase
+**Requirements**: D-01 through D-10 (CONTEXT.md decisions; `phase_req_ids` was null — this phase
 was scoped directly via `/gsd-discuss-phase`), plus ASVS V5. Full ID map in
 `.planning/phases/174-*/174-VALIDATION.md`.
 **Depends on:** Personal-scale edge determination program closure (STATE.md, 2026-09-12/13),
@@ -2784,7 +2784,24 @@ OOM), 274 (backfill/compute/live-tradeable split), 282 (instrument_metadata not 
 376 (survivorship bias — researched in parallel, does not gate the pilot). Excludes futures
 entirely (see todo 377 — genuine gaps there are CL/NG/HG/ZC/ZS/ZW/VX/GBPUSD/USDCHF, but
 continuous-contract construction is unbuilt and out of scope for this phase).
-**Plans:** 8/12 plans executed
+
+**Mid-execution addition (2026-09-15, D-09/D-10):** empirical raw-return correlation analysis of
+the existing 117-name single-name book (`docs/research/phase174-single-name-book-correlation-structure-2026-09-15.md`)
+found effective breadth is capped at n_eff≈3.1 unconditionally (≈2.1 in `high_bear`) regardless
+of added symbol count, unless the added population's correlation structure genuinely differs.
+D-09 restricts the down-cap Russell-3000 sample to 1d bars only (not the existing book's
+4-timeframe stack); D-10 adds a pre-registered pilot gate (≤0.10 unconditional / ≤0.30
+`high_bear`-conditioned avg pairwise correlation, fixed before any pilot data exists) that must
+PASS before the full-scale draw proceeds. A companion residualized-correlation check
+(`docs/research/phase174-residualized-correlation-and-ic-engine-methodology-check-2026-09-15.md`)
+confirmed, against the live `ic_engine.py` source, that raw (not factor-residualized) correlation
+is the correct gate metric — `ic_engine` pools symbols/timestamps within a cell via
+`rankdata(X, axis=0)` without per-timestamp cross-sectional demeaning. Added plans 174-13
+(additive `compute_eligible_1d`/`compute_1d` eligibility dimension), 174-14 (committed
+correlation-structure diagnostic + D-10 gate), 174-15 (pilot draw, 1d backfill, gate execution).
+174-11/174-12 revised accordingly; 174-10 (EMLC/VIXY gap-fill) unaffected — stays full 4-timeframe.
+
+**Plans:** 8/15 plans executed
 
 Plans:
 **Wave 1**
@@ -2805,14 +2822,20 @@ Plans:
 
 - [ ] 174-09-PLAN.md — Streaming correlation + column-wise `X_nd`: eliminate the remaining whole-cell copies (wave 3)
 - [ ] 174-10-PLAN.md — ib-gateway restart; onboard and backfill the two gap-fill ETFs end-to-end (wave 3)
+- [ ] 174-13-PLAN.md — Additive `compute_eligible_1d` column + `compute_1d` eligibility dimension (D-09) (wave 3)
+- [ ] 174-14-PLAN.md — Committed correlation-structure diagnostic + pre-registered D-10 gate (wave 3)
 
 **Wave 4** *(blocked on Wave 3 completion)*
 
-- [ ] 174-11-PLAN.md — Empirical memory-fix verification, swapfile removal, supported-scale determination (wave 4)
+- [ ] 174-15-PLAN.md — Pilot draw, 1d-only backfill, D-10 gate execution + verdict (wave 4)
 
 **Wave 5** *(blocked on Wave 4 completion)*
 
-- [ ] 174-12-PLAN.md — Draw, onboard and backfill the sampled universe; backfill-gated promotion (wave 5)
+- [ ] 174-11-PLAN.md — Empirical memory-fix verification, swapfile removal, supported-scale determination — gated on Plan 15's D-10 PASS (wave 5)
+
+**Wave 6** *(blocked on Wave 5 completion)*
+
+- [ ] 174-12-PLAN.md — Draw, onboard and backfill the sampled universe (1d-only); `compute_1d`-gated promotion (wave 6)
 
 ---
 
