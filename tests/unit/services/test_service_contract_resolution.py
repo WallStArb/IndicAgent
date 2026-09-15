@@ -35,8 +35,8 @@ def _reset_cache() -> None:
     """Reset the module-level cache so tests are isolated."""
     import src.config.settings as settings_mod
 
-    settings_mod._active_contracts_cache = None
-    settings_mod._active_contracts_last_refresh = 0.0
+    settings_mod._active_contracts_cache = {}
+    settings_mod._active_contracts_last_refresh = {}
 
 
 def _make_mock_db_conn(futures_rows: list, non_futures_rows: list | None = None) -> MagicMock:
@@ -266,7 +266,7 @@ class TestGetActiveContractsDbFallback:
         assert len(cached) > 0
 
         # Expire TTL so the next call re-queries — but now DB is down
-        settings_mod._active_contracts_last_refresh = 0.0
+        settings_mod._active_contracts_last_refresh["compute"] = 0.0
         with patch("psycopg.connect", side_effect=Exception("DB down")):
             result = get_active_contracts(mock_settings)
         assert result == cached, "Warm-cache fallback must return cached instruments"
@@ -304,7 +304,7 @@ class TestGetActiveContractsCache:
         with patch("psycopg.connect", side_effect=[conn1, conn2]) as mock_connect:
             get_active_contracts(mock_settings)
             call_count_after_first = mock_connect.call_count
-            settings_mod._active_contracts_last_refresh = time.monotonic() - 61.0
+            settings_mod._active_contracts_last_refresh["compute"] = time.monotonic() - 61.0
             get_active_contracts(mock_settings)
             call_count_after_second = mock_connect.call_count
         assert call_count_after_first == 1, "First query: 1 connect call (shared connection)"
