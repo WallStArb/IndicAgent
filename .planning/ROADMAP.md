@@ -2784,7 +2784,7 @@ OOM), 274 (backfill/compute/live-tradeable split), 282 (instrument_metadata not 
 376 (survivorship bias — researched in parallel, does not gate the pilot). Excludes futures
 entirely (see todo 377 — genuine gaps there are CL/NG/HG/ZC/ZS/ZW/VX/GBPUSD/USDCHF, but
 continuous-contract construction is unbuilt and out of scope for this phase).
-**Plans:** 4/12 plans executed
+**Plans:** 8/12 plans executed
 
 Plans:
 **Wave 1**
@@ -2796,10 +2796,10 @@ Plans:
 
 **Wave 2** *(blocked on Wave 1 completion)*
 
-- [ ] 174-05-PLAN.md — ic_engine pre-flight cell-size estimate, disk-backed wiring, scratch cleanup (wave 2)
-- [ ] 174-06-PLAN.md — `get_active_contracts(dimension=)` with per-dimension caching and a default-equivalence regression (wave 2)
-- [ ] 174-07-PLAN.md — Factor / vol exposure tag taxonomy; EM-FX and vol-proxy ticker decision (wave 2)
-- [ ] 174-08-PLAN.md — Market-cap-stratified sampler with an APR-seeded, reproducible draw (wave 2)
+- [x] 174-05-PLAN.md — ic_engine pre-flight cell-size estimate, disk-backed wiring, scratch cleanup (wave 2)
+- [x] 174-06-PLAN.md — `get_active_contracts(dimension=)` with per-dimension caching and a default-equivalence regression (wave 2)
+- [x] 174-07-PLAN.md — Factor / vol exposure tag taxonomy; EM-FX and vol-proxy ticker decision (wave 2)
+- [x] 174-08-PLAN.md — Market-cap-stratified sampler with an APR-seeded, reproducible draw (wave 2)
 
 **Wave 3** *(blocked on Wave 2 completion)*
 
