@@ -2784,15 +2784,15 @@ OOM), 274 (backfill/compute/live-tradeable split), 282 (instrument_metadata not 
 376 (survivorship bias — researched in parallel, does not gate the pilot). Excludes futures
 entirely (see todo 377 — genuine gaps there are CL/NG/HG/ZC/ZS/ZW/VX/GBPUSD/USDCHF, but
 continuous-contract construction is unbuilt and out of scope for this phase).
-**Plans:** 12 plans, 5 waves
+**Plans:** 4/12 plans executed
 
 Plans:
 **Wave 1**
 
-- [ ] 174-01-PLAN.md — Disk-backed `Float32ChunkAccumulator` mode + `infra.ic_engine.*` APR keys (wave 1)
-- [ ] 174-02-PLAN.md — `instruments` governance split: `compute_eligible` / `live_tradeable`, with a measured eligibility audit (wave 1)
-- [ ] 174-03-PLAN.md — `onboard_instrument()`: transactional, qualification-gated, metadata-mandatory onboarding path (wave 1)
-- [ ] 174-04-PLAN.md — IWV holdings fetch + defensive parser; delisted-constituent feasibility verdict (wave 1)
+- [x] 174-01-PLAN.md — Disk-backed `Float32ChunkAccumulator` mode + `infra.ic_engine.*` APR keys (wave 1)
+- [x] 174-02-PLAN.md — `instruments` governance split: `compute_eligible` / `live_tradeable`, with a measured eligibility audit (wave 1)
+- [x] 174-03-PLAN.md — `onboard_instrument()`: transactional, qualification-gated, metadata-mandatory onboarding path (wave 1)
+- [x] 174-04-PLAN.md — IWV holdings fetch + defensive parser; delisted-constituent feasibility verdict (wave 1)
 
 **Wave 2** *(blocked on Wave 1 completion)*
 
