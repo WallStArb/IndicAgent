@@ -1,14 +1,20 @@
-"""Tests for get_active_contracts()'s dimension parameter (Phase 174 Plan 06, D-07a/D-07b).
+"""Tests for get_active_contracts()'s dimension parameter (Phase 174 Plan 06, D-07a/D-07b;
+extended by Plan 174-13, D-09, with the "compute_1d" dimension).
 
-get_active_contracts() gained a `dimension` parameter ("backfill" | "compute" | "live") that
-selects which WHERE clause narrows the non-futures instruments query, and the module-level
-cache was converted from a single list/float to per-dimension dicts so a cached result for one
-dimension can never be served to a caller asking for another (T-174-16).
+get_active_contracts() gained a `dimension` parameter ("backfill" | "compute" | "live" |
+"compute_1d") that selects which WHERE clause narrows the non-futures instruments query, and
+the module-level cache was converted from a single list/float to per-dimension dicts so a
+cached result for one dimension can never be served to a caller asking for another (T-174-16).
 
 Covers: default-equivalence (case 1), per-dimension narrowing (case 2), live-is-empty (case 3),
 invalid dimension (case 4), cache isolation (case 5), cache hit (case 6), invalidation
 (case 7), dimension-scoped error path (case 8), and concurrent cross-dimension contention
 (case 9). No test opens a real psycopg connection.
+
+Plan 174-13 adds: non-regression pin of the three pre-existing WHERE-clause strings (case 10),
+compute_1d narrows on the new column (case 11), compute_1d is cache-isolated (case 12),
+invalidation clears compute_1d too (case 13), invalid dimension names all four options
+(case 14), and a 1d-only symbol structurally cannot reach "compute"/"live" (case 15).
 """
 
 from __future__ import annotations
@@ -95,6 +101,12 @@ class _FakeCursor:
             return []
         if "live_tradeable = true" in sql:
             dimension = "live"
+        elif "compute_eligible_1d = true" in sql:
+            # Must be checked before "compute_eligible = true": that substring is NOT
+            # present in "compute_eligible_1d = true" (the "_1d" infix breaks the match),
+            # but ordering this branch first keeps the dispatch obviously correct rather
+            # than relying on that non-overlap.
+            dimension = "compute_1d"
         elif "compute_eligible = true" in sql:
             dimension = "compute"
         elif "is_active = true" in sql:
@@ -416,3 +428,211 @@ def test_concurrent_cross_dimension_calls_no_cross_contamination():
             assert (
                 cached_symbols == expected_symbols[dimension]
             ), f"cache[{dimension!r}] holds {cached_symbols}, expected {expected_symbols[dimension]}"
+
+
+# ---------------------------------------------------------------------------
+# Case 10 (Plan 174-13, D-09): non-regression pin of the three pre-existing WHERE
+# clauses -- a future edit to _ACTIVE_CONTRACTS_DIMENSION_CLAUSES must fail here rather
+# than silently changing what the 37 pre-existing call sites see (T-174-52).
+# ---------------------------------------------------------------------------
+
+
+def test_pre_existing_dimension_clauses_are_byte_identical():
+    assert settings_mod._ACTIVE_CONTRACTS_DIMENSION_CLAUSES["backfill"] == "is_active = true"
+    assert (
+        settings_mod._ACTIVE_CONTRACTS_DIMENSION_CLAUSES["compute"]
+        == "is_active = true AND compute_eligible = true"
+    )
+    assert (
+        settings_mod._ACTIVE_CONTRACTS_DIMENSION_CLAUSES["live"]
+        == "is_active = true AND compute_eligible = true AND live_tradeable = true"
+    )
+
+
+# ---------------------------------------------------------------------------
+# Case 11 (Plan 174-13, D-09): compute_1d narrows on compute_eligible_1d, and does NOT
+# also filter on compute_eligible -- an accidental "AND compute_eligible = true" would
+# silently make compute_1d a subset of compute and hide every 1d-only symbol.
+# ---------------------------------------------------------------------------
+
+
+def test_compute_1d_clause_omits_compute_eligible():
+    assert (
+        settings_mod._ACTIVE_CONTRACTS_DIMENSION_CLAUSES["compute_1d"]
+        == "is_active = true AND compute_eligible_1d = true"
+    )
+
+
+def test_compute_1d_narrows_correctly_and_issues_1d_predicate_sql():
+    mock_settings = _make_settings()
+    recorder: list[str] = []
+    rows_by_dimension = {"compute_1d": [_nf_row("ONLY_1D")]}
+
+    def _connect(_dsn):
+        return _FakeConnection(_FakeCursor(recorder, rows_by_dimension))
+
+    with patch("psycopg.connect", side_effect=_connect):
+        result = get_active_contracts(mock_settings, dimension="compute_1d")
+
+    assert {i.symbol for i in result} == {"ONLY_1D"}
+    compute_1d_sql = [sql for sql in recorder if "compute_eligible_1d = true" in sql]
+    assert compute_1d_sql, f"Expected a query with the compute_eligible_1d clause: {recorder}"
+    sql = compute_1d_sql[0]
+    assert "is_active = true" in sql
+    assert "compute_eligible_1d = true" in sql
+    assert "compute_eligible = true" not in sql, (
+        "compute_1d must not also filter on compute_eligible -- that would silently "
+        "make it a subset of compute and hide every 1d-only symbol"
+    )
+
+
+# ---------------------------------------------------------------------------
+# Case 12 (Plan 174-13, D-09): compute_1d is cache-isolated from the other three
+# dimensions, modeled on case 5's live-then-compute isolation.
+# ---------------------------------------------------------------------------
+
+
+def test_compute_1d_is_cache_isolated_from_other_dimensions():
+    mock_settings = _make_settings()
+    recorder: list[str] = []
+    rows_by_dimension = {
+        "backfill": [_nf_row("B1")],
+        "compute": [_nf_row("C1")],
+        "live": [],
+        "compute_1d": [_nf_row("D1")],
+    }
+
+    def _connect(_dsn):
+        return _FakeConnection(_FakeCursor(recorder, rows_by_dimension))
+
+    with patch("psycopg.connect", side_effect=_connect) as mock_connect:
+        backfill_result = get_active_contracts(mock_settings, dimension="backfill")
+        compute_result = get_active_contracts(mock_settings, dimension="compute")
+        live_result = get_active_contracts(mock_settings, dimension="live")
+        compute_1d_result = get_active_contracts(mock_settings, dimension="compute_1d")
+
+    assert mock_connect.call_count == 4, "each of the four dimensions must issue its own query"
+    assert {i.symbol for i in backfill_result} == {"B1"}
+    assert {i.symbol for i in compute_result} == {"C1"}
+    assert live_result == []
+    assert {i.symbol for i in compute_1d_result} == {"D1"}
+
+    with settings_mod._settings_lock:
+        cache_keys = set(settings_mod._active_contracts_cache.keys())
+        assert cache_keys == {"backfill", "compute", "live", "compute_1d"}, cache_keys
+        distinct_lists = {
+            tuple(sorted(i.symbol for i in lst))
+            for lst in settings_mod._active_contracts_cache.values()
+        }
+        assert (
+            len(distinct_lists) == 4
+        ), f"expected four distinct cached lists, got {distinct_lists}"
+
+
+# ---------------------------------------------------------------------------
+# Case 13 (Plan 174-13, D-09): invalidate_active_contracts_cache() clears compute_1d too.
+# ---------------------------------------------------------------------------
+
+
+def test_invalidation_clears_compute_1d_too():
+    mock_settings = _make_settings()
+    recorder: list[str] = []
+    rows_by_dimension = {"compute_1d": [_nf_row("D1")]}
+
+    def _connect(_dsn):
+        return _FakeConnection(_FakeCursor(recorder, rows_by_dimension))
+
+    with patch("psycopg.connect", side_effect=_connect) as mock_connect:
+        get_active_contracts(mock_settings, dimension="compute_1d")
+        assert mock_connect.call_count == 1
+
+        settings_mod.invalidate_active_contracts_cache()
+
+        get_active_contracts(mock_settings, dimension="compute_1d")
+        assert (
+            mock_connect.call_count == 2
+        ), "invalidation must force re-query for compute_1d as well as the other dimensions"
+
+
+# ---------------------------------------------------------------------------
+# Case 14 (Plan 174-13, D-09): an invalid dimension still raises before any query, now
+# with all four valid dimension names in the message.
+# ---------------------------------------------------------------------------
+
+
+def test_invalid_dimension_message_names_all_four_options():
+    mock_connect = MagicMock()
+    with patch("psycopg.connect", mock_connect):
+        with pytest.raises(ValueError) as excinfo:
+            get_active_contracts(dimension="bogus")
+    message = str(excinfo.value)
+    assert "bogus" in message
+    for option in ("backfill", "compute", "compute_1d", "live"):
+        assert option in message, f"expected {option!r} in error message: {message}"
+    assert mock_connect.call_count == 0, "invalid dimension must not reach the DB at all"
+
+
+# ---------------------------------------------------------------------------
+# Case 15 (Plan 174-13, D-09): a 1d-only symbol (is_active=true, compute_eligible=false,
+# compute_eligible_1d=true) is structurally unable to reach "compute" or "live", and is
+# present in "compute_1d" and "backfill" -- driven through the real
+# _ACTIVE_CONTRACTS_DIMENSION_CLAUSES strings, not a hardcoded expectation, so this test
+# fails if a future edit changes which columns any clause reads.
+# ---------------------------------------------------------------------------
+
+
+def _clause_matches(clause: str, row_flags: dict[str, bool]) -> bool:
+    """Evaluate a "col1 = true AND col2 = true ..." clause against a flag dict.
+
+    Mirrors exactly what Postgres would evaluate for a row with these boolean column
+    values -- used so case 15 proves the 1d-only-symbol guarantee against the real
+    _ACTIVE_CONTRACTS_DIMENSION_CLAUSES text rather than a re-derived expectation.
+    """
+    for term in clause.split(" AND "):
+        column = term.strip().removesuffix(" = true").strip()
+        if not row_flags.get(column, False):
+            return False
+    return True
+
+
+def test_1d_only_symbol_cannot_reach_compute_or_live():
+    row_flags = {
+        "is_active": True,
+        "compute_eligible": False,
+        "compute_eligible_1d": True,
+        "live_tradeable": False,
+    }
+    expected_membership = {
+        dimension: _clause_matches(clause, row_flags)
+        for dimension, clause in settings_mod._ACTIVE_CONTRACTS_DIMENSION_CLAUSES.items()
+    }
+    assert expected_membership == {
+        "backfill": True,
+        "compute": False,
+        "live": False,
+        "compute_1d": True,
+    }, expected_membership
+
+    mock_settings = _make_settings()
+    recorder: list[str] = []
+    rows_by_dimension = {
+        dimension: ([_nf_row("ONE_DAY_ONLY")] if is_member else [])
+        for dimension, is_member in expected_membership.items()
+    }
+
+    def _connect(_dsn):
+        return _FakeConnection(_FakeCursor(recorder, rows_by_dimension))
+
+    results: dict[str, set[str]] = {}
+    for dimension in ("backfill", "compute", "live", "compute_1d"):
+        with settings_mod._settings_lock:
+            settings_mod._active_contracts_cache.clear()
+            settings_mod._active_contracts_last_refresh.clear()
+        with patch("psycopg.connect", side_effect=_connect):
+            result = get_active_contracts(mock_settings, dimension=dimension)
+        results[dimension] = {i.symbol for i in result}
+
+    assert results["backfill"] == {"ONE_DAY_ONLY"}
+    assert results["compute_1d"] == {"ONE_DAY_ONLY"}
+    assert results["compute"] == set(), "1d-only symbol must be absent from compute"
+    assert results["live"] == set(), "1d-only symbol must be absent from live"

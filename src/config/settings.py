@@ -374,10 +374,17 @@ _ACTIVE_CONTRACTS_TTL = 60.0  # seconds
 # Valid dimensions for get_active_contracts(), mapped to their non-futures WHERE clause.
 # "compute" is the default: migration 337 set compute_eligible=true for every existing row,
 # making it behaviorally identical to the pre-dimension unparameterized query.
+#
+# "compute_1d" (Phase 174, plan 174-13, D-09) is a SIBLING of "compute", not a narrowing
+# of it — it deliberately omits compute_eligible = true. A four-timeframe symbol is also
+# 1d-complete and appears in both "compute" and "compute_1d"; a 1d-only symbol (the D-09
+# down-cap cohort, no 5m/15m/1h history) appears in "compute_1d" and "backfill" only,
+# structurally absent from "compute" and "live".
 _ACTIVE_CONTRACTS_DIMENSION_CLAUSES: dict[str, str] = {
     "backfill": "is_active = true",
     "compute": "is_active = true AND compute_eligible = true",
     "live": "is_active = true AND compute_eligible = true AND live_tradeable = true",
+    "compute_1d": "is_active = true AND compute_eligible_1d = true",
 }
 
 
@@ -502,8 +509,12 @@ def get_active_contracts(
       expected to return an empty list until a subscription whitelist is deliberately
       chosen. IBKR's 80-simultaneous-subscription cap binds this dimension and nothing
       else; no other dimension is capped by it.
+    - "compute_1d": `is_active = true AND compute_eligible_1d = true` — a sibling of
+      "compute", not a narrowing of it (deliberately omits compute_eligible). The D-09
+      down-cap cohort carries 1d bars only, so admitting it to "compute" would seed the
+      5m/15m/1h cross-sectional cells with symbols that have no rows at those timeframes.
 
-    An unrecognized `dimension` raises ValueError naming the value and the three valid
+    An unrecognized `dimension` raises ValueError naming the value and the four valid
     options. Futures templates and the contract_metadata front-month query are unaffected
     by `dimension` — futures are out of scope for this split.
 

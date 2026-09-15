@@ -27,6 +27,14 @@ newest/oldest matching chunk is found, instead of aggregating the full partition
 Also exports COMPUTE_READY_PREDICATE_SQL, the canonical all-four-timeframes promotion
 predicate reused verbatim by Plans 10 and 12 so the gate cannot drift between the three
 places it is enforced.
+
+Also exports COMPUTE_READY_1D_PREDICATE_SQL (Phase 174, plan 174-13, D-09), the
+1d-only sibling of COMPUTE_READY_PREDICATE_SQL, scoped to the '1d' timeframe alone
+rather than parameterized over all four -- a 1d-only symbol (e.g. the D-09 down-cap
+cohort, which carries no 5m/15m/1h history at all) satisfies this predicate and
+deliberately fails COMPUTE_READY_PREDICATE_SQL. The two constants sit beside each other
+in this module so the two cannot drift apart; migration 341 uses the same two-clause
+text inline in its backfill UPDATE.
 """
 
 from __future__ import annotations
@@ -66,6 +74,24 @@ COMPUTE_READY_PREDICATE_SQL = """
         SELECT count(DISTINCT m.timeframe) FROM market_data_ohlcv_tradeable m
         WHERE m.symbol = i.symbol AND m.timeframe = ANY(%(timeframes)s)
     ) = 4
+""".strip()
+
+# 1d-only sibling of COMPUTE_READY_PREDICATE_SQL (Phase 174, plan 174-13, D-09). Same
+# two-clause bookkeeping-AND-ground-truth structure and the same `i.symbol` outer-alias
+# convention, but scoped to the '1d' timeframe as a SQL literal rather than a
+# %(timeframes)s parameter -- so this exact text is valid pasted directly into a
+# migration's UPDATE ... WHERE clause (see migration 341) as well as inside a psycopg
+# call from this module. A 1d-only symbol satisfies this predicate and deliberately
+# fails COMPUTE_READY_PREDICATE_SQL above, since it carries no 5m/15m/1h rows at all.
+COMPUTE_READY_1D_PREDICATE_SQL = """
+    (
+        SELECT count(*) FROM backfill_status b
+        WHERE b.symbol = i.symbol AND b.tf = '1d' AND b.fetch_complete
+    ) = 1
+    AND (
+        SELECT count(*) FROM market_data_ohlcv_tradeable m
+        WHERE m.symbol = i.symbol AND m.timeframe = '1d'
+    ) > 0
 """.strip()
 
 
