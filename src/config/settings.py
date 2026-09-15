@@ -365,21 +365,31 @@ class Settings(BaseSettings):
 _settings_lock = threading.RLock()
 _settings_singleton: Settings | None = None
 
-# Cache for DB-backed active contracts
-_active_contracts_cache: list[Instrument] | None = None
-_active_contracts_last_refresh: float = 0.0
+# Cache for DB-backed active contracts, keyed by dimension ("backfill"/"compute"/"live")
+# so a result for one dimension can never be returned to a caller asking for another (D-07/T-174-16).
+_active_contracts_cache: dict[str, list[Instrument]] = {}
+_active_contracts_last_refresh: dict[str, float] = {}
 _ACTIVE_CONTRACTS_TTL = 60.0  # seconds
+
+# Valid dimensions for get_active_contracts(), mapped to their non-futures WHERE clause.
+# "compute" is the default: migration 337 set compute_eligible=true for every existing row,
+# making it behaviorally identical to the pre-dimension unparameterized query.
+_ACTIVE_CONTRACTS_DIMENSION_CLAUSES: dict[str, str] = {
+    "backfill": "is_active = true",
+    "compute": "is_active = true AND compute_eligible = true",
+    "live": "is_active = true AND compute_eligible = true AND live_tradeable = true",
+}
 
 
 def invalidate_active_contracts_cache() -> None:
     """Force next get_active_contracts() call to re-query the database.
 
-    Called by services that receive ContractUpdateEvent to reduce contract-switch
-    latency from ~60s (TTL expiry) to ~1s (next audit cycle).
+    Invalidates every dimension. Called by services that receive ContractUpdateEvent to
+    reduce contract-switch latency from ~60s (TTL expiry) to ~1s (next audit cycle).
     """
     global _active_contracts_last_refresh  # noqa: PLW0603
     with _settings_lock:
-        _active_contracts_last_refresh = 0.0
+        _active_contracts_last_refresh = {}
 
 
 def _default_settings() -> Settings:
@@ -473,34 +483,58 @@ def _build_instrument_from_db_row(
     )
 
 
-def get_active_contracts(settings: Settings | None = None) -> list[Instrument]:
+def get_active_contracts(
+    settings: Settings | None = None, dimension: str = "compute"
+) -> list[Instrument]:
     """Return active contract Instruments (e.g. [Instrument(symbol='ESM6'), ...]).
 
     Queries contract_metadata WHERE is_front_month = true AND asset_class = 'futures',
     reconstructs Instrument objects inheriting DB-template defaults (point_value,
     tick_size, session_id, exchange, sector, name, provider_meta) by base_symbol
-    from the instruments table, then queries instruments table WHERE is_active = true
-    AND asset_class != 'futures' for non-futures (equities, FX, crypto).
-    Merges both lists, caches result for 60 seconds.
-    Fallback on DB error: returns last valid cache, or empty list if cache is cold.
+    from the instruments table, then queries instruments table for non-futures
+    (equities, FX, crypto) filtered by `dimension`:
+
+    - "backfill": `is_active = true` — every backfill-eligible symbol.
+    - "compute" (default): `is_active = true AND compute_eligible = true` — behaviorally
+      identical to the pre-dimension query, since migration 337 backfilled
+      `compute_eligible=true` for every row that was `is_active=true` at the time.
+    - "live": `is_active = true AND compute_eligible = true AND live_tradeable = true` —
+      expected to return an empty list until a subscription whitelist is deliberately
+      chosen. IBKR's 80-simultaneous-subscription cap binds this dimension and nothing
+      else; no other dimension is capped by it.
+
+    An unrecognized `dimension` raises ValueError naming the value and the three valid
+    options. Futures templates and the contract_metadata front-month query are unaffected
+    by `dimension` — futures are out of scope for this split.
+
+    Merges both lists, caches result for 60 seconds, keyed by dimension so a result for
+    one dimension is never returned to a caller asking for another.
+    Fallback on DB error: returns last valid cache for the requested dimension, or empty
+    list if that dimension's cache is cold. Never substitutes another dimension's cache.
     Settings.contracts does not exist and is never consulted.
     """
     import json as _json
 
     global _active_contracts_cache, _active_contracts_last_refresh  # noqa: PLW0603
 
+    if dimension not in _ACTIVE_CONTRACTS_DIMENSION_CLAUSES:
+        valid = ", ".join(sorted(_ACTIVE_CONTRACTS_DIMENSION_CLAUSES))
+        raise ValueError(f"Unknown dimension {dimension!r}; valid options are: {valid}")
+
     s = settings or _default_settings()
 
     # Check cache under lock (atomic read); compute now before entering lock
     now = time.monotonic()
     with _settings_lock:
-        cache_age = now - _active_contracts_last_refresh
-        if _active_contracts_cache is not None and cache_age < _ACTIVE_CONTRACTS_TTL:
-            return _active_contracts_cache
+        cache_age = now - _active_contracts_last_refresh.get(dimension, float("-inf"))
+        if dimension in _active_contracts_cache and cache_age < _ACTIVE_CONTRACTS_TTL:
+            return _active_contracts_cache[dimension]
     # Lock released here — DB query runs without holding the lock (Pitfall 2)
 
     try:
         import psycopg
+
+        non_futures_clause = _ACTIVE_CONTRACTS_DIMENSION_CLAUSES[dimension]
 
         # All three queries share one connection (one-third the overhead of 3 separate connects).
         with psycopg.connect(s.database_url) as conn:
@@ -521,11 +555,14 @@ def get_active_contracts(settings: Settings | None = None) -> list[Instrument]:
                 )
                 rows = cur.fetchall()
 
-                # 3. Non-futures (equities, FX, crypto) from instruments table
+                # 3. Non-futures (equities, FX, crypto) from instruments table,
+                # filtered by the requested dimension (module-owned clause, never
+                # built from caller-supplied text).
                 cur.execute(
                     "SELECT symbol, base, contract_details "
                     "FROM instruments "
-                    "WHERE is_active = true AND contract_details->>'asset_class' != 'futures'"
+                    f"WHERE {non_futures_clause} "
+                    "AND contract_details->>'asset_class' != 'futures'"
                 )
                 nf_rows = cur.fetchall()
 
@@ -575,10 +612,10 @@ def get_active_contracts(settings: Settings | None = None) -> list[Instrument]:
 
         result = db_instruments + non_futures
 
-        # Write cache under lock (atomic write)
+        # Write cache under lock (atomic write), keyed by dimension
         with _settings_lock:
-            _active_contracts_cache = result
-            _active_contracts_last_refresh = now
+            _active_contracts_cache[dimension] = result
+            _active_contracts_last_refresh[dimension] = now
         return result
 
     except Exception as error:
@@ -587,14 +624,17 @@ def get_active_contracts(settings: Settings | None = None) -> list[Instrument]:
         _structlog.get_logger(__name__).warning(
             "get_active_contracts.db_query_failed",
             error=str(error),
+            dimension=dimension,
         )
-        # Fallback: return last valid cache if warm; never consult s.contracts
+        # Fallback: return last valid cache for THIS dimension only; never substitute
+        # another dimension's cached list, and never consult s.contracts.
         with _settings_lock:
-            if _active_contracts_cache is not None:
-                return _active_contracts_cache
+            if dimension in _active_contracts_cache:
+                return _active_contracts_cache[dimension]
         _structlog.get_logger(__name__).critical(
             "get_active_contracts.cold_start_db_unavailable",
             error=str(error),
+            dimension=dimension,
         )
         return []
 
