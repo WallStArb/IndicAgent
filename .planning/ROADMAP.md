@@ -2768,17 +2768,36 @@ Plans:
 
 ### Phase 174: Universe Expansion — Single-Name Breadth Scaling + Targeted ETF Gap-Fill
 
-**Goal:** [To be planned]
-**Requirements**: TBD
+**Goal:** Raise the corpus's effective breadth beyond ~8.4 by onboarding a market-cap-stratified
+random sample of the Russell 3000 single-name population, after landing the structural ic_engine
+memory fix that scale requires, the 3-way instrument-governance split that keeps a
+hundreds-of-names universe from silently becoming live-tradeable, and the onboarding path that
+cannot write an instrument half-way — plus closing the two confirmed ETF exposure gaps (EM
+currency, volatility) and making the already-owned factor ETFs individually identifiable.
+**Requirements**: D-01 through D-08 (CONTEXT.md decisions; `phase_req_ids` was null — this phase
+was scoped directly via `/gsd-discuss-phase`), plus ASVS V5. Full ID map in
+`.planning/phases/174-*/174-VALIDATION.md`.
 **Depends on:** Personal-scale edge determination program closure (STATE.md, 2026-09-12/13),
-which prescribes universe expansion as primary. Should account for todo 376 (survivorship
-bias — active-only universe) when scoping sourcing methodology. Excludes futures entirely
-(see todo 377 — genuine gaps there are CL/NG/HG/ZC/ZS/ZW/VX/GBPUSD/USDCHF, but continuous-
-contract construction is unbuilt and out of scope for this phase).
-**Plans:** 0 plans
+which prescribes universe expansion as primary. Folds todos 371 (ic_engine cross-sectional cell
+OOM), 274 (backfill/compute/live-tradeable split), 282 (instrument_metadata not backfilled) and
+376 (survivorship bias — researched in parallel, does not gate the pilot). Excludes futures
+entirely (see todo 377 — genuine gaps there are CL/NG/HG/ZC/ZS/ZW/VX/GBPUSD/USDCHF, but
+continuous-contract construction is unbuilt and out of scope for this phase).
+**Plans:** 12 plans, 5 waves
 
 Plans:
-- [ ] TBD (run /gsd-plan-phase 174 to break down)
+- [ ] 174-01-PLAN.md — Disk-backed `Float32ChunkAccumulator` mode + `infra.ic_engine.*` APR keys (wave 1)
+- [ ] 174-02-PLAN.md — `instruments` governance split: `compute_eligible` / `live_tradeable`, with a measured eligibility audit (wave 1)
+- [ ] 174-03-PLAN.md — `onboard_instrument()`: transactional, qualification-gated, metadata-mandatory onboarding path (wave 1)
+- [ ] 174-04-PLAN.md — IWV holdings fetch + defensive parser; delisted-constituent feasibility verdict (wave 1)
+- [ ] 174-05-PLAN.md — ic_engine pre-flight cell-size estimate, disk-backed wiring, scratch cleanup (wave 2)
+- [ ] 174-06-PLAN.md — `get_active_contracts(dimension=)` with per-dimension caching and a default-equivalence regression (wave 2)
+- [ ] 174-07-PLAN.md — Factor / vol exposure tag taxonomy; EM-FX and vol-proxy ticker decision (wave 2)
+- [ ] 174-08-PLAN.md — Market-cap-stratified sampler with an APR-seeded, reproducible draw (wave 2)
+- [ ] 174-09-PLAN.md — Streaming correlation + column-wise `X_nd`: eliminate the remaining whole-cell copies (wave 3)
+- [ ] 174-10-PLAN.md — ib-gateway restart; onboard and backfill the two gap-fill ETFs end-to-end (wave 3)
+- [ ] 174-11-PLAN.md — Empirical memory-fix verification, swapfile removal, supported-scale determination (wave 4)
+- [ ] 174-12-PLAN.md — Draw, onboard and backfill the sampled universe; backfill-gated promotion (wave 5)
 
 ---
 
