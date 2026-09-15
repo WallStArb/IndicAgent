@@ -670,6 +670,19 @@ class ICEngineConfig:
     broadcast_max_bars_per_day: dict[str, int] = dataclasses.field(
         default_factory=lambda: {"5m": 78, "15m": 26, "1h": 7}
     )
+    # Phase 174 Plan 01 (migration 336), consumed starting Plan 05: scratch directory
+    # for Float32ChunkAccumulator's disk_backed=True np.memmap mode. Pure infrastructure
+    # knob -- selects WHERE the identical cell array is staged, never what is measured.
+    # Defaults to /var/tmp, not /tmp -- /tmp may be tmpfs-backed and would put the
+    # "disk-backed" array back in anonymous RAM, defeating the OOM fix (see Plan 01
+    # SUMMARY's key-decisions).
+    memmap_scratch_dir: str = "/var/tmp/ic_engine_scratch"
+    # Phase 174 Plan 01 (migration 336), consumed starting Plan 05: row-count threshold
+    # (pre-flight estimate) above which _compute_cross_sectional_tf constructs its
+    # Float32ChunkAccumulator in disk_backed mode instead of in-RAM. Like
+    # memmap_scratch_dir, this selects only the storage mechanism for an identical
+    # array -- it never changes the array's contents, so it stays OPERATIONAL.
+    disk_backed_min_rows: int = 2_000_000
 
     def broadcast_max_bars_per_day_for(self, tf: str) -> int:
         """Max observed bars/trading-day for tf, or a large sentinel for tfs this
@@ -859,6 +872,13 @@ class ICEngineConfig:
                 tf: int(cfg.get_sync(f"alpha.ic.broadcast_max_bars_per_day.{tf}", fb))
                 for tf, fb in {"5m": 78, "15m": 26, "1h": 7}.items()
             },
+            # Phase 174 Plan 01 (migration 336), consumed by Plan 05.
+            memmap_scratch_dir=str(
+                cfg.get_sync("infra.ic_engine.memmap_scratch_dir", "/var/tmp/ic_engine_scratch")
+            ),
+            disk_backed_min_rows=int(
+                cfg.get_sync("infra.ic_engine.disk_backed_min_rows", 2_000_000)
+            ),
         )
 
 
@@ -958,6 +978,12 @@ _OPERATIONAL_CONFIG_FIELDS: frozenset[str] = frozenset(
         # provenance continuity, per the dataclass's own field comment.
         "sharpe_window_size",
         "cs_chunk_ts",  # cross-sectional fetch chunk size -- pure throughput knob
+        # Phase 174 Plan 01/05: pure infrastructure knob -- selects WHERE a cell-sized
+        # scratch array is staged (disk path), never what is measured.
+        "memmap_scratch_dir",
+        # Phase 174 Plan 01/05: selects only the storage mechanism (disk memmap vs
+        # in-RAM list) for an identical array -- never its contents.
+        "disk_backed_min_rows",
         "symbol_fetch_chunk_rows",  # per-symbol fetch chunk size -- pure throughput knob
         "n_workers",  # ProcessPoolExecutor pool size -- pure throughput knob
         # Per-worker BLAS thread cap (todo 216) -- empirically verified OPERATIONAL, not
