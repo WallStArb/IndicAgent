@@ -64,11 +64,13 @@ import math
 import os
 import shutil
 import sys
+import tempfile
 import time
 import warnings
 from collections import defaultdict
+from collections.abc import Callable
 from concurrent.futures import ThreadPoolExecutor, as_completed
-from contextlib import contextmanager
+from contextlib import ExitStack, contextmanager
 from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any, Literal
@@ -697,6 +699,13 @@ class ICEngineConfig:
     # memmap_scratch_dir, this selects only the storage mechanism for an identical
     # array -- it never changes the array's contents, so it stays OPERATIONAL.
     disk_backed_min_rows: int = 2_000_000
+    # Phase 174 Plan 09 (migration 340): rows processed per pass-block by
+    # _streaming_feature_correlation's blocked two-pass correlation accumulation.
+    # Pure throughput knob -- a different block size must produce the identical
+    # correlation matrix (pinned by test_ic_engine_streaming_correlation.py's
+    # block-size-invariance case), so it stays OPERATIONAL alongside
+    # feature_block_columns.
+    corr_row_block: int = 1_000_000
 
     def broadcast_max_bars_per_day_for(self, tf: str) -> int:
         """Max observed bars/trading-day for tf, or a large sentinel for tfs this
@@ -893,6 +902,8 @@ class ICEngineConfig:
             disk_backed_min_rows=int(
                 cfg.get_sync("infra.ic_engine.disk_backed_min_rows", 2_000_000)
             ),
+            # Phase 174 Plan 09 (migration 340).
+            corr_row_block=int(cfg.get_sync("infra.ic_engine.corr_row_block", 1_000_000)),
         )
 
 
@@ -998,6 +1009,10 @@ _OPERATIONAL_CONFIG_FIELDS: frozenset[str] = frozenset(
         # Phase 174 Plan 01/05: selects only the storage mechanism (disk memmap vs
         # in-RAM list) for an identical array -- never its contents.
         "disk_backed_min_rows",
+        # Phase 174 Plan 09 (migration 340): correlation pass-block size -- a
+        # different block size must produce the identical correlation matrix
+        # (test_ic_engine_streaming_correlation.py block-size-invariance case).
+        "corr_row_block",
         "symbol_fetch_chunk_rows",  # per-symbol fetch chunk size -- pure throughput knob
         "n_workers",  # ProcessPoolExecutor pool size -- pure throughput knob
         # Per-worker BLAS thread cap (todo 216) -- empirically verified OPERATIONAL, not
@@ -1862,18 +1877,105 @@ def _assert_prerequisites(
 # ---------------------------------------------------------------------------
 
 
-def _cluster_features(X_nd: np.ndarray, cluster_max_corr: float) -> np.ndarray:
+def _streaming_feature_correlation(
+    X: np.ndarray,
+    mask: np.ndarray | None,
+    row_block: int,
+) -> np.ndarray:
+    """Blocked two-pass Pearson correlation over mask-selected columns of X,
+    without ever materializing a float64 copy of the whole array (Phase 174 Plan
+    09, todo 371 follow-on -- the dominant allocation Plan 05 left in place: the
+    pre-Plan-09 whole-array correlation call (numpy's `corrcoef`) internally
+    casts its input to float64, and at the 15M-row cross-sectional row-count
+    ceiling with ~250 features that whole-cell cast is a ~30GB transient, larger
+    than the accumulation Plan 05 already fixed).
+
+    Pass 1 accumulates per-column sums in float64 over row blocks of `row_block`
+    rows to derive column means. Pass 2 accumulates the centered Gram matrix
+    (the covariance numerator) in float64 over the same row blocks, then
+    normalizes by the sqrt outer product of the diagonal (per-column variance)
+    to yield the correlation matrix. Both passes read `X` via a basic row slice
+    (`X[start:stop]`, a VIEW when X is a memmap or a C-contiguous ndarray), so
+    the only new allocation per block is the block itself.
+
+    Two passes, not the single-pass sum-of-squares-minus-square-of-sum
+    shortcut: over tens of millions of z-scored feature rows the single-pass
+    form suffers catastrophic cancellation -- this module already commits to
+    that precision stance for feature_stds (`np.std(..., dtype=np.float64)`,
+    "variance is sensitive to accumulation precision in a way rank order is
+    not"). The extra disk pass is cheap relative to a 30GB allocation.
+
+    Peak transient for this step is `row_block x n_cols x 8` bytes (the float64
+    block copy) plus the `n_cols^2` accumulator -- at the defaults
+    (row_block=1_000_000, ~250 features) roughly 2GB and 0.5MB respectively,
+    versus `n_rows x n_cols x 8` bytes for the pre-Plan-09 whole-array float64
+    correlation cast (~30GB at the 15M-row ceiling).
+
+    `mask=None` selects every column of `X` -- used by callers that have
+    already column-sliced their input before calling (the per-symbol and
+    day-collapsed broadcast cell paths, where re-deriving a column mask would
+    be redundant work). `row_block` is a pure throughput knob
+    (`infra.ic_engine.corr_row_block`); a different block size must produce the
+    identical correlation matrix (pinned by
+    tests/unit/test_ic_engine_streaming_correlation.py's block-size-invariance
+    case) -- it is never a statistic.
+
+    Returns a `(n_selected, n_selected)` float64 array. A zero-variance
+    (degenerate) column produces a `0/0` NaN row/column, exactly as numpy's
+    `corrcoef` does -- callers already handle this via `np.nan_to_num` inside
+    `_cluster_features`.
+    """
+    n_rows = X.shape[0]
+    col_idx = None if mask is None else np.flatnonzero(mask)
+    n_cols = X.shape[1] if col_idx is None else len(col_idx)
+    if n_cols == 0:
+        return np.zeros((0, 0), dtype=np.float64)
+
+    def _block(start: int, stop: int) -> np.ndarray:
+        block = X[start:stop]
+        if col_idx is not None:
+            block = block[:, col_idx]
+        return block.astype(np.float64, copy=False)
+
+    # Pass 1: column means.
+    sums = np.zeros(n_cols, dtype=np.float64)
+    for start in range(0, n_rows, row_block):
+        stop = min(start + row_block, n_rows)
+        sums += _block(start, stop).sum(axis=0)
+    means = sums / n_rows
+
+    # Pass 2: centered Gram matrix (covariance numerator).
+    gram = np.zeros((n_cols, n_cols), dtype=np.float64)
+    for start in range(0, n_rows, row_block):
+        stop = min(start + row_block, n_rows)
+        centered = _block(start, stop) - means
+        gram += centered.T @ centered
+
+    std = np.sqrt(np.diag(gram))
+    denom = np.outer(std, std)
+    with np.errstate(invalid="ignore", divide="ignore"):
+        return gram / denom
+
+
+def _cluster_features(corr: np.ndarray, cluster_max_corr: float) -> np.ndarray:
     """Distance-threshold dendrogram clustering of non-degenerate feature columns.
 
-    Returns a 1-based int cluster label per column (len == X_nd.shape[1]).
+    Returns a 1-based int cluster label per column (len == corr.shape[0]).
     Uses single linkage: two clusters merge only when the CLOSEST pair across
     clusters meets the distance threshold. Conservative for redundancy elimination
     -- no transitive merging of uncorrelated features.
+
+    Takes a PRECOMPUTED correlation matrix (Phase 174 Plan 09), not the raw
+    feature array -- every caller now derives `corr` via
+    `_streaming_feature_correlation`, never numpy's `corrcoef` directly, so a
+    15M-row cross-sectional cell never materializes a whole-cell float64 copy
+    just to cluster. Everything below is unchanged from the pre-Plan-09
+    implementation: any behavior change can only come from the correlation
+    values themselves.
     """
-    n_nd = X_nd.shape[1]
+    n_nd = corr.shape[0]
     if n_nd < 2:
         return np.ones(n_nd, dtype=int)
-    corr = np.corrcoef(X_nd.T)
     corr = np.nan_to_num(corr, nan=0.0)
     dist = np.sqrt(0.5 * (1.0 - np.clip(corr, -1.0, 1.0)))
     np.fill_diagonal(dist, 0.0)
@@ -2372,7 +2474,8 @@ def _compute_one_regime_cell(
     # NOTE: dendrogram distance cutoff -- transitive linkage can merge
     # features whose direct pairwise correlation is below cluster_max_corr.
     # ------------------------------------------------------------------
-    cluster_ids_nd = _cluster_features(X_regime_nd, cluster_max_corr)
+    corr_nd = _streaming_feature_correlation(X_regime_nd, None, config.corr_row_block)
+    cluster_ids_nd = _cluster_features(corr_nd, cluster_max_corr)
     # Expand to full feature space: None for degenerate/broadcast, cluster_id otherwise
     cluster_id_full = expand_int(cluster_ids_nd, cluster_input_mask, n_features)
 
@@ -2789,7 +2892,8 @@ def _compute_one_symbol_broadcast_cell(
     if X_nd_bc.shape[1] == 0:
         return [], n_skipped
 
-    cluster_ids_nd = _cluster_features(X_nd_bc, config.cluster_max_corr)
+    corr_nd_bc = _streaming_feature_correlation(X_nd_bc, None, config.corr_row_block)
+    cluster_ids_nd = _cluster_features(corr_nd_bc, config.cluster_max_corr)
     cluster_id_bc_raw = expand_int(cluster_ids_nd, non_degenerate_mask, n_broadcast)
     cluster_id_bc = [
         None if c is None else c + _BROADCAST_CLUSTER_ID_OFFSET for c in cluster_id_bc_raw
@@ -3584,6 +3688,77 @@ def _cross_sectional_vol_normalized_target(
     return vol_normalized_return(Y_scale, true_range_pct_scale)
 
 
+def _build_column_wise_x_nd(
+    X_raw: np.ndarray,
+    cluster_input_mask: np.ndarray,
+    scratch_dir: str,
+) -> tuple[np.ndarray, Callable[[], None]]:
+    """Column-wise memmap build of the non-degenerate/non-broadcast feature slice
+    for a disk-backed cross-sectional cell (Phase 174 Plan 09, todo 371 follow-on).
+
+    Replaces the boolean-column fancy-index build of X_nd (`X_raw[:, mask]`) --
+    which ALWAYS materializes a fresh copy of every selected column across every
+    row, even when X_raw itself is memmap-backed -- with a second `np.memmap`
+    filled one source column at a time (`X_nd_mm[:, out_idx] = X_raw[:, src_idx]`,
+    a basic column slice on the source), bounding the transient to `n_raw x 4`
+    bytes (~60MB at the 15M-row cross-sectional row-count ceiling) instead of
+    copying the entire selected slice at once.
+
+    Returns `(X_nd, cleanup)` rather than tearing itself down or registering onto
+    a stack directly -- the CALLER decides when it is safe to run cleanup (Plan
+    05's memmap ownership contract, extended one array over: X_nd must stay
+    readable until every consumer of `X_sub_nd`, a view over it, has returned. In
+    production that is `_compute_cross_sectional_tf`'s single cell-scoped
+    `finally`, never this function and never `_compute_one_cross_sectional_cell`
+    before it returns).
+
+    `cleanup()` flushes the memmap, closes the mmap and the underlying
+    `NamedTemporaryFile` handle, then unlinks the scratch file -- mirrors
+    `Float32ChunkAccumulator.close()`'s fd-leak-safe teardown sequence exactly
+    (Plan 01: closing the mmap without closing the `NamedTemporaryFile` leaks one
+    fd per cell). Each step is independently try/excepted so one failure does not
+    skip the others. Intended to run exactly once, from the caller's `ExitStack`.
+
+    A zero-column mask (n_nd == 0, the caller's own early-exit condition) returns
+    an empty in-RAM array and a no-op cleanup -- an `np.memmap` cannot back a
+    zero-byte file, and there is nothing worth staging to disk for zero columns.
+    """
+    n_raw = X_raw.shape[0]
+    src_indices = np.flatnonzero(cluster_input_mask)
+    n_nd = len(src_indices)
+    if n_nd == 0:
+        return np.empty((n_raw, 0), dtype=np.float32), lambda: None
+
+    os.makedirs(scratch_dir, exist_ok=True)
+    tmpfile = tempfile.NamedTemporaryFile(dir=scratch_dir, suffix=".memmap", delete=False)
+    X_nd_mm = np.memmap(tmpfile.name, dtype=np.float32, mode="w+", shape=(n_raw, n_nd))
+    for out_idx, src_idx in enumerate(src_indices):
+        X_nd_mm[:, out_idx] = X_raw[:, src_idx]
+
+    def _cleanup() -> None:
+        path = tmpfile.name
+        try:
+            X_nd_mm.flush()
+        except Exception as error:
+            _logger.warning("ic_engine.x_nd_memmap_flush_failed", error=str(error))
+        try:
+            X_nd_mm._mmap.close()
+        except Exception as error:
+            _logger.warning("ic_engine.x_nd_memmap_close_failed", error=str(error))
+        try:
+            tmpfile.close()
+        except Exception as error:
+            _logger.warning("ic_engine.x_nd_tmpfile_close_failed", error=str(error))
+        try:
+            os.unlink(path)
+        except FileNotFoundError:
+            pass
+        except Exception as error:
+            _logger.warning("ic_engine.x_nd_unlink_failed", path=path, error=str(error))
+
+    return X_nd_mm, _cleanup
+
+
 def _compute_one_cross_sectional_cell(
     regime_label: str,
     *,
@@ -3598,6 +3773,8 @@ def _compute_one_cross_sectional_cell(
     run_ts: datetime,
     prior_e_values: dict[tuple[str, int], float],
     broadcast_mask: np.ndarray | None = None,
+    disk_backed: bool = False,
+    cleanup_stack: ExitStack | None = None,
 ) -> tuple[list[dict], int]:
     """Compute clustering + per-scale IC/CI/walk-forward/Sharpe for ONE cross-sectional cell.
 
@@ -3633,6 +3810,20 @@ def _compute_one_cross_sectional_cell(
     an all-False mask -- this function's output is then row-for-row identical
     to its pre-Plan-03 output (backward-compatibility guarantee).
 
+    disk_backed/cleanup_stack (Phase 174 Plan 09, todo 371 follow-on): disk_backed
+    mirrors the SAME mode-selection decision the caller (_compute_cross_sectional_tf)
+    already recorded for X_raw's own accumulator -- when true, the non-degenerate/
+    non-broadcast feature slice (X_nd) is built as a second column-wise memmap
+    rather than the in-RAM boolean-column fancy-index copy. X_nd's scratch-file
+    teardown is registered onto `cleanup_stack`
+    (required, non-None, whenever disk_backed=True) rather than run here or by any
+    nested try/finally in this function -- the caller's SINGLE cell-scoped finally
+    (the same one that closes X_raw's Float32ChunkAccumulator, Plan 05) is the only
+    place proven to run after every reader of X_nd (including the per-scale
+    X_sub_nd view below) has returned. Default disk_backed=False/cleanup_stack=None
+    preserves every pre-Plan-09 direct call site unchanged (in-RAM boolean-index
+    build, zero new params touched).
+
     Returns (result_rows, n_skipped_features) for this cell only. Does NOT populate
     pvals_flat/pval_result_idxs or run cluster-representative selection -- that stays in
     the caller (_compute_cross_sectional_tf), same division of responsibility as
@@ -3667,13 +3858,32 @@ def _compute_one_cross_sectional_cell(
     # keeps n_skipped's accounting from conflating "degenerate" with "excluded
     # because symbol-invariant" -- the two conditions mean different things.
     cluster_input_mask = non_degenerate_mask & ~broadcast_mask
-    X_nd = X_raw[:, cluster_input_mask]
+    # Column-wise memmap build (Phase 174 Plan 09) when this cell's X_raw is itself
+    # disk-backed -- the in-RAM boolean-column fancy-index build below ALWAYS
+    # materializes a fresh copy of every selected column across every row even
+    # when X_raw is memmap-backed, re-allocating most of the cell one line after
+    # Plan 05 just bounded it. Gated on the SAME disk_backed decision the
+    # caller already made for X_raw, not a re-derived threshold.
+    if disk_backed:
+        if cleanup_stack is None:
+            raise ValueError(
+                "_compute_one_cross_sectional_cell(disk_backed=True) requires "
+                "cleanup_stack -- X_nd's scratch-file teardown must be registered "
+                "into the caller's single cell-scoped finally, not run here."
+            )
+        X_nd, x_nd_cleanup = _build_column_wise_x_nd(
+            X_raw, cluster_input_mask, config.memmap_scratch_dir
+        )
+        cleanup_stack.callback(x_nd_cleanup)
+    else:
+        X_nd = X_raw[:, cluster_input_mask]
 
     n_skipped = int(degenerate_mask.sum())
     if X_nd.shape[1] == 0:
         return [], n_skipped
 
-    cluster_ids_nd = _cluster_features(X_nd, cluster_max_corr)
+    corr_nd = _streaming_feature_correlation(X_nd, None, config.corr_row_block)
+    cluster_ids_nd = _cluster_features(corr_nd, cluster_max_corr)
     cluster_id_full = expand_int(cluster_ids_nd, cluster_input_mask, n_features)
 
     all_results: list[dict] = []
@@ -4089,7 +4299,8 @@ def _compute_one_broadcast_cell(
     # in the same (regime, lookahead_bars) BH-FDR representative-selection
     # group (T-173-10 mitigation).
     # -----------------------------------------------------------------------
-    cluster_ids_nd = _cluster_features(X_nd_bc, config.cluster_max_corr)
+    corr_nd_bc = _streaming_feature_correlation(X_nd_bc, None, config.corr_row_block)
+    cluster_ids_nd = _cluster_features(corr_nd_bc, config.cluster_max_corr)
     cluster_id_bc_raw = expand_int(cluster_ids_nd, non_degenerate_mask, n_broadcast)
     cluster_id_bc = [
         None if c is None else c + _BROADCAST_CLUSTER_ID_OFFSET for c in cluster_id_bc_raw
@@ -4402,7 +4613,17 @@ def _compute_cross_sectional_tf(
     #     return per-feature IC rows (scalars aggregated over the cell), never an
     #     array slice. If a future change adds a return field that IS an array
     #     view, np.asarray(...).copy() it before the `finally` runs.
+    #
+    # Plan 09 (D-04, todo 371 follow-on): X_nd (the narrower memmap Plan 09's
+    # _build_column_wise_x_nd allocates from X_raw inside
+    # _compute_one_cross_sectional_cell, disk-backed cells only) is torn down from
+    # this SAME `finally`, via `X_nd_cleanup` -- not from a second, independent
+    # cleanup path, and not from inside _compute_one_cross_sectional_cell before it
+    # returns. X_sub_nd (a view over X_nd) is read throughout that function's
+    # per-scale loop; only this outer `finally` is proven to run after every one of
+    # those reads has finished.
     X_acc: Float32ChunkAccumulator | None = None
+    X_nd_cleanup = ExitStack()
     try:
         with short_lived_conn(dsn) as conn:
             with conn.cursor() as tune_cur:
@@ -4700,6 +4921,8 @@ def _compute_cross_sectional_tf(
             run_ts=run_ts,
             prior_e_values=prior_e_values,
             broadcast_mask=broadcast_mask,
+            disk_backed=use_disk,
+            cleanup_stack=X_nd_cleanup,
         )
 
         # Phase 173 Plan 04 (D-01..D-07, todo 270): the broadcast cell, called AFTER
@@ -4741,6 +4964,12 @@ def _compute_cross_sectional_tf(
         # per cell would fill the scratch filesystem.
         if X_acc is not None:
             X_acc.close()
+        # Plan 09: X_nd's scratch-file teardown (registered by
+        # _compute_one_cross_sectional_cell via _build_column_wise_x_nd, disk-backed
+        # cells only) -- a no-op ExitStack when X_nd was never built (in-RAM mode,
+        # or an exception before clustering). Same "every exit path, exactly one
+        # finally" contract as X_acc.close() directly above.
+        X_nd_cleanup.close()
 
     pvals_flat: list[float] = []
     pval_result_idxs: list[int] = []
