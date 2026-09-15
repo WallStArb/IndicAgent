@@ -7,6 +7,8 @@ import csv
 import io
 import json
 import math
+import os
+import tempfile
 from collections.abc import Callable
 from concurrent.futures import ProcessPoolExecutor
 from contextlib import asynccontextmanager, contextmanager, nullcontext
@@ -1043,12 +1045,79 @@ class Float32ChunkAccumulator:
       (the streaming-cursor shape).
     - append_chunk(): one pre-fetched batch at a time, converted to a chunk immediately
       (the re-executed-per-query-chunk shape). Ignores an empty batch.
+
+    Two accumulation modes (additive, Phase 174 D-04 / todo 371 -- NOT a forked
+    parallel class; migration 249 already corrected that exact mistake once for
+    `_check_cell_size` and RESEARCH.md's Don't-Hand-Roll table names it again):
+    - In-RAM (default, disk_backed=False): byte-for-byte the original behavior above.
+      `finalize()` holds the full chunk list AND the vstacked result in RAM
+      simultaneously -- roughly 2x the cell size at peak. Fine for small cells; this
+      is what OOM-killed ic_engine at universe scale for the largest cross-sectional
+      cells (todo 371).
+    - Disk-backed (disk_backed=True): both append modes write directly into an
+      `np.memmap`-backed scratch file at a running row offset instead of a Python
+      list of chunks. `finalize()` returns a VIEW over the memmap -- no
+      `np.vstack`, no copy -- so peak anonymous RSS is bounded by one chunk's size,
+      not the whole cell's size. Requires `estimated_rows` (a conservative upper
+      bound on total rows the caller's pre-flight estimate produced) and `n_cols`
+      up front to pre-allocate the memmap; `finalize()` trims the returned view to
+      the actual rows written. An under-estimate is crash-loud (`ValueError`) rather
+      than silently truncating the cell -- per CLAUDE.md, "silent wrong answers are
+      worse than loud crashes," and a silently short cell would change what the
+      corpus measures.
+
+    Memmap ownership contract (disk-backed mode only -- load-bearing for Plans 05 and
+    09, both reviewers flagged this as the phase's highest-risk ambiguity):
+    - `finalize()` returns a VIEW over the memmap, not a copy.
+    - That view stays readable until, and only until, the caller calls `close()`.
+    - The caller owns `close()` and must not call it while any consumer still holds
+      or reads the returned view -- doing so raises `ValueError: mmap closed or
+      invalid` at best and produces a platform-dependent invalid-memory read at
+      worst.
+    - Therefore the caller's `try`/`finally` must span every downstream consumer of
+      the returned array, not just the accumulation loop.
     """
 
-    def __init__(self, flush_at: int | None = None) -> None:
+    def __init__(
+        self,
+        flush_at: int | None = None,
+        *,
+        disk_backed: bool = False,
+        estimated_rows: int | None = None,
+        n_cols: int | None = None,
+        scratch_dir: str | None = None,
+    ) -> None:
         self._flush_at = flush_at
         self._chunks: list[np.ndarray] = []
         self._buf: list = []
+        self._disk_backed = disk_backed
+        self._write_offset = 0
+        self._estimated_rows: int | None = None
+        self._memmap: np.memmap | None = None
+        self._tmpfile: Any = None
+        if disk_backed:
+            missing = [
+                name
+                for name, val in (("estimated_rows", estimated_rows), ("n_cols", n_cols))
+                if not val
+            ]
+            if missing:
+                raise ValueError(
+                    "Float32ChunkAccumulator(disk_backed=True) requires "
+                    f"{' and '.join(missing)} to be set"
+                )
+            self._estimated_rows = estimated_rows
+            if scratch_dir:
+                os.makedirs(scratch_dir, exist_ok=True)
+            self._tmpfile = tempfile.NamedTemporaryFile(
+                dir=scratch_dir, suffix=".memmap", delete=False
+            )
+            self._memmap = np.memmap(
+                self._tmpfile.name,
+                dtype=np.float32,
+                mode="w+",
+                shape=(estimated_rows, n_cols),
+            )
 
     def append_row(self, row: Any) -> None:
         self._buf.append(row)
@@ -1056,19 +1125,110 @@ class Float32ChunkAccumulator:
             self._flush_buf()
 
     def append_chunk(self, rows: Any) -> None:
-        if len(rows):
+        if not len(rows):
+            return
+        if self._disk_backed:
+            self._write_disk_chunk(rows)
+        else:
             self._chunks.append(np.array(rows, dtype=np.float32))
 
+    def _write_disk_chunk(self, rows: Any) -> None:
+        """Write one batch directly into the memmap at the running offset.
+
+        Crash-loud on overflow (Phase 174 D-04, todo 371 / T-174-06): a pre-flight
+        row estimate that undercounts must fail loud, never silently truncate the
+        cell -- that would change what is measured, exactly the failure class the
+        cross-sectional cell-size guard already exists to forbid elsewhere.
+        """
+        arr = np.array(rows, dtype=np.float32)
+        n = arr.shape[0]
+        end = self._write_offset + n
+        if self._estimated_rows is not None and end > self._estimated_rows:
+            raise ValueError(
+                f"Float32ChunkAccumulator disk-backed overflow: estimated_rows="
+                f"{self._estimated_rows} but this write would reach {end} rows -- "
+                "the pre-flight row estimate undercounted; fix the estimate, do not "
+                "silently truncate the cell"
+            )
+        self._memmap[self._write_offset : end] = arr
+        self._write_offset = end
+
     def _flush_buf(self) -> None:
-        if self._buf:
+        if not self._buf:
+            return
+        if self._disk_backed:
+            self._write_disk_chunk(self._buf)
+        else:
             self._chunks.append(np.array(self._buf, dtype=np.float32))
-            self._buf = []
+        self._buf = []
 
     def finalize(self) -> np.ndarray | None:
-        """vstack every chunk and free them; None if nothing was ever appended."""
+        """Disk-backed: flush any buffered rows, then return
+        `self._memmap[: self._write_offset]` -- a VIEW over the memmap, no
+        `np.vstack`, no copy. That view stays readable until, and only until, the
+        caller calls `close()`; the caller's `try`/`finally` must span every
+        downstream consumer of this return value, not just the accumulation loop
+        (see the class docstring's memmap ownership contract). Returns `None` (and
+        cleans up the scratch file immediately via `close()`) when nothing was ever
+        appended, matching the in-RAM mode's empty contract.
+
+        In-RAM: vstack every chunk and free them; None if nothing was ever appended.
+        """
         self._flush_buf()
+        if self._disk_backed:
+            if self._write_offset == 0:
+                self.close()
+                return None
+            return self._memmap[: self._write_offset]
         if not self._chunks:
             return None
         result = np.vstack(self._chunks)
         self._chunks = []
         return result
+
+    def close(self) -> None:
+        """Release every OS resource a disk-backed accumulator opened: the mmap AND
+        the underlying `NamedTemporaryFile` handle, then unlink the scratch file.
+        Closing the mmap without closing the `NamedTemporaryFile` leaks one Python
+        file descriptor per accumulator (T-174-39) -- across the thousands of cells
+        in a corpus run that exhausts the process fd limit.
+
+        Idempotent: safe to call twice, and a no-op in in-RAM mode. Each step is
+        wrapped independently so a failure in one does not skip the others. Plan 05's
+        caller invokes this in a `finally` block that spans every consumer of
+        `finalize()`'s returned view -- see the class docstring's ownership contract.
+        """
+        path = self._tmpfile.name if self._tmpfile is not None else None
+        if self._memmap is not None:
+            try:
+                self._memmap.flush()
+            except Exception as error:
+                _logger.warning("float32_chunk_accumulator.mmap_flush_failed", error=str(error))
+            try:
+                self._memmap._mmap.close()
+            except Exception as error:
+                _logger.warning("float32_chunk_accumulator.mmap_close_failed", error=str(error))
+            finally:
+                self._memmap = None
+        if self._tmpfile is not None:
+            try:
+                self._tmpfile.close()
+            except Exception as error:
+                _logger.warning("float32_chunk_accumulator.tmpfile_close_failed", error=str(error))
+            finally:
+                self._tmpfile = None
+        if path is not None:
+            try:
+                os.unlink(path)
+            except FileNotFoundError:
+                pass
+            except Exception as error:
+                _logger.warning(
+                    "float32_chunk_accumulator.unlink_failed", path=path, error=str(error)
+                )
+
+    def __enter__(self) -> Float32ChunkAccumulator:
+        return self
+
+    def __exit__(self, exc_type: Any, exc_val: Any, exc_tb: Any) -> None:
+        self.close()
