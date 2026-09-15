@@ -1,6 +1,19 @@
 import numpy as np
 
-from services.ic_engine import _build_regime_passes, _cluster_features
+from services.ic_engine import (
+    _build_regime_passes,
+    _cluster_features,
+    _streaming_feature_correlation,
+)
+
+
+def _corr(X_nd: np.ndarray) -> np.ndarray:
+    """Phase 174 Plan 09: production now derives _cluster_features's `corr` arg
+    via _streaming_feature_correlation, never a direct correlation call on the
+    raw array -- these tests match that call shape rather than reconstructing
+    the pre-Plan-09 numpy quirk where a single-column input collapses to a 0-d
+    scalar instead of a (1, 1) matrix."""
+    return _streaming_feature_correlation(X_nd, None, row_block=len(X_nd))
 
 
 def test_correlated_pairs_cluster_together():
@@ -12,7 +25,7 @@ def test_correlated_pairs_cluster_together():
     c = rng.standard_normal(n)
     # pair1: a and a (identical), pair2: b and b, independent: c
     X_nd = np.column_stack([a, a, b, b, c])
-    labels = _cluster_features(X_nd, cluster_max_corr=0.70)
+    labels = _cluster_features(_corr(X_nd), cluster_max_corr=0.70)
     assert labels[0] == labels[1]  # pair1 same cluster
     assert labels[2] == labels[3]  # pair2 same cluster
     assert len(set(labels)) == 3  # 3 distinct clusters
@@ -21,7 +34,7 @@ def test_correlated_pairs_cluster_together():
 def test_single_feature():
     """Single column -> length-1 label array."""
     X_nd = np.random.default_rng(1).standard_normal((50, 1))
-    labels = _cluster_features(X_nd, cluster_max_corr=0.70)
+    labels = _cluster_features(_corr(X_nd), cluster_max_corr=0.70)
     assert labels.shape == (1,)
     assert len(set(labels)) == 1
 
@@ -30,7 +43,7 @@ def test_all_identical_features():
     """All columns identical -> single cluster."""
     col = np.random.default_rng(2).standard_normal(50)
     X_nd = np.column_stack([col] * 5)
-    labels = _cluster_features(X_nd, cluster_max_corr=0.70)
+    labels = _cluster_features(_corr(X_nd), cluster_max_corr=0.70)
     assert len(set(labels)) == 1
 
 
@@ -132,8 +145,8 @@ def test_cluster_ids_differ_across_symbol_hmm_states():
     X_state_a = np.column_stack([a_state_a, b_state_a])
     X_state_b = np.column_stack([a_state_b, b_state_b])
 
-    labels_state_a = _cluster_features(X_state_a, cluster_max_corr=0.70)
-    labels_state_b = _cluster_features(X_state_b, cluster_max_corr=0.70)
+    labels_state_a = _cluster_features(_corr(X_state_a), cluster_max_corr=0.70)
+    labels_state_b = _cluster_features(_corr(X_state_b), cluster_max_corr=0.70)
 
     assert len(set(labels_state_a)) == 2, "independent columns must form 2 distinct clusters"
     assert len(set(labels_state_b)) == 1, "near-perfectly-correlated columns must form 1 cluster"
