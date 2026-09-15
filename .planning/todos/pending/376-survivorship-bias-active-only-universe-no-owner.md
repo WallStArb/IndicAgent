@@ -36,6 +36,19 @@ methodology perpetuates the same active-only selection (likely, if new symbols a
 the same way the original 231 were) or has a chance to correct it (e.g., sourcing historical
 constituents of an index that includes since-delisted members).
 
+## Action item 1 status: UNRESOLVED (2026-09-15, Phase 174 Plan 04)
+
+Full evidence and method: `docs/research/russell3000-sourcing-and-delisted-feasibility.md`
+("Delisted-constituent feasibility" section). Summary: tested 3 named delisted tickers
+(SIVB, TWTR, ATVI) against Yahoo Finance's free chart API (confirmed structurally absent --
+explicit "symbol may be delisted" 404 for all 3) and stooq.com (blocked by a client-side JS
+proof-of-work challenge, not testable without a browser). Live IBKR was NOT tested --
+`ib-gateway` is down and this task deliberately did not restart it (Plan 10 owns that restart).
+Verdict is UNRESOLVED, not NOT OBTAINABLE: the two most plausible real paths (IBKR once the
+gateway is back, or a paid survivorship-bias-free vendor like Norgate Data/Polygon.io/CRSP)
+remain untested, not failed. Per D-03, this does not change Phase 174's pilot scope, which
+stays active-only regardless.
+
 ## Action
 
 Not a code fix -- a data-sourcing and documentation question:
