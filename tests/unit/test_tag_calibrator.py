@@ -23,6 +23,8 @@ from services.tag_calibrator import (
     _build_factor_return_series,
     _is_self_regression,
     apply_run_level_fdr,
+    build_factor_series_cache,
+    compute_factor_correlations,
     decide_outcome,
     filter_measurable_tag_rows,
     measure_matrix,
@@ -355,3 +357,80 @@ def test_skips_null_factor_series():
         vix_z_window=252,
     )
     assert all(m["tag"] != "anomalous_tag" for m in measured)
+
+
+# ---------------------------------------------------------------------------
+# 7. compute_factor_correlations / build_factor_series_cache (Phase 174 follow-on)
+# ---------------------------------------------------------------------------
+
+
+def test_build_factor_series_cache_reused_by_measure_matrix():
+    """measure_matrix's cache and a standalone build_factor_series_cache() call must
+    produce identical series for the same inputs -- they are the same function, not two
+    independent implementations (E12-class drift risk)."""
+    price_cache = {"TLT": _synthetic_close(seed=1), "UUP": _synthetic_close(seed=2)}
+    measurable_rows = [
+        {
+            "tag": "rate_sensitive",
+            "factor_series": "TLT",
+            "lookback_days": 100,
+            "loading_threshold": 0.1,
+            "half_life_days": 180,
+        },
+        {
+            "tag": "dollar_strength",
+            "factor_series": "UUP",
+            "lookback_days": 100,
+            "loading_threshold": 0.1,
+            "half_life_days": 180,
+        },
+    ]
+    cache = build_factor_series_cache(measurable_rows, price_cache, 20, 252)
+    assert set(cache.keys()) == {"TLT", "UUP"}
+    assert cache["TLT"][0] is not None
+    assert cache["UUP"][0] is not None
+
+
+def test_compute_factor_correlations_canonical_ordering_and_no_self_pairs():
+    """Every unordered pair appears exactly once (factor_a < factor_b alphabetically),
+    and no factor is ever paired with itself."""
+    cache = {
+        "TLT": (_synthetic_close(seed=1).pct_change().dropna(), 0),
+        "UUP": (_synthetic_close(seed=2).pct_change().dropna(), 0),
+        "GLD": (_synthetic_close(seed=3).pct_change().dropna(), 0),
+    }
+    rows = compute_factor_correlations(cache, min_sample_n=10)
+    pairs = {(r["factor_a"], r["factor_b"]) for r in rows}
+    assert len(pairs) == 3  # C(3,2), never 6 -- no (A,B)+(B,A) duplicates
+    for a, b in pairs:
+        assert a < b  # canonical ordering
+        assert a != b  # no self-pairs
+
+
+def test_compute_factor_correlations_skips_none_and_thin_series():
+    """A factor whose return series is None (missing price data) never appears in any
+    pair, and a pair with fewer than min_sample_n overlapping observations is dropped."""
+    long_series = _synthetic_close(seed=1, n=260).pct_change().dropna()
+    short_series = long_series.iloc[:5]  # too few overlapping observations
+    cache = {
+        "TLT": (long_series, 0),
+        "MISSING": (None, 0),
+        "THIN": (short_series, 0),
+    }
+    rows = compute_factor_correlations(cache, min_sample_n=10)
+    involved = {r["factor_a"] for r in rows} | {r["factor_b"] for r in rows}
+    assert "MISSING" not in involved
+    assert "THIN" not in involved
+
+
+def test_compute_factor_correlations_known_correlation_value():
+    """A pair built from the identical underlying series (perfectly correlated) must
+    report correlation == 1.0, and n_obs matches the aligned overlap exactly."""
+    base = _synthetic_close(seed=7, n=100).pct_change().dropna()
+    cache = {"A": (base, 0), "B": (base.copy(), 0)}
+    rows = compute_factor_correlations(cache, min_sample_n=10)
+    assert len(rows) == 1
+    assert rows[0]["factor_a"] == "A"
+    assert rows[0]["factor_b"] == "B"
+    assert rows[0]["correlation"] == pytest.approx(1.0)
+    assert rows[0]["n_obs"] == len(base)

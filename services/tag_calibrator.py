@@ -333,6 +333,102 @@ def _measure_pair(
     return {"loading": loading, "p_value": p_value, "sample_n": n}
 
 
+def build_factor_series_cache(
+    measurable_rows: list[dict[str, Any]],
+    price_cache: dict[str, pd.Series],
+    realized_vol_window: int,
+    vix_z_window: int,
+) -> dict[str, tuple[pd.Series | None, int]]:
+    """Build every unique factor_series' return series exactly once.
+
+    A factor_series' return series depends only on tag_row, never on symbol -- building
+    each unique one exactly once rather than once per (symbol, tag) pair avoids every
+    active symbol carrying a given tag (e.g. all ~58 equities for SPY_REALIZED_VOL)
+    redundantly rebuilding the identical series, including breadth_vol's O(n^2) causal
+    expanding-rank scan for the vol proxy.
+
+    Extracted as its own function (not inlined in measure_matrix) so
+    compute_factor_correlations() can reuse the identical, single-source-of-truth
+    construction logic (single-symbol return, long-short spread return, or the vol
+    sentinel's differenced level) rather than a second script re-deriving the same
+    spreads from scratch -- exactly the sibling-script-drift class of bug
+    methodology-change-ledger.md E12 already caught once for a hardcoded constant.
+    """
+    unique_factor_series = {tag_row["factor_series"] for tag_row in measurable_rows}
+    return {
+        factor_series: _build_factor_return_series(
+            factor_series, price_cache, realized_vol_window, vix_z_window
+        )
+        for factor_series in unique_factor_series
+    }
+
+
+def compute_factor_correlations(
+    factor_series_cache: dict[str, tuple[pd.Series | None, int]], min_sample_n: int
+) -> list[dict[str, Any]]:
+    """Pairwise raw correlation among every measurable factor_series' own return series.
+
+    Pure, DB-free -- consumes the exact cache build_factor_series_cache() produces (never
+    rebuilds a factor's return series independently). Canonical (factor_a < factor_b)
+    ordering so each unordered pair appears exactly once; self-pairs are never emitted
+    (skipped by the a < b iteration itself, not filtered after the fact). A pair with
+    fewer than min_sample_n overlapping observations after alignment is skipped, matching
+    _measure_pair's own sample-size floor rather than inventing a second threshold.
+    """
+    names = sorted(k for k, (series, _extra) in factor_series_cache.items() if series is not None)
+    rows: list[dict[str, Any]] = []
+    for i, factor_a in enumerate(names):
+        series_a = factor_series_cache[factor_a][0]
+        assert series_a is not None  # names filtered above
+        for factor_b in names[i + 1 :]:
+            series_b = factor_series_cache[factor_b][0]
+            assert series_b is not None
+            aligned = pd.concat(
+                [series_a.rename("a"), series_b.rename("b")], axis=1, join="inner"
+            ).dropna()
+            if len(aligned) < min_sample_n:
+                continue
+            correlation = aligned["a"].corr(aligned["b"])
+            if math.isnan(correlation):
+                continue
+            rows.append(
+                {
+                    "factor_a": factor_a,
+                    "factor_b": factor_b,
+                    "correlation": float(correlation),
+                    "n_obs": len(aligned),
+                }
+            )
+    return rows
+
+
+_UPSERT_FACTOR_CORRELATION_SQL = """
+    INSERT INTO factor_series_correlation (factor_a, factor_b, correlation, n_obs, computed_at)
+    VALUES ($1, $2, $3, $4, $5)
+    ON CONFLICT (factor_a, factor_b) DO UPDATE SET
+        correlation = EXCLUDED.correlation,
+        n_obs = EXCLUDED.n_obs,
+        computed_at = EXCLUDED.computed_at
+"""
+
+
+async def _write_factor_correlations(
+    conn: asyncpg.Connection, run_ts: datetime, rows: list[dict[str, Any]]
+) -> None:
+    """Upsert the full factor-correlation matrix computed this run. Always overwrites --
+    this is a refreshed descriptive measurement (like instrument_tags' empirical rows),
+    not an append-only ledger; no hysteresis or hold-out logic applies here."""
+    for row in rows:
+        await conn.execute(
+            _UPSERT_FACTOR_CORRELATION_SQL,
+            row["factor_a"],
+            row["factor_b"],
+            row["correlation"],
+            row["n_obs"],
+            run_ts,
+        )
+
+
 def measure_matrix(
     active_symbols: list[str],
     measurable_rows: list[dict[str, Any]],
@@ -352,18 +448,9 @@ def measure_matrix(
     n_self_regression = 0
     n_insufficient = 0
 
-    # A factor_series' return series depends only on tag_row, never on symbol --
-    # build each unique one exactly once rather than once per (symbol, tag) pair.
-    # Otherwise every active symbol carrying a given tag (e.g. all ~58 equities for
-    # SPY_REALIZED_VOL) would redundantly rebuild the identical series, including
-    # breadth_vol's O(n^2) causal expanding-rank scan for the vol proxy.
-    unique_factor_series = {tag_row["factor_series"] for tag_row in measurable_rows}
-    factor_series_cache: dict[str, tuple[pd.Series | None, int]] = {
-        factor_series: _build_factor_return_series(
-            factor_series, price_cache, realized_vol_window, vix_z_window
-        )
-        for factor_series in unique_factor_series
-    }
+    factor_series_cache = build_factor_series_cache(
+        measurable_rows, price_cache, realized_vol_window, vix_z_window
+    )
 
     # A symbol's windowed log-return series depends only on (symbol, lookback_days),
     # never on which tag is being measured -- build each unique combination exactly
@@ -748,6 +835,18 @@ class TagCalibrator(BaseBatch):
                 _TAG_CALIBRATION_TOTAL.add(1, {"tag": m["tag"], "outcome": outcome})
                 outcome_counts[outcome] = outcome_counts.get(outcome, 0) + 1
 
+            # Reuses build_factor_series_cache() -- the same single-source-of-truth
+            # construction logic measure_matrix() already ran above -- rather than a
+            # second script re-deriving the same factor spreads independently (E12-class
+            # drift risk). Rebuilding here (a cheap, pure, no-IO computation on the
+            # already-fetched price_cache) is deliberately preferred over threading a
+            # returned cache through measure_matrix()'s tested public signature.
+            factor_cache = build_factor_series_cache(
+                measurable_rows, price_cache, realized_vol_window, vix_z_window
+            )
+            factor_correlations = compute_factor_correlations(factor_cache, config.min_sample_n)
+            await _write_factor_correlations(conn, run_ts, factor_correlations)
+
         self.logger.info(
             "tag_calibrator.run_complete",
             n_measured=len(measured),
@@ -755,6 +854,7 @@ class TagCalibrator(BaseBatch):
             n_insufficient_data_skipped=n_insufficient,
             n_tags_not_measurable=len(skipped_tags),
             outcome_counts=outcome_counts,
+            n_factor_correlations_written=len(factor_correlations),
         )
 
     async def _fetch_price_cache(
