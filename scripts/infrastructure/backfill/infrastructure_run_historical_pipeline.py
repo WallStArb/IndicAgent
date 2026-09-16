@@ -1114,6 +1114,19 @@ def main() -> None:
     )
     parser.add_argument("--client-id", type=int, default=40, help="IBKR client ID (default: 40)")
     parser.add_argument(
+        "--dimension",
+        default="compute",
+        choices=("backfill", "compute", "compute_1d", "live"),
+        help=(
+            "get_active_contracts() dimension used to select non-futures instruments "
+            "(default: compute, preserving prior behavior). Use 'backfill' to include "
+            "is_active=true symbols that are not yet compute_eligible -- e.g. a symbol "
+            "just onboarded via onboard_instrument() with compute_eligible=False, which "
+            "the default 'compute' dimension would otherwise silently exclude, printing "
+            "'No matching contracts' instead of fetching anything."
+        ),
+    )
+    parser.add_argument(
         "--include-rolled",
         action="store_true",
         help=(
@@ -1164,12 +1177,12 @@ def main() -> None:
     if getattr(args, "include_rolled", False):
         # All futures (rolled + front-month) + non-futures from get_active_contracts
         all_futures = get_all_futures_contracts(settings)
-        active = get_active_contracts(settings)
+        active = get_active_contracts(settings, dimension=args.dimension)
         futures_symbols = {c.symbol for c in all_futures}
         non_futures = [c for c in active if c.symbol not in futures_symbols]
         contracts = all_futures + non_futures
     else:
-        contracts = get_active_contracts(settings)
+        contracts = get_active_contracts(settings, dimension=args.dimension)
     if args.symbols:
         wanted = {s.strip() for s in args.symbols.split(",") if s.strip()}
         # Match on full contract symbol (e.g. ESM6) OR base symbol (e.g. ES)
