@@ -46,28 +46,42 @@ class _FakeCursor:
 
 class TestSelectNextBatch:
     def test_returns_symbols_in_query_order(self):
-        cursor = _FakeCursor([("ZZZ", 0), ("AAA", 100)])
+        cursor = _FakeCursor([("ZZZ",), ("AAA",)])
         conn = MagicMock()
         conn.cursor.return_value = cursor
 
-        result = _select_next_batch(conn, batch_size=20, completeness_threshold=150_000)
+        result = _select_next_batch(conn, batch_size=20)
 
         assert result == ["ZZZ", "AAA"]
 
-    def test_passes_ranking_tf_threshold_and_limit_as_params(self):
+    def test_passes_ranking_tf_and_limit_as_params(self):
         cursor = _FakeCursor([])
         conn = MagicMock()
         conn.cursor.return_value = cursor
 
-        _select_next_batch(conn, batch_size=7, completeness_threshold=42)
+        _select_next_batch(conn, batch_size=7)
 
-        assert cursor.executed_params == ("1h", 42, 7)
+        assert cursor.executed_params == ("1h", 7)
 
-    def test_empty_result_when_nothing_below_threshold(self):
+    def test_no_hard_exclusion_filter_in_query(self):
+        """Regression test for the 2026-09-16 bug: a symbol's row count crossing a
+        fixed threshold must never make it permanently ineligible. The query has no
+        WHERE clause on row count/threshold at all -- only ORDER BY staleness + LIMIT."""
         cursor = _FakeCursor([])
         conn = MagicMock()
         conn.cursor.return_value = cursor
 
-        result = _select_next_batch(conn, batch_size=20, completeness_threshold=150_000)
+        _select_next_batch(conn, batch_size=20)
+
+        assert "completeness_threshold" not in (cursor.executed_sql or "")
+        assert "< %s" not in (cursor.executed_sql or "")
+        assert "ORDER BY" in (cursor.executed_sql or "")
+
+    def test_empty_result_when_no_active_instruments(self):
+        cursor = _FakeCursor([])
+        conn = MagicMock()
+        conn.cursor.return_value = cursor
+
+        result = _select_next_batch(conn, batch_size=20)
 
         assert result == []

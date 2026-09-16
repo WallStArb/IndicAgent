@@ -2,25 +2,39 @@
 """
 infrastructure_nightly_backfill.py — nightly incremental OHLCV backfill
 
-Picks the N least-backfilled active instruments and delegates to
-infrastructure_run_historical_pipeline.py to fill them in, one bounded batch per
+Picks the N stalest active instruments and delegates to
+infrastructure_run_historical_pipeline.py to catch them up, one bounded batch per
 night, instead of one large multi-day foreground sprint. Gap detection stays
 entirely in the delegate script (detect_gaps) -- this wrapper only ranks
 candidates and dispatches; it never decides what data is actually missing.
 
-Batch size and the completeness threshold are APR-governed
-(infra.ibkr.nightly_backfill_batch_size / infra.ibkr.nightly_backfill_completeness_threshold,
-migration 304) so they can be tuned without a code change.
+Batch size is APR-governed (infra.ibkr.nightly_backfill_batch_size, migration 304) so
+it can be tuned without a code change.
 
-Ranking heuristic note: _select_next_batch uses a simple 1h-row-count proxy, not the
+Bug fixed 2026-09-16: this originally ranked candidates by 1h row count and hard-filtered
+to `WHERE row_count < completeness_threshold` (150,000) -- a symbol's total row count only
+grows, so any symbol that ever crossed that threshold became PERMANENTLY invisible to this
+job, forever, no matter how stale its most recent bar got. Verified live that 168 of 273
+active instruments -- the entire mature single-name/ETF book, everything ic_engine trains
+on -- had silently stopped receiving any update the moment they individually crossed
+150,000 1h rows, the bulk of them frozen since 2026-08-10 while the systemd service logged
+`status=success` every single night (the ~20-40 still-incomplete symbols below the
+threshold kept it busy and green). Fixed by ranking on the actual staleness signal
+(MAX(timestamp) ascending) instead of a proxy (row count) with a hard cutoff -- every active
+symbol is a candidate every night, batch_size just caps how many of the stalest get worked
+in one run. A symbol that's already current today naturally sorts last and won't be picked
+while staler symbols exist; the delegate's own detect_gaps() no-ops instantly on anything
+truly already covered, so there's no cost to leaving fully-current symbols eligible.
+
+Ranking heuristic note: _select_next_batch's MAX(timestamp) is still a proxy, not the
 delegate's own more accurate _reorder_contracts_by_gap() (which nets each symbol's shortfall
-against its own proven-depth ceiling, correctly distinguishing "truncated by a prior run" from
-"genuinely young instrument"). Reusing that logic directly was considered and deliberately
-deferred -- it isn't currently exposed as an importable, gaps-returning function, and refactoring
-it for reuse is out of scope for this change. Tracked as follow-up in todo 274's spirit; file a
-dedicated todo before scaling this heuristic further. Harmless in the meantime: whatever this
-picks, the delegate's detect_gaps() is the real correctness check and no-ops instantly on
-anything already covered.
+against its own proven-depth ceiling and can find gaps earlier in a symbol's history even
+when its most recent bar is current). Reusing that logic directly was considered and
+deliberately deferred -- it isn't currently exposed as an importable, gaps-returning
+function, and refactoring it for reuse is out of scope for this change. Tracked as follow-up
+in todo 274's spirit; file a dedicated todo before scaling this heuristic further. Harmless
+in the meantime: whatever this picks, the delegate's detect_gaps() is the real correctness
+check and no-ops instantly on anything already covered.
 """
 
 from __future__ import annotations
@@ -52,7 +66,6 @@ _RANKING_TF = "1h"  # cheap-to-count proxy for "how far along is this symbol" (s
 _DELEGATE_SCRIPT = (Path(__file__).parent / "infrastructure_run_historical_pipeline.py").resolve()
 
 _DEFAULT_BATCH_SIZE = 20
-_DEFAULT_COMPLETENESS_THRESHOLD = 150_000  # ~150k 1h rows; full 20yr target is ~182k
 
 
 def _is_another_backfill_running() -> bool:
@@ -71,70 +84,55 @@ def _is_another_backfill_running() -> bool:
     return bool(result.stdout.strip())
 
 
-def _select_next_batch(
-    conn: psycopg.Connection, batch_size: int, completeness_threshold: int
-) -> list[str]:
-    """Return up to `batch_size` active symbols with the least `_RANKING_TF` coverage.
+def _select_next_batch(conn: psycopg.Connection, batch_size: int) -> list[str]:
+    """Return up to `batch_size` active symbols, staliest `_RANKING_TF` bar first.
 
-    Ranking is a proxy, not a correctness check -- a symbol above the threshold might
-    still have real gaps (e.g. genuinely shorter listed history dilutes the count), and
-    one below it might already be complete for its own available history. Either case
-    is harmless: the delegate script's detect_gaps() does the real gap accounting and
-    no-ops instantly on anything that's actually already covered.
+    No hard exclusion filter: every active symbol is a candidate every night, ranked
+    by how old its most recent bar is (NULLs -- never backfilled at all -- sort first
+    via the epoch fallback). A symbol already current today naturally sorts last and
+    loses out to staler ones within the batch_size cap; it costs nothing to leave it
+    eligible since the delegate script's detect_gaps() no-ops instantly when there's
+    truly nothing to fetch. This replaces a prior row-count-below-a-fixed-threshold
+    design that had a severe hidden bug: a symbol's row count only grows, so once it
+    crossed the threshold it became permanently invisible to this job regardless of
+    staleness (see module docstring, bug fixed 2026-09-16).
     """
     with conn.cursor() as cur:
         cur.execute(
             """
-            SELECT i.symbol, COALESCE(cnt.rows_ranking_tf, 0) AS rows_ranking_tf
+            SELECT i.symbol
             FROM instruments i
             LEFT JOIN (
-                SELECT symbol, COUNT(*) AS rows_ranking_tf
+                SELECT symbol, MAX(timestamp) AS latest_bar
                 FROM market_data_ohlcv
                 WHERE timeframe = %s
                 GROUP BY symbol
-            ) cnt ON cnt.symbol = i.symbol
+            ) latest ON latest.symbol = i.symbol
             WHERE i.is_active = true
-              AND COALESCE(cnt.rows_ranking_tf, 0) < %s
-            ORDER BY rows_ranking_tf ASC, i.symbol ASC
+            ORDER BY COALESCE(latest.latest_bar, '1970-01-01'::timestamptz) ASC, i.symbol ASC
             LIMIT %s
             """,
-            (_RANKING_TF, completeness_threshold, batch_size),
+            (_RANKING_TF, batch_size),
         )
         return [row[0] for row in cur.fetchall()]
 
 
-def _load_config(conn: psycopg.Connection) -> tuple[int, int]:
-    """Read the two nightly-backfill APR values directly off config_state.
+def _load_config(conn: psycopg.Connection) -> int:
+    """Read the nightly-backfill batch-size APR value directly off config_state.
 
     Deliberately bypasses ConfigService (which requires its own asyncpg pool) -- this
     oneshot script already holds a synchronous psycopg connection for the ranking query,
-    and spinning up a second connection stack (min_size=2/max_size=10) just to read two
-    scalars isn't worth it here. Falls back to the module defaults if the migration 304
-    rows aren't present yet.
+    and spinning up a second connection stack (min_size=2/max_size=10) just to read one
+    scalar isn't worth it here. Falls back to the module default if the migration 304
+    row isn't present yet.
     """
-    defaults = {
-        "infra.ibkr.nightly_backfill_batch_size": _DEFAULT_BATCH_SIZE,
-        "infra.ibkr.nightly_backfill_completeness_threshold": _DEFAULT_COMPLETENESS_THRESHOLD,
-    }
     with conn.cursor() as cur:
         cur.execute(
-            "SELECT config_key, config_value FROM config_state WHERE config_key = ANY(%s)",
-            (list(defaults.keys()),),
+            "SELECT config_value FROM config_state WHERE config_key = %s",
+            ("infra.ibkr.nightly_backfill_batch_size",),
         )
-        values = dict(cur.fetchall())
-    batch_size = int(
-        values.get(
-            "infra.ibkr.nightly_backfill_batch_size",
-            defaults["infra.ibkr.nightly_backfill_batch_size"],
-        )
-    )
-    completeness_threshold = int(
-        values.get(
-            "infra.ibkr.nightly_backfill_completeness_threshold",
-            defaults["infra.ibkr.nightly_backfill_completeness_threshold"],
-        )
-    )
-    return batch_size, completeness_threshold
+        row = cur.fetchone()
+    return int(row[0]) if row else _DEFAULT_BATCH_SIZE
 
 
 def _finish(status: str, message: str, returncode: int = 0) -> int:
@@ -158,15 +156,15 @@ def main() -> int:
 
     conn = connect_db(settings)
     try:
-        batch_size, completeness_threshold = _load_config(conn)
-        symbols = _select_next_batch(conn, batch_size, completeness_threshold)
+        batch_size = _load_config(conn)
+        symbols = _select_next_batch(conn, batch_size)
     finally:
         conn.close()
 
     if not symbols:
         return _finish(
             "nothing_to_do",
-            "No active symbols below the completeness threshold -- nothing to do tonight.",
+            "No active instruments found -- nothing to do tonight.",
         )
 
     print(f"Nightly backfill: {len(symbols)} symbols -- {', '.join(symbols)}")
