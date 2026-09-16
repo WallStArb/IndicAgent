@@ -744,3 +744,58 @@ when this was found.
   never got checked against nearby scripts sharing the same constant name/convention.
   Worth a repo-wide grep for other `_LIVE_SPREAD_ANCHOR`-shaped hardcoded constants
   that could carry the same drift the next time a source-of-truth value changes.
+
+### E13 — 2026-09-16: "Single-name equity is the primary breadth lever" corrected after D-10 FAIL; the D-10 thresholds themselves were unachievable by any raw-correlation equity population
+
+- **Observed first:** D-10's pilot gate (Phase 174, Plan 15) FAILED decisively on an
+  unbiased, market-cap-stratified draw of 40 down-cap single-name equities: unconditional
+  raw correlation 0.3025 vs. ≤0.10 required (3.0x miss), `high_bear` 0.4303 vs. ≤0.30
+  (1.4x miss). User pushed back across several turns questioning whether the gate design
+  itself, not the population, was the problem — prompting the investigation below rather
+  than accepting the FAIL verdict's framing at face value.
+- **Changed:** two corrections, both made after seeing the FAIL result:
+  1. Checked whether ≤0.10 unconditional was ever achievable for *any* raw-correlation
+     equity population: pulled the full 9-regime correlation table for both the pilot and
+     the existing 117-name baseline (18 cells total) — not one clears even 0.14, let alone
+     0.10. Baseline's own `high_bear` cell (0.4789) misses the `high_bear` ≤0.30 leg worse
+     than the pilot did. Both D-10 thresholds were reverse-engineered from a desired n_eff
+     outcome ("floors the n_eff ceiling at ~10... a ~3x improvement," per `174-CONTEXT.md`
+     D-10), not from any check of what raw equity correlation actually achieves in any
+     regime. A residualized (SPY-beta-stripped) check on the same pilot data got to 0.10 —
+     meaning the threshold is reachable, just not by raw correlation on unhedged equities.
+  2. Corrected the strategic framing itself: STATE.md's Strategic Plan (2026-09-13) named
+     single-name equity expansion "the primary breadth-scaling lever" on a raw-count
+     argument (hundreds of possible new names vs. ~20 possible new ETFs), never tested
+     against a decorrelation-quality argument. An exploratory 11-instrument cross-asset
+     basket (GLD/DBC/URA/TLT/UUP/VIXY/EMLC/HYG/XOM/FCX/NEM, all already active and
+     compute-eligible, zero onboarding cost) passed the identical D-10 gate cleanly
+     (unconditional 0.0947, `high_bear` 0.1180) with n_eff 5.05-7.20 across every regime —
+     beating the entire existing single-name book's best-case n_eff (~3.25) with 11
+     instruments. Full write-up and a properly pre-registered (not hand-picked) follow-on
+     candidate list: `docs/research/phase174-cross-asset-diversification-prereg-2026-09-16.md`.
+- **Pre-registered?** No, and this entry exists because of that. Both corrections were made
+  strictly after observing the FAIL result — this is exactly the class of change this ledger
+  tracks. The 11-symbol exploratory basket in particular was hand-assembled in conversation
+  (some ETFs already known to be in the corpus, some equities picked because their business
+  obviously tracks a commodity) — real selection-bias risk, explicitly not treated as a valid
+  test on its own. The follow-on document fixes a mechanical, reproducible selection rule
+  (tertile cutoffs on `TagCalibrator`'s empirical `equity_beta`/macro-driver loadings) before
+  running Gate A against it, specifically to remove that risk going forward.
+- **Result:** D-10's FAIL verdict for the *specific* population tested (unbiased random
+  down-cap draw, raw correlation) stands — the `unconditional` leg missed by 3.0x, a gap the
+  `high_bear`-threshold critique doesn't touch. But the broader conclusion the verdict was
+  being read for ("single-name equity expansion is a dead end for this program") does not
+  follow from it, and STATE.md's Strategic Plan section needs updating to reflect that the
+  real constraint is raw correlation among *any* unhedged long-only equity population, not
+  something specific to down-cap names — genuine breadth requires either crossing asset
+  classes or selecting the narrow slice of equities whose returns are dominated by a
+  non-market factor, both now scoped in the follow-on pre-registration.
+- **Process lesson:** the tool needed to identify low-market-beta/high-alt-factor equities
+  without hand-picking (`TagCalibrator` against `equity_beta`) was correctly wired in schema
+  (`factor_series='SPY'` was already set) but had never been run against the single-name
+  book — it's a manual, no-timer oneshot tool (`docs/foundation/instrument-tag-registry.md`).
+  Before this session, "XOM behaves like an oil stock, not a market stock" was an assertion;
+  after running the tool, it's a falsifiable, reproducible fact. A correctly-designed
+  measurement that nobody has run yet is indistinguishable from a missing one until someone
+  actually runs it — worth checking for other wired-but-dormant measurement tools before
+  concluding a hypothesis "can't be tested."

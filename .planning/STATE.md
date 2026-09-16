@@ -69,29 +69,34 @@ any IC number here as a hard ceiling.
   instruments) target exposures with no existing proxy.** Any future backfill should
   target that 9, not all 22.
 
-- **Single-name equity IS the primary breadth-scaling lever (corrected 2026-09-13, same
-  session) — reasoned via the Fundamental Law of Active Management (IR ≈ IC × √breadth):**
-  measured IC is small and stable (~0.03-0.06) and effective breadth is only ~8.4, so breadth
-  is the dominant term. Only single-name equity expansion has the scale (potentially hundreds
-  to thousands of names) to move that number materially — ETF additions (10-20 symbols
-  filling exposure gaps) move the count from 231 to ~250, noise against a breadth problem
-  this severe. **`alpha_score_residual_single_security_15m`'s DEAD verdict (0/231, then 0/8
-  sector-bucketed) is NOT evidence against this** — the current 128 single-names are almost
-  entirely large/mega-cap (only 1 of 128 tagged `eq_small_cap`), the segment where market
-  efficiency is highest and idiosyncratic signal is hardest to find. It's evidence against
-  resampling more of the same large-cap population, not against real breadth-scale expansion
-  into a larger, less-efficient (further down-cap) slice of the market — an untested
-  population. **Real open cost question, not yet measured:** the "personal cost hurdle isn't
-  binding" finding (0b) was calibrated against the current liquid, large-cap-dominated
-  universe — going down-cap means wider spreads/slippage/borrow-availability questions that
-  haven't been tested and shouldn't be assumed still non-binding.
+- **CORRECTED 2026-09-16 (superseding the 2026-09-13 entry below the strikethrough
+  reasoning was never actually struck, so stating it plainly): single-name equity is NOT
+  the primary breadth-scaling lever.** Phase 174 executed on the 2026-09-13 framing — drew
+  a 40-name unbiased down-cap pilot (174-15), ran it through the pre-registered D-10
+  correlation gate, and it FAILED decisively (unconditional 0.30 vs. ≤0.10, `high_bear`
+  0.43 vs. ≤0.30). Root-cause investigation found the constraint isn't down-cap names
+  specifically — it's that raw correlation among *any* unhedged long-only U.S. equity
+  population is dominated by shared market beta: not one of 18 regime-conditioned
+  correlation cells, across the pilot AND the existing 117-name baseline, clears even
+  0.14. An 11-instrument cross-asset-class basket (already active/compute_eligible, zero
+  onboarding cost) passed the identical gate cleanly (0.0947 / 0.1180) with n_eff
+  5.05-7.20 in every regime, beating the entire existing equity book's best case (~3.25)
+  with 11 instruments. Full record: `docs/plans/methodology-change-ledger.md` E13;
+  pre-registered follow-on (mechanical candidate selection, not hand-picked):
+  `docs/research/phase174-cross-asset-diversification-prereg-2026-09-16.md`. The
+  down-cap pilot's 40 symbols stay in the corpus as a retained measurement asset
+  (`compute_eligible=false`); Phase 174 plans 174-11/174-12 are blocked-by-verdict, not
+  executed — see ROADMAP.md.
 
-- **ETF expansion stays useful for filling specific exposure blind spots, not as a breadth
-  strategy** — checked `instrument_tags`/`tag_vocabulary` (39 exposure tags across 231
-  symbols): commodities/international-equity/fixed-income/real-estate/crypto already
-  well-covered; confirmed gaps are EM currency exposure (zero symbols tagged `fx_em`),
-  standalone factor-equity ETFs (value/growth/small-cap each only 1-2 symbols, no momentum/
-  quality/low-vol factor ETF at all), and vol term structure (see futures gap above).
+- **ETF/cross-asset expansion is now the stronger lever, not a secondary exposure-gap-fill
+  task.** The 2026-09-13 framing deprioritized it on a raw-count argument (few possible new
+  ETFs vs. hundreds of possible new equities) that was never checked against decorrelation
+  quality — corrected above. Commodities/rates/credit/vol/EM-currency ETFs are already
+  well-represented in the compute-eligible book (GLD/SLV/PPLT/DBA/DBB/DBC, TLT/IEF/SHY,
+  HYG/LQD/EMB, UUP, VIXY, EMLC — all confirmed 2026-09-16). Remaining real gaps: standalone
+  factor-equity ETFs (value/growth/small-cap each only 1-2 symbols; momentum/quality/low-vol
+  factor ETFs — MTUM/QUAL/USMV — exist as of migration 338, correcting an earlier "zero
+  representation" claim) and vol term structure beyond spot VIX (see futures gap above).
 
 - **Nautilus Trader (OSS, event-driven backtest/live-execution engine, Rust core + Python)
   flagged 2026-09-13 as a forward-looking candidate for a future execution-layer phase** —

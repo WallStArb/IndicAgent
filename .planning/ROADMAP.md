@@ -2801,7 +2801,10 @@ is the correct gate metric — `ic_engine` pools symbols/timestamps within a cel
 correlation-structure diagnostic + D-10 gate), 174-15 (pilot draw, 1d backfill, gate execution).
 174-11/174-12 revised accordingly; 174-10 (EMLC/VIXY gap-fill) unaffected — stays full 4-timeframe.
 
-**Plans:** 13/15 plans executed
+**Plans:** 13/15 plans executed, phase CLOSED 2026-09-16 — D-10 gate FAILED (174-15), structurally
+blocking 174-11/174-12 by design (see below). Root-cause + corrected strategic framing:
+`docs/plans/methodology-change-ledger.md` E13; pre-registered follow-on:
+`docs/research/phase174-cross-asset-diversification-prereg-2026-09-16.md`.
 
 Plans:
 **Wave 1**
@@ -2829,13 +2832,13 @@ Plans:
 
 - [x] 174-15-PLAN.md — Pilot draw, 1d-only backfill, D-10 gate execution + verdict (wave 4)
 
-**Wave 5** *(blocked on Wave 4 completion)*
+**Wave 5** — BLOCKED BY VERDICT, not executed (2026-09-16)
 
-- [ ] 174-11-PLAN.md — Empirical memory-fix verification, swapfile removal, supported-scale determination — gated on Plan 15's D-10 PASS (wave 5)
+- [ ] 174-11-PLAN.md — Empirical memory-fix verification, swapfile removal, supported-scale determination — explicitly gated on Plan 15's D-10 PASS; D-10 FAILED, so this plan does not run under the phase's own design. Not a stalled task — a correctly-tripped guard.
 
-**Wave 6** *(blocked on Wave 5 completion)*
+**Wave 6** — BLOCKED BY VERDICT, not executed (2026-09-16)
 
-- [ ] 174-12-PLAN.md — Draw, onboard and backfill the sampled universe (1d-only); `compute_1d`-gated promotion (wave 6)
+- [ ] 174-12-PLAN.md — Draw, onboard and backfill the sampled universe (1d-only); `compute_1d`-gated promotion. Structurally blocked: `alpha.universe.target_sample_size` stays 0 per D-01 since D-10 FAILED, and this plan's own crash-loud guard (Plan 08) refuses to run at that value.
 
 ---
 
