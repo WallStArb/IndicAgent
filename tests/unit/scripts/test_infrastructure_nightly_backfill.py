@@ -77,6 +77,21 @@ class TestSelectNextBatch:
         assert "< %s" not in (cursor.executed_sql or "")
         assert "ORDER BY" in (cursor.executed_sql or "")
 
+    def test_scoped_to_compute_eligible_not_merely_active(self):
+        """Regression test: is_active alone would sweep up onboarded-but-not-promoted
+        symbols (e.g. Phase 174's D-10 pilot cohort, compute_eligible=false,
+        deliberately 1d-only) -- their zero 1h rows would rank them "staliest" and this
+        dispatcher passes no --timeframes/--dimension override to the delegate, so
+        they'd silently get full 5-timeframe history despite being kept out of compute
+        for exactly that cost reason."""
+        cursor = _FakeCursor([])
+        conn = MagicMock()
+        conn.cursor.return_value = cursor
+
+        _select_next_batch(conn, batch_size=20)
+
+        assert "compute_eligible = true" in (cursor.executed_sql or "")
+
     def test_empty_result_when_no_active_instruments(self):
         cursor = _FakeCursor([])
         conn = MagicMock()

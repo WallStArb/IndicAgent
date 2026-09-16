@@ -85,17 +85,30 @@ def _is_another_backfill_running() -> bool:
 
 
 def _select_next_batch(conn: psycopg.Connection, batch_size: int) -> list[str]:
-    """Return up to `batch_size` active symbols, staliest `_RANKING_TF` bar first.
+    """Return up to `batch_size` compute-eligible symbols, staliest `_RANKING_TF` bar first.
 
-    No hard exclusion filter: every active symbol is a candidate every night, ranked
-    by how old its most recent bar is (NULLs -- never backfilled at all -- sort first
-    via the epoch fallback). A symbol already current today naturally sorts last and
-    loses out to staler ones within the batch_size cap; it costs nothing to leave it
-    eligible since the delegate script's detect_gaps() no-ops instantly when there's
-    truly nothing to fetch. This replaces a prior row-count-below-a-fixed-threshold
-    design that had a severe hidden bug: a symbol's row count only grows, so once it
-    crossed the threshold it became permanently invisible to this job regardless of
-    staleness (see module docstring, bug fixed 2026-09-16).
+    Scoped to `compute_eligible = true`, not merely `is_active = true` -- this job
+    exists to keep the corpus's live compute population fresh (the same population
+    get_active_contracts()'s default dimension="compute" already encodes), and
+    is_active alone would also sweep up onboarded-but-not-yet-promoted symbols like
+    Phase 174's D-10 down-cap pilot cohort (compute_eligible=false, deliberately
+    scoped to 1d-only per D-09 to avoid paying full-timeframe backfill cost for a
+    population that might fail its gate -- which it did). This dispatcher passes no
+    --timeframes/--dimension override to the delegate, so an is_active-only filter
+    would have let the pilot cohort's zero 1h rows make it look "staliest" and
+    silently pull full 5-timeframe history for symbols that were explicitly kept out
+    of compute for exactly that cost reason.
+
+    No hard exclusion filter beyond compute-eligibility: every compute-eligible symbol
+    is a candidate every night, ranked by how old its most recent bar is (NULLs --
+    never backfilled at all -- sort first via the epoch fallback). A symbol already
+    current today naturally sorts last and loses out to staler ones within the
+    batch_size cap; it costs nothing to leave it eligible since the delegate script's
+    detect_gaps() no-ops instantly when there's truly nothing to fetch. This replaces
+    a prior row-count-below-a-fixed-threshold design that had a severe hidden bug: a
+    symbol's row count only grows, so once it crossed the threshold it became
+    permanently invisible to this job regardless of staleness (see module docstring,
+    bug fixed 2026-09-16).
     """
     with conn.cursor() as cur:
         cur.execute(
@@ -108,7 +121,7 @@ def _select_next_batch(conn: psycopg.Connection, batch_size: int) -> list[str]:
                 WHERE timeframe = %s
                 GROUP BY symbol
             ) latest ON latest.symbol = i.symbol
-            WHERE i.is_active = true
+            WHERE i.is_active = true AND i.compute_eligible = true
             ORDER BY COALESCE(latest.latest_bar, '1970-01-01'::timestamptz) ASC, i.symbol ASC
             LIMIT %s
             """,
