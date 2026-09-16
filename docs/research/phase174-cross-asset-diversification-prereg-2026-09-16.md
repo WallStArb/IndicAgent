@@ -7,6 +7,25 @@ The correlation-structure gate (Gate A) has **not been evaluated** against this 
 the next, separate step, to be run and reported regardless of outcome. Do not add or remove a
 candidate after seeing a correlation number.
 
+**Correction (same day, still before Gate A has been run against any candidate list):** the
+first version of this document's selection rule picked candidates independently per group with
+no check for redundancy *within* a group, and it silently recreated the exact failure mode this
+whole document exists to avoid. Verified live: Group 2's original 11 equities included CVX+XOM
+(pairwise correlation 0.850 — higher than a typical stock's correlation to the S&P) and five
+homebuilders, DHI/LEN/MTH/NVR pairwise 0.65-0.85, because 8 of the 11 qualified via
+`yield_curve`/`rate_sensitive`/`inflation` — three tags that are one underlying theme (duration
+sensitivity), not three independent ones. Group 1's original 15-symbol list had the same issue:
+TLT-IEF 0.910, IEF-SHY 0.784, IEF/TLT-LQD 0.70-0.71 (one duration trade wearing four tickers),
+GLD-SLV-PPLT 0.62-0.79 (one precious-metals trade wearing three), and EMB-EMLC 0.672 (one EM
+sovereign-debt trade wearing two). A candidate list padded with same-theme redundant tickers
+inflates the raw symbol count without adding real independent bets — exactly the n_eff problem
+D-10 exists to catch, just hidden inside the list this document was about to gate. Fixed by
+adding an explicit within-pool de-duplication rule (below) and rebuilding both groups against it.
+This is not a threshold renegotiation after seeing a gate result — Gate A has still never been
+run against any version of this candidate list; it is a selection-methodology fix made before
+any such result exists, discovered by checking the list's own internal correlation structure
+before spending the gate on it.
+
 **Supersedes-in-part:** STATE.md's Strategic Plan claim that "single-name equity IS the primary
 breadth-scaling lever" (2026-09-13). See `docs/plans/methodology-change-ledger.md` E13 for the
 full correction record and why that framing was wrong for the general equity population.
@@ -88,26 +107,32 @@ carrying real market beta, not clean non-equity proxies. Good for measuring *whi
 exposed to that theme* (their original purpose, fixed this session); wrong for defining "this
 instrument itself is non-equity."
 
-| Symbol | Category | Mandate |
-|---|---|---|
-| GLD | Precious metals | Physical gold |
-| SLV | Precious metals | Physical silver |
-| PPLT | Precious metals | Physical platinum |
-| DBA | Commodities | Broad agriculture futures |
-| DBB | Commodities | Broad base-metals futures |
-| DBC | Commodities | Broad commodity futures index |
-| TLT | Duration | 20+yr U.S. Treasury |
-| IEF | Duration | 7-10yr U.S. Treasury |
-| SHY | Duration | 1-3yr U.S. Treasury |
-| UUP | Currency | USD index |
-| VIXY | Volatility | VIX-futures-linked |
-| EMLC | EM currency/duration | EM local-currency sovereign debt |
-| HYG | Credit | USD high-yield corporate bonds |
-| LQD | Credit | USD investment-grade corporate bonds |
-| EMB | Credit | USD EM sovereign bonds |
+**Within-pool de-duplication rule (fixed after the correction above, applied uniformly, not
+selectively):** compute all pairwise raw daily-return correlations within the candidate pool
+before finalizing membership; where a pair exceeds 0.60, keep only the single most-liquid/most-
+canonical instrument for that shared theme and drop the rest. 0.60 is a round, pre-committed cut
+— not tuned to produce a particular final list: it excludes every pair actually found between
+0.619 and 0.910, and admits everything found at or below 0.594.
 
-All 15 confirmed `is_active=true AND compute_eligible=true` as of 2026-09-16 — zero onboarding
-or backfill required.
+| Symbol | Category | Mandate | Dropped same-theme siblings (>0.60 pairwise) |
+|---|---|---|---|
+| GLD | Precious metals | Physical gold | SLV (0.793), PPLT (0.619 w/ GLD, 0.689 w/ SLV) |
+| DBA | Commodities | Broad agriculture futures | — (0.580 w/ DBC, below cutoff) |
+| DBB | Commodities | Broad base-metals futures | — (0.566 w/ DBC, below cutoff) |
+| DBC | Commodities | Broad commodity futures index | — |
+| URA | Commodities | Uranium miners | — (max 0.444 w/ HYG, well clear) |
+| TLT | Duration | 20+yr U.S. Treasury | IEF (0.910), SHY (via IEF 0.784), LQD (0.695) |
+| UUP | Currency | USD index | — |
+| VIXY | Volatility | VIX-futures-linked | — |
+| EMLC | EM currency/duration | EM local-currency sovereign debt | EMB (0.672) |
+| HYG | Credit | USD high-yield corporate bonds | — |
+
+10 symbols, all confirmed `is_active=true AND compute_eligible=true` as of 2026-09-16 — zero
+onboarding or backfill required. DBA/DBB/DBC are kept as three separate entries deliberately:
+their pairwise correlations (0.566-0.580) sit below the 0.60 cutoff, and treating a composite
+index alongside its own narrower sub-slices as fully redundant would be a stricter, different
+rule than the one applied everywhere else in this table — flagged here so the choice is visible,
+not buried.
 
 ## Group 2 — mechanically-selected low-beta / high-alt-factor single-name equities
 
@@ -123,22 +148,33 @@ population. Tertile cutoffs computed from the live data, not chosen to hit a tar
   `credit_risk` ≥0.2870 (n=43), `inflation` ≥0.3455 (n=28), `rate_sensitive` ≥0.2825 (n=25),
   `yield_curve` ≥0.3243 (n=47)
 
-Resulting list (SQL in Appendix, reproducible against live `instrument_tags`):
+Raw mechanical result (SQL in Appendix): **BKNG, CVX, DHI, ECL, GRBK, LEN, MTH, NVR, PGR, SPG,
+XOM** (11 symbols). Checked this list's own within-pool correlation before finalizing membership
+(same rule as Group 1) and it failed badly: CVX-XOM 0.850, and DHI/LEN/MTH/NVR pairwise
+0.65-0.85 — 8 of the 11 qualified via `yield_curve`/`rate_sensitive`/`inflation`, three tags that
+collapse onto one real theme (rate/duration sensitivity), not three independent ones.
 
-**BKNG, CVX, DHI, ECL, GRBK, LEN, MTH, NVR, PGR, SPG, XOM** (11 symbols)
+**De-duplication, same 0.60 cutoff as Group 1, collapsing tags into their real underlying theme
+rather than treating each tag as independent:** oil (`oil_price`) is one theme — keep the higher
+of XOM (0.815 loading, corr 0.850 w/ CVX) or CVX; keep **XOM**. Rate/duration sensitivity
+(`yield_curve`+`rate_sensitive`+`inflation` together) is one theme spanning DHI/ECL/GRBK/LEN/MTH/
+NVR/SPG — keep only the single highest loading found across all three tags in that cluster:
+**DHI** (`yield_curve` 0.479). `semi_cycle` is a singleton, no cluster: keep **PGR** (0.383).
+No candidate qualified via `em_flows`/`china_demand`/`dollar_strength`/`credit_risk` at all in
+this universe — an honest null result for those four themes, not a gap in the rule.
 
-Sanity check against known business exposure (not part of the selection rule, checked after the
-mechanical rule produced the list, to confirm it isn't nonsense): XOM/CVX are the two oil majors
-(matches `oil_price`); DHI/GRBK/LEN/MTH/NVR are five homebuilders (matches `rate_sensitive` —
-homebuilder economics run directly on financing costs); SPG is a mall-REIT (rate-sensitive by the
-same mechanism); PGR is an insurer (bond-yield-sensitive investment book, plausibly `yield_curve`);
-BKNG and ECL are less obviously thematic and worth a closer look before or during Gate B, not
-excluded here since the selection rule was fixed before this sanity check was performed.
+**Final Group 2: XOM, DHI, PGR** (3 symbols, down from 11). Sanity check against known business
+exposure (checked after the mechanical rule, to confirm it isn't nonsense, not used to select):
+XOM is an oil major; DHI is a homebuilder, rate-financing-dependent by construction; PGR is an
+insurer, plausible bond-yield-sensitive investment book for the `semi_cycle` hit specifically
+warrants a closer look during Gate B rather than being excluded here.
 
-## Combined candidate list (26 symbols)
+## Combined candidate list (13 symbols, post-correction)
 
-GLD, SLV, PPLT, DBA, DBB, DBC, TLT, IEF, SHY, UUP, VIXY, EMLC, HYG, LQD, EMB, BKNG, CVX, DHI, ECL,
-GRBK, LEN, MTH, NVR, PGR, SPG, XOM
+GLD, DBA, DBB, DBC, URA, TLT, UUP, VIXY, EMLC, HYG, XOM, DHI, PGR
+
+Verified no remaining pair across the full 13-symbol combined list exceeds 0.60 (checked live,
+2026-09-16) — the highest is EMLC-HYG at 0.594, just under the cutoff.
 
 ## Gate A — correlation structure (not yet run)
 
@@ -146,7 +182,7 @@ Reuse D-10's exact thresholds and script, unmodified, for direct comparability:
 
 ```
 .venv/bin/python scripts/analysis/universe_expansion_correlation_structure_check.py \
-  --symbols GLD,SLV,PPLT,DBA,DBB,DBC,TLT,IEF,SHY,UUP,VIXY,EMLC,HYG,LQD,EMB,BKNG,CVX,DHI,ECL,GRBK,LEN,MTH,NVR,PGR,SPG,XOM \
+  --symbols GLD,DBA,DBB,DBC,URA,TLT,UUP,VIXY,EMLC,HYG,XOM,DHI,PGR \
   --gate --json-out /var/tmp/phase174_crossasset_prereg_gate.json
 ```
 
@@ -167,16 +203,15 @@ exploratory check already proved the concept works for *some* combination of the
 A passing correlation-structure gate proves the candidate list is well-diversified, not that any
 of it has real alpha. Before this candidate list is used for anything beyond a diversification
 demonstration, it needs the same OOS-proof discipline Phase 148 established for the existing
-book (Gate 1/Gate 2): measured IC per instrument via the existing `ic_engine` pipeline, on data
-these 26 symbols haven't been promoted into yet (none carry `compute_eligible=true` for this
-purpose today). A diversified basket of pure noise is not an improvement over a correlated basket
-of real signal.
+book (Gate 1/Gate 2): measured IC per instrument via the existing `ic_engine` pipeline. A
+diversified basket of pure noise is not an improvement over a correlated basket of real signal.
 
 ## What this document does not do
 
-It does not onboard anything (all 26 already exist), does not run Gate A, does not set
-`compute_eligible=true` for the Group 2 equities in their new role, and does not modify
-`alpha.universe.target_sample_size` (D-01 still governs that key; unaffected by this document).
+It does not onboard anything (all 13 already exist and are compute-eligible in the general
+corpus), does not run Gate A, does not set `compute_eligible` for any new *purpose* against
+this candidate list specifically, and does not modify `alpha.universe.target_sample_size`
+(D-01 still governs that key; unaffected by this document).
 
 ## Appendix — reproducible SQL for the Group 2 selection
 
