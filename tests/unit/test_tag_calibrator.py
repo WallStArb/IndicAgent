@@ -240,7 +240,16 @@ def test_vol_beta_uses_breadth_vol_proxy(monkeypatch: pytest.MonkeyPatch):
     assert called_vix_window == 252
     assert extra_fitted_params == 0
     assert series is not None
-    assert len(series) == len(spy_close)
+    # The vol factor is differenced into a change series before being handed to
+    # _measure_pair (which always regresses instrument RETURNS against factor_ret) --
+    # every other factor_series branch is already return-based, so this keeps the vol
+    # sentinel consistent rather than pairing returns against a raw level, which
+    # verified live to produce a wrong-signed, below-threshold loading even for VIXY.
+    # One row shorter than the input: diff() drops the first point.
+    assert len(series) == len(spy_close) - 1
+    linear_level = np.linspace(0.1, 0.9, len(spy_close))
+    expected_diff = linear_level[1] - linear_level[0]
+    assert series.iloc[0] == pytest.approx(expected_diff)
 
 
 def test_vol_beta_missing_spy_returns_none():

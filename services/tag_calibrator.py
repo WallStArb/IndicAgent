@@ -245,8 +245,23 @@ def _build_factor_return_series(
             return None, 0
         # D-02/T-146-06: reuse breadth_vol's causal proxy verbatim via the factor_math
         # adapter -- never re-derive a non-causal whole-series percentile rank.
+        #
+        # spy_realized_vol_factor() returns a LEVEL (a z-scored realized-vol reading),
+        # unlike every other factor_series branch here, which returns a RETURN series
+        # (log-returns for a single symbol, long-short spread returns for a hyphenated
+        # pair). _measure_pair always regresses instrument log-returns against
+        # whatever this function returns -- pairing returns against a level is a units
+        # mismatch, not merely weak signal: verified live that VIXY (an ETF whose sole
+        # mandate is tracking equity vol) loads at -0.037 (wrong sign, below threshold)
+        # against the raw level but 0.252 (correctly signed, clears loading_threshold)
+        # once the level is differenced into a day-over-day change series -- the same
+        # transform every other factor_series branch already applies implicitly by
+        # being return-based from the start. Differencing here, not in
+        # spy_realized_vol_factor() itself, keeps this fix scoped to TagCalibrator's
+        # return-vs-return contract without disturbing the level this factor's other
+        # consumer (regime classification) legitimately needs.
         vol_series = spy_realized_vol_factor(spy_close, realized_vol_window, vix_z_window)
-        return vol_series.dropna(), 0
+        return vol_series.diff().dropna(), 0
 
     if "-" in factor_series:
         long_sym, short_sym = factor_series.split("-", 1)
