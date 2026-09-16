@@ -2801,7 +2801,7 @@ is the correct gate metric — `ic_engine` pools symbols/timestamps within a cel
 correlation-structure diagnostic + D-10 gate), 174-15 (pilot draw, 1d backfill, gate execution).
 174-11/174-12 revised accordingly; 174-10 (EMLC/VIXY gap-fill) unaffected — stays full 4-timeframe.
 
-**Plans:** 11/15 plans executed
+**Plans:** 12/15 plans executed
 
 Plans:
 **Wave 1**
@@ -2821,7 +2821,7 @@ Plans:
 **Wave 3** *(blocked on Wave 2 completion)*
 
 - [x] 174-09-PLAN.md — Streaming correlation + column-wise `X_nd`: eliminate the remaining whole-cell copies (wave 3)
-- [ ] 174-10-PLAN.md — ib-gateway restart; onboard and backfill the two gap-fill ETFs end-to-end (wave 3)
+- [x] 174-10-PLAN.md — ib-gateway restart; onboard and backfill the two gap-fill ETFs end-to-end (wave 3)
 - [x] 174-13-PLAN.md — Additive `compute_eligible_1d` column + `compute_1d` eligibility dimension (D-09) (wave 3)
 - [x] 174-14-PLAN.md — Committed correlation-structure diagnostic + pre-registered D-10 gate (wave 3)
 
