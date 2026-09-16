@@ -2801,7 +2801,7 @@ is the correct gate metric — `ic_engine` pools symbols/timestamps within a cel
 correlation-structure diagnostic + D-10 gate), 174-15 (pilot draw, 1d backfill, gate execution).
 174-11/174-12 revised accordingly; 174-10 (EMLC/VIXY gap-fill) unaffected — stays full 4-timeframe.
 
-**Plans:** 12/15 plans executed
+**Plans:** 13/15 plans executed
 
 Plans:
 **Wave 1**
@@ -2827,7 +2827,7 @@ Plans:
 
 **Wave 4** *(blocked on Wave 3 completion)*
 
-- [ ] 174-15-PLAN.md — Pilot draw, 1d-only backfill, D-10 gate execution + verdict (wave 4)
+- [x] 174-15-PLAN.md — Pilot draw, 1d-only backfill, D-10 gate execution + verdict (wave 4)
 
 **Wave 5** *(blocked on Wave 4 completion)*
 
