@@ -25,7 +25,6 @@ needed for `contract_details` to round-trip as a `dict`. A bare
 
 from __future__ import annotations
 
-import json as _json
 from collections.abc import Sequence
 from dataclasses import dataclass
 from typing import TYPE_CHECKING, Any, Protocol
@@ -247,7 +246,7 @@ async def onboard_instrument(
             _INSERT_INSTRUMENT_SQL,
             instrument.symbol,
             instrument.base,
-            _json.dumps(contract_details),
+            contract_details,
             compute_eligible,
             live_tradeable,
         )
@@ -260,7 +259,7 @@ async def onboard_instrument(
                 instrument.symbol,
                 tag_name,
                 weight,
-                _json.dumps(evidence),
+                evidence,
             )
             tags_inserted += 1
 
