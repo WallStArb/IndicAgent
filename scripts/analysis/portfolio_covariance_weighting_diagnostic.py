@@ -41,6 +41,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
 
 import numpy as np  # noqa: E402
 import pandas as pd  # noqa: E402
+import psycopg  # noqa: E402
 import structlog  # noqa: E402
 from scipy.stats import spearmanr  # noqa: E402
 
@@ -474,3 +475,166 @@ def _aggregate_arm(steps: list[dict[str, Any]]) -> dict[str, Any]:
     for label in ("bull", "bear"):
         out[label] = _summary([s for s in steps if s["regime"] == label])
     return out
+
+
+# ---------------------------------------------------------------------------
+# I/O shell -- DB fetch, coverage filter, CLI, main().
+# ---------------------------------------------------------------------------
+
+
+def _batched(items: list[str], size: int) -> list[list[str]]:
+    return [items[i : i + size] for i in range(0, len(items), size)]
+
+
+def _fetch_daily_closes(
+    conn: psycopg.Connection, symbols: list[str], start: str, end_exclusive: str
+) -> pd.DataFrame:
+    """(date x symbol) wide frame of daily closes from market_data_ohlcv_tradeable -- never the
+    raw market_data_ohlcv table (~82% synthetic-fill/flat-carry-forward placeholder bars
+    intraday). Matches universe_expansion_correlation_structure_check.py's _fetch_daily_closes."""
+    frames: list[pd.DataFrame] = []
+    for batch in _batched(symbols, _SYMBOL_BATCH_SIZE):
+        with conn.cursor() as cur:
+            cur.execute(
+                """
+                SELECT timestamp, symbol, close
+                FROM market_data_ohlcv_tradeable
+                WHERE timeframe = %(timeframe)s AND symbol = ANY(%(symbols)s)
+                  AND timestamp >= %(start)s AND timestamp < %(end_exclusive)s
+                """,
+                {
+                    "timeframe": _TIMEFRAME,
+                    "symbols": batch,
+                    "start": start,
+                    "end_exclusive": end_exclusive,
+                },
+            )
+            rows = cur.fetchall()
+        if rows:
+            frames.append(pd.DataFrame(rows, columns=["timestamp", "symbol", "close"]))
+    if not frames:
+        return pd.DataFrame()
+    long = pd.concat(frames, ignore_index=True)
+    long["timestamp"] = pd.to_datetime(long["timestamp"], utc=True)
+    return long.pivot(index="timestamp", columns="symbol", values="close").sort_index()
+
+
+def _fetch_alpha_scores(
+    conn: psycopg.Connection,
+    symbols: list[str],
+    tf: str,
+    weight_version: str,
+    start: str,
+    end_exclusive: str,
+) -> pd.DataFrame:
+    """(date x symbol) wide frame of alpha_events.alpha_score -- already signed (positive=long,
+    negative=short per alpha_publisher.py's own direction derivation), so no separate
+    direction-sign combination is needed."""
+    frames: list[pd.DataFrame] = []
+    for batch in _batched(symbols, _SYMBOL_BATCH_SIZE):
+        with conn.cursor() as cur:
+            cur.execute(
+                """
+                SELECT bar_ts, symbol, alpha_score
+                FROM alpha_events
+                WHERE tf = %(tf)s AND weight_version = %(weight_version)s
+                  AND symbol = ANY(%(symbols)s)
+                  AND bar_ts >= %(start)s AND bar_ts < %(end_exclusive)s
+                """,
+                {
+                    "tf": tf,
+                    "weight_version": weight_version,
+                    "symbols": batch,
+                    "start": start,
+                    "end_exclusive": end_exclusive,
+                },
+            )
+            rows = cur.fetchall()
+        if rows:
+            frames.append(pd.DataFrame(rows, columns=["bar_ts", "symbol", "alpha_score"]))
+    if not frames:
+        return pd.DataFrame()
+    long = pd.concat(frames, ignore_index=True)
+    long["bar_ts"] = pd.to_datetime(long["bar_ts"], utc=True)
+    return long.pivot(index="bar_ts", columns="symbol", values="alpha_score").sort_index()
+
+
+def _fetch_forward_returns(
+    conn: psycopg.Connection, symbols: list[str], tf: str, start: str, end_exclusive: str
+) -> pd.DataFrame:
+    """(date x symbol) wide frame of forward_returns.return_fast, filtered to
+    return_type='executable_open_to_open' (CLAUDE.md Invariant 1) AND complete_fast AND NOT
+    return_fast_suspect. return_fast (1-bar-ahead) matches this diagnostic's daily rebalance
+    cadence -- the horizon that matches the rebalance cadence, per the design review's
+    covariance-horizon-alignment finding."""
+    frames: list[pd.DataFrame] = []
+    for batch in _batched(symbols, _SYMBOL_BATCH_SIZE):
+        with conn.cursor() as cur:
+            cur.execute(
+                """
+                SELECT bar_ts, symbol, return_fast
+                FROM forward_returns
+                WHERE tf = %(tf)s AND symbol = ANY(%(symbols)s)
+                  AND return_type = 'executable_open_to_open'
+                  AND complete_fast AND NOT return_fast_suspect
+                  AND bar_ts >= %(start)s AND bar_ts < %(end_exclusive)s
+                """,
+                {"tf": tf, "symbols": batch, "start": start, "end_exclusive": end_exclusive},
+            )
+            rows = cur.fetchall()
+        if rows:
+            frames.append(pd.DataFrame(rows, columns=["bar_ts", "symbol", "return_fast"]))
+    if not frames:
+        return pd.DataFrame()
+    long = pd.concat(frames, ignore_index=True)
+    long["bar_ts"] = pd.to_datetime(long["bar_ts"], utc=True)
+    return long.pivot(index="bar_ts", columns="symbol", values="return_fast").sort_index()
+
+
+def _fetch_cost_hurdle(
+    conn: psycopg.Connection,
+    symbols: list[str],
+    tf: str,
+    weight_version: str,
+    start: str,
+    end_exclusive: str,
+) -> pd.DataFrame:
+    """(date x symbol) wide frame of alpha_events.cost_hurdle -- the per-instrument cost proxy
+    used by run_walk_forward's cost-adjusted net-return calculation (spec's Output section)."""
+    frames: list[pd.DataFrame] = []
+    for batch in _batched(symbols, _SYMBOL_BATCH_SIZE):
+        with conn.cursor() as cur:
+            cur.execute(
+                """
+                SELECT bar_ts, symbol, cost_hurdle
+                FROM alpha_events
+                WHERE tf = %(tf)s AND weight_version = %(weight_version)s
+                  AND symbol = ANY(%(symbols)s)
+                  AND bar_ts >= %(start)s AND bar_ts < %(end_exclusive)s
+                """,
+                {
+                    "tf": tf,
+                    "weight_version": weight_version,
+                    "symbols": batch,
+                    "start": start,
+                    "end_exclusive": end_exclusive,
+                },
+            )
+            rows = cur.fetchall()
+        if rows:
+            frames.append(pd.DataFrame(rows, columns=["bar_ts", "symbol", "cost_hurdle"]))
+    if not frames:
+        return pd.DataFrame()
+    long = pd.concat(frames, ignore_index=True)
+    long["bar_ts"] = pd.to_datetime(long["bar_ts"], utc=True)
+    return long.pivot(index="bar_ts", columns="symbol", values="cost_hurdle").sort_index()
+
+
+def _apply_coverage_filter(close_wide: pd.DataFrame) -> tuple[pd.DataFrame, list[str]]:
+    """Drop any symbol below _MIN_COVERAGE non-null fraction, logged not silent -- identical
+    reasoning and threshold to universe_expansion_correlation_structure_check.py's
+    _apply_coverage_filter, so this diagnostic's own dropped-symbol behavior is comparable."""
+    coverage = close_wide.notna().mean()
+    keep = coverage[coverage >= _MIN_COVERAGE].index.tolist()
+    dropped = sorted(set(close_wide.columns) - set(keep))
+    return close_wide[sorted(keep)], dropped
