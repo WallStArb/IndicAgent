@@ -14,6 +14,7 @@ from scripts.analysis.portfolio_covariance_weighting_diagnostic import (
     instrument_covariance,
     l1_turnover,
     log_returns,
+    main,
     mean_variance_arm,
     portfolio_exposure_stats,
     run_walk_forward,
@@ -282,3 +283,9 @@ def test_run_walk_forward_never_uses_embargoed_forward_return():
     last_refit_clean = report_clean["refits"][-1]["ic_shrunk"]
     last_refit_poisoned = report_poisoned["refits"][-1]["ic_shrunk"]
     np.testing.assert_allclose(last_refit_clean, last_refit_poisoned)
+
+
+def test_main_requires_symbols_argument():
+    with pytest.raises(SystemExit) as exc_info:
+        main([])
+    assert exc_info.value.code == 2  # argparse's own usage-error exit code

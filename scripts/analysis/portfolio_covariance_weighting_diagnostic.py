@@ -33,7 +33,10 @@ Usage:
 
 from __future__ import annotations
 
+import argparse
+import json
 import sys
+from datetime import date, timedelta
 from pathlib import Path
 from typing import Any
 
@@ -45,6 +48,7 @@ import psycopg  # noqa: E402
 import structlog  # noqa: E402
 from scipy.stats import spearmanr  # noqa: E402
 
+from src.config.settings import Settings  # noqa: E402
 from src.core.service_utils import setup_service_logging  # noqa: E402
 from src.intelligence.ensemble.covariance import (  # noqa: E402
     compute_shrinkage_covariance,
@@ -56,6 +60,7 @@ from src.intelligence.ensemble.shrinkage import (  # noqa: E402
 )
 from src.intelligence.ensemble.weights import mean_variance_weights  # noqa: E402
 from src.intelligence.statistics.ic_math import check_condition_number  # noqa: E402
+from src.observability.metrics import JOB_COMPLETED_TOTAL, flush_and_shutdown_metrics  # noqa: E402
 
 setup_service_logging("logs/portfolio_covariance_weighting_diagnostic.log")
 _logger = structlog.get_logger(__name__)
@@ -638,3 +643,127 @@ def _apply_coverage_filter(close_wide: pd.DataFrame) -> tuple[pd.DataFrame, list
     keep = coverage[coverage >= _MIN_COVERAGE].index.tolist()
     dropped = sorted(set(close_wide.columns) - set(keep))
     return close_wide[sorted(keep)], dropped
+
+
+def main(argv: list[str] | None = None) -> int:
+    parser = argparse.ArgumentParser(
+        description=(
+            "Shadow-mode diagnostic: does cross-instrument covariance-aware portfolio weighting "
+            "beat naive/IC-proportional/volatility-normalized baselines, walk-forward? Measurement "
+            "tool only -- no --gate, no pass/fail exit code. Exit codes: 0=ran, 1=error."
+        ),
+    )
+    parser.add_argument("--symbols", required=True, help="Comma-separated symbol list.")
+    parser.add_argument("--tf", default=_TIMEFRAME)
+    parser.add_argument(
+        "--weight-version", required=True, help="alpha_events.weight_version to read."
+    )
+    parser.add_argument("--start", default="2018-01-01", help="Window start (inclusive).")
+    parser.add_argument("--end", default="2026-09-02", help="Window end (inclusive).")
+    parser.add_argument("--regime-factor-symbol", default="SPY")
+    parser.add_argument("--json-out", type=Path, help="Write the full result structure as JSON.")
+    args = parser.parse_args(argv)
+
+    status = "success"
+    try:
+        symbols = [s.strip() for s in args.symbols.split(",") if s.strip()]
+        settings = Settings()
+        conn = psycopg.connect(settings.database_url)
+        conn.autocommit = True
+        try:
+            end_exclusive = (date.fromisoformat(args.end) + timedelta(days=1)).isoformat()
+
+            close_wide = _fetch_daily_closes(conn, symbols, args.start, end_exclusive)
+            if close_wide.empty:
+                print(
+                    "FAILED: no daily bars found for the requested symbols/window.", file=sys.stderr
+                )
+                status = "failure"
+                return 1
+            close_filtered, dropped = _apply_coverage_filter(close_wide)
+            _logger.info(
+                "portfolio_covariance_weighting_diagnostic.coverage_filter",
+                n_population=len(symbols),
+                n_retained=close_filtered.shape[1],
+                dropped_symbols=dropped,
+            )
+            retained_symbols = sorted(close_filtered.columns.tolist())
+
+            alpha_wide = _fetch_alpha_scores(
+                conn, retained_symbols, args.tf, args.weight_version, args.start, end_exclusive
+            )
+            fwd_wide = _fetch_forward_returns(
+                conn, retained_symbols, args.tf, args.start, end_exclusive
+            )
+            cost_hurdle_wide = _fetch_cost_hurdle(
+                conn, retained_symbols, args.tf, args.weight_version, args.start, end_exclusive
+            )
+            spy_close_wide = _fetch_daily_closes(
+                conn, [args.regime_factor_symbol], args.start, end_exclusive
+            )
+            if spy_close_wide.empty:
+                print(
+                    f"FAILED: no bars for regime-factor symbol {args.regime_factor_symbol}.",
+                    file=sys.stderr,
+                )
+                status = "failure"
+                return 1
+            spy_close = spy_close_wide[args.regime_factor_symbol]
+
+            report = run_walk_forward(
+                close_filtered, alpha_wide, fwd_wide, cost_hurdle_wide, spy_close
+            )
+            report["cohort"] = {
+                "n_population": len(symbols),
+                "n_retained": len(retained_symbols),
+                "dropped_symbols": dropped,
+                "retained_symbols": retained_symbols,
+            }
+            report["window"] = {"start": args.start, "end": args.end}
+            report["caveats"] = [
+                "Universe membership conditioned on Gate B passing over this same measurement "
+                "period is itself a selection effect -- these numbers are conditional on the "
+                "Gate-B-selected universe, not evidence this method would discover these "
+                "instruments from an unfiltered pool.",
+                "IC is measured as Spearman rank correlation, used as a linear mu-scaling "
+                "coefficient -- a heuristic, not an exact Pearson-slope calibration.",
+                "Sample size at this instrument count is likely powered for a directional read "
+                "only, not a p<0.05 verdict.",
+            ]
+
+            print(
+                f"Rebalance steps: {report['n_rebalance_steps']}, "
+                f"mean_variance ridge-fallback count: {report['mean_variance_fallback_count']}"
+            )
+            for arm, arm_report in report["arms"].items():
+                agg = arm_report["aggregate"]["unconditional"]
+                print(
+                    f"  {arm}: n={agg['n']} mean_realized_return={agg['mean_realized_return']:.6f} "
+                    f"mean_net_realized_return={agg['mean_net_realized_return']:.6f} "
+                    f"mean_turnover={agg['mean_turnover']:.4f} mean_effective_n={agg['mean_effective_n']:.2f}"
+                )
+
+            if args.json_out:
+                args.json_out.write_text(json.dumps(report, indent=2, default=str))
+
+            return 0
+        finally:
+            conn.close()
+    except Exception as error:
+        status = "failure"
+        _logger.error("portfolio_covariance_weighting_diagnostic.failed", error=str(error))
+        print(f"FAILED: {error}", file=sys.stderr)
+        return 1
+    finally:
+        JOB_COMPLETED_TOTAL.add(1, {"job": _JOB_NAME, "status": status})
+        flush_and_shutdown_metrics()
+
+
+if __name__ == "__main__":
+    from src.observability.otel import OTelInitError, init_otel_providers
+
+    try:
+        init_otel_providers(_JOB_NAME)
+    except OTelInitError as error:
+        print(f"[warn] OTel init failed -- metrics disabled: {error}")
+    sys.exit(main())
