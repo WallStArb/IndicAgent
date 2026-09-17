@@ -20,6 +20,7 @@ _project_root = Path(__file__).parent.parent
 if str(_project_root) not in sys.path:
     sys.path.insert(0, str(_project_root))
 
+import services._batch_utils as _batch_utils_module
 from services._batch_utils import (
     _COMPRESS_ALL_DECOMPRESSED_CHUNKS_ASYNCPG_SQL,
     _DECOMPRESS_ALL_COMPRESSED_CHUNKS_ASYNCPG_SQL,
@@ -29,6 +30,8 @@ from services._batch_utils import (
     Float32ChunkAccumulator,
     _active_write_session_hypertable,
     _clamp_to_real_range,
+    _known_compressed_hypertables,
+    _known_compressed_hypertables_async,
     _validate_compressed_hypertable,
     async_compressed_hypertable_write_session,
     async_compressed_hypertable_write_session_or_noop,
@@ -513,6 +516,12 @@ class TestFloat32ChunkAccumulator:
 
 
 class TestValidateCompressedHypertable:
+    """This is the hand-curated allow-list for compressed_hypertable_write_session's own
+    heavy machinery, deliberately NOT the live-queried `_known_compressed_hypertables` set
+    below (code review, 2026-09-17): the live DB has 26 compressed hypertables today, but
+    this mechanism has only been built/incident-hardened for 2 of them -- a pure static
+    check, no conn involved."""
+
     def test_known_hypertables_do_not_raise(self) -> None:
         _validate_compressed_hypertable("feature_vectors")
         _validate_compressed_hypertable("feature_ic_scores")
@@ -520,6 +529,91 @@ class TestValidateCompressedHypertable:
     def test_unknown_hypertable_raises_with_name_in_message(self) -> None:
         with pytest.raises(ValueError, match="market_data_ohlcv"):
             _validate_compressed_hypertable("market_data_ohlcv")
+
+    def test_a_live_compressed_table_outside_the_hardened_set_still_raises(self) -> None:
+        """The regression this class exists to prevent (code review, 2026-09-17): a table
+        that IS genuinely compressed in production -- market_data_ohlcv, confirmed live to
+        be one of the DB's other 24 compressed hypertables -- must still be rejected here.
+        This allow-list answers "has this mechanism been validated for this table," not "is
+        this table compressed" -- those are different questions with opposite-direction
+        risk, and must never share one live-queried set."""
+        with pytest.raises(ValueError, match="market_data_ohlcv"):
+            _validate_compressed_hypertable("market_data_ohlcv")
+
+
+class TestKnownCompressedHypertablesCache:
+    """Todo 308: the live-cached replacement for the old hardcoded frozenset, used by
+    bulk_update_by_key's "did you forget a session" guard specifically -- NOT by
+    _validate_compressed_hypertable (see TestValidateCompressedHypertable above, a
+    deliberately separate, still-static allow-list with the opposite risk direction).
+    These tests explicitly reset the cache to None first (undoing the autouse prewarm
+    fixture above) to exercise the actual cache-population path, which every other test
+    in this file deliberately never touches."""
+
+    def test_sync_accessor_queries_once_then_reuses_cache(self) -> None:
+        _batch_utils_module._compressed_hypertable_names_cache = None
+        conn = MagicMock()
+        cur = conn.cursor.return_value.__enter__.return_value
+        cur.fetchall.return_value = [("feature_vectors",), ("feature_ic_scores",)]
+
+        result_1 = _known_compressed_hypertables(conn)
+        result_2 = _known_compressed_hypertables(conn)
+
+        assert result_1 == frozenset({"feature_vectors", "feature_ic_scores"})
+        assert result_2 == result_1
+        cur.execute.assert_called_once_with(_batch_utils_module._LIVE_COMPRESSED_HYPERTABLES_SQL)
+
+    @pytest.mark.asyncio
+    async def test_async_accessor_queries_once_then_reuses_cache(self) -> None:
+        _batch_utils_module._compressed_hypertable_names_cache = None
+        conn = MagicMock()
+        conn.fetch = AsyncMock(
+            return_value=[
+                {"hypertable_name": "feature_vectors"},
+                {"hypertable_name": "feature_ic_scores"},
+            ]
+        )
+
+        result_1 = await _known_compressed_hypertables_async(conn)
+        result_2 = await _known_compressed_hypertables_async(conn)
+
+        assert result_1 == frozenset({"feature_vectors", "feature_ic_scores"})
+        assert result_2 == result_1
+        conn.fetch.assert_called_once_with(_batch_utils_module._LIVE_COMPRESSED_HYPERTABLES_SQL)
+
+    @pytest.mark.asyncio
+    async def test_sync_and_async_accessors_share_one_cache(self) -> None:
+        """Whichever driver populates the cache first, the other reuses it without its
+        own query -- the underlying fact doesn't depend on which driver asked."""
+        _batch_utils_module._compressed_hypertable_names_cache = None
+        sync_conn = MagicMock()
+        cur = sync_conn.cursor.return_value.__enter__.return_value
+        cur.fetchall.return_value = [("feature_vectors",), ("feature_ic_scores",)]
+
+        sync_result = _known_compressed_hypertables(sync_conn)
+
+        async_conn = MagicMock()
+        async_conn.fetch = AsyncMock(side_effect=AssertionError("must not query -- cache is warm"))
+        async_result = await _known_compressed_hypertables_async(async_conn)
+
+        assert async_result == sync_result == frozenset({"feature_vectors", "feature_ic_scores"})
+        async_conn.fetch.assert_not_called()
+
+    def test_a_table_missing_from_the_live_result_is_correctly_unknown(self) -> None:
+        """The whole point of todo 308, for bulk_update_by_key's guard specifically: a
+        table absent from the live query's result is unknown, full stop -- no hand-
+        maintained list to fall out of sync with reality. (Not `_validate_compressed_
+        hypertable` -- that's a separate, deliberately-static allow-list, see
+        TestValidateCompressedHypertable above.)"""
+        _batch_utils_module._compressed_hypertable_names_cache = None
+        conn = MagicMock()
+        cur = conn.cursor.return_value.__enter__.return_value
+        cur.fetchall.return_value = [("feature_vectors",)]  # feature_ic_scores NOT returned
+
+        known = _known_compressed_hypertables(conn)
+
+        assert known == frozenset({"feature_vectors"})
+        assert "feature_ic_scores" not in known
 
 
 def _mock_sync_conn(
@@ -913,7 +1007,7 @@ class TestBulkUpdateByKeyCompressedHypertableGuard:
                 )
 
     def test_uncompressed_table_needs_no_session(self) -> None:
-        """The guard only fires for _KNOWN_COMPRESSED_HYPERTABLES -- an ordinary table's
+        """The guard only fires for known compressed hypertables -- an ordinary table's
         bulk_update_by_key callers (e.g. this module's other, non-compressed-hypertable
         consumers) are unaffected."""
         conn = MagicMock()

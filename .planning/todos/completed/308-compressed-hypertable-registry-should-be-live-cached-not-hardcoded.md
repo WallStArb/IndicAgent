@@ -1,11 +1,48 @@
 # 308 - Replace _KNOWN_COMPRESSED_HYPERTABLES's hardcoded set with a process-lifetime-cached live query
 
 **Filed:** 2026-08-14
+**Closed:** 2026-09-17
 **Source:** `/simplify` altitude-angle review, second pass, of the todo 306 compressed-
 hypertable-write-session fix (`services/_batch_utils.py`). See that function's docstring for
 context; this todo is the deferred follow-up it points to.
-**Status:** pending, P2 -- real gap, but bounded (only 2 tables currently affected, both
-already correctly protected today) and not urgent.
+**Status:** CLOSED -- shipped, with a scope correction to this todo's own recommended
+approach (see Resolution below).
+
+## Resolution (2026-09-17)
+
+Implemented steps 1, 2, and 4 of the recommended approach below largely as written:
+`_known_compressed_hypertables(conn)`/`_known_compressed_hypertables_async(conn)` now
+live-query `timescaledb_information.hypertables` and cache for the process lifetime,
+shared between drivers; `bulk_update_by_key`'s guard uses this live-cached set.
+
+**Step 3 was wrong and NOT implemented as written** -- caught by `/code-review`, confirmed
+against the live database (which has 26 compressed hypertables today, not 2).
+`_validate_compressed_hypertable` is a *different* check than `bulk_update_by_key`'s guard,
+with the *opposite* risk direction, and must not share the same live-queried set:
+
+- `bulk_update_by_key`'s guard answers "is this table compressed at all" (any compressed
+  table needs a session) -- a table **missing** from a hand-maintained list is the
+  dangerous direction (a write silently proceeds unprotected). The live query is the right
+  fix here, exactly as this todo scoped it.
+- `_validate_compressed_hypertable` (inside `compressed_hypertable_write_session`) answers
+  "has THIS specific, disruptive mechanism (decompress-all, pause compression jobs,
+  override session GUCs, bare VACUUM) actually been built and incident-hardened for this
+  table" -- a table **present** that shouldn't be is the dangerous direction. Live-querying
+  this one (as step 3 proposed) would have silently widened a tight, deliberate 2-table
+  allow-list into "any of the 26 live compressed tables," including e.g.
+  `market_data_ohlcv` (258 chunks, active compression policy) -- a future/mistaken call
+  would have run this session's full sequence against a table it was never validated
+  against, with no error.
+
+Kept `_validate_compressed_hypertable` as a small, static, hand-curated allow-list
+(renamed the underlying constant `_WRITE_SESSION_HARDENED_TABLES` for clarity, distinct
+from the live-cache accessor's name) -- step 5 ("delete `_KNOWN_COMPRESSED_HYPERTABLES`
+once nothing references it") still happened, just split into two differently-purposed
+successors instead of one. Verified live: `_validate_compressed_hypertable("market_data_
+ohlcv")` correctly raises; `_known_compressed_hypertables(conn)` correctly includes it
+(26-table live count confirmed via direct query). Full unit suite green, `/simplify`
+(4-agent reuse/simplification/efficiency/altitude pass) and `/code-review` both run before
+commit -- the code-review pass is what caught this.
 
 ## What
 
