@@ -35,12 +35,14 @@ from __future__ import annotations
 
 import sys
 from pathlib import Path
+from typing import Any
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
 
 import numpy as np  # noqa: E402
 import pandas as pd  # noqa: E402
 import structlog  # noqa: E402
+from scipy.stats import spearmanr  # noqa: E402
 
 from src.core.service_utils import setup_service_logging  # noqa: E402
 from src.intelligence.ensemble.covariance import (  # noqa: E402
@@ -265,3 +267,210 @@ def causal_regime_labels(spy_close: pd.Series, window: int = _REGIME_SMA_WINDOW)
     trailing_sma = spy_close.rolling(window).mean().shift(1)
     label = pd.Series(np.where(spy_close > trailing_sma, "bull", "bear"), index=spy_close.index)
     return label.where(trailing_sma.notna())
+
+
+_ARM_FUNCS = ("equal_weight", "ic_proportional", "vol_normalized", "mean_variance")
+
+
+def run_walk_forward(
+    close_wide: pd.DataFrame,
+    alpha_wide: pd.DataFrame,
+    fwd_return_wide: pd.DataFrame,
+    cost_hurdle_wide: pd.DataFrame,
+    spy_close: pd.Series,
+) -> dict[str, Any]:
+    """Full walk-forward diagnostic over already-fetched, already-aligned (dates x symbols)
+    frames -- no DB access here, so this is directly unit-testable against synthetic data.
+
+    Two decoupled cadences (spec's Method section):
+    - Sigma/IC refit every _REFIT_EVERY_BARS trading days, using data through the embargo
+      boundary (current index position - _EMBARGO_BARS) only.
+    - Weight recomputation from that day's alpha_score every trading day, using the most
+      recent refit's Sigma/IC_shrunk.
+
+    Returns the full report dict: per-arm rebalance-step history, per-arm aggregate stats
+    (unconditional + causal regime split), and refit-level diagnostics (condition number,
+    fallback flag, ic_shrunk -- so a caller can audit exactly what each refit saw).
+    """
+    dates = close_wide.index
+    symbols = sorted(close_wide.columns.tolist())
+    returns = log_returns(close_wide[symbols])
+    regime_labels = causal_regime_labels(spy_close)
+
+    prev_weights: dict[str, np.ndarray | None] = {a: None for a in _ARM_FUNCS}
+    steps_by_arm: dict[str, list[dict[str, Any]]] = {a: [] for a in _ARM_FUNCS}
+    refits: list[dict[str, Any]] = []
+    fallback_count = 0
+
+    current_cov: np.ndarray | None = None
+    current_corr_symbols: list[str] | None = None
+    current_ic_shrunk: dict[str, float] | None = None
+    last_refit_pos = -_REFIT_EVERY_BARS  # force a refit on the first eligible day
+
+    for pos, rebal_date in enumerate(dates):
+        if pos < _INITIAL_WARMUP_BARS:
+            continue
+
+        if pos - last_refit_pos >= _REFIT_EVERY_BARS:
+            embargo_boundary = pos - _EMBARGO_BARS
+            hist_returns = returns.loc[returns.index <= dates[embargo_boundary]].tail(
+                _INITIAL_WARMUP_BARS
+            )
+            cov, _corr, cov_symbols = instrument_covariance(hist_returns)
+            if len(cov_symbols) < 2:
+                continue
+
+            ic_raw_list = []
+            n_eff_list = []
+            for sym in cov_symbols:
+                z_hist = standardize_scores(
+                    alpha_wide[sym]
+                    .loc[alpha_wide.index <= dates[embargo_boundary]]
+                    .tail(_INITIAL_WARMUP_BARS)
+                )
+                fwd_hist = (
+                    fwd_return_wide[sym]
+                    .loc[fwd_return_wide.index <= dates[embargo_boundary]]
+                    .tail(_INITIAL_WARMUP_BARS)
+                )
+                paired = pd.concat([z_hist, fwd_hist], axis=1, keys=["z", "fwd"]).dropna()
+                if len(paired) >= _CORR_MIN_PERIODS:
+                    ic_raw, _p = spearmanr(paired["z"], paired["fwd"])
+                    ic_raw = 0.0 if not np.isfinite(ic_raw) else float(ic_raw)
+                else:
+                    ic_raw = 0.0
+                ic_raw_list.append(ic_raw)
+                n_eff_list.append(float(len(paired)))
+
+            ic_shrunk_arr = shrink_instrument_ic(
+                np.array(ic_raw_list), np.array(n_eff_list), _IC_SHRINKAGE_K
+            )
+            ic_shrunk_vals = dict(zip(cov_symbols, ic_shrunk_arr.tolist(), strict=True))
+
+            current_cov, current_corr_symbols, current_ic_shrunk = cov, cov_symbols, ic_shrunk_vals
+            last_refit_pos = pos
+            refits.append(
+                {
+                    "refit_date": str(rebal_date.date()),
+                    "symbols": cov_symbols,
+                    "ic_shrunk": ic_shrunk_arr.tolist(),
+                }
+            )
+
+        if current_cov is None or current_corr_symbols is None:
+            continue
+
+        active_symbols = current_corr_symbols
+        sigma = np.sqrt(np.maximum(np.diag(current_cov), 1e-12))
+        z_today = np.array(
+            [
+                (
+                    standardize_scores(
+                        alpha_wide[sym]
+                        .loc[alpha_wide.index <= rebal_date]
+                        .tail(_INITIAL_WARMUP_BARS)
+                    ).iloc[-1]
+                    if rebal_date in alpha_wide.index and pd.notna(alpha_wide.loc[rebal_date, sym])
+                    else 0.0
+                )
+                for sym in active_symbols
+            ]
+        )
+        ic_shrunk_today = np.array([current_ic_shrunk[sym] for sym in active_symbols])
+        mu = compute_mu(ic_shrunk_today, sigma, z_today)
+
+        realized = (
+            fwd_return_wide.reindex([rebal_date])[active_symbols].iloc[0].fillna(0.0).to_numpy()
+        )
+        cost_hurdle_today = (
+            cost_hurdle_wide.reindex([rebal_date])[active_symbols].iloc[0].fillna(0.0).to_numpy()
+        )
+        regime = regime_labels.get(rebal_date)
+
+        for arm in _ARM_FUNCS:
+            if arm == "equal_weight":
+                w = equal_weight_arm(len(active_symbols))
+            elif arm == "ic_proportional":
+                w = ic_proportional_arm(mu)
+            elif arm == "vol_normalized":
+                w = vol_normalized_arm(mu, sigma)
+            else:
+                w, method, _cond = mean_variance_arm(current_cov, mu, _MV_CONDITION_MAX)
+                if method == "mean_variance_ridge_fallback":
+                    fallback_count += 1
+                    _logger.warning(
+                        "portfolio_covariance_weighting_diagnostic.mean_variance_fallback",
+                        date=str(rebal_date.date()),
+                    )
+
+            prev = prev_weights[arm]
+            per_instrument_turnover = np.zeros_like(w) if prev is None else np.abs(w - prev)
+            turnover = float(np.sum(per_instrument_turnover))
+            # Cost model: each instrument's own cost_hurdle applied to the size of its OWN
+            # rebalance trade (spec's Output section: "using alpha_events' existing cost_hurdle
+            # as the per-instrument cost proxy"), summed to one scalar cost for the step.
+            cost = float(np.sum(per_instrument_turnover * cost_hurdle_today))
+            prev_weights[arm] = w
+
+            exposure = portfolio_exposure_stats(w)
+            gross_return = float(np.dot(w, realized))
+            steps_by_arm[arm].append(
+                {
+                    "date": str(rebal_date.date()),
+                    "regime": regime,
+                    "weights": dict(zip(active_symbols, w.tolist(), strict=True)),
+                    "turnover": turnover,
+                    "cost": cost,
+                    "realized_return": gross_return,
+                    "net_realized_return": gross_return - cost,
+                    **exposure,
+                }
+            )
+
+    arms_report: dict[str, Any] = {}
+    for arm in _ARM_FUNCS:
+        steps = steps_by_arm[arm]
+        arms_report[arm] = {
+            "rebalance_steps": steps,
+            "aggregate": _aggregate_arm(steps),
+        }
+
+    return {
+        "arms": arms_report,
+        "refits": refits,
+        "mean_variance_fallback_count": fallback_count,
+        "n_rebalance_steps": len(steps_by_arm["equal_weight"]),
+    }
+
+
+def _aggregate_arm(steps: list[dict[str, Any]]) -> dict[str, Any]:
+    """Unconditional + causal-regime-split aggregate stats for one arm's rebalance history."""
+
+    def _summary(subset: list[dict[str, Any]]) -> dict[str, float]:
+        if not subset:
+            return {
+                "n": 0,
+                "mean_realized_return": 0.0,
+                "mean_net_realized_return": 0.0,
+                "mean_cost": 0.0,
+                "mean_turnover": 0.0,
+                "mean_effective_n": 0.0,
+            }
+        returns_arr = np.array([s["realized_return"] for s in subset])
+        net_returns = np.array([s["net_realized_return"] for s in subset])
+        costs = np.array([s["cost"] for s in subset])
+        turnovers = np.array([s["turnover"] for s in subset])
+        eff_n = np.array([s["effective_n"] for s in subset])
+        return {
+            "n": len(subset),
+            "mean_realized_return": float(returns_arr.mean()),
+            "mean_net_realized_return": float(net_returns.mean()),
+            "mean_cost": float(costs.mean()),
+            "mean_turnover": float(turnovers.mean()),
+            "mean_effective_n": float(eff_n.mean()),
+        }
+
+    out = {"unconditional": _summary(steps)}
+    for label in ("bull", "bear"):
+        out[label] = _summary([s for s in steps if s["regime"] == label])
+    return out
