@@ -178,6 +178,8 @@ jobs 1020/1021 via `delete_job()`. See both files' `## Resolved 2026-09-07` sect
 
 ## P0 — Fix soon (integrity/correctness gaps already surfaced)
 
+| [379](pending/379-empirical-tags-contaminate-equity-breadth-and-peer-grouping.md) | New 2026-09-17, found by Codex+Fable independent review of the same-day `ic_engine.py` regime-routing fix (`b8af2b749`). Fable confirmed live: GLD/AGG/EMB/EMLC/DBC/FXA/FXE currently pollute `equity_regime_model.py`'s equity breadth signal and `cross_sectional_regime_model.py`'s peer grouping via spurious empirical `eq_*` tags -- not hypothetical, active right now. NOT the same fix as `ic_engine.py`'s (that was a categorical-identity question; this is a sensitivity/peer-grouping question where empirical tags aren't structurally wrong, just currently noise-dominated) -- needs its own scoped decision, not a copy-paste. |
+
 **2026-08-21 cleanup pass:** 318/314/323 all confirmed CLOSED (files verified in `completed/`,
 none lingering in `pending/`) and their inline narrative stripped per this file's own
 "Not in this list: completed" scope -- same discipline as the 2026-08-03 structure-cleanup
