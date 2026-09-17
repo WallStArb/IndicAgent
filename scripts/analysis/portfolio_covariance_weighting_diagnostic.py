@@ -58,6 +58,7 @@ from src.intelligence.ensemble.shrinkage import (  # noqa: E402
     leave_one_out_group_prior,
     shrink_ic,
 )
+from src.intelligence.ensemble.weights import effective_n as ensemble_effective_n  # noqa: E402
 from src.intelligence.ensemble.weights import mean_variance_weights  # noqa: E402
 from src.intelligence.statistics.ic_math import check_condition_number  # noqa: E402
 from src.observability.metrics import JOB_COMPLETED_TOTAL, flush_and_shutdown_metrics  # noqa: E402
@@ -210,9 +211,12 @@ def mean_variance_arm(
     On an ill-conditioned Sigma, falls back to ridge regularization (Sigma + epsilon*I, epsilon
     scaled to 10% of the matrix's own average variance) and re-solves -- never
     cluster_deflate_weights/derive_weights, which assume a feature-staleness input this
-    diagnostic doesn't have. The fallback is always returned in method_used, matching
-    ensemble_trainer.py's "mean_variance_fallback must never be silent" discipline -- callers
-    (the walk-forward orchestrator, Task 7) are responsible for logging it.
+    diagnostic doesn't have. If even the ridge-regularized matrix is unusable, falls back
+    further to vol_normalized_arm (the diagonal-only special case) rather than reimplementing
+    a second, independent diagonal solve -- one source of truth for "volatility-only weighting"
+    in this file. The fallback is always returned in method_used, matching ensemble_trainer.py's
+    "mean_variance_fallback must never be silent" discipline -- callers (the walk-forward
+    orchestrator) are responsible for logging it.
     """
     raw, cond = mean_variance_weights(cov_matrix, mu, condition_max)
     if raw is not None:
@@ -221,14 +225,13 @@ def mean_variance_arm(
     n = cov_matrix.shape[0]
     epsilon = _RIDGE_EPSILON_FRACTION * float(np.trace(cov_matrix)) / max(n, 1)
     ridge_cov = cov_matrix + epsilon * np.eye(n)
-    ridge_ok, ridge_cond = check_condition_number(ridge_cov, condition_max)
+    ridge_ok, _ridge_cond = check_condition_number(ridge_cov, condition_max)
     if ridge_ok:
         raw_ridge = np.linalg.solve(ridge_cov, mu)
-    else:
-        # Even the ridge-regularized matrix is unusable -- fall back further to the diagonal
-        # (volatility-only) solve rather than emit an unstable result.
-        raw_ridge = mu / np.maximum(np.diag(cov_matrix), 1e-12)
-    return _normalize_by_abs_sum(raw_ridge), "mean_variance_ridge_fallback", cond
+        return _normalize_by_abs_sum(raw_ridge), "mean_variance_ridge_fallback", cond
+
+    sigma = np.sqrt(np.maximum(np.diag(cov_matrix), 1e-12))
+    return vol_normalized_arm(mu, sigma), "mean_variance_ridge_fallback", cond
 
 
 def portfolio_exposure_stats(weights: np.ndarray) -> dict[str, float]:
@@ -242,12 +245,11 @@ def portfolio_exposure_stats(weights: np.ndarray) -> dict[str, float]:
     gross = float(np.sum(np.abs(weights)))
     net = float(np.sum(weights))
     herfindahl = float(np.sum(weights**2))
-    effective_n = 0.0 if herfindahl < 1e-12 else 1.0 / herfindahl
     return {
         "gross_exposure": gross,
         "net_exposure": net,
         "herfindahl": herfindahl,
-        "effective_n": effective_n,
+        "effective_n": ensemble_effective_n(weights),
     }
 
 
@@ -302,6 +304,10 @@ def run_walk_forward(
     symbols = sorted(close_wide.columns.tolist())
     returns = log_returns(close_wide[symbols])
     regime_labels = causal_regime_labels(spy_close)
+    # Aligned once outside the loop (was a per-iteration single-row reindex against the full
+    # column set) -- pure alignment, no change to the values themselves.
+    fwd_return_aligned = fwd_return_wide.reindex(dates)
+    cost_hurdle_aligned = cost_hurdle_wide.reindex(dates)
 
     prev_weights: dict[str, np.ndarray | None] = {a: None for a in _ARM_FUNCS}
     steps_by_arm: dict[str, list[dict[str, Any]]] = {a: [] for a in _ARM_FUNCS}
@@ -385,11 +391,9 @@ def run_walk_forward(
         ic_shrunk_today = np.array([current_ic_shrunk[sym] for sym in active_symbols])
         mu = compute_mu(ic_shrunk_today, sigma, z_today)
 
-        realized = (
-            fwd_return_wide.reindex([rebal_date])[active_symbols].iloc[0].fillna(0.0).to_numpy()
-        )
+        realized = fwd_return_aligned.loc[rebal_date, active_symbols].fillna(0.0).to_numpy()
         cost_hurdle_today = (
-            cost_hurdle_wide.reindex([rebal_date])[active_symbols].iloc[0].fillna(0.0).to_numpy()
+            cost_hurdle_aligned.loc[rebal_date, active_symbols].fillna(0.0).to_numpy()
         )
         regime = regime_labels.get(rebal_date)
 
@@ -449,32 +453,23 @@ def run_walk_forward(
     }
 
 
+_AGGREGATE_MEAN_FIELDS = (
+    ("mean_realized_return", "realized_return"),
+    ("mean_net_realized_return", "net_realized_return"),
+    ("mean_cost", "cost"),
+    ("mean_turnover", "turnover"),
+    ("mean_effective_n", "effective_n"),
+)
+
+
 def _aggregate_arm(steps: list[dict[str, Any]]) -> dict[str, Any]:
     """Unconditional + causal-regime-split aggregate stats for one arm's rebalance history."""
 
     def _summary(subset: list[dict[str, Any]]) -> dict[str, float]:
-        if not subset:
-            return {
-                "n": 0,
-                "mean_realized_return": 0.0,
-                "mean_net_realized_return": 0.0,
-                "mean_cost": 0.0,
-                "mean_turnover": 0.0,
-                "mean_effective_n": 0.0,
-            }
-        returns_arr = np.array([s["realized_return"] for s in subset])
-        net_returns = np.array([s["net_realized_return"] for s in subset])
-        costs = np.array([s["cost"] for s in subset])
-        turnovers = np.array([s["turnover"] for s in subset])
-        eff_n = np.array([s["effective_n"] for s in subset])
-        return {
-            "n": len(subset),
-            "mean_realized_return": float(returns_arr.mean()),
-            "mean_net_realized_return": float(net_returns.mean()),
-            "mean_cost": float(costs.mean()),
-            "mean_turnover": float(turnovers.mean()),
-            "mean_effective_n": float(eff_n.mean()),
-        }
+        result: dict[str, float] = {"n": len(subset)}
+        for out_key, step_key in _AGGREGATE_MEAN_FIELDS:
+            result[out_key] = float(np.mean([s[step_key] for s in subset])) if subset else 0.0
+        return result
 
     out = {"unconditional": _summary(steps)}
     for label in ("bull", "bear"):
@@ -524,23 +519,29 @@ def _fetch_daily_closes(
     return long.pivot(index="timestamp", columns="symbol", values="close").sort_index()
 
 
-def _fetch_alpha_scores(
+def _fetch_alpha_scores_and_cost_hurdle(
     conn: psycopg.Connection,
     symbols: list[str],
     tf: str,
     weight_version: str,
     start: str,
     end_exclusive: str,
-) -> pd.DataFrame:
-    """(date x symbol) wide frame of alpha_events.alpha_score -- already signed (positive=long,
-    negative=short per alpha_publisher.py's own direction derivation), so no separate
-    direction-sign combination is needed."""
+) -> tuple[pd.DataFrame, pd.DataFrame]:
+    """(date x symbol) wide frames of alpha_events.alpha_score and .cost_hurdle -- fetched
+    together in one query (identical WHERE clause, previously two separate round trips over
+    the same rows) since both are read from the same table for the same cohort/window.
+
+    alpha_score is already signed (positive=long, negative=short per alpha_publisher.py's own
+    direction derivation), so no separate direction-sign combination is needed. cost_hurdle is
+    the per-instrument cost proxy used by run_walk_forward's cost-adjusted net-return
+    calculation (spec's Output section).
+    """
     frames: list[pd.DataFrame] = []
     for batch in _batched(symbols, _SYMBOL_BATCH_SIZE):
         with conn.cursor() as cur:
             cur.execute(
                 """
-                SELECT bar_ts, symbol, alpha_score
+                SELECT bar_ts, symbol, alpha_score, cost_hurdle
                 FROM alpha_events
                 WHERE tf = %(tf)s AND weight_version = %(weight_version)s
                   AND symbol = ANY(%(symbols)s)
@@ -556,12 +557,18 @@ def _fetch_alpha_scores(
             )
             rows = cur.fetchall()
         if rows:
-            frames.append(pd.DataFrame(rows, columns=["bar_ts", "symbol", "alpha_score"]))
+            frames.append(
+                pd.DataFrame(rows, columns=["bar_ts", "symbol", "alpha_score", "cost_hurdle"])
+            )
     if not frames:
-        return pd.DataFrame()
+        return pd.DataFrame(), pd.DataFrame()
     long = pd.concat(frames, ignore_index=True)
     long["bar_ts"] = pd.to_datetime(long["bar_ts"], utc=True)
-    return long.pivot(index="bar_ts", columns="symbol", values="alpha_score").sort_index()
+    alpha_wide = long.pivot(index="bar_ts", columns="symbol", values="alpha_score").sort_index()
+    cost_hurdle_wide = long.pivot(
+        index="bar_ts", columns="symbol", values="cost_hurdle"
+    ).sort_index()
+    return alpha_wide, cost_hurdle_wide
 
 
 def _fetch_forward_returns(
@@ -594,45 +601,6 @@ def _fetch_forward_returns(
     long = pd.concat(frames, ignore_index=True)
     long["bar_ts"] = pd.to_datetime(long["bar_ts"], utc=True)
     return long.pivot(index="bar_ts", columns="symbol", values="return_fast").sort_index()
-
-
-def _fetch_cost_hurdle(
-    conn: psycopg.Connection,
-    symbols: list[str],
-    tf: str,
-    weight_version: str,
-    start: str,
-    end_exclusive: str,
-) -> pd.DataFrame:
-    """(date x symbol) wide frame of alpha_events.cost_hurdle -- the per-instrument cost proxy
-    used by run_walk_forward's cost-adjusted net-return calculation (spec's Output section)."""
-    frames: list[pd.DataFrame] = []
-    for batch in _batched(symbols, _SYMBOL_BATCH_SIZE):
-        with conn.cursor() as cur:
-            cur.execute(
-                """
-                SELECT bar_ts, symbol, cost_hurdle
-                FROM alpha_events
-                WHERE tf = %(tf)s AND weight_version = %(weight_version)s
-                  AND symbol = ANY(%(symbols)s)
-                  AND bar_ts >= %(start)s AND bar_ts < %(end_exclusive)s
-                """,
-                {
-                    "tf": tf,
-                    "weight_version": weight_version,
-                    "symbols": batch,
-                    "start": start,
-                    "end_exclusive": end_exclusive,
-                },
-            )
-            rows = cur.fetchall()
-        if rows:
-            frames.append(pd.DataFrame(rows, columns=["bar_ts", "symbol", "cost_hurdle"]))
-    if not frames:
-        return pd.DataFrame()
-    long = pd.concat(frames, ignore_index=True)
-    long["bar_ts"] = pd.to_datetime(long["bar_ts"], utc=True)
-    return long.pivot(index="bar_ts", columns="symbol", values="cost_hurdle").sort_index()
 
 
 def _apply_coverage_filter(close_wide: pd.DataFrame) -> tuple[pd.DataFrame, list[str]]:
@@ -689,14 +657,11 @@ def main(argv: list[str] | None = None) -> int:
             )
             retained_symbols = sorted(close_filtered.columns.tolist())
 
-            alpha_wide = _fetch_alpha_scores(
+            alpha_wide, cost_hurdle_wide = _fetch_alpha_scores_and_cost_hurdle(
                 conn, retained_symbols, args.tf, args.weight_version, args.start, end_exclusive
             )
             fwd_wide = _fetch_forward_returns(
                 conn, retained_symbols, args.tf, args.start, end_exclusive
-            )
-            cost_hurdle_wide = _fetch_cost_hurdle(
-                conn, retained_symbols, args.tf, args.weight_version, args.start, end_exclusive
             )
             spy_close_wide = _fetch_daily_closes(
                 conn, [args.regime_factor_symbol], args.start, end_exclusive
