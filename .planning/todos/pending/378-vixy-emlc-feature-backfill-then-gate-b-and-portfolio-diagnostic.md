@@ -29,37 +29,62 @@ same-day cross-asset pre-registration work — price history backfilled fine
 (`backfill_feature_factory.py --compute-only`) was never triggered. Not a bug, an unfinished
 onboarding step.
 
-## Current state (as of this todo being filed)
+## Current state (updated 2026-09-17, end of session)
 
-`services/backfill_feature_factory.py --compute-only --symbols VIXY,EMLC --refresh` is running
-in the background (PID at filing time: 4138555, started 2026-09-17 06:28 local). Confirmed
-genuinely computing (forkserver worker subprocesses pegged ~130% CPU each), not stuck — the
-first attempt (with a `timeout 580` wrapper) got killed mid-run by the wrapper, not by an
-error, leaving all 8 `backfill_status` rows (VIXY/EMLC × 4 tfs) stuck at `in_progress` with no
-`completed_at`; the `--refresh` re-run bypasses that ambiguous checkpoint state and forces a
-clean recompute. Log output is fully buffered (0 bytes written to
-`/tmp/.../scratchpad/vixy_emlc_backfill.log` despite real CPU activity) — check
-`backfill_status`/`feature_vectors` row counts directly rather than trusting the log file for
-progress, until the process exits.
+**Steps 1-2 of the remaining chain (below) are DONE, verified against live data:**
+
+1. **Feature backfill: DONE.** `feature_vectors` populated for VIXY/EMLC across all 4 tfs
+   (5m/15m/1h/1d), `backfill_status` shows `status='complete'` on all 8 rows, row counts
+   verified directly against `feature_vectors` (e.g. VIXY 5m: 264,631 rows, 2011-05-20 through
+   2026-09-15). Commit: none (data-only, no code changed).
+2. **`forward_returns`: DONE.** `forward_return_writer.py --symbols VIXY EMLC --tf 5m 15m 1h 1d
+   --training-window-end "2025-12-24T05:15:00+00:00"` (same boundary as the full corpus's last
+   run, from `.planning/corpus_manifests/forward_return_writer.json`) — verified 782,717 rows
+   written, `return_type='executable_open_to_open'`, ~99%+ usable
+   (`complete_fast AND NOT return_fast_suspect`).
+
+**Unplanned but necessary detour, also DONE:** attempting step 3 (`ic_engine`) surfaced a
+corpus-wide bug blocking it entirely, for every symbol, not just VIXY/EMLC —
+`_build_symbol_regime_class` was routing instruments to regime groups using BOTH human
+(definitional) and empirical (`TagCalibrator`-measured sensitivity) tags with no distinction,
+causing 144 of 273 active instruments to match 2+ groups simultaneously once `TagCalibrator`'s
+first-ever successful run (2026-09-16) populated empirical tags corpus-wide. **Fixed** (commit
+`b8af2b749`, independently reviewed by both Codex and Fable before landing): regime-group
+routing now uses `source='human'` tags only. Validated live: 144→0 ambiguous, 272/273 route
+cleanly; the one exception (VIXY, no human tag matches any of the 4 groups — an honest taxonomy
+gap, not a bug) handled by bumping `infra.ic.max_unrouted_symbols` 0→1 (APR, with
+`config_history` provenance). Verified: `ic_engine.py --dry-run-validity --symbols VIXY EMLC
+--tf 1d --training-window-end "2025-12-24T05:15:00+00:00"` now exits 0.
+
+A second, separate, currently-active bug was found alongside this (same review) and
+DELIBERATELY NOT fixed today — filed as its own todo,
+[379](379-empirical-tags-contaminate-equity-breadth-and-peer-grouping.md): empirical tags are
+right now polluting `equity_regime_model.py`'s breadth signal and
+`cross_sectional_regime_model.py`'s peer grouping (confirmed live: GLD/AGG/EMB/EMLC/DBC/FXA/FXE).
+Do not copy this todo's `ic_engine.py` fix onto those two files without reading 379 first — it's
+a different kind of question there (sensitivity/peer-grouping, not categorical identity) and
+needs its own scoped decision.
+
+**`.planning/corpus_manifests/ic_engine.json` is currently STALE** — it shows a `status:
+"failed"` run from BEFORE the routing fix (the DBB ambiguity error). That failure is resolved;
+the manifest just hasn't been overwritten by a real (non-dry-run) `ic_engine.py` invocation yet.
+Don't read that file's `"failed"` status as current truth.
 
 ## Remaining chain, in order, before the portfolio diagnostic can run against real data
 
-1. **`backfill_feature_factory.py --compute-only --symbols VIXY,EMLC`** — in progress, see above.
-   Verify on resume: `SELECT symbol, tf, status, completed_at FROM backfill_status WHERE symbol
-   IN ('VIXY','EMLC')` — all 8 rows should show `status='complete'`.
-2. **`forward_returns` for VIXY/EMLC** — not yet computed (confirmed zero rows before this
-   backfill started). Find and run whatever writer populates `forward_returns` from
-   `feature_vectors` (`forward_return_writer` per root CLAUDE.md's pipeline description) scoped
-   to these two symbols, or as part of its normal incremental sweep once `feature_vectors`
-   exist for them.
-3. **`ic_engine` / `ensemble_trainer` re-run** — VIXY/EMLC need to enter a `weight_version`
-   before `alpha_publisher` can emit `alpha_events` for them. Check whether `ensemble_trainer`
-   can be scoped to just these 2 new symbols against the EXISTING `weight_version` cohort, or
-   whether getting them in requires a fresh full-corpus `ensemble_trainer` run (a much bigger,
-   more consequential operation — do not run this without confirming scope first, per this
-   project's own "measure twice" discipline on anything touching the shared `weight_version`
-   epoch other symbols already depend on).
-4. **Gate B** (per-instrument IC via `ic_engine`, referenced but not yet run per
+1. ~~`backfill_feature_factory.py --compute-only --symbols VIXY,EMLC`~~ — **DONE**, see above.
+2. ~~`forward_returns` for VIXY/EMLC~~ — **DONE**, see above.
+3. **`ic_engine` real run, then `ensemble_trainer` re-run** — `ic_engine.py` is unblocked
+   (verified via dry-run) but has NOT actually been run for real yet (dry-run only computes/
+   prints the skip/compute partition, writes nothing). Next: run `ic_engine.py` for real
+   (drop `--dry-run-validity`) scoped to VIXY/EMLC at minimum, then figure out `ensemble_trainer`
+   scope — it has no `--symbols` flag and always does `DELETE FROM ensemble_weights/ensemble_alpha
+   WHERE weight_version = $1` before rebuilding, i.e. there is no way to "just add 2 symbols"
+   without either overwriting the existing `weight_version='run_2025122405150000'` (touches
+   everyone) or creating a new `weight_version` (still a full-corpus-scale computation, not
+   cheap) — confirm actual runtime/scope before running, this is the one remaining "measure
+   twice" decision point in the chain.
+4. **Gate B** (per-instrument IC via `ic_engine`, still not run per
    [[project_phase174_closed_cross_asset_pivot]]) — run against all 13 once VIXY/EMLC are
    scored, or against the 11 already-scored now if closing the VIXY/EMLC gap turns out to be
    more than a quick follow-on.

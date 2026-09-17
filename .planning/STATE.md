@@ -4,7 +4,7 @@ milestone: v3.1
 milestone_name: AlphaEngine Validation + Alpha Scoring
 status: milestone_complete
 stopped_at: Phase 174 context gathered
-last_updated: "2026-09-17T11:30:00.000Z"
+last_updated: "2026-09-17T13:50:00.000Z"
 progress:
   total_phases: 12
   completed_phases: 0
@@ -106,8 +106,15 @@ any IC number here as a hard ceiling.
   A cross-instrument covariance-aware portfolio-construction diagnostic was also built and
   merged to `main` the day before (`scripts/analysis/portfolio_covariance_weighting_diagnostic.py`)
   but checking Gate B readiness for it surfaced VIXY/EMLC have zero `alpha_events` — onboarded
-  2026-09-16, feature-compute stage never triggered. Backfill in progress; full remaining
-  chain (feature backfill → forward_returns → ic_engine/ensemble_trainer → Gate B → the
+  2026-09-16, feature-compute stage never triggered. Feature backfill + forward_returns for
+  both: DONE (2026-09-17). Fixing readiness also surfaced and fixed a corpus-wide `ic_engine.py`
+  regime-routing bug (144/273 instruments ambiguously routed once `TagCalibrator`'s first-ever
+  successful run populated empirical tags corpus-wide, 2026-09-16) — human-tags-only routing
+  fix landed, Codex+Fable reviewed, commit `b8af2b749`. A sibling, currently-ACTIVE bug
+  (empirical tags polluting `equity_regime_model.py`/`cross_sectional_regime_model.py`) was
+  found alongside and deliberately left unfixed — see
+  [379](todos/pending/379-empirical-tags-contaminate-equity-breadth-and-peer-grouping.md).
+  Remaining chain (real `ic_engine` run → `ensemble_trainer` scope decision → Gate B → the
   diagnostic) tracked in
   [378](todos/pending/378-vixy-emlc-feature-backfill-then-gate-b-and-portfolio-diagnostic.md).
 
