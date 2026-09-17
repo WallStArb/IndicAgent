@@ -78,12 +78,18 @@ _CORR_MIN_PERIODS = 20
 _REFIT_EVERY_BARS = 252
 _INITIAL_WARMUP_BARS = 504
 
-# executable_open_to_open at bar T is ln(open[T+2]/open[T+1]) -- not realized until T+1's open. A
-# refit at boundary T must only see forward-return rows through T-2.
+# executable_open_to_open at bar T is ln(open[T+2]/open[T+1]) -- the value is not fully known
+# until open[T+2] prints, i.e. the START of bar T+2. Convention used throughout this module:
+# a refit/rebalance "at" position `pos` happens AS OF THE CLOSE of day `pos` (the same
+# inclusive-of-today convention run_walk_forward's z_today already uses for alpha_wide, since
+# alpha_score(pos) is itself computed from data through pos's own close) -- so open[pos] and
+# close[pos] are both already known by the time we are "at" pos. A refit at boundary `pos` may
+# therefore use any forward-return row with bar_ts S where S+2 <= pos (i.e. S <= pos - 2):
+# that row's required open[S+2] is <= open[pos], already printed. Do not change this value
+# without re-deriving against the SAME end-of-day convention z_today uses -- a stricter
+# start-of-day convention would require _EMBARGO_BARS = 3, but would then be inconsistent with
+# z_today's own inclusive-of-rebal_date alpha usage a few lines below.
 _EMBARGO_BARS = 2
-
-# Matches universe_expansion_correlation_structure_check.py's _MIN_DAILY_COVERAGE -- same reasoning.
-_MIN_COVERAGE = 0.95
 
 # Matches alpha.ensemble.mv_condition_max's live default (1000) -- hardcoded per this module's own
 # non-APR methodology-constant convention (see docstring), not because it disagrees with that key.
@@ -304,15 +310,22 @@ def run_walk_forward(
     symbols = sorted(close_wide.columns.tolist())
     returns = log_returns(close_wide[symbols])
     regime_labels = causal_regime_labels(spy_close)
-    # Aligned once outside the loop (was a per-iteration single-row reindex against the full
-    # column set) -- pure alignment, no change to the values themselves.
-    fwd_return_aligned = fwd_return_wide.reindex(dates)
-    cost_hurdle_aligned = cost_hurdle_wide.reindex(dates)
+    # Aligned to the full row AND column set once outside the loop. Row alignment was a
+    # per-iteration single-row reindex; column alignment to the full `symbols` list (rather
+    # than whatever columns alpha_events/forward_returns happened to return) guards against a
+    # KeyError if any instrument that cleared the price-coverage bar has zero alpha_events rows
+    # for this weight_version/tf/window -- its column becomes all-NaN instead of missing, and
+    # existing NaN handling (standardize_scores' zero-variance guard, .fillna(0.0) below)
+    # already degrades it to "no signal" gracefully.
+    alpha_wide = alpha_wide.reindex(columns=symbols)
+    fwd_return_aligned = fwd_return_wide.reindex(index=dates, columns=symbols)
+    cost_hurdle_aligned = cost_hurdle_wide.reindex(index=dates, columns=symbols)
 
-    prev_weights: dict[str, np.ndarray | None] = {a: None for a in _ARM_FUNCS}
+    prev_weights: dict[str, dict[str, float]] = {a: {} for a in _ARM_FUNCS}
     steps_by_arm: dict[str, list[dict[str, Any]]] = {a: [] for a in _ARM_FUNCS}
     refits: list[dict[str, Any]] = []
     fallback_count = 0
+    refit_ill_conditioned = False
 
     current_cov: np.ndarray | None = None
     current_corr_symbols: list[str] | None = None
@@ -361,11 +374,27 @@ def run_walk_forward(
 
             current_cov, current_corr_symbols, current_ic_shrunk = cov, cov_symbols, ic_shrunk_vals
             last_refit_pos = pos
+
+            # Condition number depends only on cov_matrix (mean_variance_weights' own gate),
+            # so it -- and therefore whether the mean-variance arm will fall back -- is fixed
+            # for this entire refit period. Determine and log it ONCE here, not once per
+            # rebalance day inside the arm loop below (CLAUDE.md: never log per-row inside a
+            # loop over a run; accumulate/report once instead).
+            refit_cond_ok, refit_cond = check_condition_number(cov, _MV_CONDITION_MAX)
+            refit_ill_conditioned = not refit_cond_ok
+            if refit_ill_conditioned:
+                _logger.warning(
+                    "portfolio_covariance_weighting_diagnostic.refit_ill_conditioned",
+                    refit_date=str(rebal_date.date()),
+                    condition_number=refit_cond,
+                )
             refits.append(
                 {
                     "refit_date": str(rebal_date.date()),
                     "symbols": cov_symbols,
                     "ic_shrunk": ic_shrunk_arr.tolist(),
+                    "condition_number": refit_cond,
+                    "ill_conditioned": refit_ill_conditioned,
                 }
             )
 
@@ -392,9 +421,10 @@ def run_walk_forward(
         mu = compute_mu(ic_shrunk_today, sigma, z_today)
 
         realized = fwd_return_aligned.loc[rebal_date, active_symbols].fillna(0.0).to_numpy()
-        cost_hurdle_today = (
-            cost_hurdle_aligned.loc[rebal_date, active_symbols].fillna(0.0).to_numpy()
-        )
+        # Full-row cost_hurdle lookup (covers every symbol in `symbols`, not just today's
+        # active_symbols) -- needed below to price the unwind cost of a symbol that dropped out
+        # of active_symbols at the most recent refit (see prev_dict handling).
+        cost_hurdle_row = cost_hurdle_aligned.loc[rebal_date].fillna(0.0)
         regime = regime_labels.get(rebal_date)
 
         for arm in _ARM_FUNCS:
@@ -408,19 +438,28 @@ def run_walk_forward(
                 w, method, _cond = mean_variance_arm(current_cov, mu, _MV_CONDITION_MAX)
                 if method == "mean_variance_ridge_fallback":
                     fallback_count += 1
-                    _logger.warning(
-                        "portfolio_covariance_weighting_diagnostic.mean_variance_fallback",
-                        date=str(rebal_date.date()),
-                    )
 
-            prev = prev_weights[arm]
-            per_instrument_turnover = np.zeros_like(w) if prev is None else np.abs(w - prev)
-            turnover = float(np.sum(per_instrument_turnover))
+            # active_symbols can change composition between refits (instrument_covariance's
+            # own trailing-coverage filter is point-in-time, per the spec, so this is expected
+            # behavior, not an edge case). Track prev weights by SYMBOL, not position -- a
+            # positional array would silently misalign turnover/cost (or crash on a symbol-
+            # count change) the moment the active set differs from the previous refit's.
+            w_dict = dict(zip(active_symbols, w.tolist(), strict=True))
+            prev_dict = prev_weights[arm]
+            union_symbols = sorted(set(w_dict) | set(prev_dict))
+            per_symbol_turnover = {
+                sym: abs(w_dict.get(sym, 0.0) - prev_dict.get(sym, 0.0)) for sym in union_symbols
+            }
+            turnover = float(sum(per_symbol_turnover.values()))
             # Cost model: each instrument's own cost_hurdle applied to the size of its OWN
             # rebalance trade (spec's Output section: "using alpha_events' existing cost_hurdle
-            # as the per-instrument cost proxy"), summed to one scalar cost for the step.
-            cost = float(np.sum(per_instrument_turnover * cost_hurdle_today))
-            prev_weights[arm] = w
+            # as the per-instrument cost proxy"), summed to one scalar cost for the step. Covers
+            # entries (0 -> w), exits (prev -> 0, symbol no longer in active_symbols), and
+            # ordinary rebalances alike, since union_symbols spans both.
+            cost = float(
+                sum(per_symbol_turnover[sym] * cost_hurdle_row[sym] for sym in union_symbols)
+            )
+            prev_weights[arm] = w_dict
 
             exposure = portfolio_exposure_stats(w)
             gross_return = float(np.dot(w, realized))
@@ -428,7 +467,7 @@ def run_walk_forward(
                 {
                     "date": str(rebal_date.date()),
                     "regime": regime,
-                    "weights": dict(zip(active_symbols, w.tolist(), strict=True)),
+                    "weights": w_dict,
                     "turnover": turnover,
                     "cost": cost,
                     "realized_return": gross_return,
@@ -603,16 +642,6 @@ def _fetch_forward_returns(
     return long.pivot(index="bar_ts", columns="symbol", values="return_fast").sort_index()
 
 
-def _apply_coverage_filter(close_wide: pd.DataFrame) -> tuple[pd.DataFrame, list[str]]:
-    """Drop any symbol below _MIN_COVERAGE non-null fraction, logged not silent -- identical
-    reasoning and threshold to universe_expansion_correlation_structure_check.py's
-    _apply_coverage_filter, so this diagnostic's own dropped-symbol behavior is comparable."""
-    coverage = close_wide.notna().mean()
-    keep = coverage[coverage >= _MIN_COVERAGE].index.tolist()
-    dropped = sorted(set(close_wide.columns) - set(keep))
-    return close_wide[sorted(keep)], dropped
-
-
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(
         description=(
@@ -648,14 +677,25 @@ def main(argv: list[str] | None = None) -> int:
                 )
                 status = "failure"
                 return 1
-            close_filtered, dropped = _apply_coverage_filter(close_wide)
+            # No full-window coverage filter here -- deliberately. A symbol below some coverage
+            # threshold over the ENTIRE --start/--end window (e.g. one with a later inception
+            # date) would otherwise be permanently excluded before the walk-forward loop even
+            # starts, reintroducing the survivorship bias the spec explicitly forbids ("never
+            # restrict the whole run to instruments with complete history over the entire
+            # period"). instrument_covariance()'s own point-in-time trailing-coverage filter
+            # (run_walk_forward, per refit) is the only coverage gate this diagnostic applies --
+            # it naturally admits an instrument once it has sufficient TRAILING history, not
+            # before, and drops it again if trailing coverage later degrades. retained_symbols
+            # here is just whichever requested symbols returned any price data at all (pandas'
+            # pivot never creates a column for a symbol with zero rows).
+            retained_symbols = sorted(close_wide.columns.tolist())
             _logger.info(
-                "portfolio_covariance_weighting_diagnostic.coverage_filter",
+                "portfolio_covariance_weighting_diagnostic.symbols_with_price_data",
                 n_population=len(symbols),
-                n_retained=close_filtered.shape[1],
-                dropped_symbols=dropped,
+                n_with_data=len(retained_symbols),
+                missing_symbols=sorted(set(symbols) - set(retained_symbols)),
             )
-            retained_symbols = sorted(close_filtered.columns.tolist())
+            close_filtered = close_wide
 
             alpha_wide, cost_hurdle_wide = _fetch_alpha_scores_and_cost_hurdle(
                 conn, retained_symbols, args.tf, args.weight_version, args.start, end_exclusive
@@ -680,8 +720,8 @@ def main(argv: list[str] | None = None) -> int:
             )
             report["cohort"] = {
                 "n_population": len(symbols),
-                "n_retained": len(retained_symbols),
-                "dropped_symbols": dropped,
+                "n_with_price_data": len(retained_symbols),
+                "missing_symbols": sorted(set(symbols) - set(retained_symbols)),
                 "retained_symbols": retained_symbols,
             }
             report["window"] = {"start": args.start, "end": args.end}

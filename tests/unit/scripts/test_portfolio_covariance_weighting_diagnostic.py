@@ -285,6 +285,42 @@ def test_run_walk_forward_never_uses_embargoed_forward_return():
     np.testing.assert_allclose(last_refit_clean, last_refit_poisoned)
 
 
+def test_run_walk_forward_handles_active_symbol_set_changing_between_refits():
+    # Regression guard: instrument_covariance's own trailing-coverage filter is point-in-time
+    # (per the spec), so active_symbols is EXPECTED to differ across refits -- a symbol with
+    # good coverage at refit 1 can legitimately drop out by refit 2. A prior version of this
+    # code tracked prev_weights as a bare positional array, which either crashed (symbol count
+    # changed) or silently misaligned turnover/cost against the wrong symbol (same count,
+    # different membership) when this happened.
+    close, alpha, fwd, cost_hurdle, spy = _synthetic_inputs(n_days=900, n_symbols=4)
+    # SYM3 has real price data only through day 260 -- by the second refit (~day 756, trailing
+    # window [252, 756]) it has under _CORR_MIN_PERIODS=20 non-null returns in that window and
+    # must be excluded from active_symbols, having been included at the first refit (~day 504,
+    # trailing window [0, 504], where it has ~260 non-null returns -- well over the floor).
+    close = close.copy()
+    close.loc[close.index[260:], "SYM3"] = np.nan
+
+    report = run_walk_forward(close, alpha, fwd, cost_hurdle, spy)  # must not raise
+
+    ic_prop_steps = report["arms"]["ic_proportional"]["rebalance_steps"]
+    symbol_sets = [frozenset(step["weights"].keys()) for step in ic_prop_steps]
+    # The active symbol set actually changed at some point during the run -- otherwise this
+    # test would pass vacuously without ever exercising the entry/exit path being guarded.
+    assert len(set(symbol_sets)) > 1
+
+    # Find the first step where SYM3 drops out of the active set after having been in it --
+    # that step's turnover must account for fully unwinding SYM3's previous weight, not silently
+    # drop it (the bug this test guards against).
+    drop_step_idx = next(
+        i
+        for i in range(1, len(ic_prop_steps))
+        if "SYM3" in symbol_sets[i - 1] and "SYM3" not in symbol_sets[i]
+    )
+    prior_sym3_weight = ic_prop_steps[drop_step_idx - 1]["weights"]["SYM3"]
+    drop_step_turnover = ic_prop_steps[drop_step_idx]["turnover"]
+    assert drop_step_turnover >= abs(prior_sym3_weight) - 1e-9
+
+
 def test_main_requires_symbols_argument():
     with pytest.raises(SystemExit) as exc_info:
         main([])
