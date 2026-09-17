@@ -8,10 +8,14 @@ import pytest
 
 from scripts.analysis.portfolio_covariance_weighting_diagnostic import (
     compute_mu,
+    equal_weight_arm,
+    ic_proportional_arm,
     instrument_covariance,
     log_returns,
+    mean_variance_arm,
     shrink_instrument_ic,
     standardize_scores,
+    vol_normalized_arm,
 )
 
 
@@ -93,3 +97,48 @@ def test_instrument_covariance_drops_sparse_symbol():
     cov, corr, symbols = instrument_covariance(returns)
     assert symbols == ["A", "B"]
     assert cov.shape == (2, 2)
+
+
+def test_equal_weight_arm_sums_to_one_and_is_uniform():
+    w = equal_weight_arm(4)
+    assert w.shape == (4,)
+    np.testing.assert_allclose(w, [0.25, 0.25, 0.25, 0.25])
+
+
+def test_ic_proportional_arm_normalizes_by_sum_of_absolute_values():
+    mu = np.array([0.02, -0.01, 0.01])
+    w = ic_proportional_arm(mu)
+    np.testing.assert_allclose(w, mu / 0.04)
+    assert np.sum(np.abs(w)) == pytest.approx(1.0)
+
+
+def test_ic_proportional_arm_all_zero_mu_returns_zero_vector():
+    w = ic_proportional_arm(np.zeros(3))
+    np.testing.assert_allclose(w, np.zeros(3))
+
+
+def test_vol_normalized_arm_divides_by_variance_not_std():
+    mu = np.array([0.02, 0.02])
+    sigma = np.array([0.01, 0.02])
+    w = vol_normalized_arm(mu, sigma)
+    raw = mu / sigma**2  # [200.0, 50.0]
+    expected = raw / np.sum(np.abs(raw))
+    np.testing.assert_allclose(w, expected)
+
+
+def test_mean_variance_arm_well_conditioned_uses_direct_solve():
+    cov = np.array([[0.0004, 0.0001], [0.0001, 0.0009]])
+    mu = np.array([0.01, -0.01])
+    w, method, cond = mean_variance_arm(cov, mu, condition_max=1000.0)
+    assert method == "mean_variance"
+    assert np.isfinite(cond)
+    np.testing.assert_allclose(np.sum(np.abs(w)), 1.0)
+
+
+def test_mean_variance_arm_ill_conditioned_falls_back_to_ridge_and_logs_loud():
+    # Near-singular covariance (two nearly-identical rows) -- condition number gate should trip.
+    cov = np.array([[1.0, 0.999999999], [0.999999999, 1.0]])
+    mu = np.array([0.01, 0.01])
+    w, method, cond = mean_variance_arm(cov, mu, condition_max=10.0)
+    assert method == "mean_variance_ridge_fallback"
+    np.testing.assert_allclose(np.sum(np.abs(w)), 1.0)

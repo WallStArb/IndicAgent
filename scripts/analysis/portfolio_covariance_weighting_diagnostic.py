@@ -51,6 +51,8 @@ from src.intelligence.ensemble.shrinkage import (  # noqa: E402
     leave_one_out_group_prior,
     shrink_ic,
 )
+from src.intelligence.ensemble.weights import mean_variance_weights  # noqa: E402
+from src.intelligence.statistics.ic_math import check_condition_number  # noqa: E402
 
 setup_service_logging("logs/portfolio_covariance_weighting_diagnostic.log")
 _logger = structlog.get_logger(__name__)
@@ -154,3 +156,68 @@ def instrument_covariance(returns: pd.DataFrame) -> tuple[np.ndarray, np.ndarray
     cov, _shrinkage = compute_shrinkage_covariance(X)
     corr = covariance_to_correlation(cov)
     return cov, corr, kept
+
+
+def equal_weight_arm(n: int) -> np.ndarray:
+    """Arm 1: naive equal-weight. No covariance adjustment, no IC weighting."""
+    if n == 0:
+        return np.zeros(0)
+    return np.full(n, 1.0 / n)
+
+
+def _normalize_by_abs_sum(raw: np.ndarray) -> np.ndarray:
+    total = float(np.sum(np.abs(raw)))
+    if total < 1e-10:
+        return np.zeros_like(raw)
+    return raw / total
+
+
+def ic_proportional_arm(mu: np.ndarray) -> np.ndarray:
+    """Arm 2: each instrument weighted by its own calibrated mu_i, no cross-instrument
+    covariance adjustment -- what's implicit in today's architecture (each instrument scored
+    independently). Signed (long/short) -- normalized by sum of ABSOLUTE weights, since mu can
+    be negative and a signed book's total exposure convention is gross, not net."""
+    return _normalize_by_abs_sum(mu)
+
+
+def vol_normalized_arm(mu: np.ndarray, sigma: np.ndarray) -> np.ndarray:
+    """Arm 2b (added after design review): w_i ~ mu_i / sigma_i^2 -- the diagonal-only special
+    case of mean-variance (inverse-volatility scaling, no off-diagonal correlation term).
+    Isolates "just scale by volatility" from real covariance/correlation-awareness (Arm 4);
+    without this arm, an apparent Arm 4 win over Arm 2 can't be attributed to correlation
+    modeling instead of trivial vol scaling."""
+    sigma_safe = np.where(sigma > 1e-12, sigma, np.inf)
+    raw = mu / sigma_safe**2
+    return _normalize_by_abs_sum(raw)
+
+
+def mean_variance_arm(
+    cov_matrix: np.ndarray, mu: np.ndarray, condition_max: float
+) -> tuple[np.ndarray, str, float]:
+    """Arm 4: full mean-variance covariance-aware weighting -- the primitive
+    mean_variance_weights() solve (Sigma^-1 . mu), NOT resolve_stratum_weights (see spec's
+    Component reuse revision: that wrapper's derive_weights zeroes non-positive inputs, which
+    is wrong for a signed instrument book).
+
+    On an ill-conditioned Sigma, falls back to ridge regularization (Sigma + epsilon*I, epsilon
+    scaled to 10% of the matrix's own average variance) and re-solves -- never
+    cluster_deflate_weights/derive_weights, which assume a feature-staleness input this
+    diagnostic doesn't have. The fallback is always returned in method_used, matching
+    ensemble_trainer.py's "mean_variance_fallback must never be silent" discipline -- callers
+    (the walk-forward orchestrator, Task 7) are responsible for logging it.
+    """
+    raw, cond = mean_variance_weights(cov_matrix, mu, condition_max)
+    if raw is not None:
+        return _normalize_by_abs_sum(raw), "mean_variance", cond
+
+    n = cov_matrix.shape[0]
+    epsilon = _RIDGE_EPSILON_FRACTION * float(np.trace(cov_matrix)) / max(n, 1)
+    ridge_cov = cov_matrix + epsilon * np.eye(n)
+    ridge_ok, ridge_cond = check_condition_number(ridge_cov, condition_max)
+    if ridge_ok:
+        raw_ridge = np.linalg.solve(ridge_cov, mu)
+    else:
+        # Even the ridge-regularized matrix is unusable -- fall back further to the diagonal
+        # (volatility-only) solve rather than emit an unstable result.
+        raw_ridge = mu / np.maximum(np.diag(cov_matrix), 1e-12)
+    return _normalize_by_abs_sum(raw_ridge), "mean_variance_ridge_fallback", cond
