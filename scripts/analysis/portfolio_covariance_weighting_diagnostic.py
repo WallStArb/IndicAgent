@@ -43,6 +43,10 @@ import pandas as pd  # noqa: E402
 import structlog  # noqa: E402
 
 from src.core.service_utils import setup_service_logging  # noqa: E402
+from src.intelligence.ensemble.covariance import (  # noqa: E402
+    compute_shrinkage_covariance,
+    covariance_to_correlation,
+)
 from src.intelligence.ensemble.shrinkage import (  # noqa: E402
     leave_one_out_group_prior,
     shrink_ic,
@@ -130,3 +134,23 @@ def compute_mu(ic_shrunk: np.ndarray, sigma: np.ndarray, z_latest: np.ndarray) -
     standardize_scores() series), sigma is the diagonal of the realized-return covariance matrix.
     """
     return ic_shrunk * sigma * z_latest
+
+
+def log_returns(close_wide: pd.DataFrame) -> pd.DataFrame:
+    """(dates x symbols) log-return frame from a (dates x symbols) close-price frame. First row
+    is always dropped (no prior bar to diff against)."""
+    return np.log(close_wide / close_wide.shift(1)).iloc[1:]
+
+
+def instrument_covariance(returns: pd.DataFrame) -> tuple[np.ndarray, np.ndarray, list[str]]:
+    """Ledoit-Wolf shrinkage covariance/correlation of REALIZED historical log returns (never
+    forward_returns -- see module docstring). Drops any symbol with fewer than
+    _CORR_MIN_PERIODS non-null observations before fitting, same reliability floor
+    correlation_structure() uses in universe_expansion_correlation_structure_check.py.
+    """
+    counts = returns.count()
+    kept = sorted(counts[counts >= _CORR_MIN_PERIODS].index.tolist())
+    X = returns[kept].fillna(0.0).to_numpy()
+    cov, _shrinkage = compute_shrinkage_covariance(X)
+    corr = covariance_to_correlation(cov)
+    return cov, corr, kept

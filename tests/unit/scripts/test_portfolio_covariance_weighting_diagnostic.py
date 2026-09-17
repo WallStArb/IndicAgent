@@ -8,6 +8,8 @@ import pytest
 
 from scripts.analysis.portfolio_covariance_weighting_diagnostic import (
     compute_mu,
+    instrument_covariance,
+    log_returns,
     shrink_instrument_ic,
     standardize_scores,
 )
@@ -62,3 +64,32 @@ def test_compute_mu_matches_hand_computed_formula():
     mu = compute_mu(ic_shrunk, sigma, z_latest)
     expected = np.array([0.05 * 0.01 * 1.5, -0.02 * 0.02 * -0.5])
     np.testing.assert_allclose(mu, expected)
+
+
+def test_log_returns_matches_hand_computed_values():
+    close = pd.DataFrame({"A": [100.0, 110.0, 121.0]}, index=pd.date_range("2026-01-01", periods=3))
+    r = log_returns(close)
+    assert r.shape == (2, 1)  # first row has no prior bar
+    np.testing.assert_allclose(r["A"].to_numpy(), [np.log(1.10), np.log(1.10)], atol=1e-9)
+
+
+def test_instrument_covariance_shape_and_symbol_order():
+    rng = np.random.default_rng(42)
+    idx = pd.date_range("2026-01-01", periods=60)
+    returns = pd.DataFrame(rng.normal(0, 0.01, size=(60, 3)), index=idx, columns=["A", "B", "C"])
+    cov, corr, symbols = instrument_covariance(returns)
+    assert cov.shape == (3, 3)
+    assert corr.shape == (3, 3)
+    assert symbols == ["A", "B", "C"]
+    np.testing.assert_allclose(np.diag(corr), 1.0, atol=1e-9)
+
+
+def test_instrument_covariance_drops_sparse_symbol():
+    rng = np.random.default_rng(1)
+    idx = pd.date_range("2026-01-01", periods=60)
+    returns = pd.DataFrame(rng.normal(0, 0.01, size=(60, 2)), index=idx, columns=["A", "B"])
+    returns["C"] = np.nan
+    returns.loc[returns.index[:5], "C"] = 0.001  # only 5 obs, below _CORR_MIN_PERIODS=20
+    cov, corr, symbols = instrument_covariance(returns)
+    assert symbols == ["A", "B"]
+    assert cov.shape == (2, 2)
