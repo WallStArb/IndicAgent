@@ -74,16 +74,53 @@ Don't read that file's `"failed"` status as current truth.
 
 1. ~~`backfill_feature_factory.py --compute-only --symbols VIXY,EMLC`~~ — **DONE**, see above.
 2. ~~`forward_returns` for VIXY/EMLC~~ — **DONE**, see above.
-3. **`ic_engine` real run, then `ensemble_trainer` re-run** — `ic_engine.py` is unblocked
-   (verified via dry-run) but has NOT actually been run for real yet (dry-run only computes/
-   prints the skip/compute partition, writes nothing). Next: run `ic_engine.py` for real
-   (drop `--dry-run-validity`) scoped to VIXY/EMLC at minimum, then figure out `ensemble_trainer`
-   scope — it has no `--symbols` flag and always does `DELETE FROM ensemble_weights/ensemble_alpha
-   WHERE weight_version = $1` before rebuilding, i.e. there is no way to "just add 2 symbols"
-   without either overwriting the existing `weight_version='run_2025122405150000'` (touches
-   everyone) or creating a new `weight_version` (still a full-corpus-scale computation, not
-   cheap) — confirm actual runtime/scope before running, this is the one remaining "measure
-   twice" decision point in the chain.
+3. **`ic_engine` real run, then `ensemble_trainer` re-run** — **IN PROGRESS, started
+   2026-09-17 11:52 local (15:52 UTC), see below for why `--symbols VIXY EMLC` scoping (as
+   this todo originally suggested) was wrong.**
+
+   **Scoping correction found 2026-09-17, before any write happened:** started to run
+   `ic_engine.py --symbols VIXY EMLC ...` per this todo's original "scoped to VIXY/EMLC at
+   minimum" framing, but caught mid-run (killed before any write) that `--symbols` restricts
+   NOT ONLY per-symbol computation but also the cross-sectional peer pool
+   (`symbols_by_group` in `main()`, built only from the CLI-scoped `symbols` list, unlike
+   `symbol_regime_class` which correctly queries all active instruments regardless of
+   `--symbols`). A `--symbols VIXY EMLC` run would have computed EMLC's regime group's
+   cross-sectional IC using EMLC (or VIXY) as the ENTIRE peer pool instead of the group's
+   real peer set, and the resulting fingerprint mismatch (keyed partly on `symbol_list`)
+   would have silently overwritten the existing correct cross-sectional cells for that group
+   with degenerate single-symbol data. Confirmed by reading `_compute_cross_sectional_tf`'s
+   docstring and the `symbols_by_group`/`group_symbols` construction directly, not assumed.
+
+   **Bigger finding from the follow-up unscoped dry-run**: running
+   `ic_engine.py --dry-run-validity --training-window-end ...` with NO `--symbols` restriction
+   showed `n_symbols_skip: 0, n_symbols_compute: 233` (all corpus symbols) and
+   `n_cs_compute: 124` (all cross-sectional cells) -- the ENTIRE corpus's fingerprints are
+   invalid, not just VIXY/EMLC's. Root cause confirmed by reading `_checkpoint_content_key()`
+   (hashes AST-normalized source of every transitively-imported first-party module): the
+   `b8af2b749` routing fix was a genuine semantic change to `_build_symbol_regime_class`
+   (real SQL/logic change, not a comment edit), which correctly invalidates every prior
+   checkpoint corpus-wide -- expected and necessary, not a bug. 144/273 symbols' regime-group
+   membership changed under that fix, so every existing regime-stratified IC measurement was
+   computed under the old, wrong routing and must be redone regardless of VIXY/EMLC.
+
+   **Action taken**: launched the full, unscoped real run (no `--symbols`, no `--dry-run-validity`)
+   detached (`setsid nohup ... &`, PID 163450 at launch) so it survives a context reset:
+   `.venv/bin/python services/ic_engine.py --training-window-end "2025-12-24T05:15:00+00:00"`,
+   output to `/tmp/claude-1000/-home-bg-dev-indicagent/d668402e-6d7a-4533-b260-dc5919634ec0/scratchpad/ic_engine_full_corpus_run.log`
+   and `logs/ic_engine.log`. Historical full-corpus runtime from log timestamps: ~11h
+   (2026-09-09 13:15 -> 2026-09-10 00:36). **Check `ps aux | grep ic_engine.py` and
+   `logs/ic_engine.log`'s tail for progress/completion before assuming this is done or dead.**
+
+   After this completes: `ensemble_trainer` scope decision -- it has no `--symbols` flag and
+   always does `DELETE FROM ensemble_weights/ensemble_alpha WHERE weight_version = $1` before
+   rebuilding. **Decided**: reuse the existing `weight_version='run_2025122405150000'`
+   (not a new version) -- the portfolio diagnostic needs all 13 candidates on one consistent
+   weight_version for apples-to-apples comparison, and the other 11 candidates' existing
+   `alpha_events` rows are already under this version. A fresh version would leave the other
+   11 on stale IC/weights while only VIXY/EMLC got current data -- worse, not safer, for this
+   specific goal. Then `alpha_publisher.py --weight-version run_2025122405150000 --skip-kafka`
+   (corpus batch mode -- `--skip-kafka` since live ingestion is still frozen, no consumer to
+   publish to) to populate `alpha_events` for all 13.
 4. **Gate B** (per-instrument IC via `ic_engine`, still not run per
    [[project_phase174_closed_cross_asset_pivot]]) — run against all 13 once VIXY/EMLC are
    scored, or against the 11 already-scored now if closing the VIXY/EMLC gap turns out to be
