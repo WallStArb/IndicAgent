@@ -11,8 +11,10 @@ from scripts.analysis.portfolio_covariance_weighting_diagnostic import (
     equal_weight_arm,
     ic_proportional_arm,
     instrument_covariance,
+    l1_turnover,
     log_returns,
     mean_variance_arm,
+    portfolio_exposure_stats,
     shrink_instrument_ic,
     standardize_scores,
     vol_normalized_arm,
@@ -142,3 +144,30 @@ def test_mean_variance_arm_ill_conditioned_falls_back_to_ridge_and_logs_loud():
     w, method, cond = mean_variance_arm(cov, mu, condition_max=10.0)
     assert method == "mean_variance_ridge_fallback"
     np.testing.assert_allclose(np.sum(np.abs(w)), 1.0)
+
+
+def test_portfolio_exposure_stats_long_short_book():
+    w = np.array([0.5, -0.3, 0.2])
+    stats = portfolio_exposure_stats(w)
+    assert stats["gross_exposure"] == pytest.approx(1.0)
+    assert stats["net_exposure"] == pytest.approx(0.4)
+    assert stats["herfindahl"] == pytest.approx(0.5**2 + 0.3**2 + 0.2**2)
+    assert stats["effective_n"] == pytest.approx(1.0 / (0.5**2 + 0.3**2 + 0.2**2))
+
+
+def test_portfolio_exposure_stats_all_zero_weights_no_divide_by_zero():
+    stats = portfolio_exposure_stats(np.zeros(3))
+    assert stats["gross_exposure"] == 0.0
+    assert stats["net_exposure"] == 0.0
+    assert stats["effective_n"] == 0.0
+
+
+def test_l1_turnover_matches_hand_computed_sum():
+    w_prev = np.array([0.5, 0.5, 0.0])
+    w_curr = np.array([0.2, 0.3, 0.5])
+    assert l1_turnover(w_prev, w_curr) == pytest.approx(0.3 + 0.2 + 0.5)
+
+
+def test_l1_turnover_no_change_is_zero():
+    w = np.array([0.3, 0.7])
+    assert l1_turnover(w, w) == pytest.approx(0.0)

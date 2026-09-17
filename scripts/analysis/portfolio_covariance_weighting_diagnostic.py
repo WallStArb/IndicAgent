@@ -221,3 +221,30 @@ def mean_variance_arm(
         # (volatility-only) solve rather than emit an unstable result.
         raw_ridge = mu / np.maximum(np.diag(cov_matrix), 1e-12)
     return _normalize_by_abs_sum(raw_ridge), "mean_variance_ridge_fallback", cond
+
+
+def portfolio_exposure_stats(weights: np.ndarray) -> dict[str, float]:
+    """gross/net exposure, effective_n, and Herfindahl for a (possibly signed) weight vector.
+
+    effective_n = 1/sum(w^2) is reused from the feature-combination case, but reported alongside
+    gross/net exposure rather than alone -- the design review found 1/sum(w^2) misleading in
+    isolation once weights are signed and non-unit-sum (Arms 3-4 can carry negative entries;
+    the feature-combination case this formula was built for is always non-negative and unit-sum).
+    """
+    gross = float(np.sum(np.abs(weights)))
+    net = float(np.sum(weights))
+    herfindahl = float(np.sum(weights**2))
+    effective_n = 0.0 if herfindahl < 1e-12 else 1.0 / herfindahl
+    return {
+        "gross_exposure": gross,
+        "net_exposure": net,
+        "herfindahl": herfindahl,
+        "effective_n": effective_n,
+    }
+
+
+def l1_turnover(w_prev: np.ndarray, w_curr: np.ndarray) -> float:
+    """sum(|w_t - w_{t-1}|) -- L1 turnover between two consecutive rebalance weight vectors.
+    Reported per arm per rebalance (Output section, spec) so a mean-variance arm's tendency to
+    churn on small mu/Sigma shifts is visible, not hidden behind a gross-return-only report."""
+    return float(np.sum(np.abs(w_curr - w_prev)))
