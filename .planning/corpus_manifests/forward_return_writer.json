@@ -1,12 +1,12 @@
 {
   "step_name": "forward_return_writer",
   "step_version": "1.0",
-  "timestamp": "2026-08-16T06:48:37.945326+00:00",
+  "timestamp": "2026-09-17T12:13:07.170092+00:00",
   "status": "success",
   "inputs": {
     "mode": "full",
     "training_window_end": "2025-12-24 05:15:00+00:00",
-    "symbols_count": 231,
+    "symbols_count": 2,
     "tfs": [
       "5m",
       "15m",
@@ -17,7 +17,7 @@
   "outputs": {
     "forward_returns": {
       "table": "forward_returns",
-      "rows_total": 67525703,
+      "rows_total": 782717,
       "columns_written": [
         "return_fast",
         "return_mid",
