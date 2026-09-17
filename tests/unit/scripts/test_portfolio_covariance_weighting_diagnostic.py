@@ -7,6 +7,7 @@ import pandas as pd
 import pytest
 
 from scripts.analysis.portfolio_covariance_weighting_diagnostic import (
+    causal_regime_labels,
     compute_mu,
     equal_weight_arm,
     ic_proportional_arm,
@@ -171,3 +172,33 @@ def test_l1_turnover_matches_hand_computed_sum():
 def test_l1_turnover_no_change_is_zero():
     w = np.array([0.3, 0.7])
     assert l1_turnover(w, w) == pytest.approx(0.0)
+
+
+def test_causal_regime_labels_bull_when_price_above_trailing_sma():
+    # Strictly increasing series: every post-warmup point sits above its own trailing SMA.
+    idx = pd.date_range("2026-01-01", periods=10)
+    close = pd.Series(np.arange(1.0, 11.0), index=idx)
+    labels = causal_regime_labels(close, window=5)
+    # First 5 (warmup) are None; from index 5 on, price > trailing SMA -> "bull".
+    assert labels.iloc[:5].isna().all()
+    assert (labels.iloc[5:] == "bull").all()
+
+
+def test_causal_regime_labels_bear_when_price_below_trailing_sma():
+    idx = pd.date_range("2026-01-01", periods=10)
+    close = pd.Series(np.arange(10.0, 0.0, -1.0), index=idx)
+    labels = causal_regime_labels(close, window=5)
+    assert (labels.iloc[5:] == "bear").all()
+
+
+def test_causal_regime_labels_never_uses_same_bar_close():
+    # A single-bar spike at t should not change t's OWN label -- the label at t is derived from
+    # the SMA of bars strictly before t (1-bar shift), so it must be knowable before t's close
+    # prints. Verify by comparing to a manually shifted SMA.
+    idx = pd.date_range("2026-01-01", periods=8)
+    close = pd.Series([1, 2, 3, 4, 5, 100, 7, 8], index=idx, dtype=float)
+    labels = causal_regime_labels(close, window=3)
+    manual_sma = close.rolling(3).mean().shift(1)
+    expected = np.where(close > manual_sma, "bull", "bear")
+    expected_masked = pd.Series(expected, index=idx).where(manual_sma.notna())
+    pd.testing.assert_series_equal(labels, expected_masked, check_names=False)

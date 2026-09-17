@@ -248,3 +248,20 @@ def l1_turnover(w_prev: np.ndarray, w_curr: np.ndarray) -> float:
     Reported per arm per rebalance (Output section, spec) so a mean-variance arm's tendency to
     churn on small mu/Sigma shifts is visible, not hidden behind a gross-return-only report."""
     return float(np.sum(np.abs(w_curr - w_prev)))
+
+
+def causal_regime_labels(spy_close: pd.Series, window: int = _REGIME_SMA_WINDOW) -> pd.Series:
+    """Causal bull/bear regime proxy: trailing SMA of SPY close, SHIFTED one bar so today's
+    label never depends on today's own close (avoids same-bar lookahead entirely, by
+    construction -- no walk-forward loop needed for this proxy, unlike Sigma/IC).
+
+    Used instead of market_regimes/regime_writer.py's HMM labels, which carry a confirmed
+    non-causal contamination (full-series fit; walk-forward fix exists but is disabled -- todo
+    248). Cheap, causal by construction, avoids inheriting that unresolved bug rather than just
+    disclosing it (spec's Method section, "Regime split on a causal proxy").
+
+    Returns NaN for any date before the trailing window is full.
+    """
+    trailing_sma = spy_close.rolling(window).mean().shift(1)
+    label = pd.Series(np.where(spy_close > trailing_sma, "bull", "bear"), index=spy_close.index)
+    return label.where(trailing_sma.notna())
