@@ -52,7 +52,37 @@ replacement's) breadth fraction is a single aggregate multiplying error across t
 downstream stack and warrants a near-definitional confidence bar; `cross_sectional_regime_
 model.py`'s peer pools are smaller and group-scoped and can tolerate a somewhat lower one.
 
-### 2. `eq_*` naming collision (AGY's root-cause finding, todo 379's stopgap does not fix this)
+### 2. `eq_*` naming collision -- RE-VERIFIED 2026-09-17, downgraded to a documentation note, NOT an active fix needed
+
+AGY's original framing (below, kept for record) proposed renaming `eq_low_vol`/
+`eq_momentum`/`eq_quality` out of the `eq_*` prefix family. **Checked against live data
+before implementing, and the premise doesn't hold**: `tag_vocabulary`'s current
+descriptions (not visible to AGY's review, which only read migration 343) show these three
+tags were deliberately designed in Phase 174 D-06 to nest under `eq_factor` as refinements
+("`eq_factor` is retained as the parent-level label; this tag refines, not replaces, it") --
+renaming them would reverse a real, recent, deliberate architectural decision, not fix an
+accident.
+
+More importantly: verified live that `MTUM`/`QUAL`/`USMV` (the three factor-proxy ETFs
+themselves) each carry their OWN `source='human'` row for `eq_momentum`/`eq_quality`/
+`eq_low_vol` respectively -- meaning **todo 379's `source='human'` stopgap already fully
+resolves this for real data today**: the human filter correctly keeps the three legitimate
+identity refinements (MTUM/QUAL/USMV stay routed as equity-family members) while excluding
+every other instrument's spurious empirical loading on the same tag names (confirmed:
+before the 379 fix, AAPL/FXA/GLD/etc. all carried `source='empirical'` rows for these same
+three tags; after it, only the 3 human rows remain visible to identity-based consumers).
+
+**Residual risk, now correctly scoped as hypothetical, not live**: a FUTURE human manually
+asserting `eq_momentum`/`eq_quality`/`eq_low_vol` on a genuinely non-equity instrument would
+still slip through the source filter (since it would be `source='human'`) -- this requires
+a human tagging error, not a system bug, and is a much weaker risk than the "future
+non-equity human tag" framing originally suggested. Not worth a schema change today. If this
+ever becomes a real concern, option (ii) (also requiring `measurement_type='definitional'`)
+is the safer fix of the two originally proposed -- it doesn't touch a live, intentional
+design decision the way renaming would.
+
+<details>
+<summary>Original framing (AGY's proposal, superseded by the re-verification above)</summary>
 
 Migration 343 deliberately made `eq_low_vol`/`eq_momentum`/`eq_quality` (all
 `tag_vocabulary.category='exposure'`) empirically measurable against USMV/MTUM/QUAL,
@@ -74,6 +104,8 @@ this way) so no identity-based prefix match can ever catch them regardless of so
 `measurement_type='definitional'` in addition to (or instead of) `source='human'`. Check
 `docs/foundation/instrument-tag-registry.md`'s banned-alias rule (two tags must never share
 a `factor_series`) for any interaction before renaming.
+
+</details>
 
 ## Cross-refs
 
