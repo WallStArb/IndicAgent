@@ -4,7 +4,7 @@ milestone: v3.1
 milestone_name: AlphaEngine Validation + Alpha Scoring
 status: milestone_complete
 stopped_at: Phase 174 context gathered
-last_updated: "2026-09-15T20:11:08.481Z"
+last_updated: "2026-09-17T11:30:00.000Z"
 progress:
   total_phases: 12
   completed_phases: 0
@@ -97,6 +97,19 @@ any IC number here as a hard ceiling.
   factor-equity ETFs (value/growth/small-cap each only 1-2 symbols; momentum/quality/low-vol
   factor ETFs — MTUM/QUAL/USMV — exist as of migration 338, correcting an earlier "zero
   representation" claim) and vol term structure beyond spot VIX (see futures gap above).
+
+- **Gate A run for real 2026-09-17 against the pre-registered 13-symbol follow-on list**
+  (GLD/DBA/DBB/DBC/URA/TLT/UUP/VIXY/EMLC/HYG/XOM/DHI/PGR, distinct from the earlier
+  11-instrument exploratory check cited above) — **PASSED**: unconditional 0.0879 (≤0.10),
+  `high_bear` 0.1309 (≤0.30), all 13 retained, `n_eff` 6.33 unconditional. First real
+  measurement this pre-reg has ever had. Full result: `/var/tmp/phase174_crossasset_prereg_gate.json`.
+  A cross-instrument covariance-aware portfolio-construction diagnostic was also built and
+  merged to `main` the day before (`scripts/analysis/portfolio_covariance_weighting_diagnostic.py`)
+  but checking Gate B readiness for it surfaced VIXY/EMLC have zero `alpha_events` — onboarded
+  2026-09-16, feature-compute stage never triggered. Backfill in progress; full remaining
+  chain (feature backfill → forward_returns → ic_engine/ensemble_trainer → Gate B → the
+  diagnostic) tracked in
+  [378](todos/pending/378-vixy-emlc-feature-backfill-then-gate-b-and-portfolio-diagnostic.md).
 
 - **Nautilus Trader (OSS, event-driven backtest/live-execution engine, Rust core + Python)
   flagged 2026-09-13 as a forward-looking candidate for a future execution-layer phase** —
