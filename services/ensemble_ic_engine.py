@@ -654,7 +654,7 @@ async def _assert_prerequisites(
         raise RuntimeError(
             "EnsembleICEngine startup gate FAILED: market_regimes is empty. The 9-label "
             "regime stratification the entire measurement depends on is missing; cannot "
-            "proceed. Run services/equity_regime_model.py first."
+            "proceed. Run services/cross_sectional_regime_model.py first."
         )
 
 

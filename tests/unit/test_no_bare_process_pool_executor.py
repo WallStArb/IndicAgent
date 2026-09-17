@@ -37,13 +37,6 @@ _ALLOW_LIST: dict[str, str] = {
         "BLAS thread cap already wired in via initializer=. Every other service must call "
         "make_worker_pool(), never ProcessPoolExecutor(...) directly."
     ),
-    "services/equity_regime_model.py": (
-        "PERMANENT: deprecated Phase-144 rollback path, not currently invoked by the "
-        "corpus pipeline (same status already documented in "
-        "test_market_data_ohlcv_boundary.py's allow-list for this file). Migration 281's "
-        "own scope lists only the 5 live services -- not worth maintaining dead code "
-        "against this invariant."
-    ),
 }
 
 

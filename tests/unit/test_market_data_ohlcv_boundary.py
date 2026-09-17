@@ -41,11 +41,6 @@ _ALLOW_LIST: dict[str, str] = {
         "PERMANENT: Dead v2.x Signal Ledger Architecture code (signal_events/trade_frames) -- "
         "same verification as signal_replay_auditor.py above."
     ),
-    "services/equity_regime_model.py": (
-        "PERMANENT: Dead code -- Phase 144 rollback path only "
-        "(services/cross_sectional_regime_model.py is the live replacement), not currently "
-        "invoked by the corpus pipeline."
-    ),
     "scripts/ops/pipeline/ops_pipeline_status.py": (
         "PERMANENT: Monitoring wants the full grid -- gaps are the signal here, not noise. "
         "Correctly left alone (design doc's 'correctly left alone' list)."

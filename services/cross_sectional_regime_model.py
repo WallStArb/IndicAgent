@@ -1,8 +1,10 @@
 #!/usr/bin/env python3
 """Cross-Sectional Regime Model — generic dispatcher that populates market_regimes.
 
-Generalizes services/equity_regime_model.py: instead of a single hardcoded 'equity'
-label, this dispatcher iterates every enabled group in APR key alpha.regime.groups
+Generalizes the original single-asset-class equity regime model (Phase 144; the
+predecessor module was deleted as dead code, todo 381 -- its causal-rank/tf-window
+logic lives on in src/intelligence/regime_signals/): instead of a single hardcoded
+'equity' label, this dispatcher iterates every enabled group in APR key alpha.regime.groups
 (JSON array) and writes group-scoped regime labels to market_regimes.regime_group
 (migration 222 renamed asset_class -> regime_group).
 
@@ -36,8 +38,8 @@ Data flow per group per TF:
   7. Batch-insert into market_regimes (ON CONFLICT (regime_group, tf, ts) DO UPDATE)
 
 Not a real-time daemon — this is a batch/oneshot labeling tool exempt from the
-"only writer subclasses touch DB" rule exactly as equity_regime_model.py and
-backfill_feature_factory.py are. Single-process, no worker pool: DB fetch is the
+"only writer subclasses touch DB" rule, same as backfill_feature_factory.py.
+Single-process, no worker pool: DB fetch is the
 bottleneck, label assignment is vectorized numpy (a pool would add no throughput).
 
 Usage:
@@ -403,8 +405,8 @@ def _fetch_group_bars(dsn: str, tf: str, symbols: list[str]) -> dict[str, pd.Dat
     """Fetch close prices for all symbols in one query. Returns dict[symbol, DataFrame].
 
     Uses a fresh connection to avoid idle-connection termination during long fetches
-    (the 2026-07-08 idle-connection data-loss incident rationale — see
-    equity_regime_model.py._compute_breadth_fraction for the original precedent).
+    (the 2026-07-08 idle-connection data-loss incident rationale, originally worked
+    around in the now-deleted equity_regime_model.py -- todo 381).
     """
     sql = """
         SELECT symbol, timestamp, close

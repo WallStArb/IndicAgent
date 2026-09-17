@@ -1,9 +1,9 @@
 """Unit tests for breadth_vol signal module. CI-clean: no DB, no network.
 
 Includes the mandatory causal-rank regression test (RESEARCH.md Pitfall 1 / Wave 0
-gap) mirroring test_vix_pct_rank_causal_property from
-tests/unit/services/test_equity_regime_model_causal.py, plus _tf_window value tests
-mirroring that same file's test_tf_window_* tests.
+gap) and _tf_window value tests, both originally mirrored from the equity_regime_model.py
+test suite before that module (and its tests) were deleted as dead code (todo 381) --
+this file and test_regime_signals_causal_rank.py are now the sole live coverage.
 """
 
 from __future__ import annotations
@@ -218,7 +218,7 @@ class TestProbKeys:
 
 
 # ---------------------------------------------------------------------------
-# _tf_window value tests (mirrors test_equity_regime_model_causal.py::test_tf_window_*)
+# _tf_window value tests
 # ---------------------------------------------------------------------------
 
 
@@ -243,8 +243,7 @@ def test_tf_window_15m():
 
 
 # ---------------------------------------------------------------------------
-# causal-property regression test (mirrors
-# test_equity_regime_model_causal.py::test_vix_pct_rank_causal_property)
+# causal-property regression test
 # ---------------------------------------------------------------------------
 
 

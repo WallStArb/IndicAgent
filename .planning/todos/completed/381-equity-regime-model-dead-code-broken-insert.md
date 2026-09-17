@@ -1,10 +1,39 @@
 ---
-status: pending
+status: completed
 priority: P3
 filed: 2026-09-17
+closed: 2026-09-17
 source: found while scoping todo 379 (Codex + AGY both independently flagged
   equity_regime_model.py as non-live during blast-radius verification)
 ---
+
+# `equity_regime_model.py` is dead code -- INSERT references a column that no longer exists -- CLOSED (deleted)
+
+## Resolution (2026-09-17)
+
+Deleted `services/equity_regime_model.py` (option 1). Correction to this todo's original
+"no test file" claim below: there WAS a test file
+(`tests/unit/services/test_equity_regime_model_causal.py`), missed by only grepping
+`tests/unit/` top-level and not its `services/` subdirectory. Checked before deleting:
+its causal-rank invariant is already covered, more rigorously (independent scipy-oracle
+comparison, NaN/tie/scaling coverage), by `tests/unit/test_regime_signals_causal_rank.py`
+against the LIVE ported implementation in `causal_rank.py` -- the dead-code test was
+exercising a copy nothing calls, not the live code path. Its `_tf_window` coverage is
+separately, fully mirrored in `tests/unit/test_regime_signals_breadth_vol.py` against the
+live `tf_window.py`. Confirmed zero coverage loss; deleted the redundant test alongside
+the module.
+
+Also independently confirmed by two pre-existing CI allow-lists
+(`tests/unit/test_no_bare_process_pool_executor.py`, `tests/unit/test_market_data_ohlcv_boundary.py`)
+that already carried permanent, deliberate entries documenting this file as dead code --
+both entries removed (would otherwise fail as stale references to a deleted file).
+Updated all other references (`ensemble_ic_engine.py`'s startup-gate error message,
+`ops_ensemble_ic_diagnosis.py`'s diagnostic flag text, `ops_corpus_pipeline_run.sh`'s
+pipeline-step comments, and provenance comments in `cross_sectional_regime_model.py`/
+`breadth_vol.py`/`tf_window.py`) to point at the live `cross_sectional_regime_model.py`
+instead of the deleted file. Full unit suite green after the change.
+
+## Original filing (kept for record)
 
 # `equity_regime_model.py` is dead code -- INSERT references a column that no longer exists
 

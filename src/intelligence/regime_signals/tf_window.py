@@ -1,8 +1,8 @@
 """Shared daily-window -> TF-bar-count conversion for regime signal modules.
 
 Single source of truth for the day->bar mapping consumed by every module in
-`src.intelligence.regime_signals`. Ported verbatim from
-`services/equity_regime_model.py:84-101` (the pre-existing, bug-fixed implementation)
+`src.intelligence.regime_signals`. Ported verbatim from the original equity regime
+model's bug-fixed implementation (that module since deleted as dead code, todo 381)
 per RESEARCH.md's Don't Hand-Roll guidance — do not redefine `_BARS_PER_DAY`/`_tf_window`
 locally inside any signal module.
 """

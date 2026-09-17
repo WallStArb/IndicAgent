@@ -11,13 +11,14 @@ Signal 2 (breadth_pct): fraction of ref_bars symbols with close > MA, ITSELF con
 Label format: {vix_tier}_{breadth_tier}  e.g. "low_bull", "high_bear", "mid_neutral".
 9 possible labels (3 x 3).
 
-Logic ported from services/equity_regime_model.py -- no DB calls here (DB-free pure
-functions per the compute != persistence SoC rule).
+Logic ported from the original Phase 141/144 equity regime model (deleted as dead code,
+todo 381) -- no DB calls here (DB-free pure functions per the compute != persistence
+SoC rule).
 
 CORRECTNESS INVARIANT (RESEARCH.md Pitfall 1 / Pattern 4): every signal ranked here MUST use
 a causal expanding rank, never a whole-series percentile rank (pandas' `Series.rank` with
 `pct` True) -- that ranks every point against future values too, reintroducing the exact
-look-ahead bias Phase 141's P0-T2 fix removed from equity_regime_model.py. Rank logic lives
+look-ahead bias Phase 141's P0-T2 fix originally removed. Rank logic lives
 in causal_rank.py (shared with curve_credit.py, todo 092 2026-07-24; Fenwick-tree
 implementation since 2026-08-21, same causal contract), guarded by
 tests/unit/test_regime_signals_causal_rank.py's causal-property test.
@@ -129,9 +130,10 @@ def _compute_vix_pct_rank(
 def _compute_breadth(ref_bars: dict[str, pd.DataFrame], ma_window: int) -> pd.Series:
     """Fraction of ref_bars symbols with close > MA, per timestamp.
 
-    Adapted from equity_regime_model.py._compute_breadth_fraction: operates on the
-    pre-fetched ref_bars dict (no DB fetch inside this function -- the dispatcher
-    fetches bars and passes them in via ref_bars).
+    Adapted from the original equity regime model's _compute_breadth_fraction
+    (deleted, todo 381): operates on the pre-fetched ref_bars dict (no DB fetch
+    inside this function -- the dispatcher fetches bars and passes them in via
+    ref_bars).
     """
     above_ma_cols: list[pd.Series] = []
     for sym, df in ref_bars.items():

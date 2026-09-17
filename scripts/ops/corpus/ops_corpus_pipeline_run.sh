@@ -2,7 +2,7 @@
 #
 # ops_corpus_pipeline_run.sh — v3.0 corpus pipeline orchestrator
 #
-# Runs feature_factory → regime_writer → forward_return_writer → equity_regime_model →
+# Runs feature_factory → regime_writer → forward_return_writer → cross_sectional_regime_model →
 # ic_engine → ic_shrinkage → ensemble_trainer → alpha_publisher sequence for corpus generation.
 # Use for initial population or incremental updates.
 # Requires market_data_ohlcv populated and Redpanda + TimescaleDB running.
@@ -354,8 +354,9 @@ run_step 3 "forward_return_writer" \
 # Step 4 — Cross-Sectional Regime Model (market_data_ohlcv → market_regimes, one
 # cross-sectional regime label per enabled alpha.regime.groups entry — equity via
 # breadth_vol, rates via curve_credit; commodity/fx ship disabled). Generalizes the
-# prior equity-only equity_regime_model.py (Phase 144 — see
-# services/equity_regime_model.py's deprecation header for the rollback path).
+# prior equity-only equity regime model (Phase 144; that module was deleted as dead
+# code once confirmed to have no callers and a write path broken against the current
+# schema — see todo 381).
 # Independent of feature_vectors/regime_writer — reads raw bars only — but must land
 # before ic_engine, whose startup gate FAILs immediately if market_regimes is empty
 # and alpha.regime.equity_model_enabled=true. No --symbols arg: always computes

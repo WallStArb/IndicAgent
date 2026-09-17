@@ -201,7 +201,7 @@ async def main() -> int:
         for r in section4_rows:
             flag = ""
             if len(zero_qualifying_regimes) >= 3 and r["regime"] in zero_qualifying_regimes:
-                flag = "regime label quality issue (check market_regimes / equity_regime_model)"
+                flag = "regime label quality issue (check market_regimes / cross_sectional_regime_model)"
             print(f"| {r['regime']} | {r['n_cells']} | {r['n_qualifying']} | {flag} |")
 
         print()
