@@ -6281,11 +6281,28 @@ def main() -> None:
 
             with conn.cursor() as cur:
                 # active instruments LEFT JOINed to tags so tagless symbols are
-                # counted as unrouted instead of being invisible to the check
+                # counted as unrouted instead of being invisible to the check.
+                # source='human' is in the JOIN condition, not a WHERE clause, so a symbol
+                # with only empirical tags still appears (as unrouted) rather than vanishing.
+                # Regime-group membership is a categorical/definitional question -- only
+                # human-asserted tags may answer it. Empirical tags (TagCalibrator's measured
+                # factor-proxy correlations, persisted regardless of economic meaningfulness --
+                # e.g. SPY's commodity_uranium tag, weight=0.578, passes_fdr=true, almost
+                # certainly a spurious common-beta artifact, not a real uranium exposure) answer
+                # a different question (sensitivity) and must never gate a single-label routing
+                # decision that structurally requires exactly one categorical answer: even a
+                # REAL, statistically significant dual sensitivity (a gold miner's genuine
+                # equity beta AND genuine gold-price sensitivity, both true at once) would still
+                # create a legitimate multi-way tie here, so this is a category-correctness fix,
+                # not a significance/materiality threshold (confirmed empirically: filtering
+                # empirical tags by passes_fdr=true instead of by source resolves 0 of the 144
+                # live ambiguous-routing collisions this bug caused once TagCalibrator's first
+                # successful run, 2026-09-16, populated empirical tags corpus-wide for the first
+                # time). Cross-AI reviewed (Codex + Fable) before landing.
                 cur.execute(
                     "SELECT i.symbol, array_remove(array_agg(t.tag), NULL::text) "
                     "FROM instruments i "
-                    "LEFT JOIN instrument_tags t ON t.symbol = i.symbol "
+                    "LEFT JOIN instrument_tags t ON t.symbol = i.symbol AND t.source = 'human' "
                     "WHERE i.is_active = true GROUP BY i.symbol"
                 )
                 tags_by_symbol: dict[str, set[str]] = {
