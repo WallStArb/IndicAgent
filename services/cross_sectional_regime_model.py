@@ -375,8 +375,27 @@ def _assign_labels(
 
 
 def _load_tags_by_symbol(conn: Any) -> dict[str, set[str]]:
+    """source='human' only -- an interim stopgap (todo 379), NOT the same reasoning as
+    ic_engine.py's _build_symbol_regime_class fix (commit b8af2b749). That fix was a
+    categorical-identity question (exactly one regime group); this is a sensitivity/
+    behavioral-similarity question ("does this symbol trade like its peer group"), where
+    an empirical tag is arguably philosophically more correct evidence, not less. It's
+    filtered out here anyway because TagCalibrator's empirical tags are currently
+    drowning in common-beta noise (confirmed: significance alone does not separate
+    signal from noise -- filtering by passes_fdr=true instead of by source resolved 0 of
+    the ic_engine.py bug's 144 collisions), and confirmed live to contaminate this path
+    too (GLD/AGG/EMB/EMLC/DBC/FXA/FXE mislabeled eq_*). This is a bigger hammer than the
+    underlying question calls for -- it discards empirical sensitivity data that may have
+    genuine value once properly filtered for real economic meaning, not just presence.
+    See docs/plans/2026-09-17-itr-source-filter-breadth-peer-grouping-design.md and todo
+    379 for the deferred materiality-filtered design (option b) this stopgap does not
+    implement. Cross-AI reviewed (Codex + Fable + AGY) before landing.
+    """
     with conn.cursor() as cur:
-        cur.execute("SELECT symbol, array_agg(tag) FROM instrument_tags GROUP BY symbol")
+        cur.execute(
+            "SELECT symbol, array_agg(tag) FROM instrument_tags "
+            "WHERE source = 'human' GROUP BY symbol"
+        )
         return {row[0]: set(row[1]) for row in cur.fetchall()}
 
 

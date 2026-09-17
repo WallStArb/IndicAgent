@@ -1,0 +1,87 @@
+---
+status: pending
+priority: P2
+filed: 2026-09-17
+source: deferred option (b) from todo 379, plus a root-cause finding from AGY's review of
+  the todo 379 design doc that neither Codex nor Fable's parallel reviews surfaced
+---
+
+# ITR follow-up: materiality-filtered empirical tags for breadth/peer-grouping, and the eq_* naming collision
+
+## What
+
+Todo 379 shipped the `source='human'`-only stopgap for `equity_regime_model.py` and
+`cross_sectional_regime_model.py`'s breadth/peer-grouping reads of `instrument_tags`. All
+three independent reviewers (Codex, Fable, AGY) agreed the stopgap should land first, but
+flagged it as a bigger hammer than the underlying question calls for -- it discards
+empirical sensitivity data that may have genuine value once properly filtered. Two related
+pieces of follow-up design work, not urgent (nothing is actively wrong today):
+
+### 1. Materiality filter for empirical tags in sensitivity/behavioral-similarity contexts
+
+Breadth/peer-grouping questions ("does this instrument trade like an equity/rates/fx peer")
+are legitimately about behavioral similarity, not categorical identity -- unlike
+`ic_engine.py`'s routing question. A well-designed empirical-tag filter could admit real
+signal the human-only stopgap now excludes. All three reviewers converged on the same shape
+of fix and independently rejected loading-magnitude-alone or `passes_fdr`-alone (both
+reproduce the ic_engine.py bug's own finding -- significance and materiality are different
+questions at n=250+):
+
+- **Codex**: orthogonalize the target group factor against a control set (broad equity,
+  rates curve/credit, dollar, commodity broad/sector) first, then gate on the *incremental*
+  partial coefficient/partial-R² of the residualized loading -- not the raw bivariate
+  loading. Proposed concrete gate: `sample_n >= 756`, BH-FDR on the partial coefficient,
+  `abs(partial_beta) >= 0.35`, incremental `partial_R2 >= 0.05`, sign-stable in >= 3 of 4
+  rolling 252-day windows, lower-CI bound on `abs(partial_beta) > 0.20`. Should also respect
+  the ITR's own already-documented-but-unenforced `discovery_oos_days` pending-OOS state
+  (`docs/foundation/instrument-tag-registry.md` Known Gaps) before a newly-discovered
+  empirical tag affects a regime label.
+- **Fable**: same shape (regress `symbol_return ~ market_return + factor_series_return`,
+  gate on the incremental factor coefficient after controlling for market beta), plus a
+  peer-relative check (is the candidate's loading inside the distribution already exhibited
+  by symbols carrying the human tag, not merely nonzero). Must clear a null-arm
+  (scrambled-data) control before trusting it, per this project's standing HMM-regime-
+  candidate rule -- that discipline generalizes to any auto-classifier gating a regime label.
+- **AGY**: same orthogonalization math, `|beta| >= 0.30` + `ΔR² >= 0.05`, plus an
+  asset-class prior constraint (candidate must already be inside `tag_vocabulary.category
+  = 'exposure'`'s broad asset-class family) to bar cross-asset leakage.
+
+Whichever design is built, all three agree: reuse one filter implementation across both
+consumers, but calibrate the threshold per consumer -- `equity_regime_model.py`'s (or its
+replacement's) breadth fraction is a single aggregate multiplying error across the whole
+downstream stack and warrants a near-definitional confidence bar; `cross_sectional_regime_
+model.py`'s peer pools are smaller and group-scoped and can tolerate a somewhat lower one.
+
+### 2. `eq_*` naming collision (AGY's root-cause finding, todo 379's stopgap does not fix this)
+
+Migration 343 deliberately made `eq_low_vol`/`eq_momentum`/`eq_quality` (all
+`tag_vocabulary.category='exposure'`) empirically measurable against USMV/MTUM/QUAL,
+calling them "genuine falsifiable exposure claims" (migration comment, line 21) -- a
+defensible decision on its own terms (style-factor exposure is a real, measurable thing).
+The bug is that these three tags share the `eq_*` textual prefix with true equity-identity
+tags (`eq_broad`, `eq_sector`, `eq_factor`, ...), and every identity-based consumer in this
+codebase resolves group membership via a raw `tag LIKE 'eq_%'`/prefix-match, with no way to
+distinguish "IS equity" from "exhibits an equity-style factor." The `source='human'` filter
+in todo 379 fixes today's contamination (all offending rows happen to be empirical), but a
+future human-curated `eq_momentum` assignment for a genuinely non-equity instrument would
+still slip through undetected by that filter alone.
+
+Fix options to weigh: (i) rename the three style-factor tags out of the `eq_*` prefix
+family entirely (e.g. `factor_low_vol`/`factor_momentum`/`factor_quality`, or move them to
+`category='sensitivity'` alongside `equity_beta`, which is already correctly categorized
+this way) so no identity-based prefix match can ever catch them regardless of source; or
+(ii) make every identity-based consumer join `tag_vocabulary` and require
+`measurement_type='definitional'` in addition to (or instead of) `source='human'`. Check
+`docs/foundation/instrument-tag-registry.md`'s banned-alias rule (two tags must never share
+a `factor_series`) for any interaction before renaming.
+
+## Cross-refs
+
+- Todo 379 (completed) -- the stopgap this follow-up extends.
+- `docs/plans/2026-09-17-itr-source-filter-breadth-peer-grouping-design.md` -- full design
+  doc + all three reviewers' complete findings.
+- `docs/foundation/instrument-tag-registry.md` -- ITR spec; Known Gaps section already
+  flags `discovery_oos_days` as unenforced and `sensitivity`/`macro_driver` tags as
+  unconsumed -- this todo is the first concrete consumer design for those tags.
+- `production/migrations/343_itr_measurement_gap_fixes.sql` -- the migration that made
+  eq_low_vol/eq_momentum/eq_quality measurable.

@@ -271,11 +271,25 @@ def _compute_breadth_fraction(
     Fetches each ETF's bars (all symbols, full history), computes 200MA per symbol,
     aggregates by timestamp. Returns a pd.Series indexed by spy_ts.
 
-    Breadth universe = symbols with instrument_tags tag LIKE 'eq_%' OR 'intl_%'.
-    This excludes fixed income (fi_*), crypto, commodity_metals, real_estate, and
-    preferred — which trade as equities but represent orthogonal economic exposures
+    Breadth universe = symbols with a human-asserted instrument_tags tag LIKE 'eq_%'
+    OR 'intl_%'. This excludes fixed income (fi_*), crypto, commodity_metals, real_estate,
+    and preferred — which trade as equities but represent orthogonal economic exposures
     that would contaminate the breadth signal (e.g. TLT falling below 200MA during
     a risk-on rate-rise would incorrectly reduce breadth).
+
+    source='human' only -- an interim stopgap (todo 379), NOT the same reasoning as
+    ic_engine.py's _build_symbol_regime_class fix (commit b8af2b749): that fix answers a
+    categorical-identity question, while breadth is a sensitivity/behavioral-similarity
+    question where an empirical tag is arguably more correct evidence, not less. Filtered
+    out anyway because TagCalibrator's empirical tags are currently drowning in
+    common-beta noise (passes_fdr=true alone resolved 0 of the ic_engine.py bug's 144
+    collisions) and confirmed live to mislabel GLD/AGG/EMB/EMLC/DBC/FXA/FXE as eq_*. This
+    is a bigger hammer than the underlying question calls for -- see
+    docs/plans/2026-09-17-itr-source-filter-breadth-peer-grouping-design.md and todo 379
+    for the deferred materiality-filtered design (option b). This function is the
+    deprecated Phase 144 rollback path (the live writer is
+    cross_sectional_regime_model.py's _load_tags_by_symbol); fixed here too so an
+    operational rollback doesn't silently reintroduce the contamination.
     """
     sql = """
         SELECT m.symbol, m.timestamp, m.close
@@ -287,6 +301,7 @@ def _compute_breadth_fraction(
           AND EXISTS (
               SELECT 1 FROM instrument_tags t
               WHERE t.symbol = m.symbol
+                AND t.source = 'human'
                 AND (t.tag LIKE 'eq_%%' OR t.tag LIKE 'intl_%%')
           )
         ORDER BY m.symbol, m.timestamp ASC
@@ -302,6 +317,11 @@ def _compute_breadth_fraction(
 
     if not rows:
         return pd.Series(dtype=float, name="breadth")
+
+    n_universe_symbols = len({sym for sym, _, _ in rows})
+    _logger.info(
+        "equity_regime_model.breadth_universe_resolved", tf=tf, n_symbols=n_universe_symbols
+    )
 
     # Build per-symbol above-200MA series, then concat and mean
     above_ma_by_sym: dict[str, pd.Series] = {}

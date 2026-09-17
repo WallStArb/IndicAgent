@@ -1,11 +1,67 @@
 ---
-status: pending
+status: completed
 priority: P0
 filed: 2026-09-17
+closed: 2026-09-17
 source: found by two independent cross-AI reviews (Codex, Fable) of a same-day fix to
   ic_engine.py's regime-group routing (commit b8af2b749) -- Fable confirmed the risk they
   flagged is not hypothetical but currently active, with live symbol-level evidence
 ---
+
+# Empirical tags (source='empirical') currently contaminate equity breadth and cross-sectional peer grouping -- CLOSED (stopgap shipped)
+
+## Resolution (2026-09-17)
+
+Option (a) (`source='human'` only) shipped in both flagged call sites, per unanimous
+recommendation from three independent reviews (Codex, Fable, AGY) of
+`docs/plans/2026-09-17-itr-source-filter-breadth-peer-grouping-design.md`:
+
+- `cross_sectional_regime_model.py`'s `_load_tags_by_symbol` (the live path -- corpus
+  pipeline step 4) and `equity_regime_model.py`'s `_compute_breadth_fraction` (the
+  deprecated Phase 144 rollback path, fixed too so a rollback can't reintroduce the
+  contamination) both now filter to `source = 'human'`.
+- Validated against live data: the 7 confirmed-contaminated symbols
+  (GLD/AGG/EMB/EMLC/DBC/FXA/FXE) no longer match `eq_%`/`intl_%` after the fix;
+  single-name equity routing (via the separately human-sourced `single_name_equity` tag)
+  is unaffected.
+- Added a `n_symbols` breadth-universe-size log line to `equity_regime_model.py` (code
+  review finding) so a future universe shrinkage from this filter is observable, matching
+  `cross_sectional_regime_model.py`'s existing peer-group-size logging.
+
+**Blast radius correction found during review (Codex + AGY, independently converging):**
+this todo's original text describes `equity_regime_model.py` as a live consumer alongside
+`cross_sectional_regime_model.py`. That's wrong -- `equity_regime_model.py` was deprecated
+in Phase 144 (`ops_corpus_pipeline_run.sh` step 4 runs `cross_sectional_regime_model.py`
+exclusively) and its `INSERT INTO market_regimes (asset_class, ...)` references a column
+(`asset_class`) that no longer exists on the live table (`market_regimes` schema is
+`regime_group`/`tf`/`ts`/`regime_label`/`regime_prob_vector` only) -- running it today
+would hard-crash. It is dead code, not a working rollback path. See todo 381.
+
+Blast radius also runs wider than originally scoped: `ic_engine.py` itself uses
+`market_regimes` corpus-wide for regime-stratified IC measurement (not just the routing
+function fixed in b8af2b749), and several `scripts/ops/alpha/*` diagnostics/gates
+(`ops_oos_gate1_signal_eval.py`, `ops_ic_null_calibration.py`, `ops_ic_shrinkage.py`,
+`ops_ensemble_ablation.py`) also read it. `portfolio_covariance_weighting_diagnostic.py`
+(todo 378) is confirmed NOT affected -- it computes its own regime labels from SPY close
+directly, bypassing `market_regimes`.
+
+**AGY's root-cause finding, tracked as follow-up, not fixed here:** migration 343
+deliberately made `eq_low_vol`/`eq_momentum`/`eq_quality` (all `category='exposure'`)
+empirically measurable (`factor_series` = USMV/MTUM/QUAL) as "genuine falsifiable exposure
+claims." That's a defensible measurement decision on its own, but these tags share the
+`eq_*` textual prefix with true identity tags (`eq_broad`, `eq_sector`), which is what let
+them leak into identity-based prefix matching in the first place -- the `source='human'`
+filter fixes today's contamination but doesn't resolve this naming collision. See todo 380.
+
+Option (b) (materiality-filtered empirical signal, not just `source`-based exclusion) is
+NOT built -- tracked as todo 380 with all three reviewers' proposed filter designs
+(orthogonalize against market beta before measuring incremental/partial loading; none of
+loading-magnitude-alone, `passes_fdr`-alone, or presence-alone are sufficient, per the
+live counterexample AGY found: `AAPL`'s own `eq_quality`/`eq_low_vol`/`equity_beta` tags
+are all empirical with real economically-plausible loadings, correctly excluded from
+identity purposes here only because `single_name_equity` already covers its routing).
+
+## Original filing (kept for record)
 
 # Empirical tags (source='empirical') currently contaminate equity breadth and cross-sectional peer grouping
 
