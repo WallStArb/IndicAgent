@@ -110,10 +110,16 @@ any IC number here as a hard ceiling.
   both: DONE (2026-09-17). Fixing readiness also surfaced and fixed a corpus-wide `ic_engine.py`
   regime-routing bug (144/273 instruments ambiguously routed once `TagCalibrator`'s first-ever
   successful run populated empirical tags corpus-wide, 2026-09-16) — human-tags-only routing
-  fix landed, Codex+Fable reviewed, commit `b8af2b749`. A sibling, currently-ACTIVE bug
-  (empirical tags polluting `equity_regime_model.py`/`cross_sectional_regime_model.py`) was
-  found alongside and deliberately left unfixed — see
-  [379](todos/pending/379-empirical-tags-contaminate-equity-breadth-and-peer-grouping.md).
+  fix landed, Codex+Fable reviewed, commit `b8af2b749`. A sibling bug (empirical tags
+  polluting `equity_regime_model.py`/`cross_sectional_regime_model.py`) was found
+  alongside and **fixed same day** (`source='human'`-only stopgap, Codex+Fable+AGY
+  reviewed, commit `d1ce8d6bb`) — see
+  [379](todos/completed/379-empirical-tags-contaminate-equity-breadth-and-peer-grouping.md)
+  (closed) plus its two follow-ups,
+  [380](todos/pending/380-itr-materiality-filtered-empirical-tags-and-eq-prefix-naming-collision.md)
+  (deferred materiality-filter design) and
+  [381](todos/pending/381-equity-regime-model-dead-code-broken-insert.md)
+  (`equity_regime_model.py` confirmed dead code — broken INSERT against current schema).
   Remaining chain (real `ic_engine` run → `ensemble_trainer` scope decision → Gate B → the
   diagnostic) tracked in
   [378](todos/pending/378-vixy-emlc-feature-backfill-then-gate-b-and-portfolio-diagnostic.md).
