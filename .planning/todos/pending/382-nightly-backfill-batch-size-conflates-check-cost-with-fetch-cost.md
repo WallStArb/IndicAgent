@@ -53,6 +53,25 @@ corpus freshness, unlike the service-lag pattern already established for live da
 (`_load_lag_thresholds()` in `service_auditor.py`). This is the same "instrument everything"
 gap, just never pointed at this particular pipe.
 
+**Confirmed downstream impact, found 2026-09-18 same session: this staleness has already
+silently broken real ITR tag measurements, not just OHLCV freshness.** `TagCalibrator`'s
+`semi_cycle` tag (factor proxy `SMH`) never got empirically measured for AMD/ASML/AVGO/EWT/
+EWY/NVDA/QCOM/TSM in the 2026-09-16 16:39:43 UTC calibration run -- all 8 sit on their
+2026-08-05 human seed while every one of NVDA's *other* 12 tags measured fine in that same
+run. Root cause: `SMH` itself is one of the 151 symbols stuck at the 2026-08-10 freeze --
+`build_factor_series_cache()` built `semi_cycle`'s factor return series off SMH's stale
+window while every dependent symbol's own return series was current, and the resulting
+insufficient-overlap skip silently ate all 8 measurements (skip reasons are aggregated into
+counters, never logged per-tag, per `measure_matrix()`'s own docstring -- CLAUDE.md's
+"never log per-row" pattern, but here it also means nobody would notice a systematic
+multi-symbol miss like this without a manual audit). This should self-heal once this todo's
+fix lands and SMH's OHLCV catches up -- but the silent-skip-with-zero-observability failure
+mode is real and general: any tag whose `factor_series` symbol happens to be stale will
+silently kill measurement for its entire dependent peer group, with nothing logged. Worth a
+per-tag "N symbols skipped, factor_series staleness = X days" summary line in
+`TagCalibrator`'s own run log as a cheap follow-up, independent of fixing the corpus
+freshness itself.
+
 ## Fix shape (discussed and agreed with user this session, not yet implemented)
 
 Apply Musk's 5-step mandate in order (per this project's own prioritization lens):
