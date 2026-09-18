@@ -117,3 +117,25 @@ a `factor_series`) for any interaction before renaming.
   unconsumed -- this todo is the first concrete consumer design for those tags.
 - `production/migrations/343_itr_measurement_gap_fixes.sql` -- the migration that made
   eq_low_vol/eq_momentum/eq_quality measurable.
+
+## Status update 2026-09-18
+
+Part 1 (materiality filter) is now **Phase 175**
+(`.planning/phases/175-itr-materiality-filtered-empirical-tags-for-breadth-peer-gro/`) --
+context gathered, researched, pattern-mapped, planned (5 plans in 4 waves), and plan-checked
+through 2 revision rounds. Not yet executed. `/gsd-execute-phase 175` is blocked on a
+structural `checkpoint:human-action` gate in plan 01 (P175-08 / D-07): the Fable +
+Codex/AGY cross-AI review of the finished plan set has not happened yet. This todo stays
+`pending` -- the work has a home now, but isn't done.
+
+Part 2 (`eq_*` naming collision) stays resolved as a documentation note, unchanged from the
+re-verification above -- not folded into Phase 175, no action needed.
+
+Also produced along this path, not part of Phase 175's scope: `docs/ideas/signal-
+sensitivity-regime-interaction-primitives.md` (a downstream consumer-use idea for the
+sensitivity/macro_driver tags this todo's materiality filter would admit -- Fable-reviewed
+2026-09-18, revision-required, not yet promoted) and `docs/ideas/itr-extension-opportunities
+.md` (a broader survey of ITR concept extensions, including one -- cross-tag collinearity
+auditing -- that generalizes this todo's own orthogonalize-against-a-control-set approach
+from tag-vs-proxy to tag-vs-tag). Neither blocks or is blocked by this todo; noted for
+whoever picks either up next.
