@@ -76,6 +76,12 @@ machinery already in `_apply_decision`.
   `instrument_tags` for every `source='empirical'` row (unconditionally — this is a
   measurement, not an admission decision). Rejected building this inside
   `breadth_vol.py`/`cross_sectional_regime_model.py` directly.
+  **AMENDED 2026-09-18 by D-01a (see CONTEXT.md):** the D-07 cross-AI review found this
+  wording wider than what plan 03 actually implements ("kept" rows only, i.e. rows clearing
+  Pass 1-3's `passes_fdr AND abs(loading) >= loading_threshold` gate) -- CONTEXT.md's D-01a
+  amendment narrows this decision's text to match the plan, rather than widening the plan to
+  match this original wording. This entry is a frozen research-time snapshot; CONTEXT.md is
+  the current, authoritative decision record.
 - **D-02:** Each consumer applies its *own* admission threshold as a `WHERE` clause at read
   time against the persisted statistic. Do not build N copies of the orthogonalization math.
   New evidence columns needed on `instrument_tags`: the orthogonalized/partial factor loading,
