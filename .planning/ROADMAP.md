@@ -2875,7 +2875,7 @@ this phase's diagnostic output plus the D-07 cross-AI review.
 Plans:
 **Wave 1**
 
-- [ ] 175-01-PLAN.md - migration 346: instrument_tags evidence columns, instrument_tags_active view, 10 materiality APR keys (wave 1)
+- [ ] 175-01-PLAN.md - migration 346: instrument_tags evidence columns, instrument_tags_active view, 11 materiality APR keys (10 gate thresholds + 1 null-arm RNG seed) (wave 1)
 - [ ] 175-02-PLAN.md - factor_math Pearson partial-loading kernel, sign-stability windows, circular-shift null arm (wave 1)
 
 **Wave 2** *(blocked on Wave 1 completion)*
