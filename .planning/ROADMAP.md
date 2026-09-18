@@ -2782,8 +2782,7 @@ was scoped directly via `/gsd-discuss-phase`), plus ASVS V5. Full ID map in
 which prescribes universe expansion as primary. Folds todos 371 (ic_engine cross-sectional cell
 OOM), 274 (backfill/compute/live-tradeable split), 282 (instrument_metadata not backfilled) and
 376 (survivorship bias — researched in parallel, does not gate the pilot). Excludes futures
-entirely (see todo 377 — genuine gaps there are CL/NG/HG/ZC/ZS/ZW/VX/GBPUSD/USDCHF, but
-continuous-contract construction is unbuilt and out of scope for this phase).
+entirely (out of scope for this phase).
 
 **Mid-execution addition (2026-09-15, D-09/D-10):** empirical raw-return correlation analysis of
 the existing 117-name single-name book (`docs/research/phase174-single-name-book-correlation-structure-2026-09-15.md`)
@@ -2874,10 +2873,21 @@ this phase's diagnostic output plus the D-07 cross-AI review.
 **Plans:** 5 plans in 4 waves
 
 Plans:
+**Wave 1**
+
 - [ ] 175-01-PLAN.md - migration 346: instrument_tags evidence columns, instrument_tags_active view, 10 materiality APR keys (wave 1)
 - [ ] 175-02-PLAN.md - factor_math Pearson partial-loading kernel, sign-stability windows, circular-shift null arm (wave 1)
+
+**Wave 2** *(blocked on Wave 1 completion)*
+
 - [ ] 175-03-PLAN.md - TagCalibrator Pass 4: control matrix, measurement loop, gates, persistence, discovery_state promotion (wave 2)
+
+**Wave 3** *(blocked on Wave 2 completion)*
+
 - [ ] 175-04-PLAN.md - read-only shadow diagnostic: per-group membership delta and gate attribution (wave 3)
+
+**Wave 4** *(blocked on Wave 3 completion)*
+
 - [ ] 175-05-PLAN.md - ITR spec, APR calibration backlog, CLAUDE.md, close todos 125/126, re-scope 380 (wave 4)
 
 ---
