@@ -23,8 +23,10 @@ followed: significance and materiality are different questions at n=250+ observa
 ### Where the computation lives
 - **D-01:** Extend `TagCalibrator` (`services/tag_calibrator.py`) with a 4th pass computing
   an orthogonalized/incremental factor loading, persisted as new evidence columns on
-  `instrument_tags` for every `source='empirical'` row (unconditionally — this is a
-  measurement, not an admission decision). Rejected building this inside
+  `instrument_tags` for every KEPT `source='empirical'` row (unconditionally within that
+  population — this is a measurement, not an admission decision; see the D-01a amendment
+  below for what "kept" means and why the measurement universe is scoped this way).
+  Rejected building this inside
   `breadth_vol.py`/`cross_sectional_regime_model.py` directly: consumers are dumb readers
   of already-decided state everywhere else in this codebase (ConfigService, VocabularyService,
   every `market_regimes` reader) — computing statistics inside a consumer breaks that pattern
@@ -40,6 +42,29 @@ followed: significance and materiality are different questions at n=250+ observa
   planning decision, not locked here): the orthogonalized/partial factor loading, its
   incremental R², a sign-stability measure across rolling windows, and a boolean/threshold
   outcome per the seeded APR bar (D-05). Migration required.
+
+- **D-01a (amendment, 2026-09-18, D-07 review pass):** D-01 originally read "every
+  `source='empirical'` row (unconditionally)". The cross-AI plan review (Codex, CONFIRMED in
+  175-REVIEWS.md) found that wording materially wider than what the plans implement: Pass 4 is
+  scoped to rows that already clear Pass 1-3's keep gate (`passes_fdr AND abs(loading) >=
+  loading_threshold`). Resolved in favour of the narrower scope, and D-01's text amended above
+  to match, for three reasons:
+  1. **Purpose fit.** The phase exists to answer "could this row plausibly be admitted to a
+     consumer". A row Pass 1-3 already rejected is not an admission candidate, so measuring
+     its materiality answers a question nobody asks.
+  2. **Evidence coherence.** Measuring Pass 4 for a rejected row can produce `passes_fdr =
+     false` sitting beside `passes_materiality = true` on the same row - an internally
+     contradictory evidence set that a future reader (or consumer cutover) would have to
+     re-derive rules to interpret. Under the narrower scope the two agree by construction: a
+     non-kept row gets `passes_materiality = false` via
+     `_UPDATE_FAILING_OR_EXPIRE_EMPIRICAL_SQL` (plan 03, Task 3b), never a stale or
+     contradictory value.
+  3. **Cost.** Pass 4 runs a `null_arm_draws`-deep Monte Carlo per pair. Spending it on rows
+     that cannot reach a consumer is pure waste in a batch job that already measures the full
+     instrument x tag matrix.
+  The "unconditionally" language is retained inside the kept population and is still
+  load-bearing: within it, the evidence is written for every row regardless of whether that
+  row will pass the materiality bar. Measurement and admission stay separate decisions.
 
 ### Rollout strategy
 - **D-03:** Shadow mode first, non-negotiable — this is a standing CLAUDE.md principle, not
