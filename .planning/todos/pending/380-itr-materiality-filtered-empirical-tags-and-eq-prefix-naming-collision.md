@@ -123,10 +123,10 @@ a `factor_series`) for any interaction before renaming.
 Part 1 (materiality filter) is now **Phase 175**
 (`.planning/phases/175-itr-materiality-filtered-empirical-tags-for-breadth-peer-gro/`) --
 context gathered, researched, pattern-mapped, planned (5 plans in 4 waves), and plan-checked
-through 2 revision rounds. Not yet executed. `/gsd-execute-phase 175` is blocked on a
-structural `checkpoint:human-action` gate in plan 01 (P175-08 / D-07): the Fable +
-Codex/AGY cross-AI review of the finished plan set has not happened yet. This todo stays
-`pending` -- the work has a home now, but isn't done.
+through 2 revision rounds. **D-07's cross-AI review (Fable + Codex/AGY) is now complete and
+the gate is cleared** -- see the update immediately below. Not yet executed; the Wave 1
+`checkpoint:human-action` gate in plan 01 (P175-08) can now be answered "done" truthfully.
+This todo stays `pending` -- the work has a home and is unblocked, but execution hasn't run.
 
 **Update 2026-09-18 (Fable's D-07 pass on the finished plan set, after Codex/AGY's):** clears
 the gate, with one precondition recorded here for whoever eventually scopes the deferred
