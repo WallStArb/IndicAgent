@@ -82,10 +82,15 @@ reviewed twice. Needs an explicit owner call:
 
 1. **Build now** (Layer 1 at minimum): sourcing path is resolved -- IBKR's
    `industry`/`category`/`subcategory` contract-detail fields, verified live this session
-   (see above). Confirm coverage across all 168 single-name equities (not just the 4 spot
-   checked), then execute the small schema (three tables + seed migration +
-   `ClassificationService`) per the
-   existing design.
+   (see above). **Coverage confirmed 2026-09-18 across all 168 single-name equities:
+   100% (168/168), zero errors, zero empty-classification results.** 46 distinct `category`
+   values with real discriminating power (Biotechnology 12, Transportation 9, Internet 8,
+   Semiconductors 7, Retail 7, Mining 6, Banks 6, Pharmaceuticals 6, plus 38 more) --
+   NVDA/AMD's shared `Semiconductors` category sits alongside `Computers`, `Software`,
+   `Internet` etc. as genuinely separate buckets, not lumped into one flat `technology`
+   tag. No coverage-gap risk remains; this is a straightforward backfill against data
+   already fully available. Execute the small schema (three tables + seed migration +
+   `ClassificationService`) per the existing design.
 2. **Formally defer with a real re-trigger check**, explicitly acknowledging the
    point-in-time-correctness cost of waiting (every day since the equity onboarding is
    another day of un-captured classification history that can't be reconstructed later)
