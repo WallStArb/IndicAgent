@@ -48,12 +48,21 @@ again 2026-07-06):
   IS a legitimate hypothesis (multi-valued, testable), matching ITR's existing epistemic
   model exactly.
 - GICS itself is licensed (S&P/MSCI) -- not currently sourced anywhere in this project.
-  Candidate paths per the doc: a vendor feed, IBKR contract metadata (coverage unverified --
-  confirmed live this session that `src/providers/ibkr.py` doesn't currently request or
-  store `industry`/`category`/`subcategory` at all, despite IBKR's `ContractDetails` API
-  exposing these for free on every US equity contract lookup), or a fallback to SEC SIC
-  codes (a different, older, free scheme -- the design explicitly models "which scheme" so
-  SIC is never silently mislabeled as GICS).
+  **Sourcing question resolved this session, live-verified 2026-09-18**: IBKR's
+  `ContractDetails.industry`/`.category`/`.subcategory` fields (`ib_async`, confirmed via a
+  real `reqContractDetailsAsync` call against the running gateway) already return a genuine
+  3-level hierarchy for free, on every contract lookup, with real discriminating power --
+  `NVDA`/`AMD` both land on `industry='Technology', category='Semiconductors',
+  subcategory='Electronic Compo-Semicon'`, while `AAPL` (same flat `sector='technology'`
+  bucket today) correctly separates to `category='Computers'`, and `JNJ` lands in an
+  entirely different tree (`Consumer, Non-cyclical' -> 'Pharmaceuticals' -> 'Medical-Drugs'`).
+  `src/providers/ibkr.py` doesn't currently request or store any of these three fields.
+  **Not official licensed GICS** -- IBKR's own proprietary scheme, no S&P/MSCI numeric
+  codes, unaudited against the real taxonomy -- but free, already-authorized via the
+  existing IBKR relationship, and demonstrably solves the actual problem at this project's
+  scale. Recommended sourcing path for Layer 1: this, not a paid vendor feed -- a real
+  GICS license would be disproportionate for a personal-scale project. SEC SIC codes remain
+  the documented free fallback if IBKR coverage turns out patchy for some symbols.
 
 **The build trigger already fired.** The doc's own staging section says, verbatim: "the
 current universe is ETFs, funds have no GICS... Building ahead of real candidates would
@@ -71,10 +80,11 @@ while and nobody flagged it until this session.
 This is a prioritization decision, not a design task -- the design is already done and
 reviewed twice. Needs an explicit owner call:
 
-1. **Build now** (Layer 1 at minimum): decide the GICS-sourcing path (check IBKR contract
-   metadata coverage first -- it's already-available data if it exists there, cheapest
-   option by far; vendor feed and SIC-fallback are the other two named paths), then execute
-   the small schema (three tables + seed migration + `ClassificationService`) per the
+1. **Build now** (Layer 1 at minimum): sourcing path is resolved -- IBKR's
+   `industry`/`category`/`subcategory` contract-detail fields, verified live this session
+   (see above). Confirm coverage across all 168 single-name equities (not just the 4 spot
+   checked), then execute the small schema (three tables + seed migration +
+   `ClassificationService`) per the
    existing design.
 2. **Formally defer with a real re-trigger check**, explicitly acknowledging the
    point-in-time-correctness cost of waiting (every day since the equity onboarding is
