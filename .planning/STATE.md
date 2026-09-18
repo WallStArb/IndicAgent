@@ -3,8 +3,8 @@ gsd_state_version: 1.0
 milestone: v3.1
 milestone_name: AlphaEngine Validation + Alpha Scoring
 status: milestone_complete
-stopped_at: Phase 174 context gathered
-last_updated: "2026-09-17T13:50:00.000Z"
+stopped_at: Phase 175 context gathered
+last_updated: "2026-09-18T09:51:53.092Z"
 progress:
   total_phases: 12
   completed_phases: 0
@@ -245,12 +245,13 @@ duplicated here. Currently open/not-yet-planned phases, compressed to current st
 - **Phase 151** (Feature Primitives Expansion + Interaction Layer): waves 1-5 (7/9 plans) executed 2026-08-05, `FeatureVector` 249→292 fields. Waves 6-7 (corpus recompute + interaction IC sweep) intentionally paused, sequenced behind the corpus pipeline finishing rather than run twice.
 - **Phase 145** (StratificationDimension Formalization): unblocked but not planned, not currently prioritized.
 - **Phase 174** (Universe Expansion — Single-Name Breadth Scaling + Targeted ETF Gap-Fill): added to roadmap 2026-09-13 (prescribed by the personal-scale program's kill criterion, 2026-09-12), not yet planned. See Strategic Plan section above for scoping inputs already gathered. Note: `gsd-sdk phase.add` initially returned a colliding number (162, already in use by a completed phase) — corrected to 174 by hand; see feedback queued this session.
+- Phase 175 added: ITR materiality-filtered empirical tags for breadth/peer-grouping (todo 380) — 2026-09-17, independent of Phase 174/universe expansion (project is between milestones). Deferred option (b) from todo 379's `source='human'` stopgap: orthogonalize empirical `instrument_tags` loadings against market beta and gate on incremental/partial loading with null-arm validation, rather than raw significance, so `breadth_vol.py`/`cross_sectional_regime_model.py` can re-admit empirical sensitivity signal the stopgap excludes entirely today. Not yet planned.
 
 ## Session
 
-Last session: 2026-09-14
-Stopped at: Phase 174 context gathered
-Resume file: .planning/phases/174-universe-expansion-single-name-breadth-scaling-targeted-etf-/174-CONTEXT.md
+Last session: 2026-09-18T09:51:52.984Z
+Stopped at: Phase 175 context gathered
+Resume file: .planning/phases/175-itr-materiality-filtered-empirical-tags-for-breadth-peer-gro/175-CONTEXT.md
 
 **This section has a recurring pattern of going stale the moment GSD-phase-level work pauses**
 (confirmed 3 times: 2026-07-31, 2026-08-09, 2026-08-14) -- narrative left here gets superseded by
