@@ -13,7 +13,17 @@ result. A backfill to bring OHLCV current is optional/later, not blocking. Stage
 unblocked by excluding the resulting gap dates from the analysis window, not by fixing this
 todo -- see `docs/research/measurement-statistical-factor-residual.md`.
 
-# Live ingestion consumer chain never restarted after todo 306/363's gateway fix -- 211/231 symbols have zero new bars since 2026-08-12, ongoing today
+**Current state, 2026-09-18: the 5 consumer daemons below are still down, unchanged.** A
+separate bug in `infrastructure_nightly_backfill.py` (fixed row-count cutoff instead of
+staleness ranking) had independently frozen 168/273 compute-eligible symbols since ~2026-08-10;
+fixed 2026-09-16 (commits `bcc89d650`, `61f354072`). The nightly job now correctly catches up
+20 stalest symbols/night across all their timeframes, and OHLCV is current within ~1-2 days for
+232/233 compute-eligible symbols as of today. This is batch/historical catch-up, not the live
+daemon chain coming back -- the fix below is still not done -- but the "211/231 symbols, zero
+new bars since 2026-08-12" state described below is no longer current; treat the freshness
+numbers in this section as historical evidence of the original incident, not live status.
+
+# Live ingestion consumer chain never restarted after todo 306/363's gateway fix
 
 ## What
 
@@ -75,10 +85,13 @@ data never even arriving, the same failure mode one level upstream).
    → `indicagent-bar-writer` / `indicagent-bar-aggregator` → `indicagent-bar-auditor`.
 3. Verify live: `market_data_ohlcv` `max(timestamp)` at `1m` advancing again for a broad sample
    of symbols (not just the 10-symbol backfill subset), within one polling cycle.
-4. Investigate why `nightly-backfill`'s `GEV` pull is hitting `ibkr.hist_pacing_error` --
-   possibly contention with the now-also-running live provider once it's back up, or a
-   pre-existing pacing-limit issue independent of this todo; don't conflate the two root
-   causes.
+4. `nightly-backfill`'s candidate selection changed since this was filed (fixed 2026-09-16,
+   see "Current state" above) -- it now ranks all 273 compute-eligible symbols by staleness
+   each night, not the fixed 10-symbol list this section originally found. Re-check for IBKR
+   pacing/timeout errors against current behavior rather than the old GEV-specific finding,
+   and watch for contention between the live provider and the nightly job once both run
+   concurrently (`_is_another_backfill_running()`'s mutex only guards against two backfill
+   processes, not a live provider running alongside one).
 5. Once confirmed stable, land todo 363's durable Dockerfile fix so this exact chain of
    failures (gateway wedge -> live fix -> consumers never restarted) can't repeat silently on
    the next container recreation.

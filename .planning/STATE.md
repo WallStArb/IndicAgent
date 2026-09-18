@@ -3,8 +3,8 @@ gsd_state_version: 1.0
 milestone: v3.1
 milestone_name: AlphaEngine Validation + Alpha Scoring
 status: milestone_complete
-stopped_at: Phase 175 context gathered
-last_updated: "2026-09-18T09:51:53.092Z"
+stopped_at: Phase 175 fully planned (5 plans, 4 waves), ready to execute
+last_updated: "2026-09-18T10:39:49.826Z"
 progress:
   total_phases: 12
   completed_phases: 0
@@ -50,24 +50,6 @@ any IC number here as a hard ceiling.
   Next step if pursued: a real pre-registration on the DIVERGENCE framing specifically
   (betting when coarse/fine reads disagree) — competes for priority against universe
   expansion, doesn't precede it by default.
-
-- **22 registered futures/FX instruments (ES, NQ, CL, GC, VX, Treasury/grain complex,
-  4 FX pairs) have ZERO rows in `market_data_ohlcv`/`feature_vectors`** — never
-  backfilled despite existing as instrument metadata. Real instrument count is 253
-  (231 active + 22 empty), not the ~350 previously assumed. Server headroom: 24
-  cores, 29GB RAM + 150GB swap, 569GB disk free — compute time, not disk, is the
-  constraint (full `ic_engine` recompute runs 66-77+ hours). **Not one uniform blocker
-  (corrected 2026-09-13, see [377](todos/pending/377-futures-backfill-needs-continuous-contract-construction-not-just-gateway.md)):**
-  the 4 FX pairs are spot (IDEALPRO, no roll/expiry) and blocked only on `ib-gateway`
-  being down; the 18 futures need a continuous-contract construction methodology
-  (back-adjustment choice, per-contract-month IBKR history depth, real-vs-proxy
-  forward-curve data) that doesn't exist yet — `ops_roll_batch.py` only handles live
-  forward rolls, not historical stitching. **Further narrowed same session: 14 of the
-  22 are redundant with ETFs already in the 231-symbol universe** (ES/NQ/RTY/YM vs.
-  SPY/QQQ/IWM/DIA; ZN/ZB/ZF/ZT vs. TLT/IEF/SHY; GC/SI vs. GLD/SLV; EURUSD/USDJPY vs.
-  FXE/FXY — all confirmed present) — **only CL/NG/HG/ZC/ZS/ZW/VX + GBPUSD/USDCHF (9
-  instruments) target exposures with no existing proxy.** Any future backfill should
-  target that 9, not all 22.
 
 - **CORRECTED 2026-09-16 (superseding the 2026-09-13 entry below the strikethrough
   reasoning was never actually struck, so stating it plainly): single-name equity is NOT
@@ -245,18 +227,24 @@ duplicated here. Currently open/not-yet-planned phases, compressed to current st
 - **Phase 151** (Feature Primitives Expansion + Interaction Layer): waves 1-5 (7/9 plans) executed 2026-08-05, `FeatureVector` 249→292 fields. Waves 6-7 (corpus recompute + interaction IC sweep) intentionally paused, sequenced behind the corpus pipeline finishing rather than run twice.
 - **Phase 145** (StratificationDimension Formalization): unblocked but not planned, not currently prioritized.
 - **Phase 174** (Universe Expansion — Single-Name Breadth Scaling + Targeted ETF Gap-Fill): added to roadmap 2026-09-13 (prescribed by the personal-scale program's kill criterion, 2026-09-12), not yet planned. See Strategic Plan section above for scoping inputs already gathered. Note: `gsd-sdk phase.add` initially returned a colliding number (162, already in use by a completed phase) — corrected to 174 by hand; see feedback queued this session.
-- Phase 175 added: ITR materiality-filtered empirical tags for breadth/peer-grouping (todo 380) — 2026-09-17, independent of Phase 174/universe expansion (project is between milestones). Deferred option (b) from todo 379's `source='human'` stopgap: orthogonalize empirical `instrument_tags` loadings against market beta and gate on incremental/partial loading with null-arm validation, rather than raw significance, so `breadth_vol.py`/`cross_sectional_regime_model.py` can re-admit empirical sensitivity signal the stopgap excludes entirely today. Not yet planned.
+- Phase 175 added: ITR materiality-filtered empirical tags for breadth/peer-grouping (todo 380) — 2026-09-17, independent of Phase 174/universe expansion (project is between milestones). Deferred option (b) from todo 379's `source='human'` stopgap: orthogonalize empirical `instrument_tags` loadings against market beta and gate on incremental/partial loading with null-arm validation, rather than raw significance, so `breadth_vol.py`/`cross_sectional_regime_model.py` can re-admit empirical sensitivity signal the stopgap excludes entirely today. **Fully planned 2026-09-18** (5 plans, 4 waves, shadow-mode ITR materiality filter, wave-dependency-annotated in ROADMAP.md, two review-revision rounds) — ready for `/gsd-execute-phase 175`.
 
 ## Session
 
-Last session: 2026-09-18T09:51:52.984Z
-Stopped at: Phase 175 context gathered
-Resume file: .planning/phases/175-itr-materiality-filtered-empirical-tags-for-breadth-peer-gro/175-CONTEXT.md
+Last session: 2026-09-18
+Stopped at: Phase 175 fully planned (5 plans, 4 waves), ready to execute
+Resume file: .planning/phases/175-itr-materiality-filtered-empirical-tags-for-breadth-peer-gro/ (5 PLAN.md files)
 
 **This section has a recurring pattern of going stale the moment GSD-phase-level work pauses**
-(confirmed 3 times: 2026-07-31, 2026-08-09, 2026-08-14) -- narrative left here gets superseded by
-the Strategic Plan section and rots undetected. **Check the Strategic Plan section at the top of
-this file first, always** -- it is the one kept live. GSD-phase-level work resumed 2026-09-14
-after idling since Phase 172 (2026-08-09) -- Phase 174 (Universe Expansion) now has context
-gathered, ready for `/gsd-plan-phase 174`. Resolved incident narrative belongs in memory (e.g.
-`project_disk_full_incident_2026_08_13`) or git log, not here.
+(confirmed 4 times now: 2026-07-31, 2026-08-09, 2026-08-14, 2026-09-18) -- narrative left here
+gets superseded by the Strategic Plan section and rots undetected. **Check the Strategic Plan
+section at the top of this file first, always** -- it is the one kept live. **Root cause found
+2026-09-18** (todo 383): `gsd-sdk query state.planned-phase` (the command `/gsd-plan-phase`'s own
+step 13b relies on to update this section) does field-label string-matching against `Status:`/
+`Total Plans in Phase:`/a `## Current Position` section that this project's STATE.md has never
+used -- it silently no-ops (`"updated": []`) on every invocation against this file's actual
+`## Session`/`Stopped at:` format, every single phase, not just occasionally. Phase 174
+(Universe Expansion) is long since fully executed and closed (D-10 failed, cross-asset pivot,
+see Strategic Plan section) -- this section previously still described it as "context gathered,"
+which was the same stale-tool symptom one phase earlier. Resolved incident narrative belongs in
+memory (e.g. `project_disk_full_incident_2026_08_13`) or git log, not here.

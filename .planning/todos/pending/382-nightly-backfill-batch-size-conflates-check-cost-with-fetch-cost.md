@@ -1,0 +1,104 @@
+---
+status: pending
+priority: P0
+filed: 2026-09-18
+source: manual corpus data audit this session (user asked "are there any gaps we need to
+  backfill") -- surfaced that the 2026-09-16 nightly-backfill ranking fix (commits
+  bcc89d650, 61f354072) hasn't actually closed the freshness gap it was meant to close
+---
+
+# Nightly OHLCV backfill's `batch_size=20` throttles the wrong resource -- 151/233 compute-eligible symbols still silently stuck at the original 2026-08-10/12 freeze, job reports `status=success` every night regardless
+
+## What
+
+`infrastructure_nightly_backfill.py`'s 2026-09-16 fix (replacing a permanent row-count cutoff
+with staleness-based ranking) was correct as far as it went, but it left the underlying design
+flaw untouched: `_select_next_batch()` does `ORDER BY staleness ASC LIMIT batch_size` at the SQL
+level, capping how many symbols get looked at, not how much IBKR fetch work gets done. Verified
+live 2026-09-18, two nights after the ranking fix landed:
+
+```
+total compute-eligible (is_active AND compute_eligible): 233
+fresh (<=3 days stale on 1h):                             82
+stuck at the original freeze (>30 days, exactly 2026-08-10/11/12 across ALL 4 tfs): 151
+```
+
+151/233 (65%) of the corpus ic_engine is currently training against has had zero new OHLCV bars
+in 37+ days, and the job has logged `job_completed_total{job="nightly-backfill",status="success"}`
+every single night throughout, including the two nights since the "fix" landed. Silent wrong
+answer, not a loud failure -- exactly the failure mode CLAUDE.md's design mindset calls out as
+worse than a crash.
+
+**Root cause: the batch-size throttle was sized for the wrong operation.** `detect_gaps()` is
+documented as a near-zero-cost no-op on any symbol that's already current -- the actual
+rate-limited resource is IBKR historical-data fetch volume, not "number of symbols examined."
+`batch_size=20` was evidently picked to bound fetch risk during a large backlog pull, then
+reused unexamined as the nightly steady-state cadence. With 233 symbols / 20 per night, the
+design *mathematically guarantees* a permanent ~12-day (`ceil(233/20)`) staleness sawtooth once
+caught up -- it will never converge tighter than that, by construction, regardless of how many
+more nights pass.
+
+**Not a neutral/random gap.** The 151 stuck symbols are exactly the ones that historically had
+*more* 1h rows (crossed the old 150K cutoff earliest -- longer-tenured, more mature names). The
+82 fresh symbols skew toward recently onboarded, thinner-history names (VIXY/EMLC among them).
+Any downstream measurement sensitive to how current a symbol's data is near the training-window
+boundary is currently getting systematically fresher data for new/thin instruments and
+systematically stalest data for old/thick ones -- a correlated bias sitting inside the same
+population the in-flight `ic_engine` full-corpus run (todo 378's chain) is training against
+right now.
+
+**No instrumentation would have caught this without a manual audit.** There is no
+`corpus_ohlcv_staleness_days`-shaped gauge or `alert.lag.*`-style APR threshold for batch
+corpus freshness, unlike the service-lag pattern already established for live daemons
+(`_load_lag_thresholds()` in `service_auditor.py`). This is the same "instrument everything"
+gap, just never pointed at this particular pipe.
+
+## Fix shape (discussed and agreed with user this session, not yet implemented)
+
+Apply Musk's 5-step mandate in order (per this project's own prioritization lens):
+
+1. **Question the requirement.** The real requirement is "corpus staleness for any
+   compute-eligible symbol should never silently exceed N days" -- not "backfill 20 symbols a
+   night." Nobody had written that requirement down; that's why nothing checks it.
+2. **Delete** the `LIMIT batch_size` cap on *candidate selection* in `_select_next_batch()`.
+   Checking staleness for all 233 symbols is cheap; there's no reason to throttle it.
+3. **Simplify** to one mechanism instead of two conflated regimes (backlog-clearing vs.
+   steady-state trickle): iterate all compute-eligible symbols in staleness order every night,
+   dispatch fetches, and stop only when an actual IBKR fetch/pacing budget is exhausted --
+   not when a symbol-count cap is hit. A bad night with a real backlog naturally spends the
+   budget on fewer symbols; a normal night covers everyone because most cost ~0.
+4. **Accelerate**: once (3) lands, steady-state staleness converges to whatever IBKR pacing
+   capacity actually allows (likely same-day-to-1-day for the full population) instead of a
+   guaranteed ~12-day floor, with no further design change needed as the universe grows.
+5. **Automate**: add a point gauge (`corpus_ohlcv_staleness_days{symbol}`, OTel `.set()`
+   pattern already used elsewhere) plus an `alert.lag.*`-style APR threshold, so a repeat of
+   this exact class of silent-success-while-stale bug pages someone instead of waiting for a
+   manual audit.
+
+**Separately, force a real decision on todo 366's status** -- it's been sitting P2 "not urgent"
+since 2026-09-01 with the 5 live consumer daemons (`ibkr-provider`/`provider-merger`/
+`bar-writer`/`bar-aggregator`/`bar-auditor`) in an undefined limbo state (disabled but not
+archived, no reactivation date). Either give them a real reactivation deadline, or mark them
+ARCHIVED like the rest of the v2.x stack and make the nightly batch mechanism the documented
+sole ingestion path -- the current ambiguous state is part of why the staleness bug above went
+unnoticed for a month; nobody owns verifying corpus freshness because it's unclear which system
+is supposed to be providing it.
+
+## Before implementing
+
+Pull the actual IBKR historical-data pacing limits this codebase's `ibkr.py`/gateway usage
+assumes (rate per unique contract/tf pair, requests per rolling window) before picking a
+concrete budget unit for step 3 above -- don't guess a number.
+
+## References
+
+- `scripts/infrastructure/backfill/infrastructure_nightly_backfill.py` --
+  `_select_next_batch()`, `_load_config()`, `_DEFAULT_BATCH_SIZE`
+- `infra.ibkr.nightly_backfill_batch_size` APR key (migration 304)
+- Commits `bcc89d650`, `61f354072` -- 2026-09-16 ranking fix (necessary but insufficient)
+- [366](366-live-ingestion-consumer-services-never-restarted-after-gateway-fix.md) -- live
+  daemon chain status decision, tracked separately, referenced above
+- `services/service_auditor.py` -- `_load_lag_thresholds()`, the existing lag-alerting pattern
+  to extend to batch corpus freshness
+- `project_ibkr_live_ingestion_stalled_2fa` memory -- corrected 2026-09-18 with this session's
+  findings
