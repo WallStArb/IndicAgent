@@ -2840,6 +2840,35 @@ Plans:
 
 - [ ] 174-12-PLAN.md — Draw, onboard and backfill the sampled universe (1d-only); `compute_1d`-gated promotion. Structurally blocked: `alpha.universe.target_sample_size` stays 0 per D-01 since D-10 FAILED, and this plan's own crash-loud guard (Plan 08) refuses to run at that value.
 
+### Phase 175: ITR materiality-filtered empirical tags for breadth/peer-grouping (todo 380)
+
+**Goal:** Design and implement a materiality filter for empirical `instrument_tags` rows so
+`src/intelligence/regime_signals/breadth_vol.py` (equity breadth) and
+`services/cross_sectional_regime_model.py` (peer-group resolution for all 4 regime groups)
+can safely re-admit real empirical sensitivity signal that todo 379's `source='human'`-only
+stopgap excludes entirely today. Three independent cross-AI reviews (Codex, Fable, AGY)
+converged on the same shape when reviewing that stopgap: orthogonalize a candidate's
+empirical factor loading against market beta first, then gate on the *incremental*/partial
+loading (not raw significance — `passes_fdr` alone reproduces the `ic_engine.py` routing
+bug's own finding that significance and materiality are different questions at n=250+),
+plus a peer-relative check and mandatory null-arm (scrambled-data) validation before the
+filter ever gates a live regime label. Reuse one filter implementation across both
+consumers, calibrated to a stricter bar for `breadth_vol.py` (a single aggregate
+multiplying error downstream) than for `cross_sectional_regime_model.py`'s smaller,
+group-scoped peer pools.
+**Requirements**: See `.planning/todos/pending/380-itr-materiality-filtered-empirical-tags-and-eq-prefix-naming-collision.md`
+for the full design record (all three reviewers' complete proposals) and
+`docs/plans/2026-09-17-itr-source-filter-breadth-peer-grouping-design.md` for the
+original stopgap's design doc this phase extends.
+**Depends on:** None (todo 379's stopgap, already shipped 2026-09-17 commit `d1ce8d6bb`,
+is the only prerequisite). Independent of Phase 174/universe expansion — the project is
+between milestones; this is its own smaller thread, not gated on or gating universe
+expansion.
+**Plans:** 0 plans
+
+Plans:
+- [ ] TBD (run /gsd-plan-phase 175 to break down)
+
 ---
 
 **Correction (2026-07-12, same day as the note above was first written):** this section previously said Phases 152/153 should be **prioritized now**, ahead of the intelligence-layer work. That was wrong and contradicted the milestone bullet above's own existing, correct caution ("Do not let either jump ahead of Phase 142B/143 or 148, which carry present-tense value the backlog matrix rates higher"). Monitoring decay of alpha that hasn't been proven to exist yet is monitoring a null: Phase 148's OOS gates (EIC-04 + FRAME-04) have not passed on corrected data — **FRAME-04 currently fails 16/17 cells** on the pre-143.1-fix baseline, so there is no proven capturable edge for 152/153 to watch decay in yet. **Corrected sequencing:** finish 143.1 (091→097→094→E1-vs-E2 re-run→096→088) → re-run EIC-04/FRAME-04 honestly on corrected data → only then decide between (a) building 152/153's decay/health monitoring or (b) expanding discovery (Phase 151/PrecedentEngine) based on what that gate actually says. Phase 157's kill-switch design above still correctly notes its dependency on Phase 153 eventually existing — that dependency is real, it's just not a reason to build 153 before Phase 148 resolves.
