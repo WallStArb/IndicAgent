@@ -2856,7 +2856,10 @@ filter ever gates a live regime label. Reuse one filter implementation across bo
 consumers, calibrated to a stricter bar for `breadth_vol.py` (a single aggregate
 multiplying error downstream) than for `cross_sectional_regime_model.py`'s smaller,
 group-scoped peer pools.
-**Requirements**: See `.planning/todos/pending/380-itr-materiality-filtered-empirical-tags-and-eq-prefix-naming-collision.md`
+**Requirements**: P175-01 through P175-08, synthesized in `175-RESEARCH.md`'s
+`<phase_requirements>` section from CONTEXT.md's D-01 through D-07 plus folded todos 125/126
+(this project has no `.planning/REQUIREMENTS.md`). See
+`.planning/todos/pending/380-itr-materiality-filtered-empirical-tags-and-eq-prefix-naming-collision.md`
 for the full design record (all three reviewers' complete proposals) and
 `docs/plans/2026-09-17-itr-source-filter-breadth-peer-grouping-design.md` for the
 original stopgap's design doc this phase extends.
@@ -2864,10 +2867,18 @@ original stopgap's design doc this phase extends.
 is the only prerequisite). Independent of Phase 174/universe expansion — the project is
 between milestones; this is its own smaller thread, not gated on or gating universe
 expansion.
-**Plans:** 0 plans
+**Scope note:** shadow mode only (D-03). This phase ships the Pass 4 measurement, the
+evidence schema, the seeded thresholds, the null-arm control and a read-only diagnostic.
+Cutting either consumer's live query over is explicitly a separate, later phase gated on
+this phase's diagnostic output plus the D-07 cross-AI review.
+**Plans:** 5 plans in 4 waves
 
 Plans:
-- [ ] TBD (run /gsd-plan-phase 175 to break down)
+- [ ] 175-01-PLAN.md - migration 346: instrument_tags evidence columns, instrument_tags_active view, 10 materiality APR keys (wave 1)
+- [ ] 175-02-PLAN.md - factor_math Pearson partial-loading kernel, sign-stability windows, circular-shift null arm (wave 1)
+- [ ] 175-03-PLAN.md - TagCalibrator Pass 4: control matrix, measurement loop, gates, persistence, discovery_state promotion (wave 2)
+- [ ] 175-04-PLAN.md - read-only shadow diagnostic: per-group membership delta and gate attribution (wave 3)
+- [ ] 175-05-PLAN.md - ITR spec, APR calibration backlog, CLAUDE.md, close todos 125/126, re-scope 380 (wave 4)
 
 ---
 
