@@ -2,11 +2,13 @@
 
 **Status:** Idea -- survey, not designed to implementation-readiness. None of these have had
 a rigor pass (Fable or otherwise) yet, unlike the sibling doc this survey grew out of.
-**Author:** Claude (Sonnet 5), interactive session, 2026-09-18.
+**Author:** Claude (Sonnet 5), interactive session, 2026-09-18. Item #6 added same day,
+surfaced during Phase 175's D-07 cross-AI review while explaining why the sign-stability gate
+exists.
 **Origin:** Follow-on to `docs/ideas/signal-sensitivity-regime-interaction-primitives.md`
 (that doc's Fable rigor pass, same session). User asked, after that review landed: are there
 ways to extend the ITR *concept* itself, beyond one interaction-feature idea, at
-Renaissance/Simons-grade rigor? This doc is the answer -- a ranked survey of five candidate
+Renaissance/Simons-grade rigor? This doc is the answer -- a ranked survey of candidate
 extensions, cross-checked against what's already documented so it doesn't duplicate existing
 design work.
 
@@ -20,11 +22,12 @@ storing, and validating instrument classification claims as rigorously as it cou
 same "why is this a permanent guess when it's measurable" reframe ITR already applies to
 instrument classification, applied recursively to ITR's own machinery.
 
-Five candidates came out of that pass. Two (regime-conditioned betas, mutual-information
+Six candidates are catalogued here. Two (regime-conditioned betas, mutual-information
 measurement) already have real design work behind them and just need scheduling or
-narrow-vs-broad scoping. Three (point-in-time history, walk-forward re-validation,
-cross-tag collinearity) are genuinely new -- flagged at most as a one-line gap, if flagged at
-all -- and get a real design sketch here rather than a one-paragraph pitch.
+narrow-vs-broad scoping. Four (point-in-time history, walk-forward re-validation,
+cross-tag collinearity, instrument-level structural break detection) are genuinely new --
+flagged at most as a one-line gap, if flagged at all -- and get a real design sketch here
+rather than a one-paragraph pitch.
 
 This is not a plan doc. Nothing here has a task breakdown, an APR key list, or a migration
 number. Per this project's own graduation discipline, that comes after a rigor pass and a
@@ -183,15 +186,65 @@ downstream de-duplication before they're both allowed into the same feature/gate
 
 ---
 
+### 6. Instrument-level structural break detection -- new, distinct from TAG-02's regime-conditioning
+
+**Current state:** not documented anywhere. Surfaced 2026-09-18 during Phase 175's D-07
+cross-AI review, discussing why Pass 4's sign-stability gate exists at all.
+
+**Why this is a different problem from TAG-02 (#2 above), not a restatement of it.** TAG-02
+conditions the SAME instrument's SAME business on a market-wide state variable -- TLT's
+`rate_sensitive` beta legitimately differs between a flight-to-quality regime and a calm one,
+but TLT is still a Treasury bond ETF the whole time. This candidate is about a different axis
+entirely: the instrument's own underlying business or asset composition changing, independent
+of any market regime. The canonical example: MSTR was an enterprise software company through
+roughly 2020, then became functionally a leveraged Bitcoin-treasury vehicle -- a company-level
+structural break, not a shift in market conditions. Nothing about the market changed; MSTR
+did.
+
+**Why this matters for Phase 175 specifically.** R-07 (see `175-03-PLAN.md`) chose full
+available history for Pass 4's regression, specifically so the 4x252-day sign-stability
+windows and the 756-observation floor have room to exist. This is the right call for the
+gate's stated purpose (distrust a short track record), but it has a real, undocumented-until-
+now cost: a symbol whose business genuinely changed can take years to accumulate enough
+sign-stable windows even when its CURRENT sensitivity is completely real, because pre-change
+history (when the relationship legitimately did not exist, or pointed a different direction)
+dilutes the aggregate statistic and can fail the sign-stability gate outright. The gate is
+correctly skeptical of a short record; it just cannot currently tell "short record because
+the relationship is new and unproven" apart from "short record because the company's own
+identity changed and the old history is genuinely irrelevant now."
+
+**What a fix looks like, sketched (not designed):** changepoint-aware history truncation --
+detect a structural break in the instrument's own return-generating process (a formal
+changepoint test, e.g. on rolling volatility/correlation structure against a broad-market
+proxy, is the natural starting point rather than inventing a bespoke method) and, once
+detected, treat data before the break as a different "instrument-era" for materiality
+purposes -- not silently discarded, but not diluting a real current relationship either. This
+is a narrower, more surgical tool than TAG-02: TAG-02 conditions an ongoing relationship on
+recurring regimes; this candidate identifies a ONE-TIME break in a specific instrument's
+own history and stops treating pre-break data as informative about the post-break relationship.
+
+**Not urgent, not common:** MSTR-style total business-model pivots are rare in this project's
+231-symbol equity-heavy universe (most candidates are ETFs, whose mandates rarely change this
+drastically). Worth documenting now because it was found via direct reasoning about why the
+sign-stability gate exists, not because a live symbol has hit this failure mode yet -- flag it
+for whoever eventually re-calibrates the materiality thresholds against real corpus data (the
+`docs/foundation/apr-calibration-backlog.md` follow-up Phase 175's own APR keys are routed to)
+to check whether any live symbol's measured loading looks suppressed by this effect before
+treating a "fails materiality" result as ground truth.
+
+---
+
 ## Recommendation, unchanged from the conversation this doc consolidates
 
-Do #1 first, deliberately, before the others. It's the cheapest of the three genuinely new
+Do #1 first, deliberately, before the others. It's the cheapest of the genuinely new
 ideas, it's been surfaced independently twice now (the spec's own known-gaps bullet, and
 Fable's review), and #4 is not buildable without it. #2 needs a scheduling decision, not new
 design work -- read TAG-02 before treating the interaction-primitive doc's first test as the
-only path forward. Hold #3's broad-MI question and #5 until a concrete candidate actually
-needs them, per this project's own "earn promotion through proof" discipline -- don't build
-general infrastructure speculatively.
+only path forward. Hold #3's broad-MI question, #5, and #6 until a concrete candidate
+actually needs them, per this project's own "earn promotion through proof" discipline --
+don't build general infrastructure speculatively. #6 specifically has no known live trigger
+yet (see its own section) -- it's here so the cost of R-07's full-history choice is on
+record, not because anything needs building now.
 
 ---
 
@@ -208,4 +261,8 @@ general infrastructure speculatively.
 - `.planning/todos/pending/380-itr-materiality-filtered-empirical-tags-and-eq-prefix-naming-
   collision.md` and Phase 175 -- the active work this doc's #1 and #5 both connect to
   (materiality filtering needs #5's discipline generalized; the shadow-mode diagnostic Phase
-  175 builds would be a natural place to also surface #1's history, once it exists).
+  175 builds would be a natural place to also surface #1's history, once it exists). #6's
+  R-07 caveat lives directly in `175-03-PLAN.md`, not just here.
+- `docs/foundation/apr-calibration-backlog.md` -- where #6 suggests checking, once Phase
+  175's materiality thresholds are re-calibrated against real corpus data, whether any live
+  symbol's measured loading looks suppressed by an undetected structural break.
