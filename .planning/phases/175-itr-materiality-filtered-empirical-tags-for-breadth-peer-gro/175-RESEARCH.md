@@ -60,9 +60,11 @@ machinery already in `_apply_decision`.
 | Orthogonalized/partial loading computation | Database/Storage-adjacent batch compute (`TagCalibrator`, a `BaseBatch` oneshot) | — | Matches D-01: one measurement engine, not per-consumer duplication; same tier as existing Pass 1-3 |
 | Evidence persistence (new columns) | Database/Storage (`instrument_tags` schema via migration) | — | Same table, same lifecycle machinery (hysteresis, `valid_to`) as existing empirical rows |
 | Materiality threshold application | API/Backend batch consumers (`breadth_vol.py`, `cross_sectional_regime_model.py`) — but shadow-mode diagnostic only this phase | Database/Storage (read-time `WHERE` clause) | D-02: consumers apply their own cutoff at read time against the persisted statistic; no live query change ships this phase |
-| Null-arm validation | Analysis/offline (`scripts/analysis/`, not a live daemon) | — | Matches `tsmom_per_symbol_ic_screen.py`'s existing placement — a one-off validation script, not part of the production DAG |
+| Null-arm validation | **OVERRIDDEN, see note below.** As researched: Analysis/offline (`scripts/analysis/`, not a live daemon) | — | Matches `tsmom_per_symbol_ic_screen.py`'s existing placement — a one-off validation script, not part of the production DAG |
 | APR threshold storage | Database/Storage (`config_schema`/`config_state`) | — | Standard APR pattern; `ConfigService` is the sole read path |
 | Shadow-mode diagnostic | Analysis/offline (new script under `scripts/analysis/`) | — | Read-only, reports what-would-change; explicitly not a consumer, not a writer |
+
+> **R-02 override (plan 03, 175-03-PLAN.md):** the planner overrode the null-arm row above. The D-06 circular-shift null arm runs **inline inside `TagCalibrator.execute()`** as part of Pass 4, not as an offline `scripts/analysis/` step. Rationale and the cost argument that makes it affordable across the whole corpus are in plan 03's R-02 resolution; plan 02's vectorized partial-loading primitive is what brings the Monte-Carlo draw cost into range. `null_arm_p_value` is therefore written on every `TagCalibrator` run rather than refreshed periodically. Treat this row as historical research framing, not as the shipped tier assignment.
 
 <user_constraints>
 ## User Constraints (from CONTEXT.md)
@@ -554,9 +556,12 @@ retire).
 
 **If this table is empty:** N/A — see rows above.
 
-## Open Questions
+## Open Questions (RESOLVED)
+
+All three were resolved during planning. Each carries an inline `RESOLVED:` pointer to the plan and resolution ID that closed it. The resolutions themselves are subject to the P175-08 / D-07 cross-AI review gate documented in 175-05-PLAN.md, which must clear before Wave 1 executes.
 
 1. **Pearson vs. Spearman convention for the new `partial_loading` column**
+   - RESOLVED: Pearson, on centered raw returns, via a new `factor_math.py` sibling to `partial_spearman_ic` rather than reuse of the rank-based function. See plan 02 (175-02-PLAN.md) resolution R-01.
    - What we know: `partial_spearman_ic` (rank-based) exists and directly implements the
      orthogonalize-then-correlate shape; Pass 1's existing `standardized_loading` (raw/Pearson)
      is what `loading_threshold=0.2` was informally calibrated against for every currently-live
@@ -573,6 +578,7 @@ retire).
      kind of ambiguous, hard statistical-design question D-07 flags for Fable's review.
 
 2. **Does Pass 4 run inline in `TagCalibrator.execute()` or as an offline follow-up pass?**
+   - RESOLVED: inline. The whole of Pass 4, null arm included, runs inside `TagCalibrator.execute()`; this recommendation was overridden. See plan 03 (175-03-PLAN.md) resolution R-02, and the override note on the Architectural Responsibility Map above.
    - What we know: D-01 says "4th pass" inside `TagCalibrator` — implying inline, same run.
      But the sign-stability check (Pitfall 3) needs N re-computations per pair on historical
      windows, and the null-arm check (D-06) needs N=1000 circular-shift draws per pair — both
@@ -593,6 +599,7 @@ retire).
      rather than every run. This needs explicit resolution in the plan, not left implicit.
 
 3. **How many control factors, and does the commodity leg matter in practice?**
+   - RESOLVED: four legs only (SPY, TLT, HYG-IEF, UUP), no DBC, stored as the `control_factor_series` APR JSON behavioral list so a fifth leg is an APR edit rather than a code change. See plan 01 (175-01-PLAN.md) resolution R-03.
    - What we know: SPY/TLT/HYG-IEF/UUP are wired and available; commodity broad has no
      `factor_series` proxy today.
    - What's unclear: Whether omitting a commodity control leg materially changes results for
