@@ -3,8 +3,8 @@ gsd_state_version: 1.0
 milestone: v3.1
 milestone_name: AlphaEngine Validation + Alpha Scoring
 status: milestone_complete
-stopped_at: Phase 175 planned + Codex/AGY D-07 review applied + re-verified (0 blockers); Fable's leg of D-07 dispatched, not yet returned -- not ready to execute until it lands
-last_updated: "2026-09-18T15:10:00.000Z"
+stopped_at: Phase 175 fully planned, D-07 gate cleared (Codex+AGY+Fable all reviewed, all findings applied+re-verified), genuinely ready for /gsd-execute-phase 175
+last_updated: "2026-09-18T16:25:00.000Z"
 progress:
   total_phases: 12
   completed_phases: 0
@@ -227,12 +227,12 @@ duplicated here. Currently open/not-yet-planned phases, compressed to current st
 - **Phase 151** (Feature Primitives Expansion + Interaction Layer): waves 1-5 (7/9 plans) executed 2026-08-05, `FeatureVector` 249→292 fields. Waves 6-7 (corpus recompute + interaction IC sweep) intentionally paused, sequenced behind the corpus pipeline finishing rather than run twice.
 - **Phase 145** (StratificationDimension Formalization): unblocked but not planned, not currently prioritized.
 - **Phase 174** (Universe Expansion — Single-Name Breadth Scaling + Targeted ETF Gap-Fill): added to roadmap 2026-09-13 (prescribed by the personal-scale program's kill criterion, 2026-09-12), not yet planned. See Strategic Plan section above for scoping inputs already gathered. Note: `gsd-sdk phase.add` initially returned a colliding number (162, already in use by a completed phase) — corrected to 174 by hand; see feedback queued this session.
-- Phase 175 added: ITR materiality-filtered empirical tags for breadth/peer-grouping (todo 380) — 2026-09-17, independent of Phase 174/universe expansion (project is between milestones). Deferred option (b) from todo 379's `source='human'` stopgap: orthogonalize empirical `instrument_tags` loadings against market beta and gate on incremental/partial loading with null-arm validation, rather than raw significance, so `breadth_vol.py`/`cross_sectional_regime_model.py` can re-admit empirical sensitivity signal the stopgap excludes entirely today. **Planned 2026-09-18** (5 plans, 4 waves, shadow-mode ITR materiality filter, wave-dependency-annotated in ROADMAP.md, two review-revision rounds). **D-07 cross-AI review, same day: Codex + AGY reviewed the plan set (175-REVIEWS.md), 6 confirmed findings applied in a revision pass, re-verified clean (0 blockers, both follow-up warnings closed).** D-07's own text requires Fable alongside Codex/AGY -- Fable had reviewed a different, related doc earlier the same session (the interaction-primitives idea doc) but had NOT yet reviewed this plan set itself when the phase was first called "ready to execute" -- that was premature. Fable's review of the actual plan set was dispatched same-session as a correction; check its outcome before trusting "ready for `/gsd-execute-phase 175`" from any earlier note.
+- Phase 175 added: ITR materiality-filtered empirical tags for breadth/peer-grouping (todo 380) — 2026-09-17, independent of Phase 174/universe expansion (project is between milestones). Deferred option (b) from todo 379's `source='human'` stopgap: orthogonalize empirical `instrument_tags` loadings against market beta and gate on incremental/partial loading with null-arm validation, rather than raw significance, so `breadth_vol.py`/`cross_sectional_regime_model.py` can re-admit empirical sensitivity signal the stopgap excludes entirely today. **Planned 2026-09-18** (5 plans, 4 waves, shadow-mode ITR materiality filter, wave-dependency-annotated in ROADMAP.md, two review-revision rounds). **D-07 cross-AI review, same day: Codex + AGY reviewed the plan set (175-REVIEWS.md), 6 confirmed findings applied in a revision pass, re-verified clean (0 blockers, both follow-up warnings closed).** D-07's own text requires Fable alongside Codex/AGY -- Fable had reviewed a different, related doc earlier the same session (the interaction-primitives idea doc) but had NOT yet reviewed this plan set itself when the phase was first called "ready to execute" -- that was premature. **Fable then reviewed the plan set directly (fresh pass, not shown prior findings), confirmed no remaining NameError-class bug, and cleared the D-07 gate conditional on 2 text-only amendments (sign-stability "sliding bar" -> "discrete step at n=1008"; a point-in-time/lookahead precondition added to todo 380 for the deferred cutover phase), both applied same-session (`be50af233`).** All three required reviewers have now actually reviewed this plan set -- "ready for `/gsd-execute-phase 175`" is current and correct as of this note.
 
 ## Session
 
 Last session: 2026-09-18
-Stopped at: Phase 175 planned + Codex/AGY D-07 review applied + re-verified (0 blockers); Fable's leg of D-07 dispatched, outcome not yet known as of this note
+Stopped at: Phase 175 fully planned, D-07 gate cleared (Codex+AGY+Fable), ready for /gsd-execute-phase 175
 Resume file: .planning/phases/175-itr-materiality-filtered-empirical-tags-for-breadth-peer-gro/ (5 PLAN.md files, 175-REVIEWS.md)
 
 **This section has a recurring pattern of going stale the moment GSD-phase-level work pauses**
