@@ -128,6 +128,22 @@ structural `checkpoint:human-action` gate in plan 01 (P175-08 / D-07): the Fable
 Codex/AGY cross-AI review of the finished plan set has not happened yet. This todo stays
 `pending` -- the work has a home now, but isn't done.
 
+**Update 2026-09-18 (Fable's D-07 pass on the finished plan set, after Codex/AGY's):** clears
+the gate, with one precondition recorded here for whoever eventually scopes the deferred
+consumer-cutover phase this todo's Part 1 explicitly defers to. `instrument_tags` has no
+point-in-time history -- every column, including Phase 175's new Pass 4 evidence, reflects
+"as of the most recent `TagCalibrator` run," overwritten in place. Because Pass 4 measures
+against a symbol's full available history (R-07) rather than a fixed lookback, a
+`passes_materiality=true` flag can rest on 3+ years of accumulated data. **Any future consumer
+that uses `instrument_tags` to reconstruct historical group membership must not treat today's
+flag as if it held throughout that full measurement window** -- doing so would bake
+lookahead/survivorship bias directly into peer-group membership (a symbol only becomes
+"eligible" retroactively once enough history has accumulated to prove it, backwards for a
+backtest). This does not block Phase 175 itself (shadow-mode, no live consumer reads this
+evidence yet) but must be resolved before the cutover phase lets any consumer use this
+evidence for anything beyond the live "current membership" diagnostic Phase 175 ships. See
+`docs/ideas/itr-extension-opportunities.md` #1 (point-in-time history) for the candidate fix.
+
 Part 2 (`eq_*` naming collision) stays resolved as a documentation note, unchanged from the
 re-verification above -- not folded into Phase 175, no action needed.
 

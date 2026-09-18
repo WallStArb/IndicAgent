@@ -1,7 +1,9 @@
 ---
 phase: 175
-reviewers: [codex, antigravity]
+reviewers: [codex, antigravity, fable]
 reviewed_at: 2026-09-18T14:00:57Z
+fable_reviewed_at: 2026-09-18T16:20:00Z
+gate_status: cleared
 plans_reviewed: [175-01-PLAN.md, 175-02-PLAN.md, 175-03-PLAN.md, 175-04-PLAN.md, 175-05-PLAN.md]
 ---
 
@@ -288,7 +290,7 @@ written.
 - The `config_history` gap (AGY suggestion 4) was confirmed real: Plan 01's own `<read_first>`
   names the 3-table pattern it should follow but the action text only implements 2 of 3.
 
-## Recommendation
+## Recommendation (original, Codex + AGY pass)
 
 **Do not execute as-is.** Two CONFIRMED blocking issues in Plan 03 (D-01 measurement-universe
 ambiguity; `factor_series_cache` undefined at the point it's used) and one CONFIRMED-real
@@ -298,3 +300,54 @@ explicit decision (not silent resolution either way).
 
 Route back through `/gsd:plan-phase 175 --reviews` to apply these fixes, then re-run the
 plan-checker before clearing the D-07 gate for real.
+
+---
+
+## Fable Review (independent third pass, after the revision above)
+
+D-07's own text requires Fable alongside Codex/AGY. All 6 confirmed findings above were
+applied in a revision pass (`1e7dc064c`) and re-verified clean by the plan-checker (0
+blockers, 2 warnings, both closed in `e23ebcf3b`). Fable then independently reviewed the
+resulting, revised plan set -- not shown this file, not told what was already fixed, a
+genuinely fresh pass -- specifically re-checking whether the `factor_series_cache`-class
+ordering bug (found three separate times across the Codex/AGY/re-verification passes) had a
+fourth instance.
+
+**Verdict: clears the D-07 gate**, conditional on two small text-only amendments (both
+applied same-session, see below). Risk assessment: LOW.
+
+**Confirmed, independently re-derived, not just re-verified from the earlier findings:**
+- No NameError-class bug remains -- spot-checked Task 1(e)/Task 2(e) against live
+  `services/tag_calibrator.py` line-for-line; the ordering fix from the prior revision holds.
+- The sign-stability gate's "sliding bar" framing was mathematically imprecise: `1007/252 =
+  3.996` (floor 3), `1008/252 = 4.0` exactly -- `n_evaluable` jumps from 3 to 4 as a hard step
+  at `n=1008`, not a gradual slide. The underlying design decision (unchanged threshold,
+  documented as deliberate) was correct; only the descriptive language was wrong. **Fixed
+  same-session** in `175-03-PLAN.md`, `175-04-PLAN.md`, `175-05-PLAN.md` -- "sliding bar"
+  replaced with "discrete step at n=1008" everywhere the claim is made (test-name labels left
+  as-is, since a label isn't a claim about the shape of the effect).
+
+**New finding, HIGH severity but correctly scoped as NOT blocking this phase:** `instrument_tags`
+has no point-in-time versioning; Pass 4's full-history measurement window (R-07) means a
+`passes_materiality=true` flag can rest on 3+ years of data. Nothing in this phase's exit
+criteria required the eventual consumer-cutover phase to avoid treating today's flag as if it
+held throughout that window -- a real lookahead/survivorship risk for whoever picks up that
+phase, not for this shadow-mode one. **Fixed same-session**: added as an explicit precondition
+in todo 380's status section, pointing at `itr-extension-opportunities.md` #1 (point-in-time
+history) as the candidate fix.
+
+**Noted, not required to fix:** a residual, unverified (Fable's own label: SUSPICION, not
+independently tested against corpus data) concern about Pearson correlation's outlier
+sensitivity for the specific gate this phase ships; a LOW-severity gap where the `keep`
+recomputation Task 2(e) instructs is prose-only, not grep-enforced (matches this plan's
+own established discipline elsewhere, worth picking up in the executor's own diligence);
+a LOW-severity observation that `null_arm_passes_fdr` is a transient computed field, not a
+persisted column, so `passes_materiality`'s full justification isn't reconstructable from
+`instrument_tags` alone after the fact. None of these block Wave 1.
+
+## Final Recommendation
+
+**Clears the D-07 gate.** All three required reviewers (Codex, AGY, Fable) have reviewed the
+plan set; every CONFIRMED finding across all three passes has been applied and re-verified;
+both of Fable's required text-only amendments are applied in this same commit. The
+`checkpoint:human-action` task in Plan 01's Wave 1 can now be answered "done" truthfully.
