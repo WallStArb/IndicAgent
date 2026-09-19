@@ -106,6 +106,13 @@ any IC number here as a hard ceiling.
   diagnostic) tracked in
   [378](todos/pending/378-vixy-emlc-feature-backfill-then-gate-b-and-portfolio-diagnostic.md).
 
+- **Compute cost bounds universe scale (measured 2026-09-19):** the live `ic_engine` corpus run
+  is costing about 2.4 worker-hours per symbol (207 of 233 compute-eligible symbols after 2.1
+  days on 10 workers), so 1000-2000 symbols means 10-20 day full recomputes on this box.
+  Scope expansion by measured recompute cost, not a target count. Optimization order and
+  the ruled-out HAC alternative: [385](todos/pending/385-ic-engine-recompute-cost-bounds-universe-scale-threading-measurement-first.md);
+  research: `docs/research/2026-09-19-ic-engine-bootstrap-ci-optimization-research.md`.
+
 - **Nautilus Trader (OSS, event-driven backtest/live-execution engine, Rust core + Python)
   flagged 2026-09-13 as a forward-looking candidate for a future execution-layer phase** —
   IndicAgent's pipeline currently stops at `alpha_events`/"killed on paper," with no order-
