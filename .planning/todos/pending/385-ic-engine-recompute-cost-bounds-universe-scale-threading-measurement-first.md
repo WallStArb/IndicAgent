@@ -19,7 +19,15 @@ symbols counted are still in progress; box was also shared with other work, load
 - about 2.4 worker-hours per symbol, or 4-5 CPU-hours at the ~190% CPU each worker shows
 - per-symbol work is linear in symbol count: 1000 symbols is about 10 days per full recompute on
   this box, 2000 is about 20 days
-- pooled and cross-sectional stages may scale worse than linear; not measured
+- the cross-sectional stage is bounded by rows and scratch disk, not just time. The first run's
+  per-symbol and pooled passes finished (233 symbols x 4 tfs, 2026-09-20 07:00 UTC), then the run
+  died at 09:19 UTC on the first 15m cross-sectional cell: pre-flight estimate 21,523,866 rows vs
+  `alpha.ic.max_cell_rows=15000000` (`n_estimated = regime_timestamps x symbols`, an upper bound by
+  design). 1d and 1h cells (9 each) had completed. 5m cells will be about 3x larger. Disk-backed
+  scratch needs 2.2 x rows x features x 4 bytes, so a 21.5M-row cell is about 55 GB; the same cell
+  at 1000-2000 symbols would be 5-9x that per cell, which exceeds this box's 562 GB free disk for 5m.
+  `max_cell_rows` is excluded from the cell fingerprint, so raising it does not invalidate
+  completed cells; cross-sectional cells resume via per-cell fingerprints.
 
 Adding symbols is not the expensive part (existing symbols' results do not change when new ones
 join, apart from pooled/cross-sectional stages). The cost that blocks iteration is every
