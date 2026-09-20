@@ -19,15 +19,20 @@ symbols counted are still in progress; box was also shared with other work, load
 - about 2.4 worker-hours per symbol, or 4-5 CPU-hours at the ~190% CPU each worker shows
 - per-symbol work is linear in symbol count: 1000 symbols is about 10 days per full recompute on
   this box, 2000 is about 20 days
-- the cross-sectional stage is bounded by rows and scratch disk, not just time. The first run's
-  per-symbol and pooled passes finished (233 symbols x 4 tfs, 2026-09-20 07:00 UTC), then the run
-  died at 09:19 UTC on the first 15m cross-sectional cell: pre-flight estimate 21,523,866 rows vs
-  `alpha.ic.max_cell_rows=15000000` (`n_estimated = regime_timestamps x symbols`, an upper bound by
-  design). 1d and 1h cells (9 each) had completed. 5m cells will be about 3x larger. Disk-backed
-  scratch needs 2.2 x rows x features x 4 bytes, so a 21.5M-row cell is about 55 GB; the same cell
-  at 1000-2000 symbols would be 5-9x that per cell, which exceeds this box's 562 GB free disk for 5m.
-  `max_cell_rows` is excluded from the cell fingerprint, so raising it does not invalidate
-  completed cells; cross-sectional cells resume via per-cell fingerprints.
+- the first run's per-symbol and pooled passes finished (233 symbols x 4 tfs, 2026-09-20 07:00 UTC),
+  then the run died at 09:19 UTC on the first 15m cross-sectional cell because of a guard artifact,
+  not a real size problem. Commit 100f0602b (2026-09-15, Phase 174-05, todo 371) added a pre-flight
+  cell-size check that estimates rows as `regime_timestamps x symbols` (assumes every symbol has a
+  row at every timestamp): 21.5M for 15m high_bear vs the 15M `alpha.ic.max_cell_rows` cap. Measured
+  2026-09-20 with a join of `market_regimes` to `feature_vectors`: 15m high_bear actually has 4.1M rows
+  (all 233 symbols, an upper bound for the 182-symbol group), and the largest 5m cell is 12.5M
+  (mid_neutral). Every remaining cell is under 15M by its real count; the estimate overstates by
+  2-6x because most symbols have far less feature history than the 2006 regime timestamps. The
+  count query takes about 7 s for all 15m and 5m cells, so an exact pre-flight count is cheap.
+  An earlier version of this todo wrongly scaled the cross-sectional stage from the estimate (98M
+  rows, 250 GB scratch); those figures were the guard's upper bound, not real sizes.
+  `max_cell_rows` is excluded from the cell fingerprint and cross-sectional cells resume via
+  per-cell fingerprints, so a rerun keeps the completed 1d/1h cells.
 
 Adding symbols is not the expensive part (existing symbols' results do not change when new ones
 join, apart from pooled/cross-sectional stages). The cost that blocks iteration is every
