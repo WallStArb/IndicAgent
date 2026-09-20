@@ -1,4 +1,4 @@
--- Migration 346: alpha.ic.max_cell_rows temporarily raised to clear a pre-flight estimate artifact
+-- Migration 347: alpha.ic.max_cell_rows temporarily raised to clear a pre-flight estimate artifact
 --
 -- The 2026-09-17 full corpus ic_engine run (233 symbols x 4 tfs) finished its per-symbol and
 -- pooled passes and the 1d/1h cross-sectional cells, then died 2026-09-20 09:19 UTC on the first
@@ -28,6 +28,11 @@
 -- The disk headroom pre-check uses the same estimate (2.2 x rows x features x 4 bytes, about
 -- 250 GB for 5m low_bull) and passes against roughly 560 GB free on /var/tmp.
 
+-- Numbering note: this was first applied 2026-09-20 as 346, which Phase 175 plan 01 had already
+-- reserved for its ITR evidence-columns migration. Renamed to 347 the same day. The live
+-- config_history row was written before the rename and still reads changed_by='migration_346'
+-- (config_key alpha.ic.max_cell_rows, version 6); the audit row was left as written.
+
 BEGIN;
 
 UPDATE config_schema
@@ -39,7 +44,7 @@ SET config_value = '100000000', version = version + 1, updated_at = NOW()
 WHERE config_key = 'alpha.ic.max_cell_rows';
 
 INSERT INTO config_history (timestamp, config_key, version, config_value, changed_by, reason)
-SELECT NOW(), 'alpha.ic.max_cell_rows', version, config_value, 'migration_346',
+SELECT NOW(), 'alpha.ic.max_cell_rows', version, config_value, 'migration_347',
        'Raised from 15,000,000 to 100,000,000 so the Phase 174-05 pre-flight estimate '
        '(regime timestamps x symbols, assumes full density) stops tripping on cells whose real '
        'row count is at most 12.5M. Operational field, not in the cell fingerprint, so completed '
