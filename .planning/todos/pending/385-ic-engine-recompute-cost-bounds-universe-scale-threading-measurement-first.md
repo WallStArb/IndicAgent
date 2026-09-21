@@ -77,8 +77,8 @@ expansion can go, not the near-term plan.
 
 Any edit to a first-party module that `ic_engine.py` imports moves `code_content_key` (AST hash,
 `_checkpoint_content_key`) and invalidates every completed cell. Levers 2-4 above are code changes, so
-land them together, with the exact pre-flight cell count (replacing the Phase 174-05 estimate) and the
-`alpha.ic.max_cell_rows` restore to 15,000,000 (migration 347 raised it to 100,000,000 for the
+land them together, with todo 386 (exact pre-flight cell count replacing the Phase 174-05 estimate, and
+restoring `alpha.ic.max_cell_rows` to 15,000,000 after migration 347 raised it to 100,000,000 for the
 2026-09-20 rerun), immediately before the next recompute that is already required, never mid-run.
 Lever 1 (thread counts) is APR-only and does not invalidate. Also hold `TagCalibrator` runs while a
 rerun is resumable: the upstream watermark hashes `instrument_tags` (symbol, tag, source, weight).

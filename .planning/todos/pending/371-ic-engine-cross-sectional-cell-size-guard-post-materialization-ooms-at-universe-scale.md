@@ -8,6 +8,12 @@ source: triage of the 2026-09-04 Workstream-1 recompute failure (ic_engine step 
 
 # `alpha.ic.max_cell_rows` guard is checked AFTER the cell is materialized in the cross-sectional chunked path — OOM-kills before it can fire at universe scale
 
+> **Status 2026-09-21:** the OOM this todo describes (5m / high_bear, 2026-09-07) is fixed by Phase 174-05's
+> disk-backed accumulator and pre-flight guard (commit `100f0602b`). Verified: the same cell completed in the
+> 2026-09-20/21 rerun at about 12 GB peak anonymous memory. Close this todo once that rerun finishes and the
+> remaining large 5m cells (mid_neutral, low_bull, low_neutral) also complete. The pre-flight estimate it
+> introduced overstates real rows 2-6x; that follow-up is todo 386.
+
 ## What happened
 
 The Workstream-1 recompute (`ops_corpus_pipeline_run.sh --from-step 5`, launched 2026-09-04
