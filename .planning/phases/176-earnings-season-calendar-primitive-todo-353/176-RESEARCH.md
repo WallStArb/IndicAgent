@@ -499,7 +499,7 @@ def days_since_quarter_end(d):
 
 ## Open Questions
 
-1. **Should `earnings_season_conditioned` be a new run-level APR bool, or always-on once the
+1. **(RESOLVED by 176-04)** **Should `earnings_season_conditioned` be a new run-level APR bool, or always-on once the
    column exists?**
    - What we know: `cluster_regime_conditioned` (Phase 151 Plan 02) is the precedent for a
      run-level APR switch gating an additional stratification pass, defaulted `true` at
@@ -512,8 +512,11 @@ def days_since_quarter_end(d):
      intent) but keep it as a real APR key (not a hardcoded `if True`) so it can be flipped off
      operationally without a code deploy if the cross-sectional in-memory-masking addition
      turns out to add meaningful runtime cost at full universe scale.
+   - **Resolution:** 176-04 implements exactly this — a real `alpha.ic.earnings_season_conditioned`
+     APR key, seeded `true`, gating the new `_build_regime_passes()` entry without any hardcoded
+     conditional.
 
-2. **Cross-sectional in-memory masking: exact insertion point inside `_compute_cross_sectional_tf`'s driver loop (`main()`, ~line 6683)?**
+2. **(RESOLVED by 176-06)** **Cross-sectional in-memory masking: exact insertion point inside `_compute_cross_sectional_tf`'s driver loop (`main()`, ~line 6683)?**
    - What we know: `_compute_one_cross_sectional_cell` has no internal mask step by design (its
      own docstring says so); the caller's chunked fetch already scopes to `(tf, regime_label)`.
    - What's unclear: the exact shape of the caller loop at line ~6683+ (`for regime_label in
@@ -525,6 +528,9 @@ def days_since_quarter_end(d):
      research/investigation task before writing the cross-sectional-side plan tasks — this
      research established the *shape* of the right answer (mask, don't re-fetch) but not the
      literal diff.
+   - **Resolution:** 176-06 traced the exact insertion point during planning and specifies the
+     literal diff in its Interfaces block — in-memory row-slicing against the already-materialized
+     cell arrays, no second DB fetch.
 
 ## Environment Availability
 
