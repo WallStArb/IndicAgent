@@ -1,11 +1,103 @@
 ---
-status: pending
+status: completed
 priority: P1
 filed: 2026-09-17
+closed: 2026-09-22
 source: assistant-driven session applying Renaissance-rigor review to the just-merged
   cross-instrument covariance-aware portfolio diagnostic (see
   docs/superpowers/specs/2026-09-16-cross-instrument-covariance-aware-portfolio-diagnostic-design.md);
   user directed running Gate A for real, which surfaced this gap
+---
+
+## Resolution (2026-09-22)
+
+Full chain completed. Summary of each remaining step from "Remaining chain" below:
+
+**3. `ic_engine` full-corpus run: DONE.** Completed 2026-09-22T08:33:18Z, status=success,
+97128 committed / 10738 skipped, 233 symbols incl. VIXY/EMLC, elapsed ~11.5hr.
+
+**Detour found mid-chain, not anticipated by this todo: `ensemble_trainer` initially wrote
+ZERO weights across all 89 strata** despite `ic_engine` succeeding. Root cause (systematic
+debugging, not guessed): `alpha.ensemble.ic_input` APR flag is legitimately `'ic_shrunk'`
+(an out-of-fold gate passed 2026-09-10), but the full-corpus `ic_engine` recompute reset
+`feature_ic_scores.ic_shrunk` to NULL corpus-wide (`ic_engine.py` doesn't write that column
+-- it's populated by a separate downstream step, `scripts/ops/alpha/ops_ic_shrinkage.py`,
+normally chained after `ic_engine` in the full corpus pipeline orchestrator but never
+re-run since this was a standalone `ic_engine` invocation). Fixed by running
+`ops_ic_shrinkage.py` (compute pass: 2831002 rows backfilled; out-of-fold gate: PASSED,
+35633 cells, mean_shrunk_error=0.0456 < mean_raw_error=0.0486). Not a code bug -- a missing
+pipeline step in the ad hoc sequence; no fix needed beyond running the step.
+
+**3 (continued). `ensemble_trainer` re-run: DONE** after the fix above. 31/89 strata
+written real weights; 58 skipped for legitimate data-sparsity reasons (insufficient
+bars/min-passing-features), not errors. **`alpha_publisher --weight-version
+run_2025122405150000 --skip-kafka`: DONE.** 81641167 rows emitted, 0 rejected. VIXY/EMLC
+now have real `alpha_events` coverage (298967/280841 rows) -- the original gap this todo
+was filed to close.
+
+**4. Gate B: clarified and passed.** Initially over-scoped toward rebuilding Phase 148's
+full Gate 1/Gate 2 OOS-proof apparatus (day-clustered bootstrap Sharpe + shuffled-ranking
+null) -- wrong: that's explicitly out of scope per the ALREADY-REVIEWED (Codex+AGY,
+2026-09-16) design doc
+(`docs/superpowers/specs/2026-09-16-cross-instrument-covariance-aware-portfolio-diagnostic-design.md`),
+which defines Gate B as "per-instrument IC via ic_engine" feeding the diagnostic's own
+internal walk-forward `mu_i` calibration (`shrink_instrument_ic`, computed fresh per refit
+from trailing `alpha_score`/`forward_returns` -- already properly out-of-sample, no reuse
+of Phase 148's machinery needed). The design doc itself explicitly flags and scopes out
+making Gate B itself walk-forward/OOS-respecting as "a larger, separate change to
+ic_engine" and mandates the report state the selection-lookahead limitation plainly rather
+than fix it. Verified live: all 13 candidates have real, reliable, walk-forward-stable,
+significant IC cells in the fresh `feature_ic_scores` data (lowest: VIXY, 169/4768
+significant cells). Gate B passes.
+
+**5. `scripts/analysis/portfolio_covariance_weighting_diagnostic.py`: DONE, real positive
+result.** Run against the full 13-symbol candidate list (`--weight-version
+run_2025122405150000 --end 2026-09-17`, window 2018-01-01..2026-09-17, 1685 rebalance
+steps, all 13 retained with price data, `mean_variance_fallback_count=0` -- well-conditioned
+covariance throughout). Per-arm mean daily realized return / t-stat / annualized Sharpe
+(computed post-hoc from the step-level JSON, naive iid t-test -- see caveats below):
+
+| Arm | mean daily return | t-stat | ann. Sharpe (naive) | mean effective_n |
+|---|---|---|---|---|
+| equal_weight (baseline) | 0.000060 | 0.48 | 0.18 | 13.00 |
+| ic_proportional | 0.000745 | 2.44 | 0.95 | 4.62 |
+| vol_normalized | 0.000332 | 3.08 | **1.19** | 4.80 |
+| mean_variance | 0.000127 | 1.67 | 0.65 | 5.40 |
+
+`vol_normalized` and `ic_proportional` both meaningfully and significantly beat the naive
+`equal_weight` baseline -- the core hypothesis this shadow-mode diagnostic was built to
+test. Interesting secondary finding, not investigated further: the "proper" Markowitz
+`mean_variance` solve underperforms the simpler `vol_normalized`/`ic_proportional` arms
+here despite zero ridge-fallbacks (well-conditioned), worth a look if this thread continues.
+
+**Caveats, carried verbatim from the script's own output (`caveats` field) -- do not cite
+these numbers without them:**
+1. Universe membership conditioned on Gate B passing over this same measurement period is
+   itself a selection effect -- not evidence this method would discover these instruments
+   from an unfiltered pool.
+2. IC is Spearman rank correlation used as a linear `mu` scaling coefficient -- a heuristic,
+   not an exact Pearson-slope calibration.
+3. Sample size at this instrument count is likely powered for a directional read only, not
+   a p<0.05 verdict (the t-stats above use a naive iid assumption the script's own caveat
+   explicitly warns against -- daily-rebalanced returns are not iid; a day-clustered
+   bootstrap, the same rigor Gate 1 uses, would be the correct significance test and hasn't
+   been run).
+4. **Not previously stated, found this run: zero transaction costs are modeled** (`cost`
+   field is 0.0 for every step, every arm) -- these are gross, not net-of-cost, returns.
+   Consistent with this project's "execution costs must not gate the edge search" directive
+   (costs reported as diagnostics, never the flip condition) but means these Sharpe numbers
+   should not be read as tradeable-as-is.
+
+Full step-level JSON result:
+`/tmp/claude-1000/-home-bg-dev-indicagent/0b8dfddb-0871-4ccf-ad6b-1d73d57c7f45/scratchpad/portfolio_covariance_diagnostic_result.json`
+(scratchpad, not committed -- ephemeral per this project's convention for gate/diagnostic
+JSON outputs, e.g. Gate A's `/var/tmp/phase174_crossasset_prereg_gate.json`).
+
+**Follow-on work identified but NOT done here (separate, future decision):** a proper
+day-clustered-bootstrap significance test on these results; deciding whether this shadow
+result graduates toward any real construction (gated by "prove edge before production
+infra" -- this remains a measurement, not a decision to size anything).
+
 ---
 
 # VIXY/EMLC feature backfill in progress, then Gate B, then the portfolio diagnostic needs a real run
