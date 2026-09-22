@@ -50,31 +50,35 @@ class TestSelectNextBatch:
         conn = MagicMock()
         conn.cursor.return_value = cursor
 
-        result = _select_next_batch(conn, batch_size=20)
+        result = _select_next_batch(conn)
 
         assert result == ["ZZZ", "AAA"]
 
-    def test_passes_ranking_tf_and_limit_as_params(self):
+    def test_passes_ranking_tf_as_param_no_limit(self):
         cursor = _FakeCursor([])
         conn = MagicMock()
         conn.cursor.return_value = cursor
 
-        _select_next_batch(conn, batch_size=7)
+        _select_next_batch(conn)
 
-        assert cursor.executed_params == ("1h", 7)
+        assert cursor.executed_params == ("1h",)
 
-    def test_no_hard_exclusion_filter_in_query(self):
-        """Regression test for the 2026-09-16 bug: a symbol's row count crossing a
-        fixed threshold must never make it permanently ineligible. The query has no
-        WHERE clause on row count/threshold at all -- only ORDER BY staleness + LIMIT."""
+    def test_no_hard_exclusion_filter_or_count_cap_in_query(self):
+        """Regression test for two bugs: (1) 2026-09-16, a symbol's row count crossing
+        a fixed threshold must never make it permanently ineligible; (2) 2026-09-22
+        (todo 382), a LIMIT on candidate selection throttles the wrong resource (see
+        module docstring) -- every compute-eligible symbol must be a candidate every
+        night, dispatched all at once, staliest first. The query has no WHERE clause on
+        row count/threshold and no LIMIT at all -- only ORDER BY staleness."""
         cursor = _FakeCursor([])
         conn = MagicMock()
         conn.cursor.return_value = cursor
 
-        _select_next_batch(conn, batch_size=20)
+        _select_next_batch(conn)
 
         assert "completeness_threshold" not in (cursor.executed_sql or "")
         assert "< %s" not in (cursor.executed_sql or "")
+        assert "LIMIT" not in (cursor.executed_sql or "")
         assert "ORDER BY" in (cursor.executed_sql or "")
 
     def test_scoped_to_compute_eligible_not_merely_active(self):
@@ -88,7 +92,7 @@ class TestSelectNextBatch:
         conn = MagicMock()
         conn.cursor.return_value = cursor
 
-        _select_next_batch(conn, batch_size=20)
+        _select_next_batch(conn)
 
         assert "compute_eligible = true" in (cursor.executed_sql or "")
 
@@ -97,6 +101,6 @@ class TestSelectNextBatch:
         conn = MagicMock()
         conn.cursor.return_value = cursor
 
-        result = _select_next_batch(conn, batch_size=20)
+        result = _select_next_batch(conn)
 
         assert result == []

@@ -1,13 +1,41 @@
 ---
-status: pending
+status: completed
 priority: P0
 filed: 2026-09-18
+closed: 2026-09-22
 source: manual corpus data audit this session (user asked "are there any gaps we need to
   backfill") -- surfaced that the 2026-09-16 nightly-backfill ranking fix (commits
   bcc89d650, 61f354072) hasn't actually closed the freshness gap it was meant to close
 ---
 
-# Nightly OHLCV backfill's `batch_size=20` throttles the wrong resource -- 151/233 compute-eligible symbols still silently stuck at the original 2026-08-10/12 freeze, job reports `status=success` every night regardless
+# Nightly OHLCV backfill's `batch_size=20` throttles the wrong resource -- 151/233 compute-eligible symbols still silently stuck at the original 2026-08-10/12 freeze, job reports `status=success` every night regardless -- CLOSED
+
+## Resolution (2026-09-22)
+
+Implemented fix-shape steps 1-4 (question/delete/simplify/accelerate) exactly as scoped below:
+deleted the `LIMIT batch_size` cap on candidate selection in `_select_next_batch()`
+(`scripts/infrastructure/backfill/infrastructure_nightly_backfill.py`) -- every compute-eligible
+symbol is now dispatched every night, staliest first, relying on `fetch_historical_bars()`'s
+existing IBKR rate limiter (55 req/10min, self-pacing, never aborts) as the real throttle
+instead of an arbitrary symbol count. Removed the now-dead `_load_config()`/`_DEFAULT_BATCH_SIZE`
+and the `infra.ibkr.nightly_backfill_batch_size` APR key (migration 349, same retire-a-dead-key
+pattern as migration 344's sibling six days earlier). Updated + passing:
+`tests/unit/scripts/test_infrastructure_nightly_backfill.py` (7/7). Reviewed by /simplify's 4
+parallel agents (reuse: clean; simplification: trimmed triple-duplicated incident narrative down
+to the module docstring as the single source; efficiency + altitude: both independently flagged
+that `detect_gaps()` is not actually near-zero-cost on an already-current symbol as this fix's
+own justification assumed, and that step 5 below was never implemented -- filed as
+[387](../pending/387-nightly-backfill-detect-gaps-cost-scaling-and-staleness-observability.md)
+rather than blocking this P0 fix on it).
+
+**Step 5 (automate: staleness gauge + APR alert threshold) deliberately NOT implemented here** --
+tracked in 387 above, to be done after measuring whether finding 1 in that todo actually matters
+at full 233-symbol scale.
+
+**Todo 366's status decision (referenced below) was NOT forced as part of this fix** -- out of
+scope for the P0 freshness bug specifically; 366 remains open at its own priority.
+
+---
 
 ## What
 

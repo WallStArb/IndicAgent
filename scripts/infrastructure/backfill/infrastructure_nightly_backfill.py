@@ -2,14 +2,10 @@
 """
 infrastructure_nightly_backfill.py — nightly incremental OHLCV backfill
 
-Picks the N stalest active instruments and delegates to
-infrastructure_run_historical_pipeline.py to catch them up, one bounded batch per
-night, instead of one large multi-day foreground sprint. Gap detection stays
-entirely in the delegate script (detect_gaps) -- this wrapper only ranks
-candidates and dispatches; it never decides what data is actually missing.
-
-Batch size is APR-governed (infra.ibkr.nightly_backfill_batch_size, migration 304) so
-it can be tuned without a code change.
+Ranks every compute-eligible instrument by staleness and delegates the whole list to
+infrastructure_run_historical_pipeline.py in one nightly run. Gap detection stays
+entirely in the delegate script (detect_gaps) -- this wrapper only ranks candidates
+and dispatches; it never decides what data is actually missing.
 
 Bug fixed 2026-09-16: this originally ranked candidates by 1h row count and hard-filtered
 to `WHERE row_count < completeness_threshold` (150,000) -- a symbol's total row count only
@@ -20,11 +16,25 @@ on -- had silently stopped receiving any update the moment they individually cro
 150,000 1h rows, the bulk of them frozen since 2026-08-10 while the systemd service logged
 `status=success` every single night (the ~20-40 still-incomplete symbols below the
 threshold kept it busy and green). Fixed by ranking on the actual staleness signal
-(MAX(timestamp) ascending) instead of a proxy (row count) with a hard cutoff -- every active
-symbol is a candidate every night, batch_size just caps how many of the stalest get worked
-in one run. A symbol that's already current today naturally sorts last and won't be picked
-while staler symbols exist; the delegate's own detect_gaps() no-ops instantly on anything
-truly already covered, so there's no cost to leaving fully-current symbols eligible.
+(MAX(timestamp) ascending) instead of a proxy (row count) with a hard cutoff.
+
+Second bug fixed 2026-09-22 (todo 382): the 2026-09-16 fix above was necessary but not
+sufficient -- it left a `LIMIT batch_size` (default 20) on *candidate selection* itself,
+which throttles the wrong resource. `detect_gaps()` is a near-zero-cost no-op on any
+symbol that's already current; the actual rate-limited resource is IBKR historical-fetch
+volume (`_hist_rate_limiter` in `src/providers/ibkr.py`, a hard 55 req/10min self-paced
+sliding window), not "number of symbols examined per night." With 233 compute-eligible
+symbols and batch_size=20, the design mathematically guaranteed a permanent ~12-day
+(`ceil(233/20)`) staleness sawtooth once caught up, by construction, regardless of how many
+more nights passed -- verified live 2026-09-18: 151/233 symbols (65%) frozen at the original
+2026-08-10/12 freeze, 37+ days stale, `status=success` logged every night throughout. Fixed
+by deleting the cap entirely: every compute-eligible symbol is dispatched every night,
+staliest first, and `fetch_historical_bars()`'s own pre-emptive rate limiter is what
+actually bounds how much gets done in one run -- it sleeps (never aborts) when approaching
+the 55/10min ceiling, so a bad night with a real backlog naturally spends the budget on
+fewer symbols before running long, and a normal night covers everyone because most symbols
+cost ~0 real requests. `_is_another_backfill_running()` below already guards against
+overlapping runs regardless of how long any single night's run takes.
 
 Ranking heuristic note: _select_next_batch's MAX(timestamp) is still a proxy, not the
 delegate's own more accurate _reorder_contracts_by_gap() (which nets each symbol's shortfall
@@ -65,8 +75,6 @@ _NIGHTLY_CLIENT_ID = 45  # dedicated lane; ibkr.py auto-rotates on Error 326 col
 _RANKING_TF = "1h"  # cheap-to-count proxy for "how far along is this symbol" (see module docstring)
 _DELEGATE_SCRIPT = (Path(__file__).parent / "infrastructure_run_historical_pipeline.py").resolve()
 
-_DEFAULT_BATCH_SIZE = 20
-
 
 def _is_another_backfill_running() -> bool:
     """True if any infrastructure_run_historical_pipeline.py process is already active.
@@ -84,8 +92,8 @@ def _is_another_backfill_running() -> bool:
     return bool(result.stdout.strip())
 
 
-def _select_next_batch(conn: psycopg.Connection, batch_size: int) -> list[str]:
-    """Return up to `batch_size` compute-eligible symbols, staliest `_RANKING_TF` bar first.
+def _select_next_batch(conn: psycopg.Connection) -> list[str]:
+    """Return every compute-eligible symbol, staliest `_RANKING_TF` bar first.
 
     Scoped to `compute_eligible = true`, not merely `is_active = true` -- this job
     exists to keep the corpus's live compute population fresh (the same population
@@ -99,16 +107,11 @@ def _select_next_batch(conn: psycopg.Connection, batch_size: int) -> list[str]:
     silently pull full 5-timeframe history for symbols that were explicitly kept out
     of compute for exactly that cost reason.
 
-    No hard exclusion filter beyond compute-eligibility: every compute-eligible symbol
-    is a candidate every night, ranked by how old its most recent bar is (NULLs --
-    never backfilled at all -- sort first via the epoch fallback). A symbol already
-    current today naturally sorts last and loses out to staler ones within the
-    batch_size cap; it costs nothing to leave it eligible since the delegate script's
-    detect_gaps() no-ops instantly when there's truly nothing to fetch. This replaces
-    a prior row-count-below-a-fixed-threshold design that had a severe hidden bug: a
-    symbol's row count only grows, so once it crossed the threshold it became
-    permanently invisible to this job regardless of staleness (see module docstring,
-    bug fixed 2026-09-16).
+    No count cap (todo 382, fixed 2026-09-22) -- every compute-eligible symbol is a
+    candidate every night, ranked by how old its most recent bar is (NULLs -- never
+    backfilled at all -- sort first via the epoch fallback), and ALL of them are
+    dispatched to the delegate in staleness order. See module docstring for the full
+    incident writeup (both this bug and its 2026-09-16 predecessor).
     """
     with conn.cursor() as cur:
         cur.execute(
@@ -123,29 +126,10 @@ def _select_next_batch(conn: psycopg.Connection, batch_size: int) -> list[str]:
             ) latest ON latest.symbol = i.symbol
             WHERE i.is_active = true AND i.compute_eligible = true
             ORDER BY COALESCE(latest.latest_bar, '1970-01-01'::timestamptz) ASC, i.symbol ASC
-            LIMIT %s
             """,
-            (_RANKING_TF, batch_size),
+            (_RANKING_TF,),
         )
         return [row[0] for row in cur.fetchall()]
-
-
-def _load_config(conn: psycopg.Connection) -> int:
-    """Read the nightly-backfill batch-size APR value directly off config_state.
-
-    Deliberately bypasses ConfigService (which requires its own asyncpg pool) -- this
-    oneshot script already holds a synchronous psycopg connection for the ranking query,
-    and spinning up a second connection stack (min_size=2/max_size=10) just to read one
-    scalar isn't worth it here. Falls back to the module default if the migration 304
-    row isn't present yet.
-    """
-    with conn.cursor() as cur:
-        cur.execute(
-            "SELECT config_value FROM config_state WHERE config_key = %s",
-            ("infra.ibkr.nightly_backfill_batch_size",),
-        )
-        row = cur.fetchone()
-    return int(row[0]) if row else _DEFAULT_BATCH_SIZE
 
 
 def _finish(status: str, message: str, returncode: int = 0) -> int:
@@ -169,8 +153,7 @@ def main() -> int:
 
     conn = connect_db(settings)
     try:
-        batch_size = _load_config(conn)
-        symbols = _select_next_batch(conn, batch_size)
+        symbols = _select_next_batch(conn)
     finally:
         conn.close()
 
@@ -181,7 +164,7 @@ def main() -> int:
         )
 
     print(f"Nightly backfill: {len(symbols)} symbols -- {', '.join(symbols)}")
-    _logger.info("nightly_backfill.batch_selected", symbols=symbols, batch_size=batch_size)
+    _logger.info("nightly_backfill.batch_selected", symbols=symbols, n_symbols=len(symbols))
 
     result = subprocess.run(
         [
