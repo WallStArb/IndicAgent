@@ -1957,7 +1957,7 @@ def _canary_acausal_placebo(closes: np.ndarray, i: int, eps: float = 1e-10) -> f
     the batch series, or the live single-bar compute() path, which by
     definition has no future data -- see FeatureFactory.compute() docstring).
     """
-    if i + 2 >= len(closes) or closes[i + 1] <= eps:
+    if i + 2 >= len(closes) or closes[i + 1] <= eps or closes[i + 2] <= eps:
         return 0.0
     return float(math.log(closes[i + 2] / closes[i + 1]))
 

@@ -1402,6 +1402,7 @@ def _run_compute_worker(args: tuple) -> dict:
                     symbol=symbol,
                     tf=tf,
                     error=error_str,
+                    exc_info=True,
                 )
                 results.append(
                     {
@@ -1414,7 +1415,7 @@ def _run_compute_worker(args: tuple) -> dict:
 
     except Exception as error:
         error_msg = str(error)
-        worker_log.error("worker_failed", symbol=symbol, error=error_msg)
+        worker_log.error("worker_failed", symbol=symbol, error=error_msg, exc_info=True)
     finally:
         if conn is not None:
             try:

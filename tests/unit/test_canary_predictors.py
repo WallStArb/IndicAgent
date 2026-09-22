@@ -442,6 +442,23 @@ class TestAcausalPlaceboCanary:
         closes = np.array([100.0, 0.0, 103.0, 106.0])
         assert _canary_acausal_placebo(closes, 0) == 0.0  # closes[1] <= eps
 
+    def test_zero_when_numerator_close_is_degenerate(self) -> None:
+        """Todo 340 / IHF 2010-05-06 Flash Crash bar: closes[i+1] is a normal
+        positive price (passes the existing guard) but closes[i+2] is exactly
+        0.0 (a genuine historical print, not a synthetic placeholder -- real
+        IHF 5m data has open=8.03/high=8.03/low=0/close=0/volume=2000 at
+        2010-05-06 18:50 UTC). The prior guard only checked closes[i+1],
+        leaving closes[i+2]/closes[i+1] == 0.0 unguarded and math.log(0.0)
+        raising ValueError: expected a positive input, got 0.0."""
+        closes = np.array([100.0, 101.0, 0.0, 106.0])
+        assert _canary_acausal_placebo(closes, 0) == 0.0  # closes[2] <= eps, closes[1] fine
+
+    def test_zero_when_numerator_close_is_negative(self) -> None:
+        """Same guard, negative-numerator variant -- math.log rejects <= 0,
+        not just exactly 0.0."""
+        closes = np.array([100.0, 101.0, -5.0, 106.0])
+        assert _canary_acausal_placebo(closes, 0) == 0.0
+
 
 # ---------------------------------------------------------------------------
 # Integration: compute() (live, no future data) vs compute_batch() (backfill,

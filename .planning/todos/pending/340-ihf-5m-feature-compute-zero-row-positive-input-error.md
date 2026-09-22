@@ -82,7 +82,40 @@ hypertable regardless of `--symbols` scope** (see `docs/reference/gotchas.md`'s
 reading/writing `feature_vectors`/`feature_ic_scores`; a single-symbol IHF run took an
 `AccessExclusiveLock` on ~40 chunks and stalled a concurrent `ensemble_trainer.py` for ~10 min.
 
-## Investigation progress, 2026-09-22 (session paused here, not resolved)
+## IHF root cause: RESOLVED 2026-09-22 (code fix + regression tests landed; live corpus
+confirmation still pending, see below)
+
+`_canary_acausal_placebo` (`src/intelligence/feature_factory.py:1950` -- a deliberate look-ahead-
+leak positive-control canary, not a real trading feature) guarded `closes[i + 1] <= eps` (the
+denominator) but never checked `closes[i + 2]` (the numerator). IHF/5m has exactly one bar with
+`close <= 0` in both the raw table and `market_data_ohlcv_tradeable`: `2010-05-06 18:50:00 UTC`
+(the Flash Crash), `open=8.03, high=8.03, low=0, close=0, volume=2000` -- a genuine historical
+print (real volume), not a synthetic placeholder, so per this project's data-retention principle
+the fix guards the *compute*, not the corpus. When that bar lands on `closes[i + 2]`, the ratio
+evaluates to `0.0` and `math.log(0.0)` raises exactly `"expected a positive input, got 0.0"`.
+This is a general-purpose bug (any symbol/tf with a near-zero print two bars after a normal bar
+would trip it), not IHF-specific -- IHF/5m is just the corpus's only currently-known instance.
+
+Fix: widened the guard to `closes[i + 2] <= eps` as well (one-line change, matches the function's
+own existing 0.0-fallback semantics). Two new regression tests added to
+`tests/unit/test_canary_predictors.py` (numerator-degenerate and numerator-negative cases,
+confirmed RED pre-fix / GREEN post-fix using the real IHF bar's shape). Full
+`test_canary_predictors.py` (43 tests) and `test_feature_factory.py` (88 tests, incl. an
+AST-pattern check on this exact function) green; `ruff`/`black` clean. Full debug record:
+`.planning/debug/resolved/ihf-5m-positive-input-error.md`.
+
+**Not yet verified end-to-end against a live backfill run.** The diagnostic process that
+captured the traceback (PID 118400) was still alive as of the fix landing, holding an active
+`compressed_hypertable_write_session` on `feature_vectors` -- per this project's own gotcha, no
+concurrent `--compute-only` run until it exits, and that process has the pre-fix module already
+loaded in memory so it can't self-verify even once it reaches 5m again. **Next step (operational,
+not more debugging):** once that process exits, run
+`backfill_feature_factory.py --compute-only --symbols IHF --workers 1` fresh to confirm real
+`feature_vectors` rows land for IHF/5m and `backfill_status` flips to `complete`. Then close this
+todo's IHF half for real (the 7-symbol underflow bug below stays open either way).
+
+## Investigation progress, 2026-09-22 (superseded by the resolution above for IHF; underflow bug
+still unresolved as described)
 
 **IHF: root cause NOT pinpointed, sequencing decided before Phase 175 (see STATE.md).** Re-ran
 `backfill_feature_factory.py --compute-only --symbols IHF --workers 1` twice this session --
