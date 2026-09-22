@@ -104,15 +104,11 @@ confirmed RED pre-fix / GREEN post-fix using the real IHF bar's shape). Full
 AST-pattern check on this exact function) green; `ruff`/`black` clean. Full debug record:
 `.planning/debug/resolved/ihf-5m-positive-input-error.md`.
 
-**Not yet verified end-to-end against a live backfill run.** The diagnostic process that
-captured the traceback (PID 118400) was still alive as of the fix landing, holding an active
-`compressed_hypertable_write_session` on `feature_vectors` -- per this project's own gotcha, no
-concurrent `--compute-only` run until it exits, and that process has the pre-fix module already
-loaded in memory so it can't self-verify even once it reaches 5m again. **Next step (operational,
-not more debugging):** once that process exits, run
-`backfill_feature_factory.py --compute-only --symbols IHF --workers 1` fresh to confirm real
-`feature_vectors` rows land for IHF/5m and `backfill_status` flips to `complete`. Then close this
-todo's IHF half for real (the 7-symbol underflow bug below stays open either way).
+**Live end-to-end confirmation, 2026-09-22: CONFIRMED.** Once the diagnostic process (PID
+118400) exited, re-ran `backfill_feature_factory.py --compute-only --symbols IHF --workers 1`
+fresh (PID 234712) -- `backfill_status` for `symbol='IHF', tf='5m'` now shows
+`status='complete', rows_written=226711`. **IHF half of this todo is fully closed.** The
+7-symbol underflow bug below is the only remaining open scope.
 
 ## Investigation progress, 2026-09-22 (superseded by the resolution above for IHF; underflow bug
 still unresolved as described)

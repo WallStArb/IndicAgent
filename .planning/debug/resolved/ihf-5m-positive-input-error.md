@@ -143,13 +143,12 @@ verification:
     (88 tests, includes an AST-pattern check that specifically parses `_canary_acausal_placebo`'s
     definition) both green.
   - `ruff check` / `black --check` clean on both changed files.
-  - **Not yet verified end-to-end against a live backfill run.** The original diagnostic process
-    (PID 118400, started before this fix landed) is still alive as of this writing and holds an
-    active `compressed_hypertable_write_session` on `feature_vectors` (86 chunks decompressed,
-    not yet recompressed/VACUUMed) -- per this project's own gotcha, do not launch a concurrent
-    `--compute-only` run while it's active. That process also has the pre-fix module already
-    loaded in memory, so it cannot self-verify even once it reaches 5m again. **Next operational
-    step (not more debugging):** once PID 118400 exits, run
-    `backfill_feature_factory.py --compute-only --symbols IHF --workers 1` fresh to confirm real
-    `feature_vectors` rows get written for IHF/5m and `backfill_status` flips to `complete`.
+  - **End-to-end live confirmation, 2026-09-22 (PID 234712):** once the original diagnostic
+    process (PID 118400) exited and released its `feature_vectors` write session, re-ran
+    `backfill_feature_factory.py --compute-only --symbols IHF --workers 1` fresh (fixed code in
+    a fresh process). Result: `backfill_status` for `symbol='IHF', tf='5m'` flipped to
+    `status='complete'`, `rows_written=226711`. The `error_msg` column still shows the old
+    message text (not cleared on success -- a pre-existing display quirk, `status` is the
+    authoritative field), which briefly looked like a re-failure on a naive read; the row count
+    and `status='complete'` together are unambiguous proof of a real, successful write.
 files_changed: ["src/intelligence/feature_factory.py", "tests/unit/test_canary_predictors.py"]
