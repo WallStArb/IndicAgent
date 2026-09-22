@@ -233,6 +233,14 @@ duplicated here. Currently open/not-yet-planned phases, compressed to current st
   same `feature_vectors` hypertable Phase 175's eventual `ic_engine` recompute will read) —
   avoids the exact write/read lock contention hit today (see gotchas.md), and lands complete
   feature data before the next expensive corpus-wide recompute rather than after.
+- **Phase 176 added 2026-09-22** (Earnings-Season Calendar Primitive, todo 353): validated
+  candidate (SQL proxy test, pooled mean return 4.3x higher in-season, p=1.2e-17; 81% of symbols
+  individually higher in-season; `up_vol_body_diff`'s IC nearly doubles in-season). Not planned
+  yet -- `/gsd-discuss-phase 176` in progress. Real scope: schema field + migration +
+  `feature_factory.py` compute + `concept_registry` seed + corpus recompute + FDR/walk-forward
+  gate pass, not a drive-by fix. Sequenced behind todo 340/Phase 175 per the existing corpus
+  contention pattern (see gotchas.md) -- this phase's own eventual recompute would collide with
+  either of those if run concurrently.
 
 ## Session
 
