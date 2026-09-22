@@ -169,7 +169,7 @@ _DAY0 = date(2023, 1, 3)
 _DAY1 = date(2023, 1, 4)
 
 
-def _ts(day: date, hour: int) -> datetime:
+def _to_datetime(day: date, hour: int) -> datetime:
     return datetime(day.year, day.month, day.day, hour, 0, tzinfo=UTC)
 
 
@@ -183,7 +183,7 @@ def test_amd_full_cycle_transitions_and_manip_strength_clamp(cfg):
 
     accum_high, accum_low = 100.0, 99.0  # on_range = 1.0
     for hour in range(20, 24):
-        ts = _ts(_DAY0, hour)
+        ts = _to_datetime(_DAY0, hour)
         cache.update_overnight_range(ts, accum_high, accum_low, cfg)
         fields = _derive_amd_cycle(cache, ts, cfg)
         assert fields["amd_phase"] == 1.0
@@ -192,7 +192,7 @@ def test_amd_full_cycle_transitions_and_manip_strength_clamp(cfg):
 
     # Manipulation: upside sweep overshooting the overnight range by 150% --
     # the exact >100%-overshoot case 164-RESEARCH.md Pitfall 3 requires.
-    manip_ts = _ts(_DAY1, 2)
+    manip_ts = _to_datetime(_DAY1, 2)
     on_range = accum_high - accum_low
     overshoot_high = accum_high + on_range * 1.5
     cache.update_overnight_range(manip_ts, overshoot_high, accum_high - 0.01, cfg)
@@ -205,7 +205,7 @@ def test_amd_full_cycle_transitions_and_manip_strength_clamp(cfg):
     assert fields["amd_distribution_direction"] == 0.0
 
     # Distribution: overnight state must still be readable many bars later.
-    dist_ts = _ts(_DAY1, 12)
+    dist_ts = _to_datetime(_DAY1, 12)
     cache.update_overnight_range(dist_ts, accum_high - 0.02, accum_low + 0.5, cfg)
     fields = _derive_amd_cycle(cache, dist_ts, cfg)
     assert fields["amd_phase"] == 3.0
@@ -222,10 +222,10 @@ def test_amd_full_cycle_transitions_and_manip_strength_clamp(cfg):
 def test_manip_strength_extreme_overshoot_still_clamped(cfg):
     cache = FeatureCache()
     accum_high, accum_low = 50.0, 49.5  # on_range = 0.5
-    ts0 = _ts(_DAY0, 21)
+    ts0 = _to_datetime(_DAY0, 21)
     cache.update_overnight_range(ts0, accum_high, accum_low, cfg)
 
-    manip_ts = _ts(_DAY1, 3)
+    manip_ts = _to_datetime(_DAY1, 3)
     on_range = accum_high - accum_low
     overshoot_high = accum_high + on_range * 3.0  # 300% overshoot
     cache.update_overnight_range(manip_ts, overshoot_high, accum_high - 0.01, cfg)
@@ -244,13 +244,13 @@ def test_manip_strength_extreme_overshoot_still_clamped(cfg):
 def test_boundary_reset_at_next_accumulation_cycle(cfg):
     cache = FeatureCache()
     accum_high, accum_low = 100.0, 99.0
-    cache.update_overnight_range(_ts(_DAY0, 20), accum_high, accum_low, cfg)
+    cache.update_overnight_range(_to_datetime(_DAY0, 20), accum_high, accum_low, cfg)
 
-    manip_ts = _ts(_DAY1, 2)
+    manip_ts = _to_datetime(_DAY1, 2)
     cache.update_overnight_range(manip_ts, accum_high + 1.5, accum_high - 0.01, cfg)
     assert cache.amd_manipulation_detected == 1.0
 
-    next_accum_ts = _ts(_DAY1, 20)
+    next_accum_ts = _to_datetime(_DAY1, 20)
     cache.update_overnight_range(next_accum_ts, 105.0, 104.5, cfg)
     fields = _derive_amd_cycle(cache, next_accum_ts, cfg)
     assert fields["amd_phase"] == 1.0
@@ -267,12 +267,12 @@ def test_amd_phase_ordinal_values(cfg):
     cache = FeatureCache()
 
     assert _derive_amd_cycle(cache, None, cfg)["amd_phase"] == 0.0
-    assert _derive_amd_cycle(cache, _ts(_DAY0, 20), cfg)["amd_phase"] == 1.0
-    assert _derive_amd_cycle(cache, _ts(_DAY0, 2), cfg)["amd_phase"] == 2.0
-    assert _derive_amd_cycle(cache, _ts(_DAY0, 12), cfg)["amd_phase"] == 3.0
+    assert _derive_amd_cycle(cache, _to_datetime(_DAY0, 20), cfg)["amd_phase"] == 1.0
+    assert _derive_amd_cycle(cache, _to_datetime(_DAY0, 2), cfg)["amd_phase"] == 2.0
+    assert _derive_amd_cycle(cache, _to_datetime(_DAY0, 12), cfg)["amd_phase"] == 3.0
 
     for hour in range(24):
-        phase = _derive_amd_cycle(cache, _ts(_DAY0, hour), cfg)["amd_phase"]
+        phase = _derive_amd_cycle(cache, _to_datetime(_DAY0, hour), cfg)["amd_phase"]
         assert phase in (0.0, 1.0, 2.0, 3.0)
 
 
@@ -288,7 +288,7 @@ def test_warm_up_replay_leaves_overnight_state_non_cold(cfg):
 
     cache_replayed = FeatureCache()
     buffered = [
-        {"ts": _ts(_DAY0, hour), "high": 100.0 + 0.1 * i, "low": 99.5 + 0.1 * i}
+        {"ts": _to_datetime(_DAY0, hour), "high": 100.0 + 0.1 * i, "low": 99.5 + 0.1 * i}
         for i, hour in enumerate(range(20, 24))
     ]
     for bar in buffered:
@@ -297,7 +297,7 @@ def test_warm_up_replay_leaves_overnight_state_non_cold(cfg):
     assert cache_replayed._overnight_high is not None
     assert cache_replayed._overnight_low is not None
 
-    fields = _derive_amd_cycle(cache_replayed, _ts(_DAY0, 23), cfg)
+    fields = _derive_amd_cycle(cache_replayed, _to_datetime(_DAY0, 23), cfg)
     assert fields["amd_phase"] == 1.0
 
 
@@ -309,7 +309,7 @@ def test_warm_up_replay_leaves_overnight_state_non_cold(cfg):
 def test_amd_never_raises_on_cold_cache(cfg):
     cache = FeatureCache()
     for hour in (2, 12, 20):
-        fields = _derive_amd_cycle(cache, _ts(_DAY0, hour), cfg)
+        fields = _derive_amd_cycle(cache, _to_datetime(_DAY0, hour), cfg)
         for v in fields.values():
             assert math.isfinite(v)
         assert fields["amd_manipulation_detected"] == 0.0

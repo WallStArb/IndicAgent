@@ -4,7 +4,11 @@
 **Source:** `/simplify` altitude-agent pass on todo 297 (signals.py `_f`/`_s`/`_i`/`_ts` rename) --
 a repo-wide grep run to confirm todo 297's scope was correctly bounded turned up this
 unrelated hit outside `src/api/`.
-**Status:** pending, not blocking
+**Status:** RESOLVED 2026-09-22 -- renamed `infrastructure_reset_pipeline_data.py`'s `_ts()` to
+`_format_timestamp()` (12 call sites) and `test_smc_amd_cycle.py`'s `_ts(day, hour)` to
+`_to_datetime()` (14 call sites), word-boundary sed, confirmed zero external importers of either
+name repo-wide before renaming (both were purely module-private). `py_compile`/`ruff` clean,
+`tests/unit/intelligence/test_smc_amd_cycle.py` 9/9 passing post-rename.
 
 ## What
 

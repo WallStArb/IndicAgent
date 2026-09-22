@@ -193,7 +193,7 @@ def _print_plan(conn) -> None:
 
 
 def _execute_wipe(conn) -> None:
-    print(f"[{_ts()}] Wiping signal-derived tables...")
+    print(f"[{_format_timestamp()}] Wiping signal-derived tables...")
     table_list = ", ".join(t for t, _ in _TRUNCATE_TABLES)
     with conn.cursor() as cur:
         # Single statement so PostgreSQL resolves FK relationships between listed tables.
@@ -203,11 +203,11 @@ def _execute_wipe(conn) -> None:
         cur.execute(_SHADOW_RESET_SQL)
         print("  RESET shadow_registry eval stats")
     conn.commit()
-    print(f"[{_ts()}] Wipe complete.\n")
+    print(f"[{_format_timestamp()}] Wipe complete.\n")
 
 
 def _run_backfill(workers: int) -> None:
-    print(f"[{_ts()}] Starting backfill replay (workers={workers})...")
+    print(f"[{_format_timestamp()}] Starting backfill replay (workers={workers})...")
     print("  Re-emits all signals with current framing code.")
     print("  --clean deletes signals+features per-symbol before replay.\n")
     cmd = [
@@ -224,13 +224,13 @@ def _run_backfill(workers: int) -> None:
     ]
     result = subprocess.run(cmd)
     if result.returncode != 0:
-        print(f"\n[{_ts()}] ERROR: backfill exited with code {result.returncode}")
+        print(f"\n[{_format_timestamp()}] ERROR: backfill exited with code {result.returncode}")
         sys.exit(result.returncode)
-    print(f"[{_ts()}] Backfill replay complete.\n")
+    print(f"[{_format_timestamp()}] Backfill replay complete.\n")
 
 
 def _run_lifecycle_replay(workers: int) -> None:
-    print(f"[{_ts()}] Starting lifecycle replay (workers={workers})...")
+    print(f"[{_format_timestamp()}] Starting lifecycle replay (workers={workers})...")
     print("  Computes counterfactual_pnl_r, exits, MAE/MFE for freshly emitted signals.\n")
     cmd = [
         sys.executable,
@@ -241,13 +241,15 @@ def _run_lifecycle_replay(workers: int) -> None:
     ]
     result = subprocess.run(cmd)
     if result.returncode != 0:
-        print(f"\n[{_ts()}] ERROR: lifecycle_replay exited with code {result.returncode}")
+        print(
+            f"\n[{_format_timestamp()}] ERROR: lifecycle_replay exited with code {result.returncode}"
+        )
         sys.exit(result.returncode)
-    print(f"[{_ts()}] Lifecycle replay complete.\n")
+    print(f"[{_format_timestamp()}] Lifecycle replay complete.\n")
 
 
 def _post_verify(conn) -> None:
-    print(f"[{_ts()}] Post-reset verification...")
+    print(f"[{_format_timestamp()}] Post-reset verification...")
     with conn.cursor() as cur:
         cur.execute("SELECT COUNT(*) FROM signal_events")
         n_signals = cur.fetchone()[0]
@@ -283,7 +285,7 @@ def _post_verify(conn) -> None:
     print()
 
 
-def _ts() -> str:
+def _format_timestamp() -> str:
     return datetime.now(UTC).strftime("%H:%M:%S")
 
 
@@ -332,7 +334,7 @@ def main() -> None:
         print("  sudo systemctl stop indicagent-intelligence-pipeline indicagent-signal-writer")
         sys.exit(1)
 
-    print(f"[{_ts()}] Confirmed. Executing full data reset...\n")
+    print(f"[{_format_timestamp()}] Confirmed. Executing full data reset...\n")
 
     _execute_wipe(conn)
 
@@ -342,7 +344,7 @@ def main() -> None:
         conn = _db_conn(settings)
         _post_verify(conn)
 
-    print(f"[{_ts()}] Reset complete.")
+    print(f"[{_format_timestamp()}] Reset complete.")
     print()
     print("Next steps:")
     print("  sudo systemctl start indicagent-intelligence-pipeline")
