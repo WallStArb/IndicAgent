@@ -74,10 +74,57 @@ separate root cause (a literal-zero `log()`/division input), not the same bug.
    through that filter, the bug may be upstream of Feature Factory entirely) vs. guard the
    specific calculation with an epsilon floor.
 
-**Before running any of the above:** the full-corpus `ic_engine` run in progress as of
-2026-09-18 (todo 378's chain) is CPU/RAM-saturated (10 workers, ~19/24 cores, ~1GB free RAM) --
-don't launch `backfill_feature_factory.py` concurrently; it risks OOM-killing one or both
-multi-day jobs. Wait for that run to finish first.
+**Before running any of the above:** the ic_engine full-corpus run this was blocked on finished
+2026-09-22 (see completed/378) -- unblocked now. **New constraint found the hard way 2026-09-22:
+`backfill_feature_factory.py --compute-only` against `feature_vectors` decompresses the ENTIRE
+hypertable regardless of `--symbols` scope** (see `docs/reference/gotchas.md`'s
+`compressed_hypertable_write_session` entry) -- never run it concurrently with anything else
+reading/writing `feature_vectors`/`feature_ic_scores`; a single-symbol IHF run took an
+`AccessExclusiveLock` on ~40 chunks and stalled a concurrent `ensemble_trainer.py` for ~10 min.
+
+## Investigation progress, 2026-09-22 (session paused here, not resolved)
+
+**IHF: root cause NOT pinpointed, sequencing decided before Phase 175 (see STATE.md).** Re-ran
+`backfill_feature_factory.py --compute-only --symbols IHF --workers 1` twice this session --
+both times reproduced `backfill_status.error_msg = "expected a positive input, got 0.0"`,
+`status='failed'`, 0 rows written, no change from before. Confirmed by direct grep: **that exact
+string does not appear anywhere in this codebase** -- it's a third-party (likely scipy/numpy or
+statsmodels) exception, caught generically at `backfill_feature_factory.py:1415-1417`
+(`except Exception as error: error_msg = str(error); worker_log.error("worker_failed", ...)`)
+and stringified without ever logging a full traceback (`exc_info=True` not passed) -- this is
+itself worth fixing regardless of the underlying bug, since it's why two identical runs produced
+zero additional diagnostic signal. Live run also surfaced two RuntimeWarnings worth checking
+first before chasing third-party code: `feature_factory.py:2284`'s `illiq = log_rets_abs /
+dollar_vols` is a genuinely unguarded division (no `np.maximum` floor, unlike the codebase's
+usual pattern) -- a zero-dollar-volume bar would produce `inf`/`nan` here silently (a warning,
+not the fatal error, but worth guarding regardless); `feature_factory.py:1154`'s `np.where`
+division warning is confirmed benign (numpy evaluates both branches of `np.where` before
+masking, result is correct despite the warning).
+
+**Next step, not yet done:** add `exc_info=True` (or equivalent) to the worker's exception log,
+or wrap the compute call in a narrower try/except to get the real traceback/library frame, before
+guessing further at which call site raises this. Only then decide the fix (skip-and-log vs.
+epsilon-floor per the original fix-shape below).
+
+**7-symbol underflow bug (BIL/VRP/ENPH/GLD/NAD/SHY/STIP): strong hypothesis found via code
+inspection, NOT yet verified against a live run.** `backfill_feature_factory.py` writes
+`feature_vectors` through a raw INSERT (`FEATURE_VECTOR_INSERT_SQL_PSYCOPG` from
+`src/intelligence/features/feature_vector_persistence.py`), not through `bulk_update_by_key` --
+confirmed via grep, neither file references `_clamp_to_real_range`/`bulk_update_by_key` at all.
+That means this write path never got todo 312's underflow-clamp fix. `feature_vectors` has 309
+`real`-typed columns (confirmed live via `information_schema.columns`), including
+`hmm_regime_prob`/`hmm_entropy` -- the exact same feature *type* (HMM posterior probability) that
+caused todo 312's original bug in `regime_writer.py` (a highly-confident state assignment
+producing a residual probability smaller in magnitude than float4 can represent, e.g. 1e-50).
+Strongly suggests the same phenomenon here, just via a different, unprotected writer. **Not yet
+confirmed live** -- didn't get to running a real BIL backfill this session to catch the exact
+column/value. Do that first before implementing a fix.
+
+**Fix shape, given the above:** likely just wiring `_clamp_to_real_range` into
+`FEATURE_VECTOR_INSERT_SQL_PSYCOPG`'s value-building step (or switching this write path onto
+`bulk_update_by_key`, which gets the clamp automatically) -- simpler than the original filing's
+speculative "clamp vs. widen column type vs. skip-and-log" framing, IF the hypothesis confirms.
+Verify against BIL live before committing to this shape.
 
 ## Where
 
