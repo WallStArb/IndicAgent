@@ -3,8 +3,8 @@ gsd_state_version: 1.0
 milestone: v3.1
 milestone_name: AlphaEngine Validation + Alpha Scoring
 status: milestone_complete
-stopped_at: Todo 378's full chain closed 2026-09-22 (ic_engine/ensemble_trainer/alpha_publisher/Gate B/portfolio diagnostic, real positive result). Todo 340 (feature-compute data-completeness bug, 8 symbols) sequenced next, then Phase 175 (fully planned, D-07 gate cleared, ready for /gsd-execute-phase).
-last_updated: "2026-09-22T18:00:00.000Z"
+stopped_at: Todo 340 both halves resolved and live-confirmed 2026-09-22 (IHF `_canary_acausal_placebo` guard fix, 226711 rows confirmed; 7-symbol underflow `feature_vector_to_insert_params` clamp fix, live re-run in progress). Phase 176 added and fully planned same day (Earnings-Season Calendar Primitive, todo 353, 8 plans/5 waves, plan-checker passed). Phase 175 (fully planned, D-07 gate cleared) still not executed -- ready for `/gsd-execute-phase 175` now that todo 340's data-completeness blocker is resolved. Phase 176 also ready for `/gsd-execute-phase 176` (multi-day corpus job, pick timing deliberately). Neither phase executed yet as of this note.
+last_updated: "2026-09-23T00:00:00.000Z"
 progress:
   total_phases: 12
   completed_phases: 0
