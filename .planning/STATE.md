@@ -3,8 +3,8 @@ gsd_state_version: 1.0
 milestone: v3.1
 milestone_name: AlphaEngine Validation + Alpha Scoring
 status: milestone_complete
-stopped_at: Phase 175 fully planned, D-07 gate cleared (Codex+AGY+Fable all reviewed, all findings applied+re-verified), genuinely ready for /gsd-execute-phase 175
-last_updated: "2026-09-18T16:25:00.000Z"
+stopped_at: Todo 378's full chain closed 2026-09-22 (ic_engine/ensemble_trainer/alpha_publisher/Gate B/portfolio diagnostic, real positive result). Todo 340 (feature-compute data-completeness bug, 8 symbols) sequenced next, then Phase 175 (fully planned, D-07 gate cleared, ready for /gsd-execute-phase).
+last_updated: "2026-09-22T18:00:00.000Z"
 progress:
   total_phases: 12
   completed_phases: 0
@@ -80,38 +80,29 @@ any IC number here as a hard ceiling.
   factor ETFs — MTUM/QUAL/USMV — exist as of migration 338, correcting an earlier "zero
   representation" claim) and vol term structure beyond spot VIX (see futures gap above).
 
-- **Gate A run for real 2026-09-17 against the pre-registered 13-symbol follow-on list**
-  (GLD/DBA/DBB/DBC/URA/TLT/UUP/VIXY/EMLC/HYG/XOM/DHI/PGR, distinct from the earlier
-  11-instrument exploratory check cited above) — **PASSED**: unconditional 0.0879 (≤0.10),
-  `high_bear` 0.1309 (≤0.30), all 13 retained, `n_eff` 6.33 unconditional. First real
-  measurement this pre-reg has ever had. Full result: `/var/tmp/phase174_crossasset_prereg_gate.json`.
-  A cross-instrument covariance-aware portfolio-construction diagnostic was also built and
-  merged to `main` the day before (`scripts/analysis/portfolio_covariance_weighting_diagnostic.py`)
-  but checking Gate B readiness for it surfaced VIXY/EMLC have zero `alpha_events` — onboarded
-  2026-09-16, feature-compute stage never triggered. Feature backfill + forward_returns for
-  both: DONE (2026-09-17). Fixing readiness also surfaced and fixed a corpus-wide `ic_engine.py`
-  regime-routing bug (144/273 instruments ambiguously routed once `TagCalibrator`'s first-ever
-  successful run populated empirical tags corpus-wide, 2026-09-16) — human-tags-only routing
-  fix landed, Codex+Fable reviewed, commit `b8af2b749`. A sibling bug (empirical tags
-  polluting `equity_regime_model.py`/`cross_sectional_regime_model.py`) was found
-  alongside and **fixed same day** (`source='human'`-only stopgap, Codex+Fable+AGY
-  reviewed, commit `d1ce8d6bb`) — see
-  [379](todos/completed/379-empirical-tags-contaminate-equity-breadth-and-peer-grouping.md)
-  (closed) plus its two follow-ups,
+- **Gate A + Gate B both PASSED against the pre-registered 13-symbol cross-asset list**
+  (GLD/DBA/DBB/DBC/URA/TLT/UUP/VIXY/EMLC/HYG/XOM/DHI/PGR) — the cross-instrument
+  covariance-aware portfolio diagnostic (`scripts/analysis/portfolio_covariance_weighting_diagnostic.py`)
+  then ran for real and found a genuine positive result: `vol_normalized`/`ic_proportional`
+  weighting both significantly beat naive `equal_weight` (ann. Sharpe ~1.19/~0.95 vs. ~0.18).
+  Shadow-mode measurement only, caveats apply (selection effect, naive significance test, zero
+  costs modeled) — no promotion decision made. Full record, including the corpus-wide
+  `ic_engine.py` regime-routing bug found+fixed along the way (commit `b8af2b749`):
+  [378](todos/completed/378-vixy-emlc-feature-backfill-then-gate-b-and-portfolio-diagnostic.md).
+  Sibling bug fixed same day (`source='human'`-only tag-routing stopgap, commit `d1ce8d6bb`):
+  [379](todos/completed/379-empirical-tags-contaminate-equity-breadth-and-peer-grouping.md).
+  One follow-up still open,
   [380](todos/pending/380-itr-materiality-filtered-empirical-tags-and-eq-prefix-naming-collision.md)
-  (deferred materiality-filter design) and
-  [381](todos/pending/381-equity-regime-model-dead-code-broken-insert.md)
-  (`equity_regime_model.py` confirmed dead code — broken INSERT against current schema).
-  Remaining chain (real `ic_engine` run → `ensemble_trainer` scope decision → Gate B → the
-  diagnostic) tracked in
-  [378](todos/pending/378-vixy-emlc-feature-backfill-then-gate-b-and-portfolio-diagnostic.md).
+  (deferred materiality-filter design, feeds Phase 175); the other
+  ([381](todos/completed/381-equity-regime-model-dead-code-broken-insert.md), dead-code deletion) closed.
 
-- **Compute cost bounds universe scale (measured 2026-09-19):** the live `ic_engine` corpus run
-  is costing about 2.4 worker-hours per symbol (207 of 233 compute-eligible symbols after 2.1
-  days on 10 workers), so 1000-2000 symbols means 10-20 day full recomputes on this box.
-  Scope expansion by measured recompute cost, not a target count. Optimization order and
-  the ruled-out HAC alternative: [385](todos/pending/385-ic-engine-recompute-cost-bounds-universe-scale-threading-measurement-first.md);
-  research: `docs/research/2026-09-19-ic-engine-bootstrap-ci-optimization-research.md`.
+- **Compute cost bounds universe scale — estimate STALE as of 2026-09-22, needs re-measuring.**
+  The 2026-09-19 measurement (2.4 worker-hours/symbol, projecting 10-20 day recomputes at
+  1000-2000 symbols) was taken mid-flight from the same run that went on to finish 2026-09-22
+  in ~11.5 hours total, after the `b8af2b749` routing fix and migration 348's chunk-size
+  reduction landed. Don't cite either number until re-derived from the completed run's logs.
+  Scope expansion by re-measured recompute cost, not a target count. Detail:
+  [385](todos/pending/385-ic-engine-recompute-cost-bounds-universe-scale-threading-measurement-first.md).
 
 - **Nautilus Trader (OSS, event-driven backtest/live-execution engine, Rust core + Python)
   flagged 2026-09-13 as a forward-looking candidate for a future execution-layer phase** —
@@ -233,25 +224,18 @@ duplicated here. Currently open/not-yet-planned phases, compressed to current st
 - **Phase 168** (Cost-Hurdle-Adjusted Spread Construction): plans execution-ready but blocked indefinitely -- Phase 167 has no live construction left to refine. `docs/research/trade-construction-layer.md`.
 - **Phase 151** (Feature Primitives Expansion + Interaction Layer): waves 1-5 (7/9 plans) executed 2026-08-05, `FeatureVector` 249→292 fields. Waves 6-7 (corpus recompute + interaction IC sweep) intentionally paused, sequenced behind the corpus pipeline finishing rather than run twice.
 - **Phase 145** (StratificationDimension Formalization): unblocked but not planned, not currently prioritized.
-- **Phase 174** (Universe Expansion — Single-Name Breadth Scaling + Targeted ETF Gap-Fill): added to roadmap 2026-09-13 (prescribed by the personal-scale program's kill criterion, 2026-09-12), not yet planned. See Strategic Plan section above for scoping inputs already gathered. Note: `gsd-sdk phase.add` initially returned a colliding number (162, already in use by a completed phase) — corrected to 174 by hand; see feedback queued this session.
-- Phase 175 added: ITR materiality-filtered empirical tags for breadth/peer-grouping (todo 380) — 2026-09-17, independent of Phase 174/universe expansion (project is between milestones). Deferred option (b) from todo 379's `source='human'` stopgap: orthogonalize empirical `instrument_tags` loadings against market beta and gate on incremental/partial loading with null-arm validation, rather than raw significance, so `breadth_vol.py`/`cross_sectional_regime_model.py` can re-admit empirical sensitivity signal the stopgap excludes entirely today. **Planned 2026-09-18** (5 plans, 4 waves, shadow-mode ITR materiality filter, wave-dependency-annotated in ROADMAP.md, two review-revision rounds). **D-07 cross-AI review, same day: Codex + AGY reviewed the plan set (175-REVIEWS.md), 6 confirmed findings applied in a revision pass, re-verified clean (0 blockers, both follow-up warnings closed).** D-07's own text requires Fable alongside Codex/AGY -- Fable had reviewed a different, related doc earlier the same session (the interaction-primitives idea doc) but had NOT yet reviewed this plan set itself when the phase was first called "ready to execute" -- that was premature. **Fable then reviewed the plan set directly (fresh pass, not shown prior findings), confirmed no remaining NameError-class bug, and cleared the D-07 gate conditional on 2 text-only amendments (sign-stability "sliding bar" -> "discrete step at n=1008"; a point-in-time/lookahead precondition added to todo 380 for the deferred cutover phase), both applied same-session (`be50af233`).** All three required reviewers have now actually reviewed this plan set -- "ready for `/gsd-execute-phase 175`" is current and correct as of this note.
+- **Phase 174** (Universe Expansion — Single-Name Breadth Scaling + Targeted ETF Gap-Fill): executed and CLOSED 2026-09-16 — D-10 correlation gate FAILED for single-name expansion, pivoted to cross-asset ETFs (see Strategic Plan section above for the full verdict and the follow-on pre-registration it produced). Plans 174-11/174-12 blocked-by-verdict, not executed.
+- **Phase 175** (ITR materiality-filtered empirical tags for breadth/peer-grouping, todo 380):
+  fully planned 2026-09-18 (5 plans, 4 waves, shadow-mode). D-07 gate cleared by all three
+  required reviewers (Codex, AGY, Fable — full review record: `175-REVIEWS.md`), ready for
+  `/gsd-execute-phase 175`. **Sequencing decision 2026-09-22: run todo 340 first** (a feature-
+  compute data-completeness bug affecting 8 symbols, orthogonal to Phase 175 but touches the
+  same `feature_vectors` hypertable Phase 175's eventual `ic_engine` recompute will read) —
+  avoids the exact write/read lock contention hit today (see gotchas.md), and lands complete
+  feature data before the next expensive corpus-wide recompute rather than after.
 
 ## Session
 
-Last session: 2026-09-18
-Stopped at: Phase 175 fully planned, D-07 gate cleared (Codex+AGY+Fable), ready for /gsd-execute-phase 175
-Resume file: .planning/phases/175-itr-materiality-filtered-empirical-tags-for-breadth-peer-gro/ (5 PLAN.md files, 175-REVIEWS.md)
-
-**This section has a recurring pattern of going stale the moment GSD-phase-level work pauses**
-(confirmed 4 times now: 2026-07-31, 2026-08-09, 2026-08-14, 2026-09-18) -- narrative left here
-gets superseded by the Strategic Plan section and rots undetected. **Check the Strategic Plan
-section at the top of this file first, always** -- it is the one kept live. **Root cause found
-2026-09-18** (todo 383): `gsd-sdk query state.planned-phase` (the command `/gsd-plan-phase`'s own
-step 13b relies on to update this section) does field-label string-matching against `Status:`/
-`Total Plans in Phase:`/a `## Current Position` section that this project's STATE.md has never
-used -- it silently no-ops (`"updated": []`) on every invocation against this file's actual
-`## Session`/`Stopped at:` format, every single phase, not just occasionally. Phase 174
-(Universe Expansion) is long since fully executed and closed (D-10 failed, cross-asset pivot,
-see Strategic Plan section) -- this section previously still described it as "context gathered,"
-which was the same stale-tool symptom one phase earlier. Resolved incident narrative belongs in
-memory (e.g. `project_disk_full_incident_2026_08_13`) or git log, not here.
+Last session: 2026-09-22
+Stopped at: see Strategic Plan section above (kept live; this section is a known staleness trap
+— its tool-sync bug is root-caused in todo 383, don't re-investigate it).

@@ -68,10 +68,18 @@ statistical validation against `ops_ic_null_calibration.py` on the 5m cells behi
 
 ## Gate
 
-Lever 1 needs the live run to finish. Scope any universe expansion by measured recompute cost, not
-a target symbol count. Phase 174's D-10 result already made single-name equity expansion the
-weaker lever (cross-asset ETFs first), so this cost bound mostly caps how far a later single-name
-expansion can go, not the near-term plan.
+**Lever 1 unblocked 2026-09-22 -- the run finished.** The 2026-09-17 run this todo was gated on
+completed 2026-09-22 (`status=success`, 233 symbols, 97128 committed / 10738 skipped) in
+**~11.5 hours total wall-clock** (`.planning/corpus_manifests/ic_engine.json`, `elapsed_s: 41391`)
+-- not the 2-3 day figure this todo's own measurement projected from the same run's earlier,
+in-progress state (the run had also gone through the `b8af2b749` regime-routing fix and
+migration 348's `cs_chunk_ts` reduction since that measurement, either of which could explain the
+gap). **The "2.4 worker-hours/symbol" / "10-20 day" figures above are stale relative to this real
+end-to-end number and need re-deriving from the completed run's own logs before citing either
+number again** -- don't average the two, re-measure. Scope any universe expansion by that
+re-measured cost, not a target symbol count. Phase 174's D-10 result already made single-name
+equity expansion the weaker lever (cross-asset ETFs first), so this cost bound mostly caps how far
+a later single-name expansion can go, not the near-term plan.
 
 ## Sequencing constraint
 

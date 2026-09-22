@@ -182,142 +182,13 @@ jobs 1020/1021 via `delete_job()`. See both files' `## Resolved 2026-09-07` sect
 |---|---|
 | [340](pending/340-ihf-5m-feature-compute-zero-row-positive-input-error.md) | **Re-tiered P2→P0 2026-09-18**, corrected same audit as 382 (382 CLOSED 2026-09-22, see completed/). Originally dismissed 11 of 12 failed `backfill_status` cells as "stale checkpoint desync, not real gaps" -- wrong; verified live these are real, severe, multi-year stalled feature-compute backfills for 7 symbols (BIL/VRP/ENPH/GLD/NAD/SHY/STIP, 5-11 years of missing 5m feature history each), all sharing `error_msg='value out of range: underflow'`, likely a `real`-column overflow on a near-zero-variance instrument (BIL already flagged in 341/362 for a related degenerate-HMM finding). `IHF`/`5m` (the 12th cell, distinct error, zero rows) is unaffected by the correction -- still the single bounded case originally described. `ic_engine`'s full-corpus run that previously blocked this (RAM/CPU contention) completed 2026-09-22 -- unblocked now, but see [gotchas.md](../../docs/reference/gotchas.md)'s `compressed_hypertable_write_session` entry before attempting `--compute-only` against `feature_vectors` again: a single-symbol run still decompresses the WHOLE table and took an `AccessExclusiveLock` that stalled a concurrent `ensemble_trainer.py` run for ~10 minutes when tried 2026-09-22 -- check nothing else is reading/writing `feature_vectors`/`feature_ic_scores` first. |
 
-**379 CLOSED 2026-09-17, row removed.** `source='human'`-only stopgap shipped in both
-`cross_sectional_regime_model.py` (the live path) and `equity_regime_model.py` (deprecated
-Phase 144 rollback path, also found to be dead code with a broken INSERT -- see 381),
-reviewed and confirmed by Codex + Fable + AGY. Deferred materiality-filter design tracked
-as 380 (P2); dead-code cleanup decision tracked as 381 (P3).
-
-**2026-08-21 cleanup pass:** 318/314/323 all confirmed CLOSED (files verified in `completed/`,
-none lingering in `pending/`) and their inline narrative stripped per this file's own
-"Not in this list: completed" scope -- same discipline as the 2026-08-03 structure-cleanup
-pass, which this table had drifted back away from. Two-table split (a leftover from an earlier
-uncoordinated append) also merged back into one. 316/305/270 pointer notes below the table
-predate this pass and stay as-is (already narrative-free).
-
-**2026-08-21 link-integrity audit (second, later pass, same day):** scripted a full diff of
-every `pending/*.md` filename against every `[NNN](pending/...)` reference across all four
-tables. Found and fixed 4 real drift items, no others: **328** was in `pending/` with zero
-mention anywhere in this file -- added to the P3 table below. **324**'s row still linked
-`pending/330-...` after 330 closed 2026-08-20 (moved to `completed/`, a dead path) -- corrected
-to state 330's closure and that 324 is unblocked. **281** sat in the P3 table with a P2
-frontmatter and no re-tier rationale (unlike 280/225, which both document one) -- moved to P2.
-**257**'s row and file both still described a `feature_registry` gate that Phase 170 `DROP`ped
-2026-08-10 -- struck, kept only the still-live `concept_registry` half. Everything else in
-`pending/` cross-checked clean: every file appears in exactly one table (or is a documented
-deliberate exclusion, like 080's redirect-stub or 270's phase-promotion note), and every
-`[NNN](pending/...)` link across all tables resolves to a real file.
-
-316's own row moved to `completed/` — data remediation finished 2026-08-15, all 231 active instruments confirmed present in `feature_vectors`.
-
-305's own row moved to `completed/` — CI check (`tests/unit/test_compressed_hypertable_migration_vacuum_check.py`) landed 2026-08-15, table-scoped per todo 305's own spec, verified against 5 constructed adversarial cases plus the real migration history.
-
-288's own row moved to `completed/` 2026-08-28 — closed on live verification: `feature_vectors` back to 85/85 chunks compressed (compression policy present and scheduled, auto-restored after the Phase 172 relabel), and the systemic half (future batch-UPDATE relabels vs. compressed chunks) addressed by todo 306's `compressed_hypertable_write_session` bracket + CI guard. Both option-branches of its "decide and execute" mooted.
-
-Todo 270's row moved out of this table 2026-08-21 -- promoted to **Phase 173 (Broadcast Feature
-Significance Correction)** in ROADMAP.md, per this file's own stated scope ("Phases... are a
-separate execution track and do not appear here"). Context captured
-(`.planning/milestones/v3.1-phases/173-.../173-CONTEXT.md`): all 23 broadcast features move together, a new
-lightweight cell reuses `_subsample_and_rank` per-`(regime_group, tf, regime_label)` against an
-equal-weighted aggregate return, same `feature_ic_scores` table/FDR family. Ready for
-`/gsd-plan-phase 173`. Todo 270's own file kept in `pending/` as the historical scope record --
-not re-closed here, just no longer a P0 backlog item to loop on. **Closed 2026-08-28: Phase 173
-shipped complete** (2026-08-25/26; planned via `/gsd-plan-phase`, two independent review rounds,
-live-smoke-tested against production, post-implementation codex+agy re-review clean, `/simplify`
-done). 270's file now in `completed/` with the full closure note. Its citation caveat (no
-broadcast-feature significance claim is Phase-173-corrected until the in-flight `--from-step 4`
-recompute lands) is tracked in `.planning/STATE.md`, not as an open todo.
-
-**354 CLOSED 2026-08-26, row removed.** Implemented substantially as proposed (day-decimation
-via a new `_compute_one_symbol_broadcast_cell`, mirroring the already-shipped cross-sectional
-`_compute_one_broadcast_cell`), plus three real design corrections found during implementation
-and independent review, all fixed and re-verified against live production data before closing:
-(1) 1h's `slow`/`extended` scales need a multi-day `day_stride` (day-decimation alone
-insufficient -- new APR keys, migration 325); (2) `embargo_bars`/`bootstrap_block_size` must be
-converted to day-array units, not reused raw from the per-bar sibling's convention (would have
-over-embargoed/under-sized bootstrap blocks by ~`day_stride`x, silently starving folds and
-understating standard errors); (3) `1d` correctly excluded entirely (no duplication to fix
-there, and the fix's own sentinel would be actively wrong for `1d`'s own multi-day scales).
-**Scope narrowed from the original proposal**, the session's most consequential finding: live DB
-check caught that concept_registry's full `broadcast=true` set (~38 features) includes ~35
-genuinely intraday-varying features (`hour_of_day_cos` confirmed 78 distinct values/day) that
-are NOT day-constant -- using the full set would have silently dropped real signal or crashed
-the new invariance guard. Fixed with a narrow, explicit, empirically-verified 3-name allowlist
-(`_TEMPORAL_BROADCAST_FEATURE_NAMES`); widening it needs its own empirical classifier, filed as
-[360](pending/360-broadcast-day-constant-empirical-classifier.md). 18 new unit tests + live
-end-to-end smoke tests against real AAPL/5m and SPY/1h/1d data at every stage. Full evidence in
-`completed/354-...md`.
-
-**005 CLOSED 2026-08-27, row removed.** Fixed at the source: `cross_sectional_regime_model.py`'s
-`_assign_labels` now applies a causal min-hold-bars hysteresis smoother (ports
-`regime_writer.py`'s existing `_smooth_states` pattern to string labels) to each tier
-dimension before combining into `regime_label`. New APR key
-`alpha.regime.cross_sectional.min_hold_bars=3` (migration 326). Verified via a real write
-through the production entry point + before/after label-churn measurement against the live
-DB, not just synthetic tests: bar-to-bar churn dropped from 5.6%/18.3%/64%/84%
-(equity/rates/fx/commodity) to a uniform 5.4%-7.4% band post-fix. **Materially more severe
-finding than the original filing suspected:** commodity/fx were flipping regime label on the
-majority of consecutive bars pre-fix -- near-random, not "occasional" noise. 17 new unit
-tests, full `tests/unit/` suite green. Fixed *before* launching the pending post-Phase-173
-corpus recompute (same blast-radius class as an `HMM_RANDOM_STATE` change) to avoid a second
-multi-day recompute cycle. Full evidence in `completed/005-...md`.
-
-| Todo | Gap |
-|---|---|
-**335 CLOSED 2026-08-31, row removed.** Steps 3-4's recompute (`--from-step 4`) landed
-2026-08-31 12:16 UTC. Verified live: `market_regimes` commodity group now shows all 4 tiers
-(`up_secondary`/`down_primary` -- the two states the bug made unreachable -- both populated),
-fx group shows both risk states (`risk_off` now populated for both dollar-strength tiers),
-confirmed propagated through to `feature_ic_scores`. See todo file's closure section.
-
-**306 CLOSED 2026-08-31, row removed.** Corpus-recovery side resolved earlier this session
-(regime population, `forward_returns` OOS-capping, co-dependents 285/287/335 all verified).
-Live IBKR ingestion also now resolved -- the 2026-08-13 "stuck in 2FA loop" diagnosis was
-wrong; real cause was `libgtk-3-0` missing from the `ib-gateway` image, fixed live and
-verified connected. Durability follow-up filed as todo 363 (fix survives `docker restart`
-but not a container recreation). See todo file's closure section.
-
 ## P1 — High value, quick, fully unblocked
 
 | [384](pending/384-security-classification-hierarchy-build-trigger-already-fired.md) | New 2026-09-18, surfaced mid-discussion auditing a same-sector cointegration test (NVDA/AMD/AVGO/QCOM/ASML/TSM). No industry/sub-industry classification exists anywhere -- `sector` field has 24 ad hoc values, empty for 40/168 (24%) single-name equities, `sub_sector`/`industry` populated for zero. A complete, twice-reviewed design already exists (`docs/research/stratification-security-classification-hierarchy.md`, deliberately NOT in CVR -- a `parent_code`-on-CVR proposal was explicitly retracted 2026-07-04) and its own stated build trigger ("the first phase that onboards individual equities into `instruments`") already fired weeks ago when this project onboarded 168 single-names -- point-in-time correctness "cannot be retrofitted," so every day since is uncapturable classification history. Needs an owner decision (build now vs. formally defer), not more design work. |
 | [386](pending/386-ic-engine-preflight-cell-size-estimate-overstates-2-6x-restore-15m-cap.md) | New 2026-09-21. The Phase 174-05 pre-flight cell-size estimate (timestamps x symbols) overstates real rows 2-6x and killed a 2.6 day ic_engine run on 2026-09-20. Worked around by migration 347 raising `alpha.ic.max_cell_rows` to 100M (APR-only, kept completed cells), which leaves the crash-loud guard loose. Fix: exact count, restore the cap to 15M, close todo 371. The full-corpus `ic_engine` run this was blocked on completed 2026-09-22 (see 378, CLOSED) -- unblocked now. Proposed P1 because it restores a loosened guard; tier is the owner's call. |
 | [372](pending/372-panel-sync-shift-null-not-actually-panel-synchronous-plus-volume-z-diurnal-bias.md) | New 2026-09-09, surfaced by AGY review round 3 of the H-B redesign, both findings independently re-verified against source before filing. Two issues reaching beyond H-B: (1) `Panel.sync_shift_null_p`'s "panel-synchronous" date-shift null (`scripts/analysis/alpha_score_residual_single_security_15m.py`) actually applies a per-symbol `k % m` shift where `m` is that symbol's own active-date count — when `m` varies across symbols (as it will for any sparse, per-symbol-varying event set), the null silently loses its cross-sectional-correlation protection. Shared, already-used machinery, not new to H-B; the already-closed `alpha_score_residual` FAIL verdict is likely not meaningfully affected (near-zero effect size, not a borderline call) but that needs checking, not assuming. (2) `volume_z` (`feature_factory.py`) has no diurnal/session-boundary detrending — systematically inflated in the first ~45-60min of each session, affecting both H-B and the already-reviewed H-A (which reads the same column). Fix for (1) needs its own design pass (shared infra); fix for (2) is a reported ungated sub-panel check on both hypotheses' Track 1 runs. |
-**375 CLOSED 2026-09-13, row removed.** Pre-registration 3 (single-name-only `range_pct_fast`),
-AGY-reviewed before running, DEAD on the stability criterion alone (subperiod 2 net -1.14bp
-at anchor cost, verified against the locked formula directly — AGY's own specific numbers were
-wrong but its qualitative call was right). Verdict `range_pct_fast_xs_ls_h5_single_name_only`,
-migration 334. Closes the single highest-leverage lead from the gate-firing council review; see
-`completed/375-...md`.
-
-**2026-08-21 cleanup pass:** stripped 11 confirmed-CLOSED rows (330/326/327/312/307/259+296/
-293/277/278/169/251 -- all verified present in `completed/`, none in `pending/`), same
-discipline as the P0 table above. The stale 337-duplicate note (below) predates this pass.
-
-**276 CLOSED 2026-08-21 -- audited, CLEAN, row removed from this table.** Phase 163-165's
-batch feature computations were checked against the same lookahead-leak shape that hit
-`ctf_momentum` and `regime_writer`'s HMM fit; every call site pre-slices to a strictly causal
-window and swing/pivot detection has a real, math-enforced confirmation lag, not just
-convention. Full evidence in `completed/276-...md`. This was the last of the three gating
-items for the single-security alpha refinement plan (with 277/278, already closed) -- all
-three now clear.
-
-337's row removed from this table 2026-08-21 -- stale duplicate left behind when it was
-re-tiered P1→P2 on 2026-08-20 (the P1 row never got deleted, only the P2 row was added). Current
-status lives in the P2 table only.
-
 | Todo | Why now |
 |---|---|
-**287 CLOSED 2026-08-31, row removed.** `ensemble_trainer` re-ran under the fix commit
-(`9469b0a50`) 2026-08-30 -- verified live: zero leaked columns appear as `feature_name` in
-`ensemble_weights`, zero NULL-imputation gap possible now the columns are excluded outright.
-See todo file's closure section.
-
-**285 CLOSED 2026-08-31, row removed.** All 5 verification steps run against the completed
-post-Phase-173 recompute: no retired trend labels anywhere in `feature_ic_scores`, every
-per-symbol volatility label is a registered CVR code, VINTAGE DISJOINT still PASS at full
-scale, per-cell coverage checked (45/262 evidence-file cells produced no IC rows -- 44
-explained by the documented bar-floor limitation, 1 new finding filed as todo 362). See todo
-file's closure section.
 | [380](pending/380-itr-materiality-filtered-empirical-tags-and-eq-prefix-naming-collision.md) | New 2026-09-17, deferred option (b) from todo 379's stopgap. Design a materiality filter (orthogonalize against common-market-beta, gate on incremental/partial loading, not raw significance) so real empirical sensitivity signal isn't permanently excluded from breadth/peer-grouping the way the 379 stopgap does. Also tracks AGY's root-cause finding: `eq_low_vol`/`eq_momentum`/`eq_quality` (category=`exposure`, deliberately made measurable by migration 343) share the `eq_*` prefix with true identity tags, which is the actual mechanism that let empirical tags leak into identity-based prefix matching. Not urgent -- the 379 stopgap already removed today's contamination; this is upside, not integrity risk. **Updated 2026-09-18:** materiality-filter half is now Phase 175, planned (5 plans/4 waves); D-07's Fable+Codex/AGY plan review is complete and cleared (2 rounds -- Codex/AGY's findings applied first, Fable's fresh pass found and closed 2 more) -- ready for `/gsd-execute-phase 175`. See todo file's status update section. `eq_*` naming half stays resolved, not folded into the phase. |
 | [240](pending/240-nonlinear-interaction-combiner-baseline-is-single-feature-not-the-linear-ensemble.md) | From a rigor review of the Edge Source Thesis doc. nonlinear_interaction_combiner's pre-registered falsification bar says the tree must beat "the existing linear ensemble"; every run actually compared it to `ctf_momentum` alone. **Code landed + committed 2026-08-03** (`816032e2`): a fold-local linear-ensemble arm (`fit_linear_ensemble_weights`/`score_linear_ensemble`, reusing `ensemble_trainer.py`'s own weighting primitives) plus a paired-bootstrap PRIMARY VERDICT (tree vs linear), `ctf_momentum` kept as secondary. Independent review caught and fixed 2 blocking issues (features weren't z-scored before weighting; memory footprint too close to this module's prior OOM history) -- both fixed in the same commit. **Re-run at 1h/15m/5m gated on todo 243's corpus-recompute decision** (todo 245, all 3 tfs measured and CLOSED 2026-08-04 -- the training matrix confound is now quantified, not just flagged; the training matrix still includes lookahead-contaminated `ctf_momentum` until 243's corpus recompute happens) -- **1d re-run is safe and unblocked right now.** Gates todo 238. |
 | [239](pending/239-nonlinear-interaction-combiner-embargo-passed-in-pooled-panel-rows-not-bars.md) | Same review. `_nonlinear_interaction_combiner_shared.py` passed `embargo_bars` into `build_walk_forward_folds(n_valid=len(X))` where `X` is the **pooled** ~80-rows-per-bar panel, so the intended 1-day embargo was 24/96/5 *rows* ≈ 0.3/1.2/0.06 bars at 1h/15m/1d, and fold boundaries split inside a single `bar_ts`. Bounded blast radius (~800 rows of ~2-8.5M, does NOT explain the 0.18-0.25 IC) but cited in the research doc as a rigor credential. **Code landed + committed 2026-08-03** (`816032e2`, same commit as 240): new `_pooled_panel_folds()` builds folds over the distinct `bar_ts` index and maps back to row slices; `build_walk_forward_folds` itself untouched. **Re-run gating: same as 240 -- 1d safe now, 1h/15m/5m wait on todo 243's corpus recompute.** |
@@ -364,30 +235,12 @@ does (crash-loud vs subsample stride). Related: 356, 290. See
 
 **2026-08-26 drift catch:** [353](pending/353-earnings-season-calendar-primitive-candidate.md)
 (earnings-season calendar primitive, real proxy evidence, p=1.2e-17), 356 (cross-sectional
-fetch chunk query pathologically slow on the largest cell, found during Phase 173's smoke test
--- CLOSED 2026-08-26, see below), [357](pending/357-phase173-triple-duplicated-per-scale-cell-block.md) (3-way duplicated
+fetch chunk query pathologically slow on the largest cell — CLOSED 2026-08-26, `completed/356-...md`, ~32x fix),
+[357](pending/357-phase173-triple-duplicated-per-scale-cell-block.md) (3-way duplicated
 per-scale block in `ic_engine.py`), [358](pending/358-phase173-broadcast-cell-bar-ts-array-efficiency.md)
 (`bar_ts_arr` as `dtype=object` + a redundant pass, same OOM-history function) were all filed
 but missing from this file — added now. [359](pending/359-phase173-altitude-design-notes.md)
 (3 architecture notes, already reviewed/accepted, no action needed) filed P3, see below.
-
-**356 CLOSED 2026-08-26, row removed.** Root-caused via `EXPLAIN (ANALYZE, BUFFERS)` against
-the real query shape (298 columns, not the stale "152 features" comment elsewhere in the file):
-`bar_ts = ANY(<5000 values>)` against the compressed hypertable expands chunk exclusion into a
-literal per-batch `OR`-chain of `_ts_meta_min`/`_ts_meta_max` checks, `O(batches x
-len(ts_chunk))`. Fix: redundant `BETWEEN ts_min AND ts_max` bound ahead of the existing `ANY()`,
-using `ts_chunk[0]`/`ts_chunk[-1]` (already correct since `ts_chunk` is a contiguous slice of an
-`ORDER BY ts` result). Measured, isolated, single-variable on real data: 10.2s->0.3s (~32x) and
-1.5s->0.5s (~2.9x) on two different real chunks; correctness verified via matching row-count +
-order-sensitive checksum on real data (238,121 rows, identical both ways), not assumed. Verified
-the fix generalizes across the whole cell (all 108 real chunks span 19-250 days, none spans
-years) before trusting it. Independent Codex review found no blocking issues; one valid point
-(source-inspection test alone doesn't prove the ts_min/ts_max invariant) addressed by adding a
-second test proving the slicing invariant directly against synthetic sequences. Full `tests/unit/`
-green, ruff/black clean. Full evidence in `completed/356-...md`. **Not independently re-verified:**
-whether this alone resolves the reported 95+-minute-and-not-finished full-cell behavior, or
-whether other large 5m cells hit the same pathology -- watch during the next full corpus run
-rather than assuming fully closed.
 
 **2026-08-21 backlog audit:** [281](pending/281-systematic-dominance-and-volume-price-confirmation-as-feature-primitives.md)
 re-tiered P3→P2 -- misfiled under P3 with no documented reason (unlike 280/225, which both carry
@@ -406,63 +259,6 @@ separation test), not hygiene.
 | [357](pending/357-phase173-triple-duplicated-per-scale-cell-block.md) | New 2026-08-26, `/simplify`'s reuse+simplification review of Phase 173's diff (2 independent agents). `_compute_one_broadcast_cell` (`services/ic_engine.py` ~3273-3658) is a third near-identical copy of the ~140-line per-scale block (`_subsample_and_rank` → IC/CI/walk-forward → rolling metrics → row emission) already duplicated twice by `_compute_one_cross_sectional_cell`/`_compute_one_regime_cell`. Pre-existing duplication pattern, not a new problem -- extraction deferred because it would touch two already-shipped production functions on the significance-gate hot path, one with documented 2026-07-08 OOM history. |
 | [358](pending/358-phase173-broadcast-cell-bar-ts-array-efficiency.md) | New 2026-08-26, `/simplify`'s efficiency review of Phase 173's diff. Same OOM-history function family: `bar_ts_arr` is built as `dtype=object` (Python `datetime` per element) instead of `datetime64[ns]`, costing ~500-600MB extra at the largest real cell (~9.4M rows) and forcing the core boundary-scan comparison into per-element Python instead of a vectorized kernel; plus a third redundant pass over `batch` solely to extract `bar_ts` that could be folded into an existing loop. Not fixed inline -- needs verifying the `datetime64[ns]` cast is safe against actual upstream row values first. |
 
-**329 CLOSED 2026-08-21, row removed.** Migration 322 adds the `timeframe`/
-`intraday_plus_hourly` CVR group; `vocabulary_access.group_codes()` (new) repoints both
-`signal_auditor.py`/`feature_validation_analyzer.py` at it, replacing `assert_known_subset()`.
-Full `tests/unit/` green (6 new tests), ruff/black clean. Full evidence + one documented
-behavior-shape trade-off (silent fallback replaces hard-crash on a broken group) in
-`completed/329-...md`.
-
-**346 CLOSED 2026-08-21, row removed -- hypothesis was WRONG, gate not broken.**
-The exact CI command (`mypy src/ --ignore-missing-imports | mypy-baseline filter`)
-against the real, already-committed baseline shows `new: 0`. The original "72 new"
-finding came from checking a single file instead of the whole tree -- mypy's own
-`note:` context differs by invocation scope, not baseline staleness. Full
-corrected finding in `completed/346-...md`.
-
-**328 CLOSED 2026-08-21, row removed.** Executed all 4 confirmed-dead deletions
-(re-verified live first), plus found and handled 2 scope gaps the original filing
-missed (a dangling `__init__.py` re-export that would've broken the package import, a
-second test file directly reading the deleted module's source). Deleting the dead file
-cascaded into 12 new vulture findings in sibling files -- real evidence the broader
-`src/intelligence/pipeline/` package has more dead code than this todo scoped to find,
-whitelisted with a note pointing at todo 223 (the actual audit for that question)
-rather than re-litigated here. Full `tests/unit/` green, vulture exit 0. Full evidence
-in `completed/328-...md`.
-
-**315 CLOSED 2026-08-21, row removed.** Trigger identified:
-`setup_service_logging()`'s `RotatingFileHandler(maxBytes=10MB)` is a size-based rotation
-completely independent of the daily `logrotate.timer` -- the ~7-15min cadence was just
-`regime_writer.py`'s own log volume hitting that threshold, confirmed directly, not
-inferred. Fix (not a workaround): `setup_service_logging()` now installs a `sys.excepthook`
-routing uncaught exceptions through the same rotation-safe handler, closing the one real
-gap (Python's default crash-traceback path bypasses `RotatingFileHandler` entirely). Lives
-in shared Ring 0 code, so it automatically covers `ic_engine.py`/`regime_writer.py`/
-`forward_return_writer.py` (all confirmed callers) with no per-service audit needed. Zero
-risk to the live corpus run (source change, doesn't affect an already-loaded process). 6
-new tests where zero existed before. Full evidence in `completed/315-...md`.
-
-**313 CLOSED 2026-08-21, row removed.** Cross-referenced migration 312's full 303-column
-list against every `feature_vectors` writer outside the 4 known `bulk_update_by_key` call
-sites -- CLEAN, no follow-up fix needed. Every other writer found is structurally immune
-to the col_types-drift bug class (direct-INSERT with no temp table, or NULL-only UPDATE),
-not just currently correct. Full evidence in `completed/313-...md`.
-
-**294 CLOSED 2026-08-21, row removed.** Fixed 8 genuine present-tense `feature_registry`
-claims across 4 docs (verified against live migrations 283/284/311 and live code before
-editing, not assumed), including one substantive fix beyond a table-name swap
-(`intel-symbol-state-query-layer.md`'s "fixed DB check-constraint" premise no longer
-holds -- `concept_registry.group_name` is unconstrained text). Deliberately left
-`measurement-governance-monitor.md`'s ~15 occurrences and one dated numeric-snapshot
-section alone, with reasons recorded inline, not silently skipped. Full detail in
-`completed/294-...md`.
-
-**342 CLOSED 2026-08-21, row removed.** Generalized `1d` slot generation to `futures_24_5`
-(CME/CBOT/COMEX/NYMEX -- CFE deliberately excluded, raises rather than silently returning
-empty)/`fx_24_5`/`crypto_24_7`, resolving the "no live data to test against" question the
-filing flagged by testing the calendar/weekday-rule logic directly instead of storage
-reproduction. New shared `_daily_slots()` helper, new `MarketCalendar.supports_exchange()`.
-12 new tests, full `tests/unit/` green. Full detail in `completed/342-...md`.
 | [341](pending/341-bil-etha-ibit-zero-regime-labels.md) | New 2026-08-21, found by `regime_coverage_auditor.py`'s first live production run (todo 169). `BIL`/`ETHA`/`IBIT` have 100% NULL `feature_vectors.regime` -- same failure shape as todo 168 (7 different symbols, closed). Plausibly related to `BIL`'s separate compute-underflow finding (todo 340's sibling note) via BIL's near-zero-volatility character; `ETHA`/`IBIT` may just be short-history crypto-trust ETFs below the HMM warmup requirement. Not investigated further yet. |
 | [334](pending/334-has-gap-before-entry-never-set-dead-column.md) | New 2026-08-16, added to PRIORITIES.md 2026-08-21 (was missing entirely -- this session's drift audit). `forward_returns.has_gap_before_entry` had been dead since the table existed (permanently `false`, never written by `forward_return_writer.py`), making `ops_cost_hurdle_calibration.py`'s gap-contamination check structurally incapable of ever firing. **Write-path fix already landed and verified same session** (29/29 tests, synthetic positive-control cases confirmed correct) -- future rows get the real computed value. Remaining scope is narrower than the original finding: a retroactive backfill of the 103M existing rows, deliberately deferred (compressed hypertable, same blast-radius class as the 2026-08-13 disk-full incident) until planned with the performance-investigation SOP. |
 | [343](pending/343-regime-writer-backfill-feature-factory-write-isolation-shared-helper.md) | New 2026-08-21, `/simplify`'s reuse-angle review of the full session's diff. `backfill_feature_factory.py`'s new per-cell write-isolation loop (todo 318) duplicates a shape `regime_writer.py` already established, with no shared helper in `_batch_utils.py` capturing it. Not extracted this session -- touches an unrelated, live, well-tested batch writer outside the reviewed diff. |
@@ -473,13 +269,6 @@ reproduction. New shared `_daily_slots()` helper, new `MarketCalendar.supports_e
 | [317](pending/317-backfill-status-migrate-to-anti-join-checkpoint-pattern.md) | New 2026-08-14, split out of todo 316's `/simplify` altitude review. `backfill_status.status='complete'` is the only side-table checkpoint of its kind left in `services/*.py` — every other batch writer (`alpha_frame_writer.py`'s documented "Pattern 4", `regime_writer.py`, and `ic_engine.py` which deleted a decoupled `.pkl` checkpoint outright for this same root cause) queries the target table directly instead. Todo 316's fix reconciles the desync after the fact; this is the deeper fix — eliminate the second source of truth. Not urgent: 316 already makes the current design self-detecting/self-healing. |
 | [309](pending/309-vulture-baseline-cleanup-backlog.md) | New 2026-08-14, filed wiring vulture (dead-code detection) into CI for the first time — it had sat in `requirements.txt` unwired since before this session. CI now blocks any *new* dead code; the 1136 pre-existing findings were frozen into `tools/vulture_whitelist.py` rather than triaged by hand (real dead code is mixed in with known dataclass/Pydantic false positives). One freebie found + fixed inline: an `if False else` unreachable branch in `src/intelligence/ai/context.py`. |
 | [339](pending/339-backfill-feature-factory-worker-rows-unbounded-memory-across-ipc.md) | New 2026-08-21, split out of todo 318 Bug 2's fix (`/simplify` + `/code-review` both converged on it). Making workers compute-only (CLAUDE.md invariant) means each now returns every computed row for a symbol across all 4 timeframes in one shot instead of streaming `insert_batch_size` chunks as it goes -- bounded to ~191K rows/symbol worst case (full-depth `--refresh`), same `update_rows`-over-IPC shape `regime_writer.py` already uses, just proportionally heavier per row. Not a correctness bug, deferred rather than expanding the fix's diff further; fix shape (APR-capped `n_workers` for refresh runs, or a deeper chunk-granularity IPC redesign) not yet decided. |
-**308 CLOSED 2026-09-17, row removed.** `bulk_update_by_key`'s guard now uses a live-cached
-`timescaledb_information.hypertables` query. `_validate_compressed_hypertable` deliberately
-kept as a separate, static, hand-curated allow-list -- code review caught that this todo's
-own recommended approach would have wrongly shared one live-queried set between two
-opposite-risk-direction checks (confirmed live: DB has 26 compressed hypertables, not 2;
-sharing the set would have silently let e.g. `market_data_ohlcv` pass validation for a
-mechanism never hardened against it). See completed/308 for the full correction.
 | [255](pending/255-counterfactual-tracker-evaluate-gate-no-d04-governance.md) | New 2026-08-04, added to PRIORITIES.md 2026-08-11 (was missing entirely, self-tagged P2 in its own frontmatter). Split out of todo 253 while wiring D-04 governance into `cross_sectional_spread_tracker.py` -- same gap, different phase, deliberately not fixed in that pass to avoid expanding its blast radius. |
 | [274](pending/274-live-tradeable-vs-corpus-universe-flag.md) | New 2026-08-06, added to PRIORITIES.md 2026-08-11 (was missing entirely). `instruments` has no column distinguishing "eligible for live IBKR streaming" (80-subscription cap) from "part of the backfill/corpus measurement universe" (231 active) -- `get_active_contracts()` collapses both into one `is_active` boolean. Real design question, unblocked, no urgency while ingestion stays paused. |
 | [272](pending/272-instrument-tag-peer-group-coverage-auditor.md) | New 2026-08-05 (renumbered from 271), added to PRIORITIES.md 2026-08-11 (was missing entirely, and this project's memory has been citing it under the stale "todo 271" number -- fixed). No automated audit for thin/missing `instrument_tags` peer-group cardinality -- every gap found so far (this todo, plus todos 280/283's specific instances) was found by a human asking "what about X?", not a query. Distinct from 280/283 (which are the specific data gaps already found) -- this is the general tooling to catch the next one automatically. |
@@ -520,18 +309,11 @@ mechanism never hardened against it). See completed/308 for the full correction.
 | [172](pending/172-path-dependent-frame-statistics-order-sensitivity-sweep.md) | **Item 2 FIXED 2026-08-03** -- `frame_gate_passes`'s cluster-mean array is now sorted at both the inter-cluster and within-cluster level (the second level needed once testing exposed residual ULP-level float-summation noise from the first fix alone); regression test asserts exact reproducibility across different row-fetch orders. Item 1 (broader path-dependent-statistics sweep elsewhere in the codebase) remains open, unscoped. Did not affect Phase 148's actual gate verdicts (background: `_max_drawdown` over `alpha_frames` silently produced a non-reproducible number because same-`bar_ts` frames were treated as sequential in a cumulative-sum walk -- separately fixed for Gate 2 already). |
 | [223](pending/223-src-intelligence-i1-i7-dead-code-153-files-30k-lines.md) | New 2026-08-01, found during a "clean up docs tests scripts dead code" survey pass: `src/intelligence/`'s I1-I7 orchestration/plugin tree (~153 files, ~30k lines) has no live production entry point (`services/intelligence_pipeline.py` is physically deleted) — reachable only via `shadow_validator.py`'s weekly job, which queries a table (`shadow_registry`) already confirmed dead. One clean orphaned duplicate (`features/i5_patterns/`, 17 files) already deleted same day. The rest needs an explicit delete-vs-archive decision plus a matching call on 18 Group-A dead-pipeline tests and 26+ Group-B SLA/I7-plugin tests (Group B depends on whether the paused IBKR ingestion chain resumes through the v2.x signal path or not). |
 | [226](pending/226-regime-writer-n-iter-convergence-headroom-check.md) | New 2026-08-02. **Step 1 DONE 2026-08-02**: log `model.monitor_.iter` per (symbol, tf) cell (commit 5c86ffeb + fix 7a0d7de1). Next step: analyze distribution to decide if n_iter=200 cap is oversized. |
-**227 CLOSED 2026-08-31, row removed.** Design decision resolved 2026-08-05 (tolerance
-acceptable, not bit-identical), implementation landed and flag flipped 2026-08-12, full-scale
-confirmation done 2026-08-31: post-flip full `ic_engine` runs trending faster run-over-run
-(289,674s -> 237,730s) with zero downstream gate anomalies. See todo file's closure section.
 | [228](pending/228-corpus-pipeline-unmeasured-steps-io-vs-cpu-triage.md) | New 2026-08-02. `217` (step-timing instrumentation) is CLOSED (step_timings.jsonl confirmed live) but only captured steps 5-8 so far — steps 1-4 predate the instrumentation landing mid-run. Needs one more full pipeline run from step 1 to get timing data for all 8 steps. Then: classify steps 1/6/7/8 as I/O- vs CPU-bound before applying thread-tuning lessons from todos 215/216. |
 | [235](pending/235-cross-sectional-relative-value-5m-construction-never-tested-15m-is-a-default-not-a-finding.md) | New 2026-08-03, user question mid-session. Phase 167's live tracker trades cross_sectional_relative_value at 15m only -- checked, that's an inherited default from the original falsification script, not a comparative finding. The one existing 5m cost-hurdle result (todo 030) tested standalone directional IC, not cross_sectional_relative_value's netted dollar-neutral spread, which the research doc itself says has different cost dynamics. Run cross_sectional_relative_value's actual methodology at 5m before assuming 15m is the right choice. |
 | [256](pending/256-ctf-columns-no-explicit-ensemble-exclusion-pending-join-fix-recompute.md) | New 2026-08-05. `ctf_momentum`/`ctf_vwap_align`/`ctf_regime_align` (todo 243's leaked join, unfixed in the live corpus) have no explicit ensemble-eligibility exclusion — currently kept out of `alpha_ensemble_ic` by `ensemble_trainer.py`'s meta-FDR gate on their own (weak/sparse) merits, not by design. **Re-verified live 2026-08-07 against the post-join-fix, post-todo-230-resolution corpus (0.0/0.1/0.2% pass rates across 3,640 cells each) — still doesn't clear admission, risk confirmed still dormant, not resolved.** Fragile — any future `ic_engine` run could flip that by accident. `todo 230` resolved 2026-08-02 (steps 6-8 run regularly now), that's no longer a reason for low urgency — should close before/alongside any future recompute regardless. |
-**381 CLOSED 2026-09-17, row removed.** `services/equity_regime_model.py` deleted (dead
-code, broken write path against current schema, redundant test coverage confirmed and
-removed alongside it) -- see completed/381 for the full verification trail.
 | [376](pending/376-survivorship-bias-active-only-universe-no-owner.md) | New 2026-09-13, given an owner after sitting unfiled since the 2026-09-12 program closure flagged it inline in STATE.md as "the one genuinely unresolved integrity gap." 100% of the 231-symbol universe is `is_active=true`, zero delisted names — every IC/edge verdict in `construction-verdict-ledger.md` is implicitly conditioned on "still trading." Not urgent (doesn't block universe-expansion scoping, which STATE.md's inline caveat already covers), but should get a real data-sourcing answer (can a delisted-name sample be backfilled at all) before universe expansion locks in a sourcing method that perpetuates the same selection. |
-| [385](pending/385-ic-engine-recompute-cost-bounds-universe-scale-threading-measurement-first.md) | New 2026-09-19. Live corpus run measures about 2.4 worker-hours per symbol, so a 1000-2000 symbol universe means 10-20 day full recomputes on this box. Levers in order: per-symbol threading (`per_symbol_bootstrap_threads` defaults to 1; the cross-sectional path got 2-6x), Numba `nogil` plus threads (Fable measured 1.26-1.54x without `nogil`), staged bootstrap, incremental recompute, then cluster. First step waits for the current run to finish. HAC-for-rank-IC ruled out for now. Proposed P2; tier is the owner's call. |
+| [385](pending/385-ic-engine-recompute-cost-bounds-universe-scale-threading-measurement-first.md) | New 2026-09-19. **Blocking run finished 2026-09-22 in ~11.5hr end-to-end -- far faster than this todo's own 2.4-worker-hr/symbol projection (from the same run, mid-flight), which is now stale and needs re-deriving, not citing.** Levers in order: per-symbol threading (`per_symbol_bootstrap_threads` defaults to 1; the cross-sectional path got 2-6x), Numba `nogil` plus threads (Fable measured 1.26-1.54x without `nogil`), staged bootstrap, incremental recompute, then cluster. Lever 1 (threading measurement) now unblocked. HAC-for-rank-IC ruled out for now. Proposed P2; tier is the owner's call. |
 
 ## P3 — Hygiene, docs, process (opportunistic)
 
@@ -542,71 +324,16 @@ architecture notes (cluster_id offset partition, fingerprint watermark special-c
 validation list), all already reviewed/accepted by codex+agy during Phase 173's own mandatory
 review, recorded for future consideration only.
 
-**336 CLOSED 2026-08-21, row removed.** Ran the specified cross-chunk aggregation + code
-cross-check against all 5 flagged indexes (live DB, read-only, safe alongside the running
-corpus job). Mixed verdict, not a blanket call: ~973MB (`feature_ic_scores_history_cell_idx`
-+ `_archived_at_idx`, `idx_market_data_ohlcv_base`) confirmed dead -- real drop candidates,
-not yet executed (DDL deferred until the current corpus run finishes). The biggest one
-(`idx_market_data_ohlcv_price_sanity_unaudited`, 501MB) turned out NOT to be simply dead --
-its column order can't serve its own real consumer's query shape, a genuine design bug, not
-neglect. Filed as [347](pending/347-price-sanity-index-column-order-mismatch-bar-auditor-query.md),
-which also cross-references todo 155's ~4.1-year backlog-clear estimate as a possible
-downstream consequence. `ensemble_alpha_symbol_tf_idx` left genuinely ambiguous (real
-consumer exists, table is 30M rows not small, but 0 scans unexplained). Full evidence in
-`completed/336-...md`.
 | [347](pending/347-price-sanity-index-column-order-mismatch-bar-auditor-query.md) | New 2026-08-21, found investigating todo 336. `idx_market_data_ohlcv_price_sanity_unaudited`'s `(symbol, timeframe, timestamp)` column order can't serve `bar_auditor.py`'s actual query shape (`ORDER BY timestamp` with no symbol/tf filter) -- likely explains both the 0-scan finding directly and possibly part of todo 155's ~4.1-year price-sanity backlog-clear estimate (the read side of that pipeline was never checked, only the write side). Fix shape identified (drop symbol/tf, add `volume > 0` to the partial predicate) but deliberately not built -- same compressed-hypertable class as the 2026-08-13 disk-full incident, needs its own reviewed pass per `performance-investigation-sop.md`, not a drive-by DDL change. |
 | [348](pending/348-equity-regime-model-still-carries-unfixed-on2-causal-rank.md) | New 2026-08-21, `/simplify`'s reuse-angle review of `causal_rank.py`'s O(n^2)->O(n log n) rewrite. `services/equity_regime_model.py:237-257`'s `_compute_vix_pct_rank` still carries its own hand-copied, unfixed O(n^2) causal-rank loop -- the exact algorithm the shared helper just fixed, never migrated onto it. Deliberately not touched: the file is DEPRECATED (Phase 144) and marked "no functional changes" since its migration, an emergency single-group rollback path, not the live path (`cross_sectional_regime_model.py` is). Needs its own TDD pass, not a drive-by. |
 | [349](pending/349-stage2-hurst-rolling-apply-still-unvectorized.md) | New 2026-08-22, `/simplify`'s altitude-angle review of the autocorr vectorization fix in `per_symbol_regime_candidates_stage2_orthogonality.py`. `_single_window_hurst`'s `rolling.apply()` is now the dominant remaining cost in `_compute_candidates` (same 200x null-arm hot loop the autocorr fix targeted) -- no direct pandas-vectorized equivalent exists for the R/S statistic (unlike autocorr's exact Pearson-correlation identity), needs custom `sliding_window_view` engineering plus its own TDD pass. Not urgent: research script, doesn't block any measurement, just slower than necessary. |
 | [350](pending/350-stage3-build-panel-recomputes-all-5-candidates-per-name.md) | New 2026-08-22, `/simplify`'s efficiency-angle review of the same fix. `per_symbol_regime_candidates_stage3_falsification.py`'s `_build_panel()` calls `_compute_candidates` (all 5 candidates) once per `candidate_name` iteration but uses only 1 -- up to 200x5x(4/5 wasted) computation across the null-arm loop. Fix requires restructuring the loop nesting so `_compute_candidates` runs once per symbol per permutation, not per candidate_name; needs a real design decision on whether the null arm shares one permutation across all 5 candidates per replicate (changes statistical meaning, not just speed) -- not a mechanical optimization. |
-**351 CLOSED 2026-08-31, row removed.** This "not yet confirmed live-impacting" risk turned out
-to be exactly what caused the 2026-08-23 AND 2026-08-30 `alpha_publisher` production failures
-(same statement-timeout signature both times, self-deadlock via `XactLockTableWait` -- see
-`docs/reference/gotchas.md`'s new asyncpg entry). Fixed: `_flush_chunk` now takes `conn`
-directly instead of acquiring a second pooled connection. Verified live: rerun against the
-70.5M-row corpus completed cleanly in 78.5min, no hang, fresh data confirmed in `alpha_events`.
 | [352](pending/352-chunk-accumulate-flush-pattern-duplicated-4x-extract-to-batch-utils.md) | New 2026-08-23, `/simplify`'s reuse-angle review of the same fix. The accumulate-then-flush-at-chunk_size shape is now independently duplicated 4x across `services/` (`alpha_publisher.py`, `alpha_frame_writer.py`, `counterfactual_tracker.py`, plus one more) with no shared `_batch_utils.py` helper -- confirmed not a reuse bug in any one diff (each follows the existing convention), but worth extracting once, touching all call sites in one dedicated pass rather than piecemeal. |
 | [359](pending/359-phase173-altitude-design-notes.md) | New 2026-08-26, `/simplify`'s altitude review of Phase 173's diff. Three design-depth notes, all already reviewed and accepted by both codex and agy during Phase 173's own mandatory Wave-3 review -- not bugs, not urgent, recorded for future consideration only: (1) `_BROADCAST_CLUSTER_ID_OFFSET = 10000` is a numeric-range partition bolted onto the BH-FDR grouping key rather than a real `cell_kind` field; (2) `_fingerprint_computational_key` special-cases the literal `"broadcast_hash"` string instead of classifying watermark sub-keys generically at the point produced; (3) `_D02_ENUMERATED_BROADCAST_FEATURES` (32-name validation floor) lives in an ops script, not a test, so it will drift silently with no CI signal. |
 | [361](pending/361-rename-ensemble-layer-to-alpha-combiner.md) | New 2026-08-30, user naming-taste call. Rename `ensemble_trainer`/`EnsembleICEngine`/`ensemble_weights`/`alpha_ensemble_ic`/`alpha.ensemble.*` to an `alpha_combiner` family -- "ensemble" is an ML borrowing, "alpha combination" fits this project's Renaissance/Simons framing better. Real rename (code + DB migration + CLAUDE.md + docs), not urgent. **Update 2026-08-31: the "land before ensemble_trainer's next run" window has closed** -- that run (step 7 of the post-Phase-173 recompute) completed 2026-08-30 under the old name, before this todo was actioned. No longer time-sensitive to a specific run; do whenever, migration will just rename in place over live data as originally scoped. |
 | [362](pending/362-bil-5m-zero-regime-volatility-labels.md) | New 2026-08-31, found during todo 285's closure verification. `BIL/5m` has zero `regime_volatility` (calm/elevated/turbulent) labels in `feature_ic_scores` despite 165,500 rows in `feature_vectors` -- not explained by the usual bar-floor limitation (unlike the other 44 cells in the same diff, all `1d` or short-history). Hypothesis: BIL's near-flat T-Bill price series may be structurally unsuited to volatility-HMM fitting. Not yet root-caused. Low priority, single-symbol/single-tf scope. |
 | [363](pending/363-ib-gateway-libgtk3-fix-not-durable-across-recreation.md) | New 2026-08-31, found fixing todo 306's live-ingestion gap. `libgtk-3-0` was missing entirely from `ghcr.io/gnzsnz/ib-gateway:stable`'s image -- the real root cause of the 16-day ingestion outage, fixed live via `apt-get install` inside the running container. Survives `docker restart` but NOT a container recreation (`--force-recreate`, image re-pull since `:stable` is a rolling tag) -- needs a small wrapper Dockerfile baking the package in, or this exact bug returns silently. |
 | [365](pending/365-bootstrap-ic-duplication-jump-diffusion-cointegrated-pairs.md) | New 2026-09-01, reuse/architecture check before writing `statistical_factor_residual`'s Stage 3. `ic_math.py::_circular_block_bootstrap_ic` has 2 independent hand-rolled duplicates (`cointegrated_pairs_residual_pilot.py`, `jump_diffusion_decomposition_spy_pilot.py`, both DEAD candidates) for the bootstrapped-partial-IC case it doesn't natively support. Verified Stage 3 itself does NOT repeat this (reuses the shared primitive as-is per its pre-registered design) -- not blocking, purely future-proofing hygiene if a 3rd real need for bootstrapped partial-IC shows up. |
-
-**303/304 CLOSED 2026-09-01, rows removed.** Ran Stage 3 (falsification + null-arm) for both
-todos' candidates together (shared script, pooled BH-FDR family, 20 threshold-clearing tests
-across 5 candidates x 2 xbar columns x 2 timeframes). All DEAD: neither `hurst_rank` nor
-`autocorr_rank` (303) nor `volatility_pct`/`skew_tail`/`volume_pct` (304) sharpens IC beyond
-`regime_volatility` at 5m or 15m. One cell (`hurst_rank vs momentum_z_fast @ 5m`) cleared the
-raw null-arm bar (null_p=0.03) but failed BH-FDR correction (bh_p=0.475) -- the
-multiple-comparisons false positive the design exists to catch. Along the way, found and
-fixed two real bugs in the shared Stage 2/3 scripts: an unvectorized Hurst rolling-window
-computation (22x slower than necessary, caused a 4h48m run producing zero output) and a
-single DB connection held idle across the whole compute stretch past Postgres's 1h
-idle_session_timeout (crashed mid-run). Both fixed, commit `1084a1d11`. Full numbers:
-`docs/research/measurement-per-symbol-trend-regime.md` and
-`docs/research/measurement-per-symbol-percentile-rank-candidates.md`'s "Result — Stage 3"
-sections.
-
-**364 CLOSED 2026-09-01, row removed.** Re-ran N1-a-capped @ 1h fresh at both colsample_bytree
-values (0.10, 0.05) -- both reproduced their original 2026-08-25 numbers bit-identically
-(`point_diff`/`ci_lower`/`ci_upper`/`p`/fold-1 breach magnitude/row counts all matched exactly),
-traced to todo 366's live-ingestion gap meaning the 1h equity corpus genuinely hasn't grown
-since before N1's original run. Verdict per the todo's own pre-registered framing: the
-colsample-sensitivity instability persists, confirming it's real and structural, not a
-data-staleness artifact. Full numbers:
-`docs/research/measurement-nonlinear-interaction-combiner.md`'s "N1-a-capped @ 1h fresh
-re-run, 2026-09-01" section.
-
-**244 CLOSED 2026-08-21 -- re-verified, decision confirmed unchanged, row removed.**
-`ctf_vwap_align`/`ctf_regime_align` still have zero live consumers (`ensemble_trainer.py`/
-`concept_registry_service.py` confirmed clean via direct grep) -- the 2026-08-03
-"not worth fixing speculatively" call stands. Full evidence in `completed/244-...md`.
-
-**322 CLOSED 2026-08-21 -- doc fix landed in both places Invariant 1 is stated, row removed.**
-CLAUDE.md's UCR paragraph and `docs/foundation/unified-concept-registry.md`'s own Invariant 1
-(the "full spec" CLAUDE.md itself points to) both now carve out migration-time genesis seeding
-from the status-flip rule. The "5 migrations" claim re-verified directly (288/289/290/291/316,
-each grepped and read) before citing it, not trusted from the filing text. No code/behavior
-change. Full detail in `completed/322-...md`.
 
 | Todo | What |
 |---|---|
