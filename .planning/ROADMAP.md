@@ -2892,13 +2892,46 @@ Plans:
 
 ### Phase 176: Earnings-Season Calendar Primitive (todo 353)
 
-**Goal:** [To be planned]
-**Requirements**: TBD
+**Goal:** Ship `earnings_season_flag` and `days_since_quarter_end` as APR-backed calendar-group
+primitives, wire `earnings_season_flag` into `ic_engine.py` as a measurement-only IC conditioning
+axis, and close the phase on a real `feature_ic_scores` FDR/walk-forward gate verdict.
+**Requirements**: ES-01, ES-02, ES-03, ES-04, ES-05, ES-06, ES-07, ES-08, ES-09
 **Depends on:** Phase 175
-**Plans:** 0 plans
+**Plans:** 8 plans (5 waves)
 
-Plans:
-- [ ] TBD (run /gsd-plan-phase 176 to break down)
+Requirements:
+- ES-01 — `earnings_season_flag` computed from `bar_ts` at every `FeatureVector` construction site
+- ES-02 — `days_since_quarter_end` continuous companion field (D-02), not exempted by the flag's evidence
+- ES-03 — 14/42-day window boundaries APR-backed (`feature.earnings_season.*`), no literals in compute
+- ES-04 — `concept_registry`/`concept_gate` genesis seed, tier `1_interaction`, `broadcast=true`
+- ES-05 — `ic_engine.py` earnings-season conditioning on both the per-symbol and cross-sectional paths
+- ES-06 — `regime_scope='earnings_season'` is measurement-only: isolated from ensemble eligibility and the IC lifecycle guard
+- ES-07 — both columns populated on the pre-existing corpus via a contention-gated `--refresh` recompute
+- ES-08 — RESEARCH.md assumption A1 (`up_vol_body_diff` in-season IC doubling) re-verified live (D-03)
+- ES-09 — recorded `feature_ic_scores` FDR/walk-forward gate verdict; todo 353 closed
+
+**Wave 1**
+
+- [ ] 176-01-PLAN.md - re-verify assumption A1 + tested pure window classifier (wave 1)
+- [ ] 176-02-PLAN.md - migration 350: columns, APR seeds, concept genesis, regime_scope CHECK widening (wave 1)
+
+**Wave 2** *(blocked on Wave 1 completion)*
+
+- [ ] 176-03-PLAN.md - primitives across every FeatureVector construction site + persistence slice + APR prewarm (wave 2)
+
+**Wave 3** *(blocked on Wave 2 completion)*
+
+- [ ] 176-04-PLAN.md - per-symbol earnings_season stratification pass + lifecycle-guard isolation (wave 3)
+- [ ] 176-05-PLAN.md - ensemble_trainer eligibility exclusion + feature_ic_scores consumer audit (wave 3)
+- [ ] 176-07-PLAN.md - contention-gated corpus recompute populating both new columns (wave 3)
+
+**Wave 4** *(blocked on Wave 3 completion)*
+
+- [ ] 176-06-PLAN.md - cross-sectional season sub-cells via in-memory masking, OOM-guarded (wave 4)
+
+**Wave 5** *(blocked on Wave 4 completion)*
+
+- [ ] 176-08-PLAN.md - corpus IC gate run, verdict document, todo 353 closure (wave 5)
 
 ---
 
