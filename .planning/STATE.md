@@ -3,10 +3,10 @@ gsd_state_version: 1.0
 milestone: v3.1
 milestone_name: AlphaEngine Validation + Alpha Scoring
 status: ready_to_plan
-stopped_at: see Strategic Plan section above (kept live; this section is a known staleness trap
-last_updated: "2026-09-23T13:40:57.000Z"
+stopped_at: context exhaustion at 76% (2026-09-23)
+last_updated: "2026-09-23T13:55:33.906Z"
 progress:
-  total_phases: 12
+  total_phases: 14
   completed_phases: 0
   total_plans: 0
   completed_plans: 0
@@ -105,16 +105,20 @@ diagnostic run 2026-09-17 through 2026-09-22; next-step chain at the end of this
 1. Finish Phase 176 (waves 3-5; `SWEEP_VERDICT=CONFIRMED` cleared the D-01a-gated plans).
 2. Todos 386 (exact pre-flight cell count, restore `alpha.ic.max_cell_rows` to 15M; closes
    371) and 388 (report `l1_turnover` in the portfolio diagnostic) — quick, unblocked.
+
 3. Todo 385 — re-derive recompute cost from the completed run's logs and measure per-symbol
    threading. This sets the expansion budget.
+
 4. Todos 384 (security classification hierarchy; build trigger already fired — recommend
    folding the build into the expansion phase itself so point-in-time classification history
    starts with the first new onboarding batch) and 376 (survivorship-bias data sourcing;
    answer before the expansion locks a sourcing method, or the all-active selection bias gets
    perpetuated).
+
 5. Todo 380's consumer-cutover decision (materiality-filtered empirical tags into live
    breadth/peer-grouping) — gated on the Phase 175 shadow report; seeded thresholds currently
    admit 0 symbols, so gather recalibration evidence first.
+
 6. Scope the next expansion phase mechanically: pre-registered selection rule plus a
    D-10-style decorrelation gate, sized against the measured recompute budget, per the
    standing long-term direction (maximal coverage scaled against compute).
@@ -236,7 +240,7 @@ duplicated here. Currently open/not-yet-planned phases, compressed to current st
 
 - **Phase 176 (Earnings-Season Calendar Primitive, todo 353): EXECUTING 2026-09-23, 4/8 plans
   done (176-01/02/03/05); next up wave 3 (176-04, 176-07), then wave 4 (176-06), wave 5
-  (176-08).** Wave 1's extended family sweep returned `SWEEP_VERDICT=CONFIRMED` (31 of 57
+  (176-08). Execution is owned by a concurrent session — don't double-claim from elsewhere.** Wave 1's extended family sweep returned `SWEEP_VERDICT=CONFIRMED` (31 of 57
   vol/volume features survive BH-FDR with broad cross-symbol agreement), clearing the D-01a
   gate on the conditioning plans. 176-08 runs the IC gate verdict, rolls back the conditioning
   APR on a non-SHARPENS verdict, and closes todo 353. Antigravity's third-opinion review is
@@ -244,6 +248,6 @@ duplicated here. Currently open/not-yet-planned phases, compressed to current st
 
 ## Session
 
-Last session: 2026-09-23
-Stopped at: see Strategic Plan section above (kept live; this section is a known staleness trap
+Last session: 2026-09-23T13:55:33.901Z
+Stopped at: context exhaustion at 76% (2026-09-23)
 — its tool-sync bug is root-caused in todo 383, don't re-investigate it).
