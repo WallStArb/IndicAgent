@@ -19,10 +19,12 @@ _project_root = Path(__file__).parent.parent.parent
 if str(_project_root) not in sys.path:
     sys.path.insert(0, str(_project_root))
 
-from src.intelligence.statistics.factor_math import (
+from src.intelligence.statistics.factor_math import (  # noqa: E402
     _loading_standard_errors,
     loading_hac_pvalue,
     long_short_daily_returns,
+    partial_loading,
+    partial_loading_ci_low,
     spy_realized_vol_factor,
     standardized_loading,
 )
@@ -135,3 +137,182 @@ def test_spy_realized_vol_factor_is_causal():
 
     assert len(prior) == len(prior_extended)
     np.testing.assert_allclose(prior, prior_extended)
+
+
+# ---------------------------------------------------------------------------
+# Task 1: Pearson partial-loading kernel (partial_loading / partial_loading_ci_low)
+# ---------------------------------------------------------------------------
+
+
+def test_partial_loading_known_value():
+    """y_candidate = 0.6*x_factor + noise, controls independent of both -- the
+    orthogonalized partial loading should recover the true 0.6 residual
+    correlation (an independent control leaves the raw relationship intact),
+    with incremental_r2 > 0 and n equal to the input length."""
+    rng = np.random.default_rng(42)
+    n = 2000
+    true_r = 0.6
+    x_factor = rng.normal(size=n)
+    control = rng.normal(size=n)  # independent of both instrument and factor
+    noise = rng.normal(size=n)
+    y_candidate = true_r * x_factor + math.sqrt(1 - true_r**2) * noise
+
+    loading, incremental_r2, n_out = partial_loading(
+        y_candidate, x_factor, control, condition_max=1e8
+    )
+
+    assert abs(loading - true_r) < 0.05, f"Expected partial loading near {true_r}, got {loading}"
+    assert incremental_r2 > 0
+    assert n_out == n
+
+
+def test_partial_loading_duplicate_factor_column_returns_nan():
+    """x_factor an exact duplicate of the sole control leg: the factor's own
+    residual against the controls is exactly zero -- degenerate, never a
+    spurious value."""
+    rng = np.random.default_rng(43)
+    n = 200
+    control_leg = rng.normal(size=n)
+    controls = control_leg.reshape(-1, 1)
+    x_factor_dup = control_leg.copy()
+    noise = rng.normal(size=n)
+    y_candidate = 0.5 * control_leg + noise
+
+    loading, incremental_r2, n_out = partial_loading(
+        y_candidate, x_factor_dup, controls, condition_max=1e8
+    )
+
+    assert math.isnan(loading)
+    assert math.isnan(incremental_r2)
+    assert n_out == n
+
+
+def test_partial_loading_constant_control_column_returns_nan():
+    """A constant (zero-variance) control column ill-conditions the shared
+    design matrix -- check_condition_number gate must fail, never a spurious
+    result."""
+    rng = np.random.default_rng(44)
+    n = 200
+    x_factor = rng.normal(size=n)
+    controls = np.column_stack([rng.normal(size=n), np.ones(n)])
+    noise = rng.normal(size=n)
+    y_candidate = 0.5 * x_factor + noise
+
+    loading, incremental_r2, n_out = partial_loading(
+        y_candidate, x_factor, controls, condition_max=1e8
+    )
+
+    assert math.isnan(loading)
+    assert math.isnan(incremental_r2)
+    assert n_out == n
+
+
+def test_partial_loading_insufficient_observations_returns_nan():
+    """n < k + 4 (fewer observations than controls plus four) must return NaN
+    without attempting the solve."""
+    rng = np.random.default_rng(45)
+    n = 3  # one control -> k=1, need n >= 5
+    x_factor = rng.normal(size=n)
+    controls = rng.normal(size=n).reshape(-1, 1)
+    y_candidate = rng.normal(size=n)
+
+    loading, incremental_r2, n_out = partial_loading(
+        y_candidate, x_factor, controls, condition_max=1e8
+    )
+
+    assert math.isnan(loading)
+    assert math.isnan(incremental_r2)
+    assert n_out == n
+
+
+def test_partial_loading_pure_noise_small_magnitude():
+    """y_candidate independent of x_factor after controls: abs(partial_loading)
+    and incremental_r2 both small on a seeded 1000-observation draw."""
+    rng = np.random.default_rng(46)
+    n = 1000
+    x_factor = rng.normal(size=n)
+    control = rng.normal(size=n)
+    y_candidate = rng.normal(size=n)  # independent of x_factor and control
+
+    loading, incremental_r2, n_out = partial_loading(
+        y_candidate, x_factor, control, condition_max=1e8
+    )
+
+    assert abs(loading) < 0.15, f"Expected small loading under independence, got {loading}"
+    assert (
+        incremental_r2 < 0.02
+    ), f"Expected small incremental_r2 under independence, got {incremental_r2}"
+    assert n_out == n
+
+
+def test_partial_loading_incremental_r2_never_meaningfully_negative():
+    """incremental_r2 = R2_full - R2_controls is always >= 0 up to float
+    tolerance (never negative beyond -1e-9) across multiple synthetic cases."""
+    rng = np.random.default_rng(47)
+    n = 1000
+    for true_r in (0.0, 0.3, 0.6, -0.6):
+        x_factor = rng.normal(size=n)
+        control = rng.normal(size=n)
+        noise = rng.normal(size=n)
+        y_candidate = true_r * x_factor + math.sqrt(1 - true_r**2) * noise
+        _loading, incremental_r2, _n = partial_loading(
+            y_candidate, x_factor, control, condition_max=1e8
+        )
+        assert not math.isnan(incremental_r2)
+        assert incremental_r2 >= -1e-9
+
+
+def test_partial_loading_ci_low_strong_relationship_bounded_below_magnitude():
+    """On the strong-relationship case, the lower CI bound is strictly less
+    than abs(partial_loading) and strictly greater than 0."""
+    rng = np.random.default_rng(48)
+    n = 2000
+    x_factor = rng.normal(size=n)
+    control = rng.normal(size=n)
+    noise = rng.normal(size=n)
+    y_candidate = 0.6 * x_factor + math.sqrt(1 - 0.36) * noise
+
+    loading, _incremental_r2, _n = partial_loading(
+        y_candidate, x_factor, control, condition_max=1e8
+    )
+    ci_low = partial_loading_ci_low(
+        y_candidate, x_factor, control, condition_max=1e8, hac_max_lag=5, alpha=0.05
+    )
+
+    assert 0.0 < ci_low < abs(loading)
+
+
+def test_partial_loading_ci_low_pure_noise_rejects_relationship():
+    """On the pure-noise case, the lower CI bound falls below the 0.20 seeded
+    gate -- the CI gate rejects a non-relationship."""
+    rng = np.random.default_rng(49)
+    n = 1000
+    x_factor = rng.normal(size=n)
+    control = rng.normal(size=n)
+    y_candidate = rng.normal(size=n)
+
+    ci_low = partial_loading_ci_low(
+        y_candidate, x_factor, control, condition_max=1e8, hac_max_lag=5, alpha=0.05
+    )
+
+    assert ci_low < 0.20, f"Expected the CI gate to reject a non-relationship, got {ci_low}"
+
+
+def test_partial_loading_ci_low_nan_when_partial_loading_nan():
+    """partial_loading_ci_low returns NaN whenever partial_loading itself
+    returns NaN (the same guard failure, e.g. a constant control column)."""
+    rng = np.random.default_rng(50)
+    n = 200
+    x_factor = rng.normal(size=n)
+    controls = np.column_stack([rng.normal(size=n), np.ones(n)])
+    y_candidate = rng.normal(size=n)
+
+    loading, _incremental_r2, _n = partial_loading(
+        y_candidate, x_factor, controls, condition_max=1e8
+    )
+    ci_low = partial_loading_ci_low(
+        y_candidate, x_factor, controls, condition_max=1e8, hac_max_lag=5, alpha=0.05
+    )
+
+    assert math.isnan(loading)
+    assert math.isnan(ci_low)
