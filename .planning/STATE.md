@@ -4,7 +4,7 @@ milestone: v3.1
 milestone_name: AlphaEngine Validation + Alpha Scoring
 status: ready_to_plan
 stopped_at: context exhaustion at 76% (2026-09-23)
-last_updated: "2026-09-23T13:55:33.906Z"
+last_updated: "2026-09-23T15:36:14.467Z"
 progress:
   total_phases: 14
   completed_phases: 0
@@ -56,9 +56,12 @@ diagnostic run 2026-09-17 through 2026-09-22; next-step chain at the end of this
   turnover-reporting gap). No promotion decision made. Full record:
   `docs/research/phase174-cross-asset-diversification-prereg-2026-09-16.md`.
 
-- **Universe today: 273 active instruments, live-verified 2026-09-23** — 233 compute-eligible
-  on the full 4-TF stack (includes the 13 cross-asset names), 40 down-cap pilot names at 1d
-  only, 0 live-tradeable (live streaming dormant, todo 366). Commodities/rates/credit/vol/
+- **Universe today: 273 active instruments, live-verified 2026-09-23** — 40 down-cap pilot
+  names at 1d only (onboarded, backfilled, but absent from every ic_engine run — not yet
+  producing measurements), 0 live-tradeable (live streaming dormant, todo 366). Flag drift
+  noted 2026-09-23: `compute_eligible` now flags 255 instruments vs the 233 the 2026-09-17
+  run processed (likely nightly-backfill self-healing completing 4-TF history for more
+  names) — reconcile with one idle-DB query before citing either count. Commodities/rates/credit/vol/
   EM-currency ETFs are well represented (GLD/SLV/PPLT/DBA/DBB/DBC, TLT/IEF/SHY, HYG/LQD/EMB,
   UUP, VIXY, EMLC). Remaining real gaps: standalone factor-equity ETFs (value/growth/
   small-cap only 1-2 symbols each; MTUM/QUAL/USMV exist per migration 338 but correlate
@@ -68,8 +71,11 @@ diagnostic run 2026-09-17 through 2026-09-22; next-step chain at the end of this
 - **TF stack: keep all four tiers (5m/15m/1h/1d).** Holding period, not TF granularity, is
   what's uneconomical: every tier clears its own turnover-adjusted hurdle given a long-enough
   hold (5m @ ~half day, 15m @ ~2.5hr, 1h @ 3-10 days) while 1-bar holds fail at every tier
-  (`scripts/analysis/personal_cost_hurdle_by_tf.py`). Not yet acted on: stop MEASURING the
-  structurally doomed short-horizon `ic_engine` cells (H=1 everywhere, H=6/12 at 5m).
+  (`scripts/analysis/personal_cost_hurdle_by_tf.py`). Stop measuring the structurally doomed
+  short-horizon cells: pre-registered 2026-09-23 with a decision rule (uniform >=5x hurdle
+  fail deletes, mixed keeps; expected ~31% of per-symbol scale-cells, APR-only) at
+  `docs/research/ic-engine-short-horizon-cell-deletion-prereg.md`, execution captured as
+  todo 389, gated on the post-176-08 bundled landing.
 
 - **Cross-TF signal fusion: a separate, competing, not-yet-run thread.** Momentum decorrelates
   across TFs (1d-vs-15m/5m rho near zero), real and distinct from Phase 148's co-firing
@@ -78,13 +84,15 @@ diagnostic run 2026-09-17 through 2026-09-22; next-step chain at the end of this
   competes for priority against universe expansion, does not precede it
   (`scripts/analysis/cross_tf_signal_correlation_screen.py`).
 
-- **Compute cost bounds universe scale; the standing estimate is stale (todo 385).** The
-  2026-09-19 figure (2.4 worker-hours/symbol, 10-20 day recomputes at 1000-2000 symbols) was
-  taken mid-flight from the run that then finished 2026-09-22 in ~11.5 hours end-to-end for
-  233 symbols, after the `b8af2b749` routing fix and migration 348. Re-derive from the
-  completed run's logs before sizing anything; scope expansion by measured recompute cost,
-  not a target count. Lever order: per-symbol threading, Numba `nogil`, staged bootstrap,
-  incremental recompute, cluster
+- **Compute cost bounds universe scale — re-derived 2026-09-23, citable (todo 385).** The
+  2026-09-17/22 run reached success through three process legs; `elapsed_s: 41391` measured
+  only the last one. Corrected numbers: per-symbol pass ~2.7 worker-hr/symbol (the 2.4
+  estimate confirmed; per-symbol threading=2 was already active), cross-sectional ~9-11.5h
+  post-migration-348, clean full recompute ~3.1-3.5 days at 233 symbols, ~11-12 days at 1000.
+  Benchmark arms measured 2026-09-23 on an idle box: numba `prange` 10.77-13.12x vs scipy
+  serial, byte-identical (0.0e+00 diff); scipy threads=2 (production setting) 1.75-1.88x and
+  already included in the 2.7 figure. Scope expansion by measured recompute cost, not a
+  target count
   ([385](todos/pending/385-ic-engine-recompute-cost-bounds-universe-scale-threading-measurement-first.md)).
 
 - **Nautilus Trader (OSS, event-driven backtest/live-execution engine, Rust core + Python)
@@ -103,13 +111,18 @@ diagnostic run 2026-09-17 through 2026-09-22; next-step chain at the end of this
 **Next-step chain to the next expansion phase (not yet scoped):**
 
 1. Finish Phase 176 (waves 3-5; `SWEEP_VERDICT=CONFIRMED` cleared the D-01a-gated plans).
-2. Todos 386 (exact pre-flight cell count, restore `alpha.ic.max_cell_rows` to 15M; closes
-   371) and 388 (report `l1_turnover` in the portfolio diagnostic) — quick, unblocked.
+   176-08's corpus run is the "next required recompute" the optimization bundle keys on.
+2. **One bundled landing immediately after 176-08** (the whole-dict `active_scales` fingerprint
+   key and any ic_engine.py edit each invalidate every cell, so these must land together and be
+   absorbed by an already-required run — never standalone mid-cycle): todo 389 (short-horizon
+   cell deletion, pre-registered, ~31% of per-symbol cells), todo 386 (exact pre-flight cell
+   count, restore `alpha.ic.max_cell_rows` to 15M; closes 371), and prange adoption with a
+   worker-count x numba-threads layout decision (todo 385 lever 2, 10.77-13.12x measured,
+   ~1.5-2x end-to-end after layout). Combined estimate: full recompute ~3.1-3.5 days ->
+   ~1.1-1.2 days at 233 symbols. Todo 388 (report `l1_turnover` in the portfolio diagnostic)
+   stays quick and independent — unblocked anytime.
 
-3. Todo 385 — re-derive recompute cost from the completed run's logs and measure per-symbol
-   threading. This sets the expansion budget.
-
-4. Todos 384 (security classification hierarchy; build trigger already fired — recommend
+3. Todos 384 (security classification hierarchy; build trigger already fired — recommend
    folding the build into the expansion phase itself so point-in-time classification history
    starts with the first new onboarding batch) and 376 (survivorship-bias data sourcing;
    answer before the expansion locks a sourcing method, or the all-active selection bias gets
@@ -248,6 +261,6 @@ duplicated here. Currently open/not-yet-planned phases, compressed to current st
 
 ## Session
 
-Last session: 2026-09-23T13:55:33.901Z
+Last session: 2026-09-23T15:36:14.443Z
 Stopped at: context exhaustion at 76% (2026-09-23)
 — its tool-sync bug is root-caused in todo 383, don't re-investigate it).
