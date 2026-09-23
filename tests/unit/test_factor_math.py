@@ -19,12 +19,14 @@ _project_root = Path(__file__).parent.parent.parent
 if str(_project_root) not in sys.path:
     sys.path.insert(0, str(_project_root))
 
+import src.intelligence.statistics.factor_math as factor_math  # noqa: E402
 from src.intelligence.statistics.factor_math import (  # noqa: E402
     _loading_standard_errors,
     loading_hac_pvalue,
     long_short_daily_returns,
     partial_loading,
     partial_loading_ci_low,
+    partial_loading_null_arm_p,
     sign_stable_window_count,
     spy_realized_vol_factor,
     standardized_loading,
@@ -425,3 +427,152 @@ def test_sign_stable_window_count_full_sample_nan_returns_zero_zero():
         y_candidate, x_factor, controls, condition_max=1e8, window_days=100, window_count=4
     )
     assert result == (0, 0)
+
+
+# ---------------------------------------------------------------------------
+# Task 3: circular-shift null arm (D-06) -- shifts the factor proxy only
+# ---------------------------------------------------------------------------
+
+
+def test_partial_loading_null_arm_p_detects_real_relationship():
+    """A candidate genuinely loading on the factor after controls: a small
+    p-value on a seeded n_draws=200 run."""
+    rng = np.random.default_rng(55)
+    n = 500
+    x_factor = rng.normal(size=n)
+    control = rng.normal(size=n)
+    noise = rng.normal(size=n)
+    instrument = 0.6 * x_factor + math.sqrt(1 - 0.36) * noise
+
+    draw_rng = np.random.default_rng(123)
+    p = partial_loading_null_arm_p(
+        instrument, x_factor, control, condition_max=1e8, n_draws=200, rng=draw_rng
+    )
+    assert p < 0.05, f"Expected a small p-value for a genuine relationship, got {p}"
+
+
+def test_partial_loading_null_arm_p_two_sided_detects_negative_relationship():
+    """A genuinely NEGATIVE relationship after controls also clears the
+    null-arm gate -- proves the comparison is two-sided, not one-sided."""
+    rng = np.random.default_rng(555)
+    n = 500
+    x_factor = rng.normal(size=n)
+    control = rng.normal(size=n)
+    noise = rng.normal(size=n)
+    instrument = -0.6 * x_factor + math.sqrt(1 - 0.36) * noise
+
+    draw_rng = np.random.default_rng(556)
+    p = partial_loading_null_arm_p(
+        instrument, x_factor, control, condition_max=1e8, n_draws=200, rng=draw_rng
+    )
+    assert p < 0.05, f"Expected a small p-value for a negative relationship, got {p}"
+
+
+def test_partial_loading_null_arm_p_rejects_independent_case():
+    """A candidate independent of the factor after controls: a large p-value."""
+    rng = np.random.default_rng(66)
+    n = 500
+    x_factor = rng.normal(size=n)
+    control = rng.normal(size=n)
+    instrument = rng.normal(size=n)  # independent of x_factor and control
+
+    draw_rng = np.random.default_rng(321)
+    p = partial_loading_null_arm_p(
+        instrument, x_factor, control, condition_max=1e8, n_draws=200, rng=draw_rng
+    )
+    assert p > 0.20, f"Expected a large p-value for an independent case, got {p}"
+
+
+def test_partial_loading_null_arm_p_shifts_only_factor_series(monkeypatch):
+    """The function shifts ONLY the factor series -- never the candidate's
+    own return series, never a control column (D-06)."""
+    real_shift = factor_math._circular_shift_null
+    recorded = []
+
+    def _recording_shift(y, rng):
+        recorded.append(np.array(y, copy=True))
+        return real_shift(y, rng)
+
+    monkeypatch.setattr(factor_math, "_circular_shift_null", _recording_shift)
+
+    rng = np.random.default_rng(99)
+    n = 300
+    x_factor = rng.normal(size=n)
+    control = rng.normal(size=n)
+    noise = rng.normal(size=n)
+    instrument = 0.6 * x_factor + math.sqrt(1 - 0.36) * noise
+
+    factor_math.partial_loading_null_arm_p(
+        instrument, x_factor, control, condition_max=1e8, n_draws=20, rng=np.random.default_rng(7)
+    )
+
+    assert len(recorded) == 20
+    for shifted_input in recorded:
+        np.testing.assert_array_equal(shifted_input, x_factor)
+        assert not np.array_equal(shifted_input, instrument)
+        assert not np.array_equal(shifted_input, control)
+
+
+def test_partial_loading_null_arm_p_deterministic_under_seeded_rng():
+    """Calling twice with two freshly-seeded generators of the same seed
+    returns identical p-values."""
+    rng = np.random.default_rng(77)
+    n = 400
+    x_factor = rng.normal(size=n)
+    control = rng.normal(size=n)
+    noise = rng.normal(size=n)
+    instrument = 0.6 * x_factor + math.sqrt(1 - 0.36) * noise
+
+    p1 = partial_loading_null_arm_p(
+        instrument,
+        x_factor,
+        control,
+        condition_max=1e8,
+        n_draws=100,
+        rng=np.random.default_rng(999),
+    )
+    p2 = partial_loading_null_arm_p(
+        instrument,
+        x_factor,
+        control,
+        condition_max=1e8,
+        n_draws=100,
+        rng=np.random.default_rng(999),
+    )
+    assert p1 == p2
+
+
+def test_partial_loading_null_arm_p_nan_when_observed_nan():
+    """When the observed partial_loading is NaN (n < k + 4 here), returns NaN
+    without drawing."""
+    rng = np.random.default_rng(1)
+    n = 10
+    instrument = rng.normal(size=n)
+    factor = rng.normal(size=n)
+    controls = rng.normal(size=(n, 8))  # k=8, n < k + 4
+
+    p = partial_loading_null_arm_p(
+        instrument, factor, controls, condition_max=1e8, n_draws=50, rng=np.random.default_rng(2)
+    )
+    assert math.isnan(p)
+
+
+def test_partial_loading_null_arm_p_nan_when_insufficient_finite_draws(monkeypatch):
+    """When fewer than half of n_draws produce a finite null statistic,
+    returns NaN (matching tsmom_per_symbol_ic_screen.py's reliability floor)."""
+    rng = np.random.default_rng(88)
+    n = 300
+    x_factor = rng.normal(size=n)
+    control = rng.normal(size=n)
+    noise = rng.normal(size=n)
+    instrument = 0.6 * x_factor + math.sqrt(1 - 0.36) * noise
+
+    def _degenerate_shift(y, rng):
+        return np.zeros_like(y)
+
+    monkeypatch.setattr(factor_math, "_circular_shift_null", _degenerate_shift)
+
+    p = factor_math.partial_loading_null_arm_p(
+        instrument, x_factor, control, condition_max=1e8, n_draws=50, rng=np.random.default_rng(3)
+    )
+    assert math.isnan(p)
