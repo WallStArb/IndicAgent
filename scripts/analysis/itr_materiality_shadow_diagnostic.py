@@ -47,10 +47,13 @@ from services.cross_sectional_regime_model import (  # noqa: E402
     _parse_group_configs,
     _resolve_group_symbols,
 )
-from services.tag_calibrator import is_materiality_eligible  # noqa: E402
+from services.tag_calibrator import (  # noqa: E402
+    MaterialityConfig,
+    is_materiality_eligible,
+    materiality_gate_failures,
+)
 from src.config.settings import Settings  # noqa: E402
 
-_MATERIALITY_PREFIX = "alpha.tag_calibrator.materiality."
 _GATE_NAMES = (
     "sample_n",
     "partial_loading",
@@ -140,49 +143,34 @@ def _is_nan_or_none(value: Any) -> bool:
 
 def _failing_gates(row: dict[str, Any], thresholds: dict[str, Any]) -> list[str] | None:
     """Which of the six gates this row fails (possibly empty -- passes everything), or
-    None if the row is unmeasured (any of the six core Pass 4 statistics used by
-    services.tag_calibrator.decide_materiality's own NaN-guard is NULL/NaN). Mirrors
-    decide_materiality's condition-by-condition checks exactly, reading from persisted
-    instrument_tags_active columns rather than a fresh in-run measurement dict.
+    None if the row is unmeasured (any of the six core Pass 4 statistics is NULL/NaN).
 
-    null_arm is derived from the persisted null_arm_bh_p (BH-FDR-adjusted p-value)
-    against thresholds["null_arm_alpha"] -- statsmodels' multipletests(method="fdr_bh")
-    reject array is exactly p_corrected <= alpha for this method (src/intelligence/
-    statistics/ic_math.py::apply_bh_fdr), so this reconstructs decide_materiality's
-    null_arm_passes_fdr condition without needing the transient reject boolean itself.
-    A missing null_arm_bh_p fails the gate (consistent with decide_materiality's own
-    bool(None) == False for a missing null_arm_passes_fdr) rather than making the whole
-    row unmeasured -- only the six core statistics gate that classification.
+    Delegates the six-condition ladder itself to services.tag_calibrator.
+    materiality_gate_failures -- the single source of truth decide_materiality also
+    uses, so the two can never drift against each other. Only the null_arm SOURCE
+    differs from decide_materiality's caller: this reads the persisted null_arm_bh_p
+    (BH-FDR-adjusted p-value) against thresholds["null_arm_alpha"] -- statsmodels'
+    multipletests(method="fdr_bh") reject array is exactly p_corrected <= alpha for
+    this method (src/intelligence/statistics/ic_math.py::apply_bh_fdr), so this
+    reconstructs decide_materiality's null_arm_passes_fdr condition without needing
+    the transient reject boolean itself. A missing null_arm_bh_p fails the gate,
+    consistent with decide_materiality's own bool(None) == False for a missing
+    null_arm_passes_fdr.
     """
-    sample_n = row.get("materiality_sample_n")
-    pl = row.get("partial_loading")
-    pl_ci_low = row.get("partial_loading_ci_low")
-    inc_r2 = row.get("incremental_r2")
-    n_stable = row.get("sign_stable_windows")
-    n_total = row.get("sign_stable_windows_total")
-
-    for value in (sample_n, pl, pl_ci_low, inc_r2, n_stable, n_total):
-        if _is_nan_or_none(value):
-            return None
-
-    failing: list[str] = []
-    if sample_n < thresholds["min_sample_n"]:
-        failing.append("sample_n")
-    if abs(pl) < thresholds["min_partial_loading"]:
-        failing.append("partial_loading")
-    if pl_ci_low < thresholds["min_partial_loading_ci_low"]:
-        failing.append("ci_low")
-    if inc_r2 < thresholds["min_incremental_r2"]:
-        failing.append("incremental_r2")
-    if (
-        n_stable < thresholds["min_sign_stable_windows"]
-        or n_total < thresholds["min_sign_stable_windows"]
-    ):
-        failing.append("sign_stability")
     null_arm_bh_p = row.get("null_arm_bh_p")
-    if null_arm_bh_p is None or not (null_arm_bh_p <= thresholds["null_arm_alpha"]):
-        failing.append("null_arm")
-    return failing
+    null_arm_passes = null_arm_bh_p is not None and null_arm_bh_p <= thresholds["null_arm_alpha"]
+    failing_map = materiality_gate_failures(
+        row,
+        min_sample_n=thresholds["min_sample_n"],
+        min_partial_loading=thresholds["min_partial_loading"],
+        min_partial_loading_ci_low=thresholds["min_partial_loading_ci_low"],
+        min_incremental_r2=thresholds["min_incremental_r2"],
+        min_sign_stable_windows=thresholds["min_sign_stable_windows"],
+        null_arm_passes=null_arm_passes,
+    )
+    if failing_map is None:
+        return None
+    return [name for name in _GATE_NAMES if failing_map[name]]
 
 
 def attribute_gate_failures(
@@ -370,23 +358,28 @@ def _detect_baseline_drift(
 
 def _fetch_materiality_thresholds(conn: Any) -> dict[str, Any]:
     """SELECT config_key, config_value FROM config_state WHERE config_key LIKE
-    'alpha.tag_calibrator.materiality.%' (eleven rows after migration 346). The gate
-    functions above consume only the six gate thresholds and ignore null_arm_seed,
+    'alpha.tag_calibrator.materiality.%' (eleven rows after migration 346).
+
+    Parses the raw key/value rows via services.tag_calibrator.MaterialityConfig.
+    from_apr -- the same APR key names, defaults, and type casts TagCalibrator's own
+    live Pass 4 run uses -- rather than re-deriving that mapping locally, so a key
+    rename or default change in from_apr propagates here automatically. Returns only
+    the six gate thresholds these gate functions actually consume (dict shape kept
+    stable for the existing pure-function call sites below); null_arm_seed,
     control_factor_series, and the window-geometry keys (sign_stability_window_days,
-    sign_stability_window_count) -- built by selecting the keys each function needs
-    rather than assuming a fixed row count."""
+    sign_stability_window_count) are ignored.
+    """
     with conn.cursor() as cur:
         cur.execute(_MATERIALITY_THRESHOLDS_SQL)
         raw = {row[0]: row[1] for row in cur.fetchall()}
+    materiality = MaterialityConfig.from_apr(raw)
     return {
-        "min_sample_n": int(raw[f"{_MATERIALITY_PREFIX}min_sample_n"]),
-        "min_partial_loading": float(raw[f"{_MATERIALITY_PREFIX}min_partial_loading"]),
-        "min_partial_loading_ci_low": float(
-            raw[f"{_MATERIALITY_PREFIX}min_partial_loading_ci_low"]
-        ),
-        "min_incremental_r2": float(raw[f"{_MATERIALITY_PREFIX}min_incremental_r2"]),
-        "min_sign_stable_windows": int(raw[f"{_MATERIALITY_PREFIX}min_sign_stable_windows"]),
-        "null_arm_alpha": float(raw[f"{_MATERIALITY_PREFIX}null_arm_alpha"]),
+        "min_sample_n": materiality.min_sample_n,
+        "min_partial_loading": materiality.min_partial_loading,
+        "min_partial_loading_ci_low": materiality.min_partial_loading_ci_low,
+        "min_incremental_r2": materiality.min_incremental_r2,
+        "min_sign_stable_windows": materiality.min_sign_stable_windows,
+        "null_arm_alpha": materiality.null_arm_alpha,
     }
 
 

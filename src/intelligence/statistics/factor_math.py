@@ -32,6 +32,7 @@ from scipy.stats import norm
 
 from src.intelligence.regime_signals.breadth_vol import _compute_vix_pct_rank
 from src.intelligence.statistics.ic_math import (
+    _arctanh_clip,
     _circular_shift_null,
     _p_values_from_ic,
     check_condition_number,
@@ -486,8 +487,7 @@ def partial_loading_ci_low(
     se = (1.0 / math.sqrt(dof)) * math.sqrt(inflation)
 
     z_crit = float(norm.ppf(1 - alpha / 2))
-    r_clipped = float(np.clip(r, -1 + 1e-12, 1 - 1e-12))
-    return float(np.tanh(np.arctanh(r_clipped) - z_crit * se))
+    return float(np.tanh(_arctanh_clip(r) - z_crit * se))
 
 
 # ---------------------------------------------------------------------------
@@ -505,9 +505,16 @@ def sign_stable_window_count(
     condition_max: float,
     window_days: int,
     window_count: int,
+    full_loading: float | None = None,
 ) -> tuple[int, int]:
     """Count how many of window_count disjoint, tail-anchored historical
     windows share the full-sample partial_loading's sign.
+
+    full_loading: the caller's already-computed partial_loading() result for
+    the identical (instrument_ret, factor_ret, controls, condition_max)
+    inputs, when available -- skips a redundant lstsq solve over the full
+    sample. Defaults to None, which recomputes it internally (unchanged
+    behavior for callers that only have the windowed inputs on hand).
 
     Resolves the three ambiguities Pitfall 3 names -- recorded here, not
     left implicit:
@@ -545,9 +552,10 @@ def sign_stable_window_count(
         controls_arr = controls_arr.reshape(-1, 1)
     n = len(instrument_arr)
 
-    full_loading, _incremental_r2, _n = partial_loading(
-        instrument_arr, factor_arr, controls_arr, condition_max
-    )
+    if full_loading is None:
+        full_loading, _incremental_r2, _n = partial_loading(
+            instrument_arr, factor_arr, controls_arr, condition_max
+        )
     if math.isnan(full_loading):
         return 0, 0
     full_sign = np.sign(full_loading)

@@ -768,6 +768,7 @@ def measure_partial_loadings(
             condition_max,
             materiality.sign_stability_window_days,
             materiality.sign_stability_window_count,
+            full_loading=pl,
         )
 
         # Per-pair deterministic RNG (T-175-16a): materiality.null_arm_seed is the
@@ -804,13 +805,77 @@ def measure_partial_loadings(
     return pass4_rows, n_no_controls, n_insufficient_sample
 
 
+_MATERIALITY_GATE_NAMES = (
+    "sample_n",
+    "partial_loading",
+    "ci_low",
+    "incremental_r2",
+    "sign_stability",
+    "null_arm",
+)
+
+
+def materiality_gate_failures(
+    row: dict[str, Any],
+    *,
+    min_sample_n: int,
+    min_partial_loading: float,
+    min_partial_loading_ci_low: float,
+    min_incremental_r2: float,
+    min_sign_stable_windows: int,
+    null_arm_passes: bool | None,
+) -> dict[str, bool] | None:
+    """The single source of truth for the Pass 4 six-condition gate ladder,
+    shared by decide_materiality (below) and the D-03 shadow diagnostic's
+    per-gate failure attribution (scripts/analysis/itr_materiality_shadow_
+    diagnostic.py::_failing_gates) -- extracted so the two can never drift
+    against each other (a prior version hand-copied the same six comparisons
+    in both places).
+
+    null_arm_passes is supplied by the caller rather than read from the row
+    directly, because its SOURCE FIELD differs by caller: decide_materiality
+    reads the transient null_arm_passes_fdr bool from an in-run measurement
+    dict; the shadow diagnostic re-derives it from a persisted null_arm_bh_p
+    column against the configured alpha. Both callers still read the other
+    five fields (materiality_sample_n, partial_loading, partial_loading_ci_low,
+    incremental_r2, sign_stable_windows, sign_stable_windows_total) directly
+    off `row` under identical field names in both an in-run dict and a
+    persisted instrument_tags_active row.
+
+    Returns a dict keyed by _MATERIALITY_GATE_NAMES, each value True when that
+    gate FAILS -- or None if any of the five core numeric fields is missing/NaN
+    (the row is unmeasured; null_arm_passes is never allowed to make an
+    otherwise-unmeasured row look measured).
+    """
+    sample_n = row.get("materiality_sample_n")
+    pl = row.get("partial_loading")
+    pl_ci_low = row.get("partial_loading_ci_low")
+    inc_r2 = row.get("incremental_r2")
+    n_stable = row.get("sign_stable_windows")
+    n_total = row.get("sign_stable_windows_total")
+
+    for value in (sample_n, pl, pl_ci_low, inc_r2, n_stable, n_total):
+        if value is None or (isinstance(value, float) and math.isnan(value)):
+            return None
+
+    return {
+        "sample_n": sample_n < min_sample_n,
+        "partial_loading": abs(pl) < min_partial_loading,
+        "ci_low": pl_ci_low < min_partial_loading_ci_low,
+        "incremental_r2": inc_r2 < min_incremental_r2,
+        "sign_stability": n_stable < min_sign_stable_windows or n_total < min_sign_stable_windows,
+        "null_arm": not bool(null_arm_passes),
+    }
+
+
 def decide_materiality(row: dict[str, Any], materiality: MaterialityConfig) -> bool:
     """The Pass 4 STATISTICAL gate only (R-04) -- deliberately does NOT consider
     discovery_state or valid_to (RESEARCH.md Pitfall 4): merging the temporal gate
     in here would make passes_materiality change value with no new measurement
     having run. is_materiality_eligible() ANDs all three gates at read time.
 
-    Returns True only when ALL SIX conditions hold:
+    Returns True only when ALL SIX conditions hold (via materiality_gate_failures,
+    the shared gate ladder above):
       1. materiality_sample_n >= min_sample_n
       2. abs(partial_loading) >= min_partial_loading
       3. partial_loading_ci_low >= min_partial_loading_ci_low
@@ -840,31 +905,18 @@ def decide_materiality(row: dict[str, Any], materiality: MaterialityConfig) -> b
     sign_stable_windows_total == materiality.sign_stability_window_count and do
     not change either default.
     """
-    sample_n = row.get("materiality_sample_n")
-    pl = row.get("partial_loading")
-    pl_ci_low = row.get("partial_loading_ci_low")
-    inc_r2 = row.get("incremental_r2")
-    n_stable = row.get("sign_stable_windows")
-    n_total = row.get("sign_stable_windows_total")
-    null_arm_passes_fdr = row.get("null_arm_passes_fdr")
-
-    for value in (sample_n, pl, pl_ci_low, inc_r2, n_stable, n_total):
-        if value is None or (isinstance(value, float) and math.isnan(value)):
-            return False
-
-    if sample_n < materiality.min_sample_n:
+    failing = materiality_gate_failures(
+        row,
+        min_sample_n=materiality.min_sample_n,
+        min_partial_loading=materiality.min_partial_loading,
+        min_partial_loading_ci_low=materiality.min_partial_loading_ci_low,
+        min_incremental_r2=materiality.min_incremental_r2,
+        min_sign_stable_windows=materiality.min_sign_stable_windows,
+        null_arm_passes=row.get("null_arm_passes_fdr"),
+    )
+    if failing is None:
         return False
-    if abs(pl) < materiality.min_partial_loading:
-        return False
-    if pl_ci_low < materiality.min_partial_loading_ci_low:
-        return False
-    if inc_r2 < materiality.min_incremental_r2:
-        return False
-    if n_stable < materiality.min_sign_stable_windows:
-        return False
-    if n_total < materiality.min_sign_stable_windows:
-        return False
-    return bool(null_arm_passes_fdr)
+    return not any(failing.values())
 
 
 def is_materiality_eligible(row: dict[str, Any]) -> bool:
