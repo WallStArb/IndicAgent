@@ -2870,7 +2870,7 @@ expansion.
 evidence schema, the seeded thresholds, the null-arm control and a read-only diagnostic.
 Cutting either consumer's live query over is explicitly a separate, later phase gated on
 this phase's diagnostic output plus the D-07 cross-AI review.
-**Plans:** 2/5 plans executed
+**Plans:** 3/5 plans executed
 
 Plans:
 **Wave 1**
@@ -2880,7 +2880,7 @@ Plans:
 
 **Wave 2** *(blocked on Wave 1 completion)*
 
-- [ ] 175-03-PLAN.md - TagCalibrator Pass 4: control matrix, measurement loop, gates, persistence, discovery_state promotion (wave 2)
+- [x] 175-03-PLAN.md - TagCalibrator Pass 4: control matrix, measurement loop, gates, persistence, discovery_state promotion (wave 2)
 
 **Wave 3** *(blocked on Wave 2 completion)*
 
