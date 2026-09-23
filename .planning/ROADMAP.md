@@ -2870,7 +2870,7 @@ expansion.
 evidence schema, the seeded thresholds, the null-arm control and a read-only diagnostic.
 Cutting either consumer's live query over is explicitly a separate, later phase gated on
 this phase's diagnostic output plus the D-07 cross-AI review.
-**Plans:** 3/5 plans executed
+**Plans:** 4/5 plans executed
 
 Plans:
 **Wave 1**
@@ -2884,7 +2884,7 @@ Plans:
 
 **Wave 3** *(blocked on Wave 2 completion)*
 
-- [ ] 175-04-PLAN.md - read-only shadow diagnostic: per-group membership delta and gate attribution (wave 3)
+- [x] 175-04-PLAN.md - read-only shadow diagnostic: per-group membership delta and gate attribution (wave 3)
 
 **Wave 4** *(blocked on Wave 3 completion)*
 
