@@ -290,7 +290,7 @@ def _resolve_cohort_by_tag(conn: psycopg.Connection, tag: str) -> list[str]:
 
 def _resolve_cohort_from_file(path: Path) -> list[str]:
     """One symbol per line, or a CSV carrying a `symbol` column -- the shape Plan 08's dry-run
-    writes (`symbol,name,market_cap,cap_bucket,cap_bucket_min,cap_bucket_max`).
+    writes (`symbol,name,index_position_value,cap_bucket,cap_bucket_min,cap_bucket_max`).
     """
     lines = path.read_text().strip().splitlines()
     if not lines:

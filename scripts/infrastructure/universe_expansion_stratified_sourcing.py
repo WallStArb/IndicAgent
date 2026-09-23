@@ -63,7 +63,7 @@ _logger = structlog.get_logger(__name__)
 _GATEWAY_PROBE_CLIENT_ID = 45
 
 # Every sampled single-name equity gets this exposure tag. The IWV holdings file's
-# narrow three-column contract (symbol/name/market_cap, per Plan 04's
+# narrow three-column contract (symbol/name/index_position_value, per Plan 04's
 # parse_holdings()) carries no sector/value/growth data through to this script, so
 # a finer eq_* split is not derivable here without a second data source -- eq_broad
 # is the correct, honest default; a follow-on sector/factor re-tagging pass is a
@@ -84,7 +84,9 @@ def _bucket_population(
     pop = population.loc[~population["symbol"].isin(exclude)].reset_index(drop=True)
     if pop.empty:
         return pop.assign(cap_bucket=pd.Series(dtype=int))
-    cap_bucket = pd.qcut(pop["market_cap"], q=bucket_count, labels=False, duplicates="drop")
+    cap_bucket = pd.qcut(
+        pop["index_position_value"], q=bucket_count, labels=False, duplicates="drop"
+    )
     return pop.assign(cap_bucket=cap_bucket.astype(int))
 
 
@@ -113,7 +115,7 @@ def stratified_sample(
     (seed, population, target_size, bucket_count).
 
     Args:
-        population: frame with columns symbol/name/market_cap (Plan 04's
+        population: frame with columns symbol/name/index_position_value (Plan 04's
             parse_holdings() contract).
         target_size: number of symbols to draw. Must be > 0 -- the D-01 guard,
             fires before any draw, not after.
@@ -125,7 +127,7 @@ def stratified_sample(
             addressable population the draw can actually use.
 
     Returns:
-        Frame with columns symbol, name, market_cap, cap_bucket, cap_bucket_min,
+        Frame with columns symbol, name, index_position_value, cap_bucket, cap_bucket_min,
         cap_bucket_max -- the bounds carried on every row make "lowest bucket"
         unambiguous downstream without re-deriving qcut's boundaries.
 
@@ -140,14 +142,21 @@ def stratified_sample(
         )
 
     _empty = pd.DataFrame(
-        columns=["symbol", "name", "market_cap", "cap_bucket", "cap_bucket_min", "cap_bucket_max"]
+        columns=[
+            "symbol",
+            "name",
+            "index_position_value",
+            "cap_bucket",
+            "cap_bucket_min",
+            "cap_bucket_max",
+        ]
     )
 
     pop = _bucket_population(population, bucket_count=bucket_count, exclude=exclude)
     if pop.empty:
         return _empty
 
-    bucket_means = pop.groupby("cap_bucket")["market_cap"].mean().sort_index()
+    bucket_means = pop.groupby("cap_bucket")["index_position_value"].mean().sort_index()
     diffs = bucket_means.diff().dropna()
     if not (diffs >= 0).all():
         raise AssertionError(
@@ -157,7 +166,7 @@ def stratified_sample(
             f"reading of the sample (D-02). Bucket means: {bucket_means.to_dict()}"
         )
 
-    bucket_bounds = pop.groupby("cap_bucket")["market_cap"].agg(
+    bucket_bounds = pop.groupby("cap_bucket")["index_position_value"].agg(
         cap_bucket_min="min", cap_bucket_max="max"
     )
     bucket_sizes = pop.groupby("cap_bucket").size().to_dict()
@@ -181,7 +190,7 @@ def stratified_sample(
 
     result = pd.concat(drawn_frames, ignore_index=True)
     return result[
-        ["symbol", "name", "market_cap", "cap_bucket", "cap_bucket_min", "cap_bucket_max"]
+        ["symbol", "name", "index_position_value", "cap_bucket", "cap_bucket_min", "cap_bucket_max"]
     ]
 
 
@@ -235,6 +244,17 @@ def _fetch_apr(cur: Any, key: str, default: Any) -> Any:
     cur.execute("SELECT config_value FROM config_state WHERE config_key = %s", (key,))
     row = cur.fetchone()
     return type(default)(row[0]) if row else default
+
+
+def exclude_set_sha256(exclude: set[str]) -> str:
+    """sha256 of the sorted exclude list, newline-joined.
+
+    The exclude set is the live `instruments` table at draw time, so a count alone cannot
+    reproduce a draw: the same seed and holdings hash give a different sample after any
+    onboarding. Recording this hash makes the draw's full input set checkable (174 review
+    IN-06).
+    """
+    return hashlib.sha256("\n".join(sorted(exclude)).encode()).hexdigest()
 
 
 def _sha256_of(path: Path) -> str:
@@ -315,7 +335,7 @@ async def _gateway_preflight(settings: Settings) -> tuple[bool, str]:
 
 
 async def _run_commit(
-    sample: pd.DataFrame, settings: Settings, timeframes: tuple[str, ...]
+    sample: pd.DataFrame, settings: Settings, timeframes: tuple[str, ...] | None
 ) -> dict[str, int]:
     """--commit mode: qualify + write every drawn symbol through
     onboard_instrument() (the sole sanctioned write path, D-08/T-174-02/T-174-03).
@@ -374,7 +394,7 @@ async def _run_commit(
                             "Phase 174 D-02 stratified sample -- issuer-level "
                             "metadata (listing_date/underlying_index/issuer) not "
                             "available from the IWV holdings export's narrow "
-                            "symbol/name/market_cap contract; a follow-on pass can "
+                            "symbol/name/index_position_value contract; a follow-on pass can "
                             "backfill this from a per-symbol data source if needed."
                         ),
                         compute_eligible=False,
@@ -426,6 +446,7 @@ async def _async_main(args: argparse.Namespace) -> int:
             "cap_bucket_count": bucket_count,
             "target_sample_size": target_size,
             "n_excluded": len(exclude),
+            "exclude_set_sha256": exclude_set_sha256(exclude),
             "n_drawn": len(sample),
         },
     )
@@ -439,7 +460,8 @@ async def _async_main(args: argparse.Namespace) -> int:
         _print_bucket_summary(sample, bucketed_pop)
         return 0
 
-    result = await _run_commit(sample, settings, tuple(args.timeframes.split(",")))
+    timeframes = tuple(args.timeframes.split(",")) if args.timeframes else None
+    result = await _run_commit(sample, settings, timeframes)
     print(
         "Commit run complete:",
         {
@@ -462,13 +484,16 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument(
         "--holdings", type=Path, required=True, help="Path to a downloaded IWV holdings CSV."
     )
-    parser.add_argument(
+    # Mutually exclusive: --dry-run is the default, and "--dry-run --commit" is a usage
+    # error rather than a silent commit (174 review IN-02).
+    mode = parser.add_mutually_exclusive_group()
+    mode.add_argument(
         "--dry-run",
         action="store_true",
         default=True,
         help="Dry-run only (default): draw the sample, write a CSV, make no database writes.",
     )
-    parser.add_argument(
+    mode.add_argument(
         "--commit",
         action="store_true",
         default=False,
@@ -481,8 +506,11 @@ def main(argv: list[str] | None = None) -> int:
     )
     parser.add_argument(
         "--timeframes",
-        default="5m,15m,1h,1d",
-        help="Comma-separated timeframes seeded into backfill_status on commit.",
+        default=None,
+        help=(
+            "Comma-separated timeframes seeded into backfill_status on commit (default: the "
+            "APR compute stack, feature.factory.target_timeframes)."
+        ),
     )
     args = parser.parse_args(argv)
 

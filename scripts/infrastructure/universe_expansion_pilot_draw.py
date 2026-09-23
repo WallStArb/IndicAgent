@@ -50,6 +50,7 @@ from scripts.infrastructure.universe_expansion_stratified_sourcing import (  # n
     _print_bucket_summary,
     _run_commit,
     _sha256_of,
+    exclude_set_sha256,
     stratified_sample,
 )
 from src.config.settings import Settings  # noqa: E402
@@ -190,6 +191,7 @@ async def _async_main(args: argparse.Namespace) -> int:
             "pilot_sample_size": pilot_size,
             "target_sample_size": target_sample_size,
             "n_excluded": len(exclude),
+            "exclude_set_sha256": exclude_set_sha256(exclude),
             "n_drawn": len(sample),
             "n_drawn_lowest_bucket": n_lowest_bucket,
         },
@@ -222,7 +224,6 @@ async def _async_main(args: argparse.Namespace) -> int:
     # onboard_instrument() until Task 2's promotion step runs.
     result = await _run_commit(sample, settings, ("1d",))
 
-    onboarded_symbols = sample["symbol"].tolist()[: result["n_onboarded"]]
     # _run_commit() iterates `sample` in row order and only advances n_onboarded on success --
     # rejected symbols interleave with accepted ones, so slicing the head of `sample` by
     # n_onboarded is NOT reliable for identifying which symbols actually landed. Query the
@@ -237,7 +238,11 @@ async def _async_main(args: argparse.Namespace) -> int:
 
     n_tagged = await _tag_single_name_equity(settings, onboarded_symbols)
 
-    sample.to_csv(_PILOT_COHORT_CSV, index=False, quoting=csv.QUOTE_MINIMAL)
+    # The full draw is kept (it is the reproducibility record), with an explicit column
+    # separating the cohort from rejected draws -- the file used to mix them unlabeled.
+    sample.assign(onboarded=sample["symbol"].isin(onboarded_symbols)).to_csv(
+        _PILOT_COHORT_CSV, index=False, quoting=csv.QUOTE_MINIMAL
+    )
 
     print(
         "Commit run complete:",
@@ -303,13 +308,16 @@ def main(argv: list[str] | None = None) -> int:
         default="",
         help="Required justification when --allow-out-of-range is passed.",
     )
-    parser.add_argument(
+    # Mutually exclusive: --dry-run is the default, and "--dry-run --commit" is a usage
+    # error rather than a silent commit (174 review IN-02).
+    mode = parser.add_mutually_exclusive_group()
+    mode.add_argument(
         "--dry-run",
         action="store_true",
         default=True,
         help="Dry-run only (default): draw the sample, write a CSV, make no database writes.",
     )
-    parser.add_argument(
+    mode.add_argument(
         "--commit",
         action="store_true",
         default=False,

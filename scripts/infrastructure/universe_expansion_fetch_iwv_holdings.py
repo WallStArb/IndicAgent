@@ -4,7 +4,7 @@ universe_expansion_fetch_iwv_holdings.py — Russell 3000 population sourcing (P
 
 Fetches the iShares IWV (Russell 3000 ETF) public holdings export — the issuer's own
 source of truth for Russell 3000 membership (RESEARCH.md "Don't Hand-Roll" table) — and
-parses it into a validated symbol/name/market_cap population frame. Plan 08's market-cap-
+parses it into a validated symbol/name/index_position_value population frame. Plan 08's market-cap-
 stratified sampling script consumes this frame's narrow three-column contract; it does not
 read the issuer's raw column names directly.
 
@@ -243,17 +243,22 @@ def _parse_money(raw: str | None) -> float | None:
 
 
 def parse_holdings(path: Path) -> pd.DataFrame:
-    """Parse a downloaded IWV holdings CSV into a validated symbol/name/market_cap frame.
+    """Parse a downloaded IWV holdings CSV into a validated symbol/name/index_position_value frame.
 
     Treats the file as untrusted input (T-174-03): the header is validated against the
     recorded schema (loud ValueError on drift), non-equity filler rows are dropped by
     Asset Class, and each retained row's ticker/market-cap are validated before being
     accepted -- rejected rows are counted, never silently coerced into the population.
 
-    Returns a frame with exactly the columns `symbol`, `name`, `market_cap` -- callers
-    depend on this narrow contract, not on the issuer's column names. Rejection/filler/
-    acceptance counts are attached via df.attrs (n_rows_raw, n_filler_dropped,
-    n_rejected, n_accepted) and logged once at the end, never per-row.
+    Returns a frame with exactly the columns `symbol`, `name`, `index_position_value` -- callers
+    depend on this narrow contract, not on the issuer's column names.
+    `index_position_value` is the fund's "Market Value" of each holding: a float-adjusted
+    proxy proportional to company market cap (rank order, and so qcut buckets, preserved),
+    not the company's market cap itself -- the name says which (174 review IN-05).
+    A ticker listed more than once (e.g. share-class rows) is kept once, first
+    occurrence, and counted. Rejection/filler/duplicate/acceptance counts are attached via
+    df.attrs (n_rows_raw, n_filler_dropped, n_rejected, n_duplicates_dropped, n_accepted)
+    and logged once at the end, never per-row.
     """
     raw_bytes = path.read_bytes()
     text, _encoding = _decode_bytes(raw_bytes)
@@ -301,18 +306,28 @@ def parse_holdings(path: Path) -> pd.DataFrame:
             n_rejected += 1
             continue
 
-        market_cap = _parse_money(market_value_raw)
-        if market_cap is None or not math.isfinite(market_cap) or market_cap <= 0:
+        index_position_value = _parse_money(market_value_raw)
+        if (
+            index_position_value is None
+            or not math.isfinite(index_position_value)
+            or index_position_value <= 0
+        ):
             n_rejected += 1
             continue
 
-        records.append({"symbol": ticker_raw, "name": name, "market_cap": market_cap})
+        records.append(
+            {"symbol": ticker_raw, "name": name, "index_position_value": index_position_value}
+        )
 
-    n_accepted = len(records)
-    df = pd.DataFrame(records, columns=["symbol", "name", "market_cap"])
+    df = pd.DataFrame(records, columns=["symbol", "name", "index_position_value"])
+    n_before_dedup = len(df)
+    df = df.drop_duplicates("symbol", keep="first").reset_index(drop=True)
+    n_duplicates_dropped = n_before_dedup - len(df)
+    n_accepted = len(df)
     df.attrs["n_rows_raw"] = n_rows_raw
     df.attrs["n_filler_dropped"] = n_filler_dropped
     df.attrs["n_rejected"] = n_rejected
+    df.attrs["n_duplicates_dropped"] = n_duplicates_dropped
     df.attrs["n_accepted"] = n_accepted
 
     _logger.info(
@@ -320,6 +335,7 @@ def parse_holdings(path: Path) -> pd.DataFrame:
         n_rows_raw=n_rows_raw,
         n_filler_dropped=n_filler_dropped,
         n_rejected=n_rejected,
+        n_duplicates_dropped=n_duplicates_dropped,
         n_accepted=n_accepted,
     )
     return df

@@ -51,11 +51,14 @@ _logger = structlog.get_logger(__name__)
 # hurdle) -- see src/providers/ibkr.py's _MAX_CLIENT_ID=50 ceiling.
 _QUALIFIER_CLIENT_ID = 46
 
-_TIMEFRAMES = ("5m", "15m", "1h", "1d")
-
+# Deterministic: the session_id most equity rows carry, ties broken by name. A bare
+# LIMIT 1 with no ORDER BY returned whichever row the planner reached first, so a mixed
+# session table could hand the ETFs a different calendar run to run (174 review IN-04).
 _SESSION_ID_LOOKUP_SQL = """
-SELECT contract_details->>'session_id' FROM instruments
+SELECT contract_details->>'session_id' AS session_id FROM instruments
 WHERE contract_details->>'asset_class' = 'equity' AND contract_details->>'session_id' IS NOT NULL
+GROUP BY session_id
+ORDER BY count(*) DESC, session_id
 LIMIT 1
 """
 
@@ -204,7 +207,6 @@ async def _run_commit(settings: Settings) -> list[OnboardResult]:
                         instrument,
                         qualifier=provider,
                         tags=((tag_name, 1.0, tag_evidence),),
-                        timeframes=_TIMEFRAMES,
                         metadata=metadata,
                         compute_eligible=False,
                         live_tradeable=False,
@@ -264,13 +266,16 @@ def main(argv: list[str] | None = None) -> int:
             "Dry-run by default -- writing is opt-in via --commit."
         )
     )
-    parser.add_argument(
+    # Mutually exclusive: --dry-run is the default, and "--dry-run --commit" is a usage
+    # error rather than a silent commit (174 review IN-02).
+    mode = parser.add_mutually_exclusive_group()
+    mode.add_argument(
         "--dry-run",
         action="store_true",
         default=True,
         help="Dry-run only (default): print what would be onboarded, make no writes.",
     )
-    parser.add_argument(
+    mode.add_argument(
         "--commit",
         action="store_true",
         default=False,

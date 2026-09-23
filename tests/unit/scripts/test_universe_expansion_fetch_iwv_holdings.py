@@ -127,16 +127,16 @@ def test_parse_holdings_handles_thousands_separators_and_dollar_sign(tmp_path):
     path = _write_fixture(tmp_path, rows)
     df = parse_holdings(path)
     row = df[df["symbol"] == "NVDA"].iloc[0]
-    assert row["market_cap"] == 1_403_545_761.70
+    assert row["index_position_value"] == 1_403_545_761.70
     row2 = df[df["symbol"] == "AAPL"].iloc[0]
-    assert row2["market_cap"] == 1_324_110_902.15
+    assert row2["index_position_value"] == 1_324_110_902.15
 
 
 def test_parse_holdings_returns_exactly_three_contract_columns(tmp_path):
-    """The returned frame exposes exactly symbol/name/market_cap -- not the issuer's raw columns."""
+    """The returned frame exposes exactly symbol/name/index_position_value -- not the issuer's raw columns."""
     path = _write_fixture(tmp_path, [_row()])
     df = parse_holdings(path)
-    assert list(df.columns) == ["symbol", "name", "market_cap"]
+    assert list(df.columns) == ["symbol", "name", "index_position_value"]
 
 
 def test_parse_holdings_accepts_ticker_with_dot_and_hyphen(tmp_path):
@@ -170,3 +170,17 @@ def test_parse_holdings_accepted_count_matches_frame_length(tmp_path):
     path = _write_fixture(tmp_path, rows)
     df = parse_holdings(path)
     assert df.attrs["n_accepted"] == len(df) == 3
+
+
+def test_parse_holdings_drops_and_counts_duplicate_tickers(tmp_path):
+    """174 review IN-05: a ticker listed twice must enter the population once, counted."""
+    rows = [
+        _row(ticker="GOOG", market_value="500.00"),
+        _row(ticker="AAPL", market_value="400.00"),
+        _row(ticker="GOOG", market_value="300.00"),
+    ]
+    df = parse_holdings(_write_fixture(tmp_path, rows))
+    assert list(df["symbol"]) == ["GOOG", "AAPL"]
+    assert df.loc[df["symbol"] == "GOOG", "index_position_value"].item() == 500.0
+    assert df.attrs["n_duplicates_dropped"] == 1
+    assert df.attrs["n_accepted"] == 2

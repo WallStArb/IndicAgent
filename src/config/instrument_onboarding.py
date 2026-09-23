@@ -25,6 +25,7 @@ needed for `contract_details` to round-trip as a `dict`. A bare
 
 from __future__ import annotations
 
+import json
 from collections.abc import Sequence
 from dataclasses import dataclass
 from typing import TYPE_CHECKING, Any, Protocol
@@ -81,16 +82,43 @@ ON CONFLICT (symbol) DO UPDATE SET
 
 # Asyncpg-form rewrite of services/backfill_feature_factory.py's _UPSERT_STATUS_SQL
 # (psycopg %s form) -- semantics unchanged, only the placeholder syntax differs.
-_UPSERT_BACKFILL_STATUS_SQL = """
+# Seed-only: an existing checkpoint is never touched. The earlier upsert reset `status` to
+# 'pending' while GREATEST kept fetch_complete=true, leaving an inconsistent row that made
+# backfill_feature_factory recompute an already-complete symbol (174 review WR-03).
+_SEED_BACKFILL_STATUS_SQL = """
 INSERT INTO backfill_status (symbol, tf, status, fetch_complete, started_at)
-VALUES ($1, $2, $3, $4, NOW())
-ON CONFLICT (symbol, tf) DO UPDATE SET
-    status = EXCLUDED.status,
-    fetch_complete = GREATEST(backfill_status.fetch_complete, EXCLUDED.fetch_complete),
-    started_at = COALESCE(backfill_status.started_at, EXCLUDED.started_at)
+VALUES ($1, $2, 'pending', false, NOW())
+ON CONFLICT (symbol, tf) DO NOTHING
 """
 
-_DEFAULT_TIMEFRAMES: tuple[str, ...] = ("5m", "15m", "1h", "1d")
+# The compute timeframe stack: the timeframes the feature factory computes, and therefore
+# the timeframes a symbol must be backfilled at before it is compute-ready. One APR key
+# (migration 278) drives the factory, onboarding's seed, and the promotion predicate.
+COMPUTE_TIMEFRAMES_APR_KEY = "feature.factory.target_timeframes"
+
+_SELECT_APR_VALUE_SQL = "SELECT config_value FROM config_state WHERE config_key = $1"
+
+
+def parse_compute_timeframes(raw: str | None) -> list[str]:
+    """Parse and validate the compute-timeframes APR value; raise if absent or malformed.
+
+    No fallback literal: a missing key must fail loudly rather than seed a timeframe set
+    nobody configured.
+    """
+    if raw is None:
+        raise RuntimeError(f"APR key {COMPUTE_TIMEFRAMES_APR_KEY!r} is not set in config_state")
+    value = json.loads(raw)
+    if not (isinstance(value, list) and value and all(isinstance(tf, str) and tf for tf in value)):
+        raise RuntimeError(
+            f"APR key {COMPUTE_TIMEFRAMES_APR_KEY!r} must be a non-empty JSON array of "
+            f"timeframe strings, got {raw!r}"
+        )
+    return value
+
+
+def _inserted(status: str) -> bool:
+    """True if an asyncpg INSERT command tag reports one row written ("INSERT 0 1")."""
+    return status.split()[-1] == "1"
 
 
 class OnboardingRejected(Exception):
@@ -146,7 +174,7 @@ async def onboard_instrument(
     *,
     qualifier: InstrumentQualifier,
     tags: Sequence[tuple[str, float, dict]] = (),
-    timeframes: Sequence[str] = _DEFAULT_TIMEFRAMES,
+    timeframes: Sequence[str] | None = None,
     metadata: dict | None = None,
     metadata_skip_reason: str = "",
     compute_eligible: bool = False,
@@ -187,7 +215,10 @@ async def onboard_instrument(
             any write. Written with source='human' (a definitional seed
             prior -- measured-provenance rows are TagCalibrator's exclusive
             domain, never impersonated here).
-        timeframes: backfill_status is seeded once per timeframe here.
+        timeframes: backfill_status is seeded once per timeframe here. None (the
+            default) reads the compute timeframe stack from APR
+            (`feature.factory.target_timeframes`); pass an explicit subset only for a
+            deliberately partial-stack cohort such as the D-09 1d-only pilot.
         metadata: dict with keys listing_date, underlying_index, issuer,
             description. If None, metadata_skip_reason must be a non-empty
             string (D-08's metadata mandate -- a silent omission must be
@@ -202,8 +233,10 @@ async def onboard_instrument(
             set it True.
 
     Raises:
-        OnboardingRejected: qualification failed, or one or more tags are not
-            registered in tag_vocabulary. No DB write happens in either case.
+        OnboardingRejected: qualification failed, one or more tags are not
+            registered in tag_vocabulary, or the symbol already exists in
+            `instruments`. No DB write happens in any of these cases -- re-onboarding
+            an existing symbol is refused rather than silently reported as done.
         ValueError: metadata is None and metadata_skip_reason is empty.
 
     Returns:
@@ -242,7 +275,7 @@ async def onboard_instrument(
 
         contract_details = {key: getattr(instrument, key) for key in _CONTRACT_DETAILS_KEYS}
 
-        await conn.execute(
+        status = await conn.execute(
             _INSERT_INSTRUMENT_SQL,
             instrument.symbol,
             instrument.base,
@@ -250,18 +283,26 @@ async def onboard_instrument(
             compute_eligible,
             live_tradeable,
         )
+        if not _inserted(status):
+            # Raising inside the transaction block unwinds it (or this call's savepoint),
+            # so nothing below is written for an existing symbol.
+            raise OnboardingRejected(
+                f"onboard_instrument: {instrument.symbol!r} already exists in instruments -- "
+                "refusing to re-onboard. Change an existing row's flags deliberately, not "
+                "through this path."
+            )
         instrument_inserted = True
 
         tags_inserted = 0
         for tag_name, weight, evidence in tags:
-            await conn.execute(
+            tag_status = await conn.execute(
                 _INSERT_TAG_SQL,
                 instrument.symbol,
                 tag_name,
                 weight,
                 evidence,
             )
-            tags_inserted += 1
+            tags_inserted += _inserted(tag_status)
 
         metadata_written = False
         if metadata is not None:
@@ -281,16 +322,14 @@ async def onboard_instrument(
                 reason=metadata_skip_reason,
             )
 
+        if timeframes is None:
+            timeframes = parse_compute_timeframes(
+                await conn.fetchval(_SELECT_APR_VALUE_SQL, COMPUTE_TIMEFRAMES_APR_KEY)
+            )
         backfill_rows_seeded = 0
         for tf in timeframes:
-            await conn.execute(
-                _UPSERT_BACKFILL_STATUS_SQL,
-                instrument.symbol,
-                tf,
-                "pending",
-                False,
-            )
-            backfill_rows_seeded += 1
+            seed_status = await conn.execute(_SEED_BACKFILL_STATUS_SQL, instrument.symbol, tf)
+            backfill_rows_seeded += _inserted(seed_status)
 
     return OnboardResult(
         symbol=instrument.symbol,

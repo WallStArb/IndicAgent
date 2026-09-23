@@ -48,13 +48,16 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
 import psycopg  # noqa: E402
 import structlog  # noqa: E402
 
+from src.config.instrument_onboarding import (  # noqa: E402
+    COMPUTE_TIMEFRAMES_APR_KEY,
+    parse_compute_timeframes,
+)
 from src.config.settings import Settings  # noqa: E402
 from src.core.service_utils import setup_service_logging  # noqa: E402
 
 setup_service_logging("logs/instrument_compute_eligibility_audit.log")
 _logger = structlog.get_logger(__name__)
 
-_TIMEFRAMES: tuple[str, ...] = ("5m", "15m", "1h", "1d")
 _SYMBOL_BATCH_SIZE = 25
 
 # Canonical all-four-timeframes compute-readiness predicate (Phase 174 D-07, plan
@@ -62,18 +65,21 @@ _SYMBOL_BATCH_SIZE = 25
 # do not copy/paste or approximate this fragment elsewhere. `i` is the expected alias
 # for the `instruments` row being tested by the caller's outer query.
 #
-# Both halves are counted aggregates (`= 4`), never a bare EXISTS -- an EXISTS here
-# would silently degrade to "at least one timeframe complete," admitting partially-
-# backfilled symbols into corpus-wide measurement (RESEARCH.md threat T-174-41).
+# Both halves are counted aggregates (`= cardinality(timeframes)`), never a bare EXISTS --
+# an EXISTS here would silently degrade to "at least one timeframe complete," admitting
+# partially-backfilled symbols into corpus-wide measurement (RESEARCH.md threat T-174-41).
+# The required count derives from the bound timeframe list itself (APR
+# `feature.factory.target_timeframes` via load_compute_timeframes()), so the list and the
+# count can never disagree.
 COMPUTE_READY_PREDICATE_SQL = """
     (
         SELECT count(*) FROM backfill_status b
         WHERE b.symbol = i.symbol AND b.tf = ANY(%(timeframes)s) AND b.fetch_complete
-    ) = 4
+    ) = cardinality(%(timeframes)s::text[])
     AND (
         SELECT count(DISTINCT m.timeframe) FROM market_data_ohlcv_tradeable m
         WHERE m.symbol = i.symbol AND m.timeframe = ANY(%(timeframes)s)
-    ) = 4
+    ) = cardinality(%(timeframes)s::text[])
 """.strip()
 
 # 1d-only sibling of COMPUTE_READY_PREDICATE_SQL (Phase 174, plan 174-13, D-09). Same
@@ -95,6 +101,17 @@ COMPUTE_READY_1D_PREDICATE_SQL = """
 """.strip()
 
 
+def load_compute_timeframes(conn: psycopg.Connection) -> list[str]:
+    """Read the compute timeframe stack from APR; raise if it is missing or malformed."""
+    with conn.cursor() as cur:
+        cur.execute(
+            "SELECT config_value FROM config_state WHERE config_key = %s",
+            (COMPUTE_TIMEFRAMES_APR_KEY,),
+        )
+        row = cur.fetchone()
+    return parse_compute_timeframes(row[0] if row else None)
+
+
 def _batched(items: list[str], size: int) -> list[list[str]]:
     return [items[i : i + size] for i in range(0, len(items), size)]
 
@@ -105,7 +122,9 @@ def _fetch_active_symbols(conn: psycopg.Connection) -> list[str]:
         return [row[0] for row in cur.fetchall()]
 
 
-def _fetch_row_counts(conn: psycopg.Connection, symbols: list[str]) -> dict[tuple[str, str], int]:
+def _fetch_row_counts(
+    conn: psycopg.Connection, symbols: list[str], timeframes: list[str]
+) -> dict[tuple[str, str], int]:
     """Index-driven per-(symbol, timeframe) row counts for one symbol batch.
 
     Batched via symbol = ANY(%(symbols)s) AND timeframe = ANY(%(timeframes)s) so the
@@ -121,13 +140,13 @@ def _fetch_row_counts(conn: psycopg.Connection, symbols: list[str]) -> dict[tupl
             WHERE symbol = ANY(%(symbols)s) AND timeframe = ANY(%(timeframes)s)
             GROUP BY symbol, timeframe
             """,
-            {"symbols": symbols, "timeframes": list(_TIMEFRAMES)},
+            {"symbols": symbols, "timeframes": timeframes},
         )
         return {(row[0], row[1]): row[2] for row in cur.fetchall()}
 
 
 def _fetch_endpoints(
-    conn: psycopg.Connection, symbols: list[str]
+    conn: psycopg.Connection, symbols: list[str], timeframes: list[str]
 ) -> dict[tuple[str, str], tuple[object, object]]:
     """Index-driven per-(symbol, timeframe) (min_ts, max_ts) for one symbol batch.
 
@@ -154,13 +173,13 @@ def _fetch_endpoints(
                 ORDER BY timestamp DESC LIMIT 1
             ) mx
             """,
-            {"symbols": symbols, "timeframes": list(_TIMEFRAMES)},
+            {"symbols": symbols, "timeframes": timeframes},
         )
         return {(row[0], row[1]): (row[2], row[3]) for row in cur.fetchall()}
 
 
 def _fetch_backfill_status(
-    conn: psycopg.Connection, symbols: list[str]
+    conn: psycopg.Connection, symbols: list[str], timeframes: list[str]
 ) -> dict[tuple[str, str], bool]:
     """fetch_complete flag per (symbol, tf). backfill_status is a small plain table
     (PK (symbol, tf)), not a hypertable -- one query for all active symbols is cheap,
@@ -173,7 +192,7 @@ def _fetch_backfill_status(
             FROM backfill_status
             WHERE symbol = ANY(%(symbols)s) AND tf = ANY(%(timeframes)s)
             """,
-            {"symbols": symbols, "timeframes": list(_TIMEFRAMES)},
+            {"symbols": symbols, "timeframes": timeframes},
         )
         return {(row[0], row[1]): bool(row[2]) for row in cur.fetchall()}
 
@@ -190,6 +209,7 @@ def main() -> int:
         return 1
 
     try:
+        timeframes = load_compute_timeframes(conn)
         symbols = _fetch_active_symbols(conn)
         print(f"instrument_compute_eligibility_audit: {len(symbols)} is_active=true symbols")
 
@@ -197,9 +217,9 @@ def main() -> int:
         endpoints: dict[tuple[str, str], tuple[object, object]] = {}
         try:
             for batch in _batched(symbols, _SYMBOL_BATCH_SIZE):
-                row_counts.update(_fetch_row_counts(conn, batch))
-                endpoints.update(_fetch_endpoints(conn, batch))
-            backfill = _fetch_backfill_status(conn, symbols)
+                row_counts.update(_fetch_row_counts(conn, batch, timeframes))
+                endpoints.update(_fetch_endpoints(conn, batch, timeframes))
+            backfill = _fetch_backfill_status(conn, symbols, timeframes)
         except Exception as error:
             _logger.critical("instrument_compute_eligibility_audit.query_failed", error=str(error))
             return 1
@@ -207,12 +227,17 @@ def main() -> int:
         # Per-symbol table -- accumulate rows, print once (never log per-row inside the loop).
         header = (
             f"{'symbol':<8}"
-            + "".join(f"{tf + '_rows':>12}{tf + '_bfc':>8}" for tf in _TIMEFRAMES)
-            + f"{'all_4_tf':>10}{'zero_rows':>10}"
+            + "".join(f"{tf + '_rows':>12}{tf + '_bfc':>8}" for tf in timeframes)
+            + f"{'rows_all':>10}{'bfc_all':>10}{'zero_rows':>10}"
         )
         print(header)
 
-        n_with_all_four_tfs = 0
+        # Rows and fetch_complete are separate facts; compute-readiness (the promotion
+        # predicate) needs both. Reporting only the rows half let migration 337's header
+        # cite a both-halves measurement this audit never made (174 review IN-01).
+        n_with_rows_all_tfs = 0
+        n_fetch_complete_all_tfs = 0
+        n_compute_ready = 0
         n_missing_any_tf = 0
         n_zero_rows = 0
         zero_row_symbols: list[str] = []
@@ -220,13 +245,16 @@ def main() -> int:
 
         table_lines: list[str] = []
         for symbol in symbols:
-            counts_by_tf = [row_counts.get((symbol, tf), 0) for tf in _TIMEFRAMES]
-            bfc_by_tf = [backfill.get((symbol, tf), False) for tf in _TIMEFRAMES]
-            has_all_four = all(c > 0 for c in counts_by_tf)
+            counts_by_tf = [row_counts.get((symbol, tf), 0) for tf in timeframes]
+            bfc_by_tf = [backfill.get((symbol, tf), False) for tf in timeframes]
+            has_rows_all = all(c > 0 for c in counts_by_tf)
+            has_bfc_all = all(bfc_by_tf)
             is_zero = all(c == 0 for c in counts_by_tf)
 
-            if has_all_four:
-                n_with_all_four_tfs += 1
+            n_fetch_complete_all_tfs += has_bfc_all
+            n_compute_ready += has_rows_all and has_bfc_all
+            if has_rows_all:
+                n_with_rows_all_tfs += 1
             else:
                 n_missing_any_tf += 1
                 missing_tf_symbols.append(symbol)
@@ -238,14 +266,18 @@ def main() -> int:
                 f"{c:>12}{('Y' if bfc else 'N'):>8}" for c, bfc in zip(counts_by_tf, bfc_by_tf)
             )
             table_lines.append(
-                f"{symbol:<8}{cells}{('Y' if has_all_four else 'N'):>10}{('Y' if is_zero else 'N'):>10}"
+                f"{symbol:<8}{cells}{('Y' if has_rows_all else 'N'):>10}"
+                f"{('Y' if has_bfc_all else 'N'):>10}{('Y' if is_zero else 'N'):>10}"
             )
         print("\n".join(table_lines))
 
         elapsed = time.time() - start
         summary = {
             "n_active": len(symbols),
-            "n_with_all_four_tfs": n_with_all_four_tfs,
+            "timeframes": timeframes,
+            "n_with_rows_all_tfs": n_with_rows_all_tfs,
+            "n_fetch_complete_all_tfs": n_fetch_complete_all_tfs,
+            "n_compute_ready": n_compute_ready,
             "n_missing_any_tf": n_missing_any_tf,
             "n_zero_rows": n_zero_rows,
             "missing_tf_symbols": missing_tf_symbols,

@@ -34,6 +34,7 @@ import structlog  # noqa: E402
 from scripts.analysis.instrument_compute_eligibility_audit import (  # noqa: E402
     COMPUTE_READY_1D_PREDICATE_SQL,
     COMPUTE_READY_PREDICATE_SQL,
+    load_compute_timeframes,
 )
 from src.config.settings import Settings  # noqa: E402
 from src.core.service_utils import setup_service_logging  # noqa: E402
@@ -48,23 +49,26 @@ _JOB_NAME = "universe-expansion-promote-compute-eligible"
 class _DimensionConfig(NamedTuple):
     column: str
     predicate_sql: str
-    timeframes: tuple[str, ...] | None  # None -- predicate is not %(timeframes)s-parameterized
+    # True: bind the predicate's %(timeframes)s to the APR compute stack at run time.
+    # False: the predicate has its timeframe baked in and takes no binding.
+    binds_compute_timeframes: bool
 
 
 # Module-owned literal map: --dimension indexes into this dict, never builds SQL text or a
 # column name from argv directly. `compute` binds COMPUTE_READY_PREDICATE_SQL's
-# %(timeframes)s placeholder to all four timeframes; `compute_1d`'s predicate has '1d'
-# baked in as a literal (see instrument_compute_eligibility_audit.py) and needs no binding.
+# %(timeframes)s placeholder to the APR compute stack (feature.factory.target_timeframes);
+# `compute_1d`'s predicate has '1d' baked in as a literal (see
+# instrument_compute_eligibility_audit.py) and needs no binding.
 _DIMENSION_CONFIG: dict[str, _DimensionConfig] = {
     "compute": _DimensionConfig(
         column="compute_eligible",
         predicate_sql=COMPUTE_READY_PREDICATE_SQL,
-        timeframes=("5m", "15m", "1h", "1d"),
+        binds_compute_timeframes=True,
     ),
     "compute_1d": _DimensionConfig(
         column="compute_eligible_1d",
         predicate_sql=COMPUTE_READY_1D_PREDICATE_SQL,
-        timeframes=None,
+        binds_compute_timeframes=False,
     ),
 }
 
@@ -75,8 +79,8 @@ def _fetch_candidates(conn: psycopg.Connection, config: _DimensionConfig) -> lis
     market_data_ohlcv_tradeable ground truth) already live inside `config.predicate_sql`.
     """
     params: dict[str, object] = {}
-    if config.timeframes is not None:
-        params["timeframes"] = list(config.timeframes)
+    if config.binds_compute_timeframes:
+        params["timeframes"] = load_compute_timeframes(conn)
     sql = f"""
         SELECT i.symbol
         FROM instruments i
@@ -118,13 +122,16 @@ def main(argv: list[str] | None = None) -> int:
         choices=sorted(_DIMENSION_CONFIG),
         help="Which eligibility dimension to promote against.",
     )
-    parser.add_argument(
+    # Mutually exclusive: --dry-run is the default, and "--dry-run --commit" is a usage
+    # error rather than a silent commit (174 review IN-02).
+    mode = parser.add_mutually_exclusive_group()
+    mode.add_argument(
         "--dry-run",
         action="store_true",
         default=True,
         help="Dry-run only (default): report candidates, make no database writes.",
     )
-    parser.add_argument(
+    mode.add_argument(
         "--commit",
         action="store_true",
         default=False,

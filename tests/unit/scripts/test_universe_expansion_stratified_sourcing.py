@@ -20,7 +20,14 @@ from scripts.infrastructure.universe_expansion_stratified_sourcing import (  # n
     stratified_sample,
 )
 
-_RESULT_COLUMNS = ["symbol", "name", "market_cap", "cap_bucket", "cap_bucket_min", "cap_bucket_max"]
+_RESULT_COLUMNS = [
+    "symbol",
+    "name",
+    "index_position_value",
+    "cap_bucket",
+    "cap_bucket_min",
+    "cap_bucket_max",
+]
 
 
 def _make_population(n: int = 500, prefix: str = "SYM") -> pd.DataFrame:
@@ -31,27 +38,27 @@ def _make_population(n: int = 500, prefix: str = "SYM") -> pd.DataFrame:
     symbols = [f"{prefix}{i:04d}" for i in range(n)]
     caps = np.logspace(6, 12, n)  # $1M .. $1T, deterministic ascending spread
     return pd.DataFrame(
-        {"symbol": symbols, "name": [f"Name {i}" for i in range(n)], "market_cap": caps}
+        {"symbol": symbols, "name": [f"Name {i}" for i in range(n)], "index_position_value": caps}
     )
 
 
 def _make_shortfall_population() -> pd.DataFrame:
     """Constructs a population where pandas.qcut(q=5, duplicates="drop") produces
     exactly 4 buckets of UNEQUAL size (20/50/10/20) -- the 40-row block of
-    identical market_cap=50.0 collapses two quantile edges, leaving one bucket
+    identical index_position_value=50.0 collapses two quantile edges, leaving one bucket
     with only 10 rows. Verified empirically: this exact construction reliably
     yields bucket capacities [20, 50, 10, 20] under q=5/duplicates="drop".
     """
     caps = list(np.linspace(1, 40, 30)) + [50.0] * 40 + list(np.linspace(60, 100, 30))
     symbols = [f"SH{i:04d}" for i in range(len(caps))]
-    return pd.DataFrame({"symbol": symbols, "name": symbols, "market_cap": caps})
+    return pd.DataFrame({"symbol": symbols, "name": symbols, "index_position_value": caps})
 
 
 def _assert_bounds_correct(sample: pd.DataFrame) -> None:
     assert list(sample.columns) == _RESULT_COLUMNS
     assert (
-        (sample["market_cap"] >= sample["cap_bucket_min"])
-        & (sample["market_cap"] <= sample["cap_bucket_max"])
+        (sample["index_position_value"] >= sample["cap_bucket_min"])
+        & (sample["index_position_value"] <= sample["cap_bucket_max"])
     ).all()
 
 
@@ -136,7 +143,7 @@ def test_capacity_shortfall_redistributes_to_buckets_with_room():
     assert counts[shortfall_bucket] == 10
     # No bucket's draw exceeds its own true population capacity.
     true_capacities = pop.assign(
-        cap_bucket=pd.qcut(pop["market_cap"], q=5, labels=False, duplicates="drop")
+        cap_bucket=pd.qcut(pop["index_position_value"], q=5, labels=False, duplicates="drop")
     )["cap_bucket"].value_counts()
     for bucket_idx, drawn in counts.items():
         assert drawn <= true_capacities[bucket_idx]
@@ -160,20 +167,20 @@ def test_exclusion_applies_before_bucketing():
     lowest-cap symbols out of 100 shifts bucket 0's minimum from 1.0 (the raw
     population's true minimum) to a materially higher value.
     """
-    pop = _make_population(n=100).assign(market_cap=np.linspace(1.0, 1000.0, 100))
+    pop = _make_population(n=100).assign(index_position_value=np.linspace(1.0, 1000.0, 100))
     exclude = set(pop["symbol"].iloc[:30])
 
     sample = stratified_sample(pop, target_size=20, bucket_count=5, seed=5, exclude=exclude)
 
     assert exclude.isdisjoint(set(sample["symbol"]))
 
-    pre_exclusion_min = pop["market_cap"].min()
+    pre_exclusion_min = pop["index_position_value"].min()
     post_exclusion_bucket0_min = sample.loc[sample["cap_bucket"] == 0, "cap_bucket_min"].iloc[0]
     assert post_exclusion_bucket0_min > pre_exclusion_min
     # The post-exclusion population's true minimum (row 30, 0-indexed) is what
     # bucket 0's floor should actually be, confirming boundaries are computed
     # over the population the draw can actually use, not the raw input.
-    expected_post_exclusion_min = pop["market_cap"].iloc[30]
+    expected_post_exclusion_min = pop["index_position_value"].iloc[30]
     assert post_exclusion_bucket0_min == pytest.approx(expected_post_exclusion_min)
 
 
@@ -219,19 +226,19 @@ def test_bucket_ordering_ascending_by_market_cap():
     """
     pop = _make_population()
     sample = stratified_sample(pop, target_size=100, bucket_count=10, seed=5, exclude=set())
-    means = sample.groupby("cap_bucket")["market_cap"].mean().sort_index()
+    means = sample.groupby("cap_bucket")["index_position_value"].mean().sort_index()
     assert means.iloc[0] < means.iloc[-1]
     diffs = means.diff().dropna()
     assert (diffs >= 0).all()
 
 
 def test_bucket_bounds_carried_and_correct():
-    """Every returned row's market_cap lies within its own
+    """Every returned row's index_position_value lies within its own
     [cap_bucket_min, cap_bucket_max], and the bounds are computed over the
     post-exclusion population -- constructed so pre- vs post-exclusion bounds
     differ measurably (same construction as the exclusion test above).
     """
-    pop = _make_population(n=100).assign(market_cap=np.linspace(1.0, 1000.0, 100))
+    pop = _make_population(n=100).assign(index_position_value=np.linspace(1.0, 1000.0, 100))
     exclude = set(pop["symbol"].iloc[:30])
     sample = stratified_sample(pop, target_size=20, bucket_count=5, seed=5, exclude=exclude)
     _assert_bounds_correct(sample)
@@ -239,6 +246,16 @@ def test_bucket_bounds_carried_and_correct():
     # Post-exclusion bound differs measurably from the pre-exclusion population
     # minimum -- same assertion shape as test_exclusion_applies_before_bucketing,
     # scoped here to the bounds-carrying contract specifically.
-    pre_exclusion_min = pop["market_cap"].min()
+    pre_exclusion_min = pop["index_position_value"].min()
     bucket0_min = sample.loc[sample["cap_bucket"] == 0, "cap_bucket_min"].iloc[0]
     assert bucket0_min > pre_exclusion_min
+
+
+def test_exclude_set_sha256_is_order_independent_and_content_sensitive():
+    """174 review IN-06: provenance must pin the exact exclude set, not just its size."""
+    from scripts.infrastructure.universe_expansion_stratified_sourcing import (
+        exclude_set_sha256,
+    )
+
+    assert exclude_set_sha256({"B", "A"}) == exclude_set_sha256({"A", "B"})
+    assert exclude_set_sha256({"A", "B"}) != exclude_set_sha256({"A", "C"})

@@ -70,6 +70,10 @@ class FakeConnection:
         self,
         known_tags: set[str] | None = None,
         fail_on: str | None = None,
+        existing_symbols: set[str] | None = None,
+        existing_tags: set[tuple[str, str]] | None = None,
+        existing_backfill: set[tuple[str, str]] | None = None,
+        apr_timeframes: str | None = '["5m", "15m", "1h", "1d"]',
     ) -> None:
         self.statements: list[tuple[str, tuple]] = []
         self.tx_stack: list[_FakeTransactionCM] = []
@@ -79,6 +83,10 @@ class FakeConnection:
         self.rollback_calls = 0
         self._known_tags = known_tags or set()
         self._fail_on = fail_on
+        self._existing_symbols = existing_symbols or set()
+        self._existing_tags = existing_tags or set()
+        self._existing_backfill = existing_backfill or set()
+        self._apr_timeframes = apr_timeframes
 
     def transaction(self) -> _FakeTransactionCM:
         self.transaction_call_count += 1
@@ -99,12 +107,21 @@ class FakeConnection:
 
     async def fetchval(self, sql: str, *args: Any) -> Any:
         self.statements.append((sql, args))
+        if "config_state" in sql:
+            return self._apr_timeframes
         return None
 
     async def execute(self, sql: str, *args: Any) -> str:
+        """Return asyncpg-style command tags; ON CONFLICT DO NOTHING hits report 0 rows."""
         self.statements.append((sql, args))
         if self._fail_on and self._fail_on in sql:
             raise RuntimeError(f"simulated failure: {self._fail_on}")
+        if "INSERT INTO instruments " in sql and args[0] in self._existing_symbols:
+            return "INSERT 0 0"
+        if "INSERT INTO instrument_tags" in sql and (args[0], args[1]) in self._existing_tags:
+            return "INSERT 0 0"
+        if "INSERT INTO backfill_status" in sql and (args[0], args[1]) in self._existing_backfill:
+            return "INSERT 0 0"
         return "INSERT 0 1"
 
 
@@ -428,3 +445,101 @@ async def test_outer_transaction_survives_rejected_inner_onboarding() -> None:
     assert conn.rollback_calls == 0
     # outer + good's inner scope + bad's inner scope = 3 transaction() calls total
     assert conn.transaction_call_count == 3
+
+
+# ---------------------------------------------------------------------------
+# Phase 174 code review WR-03 / WR-07
+# ---------------------------------------------------------------------------
+
+
+async def test_existing_symbol_is_rejected_and_writes_nothing_after_insert() -> None:
+    """WR-03: ON CONFLICT DO NOTHING used to be reported as instrument_inserted=True and the
+    helper went on to write tags, metadata and a backfill_status reset for the existing row.
+    """
+    conn = FakeConnection(known_tags={"single_name_equity"}, existing_symbols={"EMLC"})
+
+    with pytest.raises(OnboardingRejected, match="already exists"):
+        await onboard_instrument(
+            conn,
+            _make_instrument("EMLC"),
+            qualifier=FakeQualifier(),
+            tags=[("single_name_equity", 1.0, {})],
+            metadata=_SOME_METADATA,
+        )
+
+    for table in ("instrument_tags", "instrument_metadata", "backfill_status"):
+        assert _statements_starting_with(conn, f"INSERT INTO {table}") == []
+    assert conn.transaction_log[-1][2] is OnboardingRejected
+
+
+async def test_counts_report_only_rows_actually_written() -> None:
+    """Tag and checkpoint counts count inserted rows, not attempted statements."""
+    conn = FakeConnection(
+        known_tags={"single_name_equity", "geopolitical"},
+        existing_tags={("CCJ", "geopolitical")},
+        existing_backfill={("CCJ", "1d")},
+    )
+
+    result = await onboard_instrument(
+        conn,
+        _make_instrument("CCJ"),
+        qualifier=FakeQualifier(),
+        tags=[("single_name_equity", 1.0, {}), ("geopolitical", 0.7, {})],
+        metadata=_SOME_METADATA,
+    )
+
+    assert result.tags_inserted == 1
+    assert result.backfill_rows_seeded == 3
+
+
+async def test_backfill_seed_never_resets_an_existing_checkpoint() -> None:
+    """WR-03: the seed must be insert-if-absent. The old upsert set status='pending' on a
+    fetch_complete row, which made backfill_feature_factory recompute a complete symbol."""
+    conn = FakeConnection()
+
+    await onboard_instrument(
+        conn, _make_instrument("CCJ"), qualifier=FakeQualifier(), metadata=_SOME_METADATA
+    )
+
+    (sql, _args), *_ = _statements_starting_with(conn, "INSERT INTO backfill_status")
+    assert "DO NOTHING" in sql
+    assert "DO UPDATE" not in sql
+
+
+async def test_default_timeframes_come_from_apr() -> None:
+    """WR-07: the seeded timeframe stack is the APR compute stack, not a module literal."""
+    conn = FakeConnection(apr_timeframes='["1h", "1d"]')
+
+    result = await onboard_instrument(
+        conn, _make_instrument("CCJ"), qualifier=FakeQualifier(), metadata=_SOME_METADATA
+    )
+
+    seeded = [
+        args[1] for _sql, args in _statements_starting_with(conn, "INSERT INTO backfill_status")
+    ]
+    assert seeded == ["1h", "1d"]
+    assert result.backfill_rows_seeded == 2
+
+
+async def test_explicit_timeframes_skip_apr_lookup() -> None:
+    conn = FakeConnection(apr_timeframes=None)
+
+    result = await onboard_instrument(
+        conn,
+        _make_instrument("CCJ"),
+        qualifier=FakeQualifier(),
+        metadata=_SOME_METADATA,
+        timeframes=("1d",),
+    )
+
+    assert result.backfill_rows_seeded == 1
+
+
+@pytest.mark.parametrize("raw", [None, "[]", '"5m"', "[1, 2]", '[""]'])
+async def test_missing_or_malformed_apr_timeframes_fail_loudly(raw) -> None:
+    conn = FakeConnection(apr_timeframes=raw)
+
+    with pytest.raises(RuntimeError, match="feature.factory.target_timeframes"):
+        await onboard_instrument(
+            conn, _make_instrument("CCJ"), qualifier=FakeQualifier(), metadata=_SOME_METADATA
+        )
