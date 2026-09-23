@@ -227,6 +227,43 @@ def test_gate_missing_unconditional_fails_closed():
     assert any("unconditional" in reason for reason in result["failed_conditions"])
 
 
+@pytest.mark.parametrize("bad", [float("nan"), float("inf"), float("-inf")])
+def test_gate_non_finite_correlation_fails_closed(bad):
+    """correlation_structure() returns NaN when no pair clears min_periods (0-1 symbols left
+    after the coverage filter, or a sparse regime slice). `nan > threshold` is False, so a
+    None-only check let a NaN through as a PASS. Non-finite must fail closed on either leg.
+    """
+    for unconditional, high_bear, leg in (
+        (_gate_input(bad), _gate_input(0.05), "unconditional"),
+        (_gate_input(0.05), _gate_input(bad), "high_bear"),
+    ):
+        result = evaluate_d10_gate(unconditional, high_bear)
+        assert result["passed"] is False
+        assert any(leg in reason for reason in result["failed_conditions"])
+
+
+def test_gate_fewer_than_two_symbols_fails_closed():
+    """A correlation over fewer than two symbols measures nothing, even if a finite value is
+    somehow present; the gate requires a measured cross-section.
+    """
+    one_symbol = {"avg_pairwise_corr": 0.05, "n_symbols": 1}
+    result = evaluate_d10_gate(one_symbol, _gate_input(0.05))
+    assert result["passed"] is False
+    assert any("n_symbols" in reason for reason in result["failed_conditions"])
+
+
+def test_gate_end_to_end_on_degenerate_returns_fails_closed():
+    """The exact scenario the review reproduced: a 1-symbol unconditional frame and a 10-row
+    high_bear frame, run through correlation_structure() then the gate.
+    """
+    rng = np.random.default_rng(0)
+    one_symbol = pd.DataFrame({"AAA": rng.normal(size=100)})
+    sparse = pd.DataFrame(rng.normal(size=(10, 3)), columns=["AAA", "BBB", "CCC"])
+    result = evaluate_d10_gate(correlation_structure(one_symbol), correlation_structure(sparse))
+    assert result["passed"] is False
+    assert len(result["failed_conditions"]) == 2
+
+
 def test_gate_threshold_constants_are_the_literals_d10_fixed():
     """Case 12: the threshold constants are the exact literals D-10 fixed. A future edit to
     either value fails this test -- the mechanism that makes the pre-registration enforceable

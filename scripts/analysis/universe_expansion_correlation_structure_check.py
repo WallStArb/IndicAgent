@@ -57,6 +57,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import math
 import sys
 from datetime import UTC, date, timedelta
 from pathlib import Path
@@ -159,45 +160,50 @@ def correlation_structure(returns: pd.DataFrame) -> dict[str, Any]:
     }
 
 
+def _gated_corr(
+    result: dict[str, Any] | None, leg: str, threshold: float, failed_conditions: list[str]
+) -> float | None:
+    """Pure. One D-10 leg: append a named failure reason to `failed_conditions` unless the
+    leg's avg_pairwise_corr is a finite measurement over >= 2 symbols at or below `threshold`.
+    """
+    corr = result.get("avg_pairwise_corr") if result is not None else None
+    n_symbols = result.get("n_symbols") if result is not None else None
+    if corr is None or not math.isfinite(corr):
+        failed_conditions.append(
+            f"{leg} avg_pairwise_corr missing or non-finite ({corr!r}) -- "
+            "fails closed, cannot pass by omission"
+        )
+    elif n_symbols is not None and n_symbols < 2:
+        failed_conditions.append(
+            f"{leg} n_symbols={n_symbols} < 2 -- no cross-section measured, fails closed"
+        )
+    elif corr > threshold:
+        failed_conditions.append(
+            f"{leg} avg_pairwise_corr={corr:.4f} exceeds threshold={threshold}"
+        )
+    return corr
+
+
 def evaluate_d10_gate(
     unconditional: dict[str, Any] | None, high_bear: dict[str, Any] | None
 ) -> dict[str, Any]:
     """Pure. D-10's pre-registered pass/fail decision over RAW (not residualized) correlation
     results only -- see module docstring's "Why the D-10 gate uses RAW correlation" section.
 
-    Fails closed: a missing or None result (or one with no avg_pairwise_corr) is a FAIL with a
-    named reason in `failed_conditions`, never a pass by omission -- a pilot whose high_bear
-    correlation could not be measured has not cleared a gate that requires measuring it.
+    Fails closed: a missing result, a missing or non-finite avg_pairwise_corr, or a
+    cross-section of fewer than two symbols is a FAIL with a named reason in
+    `failed_conditions`, never a pass by omission -- a pilot whose high_bear correlation could
+    not be measured has not cleared a gate that requires measuring it. Non-finite matters
+    because correlation_structure() returns NaN when no pair clears min_periods, and
+    `nan > threshold` is False.
 
     Threshold reading is "<=": a value exactly at the threshold clears it (D-10's own wording).
     """
     failed_conditions: list[str] = []
-
-    unconditional_corr = (
-        unconditional.get("avg_pairwise_corr") if unconditional is not None else None
+    unconditional_corr = _gated_corr(
+        unconditional, "unconditional", _D10_GATE_UNCONDITIONAL_MAX, failed_conditions
     )
-    if unconditional_corr is None:
-        failed_conditions.append(
-            "unconditional result missing (None) or has no avg_pairwise_corr -- "
-            "fails closed, cannot pass by omission"
-        )
-    elif unconditional_corr > _D10_GATE_UNCONDITIONAL_MAX:
-        failed_conditions.append(
-            f"unconditional avg_pairwise_corr={unconditional_corr:.4f} exceeds "
-            f"_D10_GATE_UNCONDITIONAL_MAX={_D10_GATE_UNCONDITIONAL_MAX}"
-        )
-
-    high_bear_corr = high_bear.get("avg_pairwise_corr") if high_bear is not None else None
-    if high_bear_corr is None:
-        failed_conditions.append(
-            "high_bear result missing (None) or has no avg_pairwise_corr -- "
-            "fails closed, cannot pass by omission"
-        )
-    elif high_bear_corr > _D10_GATE_HIGH_BEAR_MAX:
-        failed_conditions.append(
-            f"high_bear avg_pairwise_corr={high_bear_corr:.4f} exceeds "
-            f"_D10_GATE_HIGH_BEAR_MAX={_D10_GATE_HIGH_BEAR_MAX}"
-        )
+    high_bear_corr = _gated_corr(high_bear, "high_bear", _D10_GATE_HIGH_BEAR_MAX, failed_conditions)
 
     return {
         "passed": len(failed_conditions) == 0,
