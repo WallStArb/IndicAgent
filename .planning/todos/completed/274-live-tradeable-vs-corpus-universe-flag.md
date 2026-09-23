@@ -59,3 +59,14 @@ entries per dimension) rather than the single `is_active` boolean everything rea
 
 Not blocking the nightly incremental backfill job (same session) — that job operates on
 `is_active` only, same as every other corpus consumer today.
+
+## Resolved 2026-09-23
+
+Satisfied by Phase 174 (which folded this todo per ROADMAP.md). Migration 337 (plan 174-02)
+shipped the three-way split this todo called for: `is_active` (backfill-eligible) /
+`compute_eligible` / `live_tradeable`, with `compute_eligible=true` backfilled for all
+then-active rows and `live_tradeable=false` as the honest default while live streaming is
+dormant. Plan 174-06 shipped `get_active_contracts(dimension=)` with per-dimension caching
+and a default-equivalence regression; plan 174-13 added `compute_eligible_1d` for the
+down-cap pilot's 1d-only measurement assets. Live-verified 2026-09-23: 273 active / 233
+compute_eligible / 40 compute_1d-only / 0 live_tradeable. Nothing left to design.
