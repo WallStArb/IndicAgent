@@ -129,9 +129,7 @@ async def lifespan(app: FastAPI):
 
                     parsed = json.loads(contracts_json_raw)
                     instruments_to_seed = [Instrument(**item) for item in parsed]
-                    await dependencies.db_manager.upsert_instruments(
-                        instruments=instruments_to_seed
-                    )
+                    await dependencies.db_manager.upsert_instruments(instruments_to_seed)
                     logger.info(
                         "api.startup.instruments_seeded",
                         count=len(instruments_to_seed),

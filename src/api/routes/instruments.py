@@ -140,6 +140,11 @@ async def create_instrument(
     Uses ON CONFLICT (symbol) DO UPDATE so concurrent POSTs for the same symbol
     are idempotent (last write wins). The DB trigger fires pg_notify automatically
     on INSERT or UPDATE - no explicit notify call is needed here.
+
+    Eligibility flags are never granted here: a new row, or a re-activated inactive
+    one, starts compute_eligible/compute_eligible_1d/live_tradeable = false and is
+    promoted only through the compute-readiness predicate (174 review WR-04). An
+    already-active row keeps its flags.
     """
     await _validate_asset_class(db_manager, payload.asset_class)
     symbol = payload.symbol.upper()
@@ -150,11 +155,20 @@ async def create_instrument(
 
     await db_manager.execute_command(
         """
-        INSERT INTO instruments (symbol, base, contract_details, is_active)
-        VALUES ($1, $2, $3::jsonb, true)
+        INSERT INTO instruments (
+            symbol, base, contract_details, is_active,
+            compute_eligible, compute_eligible_1d, live_tradeable
+        )
+        VALUES ($1, $2, $3::jsonb, true, false, false, false)
         ON CONFLICT (symbol) DO UPDATE
             SET contract_details = EXCLUDED.contract_details,
                 is_active = true,
+                compute_eligible = CASE WHEN instruments.is_active
+                    THEN instruments.compute_eligible ELSE false END,
+                compute_eligible_1d = CASE WHEN instruments.is_active
+                    THEN instruments.compute_eligible_1d ELSE false END,
+                live_tradeable = CASE WHEN instruments.is_active
+                    THEN instruments.live_tradeable ELSE false END,
                 updated_at = NOW()
         """,
         symbol,

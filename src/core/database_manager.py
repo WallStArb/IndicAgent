@@ -132,15 +132,28 @@ class DatabaseManager:
     async def upsert_instruments(self, contracts: list) -> int:
         """Upsert instrument records from Instrument list into instruments table.
 
+        Never grants eligibility: new or re-activated rows start with every eligibility
+        flag false and are promoted only through the compute-readiness predicate
+        (174 review WR-04); an already-active row keeps its flags.
+
         Returns:
             Number of contracts upserted.
         """
         sql = """
-            INSERT INTO instruments (symbol, base, contract_details, is_active, updated_at)
-            VALUES ($1, $2, $3::jsonb, $4, NOW())
+            INSERT INTO instruments (
+                symbol, base, contract_details, is_active,
+                compute_eligible, compute_eligible_1d, live_tradeable, updated_at
+            )
+            VALUES ($1, $2, $3::jsonb, $4, false, false, false, NOW())
             ON CONFLICT (symbol) DO UPDATE
                 SET contract_details = EXCLUDED.contract_details,
                     is_active = EXCLUDED.is_active,
+                    compute_eligible = CASE WHEN instruments.is_active
+                        THEN instruments.compute_eligible ELSE false END,
+                    compute_eligible_1d = CASE WHEN instruments.is_active
+                        THEN instruments.compute_eligible_1d ELSE false END,
+                    live_tradeable = CASE WHEN instruments.is_active
+                        THEN instruments.live_tradeable ELSE false END,
                     updated_at = NOW()
         """
 
