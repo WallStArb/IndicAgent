@@ -278,7 +278,7 @@ class BarAuditor(BaseDaemon):
                 break
 
             await self._drain_contract_updates()
-            instruments = get_active_contracts(self.settings)
+            instruments = get_active_contracts(self.settings, dimension="live")
             if self._any_session_open(instruments):
                 await self._run_audit(instruments)
 
@@ -466,7 +466,7 @@ class BarAuditor(BaseDaemon):
         Catches all exceptions to prevent audit loop from crashing on transient failures.
         """
         if instruments is None:
-            instruments = get_active_contracts(self.settings)
+            instruments = get_active_contracts(self.settings, dimension="live")
         try:
             # observed_span must wrap the fallible body, not sit outside a try that
             # swallows everything -- observed_span only records ERROR on an exception

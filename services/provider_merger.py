@@ -85,9 +85,12 @@ class ProviderMerger(BaseDaemon):
             topic_market_bars_raw(self.env_name, p): p for p in self._provider_raw_topics
         }
 
-        # Instrument asset_class lookup: symbol -> asset_class string
+        # Instrument asset_class lookup: symbol -> asset_class string. A lookup table, not a
+        # universe choice, so it covers every active instrument (the widest dimension) and
+        # never falls through to the "futures" default for a symbol that merely isn't live.
         self._symbol_to_asset_class: dict[str, str] = {
-            instr.symbol: instr.asset_class.value for instr in get_active_contracts(self.settings)
+            instr.symbol: instr.asset_class.value
+            for instr in get_active_contracts(self.settings, dimension="backfill")
         }
 
         # Pre-cache labeled metric children to avoid dict lookup on every bar

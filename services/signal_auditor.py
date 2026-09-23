@@ -174,7 +174,7 @@ class SignalAuditor(BaseDaemon):
             if not self.running:
                 break
 
-            instruments = get_active_contracts(self.settings)
+            instruments = get_active_contracts(self.settings, dimension="live")
             if self._any_session_near_open(instruments):
                 await self._run_audit(instruments)
 
@@ -188,7 +188,7 @@ class SignalAuditor(BaseDaemon):
         Catches exceptions to keep the loop alive even on transient failures.
         """
         if instruments is None:
-            instruments = get_active_contracts(self.settings)
+            instruments = get_active_contracts(self.settings, dimension="live")
         try:
             _t0 = _time.monotonic()
             gap_events = await self._check_coverage(instruments)

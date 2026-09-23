@@ -169,12 +169,13 @@ class FeatureVectorPipeline(BaseDaemon):
             settings=_settings,
         )
 
-        self._contracts = get_active_contracts(self.settings)
+        self._contracts = get_active_contracts(self.settings, dimension="live")
         if not self._contracts:
             raise RuntimeError(
-                "feature_vector_pipeline_agent: no active instruments at startup. "
-                "DB unreachable or instruments table empty. Check DB connectivity "
-                "and ensure TODO: migrate_instruments.py (not found - may be deprecated) has been run."
+                "feature_vector_pipeline_agent: streaming universe is empty at startup -- "
+                "no instrument has live_tradeable = true (or the DB is unreachable). This "
+                "daemon computes on streamed bars only; the compute universe's history is "
+                "backfill_feature_factory's job."
             )
         self._symbols = [c.symbol for c in self._contracts]
         # Populated from CVR's `timeframe` namespace in _prewarm_timeframe_vocabulary()
@@ -1414,7 +1415,9 @@ class FeatureVectorPipeline(BaseDaemon):
                             await self._handle_system_event(payload)
                         elif _topic == _contracts_topic:
                             try:
-                                new_contracts = get_active_contracts(self.settings)
+                                new_contracts = get_active_contracts(
+                                    self.settings, dimension="live"
+                                )
                                 self._contracts = new_contracts
                                 CONTRACTS_RELOAD_TOTAL.add(1, {"status": "success"})
                                 self.logger.info("contracts_reloaded", count=len(self._contracts))

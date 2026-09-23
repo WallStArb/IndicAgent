@@ -778,7 +778,7 @@ class ServiceAuditor(BaseDaemon):
         on settings lookup error so genuine stoppages still surface.
         """
         try:
-            instruments = get_active_contracts(self.settings)
+            instruments = get_active_contracts(self.settings, dimension="live")
         except Exception as error:
             self.logger.warning(
                 "service_auditor.session_lookup_failed",

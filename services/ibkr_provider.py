@@ -30,6 +30,10 @@ class IBKRProvider(BaseProvider):
     def _provider_name_str(self) -> str:
         return "ibkr"
 
+    def _max_live_subscriptions(self) -> int:
+        """IBKR's simultaneous market-data-line cap for this account."""
+        return self.settings.ibkr_max_subscriptions
+
     def _create_adapter(self) -> DataProviderAdapter:
         """Return an IBKRAdapter using settings from base class."""
         return IBKRAdapter(

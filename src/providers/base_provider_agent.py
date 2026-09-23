@@ -123,11 +123,16 @@ class BaseProvider(BaseDaemon):
         )
         await self._kafka_producer.start()
 
+        # Resolve and validate the streaming universe before touching the provider
+        # connection: an empty or over-cap universe is a configuration error, not a
+        # transient one, and must fail loudly rather than subscribe to the wrong set.
+        self._instruments = self._get_instruments()
+        self._validate_streaming_universe(self._instruments)
+
         self._adapter = self._create_adapter()
         await self._adapter.connect()
         PROVIDER_CONNECTED.add(1, self._provider_attrs)
 
-        self._instruments = self._get_instruments()
         self._qualify_sem = asyncio.Semaphore(5)
         total = len(self._instruments)
 
@@ -478,5 +483,35 @@ class BaseProvider(BaseDaemon):
     # ------------------------------------------------------------------
 
     def _get_instruments(self) -> list[Instrument]:
-        """Return active instruments from settings."""
-        return get_active_contracts(self.settings)
+        """Return the streaming universe: the `live` dimension, never the default `compute`.
+
+        Migration 337 split `live_tradeable` out of `is_active` precisely so a provider
+        restart cannot subscribe to the whole compute universe (233+ symbols) against a
+        provider's simultaneous-subscription cap. Batch history for the compute universe
+        is the nightly backfill's job, not this daemon's.
+        """
+        return get_active_contracts(self.settings, dimension="live")
+
+    def _max_live_subscriptions(self) -> int | None:
+        """Provider's simultaneous-subscription cap, or None if it has none.
+
+        Subclasses with a hard cap override this. It is an account/provider limit read
+        from Settings, not a tunable parameter.
+        """
+        return None
+
+    def _validate_streaming_universe(self, instruments: list[Instrument]) -> None:
+        """Raise if the streaming universe is empty or exceeds the subscription cap."""
+        if not instruments:
+            raise RuntimeError(
+                f"{self.name}: streaming universe is empty -- no instrument has "
+                "live_tradeable = true. Choose the live set deliberately "
+                "(instruments.live_tradeable) before starting this provider."
+            )
+        cap = self._max_live_subscriptions()
+        if cap is not None and len(instruments) > cap:
+            raise RuntimeError(
+                f"{self.name}: streaming universe has {len(instruments)} live_tradeable "
+                f"instruments, over the provider's {cap}-subscription cap. Narrow "
+                "instruments.live_tradeable before starting this provider."
+            )
