@@ -282,6 +282,7 @@ class CorpusManifestVerifier:
                 SELECT tf, COUNT(*) as count
                 FROM feature_ic_scores
                 WHERE symbol = 'POOLED' AND regime != '_pooled'
+                  AND regime_scope <> 'earnings_season'
                 GROUP BY tf
                 ORDER BY tf
                 """)
@@ -297,6 +298,7 @@ class CorpusManifestVerifier:
                 SELECT tf, lookahead_bars, COUNT(DISTINCT feature_name) as n_features
                 FROM feature_ic_scores
                 WHERE symbol = 'POOLED' AND regime != '_pooled'
+                  AND regime_scope <> 'earnings_season'
                 GROUP BY tf, lookahead_bars
                 ORDER BY tf, lookahead_bars
                 """)

@@ -102,7 +102,10 @@ _CS_CHUNK_TS_DEFAULT = 5000
 _FDR_ALPHA_DEFAULT = 0.05
 _SUBSAMPLE_MIN_STRIDE_DEFAULT = 5
 
-_LATEST_VINTAGE_SQL = "SELECT max(training_window_end) FROM feature_ic_scores"
+_LATEST_VINTAGE_SQL = (
+    "SELECT max(training_window_end) FROM feature_ic_scores "
+    "WHERE regime_scope <> 'earnings_season'"
+)
 
 
 # asyncpg (unlike psycopg, used elsewhere in this project) only supports positional
@@ -111,6 +114,7 @@ _REGIMES_SQL = """
     SELECT DISTINCT regime FROM feature_ic_scores
     WHERE symbol = $1 AND is_pooled = true AND regime != '_pooled'
       AND training_window_end = $2 AND tf = $3
+      AND regime_scope <> 'earnings_season'
     ORDER BY regime
 """
 
@@ -119,6 +123,7 @@ _BASELINE_SQL = """
     FROM feature_ic_scores
     WHERE symbol = $1 AND is_pooled = true AND regime = $2
       AND tf = $3 AND training_window_end = $4
+      AND regime_scope <> 'earnings_season'
 """
 
 _REGIME_TS_SQL = """

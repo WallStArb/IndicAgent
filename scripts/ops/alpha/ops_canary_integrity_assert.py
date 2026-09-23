@@ -71,7 +71,10 @@ _BINOMIAL_TAIL_ALPHA_DEFAULT = 0.01
 # bound than per-symbol, but not zero-tolerance. See 2026-08-02 E7 addendum.
 _POOLED_TAIL_ALPHA_DEFAULT = 0.001
 
-_LATEST_VINTAGE_SQL = "SELECT MAX(training_window_end) FROM feature_ic_scores"
+_LATEST_VINTAGE_SQL = (
+    "SELECT MAX(training_window_end) FROM feature_ic_scores "
+    "WHERE regime_scope <> 'earnings_season'"
+)
 
 _CANARY_ROWS_SQL = """
     SELECT
@@ -83,6 +86,7 @@ _CANARY_ROWS_SQL = """
     JOIN concept_gate cg ON cg.concept_id = r.concept_id
     WHERE r.is_control = true
       AND s.training_window_end = $1
+      AND s.regime_scope <> 'earnings_season'
 """
 # concept_gate is INNER JOINed for consistency with every other Phase 170-repointed
 # ops_* script's tombstone defense (ops_broadcast_feature_audit.py et al.) -- a no-op

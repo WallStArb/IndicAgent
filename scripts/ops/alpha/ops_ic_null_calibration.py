@@ -92,7 +92,10 @@ _BOOTSTRAP_BLOCK_SIZE_DEFAULTS = {"5m": 78, "15m": 26, "1h": 10, "1d": 10}
 _BOOTSTRAP_RESAMPLES_DEFAULT = 2000
 _BOOTSTRAP_SEED_DEFAULT = 42
 
-_LATEST_VINTAGE_SQL = "SELECT max(training_window_end) FROM feature_ic_scores"
+_LATEST_VINTAGE_SQL = (
+    "SELECT max(training_window_end) FROM feature_ic_scores "
+    "WHERE regime_scope <> 'earnings_season'"
+)
 
 
 _BOUNDARY_CELLS_SQL = """
@@ -102,6 +105,7 @@ _BOUNDARY_CELLS_SQL = """
     WHERE tf = $1 AND is_pooled = $2 AND training_window_end = $3
       AND passes_fdr = true AND reliable = true AND ic_ci_lower IS NOT NULL
       AND regime != '_pooled'
+      AND regime_scope <> 'earnings_season'
       AND ($5::text[] IS NULL OR feature_name = ANY($5::text[]))
     ORDER BY abs(ic_ci_lower) ASC
     LIMIT $4
@@ -114,6 +118,7 @@ _NULL_CELLS_SQL = """
     WHERE tf = $1 AND is_pooled = $2 AND training_window_end = $3
       AND passes_fdr = false AND reliable = true AND ic_value IS NOT NULL
       AND regime != '_pooled'
+      AND regime_scope <> 'earnings_season'
       AND ($5::text[] IS NULL OR feature_name = ANY($5::text[]))
     ORDER BY abs(ic_value) ASC
     LIMIT $4
@@ -126,6 +131,7 @@ _STRONG_CELLS_SQL = """
     WHERE tf = $1 AND is_pooled = $2 AND training_window_end = $3
       AND reliable = true AND ic_sharpe_hac IS NOT NULL
       AND regime != '_pooled'
+      AND regime_scope <> 'earnings_season'
       AND ($5::text[] IS NULL OR feature_name = ANY($5::text[]))
     ORDER BY ic_sharpe_hac DESC
     LIMIT $4

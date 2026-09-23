@@ -17,7 +17,12 @@ sys.path.insert(0, str(project_root))
 
 import pytest
 
-from scripts.ops.alpha.ops_vol_normalized_target_ab import _load_active_scales
+from scripts.ops.alpha.ops_vol_normalized_target_ab import (
+    _BASELINE_SQL,
+    _LATEST_VINTAGE_SQL,
+    _REGIMES_SQL,
+    _load_active_scales,
+)
 from services._batch_utils import ACTIVE_SCALES_FALLBACKS_BY_TF
 
 
@@ -52,3 +57,22 @@ async def test_load_active_scales_queries_the_correct_per_tf_key():
 
     args = pool.fetchval.call_args.args
     assert "alpha.ic.active_scales.15m" in args
+
+
+class TestEarningsSeasonScopeExclusion:
+    """Phase 176 (todo 353) scope-consumer audit: Component F's regime-conditional
+    raw-vs-vol-normalized target A/B could change the production return target
+    definition (see module docstring), so this script is decision-driving. Without
+    this exclusion, _REGIMES_SQL would also discover earnings-season's season-
+    qualified regime labels and test vol-normalization against a fundamentally
+    different (calendar-conditioned, not volatility/trend-conditioned) stratification
+    -- not the comparison this A/B is designed to make."""
+
+    def test_regimes_sql_excludes_earnings_season(self) -> None:
+        assert "regime_scope <> 'earnings_season'" in _REGIMES_SQL
+
+    def test_baseline_sql_excludes_earnings_season(self) -> None:
+        assert "regime_scope <> 'earnings_season'" in _BASELINE_SQL
+
+    def test_latest_vintage_excludes_earnings_season(self) -> None:
+        assert "regime_scope <> 'earnings_season'" in _LATEST_VINTAGE_SQL

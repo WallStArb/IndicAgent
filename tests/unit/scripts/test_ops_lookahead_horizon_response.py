@@ -17,12 +17,26 @@ import numpy as np
 import pytest
 
 from scripts.ops.alpha.ops_lookahead_horizon_response import (
+    _LATEST_VINTAGE_SQL,
     _OVERNIGHT_HORIZON_GRIDS,
     _feature_significance,
     _fetch_all_symbols_horizon_rows,
     _parse_args,
     _stride_for_horizon,
 )
+
+
+class TestLatestVintageScopeExclusion:
+    """Phase 176 (todo 353) scope-consumer audit: this diagnostic informs production
+    lookahead-grid calibration decisions (see module docstring), so it is
+    decision-driving. Its only feature_ic_scores touch is this vintage anchor --
+    defense-in-depth against a future redesign where earnings-season conditioning
+    runs as a separate pass with its own training_window_end (today it shares the
+    main ic_engine run's window, per 176-04-PLAN.md, so this is currently a no-op
+    filter, not a live bug fix)."""
+
+    def test_latest_vintage_excludes_earnings_season(self) -> None:
+        assert "regime_scope <> 'earnings_season'" in _LATEST_VINTAGE_SQL
 
 
 class TestOvernightHorizonGrids:

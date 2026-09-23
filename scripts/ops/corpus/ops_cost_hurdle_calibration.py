@@ -260,6 +260,7 @@ async def _step3_gap_contamination(
             count(*) AS n,
             avg(fis.ic_value) AS avg_ic
         FROM feature_ic_scores fis
+        WHERE fis.regime_scope <> 'earnings_season'
         GROUP BY fis.tf ORDER BY fis.tf
         """)
     ic_by_tf = {row["tf"]: row["avg_ic"] for row in ic_rows}

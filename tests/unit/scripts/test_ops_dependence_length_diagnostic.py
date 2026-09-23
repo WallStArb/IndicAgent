@@ -13,6 +13,7 @@ import pytest
 
 from scripts.ops.alpha.ops_dependence_length_diagnostic import (
     _INSERT_SQL,
+    _LATEST_VINTAGE_SQL,
     _decorrelation_lag_1_over_e,
     _dependence_length_ratio,
 )
@@ -119,3 +120,16 @@ class TestIntegrityMonitorInsertSqlShape:
             "ON CONFLICT (monitor_type, training_window_end, metric_name, "
             "COALESCE(subject, '')" in _INSERT_SQL
         )
+
+
+class TestLatestVintageScopeExclusion:
+    """Phase 176 (todo 353) scope-consumer audit: this file writes integrity_monitor
+    rows that gate downstream consumers the same way reliable/passes_walkforward
+    already do, so it is decision-driving. Its only feature_ic_scores touch is this
+    vintage anchor -- defense-in-depth against a future redesign where
+    earnings-season conditioning runs as a separate pass with its own
+    training_window_end (today it shares the main ic_engine run's window, per
+    176-04-PLAN.md, so this is currently a no-op filter, not a live bug fix)."""
+
+    def test_latest_vintage_excludes_earnings_season(self) -> None:
+        assert "regime_scope <> 'earnings_season'" in _LATEST_VINTAGE_SQL

@@ -103,6 +103,7 @@ def _lookahead_bars_for_tf(conn, tf: str) -> list[int]:
             """
             SELECT DISTINCT lookahead_bars FROM feature_ic_scores
             WHERE tf = %s AND is_pooled AND symbol = 'POOLED' AND reliable
+              AND regime_scope <> 'earnings_season'
             ORDER BY lookahead_bars
             """,
             (tf,),
@@ -121,6 +122,7 @@ def _measured_ic_at(conn, tf: str, lookahead_bars: int) -> tuple[float | None, i
             WHERE tf = %s AND lookahead_bars = %s
               AND is_pooled AND symbol = 'POOLED' AND reliable
               AND ic_ci_lower > 0 AND passes_fdr
+              AND regime_scope <> 'earnings_season'
             """,
             (tf, lookahead_bars),
         )

@@ -191,10 +191,20 @@ class TestSignSymmetricEligibility:
     behavior switch. sign_symmetric=False must reproduce the pre-Component-E predicate
     string byte-for-byte (equivalence property); sign_symmetric=True must admit
     contrarian (ic_sign=-1) rows via a CI-on-their-own-side clause without changing the
-    positive-side clause at all."""
+    positive-side clause at all.
+
+    _OLD_BASE_WHERE was re-baselined by Phase 176 (todo 353): the
+    ` AND regime_scope <> 'earnings_season'` clause was inserted immediately after
+    `regime != '_pooled'` to keep the new calendar-conditioned regime_scope value out
+    of ensemble training eligibility (see _eligibility_where's own comment). The
+    Component-E equivalence property this class guards is unaffected by that
+    re-baseline: it still only asserts that the significance clause is the sole thing
+    that varies with sign_symmetric -- every other token, including the new exclusion,
+    is identical between the True/False cases."""
 
     _OLD_BASE_WHERE = (
         "symbol = 'POOLED' AND is_pooled = true AND regime != '_pooled'"
+        " AND regime_scope <> 'earnings_season'"
         " AND ic_ci_lower > 0"
         " AND reliable = true AND ic_sharpe_hac IS NOT NULL"
         " AND passes_walkforward = true"
@@ -231,6 +241,67 @@ class TestSignSymmetricEligibility:
         assert _effective_sign_symmetric(False, True) is False
         assert _effective_sign_symmetric(None, True) is True
         assert _effective_sign_symmetric(None, False) is False
+
+
+class TestEarningsSeasonScopeExclusion:
+    """Phase 176 Task 1 (todo 353): plan 176-06's cross-sectional earnings-season IC
+    cells are written with symbol='POOLED', is_pooled=true and a non-'_pooled' regime
+    label -- exactly the shape _eligibility_where() selects on. Left alone, those cells
+    would silently become new (tf, regime) ensemble training strata before any
+    promotion decision is taken. This class pins the enforcement clause and the
+    NULL-safety precondition that makes `<>` (rather than `IS DISTINCT FROM`)
+    correct."""
+
+    def test_exclusion_present_for_both_sign_symmetric_values(self) -> None:
+        from services.ensemble_trainer import _eligibility_where
+
+        for sign_symmetric in (False, True):
+            base_where, full_where = _eligibility_where(sign_symmetric)
+            assert "regime_scope <> 'earnings_season'" in base_where
+            assert "regime_scope <> 'earnings_season'" in full_where
+
+    def test_full_clause_still_ends_with_passes_fdr(self) -> None:
+        from services.ensemble_trainer import _eligibility_where
+
+        for sign_symmetric in (False, True):
+            _, full_where = _eligibility_where(sign_symmetric)
+            assert full_where.endswith("passes_fdr = true")
+
+    def test_regime_scope_not_null_constraint_still_present(self) -> None:
+        """The `<>` exclusion above is only NULL-safe because
+        feature_ic_scores.regime_scope is NOT NULL: live-verified during Phase 176
+        planning (0 of 9,861,639 rows had a NULL scope across the three pre-existing
+        values). No live DB in tests/unit/ (see this module's own docstring), so this
+        re-asserts the constraint statically from the migration files instead of via
+        information_schema -- migration 187 is the origin (`SET NOT NULL`), and this
+        also fails loudly if any later migration relaxes it (`DROP NOT NULL`), which
+        would reopen a three-valued-logic path for `<>` to silently drop legitimate
+        rows from ensemble eligibility.
+        """
+        migrations_dir = project_root / "production" / "migrations"
+        set_not_null = False
+        drop_not_null = False
+        for path in sorted(migrations_dir.glob("*.sql")):
+            for line in path.read_text().splitlines():
+                stripped = line.strip()
+                if stripped.startswith("--"):
+                    continue
+                lowered = stripped.lower()
+                if "regime_scope" not in lowered:
+                    continue
+                if "set not null" in lowered:
+                    set_not_null = True
+                if "drop not null" in lowered:
+                    drop_not_null = True
+        assert set_not_null, (
+            "expected a migration (187) to ALTER COLUMN regime_scope SET NOT NULL -- "
+            "if this legitimately moved, update this test's search rather than delete it"
+        )
+        assert not drop_not_null, (
+            "a migration has relaxed feature_ic_scores.regime_scope to nullable -- "
+            "the `<>` exclusion in _eligibility_where is only NULL-safe under NOT NULL; "
+            "switch to `IS DISTINCT FROM` in _eligibility_where before removing this assertion"
+        )
 
 
 class TestFeatureStatusAtEvalFilter:

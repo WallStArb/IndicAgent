@@ -34,7 +34,10 @@ _OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
 def _get_latest_training_window(conn) -> str | None:
     """Get the latest training_window_end from feature_ic_scores."""
     with conn.cursor() as cur:
-        cur.execute("SELECT MAX(training_window_end) FROM feature_ic_scores")
+        cur.execute(
+            "SELECT MAX(training_window_end) FROM feature_ic_scores "
+            "WHERE regime_scope <> 'earnings_season'"
+        )
         result = cur.fetchone()
         return result[0] if result and result[0] else None
 
@@ -57,6 +60,7 @@ def _overall_ic_summary(conn, training_window_end: str) -> dict[str, Any]:
                 COUNT(*) FILTER (WHERE passes_walkforward = true) as n_passes_wf
             FROM feature_ic_scores
             WHERE training_window_end = %s AND ic_value IS NOT NULL
+              AND regime_scope <> 'earnings_season'
             """,
             (training_window_end,),
         )
@@ -92,6 +96,7 @@ def _ic_by_feature(conn, training_window_end: str) -> list[dict]:
                 AVG(effective_n) as mean_effective_n
             FROM feature_ic_scores
             WHERE training_window_end = %s AND ic_value IS NOT NULL
+              AND regime_scope <> 'earnings_season'
             GROUP BY feature_name
             ORDER BY mean_ic DESC
             """,
@@ -129,6 +134,7 @@ def _ic_by_timeframe(conn, training_window_end: str) -> list[dict]:
                 COUNT(*) FILTER (WHERE passes_fdr = true) as n_passes_fdr
             FROM feature_ic_scores
             WHERE training_window_end = %s AND ic_value IS NOT NULL
+              AND regime_scope <> 'earnings_season'
             GROUP BY tf
             ORDER BY tf
             """,
@@ -162,6 +168,7 @@ def _ic_by_regime(conn, training_window_end: str) -> list[dict]:
                 COUNT(*) FILTER (WHERE passes_fdr = true) as n_passes_fdr
             FROM feature_ic_scores
             WHERE training_window_end = %s AND ic_value IS NOT NULL AND is_pooled = false
+              AND regime_scope <> 'earnings_season'
             GROUP BY regime
             ORDER BY mean_ic DESC
             """,

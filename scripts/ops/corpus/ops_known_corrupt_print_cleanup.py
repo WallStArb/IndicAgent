@@ -171,7 +171,10 @@ _NEIGHBOR_SCAN_SQL = """
     SELECT * FROM ordered ORDER BY timestamp
 """
 
-_LATEST_TRAINING_WINDOW_END_SQL = "SELECT max(training_window_end) FROM feature_ic_scores"
+_LATEST_TRAINING_WINDOW_END_SQL = (
+    "SELECT max(training_window_end) FROM feature_ic_scores "
+    "WHERE regime_scope <> 'earnings_season'"
+)
 
 
 # ---------------------------------------------------------------------------
