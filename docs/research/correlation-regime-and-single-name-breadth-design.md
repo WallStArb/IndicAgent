@@ -34,6 +34,21 @@ high-correlation periods everything moves together and the cross-asset book carr
 diversification. That is a falsifiable claim, and it decides whether an expensive data purchase
 is worth making. So it is tested first, on data already in hand, before any money is spent.
 
+## Relation to closed verdicts
+
+Two residualization-adjacent constructions are closed DEAD in
+`docs/research/construction-verdict-ledger.md`, and this design re-opens neither:
+
+- **statistical_factor_residual** (closed 2026-09-01) residualized a *feature*
+  (`ctf_momentum`) against its top-K statistical factors to raise its IC. It did not.
+- **Single-security alpha gating** (closed 2026-09-03) asked whether `alpha_score` works as a
+  per-security signal. Raw, it is a common-factor bet; residualized, it failed BY-FDR.
+
+Here residualization is applied to the *target*, and only as measurement hygiene: it removes the
+market-beta term that would otherwise manufacture the very regime difference under test (B1).
+The design makes no claim that residualizing improves IC, and it gates no per-security signal.
+The hypothesis is about *when* cross-sectional ranking works, not about a new construction.
+
 ## What a Renaissance review demands of this
 
 1. **Data before models.** No measurement on a universe that could not have been known at the
