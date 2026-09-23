@@ -1281,7 +1281,12 @@ class TagCalibrator(BaseBatch):
             active_symbols = [
                 r["symbol"]
                 for r in await conn.fetch(
+                    # compute_eligible, not bare is_active: the measured universe is the
+                    # governed compute universe (migration 337). A bare is_active filter
+                    # pulled the failed-gate 1d-only pilot cohort into this run's BH-FDR
+                    # family, shifting every other symbol's q-values (174 review WR-01).
                     "SELECT symbol FROM instruments WHERE is_active = true "
+                    "AND compute_eligible = true "
                     "AND contract_details->>'asset_class' = 'equity'"
                 )
             ]

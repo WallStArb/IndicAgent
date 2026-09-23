@@ -838,6 +838,7 @@ _PANEL_SQL_TEMPLATE = """
       AND fr.complete_fast = true
       AND fr.complete_slow = true
       AND i.is_active = true
+      AND i.compute_eligible = true
       AND i.contract_details->>'asset_class' = 'equity'
       {watermark_clause}
     ORDER BY fv.bar_ts ASC

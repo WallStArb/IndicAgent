@@ -6651,7 +6651,7 @@ def main() -> None:
                     "SELECT i.symbol, array_remove(array_agg(t.tag), NULL::text) "
                     "FROM instruments i "
                     "LEFT JOIN instrument_tags t ON t.symbol = i.symbol AND t.source = 'human' "
-                    "WHERE i.is_active = true GROUP BY i.symbol"
+                    "WHERE i.is_active = true AND i.compute_eligible = true GROUP BY i.symbol"
                 )
                 tags_by_symbol: dict[str, set[str]] = {
                     row[0]: set(row[1]) for row in cur.fetchall()
