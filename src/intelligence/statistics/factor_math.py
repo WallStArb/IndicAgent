@@ -32,6 +32,7 @@ from scipy.stats import norm
 
 from src.intelligence.regime_signals.breadth_vol import _compute_vix_pct_rank
 from src.intelligence.statistics.ic_math import (
+    _circular_shift_null,
     _p_values_from_ic,
     check_condition_number,
 )
@@ -44,6 +45,7 @@ __all__ = [
     "partial_loading",
     "partial_loading_ci_low",
     "sign_stable_window_count",
+    "partial_loading_null_arm_p",
 ]
 
 
@@ -570,3 +572,96 @@ def sign_stable_window_count(
             n_sign_stable += 1
 
     return n_sign_stable, n_evaluable
+
+
+# ---------------------------------------------------------------------------
+# Circular-shift null arm (Phase 175 Task 3, D-06): shift the factor_series
+# proxy's OWN return series -- never the candidate instrument's return, never
+# a symbol shuffle.
+# ---------------------------------------------------------------------------
+
+
+def partial_loading_null_arm_p(
+    instrument_ret: np.ndarray,
+    factor_ret: np.ndarray,
+    controls: np.ndarray,
+    condition_max: float,
+    n_draws: int,
+    rng: np.random.Generator,
+) -> float:
+    """D-06 null-arm p-value: circularly shift ONLY the factor_series proxy's
+    own return series, recompute the partial loading against each shifted
+    draw, and derive a two-sided p-value.
+
+    D-06 contract: the shift target is the factor proxy's own return series
+    -- never the candidate instrument's return (would contaminate the
+    market-beta control this filter exists to preserve) and never a
+    symbol-shuffle (tests the wrong null: "distinguishable from a random
+    other symbol"). The control columns are never shifted either.
+
+    Mechanics source: scripts/analysis/tsmom_per_symbol_ic_screen.py (the
+    `p = (1 + sum(null >= observed)) / (N + 1)` construction and the
+    `len(null_draws) < 0.5 * _N_NULL` reliability floor) -- reused for shape
+    only. That script's own call site shifts the CANDIDATE's return series,
+    which is the WRONG target to copy here; D-06 requires the factor proxy.
+
+    Precomputes the control-matrix pseudo-inverse and the candidate's own
+    residual ONCE, outside the draw loop -- resid_instrument is invariant
+    under any shift of the factor, so this reduces the whole null arm to one
+    np.linalg.pinv plus n_draws cheap matmuls rather than n_draws separate
+    lstsq solves. This is what keeps the null arm affordable to run inline
+    across the whole corpus (see plan 03's R-02).
+
+    Returns NaN without drawing when the observed partial_loading is itself
+    NaN (reuses partial_loading for the observed statistic), or when the
+    candidate's own residual is degenerate (sum-of-squares below 1e-10) or
+    the control design matrix is ill-conditioned. Returns NaN (without a
+    usable p-value) when fewer than half of n_draws produce a finite null
+    statistic, matching tsmom_per_symbol_ic_screen.py's own reliability
+    floor. The comparison is two-sided: abs(null_draw) >= abs(observed).
+    """
+    instrument_arr = np.asarray(instrument_ret, dtype=np.float64)
+    factor_arr = np.asarray(factor_ret, dtype=np.float64)
+    controls_arr = np.asarray(controls, dtype=np.float64)
+    if controls_arr.ndim == 1:
+        controls_arr = controls_arr.reshape(-1, 1)
+
+    observed_loading, _incremental_r2, _n = partial_loading(
+        instrument_arr, factor_arr, controls_arr, condition_max
+    )
+    if math.isnan(observed_loading):
+        return float("nan")
+    observed = abs(observed_loading)
+
+    controls_c = controls_arr - controls_arr.mean(axis=0)
+    cond_ok, _cond = check_condition_number(controls_c, condition_max)
+    if not cond_ok:
+        return float("nan")
+
+    instrument_c = instrument_arr - instrument_arr.mean()
+    pinv_controls = np.linalg.pinv(controls_c)
+    resid_instrument = instrument_c - controls_c @ (pinv_controls @ instrument_c)
+    denom_instrument = float((resid_instrument**2).sum())
+    if denom_instrument < 1e-10:
+        return float("nan")
+
+    draws: list[float] = []
+    for _ in range(n_draws):
+        shifted = _circular_shift_null(factor_arr, rng)
+        shifted_c = shifted - shifted.mean()
+        resid_factor = shifted_c - controls_c @ (pinv_controls @ shifted_c)
+        denom_factor = float((resid_factor**2).sum())
+        if denom_factor < 1e-10:
+            continue
+        stat = float(
+            (resid_instrument * resid_factor).sum() / math.sqrt(denom_instrument * denom_factor)
+        )
+        if math.isfinite(stat):
+            draws.append(stat)
+
+    if len(draws) < 0.5 * n_draws:
+        return float("nan")
+
+    finite = np.array(draws)
+    p = (1 + int((np.abs(finite) >= observed).sum())) / (len(finite) + 1)
+    return float(p)
