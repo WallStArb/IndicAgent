@@ -82,8 +82,10 @@ hypertable regardless of `--symbols` scope** (see `docs/reference/gotchas.md`'s
 reading/writing `feature_vectors`/`feature_ic_scores`; a single-symbol IHF run took an
 `AccessExclusiveLock` on ~40 chunks and stalled a concurrent `ensemble_trainer.py` for ~10 min.
 
-## IHF root cause: RESOLVED 2026-09-22 (code fix + regression tests landed; live corpus
-confirmation still pending, see below)
+## STATUS: FULLY CLOSED 2026-09-22 -- both halves resolved and live-confirmed
+
+## IHF root cause: RESOLVED 2026-09-22 (code fix + regression tests landed, live corpus
+confirmed -- `backfill_status` IHF/5m `status='complete'`, `rows_written=226711`)
 
 `_canary_acausal_placebo` (`src/intelligence/feature_factory.py:1950` -- a deliberate look-ahead-
 leak positive-control canary, not a real trading feature) guarded `closes[i + 1] <= eps` (the
@@ -107,10 +109,48 @@ AST-pattern check on this exact function) green; `ruff`/`black` clean. Full debu
 **Live end-to-end confirmation, 2026-09-22: CONFIRMED.** Once the diagnostic process (PID
 118400) exited, re-ran `backfill_feature_factory.py --compute-only --symbols IHF --workers 1`
 fresh (PID 234712) -- `backfill_status` for `symbol='IHF', tf='5m'` now shows
-`status='complete', rows_written=226711`. **IHF half of this todo is fully closed.** The
-7-symbol underflow bug below is the only remaining open scope.
+`status='complete', rows_written=226711`. **IHF half of this todo is fully closed.**
 
-## Investigation progress, 2026-09-22 (superseded by the resolution above for IHF; underflow bug
+## 7-symbol underflow root cause: RESOLVED 2026-09-22 (code fix + regression tests landed,
+live corpus confirmed across all 28 symbol/tf cells)
+
+Root cause: `feature_vector_to_insert_params()` (`src/intelligence/features/feature_vector_persistence.py`)
+-- the single shared row-serializer for both `feature_vectors` write paths (live asyncpg writer
+and batch psycopg backfill) -- never clamped a `real`-typed float to Postgres's float4-
+representable range. Two distinct, live-confirmed mechanisms produced underflowing values: (1)
+HMM posterior-probability/entropy columns for ENPH/GLD/NAD/SHY/STIP/VRP (several already sitting
+at the literal float4 floor in committed data), and (2) an unrounded `exp(-k*touch_count)` zone-
+freshness-decay computation in `feature_factory.py` for BIL specifically (BIL's near-zero
+volatility drives excessive zone retests; its HMM columns are separately, entirely NULL, a
+pre-existing bug tracked in todos 341/362).
+
+Fix: promoted the existing todo-312 clamp helper (`_clamp_to_real_range`) to a new Ring 0
+module, `src/core/real_column_range.py`, and applied it column-agnostically over every tuple
+element inside `feature_vector_to_insert_params()` -- fixing both write paths in the one shared
+function. 3 new regression tests added to `tests/unit/test_feature_vector_persistence_completeness.py`.
+Full `tests/unit/` suite green, `ruff check .` clean.
+
+**Live end-to-end confirmation, 2026-09-22: CONFIRMED.** Ran
+`backfill_feature_factory.py --compute-only --symbols BIL,VRP,ENPH,GLD,NAD,SHY,STIP --refresh --workers 1`
+fresh (post-fix). All 28 originally-affected symbol/tf cells (7 symbols x 4 real timeframes) now
+show `backfill_status.status='complete'` with real row counts, zero underflow errors. Confirmed
+the clamp is live-firing on production data (396,500 BIL rows with `zone_friction_score=0.0`,
+hundreds of `hmm_entropy=0.0` rows across the other symbols). Notably, several symbols' history
+had been silently stalled for years -- e.g. BIL/5m was capped at 2018-03-07 before this fix; it
+now extends through 2026-09-16, a multi-year gap in the corpus now filled. Full debug record:
+`.planning/debug/resolved/underflow-7symbol-real-column.md`.
+
+**Also flagged during this investigation, not fixed (out of scope, separate low-priority
+finding):** a harmless, pre-existing false-positive logging bug in `backfill_feature_factory.py`
+-- `compute_checkpoint_desynced` warnings fire even under `--refresh` mode when they're supposed
+to be skipped (the row-count query is skipped by design, but the consuming log-warning logic
+isn't gated the same way), producing misleading "0 actual rows" log noise during any `--refresh`
+run against `status='complete'` cells. No data loss, purely cosmetic log noise -- worth a
+follow-up todo if the noise becomes a real problem.
+
+**Both halves of todo 340 are now fully closed.** This todo can be moved to `completed/`.
+
+## Investigation progress, 2026-09-22 (superseded by the resolutions above; kept for history)
 still unresolved as described)
 
 **IHF: root cause NOT pinpointed, sequencing decided before Phase 175 (see STATE.md).** Re-ran
