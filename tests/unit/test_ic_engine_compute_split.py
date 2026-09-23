@@ -36,6 +36,7 @@ from services.ic_engine import (
     _compute_one_regime_cell,
     _compute_one_symbol_broadcast_cell,
     _compute_symbol_tf,
+    _fetch_cross_sectional_chunk,
     _subsample_and_rank,
 )
 
@@ -271,8 +272,11 @@ def test_compute_cross_sectional_tf_chunk_sql_has_between_bound():
         "reintroduces the measured ~32x compressed-chunk segment-exclusion "
         "regression on large cross-sectional cells"
     )
-    assert '"ts_min": ts_chunk[0]' in source and '"ts_max": ts_chunk[-1]' in source, (
-        "chunk_cur.execute's params dict must pass ts_min=ts_chunk[0]/"
+    # Todo 385: the chunk query's params moved into _fetch_cross_sectional_chunk (one
+    # connection per concurrent chunk fetch); the contract is unchanged.
+    fetch_source = inspect.getsource(_fetch_cross_sectional_chunk)
+    assert '"ts_min": ts_chunk[0]' in fetch_source and '"ts_max": ts_chunk[-1]' in fetch_source, (
+        "the chunk query's params dict must pass ts_min=ts_chunk[0]/"
         "ts_max=ts_chunk[-1] (ts_chunk is always a contiguous ORDER BY ts slice, "
         "so its first/last elements are already the correct bounds)"
     )

@@ -59,6 +59,7 @@ import argparse
 import ast
 import dataclasses
 import hashlib
+import itertools
 import json
 import math
 import os
@@ -67,8 +68,8 @@ import sys
 import tempfile
 import time
 import warnings
-from collections import defaultdict
-from collections.abc import Callable
+from collections import defaultdict, deque
+from collections.abc import Callable, Iterator
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from contextlib import ExitStack, contextmanager
 from datetime import UTC, datetime
@@ -741,6 +742,12 @@ class ICEngineConfig:
     # CI bounds differ at float32 rounding. Defaulted False so direct
     # ICEngineConfig(...) construction sites keep the scipy path.
     bootstrap_numba_kernel: bool = False
+    # Cross-sectional fetch: number of concurrent connections running the per-cell chunk
+    # queries (each single-threaded, max_parallel_workers_per_gather=0). Chunks are
+    # consumed strictly in order and the chunk SQL orders by (bar_ts, symbol), so the
+    # fetched arrays are byte-identical for any value -- OPERATIONAL. Memory in flight
+    # grows with this times cs_chunk_ts. Defaulted 1 (sequential, today's behaviour).
+    cs_fetch_connections: int = 1
 
     def broadcast_max_bars_per_day_for(self, tf: str) -> int:
         """Max observed bars/trading-day for tf, or a large sentinel for tfs this
@@ -952,6 +959,7 @@ class ICEngineConfig:
             scratch_min_free_after_fraction=float(
                 cfg.get_sync("infra.ic_engine.scratch_min_free_after_fraction", 0.15)
             ),
+            cs_fetch_connections=int(cfg.get_sync("infra.ic_engine.cs_fetch_connections", 1)),
             bootstrap_numba_kernel=str(
                 cfg.get_sync("alpha.ic.bootstrap_numba_kernel", "false")
             ).lower()
@@ -1063,6 +1071,8 @@ _OPERATIONAL_CONFIG_FIELDS: frozenset[str] = frozenset(
         # provenance continuity, per the dataclass's own field comment.
         "sharpe_window_size",
         "cs_chunk_ts",  # cross-sectional fetch chunk size -- pure throughput knob
+        # Concurrent cross-sectional chunk fetches, consumed in order -- identical arrays.
+        "cs_fetch_connections",
         # Phase 174 Plan 01/05: pure infrastructure knob -- selects WHERE a cell-sized
         # scratch array is staged (disk path), never what is measured.
         "memmap_scratch_dir",
@@ -4819,6 +4829,66 @@ def _compute_one_broadcast_cell(
     return all_results, n_skipped
 
 
+def _fetch_cross_sectional_chunk(
+    dsn: str, chunk_sql: str, ts_chunk: list, tf: str, symbol_list: list[str]
+) -> list[tuple]:
+    """One cross-sectional chunk query on its own short-lived connection, under the same
+    session settings the cell's main connection uses (no parallel gather, 256MB work_mem)."""
+    with short_lived_conn(dsn) as fetch_conn:
+        with fetch_conn.cursor() as cur:
+            cur.execute("SET max_parallel_workers_per_gather = 0")
+            cur.execute("SET work_mem = '256MB'")
+            cur.execute(
+                chunk_sql,
+                {
+                    "tf": tf,
+                    "ts_chunk": ts_chunk,
+                    "ts_min": ts_chunk[0],
+                    "ts_max": ts_chunk[-1],
+                    "symbol_list": symbol_list,
+                },
+            )
+            return cur.fetchall()
+
+
+def _ordered_chunk_fetches(
+    dsn: str,
+    chunk_sql: str,
+    ts_chunks: list[list],
+    tf: str,
+    symbol_list: list[str],
+    n_connections: int,
+) -> Iterator[list[tuple]]:
+    """Yield each chunk's rows in ts_chunks order, running up to n_connections chunk queries
+    concurrently (todo 385: the cross-sectional stage is bound by single-threaded chunk
+    decompression on the database, not by compute).
+
+    At most n_connections results are held at once: the next chunk is submitted only as the
+    oldest one is consumed, so memory in flight is bounded by n_connections x one chunk.
+    Consumption order never depends on completion order, so the caller's arrays are
+    identical for every n_connections.
+    """
+    with ThreadPoolExecutor(max_workers=max(1, n_connections)) as fetch_pool:
+        pending: deque = deque()
+        remaining = iter(ts_chunks)
+        for ts_chunk in itertools.islice(remaining, max(1, n_connections)):
+            pending.append(
+                fetch_pool.submit(
+                    _fetch_cross_sectional_chunk, dsn, chunk_sql, ts_chunk, tf, symbol_list
+                )
+            )
+        while pending:
+            batch = pending.popleft().result()
+            next_chunk = next(remaining, None)
+            if next_chunk is not None:
+                pending.append(
+                    fetch_pool.submit(
+                        _fetch_cross_sectional_chunk, dsn, chunk_sql, next_chunk, tf, symbol_list
+                    )
+                )
+            yield batch
+
+
 def _compute_cross_sectional_tf(
     dsn: str,
     tf: str,
@@ -5100,7 +5170,7 @@ def _compute_cross_sectional_tf(
                   AND fv.bar_ts BETWEEN %(ts_min)s AND %(ts_max)s
                   AND fv.bar_ts = ANY(%(ts_chunk)s)
                   AND fv.symbol = ANY(%(symbol_list)s)
-                ORDER BY fv.bar_ts
+                ORDER BY fv.bar_ts, fv.symbol
             """
 
             n_scales = len(scales)
@@ -5178,21 +5248,13 @@ def _compute_cross_sectional_tf(
                 n_chunks=(len(regime_timestamps) + cs_chunk_ts - 1) // cs_chunk_ts,
             )
 
-            for chunk_start in range(0, len(regime_timestamps), cs_chunk_ts):
-                ts_chunk = regime_timestamps[chunk_start : chunk_start + cs_chunk_ts]
-                with conn.cursor() as chunk_cur:
-                    chunk_cur.execute(
-                        chunk_sql,
-                        {
-                            "tf": tf,
-                            "ts_chunk": ts_chunk,
-                            "ts_min": ts_chunk[0],
-                            "ts_max": ts_chunk[-1],
-                            "symbol_list": symbol_list,
-                        },
-                    )
-                    batch = chunk_cur.fetchall()
-                conn.commit()
+            ts_chunks = [
+                regime_timestamps[i : i + cs_chunk_ts]
+                for i in range(0, len(regime_timestamps), cs_chunk_ts)
+            ]
+            for batch in _ordered_chunk_fetches(
+                dsn, chunk_sql, ts_chunks, tf, symbol_list, config.cs_fetch_connections
+            ):
                 if not batch:
                     continue
                 n_batch = len(batch)
