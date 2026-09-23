@@ -259,13 +259,6 @@ def portfolio_exposure_stats(weights: np.ndarray) -> dict[str, float]:
     }
 
 
-def l1_turnover(w_prev: np.ndarray, w_curr: np.ndarray) -> float:
-    """sum(|w_t - w_{t-1}|) -- L1 turnover between two consecutive rebalance weight vectors.
-    Reported per arm per rebalance (Output section, spec) so a mean-variance arm's tendency to
-    churn on small mu/Sigma shifts is visible, not hidden behind a gross-return-only report."""
-    return float(np.sum(np.abs(w_curr - w_prev)))
-
-
 def causal_regime_labels(spy_close: pd.Series, window: int = _REGIME_SMA_WINDOW) -> pd.Series:
     """Causal bull/bear regime proxy: trailing SMA of SPY close, SHIFTED one bar so today's
     label never depends on today's own close (avoids same-bar lookahead entirely, by

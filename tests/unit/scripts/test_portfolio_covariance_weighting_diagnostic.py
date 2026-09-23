@@ -12,7 +12,6 @@ from scripts.analysis.portfolio_covariance_weighting_diagnostic import (
     equal_weight_arm,
     ic_proportional_arm,
     instrument_covariance,
-    l1_turnover,
     log_returns,
     main,
     mean_variance_arm,
@@ -163,17 +162,6 @@ def test_portfolio_exposure_stats_all_zero_weights_no_divide_by_zero():
     assert stats["gross_exposure"] == 0.0
     assert stats["net_exposure"] == 0.0
     assert stats["effective_n"] == 0.0
-
-
-def test_l1_turnover_matches_hand_computed_sum():
-    w_prev = np.array([0.5, 0.5, 0.0])
-    w_curr = np.array([0.2, 0.3, 0.5])
-    assert l1_turnover(w_prev, w_curr) == pytest.approx(0.3 + 0.2 + 0.5)
-
-
-def test_l1_turnover_no_change_is_zero():
-    w = np.array([0.3, 0.7])
-    assert l1_turnover(w, w) == pytest.approx(0.0)
 
 
 def test_causal_regime_labels_bull_when_price_above_trailing_sma():

@@ -52,8 +52,11 @@ diagnostic run 2026-09-17 through 2026-09-22; next-step chain at the end of this
   `ic_engine`, todo 378 closed 2026-09-22). The covariance-aware portfolio diagnostic then
   measured a genuine positive result: `vol_normalized`/`ic_proportional` weighting both
   significantly beat `equal_weight` (ann. Sharpe ~1.19/~0.95 vs ~0.18). Shadow-mode only;
-  caveats on record (selection effect, naive t-stats, zero costs modeled; todo 388 closes the
-  turnover-reporting gap). No promotion decision made. Full record:
+  caveats on record (selection effect, naive t-stats, zero costs modeled -- the cost caveat
+  root-caused 2026-09-23 to a semantically wrong cost proxy, todo 393: `alpha_events.cost_hurdle`
+  is an emission-gate threshold in alpha_score units, user-preference 0.0 at 1d, so the
+  diagnostic's `net_realized_return` is structurally gross; turnover reporting itself shipped
+  with the diagnostic, todo 388 closed stale). No promotion decision made. Full record:
   `docs/research/phase174-cross-asset-diversification-prereg-2026-09-16.md`.
 
 - **Universe today: 273 active instruments, live-verified 2026-09-23** — 40 down-cap pilot
@@ -119,8 +122,7 @@ diagnostic run 2026-09-17 through 2026-09-22; next-step chain at the end of this
    count, restore `alpha.ic.max_cell_rows` to 15M; closes 371), and prange adoption with a
    worker-count x numba-threads layout decision (todo 385 lever 2, 10.77-13.12x measured,
    ~1.5-2x end-to-end after layout). Combined estimate: full recompute ~3.1-3.5 days ->
-   ~1.1-1.2 days at 233 symbols. Todo 388 (report `l1_turnover` in the portfolio diagnostic)
-   stays quick and independent — unblocked anytime.
+   ~1.1-1.2 days at 233 symbols.
 
 3. Todos 384 (security classification hierarchy; build trigger already fired — recommend
    folding the build into the expansion phase itself so point-in-time classification history

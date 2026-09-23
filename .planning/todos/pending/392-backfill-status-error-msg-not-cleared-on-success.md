@@ -6,6 +6,10 @@ source: found during live end-to-end verification of the underflow-7symbol-real-
   session (.planning/debug/resolved/underflow-7symbol-real-column.md)
 ---
 
+> Renumbered 389 -> 392 on 2026-09-23: filed as a duplicate number 389, colliding with
+> `389-execute-short-horizon-ic-cell-deletion-prereg-post-176-08.md` (which keeps 389 -- it is
+> cross-referenced from STATE.md, MEMORY.md, and the pre-registration doc). Content unchanged.
+
 # `backfill_status.error_msg` is never cleared when a previously-failed cell later succeeds
 
 ## What
