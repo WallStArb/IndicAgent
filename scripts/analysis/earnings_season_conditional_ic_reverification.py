@@ -225,6 +225,7 @@ _CONTENTION_QUERY = """
     SELECT pid, state, wait_event, query_start, query
     FROM pg_stat_activity
     WHERE state = 'active'
+      AND pid != pg_backend_pid()
       AND (
           query ILIKE '%decompress_chunk%'
           OR query ILIKE '%compress_chunk%'
@@ -241,6 +242,13 @@ def _check_contention(conn: Any) -> list[dict[str, Any]]:
     """Query pg_stat_activity for active decompress_chunk/compress_chunk/autovacuum
     backends against feature_vectors or its internal hypertable chunks. No
     operator-supplied value reaches this query -- it is a plain literal.
+
+    Excludes the caller's own backend pid (`pid != pg_backend_pid()`): this
+    query's own literal text contains the substrings it searches for
+    (`feature_vectors`, `autovacuum`), so without this exclusion it would
+    self-match every single invocation while pg_stat_activity captures it
+    mid-execution -- a false CONTENTION DETECTED on every run, found live
+    during this plan's Task 3 execution.
     """
     with conn.cursor(row_factory=dict_row) as cur:
         cur.execute(_CONTENTION_QUERY)
