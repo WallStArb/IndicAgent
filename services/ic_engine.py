@@ -6903,8 +6903,19 @@ def main() -> None:
             if args.symbols:
                 symbols = args.symbols
             else:
+                # The compute universe, restricted to symbols with feature_vectors rows. The
+                # universe comes from the dimension, not from whatever feature_vectors holds:
+                # a demoted or deactivated symbol keeps its old rows, and taking symbols from
+                # the table alone would dispatch it as an unrouted symbol_hmm cell inside the
+                # corpus BH-FDR family (the WR-01 failure class, at the per-symbol layer).
+                # 233 indexed EXISTS probes also replace a DISTINCT over the whole hypertable.
                 with conn.cursor() as cur:
-                    cur.execute("SELECT DISTINCT symbol FROM feature_vectors ORDER BY symbol")
+                    cur.execute(
+                        "SELECT i.symbol FROM instruments i "
+                        f"WHERE {dimension_where_clause('compute', 'i')} "
+                        "AND EXISTS (SELECT 1 FROM feature_vectors fv WHERE fv.symbol = i.symbol) "
+                        "ORDER BY i.symbol"
+                    )
                     symbols = [r[0] for r in cur.fetchall()]
 
             tfs = args.tf

@@ -130,19 +130,20 @@ def _select_stalest(conn: psycopg.Connection, leg: _Leg) -> list[str]:
     every night, ranked by how old its most recent bar is (NULLs -- never backfilled at
     all -- sort first via the epoch fallback), and ALL of them are dispatched to the
     delegate in staleness order. See module docstring for the full incident writeup
-    (both this bug and its 2026-09-16 predecessor).
+    (both this bug and its 2026-09-16 predecessor). The latest bar is looked up per
+    candidate symbol (LATERAL, index-driven), so a leg costs its own size, not a
+    whole-table GROUP BY per leg; ordering verified identical to the GROUP BY form.
     """
     with conn.cursor() as cur:
         cur.execute(
             f"""
             SELECT i.symbol
             FROM instruments i
-            LEFT JOIN (
-                SELECT symbol, MAX(timestamp) AS latest_bar
-                FROM market_data_ohlcv
-                WHERE timeframe = %s
-                GROUP BY symbol
-            ) latest ON latest.symbol = i.symbol
+            LEFT JOIN LATERAL (
+                SELECT MAX(m.timestamp) AS latest_bar
+                FROM market_data_ohlcv m
+                WHERE m.symbol = i.symbol AND m.timeframe = %s
+            ) latest ON true
             WHERE {leg.where_clause}
             ORDER BY COALESCE(latest.latest_bar, '1970-01-01'::timestamptz) ASC, i.symbol ASC
             """,

@@ -61,6 +61,12 @@ def _run_select(leg, rows):
 
 
 class TestSelectStalest:
+    def test_latest_bar_lookup_is_per_symbol(self):
+        """Per-candidate LATERAL lookup: a leg costs its own size, not a whole-table scan."""
+        _, cursor = _run_select(_COHORT, [])
+        assert "LEFT JOIN LATERAL" in cursor.executed_sql
+        assert "GROUP BY" not in cursor.executed_sql
+
     def test_returns_symbols_in_query_order(self):
         result, _ = _run_select(_COMPUTE, [("ZZZ",), ("AAA",)])
         assert result == ["ZZZ", "AAA"]

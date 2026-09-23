@@ -162,7 +162,7 @@ def test_n_eff_monotone_decreasing_in_avg_pairwise_corr():
 def _gate_input(avg_pairwise_corr: float | None) -> dict[str, float] | None:
     if avg_pairwise_corr is None:
         return None
-    return {"avg_pairwise_corr": avg_pairwise_corr}
+    return {"avg_pairwise_corr": avg_pairwise_corr, "n_symbols": 10}
 
 
 def test_gate_both_clear_passes():
@@ -381,3 +381,10 @@ def test_residualize_against_factor_never_feeds_the_gate():
         assert (
             "resid" not in args.lower()
         ), f"call site wires a residualized value into the gate: {args}"
+
+
+def test_gate_missing_n_symbols_fails_closed():
+    """A result without n_symbols cannot show it measured a cross-section."""
+    result = evaluate_d10_gate({"avg_pairwise_corr": 0.05}, _gate_input(0.05))
+    assert result["passed"] is False
+    assert any("n_symbols" in reason for reason in result["failed_conditions"])

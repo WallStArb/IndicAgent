@@ -612,3 +612,22 @@ def test_1d_only_symbol_cannot_reach_compute_or_live():
     assert results["compute_1d"] == {"ONE_DAY_ONLY"}
     assert results["compute"] == set(), "1d-only symbol must be absent from compute"
     assert results["live"] == set(), "1d-only symbol must be absent from live"
+
+
+@pytest.mark.parametrize("dimension", ["backfill", "compute", "compute_1d", "live"])
+def test_front_month_futures_are_scoped_by_the_dimension(dimension):
+    """Front-month futures were returned for every dimension, so a roll marking a front
+    month would put futures in `live` that nobody whitelisted. The contract_metadata query
+    now applies the dimension clause to the base's template row. Verified live in a
+    rolled-back transaction: 0 with the ES template inactive, 1 once it is active and
+    live-whitelisted, 0 again after deactivation."""
+    recorder: list[str] = []
+
+    def _connect(_dsn):
+        return _FakeConnection(_FakeCursor(recorder, {dimension: []}))
+
+    with patch("psycopg.connect", side_effect=_connect):
+        get_active_contracts(_make_settings(), dimension=dimension)
+
+    (futures_sql,) = [sql for sql in recorder if "FROM contract_metadata" in sql]
+    assert settings_mod.dimension_where_clause(dimension, "i") in futures_sql

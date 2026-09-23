@@ -1127,11 +1127,11 @@ def main() -> None:
         choices=("backfill", "compute", "compute_1d", "live"),
         help=(
             "get_active_contracts() dimension used to select non-futures instruments "
-            "(default: compute, preserving prior behavior). Use 'backfill' to include "
-            "is_active=true symbols that are not yet compute_eligible -- e.g. a symbol "
-            "just onboarded via onboard_instrument() with compute_eligible=False, which "
-            "the default 'compute' dimension would otherwise silently exclude, printing "
-            "'No matching contracts' instead of fetching anything."
+            "(default: compute). Use 'backfill' to include is_active=true symbols that are "
+            "not yet compute_eligible, e.g. a symbol just onboarded via onboard_instrument(); "
+            "'backfill' and 'compute_1d' also require an explicit --timeframes, normally "
+            "the APR compute stack (feature.factory.target_timeframes: 5m,15m,1h,1d at "
+            "the time of writing) or 1d for a 1d-only cohort."
         ),
     )
     parser.add_argument(

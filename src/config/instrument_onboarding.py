@@ -113,6 +113,12 @@ def parse_compute_timeframes(raw: str | None) -> list[str]:
             f"APR key {COMPUTE_TIMEFRAMES_APR_KEY!r} must be a non-empty JSON array of "
             f"timeframe strings, got {raw!r}"
         )
+    if len(set(value)) != len(value):
+        # A duplicate makes COMPUTE_READY_PREDICATE_SQL's count(*) = cardinality(...) unsatisfiable,
+        # so promotion would silently report zero candidates forever.
+        raise RuntimeError(
+            f"APR key {COMPUTE_TIMEFRAMES_APR_KEY!r} lists a timeframe twice: {raw!r}"
+        )
     return value
 
 

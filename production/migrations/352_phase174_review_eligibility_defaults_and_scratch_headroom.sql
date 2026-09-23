@@ -56,6 +56,7 @@ CREATE TRIGGER trg_instruments_clear_eligibility_when_inactive
 BEFORE INSERT OR UPDATE ON instruments
 FOR EACH ROW EXECUTE FUNCTION instruments_clear_eligibility_when_inactive();
 
+ALTER TABLE instruments DROP CONSTRAINT IF EXISTS instruments_inactive_holds_no_eligibility;
 ALTER TABLE instruments ADD CONSTRAINT instruments_inactive_holds_no_eligibility
 CHECK (is_active IS TRUE OR NOT (compute_eligible OR compute_eligible_1d OR live_tradeable));
 
@@ -66,7 +67,7 @@ COMMENT ON COLUMN instruments.compute_eligible IS
     'scripts/infrastructure/universe_expansion_promote_compute_eligible.py once '
     'COMPUTE_READY_PREDICATE_SQL holds -- fetch_complete AND non-zero tradeable rows at every '
     'timeframe in the APR compute stack (feature.factory.target_timeframes), never an '
-    'any-one-timeframe test. An inactive row always holds false (trigger + CHECK below), so a
+    'any-one-timeframe test. An inactive row always holds false (migration 352 trigger + CHECK), so a
 re-activated row starts ineligible.';
 
 -- 2. WR-01 ------------------------------------------------------------------------------

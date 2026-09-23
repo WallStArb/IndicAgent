@@ -535,7 +535,7 @@ async def test_explicit_timeframes_skip_apr_lookup() -> None:
     assert result.backfill_rows_seeded == 1
 
 
-@pytest.mark.parametrize("raw", [None, "[]", '"5m"', "[1, 2]", '[""]'])
+@pytest.mark.parametrize("raw", [None, "[]", '"5m"', "[1, 2]", '[""]', '["1d", "1d"]'])
 async def test_missing_or_malformed_apr_timeframes_fail_loudly(raw) -> None:
     conn = FakeConnection(apr_timeframes=raw)
 

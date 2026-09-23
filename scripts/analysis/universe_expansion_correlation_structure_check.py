@@ -173,9 +173,10 @@ def _gated_corr(
             f"{leg} avg_pairwise_corr missing or non-finite ({corr!r}) -- "
             "fails closed, cannot pass by omission"
         )
-    elif n_symbols is not None and n_symbols < 2:
+    elif n_symbols is None or n_symbols < 2:
         failed_conditions.append(
-            f"{leg} n_symbols={n_symbols} < 2 -- no cross-section measured, fails closed"
+            f"{leg} n_symbols={n_symbols!r} missing or < 2 -- no cross-section measured, "
+            "fails closed"
         )
     elif corr > threshold:
         failed_conditions.append(

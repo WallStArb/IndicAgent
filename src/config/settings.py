@@ -532,8 +532,9 @@ def get_active_contracts(settings: Settings | None = None, *, dimension: str) ->
       5m/15m/1h cross-sectional cells with symbols that have no rows at those timeframes.
 
     An unrecognized `dimension` raises ValueError naming the value and the four valid
-    options. Futures templates and the contract_metadata front-month query are unaffected
-    by `dimension` — futures are out of scope for this split.
+    options. Front-month futures are scoped by the same clause, applied to their base's
+    template row in `instruments` (flags live on the template), so a future is in a
+    dimension exactly when its template is.
 
     Merges both lists, caches result for 60 seconds, keyed by dimension so a result for
     one dimension is never returned to a caller asking for another.
@@ -575,11 +576,18 @@ def get_active_contracts(settings: Settings | None = None, *, dimension: str) ->
                 )
                 tmpl_rows = cur.fetchall()
 
-                # 2. Front-month futures contracts from contract_metadata
+                # 2. Front-month futures contracts from contract_metadata, scoped by the
+                # same dimension through their base's template row in `instruments` --
+                # a front-month flag alone is not a universe choice. Unscoped, a roll that
+                # marks any front month would put futures in `live` that nobody
+                # whitelisted (174 code review of the CR-02 fix).
                 cur.execute(
-                    "SELECT symbol, base_symbol, exchange "
-                    "FROM contract_metadata "
-                    "WHERE is_front_month = true AND asset_class = 'futures'"
+                    "SELECT cm.symbol, cm.base_symbol, cm.exchange "
+                    "FROM contract_metadata cm "
+                    "JOIN instruments i ON i.symbol = cm.base_symbol "
+                    "AND i.contract_details->>'asset_class' = 'futures' "
+                    "WHERE cm.is_front_month = true AND cm.asset_class = 'futures' "
+                    f"AND {dimension_where_clause(dimension, 'i')}"
                 )
                 rows = cur.fetchall()
 
