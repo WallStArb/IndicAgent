@@ -14,6 +14,8 @@ No DB, no Kafka, no network. Pure Python / numpy / pandas / monkeypatch.
 
 from __future__ import annotations
 
+import dataclasses
+
 import numpy as np
 import pandas as pd
 import pytest
@@ -23,13 +25,17 @@ from services.tag_calibrator import (
     TagCalibratorConfig,
     _build_factor_return_series,
     _is_self_regression,
+    _log_returns,
     apply_run_level_fdr,
     build_control_return_matrix,
     build_factor_series_cache,
     compute_factor_correlations,
+    decide_materiality,
     decide_outcome,
     filter_measurable_tag_rows,
+    is_materiality_eligible,
     measure_matrix,
+    measure_partial_loadings,
     select_control_factor_series,
 )
 
@@ -529,3 +535,241 @@ def test_build_control_return_matrix_inner_joins_and_aligns():
     assert not np.isnan(instrument_arr).any()
     assert not np.isnan(factor_arr).any()
     assert not np.isnan(controls_2d).any()
+
+
+# ---------------------------------------------------------------------------
+# 9. measure_partial_loadings / decide_materiality / is_materiality_eligible
+#    (Phase 175 Task 2)
+# ---------------------------------------------------------------------------
+
+_SMALL_MATERIALITY = MaterialityConfig(
+    min_partial_loading=0.0,
+    min_partial_loading_ci_low=0.0,
+    min_incremental_r2=0.0,
+    min_sample_n=50,
+    sign_stability_window_days=20,
+    sign_stability_window_count=3,
+    min_sign_stable_windows=1,
+    null_arm_alpha=0.5,
+    null_arm_draws=30,
+    null_arm_seed=42,
+    control_factor_series=("TLT",),
+)
+
+
+def test_measure_partial_loadings_determinism_and_seed_sensitivity():
+    """Two runs over the same inputs produce identical null_arm_p_value (per-pair
+    deterministic seeding); differing ONLY null_arm_seed produces at least one
+    differing null_arm_p_value (proving the APR-backed seed is actually mixed
+    in, not an unused field)."""
+    price_cache = {
+        "AAA": _synthetic_close(seed=1, n=300),
+        "SPY": _synthetic_close(seed=2, n=300),
+        "TLT": _synthetic_close(seed=3, n=300),
+    }
+    kept_measurements = [{"symbol": "AAA", "tag": "rate_sensitive"}]
+    factor_series_by_tag = {"rate_sensitive": "SPY"}
+    factor_series_cache = build_factor_series_cache(
+        [{"tag": "rate_sensitive", "factor_series": "SPY"}], price_cache, 20, 252
+    )
+    control_series_by_name = build_factor_series_cache(
+        [{"factor_series": "TLT"}], price_cache, 20, 252
+    )
+    instrument_full_ret = {sym: _log_returns(close) for sym, close in price_cache.items()}
+
+    def _run(materiality):
+        return measure_partial_loadings(
+            kept_measurements,
+            factor_series_by_tag,
+            factor_series_cache,
+            control_series_by_name,
+            instrument_full_ret,
+            materiality,
+            hac_max_lag=2,
+            condition_max=1000.0,
+        )
+
+    rows_1, n_no_controls_1, n_insufficient_1 = _run(_SMALL_MATERIALITY)
+    rows_2, _n_no_controls_2, _n_insufficient_2 = _run(_SMALL_MATERIALITY)
+
+    assert len(rows_1) == 1
+    assert n_no_controls_1 == 0
+    assert n_insufficient_1 == 0
+    assert rows_1[0]["null_arm_p_value"] == rows_2[0]["null_arm_p_value"]
+
+    materiality_diff_seed = dataclasses.replace(_SMALL_MATERIALITY, null_arm_seed=999)
+    rows_3, _n_no_controls_3, _n_insufficient_3 = _run(materiality_diff_seed)
+    assert rows_3[0]["null_arm_p_value"] != rows_1[0]["null_arm_p_value"]
+
+
+def test_measure_partial_loadings_skips_when_no_controls_retained():
+    """A control equal to the tag's own factor_series is excluded; with only one
+    configured control this leaves zero retained -> n_no_controls, not
+    n_insufficient_sample."""
+    price_cache = {
+        "AAA": _synthetic_close(seed=1, n=300),
+        "SPY": _synthetic_close(seed=2, n=300),
+    }
+    materiality = dataclasses.replace(_SMALL_MATERIALITY, control_factor_series=("SPY",))
+    kept_measurements = [{"symbol": "AAA", "tag": "rate_sensitive"}]
+    factor_series_by_tag = {"rate_sensitive": "SPY"}
+    factor_series_cache = build_factor_series_cache(
+        [{"tag": "rate_sensitive", "factor_series": "SPY"}], price_cache, 20, 252
+    )
+    control_series_by_name = build_factor_series_cache(
+        [{"factor_series": "SPY"}], price_cache, 20, 252
+    )
+    instrument_full_ret = {sym: _log_returns(close) for sym, close in price_cache.items()}
+
+    rows, n_no_controls, n_insufficient = measure_partial_loadings(
+        kept_measurements,
+        factor_series_by_tag,
+        factor_series_cache,
+        control_series_by_name,
+        instrument_full_ret,
+        materiality,
+        hac_max_lag=2,
+        condition_max=1000.0,
+    )
+    assert rows == []
+    assert n_no_controls == 1
+    assert n_insufficient == 0
+
+
+def test_measure_partial_loadings_skips_when_below_min_sample_n():
+    """A short-history pair aligns successfully but produces fewer observations
+    than min_sample_n -> n_insufficient_sample, never n_no_controls."""
+    price_cache = {
+        "AAA": _synthetic_close(seed=1, n=40),
+        "SPY": _synthetic_close(seed=2, n=40),
+        "TLT": _synthetic_close(seed=3, n=40),
+    }
+    materiality = dataclasses.replace(_SMALL_MATERIALITY, min_sample_n=1000)
+    kept_measurements = [{"symbol": "AAA", "tag": "rate_sensitive"}]
+    factor_series_by_tag = {"rate_sensitive": "SPY"}
+    factor_series_cache = build_factor_series_cache(
+        [{"tag": "rate_sensitive", "factor_series": "SPY"}], price_cache, 20, 252
+    )
+    control_series_by_name = build_factor_series_cache(
+        [{"factor_series": "TLT"}], price_cache, 20, 252
+    )
+    instrument_full_ret = {sym: _log_returns(close) for sym, close in price_cache.items()}
+
+    rows, n_no_controls, n_insufficient = measure_partial_loadings(
+        kept_measurements,
+        factor_series_by_tag,
+        factor_series_cache,
+        control_series_by_name,
+        instrument_full_ret,
+        materiality,
+        hac_max_lag=2,
+        condition_max=1000.0,
+    )
+    assert rows == []
+    assert n_no_controls == 0
+    assert n_insufficient == 1
+
+
+_MATERIALITY_DEFAULTS = MaterialityConfig(
+    min_partial_loading=0.35,
+    min_partial_loading_ci_low=0.20,
+    min_incremental_r2=0.05,
+    min_sample_n=756,
+    sign_stability_window_days=252,
+    sign_stability_window_count=4,
+    min_sign_stable_windows=3,
+    null_arm_alpha=0.05,
+    null_arm_draws=1000,
+    null_arm_seed=42,
+    control_factor_series=("SPY", "TLT", "HYG-IEF", "UUP"),
+)
+
+
+def _passing_pass4_row() -> dict:
+    return {
+        "materiality_sample_n": 1000,
+        "partial_loading": 0.5,
+        "partial_loading_ci_low": 0.3,
+        "incremental_r2": 0.1,
+        "sign_stable_windows": 3,
+        "sign_stable_windows_total": 3,
+        "null_arm_passes_fdr": True,
+    }
+
+
+def test_decide_materiality_all_conditions_pass():
+    assert decide_materiality(_passing_pass4_row(), _MATERIALITY_DEFAULTS) is True
+
+
+@pytest.mark.parametrize(
+    "field,value",
+    [
+        ("materiality_sample_n", 100),
+        ("partial_loading", 0.1),
+        ("partial_loading_ci_low", 0.05),
+        ("incremental_r2", 0.01),
+        ("sign_stable_windows", 1),
+        ("null_arm_passes_fdr", False),
+    ],
+)
+def test_decide_materiality_each_condition_fails_independently(field, value):
+    """Flipping exactly one field of an otherwise-passing row flips the decision
+    to False, one parametrized case per condition."""
+    row = _passing_pass4_row()
+    row[field] = value
+    assert decide_materiality(row, _MATERIALITY_DEFAULTS) is False
+
+
+def test_decide_materiality_sign_stability_sliding_bar():
+    """A deliberate discrete step, not a gradual slide: 3-of-3 PASSES, 3-of-4
+    PASSES, 2-of-3 FAILS. The agreement bar is STRICTER for shorter-history
+    symbols (fewer evaluable windows), not looser."""
+    row_3_of_3 = _passing_pass4_row()
+    row_3_of_3["sign_stable_windows"] = 3
+    row_3_of_3["sign_stable_windows_total"] = 3
+    assert decide_materiality(row_3_of_3, _MATERIALITY_DEFAULTS) is True
+
+    row_3_of_4 = _passing_pass4_row()
+    row_3_of_4["sign_stable_windows"] = 3
+    row_3_of_4["sign_stable_windows_total"] = 4
+    assert decide_materiality(row_3_of_4, _MATERIALITY_DEFAULTS) is True
+
+    row_2_of_3 = _passing_pass4_row()
+    row_2_of_3["sign_stable_windows"] = 2
+    row_2_of_3["sign_stable_windows_total"] = 3
+    assert decide_materiality(row_2_of_3, _MATERIALITY_DEFAULTS) is False
+
+
+def test_decide_materiality_nan_field_returns_false():
+    row = _passing_pass4_row()
+    row["partial_loading"] = float("nan")
+    assert decide_materiality(row, _MATERIALITY_DEFAULTS) is False
+
+
+def test_decide_materiality_missing_field_returns_false():
+    row = _passing_pass4_row()
+    del row["incremental_r2"]
+    assert decide_materiality(row, _MATERIALITY_DEFAULTS) is False
+
+
+def test_decide_materiality_does_not_read_discovery_state():
+    """R-04: a row with discovery_state='pending_oos' and an otherwise-passing
+    statistical profile still returns True -- decide_materiality is the
+    statistical gate only."""
+    row = _passing_pass4_row()
+    row["discovery_state"] = "pending_oos"
+    assert decide_materiality(row, _MATERIALITY_DEFAULTS) is True
+
+
+def test_is_materiality_eligible_requires_all_three_gates():
+    base = {"passes_materiality": True, "discovery_state": "confirmed", "valid_to": None}
+    assert is_materiality_eligible(base) is True
+
+    not_statistical = dict(base, passes_materiality=False)
+    assert is_materiality_eligible(not_statistical) is False
+
+    not_confirmed = dict(base, discovery_state="pending_oos")
+    assert is_materiality_eligible(not_confirmed) is False
+
+    expired = dict(base, valid_to="2026-01-01T00:00:00+00:00")
+    assert is_materiality_eligible(expired) is False
