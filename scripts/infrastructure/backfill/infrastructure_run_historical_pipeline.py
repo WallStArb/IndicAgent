@@ -73,6 +73,11 @@ _logger = structlog.get_logger(__name__)
 # Roll methodology is proprietary IP — baked-in continuous series prevent future optimization.
 
 
+_DEFAULT_TIMEFRAMES = "1d,1h,15m,5m,1m"
+# Dimensions whose members may be deliberately scoped below the full timeframe stack.
+_DIMENSIONS_REQUIRING_EXPLICIT_TIMEFRAMES = frozenset({"backfill", "compute_1d"})
+
+
 def _parse_contract_symbol(symbol: str) -> tuple[str, str, int] | None:
     """Parse a futures contract symbol into (base, month_code, year).
 
@@ -1109,8 +1114,12 @@ def main() -> None:
     )
     parser.add_argument(
         "--timeframes",
-        default="1d,1h,15m,5m,1m",
-        help="Comma-separated timeframes (default: 1m,5m,15m,1h,4h,1d)",
+        default=None,
+        help=(
+            f"Comma-separated timeframes (default: {_DEFAULT_TIMEFRAMES}). Required with "
+            "--dimension backfill/compute_1d: those dimensions include symbols deliberately "
+            "kept off the full timeframe stack, and the default would silently fetch it."
+        ),
     )
     parser.add_argument("--client-id", type=int, default=40, help="IBKR client ID (default: 40)")
     parser.add_argument(
@@ -1171,6 +1180,14 @@ def main() -> None:
         asyncio.run(_seed())
         return
 
+    if args.timeframes is None:
+        if args.dimension in _DIMENSIONS_REQUIRING_EXPLICIT_TIMEFRAMES:
+            parser.error(
+                f"--dimension {args.dimension} requires an explicit --timeframes: it includes "
+                "symbols deliberately kept off the full timeframe stack (e.g. the 1d-only "
+                "D-09 cohort), and the default would fetch every timeframe for them."
+            )
+        args.timeframes = _DEFAULT_TIMEFRAMES
     timeframes = [t.strip() for t in args.timeframes.split(",") if t.strip()]
 
     # Filter contracts

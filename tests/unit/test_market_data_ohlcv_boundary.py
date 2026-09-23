@@ -46,8 +46,9 @@ _ALLOW_LIST: dict[str, str] = {
         "Correctly left alone (design doc's 'correctly left alone' list)."
     ),
     "scripts/infrastructure/backfill/infrastructure_nightly_backfill.py": (
-        "PERMANENT: _least_covered_symbols ranks active symbols by raw row count for a "
-        "reference timeframe to prioritize the nightly incremental run -- a proxy ranking, "
+        "PERMANENT: _select_next_batch and _select_1d_only_batch rank candidate symbols by "
+        "their latest raw bar at a reference timeframe to order the nightly incremental "
+        "run -- a proxy ranking, "
         "not a correctness check (its own docstring says so; detect_gaps() does the real "
         "accounting downstream and no-ops on anything already covered). market_data_ohlcv_"
         "tradeable's WHERE volume > 0 filter would undercount genuinely-covered symbols "

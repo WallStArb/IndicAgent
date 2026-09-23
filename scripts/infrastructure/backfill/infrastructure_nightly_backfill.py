@@ -73,6 +73,7 @@ _logger = structlog.get_logger(__name__)
 _JOB = "nightly-backfill"
 _NIGHTLY_CLIENT_ID = 45  # dedicated lane; ibkr.py auto-rotates on Error 326 collision
 _RANKING_TF = "1h"  # cheap-to-count proxy for "how far along is this symbol" (see module docstring)
+_1D_ONLY_TF = "1d"  # the 1d-only cohort's entire timeframe stack (D-09)
 _DELEGATE_SCRIPT = (Path(__file__).parent / "infrastructure_run_historical_pipeline.py").resolve()
 
 
@@ -132,6 +133,53 @@ def _select_next_batch(conn: psycopg.Connection) -> list[str]:
         return [row[0] for row in cur.fetchall()]
 
 
+def _select_1d_only_batch(conn: psycopg.Connection) -> list[str]:
+    """Return the 1d-only cohort: compute_eligible_1d but not compute_eligible, staliest first.
+
+    These symbols (the D-09 down-cap pilot, kept as a 1d measurement asset after its gate
+    failed) are excluded from the main leg on purpose, so without this leg their series
+    silently stops at the last manual backfill and `dimension="compute_1d"` keeps returning
+    them with a gap nobody chose (174 review WR-02). Fetched at 1d only, never the full stack.
+    """
+    with conn.cursor() as cur:
+        cur.execute(
+            """
+            SELECT i.symbol
+            FROM instruments i
+            LEFT JOIN (
+                SELECT symbol, MAX(timestamp) AS latest_bar
+                FROM market_data_ohlcv
+                WHERE timeframe = %s
+                GROUP BY symbol
+            ) latest ON latest.symbol = i.symbol
+            WHERE i.is_active = true
+              AND i.compute_eligible_1d = true
+              AND i.compute_eligible = false
+            ORDER BY COALESCE(latest.latest_bar, '1970-01-01'::timestamptz) ASC, i.symbol ASC
+            """,
+            (_1D_ONLY_TF,),
+        )
+        return [row[0] for row in cur.fetchall()]
+
+
+def _run_delegate(symbols: list[str], extra_args: list[str]) -> int:
+    """Run the historical pipeline for `symbols` on the nightly client lane; return its rc."""
+    result = subprocess.run(
+        [
+            sys.executable,
+            str(_DELEGATE_SCRIPT),
+            "--symbols",
+            ",".join(symbols),
+            "--client-id",
+            str(_NIGHTLY_CLIENT_ID),
+            *extra_args,
+        ],
+        cwd=str(project_root),
+        env={**os.environ, "PYTHONPATH": str(project_root)},
+    )
+    return result.returncode
+
+
 def _finish(status: str, message: str, returncode: int = 0) -> int:
     """Log, print, emit job_completed_total, flush OTel, and return the process exit code."""
     _logger.info(f"nightly_backfill.{status}")
@@ -154,36 +202,44 @@ def main() -> int:
     conn = connect_db(settings)
     try:
         symbols = _select_next_batch(conn)
+        symbols_1d_only = _select_1d_only_batch(conn)
     finally:
         conn.close()
 
-    if not symbols:
+    if not symbols and not symbols_1d_only:
         return _finish(
             "nothing_to_do",
             "No active instruments found -- nothing to do tonight.",
         )
 
-    print(f"Nightly backfill: {len(symbols)} symbols -- {', '.join(symbols)}")
-    _logger.info("nightly_backfill.batch_selected", symbols=symbols, n_symbols=len(symbols))
+    returncodes: list[int] = []
+    if symbols:
+        print(f"Nightly backfill: {len(symbols)} symbols -- {', '.join(symbols)}")
+        _logger.info("nightly_backfill.batch_selected", symbols=symbols, n_symbols=len(symbols))
+        returncodes.append(_run_delegate(symbols, []))
 
-    result = subprocess.run(
-        [
-            sys.executable,
-            str(_DELEGATE_SCRIPT),
-            "--symbols",
-            ",".join(symbols),
-            "--client-id",
-            str(_NIGHTLY_CLIENT_ID),
-        ],
-        cwd=str(project_root),
-        env={**os.environ, "PYTHONPATH": str(project_root)},
-    )
+    if symbols_1d_only:
+        print(
+            f"Nightly backfill (1d-only leg): {len(symbols_1d_only)} symbols -- "
+            f"{', '.join(symbols_1d_only)}"
+        )
+        _logger.info(
+            "nightly_backfill.batch_1d_only_selected",
+            symbols=symbols_1d_only,
+            n_symbols=len(symbols_1d_only),
+        )
+        returncodes.append(
+            _run_delegate(
+                symbols_1d_only, ["--dimension", "compute_1d", "--timeframes", _1D_ONLY_TF]
+            )
+        )
 
-    status = "success" if result.returncode == 0 else "failed"
+    returncode = next((rc for rc in returncodes if rc != 0), 0)
+    status = "success" if returncode == 0 else "failed"
     return _finish(
         status,
-        f"Nightly backfill delegate finished: returncode={result.returncode}",
-        returncode=result.returncode,
+        f"Nightly backfill delegate(s) finished: returncodes={returncodes}",
+        returncode=returncode,
     )
 
 

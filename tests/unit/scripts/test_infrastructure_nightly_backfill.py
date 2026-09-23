@@ -8,6 +8,7 @@ from unittest.mock import MagicMock, patch
 
 from scripts.infrastructure.backfill.infrastructure_nightly_backfill import (
     _is_another_backfill_running,
+    _select_1d_only_batch,
     _select_next_batch,
 )
 
@@ -104,3 +105,62 @@ class TestSelectNextBatch:
         result = _select_next_batch(conn)
 
         assert result == []
+
+
+class TestSelect1dOnlyBatch:
+    """174 review WR-02: the 1d-only cohort is outside the main leg by design, so it
+    needs its own leg or its series silently stops."""
+
+    def test_scoped_to_1d_only_cohort(self):
+        cursor = _FakeCursor([("PIL1",)])
+        conn = MagicMock()
+        conn.cursor.return_value = cursor
+
+        result = _select_1d_only_batch(conn)
+
+        sql = cursor.executed_sql or ""
+        assert result == ["PIL1"]
+        assert "compute_eligible_1d = true" in sql
+        assert "compute_eligible = false" in sql
+        assert cursor.executed_params == ("1d",)
+        assert "LIMIT" not in sql
+
+
+class TestMainDispatch:
+    def _run_main(self, main_symbols, cohort_symbols, returncodes):
+        from scripts.infrastructure.backfill import infrastructure_nightly_backfill as mod
+
+        with (
+            patch.object(mod, "setup_service_logging"),
+            patch.object(mod, "Settings"),
+            patch.object(mod, "_is_another_backfill_running", return_value=False),
+            patch.object(mod, "connect_db"),
+            patch.object(mod, "_select_next_batch", return_value=main_symbols),
+            patch.object(mod, "_select_1d_only_batch", return_value=cohort_symbols),
+            patch.object(mod, "_run_delegate", side_effect=returncodes) as mock_delegate,
+            patch.object(mod, "flush_and_shutdown_metrics"),
+            patch.object(mod, "JOB_COMPLETED_TOTAL"),
+        ):
+            rc = mod.main()
+        return rc, mock_delegate
+
+    def test_1d_leg_runs_with_explicit_dimension_and_timeframe(self):
+        rc, mock_delegate = self._run_main(["AAA"], ["PIL1", "PIL2"], [0, 0])
+
+        assert rc == 0
+        assert mock_delegate.call_args_list[0].args == (["AAA"], [])
+        assert mock_delegate.call_args_list[1].args == (
+            ["PIL1", "PIL2"],
+            ["--dimension", "compute_1d", "--timeframes", "1d"],
+        )
+
+    def test_failure_in_either_leg_fails_the_job(self):
+        rc, _ = self._run_main(["AAA"], ["PIL1"], [0, 3])
+        assert rc == 3
+        rc, _ = self._run_main(["AAA"], ["PIL1"], [2, 0])
+        assert rc == 2
+
+    def test_no_1d_leg_when_cohort_empty(self):
+        rc, mock_delegate = self._run_main(["AAA"], [], [0])
+        assert rc == 0
+        assert mock_delegate.call_count == 1

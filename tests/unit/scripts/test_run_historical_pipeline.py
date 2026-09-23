@@ -799,3 +799,40 @@ class TestDetectGaps:
             datetime(2026, 1, 2, 16, 0, tzinfo=UTC),
             datetime(2026, 1, 2, 17, 0, tzinfo=UTC),
         )
+
+
+def _run_main_with_argv(argv: list[str]):
+    """Run the pipeline's main() up to contract selection with DB access stubbed out."""
+    from scripts.infrastructure.backfill import infrastructure_run_historical_pipeline as mod
+
+    with (
+        patch.object(sys, "argv", ["infrastructure_run_historical_pipeline.py", *argv]),
+        patch.object(mod, "Settings"),
+        patch.object(mod, "get_active_contracts", return_value=[]) as mock_gac,
+    ):
+        mod.main()
+    return mock_gac
+
+
+def test_partial_stack_dimension_without_timeframes_is_rejected():
+    """174 review WR-02: backfill/compute_1d include symbols deliberately kept off the
+    full timeframe stack; the implicit default would fetch every timeframe for them."""
+    import pytest
+
+    for dimension in ("backfill", "compute_1d"):
+        with pytest.raises(SystemExit) as exc:
+            _run_main_with_argv(["--dimension", dimension, "--symbols", "X"])
+        assert exc.value.code == 2
+
+
+def test_partial_stack_dimension_with_explicit_timeframes_is_accepted():
+    mock_gac = _run_main_with_argv(
+        ["--dimension", "compute_1d", "--timeframes", "1d", "--symbols", "X"]
+    )
+    mock_gac.assert_called_once()
+    assert mock_gac.call_args.kwargs == {"dimension": "compute_1d"}
+
+
+def test_compute_dimension_keeps_default_timeframes():
+    mock_gac = _run_main_with_argv(["--symbols", "X"])
+    assert mock_gac.call_args.kwargs == {"dimension": "compute"}
