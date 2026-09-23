@@ -20,9 +20,19 @@ findings:
   info: 2
   total: 6
 status: issues_found
+resolution: all_fixed
+resolved: 2026-09-23T00:00:00Z
+resolution_commit: b0867fb2c
 ---
 
 # Phase 175: Code Review Report
+
+**Resolution (2026-09-23, commit `b0867fb2c`):** all 6 findings fixed same session.
+CR-01 verified against the live corpus post-fix: zero `null_arm_bh_p` rows were actually
+NaN-poisoned by the 175-03 run (2170/2170 measured rows carry real values), so the fix
+closes a latent risk for future runs — no retroactive data correction or doc update was
+needed. Full test suite green, ruff/black clean after the fix commit. See
+`git show b0867fb2c` for the fix detail per finding.
 
 **Reviewed:** 2026-09-23
 **Depth:** standard
