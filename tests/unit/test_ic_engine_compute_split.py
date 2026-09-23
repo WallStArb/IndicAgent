@@ -52,6 +52,8 @@ def test_compute_symbol_tf_return_keys():
     # identical path dual_write_symbol_hmm already takes (migration 286).
     # Todo 354: broadcast_features added, threaded through the identical path
     # _compute_cross_sectional_tf's own param of the same name already takes.
+    # Phase 176 Plan 04: earnings_season_conditioned added, same thread-through
+    # pattern, gating the optional earnings-season stratification pass.
     expected_params = [
         "dsn",
         "symbol",
@@ -65,6 +67,7 @@ def test_compute_symbol_tf_return_keys():
         "mr_dict",
         "dual_write_symbol_hmm",
         "cluster_regime_conditioned",
+        "earnings_season_conditioned",
         "broadcast_features",
     ]
     assert params == expected_params, f"Expected params {expected_params}, got {params}"

@@ -39,6 +39,8 @@ from services.ic_engine import (  # noqa: E402
     _assert_prerequisites,
     _build_regime_passes,
     _compute_symbol_tf,
+    _earnings_season_labels,
+    _lifecycle_guard_cells,
 )
 
 # Canonical 91 Renaissance primitive feature names (mirrors
@@ -289,3 +291,274 @@ def test_build_regime_passes_symbol_hmm_pass_carries_volatility_labels() -> None
     assert symbol_hmm_scope == "symbol_hmm"
     assert set(symbol_hmm_labels) == {"calm", "elevated", "turbulent"}
     assert list(symbol_hmm_label_array) == list(regime_aligned)
+
+
+# ---------------------------------------------------------------------------
+# Phase 176 plan 04 -- earnings_season stratification pass + label derivation
+# ---------------------------------------------------------------------------
+
+
+def _earnings_flag_column(values: list[float | None]) -> np.ndarray:
+    """Build a float32 flag column the way the per-symbol fetch produces it:
+    persisted 1.0/0.0 values, with NULL (pre-backfill) rows as NaN."""
+    return np.array([np.nan if v is None else v for v in values], dtype=np.float32)
+
+
+def test_earnings_season_labels_maps_flag_values_explicitly() -> None:
+    """1.0 -> "in_season", 0.0 -> "off_season", NaN -> None. The mapping must
+    never be reversed and must be a three-way mapping, not a two-way fill."""
+    labels = _earnings_season_labels(_earnings_flag_column([1.0, 0.0, 1.0, 0.0]))
+    assert list(labels) == ["in_season", "off_season", "in_season", "off_season"]
+
+
+def test_earnings_season_labels_nan_maps_to_none_not_off_season() -> None:
+    """NaN (pre-backfill NULL) must map to None -- excluded downstream -- never
+    silently coerced into a valid season label the data does not support
+    (T-176-04-01)."""
+    labels = _earnings_season_labels(_earnings_flag_column([np.nan, 1.0, np.nan, 0.0]))
+    assert labels[0] is None
+    assert labels[1] == "in_season"
+    assert labels[2] is None
+    assert labels[3] == "off_season"
+
+
+def test_earnings_season_labels_unexpected_value_maps_to_none() -> None:
+    """Any value outside {0.0, 1.0} maps to None rather than silently landing on
+    whichever label a two-way fill would have picked."""
+    labels = _earnings_season_labels(_earnings_flag_column([2.0, -1.0]))
+    assert labels[0] is None
+    assert labels[1] is None
+
+
+def test_earnings_season_labels_all_nan_column_is_all_none() -> None:
+    """A fully-NULL flag column (pre-backfill corpus) maps to an all-None label
+    array -- the pass construction must then skip the pass entirely."""
+    labels = _earnings_season_labels(_earnings_flag_column([None, None, None]))
+    assert all(entry is None for entry in labels)
+
+
+def test_build_regime_passes_earnings_disabled_is_unchanged() -> None:
+    """With earnings_season_conditioned=False the helper returns exactly the same
+    passes it returned before Phase 176 -- byte-identical behavior, pinned by
+    comparing scope strings, label sets and label arrays against the pre-176
+    call shape."""
+    regime_aligned_market = np.array(["breadth_vol_high", "breadth_vol_low", "breadth_vol_high"])
+    distinct_regimes = ["breadth_vol_high", "breadth_vol_low"]
+    regime_aligned = np.array(["calm", "elevated", "turbulent"])
+
+    base = _build_regime_passes(
+        regime_aligned_market,
+        distinct_regimes,
+        regime_aligned,
+        cross_sectional=True,
+        dual_write_symbol_hmm=True,
+        cluster_regime_conditioned=True,
+        primary_resolved_scope="cross_sectional",
+    )
+    disabled = _build_regime_passes(
+        regime_aligned_market,
+        distinct_regimes,
+        regime_aligned,
+        cross_sectional=True,
+        dual_write_symbol_hmm=True,
+        cluster_regime_conditioned=True,
+        primary_resolved_scope="cross_sectional",
+        earnings_season_aligned=np.array(["in_season", "off_season", "in_season"], dtype=object),
+        earnings_season_conditioned=False,
+    )
+
+    assert len(base) == 2
+    assert len(disabled) == len(base)
+    for (base_arr, base_labels, base_scope), (dis_arr, dis_labels, dis_scope) in zip(
+        base, disabled, strict=True
+    ):
+        assert base_scope == dis_scope
+        assert set(base_labels) == set(dis_labels)
+        assert list(base_arr) == list(dis_arr)
+
+
+def test_build_regime_passes_appends_earnings_pass_once_with_labels() -> None:
+    """With the switch on and a populated flag column, a third pass is appended
+    with resolved_scope == "earnings_season" and exactly the {"in_season",
+    "off_season"} distinct-label set -- exactly once, never duplicated by the
+    cluster_regime_conditioned gate also being on."""
+    regime_aligned_market = np.array(["breadth_vol_high", "breadth_vol_low", "breadth_vol_high"])
+    distinct_regimes = ["breadth_vol_high", "breadth_vol_low"]
+    regime_aligned = np.array(["calm", "elevated", "calm"])
+    earnings_aligned = np.array(["in_season", "off_season", "in_season"], dtype=object)
+
+    passes = _build_regime_passes(
+        regime_aligned_market,
+        distinct_regimes,
+        regime_aligned,
+        cross_sectional=True,
+        dual_write_symbol_hmm=True,
+        cluster_regime_conditioned=True,
+        primary_resolved_scope="cross_sectional",
+        earnings_season_aligned=earnings_aligned,
+        earnings_season_conditioned=True,
+    )
+
+    assert len(passes) == 3
+    earnings_scopes = [scope for _, _, scope in passes if scope == "earnings_season"]
+    assert earnings_scopes == ["earnings_season"]
+    label_array, labels_this_pass, resolved_scope = passes[2]
+    assert resolved_scope == "earnings_season"
+    assert set(labels_this_pass) == {"in_season", "off_season"}
+    assert list(label_array) == list(earnings_aligned)
+
+
+def test_build_regime_passes_earnings_pass_not_gated_on_cross_sectional() -> None:
+    """Unlike the symbol_hmm pass, the earnings pass is deliberately NOT gated on
+    cross_sectional -- earnings season is a calendar axis orthogonal to
+    regime-group routing -- so it appends on the non-cross-sectional per-symbol
+    HMM path too."""
+    regime_aligned_market = np.array(["calm", "elevated"])
+    distinct_regimes = ["calm", "elevated"]
+    regime_aligned = np.array(["calm", "elevated"])
+    earnings_aligned = np.array(["in_season", "off_season"], dtype=object)
+
+    passes = _build_regime_passes(
+        regime_aligned_market,
+        distinct_regimes,
+        regime_aligned,
+        cross_sectional=False,
+        dual_write_symbol_hmm=False,
+        cluster_regime_conditioned=False,
+        primary_resolved_scope="symbol_hmm",
+        earnings_season_aligned=earnings_aligned,
+        earnings_season_conditioned=True,
+    )
+
+    assert [scope for _, _, scope in passes] == ["symbol_hmm", "earnings_season"]
+
+
+def test_build_regime_passes_skips_earnings_pass_when_all_labels_none() -> None:
+    """An all-None label array (flag column entirely NaN) appends no earnings pass
+    at all -- a partially/never-backfilled corpus degrades to fewer passes, never
+    to a pass with an empty label list."""
+    regime_aligned_market = np.array(["calm", "elevated"])
+    distinct_regimes = ["calm", "elevated"]
+    regime_aligned = np.array(["calm", "elevated"])
+    earnings_aligned = np.array([None, None], dtype=object)
+
+    passes = _build_regime_passes(
+        regime_aligned_market,
+        distinct_regimes,
+        regime_aligned,
+        cross_sectional=True,
+        dual_write_symbol_hmm=True,
+        cluster_regime_conditioned=True,
+        primary_resolved_scope="cross_sectional",
+        earnings_season_aligned=earnings_aligned,
+        earnings_season_conditioned=True,
+    )
+
+    assert len(passes) == 2
+    assert "earnings_season" not in {scope for _, _, scope in passes}
+
+
+def test_build_regime_passes_earnings_labels_exclude_none_entries() -> None:
+    """A partially-backfilled corpus (mixed 1.0/0.0/None) produces a distinct-label
+    list containing only the real labels -- None entries are excluded exactly the
+    way distinct_regimes excludes them."""
+    earnings_aligned = np.array(["in_season", None, "off_season", None], dtype=object)
+
+    passes = _build_regime_passes(
+        np.array(["calm", "calm", "calm", "calm"]),
+        ["calm"],
+        np.array(["calm", "calm", "calm", "calm"]),
+        cross_sectional=False,
+        dual_write_symbol_hmm=False,
+        cluster_regime_conditioned=False,
+        primary_resolved_scope="symbol_hmm",
+        earnings_season_aligned=earnings_aligned,
+        earnings_season_conditioned=True,
+    )
+
+    assert len(passes) == 2
+    _, labels_this_pass, _ = passes[1]
+    assert set(labels_this_pass) == {"in_season", "off_season"}
+
+
+def test_compute_symbol_tf_emits_earnings_season_skip_log_once() -> None:
+    """A fully-NULL flag column skips the earnings pass with a single per-(symbol,
+    tf) info log -- never per-row logging (CLAUDE.md hot-path rule)."""
+    source = inspect.getsource(_compute_symbol_tf)
+    assert "ic_engine.earnings_season_pass_skipped" in source
+
+
+# ---------------------------------------------------------------------------
+# Phase 176 plan 04 -- IC lifecycle guard exclusion (Task 2)
+# ---------------------------------------------------------------------------
+
+
+def _guard_row(regime: str, scope: str, status: str = "active") -> dict:
+    """One synthetic feature_ic_scores cell row shaped like the lifecycle hook's
+    cell_rows dicts (only the keys the guard selection reads)."""
+    return {
+        "feature_name": "up_vol_body_diff",
+        "tf": "1d",
+        "regime": regime,
+        "regime_scope": scope,
+        "feature_status_at_eval": status,
+    }
+
+
+def test_lifecycle_guard_cells_exclude_earnings_season_scope() -> None:
+    """Cells carrying regime_scope == 'earnings_season' are filtered out before
+    the guard's regime_label_to_group mapping runs -- they have no market_regimes
+    row by construction and would otherwise raise a permanent false
+    ic_engine.regime_label_unmapped data-contract violation (T-176-04-03)."""
+    rows = [
+        _guard_row("in_season", "earnings_season"),
+        _guard_row("off_season", "earnings_season"),
+        _guard_row("breadth_vol_high__in_season", "earnings_season"),
+        _guard_row("calm", "symbol_hmm"),
+    ]
+
+    cells = _lifecycle_guard_cells(rows)
+
+    assert [c["regime"] for c in cells] == ["calm"]
+
+
+def test_lifecycle_guard_cells_keep_preexisting_scopes_routed() -> None:
+    """Cells with the three pre-existing scopes are routed exactly as before the
+    extraction (regression-pinned)."""
+    rows = [
+        _guard_row("trending_up", "cross_sectional"),
+        _guard_row("calm", "symbol_hmm"),
+        _guard_row("breadth_vol_high", "cross_sectional"),
+    ]
+
+    cells = _lifecycle_guard_cells(rows)
+
+    assert len(cells) == 3
+    assert {c["regime_scope"] for c in cells} == {"cross_sectional", "symbol_hmm"}
+
+
+def test_lifecycle_guard_cells_still_require_active_status() -> None:
+    """The feature_status_at_eval == 'active' predicate is preserved alongside the
+    new scope exclusion."""
+    rows = [
+        _guard_row("calm", "symbol_hmm", status="demoted"),
+        _guard_row("calm", "symbol_hmm", status="active"),
+        _guard_row("in_season", "earnings_season", status="active"),
+    ]
+
+    cells = _lifecycle_guard_cells(rows)
+
+    assert len(cells) == 1
+    assert cells[0]["regime_scope"] == "symbol_hmm"
+    assert cells[0]["feature_status_at_eval"] == "active"
+
+
+def test_lifecycle_guard_cells_filter_by_scope_value_not_label_string() -> None:
+    """The exclusion keys on the regime_scope VALUE -- never on matching the
+    label strings, so the helper's source contains the scope token but none of
+    the bare season-label strings (a future scope carrying the same labels must
+    still route through the guard)."""
+    source = inspect.getsource(_lifecycle_guard_cells)
+    assert "earnings_season" in source
+    assert "in_season" not in source
+    assert "off_season" not in source

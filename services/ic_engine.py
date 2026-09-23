@@ -172,6 +172,16 @@ _VECTOR_DOMAIN = "quant"
 # Do NOT hardcode the 61 names; this list is the single source of truth.
 _FEATURE_NAMES: list[str] = [f.name for f in dataclasses.fields(FeatureVector)]
 
+# Phase 176 plan 04: positional index of the persisted earnings-season flag inside
+# every per-symbol X matrix. The per-symbol fetch is
+# SELECT bar_ts, regime_volatility, {feature_cols} with feature_cols == _FEATURE_NAMES
+# (migration 350 added the column to FeatureVector), so the flag is ALREADY a matrix
+# column -- the season label array is derived from the aligned matrix by slicing this
+# index, costing a column view, never a second fetch and never recomputed calendar
+# math in the measurement layer (D-03 SoC). Resolved once at module level so it is
+# not recomputed per symbol.
+_EARNINGS_SEASON_FLAG_IDX: int = _FEATURE_NAMES.index("earnings_season_flag")
+
 # Sentinel regime value for pooled (cross-regime) IC rows.
 # The feature_ic_scores PK includes regime (NOT NULL), so we can't store NULL.
 # is_pooled=true + regime='_pooled' is the canonical pooled-row identity.
@@ -625,6 +635,16 @@ class ICEngineConfig:
     # seed (migration 286: true) so direct-constructor test sites match production
     # behavior by default.
     cluster_regime_conditioned: bool = True
+    # Phase 176 plan 04 (migration 350): run-level switch gating the earnings_season
+    # regime_passes entry -- an additional per-symbol stratification pass measuring
+    # in_season/off-season bars separately, labeled from the PERSISTED
+    # feature_vectors.earnings_season_flag column (never recomputed from bar_ts in
+    # this measurement layer). Purely additive (new regime_scope='earnings_season'
+    # rows only), mirroring cluster_regime_conditioned directly above: a run-level
+    # APR key (alpha.ic.earnings_season_conditioned, seeded true), resolved once
+    # here, not via _resolve_symbol_routing. Defaulted to the APR seed so
+    # direct-constructor test sites match production behavior by default.
+    earnings_season_conditioned: bool = True
     # Phase 144 Plan 05: regime_group routing. Raw JSON string (or already-parsed
     # list[dict] normalized to a JSON string here -- see from_apr()) of the
     # alpha.regime.groups APR config -- passed to
@@ -862,6 +882,12 @@ class ICEngineConfig:
             cluster_regime_conditioned=bool(
                 cfg.get_sync("alpha.ensemble.cluster_regime_conditioned", True)
             ),
+            # Phase 176 plan 04 (migration 350). Same read idiom as
+            # cluster_regime_conditioned directly above -- resolved once here, never
+            # re-read inside a per-cell loop.
+            earnings_season_conditioned=bool(
+                cfg.get_sync("alpha.ic.earnings_season_conditioned", True)
+            ),
             regime_groups_json=regime_groups_json,
             # Todo 133 (162-02 Task 1, migration 250): per-tf dict, mirrors
             # bootstrap_block_size above. Old scalar key
@@ -976,6 +1002,11 @@ _COMPUTATIONAL_CONFIG_FIELDS: frozenset[str] = frozenset(
         # (new regime_scope='symbol_hmm' rows appear/disappear), the same class of
         # routing change as regime_groups_json directly above.
         "cluster_regime_conditioned",
+        # Phase 176 plan 04 (migration 350): gates the earnings_season regime_passes
+        # entry -- toggling it changes WHICH feature_ic_scores rows exist
+        # (regime_scope='earnings_season' rows appear/disappear), the same class of
+        # routing change as cluster_regime_conditioned directly above.
+        "earnings_season_conditioned",
         "sharpe_window_size_subsampled",  # fixed subsampled-bar window -- moves ic_sharpe
         # 162-04 Task 2: currently UNUSED (0=disabled, no read path). Classified
         # COMPUTATIONAL as a deliberate conservative safety margin (same reasoning as
@@ -1556,6 +1587,15 @@ def _partition_symbol_cells(
 # Used for pass_type IN ('pooled', 'symbol_hmm'): symbol is the real instrument
 # symbol; a 'symbol_hmm' cell writes multiple regime labels for that one (symbol,
 # tf), all belonging to the same fingerprinted cell, so no regime filter is needed.
+#
+# Phase 176 Plan 04 scope audit: earnings-season rows can never match either
+# invalidation DELETE -- this one only ever runs with pass_type IN ('pooled',
+# 'symbol_hmm') and the cross-sectional variant below hardcodes
+# regime_scope='cross_sectional'. Corollary (deferred, todo-391-class): earnings
+# cells are equally untracked by ic_cell_fingerprints (migration 251's pass_type
+# CHECK admits only the three legacy values; extending it needs a migration this
+# plan does not own), so they are first-write-final under ON CONFLICT DO NOTHING
+# -- no fingerprint staleness detection covers them yet.
 _FINGERPRINT_INVALIDATE_DELETE_SQL = """
     DELETE FROM feature_ic_scores
     WHERE symbol = %(symbol)s
@@ -3098,6 +3138,34 @@ def _merge_skip_reasons(total: dict[str, int], addition: dict[str, int]) -> None
         total[reason] = total.get(reason, 0) + count
 
 
+def _earnings_season_labels(flag_column: np.ndarray) -> np.ndarray:
+    """Map the persisted feature_vectors.earnings_season_flag column to pass labels.
+
+    1.0 -> "in_season", 0.0 -> "off_season", anything else -> None. NaN entries
+    (feature_vectors rows written before the Phase 176 corpus backfill populated
+    the column; NULL becomes NaN under the fetch's float32 conversion) map to None
+    and are excluded from the pass's distinct-label list by the same
+    `if r is not None` filter distinct_regimes already applies -- a
+    partially-backfilled corpus degrades to fewer measured rows, never to a
+    fabricated label (T-176-04-01).
+
+    Explicit three-way mapping by construction: each label is assigned only to its
+    exact value, and every other value falls through to the pre-filled None. A
+    two-way conditional fill would silently label every NaN row off_season.
+
+    "in_season"/"off_season" are chosen outside every enabled regime group's tier
+    vocabulary (breadth_vol/curve_credit/commodity_momentum_ts/fx_dollar_carry) and
+    outside the calm/elevated/turbulent HMM vocabulary, honoring the
+    LABEL-VOCABULARY-UNIQUENESS INVARIANT (services/cross_sectional_regime_model.py):
+    feature_ic_scores' ON CONFLICT key omits regime_scope, so a cross-scope label
+    collision would silently drop one pass's rows via DO NOTHING (todo 391).
+    """
+    labels: np.ndarray = np.full(len(flag_column), None, dtype=object)
+    labels[flag_column == 1.0] = "in_season"
+    labels[flag_column == 0.0] = "off_season"
+    return labels
+
+
 def _build_regime_passes(
     regime_aligned_market: np.ndarray,
     distinct_regimes: list,
@@ -3106,6 +3174,8 @@ def _build_regime_passes(
     dual_write_symbol_hmm: bool,
     cluster_regime_conditioned: bool,
     primary_resolved_scope: str,
+    earnings_season_aligned: np.ndarray | None = None,
+    earnings_season_conditioned: bool = False,
 ) -> list[tuple[np.ndarray, list, str]]:
     """Build the list of (label_array, distinct_labels, resolved_scope) passes
     _compute_symbol_tf's per-label-array loop iterates over.
@@ -3121,6 +3191,17 @@ def _build_regime_passes(
     _compute_symbol_tf's own gate exactly (see that function's inline comment for
     the two gates' provenance). Never includes the pooled sentinel -- pooled is
     handled once, separately, by the caller.
+
+    Phase 176 plan 04: a third 'earnings_season' entry is appended exactly once
+    when earnings_season_conditioned is True AND earnings_season_aligned is not
+    None AND its distinct non-None label list is non-empty (a fully-NULL flag
+    column -- pre-backfill corpus -- appends no pass at all; the caller logs the
+    skip once per (symbol, tf)). Unlike the symbol_hmm pass this entry is
+    deliberately NOT gated on cross_sectional: earnings season is a calendar axis
+    orthogonal to regime-group routing, so it runs on both the cross-sectionally
+    routed path and the per-symbol HMM fallback path. Both new parameters default
+    to the pre-176 no-op values so every existing caller (and its pinned tests)
+    keeps working unchanged.
     """
     regime_passes: list[tuple[np.ndarray, list, str]] = [
         (regime_aligned_market, distinct_regimes, primary_resolved_scope)
@@ -3128,6 +3209,12 @@ def _build_regime_passes(
     if cross_sectional and (dual_write_symbol_hmm or cluster_regime_conditioned):
         distinct_symbol_hmm_regimes = [r for r in set(regime_aligned) if r is not None]
         regime_passes.append((regime_aligned, distinct_symbol_hmm_regimes, "symbol_hmm"))
+    if earnings_season_conditioned and earnings_season_aligned is not None:
+        distinct_earnings_labels = [r for r in set(earnings_season_aligned) if r is not None]
+        if distinct_earnings_labels:
+            regime_passes.append(
+                (earnings_season_aligned, distinct_earnings_labels, "earnings_season")
+            )
     return regime_passes
 
 
@@ -3146,6 +3233,12 @@ def _group_cells_for_metrics(
     IC_ENGINE_CELLS_COMPLETED_TOTAL.add(count, attrs) -- extracted from
     _compute_symbol_tf so the grouping logic itself is unit-testable without
     a live OTel metrics backend.
+
+    Phase 176 Plan 04 scope audit: provably scope-agnostic -- the grouping key
+    already includes regime_scope, so an earnings-season cell simply gets its
+    own emission bucket carrying regime_scope='earnings_season'. Metrics only;
+    no lifecycle decision is made here, so no exclusion is warranted (in
+    contrast to _lifecycle_guard_cells, which decides).
     """
     distinct_cells = {(r["regime"], r["is_pooled"], r["regime_scope"]) for r in all_results}
     emissions: list[tuple[dict[str, Any], int]] = []
@@ -3182,6 +3275,7 @@ def _compute_symbol_tf(
     mr_dict: dict | None = None,
     dual_write_symbol_hmm: bool = False,
     cluster_regime_conditioned: bool = False,
+    earnings_season_conditioned: bool = False,
     broadcast_features: frozenset[str] = frozenset(),
 ) -> tuple[list[dict], list[dict], dict[str, Any]]:
     """Compute IC for all (regime, lookahead) cells for one (symbol, tf).
@@ -3232,6 +3326,18 @@ def _compute_symbol_tf(
     (alongside dual_write_symbol_hmm), widens the symbol_hmm regime_passes entry
     to run for every cross-sectionally-routed symbol, not only those whose group
     sets dual_write_symbol_hmm. See the regime_passes construction below.
+
+    earnings_season_conditioned: Phase 176 plan 04 global switch (run-level
+    ICEngineConfig field, alpha.ic.earnings_season_conditioned, migration 350).
+    When True, a third regime pass labeled from the PERSISTED
+    feature_vectors.earnings_season_flag column measures in_season/off_season
+    bars separately, reusing the same per-label cell machinery -- the flag column
+    is read straight out of the already-fetched X matrix (column index
+    _EARNINGS_SEASON_FLAG_IDX); calendar math is never recomputed here (D-03
+    SoC). Unlike the symbol_hmm pass this one is not gated on cross_sectional --
+    earnings season is a calendar axis orthogonal to regime-group routing. When
+    the flag column is entirely NaN (pre-backfill corpus), the pass is skipped
+    and a single info log is emitted once per (symbol, tf), never per row.
 
     Returns (pooled_rows, regime_rows, stats_dict) where stats_dict contains
     all_results, pvals_flat, pval_result_idxs, n_committed, n_skipped, n_passing_wf,
@@ -3400,6 +3506,26 @@ def _compute_symbol_tf(
             bar_ts_aligned = bar_ts_arr[aligned_idx_arr]
             del bar_ts_arr
 
+            # Phase 176 plan 04: derive the earnings-season label array from the
+            # ALREADY-FETCHED feature matrix -- earnings_season_flag is one of
+            # feature_cols (migration 350), so this is a column slice of X_aligned,
+            # not a second query and not recomputed calendar math (D-03 SoC).
+            # Gated on the switch so the disabled path stays allocation-free
+            # (byte-identical to pre-176 behavior).
+            earnings_season_aligned: np.ndarray | None = None
+            if earnings_season_conditioned:
+                earnings_season_aligned = _earnings_season_labels(
+                    X_aligned[:, _EARNINGS_SEASON_FLAG_IDX]
+                )
+                if not [r for r in set(earnings_season_aligned) if r is not None]:
+                    # Once per (symbol, tf), never per row (hot-path logging rule).
+                    _logger.info(
+                        "ic_engine.earnings_season_pass_skipped",
+                        symbol=symbol,
+                        tf=tf,
+                        reason="flag_column_all_null",
+                    )
+
             n_scales = len(scales)
             # returns_mat: [n_aligned, n_scales]; complete_mat: [n_aligned, n_scales]
             returns_mat = np.full((len(aligned_idx), n_scales), np.nan)
@@ -3500,7 +3626,11 @@ def _compute_symbol_tf(
         # cluster_regime_conditioned (Phase 151 Plan 02's run-level APR switch,
         # migration 286, making the second stratification axis unconditional across
         # every routed symbol). See _build_regime_passes' own docstring for the
-        # no-double-append guarantee.
+        # no-double-append guarantee. A third, independent earnings_season pass
+        # (Phase 176 plan 04, alpha.ic.earnings_season_conditioned, migration 350)
+        # is appended by the same builder when its switch is on -- it is not gated
+        # on cross_sectional, and its labels come from the persisted
+        # earnings_season_flag column derived above.
         regime_passes = _build_regime_passes(
             regime_aligned_market,
             distinct_regimes,
@@ -3509,6 +3639,8 @@ def _compute_symbol_tf(
             dual_write_symbol_hmm,
             cluster_regime_conditioned,
             _resolve_regime_scope(False, cross_sectional),
+            earnings_season_aligned,
+            earnings_season_conditioned,
         )
 
         for label_array, labels_this_pass, resolved_scope in regime_passes:
@@ -5428,7 +5560,8 @@ def _run_ic_worker(args: tuple) -> dict:
     Args:
         args: (symbol, tfs, dsn, training_window_end, config, run_ts,
                feature_status_map, mr_dict_by_tf, dual_write_symbol_hmm,
-               cluster_regime_conditioned, broadcast_features) --
+               cluster_regime_conditioned, broadcast_features,
+               earnings_season_conditioned) --
                broadcast_features (todo 354) -- same frozenset[str] main() resolves
                once for the cross-sectional pass, threaded through unchanged (a
                frozenset[str] is trivially picklable across the ProcessPoolExecutor
@@ -5443,6 +5576,10 @@ def _run_ic_worker(args: tuple) -> dict:
                this tuple the same way dual_write_symbol_hmm is, even though it is
                also reachable via config -- keeps both symbol_hmm-pass gates visible
                at the same call-site shape.
+               earnings_season_conditioned (bool) -- Phase 176 plan 04's run-level
+               APR switch (config.earnings_season_conditioned, migration 350),
+               threaded explicitly through this tuple the same way
+               cluster_regime_conditioned is, for the same call-site-shape reason.
                162-03: no existing_keys parameter -- the whole-cell fingerprint gate
                in main() is the sole skip decision, applied BEFORE a symbol is ever
                dispatched to a worker; a dispatched worker always recomputes every
@@ -5473,6 +5610,7 @@ def _run_ic_worker(args: tuple) -> dict:
         dual_write_symbol_hmm,
         cluster_regime_conditioned,
         broadcast_features,
+        earnings_season_conditioned,
     ) = args
 
     from src.core.service_utils import setup_service_logging
@@ -5520,6 +5658,7 @@ def _run_ic_worker(args: tuple) -> dict:
                     mr_dict=mr_dict_by_tf.get(tf) if mr_dict_by_tf else None,
                     dual_write_symbol_hmm=dual_write_symbol_hmm,
                     cluster_regime_conditioned=cluster_regime_conditioned,
+                    earnings_season_conditioned=earnings_season_conditioned,
                     broadcast_features=broadcast_features,
                 )
                 # Adjust pval_result_idxs to point into this worker's global all_results list.
@@ -5803,6 +5942,32 @@ def _apply_feature_transitions(
     )
 
 
+def _lifecycle_guard_cells(cell_rows: list[dict]) -> list[dict]:
+    """Select the rows the Step 3 regime-shift guard may evaluate: cells whose
+    feature_status_at_eval is 'active' AND whose regime_scope is not the
+    earnings-season measurement scope (Phase 176 Plan 04, T-176-04-03).
+
+    Earnings-season cells are measurement-only rows: a calendar stratum is
+    orthogonal to the regime-group routing market_regimes enumerates, so such a
+    cell has no market_regimes row by construction. Letting one through the
+    guard's regime_label_to_group mapping would raise a permanent, always-false
+    ic_engine.regime_label_unmapped data-contract warning for every such cell,
+    every run, and dilute each stratum's pass-rate rails with rows that can
+    never map. This phase records no lifecycle or promotion decision from
+    earnings-season rows.
+
+    Extraction (not an inline comprehension) so the scope contract is pinned by
+    unit test: the exclusion keys on the regime_scope VALUE -- never on matching
+    the label strings -- so any future scope carrying the same labels still
+    routes through the guard.
+    """
+    return [
+        c
+        for c in cell_rows
+        if c["feature_status_at_eval"] == "active" and c["regime_scope"] != "earnings_season"
+    ]
+
+
 def _run_lifecycle_hook(
     write_conn: Any,
     concept_svc: ConceptRegistryService,
@@ -5863,6 +6028,7 @@ def _run_lifecycle_hook(
             SELECT fis.feature_name, fis.tf, fis.regime, fis.ic_ci_lower, fis.ic_ci_upper,
                    fis.ic_sign, fis.passes_fdr,
                    fis.reliable, fis.n_independent, fis.feature_status_at_eval,
+                   fis.regime_scope,
                    fis.ic_sharpe_hac, fis.lookahead_bars, COALESCE(ew.weight, 0.0) AS standing_weight
             FROM feature_ic_scores fis
             LEFT JOIN ensemble_weights ew
@@ -5955,7 +6121,16 @@ def _run_lifecycle_hook(
     # holds -- promotion is already multi-run-gated by recovery_min_observations/
     # recovery_min_passes, so a single anomalously-high pass rate cannot itself
     # flip a feature's status.
-    active_cells = [c for c in cell_rows if c["feature_status_at_eval"] == "active"]
+    #
+    # Phase 176 Plan 04: selection is via _lifecycle_guard_cells, which ALSO
+    # excludes regime_scope='earnings_season' rows -- measurement-only cells with
+    # no market_regimes row by construction, which would otherwise raise a
+    # permanent false ic_engine.regime_label_unmapped warning here every run
+    # (T-176-04-03). Today's per-symbol earnings cells cannot reach this hook at
+    # all (the SELECT below pins symbol='POOLED' AND is_pooled=true), so the
+    # exclusion is future-proofing for Plan 06's POOLED parent-qualified earnings
+    # cells, which WILL enter cell_rows.
+    active_cells = _lifecycle_guard_cells(cell_rows)
     any_hold = False
     # Accumulated here, flushed as one executemany AFTER Step 4/5 (or the hold
     # skip) below -- see the deferred-flush note preceding the single commit.
@@ -6877,6 +7052,13 @@ def main() -> None:
                             # Todo 354: same broadcast_features frozenset resolved above
                             # for the cross-sectional pass, threaded through unchanged.
                             broadcast_features,
+                            # Phase 176 plan 04: run-level earnings-season pass switch
+                            # (alpha.ic.earnings_season_conditioned, migration 350),
+                            # NOT resolved via _resolve_symbol_routing -- threaded
+                            # explicitly the same way cluster_regime_conditioned is
+                            # above (also reachable via config; kept visible at the
+                            # same call-site shape).
+                            config.earnings_season_conditioned,
                         )
                     )
 
