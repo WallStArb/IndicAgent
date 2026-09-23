@@ -164,7 +164,10 @@ _MIN_STRIDE_DEFAULT = 5
 _DEFAULT_MAX_BARS_PER_SYMBOL = 20_000
 _FV_CHUNK_TS = 2_000
 
-_LATEST_VINTAGE_SQL = "SELECT max(training_window_end) FROM feature_ic_scores"
+_LATEST_VINTAGE_SQL = (
+    "SELECT max(training_window_end) FROM feature_ic_scores "
+    "WHERE regime_scope <> 'earnings_season'"
+)
 _SYMBOLS_SQL = """
     SELECT DISTINCT symbol FROM feature_vectors WHERE tf = $1 ORDER BY symbol LIMIT $2
 """

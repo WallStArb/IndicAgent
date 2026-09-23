@@ -187,6 +187,7 @@ async def _load_pooled_cells(conn: asyncpg.Connection, feature_names: list[str])
         "WHERE feature_name = ANY($1::text[]) "
         "  AND symbol = 'POOLED' AND is_pooled = true AND regime != '_pooled' "
         "  AND reliable = true "
+        "  AND regime_scope <> 'earnings_season' "
         "ORDER BY feature_name, tf, lookahead_bars",
         feature_names,
     )

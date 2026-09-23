@@ -255,7 +255,8 @@ async def _read_in_sample_qualifying_count(pool: asyncpg.Pool, tf: str) -> int:
     """
     row = await pool.fetchrow(
         "SELECT count(*) FROM feature_ic_scores "
-        "WHERE tf = $1 AND ic_ci_lower > 0 AND passes_fdr = true",
+        "WHERE tf = $1 AND ic_ci_lower > 0 AND passes_fdr = true "
+        "AND regime_scope <> 'earnings_season'",
         tf,
     )
     return int(row[0]) if row else 0

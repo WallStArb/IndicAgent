@@ -85,6 +85,7 @@ def main() -> None:
             FROM feature_ic_scores
             WHERE tf = '1d' AND is_pooled AND symbol = 'POOLED'
               AND reliable AND ic_ci_lower > 0 AND passes_fdr
+              AND regime_scope <> 'earnings_season'
               AND lookahead_bars = ANY(%s)
             GROUP BY feature_name, lookahead_bars
             """,
@@ -100,6 +101,7 @@ def main() -> None:
             FROM feature_ic_scores
             WHERE tf = '1d' AND is_pooled = false
               AND reliable AND ic_ci_lower > 0
+              AND regime_scope <> 'earnings_season'
               AND lookahead_bars = ANY(%s)
             GROUP BY feature_name, lookahead_bars
             """,

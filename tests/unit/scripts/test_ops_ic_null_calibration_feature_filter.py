@@ -73,3 +73,23 @@ class TestCellSamplingSqlIncludesOptionalFilter:
         applied) -- existing callers with no filter must see unchanged behavior."""
         for sql in (_BOUNDARY_CELLS_SQL, _NULL_CELLS_SQL, _STRONG_CELLS_SQL):
             assert "IS NULL OR feature_name = ANY" in sql
+
+
+class TestEarningsSeasonScopeExclusion:
+    """Phase 176 (todo 353) scope-consumer audit: this script's stratified
+    boundary/null/strong cell samples feed a staged-validation gate that must pass
+    before any corpus-wide re-run switches feature_ic_scores CI computation to the
+    bootstrap method (see the module docstring's Phase 143.1-01 section) -- decision
+    driving. D-02 already scopes sampling to a single training_window_end vintage to
+    avoid mixing cells across corpus rebuilds; excluding regime_scope='earnings_season'
+    is the same population-purity discipline applied to the new calendar-conditioned
+    scope."""
+
+    def test_boundary_sql_excludes_earnings_season(self):
+        assert "regime_scope <> 'earnings_season'" in _BOUNDARY_CELLS_SQL
+
+    def test_null_sql_excludes_earnings_season(self):
+        assert "regime_scope <> 'earnings_season'" in _NULL_CELLS_SQL
+
+    def test_strong_sql_excludes_earnings_season(self):
+        assert "regime_scope <> 'earnings_season'" in _STRONG_CELLS_SQL

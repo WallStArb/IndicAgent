@@ -97,6 +97,7 @@ _RELIABLE_ROWS_SQL = """
            n_independent, ic_sharpe_hac
     FROM feature_ic_scores
     WHERE reliable = true AND ic_sharpe_hac IS NOT NULL
+      AND regime_scope <> 'earnings_season'
 """
 
 # concept_gate is INNER JOINed (not a bare domain='feature' filter) to exclude
@@ -123,6 +124,7 @@ _POOLED_RELIABLE_CELLS_SQL = """
     FROM feature_ic_scores
     WHERE reliable = true AND ic_sharpe_hac IS NOT NULL
       AND symbol = 'POOLED' AND is_pooled = true AND regime != '_pooled'
+      AND regime_scope <> 'earnings_season'
 """
 
 _SCALE_RETURN_COLUMNS: dict[str, str] = {

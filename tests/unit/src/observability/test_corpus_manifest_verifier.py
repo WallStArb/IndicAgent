@@ -11,6 +11,7 @@ cover the fix: per-tf expected lookaheads, read from the real 16 alpha.ic.lookah
 
 from __future__ import annotations
 
+import inspect
 from typing import Any
 
 import pytest
@@ -241,3 +242,23 @@ def test_verify_data_quality_check3_fails_on_unexpected_lookaheads_for_1h(tmp_pa
 
     with pytest.raises(RuntimeError, match="unexpected lookaheads"):
         verifier.verify_data_quality(conn, required_tfs=["1h"], required_symbols=["A", "B"])
+
+
+class TestEarningsSeasonScopeExclusion:
+    """Phase 176 (todo 353) scope-consumer audit: this is a crash-loud gate run
+    before Phase 141 consumption of alpha_events (module docstring of
+    ops_corpus_final_verification.py) -- decision-driving. Without this exclusion,
+    Check 2 ("POOLED rows exist for all TFs") and Check 3 ("all lookaheads present
+    per TF") could both be fooled into a false PASS by earnings-season rows existing
+    for a TF where the real three-scope production population is actually missing --
+    SQL-text inspection, no live DB required (mirrors this file's own house style)."""
+
+    def test_check2_pooled_rows_excludes_earnings_season(self) -> None:
+        source = inspect.getsource(CorpusManifestVerifier.verify_data_quality)
+        assert "regime_scope <> 'earnings_season'" in source
+
+    def test_check3_lookaheads_excludes_earnings_season(self) -> None:
+        source = inspect.getsource(CorpusManifestVerifier.verify_data_quality)
+        # Both checks share the same source blob; assert the exclusion appears at
+        # least twice (once per check) rather than just once for either check alone.
+        assert source.count("regime_scope <> 'earnings_season'") >= 2

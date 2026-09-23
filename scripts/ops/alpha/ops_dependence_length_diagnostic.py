@@ -75,7 +75,10 @@ _FLAG_RATIO_FALLBACK = 2.0
 # actually uses in production).
 _BLOCK_SIZE_DEFAULTS = {"5m": 78, "15m": 26, "1h": 10, "1d": 10}
 
-_LATEST_VINTAGE_SQL = "SELECT max(training_window_end) FROM feature_ic_scores"
+_LATEST_VINTAGE_SQL = (
+    "SELECT max(training_window_end) FROM feature_ic_scores "
+    "WHERE regime_scope <> 'earnings_season'"
+)
 _SYMBOLS_SQL = """
     SELECT DISTINCT symbol FROM feature_vectors WHERE tf = $1 ORDER BY symbol LIMIT $2
 """
