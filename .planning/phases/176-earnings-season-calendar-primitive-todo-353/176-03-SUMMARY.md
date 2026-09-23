@@ -145,3 +145,10 @@ None - no external service configuration required.
 ---
 *Phase: 176-earnings-season-calendar-primitive-todo-353*
 *Completed: 2026-09-23*
+
+## Self-Check: PASSED
+
+- FOUND: `.planning/phases/176-earnings-season-calendar-primitive-todo-353/176-03-SUMMARY.md`
+- FOUND: `eab944c74` (Task 1 commit)
+- FOUND: `1413c2b06` (Task 2 commit)
+- FOUND: `967e0968f` (Task 3 commit)
