@@ -2904,15 +2904,15 @@ Requirements:
 - ES-02 — `days_since_quarter_end` continuous companion field (D-02), not exempted by the flag's evidence
 - ES-03 — 14/42-day window boundaries APR-backed (`feature.earnings_season.*`), no literals in compute
 - ES-04 — `concept_registry`/`concept_gate` genesis seed, tier `1_interaction`, `broadcast=true`
-- ES-05 — `ic_engine.py` earnings-season conditioning on both the per-symbol and cross-sectional paths
-- ES-06 — `regime_scope='earnings_season'` is measurement-only: isolated from ensemble eligibility and the IC lifecycle guard
-- ES-07 — both columns populated on the pre-existing corpus via a contention-gated `--refresh` recompute
-- ES-08 — RESEARCH.md assumption A1 (`up_vol_body_diff` in-season IC doubling) re-verified live (D-03)
-- ES-09 — recorded `feature_ic_scores` FDR/walk-forward gate verdict; todo 353 closed
+- ES-05 — `ic_engine.py` earnings-season conditioning on both the per-symbol and cross-sectional paths — **evidence-gated on ES-08's sweep (D-01a)**
+- ES-06 — `regime_scope='earnings_season'` is measurement-only: isolated from ensemble eligibility and the IC lifecycle guard — **evidence-gated on ES-08's sweep (D-01a)**
+- ES-07 — both columns populated on the pre-existing corpus via a contention-gated, disk-headroom-checked direct SQL backfill (migration 351) following the compressed-hypertable decompress/UPDATE/recompress/VACUUM pattern
+- ES-08 — RESEARCH.md assumption A1 (`up_vol_body_diff` in-season IC doubling) re-verified live, AND the full 57-feature vol/volume family swept with BH-FDR plus a breadth test, emitting the `SWEEP_VERDICT`/`SWEEP_SURVIVORS` gate tokens ES-05/ES-06 read (D-03, D-01a)
+- ES-09 — recorded `feature_ic_scores` FDR/walk-forward gate verdict; conditioning APR switch rolled back if the verdict is not SHARPENS; todo 353 closed
 
 **Wave 1**
 
-- [ ] 176-01-PLAN.md - re-verify assumption A1 + tested pure window classifier (wave 1)
+- [ ] 176-01-PLAN.md - tested pure window classifier + A1 re-verification + 57-feature vol/volume BH-FDR sweep emitting the D-01a gate tokens (wave 1)
 - [ ] 176-02-PLAN.md - migration 350: columns, APR seeds, concept genesis, regime_scope CHECK widening (wave 1)
 
 **Wave 2** *(blocked on Wave 1 completion)*
@@ -2921,17 +2921,17 @@ Requirements:
 
 **Wave 3** *(blocked on Wave 2 completion)*
 
-- [ ] 176-04-PLAN.md - per-symbol earnings_season stratification pass + lifecycle-guard isolation (wave 3)
-- [ ] 176-05-PLAN.md - ensemble_trainer eligibility exclusion + feature_ic_scores consumer audit (wave 3)
-- [ ] 176-07-PLAN.md - contention-gated corpus recompute populating both new columns (wave 3)
+- [ ] 176-04-PLAN.md - per-symbol earnings_season stratification pass + lifecycle-guard isolation (wave 3) — **gated on 176-01's SWEEP_VERDICT (D-01a)**
+- [ ] 176-05-PLAN.md - ensemble_trainer eligibility exclusion + feature_ic_scores consumer audit (wave 3) — **gated on 176-01's SWEEP_VERDICT (D-01a)**
+- [ ] 176-07-PLAN.md - migration 351: direct two-column SQL backfill of the pre-existing corpus, compressed round trip + mandatory VACUUM (wave 3)
 
 **Wave 4** *(blocked on Wave 3 completion)*
 
-- [ ] 176-06-PLAN.md - cross-sectional season sub-cells via in-memory masking, OOM-guarded (wave 4)
+- [ ] 176-06-PLAN.md - cross-sectional season sub-cells via in-memory masking, OOM-guarded (wave 4) — **gated on 176-01's SWEEP_VERDICT (D-01a)**
 
 **Wave 5** *(blocked on Wave 4 completion)*
 
-- [ ] 176-08-PLAN.md - corpus IC gate run, verdict document, todo 353 closure (wave 5)
+- [ ] 176-08-PLAN.md - corpus IC gate run, verdict document, conditioning APR rollback on a non-SHARPENS verdict, todo 353 closure (wave 5)
 
 ---
 
