@@ -48,20 +48,15 @@ from services.cross_sectional_regime_model import (  # noqa: E402
     _resolve_group_symbols,
 )
 from services.tag_calibrator import (  # noqa: E402
+    MATERIALITY_GATE_NAMES as _GATE_NAMES,
+)
+from services.tag_calibrator import (  # noqa: E402
     MaterialityConfig,
     is_materiality_eligible,
     materiality_gate_failures,
 )
 from src.config.settings import Settings  # noqa: E402
 
-_GATE_NAMES = (
-    "sample_n",
-    "partial_loading",
-    "ci_low",
-    "incremental_r2",
-    "sign_stability",
-    "null_arm",
-)
 _SCALAR_GATES = ("sample_n", "partial_loading", "ci_low", "incremental_r2")
 
 # ---------------------------------------------------------------------------

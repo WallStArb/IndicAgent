@@ -678,14 +678,32 @@ def apply_run_level_fdr(
     Pass 1's existing call sites and tests are unaffected. Pass 4 (Task 2e)
     calls this a second time with p_key="null_arm_p_value" to correct the
     null-arm p-vector under its own field names, still exactly one
-    apply_bh_fdr call for that p-vector."""
+    apply_bh_fdr call for that p-vector.
+
+    NaN entries in the p-vector are excluded from the correction itself (CR-01,
+    code review): statsmodels.stats.multitest.multipletests's reverse-cummin
+    step propagates a single NaN p-value into an all-NaN pvals_corrected array
+    for the WHOLE family, not just the offending entry -- Pass 1's caller
+    already filters NaN p-values before this function ever sees them
+    (_measure_pair), but Pass 4's null_arm_p_value has a real, tested,
+    documented NaN path (partial_loading_null_arm_p, "fewer than half of
+    n_draws produce a finite null statistic") with no equivalent filter
+    upstream. NaN rows keep reject_key=False/adjusted_key=NaN (never
+    materiality-eligible, never silently corrupting every other row's
+    corrected p-value)."""
     if not measured:
         return
-    p_values = [m[p_key] for m in measured]
+    for m in measured:
+        m[reject_key] = False
+        m[adjusted_key] = float("nan")
+    finite_idx = [i for i, m in enumerate(measured) if not math.isnan(m[p_key])]
+    if not finite_idx:
+        return
+    p_values = [measured[i][p_key] for i in finite_idx]
     reject, p_corrected = apply_bh_fdr(p_values, fdr_alpha)
-    for m, rej, p_corr in zip(measured, reject, p_corrected, strict=True):
-        m[reject_key] = bool(rej)
-        m[adjusted_key] = float(p_corr)
+    for i, rej, p_corr in zip(finite_idx, reject, p_corrected, strict=True):
+        measured[i][reject_key] = bool(rej)
+        measured[i][adjusted_key] = float(p_corr)
 
 
 # ---------------------------------------------------------------------------
@@ -704,6 +722,7 @@ def measure_partial_loadings(
     materiality: MaterialityConfig,
     hac_max_lag: int,
     condition_max: float,
+    fdr_alpha: float,
 ) -> tuple[list[dict[str, Any]], int, int]:
     """Pass 4: measure the orthogonalized partial-loading evidence for every kept
     (symbol, tag) pair (D-01a's measurement universe -- Pass 1-3's keep gate).
@@ -759,7 +778,7 @@ def measure_partial_loadings(
             controls_2d,
             condition_max,
             hac_max_lag,
-            materiality.null_arm_alpha,
+            fdr_alpha,
         )
         n_stable, n_total = sign_stable_window_count(
             instrument_arr,
@@ -805,7 +824,7 @@ def measure_partial_loadings(
     return pass4_rows, n_no_controls, n_insufficient_sample
 
 
-_MATERIALITY_GATE_NAMES = (
+MATERIALITY_GATE_NAMES = (
     "sample_n",
     "partial_loading",
     "ci_low",
@@ -842,8 +861,8 @@ def materiality_gate_failures(
     off `row` under identical field names in both an in-run dict and a
     persisted instrument_tags_active row.
 
-    Returns a dict keyed by _MATERIALITY_GATE_NAMES, each value True when that
-    gate FAILS -- or None if any of the five core numeric fields is missing/NaN
+    Returns a dict keyed by MATERIALITY_GATE_NAMES, each value True when that
+    gate FAILS -- or None if any of the six core numeric fields is missing/NaN
     (the row is unmeasured; null_arm_passes is never allowed to make an
     otherwise-unmeasured row look measured).
     """
@@ -1338,6 +1357,7 @@ class TagCalibrator(BaseBatch):
                 materiality,
                 config.hac_max_lag,
                 condition_max,
+                config.fdr_alpha,
             )
         )
         apply_run_level_fdr(

@@ -419,6 +419,17 @@ def partial_loading(
     factor_c = factor_arr - factor_arr.mean()
     controls_c = controls_arr - controls_arr.mean(axis=0)
     full_design = np.column_stack([controls_c, factor_c])
+
+    # _partial_residuals only gates controls_c's OWN condition number -- a
+    # candidate factor that is almost (but not quite) a linear combination of
+    # the controls can still make this separate, factor-inclusive design
+    # matrix severely ill-conditioned even though controls_c alone passed
+    # (code review WR-01). Gated the same way as every other linear solve in
+    # this module (see check_condition_number's docstring).
+    full_cond_ok, _full_cond = check_condition_number(full_design, condition_max)
+    if not full_cond_ok:
+        return float("nan"), float("nan"), n
+
     coefs_full, _, _, _ = np.linalg.lstsq(full_design, instrument_c, rcond=None)
     resid_full = instrument_c - full_design @ coefs_full
     denom_instrument = float((instrument_c**2).sum())
@@ -641,11 +652,11 @@ def partial_loading_null_arm_p(
         return float("nan")
     observed = abs(observed_loading)
 
+    # No separate check_condition_number gate here: partial_loading() above
+    # already ran it (via _partial_residuals) against this same mean-centered
+    # controls_c/condition_max and would have returned NaN by now on failure
+    # -- a second call would be unreachable-as-failing dead code.
     controls_c = controls_arr - controls_arr.mean(axis=0)
-    cond_ok, _cond = check_condition_number(controls_c, condition_max)
-    if not cond_ok:
-        return float("nan")
-
     instrument_c = instrument_arr - instrument_arr.mean()
     pinv_controls = np.linalg.pinv(controls_c)
     resid_instrument = instrument_c - controls_c @ (pinv_controls @ instrument_c)

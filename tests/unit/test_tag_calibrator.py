@@ -15,6 +15,7 @@ No DB, no Kafka, no network. Pure Python / numpy / pandas / monkeypatch.
 from __future__ import annotations
 
 import dataclasses
+import math
 from datetime import UTC, datetime, timedelta
 
 import numpy as np
@@ -157,6 +158,51 @@ def test_run_level_fdr_empty_measured_is_noop(monkeypatch: pytest.MonkeyPatch):
     apply_run_level_fdr([], _CONFIG.fdr_alpha)
 
     assert call_count == 0
+
+
+def test_run_level_fdr_nan_p_value_does_not_poison_other_rows(monkeypatch: pytest.MonkeyPatch):
+    """CR-01 regression (code review, Phase 175): a single NaN p-value in the family
+    must not corrupt the other rows' corrected p-values. Mirrors statsmodels'
+    real multipletests(method="fdr_bh") behavior -- a NaN anywhere in the input
+    turns its reverse-cummin-derived pvals_corrected into an all-NaN array for the
+    WHOLE family, so apply_run_level_fdr must exclude NaN entries from the
+    correction call itself rather than passing them through."""
+    call_sizes: list[int] = []
+
+    def _real_shaped_apply_bh_fdr(p_values, alpha):
+        call_sizes.append(len(p_values))
+        # Reproduces the actual poisoning bug ic_math.apply_bh_fdr would exhibit
+        # if a NaN were ever passed through to it (see CR-01's live statsmodels
+        # repro) -- proves this test would fail without the finite_idx filter.
+        if any(math.isnan(p) for p in p_values):
+            n = len(p_values)
+            return np.array([False] * n), np.array([float("nan")] * n)
+        reject = [p < 0.01 for p in p_values]
+        return np.array(reject), np.array(list(p_values))
+
+    monkeypatch.setattr("services.tag_calibrator.apply_bh_fdr", _real_shaped_apply_bh_fdr)
+
+    measured = [
+        {"symbol": "TLT", "tag": "rate_sensitive", "null_arm_p_value": 0.001},
+        {"symbol": "UUP", "tag": "dollar_strength", "null_arm_p_value": float("nan")},
+        {"symbol": "FXI", "tag": "china_demand", "null_arm_p_value": 0.4},
+    ]
+
+    apply_run_level_fdr(
+        measured,
+        _CONFIG.fdr_alpha,
+        p_key="null_arm_p_value",
+        reject_key="null_arm_passes_fdr",
+        adjusted_key="null_arm_bh_p",
+    )
+
+    assert call_sizes == [2], "the NaN row must be excluded from the correction call itself"
+    assert measured[0]["null_arm_passes_fdr"] is True
+    assert measured[0]["null_arm_bh_p"] == 0.001
+    assert measured[2]["null_arm_passes_fdr"] is False
+    assert measured[2]["null_arm_bh_p"] == 0.4
+    assert measured[1]["null_arm_passes_fdr"] is False
+    assert math.isnan(measured[1]["null_arm_bh_p"])
 
 
 # ---------------------------------------------------------------------------
@@ -592,6 +638,7 @@ def test_measure_partial_loadings_determinism_and_seed_sensitivity():
             materiality,
             hac_max_lag=2,
             condition_max=1000.0,
+            fdr_alpha=0.05,
         )
 
     rows_1, n_no_controls_1, n_insufficient_1 = _run(_SMALL_MATERIALITY)
@@ -635,6 +682,7 @@ def test_measure_partial_loadings_skips_when_no_controls_retained():
         materiality,
         hac_max_lag=2,
         condition_max=1000.0,
+        fdr_alpha=0.05,
     )
     assert rows == []
     assert n_no_controls == 1
@@ -669,6 +717,7 @@ def test_measure_partial_loadings_skips_when_below_min_sample_n():
         materiality,
         hac_max_lag=2,
         condition_max=1000.0,
+        fdr_alpha=0.05,
     )
     assert rows == []
     assert n_no_controls == 0
