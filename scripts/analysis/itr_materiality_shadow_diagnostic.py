@@ -1,8 +1,8 @@
 #!/usr/bin/env python3
 """Phase 175's D-03 shadow-mode diagnostic (todo 380, plan 04).
 
-READ-ONLY. Performs zero writes anywhere -- no INSERT/UPDATE/DELETE/CREATE/DROP/ALTER
-in this file outside a comment (T-175-17, P175-03's static grep gate).
+READ-ONLY. Performs zero writes anywhere -- no mutating SQL statement of any kind
+appears in this file outside a comment (T-175-17, P175-03's static grep gate).
 
 Reports what breadth-universe and peer-pool membership WOULD change if
 services/cross_sectional_regime_model.py switched its `_load_tags_by_symbol` stopgap
@@ -40,9 +40,17 @@ from typing import Any
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
 
-from services.cross_sectional_regime_model import _resolve_group_symbols  # noqa: E402
+from services._batch_utils import load_config_service_sync  # noqa: E402
+from services.backfill_feature_factory import _connect_db  # noqa: E402
+from services.cross_sectional_regime_model import (  # noqa: E402
+    _DEFAULT_GROUPS_JSON,
+    _parse_group_configs,
+    _resolve_group_symbols,
+)
 from services.tag_calibrator import is_materiality_eligible  # noqa: E402
+from src.config.settings import Settings  # noqa: E402
 
+_MATERIALITY_PREFIX = "alpha.tag_calibrator.materiality."
 _GATE_NAMES = (
     "sample_n",
     "partial_loading",
@@ -301,3 +309,194 @@ def gate_value_distributions(
                 "max": None,
             }
     return result
+
+
+# ---------------------------------------------------------------------------
+# DB layer -- read-only
+# ---------------------------------------------------------------------------
+
+_ACTIVE_TAG_ROWS_SQL = """
+    SELECT symbol, tag, source, valid_to, passes_materiality, discovery_state,
+           partial_loading, partial_loading_ci_low, incremental_r2,
+           sign_stable_windows, sign_stable_windows_total, null_arm_bh_p,
+           materiality_sample_n
+    FROM instrument_tags_active
+"""
+
+_LIVE_BASELINE_SQL = (
+    "SELECT symbol, array_agg(tag) FROM instrument_tags WHERE source = 'human' GROUP BY symbol"
+)
+
+_MATERIALITY_THRESHOLDS_SQL = (
+    "SELECT config_key, config_value FROM config_state "
+    "WHERE config_key LIKE 'alpha.tag_calibrator.materiality.%'"
+)
+
+
+def _fetch_active_tag_rows(conn: Any) -> list[dict[str, Any]]:
+    """One SELECT of the evidence columns FROM instrument_tags_active -- the view,
+    never a bare FROM instrument_tags (RESEARCH.md Pitfall 5). Dicts built from
+    cur.description, matching the tsmom script's plain-psycopg fetch shape."""
+    with conn.cursor() as cur:
+        cur.execute(_ACTIVE_TAG_ROWS_SQL)
+        cols = [d[0] for d in cur.description]
+        return [dict(zip(cols, row, strict=True)) for row in cur.fetchall()]
+
+
+def _fetch_live_baseline(conn: Any) -> dict[str, set[str]]:
+    """The LIVE stopgap query, reproduced byte-for-byte -- exactly
+    services.cross_sectional_regime_model._load_tags_by_symbol, including the absence
+    of any valid_to filter (the live query has none). This is the "today" ground truth
+    the view-derived baseline arm is cross-checked against (T-175-18)."""
+    with conn.cursor() as cur:
+        cur.execute(_LIVE_BASELINE_SQL)
+        return {row[0]: set(row[1]) for row in cur.fetchall()}
+
+
+def _detect_baseline_drift(
+    live_baseline: dict[str, set[str]], view_baseline: dict[str, set[str]]
+) -> dict[str, tuple[set[str], set[str]]]:
+    """Symbol-level diff between the live stopgap query and the view-derived baseline
+    arm. Expected empty: human rows are never auto-expired, so every human row has
+    valid_to IS NULL and both queries should agree exactly."""
+    diffs: dict[str, tuple[set[str], set[str]]] = {}
+    for symbol in set(live_baseline) | set(view_baseline):
+        live_tags = live_baseline.get(symbol, set())
+        view_tags = view_baseline.get(symbol, set())
+        if live_tags != view_tags:
+            diffs[symbol] = (live_tags, view_tags)
+    return diffs
+
+
+def _fetch_materiality_thresholds(conn: Any) -> dict[str, Any]:
+    """SELECT config_key, config_value FROM config_state WHERE config_key LIKE
+    'alpha.tag_calibrator.materiality.%' (eleven rows after migration 346). The gate
+    functions above consume only the six gate thresholds and ignore null_arm_seed,
+    control_factor_series, and the window-geometry keys (sign_stability_window_days,
+    sign_stability_window_count) -- built by selecting the keys each function needs
+    rather than assuming a fixed row count."""
+    with conn.cursor() as cur:
+        cur.execute(_MATERIALITY_THRESHOLDS_SQL)
+        raw = {row[0]: row[1] for row in cur.fetchall()}
+    return {
+        "min_sample_n": int(raw[f"{_MATERIALITY_PREFIX}min_sample_n"]),
+        "min_partial_loading": float(raw[f"{_MATERIALITY_PREFIX}min_partial_loading"]),
+        "min_partial_loading_ci_low": float(
+            raw[f"{_MATERIALITY_PREFIX}min_partial_loading_ci_low"]
+        ),
+        "min_incremental_r2": float(raw[f"{_MATERIALITY_PREFIX}min_incremental_r2"]),
+        "min_sign_stable_windows": int(raw[f"{_MATERIALITY_PREFIX}min_sign_stable_windows"]),
+        "null_arm_alpha": float(raw[f"{_MATERIALITY_PREFIX}null_arm_alpha"]),
+    }
+
+
+# ---------------------------------------------------------------------------
+# Report
+# ---------------------------------------------------------------------------
+
+
+def main() -> None:
+    settings = Settings()
+    conn = _connect_db(settings)
+
+    rows = _fetch_active_tag_rows(conn)
+    baseline_by_symbol, candidate_by_symbol = build_tag_arms(rows)
+
+    live_baseline = _fetch_live_baseline(conn)
+    drift = _detect_baseline_drift(live_baseline, baseline_by_symbol)
+    if drift:
+        print("\n*** BASELINE DRIFT DETECTED *** -- diagnostic delta is UNTRUSTWORTHY:")
+        for symbol, (live_tags, view_tags) in sorted(drift.items()):
+            print(f"  {symbol}: live={sorted(live_tags)} view={sorted(view_tags)}")
+    else:
+        print("\nBaseline cross-check OK: live stopgap query and view-derived arm agree exactly.")
+
+    cfg = load_config_service_sync(conn)
+    raw_groups = cfg.get_sync("alpha.regime.groups", _DEFAULT_GROUPS_JSON)
+    group_configs = _parse_group_configs(raw_groups)
+
+    thresholds = _fetch_materiality_thresholds(conn)
+
+    empirical_rows = [r for r in rows if r.get("source") == "empirical"]
+    eligible_empirical_by_symbol: dict[str, list[dict[str, Any]]] = {}
+    for row in empirical_rows:
+        if is_materiality_eligible(row):
+            eligible_empirical_by_symbol.setdefault(row["symbol"], []).append(row)
+
+    print(f"\n{'=' * 70}\nMEMBERSHIP DELTA (per enabled regime group)\n{'=' * 70}")
+    for group in group_configs:
+        group_name = group["name"]
+        signal_type = group["signal_type"]
+        tag_filter = group.get("signal_tag_filter") or group["tag_filter"]
+        exclude_symbols = set(group.get("signal_exclude_symbols", []))
+
+        baseline_symbols, candidate_symbols, added, _removed = membership_delta(
+            baseline_by_symbol, candidate_by_symbol, tag_filter, exclude_symbols
+        )
+        print(f"\n[{group_name}] signal_type={signal_type}")
+        print(
+            f"  baseline: {len(baseline_symbols)} symbols   "
+            f"candidate: {len(candidate_symbols)} symbols"
+        )
+        print(f"  ADDED ({len(added)}): {added}")
+        for symbol in added:
+            for row in eligible_empirical_by_symbol.get(symbol, []):
+                print(
+                    f"    {symbol} tag={row['tag']} "
+                    f"partial_loading={row['partial_loading']:.4f} "
+                    f"incremental_r2={row['incremental_r2']:.4f} "
+                    f"sign_stable={row['sign_stable_windows']}/{row['sign_stable_windows_total']} "
+                    f"null_arm_bh_p={row['null_arm_bh_p']:.4f} "
+                    f"sample_n={row['materiality_sample_n']}"
+                )
+
+    print(f"\n{'=' * 70}\nGATE ATTRIBUTION (non-eligible empirical rows)\n{'=' * 70}")
+    attribution = attribute_gate_failures(empirical_rows, thresholds)
+    for gate in _GATE_NAMES:
+        counts = attribution[gate]
+        print(f"  {gate:<18} count={counts['count']:>5}   sole_failure={counts['sole_failure']:>5}")
+    n_never_measured = sum(1 for r in empirical_rows if r.get("passes_materiality") is None)
+    print(f"  {'unmeasured':<18} count={attribution['unmeasured']:>5}")
+    print(f"  never measured this run (passes_materiality IS NULL): {n_never_measured}")
+
+    print(f"\n{'=' * 70}\nNEAR MISS\n{'=' * 70}")
+    hist_all, hist_sole = sign_stability_near_miss(empirical_rows, thresholds)
+    print(
+        "  sign-stability (sign_stable_windows, sign_stable_windows_total) -- " "ALL failing rows:"
+    )
+    for key, count in sorted(hist_all.items(), key=lambda kv: -kv[1]):
+        print(f"    {key}: {count}")
+    print(
+        "  sign-stability -- rows a sign-stability recalibration ALONE would admit "
+        "(fail only this gate):"
+    )
+    for key, count in sorted(hist_sole.items(), key=lambda kv: -kv[1]):
+        print(f"    {key}: {count}")
+    print(
+        "  Sliding bar: a symbol at the min_sample_n floor can only ever reach three "
+        "evaluable windows and therefore needs 3-of-3 agreement, while a full-history "
+        "symbol needs 3-of-4 -- deliberate and recorded in plan 03's R-07 resolution "
+        "(services.tag_calibrator.decide_materiality's docstring), not a bug."
+    )
+
+    distributions = gate_value_distributions(empirical_rows, thresholds)
+    for gate in _SCALAR_GATES:
+        dist = distributions[gate]
+        print(
+            f"  {gate:<18} n={dist['n']:>4}  n_unmeasured={dist['n_unmeasured']:>4}  "
+            f"min={dist['min']}  median={dist['median']}  max={dist['max']}"
+        )
+
+    print(f"\n{'=' * 70}\nSHADOW MODE\n{'=' * 70}")
+    print(
+        "  No consumer query changed. breadth_vol.py and cross_sectional_regime_model.py "
+        "still read source='human' only. Cutting either consumer over to the "
+        "materiality-filtered arm is a separate, later phase gated on this report plus "
+        "the D-07 cross-AI review and the user's own review."
+    )
+
+    conn.close()
+
+
+if __name__ == "__main__":
+    main()
