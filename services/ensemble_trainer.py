@@ -121,8 +121,17 @@ def _eligibility_where(sign_symmetric: bool) -> tuple[str, str]:
         )
     else:
         significance_clause = "ic_ci_lower > 0"
+    # Phase 176 introduced a fourth regime_scope value, 'earnings_season', for
+    # calendar-conditioned IC measurement. Those cells share the symbol='POOLED' AND
+    # is_pooled=true shape this predicate selects on, so admitting them would silently
+    # add new (tf, regime) training strata to ensemble weighting. They are
+    # measurement-only until a promotion decision is taken in a later phase -- this
+    # exclusion is the enforcement point. `<>` is NULL-safe here only because
+    # feature_ic_scores.regime_scope is NOT NULL (migration 187, re-asserted in
+    # tests/unit/test_ensemble_trainer.py::TestSignSymmetricEligibility).
     base_where = (
         "symbol = 'POOLED' AND is_pooled = true AND regime != '_pooled'"
+        " AND regime_scope <> 'earnings_season'"
         f" AND {significance_clause}"
         " AND reliable = true AND ic_sharpe_hac IS NOT NULL"
         " AND passes_walkforward = true"
