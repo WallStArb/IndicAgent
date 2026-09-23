@@ -33,9 +33,11 @@ import structlog
 project_root = Path(__file__).parent.parent.parent
 sys.path.insert(0, str(project_root))
 
+from scripts.infrastructure._write_mode_args import add_write_mode_args  # noqa: E402
 from src.config.instrument_onboarding import (  # noqa: E402
     OnboardingRejected,
     OnboardResult,
+    load_compute_timeframes,
     onboard_instrument,
 )
 from src.config.settings import Settings  # noqa: E402
@@ -197,6 +199,7 @@ async def _run_commit(settings: Settings) -> list[OnboardResult]:
         vixy = _build_instrument("VIXY", _VIXY_CONTRACT, session_id)
 
         async with db.pool.acquire() as conn, conn.transaction():
+            timeframes = await load_compute_timeframes(conn)  # once per run
             for instrument, tag_name, tag_evidence, metadata in (
                 (emlc, "fx_em", _EMLC_TAG_EVIDENCE, _EMLC_METADATA),
                 (vixy, "vol_proxy", _VIXY_TAG_EVIDENCE, _VIXY_METADATA),
@@ -207,6 +210,7 @@ async def _run_commit(settings: Settings) -> list[OnboardResult]:
                         instrument,
                         qualifier=provider,
                         tags=((tag_name, 1.0, tag_evidence),),
+                        timeframes=timeframes,
                         metadata=metadata,
                         compute_eligible=False,
                         live_tradeable=False,
@@ -266,20 +270,10 @@ def main(argv: list[str] | None = None) -> int:
             "Dry-run by default -- writing is opt-in via --commit."
         )
     )
-    # Mutually exclusive: --dry-run is the default, and "--dry-run --commit" is a usage
-    # error rather than a silent commit (174 review IN-02).
-    mode = parser.add_mutually_exclusive_group()
-    mode.add_argument(
-        "--dry-run",
-        action="store_true",
-        default=True,
-        help="Dry-run only (default): print what would be onboarded, make no writes.",
-    )
-    mode.add_argument(
-        "--commit",
-        action="store_true",
-        default=False,
-        help=(
+    add_write_mode_args(
+        parser,
+        dry_run="Dry-run only (default): print what would be onboarded, make no writes.",
+        commit=(
             "Actually write to instruments/instrument_tags/instrument_metadata/"
             "backfill_status via onboard_instrument(). Off by default -- writing is "
             "opt-in, not opt-out."

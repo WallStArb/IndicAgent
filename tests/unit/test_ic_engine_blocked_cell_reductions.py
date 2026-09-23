@@ -11,6 +11,7 @@ for the cell's own setup phase end to end.
 
 from __future__ import annotations
 
+import dataclasses
 import sys
 import tracemalloc
 from contextlib import ExitStack
@@ -222,8 +223,6 @@ def test_cross_sectional_cell_setup_phase_is_memory_bounded(tmp_path, monkeypatc
 
     n_features = len(ic_module._FEATURE_NAMES)
     n_rows = 200_000  # cell must dwarf the block for the bound to be distinguishable
-    import dataclasses
-
     config = dataclasses.replace(
         _make_config(memmap_scratch_dir=str(tmp_path / "scratch")), corr_row_block=5_000
     )

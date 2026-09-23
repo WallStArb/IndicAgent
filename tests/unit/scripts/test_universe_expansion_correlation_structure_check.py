@@ -227,19 +227,18 @@ def test_gate_missing_unconditional_fails_closed():
     assert any("unconditional" in reason for reason in result["failed_conditions"])
 
 
+@pytest.mark.parametrize("leg", ["unconditional", "high_bear"])
 @pytest.mark.parametrize("bad", [float("nan"), float("inf"), float("-inf")])
-def test_gate_non_finite_correlation_fails_closed(bad):
+def test_gate_non_finite_correlation_fails_closed(bad, leg):
     """correlation_structure() returns NaN when no pair clears min_periods (0-1 symbols left
     after the coverage filter, or a sparse regime slice). `nan > threshold` is False, so a
     None-only check let a NaN through as a PASS. Non-finite must fail closed on either leg.
     """
-    for unconditional, high_bear, leg in (
-        (_gate_input(bad), _gate_input(0.05), "unconditional"),
-        (_gate_input(0.05), _gate_input(bad), "high_bear"),
-    ):
-        result = evaluate_d10_gate(unconditional, high_bear)
-        assert result["passed"] is False
-        assert any(leg in reason for reason in result["failed_conditions"])
+    legs = {"unconditional": _gate_input(0.05), "high_bear": _gate_input(0.05)}
+    legs[leg] = _gate_input(bad)
+    result = evaluate_d10_gate(legs["unconditional"], legs["high_bear"])
+    assert result["passed"] is False
+    assert any(leg in reason for reason in result["failed_conditions"])
 
 
 def test_gate_fewer_than_two_symbols_fails_closed():

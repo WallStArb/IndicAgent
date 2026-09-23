@@ -19,6 +19,7 @@ and disk-backed accumulation's memory bound (D-04c, @pytest.mark.performance).
 
 from __future__ import annotations
 
+import dataclasses
 import re
 import resource
 import sys
@@ -26,6 +27,7 @@ import tracemalloc
 from contextlib import contextmanager
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
+from types import SimpleNamespace
 from typing import Any
 
 import numpy as np
@@ -455,27 +457,13 @@ def test_close_happens_strictly_after_consumer_returns(tmp_path, monkeypatch):
 
 
 def test_disk_headroom_check_reserves_for_two_scratch_files(tmp_path, monkeypatch):
-    n_symbols = 1
-    n_ts = 1000
-    config = _make_config(
-        max_cell_rows=15_000_000, disk_backed_min_rows=0, memmap_scratch_dir=str(tmp_path)
-    )
-    fake_conn = _FakeConn(regime_timestamp_rows=_ts_rows(n_ts))
-    _patch_short_lived_conn(monkeypatch, fake_conn)
-    _patch_trivial_cell_functions(monkeypatch)
-
-    n_estimated = n_ts * n_symbols
-    one_file_bytes = n_estimated * _N_FEATURES * 4
+    one_file_bytes = 1000 * _N_FEATURES * 4
     two_file_bytes = int(2.2 * one_file_bytes)
     # Free space clears a single-array accounting but not the real 2.2x requirement.
     free_bytes = one_file_bytes + (two_file_bytes - one_file_bytes) // 2
-
-    class _FakeDiskUsage:
-        total = two_file_bytes * 10
-        used = 0
-        free = free_bytes
-
-    monkeypatch.setattr(ic_module.shutil, "disk_usage", lambda path: _FakeDiskUsage())
+    config, fake_conn = _headroom_case(
+        tmp_path, monkeypatch, free=free_bytes, total=two_file_bytes * 10, fraction=0.0
+    )
 
     with pytest.raises(RuntimeError) as exc_info:
         _call(config, symbol_list=["SPY"])
@@ -487,8 +475,6 @@ def test_disk_headroom_check_reserves_for_two_scratch_files(tmp_path, monkeypatc
 
 
 def _headroom_case(tmp_path, monkeypatch, *, free, total, fraction=0.15, multiplier=2.2):
-    import dataclasses
-
     config = dataclasses.replace(
         _make_config(
             max_cell_rows=15_000_000, disk_backed_min_rows=0, memmap_scratch_dir=str(tmp_path)
@@ -500,11 +486,7 @@ def _headroom_case(tmp_path, monkeypatch, *, free, total, fraction=0.15, multipl
     _patch_short_lived_conn(monkeypatch, fake_conn)
     _patch_trivial_cell_functions(monkeypatch)
 
-    class _FakeDiskUsage:
-        pass
-
-    usage = _FakeDiskUsage()
-    usage.total, usage.used, usage.free = total, total - free, free
+    usage = SimpleNamespace(total=total, used=total - free, free=free)
     monkeypatch.setattr(ic_module.shutil, "disk_usage", lambda path: usage)
     return config, fake_conn
 

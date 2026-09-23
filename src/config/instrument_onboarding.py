@@ -116,6 +116,17 @@ def parse_compute_timeframes(raw: str | None) -> list[str]:
     return value
 
 
+async def load_compute_timeframes(conn: asyncpg.Connection) -> list[str]:
+    """Read and validate the APR compute timeframe stack on an asyncpg connection.
+
+    Bulk callers resolve it once per run and pass `timeframes=` explicitly, so every
+    symbol in a run is seeded with the same stack and the key is read once.
+    """
+    return parse_compute_timeframes(
+        await conn.fetchval(_SELECT_APR_VALUE_SQL, COMPUTE_TIMEFRAMES_APR_KEY)
+    )
+
+
 def _inserted(status: str) -> bool:
     """True if an asyncpg INSERT command tag reports one row written ("INSERT 0 1")."""
     return status.split()[-1] == "1"
@@ -323,9 +334,7 @@ async def onboard_instrument(
             )
 
         if timeframes is None:
-            timeframes = parse_compute_timeframes(
-                await conn.fetchval(_SELECT_APR_VALUE_SQL, COMPUTE_TIMEFRAMES_APR_KEY)
-            )
+            timeframes = await load_compute_timeframes(conn)
         backfill_rows_seeded = 0
         for tf in timeframes:
             seed_status = await conn.execute(_SEED_BACKFILL_STATUS_SQL, instrument.symbol, tf)

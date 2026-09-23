@@ -1117,8 +1117,7 @@ def main() -> None:
         default=None,
         help=(
             f"Comma-separated timeframes (default: {_DEFAULT_TIMEFRAMES}). Required with "
-            "--dimension backfill/compute_1d: those dimensions include symbols deliberately "
-            "kept off the full timeframe stack, and the default would silently fetch it."
+            "--dimension backfill/compute_1d."
         ),
     )
     parser.add_argument("--client-id", type=int, default=40, help="IBKR client ID (default: 40)")

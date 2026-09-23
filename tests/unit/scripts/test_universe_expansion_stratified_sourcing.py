@@ -17,6 +17,7 @@ import pandas as pd
 import pytest
 
 from scripts.infrastructure.universe_expansion_stratified_sourcing import (  # noqa: E402
+    exclude_set_sha256,
     stratified_sample,
 )
 
@@ -253,9 +254,5 @@ def test_bucket_bounds_carried_and_correct():
 
 def test_exclude_set_sha256_is_order_independent_and_content_sensitive():
     """174 review IN-06: provenance must pin the exact exclude set, not just its size."""
-    from scripts.infrastructure.universe_expansion_stratified_sourcing import (
-        exclude_set_sha256,
-    )
-
     assert exclude_set_sha256({"B", "A"}) == exclude_set_sha256({"A", "B"})
     assert exclude_set_sha256({"A", "B"}) != exclude_set_sha256({"A", "C"})

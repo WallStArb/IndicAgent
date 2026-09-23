@@ -42,6 +42,7 @@ import structlog
 project_root = Path(__file__).parent.parent.parent
 sys.path.insert(0, str(project_root))
 
+from scripts.infrastructure._write_mode_args import add_write_mode_args  # noqa: E402
 from scripts.infrastructure.universe_expansion_fetch_iwv_holdings import (  # noqa: E402
     parse_holdings,
 )
@@ -308,20 +309,10 @@ def main(argv: list[str] | None = None) -> int:
         default="",
         help="Required justification when --allow-out-of-range is passed.",
     )
-    # Mutually exclusive: --dry-run is the default, and "--dry-run --commit" is a usage
-    # error rather than a silent commit (174 review IN-02).
-    mode = parser.add_mutually_exclusive_group()
-    mode.add_argument(
-        "--dry-run",
-        action="store_true",
-        default=True,
-        help="Dry-run only (default): draw the sample, write a CSV, make no database writes.",
-    )
-    mode.add_argument(
-        "--commit",
-        action="store_true",
-        default=False,
-        help=(
+    add_write_mode_args(
+        parser,
+        dry_run="Dry-run only (default): draw the sample, write a CSV, make no database writes.",
+        commit=(
             "Actually onboard the drawn pilot through _run_commit() with 1d-only backfill "
             "seeding (D-09), then tag every onboarded symbol single_name_equity. Off by "
             "default -- writing is opt-in, not opt-out."

@@ -3,6 +3,8 @@ from datetime import UTC, datetime
 from pathlib import Path
 from unittest.mock import MagicMock, patch
 
+import pytest
+
 sys.path.insert(0, str(Path(__file__).parents[3]))
 
 from src.core.bar_normalizer import SOURCE_DERIVED_1M
@@ -814,15 +816,13 @@ def _run_main_with_argv(argv: list[str]):
     return mock_gac
 
 
-def test_partial_stack_dimension_without_timeframes_is_rejected():
+@pytest.mark.parametrize("dimension", ["backfill", "compute_1d"])
+def test_partial_stack_dimension_without_timeframes_is_rejected(dimension):
     """174 review WR-02: backfill/compute_1d include symbols deliberately kept off the
     full timeframe stack; the implicit default would fetch every timeframe for them."""
-    import pytest
-
-    for dimension in ("backfill", "compute_1d"):
-        with pytest.raises(SystemExit) as exc:
-            _run_main_with_argv(["--dimension", dimension, "--symbols", "X"])
-        assert exc.value.code == 2
+    with pytest.raises(SystemExit) as exc:
+        _run_main_with_argv(["--dimension", dimension, "--symbols", "X"])
+    assert exc.value.code == 2
 
 
 def test_partial_stack_dimension_with_explicit_timeframes_is_accepted():

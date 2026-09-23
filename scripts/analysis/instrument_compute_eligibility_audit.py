@@ -235,11 +235,8 @@ def main() -> int:
         # Rows and fetch_complete are separate facts; compute-readiness (the promotion
         # predicate) needs both. Reporting only the rows half let migration 337's header
         # cite a both-halves measurement this audit never made (174 review IN-01).
-        n_with_rows_all_tfs = 0
         n_fetch_complete_all_tfs = 0
         n_compute_ready = 0
-        n_missing_any_tf = 0
-        n_zero_rows = 0
         zero_row_symbols: list[str] = []
         missing_tf_symbols: list[str] = []
 
@@ -253,13 +250,9 @@ def main() -> int:
 
             n_fetch_complete_all_tfs += has_bfc_all
             n_compute_ready += has_rows_all and has_bfc_all
-            if has_rows_all:
-                n_with_rows_all_tfs += 1
-            else:
-                n_missing_any_tf += 1
+            if not has_rows_all:
                 missing_tf_symbols.append(symbol)
             if is_zero:
-                n_zero_rows += 1
                 zero_row_symbols.append(symbol)
 
             cells = "".join(
@@ -275,11 +268,11 @@ def main() -> int:
         summary = {
             "n_active": len(symbols),
             "timeframes": timeframes,
-            "n_with_rows_all_tfs": n_with_rows_all_tfs,
+            "n_with_rows_all_tfs": len(symbols) - len(missing_tf_symbols),
             "n_fetch_complete_all_tfs": n_fetch_complete_all_tfs,
             "n_compute_ready": n_compute_ready,
-            "n_missing_any_tf": n_missing_any_tf,
-            "n_zero_rows": n_zero_rows,
+            "n_missing_any_tf": len(missing_tf_symbols),
+            "n_zero_rows": len(zero_row_symbols),
             "missing_tf_symbols": missing_tf_symbols,
             "zero_row_symbols": zero_row_symbols,
             "elapsed_seconds": round(elapsed, 2),

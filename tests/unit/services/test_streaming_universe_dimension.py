@@ -103,8 +103,11 @@ def test_over_cap_streaming_universe_fails_loudly():
         _agent(cap=80)._validate_streaming_universe(_instruments(81))
 
 
-def test_at_cap_and_uncapped_universes_pass():
+def test_universe_exactly_at_cap_passes():
     _agent(cap=80)._validate_streaming_universe(_instruments(80))
+
+
+def test_uncapped_provider_accepts_any_nonempty_universe():
     _agent(cap=None)._validate_streaming_universe(_instruments(500))
 
 

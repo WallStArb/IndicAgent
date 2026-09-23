@@ -36,6 +36,7 @@ from scripts.analysis.instrument_compute_eligibility_audit import (  # noqa: E40
     COMPUTE_READY_PREDICATE_SQL,
     load_compute_timeframes,
 )
+from scripts.infrastructure._write_mode_args import add_write_mode_args  # noqa: E402
 from src.config.settings import Settings  # noqa: E402
 from src.core.service_utils import setup_service_logging  # noqa: E402
 from src.observability.metrics import JOB_COMPLETED_TOTAL, flush_and_shutdown_metrics  # noqa: E402
@@ -122,20 +123,10 @@ def main(argv: list[str] | None = None) -> int:
         choices=sorted(_DIMENSION_CONFIG),
         help="Which eligibility dimension to promote against.",
     )
-    # Mutually exclusive: --dry-run is the default, and "--dry-run --commit" is a usage
-    # error rather than a silent commit (174 review IN-02).
-    mode = parser.add_mutually_exclusive_group()
-    mode.add_argument(
-        "--dry-run",
-        action="store_true",
-        default=True,
-        help="Dry-run only (default): report candidates, make no database writes.",
-    )
-    mode.add_argument(
-        "--commit",
-        action="store_true",
-        default=False,
-        help="Actually run the promotion UPDATE. Off by default.",
+    add_write_mode_args(
+        parser,
+        dry_run="Dry-run only (default): report candidates, make no database writes.",
+        commit="Actually run the promotion UPDATE. Off by default.",
     )
     args = parser.parse_args(argv)
 

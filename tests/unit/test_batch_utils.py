@@ -1306,11 +1306,6 @@ class TestAsyncCompressedHypertableWriteSessionOrNoop:
 
 def test_disk_backed_append_row_without_flush_at_fails_loudly(tmp_path):
     """174 review IN-07: row mode with no flush_at buffers the whole cell in RAM."""
-    import numpy as np
-    import pytest
-
-    from services._batch_utils import Float32ChunkAccumulator
-
     acc = Float32ChunkAccumulator(
         disk_backed=True, estimated_rows=10, n_cols=2, scratch_dir=str(tmp_path)
     )
@@ -1322,10 +1317,6 @@ def test_disk_backed_append_row_without_flush_at_fails_loudly(tmp_path):
 
 
 def test_disk_backed_append_row_with_flush_at_still_works(tmp_path):
-    import numpy as np
-
-    from services._batch_utils import Float32ChunkAccumulator
-
     acc = Float32ChunkAccumulator(
         2, disk_backed=True, estimated_rows=10, n_cols=2, scratch_dir=str(tmp_path)
     )
