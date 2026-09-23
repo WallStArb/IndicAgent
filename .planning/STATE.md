@@ -3,8 +3,8 @@ gsd_state_version: 1.0
 milestone: v3.1
 milestone_name: AlphaEngine Validation + Alpha Scoring
 status: milestone_complete
-stopped_at: Todo 340 CLOSED 2026-09-22, both halves live-confirmed (IHF `_canary_acausal_placebo` guard fix, 226711 rows; 7-symbol underflow `feature_vector_to_insert_params` clamp fix, all 28 cells confirmed -- BIL/5m alone recovered from stuck-since-2018-03-07 to current). Todos 388/390/391 filed along the way (l1_turnover unwired, illiq unguarded division, feature_ic_scores uniqueness key gap); todo 299 also closed this session. Phase 176 fully planned, cross-AI reviewed (Codex + Fable), and evidence-gated (D-01a: the `ic_engine.py` regime-conditioning workstream no longer builds unconditionally -- it's gated on 176-01's extended 57-feature BH-FDR sweep, not just `up_vol_body_diff` alone), ready for `/gsd-execute-phase 176`. Phase 175 (fully planned, D-07 gate cleared) also still not executed -- ready for `/gsd-execute-phase 175`, todo 340's data-completeness blocker is resolved. Neither phase executed yet as of this note. Antigravity review for 176 still owed (quota-exhausted ~2026-09-24T03:00 UTC) -- re-run `/gsd-review 176 --antigravity` when available, not required to execute.
-last_updated: "2026-09-23T01:00:00.000Z"
+stopped_at: see Strategic Plan section above (kept live; this section is a known staleness trap
+last_updated: "2026-09-23T09:23:04.197Z"
 progress:
   total_phases: 12
   completed_phases: 0
@@ -233,6 +233,7 @@ duplicated here. Currently open/not-yet-planned phases, compressed to current st
   same `feature_vectors` hypertable Phase 175's eventual `ic_engine` recompute will read) —
   avoids the exact write/read lock contention hit today (see gotchas.md), and lands complete
   feature data before the next expensive corpus-wide recompute rather than after.
+
 - **Phase 176 (Earnings-Season Calendar Primitive, todo 353): fully planned, reviewed, and
   evidence-gated as of 2026-09-23, ready for `/gsd-execute-phase 176`.** Corrected evidence
   (D-04, live-reverified): 1.90x in-season/off-season ratio, p=5.05e-05, 67% of symbols (155/233)
