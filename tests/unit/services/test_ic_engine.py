@@ -27,7 +27,10 @@ from __future__ import annotations
 
 import inspect
 import sys
+from contextlib import contextmanager
+from datetime import UTC, datetime, timedelta
 from pathlib import Path
+from typing import Any
 from unittest.mock import MagicMock
 
 import numpy as np
@@ -35,12 +38,18 @@ import pytest
 
 sys.path.insert(0, str(Path(__file__).parents[3]))
 
+import services.ic_engine as ic_module  # noqa: E402
 from services.ic_engine import (  # noqa: E402
+    _EARNINGS_SEASON_FLAG_IDX,
+    _FEATURE_NAMES,
+    ICEngineConfig,
     _assert_prerequisites,
     _build_regime_passes,
+    _compute_cross_sectional_tf,
     _compute_symbol_tf,
     _earnings_season_labels,
     _lifecycle_guard_cells,
+    _plan_season_subcells,
 )
 
 # Canonical 91 Renaissance primitive feature names (mirrors
@@ -562,3 +571,515 @@ def test_lifecycle_guard_cells_filter_by_scope_value_not_label_string() -> None:
     assert "earnings_season" in source
     assert "in_season" not in source
     assert "off_season" not in source
+
+
+# ---------------------------------------------------------------------------
+# Phase 176 plan 06 -- cross-sectional season sub-cell planner
+# (_plan_season_subcells), DB-free
+# ---------------------------------------------------------------------------
+
+
+def test_plan_season_subcells_returns_two_entries_when_both_seasons_present() -> None:
+    """Both values present, enabled, in-RAM -> two entries, in in_season/off_season
+    order, each mask selecting exactly its own season's rows."""
+    flag_column = _earnings_flag_column([1.0, 0.0, 1.0, 0.0, 1.0, 0.0])
+
+    entries, skipped = _plan_season_subcells(
+        flag_column, "calm", enabled=True, use_disk=False, min_rows=1
+    )
+
+    assert skipped == []
+    assert [label for _, label in entries] == ["calm__in_season", "calm__off_season"]
+    in_mask, _ = entries[0]
+    off_mask, _ = entries[1]
+    assert list(in_mask) == [True, False, True, False, True, False]
+    assert list(off_mask) == [False, True, False, True, False, True]
+
+
+def test_plan_season_subcells_disk_backed_skips_with_reason() -> None:
+    """use_disk=True -> no sub-cells, skip reason 'disk_backed_cell' -- the memory
+    guard (T-176-06-01): the parent cell is already at the memory ceiling."""
+    flag_column = _earnings_flag_column([1.0, 0.0])
+
+    entries, skipped = _plan_season_subcells(
+        flag_column, "calm", enabled=True, use_disk=True, min_rows=1
+    )
+
+    assert entries == []
+    assert skipped == ["disk_backed_cell"]
+
+
+def test_plan_season_subcells_apr_disabled_skips_with_reason() -> None:
+    """enabled=False (alpha.ic.earnings_season_conditioned off) -> no sub-cells,
+    skip reason 'apr_disabled'."""
+    flag_column = _earnings_flag_column([1.0, 0.0])
+
+    entries, skipped = _plan_season_subcells(
+        flag_column, "calm", enabled=False, use_disk=False, min_rows=1
+    )
+
+    assert entries == []
+    assert skipped == ["apr_disabled"]
+
+
+def test_plan_season_subcells_all_null_flag_column_skips_with_reason() -> None:
+    """An entirely-NaN flag column (pre-backfill corpus) -> no sub-cells, skip
+    reason 'flag_column_all_null'."""
+    flag_column = _earnings_flag_column([None, None, None])
+
+    entries, skipped = _plan_season_subcells(
+        flag_column, "calm", enabled=True, use_disk=False, min_rows=1
+    )
+
+    assert entries == []
+    assert skipped == ["flag_column_all_null"]
+
+
+def test_plan_season_subcells_drops_only_the_below_min_n_season() -> None:
+    """One season below min_rows is dropped individually -- the other season is
+    still returned when it clears the bar."""
+    flag_column = _earnings_flag_column([1.0, 1.0, 1.0, 1.0, 1.0, 0.0])
+
+    entries, skipped = _plan_season_subcells(
+        flag_column, "calm", enabled=True, use_disk=False, min_rows=2
+    )
+
+    assert [label for _, label in entries] == ["calm__in_season"]
+    assert skipped == ["subset_below_min_n"]
+
+
+def test_plan_season_subcells_both_below_min_n_drops_both() -> None:
+    """Both seasons below min_rows -> no entries, two independent skip reasons."""
+    flag_column = _earnings_flag_column([1.0, 0.0])
+
+    entries, skipped = _plan_season_subcells(
+        flag_column, "calm", enabled=True, use_disk=False, min_rows=5
+    )
+
+    assert entries == []
+    assert skipped == ["subset_below_min_n", "subset_below_min_n"]
+
+
+def test_plan_season_subcells_labels_are_parent_qualified() -> None:
+    """Labels are always '{parent}__in_season'/'{parent}__off_season' -- never a
+    bare 'in_season'/'off_season' (feature_ic_scores ON CONFLICT collision
+    guard, T-176-06-02)."""
+    flag_column = _earnings_flag_column([1.0, 0.0])
+
+    entries, _ = _plan_season_subcells(
+        flag_column, "breadth_vol_high", enabled=True, use_disk=False, min_rows=1
+    )
+
+    labels = [label for _, label in entries]
+    assert labels == ["breadth_vol_high__in_season", "breadth_vol_high__off_season"]
+    for label in labels:
+        assert label not in ("in_season", "off_season")
+        assert "__" in label
+
+
+def test_plan_season_subcells_masks_disjoint_and_exclude_only_nan_rows() -> None:
+    """The two returned masks are disjoint and their union excludes only the
+    NaN-flag row."""
+    flag_column = _earnings_flag_column([1.0, 0.0, None, 1.0])
+
+    entries, _ = _plan_season_subcells(
+        flag_column, "calm", enabled=True, use_disk=False, min_rows=1
+    )
+
+    in_mask, _ = entries[0]
+    off_mask, _ = entries[1]
+    assert not np.any(in_mask & off_mask)
+    assert list(in_mask | off_mask) == [True, True, False, True]
+
+
+def test_plan_season_subcells_calls_earnings_season_labels_not_restated() -> None:
+    """Component-reuse discipline (D-03): the helper must call
+    _earnings_season_labels rather than re-deriving the 1.0/0.0/NaN mapping
+    inline."""
+    source = inspect.getsource(_plan_season_subcells)
+    assert "_earnings_season_labels(" in source
+
+
+# ---------------------------------------------------------------------------
+# Phase 176 plan 06 -- season sub-cells wired into _compute_cross_sectional_tf
+# (DB-free: short_lived_conn faked, _compute_one_cross_sectional_cell/
+# _compute_one_broadcast_cell monkeypatched -- no live DB, no real bootstrap)
+# ---------------------------------------------------------------------------
+
+_CS_TF = "1h"
+_N_CS_FEATURES = len(_FEATURE_NAMES)
+
+
+def _cs_config(
+    *,
+    earnings_season_conditioned: bool = True,
+    min_reliable_n: int = 1,
+    disk_backed_min_rows: int = 2_000_000,
+    memmap_scratch_dir: str,
+) -> ICEngineConfig:
+    """Minimal direct ICEngineConfig construction for _compute_cross_sectional_tf
+    tests -- mirrors tests/unit/test_ic_engine_cell_memory_bound.py's established
+    _make_config pattern (itself mirroring test_hac_ic_sharpe.py's), extended with
+    the Phase 176 plan 06 fields these tests vary."""
+    return ICEngineConfig(
+        min_observations=500,
+        fdr_alpha=0.05,
+        walk_forward_folds=3,
+        sharpe_window_size=50,
+        sharpe_window_size_subsampled=50,
+        sharpe_min_windows=3,
+        subsample_min_stride=5,
+        min_reliable_n=min_reliable_n,
+        cluster_max_corr=0.70,
+        lookahead_fast={"5m": 1, "15m": 1, "1h": 1, "1d": 1},
+        lookahead_mid={"5m": 6, "15m": 2, "1h": 2, "1d": 2},
+        lookahead_slow={"5m": 12, "15m": 5, "1h": 20, "1d": 5},
+        lookahead_extended={"5m": 39, "15m": 10, "1h": 60, "1d": 10},
+        active_scales={
+            "5m": ("fast",),
+            "15m": ("fast",),
+            "1h": ("fast",),
+            "1d": ("fast",),
+        },
+        equity_model_enabled=True,
+        hac_max_lag=3,
+        cs_chunk_ts=1_000_000,
+        symbol_fetch_chunk_rows=5000,
+        n_workers=1,
+        blas_threads_per_worker=1,
+        max_cell_rows=15_000_000,
+        disk_backed_min_rows=disk_backed_min_rows,
+        memmap_scratch_dir=memmap_scratch_dir,
+        earnings_season_conditioned=earnings_season_conditioned,
+    )
+
+
+def _cs_ts_rows(n: int) -> list[tuple[datetime]]:
+    base = datetime(2026, 1, 1, tzinfo=UTC)
+    return [(base,)] * n
+
+
+def _cs_season_batch(season_values: list[float | None]) -> list[tuple[Any, ...]]:
+    """One synthetic feature_vectors JOIN forward_returns row per season_values
+    entry, column order matching _compute_cross_sectional_tf's chunk_sql: bar_ts,
+    {n_features feature floats}, {n_scales returns}, {n_scales completes}. Every
+    feature column is 0.0 except earnings_season_flag, set from season_values
+    (None -> NaN, matching a pre-backfill NULL under the fetch's float32
+    conversion). active_scales={"1h": ("fast",)} -> exactly one scale."""
+    base = datetime(2026, 1, 1, tzinfo=UTC)
+    rows = []
+    for i, val in enumerate(season_values):
+        features = [0.0] * _N_CS_FEATURES
+        features[_EARNINGS_SEASON_FLAG_IDX] = np.nan if val is None else val
+        rows.append((base + timedelta(minutes=i), *features, 0.01, True))
+    return rows
+
+
+class _CsFakeCursor:
+    def __init__(self, conn: _CsFakeConn) -> None:
+        self._conn = conn
+        self._result: list[tuple[Any, ...]] = []
+
+    def __enter__(self) -> _CsFakeCursor:
+        return self
+
+    def __exit__(self, *exc_info: Any) -> bool:
+        return False
+
+    def execute(self, sql: str, params: dict | None = None) -> None:
+        if "FROM market_regimes" in sql:
+            self._result = self._conn.regime_timestamp_rows
+        elif "FROM feature_vectors fv" in sql:
+            self._result = self._conn.next_chunk_batch()
+        else:
+            self._result = []
+
+    def fetchall(self) -> list[tuple[Any, ...]]:
+        return self._result
+
+
+class _CsFakeConn:
+    def __init__(
+        self,
+        regime_timestamp_rows: list[tuple[datetime]],
+        chunk_batches: list[list[tuple[Any, ...]]] | None = None,
+    ) -> None:
+        self.regime_timestamp_rows = regime_timestamp_rows
+        self._chunk_batches = list(chunk_batches or [])
+
+    def cursor(self) -> _CsFakeCursor:
+        return _CsFakeCursor(self)
+
+    def commit(self) -> None:
+        pass
+
+    def close(self) -> None:
+        pass
+
+    def next_chunk_batch(self) -> list[tuple[Any, ...]]:
+        if self._chunk_batches:
+            return self._chunk_batches.pop(0)
+        return []
+
+
+def _cs_patch_short_lived_conn(monkeypatch: pytest.MonkeyPatch, fake_conn: _CsFakeConn) -> None:
+    @contextmanager
+    def _fake_short_lived_conn(dsn: str):
+        yield fake_conn
+
+    monkeypatch.setattr(ic_module, "short_lived_conn", _fake_short_lived_conn)
+
+
+def _cs_patch_broadcast_trivial(monkeypatch: pytest.MonkeyPatch) -> None:
+    """_compute_one_broadcast_cell is not this plan's concern -- stub it to a
+    trivial (empty-rows, zero-skipped) return, matching
+    test_ic_engine_cell_memory_bound.py's established _patch_trivial_cell_functions
+    pattern for the sibling function this file does not exercise."""
+
+    def _fake_broadcast(*args: Any, **kwargs: Any) -> tuple[list[dict], int]:
+        return [], 0
+
+    monkeypatch.setattr(ic_module, "_compute_one_broadcast_cell", _fake_broadcast)
+
+
+def _cs_patch_recording_cell(monkeypatch: pytest.MonkeyPatch, calls: list[dict[str, Any]]) -> None:
+    """Records every _compute_one_cross_sectional_cell invocation (regime_label
+    positional + all kwargs) and returns one minimal-but-complete synthetic row
+    per call, shaped so the real cluster-representative-selection loop that runs
+    after this function returns (cluster_id/regime/lookahead_bars/ic_value/
+    p_value keys) does not KeyError."""
+
+    def _fake_cell(regime_label: str, **kwargs: Any) -> tuple[list[dict], int]:
+        calls.append({"regime_label": regime_label, **kwargs})
+        row = {
+            "feature_name": "up_vol_body_diff",
+            "regime": regime_label,
+            "regime_scope": kwargs.get("resolved_regime_scope", "cross_sectional"),
+            "cluster_id": len(calls),  # unique per call -> each gets its own FDR group
+            "lookahead_bars": 1,
+            "ic_value": 0.01,
+            "p_value": 0.5,
+        }
+        return [row], 0
+
+    monkeypatch.setattr(ic_module, "_compute_one_cross_sectional_cell", _fake_cell)
+
+
+def _cs_call(
+    config: ICEngineConfig,
+    *,
+    symbol_list: list[str] | None = None,
+    regime_label: str = "calm",
+) -> tuple[list[dict], dict[str, Any]]:
+    return _compute_cross_sectional_tf(
+        dsn="postgresql://fake-dsn",
+        tf=_CS_TF,
+        regime_label=regime_label,
+        regime_group="equity",
+        symbol_list=symbol_list or ["SPY"],
+        training_window_end=datetime(2026, 1, 1, tzinfo=UTC),
+        config=config,
+        tracer=None,
+        run_ts=datetime(2026, 1, 1, tzinfo=UTC),
+        rng=np.random.default_rng(0),
+        feature_status_map={},
+        broadcast_features=frozenset(),
+    )
+
+
+def test_season_subcells_computed_when_apr_enabled_and_both_seasons_present(
+    tmp_path, monkeypatch
+) -> None:
+    """With the APR switch on and an in-RAM cell containing both seasons,
+    _compute_one_cross_sectional_cell is invoked three times: primary plus two
+    season sub-cells, in in_season-then-off_season order."""
+    config = _cs_config(
+        earnings_season_conditioned=True, min_reliable_n=1, memmap_scratch_dir=str(tmp_path)
+    )
+    fake_conn = _CsFakeConn(
+        regime_timestamp_rows=_cs_ts_rows(6),
+        chunk_batches=[_cs_season_batch([1.0, 1.0, 1.0, 0.0, 0.0, 0.0])],
+    )
+    _cs_patch_short_lived_conn(monkeypatch, fake_conn)
+    _cs_patch_broadcast_trivial(monkeypatch)
+    calls: list[dict[str, Any]] = []
+    _cs_patch_recording_cell(monkeypatch, calls)
+
+    _cs_call(config, regime_label="calm")
+
+    assert len(calls) == 3
+    assert calls[0]["regime_label"] == "calm"
+    assert "resolved_regime_scope" not in calls[0]
+    assert calls[1]["regime_label"] == "calm__in_season"
+    assert calls[1]["resolved_regime_scope"] == "earnings_season"
+    assert calls[2]["regime_label"] == "calm__off_season"
+    assert calls[2]["resolved_regime_scope"] == "earnings_season"
+
+
+def test_season_subcell_output_rows_carry_correct_scope_and_labels(tmp_path, monkeypatch) -> None:
+    """The primary cell's emitted rows still carry regime_scope=='cross_sectional'
+    and the unqualified parent label (no regression); season rows carry
+    regime_scope=='earnings_season' and a parent-qualified regime label."""
+    config = _cs_config(
+        earnings_season_conditioned=True, min_reliable_n=1, memmap_scratch_dir=str(tmp_path)
+    )
+    fake_conn = _CsFakeConn(
+        regime_timestamp_rows=_cs_ts_rows(4),
+        chunk_batches=[_cs_season_batch([1.0, 1.0, 0.0, 0.0])],
+    )
+    _cs_patch_short_lived_conn(monkeypatch, fake_conn)
+    _cs_patch_broadcast_trivial(monkeypatch)
+    _cs_patch_recording_cell(monkeypatch, [])
+
+    all_results, _ = _cs_call(config, regime_label="calm")
+
+    by_regime = {r["regime"]: r for r in all_results}
+    assert by_regime["calm"]["regime_scope"] == "cross_sectional"
+    assert by_regime["calm__in_season"]["regime_scope"] == "earnings_season"
+    assert by_regime["calm__off_season"]["regime_scope"] == "earnings_season"
+
+
+def test_apr_disabled_makes_exactly_one_cell_call(tmp_path, monkeypatch) -> None:
+    """With the APR switch off, exactly one _compute_one_cross_sectional_cell call
+    happens per cell -- today's behaviour, byte-identical."""
+    config = _cs_config(
+        earnings_season_conditioned=False, min_reliable_n=1, memmap_scratch_dir=str(tmp_path)
+    )
+    fake_conn = _CsFakeConn(
+        regime_timestamp_rows=_cs_ts_rows(4),
+        chunk_batches=[_cs_season_batch([1.0, 1.0, 0.0, 0.0])],
+    )
+    _cs_patch_short_lived_conn(monkeypatch, fake_conn)
+    _cs_patch_broadcast_trivial(monkeypatch)
+    calls: list[dict[str, Any]] = []
+    _cs_patch_recording_cell(monkeypatch, calls)
+
+    _cs_call(config)
+
+    assert len(calls) == 1
+    assert "resolved_regime_scope" not in calls[0]
+
+
+def test_disk_backed_cell_skips_season_split_with_zero_extra_calls(tmp_path, monkeypatch) -> None:
+    """A disk-backed parent cell (already at the memory ceiling) skips the season
+    split entirely -- zero season calls, no exception."""
+    config = _cs_config(
+        earnings_season_conditioned=True,
+        min_reliable_n=1,
+        disk_backed_min_rows=0,  # forces use_disk=True regardless of cell size
+        memmap_scratch_dir=str(tmp_path),
+    )
+    fake_conn = _CsFakeConn(
+        regime_timestamp_rows=_cs_ts_rows(4),
+        chunk_batches=[_cs_season_batch([1.0, 1.0, 0.0, 0.0])],
+    )
+    _cs_patch_short_lived_conn(monkeypatch, fake_conn)
+    _cs_patch_broadcast_trivial(monkeypatch)
+    calls: list[dict[str, Any]] = []
+    _cs_patch_recording_cell(monkeypatch, calls)
+
+    _cs_call(config)
+
+    assert len(calls) == 1, "only the primary cell call -- season split must be skipped, not raise"
+
+
+def test_season_subcell_pass_log_carries_all_telemetry_fields(tmp_path, monkeypatch) -> None:
+    """The ic_engine.season_subcell_pass log event carries every telemetry field
+    the plan's memory-risk measurement depends on."""
+    from structlog.testing import capture_logs
+
+    config = _cs_config(
+        earnings_season_conditioned=True, min_reliable_n=1, memmap_scratch_dir=str(tmp_path)
+    )
+    fake_conn = _CsFakeConn(
+        regime_timestamp_rows=_cs_ts_rows(6),
+        chunk_batches=[_cs_season_batch([1.0, 1.0, 1.0, 0.0, 0.0, 0.0])],
+    )
+    _cs_patch_short_lived_conn(monkeypatch, fake_conn)
+    _cs_patch_broadcast_trivial(monkeypatch)
+    _cs_patch_recording_cell(monkeypatch, [])
+
+    with capture_logs() as cap_logs:
+        _cs_call(config, regime_label="calm")
+
+    events = [e for e in cap_logs if e["event"] == "ic_engine.season_subcell_pass"]
+    assert len(events) == 1
+    entry = events[0]
+    for field in (
+        "tf",
+        "regime",
+        "n_subcells",
+        "skipped",
+        "use_disk",
+        "n_parent_rows",
+        "n_in_season",
+        "n_off_season",
+        "x_raw_mb",
+        "subset_peak_mb",
+    ):
+        assert field in entry, f"season_subcell_pass log event missing field {field!r}"
+    assert entry["tf"] == _CS_TF
+    assert entry["regime"] == "calm"
+    assert entry["n_subcells"] == 2
+    assert entry["skipped"] == []
+    assert entry["use_disk"] is False
+    assert entry["n_parent_rows"] == 6
+    assert entry["n_in_season"] == 3
+    assert entry["n_off_season"] == 3
+    assert entry["subset_peak_mb"] > 0.0
+
+
+def test_season_subcell_pass_log_reports_skip_reasons_without_raising(
+    tmp_path, monkeypatch
+) -> None:
+    """A skipped season split increments a counted, logged skip rather than
+    raising -- both seasons below min_reliable_n here."""
+    from structlog.testing import capture_logs
+
+    config = _cs_config(
+        earnings_season_conditioned=True, min_reliable_n=10, memmap_scratch_dir=str(tmp_path)
+    )
+    fake_conn = _CsFakeConn(
+        regime_timestamp_rows=_cs_ts_rows(6),
+        chunk_batches=[_cs_season_batch([1.0, 1.0, 1.0, 0.0, 0.0, 0.0])],
+    )
+    _cs_patch_short_lived_conn(monkeypatch, fake_conn)
+    _cs_patch_broadcast_trivial(monkeypatch)
+    calls: list[dict[str, Any]] = []
+    _cs_patch_recording_cell(monkeypatch, calls)
+
+    with capture_logs() as cap_logs:
+        _cs_call(config, regime_label="calm")
+
+    assert len(calls) == 1, "no season calls when both subsets are below min_reliable_n"
+    entry = next(e for e in cap_logs if e["event"] == "ic_engine.season_subcell_pass")
+    assert entry["n_subcells"] == 0
+    assert entry["skipped"] == ["subset_below_min_n", "subset_below_min_n"]
+    assert entry["subset_peak_mb"] == 0.0
+
+
+def test_season_calls_happen_after_broadcast_cell_before_finally() -> None:
+    """Structural regression guard mirroring
+    test_compute_cross_sectional_tf_closes_connection_before_clustering: the season
+    sub-cell loop's _plan_season_subcells( call must appear textually AFTER
+    _compute_one_broadcast_cell( and BEFORE the `finally:` that closes the memmap,
+    at the function's own indentation (inside the try, not nested deeper)."""
+    source = inspect.getsource(_compute_cross_sectional_tf)
+
+    assert "_plan_season_subcells(" in source
+    broadcast_idx = source.index("_compute_one_broadcast_cell(")
+    plan_idx = source.index("_plan_season_subcells(")
+    finally_idx = source.index("\n    finally:")
+    assert broadcast_idx < plan_idx < finally_idx, (
+        "_plan_season_subcells( must appear after the broadcast cell call and "
+        "before the `finally:` that unlinks the memmap"
+    )
+
+
+def test_compute_one_cross_sectional_cell_resolved_regime_scope_param_and_single_literal() -> None:
+    """resolved_regime_scope is a real parameter, threaded into the emitted row
+    dict, and the hardcoded "cross_sectional" literal it replaced now appears at
+    most once in the function's source (the parameter's own default value)."""
+    source = inspect.getsource(ic_module._compute_one_cross_sectional_cell)
+    assert "resolved_regime_scope" in source
+    assert source.count('"cross_sectional"') <= 1

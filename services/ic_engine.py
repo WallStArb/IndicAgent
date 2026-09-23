@@ -3166,6 +3166,85 @@ def _earnings_season_labels(flag_column: np.ndarray) -> np.ndarray:
     return labels
 
 
+def _plan_season_subcells(
+    flag_column: np.ndarray,
+    parent_regime_label: str,
+    *,
+    enabled: bool,
+    use_disk: bool,
+    min_rows: int,
+) -> tuple[list[tuple[np.ndarray, str]], list[str]]:
+    """Decide which earnings-season cross-sectional sub-cells to compute from an
+    already-materialized cell, and why any were skipped (Phase 176 plan 06).
+
+    Pure, DB-free planner -- takes the already-fetched earnings_season_flag column
+    of a cross-sectional cell's X_raw and returns boolean row masks for the caller
+    to re-invoke _compute_one_cross_sectional_cell with row-sliced (never
+    re-fetched) arrays. Masking beats re-fetching: _compute_one_cross_sectional_cell's
+    own docstring states it has no internal mask step because "the caller's chunked
+    fetch scopes to exactly this (tf, regime_label) cell" -- adding a third DB-fetch
+    dimension (group x regime_label x season) would multiply the expensive chunked
+    fetches that produced the todo-371 OOM. Row-slicing an already-materialized
+    matrix is strictly cheaper than the primary cell computation and reuses 100% of
+    _compute_one_cross_sectional_cell's bootstrap/CI/FDR/walk-forward internals.
+
+    Labels are parent-qualified ("{parent}__in_season" / "{parent}__off_season",
+    double-underscore separator) rather than bare "in_season"/"off_season": the
+    feature_ic_scores cross-sectional uniqueness key (feature_name, symbol, tf,
+    regime, lookahead_bars, training_window_end) WHERE is_pooled=true AND
+    symbol='POOLED' omits regime_scope, so a bare season label would collide across
+    every parent cell sharing a tf and silently drop rows via ON CONFLICT DO
+    NOTHING. This qualification is a correct workaround, not a fix -- the
+    schema-level fix (widen the uniqueness key to include regime_scope) is
+    deliberately out of scope for this phase and is filed as todo 391.
+
+    The two returned masks are deliberately orthogonal stratifications of the SAME
+    materialized cell -- not a joint regime x season cross-product cell definition.
+    Each mask alone selects a season subset of the parent cell's own rows; the
+    parent cell's own primary/broadcast measurement is untouched by this helper.
+
+    Skip conditions, evaluated in this order (only the first that applies fires):
+    - enabled=False -> ([], ["apr_disabled"]) -- the run-level APR master switch
+      (alpha.ic.earnings_season_conditioned) is off.
+    - use_disk=True -> ([], ["disk_backed_cell"]) -- the parent cell was already
+      routed to a disk-backed memmap because it is at the memory ceiling by
+      definition (todo 371's OOM shape). Boolean-mask row-slicing a disk-backed
+      X_raw would materialize a fresh in-RAM copy of roughly half the cell on top
+      of everything already resident -- skip rather than risk it, and make the
+      skip visible (the memory guard this function exists to enforce).
+    - flag_column entirely NaN (a pre-backfill corpus, or a fully-NULL partition)
+      -> ([], ["flag_column_all_null"]) -- no real season data to stratify on.
+    - Otherwise, each season subset whose row count is below min_rows is
+      individually dropped with "subset_below_min_n" appended once per dropped
+      season -- the other season may still be returned if it clears the bar.
+
+    Returns (entries, skip_reasons): entries is a list of (boolean row mask,
+    parent-qualified label) pairs the caller should compute a sub-cell for;
+    skip_reasons names every season not returned, in the order encountered (never
+    per-row, per CLAUDE.md's hot-path logging rule -- this is a per-cell decision).
+    """
+    if not enabled:
+        return [], ["apr_disabled"]
+    if use_disk:
+        return [], ["disk_backed_cell"]
+
+    labels = _earnings_season_labels(flag_column)
+    if not any(label is not None for label in labels):
+        return [], ["flag_column_all_null"]
+
+    entries: list[tuple[np.ndarray, str]] = []
+    skip_reasons: list[str] = []
+    for season in ("in_season", "off_season"):
+        mask = labels == season
+        n_rows = int(mask.sum())
+        if n_rows < min_rows:
+            skip_reasons.append("subset_below_min_n")
+            continue
+        entries.append((mask, f"{parent_regime_label}__{season}"))
+
+    return entries, skip_reasons
+
+
 def _build_regime_passes(
     regime_aligned_market: np.ndarray,
     distinct_regimes: list,
@@ -3907,6 +3986,7 @@ def _compute_one_cross_sectional_cell(
     broadcast_mask: np.ndarray | None = None,
     disk_backed: bool = False,
     cleanup_stack: ExitStack | None = None,
+    resolved_regime_scope: str = "cross_sectional",
 ) -> tuple[list[dict], int]:
     """Compute clustering + per-scale IC/CI/walk-forward/Sharpe for ONE cross-sectional cell.
 
@@ -3955,6 +4035,13 @@ def _compute_one_cross_sectional_cell(
     X_sub_nd view below) has returned. Default disk_backed=False/cleanup_stack=None
     preserves every pre-Plan-09 direct call site unchanged (in-RAM boolean-index
     build, zero new params touched).
+
+    resolved_regime_scope (Phase 176 plan 06): the regime_scope value stamped onto
+    every emitted row, replacing what was previously a hardcoded cross_sectional
+    string literal. Default preserves every existing caller's behaviour unchanged. The
+    caller passes "earnings_season" when re-invoking this function a second/third
+    time per cell with row-sliced (never re-fetched) season-subset arrays -- see
+    _plan_season_subcells and _compute_cross_sectional_tf's season-sub-cell loop.
 
     Returns (result_rows, n_skipped_features) for this cell only. Does NOT populate
     pvals_flat/pval_result_idxs or run cluster-representative selection -- that stays in
@@ -4196,7 +4283,7 @@ def _compute_one_cross_sectional_cell(
                         if feature_status_map is not None
                         else "unknown"
                     ),
-                    "regime_scope": "cross_sectional",
+                    "regime_scope": resolved_regime_scope,
                     "sign_hit_rate": _nan_to_none(sign_hit_rate_full[feat_idx]),
                     "magnitude_conditional_ic": _nan_to_none(magnitude_ic_full[feat_idx]),
                     "cumulative_e_value": cumulative_e_value,
@@ -4722,14 +4809,16 @@ def _compute_cross_sectional_tf(
     # of that view after close() raises `ValueError: mmap closed or invalid` on
     # Linux, or is a platform-dependent invalid read elsewhere. Two invariants must
     # hold for this `finally` to be a correct boundary:
-    # (1) `_compute_one_cross_sectional_cell` and `_compute_one_broadcast_cell` are
-    #     called SYNCHRONOUSLY inside this `try` -- never scheduled, deferred,
-    #     wrapped in a task, or handed to an executor. If a future change makes
-    #     either concurrent, this `finally` stops being a correct boundary.
-    # (2) Neither call's return value holds a reference into the mapping -- both
-    #     return per-feature IC rows (scalars aggregated over the cell), never an
-    #     array slice. If a future change adds a return field that IS an array
-    #     view, np.asarray(...).copy() it before the `finally` runs.
+    # (1) `_compute_one_cross_sectional_cell`, `_compute_one_broadcast_cell`, and
+    #     (Phase 176 plan 06) each season sub-cell's `_compute_one_cross_sectional_cell`
+    #     re-invocation are called SYNCHRONOUSLY inside this `try` -- never scheduled,
+    #     deferred, wrapped in a task, or handed to an executor. If a future change
+    #     makes any of them concurrent, this `finally` stops being a correct boundary.
+    # (2) None of those calls' return values hold a reference into the mapping --
+    #     all return per-feature IC rows (scalars aggregated over the cell or a
+    #     row-sliced subset of it), never an array slice. If a future change adds a
+    #     return field that IS an array view, np.asarray(...).copy() it before the
+    #     `finally` runs.
     # Plan 05 (D-04a/D-04c, todo 371): the `try:` below opens BEFORE the accumulator
     # is constructed and closes only AFTER every consumer of the memmap-backed view
     # has returned. `X_acc.finalize()` hands back a VIEW over the memmap (Plan 01's
@@ -4737,14 +4826,16 @@ def _compute_cross_sectional_tf(
     # of that view after close() raises `ValueError: mmap closed or invalid` on
     # Linux, or is a platform-dependent invalid read elsewhere. Two invariants must
     # hold for this `finally` to be a correct boundary:
-    # (1) `_compute_one_cross_sectional_cell` and `_compute_one_broadcast_cell` are
-    #     called SYNCHRONOUSLY inside this `try` -- never scheduled, deferred,
-    #     wrapped in a task, or handed to an executor. If a future change makes
-    #     either concurrent, this `finally` stops being a correct boundary.
-    # (2) Neither call's return value holds a reference into the mapping -- both
-    #     return per-feature IC rows (scalars aggregated over the cell), never an
-    #     array slice. If a future change adds a return field that IS an array
-    #     view, np.asarray(...).copy() it before the `finally` runs.
+    # (1) `_compute_one_cross_sectional_cell`, `_compute_one_broadcast_cell`, and
+    #     (Phase 176 plan 06) each season sub-cell's `_compute_one_cross_sectional_cell`
+    #     re-invocation are called SYNCHRONOUSLY inside this `try` -- never scheduled,
+    #     deferred, wrapped in a task, or handed to an executor. If a future change
+    #     makes any of them concurrent, this `finally` stops being a correct boundary.
+    # (2) None of those calls' return values hold a reference into the mapping --
+    #     all return per-feature IC rows (scalars aggregated over the cell or a
+    #     row-sliced subset of it), never an array slice. If a future change adds a
+    #     return field that IS an array view, np.asarray(...).copy() it before the
+    #     `finally` runs.
     #
     # Plan 09 (D-04, todo 371 follow-on): X_nd (the narrower memmap Plan 09's
     # _build_column_wise_x_nd allocates from X_raw inside
@@ -5068,7 +5159,10 @@ def _compute_cross_sectional_tf(
         # and advanced across every cell in this loop.
         #
         # Also called SYNCHRONOUSLY inside this try, and also returns only scalar
-        # rows -- the last consumer of X_raw before the `finally` below runs.
+        # rows. NOT the last consumer of X_raw any more as of Phase 176 plan 06 --
+        # the season sub-cell loop immediately below reads X_raw/returns_mat/
+        # complete_mat after this call returns, and is now the true last consumer
+        # before the `finally` below runs.
         broadcast_results, broadcast_skipped = _compute_one_broadcast_cell(
             regime_label,
             bar_ts_arr=bar_ts_arr,
@@ -5085,6 +5179,85 @@ def _compute_cross_sectional_tf(
         )
         all_results.extend(broadcast_results)
         n_skipped += broadcast_skipped
+
+        # Phase 176 plan 06 (D-01a gate confirmed live: SWEEP_VERDICT=CONFIRMED,
+        # 176-EVIDENCE-A1.md): in-memory season stratification of THIS cell's
+        # already-materialized arrays -- no new fetch, no new fetch dimension.
+        # _plan_season_subcells reads the flag column by module-level positional
+        # index (same _FEATURE_NAMES column order the fetch above used) and
+        # decides, per the memory-guard/APR-switch/null-column/min-N rules
+        # documented on that helper, which season sub-cells (if any) to compute.
+        # This is the SAME (tf, regime_label) cell's rows re-measured on two
+        # orthogonal row-subsets -- not a third DB-fetch dimension, and not a
+        # joint regime x season cross-product cell.
+        #
+        # Also called SYNCHRONOUSLY inside this try, and now the last consumer of
+        # X_raw/returns_mat/complete_mat before the `finally` below runs.
+        #
+        # BH-FDR family (D-07 precedent, same decision the broadcast cell above
+        # already made): season rows are appended into the SAME all_results list
+        # the cluster-representative-selection loop below iterates over, so they
+        # enter the SAME single corpus-level BH-FDR family main() applies once
+        # across every cell -- no separate FDR pass, no new table. Each season
+        # sub-cell's parent-qualified regime label (f"{regime_label}__in_season"/
+        # "__off_season") differs from the parent's own regime_label, so the
+        # cluster_groups keying on (regime, lookahead_bars, cluster_id) already
+        # gives season rows their own representative-selection groups without any
+        # extra machinery -- the same mechanism that already separates broadcast
+        # rows (via the cluster_id offset) from per-symbol rows (via the shared
+        # regime label) in this same loop.
+        season_flag_column = X_raw[:, _EARNINGS_SEASON_FLAG_IDX]
+        n_in_season = int(np.sum(season_flag_column == 1.0))
+        n_off_season = int(np.sum(season_flag_column == 0.0))
+        season_entries, season_skip_reasons = _plan_season_subcells(
+            season_flag_column,
+            regime_label,
+            enabled=config.earnings_season_conditioned,
+            use_disk=use_disk,
+            min_rows=config.min_reliable_n,
+        )
+        subset_peak_mb = 0.0
+        for season_mask, season_label in season_entries:
+            x_season = X_raw[season_mask]
+            returns_season = returns_mat[season_mask]
+            complete_season = complete_mat[season_mask]
+            subset_mb = (x_season.nbytes + returns_season.nbytes + complete_season.nbytes) / 1e6
+            subset_peak_mb = max(subset_peak_mb, subset_mb)
+            season_results, season_n_skipped = _compute_one_cross_sectional_cell(
+                season_label,
+                X_raw=x_season,
+                returns_mat=returns_season,
+                complete_mat=complete_season,
+                config=config,
+                tf=tf,
+                rng=rng,
+                training_window_end=training_window_end,
+                feature_status_map=feature_status_map,
+                run_ts=run_ts,
+                prior_e_values=prior_e_values,
+                broadcast_mask=broadcast_mask,
+                disk_backed=False,
+                resolved_regime_scope="earnings_season",
+            )
+            all_results.extend(season_results)
+            n_skipped += season_n_skipped
+            # At most one subset copy resident at a time -- delete before the next
+            # season iteration rather than let both seasons' slices coexist.
+            del x_season, returns_season, complete_season
+
+        _logger.info(
+            "ic_engine.season_subcell_pass",
+            tf=tf,
+            regime=regime_label,
+            n_subcells=len(season_entries),
+            skipped=season_skip_reasons,
+            use_disk=use_disk,
+            n_parent_rows=n_raw,
+            n_in_season=n_in_season,
+            n_off_season=n_off_season,
+            x_raw_mb=X_raw.nbytes / 1e6,
+            subset_peak_mb=subset_peak_mb,
+        )
     finally:
         # Closes the memmap and unlinks the scratch file -- a no-op in in-RAM mode
         # (X_acc.close() is idempotent and does nothing when disk_backed=False) and
