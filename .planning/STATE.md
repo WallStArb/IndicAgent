@@ -3,8 +3,8 @@ gsd_state_version: 1.0
 milestone: v3.1
 milestone_name: AlphaEngine Validation + Alpha Scoring
 status: ready_to_plan
-stopped_at: context exhaustion at 76% (2026-09-23)
-last_updated: "2026-09-23T15:36:14.467Z"
+stopped_at: context exhaustion at 77% (2026-09-23)
+last_updated: "2026-09-23T16:16:43.148Z"
 progress:
   total_phases: 14
   completed_phases: 0
@@ -115,6 +115,7 @@ diagnostic run 2026-09-17 through 2026-09-22; next-step chain at the end of this
 
 1. Finish Phase 176 (waves 3-5; `SWEEP_VERDICT=CONFIRMED` cleared the D-01a-gated plans).
    176-08's corpus run is the "next required recompute" the optimization bundle keys on.
+
 2. **One bundled landing immediately after 176-08** (the whole-dict `active_scales` fingerprint
    key and any ic_engine.py edit each invalidate every cell, so these must land together and be
    absorbed by an already-required run — never standalone mid-cycle): todo 389 (short-horizon
@@ -263,6 +264,13 @@ duplicated here. Currently open/not-yet-planned phases, compressed to current st
 
 ## Session
 
-Last session: 2026-09-23T15:36:14.443Z
-Stopped at: context exhaustion at 76% (2026-09-23)
-— its tool-sync bug is root-caused in todo 383, don't re-investigate it).
+Last session: 2026-09-23T16:16:43Z
+Stopped at: context exhaustion at 77% (2026-09-23). Landed before stopping: todo 388 closed
+stale (turnover reporting shipped with the diagnostic all along; dead `l1_turnover` deleted;
+commit `3903892d1`, pushed), todo 393 filed (portfolio diagnostic cost proxy semantically
+wrong, spec-update-first), duplicate todo 389 renumbered to 392, todo 394 filed (todo-number
+uniqueness not CI-enforced). Deferred to next session: the 233/255 `compute_eligible`
+reconciliation (blocked on Phase 176's migration 351 backfill, still running 1h+ into its DO
+block as of 16:00 UTC — check `ps aux | grep 351_earnings` first) and todo 376 (survivorship
+sourcing). The prior session's GSD tool-sync staleness is root-caused in todo 383, don't
+re-investigate it.

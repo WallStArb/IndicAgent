@@ -184,9 +184,11 @@ None currently.
 gap, and the 7-symbol `feature_vector_to_insert_params` underflow-clamp gap) fixed and
 live-confirmed. BIL/VRP/ENPH/GLD/NAD/SHY/STIP's 28 previously-stalled cells all reached
 `status='complete'` -- notably BIL/5m had been silently stuck since 2018-03-07, now extends
-through 2026-09-16. See `completed/340-...md`. No longer a candidate; closed. Surfaced 389
-(below, already filed and linked, P3), a status-table hygiene gap. Still un-filed: a real
-unguarded division (`feature_factory.py:2284`, `illiq`), independent of both bugs above.)
+through 2026-09-16. See `completed/340-...md`. No longer a candidate; closed. Surfaced two
+follow-ups, both now filed: [392](pending/392-backfill-status-error-msg-not-cleared-on-success.md)
+(renumbered from a duplicate 389 on 2026-09-23; status-table hygiene) and
+[390](pending/390-illiq-series-unguarded-division-by-zero-dollar-volume.md) (real unguarded
+division, `feature_factory.py:2284`).)
 
 ## P1 — High value, quick, fully unblocked
 
@@ -345,6 +347,7 @@ review, recorded for future consideration only.
 
 | Todo | What |
 |---|---|
+| [394](pending/394-todo-number-uniqueness-not-ci-enforced-duplicate-389.md) | New 2026-09-23, found closing todo 388. Two files shared todo number 389 for a day (concurrent sessions picking "next free" independently) and one PRIORITIES.md row displayed `[391]` while linking `pending/389-...` -- `test_todo_priorities_link_integrity.py` passed both times because it checks link-target existence only, not number uniqueness or label-file agreement. Fix: extend the guard with (1) no duplicate leading numbers across pending/+completed/+deferred/ (numbers must never be reused after closure either) and (2) display number == target filename number. Same drift-class extension pattern as the guard's own todo-305 origin. |
 | [338](pending/338-integration-db-rebuild-fixture-per-table-seed-pattern-repeating.md) | New 2026-08-20, from todo 293's `/simplify` altitude pass. `tests/integration/conftest.py`'s per-table data-seed pattern (schema-only baseline drops a pre-cutoff reference table's DML, blocking the whole rebuild fixture until seeded) has now repeated twice (`instruments`, then `tag_vocabulary`). Not fixed generically yet -- two occurrences is defensible one-off under YAGNI -- but nothing watches for a third. Tripwire only: if a third table hits this, generalize instead of filing a fourth narrow todo. |
 | [298](pending/298-backfill-connection-drop-silent-failure-and-completeness-audit.md) | New 2026-08-11, follow-up from todo 296. **Downgraded P0→P3 same session**: original filing claimed the backfill's connection-drop path was a silent failure — wrong, re-reading the code confirmed it already prints exact symbol/tf errors, exits nonzero, and emits `job_completed_total{status="partial"}`. Root-cause half (checkpoint I/O contention) already fixed live this session (`max_wal_size` 1GB→4GB via `ALTER SYSTEM`+reload). What's left is tooling polish: `backfill_retry_loop.sh` doesn't generalize to arbitrary `--client-id`/`--symbols` (hardcoded for the original 80-symbol universe), and no automated end-of-run completeness summary beyond the exit code (the `n_tf=5` SQL exists, just isn't wired in). |
 | [056](pending/056-phase146-147-v2x-retirement-stale.md) | ROADMAP Phase 147/148 text rewritten 2026-07-19 (operator call resolved: archive not delete, decouple from proof gates). Remaining scope: the actual decommission-in-fact execution (git mv v2.x code to archive/, disable dead systemd units, rename-not-drop the frozen v2.x tables) — real multi-file operation, do with a clean git state. |
