@@ -63,6 +63,37 @@ recompute after a feature, config, or methodology change.
    processes and give prange 4-6 threads each (the real ~1.5-2x end-to-end option). Editing
    ic_engine.py for adoption moves code_content_key -- belongs in the bundled todo 389/386
    landing, not standalone.
+   **Built 2026-09-23 (branch perf/ic-engine-speedups), and the benchmark's prange kernel was
+   the wrong target.** End to end on a real cell it gave only 1.23x at equal threads (SPY 1h,
+   2 threads: 279s vs 342s), because every resample still argsorted every column. Replaced
+   with a counting-rank kernel (`src/intelligence/statistics/ic_bootstrap_jit.py`): a bootstrap
+   resample only repeats original rows, so each column is dense-ranked once and each
+   resample's average ranks come from counts plus a prefix sum, with no sort in the hot loop.
+   Measured end to end through `_compute_symbol_tf`, unprofiled, same box:
+
+   | cell | path | threads | wall |
+   |---|---|---|---|
+   | SPY 1h | scipy (production) | 2 | 338.7s |
+   | SPY 1h | counting kernel | 1 | 26.9s |
+   | SPY 1h | counting kernel | 2 | 16.7s (20x) |
+   | SPY 1h | counting kernel | 6 | 11.7s |
+   | SPY 5m | counting kernel | 2 | 121.5s, peak RSS 3.8 GB |
+
+   Correctness: bit-identical to scipy fed float64 (unit tests: ties, NaN rows drawn by some
+   resamples, NaN returns, constant columns, early-stop chunking). Against production's float32
+   path, CI bounds differ by at most 2.3e-8 over all 5706 SPY 1h rows with zero gate flips
+   (scipy >= 1.15 keeps float32 ranks, so production accumulates in float32; the kernel is the
+   more accurate path). Behind `alpha.ic.bootstrap_numba_kernel`, a COMPUTATIONAL fingerprint
+   field. The profile after the kernel: 15.7s total on SPY 1h, kernel 9.8s, DB fetch ~1.7s,
+   percentiles ~0.85s, remaining scipy rankdata (point IC, folds) ~1.5s.
+   **Found on the way, a real determinism bug:** `_compute_symbol_tf` built its regime-label
+   lists from `set(...)`, so string hash randomization reordered which cells draw from the
+   shared per-symbol bootstrap RNG in every process. Same inputs, different CI bounds and
+   `passes_ci_gate` run to run (9/4506 rows flipped on SPY 1h). Fixed with `sorted()` on the
+   same branch; verified bit-identical across `PYTHONHASHSEED` values.
+   **Layout:** 24 cores, 29 GB RAM, ~3.8 GB peak per 5m worker, so fewer processes with more
+   threads each (e.g. 6 workers x 4 threads) instead of today's 8 x 2. Both knobs are
+   operational (not in the fingerprint), so tune after landing without invalidating cells.
 3. **Staged bootstrap.** Cheap point IC for every cell; 2000-resample bootstrap only where it can
    change a decision. Selecting cells on the same statistic later tested distorts BH-FDR, so the
    selection rule must be pre-registered and the FDR family defined over all cells. Todo 227's
