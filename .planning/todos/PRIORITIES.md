@@ -178,9 +178,15 @@ jobs 1020/1021 via `delete_job()`. See both files' `## Resolved 2026-09-07` sect
 
 ## P0 — Fix soon (integrity/correctness gaps already surfaced)
 
-| Todo | Gap |
-|---|---|
-| [340](pending/340-ihf-5m-feature-compute-zero-row-positive-input-error.md) | **IHF half CLOSED 2026-09-22, live-confirmed** -- root cause: `_canary_acausal_placebo` (a look-ahead-leak positive-control canary) guarded only its ratio's denominator, not the numerator; IHF/5m's one `close=0` bar (2010-05-06 Flash Crash, genuine print) hit the unguarded numerator, `math.log(0.0)` raised the error. Fix + 2 regression tests landed (`src/intelligence/feature_factory.py`, `tests/unit/test_canary_predictors.py`), full test files green, AND a fresh live `--compute-only --symbols IHF` run confirms `backfill_status` now `status='complete', rows_written=226711`. Full record: `.planning/debug/resolved/ihf-5m-positive-input-error.md`. **7-symbol underflow bug (BIL/VRP/ENPH/GLD/NAD/SHY/STIP): root cause found and fixed 2026-09-22, live re-run in progress** -- shared row-serializer `feature_vector_to_insert_params()` never clamped `real`-typed floats; two mechanisms confirmed (HMM posterior-probability underflow for 6 symbols, SMC zone-decay underflow for BIL specifically, BIL's near-zero volatility driving excessive zone retests). Fix promotes todo-312's clamp helper to a new Ring 0 `src/core/real_column_range.py`, applied column-agnostically; unit tests + full suite green. Live re-run (`--refresh` across all 7 symbols) launched once IHF's confirmation run cleared -- awaiting completion before archiving. See `.planning/debug/underflow-7symbol-real-column.md`. Also still open: a real unguarded division (`feature_factory.py:2284`, `illiq`), independent of both bugs above. |
+None currently.
+
+(Todo 340 resolved 2026-09-22 -- both halves (IHF's `_canary_acausal_placebo` numerator guard
+gap, and the 7-symbol `feature_vector_to_insert_params` underflow-clamp gap) fixed and
+live-confirmed. BIL/VRP/ENPH/GLD/NAD/SHY/STIP's 28 previously-stalled cells all reached
+`status='complete'` -- notably BIL/5m had been silently stuck since 2018-03-07, now extends
+through 2026-09-16. See `completed/340-...md`. No longer a candidate; closed. Surfaced 389
+(below, already filed and linked, P3), a status-table hygiene gap. Still un-filed: a real
+unguarded division (`feature_factory.py:2284`, `illiq`), independent of both bugs above.)
 
 ## P1 — High value, quick, fully unblocked
 
@@ -318,6 +324,7 @@ separation test), not hygiene.
 
 ## P3 — Hygiene, docs, process (opportunistic)
 
+| [389](pending/389-backfill-status-error-msg-not-cleared-on-success.md) | New 2026-09-23, found during live end-to-end verification of the underflow-7symbol-real-column debug session. `_MARK_COMPUTE_COMPLETE_SQL` in `backfill_feature_factory.py` never clears `error_msg` on a successful completion -- confirmed live: all 12 previously-failed BIL/VRP/ENPH/GLD/NAD/SHY/STIP cells reached `status='complete'` with fresh `completed_at` timestamps but still display the stale `"value out of range: underflow"` text. `status`/`completed_at` are authoritative and correct; purely a status-table cosmetic gap. |
 | [373](pending/373-docs-tree-152-broken-internal-links-not-file-count-clutter.md) | New 2026-09-09, from a user-requested "renaissance cleanup" audit. Checked the file-count-clutter premise and found it false (`docs/plans/archive`+`docs/research/archive` already hold 259 files, 64 commits touched `docs/` in the last 30 days, the highest-confidence "probably stale" batch — 15 `fable-2026-07-*.md` reviews — are all still actively cross-referenced, none orphaned). The real finding: 152 broken internal markdown links, three clusters (35 old `intel-NN-name.md` numbering-scheme refs; 46 concentrated in `docs/architecture`/`data`/`platform`/`intelligence`/`development`/`operations`/`reference`, possibly pre-v3.0 docs describing ARCHIVED subsystems; 71 untriaged). Not fixed — real work, its own pass. |
 
 **2026-08-26:** [359](pending/359-phase173-altitude-design-notes.md) added — 3 Phase 173
