@@ -497,6 +497,16 @@ def days_since_quarter_end(d):
 | A2 | Recommended `parent_features` selections (`['quarter_position', 'quarter_cycle_sin']` for the flag, `['quarter_position', 'quarter_cycle_cos']` for the companion) | Pattern 1, Code Examples | `[ASSUMED]` — chosen by analogy to `opex_flag`/`quad_witching_flag`'s parent selection (dow/week/month atomics closest to the event's structure), not independently measured for these two specific fields. The 0.935 correlation with `quarter_position` itself IS measured (A1 is about a different, unrelated number); the choice of `quarter_cycle_sin` vs. `quarter_cycle_cos` vs. some other second parent is a reasonable-but-unverified analogy. Low risk — `parent_features` only affects which columns the partial-IC control conditions on, not correctness of the core measurement. |
 | A3 | Exact current line numbers cited throughout (e.g., `feature_factory.py:6244`, `ic_engine.py:3101`) | Architecture Patterns, Site Inventory | These are live-verified as of 2026-09-22 but will drift as other work lands on `main` before this phase executes. Treat as "grep for this function/pattern name," not as literal line-number targets, at implementation time. |
 
+**A1 CORRECTION (2026-09-23, Plan 176-01 Task 3):** Live re-verified against the live corpus,
+1d timeframe: in-season IC 0.019647 (n=300,546) vs off-season IC 0.010149 (n=629,965), ratio
+1.94x -- closely reproducing the todo's originally reported second-finding numbers
+(+0.0197/+0.0103). A1_VERDICT=CONFIRMED. The extended family-wide sweep required by D-01a
+(the same 14-42-day window applied to the full 57-feature vol/volume family, BH-FDR corrected
+exactly once) found 31/57 features broad and FDR-significant, including `up_vol_body_diff`
+itself: SWEEP_VERDICT=CONFIRMED, gating plans 176-04/176-05/176-06 to PROCEED. Full measurement
+(both 1d and supporting 1h numbers, the full 57-row table, and the breadth-test methodology):
+`176-EVIDENCE-A1.md`.
+
 ## Open Questions
 
 1. **(RESOLVED by 176-04)** **Should `earnings_season_conditioned` be a new run-level APR bool, or always-on once the
