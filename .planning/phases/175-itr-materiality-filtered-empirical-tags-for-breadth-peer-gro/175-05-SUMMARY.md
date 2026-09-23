@@ -142,3 +142,14 @@ None - no external service configuration required. Documentation-only plan.
 ---
 *Phase: 175-itr-materiality-filtered-empirical-tags-for-breadth-peer-gro*
 *Completed: 2026-09-23*
+
+## Self-Check: PASSED
+
+- FOUND: docs/foundation/instrument-tag-registry.md
+- FOUND: docs/foundation/apr-calibration-backlog.md
+- FOUND: .planning/todos/completed/125-tag-calibrator-discovery-oos-gate-not-enforced.md
+- FOUND: .planning/todos/completed/126-instrument-tags-valid-to-no-consumer-contract.md
+- FOUND: .planning/phases/175-itr-materiality-filtered-empirical-tags-for-breadth-peer-gro/175-05-SUMMARY.md
+- FOUND: commit 193b8c9dd (Task 1)
+- FOUND: commit b2bc962ee (Task 2)
+- FOUND: commit 65431a2a6 (SUMMARY.md)
