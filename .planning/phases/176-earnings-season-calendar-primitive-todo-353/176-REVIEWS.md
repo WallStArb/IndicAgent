@@ -1,6 +1,6 @@
 ---
 phase: 176
-reviewers: [codex]
+reviewers: [codex, fable]
 reviewed_at: 2026-09-23T00:09:38Z
 plans_reviewed: [176-01, 176-02, 176-03, 176-04, 176-05, 176-06, 176-07, 176-08]
 ---
@@ -123,16 +123,131 @@ Wave ordering is mostly sound (1: evidence + migration parallel; 2: compute depe
 
 ---
 
+## Fable Review
+
+**Scope note:** run as a second opinion after Codex, explicitly instructed not to re-derive
+Codex's findings (all already fixed) but to push on the idea itself — is this the right thing to
+build, at the right scope, in the right order.
+
+### 1. Idea-level critique — the core finding
+
+**D-01 locked the expensive workstream to ship regardless of what the evidence said.** Plan
+176-01 (wave 1) re-verifies Assumption A1 (`up_vol_body_diff`'s claimed IC doubling in-season) —
+the entire stated motivation for building the `ic_engine.py` regime-conditioning workstream
+(176-04/05/06). But nothing downstream depended on that verdict: 176-01's own Task 2 said a
+WEAKER or REFUTED result "changes this phase's write-up... but does NOT cancel plans 176-04 or
+176-06." 176-07 (the corpus recompute) depended only on 176-03, not on the A1 verdict either.
+This inverts CLAUDE.md's own "earn promotion through proof" / "empirical over theoretical"
+principles — production-infrastructure-grade effort (OOM-sensitive `ic_engine.py` changes, a
+CHECK constraint widening, a full consumer-isolation audit) committed ahead of knowing whether
+the one number motivating it survives a second look.
+
+**Selection-risk gap:** nothing in RESEARCH.md/CONTEXT.md/the todo states how many features were
+tested before `up_vol_body_diff` was reported as the standout. If it was one of several tried and
+the others weren't reported, `p=6.5e-27` overstates significance — the exact multiple-comparisons
+risk this project polices everywhere else via BH-FDR.
+
+**Resolution adopted (D-01a, see CONTEXT.md):** extend 176-01 to sweep the full vol/volume
+feature family with BH-FDR (not just `up_vol_body_diff`); gate 176-04/05/06 on that sweep finding
+*any* feature(s) with a broad, FDR-significant in-season/off-season divergence — the conditioning
+mechanism has value independent of which specific feature carries the effect.
+
+**Framing gap (not yet resolved, worth a documentation note when writing up results):**
+`earnings_season_flag` is a market-wide calendar proxy for aggregate seasonal
+liquidity/volatility, not a measure of any individual symbol's proximity to its own earnings
+date. Deliberately excluding a per-company earnings-date table is the right architectural call
+(no new nonstationary data source), but the phase is testing "is there a market-wide effect," not
+"does earnings proximity predict returns for symbol X" — don't let those get conflated in a
+future promotion write-up.
+
+### 2. Design refinements
+
+**176-07 is the wrong tool.** `earnings_season_flag`/`days_since_quarter_end` are pure functions
+of `bar_ts` alone — no bar history, no per-symbol state. Populating them on ~40M pre-existing
+rows via a full `backfill_feature_factory.py --refresh` (all ~300 columns, full compute pipeline)
+is why Codex rated it HIGH risk and why it needs elaborate collateral-damage verification. A
+direct, scoped `UPDATE feature_vectors SET earnings_season_flag = ..., days_since_quarter_end =
+...` (plain SQL date arithmetic) touches only the two new columns and structurally cannot disturb
+anything else — no collateral-damage check needed because there's nothing else the statement can
+write to. Still needs the project's own documented compressed-hypertable pattern
+(decompress/UPDATE/recompress/mandatory `VACUUM`), but that's a well-trodden, CI-enforced SOP
+versus 176-07's bespoke pre-flight/batching/telemetry machinery. Likely cuts wall-clock cost by
+an order of magnitude and eliminates most of Codex's top-flagged operational risk.
+
+**No rollback plan if the conditioning verdict is negative.** `alpha.ic.earnings_season_conditioned`
+defaults `true` with no plan to flip it back off if `CONDITIONING_VERDICT` comes back `NEUTRAL`
+or `DEGRADES` — every future `ic_engine` corpus run (already 11-76h historically) would pay the
+extra per-symbol and cross-sectional passes permanently. 176-08 should set the APR key to `false`
+with a recorded `config_history` reason if the verdict isn't `SHARPENS`.
+
+**No window-sensitivity check.** The 14-42 day boundary came from domain knowledge, not data-fit
+(good — avoids overfitting), but nothing tests whether nearby boundaries (10-35, 20-45) perform
+materially differently before locking values into `concept_registry` and paying for the full
+recompute cycle to find out. A cheap sweep across candidate windows, using the same lightweight
+proxy-script approach, before 176-02's migration locks the seed values, is a low-cost robustness
+check.
+
+**Per-symbol vs. cross-sectional overlap unexplained.** 176-04 (per-symbol) and 176-06
+(cross-sectional) measure overlapping-but-not-identical things given the flag is broadcast
+(symbol-invariant). The plan set never states which workstream is expected to carry the signal if
+real, making a split verdict (one SHARPENS, one doesn't) hard to interpret. Worth a sentence in
+176-08's decision rules.
+
+### 3. What Codex missed
+
+Evidence-gating sequencing (the main finding above) is the biggest gap — Codex's review assessed
+whether the plans were internally safe/correct, never whether the expensive workstream should be
+built at all given the strength of its own motivating evidence. Also not raised by Codex:
+selection-risk on the single-feature evidence, 176-07 being the wrong recompute mechanism (Codex
+accepted the mechanism as given and focused on mitigations around it), the missing
+negative-verdict rollback, window-boundary sensitivity, and the market-wide-proxy vs.
+per-symbol-earnings-proximity framing distinction.
+
+### 4. Risk Assessment
+
+**Overall: HIGH** — agrees with Codex's operational risk rating, but weights the risk
+differently: Codex's HIGH items are mostly well-mitigated by the plans as written. The bigger
+risk is upstream — committing large, genuinely risky engineering/compute investment (4 of 8
+plans) to a hypothesis that hadn't cleared a cheap, non-schema-touching validation pass at
+commitment time. That's a process/sequencing risk, not a code-correctness risk, and better
+implementation of the current plans doesn't fix it — it requires re-sequencing (now done via
+D-01a).
+
+### 5. Bottom-line recommendation
+
+Do not build the conditioning workstream unconditionally. Ship 176-01→03 (extended sweep, cheap,
+standard-risk) regardless of the sweep's outcome; swap 176-07 to the direct SQL backfill
+regardless (no downside); gate 176-04/05/06 on the sweep's result; add the missing rollback
+action. **Adopted via D-01a and the revision pass that follows this review.**
+
 ## Consensus Summary
 
-Only one reviewer completed (Antigravity quota-exhausted) — no cross-reviewer consensus to synthesize. Codex's own findings stand on their own; treat "HIGH" items below as the priority list until a second opinion is available:
+Antigravity never completed (quota-exhausted, ~26h wall). Codex and Fable did not overlap in
+scope (Codex: plan-level correctness/safety; Fable: idea-level sequencing) — no redundant
+agreement to synthesize, but no contradiction either. Codex's items 1-5 below are mechanical
+fixes, already applied in the same revision pass as this review. Fable's finding is structural
+and required a user decision (D-01a): re-gate the conditioning workstream on the extended
+evidence sweep, with a carve-out that the mechanism has value if any feature (not necessarily
+`up_vol_body_diff`) survives FDR. Adopted.
 
-### Priority findings to act on before execution
-1. **176-01 SQL injection guardrail** — cheap, mechanical fix (use `psycopg.sql.Identifier`/strict allow-list, not string interpolation).
-2. **176-07/176-08 undefined numeric thresholds** ("large majority," checksum cost, symbol-scope source) — cheap, mechanical fixes (pin numbers, same pattern as the plan-checker's W6 fix).
-3. **176-05 audit scope** — clarify "scope-agnostic offline script" only applies to genuinely non-decision-driving scripts.
-4. **176-06/176-07 memory and cost risks** — real but harder to fix without live measurement; worth a runtime telemetry addition rather than a design change.
-5. **`feature_ic_scores` uniqueness key gap** — real schema smell, correctly scoped as a follow-up todo rather than blocking this phase.
+### Findings addressed (Codex, mechanical)
+1. **176-01 SQL injection guardrail** — `psycopg.sql.Identifier`/strict allow-list, mandated.
+2. **176-07/176-08 undefined numeric thresholds** — pinned (80% compute floor, measured checksum bound, re-sourced symbol scope).
+3. **176-05 audit scope** — `DECISION-DRIVING` determination now precedes the verdict.
+4. **176-06/176-07 memory and cost risks** — telemetry added, no design change.
+5. **`feature_ic_scores` uniqueness key gap** — filed as todo 391, referenced from 176-06, correctly scoped as a follow-up not a blocker.
 
-### Deferred (no second reviewer to cross-check)
-Re-run `/gsd-review 176 --antigravity` after the quota resets (~2026-09-24T03:00 UTC) for a second opinion before committing to execution, especially given the HIGH-risk operational profile Codex flagged.
+### Findings addressed (Fable, structural — see D-01a in CONTEXT.md)
+6. **Unconditional conditioning-workstream commitment** — re-gated on 176-01's extended
+   multi-feature BH-FDR sweep.
+7. **176-07 wrong recompute mechanism** — swapped to a direct SQL backfill.
+8. **Missing negative-verdict rollback** — 176-08 now flips `alpha.ic.earnings_season_conditioned`
+   off if the verdict isn't `SHARPENS`.
+
+### Deferred
+- Re-run `/gsd-review 176 --antigravity` after the quota resets (~2026-09-24T03:00 UTC) for a
+  third opinion, given the phase's still-real operational scope even after re-scoping.
+- Window-sensitivity sweep (14-42 day boundary) — Fable's suggestion, not yet actioned; consider
+  before `176-02`'s migration locks the seed values.
+- The market-wide-proxy vs. per-symbol-earnings-proximity framing distinction — a write-up/
+  communication note for whoever reads 176-08's eventual verdict, not a plan change.

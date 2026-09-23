@@ -29,6 +29,22 @@ real `feature_ic_scores` FDR/walk-forward gate pass, same as any other new primi
   touching `ic_engine.py`'s cross-sectional regime-segmentation code (documented OOM history,
   see `docs/foundation/performance-investigation-sop.md` and the `357`/`358` todos) as the cost
   of doing this once, correctly, rather than twice.
+- **D-01a (amendment, 2026-09-23, Fable cross-AI review pass):** D-01's "build both
+  unconditionally" reading is corrected. Fable's independent review found the original design
+  committed the conditioning workstream (176-04/05/06) to ship regardless of whether its own
+  motivating evidence (176-01's re-verification of `up_vol_body_diff`'s IC-doubling claim)
+  confirmed or refuted -- inverting this project's own "earn promotion through proof" discipline,
+  and exposed to selection risk (one feature, tested once, no stated denominator of how many
+  were tried). User's ruling: **re-gate the conditioning workstream on evidence, with one
+  carve-out** -- it does not need `up_vol_body_diff` specifically to survive. 176-01 is extended
+  to sweep the full vol/volume feature family (not just `up_vol_body_diff`) with BH-FDR
+  correction; 176-04/05/06 proceed if that sweep finds *any* feature(s) showing a broad,
+  FDR-significant in-season/off-season IC divergence -- the conditioning *mechanism* has
+  standalone value once a real conditional effect exists to measure, independent of which
+  specific feature carries it. If the sweep finds nothing survives FDR, 176-04/05/06 are deferred
+  to a properly evidence-gated future todo instead of built. D-01's "both workstreams, don't
+  stage across phases" framing still governs 176-01/02/03 (ship unconditionally, same as before)
+  -- only the conditioning workstream's commitment is now evidence-gated.
 
 ### Field scope (D-02)
 - **D-02:** Ship both `is_earnings_season` (binary) and `days_since_quarter_end` (continuous
