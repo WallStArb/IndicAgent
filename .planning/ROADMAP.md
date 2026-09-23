@@ -2870,13 +2870,13 @@ expansion.
 evidence schema, the seeded thresholds, the null-arm control and a read-only diagnostic.
 Cutting either consumer's live query over is explicitly a separate, later phase gated on
 this phase's diagnostic output plus the D-07 cross-AI review.
-**Plans:** 5 plans in 4 waves
+**Plans:** 2/5 plans executed
 
 Plans:
 **Wave 1**
 
-- [ ] 175-01-PLAN.md - migration 346: instrument_tags evidence columns, instrument_tags_active view, 11 materiality APR keys (10 gate thresholds + 1 null-arm RNG seed) (wave 1)
-- [ ] 175-02-PLAN.md - factor_math Pearson partial-loading kernel, sign-stability windows, circular-shift null arm (wave 1)
+- [x] 175-01-PLAN.md - migration 346: instrument_tags evidence columns, instrument_tags_active view, 11 materiality APR keys (10 gate thresholds + 1 null-arm RNG seed) (wave 1)
+- [x] 175-02-PLAN.md - factor_math Pearson partial-loading kernel, sign-stability windows, circular-shift null arm (wave 1)
 
 **Wave 2** *(blocked on Wave 1 completion)*
 
