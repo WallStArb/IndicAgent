@@ -155,3 +155,25 @@ sensitivity/macro_driver tags this todo's materiality filter would admit -- Fabl
 auditing -- that generalizes this todo's own orthogonalize-against-a-control-set approach
 from tag-vs-proxy to tag-vs-tag). Neither blocks or is blocked by this todo; noted for
 whoever picks either up next.
+
+## Phase 175 status (2026-09-18)
+
+Phase 175 executed 2026-09-23 and shipped Part 1 as shadow-mode measurement only. What
+shipped: `TagCalibrator`'s Pass 4 materiality filter (`services/tag_calibrator.py`,
+`decide_materiality()`/`is_materiality_eligible()`), migration 346 (eleven `instrument_tags`
+evidence columns, the `instrument_tags_active` view, the `discovery_state` CHECK
+constraint), all eleven `alpha.tag_calibrator.materiality.*` APR keys, and
+`scripts/analysis/itr_materiality_shadow_diagnostic.py` (the D-03 shadow report, run once
+against the live corpus: 2170 empirical pairs measured, 222 passing the statistical gate, 0
+symbols currently admitted to any of the four enabled regime groups). Todos 125 and 126 are
+both closed, folded into this phase as planned.
+
+What did NOT ship: any consumer query change. `breadth_vol.py` (via
+`cross_sectional_regime_model.py`'s group resolution) and that module's own
+`_load_tags_by_symbol` still filter `source = 'human'` only, exactly as the todo 379
+stopgap left them. This todo's remaining open item is the consumer-cutover decision --
+gated on the shadow report above plus the D-07 cross-AI review and the user's own review,
+not yet scheduled.
+
+Part 2 (`eq_*` naming collision) is unaffected by this phase and remains a documentation
+note requiring no fix, per the re-verification above.
