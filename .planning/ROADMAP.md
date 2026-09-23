@@ -2870,7 +2870,7 @@ expansion.
 evidence schema, the seeded thresholds, the null-arm control and a read-only diagnostic.
 Cutting either consumer's live query over is explicitly a separate, later phase gated on
 this phase's diagnostic output plus the D-07 cross-AI review.
-**Plans:** 4/5 plans executed
+**Plans:** 5/5 plans complete
 
 Plans:
 **Wave 1**
@@ -2888,7 +2888,7 @@ Plans:
 
 **Wave 4** *(blocked on Wave 3 completion)*
 
-- [ ] 175-05-PLAN.md - ITR spec, APR calibration backlog, CLAUDE.md, close todos 125/126, re-scope 380 (wave 4)
+- [x] 175-05-PLAN.md - ITR spec, APR calibration backlog, CLAUDE.md, close todos 125/126, re-scope 380 (wave 4)
 
 ### Phase 176: Earnings-Season Calendar Primitive (todo 353)
 
