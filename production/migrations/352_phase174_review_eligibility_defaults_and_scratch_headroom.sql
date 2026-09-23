@@ -3,9 +3,10 @@
 -- 1. WR-04: instruments.compute_eligible defaulted to true, so any insert path that did not
 --    name the column (POST /instruments, DatabaseManager.upsert_instruments) created a
 --    compute-eligible row that skipped the compute-readiness predicate entirely. The default
---    becomes false; the insert paths now write the flags explicitly as well (same commit).
---    The 22 inactive rows still carry the old default's true; they are cleared so a later
---    re-activation cannot resurrect a stale eligibility claim.
+--    becomes false. The 22 inactive rows still carry the old default's true; they are
+--    cleared, and a trigger plus a CHECK keep every inactive row at false from then on, for
+--    every writer (API PATCH, soft delete, upserts), so a re-activation can never resurrect
+--    a stale eligibility claim.
 --
 -- 2. WR-01: TagCalibrator measured the failed-gate D-09 pilot cohort (is_active=true,
 --    compute_eligible=false) into its run-level BH-FDR family: 218 empirical rows across 32
@@ -31,6 +32,33 @@ SET compute_eligible = false, compute_eligible_1d = false, live_tradeable = fals
 WHERE is_active = false
   AND (compute_eligible OR compute_eligible_1d OR live_tradeable);
 
+-- Enforce "an inactive row holds no eligibility" in the database, for every writer: a
+-- BEFORE trigger clears the flags whenever a row is written with is_active not true (a
+-- soft delete, PATCH, or an inactive insert), so a later re-activation can only start
+-- from false; the CHECK makes a violating row unrepresentable. Individual insert paths
+-- no longer re-implement the rule.
+CREATE OR REPLACE FUNCTION instruments_clear_eligibility_when_inactive()
+RETURNS trigger
+LANGUAGE plpgsql
+AS $fn$
+BEGIN
+  IF NEW.is_active IS NOT TRUE THEN
+    NEW.compute_eligible := false;
+    NEW.compute_eligible_1d := false;
+    NEW.live_tradeable := false;
+  END IF;
+  RETURN NEW;
+END
+$fn$;
+
+DROP TRIGGER IF EXISTS trg_instruments_clear_eligibility_when_inactive ON instruments;
+CREATE TRIGGER trg_instruments_clear_eligibility_when_inactive
+BEFORE INSERT OR UPDATE ON instruments
+FOR EACH ROW EXECUTE FUNCTION instruments_clear_eligibility_when_inactive();
+
+ALTER TABLE instruments ADD CONSTRAINT instruments_inactive_holds_no_eligibility
+CHECK (is_active IS TRUE OR NOT (compute_eligible OR compute_eligible_1d OR live_tradeable));
+
 COMMENT ON COLUMN instruments.compute_eligible IS
     'Dimension 2 of 3 (Phase 174 D-07): COMPUTE-ELIGIBLE -- feature_factory / ic_engine / '
     'regime models consume this symbol. Defaults false (migration 352): every new row, from '
@@ -38,7 +66,8 @@ COMMENT ON COLUMN instruments.compute_eligible IS
     'scripts/infrastructure/universe_expansion_promote_compute_eligible.py once '
     'COMPUTE_READY_PREDICATE_SQL holds -- fetch_complete AND non-zero tradeable rows at every '
     'timeframe in the APR compute stack (feature.factory.target_timeframes), never an '
-    'any-one-timeframe test. Re-activating an inactive row resets it to false.';
+    'any-one-timeframe test. An inactive row always holds false (trigger + CHECK below), so a
+re-activated row starts ineligible.';
 
 -- 2. WR-01 ------------------------------------------------------------------------------
 

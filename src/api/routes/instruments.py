@@ -141,10 +141,11 @@ async def create_instrument(
     are idempotent (last write wins). The DB trigger fires pg_notify automatically
     on INSERT or UPDATE - no explicit notify call is needed here.
 
-    Eligibility flags are never granted here: a new row, or a re-activated inactive
-    one, starts compute_eligible/compute_eligible_1d/live_tradeable = false and is
-    promoted only through the compute-readiness predicate (174 review WR-04). An
-    already-active row keeps its flags.
+    Eligibility flags are never granted here: a new row is inserted with
+    compute_eligible/compute_eligible_1d/live_tradeable = false and is promoted only
+    through the compute-readiness predicate (174 review WR-04). A re-activated row starts
+    at false too, because the database clears the flags whenever a row goes inactive
+    (migration 352's trigger + CHECK); an already-active row keeps its flags.
     """
     await _validate_asset_class(db_manager, payload.asset_class)
     symbol = payload.symbol.upper()
@@ -163,12 +164,6 @@ async def create_instrument(
         ON CONFLICT (symbol) DO UPDATE
             SET contract_details = EXCLUDED.contract_details,
                 is_active = true,
-                compute_eligible = CASE WHEN instruments.is_active
-                    THEN instruments.compute_eligible ELSE false END,
-                compute_eligible_1d = CASE WHEN instruments.is_active
-                    THEN instruments.compute_eligible_1d ELSE false END,
-                live_tradeable = CASE WHEN instruments.is_active
-                    THEN instruments.live_tradeable ELSE false END,
                 updated_at = NOW()
         """,
         symbol,

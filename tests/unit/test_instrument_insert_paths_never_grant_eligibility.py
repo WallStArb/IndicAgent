@@ -4,7 +4,8 @@ Phase 174 code review WR-04: compute_eligible defaulted to true and POST /instru
 DatabaseManager.upsert_instruments did not name it, so a row added or re-activated through
 them skipped the compute-readiness predicate. The upsert semantics (new row false, active
 row keeps flags, re-activated row resets) were verified against live Postgres in a rolled-
-back transaction; these tests pin the SQL shape that produces them.
+back transaction. The re-activation reset lives in migration 352's trigger + CHECK;
+these tests pin the insert shape and the migration's enforcement.
 """
 
 from __future__ import annotations
@@ -29,12 +30,33 @@ def _assert_never_grants(sql: str) -> None:
     columns = re.search(r"INSERT INTO instruments \((.*?)\)", sql, re.S).group(1)
     for flag in _FLAGS:
         assert flag in columns, f"insert does not name {flag}; it would take the column default"
-        assert re.search(
-            rf"{flag} = CASE WHEN instruments\.is_active\s+THEN instruments\.{flag} ELSE false END",
-            sql,
-        ), f"re-activating an inactive row must reset {flag}"
     values = re.search(r"VALUES \((.*?)\)", sql, re.S).group(1)
     assert values.count("false") == 3
+    on_conflict = sql.split("ON CONFLICT", 1)[1]
+    for flag in _FLAGS:
+        assert (
+            f"{flag} =" not in on_conflict
+        ), f"the upsert must not rewrite {flag}; re-activation is handled by the DB trigger"
+
+
+def test_migration_352_enforces_no_eligibility_while_inactive():
+    """The re-activation rule lives in the database for every writer (API PATCH, soft
+    delete, upserts). Verified live in a rolled-back transaction: new row f/f/f, active
+    re-post keeps flags, soft delete clears, re-activated starts false, direct violation
+    rejected by the CHECK even with the trigger disabled."""
+    from pathlib import Path
+
+    migration = next(
+        (Path(__file__).resolve().parents[2] / "production/migrations").glob("352_*.sql")
+    ).read_text()
+    assert "BEFORE INSERT OR UPDATE ON instruments" in migration
+    assert "IF NEW.is_active IS NOT TRUE THEN" in migration
+    assert (
+        "CHECK (is_active IS TRUE OR NOT (compute_eligible OR compute_eligible_1d OR "
+        "live_tradeable))" in migration
+    )
+    # The stale rows must be cleared before the CHECK is added, or the ALTER fails.
+    assert migration.index("WHERE is_active = false") < migration.index("ADD CONSTRAINT")
 
 
 @pytest.mark.unit
