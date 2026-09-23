@@ -46,7 +46,7 @@ _ALLOW_LIST: dict[str, str] = {
         "Correctly left alone (design doc's 'correctly left alone' list)."
     ),
     "scripts/infrastructure/backfill/infrastructure_nightly_backfill.py": (
-        "PERMANENT: _select_next_batch and _select_1d_only_batch rank candidate symbols by "
+        "PERMANENT: _select_stalest ranks each nightly leg's candidate symbols by "
         "their latest raw bar at a reference timeframe to order the nightly incremental "
         "run -- a proxy ranking, "
         "not a correctness check (its own docstring says so; detect_gaps() does the real "

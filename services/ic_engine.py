@@ -106,7 +106,7 @@ from services._batch_utils import (
 )
 from services._batch_utils import compressed_hypertable_write_session as _write_session
 from services._batch_utils import load_config_service_sync as _load_config_service
-from src.config.settings import Settings
+from src.config.settings import Settings, dimension_where_clause
 from src.core.agent.base_batch import BaseBatch
 from src.core.integrity_monitor import INTEGRITY_MONITOR_INSERT_SQL, emit_integrity_fact_sync
 from src.core.rng import hash_key_to_int
@@ -6715,7 +6715,7 @@ def main() -> None:
                     "SELECT i.symbol, array_remove(array_agg(t.tag), NULL::text) "
                     "FROM instruments i "
                     "LEFT JOIN instrument_tags t ON t.symbol = i.symbol AND t.source = 'human' "
-                    "WHERE i.is_active = true AND i.compute_eligible = true GROUP BY i.symbol"
+                    f"WHERE {dimension_where_clause('compute', 'i')} GROUP BY i.symbol"
                 )
                 tags_by_symbol: dict[str, set[str]] = {
                     row[0]: set(row[1]) for row in cur.fetchall()

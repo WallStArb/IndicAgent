@@ -6,10 +6,12 @@ from __future__ import annotations
 
 from unittest.mock import MagicMock, patch
 
+import pytest
+
+from scripts.infrastructure.backfill import infrastructure_nightly_backfill
 from scripts.infrastructure.backfill.infrastructure_nightly_backfill import (
     _is_another_backfill_running,
-    _select_1d_only_batch,
-    _select_next_batch,
+    _select_stalest,
 )
 
 
@@ -45,98 +47,66 @@ class _FakeCursor:
         return self._rows
 
 
-class TestSelectNextBatch:
+_COMPUTE, _COHORT = (
+    infrastructure_nightly_backfill._LEGS[0],
+    infrastructure_nightly_backfill._LEGS[1],
+)
+
+
+def _run_select(leg, rows):
+    cursor = _FakeCursor(rows)
+    conn = MagicMock()
+    conn.cursor.return_value = cursor
+    return _select_stalest(conn, leg), cursor
+
+
+class TestSelectStalest:
     def test_returns_symbols_in_query_order(self):
-        cursor = _FakeCursor([("ZZZ",), ("AAA",)])
-        conn = MagicMock()
-        conn.cursor.return_value = cursor
-
-        result = _select_next_batch(conn)
-
+        result, _ = _run_select(_COMPUTE, [("ZZZ",), ("AAA",)])
         assert result == ["ZZZ", "AAA"]
 
-    def test_passes_ranking_tf_as_param_no_limit(self):
-        cursor = _FakeCursor([])
-        conn = MagicMock()
-        conn.cursor.return_value = cursor
-
-        _select_next_batch(conn)
-
-        assert cursor.executed_params == ("1h",)
-
-    def test_no_hard_exclusion_filter_or_count_cap_in_query(self):
+    @pytest.mark.parametrize("leg", [_COMPUTE, _COHORT], ids=lambda leg: leg.name)
+    def test_no_hard_exclusion_filter_or_count_cap_in_query(self, leg):
         """Regression test for two bugs: (1) 2026-09-16, a symbol's row count crossing
         a fixed threshold must never make it permanently ineligible; (2) 2026-09-22
         (todo 382), a LIMIT on candidate selection throttles the wrong resource (see
-        module docstring) -- every compute-eligible symbol must be a candidate every
-        night, dispatched all at once, staliest first. The query has no WHERE clause on
-        row count/threshold and no LIMIT at all -- only ORDER BY staleness."""
-        cursor = _FakeCursor([])
-        conn = MagicMock()
-        conn.cursor.return_value = cursor
-
-        _select_next_batch(conn)
-
-        assert "completeness_threshold" not in (cursor.executed_sql or "")
-        assert "< %s" not in (cursor.executed_sql or "")
-        assert "LIMIT" not in (cursor.executed_sql or "")
-        assert "ORDER BY" in (cursor.executed_sql or "")
-
-    def test_scoped_to_compute_eligible_not_merely_active(self):
-        """Regression test: is_active alone would sweep up onboarded-but-not-promoted
-        symbols (e.g. Phase 174's D-10 pilot cohort, compute_eligible=false,
-        deliberately 1d-only) -- their zero 1h rows would rank them "staliest" and this
-        dispatcher passes no --timeframes/--dimension override to the delegate, so
-        they'd silently get full 5-timeframe history despite being kept out of compute
-        for exactly that cost reason."""
-        cursor = _FakeCursor([])
-        conn = MagicMock()
-        conn.cursor.return_value = cursor
-
-        _select_next_batch(conn)
-
-        assert "compute_eligible = true" in (cursor.executed_sql or "")
-
-    def test_empty_result_when_no_active_instruments(self):
-        cursor = _FakeCursor([])
-        conn = MagicMock()
-        conn.cursor.return_value = cursor
-
-        result = _select_next_batch(conn)
-
-        assert result == []
-
-
-class TestSelect1dOnlyBatch:
-    """174 review WR-02: the 1d-only cohort is outside the main leg by design, so it
-    needs its own leg or its series silently stops."""
-
-    def test_scoped_to_1d_only_cohort(self):
-        cursor = _FakeCursor([("PIL1",)])
-        conn = MagicMock()
-        conn.cursor.return_value = cursor
-
-        result = _select_1d_only_batch(conn)
-
+        module docstring) -- every eligible symbol must be a candidate every night,
+        dispatched all at once, staliest first."""
+        _, cursor = _run_select(leg, [])
         sql = cursor.executed_sql or ""
-        assert result == ["PIL1"]
-        assert "compute_eligible_1d = true" in sql
-        assert "compute_eligible = false" in sql
-        assert cursor.executed_params == ("1d",)
+        assert "completeness_threshold" not in sql
+        assert "< %s" not in sql
         assert "LIMIT" not in sql
+        assert "ORDER BY" in sql
+        assert cursor.executed_params == (leg.ranking_tf,)
+
+    def test_compute_leg_is_the_compute_universe_ranked_on_1h(self):
+        """is_active alone would sweep up the D-09 pilot cohort and pull full-stack
+        history for symbols kept 1d-only for exactly that cost reason."""
+        _, cursor = _run_select(_COMPUTE, [])
+        assert "i.is_active = true AND i.compute_eligible = true" in cursor.executed_sql
+        assert _COMPUTE.ranking_tf == "1h"
+        assert _COMPUTE.delegate_args == ()
+
+    def test_cohort_leg_is_1d_only_symbols_fetched_at_1d(self):
+        """174 review WR-02: the 1d-only cohort needs its own leg or its series stops."""
+        _, cursor = _run_select(_COHORT, [])
+        assert "i.compute_eligible_1d = true" in cursor.executed_sql
+        assert "i.compute_eligible = false" in cursor.executed_sql
+        assert _COHORT.ranking_tf == "1d"
+        assert _COHORT.delegate_args == ("--dimension", "compute_1d", "--timeframes", "1d")
 
 
 class TestMainDispatch:
-    def _run_main(self, main_symbols, cohort_symbols, returncodes):
-        from scripts.infrastructure.backfill import infrastructure_nightly_backfill as mod
-
+    def _run_main(self, batches, returncodes):
+        mod = infrastructure_nightly_backfill
+        by_leg = dict(zip((leg.name for leg in mod._LEGS), batches, strict=True))
         with (
             patch.object(mod, "setup_service_logging"),
             patch.object(mod, "Settings"),
             patch.object(mod, "_is_another_backfill_running", return_value=False),
             patch.object(mod, "connect_db"),
-            patch.object(mod, "_select_next_batch", return_value=main_symbols),
-            patch.object(mod, "_select_1d_only_batch", return_value=cohort_symbols),
+            patch.object(mod, "_select_stalest", side_effect=lambda _c, leg: by_leg[leg.name]),
             patch.object(mod, "_run_delegate", side_effect=returncodes) as mock_delegate,
             patch.object(mod, "flush_and_shutdown_metrics"),
             patch.object(mod, "JOB_COMPLETED_TOTAL"),
@@ -144,23 +114,20 @@ class TestMainDispatch:
             rc = mod.main()
         return rc, mock_delegate
 
-    def test_1d_leg_runs_with_explicit_dimension_and_timeframe(self):
-        rc, mock_delegate = self._run_main(["AAA"], ["PIL1", "PIL2"], [0, 0])
-
+    def test_each_leg_dispatches_with_its_own_args(self):
+        rc, mock_delegate = self._run_main([["AAA"], ["PIL1", "PIL2"]], [0, 0])
         assert rc == 0
-        assert mock_delegate.call_args_list[0].args == (["AAA"], [])
-        assert mock_delegate.call_args_list[1].args == (
-            ["PIL1", "PIL2"],
-            ["--dimension", "compute_1d", "--timeframes", "1d"],
-        )
+        assert [c.args for c in mock_delegate.call_args_list] == [
+            (["AAA"], ()),
+            (["PIL1", "PIL2"], ("--dimension", "compute_1d", "--timeframes", "1d")),
+        ]
 
-    def test_failure_in_either_leg_fails_the_job(self):
-        rc, _ = self._run_main(["AAA"], ["PIL1"], [0, 3])
-        assert rc == 3
-        rc, _ = self._run_main(["AAA"], ["PIL1"], [2, 0])
-        assert rc == 2
+    @pytest.mark.parametrize(("returncodes", "expected"), [([0, 3], 3), ([2, 0], 2)])
+    def test_failure_in_either_leg_fails_the_job(self, returncodes, expected):
+        rc, _ = self._run_main([["AAA"], ["PIL1"]], returncodes)
+        assert rc == expected
 
-    def test_no_1d_leg_when_cohort_empty(self):
-        rc, mock_delegate = self._run_main(["AAA"], [], [0])
+    def test_empty_leg_is_skipped(self):
+        rc, mock_delegate = self._run_main([["AAA"], []], [0])
         assert rc == 0
         assert mock_delegate.call_count == 1

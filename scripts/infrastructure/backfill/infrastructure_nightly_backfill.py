@@ -36,7 +36,7 @@ fewer symbols before running long, and a normal night covers everyone because mo
 cost ~0 real requests. `_is_another_backfill_running()` below already guards against
 overlapping runs regardless of how long any single night's run takes.
 
-Ranking heuristic note: _select_next_batch's MAX(timestamp) is still a proxy, not the
+Ranking heuristic note: _select_stalest's MAX(timestamp) is still a proxy, not the
 delegate's own more accurate _reorder_contracts_by_gap() (which nets each symbol's shortfall
 against its own proven-depth ceiling and can find gaps earlier in a symbol's history even
 when its most recent bar is current). Reusing that logic directly was considered and
@@ -53,6 +53,7 @@ import os
 import subprocess
 import sys
 from pathlib import Path
+from typing import NamedTuple
 
 import psycopg
 import structlog
@@ -63,7 +64,7 @@ sys.path.insert(0, str(project_root))
 from scripts.infrastructure.backfill.infrastructure_run_historical_pipeline import (  # noqa: E402
     connect_db,
 )
-from src.config.settings import Settings  # noqa: E402
+from src.config.settings import Settings, dimension_where_clause  # noqa: E402
 from src.core.service_utils import setup_service_logging  # noqa: E402
 from src.observability.metrics import JOB_COMPLETED_TOTAL, flush_and_shutdown_metrics  # noqa: E402
 from src.observability.otel import OTelInitError, init_otel_providers  # noqa: E402
@@ -72,8 +73,6 @@ _logger = structlog.get_logger(__name__)
 
 _JOB = "nightly-backfill"
 _NIGHTLY_CLIENT_ID = 45  # dedicated lane; ibkr.py auto-rotates on Error 326 collision
-_RANKING_TF = "1h"  # cheap-to-count proxy for "how far along is this symbol" (see module docstring)
-_1D_ONLY_TF = "1d"  # the 1d-only cohort's entire timeframe stack (D-09)
 _DELEGATE_SCRIPT = (Path(__file__).parent / "infrastructure_run_historical_pipeline.py").resolve()
 
 
@@ -93,30 +92,49 @@ def _is_another_backfill_running() -> bool:
     return bool(result.stdout.strip())
 
 
-def _select_next_batch(conn: psycopg.Connection) -> list[str]:
-    """Return every compute-eligible symbol, staliest `_RANKING_TF` bar first.
+class _Leg(NamedTuple):
+    """One nightly dispatch: a disjoint slice of the eligible universe and how to fetch it."""
 
-    Scoped to `compute_eligible = true`, not merely `is_active = true` -- this job
-    exists to keep the corpus's live compute population fresh (the same population
-    get_active_contracts()'s default dimension="compute" already encodes), and
-    is_active alone would also sweep up onboarded-but-not-yet-promoted symbols like
-    Phase 174's D-10 down-cap pilot cohort (compute_eligible=false, deliberately
-    scoped to 1d-only per D-09 to avoid paying full-timeframe backfill cost for a
-    population that might fail its gate -- which it did). This dispatcher passes no
-    --timeframes/--dimension override to the delegate, so an is_active-only filter
-    would have let the pilot cohort's zero 1h rows make it look "staliest" and
-    silently pull full 5-timeframe history for symbols that were explicitly kept out
-    of compute for exactly that cost reason.
+    name: str
+    where_clause: str  # predicate over `instruments i`, from dimension_where_clause()
+    ranking_tf: str  # timeframe whose latest bar orders the leg, staliest first
+    delegate_args: tuple[str, ...]  # extra args for the historical pipeline
 
-    No count cap (todo 382, fixed 2026-09-22) -- every compute-eligible symbol is a
-    candidate every night, ranked by how old its most recent bar is (NULLs -- never
-    backfilled at all -- sort first via the epoch fallback), and ALL of them are
-    dispatched to the delegate in staleness order. See module docstring for the full
-    incident writeup (both this bug and its 2026-09-16 predecessor).
+
+# The legs partition every eligible symbol; each symbol is fetched by exactly one leg.
+#
+# compute: the governed compute universe at the full timeframe stack. Scoped to
+#   compute_eligible, not bare is_active: is_active alone also sweeps up onboarded-but-
+#   not-promoted symbols like Phase 174's D-09 pilot cohort, whose zero 1h rows would rank
+#   them "staliest" and silently pull full-stack history for symbols kept 1d-only for
+#   exactly that cost reason. Ranked on 1h, a cheap proxy for "how far along is this
+#   symbol" (see module docstring).
+# compute_1d_only: compute_eligible_1d symbols outside the compute universe, fetched at 1d
+#   only. They are excluded from the first leg by design, so without this leg their series
+#   silently stops while dimension="compute_1d" keeps returning them (174 review WR-02).
+_LEGS: tuple[_Leg, ...] = (
+    _Leg("compute", dimension_where_clause("compute", "i"), "1h", ()),
+    _Leg(
+        "compute_1d_only",
+        f"{dimension_where_clause('compute_1d', 'i')} AND i.compute_eligible = false",
+        "1d",
+        ("--dimension", "compute_1d", "--timeframes", "1d"),
+    ),
+)
+
+
+def _select_stalest(conn: psycopg.Connection, leg: _Leg) -> list[str]:
+    """Return every symbol in `leg`, staliest `leg.ranking_tf` bar first.
+
+    No count cap (todo 382, fixed 2026-09-22) -- every eligible symbol is a candidate
+    every night, ranked by how old its most recent bar is (NULLs -- never backfilled at
+    all -- sort first via the epoch fallback), and ALL of them are dispatched to the
+    delegate in staleness order. See module docstring for the full incident writeup
+    (both this bug and its 2026-09-16 predecessor).
     """
     with conn.cursor() as cur:
         cur.execute(
-            """
+            f"""
             SELECT i.symbol
             FROM instruments i
             LEFT JOIN (
@@ -125,44 +143,15 @@ def _select_next_batch(conn: psycopg.Connection) -> list[str]:
                 WHERE timeframe = %s
                 GROUP BY symbol
             ) latest ON latest.symbol = i.symbol
-            WHERE i.is_active = true AND i.compute_eligible = true
+            WHERE {leg.where_clause}
             ORDER BY COALESCE(latest.latest_bar, '1970-01-01'::timestamptz) ASC, i.symbol ASC
             """,
-            (_RANKING_TF,),
+            (leg.ranking_tf,),
         )
         return [row[0] for row in cur.fetchall()]
 
 
-def _select_1d_only_batch(conn: psycopg.Connection) -> list[str]:
-    """Return the 1d-only cohort: compute_eligible_1d but not compute_eligible, staliest first.
-
-    These symbols (the D-09 down-cap pilot, kept as a 1d measurement asset after its gate
-    failed) are excluded from the main leg on purpose, so without this leg their series
-    silently stops at the last manual backfill and `dimension="compute_1d"` keeps returning
-    them with a gap nobody chose (174 review WR-02). Fetched at 1d only, never the full stack.
-    """
-    with conn.cursor() as cur:
-        cur.execute(
-            """
-            SELECT i.symbol
-            FROM instruments i
-            LEFT JOIN (
-                SELECT symbol, MAX(timestamp) AS latest_bar
-                FROM market_data_ohlcv
-                WHERE timeframe = %s
-                GROUP BY symbol
-            ) latest ON latest.symbol = i.symbol
-            WHERE i.is_active = true
-              AND i.compute_eligible_1d = true
-              AND i.compute_eligible = false
-            ORDER BY COALESCE(latest.latest_bar, '1970-01-01'::timestamptz) ASC, i.symbol ASC
-            """,
-            (_1D_ONLY_TF,),
-        )
-        return [row[0] for row in cur.fetchall()]
-
-
-def _run_delegate(symbols: list[str], extra_args: list[str]) -> int:
+def _run_delegate(symbols: list[str], extra_args: tuple[str, ...]) -> int:
     """Run the historical pipeline for `symbols` on the nightly client lane; return its rc."""
     result = subprocess.run(
         [
@@ -201,38 +190,25 @@ def main() -> int:
 
     conn = connect_db(settings)
     try:
-        symbols = _select_next_batch(conn)
-        symbols_1d_only = _select_1d_only_batch(conn)
+        batches = [(leg, _select_stalest(conn, leg)) for leg in _LEGS]
     finally:
         conn.close()
 
-    if not symbols and not symbols_1d_only:
+    if not any(symbols for _leg, symbols in batches):
         return _finish(
             "nothing_to_do",
             "No active instruments found -- nothing to do tonight.",
         )
 
     returncodes: list[int] = []
-    if symbols:
-        print(f"Nightly backfill: {len(symbols)} symbols -- {', '.join(symbols)}")
-        _logger.info("nightly_backfill.batch_selected", symbols=symbols, n_symbols=len(symbols))
-        returncodes.append(_run_delegate(symbols, []))
-
-    if symbols_1d_only:
-        print(
-            f"Nightly backfill (1d-only leg): {len(symbols_1d_only)} symbols -- "
-            f"{', '.join(symbols_1d_only)}"
-        )
+    for leg, symbols in batches:
+        if not symbols:
+            continue
+        print(f"Nightly backfill ({leg.name}): {len(symbols)} symbols -- {', '.join(symbols)}")
         _logger.info(
-            "nightly_backfill.batch_1d_only_selected",
-            symbols=symbols_1d_only,
-            n_symbols=len(symbols_1d_only),
+            "nightly_backfill.batch_selected", leg=leg.name, symbols=symbols, n_symbols=len(symbols)
         )
-        returncodes.append(
-            _run_delegate(
-                symbols_1d_only, ["--dimension", "compute_1d", "--timeframes", _1D_ONLY_TF]
-            )
-        )
+        returncodes.append(_run_delegate(symbols, leg.delegate_args))
 
     returncode = next((rc for rc in returncodes if rc != 0), 0)
     status = "success" if returncode == 0 else "failed"

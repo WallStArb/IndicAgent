@@ -90,7 +90,7 @@ import structlog  # noqa: E402
 
 from services._batch_utils import cfg as _cfg  # noqa: E402
 from services._batch_utils import load_apr_dict_async as _load_apr  # noqa: E402
-from src.config.settings import Settings  # noqa: E402
+from src.config.settings import Settings, dimension_where_clause  # noqa: E402
 from src.core.agent.base_batch import BaseBatch  # noqa: E402
 from src.core.database_manager import connect_with_codecs  # noqa: E402
 from src.core.service_utils import format_iso_ts  # noqa: E402
@@ -837,15 +837,19 @@ _PANEL_SQL_TEMPLATE = """
       AND fr.return_type = 'executable_open_to_open'
       AND fr.complete_fast = true
       AND fr.complete_slow = true
-      AND i.is_active = true
-      AND i.compute_eligible = true
+      AND {universe_clause}
       AND i.contract_details->>'asset_class' = 'equity'
       {watermark_clause}
     ORDER BY fv.bar_ts ASC
 """
 
-_PANEL_SQL_BACKFILL = _PANEL_SQL_TEMPLATE.format(watermark_clause="")
-_PANEL_SQL_INCREMENTAL = _PANEL_SQL_TEMPLATE.format(watermark_clause="AND fv.bar_ts > $2")
+_UNIVERSE_CLAUSE = dimension_where_clause("compute", "i")
+_PANEL_SQL_BACKFILL = _PANEL_SQL_TEMPLATE.format(
+    universe_clause=_UNIVERSE_CLAUSE, watermark_clause=""
+)
+_PANEL_SQL_INCREMENTAL = _PANEL_SQL_TEMPLATE.format(
+    universe_clause=_UNIVERSE_CLAUSE, watermark_clause="AND fv.bar_ts > $2"
+)
 
 # --evaluate-gate mode: read-only queries against already-persisted construction_spreads rows
 # and a fresh panel re-select for the live shuffled-ranking null. `one_way_turnover IS NOT
@@ -872,7 +876,9 @@ _GATE_ROWS_IN_SAMPLE_SQL = """
 
 # Re-selects the raw panel for the OOS window using Plan 03's exact filter set, for the live
 # shuffled-ranking null (design decision 4 -- never derived from persisted rows).
-_GATE_PANEL_SQL = _PANEL_SQL_TEMPLATE.format(watermark_clause="AND fv.bar_ts >= $2")
+_GATE_PANEL_SQL = _PANEL_SQL_TEMPLATE.format(
+    universe_clause=_UNIVERSE_CLAUSE, watermark_clause="AND fv.bar_ts >= $2"
+)
 
 # --evaluate-attribution mode (Validation Gate 2): OOS leg-membership + gross-spread rows,
 # read-only. Same `one_way_turnover IS NOT NULL` exclusion as _GATE_ROWS_SQL. Ordered so the

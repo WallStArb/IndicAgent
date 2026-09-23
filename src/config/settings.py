@@ -388,6 +388,24 @@ _ACTIVE_CONTRACTS_DIMENSION_CLAUSES: dict[str, str] = {
 }
 
 
+def dimension_where_clause(dimension: str, alias: str | None = None) -> str:
+    """The `instruments` WHERE predicate for a universe dimension, optionally alias-qualified.
+
+    The one place a universe's definition lives: SQL readers that join `instruments`
+    themselves (TagCalibrator, ic_engine routing, the spread tracker, the nightly
+    backfill) interpolate this instead of re-typing the clause, so a change to a
+    dimension's definition cannot miss a reader. Module-owned text, never caller input,
+    so interpolating it is safe. Raises ValueError for an unknown dimension.
+    """
+    if dimension not in _ACTIVE_CONTRACTS_DIMENSION_CLAUSES:
+        valid = ", ".join(sorted(_ACTIVE_CONTRACTS_DIMENSION_CLAUSES))
+        raise ValueError(f"Unknown dimension {dimension!r}; valid options are: {valid}")
+    clause = _ACTIVE_CONTRACTS_DIMENSION_CLAUSES[dimension]
+    if alias is None:
+        return clause
+    return " AND ".join(f"{alias}.{term}" for term in clause.split(" AND "))
+
+
 def invalidate_active_contracts_cache() -> None:
     """Force next get_active_contracts() call to re-query the database.
 

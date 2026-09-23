@@ -69,7 +69,7 @@ import structlog
 
 from services._batch_utils import cfg as _cfg
 from services._batch_utils import load_apr_dict_async as _load_apr_dict
-from src.config.settings import Settings
+from src.config.settings import Settings, dimension_where_clause
 from src.core.agent.base_batch import BaseBatch
 from src.core.rng import hash_key_to_int
 from src.intelligence.statistics.factor_math import (
@@ -1281,12 +1281,10 @@ class TagCalibrator(BaseBatch):
             active_symbols = [
                 r["symbol"]
                 for r in await conn.fetch(
-                    # compute_eligible, not bare is_active: the measured universe is the
-                    # governed compute universe (migration 337). A bare is_active filter
+                    # The compute universe, not bare is_active: a bare is_active filter
                     # pulled the failed-gate 1d-only pilot cohort into this run's BH-FDR
                     # family, shifting every other symbol's q-values (174 review WR-01).
-                    "SELECT symbol FROM instruments WHERE is_active = true "
-                    "AND compute_eligible = true "
+                    f"SELECT symbol FROM instruments WHERE {dimension_where_clause('compute')} "
                     "AND contract_details->>'asset_class' = 'equity'"
                 )
             ]
