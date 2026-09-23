@@ -546,12 +546,17 @@ def test_subsample_and_rank_source_unchanged_by_broadcast_cell_plan():
     must be byte-for-byte unchanged by Phase 173 Plan 04 -- the plan reuses the
     kernel unmodified, never edits it. Hash captured from the pre-Plan-04 source
     (identical to Plan 03's committed state, since Plan 04 makes zero edits to
-    this function)."""
+    this function).
+
+    Re-pinned 2026-09-23 (todo 385 lever 2): the only edit since is the
+    use_numba_kernel parameter routing the bootstrap to the counting-rank kernel,
+    parity-tested in tests/unit/test_ic_bootstrap_jit.py. Any further edit must
+    re-pin with the same kind of note."""
     import hashlib
 
     source = inspect.getsource(_subsample_and_rank)
     digest = hashlib.sha256(source.encode()).hexdigest()
-    assert digest == "490777dba07fb9b2a224c139617f07b6c3ccacc36701e926c88694fbb5b20e2d", (
+    assert digest == "25433668b2b47f7bf78f7f2543401a666b1e0c193d8d37a0e599349ab1020d67", (
         "_subsample_and_rank's source changed -- Phase 173 Plan 04 must reuse "
         "this kernel byte-for-byte unmodified"
     )
