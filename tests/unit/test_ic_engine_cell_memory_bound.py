@@ -486,6 +486,72 @@ def test_disk_headroom_check_reserves_for_two_scratch_files(tmp_path, monkeypatc
     assert fake_conn.chunk_fetch_count == 0
 
 
+def _headroom_case(tmp_path, monkeypatch, *, free, total, fraction=0.15, multiplier=2.2):
+    import dataclasses
+
+    config = dataclasses.replace(
+        _make_config(
+            max_cell_rows=15_000_000, disk_backed_min_rows=0, memmap_scratch_dir=str(tmp_path)
+        ),
+        scratch_min_free_after_fraction=fraction,
+        scratch_headroom_multiplier=multiplier,
+    )
+    fake_conn = _FakeConn(regime_timestamp_rows=_ts_rows(1000))
+    _patch_short_lived_conn(monkeypatch, fake_conn)
+    _patch_trivial_cell_functions(monkeypatch)
+
+    class _FakeDiskUsage:
+        pass
+
+    usage = _FakeDiskUsage()
+    usage.total, usage.used, usage.free = total, total - free, free
+    monkeypatch.setattr(ic_module.shutil, "disk_usage", lambda path: usage)
+    return config, fake_conn
+
+
+def test_disk_headroom_check_keeps_a_reserve_for_the_database(tmp_path, monkeypatch):
+    """174 review WR-05: free space that covers the scratch files but would leave the
+    shared filesystem below the reserve must refuse the cell before any fetch."""
+    required = int(2.2 * 1000 * _N_FEATURES * 4)
+    total = required * 100
+    reserve = int(0.15 * total)
+    free = required + reserve - 1  # covers the files, one byte short of the reserve
+    config, fake_conn = _headroom_case(tmp_path, monkeypatch, free=free, total=total)
+
+    with pytest.raises(RuntimeError, match="free for the database") as exc_info:
+        _call(config, symbol_list=["SPY"])
+
+    assert str(reserve) in str(exc_info.value)
+    assert fake_conn.chunk_fetch_count == 0
+
+
+def test_disk_headroom_check_admits_a_cell_that_leaves_the_reserve(tmp_path, monkeypatch):
+    required = int(2.2 * 1000 * _N_FEATURES * 4)
+    total = required * 100
+    free = required + int(0.15 * total)
+    config, fake_conn = _headroom_case(tmp_path, monkeypatch, free=free, total=total)
+
+    _call(config, symbol_list=["SPY"])
+
+    assert fake_conn.chunk_fetch_count > 0
+
+
+def test_disk_headroom_multiplier_comes_from_config(tmp_path, monkeypatch):
+    """174 review WR-07: the multiplier is APR-backed config, not a module constant."""
+    assert not hasattr(ic_module, "_DISK_BACKED_SCRATCH_HEADROOM_MULTIPLIER")
+    one_file = 1000 * _N_FEATURES * 4
+    config, _ = _headroom_case(
+        tmp_path,
+        monkeypatch,
+        free=int(2.9 * one_file),
+        total=10**15,
+        fraction=0.0,
+        multiplier=3.0,
+    )
+    with pytest.raises(RuntimeError, match=r"3\.0x headroom"):
+        _call(config, symbol_list=["SPY"])
+
+
 # ---------------------------------------------------------------------------
 # Case 8: no automatic degrade (D-04 / T-174-06) -- machine-checked over module source
 # ---------------------------------------------------------------------------

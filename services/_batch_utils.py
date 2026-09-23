@@ -1109,13 +1109,15 @@ class Float32ChunkAccumulator:
     Memmap ownership contract (disk-backed mode only -- load-bearing for Plans 05 and
     09, both reviewers flagged this as the phase's highest-risk ambiguity):
     - `finalize()` returns a VIEW over the memmap, not a copy.
-    - That view stays readable until, and only until, the caller calls `close()`.
-    - The caller owns `close()` and must not call it while any consumer still holds
-      or reads the returned view -- doing so raises `ValueError: mmap closed or
-      invalid` at best and produces a platform-dependent invalid-memory read at
-      worst.
-    - Therefore the caller's `try`/`finally` must span every downstream consumer of
-      the returned array, not just the accumulation loop.
+    - The caller owns `close()` and calls it only after every consumer of the
+      returned view has returned: the caller's `try`/`finally` must span every
+      downstream consumer, not just the accumulation loop, so the scratch file's disk
+      space is reclaimed as soon as the cell is done.
+    - A view that outlives `close()` is still memory-safe: `close()` unlinks the file
+      but never unmaps it, so the view keeps reading this cell's own data until it is
+      garbage-collected (Linux keeps an unlinked, still-mapped inode alive). Holding
+      one holds the scratch file's disk pages, so it is a leak to fix, never a
+      correctness hazard.
     """
 
     def __init__(
@@ -1227,11 +1229,12 @@ class Float32ChunkAccumulator:
         return result
 
     def close(self) -> None:
-        """Release every OS resource a disk-backed accumulator opened: the mmap AND
-        the underlying `NamedTemporaryFile` handle, then unlink the scratch file.
-        Closing the mmap without closing the `NamedTemporaryFile` leaks one Python
-        file descriptor per accumulator (T-174-39) -- across the thousands of cells
-        in a corpus run that exhausts the process fd limit.
+        """Release a disk-backed accumulator's resources: flush and drop the memmap,
+        close the underlying `NamedTemporaryFile` handle, then unlink the scratch file.
+        Not closing the `NamedTemporaryFile` leaks one Python file descriptor per
+        accumulator (T-174-39) -- across the thousands of cells in a corpus run that
+        exhausts the process fd limit. The mapping itself is released when its last
+        view is garbage-collected, never by an explicit close (see below).
 
         Idempotent: safe to call twice, and a no-op in in-RAM mode. Each step is
         wrapped independently so a failure in one does not skip the others. Plan 05's
@@ -1244,12 +1247,13 @@ class Float32ChunkAccumulator:
                 self._memmap.flush()
             except Exception as error:
                 _logger.warning("float32_chunk_accumulator.mmap_flush_failed", error=str(error))
-            try:
-                self._memmap._mmap.close()
-            except Exception as error:
-                _logger.warning("float32_chunk_accumulator.mmap_close_failed", error=str(error))
-            finally:
-                self._memmap = None
+            # Drop the reference; never close the mmap explicitly. An explicit
+            # `_mmap.close()` turned any still-live view into a use-after-unmap:
+            # a segfault, or -- once a later cell's memmap reused the address -- a
+            # silent read of another cell's data (174 review WR-06). Without it the
+            # kernel unmaps when the last view is garbage-collected, and a stale read
+            # returns this cell's own data.
+            self._memmap = None
         if self._tmpfile is not None:
             try:
                 self._tmpfile.close()

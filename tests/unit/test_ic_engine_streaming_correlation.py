@@ -334,44 +334,39 @@ def test_cluster_identity_at_threshold_boundary(
 
 
 # ---------------------------------------------------------------------------
-# Case 10: X_nd teardown does not precede its readers.
+# Case 10: a view that outlives X_nd teardown stays memory-safe.
 #
-# A real post-teardown read through a closed+unlinked np.memmap is memory-unsafe
-# at the OS level -- empirically confirmed while writing this test to segfault
-# the CPython process outright on this platform/numpy version, rather than raise
-# a catchable ValueError (matching this module's own documented caveat: "any
-# read of that view after close() raises ValueError ... or is a platform-
-# dependent invalid read elsewhere"). Running that read in-process would crash
-# the whole pytest run, not just fail one test. This case therefore runs the
-# read in an isolated subprocess and asserts the READ NEVER SILENTLY SUCCEEDS
-# WITH DATA -- either a clean exception or a hard crash both prove the mapping
-# is genuinely gone, which is the load-bearing claim (X_sub_nd is a live reader,
-# so its teardown must wait for every reader to finish) -- not the specific
-# failure mechanism.
+# Teardown ordering (cleanup only after every reader returns) is pinned by
+# test_ic_engine_cell_memory_bound.py's close-after-consumer case. This case pins
+# what happens if that ordering is ever violated: the old teardown explicitly
+# closed the mmap, so a stale read segfaulted the process -- or, once a later
+# cell's memmap reused the address, silently read that cell's data (174 review
+# WR-06). Teardown now unlinks the file but never unmaps, so a stale read returns
+# this cell's own data. Run in a subprocess so a regression to the unsafe
+# teardown crashes only the child, and fails this test instead of the whole run.
 # ---------------------------------------------------------------------------
 
 
-def test_x_nd_teardown_does_not_precede_readers(tmp_path) -> None:
+def test_x_nd_view_after_teardown_is_memory_safe(tmp_path) -> None:
     script = textwrap.dedent(f"""
+        import os
         import numpy as np
         from services.ic_engine import _build_column_wise_x_nd
 
         X_raw = np.arange(80, dtype=np.float32).reshape(20, 4)
         mask = np.array([True, True, False, True])
         X_nd, cleanup = _build_column_wise_x_nd(X_raw, mask, {str(tmp_path)!r})
-
-        # X_sub_nd is a VIEW over X_nd, exactly like the per-scale loop's own
-        # X_sub_nd = X_nd[0:n_raw:scale_stride] -- prove it is a live reader
-        # BEFORE teardown.
         X_sub_nd = X_nd[0:20:2]
-        assert np.array_equal(np.asarray(X_sub_nd), X_raw[0:20:2][:, mask])
+        expected = X_raw[0:20:2][:, mask]
 
         cleanup()
 
-        # Any read through X_sub_nd after teardown must not return silently-
-        # wrong data. print() only runs if the read returns normally.
-        value = X_sub_nd[0, 0]
-        print("READ_SUCCEEDED", value)
+        assert not [f for f in os.listdir({str(tmp_path)!r}) if f.endswith(".memmap")]
+        # Allocate and map another cell's worth, as a later cell would.
+        other, other_cleanup = _build_column_wise_x_nd(X_raw * -1, mask, {str(tmp_path)!r})
+        assert np.array_equal(np.asarray(X_sub_nd), expected)
+        other_cleanup()
+        print("STALE_READ_RETURNED_OWN_DATA")
         """)
     result = subprocess.run(
         [sys.executable, "-c", script],
@@ -379,11 +374,8 @@ def test_x_nd_teardown_does_not_precede_readers(tmp_path) -> None:
         text=True,
         timeout=30,
     )
-    assert "READ_SUCCEEDED" not in result.stdout, (
-        "post-teardown read through X_sub_nd returned data instead of failing "
-        f"loudly: stdout={result.stdout!r}"
+    assert result.returncode == 0, (
+        "stale read after X_nd teardown crashed or returned the wrong data: "
+        f"rc={result.returncode} stdout={result.stdout!r} stderr={result.stderr!r}"
     )
-    assert result.returncode != 0, (
-        "post-teardown read must fail loudly (exception or crash), got a clean "
-        f"exit 0: stdout={result.stdout!r} stderr={result.stderr!r}"
-    )
+    assert "STALE_READ_RETURNED_OWN_DATA" in result.stdout

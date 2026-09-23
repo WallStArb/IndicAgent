@@ -1272,7 +1272,12 @@ def test_broadcast_cell_invariance_guard_uses_nan_safe_reductions():
     np.fmin.reduceat (NaN-ignoring), never np.maximum.reduceat/
     np.minimum.reduceat (NaN-propagating) -- a data gap must not be
     misclassified as an invariance violation."""
-    source = inspect.getsource(_compute_one_broadcast_cell)
+    import services.ic_engine as ic_module
+
+    # The guard lives in the shared blocked collapse helper (174 review CR-03); the cell
+    # must route through it rather than re-implementing the reduction.
+    assert "_collapse_invariant_groups(" in inspect.getsource(_compute_one_broadcast_cell)
+    source = inspect.getsource(ic_module._collapse_invariant_groups)
     assert "np.fmax.reduceat" in source
     assert "np.fmin.reduceat" in source
     assert "np.maximum.reduceat" not in source
@@ -1583,7 +1588,10 @@ def test_symbol_broadcast_cell_invariance_guard_uses_nan_safe_reductions():
     """Same discipline as the cross-sectional sibling: np.fmax.reduceat/
     np.fmin.reduceat (NaN-ignoring), never np.maximum.reduceat/
     np.minimum.reduceat (NaN-propagating)."""
-    source = inspect.getsource(_compute_one_symbol_broadcast_cell)
+    import services.ic_engine as ic_module
+
+    assert "_collapse_invariant_groups(" in inspect.getsource(_compute_one_symbol_broadcast_cell)
+    source = inspect.getsource(ic_module._collapse_invariant_groups)
     assert "np.fmax.reduceat" in source
     assert "np.fmin.reduceat" in source
     assert "np.maximum.reduceat" not in source

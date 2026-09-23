@@ -212,18 +212,6 @@ _CROSS_SECTIONAL_SYMBOL = "POOLED"
 # broadcast features leaves wide margin below that ceiling.
 _BROADCAST_CLUSTER_ID_OFFSET = 10000
 
-# Phase 174 Plan 05 (D-04a): disk-headroom multiplier for a disk-backed cross-sectional
-# cell's scratch allocation. NOT 1.0x -- TWO cell-sized scratch files coexist inside one
-# cell's compute: X_raw (allocated here, in _compute_cross_sectional_tf) and X_nd (Plan
-# 09's narrower non-degenerate/non-broadcast-column memmap, allocated from X_raw inside
-# _compute_one_cross_sectional_cell while X_raw is still open and being read). X_nd is
-# narrower than X_raw by construction (only surviving columns), so 2.0x is the worst
-# case; the extra 0.2x is a 10% margin for filesystem overhead and rounding, not a second
-# full-size file. Plan 09 lands in the next wave against this same code path -- do NOT
-# shrink this to 1.0x "because Plan 09 hasn't landed yet"; a check that is only correct
-# until the very next plan is a check that silently stops being correct.
-_DISK_BACKED_SCRATCH_HEADROOM_MULTIPLIER = 2.2
-
 # Magnitude-conditional IC percentile threshold (Component B, todo 090): defines
 # "large |prediction|" as the top quartile by |X| per feature. [conventional]
 # statistical concept definition (a quartile cutoff), not a tunable APR weight --
@@ -726,6 +714,20 @@ class ICEngineConfig:
     # block-size-invariance case), so it stays OPERATIONAL alongside
     # feature_block_columns.
     corr_row_block: int = 1_000_000
+    # Phase 174 review WR-07 (migration 352; was module constant
+    # _DISK_BACKED_SCRATCH_HEADROOM_MULTIPLIER): required free scratch space as a multiple
+    # of one disk-backed cell's float32 footprint. NOT 1.0 -- TWO cell-sized scratch files
+    # coexist inside one cell's compute: X_raw (allocated in _compute_cross_sectional_tf)
+    # and X_nd (Plan 09's narrower memmap, built from X_raw while X_raw is still open), so
+    # 2.0 is the structural worst case and the excess is margin for estimate error.
+    scratch_headroom_multiplier: float = 2.2
+    # Phase 174 review WR-05 (migration 352): fraction of the scratch filesystem's total
+    # size that must stay free AFTER the cell's scratch files are fully written. The
+    # scratch dir shares its filesystem with the TimescaleDB volume, which keeps writing
+    # during the run, and sparse memmap files consume space as rows land -- without a
+    # reserve the check admits a cell that leaves the database no room (the 2026-08-13
+    # disk-full incident's shape).
+    scratch_min_free_after_fraction: float = 0.15
 
     def broadcast_max_bars_per_day_for(self, tf: str) -> int:
         """Max observed bars/trading-day for tf, or a large sentinel for tfs this
@@ -930,6 +932,13 @@ class ICEngineConfig:
             ),
             # Phase 174 Plan 09 (migration 340).
             corr_row_block=int(cfg.get_sync("infra.ic_engine.corr_row_block", 1_000_000)),
+            # Phase 174 review WR-05/WR-07 (migration 352).
+            scratch_headroom_multiplier=float(
+                cfg.get_sync("infra.ic_engine.scratch_headroom_multiplier", 2.2)
+            ),
+            scratch_min_free_after_fraction=float(
+                cfg.get_sync("infra.ic_engine.scratch_min_free_after_fraction", 0.15)
+            ),
         )
 
 
@@ -1044,6 +1053,10 @@ _OPERATIONAL_CONFIG_FIELDS: frozenset[str] = frozenset(
         # different block size must produce the identical correlation matrix
         # (test_ic_engine_streaming_correlation.py block-size-invariance case).
         "corr_row_block",
+        # Phase 174 review WR-05/WR-07 (migration 352): disk-safety gates on whether a
+        # disk-backed cell may start -- they can only refuse a cell, never change it.
+        "scratch_headroom_multiplier",
+        "scratch_min_free_after_fraction",
         "symbol_fetch_chunk_rows",  # per-symbol fetch chunk size -- pure throughput knob
         "n_workers",  # ProcessPoolExecutor pool size -- pure throughput knob
         # Per-worker BLAS thread cap (todo 216) -- empirically verified OPERATIONAL, not
@@ -1917,6 +1930,78 @@ def _assert_prerequisites(
 # ---------------------------------------------------------------------------
 
 
+def _blocked_column_std(X: np.ndarray, row_block: int) -> np.ndarray:
+    """Per-column population standard deviation of X in float64, over row blocks.
+
+    Same two-pass algorithm as `np.std(X, axis=0, dtype=np.float64)` (column means, then
+    the mean of squared deviations), and the same NaN behavior (a NaN in a column makes
+    that column's result NaN), but it never allocates more than one `row_block x n_cols`
+    float64 block. `np.std` on a whole cell computes `X - mean` as one full-size float64
+    array -- 2x a float32 cell -- which undid the disk-backed cell's bounded-memory
+    guarantee before any other step ran (174 review CR-03). Differences from `np.std` are
+    summation-order rounding only (~1e-16 relative); `row_block` is a throughput knob,
+    never a statistic.
+    """
+    n_rows, n_cols = X.shape
+    if n_rows == 0:
+        return np.full(n_cols, np.nan)
+    sums = np.zeros(n_cols, dtype=np.float64)
+    for start in range(0, n_rows, row_block):
+        sums += X[start : start + row_block].sum(axis=0, dtype=np.float64)
+    means = sums / n_rows
+    sq_dev = np.zeros(n_cols, dtype=np.float64)
+    for start in range(0, n_rows, row_block):
+        centered = X[start : start + row_block].astype(np.float64)
+        centered -= means
+        sq_dev += np.einsum("ij,ij->j", centered, centered)
+    return np.sqrt(sq_dev / n_rows)
+
+
+def _collapse_invariant_groups(
+    X: np.ndarray,
+    col_mask: np.ndarray,
+    group_starts: np.ndarray,
+    row_block: int,
+    threshold: float,
+) -> tuple[np.ndarray, tuple[int, int, float] | None]:
+    """Collapse contiguous row groups of X's `col_mask` columns to each group's first row,
+    checking that every selected column is constant within each group, over row blocks.
+
+    Returns `(X_collapsed, violation)`. `X_collapsed` is `X[group_starts][:, col_mask]`
+    (n_groups x n_selected, X's dtype). `violation` is None, or `(group_idx, col_idx,
+    spread)` for the first (row-major) group/column whose NaN-safe within-group spread
+    (`fmax - fmin`) exceeds `threshold` -- identical to `np.argwhere(spread >
+    threshold)[0]` over the whole matrix; an all-NaN group has NaN spread and never
+    violates. On a violation the function returns immediately; callers raise with their
+    own context.
+
+    Replaces `X_bc = X[:, col_mask]`, a full-height copy of the selected columns (~15GB
+    for ~38 broadcast features at a 100M-row cell), with one `~row_block`-row block copy
+    at a time; blocks end on group boundaries so no group is split (174 review CR-03).
+    """
+    col_idx = np.flatnonzero(col_mask)
+    n_rows = X.shape[0]
+    n_groups = len(group_starts)
+    collapsed = np.empty((n_groups, len(col_idx)), dtype=X.dtype)
+    g0 = 0
+    while g0 < n_groups:
+        r0 = int(group_starts[g0])
+        g1 = max(g0 + 1, int(np.searchsorted(group_starts, r0 + row_block, side="left")))
+        r1 = int(group_starts[g1]) if g1 < n_groups else n_rows
+        block = X[r0:r1][:, col_idx]
+        local_starts = group_starts[g0:g1] - r0
+        collapsed[g0:g1] = block[local_starts]
+        spread = np.fmax.reduceat(block, local_starts, axis=0) - np.fmin.reduceat(
+            block, local_starts, axis=0
+        )
+        violating = np.argwhere(spread > threshold)  # NaN spread -> False
+        if len(violating):
+            gi, ci = violating[0]
+            return collapsed, (g0 + int(gi), int(ci), float(spread[gi, ci]))
+        g0 = g1
+    return collapsed, None
+
+
 def _streaming_feature_correlation(
     X: np.ndarray,
     mask: np.ndarray | None,
@@ -1941,7 +2026,7 @@ def _streaming_feature_correlation(
     Two passes, not the single-pass sum-of-squares-minus-square-of-sum
     shortcut: over tens of millions of z-scored feature rows the single-pass
     form suffers catastrophic cancellation -- this module already commits to
-    that precision stance for feature_stds (`np.std(..., dtype=np.float64)`,
+    that precision stance for feature_stds (`_blocked_column_std`, float64,
     "variance is sensitive to accumulation precision in a way rank order is
     not"). The extra disk pass is cheap relative to a 30GB allocation.
 
@@ -2893,19 +2978,21 @@ def _compute_one_symbol_broadcast_cell(
     # NaN-safe fmax/fmin so a data gap does not trip the guard -- only a REAL
     # within-day disagreement does.
     # -----------------------------------------------------------------------
-    X_bc = X_regime[:, broadcast_mask]
-    group_max = np.fmax.reduceat(X_bc, group_starts, axis=0)
-    group_min = np.fmin.reduceat(X_bc, group_starts, axis=0)
-    spread = group_max - group_min
-    violation_mask = spread > config.broadcast_variance_threshold
-    if np.any(violation_mask):
-        viol_group_idx, viol_col_idx = np.argwhere(violation_mask)[0]
+    X_collapsed, violation = _collapse_invariant_groups(
+        X_regime,
+        broadcast_mask,
+        group_starts,
+        config.corr_row_block,
+        config.broadcast_variance_threshold,
+    )
+    if violation is not None:
+        viol_group_idx, viol_col_idx, viol_spread = violation
         bad_feat_name = _FEATURE_NAMES[broadcast_positions[viol_col_idx]]
         bad_day = day_arr[group_starts[viol_group_idx]]
         raise RuntimeError(
             f"Within-day broadcast invariance violated: feature={bad_feat_name!r} "
             f"on day={bad_day!r} (symbol={symbol}, tf={tf}, regime={regime_label}) "
-            f"has intraday spread {float(spread[viol_group_idx, viol_col_idx])!r} "
+            f"has intraday spread {viol_spread!r} "
             f"exceeding config.broadcast_variance_threshold="
             f"{config.broadcast_variance_threshold!r}. This feature was classified "
             "symbol-invariant (broadcast) by the offline classifier but is not "
@@ -2913,10 +3000,8 @@ def _compute_one_symbol_broadcast_cell(
             "refusing to silently collapse it to the day's first bar."
         )
 
-    X_collapsed = X_bc[group_starts]
     returns_collapsed = returns_regime[group_starts]
     complete_collapsed = complete_regime[group_starts]
-    del X_bc
 
     # -----------------------------------------------------------------------
     # Degenerate-column detection + clustering on the collapsed matrix, offset
@@ -3923,11 +4008,12 @@ def _build_column_wise_x_nd(
     `finally`, never this function and never `_compute_one_cross_sectional_cell`
     before it returns).
 
-    `cleanup()` flushes the memmap, closes the mmap and the underlying
-    `NamedTemporaryFile` handle, then unlinks the scratch file -- mirrors
-    `Float32ChunkAccumulator.close()`'s fd-leak-safe teardown sequence exactly
-    (Plan 01: closing the mmap without closing the `NamedTemporaryFile` leaks one
-    fd per cell). Each step is independently try/excepted so one failure does not
+    `cleanup()` flushes the memmap, closes the underlying `NamedTemporaryFile`
+    handle, then unlinks the scratch file -- mirrors `Float32ChunkAccumulator.close()`
+    exactly (Plan 01: not closing the `NamedTemporaryFile` leaks one fd per cell). It
+    never unmaps: the mapping is released when its last view is garbage-collected, so a
+    view read after cleanup returns this cell's own data instead of segfaulting or
+    reading a later cell's reused address (174 review WR-06). Each step is independently try/excepted so one failure does not
     skip the others. Intended to run exactly once, from the caller's `ExitStack`.
 
     A zero-column mask (n_nd == 0, the caller's own early-exit condition) returns
@@ -3952,10 +4038,6 @@ def _build_column_wise_x_nd(
             X_nd_mm.flush()
         except Exception as error:
             _logger.warning("ic_engine.x_nd_memmap_flush_failed", error=str(error))
-        try:
-            X_nd_mm._mmap.close()
-        except Exception as error:
-            _logger.warning("ic_engine.x_nd_memmap_close_failed", error=str(error))
         try:
             tmpfile.close()
         except Exception as error:
@@ -4063,12 +4145,10 @@ def _compute_one_cross_sectional_cell(
 
     _check_cell_size(n_raw, config, f"Cross-sectional cell tf={tf} regime={regime_label}")
 
-    # Degenerate feature detection. dtype=float64 here despite X_raw being float32:
-    # this reduction produces only an n_features-length result (cheap either way), and
-    # forcing float64 accumulation keeps the 1e-8 threshold check exactly as precise
-    # as before the float32 memory optimization above -- variance is sensitive to
-    # accumulation precision in a way rank order is not.
-    feature_stds = np.std(X_raw, axis=0, dtype=np.float64)
+    # Degenerate feature detection, in float64 (variance is sensitive to accumulation
+    # precision in a way rank order is not), over row blocks: a whole-cell np.std would
+    # allocate a full float64 copy of X_raw and void the disk-backed memory bound.
+    feature_stds = _blocked_column_std(X_raw, config.corr_row_block)
     degenerate_mask = feature_stds < 1e-8
     non_degenerate_mask = ~degenerate_mask
     # Broadcast columns are NOT skipped/degenerate features -- they are measured
@@ -4426,42 +4506,37 @@ def _compute_one_broadcast_cell(
         )
 
     # -----------------------------------------------------------------------
-    # Step 3: materialize the broadcast submatrix ONCE -- the single bounded
-    # intermediate this function allocates (~n_broadcast/298 of X_raw's
-    # footprint). Never X_raw[group_starts][:, broadcast_mask] -- that gathers
-    # all feature columns first for no benefit.
+    # Steps 3-4: collapse the broadcast columns to one representative row per bar_ts,
+    # with the cross-symbol-invariance assertion (T-173-09 mitigation), over row blocks.
+    # NaN-safe fmax/fmin (never maximum/minimum) so a data gap (all-NaN group for a
+    # column) does not trip the guard -- only a REAL cross-symbol disagreement does.
+    # Compute-time guard against a mis-persisted concept_registry.metadata flag:
+    # collapsing a genuinely idiosyncratic feature to one representative row would
+    # silently discard every other symbol's value and produce a plausible-but-wrong IC.
+    # Crash-loud per CLAUDE.md. Blocked, never a full-height X_raw[:, broadcast_mask]
+    # copy (~15GB at a 100M-row cell; 174 review CR-03).
     # -----------------------------------------------------------------------
-    X_bc = X_raw[:, broadcast_mask]
-    X_collapsed = X_bc[group_starts]
-
-    # -----------------------------------------------------------------------
-    # Step 4: cross-symbol-invariance assertion (T-173-09 mitigation). NaN-safe
-    # fmax/fmin (never maximum/minimum) so a data gap (all-NaN group for a
-    # column) does not trip the guard -- only a REAL cross-symbol disagreement
-    # does. Compute-time guard against a mis-persisted concept_registry.metadata
-    # flag: collapsing a genuinely idiosyncratic feature to one representative
-    # row would silently discard every other symbol's value and produce a
-    # plausible-but-wrong IC. Crash-loud per CLAUDE.md.
-    # -----------------------------------------------------------------------
-    group_max = np.fmax.reduceat(X_bc, group_starts, axis=0)
-    group_min = np.fmin.reduceat(X_bc, group_starts, axis=0)
-    spread = group_max - group_min
-    violation_mask = spread > config.broadcast_variance_threshold  # NaN spread -> False
-    if np.any(violation_mask):
-        viol_group_idx, viol_col_idx = np.argwhere(violation_mask)[0]
+    X_collapsed, violation = _collapse_invariant_groups(
+        X_raw,
+        broadcast_mask,
+        group_starts,
+        config.corr_row_block,
+        config.broadcast_variance_threshold,
+    )
+    if violation is not None:
+        viol_group_idx, viol_col_idx, viol_spread = violation
         bad_feat_name = _FEATURE_NAMES[broadcast_positions[viol_col_idx]]
         bad_bar_ts = bar_ts_arr[group_starts[viol_group_idx]]
         raise RuntimeError(
             f"Broadcast invariance violated: feature={bad_feat_name!r} at "
             f"bar_ts={bad_bar_ts!r} (tf={tf}, regime={regime_label}) has "
-            f"cross-symbol spread {float(spread[viol_group_idx, viol_col_idx])!r} "
+            f"cross-symbol spread {viol_spread!r} "
             f"exceeding config.broadcast_variance_threshold="
             f"{config.broadcast_variance_threshold!r}. This feature was "
             "classified symbol-invariant (broadcast) by the offline classifier "
             "but is not actually invariant in this cell's live data -- refusing "
             "to silently collapse it to one representative row per bar_ts."
         )
-    del X_bc
 
     # -----------------------------------------------------------------------
     # Step 5: aggregate return matrix + strict all-peers-complete gate, via
@@ -4805,26 +4880,10 @@ def _compute_cross_sectional_tf(
     # Plan 05 (D-04a/D-04c, todo 371): the `try:` below opens BEFORE the accumulator
     # is constructed and closes only AFTER every consumer of the memmap-backed view
     # has returned. `X_acc.finalize()` hands back a VIEW over the memmap (Plan 01's
-    # ownership contract), and `X_acc.close()` unlinks the scratch file -- any read
-    # of that view after close() raises `ValueError: mmap closed or invalid` on
-    # Linux, or is a platform-dependent invalid read elsewhere. Two invariants must
-    # hold for this `finally` to be a correct boundary:
-    # (1) `_compute_one_cross_sectional_cell`, `_compute_one_broadcast_cell`, and
-    #     (Phase 176 plan 06) each season sub-cell's `_compute_one_cross_sectional_cell`
-    #     re-invocation are called SYNCHRONOUSLY inside this `try` -- never scheduled,
-    #     deferred, wrapped in a task, or handed to an executor. If a future change
-    #     makes any of them concurrent, this `finally` stops being a correct boundary.
-    # (2) None of those calls' return values hold a reference into the mapping --
-    #     all return per-feature IC rows (scalars aggregated over the cell or a
-    #     row-sliced subset of it), never an array slice. If a future change adds a
-    #     return field that IS an array view, np.asarray(...).copy() it before the
-    #     `finally` runs.
-    # Plan 05 (D-04a/D-04c, todo 371): the `try:` below opens BEFORE the accumulator
-    # is constructed and closes only AFTER every consumer of the memmap-backed view
-    # has returned. `X_acc.finalize()` hands back a VIEW over the memmap (Plan 01's
-    # ownership contract), and `X_acc.close()` unlinks the scratch file -- any read
-    # of that view after close() raises `ValueError: mmap closed or invalid` on
-    # Linux, or is a platform-dependent invalid read elsewhere. Two invariants must
+    # ownership contract), and `X_acc.close()` unlinks the scratch file. A view read
+    # after close() is memory-safe (close never unmaps; the mapping lives until its
+    # last view is garbage-collected, 174 review WR-06), but it pins the scratch
+    # file's disk pages, so the boundary still matters for disk. Two invariants must
     # hold for this `finally` to be a correct boundary:
     # (1) `_compute_one_cross_sectional_cell`, `_compute_one_broadcast_cell`, and
     #     (Phase 176 plan 06) each season sub-cell's `_compute_one_cross_sectional_cell`
@@ -4996,22 +5055,27 @@ def _compute_cross_sectional_tf(
             )
             if use_disk:
                 # Disk-headroom pre-check (T-174-04, 2026-08-13 disk-full incident shape):
-                # fail before allocating, not during. 2.2x, not 1.0x -- TWO cell-sized
-                # scratch files coexist inside one cell's compute (this cell's X_raw and
-                # Plan 09's narrower X_nd, allocated from X_raw while it is still open and
-                # being read) -- see _DISK_BACKED_SCRATCH_HEADROOM_MULTIPLIER's own comment.
+                # fail before allocating, not during. Two conditions, both required:
+                # (1) room for both coexisting scratch files (X_raw and Plan 09's X_nd) at
+                #     scratch_headroom_multiplier x one cell's float32 footprint, and
+                # (2) the filesystem, which the TimescaleDB volume shares, still keeps
+                #     scratch_min_free_after_fraction of its size free once they are
+                #     written -- the database is writing throughout the run.
                 os.makedirs(config.memmap_scratch_dir, exist_ok=True)
                 required_bytes = int(
-                    _DISK_BACKED_SCRATCH_HEADROOM_MULTIPLIER * n_estimated * n_features * 4
+                    config.scratch_headroom_multiplier * n_estimated * n_features * 4
                 )
-                free_bytes = shutil.disk_usage(config.memmap_scratch_dir).free
-                if free_bytes < required_bytes:
+                usage = shutil.disk_usage(config.memmap_scratch_dir)
+                reserve_bytes = int(config.scratch_min_free_after_fraction * usage.total)
+                if usage.free - required_bytes < reserve_bytes:
                     raise RuntimeError(
                         f"Insufficient scratch disk space for cross-sectional cell "
                         f"tf={tf} regime={regime_label}: requires {required_bytes} bytes "
-                        f"({_DISK_BACKED_SCRATCH_HEADROOM_MULTIPLIER}x headroom for the "
-                        f"coexisting X_raw/X_nd scratch files) but only {free_bytes} bytes "
-                        f"are free on {config.memmap_scratch_dir}."
+                        f"({config.scratch_headroom_multiplier}x headroom for the "
+                        f"coexisting X_raw/X_nd scratch files) while keeping "
+                        f"{reserve_bytes} bytes ({config.scratch_min_free_after_fraction:.0%} "
+                        f"of the filesystem) free for the database, but only "
+                        f"{usage.free} bytes are free on {config.memmap_scratch_dir}."
                     )
                 X_acc = Float32ChunkAccumulator(
                     disk_backed=True,
