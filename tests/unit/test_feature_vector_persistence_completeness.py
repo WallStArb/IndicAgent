@@ -258,3 +258,94 @@ def test_regime_writer_set_cols_is_the_canonical_tuple_not_a_copy():
     import services.regime_writer as regime_writer_module
 
     assert regime_writer_module.REGIME_WRITER_OWNED_COLUMN_NAMES is REGIME_WRITER_OWNED_COLUMN_NAMES
+
+
+# ── Real-column underflow clamp (underflow-7symbol-real-column debug session,
+# 2026-09-22) ───────────────────────────────────────────────────────────────
+#
+# feature_vector_to_insert_params() is the single shared row-serializer for both the
+# live asyncpg write path (FeatureVectorWriter) and the batch psycopg write path
+# (backfill_feature_factory) -- it never clamped a `real`-typed float to what Postgres's
+# `real` (float4) column can represent, unlike services/_batch_utils.py's
+# bulk_update_by_key (todo 312). A feature value with magnitude smaller than float4's
+# smallest subnormal (e.g. a highly-confident HMM posterior probability residual) made
+# Postgres reject the whole INSERT batch with "value out of range: underflow",
+# permanently stalling BIL/VRP/ENPH/GLD/NAD/SHY/STIP's backfills at 40-90% coverage.
+
+
+def test_insert_params_clamps_underflowing_float_to_zero():
+    """A real-typed feature value smaller in magnitude than float4 can represent must be
+    clamped to 0.0 in the returned tuple, not passed through to hit Postgres's underflow
+    rejection."""
+    from datetime import UTC, datetime
+
+    kwargs = {f: 0.0 for f in _ALL_FEATURE_FIELDS}
+    kwargs["hmm_regime_prob"] = 1e-50
+    kwargs["hmm_entropy"] = -1e-60
+    vector = FeatureVector(**kwargs)
+    params = feature_vector_to_insert_params(
+        symbol="BIL",
+        tf="5m",
+        bar_ts=datetime(2026, 1, 1, tzinfo=UTC),
+        pipeline_version="3.0.0",
+        feature_factory_version="1.0.0",
+        regime="trending_up",
+        regime_label_source="filtered",
+        vector=vector,
+    )
+    names = _sql_column_names()
+    prob_value = params[names.index("hmm_regime_prob")]
+    entropy_value = params[names.index("hmm_entropy")]
+    assert prob_value == 0.0
+    assert entropy_value == 0.0
+
+
+def test_insert_params_clamps_overflowing_float_to_real_max():
+    """A real-typed feature value larger in magnitude than float4 can represent must be
+    clamped to float4 max (symmetric defensive coverage, same as bulk_update_by_key)."""
+    from datetime import UTC, datetime
+
+    from src.core.real_column_range import REAL_MAX_MAGNITUDE
+
+    kwargs = {f: 0.0 for f in _ALL_FEATURE_FIELDS}
+    kwargs["hmm_regime_prob"] = 1e50
+    vector = FeatureVector(**kwargs)
+    params = feature_vector_to_insert_params(
+        symbol="BIL",
+        tf="5m",
+        bar_ts=datetime(2026, 1, 1, tzinfo=UTC),
+        pipeline_version="3.0.0",
+        feature_factory_version="1.0.0",
+        regime="trending_up",
+        regime_label_source="filtered",
+        vector=vector,
+    )
+    names = _sql_column_names()
+    prob_value = params[names.index("hmm_regime_prob")]
+    assert prob_value == REAL_MAX_MAGNITUDE
+
+
+def test_insert_params_leaves_ordinary_values_untouched():
+    """A well-formed value already inside float4's representable range must not be
+    mutated by the clamp -- e.g. must not be coerced to a different float or type."""
+    from datetime import UTC, datetime
+
+    kwargs = {f: 0.0 for f in _ALL_FEATURE_FIELDS}
+    kwargs["hmm_regime_prob"] = 0.42
+    vector = FeatureVector(**kwargs)
+    params = feature_vector_to_insert_params(
+        symbol="BIL",
+        tf="5m",
+        bar_ts=datetime(2026, 1, 1, tzinfo=UTC),
+        pipeline_version="3.0.0",
+        feature_factory_version="1.0.0",
+        regime="trending_up",
+        regime_label_source="filtered",
+        vector=vector,
+    )
+    names = _sql_column_names()
+    prob_value = params[names.index("hmm_regime_prob")]
+    assert prob_value == 0.42
+    # Structural columns (non-float) must survive the clamp map untouched.
+    assert params[names.index("symbol")] == "BIL"
+    assert params[names.index("regime")] == "trending_up"

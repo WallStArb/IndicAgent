@@ -140,6 +140,21 @@ _VELOCITY_EXTENSION_FIELD_NAMES slice, appended at the end of the column
 list. All 6 values are real computed floats from day one (no None
 placeholders).
 
+2026-09-22 (underflow-7symbol-real-column debug session, todo 340 follow-up):
+feature_vector_to_insert_params() now clamps every real-typed float through
+src.core.real_column_range.clamp_to_real_range() before returning the INSERT
+tuple. Root cause: this function is the single shared row-serializer for both
+write paths (module docstring above), but unlike services/_batch_utils.py's
+bulk_update_by_key (todo 312, 2026-08-14), it never protected against a
+feature value underflowing Postgres's `real` (float4) representable range --
+a near-zero HMM posterior probability/entropy residual for a low-variance
+instrument (BIL, SHY, and 5 others) made Postgres reject the whole
+executemany() batch with "value out of range: underflow", permanently
+stalling those symbols' backfills at 40-90% coverage. clamp_to_real_range()
+lives in src/core/ (Ring 0) rather than being imported from
+services/_batch_utils.py (Ring 2) or duplicated here, so both call sites stay
+byte-identical.
+
 Ring 1: imports FeatureVector from src.intelligence.schemas.
 Do not import from Ring 2 (services/) or Ring 3 (api/, production/).
 """
@@ -152,6 +167,7 @@ import math
 import uuid
 from datetime import datetime, timedelta
 
+from src.core.real_column_range import clamp_to_real_range
 from src.core.service_utils import TF_SECONDS as _TF_SECONDS
 from src.intelligence.schemas import FeatureVector
 
@@ -729,7 +745,7 @@ def feature_vector_to_insert_params(
     )
     bar_close_ts = _compute_bar_close_ts(bar_ts, tf)
 
-    return (
+    row = (
         feature_vector_id,  # $1  content-key UUID
         symbol,  # $2
         tf,  # $3
@@ -866,3 +882,15 @@ def feature_vector_to_insert_params(
         # computed floats from day one.
         *(getattr(vector, name) for name in _VELOCITY_EXTENSION_FIELD_NAMES),
     )
+
+    # Clamp every real-typed float to what Postgres's `real` (float4) column type can
+    # actually store before it reaches either write path's INSERT/executemany() call
+    # (underflow-7symbol-real-column debug session, 2026-09-22). Non-float elements
+    # (feature_vector_id, symbol, tf, bar_ts, pipeline_version, feature_factory_version,
+    # regime, regime_label_source, bar_close_ts, and the bool-typed feature columns)
+    # pass through clamp_to_real_range() unchanged -- it only touches Python `float`
+    # values. Without this, a near-zero HMM posterior probability/entropy residual (the
+    # same failure class todo 312 already fixed for bulk_update_by_key's write path)
+    # triggers Postgres's "value out of range: underflow" and aborts the whole
+    # executemany() batch it's part of, not just the offending row.
+    return tuple(clamp_to_real_range(v) for v in row)
