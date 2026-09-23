@@ -1,6 +1,6 @@
 # CLAUDE.md
 
-Version: 5.55.5
+Version: 5.55.6
 <!-- Bump the patch version on every substantive edit to this file (convention, not enforced). -->
 
 **Project nature:** Passion/learning project — not a production system. Architectural decisions prioritize correctness, rigor, and institutional-grade thinking. Renaissance Capital / Jim Simons principles are the north star. When giving advice, apply the same rigor you would to a system built to last — do not hedge around operational risk that doesn't apply.
@@ -113,7 +113,7 @@ All tunable numeric values live in `config_state` under `<domain>.<concept>.<par
 
 ## Instrument Tag Registry (ITR)
 
-Every claim about what an instrument is or how it behaves (asset class, sector, factor sensitivity, macro-driver exposure) lives in `tag_vocabulary`/`instrument_tags`, not as a hardcoded symbol list — the classification-claim analog of APR's numeric-parameter registry. A tag is a falsifiable hypothesis, not a category: `sensitivity`/`factor_regime`/`macro_driver` tags are empirically measured (OLS beta vs. a `factor_series` proxy, HAC p-value, run-level BH-FDR) by `TagCalibrator` (`services/tag_calibrator.py`, oneshot, no systemd timer); `exposure`/`cycle_position` and most `signal_role` tags are permanent human/definitional seed priors, never measured. Human-sourced rows (`instrument_tags.source = 'human'`) are never auto-expired or overwritten by the calibrator — a failing measurement against one only annotates a contradiction. Empirical rows expire only after `alpha.tag_calibrator.expiry_consecutive_fails` consecutive failing runs (hysteresis), never on a single miss. Full spec: `docs/foundation/instrument-tag-registry.md`.
+Every claim about what an instrument is or how it behaves (asset class, sector, factor sensitivity, macro-driver exposure) lives in `tag_vocabulary`/`instrument_tags`, not as a hardcoded symbol list — the classification-claim analog of APR's numeric-parameter registry. A tag is a falsifiable hypothesis, not a category: `sensitivity`/`factor_regime`/`macro_driver` tags are empirically measured (OLS beta vs. a `factor_series` proxy, HAC p-value, run-level BH-FDR) by `TagCalibrator` (`services/tag_calibrator.py`, oneshot, no systemd timer); `exposure`/`cycle_position` and most `signal_role` tags are permanent human/definitional seed priors, never measured. Human-sourced rows (`instrument_tags.source = 'human'`) are never auto-expired or overwritten by the calibrator — a failing measurement against one only annotates a contradiction. Empirical rows expire only after `alpha.tag_calibrator.expiry_consecutive_fails` consecutive failing runs (hysteresis), never on a single miss. **Phase 175 (2026-09-23, migration 346):** `TagCalibrator` also computes a Pass 4 materiality filter (partial loading orthogonalized against a four-leg control set, incremental R², sign stability, circular-shift null arm) persisted as eleven `instrument_tags` evidence columns; `passes_materiality` is the statistical gate only and must be AND-ed with `discovery_state='confirmed'` and `valid_to IS NULL` via `is_materiality_eligible()`. Shadow-mode measurement only (D-03) — no live consumer reads it yet, both consumers still filter `source='human'`. Full spec: `docs/foundation/instrument-tag-registry.md`.
 
 ## Controlled Vocabulary Registry (CVR)
 
