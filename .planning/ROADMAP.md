@@ -2897,7 +2897,7 @@ primitives, wire `earnings_season_flag` into `ic_engine.py` as a measurement-onl
 axis, and close the phase on a real `feature_ic_scores` FDR/walk-forward gate verdict.
 **Requirements**: ES-01, ES-02, ES-03, ES-04, ES-05, ES-06, ES-07, ES-08, ES-09
 **Depends on:** Phase 175
-**Plans:** 2/8 plans executed
+**Plans:** 4/8 plans executed
 
 Requirements:
 - ES-01 — `earnings_season_flag` computed from `bar_ts` at every `FeatureVector` construction site
@@ -2917,12 +2917,12 @@ Requirements:
 
 **Wave 2** *(blocked on Wave 1 completion)*
 
-- [ ] 176-03-PLAN.md - primitives across every FeatureVector construction site + persistence slice + APR prewarm (wave 2)
+- [x] 176-03-PLAN.md - primitives across every FeatureVector construction site + persistence slice + APR prewarm (wave 2)
 
 **Wave 3** *(blocked on Wave 2 completion)*
 
 - [ ] 176-04-PLAN.md - per-symbol earnings_season stratification pass + lifecycle-guard isolation (wave 3) — **gated on 176-01's SWEEP_VERDICT (D-01a)**
-- [ ] 176-05-PLAN.md - ensemble_trainer eligibility exclusion + feature_ic_scores consumer audit (wave 3) — **gated on 176-01's SWEEP_VERDICT (D-01a)**
+- [x] 176-05-PLAN.md - ensemble_trainer eligibility exclusion + feature_ic_scores consumer audit (wave 3) — **gated on 176-01's SWEEP_VERDICT (D-01a)**
 - [ ] 176-07-PLAN.md - migration 351: direct two-column SQL backfill of the pre-existing corpus, compressed round trip + mandatory VACUUM (wave 3)
 
 **Wave 4** *(blocked on Wave 3 completion)*
