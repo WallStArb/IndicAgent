@@ -1,12 +1,14 @@
-"""Unit tests for the earnings-season window classifier and SQL identifier safety
-guard in scripts/analysis/earnings_season_conditional_ic_reverification.py
-(Phase 176 Plan 01, Task 1).
+"""Unit tests for the earnings-season window classifier, SQL identifier safety
+guard, and family-wide vol/volume sweep in
+scripts/analysis/earnings_season_conditional_ic_reverification.py
+(Phase 176 Plan 01, Tasks 1-2).
 
 No test in this module opens a DB connection -- every function under test is pure.
 """
 
 from __future__ import annotations
 
+import dataclasses
 from datetime import date
 
 import pytest
@@ -14,10 +16,14 @@ import pytest
 from scripts.analysis.earnings_season_conditional_ic_reverification import (
     _FEATURE_ALLOWLIST,
     _RETURN_COLUMN_CHOICES,
+    _VOL_VOLUME_FAMILY,
+    _is_broad,
+    _sweep_verdict,
     _validated_identifier,
     days_since_quarter_end,
     is_earnings_season,
 )
+from src.intelligence.feature_factory import FeatureVector
 
 
 class TestDaysSinceQuarterEnd:
@@ -96,3 +102,73 @@ class TestValidatedIdentifier:
 
     def test_return_column_allowlist_accepts_real_column(self) -> None:
         _validated_identifier("return_fast", allowed=set(_RETURN_COLUMN_CHOICES))
+
+
+class TestVolVolumeFamily:
+    def test_exactly_57_names(self) -> None:
+        assert len(_VOL_VOLUME_FAMILY) == 57
+
+    def test_every_member_is_a_real_feature_vector_field(self) -> None:
+        real_names = {f.name for f in dataclasses.fields(FeatureVector)}
+        assert _VOL_VOLUME_FAMILY <= real_names
+
+    def test_contains_up_vol_body_diff(self) -> None:
+        assert "up_vol_body_diff" in _VOL_VOLUME_FAMILY
+
+    def test_excludes_canary_noise_and_dist_atr_names(self) -> None:
+        assert not any(name.startswith("canary_noise_") for name in _VOL_VOLUME_FAMILY)
+        assert not any(name.endswith("_dist_atr") for name in _VOL_VOLUME_FAMILY)
+
+
+class TestSweepVerdict:
+    def test_no_survivors_is_refuted(self) -> None:
+        assert _sweep_verdict(survivors=[], any_fdr_significant=False) == "REFUTED"
+
+    def test_survivors_including_up_vol_body_diff_is_confirmed(self) -> None:
+        result = _sweep_verdict(
+            survivors=["up_vol_body_diff", "vol_of_vol"], any_fdr_significant=True
+        )
+        assert result == "CONFIRMED"
+
+    def test_survivors_excluding_up_vol_body_diff_is_weaker(self) -> None:
+        result = _sweep_verdict(survivors=["vol_of_vol"], any_fdr_significant=True)
+        assert result == "WEAKER"
+
+
+class TestIsBroad:
+    def test_false_when_sign_agreement_below_threshold(self) -> None:
+        # FDR-surviving p-values (all < 0.05) but sign agreement fraction 0.4 < 0.55
+        result = _is_broad(
+            sign_agreement_fraction=0.4,
+            jackknife_signs=[1, 1, 1, 1, 1],
+            jackknife_ps=[0.01, 0.01, 0.01, 0.01, 0.01],
+            pooled_sign=1,
+        )
+        assert result is False
+
+    def test_false_when_jackknife_flips_sign(self) -> None:
+        result = _is_broad(
+            sign_agreement_fraction=0.9,
+            jackknife_signs=[1, 1, -1, 1, 1],  # one flipped
+            jackknife_ps=[0.01, 0.01, 0.01, 0.01, 0.01],
+            pooled_sign=1,
+        )
+        assert result is False
+
+    def test_false_when_jackknife_p_exceeds_threshold(self) -> None:
+        result = _is_broad(
+            sign_agreement_fraction=0.9,
+            jackknife_signs=[1, 1, 1, 1, 1],
+            jackknife_ps=[0.01, 0.01, 0.06, 0.01, 0.01],  # one over 0.05
+            pooled_sign=1,
+        )
+        assert result is False
+
+    def test_true_when_all_criteria_pass(self) -> None:
+        result = _is_broad(
+            sign_agreement_fraction=0.9,
+            jackknife_signs=[1, 1, 1, 1, 1],
+            jackknife_ps=[0.01, 0.01, 0.01, 0.01, 0.01],
+            pooled_sign=1,
+        )
+        assert result is True
