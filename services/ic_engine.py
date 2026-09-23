@@ -1587,6 +1587,15 @@ def _partition_symbol_cells(
 # Used for pass_type IN ('pooled', 'symbol_hmm'): symbol is the real instrument
 # symbol; a 'symbol_hmm' cell writes multiple regime labels for that one (symbol,
 # tf), all belonging to the same fingerprinted cell, so no regime filter is needed.
+#
+# Phase 176 Plan 04 scope audit: earnings-season rows can never match either
+# invalidation DELETE -- this one only ever runs with pass_type IN ('pooled',
+# 'symbol_hmm') and the cross-sectional variant below hardcodes
+# regime_scope='cross_sectional'. Corollary (deferred, todo-391-class): earnings
+# cells are equally untracked by ic_cell_fingerprints (migration 251's pass_type
+# CHECK admits only the three legacy values; extending it needs a migration this
+# plan does not own), so they are first-write-final under ON CONFLICT DO NOTHING
+# -- no fingerprint staleness detection covers them yet.
 _FINGERPRINT_INVALIDATE_DELETE_SQL = """
     DELETE FROM feature_ic_scores
     WHERE symbol = %(symbol)s
@@ -3224,6 +3233,12 @@ def _group_cells_for_metrics(
     IC_ENGINE_CELLS_COMPLETED_TOTAL.add(count, attrs) -- extracted from
     _compute_symbol_tf so the grouping logic itself is unit-testable without
     a live OTel metrics backend.
+
+    Phase 176 Plan 04 scope audit: provably scope-agnostic -- the grouping key
+    already includes regime_scope, so an earnings-season cell simply gets its
+    own emission bucket carrying regime_scope='earnings_season'. Metrics only;
+    no lifecycle decision is made here, so no exclusion is warranted (in
+    contrast to _lifecycle_guard_cells, which decides).
     """
     distinct_cells = {(r["regime"], r["is_pooled"], r["regime_scope"]) for r in all_results}
     emissions: list[tuple[dict[str, Any], int]] = []
@@ -5927,6 +5942,32 @@ def _apply_feature_transitions(
     )
 
 
+def _lifecycle_guard_cells(cell_rows: list[dict]) -> list[dict]:
+    """Select the rows the Step 3 regime-shift guard may evaluate: cells whose
+    feature_status_at_eval is 'active' AND whose regime_scope is not the
+    earnings-season measurement scope (Phase 176 Plan 04, T-176-04-03).
+
+    Earnings-season cells are measurement-only rows: a calendar stratum is
+    orthogonal to the regime-group routing market_regimes enumerates, so such a
+    cell has no market_regimes row by construction. Letting one through the
+    guard's regime_label_to_group mapping would raise a permanent, always-false
+    ic_engine.regime_label_unmapped data-contract warning for every such cell,
+    every run, and dilute each stratum's pass-rate rails with rows that can
+    never map. This phase records no lifecycle or promotion decision from
+    earnings-season rows.
+
+    Extraction (not an inline comprehension) so the scope contract is pinned by
+    unit test: the exclusion keys on the regime_scope VALUE -- never on matching
+    the label strings -- so any future scope carrying the same labels still
+    routes through the guard.
+    """
+    return [
+        c
+        for c in cell_rows
+        if c["feature_status_at_eval"] == "active" and c["regime_scope"] != "earnings_season"
+    ]
+
+
 def _run_lifecycle_hook(
     write_conn: Any,
     concept_svc: ConceptRegistryService,
@@ -5987,6 +6028,7 @@ def _run_lifecycle_hook(
             SELECT fis.feature_name, fis.tf, fis.regime, fis.ic_ci_lower, fis.ic_ci_upper,
                    fis.ic_sign, fis.passes_fdr,
                    fis.reliable, fis.n_independent, fis.feature_status_at_eval,
+                   fis.regime_scope,
                    fis.ic_sharpe_hac, fis.lookahead_bars, COALESCE(ew.weight, 0.0) AS standing_weight
             FROM feature_ic_scores fis
             LEFT JOIN ensemble_weights ew
@@ -6079,7 +6121,16 @@ def _run_lifecycle_hook(
     # holds -- promotion is already multi-run-gated by recovery_min_observations/
     # recovery_min_passes, so a single anomalously-high pass rate cannot itself
     # flip a feature's status.
-    active_cells = [c for c in cell_rows if c["feature_status_at_eval"] == "active"]
+    #
+    # Phase 176 Plan 04: selection is via _lifecycle_guard_cells, which ALSO
+    # excludes regime_scope='earnings_season' rows -- measurement-only cells with
+    # no market_regimes row by construction, which would otherwise raise a
+    # permanent false ic_engine.regime_label_unmapped warning here every run
+    # (T-176-04-03). Today's per-symbol earnings cells cannot reach this hook at
+    # all (the SELECT below pins symbol='POOLED' AND is_pooled=true), so the
+    # exclusion is future-proofing for Plan 06's POOLED parent-qualified earnings
+    # cells, which WILL enter cell_rows.
+    active_cells = _lifecycle_guard_cells(cell_rows)
     any_hold = False
     # Accumulated here, flushed as one executemany AFTER Step 4/5 (or the hold
     # skip) below -- see the deferred-flush note preceding the single commit.
