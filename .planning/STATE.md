@@ -4,7 +4,7 @@ milestone: v3.1
 milestone_name: AlphaEngine Validation + Alpha Scoring
 status: ready_to_plan
 stopped_at: see Strategic Plan section above (kept live; this section is a known staleness trap
-last_updated: "2026-09-23T11:02:56.846Z"
+last_updated: "2026-09-23T13:40:57.000Z"
 progress:
   total_phases: 12
   completed_phases: 0
@@ -33,76 +33,59 @@ Survivorship bias (100% of the 231-symbol universe is `is_active=true`, zero del
 names) is the one genuinely unresolved integrity gap — no owner, flag it before citing
 any IC number here as a hard ceiling.
 
-**Universe-expansion scoping inputs, gathered 2026-09-13, not yet acted on:**
+**Universe expansion — consolidated state 2026-09-23 (Phase 174 closed 2026-09-16; gates and
+diagnostic run 2026-09-17 through 2026-09-22; next-step chain at the end of this list):**
 
-- **TF stack: keep all four tiers (5m/15m/1h/1d).** Holding period, not TF
-  granularity, is what's economically dead — every tier clears its own turnover-
-  adjusted hurdle given a long-enough hold (5m @ ~half day, 15m @ ~2.5hr, 1h @ 3-10
-  days), while 1-bar holds fail at every tier. `scripts/analysis/personal_cost_hurdle_by_tf.py`.
+- **Single-name equity breadth scaling is not the lever (Phase 174 CLOSED, D-10 FAILED).**
+  The pre-registered pilot gate (avg pairwise correlation ≤0.10 unconditional / ≤0.30
+  `high_bear`) failed decisively on the 40-name unbiased down-cap draw (0.30 / 0.43). Root
+  cause: shared market beta dominates raw correlation in any unhedged long-only U.S. equity
+  population — no regime-conditioned cell, in the pilot or the 117-name baseline, clears even
+  0.14. Plans 174-11/174-12 stay blocked-by-verdict; the pilot's 40 symbols are retained as a
+  1d-only measurement asset. Full record: `docs/plans/methodology-change-ledger.md` E13.
 
-- **Cross-TF signal correlation: momentum decorrelates across TFs (1d-vs-15m/5m rho
-  near zero, coin-flip sign agreement) — real, not Phase 148's 100%-co-firing
-  redundancy pattern.** Necessary but not sufficient for a fusion construction to add
-  tradeable value. Also found: `ctf_momentum` is a higher-TF value broadcast down via
-  `ctf_higher_tf_map`, not TF-native — the codebase already fuses HTF context into
-  LTF feature rows at the feature level (not at the `alpha_score`/`ensemble_trainer`
-  level, which has no fusion). `scripts/analysis/cross_tf_signal_correlation_screen.py`.
-  Next step if pursued: a real pre-registration on the DIVERGENCE framing specifically
-  (betting when coarse/fine reads disagree) — competes for priority against universe
-  expansion, doesn't precede it by default.
+- **Cross-asset diversification is the surviving lever, validated end-to-end.** The
+  pre-registered 13-symbol basket (GLD/DBA/DBB/DBC/URA/TLT/UUP/VIXY/EMLC/HYG/XOM/DHI/PGR;
+  mechanical selection with within-group de-duplication, no pair >0.60) passed Gate A
+  (correlation structure: 0.0879 unconditional avg pairwise, `high_bear` 0.1309, n_eff 6.33
+  unconditional, 5.06-8.07 across regime slices) and Gate B (real per-instrument IC via
+  `ic_engine`, todo 378 closed 2026-09-22). The covariance-aware portfolio diagnostic then
+  measured a genuine positive result: `vol_normalized`/`ic_proportional` weighting both
+  significantly beat `equal_weight` (ann. Sharpe ~1.19/~0.95 vs ~0.18). Shadow-mode only;
+  caveats on record (selection effect, naive t-stats, zero costs modeled; todo 388 closes the
+  turnover-reporting gap). No promotion decision made. Full record:
+  `docs/research/phase174-cross-asset-diversification-prereg-2026-09-16.md`.
 
-- **CORRECTED 2026-09-16 (superseding the 2026-09-13 entry below the strikethrough
-  reasoning was never actually struck, so stating it plainly): single-name equity is NOT
-  the primary breadth-scaling lever.** Phase 174 executed on the 2026-09-13 framing — drew
-  a 40-name unbiased down-cap pilot (174-15), ran it through the pre-registered D-10
-  correlation gate, and it FAILED decisively (unconditional 0.30 vs. ≤0.10, `high_bear`
-  0.43 vs. ≤0.30). Root-cause investigation found the constraint isn't down-cap names
-  specifically — it's that raw correlation among *any* unhedged long-only U.S. equity
-  population is dominated by shared market beta: not one of 18 regime-conditioned
-  correlation cells, across the pilot AND the existing 117-name baseline, clears even
-  0.14. An 11-instrument cross-asset-class basket (already active/compute_eligible, zero
-  onboarding cost) passed the identical gate cleanly (0.0947 / 0.1180) with n_eff
-  5.05-7.20 in every regime, beating the entire existing equity book's best case (~3.25)
-  with 11 instruments. Full record: `docs/plans/methodology-change-ledger.md` E13;
-  pre-registered follow-on (mechanical candidate selection, not hand-picked):
-  `docs/research/phase174-cross-asset-diversification-prereg-2026-09-16.md`. The
-  down-cap pilot's 40 symbols stay in the corpus as a retained measurement asset
-  (`compute_eligible=false`); Phase 174 plans 174-11/174-12 are blocked-by-verdict, not
-  executed — see ROADMAP.md.
+- **Universe today: 273 active instruments, live-verified 2026-09-23** — 233 compute-eligible
+  on the full 4-TF stack (includes the 13 cross-asset names), 40 down-cap pilot names at 1d
+  only, 0 live-tradeable (live streaming dormant, todo 366). Commodities/rates/credit/vol/
+  EM-currency ETFs are well represented (GLD/SLV/PPLT/DBA/DBB/DBC, TLT/IEF/SHY, HYG/LQD/EMB,
+  UUP, VIXY, EMLC). Remaining real gaps: standalone factor-equity ETFs (value/growth/
+  small-cap only 1-2 symbols each; MTUM/QUAL/USMV exist per migration 338 but correlate
+  0.86-0.98 with SPY per `factor_series_correlation`, unverified as differentiated
+  exposures) and vol term structure beyond spot VIX.
 
-- **ETF/cross-asset expansion is now the stronger lever, not a secondary exposure-gap-fill
-  task.** The 2026-09-13 framing deprioritized it on a raw-count argument (few possible new
-  ETFs vs. hundreds of possible new equities) that was never checked against decorrelation
-  quality — corrected above. Commodities/rates/credit/vol/EM-currency ETFs are already
-  well-represented in the compute-eligible book (GLD/SLV/PPLT/DBA/DBB/DBC, TLT/IEF/SHY,
-  HYG/LQD/EMB, UUP, VIXY, EMLC — all confirmed 2026-09-16). Remaining real gaps: standalone
-  factor-equity ETFs (value/growth/small-cap each only 1-2 symbols; momentum/quality/low-vol
-  factor ETFs — MTUM/QUAL/USMV — exist as of migration 338, correcting an earlier "zero
-  representation" claim) and vol term structure beyond spot VIX (see futures gap above).
+- **TF stack: keep all four tiers (5m/15m/1h/1d).** Holding period, not TF granularity, is
+  what's uneconomical: every tier clears its own turnover-adjusted hurdle given a long-enough
+  hold (5m @ ~half day, 15m @ ~2.5hr, 1h @ 3-10 days) while 1-bar holds fail at every tier
+  (`scripts/analysis/personal_cost_hurdle_by_tf.py`). Not yet acted on: stop MEASURING the
+  structurally doomed short-horizon `ic_engine` cells (H=1 everywhere, H=6/12 at 5m).
 
-- **Gate A + Gate B both PASSED against the pre-registered 13-symbol cross-asset list**
-  (GLD/DBA/DBB/DBC/URA/TLT/UUP/VIXY/EMLC/HYG/XOM/DHI/PGR) — the cross-instrument
-  covariance-aware portfolio diagnostic (`scripts/analysis/portfolio_covariance_weighting_diagnostic.py`)
-  then ran for real and found a genuine positive result: `vol_normalized`/`ic_proportional`
-  weighting both significantly beat naive `equal_weight` (ann. Sharpe ~1.19/~0.95 vs. ~0.18).
-  Shadow-mode measurement only, caveats apply (selection effect, naive significance test, zero
-  costs modeled) — no promotion decision made. Full record, including the corpus-wide
-  `ic_engine.py` regime-routing bug found+fixed along the way (commit `b8af2b749`):
-  [378](todos/completed/378-vixy-emlc-feature-backfill-then-gate-b-and-portfolio-diagnostic.md).
-  Sibling bug fixed same day (`source='human'`-only tag-routing stopgap, commit `d1ce8d6bb`):
-  [379](todos/completed/379-empirical-tags-contaminate-equity-breadth-and-peer-grouping.md).
-  One follow-up still open,
-  [380](todos/pending/380-itr-materiality-filtered-empirical-tags-and-eq-prefix-naming-collision.md)
-  (deferred materiality-filter design, feeds Phase 175); the other
-  ([381](todos/completed/381-equity-regime-model-dead-code-broken-insert.md), dead-code deletion) closed.
+- **Cross-TF signal fusion: a separate, competing, not-yet-run thread.** Momentum decorrelates
+  across TFs (1d-vs-15m/5m rho near zero), real and distinct from Phase 148's co-firing
+  redundancy; `ctf_momentum` is already an HTF-broadcast feature, so feature-level fusion
+  exists but ensemble-level does not. If pursued, pre-register on the DIVERGENCE framing; it
+  competes for priority against universe expansion, does not precede it
+  (`scripts/analysis/cross_tf_signal_correlation_screen.py`).
 
-- **Compute cost bounds universe scale — estimate STALE as of 2026-09-22, needs re-measuring.**
-  The 2026-09-19 measurement (2.4 worker-hours/symbol, projecting 10-20 day recomputes at
-  1000-2000 symbols) was taken mid-flight from the same run that went on to finish 2026-09-22
-  in ~11.5 hours total, after the `b8af2b749` routing fix and migration 348's chunk-size
-  reduction landed. Don't cite either number until re-derived from the completed run's logs.
-  Scope expansion by re-measured recompute cost, not a target count. Detail:
-  [385](todos/pending/385-ic-engine-recompute-cost-bounds-universe-scale-threading-measurement-first.md).
+- **Compute cost bounds universe scale; the standing estimate is stale (todo 385).** The
+  2026-09-19 figure (2.4 worker-hours/symbol, 10-20 day recomputes at 1000-2000 symbols) was
+  taken mid-flight from the run that then finished 2026-09-22 in ~11.5 hours end-to-end for
+  233 symbols, after the `b8af2b749` routing fix and migration 348. Re-derive from the
+  completed run's logs before sizing anything; scope expansion by measured recompute cost,
+  not a target count. Lever order: per-symbol threading, Numba `nogil`, staged bootstrap,
+  incremental recompute, cluster
+  ([385](todos/pending/385-ic-engine-recompute-cost-bounds-universe-scale-threading-measurement-first.md)).
 
 - **Nautilus Trader (OSS, event-driven backtest/live-execution engine, Rust core + Python)
   flagged 2026-09-13 as a forward-looking candidate for a future execution-layer phase** —
@@ -116,6 +99,25 @@ any IC number here as a hard ceiling.
   Vectorbt's grid-sweep speed would duplicate existing custom bootstrap/FDR machinery
   built for this project's exact methodology. Evaluate any future tool this way — gap-fit
   against already-built work, not a build-vs-buy default in either direction.
+
+**Next-step chain to the next expansion phase (not yet scoped):**
+
+1. Finish Phase 176 (waves 3-5; `SWEEP_VERDICT=CONFIRMED` cleared the D-01a-gated plans).
+2. Todos 386 (exact pre-flight cell count, restore `alpha.ic.max_cell_rows` to 15M; closes
+   371) and 388 (report `l1_turnover` in the portfolio diagnostic) — quick, unblocked.
+3. Todo 385 — re-derive recompute cost from the completed run's logs and measure per-symbol
+   threading. This sets the expansion budget.
+4. Todos 384 (security classification hierarchy; build trigger already fired — recommend
+   folding the build into the expansion phase itself so point-in-time classification history
+   starts with the first new onboarding batch) and 376 (survivorship-bias data sourcing;
+   answer before the expansion locks a sourcing method, or the all-active selection bias gets
+   perpetuated).
+5. Todo 380's consumer-cutover decision (materiality-filtered empirical tags into live
+   breadth/peer-grouping) — gated on the Phase 175 shadow report; seeded thresholds currently
+   admit 0 symbols, so gather recalibration evidence first.
+6. Scope the next expansion phase mechanically: pre-registered selection rule plus a
+   D-10-style decorrelation gate, sized against the measured recompute budget, per the
+   standing long-term direction (maximal coverage scaled against compute).
 
 **Open items, not construction verdicts:**
 
@@ -226,33 +228,22 @@ duplicated here. Currently open/not-yet-planned phases, compressed to current st
 - **Phase 145** (StratificationDimension Formalization): unblocked but not planned, not currently prioritized.
 - **Phase 174** (Universe Expansion — Single-Name Breadth Scaling + Targeted ETF Gap-Fill): executed and CLOSED 2026-09-16 — D-10 correlation gate FAILED for single-name expansion, pivoted to cross-asset ETFs (see Strategic Plan section above for the full verdict and the follow-on pre-registration it produced). Plans 174-11/174-12 blocked-by-verdict, not executed.
 - **Phase 175** (ITR materiality-filtered empirical tags for breadth/peer-grouping, todo 380):
-  fully planned 2026-09-18 (5 plans, 4 waves, shadow-mode). D-07 gate cleared by all three
-  required reviewers (Codex, AGY, Fable — full review record: `175-REVIEWS.md`), ready for
-  `/gsd-execute-phase 175`. **Sequencing decision 2026-09-22: run todo 340 first** (a feature-
-  compute data-completeness bug affecting 8 symbols, orthogonal to Phase 175 but touches the
-  same `feature_vectors` hypertable Phase 175's eventual `ic_engine` recompute will read) —
-  avoids the exact write/read lock contention hit today (see gotchas.md), and lands complete
-  feature data before the next expensive corpus-wide recompute rather than after.
+  COMPLETE 2026-09-23 (5/5 plans; verification clean, no gaps; shadow-mode scope verified —
+  both consumers still read `source='human'` only). `TagCalibrator` Pass 4 is live (migration
+  346, eleven APR keys, `instrument_tags_active` view). The consumer-cutover decision is a
+  separate later phase gated on the shadow report plus D-07 cross-AI review (todo 380, open);
+  seeded thresholds currently admit 0 symbols.
 
-- **Phase 176 (Earnings-Season Calendar Primitive, todo 353): fully planned, reviewed, and
-  evidence-gated as of 2026-09-23, ready for `/gsd-execute-phase 176`.** Corrected evidence
-  (D-04, live-reverified): 1.90x in-season/off-season ratio, p=5.05e-05, 67% of symbols (155/233)
-  -- NOT the todo's original flawed-window numbers (4.3x/p=1.2e-17/81%), which are superseded.
-  8 plans, 5 waves. Two cross-AI reviews: Codex (mechanical fixes applied -- SQL injection
-  guardrail, pinned thresholds, telemetry, consumer-audit scope) and Fable (structural finding:
-  the original design committed the `ic_engine.py` regime-conditioning workstream to build
-  regardless of its own motivating evidence, violating earn-promotion-through-proof). **D-01a
-  amendment (user-directed 2026-09-23): the conditioning workstream (176-04/05/06) now gates on
-  176-01's extended sweep of the full 57-feature vol/volume family with BH-FDR (not just
-  `up_vol_body_diff`) -- it proceeds if ANY feature survives FDR with broad cross-symbol
-  agreement, not specifically the one originally-cited feature.** 176-07 (corpus backfill) also
-  swapped from a full `--refresh` feature-factory recompute to a scoped two-column SQL migration
-  (`production/migrations/351_earnings_season_backfill.sql`), cutting most of the operational
-  risk Codex flagged. Antigravity's review still owed (quota-exhausted until
-  ~2026-09-24T03:00 UTC) -- not required to execute, just a third opinion worth getting.
+- **Phase 176 (Earnings-Season Calendar Primitive, todo 353): EXECUTING 2026-09-23, 4/8 plans
+  done (176-01/02/03/05); next up wave 3 (176-04, 176-07), then wave 4 (176-06), wave 5
+  (176-08).** Wave 1's extended family sweep returned `SWEEP_VERDICT=CONFIRMED` (31 of 57
+  vol/volume features survive BH-FDR with broad cross-symbol agreement), clearing the D-01a
+  gate on the conditioning plans. 176-08 runs the IC gate verdict, rolls back the conditioning
+  APR on a non-SHARPENS verdict, and closes todo 353. Antigravity's third-opinion review is
+  still owed (quota-exhausted until ~2026-09-24T03:00 UTC); not required to proceed.
 
 ## Session
 
-Last session: 2026-09-22
+Last session: 2026-09-23
 Stopped at: see Strategic Plan section above (kept live; this section is a known staleness trap
 — its tool-sync bug is root-caused in todo 383, don't re-investigate it).
