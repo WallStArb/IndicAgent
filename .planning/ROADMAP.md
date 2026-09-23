@@ -2897,7 +2897,7 @@ primitives, wire `earnings_season_flag` into `ic_engine.py` as a measurement-onl
 axis, and close the phase on a real `feature_ic_scores` FDR/walk-forward gate verdict.
 **Requirements**: ES-01, ES-02, ES-03, ES-04, ES-05, ES-06, ES-07, ES-08, ES-09
 **Depends on:** Phase 175
-**Plans:** 8 plans (5 waves)
+**Plans:** 2/8 plans executed
 
 Requirements:
 - ES-01 — `earnings_season_flag` computed from `bar_ts` at every `FeatureVector` construction site
@@ -2912,8 +2912,8 @@ Requirements:
 
 **Wave 1**
 
-- [ ] 176-01-PLAN.md - tested pure window classifier + A1 re-verification + 57-feature vol/volume BH-FDR sweep emitting the D-01a gate tokens (wave 1)
-- [ ] 176-02-PLAN.md - migration 350: columns, APR seeds, concept genesis, regime_scope CHECK widening (wave 1)
+- [x] 176-01-PLAN.md - tested pure window classifier + A1 re-verification + 57-feature vol/volume BH-FDR sweep emitting the D-01a gate tokens (wave 1)
+- [x] 176-02-PLAN.md - migration 350: columns, APR seeds, concept genesis, regime_scope CHECK widening (wave 1)
 
 **Wave 2** *(blocked on Wave 1 completion)*
 
