@@ -68,18 +68,37 @@ statistical validation against `ops_ic_null_calibration.py` on the 5m cells behi
 
 ## Gate
 
-**Lever 1 unblocked 2026-09-22 -- the run finished.** The 2026-09-17 run this todo was gated on
-completed 2026-09-22 (`status=success`, 233 symbols, 97128 committed / 10738 skipped) in
-**~11.5 hours total wall-clock** (`.planning/corpus_manifests/ic_engine.json`, `elapsed_s: 41391`)
--- not the 2-3 day figure this todo's own measurement projected from the same run's earlier,
-in-progress state (the run had also gone through the `b8af2b749` regime-routing fix and
-migration 348's `cs_chunk_ts` reduction since that measurement, either of which could explain the
-gap). **The "2.4 worker-hours/symbol" / "10-20 day" figures above are stale relative to this real
-end-to-end number and need re-deriving from the completed run's own logs before citing either
-number again** -- don't average the two, re-measure. Scope any universe expansion by that
-re-measured cost, not a target symbol count. Phase 174's D-10 result already made single-name
-equity expansion the weaker lever (cross-asset ETFs first), so this cost bound mostly caps how far
-a later single-name expansion can go, not the near-term plan.
+**Lever 1 unblocked 2026-09-22 -- the run finished. Re-derived 2026-09-23 from the completed
+run's own logs** (`logs/ic_engine.log.1`, `.log.2.gz`, `.log.3.gz`, manifest
+`elapsed_s: 41391`): the run reached success through three process legs, and the earlier
+"~11.5 hours total wall-clock" read counted only the last leg:
+
+- **Leg A** (per-symbol + pooled, 10 workers): 2026-09-17 -> 2026-09-20 07:00 UTC, about 2.6-3.0
+  days; all 233 per-symbol cells. Killed 09:19 UTC by the todo 386 pre-flight guard artifact.
+- **Leg B** (cross-sectional restart after migration 347, `cs_chunk_ts=5000`): 2026-09-20 13:12 ->
+  2026-09-21 ~21:00 UTC, about 31 h; log shows `n_to_compute: 0` (every per-symbol cell retained,
+  straight into `starting_cross_sectional_pass`). Superseded by migration 348's `cs_chunk_ts`
+  5000->2000; zero committed cells.
+- **Leg C** (cross-sectional at `cs_chunk_ts=2000` + FDR/compression): 2026-09-21 21:03:27 ->
+  2026-09-22 08:33:18 UTC, 11.5 h; `elapsed_s: 41391` is this process's lifetime only; 97128
+  committed / 10738 skipped.
+
+Corrected numbers (cite these):
+
+- **Per-symbol pass: about 2.7 worker-hours per symbol** (about 650 worker-h / 233 symbols).
+  The 2.4 mid-flight estimate was confirmed, not refuted.
+- **Cross-sectional stage: about 9-11.5 h wall post-migration-348** (leg C), down from about 31 h
+  at `cs_chunk_ts=5000` (leg B, discarded).
+- **Clean full recompute today: about 3.1-3.5 days wall** (233 symbols, 10 workers), per-symbol
+  dominated.
+- At 1000 symbols: about 2700 worker-h / 10 workers = about 11-12 days per full recompute (plus
+  cross-sectional growth). The original 10-20 day projection stands.
+
+Scope any universe expansion by that cost, not a target symbol count. Phase 174's D-10 result
+already made single-name equity expansion the weaker lever (cross-asset ETFs first), so this cost
+bound mostly caps how far a later single-name expansion can go, not the near-term plan. What
+remains open in this todo is the lever work, starting with the lever 1 threading measurement
+(needs idle CPU; do not run while another corpus job or phase execution is live).
 
 ## Sequencing constraint
 
