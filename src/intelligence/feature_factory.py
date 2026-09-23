@@ -32,7 +32,7 @@ import dataclasses
 import math
 from collections import deque
 from dataclasses import dataclass, field
-from datetime import UTC, datetime
+from datetime import UTC, date, datetime
 from typing import Any
 
 import numpy as np
@@ -865,6 +865,13 @@ class FeatureFactoryConfig:
     ctf_higher_tf_map: dict = field(  # feature.ctf.higher_tf_map
         default_factory=lambda: {"5m": "1h", "15m": "1h", "1h": "1d", "1d": "1d"}
     )
+    # Earnings-Season Calendar Primitive (Phase 176 Plan 03, todo 353). Same
+    # defaulting rationale as canary_rng_seed above (avoid updating every
+    # pre-existing direct FeatureFactoryConfig(...) construction site); the 2
+    # real production entrypoints (backfill_feature_factory.py,
+    # feature_vector_pipeline.py) explicitly wire these from ConfigService.
+    earnings_season_start_days: int = 14  # feature.earnings_season.start_days
+    earnings_season_end_days: int = 42  # feature.earnings_season.end_days
 
 
 def invert_ctf_higher_tf_map(higher_tf_map: dict[str, str]) -> dict[str, list[str]]:
@@ -3382,6 +3389,52 @@ def _quad_witching_flag(bar_ts: datetime) -> float:
     (Phase 151 Plan 05).
     """
     return 1.0 if (_opex_flag(bar_ts) == 1.0 and bar_ts.month % 3 == 0) else 0.0
+
+
+def _days_since_quarter_end(bar_ts: datetime) -> float:
+    """Raw calendar days since the most recent quarter end (Mar 31, Jun 30,
+    Sep 30, Dec 31), including the prior year's Dec 31 for January dates.
+
+    Formula (Phase 176 Plan 03, todo 353): find the latest quarter-end date
+    on or before bar_ts.date(), return the day-count difference as a float.
+    True calendar-day counting via bar_ts.date() arithmetic only -- deliberately
+    does NOT reuse _QUARTER_LENGTH_DAYS (91.25), which encodes
+    _quarter_position's 30-day-per-month approximation; conflating the two
+    would make this field exactly collinear with quarter_position instead of
+    the measured 0.935 correlation.
+    """
+    d = bar_ts.date()
+    candidates = [
+        date(year, month, day)
+        for year in (d.year, d.year - 1)
+        for month, day in ((3, 31), (6, 30), (9, 30), (12, 31))
+    ]
+    most_recent_quarter_end = max(c for c in candidates if c <= d)
+    return float((d - most_recent_quarter_end).days)
+
+
+def _earnings_season_flag(bar_ts: datetime, config: FeatureFactoryConfig) -> float:
+    """1.0 iff bar_ts falls within [config.earnings_season_start_days,
+    config.earnings_season_end_days] calendar days after the most recent
+    quarter end, else 0.0. Both boundaries inclusive.
+
+    Formula (Phase 176 Plan 03, todo 353): calls _days_since_quarter_end(bar_ts)
+    directly rather than restating the quarter-end arithmetic (reuse
+    discipline, mirrors _quad_witching_flag calling _opex_flag). Window
+    boundaries (feature.earnings_season.start_days,
+    feature.earnings_season.end_days) come from D-04's corrected
+    re-verification: 1.90x in-season/off-season ratio, Welch p=5.05e-05, 67%
+    of symbols (155/233) -- the todo's original superseded figures (a much
+    larger ratio, a much smaller p-value, and a higher symbol percentage from
+    an earlier flawed window) must not be cited. Market-wide calendar proxy
+    only, no per-company earnings-date table by design (same
+    nonstationary-institutional-data rejection rationale as _opex_flag's
+    no-market-holiday-table decision).
+    """
+    days = _days_since_quarter_end(bar_ts)
+    return (
+        1.0 if config.earnings_season_start_days <= days <= config.earnings_season_end_days else 0.0
+    )
 
 
 # ---------------------------------------------------------------------------
