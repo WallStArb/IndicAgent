@@ -29,3 +29,22 @@ three existing call sites noting the obligation. Resolving this likely informs t
 direction for [[125-tag-calibrator-discovery-oos-gate-not-enforced]] (option (b) there —
 a `pending` boolean — would naturally live behind the same view/contract this todo
 establishes).
+
+## Resolution (2026-09-18, phase 175)
+
+`instrument_tags_active` (migration 346) is now the required read path for any
+tag-membership query -- the diagnostic in plan 04 reads through it, not the bare table.
+`is_materiality_eligible()` additionally re-checks `valid_to is None` in code, ANDed with
+the statistical (`passes_materiality`) and temporal (`discovery_state`, todo 125) gates.
+
+**Correction (historical record kept intact above):** the original finding cites
+`services/equity_regime_model.py:289`. That file was deleted 2026-09-17 (todo 381, dead
+code). Its live successor for the equity breadth universe is
+`src/intelligence/regime_signals/breadth_vol.py`, reached through
+`services/cross_sectional_regime_model.py`'s group resolution.
+
+Neither live consumer has been cut over to the view yet -- both still query
+`source = 'human'` directly, unchanged (D-03 shadow mode). The contract now exists and
+is enforced by `is_materiality_eligible()`; a future cutover reads through the view.
+
+Full record: `175-01-SUMMARY.md` (the view), `175-03-SUMMARY.md` (the code-level check).

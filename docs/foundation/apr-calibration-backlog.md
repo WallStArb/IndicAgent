@@ -2,7 +2,7 @@
 
 **Version:** 1.0
 **Status:** current
-**Last Updated:** 2026-09-04
+**Last Updated:** 2026-09-23
 
 ## What this is
 
@@ -41,6 +41,34 @@ quick guess-swap.
 | `alpha.ic.hac_max_lag` | 3 | Newey-West HAC correction on IC Sharpe (`ic_engine.py`) | `[initial_estimate]`: "revise upward if IC series autocorrelation extends beyond lag 3" — this corpus's actual autocorrelation has never been checked. |
 | `alpha.ensemble.mv_condition_max` / `alpha.ic.partial_control_condition_max` | 1000 (both) | Ill-conditioning guard on mean-variance/partial-IC solves | Both `[initial_estimate]`; the second migration admits it copied the first ("matching the E2 mean-variance path's precedent") — a guess citing a guess. |
 | `alpha.tag_calibrator.*` (`min_sample_n`=60, `half_life_min/max`=30/365d, `expiry_consecutive_fails`=3, `discovery_oos_days`=63) | — | `services/tag_calibrator.py` — governs when an empirical instrument tag is trusted/expired | All `[initial_estimate]`, no measurement cited in any of the seeding migrations. |
+| `alpha.tag_calibrator.materiality.min_partial_loading` | 0.35 | `decide_materiality()`'s `passes_materiality` statistical decision in `tag_calibrator.py` — the primary admission threshold on the orthogonalized loading | `[initial_estimate]`, Codex's D-05-proposed conservative default; not derived from this corpus's actual partial-loading distribution. Plan 04's live GATE ATTRIBUTION output (2026-09-23) is the first real evidence: this is the dominant binding constraint (1960/2170 measured rows fail it, 84 sole-failure). |
+| `alpha.tag_calibrator.materiality.min_partial_loading_ci_low` | 0.20 | `decide_materiality()`'s `passes_materiality` — R-05's lower-CI gate on `partial_loading_ci_low` | `[initial_estimate]`, Codex's proposal; not derived from this corpus. Plan 04: 1786/2170 fail, 0 sole-failure — every `ci_low` failure co-occurs with another gate's failure, so this gate is currently non-binding on its own. |
+| `alpha.tag_calibrator.materiality.min_incremental_r2` | 0.05 | `decide_materiality()`'s `passes_materiality` — the explanatory-power-beyond-controls gate on `incremental_r2` | `[initial_estimate]`, Codex's proposal; not derived from this corpus. Plan 04: 1899/2170 fail, 27 sole-failure — the second-most-binding constraint after `min_partial_loading`. |
+| `alpha.tag_calibrator.materiality.min_sample_n` | 756 | `measure_partial_loadings()` — the observation-count floor below which a pair is not measured at all (also the denominator basis for the sign-stability discrete step, see below) | `[initial_estimate]`, Codex's proposal; set to exactly three `sign_stability_window_days` (252) windows, not independently derived from this corpus's sample-size distribution. |
+| `alpha.tag_calibrator.materiality.sign_stability_window_days` | 252 | Length of each rolling window `sign_stable_window_count()` evaluates | `[initial_estimate]`, Codex's proposal; standard trading-year convention, not corpus-derived. |
+| `alpha.tag_calibrator.materiality.sign_stability_window_count` | 4 | Number of rolling windows evaluated (`sign_stable_windows_total`'s ceiling) | `[initial_estimate]`, Codex's proposal; not corpus-derived. |
+| `alpha.tag_calibrator.materiality.min_sign_stable_windows` | 3 | `decide_materiality()`'s `passes_materiality` — the sign-agreement-count gate; see the note below on this gate's discrete-step semantics | `[initial_estimate]`, Codex's proposal; not corpus-derived. Plan 04: 565/2170 fail, only 1 sole-failure — near-miss mass concentrates at `(2,4)` (365 rows), not close to the pass bar. |
+| `alpha.tag_calibrator.materiality.null_arm_alpha` | 0.05 | `decide_materiality()`'s `passes_materiality` — BH-FDR alpha on the D-06 circular-shift null-arm p-vector | `[initial_estimate]`, mirrors the project's standing `alpha.tag_calibrator.fdr_alpha`=0.05 convention, not independently derived. Plan 04: 584/2170 fail, 0 sole-failure. |
+| `alpha.tag_calibrator.materiality.null_arm_draws` | 1000 | Monte-Carlo draw count for the D-06 null arm — a cost/resolution knob, not itself a pass/fail threshold, but gate-adjacent (the floor of 100 sets the smallest resolvable p-value at 1/101) | `[initial_estimate]`, Codex's proposal; not corpus-derived. |
+| `alpha.tag_calibrator.materiality.control_factor_series` | `["SPY","TLT","HYG-IEF","UUP"]` | `select_control_factor_series()`/`build_control_return_matrix()` — the R-03 orthogonalization control set every `partial_loading`/`incremental_r2` measurement is computed against | `[initial_estimate]`, Codex's proposal (four legs, no DBC commodity leg); not corpus-derived. An APR JSON behavioral list — adding a DBC leg is a config edit, not a migration. |
+
+The eleventh `alpha.tag_calibrator.materiality.*` key (the base seed for the D-06 null-arm RNG,
+value 42) is deliberately NOT listed above: it is `[conventional]` (this project's standing
+default RNG seed, not an uncalibrated statistical estimate) and is not a gate-shaped threshold —
+see `docs/foundation/instrument-tag-registry.md`'s APR namespace section.
+
+**Sign-stability sliding-bar resolution (recorded here so a future recalibration starts from
+this reasoning, not re-derives it):** the `min_sign_stable_windows`/`sign_stability_window_count`
+pair's semantics were explicitly resolved during Phase 175's D-07 cross-AI review, not left
+ambiguous. `min_sample_n` (756) is exactly three `sign_stability_window_days` (252) windows, so a
+symbol at the sample floor has only three evaluable windows and must show 3-of-3 sign agreement
+(100%) to pass, while a symbol with a full four evaluable windows needs only 3-of-4 (75%) — a
+hard jump at n=1008, not a gradual slide, and the bar gets STRICTER for shorter-history symbols,
+not looser. This was deliberately left unchanged during Phase 175 because nothing downstream is
+gated yet (shadow mode, D-02/D-03) — see `175-03-PLAN.md` § R-07 for the original resolution and
+`175-04-SUMMARY.md` § NEAR MISS for the live evidence (the sign-stable-windows histogram of
+failing candidates plus each gate's `sole_failure` count) that any future
+loosen/tighten/leave-alone decision should start from.
 | `alpha.concept_registry.ensemble_strategy_min_observations` / `ensemble_strategy_min_promotion_consecutive` | 1000 / 2 | Concept promotion gate | `[initial_estimate]` — the *shape* of the reasoning is documented (non-overlapping CIs are strict), the specific number isn't. |
 | `alpha.ensemble_ic.min_obs_per_regime` / `wf_stability_ratio` / `stop_target_min_qualifying_symbols` | 3000 / 3.0 / 3 | Data-sufficiency and fold-stability diagnostics (`ensemble_ic_engine.py`) | All `[initial_estimate]`, no empirical basis cited. |
 | `alpha.validation.regime_gate_min_clusters` | 20 | Day-cluster coverage floor — the key that started this audit | `[initial_estimate]`: "no empirical calibration performed yet." Lower blast radius than the rest of this table — consumed only by `scripts/analysis/*.py` one-off eval scripts, not a live daemon. |

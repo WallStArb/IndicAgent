@@ -57,3 +57,29 @@ rather than leaving the same state machine split across a typed-column half and 
 untyped-JSONB half — a future consumer needing `WHERE discovery_state = 'confirmed'`
 currently has no index or schema guarantee, only a JSONB string-match with no constraint
 stopping an invalid state from being written.
+
+## Resolution (2026-09-18, phase 175)
+
+The gate is now enforced. Migration 346 (Phase 175 plan 01) promoted `discovery_state` and
+`first_measured_at` from the `evidence` JSONB into typed `instrument_tags` columns, exactly
+as this todo's own 2026-07-17 addendum recommended -- `discovery_state text CHECK
+(discovery_state IS NULL OR discovery_state IN ('pending_oos', 'confirmed'))` and
+`first_measured_at timestamptz`, both table-scoped, both real schema.
+
+The JSONB copy of both fields is retained for backward compatibility, not removed this
+phase. Plan 03's own repo-wide sweep (`grep -rn "discovery_state|first_measured_at" src/
+services/ scripts/`) confirmed the only readers of either field are `tag_calibrator.py`'s
+own write site and `scripts/analysis/itr_materiality_shadow_diagnostic.py`'s read site --
+no other consumer depends on the JSONB shape, so keeping it costs nothing and breaks
+nothing.
+
+`services.tag_calibrator.is_materiality_eligible()` is the read-time consumer of the typed
+state: it ANDs `discovery_state == 'confirmed'` (the temporal gate this todo is about)
+with the Pass 4 statistical gate (`passes_materiality`) and the expiry gate (`valid_to IS
+NULL`, todo 126). A fresh discovery with a fully-passing statistical profile is still not
+eligible while `discovery_state = 'pending_oos'` -- this is exactly the enforcement this
+todo found missing, and it is now test-pinned:
+`tests/unit/test_tag_calibrator.py::test_discovery_oos_gate_blocks_fresh_discovery`.
+
+Full record: `.planning/phases/175-itr-materiality-filtered-empirical-tags-for-breadth-peer-gro/175-01-SUMMARY.md`
+(migration 346) and `175-03-SUMMARY.md` (the read-time enforcement and the closing test).
