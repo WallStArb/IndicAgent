@@ -52,6 +52,17 @@ recompute after a feature, config, or methodology change.
    fused Numba kernel without `nogil` (`scripts/analysis/ic_engine_bootstrap_ci_numba_benchmark.py`,
    same contention caveat). `nogil=True` plus `ThreadPoolExecutor`, and `prange`, were not tested.
    Extend that script to test them before deciding.
+   **Measured 2026-09-23 (idle box, 24 cores, script extended with scipy-threads/nogil/prange
+   arms, all outputs byte-identical to scipy serial at 0.0e+00 diff -- exact, not float-noise):**
+   numba serial 1.00-1.15x; scipy threads=2 1.75-1.88x (today's production setting, already
+   captured in the 2.7 worker-hr/symbol figure); scipy threads=8 2.19-4.68x; nogil threads=8
+   4.78-5.97x; **prange 10.77-13.12x** (uses all cores via numba's internal scheduler). The win
+   over the best scipy-threads arm is ~2.3-2.8x at equal core budget. Production adoption needs a
+   LAYOUT decision first: 10 worker processes x prange(at default) = 240-thread oversubscription;
+   either cap numba threads per worker (~2, only ~10-20% over scipy-threads-2) or cut worker
+   processes and give prange 4-6 threads each (the real ~1.5-2x end-to-end option). Editing
+   ic_engine.py for adoption moves code_content_key -- belongs in the bundled todo 389/386
+   landing, not standalone.
 3. **Staged bootstrap.** Cheap point IC for every cell; 2000-resample bootstrap only where it can
    change a decision. Selecting cells on the same statistic later tested distorts BH-FDR, so the
    selection rule must be pre-registered and the FDR family defined over all cells. Todo 227's
