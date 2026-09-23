@@ -1162,6 +1162,14 @@ class Float32ChunkAccumulator:
             )
 
     def append_row(self, row: Any) -> None:
+        if self._disk_backed and self._flush_at is None:
+            # Without flush_at every row stays in the Python buffer until finalize(),
+            # so a disk-backed accumulator would hold the whole cell in RAM -- the
+            # exact thing disk-backing exists to prevent (174 review IN-07).
+            raise ValueError(
+                "Float32ChunkAccumulator(disk_backed=True).append_row() requires flush_at; "
+                "use append_chunk() or construct with flush_at"
+            )
         self._buf.append(row)
         if self._flush_at is not None and len(self._buf) >= self._flush_at:
             self._flush_buf()
