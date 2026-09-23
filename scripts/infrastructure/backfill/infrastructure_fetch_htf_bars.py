@@ -111,7 +111,7 @@ async def _fetch_1m_bars(
 
 async def _amain(args: argparse.Namespace) -> None:
     settings = Settings()
-    contracts = get_active_contracts(settings)
+    contracts = get_active_contracts(settings, dimension="compute")
     symbols = [c.symbol for c in contracts]
 
     until = datetime.now(UTC)

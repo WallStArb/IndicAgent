@@ -574,7 +574,7 @@ async def main() -> None:
     if args.symbols:
         symbols = [s.strip() for s in args.symbols.split(",") if s.strip()]
     else:
-        contracts = get_active_contracts(settings)
+        contracts = get_active_contracts(settings, dimension="compute")
         symbols = [c.symbol for c in contracts]
 
     since = parse_iso_ts(args.since)

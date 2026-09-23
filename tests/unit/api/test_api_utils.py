@@ -36,7 +36,9 @@ def test_resolve_contract_base_to_contract(monkeypatch):
     from src.core.models import AssetClass, Instrument
 
     mock_contract = Instrument(symbol="ESH6", base="ES", asset_class=AssetClass.FUTURES)
-    monkeypatch.setattr("src.config.settings.get_active_contracts", lambda s: [mock_contract])
+    monkeypatch.setattr(
+        "src.config.settings.get_active_contracts", lambda s, **_kw: [mock_contract]
+    )
     assert resolve_contract("ES") == "ESH6"
 
 
@@ -45,12 +47,14 @@ def test_resolve_contract_vx_regex_fallback(monkeypatch):
     from src.core.models import AssetClass, Instrument
 
     mock_contract = Instrument(symbol="VXH6", base="VIX", asset_class=AssetClass.FUTURES)
-    monkeypatch.setattr("src.config.settings.get_active_contracts", lambda s: [mock_contract])
+    monkeypatch.setattr(
+        "src.config.settings.get_active_contracts", lambda s, **_kw: [mock_contract]
+    )
     assert resolve_contract("VX") == "VXH6"
 
 
 def test_resolve_contract_unknown_fallback(monkeypatch):
-    monkeypatch.setattr("src.config.settings.get_active_contracts", lambda s: [])
+    monkeypatch.setattr("src.config.settings.get_active_contracts", lambda s, **_kw: [])
     assert resolve_contract("UNKNOWN") == "UNKNOWN"
 
 

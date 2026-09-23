@@ -141,7 +141,7 @@ async def _live_quote_ratios(
     try:
         if not await provider.connect():
             return ratios, live_spreads, False
-        instruments = {i.symbol: i for i in get_active_contracts(settings)}
+        instruments = {i.symbol: i for i in get_active_contracts(settings, dimension="compute")}
         for symbol in _VALIDATION_SYMBOLS:
             if symbol not in cs.index or symbol not in instruments:
                 continue

@@ -646,7 +646,7 @@ async def seed_roll_chain(settings: Settings, db: DatabaseManager) -> None:
     futures_bases: list[str] = list(
         dict.fromkeys(
             inst.base
-            for inst in get_active_contracts(settings)
+            for inst in get_active_contracts(settings, dimension="compute")
             if inst.asset_class == AssetClass.FUTURES and inst.base
         )
     )

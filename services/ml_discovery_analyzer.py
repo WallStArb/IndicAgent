@@ -79,7 +79,7 @@ class MLDiscoveryAnalyzer(BaseDaemon):
         await self._producer.start()
         self.logger.info("ml_discovery_analyzer.starting")
         try:
-            for symbol in get_active_contracts(self.settings):
+            for symbol in get_active_contracts(self.settings, dimension="compute"):
                 sym = symbol if isinstance(symbol, str) else symbol.symbol
                 for tf in ["1m", "5m", "15m"]:
                     await self._run_all_regimes(symbol=sym, tf=tf)

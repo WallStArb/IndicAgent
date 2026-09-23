@@ -149,40 +149,16 @@ def _reset_cache():
 # ---------------------------------------------------------------------------
 
 
-def test_default_equivalence_matches_backfill_and_uses_compute_eligible_clause():
-    """Unparameterized call == dimension='backfill' when every row is compute_eligible=true."""
-    mock_settings = _make_settings()
-    rows = [_nf_row("AAA"), _nf_row("BBB")]
-    recorder: list[str] = []
+def test_dimension_is_a_required_keyword():
+    """174 review CR-02 follow-up: no default universe. A caller that omits dimension
+    fails at the call, rather than silently receiving "compute"."""
+    import inspect
 
-    def _connect(_dsn):
-        return _FakeConnection(_FakeCursor(recorder, {"backfill": rows, "compute": rows}))
-
-    with patch("psycopg.connect", side_effect=_connect):
-        default_result = get_active_contracts(mock_settings)
-
-    with settings_mod._settings_lock:
-        settings_mod._active_contracts_cache.clear()
-        settings_mod._active_contracts_last_refresh.clear()
-
-    with patch("psycopg.connect", side_effect=_connect):
-        backfill_result = get_active_contracts(mock_settings, dimension="backfill")
-
-    default_symbols = {i.symbol for i in default_result}
-    backfill_symbols = {i.symbol for i in backfill_result}
-    assert default_symbols == backfill_symbols == {"AAA", "BBB"}
-
-    default_sql = [
-        sql for sql in recorder if "FROM instruments" in sql and "compute_eligible = true" in sql
-    ]
-    assert (
-        default_sql
-    ), f"Expected default call's SQL to filter on compute_eligible=true: {recorder}"
-
-
-# ---------------------------------------------------------------------------
-# Case 2: compute narrows correctly
-# ---------------------------------------------------------------------------
+    param = inspect.signature(get_active_contracts).parameters["dimension"]
+    assert param.kind is inspect.Parameter.KEYWORD_ONLY
+    assert param.default is inspect.Parameter.empty
+    with pytest.raises(TypeError):
+        get_active_contracts(_make_settings())
 
 
 def test_compute_excludes_ineligible_symbol_backfill_includes_it():
@@ -293,8 +269,8 @@ def test_cache_hit_within_ttl_issues_one_query():
         return _FakeConnection(_FakeCursor(recorder, rows_by_dimension))
 
     with patch("psycopg.connect", side_effect=_connect) as mock_connect:
-        result1 = get_active_contracts(mock_settings)
-        result2 = get_active_contracts(mock_settings)
+        result1 = get_active_contracts(mock_settings, dimension="compute")
+        result2 = get_active_contracts(mock_settings, dimension="compute")
 
     assert mock_connect.call_count == 1
     assert {i.symbol for i in result1} == {i.symbol for i in result2} == {"X"}

@@ -180,7 +180,7 @@ async def main() -> int:
 
     # Get active futures symbols only
     # Instrument.base is the base symbol (e.g. "ES"); .symbol is the full contract (e.g. "ESM6")
-    contracts = get_active_contracts(settings)
+    contracts = get_active_contracts(settings, dimension="compute")
     futures_symbols = [
         c.base
         for c in contracts

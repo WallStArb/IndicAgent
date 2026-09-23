@@ -343,7 +343,7 @@ async def main() -> None:
     settings = Settings()
 
     if args.symbols:
-        active_symbols = {i.symbol for i in get_active_contracts(settings)}
+        active_symbols = {i.symbol for i in get_active_contracts(settings, dimension="compute")}
         invalid = set(args.symbols) - active_symbols
         if invalid:
             raise ValueError(

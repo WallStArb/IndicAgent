@@ -830,7 +830,7 @@ async def run_fetch_stage(
     """
     from src.core.bar_normalizer import normalize_bars
 
-    contracts = get_active_contracts(settings)
+    contracts = get_active_contracts(settings, dimension="compute")
     etf_contracts = _filter_etf_contracts(contracts, symbols)
     _logger.info("fetch_stage_start", contracts=len(etf_contracts), client_id=client_id)
 
@@ -1077,7 +1077,7 @@ def run_compute_stage(
     )
     _logger.info("cross_asset_series_built", dates=len(cross_asset_by_date))
 
-    contracts = get_active_contracts(settings)
+    contracts = get_active_contracts(settings, dimension="compute")
     etf_contracts = _filter_etf_contracts(contracts, symbols)
     all_symbols = [c.symbol for c in etf_contracts]
     status_map = _load_status_map(db_conn, all_symbols, target_timeframes)

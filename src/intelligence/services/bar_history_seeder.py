@@ -109,7 +109,7 @@ class BarHistorySeeder:
             await db.close()
 
     async def _run_seed(self, db: DatabaseManager, bar_history: BarHistory) -> None:
-        active_contracts = get_active_symbols()
+        active_contracts = get_active_symbols(dimension="live")
         timeframes = self._config["service"]["timeframes"]
         seeded_bars = 0
         published_events = 0

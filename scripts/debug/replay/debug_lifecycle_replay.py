@@ -1341,7 +1341,7 @@ async def main_async():
             symbols = (
                 args.symbols.split(",")
                 if args.symbols
-                else [c.symbol for c in get_active_contracts(settings)]
+                else [c.symbol for c in get_active_contracts(settings, dimension="compute")]
             )
             timeframes = args.timeframes.split(",") if args.timeframes else TIMEFRAMES
             await _reconcile_outcomes(db)
@@ -1351,7 +1351,7 @@ async def main_async():
         symbols = (
             args.symbols.split(",")
             if args.symbols
-            else [c.symbol for c in get_active_contracts(settings)]
+            else [c.symbol for c in get_active_contracts(settings, dimension="compute")]
         )
         timeframes = args.timeframes.split(",") if args.timeframes else TIMEFRAMES
 

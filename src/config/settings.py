@@ -372,8 +372,8 @@ _active_contracts_last_refresh: dict[str, float] = {}
 _ACTIVE_CONTRACTS_TTL = 60.0  # seconds
 
 # Valid dimensions for get_active_contracts(), mapped to their non-futures WHERE clause.
-# "compute" is the default: migration 337 set compute_eligible=true for every existing row,
-# making it behaviorally identical to the pre-dimension unparameterized query.
+# The single definition of each universe: SQL readers outside get_active_contracts() take
+# their clause from dimension_where_clause() rather than re-typing it.
 #
 # "compute_1d" (Phase 174, plan 174-13, D-09) is a SIBLING of "compute", not a narrowing
 # of it — it deliberately omits compute_eligible = true. A four-timeframe symbol is also
@@ -490,21 +490,20 @@ def _build_instrument_from_db_row(
     )
 
 
-def get_active_contracts(
-    settings: Settings | None = None, dimension: str = "compute"
-) -> list[Instrument]:
+def get_active_contracts(settings: Settings | None = None, *, dimension: str) -> list[Instrument]:
     """Return active contract Instruments (e.g. [Instrument(symbol='ESM6'), ...]).
 
     Queries contract_metadata WHERE is_front_month = true AND asset_class = 'futures',
     reconstructs Instrument objects inheriting DB-template defaults (point_value,
     tick_size, session_id, exchange, sector, name, provider_meta) by base_symbol
     from the instruments table, then queries instruments table for non-futures
-    (equities, FX, crypto) filtered by `dimension`:
+    (equities, FX, crypto) filtered by `dimension`. `dimension` is a required keyword
+    with no default: every caller states which universe it means, so a new caller can
+    never inherit "compute" by omission (174 review CR-02 follow-up):
 
     - "backfill": `is_active = true` — every backfill-eligible symbol.
-    - "compute" (default): `is_active = true AND compute_eligible = true` — behaviorally
-      identical to the pre-dimension query, since migration 337 backfilled
-      `compute_eligible=true` for every row that was `is_active=true` at the time.
+    - "compute": `is_active = true AND compute_eligible = true` — the governed compute
+      universe (feature factory, ic_engine, batch backfill).
     - "live": `is_active = true AND compute_eligible = true AND live_tradeable = true` —
       expected to return an empty list until a subscription whitelist is deliberately
       chosen. IBKR's 80-simultaneous-subscription cap binds this dimension and nothing
@@ -707,21 +706,22 @@ def get_all_futures_contracts(settings: Settings | None = None) -> list[Instrume
         return []
 
 
-def get_active_symbols(settings: Settings | None = None) -> list[str]:
+def get_active_symbols(settings: Settings | None = None, *, dimension: str) -> list[str]:
     """Return active contract symbol strings (e.g. ['ESM6', 'NQM6', ...]).
 
     Convenience wrapper for call sites that only need symbol strings.
     Delegates to get_active_contracts() for DB-backed resolution.
     """
-    return [c.symbol for c in get_active_contracts(settings)]
+    return [c.symbol for c in get_active_contracts(settings, dimension=dimension)]
 
 
 def get_point_value(symbol: str, settings: Settings | None = None) -> float | None:
     """Get point value for a contract symbol or base symbol.
 
-    Looks up the instrument in the active contracts cache. Returns None if not found.
+    Looks up the instrument in the active contracts cache (widest dimension: a lookup,
+    not a universe choice). Returns None if not found.
     """
-    for c in get_active_contracts(settings):
+    for c in get_active_contracts(settings, dimension="backfill"):
         if c.symbol == symbol or c.base == symbol:
             return c.point_value
     return None
@@ -730,9 +730,10 @@ def get_point_value(symbol: str, settings: Settings | None = None) -> float | No
 def get_tick_size(symbol: str, settings: Settings | None = None) -> float | None:
     """Get tick size for a contract symbol or base symbol.
 
-    Looks up the instrument in the active contracts cache. Returns None if not found.
+    Looks up the instrument in the active contracts cache (widest dimension: a lookup,
+    not a universe choice). Returns None if not found.
     """
-    for c in get_active_contracts(settings):
+    for c in get_active_contracts(settings, dimension="backfill"):
         if c.symbol == symbol or c.base == symbol:
             return c.tick_size
     return None

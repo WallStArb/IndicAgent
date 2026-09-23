@@ -39,7 +39,7 @@ def resolve_contract(symbol: str) -> str:
     from ..config.settings import get_active_contracts
 
     settings = get_settings()
-    contracts = get_active_contracts(settings)
+    contracts = get_active_contracts(settings, dimension="backfill")  # lookup: widest
     for c in contracts:
         if c.base == symbol:
             return c.symbol

@@ -161,7 +161,7 @@ async def _pick_probe_symbols(settings: Settings, n: int, timeframe: str | None 
     ordered = [s for s in preferred if s in zero_row]
     ordered += sorted(zero_row - set(ordered))
 
-    contracts = {c.symbol: c for c in get_active_contracts(settings)}
+    contracts = {c.symbol: c for c in get_active_contracts(settings, dimension="compute")}
     picked = [contracts[s] for s in ordered[:n] if s in contracts]
     if len(picked) < n:
         raise RuntimeError(

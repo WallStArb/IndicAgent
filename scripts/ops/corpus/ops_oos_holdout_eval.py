@@ -387,7 +387,9 @@ async def main() -> None:
         if args.symbols:
             symbols = args.symbols
         else:
-            symbols = sorted({inst.symbol for inst in get_active_contracts(settings)})
+            symbols = sorted(
+                {inst.symbol for inst in get_active_contracts(settings, dimension="compute")}
+            )
         tfs: list[str] = args.tf
 
         _logger.info(

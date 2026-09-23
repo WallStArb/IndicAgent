@@ -226,7 +226,7 @@ async def detect_expired_front_months(conn: asyncpg.Connection, today: date) -> 
 
 async def seed_missing_contracts(conn: asyncpg.Connection, settings: Settings) -> int:
     """INSERT contracts from get_active_contracts() with ON CONFLICT DO NOTHING."""
-    instruments = get_active_contracts(settings)
+    instruments = get_active_contracts(settings, dimension="compute")
     futures = [i for i in instruments if i.asset_class == AssetClass.FUTURES]
     if not futures:
         return 0

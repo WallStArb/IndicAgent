@@ -113,7 +113,7 @@ class WarmupProvider:
         repo: FeatureSnapshotRepository,
         bar_history: dict[str, deque],
     ) -> None:
-        active_contracts = get_active_symbols()
+        active_contracts = get_active_symbols(dimension="live")
         timeframes = self._config["service"]["timeframes"]
         seeded_bars = 0
         published_events = 0
