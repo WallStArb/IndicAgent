@@ -438,9 +438,10 @@ def test_feature_vector_domain_complete():
     (Phase 151 Plan 04) = 277, + 5 Named Interaction Primitives (3 cross-TF
     divergences + 2 calendar event flags, Phase 151 Plan 05) = 282, + 10
     Theory-Motivated Interactions (Phase 151 Plan 06) = 292, + 6 Velocity
-    Primitives Extension fields (todo 320) = 298."""
+    Primitives Extension fields (todo 320) = 298, + 2 Earnings-Season
+    Calendar Primitive fields (Phase 176 Plan 03, todo 353) = 300."""
     fv_fields = {f.name for f in dataclasses.fields(FeatureVector)}
-    assert len(FEATURE_VECTOR_DOMAIN) == 298
+    assert len(FEATURE_VECTOR_DOMAIN) == 300
     assert set(FEATURE_VECTOR_DOMAIN.keys()) == fv_fields
 
 

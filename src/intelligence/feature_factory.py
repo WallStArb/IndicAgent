@@ -1,4 +1,4 @@
-"""FeatureFactory — pure-function library for computing all 298 FeatureVector primitives.
+"""FeatureFactory — pure-function library for computing all 300 FeatureVector primitives.
 
 STATELESS CONTRACT (D-08): FeatureFactory has no __init__ and stores no config.
 The FeatureFactoryConfig frozen dataclass is built ONCE by the caller
@@ -235,6 +235,8 @@ FEATURE_VECTOR_DOMAIN: dict[str, str] = {
     "ret_div_1h_1d": "quant",
     "opex_flag": "calendar",
     "quad_witching_flag": "calendar",
+    "earnings_season_flag": "calendar",
+    "days_since_quarter_end": "calendar",
     # Theory-Motivated Interactions (Phase 151 Plan 06). "quant" for the 8
     # momentum/breakout/reversion/volume products, "macro" for the 2
     # term-structure/VIX-conditioned products (#8/#9).
@@ -6296,6 +6298,8 @@ def _build_feature_vector(
     ret_div_1h_1d: float | None,
     opex_flag: float,
     quad_witching_flag: float,
+    earnings_season_flag: float,
+    days_since_quarter_end: float,
     vol_body_product: float,
     ret_vol_product_fast: float,
     price_vol_corr_fast: float,
@@ -6606,6 +6610,8 @@ def _build_feature_vector(
         ret_div_1h_1d=_guard(ret_div_1h_1d),
         opex_flag=_guard(opex_flag, 0.0),
         quad_witching_flag=_guard(quad_witching_flag, 0.0),
+        earnings_season_flag=_guard(earnings_season_flag, 0.0),
+        days_since_quarter_end=_guard(days_since_quarter_end, 0.0),
         vol_body_product=_guard(vol_body_product, 0.0),
         ret_vol_product_fast=_guard(ret_vol_product_fast, 0.0),
         price_vol_corr_fast=_guard(price_vol_corr_fast, 0.0),
@@ -6798,7 +6804,7 @@ class FeatureFactory:
         cache: FeatureCache,
         config: FeatureFactoryConfig,
     ) -> FeatureVector:
-        """Compute all 298 FeatureVector primitives from bars + cache + config.
+        """Compute all 300 FeatureVector primitives from bars + cache + config.
 
         PURE FUNCTION: no IO, no ConfigService.get(), no DB reads, no Kafka.
         All tunable numerics come from the config argument (SC-9).
@@ -6816,7 +6822,7 @@ class FeatureFactory:
 
         Returns
         -------
-        FeatureVector with all 298 fields populated -- most set to finite
+        FeatureVector with all 300 fields populated -- most set to finite
         floats, but 85 are `float | None` by design (41 Phase 165 Swing/Fib
         + 44 optional cross-sectional/canary/SMC placeholders); see the
         FeatureVector class docstring for the full breakdown.
@@ -6825,8 +6831,11 @@ class FeatureFactory:
             # Phase 151 Plan 05: bar_ts, when available (len(bars) == 1), is
             # threaded through so opex_flag/quad_witching_flag compute real
             # values even at cold start -- both need only bar_ts, not history.
+            # Phase 176 Plan 03: config is also threaded through so
+            # earnings_season_flag can resolve its APR window even at cold
+            # start.
             _cold_start_bar_ts = bars[-1]["ts"] if bars else None
-            return _cold_start_vector(cache, tf, _cold_start_bar_ts)
+            return _cold_start_vector(cache, tf, _cold_start_bar_ts, config)
 
         opens = np.array([b["open"] for b in bars], dtype=float)
         highs = np.array([b["high"] for b in bars], dtype=float)
@@ -7301,6 +7310,8 @@ class FeatureFactory:
             ret_div_1h_1d=None,
             opex_flag=_opex_flag(bar_ts),
             quad_witching_flag=_quad_witching_flag(bar_ts),
+            earnings_season_flag=_earnings_season_flag(bar_ts, config),
+            days_since_quarter_end=_days_since_quarter_end(bar_ts),
             # Renaissance Primitives (Phase 142.5 Plan 05.5) — price-volume
             # interactions. 6 window-free combinators computed inline above
             # from already-captured parent scalars; the 2 rolling
@@ -7820,6 +7831,8 @@ class FeatureFactory:
                 ret_div_1h_1d_val = None
             opex_flag_val = _opex_flag(bar_ts)
             quad_witching_flag_val = _quad_witching_flag(bar_ts)
+            earnings_season_flag_val = _earnings_season_flag(bar_ts, config)
+            days_since_quarter_end_val = _days_since_quarter_end(bar_ts)
 
             ret_lag_2_val = _ret_lag_2(closes[: i + 1])
             ret_lag_3_val = _ret_lag_3(closes[: i + 1])
@@ -8284,6 +8297,8 @@ class FeatureFactory:
                 ret_div_1h_1d=ret_div_1h_1d_val,
                 opex_flag=opex_flag_val,
                 quad_witching_flag=quad_witching_flag_val,
+                earnings_season_flag=earnings_season_flag_val,
+                days_since_quarter_end=days_since_quarter_end_val,
                 vol_body_product=vol_body_product_val,
                 ret_vol_product_fast=ret_vol_product_fast_val,
                 price_vol_corr_fast=price_vol_corr_fast_val,
@@ -8324,7 +8339,10 @@ class FeatureFactory:
 
 
 def _cold_start_vector(
-    cache: FeatureCache, tf: str, bar_ts: datetime | None = None
+    cache: FeatureCache,
+    tf: str,
+    bar_ts: datetime | None = None,
+    config: FeatureFactoryConfig | None = None,
 ) -> FeatureVector:
     """Return a valid FeatureVector with cold-start defaults (0.0 / neutral values).
 
@@ -8333,6 +8351,13 @@ def _cold_start_vector(
     there's no prior bar to derive a return from). opex_flag/quad_witching_flag
     use it to compute real values here rather than a neutral placeholder --
     both are pure functions of bar_ts alone, no history required.
+
+    config (Phase 176 Plan 03, todo 353): optional, needed only by
+    earnings_season_flag (its APR window boundaries live on config). When
+    bar_ts is not None but config is None, earnings_season_flag falls back
+    to the neutral 0.0 placeholder rather than raising -- days_since_quarter_end
+    has no config dependency and computes a real value whenever bar_ts is
+    available, same as opex_flag/quad_witching_flag.
     """
     if tf == "1d":
         poc_dist_atr = 0.0
@@ -8533,14 +8558,14 @@ def _cold_start_vector(
         ofi_z_velocity=0.0,
         cvd_slope_z_velocity=0.0,
         volume_z_velocity=0.0,
-        # Phase 151 Plan 03: _cold_start_vector has no config parameter
-        # (called only when len(bars) < 2, same constraint documented at
-        # Phase 151 Plan 01's cold-start deviation above), so the true
-        # per-window saturating value (window minus one) cannot be read from
-        # live APR here. Uses each field's seeded APR default window (dist
-        # windows fast/slow are 20/50, the 52-week high/low window is 252)
-        # as a literal -- the same bare-literal convention every other field
-        # in this function already follows for the identical reason.
+        # Phase 151 Plan 03: _cold_start_vector's `config` parameter (added
+        # Phase 176 Plan 03, todo 353, for earnings_season_flag) is Optional
+        # and not threaded into the bars_since_* fields below, so the true
+        # per-window saturating value (window minus one) still cannot be read
+        # from live APR here. Uses each field's seeded APR default window
+        # (dist windows fast/slow are 20/50, the 52-week high/low window is
+        # 252) as a literal -- the same bare-literal convention every other
+        # field in this function already follows for the identical reason.
         bars_since_high_fast=19.0,
         bars_since_high_slow=49.0,
         bars_since_low_fast=19.0,
@@ -8579,6 +8604,17 @@ def _cold_start_vector(
         ret_div_1h_1d=None,
         opex_flag=_opex_flag(bar_ts) if bar_ts is not None else 0.0,
         quad_witching_flag=_quad_witching_flag(bar_ts) if bar_ts is not None else 0.0,
+        # Earnings-Season Calendar Primitive (Phase 176 Plan 03, todo 353):
+        # days_since_quarter_end needs only bar_ts, same as opex_flag/
+        # quad_witching_flag above. earnings_season_flag additionally needs
+        # config (its APR window lives there) -- falls back to the neutral
+        # 0.0 placeholder when config is None, even if bar_ts is available.
+        earnings_season_flag=(
+            _earnings_season_flag(bar_ts, config)
+            if bar_ts is not None and config is not None
+            else 0.0
+        ),
+        days_since_quarter_end=(_days_since_quarter_end(bar_ts) if bar_ts is not None else 0.0),
         # Theory-Motivated Interactions (Phase 151 Plan 06): a product of two
         # cold-start-zero parents is 0.0 -- same convention as vol_body_product
         # etc. immediately below.

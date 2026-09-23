@@ -281,6 +281,8 @@ def _make_zero_vector() -> FeatureVector:
         ofi_z_velocity=0.0,
         cvd_slope_z_velocity=0.0,
         volume_z_velocity=0.0,
+        earnings_season_flag=0.0,
+        days_since_quarter_end=0.0,
         bars_since_high_fast=0.0,
         bars_since_high_slow=0.0,
         bars_since_low_fast=0.0,
@@ -602,7 +604,9 @@ def test_vector_to_params_all_features_present() -> None:
     Plan 04), 291 after migration 290's 5 Named Interaction Primitives
     columns (Phase 151 Plan 05), 301 after migration 291's 10
     Theory-Motivated Interaction columns (Phase 151 Plan 06), 307 after
-    migration 316's 6 Velocity Primitives Extension columns (todo 320)."""
+    migration 316's 6 Velocity Primitives Extension columns (todo 320), 309
+    after migration 350's 2 Earnings-Season Calendar Primitive columns
+    (Phase 176 Plan 03, todo 353)."""
     fv = _make_zero_vector()
     ts = datetime(2025, 1, 2, 14, 30, 0, tzinfo=UTC)
     params = _vector_to_params(
@@ -613,8 +617,8 @@ def test_vector_to_params_all_features_present() -> None:
         regime=None,
         fv=fv,
     )
-    # 1 content-key + 8 structural + 298 feature floats = 307 total
-    assert len(params) == 307, f"Expected 307 params, got {len(params)}"
+    # 1 content-key + 8 structural + 300 feature floats = 309 total
+    assert len(params) == 309, f"Expected 309 params, got {len(params)}"
 
 
 def test_vector_to_params_symbol_tf_ts() -> None:

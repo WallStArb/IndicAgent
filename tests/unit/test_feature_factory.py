@@ -761,10 +761,12 @@ class TestComputePurity:
         minute + 4 velocity primitives + 11 recency/statistical atomics + 7
         cross-asset spread/beta atomics + 5 Named Interaction Primitives +
         10 Theory-Motivated Interactions (Phase 151 Plans 01/03/04/05/06)
-        = 292, + 6 Velocity Primitives Extension fields (todo 320) = 298
-        (final total). See 142.5-05-SUMMARY.md / 142.5-03-SUMMARY.md /
-        142.5-04-SUMMARY.md Deviations for the actual dependency-DAG-valid
-        merge order vs. the phase outline's originally assumed counts.
+        = 292, + 6 Velocity Primitives Extension fields (todo 320) = 298,
+        + 2 Earnings-Season Calendar Primitive fields (Phase 176 Plan 03,
+        todo 353) = 300 (final total). See 142.5-05-SUMMARY.md /
+        142.5-03-SUMMARY.md / 142.5-04-SUMMARY.md Deviations for the actual
+        dependency-DAG-valid merge order vs. the phase outline's originally
+        assumed counts.
         """
         import dataclasses
 
@@ -773,7 +775,7 @@ class TestComputePurity:
         cache = FeatureCache()
         fv = FeatureFactory.compute(bars, "SPY", "1m", cache, config)
         fields = dataclasses.fields(fv)
-        assert len(fields) == 298, f"Expected 298 fields, got {len(fields)}"
+        assert len(fields) == 300, f"Expected 300 fields, got {len(fields)}"
         for f in fields:
             val = getattr(fv, f.name)
             # Optional cross-sectional fields (momentum_rank_z, volume_rank_z,
