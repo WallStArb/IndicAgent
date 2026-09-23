@@ -1,12 +1,14 @@
 #!/usr/bin/env python3
-"""TagCalibrator -- generic 3-pass measurement engine for the Empirical Instrument Tag
-Calibrator (Phase 146, TAG-01).
+"""TagCalibrator -- generic 4-pass measurement engine for the Empirical Instrument Tag
+Calibrator (Phase 146, TAG-01; Pass 4 added Phase 175, D-01).
 
 Measures the full instrument x measurable-tag matrix (F8 Simons inversion) generically
 off the (symbol, factor_series, measurement_type) contract in tag_vocabulary (D-12,
-migration 238), applies run-level BH-FDR (F1) once over the whole p-vector, and decides
-keep/expire/discover per (symbol, tag) pair with hysteresis (F2) -- replacing
-human-asserted tags with measured, falsifiable OLS loadings.
+migration 238), applies run-level BH-FDR (F1) once over the whole p-vector, decides
+keep/expire/discover per (symbol, tag) pair with hysteresis (F2), and -- for every kept
+pair -- measures the orthogonalized materiality evidence a future consumer cutover
+needs (Pass 4) -- replacing human-asserted tags with measured, falsifiable OLS
+loadings.
 
 CORRECTNESS INVARIANTS:
 - Self-regression pairs (symbol == factor_series) are always skipped (F6.1).
@@ -18,7 +20,8 @@ CORRECTNESS INVARIANTS:
   this loop still defends against it (skip + WARNING, never crash) as defense-in-depth
   (T-146-11).
 - BH-FDR (statsmodels multipletests, via ic_math.apply_bh_fdr) is applied exactly ONCE
-  per run over the full measured p-vector, never per-hypothesis (F1).
+  per run over the full measured p-vector, never per-hypothesis (F1) -- and again,
+  separately, exactly once over Pass 4's null-arm p-vector.
 - A tag only expires (valid_to = now()) after consecutive_fails >=
   expiry_consecutive_fails -- a single failing run never expires an empirical tag (F2
   hysteresis, T-146-08).
@@ -30,6 +33,16 @@ CORRECTNESS INVARIANTS:
 - weight = |loading| (satisfies instrument_tags' existing [0, 1] CHECK); empirical rows
   are written source='empirical' with loading/p_value/bh_adjusted_p/passes_fdr/
   sample_n/estimated_at populated.
+- Pass 4's passes_materiality is the STATISTICAL gate ONLY (R-04). The temporal
+  (discovery_state) and expiry (valid_to) gates are separate columns, AND-ed by the
+  reader via is_materiality_eligible() -- never collapsed into passes_materiality
+  itself, so a future per-consumer cutover can calibrate its own bar.
+- Pass 4's control set never includes the tag's own factor_series, nor any leg the
+  candidate symbol is itself part of (select_control_factor_series).
+- D-03 shadow-mode boundary: this module writes Pass 4 evidence only -- no live
+  consumer query (breadth_vol.py, cross_sectional_regime_model.py) changes in Phase
+  175. Evidence is written unconditionally for every kept pair regardless of whether
+  it passes the gate; it is a measurement, not an admission decision.
 
 DAG invariant note: this oneshot is exempt from the "only writer subclasses touch DB"
 rule exactly as ic_engine.py / ensemble_ic_engine.py are -- it is a batch measurement
@@ -43,7 +56,9 @@ from __future__ import annotations
 
 import asyncio
 import dataclasses
+import json
 import math
+from collections.abc import Sequence
 from datetime import UTC, datetime
 from typing import Any
 
@@ -56,9 +71,14 @@ from services._batch_utils import cfg as _cfg
 from services._batch_utils import load_apr_dict_async as _load_apr_dict
 from src.config.settings import Settings
 from src.core.agent.base_batch import BaseBatch
+from src.core.rng import hash_key_to_int
 from src.intelligence.statistics.factor_math import (
     loading_hac_pvalue,
     long_short_daily_returns,
+    partial_loading,
+    partial_loading_ci_low,
+    partial_loading_null_arm_p,
+    sign_stable_window_count,
     spy_realized_vol_factor,
     standardized_loading,
 )
@@ -128,6 +148,76 @@ class TagCalibratorConfig:
             hac_max_lag=_cfg(cfg, "alpha.tag_calibrator.hac_max_lag", 5),
             half_life_min_days=_cfg(cfg, "alpha.tag_calibrator.half_life_min_days", 30),
             half_life_max_days=_cfg(cfg, "alpha.tag_calibrator.half_life_max_days", 365),
+        )
+
+
+@dataclasses.dataclass(frozen=True)
+class MaterialityConfig:
+    """Frozen config snapshot bound once at startup from the materiality APR
+    namespace (migration 346, Phase 175 Task 1b).
+
+    A sibling dataclass to TagCalibratorConfig, not an extension of it -- the two
+    namespaces are separately calibrated and TagCalibratorConfig's existing
+    7-field shape is asserted against by existing tests.
+
+    The ten gate threshold fields (every field below except null_arm_seed) are
+    [initial_estimate] values from Codex's D-05 proposal, not corpus-calibrated
+    -- see docs/foundation/apr-calibration-backlog.md for the recalibration
+    tracking record.
+
+    null_arm_seed is [conventional] (42, this project's standing default seed)
+    rather than an uncalibrated statistical estimate, but it is still
+    APR-backed per CLAUDE.md's APR mandate category 1 (seeds that affect
+    algorithm output must be APR-backed). Changing null_arm_seed invalidates
+    every previously computed null_arm_p_value.
+    """
+
+    min_partial_loading: float
+    min_partial_loading_ci_low: float
+    min_incremental_r2: float
+    min_sample_n: int
+    sign_stability_window_days: int
+    sign_stability_window_count: int
+    min_sign_stable_windows: int
+    null_arm_alpha: float
+    null_arm_draws: int
+    null_arm_seed: int
+    control_factor_series: tuple[str, ...]
+
+    @classmethod
+    def from_apr(cls, cfg: dict[str, Any]) -> MaterialityConfig:
+        """Load all 11 materiality-namespace APR parameters from the raw config
+        dict. control_factor_series is parsed from its JSON-string APR value
+        into a tuple (hashable, so the frozen dataclass stays hashable)."""
+        control_factor_series_json = _cfg(
+            cfg,
+            "alpha.tag_calibrator.materiality.control_factor_series",
+            '["SPY","TLT","HYG-IEF","UUP"]',
+        )
+        return cls(
+            min_partial_loading=_cfg(
+                cfg, "alpha.tag_calibrator.materiality.min_partial_loading", 0.35
+            ),
+            min_partial_loading_ci_low=_cfg(
+                cfg, "alpha.tag_calibrator.materiality.min_partial_loading_ci_low", 0.20
+            ),
+            min_incremental_r2=_cfg(
+                cfg, "alpha.tag_calibrator.materiality.min_incremental_r2", 0.05
+            ),
+            min_sample_n=_cfg(cfg, "alpha.tag_calibrator.materiality.min_sample_n", 756),
+            sign_stability_window_days=_cfg(
+                cfg, "alpha.tag_calibrator.materiality.sign_stability_window_days", 252
+            ),
+            sign_stability_window_count=_cfg(
+                cfg, "alpha.tag_calibrator.materiality.sign_stability_window_count", 4
+            ),
+            min_sign_stable_windows=_cfg(
+                cfg, "alpha.tag_calibrator.materiality.min_sign_stable_windows", 3
+            ),
+            null_arm_alpha=_cfg(cfg, "alpha.tag_calibrator.materiality.null_arm_alpha", 0.05),
+            null_arm_draws=_cfg(cfg, "alpha.tag_calibrator.materiality.null_arm_draws", 1000),
+            null_arm_seed=_cfg(cfg, "alpha.tag_calibrator.materiality.null_arm_seed", 42),
+            control_factor_series=tuple(json.loads(control_factor_series_json)),
         )
 
 
@@ -209,6 +299,72 @@ def _factor_leg_symbols(factor_series: str) -> tuple[str, ...]:
         long_sym, short_sym = factor_series.split("-", 1)
         return (long_sym, short_sym)
     return (factor_series,)
+
+
+# ---------------------------------------------------------------------------
+# Pass 4 support: exclusion-aware control set + aligned control return matrix
+# (Phase 175 Task 1c/1d)
+# ---------------------------------------------------------------------------
+
+
+def select_control_factor_series(
+    symbol: str, tag_factor_series: str, control_factor_series: Sequence[str]
+) -> list[str]:
+    """Retained control legs for one (symbol, tag) Pass 4 partial-loading
+    measurement. Two mandatory exclusions, both silent-wrong-answer guards:
+
+    - drop a control equal to tag_factor_series -- residualizing the target
+      factor against itself drives the partial loading identically to zero.
+    - drop a control the candidate symbol is itself a leg of, via
+      _is_self_regression -- the same F6.1/CR-01 tautology guard Pass 1
+      already applies to its own target factor, extended here to the control
+      legs.
+
+    Preserves input order (determinism). Returns an empty list when every
+    control is excluded -- the caller treats that as unmeasurable.
+    """
+    return [
+        control
+        for control in control_factor_series
+        if control != tag_factor_series and not _is_self_regression(symbol, control)
+    ]
+
+
+def build_control_return_matrix(
+    instrument_ret: pd.Series | None,
+    factor_ret: pd.Series | None,
+    control_series_list: list[pd.Series | None],
+) -> tuple[np.ndarray, np.ndarray, np.ndarray] | None:
+    """Align the candidate's return series, the target factor's return series,
+    and every retained control's return series on a single shared index.
+
+    Returns None, never raises, in every one of these cases:
+      - instrument_ret is None -- the candidate symbol has no price_cache entry
+      - factor_ret is None -- the target tag's factor_series produced no series
+      - control_series_list is empty (every control was excluded upstream) or
+        contains any None (a retained control's own return series is missing
+        from the cache)
+
+    On success, returns (instrument_arr, factor_arr, controls_2d) -- all three
+    arrays share an identical length (one pd.concat(..., join="inner").dropna()
+    call over the candidate, the factor, and every control column), and
+    controls_2d has shape [n_obs, k].
+    """
+    if instrument_ret is None or factor_ret is None:
+        return None
+    if not control_series_list or any(control is None for control in control_series_list):
+        return None
+
+    frames = [instrument_ret.rename("instrument"), factor_ret.rename("factor")]
+    control_names = [f"control_{i}" for i in range(len(control_series_list))]
+    for name, control in zip(control_names, control_series_list, strict=True):
+        frames.append(control.rename(name))
+
+    aligned = pd.concat(frames, axis=1, join="inner").dropna()
+    instrument_arr = aligned["instrument"].to_numpy()
+    factor_arr = aligned["factor"].to_numpy()
+    controls_2d = np.column_stack([aligned[name].to_numpy() for name in control_names])
+    return instrument_arr, factor_arr, controls_2d
 
 
 # ---------------------------------------------------------------------------
@@ -505,16 +661,227 @@ def measure_matrix(
 # ---------------------------------------------------------------------------
 
 
-def apply_run_level_fdr(measured: list[dict[str, Any]], fdr_alpha: float) -> None:
-    """F1: exactly ONE apply_bh_fdr call over the full run's p-vector -- mutates each
-    measured dict in place with bh_adjusted_p/passes_fdr. No-op for an empty list."""
+def apply_run_level_fdr(
+    measured: list[dict[str, Any]],
+    fdr_alpha: float,
+    *,
+    p_key: str = "p_value",
+    reject_key: str = "passes_fdr",
+    adjusted_key: str = "bh_adjusted_p",
+) -> None:
+    """F1 invariant: exactly ONE apply_bh_fdr call per p-vector, one p-vector per
+    pass -- mutates each measured dict in place with reject_key/adjusted_key.
+    No-op for an empty list.
+
+    p_key/reject_key/adjusted_key default to Pass 1's own field names
+    (p_value/passes_fdr/bh_adjusted_p) so this stays a pure generalization --
+    Pass 1's existing call sites and tests are unaffected. Pass 4 (Task 2e)
+    calls this a second time with p_key="null_arm_p_value" to correct the
+    null-arm p-vector under its own field names, still exactly one
+    apply_bh_fdr call for that p-vector."""
     if not measured:
         return
-    p_values = [m["p_value"] for m in measured]
+    p_values = [m[p_key] for m in measured]
     reject, p_corrected = apply_bh_fdr(p_values, fdr_alpha)
     for m, rej, p_corr in zip(measured, reject, p_corrected, strict=True):
-        m["passes_fdr"] = bool(rej)
-        m["bh_adjusted_p"] = float(p_corr)
+        m[reject_key] = bool(rej)
+        m[adjusted_key] = float(p_corr)
+
+
+# ---------------------------------------------------------------------------
+# Pass 4: orthogonalized materiality evidence (Phase 175 Task 2) -- measured
+# unconditionally for every pair Pass 1-3 kept (D-01a). Statistical gate only;
+# discovery_state/valid_to are separate, read-time-ANDed gates (R-04).
+# ---------------------------------------------------------------------------
+
+
+def measure_partial_loadings(
+    kept_measurements: list[dict[str, Any]],
+    factor_series_by_tag: dict[str, str],
+    factor_series_cache: dict[str, tuple[pd.Series | None, int]],
+    control_series_by_name: dict[str, tuple[pd.Series | None, int]],
+    instrument_full_ret: dict[str, pd.Series],
+    materiality: MaterialityConfig,
+    hac_max_lag: int,
+    condition_max: float,
+) -> tuple[list[dict[str, Any]], int, int]:
+    """Pass 4: measure the orthogonalized partial-loading evidence for every kept
+    (symbol, tag) pair (D-01a's measurement universe -- Pass 1-3's keep gate).
+
+    Shaped exactly like measure_matrix (Pass 1): accumulate skip counters,
+    never log per-row (CLAUDE.md). Returns (pass4_rows, n_no_controls,
+    n_insufficient_sample).
+
+    Uses each symbol's FULL-history log-return series (instrument_full_ret),
+    not a lookback_days-truncated slice (R-07) -- Pass 4 is a deliberately
+    longer-horizon materiality judgment than Pass 1's per-tag bivariate
+    measurement.
+    """
+    pass4_rows: list[dict[str, Any]] = []
+    n_no_controls = 0
+    n_insufficient_sample = 0
+
+    for m in kept_measurements:
+        symbol = m["symbol"]
+        tag = m["tag"]
+        tag_factor_series = factor_series_by_tag[tag]
+
+        retained = select_control_factor_series(
+            symbol, tag_factor_series, materiality.control_factor_series
+        )
+        if not retained:
+            n_no_controls += 1
+            continue
+
+        candidate_ret = instrument_full_ret.get(symbol)
+        factor_ret = factor_series_cache[tag_factor_series][0]
+        control_series_list = [control_series_by_name[c][0] for c in retained]
+
+        aligned = build_control_return_matrix(candidate_ret, factor_ret, control_series_list)
+        if aligned is None:
+            n_no_controls += 1
+            continue
+        instrument_arr, factor_arr, controls_2d = aligned
+
+        materiality_sample_n = len(instrument_arr)
+        if materiality_sample_n < materiality.min_sample_n:
+            n_insufficient_sample += 1
+            continue
+
+        pl, inc_r2, _n = partial_loading(instrument_arr, factor_arr, controls_2d, condition_max)
+        if math.isnan(pl):
+            n_insufficient_sample += 1
+            continue
+
+        pl_ci_low = partial_loading_ci_low(
+            instrument_arr,
+            factor_arr,
+            controls_2d,
+            condition_max,
+            hac_max_lag,
+            materiality.null_arm_alpha,
+        )
+        n_stable, n_total = sign_stable_window_count(
+            instrument_arr,
+            factor_arr,
+            controls_2d,
+            condition_max,
+            materiality.sign_stability_window_days,
+            materiality.sign_stability_window_count,
+        )
+
+        # Per-pair deterministic RNG (T-175-16a): materiality.null_arm_seed is the
+        # ONLY numeric seed input here -- mixed with a per-pair hash so a pair's
+        # null p-value is reproducible independent of iteration order, while the
+        # whole run stays re-randomizable from one APR write.
+        rng = np.random.default_rng(
+            materiality.null_arm_seed
+            + hash_key_to_int(f"tag_calibrator_materiality_null_{symbol}_{tag}")
+        )
+        null_p = partial_loading_null_arm_p(
+            instrument_arr,
+            factor_arr,
+            controls_2d,
+            condition_max,
+            materiality.null_arm_draws,
+            rng,
+        )
+
+        pass4_rows.append(
+            {
+                "symbol": symbol,
+                "tag": tag,
+                "partial_loading": pl,
+                "incremental_r2": inc_r2,
+                "partial_loading_ci_low": pl_ci_low,
+                "sign_stable_windows": n_stable,
+                "sign_stable_windows_total": n_total,
+                "null_arm_p_value": null_p,
+                "materiality_sample_n": materiality_sample_n,
+            }
+        )
+
+    return pass4_rows, n_no_controls, n_insufficient_sample
+
+
+def decide_materiality(row: dict[str, Any], materiality: MaterialityConfig) -> bool:
+    """The Pass 4 STATISTICAL gate only (R-04) -- deliberately does NOT consider
+    discovery_state or valid_to (RESEARCH.md Pitfall 4): merging the temporal gate
+    in here would make passes_materiality change value with no new measurement
+    having run. is_materiality_eligible() ANDs all three gates at read time.
+
+    Returns True only when ALL SIX conditions hold:
+      1. materiality_sample_n >= min_sample_n
+      2. abs(partial_loading) >= min_partial_loading
+      3. partial_loading_ci_low >= min_partial_loading_ci_low
+      4. incremental_r2 >= min_incremental_r2
+      5. sign_stable_windows >= min_sign_stable_windows AND
+         sign_stable_windows_total >= min_sign_stable_windows
+      6. null_arm_passes_fdr is True
+
+    Any NaN or missing required field -> False (never raises).
+
+    Condition 5's agreement bar is a deliberate discrete step at n=1008, not a
+    gradual slide (R-07, resolved 2026-09-18 D-07 review). min_sample_n (756) is
+    exactly 3 x sign_stability_window_days (252), so a symbol at the sample
+    floor has only three evaluable windows and must show 100% sign agreement
+    (3 of 3) to pass, while a symbol with a full four evaluable windows needs
+    only 75% (3 of 4) and may carry one disagreement -- the agreement bar
+    slides STRICTER for shorter-history symbols, not looser. This is retained
+    deliberately, not a bug: requiring a full four windows would make the
+    min_sample_n floor unreachable (756 observations can never produce four
+    disjoint 252-day windows), and this phase is shadow-mode measurement
+    (D-02/D-03) with nothing downstream gated yet, so per D-04/D-05 the
+    threshold stays conservative pending real corpus evidence rather than
+    being adjusted on intuition. Plan 04's near-miss reporting (the
+    sign-stable-windows distribution of FAILING candidates) is the mechanism
+    that will supply that evidence; docs/foundation/apr-calibration-backlog.md
+    tracks the eventual recalibration. Do not substitute
+    sign_stable_windows_total == materiality.sign_stability_window_count and do
+    not change either default.
+    """
+    sample_n = row.get("materiality_sample_n")
+    pl = row.get("partial_loading")
+    pl_ci_low = row.get("partial_loading_ci_low")
+    inc_r2 = row.get("incremental_r2")
+    n_stable = row.get("sign_stable_windows")
+    n_total = row.get("sign_stable_windows_total")
+    null_arm_passes_fdr = row.get("null_arm_passes_fdr")
+
+    for value in (sample_n, pl, pl_ci_low, inc_r2, n_stable, n_total):
+        if value is None or (isinstance(value, float) and math.isnan(value)):
+            return False
+
+    if sample_n < materiality.min_sample_n:
+        return False
+    if abs(pl) < materiality.min_partial_loading:
+        return False
+    if pl_ci_low < materiality.min_partial_loading_ci_low:
+        return False
+    if inc_r2 < materiality.min_incremental_r2:
+        return False
+    if n_stable < materiality.min_sign_stable_windows:
+        return False
+    if n_total < materiality.min_sign_stable_windows:
+        return False
+    return bool(null_arm_passes_fdr)
+
+
+def is_materiality_eligible(row: dict[str, Any]) -> bool:
+    """THE canonical read-time predicate (D-02's "one measurement engine, N
+    read-time cutoffs") -- the shadow diagnostic (plan 04) and any future
+    consumer cutover import this rather than re-deriving the conjunction.
+
+    ANDs all three gates, stored separately by design:
+      - statistical: passes_materiality (this phase's Pass 4)
+      - temporal: discovery_state == 'confirmed' (todo 125)
+      - expiry: valid_to IS NULL (todo 126)
+    """
+    return (
+        bool(row.get("passes_materiality"))
+        and row.get("discovery_state") == "confirmed"
+        and row.get("valid_to") is None
+    )
 
 
 # ---------------------------------------------------------------------------
@@ -600,8 +967,17 @@ _UPSERT_EMPIRICAL_SQL = """
     INSERT INTO instrument_tags (
         symbol, tag, weight, source, evidence, assigned_at,
         loading, p_value, bh_adjusted_p, passes_fdr, consecutive_fails, sample_n,
-        estimated_at, valid_from, valid_to
-    ) VALUES ($1, $2, $3, 'empirical', $4, now(), $5, $6, $7, $8, 0, $9, $10, now(), NULL)
+        estimated_at, valid_from, valid_to,
+        partial_loading, partial_loading_ci_low, incremental_r2,
+        sign_stable_windows, sign_stable_windows_total,
+        null_arm_p_value, null_arm_bh_p, materiality_sample_n, passes_materiality,
+        discovery_state, first_measured_at
+    ) VALUES (
+        $1, $2, $3, 'empirical', $4, now(),
+        $5, $6, $7, $8, 0, $9,
+        $10, now(), NULL,
+        $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, $21
+    )
     ON CONFLICT (symbol, tag) DO UPDATE SET
         weight = EXCLUDED.weight,
         source = 'empirical',
@@ -613,7 +989,23 @@ _UPSERT_EMPIRICAL_SQL = """
         consecutive_fails = 0,
         sample_n = EXCLUDED.sample_n,
         estimated_at = EXCLUDED.estimated_at,
-        valid_to = NULL
+        valid_to = NULL,
+        -- Load-bearing (T-175-11): all eleven Pass 4 evidence columns are ALWAYS
+        -- overwritten from EXCLUDED, including NULL -- a pair measurable last run
+        -- but not measurable (or not kept) this run must have its evidence
+        -- overwritten with NULL rather than retaining a stale
+        -- passes_materiality = true no current measurement supports.
+        partial_loading = EXCLUDED.partial_loading,
+        partial_loading_ci_low = EXCLUDED.partial_loading_ci_low,
+        incremental_r2 = EXCLUDED.incremental_r2,
+        sign_stable_windows = EXCLUDED.sign_stable_windows,
+        sign_stable_windows_total = EXCLUDED.sign_stable_windows_total,
+        null_arm_p_value = EXCLUDED.null_arm_p_value,
+        null_arm_bh_p = EXCLUDED.null_arm_bh_p,
+        materiality_sample_n = EXCLUDED.materiality_sample_n,
+        passes_materiality = EXCLUDED.passes_materiality,
+        discovery_state = EXCLUDED.discovery_state,
+        first_measured_at = EXCLUDED.first_measured_at
 """
 
 _UPDATE_FAILING_OR_EXPIRE_EMPIRICAL_SQL = """
@@ -625,7 +1017,14 @@ _UPDATE_FAILING_OR_EXPIRE_EMPIRICAL_SQL = """
         passes_fdr = $7,
         sample_n = $8,
         estimated_at = $9,
-        valid_to = CASE WHEN $10 THEN now() ELSE valid_to END
+        valid_to = CASE WHEN $10 THEN now() ELSE valid_to END,
+        -- An increment_fails row keeps valid_to IS NULL, so it stays visible
+        -- through instrument_tags_active -- leaving a stale passes_materiality =
+        -- true here would let a pair that no longer clears Pass 1-3's keep gate
+        -- keep gating a downstream label. The numeric evidence columns are NOT
+        -- cleared on this path -- they remain the last-measured historical
+        -- values, dated by the unchanged estimated_at.
+        passes_materiality = false
     WHERE symbol = $1 AND tag = $2
 """
 
@@ -642,8 +1041,13 @@ async def _apply_decision(
     measurement: dict[str, Any],
     existing_row: dict[str, Any] | None,
     decision: dict[str, Any],
+    pass4: dict[str, Any] | None,
 ) -> None:
-    """Execute the DB write(s), if any, implied by one pair's pass-3 decision."""
+    """Execute the DB write(s), if any, implied by one pair's pass-3 decision,
+    plus its Pass 4 evidence (if any) through the SAME UPSERT (Phase 175 Task 3)
+    -- never a second forked UPSERT statement. pass4 is None when the pair has
+    no Pass 4 row (skipped by measure_partial_loadings' own no_controls/
+    insufficient_sample guards) -- every evidence column is then bound NULL."""
     action = decision["action"]
     symbol = measurement["symbol"]
     tag = measurement["tag"]
@@ -657,6 +1061,7 @@ async def _apply_decision(
             existing_row, run_ts, config.discovery_oos_days, clamped_half_life
         )
         weight = abs(measurement["loading"])
+        pass4_evidence = pass4 or {}
         await conn.execute(
             _UPSERT_EMPIRICAL_SQL,
             symbol,
@@ -669,6 +1074,17 @@ async def _apply_decision(
             measurement["passes_fdr"],
             measurement["sample_n"],
             run_ts,
+            pass4_evidence.get("partial_loading"),
+            pass4_evidence.get("partial_loading_ci_low"),
+            pass4_evidence.get("incremental_r2"),
+            pass4_evidence.get("sign_stable_windows"),
+            pass4_evidence.get("sign_stable_windows_total"),
+            pass4_evidence.get("null_arm_p_value"),
+            pass4_evidence.get("null_arm_bh_p"),
+            pass4_evidence.get("materiality_sample_n"),
+            pass4_evidence.get("passes_materiality"),
+            evidence["discovery_state"],
+            datetime.fromisoformat(evidence["first_measured_at"]),
         )
         if action == "insert_discovery":
             await conn.execute(
@@ -753,6 +1169,11 @@ class TagCalibrator(BaseBatch):
         async with pool.acquire() as conn:
             apr_cfg = await _load_apr_dict(conn)
             config = TagCalibratorConfig.from_apr(apr_cfg)
+            # Constructed once, here, and reused by both the price_symbols assembly
+            # below and Pass 4's wiring later in execute() (Task 2(e)) -- never
+            # constructed a second time (the same forward-reference-ordering
+            # discipline the D-07 review applied to factor_series_cache).
+            materiality = MaterialityConfig.from_apr(apr_cfg)
             # Reuse of existing APR keys (not new alpha.tag_calibrator.* additions):
             # mv_condition_max is ensemble_trainer's own ill-conditioning gate default,
             # reused here for the identical class of problem (Sigma^-1/correlation
@@ -797,6 +1218,12 @@ class TagCalibrator(BaseBatch):
             price_symbols: set[str] = set(active_symbols)
             for row in measurable_rows:
                 price_symbols.update(_factor_leg_symbols(row["factor_series"]))
+            # The control set is APR-configurable (materiality.control_factor_series)
+            # and not necessarily covered by the measured tags' own factor_series
+            # values -- a future edit (e.g. appending DBC per R-03) must not silently
+            # produce a missing-price cache miss.
+            for control in materiality.control_factor_series:
+                price_symbols.update(_factor_leg_symbols(control))
 
             price_cache = await self._fetch_price_cache(conn, sorted(price_symbols))
 
@@ -804,7 +1231,8 @@ class TagCalibrator(BaseBatch):
                 (r["symbol"], r["tag"]): dict(r)
                 for r in await conn.fetch(
                     "SELECT symbol, tag, source, weight, evidence, consecutive_fails, "
-                    "valid_to FROM instrument_tags"
+                    "valid_to, passes_materiality, discovery_state, first_measured_at "
+                    "FROM instrument_tags"
                 )
             }
 
@@ -820,17 +1248,74 @@ class TagCalibrator(BaseBatch):
 
         apply_run_level_fdr(measured, config.fdr_alpha)
 
+        # D-01a's measurement universe: a measurement is "kept" when it clears
+        # Pass 1-3's existing keep gate. Computed ONCE per measurement here and
+        # reused for both Pass 4 selection below and decide_outcome further down
+        # -- never evaluated twice.
+        for m in measured:
+            m["keep"] = m["passes_fdr"] and abs(m["loading"]) >= m["loading_threshold"]
+        kept_measurements = [m for m in measured if m["keep"]]
+
+        # Pass 4 wiring (Task 2e): reuse the `materiality` config already
+        # constructed above (never re-constructed here). factor_series_cache
+        # (the TARGET-factor cache, keyed by each measured tag's own
+        # factor_series), factor_series_by_tag, control_series_by_name (the
+        # control-LEG cache, keyed by control name), and instrument_full_ret are
+        # NOT otherwise in scope at this point -- required by
+        # measure_partial_loadings, not optional; omitting any of them is a
+        # NameError, not a style question.
+        factor_series_cache = build_factor_series_cache(
+            measurable_rows, price_cache, realized_vol_window, vix_z_window
+        )
+        factor_series_by_tag = {r["tag"]: r["factor_series"] for r in measurable_rows}
+        control_series_by_name = build_factor_series_cache(
+            [{"factor_series": control} for control in materiality.control_factor_series],
+            price_cache,
+            realized_vol_window,
+            vix_z_window,
+        )
+        instrument_full_ret = {sym: _log_returns(close) for sym, close in price_cache.items()}
+
+        pass4_rows, n_materiality_no_controls, n_materiality_insufficient_sample = (
+            measure_partial_loadings(
+                kept_measurements,
+                factor_series_by_tag,
+                factor_series_cache,
+                control_series_by_name,
+                instrument_full_ret,
+                materiality,
+                config.hac_max_lag,
+                condition_max,
+            )
+        )
+        apply_run_level_fdr(
+            pass4_rows,
+            materiality.null_arm_alpha,
+            p_key="null_arm_p_value",
+            reject_key="null_arm_passes_fdr",
+            adjusted_key="null_arm_bh_p",
+        )
+        for pass4_row in pass4_rows:
+            pass4_row["passes_materiality"] = decide_materiality(pass4_row, materiality)
+        n_passes_materiality = sum(1 for row in pass4_rows if row["passes_materiality"])
+        # Indexed for _apply_decision's write path (Task 3) -- pairs absent here
+        # (no_controls/insufficient_sample skips) get pass4=None, written as NULL
+        # for every evidence column via the UPSERT's EXCLUDED assignment.
+        pass4_by_pair: dict[tuple[str, str], dict[str, Any]] = {
+            (row["symbol"], row["tag"]): row for row in pass4_rows
+        }
+
         outcome_counts: dict[str, int] = {}
         async with pool.acquire() as conn:
             for m in measured:
-                keep = m["passes_fdr"] and abs(m["loading"]) >= m["loading_threshold"]
                 existing = existing_by_pair.get((m["symbol"], m["tag"]))
                 decision = decide_outcome(
-                    keep=keep,
+                    keep=m["keep"],
                     existing_row=existing,
                     expiry_consecutive_fails=config.expiry_consecutive_fails,
                 )
-                await _apply_decision(conn, run_ts, config, m, existing, decision)
+                pass4 = pass4_by_pair.get((m["symbol"], m["tag"]))
+                await _apply_decision(conn, run_ts, config, m, existing, decision, pass4)
                 outcome = _DECISION_OUTCOME_LABELS[decision["action"]]
                 _TAG_CALIBRATION_TOTAL.add(1, {"tag": m["tag"], "outcome": outcome})
                 outcome_counts[outcome] = outcome_counts.get(outcome, 0) + 1
@@ -855,6 +1340,10 @@ class TagCalibrator(BaseBatch):
             n_tags_not_measurable=len(skipped_tags),
             outcome_counts=outcome_counts,
             n_factor_correlations_written=len(factor_correlations),
+            n_materiality_measured=len(pass4_rows),
+            n_materiality_no_controls=n_materiality_no_controls,
+            n_materiality_insufficient_sample=n_materiality_insufficient_sample,
+            n_passes_materiality=n_passes_materiality,
         )
 
     async def _fetch_price_cache(
