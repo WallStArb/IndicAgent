@@ -25,7 +25,16 @@ if str(_project_root) not in sys.path:
     sys.path.insert(0, str(_project_root))
 
 import services.ic_engine as ic_module
-from services.ic_engine import _blocked_column_std, _collapse_invariant_groups
+from services.ic_engine import (
+    _blocked_column_moments,
+    _collapse_invariant_groups,
+    _streaming_feature_correlation,
+)
+
+
+def _blocked_column_std(X, row_block):
+    return _blocked_column_moments(X, row_block)[1]
+
 
 _RNG = np.random.default_rng(174)
 
@@ -44,7 +53,7 @@ def _reference_collapse(X, col_mask, group_starts, threshold):
 
 
 # ---------------------------------------------------------------------------
-# _blocked_column_std
+# _blocked_column_moments
 # ---------------------------------------------------------------------------
 
 
@@ -71,6 +80,33 @@ def test_blocked_std_degenerate_mask_identical_to_numpy():
     X[:, 7] = 1e-10 * _RNG.normal(size=3_000)
     expected = np.std(X, axis=0, dtype=np.float64) < 1e-8
     assert (_blocked_column_std(X, 257) < 1e-8).tolist() == expected.tolist()
+
+
+def test_blocked_means_match_numpy():
+    X = _RNG.normal(size=(1_234, 6)).astype(np.float32)
+    means, _ = _blocked_column_moments(X, 100)
+    np.testing.assert_allclose(means, X.astype(np.float64).mean(axis=0), rtol=1e-13, atol=1e-15)
+
+
+@pytest.mark.parametrize("row_block", [1, 97, 5_000])
+@pytest.mark.parametrize("memmap_backed", [False, True])
+def test_passing_moments_means_to_correlation_is_bit_identical(tmp_path, row_block, memmap_backed):
+    """The cross-sectional cell hands _blocked_column_moments' means (column-subset) to
+    _streaming_feature_correlation to skip its pass 1. That is only sound if the result is
+    exactly -- not approximately -- what the function computes on its own."""
+    n_rows, n_cols = 3_001, 11
+    X = _RNG.normal(size=(n_rows, n_cols)).astype(np.float32)
+    if memmap_backed:
+        mm = np.memmap(tmp_path / "x.memmap", dtype=np.float32, mode="w+", shape=X.shape)
+        mm[:] = X
+        X = mm
+    mask = np.zeros(n_cols, dtype=bool)
+    mask[[0, 2, 3, 7, 10]] = True
+    X_nd = np.ascontiguousarray(X[:, mask])
+    means, _ = _blocked_column_moments(X, row_block)
+    expected = _streaming_feature_correlation(X_nd, None, row_block)
+    got = _streaming_feature_correlation(X_nd, None, row_block, means=means[mask])
+    np.testing.assert_array_equal(got, expected)
 
 
 # ---------------------------------------------------------------------------

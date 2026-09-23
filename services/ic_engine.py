@@ -1930,31 +1930,38 @@ def _assert_prerequisites(
 # ---------------------------------------------------------------------------
 
 
-def _blocked_column_std(X: np.ndarray, row_block: int) -> np.ndarray:
-    """Per-column population standard deviation of X in float64, over row blocks.
+def _blocked_column_moments(X: np.ndarray, row_block: int) -> tuple[np.ndarray, np.ndarray]:
+    """Per-column float64 means and population standard deviations of X, over row blocks.
 
     Same two-pass algorithm as `np.std(X, axis=0, dtype=np.float64)` (column means, then
     the mean of squared deviations), and the same NaN behavior (a NaN in a column makes
-    that column's result NaN), but it never allocates more than one `row_block x n_cols`
-    float64 block. `np.std` on a whole cell computes `X - mean` as one full-size float64
-    array -- 2x a float32 cell -- which undid the disk-backed cell's bounded-memory
-    guarantee before any other step ran (174 review CR-03). Differences from `np.std` are
-    summation-order rounding only (~1e-16 relative); `row_block` is a throughput knob,
-    never a statistic.
+    that column's results NaN), but it never allocates more than one `row_block x n_cols`
+    float64 block, reused across blocks. `np.std` on a whole cell computes `X - mean` as
+    one full-size float64 array -- 2x a float32 cell -- which undid the disk-backed cell's
+    bounded-memory guarantee before any other step ran (174 review CR-03). Differences
+    from `np.std` are summation-order rounding only (~1e-16 relative); `row_block` is a
+    throughput knob, never a statistic.
+
+    Pass 1 computes means with exactly `_streaming_feature_correlation`'s own pass-1
+    expression (float64 block, `sum(axis=0)`, same block boundaries), so the returned
+    means, column-subset, can be handed to it bit-identically and its pass 1 skipped.
     """
     n_rows, n_cols = X.shape
     if n_rows == 0:
-        return np.full(n_cols, np.nan)
+        nan = np.full(n_cols, np.nan)
+        return nan, nan.copy()
     sums = np.zeros(n_cols, dtype=np.float64)
     for start in range(0, n_rows, row_block):
-        sums += X[start : start + row_block].sum(axis=0, dtype=np.float64)
+        sums += X[start : start + row_block].astype(np.float64, copy=False).sum(axis=0)
     means = sums / n_rows
     sq_dev = np.zeros(n_cols, dtype=np.float64)
+    buf = np.empty((min(row_block, n_rows), n_cols), dtype=np.float64)
     for start in range(0, n_rows, row_block):
-        centered = X[start : start + row_block].astype(np.float64)
-        centered -= means
+        block = X[start : start + row_block]
+        centered = buf[: len(block)]
+        np.subtract(block, means, out=centered)
         sq_dev += np.einsum("ij,ij->j", centered, centered)
-    return np.sqrt(sq_dev / n_rows)
+    return means, np.sqrt(sq_dev / n_rows)
 
 
 def _collapse_invariant_groups(
@@ -2006,6 +2013,7 @@ def _streaming_feature_correlation(
     X: np.ndarray,
     mask: np.ndarray | None,
     row_block: int,
+    means: np.ndarray | None = None,
 ) -> np.ndarray:
     """Blocked two-pass Pearson correlation over mask-selected columns of X,
     without ever materializing a float64 copy of the whole array (Phase 174 Plan
@@ -2026,7 +2034,7 @@ def _streaming_feature_correlation(
     Two passes, not the single-pass sum-of-squares-minus-square-of-sum
     shortcut: over tens of millions of z-scored feature rows the single-pass
     form suffers catastrophic cancellation -- this module already commits to
-    that precision stance for feature_stds (`_blocked_column_std`, float64,
+    that precision stance for feature_stds (`_blocked_column_moments`, float64,
     "variance is sensitive to accumulation precision in a way rank order is
     not"). The extra disk pass is cheap relative to a 30GB allocation.
 
@@ -2035,6 +2043,10 @@ def _streaming_feature_correlation(
     (row_block=1_000_000, ~250 features) roughly 2GB and 0.5MB respectively,
     versus `n_rows x n_cols x 8` bytes for the pre-Plan-09 whole-array float64
     correlation cast (~30GB at the 15M-row ceiling).
+
+    `means`, when given, must be the float64 column means of the selected columns over all
+    rows, computed with pass 1's own expression and block boundaries; pass 1 is then
+    skipped (one fewer full read of X).
 
     `mask=None` selects every column of `X` -- used by callers that have
     already column-sliced their input before calling (the per-symbol and
@@ -2062,12 +2074,14 @@ def _streaming_feature_correlation(
             block = block[:, col_idx]
         return block.astype(np.float64, copy=False)
 
-    # Pass 1: column means.
-    sums = np.zeros(n_cols, dtype=np.float64)
-    for start in range(0, n_rows, row_block):
-        stop = min(start + row_block, n_rows)
-        sums += _block(start, stop).sum(axis=0)
-    means = sums / n_rows
+    # Pass 1: column means, unless the caller already has them (the cross-sectional cell
+    # gets them from _blocked_column_moments' identical pass over the same rows).
+    if means is None:
+        sums = np.zeros(n_cols, dtype=np.float64)
+        for start in range(0, n_rows, row_block):
+            stop = min(start + row_block, n_rows)
+            sums += _block(start, stop).sum(axis=0)
+        means = sums / n_rows
 
     # Pass 2: centered Gram matrix (covariance numerator).
     gram = np.zeros((n_cols, n_cols), dtype=np.float64)
@@ -4013,8 +4027,9 @@ def _build_column_wise_x_nd(
     exactly (Plan 01: not closing the `NamedTemporaryFile` leaks one fd per cell). It
     never unmaps: the mapping is released when its last view is garbage-collected, so a
     view read after cleanup returns this cell's own data instead of segfaulting or
-    reading a later cell's reused address (174 review WR-06). Each step is independently try/excepted so one failure does not
-    skip the others. Intended to run exactly once, from the caller's `ExitStack`.
+    reading a later cell's reused address (174 review WR-06). Each step is
+    independently try/excepted so one failure does not skip the others. Intended to
+    run exactly once, from the caller's `ExitStack`.
 
     A zero-column mask (n_nd == 0, the caller's own early-exit condition) returns
     an empty in-RAM array and a no-op cleanup -- an `np.memmap` cannot back a
@@ -4148,7 +4163,7 @@ def _compute_one_cross_sectional_cell(
     # Degenerate feature detection, in float64 (variance is sensitive to accumulation
     # precision in a way rank order is not), over row blocks: a whole-cell np.std would
     # allocate a full float64 copy of X_raw and void the disk-backed memory bound.
-    feature_stds = _blocked_column_std(X_raw, config.corr_row_block)
+    feature_means, feature_stds = _blocked_column_moments(X_raw, config.corr_row_block)
     degenerate_mask = feature_stds < 1e-8
     non_degenerate_mask = ~degenerate_mask
     # Broadcast columns are NOT skipped/degenerate features -- they are measured
@@ -4181,7 +4196,11 @@ def _compute_one_cross_sectional_cell(
     if X_nd.shape[1] == 0:
         return [], n_skipped
 
-    corr_nd = _streaming_feature_correlation(X_nd, None, config.corr_row_block)
+    # X_nd is X_raw's cluster_input_mask columns over every row, so its column means are
+    # exactly feature_means[cluster_input_mask]; passing them skips one full re-read of X_nd.
+    corr_nd = _streaming_feature_correlation(
+        X_nd, None, config.corr_row_block, means=feature_means[cluster_input_mask]
+    )
     cluster_ids_nd = _cluster_features(corr_nd, cluster_max_corr)
     cluster_id_full = expand_int(cluster_ids_nd, cluster_input_mask, n_features)
 
