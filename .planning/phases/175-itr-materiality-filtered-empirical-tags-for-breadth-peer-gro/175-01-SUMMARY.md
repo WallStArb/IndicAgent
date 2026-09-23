@@ -101,3 +101,10 @@ None - no external service configuration required.
 ---
 *Phase: 175-itr-materiality-filtered-empirical-tags-for-breadth-peer-gro*
 *Completed: 2026-09-23*
+
+## Self-Check: PASSED
+
+- FOUND: production/migrations/346_itr_materiality_evidence_columns.sql
+- FOUND: .planning/phases/175-itr-materiality-filtered-empirical-tags-for-breadth-peer-gro/175-01-SUMMARY.md
+- FOUND: commit 14292958f (migration author + apply)
+- FOUND: commit 99f8840a3 (SUMMARY.md)
