@@ -43,7 +43,9 @@ from __future__ import annotations
 
 import asyncio
 import dataclasses
+import json
 import math
+from collections.abc import Sequence
 from datetime import UTC, datetime
 from typing import Any
 
@@ -131,6 +133,76 @@ class TagCalibratorConfig:
         )
 
 
+@dataclasses.dataclass(frozen=True)
+class MaterialityConfig:
+    """Frozen config snapshot bound once at startup from the materiality APR
+    namespace (migration 346, Phase 175 Task 1b).
+
+    A sibling dataclass to TagCalibratorConfig, not an extension of it -- the two
+    namespaces are separately calibrated and TagCalibratorConfig's existing
+    7-field shape is asserted against by existing tests.
+
+    The ten gate threshold fields (every field below except null_arm_seed) are
+    [initial_estimate] values from Codex's D-05 proposal, not corpus-calibrated
+    -- see docs/foundation/apr-calibration-backlog.md for the recalibration
+    tracking record.
+
+    null_arm_seed is [conventional] (42, this project's standing default seed)
+    rather than an uncalibrated statistical estimate, but it is still
+    APR-backed per CLAUDE.md's APR mandate category 1 (seeds that affect
+    algorithm output must be APR-backed). Changing null_arm_seed invalidates
+    every previously computed null_arm_p_value.
+    """
+
+    min_partial_loading: float
+    min_partial_loading_ci_low: float
+    min_incremental_r2: float
+    min_sample_n: int
+    sign_stability_window_days: int
+    sign_stability_window_count: int
+    min_sign_stable_windows: int
+    null_arm_alpha: float
+    null_arm_draws: int
+    null_arm_seed: int
+    control_factor_series: tuple[str, ...]
+
+    @classmethod
+    def from_apr(cls, cfg: dict[str, Any]) -> MaterialityConfig:
+        """Load all 11 materiality-namespace APR parameters from the raw config
+        dict. control_factor_series is parsed from its JSON-string APR value
+        into a tuple (hashable, so the frozen dataclass stays hashable)."""
+        control_factor_series_json = _cfg(
+            cfg,
+            "alpha.tag_calibrator.materiality.control_factor_series",
+            '["SPY","TLT","HYG-IEF","UUP"]',
+        )
+        return cls(
+            min_partial_loading=_cfg(
+                cfg, "alpha.tag_calibrator.materiality.min_partial_loading", 0.35
+            ),
+            min_partial_loading_ci_low=_cfg(
+                cfg, "alpha.tag_calibrator.materiality.min_partial_loading_ci_low", 0.20
+            ),
+            min_incremental_r2=_cfg(
+                cfg, "alpha.tag_calibrator.materiality.min_incremental_r2", 0.05
+            ),
+            min_sample_n=_cfg(cfg, "alpha.tag_calibrator.materiality.min_sample_n", 756),
+            sign_stability_window_days=_cfg(
+                cfg, "alpha.tag_calibrator.materiality.sign_stability_window_days", 252
+            ),
+            sign_stability_window_count=_cfg(
+                cfg, "alpha.tag_calibrator.materiality.sign_stability_window_count", 4
+            ),
+            min_sign_stable_windows=_cfg(
+                cfg, "alpha.tag_calibrator.materiality.min_sign_stable_windows", 3
+            ),
+            null_arm_alpha=_cfg(cfg, "alpha.tag_calibrator.materiality.null_arm_alpha", 0.05),
+            null_arm_draws=_cfg(cfg, "alpha.tag_calibrator.materiality.null_arm_draws", 1000),
+            null_arm_seed=_cfg(cfg, "alpha.tag_calibrator.materiality.null_arm_seed", 42),
+            control_factor_series=tuple(json.loads(control_factor_series_json)),
+        )
+
+
 # ---------------------------------------------------------------------------
 # Pass 1 support: measurement-contract filtering (T-146-11 defensive guard)
 # ---------------------------------------------------------------------------
@@ -209,6 +281,72 @@ def _factor_leg_symbols(factor_series: str) -> tuple[str, ...]:
         long_sym, short_sym = factor_series.split("-", 1)
         return (long_sym, short_sym)
     return (factor_series,)
+
+
+# ---------------------------------------------------------------------------
+# Pass 4 support: exclusion-aware control set + aligned control return matrix
+# (Phase 175 Task 1c/1d)
+# ---------------------------------------------------------------------------
+
+
+def select_control_factor_series(
+    symbol: str, tag_factor_series: str, control_factor_series: Sequence[str]
+) -> list[str]:
+    """Retained control legs for one (symbol, tag) Pass 4 partial-loading
+    measurement. Two mandatory exclusions, both silent-wrong-answer guards:
+
+    - drop a control equal to tag_factor_series -- residualizing the target
+      factor against itself drives the partial loading identically to zero.
+    - drop a control the candidate symbol is itself a leg of, via
+      _is_self_regression -- the same F6.1/CR-01 tautology guard Pass 1
+      already applies to its own target factor, extended here to the control
+      legs.
+
+    Preserves input order (determinism). Returns an empty list when every
+    control is excluded -- the caller treats that as unmeasurable.
+    """
+    return [
+        control
+        for control in control_factor_series
+        if control != tag_factor_series and not _is_self_regression(symbol, control)
+    ]
+
+
+def build_control_return_matrix(
+    instrument_ret: pd.Series | None,
+    factor_ret: pd.Series | None,
+    control_series_list: list[pd.Series | None],
+) -> tuple[np.ndarray, np.ndarray, np.ndarray] | None:
+    """Align the candidate's return series, the target factor's return series,
+    and every retained control's return series on a single shared index.
+
+    Returns None, never raises, in every one of these cases:
+      - instrument_ret is None -- the candidate symbol has no price_cache entry
+      - factor_ret is None -- the target tag's factor_series produced no series
+      - control_series_list is empty (every control was excluded upstream) or
+        contains any None (a retained control's own return series is missing
+        from the cache)
+
+    On success, returns (instrument_arr, factor_arr, controls_2d) -- all three
+    arrays share an identical length (one pd.concat(..., join="inner").dropna()
+    call over the candidate, the factor, and every control column), and
+    controls_2d has shape [n_obs, k].
+    """
+    if instrument_ret is None or factor_ret is None:
+        return None
+    if not control_series_list or any(control is None for control in control_series_list):
+        return None
+
+    frames = [instrument_ret.rename("instrument"), factor_ret.rename("factor")]
+    control_names = [f"control_{i}" for i in range(len(control_series_list))]
+    for name, control in zip(control_names, control_series_list, strict=True):
+        frames.append(control.rename(name))
+
+    aligned = pd.concat(frames, axis=1, join="inner").dropna()
+    instrument_arr = aligned["instrument"].to_numpy()
+    factor_arr = aligned["factor"].to_numpy()
+    controls_2d = np.column_stack([aligned[name].to_numpy() for name in control_names])
+    return instrument_arr, factor_arr, controls_2d
 
 
 # ---------------------------------------------------------------------------
@@ -753,6 +891,11 @@ class TagCalibrator(BaseBatch):
         async with pool.acquire() as conn:
             apr_cfg = await _load_apr_dict(conn)
             config = TagCalibratorConfig.from_apr(apr_cfg)
+            # Constructed once, here, and reused by both the price_symbols assembly
+            # below and Pass 4's wiring later in execute() (Task 2(e)) -- never
+            # constructed a second time (the same forward-reference-ordering
+            # discipline the D-07 review applied to factor_series_cache).
+            materiality = MaterialityConfig.from_apr(apr_cfg)
             # Reuse of existing APR keys (not new alpha.tag_calibrator.* additions):
             # mv_condition_max is ensemble_trainer's own ill-conditioning gate default,
             # reused here for the identical class of problem (Sigma^-1/correlation
@@ -797,6 +940,12 @@ class TagCalibrator(BaseBatch):
             price_symbols: set[str] = set(active_symbols)
             for row in measurable_rows:
                 price_symbols.update(_factor_leg_symbols(row["factor_series"]))
+            # The control set is APR-configurable (materiality.control_factor_series)
+            # and not necessarily covered by the measured tags' own factor_series
+            # values -- a future edit (e.g. appending DBC per R-03) must not silently
+            # produce a missing-price cache miss.
+            for control in materiality.control_factor_series:
+                price_symbols.update(_factor_leg_symbols(control))
 
             price_cache = await self._fetch_price_cache(conn, sorted(price_symbols))
 

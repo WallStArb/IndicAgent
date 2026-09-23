@@ -19,15 +19,18 @@ import pandas as pd
 import pytest
 
 from services.tag_calibrator import (
+    MaterialityConfig,
     TagCalibratorConfig,
     _build_factor_return_series,
     _is_self_regression,
     apply_run_level_fdr,
+    build_control_return_matrix,
     build_factor_series_cache,
     compute_factor_correlations,
     decide_outcome,
     filter_measurable_tag_rows,
     measure_matrix,
+    select_control_factor_series,
 )
 
 _CONFIG = TagCalibratorConfig(
@@ -434,3 +437,95 @@ def test_compute_factor_correlations_known_correlation_value():
     assert rows[0]["factor_b"] == "B"
     assert rows[0]["correlation"] == pytest.approx(1.0)
     assert rows[0]["n_obs"] == len(base)
+
+
+# ---------------------------------------------------------------------------
+# 8. MaterialityConfig / select_control_factor_series / build_control_return_matrix
+#    (Phase 175 Task 1)
+# ---------------------------------------------------------------------------
+
+
+def test_materiality_config_from_apr_defaults():
+    """MaterialityConfig.from_apr({}) returns the eleven seeded defaults (P175-04)."""
+    materiality = MaterialityConfig.from_apr({})
+    assert materiality.min_partial_loading == 0.35
+    assert materiality.min_partial_loading_ci_low == 0.20
+    assert materiality.min_incremental_r2 == 0.05
+    assert materiality.min_sample_n == 756
+    assert materiality.sign_stability_window_days == 252
+    assert materiality.sign_stability_window_count == 4
+    assert materiality.min_sign_stable_windows == 3
+    assert materiality.null_arm_alpha == 0.05
+    assert materiality.null_arm_draws == 1000
+    assert materiality.null_arm_seed == 42
+    assert materiality.control_factor_series == ("SPY", "TLT", "HYG-IEF", "UUP")
+
+
+def test_select_control_factor_series_excludes_own_factor_series():
+    """A control equal to the tag's own factor_series is excluded even when the
+    candidate symbol has nothing to do with it -- residualizing a factor against
+    itself would drive the partial loading identically to zero."""
+    controls = ["SPY", "TLT", "HYG-IEF", "UUP"]
+    assert select_control_factor_series("SPY", "equity_beta", controls) == [
+        "TLT",
+        "HYG-IEF",
+        "UUP",
+    ]
+
+
+def test_select_control_factor_series_excludes_self_regression_leg():
+    """A control the candidate symbol is itself a leg of is excluded (HYG is one leg
+    of HYG-IEF), in addition to the tag's own factor_series (TLT here)."""
+    controls = ["SPY", "TLT", "HYG-IEF", "UUP"]
+    assert select_control_factor_series("HYG", "TLT", controls) == ["SPY", "UUP"]
+
+
+def test_select_control_factor_series_empty_when_all_excluded():
+    """Every control excluded -> empty list, caller treats as unmeasurable."""
+    assert select_control_factor_series("SPY", "SPY", ["SPY"]) == []
+
+
+def test_build_control_return_matrix_none_when_instrument_ret_none():
+    factor = pd.Series([1.0, 2.0, 3.0])
+    controls = [pd.Series([1.0, 2.0, 3.0])]
+    assert build_control_return_matrix(None, factor, controls) is None
+
+
+def test_build_control_return_matrix_none_when_factor_ret_none():
+    instrument = pd.Series([1.0, 2.0, 3.0])
+    controls = [pd.Series([1.0, 2.0, 3.0])]
+    assert build_control_return_matrix(instrument, None, controls) is None
+
+
+def test_build_control_return_matrix_none_when_controls_empty():
+    instrument = pd.Series([1.0, 2.0, 3.0])
+    factor = pd.Series([1.0, 2.0, 3.0])
+    assert build_control_return_matrix(instrument, factor, []) is None
+
+
+def test_build_control_return_matrix_none_when_control_series_missing():
+    instrument = pd.Series([1.0, 2.0, 3.0])
+    factor = pd.Series([1.0, 2.0, 3.0])
+    controls = [pd.Series([1.0, 2.0, 3.0]), None]
+    assert build_control_return_matrix(instrument, factor, controls) is None
+
+
+def test_build_control_return_matrix_inner_joins_and_aligns():
+    """The candidate, factor, and every retained control are aligned on a shared
+    index via a single inner join -- all three outputs share an identical length,
+    with no NaN, even when one control's series is shorter than the others."""
+    idx = pd.bdate_range("2024-01-02", periods=10)
+    instrument = pd.Series(np.arange(10.0), index=idx)
+    factor = pd.Series(np.arange(10.0) * 2.0, index=idx)
+    control_a = pd.Series(np.arange(10.0) * 3.0, index=idx)
+    control_b = pd.Series(np.arange(8.0) * 4.0, index=idx[:8])  # shorter -> forces inner join
+
+    result = build_control_return_matrix(instrument, factor, [control_a, control_b])
+    assert result is not None
+    instrument_arr, factor_arr, controls_2d = result
+    assert len(instrument_arr) == 8
+    assert len(factor_arr) == 8
+    assert controls_2d.shape == (8, 2)
+    assert not np.isnan(instrument_arr).any()
+    assert not np.isnan(factor_arr).any()
+    assert not np.isnan(controls_2d).any()
