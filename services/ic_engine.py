@@ -117,6 +117,7 @@ from src.core.service_utils import (
 )
 from src.intelligence.concept_registry_service import ConceptRegistryService
 from src.intelligence.schemas import FeatureVector
+from src.intelligence.statistics.ic_bootstrap_jit import blocked_bootstrap_ics
 from src.intelligence.statistics.ic_math import (
     GuardVerdict,
     _compute_ic_rolling_metrics,
@@ -728,6 +729,15 @@ class ICEngineConfig:
     # reserve the check admits a cell that leaves the database no room (the 2026-08-13
     # disk-full incident's shape).
     scratch_min_free_after_fraction: float = 0.15
+    # Todo 385 lever 2: run the circular block bootstrap through the numba prange
+    # kernel (src/intelligence/statistics/ic_bootstrap_jit.py) instead of the
+    # Python-level scipy resample loop. The per-cell bootstrap thread count
+    # (per_symbol_/cross_sectional_bootstrap_threads) becomes the numba thread
+    # count. COMPUTATIONAL, not operational: the kernel accumulates in float64,
+    # while the scipy path accumulates float32 ranks in float32 (scipy >= 1.15), so
+    # CI bounds differ at float32 rounding. Defaulted False so direct
+    # ICEngineConfig(...) construction sites keep the scipy path.
+    bootstrap_numba_kernel: bool = False
 
     def broadcast_max_bars_per_day_for(self, tf: str) -> int:
         """Max observed bars/trading-day for tf, or a large sentinel for tfs this
@@ -939,6 +949,10 @@ class ICEngineConfig:
             scratch_min_free_after_fraction=float(
                 cfg.get_sync("infra.ic_engine.scratch_min_free_after_fraction", 0.15)
             ),
+            bootstrap_numba_kernel=str(
+                cfg.get_sync("alpha.ic.bootstrap_numba_kernel", "false")
+            ).lower()
+            == "true",
         )
 
 
@@ -1033,6 +1047,9 @@ _COMPUTATIONAL_CONFIG_FIELDS: frozenset[str] = frozenset(
         # rows are subsampled -- moves computed IC values for broadcast features in
         # the per-symbol path, same class as subsample_min_stride.
         "broadcast_max_bars_per_day",
+        # Todo 385 lever 2: numba float64 kernel vs scipy float32-rank path -- CI
+        # bounds differ at float32 rounding (see the field's comment).
+        "bootstrap_numba_kernel",
     }
 )
 
@@ -2198,6 +2215,7 @@ def _blocked_bootstrap_ci(
     early_stop_tol: float = 0.002,
     early_stop_min_resamples: int = 200,
     early_stop_stable_checks: int = 2,
+    numba_threads: int = 0,
 ) -> tuple[np.ndarray, np.ndarray]:
     """95% circular block bootstrap CI for one feature block.
 
@@ -2238,6 +2256,12 @@ def _blocked_bootstrap_ci(
     load-bearing for this CI (see ICEngineConfig.bootstrap_early_stop_enabled's
     comment) -- every downstream consumer reads ci_lower/ci_upper as a
     threshold/sign gate, never an exact value compared run-to-run.
+
+    numba_threads > 0 (todo 385 lever 2, config.bootstrap_numba_kernel): each
+    batch of resamples (all of them, or one early-stop chunk) runs through
+    ic_bootstrap_jit.blocked_bootstrap_ics's prange kernel on numba_threads
+    threads, and `pool` is ignored. Resample rows are independent, so chunking
+    and thread count never change a row's value.
     """
     n_boot = starts_matrix.shape[0]
     block_p = X_raw_block.shape[1]
@@ -2248,13 +2272,21 @@ def _blocked_bootstrap_ci(
         ranks_Y_boot = rankdata(Y_scale[idx])
         return _vectorized_ic(ranks_X_boot, ranks_Y_boot)
 
-    if not early_stop_enabled:
-        if pool is None:
-            boot_ics = np.zeros((n_boot, block_p))
-            for b in range(n_boot):
+    def _fill(boot_ics: np.ndarray, start: int, end: int) -> None:
+        if numba_threads > 0:
+            boot_ics[start:end] = blocked_bootstrap_ics(
+                X_raw_block, Y_scale, starts_matrix[start:end], offsets, n_valid, numba_threads
+            )
+        elif pool is None:
+            for b in range(start, end):
                 boot_ics[b] = _resample_ic(b)
         else:
-            boot_ics = np.array(list(pool.map(_resample_ic, range(n_boot))))
+            for b, val in zip(range(start, end), pool.map(_resample_ic, range(start, end))):
+                boot_ics[b] = val
+
+    if not early_stop_enabled:
+        boot_ics = np.zeros((n_boot, block_p))
+        _fill(boot_ics, 0, n_boot)
         ci_lower = np.percentile(boot_ics, 2.5, axis=0)
         ci_upper = np.percentile(boot_ics, 97.5, axis=0)
         return ci_lower, ci_upper
@@ -2266,13 +2298,7 @@ def _blocked_bootstrap_ci(
     n_computed = 0
     for chunk_start in range(0, n_boot, early_stop_check_interval):
         chunk_end = min(chunk_start + early_stop_check_interval, n_boot)
-        chunk_range = range(chunk_start, chunk_end)
-        if pool is None:
-            for b in chunk_range:
-                boot_ics[b] = _resample_ic(b)
-        else:
-            for b, val in zip(chunk_range, pool.map(_resample_ic, chunk_range)):
-                boot_ics[b] = val
+        _fill(boot_ics, chunk_start, chunk_end)
         n_computed = chunk_end
 
         if n_computed < early_stop_min_resamples:
@@ -2318,6 +2344,7 @@ def _subsample_and_rank(
     bootstrap_early_stop_tol: float = 0.002,
     bootstrap_early_stop_min_resamples: int = 200,
     bootstrap_early_stop_stable_checks: int = 2,
+    use_numba_kernel: bool = False,
 ) -> tuple[
     np.ndarray,
     np.ndarray,
@@ -2418,7 +2445,13 @@ def _subsample_and_rank(
     # One thread pool for the whole cell, reused across every feature block
     # (162 simplify-pass -- previously _blocked_bootstrap_ci created and tore
     # down its own pool once per block; see that function's docstring).
-    pool = ThreadPoolExecutor(max_workers=max_workers) if max_workers > 1 else None
+    # Todo 385 lever 2: with the numba kernel, max_workers is the kernel's thread
+    # count instead of a ThreadPoolExecutor's size (see _blocked_bootstrap_ci).
+    pool = (
+        ThreadPoolExecutor(max_workers=max_workers)
+        if max_workers > 1 and not use_numba_kernel
+        else None
+    )
     try:
         for block_start in range(0, n_features_nd, feature_block_columns):
             block_end = min(block_start + feature_block_columns, n_features_nd)
@@ -2446,6 +2479,7 @@ def _subsample_and_rank(
                 early_stop_tol=bootstrap_early_stop_tol,
                 early_stop_min_resamples=bootstrap_early_stop_min_resamples,
                 early_stop_stable_checks=bootstrap_early_stop_stable_checks,
+                numba_threads=max_workers if use_numba_kernel else 0,
             )
             ci_lower_nd[block_start:block_end] = ci_lower_block
             ci_upper_nd[block_start:block_end] = ci_upper_block
@@ -2703,6 +2737,7 @@ def _compute_one_regime_cell(
             bootstrap_early_stop_tol=config.bootstrap_early_stop_tol,
             bootstrap_early_stop_min_resamples=config.bootstrap_early_stop_min_resamples,
             bootstrap_early_stop_stable_checks=config.bootstrap_early_stop_stable_checks,
+            use_numba_kernel=config.bootstrap_numba_kernel,
         )
         Y_scale = returns_scale[valid_mask]
 
@@ -3133,6 +3168,7 @@ def _compute_one_symbol_broadcast_cell(
             bootstrap_early_stop_tol=config.bootstrap_early_stop_tol,
             bootstrap_early_stop_min_resamples=config.bootstrap_early_stop_min_resamples,
             bootstrap_early_stop_stable_checks=config.bootstrap_early_stop_stable_checks,
+            use_numba_kernel=config.bootstrap_numba_kernel,
         )
         Y_scale = returns_scale[valid_mask]
 
@@ -4270,6 +4306,7 @@ def _compute_one_cross_sectional_cell(
             bootstrap_early_stop_tol=config.bootstrap_early_stop_tol,
             bootstrap_early_stop_min_resamples=config.bootstrap_early_stop_min_resamples,
             bootstrap_early_stop_stable_checks=config.bootstrap_early_stop_stable_checks,
+            use_numba_kernel=config.bootstrap_numba_kernel,
         )
         Y_scale = returns_scale[valid_mask]
 
@@ -4682,6 +4719,7 @@ def _compute_one_broadcast_cell(
             bootstrap_early_stop_tol=config.bootstrap_early_stop_tol,
             bootstrap_early_stop_min_resamples=config.bootstrap_early_stop_min_resamples,
             bootstrap_early_stop_stable_checks=config.bootstrap_early_stop_stable_checks,
+            use_numba_kernel=config.bootstrap_numba_kernel,
         )
         Y_scale = returns_scale[valid_mask]
 
