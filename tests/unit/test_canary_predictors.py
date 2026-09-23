@@ -220,8 +220,10 @@ class TestFeatureVectorCanaryFields:
         # test was written) = 282, +10 Theory-Motivated Interactions
         # (Phase 151 Plan 06, added after this test was written) = 292, +6
         # Velocity Primitives Extension fields (todo 320, added after this
-        # test was written) = 298.
-        assert total == 150 + 5 + 17 + 36 + 41 + 6 + 4 + 11 + 7 + 5 + 10 + 6
+        # test was written) = 298, +2 Earnings-Season Calendar Primitive
+        # fields (Phase 176 Plan 03, todo 353, added after this test was
+        # written) = 300.
+        assert total == 150 + 5 + 17 + 36 + 41 + 6 + 4 + 11 + 7 + 5 + 10 + 6 + 2
 
 
 # ---------------------------------------------------------------------------
@@ -543,8 +545,9 @@ class TestFeatureFactoryIntegration:
         # (Phase 151 Plan 04) = 277, +5 Named Interaction Primitives
         # (Phase 151 Plan 05) = 282, +10 Theory-Motivated Interactions
         # (Phase 151 Plan 06) = 292, +6 Velocity Primitives Extension fields
-        # (todo 320) = 298.
-        assert len(dataclasses.fields(fv)) == 298
+        # (todo 320) = 298, +2 Earnings-Season Calendar Primitive fields
+        # (Phase 176 Plan 03, todo 353) = 300.
+        assert len(dataclasses.fields(fv)) == 300
 
 
 # ---------------------------------------------------------------------------

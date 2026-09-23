@@ -155,6 +155,16 @@ lives in src/core/ (Ring 0) rather than being imported from
 services/_batch_utils.py (Ring 2) or duplicated here, so both call sites stay
 byte-identical.
 
+2026-09-23: extended to 309 columns (migration 350, Phase 176 Plan 03, todo
+353). 2 new Earnings-Season Calendar Primitive fields -- earnings_season_flag
+(tier-1 event flag, APR-windowed) immediately followed by
+days_since_quarter_end (tier-1 continuous companion) -- added to FeatureVector
+as ONE contiguous block immediately after the Velocity Primitives Extension
+block. Same derive-by-name discipline as every prior extension via a new
+_EARNINGS_SEASON_FIELD_NAMES slice, appended LAST in the column list so no
+existing column's positional SQL parameter index shifts. Both values are real
+computed floats from day one on both live and batch paths.
+
 Ring 1: imports FeatureVector from src.intelligence.schemas.
 Do not import from Ring 2 (services/) or Ring 3 (api/, production/).
 """
@@ -336,6 +346,20 @@ _VELOCITY_EXTENSION_FIELD_NAMES: tuple[str, ...] = _ALL_FEATURE_VECTOR_FIELD_NAM
     + 1
 ]
 
+# The 2 new Earnings-Season Calendar Primitive fields (Phase 176 Plan 03,
+# todo 353, migration 350) are a twelfth contiguous, same-order slice --
+# earnings_season_flag immediately followed by days_since_quarter_end,
+# declared as ONE contiguous run in schemas.py immediately after the
+# Velocity Primitives Extension block. Same derive-don't-hand-type
+# discipline as the eleven slices above; appended LAST in the column list
+# below so no existing column's positional SQL parameter index shifts.
+_EARNINGS_SEASON_FIELD_NAMES: tuple[str, ...] = _ALL_FEATURE_VECTOR_FIELD_NAMES[
+    _ALL_FEATURE_VECTOR_FIELD_NAMES.index(
+        "earnings_season_flag"
+    ) : _ALL_FEATURE_VECTOR_FIELD_NAMES.index("days_since_quarter_end")
+    + 1
+]
+
 
 def _compute_bar_close_ts(bar_ts: datetime, tf: str) -> datetime:
     """Compute bar close timestamp from bar open timestamp and timeframe.
@@ -370,7 +394,7 @@ def validate_feature_vector(vector: FeatureVector) -> list[str]:
 
 # ── Canonical INSERT/UPSERT SQL ───────────────────────────────────────────────
 
-# 307 columns (as of 2026-08-15): $1 content-key, $2-$8 structural, $9-$62
+# 309 columns (as of 2026-09-23): $1 content-key, $2-$8 structural, $9-$62
 # original feature floats, $63-$70 migration-159 additions, $71-$159
 # migration-206 Renaissance primitives (2026-07-08 fix, then reduced from 91
 # to 89 primitives 2026-07-09), $160-$164 migration-223 canary/control
@@ -384,8 +408,9 @@ def validate_feature_vector(vector: FeatureVector) -> list[str]:
 # Plan 04), $287-$291 migration-290 Named Interaction Primitives fields
 # (Phase 151 Plan 05), $292-$301 migration-291 Theory-Motivated Interaction
 # fields (Phase 151 Plan 06), $302-$307 migration-316 Velocity Primitives
-# Extension fields (todo 320, see module docstring).
-# Column order is binding — matches migration 159/206/223/255/266/267/293/288/289/290/291/316 column definition order.
+# Extension fields (todo 320, see module docstring), $308-$309 migration-350
+# Earnings-Season Calendar Primitive fields (Phase 176 Plan 03, todo 353).
+# Column order is binding — matches migration 159/206/223/255/266/267/293/288/289/290/291/316/350 column definition order.
 _STRUCTURAL_PREFIX_COLUMN_NAMES: tuple[str, ...] = (
     "feature_vector_id",
     "symbol",
@@ -475,6 +500,7 @@ _ALL_COLUMN_NAMES: tuple[str, ...] = (
     + _PHASE151_INTERACTION_NAMED_FIELD_NAMES
     + _PHASE151_THEORY_INTERACTION_FIELD_NAMES
     + _VELOCITY_EXTENSION_FIELD_NAMES
+    + _EARNINGS_SEASON_FIELD_NAMES
 )
 _TOTAL_COLUMNS = len(_ALL_COLUMN_NAMES)
 
@@ -881,6 +907,11 @@ def feature_vector_to_insert_params(
         # Theory-Motivated Interaction fields (module docstring). All real
         # computed floats from day one.
         *(getattr(vector, name) for name in _VELOCITY_EXTENSION_FIELD_NAMES),
+        # Earnings-Season Calendar Primitive fields (migration 350, Phase 176
+        # Plan 03, todo 353) -- same derive-by-name discipline, appended LAST
+        # so no existing column's positional SQL parameter index shifts. All
+        # real computed floats from day one on both live and batch paths.
+        *(getattr(vector, name) for name in _EARNINGS_SEASON_FIELD_NAMES),
     )
 
     # Clamp every real-typed float to what Postgres's `real` (float4) column type can

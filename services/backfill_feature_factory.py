@@ -711,6 +711,8 @@ def _build_feature_factory_config(cfg: ConfigService) -> FeatureFactoryConfig:
         ctf_higher_tf_map=_get_dict_config(
             cfg, "feature.ctf.higher_tf_map", {"5m": "1h", "15m": "1h", "1h": "1d", "1d": "1d"}
         ),
+        earnings_season_start_days=int(cfg.get_sync("feature.earnings_season.start_days", 14)),
+        earnings_season_end_days=int(cfg.get_sync("feature.earnings_season.end_days", 42)),
     )
 
 

@@ -954,6 +954,9 @@ class FeatureVectorPipeline(BaseDaemon):
             "feature.ctf.higher_tf_map",
             {"5m": "1h", "15m": "1h", "1h": "1d", "1d": "1d"},
         ),
+        # --- migration 350: Phase 176 Plan 03 Earnings-Season Calendar Primitive ---
+        ("feature.earnings_season.start_days", 14),
+        ("feature.earnings_season.end_days", 42),
     )
 
     async def _prewarm_timeframe_vocabulary(self) -> None:
@@ -1231,6 +1234,8 @@ class FeatureVectorPipeline(BaseDaemon):
                 "feature.ctf.higher_tf_map",
                 {"5m": "1h", "15m": "1h", "1h": "1d", "1d": "1d"},
             ),
+            earnings_season_start_days=_int("feature.earnings_season.start_days", 14),
+            earnings_season_end_days=_int("feature.earnings_season.end_days", 42),
         )
 
         _assert_rsi_mid_period_fits_bar_history(

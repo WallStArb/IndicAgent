@@ -1202,9 +1202,9 @@ SignalMetricsEvent = Annotated[
 
 @dataclasses.dataclass(frozen=True)
 class FeatureVector:
-    """298 orthogonal feature primitives computed per bar by FeatureFactory.
+    """300 orthogonal feature primitives computed per bar by FeatureFactory.
     See the "Groups and field order are binding" breakdown below (ends in
-    "Total: 298") for full group-by-group provenance -- that breakdown is
+    "Total: 300") for full group-by-group provenance -- that breakdown is
     the maintained source of truth; keep it (not this line) in sync when
     fields are added.
 
@@ -1247,6 +1247,13 @@ class FeatureVector:
       Calendar (17: 11 original + 6 Phase 151 Plan 01 Task 1): NY/London session, overlap, power hour, opening range, weekly VWAP, dow sin/cos, month position, quarter position, days to month end, quarter cycle sin/cos, TDOM sin/cos, minute-of-hour sin/cos
       Velocity Primitives (4, Phase 151 Plan 01 Task 2): momentum_z_velocity_fast/mid/slow, vwap_dev_sigma_velocity -- first-difference-then-re-z-scored construction of an already-computed z-score series (same shape as vol_velocity_z)
       Velocity Primitives Extension (6, todo 320): rsi_velocity_fast/mid/slow, ofi_z_velocity, cvd_slope_z_velocity, volume_z_velocity -- same construction as the 4 fields above, applied to the RSI/OFI/CVD/volume families
+      Earnings-Season Calendar Primitive (2, Phase 176 Plan 03, todo 353, migration 350):
+        earnings_season_flag (tier-1 event flag, 1.0 iff days_since_quarter_end falls within
+        the APR-configured [feature.earnings_season.start_days, feature.earnings_season.end_days]
+        window, else 0.0) + days_since_quarter_end (tier-1 continuous companion, raw calendar
+        days since the most recent quarter end) -- declared as ONE contiguous run immediately
+        after the Velocity Primitives Extension block so feature_vector_persistence.py's
+        _EARNINGS_SEASON_FIELD_NAMES derived slice covers exactly this block
       Recency / Statistical Atomics (11, Phase 151 Plan 03, todo 180): bars_since_high/low_fast/slow,
         bars_since_52w_high/low, bars_since_extreme_move_fast/slow, bars_since_vol_spike_fast/slow
         (all BOUNDED rolling-window statistics in [0, window-1], never expanding), abs_ret_autocorr_1
@@ -1281,12 +1288,14 @@ class FeatureVector:
         All ATR-distance/bounded/count/ordinal placeholders (None until Plans 02-04
         wire real compute logic); never a raw price level (D-16).
       Cross-sectional (3, nullable): momentum/volume/volatility rank z-scores
-      Total: 298 (249 required [164 + 41 Swing/Fib/Trend/Session Structure +
+      Total: 300 (251 required [164 + 41 Swing/Fib/Trend/Session Structure +
       6 Calendar Cycle/TDOM/Minute + 4 Velocity Primitives + 6 Velocity
       Primitives Extension (todo 320) + 11 Recency/Statistical Atomics + 5
       Cross-asset Spread/Beta (non-nullable) + 2 Calendar Event Flags
-      (non-nullable) + 10 Theory-Motivated Interactions (non-nullable),
-      Phase 151 Plans 01 + 03 + 04 + 05 + 06 + todo 320]
+      (non-nullable) + 10 Theory-Motivated Interactions (non-nullable) + 2
+      Earnings-Season Calendar Primitive (non-nullable, Phase 176 Plan 03,
+      todo 353),
+      Phase 151 Plans 01 + 03 + 04 + 05 + 06 + todo 320 + Phase 176 Plan 03]
       + 49 optional [3 cross-sectional + 5 canary + 36 SMC + 2 Cross-asset
       factor betas (Phase 151 Plan 04, nullable for the factor proxy's own
       self-regression) + 3 Cross-TF divergences (Phase 151 Plan 05, nullable
@@ -1431,6 +1440,17 @@ class FeatureVector:
     ofi_z_velocity: float  # zscore(diff(ofi_z)) (APR: feature.ofi_velocity.window)
     cvd_slope_z_velocity: float  # zscore(diff(cvd_slope_z)) (APR: feature.cvd_velocity.window)
     volume_z_velocity: float  # zscore(diff(volume_z)) (APR: feature.volume_velocity.window)
+    # Earnings-Season Calendar Primitive (2, Phase 176 Plan 03, todo 353,
+    # migration 350). Declared as ONE contiguous run immediately after the
+    # Velocity Primitives Extension block so feature_vector_persistence.py's
+    # _EARNINGS_SEASON_FIELD_NAMES derived slice covers exactly this block.
+    # Both non-nullable floats, always computable from bar_ts alone -- see
+    # _days_since_quarter_end/_earnings_season_flag's docstrings for the
+    # exact formulas.
+    earnings_season_flag: float  # 1.0 iff days_since_quarter_end in [feature.earnings_season.start_days, feature.earnings_season.end_days], else 0.0
+    days_since_quarter_end: (
+        float  # raw calendar days since the most recent quarter end (Mar 31/Jun 30/Sep 30/Dec 31)
+    )
     # Recency / Statistical Atomics (11, Phase 151 Plan 03, todo 180). The
     # event-recency axis: bars_since_* are BOUNDED rolling-window statistics
     # in [0, window-1] (never an expanding lookback -- see class-level

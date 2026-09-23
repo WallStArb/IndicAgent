@@ -18,6 +18,8 @@ from src.intelligence.feature_factory import (
     _amihud_illiq_z_series_full,
     _aroon_osc,
     _cci,
+    _days_since_quarter_end,
+    _earnings_season_flag,
     _high_52w_dist_series_full,
     _in_london_kz,
     _opening_range,
@@ -436,9 +438,10 @@ def test_feature_vector_domain_complete():
     (Phase 151 Plan 04) = 277, + 5 Named Interaction Primitives (3 cross-TF
     divergences + 2 calendar event flags, Phase 151 Plan 05) = 282, + 10
     Theory-Motivated Interactions (Phase 151 Plan 06) = 292, + 6 Velocity
-    Primitives Extension fields (todo 320) = 298."""
+    Primitives Extension fields (todo 320) = 298, + 2 Earnings-Season
+    Calendar Primitive fields (Phase 176 Plan 03, todo 353) = 300."""
     fv_fields = {f.name for f in dataclasses.fields(FeatureVector)}
-    assert len(FEATURE_VECTOR_DOMAIN) == 298
+    assert len(FEATURE_VECTOR_DOMAIN) == 300
     assert set(FEATURE_VECTOR_DOMAIN.keys()) == fv_fields
 
 
@@ -533,3 +536,90 @@ def test_opex_and_quad_witching_flag_annual_counts():
         day += one_day
     assert opex_count == 12, f"expected 12 OPEX Fridays in {year}, got {opex_count}"
     assert quad_count == 4, f"expected 4 quad-witching Fridays in {year}, got {quad_count}"
+
+
+# ---------------------------------------------------------------------------
+# earnings_season_flag / days_since_quarter_end (Phase 176 Plan 03, todo 353)
+# ---------------------------------------------------------------------------
+
+
+def test_days_since_quarter_end_quarter_end_day():
+    assert _days_since_quarter_end(datetime(2026, 3, 31, tzinfo=UTC)) == 0.0
+
+
+def test_days_since_quarter_end_day_after_quarter_end():
+    assert _days_since_quarter_end(datetime(2026, 4, 1, tzinfo=UTC)) == 1.0
+
+
+def test_days_since_quarter_end_january_uses_prior_year_dec_31():
+    """Jan 1 uses the prior year's Dec 31 as the most recent quarter end."""
+    assert _days_since_quarter_end(datetime(2026, 1, 1, tzinfo=UTC)) == 1.0
+
+
+def test_days_since_quarter_end_monotonic_and_resets():
+    """Non-decreasing within a quarter; resets to 0.0 on each quarter-end date."""
+    import datetime as _dt
+
+    day = _dt.date(2026, 1, 1)
+    one_day = _dt.timedelta(days=1)
+    end = _dt.date(2026, 12, 31)
+    quarter_end_month_days = {(3, 31), (6, 30), (9, 30), (12, 31)}
+    prev = None
+    while day <= end:
+        bar_ts = datetime(day.year, day.month, day.day, 15, 0, tzinfo=UTC)
+        current = _days_since_quarter_end(bar_ts)
+        if (day.month, day.day) in quarter_end_month_days:
+            assert current == 0.0, f"{day} is a quarter end, expected 0.0, got {current}"
+        elif prev is not None:
+            assert current >= prev, f"{day}: {current} < prior day's {prev}"
+        prev = current
+        day += one_day
+
+
+def test_earnings_season_flag_day_13_not_flagged():
+    """Day 13 after quarter end is just below the default start_days=14 boundary."""
+    assert _earnings_season_flag(datetime(2026, 4, 13, 15, 0, tzinfo=UTC), _make_cfg()) == 0.0
+
+
+def test_earnings_season_flag_day_14_flagged():
+    """Day 14 after quarter end is the default start_days boundary (inclusive)."""
+    assert _earnings_season_flag(datetime(2026, 4, 14, 15, 0, tzinfo=UTC), _make_cfg()) == 1.0
+
+
+def test_earnings_season_flag_day_42_flagged():
+    """Day 42 after quarter end is the default end_days boundary (inclusive)."""
+    assert _earnings_season_flag(datetime(2026, 5, 12, 15, 0, tzinfo=UTC), _make_cfg()) == 1.0
+
+
+def test_earnings_season_flag_day_43_not_flagged():
+    """Day 43 after quarter end is just above the default end_days=42 boundary."""
+    assert _earnings_season_flag(datetime(2026, 5, 13, 15, 0, tzinfo=UTC), _make_cfg()) == 0.0
+
+
+def test_earnings_season_flag_quarter_end_day_not_flagged():
+    assert _earnings_season_flag(datetime(2026, 3, 31, 15, 0, tzinfo=UTC), _make_cfg()) == 0.0
+
+
+def test_earnings_season_flag_honours_non_default_config():
+    """With start_days=20, end_days=25, the day-14 case (in-window under
+    defaults) must NOT be flagged."""
+    cfg = _make_cfg(earnings_season_start_days=20, earnings_season_end_days=25)
+    assert _earnings_season_flag(datetime(2026, 4, 14, 15, 0, tzinfo=UTC), cfg) == 0.0
+
+
+def test_earnings_season_flag_calls_days_since_quarter_end_not_restated():
+    """Guards reuse discipline: earnings_season_flag must call
+    _days_since_quarter_end(), not restate the quarter-end arithmetic."""
+    import inspect
+
+    src = inspect.getsource(_earnings_season_flag)
+    assert "_days_since_quarter_end(" in src
+
+
+def test_earnings_season_flag_no_magic_window_literals():
+    """No hardcoded 14/42 day-window literals in the compute layer (APR mandate)."""
+    import inspect
+
+    src = inspect.getsource(_earnings_season_flag)
+    assert "14" not in src
+    assert "42" not in src

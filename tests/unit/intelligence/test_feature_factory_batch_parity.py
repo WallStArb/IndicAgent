@@ -553,6 +553,60 @@ def test_rel_volume_parity(ohlcv, cfg, streaming):
 
 
 # ---------------------------------------------------------------------------
+# Earnings-Season Calendar Primitive parity (Phase 176 Plan 03, todo 353)
+# ---------------------------------------------------------------------------
+
+
+def _make_calendar_parity_bars(end_ts: datetime, n: int = 10) -> list[dict]:
+    """n synthetic 5m bars ending at end_ts (inclusive) -- earnings_season_flag/
+    days_since_quarter_end need only bar_ts, so a small deterministic series
+    (not the module-scope RNG fixture) is enough to drive both compute() and
+    compute_batch() over an identical bar sequence."""
+    bars = []
+    for i in range(n):
+        ts = end_ts - timedelta(minutes=5 * (n - 1 - i))
+        price = 100.0 + i * 0.1
+        bars.append(
+            {
+                "open": price,
+                "high": price + 0.05,
+                "low": price - 0.05,
+                "close": price,
+                "volume": 1_000_000.0,
+                "ts": ts,
+            }
+        )
+    return bars
+
+
+@pytest.mark.parametrize(
+    "bar_ts",
+    [
+        pytest.param(datetime(2026, 4, 14, 15, 0, tzinfo=UTC), id="in_window_day_14"),
+        pytest.param(datetime(2026, 5, 13, 15, 0, tzinfo=UTC), id="out_of_window_day_43"),
+        pytest.param(datetime(2026, 3, 31, 15, 0, tzinfo=UTC), id="quarter_end_boundary"),
+    ],
+)
+def test_earnings_season_flag_batch_parity(bar_ts, cfg):
+    """compute() and compute_batch() must agree on earnings_season_flag and
+    days_since_quarter_end for an in-window, an out-of-window, and a
+    quarter-end boundary timestamp (Phase 176 Plan 03, todo 353)."""
+    bars = _make_calendar_parity_bars(bar_ts)
+
+    streaming_fv = FeatureFactory.compute(bars, "SPY", "5m", FeatureCache(), cfg)
+
+    batch_results = FeatureFactory.compute_batch(bars, "SPY", "5m", FeatureCache(), cfg)
+    _, batch_fv = batch_results[-1]
+
+    assert (
+        streaming_fv.earnings_season_flag == batch_fv.earnings_season_flag
+    ), f"earnings_season_flag mismatch at {bar_ts}: streaming={streaming_fv.earnings_season_flag} batch={batch_fv.earnings_season_flag}"
+    assert (
+        streaming_fv.days_since_quarter_end == batch_fv.days_since_quarter_end
+    ), f"days_since_quarter_end mismatch at {bar_ts}: streaming={streaming_fv.days_since_quarter_end} batch={batch_fv.days_since_quarter_end}"
+
+
+# ---------------------------------------------------------------------------
 # Task 6: Integration smoke test
 # ---------------------------------------------------------------------------
 
@@ -787,6 +841,8 @@ def test_build_feature_vector_guards_nan():
         ret_div_1h_1d=None,
         opex_flag=0.0,
         quad_witching_flag=0.0,
+        earnings_season_flag=0.0,
+        days_since_quarter_end=0.0,
         vol_body_product=0.0,
         ret_vol_product_fast=0.0,
         price_vol_corr_fast=0.0,
@@ -992,6 +1048,8 @@ def test_build_feature_vector_none_passthrough():
         ret_div_1h_1d=None,
         opex_flag=0.0,
         quad_witching_flag=0.0,
+        earnings_season_flag=0.0,
+        days_since_quarter_end=0.0,
         vol_body_product=0.0,
         ret_vol_product_fast=0.0,
         price_vol_corr_fast=0.0,

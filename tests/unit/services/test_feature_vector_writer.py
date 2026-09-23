@@ -99,6 +99,8 @@ def _make_valid_feature_vector():
         ofi_z_velocity=0.0,
         cvd_slope_z_velocity=0.0,
         volume_z_velocity=0.0,
+        earnings_season_flag=0.0,
+        days_since_quarter_end=0.0,
         bars_since_high_fast=0.0,
         bars_since_high_slow=0.0,
         bars_since_low_fast=0.0,
@@ -336,14 +338,16 @@ def test_record_to_insert_params_returns_159_tuple():
     migration 267's 41 swing/fib/trend/session structure columns (Phase 165
     Plan 01); 268 after migration 293's 10 calendar cycle/TDOM/minute +
     velocity columns (Phase 151 Plan 01); 279 after migration 288's 11
-    recency/statistical atomics columns (Phase 151 Plan 03)."""
+    recency/statistical atomics columns (Phase 151 Plan 03); 309 after
+    migration 350's 2 Earnings-Season Calendar Primitive columns (Phase 176
+    Plan 03, todo 353)."""
     from services.feature_vector_writer import _record_to_insert_params
 
     record = _make_valid_record()
     params = _record_to_insert_params(record)
 
     assert isinstance(params, tuple)
-    assert len(params) == 307, f"Expected 307, got {len(params)}"
+    assert len(params) == 309, f"Expected 309, got {len(params)}"
 
 
 def test_record_to_insert_params_feature_vector_id_is_uuid():
@@ -451,7 +455,9 @@ def test_parse_payload_valid_record_returns_159_param_tuple():
     after migration 267's 41 swing/fib/trend/session structure columns
     (Phase 165 Plan 01); 268 after migration 293's 10 calendar cycle/TDOM/
     minute + velocity columns (Phase 151 Plan 01); 279 after migration 288's
-    11 recency/statistical atomics columns (Phase 151 Plan 03)."""
+    11 recency/statistical atomics columns (Phase 151 Plan 03); 309 after
+    migration 350's 2 Earnings-Season Calendar Primitive columns (Phase 176
+    Plan 03, todo 353)."""
     from services.feature_vector_writer import FeatureVectorWriter
 
     svc = FeatureVectorWriter.__new__(FeatureVectorWriter)
@@ -466,7 +472,7 @@ def test_parse_payload_valid_record_returns_159_param_tuple():
     assert not invalid
     assert len(valid) == 1
     assert isinstance(valid[0], tuple)
-    assert len(valid[0]) == 307, f"Expected 307-element tuple, got {len(valid[0])}"
+    assert len(valid[0]) == 309, f"Expected 309-element tuple, got {len(valid[0])}"
 
 
 def test_parse_payload_malformed_returns_empty_valid_invalid_payload():
@@ -622,13 +628,15 @@ def test_insert_sql_has_159_placeholders():
     migration 267's 41 swing/fib/trend/session structure columns (Phase 165
     Plan 01); 268 after migration 293's 10 calendar cycle/TDOM/minute +
     velocity columns (Phase 151 Plan 01); 279 after migration 288's 11
-    recency/statistical atomics columns (Phase 151 Plan 03)."""
+    recency/statistical atomics columns (Phase 151 Plan 03); 309 after
+    migration 350's 2 Earnings-Season Calendar Primitive columns (Phase 176
+    Plan 03, todo 353)."""
     import re
 
     from services.feature_vector_writer import _INSERT_FEATURE_VECTOR_SQL
 
     placeholders = re.findall(r"\$\d+", _INSERT_FEATURE_VECTOR_SQL)
-    assert len(placeholders) == 307, f"Expected 307 placeholders, got {len(placeholders)}"
+    assert len(placeholders) == 309, f"Expected 309 placeholders, got {len(placeholders)}"
 
 
 def test_insert_sql_includes_feature_vector_id_column():
