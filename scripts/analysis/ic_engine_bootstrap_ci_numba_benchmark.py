@@ -19,12 +19,20 @@ and docstrings, read 2026-09-19):
     rows after stride-subsampling + valid_mask. Using 2000 as a representative
     mid-large cell (5m pooled-regime cell), and 400 as a smaller cell (a thin
     regime slice) for a second data point.
+
+Extended 2026-09-23 (todo 385 lever 2) with threading arms: nogil=True +
+ThreadPoolExecutor, and numba.prange. Production ALREADY threads the scipy loop
+(cross_sectional_bootstrap_threads 8/8/8/6, per_symbol_bootstrap_threads 2), so
+the decision-relevant baseline is scipy + ThreadPoolExecutor at those thread
+counts, not the serial loop.
 """
 
 import time
+from concurrent.futures import ThreadPoolExecutor
 
 import numba
 import numpy as np
+from numba import prange
 from scipy.stats import rankdata
 
 # ---------------------------------------------------------------------------
@@ -184,6 +192,162 @@ def blocked_bootstrap_ci_numba(
 
 
 # ---------------------------------------------------------------------------
+# Threading arms (todo 385 lever 2). Production threads the scipy loop via
+# pool.map(_resample_ic, ...) over a shared ThreadPoolExecutor
+# (services/ic_engine.py:2118) -- the scipy-threads arm below copies that
+# verbatim. The numba nogil arms answer whether a GIL-free kernel scales
+# where scipy's (partially GIL-bound) loop cannot.
+# ---------------------------------------------------------------------------
+
+
+def blocked_bootstrap_ci_scipy_threads(
+    X_raw_block: np.ndarray,
+    Y_scale: np.ndarray,
+    starts_matrix: np.ndarray,
+    offsets: np.ndarray,
+    n_valid: int,
+    n_threads: int,
+) -> tuple[np.ndarray, np.ndarray]:
+    """Current scipy path + ThreadPoolExecutor, mirroring the production pool
+    path (services/ic_engine.py:2112-2121, early_stop disabled)."""
+    n_boot = starts_matrix.shape[0]
+    block_p = X_raw_block.shape[1]
+
+    def _resample_ic(b: int) -> np.ndarray:
+        idx = (starts_matrix[b][:, None] + offsets).ravel()[:n_valid] % n_valid
+        ranks_X_boot = rankdata(X_raw_block[idx], axis=0)
+        ranks_Y_boot = rankdata(Y_scale[idx])
+        return vectorized_ic(ranks_X_boot, ranks_Y_boot)
+
+    with ThreadPoolExecutor(max_workers=n_threads) as pool:
+        boot_ics = np.array(list(pool.map(_resample_ic, range(n_boot))))
+    ci_lower = np.percentile(boot_ics, 2.5, axis=0)
+    ci_upper = np.percentile(boot_ics, 97.5, axis=0)
+    return ci_lower, ci_upper
+
+
+@numba.njit(cache=True, nogil=True)
+def _blocked_bootstrap_ci_jit_core_nogil(
+    X_raw_block: np.ndarray,
+    Y_scale: np.ndarray,
+    starts_matrix: np.ndarray,
+    offsets: np.ndarray,
+    n_valid: int,
+) -> np.ndarray:
+    """Body identical to _blocked_bootstrap_ci_jit_core above -- only the
+    nogil=True flag differs, releasing the GIL so ThreadPoolExecutor workers
+    can run this concurrently."""
+    n_boot = starts_matrix.shape[0]
+    block_p = X_raw_block.shape[1]
+    boot_ics = np.zeros((n_boot, block_p), dtype=np.float64)
+    n_offsets = offsets.shape[0]
+    n_blocks = starts_matrix.shape[1]
+    total_len = n_blocks * n_offsets
+
+    for b in range(n_boot):
+        idx = np.empty(min(total_len, n_valid), dtype=np.int64)
+        pos = 0
+        for blk in range(n_blocks):
+            start = starts_matrix[b, blk]
+            for o in range(n_offsets):
+                if pos >= n_valid:
+                    break
+                idx[pos] = (start + offsets[o]) % n_valid
+                pos += 1
+            if pos >= n_valid:
+                break
+        X_boot = X_raw_block[idx]
+        Y_boot = Y_scale[idx]
+        ranks_X_boot = _rankdata_average_2d_axis0(X_boot)
+        ranks_Y_boot = _rankdata_average_1d(Y_boot)
+        boot_ics[b] = _vectorized_ic_jit(ranks_X_boot, ranks_Y_boot)
+    return boot_ics
+
+
+def blocked_bootstrap_ci_nogil_threads(
+    X_raw_block: np.ndarray,
+    Y_scale: np.ndarray,
+    starts_matrix: np.ndarray,
+    offsets: np.ndarray,
+    n_valid: int,
+    n_threads: int,
+) -> tuple[np.ndarray, np.ndarray]:
+    """nogil JIT core + ThreadPoolExecutor. Splits starts_matrix into n_threads
+    contiguous row slices so each thread writes a disjoint boot_ics segment
+    (same output ordering as serial, so outputs are comparable row-for-row)."""
+    n_boot = starts_matrix.shape[0]
+    edges = np.linspace(0, n_boot, n_threads + 1).astype(int)
+
+    def _run_slice(i: int) -> np.ndarray:
+        lo, hi = edges[i], edges[i + 1]
+        if hi <= lo:
+            return np.zeros((0, X_raw_block.shape[1]), dtype=np.float64)
+        return _blocked_bootstrap_ci_jit_core_nogil(
+            X_raw_block, Y_scale, starts_matrix[lo:hi], offsets, n_valid
+        )
+
+    with ThreadPoolExecutor(max_workers=n_threads) as pool:
+        parts = list(pool.map(_run_slice, range(n_threads)))
+    boot_ics = np.concatenate(parts, axis=0)
+    ci_lower = np.percentile(boot_ics, 2.5, axis=0)
+    ci_upper = np.percentile(boot_ics, 97.5, axis=0)
+    return ci_lower, ci_upper
+
+
+@numba.njit(parallel=True)
+def _blocked_bootstrap_ci_prange_core(
+    X_raw_block: np.ndarray,
+    Y_scale: np.ndarray,
+    starts_matrix: np.ndarray,
+    offsets: np.ndarray,
+    n_valid: int,
+) -> np.ndarray:
+    """Body identical to _blocked_bootstrap_ci_jit_core with the outer
+    resample loop as numba.prange. Disjoint per-row writes, no reductions, so
+    deterministic. Not cached: numba cannot cache parallel=True functions."""
+    n_boot = starts_matrix.shape[0]
+    block_p = X_raw_block.shape[1]
+    boot_ics = np.zeros((n_boot, block_p), dtype=np.float64)
+    n_offsets = offsets.shape[0]
+    n_blocks = starts_matrix.shape[1]
+    total_len = n_blocks * n_offsets
+
+    for b in prange(n_boot):
+        idx = np.empty(min(total_len, n_valid), dtype=np.int64)
+        pos = 0
+        for blk in range(n_blocks):
+            start = starts_matrix[b, blk]
+            for o in range(n_offsets):
+                if pos >= n_valid:
+                    break
+                idx[pos] = (start + offsets[o]) % n_valid
+                pos += 1
+            if pos >= n_valid:
+                break
+        X_boot = X_raw_block[idx]
+        Y_boot = Y_scale[idx]
+        ranks_X_boot = _rankdata_average_2d_axis0(X_boot)
+        ranks_Y_boot = _rankdata_average_1d(Y_boot)
+        boot_ics[b] = _vectorized_ic_jit(ranks_X_boot, ranks_Y_boot)
+    return boot_ics
+
+
+def blocked_bootstrap_ci_prange(
+    X_raw_block: np.ndarray,
+    Y_scale: np.ndarray,
+    starts_matrix: np.ndarray,
+    offsets: np.ndarray,
+    n_valid: int,
+) -> tuple[np.ndarray, np.ndarray]:
+    boot_ics = _blocked_bootstrap_ci_prange_core(
+        X_raw_block, Y_scale, starts_matrix, offsets, n_valid
+    )
+    ci_lower = np.percentile(boot_ics, 2.5, axis=0)
+    ci_upper = np.percentile(boot_ics, 97.5, axis=0)
+    return ci_lower, ci_upper
+
+
+# ---------------------------------------------------------------------------
 # Correctness check: does the Numba path match scipy exactly (with ties)?
 # ---------------------------------------------------------------------------
 
@@ -225,6 +389,38 @@ def check_full_ci_matches():
     print(f"Full CI output max abs diff (scipy path vs numba path): {max_diff:.3e}")
     assert max_diff < 1e-9, "CI outputs diverge beyond float noise -- NOT byte-identical"
     print("Full-CI correctness check PASSED (byte-identical to float64 noise floor).")
+
+
+def check_thread_variants_match():
+    """Every threading arm must reproduce the serial scipy path to the same
+    1e-9 tolerance (disjoint writes, deterministic order -- threading must not
+    change a single bit)."""
+    rng = np.random.default_rng(11)
+    n_valid = 500
+    block_p = 8
+    X = np.round(rng.normal(size=(n_valid, block_p)), 2)
+    Y = np.round(rng.normal(size=n_valid), 2)
+    block_size = 26
+    n_time_blocks = -(-n_valid // block_size)
+    n_boot = 300
+    starts_matrix = rng.integers(0, n_valid, size=(n_boot, n_time_blocks))
+    offsets = np.arange(block_size)
+
+    ref_lo, ref_hi = blocked_bootstrap_ci_current(X, Y, starts_matrix, offsets, n_valid)
+    arms = {
+        "scipy threads=4": blocked_bootstrap_ci_scipy_threads(
+            X, Y, starts_matrix, offsets, n_valid, 4
+        ),
+        "nogil threads=4": blocked_bootstrap_ci_nogil_threads(
+            X, Y, starts_matrix, offsets, n_valid, 4
+        ),
+        "prange": blocked_bootstrap_ci_prange(X, Y, starts_matrix, offsets, n_valid),
+    }
+    for name, (lo, hi) in arms.items():
+        diff = max(np.max(np.abs(ref_lo - lo)), np.max(np.abs(ref_hi - hi)))
+        assert diff < 1e-9, f"{name} diverges from serial scipy: max diff {diff:.3e}"
+        print(f"  {name}: max diff {diff:.3e} -- PASSED")
+    print("Thread-variant correctness checks PASSED (all arms byte-identical to scipy serial).")
 
 
 # ---------------------------------------------------------------------------
@@ -270,6 +466,98 @@ def run_benchmark(n_valid: int, block_p: int, block_size: int, n_boot: int, labe
     print(f"  max abs CI diff    : {max_diff:.3e}")
 
 
+def run_parallel_benchmark(
+    n_valid: int,
+    block_p: int,
+    block_size: int,
+    n_boot: int,
+    label: str,
+    thread_counts: tuple[int, ...] = (2, 4, 8),
+):
+    """All threading arms against the scipy serial baseline. Every arm's output
+    is checked against scipy serial within the run -- a speedup that changes
+    bits is a correctness bug, not a win."""
+    rng = np.random.default_rng(123)
+    X_raw_block = rng.normal(size=(n_valid, block_p)).astype(np.float64)
+    Y_scale = rng.normal(size=n_valid).astype(np.float64)
+    n_time_blocks = -(-n_valid // block_size)
+    starts_matrix = rng.integers(0, n_valid, size=(n_boot, n_time_blocks))
+    offsets = np.arange(block_size)
+
+    # Warm up every JIT variant (excluded from timing).
+    _ = blocked_bootstrap_ci_numba(X_raw_block, Y_scale, starts_matrix[:5], offsets, n_valid)
+    _ = blocked_bootstrap_ci_nogil_threads(
+        X_raw_block, Y_scale, starts_matrix[:8], offsets, n_valid, 2
+    )
+    _ = blocked_bootstrap_ci_prange(X_raw_block, Y_scale, starts_matrix[:8], offsets, n_valid)
+
+    arms: list[tuple[str, object]] = [
+        (
+            "scipy serial (baseline)",
+            lambda: blocked_bootstrap_ci_current(
+                X_raw_block, Y_scale, starts_matrix, offsets, n_valid
+            ),
+        ),
+    ]
+    for t in thread_counts:
+        arms.append(
+            (
+                f"scipy threads={t}",
+                lambda t=t: blocked_bootstrap_ci_scipy_threads(
+                    X_raw_block, Y_scale, starts_matrix, offsets, n_valid, t
+                ),
+            )
+        )
+    arms.append(
+        (
+            "numba serial",
+            lambda: blocked_bootstrap_ci_numba(
+                X_raw_block, Y_scale, starts_matrix, offsets, n_valid
+            ),
+        )
+    )
+    for t in thread_counts:
+        arms.append(
+            (
+                f"numba nogil threads={t}",
+                lambda t=t: blocked_bootstrap_ci_nogil_threads(
+                    X_raw_block, Y_scale, starts_matrix, offsets, n_valid, t
+                ),
+            )
+        )
+    arms.append(
+        (
+            "numba prange",
+            lambda: blocked_bootstrap_ci_prange(
+                X_raw_block, Y_scale, starts_matrix, offsets, n_valid
+            ),
+        )
+    )
+
+    print(
+        f"\n=== {label} (n_valid={n_valid}, block_p={block_p}, "
+        f"block_size={block_size}, n_boot={n_boot}) -- threading arms ==="
+    )
+    ref: tuple[np.ndarray, np.ndarray] | None = None
+    baseline_s: float | None = None
+    for name, fn in arms:
+        t0 = time.perf_counter()
+        ci_lo, ci_hi = fn()
+        elapsed = time.perf_counter() - t0
+        if ref is None:
+            ref = (ci_lo, ci_hi)
+            baseline_s = elapsed
+            diff = 0.0
+        else:
+            diff = max(np.max(np.abs(ref[0] - ci_lo)), np.max(np.abs(ref[1] - ci_hi)))
+        assert diff < 1e-9, f"{name}: output changed ({diff:.3e}) -- not byte-identical"
+        assert baseline_s is not None
+        print(
+            f"  {name:26s}: {elapsed:8.4f} s   "
+            f"{baseline_s / elapsed:6.2f}x vs scipy serial   diff {diff:.1e}"
+        )
+
+
 if __name__ == "__main__":
     print("Compiling Numba functions (first call, one-time cost, excluded from benchmark)...")
     t0 = time.perf_counter()
@@ -309,4 +597,32 @@ if __name__ == "__main__":
         block_size=78,
         n_boot=2000,
         label="5m pooled cell, ALL ~290 features (9 blocks worth)",
+    )
+
+    # Threading arms (todo 385 lever 2). Production already threads the scipy
+    # loop (CS 8/8/8/6, per-symbol 2), so the decision number is
+    # threads-vs-threads at those counts, not threads-vs-serial.
+    print("\nRunning thread-variant correctness checks...")
+    check_thread_variants_match()
+
+    run_parallel_benchmark(
+        n_valid=2000,
+        block_p=32,
+        block_size=78,
+        n_boot=2000,
+        label="5m pooled cell, one feature block",
+    )
+    run_parallel_benchmark(
+        n_valid=400,
+        block_p=32,
+        block_size=26,
+        n_boot=2000,
+        label="thin 15m regime cell, one feature block",
+    )
+    run_parallel_benchmark(
+        n_valid=2000,
+        block_p=290,
+        block_size=78,
+        n_boot=2000,
+        label="5m pooled cell, ALL ~290 features",
     )
