@@ -2921,9 +2921,9 @@ Requirements:
 
 **Wave 3** *(blocked on Wave 2 completion)*
 
-- [ ] 176-04-PLAN.md - per-symbol earnings_season stratification pass + lifecycle-guard isolation (wave 3) — **gated on 176-01's SWEEP_VERDICT (D-01a)**
+- [x] 176-04-PLAN.md - per-symbol earnings_season stratification pass + lifecycle-guard isolation (wave 3) — **gated on 176-01's SWEEP_VERDICT (D-01a)**
 - [x] 176-05-PLAN.md - ensemble_trainer eligibility exclusion + feature_ic_scores consumer audit (wave 3) — **gated on 176-01's SWEEP_VERDICT (D-01a)**
-- [ ] 176-07-PLAN.md - migration 351: direct two-column SQL backfill of the pre-existing corpus, compressed round trip + mandatory VACUUM (wave 3)
+- [x] 176-07-PLAN.md - migration 351: direct two-column SQL backfill of the pre-existing corpus, compressed round trip + mandatory VACUUM (wave 3)
 
 **Wave 4** *(blocked on Wave 3 completion)*
 
