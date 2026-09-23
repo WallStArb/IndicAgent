@@ -20,6 +20,28 @@ Alpha must be demonstrated empirically before any ensemble weight is assigned. I
 
 (Shipped and verified in production)
 
+**v3.1 Phase 175 — ITR Materiality-Filtered Empirical Tags (2026-09-23):**
+- ✓ P175-01/02/03: `TagCalibrator` Pass 4 (migration 346) — orthogonalized partial-loading
+  correlation against a 4-leg control set, incremental R², sign-stability window count, and
+  a D-06 circular-shift null-arm test, persisted as 11 new `instrument_tags` evidence
+  columns; `materiality_gate_failures()`/`decide_materiality()`/`is_materiality_eligible()`
+  the single shared statistical+temporal+expiry gate contract — v3.1
+- ✓ P175-04: D-03 read-only shadow diagnostic (`scripts/analysis/itr_materiality_shadow_diagnostic.py`)
+  — confirmed zero live-consumer writes, byte-identical `market_regimes` before/after; ran
+  against the full corpus (2170 empirical pairs measured, 182 passing the statistical gate)
+  — v3.1
+- ✓ Closes todos 125 (discovery-OOS gate) and 126 (`instrument_tags_active` view,
+  `valid_to` filtering) — v3.1
+- ✓ Post-completion code review found and fixed a real critical bug (CR-01):
+  `apply_run_level_fdr` passed NaN null-arm p-values straight into
+  `statsmodels.stats.multitest.multipletests`, which silently poisons the whole run's
+  corrected-p output to all-NaN on a single NaN input — fixed with a regression test;
+  verified against the live corpus that the 175-03 run was never actually hit by it
+  (0/2170 rows NaN-poisoned) — v3.1
+- Explicitly shadow-mode only (D-02/D-03): `breadth_vol.py`/`cross_sectional_regime_model.py`
+  still read `source='human'` only; consumer cutover is a separate, unscoped future phase.
+  Todo 380 carries the re-scoped follow-up.
+
 **v3.1 Phase 172 — HMM Regime Volatility-Only Redesign (2026-08-09):**
 - ✓ REQ-1/REQ-2: `feature_vectors.regime_volatility` 8-column family (migration 307), `alpha.hmm_volatility.*` APR keys (reconciled to measured values by migration 308), `regime_volatility` CVR namespace (calm/elevated/turbulent) — `_build_label_map`/`_state_groups_by_vocab` generalized to a vocab parameter, trend path byte-identical — v3.1
 - ✓ REQ-3: wider-scope null-arm control (15m/5m, 30-symbol corpus-derived sample) returned `VERDICT: GO` — `realized_vol` clears the block-reliability gate; shipped config `n_components=3, vol_window=250, vol_of_vol_window=250` — v3.1
@@ -382,4 +404,9 @@ This document evolves at phase transitions and milestone boundaries.
 4. Update Context with current state
 
 ---
-*Last updated: 2026-08-09 (Phase 172 complete: HMM Regime Volatility-Only Redesign — replaced the 5-column composite regime label with a standalone `regime_volatility` built from realized_vol + vol_of_vol only, null-arm-validated at 15m/5m, relabeled corpus-wide, and cut `ic_engine.py`'s stratification over to it. See Validated Requirements above for full detail.)*
+*Last updated: 2026-09-23 (Phase 175 complete: ITR materiality-filtered empirical tags —
+TagCalibrator Pass 4 orthogonalized materiality evidence, migration 346, read-only D-03
+shadow diagnostic, closes todos 125/126. Shadow-mode only, no live consumer cutover yet. See
+Validated Requirements above for full detail. Note: Phases 173/174 shipped since the prior
+2026-08-09 update but were not individually logged here — see ROADMAP.md and
+`docs/plans/methodology-change-ledger.md` E13 for that record.)*
