@@ -117,7 +117,10 @@ from src.core.service_utils import (
 )
 from src.intelligence.concept_registry_service import ConceptRegistryService
 from src.intelligence.schemas import FeatureVector
-from src.intelligence.statistics.ic_bootstrap_jit import blocked_bootstrap_ics
+from src.intelligence.statistics.ic_bootstrap_jit import (
+    blocked_bootstrap_ics,
+    dense_rank_inputs,
+)
 from src.intelligence.statistics.ic_math import (
     GuardVerdict,
     _compute_ic_rolling_metrics,
@@ -2272,10 +2275,12 @@ def _blocked_bootstrap_ci(
         ranks_Y_boot = rankdata(Y_scale[idx])
         return _vectorized_ic(ranks_X_boot, ranks_Y_boot)
 
+    dense_inputs = dense_rank_inputs(X_raw_block, Y_scale, n_valid) if numba_threads > 0 else None
+
     def _fill(boot_ics: np.ndarray, start: int, end: int) -> None:
-        if numba_threads > 0:
+        if dense_inputs is not None:
             boot_ics[start:end] = blocked_bootstrap_ics(
-                X_raw_block, Y_scale, starts_matrix[start:end], offsets, n_valid, numba_threads
+                dense_inputs, starts_matrix[start:end], offsets, n_valid, numba_threads
             )
         elif pool is None:
             for b in range(start, end):
@@ -3421,10 +3426,10 @@ def _build_regime_passes(
         (regime_aligned_market, distinct_regimes, primary_resolved_scope)
     ]
     if cross_sectional and (dual_write_symbol_hmm or cluster_regime_conditioned):
-        distinct_symbol_hmm_regimes = [r for r in set(regime_aligned) if r is not None]
+        distinct_symbol_hmm_regimes = sorted({r for r in regime_aligned if r is not None})
         regime_passes.append((regime_aligned, distinct_symbol_hmm_regimes, "symbol_hmm"))
     if earnings_season_conditioned and earnings_season_aligned is not None:
-        distinct_earnings_labels = [r for r in set(earnings_season_aligned) if r is not None]
+        distinct_earnings_labels = sorted({r for r in earnings_season_aligned if r is not None})
         if distinct_earnings_labels:
             regime_passes.append(
                 (earnings_season_aligned, distinct_earnings_labels, "earnings_season")
@@ -3731,7 +3736,7 @@ def _compute_symbol_tf(
                 earnings_season_aligned = _earnings_season_labels(
                     X_aligned[:, _EARNINGS_SEASON_FLAG_IDX]
                 )
-                if not [r for r in set(earnings_season_aligned) if r is not None]:
+                if not any(r is not None for r in earnings_season_aligned):
                     # Once per (symbol, tf), never per row (hot-path logging rule).
                     _logger.info(
                         "ic_engine.earnings_season_pass_skipped",
@@ -3761,12 +3766,12 @@ def _compute_symbol_tf(
         if cross_sectional:
             # equity_model_enabled=True: use cross-sectional labels from market_regimes
             regime_aligned_market = np.array([mr_dict.get(ts) for ts in bar_ts_aligned])
-            distinct_regimes = [r for r in set(regime_aligned_market) if r is not None]
+            distinct_regimes = sorted({r for r in regime_aligned_market if r is not None})
         else:
             # equity_model_enabled=False: fallback to feature_vectors.regime_volatility
             # (per-symbol, calm/elevated/turbulent). Phase 172 plan 06 repoint.
             regime_aligned_market = regime_aligned
-            distinct_regimes = [r for r in set(regime_aligned) if r is not None]
+            distinct_regimes = sorted({r for r in regime_aligned if r is not None})
 
         # Pooled pass -- always exactly once, regardless of how many regime-label
         # sources this (symbol, tf) computes. Pooled doesn't condition on regime

@@ -4,7 +4,14 @@ import numpy as np
 import pytest
 from scipy.stats import rankdata
 
-from src.intelligence.statistics.ic_bootstrap_jit import blocked_bootstrap_ics
+from src.intelligence.statistics.ic_bootstrap_jit import blocked_bootstrap_ics as _kernel
+from src.intelligence.statistics.ic_bootstrap_jit import dense_rank_inputs
+
+
+def blocked_bootstrap_ics(X, Y, starts, offsets, n_valid, n_threads):
+    return _kernel(dense_rank_inputs(X, Y, n_valid), starts, offsets, n_valid, n_threads)
+
+
 from src.intelligence.statistics.ic_math import _vectorized_ic
 
 
@@ -113,3 +120,21 @@ def test_ic_engine_blocked_bootstrap_ci_kernel_matches_scipy_path(early_stop):
     )
     np.testing.assert_array_equal(jit_lo, scipy_lo)
     np.testing.assert_array_equal(jit_hi, scipy_hi)
+
+
+def test_nan_row_drawn_by_only_some_resamples():
+    """A NaN feature row zeroes the IC only in resamples that draw it; others rank normally."""
+    X, Y, starts, offsets = _case(40, 3, 4, 200, seed=13, dtype=np.float64)
+    X[17, 0] = np.nan
+    got = blocked_bootstrap_ics(X, Y, starts, offsets, 40, 2)
+    np.testing.assert_array_equal(got, _scipy_boot_ics(X, Y, starts, offsets, 40))
+    assert (got[:, 0] == 0.0).any() and (got[:, 0] != 0.0).any()
+
+
+def test_nan_return_zeroes_every_feature_in_drawing_resamples():
+    X, Y, starts, offsets = _case(40, 3, 4, 200, seed=17, dtype=np.float64)
+    Y[9] = np.nan
+    np.testing.assert_array_equal(
+        blocked_bootstrap_ics(X, Y, starts, offsets, 40, 2),
+        _scipy_boot_ics(X, Y, starts, offsets, 40),
+    )

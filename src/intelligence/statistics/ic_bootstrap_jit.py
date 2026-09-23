@@ -1,31 +1,37 @@
 """Numba circular block bootstrap kernel for ic_engine's per-block CI (todo 385 lever 2).
 
 Replaces the Python-level resample loop in ``services/ic_engine.py::_blocked_bootstrap_ci``
-(one scipy ``rankdata`` + ``_vectorized_ic`` call per resample, dispatched from a Python
-for-loop or a ThreadPoolExecutor) with one compiled function whose outer resample loop is a
-``numba.prange``. Measured 2026-09-23 on the production shapes: 10.8-13.1x over the serial
-scipy loop, ~2.3-2.8x over the best threaded scipy arm at equal core budget
-(``scripts/analysis/ic_engine_bootstrap_ci_numba_benchmark.py``).
+(one scipy ``rankdata`` + ``_vectorized_ic`` call per resample) with one compiled function
+whose outer resample loop is a ``numba.prange``.
 
-Semantics match the scipy path exactly, including the edge cases:
+Counting ranks instead of sorting. A bootstrap resample only repeats rows of the original
+sample, so the relative order of its values is already known from the original column. Each
+column is dense-ranked ONCE (``_dense_ranks``: one sort per column per call); inside the
+resample loop, a column's average ranks come from counting how many times each dense value
+was drawn and a prefix sum: a value whose ties occupy sorted positions ``running ..
+running+count-1`` gets rank ``running + (count + 1) / 2``, exactly scipy's
+``rankdata(method='average')``. That is O(n + K) per column per resample instead of an
+O(n log n) argsort, with no sort anywhere in the hot loop.
 
-- ``_rankdata_average_1d`` is scipy's ``rankdata(method='average')``: 1-indexed ranks, ties
-  averaged. scipy's default ``nan_policy='propagate'`` returns an all-NaN rank vector when
-  the input holds any NaN; this kernel does the same, so a NaN-bearing column's IC falls
-  through the same ``denom > 1e-10`` test to 0.0 on both paths.
-- ``_vectorized_ic_jit`` mirrors ``ic_math._vectorized_ic``: ``n < 2`` returns zeros, a
-  denominator at or below 1e-10 (or NaN) returns 0.0.
+Semantics match the scipy path, including its edge cases:
+
+- scipy's default ``nan_policy='propagate'`` turns a column's ranks all-NaN when the resample
+  draws any NaN row, and ``ic_math._vectorized_ic`` then returns 0.0 for it (a NaN
+  denominator fails ``denom > 1e-10``). NaN rows carry dense rank -1 here, and a column that
+  draws one gets IC 0.0 directly.
+- ``n < 2`` returns zeros; a denominator at or below 1e-10 returns 0.0, as in
+  ``_vectorized_ic``.
 - Resample indices are built exactly as the scipy path builds them:
   ``(starts[b][:, None] + offsets).ravel()[:n_valid] % n_valid``.
 
-Exactness: the kernel ranks and accumulates in float64. Against the scipy path fed float64
-input it is bit-identical (``tests/unit/test_ic_bootstrap_jit.py``): ranks are multiples of
-0.5, so centered sums and sums of squares are exact while they stay below 2**53. It is NOT
-bit-identical to production's scipy path on float32 input: scipy >= 1.15 returns float32
-ranks for float32 input, so that path accumulates sums of squares in float32 (~1e-7
-relative), and the kernel is the more accurate of the two. Multi-million-row cross-sectional
-cells can also exceed 2**53. The kernel choice is therefore a COMPUTATIONAL config field in
-ic_engine's fingerprint, not an operational one.
+Exactness: ranks are multiples of 0.5 and the rank mean is exactly ``(n + 1) / 2``, so every
+centered sum and sum of squares is exact in float64 while it stays below 2**53, and summation
+order cannot matter. Against the scipy path fed float64 input the kernel is bit-identical
+(``tests/unit/test_ic_bootstrap_jit.py``). It is NOT bit-identical to production's scipy path
+on float32 input: scipy >= 1.15 returns float32 ranks for float32 input, so that path
+accumulates sums of squares in float32 (~1e-7 relative), and the kernel is the more accurate
+of the two. Multi-million-row cross-sectional cells can also exceed 2**53. The kernel choice
+is therefore a COMPUTATIONAL config field in ic_engine's fingerprint, not an operational one.
 
 Deterministic: each resample writes only its own row of ``boot_ics`` and reads nothing
 another iteration writes, so thread count and scheduling order never change the output.
@@ -38,59 +44,42 @@ import numpy as np
 from numba import prange
 
 
-@numba.njit(cache=True, nogil=True)
-def _rankdata_average_1d(a: np.ndarray) -> np.ndarray:
-    n = a.shape[0]
-    ranks = np.empty(n, dtype=np.float64)
-    for i in range(n):
-        if np.isnan(a[i]):
-            ranks[:] = np.nan
-            return ranks
-    order = np.argsort(a)
-    i = 0
-    while i < n:
-        j = i
-        while j < n - 1 and a[order[j + 1]] == a[order[i]]:
-            j += 1
-        avg_rank = (i + j) / 2.0 + 1.0
-        for k in range(i, j + 1):
-            ranks[order[k]] = avg_rank
-        i = j + 1
-    return ranks
+def _dense_ranks(values: np.ndarray) -> tuple[np.ndarray, int]:
+    """0-based dense rank of each entry (equal values share a rank), -1 for NaN; and the
+    number of distinct non-NaN values."""
+    dense = np.full(values.shape[0], -1, dtype=np.int32)
+    finite = ~np.isnan(values)
+    uniques, inverse = np.unique(values[finite], return_inverse=True)
+    dense[finite] = inverse
+    return dense, uniques.shape[0]
 
 
 @numba.njit(cache=True, nogil=True)
-def _vectorized_ic_jit(ranks_X: np.ndarray, ranks_Y: np.ndarray) -> np.ndarray:
-    n, p = ranks_X.shape
-    out = np.zeros(p, dtype=np.float64)
-    if n < 2:
-        return out
-    y_mean = ranks_Y.sum() / n
-    y_ss = 0.0
-    for r in range(n):
-        d = ranks_Y[r] - y_mean
-        y_ss += d * d
-    for c in range(p):
-        x_mean = 0.0
-        for r in range(n):
-            x_mean += ranks_X[r, c]
-        x_mean /= n
-        x_ss = 0.0
-        xy = 0.0
-        for r in range(n):
-            dx = ranks_X[r, c] - x_mean
-            x_ss += dx * dx
-            xy += dx * (ranks_Y[r] - y_mean)
-        denom = np.sqrt(x_ss * y_ss)
-        if denom > 1e-10:
-            out[c] = xy / denom
-    return out
+def _average_ranks_by_count(
+    dense: np.ndarray, idx: np.ndarray, k: int, counts: np.ndarray, avg: np.ndarray
+) -> bool:
+    """Fill ``avg[v]`` with the average rank of dense value ``v`` within the resample ``idx``.
+    Returns False when the resample draws a NaN row (dense rank -1)."""
+    counts[:k] = 0
+    for r in range(idx.shape[0]):
+        v = dense[idx[r]]
+        if v < 0:
+            return False
+        counts[v] += 1
+    running = 0
+    for v in range(k):
+        c = counts[v]
+        avg[v] = running + (c + 1) / 2.0
+        running += c
+    return True
 
 
 @numba.njit(cache=True, nogil=True, parallel=True)
 def _boot_ics_prange(
-    X_block: np.ndarray,
-    Y: np.ndarray,
+    dense_X: np.ndarray,
+    k_X: np.ndarray,
+    dense_Y: np.ndarray,
+    k_Y: int,
     starts: np.ndarray,
     offsets: np.ndarray,
     n_valid: int,
@@ -98,9 +87,13 @@ def _boot_ics_prange(
     n_boot = starts.shape[0]
     n_blocks = starts.shape[1]
     n_offsets = offsets.shape[0]
-    p = X_block.shape[1]
+    p = dense_X.shape[1]
     n_idx = min(n_blocks * n_offsets, n_valid)
+    max_k = max(k_Y, k_X.max() if p > 0 else 0)
     boot_ics = np.zeros((n_boot, p), dtype=np.float64)
+    if n_idx < 2:
+        return boot_ics
+    mean_rank = (n_idx + 1) / 2.0
     for b in prange(n_boot):
         idx = np.empty(n_idx, dtype=np.int64)
         pos = 0
@@ -113,40 +106,74 @@ def _boot_ics_prange(
                     break
                 idx[pos] = (start + offsets[o]) % n_valid
                 pos += 1
-        ranks_Y = _rankdata_average_1d(Y[idx])
-        ranks_X = np.empty((n_idx, p), dtype=np.float64)
-        col = np.empty(n_idx, dtype=X_block.dtype)
+        counts = np.empty(max_k, dtype=np.int64)
+        avg = np.empty(max_k, dtype=np.float64)
+        if not _average_ranks_by_count(dense_Y, idx, k_Y, counts, avg):
+            continue  # NaN return drawn: every rank vector is NaN -> every IC is 0.0
+        y_c = np.empty(n_idx, dtype=np.float64)
+        y_ss = 0.0
+        for r in range(n_idx):
+            d = avg[dense_Y[idx[r]]] - mean_rank
+            y_c[r] = d
+            y_ss += d * d
         for c in range(p):
+            dense_col = dense_X[:, c]
+            if not _average_ranks_by_count(dense_col, idx, k_X[c], counts, avg):
+                continue  # NaN feature value drawn -> IC 0.0
+            x_ss = 0.0
+            xy = 0.0
             for r in range(n_idx):
-                col[r] = X_block[idx[r], c]
-            ranks_X[:, c] = _rankdata_average_1d(col)
-        boot_ics[b] = _vectorized_ic_jit(ranks_X, ranks_Y)
+                dx = avg[dense_col[idx[r]]] - mean_rank
+                x_ss += dx * dx
+                xy += dx * y_c[r]
+            denom = np.sqrt(x_ss * y_ss)
+            if denom > 1e-10:
+                boot_ics[b, c] = xy / denom
     return boot_ics
 
 
+def dense_rank_inputs(
+    X_block: np.ndarray, Y: np.ndarray, n_valid: int
+) -> tuple[np.ndarray, np.ndarray, np.ndarray, int]:
+    """Dense-rank the block's columns and the return vector once, for every later
+    ``blocked_bootstrap_ics`` call on the same block (the early-stop path calls it once per
+    chunk). Column-major int32, so each column is contiguous in the hot loop and the matrix
+    costs half of a float64 copy."""
+    X_block = X_block[:n_valid]
+    p = X_block.shape[1]
+    dense_X = np.empty((n_valid, p), dtype=np.int32, order="F")
+    k_X = np.empty(p, dtype=np.int64)
+    for c in range(p):
+        dense_X[:, c], k_X[c] = _dense_ranks(X_block[:, c])
+    dense_Y, k_Y = _dense_ranks(np.asarray(Y[:n_valid], dtype=np.float64))
+    return dense_X, k_X, dense_Y, k_Y
+
+
 def blocked_bootstrap_ics(
-    X_block: np.ndarray,
-    Y: np.ndarray,
+    dense_inputs: tuple[np.ndarray, np.ndarray, np.ndarray, int],
     starts: np.ndarray,
     offsets: np.ndarray,
     n_valid: int,
     n_threads: int,
 ) -> np.ndarray:
-    """Bootstrap IC matrix ``[starts.shape[0], X_block.shape[1]]`` for the given resample rows.
+    """Bootstrap IC matrix ``[starts.shape[0], n_features]`` for the given resample rows.
 
-    ``starts`` may be any row slice of the caller's pre-drawn block-start matrix (the early-stop
-    path passes one chunk at a time); rows are independent, so slicing never changes a row's
-    result. ``n_threads`` caps numba's thread pool for this call only (clamped to
+    ``dense_inputs`` comes from ``dense_rank_inputs``. ``starts`` may be any row slice of the
+    caller's pre-drawn block-start matrix; rows are independent, so slicing never changes a
+    row's result. ``n_threads`` caps numba's thread pool for this call only (clamped to
     ``[1, numba.config.NUMBA_NUM_THREADS]``) and is restored afterwards, so the per-process
     thread budget stays under the caller's control (ic_engine runs several worker processes).
     """
+    dense_X, k_X, dense_Y, k_Y = dense_inputs
     n_threads = max(1, min(int(n_threads), numba.config.NUMBA_NUM_THREADS))
     previous = numba.get_num_threads()
     numba.set_num_threads(n_threads)
     try:
         return _boot_ics_prange(
-            np.ascontiguousarray(X_block),
-            np.ascontiguousarray(Y, dtype=np.float64),
+            dense_X,
+            k_X,
+            dense_Y,
+            int(k_Y),
             np.ascontiguousarray(starts, dtype=np.int64),
             np.ascontiguousarray(offsets, dtype=np.int64),
             int(n_valid),
