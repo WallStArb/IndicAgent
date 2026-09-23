@@ -787,7 +787,15 @@ class _CsFakeCursor:
         return False
 
     def execute(self, sql: str, params: dict | None = None) -> None:
-        if "FROM market_regimes" in sql:
+        if "SELECT count(*) FROM feature_vectors" in sql:
+            # Todo 386 pre-flight row count. Defaults to full density (the old estimate,
+            # regime timestamps x symbols) so tests keep their meaning; a test can set
+            # cell_row_count to model sparse history.
+            n = getattr(self._conn, "cell_row_count", None)
+            if n is None:
+                n = len(self._conn.regime_timestamp_rows) * len(params["symbol_list"])
+            self._result = [(n,)]
+        elif "FROM market_regimes" in sql:
             self._result = self._conn.regime_timestamp_rows
         elif "FROM feature_vectors fv" in sql:
             self._result = self._conn.next_chunk_batch()
@@ -796,6 +804,9 @@ class _CsFakeCursor:
 
     def fetchall(self) -> list[tuple[Any, ...]]:
         return self._result
+
+    def fetchone(self) -> tuple[Any, ...]:
+        return self._result[0]
 
 
 class _CsFakeConn:

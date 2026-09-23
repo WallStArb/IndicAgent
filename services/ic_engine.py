@@ -4829,6 +4829,45 @@ def _compute_one_broadcast_cell(
     return all_results, n_skipped
 
 
+def _count_cross_sectional_cell_rows(
+    conn: Any,
+    tf: str,
+    regime_group: str,
+    regime_label: str,
+    training_window_end: Any,
+    symbol_list: list[str],
+) -> int:
+    """Exact count of the feature_vectors rows a cross-sectional cell's chunk fetch can
+    return: this tf, these symbols, at this cell's distinct regime timestamps up to the
+    training window end. An upper bound on the fetched rows (the fetch also inner-joins
+    forward_returns). Todo 386."""
+    with conn.cursor() as cur:
+        cur.execute(
+            """
+            SELECT count(*) FROM feature_vectors fv
+            WHERE fv.tf = %(tf)s
+              AND fv.symbol = ANY(%(symbol_list)s)
+              AND fv.bar_ts IN (
+                  SELECT DISTINCT ts FROM market_regimes
+                  WHERE regime_group = %(regime_group)s
+                    AND tf = %(tf)s
+                    AND regime_label = %(regime_label)s
+                    AND ts <= %(training_window_end)s
+              )
+            """,
+            {
+                "tf": tf,
+                "symbol_list": symbol_list,
+                "regime_group": regime_group,
+                "regime_label": regime_label,
+                "training_window_end": training_window_end,
+            },
+        )
+        (n_rows,) = cur.fetchone()
+    conn.commit()
+    return int(n_rows)
+
+
 def _fetch_cross_sectional_chunk(
     dsn: str, chunk_sql: str, ts_chunk: list, tf: str, symbol_list: list[str]
 ) -> list[tuple]:
@@ -5113,23 +5152,23 @@ def _compute_cross_sectional_tf(
                 )
                 return [], {"n_committed": 0, "n_skipped": 0}
 
-            # Plan 05 (D-04a, todo 371) pre-flight estimate: a conservative UPPER bound on
-            # this cell's row count, computed from the two counts already in hand -- no
-            # extra fetch. Assumes full density (every symbol has a row at every regime
-            # timestamp), which overestimates for symbols with shorter backfill history;
-            # that is the safe direction per D-04's crash-loud-over-silent-degrade
-            # preference. Do NOT tighten this into an exact count -- an underestimate
-            # reintroduces exactly the OOM this fix removes. A false-positive
-            # CellTooLargeError at Russell-3000 scale is itself useful information -- it
-            # argues for holding sparse-history symbols at compute_eligible=false
-            # (Phase 174 D-07) rather than loosening the guard. This is the guard's third
-            # call site in this file (definition, per-symbol cell, post-materialization
-            # cross-sectional cell) -- reachable BEFORE any fetch, unlike that third one.
-            n_estimated = len(regime_timestamps) * len(symbol_list)
+            # Plan 05 (D-04a, todo 371) pre-flight row bound, made exact by todo 386. The
+            # first version assumed full density (regime_timestamps x symbols) to avoid an
+            # extra fetch; that overstated real cells 3-13x (equity/5m/low_bull: 119.6M
+            # estimated vs 9.4M real) and killed a 2.6-day run on a guard artifact
+            # (2026-09-20). _count_cross_sectional_cell_rows counts the feature_vectors rows
+            # the chunk fetch can return: the fetch additionally inner-joins
+            # forward_returns, which can only drop rows, so the count is still an UPPER
+            # bound -- the safe direction D-04 requires, now without the density
+            # overstatement. It drives the size guard, the disk-backed decision and the
+            # scratch-headroom check below. Measured 7-14s on the largest 5m cells.
+            n_estimated = _count_cross_sectional_cell_rows(
+                conn, tf, regime_group, regime_label, training_window_end, symbol_list
+            )
             _check_cell_size(
                 n_estimated,
                 config,
-                f"Cross-sectional cell (pre-flight estimate) tf={tf} regime={regime_label}",
+                f"Cross-sectional cell (pre-flight row count) tf={tf} regime={regime_label}",
             )
 
             # Step 2: Query feature_vectors+forward_returns in timestamp chunks.

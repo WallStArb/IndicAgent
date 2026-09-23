@@ -137,7 +137,15 @@ class _FakeCursor:
 
     def execute(self, sql: str, params: dict | None = None) -> None:
         self._conn.executed_sql.append(sql)
-        if "FROM market_regimes" in sql:
+        if "SELECT count(*) FROM feature_vectors" in sql:
+            # Todo 386 pre-flight row count. Defaults to full density (the old estimate,
+            # regime timestamps x symbols) so tests keep their meaning; a test can set
+            # cell_row_count to model sparse history.
+            n = getattr(self._conn, "cell_row_count", None)
+            if n is None:
+                n = len(self._conn.regime_timestamp_rows) * len(params["symbol_list"])
+            self._result = [(n,)]
+        elif "FROM market_regimes" in sql:
             self._result = self._conn.regime_timestamp_rows
         elif "FROM feature_vectors fv" in sql:
             self._conn.chunk_fetch_count += 1
@@ -147,6 +155,9 @@ class _FakeCursor:
 
     def fetchall(self) -> list[tuple[Any, ...]]:
         return self._result
+
+    def fetchone(self) -> tuple[Any, ...]:
+        return self._result[0]
 
 
 class _FakeConn:
@@ -249,7 +260,7 @@ def test_preflight_error_message_identifies_guard(tmp_path, monkeypatch):
         _call(config, symbol_list=["SPY", "QQQ", "IWM"], regime_label="calm")
 
     message = str(exc_info.value)
-    assert "pre-flight estimate" in message
+    assert "pre-flight row count" in message
     assert "tf=1h" in message
     assert "regime=calm" in message
 
@@ -648,3 +659,35 @@ def test_disk_backed_accumulator_bounds_peak_growth_and_matches_in_ram(tmp_path)
         np.testing.assert_array_equal(disk_result, in_ram_result)
     finally:
         disk_acc.close()
+
+
+# ---------------------------------------------------------------------------
+# Todo 386: the pre-flight uses the exact row count, not the full-density estimate
+# ---------------------------------------------------------------------------
+
+
+def test_sparse_history_cell_not_rejected_on_full_density_estimate(tmp_path, monkeypatch):
+    """5 regime timestamps x 3 symbols = 15 under the old full-density estimate, over a
+    max_cell_rows of 10. The real cell holds 6 rows (sparse symbol history), so it must
+    proceed to the chunk fetch instead of raising (the 2026-09-20 guard-artifact kill)."""
+    config = _make_config(max_cell_rows=10, memmap_scratch_dir=str(tmp_path))
+    fake_conn = _FakeConn(regime_timestamp_rows=_ts_rows(5), chunk_batches=[[]])
+    fake_conn.cell_row_count = 6
+    _patch_short_lived_conn(monkeypatch, fake_conn)
+    _patch_trivial_cell_functions(monkeypatch)
+
+    _call(config, symbol_list=["SPY", "QQQ", "IWM"])
+
+    assert fake_conn.chunk_fetch_count == 1
+
+
+def test_exact_count_over_ceiling_still_raises_before_fetch(tmp_path, monkeypatch):
+    config = _make_config(max_cell_rows=10, memmap_scratch_dir=str(tmp_path))
+    fake_conn = _FakeConn(regime_timestamp_rows=_ts_rows(5))
+    fake_conn.cell_row_count = 11
+    _patch_short_lived_conn(monkeypatch, fake_conn)
+    _patch_trivial_cell_functions(monkeypatch)
+
+    with pytest.raises(CellTooLargeError):
+        _call(config, symbol_list=["SPY", "QQQ", "IWM"])
+    assert fake_conn.chunk_fetch_count == 0
