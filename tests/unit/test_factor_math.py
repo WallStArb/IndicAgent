@@ -25,6 +25,7 @@ from src.intelligence.statistics.factor_math import (  # noqa: E402
     long_short_daily_returns,
     partial_loading,
     partial_loading_ci_low,
+    sign_stable_window_count,
     spy_realized_vol_factor,
     standardized_loading,
 )
@@ -316,3 +317,111 @@ def test_partial_loading_ci_low_nan_when_partial_loading_nan():
 
     assert math.isnan(loading)
     assert math.isnan(ci_low)
+
+
+# ---------------------------------------------------------------------------
+# Task 2: sign-stability across disjoint tail-anchored historical windows
+# ---------------------------------------------------------------------------
+
+
+def test_sign_stable_window_count_all_windows_stable():
+    """A relationship holding with the same sign across all of history: 4
+    disjoint 100-obs windows fitting exactly into 400 observations all match
+    the full-sample sign."""
+    rng = np.random.default_rng(11)
+    n = 400
+    x_factor = rng.normal(size=n)
+    control = rng.normal(size=n)
+    noise = rng.normal(size=n)
+    y_candidate = 0.6 * x_factor + math.sqrt(1 - 0.36) * noise
+
+    result = sign_stable_window_count(
+        y_candidate, x_factor, control, condition_max=1e8, window_days=100, window_count=4
+    )
+    assert result == (4, 4)
+
+
+def test_sign_stable_window_count_recent_window_flipped():
+    """The relationship's sign flips only in the most recent (newest, window
+    0) segment: n_sign_stable < n_evaluable, specifically (3, 4)."""
+    rng = np.random.default_rng(12)
+    n = 400
+    x_factor = rng.normal(size=n)
+    control = rng.normal(size=n)
+    noise = rng.normal(size=n)
+    coef = np.where(np.arange(n) < 300, 0.6, -0.6)  # last 100 obs flipped
+    y_candidate = coef * x_factor + math.sqrt(1 - 0.36) * noise
+
+    result = sign_stable_window_count(
+        y_candidate, x_factor, control, condition_max=1e8, window_days=100, window_count=4
+    )
+    assert result == (3, 4)
+
+
+def test_sign_stable_window_count_oldest_window_flipped_proves_tail_anchoring():
+    """The relationship's sign flips only in the OLDEST segment (window
+    window_count - 1): also (3, 4), but only if windows are correctly
+    anchored at the most recent observation -- proves window ordering, not
+    just flip-counting."""
+    rng = np.random.default_rng(13)
+    n = 400
+    x_factor = rng.normal(size=n)
+    control = rng.normal(size=n)
+    noise = rng.normal(size=n)
+    coef = np.where(np.arange(n) < 100, -0.6, 0.6)  # oldest 100 obs flipped
+    y_candidate = coef * x_factor + math.sqrt(1 - 0.36) * noise
+
+    result = sign_stable_window_count(
+        y_candidate, x_factor, control, condition_max=1e8, window_days=100, window_count=4
+    )
+    assert result == (3, 4)
+
+
+def test_sign_stable_window_count_short_history_not_padded():
+    """250 observations with window_days=100, window_count=4: only 2 full
+    windows fit -- n_evaluable must be 2, never a padded 4."""
+    rng = np.random.default_rng(14)
+    n = 250
+    x_factor = rng.normal(size=n)
+    control = rng.normal(size=n)
+    noise = rng.normal(size=n)
+    y_candidate = 0.6 * x_factor + math.sqrt(1 - 0.36) * noise
+
+    n_stable, n_evaluable = sign_stable_window_count(
+        y_candidate, x_factor, control, condition_max=1e8, window_days=100, window_count=4
+    )
+    assert n_evaluable == 2, f"Expected only 2 full windows to fit in 250 obs, got {n_evaluable}"
+    assert n_stable == 2
+
+
+def test_sign_stable_window_count_nan_window_excluded_from_both_terms():
+    """A window whose own partial_loading is NaN (ill-conditioned within that
+    window only) is excluded from BOTH n_sign_stable and n_evaluable."""
+    rng = np.random.default_rng(15)
+    n = 400
+    x_factor = rng.normal(size=n)
+    noise = rng.normal(size=n)
+    control = rng.normal(size=n)
+    control[100:200] = 5.0  # constant sub-slice -> ill-conditioned within that window only
+    y_candidate = 0.6 * x_factor + math.sqrt(1 - 0.36) * noise
+
+    n_stable, n_evaluable = sign_stable_window_count(
+        y_candidate, x_factor, control, condition_max=1e8, window_days=100, window_count=4
+    )
+    assert n_evaluable == 3, f"Expected the constant-control window excluded, got {n_evaluable}"
+    assert n_stable == 3
+
+
+def test_sign_stable_window_count_full_sample_nan_returns_zero_zero():
+    """When the full-sample partial_loading is itself NaN (e.g. a constant
+    control column), returns (0, 0) -- no sign to compare windows against."""
+    rng = np.random.default_rng(16)
+    n = 400
+    x_factor = rng.normal(size=n)
+    y_candidate = rng.normal(size=n)
+    controls = np.column_stack([rng.normal(size=n), np.ones(n)])
+
+    result = sign_stable_window_count(
+        y_candidate, x_factor, controls, condition_max=1e8, window_days=100, window_count=4
+    )
+    assert result == (0, 0)
