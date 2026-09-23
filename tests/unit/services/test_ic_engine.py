@@ -41,6 +41,7 @@ from services.ic_engine import (  # noqa: E402
     _compute_symbol_tf,
     _earnings_season_labels,
     _lifecycle_guard_cells,
+    _plan_season_subcells,
 )
 
 # Canonical 91 Renaissance primitive feature names (mirrors
@@ -562,3 +563,130 @@ def test_lifecycle_guard_cells_filter_by_scope_value_not_label_string() -> None:
     assert "earnings_season" in source
     assert "in_season" not in source
     assert "off_season" not in source
+
+
+# ---------------------------------------------------------------------------
+# Phase 176 plan 06 -- cross-sectional season sub-cell planner
+# (_plan_season_subcells), DB-free
+# ---------------------------------------------------------------------------
+
+
+def test_plan_season_subcells_returns_two_entries_when_both_seasons_present() -> None:
+    """Both values present, enabled, in-RAM -> two entries, in in_season/off_season
+    order, each mask selecting exactly its own season's rows."""
+    flag_column = _earnings_flag_column([1.0, 0.0, 1.0, 0.0, 1.0, 0.0])
+
+    entries, skipped = _plan_season_subcells(
+        flag_column, "calm", enabled=True, use_disk=False, min_rows=1
+    )
+
+    assert skipped == []
+    assert [label for _, label in entries] == ["calm__in_season", "calm__off_season"]
+    in_mask, _ = entries[0]
+    off_mask, _ = entries[1]
+    assert list(in_mask) == [True, False, True, False, True, False]
+    assert list(off_mask) == [False, True, False, True, False, True]
+
+
+def test_plan_season_subcells_disk_backed_skips_with_reason() -> None:
+    """use_disk=True -> no sub-cells, skip reason 'disk_backed_cell' -- the memory
+    guard (T-176-06-01): the parent cell is already at the memory ceiling."""
+    flag_column = _earnings_flag_column([1.0, 0.0])
+
+    entries, skipped = _plan_season_subcells(
+        flag_column, "calm", enabled=True, use_disk=True, min_rows=1
+    )
+
+    assert entries == []
+    assert skipped == ["disk_backed_cell"]
+
+
+def test_plan_season_subcells_apr_disabled_skips_with_reason() -> None:
+    """enabled=False (alpha.ic.earnings_season_conditioned off) -> no sub-cells,
+    skip reason 'apr_disabled'."""
+    flag_column = _earnings_flag_column([1.0, 0.0])
+
+    entries, skipped = _plan_season_subcells(
+        flag_column, "calm", enabled=False, use_disk=False, min_rows=1
+    )
+
+    assert entries == []
+    assert skipped == ["apr_disabled"]
+
+
+def test_plan_season_subcells_all_null_flag_column_skips_with_reason() -> None:
+    """An entirely-NaN flag column (pre-backfill corpus) -> no sub-cells, skip
+    reason 'flag_column_all_null'."""
+    flag_column = _earnings_flag_column([None, None, None])
+
+    entries, skipped = _plan_season_subcells(
+        flag_column, "calm", enabled=True, use_disk=False, min_rows=1
+    )
+
+    assert entries == []
+    assert skipped == ["flag_column_all_null"]
+
+
+def test_plan_season_subcells_drops_only_the_below_min_n_season() -> None:
+    """One season below min_rows is dropped individually -- the other season is
+    still returned when it clears the bar."""
+    flag_column = _earnings_flag_column([1.0, 1.0, 1.0, 1.0, 1.0, 0.0])
+
+    entries, skipped = _plan_season_subcells(
+        flag_column, "calm", enabled=True, use_disk=False, min_rows=2
+    )
+
+    assert [label for _, label in entries] == ["calm__in_season"]
+    assert skipped == ["subset_below_min_n"]
+
+
+def test_plan_season_subcells_both_below_min_n_drops_both() -> None:
+    """Both seasons below min_rows -> no entries, two independent skip reasons."""
+    flag_column = _earnings_flag_column([1.0, 0.0])
+
+    entries, skipped = _plan_season_subcells(
+        flag_column, "calm", enabled=True, use_disk=False, min_rows=5
+    )
+
+    assert entries == []
+    assert skipped == ["subset_below_min_n", "subset_below_min_n"]
+
+
+def test_plan_season_subcells_labels_are_parent_qualified() -> None:
+    """Labels are always '{parent}__in_season'/'{parent}__off_season' -- never a
+    bare 'in_season'/'off_season' (feature_ic_scores ON CONFLICT collision
+    guard, T-176-06-02)."""
+    flag_column = _earnings_flag_column([1.0, 0.0])
+
+    entries, _ = _plan_season_subcells(
+        flag_column, "breadth_vol_high", enabled=True, use_disk=False, min_rows=1
+    )
+
+    labels = [label for _, label in entries]
+    assert labels == ["breadth_vol_high__in_season", "breadth_vol_high__off_season"]
+    for label in labels:
+        assert label not in ("in_season", "off_season")
+        assert "__" in label
+
+
+def test_plan_season_subcells_masks_disjoint_and_exclude_only_nan_rows() -> None:
+    """The two returned masks are disjoint and their union excludes only the
+    NaN-flag row."""
+    flag_column = _earnings_flag_column([1.0, 0.0, None, 1.0])
+
+    entries, _ = _plan_season_subcells(
+        flag_column, "calm", enabled=True, use_disk=False, min_rows=1
+    )
+
+    in_mask, _ = entries[0]
+    off_mask, _ = entries[1]
+    assert not np.any(in_mask & off_mask)
+    assert list(in_mask | off_mask) == [True, True, False, True]
+
+
+def test_plan_season_subcells_calls_earnings_season_labels_not_restated() -> None:
+    """Component-reuse discipline (D-03): the helper must call
+    _earnings_season_labels rather than re-deriving the 1.0/0.0/NaN mapping
+    inline."""
+    source = inspect.getsource(_plan_season_subcells)
+    assert "_earnings_season_labels(" in source
