@@ -10,6 +10,7 @@ from __future__ import annotations
 from datetime import date
 
 import pytest
+
 from scripts.analysis.earnings_season_conditional_ic_reverification import (
     _FEATURE_ALLOWLIST,
     _RETURN_COLUMN_CHOICES,
