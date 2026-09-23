@@ -5248,9 +5248,16 @@ def _compute_cross_sectional_tf(
                         f"of the filesystem) free for the database, but only "
                         f"{usage.free} bytes are free on {config.memmap_scratch_dir}."
                     )
+                # Capacity is the full-density bound (regime timestamps x symbols), not the
+                # exact count: the count and the chunk fetches run in different
+                # transactions, so rows inserted between them could exceed the count and
+                # overflow the accumulator mid-fetch. The full-density bound cannot be
+                # exceeded by any insert. The memmap file is sparse, so the larger capacity
+                # costs no disk; the headroom check above uses the exact count, which is
+                # what actually gets written.
                 X_acc = Float32ChunkAccumulator(
                     disk_backed=True,
-                    estimated_rows=n_estimated,
+                    estimated_rows=max(n_estimated, len(regime_timestamps) * len(symbol_list)),
                     n_cols=n_features,
                     scratch_dir=config.memmap_scratch_dir,
                 )

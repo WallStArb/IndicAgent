@@ -691,3 +691,30 @@ def test_exact_count_over_ceiling_still_raises_before_fetch(tmp_path, monkeypatc
     with pytest.raises(CellTooLargeError):
         _call(config, symbol_list=["SPY", "QQQ", "IWM"])
     assert fake_conn.chunk_fetch_count == 0
+
+
+def test_disk_backed_capacity_uses_full_density_bound_not_exact_count(tmp_path, monkeypatch):
+    """Code review of todo 386: the exact count and the chunk fetches run in different
+    transactions, so rows inserted between them could exceed the count. The disk-backed
+    accumulator must be sized to the insert-proof full-density bound (5 x 3 = 15) even when
+    the exact count (6) drives the guard and the mode decision."""
+    captured: dict[str, Any] = {}
+    original_acc = ic_module.Float32ChunkAccumulator
+
+    def _spy_ctor(*args: Any, **kwargs: Any) -> Float32ChunkAccumulator:
+        captured["kwargs"] = kwargs
+        return original_acc(*args, **kwargs)
+
+    monkeypatch.setattr(ic_module, "Float32ChunkAccumulator", _spy_ctor)
+    config = _make_config(
+        max_cell_rows=10, disk_backed_min_rows=6, memmap_scratch_dir=str(tmp_path)
+    )
+    fake_conn = _FakeConn(regime_timestamp_rows=_ts_rows(5), chunk_batches=[[]])
+    fake_conn.cell_row_count = 6
+    _patch_short_lived_conn(monkeypatch, fake_conn)
+    _patch_trivial_cell_functions(monkeypatch)
+
+    _call(config, symbol_list=["SPY", "QQQ", "IWM"])
+
+    assert captured["kwargs"].get("disk_backed") is True
+    assert captured["kwargs"].get("estimated_rows") == 15
