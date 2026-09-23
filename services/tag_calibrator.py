@@ -1,12 +1,14 @@
 #!/usr/bin/env python3
-"""TagCalibrator -- generic 3-pass measurement engine for the Empirical Instrument Tag
-Calibrator (Phase 146, TAG-01).
+"""TagCalibrator -- generic 4-pass measurement engine for the Empirical Instrument Tag
+Calibrator (Phase 146, TAG-01; Pass 4 added Phase 175, D-01).
 
 Measures the full instrument x measurable-tag matrix (F8 Simons inversion) generically
 off the (symbol, factor_series, measurement_type) contract in tag_vocabulary (D-12,
-migration 238), applies run-level BH-FDR (F1) once over the whole p-vector, and decides
-keep/expire/discover per (symbol, tag) pair with hysteresis (F2) -- replacing
-human-asserted tags with measured, falsifiable OLS loadings.
+migration 238), applies run-level BH-FDR (F1) once over the whole p-vector, decides
+keep/expire/discover per (symbol, tag) pair with hysteresis (F2), and -- for every kept
+pair -- measures the orthogonalized materiality evidence a future consumer cutover
+needs (Pass 4) -- replacing human-asserted tags with measured, falsifiable OLS
+loadings.
 
 CORRECTNESS INVARIANTS:
 - Self-regression pairs (symbol == factor_series) are always skipped (F6.1).
@@ -18,7 +20,8 @@ CORRECTNESS INVARIANTS:
   this loop still defends against it (skip + WARNING, never crash) as defense-in-depth
   (T-146-11).
 - BH-FDR (statsmodels multipletests, via ic_math.apply_bh_fdr) is applied exactly ONCE
-  per run over the full measured p-vector, never per-hypothesis (F1).
+  per run over the full measured p-vector, never per-hypothesis (F1) -- and again,
+  separately, exactly once over Pass 4's null-arm p-vector.
 - A tag only expires (valid_to = now()) after consecutive_fails >=
   expiry_consecutive_fails -- a single failing run never expires an empirical tag (F2
   hysteresis, T-146-08).
@@ -30,6 +33,16 @@ CORRECTNESS INVARIANTS:
 - weight = |loading| (satisfies instrument_tags' existing [0, 1] CHECK); empirical rows
   are written source='empirical' with loading/p_value/bh_adjusted_p/passes_fdr/
   sample_n/estimated_at populated.
+- Pass 4's passes_materiality is the STATISTICAL gate ONLY (R-04). The temporal
+  (discovery_state) and expiry (valid_to) gates are separate columns, AND-ed by the
+  reader via is_materiality_eligible() -- never collapsed into passes_materiality
+  itself, so a future per-consumer cutover can calibrate its own bar.
+- Pass 4's control set never includes the tag's own factor_series, nor any leg the
+  candidate symbol is itself part of (select_control_factor_series).
+- D-03 shadow-mode boundary: this module writes Pass 4 evidence only -- no live
+  consumer query (breadth_vol.py, cross_sectional_regime_model.py) changes in Phase
+  175. Evidence is written unconditionally for every kept pair regardless of whether
+  it passes the gate; it is a measurement, not an admission decision.
 
 DAG invariant note: this oneshot is exempt from the "only writer subclasses touch DB"
 rule exactly as ic_engine.py / ensemble_ic_engine.py are -- it is a batch measurement
@@ -954,8 +967,17 @@ _UPSERT_EMPIRICAL_SQL = """
     INSERT INTO instrument_tags (
         symbol, tag, weight, source, evidence, assigned_at,
         loading, p_value, bh_adjusted_p, passes_fdr, consecutive_fails, sample_n,
-        estimated_at, valid_from, valid_to
-    ) VALUES ($1, $2, $3, 'empirical', $4, now(), $5, $6, $7, $8, 0, $9, $10, now(), NULL)
+        estimated_at, valid_from, valid_to,
+        partial_loading, partial_loading_ci_low, incremental_r2,
+        sign_stable_windows, sign_stable_windows_total,
+        null_arm_p_value, null_arm_bh_p, materiality_sample_n, passes_materiality,
+        discovery_state, first_measured_at
+    ) VALUES (
+        $1, $2, $3, 'empirical', $4, now(),
+        $5, $6, $7, $8, 0, $9,
+        $10, now(), NULL,
+        $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, $21
+    )
     ON CONFLICT (symbol, tag) DO UPDATE SET
         weight = EXCLUDED.weight,
         source = 'empirical',
@@ -967,7 +989,23 @@ _UPSERT_EMPIRICAL_SQL = """
         consecutive_fails = 0,
         sample_n = EXCLUDED.sample_n,
         estimated_at = EXCLUDED.estimated_at,
-        valid_to = NULL
+        valid_to = NULL,
+        -- Load-bearing (T-175-11): all eleven Pass 4 evidence columns are ALWAYS
+        -- overwritten from EXCLUDED, including NULL -- a pair measurable last run
+        -- but not measurable (or not kept) this run must have its evidence
+        -- overwritten with NULL rather than retaining a stale
+        -- passes_materiality = true no current measurement supports.
+        partial_loading = EXCLUDED.partial_loading,
+        partial_loading_ci_low = EXCLUDED.partial_loading_ci_low,
+        incremental_r2 = EXCLUDED.incremental_r2,
+        sign_stable_windows = EXCLUDED.sign_stable_windows,
+        sign_stable_windows_total = EXCLUDED.sign_stable_windows_total,
+        null_arm_p_value = EXCLUDED.null_arm_p_value,
+        null_arm_bh_p = EXCLUDED.null_arm_bh_p,
+        materiality_sample_n = EXCLUDED.materiality_sample_n,
+        passes_materiality = EXCLUDED.passes_materiality,
+        discovery_state = EXCLUDED.discovery_state,
+        first_measured_at = EXCLUDED.first_measured_at
 """
 
 _UPDATE_FAILING_OR_EXPIRE_EMPIRICAL_SQL = """
@@ -979,7 +1017,14 @@ _UPDATE_FAILING_OR_EXPIRE_EMPIRICAL_SQL = """
         passes_fdr = $7,
         sample_n = $8,
         estimated_at = $9,
-        valid_to = CASE WHEN $10 THEN now() ELSE valid_to END
+        valid_to = CASE WHEN $10 THEN now() ELSE valid_to END,
+        -- An increment_fails row keeps valid_to IS NULL, so it stays visible
+        -- through instrument_tags_active -- leaving a stale passes_materiality =
+        -- true here would let a pair that no longer clears Pass 1-3's keep gate
+        -- keep gating a downstream label. The numeric evidence columns are NOT
+        -- cleared on this path -- they remain the last-measured historical
+        -- values, dated by the unchanged estimated_at.
+        passes_materiality = false
     WHERE symbol = $1 AND tag = $2
 """
 
@@ -996,8 +1041,13 @@ async def _apply_decision(
     measurement: dict[str, Any],
     existing_row: dict[str, Any] | None,
     decision: dict[str, Any],
+    pass4: dict[str, Any] | None,
 ) -> None:
-    """Execute the DB write(s), if any, implied by one pair's pass-3 decision."""
+    """Execute the DB write(s), if any, implied by one pair's pass-3 decision,
+    plus its Pass 4 evidence (if any) through the SAME UPSERT (Phase 175 Task 3)
+    -- never a second forked UPSERT statement. pass4 is None when the pair has
+    no Pass 4 row (skipped by measure_partial_loadings' own no_controls/
+    insufficient_sample guards) -- every evidence column is then bound NULL."""
     action = decision["action"]
     symbol = measurement["symbol"]
     tag = measurement["tag"]
@@ -1011,6 +1061,7 @@ async def _apply_decision(
             existing_row, run_ts, config.discovery_oos_days, clamped_half_life
         )
         weight = abs(measurement["loading"])
+        pass4_evidence = pass4 or {}
         await conn.execute(
             _UPSERT_EMPIRICAL_SQL,
             symbol,
@@ -1023,6 +1074,17 @@ async def _apply_decision(
             measurement["passes_fdr"],
             measurement["sample_n"],
             run_ts,
+            pass4_evidence.get("partial_loading"),
+            pass4_evidence.get("partial_loading_ci_low"),
+            pass4_evidence.get("incremental_r2"),
+            pass4_evidence.get("sign_stable_windows"),
+            pass4_evidence.get("sign_stable_windows_total"),
+            pass4_evidence.get("null_arm_p_value"),
+            pass4_evidence.get("null_arm_bh_p"),
+            pass4_evidence.get("materiality_sample_n"),
+            pass4_evidence.get("passes_materiality"),
+            evidence["discovery_state"],
+            datetime.fromisoformat(evidence["first_measured_at"]),
         )
         if action == "insert_discovery":
             await conn.execute(
@@ -1169,7 +1231,8 @@ class TagCalibrator(BaseBatch):
                 (r["symbol"], r["tag"]): dict(r)
                 for r in await conn.fetch(
                     "SELECT symbol, tag, source, weight, evidence, consecutive_fails, "
-                    "valid_to FROM instrument_tags"
+                    "valid_to, passes_materiality, discovery_state, first_measured_at "
+                    "FROM instrument_tags"
                 )
             }
 
@@ -1235,6 +1298,12 @@ class TagCalibrator(BaseBatch):
         for pass4_row in pass4_rows:
             pass4_row["passes_materiality"] = decide_materiality(pass4_row, materiality)
         n_passes_materiality = sum(1 for row in pass4_rows if row["passes_materiality"])
+        # Indexed for _apply_decision's write path (Task 3) -- pairs absent here
+        # (no_controls/insufficient_sample skips) get pass4=None, written as NULL
+        # for every evidence column via the UPSERT's EXCLUDED assignment.
+        pass4_by_pair: dict[tuple[str, str], dict[str, Any]] = {
+            (row["symbol"], row["tag"]): row for row in pass4_rows
+        }
 
         outcome_counts: dict[str, int] = {}
         async with pool.acquire() as conn:
@@ -1245,7 +1314,8 @@ class TagCalibrator(BaseBatch):
                     existing_row=existing,
                     expiry_consecutive_fails=config.expiry_consecutive_fails,
                 )
-                await _apply_decision(conn, run_ts, config, m, existing, decision)
+                pass4 = pass4_by_pair.get((m["symbol"], m["tag"]))
+                await _apply_decision(conn, run_ts, config, m, existing, decision, pass4)
                 outcome = _DECISION_OUTCOME_LABELS[decision["action"]]
                 _TAG_CALIBRATION_TOTAL.add(1, {"tag": m["tag"], "outcome": outcome})
                 outcome_counts[outcome] = outcome_counts.get(outcome, 0) + 1

@@ -15,17 +15,22 @@ No DB, no Kafka, no network. Pure Python / numpy / pandas / monkeypatch.
 from __future__ import annotations
 
 import dataclasses
+from datetime import UTC, datetime, timedelta
 
 import numpy as np
 import pandas as pd
 import pytest
 
 from services.tag_calibrator import (
+    _UPDATE_FAILING_OR_EXPIRE_EMPIRICAL_SQL,
+    _UPSERT_EMPIRICAL_SQL,
     MaterialityConfig,
     TagCalibratorConfig,
+    _apply_decision,
     _build_factor_return_series,
     _is_self_regression,
     _log_returns,
+    _next_evidence,
     apply_run_level_fdr,
     build_control_return_matrix,
     build_factor_series_cache,
@@ -773,3 +778,165 @@ def test_is_materiality_eligible_requires_all_three_gates():
 
     expired = dict(base, valid_to="2026-01-01T00:00:00+00:00")
     assert is_materiality_eligible(expired) is False
+
+
+# ---------------------------------------------------------------------------
+# 10. _next_evidence / _apply_decision persistence + todo-125 discovery-OOS gate
+#    (Phase 175 Task 3)
+# ---------------------------------------------------------------------------
+
+
+class _FakeConn:
+    """Minimal asyncpg.Connection stand-in: records every execute() call's SQL
+    text and positional params without touching a real database."""
+
+    def __init__(self):
+        self.calls: list[tuple[str, tuple]] = []
+
+    async def execute(self, sql, *params):
+        self.calls.append((sql, params))
+
+
+def test_next_evidence_fresh_discovery_is_pending_oos():
+    """_next_evidence for a row with no prior first_measured_at returns
+    discovery_state == 'pending_oos' (unchanged Phase 146 behavior, now also
+    written to a typed column by Task 3)."""
+    run_ts = datetime(2026, 1, 1, tzinfo=UTC)
+    evidence = _next_evidence(
+        existing_row=None, run_ts=run_ts, discovery_oos_days=63, clamped_half_life=180
+    )
+    assert evidence["discovery_state"] == "pending_oos"
+    assert evidence["first_measured_at"] == run_ts.isoformat()
+
+
+def test_next_evidence_confirmed_after_oos_window_elapses():
+    """_next_evidence for a row whose first_measured_at is discovery_oos_days + 1
+    days before run_ts returns discovery_state == 'confirmed'."""
+    first_measured_at = datetime(2026, 1, 1, tzinfo=UTC)
+    run_ts = first_measured_at + timedelta(days=64)  # discovery_oos_days=63, +1 day
+    existing_row = {"evidence": {"first_measured_at": first_measured_at.isoformat()}}
+    evidence = _next_evidence(
+        existing_row=existing_row, run_ts=run_ts, discovery_oos_days=63, clamped_half_life=180
+    )
+    assert evidence["discovery_state"] == "confirmed"
+
+
+def test_discovery_oos_gate_blocks_fresh_discovery():
+    """todo 125's named gap, now closed: a fresh discovery whose statistical
+    profile fully passes decide_materiality is NOT is_materiality_eligible,
+    because its discovery_state is 'pending_oos' -- the same row with
+    discovery_state='confirmed' IS eligible, with no change to any statistical
+    field."""
+    run_ts = datetime(2026, 1, 1, tzinfo=UTC)
+    evidence = _next_evidence(
+        existing_row=None, run_ts=run_ts, discovery_oos_days=63, clamped_half_life=180
+    )
+    assert evidence["discovery_state"] == "pending_oos"
+
+    pass4_row = _passing_pass4_row()
+    assert decide_materiality(pass4_row, _MATERIALITY_DEFAULTS) is True
+
+    fresh_discovery_row = {
+        "passes_materiality": True,
+        "discovery_state": evidence["discovery_state"],
+        "valid_to": None,
+    }
+    assert is_materiality_eligible(fresh_discovery_row) is False
+
+    confirmed_row = dict(fresh_discovery_row, discovery_state="confirmed")
+    assert is_materiality_eligible(confirmed_row) is True
+
+
+async def test_apply_decision_upsert_binds_all_eleven_pass4_params_or_none():
+    """The upsert_empirical/insert_discovery path binds all eleven new Pass 4
+    columns through the SAME UPSERT statement; None for every one of the first
+    nine Pass 4 fields when the pair has no Pass 4 row."""
+    run_ts = datetime(2026, 1, 1, tzinfo=UTC)
+    measurement = {
+        "symbol": "AAA",
+        "tag": "rate_sensitive",
+        "loading": 0.5,
+        "p_value": 0.01,
+        "bh_adjusted_p": 0.02,
+        "passes_fdr": True,
+        "sample_n": 100,
+        "half_life_days": 180,
+    }
+    decision = {"action": "upsert_empirical", "consecutive_fails": 0}
+
+    conn_no_pass4 = _FakeConn()
+    await _apply_decision(conn_no_pass4, run_ts, _CONFIG, measurement, None, decision, None)
+    assert len(conn_no_pass4.calls) == 1
+    sql, params = conn_no_pass4.calls[0]
+    assert sql is _UPSERT_EMPIRICAL_SQL
+    assert len(params) == 21
+    assert params[10:19] == (None,) * 9
+
+    pass4 = {
+        "partial_loading": 0.42,
+        "partial_loading_ci_low": 0.30,
+        "incremental_r2": 0.08,
+        "sign_stable_windows": 3,
+        "sign_stable_windows_total": 4,
+        "null_arm_p_value": 0.01,
+        "null_arm_bh_p": 0.02,
+        "materiality_sample_n": 900,
+        "passes_materiality": True,
+    }
+    conn_with_pass4 = _FakeConn()
+    await _apply_decision(conn_with_pass4, run_ts, _CONFIG, measurement, None, decision, pass4)
+    _sql, params_with_pass4 = conn_with_pass4.calls[0]
+    assert params_with_pass4[10:19] == (0.42, 0.30, 0.08, 3, 4, 0.01, 0.02, 900, True)
+
+
+async def test_apply_decision_increment_fails_clears_passes_materiality():
+    """A pair that falls to the increment_fails path has passes_materiality
+    written false in the SQL text -- never left stale on a still-active row."""
+    run_ts = datetime(2026, 1, 1, tzinfo=UTC)
+    measurement = {
+        "symbol": "AAA",
+        "tag": "rate_sensitive",
+        "loading": 0.1,
+        "p_value": 0.5,
+        "bh_adjusted_p": 0.6,
+        "passes_fdr": False,
+        "sample_n": 100,
+    }
+    decision = {"action": "increment_fails", "consecutive_fails": 1}
+    conn = _FakeConn()
+    await _apply_decision(
+        conn, run_ts, _CONFIG, measurement, {"consecutive_fails": 0}, decision, None
+    )
+    assert len(conn.calls) == 1
+    sql, _params = conn.calls[0]
+    assert sql is _UPDATE_FAILING_OR_EXPIRE_EMPIRICAL_SQL
+    assert "passes_materiality = false" in sql
+
+
+async def test_apply_decision_confirm_human_and_no_op_write_nothing():
+    """confirm_human and no_op perform zero writes to instrument_tags -- human
+    seed priors are never touched, unaffected by the new pass4 parameter."""
+    run_ts = datetime(2026, 1, 1, tzinfo=UTC)
+    measurement = {
+        "symbol": "AAA",
+        "tag": "rate_sensitive",
+        "loading": 0.5,
+        "p_value": 0.01,
+        "bh_adjusted_p": 0.02,
+        "passes_fdr": True,
+        "sample_n": 100,
+    }
+    conn = _FakeConn()
+    await _apply_decision(
+        conn,
+        run_ts,
+        _CONFIG,
+        measurement,
+        {"source": "human"},
+        {"action": "confirm_human", "consecutive_fails": 0},
+        None,
+    )
+    await _apply_decision(
+        conn, run_ts, _CONFIG, measurement, None, {"action": "no_op", "consecutive_fails": 0}, None
+    )
+    assert conn.calls == []
