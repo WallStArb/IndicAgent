@@ -211,6 +211,8 @@ division, `feature_factory.py:2284`).)
 
 ## P2 — Real value, not urgent
 
+| [399](pending/399-ic-engine-main-process-holds-all-symbol-rows-until-fdr.md) | New 2026-09-23, measured during the 176-08 run: ic_engine's main process keeps every symbol's full result rows until corpus-level FDR, about 58 MB/symbol (1.2 -> 4.1 GB over 55 symbols). Survivable at 233 via swap; about 58 GB at 1000+ symbols, so it blocks the breadth expansion. Keep only pending FDR keys and update by key. Land with the next recompute-forcing change. |
+
 **387 (nightly backfill's detect_gaps() cost scaling + missing staleness gauge)** -- new
 2026-09-22, found by /simplify's efficiency+altitude review agents on todo 382's fix (both
 independently converged on the same concern). detect_gaps() is not actually near-zero-cost on
