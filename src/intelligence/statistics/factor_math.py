@@ -28,6 +28,7 @@ import math
 
 import numpy as np
 import pandas as pd
+from scipy.stats import norm
 
 from src.intelligence.regime_signals.breadth_vol import _compute_vix_pct_rank
 from src.intelligence.statistics.ic_math import (
@@ -40,6 +41,8 @@ __all__ = [
     "standardized_loading",
     "loading_hac_pvalue",
     "spy_realized_vol_factor",
+    "partial_loading",
+    "partial_loading_ci_low",
 ]
 
 
@@ -273,3 +276,212 @@ def spy_realized_vol_factor(
         own convention).
     """
     return _compute_vix_pct_rank(spy_close, realized_vol_window, vix_z_window)
+
+
+# ---------------------------------------------------------------------------
+# Pearson partial-loading kernel (Phase 175 Task 1, R-01/R-05/R-06): the
+# orthogonalized loading D-01's materiality filter needs -- reuses
+# ic_math.partial_spearman_ic's SHAPE (shared-lstsq residualization, the
+# check_condition_number ill-conditioning gate, the n < k + 4 floor) on raw
+# centered returns rather than rank-transformed values, since this project's
+# existing loading/loading_threshold values (Phase 146, TAG-01) are
+# Pearson-calibrated, not rank correlations (RESEARCH.md Pitfall 1).
+# ---------------------------------------------------------------------------
+
+
+def _partial_residuals(
+    instrument_ret: np.ndarray,
+    factor_ret: np.ndarray,
+    controls: np.ndarray,
+    condition_max: float,
+) -> tuple[np.ndarray, np.ndarray, float, int] | None:
+    """Shared residualization step for partial_loading/partial_loading_ci_low:
+    center instrument_ret, factor_ret, and every control column, gate on
+    check_condition_number (reused from ic_math, never reimplemented -- same
+    gate mean_variance_weights() and partial_spearman_ic() both use), then
+    solve ONE shared least-squares call against controls_centered with
+    column_stack([instrument_c, factor_c]) as the right-hand side, and
+    residualize both series from the shared coefficient columns -- mirrors
+    partial_spearman_ic's structure exactly, minus the rank transform (R-01:
+    Pearson, not Spearman).
+
+    Returns (resid_instrument, resid_factor, r2_controls, n), or None on any
+    guard failure:
+      - n < k + 4 (too few observations for the control count)
+      - the centered control design matrix is ill-conditioned (constant
+        column, near-collinear controls, etc.)
+      - instrument_ret itself is near-constant (sum-of-squares < 1e-12 --
+        undefined R2_controls denominator)
+      - either residual series is degenerate after removing the controls'
+        shared variance (sum-of-squares < 1e-10 -- the same "unmeasurable,
+        not a spurious zero" guard partial_spearman_ic applies; this is what
+        catches the duplicate-column case, where factor_ret equals one of
+        the control legs exactly and its own residual is ~0)
+    """
+    instrument_ret = np.asarray(instrument_ret, dtype=np.float64)
+    factor_ret = np.asarray(factor_ret, dtype=np.float64)
+    controls = np.asarray(controls, dtype=np.float64)
+    if controls.ndim == 1:
+        controls = controls.reshape(-1, 1)
+    n = len(instrument_ret)
+    k = controls.shape[1]
+    if n < k + 4:
+        return None
+
+    instrument_c = instrument_ret - instrument_ret.mean()
+    factor_c = factor_ret - factor_ret.mean()
+    controls_c = controls - controls.mean(axis=0)
+
+    cond_ok, _cond = check_condition_number(controls_c, condition_max)
+    if not cond_ok:
+        return None
+
+    denom_instrument = float((instrument_c**2).sum())
+    if denom_instrument < 1e-12:
+        return None
+
+    coefs, _, _, _ = np.linalg.lstsq(
+        controls_c, np.column_stack([instrument_c, factor_c]), rcond=None
+    )
+    resid_instrument = instrument_c - controls_c @ coefs[:, 0]
+    resid_factor = factor_c - controls_c @ coefs[:, 1]
+
+    r2_controls = 1.0 - float((resid_instrument**2).sum()) / denom_instrument
+
+    if float((resid_instrument**2).sum()) < 1e-10 or float((resid_factor**2).sum()) < 1e-10:
+        return None
+
+    return resid_instrument, resid_factor, r2_controls, n
+
+
+def partial_loading(
+    instrument_ret: np.ndarray,
+    factor_ret: np.ndarray,
+    controls: np.ndarray,
+    condition_max: float,
+) -> tuple[float, float, int]:
+    """Pearson-convention partial loading of instrument_ret vs factor_ret,
+    controlling for one or more control variables (Phase 175 Task 1, R-01).
+
+    NOT a wrapper around ic_math.partial_spearman_ic -- that function is
+    rank-based (Spearman); this project's existing loading/loading_threshold
+    values (Phase 146, TAG-01 standardized_loading above) are Pearson,
+    computed on raw returns, so a rank-based partial_loading sitting in the
+    adjacent instrument_tags column would silently compare two different
+    statistical conventions (RESEARCH.md Pitfall 1). Only partial_spearman_ic's
+    SHAPE is reused (see _partial_residuals) -- the rank transform itself is
+    dropped.
+
+    Returns (partial_loading, incremental_r2, n):
+      partial_loading: Pearson correlation of the two residual series
+        (resid_instrument, resid_factor from _partial_residuals), clipped to
+        [-1, 1] -- same np.clip convention as standardized_loading. NaN when
+        the shared residualization guard fails.
+      incremental_r2: R2_full - R2_controls (R-06) -- the ADDED explanatory
+        power of factor_ret over a controls-only regression of instrument_ret.
+        Strictly <= the squared partial correlation always, making this the
+        stricter reading of a `>= threshold` gate (D-05: seed the more
+        conservative interpretation) -- squared partial correlation is
+        exactly partial_loading ** 2, information the adjacent column already
+        carries, so storing THIS is genuinely new rather than redundant.
+        Floored at 0.0 only when the raw value is above -1e-9; anything more
+        negative than that is a real numerical failure (not float noise
+        around zero) and is returned as NaN rather than silently floored.
+      n: input length, always returned even on a NaN result (so callers can
+        distinguish "no signal" from "couldn't measure").
+    """
+    instrument_arr = np.asarray(instrument_ret, dtype=np.float64)
+    factor_arr = np.asarray(factor_ret, dtype=np.float64)
+    controls_arr = np.asarray(controls, dtype=np.float64)
+    if controls_arr.ndim == 1:
+        controls_arr = controls_arr.reshape(-1, 1)
+    n = len(instrument_arr)
+
+    residuals = _partial_residuals(instrument_arr, factor_arr, controls_arr, condition_max)
+    if residuals is None:
+        return float("nan"), float("nan"), n
+    resid_instrument, resid_factor, r2_controls, n = residuals
+
+    denom = math.sqrt(float((resid_instrument**2).sum()) * float((resid_factor**2).sum()))
+    loading = float(np.clip((resid_instrument * resid_factor).sum() / denom, -1.0, 1.0))
+
+    # Second (and last) lstsq call in this module: the full model (controls +
+    # factor) regressed against the instrument, to derive R2_full for R-06's
+    # incremental-R2 definition. _partial_residuals' single shared lstsq call
+    # already solved the controls-only regression for both instrument and
+    # factor; this is a genuinely separate design matrix (controls + factor
+    # as regressors), not reusable from that call.
+    instrument_c = instrument_arr - instrument_arr.mean()
+    factor_c = factor_arr - factor_arr.mean()
+    controls_c = controls_arr - controls_arr.mean(axis=0)
+    full_design = np.column_stack([controls_c, factor_c])
+    coefs_full, _, _, _ = np.linalg.lstsq(full_design, instrument_c, rcond=None)
+    resid_full = instrument_c - full_design @ coefs_full
+    denom_instrument = float((instrument_c**2).sum())
+    r2_full = 1.0 - float((resid_full**2).sum()) / denom_instrument
+
+    incremental_r2 = r2_full - r2_controls
+    if incremental_r2 < -1e-9:
+        incremental_r2 = float("nan")
+    else:
+        incremental_r2 = max(incremental_r2, 0.0)
+
+    return loading, incremental_r2, n
+
+
+def partial_loading_ci_low(
+    instrument_ret: np.ndarray,
+    factor_ret: np.ndarray,
+    controls: np.ndarray,
+    condition_max: float,
+    hac_max_lag: int,
+    alpha: float,
+) -> float:
+    """Lower bound of the two-sided (1 - alpha) Fisher-z confidence interval
+    on abs(partial_loading) -- Codex's fifth materiality-gate component (R-05).
+
+    Reuses _partial_residuals for the shared orthogonalization step and
+    _loading_standard_errors for the HAC (Newey-West) inflation factor -- but
+    NOT that function's own returned naive_se directly: _loading_standard_errors'
+    1/sqrt(n-3) carries no control-count reduction, which a partial
+    correlation's reduced degrees of freedom (n - k - 3) requires. Only the
+    inflation RATIO (hac_se/naive_se)**2 is reused; this function derives its
+    own control-count-adjusted naive_se from that ratio.
+
+    R-05: alpha is the caller-supplied project-standard
+    alpha.tag_calibrator.fdr_alpha (0.05) rather than a new APR key for the
+    same two-sided alpha.
+
+    Returns NaN whenever partial_loading itself would return NaN (the shared
+    _partial_residuals guard), or when the HAC standard error is undefined
+    (naive_se NaN or < 1e-12) or the adjusted degrees of freedom (n - k - 3)
+    is non-positive.
+    """
+    instrument_arr = np.asarray(instrument_ret, dtype=np.float64)
+    factor_arr = np.asarray(factor_ret, dtype=np.float64)
+    controls_arr = np.asarray(controls, dtype=np.float64)
+    if controls_arr.ndim == 1:
+        controls_arr = controls_arr.reshape(-1, 1)
+    k = controls_arr.shape[1]
+
+    residuals = _partial_residuals(instrument_arr, factor_arr, controls_arr, condition_max)
+    if residuals is None:
+        return float("nan")
+    resid_instrument, resid_factor, _r2_controls, n = residuals
+
+    denom = math.sqrt(float((resid_instrument**2).sum()) * float((resid_factor**2).sum()))
+    r = abs(float((resid_instrument * resid_factor).sum() / denom))
+
+    naive_se, hac_se, _r, _n = _loading_standard_errors(resid_instrument, resid_factor, hac_max_lag)
+    if math.isnan(naive_se) or naive_se < 1e-12:
+        return float("nan")
+    inflation = (hac_se / naive_se) ** 2
+
+    dof = n - k - 3
+    if dof <= 0:
+        return float("nan")
+    se = (1.0 / math.sqrt(dof)) * math.sqrt(inflation)
+
+    z_crit = float(norm.ppf(1 - alpha / 2))
+    r_clipped = float(np.clip(r, -1 + 1e-12, 1 - 1e-12))
+    return float(np.tanh(np.arctanh(r_clipped) - z_crit * se))
