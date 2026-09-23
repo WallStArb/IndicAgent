@@ -361,3 +361,96 @@ class TestResolveInstrument:
         provider._ib = mock_ib
         result = await provider.resolve_instrument("XXXXXX")
         assert result is None
+
+
+class TestEmptyHistoryReport:
+    """fetch_historical_bars(on_empty_history=) reports only a walk that ENDS in definitive
+    Error 162 "no data" answers (migration 354's evidence). 1m chunks are 14 days."""
+
+    @staticmethod
+    def _bar(ts):
+        bar = MagicMock()
+        bar.date = ts
+        bar.open, bar.high, bar.low, bar.close, bar.volume = 1.0, 1.0, 1.0, 1.0, 1
+        return bar
+
+    async def _walk(self, provider, mock_ib, answers, start, end):
+        """answers: per-request 'data' | 'no_data' | 'timeout', newest chunk first."""
+        from ib_async import BarDataList
+
+        ibkr_module._no_data_req_ids.clear()
+        calls = {"n": 0}
+
+        async def fake_req(*args, **kwargs):
+            answer = answers[calls["n"]]
+            calls["n"] += 1
+            if answer == "timeout":
+                raise TimeoutError
+            if answer == "data":
+                return [self._bar(datetime(2026, 1, 20, tzinfo=UTC))]
+            req_id = 91000 + calls["n"]
+            ibkr_module._no_data_req_ids.add(req_id)
+            result = BarDataList()
+            result.reqId = req_id
+            return result
+
+        mock_ib.reqHistoricalDataAsync = AsyncMock(side_effect=fake_req)
+        provider._ib = mock_ib
+        provider._qualified_contracts["XYZ"] = MagicMock(secType="STK")
+        reports = []
+        with patch.object(ibkr_module, "_RETRY_COUNT", 1):
+            await provider.fetch_historical_bars(
+                "XYZ", "1m", start, end, on_empty_history=reports.append
+            )
+        ibkr_module._no_data_req_ids.clear()
+        return reports, calls["n"]
+
+    @pytest.mark.asyncio
+    async def test_threshold_stop_reports_verified_span_and_inference(self, provider, mock_ib):
+        start, end = datetime(2025, 11, 1, tzinfo=UTC), datetime(2026, 1, 25, tzinfo=UTC)
+        reports, n = await self._walk(provider, mock_ib, ["no_data", "no_data"], start, end)
+        assert n == 2
+        (report,) = reports
+        assert report.n_confirming_chunks == 2
+        assert report.empty_through == end
+        assert report.verified_from > start
+        assert report.reached_request_start is False
+
+    @pytest.mark.asyncio
+    async def test_walk_reaching_start_in_no_data_is_fully_verified(self, provider, mock_ib):
+        start, end = datetime(2026, 1, 1, tzinfo=UTC), datetime(2026, 1, 25, tzinfo=UTC)
+        reports, n = await self._walk(provider, mock_ib, ["data", "no_data"], start, end)
+        assert n == 2
+        (report,) = reports
+        assert report.n_confirming_chunks == 1
+        assert report.verified_from == start
+        assert report.empty_through < end
+        assert report.reached_request_start is True
+
+    @pytest.mark.asyncio
+    async def test_walk_ending_in_data_reports_nothing(self, provider, mock_ib):
+        start, end = datetime(2026, 1, 1, tzinfo=UTC), datetime(2026, 1, 25, tzinfo=UTC)
+        reports, _ = await self._walk(provider, mock_ib, ["no_data", "data"], start, end)
+        assert reports == []
+
+    @pytest.mark.asyncio
+    async def test_timeout_is_never_evidence_of_empty_history(self, provider, mock_ib):
+        """A timed-out oldest chunk breaks the no-data run: nothing is reported."""
+        start, end = datetime(2026, 1, 1, tzinfo=UTC), datetime(2026, 1, 25, tzinfo=UTC)
+        reports, _ = await self._walk(provider, mock_ib, ["no_data", "timeout"], start, end)
+        assert reports == []
+
+
+def test_error_162_log_label_separates_no_data_from_throttling():
+    """Both used to log as hist_pacing_error, which made a no-data answer look like
+    throttling (the ODFL 2006-2024 window)."""
+    ibkr_module._no_data_req_ids.clear()
+    with patch.object(ibkr_module.logger, "warning") as warn:
+        ibkr_module._on_ib_error(1, 162, "HMDS query returned no data: X@SMART Trades", None)
+        ibkr_module._on_ib_error(2, 162, "API historical data query cancelled: 2", None)
+    assert [c.args[0] for c in warn.call_args_list] == [
+        "ibkr.hist_no_data",
+        "ibkr.hist_pacing_error",
+    ]
+    assert ibkr_module._no_data_req_ids == {1}
+    ibkr_module._no_data_req_ids.clear()

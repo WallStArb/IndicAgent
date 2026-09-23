@@ -16,6 +16,7 @@ import threading
 import time
 from collections import deque
 from collections.abc import AsyncIterator, Awaitable, Callable
+from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
 
 # Python 3.14 removed implicit event loop creation. eventkit (ib_async dependency,
@@ -214,6 +215,26 @@ _hist_rate_limiter = _SlidingWindowRateLimiter()
 # (asyncio thread). GIL makes set.add/difference_update thread-safe without a lock.
 _no_data_req_ids: set[int] = set()
 
+
+@dataclass(frozen=True)
+class EmptyHistory:
+    """A fetch's backward walk ended in IBKR's definitive "no data" answers.
+
+    `verified_from`..`empty_through` is the span IBKR answered "no data" for, chunk by
+    chunk (Error 162 "no data" attributed by reqId; timeouts and throttling
+    cancellations never count). `n_confirming_chunks` is how many consecutive chunks
+    answered. `reached_request_start` is False when the walk stopped early on the
+    confirmation threshold, i.e. the range older than `verified_from` was never asked;
+    the walk already treats it as empty (it stops there every time), and callers must
+    record which part was verified and which was inferred.
+    """
+
+    verified_from: datetime
+    empty_through: datetime
+    n_confirming_chunks: int
+    reached_request_start: bool
+
+
 # Circuit breaker for IBKR connection attempts
 _ibkr_circuit_breaker = PluginCircuitBreaker(
     config=CircuitBreakerConfig(
@@ -249,10 +270,15 @@ def _on_ib_error(reqId: int, errorCode: int, errorString: str, contract) -> None
             extra={"reqId": reqId, "errorString": errorString},
         )
     elif errorCode == 162:
-        if "no data" in errorString.lower():
+        # 162 covers both a definitive "HMDS query returned no data" and throttling
+        # cancellations ("API historical data query cancelled"); only the former is a
+        # statement about what history exists. Distinct event names keep the two
+        # separable in logs (both were logged as hist_pacing_error).
+        no_data = "no data" in errorString.lower()
+        if no_data:
             _no_data_req_ids.add(reqId)
         logger.warning(
-            "ibkr.hist_pacing_error",
+            "ibkr.hist_no_data" if no_data else "ibkr.hist_pacing_error",
             extra={"reqId": reqId, "errorString": errorString},
         )
     elif errorCode >= 2100 and errorCode < 2200:
@@ -620,6 +646,7 @@ class IBKRProvider:
         end: datetime,
         continuous: bool = False,
         on_chunk: Callable[[list[OHLCVBar]], Awaitable[None]] | None = None,
+        on_empty_history: Callable[[EmptyHistory], None] | None = None,
     ) -> list[OHLCVBar]:
         """Fetch historical OHLCV bars from IBKR.
 
@@ -665,6 +692,7 @@ class IBKRProvider:
                 end=end,
                 continuous=continuous,
                 on_chunk=on_chunk,
+                on_empty_history=on_empty_history,
             )
         finally:
             self._ib.errorEvent -= _on_ib_error
@@ -677,6 +705,7 @@ class IBKRProvider:
         end: datetime,
         continuous: bool = False,
         on_chunk: Callable[[list[OHLCVBar]], Awaitable[None]] | None = None,
+        on_empty_history: Callable[[EmptyHistory], None] | None = None,
     ) -> list[OHLCVBar]:
         named_contract = self._qualified_contracts.get(symbol)
         if not named_contract:
@@ -755,6 +784,9 @@ class IBKRProvider:
             chunk_days = _MAX_CHUNK_DAYS.get(timeframe, 6)
             chunk_end = end
             consecutive_no_data_chunks = 0
+            # Span of the current run of consecutive definitive-no-data chunks.
+            no_data_run_end: datetime | None = None
+            no_data_run_start: datetime | None = None
 
             # Chunk backward from end→start so recent (high-value) bars are stored
             # first. A mid-run disconnect still leaves useful data. The no-data early
@@ -891,6 +923,9 @@ class IBKRProvider:
 
                 if hit_definitive_no_data:
                     consecutive_no_data_chunks += 1
+                    if consecutive_no_data_chunks == 1:
+                        no_data_run_end = chunk_end
+                    no_data_run_start = chunk_start
                     if consecutive_no_data_chunks >= _NO_DATA_CONFIRMATION_CHUNKS:
                         # N consecutive fully-empty chunks while walking backward is strong
                         # evidence we've passed the instrument's launch date — a single
@@ -904,6 +939,23 @@ class IBKRProvider:
                     consecutive_no_data_chunks = 0
 
                 chunk_end = chunk_start - timedelta(days=1)
+
+            # The walk ended (threshold stop or reached `start`) inside a run of definitive
+            # no-data chunks: everything it asked about at the old end is empty per IBKR.
+            if (
+                on_empty_history is not None
+                and consecutive_no_data_chunks > 0
+                and no_data_run_start is not None
+                and no_data_run_end is not None
+            ):
+                on_empty_history(
+                    EmptyHistory(
+                        verified_from=no_data_run_start,
+                        empty_through=no_data_run_end,
+                        n_confirming_chunks=consecutive_no_data_chunks,
+                        reached_request_start=no_data_run_start <= start,
+                    )
+                )
 
         all_bars.sort(key=lambda b: b.timestamp)
         return all_bars

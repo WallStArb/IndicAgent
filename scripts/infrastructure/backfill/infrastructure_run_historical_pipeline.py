@@ -38,6 +38,7 @@ project_root = Path(__file__).parent.parent.parent.parent
 sys.path.insert(0, str(project_root))
 
 
+from scripts.infrastructure.backfill import _empty_history as empty_history
 from src.config.contracts import (
     FUTURES_ROLL_CYCLES,
     MONTH_CODE_TO_NUM,
@@ -56,6 +57,7 @@ from src.core.models import AssetClass, ContractMetadata, Instrument
 from src.observability.metrics import JOB_COMPLETED_TOTAL, flush_and_shutdown_metrics
 from src.observability.otel import OTelInitError, init_otel_providers
 from src.providers import IBKRProvider, ibkr
+from src.providers.ibkr import EmptyHistory
 
 _logger = structlog.get_logger(__name__)
 
@@ -74,6 +76,7 @@ _logger = structlog.get_logger(__name__)
 
 
 _DEFAULT_TIMEFRAMES = "1d,1h,15m,5m,1m"
+_EMPTY_HISTORY_PROVIDER = "ibkr"  # ohlcv_empty_history.provider for this pipeline's fetches
 # Dimensions whose members may be deliberately scoped below the full timeframe stack.
 _DIMENSIONS_REQUIRING_EXPLICIT_TIMEFRAMES = frozenset({"backfill", "compute_1d"})
 
@@ -1239,8 +1242,15 @@ def main() -> None:
         db_conn.close()
         return
 
+    # Provider-verified empty history (migration 354): loaded once per run. A fresh range is
+    # subtracted from the detected gaps; a stale one is re-verified by fetching it.
+    empty_ranges = empty_history.load(db_conn, _EMPTY_HISTORY_PROVIDER)
+    empty_reverify_days = empty_history.load_reverify_days(db_conn)
+    run_started_at = datetime.now(UTC)
+    n_empty_history_skipped = 0
+
     async def _run_fetch_stage() -> tuple[int, int, list[str]]:
-        nonlocal db_conn
+        nonlocal db_conn, n_empty_history_skipped
         provider = IBKRProvider(
             host=settings.ib_host,
             port=settings.ib_port,
@@ -1339,6 +1349,20 @@ def main() -> None:
                             session_id=instrument.session_id,
                             exchange=instrument.exchange,
                         )
+                        empty = empty_ranges.get((instrument.symbol, tf))
+                        if gaps and empty and empty.is_fresh(run_started_at, empty_reverify_days):
+                            kept = empty_history.subtract(
+                                gaps, empty, timedelta(minutes=_TF_MINUTES[tf])
+                            )
+                            if kept != gaps:
+                                n_empty_history_skipped += 1
+                                print(
+                                    f"  {instrument.symbol}/{tf}: skipping provider-verified "
+                                    f"empty history {empty.empty_from.date()} to "
+                                    f"{empty.empty_through.date()} (verified "
+                                    f"{empty.verified_at.date()})"
+                                )
+                            gaps = kept
                         if not gaps:
                             print(f"  {instrument.symbol}/{tf}: no gaps found.")
                             fetched_tfs.add(tf)
@@ -1418,6 +1442,10 @@ def main() -> None:
                         # become) a candidate for the FX/crypto 1m-derivation fallback below.
                         tf_window_failed = False
                         for gap_start, gap_end in windows:
+                            # Only the oldest window can be pre-history; its walk's ending in
+                            # definitive no-data answers is what ohlcv_empty_history records.
+                            observed: list[EmptyHistory] = []
+                            is_oldest_window = (gap_start, gap_end) == windows[0]
                             try:
                                 ohlcv_bars = await provider.fetch_historical_bars(
                                     symbol=instrument.symbol,
@@ -1426,6 +1454,7 @@ def main() -> None:
                                     end=gap_end,
                                     continuous=use_cont,
                                     on_chunk=_persist_chunk,
+                                    on_empty_history=observed.append if is_oldest_window else None,
                                 )
                                 bar_dicts = [
                                     {
@@ -1462,6 +1491,29 @@ def main() -> None:
                                     f"  {instrument.symbol}/{tf}: stored {n} bars "
                                     f"(window {gap_start.date()} to {gap_end.date()})"
                                 )
+                                if (
+                                    is_oldest_window
+                                    and not use_cont
+                                    and not empty_history.has_bar_before(
+                                        db_conn, instrument.symbol, tf, gap_start
+                                    )
+                                ):
+                                    if observed:
+                                        empty_history.record(
+                                            db_conn,
+                                            instrument.symbol,
+                                            tf,
+                                            _EMPTY_HISTORY_PROVIDER,
+                                            gap_start,
+                                            observed[-1],
+                                        )
+                                    elif empty is not None:
+                                        # Asked again and not confirmed empty: the provider
+                                        # now serves (part of) it, or the walk ended on a
+                                        # non-definitive failure. Either way, stop skipping.
+                                        empty_history.drop(
+                                            db_conn, instrument.symbol, tf, _EMPTY_HISTORY_PROVIDER
+                                        )
                             except Exception as e:
                                 fetch_errors += 1
                                 tf_window_failed = True
@@ -1579,6 +1631,7 @@ def main() -> None:
     n_requested = len(contracts)
     n_skipped = len(skipped_symbols)
     print(f"\nStage 1 complete: {total_bars:,} total bars stored, {fetch_errors} fetch error(s)\n")
+    print(f"  Provider-verified empty history skipped for {n_empty_history_skipped} symbol/tf(s)\n")
     if skipped_symbols:
         print(
             f"{n_skipped}/{n_requested} symbols skipped outright "
