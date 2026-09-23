@@ -40,11 +40,14 @@ recompute after a feature, config, or methodology change.
 
 ## Levers, in the order to pull them
 
-1. **Per-symbol threading (measure first).** `per_symbol_bootstrap_threads` defaults to 1 on the
-   per-symbol `ProcessPoolExecutor` path. The `cross_sectional_bootstrap_threads` comment at
+1. **Per-symbol threading (measure first).** `per_symbol_bootstrap_threads` has been 2 on every
+   TF since 2026-07-30 (`config_state`), so the ~2.7 worker-hr/symbol re-derived above ALREADY
+   includes threading at 2 -- the "defaults to 1" framing was stale, and the remaining experiment
+   is raising it above 2. The `cross_sectional_bootstrap_threads` comment at
    `services/ic_engine.py:583-598` records a 2-6x wall-time reduction from threading because
-   scipy `rankdata` releases the GIL. Not measured on the per-symbol path. Run only after the
-   current corpus run finishes, since a benchmark now competes with it for CPU.
+   scipy `rankdata` releases the GIL. Not measured on the per-symbol path above 2; measure memory
+   before raising 5m (largest real cell 12.5M rows, deliberately set lower than 15m). Run only
+   when the box is idle (no corpus run or phase execution live).
 2. **Numba `nogil=True` kernel plus threads.** Fable measured a byte-identical 1.26-1.54x for a
    fused Numba kernel without `nogil` (`scripts/analysis/ic_engine_bootstrap_ci_numba_benchmark.py`,
    same contention caveat). `nogil=True` plus `ThreadPoolExecutor`, and `prange`, were not tested.
