@@ -2927,7 +2927,7 @@ Requirements:
 
 **Wave 4** *(blocked on Wave 3 completion)*
 
-- [ ] 176-06-PLAN.md - cross-sectional season sub-cells via in-memory masking, OOM-guarded (wave 4) — **gated on 176-01's SWEEP_VERDICT (D-01a)**
+- [x] 176-06-PLAN.md - cross-sectional season sub-cells via in-memory masking, OOM-guarded (wave 4) — **gated on 176-01's SWEEP_VERDICT (D-01a)**
 
 **Wave 5** *(blocked on Wave 4 completion)*
 
