@@ -56,15 +56,23 @@ def _dense_ranks(values: np.ndarray) -> tuple[np.ndarray, int]:
 
 @numba.njit(cache=True, nogil=True)
 def _average_ranks_by_count(
-    dense: np.ndarray, idx: np.ndarray, k: int, counts: np.ndarray, avg: np.ndarray
+    dense: np.ndarray,
+    idx: np.ndarray,
+    k: int,
+    counts: np.ndarray,
+    avg: np.ndarray,
+    drawn: np.ndarray,
 ) -> bool:
-    """Fill ``avg[v]`` with the average rank of dense value ``v`` within the resample ``idx``.
-    Returns False when the resample draws a NaN row (dense rank -1)."""
+    """Fill ``avg[v]`` with the average rank of dense value ``v`` within the resample ``idx``,
+    and ``drawn[r]`` with row ``r``'s dense value (so callers read it sequentially instead of
+    gathering through ``idx`` a second time). Returns False when the resample draws a NaN row
+    (dense rank -1)."""
     counts[:k] = 0
     for r in range(idx.shape[0]):
         v = dense[idx[r]]
         if v < 0:
             return False
+        drawn[r] = v
         counts[v] += 1
     running = 0
     for v in range(k):
@@ -106,24 +114,25 @@ def _boot_ics_prange(
                     break
                 idx[pos] = (start + offsets[o]) % n_valid
                 pos += 1
-        counts = np.empty(max_k, dtype=np.int64)
+        counts = np.empty(max_k, dtype=np.int32)
         avg = np.empty(max_k, dtype=np.float64)
-        if not _average_ranks_by_count(dense_Y, idx, k_Y, counts, avg):
+        drawn = np.empty(n_idx, dtype=np.int32)
+        if not _average_ranks_by_count(dense_Y, idx, k_Y, counts, avg, drawn):
             continue  # NaN return drawn: every rank vector is NaN -> every IC is 0.0
         y_c = np.empty(n_idx, dtype=np.float64)
         y_ss = 0.0
         for r in range(n_idx):
-            d = avg[dense_Y[idx[r]]] - mean_rank
+            d = avg[drawn[r]] - mean_rank
             y_c[r] = d
             y_ss += d * d
         for c in range(p):
             dense_col = dense_X[:, c]
-            if not _average_ranks_by_count(dense_col, idx, k_X[c], counts, avg):
+            if not _average_ranks_by_count(dense_col, idx, k_X[c], counts, avg, drawn):
                 continue  # NaN feature value drawn -> IC 0.0
             x_ss = 0.0
             xy = 0.0
             for r in range(n_idx):
-                dx = avg[dense_col[idx[r]]] - mean_rank
+                dx = avg[drawn[r]] - mean_rank
                 x_ss += dx * dx
                 xy += dx * y_c[r]
             denom = np.sqrt(x_ss * y_ss)
