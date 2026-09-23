@@ -43,6 +43,7 @@ __all__ = [
     "spy_realized_vol_factor",
     "partial_loading",
     "partial_loading_ci_low",
+    "sign_stable_window_count",
 ]
 
 
@@ -485,3 +486,87 @@ def partial_loading_ci_low(
     z_crit = float(norm.ppf(1 - alpha / 2))
     r_clipped = float(np.clip(r, -1 + 1e-12, 1 - 1e-12))
     return float(np.tanh(np.arctanh(r_clipped) - z_crit * se))
+
+
+# ---------------------------------------------------------------------------
+# Sign-stability across disjoint tail-anchored historical windows (Phase 175
+# Task 2). No existing analog anywhere in this codebase (RESEARCH.md
+# Pitfall 3 / 175-PATTERNS.md "No Analog Found") -- new code, not a wrapper
+# around an existing helper.
+# ---------------------------------------------------------------------------
+
+
+def sign_stable_window_count(
+    instrument_ret: np.ndarray,
+    factor_ret: np.ndarray,
+    controls: np.ndarray,
+    condition_max: float,
+    window_days: int,
+    window_count: int,
+) -> tuple[int, int]:
+    """Count how many of window_count disjoint, tail-anchored historical
+    windows share the full-sample partial_loading's sign.
+
+    Resolves the three ambiguities Pitfall 3 names -- recorded here, not
+    left implicit:
+
+    Disjoint, tail-anchored: window i (i in range(window_count)) covers the
+    slice [n - (i + 1) * window_days : n - i * window_days]. No overlap, no
+    stride; window 0 is always the newest observations, window
+    window_count - 1 the oldest evaluable segment.
+
+    Short windows are skipped, not padded: once n < (i + 1) * window_days,
+    that window and every remaining (older) window is also short, so the
+    loop stops there. This makes n_evaluable a self-documenting denominator
+    -- a symbol with two years of history can never satisfy a 3-of-4
+    requirement because its n_evaluable is 2, not a padded 4.
+
+    NaN windows count toward NEITHER term: a window whose own partial_loading
+    is NaN (too few observations for its own k + 4 floor, or its own control
+    matrix ill-conditioned within that slice only) is excluded from both
+    n_sign_stable and n_evaluable.
+
+    Returns (n_sign_stable, n_evaluable). Returns (0, 0) when the full-sample
+    partial_loading is itself NaN -- there is no sign to compare windows
+    against. A window loading of exactly 0.0 has sign 0 and therefore never
+    matches the full-sample sign (which is always nonzero when the
+    full-sample loading is a real number) -- a zero loading is not evidence
+    of a stable sign, so it correctly never counts as stable.
+
+    Never logs per-window: this runs inside a per-pair corpus loop (CLAUDE.md
+    -- never log per-row inside a loop over the full corpus).
+    """
+    instrument_arr = np.asarray(instrument_ret, dtype=np.float64)
+    factor_arr = np.asarray(factor_ret, dtype=np.float64)
+    controls_arr = np.asarray(controls, dtype=np.float64)
+    if controls_arr.ndim == 1:
+        controls_arr = controls_arr.reshape(-1, 1)
+    n = len(instrument_arr)
+
+    full_loading, _incremental_r2, _n = partial_loading(
+        instrument_arr, factor_arr, controls_arr, condition_max
+    )
+    if math.isnan(full_loading):
+        return 0, 0
+    full_sign = np.sign(full_loading)
+
+    n_sign_stable = 0
+    n_evaluable = 0
+    for i in range(window_count):
+        if n < (i + 1) * window_days:
+            break
+        start = n - (i + 1) * window_days
+        end = n - i * window_days
+        window_loading, _, _ = partial_loading(
+            instrument_arr[start:end],
+            factor_arr[start:end],
+            controls_arr[start:end],
+            condition_max,
+        )
+        if math.isnan(window_loading):
+            continue
+        n_evaluable += 1
+        if np.sign(window_loading) == full_sign:
+            n_sign_stable += 1
+
+    return n_sign_stable, n_evaluable
