@@ -53,5 +53,5 @@ class Snapshot:
     feature_names: list[str]
     broadcast_mask: np.ndarray  # bool over feature_names
     feature_to_group: dict[str, str]
-    apr: dict[str, str]
+    apr: dict[str, tuple[str, str]]  # config_key -> (config_value, value_type)
     manifest: dict
