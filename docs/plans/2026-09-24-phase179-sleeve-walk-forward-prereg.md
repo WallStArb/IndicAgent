@@ -305,6 +305,26 @@ in-sample for production already, so it spends nothing.
 - V2/V3 results and V4 tolerances.
 - Compute measured for one refit, and the projected total.
 
+### 12.1 Entries recorded so far (2026-09-24)
+
+- **V2 null calibration: PASS.** 200 no-signal synthetic seeds (persistent AR(1) alpha,
+  phi = 0.98, per-asset drift, equicorrelated returns), 199 admissible shifts each: PASS rate
+  6.0% (12/200), inside the pinned 5% +/- 3.1% band; mean vol_normalized excess Sharpe 0.0003.
+  Harness at main 549014a6b. Artifact `logs/phase179/v2_73b7519777738654.json`.
+- **HMM-feature audit.** `regime_writer` owns 16 `feature_vectors` columns; 3 are
+  `FeatureVector` fields (`hmm_regime_prob`, `hmm_entropy`, `hmm_duration`) and are excluded;
+  `feature_factory` writes them as None and no other writer derives a feature from any of the
+  16. `momentum_vol_regime_product` is `momentum_z_fast x hv_ratio` (no HMM input) and stays;
+  `ctf_regime_align` and FeatureCache's inline K=3 filter use fixed parameters and stay.
+- **Exclusion list** (`scripts/analysis/sleeve_walk_forward/excluded_features.json`), two tiers:
+  exclude (never measured): the 3 fitted-HMM columns, todo 390's `amihud_illiq_z` and
+  `illiquidity_momentum_product`, `earnings_season_flag`, `days_since_quarter_end`; control
+  (measured every refit for V5, never selected or weighted): the 5 `canary_*` features. The
+  todo-390 entries are re-checked against open P0/P1 correctness todos at freeze.
+- **Deprecated-feature decision: moot.** `new_high_flag` and `new_low_flag` were deprecated by
+  operator override with no gate metric and are no longer `FeatureVector` fields (migration 284
+  tombstones), so they cannot enter the pool.
+
 ## 13. Pinned deviations from production
 
 | # | Deviation | Why | Sized by |
