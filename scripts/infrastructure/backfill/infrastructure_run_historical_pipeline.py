@@ -1245,8 +1245,13 @@ def main() -> None:
     # Provider-verified empty history (migration 354): loaded once per run. A fresh range is
     # subtracted from the detected gaps; a stale one is re-verified by fetching it.
     empty_ranges = empty_history.load(db_conn, _EMPTY_HISTORY_PROVIDER)
+    provider_heads = empty_history.load_heads(db_conn, _EMPTY_HISTORY_PROVIDER)
     empty_reverify_days = empty_history.load_reverify_days(db_conn)
     run_started_at = datetime.now(UTC)
+
+    def head_is_fresh(head: empty_history.ProviderHead | None) -> bool:
+        return head is not None and head.is_fresh(run_started_at, empty_reverify_days)
+
     n_empty_history_skipped = 0
 
     async def _run_fetch_stage() -> tuple[int, int, list[str]]:
@@ -1349,6 +1354,39 @@ def main() -> None:
                             session_id=instrument.session_id,
                             exchange=instrument.exchange,
                         )
+                        # Head floor (migration 355): nothing exists before the provider's
+                        # earliest data point, so older gap slots are never requested. Looked
+                        # up once per symbol when missing or stale; a failed lookup is stored
+                        # as "no floor" so it is not retried every night.
+                        head = provider_heads.get(instrument.symbol)
+                        if gaps and not head_is_fresh(head):
+                            head_ts, head_error = await provider.get_head_timestamp(
+                                instrument.symbol
+                            )
+                            head = empty_history.record_head(
+                                db_conn,
+                                instrument.symbol,
+                                _EMPTY_HISTORY_PROVIDER,
+                                head_ts,
+                                head_error,
+                            )
+                            provider_heads[instrument.symbol] = head
+                        if gaps and head is not None and head.head_ts is not None:
+                            kept = empty_history.subtract(
+                                gaps,
+                                empty_history.before_head(
+                                    head.head_ts, timedelta(minutes=_TF_MINUTES[tf])
+                                ),
+                                timedelta(minutes=_TF_MINUTES[tf]),
+                            )
+                            if kept != gaps:
+                                n_empty_history_skipped += 1
+                                print(
+                                    f"  {instrument.symbol}/{tf}: skipping history before the "
+                                    f"provider head {head.head_ts.date()}"
+                                )
+                            gaps = kept
+
                         empty = empty_ranges.get((instrument.symbol, tf))
                         if gaps and empty and empty.is_fresh(run_started_at, empty_reverify_days):
                             kept = empty_history.subtract(

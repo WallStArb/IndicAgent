@@ -74,3 +74,23 @@ def test_record_keeps_verified_and_inferred_parts_distinguishable():
         2,
         False,
     )
+
+
+def test_head_floor_removes_only_history_before_the_head():
+    """Migration 355: GEV (head 2024-03-27) loses its 2006-2024 pre-listing window; the
+    recent gap and everything from the head on is still requested."""
+    gaps = [(_dt(2006, 9, 28), _dt(2024, 3, 27)), (_dt(2026, 8, 12), _dt(2026, 9, 23))]
+    floor = eh.before_head(_dt(2024, 3, 27), _D)
+    assert eh.subtract(gaps, floor, _D) == [
+        (_dt(2024, 3, 27), _dt(2024, 3, 27)),
+        (_dt(2026, 8, 12), _dt(2026, 9, 23)),
+    ]
+
+
+def test_record_head_stores_failure_as_no_floor():
+    conn = MagicMock()
+    cur = conn.cursor.return_value.__enter__.return_value
+    cur.fetchone.return_value = (None, _dt(2026, 9, 24))
+    head = eh.record_head(conn, "AMD", "ibkr", None, "no head timestamp returned")
+    assert head.head_ts is None
+    assert cur.execute.call_args.args[1] == ("AMD", "ibkr", None, "no head timestamp returned")

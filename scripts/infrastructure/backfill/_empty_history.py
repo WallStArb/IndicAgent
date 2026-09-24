@@ -140,3 +140,54 @@ def drop(conn: Any, symbol: str, timeframe: str, provider: str) -> None:
             (symbol, timeframe, provider),
         )
     conn.commit()
+
+
+@dataclass(frozen=True)
+class ProviderHead:
+    """ohlcv_provider_head row (migration 355). head_ts None = lookup failed = no floor."""
+
+    head_ts: datetime | None
+    verified_at: datetime
+
+    def is_fresh(self, now: datetime, reverify_days: int) -> bool:
+        return now - self.verified_at < timedelta(days=reverify_days)
+
+
+def load_heads(conn: Any, provider: str) -> dict[str, ProviderHead]:
+    """Every recorded head for `provider`, keyed by symbol, fresh or stale."""
+    with conn.cursor() as cur:
+        cur.execute(
+            "SELECT symbol, head_ts, verified_at FROM ohlcv_provider_head WHERE provider = %s",
+            (provider,),
+        )
+        return {r[0]: ProviderHead(r[1], r[2]) for r in cur.fetchall()}
+
+
+def record_head(
+    conn: Any, symbol: str, provider: str, head_ts: datetime | None, error: str | None
+) -> ProviderHead:
+    """Upsert a head lookup's outcome, success or failure, and return it."""
+    with conn.cursor() as cur:
+        cur.execute(
+            """
+            INSERT INTO ohlcv_provider_head (symbol, provider, head_ts, lookup_error, verified_at)
+            VALUES (%s, %s, %s, %s, NOW())
+            ON CONFLICT (symbol, provider) DO UPDATE SET
+                head_ts = EXCLUDED.head_ts,
+                lookup_error = EXCLUDED.lookup_error,
+                verified_at = EXCLUDED.verified_at
+            RETURNING head_ts, verified_at
+            """,
+            (symbol, provider, head_ts, None if head_ts else (error or "no head timestamp")),
+        )
+        row = cur.fetchone()
+    conn.commit()
+    return ProviderHead(row[0], row[1])
+
+
+def before_head(head_ts: datetime, interval: timedelta) -> EmptyRange:
+    """The range a head timestamp rules out: everything strictly older than it.
+
+    Expressed as an EmptyRange so `subtract()` applies it; `verified_at` is unused here.
+    """
+    return EmptyRange(datetime.min.replace(tzinfo=head_ts.tzinfo), head_ts - interval, head_ts)

@@ -960,6 +960,33 @@ class IBKRProvider:
         all_bars.sort(key=lambda b: b.timestamp)
         return all_bars
 
+    async def get_head_timestamp(self, symbol: str) -> tuple[datetime | None, str | None]:
+        """IBKR's earliest-data timestamp for a qualified symbol: (head, None) or (None, error).
+
+        A floor in one direction only: nothing exists before it, so a caller may skip older
+        requests, but data is not promised after it (ODFL's head is 1991, daily bars start
+        2024). Uses useRTH=False, the earlier and therefore more conservative bound, and the
+        same whatToShow as fetch_historical_bars. A failed lookup is common (112 of 273
+        active equities returned "Query failed", 2026-09-24) and is reported, never guessed.
+        """
+        contract = self._qualified_contracts.get(symbol)
+        if not contract or not self._ib:
+            return None, "not qualified or not connected"
+        sec_type = getattr(contract, "secType", "")
+        what_to_show = {"CASH": "MIDPOINT", "CRYPTO": "AGGTRADES"}.get(sec_type, "TRADES")
+        try:
+            head = await asyncio.wait_for(
+                self._ib.reqHeadTimeStampAsync(
+                    contract, whatToShow=what_to_show, useRTH=False, formatDate=2
+                ),
+                timeout=_HIST_REQUEST_TIMEOUT_SEC,
+            )
+        except Exception as error:
+            return None, f"{type(error).__name__}: {error}"[:200]
+        if not isinstance(head, datetime):
+            return None, "no head timestamp returned"
+        return (head if head.tzinfo else head.replace(tzinfo=UTC)), None
+
     async def qualify_instrument(
         self,
         instrument: Instrument,

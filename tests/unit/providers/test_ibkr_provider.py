@@ -454,3 +454,37 @@ def test_error_162_log_label_separates_no_data_from_throttling():
     ]
     assert ibkr_module._no_data_req_ids == {1}
     ibkr_module._no_data_req_ids.clear()
+
+
+class TestGetHeadTimestamp:
+    @pytest.mark.asyncio
+    @pytest.mark.parametrize(
+        ("returned", "expected_head", "error_contains"),
+        [
+            (
+                datetime(2024, 3, 27, 8, 0, tzinfo=UTC),
+                datetime(2024, 3, 27, 8, 0, tzinfo=UTC),
+                None,
+            ),
+            ("", None, "no head"),
+            (RuntimeError("Query failed"), None, "Query failed"),
+        ],
+    )
+    async def test_outcomes(self, provider, mock_ib, returned, expected_head, error_contains):
+        if isinstance(returned, Exception):
+            mock_ib.reqHeadTimeStampAsync = AsyncMock(side_effect=returned)
+        else:
+            mock_ib.reqHeadTimeStampAsync = AsyncMock(return_value=returned)
+        provider._ib = mock_ib
+        provider._qualified_contracts["GEV"] = MagicMock(secType="STK")
+        head, error = await provider.get_head_timestamp("GEV")
+        assert head == expected_head
+        assert (error is None) if error_contains is None else (error_contains in error)
+        if head is not None:
+            assert mock_ib.reqHeadTimeStampAsync.call_args.kwargs["useRTH"] is False
+
+    @pytest.mark.asyncio
+    async def test_unqualified_symbol_is_no_floor(self, provider, mock_ib):
+        provider._ib = mock_ib
+        head, error = await provider.get_head_timestamp("NOPE")
+        assert head is None and error
