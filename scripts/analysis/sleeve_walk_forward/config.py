@@ -42,11 +42,12 @@ class HarnessConfig:
     min_positive_sub_periods: int = 2
     bootstrap_mean_block: int = 21
     bootstrap_reps: int = 2000
-    regime_group_weighted: str = "equity"
     ic_shrinkage_k_key: str = "alpha.ic.shrinkage_k"
     mv_condition_max_key: str = "alpha.ensemble.mv_condition_max"
     ridge_epsilon_fraction: float = 0.10
     seed: int = 179
+    # Matches infra.blas_threads_per_worker (1); passed to make_worker_pool (todo 216).
+    blas_threads_per_worker: int = 1
 
 
 DEFAULT_CONFIG = HarnessConfig()

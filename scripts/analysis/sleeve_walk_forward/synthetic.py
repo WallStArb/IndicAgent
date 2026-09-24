@@ -11,7 +11,6 @@ test; the real run uses them all.
 
 from __future__ import annotations
 
-from concurrent.futures import ProcessPoolExecutor
 from typing import Any
 
 import numpy as np
@@ -20,6 +19,7 @@ from scripts.analysis.sleeve_walk_forward.config import DEFAULT_CONFIG, HarnessC
 from scripts.analysis.sleeve_walk_forward.evaluate import evaluate
 from scripts.analysis.sleeve_walk_forward.portfolio import ARMS
 from scripts.analysis.sleeve_walk_forward.verdict import decide, safe_evaluate
+from services._batch_utils import make_worker_pool
 from src.intelligence.statistics.panel_null import admissible_shifts
 
 _DAILY_VOL = 0.01
@@ -91,7 +91,7 @@ def _run_seeds(
     args = [(s, n_shifts, cfg, signal_ic, panel_kw) for s in seeds]
     if workers <= 1:
         return [_one_seed(*a) for a in args]
-    with ProcessPoolExecutor(max_workers=workers) as pool:
+    with make_worker_pool(workers, cfg.blas_threads_per_worker) as pool:
         return list(pool.map(_one_seed, *zip(*args)))
 
 

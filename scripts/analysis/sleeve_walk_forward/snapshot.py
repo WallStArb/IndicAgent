@@ -156,6 +156,11 @@ async def build_snapshot(
     return _write(Path(out_dir), arrays, meta)
 
 
+def _numeric(block: np.ndarray, dtype: type) -> np.ndarray:
+    """Object block from asyncpg rows -> float array, None -> NaN."""
+    return np.where(block == None, np.nan, block).astype(dtype)  # noqa: E711
+
+
 def _assemble(sessions, universe, feature_rows, sleeve, bar_rows, label_rows, routing, broadcast):
     n_feat, n_s = len(_FEATURE_NAMES), len(_SCALES)
     blocks = {k: [] for k in ("symbol", "bar_ts", "X", "returns", "complete", "has_fr")}
@@ -164,16 +169,11 @@ def _assemble(sessions, universe, feature_rows, sleeve, bar_rows, label_rows, ro
             continue
         blocks["symbol"].append(np.full(len(rows), sym))
         blocks["bar_ts"].append(np.array([_day(r[0]) for r in rows], dtype="datetime64[D]"))
-        blocks["X"].append(
-            np.array(
-                [[np.nan if v is None else v for v in r[1 : 1 + n_feat]] for r in rows], np.float32
-            )
-        )
-        ret = [r[1 + n_feat : 1 + n_feat + n_s] for r in rows]
-        blocks["returns"].append(np.array([[np.nan if v is None else v for v in x] for x in ret]))
-        cmp = [r[1 + n_feat + n_s : 1 + n_feat + 2 * n_s] for r in rows]
-        blocks["complete"].append(np.array([[bool(v) for v in x] for x in cmp]))
-        blocks["has_fr"].append(np.array([r[-1] for r in rows], bool))
+        grid = np.array([tuple(r) for r in rows], dtype=object)
+        blocks["X"].append(_numeric(grid[:, 1 : 1 + n_feat], np.float32))
+        blocks["returns"].append(_numeric(grid[:, 1 + n_feat : 1 + n_feat + n_s], np.float64))
+        blocks["complete"].append(grid[:, 1 + n_feat + n_s : 1 + n_feat + 2 * n_s].astype(bool))
+        blocks["has_fr"].append(grid[:, -1].astype(bool))
     cat = {k: np.concatenate(v) for k, v in blocks.items()}
     idx = np.searchsorted(sessions, cat["bar_ts"])
     on_session = (idx < len(sessions)) & (
@@ -254,15 +254,21 @@ def load_snapshot(path: Path) -> Snapshot:
     labels = {g: a(f"labels_{g}") for g in meta["manifest"]["groups"]}
     session_idx = a("all_session_idx")
 
-    def rows(mask: np.ndarray, label_by_session: np.ndarray) -> GroupArrays:
+    def rows(mask: np.ndarray | None, label_by_session: np.ndarray) -> GroupArrays:
+        """mask=None keeps the memory-mapped arrays as they are (no copy)."""
+        idx = session_idx if mask is None else session_idx[mask]
+
+        def pick(x: np.ndarray) -> np.ndarray:
+            return x if mask is None else x[mask]
+
         return GroupArrays(
-            symbols=a("all_symbol")[mask],
-            bar_ts=a("all_bar_ts")[mask],
-            session_idx=session_idx[mask],
-            X=a("all_X")[mask],
-            returns=a("all_returns")[mask],
-            complete=a("all_complete")[mask],
-            labels=label_by_session[session_idx[mask]],
+            symbols=pick(a("all_symbol")),
+            bar_ts=pick(a("all_bar_ts")),
+            session_idx=idx,
+            X=pick(a("all_X")),
+            returns=pick(a("all_returns")),
+            complete=pick(a("all_complete")),
+            labels=label_by_session[idx],
         )
 
     has_fr = a("all_has_fr")
@@ -270,7 +276,7 @@ def load_snapshot(path: Path) -> Snapshot:
     return Snapshot(
         sessions=sessions,
         groups={g: rows((group_of == g) & has_fr, labels[g]) for g in labels},
-        all_1d=rows(np.ones(len(group_of), bool), equity),
+        all_1d=rows(None, equity),
         sleeve_features=a("sleeve_features"),
         sleeve_has_row=a("sleeve_has_row"),
         sleeve_opens=a("sleeve_opens"),

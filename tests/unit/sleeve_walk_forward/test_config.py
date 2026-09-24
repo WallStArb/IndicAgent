@@ -43,4 +43,3 @@ def test_pinned_values_match_prereg():
     assert c.alpha == 0.05 and c.n_tested == 15
     assert c.min_positive_sub_periods == 2
     assert c.bootstrap_mean_block == 21
-    assert c.regime_group_weighted == "equity"

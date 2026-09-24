@@ -8,7 +8,6 @@ standardization, weights) reruns per shift inside portfolio.arm_returns.
 from __future__ import annotations
 
 import dataclasses
-from concurrent.futures import ProcessPoolExecutor
 
 import numpy as np
 
@@ -20,6 +19,7 @@ from scripts.analysis.sleeve_walk_forward.portfolio import (
     plan_covariance,
 )
 from scripts.analysis.sleeve_walk_forward.sessions import sub_period_masks
+from services._batch_utils import make_worker_pool
 from src.intelligence.statistics.panel_null import (
     admissible_shifts,
     shift_panel,
@@ -94,7 +94,7 @@ def evaluate(
     args = (alpha, fwd_ret, plan, cfg, ic_shrinkage_k)
     if workers > 1:
         chunks = np.array_split(shifts, workers)
-        with ProcessPoolExecutor(max_workers=workers) as pool:
+        with make_worker_pool(workers, cfg.blas_threads_per_worker) as pool:
             parts = list(pool.map(_run_shifts, *zip(*[(*args, c, trade) for c in chunks])))
         sharpe_null = np.concatenate([p[0] for p in parts])
         null_daily = np.concatenate([p[1] for p in parts])

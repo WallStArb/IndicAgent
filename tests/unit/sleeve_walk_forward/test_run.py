@@ -125,7 +125,7 @@ def test_parent_from_other_commit_is_refused(harness):
         ]
     )
     obj = pickle.loads(s1.read_bytes())
-    obj["code_commit"] = "0" * 40
+    obj["code_key"] = "0" * 64
     s1.write_bytes(pickle.dumps(obj))
     with pytest.raises(SystemExit, match="code"):
         run.main(["--stage", "s2", "--in", str(s1), "--out-dir", str(out)])

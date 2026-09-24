@@ -46,3 +46,13 @@ def score_panel(
             alpha[d] = np.where(has_row[d], x @ (stratum.weights * stratum.ic_signs), np.nan)
             counts[year]["no_feature_row"] += int((~has_row[d]).sum())
     return alpha, dict(counts)
+
+
+def forward_returns(opens: np.ndarray) -> np.ndarray:
+    """fwd[D] = ln(open[D+2] / open[D+1]): alpha at D's close, enter at the next open, exit one
+    session later (pre-registration section 3). The last two rows, and any row missing an open,
+    are NaN."""
+    fwd = np.full(opens.shape, np.nan)
+    with np.errstate(invalid="ignore", divide="ignore"):
+        fwd[:-2] = np.log(opens[2:] / opens[1:-1])
+    return fwd

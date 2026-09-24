@@ -47,7 +47,6 @@ class CovariancePlan:
     # Matrix M with raw mean-variance weights = mu @ M.T (Sigma^-1, or the ridge inverse),
     # or None for the vol-normalized fallback.
     mv_matrix: list[np.ndarray | None]
-    mv_method: list[str | None]
 
 
 def plan_covariance(
@@ -56,7 +55,7 @@ def plan_covariance(
     n = closes.shape[0]
     log_ret = np.log(closes[1:] / closes[:-1])  # row i-1 is the return into session i
     positions = np.arange(cfg.warmup_sessions, n, cfg.calibration_refit_sessions)
-    symbol_idx, sigma, mv_matrix, mv_method = [], [], [], []
+    symbol_idx, sigma, mv_matrix = [], [], []
     for p in positions:
         b = p - _EMBARGO
         first = max(1, b - cfg.warmup_sessions + 1)
@@ -66,27 +65,24 @@ def plan_covariance(
             symbol_idx.append(None)
             sigma.append(None)
             mv_matrix.append(None)
-            mv_method.append(None)
             continue
         symbol_idx.append(np.array(kept, dtype=int))
         sigma.append(np.sqrt(np.maximum(np.diag(cov), _ZERO_STD)))
-        matrix, method = _mean_variance_matrix(cov, mv_condition_max, cfg.ridge_epsilon_fraction)
-        mv_matrix.append(matrix)
-        mv_method.append(method)
-    return CovariancePlan(positions, symbol_idx, sigma, mv_matrix, mv_method)
+        mv_matrix.append(_mean_variance_matrix(cov, mv_condition_max, cfg.ridge_epsilon_fraction))
+    return CovariancePlan(positions, symbol_idx, sigma, mv_matrix)
 
 
 def _mean_variance_matrix(
     cov: np.ndarray, condition_max: float, ridge_epsilon_fraction: float
-) -> tuple[np.ndarray | None, str]:
+) -> np.ndarray | None:
     """weighting.mean_variance_arm's branch, decided once: its condition checks see only cov."""
     if check_condition_number(cov, condition_max)[0]:
-        return np.linalg.inv(cov), "mean_variance"
+        return np.linalg.inv(cov)
     n = cov.shape[0]
     ridge = cov + ridge_epsilon_fraction * float(np.trace(cov)) / n * np.eye(n)
     if check_condition_number(ridge, condition_max)[0]:
-        return np.linalg.inv(ridge), "mean_variance_ridge_fallback"
-    return None, "mean_variance_ridge_fallback"
+        return np.linalg.inv(ridge)
+    return None
 
 
 def arm_returns(

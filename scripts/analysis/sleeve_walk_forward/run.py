@@ -21,10 +21,8 @@ import asyncio
 import hashlib
 import json
 import pickle
-import subprocess
 import sys
 import time
-from concurrent.futures import ProcessPoolExecutor
 from pathlib import Path
 from typing import Any
 
@@ -34,27 +32,29 @@ import structlog
 from scripts.analysis.sleeve_walk_forward.config import DEFAULT_CONFIG
 from scripts.analysis.sleeve_walk_forward.evaluate import evaluate
 from scripts.analysis.sleeve_walk_forward.refit import run_refit
-from scripts.analysis.sleeve_walk_forward.score import score_panel
+from scripts.analysis.sleeve_walk_forward.score import forward_returns, score_panel
 from scripts.analysis.sleeve_walk_forward.sessions import refit_dates
 from scripts.analysis.sleeve_walk_forward.snapshot import build_snapshot, load_snapshot
 from scripts.analysis.sleeve_walk_forward.synthetic import run_v2, run_v3
 from scripts.analysis.sleeve_walk_forward.verdict import decide, safe_evaluate
+from services._batch_utils import make_worker_pool
+from services.ic_engine import _checkpoint_content_key
+from src.config.settings import Settings
 
 CONFIG = DEFAULT_CONFIG
 _JOB = "sleeve-walk-forward"
-_LIVE_DSN = "postgresql://postgres:postgres@localhost:5432/indicagent"
 _logger = structlog.get_logger(__name__)
 
 
-def _commit() -> str:
-    return subprocess.run(
-        ["git", "rev-parse", "HEAD"], capture_output=True, text=True, check=True
-    ).stdout.strip()
+def _code_key() -> str:
+    """ic_engine's checkpoint key: AST-normalized hash of every first-party module loaded, so an
+    unrelated commit or a comment edit doesn't invalidate a stage, but a semantic change does."""
+    return _checkpoint_content_key()
 
 
 def _save(out_dir: Path, stage: str, payload: Any, parent: str) -> Path:
     blob = pickle.dumps(
-        {"stage": stage, "parent": parent, "code_commit": _commit(), "payload": payload}
+        {"stage": stage, "parent": parent, "code_key": _code_key(), "payload": payload}
     )
     path = Path(out_dir) / f"{stage}_{hashlib.sha256(blob).hexdigest()[:16]}.pkl"
     path.write_bytes(blob)
@@ -63,16 +63,23 @@ def _save(out_dir: Path, stage: str, payload: Any, parent: str) -> Path:
 
 def _load(path: Path, allow_drift: bool) -> dict:
     obj = pickle.loads(Path(path).read_bytes())
-    if obj["code_commit"] != _commit() and not allow_drift:
+    if obj["code_key"] != _code_key() and not allow_drift:
         sys.exit(
-            f"{path} was built at code {obj['code_commit'][:10]}, HEAD is {_commit()[:10]}; "
-            "pass --allow-code-drift to use it anyway"
+            f"{path} was built under code {obj['code_key'][:10]}, current code is "
+            f"{_code_key()[:10]}; pass --allow-code-drift to use it anyway"
         )
     return obj
 
 
+_WORKER_SNAPSHOT: dict[str, Any] = {}
+
+
 def _refit_worker(snapshot_path: str, date: np.datetime64, excluded: frozenset[str]):
-    return run_refit(load_snapshot(Path(snapshot_path)), date, CONFIG, excluded)
+    """Loads the snapshot once per worker process, not once per refit."""
+    if snapshot_path not in _WORKER_SNAPSHOT:
+        _WORKER_SNAPSHOT.clear()
+        _WORKER_SNAPSHOT[snapshot_path] = load_snapshot(Path(snapshot_path))
+    return run_refit(_WORKER_SNAPSHOT[snapshot_path], date, CONFIG, excluded)
 
 
 def _stage_s1(args: argparse.Namespace) -> Path:
@@ -83,7 +90,7 @@ def _stage_s1(args: argparse.Namespace) -> Path:
     dates = refit_dates(snap.sessions, CONFIG.refit_years)
     jobs = [(str(args.input), d, excluded) for d in dates]
     if args.workers > 1:
-        with ProcessPoolExecutor(max_workers=args.workers) as pool:
+        with make_worker_pool(args.workers, CONFIG.blas_threads_per_worker) as pool:
             refits = list(pool.map(_refit_worker, *zip(*jobs)))
     else:
         refits = [_refit_worker(*j) for j in jobs]
@@ -106,10 +113,7 @@ def _stage_s2(args: argparse.Namespace) -> Path:
         snap.sessions[-1],
     )
     start = int(np.searchsorted(snap.sessions, refits[0].refit_date))
-    opens = snap.sleeve_opens
-    fwd = np.full(opens.shape, np.nan)
-    with np.errstate(invalid="ignore", divide="ignore"):
-        fwd[:-2] = np.log(opens[2:] / opens[1:-1])  # alpha at D's close: ln(open[D+2]/open[D+1])
+    fwd = forward_returns(np.asarray(snap.sleeve_opens))
     payload = {
         "snapshot": s1["snapshot"],
         "dates": snap.sessions[start:],
@@ -162,7 +166,7 @@ def _stage_s4(args: argparse.Namespace) -> Path:
 def _stage_s0(args: argparse.Namespace) -> Path:
     return asyncio.run(
         build_snapshot(
-            args.dsn,
+            args.dsn or Settings().database_url.replace("postgresql+asyncpg://", "postgresql://"),
             Path(args.out_dir),
             sleeve=CONFIG.sleeve,
             start=CONFIG.training_start,
@@ -201,7 +205,7 @@ def main(argv: list[str] | None = None) -> Path:
     parser.add_argument("--excluded-file", type=Path)
     parser.add_argument("--fidelity", choices=("OK", "BROKEN"))
     parser.add_argument("--allow-code-drift", action="store_true")
-    parser.add_argument("--dsn", default=_LIVE_DSN)
+    parser.add_argument("--dsn", default=None, help="default: Settings().database_url")
     parser.add_argument("--end-exclusive", default="2025-12-24T05:15:00+00:00")
     args = parser.parse_args(argv)
     if args.stage in {"s1", "s2", "s3", "s4"} and args.input is None:
