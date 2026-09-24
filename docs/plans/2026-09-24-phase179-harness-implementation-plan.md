@@ -85,7 +85,7 @@ thinned); instrument calibration refits every 252 sessions (the diagnostic's
 scripts/analysis/sleeve_walk_forward/
   __init__.py
   config.py          frozen pre-registered constants (HarnessConfig)
-  calendar.py        NYSE session axis helpers: refit dates, purge cutoffs, sub-periods
+  sessions.py        NYSE session axis helpers: refit dates, purge cutoffs, sub-periods
   results.py         shared frozen dataclasses: Snapshot, GroupArrays, StratumWeights, RefitOutput
   snapshot.py        S0: read-only fetch -> content-hashed .npz + manifest
   refit.py           S1: one refit -> stratum weights (pure; calls production cell code)
@@ -96,7 +96,7 @@ scripts/analysis/sleeve_walk_forward/
   synthetic.py       synthetic panels for V2/V3
   run.py             CLI: --stage s0|s1|s2|s3|s4|v2|v3, content-hash file passing
 tests/unit/sleeve_walk_forward/
-  test_config.py test_calendar.py test_portfolio.py test_evaluate.py test_verdict.py
+  test_config.py test_sessions.py test_portfolio.py test_evaluate.py test_verdict.py
   test_synthetic.py test_score.py test_refit.py
 tests/integration/test_sleeve_walk_forward_snapshot.py
 ```
@@ -120,8 +120,8 @@ because it is the hot loop that runs about 3,620 times and gets its own equivale
 ### Task 1: Package skeleton, config and calendar
 
 **Files:**
-- Create: `scripts/analysis/sleeve_walk_forward/__init__.py` (empty), `config.py`, `calendar.py`
-- Test: `tests/unit/sleeve_walk_forward/__init__.py` (empty), `test_config.py`, `test_calendar.py`
+- Create: `scripts/analysis/sleeve_walk_forward/__init__.py` (empty), `config.py`, `sessions.py`
+- Test: `tests/unit/sleeve_walk_forward/__init__.py` (empty), `test_config.py`, `test_sessions.py`
 
 **Interfaces:**
 - Produces: `HarnessConfig` (frozen dataclass, fields below), `DEFAULT_CONFIG`; `refit_dates(sessions: np.ndarray, years: range) -> list[np.datetime64]`; `label_cutoff(sessions: np.ndarray, refit: np.datetime64, embargo: int) -> int` (index of the last session a label exit may fall on); `sub_period_masks(dates: np.ndarray, periods: tuple[tuple[str, str], ...]) -> list[np.ndarray]`.
@@ -161,11 +161,11 @@ def test_pinned_values_match_prereg():
 ```
 
 ```python
-# tests/unit/sleeve_walk_forward/test_calendar.py
+# tests/unit/sleeve_walk_forward/test_sessions.py
 import numpy as np
 import pytest
 
-from scripts.analysis.sleeve_walk_forward.calendar import label_cutoff, refit_dates, sub_period_masks
+from scripts.analysis.sleeve_walk_forward.sessions import label_cutoff, refit_dates, sub_period_masks
 
 
 def _sessions(*days):
@@ -242,7 +242,7 @@ DEFAULT_CONFIG = HarnessConfig()
 ```
 
 ```python
-# scripts/analysis/sleeve_walk_forward/calendar.py
+# scripts/analysis/sleeve_walk_forward/sessions.py
 """Session-axis helpers. `sessions` is always the sorted NYSE session array (datetime64[D])
 taken from the SPY 1d bar dates in the S0 snapshot."""
 
@@ -403,7 +403,7 @@ def test_plan_is_shared_across_shifts():
 - Test: `tests/unit/sleeve_walk_forward/test_evaluate.py`
 
 **Interfaces:**
-- Consumes: `portfolio.plan_covariance`, `portfolio.arm_returns`; `panel_null.admissible_shifts`, `shift_panel`, `westfall_young_adjusted_p`; `calendar.sub_period_masks`.
+- Consumes: `portfolio.plan_covariance`, `portfolio.arm_returns`; `panel_null.admissible_shifts`, `shift_panel`, `westfall_young_adjusted_p`; `sessions.sub_period_masks`.
 - Produces:
   - `annualized_sharpe(r: np.ndarray, mask: np.ndarray) -> float` (mean/std ddof=1 over finite `r[mask]`, times sqrt(252); raises on fewer than 2 finite values or zero std).
   - `EvaluationResult` (frozen dataclass): `arms: tuple[str, ...]`, `sharpe_obs: np.ndarray [J]`, `sharpe_null: np.ndarray [K, J]`, `shifts: np.ndarray [K]`, `adjusted_p: np.ndarray [J]`, `excess: np.ndarray [J]` (obs minus null median), `sub_period_excess: np.ndarray [J, 3]` (mean daily excess return over each arm's null-median daily return, per sub-period), `excess_ci: np.ndarray [J, 2]`.
