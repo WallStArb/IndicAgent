@@ -197,3 +197,14 @@ def test_rows_on_or_after_refit_date_never_reach_the_fit(snap, refit):
     out = run_refit(poisoned, snap.sessions[650], CFG, frozenset())
     for label, s in refit.strata.items():
         np.testing.assert_array_equal(out.strata[label].weights, s.weights)
+
+
+def test_embargo_assert_rejects_exits_and_unsorted_lookaheads():
+    from scripts.analysis.sleeve_walk_forward.refit import assert_embargo
+
+    t = np.array([10])
+    with pytest.raises(AssertionError, match="V6"):
+        assert_embargo(t, [1, 2, 5, 10], np.array([[True, True, True, False]]), cutoff=13)
+    with pytest.raises(AssertionError, match="ascending"):
+        assert_embargo(t, [2, 1, 5, 10], np.array([[True, False, False, False]]), cutoff=13)
+    assert_embargo(t, [1, 2, 5, 10], np.array([[True, True, False, False]]), cutoff=13)

@@ -138,3 +138,30 @@ def test_s1_requires_an_exclusion_list(harness):
     out, _ = harness
     with pytest.raises(SystemExit):
         run.main(["--stage", "s1", "--in", str(out / "snapshot_fixture"), "--out-dir", str(out)])
+
+
+def test_code_key_covers_harness_sources(tmp_path, monkeypatch):
+    src = tmp_path / "stage.py"
+    src.write_text("x = 1\n")
+    monkeypatch.setattr(run, "_HARNESS_SOURCES", (src,))
+    before = run._code_key()
+    src.write_text("x = 2\n")
+    assert run._code_key() != before
+
+
+def test_payload_records_git_commit(harness):
+    out, excluded = harness
+    s1 = run.main(
+        [
+            "--stage",
+            "s1",
+            "--in",
+            str(out / "snapshot_fixture"),
+            "--out-dir",
+            str(out),
+            "--excluded-file",
+            str(excluded),
+        ]
+    )
+    obj = pickle.loads(s1.read_bytes())
+    assert len(obj["git_commit"]) == 40 and isinstance(obj["git_dirty"], bool)

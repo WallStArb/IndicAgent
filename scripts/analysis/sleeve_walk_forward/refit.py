@@ -99,6 +99,18 @@ def training_arrays(
     return keep, complete, n_excluded
 
 
+def assert_embargo(t: np.ndarray, lookaheads: list[int], complete: np.ndarray, cutoff: int) -> None:
+    """V6: every label a refit trains on exits on or before the cutoff session."""
+    if list(lookaheads) != sorted(lookaheads):
+        raise AssertionError(f"V6: lookaheads must be ascending, got {lookaheads}")
+    exits = t[:, None] + np.asarray(lookaheads)[None, :] + 1
+    late = complete & (exits > cutoff)
+    if late.any():
+        raise AssertionError(
+            f"V6: {int(late.sum())} training labels exit after cutoff session {cutoff}"
+        )
+
+
 def run_refit(
     snapshot: Snapshot,
     refit_date: np.datetime64,
@@ -124,6 +136,7 @@ def run_refit(
     for group_name in sorted(snapshot.groups):
         group = snapshot.groups[group_name]
         keep, complete, n_excl = training_arrays(group, cutoff, lookaheads, start_idx)
+        assert_embargo(group.session_idx[keep], lookaheads, complete, cutoff)
         n_embargo_excluded += n_excl
         if keep.any() and group.bar_ts[keep].max() >= refit_date:
             raise AssertionError(f"V6: {group_name} training row on or after {refit_date}")

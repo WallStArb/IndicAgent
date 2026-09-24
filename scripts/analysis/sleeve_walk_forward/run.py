@@ -21,6 +21,7 @@ import asyncio
 import hashlib
 import json
 import pickle
+import subprocess
 import sys
 import time
 from pathlib import Path
@@ -46,15 +47,44 @@ _JOB = "sleeve-walk-forward"
 _logger = structlog.get_logger(__name__)
 
 
+# Harness code outside src/ and services/, which _checkpoint_content_key does not hash.
+_HARNESS_SOURCES: tuple[Path, ...] = (
+    *sorted(Path(__file__).parent.glob("*.py")),
+    Path(__file__).parents[2] / "ops" / "alpha" / "ops_ic_shrinkage.py",
+)
+
+
 def _code_key() -> str:
-    """ic_engine's checkpoint key: AST-normalized hash of every first-party module loaded, so an
-    unrelated commit or a comment edit doesn't invalidate a stage, but a semantic change does."""
-    return _checkpoint_content_key()
+    """ic_engine's checkpoint key (AST-normalized hash of the first-party src/ and services/
+    modules loaded) plus a hash of the harness's own sources, so a semantic change anywhere on
+    the path moves it and an unrelated commit does not."""
+    digest = hashlib.sha256(_checkpoint_content_key().encode())
+    for path in _HARNESS_SOURCES:
+        digest.update(path.name.encode())
+        digest.update(Path(path).read_bytes())
+    return digest.hexdigest()
+
+
+def _git() -> tuple[str, bool]:
+    """HEAD and whether the tree is dirty, recorded for the section 12 addendum."""
+    head = subprocess.run(["git", "rev-parse", "HEAD"], capture_output=True, text=True, check=True)
+    status = subprocess.run(
+        ["git", "status", "--porcelain"], capture_output=True, text=True, check=True
+    )
+    return head.stdout.strip(), bool(status.stdout.strip())
 
 
 def _save(out_dir: Path, stage: str, payload: Any, parent: str) -> Path:
+    commit, dirty = _git()
     blob = pickle.dumps(
-        {"stage": stage, "parent": parent, "code_key": _code_key(), "payload": payload}
+        {
+            "stage": stage,
+            "parent": parent,
+            "code_key": _code_key(),
+            "git_commit": commit,
+            "git_dirty": dirty,
+            "payload": payload,
+        }
     )
     path = Path(out_dir) / f"{stage}_{hashlib.sha256(blob).hexdigest()[:16]}.pkl"
     path.write_bytes(blob)
