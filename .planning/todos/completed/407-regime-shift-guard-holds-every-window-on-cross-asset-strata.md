@@ -1,7 +1,8 @@
 ---
-status: pending
+status: closed
 priority: P2
 filed: 2026-09-24
+closed: 2026-09-24
 source: first feature_lifecycle replay (todo 402 landing), window 2025-12-24 05:15 UTC
 ---
 
@@ -25,3 +26,13 @@ Decide whether a small cross-asset group's near-total fail rate is dislocation o
 state. Candidates: per-group rails in APR, a minimum per-stratum cell count before a stratum is
 hold-authoritative that reflects these groups' size, or seeding their history from a null run.
 Measure before choosing (distribution of stratum fail fractions per group across the recompute).
+
+## Closure (2026-09-24)
+
+Measured, not assumed: the fail fraction tracks statistical power (cross-asset CIs 3-6x wider than
+equity), so any fixed rail reads low power as dislocation. Per-group rails or group exemptions
+would only move a threshold on a confounded statistic. Fix (migration 361, feature_lifecycle
+stratum_guard): a stratum holds only against its own empirical band once it has guard_min_history
+earlier windows; before that it is 'uncalibrated' and never holds. The seeded rails and their APR
+keys are deleted. Follow-ups: 414 (power-normalized common-mode statistic), 415 (the lifecycle
+needs advancing training windows to act at all).

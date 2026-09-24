@@ -20,9 +20,10 @@ One run evaluates one training window:
 2. Flag material failures per cell: a failing cell (CI on its own side includes zero, or
    fails FDR) whose standing weight times its nearest CI bound exceeds
    alpha.decay.materiality_threshold.
-3. Regime-shift guard, stratified per (tf, regime_group) over active concepts' cells. The
-   window's verdict is 'hold_high' if any stratum holds. Calibration history counts one
-   observation per earlier window (latest fact per window), never the current window.
+3. Regime-shift guard, stratified per (tf, regime_group) over active concepts' cells. A
+   stratum holds only against its own calibrated history (todo 407: no level-based rail;
+   `uncalibrated` strata never hold). The window's verdict is 'hold_high' if any stratum
+   holds. History counts one observation per earlier window, never the current window.
 4. One concept_evaluation row per evaluated feature: active concepts are judged on the
    material-fail fraction, shadow_only concepts on the FDR pass fraction. The primary key
    (concept, window, evidence_key) makes a rerun on identical evidence a no-op.
@@ -94,8 +95,6 @@ class LifecycleConfig:
 
     lookahead_mid: dict[str, int]
     materiality_threshold: float
-    guard_fail_rate_max: float
-    guard_fail_rate_min: float
     guard_band_z: float
     guard_min_cells: int
     guard_min_history: int
@@ -114,8 +113,6 @@ class LifecycleConfig:
         return cls(
             lookahead_mid=lookaheads["mid"],
             materiality_threshold=_cfg(cfg, "alpha.decay.materiality_threshold", 0.005),
-            guard_fail_rate_max=_cfg(cfg, "alpha.decay.guard_fail_rate_max", 0.995),
-            guard_fail_rate_min=_cfg(cfg, "alpha.decay.guard_fail_rate_min", 0.85),
             guard_band_z=_cfg(cfg, "alpha.decay.guard_band_z", 3.0),
             guard_min_cells=_cfg(cfg, "alpha.decay.guard_min_cells", 100),
             guard_min_history=_cfg(cfg, "alpha.decay.guard_min_history", 8),
@@ -183,16 +180,59 @@ def guard_cells(cells: Iterable[dict[str, Any]], status_by_feature: dict[str, st
     ]
 
 
+@dataclass(frozen=True)
+class StratumGuard:
+    status: str  # ok / hold_high / alert_low / insufficient_cells / uncalibrated
+    band_lo: float | None
+    band_hi: float | None
+    n_history: int
+
+
+def stratum_guard(
+    fail_fraction: float, n_cells: int, history: Sequence[float], config: LifecycleConfig
+) -> StratumGuard:
+    """One (tf, regime_group) stratum's regime-shift verdict (todo 407).
+
+    A dislocation is a CHANGE, so a stratum is judged only against its own history:
+    the empirical band (median +/- band_z robust sigma of its earlier windows). Until a
+    stratum has guard_min_history earlier windows it is `uncalibrated`: recorded as
+    calibration history, never hold-authoritative. There is deliberately no level-based
+    rail. The fail fraction is dominated by statistical power (a few-instrument
+    cross-asset slice fails ~99% of cells in a normal window, equity ~95%), so a fixed
+    ceiling reads low power as dislocation. Without calibration a single bad window is
+    still covered by demotion hysteresis (demotion_min_consecutive windows)."""
+    if n_cells < config.guard_min_cells:
+        return StratumGuard("insufficient_cells", None, None, len(history))
+    if len(history) < config.guard_min_history:
+        return StratumGuard("uncalibrated", None, None, len(history))
+    # rails at [0, 1] are no constraint: the band is the stratum's own history alone. A
+    # zero-spread history returns the full [0, 1] band, i.e. no claim either way.
+    verdict = evaluate_guard_fraction(
+        fail_fraction,
+        n_cells,
+        history,
+        min_cells=config.guard_min_cells,
+        min_history=config.guard_min_history,
+        band_z=config.guard_band_z,
+        rail_lo=0.0,
+        rail_hi=1.0,
+    )
+    return StratumGuard(verdict.status, verdict.band_lo, verdict.band_hi, verdict.n_history)
+
+
 def window_guard_status(stratum_statuses: Sequence[str]) -> str:
     """Collapse per-stratum verdicts to the window's: any hold holds the whole window
-    (one dislocated market/horizon is reason to distrust every decision from it)."""
-    if not stratum_statuses or all(s == "insufficient_cells" for s in stratum_statuses):
-        return "insufficient_cells"
+    (one dislocated market/horizon is reason to distrust every decision from it).
+    Strata that make no claim (insufficient_cells, uncalibrated) never hold."""
     if "hold_high" in stratum_statuses:
         return "hold_high"
     if "alert_low" in stratum_statuses:
         return "alert_low"
-    return "ok"
+    if "ok" in stratum_statuses:
+        return "ok"
+    if "uncalibrated" in stratum_statuses:
+        return "uncalibrated"
+    return "insufficient_cells"
 
 
 @dataclass(frozen=True)
@@ -658,23 +698,19 @@ class FeatureLifecycle(BaseBatch):
         facts, statuses = [], []
         for subject, stratum in sorted(strata.items()):
             fail_fraction = sum(1 for c in stratum if c["_failed"]) / len(stratum)
-            verdict = evaluate_guard_fraction(
-                fail_fraction,
-                len(stratum),
-                history[subject],
-                min_cells=config.guard_min_cells,
-                min_history=config.guard_min_history,
-                band_z=config.guard_band_z,
-                rail_lo=config.guard_fail_rate_min,
-                rail_hi=config.guard_fail_rate_max,
-            )
+            verdict = stratum_guard(fail_fraction, len(stratum), history[subject], config)
             statuses.append(verdict.status)
-            # threshold_value: whichever bound is nearer (the one a small drift violates
-            # next); passed is false for both tails, true for ok/insufficient_cells.
+            # threshold_value: whichever band bound is nearer (the one a small drift
+            # violates next), NULL when the stratum makes no claim; passed is false only
+            # for the two tails.
             nearer_bound = (
-                verdict.band_hi
-                if abs(fail_fraction - verdict.band_hi) <= abs(fail_fraction - verdict.band_lo)
-                else verdict.band_lo
+                None
+                if verdict.band_hi is None
+                else (
+                    verdict.band_hi
+                    if abs(fail_fraction - verdict.band_hi) <= abs(fail_fraction - verdict.band_lo)
+                    else verdict.band_lo
+                )
             )
             facts.append(
                 (
@@ -695,7 +731,6 @@ class FeatureLifecycle(BaseBatch):
                     fraction=fail_fraction,
                     band_lo=verdict.band_lo,
                     band_hi=verdict.band_hi,
-                    band_source=verdict.band_source,
                     n_history=verdict.n_history,
                     training_window_end=str(self._window),
                 )

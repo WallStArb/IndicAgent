@@ -24,6 +24,7 @@ from services.feature_lifecycle import (
     guard_cells,
     latest_per_window,
     staleness,
+    stratum_guard,
     window_guard_status,
 )
 
@@ -37,8 +38,6 @@ def _config(**overrides) -> LifecycleConfig:
     base = dict(
         lookahead_mid={"5m": 6, "15m": 2, "1h": 2, "1d": 2},
         materiality_threshold=0.005,
-        guard_fail_rate_max=0.995,
-        guard_fail_rate_min=0.85,
         guard_band_z=3.0,
         guard_min_cells=100,
         guard_min_history=8,
@@ -218,13 +217,39 @@ def test_guard_cells_keep_active_non_earnings_only():
     [
         ([], "insufficient_cells"),
         (["insufficient_cells", "insufficient_cells"], "insufficient_cells"),
-        (["ok", "insufficient_cells"], "ok"),
+        (["uncalibrated", "insufficient_cells"], "uncalibrated"),
+        (["ok", "uncalibrated"], "ok"),
         (["ok", "alert_low"], "alert_low"),
-        (["alert_low", "hold_high", "ok"], "hold_high"),
+        (["alert_low", "hold_high", "uncalibrated"], "hold_high"),
     ],
 )
 def test_window_guard_status(statuses, expected):
     assert window_guard_status(statuses) == expected
+
+
+class TestStratumGuard:
+    """Todo 407: a stratum holds only on change against its own calibrated history."""
+
+    def test_no_history_never_holds_even_at_total_failure(self):
+        # The 176-08 cross-asset case: ~100% failing, no history -> no claim.
+        assert stratum_guard(1.0, 500, [], _config()).status == "uncalibrated"
+
+    def test_short_history_is_uncalibrated(self):
+        assert stratum_guard(0.999, 500, [0.99] * 7, _config()).status == "uncalibrated"
+
+    def test_small_stratum_is_insufficient(self):
+        assert stratum_guard(1.0, 50, [0.9] * 10, _config()).status == "insufficient_cells"
+
+    def test_calibrated_stratum_judged_against_own_band_not_a_global_rail(self):
+        # A structurally ~99.8% slice is normal against its own history...
+        hist = [0.997, 0.998, 0.999, 0.998, 0.997, 0.999, 0.998, 0.998]
+        assert stratum_guard(0.998, 500, hist, _config()).status == "ok"
+        # ...and an equity-like slice jumping far above its own band holds.
+        eq = [0.95, 0.96, 0.955, 0.96, 0.95, 0.958, 0.952, 0.957]
+        assert stratum_guard(0.999, 500, eq, _config()).status == "hold_high"
+
+    def test_zero_spread_history_makes_no_claim(self):
+        assert stratum_guard(1.0, 500, [0.9] * 8, _config()).status == "ok"
 
 
 # ---------------------------------------------------------------------------
