@@ -59,7 +59,7 @@ Data: `feature_ic_scores`, `training_window_end = '2025-12-24 05:15:00+00'`, rea
 - Whether earnings-season rows already persisted stay. They stay (never drop measured data).
 - Whether conditioning on a different calendar primitive would sharpen. Out of scope.
 
-## Verdict (run 2026-09-24, after the pre-registration commit df8cea78b)
+## Verdict (run 2026-09-24, after the pre-registration commit 9ac9cbac2)
 
 Script: `scripts/analysis/earnings_season_conditioning_null_controlled.py`, read-only against
 window 2025-12-24 05:15 UTC.

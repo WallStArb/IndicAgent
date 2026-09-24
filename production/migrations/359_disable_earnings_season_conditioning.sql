@@ -1,7 +1,7 @@
 -- Migration 359: disable ic_engine's earnings-season conditioning passes (todo 403)
 --
 -- The pre-registered, dependence-robust rule
--- (docs/research/earnings-season-conditioning-null-controlled-prereg.md, committed df8cea78b
+-- (docs/research/earnings-season-conditioning-null-controlled-prereg.md, committed 9ac9cbac2
 -- before the run) returned CONDITIONING_VERDICT=NOT_SHARPENED on the persisted 176-08 rows:
 -- 0 of 249 eligible (feature, tf) units significant under Benjamini-Yekutieli, in either the
 -- in-season or the mirror arm, with unit median z centred on zero in every tf. It supersedes
