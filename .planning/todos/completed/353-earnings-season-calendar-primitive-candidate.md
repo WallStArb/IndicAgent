@@ -21,7 +21,9 @@ per-company): day falls within 42 days after Mar 31 / Jun 30 / Sep 30 / Dec 31.
 Tested against `forward_returns.return_fast`, `return_type = 'executable_open_to_open'`,
 `tf = '1d'`, `complete_fast AND NOT return_fast_suspect` (Invariant 1 compliant).
 
-**Results:**
+**Results** (superseded 2026-09-23 by Phase 176 D-04: on the corrected 14-42-day window the
+proxy gives 1.90x in-season, Welch p=5.05e-05, 67% of symbols (155/233); the 4.3x / p=1.2e-17 /
+81% figures below used the uncorrected window and are kept only for audit):
 - Pooled: mean return in-season = 0.000484, off-season = 0.000113 (4.3x), Welch t=8.55,
   p=1.2e-17 (n=923,353 daily obs).
 - Per-symbol: 186/230 symbols (81%) show higher mean return in-season — broad, not
@@ -77,3 +79,21 @@ worth testing not just as a standalone feature but as a **conditioning/interacti
 buckets) — vol/volume-family features broadly may be regime-conditional on earnings season in a
 way the current HMM regime split doesn't capture, since HMM regimes are volatility-clustering
 based, not calendar-based.
+
+## Closure (2026-09-24)
+
+Closed by Phase 176 (`.planning/phases/176-earnings-season-calendar-primitive-todo-353/`),
+verdict of record in `176-GATE-VERDICT.md` (ic_engine corpus run at training_window_end
+2025-12-24 05:15 UTC, 233 symbols x 4 tfs):
+
+- `GATE_VERDICT_EARNINGS_SEASON_FLAG=FAIL`
+- `GATE_VERDICT_DAYS_SINCE_QUARTER_END=FAIL`
+- `CONDITIONING_VERDICT=SHARPENS` (thin support; `alpha.ic.earnings_season_conditioned` retained
+  `true`, re-decision filed as todo 403)
+
+Shipped: two calendar primitives (`earnings_season_flag`, `days_since_quarter_end`) in
+`feature_vectors`, plus the ic_engine earnings-season conditioning axis
+(`regime_scope='earnings_season'`, measurement-only, excluded from ensemble eligibility). Both
+primitives are reliable-N in every cell but never pass BH-FDR; they cluster with
+`quarter_cycle_sin` / `quarter_position` and are almost never the cluster representative. Their
+lifecycle status was not re-evaluated (todo 402).

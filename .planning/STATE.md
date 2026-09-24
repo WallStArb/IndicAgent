@@ -113,8 +113,8 @@ diagnostic run 2026-09-17 through 2026-09-22; next-step chain at the end of this
 
 **Next-step chain to the next expansion phase (not yet scoped):**
 
-1. Finish Phase 176 (waves 3-5; `SWEEP_VERDICT=CONFIRMED` cleared the D-01a-gated plans).
-   176-08's corpus run is the "next required recompute" the optimization bundle keys on.
+1. Phase 176 done 2026-09-24 (176-08's corpus run completed; both primitives FAIL the gate).
+   The next required recompute is the one the optimization bundle below keys on.
 
 2. **One bundled landing immediately after 176-08** (the whole-dict `active_scales` fingerprint
    key and any ic_engine.py edit each invalidate every cell, so these must land together and be
@@ -254,13 +254,14 @@ duplicated here. Currently open/not-yet-planned phases, compressed to current st
   separate later phase gated on the shadow report plus D-07 cross-AI review (todo 380, open);
   seeded thresholds currently admit 0 symbols.
 
-- **Phase 176 (Earnings-Season Calendar Primitive, todo 353): EXECUTING 2026-09-23, 4/8 plans
-  done (176-01/02/03/05); next up wave 3 (176-04, 176-07), then wave 4 (176-06), wave 5
-  (176-08). Execution is owned by a concurrent session — don't double-claim from elsewhere.** Wave 1's extended family sweep returned `SWEEP_VERDICT=CONFIRMED` (31 of 57
-  vol/volume features survive BH-FDR with broad cross-symbol agreement), clearing the D-01a
-  gate on the conditioning plans. 176-08 runs the IC gate verdict, rolls back the conditioning
-  APR on a non-SHARPENS verdict, and closes todo 353. Antigravity's third-opinion review is
-  still owed (quota-exhausted until ~2026-09-24T03:00 UTC); not required to proceed.
+- **Phase 176 (Earnings-Season Calendar Primitive, todo 353): EXECUTED 2026-09-24, 8/8 plans.**
+  Proxy evidence on the corrected 14-42-day window (D-04): 1.90x in-season, Welch p=5.05e-05,
+  67% of symbols (155/233). Real ic_engine gate
+  ([176-GATE-VERDICT.md](phases/176-earnings-season-calendar-primitive-todo-353/176-GATE-VERDICT.md)):
+  `GATE_VERDICT_EARNINGS_SEASON_FLAG=FAIL`, `GATE_VERDICT_DAYS_SINCE_QUARTER_END=FAIL` (reliable
+  everywhere, zero FDR passes, subsumed by `quarter_cycle_sin`/`quarter_position`),
+  `CONDITIONING_VERDICT=SHARPENS` on thin support, so `alpha.ic.earnings_season_conditioned`
+  stays `true` pending todo 403. Lifecycle hook skipped at the pinned window (todo 402).
 
 ## Session
 

@@ -2931,7 +2931,7 @@ Requirements:
 
 **Wave 5** *(blocked on Wave 4 completion)*
 
-- [ ] 176-08-PLAN.md - corpus IC gate run, verdict document, conditioning APR rollback on a non-SHARPENS verdict, todo 353 closure (wave 5)
+- [x] 176-08-PLAN.md - corpus IC gate run, verdict document, conditioning APR rollback on a non-SHARPENS verdict, todo 353 closure (wave 5)
 
 ---
 
