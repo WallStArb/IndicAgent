@@ -1,5 +1,9 @@
 #!/usr/bin/env python3
-"""H-A extreme-volume divergence, Track 1 (signal existence).
+"""H-A extreme-volume divergence and H-B confirmed reversal, Track 1 (signal existence).
+
+Each hypothesis is tested, reported and gated on its own (`--hypothesis h_a h_b`). H-B's
+statistic is `h_b_statistic` (forward-scan anchor, K_CONFIRM = 3 gated, 1/2/5 reported);
+everything below about the test machinery applies to both. What follows describes H-A.
 
 Pre-registration: docs/plans/2026-09-06-extreme-volume-divergence-confirmed-reversal-prereg.md
 ("Construction spec", "Track 1", "Fixed quantities"). Every quantity below is pinned there.
