@@ -173,12 +173,9 @@ Exit: expanded universe passes its gate; sleeve re-run with the frozen 179 metho
 Runs alongside 179 so idea generation never waits on one verdict; it yields CPU to the phase 178
 recompute only while that is running. Each run adds a row to the ledger and raises N_tested.
 
-- H-A/H-B extreme-volume divergence/confirmation (designs final since 2026-09-09; todo 372's
-  null-shift fix was AGY-reviewed CORRECT 2026-09-11; next step is the Track 1 script, which
-  must include the ungated morning/afternoon `volume_z` sub-panel from 372 finding 2).
+- H-A/H-B extreme-volume divergence/confirmation: both FAIL Track 1, 2026-09-24 (ledger now 16).
 - Cross-TF divergence pre-registration (momentum decorrelates across TFs; ensemble-level fusion
   does not exist yet).
-- Todo 403 (null-controlled re-decision of earnings-season conditioning).
 
 ## What stops
 

@@ -17,6 +17,13 @@ progress:
 
 ## Strategic Plan (read this first)
 
+**v3.4 Edge Proof, 2026-09-24.** 179: harness S0-S4 on main
+(`scripts/analysis/sleeve_walk_forward/`); V2 (6.0% false-pass), V3 (81% power at excess 0.85)
+and V4b (D7 null) PASS; V4 found a fidelity gap (todo 418) that blocks the freeze. N_tested for
+179 is 17. 181: H-A and H-B both FAIL Track 1 (ledger 16); next is the cross-TF divergence
+pre-registration. 178: recompute and trainer done (other session). Open data gaps: 411
+(features stale since 08-10), 412 (watermark), 413 (integration suite).
+
 **Personal-scale edge determination program: CLOSED 2026-09-12, kill criterion fired
 (rule 3), reconfirmed under adversarial review 2026-09-13.** 14 constructions run to a
 definitive verdict, zero PASS, across three structurally distinct paradigms (pooled
@@ -249,8 +256,6 @@ duplicated here. Currently open/not-yet-planned phases, compressed to current st
 
 ## Session
 
-Last session: 2026-09-24 (ended ~12:30 UTC on session budget). Host rebooted ~10:41 UTC mid
-nightly backfill; the Persistent timer re-ran it on the fixed `_empty_history.record()` code (0
-TypeErrors, 108 empty ranges recorded, still running at close: check exit status and stale counts).
-Set milestone v3.4; drafted and AGY-reviewed the 179 pre-registration; filed and fixed 408/409;
-filed 410 (fixed by the concurrent session); built 179 steps 1-3. Resume at 179 build step 4.
+Last session: 2026-09-24 (ended ~01:00 UTC 09-25). Built 179 steps 4-5 and most of 6; ran V2,
+V3, V4b, V4 and the H-A/H-B Track 1 run. Resume at todo 418 (V4 row-set diff), then V5 and the
+freeze.

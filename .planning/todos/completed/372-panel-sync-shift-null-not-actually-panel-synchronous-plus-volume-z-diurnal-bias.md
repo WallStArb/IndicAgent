@@ -1,5 +1,5 @@
 ---
-status: pending
+status: completed
 priority: P1
 filed: 2026-09-09
 source: AGY adversarial review round 3 of the H-B ("confirmed_reversal") redesign
@@ -132,3 +132,11 @@ assumed clean because two reviews already passed.
   `src/intelligence/feature_factory.py:1046-1055`, `:2165`.
 - Both independently re-verified against source during the H-B redesign's round 3 review,
   2026-09-09 — not accepted from the review's assertion alone.
+
+## Closed 2026-09-24
+
+Finding 1 fixed (5dd25cd15, cfc4a5b20) and AGY-reviewed CORRECT 2026-09-11. Finding 2: the
+ungated morning/afternoon sub-panel is in `scripts/analysis/extreme_volume_divergence_track1.py`
+and was reported in the H-A/H-B Track 1 run (both FAIL; H-A's afternoon arm more negative than
+its morning, so the open's volume smile did not drive it). The shared null now lives in
+`scripts/analysis/_date_panel.py`.
