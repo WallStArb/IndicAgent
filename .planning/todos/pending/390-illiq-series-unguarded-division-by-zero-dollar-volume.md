@@ -1,6 +1,6 @@
 ---
 status: pending
-priority: P2
+priority: P1
 filed: 2026-09-23
 source: found during todo 340's IHF investigation (2026-09-22), RuntimeWarning surfaced live,
   triaged and deferred at the time; confirmed root cause while closing out todo 340

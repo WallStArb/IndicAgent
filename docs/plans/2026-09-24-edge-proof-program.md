@@ -81,7 +81,6 @@ survivorship-selected by construction, and a failure of any of that is heard.
 - Todo 376: decide the survivorship sourcing method (delisted and closed ETFs/names with
   point-in-time membership) before phase 180 onboards anything. For the ETF sleeve the concrete
   question is closed/merged ETFs in each asset-class bucket.
-- Todo 390 (unguarded division in `_amihud_illiq_z_series_full`).
 - Confirm the 2026-09-24 backfill rerun and 2026-09-25 nightly: exit status, stale-symbol
   counts, `ohlcv_empty_history` growth.
 - Backlog triage: every pending todo gets one of on-path (named in a v3.4 phase), keep
@@ -132,9 +131,9 @@ information beyond a null signal, with weight-level out-of-sample evidence.
    come from `regime_group='equity'` for every symbol (hardcoded in `ensemble_trainer`), so
    GLD, TLT and VIXY are scored with equity-regime-stratified weights. The harness reproduces
    that first; an asset-class-aware variant is a separate pre-registered arm and counts toward
-   N_tested. Todo 248 (HMM per-symbol
-   parameter lookahead, fix built but not deployed) moves onto this path, and the
-   cross-sectional regime labels (`market_regimes`) get the same check.
+   N_tested. The equity regime labels are causal by construction; features computed from the
+   full-sample-fitted HMM (todo 248) are excluded rather than refitted. Full design: the phase
+   179 pre-registration, `docs/plans/2026-09-24-phase179-sleeve-walk-forward-prereg.md`.
 4. **Arms and null.** Keep `vol_normalized`, `ic_proportional`, `mean_variance`; replace
    `equal_weight` as the decision comparator with the same arm fed a circular-shifted
    `alpha_score` (the project's standing null-arm rule). Keep `equal_weight` as a reported
