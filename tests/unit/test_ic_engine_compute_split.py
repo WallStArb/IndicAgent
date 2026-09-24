@@ -362,13 +362,13 @@ def test_compute_cross_sectional_tf_calls_broadcast_cell_after_fetch_closes():
 
 def test_compute_cross_sectional_tf_calls_broadcast_cell_before_cluster_groups():
     """Phase 173 Plan 04 (D-07): _compute_one_broadcast_cell( must appear
-    textually BEFORE the cluster_groups representative-selection loop, so
+    textually BEFORE the representative selection (_mark_cluster_representatives), so
     broadcast rows enter the SAME corpus-level BH-FDR family as per-symbol
     pooled rows -- no separate FDR pass, no new table."""
     source = inspect.getsource(_compute_cross_sectional_tf)
 
     broadcast_call_idx = source.index("_compute_one_broadcast_cell(")
-    cluster_groups_idx = source.index("cluster_groups: dict[tuple, list[tuple[float, int]]] = {}")
+    cluster_groups_idx = source.index("_mark_cluster_representatives(all_results")
     assert broadcast_call_idx < cluster_groups_idx, (
         "_compute_one_broadcast_cell( must appear before the cluster_groups "
         "representative-selection loop -- broadcast rows must be present in "

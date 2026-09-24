@@ -3180,6 +3180,45 @@ def _group_cells_for_metrics(
     return emissions
 
 
+def _mark_cluster_representatives(
+    all_results: list[dict], pvals_flat: list[float], pval_result_idxs: list[int]
+) -> None:
+    """Cluster representative selection for corpus-level BH-FDR (P2 fix), shared by the
+    per-symbol and cross-sectional paths.
+
+    Within each (regime, lookahead_bars, cluster_id) group only the row with the largest
+    |ic_value| is the representative: its p-value and index are appended for the corpus
+    FDR pass, and it is left pending (passes_fdr untouched, so _backfill_bh_fdr picks it
+    up). Every OTHER row in the group gets passes_fdr=False and bh_adjusted_p=None now.
+    Degenerate rows (cluster_id is None) are excluded from FDR.
+
+    Todo 410: the two inline copies this replaces marked candidates[1:] instead of
+    "everything but the representative", so whenever the max-|IC| row was not first in
+    insertion order the true representative was marked non-representative and the first
+    row went into the corpus family with its own p-value.
+    """
+    groups: dict[tuple, list[int]] = {}
+    for idx, r in enumerate(all_results):
+        if r["cluster_id"] is None:
+            r["bh_adjusted_p"] = None
+            r["passes_fdr"] = False
+            continue
+        groups.setdefault((r["regime"], r["lookahead_bars"], r["cluster_id"]), []).append(idx)
+
+    def _abs_ic(idx: int) -> float:
+        ic = all_results[idx]["ic_value"]
+        return abs(ic) if ic is not None else 0.0
+
+    for members in groups.values():
+        rep_idx = max(members, key=_abs_ic)
+        pvals_flat.append(float(all_results[rep_idx]["p_value"]))
+        pval_result_idxs.append(rep_idx)
+        for idx in members:
+            if idx != rep_idx:
+                all_results[idx]["bh_adjusted_p"] = None
+                all_results[idx]["passes_fdr"] = False
+
+
 def _compute_symbol_tf(
     dsn: str,
     symbol: str,
@@ -3606,35 +3645,8 @@ def _compute_symbol_tf(
         # features (cluster_id is None) are also excluded from BH-FDR.
         # ------------------------------------------------------------------
 
-        # ------------------------------------------------------------------
-        # Cluster representative selection for corpus-level BH-FDR (P2 fix).
-        #
-        # Within each (regime_label, lookahead_bars, cluster_id) group only the
-        # feature with max(abs(ic_value)) is a representative. Non-representatives
-        # receive passes_fdr=False and bh_adjusted_p=None immediately.
-        # Representatives' p-values are returned to the main process for a single
-        # corpus-level BH-FDR pass across all 58 symbols × 4 TFs = 232 cells.
-        # Degenerate features (cluster_id is None) are excluded from BH-FDR.
-        # ------------------------------------------------------------------
-        cluster_groups: dict[tuple, list[tuple[float, int]]] = {}
-        for result_idx, r in enumerate(all_results):
-            cid = r["cluster_id"]
-            if cid is None:
-                r["bh_adjusted_p"] = None
-                r["passes_fdr"] = False
-                continue
-            group_key = (r["regime"], r["lookahead_bars"], cid)
-            ic_val = r["ic_value"]
-            abs_ic = abs(ic_val) if ic_val is not None else 0.0
-            cluster_groups.setdefault(group_key, []).append((abs_ic, result_idx))
-
-        for group_key, candidates in cluster_groups.items():
-            rep_result_idx = max(candidates, key=lambda x: x[0])[1]
-            pvals_flat.append(float(all_results[rep_result_idx]["p_value"]))
-            pval_result_idxs.append(rep_result_idx)
-            for _, non_rep_idx in candidates[1:]:
-                all_results[non_rep_idx]["bh_adjusted_p"] = None
-                all_results[non_rep_idx]["passes_fdr"] = False
+        # Representatives' p-values go to the main process for one corpus-level pass.
+        _mark_cluster_representatives(all_results, pvals_flat, pval_result_idxs)
 
         # BH-FDR is NOT applied here (P2 fix). pvals_flat and pval_result_idxs are
         # returned to the caller (_run_ic_worker -> main process) for corpus-level FDR.
@@ -5058,7 +5070,7 @@ def _compute_cross_sectional_tf(
         # the fetch `with` block above has already closed (connection-scoping
         # invariant test_compute_cross_sectional_tf_closes_connection_before_clustering
         # pins -- the reason the 143.1-07 corpus re-run crashed twice) and BEFORE the
-        # cluster_groups loop below, so broadcast rows enter the SAME corpus-level
+        # _mark_cluster_representatives call below, so broadcast rows enter the SAME corpus-level
         # BH-FDR family per D-07 -- no separate FDR pass, no new table. Shares the
         # same `rng` instance (not a fresh one) -- the cross-sectional pass's
         # documented reuse-not-reseed convention: one deterministic generator shared
@@ -5106,7 +5118,7 @@ def _compute_cross_sectional_tf(
         # across every cell -- no separate FDR pass, no new table. Each season
         # sub-cell's parent-qualified regime label (f"{regime_label}__in_season"/
         # "__off_season") differs from the parent's own regime_label, so the
-        # cluster_groups keying on (regime, lookahead_bars, cluster_id) already
+        # _mark_cluster_representatives keying on (regime, lookahead_bars, cluster_id) already
         # gives season rows their own representative-selection groups without any
         # extra machinery -- the same mechanism that already separates broadcast
         # rows (via the cluster_id offset) from per-symbol rows (via the shared
@@ -5183,28 +5195,7 @@ def _compute_cross_sectional_tf(
     pvals_flat: list[float] = []
     pval_result_idxs: list[int] = []
 
-    # Cluster representative selection for corpus-level BH-FDR (P2 fix).
-    # Non-representatives are marked immediately; representatives' p-values
-    # are returned to the main process for the single corpus-level FDR pass.
-    cluster_groups: dict[tuple, list[tuple[float, int]]] = {}
-    for result_idx, r in enumerate(all_results):
-        cid = r["cluster_id"]
-        if cid is None:
-            r["bh_adjusted_p"] = None
-            r["passes_fdr"] = False
-            continue
-        group_key = (r["regime"], r["lookahead_bars"], cid)
-        ic_val = r["ic_value"]
-        abs_ic = abs(ic_val) if ic_val is not None else 0.0
-        cluster_groups.setdefault(group_key, []).append((abs_ic, result_idx))
-
-    for group_key, candidates in cluster_groups.items():
-        rep_result_idx = max(candidates, key=lambda x: x[0])[1]
-        pvals_flat.append(float(all_results[rep_result_idx]["p_value"]))
-        pval_result_idxs.append(rep_result_idx)
-        for _, non_rep_idx in candidates[1:]:
-            all_results[non_rep_idx]["bh_adjusted_p"] = None
-            all_results[non_rep_idx]["passes_fdr"] = False
+    _mark_cluster_representatives(all_results, pvals_flat, pval_result_idxs)
 
     # BH-FDR is NOT applied here (P2 fix). pvals_flat and pval_result_idxs are
     # returned to main process for corpus-level FDR.

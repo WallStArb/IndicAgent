@@ -372,3 +372,49 @@ def test_emit_cell_gauges_effective_n_is_max_per_tf_regime(monkeypatch):
     ]
     ic_module._emit_cell_gauges(rows)
     assert seen == {("1d", "bull"): 9, ("1h", "bull"): 4}
+
+
+# ---------------------------------------------------------------------------
+# Todo 410: the representative is the max-|IC| row wherever it sits
+# ---------------------------------------------------------------------------
+
+
+def _fdr_row(ic, p, cluster=1, regime="bull", lookahead=2):
+    return {
+        "ic_value": ic,
+        "p_value": p,
+        "cluster_id": cluster,
+        "regime": regime,
+        "lookahead_bars": lookahead,
+        "passes_fdr": None,
+        "bh_adjusted_p": None,
+    }
+
+
+def test_representative_is_max_abs_ic_even_when_not_first():
+    rows = [_fdr_row(0.01, 0.40), _fdr_row(-0.09, 0.001), _fdr_row(0.03, 0.20)]
+    pvals, idxs = [], []
+    ic_module._mark_cluster_representatives(rows, pvals, idxs)
+    assert idxs == [1] and pvals == [0.001]
+    assert rows[1]["passes_fdr"] is None  # pending, picked up by _backfill_bh_fdr
+    assert rows[0]["passes_fdr"] is False and rows[2]["passes_fdr"] is False
+
+
+def test_representatives_are_per_regime_lookahead_cluster_and_degenerates_excluded():
+    rows = [
+        _fdr_row(0.02, 0.3, cluster=1),
+        _fdr_row(0.05, 0.1, cluster=2),
+        _fdr_row(0.04, 0.2, cluster=1, lookahead=5),
+        _fdr_row(0.50, 0.0, cluster=None),
+    ]
+    pvals, idxs = [], []
+    ic_module._mark_cluster_representatives(rows, pvals, idxs)
+    assert sorted(idxs) == [0, 1, 2]
+    assert rows[3]["passes_fdr"] is False and rows[3]["bh_adjusted_p"] is None
+
+
+def test_no_inline_representative_loops_remain():
+    for fn in (ic_module._compute_symbol_tf, ic_module._compute_cross_sectional_tf):
+        source = inspect.getsource(fn)
+        assert "candidates[1:]" not in source
+        assert "_mark_cluster_representatives(all_results" in source
