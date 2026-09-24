@@ -2,7 +2,7 @@
 
 **Author:** Claude (Opus 5.5), 2026-09-24, at Brandon's request; parent plan
 `docs/plans/2026-09-24-edge-proof-program.md`.
-**Status:** DRAFT, not frozen. Freezes on the commit that adds the section 12 addendum (feature
+**Status:** DRAFT, revised after AGY adversarial review (section 16), not frozen. Freezes on the commit that adds the section 12 addendum (feature
 exclusion list, code commit, snapshot hash), which must land before the walk-forward stage
 produces any out-of-sample number. After that, any change is a `methodology-change-ledger.md`
 entry.
@@ -14,10 +14,12 @@ carry allocation information across the 13-symbol cross-asset sleeve beyond what
 time-shifted copy of the same signal carries?
 
 "Beyond a time-shifted copy" is the whole test. The shifted signal keeps the real signal's
-distribution, persistence and cross-asset structure, including any static long or short tilt
-(e.g. being structurally long GLD). Only its alignment with future returns is destroyed. A PASS
-therefore means timing and allocation information, not a lucky persistent bet on an asset's
-drift. The earlier diagnostic could not separate the two.
+distribution, persistence and cross-asset structure; only its alignment with future returns is
+destroyed, and the whole portfolio pipeline (calibration included) is rerun on it. A signal
+that only tracks an asset's drift gets no credit: under the null the pipeline's calibrated IC is
+noise for the real run and the shifted runs alike, so drift earns nothing systematic in either.
+A PASS therefore means timing and allocation information. The earlier diagnostic could not
+separate the two.
 
 Verdict token: `SLEEVE_VERDICT = ACT | PASS | FAIL`, plus `FIDELITY = OK | BROKEN` (section 10).
 
@@ -54,15 +56,16 @@ question above. Checked against the code on 2026-09-24:
 | Sleeve | GLD, DBA, DBB, DBC, URA, TLT, UUP, VIXY, EMLC, HYG, XOM, DHI, PGR | Phase 174 cross-asset pre-registration; Gate A is correlation-only, Gate B did not bind (13/13 passed), so selection used no return information beyond Gate B's non-binding IC check |
 | Timeframe | 1d | |
 | Signal method | Production pooled cross-sectional IC, cluster-representative BH-FDR, IC shrinkage, meta-FDR eligibility, `select_features_per_stratum`, `resolve_stratum_weights` with `alpha.ensemble.weight_method` as of the snapshot, stratified by `market_regimes` `regime_group='equity'` labels | Reused code, section 4 |
-| Pooling universe for IC | All symbols with 1d `feature_vectors` rows before the refit date | Production pools over the whole universe; a sleeve-only fit would test a different signal |
+| Pooling universe for IC | The `equity` regime group's symbols, resolved by production routing (`ic_engine._build_symbol_regime_class`, 222 symbols at the snapshot), with 1d rows before the refit date | The trainer joins strata only to `regime_group='equity'` labels, so only equity-group pooled cells ever produce weights; commodity, rates and fx pooled cells are measured but never weighted. The sleeve is scored with equity-learned weights (section 14) |
 | Composite | `alpha = X @ (w * ic_sign)`, NULL feature = 0, no emission gate | `ensemble_trainer` step 6; `alpha_publisher` only filters on it |
 | Execution | alpha from day D's close; enter at open D+1, exit at open D+2; return `ln(open[D+2]/open[D+1])` | Diagnostic `_EMBARGO_BARS = 2`, CLAUDE.md Invariant 1 |
-| Portfolio arms (decision family) | `ic_proportional`, `vol_normalized`, `mean_variance`, gross exposure 1 | Diagnostic definitions, moved to a shared module unchanged |
+| Portfolio arms (decision family) | `ic_proportional`, `vol_normalized`, `mean_variance`, gross exposure 1 | Diagnostic definitions, moved to a shared module unchanged, including its 504-session warmup (`_INITIAL_WARMUP_BARS`) |
 | Instrument calibration | Diagnostic's trailing per-instrument IC, shrunk to the leave-one-out peer mean; point-in-time trailing coverage filter | Diagnostic, unchanged |
 | Weight aging | `days_since = 0` at every refit (weights fitted at T are used from T) | Deviation D3 |
 
 No arm is primary. `vol_normalized` was the best in-sample arm, so choosing it now would be
-selection by looking; all three signal arms form the decision family under Holm (section 8).
+selection by looking; all three signal arms form one decision family under the max-statistic
+permutation adjustment (section 7).
 
 ## 4. Architecture
 
@@ -72,13 +75,14 @@ selection by looking; all three signal arms form the decision family under Holm 
 S0 snapshot (async I/O, read-only)
       │  content-hashed files: features, forward returns, regime labels, APR, registry
       ▼
-S1 refit[k]  k = 2013..2025   (pure, one process per refit, parallel)
+S1 refit[k]  k = 2011..2025   (pure, one process per refit, parallel)
       │  per refit: IC cells → FDR → shrinkage → eligibility → stratum weights
       ▼
 S2 score   (pure)  alpha for trading days in [T_k, T_k+1) with refit-k weights
-      │  one date × symbol alpha panel, 2013-01 .. 2025-12-23
+      │  one date × symbol alpha panel, 2011-01 .. 2025-12-23
       ▼
-S3 evaluate (pure)  3 arms on the real panel + every admissible shifted panel
+S3 evaluate (pure)  3 arms on the real panel + every admissible shifted panel;
+      │  trading span 2013-01 .. 2025-12-23 (2011-2012 is the portfolio warmup)
       │
       ▼
 S4 verdict  decision rules → result JSON + ledger row + concept_registry row
@@ -99,8 +103,9 @@ production calls.
 
 | Step | Reused code | Change needed |
 |---|---|---|
-| Pooled IC per cell | `services/ic_engine.py::_compute_one_cross_sectional_cell` (arrays in, rows out) | None. Imported, never copied. Importing a Ring 2 private function is recorded debt, resolved by todo 214, not here |
-| Broadcast mask, cluster reps | Same function and its caller's representative selection | Extract the representative-selection loop from `_compute_cross_sectional_tf` into a pure helper both call |
+| Pooled IC per cell | `services/ic_engine.py::_compute_one_cross_sectional_cell` and `_compute_one_broadcast_cell` (arrays in, rows out) | None. Imported, never copied. The cell function expects all `_FEATURE_NAMES` columns, so the harness always passes the full matrix and removes excluded features through the `broadcast_mask` argument (masked columns leave X_nd and emit no rows), extended with the section 5 exclusions. Importing Ring 2 private functions is recorded debt, resolved by todo 214, not here |
+| Symbol routing | `ic_engine._build_symbol_regime_class` | None |
+| Cluster representatives | The representative loop in `_compute_symbol_tf` and `_compute_cross_sectional_tf` | Extract into one pure helper both call, fixing todo 410 (it marks `candidates[1:]` unsorted, so the wrong rows enter the BH family) |
 | BH-FDR | `ic_math.apply_bh_fdr` | None |
 | IC shrinkage | `scripts/ops/alpha/ops_ic_shrinkage.py::compute_shrinkage_updates` | Move to `src/intelligence/ensemble/shrinkage.py` if it isn't cleanly importable |
 | Eligibility + meta-FDR + stratum fit | `ensemble_trainer._eligibility_where` semantics, `_meta_eligible`, `select_features_per_stratum`, `compute_shrinkage_covariance`, `resolve_stratum_weights` | Extract `_process_stratum`'s compute half into `src/intelligence/ensemble/stratum_fit.py::fit_stratum(ic_rows, X, config, days_since)`. The trainer calls it; `days_since` becomes an explicit argument (the trainer keeps passing its wall-clock value, so its behavior is unchanged) |
@@ -108,10 +113,11 @@ production calls.
 | Panel null | New `src/intelligence/statistics/panel_null.py`: deterministic enumeration of admissible circular date shifts of a whole panel, plus the permutation p-value | New. Deliberately not `alpha_score_residual`'s `sync_shift_null_p` (todo 372: per-symbol `k % m` breaks panel synchrony) |
 | Manifest | `CorpusManifest` | None |
 
-Both extractions (`fit_stratum`, representative selection) are behavior-preserving refactors,
-each proved by an equivalence test on a fixture before the harness depends on it. After that,
-the production statistics are identical by construction and section 10's live check only has to
-cover data assembly.
+`fit_stratum` is a behavior-preserving refactor proved by an equivalence test on a fixture.
+The representative helper deliberately changes behavior (it fixes todo 410) and is proved by a
+test that puts the max-|IC| candidate second. After that, the production statistics are
+identical by construction except for that fix, and section 10's live check covers data assembly
+and the fields the fix doesn't touch.
 
 ### 4.3 Concurrency
 
@@ -120,8 +126,12 @@ cover data assembly.
   is built straight from asyncpg rows into a float32 array; no wide DataFrame.
 - S1: `ProcessPoolExecutor`, one refit per task. Workers are compute-only, memory-map the S0
   arrays read-only, and return rows. No worker opens a DB connection.
-- S3: the shifted panels are independent. Chunks of shifts are spread across processes; within a
-  chunk the arms are vectorized over dates.
+- S3: the return covariance at each date depends only on returns, so it is computed once and
+  shared by the real run and every shift. The per-instrument IC calibration depends on the
+  alpha panel, so it is recomputed per shift in a numba kernel (trailing rank correlation), with
+  chunks of shifts spread across processes. The measured cost of one shift goes in the
+  addendum; if the projected total exceeds 24 hours, the design is revisited before freezing,
+  never by thinning the null silently.
 - Everything is deterministic: the null is an exhaustive enumeration (no RNG), and every
   bootstrap inside reused code runs from a seed derived from the refit date and cell key.
 
@@ -135,7 +145,8 @@ taken in S0 and hashed into the manifest.
 
 ## 5. Data contract (S0)
 
-- Rows: `feature_vectors` tf='1d', inner join `forward_returns` on (symbol, tf, bar_ts) with
+- Rows: `feature_vectors` tf='1d' for the equity group's symbols (IC and weights) and the 13
+  sleeve symbols (scoring), inner join `forward_returns` on (symbol, tf, bar_ts) with
   `return_type='executable_open_to_open'`, left join `market_regimes` on `regime_group='equity'`,
   tf='1d', ts=bar_ts; plus 1d OHLCV opens for the 13 sleeve symbols from
   `market_data_ohlcv_tradeable`.
@@ -165,11 +176,14 @@ taken in S0 and hashed into the manifest.
 
 ## 6. Walk-forward protocol (S1, S2)
 
-- Refit dates T_k: first NYSE session of each year 2013 through 2025 (13 refits).
+- Refit dates T_k: first NYSE session of each year 2011 through 2025 (15 refits). The 2011 and
+  2012 refits exist to fill the portfolio's 504-session warmup; they produce alpha, not trades.
 - Training rows for refit k: 1d bars from 2007 on, with bar_ts < T_k and the label fully
   realized before T_k. For scale h (`alpha.ic.lookahead.1d.*`: 1, 2, 5, 10), a row at bar t
   qualifies only if its exit open t+h+1 falls on or before the session five days before T_k
-  (purge plus a 5-session embargo).
+  (purge plus a 5-session embargo). Implemented the way the cell function already expects:
+  X_raw is trimmed at the h=1 cutoff, and `complete_mat[t, scale]` is set False for every longer
+  scale whose exit falls past its own cutoff.
 - Everything fitted at refit k uses only those rows: cell IC, walk-forward folds, bootstrap CIs,
   cluster structure, BH-FDR family, shrinkage priors, meta-FDR rates, the feature covariance for
   cluster deflation. `market_regimes` equity labels are causal by construction (causal expanding
@@ -180,7 +194,7 @@ taken in S0 and hashed into the manifest.
   from refit k's weights for D's equity-regime stratum. The final segment runs to the last
   session before `oos_start`. Days whose stratum has no weights get alpha = NaN, carried into
   S3 as "no position", counted and reported.
-- Out-of-sample span: about 13 years, about 3,250 sessions.
+- Out-of-sample trading span: 2013 through 2025-12-23, about 13 years, about 3,250 sessions.
 
 ## 7. Null and statistics (S3)
 
@@ -193,8 +207,12 @@ taken in S0 and hashed into the manifest.
   the real signal sees. Panel-wide shifting keeps cross-asset signal correlation and
   persistence; the 63-session floor keeps slow features' autocorrelation from leaking alignment
   back in. There are about 3,120 admissible shifts, which puts the p-value resolution near 0.0003.
-- Per-arm permutation p: `p = (1 + #{S_null >= S_obs}) / (1 + K)`. One-sided.
-- Family: Holm across the three arms (valid under their dependence).
+- Multiplicity: Westfall-Young max-statistic permutation adjustment across the three arms,
+  which uses the exact joint null the shared shifts already produce. For each arm j,
+  standardize by its own null: `Z_j = (S_j - mean(S_j_null)) / sd(S_j_null)`, and likewise for
+  every shift. With `M_k = max_j Z_j(k)`, the adjusted one-sided p for arm j is
+  `(1 + #{k: M_k >= Z_j_obs}) / (1 + K)`. This controls the family-wise error strongly and,
+  unlike Holm, doesn't pay for the three arms being highly correlated.
 - Excess: `S_obs - median(S_null)` is the reported effect size.
 - Stability: each arm's daily excess return over its null median, averaged within three pinned
   sub-periods (2013-2016, 2017-2020, 2021-2025).
@@ -205,11 +223,14 @@ taken in S0 and hashed into the manifest.
 
 Pinned before any out-of-sample number exists. N_tested = 15 (the ledger's 14 plus this test).
 
+An arm qualifies if and only if its adjusted p < 0.05 and its excess is positive in at least 2
+of the 3 sub-periods.
+
 | Token | Condition |
 |---|---|
-| `FAIL` | Every arm's Holm-adjusted p >= 0.05, or the best-p arm's stability shows positive excess in fewer than 2 of 3 sub-periods |
-| `PASS` | Some arm has Holm-adjusted p < 0.05, and that arm's excess is positive in >= 2 of 3 sub-periods |
-| `ACT` | PASS, and that arm's Holm-adjusted p < 0.05 / 15, and after S5 its holdout excess return over the holdout null median is positive |
+| `FAIL` | No arm qualifies |
+| `PASS` | At least one arm qualifies |
+| `ACT` | PASS, and some qualifying arm has adjusted p < 0.05 / 15, and after S5 that arm's holdout excess return over its holdout null median is positive. If several qualify at that level, the one with the smallest adjusted p is the ACT arm |
 
 - The holdout (S5) is a sign check on the ACT arm. It cannot turn a FAIL into anything else; a
   negative holdout turns ACT into PASS.
@@ -221,17 +242,19 @@ Pinned before any out-of-sample number exists. N_tested = 15 (the ledger's 14 pl
 
 ## 9. Power
 
-Out of sample is about 13 years. Using t ≈ excess IR × sqrt(years), one-sided:
+Trading span about 13 years. Using t ≈ excess IR × sqrt(years), one-sided, and treating the
+max-statistic adjustment as no looser than Holm for the best arm (conservative; it is less
+strict when the arms are correlated, as they are):
 
-| Level | Raw p the best arm needs (Holm, 3 arms) | t | Excess IR needed |
+| Level | Critical t (best arm) | Excess IR at 50% power | Excess IR at 80% power |
 |---|---|---|---|
-| PASS | < 0.0167 | 2.13 | ~0.59 |
-| ACT | < 0.00111 | 3.06 | ~0.85 |
+| PASS | 2.13 | ~0.59 | ~0.82 |
+| ACT | 3.06 | ~0.85 | ~1.08 |
 
-Daily serial dependence makes these optimistic. The synthetic power check (section 10, V3)
-gives the harness's real power at excess IR 0.6. A true excess IR below about 0.4 will most
-likely FAIL; that is the stated limit of what this test can see, and the record should call a
-FAIL "no detectable timing information at this sample size", not "no signal".
+A true excess IR of 0.59 is a coin flip to PASS, not a likely one. Daily serial dependence
+makes all of these optimistic; the synthetic check (section 10, V3) measures the harness's
+real power at excess IR 0.6 and 0.8. A FAIL is recorded as "no detectable timing information at
+this sample size", not "no signal".
 
 ## 10. Gates before any out-of-sample number
 
@@ -240,9 +263,9 @@ In order. A failure stops the phase and is written up; nothing is tuned to get p
 | Gate | Check | Data it touches |
 |---|---|---|
 | V1 refactor equivalence | `fit_stratum` and representative-selection extractions: production outputs identical on fixtures; full unit suite green | Fixtures |
-| V2 null calibration | Synthetic panel with no signal: PASS rate over 200 seeds within 5% ± 3.1% (binomial 95% band) | Synthetic |
-| V3 power | Synthetic panel with planted excess IR 0.6: PASS rate reported; below 50% means the design is revisited before freezing | Synthetic |
-| V4 fidelity | Refit at T = 2025-12-24 on the S0 snapshot. Fields of every harness pooled 1d row that don't depend on RNG draws (the addendum lists them from reading `_compute_one_cross_sectional_cell`; expected: ic_value, n, cluster_id, ic_sharpe_hac and anything derived only from them) match production `feature_ic_scores` for the same keys to 1e-6; RNG-dependent fields (bootstrap CIs and whatever depends on them) match within a Monte Carlo tolerance pinned in the addendum. Scoped to rows production computes the same way (its FDR family and status filter differ by design, D1/D4) | In-sample only |
+| V2 null calibration | Synthetic panel with no signal: PASS rate over 200 seeds within 5% ± 3.1% (binomial 95% band). Each seed uses a random subsample of 199 admissible shifts (a valid Monte Carlo permutation test); the real run uses all of them | Synthetic |
+| V3 power | Synthetic panels with planted excess IR 0.6 and 0.8: PASS rates reported; below 50% at 0.8 means the design is revisited before freezing | Synthetic |
+| V4 fidelity | Refit at T = 2025-12-24 on the S0 snapshot, with production's own feature mask (no section 5 exclusions) and the equity-group universe, both cell paths (cross-sectional and broadcast). Fields of every harness pooled 1d row that don't depend on RNG draws (the addendum lists them from reading `_compute_one_cross_sectional_cell`; expected: ic_value, n, cluster_id, ic_sharpe_hac and anything derived only from them) match production `feature_ic_scores` for the same keys to 1e-6; RNG-dependent fields (bootstrap CIs and whatever depends on them) match within a Monte Carlo tolerance pinned in the addendum. `bh_adjusted_p` and `passes_fdr` are excluded from V4: the FDR family differs by design (D1) and production's flags carry todo 410 (D6) | In-sample only |
 | V5 controls | At every refit: `canary_acausal_placebo` is detected (passes the cell's own significance gate), proving the machinery can find leakage; the noise canaries pass FDR at no more than the nominal rate across refits; no canary ever receives a weight | In-sample per refit |
 | V6 leakage asserts | Runtime asserts in S1: no training row's label exit on or after T_k minus embargo; no scored day before T_k; S0 max(bar_ts) < oos_start | All |
 
@@ -278,10 +301,12 @@ in-sample for production already, so it spends nothing.
 | D3 | `days_since = 0` | Wall-clock aging is a defect (todo 408); weights fitted at T are fresh at T | Uniform-weight variant |
 | D4 | No present-day status filter | Status is decided with later data | Section 5 |
 | D5 | Covariance fitted on pre-T rows only | Production fits on all rows (todo 409) | None needed; strictly more causal |
+| D6 | Cluster representatives chosen correctly | Production marks unsorted `candidates[1:]` (todo 410) | None needed; a bug fix |
 
 ## 14. Residual biases that remain
 
-- **Survivorship in the pooling universe.** All 233 symbols are listed today (todo 376).
+- **Survivorship and present-day routing in the pooling universe.** All symbols are listed today
+  (todo 376), and equity-group membership comes from present-day tags.
   Delisted names would have joined the pooled IC; their absence likely inflates the IC of
   distress-sensitive features. Direction: optimistic. Not fixable in this phase.
 - **Design-time snooping.** Feature definitions and APR values were chosen by people who had
@@ -291,15 +316,17 @@ in-sample for production already, so it spends nothing.
   the point-in-time coverage filter admits it when its trailing window fills, so it's absent from
   about the first four out-of-sample years.
 - **Holdout viewed once in aggregate** (section 2); hence sign-check-only use.
-- **Equity-regime strata for non-equity assets.** Production scores GLD or TLT with weights
-  stratified by U.S. equity breadth/vol regimes. The harness reproduces this faithfully; an
+- **Equity-learned weights for non-equity assets.** Production learns weights from the equity
+  group's pooled IC, stratified by U.S. equity breadth/vol regimes, and applies them to GLD, TLT
+  and the rest of the sleeve. The harness reproduces this faithfully; an
   asset-class-aware variant is a separate future test that would count toward N_tested.
 
 ## 15. Build order
 
-1. File todos 409 (trainer covariance over all bars) and 408 (wall-clock weight aging);
-   promote todo 390 to P1.
-2. `fit_stratum` extraction + representative-selection extraction + equivalence tests (V1).
+1. File todos 409 (trainer covariance over all bars), 408 (wall-clock weight aging) and 410
+   (FDR representative selection); promote todo 390 to P1. Done 2026-09-24.
+2. `fit_stratum` extraction with its equivalence test, and the shared representative helper
+   with todo 410's fix and its test (V1).
 3. Move the portfolio arms to `src/intelligence/portfolio/weighting.py`; diagnostic imports them;
    its tests stay green.
 4. `panel_null.py` with tests.
@@ -313,3 +340,21 @@ in-sample for production already, so it spends nothing.
 
 Steps 2-4 are ordinary engineering on shared code and follow the Done-Coding SOP. Nothing in
 steps 1-7 computes an out-of-sample number.
+
+## 16. Review record
+
+AGY adversarial review, 2026-09-24, verdict "not freeze-ready". Every code claim was checked
+before disposition.
+
+| # | Finding | Disposition |
+|---|---|---|
+| 1 | Rerunning calibration per shift would let a drifting asset look like timing; freeze calibration at real-run values | Rejected. A permutation test must apply the same statistic, calibration included, to each shifted pairing. Under H0 the real run's calibrated IC is as noisy as the shifted runs', so drift earns nothing systematic in either; freezing calibration at the real values would leak real alignment into the null. Section 1 wording tightened |
+| 2 | The diagnostic's 504-session warmup silently removes 2013-2014 | Accepted, verified (`_INITIAL_WARMUP_BARS = 504`). Refits start 2011 so trading covers 2013-2025 |
+| 3 | V4 can't pass: production pools the equity group only, broadcast cells omitted, representative bug | Accepted, all three verified. Universe = equity group via production routing; broadcast cell path reused; V4 excludes FDR fields; the representative bug is real and corpus-wide (681,851 rows, 2,842 false `passes_fdr`), filed P0 as todo 410 |
+| 4 | The cell function hardcodes `_FEATURE_NAMES` | Accepted. Full matrix always passed; exclusions go through the mask |
+| 5 | FAIL and PASS not disjoint | Accepted. "Qualifying arm" defined once; FAIL = none qualify |
+| 6 | Power table showed the 50%-power effect size | Accepted. 50% and 80% columns |
+| 7 | Holm is conservative for co-permuted correlated arms | Accepted. Westfall-Young max-statistic |
+| 8 | Full per-shift rerun is expensive | Partly accepted. Covariance computed once (return-only); calibration per shift in a numba kernel, cost measured before freeze. Not by adopting finding 1's fixed calibration |
+| 9 | Per-scale purge ambiguous | Accepted. Trim at h=1, per-scale `complete_mat` |
+

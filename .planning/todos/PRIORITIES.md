@@ -187,8 +187,8 @@ close-or-park), target under 60 pending.
 | Phase | On-path todos |
 |---|---|
 | 177 Data integrity floor | 395, 376 |
-| 178 Recompute throughput bundle | 401, 389, 386, 399, 385 (prange layout), 404, 402 |
-| 179 Cross-asset sleeve walk-forward verdict | 393, 390, 408, 409 (pre-registration: `docs/plans/2026-09-24-phase179-sleeve-walk-forward-prereg.md`) |
+| 178 Recompute throughput bundle | 410 (FDR representative fix, then BH re-run), 401, 389, 386, 399, 385 (prange layout), 404, 402 |
+| 179 Cross-asset sleeve walk-forward verdict | 393, 390, 408, 409, 410 (pre-registration: `docs/plans/2026-09-24-phase179-sleeve-walk-forward-prereg.md`) |
 | 180 Cross-asset breadth expansion | 384, 380 (tags into peer grouping, if 179/180 need it) |
 | 181 Bounded construction track | 372 (review before H-A/H-B), 403 |
 
@@ -196,6 +196,7 @@ close-or-park), target under 60 pending.
 
 | Todo | Why now |
 |---|---|
+| [410](pending/410-ic-engine-cluster-representative-unsorted-wrong-rows-in-bh-fdr.md) | New 2026-09-24, AGY review of the 179 pre-registration, verified live. The cluster-representative loop marks `candidates[1:]` unsorted, so whenever the max-|IC| row isn't first the wrong row enters the corpus BH family: 681,851 rows carry a BH p they shouldn't, 2,842 of them `passes_fdr = true`. Affects every consumer of `passes_fdr`. Fix is cheap (re-derive representatives from stored rows, re-run BH as an UPDATE); land with the 178 bundle. |
 | [395](pending/395-nightly-backfill-fails-3-nights-weekly-ibkr-weekly-2fa-unattended.md) | **Re-tiered P1->P0 2026-09-24 (v3.4 phase 177): a silent weekly 3-day data gap plus an alert route that reaches nobody is a live integrity gap.** New 2026-09-23, found during post-power-outage recovery. Nightly backfill failed Mon-Wed of both of the last two weeks (IBKR connect timeout) after the weekly IBKR logout left the gateway waiting on an unattended 2FA tap; ~3-day OHLCV gap every week. Nobody saw it because `OneshotJobFailed` routes to a no-op Alertmanager receiver (since 2026-08-15). Fix the receiver first, then a gateway-auth probe and backfill retry. |
 
 (Todo 340 resolved 2026-09-22 -- both halves (IHF's `_canary_acausal_placebo` numerator guard

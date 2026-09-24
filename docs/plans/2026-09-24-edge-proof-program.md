@@ -113,19 +113,12 @@ information beyond a null signal, with weight-level out-of-sample evidence.
 1. **Pre-register before any new number is seen** (`docs/plans/`, same discipline as the
    personal-scale program). Pin the sleeve (the 13 Gate A symbols, fixed), the 1d horizon, the
    arms, the null, the statistic, the decision rule and the meta-FDR discount.
-2. **Walk-forward at the weight level, in an in-memory harness.** Expanding window, annual
-   refits 2019-2025: at each refit date, pooled 1d IC selection, shrinkage and ensemble weights
-   are fitted only on data before it, then scored on the next year. Built as one analysis
-   script that loads 1d `feature_vectors` for the full universe and calls the pure functions in
-   `src/intelligence/ensemble/` and `src/intelligence/statistics/ic_math.py`. Not by looping
-   the DB services, for two reasons checked 2026-09-24: `ensemble_trainer` reads
-   `feature_ic_scores` with no `training_window_end` filter, so extra walk-forward windows
-   written there would silently leak into production training; and it has no window, symbol or
-   tf flags. Pooling stays universe-wide because production weights are fitted on
-   `symbol='POOLED'` cells over all symbols; refitting on the 13 sleeve symbols alone would
-   test a different signal. Fidelity check before any walk-forward number: the harness fitted
-   at 2025-12-24 must reproduce production `ensemble_weights` for `run_2025122405150000`
-   within a pinned tolerance.
+2. **Walk-forward at the weight level, in an in-memory harness.** Annual refits (2011-2025;
+   2011-2012 fill the portfolio warmup, trading 2013-2025): IC selection, shrinkage and
+   weights are fitted only on data before each refit, pooled over the equity regime group as
+   production does, then scored on the next year. The harness reuses the production statistics
+   code and never writes production tables. The design, fidelity gates and decision rules live
+   only in the pre-registration, `docs/plans/2026-09-24-phase179-sleeve-walk-forward-prereg.md`.
 3. **Every input causal at each refit.** Regime labels that stratify the pooled cells, IC
    shrinkage, and any normalization must use only pre-refit data. Note that production strata
    come from `regime_group='equity'` for every symbol (hardcoded in `ensemble_trainer`), so
