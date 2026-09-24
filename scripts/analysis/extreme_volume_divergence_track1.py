@@ -46,6 +46,8 @@ _TF = "15m"
 _N_BOOT = 2000
 _N_NULL = 1000
 _MIN_ROWS = 100
+K_CONFIRM_GATED = 3
+K_CONFIRM_REPORTED = (1, 2, 5)
 _DATE_BLOCK = 5
 PASS_RULE = {"alpha": 0.05, "qualifying_floor": 0.10, "ic_min": 0.003, "n_subperiods": 3}
 _MORNING = (9 * 60 + 45, 11 * 60 + 30)  # bar open, America/New_York, inclusive
@@ -55,7 +57,7 @@ _FETCH_SQL = """
 SELECT fv.bar_ts, fv.bars_since_low_fast, fv.bars_since_high_fast, fv.volume_z,
        fr.return_fast, fr.complete_fast, fr.return_mid, fr.complete_mid
 FROM feature_vectors fv
-JOIN forward_returns fr
+LEFT JOIN forward_returns fr
   ON fr.symbol = fv.symbol AND fr.tf = fv.tf AND fr.bar_ts = fv.bar_ts
  AND fr.return_type = 'executable_open_to_open'
 WHERE fv.symbol = $1 AND fv.tf = '15m' AND fv.bar_ts < $2
@@ -70,6 +72,46 @@ def h_a_statistic(
     high = bars_since_high == 0
     proximity = np.where(low & ~high, 1.0, np.where(high & ~low, -1.0, np.nan))
     return -proximity * volume_z
+
+
+def h_b_statistic(
+    bars_since_low: np.ndarray,
+    bars_since_high: np.ndarray,
+    volume_z: np.ndarray,
+    *,
+    k_confirm: int,
+    warmup_bars: int,
+) -> np.ndarray:
+    """H-B confirmed_reversal over ONE symbol's full bar series in bar_ts order (the scan
+    carries across the whole series, so call it before any row filter).
+
+    Forward-scan anchor: a clean low or clean high sets the anchor at that bar; an outside bar
+    (both flags) hard-resets it; other bars carry it. The first `warmup_bars` bars never set or
+    reset an anchor. The statistic is defined only at bars exactly k_confirm bars after their
+    anchor: sign * mean(volume_z over the k_confirm bars after the anchor, the anchor bar
+    excluded), sign +1 for a low anchor and -1 for a high. A missing volume_z in the leg makes
+    it undefined. Vectorized: the last event index is a running max of event positions.
+    """
+    n = len(volume_z)
+    low = bars_since_low == 0
+    high = bars_since_high == 0
+    code = np.where(low & high, 3, np.where(low, 1, np.where(high, 2, 0)))
+    code[: min(warmup_bars, n)] = 0
+    pos = np.arange(n)
+    last = np.maximum.accumulate(np.where(code > 0, pos, -1))
+    anchor_type = np.where(last >= 0, code[np.maximum(last, 0)], 0)
+    fires = (anchor_type > 0) & (anchor_type < 3) & (pos - last == k_confirm)
+    finite = np.isfinite(volume_z)
+    csum = np.concatenate([[0.0], np.cumsum(np.where(finite, volume_z, 0.0))])
+    ccnt = np.concatenate([[0], np.cumsum(finite)])
+    i = pos[fires]
+    a = last[fires]
+    leg_sum = csum[i + 1] - csum[a + 1]
+    leg_cnt = ccnt[i + 1] - ccnt[a + 1]
+    sign = np.where(anchor_type[fires] == 1, 1.0, -1.0)
+    out = np.full(n, np.nan)
+    out[i] = np.where(leg_cnt == k_confirm, sign * leg_sum / k_confirm, np.nan)
+    return out
 
 
 def per_symbol_table(panel: Panel) -> list[dict]:
@@ -127,6 +169,16 @@ def diurnal_masks(bar_ts_utc: np.ndarray) -> tuple[np.ndarray, np.ndarray]:
     )
 
 
+def run_reported(panel: Panel) -> dict:
+    """Ungated robustness arm: family IC and the three sub-period ICs, no bootstrap or null."""
+    thirds = np.array_split(panel.calendar, PASS_RULE["n_subperiods"])
+    return {
+        "family_ic": panel.family_stat(),
+        "sub_ics": [_masked_family_stat(panel, np.isin(panel.dates, part)) for part in thirds],
+        "n_family": len(panel.family),
+    }
+
+
 def _masked_family_stat(panel: Panel, mask: np.ndarray) -> float:
     return panel.family_stat(score_override=np.where(mask, panel.scores, np.nan))
 
@@ -175,6 +227,12 @@ async def _fetch(dsn: str, only: list[str] | None = None) -> tuple[dict[str, np.
             oos = await conn.fetchval(
                 "SELECT config_value::timestamptz FROM config_state WHERE config_key = 'alpha.validation.oos_start'"
             )
+            dist_window_fast = int(
+                await conn.fetchval(
+                    "SELECT config_value FROM config_state "
+                    "WHERE config_key = 'feature.breakout.dist_window_fast'"
+                )
+            )
             symbols = [
                 r[0]
                 for r in await conn.fetch(
@@ -192,7 +250,16 @@ async def _fetch(dsn: str, only: list[str] | None = None) -> tuple[dict[str, np.
                 return None
             grid = np.array([tuple(r)[1:] for r in rows], dtype=object)
             num = np.where(grid == None, np.nan, grid).astype(float)  # noqa: E711
+            # H-B scans the symbol's full series (LEFT JOIN keeps bars without a forward
+            # return), before any completeness filter, with the pre-registered warmup.
+            h_b = {
+                f"h_b_k{k}": h_b_statistic(
+                    num[:, 0], num[:, 1], num[:, 2], k_confirm=k, warmup_bars=2 * dist_window_fast
+                )
+                for k in (K_CONFIRM_GATED, *K_CONFIRM_REPORTED)
+            }
             return {
+                **h_b,
                 "symbol": np.full(len(rows), sym),
                 "bar_ts": np.array(
                     [r[0].replace(tzinfo=None) for r in rows], dtype="datetime64[m]"
@@ -220,7 +287,7 @@ def _concat_blocks(blocks: list, requested: list[str] | None) -> dict[str, np.nd
 
 
 def _panel(
-    data: dict[str, np.ndarray], ret_key: str, complete_key: str
+    data: dict[str, np.ndarray], stat_all: np.ndarray, ret_key: str, complete_key: str
 ) -> tuple[Panel, np.ndarray, list[str]]:
     keep = data[complete_key] & np.isfinite(data[ret_key])
     sym_names, sym_ids = np.unique(data["symbol"][keep], return_inverse=True)
@@ -228,7 +295,7 @@ def _panel(
     order = np.lexsort((ts, sym_ids))
     # Days since epoch: a monotone calendar key (a 15m session sits inside one UTC day).
     dates = ts[order].astype("datetime64[D]").astype(np.int64)
-    stat = h_a_statistic(data["low"][keep], data["high"][keep], data["volume_z"][keep])[order]
+    stat = stat_all[keep][order]
     panel = Panel(
         sym_ids[order],
         dates,
@@ -244,7 +311,7 @@ def main(argv: list[str] | None = None) -> int:
     from src.config.settings import Settings
     from src.core.service_utils import setup_service_logging
 
-    parser = argparse.ArgumentParser(description="H-A extreme-volume divergence, Track 1")
+    parser = argparse.ArgumentParser(description="H-A / H-B extreme-volume Track 1")
     parser.add_argument("--out-dir", type=Path, default=Path("logs/extreme_volume"))
     parser.add_argument(
         "--smoke",
@@ -252,46 +319,65 @@ def main(argv: list[str] | None = None) -> int:
         metavar="SYMBOL",
         help="plumbing check only: these symbols, B = N = 50, output labeled smoke, no verdict",
     )
+    parser.add_argument("--hypothesis", nargs="+", choices=("h_a", "h_b"), default=["h_a", "h_b"])
     args = parser.parse_args(argv)
     setup_service_logging("logs/extreme_volume_divergence_track1.log")
     dsn = Settings().database_url.replace("postgresql+asyncpg://", "postgresql://")
     data, oos = asyncio.run(_fetch(dsn, args.smoke))
     n_boot, n_null = (50, 50) if args.smoke else (_N_BOOT, _N_NULL)
-    seed = hash_key_to_int("extreme_volume_divergence_h_a")
-    primary_panel, primary_ts, primary_names = _panel(data, "return_fast", "complete_fast")
-    primary = run_track1(
-        primary_panel, n_boot=n_boot, n_null=n_null, seed=seed, bar_ts_utc=primary_ts
-    )
-    mid_panel, mid_ts, mid_names = _panel(data, "return_mid", "complete_mid")
-    secondary = run_track1(mid_panel, n_boot=n_boot, n_null=n_null, seed=seed, bar_ts_utc=mid_ts)
-    for out, names in ((primary, primary_names), (secondary, mid_names)):
-        for row in out["per_symbol"]:
-            row["symbol"] = names[row["symbol_id"]]
+    h_a = h_a_statistic(data["low"], data["high"], data["volume_z"])
+    gated = {
+        "h_a": (h_a, "extreme_volume_divergence"),
+        "h_b": (data[f"h_b_k{K_CONFIRM_GATED}"], "confirmed_reversal_k3"),
+    }
+    results: dict[str, dict] = {}
+    for key in args.hypothesis:
+        stat, label = gated[key]
+        seed = hash_key_to_int(label)
+        arms = {}
+        for arm, ret_key, complete_key in (
+            ("primary_return_fast_gated", "return_fast", "complete_fast"),
+            ("secondary_return_mid_reported", "return_mid", "complete_mid"),
+        ):
+            panel, ts, names = _panel(data, stat, ret_key, complete_key)
+            out = run_track1(panel, n_boot=n_boot, n_null=n_null, seed=seed, bar_ts_utc=ts)
+            for row in out["per_symbol"]:
+                row["symbol"] = names[row["symbol_id"]]
+            arms[arm] = out
+        if key == "h_b":
+            arms["robustness_k_reported"] = {
+                f"k{k}": run_reported(
+                    _panel(data, data[f"h_b_k{k}"], "return_fast", "complete_fast")[0]
+                )
+                for k in K_CONFIRM_REPORTED
+            }
+        results[key] = {"statistic": label, **arms}
     commit = subprocess.run(
         ["git", "rev-parse", "HEAD"], capture_output=True, text=True
     ).stdout.strip()
     result = {
-        "hypothesis": "H-A extreme_volume_divergence",
         "tf": _TF,
         "oos_start": oos,
         "smoke": bool(args.smoke),
         "git_commit": commit,
         "run_at": datetime.now(UTC).isoformat(),
-        "primary_return_fast_gated": primary,
-        "secondary_return_mid_reported": secondary,
+        "hypotheses": results,
     }
     args.out_dir.mkdir(parents=True, exist_ok=True)
     kind = "smoke" if args.smoke else "track1"
-    path = args.out_dir / f"h_a_{kind}_{datetime.now(UTC):%Y%m%dT%H%M%SZ}.json"
+    path = (
+        args.out_dir / f"{'_'.join(args.hypothesis)}_{kind}_{datetime.now(UTC):%Y%m%dT%H%M%SZ}.json"
+    )
     path.write_text(json.dumps(result, indent=2, default=float))
     print(path)
-    label = (
-        "SMOKE, no verdict" if args.smoke else ("PASS" if primary["verdict"]["pass"] else "FAIL")
-    )
-    print(
-        f"H-A Track 1: {label} "
-        f"(family IC {primary['family_ic']:.5f}, CI {primary['ci']}, null p {primary['null_p']:.4f})"
-    )
+    for key, res in results.items():
+        primary = res["primary_return_fast_gated"]
+        verdict_label = "PASS" if primary["verdict"]["pass"] else "FAIL"
+        label = "SMOKE, no verdict" if args.smoke else verdict_label
+        print(
+            f"{key} Track 1: {label} (family IC {primary['family_ic']:.5f}, "
+            f"CI {primary['ci']}, null p {primary['null_p']:.4f})"
+        )
     return 0
 
 

@@ -23,7 +23,13 @@ free the box. Output keeps the per-symbol table (IC, n, p, BY and BH flags) and 
 negative-qualifier count. Two reported-only items from "Reported, never gated" are not produced
 yet and are deferred, never gating: the per-regime table (needs regime labels the fetch doesn't
 pull) and the raw arm (the spec doesn't pin which non-divergence statistic it means). H-B's
-script is not written yet.
+script is written too (same file, `--hypothesis h_a h_b`): `h_b_statistic` is a vectorized
+form of the pseudocode above, tested equal to a literal transcription of it on random
+sequences (K = 1, 2, 3, 5, warmup 40), and computed on each symbol's full series (LEFT JOIN to
+`forward_returns`, so bars without a forward return don't break a leg) before the completeness
+filter. Smoke density check on SPY/15m matches the calibration above: H-A 25.5% of complete
+bars, H-B K=3 6.9%. Ruling: the K = 1, 2, 5 robustness arms report family IC and sub-period ICs
+only (no bootstrap or null), since they are ungated.
 
 **Update 2026-09-10:** the compute blocker has cleared — the corpus `ic_engine` recompute
 this doc's own "Not yet done" section was waiting on completed clean 2026-09-10 (all 8
