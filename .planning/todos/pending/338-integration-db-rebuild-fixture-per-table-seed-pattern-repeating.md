@@ -38,3 +38,14 @@ don't file a fourth narrow single-table todo, come back to this one instead.
 
 P3 — no live impact today (both known occurrences are fixed), purely a "watch for the third"
 tripwire. Not a real gap yet.
+
+## Third occurrence (2026-09-24): the trigger fired
+
+Every `-m integration` test now errors in the rebuild fixture, on main as well as the post-176
+bundle branch: migration 322 inserts `vocabulary_group_member (timeframe, 1m)`, whose FK target
+row in `controlled_vocabulary` was DML-seeded before the baseline cutoff and never reaches
+`indicagent_test`. Same failure mode as `instruments` and `tag_vocabulary`. Found while replacing
+`test_concept_registry_sync_lifecycle.py` with `test_concept_registry_transition.py` (todo 402);
+the new test could not run, so `record_transition` was verified against the live schema inside a
+rolled-back transaction instead. Re-tiered P3 -> P2: the whole integration suite is dark until
+this is generalized.

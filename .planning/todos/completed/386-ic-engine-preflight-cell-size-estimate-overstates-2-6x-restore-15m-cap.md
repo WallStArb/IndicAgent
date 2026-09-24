@@ -1,7 +1,8 @@
 ---
-status: pending
+status: closed
 priority: P1
 filed: 2026-09-21
+closed: 2026-09-24
 source: 2026-09-17 full corpus ic_engine run died 2026-09-20 09:19 UTC after 2.6 days on a guard artifact; worked around with an APR-only cap raise (migration 347) that leaves the guard loosened until this lands
 ---
 
@@ -58,3 +59,12 @@ accumulator, verified by 5m high_bear completing 2026-09-21 with about 12 GB pea
 (`np.sqrt(np.where(neg_mask, window_ics**2, 0.0).sum(axis=0) / sum_neg)`), in the rerun's stdout. Looks
 like a zero `sum_neg` giving NaN, not a crash. Not checked whether earlier runs emitted it or whether a
 NaN reaches a written column.
+
+## Closure (2026-09-24)
+
+All three fix items shipped in migration 353 (perf/ic-engine-speedups, before the 176-08 run):
+the exact cross-sectional row count (`_count_cross_sectional_cell_rows`) drives the cap check,
+disk-backed decision and headroom check; `alpha.ic.max_cell_rows` is back to 15,000,000; and
+`tests/unit/test_ic_engine_cell_memory_bound.py::test_sparse_history_cell_not_rejected_on_full_density_estimate`
+pins the sparse-history case. The 176-08 run completed under it. The unverified divide warning
+above moved to todo 406.
