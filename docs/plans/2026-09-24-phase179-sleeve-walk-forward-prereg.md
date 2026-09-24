@@ -203,6 +203,14 @@ taken in S0 and hashed into the manifest.
 - Portfolio: for each arm and day, weights come from the diagnostic's machinery applied to the
   alpha panel up to D. Daily gross return `r_D = sum_i w_i,D * ret_i,D+1` (execution
   convention in section 3). Metric: annualized Sharpe of r over the out-of-sample span.
+  Sharpe, not Sortino or a deflated Sharpe, decided 2026-09-24 before any run: the p-value
+  comes from ranking against the shifted panels, which carry the same fat tails, skew and
+  autocorrelation, so any statistic is valid and the choice is about power and meaning.
+  Sortino's downside-only denominator is estimated from about half the days, which widens the
+  null and costs power this sample can't spare, and it rewards return shape rather than the
+  timing and allocation skill under test. Deflated and HAC-adjusted Sharpe correct for
+  multiplicity and autocorrelation, which the Westfall-Young adjustment and the null already
+  handle. One pre-committed statistic; the shape measures are section 11 diagnostics.
 - Null: the whole date × symbol alpha panel is circularly shifted by k sessions, all symbols
   together, for every k with 63 <= k <= n-63. The portfolio stage reruns in full on each shifted
   panel, including instrument calibration and covariance, so the null sees exactly the pipeline
@@ -278,6 +286,8 @@ in-sample for production already, so it spends nothing.
 ## 11. Diagnostics (reported, never decisive)
 
 - Net-of-cost Sharpe per arm with a bps model per asset class (todo 393's fix), plus turnover.
+- Per arm: Sortino, max drawdown, skew, excess kurtosis and daily hit rate, for the real run and
+  the null median. They inform sizing if the token is PASS or ACT; they never change it.
 - Per-year and per-sub-period excess; per-symbol contribution; per-equity-regime stratum.
 - `equal_weight` long-only reference; a static-tilt reference (each symbol's time-averaged signed
   weight held constant), which isolates the tilt the null already absorbs.

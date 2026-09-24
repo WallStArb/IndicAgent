@@ -657,3 +657,5 @@ dropped earnings-season clause) were caught by the tests written after.
 - [ ] Pin in the addendum: the BH family excludes production's 1d POOLED `earnings_season`
       cells; V6 wording (section 10 vs section 6); `n_rows_off_session` count.
 - [ ] Hygiene: read `fdr_alpha` from `ICEngineConfig`; hoist `group.X[keep]` out of the label loop.
+- [ ] Section 11 shape diagnostics per arm (Sortino, max drawdown, skew, excess kurtosis, hit
+      rate), real run and null median, in the S3 payload; reported only, never read by `decide`.
