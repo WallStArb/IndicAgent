@@ -286,6 +286,7 @@ separation test), not hygiene.
 
 | Todo | What |
 |---|---|
+| [407](pending/407-regime-shift-guard-holds-every-window-on-cross-asset-strata.md) | New 2026-09-24, first feature_lifecycle replay. Cross-asset strata (commodity/fx/rates) fail at 99.6-100%, above the seeded 0.995 rail with no history, so every window is held and no lifecycle evidence counts. Decide per-group rails vs. seeded history after measuring stratum fail fractions. |
 | [405](pending/405-ensemble-trainer-ic-read-not-scoped-to-training-window.md) | New 2026-09-24, post-176 bundle review. ensemble_trainer's stratum IC read has no `training_window_end` filter, so a second window (or rows from a deleted scale) would compete in feature selection. Harmless while one window exists; pin before a second is ever written. |
 | [338](pending/338-integration-db-rebuild-fixture-per-table-seed-pattern-repeating.md) | Re-tiered P3 -> P2 2026-09-24: the third-occurrence trigger fired (`controlled_vocabulary`, migration 322 FK), so every `-m integration` test errors in the rebuild fixture on main. Generalize the reference-table seed per the todo instead of patching one table. |
 | [398](pending/398-ic-engine-scratch-dir-shares-db-filesystem.md) | New 2026-09-23, from Phase 174 review WR-05. ic_engine memmap scratch (`/var/tmp`) shares a filesystem with the TimescaleDB volume; the fix branch added a free-space reserve (migration 352) as a guard, but the structural fix is scratch on separate storage. Infra decision. |

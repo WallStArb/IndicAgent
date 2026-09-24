@@ -141,3 +141,19 @@ parts, and governance and measurement can change independently.
 - Migrating `domain='ensemble_strategy'` (`record_comparison_outcome`, `promotion_consecutive`)
   onto `concept_evaluation`. The table is domain-generic so it can follow; separate todo.
 - Whether the materiality threshold (0.005) is right. APR calibration backlog.
+
+## First replay (2026-09-24, after landing)
+
+`services/feature_lifecycle.py --training-window-end 2025-12-24T05:15:00+00:00`, dry run first,
+then real, then a rerun, all against the 176-08 IC.
+
+- Transitions: 0, as predicted. Material cells: 0 of 90,220.
+- Ledger rows: 295, not the predicted 294. The prediction counted `concept_transition_log`
+  rows (294); 295 feature concepts are `active` (one has no genesis log row), and all 295 were
+  evaluated. A counting slip in the prediction, not a code surprise.
+- Rerun on identical evidence: still 295 rows (upsert refreshed `evaluated_at`/`run_ref` only).
+- Surprise: the window reads `hold_high`. Eight cross-asset strata (commodity/fx/rates at
+  15m/1h/1d) fail at 99.6-100%, above the seeded 0.995 rail, with no calibration history (the
+  groups postdate the guard's 2026-07 calibration). Under the unchanged guard rule a held window
+  is not evidence, so nothing would count until those strata accrue `guard_min_history`
+  windows. Filed as todo 407; it would have held the retired hook the same way.
