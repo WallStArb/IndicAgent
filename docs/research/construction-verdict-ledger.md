@@ -79,6 +79,18 @@ a stale number.
   flagged before the gate fired has now been tried and doesn't clear even the screening
   bar. Does not itself get a ledger row (no construction was ever pre-registered off it
   — nothing to verdict), recorded here so the gap doesn't get re-flagged as untested.
+  **Corrected 2026-09-24: this screen did not test time-series momentum, and TSMOM is still
+  untested.** At 1d, `ctf_momentum` is a same-timeframe 14-period Wilder RSI scaled to
+  [-1, +1] (`feature_factory.py`'s `ctf_higher_tf_map` comment, todo 189;
+  `services/backfill_feature_factory.py::_build_ctf_series`), and 1d `return_mid` is 2
+  sessions (`alpha.ic.lookahead.1d.mid`, per-tf keys since todo 146), not the H=5 the script's
+  docstring states. So the screen measured a two-week oscillator against a two-day forward
+  return, which is short-term reversal territory. Classic TSMOM (Moskowitz, Ooi and Pedersen
+  2012: 12-month lookback, monthly holding, volatility-scaled positions) was never run. The
+  consistent negative IC is itself a short-term reversal hint (same sign in every split), seen
+  in-sample, so any reversal pre-registration must disclose it and exclude this screen's
+  symbols and window from its evidence. Both are queued in phase 181
+  (`docs/plans/2026-09-24-edge-proof-program.md`, "Phase 181 queue").
 - **`range_pct_fast_xs_ls_h5` beta-by-universe-composition diagnostic — led to a real
   pre-registered successor test, now CLOSED DEAD, 2026-09-13.** The diagnostic itself
   (single-name-only β=0.91/R²=0.44 vs. pooled β=1.14/R²=0.75, neutralized intercept

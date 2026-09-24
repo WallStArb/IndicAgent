@@ -174,8 +174,49 @@ Runs alongside 179 so idea generation never waits on one verdict; it yields CPU 
 recompute only while that is running. Each run adds a row to the ledger and raises N_tested.
 
 - H-A/H-B extreme-volume divergence/confirmation: both FAIL Track 1, 2026-09-24 (ledger now 16).
-- Cross-TF divergence pre-registration (momentum decorrelates across TFs; ensemble-level fusion
-  does not exist yet).
+
+#### Phase 181 queue (re-ranked 2026-09-24, council review)
+
+Sixteen verdicts, zero PASS, mostly on constructions with no economic mechanism and no
+published out-of-sample record. Each test spends multiplicity budget, so the queue is ordered
+by prior times power, not by what is ready to run. Two findings set the new order:
+
+- **TSMOM was never tested.** The 2026-09-13 "TSMOM screen" measured a 14-period daily RSI
+  (`ctf_momentum` at 1d) against a 2-session forward return. Classic time-series momentum, the
+  best-documented cross-asset premium, has no verdict here (ledger note corrected the same
+  day).
+- **The one evaluator already exists.** `sleeve_walk_forward/evaluate.py::evaluate` takes any
+  `alpha[session, symbol]` panel and runs the three arms, the whole-panel circular-shift null,
+  Westfall-Young and the pinned rules, validated by V2/V3. S1 (refits) and V4 (fidelity to
+  production) exist only because the production ensemble has fitted parameters; a
+  parameter-free signal needs neither.
+
+Architecture: one DAG, each node one job, no production writes.
+
+```
+S0 snapshot (content-hashed, read-only)
+  -> signal source: pure function, snapshot -> alpha[session, symbol]
+       ensemble refit (S1, phase 179) | tsmom | st_reversal | ...
+  -> S3 evaluate (arms + shift null + Westfall-Young) -> S4 verdict -> ledger row
+```
+
+A new candidate is a small pure signal function plus a short pre-registration naming the
+signal, universe and direction; the statistics are pinned once for all of them. Each signal
+whose persistence differs from V2's AR(1) phi = 0.98 world gets its own synthetic V2 (null
+calibration) and V3 (power) run before its real run, with the signal computed exactly as in
+the real run, because the calibration of a circular-shift null depends on the signal's memory.
+
+| # | Candidate | Why here | Todo |
+|---|---|---|---|
+| 1 | TSMOM on the 13-symbol sleeve (12-month trailing log return, harness sizing) | Highest prior, parameter-free, fits the evaluator unchanged, independent of todo 418 | 419 |
+| 2 | Short-term reversal (about 1 week, market-neutral) on single names | Documented anomaly plus a consistent in-sample hint (disclosed; the screen's symbols and window excluded from evidence); needs V2 at low persistence and the survivorship caveat (376) | 420 |
+| 3 | Sleeve ensemble walk-forward (phase 179) | Only fitted positive result | 418 |
+| 4 | Cross-TF divergence | Low prior, same family as the 16 failures; runs after 1-2 | none yet |
+
+Each candidate adds a ledger row and raises N_tested for everything verdicted after it. Guard
+rails pinned in each pre-registration: no real-data number before the pre-registration commit;
+the snapshot `end_exclusive` stays at `alpha.validation.oos_start`; missing prices give no
+position, never a fill; survivorship stated as a residual bias.
 
 ## What stops
 
