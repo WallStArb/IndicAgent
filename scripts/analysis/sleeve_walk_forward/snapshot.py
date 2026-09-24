@@ -136,14 +136,19 @@ async def build_snapshot(
             async with pool.acquire() as c:
                 return await c.fetch(sql, sym, lo, hi)
 
-        feature_rows = await asyncio.gather(*(fetch(_FEATURE_ROWS_SQL, s) for s in universe))
+        async def fetch_block(sym: str) -> dict[str, np.ndarray] | None:
+            # Converted as each fetch lands, so at most the pool's in-flight symbols hold raw
+            # asyncpg records (the unconverted version peaked at 13 GB for the full universe).
+            return _symbol_block(sym, await fetch(_FEATURE_ROWS_SQL, sym))
+
+        symbol_blocks = await asyncio.gather(*(fetch_block(s) for s in universe))
         bar_rows = await asyncio.gather(*(fetch(_BARS_SQL, s) for s in sleeve))
     finally:
         await pool.close()
 
     sessions = np.array([_day(r["timestamp"]) for r in spy], dtype="datetime64[D]")
     arrays, manifest = _assemble(
-        sessions, universe, feature_rows, sleeve, bar_rows, label_rows, routing, broadcast
+        sessions, symbol_blocks, sleeve, bar_rows, label_rows, routing, broadcast
     )
     manifest.update(
         oos_start=oos.isoformat(),
@@ -177,20 +182,27 @@ def _numeric(block: np.ndarray, dtype: type) -> np.ndarray:
     return np.where(block == None, np.nan, block).astype(dtype)  # noqa: E711
 
 
-def _assemble(sessions, universe, feature_rows, sleeve, bar_rows, label_rows, routing, broadcast):
+def _symbol_block(sym: str, rows: list) -> dict[str, np.ndarray] | None:
+    """One symbol's fetched rows as typed arrays; None when it has no rows."""
+    if not rows:
+        return None
     n_feat, n_s = len(_FEATURE_NAMES), len(_SCALES)
-    blocks = {k: [] for k in ("symbol", "bar_ts", "X", "returns", "complete", "has_fr")}
-    for sym, rows in zip(universe, feature_rows):
-        if not rows:
-            continue
-        blocks["symbol"].append(np.full(len(rows), sym))
-        blocks["bar_ts"].append(np.array([_day(r[0]) for r in rows], dtype="datetime64[D]"))
-        grid = np.array([tuple(r) for r in rows], dtype=object)
-        blocks["X"].append(_numeric(grid[:, 1 : 1 + n_feat], np.float32))
-        blocks["returns"].append(_numeric(grid[:, 1 + n_feat : 1 + n_feat + n_s], np.float64))
-        blocks["complete"].append(grid[:, 1 + n_feat + n_s : 1 + n_feat + 2 * n_s].astype(bool))
-        blocks["has_fr"].append(grid[:, -1].astype(bool))
-    cat = {k: np.concatenate(v) for k, v in blocks.items()}
+    grid = np.array([tuple(r) for r in rows], dtype=object)
+    return {
+        "symbol": np.full(len(rows), sym),
+        "bar_ts": np.array([_day(r[0]) for r in rows], dtype="datetime64[D]"),
+        "X": _numeric(grid[:, 1 : 1 + n_feat], np.float32),
+        "returns": _numeric(grid[:, 1 + n_feat : 1 + n_feat + n_s], np.float64),
+        "complete": grid[:, 1 + n_feat + n_s : 1 + n_feat + 2 * n_s].astype(bool),
+        "has_fr": grid[:, -1].astype(bool),
+    }
+
+
+def _assemble(sessions, symbol_blocks, sleeve, bar_rows, label_rows, routing, broadcast):
+    n_feat = len(_FEATURE_NAMES)
+    present = [b for b in symbol_blocks if b is not None]
+    cat = {k: np.concatenate([b[k] for b in present]) for k in present[0]}
+    del present
     idx = np.searchsorted(sessions, cat["bar_ts"])
     on_session = (idx < len(sessions)) & (
         sessions[np.minimum(idx, len(sessions) - 1)] == cat["bar_ts"]
