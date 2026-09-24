@@ -105,17 +105,17 @@ production calls.
 |---|---|---|
 | Pooled IC per cell | `services/ic_engine.py::_compute_one_cross_sectional_cell` and `_compute_one_broadcast_cell` (arrays in, rows out) | None. Imported, never copied. The cell function expects all `_FEATURE_NAMES` columns, so the harness always passes the full matrix and removes excluded features through the `broadcast_mask` argument (masked columns leave X_nd and emit no rows), extended with the section 5 exclusions. Importing Ring 2 private functions is recorded debt, resolved by todo 214, not here |
 | Symbol routing | `ic_engine._build_symbol_regime_class` | None |
-| Cluster representatives | The representative loop in `_compute_symbol_tf` and `_compute_cross_sectional_tf` | Extract into one pure helper both call, fixing todo 410 (it marks `candidates[1:]` unsorted, so the wrong rows enter the BH family) |
+| Cluster representatives | `ic_engine._mark_cluster_representatives`, called by both passes | Done 2026-09-24 (7fa346137, todo 410) |
 | BH-FDR | `ic_math.apply_bh_fdr` | None |
 | IC shrinkage | `scripts/ops/alpha/ops_ic_shrinkage.py::compute_shrinkage_updates` | Move to `src/intelligence/ensemble/shrinkage.py` if it isn't cleanly importable |
-| Eligibility + meta-FDR + stratum fit | `ensemble_trainer._eligibility_where` semantics, `_meta_eligible`, `select_features_per_stratum`, `compute_shrinkage_covariance`, `resolve_stratum_weights` | Extract `_process_stratum`'s compute half into `src/intelligence/ensemble/stratum_fit.py::fit_stratum(ic_rows, X, config, days_since)`. The trainer calls it; `days_since` becomes an explicit argument (the trainer keeps passing its wall-clock value, so its behavior is unchanged) |
+| Eligibility + meta-FDR + stratum fit | `ensemble_trainer._eligibility_where` semantics, `_meta_eligible`, `src/intelligence/ensemble/stratum_fit.py::select_stratum` and `fit_stratum_weights(selection, X, bar_ts, ...)` | Done 2026-09-24 (c6750d700): the trainer calls the same two functions. No aging (todo 408 deleted it; migration 360); the covariance window cut (bars <= the IC window end, todo 409) lives inside `fit_stratum_weights`, so the harness gets it by construction |
 | Portfolio arms, calibration, instrument covariance | `scripts/analysis/portfolio_covariance_weighting_diagnostic.py` | Move to `src/intelligence/portfolio/weighting.py`; the diagnostic imports from there |
 | Panel null | New `src/intelligence/statistics/panel_null.py`: deterministic enumeration of admissible circular date shifts of a whole panel, plus the permutation p-value | New. Deliberately not `alpha_score_residual`'s `sync_shift_null_p` (todo 372: per-symbol `k % m` breaks panel synchrony) |
 | Manifest | `CorpusManifest` | None |
 
-`fit_stratum` is a behavior-preserving refactor proved by an equivalence test on a fixture.
-The representative helper deliberately changes behavior (it fixes todo 410) and is proved by a
-test that puts the max-|IC| candidate second. After that, the production statistics are
+Both landed with tests: the stratum fit's equivalence against `resolve_stratum_weights`
+plus regression tests for 408 and 409, and the representative helper's test that puts the
+max-|IC| candidate second. After that, the production statistics are
 identical by construction except for that fix, and section 10's live check covers data assembly
 and the fields the fix doesn't touch.
 
@@ -298,10 +298,10 @@ in-sample for production already, so it spends nothing.
 |---|---|---|---|
 | D1 | FDR family = pooled 1d representatives per refit, not corpus-wide | The corpus-wide family can't be rebuilt per refit without a full recompute, and the ensemble consumes only pooled cells | V4 scope |
 | D2 | Fitted-HMM features (`hmm_*`, `hmm_vol_*`) and todo 390's two columns excluded | Stored HMM labels carry full-sample parameters (todo 248); 390 is an unguarded division | Diagnostic variant |
-| D3 | `days_since = 0` | Wall-clock aging is a defect (todo 408); weights fitted at T are fresh at T | Uniform-weight variant |
+| D3 | No weight aging | Now also production (todo 408, removed 2026-09-24); kept here because the 2026-09-22 champion was 1/n | Uniform-weight variant |
 | D4 | No present-day status filter | Status is decided with later data | Section 5 |
-| D5 | Covariance fitted on pre-T rows only | Production fits on all rows (todo 409) | None needed; strictly more causal |
-| D6 | Cluster representatives chosen correctly | Production marks unsorted `candidates[1:]` (todo 410) | None needed; a bug fix |
+| D5 | Covariance fitted on rows up to the IC window end | Now also production (todo 409, fixed 2026-09-24) | None needed |
+| D6 | Cluster representatives chosen correctly | Now also production (todo 410, fixed 2026-09-24); earlier stored rows carry the bug | None needed |
 
 ## 14. Residual biases that remain
 
@@ -325,8 +325,8 @@ in-sample for production already, so it spends nothing.
 
 1. File todos 409 (trainer covariance over all bars), 408 (wall-clock weight aging) and 410
    (FDR representative selection); promote todo 390 to P1. Done 2026-09-24.
-2. `fit_stratum` extraction with its equivalence test, and the shared representative helper
-   with todo 410's fix and its test (V1).
+2. Stratum-fit extraction (c6750d700) and the shared representative helper (7fa346137).
+   Done 2026-09-24.
 3. Move the portfolio arms to `src/intelligence/portfolio/weighting.py`; diagnostic imports them;
    its tests stay green.
 4. `panel_null.py` with tests.
