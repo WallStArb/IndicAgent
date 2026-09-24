@@ -60,7 +60,8 @@ question above. Checked against the code on 2026-09-24:
 | Composite | `alpha = X @ (w * ic_sign)`, NULL feature = 0, no emission gate | `ensemble_trainer` step 6; `alpha_publisher` only filters on it |
 | Execution | alpha from day D's close; enter at open D+1, exit at open D+2; return `ln(open[D+2]/open[D+1])` | Diagnostic `_EMBARGO_BARS = 2`, CLAUDE.md Invariant 1 |
 | Portfolio arms (decision family) | `ic_proportional`, `vol_normalized`, `mean_variance`, gross exposure 1 | Diagnostic definitions, moved to a shared module unchanged, including its 504-session warmup (`_INITIAL_WARMUP_BARS`) |
-| Instrument calibration | Diagnostic's trailing per-instrument IC, shrunk to the leave-one-out peer mean; point-in-time trailing coverage filter | Diagnostic, unchanged |
+| Instrument calibration | Diagnostic's trailing per-instrument rank IC over the same 504-session window, shrunk to the leave-one-out peer mean; an instrument whose paired (alpha, forward return) rows cover < 95% of the window gets IC 0 (no position) | Diagnostic method with its coverage bar matched to the covariance's (the diagnostic itself keeps its 20-pair floor, per its spec) |
+| Instrument covariance | Ledoit-Wolf on realized log returns over the trailing 504 sessions, date axis = NYSE sessions; admitted with a return on the window's last row and on >= 95% of the window, jointly (lowest-coverage instrument dropped, ties by name, until complete rows clear 95%); fitted on complete rows, never zero-filled | `src/intelligence/portfolio/weighting.py::instrument_covariance`, revised 2026-09-24 (build step 3) |
 | Weight aging | None: the fit has no clock (production too since todo 408) | D3 |
 
 No arm is primary. `vol_normalized` was the best in-sample arm, so choosing it now would be
@@ -109,7 +110,7 @@ production calls.
 | BH-FDR | `ic_math.apply_bh_fdr` | None |
 | IC shrinkage | `scripts/ops/alpha/ops_ic_shrinkage.py::compute_shrinkage_updates` | Move to `src/intelligence/ensemble/shrinkage.py` if it isn't cleanly importable |
 | Eligibility + meta-FDR + stratum fit | `ensemble_trainer._eligibility_where` semantics, `_meta_eligible`, `src/intelligence/ensemble/stratum_fit.py::select_stratum` and `fit_stratum_weights(selection, X, bar_ts, ...)` | Done 2026-09-24 (c6750d700): the trainer calls the same two functions. No aging (todo 408 deleted it; migration 360); the covariance window cut (bars <= the IC window end, todo 409) lives inside `fit_stratum_weights`, so the harness gets it by construction |
-| Portfolio arms, calibration, instrument covariance | `scripts/analysis/portfolio_covariance_weighting_diagnostic.py` | Move to `src/intelligence/portfolio/weighting.py`; the diagnostic imports from there |
+| Portfolio arms, calibration, instrument covariance | `src/intelligence/portfolio/weighting.py` | Done 2026-09-24 (build step 3). Moved from the diagnostic, which imports it; thresholds are arguments. The walk-forward orchestration (`run_walk_forward`, with todo 393's wrong cost proxy) stays in the diagnostic: the harness builds its own array-first engine on these primitives in step 5 |
 | Panel null | New `src/intelligence/statistics/panel_null.py`: deterministic enumeration of admissible circular date shifts of a whole panel, plus the permutation p-value | New. Deliberately not `alpha_score_residual`'s `sync_shift_null_p` (todo 372: per-symbol `k % m` breaks panel synchrony) |
 | Manifest | `CorpusManifest` | None |
 
@@ -327,8 +328,8 @@ in-sample for production already, so it spends nothing.
    (FDR representative selection); promote todo 390 to P1. Done 2026-09-24.
 2. Stratum-fit extraction (c6750d700) and the shared representative helper (7fa346137).
    Done 2026-09-24.
-3. Move the portfolio arms to `src/intelligence/portfolio/weighting.py`; diagnostic imports them;
-   its tests stay green.
+3. Portfolio primitives moved to `src/intelligence/portfolio/weighting.py`, with the coverage fix
+   (no zero-filled gaps). Done 2026-09-24.
 4. `panel_null.py` with tests.
 5. Harness S0-S4 with synthetic end-to-end tests; run V2, V3.
 6. HMM-feature audit, deprecated-feature decision, S0 snapshot, V4, V5 at T = 2025-12-24.

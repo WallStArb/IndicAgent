@@ -194,6 +194,18 @@ limitation plainly rather than imply the numbers are selection-bias-free.
   pattern). Never restrict the whole run to instruments with complete history over the *entire* period
   — that implicitly selects on "survived to the end," reintroducing the survivorship bias already
   flagged as the one open risk in the personal-scale-edge program closure.
+- **Revision 2026-09-24 (Phase 179 build step 3): coverage means a full trailing window, and gaps
+  are never zero-filled.** The original filter admitted an instrument with 20 non-null returns in
+  the 504-day window and filled the rest with 0.0, which understates a new listing's variance and
+  inflates its `vol_normalized` weight (measured: TLT at 46% coverage in a 2017 refit, sigma ~0.68x,
+  weight ~1.47x). Now an instrument is admitted only if it has a return on the window's last row
+  and on >= 95% of the window; if the rows where every admitted instrument has a return still fall
+  below 95%, the lowest-coverage instrument is dropped (ties by name) until they don't; the
+  covariance is fitted on those complete rows. Deterministic, never skips a refit, never
+  zero-fills. Still point-in-time (trailing window), so the survivorship guard above is
+  unchanged. The 2026-09-22 result (todo 378) is unaffected: its data starts 2018-01-01 and all 13
+  instruments had full coverage at every refit. The primitives now live in
+  `src/intelligence/portfolio/weighting.py`.
 
 ## Comparison arms — REVISED after review (AGY: 3 arms confound volatility-scaling with covariance)
 
