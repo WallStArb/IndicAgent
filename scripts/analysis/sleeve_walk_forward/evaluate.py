@@ -10,6 +10,7 @@ from __future__ import annotations
 import dataclasses
 
 import numpy as np
+from scipy.stats import kurtosis, skew
 
 from scripts.analysis.sleeve_walk_forward.config import HarnessConfig
 from scripts.analysis.sleeve_walk_forward.portfolio import (
@@ -39,6 +40,9 @@ class EvaluationResult:
     excess: np.ndarray  # [J], observed minus null-median Sharpe
     sub_period_excess: np.ndarray  # [J, n_sub_periods], mean daily excess return
     excess_ci: np.ndarray  # [J, 2], stationary-bootstrap 95% CI of the excess Sharpe
+    # Section 11 shape measures per arm, {"observed": {...}, "null_median": {...}}. Reported
+    # for sizing; decide() never reads them.
+    diagnostics: dict = dataclasses.field(default_factory=dict)
 
 
 def annualized_sharpe(r: np.ndarray, mask: np.ndarray) -> float:
@@ -49,6 +53,26 @@ def annualized_sharpe(r: np.ndarray, mask: np.ndarray) -> float:
     if sd == 0.0:
         raise ValueError("Sharpe undefined: zero return variance")
     return float(np.mean(x)) / sd * np.sqrt(_SESSIONS_PER_YEAR)
+
+
+def shape_diagnostics(r: np.ndarray) -> dict[str, float]:
+    """Return-shape measures over the finite daily returns: annualized Sortino (downside
+    deviation over all days, NaN with no losing day), max drawdown of the cumulative log-wealth
+    path from 0, skew, excess kurtosis, and the share of positive days."""
+    x = r[np.isfinite(r)]
+    downside = float(np.sqrt(np.mean(np.minimum(x, 0.0) ** 2)))
+    wealth = np.concatenate([[0.0], np.cumsum(x)])
+    return {
+        "sortino": (
+            float(np.mean(x)) / downside * np.sqrt(_SESSIONS_PER_YEAR)
+            if downside > 0
+            else float("nan")
+        ),
+        "max_drawdown": float(np.max(np.maximum.accumulate(wealth) - wealth)),
+        "skew": float(skew(x)),
+        "excess_kurtosis": float(kurtosis(x)),
+        "hit_rate": float(np.mean(x > 0)),
+    }
 
 
 def _run_shifts(
@@ -122,6 +146,13 @@ def evaluate(
                 for row in excess_daily
             ]
         ),
+        diagnostics={
+            arm: {
+                "observed": shape_diagnostics(obs_daily[j][trade]),
+                "null_median": shape_diagnostics(null_median_daily[j][trade]),
+            }
+            for j, arm in enumerate(ARMS)
+        },
     )
 
 

@@ -188,6 +188,7 @@ def _stage_s4(args: argparse.Namespace) -> Path:
         verdict = {"sleeve_verdict": None, "fidelity": "BROKEN", "reason": s3["error"]}
     else:
         verdict = decide(s3["result"], CONFIG, fidelity_ok=fidelity_ok)
+        verdict["diagnostics"] = s3["result"].diagnostics  # section 11, reported only
     path = _save(args.out_dir, "s4", verdict, str(args.input))
     path.with_suffix(".json").write_text(json.dumps(verdict, indent=2, default=str))
     return path

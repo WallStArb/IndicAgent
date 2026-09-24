@@ -92,6 +92,7 @@ def test_stages_chain_to_a_verdict(harness):
     verdict = json.loads(s4.with_suffix(".json").read_text())
     assert verdict["fidelity"] == "OK"
     assert verdict["sleeve_verdict"] in {"FAIL", "PASS"}
+    assert set(verdict["diagnostics"]) == {"ic_proportional", "vol_normalized", "mean_variance"}
     assert [p.name.split("_")[0] for p in (s1, s2, s3, s4)] == ["s1", "s2", "s3", "s4"]
 
 

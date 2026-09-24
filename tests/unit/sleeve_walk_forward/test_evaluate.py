@@ -77,3 +77,32 @@ def test_strong_signal_gets_small_p_and_positive_excess():
     res = evaluate(*_inputs(3, signal=0.5), CFG, mv_condition_max=1000.0, ic_shrinkage_k=100.0)
     assert (res.adjusted_p < 0.05).all()
     assert (res.excess > 0).all()
+
+
+def test_shape_diagnostics_hand_computed():
+    from scripts.analysis.sleeve_walk_forward.evaluate import shape_diagnostics
+
+    r = np.array([0.02, -0.01, 0.03, -0.04, 0.01])
+    d = shape_diagnostics(r)
+    downside = np.sqrt(np.mean(np.minimum(r, 0.0) ** 2))
+    assert d["sortino"] == pytest.approx(r.mean() / downside * np.sqrt(252))
+    # Log-wealth path 0.02, 0.01, 0.04, 0.00, 0.01: worst peak-to-trough is 0.04 -> 0.00.
+    assert d["max_drawdown"] == pytest.approx(0.04)
+    assert d["hit_rate"] == pytest.approx(3 / 5)
+    assert set(d) == {"sortino", "max_drawdown", "skew", "excess_kurtosis", "hit_rate"}
+
+
+def test_shape_diagnostics_ignores_nan_and_has_no_downside():
+    from scripts.analysis.sleeve_walk_forward.evaluate import shape_diagnostics
+
+    d = shape_diagnostics(np.array([0.01, np.nan, 0.02]))
+    assert d["hit_rate"] == 1.0 and d["max_drawdown"] == 0.0 and np.isnan(d["sortino"])
+
+
+def test_evaluate_reports_diagnostics_for_real_and_null_median():
+    res = evaluate(
+        *_inputs(4), CFG, mv_condition_max=1000.0, ic_shrinkage_k=100.0, shifts=np.arange(20, 40)
+    )
+    for arm in res.arms:
+        assert set(res.diagnostics[arm]) == {"observed", "null_median"}
+        assert "sortino" in res.diagnostics[arm]["observed"]
