@@ -57,7 +57,7 @@ from src.core.models import AssetClass, ContractMetadata, Instrument
 from src.observability.metrics import JOB_COMPLETED_TOTAL, flush_and_shutdown_metrics
 from src.observability.otel import OTelInitError, init_otel_providers
 from src.providers import IBKRProvider, ibkr
-from src.providers.ibkr import EmptyHistory
+from src.providers.base import EmptyHistory
 
 _logger = structlog.get_logger(__name__)
 
@@ -1245,17 +1245,18 @@ def main() -> None:
     # Provider-verified empty history (migration 354): loaded once per run. A fresh range is
     # subtracted from the detected gaps; a stale one is re-verified by fetching it.
     empty_ranges = empty_history.load(db_conn, _EMPTY_HISTORY_PROVIDER)
-    provider_heads = empty_history.load_heads(db_conn, _EMPTY_HISTORY_PROVIDER)
     empty_reverify_days = empty_history.load_reverify_days(db_conn)
     run_started_at = datetime.now(UTC)
 
-    def head_is_fresh(head: empty_history.ProviderHead | None) -> bool:
-        return head is not None and head.is_fresh(run_started_at, empty_reverify_days)
-
+    fresh_heads = empty_history.load_fresh_heads(
+        db_conn, _EMPTY_HISTORY_PROVIDER, empty_reverify_days
+    )
+    first_bars = empty_history.load_first_bars(db_conn, [c.symbol for c in contracts])
+    n_head_floored = 0
     n_empty_history_skipped = 0
 
     async def _run_fetch_stage() -> tuple[int, int, list[str]]:
-        nonlocal db_conn, n_empty_history_skipped
+        nonlocal db_conn, n_head_floored, n_empty_history_skipped
         provider = IBKRProvider(
             host=settings.ib_host,
             port=settings.ib_port,
@@ -1334,6 +1335,36 @@ def main() -> None:
                             total_bars += bars
                         continue  # Skip the standard continuous fetch loop
 
+                    # Head floor (migration 355): nothing exists before the provider's
+                    # earliest data point, so no timeframe's gap search starts earlier. Looked
+                    # up once per symbol, only when its stored history does not already reach
+                    # the deepest requested start; a failed lookup means no floor this run
+                    # and is retried next run, never stored.
+                    head_ts = fresh_heads.get(instrument.symbol)
+                    deepest_days = max(
+                        (
+                            min(tf_fetch_config[t][0], args.days)
+                            if args.days
+                            else tf_fetch_config[t][0]
+                        )
+                        for t in fetch_tfs
+                    )
+                    first_bar = first_bars.get(instrument.symbol)
+                    if head_ts is None and (
+                        first_bar is None or first_bar > end_dt - timedelta(days=deepest_days)
+                    ):
+                        head_ts, head_error = await provider.get_head_timestamp(instrument.symbol)
+                        if head_ts is not None:
+                            empty_history.record_head(
+                                db_conn, instrument.symbol, _EMPTY_HISTORY_PROVIDER, head_ts
+                            )
+                            fresh_heads[instrument.symbol] = head_ts
+                        else:
+                            print(
+                                f"  {instrument.symbol}: no provider head this run "
+                                f"({head_error}); no floor applied"
+                            )
+
                     # Standard mode: use continuous contract for longer timeframes
                     fetched_tfs: set[str] = set()  # TFs that got bars from IBKR directly
                     for tf in fetch_tfs:
@@ -1344,6 +1375,10 @@ def main() -> None:
                         start_dt = (end_dt - timedelta(days=fetch_days)).replace(
                             hour=0, minute=0, second=0, microsecond=0
                         )
+                        if head_ts is not None and head_ts > start_dt:
+                            start_dt = head_ts
+                            n_head_floored += 1
+                        interval = timedelta(minutes=_TF_MINUTES[tf])
 
                         gaps = detect_gaps(
                             db_conn,
@@ -1354,56 +1389,19 @@ def main() -> None:
                             session_id=instrument.session_id,
                             exchange=instrument.exchange,
                         )
-                        # Head floor (migration 355): nothing exists before the provider's
-                        # earliest data point, so older gap slots are never requested. Looked
-                        # up once per symbol when missing or stale; a failed lookup means no
-                        # floor for this run and is retried next run, never stored.
-                        head = provider_heads.get(instrument.symbol)
-                        if gaps and not head_is_fresh(head):
-                            head_ts, head_error = await provider.get_head_timestamp(
-                                instrument.symbol
-                            )
-                            if head_ts is not None:
-                                head = empty_history.record_head(
-                                    db_conn, instrument.symbol, _EMPTY_HISTORY_PROVIDER, head_ts
-                                )
-                                provider_heads[instrument.symbol] = head
-                            else:
-                                print(
-                                    f"  {instrument.symbol}: no provider head this run "
-                                    f"({head_error}); no floor applied"
-                                )
-                                head = None
-                        if gaps and head is not None:
-                            kept = empty_history.subtract(
-                                gaps,
-                                empty_history.before_head(
-                                    head.head_ts, timedelta(minutes=_TF_MINUTES[tf])
-                                ),
-                                timedelta(minutes=_TF_MINUTES[tf]),
-                            )
-                            if kept != gaps:
-                                n_empty_history_skipped += 1
-                                print(
-                                    f"  {instrument.symbol}/{tf}: skipping history before the "
-                                    f"provider head {head.head_ts.date()}"
-                                )
-                            gaps = kept
-
                         empty = empty_ranges.get((instrument.symbol, tf))
-                        if gaps and empty and empty.is_fresh(run_started_at, empty_reverify_days):
-                            kept = empty_history.subtract(
-                                gaps, empty, timedelta(minutes=_TF_MINUTES[tf])
+                        kept = empty_history.apply_empty_range(
+                            gaps, empty, run_started_at, empty_reverify_days, interval
+                        )
+                        if kept != gaps:
+                            n_empty_history_skipped += 1
+                            print(
+                                f"  {instrument.symbol}/{tf}: skipping provider-verified "
+                                f"empty history {empty.empty_from.date()} to "
+                                f"{empty.empty_through.date()} (verified "
+                                f"{empty.verified_at.date()})"
                             )
-                            if kept != gaps:
-                                n_empty_history_skipped += 1
-                                print(
-                                    f"  {instrument.symbol}/{tf}: skipping provider-verified "
-                                    f"empty history {empty.empty_from.date()} to "
-                                    f"{empty.empty_through.date()} (verified "
-                                    f"{empty.verified_at.date()})"
-                                )
-                            gaps = kept
+                        gaps = kept
                         if not gaps:
                             print(f"  {instrument.symbol}/{tf}: no gaps found.")
                             fetched_tfs.add(tf)
@@ -1532,29 +1530,16 @@ def main() -> None:
                                     f"  {instrument.symbol}/{tf}: stored {n} bars "
                                     f"(window {gap_start.date()} to {gap_end.date()})"
                                 )
-                                if (
-                                    is_oldest_window
-                                    and not use_cont
-                                    and not empty_history.has_bar_before(
-                                        db_conn, instrument.symbol, tf, gap_start
+                                if is_oldest_window and not use_cont:
+                                    empty_history.reconcile(
+                                        db_conn,
+                                        instrument.symbol,
+                                        tf,
+                                        _EMPTY_HISTORY_PROVIDER,
+                                        gap_start,
+                                        observed[-1] if observed else None,
+                                        empty,
                                     )
-                                ):
-                                    if observed:
-                                        empty_history.record(
-                                            db_conn,
-                                            instrument.symbol,
-                                            tf,
-                                            _EMPTY_HISTORY_PROVIDER,
-                                            gap_start,
-                                            observed[-1],
-                                        )
-                                    elif empty is not None:
-                                        # Asked again and not confirmed empty: the provider
-                                        # now serves (part of) it, or the walk ended on a
-                                        # non-definitive failure. Either way, stop skipping.
-                                        empty_history.drop(
-                                            db_conn, instrument.symbol, tf, _EMPTY_HISTORY_PROVIDER
-                                        )
                             except Exception as e:
                                 fetch_errors += 1
                                 tf_window_failed = True
@@ -1672,7 +1657,10 @@ def main() -> None:
     n_requested = len(contracts)
     n_skipped = len(skipped_symbols)
     print(f"\nStage 1 complete: {total_bars:,} total bars stored, {fetch_errors} fetch error(s)\n")
-    print(f"  Provider-verified empty history skipped for {n_empty_history_skipped} symbol/tf(s)\n")
+    print(
+        f"  Provider head floor applied to {n_head_floored} symbol/tf(s); provider-verified "
+        f"empty history skipped for {n_empty_history_skipped}\n"
+    )
     if skipped_symbols:
         print(
             f"{n_skipped}/{n_requested} symbols skipped outright "

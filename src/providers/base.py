@@ -8,6 +8,7 @@ is completely unaware of which provider is active.
 from __future__ import annotations
 
 from collections.abc import AsyncIterator
+from dataclasses import dataclass
 from datetime import datetime
 from typing import Protocol, runtime_checkable
 
@@ -162,6 +163,25 @@ class DataProviderAdapter(Protocol):
         Raises ValueError if the instrument cannot be qualified.
         """
         ...
+
+
+@dataclass(frozen=True)
+class EmptyHistory:
+    """A fetch's backward walk ended in IBKR's definitive "no data" answers.
+
+    `verified_from`..`empty_through` is the span IBKR answered "no data" for, chunk by
+    chunk (Error 162 "no data" attributed by reqId; timeouts and throttling
+    cancellations never count). `n_confirming_chunks` is how many consecutive chunks
+    answered. `reached_request_start` is False when the walk stopped early on the
+    confirmation threshold, i.e. the range older than `verified_from` was never asked;
+    the walk already treats it as empty (it stops there every time), and callers must
+    record which part was verified and which was inferred.
+    """
+
+    verified_from: datetime
+    empty_through: datetime
+    n_confirming_chunks: int
+    reached_request_start: bool
 
 
 class SubscriptionLimitError(Exception):

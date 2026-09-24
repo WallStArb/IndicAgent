@@ -16,7 +16,6 @@ import threading
 import time
 from collections import deque
 from collections.abc import AsyncIterator, Awaitable, Callable
-from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
 
 # Python 3.14 removed implicit event loop creation. eventkit (ib_async dependency,
@@ -59,7 +58,7 @@ from src.observability.metrics import (  # noqa: E402
     IBKR_ERROR_326_TOTAL,
     PROVIDER_BARS_DROPPED_TOTAL,
 )
-from src.providers.base import OHLCVBar, Tick  # noqa: E402
+from src.providers.base import EmptyHistory, OHLCVBar, Tick  # noqa: E402
 
 logger = logging.getLogger(__name__)
 
@@ -216,23 +215,10 @@ _hist_rate_limiter = _SlidingWindowRateLimiter()
 _no_data_req_ids: set[int] = set()
 
 
-@dataclass(frozen=True)
-class EmptyHistory:
-    """A fetch's backward walk ended in IBKR's definitive "no data" answers.
-
-    `verified_from`..`empty_through` is the span IBKR answered "no data" for, chunk by
-    chunk (Error 162 "no data" attributed by reqId; timeouts and throttling
-    cancellations never count). `n_confirming_chunks` is how many consecutive chunks
-    answered. `reached_request_start` is False when the walk stopped early on the
-    confirmation threshold, i.e. the range older than `verified_from` was never asked;
-    the walk already treats it as empty (it stops there every time), and callers must
-    record which part was verified and which was inferred.
-    """
-
-    verified_from: datetime
-    empty_through: datetime
-    n_confirming_chunks: int
-    reached_request_start: bool
+def _hist_what_to_show(sec_type: str) -> str:
+    """IBKR historical data series for a contract type: one mapping shared by the bar fetch
+    and the head lookup, so a head floor is always taken from the series being fetched."""
+    return {"CASH": "MIDPOINT", "CRYPTO": "AGGTRADES"}.get(sec_type, "TRADES")
 
 
 # Circuit breaker for IBKR connection attempts
@@ -726,12 +712,7 @@ class IBKRProvider:
         else:
             contract = named_contract
             sec_type = getattr(named_contract, "secType", "")
-            if sec_type == "CASH":
-                what_to_show = "MIDPOINT"
-            elif sec_type == "CRYPTO":
-                what_to_show = "AGGTRADES"
-            else:
-                what_to_show = "TRADES"
+            what_to_show = _hist_what_to_show(sec_type)
             source_tag = SOURCE_IBKR_NAMED
             use_rth = sec_type == "STK"
 
@@ -972,8 +953,7 @@ class IBKRProvider:
         contract = self._qualified_contracts.get(symbol)
         if not contract or not self._ib:
             return None, "not qualified or not connected"
-        sec_type = getattr(contract, "secType", "")
-        what_to_show = {"CASH": "MIDPOINT", "CRYPTO": "AGGTRADES"}.get(sec_type, "TRADES")
+        what_to_show = _hist_what_to_show(getattr(contract, "secType", ""))
         # Head requests count against IBKR's historical pacing budget: an unthrottled lookup
         # right after other requests came back "pacing violation" in the live rehearsal.
         await _hist_rate_limiter.acquire()

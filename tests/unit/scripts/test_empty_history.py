@@ -8,7 +8,7 @@ from unittest.mock import MagicMock
 import pytest
 
 from scripts.infrastructure.backfill import _empty_history as eh
-from src.providers.ibkr import EmptyHistory
+from src.providers.base import EmptyHistory
 
 _D = timedelta(days=1)
 
@@ -42,8 +42,39 @@ def test_subtract_removes_only_the_verified_range(gaps, expected):
 
 def test_freshness_is_bounded_by_reverify_days():
     now = _dt(2026, 12, 21)
-    assert _EMPTY.is_fresh(now, reverify_days=90) is True
-    assert _EMPTY.is_fresh(now + 2 * _D, reverify_days=90) is False
+    assert eh.is_fresh(_EMPTY.verified_at, now, reverify_days=90) is True
+    assert eh.is_fresh(_EMPTY.verified_at, now + 2 * _D, reverify_days=90) is False
+
+
+def test_apply_empty_range_ignores_missing_or_stale_ranges():
+    gaps = [(_dt(2006, 9, 28), _dt(2024, 3, 26))]
+    assert eh.apply_empty_range(gaps, None, _dt(2026, 9, 24), 90, _D) == gaps
+    assert eh.apply_empty_range(gaps, _EMPTY, _dt(2027, 9, 24), 90, _D) == gaps
+    assert eh.apply_empty_range(gaps, _EMPTY, _dt(2026, 9, 24), 90, _D) == []
+
+
+_OBSERVED = EmptyHistory(_dt(2023, 6, 1), _dt(2024, 3, 26), 2, False)
+
+
+@pytest.mark.parametrize(
+    ("observed", "prior", "bar_before", "expected"),
+    [
+        (None, None, False, None),  # nothing to learn or undo: no DB query at all
+        (_OBSERVED, None, False, "record"),
+        (None, _EMPTY, False, "drop"),  # asked again, not confirmed empty
+        (_OBSERVED, _EMPTY, True, None),  # not pre-history: says nothing
+    ],
+)
+def test_reconcile_decisions(monkeypatch, observed, prior, bar_before, expected):
+    calls = []
+    monkeypatch.setattr(eh, "has_bar_before", lambda *a: calls.append("probe") or bar_before)
+    monkeypatch.setattr(eh, "record", lambda *a: calls.append("record"))
+    monkeypatch.setattr(eh, "drop", lambda *a: calls.append("drop"))
+    eh.reconcile(MagicMock(), "GEV", "1h", "ibkr", _dt(2006, 9, 28), observed, prior)
+    if observed is None and prior is None:
+        assert calls == []
+    else:
+        assert calls == ["probe"] + ([expected] if expected else [])
 
 
 def test_load_reverify_days_fails_loudly_when_unset():
@@ -76,21 +107,8 @@ def test_record_keeps_verified_and_inferred_parts_distinguishable():
     )
 
 
-def test_head_floor_removes_only_history_before_the_head():
-    """Migration 355: GEV (head 2024-03-27) loses its 2006-2024 pre-listing window; the
-    recent gap and everything from the head on is still requested."""
-    gaps = [(_dt(2006, 9, 28), _dt(2024, 3, 27)), (_dt(2026, 8, 12), _dt(2026, 9, 23))]
-    floor = eh.before_head(_dt(2024, 3, 27), _D)
-    assert eh.subtract(gaps, floor, _D) == [
-        (_dt(2024, 3, 27), _dt(2024, 3, 27)),
-        (_dt(2026, 8, 12), _dt(2026, 9, 23)),
-    ]
-
-
 def test_record_head_stores_only_a_successful_lookup():
     conn = MagicMock()
     cur = conn.cursor.return_value.__enter__.return_value
-    cur.fetchone.return_value = (_dt(2024, 3, 27), _dt(2026, 9, 24))
-    head = eh.record_head(conn, "GEV", "ibkr", _dt(2024, 3, 27))
-    assert head.head_ts == _dt(2024, 3, 27)
+    eh.record_head(conn, "GEV", "ibkr", _dt(2024, 3, 27))
     assert cur.execute.call_args.args[1] == ("GEV", "ibkr", _dt(2024, 3, 27))
