@@ -111,7 +111,7 @@ production calls.
 | IC shrinkage | `scripts/ops/alpha/ops_ic_shrinkage.py::compute_shrinkage_updates` | Move to `src/intelligence/ensemble/shrinkage.py` if it isn't cleanly importable |
 | Eligibility + meta-FDR + stratum fit | `ensemble_trainer._eligibility_where` semantics, `_meta_eligible`, `src/intelligence/ensemble/stratum_fit.py::select_stratum` and `fit_stratum_weights(selection, X, bar_ts, ...)` | Done 2026-09-24 (c6750d700): the trainer calls the same two functions. No aging (todo 408 deleted it; migration 360); the covariance window cut (bars <= the IC window end, todo 409) lives inside `fit_stratum_weights`, so the harness gets it by construction |
 | Portfolio arms, calibration, instrument covariance | `src/intelligence/portfolio/weighting.py` | Done 2026-09-24 (build step 3). Moved from the diagnostic, which imports it; thresholds are arguments. The walk-forward orchestration (`run_walk_forward`, with todo 393's wrong cost proxy) stays in the diagnostic: the harness builds its own array-first engine on these primitives in step 5 |
-| Panel null | New `src/intelligence/statistics/panel_null.py`: deterministic enumeration of admissible circular date shifts of a whole panel, plus the permutation p-value | New. Deliberately not `alpha_score_residual`'s `sync_shift_null_p` (todo 372: per-symbol `k % m` breaks panel synchrony) |
+| Panel null | New `src/intelligence/statistics/panel_null.py`: deterministic enumeration of admissible circular date shifts of a whole panel, plus the permutation p-value | Done 2026-09-24 (edb555a11). Deliberately not `alpha_score_residual`'s `sync_shift_null_p` (todo 372: per-symbol `k % m` breaks panel synchrony) |
 | Manifest | `CorpusManifest` | None |
 
 Both landed with tests: the stratum fit's equivalence against `resolve_stratum_weights`
@@ -330,7 +330,7 @@ in-sample for production already, so it spends nothing.
    Done 2026-09-24.
 3. Portfolio primitives moved to `src/intelligence/portfolio/weighting.py`, with the coverage fix
    (no zero-filled gaps). Done 2026-09-24.
-4. `panel_null.py` with tests.
+4. `panel_null.py` with tests. Done 2026-09-24 (edb555a11).
 5. Harness S0-S4 with synthetic end-to-end tests; run V2, V3.
 6. HMM-feature audit, deprecated-feature decision, S0 snapshot, V4, V5 at T = 2025-12-24.
 7. Commit the section 12 addendum. The pre-registration is frozen here.
