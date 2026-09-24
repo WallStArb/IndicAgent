@@ -286,14 +286,13 @@ async def test_concept_registry_feature_row_count_matches_gate() -> None:
     Row count excludes migration 284's 2 gate-less tombstone concept_registry rows
     (new_high_flag/new_low_flag, kept only to preserve orphaned
     feature_transition_log history) via an INNER JOIN concept_gate -- matching
-    services/ic_engine.py's _watermark_concept_registry and ConceptRegistryService's
-    own _LOAD_CONCEPTS_SYNC_SQL semantics exactly. Without that join this query
+    services/ic_engine.py's _watermark_concept_registry and alignment gate exactly. Without that join this query
     returns 251, never matching FeatureVector's 249 fields, and this test would
     permanently fail.
 
-    Without this alignment holding, ConceptRegistryService.load_sync() raises at
-    daemon startup (antigravity H2/H3, ported from the retiring registry
-    service's original gate).
+    Without this alignment holding, ic_engine's registry alignment gate raises at
+    startup (antigravity H2/H3, ported from the retired registry service's original
+    gate).
     """
     import dataclasses
 

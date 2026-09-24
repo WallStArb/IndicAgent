@@ -82,6 +82,11 @@ _MISSING_UNIT_ALLOWLIST: dict[str, str] = {
         "PERMANENT: same as indicagent-regime-writer above -- corpus-pipeline-script-only, "
         "confirmed no live or checked-in systemd unit."
     ),
+    "indicagent-feature-lifecycle": (
+        "PERMANENT: todo 402 oneshot, same corpus-pipeline-script-only pattern as "
+        "indicagent-ic-engine above -- takes the run's --training-window-end, so a static "
+        "unit has nothing to pass it."
+    ),
     "indicagent-ensemble-ic-engine": (
         "PERMANENT: Phase 142A oneshot, same corpus-pipeline-script-only pattern as "
         "indicagent-regime-writer above."

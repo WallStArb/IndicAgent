@@ -101,7 +101,11 @@ _SIGNED_WEIGHTS_SQL_TEMPLATE = """
         FROM feature_ic_scores fic
         WHERE fic.tf = ew.tf AND fic.regime = ew.regime
           AND fic.feature_name = ew.feature_name AND fic.lookahead_bars = ew.lookahead_bars
-          AND fic.symbol = 'POOLED' AND fic.feature_status_at_eval = 'active'
+          AND fic.symbol = 'POOLED'
+          AND fic.feature_name IN (
+              SELECT cr.name FROM concept_registry cr
+              WHERE cr.domain = 'feature' AND cr.status = 'active'
+          )
           AND fic.{ic_input_column} = ew.ic_sharpe
         ORDER BY fic.training_window_end DESC
         LIMIT 1

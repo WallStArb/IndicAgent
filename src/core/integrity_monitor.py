@@ -6,41 +6,35 @@ subject/metric_name/metric_value shape" is a generic concept, not alpha/IC-speci
 Before this extraction (todo 150), the exact INSERT + composite `ON CONFLICT
 (monitor_type, training_window_end, metric_name, COALESCE(subject, ''), evaluated_at)
 DO NOTHING` statement shape was hand-copied at 4 independent call sites --
-services/ic_engine.py (x2), src/config/vocabulary_drift.py, services/
+services/ic_engine.py (x2, since moved to services/feature_lifecycle.py), src/config/vocabulary_drift.py, services/
 forward_return_writer.py -- a correctness risk (a future copy silently drifting from
 the real unique index), not just a style complaint.
 
-Two variants, mirroring the sync/async split already established elsewhere in this
-codebase (e.g. ConceptRegistryService.record_transition_sync vs. its async sibling):
-callers on a plain psycopg connection (ic_engine.py, forward_return_writer.py -- both
-sync, argparse-style batch scripts) use emit_integrity_fact_sync(); callers on an
-asyncpg connection (vocabulary_drift.py) use emit_integrity_fact_async().
+Two variants for the two drivers: callers on a plain psycopg connection
+(forward_return_writer.py, a sync argparse-style batch script) use
+emit_integrity_fact_sync(); callers on an asyncpg connection (vocabulary_drift.py,
+feature_lifecycle.py) use emit_integrity_fact_async().
 
 Guard behavior lives here, once: on failure, log a warning and return -- never raise.
 Every fact this table records is ABOUT a primary write that already committed
 successfully elsewhere; a failure writing the audit trail must never look like (or
 cause) a failure of that primary write. This was previously re-derived independently
-at each call site (forward_return_writer.py's try/except) or relied on an outer
-wrapping try/except one or more call frames up (ic_engine.py's `_run_lifecycle_hook`
-callers) -- now callers get it for free.
+at each call site (forward_return_writer.py's try/except) -- now callers get it for
+free.
 
-commit=False by default: several existing call sites share their connection with
-other statements under a single deferred commit point (ic_engine.py's
-_apply_feature_transitions commits once at the end of _run_lifecycle_hook, after this
-INSERT and several others) -- an unconditional commit() here would break that
-invariant. Pass commit=True only for a call site that owns its own transaction
+commit=False by default: a sync call site may share its connection with other
+statements under a single deferred commit point, which an unconditional commit() here
+would break. Pass commit=True only for a call site that owns its own transaction
 boundary and wants the fact durable immediately (forward_return_writer.py's
 price_sanity fact).
 
 idempotency_check=False by default: the DB-level UNIQUE index (keyed on
 monitor_type/training_window_end/metric_name/subject/evaluated_at) only catches an
 exact-instant duplicate insert, not a rerun of the same training_window_end
-hours/days later (evaluated_at defaults to now() and is part of that key). Some
-callers already sit behind an equivalent pre-check one call frame up
-(ic_engine.py's `_run_lifecycle_hook` Step 0 checks the same monitor_type +
-training_window_end before calling into either of its two emit sites) -- for those,
-a second pre-check here would be redundant, not wrong, so it defaults off rather than
-forcing every caller to pay for a check some of them already have. Callers with no
+hours/days later (evaluated_at defaults to now() and is part of that key). It
+defaults off because some facts are meant to repeat per window: feature_lifecycle.py
+records a fact on every re-evaluation, and its guard calibration reads only the latest
+fact per window. Callers with no
 equivalent outer guard (forward_return_writer.py's price_sanity fact, called once per
 run with nothing upstream deduping reruns) should pass True. vocabulary_drift.py's
 audit intentionally records one fact per run for calibration history (like

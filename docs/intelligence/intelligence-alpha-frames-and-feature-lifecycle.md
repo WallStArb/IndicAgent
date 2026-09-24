@@ -184,65 +184,62 @@ any state ──(operator_override only)──► deprecated
 feature is deprecated, logged as `parent_cascade`.
 
 **`deprecated` is operator-only, enforced in code, not just convention.**
-`FeatureRegistryService.record_transition_sync()` raises `ValueError` if an automated reason
-(`ic_promotion`/`ic_demotion`) ever targets `'deprecated'`. An automated process can move a
-feature between `active` and `shadow_only`; only a human can retire it entirely.
+`ConceptRegistryService.record_transition()` raises `ValueError` if an automated reason
+(`promotion`/`demotion_performance`) ever targets `'deprecated'`. An automated process can move
+a feature between `active` and `shadow_only`; only a human can retire it
+(`scripts/ops/alpha/ops_concept_registry_override.py`).
 
-**What triggers a transition:** `services/ic_engine.py`'s `_run_lifecycle_hook()`, run once at
-the end of every `ic_engine.py` corpus run:
+**What triggers a transition:** `services/feature_lifecycle.py` (todo 402), a `BaseBatch`
+oneshot that runs after `ic_engine` in the corpus pipeline and reads only persisted rows. For
+one training window it:
 
-1. **Regime-shift guard, checked first.** If a large fraction of currently-`active` cells fail
-   simultaneously (`config.decay_regime_shift_fraction`), **every transition is held** for that
-   run — zero demotions or promotions execute. This exists so a market dislocation (everything
-   stops working at once because the market changed) is never misread as mass, per-feature
-   decay. The hold is itself logged to `integrity_monitor` (`metric_name='regime_shift_fraction'`,
-   `passed=false`).
+1. **Checks the regime-shift guard first**, stratified per (tf, regime group) with
+   self-calibrating bands. If any stratum reads `hold_high`, the window is recorded as held and
+   counts as evidence neither way, so a market dislocation is never misread as mass decay.
+2. **Records one `concept_evaluation` row per feature** (migration 357). An `active` feature
+   fails the window when the fraction of its cells that are materially failed (CI includes
+   zero on the cell's own side or fails FDR, *and* `standing_weight * |bound| >
+   alpha.decay.materiality_threshold`) reaches `1 - alpha.ensemble.meta_fdr_min_fraction`. A
+   `shadow_only` feature passes when its FDR pass fraction reaches
+   `alpha.ensemble.meta_fdr_min_fraction`.
+3. **Derives status from the ledger.** Only the latest evaluation of each window counts, and
+   only evidence gathered under the current status since the concept entered it. Demotion
+   needs `alpha.decay.demotion_min_consecutive` failing windows in a row (a per-concept
+   `concept_gate.min_demotion_consecutive` overrides it). Promotion needs
+   `alpha.decay.recovery_min_passes` passing windows in a row and
+   `alpha.decay.recovery_min_observations` observations summed over the counted windows.
+   There is no calendar clock, only evidence. Recomputing a window's IC after a code change
+   never counts as a new window.
 
-2. **`active` → `shadow_only` demotion.** Per feature, if the fraction of that feature's
-   `active`-status cells that are "materially failed" — CI includes zero or fails FDR
-   (sign-aware), *and* `standing_weight * |bound| > config.decay_materiality_threshold` — meets
-   or exceeds a demotion floor, the feature is demoted via `record_transition_sync(...,
-   'active', 'shadow_only', 'ic_demotion', ...)`. This also resets
-   `consecutive_shadow_passes` and `observations_since_demotion` to zero.
-
-3. **`shadow_only` → `active` promotion.** Every run, `advance_shadow_counters_sync()`
-   increments `consecutive_shadow_passes` if that run's pass fraction clears
-   `config.meta_fdr_min_fraction`, else resets it to zero, and unconditionally accumulates
-   `observations_since_demotion`. Promotion requires both a minimum-observation floor
-   (`alpha.decay.recovery_min_observations`) and a minimum-consecutive-passes floor
-   (`alpha.decay.recovery_min_passes`, default 2) — there is no calendar/cooldown clock, only
-   evidence accumulation.
-
-Promotion is a status flip only. `ic_engine.py` never writes `ensemble_weights` itself (that
-remains `ensemble_trainer.py`'s sole-writer responsibility) — the next `ic_engine` run stamps
-`feature_status_at_eval='active'` on `feature_ic_scores`, and the next `ensemble_trainer` run
-recomputes that feature's weight from scratch.
+`--dry-run` builds the same plan and logs the transitions it would make without writing
+anything. Promotion is a status flip only; the node never writes `ensemble_weights`.
 
 **Readers/writers:**
-- `ic_engine.py` reads status via `FeatureRegistryService.get_status()` and is the sole writer
-  of automated transitions (via the lifecycle hook above).
-- `ensemble_trainer.py` reads `feature_registry` for a startup drift/alignment gate (comparing
-  registered feature names against the live `FeatureVector` dataclass fields) and filters
-  `feature_ic_scores` to `feature_status_at_eval = 'active'` when building ensemble
-  eligibility. It writes `ensemble_weights`, never `feature_registry`.
+- `feature_lifecycle.py` is the sole writer of automated feature transitions, through
+  `ConceptRegistryService.record_transition()`.
+- `ic_engine.py` reads `concept_registry` only for its membership/broadcast alignment gate and
+  fingerprint watermark. It does not read or write lifecycle status, so a transition never
+  invalidates an IC cell.
+- `ensemble_trainer.py` keeps only features whose `concept_registry.status = 'active'` when
+  building ensemble eligibility, read at train time. It writes `ensemble_weights`, never the
+  registry.
 - `scripts/ops/alpha/ops_canary_integrity_assert.py` (Phase 143.1, "Component D corpus-run
-  integrity gate") reads `feature_registry.is_control`/`control_expectation` joined to
-  `feature_ic_scores` and hard-halts the corpus pipeline (non-zero exit) if a negative-control
-  canary clears significance in the pooled stratum, or the positive control
-  (`canary_acausal_placebo`) fails to. It writes nothing to `feature_registry` — pure read +
-  assert. It is wired into `ops_corpus_pipeline_run.sh` immediately after the `ic_engine` step,
-  as a separate gate from the lifecycle hook.
+  integrity gate") reads `concept_registry.is_control`/`control_expectation` joined to
+  `feature_ic_scores` and hard-halts the corpus pipeline if a negative-control canary clears
+  significance in the pooled stratum, or the positive control (`canary_acausal_placebo`)
+  fails to. It writes nothing to the registry. It runs in `ops_corpus_pipeline_run.sh` right
+  after `ic_engine`, before `feature_lifecycle`.
 
 ---
 
 ## `integrity_monitor` — Lifecycle Decision Audit Trail
 
 There is no standalone `IntegrityMonitor` service or class. `integrity_monitor` is a table
-(`production/migrations/218_integrity_monitor.sql`, Phase 143), and its only writer is
-`ic_engine.py`'s `_run_lifecycle_hook()` — the same hook described above. Its own migration
+(`production/migrations/218_integrity_monitor.sql`, Phase 143). Its `ic_lifecycle` facts are
+written by `services/feature_lifecycle.py` (described above). Its own migration
 header states the intent plainly: observability-only gate-evaluation facts, **not**
-authoritative state. `feature_transition_log` remains the sole authoritative record of what
-actually transitioned; `integrity_monitor` exists purely so a run's decay/hold decision is
+authoritative state. `concept_transition_log` is the authoritative record of what actually
+transitioned; `integrity_monitor` exists purely so a run's decay/hold decision is
 queryable after the fact.
 
 **Schema (selected):** `monitor_type` (only `'ic_lifecycle'` is written today), `subject`

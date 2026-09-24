@@ -64,7 +64,6 @@ def test_compute_symbol_tf_return_keys():
         "tracer",
         "run_ts",
         "rng",
-        "feature_status_map",
         "mr_dict",
         "dual_write_symbol_hmm",
         "cluster_regime_conditioned",
@@ -962,7 +961,6 @@ def test_cell_too_large_error_raised_by_both_cell_functions():
             tf="1d",
             rng=rng,
             training_window_end=None,
-            feature_status_map=None,
             run_ts=None,
         )
 
@@ -976,7 +974,6 @@ def test_cell_too_large_error_raised_by_both_cell_functions():
             tf="1d",
             rng=rng,
             training_window_end=None,
-            feature_status_map=None,
             run_ts=None,
             prior_e_values={},
         )
@@ -1057,7 +1054,6 @@ def _call_cell(X_raw, returns_mat, complete_mat, *, broadcast_mask=None, seed=99
         tf="1d",
         rng=np.random.default_rng(seed),
         training_window_end=None,
-        feature_status_map=None,
         run_ts=None,
         prior_e_values={},
         broadcast_mask=broadcast_mask,
@@ -1251,7 +1247,6 @@ def _call_broadcast_cell(
         tf="1d",
         rng=np.random.default_rng(seed),
         training_window_end=None,
-        feature_status_map=None,
         run_ts=None,
     )
 
@@ -1572,7 +1567,6 @@ def _call_symbol_broadcast_cell(
         tf=tf,
         rng=np.random.default_rng(seed),
         training_window_end=None,
-        feature_status_map=None,
         run_ts=None,
     )
 
@@ -1940,7 +1934,6 @@ def _call_regime_cell(X_aligned, returns_mat, complete_mat, *, broadcast_mask=No
         tf="1d",
         rng=np.random.default_rng(seed),
         training_window_end=None,
-        feature_status_map=None,
         run_ts=None,
         broadcast_mask=broadcast_mask,
     )

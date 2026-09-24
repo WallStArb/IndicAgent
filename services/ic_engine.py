@@ -74,7 +74,7 @@ from concurrent.futures import ThreadPoolExecutor, as_completed
 from contextlib import ExitStack, contextmanager
 from datetime import UTC, datetime
 from pathlib import Path
-from typing import Any, Literal
+from typing import Any
 
 import numpy as np
 
@@ -109,21 +109,18 @@ from services._batch_utils import compressed_hypertable_write_session as _write_
 from services._batch_utils import load_config_service_sync as _load_config_service
 from src.config.settings import Settings, dimension_where_clause
 from src.core.agent.base_batch import BaseBatch
-from src.core.integrity_monitor import INTEGRITY_MONITOR_INSERT_SQL, emit_integrity_fact_sync
 from src.core.rng import hash_key_to_int
 from src.core.service_utils import (
     format_iso_ts,
     parse_training_window_end,
     setup_service_logging,
 )
-from src.intelligence.concept_registry_service import ConceptRegistryService
 from src.intelligence.schemas import FeatureVector
 from src.intelligence.statistics.ic_bootstrap_jit import (
     blocked_bootstrap_ics,
     dense_rank_inputs,
 )
 from src.intelligence.statistics.ic_math import (
-    GuardVerdict,
     _compute_ic_rolling_metrics,
     _expand,
     _nan_to_none,
@@ -131,7 +128,6 @@ from src.intelligence.statistics.ic_math import (
     _vectorized_ic,
     apply_bh_fdr,
     build_walk_forward_folds,
-    evaluate_guard_fraction,
     expand_int,
     magnitude_conditional_ic,
     sign_hit_rate,
@@ -139,14 +135,11 @@ from src.intelligence.statistics.ic_math import (
     vol_normalized_return,
 )
 from src.observability.metrics import (
-    ALPHA_DECAY_CELLS_FLAGGED,
-    ALPHA_DECAY_ENSEMBLE_REBUILD_TOTAL,
     EFFECTIVE_N_GAUGE,
     FEATURE_IC_PASSING_WALKFORWARD_TOTAL,
     FEATURES_SURVIVING_FDR_GAUGE,
     IC_ENGINE_CELLS_COMPLETED_TOTAL,
     IC_ENGINE_CELLS_SKIPPED_TOTAL,
-    IC_ENGINE_LAST_RUN_AGE_DAYS,
     IC_ENGINE_RUN_LATENCY_SECONDS,
     IC_ENGINE_RUN_SYMBOLS_TOTAL,
     IC_ENGINE_SYMBOLS_COMPLETED_TOTAL,
@@ -371,7 +364,7 @@ _INSERT_BODY = """
         ic_value, ic_sign, p_value, ic_ci_lower, ic_ci_upper, passes_ci_gate,
         bh_adjusted_p, passes_fdr, wf_fold_count, wf_pass_count, passes_walkforward,
         ic_sharpe, ic_sharpe_hac, ic_sharpe_n_windows, ic_sortino, ic_win_rate,
-        regime_label_source, computed_at, cluster_id, feature_status_at_eval, regime_scope,
+        regime_label_source, computed_at, cluster_id, regime_scope,
         sign_hit_rate, magnitude_conditional_ic, cumulative_e_value
     )
     VALUES (
@@ -382,7 +375,7 @@ _INSERT_BODY = """
         %(passes_fdr)s, %(wf_fold_count)s, %(wf_pass_count)s, %(passes_walkforward)s,
         %(ic_sharpe)s, %(ic_sharpe_hac)s, %(ic_sharpe_n_windows)s, %(ic_sortino)s, %(ic_win_rate)s,
         %(regime_label_source)s, %(computed_at)s, %(cluster_id)s,
-        %(feature_status_at_eval)s, %(regime_scope)s,
+        %(regime_scope)s,
         %(sign_hit_rate)s, %(magnitude_conditional_ic)s, %(cumulative_e_value)s
     )
 """
@@ -524,42 +517,12 @@ class ICEngineConfig:
     symbol_fetch_chunk_rows: int
     n_workers: int
     blas_threads_per_worker: int
-    # Phase 143 Plan 03: post-run lifecycle hook (LIFECYCLE-03/04/05) thresholds.
-    # Defaulted (matching the APR defaults from_apr() falls back to) rather than
-    # required -- from_apr() always binds these explicitly in production; the
-    # defaults exist so pre-existing direct ICEngineConfig(...) construction sites
-    # (e.g. tests/unit/test_hac_ic_sharpe.py, which predates this plan and only
-    # exercises the original 18 fields) don't break on this dataclass's field-count
-    # growth (Rule 1 fix -- caught by the full tests/unit/ suite run).
-    decay_materiality_threshold: float = 0.005
-    # Todo 144: stratified, self-calibrating regime-shift guard, replacing the flat
-    # decay_regime_shift_fraction (removed above). Rails are RCA-grounded against
-    # EIC-04's established 96-98% normal failure-rate base, not guesses -- see
-    # migration 237. Defaulted for the same reason as every other post-143 field:
-    # pre-existing direct ICEngineConfig(...) construction sites must not break on
-    # this dataclass's field-count growth.
-    guard_fail_rate_max: float = 0.995
-    guard_fail_rate_min: float = 0.85
-    guard_band_z: float = 3.0
-    guard_min_cells: int = 100
-    guard_min_history: int = 8
-    guard_history_window: int = 20
-    decay_recovery_min_observations: int = 2000
-    decay_recovery_min_passes: int = 2
-    demotion_min_consecutive: int = 2
-    meta_fdr_min_fraction: float = 0.50
-    ic_staleness_alert_days: int = 5
-    # Fable N4: pins the standing-weight JOIN to the APR champion weight_version --
-    # the SAME key ensemble_trainer defaults to absent a CLI --weight-version override.
-    # NEVER resolved by `ORDER BY computed_at DESC LIMIT 1` (would silently leak a
-    # challenger epoch's weights into the materiality gate the moment E1/E2 A/B ships).
-    ensemble_weight_version: str = "v1"
     # Phase 143.1-01 (Component A, todo 091): circular block bootstrap CI params.
     # Migrations 161/165/177 seeded these keys long before this plan gave them a
     # reader -- migration 222 strips the [deprecated] description prefix in the
-    # same commit as this rewiring. Defaulted (not required) for the same reason
-    # as the Phase 143 fields above: pre-existing direct ICEngineConfig(...)
-    # construction sites (test_hac_ic_sharpe.py) must not break on field-count growth.
+    # same commit as this rewiring. Defaulted (not required) so pre-existing direct
+    # ICEngineConfig(...) construction sites (test_hac_ic_sharpe.py) do not break on
+    # field-count growth.
     bootstrap_resamples: int = 2000
     bootstrap_seed: int = 42
     # Todo 227 (2026-08-05): adaptive early-stop on the bootstrap_resamples loop --
@@ -613,12 +576,6 @@ class ICEngineConfig:
     per_symbol_bootstrap_threads: dict[str, int] = dataclasses.field(
         default_factory=lambda: {"5m": 1, "15m": 1, "1h": 1, "1d": 1}
     )
-    # Phase 143.1-04 (Component E, todo 094): champion/challenger behavior switch shared
-    # with ensemble_trainer.py's alpha.ensemble.sign_symmetric. Gates ONLY the
-    # _run_lifecycle_hook demote/material/worst_cell predicates below -- defaulted to the
-    # APR fallback (false) so direct-constructor test sites (test_hac_ic_sharpe.py
-    # precedent, commit b47595b9) do not break on this dataclass's field-count growth.
-    sign_symmetric: bool = False
     # Phase 151 Plan 02: global switch widening the existing regime_passes symbol_hmm
     # stratification pass (previously gated ONLY by a routed symbol's per-group
     # dual_write_symbol_hmm field, migration 247) to run for every regime-group-routed
@@ -644,7 +601,7 @@ class ICEngineConfig:
     # services.cross_sectional_regime_model._parse_group_configs() in main() to
     # derive enabled_groups. Defaulted for the same reason as every other
     # post-143 field: pre-existing direct ICEngineConfig(...) construction sites
-    # (test_hac_ic_sharpe.py, test_ic_engine_lifecycle_hook.py) must not break on
+    # (test_hac_ic_sharpe.py) must not break on
     # this dataclass's field-count growth.
     regime_groups_json: str = "[]"
     # Todo 096: fixed window size in SUBSAMPLED bars for _compute_ic_rolling_metrics
@@ -853,29 +810,6 @@ class ICEngineConfig:
             n_workers=int(cfg.get_sync("infra.ic_engine.workers", 1)),
             # todo 216: BLAS thread cap, see make_worker_pool()/limit_blas_threads().
             blas_threads_per_worker=int(cfg.get_sync("infra.blas_threads_per_worker", 1)),
-            # Phase 143 Plan 03: post-run lifecycle hook (LIFECYCLE-03/04/05).
-            # Reused APR keys (migration 161/172) -- not new, so demotion and the
-            # ensemble's own inclusion gate share one threshold and can't drift apart.
-            decay_materiality_threshold=float(
-                cfg.get_sync("alpha.decay.materiality_threshold", 0.005)
-            ),
-            # Todo 144: stratified regime-shift guard rails (migration 237).
-            guard_fail_rate_max=float(cfg.get_sync("alpha.decay.guard_fail_rate_max", 0.995)),
-            guard_fail_rate_min=float(cfg.get_sync("alpha.decay.guard_fail_rate_min", 0.85)),
-            guard_band_z=float(cfg.get_sync("alpha.decay.guard_band_z", 3.0)),
-            guard_min_cells=int(cfg.get_sync("alpha.decay.guard_min_cells", 100)),
-            guard_min_history=int(cfg.get_sync("alpha.decay.guard_min_history", 8)),
-            guard_history_window=int(cfg.get_sync("alpha.decay.guard_history_window", 20)),
-            decay_recovery_min_observations=int(
-                cfg.get_sync("alpha.decay.recovery_min_observations", 2000)
-            ),
-            decay_recovery_min_passes=int(cfg.get_sync("alpha.decay.recovery_min_passes", 2)),
-            demotion_min_consecutive=int(cfg.get_sync("alpha.decay.demotion_min_consecutive", 2)),
-            meta_fdr_min_fraction=float(cfg.get_sync("alpha.ensemble.meta_fdr_min_fraction", 0.50)),
-            # New key (migration 219).
-            ic_staleness_alert_days=int(cfg.get_sync("alpha.ic.staleness_alert_days", 5)),
-            # Fable N4 -- same key ensemble_trainer defaults to absent a CLI override.
-            ensemble_weight_version=str(cfg.get_sync("alpha.ensemble.weight_version", "v1")),
             # Circular block bootstrap CI (migrations 161/165/177; reactivated migration 222).
             bootstrap_resamples=int(cfg.get_sync("alpha.ic.bootstrap_resamples", 2000)),
             bootstrap_seed=int(cfg.get_sync("alpha.ic.bootstrap_seed", 42)),
@@ -900,12 +834,8 @@ class ICEngineConfig:
                 "alpha.ic.bootstrap_block_size",
                 {"5m": 78, "15m": 26, "1h": 10, "1d": 10},
             ),
-            # Phase 143.1-04 (Component E, todo 094). Same APR key ensemble_trainer.py
-            # reads -- one flag, two consumers, so the champion/challenger switch can't
-            # drift between eligibility and the lifecycle hook's demote predicate.
-            sign_symmetric=bool(cfg.get_sync("alpha.ensemble.sign_symmetric", False)),
-            # Phase 151 Plan 02 (migration 286). Same read idiom as sign_symmetric
-            # directly above -- resolved once here, never re-read inside a per-cell loop.
+            # Phase 151 Plan 02 (migration 286). Resolved once here, never re-read inside
+            # a per-cell loop.
             cluster_regime_conditioned=bool(
                 cfg.get_sync("alpha.ensemble.cluster_regime_conditioned", True)
             ),
@@ -1027,13 +957,6 @@ _COMPUTATIONAL_CONFIG_FIELDS: frozenset[str] = frozenset(
         "bootstrap_early_stop_tol",
         "bootstrap_early_stop_min_resamples",
         "bootstrap_early_stop_stable_checks",
-        # Conservative: currently gates ONLY the post-run lifecycle-hook demote/
-        # material/worst_cell predicates (see ic_engine.py:798's docstring), not the
-        # feature_ic_scores rows written by this file today. Classified COMPUTATIONAL
-        # anyway (not OPERATIONAL) as a deliberate safety margin against future
-        # coupling into the measurement path itself -- costs at most one extra safe
-        # recompute, never a silent-stale read.
-        "sign_symmetric",
         # Determines enabled_groups -> symbol_regime_class routing -> which symbols
         # feed which cross-sectional cell and which regime labels a per-symbol row
         # gets -- a routing change moves real rows, not just downstream policy.
@@ -1050,8 +973,8 @@ _COMPUTATIONAL_CONFIG_FIELDS: frozenset[str] = frozenset(
         "earnings_season_conditioned",
         "sharpe_window_size_subsampled",  # fixed subsampled-bar window -- moves ic_sharpe
         # 162-04 Task 2: currently UNUSED (0=disabled, no read path). Classified
-        # COMPUTATIONAL as a deliberate conservative safety margin (same reasoning as
-        # sign_symmetric above) -- once wired, a nonzero value changes WHICH rows get
+        # COMPUTATIONAL as a deliberate conservative safety margin -- once wired, a
+        # nonzero value changes WHICH rows get
         # carried-forward vs recomputed, moving feature_ic_scores content directly.
         # Costs at most one extra safe recompute today (value never changes from the
         # migration 252 seed), never a silent-stale read once carry-forward ships.
@@ -1102,23 +1025,6 @@ _OPERATIONAL_CONFIG_FIELDS: frozenset[str] = frozenset(
         # Per-worker BLAS thread cap (todo 216) -- empirically verified OPERATIONAL, not
         # assumed. See limit_blas_threads()'s docstring in _batch_utils.py for the test.
         "blas_threads_per_worker",
-        # Post-run lifecycle hook (_apply_feature_transitions/_run_lifecycle_hook)
-        # ONLY -- operates on concept_registry/ensemble decisions AFTER
-        # feature_ic_scores rows are already written; never affects the rows
-        # themselves. Verified via grep: only referenced inside those two functions.
-        "decay_materiality_threshold",
-        "guard_fail_rate_max",  # lifecycle hook only (regime-shift guard rail)
-        "guard_fail_rate_min",  # lifecycle hook only (regime-shift guard rail)
-        "guard_band_z",  # lifecycle hook only (regime-shift guard rail)
-        "guard_min_cells",  # lifecycle hook only (regime-shift guard rail)
-        "guard_min_history",  # lifecycle hook only (regime-shift guard rail)
-        "guard_history_window",  # lifecycle hook only (regime-shift guard rail)
-        "decay_recovery_min_observations",  # lifecycle hook only
-        "decay_recovery_min_passes",  # lifecycle hook only
-        "demotion_min_consecutive",  # lifecycle hook only (todo 323 demotion hysteresis)
-        "meta_fdr_min_fraction",  # lifecycle hook only (demotion floor)
-        "ic_staleness_alert_days",  # observability/alerting threshold only
-        "ensemble_weight_version",  # pins lifecycle hook's standing-weight JOIN only
         # Thread count changes wall time only, never output -- guaranteed
         # structurally by 162-01's precomputed resample-index matrix (starts_matrix,
         # drawn once per scale before the feature-block loop). Explicitly OPERATIONAL
@@ -1173,7 +1079,7 @@ def _check_cell_size(n_rows: int, config: ICEngineConfig, context_label: str) ->
 # Per-table upstream watermark (162-03 Task 2, resolves RESEARCH Open Question #1)
 #
 # A naive MAX(bar_ts)/COUNT(*) watermark is blind to an in-place VALUE mutation
-# (price-sanity correction, HMM relabel, concept_registry status transition) that
+# (price-sanity correction, HMM relabel, broadcast-flag reclassification) that
 # changes zero rows and zero timestamps -- exactly the failure class this function
 # exists to catch. Every component below is either a write-timestamp column that
 # bumps on correction (forward_returns.computed_at) or a content hash over the
@@ -1183,73 +1089,38 @@ def _check_cell_size(n_rows: int, config: ICEngineConfig, context_label: str) ->
 
 
 def _watermark_concept_registry(conn: Any) -> dict[str, Any]:
-    """(e) concept_registry (domain='feature') status hash -- run-invariant,
-    applies to EVERY pass_type (every row type -- pooled/symbol_hmm/cross_sectional
-    -- writes feature_status_at_eval from this same snapshot).
+    """(e) concept_registry (domain='feature') -- the parts of the registry that change
+    what ic_engine computes. Run-invariant: compute it once per invocation and pass the
+    result into every cell's watermark (162 simplify-pass).
 
-    Takes no cell-scoped input, so compute this exactly ONCE per ic_engine.py
-    invocation and pass the result into every cell's watermark (162 simplify-pass --
-    previously recomputed on every single per-cell call, up to ~700+ identical
-    round trips for a full corpus run).
+    membership_hash: the feature population. main()'s alignment gate already forces it
+    to equal FeatureVector's fields, so a real change also moves code_content_key;
+    tracking it here makes the fingerprint correct on its own rather than by that
+    coupling.
 
-    Phase 170 Plan 06: repointed from feature_registry to concept_registry
-    (domain='feature'). The md5 INPUT STRING keeps the exact same shape
-    (`name || '=' || status ORDER BY name`, formerly `feature_name || '=' ||
-    status ORDER BY feature_name`) so that, with both registries in sync, the
-    hash VALUE is byte-identical to before the repoint -- see
-    _fingerprint_computational_key's docstring for why that identity matters.
+    broadcast_hash (Phase 173 Plan 03, D-08, todo 270): the broadcast metadata flag
+    decides _compute_one_cross_sectional_cell's column split and which features the
+    broadcast cell measures, so a reclassification must invalidate every cell.
+    COALESCE to '' because a hash input must be a stable string for unflagged rows.
 
-    JOINs concept_gate (like ConceptRegistryService's own _LOAD_CONCEPTS_SYNC_SQL)
-    rather than filtering on domain='feature' alone: migration 284 seeded 2
-    TOMBSTONE concept_registry rows (metadata->>'migrated_from' =
-    'feature_transition_log') for orphaned feature_transition_log history whose
-    feature_name no longer exists in feature_registry -- these carry no
-    concept_gate row by design (284's header, "ORPHANED TRANSITION-LOG ROWS").
-    An unscoped domain='feature' count is 251 (249 real + 2 tombstones), which
-    would never match feature_registry's 249 and would permanently fail this
-    plan's own byte-identical-hash acceptance criterion, plus make the alignment
-    gate below raise on every single run. The INNER JOIN naturally excludes them,
-    matching ConceptRegistryService's own semantics exactly (verified live,
-    2026-08-04: both hashes equal 4fadbe90ab6050fa12e7f25196f32b28 with this join).
+    Lifecycle status is deliberately absent (todo 402): feature_ic_scores rows no
+    longer carry it and no computation reads it, so a promotion or demotion by the
+    feature_lifecycle node never touches an IC cell.
 
-    Phase 173 Plan 03 (D-08, todo 270): also returns `broadcast_hash`, a second
-    md5(string_agg(...)) over the SAME gate-joined domain='feature' population,
-    hashing `cr.name || '=' || COALESCE(cr.metadata->>'broadcast', '')`. Unlike
-    Task 1's broadcast-set READ (which deliberately uses no COALESCE -- NULL
-    correctly means "not selected" there), this is a HASH INPUT that must be a
-    stable string for every row including unflagged ones, so COALESCE to '' is
-    required here and is not in tension with Task 1's rule.
-
-    broadcast_hash exists because _compute_one_cross_sectional_cell's column
-    split (which features are excluded from the per-symbol pooled cell) AND
-    (after Plan 04) which features the broadcast cell measures both depend on
-    this same metadata flag -- a reclassification must force a full recompute.
-    Without this, status_hash alone is blind to a broadcast-flag flip (the flag
-    lives in metadata, which status_hash's input string never sees), so every
-    cell fingerprint would stay valid and every cell would be permanently
-    skipped, silently serving results computed under the OLD column split --
-    research's Pitfall 1 arriving through the metadata door instead of the
-    status door.
-
-    Computed as a separate aggregate in the SAME round trip (one cursor, one
-    query returning two columns) -- not folded into status_hash's own input
-    string. status_hash's byte-identical-hash acceptance criterion (Phase 170,
-    verified live: 4fadbe90ab6050fa12e7f25196f32b28) must survive this change
-    unaltered; adding a second column is additive and safe, changing the first
-    column's input string is not.
+    JOINs concept_gate, like every other concept_registry read in this file, to exclude
+    migration 284's two gate-less tombstone rows.
     """
     with conn.cursor() as cur:
         cur.execute(
-            "SELECT md5(COALESCE(string_agg("
-            "cr.name || '=' || cr.status, '' ORDER BY cr.name), '')), "
+            "SELECT md5(COALESCE(string_agg(cr.name, ',' ORDER BY cr.name), '')), "
             "md5(COALESCE(string_agg("
             "cr.name || '=' || COALESCE(cr.metadata->>'broadcast', ''), '' "
             "ORDER BY cr.name), '')) "
             "FROM concept_registry cr JOIN concept_gate cg USING (concept_id) "
             "WHERE cr.domain = 'feature'"
         )
-        status_hash, broadcast_hash = cur.fetchone()
-    return {"status_hash": status_hash, "broadcast_hash": broadcast_hash}
+        membership_hash, broadcast_hash = cur.fetchone()
+    return {"membership_hash": membership_hash, "broadcast_hash": broadcast_hash}
 
 
 def _watermark_forward_returns_feature_vectors(
@@ -1394,9 +1265,8 @@ def _compute_upstream_watermark(
     Components (c) market_regimes and (d) instrument_tags additionally apply,
     keyed by regime_group and symbol_list respectively.
 
-    (e) concept_registry (domain='feature') status applies to EVERY row type --
-    every row (pooled/symbol_hmm/cross_sectional, per-symbol or group-pooled)
-    writes feature_status_at_eval from the same registry snapshot.
+    (e) concept_registry (domain='feature') membership and broadcast flags apply to
+    EVERY row type (see _watermark_concept_registry).
 
     Timestamps serialized via format_iso_ts() (never inline .isoformat()). Does
     NOT log -- callers accumulate a counter across all per-cell calls and log
@@ -1471,167 +1341,14 @@ def _fingerprint_is_valid(stored: dict[str, Any] | None, current: dict[str, Any]
     )
 
 
-# Phase 170 Plan 06: _fingerprint_computational_key must drop BOTH the pre-cutover
-# ("feature_registry") and post-cutover ("concept_registry") watermark key names,
-# not just the new one. A stored ic_cell_fingerprints row written by yesterday's
-# (pre-Plan-06) code carries "feature_registry" in its upstream_watermark; the very
-# next run's freshly-computed fingerprint carries "concept_registry" instead. If the
-# filter only dropped "concept_registry", the OLD stored row's "feature_registry"
-# entry would survive filtering while the NEW current fingerprint's watermark would
-# not have a corresponding entry to compare it against -- a spurious computational-key
-# mismatch on literally every cell in the corpus on the first post-cutover run, i.e.
-# exactly the ~70h recompute this whole plan exists to avoid. Dropping both names
-# keeps stored (old key) and current (new key) fingerprints computationally equal
-# through the transition, and is a permanent no-op once every stored row has been
-# refreshed to the new key (see test_computational_key_unchanged_by_registry_key_rename).
-_LEGACY_REGISTRY_WATERMARK_KEYS = frozenset({"feature_registry", "concept_registry"})
-
-
-def _fingerprint_computational_key(fp: dict[str, Any]) -> dict[str, Any]:
-    """The subset of a fingerprint that gates whether the expensive bootstrap-CI
-    compute must rerun -- upstream_watermark minus its registry-status component.
-
-    concept_registry.status_hash never changes WHAT gets computed: ic_engine's
-    per-cell compute always calls get_all_concepts(), never a status-filtered
-    accessor (see main()'s registry-drift gate), so every feature is
-    bootstrap-CI'd regardless of status. status only feeds the
-    feature_status_at_eval provenance column on each row -- treating a
-    status-hash change as computationally invalidating (2026-07-29
-    rca_analysis, todo 198) forces a full multi-hour recompute for an edit
-    that alters zero computed IC/CI value.
-
-    NOTE (2026-07-29 code review): status_hash also moves on registry MEMBERSHIP
-    changes (feature added/removed/renamed), which DOES change computed output --
-    excluding it here is safe only because main()'s alignment gate forces
-    concept_registry(domain='feature') membership to equal FeatureVector's
-    fields exactly, so a real membership change requires a FeatureVector edit
-    that moves code_content_key instead. If that gate is ever relaxed, this
-    function must be revisited to track membership separately from status.
-
-    Phase 170 Plan 06: watermark dict key renamed "feature_registry" ->
-    "concept_registry" (_compute_upstream_watermark). This function filters out
-    BOTH names via _LEGACY_REGISTRY_WATERMARK_KEYS -- see that constant's
-    docstring for why a single-name filter would spuriously invalidate every
-    cell on the first post-cutover run.
-
-    Phase 173 Plan 03 (D-08, todo 270): broadcast_hash is the one exception to
-    "the whole concept_registry entry is dropped" -- unlike status_hash, a
-    broadcast-flag flip DOES change what gets computed
-    (_compute_one_cross_sectional_cell's column split, and Plan 04's future
-    broadcast cell), so it must participate in the computational key. When the
-    legacy-named entry is a dict carrying "broadcast_hash", this function keeps
-    ONLY that key (still dropping status_hash) instead of dropping the whole
-    entry. A pre-Plan-03 stored fingerprint has no broadcast_hash key at all,
-    so it naturally compares unequal to any freshly-computed current
-    fingerprint under this rule -- the intended one-time corpus-wide
-    invalidation this plan's Task 3 requires (see _watermark_concept_registry's
-    docstring for why: without this, a reclassification would leave every
-    fingerprint valid and every cell permanently skipped, silently serving
-    results computed under the OLD column split).
-    """
-    watermark = fp.get("upstream_watermark") or {}
-    filtered_watermark: dict[str, Any] = {}
-    for k, v in watermark.items():
-        if k in _LEGACY_REGISTRY_WATERMARK_KEYS:
-            if isinstance(v, dict) and "broadcast_hash" in v:
-                filtered_watermark[k] = {"broadcast_hash": v["broadcast_hash"]}
-            continue
-        filtered_watermark[k] = v
-    return {
-        "code_content_key": fp.get("code_content_key"),
-        "apr_snapshot_key": fp.get("apr_snapshot_key"),
-        "upstream_watermark": filtered_watermark,
-    }
-
-
-def _fingerprint_is_computationally_valid(
-    stored: dict[str, Any] | None, current: dict[str, Any]
-) -> bool:
-    """True when everything that can actually move a computed IC/CI value
-    matches -- ignores concept_registry.status_hash (see
-    _fingerprint_computational_key). A cell valid here but not under
-    _fingerprint_is_valid is status-only-stale: safe to skip the expensive
-    compute, but its feature_status_at_eval provenance needs a cheap refresh
-    (_fingerprint_is_status_only_stale, _FEATURE_STATUS_REFRESH_SQL).
-    """
-    if stored is None:
-        return False
-    return _fingerprint_computational_key(stored) == _fingerprint_computational_key(current)
-
-
-def _fingerprint_is_status_only_stale(
-    stored: dict[str, Any] | None, current: dict[str, Any]
-) -> bool:
-    """True iff the cell's expensive compute is reusable but its
-    feature_status_at_eval provenance is stale -- computationally valid AND
-    NOT fully valid. False on a never-computed cell (stored=None): that must
-    take the full compute path, not a metadata-only refresh of rows that don't
-    exist. False when computationally invalid too: that's a full recompute,
-    which already rewrites feature_status_at_eval as a side effect -- a
-    separate refresh there would be redundant, and if ordered wrong relative
-    to the recompute, could clobber it.
-    """
-    return _fingerprint_is_computationally_valid(stored, current) and not _fingerprint_is_valid(
-        stored, current
-    )
-
-
-_FingerprintClassification = Literal["valid", "status_only_stale", "invalid"]
-
-
-def _classify_fingerprint(
+def _cell_needs_compute(
     stored: dict[str, Any] | None, current: dict[str, Any], *, force_refresh: bool
-) -> _FingerprintClassification:
-    """The one decision function shared by both the per-symbol and cross-
-    sectional prepass loops (2026-07-29 rca_analysis, todo 198) -- both call
-    this instead of independently re-deriving valid/stale/invalid, so the two
-    passes structurally cannot diverge in what counts as which.
-
-    force_refresh (the --refresh CLI flag) always forces "invalid", matching
-    the pre-existing args.refresh semantics unchanged: an explicit refresh
-    request means redo everything, not just a status-only metadata touch-up.
-    """
-    if force_refresh or not _fingerprint_is_computationally_valid(stored, current):
-        return "invalid"
-    return "status_only_stale" if _fingerprint_is_status_only_stale(stored, current) else "valid"
-
-
-def _partition_symbol_cells(
-    cell_classifications: dict[tuple[str, str], _FingerprintClassification],
-) -> tuple[list[tuple[str, str]], bool]:
-    """Aggregates one symbol's per-cell _classify_fingerprint results into
-    (invalid_cells, needs_status_refresh) -- TWO INDEPENDENT values, never an
-    either/or bucket (2026-07-29 code review regression, todo 198).
-
-    The bug this replaced: the original wiring used a single elif to bucket a
-    symbol as EITHER dispatched (has an invalid cell) OR needing a status
-    refresh (no invalid cell, but a status_only_stale one) -- never both. A
-    symbol with an invalid cell in one (tf, pass_type) AND a status_only_stale
-    cell in a DIFFERENT (tf, pass_type) got dispatched (correctly, for the
-    invalid cell) but its status_only_stale sibling was silently never
-    refreshed: the dispatched worker's redundant recompute of that
-    fingerprint-valid sibling hits feature_ic_scores' ON CONFLICT ... DO
-    NOTHING (T-162-03-06 -- deliberately harmless pre-todo-190, since a
-    fingerprint-valid sibling's recomputed row was always byte-identical to
-    what's already there), which now silently discards the fresh
-    feature_status_at_eval, while the post-compute fingerprint upsert (which
-    covers ALL of a dispatched symbol's cells, unconditionally -- see the
-    "UPSERT fingerprint rows for ALL of this symbol's expected cells" comment
-    below) stamps that cell's fingerprint fresh anyway. Net effect: permanent,
-    silent status drift, never detected or corrected on any future run --
-    exactly the "silent wrong answer" failure mode this project treats as
-    worse than a loud crash.
-
-    dispatch is `bool(invalid_cells)`, independent of needs_status_refresh --
-    callers must act on both, not chain them as if/elif.
-    """
-    invalid_cells = [
-        cell_key for cell_key, result in cell_classifications.items() if result == "invalid"
-    ]
-    needs_status_refresh = any(
-        result == "status_only_stale" for result in cell_classifications.values()
-    )
-    return invalid_cells, needs_status_refresh
+) -> bool:
+    """The one decision shared by the per-symbol and cross-sectional prepass loops
+    (todo 198), so the two passes cannot diverge in what counts as stale. force_refresh
+    (the --refresh CLI flag) always recomputes. Todo 402 removed the third,
+    "status-only stale" outcome: rows no longer carry lifecycle status."""
+    return force_refresh or not _fingerprint_is_valid(stored, current)
 
 
 # Scoped to the exact ic_cell_fingerprints PK columns (symbol, tf, pass_type via
@@ -1772,32 +1489,6 @@ _FINGERPRINT_UPSERT_SQL = """
         apr_snapshot_key = EXCLUDED.apr_snapshot_key,
         upstream_watermark = EXCLUDED.upstream_watermark,
         computed_at = EXCLUDED.computed_at
-"""
-
-# Companion to _fingerprint_is_status_only_stale (todo 198): a cheap metadata-only
-# refresh for cells whose expensive bootstrap-CI math is still valid but whose
-# feature_status_at_eval provenance has drifted from a concept_registry status
-# transition. IS DISTINCT FROM (not !=, which is NULL-unsafe) keeps this a no-op
-# UPDATE on rows already current -- safe and cheap to run on every status-only-
-# stale symbol/cell, not just the one whose status actually moved, since we only
-# know the AGGREGATE status_hash changed, not which individual feature moved.
-# Phase 170 Plan 06: repointed from feature_registry to concept_registry
-# (domain='feature'), joined on name = feature_name. Also joins concept_gate
-# (matching _watermark_concept_registry and ConceptRegistryService's own
-# _LOAD_CONCEPTS_SYNC_SQL) to exclude migration 284's 2 gate-less tombstone
-# rows -- belt-and-suspenders, since no feature_ic_scores row has ever named
-# either tombstone feature (verified live, 2026-08-04), but this keeps every
-# concept_registry(domain='feature') read in this file scoped identically.
-_FEATURE_STATUS_REFRESH_SQL = """
-    UPDATE feature_ic_scores fis
-    SET feature_status_at_eval = cr.status
-    FROM concept_registry cr
-    JOIN concept_gate cg ON cg.concept_id = cr.concept_id
-    WHERE cr.domain = 'feature'
-      AND fis.feature_name = cr.name
-      AND fis.symbol = ANY(%(symbols)s)
-      AND fis.training_window_end = %(training_window_end)s
-      AND fis.feature_status_at_eval IS DISTINCT FROM cr.status
 """
 
 
@@ -2561,7 +2252,6 @@ def _compute_one_regime_cell(
     tf: str,
     rng: np.random.Generator,
     training_window_end: Any,
-    feature_status_map: dict[str, str] | None,
     run_ts: datetime,
     broadcast_mask: np.ndarray | None = None,
 ) -> tuple[list[dict], int, dict[str, int]]:
@@ -2872,11 +2562,6 @@ def _compute_one_regime_cell(
                     "regime_label_source": "forward_filter",
                     "computed_at": run_ts,
                     "cluster_id": cluster_id_full[feat_idx],
-                    "feature_status_at_eval": (
-                        feature_status_map.get(feat_name, "unknown")
-                        if feature_status_map is not None
-                        else "unknown"
-                    ),
                     "regime_scope": resolved_regime_scope,
                     "sign_hit_rate": _nan_to_none(sign_hit_rate_full[feat_idx]),
                     "magnitude_conditional_ic": _nan_to_none(magnitude_ic_full[feat_idx]),
@@ -2938,7 +2623,6 @@ def _compute_one_symbol_broadcast_cell(
     tf: str,
     rng: np.random.Generator,
     training_window_end: Any,
-    feature_status_map: dict[str, str] | None,
     run_ts: datetime,
 ) -> tuple[list[dict], int]:
     """Compute the day-decimated broadcast significance test for ONE (symbol, tf,
@@ -3271,11 +2955,6 @@ def _compute_one_symbol_broadcast_cell(
                     "regime_label_source": "forward_filter",
                     "computed_at": run_ts,
                     "cluster_id": cluster_id_bc[bc_idx],
-                    "feature_status_at_eval": (
-                        feature_status_map.get(feat_name, "unknown")
-                        if feature_status_map is not None
-                        else "unknown"
-                    ),
                     "regime_scope": resolved_regime_scope,
                     "sign_hit_rate": _nan_to_none(sign_hit_rate_full[bc_idx]),
                     "magnitude_conditional_ic": _nan_to_none(magnitude_ic_full[bc_idx]),
@@ -3477,7 +3156,7 @@ def _group_cells_for_metrics(
     already includes regime_scope, so an earnings-season cell simply gets its
     own emission bucket carrying regime_scope='earnings_season'. Metrics only;
     no lifecycle decision is made here, so no exclusion is warranted (in
-    contrast to _lifecycle_guard_cells, which decides).
+    contrast to feature_lifecycle.guard_cells, which decides).
     """
     distinct_cells = {(r["regime"], r["is_pooled"], r["regime_scope"]) for r in all_results}
     emissions: list[tuple[dict[str, Any], int]] = []
@@ -3510,7 +3189,6 @@ def _compute_symbol_tf(
     tracer: Any,
     run_ts: datetime,
     rng: np.random.Generator,
-    feature_status_map: dict[str, str] | None = None,
     mr_dict: dict | None = None,
     dual_write_symbol_hmm: bool = False,
     cluster_regime_conditioned: bool = False,
@@ -3547,11 +3225,6 @@ def _compute_symbol_tf(
     exceed postgres's idle_session_timeout, and a connection left idle across
     it gets killed server-side before ever being used again — the corpus
     re-run was silently writing zero rows as a result).
-
-    feature_status_map: dict mapping feature_name → status from concept_registry
-    (domain='feature'). If provided, each IC score row receives
-    feature_status_at_eval from this map.
-    Defaults to 'unknown' for any feature not found in the map.
 
     mr_dict: optional dict {ts -> regime_label} from market_regimes for this TF.
     When provided (equity_model_enabled=True), regime labels come from market_regimes
@@ -3819,7 +3492,6 @@ def _compute_symbol_tf(
             tf=tf,
             rng=rng,
             training_window_end=training_window_end,
-            feature_status_map=feature_status_map,
             run_ts=run_ts,
             broadcast_mask=broadcast_mask,
         )
@@ -3846,7 +3518,6 @@ def _compute_symbol_tf(
             tf=tf,
             rng=rng,
             training_window_end=training_window_end,
-            feature_status_map=feature_status_map,
             run_ts=run_ts,
         )
         all_results.extend(pooled_bc_rows)
@@ -3898,7 +3569,6 @@ def _compute_symbol_tf(
                     tf=tf,
                     rng=rng,
                     training_window_end=training_window_end,
-                    feature_status_map=feature_status_map,
                     run_ts=run_ts,
                     broadcast_mask=broadcast_mask,
                 )
@@ -3922,7 +3592,6 @@ def _compute_symbol_tf(
                     tf=tf,
                     rng=rng,
                     training_window_end=training_window_end,
-                    feature_status_map=feature_status_map,
                     run_ts=run_ts,
                 )
                 all_results.extend(pass_bc_rows)
@@ -4145,7 +3814,6 @@ def _compute_one_cross_sectional_cell(
     tf: str,
     rng: np.random.Generator,
     training_window_end: Any,
-    feature_status_map: dict[str, str] | None,
     run_ts: datetime,
     prior_e_values: dict[tuple[str, int], float],
     broadcast_mask: np.ndarray | None = None,
@@ -4446,11 +4114,6 @@ def _compute_one_cross_sectional_cell(
                     "regime_label_source": "market_regimes",
                     "computed_at": run_ts,
                     "cluster_id": cluster_id_full[feat_idx],
-                    "feature_status_at_eval": (
-                        feature_status_map.get(feat_name, "unknown")
-                        if feature_status_map is not None
-                        else "unknown"
-                    ),
                     "regime_scope": resolved_regime_scope,
                     "sign_hit_rate": _nan_to_none(sign_hit_rate_full[feat_idx]),
                     "magnitude_conditional_ic": _nan_to_none(magnitude_ic_full[feat_idx]),
@@ -4473,7 +4136,6 @@ def _compute_one_broadcast_cell(
     tf: str,
     rng: np.random.Generator,
     training_window_end: Any,
-    feature_status_map: dict[str, str] | None,
     run_ts: datetime,
 ) -> tuple[list[dict], int]:
     """Compute the regime-conditional broadcast significance test for ONE
@@ -4831,11 +4493,6 @@ def _compute_one_broadcast_cell(
                     "regime_label_source": "market_regimes",
                     "computed_at": run_ts,
                     "cluster_id": cluster_id_bc[bc_idx],
-                    "feature_status_at_eval": (
-                        feature_status_map.get(feat_name, "unknown")
-                        if feature_status_map is not None
-                        else "unknown"
-                    ),
                     "regime_scope": "cross_sectional",
                     "sign_hit_rate": _nan_to_none(sign_hit_rate_full[bc_idx]),
                     "magnitude_conditional_ic": _nan_to_none(magnitude_ic_full[bc_idx]),
@@ -4956,7 +4613,6 @@ def _compute_cross_sectional_tf(
     tracer: Any,
     run_ts: datetime,
     rng: np.random.Generator,
-    feature_status_map: dict[str, str] | None = None,
     broadcast_features: frozenset[str] = frozenset(),
 ) -> tuple[list[dict], dict[str, Any]]:
     """Compute cross-sectional IC for one (regime_group, tf, regime_label) cell.
@@ -5391,7 +5047,6 @@ def _compute_cross_sectional_tf(
             tf=tf,
             rng=rng,
             training_window_end=training_window_end,
-            feature_status_map=feature_status_map,
             run_ts=run_ts,
             prior_e_values=prior_e_values,
             broadcast_mask=broadcast_mask,
@@ -5425,7 +5080,6 @@ def _compute_cross_sectional_tf(
             tf=tf,
             rng=rng,
             training_window_end=training_window_end,
-            feature_status_map=feature_status_map,
             run_ts=run_ts,
         )
         all_results.extend(broadcast_results)
@@ -5483,7 +5137,6 @@ def _compute_cross_sectional_tf(
                 tf=tf,
                 rng=rng,
                 training_window_end=training_window_end,
-                feature_status_map=feature_status_map,
                 run_ts=run_ts,
                 prior_e_values=prior_e_values,
                 broadcast_mask=broadcast_mask,
@@ -5579,9 +5232,14 @@ _OPTIONAL_IC_GAUGES = [
 ]
 
 
-def _emit_health_gauges(symbol: str, tf: str, results: list[dict]) -> None:
-    """Emit IC health OTel gauges after computing a (symbol, tf) cell."""
+def _emit_cell_gauges(results: list[dict]) -> None:
+    """Emit one symbol's IC value and effective-N OTel gauges as soon as its rows are
+    recorded. None of these depend on corpus-level FDR, so the rows are not retained
+    until the end of the run (todo 399)."""
+    n_eff: dict[tuple[str, str], int] = {}
     for r in results:
+        key = (r["tf"], r["regime"])
+        n_eff[key] = max(n_eff.get(key, 0), r["n_independent"])
         if r.get("ic_value") is None:
             continue
         base_attrs = {
@@ -5594,19 +5252,37 @@ def _emit_health_gauges(symbol: str, tf: str, results: list[dict]) -> None:
         for _key, _gauge in _OPTIONAL_IC_GAUGES:
             if r[_key] is not None:
                 _gauge.set(r[_key], base_attrs)
+    for (tf, regime), n in n_eff.items():
+        EFFECTIVE_N_GAUGE.set(n, {"tf": tf, "regime": regime})
 
-    # Effective N and features surviving FDR per (tf, regime)
-    by_regime: dict[str, list[dict]] = {}
-    for r in results:
-        key = r["regime"]
-        by_regime.setdefault(key, []).append(r)
 
-    for regime_label, regime_results in by_regime.items():
-        attrs = {"tf": tf, "regime": regime_label}
-        n_eff = max((r["n_independent"] for r in regime_results), default=0)
-        EFFECTIVE_N_GAUGE.set(n_eff, attrs)
-        n_surviving = sum(1 for r in regime_results if r.get("passes_fdr"))
-        FEATURES_SURVIVING_FDR_GAUGE.set(n_surviving, attrs)
+_WINDOW_STATS_SQL = """
+    SELECT tf, regime, COUNT(*), COUNT(DISTINCT feature_name) FILTER (WHERE passes_fdr)
+    FROM feature_ic_scores
+    WHERE training_window_end = %s
+    GROUP BY tf, regime
+"""
+
+
+def _emit_window_stats(
+    window_stats: list[tuple[str, str, int, int]],
+) -> tuple[dict[str, int], dict[str, int], int]:
+    """From per-(tf, regime) row counts and FDR survivor counts for the window, emit
+    features-surviving-BH-FDR per (tf, regime) and return the manifest's rows_by_tf,
+    rows_by_regime and rows_total. Todo 399: survivor counts are read back from the
+    table after the corpus-level backfill, replacing a count taken from retained
+    per-symbol rows, where the last symbol processed overwrote the gauge."""
+    rows_by_tf: dict[str, int] = defaultdict(int)
+    rows_by_regime: dict[str, int] = defaultdict(int)
+    for tf, regime, n_rows, n_surviving in window_stats:
+        FEATURES_SURVIVING_FDR_GAUGE.set(n_surviving, {"tf": tf, "regime": regime})
+        rows_by_tf[tf] += n_rows
+        rows_by_regime[regime] += n_rows
+    return (
+        dict(sorted(rows_by_tf.items())),
+        dict(sorted(rows_by_regime.items())),
+        sum(rows_by_tf.values()),
+    )
 
 
 # ---------------------------------------------------------------------------
@@ -5776,28 +5452,28 @@ def _write_symbol_results(
 def _record_symbol_result(
     settings: Settings,
     result: dict,
-    per_symbol_results: list[tuple[str, list[dict]]],
     conn: Any | None = None,
 ) -> int:
-    """Write one symbol's rows immediately and record them for later OTel gauge
-    emission (todo 130). Shared by the checkpoint-resume path and the fresh
-    ProcessPoolExecutor as_completed path in main() -- both hand this the same
-    worker-result shape (symbol, pooled_rows, regime_rows, all_results) and both
-    need the identical write-then-record sequence. n_skipped is not part of this
-    -- callers read result["n_skipped"] directly, since one caller (the error
-    branch of the as_completed loop) still needs it even though pooled_rows/
-    regime_rows there may be a partial, pre-failure subset.
+    """Write one symbol's rows immediately (todo 130) and emit its cell gauges, then
+    let the rows go: nothing after this needs them, because corpus-level FDR is
+    DB-driven (_backfill_bh_fdr) and FDR survivor gauges are read back from the table
+    (todo 399; retaining every symbol's rows cost ~58 MB/symbol of main-process RSS).
+    n_skipped is not part of this -- callers read result["n_skipped"] directly, since
+    the error branch of the as_completed loop still needs it even though
+    pooled_rows/regime_rows there may be a partial, pre-failure subset.
 
-    `conn`: see _write_symbol_results -- pass a shared connection for the
-    resume loop, leave None for the as_completed loop (own connection per
-    symbol, opened right when a result arrives).
+    `conn`: see _write_symbol_results -- leave None for the as_completed loop (own
+    connection per symbol, opened right when a result arrives).
 
     Returns n_committed.
     """
     n_committed = _write_symbol_results(
         settings, result["pooled_rows"], result["regime_rows"], conn=conn
     )
-    per_symbol_results.append((result["symbol"], result["all_results"]))
+    _emit_cell_gauges(result["all_results"])
+    _logger.info(
+        "ic_engine.symbol_done", symbol=result["symbol"], n_rows=len(result["all_results"])
+    )
     return n_committed
 
 
@@ -5983,13 +5659,13 @@ def _run_ic_worker(args: tuple) -> dict:
 
     Args:
         args: (symbol, tfs, dsn, training_window_end, config, run_ts,
-               feature_status_map, mr_dict_by_tf, dual_write_symbol_hmm,
+               mr_dict_by_tf, dual_write_symbol_hmm,
                cluster_regime_conditioned, broadcast_features,
                earnings_season_conditioned) --
                broadcast_features (todo 354) -- same frozenset[str] main() resolves
                once for the cross-sectional pass, threaded through unchanged (a
                frozenset[str] is trivially picklable across the ProcessPoolExecutor
-               boundary, same as feature_status_map).
+               boundary).
                mr_dict_by_tf is already scoped to THIS symbol's own regime_group
                (Phase 144 Plan 05: mr_dicts_by_group.get(symbol_regime_class.get(
                symbol)) in main()), never another group's labels.
@@ -6029,7 +5705,6 @@ def _run_ic_worker(args: tuple) -> dict:
         training_window_end,
         config,
         run_ts,
-        feature_status_map,
         mr_dict_by_tf,
         dual_write_symbol_hmm,
         cluster_regime_conditioned,
@@ -6078,7 +5753,6 @@ def _run_ic_worker(args: tuple) -> dict:
                     tracer=noop_tracer,
                     run_ts=run_ts,
                     rng=rng,
-                    feature_status_map=feature_status_map,
                     mr_dict=mr_dict_by_tf.get(tf) if mr_dict_by_tf else None,
                     dual_write_symbol_hmm=dual_write_symbol_hmm,
                     cluster_regime_conditioned=cluster_regime_conditioned,
@@ -6132,634 +5806,6 @@ def _run_ic_worker(args: tuple) -> dict:
         "n_passing_wf_by_tf": n_passing_wf_by_tf,
         "skip_reasons_by_tf": skip_reasons_by_tf,
     }
-
-
-# ---------------------------------------------------------------------------
-# Post-run lifecycle hook (Phase 143 Plan 03: LIFECYCLE-03/04/05)
-#
-# Closes the loop opened by the feature governance registry's status column:
-# features that lose IC demote to shadow_only, recovered ones promote back
-# through the same evidence bar, and a regime dislocation is never misread as
-# mass decay. Writes one gate-evaluation fact to integrity_monitor per run
-# (observability only -- feature_transition_log / concept_transition_log stay
-# the authoritative transition record) and the IC staleness gauge.
-#
-# Phase 170 Plan 08 (todo 118 scope item 4): concept_registry domain='feature'
-# (via concept_svc) is the sole feature-lifecycle writer. feature_registry and
-# its shadow-mode dual write (Plan 06) were retired by migration 311 after the
-# dual-write shadow period's evidence -- see docs/research/concept-unified-registry.md's
-# revision history for the retirement record.
-#
-# Sync psycopg throughout -- ic_engine.py is a plain argparse script (no class, no
-# BaseBatch, no async/await anywhere). Guarded so a hook failure logs loudly but never
-# corrupts the already-committed IC results (the hook runs after the primary write is
-# durable).
-# ---------------------------------------------------------------------------
-
-
-def _get_prior_ic_engine_completion(
-    write_conn: Any,
-    manifest: CorpusManifest,
-    training_window_end: Any,
-) -> datetime | None:
-    """Prior successful ic_engine run's completion timestamp, for LIFECYCLE-05 staleness.
-
-    Tries the on-disk CorpusManifest history first -- the manifest FILE for step_name
-    "ic_engine" still holds the PRIOR run's data at this point, because this run's own
-    manifest.write() call happens later in main(), after the lifecycle hook returns.
-    Falls back to MAX(training_window_end) in feature_ic_scores strictly BEFORE this
-    run's training_window_end (a plain MAX would just return this run's own
-    already-committed training_window_end) when no prior manifest exists. Returns None
-    if neither source yields a timestamp -- the documented first-run fallback.
-    """
-    try:
-        prior = CorpusManifest.read(manifest.manifest_dir, manifest.step_name)
-        ts_str = prior.get("timestamp")
-        if ts_str:
-            ts = datetime.fromisoformat(ts_str)
-            if ts.tzinfo is None:
-                ts = ts.replace(tzinfo=UTC)
-            return ts
-    except FileNotFoundError:
-        pass
-    except Exception as error:
-        _logger.warning("ic_engine.lifecycle_hook_manifest_read_failed", error=str(error))
-
-    with write_conn.cursor() as cur:
-        cur.execute(
-            "SELECT max(training_window_end) FROM feature_ic_scores WHERE training_window_end < %s",
-            (training_window_end,),
-        )
-        row = cur.fetchone()
-        if row and row[0] is not None:
-            return row[0]
-    return None
-
-
-def _apply_feature_transitions(
-    write_conn: Any,
-    concept_svc: ConceptRegistryService,
-    config: ICEngineConfig,
-    cell_rows: list[dict],
-    material_fail_count: int,
-    training_window_end: Any,
-) -> None:
-    """Step 4/5 of the lifecycle hook: per-feature demotion/promotion, then one
-    integrity_monitor gate-evaluation fact. Extracted so the calling function's
-    `if not any_hold:` guard wraps a single call instead of re-indenting this
-    whole block (todo 144 /simplify pass) -- logic is unchanged from before that
-    extraction.
-
-    Phase 170 Plan 08 (todo 118 scope item 4): concept_svc (concept_registry
-    domain='feature') is the sole feature-lifecycle writer. Plan 06's shadow-mode
-    dual write against feature_registry (and the parity-precondition/divergence
-    machinery it required) was removed once the shadow period's evidence
-    authorised feature_registry's retirement -- see migration 311.
-    """
-    # Step 4: per-feature aggregation (GROUP BY feature_name) -- demotion/promotion.
-    cells_by_feature: dict[str, list[dict]] = defaultdict(list)
-    for cell in cell_rows:
-        cells_by_feature[cell["feature_name"]].append(cell)
-
-    demotion_fraction_floor = 1.0 - config.meta_fdr_min_fraction
-
-    # concept_svc is the sole feature-lifecycle status source (Phase 170 Plan 08 --
-    # the parity precondition against feature_registry that used to live here was
-    # removed along with the registry itself; there is only one registry now). Full
-    # concept dict, not just status (todo 323) -- min_demotion_consecutive's per-concept
-    # override lives on this same row.
-    concepts_by_feature = {c["name"]: c for c in concept_svc.get_all_concepts()}
-
-    for feature_name, cells in cells_by_feature.items():
-        concept = concepts_by_feature.get(feature_name)
-        status = concept["status"] if concept else None
-
-        if status == "active":
-            active_feature_cells = [c for c in cells if c["feature_status_at_eval"] == "active"]
-            if not active_feature_cells:
-                continue
-            material_fail_cells = [c for c in active_feature_cells if c["_material_fail"]]
-            demote_fraction = len(material_fail_cells) / len(active_feature_cells)
-            run_passed = demote_fraction < demotion_fraction_floor
-
-            # Todo 323: advance the fail-streak for EVERY active concept evaluated this
-            # run, not just ones about to be demoted -- a concept recovering from a
-            # prior bad run must have its streak actually reset to 0, or hysteresis
-            # never lets go once a concept gets close to the floor.
-            concept_svc.advance_active_counters_sync(
-                write_conn,
-                domain="feature",
-                name=feature_name,
-                passed=run_passed,
-                expected_status=status,
-            )
-
-            if not run_passed:
-                # Non-NULL concept_gate.min_demotion_consecutive overrides the APR
-                # default -- same convention record_comparison_outcome's
-                # default_min_promotion_consecutive parameter already uses.
-                min_demotion_consecutive = (
-                    concept.get("min_demotion_consecutive")
-                    if concept.get("min_demotion_consecutive") is not None
-                    else config.demotion_min_consecutive
-                )
-                if not concept_svc.is_demotion_eligible(feature_name, min_demotion_consecutive):
-                    # Fails again, but hasn't repeated enough times yet -- not demoted
-                    # this run (todo 323's whole point: one bad run is not proof).
-                    continue
-                # Representative aggregates for the ic_* audit fields (worst cell by
-                # ic_ci_lower, its own ic_sharpe_hac, summed n_independent).
-                #
-                # Sign-aware under the flag: `_signed_margin` (set in Step 2) is
-                # ic_ci_lower for ic_sign=1 and -ic_ci_upper for ic_sign=-1 -- the
-                # smallest value is always the worst cell on ITS OWN side, so one min()
-                # correctly ranks a feature's mixed-sign cells (e.g. contrarian in one
-                # regime, positive in another) without picking a positive feature's
-                # cell using a contrarian's raw ic_ci_lower (which is meaningless for
-                # a negative-full-sample-sign estimate). Flag OFF: `_signed_margin` ==
-                # `ic_ci_lower` unconditionally (equivalence property, tested).
-                worst_cell = min(
-                    active_feature_cells,
-                    key=lambda c: (c["_signed_margin"] if c["_signed_margin"] is not None else 0.0),
-                )
-                ic_n = sum(c["n_independent"] for c in active_feature_cells)
-                # Sign-aware audit value: report ic_ci_upper (not ic_ci_lower) for a
-                # contrarian worst_cell under the flag -- ic_ci_lower on a persistently
-                # negative estimate is not the bound that determined "worst" here.
-                worst_cell_ic_value = (
-                    worst_cell["ic_ci_upper"]
-                    if config.sign_symmetric and worst_cell["ic_sign"] == -1
-                    else worst_cell["ic_ci_lower"]
-                )
-                concept_svc.record_transition_sync(
-                    write_conn,
-                    domain="feature",
-                    name=feature_name,
-                    from_status="active",
-                    to_status="shadow_only",
-                    reason="demotion_performance",
-                    gate_metric=worst_cell["ic_sharpe_hac"],
-                    gate_n=ic_n,
-                    ci_lower=worst_cell_ic_value,
-                )
-                ALPHA_DECAY_ENSEMBLE_REBUILD_TOTAL.add(1, {"feature_name": feature_name})
-
-        elif status == "shadow_only":
-            passes_fdr_count = sum(1 for c in cells if c["passes_fdr"])
-            pass_fraction = passes_fdr_count / len(cells)
-            passed = pass_fraction >= config.meta_fdr_min_fraction
-            new_observations = sum(c["n_independent"] for c in cells)
-            concept_svc.advance_shadow_counters_sync(
-                write_conn,
-                domain="feature",
-                name=feature_name,
-                passed=passed,
-                new_observations=new_observations,
-                expected_status=status,
-            )
-            if concept_svc.is_promotion_eligible(
-                feature_name,
-                config.decay_recovery_min_observations,
-                config.decay_recovery_min_passes,
-            ):
-                # Promotion is the status flip alone -- ic_engine NEVER writes
-                # ensemble_weights (sole-writer invariant, T-143-12); the next ic_engine
-                # run stamps feature_status_at_eval='active' and the next
-                # ensemble_trainer run naturally recomputes the weight from current IC.
-                # fdr_passed=True is EARNED here, not asserted for convenience --
-                # promotion is already gated upstream by config.meta_fdr_min_fraction
-                # over passes_fdr cells (the `passed` bool computed above from this
-                # run's passes_fdr fraction, and is_promotion_eligible's multi-run
-                # consecutive-pass/observation floors), which IS the executed
-                # multiplicity correction Plan 02's fail-closed guard asks the caller
-                # to attest to. Never pass fdr_passed=True anywhere that fraction
-                # wasn't actually computed.
-                concept_svc.record_transition_sync(
-                    write_conn,
-                    domain="feature",
-                    name=feature_name,
-                    from_status="shadow_only",
-                    to_status="active",
-                    reason="promotion",
-                    fdr_passed=True,
-                )
-                ALPHA_DECAY_ENSEMBLE_REBUILD_TOTAL.add(1, {"feature_name": feature_name})
-
-    # Step 5: one integrity_monitor gate-evaluation fact per (non-hold) run. Uses the
-    # shared emit_integrity_fact_sync helper (todo 150) with commit=False and
-    # idempotency_check=False -- both intentional here: commit is deferred to the
-    # single commit point at the end of _run_lifecycle_hook (this fact must land in
-    # the same transaction as Step 3's guard facts below, not commit on its own),
-    # and Step 0 at the top of _run_lifecycle_hook already pre-checks this exact
-    # (monitor_type, training_window_end) pair before either of this hook's two
-    # integrity_monitor call sites can be reached -- a second pre-check here would
-    # be redundant, not wrong.
-    emit_integrity_fact_sync(
-        write_conn,
-        "ic_lifecycle",
-        None,
-        "decay_cells_flagged",
-        float(material_fail_count),
-        config.decay_materiality_threshold,
-        True,
-        training_window_end,
-    )
-
-
-def _lifecycle_guard_cells(cell_rows: list[dict]) -> list[dict]:
-    """Select the rows the Step 3 regime-shift guard may evaluate: cells whose
-    feature_status_at_eval is 'active' AND whose regime_scope is not the
-    earnings-season measurement scope (Phase 176 Plan 04, T-176-04-03).
-
-    Earnings-season cells are measurement-only rows: a calendar stratum is
-    orthogonal to the regime-group routing market_regimes enumerates, so such a
-    cell has no market_regimes row by construction. Letting one through the
-    guard's regime_label_to_group mapping would raise a permanent, always-false
-    ic_engine.regime_label_unmapped data-contract warning for every such cell,
-    every run, and dilute each stratum's pass-rate rails with rows that can
-    never map. This phase records no lifecycle or promotion decision from
-    earnings-season rows.
-
-    Extraction (not an inline comprehension) so the scope contract is pinned by
-    unit test: the exclusion keys on the regime_scope VALUE -- never on matching
-    the label strings -- so any future scope carrying the same labels still
-    routes through the guard.
-    """
-    return [
-        c
-        for c in cell_rows
-        if c["feature_status_at_eval"] == "active" and c["regime_scope"] != "earnings_season"
-    ]
-
-
-def _run_lifecycle_hook(
-    write_conn: Any,
-    concept_svc: ConceptRegistryService,
-    config: ICEngineConfig,
-    training_window_end: Any,
-    manifest: CorpusManifest,
-) -> None:
-    """Post-run lifecycle hook: aggregates this run's per-cell IC to a deterministic
-    feature-level demote/promote decision, holds all weights on regime shift, and
-    emits the IC staleness gauge. Idempotent on training_window_end.
-
-    See ic_engine's module docstring reference and 143-03-PLAN.md for the full
-    demotion/promotion/hold specification (Fable N3/N4/N5 fixes included below).
-
-    Phase 170 Plan 08: concept_svc is the SAME ConceptRegistryService instance
-    main() already constructed and load_sync'd for the alignment gate -- never
-    construct a second one here.
-    """
-    log = _logger
-
-    # Step 0: idempotency short-circuit -- a rerun for a training_window_end that
-    # already has a gate-evaluation fact is a no-op (Plan 02's optimistic from_status
-    # lock additionally makes individual transitions rerun-safe).
-    with write_conn.cursor() as cur:
-        cur.execute(
-            """
-            SELECT 1 FROM integrity_monitor
-            WHERE monitor_type = 'ic_lifecycle'
-              AND training_window_end = %s
-              AND metric_name IN ('decay_cells_flagged', 'guard_fail_fraction')
-            LIMIT 1
-            """,
-            (training_window_end,),
-        )
-        already_ran = cur.fetchone() is not None
-    if already_ran:
-        log.info(
-            "ic_engine.lifecycle_hook_already_ran",
-            training_window_end=str(training_window_end),
-        )
-        return
-
-    # Step 1: load this run's per-cell IC facts, pinned to ONE lookahead (Fable N3) so
-    # each (feature_name, tf, regime) triple yields exactly one row -- never 4 -- and
-    # standing weight is read at the APR champion weight_version (Fable N4), never the
-    # most-recent-by-computed_at row (which could silently be a challenger epoch).
-    # Todo 146: lookahead_mid is now tf-specific (5m=6, 15m=2, 1h=2, 1d=2) -- "the mid
-    # scale" is no longer one bar count across all 4 timeframes. Pin per-tf in Python
-    # after the fetch (matching every other lookahead consumer in this file --
-    # _compute_one_regime_cell/_compute_symbol_tf/_compute_one_cross_sectional_cell all
-    # resolve config.lookaheads_for(tf) in Python, never by embedding tf->bars into SQL)
-    # rather than building a dynamic per-tf OR-chain here: row volume for one training
-    # window (features x regimes x 4 tfs x 4 scales) is trivial, so there's no
-    # performance reason to push this filter into the query.
-    with write_conn.cursor() as cur:
-        cur.execute(
-            """
-            SELECT fis.feature_name, fis.tf, fis.regime, fis.ic_ci_lower, fis.ic_ci_upper,
-                   fis.ic_sign, fis.passes_fdr,
-                   fis.reliable, fis.n_independent, fis.feature_status_at_eval,
-                   fis.regime_scope,
-                   fis.ic_sharpe_hac, fis.lookahead_bars, COALESCE(ew.weight, 0.0) AS standing_weight
-            FROM feature_ic_scores fis
-            LEFT JOIN ensemble_weights ew
-                   ON ew.symbol = 'UNIVERSE'
-                  AND ew.tf = fis.tf
-                  AND ew.regime = fis.regime
-                  AND ew.feature_name = fis.feature_name
-                  AND ew.weight_version = %s
-            WHERE fis.symbol = 'POOLED'
-              AND fis.is_pooled = true
-              AND fis.regime != '_pooled'
-              AND fis.training_window_end = %s
-            """,
-            (config.ensemble_weight_version, training_window_end),
-        )
-        cols = [d[0] for d in cur.description]
-        all_rows = [dict(zip(cols, row, strict=True)) for row in cur.fetchall()]
-        cell_rows = [r for r in all_rows if r["lookahead_bars"] == config.lookahead_mid[r["tf"]]]
-
-    # Fable N5: zero-cell guard. A per-symbol-only run or a run with the equity model
-    # disabled yields zero POOLED cells for this training_window_end -- every fraction
-    # below would be a division by zero. Log and return WITHOUT writing an
-    # integrity_monitor fact: a fact here would incorrectly mark this training_window_end
-    # as "already evaluated" for a later run against the same window that DOES have cells.
-    if not cell_rows:
-        log.info(
-            "ic_engine.lifecycle_hook_no_cells",
-            training_window_end=str(training_window_end),
-        )
-        return
-
-    # Step 2: per-cell material-fail flag.
-    #
-    # Sign-aware (Component E, todo 094 -- BLOCKER 1, closes the third sign-asymmetric
-    # gate): under config.sign_symmetric, a cell only "fails" if its CI on its OWN side
-    # includes zero, or it fails FDR. The old unconditional `ic_ci_lower <= 0` predicate
-    # is sign-asymmetric -- it is unconditionally true for every contrarian (ic_sign=-1),
-    # since a systematically negative point estimate's CI lower bound always sits below
-    # zero, silently re-demoting every contrarian one lifecycle cycle after Component E's
-    # eligibility/weighting fix lands them in the ensemble. Flag OFF reproduces today's
-    # exact predicate (equivalence property, tested).
-    material_fail_count = 0
-    for cell in cell_rows:
-        ic_ci_lower = cell["ic_ci_lower"]
-        ic_ci_upper = cell["ic_ci_upper"]
-        ic_sign = cell["ic_sign"]
-        if config.sign_symmetric:
-            failed = (
-                (ic_sign == 1 and ic_ci_lower is not None and ic_ci_lower <= 0)
-                or (ic_sign == -1 and ic_ci_upper is not None and ic_ci_upper >= 0)
-                or (not cell["passes_fdr"])
-            )
-            nearest_bound = ic_ci_lower if ic_sign == 1 else ic_ci_upper
-            # Signed margin from zero on the cell's OWN side: ic_sign * nearest_bound.
-            # For ic_sign=1 this is ic_ci_lower unchanged; for ic_sign=-1 it flips
-            # ic_ci_upper (always <= 0 for a real contrarian estimate) to a positive
-            # "how far below zero" measure -- the smallest value is always the worst
-            # cell on its own side, letting one min() rank mixed-sign cells for the
-            # same feature consistently (used by the worst_cell audit pick below).
-            signed_margin = (ic_sign * nearest_bound) if nearest_bound is not None else None
-        else:
-            failed = (ic_ci_lower is not None and ic_ci_lower <= 0) or (not cell["passes_fdr"])
-            nearest_bound = ic_ci_lower
-            signed_margin = ic_ci_lower
-        material = failed and (
-            cell["standing_weight"] * abs(nearest_bound or 0.0) > config.decay_materiality_threshold
-        )
-        cell["_failed"] = failed
-        cell["_material_fail"] = material
-        cell["_signed_margin"] = signed_margin
-        if material:
-            material_fail_count += 1
-            ALPHA_DECAY_CELLS_FLAGGED.add(
-                1,
-                {
-                    "feature_name": cell["feature_name"],
-                    "tf": cell["tf"],
-                    "regime": cell["regime"],
-                },
-            )
-
-    # Step 3: REGIME-SHIFT GUARD (todo 144) -- stratified per (tf, regime_group),
-    # self-calibrating, two-sided. Evaluated over cells with
-    # feature_status_at_eval='active' only. A stratum's fraction is compared
-    # against seeded rails (empirically grounded, migration 237) that narrow
-    # toward a robust empirical band once enough history exists for that stratum.
-    # hold_high in ANY hold-authoritative stratum holds ALL transitions for this
-    # training_window_end (conservative: one dislocated market/horizon is enough
-    # reason to distrust the whole run's lifecycle decisions). alert_low never
-    # holds -- promotion is already multi-run-gated by recovery_min_observations/
-    # recovery_min_passes, so a single anomalously-high pass rate cannot itself
-    # flip a feature's status.
-    #
-    # Phase 176 Plan 04: selection is via _lifecycle_guard_cells, which ALSO
-    # excludes regime_scope='earnings_season' rows -- measurement-only cells with
-    # no market_regimes row by construction, which would otherwise raise a
-    # permanent false ic_engine.regime_label_unmapped warning here every run
-    # (T-176-04-03). Today's per-symbol earnings cells cannot reach this hook at
-    # all (the SELECT below pins symbol='POOLED' AND is_pooled=true), so the
-    # exclusion is future-proofing for Plan 06's POOLED parent-qualified earnings
-    # cells, which WILL enter cell_rows.
-    active_cells = _lifecycle_guard_cells(cell_rows)
-    any_hold = False
-    # Accumulated here, flushed as one executemany AFTER Step 4/5 (or the hold
-    # skip) below -- see the deferred-flush note preceding the single commit.
-    pending_guard_facts: list[tuple] = []
-    if active_cells:
-        with write_conn.cursor() as cur:
-            cur.execute("SELECT DISTINCT regime_group, regime_label FROM market_regimes")
-            regime_label_to_group = {row[1]: row[0] for row in cur.fetchall()}
-
-        strata: dict[tuple[str, str], list[dict]] = defaultdict(list)
-        unmapped_count = 0
-        for cell in active_cells:
-            group = regime_label_to_group.get(cell["regime"], "_unmapped")
-            if group == "_unmapped":
-                unmapped_count += 1
-            strata[(cell["tf"], group)].append(cell)
-
-        # Unconditional signal, independent of whether the "_unmapped" stratum's
-        # own fraction ever trips the guard: a regime label with no match in
-        # market_regimes is a data-contract violation between feature_ic_scores
-        # and market_regimes (a stale/renamed label), not routine input -- it
-        # should surface immediately, not ride along silently inside a guard
-        # verdict that may never fire.
-        if unmapped_count:
-            log.warning(
-                "ic_engine.regime_label_unmapped",
-                n_cells=unmapped_count,
-                training_window_end=str(training_window_end),
-            )
-
-        for (tf, group), stratum_cells in strata.items():
-            subject = f"tf={tf}|group={group}"
-            fail_fraction = sum(1 for c in stratum_cells if c["_failed"]) / len(stratum_cells)
-
-            with write_conn.cursor() as cur:
-                cur.execute(
-                    """
-                    SELECT metric_value FROM integrity_monitor
-                    WHERE monitor_type = 'ic_lifecycle'
-                      AND metric_name = 'guard_fail_fraction'
-                      AND subject = %s
-                    ORDER BY evaluated_at DESC
-                    LIMIT %s
-                    """,
-                    (subject, config.guard_history_window),
-                )
-                history = [row[0] for row in cur.fetchall()]
-
-            verdict: GuardVerdict = evaluate_guard_fraction(
-                fail_fraction,
-                len(stratum_cells),
-                history,
-                min_cells=config.guard_min_cells,
-                min_history=config.guard_min_history,
-                band_z=config.guard_band_z,
-                rail_lo=config.guard_fail_rate_min,
-                rail_hi=config.guard_fail_rate_max,
-            )
-
-            # Always record a fact -- this is what builds calibration history.
-            # threshold_value records whichever bound is nearer the current
-            # fraction (the one a small drift would next violate); passed is
-            # false for both guard tails, true for "ok" and "insufficient_cells"
-            # (the latter made no claim to violate -- its rail-derived bounds are
-            # informational only, never evaluated against this stratum).
-            #
-            # Deferred, not executed here: concept_svc.record_transition_sync /
-            # advance_shadow_counters_sync (called from Step 4 below) each wrap
-            # their own SQL in conn.transaction() on this SAME write_conn, which
-            # commits (or rolls back, on an optimistic-lock no-op) immediately on exit.
-            # Executing this INSERT eagerly here would let the first Step 4
-            # registry call silently commit/rollback it before the intended
-            # single commit point. Instead we only accumulate the row now and
-            # flush every stratum's fact together in one executemany right
-            # before that single commit -- see the note there.
-            nearer_bound = (
-                verdict.band_hi
-                if abs(fail_fraction - verdict.band_hi) <= abs(fail_fraction - verdict.band_lo)
-                else verdict.band_lo
-            )
-            passed = verdict.status not in ("hold_high", "alert_low")
-            # Full 7-field shape matching INTEGRITY_MONITOR_INSERT_SQL's placeholder
-            # order (todo 150) -- not routed through emit_integrity_fact_sync itself
-            # (that helper is single-row and would commit/guard each stratum
-            # independently, defeating the one-executemany-then-one-commit design
-            # this whole block exists for), but reuses the SAME shared SQL constant
-            # so the ON CONFLICT clause is defined in exactly one place either way.
-            pending_guard_facts.append(
-                (
-                    "ic_lifecycle",
-                    subject,
-                    "guard_fail_fraction",
-                    fail_fraction,
-                    nearer_bound,
-                    passed,
-                    training_window_end,
-                )
-            )
-
-            if verdict.status in ("hold_high", "alert_low"):
-                event = (
-                    "ic_engine.regime_shift_hold"
-                    if verdict.status == "hold_high"
-                    else "ic_engine.guard_suspicious_pass_rate"
-                )
-                log.warning(
-                    event,
-                    tf=tf,
-                    regime_group=group,
-                    fraction=fail_fraction,
-                    band_lo=verdict.band_lo,
-                    band_hi=verdict.band_hi,
-                    band_source=verdict.band_source,
-                    n_history=verdict.n_history,
-                    training_window_end=str(training_window_end),
-                )
-                if verdict.status == "hold_high":
-                    any_hold = True
-
-    if not any_hold:
-        # Step 4/5: per-feature demotion/promotion, then the decay_cells_flagged
-        # fact -- extracted to _apply_feature_transitions (todo 144 /simplify
-        # pass) so this guard wraps one call instead of ~100 re-indented lines.
-        # _apply_feature_transitions may raise -- the caller in main() wraps
-        # _run_lifecycle_hook in a guarded try/except, so this never corrupts
-        # the already-committed IC results, only aborts the lifecycle hook for
-        # this run.
-        _apply_feature_transitions(
-            write_conn,
-            concept_svc,
-            config,
-            cell_rows,
-            material_fail_count,
-            training_window_end,
-        )
-
-    # Flush Step 3's accumulated per-stratum guard facts now -- unconditionally,
-    # on both the hold and non-hold paths, and strictly after Step 4/5 have
-    # either run or been skipped by a hold. This is what keeps the facts out of
-    # concept_svc's conn.transaction() commit/rollback windows above.
-    if pending_guard_facts:
-        with write_conn.cursor() as cur:
-            # Reuses the same INTEGRITY_MONITOR_INSERT_SQL constant emit_integrity_fact_sync
-            # uses (todo 150) -- deliberately NOT emit_integrity_fact_sync itself, since
-            # this is an N-row executemany flushed together at one deferred commit
-            # point (see the comment above), not N independent guarded single-row
-            # emits. Letting a failure here raise (rather than being swallowed
-            # per-row) is correct: it must abort this whole deferred transaction,
-            # exactly as it would have before this extraction.
-            cur.executemany(INTEGRITY_MONITOR_INSERT_SQL, pending_guard_facts)
-
-    # Single commit point for the whole hook: the deferred guard facts above +
-    # either Step 4/5's writes (non-hold) or nothing further (hold) all land
-    # together here. Step 4's individual registry transitions still self-commit
-    # one at a time via ConceptRegistryService's own conn.transaction() pattern
-    # (a pre-existing constraint of that shared Ring-1 service, not something
-    # this fix needs to solve) -- but each
-    # transition is individually rerun-safe via its own optimistic
-    # `WHERE status = %s` lock (from_status), so a crash mid-Step-4 leaves no
-    # integrity_monitor fact at all (nothing flushed yet) and the whole window
-    # is safely retriable from scratch on the next run.
-    write_conn.commit()
-
-    # Step 6: IC staleness gauge (LIFECYCLE-05). Runs exactly once, regardless of
-    # hold -- todo 144 fix: previously skipped entirely on hold (via early return),
-    # which was incidental, not intended -- the gauge is diagnostic-only and
-    # unrelated to whether lifecycle transitions ran this cycle.
-    prior_completion = _get_prior_ic_engine_completion(write_conn, manifest, training_window_end)
-    age_days, alert = _evaluate_staleness(
-        prior_completion, datetime.now(UTC), config.ic_staleness_alert_days
-    )
-    IC_ENGINE_LAST_RUN_AGE_DAYS.set(age_days)
-    if alert:
-        log.warning(
-            "ic_engine.stale",
-            age_days=age_days,
-            threshold=config.ic_staleness_alert_days,
-        )
-
-
-def _evaluate_staleness(
-    prior_completion: datetime | None,
-    now: datetime,
-    staleness_alert_days: int,
-) -> tuple[int, bool]:
-    """Pure staleness decision (LIFECYCLE-05): (age_days, alert_should_fire).
-
-    age_days = 0 and alert=False when prior_completion is None (first run / missing
-    manifest -- the documented fallback, never an alert). Otherwise age_days is the
-    integer day difference and alert fires when age_days exceeds staleness_alert_days.
-
-    ALERT-ONLY CONTRACT (162-04 Task 2, pinned intent): this function's return value
-    is consumed ONLY to set a diagnostic gauge (IC_ENGINE_LAST_RUN_AGE_DAYS) and log a
-    warning at its call site below -- it NEVER triggers an auto-recompute. A
-    fingerprint-valid cell (162-03's ic_cell_fingerprints gate) is never auto-stale on
-    wall-clock grounds alone; data-driven refresh of a cell only ever happens via an
-    explicit `--training-window-end` bump (a new cell key) or `--refresh` (an explicit
-    operator override). Do not wire this alert into any recompute-triggering code path.
-    """
-    if prior_completion is None:
-        return 0, False
-    if prior_completion.tzinfo is None:
-        prior_completion = prior_completion.replace(tzinfo=UTC)
-    age_days = (now - prior_completion).days
-    return age_days, age_days > staleness_alert_days
 
 
 # ---------------------------------------------------------------------------
@@ -6953,33 +5999,17 @@ def main() -> None:
 
             # ----------------------------------------------------------
             # Feature registry alignment gate (Phase 170 Plan 08: concept_registry
-            # domain='feature' is the sole feature-lifecycle registry; feature_registry
-            # was retired by migration 311). Crash-loud: registry must match
-            # FeatureVector dataclass fields exactly.
-            # Use get_all_concepts() — NOT a status-filtered accessor — so the gate
-            # passes even when features have been deprecated. The alignment gate
-            # checks schema completeness, not lifecycle state.
-            #
-            # LOAD-BEARING for fingerprint safety (2026-07-29 code review, todo 198):
-            # _fingerprint_computational_key excludes concept_registry.status_hash
-            # from what invalidates a cell, on the grounds that status never changes
-            # WHAT gets computed. That's only true of status; status_hash also moves
-            # on registry MEMBERSHIP changes (a feature added/removed/renamed), which
-            # DOES change computed output. Membership drift is safe to exclude only
-            # because THIS gate forces registry membership to equal FeatureVector's
-            # fields exactly -- so any real membership change requires editing
-            # FeatureVector, a semantic AST change that moves code_content_key (which
-            # IS in the computational key) via _normalized_source_for_hash. If this
-            # gate is ever relaxed (e.g. registry-only computed features), that
-            # coupling breaks silently and _fingerprint_computational_key must be
-            # revisited to also track membership explicitly.
+            # domain='feature' is the sole feature registry). Crash-loud: registry
+            # membership must match FeatureVector's fields exactly, regardless of
+            # lifecycle status -- this checks schema completeness, not lifecycle state.
             # ----------------------------------------------------------
-            concept_svc = ConceptRegistryService()
-            concept_svc.load_sync(conn, domain="feature")
-            # Single get_all_concepts() call, reused below -- avoids rebuilding the
-            # same ~249-row list twice in a row (2026-08-04 simplify-pass finding).
-            all_concepts = concept_svc.get_all_concepts()
-            all_registry_names = {r["name"] for r in all_concepts}
+            with conn.cursor() as registry_cur:
+                registry_cur.execute(
+                    "SELECT cr.name FROM concept_registry cr "
+                    "JOIN concept_gate cg USING (concept_id) "
+                    "WHERE cr.domain = 'feature'"
+                )
+                all_registry_names = {r[0] for r in registry_cur.fetchall()}
             dataclass_names = {f.name for f in dataclasses.fields(FeatureVector)}
             if all_registry_names != dataclass_names:
                 raise RuntimeError(
@@ -6988,10 +6018,6 @@ def main() -> None:
                     "Run migration 284 (or its successor) to sync concept_registry "
                     "with FeatureVector."
                 )
-            # Build status map for workers: plain dict is picklable; ConceptRegistryService is not.
-            feature_status_map: dict[str, str] = {
-                r["name"]: (r["status"] or "unknown") for r in all_concepts
-            }
 
             # ----------------------------------------------------------
             # Broadcast feature set (Phase 173 Plan 03, D-01/D-05/D-08, todo 270):
@@ -7196,24 +6222,9 @@ def main() -> None:
             # ----------------------------------------------------------
             total_skipped = 0
             total_committed = 0
-            per_symbol_results: list[tuple[str, list[dict]]] = []
             symbols_to_compute: list[str] = []
             invalid_cells_by_symbol: dict[str, list[tuple[str, str]]] = {}
             current_fp_cache: dict[str, dict[tuple[str, str], dict[str, Any]]] = {}
-            # todo 198: a symbol with zero invalid cells but >=1 status_only_stale
-            # cell (concept_registry.status_hash moved, nothing computational did)
-            # skips the expensive compute but still needs feature_status_at_eval
-            # refreshed on its already-written rows -- see the refresh block below.
-            # symbols_status_only_stale is the skip-compute set (mutually exclusive
-            # with symbols_to_compute, used to decide fingerprint re-upsert scope);
-            # symbols_needing_status_refresh is the UPDATE scope and is a SUPERSET
-            # of it -- a symbol dispatched for an unrelated invalid cell can ALSO
-            # need a status refresh for a different, fingerprint-valid sibling cell
-            # (2026-07-29 code review regression -- see _partition_symbol_cells'
-            # docstring for why these must never be collapsed into one bucket).
-            symbols_status_only_stale: list[str] = []
-            symbols_needing_status_refresh: list[str] = []
-
             if not args.cross_sectional_only:
                 for symbol in symbols:
                     expected_cells = _symbol_expected_cells(
@@ -7225,7 +6236,7 @@ def main() -> None:
                         config.cluster_regime_conditioned,
                     )
                     cell_fps: dict[tuple[str, str], dict[str, Any]] = {}
-                    cell_classifications: dict[tuple[str, str], _FingerprintClassification] = {}
+                    invalid_this_symbol: list[tuple[str, str]] = []
                     for tf, pass_type in expected_cells:
                         current_fp = {
                             "code_content_key": content_key,
@@ -7241,20 +6252,12 @@ def main() -> None:
                         }
                         cell_fps[(tf, pass_type)] = current_fp
                         stored = stored_fingerprints.get((symbol, tf, pass_type))
-                        cell_classifications[(tf, pass_type)] = _classify_fingerprint(
-                            stored, current_fp, force_refresh=args.refresh
-                        )
+                        if _cell_needs_compute(stored, current_fp, force_refresh=args.refresh):
+                            invalid_this_symbol.append((tf, pass_type))
                     current_fp_cache[symbol] = cell_fps
-                    invalid_this_symbol, needs_status_refresh = _partition_symbol_cells(
-                        cell_classifications
-                    )
-                    if needs_status_refresh:
-                        symbols_needing_status_refresh.append(symbol)
                     if invalid_this_symbol:
                         symbols_to_compute.append(symbol)
                         invalid_cells_by_symbol[symbol] = invalid_this_symbol
-                    elif needs_status_refresh:
-                        symbols_status_only_stale.append(symbol)
 
             # ----------------------------------------------------------
             # Cross-sectional cell discovery + fingerprint pre-pass (only when
@@ -7308,14 +6311,8 @@ def main() -> None:
                                 ),
                             }
                             stored = stored_fingerprints.get((cs_symbol_key, tf, "cross_sectional"))
-                            # Same _classify_fingerprint call as the per-symbol loop above
-                            # (todo 198) -- the two passes cannot diverge in what counts as
-                            # valid/status_only_stale/invalid. "valid" here preserves its
-                            # pre-existing meaning exactly (skip the expensive compute):
-                            # status_only_stale cells skip compute too, same as fully-valid
-                            # ones, and are additionally flagged for the cheap metadata-only
-                            # refresh below.
-                            classification = _classify_fingerprint(
+                            # Same decision as the per-symbol loop above (todo 198).
+                            needs_compute = _cell_needs_compute(
                                 stored, current_fp, force_refresh=args.refresh
                             )
                             cs_cell_plan.append(
@@ -7325,7 +6322,7 @@ def main() -> None:
                                     "regime_label": regime_label,
                                     "group_symbols": group_symbols,
                                     "cs_symbol_key": cs_symbol_key,
-                                    "classification": classification,
+                                    "needs_compute": needs_compute,
                                     "current_fp": current_fp,
                                 }
                             )
@@ -7336,25 +6333,16 @@ def main() -> None:
             # smaller than len(symbols)+len(cs_cell_plan)).
             n_watermark_queries = 1 + len(fr_fv_cache) + len(mr_tags_cache)
             _logger.info("ic_engine.fingerprint_watermark_queries", count=n_watermark_queries)
-            n_cs_skip = sum(1 for c in cs_cell_plan if c["classification"] != "invalid")
-            n_cs_status_only_stale = sum(
-                1 for c in cs_cell_plan if c["classification"] == "status_only_stale"
-            )
+            n_cs_skip = sum(1 for c in cs_cell_plan if not c["needs_compute"])
             _logger.info(
                 "ic_engine.fingerprint_partition",
                 n_symbols=len(symbols) if not args.cross_sectional_only else 0,
                 n_symbols_skip=(
-                    (len(symbols) - len(symbols_to_compute) - len(symbols_status_only_stale))
-                    if not args.cross_sectional_only
-                    else 0
-                ),
-                n_symbols_status_only_stale=(
-                    len(symbols_status_only_stale) if not args.cross_sectional_only else 0
+                    len(symbols) - len(symbols_to_compute) if not args.cross_sectional_only else 0
                 ),
                 n_symbols_compute=len(symbols_to_compute),
                 n_cs_cells=len(cs_cell_plan),
-                n_cs_skip=n_cs_skip - n_cs_status_only_stale,
-                n_cs_status_only_stale=n_cs_status_only_stale,
+                n_cs_skip=n_cs_skip,
                 n_cs_compute=len(cs_cell_plan) - n_cs_skip,
             )
 
@@ -7384,77 +6372,10 @@ def main() -> None:
                             cur.execute(_FINGERPRINT_INVALIDATE_DELETE_SQL, params)
                 conn.commit()
 
-            # todo 198: status-only-stale cells skip the expensive compute entirely,
-            # but their feature_status_at_eval provenance still needs refreshing to
-            # the current concept_registry snapshot. The UPDATE's scope is
-            # symbols_needing_status_refresh (NOT symbols_status_only_stale) -- a
-            # symbol dispatched for an unrelated invalid cell can still have a
-            # different, fingerprint-valid sibling cell whose rows the dispatch's
-            # ON CONFLICT DO NOTHING recompute cannot touch (see
-            # _partition_symbol_cells' docstring); only symbols_status_only_stale
-            # (the fully-skipped subset) additionally needs its fingerprint
-            # re-upserted here, since a dispatched symbol's fingerprints are already
-            # re-upserted fresh by the existing post-compute path below. Cross-
-            # sectional POOLED rows all share symbol='POOLED' regardless of
-            # regime_group/tf/regime (feature_ic_scores has no regime_group column),
-            # and concept_registry.status_hash is one global value per run, so a
-            # single refresh_symbols set -- real symbols plus 'POOLED' once if any
-            # cross-sectional cell is status_only_stale -- covers every case in one
-            # UPDATE via _FEATURE_STATUS_REFRESH_SQL's symbol = ANY(...).
-            status_only_stale_cs_cells = [
-                c for c in cs_cell_plan if c["classification"] == "status_only_stale"
-            ]
-            refresh_symbols = list(symbols_needing_status_refresh)
-            if status_only_stale_cs_cells:
-                refresh_symbols.append(_CROSS_SECTIONAL_SYMBOL)
-            if refresh_symbols:
-                # feature_ic_scores is a compressed hypertable -- this UPDATE can hit
-                # already-compressed chunks from older training_window_end values, the
-                # same forced-full-decompress-scan exposure every other writer against
-                # this table was already fixed for (todo 307).
-                with _write_session(conn, "feature_ic_scores"):
-                    with conn.cursor() as cur:
-                        cur.execute(
-                            _FEATURE_STATUS_REFRESH_SQL,
-                            {
-                                "symbols": refresh_symbols,
-                                "training_window_end": training_window_end,
-                            },
-                        )
-                        n_status_rows_refreshed = cur.rowcount
-                    fp_refresh_rows = [
-                        _fp_row(symbol, tf, pass_type, training_window_end, fp)
-                        for symbol in symbols_status_only_stale
-                        for (tf, pass_type), fp in current_fp_cache[symbol].items()
-                    ] + [
-                        _fp_row(
-                            cell["cs_symbol_key"],
-                            cell["tf"],
-                            "cross_sectional",
-                            training_window_end,
-                            cell["current_fp"],
-                        )
-                        for cell in status_only_stale_cs_cells
-                    ]
-                    with conn.cursor() as cur:
-                        cur.executemany(_FINGERPRINT_UPSERT_SQL, fp_refresh_rows)
-                    conn.commit()
-                _logger.info(
-                    "ic_engine.feature_status_refresh",
-                    n_symbols_status_only_stale=len(symbols_status_only_stale),
-                    n_symbols_needing_status_refresh=len(symbols_needing_status_refresh),
-                    n_cs_status_only_stale=len(status_only_stale_cs_cells),
-                    n_rows_refreshed=n_status_rows_refreshed,
-                    n_fingerprints_reupserted=len(fp_refresh_rows),
-                )
-
             # ----------------------------------------------------------
             # Build worker args -- workers open their own read connections.
             # Each symbol's rows are written to feature_ic_scores immediately
             # once its compute finishes (todo 130) -- see _write_symbol_results.
-            # per_symbol_results retains the same row dicts purely so OTel health
-            # gauges (which need final passes_fdr) can be emitted once, after the
-            # corpus-wide FDR backfill below patches them in place.
             # ----------------------------------------------------------
             if args.cross_sectional_only:
                 _logger.info("ic_engine.skipping_per_symbol_pass", reason="--cross-sectional-only")
@@ -7474,7 +6395,6 @@ def main() -> None:
                             training_window_end,
                             config,
                             run_ts,
-                            feature_status_map,
                             mr_dicts_by_group.get(routed_group_name) if enabled_groups else None,
                             dual_write_symbol_hmm if enabled_groups else False,
                             # Global run-level switch (migration 286), NOT resolved via
@@ -7551,9 +6471,7 @@ def main() -> None:
                                 # independently inside the worker) -- those still
                                 # get written below, never dropped (Renaissance:
                                 # never discard data that could contain signal).
-                            total_committed += _record_symbol_result(
-                                settings, result, per_symbol_results
-                            )
+                            total_committed += _record_symbol_result(settings, result)
                             total_skipped += result["n_skipped"]
                             # Per-cell OTel metrics (todo 009/2026-07-31 fix): computed
                             # inside the worker (pure, no OTel calls -- it has no
@@ -7641,7 +6559,7 @@ def main() -> None:
                     group_symbols = cell["group_symbols"]
                     cs_symbol_key = cell["cs_symbol_key"]
 
-                    if cell["classification"] != "invalid":
+                    if not cell["needs_compute"]:
                         _logger.info(
                             "ic_engine.cross_sectional_cell_skipped_fingerprint_valid",
                             regime_group=group_name,
@@ -7682,7 +6600,6 @@ def main() -> None:
                         tracer=tracer,
                         run_ts=run_ts,
                         rng=cs_rng,
-                        feature_status_map=feature_status_map,
                         broadcast_features=broadcast_features,
                     )
                     total_committed += _write_cs_cell_results(settings, cs_rows)
@@ -7701,11 +6618,9 @@ def main() -> None:
                     )
 
             # ----------------------------------------------------------
-            # Corpus-level BH-FDR backfill (P2 fix; todo 130) through the
-            # post-run lifecycle hook: one shared connection for this whole
-            # block. Every step here is either a DB round-trip with no
-            # intervening compute, or pure in-memory Python (the gauge-patch
-            # loop below) -- none of it is the multi-hour compute phase the
+            # Corpus-level BH-FDR backfill (P2 fix; todo 130) and run stats:
+            # one shared connection for this whole block. Every step here is a DB round-trip with no intervening
+            # compute -- none of it is the multi-hour compute phase the
             # short-lived-per-step pattern exists to protect against, so
             # there's no idle-connection risk in sharing one connection start
             # to finish.
@@ -7726,90 +6641,13 @@ def main() -> None:
                 )
                 _logger.info("ic_engine.corpus_fdr_backfilled", n_updated=len(fdr_updates))
 
-                # Patch each symbol's in-memory result dicts with their final FDR
-                # outcome, group by tf, and emit OTel health gauges -- one pass per
-                # symbol. Gauges only ever need that symbol's own rows, so patching
-                # and grouping don't need a separate corpus-wide pass before
-                # emission starts.
-                fdr_by_key = {
-                    (u["feature_name"], u["symbol"], u["tf"], u["regime"], u["lookahead_bars"]): u
-                    for u in fdr_updates
-                }
-                for sym, sym_results in per_symbol_results:
-                    if not sym_results:
-                        continue
-                    by_tf: dict[str, list] = {}
-                    for r in sym_results:
-                        # Only cluster representatives are ever left pending
-                        # (passes_fdr is None); non-representatives already
-                        # got their final False locked in at compute time and
-                        # can never be in fdr_by_key -- skip the lookup.
-                        if r["passes_fdr"] is None:
-                            match = fdr_by_key.get(
-                                (
-                                    r["feature_name"],
-                                    r["symbol"],
-                                    r["tf"],
-                                    r["regime"],
-                                    r["lookahead_bars"],
-                                )
-                            )
-                            if match:
-                                r["bh_adjusted_p"] = match["bh_adjusted_p"]
-                                r["passes_fdr"] = match["passes_fdr"]
-                        tf_key = r.get("tf")
-                        if tf_key:
-                            by_tf.setdefault(tf_key, []).append(r)
-                    for tf_key, tf_results in by_tf.items():
-                        _emit_health_gauges(sym, tf_key, tf_results)
-                    _logger.info("ic_engine.symbol_done", symbol=sym, n_rows=len(sym_results))
-
-                # Manifest stats.
+                # One pass over the window's rows feeds both the manifest stats and the
+                # FDR survivor gauges (feature_ic_scores is compressed; each separate
+                # aggregate would decompress the window again).
                 with post_compute_conn.cursor() as cur:
-                    cur.execute(
-                        """
-                        SELECT tf, COUNT(*) as count
-                        FROM feature_ic_scores
-                        WHERE training_window_end = %s
-                        GROUP BY tf
-                        ORDER BY tf
-                        """,
-                        (training_window_end,),
-                    )
-                    rows_by_tf = {r[0]: r[1] for r in cur.fetchall()}
-
-                    cur.execute(
-                        """
-                        SELECT regime, COUNT(*) as count
-                        FROM feature_ic_scores
-                        WHERE training_window_end = %s
-                        GROUP BY regime
-                        ORDER BY regime
-                        """,
-                        (training_window_end,),
-                    )
-                    rows_by_regime = {r[0]: r[1] for r in cur.fetchall()}
-
-                    cur.execute(
-                        "SELECT COUNT(*) FROM feature_ic_scores WHERE training_window_end = %s",
-                        (training_window_end,),
-                    )
-                    rows_total = cur.fetchone()[0]
-
-                # Post-run lifecycle hook (Phase 143 Plan 03: LIFECYCLE-03/04/
-                # 05). Runs after the FDR backfill above is durable. Guarded:
-                # a hook failure logs loudly but must never abort the run or
-                # discard the already-committed IC results.
-                try:
-                    _run_lifecycle_hook(
-                        post_compute_conn,
-                        concept_svc,
-                        config,
-                        training_window_end,
-                        manifest,
-                    )
-                except Exception as error:
-                    _logger.error("ic_engine.lifecycle_hook_failed", error=str(error))
+                    cur.execute(_WINDOW_STATS_SQL, (training_window_end,))
+                    window_stats = cur.fetchall()
+                rows_by_tf, rows_by_regime, rows_total = _emit_window_stats(window_stats)
 
             elapsed = time.monotonic() - t0
             IC_ENGINE_RUN_LATENCY_SECONDS.record(elapsed)

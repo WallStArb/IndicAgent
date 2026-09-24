@@ -116,7 +116,6 @@ def test_pooled_cell_produces_is_pooled_true_rows():
         tf="5m",
         rng=rng,
         training_window_end=None,
-        feature_status_map=None,
         run_ts=None,
     )
     assert len(rows) > 0
@@ -144,7 +143,6 @@ def test_regime_cell_uses_resolved_regime_scope_param():
         tf="5m",
         rng=rng,
         training_window_end=None,
-        feature_status_map=None,
         run_ts=None,
     )
     assert len(rows) > 0
@@ -178,7 +176,6 @@ def test_compute_one_regime_cell_always_recomputes_every_feature():
         tf="5m",
         rng=np.random.default_rng(1),
         training_window_end="2026-01-01",
-        feature_status_map=None,
         run_ts=None,
     )
     assert len(rows) > 0
@@ -196,7 +193,6 @@ def test_compute_one_regime_cell_always_recomputes_every_feature():
         tf="5m",
         rng=np.random.default_rng(2),
         training_window_end="2026-01-01",
-        feature_status_map=None,
         run_ts=None,
     )
     keys1 = {
@@ -240,7 +236,6 @@ def test_degenerate_feature_populates_skip_reasons() -> None:
         tf="5m",
         rng=np.random.default_rng(1),
         training_window_end=None,
-        feature_status_map=None,
         run_ts=None,
     )
 
@@ -279,7 +274,6 @@ def test_insufficient_n_populates_skip_reasons() -> None:
         tf="5m",
         rng=np.random.default_rng(1),
         training_window_end=None,
-        feature_status_map=None,
         run_ts=None,
     )
 
@@ -422,7 +416,6 @@ def test_compute_one_regime_cell_attributes_scales_correctly_for_reduced_tf():
         tf="1h",
         rng=np.random.default_rng(1),
         training_window_end=None,
-        feature_status_map=None,
         run_ts=None,
     )
 

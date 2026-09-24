@@ -303,3 +303,72 @@ def test_main_calls_backfill_after_cross_sectional_pass():
     cross_sectional_idx = source.index("ic_engine.starting_cross_sectional_pass")
     backfill_idx = source.index("_backfill_bh_fdr(")
     assert backfill_idx > cross_sectional_idx
+
+
+# ---------------------------------------------------------------------------
+# Todo 399: main no longer retains every symbol's rows until corpus FDR
+# ---------------------------------------------------------------------------
+
+
+def test_record_symbol_result_emits_gauges_and_retains_nothing(monkeypatch):
+    """Rows are written and their FDR-independent gauges emitted at record time;
+    nothing is handed back for end-of-run bookkeeping (~58 MB/symbol before)."""
+    written, gauged = [], []
+    monkeypatch.setattr(
+        ic_module, "_write_symbol_results", lambda s, p, r, conn=None: written.append((p, r)) or 3
+    )
+    monkeypatch.setattr(ic_module, "_emit_cell_gauges", gauged.append)
+    result = {
+        "symbol": "SPY",
+        "pooled_rows": ["p"],
+        "regime_rows": ["r"],
+        "all_results": [{"tf": "1d", "x": 1}, {"tf": "1h", "x": 2}, {"tf": "1d", "x": 3}],
+    }
+    assert ic_module._record_symbol_result(None, result) == 3
+    assert written == [(["p"], ["r"])]
+    assert gauged == [result["all_results"]]
+    assert list(inspect.signature(ic_module._record_symbol_result).parameters) == [
+        "settings",
+        "result",
+        "conn",
+    ]
+
+
+def test_main_holds_no_per_symbol_result_list():
+    assert "per_symbol_results" not in inspect.getsource(ic_module.main)
+
+
+def test_fdr_survivor_gauges_read_back_from_the_table():
+    """FDR survivor counts come from feature_ic_scores after the backfill, scoped to the
+    window, in the same pass as the manifest stats -- not from retained rows, where the
+    last symbol processed won the gauge."""
+    sql = ic_module._WINDOW_STATS_SQL
+    assert "FROM feature_ic_scores" in sql
+    assert "training_window_end = %s" in sql
+    assert "COUNT(DISTINCT feature_name) FILTER (WHERE passes_fdr)" in sql
+    assert "_emit_window_stats(" in inspect.getsource(ic_module.main)
+
+
+def test_emit_window_stats_rolls_up_manifest_counts():
+    by_tf, by_regime, total = ic_module._emit_window_stats(
+        [("1d", "bull", 10, 2), ("1d", "bear", 5, 0), ("1h", "bull", 7, 1)]
+    )
+    assert by_tf == {"1d": 15, "1h": 7}
+    assert by_regime == {"bear": 5, "bull": 17}
+    assert total == 22
+
+
+def test_emit_cell_gauges_effective_n_is_max_per_tf_regime(monkeypatch):
+    seen = {}
+    monkeypatch.setattr(
+        ic_module.EFFECTIVE_N_GAUGE,
+        "set",
+        lambda v, attrs: seen.__setitem__(tuple(attrs.values()), v),
+    )
+    rows = [
+        {"tf": "1d", "regime": "bull", "n_independent": 3, "ic_value": None},
+        {"tf": "1d", "regime": "bull", "n_independent": 9, "ic_value": None},
+        {"tf": "1h", "regime": "bull", "n_independent": 4, "ic_value": None},
+    ]
+    ic_module._emit_cell_gauges(rows)
+    assert seen == {("1d", "bull"): 9, ("1h", "bull"): 4}

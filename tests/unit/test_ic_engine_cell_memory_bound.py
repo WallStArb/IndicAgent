@@ -226,7 +226,6 @@ def _call(
         tracer=None,
         run_ts=datetime(2026, 1, 1, tzinfo=UTC),
         rng=np.random.default_rng(0),
-        feature_status_map={},
         broadcast_features=frozenset(),
     )
 

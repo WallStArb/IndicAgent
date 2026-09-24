@@ -15,7 +15,6 @@ DB-free dict construction for the watermark-inequality proof.
 
 from __future__ import annotations
 
-import ast
 import dataclasses
 import inspect
 import sys
@@ -31,24 +30,18 @@ from services.ic_engine import (
     _ARCHIVE_BEFORE_DELETE_CROSS_SECTIONAL_SQL,
     _ARCHIVE_BEFORE_DELETE_SQL,
     _COMPUTATIONAL_CONFIG_FIELDS,
-    _FEATURE_STATUS_REFRESH_SQL,
     _FINGERPRINT_INVALIDATE_DELETE_CROSS_SECTIONAL_SQL,
     _FINGERPRINT_INVALIDATE_DELETE_SQL,
     _OPERATIONAL_CONFIG_FIELDS,
     ICEngineConfig,
-    _classify_fingerprint,
+    _cell_needs_compute,
     _compute_apr_snapshot_key,
     _compute_cross_sectional_tf,
     _compute_one_regime_cell,
     _compute_symbol_tf,
     _compute_upstream_watermark,
-    _fingerprint_computational_key,
-    _fingerprint_is_computationally_valid,
-    _fingerprint_is_status_only_stale,
     _fingerprint_is_valid,
-    _partition_symbol_cells,
     _symbol_expected_cells,
-    main,
 )
 
 # ---------------------------------------------------------------------------
@@ -260,13 +253,13 @@ def test_watermark_differs_on_market_regimes_relabel_hash_change_alone():
     assert base != mutated
 
 
-def test_watermark_differs_on_concept_registry_status_hash_change_alone():
+def test_watermark_differs_on_concept_registry_broadcast_hash_change_alone():
     """A concept_registry (domain='feature') status transition (e.g.
     active -> shadow_only) moves the status-hash component even though
     concept_registry carries no timestamp column relevant to this watermark.
     """
-    base = {"concept_registry": {"status_hash": "xyz789"}}
-    mutated = {"concept_registry": {"status_hash": "uvw456"}}
+    base = {"concept_registry": {"broadcast_hash": "xyz789"}}
+    mutated = {"concept_registry": {"broadcast_hash": "uvw456"}}
     assert base != mutated
 
 
@@ -339,7 +332,7 @@ def test_compute_upstream_watermark_per_symbol_cross_sectional_scopes_to_own_sym
         fake_conn,
         "SPY",
         "1d",
-        concept_registry_watermark={"status_hash": "precomputed"},
+        concept_registry_watermark={"broadcast_hash": "precomputed"},
     )
     assert len(fake_conn._cursor.captured_params) == 2
     for params in fake_conn._cursor.captured_params:
@@ -366,7 +359,7 @@ def test_compute_upstream_watermark_group_pooled_scopes_to_regime_group_and_peer
         is_group_pooled=True,
         regime_group="equity",
         symbol_list=["SPY", "QQQ"],
-        concept_registry_watermark={"status_hash": "precomputed"},
+        concept_registry_watermark={"broadcast_hash": "precomputed"},
     )
     fr_fv_params, mr_params = (
         fake_conn._cursor.captured_params[0],
@@ -445,199 +438,63 @@ def test_fingerprint_invalid_on_partial_match_two_of_three():
 
 
 # ---------------------------------------------------------------------------
-# Task 4 (todo 198): status-only staleness -- a concept_registry.status_hash
-# change must never force a recompute of the expensive bootstrap-CI math.
-# Verified against the real code (main()'s registry-drift gate at the
-# get_all_concepts() comment): ic_engine always computes every feature
-# regardless of status, so status never gates WHAT gets computed -- it only
-# feeds the feature_status_at_eval provenance column. A status-hash mismatch
-# with every other component matching must be treated as "cheap metadata
-# refresh needed", never "recompute everything".
-#
-# Phase 170 Plan 06: watermark key renamed "feature_registry" -> "concept_registry".
+# _cell_needs_compute -- the ONE decision function shared by the per-symbol and
+# cross-sectional prepass loops (todo 198). Todo 402 removed the "status_only_stale"
+# outcome: feature_ic_scores rows no longer carry lifecycle status, and the
+# concept_registry watermark carries only what changes computation (membership and
+# broadcast flags), so a lifecycle transition never touches an IC cell.
 # ---------------------------------------------------------------------------
 
-_STATUS_MATCH_CURRENT = {
+_CURRENT = {
     "code_content_key": "code123",
     "apr_snapshot_key": "apr456",
     "upstream_watermark": {
         "forward_returns": {"count": 10},
-        "concept_registry": {"status_hash": "hash_now"},
+        "concept_registry": {"membership_hash": "m_now", "broadcast_hash": "b_now"},
     },
 }
 
 
-def test_fingerprint_computational_key_drops_concept_registry():
-    key = _fingerprint_computational_key(_STATUS_MATCH_CURRENT)
-    assert "concept_registry" not in key["upstream_watermark"]
-    assert key["upstream_watermark"]["forward_returns"] == {"count": 10}
-
-
-def test_fingerprint_computational_key_keeps_other_watermark_components():
-    fp = dict(
-        _STATUS_MATCH_CURRENT,
-        upstream_watermark={
-            "forward_returns": {"count": 10},
-            "feature_vectors": {"count": 10},
-            "market_regimes": {"count": 5},
-            "concept_registry": {"status_hash": "hash_now"},
-        },
-    )
-    key = _fingerprint_computational_key(fp)
-    assert set(key["upstream_watermark"]) == {
-        "forward_returns",
-        "feature_vectors",
-        "market_regimes",
-    }
-
-
-def test_computationally_valid_when_only_concept_registry_status_hash_differs():
-    stored = dict(
-        _STATUS_MATCH_CURRENT,
+def _with_registry(**registry):
+    return dict(
+        _CURRENT,
         upstream_watermark=dict(
-            _STATUS_MATCH_CURRENT["upstream_watermark"],
-            concept_registry={"status_hash": "hash_before"},
+            _CURRENT["upstream_watermark"],
+            concept_registry=dict(_CURRENT["upstream_watermark"]["concept_registry"], **registry),
         ),
     )
-    assert _fingerprint_is_computationally_valid(stored, _STATUS_MATCH_CURRENT) is True
 
 
-def test_computationally_invalid_when_forward_returns_differs_too():
-    stored = dict(
-        _STATUS_MATCH_CURRENT,
-        upstream_watermark={
-            "forward_returns": {"count": 99},
-            "concept_registry": {"status_hash": "hash_before"},
-        },
-    )
-    assert _fingerprint_is_computationally_valid(stored, _STATUS_MATCH_CURRENT) is False
+def test_no_compute_on_full_match():
+    assert _cell_needs_compute(dict(_CURRENT), _CURRENT, force_refresh=False) is False
 
 
-def test_computational_key_unchanged_by_registry_key_rename():
-    """Direct proof the Phase 170 Plan 06 cutover cannot trigger a recompute:
-    a fingerprint built with the OLD watermark key ('feature_registry') and one
-    built with the NEW key ('concept_registry'), otherwise identical, must
-    produce EQUAL computational keys -- _fingerprint_computational_key drops
-    whichever key is present under the SAME "concept_registry" filter name, so
-    if the key/filter pairing were ever mismatched, this would be the first
-    test to catch it.
-    """
-    fp_old_key = {
-        "code_content_key": "code123",
-        "apr_snapshot_key": "apr456",
-        "upstream_watermark": {
-            "forward_returns": {"count": 10},
-            "feature_registry": {"status_hash": "hash_before_rename"},
-        },
-    }
-    fp_new_key = {
-        "code_content_key": "code123",
-        "apr_snapshot_key": "apr456",
-        "upstream_watermark": {
-            "forward_returns": {"count": 10},
-            "concept_registry": {"status_hash": "hash_after_rename"},
-        },
-    }
-    assert _fingerprint_computational_key(fp_old_key) == _fingerprint_computational_key(fp_new_key)
+def test_compute_on_no_stored():
+    assert _cell_needs_compute(None, _CURRENT, force_refresh=False) is True
 
 
-# ---------------------------------------------------------------------------
-# Phase 173 Plan 03 Task 3 (D-08, todo 270): broadcast_hash -- unlike
-# status_hash, a broadcast-flag flip DOES change what gets computed
-# (_compute_one_cross_sectional_cell's column split, Plan 04's broadcast
-# cell), so it must move computational validity to "invalid", never
-# "status_only_stale". Without this, a reclassification would leave every
-# fingerprint valid and every cell permanently skipped, silently serving
-# results computed under the OLD column split.
-# ---------------------------------------------------------------------------
+@pytest.mark.parametrize(
+    "stored",
+    [
+        _with_registry(broadcast_hash="b_before"),
+        _with_registry(membership_hash="m_before"),
+        dict(_CURRENT, code_content_key="other"),
+        # A pre-402 fingerprint carried status_hash: it no longer matches, so the first
+        # post-402 run recomputes (absorbed by the bundle's already-required recompute).
+        _with_registry(status_hash="legacy"),
+    ],
+)
+def test_compute_on_any_component_mismatch(stored):
+    assert _cell_needs_compute(stored, _CURRENT, force_refresh=False) is True
 
 
-def test_fingerprint_computational_key_keeps_broadcast_hash():
-    """broadcast_hash is the one exception to 'the whole concept_registry
-    entry is dropped' -- status_hash still drops, broadcast_hash survives."""
-    fp = {
-        "code_content_key": "code123",
-        "apr_snapshot_key": "apr456",
-        "upstream_watermark": {
-            "forward_returns": {"count": 10},
-            "concept_registry": {"status_hash": "hash_now", "broadcast_hash": "bcast_now"},
-        },
-    }
-    key = _fingerprint_computational_key(fp)
-    assert key["upstream_watermark"]["concept_registry"] == {"broadcast_hash": "bcast_now"}
-    assert key["upstream_watermark"]["forward_returns"] == {"count": 10}
+def test_force_refresh_overrides_full_match():
+    assert _cell_needs_compute(dict(_CURRENT), _CURRENT, force_refresh=True) is True
 
 
-def test_computationally_invalid_when_only_broadcast_hash_differs():
-    current = {
-        "code_content_key": "code123",
-        "apr_snapshot_key": "apr456",
-        "upstream_watermark": {
-            "forward_returns": {"count": 10},
-            "concept_registry": {"status_hash": "hash_now", "broadcast_hash": "bcast_now"},
-        },
-    }
-    stored = dict(
-        current,
-        upstream_watermark=dict(
-            current["upstream_watermark"],
-            concept_registry={"status_hash": "hash_now", "broadcast_hash": "bcast_before"},
-        ),
-    )
-    assert _fingerprint_is_computationally_valid(stored, current) is False
-
-
-def test_computationally_valid_when_only_status_hash_differs_broadcast_hash_matches():
-    """Sibling proof: with broadcast_hash present and matching, a status_hash-
-    only difference must still be computationally valid -- broadcast_hash's
-    addition must not accidentally widen what status_hash alone used to gate."""
-    current = {
-        "code_content_key": "code123",
-        "apr_snapshot_key": "apr456",
-        "upstream_watermark": {
-            "forward_returns": {"count": 10},
-            "concept_registry": {"status_hash": "hash_now", "broadcast_hash": "bcast_now"},
-        },
-    }
-    stored = dict(
-        current,
-        upstream_watermark=dict(
-            current["upstream_watermark"],
-            concept_registry={"status_hash": "hash_before", "broadcast_hash": "bcast_now"},
-        ),
-    )
-    assert _fingerprint_is_computationally_valid(stored, current) is True
-
-
-def test_classify_fingerprint_invalid_on_broadcast_hash_mismatch_alone():
-    """The behavior this whole task exists for: a broadcast_hash-only
-    difference must classify as 'invalid' (full recompute), never 'valid' and
-    never 'status_only_stale' (which would only touch feature_status_at_eval,
-    silently leaving stale IC values computed under the old column split)."""
-    current = {
-        "code_content_key": "code123",
-        "apr_snapshot_key": "apr456",
-        "upstream_watermark": {
-            "forward_returns": {"count": 10},
-            "concept_registry": {"status_hash": "hash_now", "broadcast_hash": "bcast_now"},
-        },
-    }
-    stored = dict(
-        current,
-        upstream_watermark=dict(
-            current["upstream_watermark"],
-            concept_registry={"status_hash": "hash_now", "broadcast_hash": "bcast_before"},
-        ),
-    )
-    result = _classify_fingerprint(stored, current, force_refresh=False)
-    assert result == "invalid"
-
-
-def test_watermark_dict_has_exactly_status_hash_and_broadcast_hash_keys():
-    """_watermark_concept_registry's returned dict must carry exactly
-    {'status_hash', 'broadcast_hash'} -- no more, no fewer. Verified against a
-    fake cursor fixture (no live DB), matching this file's existing style for
-    DB-shaped functions."""
+def test_watermark_concept_registry_keys_and_no_status():
+    """The registry watermark carries membership and broadcast flags only -- never
+    lifecycle status, which no IC computation reads (todo 402)."""
 
     class _FakeCursor:
         def __enter__(self):
@@ -650,7 +507,7 @@ def test_watermark_dict_has_exactly_status_hash_and_broadcast_hash_keys():
             return None
 
         def fetchone(self):
-            return ("fake_status_hash", "fake_broadcast_hash")
+            return ("fake_membership_hash", "fake_broadcast_hash")
 
     class _FakeConn:
         def cursor(self):
@@ -659,232 +516,13 @@ def test_watermark_dict_has_exactly_status_hash_and_broadcast_hash_keys():
     import services.ic_engine as ic_module
 
     result = ic_module._watermark_concept_registry(_FakeConn())
-    assert set(result.keys()) == {"status_hash", "broadcast_hash"}
-    assert result["status_hash"] == "fake_status_hash"
-    assert result["broadcast_hash"] == "fake_broadcast_hash"
-
-
-def test_watermark_concept_registry_query_preserves_status_hash_input_string():
-    """Phase 170's byte-identical-hash invariant: status_hash's md5 input
-    string must remain EXACTLY `cr.name || '=' || cr.status ORDER BY cr.name`
-    -- broadcast_hash must be added as a second column, never folded into or
-    altering the first."""
-    import services.ic_engine as ic_module
-
+    assert result == {
+        "membership_hash": "fake_membership_hash",
+        "broadcast_hash": "fake_broadcast_hash",
+    }
     source = inspect.getsource(ic_module._watermark_concept_registry)
-    assert "cr.name || '=' || cr.status, '' ORDER BY cr.name" in source
+    assert "cr.status" not in source
     assert "cr.name || '=' || COALESCE(cr.metadata->>'broadcast', '')" in source
-
-
-def test_computationally_invalid_on_code_content_key_mismatch():
-    stored = dict(_STATUS_MATCH_CURRENT, code_content_key="different")
-    assert _fingerprint_is_computationally_valid(stored, _STATUS_MATCH_CURRENT) is False
-
-
-def test_computationally_invalid_on_none_stored():
-    assert _fingerprint_is_computationally_valid(None, _STATUS_MATCH_CURRENT) is False
-
-
-def test_status_only_stale_true_when_computationally_valid_but_not_fully_valid():
-    stored = dict(
-        _STATUS_MATCH_CURRENT,
-        upstream_watermark=dict(
-            _STATUS_MATCH_CURRENT["upstream_watermark"],
-            concept_registry={"status_hash": "hash_before"},
-        ),
-    )
-    assert _fingerprint_is_status_only_stale(stored, _STATUS_MATCH_CURRENT) is True
-
-
-def test_status_only_stale_false_when_fully_valid():
-    """Nothing changed at all -- true full skip, no refresh needed."""
-    stored = dict(_STATUS_MATCH_CURRENT)
-    assert _fingerprint_is_status_only_stale(stored, _STATUS_MATCH_CURRENT) is False
-
-
-def test_status_only_stale_false_when_computationally_invalid_too():
-    """A real data/code change alongside the status change is a full recompute,
-    not a status-only refresh -- the expensive path already rewrites
-    feature_status_at_eval as a side effect, so a separate refresh would be
-    redundant (and, if ordered wrong, could clobber the fresh recompute)."""
-    stored = dict(
-        _STATUS_MATCH_CURRENT,
-        upstream_watermark={
-            "forward_returns": {"count": 99},
-            "concept_registry": {"status_hash": "hash_before"},
-        },
-    )
-    assert _fingerprint_is_status_only_stale(stored, _STATUS_MATCH_CURRENT) is False
-
-
-def test_status_only_stale_false_on_none_stored():
-    """A never-before-computed cell must go through the full compute path, not
-    a metadata-only refresh of rows that don't exist yet."""
-    assert _fingerprint_is_status_only_stale(None, _STATUS_MATCH_CURRENT) is False
-
-
-def test_feature_status_refresh_sql_targets_feature_ic_scores_via_registry_join():
-    sql_upper = _FEATURE_STATUS_REFRESH_SQL.upper()
-    assert "UPDATE FEATURE_IC_SCORES" in sql_upper
-    assert "CONCEPT_REGISTRY" in sql_upper
-    assert "FEATURE_STATUS_AT_EVAL" in sql_upper
-
-
-def test_feature_status_refresh_sql_is_idempotent_via_is_distinct_from():
-    """IS DISTINCT FROM (not plain !=, which is NULL-unsafe) -- a no-op refresh
-    on already-current rows must not touch them, keeping this cheap even when
-    called on a large already-fresh symbol set."""
-    assert "IS DISTINCT FROM" in _FEATURE_STATUS_REFRESH_SQL.upper()
-
-
-def test_feature_status_refresh_is_wrapped_in_compressed_hypertable_write_session():
-    """Todo 307: feature_ic_scores is a compressed hypertable -- this UPDATE must run
-    inside compressed_hypertable_write_session (aliased _write_session), not as a bare
-    cur.execute() against a possibly-compressed chunk. Source-inspection regression
-    test, not a behavioral one -- this call site is inlined in main(), too large and
-    dependency-heavy (args parsing, worker pool, live DB connections) to unit-test in
-    isolation without a scope-expanding extraction main() doesn't otherwise need.
-
-    AST-based, not a text/indentation-based check (code review + /simplify findings on
-    earlier versions of this test): a substring-index-ordering check only proves the
-    `with` line appears earlier in the file, not real nesting; a hand-rolled indentation
-    walk is closer but still fooled by a comment containing the target text, or breaks
-    outright if the `with` call ever wraps across multiple lines. Walking the real AST
-    is immune to both -- it finds the `with _write_session(...)` node and checks whether
-    a `Name` node for `_FEATURE_STATUS_REFRESH_SQL` exists anywhere within that node's
-    own subtree, which is exactly what "nested inside the block" means structurally."""
-    tree = ast.parse(inspect.getsource(main))
-    with_node = next(
-        node
-        for node in ast.walk(tree)
-        if isinstance(node, ast.With)
-        and any(
-            isinstance(item.context_expr, ast.Call)
-            and getattr(item.context_expr.func, "id", None) == "_write_session"
-            for item in node.items
-        )
-    )
-    assert any(
-        isinstance(node, ast.Name) and node.id == "_FEATURE_STATUS_REFRESH_SQL"
-        for node in ast.walk(with_node)
-    ), "_FEATURE_STATUS_REFRESH_SQL must be referenced inside the _write_session(...) block"
-
-
-# ---------------------------------------------------------------------------
-# Task 4: _classify_fingerprint -- the ONE decision function shared by both the
-# per-symbol and cross-sectional prepass loops (todo 198), so the two passes
-# can never diverge in what counts as valid/stale/invalid.
-# ---------------------------------------------------------------------------
-
-_STATUS_STALE_STORED = dict(
-    _STATUS_MATCH_CURRENT,
-    upstream_watermark=dict(
-        _STATUS_MATCH_CURRENT["upstream_watermark"],
-        concept_registry={"status_hash": "hash_before"},
-    ),
-)
-_FULLY_STALE_STORED = dict(
-    _STATUS_MATCH_CURRENT,
-    upstream_watermark={
-        "forward_returns": {"count": 99},
-        "concept_registry": {"status_hash": "hash_before"},
-    },
-)
-
-
-def test_classify_fingerprint_valid_on_full_match():
-    result = _classify_fingerprint(
-        dict(_STATUS_MATCH_CURRENT), _STATUS_MATCH_CURRENT, force_refresh=False
-    )
-    assert result == "valid"
-
-
-def test_classify_fingerprint_status_only_stale_on_status_hash_mismatch_alone():
-    result = _classify_fingerprint(_STATUS_STALE_STORED, _STATUS_MATCH_CURRENT, force_refresh=False)
-    assert result == "status_only_stale"
-
-
-def test_classify_fingerprint_invalid_on_computational_mismatch():
-    result = _classify_fingerprint(_FULLY_STALE_STORED, _STATUS_MATCH_CURRENT, force_refresh=False)
-    assert result == "invalid"
-
-
-def test_classify_fingerprint_invalid_on_no_stored():
-    result = _classify_fingerprint(None, _STATUS_MATCH_CURRENT, force_refresh=False)
-    assert result == "invalid"
-
-
-def test_classify_fingerprint_force_refresh_overrides_full_match_to_invalid():
-    """--refresh means redo everything, including cells that are fully valid --
-    matches the pre-existing args.refresh semantics, not a status-only refresh."""
-    result = _classify_fingerprint(
-        dict(_STATUS_MATCH_CURRENT), _STATUS_MATCH_CURRENT, force_refresh=True
-    )
-    assert result == "invalid"
-
-
-def test_classify_fingerprint_force_refresh_overrides_status_only_stale_to_invalid():
-    result = _classify_fingerprint(_STATUS_STALE_STORED, _STATUS_MATCH_CURRENT, force_refresh=True)
-    assert result == "invalid"
-
-
-# ---------------------------------------------------------------------------
-# Task 4: _partition_symbol_cells -- aggregates one symbol's per-cell
-# _classify_fingerprint results into (invalid_cells, needs_status_refresh) as
-# TWO INDEPENDENT values (2026-07-29 code review regression, todo 198).
-#
-# The bug this guards against: the original wiring used a single elif to
-# bucket a symbol as EITHER dispatched (has an invalid cell) OR needing a
-# status refresh (no invalid cell, but a status_only_stale one) -- never
-# both. A symbol with an invalid cell in one (tf, pass_type) AND a
-# status_only_stale cell in a DIFFERENT (tf, pass_type) got dispatched (for
-# the invalid cell) but its status_only_stale sibling was silently never
-# refreshed: the dispatched worker's redundant recompute of that
-# fingerprint-valid sibling hits feature_ic_scores' ON CONFLICT ... DO
-# NOTHING (T-162-03-06), discarding the fresh feature_status_at_eval, while
-# the post-compute fingerprint upsert (which covers ALL of a dispatched
-# symbol's cells, unconditionally) stamps that cell's fingerprint fresh
-# anyway -- permanent, silent status drift, never detected on any future run.
-# ---------------------------------------------------------------------------
-
-
-def test_partition_symbol_cells_all_valid_no_dispatch_no_refresh():
-    result = _partition_symbol_cells({("5m", "pooled"): "valid"})
-    assert result == ([], False)
-
-
-def test_partition_symbol_cells_invalid_only_dispatches_no_refresh_from_that_cell():
-    result = _partition_symbol_cells({("5m", "pooled"): "invalid"})
-    assert result == ([("5m", "pooled")], False)
-
-
-def test_partition_symbol_cells_status_only_stale_only_no_dispatch_needs_refresh():
-    result = _partition_symbol_cells({("1d", "pooled"): "status_only_stale"})
-    assert result == ([], True)
-
-
-def test_partition_symbol_cells_mixed_invalid_and_status_only_stale_dispatches_and_refreshes():
-    """The exact regression case: an invalid cell in one (tf, pass_type) and a
-    status_only_stale cell in another must produce BOTH a dispatch (for the
-    invalid cell) AND needs_status_refresh=True (for the sibling) -- never
-    collapsed into an either/or bucket."""
-    result = _partition_symbol_cells(
-        {("5m", "pooled"): "invalid", ("1d", "pooled"): "status_only_stale"}
-    )
-    assert result == ([("5m", "pooled")], True)
-
-
-def test_partition_symbol_cells_multiple_invalid_cells_all_collected():
-    result = _partition_symbol_cells(
-        {("5m", "pooled"): "invalid", ("1d", "pooled"): "invalid", ("1h", "pooled"): "valid"}
-    )
-    assert set(result[0]) == {("5m", "pooled"), ("1d", "pooled")}
-    assert result[1] is False
-
-
-# ---------------------------------------------------------------------------
-# Task 3: DELETE SQL is scoped to the exact cell-key columns
-# ---------------------------------------------------------------------------
 
 
 def test_invalidate_delete_sql_scoped_to_full_cell_key():

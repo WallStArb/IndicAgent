@@ -101,7 +101,6 @@ _VALUE_COLUMNS: tuple[str, ...] = (
     "ic_sortino",
     "ic_win_rate",
     "cluster_id",
-    "feature_status_at_eval",
     "ic_sharpe_hac",
     "regime_scope",
     "ic_shrunk",
@@ -141,8 +140,8 @@ _SNAPSHOT_SQL = """
            n_independent, reliable, ic_value, ic_sign, p_value, ic_ci_lower, ic_ci_upper,
            passes_ci_gate, bh_adjusted_p, passes_fdr, wf_fold_count, wf_pass_count,
            wf_ic_sharpe, passes_walkforward, ic_sharpe, ic_sharpe_n_windows,
-           regime_label_source, ic_sortino, ic_win_rate, cluster_id, feature_status_at_eval,
-           ic_sharpe_hac, regime_scope, ic_shrunk, shrinkage_weight, partial_ic,
+           regime_label_source, ic_sortino, ic_win_rate, cluster_id, ic_sharpe_hac,
+           regime_scope, ic_shrunk, shrinkage_weight, partial_ic,
            partial_ic_p_value, partial_ic_n, passes_partial_fdr, sign_hit_rate,
            magnitude_conditional_ic, cumulative_e_value, computed_at
     FROM feature_ic_scores

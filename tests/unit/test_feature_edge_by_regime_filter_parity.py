@@ -1,10 +1,9 @@
-"""Drift tripwire: feature_edge_by_regime's WHERE clause vs _run_lifecycle_hook's SQL
-filter (todo 267).
+"""Drift tripwire: feature_edge_by_regime's WHERE clause vs the feature_lifecycle node's
+cell query (todo 267; the query moved from ic_engine's retired hook to
+services/feature_lifecycle.py's _CELLS_SQL in todo 402).
 
 feature_edge_by_regime (migration 297) is deliberately matched to the row population
-services/ic_engine.py's own promotion/demotion lifecycle hook (_run_lifecycle_hook,
-called from _apply_feature_transitions' caller) reads via SQL to decide feature_registry
-status -- two independently-maintained copies of the same business rule, no shared
+the feature lifecycle reads via SQL to decide concept_registry status -- two independently-maintained copies of the same business rule, no shared
 source. If either one's SQL filter conditions change without the other being updated in
 lockstep, the view silently drifts from what the hook actually reads -- the exact failure
 shape CLAUDE.md's own gotchas doc calls out ("two independent incidents hit the same
@@ -13,9 +12,9 @@ shape of bug two weeks apart").
 CI-clean: no DB, no network -- pure filesystem/regex over the two source locations. This
 is a SQL-WHERE-clause tripwire only, not a full row-population proof: it fails loud if
 either query's SQL predicates drift, but it cannot see (and does NOT cover) the hook's
-Python-side post-filter -- `_run_lifecycle_hook` additionally restricts to
-`lookahead_bars == config.lookahead_mid[tf]` after the fetch (services/ic_engine.py,
-just after the SQL query), which `feature_edge_by_regime` does not apply (the view
+Python-side post-filter -- the node additionally restricts to
+`lookahead_bars == config.lookahead_mid[tf]` after the fetch (FeatureLifecycle.execute),
+which `feature_edge_by_regime` does not apply (the view
 exposes `lookahead_bars` as a plain unfiltered column instead, per migration 297's
 "current vs history" convention) -- a real, currently-uncovered divergence between the
 two, not verified or guarded by this test. It does not verify correctness of either
@@ -28,12 +27,11 @@ import re
 from pathlib import Path
 
 _REPO_ROOT = Path(__file__).parent.parent.parent
-_IC_ENGINE = _REPO_ROOT / "services" / "ic_engine.py"
+_FEATURE_LIFECYCLE = _REPO_ROOT / "services" / "feature_lifecycle.py"
 _MIGRATION_297 = _REPO_ROOT / "production" / "migrations" / "297_feature_edge_summary_views.sql"
 
-# _run_lifecycle_hook's own SQL predicate over feature_ic_scores (fis), normalized
+# The lifecycle's own SQL predicate over feature_ic_scores (fis), normalized
 # (table alias stripped, "!=" -> "<>", whitespace collapsed, lowercased) for comparison.
-# services/ic_engine.py:~4620 as of this writing.
 _HOOK_PREDICATES = {
     "symbol = 'pooled'",
     "is_pooled = true",
@@ -56,8 +54,8 @@ _VIEW_PREDICATES = {
 def _extract_where_predicates(sql_fragment: str) -> set[str]:
     """Split a `WHERE ... ` fragment's AND-joined conditions into a normalized set.
 
-    Drops parameterized conditions (containing "%s", e.g. the hook's own
-    `training_window_end = %s`) -- those are per-call run-scoping, not part of the
+    Drops parameterized conditions (containing a placeholder, e.g. the lifecycle's own
+    `training_window_end = $2`) -- those are per-call run-scoping, not part of the
     business-rule row population this test compares. The view exposes
     training_window_end as a plain column instead (per migration 297's own
     "current vs history" convention), so it has no equivalent condition to compare
@@ -70,7 +68,7 @@ def _extract_where_predicates(sql_fragment: str) -> set[str]:
     normalized: set[str] = set()
     for cond in conditions:
         cond = cond.strip().rstrip(";").strip()
-        if "%s" in cond:
+        if "%s" in cond or re.search(r"\$\d", cond):
             continue
         cond = re.sub(r"\bfis\.", "", cond)  # strip table alias
         cond = cond.replace("!=", "<>")
@@ -81,15 +79,8 @@ def _extract_where_predicates(sql_fragment: str) -> set[str]:
 
 
 def _hook_where_fragment() -> str:
-    text = _IC_ENGINE.read_text()
-    # Anchor on _run_lifecycle_hook, not _apply_feature_transitions -- the SQL query
-    # lives in the former (confirmed by reading the source directly, not assumed from
-    # migration 297's comment, which mis-cited the latter). _apply_feature_transitions
-    # is called from within _run_lifecycle_hook but issues no SQL of its own; anchoring
-    # on it would work today only because text.index() searches forward past the end of
-    # that function to find the marker in its caller -- fragile if a second
-    # `WHERE fis.symbol = 'POOLED'` is ever added between the two def sites.
-    def_idx = text.index("def _run_lifecycle_hook")
+    text = _FEATURE_LIFECYCLE.read_text()
+    def_idx = text.index("_CELLS_SQL = ")
     marker = "WHERE fis.symbol = 'POOLED'"
     start = text.index(marker, def_idx)
     end = text.index('"""', start)
@@ -104,7 +95,7 @@ def _view_where_fragment() -> str:
 
 
 def test_hook_filter_matches_recorded_predicates():
-    """If this fails, _apply_feature_transitions' filter changed -- update
+    """If this fails, feature_lifecycle's _CELLS_SQL filter changed -- update
     _HOOK_PREDICATES above AND check whether feature_edge_by_regime (migration 297)
     needs the matching change, per todo 267. Do not just silence this test."""
     assert _extract_where_predicates(_hook_where_fragment()) == _HOOK_PREDICATES
@@ -112,7 +103,7 @@ def test_hook_filter_matches_recorded_predicates():
 
 def test_view_filter_matches_recorded_predicates():
     """If this fails, feature_edge_by_regime's WHERE clause changed -- update
-    _VIEW_PREDICATES above AND check whether _apply_feature_transitions (ic_engine.py)
+    _VIEW_PREDICATES above AND check whether feature_lifecycle's _CELLS_SQL
     needs the matching change, per todo 267. Do not just silence this test."""
     assert _extract_where_predicates(_view_where_fragment()) == _VIEW_PREDICATES
 

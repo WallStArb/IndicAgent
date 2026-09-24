@@ -12,8 +12,8 @@ each against its control_expectation ('negative_control' | 'positive_control').
 HARD-halt (loud, non-zero exit / raised error) if:
   - Negative-control canary clears in the POOLED family (symbol='POOLED',
     is_pooled=true) exceed a pre-committed Binomial tail bound (todo 230, 2026-08-02
-    addendum to E7 -- see below). POOLED is the family `feature_status_at_eval =
-    'active'` gates on top of, ahead of ensemble_trainer.py's eligibility query --
+    addendum to E7 -- see below). POOLED is the family ensemble_trainer.py's
+    eligibility query reads, gated further on concept_registry status = 'active' --
     a POOLED clear alone does not reach the live ensemble (canaries are permanently
     `status='candidate'` in concept_registry), but is still tracked far more
     conservatively than per-symbol clears since it is the eligibility-relevant family.
@@ -67,7 +67,7 @@ from src.config.settings import Settings
 _FDR_ALPHA_DEFAULT = 0.05
 _BINOMIAL_TAIL_ALPHA_DEFAULT = 0.01
 # POOLED is the eligibility-relevant family (ensemble_trainer.py reads it, gated further
-# by feature_status_at_eval='active' which canaries never carry) -- held to a stricter
+# by concept_registry status='active', which canaries never reach) -- held to a stricter
 # bound than per-symbol, but not zero-tolerance. See 2026-08-02 E7 addendum.
 _POOLED_TAIL_ALPHA_DEFAULT = 0.001
 

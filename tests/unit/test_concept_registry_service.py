@@ -310,16 +310,17 @@ def test_fdr_guard_runs_after_evidence_floor():
 # ---------------------------------------------------------------------------
 
 from src.intelligence.concept_registry_service import (
-    _ADVANCE_ACTIVE_COUNTERS_SYNC_SQL,
-    _ADVANCE_SHADOW_COUNTERS_SYNC_SQL,
     _CAS_PROMOTE_SQL,
-    _CAS_TRANSITION_SYNC_SQL,
+    _CAS_TRANSITION_SQL,
     _GATE_CACHE_UPDATE_SQL,
     _GATE_PROMOTE_UPDATE_SQL,
     _LOAD_CONCEPT_SQL,
+    _LOAD_TRANSITION_TARGET_SQL,
     _TRANSITION_INSERT_SQL,
+    _TRANSITION_LOG_INSERT_SQL,
     ConceptNotFoundError,
     ConceptRegistryService,
+    TransitionResult,
 )
 
 
@@ -356,7 +357,7 @@ class _FakeConn:
 
     async def execute(self, sql, *args):
         self.executed.append((sql, args))
-        if sql is _CAS_PROMOTE_SQL:
+        if sql is _CAS_PROMOTE_SQL or sql is _CAS_TRANSITION_SQL:
             return self.cas_result
         if sql is _GATE_CACHE_UPDATE_SQL or sql is _GATE_PROMOTE_UPDATE_SQL:
             return self.gate_result
@@ -394,24 +395,17 @@ def test_cas_promote_sql_has_optimistic_lock():
     assert "UPDATE concept_registry" in _CAS_PROMOTE_SQL
 
 
-def test_sync_transition_sql_has_optimistic_lock():
-    """Same invariant as test_cas_promote_sql_has_optimistic_lock, sync path's
-    record_transition_sync (ic_engine.py's feature-domain caller)."""
-    assert "AND status = " in _CAS_TRANSITION_SYNC_SQL
-    assert "UPDATE concept_registry" in _CAS_TRANSITION_SYNC_SQL
+def test_transition_sql_has_optimistic_lock():
+    """Same invariant as test_cas_promote_sql_has_optimistic_lock, for record_transition
+    (the feature_lifecycle node and the operator override CLI)."""
+    assert "AND status = " in _CAS_TRANSITION_SQL
+    assert "UPDATE concept_registry" in _CAS_TRANSITION_SQL
+    assert "enabled = ($1 = 'active')" in _CAS_TRANSITION_SQL
 
 
-def test_sync_counter_advance_sqls_have_optimistic_lock():
-    """Todo 337: advance_shadow_counters_sync/advance_active_counters_sync mutate
-    concept_gate off a status the caller already read in-memory, same staleness
-    exposure record_transition_sync's own CAS guards against -- both UPDATEs must
-    carry a status check on concept_registry (joined via r) so a concurrent status
-    flip (a second in-flight corpus run, an operator override) makes the counter
-    advance a safe no-op instead of corrupting a streak for a status the concept
-    is no longer in."""
-    for sql in (_ADVANCE_SHADOW_COUNTERS_SYNC_SQL, _ADVANCE_ACTIVE_COUNTERS_SYNC_SQL):
-        assert "AND r.status = " in sql
-        assert "UPDATE concept_gate" in sql
+def test_transition_target_sql_holds_row_lock():
+    assert "FOR UPDATE" in _LOAD_TRANSITION_TARGET_SQL
+    assert "g.fdr_required" in _LOAD_TRANSITION_TARGET_SQL
 
 
 def test_transition_insert_sql_carries_corpus_build_ref():
@@ -599,3 +593,85 @@ async def test_gate_row_overrides_beat_apr_defaults():
         **_DEFAULTS,
     )
     assert decision.action == "record_win"
+
+
+# ---------------------------------------------------------------------------
+# record_transition (todo 402): the generic lifecycle transition path
+# ---------------------------------------------------------------------------
+
+_TARGET = {"concept_id": "22222222-2222-2222-2222-222222222222", "fdr_required": True}
+
+
+async def _transition(conn, **overrides):
+    kwargs = dict(
+        domain="feature",
+        name="momentum_z_mid",
+        from_status="active",
+        to_status="shadow_only",
+        reason="demotion_performance",
+    )
+    kwargs.update(overrides)
+    return await ConceptRegistryService().record_transition(conn, **kwargs)
+
+
+@pytest.mark.asyncio
+async def test_record_transition_is_cas_then_log_in_one_tx():
+    conn = _FakeConn(row=_TARGET)
+    assert await _transition(conn) is TransitionResult.APPLIED
+    assert [sql for sql, _ in conn.executed] == [_CAS_TRANSITION_SQL, _TRANSITION_LOG_INSERT_SQL]
+    assert conn.tx_entered == 1
+
+
+@pytest.mark.asyncio
+async def test_record_transition_cas_miss_writes_no_log():
+    conn = _FakeConn(row=_TARGET, cas_result="UPDATE 0")
+    assert await _transition(conn) is TransitionResult.LOCK_MISS
+    assert [sql for sql, _ in conn.executed] == [_CAS_TRANSITION_SQL]
+
+
+@pytest.mark.asyncio
+async def test_record_transition_promotion_fails_closed_without_fdr_attestation():
+    conn = _FakeConn(row=_TARGET)
+    applied = await _transition(
+        conn, from_status="shadow_only", to_status="active", reason="promotion"
+    )
+    assert applied is TransitionResult.FDR_BLOCKED
+    assert conn.executed == []
+
+
+@pytest.mark.asyncio
+async def test_record_transition_promotion_with_attestation_applies():
+    conn = _FakeConn(row=_TARGET)
+    applied = await _transition(
+        conn, from_status="shadow_only", to_status="active", reason="promotion", fdr_passed=True
+    )
+    assert applied is TransitionResult.APPLIED
+
+
+@pytest.mark.asyncio
+async def test_record_transition_unknown_concept_raises():
+    with pytest.raises(ConceptNotFoundError):
+        await _transition(_FakeConn(row=None))
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    "overrides",
+    [
+        {"to_status": "deprecated", "reason": "demotion_performance"},
+        {"to_status": "deprecated", "reason": "promotion"},
+        {"reason": "not_a_reason"},
+    ],
+)
+async def test_record_transition_guards_raise_before_any_write(overrides):
+    conn = _FakeConn(row=_TARGET)
+    with pytest.raises(ValueError):
+        await _transition(conn, **overrides)
+    assert conn.executed == [] and conn.tx_entered == 0
+
+
+@pytest.mark.asyncio
+async def test_operator_override_may_deprecate():
+    conn = _FakeConn(row=_TARGET)
+    result = await _transition(conn, to_status="deprecated", reason="operator_override")
+    assert result is TransitionResult.APPLIED

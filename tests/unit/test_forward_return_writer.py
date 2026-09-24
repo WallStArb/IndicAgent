@@ -399,7 +399,7 @@ def _mock_conn_with_precheck_result(already_ran: bool) -> MagicMock:
 
 
 def test_emit_price_sanity_fact_skips_insert_when_already_ran():
-    """Idempotency pre-check (mirrors ic_engine.py's _run_lifecycle_hook Step 0):
+    """Idempotency pre-check (the pattern ic_engine.py's retired lifecycle hook used for its Step 0):
     evaluated_at defaults to now() and is part of the table's composite unique key,
     so ON CONFLICT alone doesn't dedupe a rerun of the same training_window_end
     minutes/hours later -- an explicit pre-check is required, same as ic_lifecycle."""

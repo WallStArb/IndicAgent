@@ -3,7 +3,7 @@
 # ops_corpus_pipeline_run.sh — v3.0 corpus pipeline orchestrator
 #
 # Runs feature_factory → regime_writer → forward_return_writer → cross_sectional_regime_model →
-# ic_engine → ic_shrinkage → ensemble_trainer → alpha_publisher sequence for corpus generation.
+# ic_engine → feature_lifecycle → ic_shrinkage → ensemble_trainer → alpha_publisher sequence for corpus generation.
 # Use for initial population or incremental updates.
 # Requires market_data_ohlcv populated and Redpanda + TimescaleDB running.
 #
@@ -373,6 +373,15 @@ run_step 5 "ic_engine" \
 # Canary integrity gate — abort if a control feature proves the measurement
 # pipeline is broken (see check_canary_integrity() for the full rule).
 check_canary_integrity
+
+# Step 5 (cont.) — Feature Lifecycle (feature_ic_scores → concept_evaluation + concept_registry,
+# todo 402). Shares step 5 so --from-step 5 re-runs it with ic_engine. Governs
+# feature status from this window's persisted IC before
+# ensemble_trainer reads it. Reads the champion ensemble weights pinned in APR (an
+# earlier run's output), so this step never depends on step 7 of the same run.
+run_step 5 "feature_lifecycle" \
+    "$PYTHON" services/feature_lifecycle.py \
+    --training-window-end "$TRAINING_WINDOW_END"
 
 # Step 6 — IC Shrinkage (E1): shrink feature_ic_scores IC estimates toward a
 # leave-one-out peer-group prior; the out-of-fold acceptance gate flips

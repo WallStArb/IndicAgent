@@ -132,15 +132,19 @@ These are the stable mechanics — the part of this design meant to survive unch
 
 ## `ConceptRegistryService` — two call surfaces
 
-`src/intelligence/concept_registry_service.py`. Stateless on the async side; the sync side keeps an in-memory per-domain cache (`load_sync`) because its caller has no running event loop.
+`src/intelligence/concept_registry_service.py`. Stateless; every method takes an asyncpg connection.
 
-### Async path — `record_comparison_outcome()`
+### `record_comparison_outcome()`
 
 The **sole** status-flipping code path for `domain='ensemble_strategy'` (Invariant 1's deterministic engine, concretely). Called by `scripts/ops/alpha/ops_ensemble_weight_compare.py` after its own BH-FDR-corrected win decision. Runs read-decide-write inside one transaction with `FOR UPDATE` held throughout, so a concurrent evaluator for the same concept blocks rather than racing. Possible outcomes: `promote` (CAS `candidate→active`), `record_win`/`record_win_not_promotable`/`record_loss` (eval-cache bookkeeping only), or one of several `blocked_*`/`noop_*` results that write nothing — including `blocked_fdr_unverified`, which fails closed whenever `concept_gate.fdr_required=true` and the caller cannot prove FDR correction actually ran this round.
 
-### Sync path — `record_transition_sync()` / `advance_shadow_counters_sync()` / `is_promotion_eligible()`
+### `record_transition()`
 
-Used by `ic_engine.py` and `ensemble_trainer.py`, both psycopg-based with no running event loop. `record_transition_sync` is the CAS-guarded general transition writer (any domain, any `trigger_reason`) — refuses automated callers targeting `deprecated` (operator-only), validates `trigger_reason` against the CHECK vocabulary in Python before hitting Postgres, and resets the shadow-recovery counters whenever a transition lands on `shadow_only` (without this, a concept that previously earned recovery would re-promote off a single passing run instead of re-earning the full evidence bar). `advance_shadow_counters_sync` is the only other counter-mutation path — increments/resets `consecutive_shadow_passes` and accumulates `observations_since_demotion` after each corpus run. `is_promotion_eligible` is a pure evidence-only predicate (no calendar/date input) over those two counters.
+The CAS-guarded general transition writer (any domain, any `trigger_reason`), returning `TransitionResult` (`APPLIED`, `LOCK_MISS`, `FDR_BLOCKED`). Callers: the `feature_lifecycle` node (automated promotion/demotion for `domain='feature'`) and `scripts/ops/alpha/ops_concept_registry_override.py` (`operator_override`). It refuses automated reasons targeting `deprecated` (operator-only), validates `trigger_reason` against the CHECK vocabulary before any write, and applies the same `fdr_required` fail-closed guard to promotions.
+
+### Feature-domain evidence: `concept_evaluation` (todo 402, migration 357)
+
+The feature lifecycle does not keep run counters. `services/feature_lifecycle.py` (a `BaseBatch` oneshot chained after `ic_engine` in the corpus pipeline) appends one `concept_evaluation` row per feature per training window, keyed on `(concept_id, window_end, evidence_key)`, and derives status with the pure `derive_feature_transition`: the latest evaluation per window counts once, streaks run over distinct windows, held windows are excluded, and only evidence gathered under the current status since the concept entered it counts. Recomputing a window's IC therefore never counts as new evidence, and any window can be re-evaluated without an IC recompute. `concept_gate`'s `consecutive_active_fails`, `consecutive_shadow_passes` and `observations_since_demotion` are no longer read for this domain and are slated to be dropped. Design: `docs/plans/2026-09-24-feature-lifecycle-evidence-ledger-design.md`.
 
 ---
 

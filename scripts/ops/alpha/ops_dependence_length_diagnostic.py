@@ -33,10 +33,10 @@ windowing/tapering correction, no bias adjustment). Computed via FFT-based
 autocorrelation, O(n log n) per (symbol, feature) series, aggregated to one
 per-(feature, tf) value via the median across sampled symbols.
 
-No idempotency pre-check (unlike ic_engine.py's lifecycle hook or
-forward_return_writer.py's price-sanity fact): those guard an automated pipeline step
-against a same-window rerun; this is a standalone, manually-invoked diagnostic where a
-repeat run legitimately produces a fresh measurement, not a duplicate to suppress.
+No idempotency pre-check (unlike forward_return_writer.py's price-sanity fact): that
+guards an automated pipeline step against a same-window rerun; this is a standalone,
+manually-invoked diagnostic where a repeat run legitimately produces a fresh measurement,
+not a duplicate to suppress.
 
 Usage:
     python scripts/ops/alpha/ops_dependence_length_diagnostic.py

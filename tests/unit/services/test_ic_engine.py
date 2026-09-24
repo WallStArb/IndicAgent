@@ -48,7 +48,6 @@ from services.ic_engine import (  # noqa: E402
     _compute_cross_sectional_tf,
     _compute_symbol_tf,
     _earnings_season_labels,
-    _lifecycle_guard_cells,
     _plan_season_subcells,
 )
 
@@ -498,82 +497,6 @@ def test_compute_symbol_tf_emits_earnings_season_skip_log_once() -> None:
 
 
 # ---------------------------------------------------------------------------
-# Phase 176 plan 04 -- IC lifecycle guard exclusion (Task 2)
-# ---------------------------------------------------------------------------
-
-
-def _guard_row(regime: str, scope: str, status: str = "active") -> dict:
-    """One synthetic feature_ic_scores cell row shaped like the lifecycle hook's
-    cell_rows dicts (only the keys the guard selection reads)."""
-    return {
-        "feature_name": "up_vol_body_diff",
-        "tf": "1d",
-        "regime": regime,
-        "regime_scope": scope,
-        "feature_status_at_eval": status,
-    }
-
-
-def test_lifecycle_guard_cells_exclude_earnings_season_scope() -> None:
-    """Cells carrying regime_scope == 'earnings_season' are filtered out before
-    the guard's regime_label_to_group mapping runs -- they have no market_regimes
-    row by construction and would otherwise raise a permanent false
-    ic_engine.regime_label_unmapped data-contract violation (T-176-04-03)."""
-    rows = [
-        _guard_row("in_season", "earnings_season"),
-        _guard_row("off_season", "earnings_season"),
-        _guard_row("breadth_vol_high__in_season", "earnings_season"),
-        _guard_row("calm", "symbol_hmm"),
-    ]
-
-    cells = _lifecycle_guard_cells(rows)
-
-    assert [c["regime"] for c in cells] == ["calm"]
-
-
-def test_lifecycle_guard_cells_keep_preexisting_scopes_routed() -> None:
-    """Cells with the three pre-existing scopes are routed exactly as before the
-    extraction (regression-pinned)."""
-    rows = [
-        _guard_row("trending_up", "cross_sectional"),
-        _guard_row("calm", "symbol_hmm"),
-        _guard_row("breadth_vol_high", "cross_sectional"),
-    ]
-
-    cells = _lifecycle_guard_cells(rows)
-
-    assert len(cells) == 3
-    assert {c["regime_scope"] for c in cells} == {"cross_sectional", "symbol_hmm"}
-
-
-def test_lifecycle_guard_cells_still_require_active_status() -> None:
-    """The feature_status_at_eval == 'active' predicate is preserved alongside the
-    new scope exclusion."""
-    rows = [
-        _guard_row("calm", "symbol_hmm", status="demoted"),
-        _guard_row("calm", "symbol_hmm", status="active"),
-        _guard_row("in_season", "earnings_season", status="active"),
-    ]
-
-    cells = _lifecycle_guard_cells(rows)
-
-    assert len(cells) == 1
-    assert cells[0]["regime_scope"] == "symbol_hmm"
-    assert cells[0]["feature_status_at_eval"] == "active"
-
-
-def test_lifecycle_guard_cells_filter_by_scope_value_not_label_string() -> None:
-    """The exclusion keys on the regime_scope VALUE -- never on matching the
-    label strings, so the helper's source contains the scope token but none of
-    the bare season-label strings (a future scope carrying the same labels must
-    still route through the guard)."""
-    source = inspect.getsource(_lifecycle_guard_cells)
-    assert "earnings_season" in source
-    assert "in_season" not in source
-    assert "off_season" not in source
-
-
-# ---------------------------------------------------------------------------
 # Phase 176 plan 06 -- cross-sectional season sub-cell planner
 # (_plan_season_subcells), DB-free
 # ---------------------------------------------------------------------------
@@ -893,7 +816,6 @@ def _cs_call(
         tracer=None,
         run_ts=datetime(2026, 1, 1, tzinfo=UTC),
         rng=np.random.default_rng(0),
-        feature_status_map={},
         broadcast_features=frozenset(),
     )
 

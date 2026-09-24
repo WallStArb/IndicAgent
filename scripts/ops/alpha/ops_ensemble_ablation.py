@@ -49,7 +49,7 @@ METHODOLOGY INVARIANTS (statistical correctness, non-negotiable):
   CI-comparable with alpha_ensemble_ic's pooled rows, which stay on Fisher-z this
   phase (143.1-CONTEXT resolved item 3). Upgrade both together.
 - 'control' (canary) family stays in the sweep by design: it should be absent from
-  ensemble_weights entirely (feature_status_at_eval='active' excludes canaries);
+  ensemble_weights entirely (the concept_registry status='active' filter excludes canaries);
   if present, the report and manifest flag a governance breach, and a material IC
   delta from zeroing it indicts the ablation mechanism itself, not the model.
 
@@ -854,7 +854,7 @@ def render_report(
     if not control_weighted:
         lines.append(
             "control family absent from all strata (expected: "
-            "feature_status_at_eval='active' excludes canaries from eligibility). "
+            "concept_registry status='active' excludes canaries from eligibility). "
             "The absent-family no-op doubles as the ablation-mechanism sanity check."
         )
     else:

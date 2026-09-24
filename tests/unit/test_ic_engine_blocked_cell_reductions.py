@@ -247,7 +247,6 @@ def test_cross_sectional_cell_setup_phase_is_memory_bounded(tmp_path, monkeypatc
                 tf="1h",
                 rng=np.random.default_rng(0),
                 training_window_end=None,
-                feature_status_map=None,
                 run_ts=datetime.now(UTC),
                 prior_e_values={},
                 disk_backed=True,

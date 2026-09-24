@@ -304,21 +304,20 @@ class TestEarningsSeasonScopeExclusion:
         )
 
 
-class TestFeatureStatusAtEvalFilter:
-    """Regression lock (LIFECYCLE-02, Phase 143 Plan 03): the feature-IC selection
-    query in _process_stratum must keep filtering WHERE feature_status_at_eval =
-    'active', excluding candidate and shadow_only periods where IC data was gathered
-    but the feature was not (or no longer) actively governed. This is already-correct
-    Phase 139 code -- this test exists purely to fail loudly if a future edit silently
-    drops the filter, since ic_engine's Plan 03 post-run lifecycle hook now depends on
-    this filter to make feature status changes (demotion/promotion) actually take
-    effect on the next ensemble_trainer run."""
+class TestActiveStatusFilter:
+    """Regression lock (LIFECYCLE-02): the feature-IC selection query in
+    _process_stratum must keep only features whose concept_registry status is
+    'active', excluding candidate and shadow_only features -- this is how a
+    feature_lifecycle promotion or demotion takes effect on the next ensemble_trainer
+    run. Todo 402: read from the registry at train time, not from the
+    feature_ic_scores.feature_status_at_eval copy ic_engine no longer writes."""
 
-    def test_stratum_ic_fetch_filters_feature_status_at_eval_active(self) -> None:
+    def test_stratum_ic_fetch_filters_on_registry_active_status(self) -> None:
         from services.ensemble_trainer import EnsembleTrainer
 
         source = inspect.getsource(EnsembleTrainer._process_stratum)
-        assert "feature_status_at_eval = 'active'" in source
+        assert "cr.domain = 'feature' AND cr.status = 'active'" in source
+        assert "feature_status_at_eval" not in source
 
 
 class TestStratumSkipsAreNeverSilent:

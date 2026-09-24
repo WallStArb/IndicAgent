@@ -873,15 +873,11 @@ class EnsembleTrainer(BaseBatch):
         )
         _, eligibility_where = _eligibility_where(config.sign_symmetric)
 
-        # Step 1: Load cross-sectional IC scores for this stratum (symbol='POOLED')
-        # feature_status_at_eval = 'active' ensures we only train on IC scores from
-        # periods when the feature was actively governed — excludes candidate and
-        # shadow_only periods where IC data was gathered but feature not yet promoted.
-        # Phase 170 Plan 06: this filter needs NO change from the concept_registry
-        # cutover -- it reads a feature_ic_scores COLUMN that ic_engine stamps, and
-        # Plan 06 Task 1 repointed that column's source (ic_engine's
-        # _FEATURE_STATUS_REFRESH_SQL / lifecycle-hook write) to concept_registry;
-        # this consumer query was already correct and untouched.
+        # Step 1: Load cross-sectional IC scores for this stratum (symbol='POOLED'),
+        # restricted to features whose concept_registry status is 'active' at train time.
+        # Todo 402: status is read from the registry, not from a copy stamped on the IC
+        # rows -- feature_ic_scores no longer carries lifecycle state, and the
+        # feature_lifecycle node that governs status runs before this step.
         ic_rows = await conn.fetch(
             f"""
             SELECT feature_name, ic_sharpe_hac, ic_shrunk, shrinkage_weight,
@@ -889,7 +885,11 @@ class EnsembleTrainer(BaseBatch):
             FROM feature_ic_scores
             WHERE {eligibility_where}
               AND tf = $1 AND regime = $2
-              AND feature_status_at_eval = 'active'
+              AND feature_name IN (
+                  SELECT cr.name FROM concept_registry cr
+                  JOIN concept_gate cg USING (concept_id)
+                  WHERE cr.domain = 'feature' AND cr.status = 'active'
+              )
               {ic_shrunk_not_null_clause}
             """,
             tf,
