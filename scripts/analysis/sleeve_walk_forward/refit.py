@@ -120,7 +120,10 @@ def run_refit(
     refit_date: np.datetime64,
     cfg: HarnessConfig,
     excluded: frozenset[str],
+    controls: frozenset[str] = frozenset(),
 ) -> RefitOutput:
+    """excluded: removed before measurement (no IC rows). controls: measured like any feature
+    (their rows feed V5 and the BH family, as in production) but never selected or weighted."""
     config = ic_engine_config(snapshot.apr)
     raw = raw_apr(snapshot.apr)
     ens = EnsembleConfig.from_apr(raw)
@@ -194,7 +197,9 @@ def run_refit(
         ens.meta_fdr_min_fraction,
         ens.meta_fdr_min_cells,
     ).get(_TF, set())
-    strata, skipped = _fit_equity_strata(snapshot, rows, meta, excluded, ens, raw, refit_date)
+    strata, skipped = _fit_equity_strata(
+        snapshot, rows, meta, excluded | controls, ens, raw, refit_date
+    )
     return RefitOutput(refit_date, strata, skipped, rows, n_embargo_excluded)
 
 

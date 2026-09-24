@@ -1,0 +1,18 @@
+{
+  "exclude": {
+    "amihud_illiq_z": "open P1 correctness todo 390 (unguarded division can reach the weights)",
+    "days_since_quarter_end": "production excludes by construction (earnings-season conditioning input)",
+    "earnings_season_flag": "production excludes by construction (regime_scope='earnings_season' is measurement-only)",
+    "hmm_duration": "fitted-HMM output, same writer and defect as hmm_regime_prob",
+    "hmm_entropy": "fitted-HMM output, same writer and defect as hmm_regime_prob",
+    "hmm_regime_prob": "fitted-HMM output: regime_writer's full-sample K=5 fit is its sole writer (todo 207); stored labels are regime_label_source='filtered' (todo 248 lookahead)",
+    "illiquidity_momentum_product": "built from amihud_illiq_z (todo 390)"
+  },
+  "control": {
+    "canary_acausal_placebo": "is_control canary: measured every refit for V5 (acausal placebo must be detected; noise canaries' FDR pass rate reported), never selected or weighted",
+    "canary_constant": "is_control canary: measured every refit for V5 (acausal placebo must be detected; noise canaries' FDR pass rate reported), never selected or weighted",
+    "canary_near_constant": "is_control canary: measured every refit for V5 (acausal placebo must be detected; noise canaries' FDR pass rate reported), never selected or weighted",
+    "canary_noise_gaussian": "is_control canary: measured every refit for V5 (acausal placebo must be detected; noise canaries' FDR pass rate reported), never selected or weighted",
+    "canary_noise_uniform": "is_control canary: measured every refit for V5 (acausal placebo must be detected; noise canaries' FDR pass rate reported), never selected or weighted"
+  }
+}

@@ -229,3 +229,9 @@ def test_embargo_count_includes_rows_dropped_whole():
     # Rows 14..19 fall between the h=1 cutoff and the refit date: every scale is embargoed.
     # Rows 20.. are on or after the refit date, not embargo exclusions.
     assert n_excl == partial + 6 * 4
+
+
+def test_control_feature_is_measured_but_never_weighted(snap):
+    out = run_refit(snap, snap.sessions[650], CFG, frozenset(), controls=frozenset({PLANTED[0]}))
+    assert any(r["feature_name"] == PLANTED[0] for r in out.ic_rows)
+    assert all(PLANTED[0] not in s.feature_names for s in out.strata.values())

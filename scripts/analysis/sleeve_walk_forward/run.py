@@ -108,28 +108,41 @@ def _load(path: Path, allow_drift: bool) -> dict:
 _WORKER_SNAPSHOT: dict[str, Any] = {}
 
 
-def _refit_worker(snapshot_path: str, date: np.datetime64, excluded: frozenset[str]):
+def _refit_worker(
+    snapshot_path: str, date: np.datetime64, excluded: frozenset[str], controls: frozenset[str]
+):
     """Loads the snapshot once per worker process, not once per refit."""
     if snapshot_path not in _WORKER_SNAPSHOT:
         _WORKER_SNAPSHOT.clear()
         _WORKER_SNAPSHOT[snapshot_path] = load_snapshot(Path(snapshot_path))
-    return run_refit(_WORKER_SNAPSHOT[snapshot_path], date, CONFIG, excluded)
+    return run_refit(_WORKER_SNAPSHOT[snapshot_path], date, CONFIG, excluded, controls)
 
 
 def _stage_s1(args: argparse.Namespace) -> Path:
     if args.excluded_file is None:
         sys.exit("--excluded-file is required for s1 (pre-registration section 5)")
-    excluded = frozenset(json.loads(Path(args.excluded_file).read_text()))
+    tiers = json.loads(Path(args.excluded_file).read_text())
+    if not isinstance(tiers, dict) or set(tiers) != {"exclude", "control"}:
+        sys.exit('--excluded-file must be {"exclude": {name: reason}, "control": {name: reason}}')
+    excluded, controls = frozenset(tiers["exclude"]), frozenset(tiers["control"])
     verify_snapshot(Path(args.input))
     snap = load_snapshot(Path(args.input))
+    unknown = sorted((excluded | controls) - set(snap.feature_names))
+    if unknown:
+        sys.exit(f"--excluded-file names features that don't exist: {unknown}")
     dates = refit_dates(snap.sessions, CONFIG.refit_years)
-    jobs = [(str(args.input), d, excluded) for d in dates]
+    jobs = [(str(args.input), d, excluded, controls) for d in dates]
     if args.workers > 1:
         with make_worker_pool(args.workers, CONFIG.blas_threads_per_worker) as pool:
             refits = list(pool.map(_refit_worker, *zip(*jobs)))
     else:
         refits = [_refit_worker(*j) for j in jobs]
-    payload = {"snapshot": str(args.input), "excluded": sorted(excluded), "refits": refits}
+    payload = {
+        "snapshot": str(args.input),
+        "excluded": sorted(excluded),
+        "controls": sorted(controls),
+        "refits": refits,
+    }
     return _save(args.out_dir, "s1", payload, str(args.input))
 
 

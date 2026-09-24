@@ -69,7 +69,7 @@ def harness(tmp_path, monkeypatch):
     monkeypatch.setattr(run, "verify_snapshot", lambda _path: None)  # fixture is not on disk
     (tmp_path / "snapshot_fixture").mkdir()
     excluded = tmp_path / "excluded.json"
-    excluded.write_text("[]")
+    excluded.write_text('{"exclude": {}, "control": {}}')
     return tmp_path, excluded
 
 
@@ -167,3 +167,39 @@ def test_payload_records_git_commit(harness):
     )
     obj = pickle.loads(s1.read_bytes())
     assert len(obj["git_commit"]) == 40 and isinstance(obj["git_dirty"], bool)
+
+
+def test_exclusion_file_needs_both_tiers(harness):
+    out, excluded = harness
+    excluded.write_text('["x"]')
+    with pytest.raises(SystemExit, match="exclude"):
+        run.main(
+            [
+                "--stage",
+                "s1",
+                "--in",
+                str(out / "snapshot_fixture"),
+                "--out-dir",
+                str(out),
+                "--excluded-file",
+                str(excluded),
+            ]
+        )
+
+
+def test_unknown_feature_name_in_exclusion_file_is_refused(harness):
+    out, excluded = harness
+    excluded.write_text('{"exclude": {"no_such_feature": "typo"}, "control": {}}')
+    with pytest.raises(SystemExit, match="no_such_feature"):
+        run.main(
+            [
+                "--stage",
+                "s1",
+                "--in",
+                str(out / "snapshot_fixture"),
+                "--out-dir",
+                str(out),
+                "--excluded-file",
+                str(excluded),
+            ]
+        )
