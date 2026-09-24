@@ -1,7 +1,8 @@
 ---
-status: pending
+status: closed
 priority: P0
 filed: 2026-09-24
+closed: 2026-09-24
 source: AGY adversarial review of the Phase 179 pre-registration (finding 3), verified against code and live data
 ---
 
@@ -33,3 +34,12 @@ recompute: `p_value`, `ic_value` and `cluster_id` are stored, so representatives
 re-derived from stored rows and BH re-run for the window as an UPDATE. Land with the Phase 178
 bundle and re-run shrinkage, the trainer and the publisher after it. Phase 179's harness uses the
 corrected helper (pre-registration deviation D6).
+
+## Closure (2026-09-24)
+
+Fixed in 7fa346137 (shared _mark_cluster_representatives). The Phase 178 recompute on the fixed
+code rewrote every tracked cell of window 2025-12-24 05:15 UTC. Verified live after it: 0 rows
+carry bh_adjusted_p while a same-(symbol, tf, regime, lookahead_bars, cluster_id) peer has higher
+|IC|, and 0 such rows pass FDR (was 681,851 / 2,842), outside regime_scope='earnings_season'. The
+2.4M earnings-season rows are untracked by ic_cell_fingerprints and were not rewritten; they are
+excluded from the trainer, the lifecycle and the guard.

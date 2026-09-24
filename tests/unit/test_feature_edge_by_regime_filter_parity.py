@@ -36,6 +36,7 @@ _HOOK_PREDICATES = {
     "symbol = 'pooled'",
     "is_pooled = true",
     "regime <> '_pooled'",
+    "regime_scope <> 'earnings_season'",
 }
 
 # feature_edge_by_regime's WHERE clause (migration 297) -- one extra condition
@@ -115,4 +116,7 @@ def test_hook_predicates_are_subset_of_view_predicates():
     row population matches the hook's -- see this module's docstring for the known,
     uncovered lookahead_bars divergence (a Python-side post-filter this static test
     cannot see)."""
-    assert _HOOK_PREDICATES <= _VIEW_PREDICATES
+    # The view's regime_scope = 'cross_sectional' implies the lifecycle's
+    # regime_scope <> 'earnings_season', so the view stays at least as strict.
+    assert "regime_scope = 'cross_sectional'" in _VIEW_PREDICATES
+    assert _HOOK_PREDICATES - {"regime_scope <> 'earnings_season'"} <= _VIEW_PREDICATES

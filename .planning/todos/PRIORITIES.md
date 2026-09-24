@@ -55,7 +55,6 @@ close-or-park), target under 60 pending.
 
 | Todo | Why now |
 |---|---|
-| [410](pending/410-ic-engine-cluster-representative-unsorted-wrong-rows-in-bh-fdr.md) | New 2026-09-24, AGY review of the 179 pre-registration, verified live. The cluster-representative loop marks `candidates[1:]` unsorted, so whenever the max-|IC| row isn't first the wrong row enters the corpus BH family: 681,851 rows carry a BH p they shouldn't, 2,842 of them `passes_fdr = true`. Affects every consumer of `passes_fdr`. Fix is cheap (re-derive representatives from stored rows, re-run BH as an UPDATE); land with the 178 bundle. |
 | [395](pending/395-nightly-backfill-fails-3-nights-weekly-ibkr-weekly-2fa-unattended.md) | **Re-tiered P1->P0 2026-09-24 (v3.4 phase 177): a silent weekly 3-day data gap plus an alert route that reaches nobody is a live integrity gap.** New 2026-09-23, found during post-power-outage recovery. Nightly backfill failed Mon-Wed of both of the last two weeks (IBKR connect timeout) after the weekly IBKR logout left the gateway waiting on an unattended 2FA tap; ~3-day OHLCV gap every week. Nobody saw it because `OneshotJobFailed` routes to a no-op Alertmanager receiver (since 2026-08-15). Fix the receiver first, then a gateway-auth probe and backfill retry. |
 
 ## P1 — High value, quick, fully unblocked

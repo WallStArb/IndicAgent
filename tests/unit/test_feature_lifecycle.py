@@ -400,6 +400,7 @@ def test_node_never_writes_ensemble_weights():
 def test_cells_query_pins_weight_version_and_never_orders_by_computed_at():
     assert "ew.weight_version = $1" in fl._CELLS_SQL
     assert "mid.lookahead_bars = fis.lookahead_bars" in fl._CELLS_SQL
+    assert "fis.regime_scope <> 'earnings_season'" in fl._CELLS_SQL
     assert "computed_at" not in fl._CELLS_SQL
 
 

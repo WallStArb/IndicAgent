@@ -432,7 +432,9 @@ def staleness(
 # ---------------------------------------------------------------------------
 
 # Pinned to each tf's mid lookahead in SQL ($3/$4 are parallel tf / lookahead arrays),
-# so one (feature, tf, regime) yields exactly one cell.
+# so one (feature, tf, regime) yields exactly one cell. Earnings-season rows are
+# measurement-only (Phase 176: no lifecycle decision from them) and, being untracked by
+# ic_cell_fingerprints, can be stale relative to the current code, so they never enter.
 _CELLS_SQL = """
     SELECT fis.feature_name, fis.tf, fis.regime, fis.regime_scope, fis.lookahead_bars,
            fis.ic_ci_lower, fis.ic_ci_upper, fis.ic_sign, fis.passes_fdr,
@@ -450,6 +452,7 @@ _CELLS_SQL = """
     WHERE fis.symbol = 'POOLED'
       AND fis.is_pooled = true
       AND fis.regime != '_pooled'
+      AND fis.regime_scope <> 'earnings_season'
       AND fis.training_window_end = $2
 """
 
