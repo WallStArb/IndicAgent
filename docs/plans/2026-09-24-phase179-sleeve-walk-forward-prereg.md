@@ -321,6 +321,17 @@ in-sample for production already, so it spends nothing.
   `illiquidity_momentum_product`, `earnings_season_flag`, `days_since_quarter_end`; control
   (measured every refit for V5, never selected or weighted): the 5 `canary_*` features. The
   todo-390 entries are re-checked against open P0/P1 correctness todos at freeze.
+- **V4b (D7 sizing): PASS, and D7 is null in practice.** At the production window
+  (2025-12-24 05:15 UTC, 1,508,020 1d rows) the selected feature set is identical in all 9
+  equity strata under both priors, with quality-weight rank correlation 1.000 and bit-identical
+  `ic_shrunk`. Cause: the 1,146,900 per-symbol 1d rows are all `reliable` but none has an
+  `ic_sharpe_hac` (a per-symbol 1d cell is too short for 2,000-row Sharpe windows with a 30-window
+  minimum), and `compute_shrinkage_updates` only takes rows with one, so production's 1d bucket
+  is pooled-only too. Correction to D7's own rationale: its "143,100 per-symbol vs 1,160 pooled"
+  counted reliable rows without the `ic_sharpe_hac` filter, so it overstated the deviation. No
+  per-symbol pass is needed. Artifact `logs/phase179/v4b_20260924T193132Z.json`. Also observed:
+  `high_bull` and `low_bull` select no features under either prior (few eligible pooled cells);
+  their days get no alpha, which S2 counts per year.
 - **Deprecated-feature decision: moot.** `new_high_flag` and `new_low_flag` were deprecated by
   operator override with no gate metric and are no longer `FeatureVector` fields (migration 284
   tombstones), so they cannot enter the pool.
@@ -334,7 +345,7 @@ in-sample for production already, so it spends nothing.
 | D3 | No weight aging | Now also production (todo 408, removed 2026-09-24); kept here because the 2026-09-22 champion was 1/n | Uniform-weight variant |
 | D4 | No present-day status filter | Status is decided with later data | Section 5 |
 | D5 | Covariance fitted on rows up to the IC window end | Now also production (todo 409, fixed 2026-09-24) | None needed |
-| D7 | IC shrinkage prior from the refit's pooled rows only | Production's `(group_name, regime, tf)` bucket mixes per-symbol rows (~99% of an equity label's bucket at 1d, e.g. `high_bear` 143,100 vs 1,160); a per-symbol pass per refit is a large multiple of the IC compute | V4b |
+| D7 | IC shrinkage prior from the refit's pooled rows only (V4b 2026-09-24: identical to production at the current window, since per-symbol 1d rows carry no `ic_sharpe_hac`) | Production's `(group_name, regime, tf)` bucket mixes per-symbol rows (~99% of an equity label's bucket at 1d, e.g. `high_bear` 143,100 vs 1,160); a per-symbol pass per refit is a large multiple of the IC compute | V4b |
 | D6 | Cluster representatives chosen correctly | Now also production (todo 410, fixed 2026-09-24); earlier stored rows carry the bug | None needed |
 
 ## 14. Residual biases that remain
