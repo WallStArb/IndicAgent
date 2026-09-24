@@ -1,7 +1,8 @@
 ---
-status: pending
+status: closed
 priority: P1
 filed: 2026-09-24
+closed: 2026-09-24
 source: measured while designing todo 402 (docs/plans/2026-09-24-feature-lifecycle-evidence-ledger-design.md, finding 6)
 ---
 
@@ -23,3 +24,7 @@ before: that recompute supersedes 176-08's IC again). Separately, decide whether
 pipeline chain should run `ensemble_trainer` after every `ic_engine` recompute so this cannot
 recur; with `feature_lifecycle` as its own node (todo 402 design) the chain would be
 `ic_engine -> feature_lifecycle -> ensemble_trainer`.
+
+## Closure (2026-09-24)
+
+Trainer re-run 2026-09-24 22:11-23:31 UTC on the Phase 178 IC with the 408/409 fixes: champion run_2025122405150000 has 358 weighted rows, weights 0.0006-0.34 (no 1/n).

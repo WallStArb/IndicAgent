@@ -1,7 +1,8 @@
 ---
-status: pending
+status: closed
 priority: P2
 filed: 2026-09-24
+closed: 2026-09-24
 source: Phase 176-08 gate verdict, Query 3
 ---
 
@@ -40,3 +41,7 @@ per-cell gate, so this is not P1. Replacement design, with the measurements:
 `docs/plans/2026-09-24-feature-lifecycle-evidence-ledger-design.md` (append-only
 `concept_evaluation` ledger, status as a pure function of it, lifecycle extracted into its
 own `feature_lifecycle` DAG node, governance state removed from `feature_ic_scores`).
+
+## Closure (2026-09-24)
+
+Landed db48829c8 (+ 0205f0cb3 guard, 7448a8e55 season filter); first post-recompute run 2026-09-24 19:31: 295 evaluated, guard uncalibrated, 0 transitions (correct with one window, see 415).

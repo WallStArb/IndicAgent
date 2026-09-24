@@ -1,7 +1,8 @@
 ---
-status: pending
+status: closed
 priority: P2
 filed: 2026-09-23
+closed: 2026-09-24
 source: pre-registered this session after the recompute-cost re-derivation (todo 385) made the
   savings line concrete; evidence base is the 2026-09-13 TF-stack economics diagnostic
 ---
@@ -24,3 +25,7 @@ methodology change). Then bundle with todo 386 (+ threading/nogil if adopted fro
 385's lever benchmark) in ONE landing immediately before the next required recompute —
 the whole-dict `active_scales` fingerprint hashing invalidates every surviving cell, so
 the one-time cost must be absorbed by an already-required run, never standalone.
+
+## Closure (2026-09-24)
+
+Executed: migration 358 removed 5m/15m fast; the Phase 178 recompute rewrote the window without them (only untracked earnings_season rows keep lookahead 1). Per-symbol saving not separable from the concurrent removals (403 season passes) -- the full per-symbol pass ran ~2h vs 3h37m for 176-08.

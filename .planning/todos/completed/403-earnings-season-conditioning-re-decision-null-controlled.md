@@ -1,7 +1,8 @@
 ---
-status: pending
+status: closed
 priority: P2
 filed: 2026-09-24
+closed: 2026-09-24
 source: Phase 176-08 gate verdict, Query 2 / Step 5
 ---
 
@@ -27,3 +28,7 @@ Before the next full ic_engine corpus run: pre-register a rule with a minimum tr
 (feature, tf) and a size-matched null (random calendar blocks of the same length and count as
 the in-season window, same cells), evaluate it against the persisted 176-08 rows (no recompute
 needed), and set the key through `ConfigService` with a `config_history` reason either way.
+
+## Closure (2026-09-24)
+
+Landed 5c82c8449 (migration 359, conditioning off). Pre-registration 9ac9cbac2.

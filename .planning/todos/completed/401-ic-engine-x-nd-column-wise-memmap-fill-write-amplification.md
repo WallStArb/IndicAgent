@@ -1,7 +1,8 @@
 ---
-status: pending
+status: closed
 priority: P1
 filed: 2026-09-24
+closed: 2026-09-24
 source: Phase 176-08 corpus run, cross-sectional stage stall diagnosed live 2026-09-24 ~02:45 UTC
 ---
 
@@ -59,3 +60,7 @@ Audit the same pattern elsewhere: any other column-wise assignment into a row-ma
 
 Edits `services/ic_engine.py` and moves `code_content_key`, so it lands with the next change that
 forces a recompute (todo 389's post-176-08 landing, with todo 399), never mid-run.
+
+## Closure (2026-09-24)
+
+Verified in the Phase 178 run: the disk-backed cross-sectional cells completed with no writeback stall (the 5m cells that stalled 176-08 finished at 4-27 min each).
