@@ -160,7 +160,7 @@ def run_refit(
             keep = (group.session_idx >= start_idx) & (group.bar_ts <= fidelity_window_end)
             complete, n_excl = group.complete[keep], 0
         n_embargo_excluded += n_excl
-        if keep.any() and group.bar_ts[keep].max() >= refit_date:
+        if fidelity_window_end is None and keep.any() and group.bar_ts[keep].max() >= refit_date:
             raise AssertionError(f"V6: {group_name} training row on or after {refit_date}")
         labels = group.labels[keep]
         X_kept, returns_kept, bar_ts_kept = group.X[keep], group.returns[keep], group.bar_ts[keep]

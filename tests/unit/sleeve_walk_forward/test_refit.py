@@ -247,3 +247,12 @@ def test_fidelity_mode_trains_through_the_window_end_without_embargo(snap):
     assert max(r["n_independent"] or 0 for r in out.ic_rows) >= max(
         r["n_independent"] or 0 for r in normal.ic_rows
     )
+
+
+def test_fidelity_mode_may_train_on_the_refit_date_itself(snap):
+    # V4 passes the snapshot's last session as both refit date and window end; production
+    # trains through its window end, so the out-of-sample V6 check must not apply here.
+    out = run_refit(
+        snap, snap.sessions[650], CFG, frozenset(), fidelity_window_end=snap.sessions[650]
+    )
+    assert out.ic_rows
