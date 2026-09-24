@@ -61,7 +61,7 @@ question above. Checked against the code on 2026-09-24:
 | Execution | alpha from day D's close; enter at open D+1, exit at open D+2; return `ln(open[D+2]/open[D+1])` | Diagnostic `_EMBARGO_BARS = 2`, CLAUDE.md Invariant 1 |
 | Portfolio arms (decision family) | `ic_proportional`, `vol_normalized`, `mean_variance`, gross exposure 1 | Diagnostic definitions, moved to a shared module unchanged, including its 504-session warmup (`_INITIAL_WARMUP_BARS`) |
 | Instrument calibration | Diagnostic's trailing per-instrument IC, shrunk to the leave-one-out peer mean; point-in-time trailing coverage filter | Diagnostic, unchanged |
-| Weight aging | `days_since = 0` at every refit (weights fitted at T are used from T) | Deviation D3 |
+| Weight aging | None: the fit has no clock (production too since todo 408) | D3 |
 
 No arm is primary. `vol_normalized` was the best in-sample arm, so choosing it now would be
 selection by looking; all three signal arms form one decision family under the max-statistic
