@@ -104,11 +104,11 @@ production calls.
 
 | Step | Reused code | Change needed |
 |---|---|---|
-| Pooled IC per cell | `services/ic_engine.py::_compute_one_cross_sectional_cell` and `_compute_one_broadcast_cell` (arrays in, rows out) | None. Imported, never copied. The cell function expects all `_FEATURE_NAMES` columns, so the harness always passes the full matrix and removes excluded features through the `broadcast_mask` argument (masked columns leave X_nd and emit no rows), extended with the section 5 exclusions. Importing Ring 2 private functions is recorded debt, resolved by todo 214, not here |
+| Pooled IC per cell | `services/ic_engine.py::_compute_one_cross_sectional_cell` and `_compute_one_broadcast_cell` (arrays in, rows out) | Run for every enabled regime group (equity, rates, commodity, fx; amendment A1) so the BH family and the meta-FDR denominator match production's pooled 1d set; only equity strata are weighted. Imported, never copied. The cell function expects all `_FEATURE_NAMES` columns, so the harness always passes the full matrix and removes excluded features through the `broadcast_mask` argument (masked columns leave X_nd and emit no rows), extended with the section 5 exclusions. Importing Ring 2 private functions is recorded debt, resolved by todo 214, not here |
 | Symbol routing | `ic_engine._build_symbol_regime_class` | None |
 | Cluster representatives | `ic_engine._mark_cluster_representatives`, called by both passes | Done 2026-09-24 (7fa346137, todo 410) |
 | BH-FDR | `ic_math.apply_bh_fdr` | None |
-| IC shrinkage | `scripts/ops/alpha/ops_ic_shrinkage.py::compute_shrinkage_updates` | Move to `src/intelligence/ensemble/shrinkage.py` if it isn't cleanly importable |
+| IC shrinkage | `scripts/ops/alpha/ops_ic_shrinkage.py::compute_shrinkage_updates` | Prior bucket built from the refit's pooled rows only (D7) |
 | Eligibility + meta-FDR + stratum fit | `ensemble_trainer._eligibility_where` semantics, `_meta_eligible`, `src/intelligence/ensemble/stratum_fit.py::select_stratum` and `fit_stratum_weights(selection, X, bar_ts, ...)` | Done 2026-09-24 (c6750d700): the trainer calls the same two functions. No aging (todo 408 deleted it; migration 360); the covariance window cut (bars <= the IC window end, todo 409) lives inside `fit_stratum_weights`, so the harness gets it by construction |
 | Portfolio arms, calibration, instrument covariance | `src/intelligence/portfolio/weighting.py` | Done 2026-09-24 (build step 3). Moved from the diagnostic, which imports it; thresholds are arguments. The walk-forward orchestration (`run_walk_forward`, with todo 393's wrong cost proxy) stays in the diagnostic: the harness builds its own array-first engine on these primitives in step 5 |
 | Panel null | New `src/intelligence/statistics/panel_null.py`: deterministic enumeration of admissible circular date shifts of a whole panel, plus the permutation p-value | Done 2026-09-24 (edb555a11). Deliberately not `alpha_score_residual`'s `sync_shift_null_p` (todo 372: per-symbol `k % m` breaks panel synchrony) |
@@ -150,7 +150,8 @@ taken in S0 and hashed into the manifest.
   sleeve symbols (scoring), inner join `forward_returns` on (symbol, tf, bar_ts) with
   `return_type='executable_open_to_open'`, left join `market_regimes` on `regime_group='equity'`,
   tf='1d', ts=bar_ts; plus 1d OHLCV opens for the 13 sleeve symbols from
-  `market_data_ohlcv_tradeable`.
+  `market_data_ohlcv_tradeable`, and their 1d closes (the instrument covariance uses realized
+  close-to-close returns; amendment A4).
 - Bound: `bar_ts < alpha.validation.oos_start` (2025-12-24T05:15Z) for the main snapshot. The
   holdout rows are fetched only by S5, into a separate file. S0 asserts
   `max(bar_ts) < oos_start` and fails loudly otherwise.
@@ -207,7 +208,7 @@ taken in S0 and hashed into the manifest.
   panel, including instrument calibration and covariance, so the null sees exactly the pipeline
   the real signal sees. Panel-wide shifting keeps cross-asset signal correlation and
   persistence; the 63-session floor keeps slow features' autocorrelation from leaking alignment
-  back in. There are about 3,120 admissible shifts, which puts the p-value resolution near 0.0003.
+  back in. The shifted panel is the whole S2 alpha panel (2011-01 through 2025-12-23, about 3,750 sessions), since the warmup years feed calibration and standardization; about 3,620 admissible shifts, p-value resolution near 0.0003 (amendment A3).
 - Multiplicity: Westfall-Young max-statistic permutation adjustment across the three arms,
   which uses the exact joint null the shared shifts already produce. For each arm j,
   standardize by its own null: `Z_j = (S_j - mean(S_j_null)) / sd(S_j_null)`, and likewise for
@@ -267,6 +268,7 @@ In order. A failure stops the phase and is written up; nothing is tuned to get p
 | V2 null calibration | Synthetic panel with no signal: PASS rate over 200 seeds within 5% ± 3.1% (binomial 95% band). Each seed uses a random subsample of 199 admissible shifts (a valid Monte Carlo permutation test); the real run uses all of them | Synthetic |
 | V3 power | Synthetic panels with planted excess IR 0.6 and 0.8: PASS rates reported; below 50% at 0.8 means the design is revisited before freezing | Synthetic |
 | V4 fidelity | Refit at T = 2025-12-24 on the S0 snapshot, with production's own feature mask (no section 5 exclusions) and the equity-group universe, both cell paths (cross-sectional and broadcast). Fields of every harness pooled 1d row that don't depend on RNG draws (the addendum lists them from reading `_compute_one_cross_sectional_cell`; expected: ic_value, n, cluster_id, ic_sharpe_hac and anything derived only from them) match production `feature_ic_scores` for the same keys to 1e-6; RNG-dependent fields (bootstrap CIs and whatever depends on them) match within a Monte Carlo tolerance pinned in the addendum. `bh_adjusted_p` and `passes_fdr` are excluded from V4: the FDR family differs by design (D1) and production's flags carry todo 410 (D6) | In-sample only |
+| V4b shrinkage-prior sizing (D7) | At T = 2025-12-24 on production's stored rows, run selection and the stratum fit with production's `ic_shrunk` and with the pooled-only prior. Any equity stratum whose selected feature set differs adds a per-symbol 1d pass to S1 before freezing | In-sample only |
 | V5 controls | At every refit: `canary_acausal_placebo` is detected (passes the cell's own significance gate), proving the machinery can find leakage; the noise canaries pass FDR at no more than the nominal rate across refits; no canary ever receives a weight | In-sample per refit |
 | V6 leakage asserts | Runtime asserts in S1: no training row's label exit on or after T_k minus embargo; no scored day before T_k; S0 max(bar_ts) < oos_start | All |
 
@@ -302,6 +304,7 @@ in-sample for production already, so it spends nothing.
 | D3 | No weight aging | Now also production (todo 408, removed 2026-09-24); kept here because the 2026-09-22 champion was 1/n | Uniform-weight variant |
 | D4 | No present-day status filter | Status is decided with later data | Section 5 |
 | D5 | Covariance fitted on rows up to the IC window end | Now also production (todo 409, fixed 2026-09-24) | None needed |
+| D7 | IC shrinkage prior from the refit's pooled rows only | Production's `(group_name, regime, tf)` bucket mixes per-symbol rows (~99% of an equity label's bucket at 1d, e.g. `high_bear` 143,100 vs 1,160); a per-symbol pass per refit is a large multiple of the IC compute | V4b |
 | D6 | Cluster representatives chosen correctly | Now also production (todo 410, fixed 2026-09-24); earlier stored rows carry the bug | None needed |
 
 ## 14. Residual biases that remain
