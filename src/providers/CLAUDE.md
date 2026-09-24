@@ -27,7 +27,7 @@ All ib_async logic is isolated here. **No ib_async imports anywhere else.**
 - `fetch_historical_bars()` supports `continuous=True` for back-adjusted `ContFuture` data (multi-year backfill).
 
 ### Active Contracts
-`get_active_contracts()` from `src/config/settings.py` is authoritative. As of 2026-08-06: 231 active instruments, all equity asset_class (v3.0 universe expansion, migrations 296/299/301 — up from 111 at the start of that session). **Never hardcode counts, they drift fast.**
+`get_active_contracts(settings, dimension=...)` from `src/config/settings.py` is authoritative; it reads `instruments` (scope columns `compute_eligible`, `compute_eligible_1d`, `live_tradeable`). **Never hardcode counts, they drift fast.**
 
 **80-subscription limit is a LIVE-streaming cap, not a backfill/registration cap.** IBKR's 80-simultaneous-subscription ceiling applies to `reqMktData`/`reqHistoricalData(keepUpToDate=True)` — i.e. `indicagent-ibkr-provider`'s live path, which is intentionally stopped (see root `CLAUDE.md`'s ingestion-paused note). Historical `reqHistoricalDataAsync` backfill is pacing-limited (`infra.ibkr.rate_limit_max_requests`), not subscription-count-limited — registering and backfilling any number of instruments is fine right now. The provider streams only `get_active_contracts(dimension="live")` (`instruments.live_tradeable = true`) and refuses to start if that set is empty or larger than `settings.ibkr_max_subscriptions`, checked before it connects (Phase 174 review CR-02). Every streaming-path daemon (`feature_vector_pipeline`, `bar_auditor`, `signal_auditor`, `service_auditor`'s session gate) reads the same `live` set; `provider_merger`'s asset-class lookup reads `backfill`. Zero rows are `live_tradeable` today, so choosing the live set deliberately is the first step of any provider restart (todo 366).
 
@@ -51,8 +51,8 @@ Rate limit: `infra.ibkr.rate_limit_max_requests` = 58 (tested clean to 62, IBKR'
 `fetch_historical_bars`'s duration-string construction (`"N D"` under 365 days, `"N Y"` over) lives in one shared helper, `_days_to_duration_str()` — both the continuous-contract and regular chunked branches call it. Don't reintroduce a second copy of this logic in either branch; that duplication is exactly how a real bug shipped once (the chunked branch's copy silently didn't exist for years since every prior chunk_days default happened to stay under 365). **Also note:** any `chunk_days.*` value must be an exact multiple of 365 once it crosses the 365-day threshold — otherwise `math.ceil()` rounds the actual IBKR request up past the configured value and the chunking loop's stride desyncs from the real returned window (see 15m above).
 
 ### Adding New Contracts
-1. Add to `get_active_contracts()` in `src/config/settings.py`
-2. INSERT to `instruments` table with `contract_details` JSONB
+1. INSERT into `instruments` with `contract_details` JSONB and the right scope flags (`compute_eligible_1d` for 1d-only cohorts; `compute_eligible` only once all four timeframes are backfilled)
+2. The nightly backfill picks it up by scope (full stack for `compute`, a 1d-only leg for `compute_1d`)
 3. Backfill historical data: see root CLAUDE.md "Historical backfill" command — no service restart needed for this step (live ingestion is paused; `indicagent-ibkr-provider` restart only matters once/if that resumes, and only after the 80-subscription gap above is resolved)
 
 ### Bar Delivery Latency
