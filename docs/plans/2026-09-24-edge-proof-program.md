@@ -62,7 +62,7 @@ The structural reasons the search has stalled:
 | 2 | Cross-asset breadth | IR grows with the square root of independent bets; n_eff 6 is the binding constraint on any sleeve verdict | 180 |
 | 3 | Data floor | Survivorship and weekly silent data gaps bias every number the other levers produce | 177 |
 | 4 | Recompute throughput | A 3-day full recompute is the rate limit on every experiment; the bundle cuts it to about 1 day | 178 |
-| 5 | Bounded construction track | Pre-registered designs already exist (H-A/H-B, cross-TF divergence); run them on idle compute, each counted in the meta-FDR | 181 |
+| 5 | Construction track, parallel with 179 | Pre-registered designs already exist (H-A/H-B, cross-TF divergence); they are the fastest new alpha shots after 179, so they run now, each counted in the meta-FDR | 181 |
 
 Lever 1 ranks first because it is the only one that can produce a PASS/FAIL on a real
 candidate within weeks. It starts now, in parallel with lever 3. Lever 4 is not on its path:
@@ -168,10 +168,10 @@ selection rule, sized by the phase 178 recompute budget.
 
 Exit: expanded universe passes its gate; sleeve re-run with the frozen 179 method.
 
-### Phase 181: Bounded construction track
+### Phase 181: Construction track (active, parallel with 179)
 
-Runs only on compute that phases 178-180 aren't using. Each run adds a row to the ledger and
-raises N_tested.
+Runs alongside 179 so idea generation never waits on one verdict; it yields CPU to the phase 178
+recompute only while that is running. Each run adds a row to the ledger and raises N_tested.
 
 - H-A/H-B extreme-volume divergence/confirmation (designs final since 2026-09-09; todo 372's
   null-shift fix still needs its independent review first).
