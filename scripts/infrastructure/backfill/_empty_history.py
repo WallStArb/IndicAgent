@@ -31,6 +31,11 @@ class EmptyRange:
     empty_from: datetime
     empty_through: datetime
     verified_at: datetime
+    n_confirming_chunks: int
+
+    def adjoins(self, start: datetime, end: datetime, slack: timedelta) -> bool:
+        """True if [start, end] overlaps this range or touches it within `slack`."""
+        return start <= self.empty_through + slack and end >= self.empty_from - slack
 
 
 def is_fresh(verified_at: datetime, now: datetime, reverify_days: int) -> bool:
@@ -54,11 +59,11 @@ def load(conn: Any, provider: str) -> dict[tuple[str, str], EmptyRange]:
     """Every recorded range for `provider`, keyed by (symbol, timeframe), fresh or stale."""
     with conn.cursor() as cur:
         cur.execute(
-            "SELECT symbol, timeframe, empty_from, empty_through, verified_at "
-            "FROM ohlcv_empty_history WHERE provider = %s",
+            "SELECT symbol, timeframe, empty_from, empty_through, verified_at, "
+            "n_confirming_chunks FROM ohlcv_empty_history WHERE provider = %s",
             (provider,),
         )
-        return {(r[0], r[1]): EmptyRange(r[2], r[3], r[4]) for r in cur.fetchall()}
+        return {(r[0], r[1]): EmptyRange(r[2], r[3], r[4], r[5]) for r in cur.fetchall()}
 
 
 def subtract(
@@ -97,6 +102,7 @@ def record(
     provider: str,
     window_start: datetime,
     observed: EmptyHistory,
+    prior: EmptyRange | None = None,
 ) -> None:
     """Upsert the empty range a pre-history window's walk ended in.
 
@@ -104,7 +110,15 @@ def record(
     inferred when the walk stopped on its confirmation threshold, exactly the range the
     walk never requests anyway; `verified_from` and `reached_request_start` keep the two
     parts distinguishable.
+
+    `prior` is the existing range when the new one adjoins it: the two are merged (a later
+    walk that verifies the sliver between a range and the first bar extends the range, it
+    never replaces it) and confirmations accumulate across runs, so a range reaches the
+    apply threshold only after repeated definitive answers.
     """
+    merge_from = [prior.empty_from] if prior else []
+    merge_through = [prior.empty_through] if prior else []
+    prior_n = prior.n_confirming_chunks if prior else 0
     with conn.cursor() as cur:
         cur.execute(
             """
@@ -124,10 +138,10 @@ def record(
                 symbol,
                 timeframe,
                 provider,
-                min(window_start, observed.verified_from),
-                observed.empty_through,
+                min(window_start, observed.verified_from, *merge_from),
+                max(observed.empty_through, *merge_through),
                 observed.verified_from,
-                observed.n_confirming_chunks,
+                observed.n_confirming_chunks + prior_n,
                 observed.reached_request_start,
             ),
         )
@@ -190,9 +204,20 @@ def apply_empty_range(
     now: datetime,
     reverify_days: int,
     interval: timedelta,
+    min_confirmations: int,
 ) -> list[tuple[datetime, datetime]]:
-    """Gaps with a fresh recorded range removed; unchanged when there is none or it is stale."""
-    if not gaps or empty is None or not is_fresh(empty.verified_at, now, reverify_days):
+    """Gaps with a fresh, sufficiently confirmed range removed; otherwise unchanged.
+
+    `min_confirmations` is the provider's own no-data confirmation threshold
+    (infra.ibkr.no_data_confirmation_chunks): a single "no data" answer is not trusted
+    (todo 049), so a range confirmed by fewer answers keeps being asked until it is.
+    """
+    if (
+        not gaps
+        or empty is None
+        or empty.n_confirming_chunks < min_confirmations
+        or not is_fresh(empty.verified_at, now, reverify_days)
+    ):
         return gaps
     return subtract(gaps, empty, interval)
 
@@ -202,19 +227,36 @@ def reconcile(
     symbol: str,
     timeframe: str,
     provider: str,
-    window_start: datetime,
+    window: tuple[datetime, datetime],
     observed: EmptyHistory | None,
     prior: EmptyRange | None,
+    slack: timedelta,
 ) -> None:
     """After fetching a (symbol, timeframe)'s oldest window: record the empty range its walk
     ended in, or drop a prior range the provider no longer confirmed. Applies only when the
     window is pre-history (no real bar older than it); anything else says nothing about
     what precedes the first bar."""
-    if observed is None and prior is None:
+    window_start, window_end = window
+    # Adjoining is enough to merge a newly verified sliver into the prior range; only an
+    # overlap means the prior range's own span was asked again, which is what may drop it.
+    touches_prior = prior is not None and prior.adjoins(window_start, window_end, slack)
+    overlaps_prior = prior is not None and prior.adjoins(window_start, window_end, timedelta(0))
+    if observed is None and not overlaps_prior:
         return
     if has_bar_before(conn, symbol, timeframe, window_start):
         return
     if observed is not None:
-        record(conn, symbol, timeframe, provider, window_start, observed)
+        record(
+            conn,
+            symbol,
+            timeframe,
+            provider,
+            window_start,
+            observed,
+            prior if touches_prior else None,
+        )
     else:
+        # The prior range's own span was asked again and not confirmed empty: the provider
+        # now serves (part of) it, or the walk ended on a non-definitive failure. A window
+        # elsewhere (e.g. the sliver after the range) says nothing about the range.
         drop(conn, symbol, timeframe, provider)

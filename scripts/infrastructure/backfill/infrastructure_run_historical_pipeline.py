@@ -1340,7 +1340,11 @@ def main() -> None:
                     # up once per symbol, only when its stored history does not already reach
                     # the deepest requested start; a failed lookup means no floor this run
                     # and is retried next run, never stored.
-                    head_ts = fresh_heads.get(instrument.symbol)
+                    # Not for futures: the head is the named front-month contract's, while
+                    # their long timeframes are fetched from the continuous contract, whose
+                    # history reaches years further back.
+                    is_futures = instrument.asset_class == AssetClass.FUTURES
+                    head_ts = None if is_futures else fresh_heads.get(instrument.symbol)
                     deepest_days = max(
                         (
                             min(tf_fetch_config[t][0], args.days)
@@ -1350,8 +1354,10 @@ def main() -> None:
                         for t in fetch_tfs
                     )
                     first_bar = first_bars.get(instrument.symbol)
-                    if head_ts is None and (
-                        first_bar is None or first_bar > end_dt - timedelta(days=deepest_days)
+                    if (
+                        not is_futures
+                        and head_ts is None
+                        and (first_bar is None or first_bar > end_dt - timedelta(days=deepest_days))
                     ):
                         head_ts, head_error = await provider.get_head_timestamp(instrument.symbol)
                         if head_ts is not None:
@@ -1375,8 +1381,17 @@ def main() -> None:
                         start_dt = (end_dt - timedelta(days=fetch_days)).replace(
                             hour=0, minute=0, second=0, microsecond=0
                         )
-                        if head_ts is not None and head_ts > start_dt:
-                            start_dt = head_ts
+                        # Snapped to midnight UTC: the head is the first trade's time (e.g.
+                        # 13:30), while a 1d bar is stamped 00:00 and an intraday bucket may
+                        # start before it -- clamping to the raw head would skip the listing
+                        # day's own bars forever. Flooring to the date skips less, never more.
+                        head_floor = (
+                            head_ts.replace(hour=0, minute=0, second=0, microsecond=0)
+                            if head_ts is not None
+                            else None
+                        )
+                        if head_floor is not None and head_floor > start_dt:
+                            start_dt = head_floor
                             n_head_floored += 1
                         interval = timedelta(minutes=_TF_MINUTES[tf])
 
@@ -1391,7 +1406,12 @@ def main() -> None:
                         )
                         empty = empty_ranges.get((instrument.symbol, tf))
                         kept = empty_history.apply_empty_range(
-                            gaps, empty, run_started_at, empty_reverify_days, interval
+                            gaps,
+                            empty,
+                            run_started_at,
+                            empty_reverify_days,
+                            interval,
+                            ibkr._NO_DATA_CONFIRMATION_CHUNKS,
                         )
                         if kept != gaps:
                             n_empty_history_skipped += 1
@@ -1536,9 +1556,11 @@ def main() -> None:
                                         instrument.symbol,
                                         tf,
                                         _EMPTY_HISTORY_PROVIDER,
-                                        gap_start,
+                                        (gap_start, gap_end),
                                         observed[-1] if observed else None,
                                         empty,
+                                        # chunk boundaries sit a day apart
+                                        timedelta(days=1) + interval,
                                     )
                             except Exception as e:
                                 fetch_errors += 1

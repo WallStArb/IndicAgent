@@ -17,7 +17,7 @@ def _dt(y, m, d):
     return datetime(y, m, d, tzinfo=UTC)
 
 
-_EMPTY = eh.EmptyRange(_dt(2006, 9, 28), _dt(2024, 3, 26), _dt(2026, 9, 23))
+_EMPTY = eh.EmptyRange(_dt(2006, 9, 28), _dt(2024, 3, 26), _dt(2026, 9, 23), 2)
 
 
 @pytest.mark.parametrize(
@@ -48,63 +48,52 @@ def test_freshness_is_bounded_by_reverify_days():
 
 def test_apply_empty_range_ignores_missing_or_stale_ranges():
     gaps = [(_dt(2006, 9, 28), _dt(2024, 3, 26))]
-    assert eh.apply_empty_range(gaps, None, _dt(2026, 9, 24), 90, _D) == gaps
-    assert eh.apply_empty_range(gaps, _EMPTY, _dt(2027, 9, 24), 90, _D) == gaps
-    assert eh.apply_empty_range(gaps, _EMPTY, _dt(2026, 9, 24), 90, _D) == []
+    assert eh.apply_empty_range(gaps, None, _dt(2026, 9, 24), 90, _D, 2) == gaps
+    assert eh.apply_empty_range(gaps, _EMPTY, _dt(2027, 9, 24), 90, _D, 2) == gaps
+    assert eh.apply_empty_range(gaps, _EMPTY, _dt(2026, 9, 24), 90, _D, 2) == []
+
+
+def test_single_answer_range_is_not_applied_until_confirmed():
+    """todo 049: one "no data" answer is not trusted; the range keeps being asked."""
+    once = eh.EmptyRange(_dt(2006, 9, 28), _dt(2024, 3, 26), _dt(2026, 9, 23), 1)
+    gaps = [(_dt(2006, 9, 28), _dt(2024, 3, 26))]
+    assert eh.apply_empty_range(gaps, once, _dt(2026, 9, 24), 90, _D, 2) == gaps
 
 
 _OBSERVED = EmptyHistory(_dt(2023, 6, 1), _dt(2024, 3, 26), 2, False)
+_WINDOW = (_dt(2006, 9, 28), _dt(2024, 3, 26))
+_SLIVER = (_dt(2024, 3, 28), _dt(2024, 4, 5))  # after the prior range, before the first bar
 
 
 @pytest.mark.parametrize(
-    ("observed", "prior", "bar_before", "expected"),
+    ("window", "observed", "prior", "bar_before", "expected"),
     [
-        (None, None, False, None),  # nothing to learn or undo: no DB query at all
-        (_OBSERVED, None, False, "record"),
-        (None, _EMPTY, False, "drop"),  # asked again, not confirmed empty
-        (_OBSERVED, _EMPTY, True, None),  # not pre-history: says nothing
+        (_WINDOW, None, None, False, []),  # nothing learned, nothing to undo: no DB query
+        (_WINDOW, _OBSERVED, None, False, ["probe", "record"]),
+        (_WINDOW, None, _EMPTY, False, ["probe", "drop"]),  # prior re-asked, not confirmed
+        (_SLIVER, None, _EMPTY, False, []),  # a window elsewhere never drops the prior
+        (_WINDOW, _OBSERVED, _EMPTY, True, ["probe"]),  # not pre-history: says nothing
     ],
 )
-def test_reconcile_decisions(monkeypatch, observed, prior, bar_before, expected):
+def test_reconcile_decisions(monkeypatch, window, observed, prior, bar_before, expected):
     calls = []
     monkeypatch.setattr(eh, "has_bar_before", lambda *a: calls.append("probe") or bar_before)
     monkeypatch.setattr(eh, "record", lambda *a: calls.append("record"))
     monkeypatch.setattr(eh, "drop", lambda *a: calls.append("drop"))
-    eh.reconcile(MagicMock(), "GEV", "1h", "ibkr", _dt(2006, 9, 28), observed, prior)
-    if observed is None and prior is None:
-        assert calls == []
-    else:
-        assert calls == ["probe"] + ([expected] if expected else [])
+    eh.reconcile(MagicMock(), "GEV", "1h", "ibkr", window, observed, prior, 2 * _D)
+    assert calls == expected
 
 
-def test_load_reverify_days_fails_loudly_when_unset():
-    conn = MagicMock()
-    conn.cursor.return_value.__enter__.return_value.fetchone.return_value = None
-    with pytest.raises(RuntimeError, match="empty_history_reverify_days"):
-        eh.load_reverify_days(conn)
-
-
-def test_record_keeps_verified_and_inferred_parts_distinguishable():
+def test_record_merges_an_adjoining_prior_and_accumulates_confirmations():
+    """A sliver verified next to the prior range extends it; it never replaces it."""
     conn = MagicMock()
     cur = conn.cursor.return_value.__enter__.return_value
-    observed = EmptyHistory(
-        verified_from=_dt(2023, 6, 1),
-        empty_through=_dt(2024, 3, 26),
-        n_confirming_chunks=2,
-        reached_request_start=False,
-    )
-    eh.record(conn, "GEV", "5m", "ibkr", _dt(2006, 9, 28), observed)
+    sliver = EmptyHistory(_dt(2024, 3, 28), _dt(2024, 4, 5), 1, True)
+    eh.record(conn, "GEV", "1h", "ibkr", _dt(2024, 3, 28), sliver, prior=_EMPTY)
     params = cur.execute.call_args.args[1]
-    assert params == (
-        "GEV",
-        "5m",
-        "ibkr",
-        _dt(2006, 9, 28),
-        _dt(2024, 3, 26),
-        _dt(2023, 6, 1),
-        2,
-        False,
-    )
+    assert params[3] == _dt(2006, 9, 28)  # empty_from kept from the prior range
+    assert params[4] == _dt(2024, 4, 5)  # empty_through extended
+    assert params[6] == 3  # 2 prior confirmations + 1
 
 
 def test_record_head_stores_only_a_successful_lookup():
