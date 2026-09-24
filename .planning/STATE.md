@@ -113,12 +113,15 @@ diagnostic run 2026-09-17 through 2026-09-22; next-step chain at the end of this
 
 **Current position (2026-09-24): milestone v3.4 Edge Proof set, phases 177-181.** Sequence and
 rationale live only in `docs/plans/2026-09-24-edge-proof-program.md` (ROADMAP's "Planned Phases"
-table mirrors it). Phase 176 closed (both primitives FAIL). Phase 178's bundle (todos
-401/389/386/399 + prange) is in flight in the `ic-engine-bundle-post-176` worktree. Phases 177
-and 179 not started; 179 starts with its pre-registration. The cross-asset diagnostic's Sharpe
-~1.19 is mostly in-sample for the ensemble weights (fitted through 2025-12-24, scored
-2018-2026) and was compared against a long-only, signal-free arm; don't cite it as edge
-evidence until 179 lands.
+table mirrors it). Phase 176 closed (both primitives FAIL). Phase 178: todo 410 fixed, bundled
+recompute rerunning on the fix (~8-9h from ~11:3x UTC), then lifecycle, shrinkage, trainer,
+publisher. Phase 179: pre-registration DRAFT
+(`docs/plans/2026-09-24-phase179-sleeve-walk-forward-prereg.md`, AGY-reviewed, not frozen); build
+steps 1-3 done (stratum_fit.py shared with the trainer, 408/409 fixed, migration 360;
+portfolio/weighting.py with the covariance coverage fix); next is step 4, `panel_null.py`. Phase 177
+not started. The cross-asset diagnostic's Sharpe ~1.19 is mostly in-sample for the ensemble
+weights and was compared against a long-only, signal-free arm; don't cite it as edge evidence
+until 179 lands.
 
 **Open items, not construction verdicts:**
 
@@ -246,7 +249,8 @@ duplicated here. Currently open/not-yet-planned phases, compressed to current st
 
 ## Session
 
-Last session: 2026-09-24. Host rebooted ~10:41 UTC mid nightly backfill; the Persistent timer
-re-ran it on the fixed `_empty_history.record()` code (0 TypeErrors, new ranges recorded).
-Migration 351 confirmed finished 2026-09-23 (176-07-SUMMARY). Set milestone v3.4 Edge Proof
-(`docs/plans/2026-09-24-edge-proof-program.md`).
+Last session: 2026-09-24 (ended ~12:30 UTC on session budget). Host rebooted ~10:41 UTC mid
+nightly backfill; the Persistent timer re-ran it on the fixed `_empty_history.record()` code (0
+TypeErrors, 108 empty ranges recorded, still running at close: check exit status and stale counts).
+Set milestone v3.4; drafted and AGY-reviewed the 179 pre-registration; filed and fixed 408/409;
+filed 410 (fixed by the concurrent session); built 179 steps 1-3. Resume at 179 build step 4.
