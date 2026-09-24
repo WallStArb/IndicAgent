@@ -23,3 +23,10 @@ Pin the read to one window: the same `--training-window-end` the pipeline passes
 feature_lifecycle (or `alpha.validation.oos_start`). Consider also filtering to
 `alpha.ic.active_scales.{tf}` lookaheads so a deleted scale can never be selected from old rows.
 Land before a second training window is ever written.
+
+## Update 2026-09-24
+
+c6750d700 (Phase 179 stratum_fit extraction, todos 408/409) made the failure loud: a stratum
+whose selected IC rows span more than one `training_window_end` now raises `ValueError` instead
+of silently mixing windows. The read itself is still unpinned, so this todo stays open: the first
+second window would stop the trainer rather than corrupt it.
