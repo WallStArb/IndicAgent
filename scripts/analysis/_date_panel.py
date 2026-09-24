@@ -100,6 +100,7 @@ class Panel:
     ) -> None:
         self.scores = scores
         self.returns = returns
+        self.dates = dates
         self.date_block = date_block
         self.max_workers = max_workers
         finite = np.isfinite(scores) & np.isfinite(returns)
