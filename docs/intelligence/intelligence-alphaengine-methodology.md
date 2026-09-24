@@ -437,13 +437,18 @@ distinguishes a tripped gate from a clean `mean_variance` solve) for diagnostics
   `mean_variance` solve — see `resolve_stratum_weights`) converts the positive-magnitude
   weight back to a signed contribution at scoring time:
   `alpha_score = Σ(sign(ic[f]) × centered_score[f] × weight[f])`.
-- **Weight aging:** IC-derived weight inputs are exponentially decayed by staleness —
-  `weight × exp(-days_since_training_window_end / alpha.ensemble.weight_half_life_days)`
-  (default 30 days) — before either combination method runs. Beyond
-  `alpha.ensemble.weight_stale_max_days` (90), the ensemble falls back to equal weighting
-  entirely rather than trust an ordering derived from stale IC. **This is a global,
-  single-half-life staleness discount, not the per-feature decay-trigger system described
-  in "Alpha Decay Protocol" below** — the two are easy to conflate; only this one is built.
+- **No weight aging (removed 2026-09-24, todo 408, migration 360).** The fit
+  (`src/intelligence/ensemble/stratum_fit.py`) is a pure function of the stratum's IC rows
+  and its training-window feature matrix, with no clock. The old global aging multiplied every
+  weight input by `exp(-days_since / weight_half_life_days)`, which `derive_weights`'
+  renormalization cancels, and fell back to 1/n past `weight_stale_max_days`, which silently
+  flattened the 2026-09-22 champion to 1/n in every 1d stratum. Staleness is a question for
+  whoever consumes the weights; the per-feature decay-trigger system in "Alpha Decay Protocol"
+  below remains unbuilt.
+- **Covariance window:** the Ledoit-Wolf covariance behind cluster deflation and the
+  mean-variance solve is fitted only on bars up to and including the IC `training_window_end`
+  (the bound ic_engine measures IC on, todo 409); scoring still covers every bar. A stratum
+  whose selected IC rows span more than one window fails loudly until todo 405 pins the read.
 - **`effective_n`** (inverse HHI of the final weight vector) is computed and stored per
   stratum — the `EFFECTIVE_N_GAUGE` OTel signal referenced earlier reads this.
 - **Weight versioning:** every `ensemble_trainer` run is stamped with a `weight_version`
@@ -638,9 +643,9 @@ techniques a full hierarchical Bayesian model (E3) would generalize — building
 version first, proving it clears its own out-of-fold gate, and only then reaching for a more
 complex model if the simple one under-delivers, is the same "prove edge before adding
 complexity" discipline applied everywhere else in this codebase. E4 (per-feature IC decay
-half-lives) is a genuine capability gap — the live system has only ever had one global
-`alpha.ensemble.weight_half_life_days` for all features — but has not yet been prioritized
-over other work.
+half-lives) is a genuine capability gap (the single global half-life it was meant to replace
+was a no-op and was removed on 2026-09-24, todo 408) but has not yet been prioritized over
+other work.
 
 ---
 

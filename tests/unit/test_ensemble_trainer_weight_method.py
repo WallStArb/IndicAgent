@@ -20,12 +20,9 @@ import pytest
 project_root = Path(__file__).parent.parent.parent
 sys.path.insert(0, str(project_root))
 
-from services.ensemble_trainer import (
-    EnsembleConfig,
-    cluster_deflate_weights,
-    resolve_stratum_weights,
-)
-from src.intelligence.ensemble.weights import mean_variance_weights
+from services.ensemble_trainer import EnsembleConfig
+from src.intelligence.ensemble.stratum_fit import resolve_stratum_weights
+from src.intelligence.ensemble.weights import cluster_deflate_weights, mean_variance_weights
 
 
 def _well_conditioned_inputs() -> tuple[np.ndarray, np.ndarray, np.ndarray, np.ndarray]:
@@ -33,8 +30,8 @@ def _well_conditioned_inputs() -> tuple[np.ndarray, np.ndarray, np.ndarray, np.n
     cov = np.diag([1.0, 2.0, 4.0])
     corr = np.eye(3)
     ic_shrunk = np.array([1.0, 1.0, 1.0])
-    aged_quality_weights = np.array([1.0, 1.0, 1.0])
-    return cov, corr, ic_shrunk, aged_quality_weights
+    quality_weights = np.array([1.0, 1.0, 1.0])
+    return cov, corr, ic_shrunk, quality_weights
 
 
 def _ill_conditioned_inputs() -> tuple[np.ndarray, np.ndarray, np.ndarray, np.ndarray]:
@@ -48,8 +45,8 @@ def _ill_conditioned_inputs() -> tuple[np.ndarray, np.ndarray, np.ndarray, np.nd
     )
     corr = cov.copy()
     ic_shrunk = np.array([1.0, 1.0, 1.0])
-    aged_quality_weights = np.array([1.0, 1.0, 1.0])
-    return cov, corr, ic_shrunk, aged_quality_weights
+    quality_weights = np.array([1.0, 1.0, 1.0])
+    return cov, corr, ic_shrunk, quality_weights
 
 
 # ---------------------------------------------------------------------------
@@ -62,11 +59,20 @@ class TestResolveStratumWeightsBranchSelection:
         """Well-conditioned Sigma -> mean_variance branch selected, cluster_deflate_weights
         is NEVER called on the success path (D-08: Sigma^-1.IC already decorrelates
         continuously; binary cluster capping would double-penalize)."""
-        cov, corr, ic_shrunk, aged = _well_conditioned_inputs()
+        cov, corr, ic_shrunk, quality_weights = _well_conditioned_inputs()
         ic_signs = np.ones_like(ic_shrunk)
-        with patch("services.ensemble_trainer.cluster_deflate_weights") as mock_deflate:
+        with patch("src.intelligence.ensemble.stratum_fit.cluster_deflate_weights") as mock_deflate:
             result = resolve_stratum_weights(
-                "mean_variance", aged, cov, corr, ic_shrunk, ic_signs, 0.20, 0.80, 0.40, 1000.0
+                "mean_variance",
+                quality_weights,
+                cov,
+                corr,
+                ic_shrunk,
+                ic_signs,
+                0.20,
+                0.80,
+                0.40,
+                1000.0,
             )
         assert result.method_used == "mean_variance"
         assert result.condition_number is not None
@@ -79,18 +85,36 @@ class TestResolveStratumWeightsBranchSelection:
         stratum falls back to the exact same cluster_deflate_weights path the
         ic_proportional method uses (RESEARCH.md Pitfall 3 hard fallback requirement).
         This test fails if the fallback branch were removed (regression guard)."""
-        cov, corr, ic_shrunk, aged = _ill_conditioned_inputs()
+        cov, corr, ic_shrunk, quality_weights = _ill_conditioned_inputs()
         ic_signs = np.ones_like(ic_shrunk)
 
         result = resolve_stratum_weights(
-            "mean_variance", aged, cov, corr, ic_shrunk, ic_signs, 0.20, 0.80, 0.40, 1000.0
+            "mean_variance",
+            quality_weights,
+            cov,
+            corr,
+            ic_shrunk,
+            ic_signs,
+            0.20,
+            0.80,
+            0.40,
+            1000.0,
         )
         assert result.method_used == "mean_variance_fallback"
         assert result.condition_number is not None
         assert result.condition_number > 1000.0
 
         expected = resolve_stratum_weights(
-            "ic_proportional", aged, cov, corr, ic_shrunk, ic_signs, 0.20, 0.80, 0.40, 1000.0
+            "ic_proportional",
+            quality_weights,
+            cov,
+            corr,
+            ic_shrunk,
+            ic_signs,
+            0.20,
+            0.80,
+            0.40,
+            1000.0,
         )
         np.testing.assert_allclose(result.weights, expected.weights)
         np.testing.assert_allclose(result.raw_weights, expected.raw_weights)
@@ -98,14 +122,23 @@ class TestResolveStratumWeightsBranchSelection:
     def test_ic_proportional_uses_cluster_deflation(self) -> None:
         """Default method routes through derive_weights -> cluster_deflate_weights,
         calling the real cluster_deflate_weights exactly once (v1 path unchanged)."""
-        cov, corr, ic_shrunk, aged = _well_conditioned_inputs()
+        cov, corr, ic_shrunk, quality_weights = _well_conditioned_inputs()
         ic_signs = np.ones_like(ic_shrunk)
         with patch(
-            "services.ensemble_trainer.cluster_deflate_weights",
+            "src.intelligence.ensemble.stratum_fit.cluster_deflate_weights",
             wraps=cluster_deflate_weights,
         ) as mock_deflate:
             result = resolve_stratum_weights(
-                "ic_proportional", aged, cov, corr, ic_shrunk, ic_signs, 0.20, 0.80, 0.40, 1000.0
+                "ic_proportional",
+                quality_weights,
+                cov,
+                corr,
+                ic_shrunk,
+                ic_signs,
+                0.20,
+                0.80,
+                0.40,
+                1000.0,
             )
         assert result.method_used == "ic_proportional"
         assert result.condition_number is None
@@ -114,11 +147,20 @@ class TestResolveStratumWeightsBranchSelection:
     def test_unknown_weight_method_raises(self) -> None:
         """Fail loud on an unrecognized weight_method -- never silently default to the
         wrong path (regression guard)."""
-        cov, corr, ic_shrunk, aged = _well_conditioned_inputs()
+        cov, corr, ic_shrunk, quality_weights = _well_conditioned_inputs()
         ic_signs = np.ones_like(ic_shrunk)
         with pytest.raises(ValueError, match="Unknown alpha.ensemble.weight_method value"):
             resolve_stratum_weights(
-                "not_a_real_method", aged, cov, corr, ic_shrunk, ic_signs, 0.20, 0.80, 0.40, 1000.0
+                "not_a_real_method",
+                quality_weights,
+                cov,
+                corr,
+                ic_shrunk,
+                ic_signs,
+                0.20,
+                0.80,
+                0.40,
+                1000.0,
             )
 
     def test_cap_applied_after_mean_variance(self) -> None:
@@ -133,7 +175,7 @@ class TestResolveStratumWeightsBranchSelection:
         corr = np.eye(6)
         ic_shrunk = np.array([1.0, 1.0, 1.0, 1.0, 1.0, 1.0])
         ic_signs = np.ones(6)
-        aged = np.ones(6)
+        quality_weights = np.ones(6)
         max_weight = 0.20
 
         raw, _cond = mean_variance_weights(cov, ic_shrunk, 1000.0)
@@ -141,7 +183,16 @@ class TestResolveStratumWeightsBranchSelection:
         assert raw[0] > max_weight  # precondition: raw output is genuinely uncapped
 
         result = resolve_stratum_weights(
-            "mean_variance", aged, cov, corr, ic_shrunk, ic_signs, max_weight, 0.80, 0.40, 1000.0
+            "mean_variance",
+            quality_weights,
+            cov,
+            corr,
+            ic_shrunk,
+            ic_signs,
+            max_weight,
+            0.80,
+            0.40,
+            1000.0,
         )
         assert result.method_used == "mean_variance"
         assert float(result.weights.max()) <= max_weight + 1e-9
@@ -196,11 +247,11 @@ class TestE2SignPathCorrectness:
         (nonzero weight), not be silently re-zeroed by the wrong input-signed path."""
         cov, ic_shrunk, ic_signs = self._correlated_contrarian_inputs()
         corr = cov.copy()  # already a correlation matrix here (unit diagonal)
-        aged_quality_weights = np.array([0.8, 0.3])  # positive-convention, unused on success path
+        quality_weights = np.array([0.8, 0.3])  # positive-convention, unused on success path
 
         result = resolve_stratum_weights(
             "mean_variance",
-            aged_quality_weights,
+            quality_weights,
             cov,
             corr,
             ic_shrunk,
@@ -276,7 +327,9 @@ class TestSourceStructure:
         assert '_cfg(cfg, "alpha.ensemble.mv_condition_max", 1000.0)' in source
 
     def test_mean_variance_weights_called_with_mv_condition_max(self) -> None:
-        source = Path(project_root / "services" / "ensemble_trainer.py").read_text()
+        source = Path(
+            project_root / "src" / "intelligence" / "ensemble" / "stratum_fit.py"
+        ).read_text()
         assert source.count("mean_variance_weights(") >= 1
         assert "mean_variance_weights(cov_matrix, ic_shrunk, mv_condition_max)" in source
 
@@ -289,8 +342,10 @@ class TestSourceStructure:
     def test_default_ic_proportional_branch_preserves_original_call(self) -> None:
         """The original derive_weights -> cluster_deflate_weights call shape is still
         present verbatim inside resolve_stratum_weights' ic_proportional branch."""
-        source = Path(project_root / "services" / "ensemble_trainer.py").read_text()
-        assert "raw_weights = derive_weights(aged_quality_weights, max_feature_weight)" in source
+        source = Path(
+            project_root / "src" / "intelligence" / "ensemble" / "stratum_fit.py"
+        ).read_text()
+        assert "raw_weights = derive_weights(quality_weights, max_feature_weight)" in source
         assert (
             "cluster_deflate_weights(\n            raw_weights, corr_matrix, "
             "max_cluster_corr, max_cluster_weight\n        )" in source

@@ -545,18 +545,18 @@ def fit_linear_ensemble_weights(
     IC-proportional" structure below was silently never taking its first branch. Standardized
     covariance is far better conditioned, so the mean-variance path can now actually engage.
 
-    Sign convention (matches services/ensemble_trainer.py's resolve_stratum_weights() exactly,
+    Sign convention (matches src/intelligence/ensemble/stratum_fit.py's resolve_stratum_weights() exactly,
     not just its overall shape): `ic_signs = sign(ic_shrunk)` is this fold's own reference
     direction per feature (there is no separately-persisted historical IC sign available inside
     a single walk-forward fold, so this fold's own shrunk estimate IS the reference). The
     mean-variance branch signs mv_raw's OUTPUT by ic_signs BEFORE the positive-magnitude cap
     (`derive_weights(ic_signs * mv_raw, ...)`), which zeroes -- not sign-flips -- any feature
     where the unconstrained Sigma^-1.mu solve disagrees with that feature's own reference
-    direction (BLOCKER 3 in ensemble_trainer.py's resolve_stratum_weights docstring: pre-signing
+    direction (BLOCKER 3 in stratum_fit.py's resolve_stratum_weights docstring: pre-signing
     the INPUT instead, or re-deriving the sign from mv_raw's own sign, is mathematically wrong
     once correlated features are involved). The IC-proportional fallback signs `|ic_shrunk|`'s
     positive-magnitude weights by the same `ic_signs` at the end, for the same reason
-    aged_quality_weights is already positive-convention in production.
+    quality_weights is already positive-convention in production.
 
     `max_fit_rows` bounds the rows used to estimate IC/covariance (LedoitWolf + rankdata cost
     scale with n_obs, and the expanding-window folds' training slice is the near-entire corpus by

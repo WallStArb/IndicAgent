@@ -46,35 +46,6 @@ class TestEnsembleTrainerClassContract:
         assert builder.job_name == "ensemble-trainer"
 
 
-class TestEnsembleTrainerImports:
-    """Verify the ensemble math library is imported correctly."""
-
-    def test_imports_select_features_per_stratum(self) -> None:
-        from services.ensemble_trainer import select_features_per_stratum
-
-        assert callable(select_features_per_stratum)
-
-    def test_imports_compute_shrinkage_covariance(self) -> None:
-        from services.ensemble_trainer import compute_shrinkage_covariance
-
-        assert callable(compute_shrinkage_covariance)
-
-    def test_imports_derive_weights(self) -> None:
-        from services.ensemble_trainer import derive_weights
-
-        assert callable(derive_weights)
-
-    def test_imports_cluster_deflate_weights(self) -> None:
-        from services.ensemble_trainer import cluster_deflate_weights
-
-        assert callable(cluster_deflate_weights)
-
-    def test_imports_effective_n(self) -> None:
-        from services.ensemble_trainer import effective_n
-
-        assert callable(effective_n)
-
-
 # Config-dict casting (cfg()) and APR loading (load_apr_dict_async()) moved to
 # services._batch_utils (todo 048, 2026-07-02) -- see tests/unit/test_batch_utils.py.
 # ensemble_trainer.py, alpha_publisher.py, and ensemble_ic_engine.py all import

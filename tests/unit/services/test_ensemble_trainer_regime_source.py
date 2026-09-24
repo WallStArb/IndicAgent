@@ -275,14 +275,17 @@ def _synthetic_ic_rows() -> list[dict]:
     ]
 
 
+_BAR_TS = [datetime(2025, 1, d, tzinfo=UTC) for d in (2, 3, 6)]
+
+
 def _synthetic_fv_rows() -> list[dict]:
     return [
-        {"symbol": "SPY", "feat_a": 1.00, "feat_b": 2.00, "bar_ts": 1},
-        {"symbol": "QQQ", "feat_a": 1.50, "feat_b": 1.80, "bar_ts": 1},
-        {"symbol": "SPY", "feat_a": 1.20, "feat_b": 2.10, "bar_ts": 2},
-        {"symbol": "QQQ", "feat_a": 1.60, "feat_b": 1.90, "bar_ts": 2},
-        {"symbol": "SPY", "feat_a": 0.90, "feat_b": 1.95, "bar_ts": 3},
-        {"symbol": "QQQ", "feat_a": 1.55, "feat_b": 1.85, "bar_ts": 3},
+        {"symbol": "SPY", "feat_a": 1.00, "feat_b": 2.00, "bar_ts": _BAR_TS[0]},
+        {"symbol": "QQQ", "feat_a": 1.50, "feat_b": 1.80, "bar_ts": _BAR_TS[0]},
+        {"symbol": "SPY", "feat_a": 1.20, "feat_b": 2.10, "bar_ts": _BAR_TS[1]},
+        {"symbol": "QQQ", "feat_a": 1.60, "feat_b": 1.90, "bar_ts": _BAR_TS[1]},
+        {"symbol": "SPY", "feat_a": 0.90, "feat_b": 1.95, "bar_ts": _BAR_TS[2]},
+        {"symbol": "QQQ", "feat_a": 1.55, "feat_b": 1.85, "bar_ts": _BAR_TS[2]},
     ]
 
 
@@ -298,8 +301,6 @@ def _run_process_stratum(regime: str) -> tuple[EnsembleTrainer, _FakeConn]:
         meta_fdr_min_fraction=0.50,
         meta_fdr_min_cells=1,
         sharpe_floor=0.025,
-        weight_half_life_days=30.0,
-        weight_stale_max_days=90,
         ic_input="ic_sharpe_hac",
         weight_method="ic_proportional",
         mv_condition_max=1000.0,

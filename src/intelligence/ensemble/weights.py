@@ -39,7 +39,7 @@ def derive_weights(
     encoded as a positive value, and sign/direction is applied separately downstream
     (`signed_weights = weights * ic_signs` at score time). Two call sites, two different
     positive-convention inputs:
-      - ic_proportional path: `aged_quality_weights` from compute_quality_weight(), which
+      - ic_proportional path: `quality_weights` from compute_quality_weight(), which
         is already sign-aware (ic_sign * nearest_ci_bound * ...) so contrarians arrive
         here already flipped positive.
       - mean_variance path (E2): `ic_signs * mv_raw` -- the OUTPUT of the unconstrained

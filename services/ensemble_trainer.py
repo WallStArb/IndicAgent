@@ -56,7 +56,6 @@ project_root = Path(__file__).parent.parent
 sys.path.insert(0, str(project_root))
 
 import dataclasses
-import math
 
 from services._batch_utils import cfg as _cfg
 from services._batch_utils import load_apr_dict_async as _load_apr
@@ -64,14 +63,7 @@ from services._batch_utils import resolve_per_tf as _resolve_per_tf
 from src.config.settings import Settings
 from src.core.agent.base_batch import BaseBatch
 from src.core.integrity_monitor import emit_integrity_fact_async
-from src.intelligence.ensemble import (
-    cluster_deflate_weights,
-    compute_shrinkage_covariance,
-    derive_weights,
-    effective_n,
-    mean_variance_weights,
-    select_features_per_stratum,
-)
+from src.intelligence.ensemble.stratum_fit import fit_stratum_weights, select_stratum
 from src.intelligence.features.feature_vector_persistence import (
     REGIME_VOLATILITY_WRITER_OWNED_COLUMN_NAMES,
     REGIME_WRITER_OWNED_COLUMN_NAMES,
@@ -190,8 +182,6 @@ class EnsembleConfig:
     meta_fdr_min_fraction: float
     meta_fdr_min_cells: int
     sharpe_floor: float
-    weight_half_life_days: float
-    weight_stale_max_days: int
     ic_input: str
     weight_method: str
     mv_condition_max: float
@@ -210,8 +200,6 @@ class EnsembleConfig:
             meta_fdr_min_fraction=_cfg(cfg, "alpha.ensemble.meta_fdr_min_fraction", 0.50),
             meta_fdr_min_cells=_cfg(cfg, "alpha.ensemble.meta_fdr_min_cells", 3),
             sharpe_floor=_cfg(cfg, "alpha.ensemble.sharpe_floor", 0.025),
-            weight_half_life_days=_cfg(cfg, "alpha.ensemble.weight_half_life_days", 30.0),
-            weight_stale_max_days=_cfg(cfg, "alpha.ensemble.weight_stale_max_days", 90),
             ic_input=_cfg(cfg, "alpha.ensemble.ic_input", "ic_sharpe_hac"),
             weight_method=_cfg(cfg, "alpha.ensemble.weight_method", "ic_proportional"),
             mv_condition_max=_cfg(cfg, "alpha.ensemble.mv_condition_max", 1000.0),
@@ -245,126 +233,6 @@ def _resolve_ic_input_column(ic_input: str) -> str:
             f"Unknown alpha.ensemble.ic_input value: {ic_input!r}. "
             f"Valid values: {sorted(_IC_INPUT_COLUMNS)}"
         ) from None
-
-
-# alpha.ensemble.weight_method values (E2, D-08). 'ic_proportional' (default) preserves
-# v1 behavior byte-for-byte: derive_weights -> cluster_deflate_weights (binary cluster
-# cap). 'mean_variance' combines over the already-computed Ledoit-Wolf covariance via
-# w ~ Sigma^-1.ic_shrunk (Grinold-Kahn signal combination), gated on covariance condition
-# number -- an ill-conditioned Sigma falls back to the proven cluster_deflate_weights path
-# rather than emitting extreme unstable weights (RESEARCH.md Pitfall 3).
-_VALID_WEIGHT_METHODS = frozenset({"ic_proportional", "mean_variance"})
-
-
-@dataclasses.dataclass(frozen=True)
-class StratumWeightResult:
-    """Output of resolve_stratum_weights(): the final weight vector plus which method
-    actually produced it (for logging/diagnostics -- 'mean_variance_fallback' means the
-    condition-number gate tripped and cluster_deflate_weights was used instead)."""
-
-    raw_weights: np.ndarray
-    weights: np.ndarray
-    method_used: str
-    condition_number: float | None
-
-
-def resolve_stratum_weights(
-    weight_method: str,
-    aged_quality_weights: np.ndarray,
-    cov_matrix: np.ndarray,
-    corr_matrix: np.ndarray,
-    ic_shrunk: np.ndarray,
-    ic_signs: np.ndarray,
-    max_feature_weight: float,
-    max_cluster_corr: float,
-    max_cluster_weight: float,
-    mv_condition_max: float,
-) -> StratumWeightResult:
-    """Select and compute the per-stratum weight vector per alpha.ensemble.weight_method (E2, D-08).
-
-    Pure function -- no DB/Kafka/logging -- so it is independently unit-testable without a
-    live ensemble run. Callers (namely EnsembleTrainer._process_stratum) are responsible for
-    emitting a structured log record when method_used == 'mean_variance_fallback' (T-142B1-04-03:
-    a silent fallback that hides instability is a repudiation risk).
-
-    Parameters
-    ----------
-    weight_method:
-        'ic_proportional' (v1, default) or 'mean_variance' (E2). Any other value raises
-        ValueError -- an unrecognized weight_method must fail loud, never silently default
-        to the wrong path.
-    aged_quality_weights:
-        Staleness-decayed IC-Sharpe-derived quality weights, the raw input to derive_weights()
-        for the ic_proportional path (and the ic_proportional fallback path). Already
-        positive-magnitude convention (Component E's sign-aware compute_quality_weight).
-    cov_matrix, corr_matrix:
-        The Ledoit-Wolf shrunk covariance and its derived correlation matrix, already computed
-        by compute_shrinkage_covariance(X) every run regardless of weight_method.
-    ic_shrunk:
-        Per-feature IC vector already selected for this stratum (aliased consistently with
-        E1's alpha.ensemble.ic_input resolution -- the same array select_features_per_stratum
-        used as 'ic_sharpe'), fed to mean_variance_weights() UNCHANGED as its ic_shrunk
-        argument -- never pre-multiplied by ic_signs (BLOCKER 3: the mathematically correct
-        combination signs the OUTPUT of Sigma^-1.mu, not the input mu itself; see ic_signs).
-    ic_signs:
-        Per-feature full-sample IC sign (+1/-1), shape matching ic_shrunk. Applied to the
-        OUTPUT of mean_variance_weights() (`ic_signs * mv_raw`) before derive_weights, converting
-        the natural unconstrained-MV solution (which may carry negative entries for features
-        that get combination-shorted, independent of their own sign) into the positive-magnitude
-        convention derive_weights' `> 0` filter expects -- mirrors how aged_quality_weights is
-        already positive-convention for the ic_proportional path. NOT used by the ic_proportional
-        branch (aged_quality_weights is pre-signed via compute_quality_weight already).
-    max_feature_weight, max_cluster_corr, max_cluster_weight, mv_condition_max:
-        APR-backed thresholds (EnsembleConfig fields) passed through unchanged.
-
-    Returns
-    -------
-    StratumWeightResult
-        raw_weights: pre-cap/pre-deflation diagnostic weight vector (stored as the
-            'raw_weight' column regardless of method). For the mean_variance success path
-            this is the UNSIGNED mv_raw output (the pure Sigma^-1.ic_shrunk solve) -- the
-            sign is applied only on the path into derive_weights, not stored back here.
-        weights: final post-cap weight vector used for scoring.
-        method_used: 'ic_proportional' | 'mean_variance' | 'mean_variance_fallback'.
-        condition_number: the covariance condition number when the mean_variance path was
-            attempted (success or fallback), else None.
-    """
-    if weight_method == "ic_proportional":
-        raw_weights = derive_weights(aged_quality_weights, max_feature_weight)
-        weights = cluster_deflate_weights(
-            raw_weights, corr_matrix, max_cluster_corr, max_cluster_weight
-        )
-        return StratumWeightResult(raw_weights, weights, "ic_proportional", None)
-
-    if weight_method == "mean_variance":
-        # ic_shrunk passed UNCHANGED (BLOCKER 3): Sigma^-1.(s.mu) != s.(Sigma^-1.mu) once a
-        # contrarian is correlated with other selected features -- pre-signing the INPUT is
-        # mathematically wrong. The mv_raw solve stays sign-naive; sign is applied to its
-        # OUTPUT below, once, before derive_weights.
-        mv_raw, cond = mean_variance_weights(cov_matrix, ic_shrunk, mv_condition_max)
-        if mv_raw is not None:
-            # Success path (D-08): reuse derive_weights' per-feature cap + filter logic
-            # on the SIGNED MV output, unchanged in spirit from the ic_proportional path
-            # (whose aged_quality_weights input is already positive-convention). Cap/sign
-            # are NOT folded into mean_variance_weights() itself -- they run here.
-            # cluster_deflate_weights is deliberately SKIPPED: Sigma^-1.IC already
-            # decorrelates continuously, so binary cluster capping would double-penalize.
-            mv_raw_signed = ic_signs * mv_raw
-            weights = derive_weights(mv_raw_signed, max_feature_weight)
-            return StratumWeightResult(mv_raw, weights, "mean_variance", cond)
-        # Ill-conditioned Sigma (Pitfall 3): fall back to the proven cluster-deflation
-        # path rather than emitting extreme offsetting weights from an unreliable Sigma^-1
-        # solve. Caller MUST log this -- never a silent skip (T-142B1-04-03).
-        raw_weights = derive_weights(aged_quality_weights, max_feature_weight)
-        weights = cluster_deflate_weights(
-            raw_weights, corr_matrix, max_cluster_corr, max_cluster_weight
-        )
-        return StratumWeightResult(raw_weights, weights, "mean_variance_fallback", cond)
-
-    raise ValueError(
-        f"Unknown alpha.ensemble.weight_method value: {weight_method!r}. "
-        f"Valid values: {sorted(_VALID_WEIGHT_METHODS)}"
-    )
 
 
 def _effective_weight_version(cli_weight_version: str | None, apr_default: str) -> str:
@@ -670,7 +538,6 @@ class EnsembleTrainer(BaseBatch):
             self.logger.info(
                 "ensemble_trainer.concept_registry_loaded",
                 n_features=len(all_registry_names),
-                weight_half_life_days=config.weight_half_life_days,
             )
 
             # --- Full replace, scoped to this weight_version ---
@@ -901,67 +768,39 @@ class EnsembleTrainer(BaseBatch):
             log.warning("ensemble_trainer.stratum_no_ic_rows")
             return False
 
-        # Step 2: Select best lookahead per feature using quality_weight.
-        # select_features_per_stratum expects key "ic_sharpe"; the underlying column is
-        # whichever alpha.ensemble.ic_input currently resolves to (ic_sharpe_hac by
-        # default, or ic_shrunk once E1's out-of-fold gate has passed).
-        # quality_weight = ic_ci_lower * max(sharpe_floor, ic_sharpe) is computed inside
-        # select_features_per_stratum and returned on each selected row.
-        selected = select_features_per_stratum(
-            [{**dict(r), "ic_sharpe": r[ic_input_column]} for r in ic_rows],
+        # Step 2: Select best lookahead per feature (quality_weight, computed inside
+        # select_features_per_stratum from whichever column alpha.ensemble.ic_input
+        # resolves to), restricted to features that have a feature_vectors column.
+        selection, skip_reason, n_available = select_stratum(
+            ic_rows,
+            ic_input_column=ic_input_column,
             sharpe_floor=config.sharpe_floor,
+            feature_cols=feature_cols,
+            min_passing_features=min_passing_features,
         )
-        if len(selected) < min_passing_features:
+        if skip_reason == "min_features":
             log.warning(
                 "ensemble_trainer.stratum_skipped_min_features",
-                n_features=len(selected),
+                n_features=n_available,
                 min_required=min_passing_features,
             )
             return False
-
-        feature_names = [r["feature_name"] for r in selected]
-        # quality_weights are the raw weight inputs to derive_weights (A5c).
-        # Ledoit-Wolf deflation and weight caps operate on whatever raw weight is passed in.
-        quality_weights = np.array([float(r["quality_weight"]) for r in selected])
-        # Reads the "ic_sharpe" alias set by the remap above (Step 2) -- resolves to
-        # whichever column alpha.ensemble.ic_input currently selects, not a hardcoded
-        # ic_sharpe_hac literal.
-        ic_sharpes = np.array([float(r["ic_sharpe"]) for r in selected])
-        ic_signs = np.array([float(r["ic_sign"]) for r in selected])
-        ic_ci_lower = np.array([float(r["ic_ci_lower"]) for r in selected])
-        ic_ci_upper = np.array([float(r["ic_ci_upper"]) for r in selected])
-        lookahead_bars = [int(r["lookahead_bars"]) for r in selected]
-
-        # Step 3: Load feature matrix X from feature_vectors for all symbols in this (tf, regime)
-        col_subset = [c for c in feature_cols if c in feature_names]
-        if len(col_subset) < min_passing_features:
+        if skip_reason == "missing_cols":
             log.warning(
                 "ensemble_trainer.stratum_skipped_missing_cols",
-                n_cols=len(col_subset),
+                n_cols=n_available,
                 min_required=min_passing_features,
             )
             return False
 
-        # Restrict to features that have a column, preserving IC-selection order.
-        # col_subset already passed the min_passing_features gate, and ordered_names has the
-        # same membership (both are feature_names ∩ feature_cols), so no second count check.
-        ordered_names = [n for n in feature_names if n in col_subset]
-        ordered_idx = [feature_names.index(n) for n in ordered_names]
-        quality_weights = quality_weights[ordered_idx]
-        ic_sharpes = ic_sharpes[ordered_idx]
-        ic_signs = ic_signs[ordered_idx]
-        ic_ci_lower = ic_ci_lower[ordered_idx]
-        ic_ci_upper = ic_ci_upper[ordered_idx]
-        lookahead_bars = [lookahead_bars[i] for i in ordered_idx]
-
-        # Fetch feature matrix for all symbols in this cross-sectional regime.
+        # Step 3: Load feature matrix X from feature_vectors for all symbols in this (tf, regime)
         # feature_vectors.regime holds per-symbol HMM labels; cross-sectional regime labels
         # live in market_regimes. JOIN on (regime_group, tf, ts=bar_ts) to filter by regime.
         # regime_group hardcoded to 'equity': ensemble_trainer is not yet regime_group-aware
         # (unlike ic_engine.py's Phase 144 routing) -- this stratum loop only ever trains
         # on the equity universe today.
-        # Safe: col_subset names come from information_schema, not user data
-        col_list = ", ".join(f'fv."{c}"' for c in col_subset)
+        # Safe: feature names come from information_schema via feature_cols, not user data
+        col_list = ", ".join(f'fv."{c}"' for c in selection.feature_names)
         fv_rows = await conn.fetch(
             f"""
             SELECT fv.symbol, {col_list}, fv.bar_ts
@@ -990,77 +829,39 @@ class EnsembleTrainer(BaseBatch):
         # well-conditioned matrix and ~0.2% right at the alpha.ensemble.mv_condition_max
         # gate boundary (n_obs=200_000, n_features=60, both far below any threshold
         # that could flip a trading decision); the final `X @ signed_weights` scoring
-        # matmul (line ~853) auto-promotes to float64 via numpy's mixed-dtype rules
-        # since signed_weights stays float64, so no further precision loss compounds
-        # there.
-        X_raw = np.array(
-            [[float(r[c]) if r[c] is not None else 0.0 for c in col_subset] for r in fv_rows],
+        # matmul auto-promotes to float64 via numpy's mixed-dtype rules since
+        # signed_weights stays float64, so no further precision loss compounds there.
+        X = np.array(
+            [
+                [float(r[c]) if r[c] is not None else 0.0 for c in selection.feature_names]
+                for r in fv_rows
+            ],
             dtype=np.float32,
-        )  # shape [n_bars, n_features]
+        )  # shape [n_bars, n_selected_features], columns in selection order
 
-        # Map feature order in X to the IC-selected feature order
-        ordered_col_indices = [col_subset.index(n) for n in ordered_names]
-        X = X_raw[:, ordered_col_indices]  # [n_bars, n_selected_features]
-
-        # Step 4: Compute LW covariance + cluster deflate weights
-        # Weight aging: decay IC-derived weights exponentially with staleness.
-        # Uses the latest training_window_end across all selected features as the
-        # reference point. Reverts to equal-weight beyond config.weight_stale_max_days
-        # (alpha.ensemble.weight_stale_max_days APR key, todo 043).
-        max_training_window_end = max(
-            (r["training_window_end"] for r in selected if r["training_window_end"] is not None),
-            default=None,
+        # Step 4: Fit weights. fit_stratum_weights fits the covariance only on bars up to the
+        # IC window end (todo 409); scoring below still covers every bar.
+        fit = fit_stratum_weights(
+            selection,
+            X,
+            bar_ts_list,
+            weight_method=config.weight_method,
+            max_feature_weight=max_feature_weight,
+            max_cluster_corr=config.max_cluster_corr,
+            max_cluster_weight=config.max_cluster_weight,
+            mv_condition_max=config.mv_condition_max,
         )
-        if max_training_window_end is not None:
-            days_since = max(0, (datetime.now(UTC) - max_training_window_end).days)
-        else:
-            days_since = 0
-        if days_since > config.weight_stale_max_days:
-            # Equal-weight fallback: IC scores are too stale to trust the weight ordering.
-            aged_quality_weights = np.full(len(quality_weights), 1.0 / max(1, len(quality_weights)))
-        else:
-            aged_quality_weights = quality_weights * math.exp(
-                -days_since / config.weight_half_life_days
-            )
-
-        cov_matrix, shrinkage = compute_shrinkage_covariance(X)
-
-        # Convert to correlation matrix for cluster detection
-        diag_var = np.diag(cov_matrix)
-        with np.errstate(divide="ignore", invalid="ignore"):
-            outer_std = np.sqrt(np.outer(diag_var, diag_var))
-            corr_matrix = np.where(outer_std > 1e-10, cov_matrix / outer_std, 0.0)
-            np.fill_diagonal(corr_matrix, 1.0)
-
-        # E2 (D-08): alpha.ensemble.weight_method selects ic_proportional (v1,
-        # derive_weights -> cluster_deflate_weights) vs. mean_variance
-        # (Sigma^-1.ic_shrunk, condition-number gated, cluster deflation skipped on
-        # success). ic_sharpes is the ic_input-resolved per-feature IC vector already
-        # selected for this stratum (E1, D-05) -- the same array select_features_per_stratum
-        # used as "ic_sharpe". ic_signs is threaded through for the E2 output-sign fix
-        # (BLOCKER 3, Component E) -- the mean_variance branch signs mv_raw's OUTPUT,
-        # never ic_sharpes/ic_shrunk's input.
-        weight_result = resolve_stratum_weights(
-            config.weight_method,
-            aged_quality_weights,
-            cov_matrix,
-            corr_matrix,
-            ic_sharpes,
-            ic_signs,
-            max_feature_weight,
-            config.max_cluster_corr,
-            config.max_cluster_weight,
-            config.mv_condition_max,
-        )
-        raw_weights = weight_result.raw_weights
-        weights = weight_result.weights
-        if weight_result.method_used == "mean_variance_fallback":
+        if fit.n_fit_rows < 2:
+            log.warning("ensemble_trainer.stratum_insufficient_fit_bars", n_bars=fit.n_fit_rows)
+            return False
+        weights = fit.result.weights
+        if fit.result.method_used == "mean_variance_fallback":
             # Never a silent skip (T-142B1-04-03): ill-conditioned Sigma triggered the
             # condition-number gate, so this stratum fell back to cluster_deflate_weights.
             log.warning(
                 "ensemble_trainer.weight_method_fallback",
                 weight_method=config.weight_method,
-                condition_number=weight_result.condition_number,
+                condition_number=fit.result.condition_number,
                 mv_condition_max=config.mv_condition_max,
                 fallback_to="cluster_deflate_weights",
             )
@@ -1070,16 +871,16 @@ class EnsembleTrainer(BaseBatch):
         # Zero-weight guard
         if float(weights.sum()) < 1e-10:
             log.warning("ensemble_trainer.stratum_zero_weight_vector", reason="zero_weight_vector")
-            ENSEMBLE_FEATURES_ZERO_WEIGHT_GAUGE.set(len(ordered_names), gauge_attrs)
+            ENSEMBLE_FEATURES_ZERO_WEIGHT_GAUGE.set(len(selection.feature_names), gauge_attrs)
             return False
 
-        eff_n = effective_n(weights)
+        eff_n = fit.effective_n
 
-        ENSEMBLE_SHRINKAGE_INTENSITY_GAUGE.set(shrinkage, gauge_attrs)
+        ENSEMBLE_SHRINKAGE_INTENSITY_GAUGE.set(fit.shrinkage, gauge_attrs)
         ENSEMBLE_EFFECTIVE_N_GAUGE.set(eff_n, gauge_attrs)
         zero_weight_count = int(np.sum(weights < 1e-10))
         ENSEMBLE_FEATURES_ZERO_WEIGHT_GAUGE.set(zero_weight_count, gauge_attrs)
-        for fname, w in zip(ordered_names, weights.tolist()):
+        for fname, w in zip(selection.feature_names, weights.tolist()):
             ENSEMBLE_FEATURE_WEIGHT_GAUGE.set(w, {"feature": fname, **gauge_attrs})
 
         # Step 5: Write ensemble_weights atomically (all rows for this weight_version or none)
@@ -1091,14 +892,14 @@ class EnsembleTrainer(BaseBatch):
                 tf,
                 regime,
                 config.weight_version,
-                ordered_names[i],
-                float(raw_weights[i]),
+                selection.feature_names[i],
+                float(fit.result.raw_weights[i]),
                 float(weights[i]),
-                float(ic_sharpes[i]),
-                lookahead_bars[i],
+                float(selection.ic_sharpes[i]),
+                selection.lookahead_bars[i],
                 eff_n,
             )
-            for i in range(len(ordered_names))
+            for i in range(len(selection.feature_names))
         ]
 
         # DO UPDATE, never silently no-op: a re-run after IC scores change overwrites with
@@ -1127,16 +928,16 @@ class EnsembleTrainer(BaseBatch):
             "ensemble_trainer.weights_written",
             n_features=len(weight_rows),
             effective_n=round(eff_n, 3),
-            shrinkage=round(shrinkage, 4),
+            shrinkage=round(fit.shrinkage, 4),
         )
 
         # Step 6: Score ensemble_alpha via vectorized matmul (no per-bar Python loop)
         # Universe weights applied to every symbol's bars in this (tf, regime).
-        signed_weights = weights * ic_signs  # [n_features]
+        signed_weights = weights * selection.ic_signs  # [n_features]
         alpha_scores = X @ signed_weights  # [n_bars] — single matmul
 
         # Analytic CI: compute margin once per stratum (constant for all bars)
-        ic_sigma = (ic_ci_upper - ic_ci_lower) / 3.92
+        ic_sigma = (selection.ic_ci_upper - selection.ic_ci_lower) / 3.92
         margin = 1.96 * float(np.sqrt(float(np.dot(weights**2, ic_sigma**2))))
 
         ci_lower_arr = alpha_scores - margin

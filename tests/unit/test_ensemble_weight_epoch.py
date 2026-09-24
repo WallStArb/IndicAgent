@@ -1,6 +1,6 @@
-"""Unit tests for per-run weight epoch + DO UPDATE upsert + APR-backed stale cliff.
+"""Unit tests for per-run weight epoch + DO UPDATE upsert.
 
-Covers Task 2 of Phase 141.1 Plan 04: EnsembleConfig.weight_stale_max_days binding,
+Covers Task 2 of Phase 141.1 Plan 04: the
 _effective_weight_version CLI-override helper, and the DO UPDATE (not DO NOTHING)
 upsert SQL at both ensemble_weights and ensemble_alpha write sites.
 
@@ -17,22 +17,7 @@ project_root = Path(__file__).parent.parent.parent
 sys.path.insert(0, str(project_root))
 
 import services.ensemble_trainer as ensemble_trainer_module
-from services.ensemble_trainer import EnsembleConfig, _effective_weight_version
-
-
-class TestWeightStaleMaxDaysBinding:
-    """EnsembleConfig.from_apr must bind weight_stale_max_days from APR."""
-
-    def test_binds_from_apr_key(self) -> None:
-        cfg = {"alpha.ensemble.weight_stale_max_days": "45"}
-        config = EnsembleConfig.from_apr(cfg)
-        assert config.weight_stale_max_days == 45
-        assert isinstance(config.weight_stale_max_days, int)
-
-    def test_defaults_to_90_when_missing(self) -> None:
-        cfg: dict = {}
-        config = EnsembleConfig.from_apr(cfg)
-        assert config.weight_stale_max_days == 90
+from services.ensemble_trainer import _effective_weight_version
 
 
 class TestEffectiveWeightVersion:
@@ -67,18 +52,6 @@ class TestUpsertSQL:
         source = self._source()
         assert "ON CONFLICT (symbol, tf, bar_ts, weight_version)" in source
         assert "DO UPDATE SET" in source
-
-
-class TestStaleCliffUsesAPR:
-    """The aging branch must reference config.weight_stale_max_days, not a literal 90."""
-
-    def test_no_bare_literal_90_comparison(self) -> None:
-        source = inspect.getsource(ensemble_trainer_module)
-        assert "> 90" not in source
-
-    def test_aging_logic_references_weight_stale_max_days(self) -> None:
-        source = inspect.getsource(ensemble_trainer_module)
-        assert "config.weight_stale_max_days" in source
 
 
 class TestWeightVersionFullReplace:
