@@ -340,6 +340,25 @@ in-sample for production already, so it spends nothing.
 - **N_tested is 17, not 15.** Section 8 pinned "the ledger's 14 plus this test"; the ledger's
   own rule is to count rows at the time of use, and H-A and H-B were verdicted (both FAIL)
   2026-09-24 before this test runs. ACT therefore needs adjusted p < 0.05/17 (0.0029).
+- **V4 fidelity: PASS.** Refit at 2025-12-24 on snapshot `97719acbf3dd7ee3` against production's
+  Phase 178 `feature_ic_scores` (recompute finished 2026-09-24 19:27 UTC): 31,800 pooled 1d keys
+  on both sides, all 16 deterministic fields (ic_value, ic_sharpe, ic_sharpe_hac, ic_sortino,
+  ic_win_rate, sign_hit_rate, magnitude_conditional_ic, p_value, n_independent, cluster_id,
+  reliable, passes_walkforward, wf_fold_count, wf_pass_count, ic_sign, ic_sharpe_n_windows)
+  equal to 1e-6, integers and flags exactly. Refit time 83 s. The first run (snapshot
+  `668f4b07dab9bebb`) failed on ~8% of rows. Cause: the snapshot built its session calendar from
+  SPY's tradeable 1d bars, and SPY has no usable bar on two real sessions (2007-04-02 is flagged
+  `confirmed_corrupt`, 2007-07-02 is a `synthetic_fill`), so the harness dropped all 23 universe
+  rows on those days while production's cells, keyed on `market_regimes.ts`, keep them. The
+  calendar is now the union of every universe symbol's 1d feature-row dates (weekend dates
+  raise). RNG fields: the pinned tolerance is the harness's own two-seed Monte Carlo spread
+  (bootstrap_seed 42 vs 4242, same snapshot); each of p50 and p99 of the absolute CI-bound
+  difference and the `passes_ci_gate` flip count must be within 1.25x of it. Observed
+  harness-vs-production against the reference: ic_ci_lower p50 0.00124 vs 0.00124, p99 0.0138 vs
+  0.0140; ic_ci_upper p50 0.00122 vs 0.00123, p99 0.0147 vs 0.0141 (1.04x); gate flips 144 vs 148
+  of 31,800. The residual is bootstrap noise from the different cell-key seed strings, nothing
+  else. Artifact `logs/phase179/v4_20260924T235010Z.json` (`v4 --seed-reference 4242`).
+  V2 and V3 are synthetic and do not read the calendar, so they stand.
 - **Deprecated-feature decision: moot.** `new_high_flag` and `new_low_flag` were deprecated by
   operator override with no gate metric and are no longer `FeatureVector` fields (migration 284
   tombstones), so they cannot enter the pool.

@@ -127,7 +127,6 @@ async def build_snapshot(
             broadcast = {r[0] for r in await conn.fetch(_BROADCAST_SQL)}
             feature_to_group = {n: g for n, g in await conn.fetch(_GROUP_NAME_SQL) if g}
             label_rows = await conn.fetch(_LABELS_SQL, lo, hi)
-            spy = await conn.fetch(_BARS_SQL, "SPY", lo, hi)
         groups_cfg = _parse_group_configs(apr["alpha.regime.groups"][0])
         routing = _build_symbol_regime_class(tags, groups_cfg)
         universe = sorted(set(symbols) if symbols is not None else set(routing) | set(sleeve))
@@ -146,7 +145,7 @@ async def build_snapshot(
     finally:
         await pool.close()
 
-    sessions = np.array([_day(r["timestamp"]) for r in spy], dtype="datetime64[D]")
+    sessions = session_calendar(symbol_blocks)
     arrays, manifest = _assemble(
         sessions, symbol_blocks, sleeve, bar_rows, label_rows, routing, broadcast
     )
@@ -159,6 +158,19 @@ async def build_snapshot(
     )
     meta = {"apr": apr, "feature_to_group": feature_to_group, "manifest": manifest}
     return _write(Path(out_dir), arrays, meta)
+
+
+def session_calendar(symbol_blocks: list[dict[str, np.ndarray] | None]) -> np.ndarray:
+    """Every date on which any universe symbol has a 1d feature row. No single symbol's bars
+    define the calendar: SPY's own bar is unusable on real sessions (2007-04-02 is flagged
+    confirmed_corrupt, 2007-07-02 is a synthetic fill), and a SPY-derived calendar dropped every
+    symbol's rows on those days while production's cells keep them (the V4 fidelity gap).
+    A weekend date means a non-session bar reached feature_vectors and raises."""
+    days = np.unique(np.concatenate([b["bar_ts"] for b in symbol_blocks if b is not None]))
+    weekday = (days.astype("datetime64[D]").astype(np.int64) + 3) % 7  # 0 = Monday
+    if (weekday >= 5).any():
+        raise ValueError(f"1d feature rows on weekend dates: {days[weekday >= 5][:5].tolist()}")
+    return days
 
 
 def _labels_by_session(sessions: np.ndarray, label_rows: list, group: str) -> np.ndarray:
@@ -204,11 +216,7 @@ def _assemble(sessions, symbol_blocks, sleeve, bar_rows, label_rows, routing, br
     cat = {k: np.concatenate([b[k] for b in present]) for k in present[0]}
     del present
     idx = np.searchsorted(sessions, cat["bar_ts"])
-    on_session = (idx < len(sessions)) & (
-        sessions[np.minimum(idx, len(sessions) - 1)] == cat["bar_ts"]
-    )
     order = np.lexsort((cat["symbol"], cat["bar_ts"]))
-    order = order[on_session[order]]
     arrays = {f"all_{k}": v[order] for k, v in cat.items()}
     arrays["all_session_idx"] = idx[order]
     arrays["all_group"] = np.array([routing.get(s, "") for s in arrays["all_symbol"]])
@@ -238,7 +246,6 @@ def _assemble(sessions, symbol_blocks, sleeve, bar_rows, label_rows, routing, br
     )
     manifest = {
         "n_rows": int(len(order)),
-        "n_rows_off_session": int((~on_session).sum()),
         "max_bar_ts": str(arrays["all_bar_ts"].max()) if len(order) else "",
         "feature_names": list(_FEATURE_NAMES),
         "groups": sorted({v for v in routing.values()}),

@@ -1,5 +1,5 @@
-"""Session-axis helpers. `sessions` is always the sorted NYSE session array (datetime64[D])
-taken from the SPY 1d bar dates in the S0 snapshot."""
+"""Session-axis helpers. `sessions` is always the sorted session array (datetime64[D]) the S0
+snapshot builds from every universe symbol's 1d feature-row dates (snapshot.session_calendar)."""
 
 from __future__ import annotations
 

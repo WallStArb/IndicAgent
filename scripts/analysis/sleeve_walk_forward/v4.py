@@ -12,7 +12,11 @@ bh_adjusted_p and passes_fdr are excluded (D1: the FDR family differs by design)
 
 The refit's wall-clock time is the "compute measured for one refit" the addendum needs.
 
+--seed-reference SEED also refits at a second bootstrap seed and compares the harness with
+itself: that two-seed spread is the Monte Carlo tolerance the addendum pins for the RNG fields.
+
 Run: python -m scripts.analysis.sleeve_walk_forward.v4 --snapshot DIR [--out-dir DIR]
+     [--seed-reference SEED]
 """
 
 from __future__ import annotations
@@ -126,22 +130,37 @@ def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description="V4: harness fidelity against production")
     parser.add_argument("--snapshot", type=Path, required=True)
     parser.add_argument("--out-dir", type=Path, default=Path("logs/phase179"))
+    parser.add_argument("--seed-reference", type=int, default=None)
     args = parser.parse_args(argv)
     verify_snapshot(args.snapshot)
     snap = load_snapshot(args.snapshot)
     window = datetime.fromisoformat(snap.manifest["oos_start"])
+
+    def pooled_rows() -> list[dict]:
+        refit = run_refit(
+            snap,
+            snap.sessions[-1],
+            DEFAULT_CONFIG,
+            frozenset(),
+            fidelity_window_end=np.datetime64(window.date(), "D"),
+        )
+        return [r for r in refit.ic_rows if r["symbol"] == "POOLED"]
+
     t0 = time.monotonic()
-    refit = run_refit(
-        snap,
-        snap.sessions[-1],
-        DEFAULT_CONFIG,
-        frozenset(),
-        fidelity_window_end=np.datetime64(window.date(), "D"),
-    )
+    harness = pooled_rows()
     seconds = time.monotonic() - t0
     dsn = Settings().database_url.replace("postgresql+asyncpg://", "postgresql://")
     production = asyncio.run(_production_rows(dsn, window))
-    harness = [r for r in refit.ic_rows if r["symbol"] == "POOLED"]
+    seed_reference = None
+    if args.seed_reference is not None:
+        value_type = snap.apr["alpha.ic.bootstrap_seed"][1]
+        snap.apr["alpha.ic.bootstrap_seed"] = (str(args.seed_reference), value_type)
+        self_cmp = compare_rows(harness, pooled_rows())
+        seed_reference = {
+            "seed": args.seed_reference,
+            "deterministic_ok": self_cmp["deterministic_ok"],
+            "rng": self_cmp["rng"],
+        }
     out = {
         "snapshot": str(args.snapshot),
         "window": window.isoformat(),
@@ -149,6 +168,7 @@ def main(argv: list[str] | None = None) -> int:
         "n_harness": len(harness),
         "n_production": len(production),
         **compare_rows(harness, production),
+        "seed_reference": seed_reference,
     }
     args.out_dir.mkdir(parents=True, exist_ok=True)
     path = args.out_dir / f"v4_{datetime.now(UTC):%Y%m%dT%H%M%SZ}.json"
