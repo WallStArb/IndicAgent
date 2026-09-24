@@ -144,9 +144,9 @@ def drop(conn: Any, symbol: str, timeframe: str, provider: str) -> None:
 
 @dataclass(frozen=True)
 class ProviderHead:
-    """ohlcv_provider_head row (migration 355). head_ts None = lookup failed = no floor."""
+    """ohlcv_provider_head row (migration 355): a successful earliest-data lookup."""
 
-    head_ts: datetime | None
+    head_ts: datetime
     verified_at: datetime
 
     def is_fresh(self, now: datetime, reverify_days: int) -> bool:
@@ -163,22 +163,21 @@ def load_heads(conn: Any, provider: str) -> dict[str, ProviderHead]:
         return {r[0]: ProviderHead(r[1], r[2]) for r in cur.fetchall()}
 
 
-def record_head(
-    conn: Any, symbol: str, provider: str, head_ts: datetime | None, error: str | None
-) -> ProviderHead:
-    """Upsert a head lookup's outcome, success or failure, and return it."""
+def record_head(conn: Any, symbol: str, provider: str, head_ts: datetime) -> ProviderHead:
+    """Upsert a successful head lookup and return it. Failures are never stored: a failed
+    lookup can be transient (a pacing violation), and a stored failure would suppress the
+    floor until it went stale."""
     with conn.cursor() as cur:
         cur.execute(
             """
-            INSERT INTO ohlcv_provider_head (symbol, provider, head_ts, lookup_error, verified_at)
-            VALUES (%s, %s, %s, %s, NOW())
+            INSERT INTO ohlcv_provider_head (symbol, provider, head_ts, verified_at)
+            VALUES (%s, %s, %s, NOW())
             ON CONFLICT (symbol, provider) DO UPDATE SET
                 head_ts = EXCLUDED.head_ts,
-                lookup_error = EXCLUDED.lookup_error,
                 verified_at = EXCLUDED.verified_at
             RETURNING head_ts, verified_at
             """,
-            (symbol, provider, head_ts, None if head_ts else (error or "no head timestamp")),
+            (symbol, provider, head_ts),
         )
         row = cur.fetchone()
     conn.commit()

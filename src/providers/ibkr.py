@@ -974,6 +974,9 @@ class IBKRProvider:
             return None, "not qualified or not connected"
         sec_type = getattr(contract, "secType", "")
         what_to_show = {"CASH": "MIDPOINT", "CRYPTO": "AGGTRADES"}.get(sec_type, "TRADES")
+        # Head requests count against IBKR's historical pacing budget: an unthrottled lookup
+        # right after other requests came back "pacing violation" in the live rehearsal.
+        await _hist_rate_limiter.acquire()
         try:
             head = await asyncio.wait_for(
                 self._ib.reqHeadTimeStampAsync(

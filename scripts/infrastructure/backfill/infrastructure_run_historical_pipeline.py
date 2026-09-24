@@ -1356,22 +1356,25 @@ def main() -> None:
                         )
                         # Head floor (migration 355): nothing exists before the provider's
                         # earliest data point, so older gap slots are never requested. Looked
-                        # up once per symbol when missing or stale; a failed lookup is stored
-                        # as "no floor" so it is not retried every night.
+                        # up once per symbol when missing or stale; a failed lookup means no
+                        # floor for this run and is retried next run, never stored.
                         head = provider_heads.get(instrument.symbol)
                         if gaps and not head_is_fresh(head):
                             head_ts, head_error = await provider.get_head_timestamp(
                                 instrument.symbol
                             )
-                            head = empty_history.record_head(
-                                db_conn,
-                                instrument.symbol,
-                                _EMPTY_HISTORY_PROVIDER,
-                                head_ts,
-                                head_error,
-                            )
-                            provider_heads[instrument.symbol] = head
-                        if gaps and head is not None and head.head_ts is not None:
+                            if head_ts is not None:
+                                head = empty_history.record_head(
+                                    db_conn, instrument.symbol, _EMPTY_HISTORY_PROVIDER, head_ts
+                                )
+                                provider_heads[instrument.symbol] = head
+                            else:
+                                print(
+                                    f"  {instrument.symbol}: no provider head this run "
+                                    f"({head_error}); no floor applied"
+                                )
+                                head = None
+                        if gaps and head is not None:
                             kept = empty_history.subtract(
                                 gaps,
                                 empty_history.before_head(

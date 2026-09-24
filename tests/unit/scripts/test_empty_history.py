@@ -87,10 +87,10 @@ def test_head_floor_removes_only_history_before_the_head():
     ]
 
 
-def test_record_head_stores_failure_as_no_floor():
+def test_record_head_stores_only_a_successful_lookup():
     conn = MagicMock()
     cur = conn.cursor.return_value.__enter__.return_value
-    cur.fetchone.return_value = (None, _dt(2026, 9, 24))
-    head = eh.record_head(conn, "AMD", "ibkr", None, "no head timestamp returned")
-    assert head.head_ts is None
-    assert cur.execute.call_args.args[1] == ("AMD", "ibkr", None, "no head timestamp returned")
+    cur.fetchone.return_value = (_dt(2024, 3, 27), _dt(2026, 9, 24))
+    head = eh.record_head(conn, "GEV", "ibkr", _dt(2024, 3, 27))
+    assert head.head_ts == _dt(2024, 3, 27)
+    assert cur.execute.call_args.args[1] == ("GEV", "ibkr", _dt(2024, 3, 27))
