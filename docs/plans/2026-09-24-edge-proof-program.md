@@ -174,7 +174,8 @@ Runs alongside 179 so idea generation never waits on one verdict; it yields CPU 
 recompute only while that is running. Each run adds a row to the ledger and raises N_tested.
 
 - H-A/H-B extreme-volume divergence/confirmation (designs final since 2026-09-09; todo 372's
-  null-shift fix still needs its independent review first).
+  null-shift fix was AGY-reviewed CORRECT 2026-09-11; next step is the Track 1 script, which
+  must include the ungated morning/afternoon `volume_z` sub-panel from 372 finding 2).
 - Cross-TF divergence pre-registration (momentum decorrelates across TFs; ensemble-level fusion
   does not exist yet).
 - Todo 403 (null-controlled re-decision of earnings-season conditioning).

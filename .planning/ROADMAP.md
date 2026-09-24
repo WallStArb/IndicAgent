@@ -44,7 +44,7 @@ current position only; PRIORITIES.md tiers todos; this list names the phases in 
 | 2 | 178 Recompute throughput bundle | Full recompute ~3.3 days to ~1.1 days; fresh weights (todo 404) | In flight (`ic-engine-bundle-post-176` worktree) |
 | 3 | 179 Cross-asset sleeve walk-forward verdict | The only positive result, re-tested with weight-level OOS and a null-signal comparator | Start now; pre-registration first |
 | 4 | 180 Cross-asset breadth expansion | Sleeve n_eff ~6 to 12+ | Data onboarding may start during 179 |
-| 5 | 181 Construction track | H-A/H-B (ready designs, gated only on todo 372's review), cross-TF divergence, todo 403 | Active, parallel with 179 |
+| 5 | 181 Construction track | H-A/H-B (ready designs, Track 1 script next; 372's fix already reviewed), cross-TF divergence, todo 403 | Active, parallel with 179 |
 
 177, 178 and 179 run in parallel (IBKR/alerting, ic_engine, an in-memory analysis harness).
 179 does not wait on 178: its walk-forward never touches the production IC or weight tables.
