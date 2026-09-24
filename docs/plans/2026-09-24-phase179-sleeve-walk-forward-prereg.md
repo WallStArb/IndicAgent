@@ -334,7 +334,7 @@ in-sample for production already, so it spends nothing.
 3. Portfolio primitives moved to `src/intelligence/portfolio/weighting.py`, with the coverage fix
    (no zero-filled gaps). Done 2026-09-24.
 4. `panel_null.py` with tests. Done 2026-09-24 (edb555a11).
-5. Harness S0-S4 with synthetic end-to-end tests; run V2, V3.
+5. Harness S0-S4 with synthetic end-to-end tests; run V2, V3. Code done 2026-09-24 (harness plan execution record); V2/V3 runs wait for the 178 recompute.
 6. HMM-feature audit, deprecated-feature decision, S0 snapshot, V4, V5 at T = 2025-12-24.
 7. Commit the section 12 addendum. The pre-registration is frozen here.
 8. S1-S4 once. Commit the result JSON and the ledger row.

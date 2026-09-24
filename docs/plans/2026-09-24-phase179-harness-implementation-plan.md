@@ -625,3 +625,35 @@ def test_negative_holdout_downgrades_act_to_pass():
 - [ ] After the 178 recompute finishes (check `ps aux | grep ic_engine` shows nothing): run `run.py --stage v2` (200 seeds x 199 shifts) and `--stage v3` (IR 0.6 and 0.8, 200 seeds each); record PASS rates, CIs and measured seconds per shift in the pre-reg section 12 addendum draft. V2 outside 5% +/- 3.1%, or V3 below 50% at IR 0.8, stops the phase for a design revisit (spec 10).
 - [ ] Section 11 diagnostics (net-of-cost with todo 393's fix, per-year/per-symbol/per-stratum excess, equal-weight and static-tilt references, uniform-weight and production-pool variants, feature decay, no-weight days) are reported-only and land as a follow-up plan before the freeze (step 7); none of them feeds the token.
 - [ ] Update the 179 memory and pre-reg build order: step 5 done, next step 6 (HMM audit, deprecated-feature decision, S0 snapshot, V4, V4b, V5).
+
+## Execution record (2026-09-24)
+
+Tasks 0-9 built on `feat/179-harness`, `/simplify` and a fresh-context final review applied
+(no Critical; 2 Important fixed with failing-first tests: the V6 embargo assert now checks label
+exit sessions, and the stage drift key covers the harness's own sources and records the git
+commit). Harness suite 60 tests; full unit suite green. Measured: 49.5 ms per shift, full null
+about 3 minutes single-core.
+
+Rulings taken during the build: `calendar.py` renamed `sessions.py` (stdlib shadowing); a failed
+calibration refit keeps the prior state until the next scheduled refit; calibration Spearman on
+raw alpha (rank-invariant to standardization); null daily returns held in RAM (163 MB);
+synthetic runs pin k = 100 and mv_condition_max = 1000; V3's planted effect is the mean
+vol_normalized excess Sharpe; no edits to `ic_engine.py`/`_batch_utils.py` while a recompute is
+live (harness imports their private hooks, todo 214 debt); `Snapshot.apr` holds
+(value, value_type); live-DB test in `tests/live/`; snapshot as a directory of memory-mapped
+`.npy`; `oos_start` read separately (no `config_schema` row); stage artifacts are pickles with
+`code_key`, `git_commit`, `git_dirty`; s1 requires `--excluded-file`, s4 requires `--fidelity`.
+Process slip: `refit.py` was written before its tests; mutation checks (embargo off-by-one,
+dropped earnings-season clause) were caught by the tests written after.
+
+### Before the freeze (step 7), from the final review's minor findings
+
+- [ ] Bound the S3 trade mask by the last sub-period end (the last two sessions' NaN forward
+      returns currently enter the Sharpe as zero-return days).
+- [ ] Count whole rows dropped at the h=1 cutoff in `n_embargo_excluded`.
+- [ ] Runtime assert in `score.py`: no scored day before its refit date.
+- [ ] `_LABELS_SQL`: assert one label per (group, day).
+- [ ] `load_snapshot`: re-verify the directory hash (at least in s1).
+- [ ] Pin in the addendum: the BH family excludes production's 1d POOLED `earnings_season`
+      cells; V6 wording (section 10 vs section 6); `n_rows_off_session` count.
+- [ ] Hygiene: read `fdr_alpha` from `ICEngineConfig`; hoist `group.X[keep]` out of the label loop.
