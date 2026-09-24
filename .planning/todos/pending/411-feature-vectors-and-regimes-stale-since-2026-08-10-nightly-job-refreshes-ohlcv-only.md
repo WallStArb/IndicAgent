@@ -38,3 +38,19 @@ deployment. A silent 6-week gap is also the same integrity class as todo 395.
    or every nightly run triggers a full IC recompute.
 3. Emit a freshness check: max(bar_ts) per (symbol, tf) of `feature_vectors` vs OHLCV, alerting
    past N sessions of lag (APR key), through the route todo 395 fixes.
+
+## Gap-fill is not possible with the tool as it stands (checked 2026-09-24)
+
+`backfill_feature_factory.py --compute-only` is all-or-nothing per (symbol, tf): pairs with
+`backfill_status.status='complete'` are skipped (all 233 x 4 intraday+1d pairs are), so a plain
+run adds zero new bars; `--refresh` recomputes from the first bar and upserts. Both paths fetch
+full history (`_fetch_bars_from_db` with no `since`).
+
+Plan:
+- 1d: full `--refresh` (~5,000 bars/symbol, cheap, exact by construction). Covers what 179, H-A
+  and the holdout read.
+- Intraday: add an incremental mode (fetch from last feature bar minus W, insert only bars after
+  it). Gate it on an equivalence test: incremental vs full history on a sample of symbols per
+  tf must match on the new bars. Long-memory features (EMAs, expanding ranks, swing anchors, HMM
+  forward filters, long z-scores) that don't converge within W get persisted state or stay on
+  full recompute. Without this check a short warmup leaves a silent seam at the gap boundary.
