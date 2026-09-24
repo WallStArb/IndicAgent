@@ -44,7 +44,7 @@ _ASSUMED_PRICE = 50.0
 _COMMISSION_FRAC = _COMMISSION_PER_SHARE / _ASSUMED_PRICE
 _LIVE_SPREAD_ANCHOR = 0.00014  # 1.4bp, measured 0b, validated against live quotes
 _TRADING_DAYS_PER_YEAR = 252
-_TFS = ("5m", "15m", "1h")
+_TFS = ("5m", "15m", "1h", "1d")
 _TURNOVER_FEATURE = "range_to_close"  # 0b's strongest long-horizon family member
 _UNIVERSE_BREADTHS = (4.5, 8.4)  # 0a's measured range
 _LIBRARY_RANKS = (3.0, 10.0)  # 0b's sensitivity range when not pinned
@@ -52,8 +52,25 @@ _LIBRARY_RANKS = (3.0, 10.0)  # 0b's sensitivity range when not pinned
 
 def _fetch_ranks(conn, feature: str, tf: str) -> pd.DataFrame:
     """Per-bar cross-sectional rank (not per-calendar-date -- intraday rebalancing
-    happens every N bars, not every N days)."""
+    happens every N bars, not every N days). Streamed from a server-side cursor straight
+    into a (bar x symbol) float32 matrix: 5m holds ~75M rows, far too many to fetchall."""
     with conn.cursor() as cur:
+        cur.execute(
+            "SELECT DISTINCT symbol FROM feature_vectors WHERE tf = %s ORDER BY symbol", (tf,)
+        )
+        symbols = [r[0] for r in cur.fetchall()]
+        cur.execute(
+            f"SELECT count(DISTINCT bar_ts) FROM feature_vectors "
+            f"WHERE tf = %s AND {feature} IS NOT NULL",
+            (tf,),
+        )
+        (n_bars,) = cur.fetchone()
+    sym_idx = {s: i for i, s in enumerate(symbols)}
+    mat = np.full((n_bars, len(symbols)), np.nan, dtype=np.float32)
+    bar_index: list = []
+    # A server-side cursor needs a transaction block; _connect_db's connection is autocommit.
+    with conn.transaction(), conn.cursor(name=f"ranks_{tf}") as cur:
+        cur.itersize = 1_000_000
         cur.execute(
             f"""
             SELECT bar_ts, symbol,
@@ -64,10 +81,13 @@ def _fetch_ranks(conn, feature: str, tf: str) -> pd.DataFrame:
             """,
             (tf,),
         )
-        rows = cur.fetchall()
-    return pd.DataFrame(rows, columns=["bar_ts", "symbol", "rank"]).pivot_table(
-        index="bar_ts", columns="symbol", values="rank", aggfunc="last"
-    )
+        last_ts = None
+        for bar_ts, symbol, rank in cur:
+            if bar_ts != last_ts:
+                bar_index.append(bar_ts)
+                last_ts = bar_ts
+            mat[len(bar_index) - 1, sym_idx[symbol]] = rank
+    return pd.DataFrame(mat[: len(bar_index)], index=bar_index, columns=symbols)
 
 
 def _turnover(ranks: pd.DataFrame, horizon_bars: int) -> float | None:
@@ -141,10 +161,13 @@ def main() -> None:
     header = (
         f"\n{'tf':>4s} {'H(bars)':>8s} {'bars/day':>9s} {'TO':>6s} {'ann.rebal/yr':>13s} "
         f"{'lib_rank':>8s} {'bets':>6s} {'IC_min':>8s} {'measured_avg_ic':>16s} "
-        f"{'n_cells':>8s} {'clears?':>8s}"
+        f"{'n_cells':>8s} {'clears?':>8s} {'IC_min/ic':>10s}"
     )
     print(header)
 
+    # Todo 389 pre-registered rule: a cell is a deletion candidate only if it fails the hurdle
+    # by at least 5x at EVERY grid point, i.e. min over the grid of IC_min / measured >= 5.
+    min_margin: dict[tuple[str, int], float] = {}
     for tf in _TFS:
         bars_per_day = _bars_per_trading_day(conn, tf)
         bars_per_year = _TRADING_DAYS_PER_YEAR * bars_per_day
@@ -169,12 +192,22 @@ def main() -> None:
                         else ("NO" if measured_ic is not None else "n/a")
                     )
                     ic_str = f"{measured_ic:.4f}" if measured_ic is not None else "n/a"
+                    margin = ic_min / measured_ic if measured_ic else float("nan")
+                    # No measured IC means nothing to judge: never a deletion candidate.
+                    if measured_ic:
+                        key = (tf, h)
+                        min_margin[key] = min(min_margin.get(key, float("inf")), margin)
                     print(
                         f"{tf:>4s} {h:>8d} {bars_per_day:>9.2f} {to:>6.3f} "
                         f"{rebal_per_year:>13.1f} {lib_rank:>8.0f} {bets:>6.0f} "
-                        f"{ic_min:>8.4f} {ic_str:>16s} {n_cells:>8d} {clears:>8s}"
+                        f"{ic_min:>8.4f} {ic_str:>16s} {n_cells:>8d} {clears:>8s} {margin:>10.2f}"
                     )
     conn.close()
+
+    print("\nMin IC_min/measured over the 2x2 grid (>= 5 on every point = fails uniformly by 5x):")
+    for (tf, h), m in min_margin.items():
+        verdict = "FAILS_UNIFORMLY_5X" if m >= 5 else "KEEP"
+        print(f"  {tf:>4s} H={h:<4d} min_margin={m:8.2f}  {verdict}")
 
     print(
         "\nReading this table: IC_min is the gross cross-sectional IC a construction must "

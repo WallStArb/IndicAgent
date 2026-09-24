@@ -1,6 +1,7 @@
 # Pre-registration: delete structurally uneconomical short-horizon IC cells
 
-**Status: PRE-REGISTERED, not executed.** Evidence base complete; the delete set is
+**Status: EXECUTED 2026-09-24 (migration 358), see "Execution record" at the end.**
+Originally: Evidence base complete; the delete set is
 pre-registered as a decision rule, with final membership fixed by a measurement at
 execution time. Execution is gated on the post-Phase-176-08 landing window (see
 "Sequencing" below).
@@ -9,6 +10,8 @@ execution time. Execution is gated on the post-Phase-176-08 landing window (see
 was produced by the 2026-09-13 TF-stack economics diagnostic (independent of this
 author) and by the 2026-09-23 recompute-cost re-derivation from the completed
 2026-09-17/22 corpus run's logs.
+
+Informed by: Claude Opus 5.5 (execution record, 2026-09-24).
 
 ## Proposal
 
@@ -119,3 +122,30 @@ hardening is in place.
    this doc as the reason.
 6. Measure the actual savings from the next run's logs (same leg-accounting method as
    the 2026-09-23 re-derivation) and record them here, replacing the estimate.
+
+## Execution record (2026-09-24)
+
+Step 1: `scripts/analysis/personal_cost_hurdle_by_tf.py`, extended to 1d, run on the post-176-08
+corpus. Minimum IC_min / measured IC over the 2x2 grid per candidate:
+
+| Cell | Min margin | Rule outcome |
+| --- | --- | --- |
+| 5m fast (H=1) | 25.12 | DELETE |
+| 5m mid (H=6) | 2.03 (5.06 at the thinnest grid point) | keep, mixed |
+| 5m slow (H=12) | 0.99 (clears at breadth 8.4 x rank 10) | keep |
+| 15m fast (H=1) | 5.50 | DELETE |
+| 1h fast (H=1) | 0.60 | keep |
+| 1d fast (H=1) | 0.05 (clears everywhere) | keep |
+
+Final delete set: 5m fast and 15m fast, 2 of 16 (tf, scale) cells, not the 5 the planning
+estimate expected. 5m mid/slow moved from "fails" in the 2026-09-13 table to mixed on this
+corpus, and 1d fast clears by a wide margin. The ~31% savings estimate therefore does not hold;
+measure the real saving from the next run's logs (step 6).
+
+Step 2: consumers re-walked for scale-removal sensitivity. `ensemble_ic_engine` reads the same
+`alpha.ic.active_scales.*` keys; `ensemble_trainer` loses the H=1 option at 5m/15m (intended);
+`cross_sectional_spread_tracker` and `ops_ic_shrinkage` read `forward_returns.return_fast`,
+which is unchanged; `corpus_manifest_verifier` only uses its fallback when APR is missing.
+Step 3: no CI test pins the live 4-scale set (tests construct their own configs).
+Step 4/5: landed in the post-176 bundle with todos 399, 401, 402, 403; APR flipped by
+migration 358 with a `config_history` reason citing this document.
