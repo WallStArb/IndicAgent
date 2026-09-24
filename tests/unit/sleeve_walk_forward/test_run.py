@@ -203,3 +203,21 @@ def test_unknown_feature_name_in_exclusion_file_is_refused(harness):
                 str(excluded),
             ]
         )
+
+
+def test_artifact_name_ignores_git_state(harness, monkeypatch):
+    out, excluded = harness
+    args = [
+        "--stage",
+        "s1",
+        "--in",
+        str(out / "snapshot_fixture"),
+        "--out-dir",
+        str(out),
+        "--excluded-file",
+        str(excluded),
+    ]
+    monkeypatch.setattr(run, "_git", lambda: ("a" * 40, False))
+    clean = run.main(args).name
+    monkeypatch.setattr(run, "_git", lambda: ("b" * 40, True))
+    assert run.main(args).name == clean

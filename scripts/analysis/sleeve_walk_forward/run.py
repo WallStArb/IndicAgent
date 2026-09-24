@@ -79,19 +79,14 @@ def _git() -> tuple[str, bool]:
 
 
 def _save(out_dir: Path, stage: str, payload: Any, parent: str) -> Path:
+    """Artifact named by the hash of its content (stage, parent, code key, payload). The git
+    commit and dirty flag are stored for the addendum but kept out of the hash, so the same
+    inputs under the same code get the same name whatever the working tree's state."""
+    content = {"stage": stage, "parent": parent, "code_key": _code_key(), "payload": payload}
+    name = hashlib.sha256(pickle.dumps(content)).hexdigest()[:16]
     commit, dirty = _git()
-    blob = pickle.dumps(
-        {
-            "stage": stage,
-            "parent": parent,
-            "code_key": _code_key(),
-            "git_commit": commit,
-            "git_dirty": dirty,
-            "payload": payload,
-        }
-    )
-    path = Path(out_dir) / f"{stage}_{hashlib.sha256(blob).hexdigest()[:16]}.pkl"
-    path.write_bytes(blob)
+    path = Path(out_dir) / f"{stage}_{name}.pkl"
+    path.write_bytes(pickle.dumps({**content, "git_commit": commit, "git_dirty": dirty}))
     return path
 
 
