@@ -719,6 +719,11 @@ class ICEngineConfig:
     # block-size-invariance case), so it stays OPERATIONAL alongside
     # feature_block_columns.
     corr_row_block: int = 1_000_000
+    # Todo 401 (migration 356): rows per block when _build_blocked_x_nd fills a
+    # disk-backed cell's X_nd memmap. Pure throughput/memory knob -- the copy is exact,
+    # so X_nd is byte-identical for any value (pinned by
+    # test_ic_engine_streaming_correlation.py). Transient is block_rows x n_nd x 4 bytes.
+    x_nd_fill_block_rows: int = 262_144
     # Phase 174 review WR-07 (migration 352; was module constant
     # _DISK_BACKED_SCRATCH_HEADROOM_MULTIPLIER): required free scratch space as a multiple
     # of one disk-backed cell's float32 footprint. NOT 1.0 -- TWO cell-sized scratch files
@@ -952,6 +957,8 @@ class ICEngineConfig:
             ),
             # Phase 174 Plan 09 (migration 340).
             corr_row_block=int(cfg.get_sync("infra.ic_engine.corr_row_block", 1_000_000)),
+            # Todo 401 (migration 356).
+            x_nd_fill_block_rows=int(cfg.get_sync("infra.ic_engine.x_nd_fill_block_rows", 262_144)),
             # Phase 174 review WR-05/WR-07 (migration 352).
             scratch_headroom_multiplier=float(
                 cfg.get_sync("infra.ic_engine.scratch_headroom_multiplier", 2.2)
@@ -1083,6 +1090,9 @@ _OPERATIONAL_CONFIG_FIELDS: frozenset[str] = frozenset(
         # different block size must produce the identical correlation matrix
         # (test_ic_engine_streaming_correlation.py block-size-invariance case).
         "corr_row_block",
+        # Todo 401 (migration 356): X_nd fill block size -- the copy is exact, so X_nd is
+        # byte-identical for any value (test_ic_engine_streaming_correlation.py).
+        "x_nd_fill_block_rows",
         # Phase 174 review WR-05/WR-07 (migration 352): disk-safety gates on whether a
         # disk-backed cell may start -- they can only refuse a cell, never change it.
         "scratch_headroom_multiplier",
@@ -4049,21 +4059,27 @@ def _cross_sectional_vol_normalized_target(
     return vol_normalized_return(Y_scale, true_range_pct_scale)
 
 
-def _build_column_wise_x_nd(
+def _build_blocked_x_nd(
     X_raw: np.ndarray,
     cluster_input_mask: np.ndarray,
     scratch_dir: str,
+    block_rows: int,
 ) -> tuple[np.ndarray, Callable[[], None]]:
-    """Column-wise memmap build of the non-degenerate/non-broadcast feature slice
+    """Row-blocked memmap build of the non-degenerate/non-broadcast feature slice
     for a disk-backed cross-sectional cell (Phase 174 Plan 09, todo 371 follow-on).
 
     Replaces the boolean-column fancy-index build of X_nd (`X_raw[:, mask]`) --
     which ALWAYS materializes a fresh copy of every selected column across every
     row, even when X_raw itself is memmap-backed -- with a second `np.memmap`
-    filled one source column at a time (`X_nd_mm[:, out_idx] = X_raw[:, src_idx]`,
-    a basic column slice on the source), bounding the transient to `n_raw x 4`
-    bytes (~60MB at the 15M-row cross-sectional row-count ceiling) instead of
-    copying the entire selected slice at once.
+    filled in contiguous row blocks (`X_nd_mm[r0:r1] = X_raw[r0:r1][:, src_indices]`),
+    bounding the transient to `block_rows x n_nd x 4` bytes.
+
+    Row blocks, not columns (todo 401): X_nd is row-major, so a single-column
+    assignment dirties every page of the file. The original column-at-a-time fill
+    rewrote the whole file once per column under default kernel writeback limits
+    (measured 2026-09-24: 710 GB written in 18 minutes for one 9.5 GB cell). A row
+    block writes each page of X_nd once and reads X_raw once, sequentially. The copy
+    is exact, so X_nd is byte-identical for any block_rows.
 
     Returns `(X_nd, cleanup)` rather than tearing itself down or registering onto
     a stack directly -- the CALLER decides when it is safe to run cleanup (Plan
@@ -4095,8 +4111,9 @@ def _build_column_wise_x_nd(
     os.makedirs(scratch_dir, exist_ok=True)
     tmpfile = tempfile.NamedTemporaryFile(dir=scratch_dir, suffix=".memmap", delete=False)
     X_nd_mm = np.memmap(tmpfile.name, dtype=np.float32, mode="w+", shape=(n_raw, n_nd))
-    for out_idx, src_idx in enumerate(src_indices):
-        X_nd_mm[:, out_idx] = X_raw[:, src_idx]
+    for r0 in range(0, n_raw, block_rows):
+        r1 = min(r0 + block_rows, n_raw)
+        X_nd_mm[r0:r1] = X_raw[r0:r1][:, src_indices]
 
     def _cleanup() -> None:
         path = tmpfile.name
@@ -4223,7 +4240,7 @@ def _compute_one_cross_sectional_cell(
     # keeps n_skipped's accounting from conflating "degenerate" with "excluded
     # because symbol-invariant" -- the two conditions mean different things.
     cluster_input_mask = non_degenerate_mask & ~broadcast_mask
-    # Column-wise memmap build (Phase 174 Plan 09) when this cell's X_raw is itself
+    # Row-blocked memmap build (Phase 174 Plan 09, todo 401) when this cell's X_raw is itself
     # disk-backed -- the in-RAM boolean-column fancy-index build below ALWAYS
     # materializes a fresh copy of every selected column across every row even
     # when X_raw is memmap-backed, re-allocating most of the cell one line after
@@ -4236,8 +4253,8 @@ def _compute_one_cross_sectional_cell(
                 "cleanup_stack -- X_nd's scratch-file teardown must be registered "
                 "into the caller's single cell-scoped finally, not run here."
             )
-        X_nd, x_nd_cleanup = _build_column_wise_x_nd(
-            X_raw, cluster_input_mask, config.memmap_scratch_dir
+        X_nd, x_nd_cleanup = _build_blocked_x_nd(
+            X_raw, cluster_input_mask, config.memmap_scratch_dir, config.x_nd_fill_block_rows
         )
         cleanup_stack.callback(x_nd_cleanup)
     else:
@@ -5068,7 +5085,7 @@ def _compute_cross_sectional_tf(
     #     `finally` runs.
     #
     # Plan 09 (D-04, todo 371 follow-on): X_nd (the narrower memmap Plan 09's
-    # _build_column_wise_x_nd allocates from X_raw inside
+    # _build_blocked_x_nd allocates from X_raw inside
     # _compute_one_cross_sectional_cell, disk-backed cells only) is torn down from
     # this SAME `finally`, via `X_nd_cleanup` -- not from a second, independent
     # cleanup path, and not from inside _compute_one_cross_sectional_cell before it
@@ -5504,7 +5521,7 @@ def _compute_cross_sectional_tf(
         if X_acc is not None:
             X_acc.close()
         # Plan 09: X_nd's scratch-file teardown (registered by
-        # _compute_one_cross_sectional_cell via _build_column_wise_x_nd, disk-backed
+        # _compute_one_cross_sectional_cell via _build_blocked_x_nd, disk-backed
         # cells only) -- a no-op ExitStack when X_nd was never built (in-RAM mode,
         # or an exception before clustering). Same "every exit path, exactly one
         # finally" contract as X_acc.close() directly above.

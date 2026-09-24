@@ -1,6 +1,6 @@
 """Numerical-equivalence and cluster-label-identity coverage for Phase 174 Plan 09's
 blocked two-pass streaming correlation (`_streaming_feature_correlation`) and its
-column-wise `X_nd` memmap build (`_build_column_wise_x_nd`).
+row-blocked `X_nd` memmap build (`_build_blocked_x_nd`, todo 401).
 
 Every case anchors its assertion against numpy's `corrcoef` explicitly (never against
 itself) -- the point of this file is proving the replacement is numerically identical
@@ -16,7 +16,7 @@ import numpy as np
 import pytest
 
 from services.ic_engine import (
-    _build_column_wise_x_nd,
+    _build_blocked_x_nd,
     _cluster_features,
     _streaming_feature_correlation,
 )
@@ -256,15 +256,15 @@ def test_large_mean_numerical_stability() -> None:
 
 
 # ---------------------------------------------------------------------------
-# Case 7: column-wise X_nd build equals the boolean-index result.
+# Case 7: row-blocked X_nd build equals the boolean-index result.
 # ---------------------------------------------------------------------------
 
 
-def test_column_wise_x_nd_equals_boolean_index_and_cleans_up(tmp_path) -> None:
+def test_blocked_x_nd_equals_boolean_index_and_cleans_up(tmp_path) -> None:
     X_raw = np.random.default_rng(7).standard_normal((200, 8)).astype(np.float32)
     mask = np.array([True, False, True, True, False, False, True, True])
 
-    X_nd, cleanup = _build_column_wise_x_nd(X_raw, mask, str(tmp_path))
+    X_nd, cleanup = _build_blocked_x_nd(X_raw, mask, str(tmp_path), 64)
     assert np.array_equal(np.asarray(X_nd), X_raw[:, mask])
 
     scratch_files_before = list(tmp_path.glob("*.memmap"))
@@ -276,13 +276,32 @@ def test_column_wise_x_nd_equals_boolean_index_and_cleans_up(tmp_path) -> None:
     assert scratch_files_after == []
 
 
-def test_column_wise_x_nd_zero_columns_skips_memmap(tmp_path) -> None:
+@pytest.mark.parametrize("block_rows", [1, 7, 64, 199, 200, 10_000])
+def test_blocked_x_nd_byte_identical_for_any_block_size(tmp_path, block_rows) -> None:
+    """Todo 401: the row-blocked fill is an exact copy, so X_nd is byte-identical to the
+    boolean-index slice for every block size -- including blocks that do not divide
+    n_raw, a single-row block, and one block larger than the array -- with a
+    non-contiguous mask and a disk-backed (memmap) source, as in production."""
+    rng = np.random.default_rng(401)
+    X_src = rng.standard_normal((200, 11)).astype(np.float32)
+    X_src[::13, 4] = np.nan
+    src_path = tmp_path / "x_raw.bin"
+    X_raw = np.memmap(src_path, dtype=np.float32, mode="w+", shape=X_src.shape)
+    X_raw[:] = X_src
+    mask = np.array([True, False, True, True, False, True, False, False, True, False, True])
+
+    X_nd, cleanup = _build_blocked_x_nd(X_raw, mask, str(tmp_path / "scratch"), block_rows)
+    assert np.asarray(X_nd).tobytes() == X_src[:, mask].tobytes()
+    cleanup()
+
+
+def test_blocked_x_nd_zero_columns_skips_memmap(tmp_path) -> None:
     """A zero-column mask returns an empty in-RAM array and a no-op cleanup --
     np.memmap cannot back a zero-byte file, and there is nothing to stage."""
     X_raw = np.random.default_rng(8).standard_normal((50, 4)).astype(np.float32)
     mask = np.zeros(4, dtype=bool)
 
-    X_nd, cleanup = _build_column_wise_x_nd(X_raw, mask, str(tmp_path))
+    X_nd, cleanup = _build_blocked_x_nd(X_raw, mask, str(tmp_path), 64)
     assert X_nd.shape == (50, 0)
     assert list(tmp_path.glob("*.memmap")) == []
     cleanup()  # must not raise
@@ -351,11 +370,11 @@ def test_x_nd_view_after_teardown_is_memory_safe(tmp_path) -> None:
     script = textwrap.dedent(f"""
         import os
         import numpy as np
-        from services.ic_engine import _build_column_wise_x_nd
+        from services.ic_engine import _build_blocked_x_nd
 
         X_raw = np.arange(80, dtype=np.float32).reshape(20, 4)
         mask = np.array([True, True, False, True])
-        X_nd, cleanup = _build_column_wise_x_nd(X_raw, mask, {str(tmp_path)!r})
+        X_nd, cleanup = _build_blocked_x_nd(X_raw, mask, {str(tmp_path)!r}, 7)
         X_sub_nd = X_nd[0:20:2]
         expected = X_raw[0:20:2][:, mask]
 
@@ -363,7 +382,7 @@ def test_x_nd_view_after_teardown_is_memory_safe(tmp_path) -> None:
 
         assert not [f for f in os.listdir({str(tmp_path)!r}) if f.endswith(".memmap")]
         # Allocate and map another cell's worth, as a later cell would.
-        other, other_cleanup = _build_column_wise_x_nd(X_raw * -1, mask, {str(tmp_path)!r})
+        other, other_cleanup = _build_blocked_x_nd(X_raw * -1, mask, {str(tmp_path)!r}, 7)
         assert np.array_equal(np.asarray(X_sub_nd), expected)
         other_cleanup()
         print("STALE_READ_RETURNED_OWN_DATA")

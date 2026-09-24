@@ -224,7 +224,9 @@ def test_cross_sectional_cell_setup_phase_is_memory_bounded(tmp_path, monkeypatc
     n_features = len(ic_module._FEATURE_NAMES)
     n_rows = 200_000  # cell must dwarf the block for the bound to be distinguishable
     config = dataclasses.replace(
-        _make_config(memmap_scratch_dir=str(tmp_path / "scratch")), corr_row_block=5_000
+        _make_config(memmap_scratch_dir=str(tmp_path / "scratch")),
+        corr_row_block=5_000,
+        x_nd_fill_block_rows=5_000,
     )
     X_raw = _memmap(tmp_path, n_rows, n_features, "cell.memmap")
 
