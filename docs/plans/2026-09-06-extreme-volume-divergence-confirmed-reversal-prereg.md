@@ -19,7 +19,11 @@ requires). Rulings made writing it: universe = every symbol with 15m `feature_ve
 before `oos_start` (233); family = symbols with >= 100 finite (statistic, return) rows; the
 calendar key is the UTC date (a 15m session sits inside one UTC day); diurnal windows by bar
 open time in New York. Not yet run on the full panel: it waits for the Phase 178 recompute to
-free the box. H-B's script is not written yet.
+free the box. Output keeps the per-symbol table (IC, n, p, BY and BH flags) and the
+negative-qualifier count. Two reported-only items from "Reported, never gated" are not produced
+yet and are deferred, never gating: the per-regime table (needs regime labels the fetch doesn't
+pull) and the raw arm (the spec doesn't pin which non-divergence statistic it means). H-B's
+script is not written yet.
 
 **Update 2026-09-10:** the compute blocker has cleared — the corpus `ic_engine` recompute
 this doc's own "Not yet done" section was waiting on completed clean 2026-09-10 (all 8

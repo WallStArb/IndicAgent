@@ -95,3 +95,18 @@ def test_planted_signal_passes_and_noise_does_not():
     assert strong["verdict"]["pass"] is True
     assert noise["verdict"]["pass"] is False
     assert len(strong["sub_ics"]) == 3
+
+
+def test_output_keeps_the_audit_tables():
+    out = run_track1(_synthetic(0.5), n_boot=20, n_null=20, seed=1)
+    row = out["per_symbol"][0]
+    assert {"symbol_id", "n", "ic", "p", "by_reject", "bh_reject"} <= set(row)
+    assert len(out["per_symbol"]) == out["n_family"]
+    assert out["negative_qualifiers"] >= 0
+
+
+def test_no_blocks_names_the_missing_symbols():
+    from scripts.analysis.extreme_volume_divergence_track1 import _concat_blocks
+
+    with pytest.raises(SystemExit, match="SPYY"):
+        _concat_blocks([None], requested=["SPYY"])

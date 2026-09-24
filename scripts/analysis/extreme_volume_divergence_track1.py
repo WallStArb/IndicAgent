@@ -29,15 +29,18 @@ import argparse
 import asyncio
 import json
 import subprocess
+import sys
 from datetime import UTC, datetime
 from pathlib import Path
 
-import numpy as np
-from statsmodels.stats.multitest import multipletests
+sys.path.insert(0, str(Path(__file__).resolve().parents[2]))  # runnable by path, like its peers
 
-from scripts.analysis._date_panel import Panel, spearman
-from src.core.rng import hash_key_to_int
-from src.intelligence.statistics.ic_math import _p_values_from_ic
+import numpy as np  # noqa: E402
+from statsmodels.stats.multitest import multipletests  # noqa: E402
+
+from scripts.analysis._date_panel import Panel, spearman  # noqa: E402
+from src.core.rng import hash_key_to_int  # noqa: E402
+from src.intelligence.statistics.ic_math import _p_values_from_ic  # noqa: E402
 
 _TF = "15m"
 _N_BOOT = 2000
@@ -81,11 +84,21 @@ def per_symbol_table(panel: Panel) -> list[dict]:
     return rows
 
 
+def _mark_fdr(table: list[dict], alpha: float) -> None:
+    """by_reject (gated) and bh_reject (reported) per symbol, in place."""
+    if not table:
+        return
+    p = [r["p"] for r in table]
+    for method, key in (("fdr_by", "by_reject"), ("fdr_bh", "bh_reject")):
+        for r, rej in zip(table, multipletests(p, alpha=alpha, method=method)[0]):
+            r[key] = bool(rej)
+
+
 def qualifying_fraction(table: list[dict], alpha: float) -> float:
     if not table:
         return 0.0
-    reject = multipletests([r["p"] for r in table], alpha=alpha, method="fdr_by")[0]
-    return float(sum(bool(rej) and r["ic"] > 0 for rej, r in zip(reject, table)) / len(table))
+    _mark_fdr(table, alpha)
+    return float(sum(r["by_reject"] and r["ic"] > 0 for r in table) / len(table))
 
 
 def verdict(
@@ -128,6 +141,7 @@ def run_track1(
     sub_ics = [_masked_family_stat(panel, np.isin(panel.dates, part)) for part in thirds]
     table = per_symbol_table(panel)
     qual = qualifying_fraction(table, PASS_RULE["alpha"])
+    negative = sum(r["by_reject"] and r["ic"] < 0 for r in table)
     out = {
         "family_ic": family_ic,
         "ci": list(ci),
@@ -135,6 +149,8 @@ def run_track1(
         "sub_ics": sub_ics,
         "qualifying_fraction": qual,
         "n_family": len(panel.family),
+        "negative_qualifiers": int(negative),  # reported: BY-significant with the wrong sign
+        "per_symbol": table,
         "verdict": verdict(
             ci_lower=ci[0], null_p=null_p, sub_ics=sub_ics, qual_frac=qual, family_ic=family_ic
         ),
@@ -190,15 +206,22 @@ async def _fetch(dsn: str, only: list[str] | None = None) -> tuple[dict[str, np.
                 "complete_mid": num[:, 6] == 1,
             }
 
-        blocks = [b for b in await asyncio.gather(*(one(s) for s in symbols)) if b is not None]
+        blocks = list(await asyncio.gather(*(one(s) for s in symbols)))
     finally:
         await pool.close()
-    return {k: np.concatenate([b[k] for b in blocks]) for k in blocks[0]}, str(oos)
+    return _concat_blocks(blocks, only), str(oos)
+
+
+def _concat_blocks(blocks: list, requested: list[str] | None) -> dict[str, np.ndarray]:
+    present = [b for b in blocks if b is not None]
+    if not present:
+        sys.exit(f"no 15m rows before oos_start for {requested or 'any symbol'}")
+    return {k: np.concatenate([b[k] for b in present]) for k in present[0]}
 
 
 def _panel(
     data: dict[str, np.ndarray], ret_key: str, complete_key: str
-) -> tuple[Panel, np.ndarray]:
+) -> tuple[Panel, np.ndarray, list[str]]:
     keep = data[complete_key] & np.isfinite(data[ret_key])
     sym_names, sym_ids = np.unique(data["symbol"][keep], return_inverse=True)
     ts = data["bar_ts"][keep]
@@ -214,7 +237,7 @@ def _panel(
         min_rows=_MIN_ROWS,
         date_block=_DATE_BLOCK,
     )
-    return panel, ts[order]
+    return panel, ts[order], [str(x) for x in sym_names]
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -235,12 +258,15 @@ def main(argv: list[str] | None = None) -> int:
     data, oos = asyncio.run(_fetch(dsn, args.smoke))
     n_boot, n_null = (50, 50) if args.smoke else (_N_BOOT, _N_NULL)
     seed = hash_key_to_int("extreme_volume_divergence_h_a")
-    primary_panel, primary_ts = _panel(data, "return_fast", "complete_fast")
+    primary_panel, primary_ts, primary_names = _panel(data, "return_fast", "complete_fast")
     primary = run_track1(
         primary_panel, n_boot=n_boot, n_null=n_null, seed=seed, bar_ts_utc=primary_ts
     )
-    mid_panel, mid_ts = _panel(data, "return_mid", "complete_mid")
+    mid_panel, mid_ts, mid_names = _panel(data, "return_mid", "complete_mid")
     secondary = run_track1(mid_panel, n_boot=n_boot, n_null=n_null, seed=seed, bar_ts_utc=mid_ts)
+    for out, names in ((primary, primary_names), (secondary, mid_names)):
+        for row in out["per_symbol"]:
+            row["symbol"] = names[row["symbol_id"]]
     commit = subprocess.run(
         ["git", "rev-parse", "HEAD"], capture_output=True, text=True
     ).stdout.strip()
