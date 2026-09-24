@@ -116,9 +116,13 @@ def record(
     never replaces it) and confirmations accumulate across runs, so a range reaches the
     apply threshold only after repeated definitive answers.
     """
-    merge_from = [prior.empty_from] if prior else []
-    merge_through = [prior.empty_through] if prior else []
-    prior_n = prior.n_confirming_chunks if prior else 0
+    empty_from = min(window_start, observed.verified_from)
+    empty_through = observed.empty_through
+    n_confirming = observed.n_confirming_chunks
+    if prior is not None:
+        empty_from = min(empty_from, prior.empty_from)
+        empty_through = max(empty_through, prior.empty_through)
+        n_confirming += prior.n_confirming_chunks
     with conn.cursor() as cur:
         cur.execute(
             """
@@ -138,10 +142,10 @@ def record(
                 symbol,
                 timeframe,
                 provider,
-                min(window_start, observed.verified_from, *merge_from),
-                max(observed.empty_through, *merge_through),
+                empty_from,
+                empty_through,
                 observed.verified_from,
-                observed.n_confirming_chunks + prior_n,
+                n_confirming,
                 observed.reached_request_start,
             ),
         )

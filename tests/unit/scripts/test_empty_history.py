@@ -96,6 +96,18 @@ def test_record_merges_an_adjoining_prior_and_accumulates_confirmations():
     assert params[6] == 3  # 2 prior confirmations + 1
 
 
+def test_record_without_a_prior_range_stores_the_observed_range():
+    """The first record for a (symbol, timeframe) has nothing to merge with."""
+    conn = MagicMock()
+    cur = conn.cursor.return_value.__enter__.return_value
+    walk = EmptyHistory(_dt(2007, 4, 19), _dt(2015, 10, 27), 2, False)
+    eh.record(conn, "TMUS", "5m", "ibkr", _dt(2007, 4, 19), walk)
+    params = cur.execute.call_args.args[1]
+    assert params[3] == _dt(2007, 4, 19)
+    assert params[4] == _dt(2015, 10, 27)
+    assert params[6] == 2
+
+
 def test_record_head_stores_only_a_successful_lookup():
     conn = MagicMock()
     cur = conn.cursor.return_value.__enter__.return_value
