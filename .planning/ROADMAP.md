@@ -2897,7 +2897,7 @@ primitives, wire `earnings_season_flag` into `ic_engine.py` as a measurement-onl
 axis, and close the phase on a real `feature_ic_scores` FDR/walk-forward gate verdict.
 **Requirements**: ES-01, ES-02, ES-03, ES-04, ES-05, ES-06, ES-07, ES-08, ES-09
 **Depends on:** Phase 175
-**Plans:** 4/8 plans executed
+**Plans:** 8/8 plans complete
 
 Requirements:
 - ES-01 — `earnings_season_flag` computed from `bar_ts` at every `FeatureVector` construction site
