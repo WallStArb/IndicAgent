@@ -72,7 +72,7 @@ def test_smallest_adjusted_p_is_the_act_arm():
 
 
 def test_act_threshold_is_alpha_over_n_tested():
-    # 0.05 / 15 = 0.00333; 0.004 qualifies for PASS only.
+    # 0.05 / 17 = 0.00294; 0.004 qualifies for PASS only.
     out = _decide(_res([0.004, 0.2, 0.2]), holdout_excess={"ic_proportional": 1.0})
     assert out["sleeve_verdict"] == "PASS"
 
@@ -88,3 +88,9 @@ def test_safe_evaluate_turns_degenerate_null_into_broken():
 
     res, error = safe_evaluate(boom)
     assert res is None and "zero variance" in error
+
+
+def test_act_bar_uses_n_tested_17():
+    # 0.0031 was ACT-level at N=15 (0.00333) but not at N=17 (0.00294).
+    out = _decide(_res([0.0031, 0.2, 0.2]), holdout_excess={"ic_proportional": 1.0})
+    assert out["sleeve_verdict"] == "PASS"

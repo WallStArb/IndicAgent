@@ -40,6 +40,6 @@ def test_pinned_values_match_prereg():
         ("2017-01-01", "2020-12-31"),
         ("2021-01-01", "2025-12-23"),
     )
-    assert c.alpha == 0.05 and c.n_tested == 15
+    assert c.alpha == 0.05 and c.n_tested == 17
     assert c.min_positive_sub_periods == 2
     assert c.bootstrap_mean_block == 21

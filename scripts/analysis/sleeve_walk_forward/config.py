@@ -38,7 +38,8 @@ class HarnessConfig:
         ("2021-01-01", "2025-12-23"),
     )
     alpha: float = 0.05
-    n_tested: int = 15
+    # Ledger rows at the time of use (pre-reg 12.1): 14 + H-A + H-B verdicted 2026-09-24 + this test.
+    n_tested: int = 17
     min_positive_sub_periods: int = 2
     bootstrap_mean_block: int = 21
     bootstrap_reps: int = 2000

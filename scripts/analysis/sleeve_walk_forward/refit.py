@@ -121,9 +121,13 @@ def run_refit(
     cfg: HarnessConfig,
     excluded: frozenset[str],
     controls: frozenset[str] = frozenset(),
+    fidelity_window_end: np.datetime64 | None = None,
 ) -> RefitOutput:
     """excluded: removed before measurement (no IC rows). controls: measured like any feature
-    (their rows feed V5 and the BH family, as in production) but never selected or weighted."""
+    (their rows feed V5 and the BH family, as in production) but never selected or weighted.
+    fidelity_window_end (V4 only): train the way production's corpus run does, on every bar
+    up to that window end with the stored completeness flags and no embargo, so the rows can be
+    compared with production's feature_ic_scores. Never used for an out-of-sample refit."""
     config = ic_engine_config(snapshot.apr)
     raw = raw_apr(snapshot.apr)
     ens = EnsembleConfig.from_apr(raw)
@@ -131,7 +135,11 @@ def run_refit(
     cutoff = label_cutoff(snapshot.sessions, refit_date, cfg.embargo_sessions)
     refit_idx = cutoff + cfg.embargo_sessions
     start_idx = int(np.searchsorted(snapshot.sessions, np.datetime64(cfg.training_start)))
-    window_end = snapshot.sessions[cutoff - lookaheads[0] - 1]
+    window_end = (
+        snapshot.sessions[cutoff - lookaheads[0] - 1]
+        if fidelity_window_end is None
+        else fidelity_window_end
+    )
     run_ts = datetime.fromisoformat(str(refit_date)).replace(tzinfo=UTC)
     excluded_mask = np.array([f in excluded for f in snapshot.feature_names])
     cs_mask = snapshot.broadcast_mask | excluded_mask
@@ -143,8 +151,14 @@ def run_refit(
     n_embargo_excluded = 0
     for group_name in sorted(snapshot.groups):
         group = snapshot.groups[group_name]
-        keep, complete, n_excl = training_arrays(group, cutoff, lookaheads, start_idx, refit_idx)
-        assert_embargo(group.session_idx[keep], lookaheads, complete, cutoff)
+        if fidelity_window_end is None:
+            keep, complete, n_excl = training_arrays(
+                group, cutoff, lookaheads, start_idx, refit_idx
+            )
+            assert_embargo(group.session_idx[keep], lookaheads, complete, cutoff)
+        else:
+            keep = (group.session_idx >= start_idx) & (group.bar_ts <= fidelity_window_end)
+            complete, n_excl = group.complete[keep], 0
         n_embargo_excluded += n_excl
         if keep.any() and group.bar_ts[keep].max() >= refit_date:
             raise AssertionError(f"V6: {group_name} training row on or after {refit_date}")

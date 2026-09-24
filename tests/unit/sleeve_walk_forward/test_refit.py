@@ -235,3 +235,15 @@ def test_control_feature_is_measured_but_never_weighted(snap):
     out = run_refit(snap, snap.sessions[650], CFG, frozenset(), controls=frozenset({PLANTED[0]}))
     assert any(r["feature_name"] == PLANTED[0] for r in out.ic_rows)
     assert all(PLANTED[0] not in s.feature_names for s in out.strata.values())
+
+
+def test_fidelity_mode_trains_through_the_window_end_without_embargo(snap):
+    window_end = snap.sessions[649]  # later than the embargoed run's window (session 643)
+    out = run_refit(snap, snap.sessions[650], CFG, frozenset(), fidelity_window_end=window_end)
+    assert out.n_embargo_excluded == 0
+    assert {r["training_window_end"] for r in out.ic_rows} == {window_end}
+    # Production's rule: every bar up to the window end, with its stored completeness flags.
+    normal = run_refit(snap, snap.sessions[650], CFG, frozenset())
+    assert max(r["n_independent"] or 0 for r in out.ic_rows) >= max(
+        r["n_independent"] or 0 for r in normal.ic_rows
+    )
