@@ -49,7 +49,7 @@ close-or-park), target under 60 pending.
 | 178 Recompute throughput bundle | 399, 385 (prange layout); the rest of the bundle closed 2026-09-24 |
 | 179 Cross-asset sleeve walk-forward verdict | 393, 390 (408/409/410/418 closed 2026-09-24; V4 PASS; pre-registration: `docs/plans/2026-09-24-phase179-sleeve-walk-forward-prereg.md`) |
 | 180 Cross-asset breadth expansion | 384, 380 (tags into peer grouping, if 179/180 need it) |
-| 181 Construction track (active, parallel with 179) | H-A/H-B verdicted FAIL 2026-09-24; next: cross-TF divergence pre-registration |
+| 181 Construction track (active, parallel with 179) | 419 (TSMOM on the sleeve, next verdict), 420 (short-term reversal pre-registration); cross-TF divergence after them. H-A/H-B verdicted FAIL 2026-09-24 |
 
 ## P0 — Fix soon (integrity/correctness gaps already surfaced)
 
@@ -61,6 +61,8 @@ close-or-park), target under 60 pending.
 
 | Todo | Why now |
 |---|---|
+| [419](pending/419-phase181-tsmom-sleeve-signal-source.md) | New 2026-09-24. Phase 181 candidate 1: classic TSMOM on the 13-symbol sleeve through the phase 179 evaluator. Never tested (the 2026-09-13 screen measured a daily RSI). Parameter-free, so no refit and no dependence on 418. Fastest verdict available. |
+| [420](pending/420-phase181-short-term-reversal-prereg.md) | New 2026-09-24. Phase 181 candidate 2: short-term reversal on single names, market-neutral. Consistent in-sample hint (IC about -0.026, all splits) must be disclosed and its symbols/window excluded. Needs V2 at low persistence first. |
 | [412](pending/412-ic-engine-upstream-watermark-not-clamped-to-training-window-end.md) | New 2026-09-24. ic_engine's upstream watermark counts `feature_vectors`/`forward_returns` rows past `training_window_end`, so computing features for new bars invalidates every IC cell though no IC value can change. Blocks 411; land with the next planned full recompute, never mid-run. |
 | [411](pending/411-feature-vectors-and-regimes-stale-since-2026-08-10-nightly-job-refreshes-ohlcv-only.md) | New 2026-09-24. Features and regimes stale since 2026-08-10: the nightly job refreshes OHLCV only, and the streaming pipeline that computed features is down. Blocks the 179 holdout read, any forward shadow run and deployment. One-time catch-up after the current recompute finishes; automate after 412. |
 | [390](pending/390-illiq-series-unguarded-division-by-zero-dollar-volume.md) | **Re-tiered P2->P1 2026-09-24 (v3.4 phase 179: a divide by zero in a candidate feature can reach the weights; excluded from the harness until fixed).** New 2026-09-23, found closing todo 340. `_amihud_illiq_z_series_full`'s (`feature_factory.py:2284`) `dollar_vols` divisor floors the volume term but not the close-price term -- a genuine `close=0` bar (same root condition as todo 340's Flash Crash bar) divides by zero, degrading silently to `inf`/`nan` in a real persisted feature (`illiq`), not a canary. Confirmed live via a `RuntimeWarning` during the same IHF run that surfaced todo 340. Not fixed -- needs a floor matching `log_rets_abs`'s existing pattern, plus checking downstream NaN/None conventions before landing. |
