@@ -332,6 +332,14 @@ in-sample for production already, so it spends nothing.
   per-symbol pass is needed. Artifact `logs/phase179/v4b_20260924T193132Z.json`. Also observed:
   `high_bull` and `low_bull` select no features under either prior (few eligible pooled cells);
   their days get no alpha, which S2 counts per year.
+- **V3 power: PASS.** 200 seeds per level, 199 shifts each. The bisection calibration
+  overshot, so read power against the realized mean excess Sharpe, not the target: 69% PASS
+  (CI 63-75%) at realized excess 0.71 (target 0.6), 81% (CI 76-86%) at realized excess 0.85
+  (target 0.8). Above the 50%-at-0.8 floor and in line with section 9's estimate. Artifact
+  `logs/phase179/v3_7e989db35ab7d4e3.json`.
+- **N_tested is 17, not 15.** Section 8 pinned "the ledger's 14 plus this test"; the ledger's
+  own rule is to count rows at the time of use, and H-A and H-B were verdicted (both FAIL)
+  2026-09-24 before this test runs. ACT therefore needs adjusted p < 0.05/17 (0.0029).
 - **Deprecated-feature decision: moot.** `new_high_flag` and `new_low_flag` were deprecated by
   operator override with no gate metric and are no longer `FeatureVector` fields (migration 284
   tombstones), so they cannot enter the pool.

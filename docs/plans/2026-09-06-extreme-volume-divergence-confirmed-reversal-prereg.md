@@ -9,6 +9,13 @@ gap in shared testing machinery reaching beyond this doc — filed separately as
 See "H-B redesign (2026-09-09)" below for the full trail, including three of my own errors
 across the process, all recorded rather than quietly edited away.
 
+**RESULT 2026-09-24: both FAIL Track 1 on all five gated criteria.** H-A: family IC -0.0022
+(CI [-0.0051, +0.0005], null p 0.92), negative in all thirds; the reported 2-bar arm is
+entirely negative (weak continuation, the reverse of H-A), not claimable. H-B: IC +0.0007 (CI
+through zero, null p 0.37), 0/233 symbols qualify. Track 2 is not reached for either. Full
+numbers: `docs/research/construction-verdict-ledger.md` and
+`logs/extreme_volume/h_a_h_b_track1_20260924T201208Z.json`.
+
 **Update 2026-09-24:** todo 372's null fix was independently reviewed 2026-09-11 (AGY,
 verdict CORRECT; its two gaps fixed in cfc4a5b20), so the "Blocked as specified" note under
 Track 1 no longer applies. H-A's Track 1 script is written:
