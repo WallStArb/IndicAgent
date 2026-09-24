@@ -195,7 +195,7 @@ Every `BaseDaemon` subclass auto-inherits 5 mandatory OTel signals (D-26, non-ne
 
 ## Infrastructure
 
-- **Server:** `192.168.68.53` — Claude Code runs ON this machine; never SSH.
+- **Server:** `192.168.68.60` — Claude Code runs ON this machine; never SSH. DHCP-assigned (router reassigns on lease expiry — was `.53` until the 2026-09-23 power outage; `.53` is now another device). Runtime configs are all `localhost`, so only docs/bookmarks break on a change; a router DHCP reservation would pin it.
 - **IBKR Gateway:** Docker (`ib-gateway` container), bound to `127.0.0.1:7497`. All ib_async in `src/providers/ibkr.py` only. VIX=`"VX"`, client IDs 35+.
 - **Redpanda**: Kafka-compatible. Topics: dots, via `stream_keys.py`. Retention: minimal (transport, not storage).
 - **Contracts**: always `get_active_contracts()` — never hardcode. Restart daemons on futures expiry.

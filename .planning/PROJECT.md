@@ -263,7 +263,7 @@ Alpha must be demonstrated empirically before any ensemble weight is assigned. I
 - `ensemble_alpha`: per-bar alpha scores; gates → `alpha_events` + `alpha.events` Kafka topic
 - Services: `indicagent-ensemble-trainer` (oneshot), `indicagent-alpha-publisher` (oneshot)
 
-**Infrastructure:** Ollama (:11434, `nemotron-3-nano:4b` default), PostgreSQL/TimescaleDB (:5432), Redpanda, IBKR TWS at 192.168.68.53:7497 (Docker `ib-gateway`)
+**Infrastructure:** Ollama (:11434, `nemotron-3-nano:4b` default), PostgreSQL/TimescaleDB (:5432), Redpanda, IBKR TWS at localhost:7497 (Docker `ib-gateway`, bound to `127.0.0.1`)
 
 **Pending after corpus completes:**
 - Regenerate IC discovery report (`services/generate_ic_discovery_report.py`)

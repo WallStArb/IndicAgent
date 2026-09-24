@@ -29,7 +29,7 @@ latency distribution and RAM footprint, then cleans up the rows. It is idempoten
 
 ## Latency Measurement (2026-06-06)
 
-Measured on the production host (192.168.68.53) against a live TimescaleDB instance with
+Measured on the production host (192.168.68.53 at measurement time; .60 as of 2026-09-23) against a live TimescaleDB instance with
 an empty `memory_episodes_labeled` table (100 BENCH rows seeded for the run).
 1000 calls, fake embed mode (HNSW+rerank isolation).
 
