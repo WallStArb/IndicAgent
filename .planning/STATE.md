@@ -256,6 +256,6 @@ duplicated here. Currently open/not-yet-planned phases, compressed to current st
 
 ## Session
 
-Last session: 2026-09-24 (ended ~01:00 UTC 09-25). Built 179 steps 4-5 and most of 6; ran V2,
+Last session: 2026-09-24 (ended late UTC). Built 179 steps 4-5 and most of 6; ran V2,
 V3, V4b, V4 and the H-A/H-B Track 1 run. Resume at todo 418 (V4 row-set diff), then V5 and the
 freeze.
