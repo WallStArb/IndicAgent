@@ -1,6 +1,6 @@
 ---
 status: pending
-priority: P1
+priority: P2
 filed: 2026-09-09
 source: AGY adversarial review round 3 of the H-B ("confirmed_reversal") redesign
   (docs/plans/2026-09-06-extreme-volume-divergence-h-b-redesign-fable.md), two findings

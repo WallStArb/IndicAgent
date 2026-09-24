@@ -1,5 +1,6 @@
 ---
-status: pending
+status: closed
+closed: 2026-09-24
 priority: P2
 filed: 2026-09-07
 updated: 2026-09-07
@@ -94,3 +95,12 @@ this todo's actual finding** (the guard still fires only after whole-cell materi
 future cell large enough to OOM before reaching even a generously-raised ceiling will hit the
 exact same failure mode this todo describes). Still open, still needs a real design decision
 (pre-flight estimate / subsample / disk-streaming / bigger box, per the options above).
+
+## Closure (2026-09-24, PRIORITIES cleanup)
+
+Closed as its sibling todo 386 directed ("close todo 371 at the same time") but never recorded.
+The OOM is fixed by Phase 174-05's disk-backed accumulator (5m high_bear completed 2026-09-21 at
+~12 GB peak anonymous memory), and the pre-materialization guard this todo asked for shipped with
+386 in migration 353: `_count_cross_sectional_cell_rows` gives an exact row count before any fetch,
+driving the `alpha.ic.max_cell_rows` check (back to 15M), the disk-backed decision and the headroom
+check. The 176-08 corpus run completed under it.

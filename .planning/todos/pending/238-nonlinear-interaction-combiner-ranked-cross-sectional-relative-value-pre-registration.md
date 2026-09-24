@@ -1,6 +1,6 @@
 ---
 status: pending
-priority: P1
+priority: P2
 filed: 2026-08-03
 source: user-directed rigor review of Edge Source Thesis cross_sectional_relative_value/nonlinear_interaction_combiner next steps -- explicitly asked
   to apply Renaissance/Simons-council-level scrutiny before proceeding, which surfaced that

@@ -1,6 +1,6 @@
 ---
 status: pending
-priority: P1
+priority: P2
 filed: 2026-07-21
 source: found while fixing todo (restore-symbol-hmm-ic-measurement, unblocks Phase 144's
   D-05 gate) -- the same silent-suppression mechanism affects the equity regime group too,

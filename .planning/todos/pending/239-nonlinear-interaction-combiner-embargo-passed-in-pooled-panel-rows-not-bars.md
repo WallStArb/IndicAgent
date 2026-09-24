@@ -1,6 +1,6 @@
 ---
 status: pending
-priority: P1
+priority: P2
 filed: 2026-08-03
 source: rigor review of `docs/research/data-edge-source-thesis.md` -- verifying the doc's
   claimed "24-bar embargo" against the code that implements it

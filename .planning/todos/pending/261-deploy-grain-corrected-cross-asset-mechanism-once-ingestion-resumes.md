@@ -1,6 +1,6 @@
 ---
 status: pending
-priority: P1
+priority: P2
 found_during: phase-151-plan-09
 found_date: 2026-08-05
 ---

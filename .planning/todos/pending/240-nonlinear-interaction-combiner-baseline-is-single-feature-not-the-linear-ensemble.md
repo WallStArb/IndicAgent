@@ -1,6 +1,6 @@
 ---
 status: pending
-priority: P1
+priority: P2
 filed: 2026-08-03
 source: rigor review of `docs/research/data-edge-source-thesis.md` -- checking each result
   against the falsification criterion that was pre-registered for it

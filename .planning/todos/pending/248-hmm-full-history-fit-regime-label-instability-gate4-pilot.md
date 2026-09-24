@@ -1,6 +1,6 @@
 ---
 status: pending
-priority: P1
+priority: P2
 filed: 2026-08-03
 source: todo 026's P4a decision gate ("validate the practical impact first"), open since
   2026-06-28 and never tested until today -- retired out of 026 into its own todo because 026 is
