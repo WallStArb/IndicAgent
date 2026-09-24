@@ -75,6 +75,7 @@ close-or-park), target under 60 pending.
 
 | Todo | Why now |
 |---|---|
+| [417](pending/417-ic-shrinkage-oof-gate-dies-on-idle-session-timeout.md) | New 2026-09-24. ops_ic_shrinkage's out-of-fold gate held a connection across a ~1h compute and hit the 1h idle-session timeout, so the gate was not re-verified on the Phase 178 IC (ic_input already ic_shrunk). Short-lived connections, then re-run the gate. |
 | [414](pending/414-regime-shift-guard-common-mode-power-normalized-statistic.md) | New 2026-09-24 (407 closure). Replace the guard's power-confounded fail fraction with a median standardized IC change across features per stratum (common-mode = dislocation), null-calibrated. Pre-register before a second training window exists. |
 | [415](pending/415-feature-lifecycle-inert-with-one-pinned-training-window.md) | New 2026-09-24 (407 closure). The lifecycle needs >= 2 training windows to transition anything; decide window cadence (walk-forward, never reading the holdout) with Phase 179/180. |
 | [413](pending/413-integration-suite-scratch-db-build-fails-on-migration-322.md) | New 2026-09-24. Integration conftest's scratch-DB build fails applying migration 322 (vocabulary FK: `(timeframe, 1m)` missing), and the fixture is autouse, so all of tests/integration/ errors at setup and gives no signal. |
