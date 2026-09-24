@@ -58,3 +58,21 @@ Data: `feature_ic_scores`, `training_window_end = '2025-12-24 05:15:00+00'`, rea
 
 - Whether earnings-season rows already persisted stay. They stay (never drop measured data).
 - Whether conditioning on a different calendar primitive would sharpen. Out of scope.
+
+## Verdict (run 2026-09-24, after the pre-registration commit df8cea78b)
+
+Script: `scripts/analysis/earnings_season_conditioning_null_controlled.py`, read-only against
+window 2025-12-24 05:15 UTC.
+
+- 682 (feature, tf) units have usable triples; 249 are eligible (at least 10 triples).
+- Median over units of the unit `median(z)`: 5m -0.011, 15m -0.032, 1h +0.011, 1d -0.290. The
+  central tendency is null in every tf, so the result is not only the bound's conservatism.
+- In-season arm: 0 of 249 units BY-significant. Strongest: `bars_since_52w_low` 1h, median z
+  +2.12 on 12 triples, p bound 0.034, far from the BY threshold.
+- Mirror arm: 0 of 249. Strongest: `up_vol_ratio_fast` 1d, +2.49, p bound 0.013.
+- Of 176-08's six qualifying features, only `trend_direction` 1h reaches the in-season top 15
+  (median z +0.62, 10 triples); none comes near significance.
+
+**CONDITIONING_VERDICT=NOT_SHARPENED.** `alpha.ic.earnings_season_conditioned` is set to `false`
+by migration 359, rollback token `DISABLED`. The 176-08 SHARPENS token stands as what the old
+rule returned; this rule supersedes it for the APR decision.
