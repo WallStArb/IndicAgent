@@ -1,6 +1,6 @@
 ---
 status: pending
-priority: P1
+priority: P2
 filed: 2026-09-24
 source: Phase 176-08 gate verdict, Query 3
 ---
@@ -29,3 +29,14 @@ or the run_ts, so a recompute that changed the evidence re-evaluates lifecycle w
 resume of the same run still no-ops. Then re-run only the hook for the current window (no IC
 recompute needed; it reads persisted `feature_ic_scores`). Never hand-edit
 `concept_registry.status` (UCR Invariant 1).
+
+## Superseded fix direction (2026-09-24)
+
+The "Fix direction" above is wrong: it would count code recomputes of one pinned window as
+independent observations and break the demotion/promotion hysteresis. The measured state also
+shows the two Phase 176 features are correctly `active` under the materiality rule (zero
+weight means they can never be a material failure) and already excluded from weight by the
+per-cell gate, so this is not P1. Replacement design, with the measurements:
+`docs/plans/2026-09-24-feature-lifecycle-evidence-ledger-design.md` (append-only
+`concept_evaluation` ledger, status as a pure function of it, lifecycle extracted into its
+own `feature_lifecycle` DAG node, governance state removed from `feature_ic_scores`).
