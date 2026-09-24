@@ -192,6 +192,7 @@ division, `feature_factory.py:2284`).)
 
 ## P1 — High value, quick, fully unblocked
 
+| [402](pending/402-ic-engine-lifecycle-hook-guard-keyed-on-window-only.md) | New 2026-09-24, found by 176-08 Query 3. The post-run lifecycle hook's idempotency check keys on `training_window_end` alone, and `oos_start` pins the window, so no recompute since 2026-07-22 has re-evaluated feature lifecycle; both Phase 176 primitives fail the gate yet stay `active`. Key the guard on the run's evidence identity, then re-run only the hook. |
 | [401](pending/401-ic-engine-x-nd-column-wise-memmap-fill-write-amplification.md) | New 2026-09-24, diagnosed live on the 176-08 run. `_build_column_wise_x_nd` fills a row-major memmap one column at a time, so default kernel writeback rewrites the whole file per column: 710 GB written in 18 min for a 9.5 GB X_nd. Very likely the real cause of the previous 11.5h cross-sectional stage. Mitigated for 176-08 with a runtime sysctl; fix is a row-block fill (exact copy). Land with the next recompute (389/399). |
 
 | [395](pending/395-nightly-backfill-fails-3-nights-weekly-ibkr-weekly-2fa-unattended.md) | New 2026-09-23, found during post-power-outage recovery. Nightly backfill failed Mon-Wed of both of the last two weeks (IBKR connect timeout) after the weekly IBKR logout left the gateway waiting on an unattended 2FA tap; ~3-day OHLCV gap every week. Nobody saw it because `OneshotJobFailed` routes to a no-op Alertmanager receiver (since 2026-08-15). Fix the receiver first, then a gateway-auth probe and backfill retry. |
@@ -213,6 +214,7 @@ division, `feature_factory.py:2284`).)
 
 ## P2 — Real value, not urgent
 
+| [403](pending/403-earnings-season-conditioning-re-decision-null-controlled.md) | New 2026-09-24. 176-08's conditioning rule returned SHARPENS on thin support (1-10 triples per qualifying cell, population ratio about 1.0), so `alpha.ic.earnings_season_conditioned` stays `true` and taxes every corpus run. Re-decide with a pre-registered min-N and size-matched null against the persisted 176-08 rows before the next full run. |
 | [399](pending/399-ic-engine-main-process-holds-all-symbol-rows-until-fdr.md) | New 2026-09-23, measured during the 176-08 run: ic_engine's main process keeps every symbol's full result rows until corpus-level FDR, about 58 MB/symbol (1.2 -> 4.1 GB over 55 symbols). Survivable at 233 via swap; about 58 GB at 1000+ symbols, so it blocks the breadth expansion. Keep only pending FDR keys and update by key. Land with the next recompute-forcing change. |
 
 **387 (nightly backfill's detect_gaps() cost scaling + missing staleness gauge)** -- new
