@@ -66,6 +66,7 @@ def harness(tmp_path, monkeypatch):
     snap = _e2e_snapshot()
     monkeypatch.setattr(run, "CONFIG", CFG)
     monkeypatch.setattr(run, "load_snapshot", lambda _path: snap)
+    monkeypatch.setattr(run, "verify_snapshot", lambda _path: None)  # fixture is not on disk
     (tmp_path / "snapshot_fixture").mkdir()
     excluded = tmp_path / "excluded.json"
     excluded.write_text("[]")

@@ -35,7 +35,11 @@ from scripts.analysis.sleeve_walk_forward.evaluate import evaluate
 from scripts.analysis.sleeve_walk_forward.refit import run_refit
 from scripts.analysis.sleeve_walk_forward.score import forward_returns, score_panel
 from scripts.analysis.sleeve_walk_forward.sessions import refit_dates
-from scripts.analysis.sleeve_walk_forward.snapshot import build_snapshot, load_snapshot
+from scripts.analysis.sleeve_walk_forward.snapshot import (
+    build_snapshot,
+    load_snapshot,
+    verify_snapshot,
+)
 from scripts.analysis.sleeve_walk_forward.synthetic import run_v2, run_v3
 from scripts.analysis.sleeve_walk_forward.verdict import decide, safe_evaluate
 from services._batch_utils import make_worker_pool
@@ -116,6 +120,7 @@ def _stage_s1(args: argparse.Namespace) -> Path:
     if args.excluded_file is None:
         sys.exit("--excluded-file is required for s1 (pre-registration section 5)")
     excluded = frozenset(json.loads(Path(args.excluded_file).read_text()))
+    verify_snapshot(Path(args.input))
     snap = load_snapshot(Path(args.input))
     dates = refit_dates(snap.sessions, CONFIG.refit_years)
     jobs = [(str(args.input), d, excluded) for d in dates]

@@ -106,3 +106,12 @@ def test_evaluate_reports_diagnostics_for_real_and_null_median():
     for arm in res.arms:
         assert set(res.diagnostics[arm]) == {"observed", "null_median"}
         assert "sortino" in res.diagnostics[arm]["observed"]
+
+
+def test_trade_mask_is_bounded_by_the_last_sub_period():
+    from scripts.analysis.sleeve_walk_forward.evaluate import trade_mask
+
+    dates = np.array(
+        ["2000-05-31", "2000-06-01", "2001-12-31", "2002-01-02"], dtype="datetime64[D]"
+    )
+    assert trade_mask(dates, CFG).tolist() == [False, True, True, False]

@@ -75,6 +75,14 @@ def shape_diagnostics(r: np.ndarray) -> dict[str, float]:
     }
 
 
+def trade_mask(dates: np.ndarray, cfg: HarnessConfig) -> np.ndarray:
+    """Sessions in the scored span: trading_start through the last sub-period's end. The panel's
+    last sessions have no forward return and must not enter the Sharpe as zero-return days."""
+    return (dates >= np.datetime64(cfg.trading_start)) & (
+        dates <= np.datetime64(cfg.sub_periods[-1][1])
+    )
+
+
 def _run_shifts(
     alpha: np.ndarray,
     fwd_ret: np.ndarray,
@@ -108,7 +116,7 @@ def evaluate(
     workers: int = 1,
 ) -> EvaluationResult:
     n = alpha.shape[0]
-    trade = dates >= np.datetime64(cfg.trading_start)
+    trade = trade_mask(dates, cfg)
     plan = plan_covariance(closes, cfg, mv_condition_max)
     obs = arm_returns(alpha, fwd_ret, plan, cfg, ic_shrinkage_k)
     obs_daily = np.stack([obs[arm] for arm in ARMS])

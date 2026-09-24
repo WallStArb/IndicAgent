@@ -33,6 +33,10 @@ def score_panel(
     alpha = np.full((n, m), np.nan)
     counts: dict[int, dict[str, int]] = defaultdict(lambda: dict.fromkeys(REASONS, 0))
     starts = np.searchsorted(sessions, np.array(refit_dates))
+    if (starts >= len(sessions)).any() or (
+        sessions[np.minimum(starts, len(sessions) - 1)] != np.array(refit_dates)
+    ).any():
+        raise ValueError("every refit date must be a session: no day is scored before its refit")
     stops = np.append(starts[1:], np.searchsorted(sessions, end, side="right"))
     for refit, lo, hi in zip(refits, starts, stops):
         for d in range(lo, hi):

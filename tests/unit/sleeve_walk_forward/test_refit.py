@@ -88,7 +88,9 @@ def test_embargo_marks_late_labels_incomplete():
         complete=np.ones((20, 4), bool),
         labels=np.array(["x"] * 20),
     )
-    keep, complete, n_excl = training_arrays(g, cutoff=15, lookaheads=[1, 2, 5, 10], start_idx=0)
+    keep, complete, n_excl = training_arrays(
+        g, cutoff=15, lookaheads=[1, 2, 5, 10], start_idx=0, refit_idx=14
+    )
     # h=1 exit is t+2: last kept row is t=13.
     assert keep.nonzero()[0].max() == 13
     # t=10 trains h=1,2 (exits 12, 13) but not h=5,10 (exits 16, 21).
@@ -208,3 +210,22 @@ def test_embargo_assert_rejects_exits_and_unsorted_lookaheads():
     with pytest.raises(AssertionError, match="ascending"):
         assert_embargo(t, [2, 1, 5, 10], np.array([[True, False, False, False]]), cutoff=13)
     assert_embargo(t, [1, 2, 5, 10], np.array([[True, True, False, False]]), cutoff=13)
+
+
+def test_embargo_count_includes_rows_dropped_whole():
+    g = GroupArrays(
+        symbols=np.array(["A"] * 25),
+        bar_ts=np.arange(25).astype("datetime64[D]"),
+        session_idx=np.arange(25),
+        X=np.zeros((25, 1), np.float32),
+        returns=np.zeros((25, 4)),
+        complete=np.ones((25, 4), bool),
+        labels=np.array(["x"] * 25),
+    )
+    _k, _c, n_excl = training_arrays(
+        g, cutoff=15, lookaheads=[1, 2, 5, 10], start_idx=0, refit_idx=20
+    )
+    partial = sum(int(t + h + 1 > 15) for t in range(14) for h in (1, 2, 5, 10))
+    # Rows 14..19 fall between the h=1 cutoff and the refit date: every scale is embargoed.
+    # Rows 20.. are on or after the refit date, not embargo exclusions.
+    assert n_excl == partial + 6 * 4

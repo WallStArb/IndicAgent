@@ -111,3 +111,10 @@ def test_forward_returns_missing_open_is_nan():
 
     fwd = forward_returns(np.array([[100.0], [np.nan], [103.0], [102.0]]))
     assert np.isnan(fwd[0, 0]) and np.isfinite(fwd[1, 0])
+
+
+def test_refit_date_off_the_session_axis_raises():
+    refits, features, has_row, labels = _inputs()
+    moved = [_refit("2011-01-02", refits[0].strata), refits[1]]
+    with pytest.raises(ValueError, match="session"):
+        _score(moved, features, has_row, labels)

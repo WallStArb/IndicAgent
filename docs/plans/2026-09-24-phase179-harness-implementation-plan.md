@@ -648,14 +648,14 @@ dropped earnings-season clause) were caught by the tests written after.
 
 ### Before the freeze (step 7), from the final review's minor findings
 
-- [ ] Bound the S3 trade mask by the last sub-period end (the last two sessions' NaN forward
+- [x] Bound the S3 trade mask by the last sub-period end (the last two sessions' NaN forward
       returns currently enter the Sharpe as zero-return days).
-- [ ] Count whole rows dropped at the h=1 cutoff in `n_embargo_excluded`.
-- [ ] Runtime assert in `score.py`: no scored day before its refit date.
-- [ ] `_LABELS_SQL`: assert one label per (group, day).
-- [ ] `load_snapshot`: re-verify the directory hash (at least in s1).
+- [x] Count whole rows dropped at the h=1 cutoff in `n_embargo_excluded`.
+- [x] Runtime assert in `score.py`: no scored day before its refit date.
+- [x] `_LABELS_SQL`: assert one label per (group, day).
+- [x] `load_snapshot`: re-verify the directory hash (at least in s1).
 - [ ] Pin in the addendum: the BH family excludes production's 1d POOLED `earnings_season`
       cells; V6 wording (section 10 vs section 6); `n_rows_off_session` count.
-- [ ] Hygiene: read `fdr_alpha` from `ICEngineConfig`; hoist `group.X[keep]` out of the label loop.
+- [x] Hygiene: read `fdr_alpha` from `ICEngineConfig`; hoist `group.X[keep]` out of the label loop.
 - [x] Section 11 shape diagnostics per arm (Sortino, max drawdown, skew, excess kurtosis, hit
       rate), real run and null median, in the S3 payload; reported only, never read by `decide`.

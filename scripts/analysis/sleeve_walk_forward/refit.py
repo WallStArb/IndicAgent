@@ -88,14 +88,18 @@ def eligible(row: dict, sign_symmetric: bool, *, require_fdr: bool = True) -> bo
 
 
 def training_arrays(
-    group: GroupArrays, cutoff: int, lookaheads: list[int], start_idx: int
+    group: GroupArrays, cutoff: int, lookaheads: list[int], start_idx: int, refit_idx: int
 ) -> tuple[np.ndarray, np.ndarray, int]:
-    """(row mask, complete matrix, n_embargo_excluded) for one group at one refit."""
+    """(row mask, complete matrix, n_embargo_excluded) for one group at one refit.
+    n_embargo_excluded counts (row, scale) labels the embargo removed: scales cut from kept rows,
+    plus every scale of rows between the h=1 cutoff and the refit date."""
     t = group.session_idx
-    keep = (t >= start_idx) & (t + lookaheads[0] + 1 <= cutoff)
+    in_span = (t >= start_idx) & (t < refit_idx)
+    keep = in_span & (t + lookaheads[0] + 1 <= cutoff)
     exits_ok = np.stack([t[keep] + h + 1 <= cutoff for h in lookaheads], axis=1)
     complete = group.complete[keep] & exits_ok
-    n_excluded = int((group.complete[keep] & ~exits_ok).sum())
+    dropped = in_span & ~keep
+    n_excluded = int((group.complete[keep] & ~exits_ok).sum() + group.complete[dropped].sum())
     return keep, complete, n_excluded
 
 
@@ -122,6 +126,7 @@ def run_refit(
     ens = EnsembleConfig.from_apr(raw)
     lookaheads = [config.lookaheads_for(_TF)[s] for s in ("fast", "mid", "slow", "extended")]
     cutoff = label_cutoff(snapshot.sessions, refit_date, cfg.embargo_sessions)
+    refit_idx = cutoff + cfg.embargo_sessions
     start_idx = int(np.searchsorted(snapshot.sessions, np.datetime64(cfg.training_start)))
     window_end = snapshot.sessions[cutoff - lookaheads[0] - 1]
     run_ts = datetime.fromisoformat(str(refit_date)).replace(tzinfo=UTC)
@@ -135,16 +140,17 @@ def run_refit(
     n_embargo_excluded = 0
     for group_name in sorted(snapshot.groups):
         group = snapshot.groups[group_name]
-        keep, complete, n_excl = training_arrays(group, cutoff, lookaheads, start_idx)
+        keep, complete, n_excl = training_arrays(group, cutoff, lookaheads, start_idx, refit_idx)
         assert_embargo(group.session_idx[keep], lookaheads, complete, cutoff)
         n_embargo_excluded += n_excl
         if keep.any() and group.bar_ts[keep].max() >= refit_date:
             raise AssertionError(f"V6: {group_name} training row on or after {refit_date}")
         labels = group.labels[keep]
+        X_kept, returns_kept, bar_ts_kept = group.X[keep], group.returns[keep], group.bar_ts[keep]
         for label in sorted({x for x in labels if x}):
             m = labels == label
-            X_raw = np.ascontiguousarray(group.X[keep][m], dtype=np.float32)
-            returns_mat = group.returns[keep][m]
+            X_raw = np.ascontiguousarray(X_kept[m], dtype=np.float32)
+            returns_mat = returns_kept[m]
             complete_mat = complete[m]
             rng = np.random.default_rng(
                 ic_engine._derive_worker_rng_seed(
@@ -165,7 +171,7 @@ def run_refit(
                 label, prior_e_values={}, broadcast_mask=cs_mask, **common
             )
             bcell, _ = ic_engine._compute_one_broadcast_cell(
-                label, bar_ts_arr=group.bar_ts[keep][m], broadcast_mask=bc_mask, **common
+                label, bar_ts_arr=bar_ts_kept[m], broadcast_mask=bc_mask, **common
             )
             cell_rows = cell + bcell
             cell_pvals: list[float] = []
@@ -176,7 +182,7 @@ def run_refit(
             rows += cell_rows
 
     if pvals:
-        reject, p_corr = apply_bh_fdr(pvals, alpha=float(raw.get("alpha.ic.fdr_alpha", "0.05")))
+        reject, p_corr = apply_bh_fdr(pvals, alpha=config.fdr_alpha)
         for i, idx in enumerate(rep_idx):
             rows[idx]["bh_adjusted_p"] = float(p_corr[i])
             rows[idx]["passes_fdr"] = bool(reject[i])

@@ -156,6 +156,22 @@ async def build_snapshot(
     return _write(Path(out_dir), arrays, meta)
 
 
+def _labels_by_session(sessions: np.ndarray, label_rows: list, group: str) -> np.ndarray:
+    """One market_regimes label per session for `group`, "" where none; a second label for the
+    same (group, day) raises rather than resolving in fetch order."""
+    labels = np.full(len(sessions), "", dtype=object)
+    for grp, ts, label in label_rows:
+        if grp != group:
+            continue
+        day = _day(ts)
+        i = int(np.searchsorted(sessions, day))
+        if i < len(sessions) and sessions[i] == day:
+            if labels[i]:
+                raise ValueError(f"duplicate market_regimes label for {group} on {day}")
+            labels[i] = label
+    return labels.astype(str)
+
+
 def _numeric(block: np.ndarray, dtype: type) -> np.ndarray:
     """Object block from asyncpg rows -> float array, None -> NaN."""
     return np.where(block == None, np.nan, block).astype(dtype)  # noqa: E711
@@ -185,13 +201,7 @@ def _assemble(sessions, universe, feature_rows, sleeve, bar_rows, label_rows, ro
     arrays["all_session_idx"] = idx[order]
     arrays["all_group"] = np.array([routing.get(s, "") for s in arrays["all_symbol"]])
     for g in sorted({v for v in routing.values()}):
-        labels = np.full(len(sessions), "", dtype=object)
-        for grp, ts, label in label_rows:
-            if grp == g:
-                i = np.searchsorted(sessions, _day(ts))
-                if i < len(sessions) and sessions[i] == _day(ts):
-                    labels[i] = label
-        arrays[f"labels_{g}"] = labels.astype(str)
+        arrays[f"labels_{g}"] = _labels_by_session(sessions, label_rows, g)
     arrays["sessions"] = sessions
     sym_pos = {s: j for j, s in enumerate(sleeve)}
     sleeve_rows = np.isin(arrays["all_symbol"], list(sleeve))
@@ -224,22 +234,34 @@ def _assemble(sessions, universe, feature_rows, sleeve, bar_rows, label_rows, ro
     return arrays, manifest
 
 
+def _digest(directory: Path, names: list[str]) -> str:
+    digest = hashlib.sha256()
+    for name in names:
+        digest.update(name.encode())
+        digest.update((directory / f"{name}.npy").read_bytes())
+    digest.update((directory / "meta.json").read_bytes())
+    return digest.hexdigest()
+
+
 def _write(out_dir: Path, arrays: dict[str, np.ndarray], meta: dict) -> Path:
     tmp = out_dir / "snapshot_tmp"
     shutil.rmtree(tmp, ignore_errors=True)
     tmp.mkdir(parents=True)
-    digest = hashlib.sha256()
     for name in sorted(arrays):
         np.save(tmp / f"{name}.npy", arrays[name], allow_pickle=False)
-        digest.update(name.encode())
-        digest.update((tmp / f"{name}.npy").read_bytes())
-    meta_text = json.dumps(meta, sort_keys=True, default=str)
-    digest.update(meta_text.encode())
-    (tmp / "meta.json").write_text(meta_text)
-    final = out_dir / f"snapshot_{digest.hexdigest()[:16]}"
+    (tmp / "meta.json").write_text(json.dumps(meta, sort_keys=True, default=str))
+    final = out_dir / f"snapshot_{_digest(tmp, sorted(arrays))[:16]}"
     shutil.rmtree(final, ignore_errors=True)
     tmp.rename(final)
     return final
+
+
+def verify_snapshot(path: Path) -> None:
+    """Recompute the content hash and compare it with the directory name."""
+    path = Path(path)
+    names = sorted(p.stem for p in path.glob("*.npy"))
+    if not path.name.endswith(_digest(path, names)[:16]):
+        raise ValueError(f"snapshot hash mismatch: {path} was modified after it was written")
 
 
 def load_snapshot(path: Path) -> Snapshot:
