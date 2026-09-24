@@ -9,6 +9,18 @@ gap in shared testing machinery reaching beyond this doc — filed separately as
 See "H-B redesign (2026-09-09)" below for the full trail, including three of my own errors
 across the process, all recorded rather than quietly edited away.
 
+**Update 2026-09-24:** todo 372's null fix was independently reviewed 2026-09-11 (AGY,
+verdict CORRECT; its two gaps fixed in cfc4a5b20), so the "Blocked as specified" note under
+Track 1 no longer applies. H-A's Track 1 script is written:
+`scripts/analysis/extreme_volume_divergence_track1.py` (every quantity as pinned below; the
+date panel it uses is `scripts/analysis/_date_panel.py`, extracted from the residual diagnostic
+with a NaN-aware Spearman so the event-defined statistic sits on the full dense panel the null
+requires). Rulings made writing it: universe = every symbol with 15m `feature_vectors` rows
+before `oos_start` (233); family = symbols with >= 100 finite (statistic, return) rows; the
+calendar key is the UTC date (a 15m session sits inside one UTC day); diurnal windows by bar
+open time in New York. Not yet run on the full panel: it waits for the Phase 178 recompute to
+free the box. H-B's script is not written yet.
+
 **Update 2026-09-10:** the compute blocker has cleared — the corpus `ic_engine` recompute
 this doc's own "Not yet done" section was waiting on completed clean 2026-09-10 (all 8
 pipeline steps, see `project_corpus_pipeline_state` memory). **todo 372's null-shift bug is
