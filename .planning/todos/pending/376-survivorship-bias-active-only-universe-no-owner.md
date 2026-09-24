@@ -1,6 +1,6 @@
 ---
 status: pending
-priority: P2
+priority: P1
 filed: 2026-09-13
 source: adversarial council review of the personal-scale edge determination program's fired
   kill criterion (`.planning/STATE.md` Strategic Plan section, 2026-09-13) -- flagged as "the

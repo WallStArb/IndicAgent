@@ -111,33 +111,14 @@ diagnostic run 2026-09-17 through 2026-09-22; next-step chain at the end of this
   built for this project's exact methodology. Evaluate any future tool this way — gap-fit
   against already-built work, not a build-vs-buy default in either direction.
 
-**Next-step chain to the next expansion phase (not yet scoped):**
-
-1. Phase 176 done 2026-09-24 (176-08's corpus run completed; both primitives FAIL the gate).
-   The next required recompute is the one the optimization bundle below keys on.
-
-2. **One bundled landing immediately after 176-08** (the whole-dict `active_scales` fingerprint
-   key and any ic_engine.py edit each invalidate every cell, so these must land together and be
-   absorbed by an already-required run — never standalone mid-cycle): todo 389 (short-horizon
-   cell deletion, pre-registered, ~31% of per-symbol cells), todo 386 (exact pre-flight cell
-   count, restore `alpha.ic.max_cell_rows` to 15M; closes 371), and prange adoption with a
-   worker-count x numba-threads layout decision (todo 385 lever 2, 10.77-13.12x measured,
-   ~1.5-2x end-to-end after layout). Combined estimate: full recompute ~3.1-3.5 days ->
-   ~1.1-1.2 days at 233 symbols.
-
-3. Todos 384 (security classification hierarchy; build trigger already fired — recommend
-   folding the build into the expansion phase itself so point-in-time classification history
-   starts with the first new onboarding batch) and 376 (survivorship-bias data sourcing;
-   answer before the expansion locks a sourcing method, or the all-active selection bias gets
-   perpetuated).
-
-5. Todo 380's consumer-cutover decision (materiality-filtered empirical tags into live
-   breadth/peer-grouping) — gated on the Phase 175 shadow report; seeded thresholds currently
-   admit 0 symbols, so gather recalibration evidence first.
-
-6. Scope the next expansion phase mechanically: pre-registered selection rule plus a
-   D-10-style decorrelation gate, sized against the measured recompute budget, per the
-   standing long-term direction (maximal coverage scaled against compute).
+**Current position (2026-09-24): milestone v3.4 Edge Proof set, phases 177-181.** Sequence and
+rationale live only in `docs/plans/2026-09-24-edge-proof-program.md` (ROADMAP's "Planned Phases"
+table mirrors it). Phase 176 closed (both primitives FAIL). Phase 178's bundle (todos
+401/389/386/399 + prange) is in flight in the `ic-engine-bundle-post-176` worktree. Phases 177
+and 179 not started; 179 starts with its pre-registration. The cross-asset diagnostic's Sharpe
+~1.19 is mostly in-sample for the ensemble weights (fitted through 2025-12-24, scored
+2018-2026) and was compared against a long-only, signal-free arm; don't cite it as edge
+evidence until 179 lands.
 
 **Open items, not construction verdicts:**
 
@@ -265,13 +246,7 @@ duplicated here. Currently open/not-yet-planned phases, compressed to current st
 
 ## Session
 
-Last session: 2026-09-23T16:16:43Z
-Stopped at: context exhaustion at 77% (2026-09-23). Landed before stopping: todo 388 closed
-stale (turnover reporting shipped with the diagnostic all along; dead `l1_turnover` deleted;
-commit `3903892d1`, pushed), todo 393 filed (portfolio diagnostic cost proxy semantically
-wrong, spec-update-first), duplicate todo 389 renumbered to 392, todo 394 filed (todo-number
-uniqueness not CI-enforced). Deferred to next session: the 233/255 `compute_eligible`
-reconciliation (blocked on Phase 176's migration 351 backfill, still running 1h+ into its DO
-block as of 16:00 UTC — check `ps aux | grep 351_earnings` first) and todo 376 (survivorship
-sourcing). The prior session's GSD tool-sync staleness is root-caused in todo 383, don't
-re-investigate it.
+Last session: 2026-09-24. Host rebooted ~10:41 UTC mid nightly backfill; the Persistent timer
+re-ran it on the fixed `_empty_history.record()` code (0 TypeErrors, new ranges recorded).
+Migration 351 confirmed finished 2026-09-23 (176-07-SUMMARY). Set milestone v3.4 Edge Proof
+(`docs/plans/2026-09-24-edge-proof-program.md`).

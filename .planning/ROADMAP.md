@@ -29,28 +29,29 @@
 - 📋 **v3.15 Conditioning & Identity Foundation** — **Phases 144, 145, 146** (moved into this milestone 2026-07-03 — see `docs/research/fable-2026-07-03-roadmap-reconciliation.md` F1; previously miscategorized under "v3.3 Foundational Hardening," physically *after* Phases 149-151 despite being their hard prerequisite). Unifies the two live regime systems — per-symbol HMM `regime_writer.py` and cross-sectional `equity_regime_model.py`/Phase 144 — behind one `StratificationDimension` contract, governed via Concept Registry's `regime_model`/`hmm_variant` domains; idea doc: `docs/research/stratification-dimension-unification.md`; originally proposed 2026-07-02 in `docs/research/fable-2026-07-02-v3-topdown-architecture.md` §3, §7, D5/D8. **Hard prerequisite for Phase 149** (intel-13: PrecedentEngine's retrieval hard-filters on regime labels; building the embedding substrate on known-suspect strata bakes the bias into stored vectors — see Phase 149's Depends-on below). Explicitly does not block or change Phase 142B.1, which only consumes existing regime labels as an opaque stratification key. Batches together in one `ic_engine` re-run per topdown D5: Phase 144 + todo 026 P2b/P2c/P3 + todo 041 (tag taxonomy) + intel-12's first substitution test. Build trigger: todo 026's Step 1 regime-IC separation gate — **already run 2026-07-02, result asset-class-dependent** (SPY separates cleanly, TLT doesn't) — the pre-committed fallback for weak-separation asset classes (topdown Open Q4) needs an operator call at this milestone's planning, before the substitution test runs.
 - 📋 **v3.2 Signal Diversification — PrecedentEngine + Feature Expansion** — Phases 149-151 (planned; hard-gated on v3.1 OOS IC > 0 at 95% CI AND v3.15 complete for Phase 149; Renaissance: more diverse weak signals, not stronger strong ones. **Framing correction complete** (was pending, closed 2026-07-09) — the milestone goal text and Phase 150 no longer describe this as an "independent System 2"; both were rewritten against `docs/research/intel-precedent-engine.md` per todo 055, and the concept itself was renamed from "AnalogEngine" to "PrecedentEngine" the same day — "analog" collided with this codebase's dense signal-processing vocabulary, see `docs/foundation/naming-system.md`'s plain-role-noun table)
 - 📋 **v4.0 Execution Layer** — **Phases 156-159** (numbered 2026-07-12 from a production-readiness review, was "Phases TBD"; **restructured same day** to split out Portfolio State as its own foundational phase after catching a gap — this milestone's own design is portfolio-level, not per-security, and had no persisted entity for portfolio state to live in: 156 Portfolio State Foundation, 157 Position Sizing & Risk Management, 158 Live Execution Layer + broker resilience, 159 Cost Calibration Feedback Loop + Execution Scoring) (planned; hard-gated on v3.2 complete (Phase 155 is independently-gated, not blocking — ETF Universe Expansion removed as a phase 2026-07-04, already done — see below) + `alpha_events` schema frozen; consumes alpha_events, never modifies signal weights)
+- 🔄 **v3.4 Edge Proof** - Phases 177-181 (set 2026-09-24; active). Data floor, recompute throughput, a weight-level walk-forward verdict on the cross-asset sleeve, cross-asset breadth, and a bounded construction track. Plan: `docs/plans/2026-09-24-edge-proof-program.md`.
 - 📋 **v4.1 IC Governance + Drift Monitoring** — Phases 152, 153 (**149B corrected 2026-07-03 — no longer a standalone phase; merged into Phase 143**, see Phase 143's header). Regime-conditioned distribution drift + ensemble health gates; replaces DataIntegrityMonitor + SystemHealthMonitor + PredictiveDecayDetector; see `docs/research/measurement-governance-monitor.md` (current design, supersedes `docs/plans/archive/2026-06-27-health-guardian-design.md`). Per topdown D12, **Phases 152 and 153 are schedulable opportunistically any time after Phase 141** — the "v4.1" label is thematic grouping, not a sequencing gate. Phase 152 depends only on `feature_vectors` (exists today); Phase 153 depends on Phase 142A's `alpha_ensemble_ic` (exists, populated — though see the EIC-04 verdict log in Phase 142A's section before treating 142A as fully proven). Do not let either jump ahead of Phase 142B/143 or 148, which carry present-tense value the backlog matrix rates higher.
 
 ## Planned Phases — Priority Order
 
-**Value ranking lives in one place, not two:**
-`docs/research/intelligence-lifecycle-backlog-matrix.md` scores every planned phase
-on Effort/Risk/Reward (plus a "Foundational" flag that jumps the queue regardless of raw
-reward) — that table, not this list, is the source of truth for *which phase matters more*.
-Phase numbers stay stable IDs regardless of priority — re-sort freely; never renumber a phase
-to reflect priority.
+**Active milestone: v3.4 Edge Proof (phases 177-181), set 2026-09-24.** Ordering and rationale:
+`docs/plans/2026-09-24-edge-proof-program.md`, the single owner of sequence. STATE.md records
+current position only; PRIORITIES.md tiers todos; this list names the phases in order.
 
-**Don't conflate readiness with value:** being unblocked makes a phase eligible, not important.
-A phase with zero dependencies can still rank below one that's blocked, if the matrix scores it
-lower on reward.
+| Order | Phase | Lever | Status |
+|---|---|---|---|
+| 1 | 177 Data integrity floor | Fresh, complete, survivorship-aware data; failures heard | Not started |
+| 2 | 178 Recompute throughput bundle | Full recompute ~3.3 days to ~1.1 days; fresh weights (todo 404) | In flight (`ic-engine-bundle-post-176` worktree) |
+| 3 | 179 Cross-asset sleeve walk-forward verdict | The only positive result, re-tested with weight-level OOS and a null-signal comparator | Start now; pre-registration first |
+| 4 | 180 Cross-asset breadth expansion | Sleeve n_eff ~6 to 12+ | Data onboarding may start during 179 |
+| 5 | 181 Bounded construction track | H-A/H-B, cross-TF divergence, todo 403; idle compute only | Opportunistic |
 
-**Current sequencing lives in `.planning/STATE.md`'s "Next actions, priority order" tiers, not
-here** — that section is refreshed every session and is the single source of truth for *what's
-next right now*; this section previously duplicated a dated snapshot of it (last rewritten
-2026-07-13) and drifted badly out of sync (STATE.md had since moved through Phase 144/148/166/
-167/163/164/165 completions this section never saw). Rather than re-deriving another snapshot
-that will rot the same way, this section stays a pointer: read STATE.md for now, the matrix
-above for long-run value, and PRIORITIES.md for todo-level (sub-phase) sequencing.
+177, 178 and 179 run in parallel (IBKR/alerting, ic_engine, an in-memory analysis harness).
+179 does not wait on 178: its walk-forward never touches the production IC or weight tables.
+
+**Parked until a 179/180 PASS or a milestone-boundary review:** 145, 147, 149, 150, 151
+waves 6-7, 155, 168, 169, v4.1 (152/153), v2.8 Part 2. v4.0 (156-159) stays gated on a PASS.
+Phase numbers are stable IDs; parking changes order, not numbers.
 
 ## Phases
 

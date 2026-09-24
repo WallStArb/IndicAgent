@@ -1,6 +1,6 @@
 ---
 status: pending
-priority: P2
+priority: P1
 filed: 2026-09-23
 source: root-caused closing todo 388 (whose "turnover never reported" premise was stale); this is
   the honest heir of 388's "close the zero-costs caveat on todo 378's result" intent

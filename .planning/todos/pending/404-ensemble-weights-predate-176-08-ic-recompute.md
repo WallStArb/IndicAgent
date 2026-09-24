@@ -1,6 +1,6 @@
 ---
 status: pending
-priority: P2
+priority: P1
 filed: 2026-09-24
 source: measured while designing todo 402 (docs/plans/2026-09-24-feature-lifecycle-evidence-ledger-design.md, finding 6)
 ---

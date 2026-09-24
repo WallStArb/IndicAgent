@@ -1,6 +1,6 @@
 ---
 status: pending
-priority: P1
+priority: P0
 filed: 2026-09-23
 source: post-power-outage recovery check, 2026-09-23 (nightly_backfill.failed seen in log tail)
 ---
