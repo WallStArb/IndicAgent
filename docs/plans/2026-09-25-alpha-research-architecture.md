@@ -254,7 +254,10 @@ ends and 4 quarter ends a year):
    dose-response member: pinning and release should be larger at quarterly expirations (March,
    June, September, December) than at the other monthlies, since open interest is largest
    there. Members that need the sign of dealer gamma per name wait for a historical options
-   data source (an owner decision, since it costs money). A market-level gamma estimate can at
+   data source. Owner decision 2026-09-25: no in-house open-interest capture (thousands of daily
+   contract requests through a gateway already hit by the weekly 2FA logout, a likely options
+   data subscription, and open interest does not reveal who holds the contracts anyway). If
+   the calendar-only members show anything, buy history from a vendor then. A market-level gamma estimate can at
    most condition members as a regime variable; as a direct signal it is one time-series bet,
    removed by market residualization.
 
