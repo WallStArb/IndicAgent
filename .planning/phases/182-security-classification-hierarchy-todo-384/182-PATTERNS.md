@@ -15,7 +15,7 @@ re-derive the architecture, only grounds it in real code.
 |---|---|---|---|---|
 | `production/migrations/364_indicagent_v1_classification_scheme.sql` | migration | batch (schema + seed DML) | `production/migrations/363_sector_label_fixes.sql` | role-match (guard idiom exact; schema shape from design doc, no live 3-table analog) |
 | `src/config/classification_service.py` | service (cached read-layer library) | CRUD (read-only, prewarm-then-lookup) | `src/config/vocabulary_service.py` | exact |
-| `src/core/classification_access.py` | utility (Ring 0 access wrapper) | request-response (sync dict lookup) | `src/core/vocabulary_access.py` | exact |
+| `src/core/classification_access.py` | NOT BUILT in phase 182 (decision in 182-01: no consumer yet, and an unregistered process-wide wrapper would silently return `unclassified`; builders read via a SQL fragment instead) | - | `src/core/vocabulary_access.py` | deferred |
 | `src/config/instrument_onboarding.py` (modify: add classification gate) | service (transactional write path) | CRUD | itself — `onboard_instrument()`'s existing `metadata`/`metadata_skip_reason` gate, same file | exact (same function, mirror an existing arg pair) |
 | `scripts/infrastructure/classification_ibkr_sourcing.py` | utility (one-off sourcing script) | file-I/O / batch (IBKR fetch -> CSV/JSON for human review) | `src/providers/ibkr.py::qualify_instrument()` (call site to extend) + `scripts/infrastructure/*` one-off sourcing script family | role-match |
 | `src/providers/ibkr.py` (modify: new method for industry/category/subcategory) | provider (external API wrapper) | request-response | itself — `qualify_instrument()`'s `reqContractDetailsAsync` call, same file | exact (same file, adjacent method) |

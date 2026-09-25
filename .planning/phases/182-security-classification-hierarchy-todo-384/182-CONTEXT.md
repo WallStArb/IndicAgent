@@ -41,7 +41,8 @@ path; its consumers are stratification, peer groups, reporting and onboarding.
   get the explicit `unclassified` stratum (D-08).
 - **D-06 Sources.** Single names: IBKR `reqContractDetails` industry / category / subcategory,
   fetched through `src/providers/ibkr.py` (the only ib_async file), used as a seed candidate and
-  human-reviewed into `indicagent_v1` nodes. ETFs: fund mandate (name, issuer description).
+  reviewed into `indicagent_v1` nodes. Review is automated: an executor pass plus an independent
+  AGY pass, reconciled and recorded (owner delegated the review, 2026-09-25). ETFs: fund mandate (name, issuer description).
   `source_ref` distinguishes `ibkr_contract_details+review` from `fund_mandate`. The reviewed
   mapping is committed as data (a seed file or migration), never computed at runtime.
 - **D-07 No history before the build date.** Every assignment's `valid_from` is the build date.

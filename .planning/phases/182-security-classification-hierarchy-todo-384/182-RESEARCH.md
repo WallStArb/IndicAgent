@@ -465,16 +465,18 @@ if details:
 | A2 | The earlier session's "168/168 IBKR coverage confirmed" claim (todo 384, dated 2026-09-18) still holds for today's exact 168-symbol universe | Common Pitfalls #4 | Medium: if the pilot 40 weren't part of that probe, the plan needs its own fresh `reqContractDetailsAsync` sourcing pass regardless — recommended regardless of this assumption's truth, so risk is contained by the recommendation itself |
 | A3 | `onboard_instrument()`'s existing `metadata`/`metadata_skip_reason` pattern is the right template to mirror for a `classification_code`/`classification_skip_reason` pair (rather than, say, a hard requirement with no skip escape hatch) | Pattern 5 | Low: D-09 says "requires a classification for any new instrument" without specifying whether a skip-reason escape hatch should exist at all; the plan should decide explicitly whether onboarding a genuinely-unclassifiable instrument (rare) needs an escape hatch or should hard-fail with no exception, unlike metadata which has a legitimate "no data available" case |
 
-## Open Questions
+## Open Questions (RESOLVED)
 
 1. **Does D-09's onboarding gate need a skip-reason escape hatch, or should it hard-fail unconditionally?**
    - What we know: `metadata`'s existing pattern has a skip-reason escape hatch because some legitimately have no metadata (e.g. sparse index funds).
    - What's unclear: whether any instrument onboarded going forward could legitimately have no classifiable node (e.g. a truly novel multi-asset product) or whether `unclassified` (D-08's read-layer fallback) is only for pre-existing gaps, not new onboarding.
+   - RESOLVED: no escape hatch (CONTEXT D-09; 182-04).
    - Recommendation: default to **no escape hatch** at onboarding (classification is always determinable to at least the asset-class level, unlike metadata which can be genuinely absent) — plan should confirm this in the task breakdown rather than blindly copying the metadata pattern's permissiveness.
 
 2. **Where exactly does the D-09 coverage drift test live, and does it run in any automated hook at all?**
    - What we know: GitHub Actions CI cannot run it (no DB). `tests/integration/` exists and has the exact precedent (`test_instrument_registry.py`) but that suite is documented as never running in CI.
    - What's unclear: whether the project wants this as a genuinely manual/local-only check, or whether there's appetite for a lightweight local pre-commit/pre-merge hook (like `tools/pre-commit.hook`'s existing bash guards) that queries the DB directly, bypassing pytest's `-m integration` gate entirely.
+   - RESOLVED: seed-time guard, onboarding gate, nightly audit, plus a tests/integration/ check (CONTEXT D-09; 182-06, 182-07).
    - Recommendation: put it in `tests/integration/`, matching precedent; note in the phase's SUMMARY that "CI-enforced" per D-09 means "enforced by a documented, run-before-merge integration test," not a GitHub Actions gate — this is a documentation clarification, not a design change, so it does not require reopening the locked decision.
 
 ## Environment Availability
