@@ -32,12 +32,17 @@ from src.intelligence.research.runner import (  # noqa: E402
     BudgetConfig,
     RunContext,
     RunRefused,
+    run_book,
     run_family,
 )
 from src.intelligence.research.spec import (  # noqa: E402
     BookSpec,
     load_spec_from_file,
     load_spec_from_head,
+)
+from src.intelligence.research.synthetic import (  # noqa: E402
+    SyntheticSpec,
+    synthetic_price_panel,
 )
 
 _BUDGET_KEYS = (
@@ -59,6 +64,51 @@ async def _apr(dsn: str) -> dict:
     if missing:
         raise SystemExit(f"APR keys missing (migration 366): {missing}")
     return values
+
+
+def _print_book(result: dict, loaded, out_dir: Path) -> None:
+    out_dir.mkdir(parents=True, exist_ok=True)
+    ev = result["evidence"] or {}
+    print(
+        "RESULT "
+        + json.dumps(
+            {
+                "book": loaded.model.book,
+                "status": result["status"],
+                "run_id": result["run_id"],
+                "estimate": ev.get("estimate"),
+                "permutation_p": ev.get("permutation_p"),
+                "p_below_bar": (ev.get("screen") or {}).get("p_below_bar"),
+                "powered": (ev.get("power") or {}).get("powered"),
+            }
+        ),
+        flush=True,
+    )
+    (out_dir / f"{loaded.spec_hash[:16]}_{loaded.model.book}.json").write_text(
+        json.dumps(result, indent=2, sort_keys=True)
+    )
+
+
+def _synthetic_panel(args: argparse.Namespace, loaded):
+    if args.panel:
+        return panel_mod.load(Path(args.panel))
+    fam = loaded.families[0].model if loaded.families else loaded.model
+    power = getattr(loaded.model, "power", None)
+    synth = SyntheticSpec(
+        bars_per_session=fam.panel.bars_per_session,
+        participation_ratio=power.participation_ratio if power else 60.0,
+        n_common_factors=power.n_common_factors if power else 10,
+        plant_lags_sessions=power.plant_lags_sessions if power else 40,
+    )
+    return synthetic_price_panel(
+        synth,
+        n_sessions=args.synthetic_sessions,
+        n_names=args.synthetic_names,
+        plant_coef=args.synthetic_plant,
+        seed=args.synthetic_seed,
+        start="2006-07-03",
+        missing_fraction=0.02,
+    )
 
 
 def _print(results: dict, loaded, out_dir: Path) -> None:
@@ -98,12 +148,19 @@ async def _main(args: argparse.Namespace) -> int:
                 else None
             ),
         )
-        panel = panel_mod.load(Path(args.panel))
+        panel = _synthetic_panel(args, loaded)
+        runs = snapshot_dir.parent / "runs"
         if isinstance(loaded.model, BookSpec):
-            raise SystemExit("book mode lands in plan 183-09")
-        results = await run_family(loaded, ctx, mode="synthetic", panel=panel)
-        _print(results, loaded, snapshot_dir.parent / "runs")
+            result = await run_book(
+                loaded, ctx, mode="synthetic", panel=panel, power_replicates=args.power_replicates
+            )
+            _print_book(result, loaded, runs)
+        else:
+            _print(await run_family(loaded, ctx, mode="synthetic", panel=panel), loaded, runs)
         return 0
+
+    if args.power_replicates is not None:
+        raise SystemExit("--power-replicates is synthetic-only: a real book uses its spec's R")
 
     dsn = args.dsn or Settings().database_url.replace("postgresql+asyncpg://", "postgresql://")
     root = repo_root(Path.cwd())
@@ -125,10 +182,11 @@ async def _main(args: argparse.Namespace) -> int:
         snapshot_dir=snapshot_dir,
         snapshot=Path(args.snapshot) if args.snapshot else None,
     )
+    runs = snapshot_dir.parent / "runs"
     if isinstance(loaded.model, BookSpec):
-        raise SystemExit("book mode lands in plan 183-09")
-    results = await run_family(loaded, ctx, mode="real")
-    _print(results, loaded, snapshot_dir.parent / "runs")
+        _print_book(await run_book(loaded, ctx, mode="real"), loaded, runs)
+    else:
+        _print(await run_family(loaded, ctx, mode="real"), loaded, runs)
     return 0
 
 
@@ -142,6 +200,13 @@ def main() -> int:
     parser.add_argument("--workers", type=int, default=None, help="default: APR (throughput only)")
     parser.add_argument("--budget-m", type=int, default=1, help="synthetic mode only")
     parser.add_argument("--dsn", default=None, help="default: Settings().database_url")
+    parser.add_argument("--synthetic-sessions", type=int, default=400)
+    parser.add_argument("--synthetic-names", type=int, default=30)
+    parser.add_argument("--synthetic-seed", type=int, default=0)
+    parser.add_argument("--synthetic-plant", type=float, default=0.0)
+    parser.add_argument(
+        "--power-replicates", type=int, default=None, help="synthetic only: override the spec's R"
+    )
     args = parser.parse_args()
     try:
         return asyncio.run(_main(args))

@@ -1,0 +1,66 @@
+# Book version 1: family 1 only, all four members; no member is dropped after seeing a record
+# (prereg section 5). Screen test 1 of M = 30 on vintage 1, bar p < 0.05 / 30.
+# Editing any value after a real run is a new book version and a new charged test. The book's
+# hash embeds the family spec's canonical content, so editing the family changes it too.
+kind: book
+book: book_v1
+prior_source: docs/plans/2026-09-25-family1-intraday-periodicity-prereg.md
+families:
+  - research/specs/family1_intraday_periodicity.yaml
+# S7 walk-forward ridge (D-10). Window and cadence match S1's vintage-1 window and refit, a
+# pre-data choice. R1 ranks the combined alpha, so the penalty has no leverage effect; it was
+# set before any data and is not tuned.
+combiner:
+  window_sessions: 252
+  refit_sessions: 21
+  penalty: 1.0
+  min_obs: 10000
+construction:  # prereg 4, R1
+  name: rank_vol_neutral
+  direction: 1  # continuation
+  coverage_floor: 20  # prereg 3
+  # Not pinned by the prereg (D-24 requires a pinned window): about one month of residual bar
+  # returns, long enough for a stable per-name scale, short enough to track regime changes.
+  vol_window_sessions: 20
+  vol_min_finite_fraction: 0.5
+scoring:
+  session_scoring: true  # prereg 4, R2: daily P&L, 252 per year
+  trading_start: "2010-01-04"  # prereg 2: scored span 2010-01-04 through 2025-12-23
+  sub_periods:  # reported, not voted on
+    - ["2010-01-04", "2014-12-31"]
+    - ["2015-01-01", "2019-12-31"]
+    - ["2020-01-01", "2025-12-23"]
+  min_shift: 63  # sessions; phase 179's value, not pinned by the prereg
+  bootstrap_mean_block: 21
+  bootstrap_reps: 2000
+  seed: 183
+  # The six below only feed evaluate()'s covariance plan, which R1 ignores; pinned because
+  # evaluate() always builds the plan.
+  warmup_sessions: 252
+  calibration_refit_sessions: 21
+  coverage_fraction: 0.95
+  ridge_epsilon_fraction: 0.10
+  mv_condition_max: 1000.0
+  ic_shrinkage_k: 100.0
+guards:  # probe sizes bound the S3 cost on the full panel (D-25)
+  seed: 183
+  n_random: 4
+  max_rows: 12
+  s1_probe_sessions: 330
+costs:  # diagnostics only, never a gate: large-cap and ETF half-spread range, per side
+  bps_low: 1.0
+  bps_high: 5.0
+# Power check (D-11, D-12, D-19, D-20, D-23). planted_rank_ic is the per-slot rank IC of the
+# best linear combination of the members against the residual target (D-19). Breadth 60 is
+# D-20 (step 0 measured 51 to 66). R = 100 gives Monte Carlo standard error 0.05 at power 0.5.
+power:
+  planted_rank_ic: 0.002
+  participation_ratio: 60.0
+  n_common_factors: 10
+  plant_lags_sessions: 40
+  replicates: 100
+  seed: 1831
+  calibration_panels: 4
+  calibration_seed: 1832
+  calibration_tolerance: 0.0001
+  stop_check_every: 25
