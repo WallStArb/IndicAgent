@@ -28,7 +28,7 @@ writer, combiner, book test), so no number exists outside a recorded run.
 | # | Family | Status | Blocked on |
 |---|---|---|---|
 | 1 | Intraday same-slot periodicity (Heston, Korajczyk, Sadka 2010), members P1-P4 | **REGISTERED** 2026-09-25, `docs/plans/2026-09-25-family1-intraday-periodicity-prereg.md` | Phase 183; family 1 build items R1 (dollar-neutral construction) and R2 (session-aggregated scoring). R3 (per-slot market beta) shipped c73cb8307 |
-| 1b | Residual first-half-hour to last-half-hour (split out of family 1 as P5) | Design in section 4 of the architecture doc | Pre-registration. Must disclose `retail_immediacy_provision`'s 2026-08-07 finding (intraday momentum present in every group), which was seen on this data |
+| 1b | Residual first-half-hour to last-half-hour (split out of family 1 as P5) | Design in section 4 of the architecture doc | Pre-registration. Must disclose `retail_immediacy_provision`'s 2026-08-07 finding (intraday momentum present in every group), which was seen on this data; and the corpus `power_hour` pooled IC (section 5), a pending member |
 | 2 | Overnight versus intraday return decomposition (Lou, Polk, Skouras 2019) | Design only. Pending members added 2026-09-25: gap fade (residual overnight gap predicting the rest-of-session residual return; a gap-size-conditioned variant; the low-liquidity sector ETF variant from `docs/research/data-edge-source-thesis.md`). Entry at the first bar after the open. Must disclose the 2026-09-25 look at the corpus gap features (section 5) | Pre-registration |
 | 3 | ETF-to-constituent and cross-asset lead-lag, 5m to 1h | Design only; same idea as the Edge Source Thesis's never-run `cross_asset_lead_lag` | Pre-registration |
 | 4 | Short-term reversal (todo 423) | Design only. In-sample panel is seen data (2026-09-13 screen); daily form runs only on symbols added since or phase 180 onboarding, never the forward span | Pre-registration with disclosure and one-bar skip variants |
@@ -36,6 +36,8 @@ writer, combiner, book test), so no number exists outside a recorded run.
 | 6 | Period-end disclosure and liquidation flows (window dressing, tax-loss selling) | Design only (owner-proposed) | Power check; survivorship (todo 376) if marginal |
 | 7 | Index reconstitution | **Held** | A point-in-time event history (no source) |
 | 8 | Options expiry flows (pinning and release, quarterly dose-response) | Design only | A split history (stored prices are split-adjusted); no open-interest capture (owner decision 2026-09-25) |
+| 9 | Price anchoring and slow reversal (George and Hwang 2004 for the 52-week-high anchor, which predicts continuation, the opposite sign to the raw corpus result; the pre-registration states the expected sign). Pending members: `vwap_dev_sigma`, `high_52w_dist`, `rsi_slow`, `aroon_slow`, `price_percentile_slow`, `stoch_k_slow`, `dist_from_high_slow` | Design only, proposed 2026-09-25. Horizons 1d h 5, 10, 20, 60 (section 5: IC was still rising at the longest horizon measured). Must declare how it relates to family 4 so the same reversal edge is not counted twice | Pre-registration; E15 step 0 residual n_eff at 1d, which sets whether h 20 and 60 have power |
+| 10 | Volume and order flow. Pending members: `up_vol_ratio_fast`, `ofi_z`, `obv_z`, `mfi_slow`, and the todo 281 systematic-dominance and volume-price-confirmation statistics (rejected as HMM axes, not as features) | Design only, proposed 2026-09-25. Weak per-feature support (about 8-9 of 232 names FDR-pass each), the many-weak-members shape ridge pools | Pre-registration; step 0 residual n_eff at 5m and 15m |
 
 ## 2. Reopened as new family members (pre-registration pending)
 
@@ -109,6 +111,19 @@ Candidates with no verdict. None is queued; each needs a family spec to enter a 
 
 ## 5. Supporting measurements (not verdicts, but load-bearing context)
 
+- **Corpus feature IC by timeframe and horizon, 2026-09-25 (disclosure for families 1b, 9, 10).**
+  Read from `feature_ic_scores` (`regime_scope = 'pooled'`, raw IC, vintage 1) while scoping feature
+  families. The largest pooled ICs are one mechanism: price position within its recent range, 1d
+  h 10 (`vwap_dev_sigma` -0.061, `high_52w_dist` -0.058, `rsi_slow` -0.052, `price_percentile_slow`
+  -0.046), with 0 or 1 of 227 names FDR-passing (overlapping 10-day windows, few independent
+  observations). The IC depends on calendar horizon, not timeframe: the same features at 1h reach
+  -0.03 at h 20 (about 3 sessions) and -0.036 to -0.056 at h 60 (about 9 sessions), matching 1d at
+  h 5 to 10, and are about 0 at every 5m and 15m horizon (all within one session). IC over the square
+  root of horizon is roughly flat from 1 to 10 days, so the predictability had not decayed by the
+  longest horizon measured (`alpha.ic.lookahead.1d.extended` = 10); 20 to 60 days was never
+  measured. Broad support is rare: `power_hour` 57/232 at 5m (+0.011), `gap_z` 95/232 (a bar-to-bar
+  artifact, see the next note); everything else is at most about 9/232. `canary_acausal_placebo`
+  at 0.654 on 229/229 confirms the lookahead canary works.
 - **Corpus gap features, pooled IC look, 2026-09-25 (disclosure for family 2).** Gap fade was never
   tested as a construction or book; it existed only as five corpus features scored per feature by
   `ic_engine`. Read from `feature_ic_scores` (`regime_scope = 'pooled'`, raw IC, not residualized,
