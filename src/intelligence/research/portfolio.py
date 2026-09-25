@@ -48,6 +48,7 @@ from src.intelligence.statistics.ic_math import check_condition_number
 
 ARMS = ("ic_proportional", "vol_normalized", "mean_variance")
 FIXED_SIGN_ARM = "fixed_sign"
+RANK_VOL_NEUTRAL_ARM = "rank_vol_neutral"
 # A 1d panel's forward return spans 2 sessions (enter at the next open, exit one session later).
 DAILY_EMBARGO = fwd_span(1)
 _ZERO_SUM = 1e-10
@@ -198,6 +199,98 @@ def fixed_sign_returns(
         raw = direction * np.sign(np.nan_to_num(alpha[block][:, idx])) / sig
         out[block] = (_normalize(raw) * np.nan_to_num(fwd_ret[block][:, idx])).sum(axis=1)
     return {FIXED_SIGN_ARM: out}
+
+
+def trailing_vol(returns: np.ndarray, *, window_rows: int, min_finite: int) -> np.ndarray:
+    """R1's own per-name volatility (D-24): sample sd (ddof 1) of each name's finite returns
+    over rows (t - window_rows, t], NaN below `min_finite` finite values or at zero sd. Causal:
+    row t reads rows <= t only. Never the covariance plan, which on a ragged intraday grid
+    admits no names (it needs jointly complete rows)."""
+    finite = np.isfinite(returns)
+    center = np.zeros(returns.shape[1])
+    has_data = finite.any(axis=0)
+    center[has_data] = np.nanmean(returns[:, has_data], axis=0)
+    x = np.where(finite, returns - center, 0.0)
+    count, s1, s2 = (_window_sum(v, window_rows) for v in (finite.astype(float), x, x * x))
+    with np.errstate(invalid="ignore", divide="ignore"):
+        var = (s2 - s1 * s1 / count) / (count - 1)
+        sd = np.sqrt(np.maximum(var, 0.0))
+    return np.where((count >= min_finite) & (count >= 2) & (sd > _ZERO_STD), sd, np.nan)
+
+
+def _average_ranks(values: np.ndarray) -> np.ndarray:
+    """0-based average ranks along axis 1; NaN entries sort last and take NaN ranks."""
+    keyed = np.where(np.isnan(values), np.inf, values)
+    order = np.argsort(keyed, axis=1, kind="stable")
+    ordered = np.take_along_axis(keyed, order, axis=1)
+    n, m = values.shape
+    pos = np.broadcast_to(np.arange(m), (n, m))
+    starts = np.ones((n, m), dtype=bool)
+    starts[:, 1:] = ordered[:, 1:] != ordered[:, :-1]
+    ends = np.ones((n, m), dtype=bool)
+    ends[:, :-1] = starts[:, 1:]
+    first = np.maximum.accumulate(np.where(starts, pos, 0), axis=1)
+    last = np.minimum.accumulate(np.where(ends, pos, m - 1)[:, ::-1], axis=1)[:, ::-1]
+    ranks = np.empty((n, m))
+    np.put_along_axis(ranks, order, (first + last) / 2.0, axis=1)
+    return np.where(np.isnan(values), np.nan, ranks)
+
+
+def _check_r1_args(direction: float, coverage_floor: int) -> None:
+    if direction not in (1.0, -1.0):
+        raise ValueError(f"R1 direction must be +1 or -1, got {direction}")
+    if coverage_floor < 2:
+        raise ValueError(f"R1 coverage_floor must be at least 2, got {coverage_floor}")
+
+
+def rank_vol_neutral_weights(
+    alpha: np.ndarray, *, vol: np.ndarray, direction: float, coverage_floor: int
+) -> tuple[np.ndarray, np.ndarray]:
+    """R1 (family 1 prereg section 4): weights proportional to direction * centred rank / vol,
+    centred rank = rank / (n_valid - 1) - 0.5 over names with finite alpha and positive finite
+    vol; the positive side is scaled to +0.5 and the negative to -0.5, so every row is exactly
+    dollar-neutral whatever the vol mix. A row below `coverage_floor` valid names, or with an
+    empty side (all ranks tied), carries no position: zero weights, has_position False."""
+    _check_r1_args(direction, coverage_floor)
+    n, m = alpha.shape
+    weights = np.zeros((n, m))
+    has_position = np.zeros(n, dtype=bool)
+    valid = np.isfinite(alpha) & np.isfinite(vol) & (vol > 0)
+    n_valid = valid.sum(axis=1)
+    rows = np.flatnonzero(n_valid >= coverage_floor)
+    if len(rows) == 0:
+        return weights, has_position
+    a = np.where(valid[rows], alpha[rows], np.nan).astype(float)
+    centred = _average_ranks(a) / (n_valid[rows, None] - 1) - 0.5
+    raw = np.nan_to_num(direction * centred / np.where(valid[rows], vol[rows], 1.0))
+    pos = np.where(raw > 0, raw, 0.0)
+    neg = np.where(raw < 0, raw, 0.0)
+    pos_sum = pos.sum(axis=1, keepdims=True)
+    neg_sum = -neg.sum(axis=1, keepdims=True)
+    ok = (pos_sum[:, 0] > 0) & (neg_sum[:, 0] > 0)
+    with np.errstate(invalid="ignore", divide="ignore"):
+        w = 0.5 * pos / pos_sum + 0.5 * neg / neg_sum
+    weights[rows[ok]] = w[ok]
+    has_position[rows[ok]] = True
+    return weights, has_position
+
+
+def rank_vol_neutral_returns(
+    alpha: np.ndarray,
+    fwd_ret: np.ndarray,
+    plan: CovariancePlan | None,
+    *,
+    vol: np.ndarray,
+    direction: float,
+    coverage_floor: int,
+) -> dict[str, np.ndarray]:
+    """R1's per-row gross return, NaN on rows without a position. `plan` is ignored (R1 sizes
+    by its own trailing vol); the argument keeps the evaluate() construction signature."""
+    weights, has_position = rank_vol_neutral_weights(
+        alpha, vol=vol, direction=direction, coverage_floor=coverage_floor
+    )
+    r = (weights * np.nan_to_num(fwd_ret)).sum(axis=1)
+    return {RANK_VOL_NEUTRAL_ARM: np.where(has_position, r, np.nan)}
 
 
 def _normalize(raw: np.ndarray) -> np.ndarray:
