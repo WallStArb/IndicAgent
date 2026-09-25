@@ -31,3 +31,13 @@ A point-in-time dividend history (ex-date, amount) is stored for the universe; S
 total-return-adjusted open series for targets and kernels; a guard shows a synthetic high-yield
 name with no alpha produces no family 9 signal. Until then, daily-clock books with price-level
 members do not go to confirmation, and family 2 discloses the bias.
+
+## Update 2026-09-25: what E16 covers
+
+E16's timing statistic demeans returns by their causal expanding mean per symbol, so a steady
+yield-driven price drift no longer enters the tested series through the static tilt. That covers
+the static half only. Ex-dividend drops are lumpy (a few dates a year, known in advance), so a
+predictor that reacts to price level (52-week distance, percentile, VWAP deviation) moves on
+exactly those dates, and the drop lands in the next open-to-open return: a timing artifact the
+demeaning does not remove. Family 2's overnight leg is unaffected by the demeaning. The done-when
+condition above stands.

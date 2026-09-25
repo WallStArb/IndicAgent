@@ -6,7 +6,7 @@ on multiple TF, especially across day event horizons ... design this like Renais
 agent (AGY and Codex were both out of quota); 13 findings, dispositions in section 9.
 **Parents:** `docs/plans/2026-09-25-alpha-research-architecture.md` (S0 to S8),
 `docs/plans/2026-09-24-evidence-framework.md` (E15 rules).
-**Status:** proposed, revision 2. Build items in section 7 are a follow-on phase after 183 (183 was
+**Status:** proposed, revision 2 (D6 updated 2026-09-25 for the adopted E16). Build items in section 7 are a follow-on phase after 183 (183 was
 planned, 10 plans, before this revision and does not include them). D6 needs an owner
 decision (a methodology change to E15's refusal rule).
 
@@ -126,15 +126,19 @@ placeholder calendar grid; that was wrong, production reads `market_data_ohlcv_t
 - **Parity.** A one-time test compares bounded-memory kernels, after warmup, against
   `feature_vectors` on a sample, to verify reuse fidelity. A test, not a dependency.
 
-**D6. Persistent predictors and the book test: superseded by proposed E16.** Revision 2
-proposed an effective-draw refusal on the shift null. Simulation then showed the shift null is
-anti-conservative at the screen bar once the book's autocorrelation time passes about 40
-sessions (up to 4x at tau 199), that a sign-flip calibration only halves that, and that the
-shift null cannot run a confirmation on the current forward span. Proposed E16
-(`docs/plans/methodology-change-ledger.md`) replaces it at both stages with a HAC test on book
-P&L minus its causal static tilt, which holds size for autocorrelation times up to 666 in the
-same simulations. Scripts and numbers: `scripts/analysis/e16_null_size/` and the E16 entry.
-Owner decision pending; family 9 stays unscreenable under the current rule until then.
+**D6. Persistent predictors and the book test: superseded by E16 (adopted 2026-09-25).**
+Revision 2 proposed an effective-draw refusal on the shift null. Simulation then showed the shift
+null is anti-conservative at the screen bar once a book's autocorrelation time passes about 40
+sessions (up to 4x at tau 199), that a sign-flip calibration only halves that, and that the shift
+null cannot run a confirmation on the current forward span. E16
+(`docs/plans/methodology-change-ledger.md`, built in 9152597eb) replaces it at both stages with a
+HAC t on the timing P&L `sum (w - wbar)(r - rbar)`: weights minus their causal expanding mean and
+returns minus theirs, per (slot, symbol) on intraday clocks and per symbol on the daily clock.
+Demeaning the returns as well as the weights is required: with only the weights demeaned, the
+`(w - wbar) * mean-return` term inherits the predictor's persistence, which the HAC lag cannot
+see (0.15 rejection at the bar at tau 200 with large fixed effects); with both demeaned, size held
+at the bar in every simulated cell. The shift null is a diagnostic only. Family 9 is screenable
+under E16, subject to the survivorship and dividend conditions in D8.
 
 **D7. Guards, all synthetic, all before any real-data run.**
 
@@ -174,7 +178,7 @@ S0 snapshot (async, read-only pool): 1d bars; 5m bars -> derived 15m, 1h
       -> Panel(tf): OHLCV + high, low, closes_at, warmup prefix
 S2 kernels per tf (pure, per symbol, masked to NaN before declared memory) -> alpha(tf)
 S2b align to the book clock (pure, causal)                               -> alpha(book clock)
-S3 guards -> S4 neutralize -> S7 ridge, one target -> S8 book test (E16 if adopted)
+S3 guards -> S4 neutralize -> S7 ridge, one target -> S8 book test (E16 timing HAC t)
       -> S6 ledger (sole writer)
       \-> term structure with joint null band (record, feeds nothing)
 ```
@@ -218,7 +222,7 @@ sees two clocks.
 | B3 | `align` node; D7 guards 1 and 2 | B1 |
 | B4 | Term structure with joint shift-null band as a run record | S8 |
 | B5 | Fixed smoothing menu on `SignalSource` | B2 |
-| B6 | The E16 book test in S8 if adopted, `tau` in E15 step 0; D7 guard 6 | owner decision on E16 |
+| B6 | Rerun the E16 size check (slot fixed effects, persistent predictors) on the built S8 with phase 184's aligned and kernel predictors; D7 guard 6 | 183 (E16 built) |
 | B7 | `repro_frozen.py` bit-identical after each item (D7 guard 8) | each |
 
 Dividend history (todo 428, D7 guard 7) is outside phase 183 and gates confirmation, not the
