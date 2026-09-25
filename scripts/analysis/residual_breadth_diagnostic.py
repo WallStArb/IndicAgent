@@ -38,7 +38,7 @@ from scripts.analysis.effective_breadth_diagnostic import _participation_ratio_b
 from scripts.analysis.sleeve_walk_forward.config import DEFAULT_CONFIG  # noqa: E402
 from scripts.analysis.sleeve_walk_forward.snapshot import read_only_pool  # noqa: E402
 from src.config.settings import Settings, dimension_where_clause  # noqa: E402
-from src.intelligence.research.factors import group_ids, leave_one_out_mean  # noqa: E402
+from src.intelligence.research.factors import leave_one_out_mean  # noqa: E402
 
 _PC_TAIL_K = (1, 3, 5, 10, 20)
 _MIN_SECTOR_SIZE = 3
@@ -129,6 +129,18 @@ def residualize(x: np.ndarray, factors: list[np.ndarray]) -> np.ndarray:
             continue
         beta, *_ = np.linalg.lstsq(design[ok], x[ok, j], rcond=None)
         out[ok, j] = x[ok, j] - design[ok] @ beta
+    return out
+
+
+def group_ids(labels: tuple[str, ...], min_size: int) -> np.ndarray:
+    """int [m]: a group id for names in a label group of at least min_size, -1 otherwise ('' is
+    no group)."""
+    labels = np.asarray(labels, dtype=object)
+    out = np.full(len(labels), -1)
+    for g, label in enumerate(sorted({x for x in labels if x})):
+        members = labels == label
+        if members.sum() >= min_size:
+            out[members] = g
     return out
 
 
