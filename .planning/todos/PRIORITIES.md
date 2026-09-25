@@ -72,6 +72,8 @@ close-or-park), target under 60 pending.
 
 | Todo | Why now |
 |---|---|
+| [419](pending/419-ic-shrinkage-oof-gate-realized-ic-universe-differs-from-graded-cells.md) | New 2026-09-24 (417 fix). The shrinkage OOF gate's realized target averages every symbol under equity labels and never evaluates non-equity strata; restrict to each stratum's own group symbols and re-run the gate. |
+| [420](pending/420-market-regimes-orphan-rows-from-pre-tradeable-writer.md) | New 2026-09-24 (179 V4). 1.22M weekend market_regimes rows orphaned by the pre-2026-07-16 writer (harmless: no weekend feature rows); measure weekday orphans, make the writer replace history atomically. |
 | [414](pending/414-regime-shift-guard-common-mode-power-normalized-statistic.md) | New 2026-09-24 (407 closure). Replace the guard's power-confounded fail fraction with a median standardized IC change across features per stratum (common-mode = dislocation), null-calibrated. Pre-register before a second training window exists. |
 | [415](pending/415-feature-lifecycle-inert-with-one-pinned-training-window.md) | New 2026-09-24 (407 closure). The lifecycle needs >= 2 training windows to transition anything; decide window cadence (walk-forward, never reading the holdout) with Phase 179/180. |
 | [413](pending/413-integration-suite-scratch-db-build-fails-on-migration-322.md) | New 2026-09-24. Integration conftest's scratch-DB build fails applying migration 322 (vocabulary FK: `(timeframe, 1m)` missing), and the fixture is autouse, so all of tests/integration/ errors at setup and gives no signal. |
