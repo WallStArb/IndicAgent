@@ -61,6 +61,7 @@ close-or-park), target under 60 pending.
 
 | Todo | Why now |
 |---|---|
+| [430](pending/430-terminology-enforcement-curate-then-ratchet.md) | New 2026-09-25, owner directive. The glossary check silently enforces only about a third of its bans (quoted Banned lines never parse; about 550 unflagged uses), skips multi-word identifiers (`SignalSource`), and never scans dashboard, YAML or SQL. Curate bans, fail loud on unparseable rules, extend coverage, hold a full-tree baseline ratchet, rename the research-layer collision with phase 183. |
 | [428](pending/428-no-dividend-history-daily-targets-price-only.md) | New 2026-09-25. No dividend data: daily open-to-open targets and price-level features are price-only, so ex-dividend drops bias family 2's overnight leg and can manufacture family 9's anchoring signal on high-yield names. Blocks confirmation of daily-clock books with price-level members. |
 | [423](pending/423-phase181-short-term-reversal-prereg.md) | New 2026-09-24. Phase 181 candidate 2: short-term reversal on single names, market-neutral. Consistent in-sample hint (IC about -0.026, all splits) must be disclosed and its symbols/window excluded. Needs V2 at low persistence first. |
 | [424](pending/424-phase179-calibrated-arms-slow-signal-power-and-shift-leak.md) | New 2026-09-24, from the 422 build. Phase 179: calibrated arms short a planted slow trend (Stambaugh-biased in-window IC), full-range shifts leak long-window features into the null, and N_tested is now 18. Power-side only (no false-PASS risk); decide before the 179 freeze. |
