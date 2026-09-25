@@ -223,6 +223,13 @@ rails pinned in each pre-registration: no real-data number before the pre-regist
 the snapshot `end_exclusive` stays at `alpha.validation.oos_start`; missing prices give no
 position, never a fill; survivorship stated as a residual bias.
 
+### Phase 182: Security classification hierarchy (added 2026-09-25)
+
+Owner decision to build todo 384. A dated, tiered classification (asset class > sector >
+industry group > industry) for all 273 active instruments, replacing the flat sector label.
+Runs in parallel and gates no verdict: the research residual target groups names by causal
+price-correlation clusters, not by labels. Scope: ROADMAP.md phase 182.
+
 ## What stops
 
 - New feature primitives measured against the full corpus. The corpus is saturated at about 8
