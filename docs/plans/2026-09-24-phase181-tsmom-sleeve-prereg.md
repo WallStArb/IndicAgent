@@ -1,7 +1,7 @@
 # Phase 181 pre-registration: time-series momentum on the cross-asset sleeve
 
 **Author:** Claude (Opus 5.5), 2026-09-24, at Brandon's request; parent plan
-`docs/plans/2026-09-24-edge-proof-program.md` ("Phase 181 queue", candidate 1; todo 419).
+`docs/plans/2026-09-24-edge-proof-program.md` ("Phase 181 queue", candidate 1; todo 422).
 **Status:** FROZEN 2026-09-24 by the commit that adds this line, before any real-data number
 for this signal existed. Harness code: b01eb751a plus a docstring-only change in the same
 commit. Any change from here is a `methodology-change-ledger.md` entry. Code review

@@ -208,8 +208,8 @@ the real run, because the calibration of a circular-shift null depends on the si
 
 | # | Candidate | Why here | Todo |
 |---|---|---|---|
-| 1 | TSMOM on the 13-symbol sleeve (12-month trailing log return, sign/vol book) | **FAIL 2026-09-24** (p 0.22, excess +0.19 positive in 3/3 sub-periods; ledger) | 419 (closed) |
-| 2 | Short-term reversal (about 1 week, market-neutral) on single names | Documented anomaly plus a consistent in-sample hint (disclosed; the screen's symbols and window excluded from evidence); needs V2 at low persistence and the survivorship caveat (376) | 420 |
+| 1 | TSMOM on the 13-symbol sleeve (12-month trailing log return, sign/vol book) | **FAIL 2026-09-24** (p 0.22, excess +0.19 positive in 3/3 sub-periods; ledger) | 422 (closed) |
+| 2 | Short-term reversal (about 1 week, market-neutral) on single names | Documented anomaly plus a consistent in-sample hint (disclosed; the screen's symbols and window excluded from evidence); needs V2 at low persistence and the survivorship caveat (376) | 423 |
 | 3 | Sleeve ensemble walk-forward (phase 179) | Only fitted positive result | 418 |
 | 4 | Cross-TF divergence | Low prior, same family as the 16 failures; runs after 1-2 | none yet |
 

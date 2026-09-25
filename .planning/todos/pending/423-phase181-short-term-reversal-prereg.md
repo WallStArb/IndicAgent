@@ -24,4 +24,4 @@ screen (`scripts/analysis/tsmom_per_symbol_ic_screen.py`) found a consistent neg
   phi 0.98, and a reversal signal turns over in days.
 - Survivorship stated as a residual bias (todo 376); it inflates reversal on losers most.
 
-Runs after todo 419's verdict; reuses the same signal-source stage and evaluator.
+Runs after todo 422's verdict (TSMOM, FAIL 2026-09-24); reuses the same signal-source stage and evaluator.

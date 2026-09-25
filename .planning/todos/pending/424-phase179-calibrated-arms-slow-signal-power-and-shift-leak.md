@@ -2,7 +2,7 @@
 status: pending
 priority: P1
 filed: 2026-09-24
-source: todo 419 build (phase 181 TSMOM), synthetic diagnostics 2026-09-24
+source: todo 422 build (phase 181 TSMOM), synthetic diagnostics 2026-09-24
 ---
 
 # Phase 179: calibrated arms lose power on slow signals; wrapped shifts can leak long-window features
