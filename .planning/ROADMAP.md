@@ -2949,12 +2949,18 @@ mandate), a `ClassificationService` with an as-of lookup and an explicit `unclas
 onboarding and CI enforcement of coverage, and the flat `contract_details` sector label retired
 as a source of truth. Layer 2 (`parent_tag`) is out of scope until a consumer exists. Decisions:
 `.planning/phases/182-security-classification-hierarchy-todo-384/182-CONTEXT.md`.
-**Requirements**: TBD
+**Requirements**: D-01, D-02, D-03, D-04, D-05, D-06, D-07, D-08, D-09, D-10, D-11 (CONTEXT.md decisions)
 **Depends on:** none (off the research critical path: S1 uses causal price clusters)
-**Plans:** 0 plans
+**Plans:** 7 plans (3 waves)
 
 Plans:
-- [ ] TBD (run /gsd-plan-phase 182 to break down)
+- [ ] 182-01-PLAN.md - Layer 1 schema migration 364 (applied live) + ClassificationService and shared contract
+- [ ] 182-02-PLAN.md - IBKR industry/category/subcategory sourcing for single names -> committed candidates CSV
+- [ ] 182-03-PLAN.md - indicagent_v1 node list + per-instrument mapping (data module), rendered seed migration 365, human review
+- [ ] 182-04-PLAN.md - onboarding requires a classification (no escape hatch); contract_details.sector no longer written
+- [ ] 182-05-PLAN.md - Instrument.sector builders (settings.py, cache_manager.py) read the classification
+- [ ] 182-06-PLAN.md - nightly classification coverage audit chained beside the vocabulary drift audit
+- [ ] 182-07-PLAN.md - apply seed live, live-DB integration tests, docs, close todo 384
 
 ### Phase 183: Research layer: runner, ledger, combiner, book test
 
