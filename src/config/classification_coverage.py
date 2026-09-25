@@ -61,6 +61,22 @@ CLASSIFICATION_COVERAGE_UNCOVERED_TOTAL = counter(
 # ---------------------------------------------------------------------------
 
 
+def unclassified_at_level(
+    active_symbols: Iterable[str],
+    service: ClassificationService,
+    level: int,
+    as_of: date,
+    scheme: str = DEFAULT_SCHEME,
+) -> list[str]:
+    """Sorted symbols whose as-of assignment does not reach `level` (D-08 stratum)."""
+    unclassified = unclassified_code(scheme)
+    return sorted(
+        symbol
+        for symbol in set(active_symbols)
+        if service.node_at_level(symbol, level, scheme=scheme, as_of=as_of) == unclassified
+    )
+
+
 def uncovered_symbols(
     active_symbols: Iterable[str],
     service: ClassificationService,
@@ -68,12 +84,7 @@ def uncovered_symbols(
     scheme: str = DEFAULT_SCHEME,
 ) -> list[str]:
     """Sorted symbols with no assignment applying as of `as_of` (level 1 unclassified)."""
-    unclassified = unclassified_code(scheme)
-    return sorted(
-        symbol
-        for symbol in set(active_symbols)
-        if service.node_at_level(symbol, 1, scheme=scheme, as_of=as_of) == unclassified
-    )
+    return unclassified_at_level(active_symbols, service, 1, as_of, scheme)
 
 
 def unclassified_counts_by_level(
@@ -85,13 +96,8 @@ def unclassified_counts_by_level(
     """Unclassified stratum size at each level 1..max_level (D-08). Empty when the
     scheme has no loaded nodes."""
     symbols = set(active_symbols)
-    unclassified = unclassified_code(scheme)
     return {
-        level: sum(
-            1
-            for symbol in symbols
-            if service.node_at_level(symbol, level, scheme=scheme, as_of=as_of) == unclassified
-        )
+        level: len(unclassified_at_level(symbols, service, level, as_of, scheme))
         for level in range(1, service.max_level(scheme) + 1)
     }
 

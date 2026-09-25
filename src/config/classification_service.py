@@ -49,6 +49,12 @@ _ALIAS_PATTERN = re.compile(r"^[a-z_][a-z0-9_]*$")
 _SCHEME_PATTERN = re.compile(r"^[a-z0-9_]+$")
 
 
+def check_scheme_identifier(scheme: str) -> None:
+    """Raise ValueError unless `scheme` is safe to embed in SQL text (^[a-z0-9_]+$)."""
+    if not _SCHEME_PATTERN.match(scheme):
+        raise ValueError(f"scheme {scheme!r} is not a safe SQL identifier (^[a-z0-9_]+$)")
+
+
 def unclassified_code(scheme: str = DEFAULT_SCHEME) -> str:
     """The scheme-qualified label a lookup returns instead of NULL/None (D-08)."""
     return f"{scheme}:unclassified"
@@ -75,11 +81,7 @@ def current_level_name_sql(
             f"current_level_name_sql: instrument_alias={instrument_alias!r} is not a "
             "safe SQL identifier (must match ^[a-z_][a-z0-9_]*$)."
         )
-    if not _SCHEME_PATTERN.match(scheme):
-        raise ValueError(
-            f"current_level_name_sql: scheme={scheme!r} is not a safe SQL identifier "
-            "(must match ^[a-z0-9_]+$)."
-        )
+    check_scheme_identifier(scheme)
     if not isinstance(level, int) or level < 1:
         raise ValueError(f"current_level_name_sql: level={level!r} must be an int >= 1.")
     return (
@@ -276,13 +278,8 @@ class ClassificationService:
         """Return the code of the level-`level` ancestor of `symbol`'s as-of assignment,
         or the scheme-qualified unclassified label -- never None -- when no assignment
         applies as of that date or the assignment does not reach that level (D-05/D-08)."""
-        row = self.assignment_as_of(symbol, scheme=scheme, as_of=as_of)
-        if row is None:
-            return unclassified_code(scheme)
-        node = self._nodes.get((scheme, row.code))
-        if node is None or node.level < level:
-            return unclassified_code(scheme)
-        return node.path[level - 1]
+        ancestor = self._ancestor(symbol, level, scheme=scheme, as_of=as_of)
+        return ancestor.code if ancestor is not None else unclassified_code(scheme)
 
     def name_at_level(
         self,
@@ -294,11 +291,21 @@ class ClassificationService:
     ) -> str:
         """Return the name of the level-`level` ancestor, or the scheme-qualified
         unclassified label -- never None."""
-        code = self.node_at_level(symbol, level, scheme=scheme, as_of=as_of)
-        if code == unclassified_code(scheme):
-            return code
-        node = self._nodes.get((scheme, code))
-        return node.name if node is not None else code
+        ancestor = self._ancestor(symbol, level, scheme=scheme, as_of=as_of)
+        return ancestor.name if ancestor is not None else unclassified_code(scheme)
+
+    def _ancestor(
+        self, symbol: str, level: int, *, scheme: str, as_of: date | None
+    ) -> ClassificationNode | None:
+        """The level-`level` ancestor node of `symbol`'s as-of assignment, or None when no
+        assignment applies or it does not reach that level."""
+        row = self.assignment_as_of(symbol, scheme=scheme, as_of=as_of)
+        if row is None:
+            return None
+        node = self._nodes.get((scheme, row.code))
+        if node is None or node.level < level:
+            return None
+        return self._nodes.get((scheme, node.path[level - 1]))
 
     def max_level(self, scheme: str = DEFAULT_SCHEME) -> int:
         """Deepest level loaded for `scheme`; 0 if none."""

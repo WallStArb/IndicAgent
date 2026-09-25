@@ -1011,9 +1011,7 @@ class IBKRProvider:
                 f"(symbol={symbol!r}). Call connect() first."
             )
         contract = Stock(symbol=symbol, exchange="SMART", currency="USD")
-        details_list = await asyncio.wait_for(
-            self._ib.reqContractDetailsAsync(contract), timeout=_CONTRACT_DETAILS_TIMEOUT_SEC
-        )
+        details_list = await self._contract_details(contract)
         if not details_list:
             return None
 
@@ -1033,13 +1031,20 @@ class IBKRProvider:
                 "refusing to silently pick one."
             )
 
-        first = details_list[0]
+        ((industry, category, subcategory),) = triples
         return ContractClassification(
             symbol=symbol,
-            industry=getattr(first, "industry", "") or "",
-            category=getattr(first, "category", "") or "",
-            subcategory=getattr(first, "subcategory", "") or "",
-            long_name=getattr(first, "longName", "") or "",
+            industry=industry,
+            category=category,
+            subcategory=subcategory,
+            long_name=getattr(details_list[0], "longName", "") or "",
+        )
+
+    async def _contract_details(self, contract) -> list:
+        """reqContractDetailsAsync bounded by _CONTRACT_DETAILS_TIMEOUT_SEC. ib_async gives
+        this call no timeout of its own (F4 above), so every caller goes through here."""
+        return await asyncio.wait_for(
+            self._ib.reqContractDetailsAsync(contract), timeout=_CONTRACT_DETAILS_TIMEOUT_SEC
         )
 
     async def qualify_instrument(
@@ -1092,9 +1097,7 @@ class IBKRProvider:
             # own in ib_async (unlike reqHistoricalDataAsync's internal default=60) --
             # fully unbounded without this wrapper. Same failure class as the historical-
             # data hang migration 199 fixed elsewhere in this file.
-            details = await asyncio.wait_for(
-                self._ib.reqContractDetailsAsync(contract), timeout=_CONTRACT_DETAILS_TIMEOUT_SEC
-            )
+            details = await self._contract_details(contract)
             if details:
                 qualified = details[0].contract
                 self._qualified_contracts[instrument.symbol] = qualified
@@ -1387,9 +1390,7 @@ class IBKRProvider:
         try:
             # Try as futures first (most common for this platform)
             contract = Future(symbol=query)
-            details = await asyncio.wait_for(
-                self._ib.reqContractDetailsAsync(contract), timeout=_CONTRACT_DETAILS_TIMEOUT_SEC
-            )
+            details = await self._contract_details(contract)
             if details:
                 d = details[0]
                 c = d.contract

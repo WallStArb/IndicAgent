@@ -34,8 +34,8 @@ project_root = Path(__file__).parent.parent.parent
 sys.path.insert(0, str(project_root))
 
 from scripts.infrastructure._write_mode_args import add_write_mode_args  # noqa: E402
+from src.config.classification_seed_data import ASSIGNMENTS  # noqa: E402
 from src.config.classification_service import (  # noqa: E402
-    SOURCE_REF_FUND_MANDATE,
     ClassificationAssignment,
 )
 from src.config.instrument_onboarding import (  # noqa: E402
@@ -111,10 +111,18 @@ _EMLC_TAG_EVIDENCE = {
     ),
 }
 
-# Phase 182 (D-09, todo 384) -- indicagent_v1 codes pinned by Plan 03's reviewed seed
-# (production/migrations/365_indicagent_v1_classification_seed.sql, shape-tested).
-_EMLC_CLASSIFICATION = ClassificationAssignment("FI.EM", SOURCE_REF_FUND_MANDATE)
-_VIXY_CLASSIFICATION = ClassificationAssignment("VOL.EQUITY", SOURCE_REF_FUND_MANDATE)
+# Phase 182 (D-09, todo 384): the reviewed seed data is the one source of each symbol's
+# indicagent_v1 assignment; onboarding reads it rather than restating it.
+_SEED_BY_SYMBOL = {a.symbol: a for a in ASSIGNMENTS}
+
+
+def _seed_classification(symbol: str) -> ClassificationAssignment:
+    seed = _SEED_BY_SYMBOL[symbol]
+    return ClassificationAssignment(seed.code, seed.source_ref)
+
+
+_EMLC_CLASSIFICATION = _seed_classification("EMLC")
+_VIXY_CLASSIFICATION = _seed_classification("VIXY")
 
 _VIXY_CONTRACT = {
     "name": "ProShares VIX Short-Term Futures ETF",

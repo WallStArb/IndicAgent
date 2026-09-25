@@ -100,99 +100,50 @@ async def _source_candidates(
         )
 
     rows: list[dict] = []
-    counts: dict[str, int] = {
-        "ok": 0,
-        "empty": 0,
-        "no_details": 0,
-        "ambiguous": 0,
-        "timeout": 0,
-        "error": 0,
-    }
     try:
         for symbol in symbols:
             fetched_at = format_iso_ts(datetime.now(UTC))
             try:
                 result = await provider.fetch_contract_classification(symbol)
             except TimeoutError as error:
-                counts["timeout"] += 1
-                rows.append(
-                    {
-                        "symbol": symbol,
-                        "industry": "",
-                        "category": "",
-                        "subcategory": "",
-                        "long_name": "",
-                        "status": "timeout",
-                        "detail": str(error),
-                        "fetched_at": fetched_at,
-                    }
-                )
+                rows.append(_row(symbol, "timeout", fetched_at, detail=str(error)))
                 continue
             except ValueError as error:
-                counts["ambiguous"] += 1
-                rows.append(
-                    {
-                        "symbol": symbol,
-                        "industry": "",
-                        "category": "",
-                        "subcategory": "",
-                        "long_name": "",
-                        "status": "ambiguous",
-                        "detail": str(error),
-                        "fetched_at": fetched_at,
-                    }
-                )
+                rows.append(_row(symbol, "ambiguous", fetched_at, detail=str(error)))
                 continue
             except Exception as error:  # noqa: BLE001 -- recorded per-symbol, loop continues
-                counts["error"] += 1
-                rows.append(
-                    {
-                        "symbol": symbol,
-                        "industry": "",
-                        "category": "",
-                        "subcategory": "",
-                        "long_name": "",
-                        "status": "error",
-                        "detail": str(error),
-                        "fetched_at": fetched_at,
-                    }
-                )
+                rows.append(_row(symbol, "error", fetched_at, detail=str(error)))
                 continue
-
             if result is None:
-                counts["no_details"] += 1
-                rows.append(
-                    {
-                        "symbol": symbol,
-                        "industry": "",
-                        "category": "",
-                        "subcategory": "",
-                        "long_name": "",
-                        "status": "no_details",
-                        "detail": "",
-                        "fetched_at": fetched_at,
-                    }
-                )
+                rows.append(_row(symbol, "no_details", fetched_at))
                 continue
-
-            status = "ok" if result.category else "empty"
-            counts[status] += 1
             rows.append(
-                {
-                    "symbol": symbol,
-                    "industry": result.industry,
-                    "category": result.category,
-                    "subcategory": result.subcategory,
-                    "long_name": result.long_name,
-                    "status": status,
-                    "detail": "",
-                    "fetched_at": fetched_at,
-                }
+                _row(symbol, "ok" if result.category else "empty", fetched_at, result=result)
             )
     finally:
         await provider.disconnect()
 
+    counts = dict.fromkeys(_STATUSES, 0)
+    for row in rows:
+        counts[row["status"]] += 1
     return rows, counts
+
+
+_STATUSES = ("ok", "empty", "no_details", "ambiguous", "timeout", "error")
+
+
+def _row(symbol: str, status: str, fetched_at: str, *, detail: str = "", result=None) -> dict:
+    """One candidates-CSV row; the IBKR fields are empty unless a result was fetched."""
+    return {
+        "symbol": symbol,
+        "industry": result.industry if result else "",
+        "category": result.category if result else "",
+        "subcategory": result.subcategory if result else "",
+        "long_name": result.long_name if result else "",
+        "status": status,
+        "detail": detail,
+        "fetched_at": fetched_at,
+    }
 
 
 def _write_csv_atomic(out_path: Path, rows: list[dict]) -> None:

@@ -37,10 +37,9 @@ from collections.abc import Sequence
 from dataclasses import dataclass
 from pathlib import Path
 
-from src.config.classification_service import ALLOWED_SOURCE_REFS
+from src.config.classification_service import ALLOWED_SOURCE_REFS, check_scheme_identifier
 
 _CODE_PATTERN = re.compile(r"^[A-Z][A-Z0-9]*(\.[A-Z][A-Z0-9]*){0,3}$")
-_SCHEME_PATTERN = re.compile(r"^[a-z0-9_]+$")
 _REQUIRED_AUTHORITY = "IndicAgent"
 _EQUITY_ROOT = "EQ"
 _EQUITY_LEAF_LEVEL = 4
@@ -84,8 +83,10 @@ def validate_seed(
     """Raises ValueError listing every problem found; returns None when the seed is valid."""
     problems: list[str] = []
 
-    if not _SCHEME_PATTERN.match(scheme.scheme):
-        problems.append(f"scheme {scheme.scheme!r} does not match ^[a-z0-9_]+$")
+    try:
+        check_scheme_identifier(scheme.scheme)
+    except ValueError as error:
+        problems.append(str(error))
     for field in ("scheme", "name", "authority", "source_ref"):
         if "gics" in getattr(scheme, field).lower():
             problems.append(f"scheme {field} {getattr(scheme, field)!r} mentions GICS (D-03)")
@@ -169,11 +170,6 @@ def _lit(value: str | None) -> str:
     return "'" + value.replace("'", "''") + "'"
 
 
-def _check_scheme_identifier(scheme: str) -> None:
-    if not _SCHEME_PATTERN.match(scheme):
-        raise ValueError(f"scheme {scheme!r} is not a safe SQL identifier (^[a-z0-9_]+$)")
-
-
 def _sorted_nodes(nodes: Sequence[NodeSeed]) -> list[NodeSeed]:
     return sorted(nodes, key=lambda n: (n.level, n.code))
 
@@ -184,7 +180,7 @@ def render_node_guard_sql(scheme: str, nodes: Sequence[NodeSeed]) -> str:
     Does not call validate_seed, so an integration test can feed it a deliberately
     inconsistent node and watch the guard raise.
     """
-    _check_scheme_identifier(scheme)
+    check_scheme_identifier(scheme)
     values = ",\n".join(
         f"    ({_lit(n.code)}, {_lit(n.parent_code)}, {int(n.level)}, {_lit(n.name)})"
         for n in _sorted_nodes(nodes)
