@@ -62,8 +62,15 @@ Candidates with no verdict. None is queued; each needs a family spec to enter a 
 | Volume-price confirmation and systematic-dominance statistics as features (todo 281) | `.planning/milestones/v3.1-phases/171-hmm-walk-forward-regime-labeling-parameter-lookahead-fix/171-CANDIDATE-REGIME-AXES-FINDINGS.md` §6 | Rejected as regime axes, never tested as features |
 | Confluence as a governed predictor family | `docs/research/intel-confluence-detection-persistence-layer.md` | Draft |
 | PrecedentEngine (k-NN retrieval of similar states) | `docs/research/intel-precedent-engine.md` | Draft; glossary gates it on the ensemble showing IC > 0 |
-| Interaction Factory v2 (curated interactions) | `docs/research/intel-feature-interaction-factory.md` | v2 design not reviewed; GBM ensemble pilot also never run |
+| Interaction Factory v2 (curated interactions) | `docs/research/intel-feature-interaction-factory.md` | v2 design not reviewed |
+| Gradient-boosted (LightGBM) scoring or ensemble pilot | `docs/research/archive/2026-03-19-ml-scoring-research.md` | Designed, never run; would enter as a combiner variant, a new book version |
 | OHLCV primitive expansion | `docs/research/signal-renaissance-primitives-ohlcv.md` | Idea |
+| Candlestick pattern expansion | `docs/research/archive/candlestick-pattern-expansion-research.md` | Untested as v3 features (the feature factory carries only body/range ratios); weak prior |
+| Intelligence palette brainstorm (I2-I6, SMC additions) | `docs/research/archive/intelligence-redo-brainstorm.md` | Shipped in v2.x; SMC and OFI features are in the v3 feature factory, BOCPD and Kalman (next rows) are not |
+| BOCPD change-point features | `docs/plans/archive/2026-02-14-bocpd-changepoint-design.md` | v2.x plugin design; not a v3 feature-factory column |
+| Kalman trend features | `docs/plans/archive/2026-02-19-kalman-trend-design.md` | v2.x plugin design; not a v3 feature-factory column |
+| I7 quant audit, "10 structural gaps" | `docs/research/archive/i7-quant-audit-2026-03-16.md` | Written for the v2.x I7 layer; OFI is now a v3 feature; recheck the other gaps (divergence stack, CIS learning loop) against the E15 book |
+| Renaissance refinement ideas (105 across 48 sections) | `docs/research/archive/signal-06-renaissance-refinements.md`, `docs/plans/archive/2026-03-07-i7-i8-renaissance-refinement-design.md` | Written against the v2.x I7/I8 tiers; not yet read at v3 altitude, so unsorted |
 | Sensitivity x regime interaction primitives | `docs/ideas/signal-sensitivity-regime-interaction-primitives.md` | Revision required after its 2026-09-18 review |
 | Quarterly seasonality / OPEX risk-off | `docs/ideas/signal-quarterly-seasonality-opex-risk-off.md` | Overlaps families 5 and 8 |
 | Political / policy regime | `docs/ideas/signal-political-policy-regime.md` | Idea |
