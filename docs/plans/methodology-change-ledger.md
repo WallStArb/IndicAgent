@@ -846,3 +846,41 @@ when this was found.
   where false discovery is now controlled; the restart changes only how strict the in-sample
   screen is. Several legacy tests also ran on data or code later corrected (E12's spread
   constant, E14's coverage bug, stale feature snapshots). Legacy rows keep their tokens.
+
+### E16 — 2026-09-25 (PROPOSED, owner decision pending): book test and confirmation move from the shift null to a HAC test on book P&L minus its static tilt
+
+- **Observed first:** in H0 simulations with the exact `panel_null.admissible_shifts` rules
+  (n = 4,700 sessions, min_shift 63, memory 252), the whole-session shift null is
+  anti-conservative at the screen bar for persistent predictors. Rejection rate at nominal
+  p 0.00167 by signal autocorrelation time tau (20,000 simulations per row, 16,000 for tau 199):
+  tau 1: 0.0013; 7: 0.0018; 19: 0.0020; 39: 0.0021; 79: 0.0038; 132: 0.0054; 199: 0.0065 to
+  0.0071; 666: 0.0107. The mechanism is that `min_shift` removes the observed alignment's own
+  correlated neighbours from the null while every null draw keeps its neighbours, so the tail
+  quantile is estimated from about admissible sessions / tau effective draws. A per-book sign-flip
+  surrogate calibration of the bar only halves the excess at tau 199 (0.0065 to 0.00325). On the
+  forward span (about 190 sessions today) the shift null is unusable for confirmation: a few
+  effective draws, and no admissible shift at all for a book with 52-week members until the span
+  exceeds about 380 sessions. Step 0 autocorrelation times (signal only, 1d): family 9 members
+  19 to 604 sessions; family 1's same_slot_mean40 about 40.
+- **Proposed change:** the S8 screen statistic and the section 7 confirmation statistic both
+  become a one-sided HAC (Newey-West) t-test on the walk-forward book's daily P&L minus the P&L
+  of its causal static tilt (each symbol's expanding mean weight through the prior session),
+  with t critical values. The static-tilt leg does the job the shift null did for persistent
+  per-symbol exposure (a book that always holds the same names is not timing them). Simulated
+  size, H0, 5,000 simulations per tau at n = 4,000 with Student t4 returns, volatility clustering
+  and per-symbol fixed effects in both predictor and returns: at or below nominal at 0.05, 0.01
+  and 0.00167 for tau 1, 79 and 666. Confirmation-length size (mean-P&L HAC t, 20,000 simulations
+  per cell): 0.045 to 0.055 at alpha 0.05 for n = 190, 500 and 1,000 and tau 1 to 666. The
+  per-shift combiner refit is dropped: out-of-sample walk-forward P&L already has zero mean under
+  H0, so no fitting capacity remains to remove, and lookahead is guarded by S3's canaries. The
+  shift-null excess stays a reported diagnostic. The 600-shift refusal is replaced by the
+  synthetic power refusal alone (power at least 50% at the bar).
+- **Caveats, stated before adoption:** HAC validity needs weakly dependent P&L; simulated with one
+  common factor and volatility clustering, not with regime breaks or richer cross-sectional
+  dependence. Daily books' P&L must be total-return (todo 428) for the static-tilt leg to mean
+  what it says. Scripts: `scripts/analysis/e16_null_size/`.
+- **What it changes if adopted:** evidence framework sections 3, 6 and 7; the architecture's S8;
+  phase 183 plans 06 and 09 (book test), which the phase 183 session is holding; D6 of
+  `docs/plans/2026-09-25-multi-timeframe-horizon-design.md`.
+- **Pre-registered?** No real-data number exists for any book; family 1's evidence runs have not
+  started. The change is decided on simulations only.

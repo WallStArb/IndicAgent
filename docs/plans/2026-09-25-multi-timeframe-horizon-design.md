@@ -126,31 +126,15 @@ placeholder calendar grid; that was wrong, production reads `market_data_ohlcv_t
 - **Parity.** A one-time test compares bounded-memory kernels, after warmup, against
   `feature_vectors` on a sample, to verify reuse fidelity. A test, not a dependency.
 
-**D6. The refusal counts effective draws, not shifts.** (Owner decision required; proposed as
-methodology change E16.) E15 refuses a book with fewer than 600 admissible shifts because the
-smallest attainable p is about 1 over the number of null draws. Shifts are consecutive whole
-sessions (`panel_null.admissible_shifts`), and for a persistent signal the null statistics at
-shifts k and k+1 are nearly identical, correlated at about the signal's lag-1 autocorrelation. A
-book's effective number of independent null draws is about `admissible_sessions / tau`, where
-`tau` is the integrated autocorrelation time of the book's combined alpha, measured from the
-signals alone (no returns, so it spends nothing). Proposed rule: refuse when
-`admissible_sessions / tau < M / alpha` (600 at M = 30).
-
-Consequence, stated plainly: on about 2,900 admissible daily sessions, any daily book with
-`tau` above about 5 sessions is refused. Family 9's members (52-week windows) will almost
-certainly exceed that, so family 9 cannot be screened at p < 0.00167 on the whole-session shift
-null at all. Options, in order of preference:
-
-1. Measure `tau` for every proposed family in E15 step 0 (signal-only). Families under the
-   threshold proceed unchanged.
-2. For slow cross-sectional families, a second null that keeps time intact and breaks the
-   signal-to-name link: permute signal vectors among names within each S1 cluster per session.
-   Its validity rests on exchangeability within clusters, which needs its own synthetic
-   validation. Adopting it is a methodology change.
-3. Otherwise slow families wait for a longer vintage or a larger cross-section.
-
-The legacy phase 179 FAIL used 2,885 consecutive shifts with slow calibrated arms; its p-values
-have the same resolution problem, which strengthens the case that it did not test slow edges.
+**D6. Persistent predictors and the book test: superseded by proposed E16.** Revision 2
+proposed an effective-draw refusal on the shift null. Simulation then showed the shift null is
+anti-conservative at the screen bar once the book's autocorrelation time passes about 40
+sessions (up to 4x at tau 199), that a sign-flip calibration only halves that, and that the
+shift null cannot run a confirmation on the current forward span. Proposed E16
+(`docs/plans/methodology-change-ledger.md`) replaces it at both stages with a HAC test on book
+P&L minus its causal static tilt, which holds size for autocorrelation times up to 666 in the
+same simulations. Scripts and numbers: `scripts/analysis/e16_null_size/` and the E16 entry.
+Owner decision pending; family 9 stays unscreenable under the current rule until then.
 
 **D7. Guards, all synthetic, all before any real-data run.**
 
@@ -165,7 +149,8 @@ have the same resolution problem, which strengthens the case that it did not tes
    high max, low min, volume sum), and no aggregated bar spans a session boundary.
 5. A table entry with an expanding kernel is rejected; a masked kernel emits NaN until its
    declared memory.
-6. On synthetic AR(1) signals with known `tau`, the effective-draw estimate matches theory.
+6. The book test holds size on synthetic AR(1) predictors across autocorrelation times, at the
+   screen bar (the E16 simulations, rerun on the built S8).
 7. A synthetic high-yield name with zero alpha and a steady ex-dividend drop produces no family 9
    book edge after dividend adjustment (needs todo 428).
 8. `repro_frozen.py` stays bit-identical after every build item: new Panel fields default to
@@ -189,7 +174,7 @@ S0 snapshot (async, read-only pool): 1d bars; 5m bars -> derived 15m, 1h
       -> Panel(tf): OHLCV + high, low, closes_at, warmup prefix
 S2 kernels per tf (pure, per symbol, masked to NaN before declared memory) -> alpha(tf)
 S2b align to the book clock (pure, causal)                               -> alpha(book clock)
-S3 guards -> S4 neutralize -> S7 ridge, one target -> S8 book test (effective-draw refusal)
+S3 guards -> S4 neutralize -> S7 ridge, one target -> S8 book test (E16 if adopted)
       -> S6 ledger (sole writer)
       \-> term structure with joint null band (record, feeds nothing)
 ```
@@ -233,7 +218,7 @@ sees two clocks.
 | B3 | `align` node; D7 guards 1 and 2 | B1 |
 | B4 | Term structure with joint shift-null band as a run record | S8 |
 | B5 | Fixed smoothing menu on `SignalSource` | B2 |
-| B6 | Effective-draw refusal in S8 and `tau` in E15 step 0; D7 guard 6 | owner decision on D6 |
+| B6 | The E16 book test in S8 if adopted, `tau` in E15 step 0; D7 guard 6 | owner decision on E16 |
 | B7 | `repro_frozen.py` bit-identical after each item (D7 guard 8) | each |
 
 Dividend history (todo 428, D7 guard 7) is outside phase 183 and gates confirmation, not the
@@ -253,7 +238,7 @@ screen.
 |---|---|---|---|
 | 1 | "Reading the term structure spends nothing" is false if it shapes the next family version | HIGH | Accepted: D2 rewritten (record only; any use is a counted re-specification), D3 uses a fixed menu |
 | 2 | Lag ICs of a persistent signal are not near independent | HIGH | Accepted: section 2 corrected; joint band, whole-curve reading only |
-| 3 | Consecutive shifts give about n / memory effective draws, so the 600-shift refusal is meaningless for slow members | HIGH | Accepted: D6, effective-draw refusal, owner decision |
+| 3 | Consecutive shifts give about n / memory effective draws, so the 600-shift refusal is meaningless for slow members | HIGH | Accepted; the fix went further: proposed E16 replaces the shift null (D6) |
 | 4 | Price-only (no dividend) prices can manufacture family 9's signal | HIGH | Accepted, verified (no dividend table; `TRADES` series): D8, todo 428, guard 7 |
 | 5 | `_vwap_dev_sigma_series_full` has expanding memory from index 0 | MEDIUM | Accepted, verified: expanding kernels excluded, rolling VWAP kernel |
 | 6 | Kernel warmup emits filled values | MEDIUM | Accepted: NaN masking plus warmup prefix |
