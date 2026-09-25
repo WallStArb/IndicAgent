@@ -194,6 +194,9 @@ This is the main change to the evidence framework.
 
 ## 4. Where to search first
 
+Status of each family: `docs/research/construction-verdict-ledger.md` section 1. This section
+holds the designs; status lives in the ledger only.
+
 Ordered by prior, cleanliness of the evidence available, and power:
 
 1. **Intraday return periodicity and momentum, cross-sectional.** Heston, Korajczyk and
