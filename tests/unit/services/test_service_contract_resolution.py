@@ -39,7 +39,11 @@ def _reset_cache() -> None:
     settings_mod._active_contracts_last_refresh = {}
 
 
-def _make_mock_db_conn(futures_rows: list, non_futures_rows: list | None = None) -> MagicMock:
+def _make_mock_db_conn(
+    futures_rows: list,
+    non_futures_rows: list | None = None,
+    template_classification: str | None = "Equity Index",
+) -> MagicMock:
     """Build a single psycopg connection mock for get_active_contracts().
 
     get_active_contracts() uses ONE psycopg.connect() that runs three queries
@@ -70,6 +74,7 @@ def _make_mock_db_conn(futures_rows: list, non_futures_rows: list | None = None)
             "provider_meta": {},
             "expiry": "",
         },
+        template_classification,
     )
 
     mock_conn = MagicMock()
@@ -84,7 +89,7 @@ def _make_mock_db_conn(futures_rows: list, non_futures_rows: list | None = None)
     return mock_conn
 
 
-# Sample non-futures row: (symbol, base, contract_details dict)
+# Sample non-futures row: (symbol, base, contract_details dict, classification sector name)
 _EURUSD_NF_ROW = (
     "EURUSD",
     "EUR",
@@ -101,6 +106,7 @@ _EURUSD_NF_ROW = (
         "provider_meta": {},
         "expiry": "",
     },
+    "Currencies",
 )
 
 
@@ -346,3 +352,29 @@ class TestGetActiveContractsReturnType:
         from src.config.settings import get_active_symbols as _fn
 
         assert callable(_fn)
+
+
+class TestSectorFromClassification:
+    """Phase 182 D-10: futures sectors come from the template's indicagent_v1 classification."""
+
+    def setup_method(self):
+        _reset_cache()
+
+    def test_front_month_inherits_template_classification_sector(self):
+        conn = _make_mock_db_conn([("ESM6", "ES", "CME")], [_EURUSD_NF_ROW])
+        with patch("psycopg.connect", return_value=conn):
+            result = get_active_contracts(_make_settings(), dimension="compute")
+        by_symbol = {i.symbol: i.sector for i in result}
+        assert by_symbol == {"ESM6": "Equity Index", "EURUSD": "Currencies"}
+
+    def test_unclassified_template_yields_unclassified_front_month(self):
+        conn = _make_mock_db_conn([("ESM6", "ES", "CME")], [], template_classification=None)
+        with patch("psycopg.connect", return_value=conn):
+            result = get_active_contracts(_make_settings(), dimension="compute")
+        assert [i.sector for i in result] == ["indicagent_v1:unclassified"]
+
+    def test_front_month_without_template_is_unclassified(self):
+        conn = _make_mock_db_conn([("NQM6", "NQ", "CME")], [])
+        with patch("psycopg.connect", return_value=conn):
+            result = get_active_contracts(_make_settings(), dimension="compute")
+        assert [(i.symbol, i.sector) for i in result] == [("NQM6", "indicagent_v1:unclassified")]

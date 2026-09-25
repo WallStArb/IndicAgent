@@ -43,8 +43,11 @@ def _make_settings() -> MagicMock:
     return mock
 
 
-def _nf_row(symbol: str) -> tuple:
-    """Build a non-futures instruments row: (symbol, base, contract_details dict)."""
+def _nf_row(symbol: str, classification: str | None = "Information Technology") -> tuple:
+    """Build a non-futures instruments row: (symbol, base, contract_details dict,
+    classification sector name). The 4th column is the indicagent_v1 level-2 node name
+    selected by current_level_name_sql("instruments") (Phase 182 D-10); None models a
+    symbol with no current assignment."""
     return (
         symbol,
         symbol,
@@ -61,6 +64,7 @@ def _nf_row(symbol: str) -> tuple:
             "provider_meta": {},
             "expiry": "",
         },
+        classification,
     )
 
 
@@ -631,3 +635,56 @@ def test_front_month_futures_are_scoped_by_the_dimension(dimension):
 
     (futures_sql,) = [sql for sql in recorder if "FROM contract_metadata" in sql]
     assert settings_mod.dimension_where_clause(dimension, "i") in futures_sql
+
+
+# ---------------------------------------------------------------------------
+# Phase 182 D-10: Instrument.sector comes from the indicagent_v1 classification
+# (level-2 node name), never from contract_details->>'sector'.
+# ---------------------------------------------------------------------------
+
+
+def _run_backfill(rows: list[tuple]) -> tuple[list, list[str]]:
+    recorder: list[str] = []
+
+    def _connect(_dsn):
+        return _FakeConnection(_FakeCursor(recorder, {"backfill": rows}))
+
+    with patch("psycopg.connect", side_effect=_connect):
+        result = get_active_contracts(_make_settings(), dimension="backfill")
+    return result, recorder
+
+
+def test_sector_comes_from_classification_not_contract_details():
+    result, _ = _run_backfill([_nf_row("SMH", "Information Technology")])
+    assert [i.sector for i in result] == ["Information Technology"]
+
+
+def test_sector_unclassified_when_no_current_assignment():
+    result, _ = _run_backfill([_nf_row("SMH", None)])
+    assert [i.sector for i in result] == ["indicagent_v1:unclassified"]
+
+
+def test_fallback_constructor_path_applies_classification_rule():
+    """contract_details that Instrument(**cd) rejects (no symbol key) takes the explicit
+    fallback constructor, which fills symbol from the row; the same sector rule must
+    apply there."""
+    classified = _nf_row("AAA", "Financials")
+    del classified[2]["symbol"]
+    unclassified = _nf_row("BBB", None)
+    del unclassified[2]["symbol"]
+    result, _ = _run_backfill([classified, unclassified])
+    by_symbol = {i.symbol: i.sector for i in result}
+    assert by_symbol == {"AAA": "Financials", "BBB": "indicagent_v1:unclassified"}
+
+
+def test_non_futures_and_template_queries_select_the_classification_fragment():
+    from src.config.classification_service import current_level_name_sql
+
+    _, recorder = _run_backfill([_nf_row("SMH")])
+    fragment = current_level_name_sql("instruments")
+    template_sql = next(q for q in recorder if "asset_class' = 'futures'" in q)
+    non_futures_sql = next(q for q in recorder if "asset_class' != 'futures'" in q)
+    assert fragment in template_sql
+    assert fragment in non_futures_sql
+    # The dimension clause itself is unchanged (case 10 pins the clause strings).
+    assert settings_mod._ACTIVE_CONTRACTS_DIMENSION_CLAUSES["backfill"] in non_futures_sql
