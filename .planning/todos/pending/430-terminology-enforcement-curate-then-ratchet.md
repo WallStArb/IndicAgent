@@ -68,6 +68,8 @@ research spec codes validate against CVR.
   checker or baseline is staged, and carries baseline entries across `git mv`; CI runs full tree.
   The installed `.git/hooks/pre-commit` was a stale diverged copy of `tools/pre-commit.hook`
   (pre-todo-310); it is now a symlink to the main checkout's `tools/pre-commit.hook`.
-- **Remaining:** step 4 (`SignalSource` -> `Predictor`, with the phase 183 session; the
-  `**Exempt:**` entry is removed in the same commit), step 5 (research spec codes in CVR),
+- **Remaining:** step 4 (`SignalSource` -> `Predictor`: scheduled by the phase 183 session after
+  183-10's real-data runs, because the runner records the code commit and a mid-phase rename would
+  churn between the evidence runs and the book test; the `**Exempt:**` entry is removed in the same
+  commit, with `repro_frozen.py` bit-identical), step 5 (research spec codes in CVR),
   step 6 (burn down the baseline, UX strings first).
