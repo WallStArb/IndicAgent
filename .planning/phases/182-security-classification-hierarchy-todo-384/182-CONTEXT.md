@@ -55,11 +55,21 @@ path; its consumers are stratification, peer groups, reporting and onboarding.
   the assignment does not reach that level or does not exist as of that date.
 - **D-09 Coverage is enforced, not hoped for.** Every active instrument gets a current
   `indicagent_v1` assignment in this phase (273 today, including the 40 unlabeled 1d-pilot
-  names). Onboarding (`src/config/instrument_onboarding.py`) requires a classification for any
-  new instrument. A unit or CI test fails when an active instrument has no current assignment.
-- **D-10 The flat label stops being a source of truth.** Its readers
-  (`src/config/settings.py` Instrument.sector, `src/intelligence/pipeline/cache_manager.py`,
-  `src/api/routes/signals.py`) move to `ClassificationService` (sector = level-2 node name).
+  names). Enforcement at three points, because GitHub CI runs `tests/unit/` only and cannot see
+  the live database (research finding, 2026-09-25):
+  1. **Seed time:** the seed migration ends with a `DO` block that raises if any active
+     instrument lacks a current assignment (migration 363's pattern).
+  2. **Onboarding:** `src/config/instrument_onboarding.py` requires a classification for every
+     new instrument and hard-fails without one. No skip-reason escape hatch: an instrument
+     that cannot be classified is not onboarded.
+  3. **Drift:** a coverage audit in the nightly chain beside `VocabularyDriftAuditor`
+     (`ops_corpus_pipeline_run.sh`), reporting any active instrument without a current
+     assignment, plus a `tests/integration/` test with the same query for local pre-merge runs.
+  The unit suite gets pure tests of the service and seed logic only.
+- **D-10 The flat label stops being a source of truth.** `Instrument.sector` is populated in
+  two builders (`settings.py::_build_instrument_from_db_row`,
+  `cache_manager.py::_instrument_from_row`); both move to the classification (sector =
+  level-2 node name), which fixes `src/api/routes/signals.py` transitively.
   The JSON field stays in `contract_details` as historical data and is no longer written.
 - **D-11 Migration discipline.** Schema and seed land as numbered migrations, applied live and
   committed in the same breath (CLAUDE.md rule). Next free number at plan time (363 is taken).
