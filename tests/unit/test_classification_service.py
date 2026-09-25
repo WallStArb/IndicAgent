@@ -152,14 +152,9 @@ def test_node_at_level_xyz_valid_to_is_exclusive():
     assert service.node_at_level("XYZ", 2, as_of=date(2026, 10, 10)) == "EQ.IT"
 
 
-def test_name_at_level_returns_node_name():
+def test_node_at_level_resolves_to_a_named_node():
     service = _service_with_fixture()
-    assert service.name_at_level("NVDA", 2) == "Information Technology"
-
-
-def test_name_at_level_unclassified_returns_label():
-    service = _service_with_fixture()
-    assert service.name_at_level("SPY", 3) == "indicagent_v1:unclassified"
+    assert service.node(service.node_at_level("NVDA", 2)).name == "Information Technology"
 
 
 def test_max_level():
@@ -177,7 +172,7 @@ def test_classification_service_no_db_calls_after_init():
     populated -- hot-path reads must be zero-I/O per D-08."""
     service = _service_with_fixture()
     assert service._db_pool is None
-    for method_name in ("node", "assignment_as_of", "node_at_level", "name_at_level", "max_level"):
+    for method_name in ("node", "assignment_as_of", "node_at_level", "max_level"):
         method = getattr(service, method_name)
         assert not inspect.iscoroutinefunction(method)
     assert service.node_at_level("NVDA", 1) == "EQ"
@@ -327,3 +322,35 @@ def test_build_caches_accepts_adjacent_non_overlapping_windows():
     ]
     nodes, assignments = _build_caches(node_rows, assignment_rows)
     assert len(assignments[(DEFAULT_SCHEME, "NVDA")]) == 2
+
+
+def test_level_below_one_raises() -> None:
+    """A level <= 0 would index the path from the end and return a real node."""
+    service = _service_with_fixture()
+    with pytest.raises(ValueError, match="must be an int >= 1"):
+        service.node_at_level("NVDA", 0)
+    with pytest.raises(ValueError, match="must be an int >= 1"):
+        service.node_at_level("NVDA", -1)
+
+
+def test_node_path_not_extending_parent_raises() -> None:
+    nodes = [
+        {
+            "scheme": "s",
+            "code": "EQ",
+            "parent_code": None,
+            "level": 1,
+            "name": "Equity",
+            "path": ["EQ"],
+        },
+        {
+            "scheme": "s",
+            "code": "EQ.IT",
+            "parent_code": "EQ",
+            "level": 2,
+            "name": "IT",
+            "path": ["EQ", "EQ.FIN"],
+        },
+    ]
+    with pytest.raises(RuntimeError, match="wrong branch"):
+        _build_caches(nodes, [])

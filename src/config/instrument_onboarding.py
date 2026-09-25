@@ -28,13 +28,16 @@ from __future__ import annotations
 import json
 from collections.abc import Sequence
 from dataclasses import dataclass
-from datetime import UTC, datetime
 from typing import TYPE_CHECKING, Any, Protocol
 
 import asyncpg
 import structlog
 
-from src.config.classification_service import DEFAULT_SCHEME, ClassificationAssignment
+from src.config.classification_service import (
+    DEFAULT_SCHEME,
+    SECTOR_LEVEL,
+    ClassificationAssignment,
+)
 
 if TYPE_CHECKING:
     from src.core.models import Instrument
@@ -74,12 +77,14 @@ ON CONFLICT (symbol, tag) DO NOTHING
 """
 
 _SELECT_CLASSIFICATION_NODE_SQL = """
-SELECT 1 FROM classification_node WHERE scheme = $1 AND code = $2 AND valid_to IS NULL
+SELECT level FROM classification_node WHERE scheme = $1 AND code = $2 AND valid_to IS NULL
 """
 
+# valid_from is the database's UTC date: the same date migration 368's trigger requires, so a
+# Python clock and the transaction start can never disagree across UTC midnight.
 _INSERT_CLASSIFICATION_SQL = """
 INSERT INTO instrument_classification (symbol, scheme, code, valid_from, source_ref)
-VALUES ($1, $2, $3, $4, $5)
+VALUES ($1, $2, $3, (now() AT TIME ZONE 'UTC')::date, $4)
 """
 
 _INSERT_METADATA_SQL = """
@@ -193,7 +198,6 @@ class OnboardResult:
     symbol: str
     qualified: bool
     instrument_inserted: bool
-    classification_code: str
     tags_inserted: int
     metadata_written: bool
     backfill_rows_seeded: int
@@ -321,14 +325,22 @@ async def onboard_instrument(
                     "vocabulary, not invented at insert time (ITR rule)."
                 )
 
-        node_exists = await conn.fetchval(
+        node_level = await conn.fetchval(
             _SELECT_CLASSIFICATION_NODE_SQL, DEFAULT_SCHEME, classification.code
         )
-        if node_exists is None:
+        if node_level is None:
             raise OnboardingRejected(
                 f"onboard_instrument: {instrument.symbol!r} classification code "
                 f"{classification.code!r} is not a current {DEFAULT_SCHEME} node -- "
                 "rejected before any DB write."
+            )
+        if node_level < SECTOR_LEVEL:
+            # An asset-class-only assignment would land in the unclassified sector stratum
+            # while the coverage audit counts it as covered: a silent gap.
+            raise OnboardingRejected(
+                f"onboard_instrument: {instrument.symbol!r} classification code "
+                f"{classification.code!r} is level {node_level}; an instrument must be "
+                f"classified to at least the sector level ({SECTOR_LEVEL})."
             )
 
         contract_details = {key: getattr(instrument, key) for key in _CONTRACT_DETAILS_KEYS}
@@ -359,7 +371,6 @@ async def onboard_instrument(
             instrument.symbol,
             DEFAULT_SCHEME,
             classification.code,
-            datetime.now(UTC).date(),
             classification.source_ref,
         )
 
@@ -403,7 +414,6 @@ async def onboard_instrument(
         symbol=instrument.symbol,
         qualified=qualified,
         instrument_inserted=instrument_inserted,
-        classification_code=classification.code,
         tags_inserted=tags_inserted,
         metadata_written=metadata_written,
         backfill_rows_seeded=backfill_rows_seeded,

@@ -1019,3 +1019,4 @@ run_guards  # unused function (src/intelligence/research/guards.py:70) - S3 entr
 loadings_at  # unused method (src/intelligence/research/factors.py:131) - S1 public API (per-block factor loadings), tested; for S4 residualization diagnostics (architecture 3.2)
 factor_names  # unused method (src/intelligence/research/factors.py:108) - S1 public API naming the factor columns, tested (architecture 3.2)
 neutralize  # unused function (src/intelligence/research/factors.py:310) - S1's residualization of signals that are not built from residual returns (S4, architecture 3.1); tested, first consumer is a feature-based family
+override_reason  # unused attribute (src/config/classification_seed.py:73) -- phase 182 audit-trail field on each seed row, read by the 182-03 review table, set positionally so vulture cannot see it

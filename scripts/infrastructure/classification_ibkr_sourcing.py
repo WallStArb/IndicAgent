@@ -118,7 +118,13 @@ async def _source_candidates(
                 rows.append(_row(symbol, "no_details", fetched_at))
                 continue
             rows.append(
-                _row(symbol, "ok" if result.category else "empty", fetched_at, result=result)
+                # "ok" needs both fields the review maps from; a half-empty triple is not ready.
+                _row(
+                    symbol,
+                    "ok" if result.industry and result.category else "empty",
+                    fetched_at,
+                    result=result,
+                )
             )
     finally:
         await provider.disconnect()
@@ -177,9 +183,18 @@ async def _async_main(args: argparse.Namespace) -> int:
         print(f"FAILED: {error}", file=sys.stderr)
         return 4
 
-    _write_csv_atomic(Path(args.out), rows)
-
     non_ok = [row["symbol"] for row in rows if row["status"] != "ok"]
+    out_path = Path(args.out)
+    if non_ok and out_path.exists():
+        # A gateway logout mid-run turns most rows into errors; never replace a complete
+        # candidates file with that. The partial result goes beside it for inspection.
+        out_path = out_path.with_suffix(".partial" + out_path.suffix)
+        print(
+            f"WARNING: {len(non_ok)} non-ok rows; {args.out} left unchanged, this run written "
+            f"to {out_path}.",
+            file=sys.stderr,
+        )
+    _write_csv_atomic(out_path, rows)
     _logger.info(
         "classification_ibkr_sourcing.complete",
         total=len(rows),
@@ -189,7 +204,7 @@ async def _async_main(args: argparse.Namespace) -> int:
         ambiguous=counts["ambiguous"],
         timeout=counts["timeout"],
         error=counts["error"],
-        out=str(args.out),
+        out=str(out_path),
     )
     if non_ok:
         print(

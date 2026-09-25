@@ -141,9 +141,9 @@ def _build_caches(node_rows: Any, assignment_rows: Any) -> tuple[
 ]:
     """Pure row-to-cache builder, no DB access -- exercised directly by unit tests with
     literal rows (dicts or asyncpg Records, both support `row["key"]`). Enforces two
-    integrity invariants as RuntimeError (loud crash, not a warning): every assignment's
-    code must reference a loaded node, and no two rows for the same (symbol, scheme) may
-    have overlapping [valid_from, valid_to) windows.
+    integrity invariants as RuntimeError (loud crash, not a warning): every node's path
+    extends its parent's, every assignment's code references a loaded node, and no two rows
+    for the same (symbol, scheme) have overlapping [valid_from, valid_to) windows.
     """
     nodes: dict[tuple[str, str], ClassificationNode] = {}
     for row in node_rows:
@@ -156,6 +156,16 @@ def _build_caches(node_rows: Any, assignment_rows: Any) -> tuple[
             name=row["name"],
             path=tuple(row["path"]),
         )
+
+    for (scheme, code), node in nodes.items():
+        parent = nodes.get((scheme, node.parent_code)) if node.parent_code else None
+        expected = (parent.path if parent else ()) + (code,)
+        if (node.parent_code and parent is None) or node.path != expected:
+            raise RuntimeError(
+                f"ClassificationService: node {scheme}.{code} has path {node.path!r}, "
+                f"expected {expected!r} from its parent {node.parent_code!r} -- ancestor "
+                "lookups would resolve to the wrong branch."
+            )
 
     by_symbol: dict[tuple[str, str], list[AssignmentRow]] = {}
     for row in assignment_rows:
@@ -196,9 +206,9 @@ class ClassificationService:
     """Cached, library-embedded read layer over Layer 1 classification tables.
 
     Cache is fully populated in `initialize()` (one prewarm pass over two tables). Hot-path
-    readers (`node`, `assignment_as_of`, `node_at_level`, `name_at_level`, `max_level`) are
+    readers (`node`, `assignment_as_of`, `node_at_level`, `max_level`) are
     synchronous dict lookups against the prewarmed cache -- no lazy miss-then-fetch DB
-    fallback, per D-08's zero-hot-path-DB-calls mandate. `node_at_level`/`name_at_level`
+    fallback, per D-08's zero-hot-path-DB-calls mandate. `node_at_level`
     never return None: an assignment that does not exist, or does not reach the requested
     level as of the given date, yields the scheme-qualified unclassified label instead.
     """
@@ -281,24 +291,15 @@ class ClassificationService:
         ancestor = self._ancestor(symbol, level, scheme=scheme, as_of=as_of)
         return ancestor.code if ancestor is not None else unclassified_code(scheme)
 
-    def name_at_level(
-        self,
-        symbol: str,
-        level: int,
-        *,
-        scheme: str = DEFAULT_SCHEME,
-        as_of: date | None = None,
-    ) -> str:
-        """Return the name of the level-`level` ancestor, or the scheme-qualified
-        unclassified label -- never None."""
-        ancestor = self._ancestor(symbol, level, scheme=scheme, as_of=as_of)
-        return ancestor.name if ancestor is not None else unclassified_code(scheme)
-
     def _ancestor(
         self, symbol: str, level: int, *, scheme: str, as_of: date | None
     ) -> ClassificationNode | None:
         """The level-`level` ancestor node of `symbol`'s as-of assignment, or None when no
         assignment applies or it does not reach that level."""
+        if not isinstance(level, int) or level < 1:
+            # path[level - 1] with level <= 0 would index from the end and return a real
+            # node for a nonsense level.
+            raise ValueError(f"ClassificationService: level={level!r} must be an int >= 1.")
         row = self.assignment_as_of(symbol, scheme=scheme, as_of=as_of)
         if row is None:
             return None

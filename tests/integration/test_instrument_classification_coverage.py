@@ -135,7 +135,7 @@ async def test_classification_service_round_trip() -> None:
     await service.initialize()
     try:
         unclassified = unclassified_code(DEFAULT_SCHEME)
-        assert service.name_at_level("SMH", 2) == "Information Technology"
+        assert service.node(service.node_at_level("SMH", 2)).name == "Information Technology"
         assert service.node_at_level("SPY", 4) == unclassified
         assert service.node_at_level("SPY", 1, as_of=date(2026, 9, 24)) == unclassified
         assert service.node_at_level("SPY", 2) == "EQ.BROAD"

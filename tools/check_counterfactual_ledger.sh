@@ -54,11 +54,19 @@ for file in $SQL_FILES; do
     [ -f "$full_path" ] || continue
 
     # Extract table names from CREATE TABLE statements (with or without IF NOT EXISTS)
-    # `|| true`: a migration with no CREATE TABLE makes grep exit 1, which under
-    # `set -euo pipefail` would end the script silently with rc 1 and block every
-    # constraint/trigger/data migration without a message.
-    TABLES=$(grep -ioE 'CREATE TABLE( IF NOT EXISTS)? [a-zA-Z_][a-zA-Z0-9_]*' "$full_path" | \
-        awk '{print $NF}' || true)
+    # grep exit 1 means "no CREATE TABLE here" and is fine; under set -euo pipefail it
+    # would otherwise end the script silently with rc 1 and block every constraint,
+    # trigger or data migration. Exit 2 (a read error) must still fail loudly.
+    # Matches TEMP/TEMPORARY/UNLOGGED tables and schema-qualified names (public.x).
+    set +e
+    MATCHES=$(grep -ioE 'CREATE( (TEMP|TEMPORARY|UNLOGGED))? TABLE( IF NOT EXISTS)? ([a-zA-Z_][a-zA-Z0-9_]*\.)?[a-zA-Z_][a-zA-Z0-9_]*' "$full_path")
+    GREP_RC=$?
+    set -e
+    if [ "$GREP_RC" -gt 1 ]; then
+        echo "FAILED: could not read ${file} (grep exit ${GREP_RC})"
+        exit 1
+    fi
+    TABLES=$(printf '%s\n' "$MATCHES" | awk 'NF {n = split($NF, parts, "."); print parts[n]}')
 
     for table in $TABLES; do
         table_lc=$(echo "$table" | tr '[:upper:]' '[:lower:]')

@@ -423,12 +423,19 @@ def test_instrument_from_row_sector_from_classification():
     assert inst.sector == "Information Technology"
 
 
-@pytest.mark.parametrize("extra", [{"classification_sector": None}, {}])
-def test_instrument_from_row_unclassified_when_missing(extra):
+def test_instrument_from_row_unclassified_when_no_current_assignment():
     from src.intelligence.pipeline.cache_manager import _instrument_from_row
 
-    inst = _instrument_from_row(_smh_row(**extra))
+    inst = _instrument_from_row(_smh_row(classification_sector=None))
     assert inst.sector == "indicagent_v1:unclassified"
+
+
+def test_instrument_from_row_missing_sector_column_raises():
+    """A query that forgot the column must crash, not label every instrument unclassified."""
+    from src.intelligence.pipeline.cache_manager import _instrument_from_row
+
+    with pytest.raises(KeyError, match="classification_sector"):
+        _instrument_from_row(_smh_row())
 
 
 @pytest.mark.asyncio

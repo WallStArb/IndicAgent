@@ -82,7 +82,8 @@ def _instrument_from_row(row: dict) -> Any:
 
     sector is the row's `classification_sector` column (the level-2 node name of the
     symbol's current indicagent_v1 assignment, selected by _reload_instruments_cache), or
-    "indicagent_v1:unclassified" when it is NULL or absent (Phase 182 D-08/D-10).
+    "indicagent_v1:unclassified" when it is NULL (Phase 182 D-08/D-10). A missing column
+    raises KeyError.
     contract_details' flat sector string is historical only and never read.
     """
     from src.core.models import Instrument  # noqa: PLC0415 — avoids circular import
@@ -94,7 +95,9 @@ def _instrument_from_row(row: dict) -> Any:
         name=cd.get("name", ""),
         asset_class=cd.get("asset_class", "equity"),
         exchange=cd.get("exchange", ""),
-        sector=label_or_unclassified(row.get("classification_sector")),
+        # Indexed, not .get(): a query that forgot the column must crash, not label every
+        # instrument unclassified. A NULL value (no current assignment) is the real stratum.
+        sector=label_or_unclassified(row["classification_sector"]),
         tick_size=float(cd.get("tick_size") or 0),
         point_value=float(cd.get("point_value") or 0),
         session_id=cd.get("session_id", "equity_regular"),

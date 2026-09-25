@@ -12,7 +12,6 @@ implements the InstrumentQualifier Protocol without ever touching ib_async.
 
 from __future__ import annotations
 
-from datetime import UTC, datetime
 from typing import Any
 
 import pytest
@@ -121,7 +120,9 @@ class FakeConnection:
             return self._apr_timeframes
         if "classification_node" in sql:
             _scheme, code = args
-            return 1 if code in self._known_codes else None
+            # Level = number of dotted parts (EQ = 1, EQ.IT.SEMI = 3), as the schema's
+            # self-nesting codes imply; None when the code is not a current node.
+            return code.count(".") + 1 if code in self._known_codes else None
         return None
 
     async def execute(self, sql: str, *args: Any) -> str:
@@ -237,13 +238,9 @@ async def test_happy_path_writes_all_four_tables() -> None:
     classification_stmts = _statements_starting_with(conn, "INSERT INTO instrument_classification")
     assert len(classification_stmts) == 1
     _sql, class_args = classification_stmts[0]
-    assert class_args == (
-        "CCJ",
-        DEFAULT_SCHEME,
-        "EQ.IT.SEMI",
-        datetime.now(UTC).date(),
-        SOURCE_REF_IBKR_REVIEWED,
-    )
+    # valid_from is computed by the database (migration 368's date), not passed from Python.
+    assert class_args == ("CCJ", DEFAULT_SCHEME, "EQ.IT.SEMI", SOURCE_REF_IBKR_REVIEWED)
+    assert "(now() AT TIME ZONE 'UTC')::date" in _sql
     instrument_index = conn.statements.index(
         _statements_starting_with(conn, "INSERT INTO instruments")[0]
     )
@@ -253,7 +250,6 @@ async def test_happy_path_writes_all_four_tables() -> None:
     assert result.tags_inserted == 2
     assert result.metadata_written is True
     assert result.instrument_inserted is True
-    assert result.classification_code == "EQ.IT.SEMI"
 
 
 # ---------------------------------------------------------------------------
@@ -331,6 +327,22 @@ async def test_classification_none_raises_valueerror_before_qualifier() -> None:
 
     assert conn.statements == []
     assert qualifier.calls == []
+
+
+async def test_asset_class_only_classification_rejected() -> None:
+    """A level-1 code would put the instrument in the unclassified sector stratum while the
+    coverage audit counts it as covered; onboarding refuses it (sector level or deeper)."""
+    conn = FakeConnection(known_codes={"EQ"})
+    with pytest.raises(OnboardingRejected, match="at least the sector level"):
+        await onboard_instrument(
+            conn,
+            _make_instrument("SHALLOW"),
+            qualifier=FakeQualifier(qualifies=True),
+            metadata=_SOME_METADATA,
+            classification=ClassificationAssignment("EQ", SOURCE_REF_IBKR_REVIEWED),
+        )
+    assert _statements_starting_with(conn, "INSERT INTO instruments") == []
+    assert _statements_starting_with(conn, "INSERT INTO instrument_classification") == []
 
 
 async def test_unknown_classification_code_rejected_and_writes_nothing() -> None:

@@ -109,8 +109,10 @@ async def test_second_current_row_is_rejected() -> None:
         tr = conn.transaction()
         await tr.start()
         try:
-            # A far-future open row overlaps the current one: the partial unique index or the
-            # migration 367 exclusion constraint rejects it, whichever Postgres checks first.
+            # Triggers off (migration 368 would refuse the scheduled date first) so this
+            # exercises the constraints: the partial unique index or the 367 exclusion
+            # constraint rejects a second open row, whichever Postgres checks first.
+            await conn.execute("SET LOCAL session_replication_role = replica")
             with pytest.raises(asyncpg.IntegrityConstraintViolationError):
                 await conn.execute(
                     "INSERT INTO instrument_classification "
@@ -193,8 +195,10 @@ async def test_no_scheme_named_gics() -> None:
         await conn.close()
 
 
-# Migration 367: point-in-time invariants enforced in the DB. Each probe runs rolled back.
+# Migrations 367 and 368: point-in-time invariants enforced in the DB. Probes run rolled back.
 _TODAY = "(now() AT TIME ZONE 'UTC')::date"
+_REPLICA = "SET LOCAL session_replication_role = replica"
+_ORIGIN = "SET LOCAL session_replication_role = origin"
 
 
 @pytest.mark.parametrize(
@@ -206,11 +210,23 @@ _TODAY = "(now() AT TIME ZONE 'UTC')::date"
                 "source_ref) VALUES ('SPY', 'indicagent_v1', 'EQ.BROAD', DATE '2026-01-01', "
                 "'fund_mandate')"
             ],
-            "backdated insert",
+            "must have valid_from = today",
+        ),
+        (
+            [
+                "INSERT INTO instrument_classification (symbol, scheme, code, valid_from, "
+                f"source_ref) VALUES ('SPY', 'indicagent_v1', 'EQ.IT', {_TODAY} + 5, "
+                "'fund_mandate')"
+            ],
+            "must have valid_from = today",
         ),
         (
             ["UPDATE instrument_classification SET code = 'EQ.IT' WHERE symbol = 'SPY'"],
             "only valid_to may change",
+        ),
+        (
+            [f"UPDATE instrument_classification SET valid_to = {_TODAY} + 5 WHERE symbol = 'SPY'"],
+            "valid_to = today",
         ),
         (
             [
@@ -227,11 +243,18 @@ _TODAY = "(now() AT TIME ZONE 'UTC')::date"
         ),
         (
             [
-                f"UPDATE instrument_classification SET valid_to = {_TODAY} + 10 "
-                "WHERE symbol = 'SPY'",
+                "INSERT INTO classification_node (scheme, code, parent_code, level, name, "
+                "path, valid_from) VALUES ('indicagent_v1', 'EQ.IT.ZZ', 'EQ.IT', 3, 'Test', "
+                f"ARRAY['EQ', 'EQ.FIN', 'EQ.IT.ZZ'], {_TODAY})"
+            ],
+            "does not extend parent",
+        ),
+        (
+            [
+                _REPLICA,
                 "INSERT INTO instrument_classification (symbol, scheme, code, valid_from, "
-                f"source_ref) VALUES ('SPY', 'indicagent_v1', 'EQ.IT', {_TODAY} + 5, "
-                "'fund_mandate')",
+                "valid_to, source_ref) VALUES ('SPY', 'indicagent_v1', 'EQ.IT', "
+                "DATE '2020-01-01', DATE '2030-01-01', 'fund_mandate')",
             ],
             "ex_instrument_classification_no_overlap",
         ),
@@ -252,21 +275,33 @@ async def test_point_in_time_guards_reject_history_rewrites(statements, match) -
         await conn.close()
 
 
-async def test_forward_reclassification_is_allowed() -> None:
-    """Close the current row on or after today and open the next one where it ends."""
+async def test_same_day_reclassification_and_node_insert_are_allowed() -> None:
+    """Close the current row today and open the next one today; add a node whose path
+    extends its parent's. The existing row is backdated with triggers off first, because a
+    row opened today cannot also be closed today (valid_to > valid_from)."""
     conn = await _connect()
     try:
         tr = conn.transaction()
         await tr.start()
         try:
+            await conn.execute(_REPLICA)
             await conn.execute(
-                f"UPDATE instrument_classification SET valid_to = {_TODAY} + 1 "
+                f"UPDATE instrument_classification SET valid_from = {_TODAY} - 3 "
+                "WHERE symbol = 'SPY' AND valid_to IS NULL"
+            )
+            await conn.execute(_ORIGIN)
+            await conn.execute(
+                f"UPDATE instrument_classification SET valid_to = {_TODAY} "
                 "WHERE symbol = 'SPY' AND valid_to IS NULL"
             )
             await conn.execute(
                 "INSERT INTO instrument_classification (symbol, scheme, code, valid_from, "
-                f"source_ref) VALUES ('SPY', 'indicagent_v1', 'EQ.IT', {_TODAY} + 1, "
-                "'fund_mandate')"
+                f"source_ref) VALUES ('SPY', 'indicagent_v1', 'EQ.IT', {_TODAY}, 'fund_mandate')"
+            )
+            await conn.execute(
+                "INSERT INTO classification_node (scheme, code, parent_code, level, name, "
+                "path, valid_from) VALUES ('indicagent_v1', 'EQ.IT.ZZ', 'EQ.IT', 3, 'Test', "
+                f"ARRAY['EQ', 'EQ.IT', 'EQ.IT.ZZ'], {_TODAY})"
             )
         finally:
             await tr.rollback()

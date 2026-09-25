@@ -170,18 +170,25 @@ enforced at three points that do run automatically:
    (integrity_monitor fact, OTel counter, `logger.error` naming the symbols) and the unclassified
    stratum size per level. It is observability, not a gate.
 
-**Point-in-time invariants are database-enforced (migration 367).** Comments and conventions
+**Point-in-time invariants are database-enforced (migrations 367 and 368).** Comments and conventions
 were not enough, because every break is a silent look-ahead through reference data:
 
 - An exclusion constraint (`ex_instrument_classification_no_overlap`, `btree_gist`) rejects two
   rows for the same symbol and scheme whose `[valid_from, valid_to)` windows share a day, so an
   as-of lookup can never find two answers.
-- A trigger makes `instrument_classification` append-only. Inserts need `valid_from` on or
-  after today (UTC), so no backdated history. The only update allowed closes an open row, with
-  `valid_to` on or after today. Delete and truncate raise.
+- A trigger makes `instrument_classification` append-only and same-day. An insert must be open
+  with `valid_from` equal to today (UTC): no backdated rows and no scheduled future rows. The
+  only update allowed closes an open row with `valid_to` equal to today. Delete and truncate
+  raise. Because nothing is ever dated in the future, "`valid_to IS NULL`" (the SQL readers)
+  and "valid as of today" (`ClassificationService`) always name the same row.
+- A write in a transaction that started on an earlier UTC date than the wall clock is refused,
+  so a batch crossing midnight cannot date rows yesterday that become visible today. Onboarding
+  lets the database compute `valid_from` for the same reason.
 - A trigger makes `classification_node` identity immutable (scheme, code, parent, level, path,
-  `valid_from`). `name` may change, `valid_to` may be set once on or after today, and delete and
-  truncate raise.
+  `valid_from`). An inserted node must be dated today and its `path` must equal its parent's
+  path plus its own code. `name` may change, `valid_to` may be set once (to today), and delete
+  and truncate raise. `ClassificationService` also re-checks every path at load and crashes on
+  an inconsistent tree.
 
 A correction to an assignment made today takes effect tomorrow at the earliest. The mistaken
 row stays as the record of what was believed that day, which is the point-in-time truth.
@@ -206,7 +213,7 @@ conftest's scratch-DB rebuild:
 ## Changing the classification
 
 **Reclassify an instrument.** Write a migration that sets `valid_to` on the current row to the
-change date (on or after the day the migration runs) and inserts a new row with `valid_from` equal to that date and the new code and
+day the migration runs and inserts a new row with `valid_from` equal to that same day and the new code and
 `source_ref`. Record the evidence in the migration header. Never update `code` in place.
 
 **Add a node.** Write a migration that runs `render_node_guard_sql(scheme, nodes)` from
@@ -215,7 +222,9 @@ with its `path`. The guard fails the migration if any staged node disagrees with
 parent or level. Moving a node means a new code, never an edited parent.
 
 **Onboard an instrument.** Pass a `ClassificationAssignment(code, source_ref)` to
-`onboard_instrument()`. The code must already be a current node.
+`onboard_instrument()`. The code must already be a current node at the sector level (2) or
+deeper; an asset-class-only code is refused, because it would sit in the unclassified sector
+stratum while the coverage audit counted it as covered.
 
 Apply migrations with `psql -v ON_ERROR_STOP=1 -f` and commit them in the same session.
 
