@@ -208,7 +208,9 @@ Ordered by prior, cleanliness of the evidence available, and power:
    last slot: exit at the final bar's close (a market-on-close order), NaN when the name has no
    final-slot bar. Breadth is priced at the 1d figure (one bet per name per slot-day).
 2. **Overnight versus intraday return decomposition** (the two legs carry different, partly
-   opposite premia; Lou, Polk and Skouras 2019). Also unseen; needs only opens and closes.
+   opposite premia; Lou, Polk and Skouras 2019). Also unseen; needs only opens and closes. Its
+   gap fade members are the exception: the corpus gap features' pooled IC was read on 2026-09-25
+   (ledger section 5), so those members are disclosed re-specifications on seen data.
 3. **ETF-to-constituent and cross-asset lead-lag** at 5m to 1h. The universe mixes sector ETFs
    with their large constituents, the setup this family needs.
 4. **Short-term reversal** (todo 423). The best-documented prior, but the 2026-09-13 screen

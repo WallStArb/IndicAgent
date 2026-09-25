@@ -29,7 +29,7 @@ writer, combiner, book test), so no number exists outside a recorded run.
 |---|---|---|---|
 | 1 | Intraday same-slot periodicity (Heston, Korajczyk, Sadka 2010), members P1-P4 | **REGISTERED** 2026-09-25, `docs/plans/2026-09-25-family1-intraday-periodicity-prereg.md` | Phase 183; family 1 build items R1 (dollar-neutral construction) and R2 (session-aggregated scoring). R3 (per-slot market beta) shipped c73cb8307 |
 | 1b | Residual first-half-hour to last-half-hour (split out of family 1 as P5) | Design in section 4 of the architecture doc | Pre-registration. Must disclose `retail_immediacy_provision`'s 2026-08-07 finding (intraday momentum present in every group), which was seen on this data |
-| 2 | Overnight versus intraday return decomposition (Lou, Polk, Skouras 2019) | Design only | Pre-registration |
+| 2 | Overnight versus intraday return decomposition (Lou, Polk, Skouras 2019) | Design only. Pending members added 2026-09-25: gap fade (residual overnight gap predicting the rest-of-session residual return; a gap-size-conditioned variant; the low-liquidity sector ETF variant from `docs/research/data-edge-source-thesis.md`). Entry at the first bar after the open. Must disclose the 2026-09-25 look at the corpus gap features (section 5) | Pre-registration |
 | 3 | ETF-to-constituent and cross-asset lead-lag, 5m to 1h | Design only; same idea as the Edge Source Thesis's never-run `cross_asset_lead_lag` | Pre-registration |
 | 4 | Short-term reversal (todo 423) | Design only. In-sample panel is seen data (2026-09-13 screen); daily form runs only on symbols added since or phase 180 onboarding, never the forward span | Pre-registration with disclosure and one-bar skip variants |
 | 5 | Period-end marking (Carhart, Kaniel, Musto, Reed 2002) | Design only (owner-proposed) | Power check, then pre-registration |
@@ -109,6 +109,19 @@ Candidates with no verdict. None is queued; each needs a family spec to enter a 
 
 ## 5. Supporting measurements (not verdicts, but load-bearing context)
 
+- **Corpus gap features, pooled IC look, 2026-09-25 (disclosure for family 2).** Gap fade was never
+  tested as a construction or book; it existed only as five corpus features scored per feature by
+  `ic_engine`. Read from `feature_ic_scores` (`regime_scope = 'pooled'`, raw IC, not residualized,
+  vintage 1) while scoping family 2: `opening_gap_pct` (session open vs prior close) is about 0 at 1d
+  (0/229 FDR passes) and slightly positive intraday (+0.004 to +0.006, continuation, not reversion;
+  magnitude-conditional IC +0.008 to +0.011 intraday, about -0.014 at 1d h 5-10); `overnight_gap_z`
+  and `gap_filled` are about 0 at every timeframe. `gap_z` is strongly negative intraday (-0.023 at
+  5m and 15m, 95/232 and 69/233 names FDR-pass) but is misnamed: it is `open[i] - close[i-1]` over
+  ATR on every bar (`feature_factory.py::_gap_z_series_full`), so intraday it measures the
+  bar-to-bar open discontinuity, most likely bid-ask bounce or open-print noise, not the overnight
+  gap (unverified; `overnight_gap_z`, the same raw input on a gap-history scale, is flat). Family 2's
+  gap members are specified on seen data and must say so; the `gap_z` effect is a separate
+  microstructure idea, not evidence for gap fade.
 - **TSMOM per-symbol (time-series/absolute momentum) screen — NEGATIVE, 2026-09-13.**
   Council review of the fired decision gate found this construction TYPE (per-symbol,
   no cross-sectional ranking — structurally distinct from every construction actually
