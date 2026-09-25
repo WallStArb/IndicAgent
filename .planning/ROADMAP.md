@@ -2983,13 +2983,22 @@ snapshot and code hashes; (5) the S6 ledger writer, sole writer of
 evidence framework E15); (6) the S7 walk-forward ridge combiner over every registered family
 member and the S8 book test (joint whole-session shift of the signal stack, combiner refit per
 shift), budget-charged. Family 1's first real-data run waits for (4) and (5).
-**Requirements**: TBD
+**Requirements**: D-01, D-02, D-03, D-04, D-05, D-06, D-07, D-08, D-09, D-10, D-11, D-12, D-13, D-14, D-15, D-16, D-17, D-18, D-19, D-20, D-21, D-22, D-23, D-24, D-25
 **Depends on:** none (steps 1-3 on main)
-**Plans:** 0 plans
+**Plans:** 10 plans in 5 waves
 
 Plans:
 
-- [ ] TBD (run /gsd-plan-phase 183 to break down)
+- [ ] 183-01-PLAN.md - R1 rank-vol-neutral construction and R2 session scoring (wave 1)
+- [ ] 183-02-PLAN.md - migration 366 research_run ledger, APR budget keys, ledger.py sole writer (wave 1)
+- [ ] 183-03-PLAN.md - spec schema and canonical hash, git provenance refusals (wave 1)
+- [ ] 183-04-PLAN.md - S7 walk-forward ridge and exact power-decision primitives (wave 1)
+- [ ] 183-05-PLAN.md - family 1 members P1-P4, array guard probes (wave 1)
+- [ ] 183-06-PLAN.md - S8 book test with per-shift combiner refit (wave 2)
+- [ ] 183-07-PLAN.md - runner evidence mode, evidence records, CLI, family 1 spec (wave 2)
+- [ ] 183-08-PLAN.md - residual-space synthetic generator and exact power estimator (wave 3)
+- [ ] 183-09-PLAN.md - runner book mode, book v1 spec, full-size synthetic dry run (wave 4)
+- [ ] 183-10-PLAN.md - first real-data run: family 1 evidence, then book v1 (wave 5)
 
 ---
 
