@@ -27,6 +27,13 @@ The effective number of bets is the participation ratio of the correlation matri
 eigenvalues, (sum of eigenvalues)^2 / (sum of squared eigenvalues). The sleeve's raw 6.3
 reproduces the value recorded for Phase 174's Gate A, which checks the method end to end.
 
+**Label change, 2026-09-25:** migration 363 cleaned the sector labels (removed the 'equity'
+placeholder and filled 24 blank ETF labels). A rerun of the same script against the cleaned
+labels gives market and sector residual breadth of 61.5 at 1d for 2019-2025, not 51.0. Raw and
+market-only figures do not change. The table above uses the labels as they were before the
+cleanup. S1 no longer uses labels at all; it groups names by clustering on prices
+(`FactorSpec`).
+
 ## Method
 
 - Returns come from `market_data_ohlcv_tradeable`. Intraday returns stay within one session:

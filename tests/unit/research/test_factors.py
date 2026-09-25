@@ -185,3 +185,16 @@ def test_groups_use_only_window_rows():
     )
     out = residual_returns(moved, spec=SPEC)
     np.testing.assert_array_equal(out.loadings[:4], res.loadings[:4])
+
+
+def test_groups_are_exposed_and_independent_of_column_order():
+    r, _ = _structured(10)
+    res = residual_returns(r, spec=SPEC)
+    assert res.groups.shape == (len(res.refit_rows), r.shape[1])
+    perm = np.random.default_rng(3).permutation(r.shape[1])
+    shuffled = residual_returns(r[:, perm], spec=SPEC)
+    for b in range(len(res.refit_rows)):
+        a, c = res.groups[b][perm], shuffled.groups[b]
+        # the same partition under relabelling: names share a group in one iff in the other
+        np.testing.assert_array_equal(a[:, None] == a[None, :], c[:, None] == c[None, :])
+    np.testing.assert_allclose(shuffled.residual, res.residual[:, perm], atol=1e-10, equal_nan=True)

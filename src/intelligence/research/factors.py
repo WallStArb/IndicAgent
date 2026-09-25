@@ -14,12 +14,12 @@ Factors per name i at row s, from the return panel R [n, m] itself:
      is most correlated with. A name without enough data in the window has this factor fixed
      at 0. No reference data (sector labels) enters S1, so groups are point-in-time by
      construction;
-  3. k principal components of the market-and-sector residuals: the eigenvectors of the
-     window's standardized residual correlation give portfolio weights, and a PC factor return
-     is that portfolio of the other names' raw returns. Building the factor from raw returns,
-     not from residuals, keeps its value leave-one-out: another name's residual depends on name
-     i's return through that name's own market and sector factors. The joint regression with the market and
-     sector factors absorbs the portfolio's market and sector content.
+  3. k principal components of the market-and-group residuals: the eigenvectors of the
+     window's residual correlation give portfolio weights, and a PC factor return is that
+     portfolio of the other names' raw returns. Building the factor from raw returns, not from
+     residuals, keeps its value leave-one-out: another name's residual depends on name i's
+     return through that name's own market and group factors. The joint regression with the
+     market and group factors absorbs the portfolio's market and group content.
 
 Loadings. At each refit row p (every refit_sessions sessions, on a session boundary) the model
 is fitted by OLS with an intercept, per name, on the window of rows known at p: rows s with
@@ -29,7 +29,7 @@ bar returns (horizon None) are known at their own close, lag 0; a forward return
 forward window ever enters a loading. The loadings then apply to rows [p, next refit). The
 intercept is estimated but never subtracted: the residual keeps each name's drift. All names'
 regressions are solved together from masked normal equations; the pseudo-inverse gives the
-minimum-norm solution, so a factor fixed at 0 (an ungrouped name's sector) gets beta 0.
+minimum-norm solution, so a factor fixed at 0 (an ungrouped name's group) gets beta 0.
 
 residual[t, i] = R[t, i] - sum_k beta[i, k] * F_k[t, i], NaN when R[t, i], any factor value, or
 the loadings are missing (a name with fewer than min_finite_sessions finite rows in the window,
@@ -50,12 +50,14 @@ names such as META and GOOGL in 2018) and dirty in places; see FactorSpec.
 from __future__ import annotations
 
 import dataclasses
+from collections.abc import Callable
 
 import numpy as np
 from scipy.cluster.hierarchy import linkage, to_tree
 from scipy.spatial.distance import squareform
 
 from src.intelligence.research.panel import fwd_span
+from src.intelligence.statistics.correlation import pairwise_corr
 
 FACTOR_NAMES_BASE = ("market", "group")
 
@@ -70,19 +72,22 @@ class FactorSpec:
     Groups (2026-09-25, pre-data). Chosen from return-correlation structure on 2013-2025 1d
     bar returns with no candidate signal or outcome involved, so not tuned toward a result.
     Label groups first: min_group_size 3 / 5 / 8 left the 13 sectors of 3-7 names with average
-    within-group residual correlation -0.097 / -0.017 / +0.148 (raw 0.523). Then causal
-    clusters against labels at min 5 (breadth = residual participation ratio; problem groups =
-    11 label groups of 2-4 near-duplicate names such as IYT/XTN, municipal bonds, rates):
+    within-group residual correlation -0.097 / -0.017 / +0.148 (raw 0.523). Then causal clusters
+    against labels at min 5, from scripts/analysis/s1_grouping_comparison.py (breadth = residual
+    participation ratio; small groups = the 15 label groups of 2-4 names, mostly near-duplicates
+    such as IYT/XTN, municipal bonds, rates; band +-0.15):
 
-                        breadth  label groups >=5 (mean, max|.|)  problem groups (mean, max, >0.15)
-      labels   min 5      97.2      -0.057, 0.140                    +0.384, +0.722, 11
-      clusters min 5     115.4      +0.043, 0.186                    +0.295, +0.496, 8
-      clusters min 10    104.3      +0.094, 0.252                    +0.328, +0.586, 10  (sensitivity)
+                        breadth  label groups >=5 (mean, max|.|)  small groups (mean, max, outside)
+      labels   min 5      97.2      -0.057, 0.140                   +0.294, +0.722, 11/15
+      clusters min 5     115.4      +0.042, 0.164                   +0.223, +0.484,  8/15
+      clusters min 10    103.6      +0.096, 0.253                   +0.256, +0.598, 11/15 (sensitivity)
 
     Clusters at 5 win on the two measures not biased toward labels (the label yardstick scores
     the label model on its own groups, including assignments it could not have known in 2013).
     Over-correction check: residual correlation within each cluster over the next 252 sessions,
-    groups fixed at the refit, averages +0.027 (p5 -0.045, p95 +0.12, n 3,000).
+    groups fixed at the refit, averages +0.027 (p5 -0.055, p95 +0.135, n 2,579). Numbers are on
+    the 1d panel captured 2026-09-25, before migration 363 cleaned the labels (which the label
+    arm and this yardstick read).
 
     Known limit: near-duplicate twins stay correlated under both models (a twin is one of 4+
     names in its leave-one-out mean). p-values and standard errors stay valid (the null shifts
@@ -111,6 +116,7 @@ class Residualized:
     residual: np.ndarray  # [n, m]
     refit_rows: np.ndarray  # [B] first row each block's loadings apply to
     loadings: np.ndarray  # [B, m, K] per block, columns FactorSpec.factor_names, NaN where none
+    groups: np.ndarray  # int [B, m] statistical group per block, -1 where ungrouped
 
     def loadings_at(self, t: int) -> np.ndarray:
         """[m, K] loadings in force at row t (NaN before the first refit)."""
@@ -124,14 +130,18 @@ def leave_one_out_mean(x: np.ndarray, groups: np.ndarray) -> np.ndarray:
     """[T, m]: per row, the mean of the other finite members of each name's group; NaN for a
     name without a group or with no other finite member that row."""
     out = np.full(x.shape, np.nan)
+    member = groups >= 0
+    ids = np.unique(groups[member])
+    if len(ids) == 0:
+        return out
     finite = np.isfinite(x)
     x0 = np.where(finite, x, 0.0)
-    for g in np.unique(groups[groups >= 0]):
-        cols = groups == g
-        total = x0[:, cols].sum(axis=1, keepdims=True)
-        others = finite[:, cols].sum(axis=1, keepdims=True) - finite[:, cols]
-        with np.errstate(invalid="ignore", divide="ignore"):
-            out[:, cols] = np.where(others > 0, (total - x0[:, cols]) / others, np.nan)
+    indicator = (groups[:, None] == ids[None, :]).astype(float)  # [m, G]
+    col = np.searchsorted(ids, groups[member])  # each member's group column
+    total = (x0 @ indicator)[:, col]
+    others = (finite @ indicator)[:, col] - finite[:, member]
+    with np.errstate(invalid="ignore", divide="ignore"):
+        out[:, member] = np.where(others > 0, (total - x0[:, member]) / others, np.nan)
     return out
 
 
@@ -162,25 +172,14 @@ def _base_factors(r: np.ndarray, market: np.ndarray, groups: np.ndarray) -> np.n
     return np.stack([market, group], axis=2)
 
 
-def _pairwise_corr(e: np.ndarray) -> np.ndarray:
-    """Pairwise-complete correlation of the columns of e (NaN missing), via standardized
-    products; the diagonal is 1."""
-    finite = np.isfinite(e)
-    sd = np.nanstd(e, axis=0)
-    z = np.where(finite, (e - np.nanmean(e, axis=0)) / np.where(sd > 0, sd, 1.0), 0.0)
-    counts = finite.astype(float)
-    corr = (z.T @ z) / np.maximum(counts.T @ counts, 1.0)
-    np.fill_diagonal(corr, 1.0)
-    return corr
-
-
 def _causal_groups(
     r_w: np.ndarray, market_w: np.ndarray, min_rows: int, min_size: int
 ) -> np.ndarray:
     """int [m]: statistical groups from one window's prices; -1 for names without min_rows
     finite market residuals. Average linkage on 1 - correlation of market residuals; groups
     are the smallest subtrees with at least min_size names, and a name left in a smaller
-    subtree joins the group it has the highest average correlation with."""
+    subtree joins the core group (members before any leftover joins) it has the highest average
+    correlation with, so the assignment does not depend on column order."""
     m = r_w.shape[1]
     groups = np.full(m, -1)
     a, b = _ols_loadings(r_w, market_w[:, :, None], min_rows)
@@ -188,7 +187,7 @@ def _causal_groups(
     use = np.flatnonzero(np.isfinite(e).sum(axis=0) >= min_rows)
     if len(use) < 2 * min_size:
         return groups
-    corr = _pairwise_corr(e[:, use])
+    corr = pairwise_corr(e[:, use], min_rows)
     dist = np.clip(1.0 - (corr + corr.T) / 2, 0.0, None)
     np.fill_diagonal(dist, 0.0)
     local = np.full(len(use), -1)
@@ -204,10 +203,12 @@ def _causal_groups(
             n_groups += 1
         else:
             stack += [right, left]
-    grouped = local >= 0
-    for i in np.flatnonzero(~grouped):
-        means = [corr[i, local == g].mean() for g in range(n_groups)]
-        local[i] = int(np.argmax(means))
+    core = np.flatnonzero(local >= 0)
+    leftover = np.flatnonzero(local < 0)
+    if len(leftover):
+        indicator = (local[core][:, None] == np.arange(n_groups)[None, :]).astype(float)
+        means = (corr[np.ix_(leftover, core)] @ indicator) / indicator.sum(axis=0)
+        local[leftover] = means.argmax(axis=1)
     groups[use] = local
     return groups
 
@@ -223,7 +224,7 @@ def _pc_weights(e1: np.ndarray, k: int, min_rows: int) -> np.ndarray:
         return weights
     sd = np.nanstd(e1[:, use], axis=0)
     scale = np.where(sd > 0, sd, 1.0)
-    eigval, eigvec = np.linalg.eigh(_pairwise_corr(e1[:, use]))
+    eigval, eigvec = np.linalg.eigh(pairwise_corr(e1[:, use], min_rows))
     weights[use] = eigvec[:, np.argsort(eigval)[::-1][:k]] / scale[:, None]
     return weights
 
@@ -242,9 +243,15 @@ def residual_returns(
     bars_per_session: int = 1,
     horizon: int | None = None,
     spec: FactorSpec = VINTAGE_1,
+    grouping: Callable[[np.ndarray, np.ndarray, int, int], np.ndarray] | None = None,
 ) -> Residualized:
     """Residualize a return panel r [n, m]: bar returns (horizon None) or forward returns over
-    `horizon` rows (panel.forward_returns). Rows before the first full window are NaN."""
+    `horizon` rows (panel.forward_returns). Rows before the first full window are NaN.
+
+    `grouping(r_w, market_w, min_rows, min_size) -> int [m]` replaces the causal clusters, for
+    method comparisons only (scripts/analysis/s1_grouping_comparison.py); every S1 run uses the
+    default."""
+    grouping = grouping or _causal_groups
     n, m = r.shape
     lag = 0 if horizon is None else fwd_span(horizon)
     window = spec.window_sessions * bars_per_session
@@ -257,12 +264,14 @@ def residual_returns(
     first = -(-(window - 1 + lag) // bars_per_session) * bars_per_session
     refit_rows = np.arange(first, n, step)
     loadings = np.full((len(refit_rows), m, 2 + k), np.nan)
+    groups_by_block = np.full((len(refit_rows), m), -1)
     for b, p in enumerate(refit_rows):
         rows = slice(p - lag - window + 1, p - lag + 1)
         block = slice(p, min(p + step, n))
-        r_w = r[rows]
-        groups = _causal_groups(r_w, market[rows], min_rows, spec.min_group_size)
-        base_w = _base_factors(r_w, market[rows], groups)
+        r_w, market_w, r_t = r[rows], market[rows], r[block]
+        groups = grouping(r_w, market_w, min_rows, spec.min_group_size)
+        groups_by_block[b] = groups
+        base_w = _base_factors(r_w, market_w, groups)
         a1, b1 = _ols_loadings(r_w, base_w, min_rows)
         weights = _pc_weights(r_w - a1 - np.einsum("tmk,mk->tm", base_w, b1), k, min_rows)
         _, beta = _ols_loadings(
@@ -270,10 +279,10 @@ def residual_returns(
         )
         loadings[b] = beta
 
-        base_t = _base_factors(r[block], market[block], groups)
-        x_t = np.concatenate([base_t, _pc_factors(r[block], weights)], axis=2)
-        residual[block] = r[block] - np.einsum("tmk,mk->tm", x_t, beta)
-    return Residualized(residual, refit_rows, loadings)
+        base_t = _base_factors(r_t, market[block], groups)
+        x_t = np.concatenate([base_t, _pc_factors(r_t, weights)], axis=2)
+        residual[block] = r_t - np.einsum("tmk,mk->tm", x_t, beta)
+    return Residualized(residual, refit_rows, loadings, groups_by_block)
 
 
 def neutralize(alpha: np.ndarray, fitted: Residualized) -> np.ndarray:

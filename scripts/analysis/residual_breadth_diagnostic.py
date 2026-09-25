@@ -39,6 +39,9 @@ from scripts.analysis.sleeve_walk_forward.config import DEFAULT_CONFIG  # noqa: 
 from scripts.analysis.sleeve_walk_forward.snapshot import read_only_pool  # noqa: E402
 from src.config.settings import Settings, dimension_where_clause  # noqa: E402
 from src.intelligence.research.factors import leave_one_out_mean  # noqa: E402
+from src.intelligence.statistics.correlation import (  # noqa: E402
+    pairwise_corr as shared_pairwise_corr,
+)
 
 _PC_TAIL_K = (1, 3, 5, 10, 20)
 _MIN_SECTOR_SIZE = 3
@@ -104,18 +107,7 @@ async def fetch_panel(dsn: str, tf: str, start: str, end: str) -> tuple[pd.DataF
 
 
 def pairwise_corr(x: np.ndarray) -> np.ndarray:
-    """Pairwise-complete correlation of demeaned columns via masked products."""
-    mask = np.isfinite(x)
-    x0 = np.where(mask, x - np.nanmean(x, axis=0), 0.0)
-    m = mask.astype(float)
-    cross = x0.T @ x0
-    sq = (x0**2).T @ m  # [i, j]: sum of x_i^2 over rows where j is also observed
-    overlap = m.T @ m
-    with np.errstate(invalid="ignore", divide="ignore"):
-        corr = cross / np.sqrt(sq * sq.T)
-    corr[overlap < _MIN_OVERLAP] = 0.0
-    np.fill_diagonal(corr, 1.0)
-    return corr
+    return shared_pairwise_corr(x, _MIN_OVERLAP)
 
 
 def residualize(x: np.ndarray, factors: list[np.ndarray]) -> np.ndarray:

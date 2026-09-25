@@ -31,8 +31,9 @@ class Panel:
     open: np.ndarray  # [n, m], NaN where missing
     close: np.ndarray  # [n, m]
     volume: np.ndarray  # [n, m]
-    # Each symbol's instruments.contract_details sector ('' for none) as S0 captured it, so a
-    # run's factor groups are pinned by the snapshot hash. Empty when not captured.
+    # Each symbol's instruments.contract_details sector ('' for none) as S0 captured it, for
+    # display and diagnostics. S1 does not read it (its groups come from prices). Empty when
+    # not captured.
     sectors: tuple[str, ...] = ()
     manifest: dict = dataclasses.field(default_factory=dict)
 
