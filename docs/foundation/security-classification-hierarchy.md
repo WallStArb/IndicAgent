@@ -170,6 +170,22 @@ enforced at three points that do run automatically:
    (integrity_monitor fact, OTel counter, `logger.error` naming the symbols) and the unclassified
    stratum size per level. It is observability, not a gate.
 
+**Point-in-time invariants are database-enforced (migration 367).** Comments and conventions
+were not enough, because every break is a silent look-ahead through reference data:
+
+- An exclusion constraint (`ex_instrument_classification_no_overlap`, `btree_gist`) rejects two
+  rows for the same symbol and scheme whose `[valid_from, valid_to)` windows share a day, so an
+  as-of lookup can never find two answers.
+- A trigger makes `instrument_classification` append-only. Inserts need `valid_from` on or
+  after today (UTC), so no backdated history. The only update allowed closes an open row, with
+  `valid_to` on or after today. Delete and truncate raise.
+- A trigger makes `classification_node` identity immutable (scheme, code, parent, level, path,
+  `valid_from`). `name` may change, `valid_to` may be set once on or after today, and delete and
+  truncate raise.
+
+A correction to an assignment made today takes effect tomorrow at the earliest. The mistaken
+row stays as the record of what was believed that day, which is the point-in-time truth.
+
 The unit suite covers the service and the seed logic without a database, and a byte-equality
 test keeps migration 365 identical to the data module's render.
 
@@ -190,7 +206,7 @@ conftest's scratch-DB rebuild:
 ## Changing the classification
 
 **Reclassify an instrument.** Write a migration that sets `valid_to` on the current row to the
-change date and inserts a new row with `valid_from` equal to that date and the new code and
+change date (on or after the day the migration runs) and inserts a new row with `valid_from` equal to that date and the new code and
 `source_ref`. Record the evidence in the migration header. Never update `code` in place.
 
 **Add a node.** Write a migration that runs `render_node_guard_sql(scheme, nodes)` from

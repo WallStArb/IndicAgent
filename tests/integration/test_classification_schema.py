@@ -109,7 +109,9 @@ async def test_second_current_row_is_rejected() -> None:
         tr = conn.transaction()
         await tr.start()
         try:
-            with pytest.raises(asyncpg.UniqueViolationError):
+            # A far-future open row overlaps the current one: the partial unique index or the
+            # migration 367 exclusion constraint rejects it, whichever Postgres checks first.
+            with pytest.raises(asyncpg.IntegrityConstraintViolationError):
                 await conn.execute(
                     "INSERT INTO instrument_classification "
                     "(symbol, scheme, code, valid_from, valid_to, source_ref) "
@@ -187,5 +189,86 @@ async def test_no_scheme_named_gics() -> None:
             "SELECT authority FROM classification_scheme WHERE scheme = $1", DEFAULT_SCHEME
         )
         assert authority == "IndicAgent"
+    finally:
+        await conn.close()
+
+
+# Migration 367: point-in-time invariants enforced in the DB. Each probe runs rolled back.
+_TODAY = "(now() AT TIME ZONE 'UTC')::date"
+
+
+@pytest.mark.parametrize(
+    ("statements", "match"),
+    [
+        (
+            [
+                "INSERT INTO instrument_classification (symbol, scheme, code, valid_from, "
+                "source_ref) VALUES ('SPY', 'indicagent_v1', 'EQ.BROAD', DATE '2026-01-01', "
+                "'fund_mandate')"
+            ],
+            "backdated insert",
+        ),
+        (
+            ["UPDATE instrument_classification SET code = 'EQ.IT' WHERE symbol = 'SPY'"],
+            "only valid_to may change",
+        ),
+        (
+            [
+                "UPDATE instrument_classification SET valid_to = DATE '2026-09-01' "
+                "WHERE symbol = 'SPY'"
+            ],
+            "valid_to",
+        ),
+        (["DELETE FROM instrument_classification WHERE symbol = 'SPY'"], "append-only"),
+        (["TRUNCATE instrument_classification"], "append-only"),
+        (
+            ["UPDATE classification_node SET parent_code = 'EQ.HC' " "WHERE code = 'EQ.IT.SEMI'"],
+            "identity columns are immutable",
+        ),
+        (
+            [
+                f"UPDATE instrument_classification SET valid_to = {_TODAY} + 10 "
+                "WHERE symbol = 'SPY'",
+                "INSERT INTO instrument_classification (symbol, scheme, code, valid_from, "
+                f"source_ref) VALUES ('SPY', 'indicagent_v1', 'EQ.IT', {_TODAY} + 5, "
+                "'fund_mandate')",
+            ],
+            "ex_instrument_classification_no_overlap",
+        ),
+    ],
+)
+async def test_point_in_time_guards_reject_history_rewrites(statements, match) -> None:
+    conn = await _connect()
+    try:
+        tr = conn.transaction()
+        await tr.start()
+        try:
+            with pytest.raises(asyncpg.PostgresError, match=match):
+                for sql in statements:
+                    await conn.execute(sql)
+        finally:
+            await tr.rollback()
+    finally:
+        await conn.close()
+
+
+async def test_forward_reclassification_is_allowed() -> None:
+    """Close the current row on or after today and open the next one where it ends."""
+    conn = await _connect()
+    try:
+        tr = conn.transaction()
+        await tr.start()
+        try:
+            await conn.execute(
+                f"UPDATE instrument_classification SET valid_to = {_TODAY} + 1 "
+                "WHERE symbol = 'SPY' AND valid_to IS NULL"
+            )
+            await conn.execute(
+                "INSERT INTO instrument_classification (symbol, scheme, code, valid_from, "
+                f"source_ref) VALUES ('SPY', 'indicagent_v1', 'EQ.IT', {_TODAY} + 1, "
+                "'fund_mandate')"
+            )
+        finally:
+            await tr.rollback()
     finally:
         await conn.close()
