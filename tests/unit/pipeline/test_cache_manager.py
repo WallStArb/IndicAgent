@@ -394,3 +394,49 @@ def test_no_enroll_all_plugins_in_cache_manager():
                     f"CacheManager calls enroll_all_plugins at line {node.lineno} — "
                     "orchestrator owns enrollment"
                 )
+
+
+# ---------------------------------------------------------------------------
+# Phase 182 D-10: sector comes from the indicagent_v1 classification
+# ---------------------------------------------------------------------------
+
+
+def _smh_row(**extra) -> dict:
+    return {
+        "symbol": "SMH",
+        "base": "SMH",
+        "contract_details": {
+            "symbol": "SMH",
+            "asset_class": "equity",
+            "exchange": "SMART",
+            "sector": "technology",
+        },
+        **extra,
+    }
+
+
+def test_instrument_from_row_sector_from_classification():
+    from src.intelligence.pipeline.cache_manager import _instrument_from_row
+
+    inst = _instrument_from_row(_smh_row(classification_sector="Information Technology"))
+    assert inst.sector == "Information Technology"
+
+
+@pytest.mark.parametrize("extra", [{"classification_sector": None}, {}])
+def test_instrument_from_row_unclassified_when_missing(extra):
+    from src.intelligence.pipeline.cache_manager import _instrument_from_row
+
+    inst = _instrument_from_row(_smh_row(**extra))
+    assert inst.sector == "indicagent_v1:unclassified"
+
+
+@pytest.mark.asyncio
+async def test_reload_instruments_cache_selects_classification_sector():
+    from src.config.classification_service import current_level_name_sql
+
+    cm = make_cm(rows=[_smh_row(classification_sector="Information Technology")])
+    await cm._reload_instruments_cache()
+
+    sql = cm._db.execute_query.await_args.args[0]
+    assert f"{current_level_name_sql('instruments')} AS classification_sector" in sql
+    assert "is_active = true" in sql
