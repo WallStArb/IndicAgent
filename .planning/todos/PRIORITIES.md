@@ -47,9 +47,9 @@ close-or-park), target under 60 pending.
 |---|---|
 | 177 Data integrity floor | 395, 376 |
 | 178 Recompute throughput bundle | 410 (fixed 7fa346137; closes after the post-recompute check), 401, 389, 399, 385 (prange layout), 404, 402, 405, 407 |
-| 179 Cross-asset sleeve walk-forward verdict | 418 (V4 fidelity gap, blocks freeze), 393, 390, 410 (408/409 closed 2026-09-24; pre-registration: `docs/plans/2026-09-24-phase179-sleeve-walk-forward-prereg.md`) |
+| 179 Cross-asset sleeve walk-forward verdict | 418 (V4 fidelity gap, blocks freeze), 421 (power-side findings, decide before freeze), 393, 390, 410 (408/409 closed 2026-09-24; pre-registration: `docs/plans/2026-09-24-phase179-sleeve-walk-forward-prereg.md`) |
 | 180 Cross-asset breadth expansion | 384, 380 (tags into peer grouping, if 179/180 need it) |
-| 181 Construction track (active, parallel with 179) | 419 (TSMOM on the sleeve, next verdict), 420 (short-term reversal pre-registration); cross-TF divergence after them. H-A/H-B verdicted FAIL 2026-09-24 |
+| 181 Construction track (active, parallel with 179) | 420 (short-term reversal pre-registration, next verdict); cross-TF divergence after it. TSMOM (419), H-A and H-B verdicted FAIL 2026-09-24 |
 
 ## P0 — Fix soon (integrity/correctness gaps already surfaced)
 
@@ -61,8 +61,8 @@ close-or-park), target under 60 pending.
 
 | Todo | Why now |
 |---|---|
-| [419](pending/419-phase181-tsmom-sleeve-signal-source.md) | New 2026-09-24. Phase 181 candidate 1: classic TSMOM on the 13-symbol sleeve through the phase 179 evaluator. Never tested (the 2026-09-13 screen measured a daily RSI). Parameter-free, so no refit and no dependence on 418. Fastest verdict available. |
 | [420](pending/420-phase181-short-term-reversal-prereg.md) | New 2026-09-24. Phase 181 candidate 2: short-term reversal on single names, market-neutral. Consistent in-sample hint (IC about -0.026, all splits) must be disclosed and its symbols/window excluded. Needs V2 at low persistence first. |
+| [421](pending/421-phase179-calibrated-arms-slow-signal-power-and-shift-leak.md) | New 2026-09-24, from the 419 build. Phase 179: calibrated arms short a planted slow trend (Stambaugh-biased in-window IC), full-range shifts leak long-window features into the null, and N_tested is now 18. Power-side only (no false-PASS risk); decide before the 179 freeze. |
 | [418](pending/418-phase179-v4-fidelity-gap-cell-row-sets-differ.md) | New 2026-09-24. Phase 179 V4: 8% of pooled 1d rows differ from production on deterministic fields (row sets differ in some labels). Blocks the 179 freeze; diagnose one cell's row diff. |
 | [412](pending/412-ic-engine-upstream-watermark-not-clamped-to-training-window-end.md) | New 2026-09-24. ic_engine's upstream watermark counts `feature_vectors`/`forward_returns` rows past `training_window_end`, so computing features for new bars invalidates every IC cell though no IC value can change. Blocks 411; land with the next planned full recompute, never mid-run. |
 | [411](pending/411-feature-vectors-and-regimes-stale-since-2026-08-10-nightly-job-refreshes-ohlcv-only.md) | New 2026-09-24. Features and regimes stale since 2026-08-10: the nightly job refreshes OHLCV only, and the streaming pipeline that computed features is down. Blocks the 179 holdout read, any forward shadow run and deployment. One-time catch-up after the current recompute finishes; automate after 412. |

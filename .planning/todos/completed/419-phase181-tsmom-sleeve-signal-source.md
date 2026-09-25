@@ -1,5 +1,6 @@
 ---
-status: pending
+status: completed
+closed: 2026-09-24
 priority: P1
 filed: 2026-09-24
 source: council review 2026-09-24, docs/plans/2026-09-24-edge-proof-program.md "Phase 181 queue"
@@ -29,3 +30,12 @@ candidate.
 
 Independent of todo 418 (no refit, no production fidelity question). Data: the sleeve's price
 arrays from the S0 snapshot phase 179 uses, so both verdicts share one data version.
+
+## Closure (2026-09-24)
+
+Done: signal sources in the harness (b766685d2, b01eb751a), V2 2.0% / V3 54% at excess 0.50,
+pre-registration frozen at 0c33a2596, one run. **FAIL**: Sharpe 0.47 vs null median 0.27, excess
++0.19 (positive in 3/3 sub-periods), p 0.22. Ledger row added. Side finding: the phase 179
+calibrated arms short a planted slow trend on synthetic panels (per-symbol in-window IC is
+Stambaugh-biased for slow return-built signals), and the full circular-shift range leaks the
+target into wrapped copies of long-window signals; both are relevant to phase 179's power.

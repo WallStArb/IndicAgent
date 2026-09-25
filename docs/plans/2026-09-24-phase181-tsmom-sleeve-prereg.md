@@ -168,3 +168,21 @@ Power by the same arithmetic as phase 179 section 9 (13 years, one arm, one-side
 t = 1.645, so excess IR about 0.46 at 50% power and 0.63 at 80%; ACT needs t = 2.77, excess IR
 about 0.77 at 50%. A FAIL is recorded as "no detectable trend timing at this sample size", not
 "no premium".
+
+## 10. Result (2026-09-24)
+
+`TSMOM_VERDICT = FAIL`. One run at 0c33a2596 (clean tree), snapshot
+`logs/phase181/snapshot_dc800360d369f4d5`, verdict `logs/phase181/s4_12f955d9aca8f18f.json`.
+
+| Measure | Value |
+|---|---|
+| Observed Sharpe, gross, 2013-01-01 to 2025-12-23 | 0.47 |
+| Null median Sharpe (K = 3,389 shifts; 5th-95th pct -0.08 to 0.67) | 0.27 |
+| Excess | +0.19, stationary-bootstrap CI [-0.32, +0.73] |
+| Permutation p | 0.221 |
+| Sub-period mean daily excess | +0.54, +0.76, +0.45 bp (3/3 positive) |
+
+Fails on p, not on stability. Section 6 applies: classic TSMOM and the section 3 variants are
+closed on this sleeve. Diagnostics (section 11 style, never decisive): observed Sortino 0.65,
+max drawdown 16.4% of log wealth, hit rate 53.5%. Signal coverage: TLT has no signal until
+2017-02 (its history starts 2016-02-03), as section 7 expected.
