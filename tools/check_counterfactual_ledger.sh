@@ -54,8 +54,11 @@ for file in $SQL_FILES; do
     [ -f "$full_path" ] || continue
 
     # Extract table names from CREATE TABLE statements (with or without IF NOT EXISTS)
+    # `|| true`: a migration with no CREATE TABLE makes grep exit 1, which under
+    # `set -euo pipefail` would end the script silently with rc 1 and block every
+    # constraint/trigger/data migration without a message.
     TABLES=$(grep -ioE 'CREATE TABLE( IF NOT EXISTS)? [a-zA-Z_][a-zA-Z0-9_]*' "$full_path" | \
-        awk '{print $NF}')
+        awk '{print $NF}' || true)
 
     for table in $TABLES; do
         table_lc=$(echo "$table" | tr '[:upper:]' '[:lower:]')
