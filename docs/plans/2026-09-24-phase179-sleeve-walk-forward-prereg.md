@@ -321,6 +321,17 @@ in-sample for production already, so it spends nothing.
   `illiquidity_momentum_product`, `earnings_season_flag`, `days_since_quarter_end`; control
   (measured every refit for V5, never selected or weighted): the 5 `canary_*` features. The
   todo-390 entries are re-checked against open P0/P1 correctness todos at freeze.
+  Added 2026-09-24, before any S1 output on the official snapshot was read: the 6 velocity
+  features (`rsi_velocity_fast/mid/slow`, `ofi_z_velocity`, `cvd_slope_z_velocity`,
+  `volume_z_velocity`). A per-feature coverage scan of 1d `feature_vectors` at the window found
+  them populated for 10 of 233 symbols (BIL, EMLC, ENPH, GLD, IHF, NAD, SHY, STIP, VIXY, VRP) at
+  every tf: added 2026-08-15 (todo 320) and never backfilled (todo 421). Their pooled IC comes
+  from a non-random subset that includes three sleeve members, and S2 would score them as 0 for
+  every other symbol, so they cannot be tested fairly. The same scan's other gaps need no action:
+  21 features are empty at 1d and so are never measured or selected (18 intraday-only by
+  construction; the three `*_rank_z` columns are hard-coded None in `feature_factory` at every
+  tf, i.e. never computed anywhere); the HMM columns are already excluded;
+  `equity_beta_z`/`rate_beta_z` miss one symbol each.
 - **V4b (D7 sizing): PASS, and D7 is null in practice.** At the production window
   (2025-12-24 05:15 UTC, 1,508,020 1d rows) the selected feature set is identical in all 9
   equity strata under both priors, with quality-weight rank correlation 1.000 and bit-identical

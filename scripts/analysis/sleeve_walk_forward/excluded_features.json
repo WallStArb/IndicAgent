@@ -1,12 +1,18 @@
 {
   "exclude": {
     "amihud_illiq_z": "open P1 correctness todo 390 (unguarded division can reach the weights)",
+    "cvd_slope_z_velocity": "populated for 10/233 symbols at every tf (added 2026-08-15, todo 320, never backfilled; todo 421): IC measured on a non-random subset that includes sleeve members EMLC, GLD and VIXY",
     "days_since_quarter_end": "production excludes by construction (earnings-season conditioning input)",
     "earnings_season_flag": "production excludes by construction (regime_scope='earnings_season' is measurement-only)",
     "hmm_duration": "fitted-HMM output, same writer and defect as hmm_regime_prob",
     "hmm_entropy": "fitted-HMM output, same writer and defect as hmm_regime_prob",
     "hmm_regime_prob": "fitted-HMM output: regime_writer's full-sample K=5 fit is its sole writer (todo 207); stored labels are regime_label_source='filtered' (todo 248 lookahead)",
-    "illiquidity_momentum_product": "built from amihud_illiq_z (todo 390)"
+    "illiquidity_momentum_product": "built from amihud_illiq_z (todo 390)",
+    "ofi_z_velocity": "populated for 10/233 symbols at every tf (added 2026-08-15, todo 320, never backfilled; todo 421): IC measured on a non-random subset that includes sleeve members EMLC, GLD and VIXY",
+    "rsi_velocity_fast": "populated for 10/233 symbols at every tf (added 2026-08-15, todo 320, never backfilled; todo 421): IC measured on a non-random subset that includes sleeve members EMLC, GLD and VIXY",
+    "rsi_velocity_mid": "populated for 10/233 symbols at every tf (added 2026-08-15, todo 320, never backfilled; todo 421): IC measured on a non-random subset that includes sleeve members EMLC, GLD and VIXY",
+    "rsi_velocity_slow": "populated for 10/233 symbols at every tf (added 2026-08-15, todo 320, never backfilled; todo 421): IC measured on a non-random subset that includes sleeve members EMLC, GLD and VIXY",
+    "volume_z_velocity": "populated for 10/233 symbols at every tf (added 2026-08-15, todo 320, never backfilled; todo 421): IC measured on a non-random subset that includes sleeve members EMLC, GLD and VIXY"
   },
   "control": {
     "canary_acausal_placebo": "is_control canary: measured every refit for V5 (acausal placebo must be detected; noise canaries' FDR pass rate reported), never selected or weighted",
