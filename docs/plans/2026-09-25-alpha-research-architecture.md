@@ -103,7 +103,10 @@ with its survivorship status stated. `end_exclusive` stays capped at
 
 S1 defines one target for every candidate: the executable open-to-open forward return
 (Invariant 1), entering at the open of the bar after the signal bar, residualized against
-market and sector or asset-class factors with loadings estimated on data before t. A
+market and sector or asset-class factors, plus k principal components estimated on a trailing
+window, all with loadings estimated on data before t; k and the window are fixed in the
+vintage's S1 spec, not per candidate (step 0 found 51 to 66 bets after market and sector
+removal, 95 to 120 after 10 in-sample PCs). A
 candidate that predicts the raw return mostly predicts beta (`range_pct_fast`,
 `alpha_score_residual`); that is enforced once here instead of relearned per construction.
 Entering at the next open also skips the close-to-open bid-ask bounce that a close-based
@@ -221,10 +224,14 @@ how it is controlled.
 
 ## 5. Build order, shortest path to the next verdict
 
-0. **Measure residual breadth.** Effective number of independent bets on the 233-name
-   residual returns at 1d, 1h and 15m (the `effective_breadth_diagnostic.py` method on
-   returns instead of features). Hours of work, and it decides which tf the first families run
-   on. Record it before any family spec is written.
+0. **Measure residual breadth.** Done 2026-09-25 (`724e4af29`,
+   `docs/research/measurement-residual-breadth.md`). After market and sector removal the
+   233-name panel carries 51 to 66 independent bets per daily cross-section (63 to 83 at 1h,
+   partly the Epps effect), stable across 2007-2012, 2013-2018 and 2019-2025; the sleeve carries
+   8.4. The premise holds. Two consequences: (a) a family's breadth is set by its bets per
+   name per period, not the bar size it reads, so intraday momentum (one bet per name per day)
+   is priced at the 1d figure; (b) the top-10-PC tail (95 to 120) shows shared variance beyond
+   market and sector, so S1's factor set adds statistical factors (section 3.2).
 1. **Generalize S0/S2/S5** (Panel over `(universe, tf)`, session-aligned null, sleeve
    constants removed). Verify by reproducing TSMOM and phase 179 bit-identically. First
    consumer: the intraday momentum family.
