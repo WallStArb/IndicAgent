@@ -300,7 +300,7 @@ check_glossary_terms() {
     CHANGED_FILES=$(git diff --cached --name-only --diff-filter=ACM | \
         grep -E '\.(py|md)$' | \
         grep -vE '(\.venv|node_modules|\.git|__pycache__)' | \
-        grep -vE '^docs/(ideas|plans)/archive/' || true)
+        grep -vE '^docs/(ideas|plans|research)/archive/' || true)
 
     if [ -z "$CHANGED_FILES" ]; then
         echo "  OK No Python or Markdown files changed"

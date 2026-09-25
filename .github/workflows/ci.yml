@@ -151,7 +151,7 @@ jobs:
       - name: Glossary enforcement
         run: |
           FILES=$(git diff --name-only --diff-filter=ACM "${{ steps.base.outputs.sha }}...HEAD" -- '*.py' '*.md' \
-            | grep -vE '^docs/(ideas|plans)/archive/' || true)
+            | grep -vE '^docs/(ideas|plans|research)/archive/' || true)
           if [ -z "$FILES" ]; then
             echo "OK: no Python or Markdown files changed"
             exit 0
