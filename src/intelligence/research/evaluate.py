@@ -22,6 +22,7 @@ from __future__ import annotations
 
 import dataclasses
 import functools
+import warnings
 from collections.abc import Callable
 from concurrent.futures import Executor
 from typing import Protocol
@@ -311,7 +312,11 @@ def evaluate(
     scored, readout_dates, readout_ppy, block = _readout_units(
         trade, dates, cfg, rcfg, bars_per_session, periods_per_year, session_scoring
     )
-    null_median_daily = np.median(null_daily, axis=0)  # [J, n] (or [J, n_sessions])
+    # nanmedian: the circular shift rolls the pre-scoring NaN alpha into every scored session
+    # for some shift, and a plain median would then blank nearly every session's null.
+    with warnings.catch_warnings():
+        warnings.simplefilter("ignore", RuntimeWarning)  # a session no shift traded stays NaN
+        null_median_daily = np.nanmedian(null_daily, axis=0)  # [J, n] (or [J, n_sessions])
     excess_daily = obs_daily - null_median_daily
     sub_masks = [m & scored for m in sub_period_masks(readout_dates, cfg.sub_periods)]
     draws = [

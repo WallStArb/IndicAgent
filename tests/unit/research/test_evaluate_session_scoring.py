@@ -22,6 +22,7 @@ from src.intelligence.research.portfolio import (
     FIXED_SIGN_ARM,
     fixed_sign_returns,
     plan_covariance,
+    rank_vol_neutral_returns,
 )
 from src.intelligence.statistics.panel_null import shift_panel
 
@@ -177,3 +178,30 @@ def test_worker_pool_matches_serial_under_session_scoring():
     pooled, *_ = _intraday_run(workers=2, pool_factory=lambda w: ThreadPoolExecutor(w))
     np.testing.assert_array_equal(serial.sharpe_null, pooled.sharpe_null)
     np.testing.assert_array_equal(serial.null_median_daily, pooled.null_median_daily)
+
+
+def test_null_median_ignores_shifts_that_rolled_warmup_nans_in():
+    # A real panel's alpha is NaN through the pre-scoring warmup; the circular shift rolls that
+    # block into every scored session for some shift. The per-session null median must skip
+    # those shifts, not go NaN, or the sub-period excess, bootstrap interval and null shape
+    # diagnostics read only the few sessions no shift happened to blank.
+    alpha, fwd, closes, dates = _panel(3)
+    alpha[: 10 * BPS] = np.nan
+    # R1 (not fixed-sign, which zero-fills NaN alpha) leaves a row with no position NaN.
+    r1 = functools.partial(
+        rank_vol_neutral_returns, vol=np.ones_like(alpha), direction=1.0, coverage_floor=2
+    )
+    res = evaluate(
+        alpha,
+        fwd,
+        closes,
+        dates,
+        CFG,
+        construction=r1,
+        bars_per_session=BPS,
+        session_scoring=True,
+        **KW,
+    )
+    observed = np.isfinite(res.observed_daily[0])
+    assert np.isfinite(res.null_median_daily[0][observed]).mean() > 0.95
+    assert np.isfinite(res.sub_period_excess).all()
