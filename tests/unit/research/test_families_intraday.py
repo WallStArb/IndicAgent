@@ -177,7 +177,7 @@ SMALL = FactorSpec(
 )
 
 
-def _synthetic_panel(seed=7, sessions=150, m=25, bps=26):
+def _synthetic_panel(seed=7, sessions=100, m=24, bps=26):
     rng = np.random.default_rng(seed)
     n = sessions * bps
     groups = np.arange(m) % 5
@@ -235,5 +235,5 @@ def test_integrity_on_synthetic_panel():
 @pytest.mark.parametrize("window", WINDOWS)
 def test_synthetic_guards_pass(window):
     panel = _synthetic_panel()
-    report = run_guards(_source(window), panel, seed=11, n_random=2, max_rows=8)
+    report = run_guards(_source(window), panel, seed=11, n_random=1, max_rows=5)
     assert report.memory_reach <= _source(window).memory

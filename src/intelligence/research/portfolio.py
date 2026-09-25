@@ -218,7 +218,7 @@ def trailing_vol(returns: np.ndarray, *, window_rows: int, min_finite: int) -> n
     return np.where((count >= min_finite) & (count >= 2) & (sd > _ZERO_STD), sd, np.nan)
 
 
-def _average_ranks(values: np.ndarray) -> np.ndarray:
+def average_ranks(values: np.ndarray) -> np.ndarray:
     """0-based average ranks along axis 1; NaN entries sort last and take NaN ranks."""
     keyed = np.where(np.isnan(values), np.inf, values)
     order = np.argsort(keyed, axis=1, kind="stable")
@@ -255,7 +255,7 @@ def _rank_vol_neutral_rows(
     ok_names = valid[rows]
     a = np.where(ok_names, alpha[rows], np.nan).astype(float)
     n_valid = ok_names.sum(axis=1, keepdims=True)
-    centred = _average_ranks(a) / (n_valid - 1) - 0.5
+    centred = average_ranks(a) / (n_valid - 1) - 0.5
     raw = np.nan_to_num(direction * centred / np.where(ok_names, vol[rows], 1.0))
     pos = np.where(raw > 0, raw, 0.0)
     neg = np.where(raw < 0, raw, 0.0)
