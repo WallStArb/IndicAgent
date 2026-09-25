@@ -250,3 +250,119 @@ class TestViolation:
         assert v.status == "active"
         assert v.scan_type == "prose"
         assert "taxonomy" in v.line
+
+
+# ---------------------------------------------------------------------------
+# Todo 430: strict parsing, multi-word identifiers, coverage, mentions, baseline
+# ---------------------------------------------------------------------------
+
+from tools.check_glossary import GlossaryParseError, main  # noqa: E402
+
+
+def _glossary(tmp_path: Path, banned_line: str, extra: str = "") -> Path:
+    p = tmp_path / "glossary.md"
+    p.write_text(
+        "# Glossary\n\n### `market state classification`\n\nx\n\n**Banned:** (none)\n\n---\n\n"
+        f"### `intelligence vector`\n\nx\n\n{banned_line}\n{extra}**Status:** active\n\n---\n"
+    )
+    return p
+
+
+def test_quoted_banned_line_fails_loudly(tmp_path: Path) -> None:
+    g = _glossary(tmp_path, '**Banned:** "signal source," "alpha source" (use `x`)')
+    with pytest.raises(GlossaryParseError):
+        parse_glossary(g)
+
+
+def test_multiword_ban_matches_camel_and_snake_identifiers(tmp_path: Path) -> None:
+    rules = parse_glossary(_glossary(tmp_path, "**Banned:** signal source"))
+    f = tmp_path / "m.py"
+    f.write_text("class SignalSource:\n    pass\nsignal_source_x = 1\nsignals = 2\n")
+    hits = [v for v in scan_file(f, rules) if v.scan_type == "identifier"]
+    assert [v.lineno for v in hits] == [1, 3]
+
+
+def test_exempt_identifier_is_not_flagged(tmp_path: Path) -> None:
+    rules = parse_glossary(
+        _glossary(tmp_path, "**Banned:** signal source", "**Exempt:** SignalSource\n")
+    )
+    f = tmp_path / "m.py"
+    f.write_text("class SignalSource:\n    pass\n")
+    assert scan_file(f, rules) == []
+
+
+def test_typescript_and_yaml_are_scanned(tmp_path: Path) -> None:
+    rules = parse_glossary(_glossary(tmp_path, "**Banned:** signal source"))
+    ts = tmp_path / "Panel.tsx"
+    ts.write_text('const title = "Top signal source";\nconst signalSource = 1;\n')
+    yml = tmp_path / "spec.yaml"
+    yml.write_text("label: best signal source\n")
+    assert len(scan_file(ts, rules)) == 2
+    assert len(scan_file(yml, rules)) == 1
+
+
+def test_quoted_mention_is_not_a_use(tmp_path: Path) -> None:
+    rules = parse_glossary(_glossary(tmp_path, "**Banned:** signal source"))
+    f = tmp_path / "doc.md"
+    f.write_text('The glossary bans "signal source," and `signal source`.\nA signal source here.\n')
+    assert [v.lineno for v in scan_file(f, rules)] == [2]
+
+
+def test_canonical_term_containing_a_ban_is_not_flagged(tmp_path: Path) -> None:
+    rules = parse_glossary(_glossary(tmp_path, "**Banned:** market state"))
+    f = tmp_path / "doc.md"
+    f.write_text("See market state classification.\nThe market state is bad.\n")
+    assert [v.lineno for v in scan_file(f, rules)] == [2]
+
+
+def test_scope_limits_a_ban_to_its_paths(tmp_path: Path) -> None:
+    rules = parse_glossary(
+        _glossary(tmp_path, "**Banned:** signal source", "**Scope:** research/*\n")
+    )
+    f = tmp_path / "doc.md"
+    f.write_text("A signal source.\n")
+    assert scan_file(f, rules) == []
+
+
+def test_baseline_holds_existing_and_fails_on_increase(tmp_path: Path, monkeypatch) -> None:
+    import json
+
+    import tools.check_glossary as cg
+
+    g = _glossary(tmp_path, "**Banned:** signal source")
+    monkeypatch.setattr(cg, "GLOSSARY_PATH", g)
+    doc = tmp_path / "doc.md"
+    doc.write_text("A signal source.\n")
+    rel = cg._rel(doc)
+    base = tmp_path / "baseline.json"
+    base.write_text(json.dumps({"version": 1, "counts": {rel: {"signal source": 1}}}))
+    assert main([str(doc), "--baseline", str(base)]) == 0
+    doc.write_text("A signal source.\nAnother signal source.\n")
+    assert main([str(doc), "--baseline", str(base)]) == 1
+
+
+def test_identifier_pass_honours_mentions_and_canonical_terms(tmp_path: Path) -> None:
+    rules = parse_glossary(_glossary(tmp_path, "**Banned:** market state"))
+    f = tmp_path / "m.py"
+    f.write_text(
+        '# we avoid "market_state" here\n' "market_state_classification = 2\n" "market_state = 3\n"
+    )
+    assert [v.lineno for v in scan_file(f, rules)] == [3]
+
+
+def test_carry_renames_moves_held_counts(tmp_path: Path) -> None:
+    import json
+
+    from tools.check_glossary import carry_renames
+
+    base = tmp_path / "baseline.json"
+    base.write_text(json.dumps({"version": 1, "counts": {"a/old.md": {"x": 2}, "b.md": {"y": 1}}}))
+    assert carry_renames(base, [("a/old.md", "a/new.md"), ("zz.md", "yy.md")])
+    counts = json.loads(base.read_text())["counts"]
+    assert counts == {"a/new.md": {"x": 2}, "b.md": {"y": 1}}
+    assert not carry_renames(base, [("a/old.md", "a/other.md")])
+
+
+def test_empty_scope_fails_loudly(tmp_path: Path) -> None:
+    with pytest.raises(GlossaryParseError):
+        parse_glossary(_glossary(tmp_path, "**Banned:** signal source", "**Scope:**\n"))

@@ -57,3 +57,17 @@ source: owner directive 2026-09-25 ("terminology aligned in docs, UX, plans, cod
 The checker enforces every `**Banned:**` term in all six file types, fails loudly on an
 unparseable rule, CI holds the baseline as a ratchet, the research-layer rename is done, and
 research spec codes validate against CVR.
+
+## Progress
+
+- **2026-09-25, steps 1 to 3 done.** Glossary bans curated (`Banned` exact, `Avoid` contextual,
+  `Exempt`, `Scope`; quoted mentions and canonical terms are never violations). Checker is strict
+  (unparseable rule or empty scope exits 2), matches multi-word identifiers, scans
+  `.py .md .ts .tsx .yaml .yml .sql`, and holds `tools/glossary_baseline.json` (107 violations in
+  69 files) as a ratchet: pre-commit checks staged files, or the whole tree when the glossary,
+  checker or baseline is staged, and carries baseline entries across `git mv`; CI runs full tree.
+  The installed `.git/hooks/pre-commit` was a stale diverged copy of `tools/pre-commit.hook`
+  (pre-todo-310); it is now a symlink to the main checkout's `tools/pre-commit.hook`.
+- **Remaining:** step 4 (`SignalSource` -> `Predictor`, with the phase 183 session; the
+  `**Exempt:**` entry is removed in the same commit), step 5 (research spec codes in CVR),
+  step 6 (burn down the baseline, UX strings first).

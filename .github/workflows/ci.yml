@@ -119,14 +119,14 @@ jobs:
         run: |
           tools/check_plugin_invariants.sh ring0-boundary
 
-      # Guards 8-9 need "what changed in this PR/push", not a full-repo scan --
-      # a single shared base commit, computed once, so both steps diff against
-      # the same point. pull_request: the PR's base SHA. push: the commit
+      # Guard 9 needs "what changed in this PR/push", not a full-repo scan
+      # (guard 8, the glossary, runs full-tree against its baseline since
+      # todo 430). pull_request: the PR's base SHA. push: the commit
       # before this push (github.event.before) -- 40 zeros on a ref's first-
       # ever push, which git cat-file correctly rejects, falling back to the
       # empty tree so the diff is still well-defined (treats every file in the
-      # initial push as "changed", the conservative/safe direction). Both
-      # steps below diff with three-dot syntax (base...HEAD, not base HEAD) --
+      # initial push as "changed", the conservative/safe direction). The
+      # step below diffs with three-dot syntax (base...HEAD, not base HEAD) --
       # code review finding: two-dot diffs against the PR base branch's
       # current tip, which can have advanced past the PR's own fork point
       # while the PR sat open, pulling in unrelated main-branch drift as if
@@ -145,18 +145,10 @@ jobs:
           fi
           echo "sha=$BASE" >> "$GITHUB_OUTPUT"
 
-      # tools/check_glossary.py is already the single source of truth the hook
-      # calls too -- no extraction needed, just the same script with a
-      # PR-diff-computed file list instead of the hook's staged-files list.
       - name: Glossary enforcement
-        run: |
-          FILES=$(git diff --name-only --diff-filter=ACM "${{ steps.base.outputs.sha }}...HEAD" -- '*.py' '*.md' \
-            | grep -vE '^docs/(ideas|plans|research)/archive/' || true)
-          if [ -z "$FILES" ]; then
-            echo "OK: no Python or Markdown files changed"
-            exit 0
-          fi
-          python3 tools/check_glossary.py $FILES
+        # Full tree against the committed baseline (todo 430): no file may add a violation,
+        # an unparseable glossary rule fails, and a new ban is checked everywhere at once.
+        run: python3 tools/check_glossary.py --all --baseline tools/glossary_baseline.json
 
       # Delegates to tools/check_counterfactual_ledger.sh -- extracted from
       # pre-commit.hook's own inline bash (todo 310) into a shared script,

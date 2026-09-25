@@ -290,55 +290,53 @@ check_ring0_boundary() {
 # -----------------------------------------------------------------------------
 # Check 8: Glossary enforcement — banned synonyms must not appear in staged files
 #
-# Scope: All .py and .md files in this commit
-# Tool: tools/check_glossary.py
-# Blocks on any banned term (active, deprecated, or retired) in prose or identifiers
+# Scope: staged .py .md .ts .tsx .yaml .yml .sql files; the whole tree when the glossary,
+#        the checker or the baseline is staged (a new ban must hold everywhere)
+# Tool: tools/check_glossary.py, against tools/glossary_baseline.json (todo 430 ratchet)
+# Blocks on any file/term count above the baseline, and on an unparseable glossary rule
 # -----------------------------------------------------------------------------
 check_glossary_terms() {
     echo "[8/9] Glossary enforcement check..."
-
-    CHANGED_FILES=$(git diff --cached --name-only --diff-filter=ACM | \
-        grep -E '\.(py|md)$' | \
-        grep -vE '(\.venv|node_modules|\.git|__pycache__)' | \
-        grep -vE '^docs/(ideas|plans|research)/archive/' || true)
-
-    if [ -z "$CHANGED_FILES" ]; then
-        echo "  OK No Python or Markdown files changed"
-        return 0
-    fi
 
     PYTHON_BIN="${REPO_ROOT}/.venv/bin/python"
     if [ ! -x "$PYTHON_BIN" ]; then
         PYTHON_BIN=$(which python3 2>/dev/null || echo "")
     fi
-
     if [ -z "$PYTHON_BIN" ]; then
         echo "  SKIPPED: python not found"
         return 0
     fi
 
     SCRIPT="${REPO_ROOT}/tools/check_glossary.py"
-
-    if [ ! -f "$SCRIPT" ]; then
-        echo "  SKIPPED: tools/check_glossary.py not found"
+    BASELINE="${REPO_ROOT}/tools/glossary_baseline.json"
+    if [ ! -f "$SCRIPT" ] || [ ! -f "$BASELINE" ]; then
+        echo "  SKIPPED: tools/check_glossary.py or its baseline not found"
         return 0
     fi
 
-    FULL_PATHS=""
-    for file in $CHANGED_FILES; do
-        if [ -f "${REPO_ROOT}/${file}" ]; then
-            FULL_PATHS="${FULL_PATHS} ${REPO_ROOT}/${file}"
+    # The glossary, the checker or the baseline itself staged: check the whole tree, since
+    # a new ban or a hand-edited baseline must hold everywhere, not only in staged files.
+    if git diff --cached --name-only | grep -qE '^(docs/foundation/glossary\.md|tools/check_glossary\.py|tools/glossary_baseline\.json)$'; then
+        GLOSSARY_ARGS="--all"
+    else
+        CHANGED_FILES=$(git diff --cached --name-only --diff-filter=ACMR | \
+            grep -E '\.(py|md|ts|tsx|yaml|yml|sql)$' | \
+            grep -vE '(\.venv|node_modules|\.git|__pycache__)' | \
+            grep -vE '^docs/(ideas|plans|research)/archive/' || true)
+        if [ -z "$CHANGED_FILES" ]; then
+            echo "  OK No scanned files changed"
+            return 0
         fi
-    done
-
-    if [ -z "$FULL_PATHS" ]; then
-        echo "  OK No files found on disk"
-        return 0
+        GLOSSARY_ARGS=""
+        for file in $CHANGED_FILES; do
+            [ -f "${REPO_ROOT}/${file}" ] && GLOSSARY_ARGS="${GLOSSARY_ARGS} ${REPO_ROOT}/${file}"
+        done
     fi
 
-    if ! "$PYTHON_BIN" "$SCRIPT" $FULL_PATHS; then
-        echo "  Remediation: Replace banned term with the canonical glossary term."
-        echo "  Reference: docs/foundation/glossary.md"
+    if ! "$PYTHON_BIN" "$SCRIPT" --carry-renames --baseline "$BASELINE" $GLOSSARY_ARGS; then
+        echo "  Remediation: replace the banned term with the canonical glossary term, quote it"
+        echo "  if you are mentioning it, or fix the glossary rule it names."
+        echo "  Reference: docs/foundation/glossary.md (Rule fields)"
         return 1
     fi
 

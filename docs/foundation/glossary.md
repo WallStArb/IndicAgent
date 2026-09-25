@@ -37,6 +37,16 @@ When introducing a new concept:
 
 ---
 
+**Rule fields (enforced by `tools/check_glossary.py`):** `**Banned:**` is a plain comma list of
+exact terms, no quotes or notes, matched in prose and in identifiers (a multi-word term also
+matches `CamelCase` and `snake_case` identifiers); a line the checker cannot parse fails the
+check. `**Avoid:**` is contextual guidance, not enforced. `**Exempt:**` lists exact identifiers a
+ban does not apply to, each needing a stated reason in the entry. `**Scope:**` (optional) limits
+a ban to path globs. Two things are never violations: a term inside matching quotes or
+backticks (a mention, as in this note), and a banned term inside a longer canonical term
+(`market state classification` is not a use of a banned "market state"). Existing violations are held by `tools/glossary_baseline.json`: no file may
+add a violation; cleanups lower the baseline.
+
 ## Naming Convention
 
 **Prefer industry-standard terms over project-specific names.**
@@ -151,7 +161,7 @@ Industry-standard term for the layer that detects and classifies market conditio
 **See also:** `conditioning layer` (internal project name), `regime classifier`, `StratificationDimension` protocol (`docs/research/stratification-dimension-unification.md`)
 
 **Status:** active (multiple implementations)
-**Banned:** "market detector," "state detector" (use `market state classification` or `regime detection`)
+**Banned:** market detector, state detector
 
 ---
 
@@ -171,7 +181,8 @@ non-empty `top_features` — → `alpha_events` table.
 **See also:** `alpha emitter`, `signal` (core trading term), `alpha_events`
 
 **Status:** design (v3.0 Phase C)
-**Banned:** "trade signaler," "emitter" as standalone (use `signal generation` or `alpha emitter`)
+**Banned:** trade signaler
+**Avoid:** "emitter" as a standalone name (use `signal generation` or `alpha emitter`)
 
 ---
 
@@ -186,7 +197,7 @@ Industry-standard term for the layer that converts signals into positions. Takes
 **See also:** `Signal Ledger Architecture`, `trade_frames`, `trade_executions`, `docs/signals/signal-trade-separation-ADR.md`
 
 **Status:** design (v3.0, post-Phase C)
-**Banned:** "position builder," "sizing layer" (use `portfolio construction`)
+**Banned:** position builder, sizing layer
 
 ---
 
@@ -201,7 +212,8 @@ Industry-standard term for the layer that handles order routing, execution, and 
 **See also:** `trade_executions`, `counterfactual_pnl_r`, `execution layer` (SLA)
 
 **Status:** design (v3.0, post-portfolio construction)
-**Banned:** "execution engine," "trader" (use `order management` or `execution layer`)
+**Banned:** execution engine
+**Avoid:** "trader" as a system component name (use `order management` or `execution layer`)
 
 ---
 
@@ -621,7 +633,7 @@ ICC is strictly pattern-internal. ECL vectors (CTF score, HMM weight, zone frict
 
 **Not:** the CIS score (which aggregates across 6 evidence buckets from all tiers). ICC is computed at the plugin level, before CIS adjudication.
 
-**Banned:** "intrinsic composite," "intrinsic score," "plugin confidence" (all replaced by ICC)
+**Banned:** intrinsic composite, intrinsic score, plugin confidence
 **Status:** archived — computed inside the I7 plugin tier, which has no live consumer as of 2026-07-02 (see CLAUDE.md Architecture note and the `plugin` entry above).
 
 **Code surface:** `raw_confidence` field on `signal_events`; `compose_confidence()` in `confidence_utils.py`; `factor_scores` JSONB; `docs/signals/signals-confidence-patterns.md`.
@@ -638,7 +650,8 @@ The statistical lifecycle that governs promotion and demotion of all I7 plugins 
 
 **Not:** a logging mechanism or monitoring dashboard. SG is the statistical control loop that determines whether a component earns production influence.
 
-**Banned:** "shadow mode" as a standalone system name (shadow mode is one phase of SG, not the whole system)
+**Banned:** (none)
+**Avoid:** "shadow mode" as the name of this whole system (shadow mode is one phase of SG; as a practice, "shadow mode first", it is fine)
 **Status:** active
 
 **Code surface:** `shadow_registry` table; `shadow_registry_ensure()` at service startup; `ShadowTransitionEvent` on Kafka; `bootstrap_ci_lower()` in `src/core/stats_utils.py`.
@@ -655,7 +668,7 @@ The design separates three concerns that the legacy `signal_ledger` monolith con
 
 **Not:** the legacy `signal_ledger` monolith (read-only during SLA migration, dropped Phase 130). `signal_ledger_v2` is a banned name — version-suffixed names violate the naming system.
 
-**Banned:** "3-table architecture," "v2.10 schema," "new signal schema," "signal_ledger_v2" (all replaced by SLA)
+**Banned:** 3-table architecture, v2.10 schema, new signal schema, signal_ledger_v2
 **Status:** archived — this v2.x schema has no live consumer as of 2026-07-02 (see CLAUDE.md
 Architecture note). `signal_events` is confirmed empty in production (2026-09-04); the writer
 daemons (`indicagent-signal-writer.service`, `indicagent-signal-tracker-compute.service`) are
@@ -674,7 +687,7 @@ CFL closes Bias Layer 2: before CFL, ML models could only train on signals that 
 
 **Not:** a backtesting system (CFL measures forward outcomes on live price action, not historical fits). Not "counterfactual recording" (which names only the write step, not the full loop).
 
-**Banned:** "counterfactual recording," "counterfactual tracking," "paper pnl system"
+**Banned:** counterfactual recording, counterfactual tracking, paper pnl system
 **Status:** archived — this v2.x SLA daemon never shipped past "planned" and the whole SLA
 (`signal_events`/`trade_frames`/`trade_executions`) has no live consumer as of 2026-07-02
 (see CLAUDE.md Architecture). The name `CounterfactualTracker` and the concept "measure the
@@ -728,7 +741,8 @@ producing `FeatureVector`.
 **Not:** a synonym for `FeatureFactory` — `FeatureFactory` is the mechanism; Stage 0 is the
 contract it fills. Not `Layer 1`/`Layer 2`/`Layer 3` (the outer Prediction/Portfolio/Execution
 architecture) — unrelated numbering scheme, see `AlphaEngine`.
-**Banned:** "measurement layer," "I1-I4" as a stage name (I1-I4 names the legacy plugin-tier
+**Banned:** (none)
+**Avoid:** "measurement layer" or "I1-I4" as a stage name (I1-I4 names the legacy plugin-tier
 sub-structure *within* Stage 0's mechanism, not the stage itself)
 **Status:** active (mechanism live); sub-tier taxonomy (`docs/research/archive/feature-registry.md`'s
 `0_atomic`/`1_interaction`/`2_theory`) was proposed against the `feature_registry` table, which
@@ -750,7 +764,8 @@ Regime System" and the `regime` glossary entry for the sanctioned vocabulary dis
 **Not:** a synonym for `HMM` or `GaussianHMM` — those are the mechanism; `regime`/Stage 1 is the
 contract. A different classifier (IOHMM, factor-augmented HMM, threshold rules) could fill this
 slot without changing what downstream stages expect from it.
-**Banned:** "HMM layer," "regime layer" as if regime IS the layer rather than its current output
+**Banned:** (none)
+**Avoid:** "HMM layer" or "regime layer" as if regime IS the layer rather than its current output
 **Status:** active (mechanism live); alternative stratification dimensions (Volume Regime,
 Skew/Tail Regime) proposed and archived pending an orthogonality proof mechanism that does not
 yet exist (see intelligence-layer-architecture.md's "gaps" section)
@@ -767,7 +782,8 @@ Current mechanism: `IC Engine`, using Spearman `Information Coefficient`.
 **Not:** a synonym for `IC` or `Information Coefficient` — IC is the mechanism; Stage 2 is the
 contract. Mutual information or other nonlinear-dependence measures are real, not-yet-built
 candidates for an additional or alternative mechanism at this stage.
-**Banned:** "IC layer" as if IC IS the layer rather than its current statistic
+**Banned:** (none)
+**Avoid:** "IC layer" as if IC IS the layer rather than its current statistic
 **Status:** active (mechanism live)
 **Canonical doc:** `docs/intelligence/intelligence-layer-architecture.md`
 
@@ -783,7 +799,8 @@ covariance shrinkage, `alpha_score` output.
 is the contract. This is the one stage where multiple mechanisms already coexist by design:
 `weight_method ∈ {ic_proportional, v1_shrunk, mean_variance}` (142A/142B.1), A/B-judged per
 (timeframe, regime) stratum.
-**Banned:** "ensemble layer" as a mechanism-specific name (fine as a stage description, not as if
+**Banned:** (none)
+**Avoid:** "ensemble layer" as a mechanism-specific name (fine as a stage description, not as if
 Ledoit-Wolf were the only possible weighting method)
 **Status:** active, multi-mechanism (142A/142B.1 shipped `v1_shrunk`/`mean_variance` as code
 paths; `ensemble_weights` currently holds only `weight_version='v1'` rows — see todo 058)
@@ -850,7 +867,8 @@ The system of extrinsic confidence vectors that annotate an emitted signal as ob
 
 **Individual components:** referred to as **extrinsic confidence vectors** (not "modifiers," not "multipliers," not "gates").
 
-**Banned:** "CTF gate" (as a name for the pattern of suppressing signals on CTF absence), "zone friction gate," "extrinsic modifier," "extrinsic multiplier"
+**Banned:** zone friction gate, extrinsic modifier, extrinsic multiplier
+**Avoid:** "CTF gate" as a name for the pattern of suppressing signals on CTF absence
 **Status:** archived — annotates `signal_events`, the v2.x SLA detection table, which has no live consumer as of 2026-07-02 (see CLAUDE.md Architecture note and `Signal Ledger Architecture (SLA)` entry above).
 
 **Code surface:** `ctf_score`, `ctf_confirmed`, `zone_friction_score` fields in `signal_events`; `capture_signal_features()` in `confidence_utils.py`; `docs/signals/signals-confidence-patterns.md`.
@@ -867,7 +885,7 @@ The system-wide registry of all tunable numeric values — detection thresholds,
 
 **APR parameter lifecycle:** `seed → operator_tuning → ml_learned → user_override → ml_learned again`
 
-**Banned:** "param store" in architecture docs or code comments, "config store," "config system"
+**Banned:** param store, config store, config system
 **Status:** active
 
 **Code surface:** `config_schema`, `config_state`, `config_history`, `config_outbox` tables; `ConfigService`; `docs/foundation/adaptive-parameter-registry.md`.
@@ -881,7 +899,8 @@ The layer of the 3-table signal architecture that records the raw fact of a patt
 **Not:** a trade record. The detection layer records that a pattern was detected, not that anything was done about it.
 
 **Table:** `signal_events`
-**Banned:** "signal ledger" as the name for this concept (legacy monolith term).
+**Banned:** (none)
+**Avoid:** "signal ledger" as the name for this concept (legacy monolith term; the `signal_ledger` view keeps its name)
 **Status:** archived — part of the v2.x SLA, no live consumer as of 2026-07-02; see `Signal Ledger Architecture (SLA)` entry above.
 
 ---
@@ -931,7 +950,7 @@ This is the ML training target for SignalRanker and all downstream ML models. Tr
 
 **Not:** a backtested result (which implies fitting to historical data). Counterfactual pnl_r is a forward measurement on live price action after signal emission.
 
-**Banned:** "paper pnl," "simulated pnl"
+**Banned:** paper pnl, simulated pnl
 **Status:** v2.x (`trade_frames`) archived; v3.0 (`alpha_frames`) active (Phase 142B+143, live)
 
 **See also:** `cross-sectional spread construction` (`construction_spreads`) — a parallel
@@ -987,8 +1006,9 @@ systemd-registered) unit `indicagent-cross-sectional-spread-tracker.service`.
   top of `ensemble_alpha` would test an already-suspect input; the entire point of the cross_sectional_relative_value result
   this phase productionizes is that ranking a raw feature directly is what cleared the bar.
 
-**Banned:** "decile portfolio," "long-short frame," "spread signal" (retired synonyms — use
-`cross-sectional spread construction` or the table name `construction_spreads`)
+**Banned:** decile portfolio, long-short frame, spread signal
+**Avoid:** retired synonyms of this concept; use `cross-sectional spread construction` or the table
+name `construction_spreads`
 
 **See also:** `counterfactual_pnl_r`, `CounterfactualTracker` — parallel measurement paths, not
 layers of one pipeline. Both are shadow-mode-first (measured before any live-capital
@@ -1026,7 +1046,8 @@ ADRs in IndicAgent live at `docs/architecture/` and are named `<concept>-ADR.md`
 
 **Not:** a spec (which describes what to build, not why it was chosen). Not a design doc (which may still be exploring options). An ADR records a closed decision.
 
-**Banned:** "decision record," "design record," "architecture doc" (use ADR when the decision is locked)
+**Banned:** (none)
+**Avoid:** "decision record," "design record," or "architecture doc" for a locked decision (use ADR)
 **Status:** active
 
 **Code surface:** `docs/signals/*-ADR.md`; first instance: `docs/signals/signal-trade-separation-ADR.md` (Phase 128).
@@ -1046,7 +1067,10 @@ v3.0 vectors (V1 built first; V2+ gated on V1 demonstrating IC > 0):
 
 **Not:** a synonym for "tier." I1-I4 are measurement layers within V1, not vectors themselves. Not a `family`: a family is one pre-registered mechanism inside a vector. Not a synonym for "signal" — a vector produces a score every bar; a signal is emitted only when the score crosses a threshold.
 
-**Banned:** "intelligence channel," "signal source," "alpha source" (use `intelligence vector`)
+**Banned:** intelligence channel, signal source, alpha source
+**Exempt:** SignalSource
+**Avoid:** naming new code after the exempt identifier: `SignalSource` (research layer) predates this
+rule and is exempt only until its rename to `Predictor` (see `predictor`, todo 430)
 **Status:** V1 active — live (FeatureFactory, Phase A shipped, `feature_vectors` 106M+ rows verified 2026-09-04); V3+ gated on V1 demonstrating IC > 0
 
 ---
@@ -1063,7 +1087,7 @@ alpha_score = (alpha_raw - rolling_mean) / rolling_std   # z-scored, ~N(0,1)
 Positive = composite features predict upward price movement. Negative = downward. Magnitude = strength relative to recent history. An `alpha_event` is emitted when `alpha_score` clears `alpha_publisher.py`'s four-gate stack: `effective_n` floor, `|alpha_score| > alpha.quant.threshold.{tf}` (per-timeframe, not per-symbol/regime), direction-aware CI + cost hurdle, and non-empty `top_features`.
 
 **Not:** synonymous with `raw_confidence` (v2.x ICC, plugin-internal unsigned magnitude). Not the same as `counterfactual_pnl_r` (realized outcome). Not a per-feature score — `alpha_score` is the ensemble output, not any individual feature's contribution.
-**Banned:** "plugin score," "direction score," "conviction score" (use `alpha_score`)
+**Banned:** plugin score, direction score, conviction score
 **Status:** active — live (v3.0 Phase C shipped); `ensemble_alpha` table holds 88M+ rows (verified 2026-09-04)
 
 ---
@@ -1077,7 +1101,7 @@ IC = 0.03-0.05 is meaningful in practice. IC = 0.10 is exceptional. IC is always
 IC is regime-conditional: the same plugin may have IC = 0.07 in trending regimes and IC = -0.01 in mean-reverting regimes. HMM regime conditions ensemble weights.
 
 **Not:** mutual information (a different information-theoretic measure — though a candidate for a future *additional* Stage 2 mechanism; see `docs/intelligence/intelligence-layer-architecture.md` Stage 2). Not `calibrated_confidence` (v2.x post-calibration output probability). Not the Edge Measurement stage itself — IC is today's mechanism for that stage's contract, not a synonym for it.
-**Banned:** "predictive power score," "signal quality score" (use `IC` or `information coefficient`)
+**Banned:** predictive power score, signal quality score
 **Status:** active — live (v3.0 Phase B shipped); `feature_ic_scores` table holds 1.9M+ rows (verified 2026-09-04), computed by `services/ic_engine.py`
 
 ---
@@ -1091,7 +1115,7 @@ The per-bar table that stores `alpha_raw` and `alpha_score` for every (symbol, t
 **Table:** `ensemble_alpha`
 
 **Not:** a hand-crafted composite (weights come from IC Sharpe via Ledoit-Wolf, not human judgment). Not `raw_confidence` (v2.x plugin ICC). Not `alpha_events` — `ensemble_alpha` scores every bar; `alpha_events` only records threshold-crossing bars.
-**Banned:** "combined score," "aggregate signal," "signal composite" (use `ensemble alpha`)
+**Banned:** combined score, aggregate signal, signal composite
 **Status:** active — live (v3.0 Phase C shipped); 88M+ rows (verified 2026-09-04)
 
 ---
@@ -1106,7 +1130,7 @@ The feature universe is fully pre-specified before any IC is measured. Adding fe
 
 **Not:** shadow mode (shadow measures P&L after signal emission; IC discovery measures raw feature predictiveness before any emission threshold is applied). Not backtesting (IC is measured on a held-out walk-forward window, not the training window).
 
-**Banned:** "signal discovery," "edge discovery," "alpha discovery" (use `IC discovery`)
+**Banned:** signal discovery, edge discovery, alpha discovery
 **Status:** active — live (v3.0 Phase B shipped); input: `feature_vectors` (106M+ rows) + `forward_returns` (103M+ rows); output: `feature_ic_scores` (1.9M+ rows), all verified 2026-09-04
 
 ---
@@ -1491,8 +1515,9 @@ parameters. What the research code calls a "signal" is a predictor.
 
 **Not:** a `signal` (the archived v2.x trade hypothesis with entry, direction and exit), an
 `alpha` (a validated edge), or an `alpha score` (the production ensemble's output).
-**Banned:** (none; "signal" and "signal source" are already reserved or banned elsewhere, so new
-research prose says predictor)
+**Banned:** (none)
+**Avoid:** "signal" for this concept in new research prose ("signal" is the archived v2.x term and
+"signal source" is banned under `intelligence vector`)
 **Status:** active
 **Code surface:** `SignalSource` in `src/intelligence/research/signals.py`, whose name predates
 this entry and uses a banned term; rename to `Predictor` coordinated with phase 183, which is

@@ -1,0 +1,227 @@
+{
+ "counts": {
+  ".planning/PROJECT.md": {
+   "counterfactual tracking": 1,
+   "execution engine": 1
+  },
+  ".planning/RETROSPECTIVE.md": {
+   "param store": 3
+  },
+  ".planning/ROADMAP.md": {
+   "counterfactual tracking": 1,
+   "param store": 2
+  },
+  ".planning/STATE.md": {
+   "counterfactual tracking": 1,
+   "execution engine": 1
+  },
+  ".planning/milestones/v2.10-REQUIREMENTS.md": {
+   "execution engine": 1
+  },
+  ".planning/milestones/v2.10-ROADMAP.md": {
+   "3-table architecture": 1
+  },
+  ".planning/milestones/v2.7-PHASE-DETAILS.md": {
+   "config system": 1
+  },
+  ".planning/milestones/v2.9-ROADMAP.md": {
+   "param store": 4,
+   "v2.10 schema": 2
+  },
+  ".planning/milestones/v3.1-phases/142.5-renaissance-primitives/142.5-RESEARCH.md": {
+   "temporal coordinate primitive": 1
+  },
+  ".planning/milestones/v3.1-phases/142B-frame-simulation-counterfactual-tracking/142B-CONTEXT.md": {
+   "counterfactual tracking": 3
+  },
+  ".planning/milestones/v3.1-phases/142B-frame-simulation-counterfactual-tracking/142B-DISCUSSION-LOG.md": {
+   "counterfactual tracking": 2
+  },
+  ".planning/milestones/v3.1-phases/142B-frame-simulation-counterfactual-tracking/142B-PATTERNS.md": {
+   "counterfactual tracking": 1
+  },
+  ".planning/milestones/v3.1-phases/142B-frame-simulation-counterfactual-tracking/142B-RESEARCH.md": {
+   "counterfactual tracking": 1
+  },
+  ".planning/milestones/v3.1-phases/142B-frame-simulation-counterfactual-tracking/142B-VERIFICATION.md": {
+   "counterfactual tracking": 1
+  },
+  ".planning/milestones/v3.1-phases/146-empirical-instrument-tag-calibrator/146-CONTEXT.md": {
+   "spread signal": 1
+  },
+  ".planning/milestones/v3.1-phases/146-empirical-instrument-tag-calibrator/146-RESEARCH.md": {
+   "spread signal": 1
+  },
+  ".planning/milestones/v3.1-phases/166-frame-execution-recalibration/166-01-PLAN.md": {
+   "config store": 1
+  },
+  ".planning/milestones/v3.1-phases/166-frame-execution-recalibration/166-02-PLAN.md": {
+   "config store": 1
+  },
+  ".planning/milestones/v3.1-phases/167-cross-sectional-trade-construction/167-06-SUMMARY.md": {
+   "signal source": 1
+  },
+  ".planning/reviews/2026-06-22-foundation-council-review.md": {
+   "signal source": 1
+  },
+  ".planning/todos/completed/422-phase181-tsmom-sleeve-signal-source.md": {
+   "signal source": 1
+  },
+  ".planning/todos/pending/052-adversarial-data-error-hunt.md": {
+   "alpha source": 1
+  },
+  ".planning/todos/pending/424-phase179-calibrated-arms-slow-signal-power-and-shift-leak.md": {
+   "signal source": 1
+  },
+  ".planning/todos/pending/430-terminology-enforcement-curate-then-ratchet.md": {
+   "market detector": 1
+  },
+  "README.md": {
+   "alpha discovery": 1
+  },
+  "docs/architecture/architecture-v2-event-driven-pipeline.md": {
+   "counterfactual recording": 1,
+   "counterfactual tracking": 2,
+   "execution engine": 1
+  },
+  "docs/architecture/architecture-v3-alphaengine-pipeline.md": {
+   "alpha discovery": 1,
+   "combined score": 1
+  },
+  "docs/foundation/adaptive-parameter-registry.md": {
+   "config store": 1,
+   "param store": 1
+  },
+  "docs/foundation/v3-north-star.md": {
+   "conviction score": 1,
+   "plugin confidence": 2
+  },
+  "docs/ideas/signal-implied-borrow-cost-from-listed-derivatives.md": {
+   "signal source": 1
+  },
+  "docs/plans/2026-09-24-edge-proof-program.md": {
+   "signal source": 1
+  },
+  "docs/renaissance-rigor-playbook/adaptive-parameter-registry.md": {
+   "config store": 1
+  },
+  "docs/research/data-edge-source-thesis.md": {
+   "combined score": 1,
+   "sizing layer": 2
+  },
+  "docs/research/measurement-alpha-emission.md": {
+   "sizing layer": 1
+  },
+  "docs/research/measurement-nonlinear-interaction-combiner.md": {
+   "combined score": 1
+  },
+  "docs/signals/signal-trade-separation-ADR.md": {
+   "intrinsic composite": 1,
+   "signal_ledger_v2": 2
+  },
+  "docs/signals/signals-confidence-patterns.md": {
+   "3-table architecture": 1,
+   "intrinsic composite": 1
+  },
+  "docs/signals/signals-foundation.md": {
+   "intrinsic composite": 1,
+   "plugin confidence": 1
+  },
+  "docs/signals/signals-schema.md": {
+   "intrinsic composite": 1
+  },
+  "production/migrations/017_cis_attribution.sql": {
+   "alpha discovery": 1
+  },
+  "production/migrations/131_3table_schema.sql": {
+   "intrinsic composite": 1
+  },
+  "production/migrations/137_phase130_apr_seeds.sql": {
+   "confidence level": 1
+  },
+  "production/migrations/158_hmm_probability_vector.sql": {
+   "direction score": 1
+  },
+  "scripts/analysis/sleeve_walk_forward/run.py": {
+   "signal source": 3
+  },
+  "scripts/analysis/sleeve_walk_forward/synthetic.py": {
+   "signal source": 3
+  },
+  "scripts/analysis/universe_expansion_correlation_structure_check.py": {
+   "config store": 1
+  },
+  "services/alpha_publisher.py": {
+   "execution engine": 1
+  },
+  "src/intelligence/archive/trading_i7/delta_exhaustion.py": {
+   "intrinsic composite": 1
+  },
+  "src/intelligence/archive/trading_i7/divergence_stack.py": {
+   "intrinsic composite": 1
+  },
+  "src/intelligence/archive/trading_i7/failed_breakout.py": {
+   "intrinsic composite": 1
+  },
+  "src/intelligence/archive/trading_i7/ofi_divergence.py": {
+   "intrinsic composite": 1
+  },
+  "src/intelligence/pipeline/signal_processor.py": {
+   "plugin confidence": 1
+  },
+  "src/intelligence/research/evaluate.py": {
+   "signal source": 1
+  },
+  "src/intelligence/research/guards.py": {
+   "signal source": 2
+  },
+  "src/intelligence/research/portfolio.py": {
+   "signal source": 1
+  },
+  "src/intelligence/research/signals.py": {
+   "signal source": 1
+  },
+  "src/intelligence/statistics/gate_math.py": {
+   "confidence level": 1
+  },
+  "src/intelligence/trading/delta_exhaustion.py": {
+   "intrinsic composite": 1
+  },
+  "src/intelligence/trading/divergence_stack.py": {
+   "intrinsic composite": 1
+  },
+  "src/intelligence/trading/failed_breakout.py": {
+   "intrinsic composite": 1
+  },
+  "src/intelligence/trading/ofi_divergence.py": {
+   "intrinsic composite": 1
+  },
+  "src/observability/metrics.py": {
+   "plugin confidence": 1
+  },
+  "src/observability/plugin_observer.py": {
+   "plugin confidence": 2
+  },
+  "tests/unit/observability/test_new_plugin_metrics.py": {
+   "plugin confidence": 4
+  },
+  "tests/unit/research/test_evaluate_intraday.py": {
+   "signal source": 1
+  },
+  "tests/unit/services/test_signal_probe_auditor_job_label.py": {
+   "plugin confidence": 1
+  },
+  "tests/unit/sleeve_walk_forward/test_run.py": {
+   "signal source": 1
+  },
+  "tests/unit/sleeve_walk_forward/test_synthetic.py": {
+   "signal source": 1
+  },
+  "tests/unit/tools/test_check_glossary.py": {
+   "market state": 1,
+   "ontology": 1,
+   "signal source": 1
+  }
+ },
+ "version": 1
+}
