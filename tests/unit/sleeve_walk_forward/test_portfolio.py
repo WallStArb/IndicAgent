@@ -135,3 +135,20 @@ def test_fixed_sign_missing_alpha_takes_no_position():
     np.testing.assert_allclose(
         fixed_sign_returns(alpha, moved, plan, direction=1.0)["fixed_sign"], base
     )
+
+
+def test_arm_weights_reproduce_arm_returns():
+    """The stored weights are the ones the returns were built from (section 11 inputs)."""
+    from scripts.analysis.sleeve_walk_forward.portfolio import arm_returns, arm_weights
+
+    closes, alpha, fwd = _panel(4)
+    plan = plan_covariance(closes, CFG, MV_COND)
+    ret = arm_returns(alpha, fwd, plan, CFG, K)
+    w = arm_weights(alpha, fwd, plan, CFG, K)
+    for arm, r in ret.items():
+        rebuilt = np.where(
+            np.isnan(w[arm]).all(axis=1),
+            np.nan,
+            (np.nan_to_num(w[arm]) * np.nan_to_num(fwd)).sum(axis=1),
+        )
+        np.testing.assert_allclose(rebuilt, r, rtol=1e-12, atol=1e-15, equal_nan=True)

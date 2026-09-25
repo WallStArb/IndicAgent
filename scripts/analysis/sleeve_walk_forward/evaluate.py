@@ -20,6 +20,7 @@ from scripts.analysis.sleeve_walk_forward.config import HarnessConfig
 from scripts.analysis.sleeve_walk_forward.portfolio import (
     CovariancePlan,
     arm_returns,
+    arm_weights,
     plan_covariance,
 )
 from scripts.analysis.sleeve_walk_forward.sessions import sub_period_masks
@@ -48,6 +49,12 @@ class EvaluationResult:
     # Section 11 shape measures per arm, {"observed": {...}, "null_median": {...}}. Reported
     # for sizing; decide() never reads them.
     diagnostics: dict = dataclasses.field(default_factory=dict)
+    # Section 11 inputs for the out-of-package diagnostics script; decide() never reads them.
+    # observed_daily / null_median_daily: [J, n]. observed_weights: {arm: [n, n_sleeve]}, set
+    # for the calibrated arms only.
+    observed_daily: np.ndarray | None = None
+    null_median_daily: np.ndarray | None = None
+    observed_weights: dict = dataclasses.field(default_factory=dict)
 
 
 def annualized_sharpe(r: np.ndarray, mask: np.ndarray) -> float:
@@ -127,7 +134,8 @@ def evaluate(
     n = alpha.shape[0]
     trade = trade_mask(dates, cfg)
     plan = plan_covariance(closes, cfg, mv_condition_max)
-    if construction is None:
+    calibrated = construction is None
+    if calibrated:
         construction = functools.partial(arm_returns, cfg=cfg, ic_shrinkage_k=ic_shrinkage_k)
     obs = construction(alpha, fwd_ret, plan)
     arms = tuple(obs)
@@ -151,6 +159,11 @@ def evaluate(
     excess_daily = obs_daily - null_median_daily
     sub_masks = [m & trade for m in sub_period_masks(dates, cfg.sub_periods)]
     return EvaluationResult(
+        observed_daily=obs_daily,
+        null_median_daily=null_median_daily,
+        observed_weights=(
+            arm_weights(alpha, fwd_ret, plan, cfg, ic_shrinkage_k) if calibrated else {}
+        ),
         arms=arms,
         sharpe_obs=sharpe_obs,
         sharpe_null=sharpe_null,

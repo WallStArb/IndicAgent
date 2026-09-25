@@ -92,16 +92,16 @@ def _mean_variance_matrix(
     return None
 
 
-def arm_returns(
+def _arm_blocks(
     alpha: np.ndarray,
     fwd_ret: np.ndarray,
     plan: CovariancePlan,
     cfg: HarnessConfig,
     ic_shrinkage_k: float,
-) -> dict[str, np.ndarray]:
+):
+    """Yield (block, symbol idx, {arm: weights [block_len, len(idx)]}) per calibration segment."""
     n = alpha.shape[0]
     z = _trailing_z(alpha, cfg.warmup_sessions)
-    out = {arm: np.full(n, np.nan) for arm in ARMS}
     bounds = np.append(plan.refit_positions, n)
     state = None
     for k, p in enumerate(plan.refit_positions):
@@ -114,12 +114,46 @@ def arm_returns(
         idx, sig, ic, matrix = state
         block = slice(p, bounds[k + 1])
         mu = ic * sig * z[block][:, idx]
-        r = np.nan_to_num(fwd_ret[block][:, idx])
         vol = _normalize(mu / np.where(sig > _ZERO_STD, sig, np.inf) ** 2)
-        out["ic_proportional"][block] = (_normalize(mu) * r).sum(axis=1)
-        out["vol_normalized"][block] = (vol * r).sum(axis=1)
         mv = vol if matrix is None else _normalize(mu @ matrix.T)
-        out["mean_variance"][block] = (mv * r).sum(axis=1)
+        yield block, idx, {
+            "ic_proportional": _normalize(mu),
+            "vol_normalized": vol,
+            "mean_variance": mv,
+        }
+
+
+def arm_returns(
+    alpha: np.ndarray,
+    fwd_ret: np.ndarray,
+    plan: CovariancePlan,
+    cfg: HarnessConfig,
+    ic_shrinkage_k: float,
+) -> dict[str, np.ndarray]:
+    out = {arm: np.full(alpha.shape[0], np.nan) for arm in ARMS}
+    for block, idx, weights in _arm_blocks(alpha, fwd_ret, plan, cfg, ic_shrinkage_k):
+        r = np.nan_to_num(fwd_ret[block][:, idx])
+        for arm, w in weights.items():
+            out[arm][block] = (w * r).sum(axis=1)
+    return out
+
+
+def arm_weights(
+    alpha: np.ndarray,
+    fwd_ret: np.ndarray,
+    plan: CovariancePlan,
+    cfg: HarnessConfig,
+    ic_shrinkage_k: float,
+) -> dict[str, np.ndarray]:
+    """Each arm's daily weights over the full sleeve, [n, n_sleeve], NaN before the first
+    calibration and 0 for symbols outside a segment's admitted set. Section 11 diagnostics only
+    (turnover, costs, per-symbol contribution); never read by `decide`."""
+    out = {arm: np.full(alpha.shape, np.nan) for arm in ARMS}
+    for block, idx, weights in _arm_blocks(alpha, fwd_ret, plan, cfg, ic_shrinkage_k):
+        for arm, w in weights.items():
+            full = np.zeros((w.shape[0], alpha.shape[1]))
+            full[:, idx] = w
+            out[arm][block] = full
     return out
 
 

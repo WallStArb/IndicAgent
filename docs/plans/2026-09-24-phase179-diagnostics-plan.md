@@ -36,7 +36,9 @@ touching the frozen code.
 ## Order
 
 1. Before the freeze: add the per-arm weight matrix to the S3 payload, with a test that `decide`
-   is unchanged.
+   is unchanged. Done 2026-09-25: `EvaluationResult` carries `observed_weights`,
+   `observed_daily` and `null_median_daily`; `arm_returns` is unchanged numerically (reference
+   test) and a test rebuilds its returns from the stored weights.
 2. After the verdict: diagnostics 1-7 and 10 in one pass (minutes); 8 and 9 each need their own
    refits (about 6 minutes per S1 on four workers).
 3. Report all of them in the verdict writeup next to the token, labeled as diagnostics.
