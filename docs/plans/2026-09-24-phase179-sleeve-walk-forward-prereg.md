@@ -2,10 +2,8 @@
 
 **Author:** Claude (Opus 5.5), 2026-09-24, at Brandon's request; parent plan
 `docs/plans/2026-09-24-edge-proof-program.md`.
-**Status:** DRAFT, revised after AGY adversarial review (section 16), not frozen. Freezes on the commit that adds the section 12 addendum (feature
-exclusion list, code commit, snapshot hash), which must land before the walk-forward stage
-produces any out-of-sample number. After that, any change is a `methodology-change-ledger.md`
-entry.
+**Status:** FROZEN 2026-09-25 by the commit that adds section 12.2 (code at main
+`a64af3d1a`). Any change from here is a `methodology-change-ledger.md` entry.
 
 ## 1. The question
 
@@ -432,6 +430,33 @@ in-sample for production already, so it spends nothing.
 - **Deprecated-feature decision: moot.** `new_high_flag` and `new_low_flag` were deprecated by
   operator override with no gate metric and are no longer `FeatureVector` fields (migration 284
   tombstones), so they cannot enter the pool.
+
+### 12.2 Freeze record (2026-09-25)
+
+Every gate below was run on main `a64af3d1a96b3f7ed16a0be95f507fcc30e592be` with a clean tree
+(`scripts/`, `src/`, `services/`); artifacts under `logs/phase179/freeze/` unless noted.
+
+| Item | Value |
+|---|---|
+| Code commit (harness + every reused production module) | `a64af3d1a` |
+| S0 snapshot | `logs/phase179/official/snapshot_97719acbf3dd7ee3` (content hash in the name, reproduced by a second build from main) |
+| APR snapshot | 830 keys from the snapshot's `meta.json`, sha256 of the sorted JSON `13b36ae4934357da` |
+| Excluded-feature list | `scripts/analysis/sleeve_walk_forward/excluded_features.json`, sha256 `868852dc16426ab2`: exclude tier = 3 fitted-HMM columns, `amihud_illiq_z` and `illiquidity_momentum_product` (todo 390), `earnings_season_flag`, `days_since_quarter_end`, the 6 velocity features (todo 421); control tier = the 5 canaries. Deprecated-feature decision: moot (12.1) |
+| S1 (the refits the run uses) | `s1_347f0d6a08139c88.pkl`: 15 refits in 24.5 min on 4 workers under load (one refit alone: 83 s) |
+| V1 | stratum_fit / representative extractions tested against production on fixtures (build steps 2-4); full unit suite green at the commit |
+| V2 | PASS: 6.0% (12/200; CI 2.7-9.3%) inside 5 +/- 3.1%, mean excess Sharpe -0.0008 (`v2_3727c5a9fed556de`) |
+| V3 | PASS: 69% (CI 63-75%) at realized excess 0.71, 83% (CI 78-88%) at realized excess 0.85 (`v3_1f7c99c02a147d22`) |
+| V3b (reported) | 0% (0/200) at both planted sizes; the calibrated arms' mean excess Sharpe is -0.38 and -0.52 on the slow return-built edge (`v3b_c667f594d5e2d385`). By the rule pinned in 12.1, the verdict writeup states that a FAIL is uninformative about slow, return-built edges of that size |
+| V4 | PASS: 31,800 keys equal, 16 deterministic fields to 1e-6; RNG fields within 0.97-1.04x of the two-seed reference, tolerance 1.25x (`v4_20260925T015931Z.json`) |
+| V4b | PASS, D7 null (12.1) |
+| V5 | PASS on `s1_347f0d6a08139c88`: placebo detected in 362/362 containing-lookahead cells; noise 16/4,197 (binomial p = 1.0); no canary weighted (`v5_20260925T013254Z.json`) |
+| V6 | runtime asserts active in S1 (no assertion raised) |
+| FIDELITY | OK (V1, V4, V5) |
+| N_tested | 18; ACT needs adjusted p < 0.0028 |
+| Null | admissible shifts `admissible_shifts(n, 63, memory=758)` |
+
+Next, in order and once each: S2 and S3 on `s1_347f0d6a08139c88`, S4 with `--fidelity OK`, then
+the holdout sign check for ACT.
 
 ## 13. Pinned deviations from production
 
