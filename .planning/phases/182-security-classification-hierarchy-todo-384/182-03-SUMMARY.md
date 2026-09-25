@@ -83,10 +83,10 @@ completed: 2026-09-25
 
 ## Task Commits
 
-1. **Task 1 RED: failing seed tests** - `07b2b0cda` (test)
-2. **Task 1 GREEN: validator and renderer** - `24e35db8c` (feat)
-3. **Task 2: seed data, shape test, rendered migration 365** - `0cc9d8abd` (feat)
-4. **Task 3: review reconciliation, re-render, REVIEW.md** - `a24bc8b8e` (fix)
+1. **Task 1 RED: failing seed tests** - `40e5d7ab2` (test)
+2. **Task 1 GREEN: validator and renderer** - `841a78ee4` (feat)
+3. **Task 2: seed data, shape test, rendered migration 365** - `65d2d9a59` (feat)
+4. **Task 3: review reconciliation, re-render, REVIEW.md** - `17e3a90e6` (fix)
 
 ## Decisions Made
 
@@ -105,7 +105,7 @@ See key-decisions in the frontmatter. The full reasoning for each reclassificati
   and D-03..D-06 prompt. That run had no tools and no access to the executor's reasoning or
   evidence. It is independent of the executor's context but not cross-vendor, and
   182-03-REVIEW.md says so. A cross-vendor AGY re-check can run once the quota resets, if wanted.
-- **Commit:** `a24bc8b8e`
+- **Commit:** `17e3a90e6`
 
 **2. [Rule 2 - Correctness] Level-2 name collision and a new uniqueness rule**
 - **Found during:** Task 3 (independent pass)
@@ -114,7 +114,7 @@ See key-decisions in the frontmatter. The full reasoning for each reclassificati
 - **Fix:** Renamed CMD.ENERGY to "Energy commodities", which departs from the pinned name.
   `validate_seed` now rejects duplicate names within a level, with two new unit tests.
 - **Files:** src/config/classification_seed.py, tests/unit/test_classification_seed.py, data module
-- **Commit:** `a24bc8b8e`
+- **Commit:** `17e3a90e6`
 
 **3. [Rule 1 - Data] RSPG's instruments name is wrong**
 - **Found during:** Task 2
@@ -154,4 +154,4 @@ None.
 
 ## Self-Check: PASSED
 
-All 7 created files present; commits 07b2b0cda, 24e35db8c, 0cc9d8abd, a24bc8b8e found in git log. Live `classification_scheme` has 0 rows (migration 365 unapplied).
+All 7 created files present; commits 40e5d7ab2, 841a78ee4, 65d2d9a59, 17e3a90e6 found in git log. Live `classification_scheme` has 0 rows (migration 365 unapplied).
