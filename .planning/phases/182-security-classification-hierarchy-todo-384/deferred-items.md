@@ -13,3 +13,12 @@ Out-of-scope discoveries logged by plan executors; not fixed in the plan that fo
 - **VIX and VX are duplicate inactive rows** for the same CFE VIX future (both trading class VX,
   point value 1000, exchange CFE). Both classified VOL.EQUITY. Whether to retire one is an
   instruments-table decision.
+
+## From plan 05 (2026-09-25)
+
+- **`cache_manager._instrument_from_row` defaults `session_id` to `"equity_regular"`**, which is
+  not in `SESSION_REGISTRY` (valid: nyse, lse, tse, hkex, sse, asx, futures_24_5, fx_24_5,
+  crypto_24_7), so any row whose contract_details lacks `session_id` raises a ValidationError and
+  fails the whole reload. `get_active_contracts`'s fallback constructor has the same shape with
+  `"equity_rth"`. Both live in paths whose rows normally carry `session_id`; the cache_manager
+  path is the archived v2.x pipeline. Not fixed here (unrelated to sector).

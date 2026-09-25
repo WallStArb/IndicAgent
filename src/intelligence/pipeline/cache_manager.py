@@ -30,6 +30,7 @@ from typing import TYPE_CHECKING, Any
 import asyncpg
 import structlog
 
+from src.config.classification_service import current_level_name_sql, label_or_unclassified
 from src.monitoring.ks_drift_monitor import DRIFT_PENALTIES
 from src.observability.metrics import gauge
 
@@ -78,6 +79,11 @@ def _instrument_from_row(row: dict) -> Any:
     For FX instruments the DB primary key is the base currency (e.g. USD),
     but contract_details.symbol holds the full pair (e.g. USDJPY), so we
     prefer the contract_details value.
+
+    sector is the row's `classification_sector` column (the level-2 node name of the
+    symbol's current indicagent_v1 assignment, selected by _reload_instruments_cache), or
+    "indicagent_v1:unclassified" when it is NULL or absent (Phase 182 D-08/D-10).
+    contract_details' flat sector string is historical only and never read.
     """
     from src.core.models import Instrument  # noqa: PLC0415 — avoids circular import
 
@@ -88,7 +94,7 @@ def _instrument_from_row(row: dict) -> Any:
         name=cd.get("name", ""),
         asset_class=cd.get("asset_class", "equity"),
         exchange=cd.get("exchange", ""),
-        sector=cd.get("sector", ""),
+        sector=label_or_unclassified(row.get("classification_sector")),
         tick_size=float(cd.get("tick_size") or 0),
         point_value=float(cd.get("point_value") or 0),
         session_id=cd.get("session_id", "equity_regular"),
@@ -447,7 +453,9 @@ class CacheManager:
         """
         try:
             rows = await self._db.execute_query(
-                "SELECT symbol, base, contract_details FROM instruments"
+                "SELECT symbol, base, contract_details, "
+                f"{current_level_name_sql('instruments')} AS classification_sector "
+                "FROM instruments"
                 " WHERE is_active = true AND contract_details->>'asset_class' != 'futures'"
             )
             instruments = [_instrument_from_row(r) for r in rows]

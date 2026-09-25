@@ -410,6 +410,7 @@ def _smh_row(**extra) -> dict:
             "asset_class": "equity",
             "exchange": "SMART",
             "sector": "technology",
+            "session_id": "nyse",
         },
         **extra,
     }
