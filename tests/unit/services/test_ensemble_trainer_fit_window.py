@@ -111,6 +111,7 @@ def _weights(ic_rows: list[dict], fv_rows: list[dict]) -> tuple[list[float], _Fa
             config=_config(),
             cfg={},
             meta_eligible_features={"feat_a", "feat_b", "feat_c"},
+            training_window_end=_WINDOW_END,
         )
     )
     assert wrote is True

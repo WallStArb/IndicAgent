@@ -387,3 +387,47 @@ class TestHardGateSourceStructure:
     def test_imports_bulk_update_by_key_and_load_apr_dict_async(self) -> None:
         assert callable(ic_shrinkage.bulk_update_by_key)
         assert callable(ic_shrinkage._load_apr_dict)
+
+
+# ---------------------------------------------------------------------------
+# Todos 405/417: one training window per run; no connection held across Part B
+# ---------------------------------------------------------------------------
+
+
+class TestWindowScopeAndConnectionLifetime:
+    def test_two_windows_never_share_a_prior(self) -> None:
+        """The same (group, regime, tf) in two windows forms two buckets: each row's
+        leave-one-out prior comes from its own window's peers only."""
+        w1 = [
+            _row("feat_a", "SPY", "1d", "hi", 5, 1000, 0.10),
+            _row("feat_b", "SPY", "1d", "hi", 5, 1000, 0.30),
+        ]
+        w2 = [dict(r, training_window_end="2027-01-01T00:00:00Z", ic_sharpe_hac=0.9) for r in w1]
+        f2g = {"feat_a": "momentum", "feat_b": "momentum"}
+        alone = compute_shrinkage_updates(w1, f2g, k=100.0)
+        mixed = compute_shrinkage_updates(w1 + w2, f2g, k=100.0)
+        assert mixed[: len(alone)] == alone
+
+    def test_multiple_windows_without_a_choice_raise(self) -> None:
+        import asyncio
+
+        class _Conn:
+            async def fetch(self, sql):
+                return [{"training_window_end": 1}, {"training_window_end": 2}]
+
+        with pytest.raises(RuntimeError, match="2 training windows"):
+            asyncio.run(ic_shrinkage._resolve_training_window_end(_Conn(), None))
+
+    def test_reads_are_window_scoped(self) -> None:
+        for sql in (ic_shrinkage._RELIABLE_ROWS_SQL, ic_shrinkage._POOLED_RELIABLE_CELLS_SQL):
+            assert "training_window_end = $1" in sql
+
+    def test_gate_loop_takes_no_async_pool(self) -> None:
+        """Part B runs for hours; it must not be handed a pool whose idle connections
+        Postgres's idle_session_timeout can kill (todo 417)."""
+        import inspect
+
+        params = inspect.signature(ic_shrinkage._run_out_of_fold_gate).parameters
+        assert "apool" not in params and "cells" in params
+        source = Path(ic_shrinkage.__file__).read_text()
+        assert "ConfigService(database_url=dsn, pool=apool)" not in source

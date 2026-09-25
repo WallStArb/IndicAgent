@@ -36,7 +36,11 @@ DAG invariant note: this oneshot is exempt from the "only writer subclasses touc
 exactly as backfill_feature_factory.py is — it is a batch compute tool, not a real-time daemon.
 
 Usage:
-    python services/ensemble_trainer.py
+    python services/ensemble_trainer.py [--training-window-end 2025-12-24T05:15:00+00:00]
+
+Every feature_ic_scores read is pinned to one training window (todo 405): the
+--training-window-end the corpus pipeline also passes to feature_lifecycle, or, when omitted,
+the only window the eligible rows carry (more than one raises).
 """
 
 from __future__ import annotations
@@ -63,6 +67,7 @@ from services._batch_utils import resolve_per_tf as _resolve_per_tf
 from src.config.settings import Settings
 from src.core.agent.base_batch import BaseBatch
 from src.core.integrity_monitor import emit_integrity_fact_async
+from src.core.service_utils import parse_training_window_end
 from src.intelligence.ensemble.stratum_fit import fit_stratum_weights, select_stratum
 from src.intelligence.features.feature_vector_persistence import (
     REGIME_VOLATILITY_WRITER_OWNED_COLUMN_NAMES,
@@ -129,6 +134,32 @@ def _eligibility_where(sign_symmetric: bool) -> tuple[str, str]:
         " AND passes_walkforward = true"
     )
     return base_where, base_where + " AND passes_fdr = true"
+
+
+def _window_scoped(where: str, training_window_end: datetime) -> str:
+    """Pin an eligibility clause to one training window (todo 405). Unpinned, every window's
+    rows would compete in the meta-FDR pass rate, the strata list and the stratum IC read.
+    The literal comes from a UTC-aware datetime, never from caller text."""
+    return f"{where} AND training_window_end = '{training_window_end.isoformat()}'::timestamptz"
+
+
+async def _resolve_training_window_end(
+    conn: asyncpg.Connection, sign_symmetric: bool, override: datetime | None
+) -> datetime | None:
+    """The CLI window, else the only window among eligible rows. None when no eligible row
+    exists (the startup gate then raises its own message); two or more windows raise."""
+    if override is not None:
+        return override
+    _, eligibility_where = _eligibility_where(sign_symmetric)
+    windows = await conn.fetch(
+        f"SELECT DISTINCT training_window_end FROM feature_ic_scores WHERE {eligibility_where}"
+    )
+    if len(windows) > 1:
+        raise RuntimeError(
+            f"EnsembleTrainer: eligible feature_ic_scores rows span {len(windows)} training "
+            "windows; pass --training-window-end to choose one (todo 405)"
+        )
+    return windows[0]["training_window_end"] if windows else None
 
 
 def _assert_feasible_thresholds(
@@ -360,10 +391,13 @@ async def _assert_prerequisites(
     conn: asyncpg.Connection,
     sign_symmetric: bool,
     manifest_dir: Path = CorpusManifest.DEFAULT_MANIFEST_DIR,
+    training_window_end: datetime | None = None,
 ) -> None:
     """Two startup gates plus a manifest check. Raise RuntimeError to prevent a
     silent empty OR silently-partial run."""
     _, eligibility_where = _eligibility_where(sign_symmetric)
+    if training_window_end is not None:
+        eligibility_where = _window_scoped(eligibility_where, training_window_end)
     n_ic = await conn.fetchval(f"SELECT count(*) FROM feature_ic_scores WHERE {eligibility_where}")
     if not n_ic:
         significance_desc = (
@@ -472,10 +506,12 @@ class EnsembleTrainer(BaseBatch):
         db_dsn: str,
         weight_version_override: str | None = None,
         sign_symmetric_override: bool | None = None,
+        training_window_end: datetime | None = None,
     ) -> None:
         super().__init__(db_dsn=db_dsn)
         self._weight_version_override = weight_version_override
         self._sign_symmetric_override = sign_symmetric_override
+        self._training_window_end_override = training_window_end
 
     def _span_attrs(self) -> dict[str, Any]:
         return {"weight_version_override": self._weight_version_override or ""}
@@ -528,9 +564,22 @@ class EnsembleTrainer(BaseBatch):
             # gate, the meta-FDR denominator, the strata enumeration, and the
             # per-stratum IC fetch below.
             eligibility_base_where, eligibility_where = _eligibility_where(config.sign_symmetric)
+            training_window_end = await _resolve_training_window_end(
+                conn, config.sign_symmetric, self._training_window_end_override
+            )
 
             # --- Startup gates ---
-            await _assert_prerequisites(conn, config.sign_symmetric)
+            await _assert_prerequisites(
+                conn, config.sign_symmetric, training_window_end=training_window_end
+            )
+            if training_window_end is None:  # the gate raises first; never reached
+                raise RuntimeError("EnsembleTrainer: no training window resolved")
+            eligibility_base_where = _window_scoped(eligibility_base_where, training_window_end)
+            eligibility_where = _window_scoped(eligibility_where, training_window_end)
+            self.logger.info(
+                "ensemble_trainer.training_window",
+                training_window_end=training_window_end.isoformat(),
+            )
 
             # --- Feature registry alignment gate (Phase 170 Plan 06) ---
             all_registry_names = await _assert_concept_registry_alignment(conn)
@@ -655,6 +704,7 @@ class EnsembleTrainer(BaseBatch):
                     config=config,
                     cfg=cfg,
                     meta_eligible_features=meta_eligible_by_tf.get(tf, set()),
+                    training_window_end=training_window_end,
                 )
                 if wrote:
                     written_by_tf[tf] = written_by_tf.get(tf, 0) + 1
@@ -714,6 +764,7 @@ class EnsembleTrainer(BaseBatch):
         config: EnsembleConfig,
         cfg: dict[str, Any],
         meta_eligible_features: set[str],
+        training_window_end: datetime,
     ) -> bool:
         """Process one (tf, regime) stratum end-to-end using cross-sectional IC.
 
@@ -739,6 +790,7 @@ class EnsembleTrainer(BaseBatch):
             "AND ic_shrunk IS NOT NULL" if ic_input_column == "ic_shrunk" else ""
         )
         _, eligibility_where = _eligibility_where(config.sign_symmetric)
+        eligibility_where = _window_scoped(eligibility_where, training_window_end)
 
         # Step 1: Load cross-sectional IC scores for this stratum (symbol='POOLED'),
         # restricted to features whose concept_registry status is 'active' at train time.
@@ -1021,6 +1073,15 @@ if __name__ == "__main__":
             "--no-sign-symmetric to force either behavior for this run"
         ),
     )
+    parser.add_argument(
+        "--training-window-end",
+        type=parse_training_window_end,
+        default=None,
+        help=(
+            "Pin every feature_ic_scores read to this window (UTC-aware ISO 8601). Omit to use "
+            "the only window the eligible rows carry; more than one raises (todo 405)"
+        ),
+    )
     args = parser.parse_args()
 
     try:
@@ -1035,5 +1096,6 @@ if __name__ == "__main__":
             db_dsn=db_dsn,
             weight_version_override=args.weight_version,
             sign_symmetric_override=args.sign_symmetric,
+            training_window_end=args.training_window_end,
         ).run()
     )

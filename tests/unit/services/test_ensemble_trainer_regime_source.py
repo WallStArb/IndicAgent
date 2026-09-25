@@ -316,6 +316,7 @@ def _run_process_stratum(regime: str) -> tuple[EnsembleTrainer, _FakeConn]:
             config=config,
             cfg={},
             meta_eligible_features={"feat_a", "feat_b"},
+            training_window_end=datetime(2025, 12, 24, 5, 15, tzinfo=UTC),
         )
     )
     assert wrote is True, f"_process_stratum did not write for regime={regime!r}"

@@ -389,12 +389,14 @@ run_step 5 "feature_lifecycle" \
 # FAIL is a valid, expected report (exit 0) -- it must not halt the pipeline; step 7
 # always proceeds using whichever ic_input is currently configured.
 run_step 6 "ic_shrinkage" \
-    "$PYTHON" scripts/ops/alpha/ops_ic_shrinkage.py
+    "$PYTHON" scripts/ops/alpha/ops_ic_shrinkage.py \
+    --training-window-end "$TRAINING_WINDOW_END"
 
 # Step 7 — Ensemble Trainer (feature_ic_scores + feature_vectors → ensemble_weights + ensemble_alpha)
 run_step 7 "ensemble_trainer" \
     "$PYTHON" services/ensemble_trainer.py \
-    --weight-version "$WEIGHT_EPOCH"
+    --weight-version "$WEIGHT_EPOCH" \
+    --training-window-end "$TRAINING_WINDOW_END"
 
 # Step 8 — Alpha Publisher (ensemble_alpha → alpha_events, DB only)
 #

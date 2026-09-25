@@ -39,7 +39,12 @@ ic_input is currently configured). Exit code 1 only for genuine operational fail
 (missing OOS boundary, DB exception).
 
 Usage:
-    python scripts/ops/alpha/ops_ic_shrinkage.py
+    python scripts/ops/alpha/ops_ic_shrinkage.py [--training-window-end 2025-12-24T05:15:00+00:00]
+
+Every feature_ic_scores read is pinned to one training window (todo 405): the given window, or,
+when omitted, the only window the reliable rows carry (more than one raises). No connection is
+held across Part B's long stratum loop (todo 417): Postgres's 1h idle_session_timeout killed an
+idle pooled connection there on 2026-09-24, after the gate had already passed.
 """
 
 from __future__ import annotations
@@ -66,6 +71,7 @@ from services._batch_utils import compressed_hypertable_write_session as _write_
 from services._batch_utils import load_apr_dict_async as _load_apr_dict
 from src.config.config_service import ConfigService
 from src.config.settings import Settings
+from src.core.service_utils import parse_training_window_end
 from src.intelligence.ensemble.shrinkage import leave_one_out_group_prior, shrink_ic
 from src.intelligence.statistics.ic_math import _vectorized_ic
 
@@ -92,12 +98,17 @@ _COL_TYPES: dict[str, str] = {
     "training_window_end": "timestamptz",
 }
 
-_RELIABLE_ROWS_SQL = """
+_RELIABLE_WHERE = (
+    "reliable = true AND ic_sharpe_hac IS NOT NULL AND regime_scope <> 'earnings_season'"
+)
+
+_WINDOWS_SQL = f"SELECT DISTINCT training_window_end FROM feature_ic_scores WHERE {_RELIABLE_WHERE}"
+
+_RELIABLE_ROWS_SQL = f"""
     SELECT feature_name, symbol, tf, regime, lookahead_bars, training_window_end,
            n_independent, ic_sharpe_hac
     FROM feature_ic_scores
-    WHERE reliable = true AND ic_sharpe_hac IS NOT NULL
-      AND regime_scope <> 'earnings_season'
+    WHERE {_RELIABLE_WHERE} AND training_window_end = $1
 """
 
 # concept_gate is INNER JOINed (not a bare domain='feature' filter) to exclude
@@ -119,12 +130,11 @@ _FEATURE_GROUP_SQL = """
     WHERE cr.domain = 'feature'
 """
 
-_POOLED_RELIABLE_CELLS_SQL = """
+_POOLED_RELIABLE_CELLS_SQL = f"""
     SELECT DISTINCT feature_name, tf, regime, lookahead_bars
     FROM feature_ic_scores
-    WHERE reliable = true AND ic_sharpe_hac IS NOT NULL
+    WHERE {_RELIABLE_WHERE} AND training_window_end = $1
       AND symbol = 'POOLED' AND is_pooled = true AND regime != '_pooled'
-      AND regime_scope <> 'earnings_season'
 """
 
 _SCALE_RETURN_COLUMNS: dict[str, str] = {
@@ -172,20 +182,22 @@ def compute_shrinkage_updates(
     for every reliable `feature_ic_scores` row, via a leave-one-out
     `(group_name, regime, tf)` peer-group prior (D-06).
 
-    Peer group is keyed purely on `(group_name, regime, tf)` — NOT scoped to symbol or
-    lookahead_bars — matching D-06's literal spec ("feature family x regime x tf").
+    Peer group is keyed on `(group_name, regime, tf)` — NOT scoped to symbol or
+    lookahead_bars — matching D-06's literal spec ("feature family x regime x tf") — within
+    one training window: two windows' rows never share a prior (todo 405).
     Rows whose feature has no `concept_registry.group_name` mapping are skipped (cannot
     form a peer group without a family label). Non-finite `shrink_ic` outputs are
     dropped, never persisted (Pitfall 1's degenerate-input guard already returns a
     defined value for n_eff<=0; this is defense-in-depth against any other NaN/Inf
     source, e.g. a corrupt `ic_sharpe_hac` value).
     """
-    buckets: dict[tuple[str, str, str], list[int]] = {}
+    buckets: dict[tuple[Any, ...], list[int]] = {}
     for idx, row in enumerate(ic_rows):
         group_name = feature_to_group.get(row["feature_name"])
         if group_name is None:
             continue
-        buckets.setdefault((group_name, row["regime"], row["tf"]), []).append(idx)
+        key = (group_name, row["regime"], row["tf"], row["training_window_end"])
+        buckets.setdefault(key, []).append(idx)
 
     updates: list[tuple] = []
     for _key, idxs in buckets.items():
@@ -368,7 +380,7 @@ def build_out_of_fold_errors(
 
 
 async def _run_out_of_fold_gate(
-    apool: asyncpg.Pool,
+    cells: list[Any],
     sync_conn: Any,
     feature_to_group: dict[str, str],
     k: float,
@@ -377,12 +389,11 @@ async def _run_out_of_fold_gate(
 ) -> tuple[bool, float, float, int]:
     """DB orchestration for Part B: fetch cross-sectional pooled series per (tf, regime)
     stratum (one query per stratum, cross-symbol average computed in SQL), then hand off
-    to the pure `build_out_of_fold_errors` for the split/prior/error math.
+    to the pure `build_out_of_fold_errors` for the split/prior/error math. `cells` is
+    fetched by the caller before the async pool closes; the loop uses only `sync_conn`,
+    which stays busy throughout, so nothing idles past idle_session_timeout (todo 417).
     """
     bars_to_scale_by_tf = _lookahead_bars_to_scale_by_tf(lookaheads_by_tf)
-
-    async with apool.acquire() as conn:
-        cells = await conn.fetch(_POOLED_RELIABLE_CELLS_SQL)
 
     cells_by_stratum: dict[tuple[str, str], list[dict[str, Any]]] = {}
     for cell in cells:
@@ -431,11 +442,33 @@ def _parse_args() -> argparse.Namespace:
     before this fix) -- caught and killed before any write landed
     (config_history shows no post-fix ic_input change)."""
     parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument(
+        "--training-window-end",
+        type=parse_training_window_end,
+        default=None,
+        help="UTC-aware ISO 8601; omit to use the only window the reliable rows carry",
+    )
     return parser.parse_args()
 
 
+async def _resolve_training_window_end(
+    conn: asyncpg.Connection, override: datetime | None
+) -> datetime | None:
+    """The CLI window, else the only window among reliable rows (None when there are none);
+    two or more raise rather than mix (todo 405)."""
+    if override is not None:
+        return override
+    windows = await conn.fetch(_WINDOWS_SQL)
+    if len(windows) > 1:
+        raise RuntimeError(
+            f"reliable feature_ic_scores rows span {len(windows)} training windows; "
+            "pass --training-window-end to choose one (todo 405)"
+        )
+    return windows[0]["training_window_end"] if windows else None
+
+
 async def main() -> int:
-    _parse_args()
+    args = _parse_args()
     settings = Settings()
     dsn = settings.database_url.replace("postgresql+asyncpg://", "postgresql://")
     apool = await asyncpg.create_pool(dsn=dsn)
@@ -443,6 +476,10 @@ async def main() -> int:
     try:
         async with apool.acquire() as conn:
             apr = await _load_apr_dict(conn)
+            window = await _resolve_training_window_end(conn, args.training_window_end)
+        if window is None:
+            print("## E1 IC Shrinkage\n\nFAILED: no reliable feature_ic_scores rows.")
+            return 1
 
         k = float(_cfg(apr, "alpha.ic.shrinkage_k", 100.0))
         # Todo 146/202: lookahead grid is per-tf now, not one shared scale->bars dict.
@@ -470,8 +507,12 @@ async def main() -> int:
 
         # --- Part A: compute pass ---
         async with apool.acquire() as conn:
-            ic_rows_raw = await conn.fetch(_RELIABLE_ROWS_SQL)
+            ic_rows_raw = await conn.fetch(_RELIABLE_ROWS_SQL, window)
             group_rows = await conn.fetch(_FEATURE_GROUP_SQL)
+            cells = await conn.fetch(_POOLED_RELIABLE_CELLS_SQL, window)
+        # Last async use until the gate verdict: close now, so no pooled connection sits
+        # idle through Part B's stratum loop (todo 417).
+        await apool.close()
         ic_rows = [dict(r) for r in ic_rows_raw]
         feature_to_group = {r["feature_name"]: r["group_name"] for r in group_rows}
 
@@ -498,11 +539,12 @@ async def main() -> int:
         print(f"Reliable cells read: {len(ic_rows)}")
         print(f"Rows updated (ic_shrunk, shrinkage_weight): {len(updates)}")
         print(f"shrinkage_k (alpha.ic.shrinkage_k): {k}")
+        print(f"training_window_end: {window.isoformat()}")
         print()
 
         # --- Part B: out-of-fold hard gate ---
         passed, mean_shrunk, mean_raw, n_evaluated = await _run_out_of_fold_gate(
-            apool, sync_conn, feature_to_group, k, oos_start, lookaheads_by_tf
+            cells, sync_conn, feature_to_group, k, oos_start, lookaheads_by_tf
         )
 
         print("## E1 Out-of-Fold Acceptance Gate (D-05, HARD GATE)\n")
@@ -512,17 +554,21 @@ async def main() -> int:
         print(f"Verdict: {'PASS' if passed else 'FAIL'}")
 
         if passed:
-            config_service = ConfigService(database_url=dsn, pool=apool)
+            # A fresh pool opened after the long compute, never one held across it.
+            config_service = ConfigService(database_url=dsn)
             await config_service.initialize()
-            await config_service.set(
-                "alpha.ensemble.ic_input",
-                "ic_shrunk",
-                changed_by="ops-ic-shrinkage",
-                reason=(
-                    f"E1 out-of-fold gate PASSED: {n_evaluated} cells, "
-                    f"mean_shrunk_error={mean_shrunk:.6f} < mean_raw_error={mean_raw:.6f}"
-                ),
-            )
+            try:
+                await config_service.set(
+                    "alpha.ensemble.ic_input",
+                    "ic_shrunk",
+                    changed_by="ops-ic-shrinkage",
+                    reason=(
+                        f"E1 out-of-fold gate PASSED: {n_evaluated} cells, "
+                        f"mean_shrunk_error={mean_shrunk:.6f} < mean_raw_error={mean_raw:.6f}"
+                    ),
+                )
+            finally:
+                await config_service.close()
             print()
             print("alpha.ensemble.ic_input flipped to 'ic_shrunk'.")
         else:
