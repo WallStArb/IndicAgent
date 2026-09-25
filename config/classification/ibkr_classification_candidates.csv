@@ -1,0 +1,169 @@
+symbol,industry,category,subcategory,long_name,status,detail,fetched_at
+AA,Basic Materials,Mining,Metal-Aluminum,ALCOA CORP,ok,,2026-09-25T12:49:51.053621Z
+AAPL,Technology,Computers,Computers,APPLE INC,ok,,2026-09-25T12:49:51.073953Z
+ACTG,"Consumer, Non-cyclical",Commercial Services,Consulting Services,ACACIA RESEARCH CORP,ok,,2026-09-25T12:49:51.092106Z
+ADM,"Consumer, Non-cyclical",Agriculture,Agricultural Operations,ARCHER-DANIELS-MIDLAND CO,ok,,2026-09-25T12:49:51.108384Z
+AEP,Utilities,Electric,Electric-Integrated,AMERICAN ELECTRIC POWER,ok,,2026-09-25T12:49:51.129084Z
+ALMS,"Consumer, Non-cyclical",Biotechnology,Medical-Biomedical/Gene,ALUMIS INC,ok,,2026-09-25T12:49:51.147502Z
+AMD,Technology,Semiconductors,Electronic Compo-Semicon,ADVANCED MICRO DEVICES,ok,,2026-09-25T12:49:51.162456Z
+AMT,Financial,REITS,REITS-Diversified,AMERICAN TOWER CORP,ok,,2026-09-25T12:49:51.180314Z
+AMZN,Communications,Internet,E-Commerce/Products,AMAZON.COM INC,ok,,2026-09-25T12:49:51.199698Z
+ARRY,Energy,Energy-Alternate Sources,Energy-Alternate Sources,ARRAY TECHNOLOGIES INC,ok,,2026-09-25T12:49:51.220259Z
+ASML,Technology,Semiconductors,Semiconductor Equipment,ASML HOLDING NV-NY REG SHS,ok,,2026-09-25T12:49:51.239494Z
+ATMU,Industrial,Electronics,Electronic Compo-Misc,ATMUS FILTRATION TECHNOLOGIE,ok,,2026-09-25T12:49:51.259109Z
+AVBP,"Consumer, Non-cyclical",Biotechnology,Medical-Biomedical/Gene,ARRIVENT BIOPHARMA INC,ok,,2026-09-25T12:49:51.274818Z
+AVGO,Technology,Semiconductors,Electronic Compo-Semicon,BROADCOM INC,ok,,2026-09-25T12:49:51.291272Z
+AWK,Utilities,Water,Water,AMERICAN WATER WORKS CO INC,ok,,2026-09-25T12:49:51.306970Z
+AXP,Financial,Diversified Finan Serv,Finance-Credit Card,AMERICAN EXPRESS CO,ok,,2026-09-25T12:49:51.322777Z
+BA,Industrial,Aerospace/Defense,Aerospace/Defense,BOEING CO/THE,ok,,2026-09-25T12:49:51.338625Z
+BAC,Financial,Banks,Diversified Banking Inst,BANK OF AMERICA CORP,ok,,2026-09-25T12:49:51.355324Z
+BEAM,"Consumer, Non-cyclical",Biotechnology,Medical-Biomedical/Gene,BEAM THERAPEUTICS INC,ok,,2026-09-25T12:49:51.373393Z
+BHP,Basic Materials,Mining,Diversified Minerals,BHP GROUP LTD-SPON ADR,ok,,2026-09-25T12:49:51.390166Z
+BKE,"Consumer, Cyclical",Retail,Retail-Apparel/Shoe,BUCKLE INC/THE,ok,,2026-09-25T12:49:51.408421Z
+BKNG,Communications,Internet,E-Commerce/Services,BOOKING HOLDINGS INC,ok,,2026-09-25T12:49:51.427037Z
+BLK,Financial,Diversified Finan Serv,Invest Mgmnt/Advis Serv,BLACKROCK INC,ok,,2026-09-25T12:49:51.443030Z
+BNTX,"Consumer, Non-cyclical",Biotechnology,Medical-Biomedical/Gene,BIONTECH SE-ADR,ok,,2026-09-25T12:49:51.460127Z
+CASY,"Consumer, Cyclical",Retail,Retail-Convenience Store,CASEY'S GENERAL STORES INC,ok,,2026-09-25T12:49:51.479410Z
+CAT,Industrial,Machinery-Constr&Mining,Machinery-Constr&Mining,CATERPILLAR INC,ok,,2026-09-25T12:49:51.495268Z
+CCJ,Basic Materials,Mining,Non-Ferrous Metals,CAMECO CORP,ok,,2026-09-25T12:49:51.511202Z
+CENT,"Consumer, Cyclical",Housewares,Housewares,CENTRAL GARDEN & PET CO,ok,,2026-09-25T12:49:51.528599Z
+CMCSA,Communications,Media,Cable/Satellite TV,COMCAST CORP-CLASS A,ok,,2026-09-25T12:49:51.543784Z
+COFS,Financial,Banks,Commer Banks-Central US,CHOICEONE FINANCIAL SVCS INC,ok,,2026-09-25T12:49:51.559142Z
+COIN,Financial,Diversified Finan Serv,Finance-Other Services,COINBASE GLOBAL INC -CLASS A,ok,,2026-09-25T12:49:51.574796Z
+COP,Energy,Oil&Gas,Oil Comp-Explor&Prodtn,CONOCOPHILLIPS,ok,,2026-09-25T12:49:51.591422Z
+COST,"Consumer, Cyclical",Retail,Retail-Discount,COSTCO WHOLESALE CORP,ok,,2026-09-25T12:49:51.608281Z
+CRI,"Consumer, Cyclical",Apparel,Apparel Manufacturers,CARTER'S INC,ok,,2026-09-25T12:49:51.628042Z
+CRM,Technology,Software,Enterprise Software/Serv,SALESFORCE INC,ok,,2026-09-25T12:49:51.644911Z
+CRSP,"Consumer, Non-cyclical",Biotechnology,Medical-Biomedical/Gene,CRISPR THERAPEUTICS AG,ok,,2026-09-25T12:49:51.663803Z
+CRUS,Technology,Semiconductors,Semicon Compo-Intg Circu,CIRRUS LOGIC INC,ok,,2026-09-25T12:49:51.678596Z
+CRWD,Technology,Computers,Computer Data Security,CROWDSTRIKE HOLDINGS INC - A,ok,,2026-09-25T12:49:51.696085Z
+CRWV,Technology,Software,Computer Software,COREWEAVE INC-CL A,ok,,2026-09-25T12:49:51.711186Z
+CSTM,Basic Materials,Mining,Metal-Aluminum,CONSTELLIUM SE,ok,,2026-09-25T12:49:51.726349Z
+CSX,Industrial,Transportation,Transport-Rail,CSX CORP,ok,,2026-09-25T12:49:51.742783Z
+CTVA,"Consumer, Non-cyclical",Biotechnology,Agricultural Biotech,CORTEVA INC,ok,,2026-09-25T12:49:51.759250Z
+CVS,"Consumer, Non-cyclical",Pharmaceuticals,Pharmacy Services,CVS HEALTH CORP,ok,,2026-09-25T12:49:51.774459Z
+CVX,Energy,Oil&Gas,Oil Comp-Integrated,CHEVRON CORP,ok,,2026-09-25T12:49:51.792006Z
+DAL,"Consumer, Cyclical",Airlines,Airlines,DELTA AIR LINES INC.,ok,,2026-09-25T12:49:51.807476Z
+DAR,"Consumer, Non-cyclical",Agriculture,Pastoral&Agricultural,DARLING INGREDIENTS INC,ok,,2026-09-25T12:49:51.824029Z
+DD,Industrial,Miscellaneous Manufactur,Diversified Manufact Op,DUPONT DE NEMOURS INC,ok,,2026-09-25T12:49:52.077729Z
+DE,Industrial,Machinery-Diversified,Machinery-Farm,DEERE & CO,ok,,2026-09-25T12:49:52.095311Z
+DHI,"Consumer, Cyclical",Home Builders,Bldg-Residential/Commer,DR HORTON INC,ok,,2026-09-25T12:49:52.114093Z
+DIS,Communications,Media,Multimedia,WALT DISNEY CO/THE,ok,,2026-09-25T12:49:52.131359Z
+DOCS,Technology,Software,Medical Information Sys,DOXIMITY INC-CLASS A,ok,,2026-09-25T12:49:52.147372Z
+DOW,Basic Materials,Chemicals,Chemicals-Diversified,DOW INC,ok,,2026-09-25T12:49:52.166925Z
+DUK,Utilities,Electric,Electric-Integrated,DUKE ENERGY CORP,ok,,2026-09-25T12:49:52.184065Z
+ECL,Basic Materials,Chemicals,Chemicals-Specialty,ECOLAB INC,ok,,2026-09-25T12:49:52.200426Z
+ELV,"Consumer, Non-cyclical",Healthcare-Services,Medical-HMO,ELEVANCE HEALTH INC,ok,,2026-09-25T12:49:52.220930Z
+EMR,Industrial,Electronics,Electronic Measur Instr,EMERSON ELECTRIC CO,ok,,2026-09-25T12:49:52.241108Z
+ENPH,Energy,Energy-Alternate Sources,Energy-Alternate Sources,ENPHASE ENERGY INC,ok,,2026-09-25T12:49:52.262702Z
+EPD,Energy,Pipelines,Pipelines,ENTERPRISE PRODUCTS PARTNERS,ok,,2026-09-25T12:49:52.279383Z
+EQIX,Financial,REITS,REITS-Diversified,EQUINIX INC,ok,,2026-09-25T12:49:52.294439Z
+ETR,Utilities,Electric,Electric-Integrated,ENTERGY CORP,ok,,2026-09-25T12:49:52.310875Z
+EXEL,"Consumer, Non-cyclical",Biotechnology,Medical-Biomedical/Gene,EXELIXIS INC,ok,,2026-09-25T12:49:52.368861Z
+F,"Consumer, Cyclical",Auto Manufacturers,Auto-Cars/Light Trucks,FORD MOTOR CO,ok,,2026-09-25T12:49:52.387904Z
+FCX,Basic Materials,Mining,Metal-Copper,FREEPORT-MCMORAN INC,ok,,2026-09-25T12:49:52.408838Z
+FDX,Industrial,Transportation,Transport-Services,FEDEX CORPORATION,ok,,2026-09-25T12:49:52.428131Z
+FRHC,Financial,Diversified Finan Serv,Finance-Invest Bnkr/Brkr,FREEDOM HOLDING CORP/NV,ok,,2026-09-25T12:49:52.447526Z
+FSLR,Energy,Energy-Alternate Sources,Energy-Alternate Sources,FIRST SOLAR INC,ok,,2026-09-25T12:49:52.503364Z
+GE,Industrial,Aerospace/Defense,Aerospace/Defense-Equip,GENERAL ELECTRIC,ok,,2026-09-25T12:49:52.519094Z
+GEV,Industrial,Machinery-Constr&Mining,Machinery-Electric Util,GE VERNOVA INC,ok,,2026-09-25T12:49:52.578188Z
+GILD,"Consumer, Non-cyclical",Biotechnology,Medical-Biomedical/Gene,GILEAD SCIENCES INC,ok,,2026-09-25T12:49:52.596676Z
+GKOS,"Consumer, Non-cyclical",Healthcare-Products,Medical Products,GLAUKOS CORP,ok,,2026-09-25T12:49:52.617999Z
+GM,"Consumer, Cyclical",Auto Manufacturers,Auto-Cars/Light Trucks,GENERAL MOTORS CO,ok,,2026-09-25T12:49:52.635641Z
+GOOGL,Communications,Internet,Web Portals/ISP,ALPHABET INC-CL A,ok,,2026-09-25T12:49:52.651082Z
+GRBK,"Consumer, Cyclical",Home Builders,Bldg-Residential/Commer,GREEN BRICK PARTNERS INC,ok,,2026-09-25T12:49:52.668026Z
+GS,Financial,Banks,Diversified Banking Inst,GOLDMAN SACHS GROUP INC,ok,,2026-09-25T12:49:52.685385Z
+HCA,"Consumer, Non-cyclical",Healthcare-Services,Medical-Hospitals,HCA HEALTHCARE INC,ok,,2026-09-25T12:49:52.703695Z
+HD,"Consumer, Cyclical",Retail,Retail-Building Products,HOME DEPOT INC,ok,,2026-09-25T12:49:52.721818Z
+HON,Industrial,Electronics,Instruments-Controls,HONEYWELL INTERNATIONAL INC,ok,,2026-09-25T12:49:52.740379Z
+INSW,Industrial,Transportation,Transport-Marine,INTERNATIONAL SEAWAYS INC,ok,,2026-09-25T12:49:52.759482Z
+ISRG,"Consumer, Non-cyclical",Healthcare-Products,Medical Instruments,INTUITIVE SURGICAL INC,ok,,2026-09-25T12:49:52.775700Z
+JBHT,Industrial,Transportation,Transport-Truck,HUNT (JB) TRANSPRT SVCS INC,ok,,2026-09-25T12:49:52.793771Z
+JBS,"Consumer, Non-cyclical",Food,Food-Meat Products,JBS NV-A,ok,,2026-09-25T12:49:52.810013Z
+JNJ,"Consumer, Non-cyclical",Pharmaceuticals,Medical-Drugs,JOHNSON & JOHNSON,ok,,2026-09-25T12:49:52.828162Z
+JPM,Financial,Banks,Diversified Banking Inst,JPMORGAN CHASE & CO,ok,,2026-09-25T12:49:52.849264Z
+KEX,Industrial,Transportation,Transport-Marine,KIRBY CORP,ok,,2026-09-25T12:49:52.868331Z
+KMI,Energy,Pipelines,Pipelines,KINDER MORGAN INC,ok,,2026-09-25T12:49:52.888020Z
+KO,"Consumer, Non-cyclical",Beverages,Beverages-Non-alcoholic,COCA-COLA CO/THE,ok,,2026-09-25T12:49:52.903690Z
+LEN,"Consumer, Cyclical",Home Builders,Bldg-Residential/Commer,LENNAR CORP-A,ok,,2026-09-25T12:49:52.919559Z
+LIN,Basic Materials,Chemicals,Industrial Gases,LINDE PLC,ok,,2026-09-25T12:49:52.936504Z
+LLY,"Consumer, Non-cyclical",Pharmaceuticals,Medical-Drugs,ELI LILLY & CO,ok,,2026-09-25T12:49:52.955719Z
+LMT,Industrial,Aerospace/Defense,Aerospace/Defense,LOCKHEED MARTIN CORP,ok,,2026-09-25T12:49:52.976765Z
+MAR,"Consumer, Cyclical",Lodging,Hotels&Motels,MARRIOTT INTERNATIONAL -CL A,ok,,2026-09-25T12:49:52.996934Z
+MARA,Financial,Investment Companies,Investment Companies,MARA HOLDINGS INC,ok,,2026-09-25T12:49:53.076197Z
+MCD,"Consumer, Cyclical",Retail,Retail-Restaurants,MC DONALD'S-CORP,ok,,2026-09-25T12:49:53.097203Z
+META,Communications,Internet,Internet Content-Entmnt,META PLATFORMS INC-CLASS A,ok,,2026-09-25T12:49:53.115814Z
+MGM,"Consumer, Cyclical",Lodging,Casino Hotels,MGM RESORTS INTERNATIONAL,ok,,2026-09-25T12:49:53.171939Z
+MMM,Industrial,Miscellaneous Manufactur,Diversified Manufact Op,3M CO,ok,,2026-09-25T12:49:53.193507Z
+MO,"Consumer, Non-cyclical",Agriculture,Tobacco,ALTRIA GROUP INC,ok,,2026-09-25T12:49:53.213042Z
+MRK,"Consumer, Non-cyclical",Pharmaceuticals,Medical-Drugs,MERCK & CO INC,ok,,2026-09-25T12:49:53.232528Z
+MS,Financial,Banks,Diversified Banking Inst,MORGAN STANLEY,ok,,2026-09-25T12:49:53.252433Z
+MSFT,Technology,Software,Applications Software,MICROSOFT CORP,ok,,2026-09-25T12:49:53.272232Z
+MSTR,Technology,Software,Enterprise Software/Serv,STRATEGY INC,ok,,2026-09-25T12:49:53.292584Z
+MTH,"Consumer, Cyclical",Home Builders,Bldg-Residential/Commer,MERITAGE HOMES CORP,ok,,2026-09-25T12:49:53.313137Z
+NEE,Utilities,Electric,Electric-Integrated,NEXTERA ENERGY INC,ok,,2026-09-25T12:49:53.334372Z
+NEM,Basic Materials,Mining,Gold Mining,NEWMONT CORP,ok,,2026-09-25T12:49:53.351700Z
+NFLX,Communications,Internet,Internet Content-Entmnt,NETFLIX INC,ok,,2026-09-25T12:49:53.368537Z
+NLY,Financial,REITS,REITS-Mortgage,ANNALY CAPITAL MANAGEMENT IN,ok,,2026-09-25T12:49:53.383259Z
+NTR,Basic Materials,Chemicals,Agricultural Chemicals,NUTRIEN LTD,ok,,2026-09-25T12:49:53.441311Z
+NUE,Basic Materials,Iron/Steel,Steel-Producers,NUCOR CORP,ok,,2026-09-25T12:49:53.461030Z
+NVDA,Technology,Semiconductors,Electronic Compo-Semicon,NVIDIA CORP,ok,,2026-09-25T12:49:53.482335Z
+NVR,"Consumer, Cyclical",Home Builders,Bldg-Residential/Commer,NVR INC,ok,,2026-09-25T12:49:53.499943Z
+ODFL,Industrial,Transportation,Transport-Truck,OLD DOMINION FREIGHT LINE,ok,,2026-09-25T12:49:53.520463Z
+OXY,Energy,Oil&Gas,Oil Comp-Explor&Prodtn,OCCIDENTAL PETROLEUM CORP,ok,,2026-09-25T12:49:53.539114Z
+PANW,Communications,Internet,Internet Security,PALO ALTO NETWORKS INC,ok,,2026-09-25T12:49:53.556178Z
+PEP,"Consumer, Non-cyclical",Beverages,Beverages-Non-alcoholic,PEPSICO INC,ok,,2026-09-25T12:49:53.596914Z
+PFE,"Consumer, Non-cyclical",Pharmaceuticals,Medical-Drugs,PFIZER INC,ok,,2026-09-25T12:49:53.616573Z
+PG,"Consumer, Non-cyclical",Cosmetics/Personal Care,Cosmetics&Toiletries,PROCTER & GAMBLE CO/THE,ok,,2026-09-25T12:49:53.636259Z
+PGNY,"Consumer, Non-cyclical",Commercial Services,Commercial Services,PROGYNY INC,ok,,2026-09-25T12:49:53.653362Z
+PGR,Financial,Insurance,Property/Casualty Ins,PROGRESSIVE CORP,ok,,2026-09-25T12:49:53.670470Z
+PLD,Financial,REITS,REITS-Warehouse/Industr,PROLOGIS INC,ok,,2026-09-25T12:49:53.688449Z
+PM,"Consumer, Non-cyclical",Agriculture,Tobacco,PHILIP MORRIS INTERNATIONAL,ok,,2026-09-25T12:49:53.702300Z
+PURR,Financial,Diversified Finan Serv,Finance-Other Services,HYPERLIQUID STRATEGIES,ok,,2026-09-25T12:49:53.724333Z
+QCOM,Technology,Semiconductors,Semicon Compo-Intg Circu,QUALCOMM INC,ok,,2026-09-25T12:49:53.739134Z
+R,Industrial,Transportation,Transport-Services,RYDER SYSTEM INC,ok,,2026-09-25T12:49:53.761119Z
+RCL,"Consumer, Cyclical",Leisure Time,Cruise Lines,ROYAL CARIBBEAN CRUISES LTD,ok,,2026-09-25T12:49:53.779961Z
+REGN,"Consumer, Non-cyclical",Biotechnology,Medical-Biomedical/Gene,REGENERON PHARMACEUTICALS,ok,,2026-09-25T12:49:53.796244Z
+RGR,Industrial,Miscellaneous Manufactur,Firearms&Ammunition,STURM RUGER & CO INC,ok,,2026-09-25T12:49:53.816161Z
+RIOT,Financial,Investment Companies,Investment Companies,RIOT PLATFORMS INC,ok,,2026-09-25T12:49:53.835417Z
+RIVN,"Consumer, Cyclical",Auto Manufacturers,Auto-Cars/Light Trucks,RIVIAN AUTOMOTIVE INC-A,ok,,2026-09-25T12:49:53.849577Z
+RJF,Financial,Diversified Finan Serv,Invest Mgmnt/Advis Serv,RAYMOND JAMES FINANCIAL INC,ok,,2026-09-25T12:49:53.865830Z
+RTX,Industrial,Aerospace/Defense,Aerospace/Defense,RTX CORP,ok,,2026-09-25T12:49:53.886175Z
+RVMD,"Consumer, Non-cyclical",Biotechnology,Medical-Biomedical/Gene,REVOLUTION MEDICINES INC,ok,,2026-09-25T12:49:53.944405Z
+SHW,Basic Materials,Chemicals,Coatings/Paint,SHERWIN-WILLIAMS CO/THE,ok,,2026-09-25T12:49:54.003443Z
+SLB,Energy,Oil&Gas Services,Oil-Field Services,SLB LTD,ok,,2026-09-25T12:49:54.024076Z
+SLM,Financial,Diversified Finan Serv,Finance-Consumer Loans,SLM CORP,ok,,2026-09-25T12:49:54.055283Z
+SO,Utilities,Electric,Electric-Integrated,SOUTHERN CO/THE,ok,,2026-09-25T12:49:54.073866Z
+SPG,Financial,REITS,REITS-Regional Malls,SIMON PROPERTY GROUP INC,ok,,2026-09-25T12:49:54.094304Z
+SPNT,Financial,Insurance,Reinsurance,SIRIUSPOINT LTD,ok,,2026-09-25T12:49:54.113863Z
+SSP,Communications,Media,Multimedia,EW SCRIPPS CO/THE-A,ok,,2026-09-25T12:49:54.132466Z
+T,Communications,Telecommunications,Telephone-Integrated,AT&T INC,ok,,2026-09-25T12:49:54.152762Z
+TDOC,"Consumer, Non-cyclical",Healthcare-Services,Medical-Outptnt/Home Med,TELADOC HEALTH INC,ok,,2026-09-25T12:49:54.173468Z
+THC,"Consumer, Non-cyclical",Healthcare-Services,Medical-Hospitals,TENET HEALTHCARE CORP,ok,,2026-09-25T12:49:54.193204Z
+THRM,"Consumer, Cyclical",Auto Parts&Equipment,Auto/Trk Prts&Equip-Orig,GENTHERM INC,ok,,2026-09-25T12:49:54.211516Z
+TMUS,Communications,Telecommunications,Cellular Telecom,T-MOBILE US INC,ok,,2026-09-25T12:49:54.232076Z
+TOL,"Consumer, Cyclical",Home Builders,Bldg-Residential/Commer,TOLL BROTHERS INC,ok,,2026-09-25T12:49:54.251926Z
+TRV,Financial,Insurance,Property/Casualty Ins,TRAVELERS COS INC/THE,ok,,2026-09-25T12:49:54.270228Z
+TSLA,"Consumer, Cyclical",Auto Manufacturers,Auto-Cars/Light Trucks,TESLA INC,ok,,2026-09-25T12:49:54.292107Z
+TSM,Technology,Semiconductors,Semicon Compo-Intg Circu,TAIWAN SEMICONDUCTOR-SP ADR,ok,,2026-09-25T12:49:54.313684Z
+TXT,Industrial,Miscellaneous Manufactur,Diversified Manufact Op,TEXTRON INC,ok,,2026-09-25T12:49:54.331516Z
+UBER,Communications,Internet,E-Commerce/Services,UBER TECHNOLOGIES INC,ok,,2026-09-25T12:49:54.354271Z
+UNFI,"Consumer, Non-cyclical",Food,Food-Wholesale/Distrib,UNITED NATURAL FOODS INC,ok,,2026-09-25T12:49:54.373246Z
+UNH,"Consumer, Non-cyclical",Healthcare-Services,Medical-HMO,UNITEDHEALTH GROUP INC,ok,,2026-09-25T12:49:54.392011Z
+UNP,Industrial,Transportation,Transport-Rail,UNION PACIFIC CORP,ok,,2026-09-25T12:49:54.409238Z
+UPB,"Consumer, Non-cyclical",Biotechnology,Medical-Biomedical/Gene,UPSTREAM BIO INC,ok,,2026-09-25T12:49:54.461189Z
+UPS,Industrial,Transportation,Transport-Services,UNITED PARCEL SERVICE-CL B,ok,,2026-09-25T12:49:54.478488Z
+USB,Financial,Banks,Super-Regional Banks-US,US BANCORP,ok,,2026-09-25T12:49:54.500501Z
+V,Financial,Diversified Finan Serv,Finance-Credit Card,VISA INC-CLASS A SHARES,ok,,2026-09-25T12:49:54.519245Z
+VNDA,"Consumer, Non-cyclical",Pharmaceuticals,Medical-Drugs,VANDA PHARMACEUTICALS INC,ok,,2026-09-25T12:49:54.539931Z
+VRTX,"Consumer, Non-cyclical",Biotechnology,Medical-Biomedical/Gene,VERTEX PHARMACEUTICALS INC,ok,,2026-09-25T12:49:54.557587Z
+VST,Utilities,Electric,Independ Power Producer,VISTRA CORP,ok,,2026-09-25T12:49:54.598481Z
+VZ,Communications,Telecommunications,Telephone-Integrated,VERIZON COMMUNICATIONS INC,ok,,2026-09-25T12:49:54.618512Z
+WCC,"Consumer, Cyclical",Distribution/Wholesale,Distribution/Wholesale,WESCO INTERNATIONAL INC,ok,,2026-09-25T12:49:54.635275Z
+WHR,"Consumer, Cyclical",Home Furnishings,Appliances,WHIRLPOOL CORP,ok,,2026-09-25T12:49:54.657634Z
+WMB,Energy,Pipelines,Pipelines,WILLIAMS COS INC,ok,,2026-09-25T12:49:54.676399Z
+WMT,"Consumer, Cyclical",Retail,Retail-Discount,WALMART INC,ok,,2026-09-25T12:49:54.695855Z
+WSHP,Communications,Internet,E-Commerce/Products,WESHOP HOLDINGS LTD-CL A,ok,,2026-09-25T12:49:54.713017Z
+WSM,"Consumer, Cyclical",Retail,Retail-Home Furnishings,WILLIAMS-SONOMA INC,ok,,2026-09-25T12:49:54.733102Z
+WTRG,Utilities,Water,Water,ESSENTIAL UTILITIES INC,ok,,2026-09-25T12:49:54.751491Z
+XOM,Energy,Oil&Gas,Oil Comp-Integrated,EXXONMOBIL HOLDINGS CORP,ok,,2026-09-25T12:49:54.769002Z
