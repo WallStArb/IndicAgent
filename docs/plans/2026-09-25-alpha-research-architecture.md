@@ -249,8 +249,14 @@ ends and 4 quarter ends a year):
    stored prices are split-adjusted (NVDA closes at 8.81 on 2020-06-01, when it traded near
    350), so strikes must be placed on unadjusted prices or every later-split name is pinned to
    the wrong level. Monthly expiries only; weekly listings vary by name and date, and nobody
-   holds a point-in-time record of them. Members that need open interest or dealer gamma (the
-   sign of the hedging flow) wait for a historical options data source.
+   holds a point-in-time record of them. Owner hypothesis: dealer gamma hedging clusters the
+   forced flow into the major expirations. Without open interest, that gives a calendar-only
+   dose-response member: pinning and release should be larger at quarterly expirations (March,
+   June, September, December) than at the other monthlies, since open interest is largest
+   there. Members that need the sign of dealer gamma per name wait for a historical options
+   data source (an owner decision, since it costs money). A market-level gamma estimate can at
+   most condition members as a regime variable; as a direct signal it is one time-series bet,
+   removed by market residualization.
 
 Each is a family of 3 to 8 pre-declared variants. Families from the existing feature corpus
 (SMC structure, volatility state) can be admitted the same way on prior, with the corpus IC

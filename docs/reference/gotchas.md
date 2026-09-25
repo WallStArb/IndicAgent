@@ -114,11 +114,6 @@ the `--from-step` value alone.
 - **Isolated commits when concurrent work is suspected**: create a detached-HEAD scratch worktree off `origin/main` (`git worktree add <tmp-dir> origin/main --detach`), copy in just the specific files to change, commit, push, then `git worktree remove --force`. Never commit directly in the primary checkout if `git status` shows unexpected uncommitted files — that's another session's in-progress work.
 - **`git push origin HEAD:main` from a detached-HEAD worktree does NOT fast-forward the primary checkout's local `main`** — its `git log -1` can go stale relative to `origin/main` after repeated pushes. Use `git fetch origin main && git log origin/main -1` as ground truth, not the primary checkout's local branch.
 
-## Resolved (Historical Reference)
-
-- **CIS weights column mismatch (fixed Phase 091):** `_load_cis_weights` was querying the `weights` JSONB column (always `{}`); actual learned weights live in `trend_w`/`momentum_w`/etc. columns. Fixed to read individual columns scoped to `asset_cluster='global' AND timeframe='global'`.
-- **v2.x Signal Ledger schema (archived, no live consumer as of 2026-07-02):** `signal_schema_version` constant lives in `src/intelligence/trading/signal_schema.py`. `entry_type` values: `at_close`, `at_pullback`, `at_limit`, `at_reclaim`, `zone_proximal`. Status strings (raw, no enum): `"pending"`, `"active"`, `"regime_suppressed"`, `"expired"`. `signal_computed_at` is nullable — always `COALESCE(signal_computed_at, timestamp)`.
-
 ## OHLCV prices are split-adjusted
 
 `market_data_ohlcv` holds IBKR `TRADES` bars, which are split-adjusted back through history
@@ -128,3 +123,7 @@ level at the time (option strikes, round-number levels, tick-size regimes, "pric
 filters) is wrong for every name that later split, unless it un-adjusts with a split history
 first. The project holds no split history yet (found 2026-09-25, research architecture family 8).
 
+## Resolved (Historical Reference)
+
+- **CIS weights column mismatch (fixed Phase 091):** `_load_cis_weights` was querying the `weights` JSONB column (always `{}`); actual learned weights live in `trend_w`/`momentum_w`/etc. columns. Fixed to read individual columns scoped to `asset_cluster='global' AND timeframe='global'`.
+- **v2.x Signal Ledger schema (archived, no live consumer as of 2026-07-02):** `signal_schema_version` constant lives in `src/intelligence/trading/signal_schema.py`. `entry_type` values: `at_close`, `at_pullback`, `at_limit`, `at_reclaim`, `zone_proximal`. Status strings (raw, no enum): `"pending"`, `"active"`, `"regime_suppressed"`, `"expired"`. `signal_computed_at` is nullable — always `COALESCE(signal_computed_at, timestamp)`.
