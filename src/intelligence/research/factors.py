@@ -1,8 +1,9 @@
 """S1: residual returns against a causal factor model (architecture doc section 3.2, step 3).
 
 The vintage-1 specification is pinned in FactorSpec before any candidate data is seen; changing
-a field is a methodology change. Every factor is leave-one-out: a name's own return never enters
-the factor it is regressed on.
+a field is a methodology change. Every factor is leave-one-out: a factor's value at row t never
+contains the name's own return at t. (A name's history in the window does shape the fitted
+quantities, its loadings and the PC weights, as estimation from the window should.)
 
 Factors per name i at row s, from the return panel R [n, m] itself:
   1. market: equal-weighted mean of the other names' returns;
@@ -11,8 +12,8 @@ Factors per name i at row s, from the return panel R [n, m] itself:
   3. k principal components of the market-and-sector residuals: the eigenvectors of the
      window's standardized residual correlation give portfolio weights, and a PC factor return
      is that portfolio of the other names' raw returns. Building the factor from raw returns,
-     not from residuals, keeps it strictly leave-one-out: another name's residual depends on
-     name i through its own market and sector factors. The joint regression with the market and
+     not from residuals, keeps its value leave-one-out: another name's residual depends on name
+     i's return through that name's own market and sector factors. The joint regression with the market and
      sector factors absorbs the portfolio's market and sector content.
 
 Loadings. At each refit row p (every refit_sessions sessions, on a session boundary) the model
@@ -54,13 +55,36 @@ FACTOR_NAMES_BASE = ("market", "sector")
 
 @dataclasses.dataclass(frozen=True)
 class FactorSpec:
-    """S1 methodology, pinned per data vintage. Lengths in sessions."""
+    """S1 methodology, pinned per data vintage. Lengths in sessions.
+
+    S1 freezes at the first book-version screen test, not before: family evidence records
+    produced earlier are diagnostics and are recomputed under the final S1.
+
+    min_group_size = 5 (2026-09-25, pre-data). Chosen from residual-correlation structure on
+    2013-2025 1d bar returns with no candidate signal or outcome involved (like step 0), so it
+    was not tuned toward a result. Average within-group residual correlation across the 13
+    sectors of 3-7 names (raw returns 0.523): min 3 -0.097 (a leave-one-out mean of 2 names
+    over-corrects), min 5 -0.017, min 8 +0.148 (sector structure left in the residual; 5 PCs
+    do not absorb about 20 small sectors). At 5 every group that keeps a sector factor is
+    within +-0.15 (worst commodity -0.140).
+
+    Known limit: groups of 2-4 names fall back to market plus PCs, and these stay outside
+    +-0.15: energy_midstream +0.333, clean_energy +0.226, materials_agriculture +0.168,
+    industrials_trucking +0.244, utilities_water +0.605, industrials_rail +0.407,
+    municipal_bonds +0.463, credit +0.337, rates +0.448, transports +0.722, defensive_yield
+    +0.275. They are near-duplicate clusters no minimum size can fix. p-values and standard
+    errors stay valid (the null shifts the whole panel and keeps cross-name correlation; the
+    bootstrap is over time); the cost is overstated breadth, which covariance-aware
+    construction absorbs. The structural fix is grouping by a security classification
+    hierarchy (todo 384), not hand-mapped labels here; the label source is also wrong in
+    places (todo 384 records it).
+    """
 
     window_sessions: int = 252
     refit_sessions: int = 21
     n_components: int = 5
     min_finite_sessions: int = 126
-    min_group_size: int = 3
+    min_group_size: int = 5
 
     @property
     def factor_names(self) -> tuple[str, ...]:

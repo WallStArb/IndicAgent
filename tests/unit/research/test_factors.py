@@ -35,7 +35,7 @@ def _structured(seed: int, n: int = 600):
 
 
 def test_spec_is_pinned():
-    assert VINTAGE_1 == FactorSpec(252, 21, 5, 126, 3)
+    assert VINTAGE_1 == FactorSpec(252, 21, 5, 126, 5)
     assert VINTAGE_1.factor_names == ("market", "sector", "pc1", "pc2", "pc3", "pc4", "pc5")
 
 
@@ -149,3 +149,17 @@ def test_neutralize_removes_loading_exposure():
 def test_rejects_mismatched_labels():
     with pytest.raises(ValueError, match="labels"):
         residual_returns(np.zeros((10, 3)), ("a", "b"), spec=SPEC)
+
+
+def test_panel_saved_without_sectors_still_loads(tmp_path):
+    import json
+
+    from src.intelligence.research import panel as panel_mod
+    from src.intelligence.research import store
+
+    p = panel_mod.daily_panel(np.ones((3, 2)))
+    arrays = {n: getattr(p, n) for n in ("timestamps", "valid", "open", "close", "volume")}
+    meta = {"tf": "1d", "symbols": ["a", "b"], "bars_per_session": 1, "manifest": {}}
+    path = store.write(tmp_path, "panel", arrays, meta)
+    assert panel_mod.load(path).sectors == ()
+    assert "sectors" not in json.loads((path / "meta.json").read_text())

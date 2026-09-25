@@ -179,7 +179,7 @@ def load(path: Path) -> Panel:
         tf=meta["tf"],
         symbols=tuple(meta["symbols"]),
         bars_per_session=int(meta["bars_per_session"]),
-        sectors=tuple(meta["sectors"]),
+        sectors=tuple(meta.get("sectors", ())),  # panels saved before sectors were captured
         manifest=meta["manifest"],
         **{name: store.read_array(path, name) for name in ("timestamps", "valid", *_PRICE_FIELDS)},
     )
