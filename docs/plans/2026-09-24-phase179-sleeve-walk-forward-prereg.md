@@ -381,6 +381,17 @@ in-sample for production already, so it spends nothing.
   carrying a passes_fdr flag that pass FDR must not exceed fdr_alpha, one-sided binomial, fail at
   p < 0.05 (anti-conservative given cross-lookahead correlation, the strict direction).
   `canary_constant` is reported only. (3) No `canary_*` feature in any fitted equity stratum.
+- **Pins from the harness final review.** (1) V6 wording: section 6 governs. A label at bar t
+  for scale h trains only if its exit open t+h+1 falls on or before the cutoff session, `embargo`
+  (5) sessions before T_k (`sessions.label_cutoff`); an exit on the cutoff session is allowed.
+  Section 10's "exit on or after T_k minus embargo" is read as "after the cutoff session", which
+  is what `refit.assert_embargo` checks (`exits > cutoff` raises). (2) The harness BH family
+  holds only its own refit's pooled 1d representatives, so production's 55,120 stale 1d POOLED
+  `regime_scope = 'earnings_season'` rows at the window (left by 176-08; conditioning is off
+  since migration 359, and the Phase 178 family did not include them) are outside it by
+  construction. (3) `n_rows_off_session`: removed with the calendar fix; the session calendar
+  is the union of universe feature-row dates, so every row is on-session by construction (it
+  was 23 on the SPY calendar).
 - **Deprecated-feature decision: moot.** `new_high_flag` and `new_low_flag` were deprecated by
   operator override with no gate metric and are no longer `FeatureVector` fields (migration 284
   tombstones), so they cannot enter the pool.

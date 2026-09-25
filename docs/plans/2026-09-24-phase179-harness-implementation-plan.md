@@ -654,8 +654,8 @@ dropped earnings-season clause) were caught by the tests written after.
 - [x] Runtime assert in `score.py`: no scored day before its refit date.
 - [x] `_LABELS_SQL`: assert one label per (group, day).
 - [x] `load_snapshot`: re-verify the directory hash (at least in s1).
-- [ ] Pin in the addendum: the BH family excludes production's 1d POOLED `earnings_season`
-      cells; V6 wording (section 10 vs section 6); `n_rows_off_session` count.
+- [x] Pin in the addendum: the BH family excludes production's 1d POOLED `earnings_season`
+      cells; V6 wording (section 10 vs section 6); `n_rows_off_session` count (pre-reg 12.1).
 - [x] Hygiene: read `fdr_alpha` from `ICEngineConfig`; hoist `group.X[keep]` out of the label loop.
 - [x] Section 11 shape diagnostics per arm (Sortino, max drawdown, skew, excess kurtosis, hit
       rate), real run and null median, in the S3 payload; reported only, never read by `decide`.
