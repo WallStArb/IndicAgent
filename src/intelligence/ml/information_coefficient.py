@@ -16,7 +16,6 @@ Interpretation:
 from __future__ import annotations
 
 import logging
-from dataclasses import dataclass
 
 import numpy as np
 from scipy import stats
@@ -31,45 +30,6 @@ IC_P_VALUE_THRESHOLD: float = 0.05
 
 # IC threshold below which a signal is considered noise
 IC_NOISE_THRESHOLD: float = 0.05
-
-
-@dataclass(frozen=True)
-class ICResult:
-    """Information Coefficient result for one (plugin, timeframe, regime, symbol) slice."""
-
-    setup_plugin: str
-    timeframe: str
-    regime_type: str
-    symbol: str | None  # None = global (all symbols)
-    window_days: int
-    sample_size: int
-    wins: int
-    win_rate: float | None
-    avg_pnl_r: float | None
-    ic_score: float | None
-    ic_p_value: float | None
-    ic_n: int
-    ic_significant: bool
-
-    @property
-    def is_noise(self) -> bool:
-        """True if IC is not statistically significant or below noise threshold."""
-        if self.ic_score is None or self.ic_p_value is None:
-            return True
-        return self.ic_p_value >= IC_P_VALUE_THRESHOLD or self.ic_score < IC_NOISE_THRESHOLD
-
-    @property
-    def grade(self) -> str:
-        """Human-readable quality grade."""
-        if self.ic_score is None:
-            return "insufficient_data"
-        if self.is_noise:
-            return "noise"
-        if self.ic_score >= 0.20:
-            return "strong"
-        if self.ic_score >= 0.10:
-            return "meaningful"
-        return "weak"
 
 
 def compute_ic(

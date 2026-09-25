@@ -3,12 +3,10 @@
 from __future__ import annotations
 
 import numpy as np
-import pytest
 
 from src.intelligence.ml.information_coefficient import (
     IC_MIN_SAMPLE_SIZE,
     IC_P_VALUE_THRESHOLD,
-    ICResult,
     compute_ic,
     is_ic_significant,
 )
@@ -153,89 +151,6 @@ def test_is_ic_significant_none_pvalue():
 def test_is_ic_significant_boundary_n():
     """Passes at exactly IC_MIN_SAMPLE_SIZE."""
     assert is_ic_significant(0.10, 0.01, IC_MIN_SAMPLE_SIZE) is True
-
-
-# ---------------------------------------------------------------------------
-# ICResult
-# ---------------------------------------------------------------------------
-
-
-def _make_ic_result(
-    ic_score: float | None, ic_p: float | None, ic_n: int = 100, ic_sig: bool = True
-) -> ICResult:
-    wins = 60
-    return ICResult(
-        setup_plugin="trad_Test",
-        timeframe="1m",
-        regime_type="trend",
-        symbol=None,
-        window_days=30,
-        sample_size=100,
-        wins=wins,
-        win_rate=wins / 100,
-        avg_pnl_r=0.5,
-        ic_score=ic_score,
-        ic_p_value=ic_p,
-        ic_n=ic_n,
-        ic_significant=ic_sig,
-    )
-
-
-def test_ic_result_grade_strong():
-    r = _make_ic_result(0.22, 0.001)
-    assert r.grade == "strong"
-
-
-def test_ic_result_grade_meaningful():
-    r = _make_ic_result(0.12, 0.001)
-    assert r.grade == "meaningful"
-
-
-def test_ic_result_grade_weak():
-    r = _make_ic_result(0.07, 0.01)
-    assert r.grade == "weak"
-
-
-def test_ic_result_grade_noise_low_ic():
-    r = _make_ic_result(0.02, 0.001, ic_sig=False)
-    assert r.grade == "noise"
-
-
-def test_ic_result_grade_noise_high_pvalue():
-    r = _make_ic_result(0.10, 0.20, ic_sig=False)
-    assert r.grade == "noise"
-
-
-def test_ic_result_grade_insufficient_data():
-    r = _make_ic_result(None, None)
-    assert r.grade == "insufficient_data"
-
-
-def test_ic_result_is_noise_when_no_ic():
-    r = _make_ic_result(None, None)
-    assert r.is_noise is True
-
-
-def test_ic_result_is_not_noise_when_significant():
-    r = _make_ic_result(0.10, 0.001)
-    assert r.is_noise is False
-
-
-def test_ic_result_is_noise_when_p_value_too_high():
-    r = _make_ic_result(0.10, 0.10, ic_sig=False)
-    assert r.is_noise is True
-
-
-def test_ic_result_is_noise_when_ic_too_low():
-    r = _make_ic_result(0.03, 0.001, ic_sig=False)
-    assert r.is_noise is True
-
-
-def test_ic_result_is_frozen():
-    """ICResult must be immutable (frozen=True)."""
-    r = _make_ic_result(0.10, 0.001)
-    with pytest.raises(Exception):
-        r.ic_score = 0.99  # type: ignore[misc]
 
 
 # ---------------------------------------------------------------------------
