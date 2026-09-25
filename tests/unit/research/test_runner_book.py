@@ -4,6 +4,7 @@ refusal, S8 and the screen outcome."""
 import asyncio
 import textwrap
 
+import numpy as np
 import pytest
 
 from src.intelligence.research import runner as runner_mod
@@ -108,6 +109,7 @@ def fast_power(monkeypatch):
 
     def estimate(problem, **kwargs):
         calls.append(("estimate_power", len(problem.shifts), problem.bmax))
+        calls.append(("masks", problem.finite_mask, problem.target_mask))
         return PowerRun(PowerDecision(True, 60, 10, 100, 0.5, 70), (), 1.0)
 
     monkeypatch.setattr(runner_mod.synthetic, "calibrate_plant", calibrate)
@@ -168,6 +170,12 @@ def test_real_order_and_request(repo, saved_panel, fast_power, monkeypatch):
     memory = book_memory_rows([declared_memory_rows(w, BPS) for w in (1, 5)], 2)
     want = session_shifts(n_rows, BPS, 5, memory)
     assert ev["n_shifts"] == len(want) and fast_power[0][1] == len(want)
+    # Replicates are planted on the real residual availability, not the close mask: S1's
+    # loading warm-up leaves the first sessions without residuals (no power inflation).
+    _, finite_mask, target_mask = fast_power[1]
+    closes = np.isfinite(_panel().close)
+    assert target_mask is not None
+    assert finite_mask.sum() < closes.sum() and not finite_mask[: 200 * BPS].any()
 
 
 def test_identities_link_book_to_family(repo):

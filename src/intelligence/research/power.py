@@ -133,6 +133,8 @@ class PowerProblem:
     cfg: Any  # an evaluate.EvaluationConfig
     shifts: np.ndarray
     bmax: int
+    # The real residual target's finite pattern (availability only, no return values).
+    target_mask: np.ndarray | None = None
 
 
 def run_replicate(
@@ -148,7 +150,11 @@ def run_replicate(
 
     bps = problem.synth.bars_per_session
     resid, target = generate_residual_panel(
-        problem.synth, problem.finite_mask, plant_coef=problem.plant_coef, seed=seed
+        problem.synth,
+        problem.finite_mask,
+        plant_coef=problem.plant_coef,
+        seed=seed,
+        target_mask=problem.target_mask,
     )
     stack = _member_stack(resid, problem.members, bps, problem.coverage_floor)
     vol = trailing_vol(

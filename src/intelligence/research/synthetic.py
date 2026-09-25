@@ -93,11 +93,17 @@ def _slot_residuals(
 
 
 def generate_residual_panel(
-    spec: SyntheticSpec, finite_mask: np.ndarray, *, plant_coef: float, seed: int
+    spec: SyntheticSpec,
+    finite_mask: np.ndarray,
+    *,
+    plant_coef: float,
+    seed: int,
+    target_mask: np.ndarray | None = None,
 ) -> tuple[np.ndarray, np.ndarray]:
     """(resid_bar [n, m], target [n, m]): bar residuals whose slot pairs sum to u, and the
     target u[d, j] at slot j's placement row (the bar before the slot), NaN elsewhere and
-    wherever a bar of the slot is masked."""
+    wherever a bar of the slot is masked. `target_mask`, when given, also blanks the target
+    wherever the real residual target is missing, so replicates see the real test's pattern."""
     bps = spec.bars_per_session
     n, m = finite_mask.shape
     n_sessions, j_n = n // bps, bps // SLOT_BARS
@@ -114,6 +120,8 @@ def generate_residual_panel(
     keep = rows >= 0
     target = np.full((n, m), np.nan)
     target[rows[keep]] = values[keep]
+    if target_mask is not None:
+        target[~target_mask] = np.nan
     return resid_bar, target
 
 
@@ -191,6 +199,7 @@ def calibrate_plant(
     n_panels: int,
     seed: int,
     max_iterations: int = 60,
+    target_mask: np.ndarray | None = None,
 ) -> CalibratedPlant:
     """Bisection on plant_coef with common random numbers (the same n_panels seeds at every
     step) until the mean combo_rank_ic is within tolerance of target_ic."""
@@ -199,7 +208,9 @@ def calibrate_plant(
     def ics(coef: float) -> np.ndarray:
         out = []
         for s in seeds:
-            resid, target = generate_residual_panel(spec, finite_mask, plant_coef=coef, seed=s)
+            resid, target = generate_residual_panel(
+                spec, finite_mask, plant_coef=coef, seed=s, target_mask=target_mask
+            )
             stack = _member_stack(resid, members, spec.bars_per_session, coverage_floor)
             out.append(
                 combo_rank_ic(

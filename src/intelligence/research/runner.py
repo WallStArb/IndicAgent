@@ -83,8 +83,6 @@ class RunRefused(Exception):
 class LedgerPort(Protocol):
     async def has_real_run(self, spec_hash: str) -> bool: ...
 
-    async def charged_book_tests(self, vintage: str) -> int: ...
-
     async def start_runs(self, request, identities, run_concepts) -> dict[str, str]: ...
 
     async def finish_run(self, run_id, *, status, snapshot_hash, evidence) -> None: ...
@@ -495,7 +493,14 @@ def book_identities(loaded: LoadedSpec) -> list[Identity]:
     return ids
 
 
-def _power_problem(book: BookSpec, fam: FamilySpec, panel: Panel, shifts, bmax, members, ridge):
+def _power_problem(
+    book: BookSpec, panel: Panel, residuals: Residuals, shifts, bmax, members, ridge
+):
+    """Synthetic replicates planted on the real test's availability: members read S1 residual
+    bar returns, which are missing wherever S1 cannot fit (each name's loading warm-up, not
+    only its missing bars), and the target has its own pattern. Planting on the close mask
+    would widen the synthetic cross-sections and overstate power, the one error the refusal
+    exists to prevent. The masks carry availability only, no return values."""
     p = book.power
     bps = panel.bars_per_session
     synth = synthetic.SyntheticSpec(
@@ -504,7 +509,8 @@ def _power_problem(book: BookSpec, fam: FamilySpec, panel: Panel, shifts, bmax, 
         n_common_factors=p.n_common_factors,
         plant_lags_sessions=p.plant_lags_sessions,
     )
-    finite_mask = np.isfinite(panel.close)  # carries no return information (pattern 8)
+    finite_mask = np.isfinite(residuals.bar)
+    target_mask = np.isfinite(residuals.fwd)
     plant = synthetic.calibrate_plant(
         synth,
         finite_mask,
@@ -514,6 +520,7 @@ def _power_problem(book: BookSpec, fam: FamilySpec, panel: Panel, shifts, bmax, 
         tolerance=p.calibration_tolerance,
         n_panels=p.calibration_panels,
         seed=p.calibration_seed,
+        target_mask=target_mask,
     )
     c = book.construction
     window = c.vol_window_sessions * bps
@@ -532,6 +539,7 @@ def _power_problem(book: BookSpec, fam: FamilySpec, panel: Panel, shifts, bmax, 
         cfg=book.scoring.evaluation_config(),
         shifts=shifts,
         bmax=bmax,
+        target_mask=target_mask,
     )
     return problem, plant
 
@@ -641,7 +649,7 @@ async def run_book(
             )
 
         _log("power: calibrating the plant")
-        problem, plant = _power_problem(book, fam0, panel, shifts, bmax, members, ridge)
+        problem, plant = _power_problem(book, panel, residuals, shifts, bmax, members, ridge)
         _log(f"power: plant {plant.plant_coef:.6g} (IC {plant.achieved_ic:.6g}); replicates")
         run = power.estimate_power(
             problem,

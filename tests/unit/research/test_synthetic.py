@@ -146,3 +146,16 @@ def test_synthetic_price_panel_residualizes_and_passes_integrity():
         same_slot_mean, bars_per_session=4, coverage_floor=20, window_sessions=5
     )(resid)
     integrity(panel, alpha)
+
+
+def test_target_mask_blanks_the_target_only():
+    mask = np.ones((60, 12), dtype=bool)
+    target_mask = np.ones((60, 12), dtype=bool)
+    target_mask[:30] = False
+    resid_a, target_a = generate_residual_panel(SMALL, mask, plant_coef=0.2, seed=3)
+    resid_b, target_b = generate_residual_panel(
+        SMALL, mask, plant_coef=0.2, seed=3, target_mask=target_mask
+    )
+    np.testing.assert_array_equal(resid_a, resid_b)
+    assert np.isnan(target_b[:30]).all()
+    np.testing.assert_array_equal(target_a[30:], target_b[30:])
