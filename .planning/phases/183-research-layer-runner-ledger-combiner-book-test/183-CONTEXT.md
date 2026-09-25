@@ -121,6 +121,26 @@ evidence records and book version 1's screen test.
 - **D-18 Worktree discipline.** Phase 182 executes in parallel on the main checkout. Work
   only in this worktree; rebase on `origin/main` and push `branch:main` after each plan.
 
+### Resolved after research (orchestrator, 2026-09-25)
+
+- **D-19 Planted effect for the power check** is the per-slot cross-sectional rank IC of the
+  best linear combination of the members against the residual target, 0.002 for family 1.
+  This is the reading the prereg's IR arithmetic (0.002 x sqrt(13 x 252 x 60) = 0.9) assumes.
+- **D-20 Synthetic residuals carry cross-sectional correlation** with a participation ratio
+  of 60, the breadth step 0 measured (51 to 66 bets). Independent residuals would overstate
+  power roughly twofold.
+- **D-21 Only book tests are refused on power.** Evidence runs record `power: null`; the
+  600-shift floor still applies to them. The framework's test unit is the book version.
+- **D-22 Missing members at prediction time:** complete cases only, no fill.
+- **D-23 Power estimation** uses research's exact scheme: full shift set per replicate in a
+  seeded random order with early stop at b_max + 1 exceedances, R = 100 replicates with early
+  stop once the 50% outcome is decided. Subsampled shifts are not used (not exact).
+- **D-24 R1 volatility** is its own trailing per-name volatility of bar returns (window pinned
+  in the spec), not `plan_covariance`, which admits no names on an intraday panel.
+- **D-25 Real-data S3 guards** may split S1 from S2: probe S1 once and probe the signals on the
+  fixed S1 residuals, as research proposes, since recomputing S1 per probe row takes hours.
+- **Deferred:** the S5 rank-IC readout (prereg: "once S5's rank-IC readout exists").
+
 ## Claude's discretion
 
 - Module split inside `src/intelligence/research/` (runner, ledger, combiner, book test,
