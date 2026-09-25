@@ -498,14 +498,63 @@ def _build_instrument_from_db_row(
             updates["expiry"] = derived_expiry
         return template.model_copy(update=updates)
 
-    # No config template — build with available DB data and sensible defaults
+    # No config template — build with available DB data and sensible defaults. Without a
+    # template there is no classification row to read, so the sector is the explicit
+    # unclassified label (Phase 182 D-08/D-10), never "".
+    from src.config.classification_service import unclassified_code
+
     return Instrument(
         symbol=symbol,
         base=base_symbol,
         exchange=exchange or "",
         asset_class=AssetClass.FUTURES,
         expiry=derived_expiry,
+        sector=unclassified_code(),
     )
+
+
+def _futures_template_sql() -> str:
+    """Futures-template query: (symbol, base, contract_details, classification sector name).
+
+    The 4th column is the level-2 node name of the template's current indicagent_v1
+    assignment (Phase 182 D-10), NULL when unclassified.
+    """
+    from src.config.classification_service import current_level_name_sql
+
+    return (
+        f"SELECT symbol, base, contract_details, {current_level_name_sql('instruments')} "
+        "FROM instruments "
+        "WHERE contract_details->>'asset_class' = 'futures'"
+    )
+
+
+def _index_futures_templates(
+    tmpl_rows: list[tuple],
+) -> tuple[dict[str, Instrument], dict[str, Instrument]]:
+    """Parse futures-template rows into (config_by_base, config_by_symbol).
+
+    Each template's sector is its indicagent_v1 classification (row[3]) or the explicit
+    unclassified label, never contract_details' flat sector string (Phase 182 D-10).
+    Rows whose contract_details cannot build an Instrument are skipped.
+    """
+    import json as _json
+
+    from src.config.classification_service import label_or_unclassified
+
+    config_by_base: dict[str, Instrument] = {}
+    config_by_symbol: dict[str, Instrument] = {}
+    for tmpl_row in tmpl_rows:
+        cd = _json.loads(tmpl_row[2]) if isinstance(tmpl_row[2], str) else tmpl_row[2]
+        if cd is None:
+            continue
+        try:
+            inst = Instrument(**{**cd, "sector": label_or_unclassified(tmpl_row[3])})
+            config_by_symbol[inst.symbol] = inst
+            if inst.base:
+                config_by_base[inst.base] = inst
+        except Exception:
+            pass
+    return config_by_base, config_by_symbol
 
 
 def get_active_contracts(settings: Settings | None = None, *, dimension: str) -> list[Instrument]:
@@ -536,6 +585,11 @@ def get_active_contracts(settings: Settings | None = None, *, dimension: str) ->
     template row in `instruments` (flags live on the template), so a future is in a
     dimension exactly when its template is.
 
+    Instrument.sector comes from the indicagent_v1 classification: the level-2 node name
+    of the symbol's current assignment (a front-month future inherits its template's), or
+    "indicagent_v1:unclassified" when there is none (Phase 182 D-08/D-10).
+    contract_details->>'sector' is historical only and is never read here.
+
     Merges both lists, caches result for 60 seconds, keyed by dimension so a result for
     one dimension is never returned to a caller asking for another.
     Fallback on DB error: returns last valid cache for the requested dimension, or empty
@@ -563,17 +617,18 @@ def get_active_contracts(settings: Settings | None = None, *, dimension: str) ->
     try:
         import psycopg
 
+        from src.config.classification_service import (
+            current_level_name_sql,
+            label_or_unclassified,
+        )
+
         non_futures_clause = _ACTIVE_CONTRACTS_DIMENSION_CLAUSES[dimension]
 
         # All three queries share one connection (one-third the overhead of 3 separate connects).
         with psycopg.connect(s.database_url) as conn:
             with conn.cursor() as cur:
                 # 1. Futures templates — provide point_value, tick_size, session_id etc.
-                cur.execute(
-                    "SELECT symbol, base, contract_details "
-                    "FROM instruments "
-                    "WHERE contract_details->>'asset_class' = 'futures'"
-                )
+                cur.execute(_futures_template_sql())
                 tmpl_rows = cur.fetchall()
 
                 # 2. Front-month futures contracts from contract_metadata, scoped by the
@@ -594,27 +649,17 @@ def get_active_contracts(settings: Settings | None = None, *, dimension: str) ->
                 # 3. Non-futures (equities, FX, crypto) from instruments table,
                 # filtered by the requested dimension (module-owned clause, never
                 # built from caller-supplied text).
+                # The 4th column is the symbol's indicagent_v1 sector (Phase 182 D-10).
                 cur.execute(
-                    "SELECT symbol, base, contract_details "
+                    "SELECT symbol, base, contract_details, "
+                    f"{current_level_name_sql('instruments')} "
                     "FROM instruments "
                     f"WHERE {non_futures_clause} "
                     "AND contract_details->>'asset_class' != 'futures'"
                 )
                 nf_rows = cur.fetchall()
 
-        config_by_base: dict[str, Instrument] = {}
-        config_by_symbol: dict[str, Instrument] = {}
-        for tmpl_row in tmpl_rows:
-            cd = _json.loads(tmpl_row[2]) if isinstance(tmpl_row[2], str) else tmpl_row[2]
-            if cd is None:
-                continue
-            try:
-                inst = Instrument(**cd)
-                config_by_symbol[inst.symbol] = inst
-                if inst.base:
-                    config_by_base[inst.base] = inst
-            except Exception:
-                pass
+        config_by_base, config_by_symbol = _index_futures_templates(tmpl_rows)
 
         # Build DB-sourced futures Instruments
         db_instruments: list[Instrument] = [
@@ -626,8 +671,9 @@ def get_active_contracts(settings: Settings | None = None, *, dimension: str) ->
             cd = _json.loads(row[2]) if isinstance(row[2], str) else row[2]
             if cd is None:
                 continue
+            sector = label_or_unclassified(row[3])
             try:
-                non_futures.append(Instrument(**cd))
+                non_futures.append(Instrument(**{**cd, "sector": sector}))
             except Exception:
                 # Fallback: build with available columns if contract_details is partial
                 non_futures.append(
@@ -637,7 +683,7 @@ def get_active_contracts(settings: Settings | None = None, *, dimension: str) ->
                         name=cd.get("name", ""),
                         asset_class=cd.get("asset_class", "equity"),
                         exchange=cd.get("exchange", ""),
-                        sector=cd.get("sector", ""),
+                        sector=sector,
                         tick_size=cd.get("tick_size", 0),
                         point_value=cd.get("point_value", 0),
                         session_id=cd.get("session_id", "equity_rth"),
@@ -683,7 +729,6 @@ def get_all_futures_contracts(settings: Settings | None = None) -> list[Instrume
     Non-futures (equities, FX, crypto) are NOT included — call get_active_contracts() and
     merge if needed.
     """
-    import json as _json
 
     s = settings or _default_settings()
     try:
@@ -691,11 +736,7 @@ def get_all_futures_contracts(settings: Settings | None = None) -> list[Instrume
 
         with psycopg.connect(s.database_url) as conn:
             with conn.cursor() as cur:
-                cur.execute(
-                    "SELECT symbol, base, contract_details "
-                    "FROM instruments "
-                    "WHERE contract_details->>'asset_class' = 'futures'"
-                )
+                cur.execute(_futures_template_sql())
                 tmpl_rows = cur.fetchall()
                 cur.execute(
                     "SELECT symbol, base_symbol, exchange "
@@ -704,19 +745,7 @@ def get_all_futures_contracts(settings: Settings | None = None) -> list[Instrume
                 )
                 rows = cur.fetchall()
 
-        config_by_base: dict[str, Instrument] = {}
-        config_by_symbol: dict[str, Instrument] = {}
-        for tmpl_row in tmpl_rows:
-            cd = _json.loads(tmpl_row[2]) if isinstance(tmpl_row[2], str) else tmpl_row[2]
-            if cd is None:
-                continue
-            try:
-                inst = Instrument(**cd)
-                config_by_symbol[inst.symbol] = inst
-                if inst.base:
-                    config_by_base[inst.base] = inst
-            except Exception:
-                pass
+        config_by_base, config_by_symbol = _index_futures_templates(tmpl_rows)
 
         return [
             _build_instrument_from_db_row(row, config_by_base, config_by_symbol) for row in rows
