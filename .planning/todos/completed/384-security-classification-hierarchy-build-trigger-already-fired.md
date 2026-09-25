@@ -1,5 +1,6 @@
 ---
-status: pending
+status: completed
+closed: 2026-09-25
 priority: P1
 filed: 2026-09-18
 source: session discussion starting from a data-integrity audit (todos 382/383) that
@@ -136,3 +137,15 @@ PURR, RCL, RGR, RIVN, RJF, SLM, SPNT, SSP, THRM, TXT, UNFI, UPB, VNDA, WCC, WSHP
 real industry classification, which is this hierarchy's job. Owner decision 2026-09-25: build
 it. S1 moved to price-correlation clusters (causal) the same day, so the hierarchy is off the
 research critical path; it serves stratification, peer groups and reporting.
+
+## Closed 2026-09-25: built as phase 182
+
+Layer 1 of the design is built and live. Migration 364 created `classification_scheme`,
+`classification_node` and `instrument_classification`; migration 365 seeded the project-owned
+`indicagent_v1` scheme (118 nodes, 295 assignments, every `instruments` row) and was applied to
+the live DB on 2026-09-25, so every assignment is valid from that date and there is no earlier
+history. All 273 active instruments have a current assignment. `ClassificationService` is the
+read layer, `Instrument.sector` now comes from the level-2 node name, and coverage is enforced
+by the seed guard, the onboarding gate and the nightly coverage audit. Layer 2 (`parent_tag`)
+is not built; its trigger has not fired. Canonical doc:
+`docs/foundation/security-classification-hierarchy.md`.

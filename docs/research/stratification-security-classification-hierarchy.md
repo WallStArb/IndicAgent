@@ -8,6 +8,7 @@
 **Created:** 2026-07-04
 **Last Updated:** 2026-07-06 (Fable 5 review pass - items 6-8 resolved, Layer 1/2 refinements)
 **Tags:** instruments, classification, taxonomy, gics, tags, equities, stratification, point-in-time
+**Built (2026-09-25):** Layer 1 was built in Phase 182 as the `indicagent_v1` scheme (migrations 364/365); the canonical doc is [security-classification-hierarchy.md](../foundation/security-classification-hierarchy.md). The rest of this doc is the historical design record. Layer 2 is not built.
 **Review resolved (2026-07-06, Fable 5):** the pending flag below is closed. Items 6-8 were
 reviewed against intel-10 v3 (`intel-confluence-detection-persistence-layer.md`), the
 calibrator doc, and live schema (psql, 2026-07-06). Verdicts: item 6's intent survives but its

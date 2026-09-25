@@ -435,9 +435,11 @@ An external, authoritative, single-parent classification hierarchy for securitie
 **Not:** a `tag` or `vocabulary` entry — those are internally hypothesized and falsifiable; classification scheme membership is externally authoritative and not falsifiable by this system. Not a `taxonomy` — a taxonomy (below) is IndicAgent's own soft, weighted sub-classification; a classification scheme is a strict external one.
 
 **Banned:** (none)
-**Status:** design (`docs/research/stratification-security-classification-hierarchy.md`; unscheduled, gated on individual-equities onboarding)
+**Status:** built (Phase 182, 2026-09-25; canonical doc `docs/foundation/security-classification-hierarchy.md`, design record `docs/research/stratification-security-classification-hierarchy.md`)
 
-**Code surface (planned):** `classification_scheme`, `classification_node`, `instrument_classification` tables.
+**Code surface:** `classification_scheme`, `classification_node`, `instrument_classification` tables; `ClassificationService` (`src/config/classification_service.py`); the `indicagent_v1` scheme.
+
+**Note:** `indicagent_v1` is IndicAgent's own scheme (authority `IndicAgent`), not GICS: its equity levels reuse the public GICS names, but every assignment is IndicAgent's decision, recorded with a `source_ref`.
 
 ---
 

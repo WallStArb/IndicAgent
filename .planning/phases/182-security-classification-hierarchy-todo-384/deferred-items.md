@@ -22,3 +22,12 @@ Out-of-scope discoveries logged by plan executors; not fixed in the plan that fo
   fails the whole reload. `get_active_contracts`'s fallback constructor has the same shape with
   `"equity_rth"`. Both live in paths whose rows normally carry `session_id`; the cache_manager
   path is the archived v2.x pipeline. Not fixed here (unrelated to sector).
+
+## From plan 07 (2026-09-25)
+
+- **Still open after migration 365 went live:** RSPG's `instruments.contract_details` name and
+  `sector` are stale (it has been the Equal Weight Energy fund since Invesco's 2023 renaming; the
+  classification correctly places it at EQ.EN.ENERGY, so only the stored name is wrong), and VIX
+  and VX remain duplicate inactive rows for the same CFE future. Neither was fixed in this phase.
+- **Integration tests need `--noconftest`** until todo 413 fixes the scratch-DB rebuild in
+  `tests/integration/conftest.py` (fails on migration 322).
