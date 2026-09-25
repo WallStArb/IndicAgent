@@ -458,6 +458,27 @@ Every gate below was run on main `a64af3d1a96b3f7ed16a0be95f507fcc30e592be` with
 Next, in order and once each: S2 and S3 on `s1_347f0d6a08139c88`, S4 with `--fidelity OK`, then
 the holdout sign check for ACT.
 
+### 12.3 Run record (2026-09-25): FIDELITY BROKEN, no token
+
+S2 `s2_4610e317ce382e2a` and S3 on `s1_347f0d6a08139c88` ran once at the frozen code. S3 raised
+`Sharpe undefined: zero return variance` inside the shift loop; S4 `s4_bc9f7cea86a48627` records
+`FIDELITY = BROKEN`, and by section 8 no token is issued. No observed or null Sharpe was printed
+or read.
+
+Cause, located without reading any performance number: two pinned rules interact. Section 6
+sets alpha = NaN on days whose equity stratum has no weights (1,911 symbol-days in 2013, 1,846
+in 2017, 1,027 in 2019, for example). Section 7's calibration gives a symbol IC 0 unless at
+least `coverage_fraction` (95%) of its trailing 504 sessions pair a finite alpha with a finite
+forward return. The NaN days push nearly every window below 479 paired rows: of the 13
+calibration segments, only 2023-01-09 and 2024-01-10 admit any symbol with a nonzero IC (median
+paired rows 127-463 elsewhere). The observed book therefore holds a position on 447 of 3,265
+trading days, and a shifted panel moves the NaN pattern so that no segment calibrates, giving a
+zero-return series. The design as frozen tests about two years, not thirteen.
+
+The rule came over unchanged from the in-sample diagnostic, whose alpha (production
+`alpha_events`) was defined on every day; the harness's stratum-gated alpha is not. Any fix is a
+change to a frozen design and is decided outside this record (todo 425).
+
 ## 13. Pinned deviations from production
 
 | # | Deviation | Why | Sized by |
