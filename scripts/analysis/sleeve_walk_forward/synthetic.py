@@ -171,7 +171,7 @@ def calibrate_signal_ic(
     iterations: int = 7,
     **panel_kw: Any,
 ) -> float:
-    """Bisection on signal_ic so the mean vol_normalized excess Sharpe over `seeds` hits the
+    """Bisection on signal_ic so the reported arm's mean excess Sharpe over `seeds` hits the
     target (V3's planted excess IR)."""
     lo, hi = 0.0, 0.3
     for _ in range(iterations):
