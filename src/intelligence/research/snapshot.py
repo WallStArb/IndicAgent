@@ -39,6 +39,10 @@ _OOS_START_SQL = (
     "SELECT config_value::timestamptz FROM config_state "
     "WHERE config_key = 'alpha.validation.oos_start'"
 )
+_SECTOR_SQL = (
+    "SELECT symbol, coalesce(contract_details->>'sector', '') FROM instruments "
+    "WHERE symbol = ANY($1)"
+)
 _BARS_SQL = (
     "SELECT timestamp, open, close, volume FROM market_data_ohlcv_tradeable "
     "WHERE symbol = $1 AND timeframe = $2 AND timestamp >= $3 AND timestamp < $4 "
@@ -172,6 +176,7 @@ async def build_panel(
             )
 
         fetched = await asyncio.gather(*(fetch(s) for s in sorted(symbols)))
+        sectors = dict(await pool.fetch(_SECTOR_SQL, sorted(symbols)))
     finally:
         await pool.close()
     empty = [s for s, b in fetched if b is None]
@@ -184,4 +189,10 @@ async def build_panel(
         "oos_start": oos.isoformat(),
         "symbols_without_bars": empty,
     }
-    return panel_mod.save(dataclasses.replace(grid, manifest=manifest), Path(out_dir))
+    missing = [s for s in grid.symbols if s not in sectors]
+    if missing:
+        raise ValueError(f"symbols not in instruments: {missing[:5]}")
+    grid = dataclasses.replace(
+        grid, sectors=tuple(sectors[s] for s in grid.symbols), manifest=manifest
+    )
+    return panel_mod.save(grid, Path(out_dir))

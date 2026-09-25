@@ -38,6 +38,7 @@ from scripts.analysis.effective_breadth_diagnostic import _participation_ratio_b
 from scripts.analysis.sleeve_walk_forward.config import DEFAULT_CONFIG  # noqa: E402
 from scripts.analysis.sleeve_walk_forward.snapshot import read_only_pool  # noqa: E402
 from src.config.settings import Settings, dimension_where_clause  # noqa: E402
+from src.intelligence.research.factors import group_ids, leave_one_out_mean  # noqa: E402
 
 _PC_TAIL_K = (1, 3, 5, 10, 20)
 _MIN_SECTOR_SIZE = 3
@@ -131,22 +132,6 @@ def residualize(x: np.ndarray, factors: list[np.ndarray]) -> np.ndarray:
     return out
 
 
-def leave_one_out_sector(x: np.ndarray, sectors: np.ndarray) -> np.ndarray:
-    """[T, N] leave-one-out equal-weighted sector return; NaN for small or unlabeled groups."""
-    out = np.full_like(x, np.nan)
-    for sector in np.unique(sectors):
-        idx = np.flatnonzero(sectors == sector)
-        if sector == "" or len(idx) < _MIN_SECTOR_SIZE:
-            continue
-        block = x[:, idx]
-        total = np.nansum(block, axis=1, keepdims=True)
-        count = np.sum(np.isfinite(block), axis=1, keepdims=True)
-        others = count - np.isfinite(block)
-        with np.errstate(invalid="ignore", divide="ignore"):
-            out[:, idx] = np.where(others > 0, (total - np.nan_to_num(block)) / others, np.nan)
-    return out
-
-
 def breadth(corr: np.ndarray) -> dict[str, float]:
     n_eff, n = _participation_ratio_breadth(pd.DataFrame(corr))
     off = corr[~np.eye(n, dtype=bool)]
@@ -177,7 +162,7 @@ def measure(panel: pd.DataFrame, sectors: pd.Series, min_coverage: float) -> dic
     raw_corr = pairwise_corr(x)
     rng = np.random.default_rng(_SEED)
     shuffled = np.column_stack([rng.permutation(x[:, j]) for j in range(x.shape[1])])
-    loo = leave_one_out_sector(x, sec)
+    loo = leave_one_out_mean(x, group_ids(tuple(sec), _MIN_SECTOR_SIZE))
     has_sector = np.isfinite(loo).any(axis=0)
     resid_ms = residualize(x, [market, np.where(has_sector, loo, 0.0)])
     return {

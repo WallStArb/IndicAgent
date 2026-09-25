@@ -175,3 +175,23 @@ def test_close_exit_needs_session():
 def test_session_on_a_daily_panel_is_rejected():
     with pytest.raises(ValueError, match="intraday"):
         forward_returns(np.ones((4, 1)), session=np.arange(4))
+
+
+def test_bar_returns_never_span_the_overnight_gap():
+    opens = np.array([[10.0], [11.0], [20.0], [21.0]])
+    closes = np.array([[11.0], [12.0], [21.0], [22.0]])
+    p = Panel(
+        tf="1h",
+        symbols=("a",),
+        timestamps=np.arange(4),
+        bars_per_session=2,
+        valid=np.ones(4, dtype=bool),
+        open=opens,
+        close=closes,
+        volume=np.ones((4, 1)),
+    )
+    r = panel_mod.bar_returns(p)[:, 0]
+    np.testing.assert_allclose(r, np.log([11 / 10, 12 / 11, 21 / 20, 22 / 21]))
+    daily = panel_mod.bar_returns(daily_panel(closes))[:, 0]
+    assert np.isnan(daily[0])
+    np.testing.assert_allclose(daily[1:], np.log([12 / 11, 21 / 12, 22 / 21]))

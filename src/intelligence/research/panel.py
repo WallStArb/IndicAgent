@@ -31,6 +31,9 @@ class Panel:
     open: np.ndarray  # [n, m], NaN where missing
     close: np.ndarray  # [n, m]
     volume: np.ndarray  # [n, m]
+    # Each symbol's instruments.contract_details sector ('' for none) as S0 captured it, so a
+    # run's factor groups are pinned by the snapshot hash. Empty when not captured.
+    sectors: tuple[str, ...] = ()
     manifest: dict = dataclasses.field(default_factory=dict)
 
     def __post_init__(self) -> None:
@@ -44,6 +47,8 @@ class Panel:
                 raise ValueError(f"{name} has shape {getattr(self, name).shape}, expected {(n, m)}")
         if self.valid.shape != (n,):
             raise ValueError("valid must be one entry per row")
+        if self.sectors and len(self.sectors) != m:
+            raise ValueError(f"{len(self.sectors)} sectors for {m} symbols")
 
     @property
     def n_sessions(self) -> int:
@@ -160,6 +165,7 @@ def save(panel: Panel, out_dir: Path) -> Path:
         "tf": panel.tf,
         "symbols": list(panel.symbols),
         "bars_per_session": panel.bars_per_session,
+        "sectors": list(panel.sectors),
         "manifest": panel.manifest,
     }
     return store.write(out_dir, "panel", arrays, meta)
@@ -173,6 +179,24 @@ def load(path: Path) -> Panel:
         tf=meta["tf"],
         symbols=tuple(meta["symbols"]),
         bars_per_session=int(meta["bars_per_session"]),
+        sectors=tuple(meta["sectors"]),
         manifest=meta["manifest"],
         **{name: store.read_array(path, name) for name in ("timestamps", "valid", *_PRICE_FIELDS)},
     )
+
+
+def bar_returns(panel: Panel) -> np.ndarray:
+    """[n, m] log return of each bar: close over the previous row's close, except that a
+    session's first bar on an intraday grid is its own open to close, so no bar return spans
+    the overnight gap. On a 1d panel every row is close to close. NaN where either price is
+    missing."""
+    with np.errstate(invalid="ignore", divide="ignore"):
+        log_close = np.log(np.where(panel.close > 0, panel.close, np.nan))
+        out = np.full(log_close.shape, np.nan)
+        out[1:] = log_close[1:] - log_close[:-1]
+        if panel.bars_per_session > 1:
+            first = slice(0, None, panel.bars_per_session)
+            out[first] = log_close[first] - np.log(
+                np.where(panel.open[first] > 0, panel.open[first], np.nan)
+            )
+    return out
