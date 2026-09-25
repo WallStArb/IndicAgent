@@ -875,6 +875,20 @@ when this was found.
   H0, so no fitting capacity remains to remove, and lookahead is guarded by S3's canaries. The
   shift-null excess stays a reported diagnostic. The 600-shift refusal is replaced by the
   synthetic power refusal alone (power at least 50% at the bar).
+- **Pinned implementation** (so the build guesses nothing; the simulations used exactly these):
+  (a) HAC: Bartlett kernel (Newey-West), lag `L = floor(4 * (n / 100) ** (2 / 9))` with n the
+  number of scored sessions, one-sided, critical value from Student t with n - 1 degrees of
+  freedom. Not a function of predictor memory: the lag covers the P&L series' own dependence,
+  which is short even when predictors are slow. (b) Static tilt: for each symbol, the expanding
+  mean of the book's own final weights (after construction and scaling) over all scored sessions
+  before t, a session where the symbol has no weight counting as 0; not renormalized; updated
+  every session, no refit cadence. The tested series is `sum_j (w_t,j - wbar_t-1,j) * r_t+1,j`;
+  scoring starts after `warmup_sessions` (252) so the mean is defined. (c) Unit: one value per
+  session; intraday books use session-aggregated P&L (phase 183's R2). (d) Power: planted
+  replicates (the family's V3 plant) run through this same statistic at the same bar, R = 100,
+  refusal below 50% power; fixed-R exact curtailment is allowed. (e) Evidence records for
+  families and members switch to the same HAC t; the shift-null p is kept as a diagnostic in
+  every record. M, the bar (p < 0.00167) and confirmation alpha (0.05) are unchanged.
 - **Caveats, stated before adoption:** HAC validity needs weakly dependent P&L; simulated with one
   common factor and volatility clustering, not with regime breaks or richer cross-sectional
   dependence. Daily books' P&L must be total-return (todo 428) for the static-tilt leg to mean
